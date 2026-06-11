@@ -69,7 +69,7 @@ const WorkspaceMessageAdjustments = {
    * @returns {Promise<number>}
    */
   sumForWorkspaceInDateRange: async function (workspaceId, startDate, endDate) {
-    return await this.sumAmount({
+    return await WorkspaceMessageAdjustments.sumAmount({
       workspaceId: Number(workspaceId),
       createdAt: {
         gte: startDate,

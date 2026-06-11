@@ -748,10 +748,13 @@ function apiOpenAICompatibleEndpoints(app) {
         }
 
         const limit = Math.min(
-          Math.max(Number(request.query?.limit ?? 100) || 100, 1),
+          Math.max(Math.floor(Number(request.query?.limit ?? 100)) || 100, 1),
           1000
         );
-        const offset = Math.max(Number(request.query?.offset ?? 0) || 0, 0);
+        const offset = Math.max(
+          Math.floor(Number(request.query?.offset ?? 0)) || 0,
+          0
+        );
         const currentCycle = String(request.query?.currentCycle) === "true";
 
         const clause = { workspaceId: workspace.id };
