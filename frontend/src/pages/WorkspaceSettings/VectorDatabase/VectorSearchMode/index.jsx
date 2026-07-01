@@ -14,6 +14,16 @@ const hint = {
     description:
       "LLM responses may take longer to generate, but your responses will be more accurate and relevant.",
   },
+  hybrid: {
+    title: "Hybrid (Vector + Keyword)",
+    description:
+      "Combines semantic vector search with BM25 keyword matching (weighted RRF fusion). Improves recall for exact terms, names, and codes while keeping semantic relevance.",
+  },
+  hybrid_rerank: {
+    title: "Hybrid + Reranker",
+    description:
+      "Runs hybrid retrieval, then a reranker decides the final ordering. Highest accuracy, but responses may take longer to generate. Requires a configured reranker.",
+  },
 };
 
 export default function VectorSearchMode({ workspace, setHasChanges }) {
@@ -42,6 +52,8 @@ export default function VectorSearchMode({ workspace, setHasChanges }) {
       >
         <option value="default">Default</option>
         <option value="rerank">Accuracy Optimized</option>
+        <option value="hybrid">Hybrid (Vector + Keyword)</option>
+        <option value="hybrid_rerank">Hybrid + Reranker</option>
       </select>
       <p className="text-white text-opacity-60 text-xs font-medium py-1.5">
         {hint[selection]?.description}

@@ -122,7 +122,7 @@ async function streamChatWithForEmbed(
           similarityThreshold: embed.workspace?.similarityThreshold,
           topN: embed.workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
-          rerank: embed.workspace?.vectorSearchMode === "rerank",
+          searchMode: embed.workspace?.vectorSearchMode || "default",
         })
       : {
           contextTexts: [],

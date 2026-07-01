@@ -324,7 +324,7 @@ async function chatSync({
           similarityThreshold: workspace?.similarityThreshold,
           topN: workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
-          rerank: workspace?.vectorSearchMode === "rerank",
+          searchMode: workspace?.vectorSearchMode || "default",
         })
       : {
           contextTexts: [],
@@ -717,7 +717,7 @@ async function streamChat({
           similarityThreshold: workspace?.similarityThreshold,
           topN: workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
-          rerank: workspace?.vectorSearchMode === "rerank",
+          searchMode: workspace?.vectorSearchMode || "default",
         })
       : {
           contextTexts: [],
