@@ -40,6 +40,10 @@ const SystemSettings = {
     "meta_page_title",
     "meta_page_favicon",
     "query_rewrite_default",
+    "vector_search_default",
+    "hybrid_weight",
+    "reranker_instruction",
+    "reranker_retrieval_topk",
   ],
   supportedFields: [
     "logo_filename",
@@ -65,6 +69,10 @@ const SystemSettings = {
 
     // Search & Retrieval
     "query_rewrite_default",
+    "vector_search_default",
+    "hybrid_weight",
+    "reranker_instruction",
+    "reranker_retrieval_topk",
 
     // Hub settings
     "hub_api_key",
@@ -173,9 +181,42 @@ const SystemSettings = {
       }
     },
     query_rewrite_default: (update) => {
-      if (!update || typeof update !== "string" || !["on", "off"].includes(update))
+      if (
+        !update ||
+        typeof update !== "string" ||
+        !["on", "off"].includes(update)
+      )
         return "off";
       return String(update);
+    },
+    // Global default vector search mode. Invalid values coerce to "default".
+    vector_search_default: (update) => {
+      const validModes = ["default", "rerank", "hybrid", "hybrid_rerank"];
+      if (!update || typeof update !== "string" || !validModes.includes(update))
+        return "default";
+      return String(update);
+    },
+    // Vector-arm weight for weighted RRF fusion in hybrid mode. Float clamped 0..1.
+    hybrid_weight: (update) => {
+      const value = parseFloat(update);
+      if (isNullOrNaN(value)) return 0.7;
+      if (value < 0) return 0.0;
+      if (value > 1) return 1.0;
+      return value;
+    },
+    // Optional instruction prepended/passed to the reranker. Empty string clears it.
+    reranker_instruction: (update) => {
+      if (update === null || update === undefined || update === "") return "";
+      if (typeof update !== "string") return "";
+      return String(update);
+    },
+    // Number of candidates retrieved before reranking. Int clamped 1..100.
+    reranker_retrieval_topk: (update) => {
+      const value = parseInt(update, 10);
+      if (isNullOrNaN(value)) return 40;
+      if (value < 1) return 1;
+      if (value > 100) return 100;
+      return value;
     },
     experimental_live_file_sync: (update) => {
       if (typeof update === "boolean")
@@ -259,6 +300,14 @@ const SystemSettings = {
       // --------------------------------------------------------
       VectorDB: vectorDB,
       ...this.vectorDBPreferenceKeys(),
+
+      // --------------------------------------------------------
+      // Hybrid Search & External Reranker Settings (global)
+      // --------------------------------------------------------
+      RerankerProvider: process.env.RERANKER_PROVIDER || null,
+      RerankerBasePath: process.env.RERANKER_BASE_PATH || null,
+      RerankerModelPref: process.env.RERANKER_MODEL_PREF || null,
+      RerankerApiKey: !!process.env.RERANKER_API_KEY,
 
       // --------------------------------------------------------
       // LLM Provider Selection Settings & Configs
