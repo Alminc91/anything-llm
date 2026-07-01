@@ -851,6 +851,27 @@ const KEY_MAPPING = {
     envKey: "SAMBANOVA_LLM_MODEL_PREF",
     checks: [isNotEmpty],
   },
+
+  // External Reranker Options (hybrid search / rerank modes - KIE-471)
+  // These are GLOBAL, opt-in settings. When RERANKER_PROVIDER is unset the
+  // system falls back to the NativeEmbeddingReranker (default/rerank behavior
+  // is preserved byte-for-byte).
+  RerankerProvider: {
+    envKey: "RERANKER_PROVIDER",
+    checks: [validRerankerProvider],
+  },
+  RerankerBasePath: {
+    envKey: "RERANKER_BASE_PATH",
+    checks: [isValidURL, validDockerizedUrl],
+  },
+  RerankerModelPref: {
+    envKey: "RERANKER_MODEL_PREF",
+    checks: [isNotEmpty],
+  },
+  RerankerApiKey: {
+    envKey: "RERANKER_API_KEY",
+    checks: [],
+  },
 };
 
 function isNotEmpty(input = "") {
@@ -1079,6 +1100,16 @@ function validHuggingFaceEndpoint(input = "") {
   return input.slice(-6) !== ".cloud"
     ? `Your HF Endpoint should end in ".cloud"`
     : null;
+}
+
+// Validates the external reranker provider selection. Empty/unset is allowed
+// (it clears the provider and falls back to the native reranker).
+function validRerankerProvider(input = "") {
+  if (!input || String(input).trim().length === 0) return null;
+  const supported = ["cohere", "tei"];
+  return supported.includes(String(input))
+    ? null
+    : `Invalid reranker provider. Must be one of: ${supported.join(", ")}, or empty to disable.`;
 }
 
 function noRestrictedChars(input = "") {

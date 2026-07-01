@@ -303,6 +303,34 @@ function getEmbeddingEngineSelection() {
 }
 
 /**
+ * Returns the reranker provider instance for vector-search reranking (KIE-471).
+ *
+ * Switches on process.env.RERANKER_PROVIDER. When it is unset (or unknown), the
+ * NativeEmbeddingReranker is returned so the existing default/rerank behavior is
+ * preserved byte-for-byte. When set to an external provider, a GenericReranker
+ * (HTTP client) is returned. Both classes implement the same interface:
+ *   rerank(query, documents:[{text}], {topK}) -> [{...doc, rerank_score}].
+ *
+ * @param {object} [config] - Optional overrides forwarded to GenericReranker
+ *   (e.g. { instruction, timeoutMs }). Ignored for the native reranker.
+ * @returns {import("../EmbeddingRerankers/native").NativeEmbeddingReranker | import("../EmbeddingRerankers/generic").GenericReranker}
+ */
+function getRerankerProviderSelection(config = {}) {
+  const { NativeEmbeddingReranker } = require("../EmbeddingRerankers/native");
+  const provider = process.env.RERANKER_PROVIDER;
+
+  switch (provider) {
+    case "cohere":
+    case "tei": {
+      const { GenericReranker } = require("../EmbeddingRerankers/generic");
+      return new GenericReranker(config);
+    }
+    default:
+      return new NativeEmbeddingReranker();
+  }
+}
+
+/**
  * Returns the LLMProviderClass - this is a helper method to access static methods on a class
  * @param {{provider: string | null} | null} params - Initialize params for LLMs provider
  * @returns {BaseLLMProviderClass}
@@ -885,6 +913,7 @@ function humanFileSize(bytes, si = false, dp = 1) {
 
 module.exports = {
   getEmbeddingEngineSelection,
+  getRerankerProviderSelection,
   maximumChunkLength,
   getVectorDbClass,
   getLLMProviderClass,

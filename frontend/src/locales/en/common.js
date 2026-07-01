@@ -838,6 +838,61 @@ const TRANSLATIONS = {
       on: "On — rewrite follow-up queries (recommended)",
       off: "Off — send queries as-is",
     },
+    hybrid: {
+      title: "Hybrid Search & Reranking",
+      description:
+        "Configure the global default search strategy and an optional external reranker. These are defaults — individual workspaces can override the search mode.",
+      mode: {
+        title: "Default Search Mode",
+        description:
+          "The search strategy applied to workspaces that do not set their own mode.",
+        default: "Vector — pure semantic search (default)",
+        rerank: "Rerank — vector search, then rerank results",
+        hybrid: "Hybrid — fuse vector + keyword (BM25) search",
+        hybrid_rerank:
+          "Hybrid + Rerank — fuse vector + keyword, then rerank (recommended)",
+      },
+      provider: {
+        title: "Reranker Provider",
+        description:
+          "The external reranking service wire format. Leave as Native to use the built-in on-device reranker.",
+        native: "Native — built-in on-device reranker",
+        cohere: "Cohere-compatible (LiteLLM, vLLM, Jina, Infinity, Voyage)",
+        tei: "TEI — HuggingFace Text-Embeddings-Inference",
+      },
+      basePath: {
+        title: "Reranker Base URL",
+        description:
+          "The base URL of your reranker service (e.g. http://localhost:8080).",
+      },
+      model: {
+        title: "Reranker Model",
+        description: "The model name passed to the reranker service.",
+      },
+      apiKey: {
+        title: "Reranker API Key",
+        description: "Optional bearer token sent to the reranker service.",
+        placeholder: "sk-... (leave blank if not required)",
+      },
+      candidates: {
+        title: "Retrieval Candidates",
+        description:
+          "How many candidates to retrieve before reranking (1-100).",
+      },
+      advanced: "Advanced settings",
+      weight: {
+        title: "Hybrid Vector Weight (alpha)",
+        description:
+          "Weight for the vector arm in RRF fusion (0-1). Higher favors semantic; lower favors keyword.",
+      },
+      instruction: {
+        title: "Reranker Instruction",
+        description:
+          "Optional instruction prepended to the query for instruction-tuned rerankers.",
+        placeholder:
+          "e.g. Represent this query for retrieving relevant courses",
+      },
+    },
   },
 
   // Vector Database
