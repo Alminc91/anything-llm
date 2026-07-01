@@ -62,11 +62,24 @@ const Workspace = {
    * Resolve the effective vector search mode for a workspace.
    * Priority: workspace override > system setting > ENV > "default".
    * Mirrors {@link Workspace._resolveQueryRewriteMode}.
+   *
+   * NOTE: The `vectorSearchMode` column has a non-null schema default of
+   * `"default"` (schema.prisma:147) and the field validation coerces any
+   * invalid value to `"default"` (never null). We therefore treat a
+   * workspace value of `"default"` as "not overridden" so that a globally
+   * configured `vector_search_default` SystemSetting (or the
+   * `VECTOR_SEARCH_DEFAULT` env var) can take effect. The trade-off is that
+   * a workspace cannot explicitly pin itself to pure-vector `"default"` while
+   * a non-default global is active — matching the documented resolution chain.
    * @param {string|null} workspaceValue - The per-workspace `vectorSearchMode` value (may be null).
    * @returns {Promise<"default"|"rerank"|"hybrid"|"hybrid_rerank">} The resolved search mode.
    */
   _resolveVectorSearchMode: async function (workspaceValue) {
-    if (this.validVectorSearchModes.includes(workspaceValue))
+    // An explicit non-"default" workspace override always wins.
+    if (
+      this.validVectorSearchModes.includes(workspaceValue) &&
+      workspaceValue !== "default"
+    )
       return workspaceValue;
     const systemDefault = await SystemSettings.getValueOrFallback(
       { label: "vector_search_default" },

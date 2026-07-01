@@ -81,8 +81,7 @@ const TRANSLATIONS = {
     "workspace-update-error": "Error: {{message}}",
     "workspace-delete-error": "Workspace could not be deleted!",
     "users-updated": "Users updated successfully.",
-    "llm-settings-save-error":
-      "Failed to save {{name}} settings: {{error}}",
+    "llm-settings-save-error": "Failed to save {{name}} settings: {{error}}",
     "welcome-messages-update-error":
       "Failed to update welcome messages: {{error}}",
     "welcome-messages-updated": "Successfully updated welcome messages.",
@@ -120,8 +119,7 @@ const TRANSLATIONS = {
       "app-name-success": "Successfully updated custom app name.",
       "app-name-error": "Failed to update custom app name: {{error}}",
       "welcome-messages-success": "Successfully updated welcome messages.",
-      "welcome-messages-error":
-        "Failed to update welcome messages: {{error}}",
+      "welcome-messages-error": "Failed to update welcome messages: {{error}}",
       "support-email-success": "Successfully updated support email.",
       "support-email-error": "Failed to update support email: {{error}}",
       "footer-icons-success": "Successfully updated footer icons.",
@@ -166,8 +164,7 @@ const TRANSLATIONS = {
     "text-splitter": {
       "save-success": "Text chunking strategy settings saved.",
       "save-error": "Failed to save text chunking strategy settings.",
-      "overlap-error":
-        "Chunk overlap cannot be larger or equal to chunk size.",
+      "overlap-error": "Chunk overlap cannot be larger or equal to chunk size.",
     },
     admin: {
       "agent-flow-load-error": "Failed to load available flows",
@@ -189,8 +186,7 @@ const TRANSLATIONS = {
       "mcp-server-delete-error": "Failed to delete MCP server.",
       "mcp-server-toggled": "MCP server {{name}} {{state}} successfully.",
       "mcp-server-toggle-error": "Failed to toggle MCP server.",
-      "default-prompt-updated":
-        "Default system prompt updated successfully.",
+      "default-prompt-updated": "Default system prompt updated successfully.",
       "default-prompt-update-error":
         "Failed to update default system prompt: {{error}}",
       "variable-updated": "Variable updated successfully",
@@ -236,8 +232,7 @@ const TRANSLATIONS = {
       "obsidian-import-partial":
         "Imported {{successCount}} files, {{failCount}} failed",
       "website-scraping": "Scraping website - this may take a while.",
-      "website-scrape-success":
-        "Successfully scraped {{count}} {{pageWord}}!",
+      "website-scrape-success": "Successfully scraped {{count}} {{pageWord}}!",
       "youtube-fetching": "Fetching transcript for YouTube video.",
       "youtube-transcription-complete":
         "{{title}} by {{author}} transcription completed. Output folder is {{destination}}.",
@@ -1600,8 +1595,7 @@ const TRANSLATIONS = {
     },
     admin: {
       "current-usage": "Current Usage",
-      "usage-description":
-        "Live view of customer usage for this workspace.",
+      "usage-description": "Live view of customer usage for this workspace.",
       "loading-usage": "Loading usage data...",
       consumed: "Consumed",
       remaining: "Remaining",

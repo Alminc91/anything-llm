@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require("uuid");
 const { DocumentManager } = require("../DocumentManager");
 const { WorkspaceChats } = require("../../models/workspaceChats");
+const { Workspace } = require("../../models/workspace");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { chatPrompt, sourceIdentifier } = require("./index");
@@ -20,32 +21,32 @@ async function chatSync({
 }) {
   const uuid = uuidv4();
   const chatMode = workspace?.chatMode ?? "chat";
-  
+
   // Since messageCount and messagesLimit are passed as parameters,
   // we're just checking if we're already at the limit
   if (messagesLimit !== null && messageCount >= messagesLimit) {
     // Get more detailed error message with reset date from helpers
     const now = new Date();
-    const monthName = now.toLocaleString('default', { month: 'long' });
+    const monthName = now.toLocaleString("default", { month: "long" });
     const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     const daysRemaining = lastDayOfMonth.getDate() - now.getDate();
     const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    
+
     // Format the reset date in the same way as in checkWorkspaceMessagesLimit
-    const formattedResetDate = new Intl.DateTimeFormat('de-DE', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
+    const formattedResetDate = new Intl.DateTimeFormat("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
     }).format(resetDate);
-    
+
     const { getMessageLimitErrorText } = require("../helpers");
     const errorMessage = getMessageLimitErrorText(
-      messagesLimit, 
-      monthName, 
-      daysRemaining, 
+      messagesLimit,
+      monthName,
+      daysRemaining,
       formattedResetDate
     );
-    
+
     return formatJSON(
       {
         id: uuid,
@@ -56,9 +57,14 @@ async function chatSync({
         error: errorMessage,
         messages_limit: messagesLimit,
         contingent: `${messageCount}/${messagesLimit}`,
-        httpStatusCode: 429 // Add this special flag for the handler to identify status code
+        httpStatusCode: 429, // Add this special flag for the handler to identify status code
       },
-      { model: workspace.slug, finish_reason: "abort", messageCount, messagesLimit }
+      {
+        model: workspace.slug,
+        finish_reason: "abort",
+        messageCount,
+        messagesLimit,
+      }
     );
   }
   const LLMConnector = getLLMProvider({
@@ -97,7 +103,12 @@ async function chatSync({
         error: null,
         textResponse,
       },
-      { model: workspace.slug, finish_reason: "abort", messageCount, messagesLimit }
+      {
+        model: workspace.slug,
+        finish_reason: "abort",
+        messageCount,
+        messagesLimit,
+      }
     );
   }
 
@@ -142,7 +153,9 @@ async function chatSync({
           similarityThreshold: workspace?.similarityThreshold,
           topN: workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
-          searchMode: workspace?.vectorSearchMode || "default",
+          searchMode: await Workspace._resolveVectorSearchMode(
+            workspace?.vectorSearchMode
+          ),
         })
       : {
           contextTexts: [],
@@ -154,8 +167,9 @@ async function chatSync({
   if (!!vectorSearchResults.message) {
     // Get updated message limit info for consistency
     const { getMessageLimitInfo } = require("../helpers");
-    const { messageCount: updatedCount, messagesLimit: updatedLimit } = await getMessageLimitInfo(workspace);
-    
+    const { messageCount: updatedCount, messagesLimit: updatedLimit } =
+      await getMessageLimitInfo(workspace);
+
     return formatJSON(
       {
         id: uuid,
@@ -165,7 +179,12 @@ async function chatSync({
         close: true,
         error: vectorSearchResults.message,
       },
-      { model: workspace.slug, finish_reason: "abort", messageCount: updatedCount, messagesLimit: updatedLimit }
+      {
+        model: workspace.slug,
+        finish_reason: "abort",
+        messageCount: updatedCount,
+        messagesLimit: updatedLimit,
+      }
     );
   }
 
@@ -194,7 +213,8 @@ async function chatSync({
 
     // Get updated message limit info after saving the message
     const { getMessageLimitInfo } = require("../helpers");
-    const { messageCount: updatedCount, messagesLimit: updatedLimit } = await getMessageLimitInfo(workspace);
+    const { messageCount: updatedCount, messagesLimit: updatedLimit } =
+      await getMessageLimitInfo(workspace);
 
     return formatJSON(
       {
@@ -206,7 +226,12 @@ async function chatSync({
         textResponse,
         chatId: chat.id,
       },
-      { model: workspace.slug, finish_reason: "no_content", messageCount: updatedCount, messagesLimit: updatedLimit }
+      {
+        model: workspace.slug,
+        finish_reason: "no_content",
+        messageCount: updatedCount,
+        messagesLimit: updatedLimit,
+      }
     );
   }
 
@@ -232,8 +257,9 @@ async function chatSync({
   if (!textResponse) {
     // Get updated message limit info for consistency
     const { getMessageLimitInfo } = require("../helpers");
-    const { messageCount: updatedCount, messagesLimit: updatedLimit } = await getMessageLimitInfo(workspace);
-    
+    const { messageCount: updatedCount, messagesLimit: updatedLimit } =
+      await getMessageLimitInfo(workspace);
+
     return formatJSON(
       {
         id: uuid,
@@ -243,7 +269,13 @@ async function chatSync({
         error: "No text completion could be completed with this input.",
         textResponse: null,
       },
-      { model: workspace.slug, finish_reason: "no_content", usage: metrics, messageCount: updatedCount, messagesLimit: updatedLimit }
+      {
+        model: workspace.slug,
+        finish_reason: "no_content",
+        usage: metrics,
+        messageCount: updatedCount,
+        messagesLimit: updatedLimit,
+      }
     );
   }
 
@@ -261,7 +293,8 @@ async function chatSync({
 
   // Get updated message limit info after saving the message
   const { getMessageLimitInfo } = require("../helpers");
-  const { messageCount: updatedCount, messagesLimit: updatedLimit } = await getMessageLimitInfo(workspace);
+  const { messageCount: updatedCount, messagesLimit: updatedLimit } =
+    await getMessageLimitInfo(workspace);
 
   return formatJSON(
     {
@@ -273,7 +306,13 @@ async function chatSync({
       textResponse,
       sources,
     },
-    { model: workspace.slug, finish_reason: "stop", usage: metrics, messageCount: updatedCount, messagesLimit: updatedLimit }
+    {
+      model: workspace.slug,
+      finish_reason: "stop",
+      usage: metrics,
+      messageCount: updatedCount,
+      messagesLimit: updatedLimit,
+    }
   );
 }
 
@@ -291,32 +330,32 @@ async function streamChat({
 }) {
   const uuid = uuidv4();
   const chatMode = workspace?.chatMode ?? "chat";
-  
+
   // Since messageCount and messagesLimit are passed as parameters,
   // we check if we're already at the limit
   if (messagesLimit !== null && messageCount >= messagesLimit) {
     // Get more detailed error message with reset date from helpers
     const now = new Date();
-    const monthName = now.toLocaleString('default', { month: 'long' });
+    const monthName = now.toLocaleString("default", { month: "long" });
     const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     const daysRemaining = lastDayOfMonth.getDate() - now.getDate();
     const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    
+
     // Format the reset date in the same way as in checkWorkspaceMessagesLimit
-    const formattedResetDate = new Intl.DateTimeFormat('de-DE', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
+    const formattedResetDate = new Intl.DateTimeFormat("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
     }).format(resetDate);
-    
+
     const { getMessageLimitErrorText } = require("../helpers");
     const errorMessage = getMessageLimitErrorText(
-      messagesLimit, 
-      monthName, 
-      daysRemaining, 
+      messagesLimit,
+      monthName,
+      daysRemaining,
       formattedResetDate
     );
-    
+
     const errorData = formatJSON(
       {
         id: uuid,
@@ -327,11 +366,16 @@ async function streamChat({
         error: errorMessage,
         messages_limit: messagesLimit,
         contingent: `${messageCount}/${messagesLimit}`,
-        httpStatusCode: 429 // Add this special flag for the handler to identify status code
+        httpStatusCode: 429, // Add this special flag for the handler to identify status code
       },
-      { model: workspace.slug, finish_reason: "abort", messageCount, messagesLimit }
+      {
+        model: workspace.slug,
+        finish_reason: "abort",
+        messageCount,
+        messagesLimit,
+      }
     );
-    
+
     // Set HTTP status code to 429 before writing the response
     response.status(429);
     response.write(`data: ${JSON.stringify(errorData)}\n\n`);
@@ -445,7 +489,9 @@ async function streamChat({
           similarityThreshold: workspace?.similarityThreshold,
           topN: workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
-          searchMode: workspace?.vectorSearchMode || "default",
+          searchMode: await Workspace._resolveVectorSearchMode(
+            workspace?.vectorSearchMode
+          ),
         })
       : {
           contextTexts: [],
@@ -572,7 +618,8 @@ async function streamChat({
 
     // Get updated message limit info after saving the message
     const { getMessageLimitInfo } = require("../helpers");
-    const { messageCount: updatedCount, messagesLimit: updatedLimit } = await getMessageLimitInfo(workspace);
+    const { messageCount: updatedCount, messagesLimit: updatedLimit } =
+      await getMessageLimitInfo(workspace);
 
     writeResponseChunk(
       response,
@@ -591,7 +638,7 @@ async function streamChat({
           finish_reason: "stop",
           usage: stream.metrics,
           messageCount: updatedCount, // Pass updated message count
-          messagesLimit: updatedLimit // Pass message limit
+          messagesLimit: updatedLimit, // Pass message limit
         }
       )
     );
@@ -600,7 +647,8 @@ async function streamChat({
 
   // Get updated message limit info
   const { getMessageLimitInfo } = require("../helpers");
-  const { messageCount: updatedCount, messagesLimit: updatedLimit } = await getMessageLimitInfo(workspace);
+  const { messageCount: updatedCount, messagesLimit: updatedLimit } =
+    await getMessageLimitInfo(workspace);
 
   writeResponseChunk(
     response,
@@ -618,7 +666,7 @@ async function streamChat({
         finish_reason: "stop",
         usage: stream.metrics,
         messageCount: updatedCount, // Pass updated message count
-        messagesLimit: updatedLimit // Pass updated message limit
+        messagesLimit: updatedLimit, // Pass updated message limit
       }
     )
   );
@@ -657,21 +705,22 @@ function formatJSON(
   };
 
   // Always include contingent and messages_limit regardless of finish_reason
-  if (messageCount !== undefined) { // messagesLimit can be null
-    data.contingent = `${messageCount}/${messagesLimit ?? 'Unlimited'}`;
+  if (messageCount !== undefined) {
+    // messagesLimit can be null
+    data.contingent = `${messageCount}/${messagesLimit ?? "Unlimited"}`;
     data.messages_limit = messagesLimit; // Add raw messages limit value
   }
-  
+
   // Include finalTemperature in the response if provided
   if (finalTemperature !== undefined && finalTemperature !== null) {
     data.finalTemperature = finalTemperature;
   }
-  
+
   // Include finalTemperature from chat object if it exists there (for non-streaming responses)
   if (chat.finalTemperature !== undefined && chat.finalTemperature !== null) {
     data.finalTemperature = chat.finalTemperature;
   }
-  
+
   // Preserve the httpStatusCode if it exists in the original chat response
   // This is critical for the endpoint to know when to return a 429 status
   if (chat.httpStatusCode) {
