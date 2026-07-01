@@ -845,7 +845,7 @@ const TRANSLATIONS = {
       mode: {
         title: "Default Search Mode",
         description:
-          "The search strategy applied to workspaces that do not set their own mode.",
+          "The search strategy applied to workspaces that do not set their own mode. Note: on LanceDB 0.15.0 the keyword (BM25) arm does not stem German — hybrid helps most for exact tokens (course numbers, instructor names, dates), not for word variants like Kurs/Kurse.",
         default: "Vector — pure semantic search (default)",
         rerank: "Rerank — vector search, then rerank results",
         hybrid: "Hybrid — fuse vector + keyword (BM25) search",
@@ -863,7 +863,7 @@ const TRANSLATIONS = {
       basePath: {
         title: "Reranker Base URL",
         description:
-          "The base URL of your reranker service (e.g. http://localhost:8080).",
+          "The base URL of your reranker service (e.g. http://localhost:8080). In Docker, use the service name (http://vllm-reranker:8000), not localhost. /rerank is appended if you omit it.",
       },
       model: {
         title: "Reranker Model",
@@ -871,7 +871,8 @@ const TRANSLATIONS = {
       },
       apiKey: {
         title: "Reranker API Key",
-        description: "Optional bearer token sent to the reranker service.",
+        description:
+          "Optional bearer token sent to the reranker service. Leave blank for a trusted in-cluster or shared reranker container.",
         placeholder: "sk-... (leave blank if not required)",
       },
       candidates: {

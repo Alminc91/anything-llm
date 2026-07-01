@@ -2,6 +2,32 @@
 
 Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
+## [Unreleased]
+
+### 🔍 Hybrid Search (Vektor + BM25) & konfigurierbarer externer Reranker (KIE-471)
+
+**Additiv und per-Workspace opt-in.** Wenn `RERANKER_PROVIDER` nicht gesetzt ist und kein Workspace seinen Suchmodus ändert, bleibt das Verhalten identisch zum Upstream (reine Vektorsuche, optionaler eingebauter Native-Reranker). Bestehende Installationen ändern sich erst, wenn das Feature explizit aktiviert wird. Keine Prisma-Migration (die Spalte `vectorSearchMode` existiert bereits).
+
+#### Hinzugefügt
+
+- **Vier Suchmodi pro Workspace** (`vectorSearchMode`, nur LanceDB):
+  - `default` — reine Vektorsuche (unverändert)
+  - `hybrid` — gewichtete RRF-Fusion aus Vektor- und BM25-Keyword-Arm (`score = alpha/(k+rank_vec) + (1-alpha)/(k+rank_fts)`, `k=60`, `alpha=hybrid_weight`, Default 0.7)
+  - `rerank` — Vektorsuche, dann Reranking
+  - `hybrid_rerank` **(empfohlen)** — Union beider Arme, dedupe, dann entscheidet der Reranker; RRF nur als Fallback bei Reranker-Ausfall
+- **Externer Reranker** (`server/utils/EmbeddingRerankers/generic/index.js`): HTTP-Client mit zwei Wire-Formaten — Cohere-kompatibel (LiteLLM, vLLM `/rerank`, Cohere, Jina, Infinity, Voyage) und TEI (HuggingFace Text-Embeddings-Inference, Bare-Array-Antwort). Factory `getRerankerProviderSelection()` schaltet über `RERANKER_PROVIDER`; ohne Wert wird der `NativeEmbeddingReranker` verwendet.
+- **Graceful Degradation**: Bei jedem Fehler (8s-Timeout, Non-200, Malformed) werden die Dokumente unverändert (Vektor-/RRF-Reihenfolge) zurückgegeben — der Reranker wirft nie in den RAG-Pfad.
+- **Globale ENV-Vars** (`RERANKER_PROVIDER`, `RERANKER_BASE_PATH`, `RERANKER_MODEL_PREF`, `RERANKER_API_KEY`) — auto-persistiert über die Admin-GUI; `RERANKER_API_KEY` wird in `currentSettings()` nur als Boolean maskiert.
+- **Globale SystemSettings**: `vector_search_default`, `hybrid_weight` (0–1), `reranker_retrieval_topk` (1–100, Default 40), `reranker_instruction`.
+- **Admin-GUI** (Settings → Search & Retrieval): globales Hybrid-/Reranker-Formular mit Progressive Disclosure; Workspace-Dropdown mit allen vier Modi (LanceDB-Guard).
+- **FTS-Index-Backfill** für bestehende LanceDB-Collections: `node server/utils/vectorDbProviders/lance/backfillFtsIndex.js [--dry-run]` (idempotent, read-safe).
+- **Operator-Dokumentation**: `server/HYBRID_SEARCH_RERANKER.md` (4 Modi, RERANKER_*-Vars, Reranker-Container-Setup für vLLM/TEI, Shared-Container, deutsche Stemming-Grenze).
+- **Eval-Harness-Skeleton** (TODO): `server/__tests__/utils/vectorDbProviders/searchModeEval.eval.js` — vergleicht default/hybrid/rerank/hybrid_rerank auf einem Query-Set (Query-Set + Reranker-Endpoint noch zu verdrahten, läuft absichtlich noch nicht).
+
+#### Bekannte Einschränkung
+
+- **Deutsches Stemming ist auf `@lancedb/lancedb` 0.15.0 ein No-Op.** Der BM25-Index nutzt nur `lowercase` + `asciiFolding`; `"Kurs"` matcht nicht `"Kurse"`. Hybrid hilft daher v.a. bei exakten Tokens (Kursnummern, Dozenten-Namen, Daten, Akronyme), nicht bei morphologischen Varianten. Details in `server/HYBRID_SEARCH_RERANKER.md`.
+
 ## [4.1.0] - 2026-02-23
 
 ### 📅 DateRange-Picker für Analytics Dashboard
