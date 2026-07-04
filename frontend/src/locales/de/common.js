@@ -867,9 +867,14 @@ const TRANSLATIONS = {
       candidates: {
         title: "Retrieval-Kandidaten",
         description:
-          "Wie viele Kandidaten vor dem Reranking abgerufen werden (1-100).",
+          "Wie viele Kandidaten insgesamt an den Reranker gehen (1-100). Gilt auch für den nativen CPU-Reranker — hohe Werte verlangsamen ihn deutlich.",
       },
       advanced: "Erweiterte Einstellungen",
+      timeout: {
+        title: "Reranker-Timeout (ms)",
+        description:
+          "Wartezeit auf den Reranker-Dienst, bevor die Anfrage ohne Reranking fortgesetzt wird (500-60000 ms). Betrifft nur den Ausfall-Fall, nicht den Normalbetrieb.",
+      },
       weight: {
         title: "Hybrid-Vektorgewicht (Alpha)",
         description:

@@ -873,9 +873,14 @@ const TRANSLATIONS = {
       candidates: {
         title: "Retrieval Candidates",
         description:
-          "How many candidates to retrieve before reranking (1-100).",
+          "Total number of candidates sent to the reranker (1-100). Also applies to the native CPU reranker — high values slow it down considerably.",
       },
       advanced: "Advanced settings",
+      timeout: {
+        title: "Reranker Timeout (ms)",
+        description:
+          "How long to wait for the reranker service before continuing without reranking (500-60000 ms). Only affects the failure case, not normal operation.",
+      },
       weight: {
         title: "Hybrid Vector Weight (alpha)",
         description:

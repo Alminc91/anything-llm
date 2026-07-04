@@ -875,6 +875,11 @@ const KEY_MAPPING = {
     envKey: "RERANKER_API_KEY",
     checks: [],
   },
+  RerankerTimeoutMs: {
+    envKey: "RERANKER_TIMEOUT_MS",
+    // Blank is valid: falls back to the built-in 8000ms default.
+    checks: [blankOr(validRerankerTimeoutMs)],
+  },
 };
 
 function isNotEmpty(input = "") {
@@ -1115,6 +1120,14 @@ function validHuggingFaceEndpoint(input = "") {
 
 // Validates the external reranker provider selection. Empty/unset is allowed
 // (it clears the provider and falls back to the native reranker).
+function validRerankerTimeoutMs(input = "") {
+  const ms = Number(input);
+  if (!Number.isFinite(ms)) return "Timeout must be a number (milliseconds)";
+  return ms >= 500 && ms <= 60000
+    ? null
+    : "Timeout must be between 500 and 60000 milliseconds";
+}
+
 function validRerankerProvider(input = "") {
   if (!input || String(input).trim().length === 0) return null;
   const supported = ["cohere", "tei"];

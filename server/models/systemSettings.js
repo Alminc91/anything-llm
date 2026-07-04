@@ -308,6 +308,7 @@ const SystemSettings = {
       RerankerBasePath: process.env.RERANKER_BASE_PATH || null,
       RerankerModelPref: process.env.RERANKER_MODEL_PREF || null,
       RerankerApiKey: !!process.env.RERANKER_API_KEY,
+      RerankerTimeoutMs: process.env.RERANKER_TIMEOUT_MS || null,
 
       // --------------------------------------------------------
       // LLM Provider Selection Settings & Configs

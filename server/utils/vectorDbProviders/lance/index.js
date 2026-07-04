@@ -486,8 +486,11 @@ class LanceDb extends VectorDatabase {
 
     // Build the reranker candidate list (deduped by id via the fused Map),
     // stripping the raw vector so we never leak embeddings into the reranker
-    // payload or the final sources.
-    const candidates = fused.map(({ row, score }) => {
+    // payload or the final sources. The RRF order caps the pool at the
+    // configured reranker_retrieval_topk TOTAL (not per arm) — this is the
+    // documented contract and bounds the reranker workload, which matters
+    // most for the in-process native (CPU) reranker.
+    const candidates = fused.slice(0, retrievalTopK).map(({ row, score }) => {
       const { vector: _v, _distance: _d, _score: _s, ...rest } = row;
       return { ...rest, rrf_score: score };
     });
@@ -546,9 +549,13 @@ class LanceDb extends VectorDatabase {
    *
    * This is idempotent: if an FTS index already covers "text" we do nothing.
    * German stemming is a no-op on lancedb 0.15.0, so we only enable
-   * lowercase + asciiFolding tokenization. Rows added via add() are
-   * FTS-findable through a flat-scan even before the index is optimized, so the
-   * absence of this index never breaks retrieval — it only accelerates it.
+   * lowercase + asciiFolding tokenization.
+   *
+   * NOTE: a table WITHOUT this index cannot serve fullTextSearch at all —
+   * lancedb 0.15.0 throws "Column text has no inverted index" and hybridArms
+   * degrades that query to vector-only. The flat-scan fallback only covers
+   * rows added AFTER index creation that optimize() has not folded in yet
+   * (see optimizeFtsIfStale).
    *
    * Failures are swallowed (logged) so indexing problems never break ingestion
    * or the default/vector path.
@@ -578,6 +585,33 @@ class LanceDb extends VectorDatabase {
   }
 
   /**
+   * Folds newly added rows into the FTS index once the unindexed remainder
+   * exceeds a small threshold. Rows added after index creation stay findable
+   * via flat-scan (correctness is never at risk), but without optimize() the
+   * unindexed remainder grows monotonically with every (hourly) re-ingestion
+   * and BM25 gradually degrades to a brute-force scan. The threshold keeps
+   * per-document ingestion cheap while bounding the flat-scan cost.
+   *
+   * Failures are swallowed (logged) — same contract as ensureFullTextIndex.
+   * @param {import('@lancedb/lancedb').Table} collection - An open LanceDB table.
+   * @param {number} [threshold=100] - Unindexed-row count that triggers optimize().
+   * @returns {Promise<void>}
+   */
+  async optimizeFtsIfStale(collection, threshold = 100) {
+    try {
+      const stats = await collection.indexStats("text_idx");
+      const unindexed = stats?.numUnindexedRows ?? 0;
+      if (unindexed < threshold) return;
+      await collection.optimize();
+      this.logger(
+        `Optimized FTS index (${unindexed} unindexed rows folded in).`
+      );
+    } catch (e) {
+      this.logger("optimizeFtsIfStale", e.message);
+    }
+  }
+
+  /**
    *
    * @param {LanceClient} client
    * @param {number[]} data
@@ -590,6 +624,7 @@ class LanceDb extends VectorDatabase {
       const collection = await client.openTable(namespace);
       await collection.add(data);
       await this.ensureFullTextIndex(collection);
+      await this.optimizeFtsIfStale(collection);
       return true;
     }
 

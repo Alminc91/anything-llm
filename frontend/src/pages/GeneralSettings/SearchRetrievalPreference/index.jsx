@@ -55,6 +55,10 @@ export default function SearchRetrievalPreference() {
         RerankerBasePath: form.get("RerankerBasePath") || "",
         RerankerModelPref: form.get("RerankerModelPref") || "",
       };
+      // Timeout lives in the collapsed advanced panel — same unmounted-field
+      // rule as the system preferences above (blank clears back to default).
+      const timeoutMs = form.get("RerankerTimeoutMs");
+      if (timeoutMs !== null) envUpdate.RerankerTimeoutMs = timeoutMs;
       // Only send the API key when the admin actually typed a new value so we
       // never clobber an existing key with the masked placeholder.
       const apiKey = form.get("RerankerApiKey");
@@ -347,6 +351,27 @@ export default function SearchRetrievalPreference() {
                         "searchRetrieval.hybrid.instruction.placeholder"
                       )}
                       autoComplete="off"
+                      className={inputClass}
+                    />
+                  </div>
+
+                  {/* Reranker Timeout */}
+                  <div className="flex flex-col max-w-[500px]">
+                    <div className="flex flex-col gap-y-2 mb-4">
+                      <label className="text-white text-sm font-semibold block">
+                        {t("searchRetrieval.hybrid.timeout.title")}
+                      </label>
+                      <p className="text-xs text-white/60">
+                        {t("searchRetrieval.hybrid.timeout.description")}
+                      </p>
+                    </div>
+                    <input
+                      type="number"
+                      name="RerankerTimeoutMs"
+                      min={500}
+                      max={60000}
+                      step={500}
+                      defaultValue={envKeys?.RerankerTimeoutMs ?? 8000}
                       className={inputClass}
                     />
                   </div>

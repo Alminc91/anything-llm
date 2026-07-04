@@ -80,6 +80,7 @@ in `server/.env` before first boot.
 | `RERANKER_BASE_PATH` | Base URL of the reranker service. `/rerank` is appended if you do not already point at a `…/rerank` or `…/v1/rerank` path. | `http://vllm-reranker:8000/v1/rerank` |
 | `RERANKER_MODEL_PREF` | Model name sent to the service (ignored by TEI). | `BAAI/bge-reranker-v2-m3` |
 | `RERANKER_API_KEY` | Optional bearer token. Leave **empty** for a trusted in-cluster/shared container. | *(empty)* |
+| `RERANKER_TIMEOUT_MS` | How long to wait for the reranker before continuing without reranking (graceful degradation). `500`–`60000`. | `8000` |
 | `VECTOR_SEARCH_DEFAULT` | Optional global default mode. Prefer the GUI setting. | `default` |
 
 `RERANKER_API_KEY` is never returned by the API in cleartext — `currentSettings()`
@@ -95,7 +96,7 @@ Edited from the same GUI page; stored in the DB (no Prisma migration — the
 |---------|---------|-------|---------|
 | `vector_search_default` | `default` | one of the 4 modes | Global default mode; invalid values coerce to `default`. |
 | `hybrid_weight` | `0.7` | `0.0`–`1.0` | Vector-arm weight (alpha) in RRF. Higher favors semantic, lower favors keyword. |
-| `reranker_retrieval_topk` | `40` | `1`–`100` | Candidates retrieved (per arm, deduped) before reranking. |
+| `reranker_retrieval_topk` | `40` | `1`–`100` | **Total** candidate pool sent to the reranker (each arm retrieves up to this many; the deduped union is capped at this value by RRF order). Also bounds the native CPU reranker's workload. |
 | `reranker_instruction` | `""` | free text | Optional instruction prepended to the query for instruction-tuned rerankers. Empty clears it. |
 
 ### 3c. Per-workspace override
@@ -216,15 +217,28 @@ collection touched by ingestion get it automatically. To backfill **all**
 existing LanceDB collections without waiting for ingestion:
 
 ```bash
-# Dry run — report which collections are missing the FTS index, change nothing:
-node server/utils/vectorDbProviders/lance/backfillFtsIndex.js --dry-run
+# IMPORTANT (Docker deployments): run INSIDE the container so the script sees
+# the real STORAGE_DIR / named volume — running it on the host silently
+# targets <repo>/server/storage instead and becomes a no-op:
+docker exec <container> node /app/server/utils/vectorDbProviders/lance/backfillFtsIndex.js --dry-run
+docker exec <container> node /app/server/utils/vectorDbProviders/lance/backfillFtsIndex.js
 
-# Create the missing indexes (idempotent, read-safe, no vectors mutated):
-node server/utils/vectorDbProviders/lance/backfillFtsIndex.js
+# Bare-metal (non-Docker) equivalent, from the repo root:
+STORAGE_DIR=/path/to/server/storage node server/utils/vectorDbProviders/lance/backfillFtsIndex.js --dry-run
+STORAGE_DIR=/path/to/server/storage node server/utils/vectorDbProviders/lance/backfillFtsIndex.js
 ```
 
 Idempotent (skips collections that already have the index) and non-throwing per
 table.
+
+At runtime the ingestion path keeps the index fresh on its own: after adds it
+folds newly written rows into the index via `optimize()` once more than ~100
+rows are unindexed (`optimizeFtsIfStale`). Unindexed rows remain findable via
+flat-scan in the meantime, so results are always current — the threshold only
+bounds the brute-force scan cost. Note that a table **without** any FTS index
+cannot serve BM25 at all (lancedb 0.15.0 throws; hybrid degrades to
+vector-only for that query) — hence this backfill for pre-existing
+collections.
 
 ---
 

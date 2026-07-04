@@ -39,7 +39,8 @@ class GenericReranker {
    * @param {string} [config.instruction] - Optional instruction prepended to
    *   the query. Defaults to the reranker_instruction SystemSetting (resolved
    *   lazily by the caller and passed in) — here it defaults to "".
-   * @param {number} [config.timeoutMs] - Abort timeout in ms (default 8000).
+   * @param {number} [config.timeoutMs] - Abort timeout in ms. Defaults to the
+   *   RERANKER_TIMEOUT_MS env value, or 8000 when unset.
    */
   constructor(config = {}) {
     this.provider = (
@@ -54,10 +55,13 @@ class GenericReranker {
     this.apiKey = config.apiKey || process.env.RERANKER_API_KEY || null;
     this.instruction =
       typeof config.instruction === "string" ? config.instruction : "";
+    const envTimeoutMs = Number(process.env.RERANKER_TIMEOUT_MS);
     this.timeoutMs =
       Number.isFinite(config.timeoutMs) && config.timeoutMs > 0
         ? config.timeoutMs
-        : 8000;
+        : Number.isFinite(envTimeoutMs) && envTimeoutMs > 0
+          ? envTimeoutMs
+          : 8000;
 
     // Voyage uses `top_k` rather than `top_n` in the Cohere-style body.
     // Detected by base path or explicit config flag.
