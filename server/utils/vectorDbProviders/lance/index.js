@@ -235,7 +235,8 @@ class LanceDb extends VectorDatabase {
     );
     let retrievalTopK = parseInt(rawTopK, 10);
     if (!Number.isFinite(retrievalTopK)) retrievalTopK = 40;
-    retrievalTopK = Math.min(100, Math.max(1, retrievalTopK));
+    // Keep in sync with the systemSettings validator clamp (1..500).
+    retrievalTopK = Math.min(500, Math.max(1, retrievalTopK));
 
     const instruction = await SystemSettings.getValueOrFallback(
       { label: "reranker_instruction" },

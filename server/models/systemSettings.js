@@ -210,12 +210,14 @@ const SystemSettings = {
       if (typeof update !== "string") return "";
       return String(update);
     },
-    // Number of candidates retrieved before reranking. Int clamped 1..100.
+    // Total candidate pool sent to the reranker. Int clamped 1..500 — beyond
+    // ~500 retrieval quality gains vanish while payload/latency grow linearly,
+    // and the native CPU reranker becomes unusable far earlier (GUI warns).
     reranker_retrieval_topk: (update) => {
       const value = parseInt(update, 10);
       if (isNullOrNaN(value)) return 40;
       if (value < 1) return 1;
-      if (value > 100) return 100;
+      if (value > 500) return 500;
       return value;
     },
     experimental_live_file_sync: (update) => {

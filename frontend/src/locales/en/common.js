@@ -873,7 +873,7 @@ const TRANSLATIONS = {
       candidates: {
         title: "Retrieval Candidates",
         description:
-          "Total number of candidates sent to the reranker (1-100). Also applies to the native CPU reranker — high values slow it down considerably.",
+          "Total number of candidates sent to the reranker (1-500). 100+ is fine on a GPU; the native CPU reranker becomes very slow at high values.",
       },
       advanced: "Advanced settings",
       timeout: {

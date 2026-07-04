@@ -287,7 +287,7 @@ export default function SearchRetrievalPreference() {
                   type="number"
                   name="reranker_retrieval_topk"
                   min={1}
-                  max={100}
+                  max={500}
                   step={1}
                   defaultValue={settings?.reranker_retrieval_topk ?? 40}
                   className={inputClass}

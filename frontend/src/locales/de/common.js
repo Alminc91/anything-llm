@@ -867,7 +867,7 @@ const TRANSLATIONS = {
       candidates: {
         title: "Retrieval-Kandidaten",
         description:
-          "Wie viele Kandidaten insgesamt an den Reranker gehen (1-100). Gilt auch für den nativen CPU-Reranker — hohe Werte verlangsamen ihn deutlich.",
+          "Wie viele Kandidaten insgesamt an den Reranker gehen (1-500). Auf der GPU sind 100+ unkritisch; der native CPU-Reranker wird bei hohen Werten sehr langsam.",
       },
       advanced: "Erweiterte Einstellungen",
       timeout: {

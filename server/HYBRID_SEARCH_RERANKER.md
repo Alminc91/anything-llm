@@ -96,7 +96,7 @@ Edited from the same GUI page; stored in the DB (no Prisma migration — the
 |---------|---------|-------|---------|
 | `vector_search_default` | `default` | one of the 4 modes | Global default mode; invalid values coerce to `default`. |
 | `hybrid_weight` | `0.7` | `0.0`–`1.0` | Vector-arm weight (alpha) in RRF. Higher favors semantic, lower favors keyword. |
-| `reranker_retrieval_topk` | `40` | `1`–`100` | **Total** candidate pool sent to the reranker (each arm retrieves up to this many; the deduped union is capped at this value by RRF order). Also bounds the native CPU reranker's workload. |
+| `reranker_retrieval_topk` | `40` | `1`–`500` | **Total** candidate pool sent to the reranker (each arm retrieves up to this many; the deduped union is capped at this value by RRF order). Also bounds the native CPU reranker's workload. |
 | `reranker_instruction` | `""` | free text | Optional instruction prepended to the query for instruction-tuned rerankers. Empty clears it. |
 
 ### 3c. Per-workspace override
