@@ -862,11 +862,14 @@ const KEY_MAPPING = {
   },
   RerankerBasePath: {
     envKey: "RERANKER_BASE_PATH",
-    checks: [isValidURL, validDockerizedUrl],
+    // Blank is valid here: it clears the endpoint (native reranker needs none).
+    // The admin GUI always submits this key, so blank must not fail the save.
+    checks: [blankOr(isValidURL), blankOr(validDockerizedUrl)],
   },
   RerankerModelPref: {
     envKey: "RERANKER_MODEL_PREF",
-    checks: [isNotEmpty],
+    // Blank is valid: TEI serves a single model and needs no model name.
+    checks: [],
   },
   RerankerApiKey: {
     envKey: "RERANKER_API_KEY",
@@ -876,6 +879,14 @@ const KEY_MAPPING = {
 
 function isNotEmpty(input = "") {
   return !input || input.length === 0 ? "Value cannot be empty" : null;
+}
+
+// Wraps a validator so that a blank value passes (= "clear this key").
+function blankOr(validationFunc) {
+  return (input = "", ...args) =>
+    !input || String(input).trim().length === 0
+      ? null
+      : validationFunc(input, ...args);
 }
 
 function nonZero(input = "") {
@@ -1311,6 +1322,9 @@ function dumpENV() {
     // Manually Add Keys here which are not already defined in KEY_MAPPING
     // and are either managed or manually set ENV key:values.
     "JWT_EXPIRY",
+    // Operator-seeded fleet default for vectorSearchMode (KIE-471) — not
+    // GUI-managed, but must survive dumpENV rewrites of the .env file.
+    "VECTOR_SEARCH_DEFAULT",
 
     "STORAGE_DIR",
     "SERVER_PORT",

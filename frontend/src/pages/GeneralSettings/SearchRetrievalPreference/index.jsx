@@ -33,13 +33,20 @@ export default function SearchRetrievalPreference() {
       const form = new FormData(e.target);
 
       // SystemSettings rows (persisted in DB) — no migration required.
-      await Admin.updateSystemPreferences({
+      // The advanced inputs only exist in the DOM while the panel is expanded;
+      // form.get() returns null for unmounted fields and sending null would
+      // reset their stored values to the server defaults.
+      const prefsUpdate = {
         query_rewrite_default: form.get("query_rewrite_default"),
         vector_search_default: form.get("vector_search_default"),
-        hybrid_weight: form.get("hybrid_weight"),
-        reranker_instruction: form.get("reranker_instruction"),
         reranker_retrieval_topk: form.get("reranker_retrieval_topk"),
-      });
+      };
+      const hybridWeight = form.get("hybrid_weight");
+      if (hybridWeight !== null) prefsUpdate.hybrid_weight = hybridWeight;
+      const rerankerInstruction = form.get("reranker_instruction");
+      if (rerankerInstruction !== null)
+        prefsUpdate.reranker_instruction = rerankerInstruction;
+      await Admin.updateSystemPreferences(prefsUpdate);
 
       // ENV keys (persisted via dumpENV through KEY_MAPPING). The provider
       // select uses "" to mean "native" (unset RERANKER_PROVIDER).

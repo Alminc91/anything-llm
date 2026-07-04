@@ -289,23 +289,42 @@ class LanceDb extends VectorDatabase {
   }
 
   /**
+   * Applies the workspace similarityThreshold to the vector arm BEFORE fusion
+   * (same cosine semantics as similarityResponse). Keeps hybrid modes honest
+   * for query-mode refusal: if neither a relevant vector hit nor any BM25 hit
+   * exists, the fused result is empty. FTS rows are never passed through here —
+   * they have no cosine similarity to threshold.
+   * @param {Array<object>} vectorRows - Vector-arm rows (with _distance).
+   * @param {number} similarityThreshold - Minimum cosine similarity in [0,1].
+   * @returns {Array<object>} Rows meeting the threshold, original order.
+   */
+  thresholdVectorArm(vectorRows = [], similarityThreshold = 0.25) {
+    return vectorRows.filter(
+      (row) => this.distanceToSimilarity(row._distance) >= similarityThreshold
+    );
+  }
+
+  /**
    * Performs a Hybrid (dense vector + BM25) search on a LanceDB namespace and
    * fuses the two arms with weighted RRF (KIE-471).
    *
    * Runs two independent queries — a cosine vector search and a BM25 full-text
    * search over the "text" column — then fuses by RANK (see weightedRRF). The
-   * emitted score is the fused RRF score. The vector field is stripped and no
-   * _distance is referenced; the 0.25 similarityThreshold is deliberately NOT
-   * applied to the (tiny) RRF scores. filterIdentifiers / sourceIdentifier /
-   * pinned-doc filtering is identical to similarityResponse.
+   * emitted score is the fused RRF score. The vector field is stripped. The
+   * similarityThreshold filters the VECTOR arm (cosine) before fusion — same
+   * semantics as similarityResponse — so query-mode refusal keeps working;
+   * BM25-only hits carry no cosine similarity and are deliberately not
+   * thresholded, and neither are the (tiny) fused RRF scores.
+   * filterIdentifiers / sourceIdentifier / pinned-doc filtering is identical
+   * to similarityResponse.
    * @param {Object} params
    * @param {LanceClient} params.client
    * @param {string} params.namespace
    * @param {string} params.query - Plain-text query for BM25.
    * @param {number[]} params.queryVector - Embedding for the vector arm.
    * @param {number} [params.topN=4]
-   * @param {number} [params.similarityThreshold=0.25] - Accepted for signature
-   *   parity; intentionally NOT applied to RRF scores.
+   * @param {number} [params.similarityThreshold=0.25] - Applied to the vector
+   *   arm before fusion; NOT applied to FTS hits or RRF scores.
    * @param {string[]} [params.filterIdentifiers=[]]
    * @returns {Promise<{contextTexts:string[], sourceDocuments:object[], scores:number[]}>}
    */
@@ -315,7 +334,7 @@ class LanceDb extends VectorDatabase {
     query,
     queryVector,
     topN = 4,
-    similarityThreshold = 0.25, // eslint-disable-line no-unused-vars
+    similarityThreshold = 0.25,
     filterIdentifiers = [],
   }) {
     const collection = await client.openTable(namespace);
@@ -342,7 +361,11 @@ class LanceDb extends VectorDatabase {
       armLimit,
     });
 
-    const fused = this.weightedRRF(vectorRows, ftsRows, hybridWeight);
+    const fused = this.weightedRRF(
+      this.thresholdVectorArm(vectorRows, similarityThreshold),
+      ftsRows,
+      hybridWeight
+    );
 
     for (const { row, score } of fused) {
       if (result.sourceDocuments.length >= topN) break;
@@ -414,7 +437,9 @@ class LanceDb extends VectorDatabase {
    * @param {string} params.query
    * @param {number[]} params.queryVector
    * @param {number} [params.topN=4]
-   * @param {number} [params.similarityThreshold=0.25] - NOT applied to RRF/rerank scores.
+   * @param {number} [params.similarityThreshold=0.25] - Applied to the vector
+   *   arm before fusion (see thresholdVectorArm); NOT applied to FTS hits,
+   *   RRF scores or rerank scores.
    * @param {string[]} [params.filterIdentifiers=[]]
    * @returns {Promise<{contextTexts:string[], sourceDocuments:object[], scores:number[]}>}
    */
@@ -424,7 +449,7 @@ class LanceDb extends VectorDatabase {
     query,
     queryVector,
     topN = 4,
-    similarityThreshold = 0.25, // eslint-disable-line no-unused-vars
+    similarityThreshold = 0.25,
     filterIdentifiers = [],
   }) {
     const collection = await client.openTable(namespace);
@@ -452,7 +477,11 @@ class LanceDb extends VectorDatabase {
     });
 
     // Fuse for (a) dedupe + candidate pool and (b) a deterministic fallback order.
-    const fused = this.weightedRRF(vectorRows, ftsRows, hybridWeight);
+    const fused = this.weightedRRF(
+      this.thresholdVectorArm(vectorRows, similarityThreshold),
+      ftsRows,
+      hybridWeight
+    );
     if (fused.length === 0) return result;
 
     // Build the reranker candidate list (deduped by id via the fused Map),
