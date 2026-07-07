@@ -22,14 +22,19 @@
  *
  *   node utils/vectorDbProviders/lance/backfillFtsIndex.js
  *   node utils/vectorDbProviders/lance/backfillFtsIndex.js --dry-run
+ *   node utils/vectorDbProviders/lance/backfillFtsIndex.js --rebuild
  *
- * The FTS index uses lowercase + asciiFolding tokenization only. German
- * stemming is a no-op on @lancedb/lancedb 0.15.0, so it is intentionally not
- * enabled (mirrors LanceDb.ensureFullTextIndex).
+ * `--rebuild` recreates EVERY "text" FTS index with the current shared
+ * tokenizer config (replace:true) — required once when the tokenizer config
+ * changes (e.g. the KIE-478 switch to n-gram), since existing indexes keep
+ * the config they were created with. Still additive: vectors and row data
+ * are never mutated. The index config itself lives in ftsConfig.js (single
+ * source of truth, shared with LanceDb.ensureFullTextIndex).
  */
 
 const path = require("path");
 const lancedb = require("@lancedb/lancedb");
+const { FTS_INDEX_CONFIG } = require("./ftsConfig");
 
 /**
  * Resolve the LanceDB storage directory the same way LanceDb.uri does, so the
@@ -62,10 +67,13 @@ async function hasTextFtsIndex(table) {
  *
  * @param {Object} [options]
  * @param {boolean} [options.dryRun=false] - Report only; make no changes.
+ * @param {boolean} [options.rebuild=false] - Recreate indexes that already
+ *   exist (replace:true) so they pick up the current tokenizer config.
  * @param {(...args: any[]) => void} [options.log=console.log] - Log sink.
  * @returns {Promise<{
  *   uri: string,
  *   dryRun: boolean,
+ *   rebuild: boolean,
  *   tables: number,
  *   created: string[],
  *   skipped: string[],
@@ -73,11 +81,16 @@ async function hasTextFtsIndex(table) {
  *   stats: Object<string, {numIndexedRows: number, numUnindexedRows: number}>,
  * }>} A summary of the run.
  */
-async function backfillFtsIndex({ dryRun = false, log = console.log } = {}) {
+async function backfillFtsIndex({
+  dryRun = false,
+  rebuild = false,
+  log = console.log,
+} = {}) {
   const uri = lanceStorageUri();
   const summary = {
     uri,
     dryRun,
+    rebuild,
     tables: 0,
     created: [],
     skipped: [],
@@ -101,7 +114,7 @@ async function backfillFtsIndex({ dryRun = false, log = console.log } = {}) {
       const table = await client.openTable(name);
       const alreadyIndexed = await hasTextFtsIndex(table);
 
-      if (alreadyIndexed) {
+      if (alreadyIndexed && !rebuild) {
         summary.skipped.push(name);
         log(`[fts-backfill] SKIP  ${name} (FTS index already present)`);
         // Still surface stats so a re-run can confirm health.
@@ -111,20 +124,27 @@ async function backfillFtsIndex({ dryRun = false, log = console.log } = {}) {
 
       if (dryRun) {
         summary.created.push(name);
-        log(`[fts-backfill] WOULD CREATE FTS index on "text" for ${name}`);
+        log(
+          `[fts-backfill] WOULD ${
+            alreadyIndexed ? "REBUILD" : "CREATE"
+          } FTS index on "text" for ${name}`
+        );
         continue;
       }
 
       await table.createIndex("text", {
-        config: lancedb.Index.fts({ lowercase: true, asciiFolding: true }),
-        replace: false,
+        config: lancedb.Index.fts(FTS_INDEX_CONFIG),
+        replace: alreadyIndexed && rebuild,
       });
       // optimize() folds the newly-written index fragments in; it does not
       // mutate vectors or row data.
       if (typeof table.optimize === "function") await table.optimize();
 
       summary.created.push(name);
-      log(`[fts-backfill] CREATE ${name} — FTS index on "text" created`);
+      log(
+        `[fts-backfill] ${alreadyIndexed ? "REBUILD" : "CREATE"} ${name} — ` +
+          `FTS index on "text" ${alreadyIndexed ? "rebuilt" : "created"}`
+      );
       await recordStats(table, name, summary, log);
     } catch (e) {
       summary.failed.push({ name, error: e?.message || String(e) });
@@ -172,7 +192,8 @@ async function recordStats(table, name, summary, log) {
 if (require.main === module) {
   const dryRun =
     process.argv.includes("--dry-run") || process.argv.includes("--dryRun");
-  backfillFtsIndex({ dryRun })
+  const rebuild = process.argv.includes("--rebuild");
+  backfillFtsIndex({ dryRun, rebuild })
     .then((summary) => {
       process.exit(summary.failed.length > 0 ? 1 : 0);
     })

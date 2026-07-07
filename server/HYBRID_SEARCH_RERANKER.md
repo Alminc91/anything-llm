@@ -46,23 +46,31 @@ vector regardless of the setting.
 
 ---
 
-## 2. German-stemming limitation (read this)
+## 2. German tokenization: n-gram (KIE-478)
 
-On the installed `@lancedb/lancedb` 0.15.0 binary, **the BM25 (FTS) index does
-not stem German.** The FTS index is created with `lowercase: true` and
-`asciiFolding: true` only:
+Since the `@lancedb/lancedb` 0.31.x upgrade (KIE-478) the FTS index uses an
+**n-gram tokenizer** (trigrams, `lowercase` + `asciiFolding`; single source of
+truth: `utils/vectorDbProviders/lance/ftsConfig.js`). Empirically verified with
+German course data:
 
-- `"Kurs"` will **not** match `"Kurse"`, `"Kursen"`, etc. Keyword matching is on
-  normalized surface forms, not lemmas.
-- ASCII folding does handle umlauts (`Grüße` ≈ `Grüsse`/`Grusse`), and casing is
-  normalized.
+- **Compounds match:** `"Yogakurs"` finds `"Yogakurse"` as the top hit — this
+  is impossible for any stemmer and was the main German gap before.
+- **Inflection matches:** `"Kurs"` finds `"Kurse"`, `"Kursen"`, etc.
+- **Exact tokens stay dominant:** course numbers (KNR) score far above
+  n-gram partial overlaps; BM25 keeps true hits on top.
+- Trade-offs: the index stores trigrams (~5-7x more entries — megabytes at our
+  table sizes; measured: 5000 chunks ≈ 8.7 MB total, FTS query ≈ 3 ms) and
+  partial overlaps add slight noise, which the weighted RRF fusion (vector arm
+  alpha 0.7) and the reranker absorb.
 
-**Implication:** hybrid mode helps most for exact tokens the embedding model
-tends to miss — course numbers (KNR), instructor surnames, dates, acronyms,
-literal product names — not for morphological German variants. Do not promise
-stemming to customers. If lemmatization becomes a requirement, it needs an
-upstream LanceDB version bump or a pre-tokenization step; both are out of scope
-for this feature.
+The German **stemmer** on 0.31 was evaluated and rejected: it clusters
+`"Kurse"`/`"Kursen"` but keeps `"Kurs"` separate and never splits compounds.
+Do not promise lemmatization to customers — n-gram is surface-form overlap,
+not linguistic analysis; the vector arm continues to carry semantics.
+
+**Migration note:** existing indexes keep the tokenizer they were created
+with. After deploying this version, run the backfill once with `--rebuild`
+(section 6) to recreate all `"text"` indexes with the n-gram config.
 
 ---
 
@@ -228,6 +236,11 @@ existing LanceDB collections without waiting for ingestion:
 # targets <repo>/server/storage instead and becomes a no-op:
 docker exec <container> node /app/server/utils/vectorDbProviders/lance/backfillFtsIndex.js --dry-run
 docker exec <container> node /app/server/utils/vectorDbProviders/lance/backfillFtsIndex.js
+
+# Tokenizer migration (once after the KIE-478 n-gram upgrade): recreate ALL
+# existing "text" indexes with the current shared config (replace, additive,
+# vectors/rows untouched):
+docker exec <container> node /app/server/utils/vectorDbProviders/lance/backfillFtsIndex.js --rebuild
 
 # Bare-metal (non-Docker) equivalent, from the repo root:
 STORAGE_DIR=/path/to/server/storage node server/utils/vectorDbProviders/lance/backfillFtsIndex.js --dry-run

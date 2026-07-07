@@ -10,6 +10,7 @@ const { storeVectorResult, cachedVectorInformation } = require("../../files");
 const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
+const { FTS_INDEX_CONFIG } = require("./ftsConfig");
 const path = require("path");
 
 /**
@@ -568,11 +569,11 @@ class LanceDb extends VectorDatabase {
    * collection so hybrid/hybrid_rerank modes can run BM25 queries (KIE-471).
    *
    * This is idempotent: if an FTS index already covers "text" we do nothing.
-   * German stemming is a no-op on lancedb 0.15.0, so we only enable
-   * lowercase + asciiFolding tokenization.
+   * The index uses the shared n-gram tokenizer config (see ftsConfig.js for
+   * the empirical rationale: German compounds + inflection, KIE-478).
    *
    * NOTE: a table WITHOUT this index cannot serve fullTextSearch at all —
-   * lancedb 0.15.0 throws "Column text has no inverted index" and hybridArms
+   * lancedb throws "Column text has no inverted index" and hybridArms
    * degrades that query to vector-only. The flat-scan fallback only covers
    * rows added AFTER index creation that optimize() has not folded in yet
    * (see optimizeFtsIfStale).
@@ -593,10 +594,10 @@ class LanceDb extends VectorDatabase {
       if (hasTextIndex) return true;
 
       await collection.createIndex("text", {
-        config: lancedb.Index.fts({ lowercase: true, asciiFolding: true }),
+        config: lancedb.Index.fts(FTS_INDEX_CONFIG),
         replace: false,
       });
-      this.logger("Created FTS index on 'text' column.");
+      this.logger("Created FTS index on 'text' column (n-gram tokenizer).");
       return true;
     } catch (e) {
       this.logger("ensureFullTextIndex", e.message);

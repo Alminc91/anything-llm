@@ -4,6 +4,14 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### KIE-478 — LanceDB 0.31 + N-Gram-FTS für Deutsch (2026-07-07)
+
+- **`@lancedb/lancedb` 0.15.0 → 0.31.0** (apache-arrow 19 → 18.1 wegen Peer-Range); alle drei Manual-Harnesse (9/9, 10/10, 7/7) und Jest-Baseline (191/195) grün gegen die neue Binary.
+- **FTS-Tokenizer auf N-Gram (Trigramme)** umgestellt — „Yogakurs" findet „Yogakurse" (Komposita!), „Kurs" findet Flexionsformen, Kursnummern bleiben Top-Treffer. Zentrale Config in `ftsConfig.js` (geteilt von Ingestion + Backfill). Gemessen: 5000 Chunks ≈ 8,7 MB, FTS-Query ≈ 3 ms.
+- **`backfillFtsIndex.js --rebuild`**: einmalige Tokenizer-Migration bestehender Indexe (replace, additiv — Vektoren/Zeilen unangetastet). Nach dem Deploy einmal pro Container ausführen.
+
+
+
 ### 🔍 Hybrid Search (Vektor + BM25) & konfigurierbarer externer Reranker (KIE-471)
 
 **Additiv und per-Workspace opt-in.** Wenn `RERANKER_PROVIDER` nicht gesetzt ist und kein Workspace seinen Suchmodus ändert, bleibt das Verhalten identisch zum Upstream (reine Vektorsuche, optionaler eingebauter Native-Reranker). Bestehende Installationen ändern sich erst, wenn das Feature explizit aktiviert wird. Keine Prisma-Migration (die Spalte `vectorSearchMode` existiert bereits).
