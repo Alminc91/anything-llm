@@ -11,6 +11,10 @@ const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
 const { FTS_INDEX_CONFIG } = require("./ftsConfig");
+const {
+  sanitizeSearchFilters,
+  filtersToWhere,
+} = require("./searchFilters");
 const path = require("path");
 
 /**
@@ -45,6 +49,29 @@ class LanceDb extends VectorDatabase {
     if (distance >= 1.0) return 1;
     if (distance < 0) return 1 - Math.abs(distance);
     return 1 - distance;
+  }
+
+  /**
+   * Runs a query builder with an optional metadata where-clause (KIE-480).
+   * Legacy tables ingested before the metadata columns existed would make
+   * the filtered query throw ("no field named ...") — in that case we log
+   * and RERUN UNFILTERED: a missing filter degrades to today's behavior,
+   * an empty result would silently hide courses.
+   * @param {() => import('@lancedb/lancedb').Query} buildQuery - Factory
+   *   returning a FRESH query builder (must be re-callable for the retry).
+   * @param {string|null} whereClause - Output of filtersToWhere().
+   * @returns {Promise<object[]>} Result rows.
+   */
+  async filteredQueryRows(buildQuery, whereClause = null) {
+    if (!whereClause) return await buildQuery().toArray();
+    try {
+      return await buildQuery().where(whereClause).toArray();
+    } catch (e) {
+      this.logger(
+        `searchFilters: filtered query failed (${e.message}) — retrying unfiltered.`
+      );
+      return await buildQuery().toArray();
+    }
   }
 
   async heartbeat() {
@@ -97,6 +124,7 @@ class LanceDb extends VectorDatabase {
     topN = 4,
     similarityThreshold = 0.25,
     filterIdentifiers = [],
+    whereClause = null,
   }) {
     const reranker = getRerankerProviderSelection();
     const collection = await client.openTable(namespace);
@@ -124,11 +152,14 @@ class LanceDb extends VectorDatabase {
       10,
       Math.min(50, Math.ceil(totalEmbeddings * 0.1))
     );
-    const vectorSearchResults = await collection
-      .vectorSearch(queryVector)
-      .distanceType("cosine")
-      .limit(searchLimit)
-      .toArray();
+    const vectorSearchResults = await this.filteredQueryRows(
+      () =>
+        collection
+          .vectorSearch(queryVector)
+          .distanceType("cosine")
+          .limit(searchLimit),
+      whereClause
+    );
 
     await reranker
       .rerank(query, vectorSearchResults, { topK: topN })
@@ -180,6 +211,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    whereClause = null,
   }) {
     const collection = await client.openTable(namespace);
     const result = {
@@ -188,11 +220,11 @@ class LanceDb extends VectorDatabase {
       scores: [],
     };
 
-    const response = await collection
-      .vectorSearch(queryVector)
-      .distanceType("cosine")
-      .limit(topN)
-      .toArray();
+    const response = await this.filteredQueryRows(
+      () =>
+        collection.vectorSearch(queryVector).distanceType("cosine").limit(topN),
+      whereClause
+    );
 
     response.forEach((item) => {
       if (this.distanceToSimilarity(item._distance) < similarityThreshold)
@@ -338,6 +370,7 @@ class LanceDb extends VectorDatabase {
     topN = 4,
     similarityThreshold = 0.25,
     filterIdentifiers = [],
+    whereClause = null,
   }) {
     const collection = await client.openTable(namespace);
     const { hybridWeight, retrievalTopK } = await this.hybridSettings();
@@ -361,6 +394,7 @@ class LanceDb extends VectorDatabase {
       query,
       queryVector,
       armLimit,
+      whereClause,
     });
 
     const fused = this.weightedRRF(
@@ -401,29 +435,39 @@ class LanceDb extends VectorDatabase {
    * @param {number} params.armLimit
    * @returns {Promise<{vectorRows: object[], ftsRows: object[]}>}
    */
-  async hybridArms({ collection, query, queryVector, armLimit }) {
-    const vectorRows = await collection
-      .query()
-      .nearestTo(queryVector)
-      .distanceType("cosine")
-      .limit(armLimit)
-      .toArray()
-      .catch((e) => {
-        this.logger("hybridArms:vector", e.message);
-        return [];
-      });
+  async hybridArms({
+    collection,
+    query,
+    queryVector,
+    armLimit,
+    whereClause = null,
+  }) {
+    const vectorRows = await this.filteredQueryRows(
+      () =>
+        collection
+          .query()
+          .nearestTo(queryVector)
+          .distanceType("cosine")
+          .limit(armLimit),
+      whereClause
+    ).catch((e) => {
+      this.logger("hybridArms:vector", e.message);
+      return [];
+    });
 
     let ftsRows = [];
     if (typeof query === "string" && query.trim().length > 0) {
-      ftsRows = await collection
-        .query()
-        .fullTextSearch(query, { columns: "text" })
-        .limit(armLimit)
-        .toArray()
-        .catch((e) => {
-          this.logger("hybridArms:fts", e.message);
-          return [];
-        });
+      ftsRows = await this.filteredQueryRows(
+        () =>
+          collection
+            .query()
+            .fullTextSearch(query, { columns: "text" })
+            .limit(armLimit),
+        whereClause
+      ).catch((e) => {
+        this.logger("hybridArms:fts", e.message);
+        return [];
+      });
     }
 
     return { vectorRows, ftsRows };
@@ -457,6 +501,7 @@ class LanceDb extends VectorDatabase {
     topN = 4,
     similarityThreshold = 0.25,
     filterIdentifiers = [],
+    whereClause = null,
   }) {
     const collection = await client.openTable(namespace);
     const { hybridWeight, retrievalTopK, instruction } =
@@ -480,6 +525,7 @@ class LanceDb extends VectorDatabase {
       query,
       queryVector,
       armLimit,
+      whereClause,
     });
 
     // Fuse for (a) dedupe + candidate pool and (b) a deterministic fallback order.
@@ -858,6 +904,10 @@ class LanceDb extends VectorDatabase {
    * @param {string[]} [params.filterIdentifiers=[]]
    * @param {("default"|"rerank"|"hybrid"|"hybrid_rerank")} [params.searchMode]
    * @param {boolean} [params.rerank=false] - Deprecated alias for searchMode "rerank".
+   * @param {object|null} [params.filters=null] - Hard-constraint metadata
+   *   filters (KIE-480), validated via sanitizeSearchFilters and applied as
+   *   a .where() prefilter in ALL modes. Invalid fields are dropped; legacy
+   *   tables without the metadata columns fall back to unfiltered queries.
    * @returns {Promise<{contextTexts:string[], sources:object[], message:(string|false)}>}
    */
   async performSimilaritySearch({
@@ -869,6 +919,7 @@ class LanceDb extends VectorDatabase {
     filterIdentifiers = [],
     searchMode = null,
     rerank = false,
+    filters = null,
   }) {
     if (!namespace || !input || !LLMConnector)
       throw new Error("Invalid request to performSimilaritySearch.");
@@ -891,6 +942,11 @@ class LanceDb extends VectorDatabase {
         ? "rerank"
         : "default";
 
+    // KIE-480: validate + compile the metadata filters ONCE; every mode
+    // receives the same where-clause. Invalid input compiles to null
+    // (= today's unfiltered behavior).
+    const whereClause = filtersToWhere(sanitizeSearchFilters(filters));
+
     const queryVector = await LLMConnector.embedTextInput(input);
     let result;
     switch (mode) {
@@ -903,6 +959,7 @@ class LanceDb extends VectorDatabase {
           similarityThreshold,
           topN,
           filterIdentifiers,
+          whereClause,
         });
         break;
       case "hybrid":
@@ -914,6 +971,7 @@ class LanceDb extends VectorDatabase {
           similarityThreshold,
           topN,
           filterIdentifiers,
+          whereClause,
         });
         break;
       case "hybrid_rerank":
@@ -925,6 +983,7 @@ class LanceDb extends VectorDatabase {
           similarityThreshold,
           topN,
           filterIdentifiers,
+          whereClause,
         });
         break;
       default:
@@ -935,6 +994,7 @@ class LanceDb extends VectorDatabase {
           similarityThreshold,
           topN,
           filterIdentifiers,
+          whereClause,
         });
     }
 
