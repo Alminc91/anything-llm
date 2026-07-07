@@ -229,7 +229,60 @@ async function run() {
   );
   ok("Legacy-Tabelle ohne Spalten: Fallback auf ungefilterte Suche");
 
-  console.log("\n\x1b[32mAll 7 search-filter assertions passed.\x1b[0m");
+  // ---- Auto-Migration (KIE-480 "Weg 2"): Alt-Tabelle bekommt Spalten ------
+  const migNs = "filters_probe_migration";
+  await client.dropTable(migNs).catch(() => {});
+  // 1) Bestands-Workspace: Zeilen OHNE Metadaten-Spalten
+  await client.createTable(
+    migNs,
+    ROWS.slice(0, 2).map(({ id, text, vector }) => ({
+      id: `alt-${id}`,
+      text,
+      vector,
+    }))
+  );
+  // 2) Update-Zyklus liefert jetzt Kurs-Metadaten -> addColumns + add
+  await lance.updateOrCreateCollection(client, ROWS.slice(1), migNs);
+  const migTable = await client.openTable(migNs);
+  const migSchema = (await migTable.schema()).fields.map((f) => f.name);
+  for (const col of ["start_date", "price", "bookable", "location"])
+    assert.ok(migSchema.includes(col), `migrated schema has ${col}`);
+  assert.strictEqual(await migTable.countRows(), 5, "2 alte + 3 neue Zeilen");
+  // Alte Zeilen tragen null, Filter greift nur auf neue passende Zeilen
+  await lance.ensureFullTextIndex(migTable);
+  const migFiltered = await lance.hybridSimilarityResponse({
+    client,
+    namespace: migNs,
+    query: "Yogakurs",
+    queryVector: [1, 0, 0, 0],
+    topN: 5,
+    similarityThreshold: 0,
+    filterIdentifiers: [],
+    whereClause: filtersToWhere(sanitizeSearchFilters({ priceMax: 50 })),
+  });
+  const migIds = migFiltered.sourceDocuments.map((d) => d.id).sort();
+  assert.deepStrictEqual(
+    migIds,
+    ["guenstig-abend", "guenstig-morgen"],
+    `nur neue günstige Kurse, Alt-Zeilen (null-price) gefiltert — got ${migIds}`
+  );
+  // 3) Gegenrichtung: Zeilen OHNE Metadaten in migrierte Tabelle -> null-fill
+  await lance.updateOrCreateCollection(
+    client,
+    [{ id: "spaeter-ohne-meta", text: "Infoseite Anmeldung", vector: [0, 1, 1, 0] }],
+    migNs
+  );
+  // Frisches Handle: Lance-Handles lesen einen Versions-Snapshot, das alte
+  // migTable-Handle sieht den Add einer anderen Verbindung nicht.
+  const migTableFresh = await client.openTable(migNs);
+  assert.strictEqual(
+    await migTableFresh.countRows(),
+    6,
+    "Zeile ohne Metadaten wurde null-gefüllt hinzugefügt"
+  );
+  ok("Auto-Migration: addColumns auf Alt-Tabelle + Null-Fill in beide Richtungen");
+
+  console.log("\n\x1b[32mAll 8 search-filter assertions passed.\x1b[0m");
 }
 
 run()

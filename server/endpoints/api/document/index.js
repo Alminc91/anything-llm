@@ -803,6 +803,16 @@ function apiDocumentEndpoints(app) {
             docSource: "string | nullable",
             chunkSource: "string | nullable",
             published: "epoch timestamp in ms | nullable",
+            // KIE-480: optional structured course metadata for hard-constraint
+            // retrieval filters. Invalid values are dropped by the collector.
+            start_date: "ISO date YYYY-MM-DD | nullable",
+            end_date: "ISO date YYYY-MM-DD | nullable",
+            start_minutes: "integer 0-1439 (minutes since midnight) | nullable",
+            weekdays: "delimited tokens ',mon,tue,' (mon..sun) | nullable",
+            price: "number >= 0 | nullable",
+            bookable: "boolean | nullable",
+            format: "'online' | 'onsite' | 'hybrid' | nullable",
+            location: "lowercased string (letters/digits/-. ) | nullable",
           },
         });
       } catch (e) {

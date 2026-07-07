@@ -17,6 +17,23 @@ const {
 } = require("./searchFilters");
 const path = require("path");
 
+// KIE-480: DataFusion NULL-cast types for the structured course-metadata
+// columns (see searchFilters.js / collector processRawText METADATA_KEYS).
+// Used by the automatic schema migration when documents carrying these
+// fields are added to a table created before the columns existed.
+// NOTE: type names must come from lance-datafusion's supported list
+// ("string", "bigint", "double", "boolean", ... — NOT "varchar").
+const COURSE_COLUMN_SQL_TYPES = Object.freeze({
+  start_date: "STRING",
+  end_date: "STRING",
+  weekdays: "STRING",
+  format: "STRING",
+  location: "STRING",
+  start_minutes: "BIGINT",
+  price: "DOUBLE",
+  bookable: "BOOLEAN",
+});
+
 /**
  * LancedDB Client connection object
  * @typedef {import('@lancedb/lancedb').Connection} LanceClient
@@ -679,6 +696,94 @@ class LanceDb extends VectorDatabase {
   }
 
   /**
+   * Infers a DataFusion SQL type for a generic (non-course) field from the
+   * first non-null value in the batch. Returns null when no value allows a
+   * safe inference — the field is then skipped by the schema migration.
+   * @param {object[]} data - Row batch about to be added.
+   * @param {string} fieldName
+   * @returns {string|null}
+   */
+  inferSqlTypeForField(data = [], fieldName) {
+    for (const row of data) {
+      const value = row?.[fieldName];
+      if (value === null || value === undefined) continue;
+      if (typeof value === "string") return "STRING";
+      if (typeof value === "number") return "DOUBLE";
+      if (typeof value === "boolean") return "BOOLEAN";
+      return null; // arrays/objects: never auto-migrated
+    }
+    return null;
+  }
+
+  /**
+   * Aligns an incoming row batch with the table schema before add() —
+   * LanceDB requires schema equality (KIE-480 auto-migration, "Weg 2"):
+   *   1. Columns the DATA carries but the TABLE lacks are added via
+   *      addColumns() with typed NULL defaults (existing rows get null),
+   *      so workspaces ingested before the metadata columns existed migrate
+   *      in place — no re-embedding required.
+   *   2. Fields the TABLE has but a ROW lacks are null-filled (e.g. info
+   *      pages without course metadata in a course workspace).
+   * Failures are swallowed (logged) and the original batch is returned —
+   * add() then surfaces any real problem itself.
+   * @param {import('@lancedb/lancedb').Table} collection - Open table.
+   * @param {object[]} data - Row batch about to be added.
+   * @returns {Promise<object[]>} Schema-aligned row batch.
+   */
+  async alignSchemaForAdd(collection, data = []) {
+    try {
+      if (!collection || typeof collection.schema !== "function") return data;
+      const schema = await collection.schema();
+      const existing = new Set(schema.fields.map((field) => field.name));
+      const incoming = new Set();
+      for (const row of data)
+        for (const key of Object.keys(row || {})) incoming.add(key);
+
+      const missingInTable = [...incoming].filter((key) => !existing.has(key));
+      if (missingInTable.length > 0) {
+        const additions = missingInTable
+          .map((name) => {
+            const sqlType =
+              COURSE_COLUMN_SQL_TYPES[name] ||
+              this.inferSqlTypeForField(data, name);
+            return sqlType
+              ? { name, valueSql: `CAST(NULL AS ${sqlType})` }
+              : null;
+          })
+          .filter(Boolean);
+        if (additions.length > 0) {
+          await collection.addColumns(additions);
+          this.logger(
+            `Schema migration: added column(s) ${additions
+              .map((a) => a.name)
+              .join(", ")} to existing collection.`
+          );
+        }
+      }
+
+      const finalSchema = await collection.schema();
+      // Boolean columns are filled with `false` instead of null: apache-arrow
+      // JS serializes an all-null Boolean vector with an empty data buffer
+      // that lance rejects ("Need at least 1 bytes for bitmap"), and for our
+      // hard-constraint filters false and null are equivalent (a
+      // `bookable = true` filter excludes both).
+      const fillValues = finalSchema.fields.map((field) => ({
+        name: field.name,
+        fill: String(field.type).toLowerCase().includes("bool") ? false : null,
+      }));
+      return data.map((row) => {
+        const filled = { ...row };
+        for (const { name, fill } of fillValues)
+          if (!(name in filled)) filled[name] = fill;
+        return filled;
+      });
+    } catch (e) {
+      this.logger("alignSchemaForAdd", e.message);
+      return data;
+    }
+  }
+
+  /**
    *
    * @param {LanceClient} client
    * @param {number[]} data
@@ -689,7 +794,8 @@ class LanceDb extends VectorDatabase {
     const hasNamespace = await this.hasNamespace(namespace);
     if (hasNamespace) {
       const collection = await client.openTable(namespace);
-      await collection.add(data);
+      const aligned = await this.alignSchemaForAdd(collection, data);
+      await collection.add(aligned);
       await this.ensureFullTextIndex(collection);
       await this.optimizeFtsIfStale(collection);
       return true;

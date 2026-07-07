@@ -31,7 +31,54 @@ const METADATA_KEYS = {
       if (isNaN(Number(published))) return new Date().toLocaleString();
       return new Date(Number(published)).toLocaleString()
     },
+  },
+  // KIE-480: optional structured course metadata for hard-constraint
+  // retrieval filters. Values are ONLY passed through when they validate —
+  // an invalid value is dropped (never guessed), and absent keys stay
+  // absent so non-course documents keep their slim schema. Each validator
+  // returns a correctly TYPED value (string/number/boolean) because these
+  // become flat, typed LanceDB columns downstream.
+  course: {
+    start_date: (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined),
+    end_date: (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined),
+    start_minutes: (v) => {
+      const n = Number(v);
+      return Number.isInteger(n) && n >= 0 && n < 1440 ? n : undefined;
+    },
+    weekdays: (v) =>
+      typeof v === 'string' && /^,((mon|tue|wed|thu|fri|sat|sun),)+$/.test(v)
+        ? v
+        : undefined,
+    price: (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? n : undefined;
+    },
+    bookable: (v) => (typeof v === 'boolean' ? v : undefined),
+    format: (v) =>
+      typeof v === 'string' && ['online', 'onsite', 'hybrid'].includes(v)
+        ? v
+        : undefined,
+    location: (v) =>
+      typeof v === 'string' && /^[a-z0-9äöüß\-. ]{1,80}$/.test(v.trim().toLowerCase())
+        ? v.trim().toLowerCase()
+        : undefined,
+  },
+}
+
+/**
+ * Validates and collects the optional KIE-480 course metadata keys from an
+ * upload's metadata object. Only valid, correctly typed values survive.
+ * @param {object} metadata - Raw metadata object from the upload request.
+ * @returns {object} Subset of validated course metadata (possibly empty).
+ */
+function courseMetadata(metadata = {}) {
+  const out = {};
+  for (const [key, validate] of Object.entries(METADATA_KEYS.course)) {
+    if (!(key in metadata)) continue;
+    const value = validate(metadata[key]);
+    if (value !== undefined) out[key] = value;
   }
+  return out;
 }
 
 async function processRawText(textContent, metadata) {
@@ -53,6 +100,9 @@ async function processRawText(textContent, metadata) {
     docSource: METADATA_KEYS.possible.docSource(metadata),
     chunkSource: METADATA_KEYS.possible.chunkSource(metadata),
     published: METADATA_KEYS.possible.published(metadata),
+    // KIE-480: validated structured course fields (flat LanceDB columns for
+    // hard-constraint filters). Empty object when none were sent/valid.
+    ...courseMetadata(metadata),
     wordCount: textContent.split(" ").length,
     pageContent: textContent,
     token_count_estimate: tokenizeString(textContent),
