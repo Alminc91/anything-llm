@@ -4,6 +4,15 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### KIE-480 — Metadaten-Filter: Zeit, Preis, Status, Format, Ort (2026-07-07)
+
+**Opt-in** per SystemSetting `metadata_filters` (Default aus) + `metadata_filter_locations` (Standort-Whitelist, GUI: Settings → Suche & Retrieval).
+
+- **Deterministischer deutscher Extraktor** (P0-Eval-Sieger: 68/68 Gold-Fälle; LLM-Arme 98,6 %/95,8 % — einziger Fehler: Kalender-Arithmetik) erkennt harte Bedingungen („dieses Quartal", „unter 50 €", „noch buchbar", „nur online", Orte nur aus Whitelist) auf der umgeschriebenen Query — 0 ms, keine zusätzlichen LLM-Calls.
+- **`.where()`-Vorfilter** auf beiden Hybrid-Armen und in allen 4 Suchmodi; Injection-sicher (Whitelist/Escaping); Alt-Tabellen ohne Spalten → ungefilterter Fallback.
+- **Gestufter Leere-Treffer-Fallback**: Voll → ohne Zeitbedingungen → ungefiltert, mit explizitem Hinweis an das LLM (nur Kontext, nie erfundene Quelle) — „im angefragten Zeitraum nichts, aber ab Oktober …".
+- **Ingestion**: Kurs-Metadaten fließen vom Crawler (Pipelines-Branch `kie-480-metadaten-extractor`) über die Collector-Whitelist als flache LanceDB-Spalten; bestehende Tabellen migrieren automatisch per `addColumns` (typisierte NULLs, kein Re-Embedding).
+
 ### KIE-478 — LanceDB 0.31 + N-Gram-FTS für Deutsch (2026-07-07)
 
 - **`@lancedb/lancedb` 0.15.0 → 0.31.0** (apache-arrow 19 → 18.1 wegen Peer-Range); alle drei Manual-Harnesse (9/9, 10/10, 7/7) und Jest-Baseline (191/195) grün gegen die neue Binary.

@@ -282,7 +282,64 @@ async function run() {
   );
   ok("Auto-Migration: addColumns auf Alt-Tabelle + Null-Fill in beide Richtungen");
 
-  console.log("\n\x1b[32mAll 8 search-filter assertions passed.\x1b[0m");
+  // ---- P3: performSimilaritySearch E2E + Leere-Treffer-Relax ---------------
+  const mockLLM = { embedTextInput: async () => [1, 0, 0, 0] };
+  // (a) expliziter Filter wirkt End-to-End über den Dispatch
+  const e2e = await lance.performSimilaritySearch({
+    namespace: ns,
+    input: "Yogakurse",
+    LLMConnector: mockLLM,
+    topN: 4,
+    similarityThreshold: 0,
+    searchMode: "hybrid",
+    filters: { priceMax: 50 },
+  });
+  assert.ok(e2e.sources.length > 0, "E2E liefert Quellen");
+  assert.ok(
+    e2e.sources.every((s) => s.price <= 50),
+    "E2E: alle Quellen unter dem Preislimit"
+  );
+  // (b) Zeitfilter ohne Treffer -> Relax-Stufe 1 + Hinweis NUR im Kontext
+  const relaxed = await lance.performSimilaritySearch({
+    namespace: ns,
+    input: "Yogakurse",
+    LLMConnector: mockLLM,
+    topN: 4,
+    similarityThreshold: 0,
+    searchMode: "hybrid",
+    filters: { dateFrom: "2030-01-01", dateTo: "2030-12-31", priceMax: 50 },
+  });
+  assert.ok(
+    relaxed.contextTexts[0].startsWith("[Hinweis an den Assistenten"),
+    "Relax-Hinweis ist erster Kontext-Text"
+  );
+  assert.strictEqual(
+    relaxed.sources.length,
+    relaxed.contextTexts.length - 1,
+    "Hinweis erzeugt KEINE erfundene Quelle (Alignment bleibt)"
+  );
+  assert.ok(
+    relaxed.sources.every((s) => s.price <= 50),
+    "Relax Stufe 1: Nicht-Zeit-Filter (Preis) bleiben aktiv"
+  );
+  // (c) gar keine Treffer möglich -> Stufe 2 (ungefiltert) + Hinweis
+  const relaxed2 = await lance.performSimilaritySearch({
+    namespace: ns,
+    input: "Yogakurse",
+    LLMConnector: mockLLM,
+    topN: 4,
+    similarityThreshold: 0,
+    searchMode: "default",
+    filters: { priceMax: 1 },
+  });
+  assert.ok(
+    relaxed2.sources.length > 0 &&
+      relaxed2.contextTexts[0].startsWith("[Hinweis an den Assistenten"),
+    "Relax Stufe 2: ungefiltert + Hinweis"
+  );
+  ok("P3: performSimilaritySearch E2E-Filter + gestufter Leere-Treffer-Relax");
+
+  console.log("\n\x1b[32mAll 9 search-filter assertions passed.\x1b[0m");
 }
 
 run()

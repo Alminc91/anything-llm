@@ -15,6 +15,10 @@ const {
   sanitizeSearchFilters,
   filtersToWhere,
 } = require("./searchFilters");
+const {
+  extractFilters,
+  stripTimeFilters,
+} = require("../../chats/metadataFilterExtractor");
 const path = require("path");
 
 // KIE-480: DataFusion NULL-cast types for the structured course-metadata
@@ -1048,60 +1052,110 @@ class LanceDb extends VectorDatabase {
         ? "rerank"
         : "default";
 
-    // KIE-480: validate + compile the metadata filters ONCE; every mode
-    // receives the same where-clause. Invalid input compiles to null
+    // KIE-480: resolve the metadata filters. Explicit `filters` from the
+    // caller win; otherwise — when the metadata_filters SystemSetting is
+    // "on" — the deterministic German extractor derives them from the
+    // (already rewritten) query. Off/invalid compiles to null clause
     // (= today's unfiltered behavior).
-    const whereClause = filtersToWhere(sanitizeSearchFilters(filters));
+    let activeFilters = sanitizeSearchFilters(filters);
+    if (!activeFilters) {
+      try {
+        const enabled = await SystemSettings.getValueOrFallback(
+          { label: "metadata_filters" },
+          "off"
+        );
+        if (enabled === "on") {
+          const locationSetting = await SystemSettings.getValueOrFallback(
+            { label: "metadata_filter_locations" },
+            ""
+          );
+          const knownLocations = String(locationSetting || "")
+            .split(",")
+            .map((loc) => loc.trim())
+            .filter(Boolean);
+          activeFilters = sanitizeSearchFilters(
+            extractFilters(input, { referenceDate: new Date(), knownLocations })
+          );
+        }
+      } catch (e) {
+        this.logger("metadata_filters resolution failed", e.message);
+      }
+    }
 
     const queryVector = await LLMConnector.embedTextInput(input);
-    let result;
-    switch (mode) {
-      case "rerank":
-        result = await this.rerankedSimilarityResponse({
-          client,
-          namespace,
-          query: input,
-          queryVector,
-          similarityThreshold,
-          topN,
-          filterIdentifiers,
-          whereClause,
-        });
-        break;
-      case "hybrid":
-        result = await this.hybridSimilarityResponse({
-          client,
-          namespace,
-          query: input,
-          queryVector,
-          similarityThreshold,
-          topN,
-          filterIdentifiers,
-          whereClause,
-        });
-        break;
-      case "hybrid_rerank":
-        result = await this.hybridRerankedSimilarityResponse({
-          client,
-          namespace,
-          query: input,
-          queryVector,
-          similarityThreshold,
-          topN,
-          filterIdentifiers,
-          whereClause,
-        });
-        break;
-      default:
-        result = await this.similarityResponse({
-          client,
-          namespace,
-          queryVector,
-          similarityThreshold,
-          topN,
-          filterIdentifiers,
-          whereClause,
-        });
+    const runSearch = async (whereClause) => {
+      switch (mode) {
+        case "rerank":
+          return await this.rerankedSimilarityResponse({
+            client,
+            namespace,
+            query: input,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+            whereClause,
+          });
+        case "hybrid":
+          return await this.hybridSimilarityResponse({
+            client,
+            namespace,
+            query: input,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+            whereClause,
+          });
+        case "hybrid_rerank":
+          return await this.hybridRerankedSimilarityResponse({
+            client,
+            namespace,
+            query: input,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+            whereClause,
+          });
+        default:
+          return await this.similarityResponse({
+            client,
+            namespace,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+            whereClause,
+          });
+      }
+    };
+
+    // Staged empty-result fallback (KIE-480): (1) full filters, (2) without
+    // the time constraints ("nichts in diesem Quartal — aber ab Oktober…"),
+    // (3) unfiltered. When we relax, the LLM gets an explicit German note so
+    // the answer stays transparent instead of silently ignoring the ask.
+    let result = await runSearch(filtersToWhere(activeFilters));
+    let relaxNote = null;
+    if (activeFilters && result.sourceDocuments.length === 0) {
+      const withoutTime = sanitizeSearchFilters(stripTimeFilters(activeFilters));
+      const hadTime = filtersToWhere(withoutTime) !== filtersToWhere(activeFilters);
+      if (hadTime) {
+        result = await runSearch(filtersToWhere(withoutTime));
+        if (result.sourceDocuments.length > 0)
+          relaxNote =
+            "[Hinweis an den Assistenten: Für den angefragten Zeitraum wurden KEINE passenden Kurse gefunden. Die folgenden Treffer erfüllen die übrigen Kriterien, liegen aber außerhalb des angefragten Zeitraums — weise die Nutzerin/den Nutzer transparent darauf hin und nenne die tatsächlichen Termine.]";
+      }
+      if (result.sourceDocuments.length === 0) {
+        result = await runSearch(null);
+        if (result.sourceDocuments.length > 0)
+          relaxNote =
+            "[Hinweis an den Assistenten: Für die angefragten Kriterien (z. B. Zeitraum, Preis, Ort oder Verfügbarkeit) wurden KEINE passenden Kurse gefunden. Die folgenden Treffer sind thematisch ähnlich, erfüllen die Kriterien aber NICHT — sage das der Nutzerin/dem Nutzer klar und nenne die tatsächlichen Konditionen.]";
+      }
+      if (relaxNote)
+        this.logger(
+          "metadata_filters: empty result — relaxed filters, note injected."
+        );
     }
 
     const { contextTexts, sourceDocuments } = result;
@@ -1109,7 +1163,10 @@ class LanceDb extends VectorDatabase {
       return { metadata: { ...metadata, text: contextTexts[i] } };
     });
     return {
-      contextTexts,
+      // The relax note goes to the LLM context ONLY — after the sources
+      // mapping above, so contextTexts[i] <-> sourceDocuments[i] stays
+      // aligned and no citation is fabricated for the note.
+      contextTexts: relaxNote ? [relaxNote, ...contextTexts] : contextTexts,
       sources: this.curateSources(sources),
       message: false,
     };

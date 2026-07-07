@@ -911,6 +911,19 @@ const TRANSLATIONS = {
           "z. B. Repräsentiere diese Anfrage zum Abrufen relevanter Kurse",
       },
     },
+    metadataFilters: {
+      title: "Metadaten-Filter (Zeit, Preis, Status, Format, Ort)",
+      description:
+        "Erkennt harte Bedingungen in der Anfrage (z. B. „dieses Quartal“, „unter 50 €“, „noch buchbar“, „nur online“) und filtert die Suche entsprechend vor. Deterministisch, ohne zusätzliche KI-Aufrufe. Benötigt Kursdaten mit Metadaten (Neu-Anlernen bzw. Update-Zyklus nach dem Crawler-Update).",
+      off: "Aus (Standard)",
+      on: "An",
+      locations: {
+        title: "Standort-Liste für Ortsfilter",
+        description:
+          "Kommagetrennte Orte/Außenstellen dieses Kunden. Ortsfilter entstehen NUR aus dieser Liste — Reiseziele in Kurstiteln lösen keinen Filter aus. Leer lassen, um Ortsfilter zu deaktivieren.",
+        placeholder: "z. B. lingen, meppen, baccum",
+      },
+    },
   },
 
   vector: {

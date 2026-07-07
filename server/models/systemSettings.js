@@ -44,6 +44,8 @@ const SystemSettings = {
     "hybrid_weight",
     "reranker_instruction",
     "reranker_retrieval_topk",
+    "metadata_filters",
+    "metadata_filter_locations",
   ],
   supportedFields: [
     "logo_filename",
@@ -73,6 +75,8 @@ const SystemSettings = {
     "hybrid_weight",
     "reranker_instruction",
     "reranker_retrieval_topk",
+    "metadata_filters",
+    "metadata_filter_locations",
 
     // Hub settings
     "hub_api_key",
@@ -188,6 +192,27 @@ const SystemSettings = {
       )
         return "off";
       return String(update);
+    },
+    // KIE-480: harte Metadaten-Filter (deterministischer Extraktor) an/aus.
+    metadata_filters: (update) => {
+      if (
+        !update ||
+        typeof update !== "string" ||
+        !["on", "off"].includes(update)
+      )
+        return "off";
+      return String(update);
+    },
+    // KIE-480: Standort-Whitelist des Kunden (kommasepariert). Nur Werte,
+    // die die location-Zeichen-Whitelist bestehen, überleben — Ortsfilter
+    // entstehen ausschließlich aus dieser Liste.
+    metadata_filter_locations: (update) => {
+      if (!update || typeof update !== "string") return "";
+      const cleaned = update
+        .split(",")
+        .map((loc) => loc.trim().toLowerCase())
+        .filter((loc) => /^[a-z0-9äöüß\-. ]{1,80}$/.test(loc));
+      return [...new Set(cleaned)].join(",");
     },
     // Global default vector search mode. Invalid values coerce to "default".
     vector_search_default: (update) => {
