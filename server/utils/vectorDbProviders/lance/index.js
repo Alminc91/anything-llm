@@ -378,7 +378,11 @@ class LanceDb extends VectorDatabase {
         continue;
       }
       result.contextTexts.push(rest.text);
-      result.sourceDocuments.push({ ...rest, score });
+      // No `score` on the source documents here: raw RRF scores max out at
+      // 1/(k+1) ≈ 0.016 and the citation UI would render them as "2% match".
+      // Omitting the field triggers the UI's !!score guard (no percentage
+      // shown); the fused scores stay available via result.scores.
+      result.sourceDocuments.push({ ...rest });
       result.scores.push(score);
     }
 
@@ -491,10 +495,25 @@ class LanceDb extends VectorDatabase {
     // configured reranker_retrieval_topk TOTAL (not per arm) — this is the
     // documented contract and bounds the reranker workload, which matters
     // most for the in-process native (CPU) reranker.
-    const candidates = fused.slice(0, retrievalTopK).map(({ row, score }) => {
-      const { vector: _v, _distance: _d, _score: _s, ...rest } = row;
-      return { ...rest, rrf_score: score };
-    });
+    // Pinned-doc filtering must happen BEFORE the reranker call: the reranker
+    // slices to topN, so filtering afterwards could drain the final context
+    // below topN with no way to backfill (unlike hybrid, which filters while
+    // it still has the full fused list).
+    const candidates = fused
+      .map(({ row, score }) => {
+        const { vector: _v, _distance: _d, _score: _s, ...rest } = row;
+        return { ...rest, rrf_score: score };
+      })
+      .filter((candidate) => {
+        if (!filterIdentifiers.includes(sourceIdentifier(candidate)))
+          return true;
+        this.logger(
+          "A source was filtered from context as it's parent document is pinned."
+        );
+        return false;
+      })
+      .slice(0, retrievalTopK);
+    if (candidates.length === 0) return result;
 
     let ordered = candidates;
     await reranker
@@ -513,15 +532,15 @@ class LanceDb extends VectorDatabase {
     for (const item of ordered) {
       if (result.sourceDocuments.length >= topN) break;
       const { rrf_score, rerank_score, rerank_corpus_id, ...rest } = item;
-      if (filterIdentifiers.includes(sourceIdentifier(rest))) {
-        this.logger(
-          "A source was filtered from context as it's parent document is pinned."
-        );
-        continue;
-      }
       const score = typeof rerank_score === "number" ? rerank_score : rrf_score;
       result.contextTexts.push(rest.text);
-      result.sourceDocuments.push({ ...rest, score });
+      // Only real reranker relevance scores ([0,1]) are meaningful in the
+      // citation UI; on RRF fallback the tiny fused score is omitted so the
+      // UI's !!score guard hides the misleading "2% match" percentage.
+      result.sourceDocuments.push({
+        ...rest,
+        ...(typeof rerank_score === "number" ? { score: rerank_score } : {}),
+      });
       result.scores.push(score);
     }
 

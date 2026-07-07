@@ -822,6 +822,29 @@ const TRANSLATIONS = {
   },
 
   // Search & Retrieval
+  vectorSearchMode: {
+    title: "Search Preference",
+    default: {
+      label: "Default",
+      description:
+        "Pure vector search — fastest response time. Note: if a non-default search mode is active globally, this workspace follows the global mode.",
+    },
+    rerank: {
+      label: "Accuracy Optimized",
+      description:
+        "Responses may take longer to generate, but will be more accurate and relevant (vector results are reranked).",
+    },
+    hybrid: {
+      label: "Hybrid (Vector + Keyword)",
+      description:
+        "Combines semantic vector search with BM25 keyword matching (weighted RRF fusion). Improves recall for exact terms, names, and course codes.",
+    },
+    hybrid_rerank: {
+      label: "Hybrid + Reranker",
+      description:
+        "Runs hybrid retrieval, then a reranker decides the final ordering. Highest accuracy, but responses may take longer. Requires a configured reranker.",
+    },
+  },
   searchRetrieval: {
     title: "Search & Retrieval",
     description:

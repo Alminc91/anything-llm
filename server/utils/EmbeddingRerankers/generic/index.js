@@ -120,7 +120,16 @@ class GenericReranker {
     const decorated = this.#decoratedQuery(query);
     if (this.provider === "tei") {
       // TEI: bare-array response, no model field, `texts`, `raw_scores:false`.
-      const body = { query: decorated, texts, raw_scores: false };
+      // truncate:true is essential — TEI validates strictly by default and one
+      // over-long query+text pair would 413 the ENTIRE batch, which our
+      // graceful fallback would then silently mask on every affected query.
+      const body = {
+        query: decorated,
+        texts,
+        raw_scores: false,
+        truncate: true,
+        truncation_direction: "Right",
+      };
       if (this.instruction && this.instruction.length > 0)
         body.instruction = this.instruction;
       return body;

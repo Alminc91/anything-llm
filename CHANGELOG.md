@@ -19,7 +19,7 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 - **Graceful Degradation**: Bei jedem Fehler (8s-Timeout, Non-200, Malformed) werden die Dokumente unverändert (Vektor-/RRF-Reihenfolge) zurückgegeben — der Reranker wirft nie in den RAG-Pfad.
 - **Globale ENV-Vars** (`RERANKER_PROVIDER`, `RERANKER_BASE_PATH`, `RERANKER_MODEL_PREF`, `RERANKER_API_KEY`) — auto-persistiert über die Admin-GUI; `RERANKER_API_KEY` wird in `currentSettings()` nur als Boolean maskiert.
 - **Globale SystemSettings**: `vector_search_default`, `hybrid_weight` (0–1), `reranker_retrieval_topk` (1–100, Default 40), `reranker_instruction`.
-- **Admin-GUI** (Settings → Search & Retrieval): globales Hybrid-/Reranker-Formular mit Progressive Disclosure; Workspace-Dropdown mit allen vier Modi (LanceDB-Guard).
+- **Admin-GUI** (Settings → Search & Retrieval): globales Hybrid-/Reranker-Formular mit Progressive Disclosure; Workspace-Dropdown mit allen vier Modi (LanceDB-Guard). Hinweis: Workspace-Wert `default` bedeutet „folgt dem globalen Modus" — ein Opt-out auf reine Vektorsuche bei aktivem globalen Nicht-Default-Modus ist ohne Migration nicht möglich.
 - **FTS-Index-Backfill** für bestehende LanceDB-Collections: `node server/utils/vectorDbProviders/lance/backfillFtsIndex.js [--dry-run]` (idempotent, read-safe).
 - **Operator-Dokumentation**: `server/HYBRID_SEARCH_RERANKER.md` (4 Modi, RERANKER_*-Vars, Reranker-Container-Setup für vLLM/TEI, Shared-Container, deutsche Stemming-Grenze).
 - **Eval-Harness-Skeleton** (TODO): `server/__tests__/utils/vectorDbProviders/searchModeEval.eval.js` — vergleicht default/hybrid/rerank/hybrid_rerank auf einem Query-Set (Query-Set + Reranker-Endpoint noch zu verdrahten, läuft absichtlich noch nicht).

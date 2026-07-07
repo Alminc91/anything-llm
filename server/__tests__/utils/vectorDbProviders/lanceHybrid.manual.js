@@ -159,10 +159,25 @@ async function run() {
       filterIdentifiers: [],
     });
     assert.ok(hybrid.sourceDocuments.length > 0, "hybrid returned rows");
-    for (const doc of hybrid.sourceDocuments) {
+    // Fused RRF scores live in result.scores; sourceDocuments deliberately
+    // carry NO score field (raw RRF ≈ 0.016 would render as "2% match" in the
+    // citation UI — the !!score guard hides the percentage instead).
+    assert.strictEqual(
+      hybrid.scores.length,
+      hybrid.sourceDocuments.length,
+      "one fused score per returned row"
+    );
+    for (const s of hybrid.scores) {
       assert.ok(
-        typeof doc.score === "number" && doc.score > 0,
-        "each hybrid row carries a positive fused score"
+        typeof s === "number" && s > 0,
+        "each fused RRF score is positive"
+      );
+    }
+    for (const doc of hybrid.sourceDocuments) {
+      assert.strictEqual(
+        doc.score,
+        undefined,
+        "no misleading raw RRF score on hybrid source documents"
       );
       assert.strictEqual(doc.vector, undefined, "no vector leak in hybrid row");
       assert.strictEqual(
@@ -172,7 +187,7 @@ async function run() {
       );
       assert.strictEqual(doc._score, undefined, "no raw _score in hybrid row");
     }
-    ok("T1 hybrid rows have fused score, no _distance / no vector leak");
+    ok("T1 hybrid rows have fused scores (scores[]), no score/vector/_distance leak");
 
     // --- T2: exact KNR token surfaces via BM25 that pure vector misses ------
     const pureVector = await lance.similarityResponse({

@@ -816,6 +816,29 @@ const TRANSLATIONS = {
     },
   },
   // Suche & Retrieval
+  vectorSearchMode: {
+    title: "Suchmodus",
+    default: {
+      label: "Standard",
+      description:
+        "Reine Vektorsuche — schnellste Antwortzeit. Hinweis: Ist global ein anderer Suchmodus als Standard aktiv, folgt dieser Workspace dem globalen Modus.",
+    },
+    rerank: {
+      label: "Genauigkeit optimiert",
+      description:
+        "Antworten können etwas länger dauern, sind dafür genauer und relevanter (Reranking der Vektor-Treffer).",
+    },
+    hybrid: {
+      label: "Hybrid (Vektor + Stichwort)",
+      description:
+        "Kombiniert semantische Vektorsuche mit BM25-Stichwortsuche (gewichtete RRF-Fusion). Verbessert Treffer für exakte Begriffe, Namen und Kursnummern.",
+    },
+    hybrid_rerank: {
+      label: "Hybrid + Reranker",
+      description:
+        "Hybrid-Suche, danach bestimmt ein Reranker die finale Reihenfolge. Höchste Genauigkeit, Antworten können länger dauern. Benötigt einen konfigurierten Reranker.",
+    },
+  },
   searchRetrieval: {
     title: "Suche & Retrieval",
     description:

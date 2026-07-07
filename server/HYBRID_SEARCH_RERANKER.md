@@ -102,8 +102,14 @@ Edited from the same GUI page; stored in the DB (no Prisma migration — the
 ### 3c. Per-workspace override
 
 Each workspace has a **Search Mode** dropdown (Workspace Settings → Vector
-Database) offering all four modes. A workspace value overrides the global
-default. The dropdown is guarded to LanceDB workspaces only.
+Database) offering all four modes. A workspace value **other than `default`**
+overrides the global default; the value `default` means "follow the global
+setting" (the column is non-null with schema default `"default"`, so an unset
+workspace is indistinguishable from an explicit `default` — a workspace
+therefore cannot pin itself to pure vector search while a non-default global
+mode is active; this trade-off avoids a Prisma migration across ~40 client
+databases). The dropdown is guarded to LanceDB workspaces only and shows this
+hint on the `default` option.
 
 ---
 
