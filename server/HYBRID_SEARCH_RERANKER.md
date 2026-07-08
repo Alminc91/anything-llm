@@ -121,6 +121,36 @@ hint on the `default` option.
 
 ---
 
+## 3d. Metadata filters (KIE-480, opt-in)
+
+With the SystemSetting `metadata_filters = on` (Settings → Search & Retrieval)
+a **deterministic German extractor** (`server/utils/chats/metadataFilterExtractor.js`,
+P0 eval winner: 68/68 gold cases; LLM arms lose exactly on calendar
+arithmetic) parses hard constraints from the — already rewritten — query and
+pre-filters retrieval via `.where()` on the flat metadata columns
+(`start_date`, `start_minutes`, `weekdays`, `price`, `bookable`, `format`,
+`location`) in ALL search modes and BOTH hybrid arms:
+
+- time: "dieses Quartal", "nächste Woche", "ab Oktober", "abends", "dienstags"
+- price: "unter 50 €", "kostenlos" — status: "noch buchbar", "freie Plätze"
+- format: "nur online", "kein Onlinekurs" (negation) — location: only values
+  from the `metadata_filter_locations` whitelist (comma-separated, per
+  customer) ever become filters.
+
+Rules: ambiguous → NO filter (a missing filter degrades to today's behavior);
+nothing reaches the SQL unvalidated; legacy tables without the columns fall
+back to unfiltered queries. **Empty-result fallback** is staged: (1) full
+filters, (2) time constraints dropped, (3) unfiltered — on relaxation the LLM
+receives an explicit German note (context only, never a fabricated citation)
+so the answer says "nothing in the requested period — but from October…".
+
+Data path: the course crawler (Pipelines repo, branch
+`kie-480-metadaten-extractor`) sends the structured fields with each upload;
+the collector whitelist validates them; ingestion auto-migrates existing
+tables via `addColumns` (typed NULLs — no re-embedding needed).
+
+---
+
 ## 4. Two supported wire formats
 
 The external `GenericReranker` speaks two HTTP shapes. Scores are always mapped

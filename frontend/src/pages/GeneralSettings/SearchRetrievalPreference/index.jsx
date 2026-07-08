@@ -15,6 +15,8 @@ const SYSTEM_PREF_FIELDS = [
   "hybrid_weight",
   "reranker_instruction",
   "reranker_retrieval_topk",
+  "metadata_filters",
+  "metadata_filter_locations",
 ];
 
 export default function SearchRetrievalPreference() {
@@ -40,6 +42,8 @@ export default function SearchRetrievalPreference() {
         query_rewrite_default: form.get("query_rewrite_default"),
         vector_search_default: form.get("vector_search_default"),
         reranker_retrieval_topk: form.get("reranker_retrieval_topk"),
+        metadata_filters: form.get("metadata_filters"),
+        metadata_filter_locations: form.get("metadata_filter_locations"),
       };
       const hybridWeight = form.get("hybrid_weight");
       if (hybridWeight !== null) prefsUpdate.hybrid_weight = hybridWeight;
@@ -290,6 +294,54 @@ export default function SearchRetrievalPreference() {
                   max={500}
                   step={1}
                   defaultValue={settings?.reranker_retrieval_topk ?? 40}
+                  className={inputClass}
+                />
+              </div>
+
+              {/* Metadaten-Filter (KIE-480) */}
+              <div className="flex flex-col gap-y-1 mt-6 pb-2 border-white light:border-theme-sidebar-border border-b-2 border-opacity-10 max-w-[500px]">
+                <p className="text-sm leading-6 font-bold text-white">
+                  {t("searchRetrieval.metadataFilters.title")}
+                </p>
+                <p className="text-xs leading-[18px] font-base text-white text-opacity-60">
+                  {t("searchRetrieval.metadataFilters.description")}
+                </p>
+              </div>
+
+              <div className="flex flex-col max-w-[500px]">
+                <select
+                  name="metadata_filters"
+                  defaultValue={settings?.metadata_filters ?? "off"}
+                  className={inputClass}
+                >
+                  <option value="off">
+                    {t("searchRetrieval.metadataFilters.off")}
+                  </option>
+                  <option value="on">
+                    {t("searchRetrieval.metadataFilters.on")}
+                  </option>
+                </select>
+              </div>
+
+              {/* Standort-Whitelist */}
+              <div className="flex flex-col max-w-[500px]">
+                <div className="flex flex-col gap-y-2 mb-4">
+                  <label className="text-white text-sm font-semibold block">
+                    {t("searchRetrieval.metadataFilters.locations.title")}
+                  </label>
+                  <p className="text-xs text-white/60">
+                    {t("searchRetrieval.metadataFilters.locations.description")}
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  name="metadata_filter_locations"
+                  defaultValue={settings?.metadata_filter_locations ?? ""}
+                  placeholder={t(
+                    "searchRetrieval.metadataFilters.locations.placeholder"
+                  )}
+                  autoComplete="off"
+                  spellCheck={false}
                   className={inputClass}
                 />
               </div>

@@ -917,6 +917,19 @@ const TRANSLATIONS = {
           "e.g. Represent this query for retrieving relevant courses",
       },
     },
+    metadataFilters: {
+      title: "Metadata filters (time, price, status, format, location)",
+      description:
+        "Detects hard constraints in the query (e.g. „this quarter“, „under €50“, „still bookable“, „online only“) and pre-filters retrieval accordingly. Deterministic, no extra AI calls. Requires course data with metadata columns (re-ingest after the crawler update).",
+      off: "Off (default)",
+      on: "On",
+      locations: {
+        title: "Location list for location filters",
+        description:
+          "Comma-separated locations/branches of this customer. Location filters are ONLY created from this list — travel destinations in course titles never trigger one. Leave empty to disable location filters.",
+        placeholder: "e.g. lingen, meppen, baccum",
+      },
+    },
   },
 
   // Vector Database

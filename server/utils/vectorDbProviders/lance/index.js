@@ -11,7 +11,32 @@ const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
 const { FTS_INDEX_CONFIG } = require("./ftsConfig");
+const {
+  sanitizeSearchFilters,
+  filtersToWhere,
+} = require("./searchFilters");
+const {
+  extractFilters,
+  stripTimeFilters,
+} = require("../../chats/metadataFilterExtractor");
 const path = require("path");
+
+// KIE-480: DataFusion NULL-cast types for the structured course-metadata
+// columns (see searchFilters.js / collector processRawText METADATA_KEYS).
+// Used by the automatic schema migration when documents carrying these
+// fields are added to a table created before the columns existed.
+// NOTE: type names must come from lance-datafusion's supported list
+// ("string", "bigint", "double", "boolean", ... — NOT "varchar").
+const COURSE_COLUMN_SQL_TYPES = Object.freeze({
+  start_date: "STRING",
+  end_date: "STRING",
+  weekdays: "STRING",
+  format: "STRING",
+  location: "STRING",
+  start_minutes: "BIGINT",
+  price: "DOUBLE",
+  bookable: "BOOLEAN",
+});
 
 /**
  * LancedDB Client connection object
@@ -45,6 +70,29 @@ class LanceDb extends VectorDatabase {
     if (distance >= 1.0) return 1;
     if (distance < 0) return 1 - Math.abs(distance);
     return 1 - distance;
+  }
+
+  /**
+   * Runs a query builder with an optional metadata where-clause (KIE-480).
+   * Legacy tables ingested before the metadata columns existed would make
+   * the filtered query throw ("no field named ...") — in that case we log
+   * and RERUN UNFILTERED: a missing filter degrades to today's behavior,
+   * an empty result would silently hide courses.
+   * @param {() => import('@lancedb/lancedb').Query} buildQuery - Factory
+   *   returning a FRESH query builder (must be re-callable for the retry).
+   * @param {string|null} whereClause - Output of filtersToWhere().
+   * @returns {Promise<object[]>} Result rows.
+   */
+  async filteredQueryRows(buildQuery, whereClause = null) {
+    if (!whereClause) return await buildQuery().toArray();
+    try {
+      return await buildQuery().where(whereClause).toArray();
+    } catch (e) {
+      this.logger(
+        `searchFilters: filtered query failed (${e.message}) — retrying unfiltered.`
+      );
+      return await buildQuery().toArray();
+    }
   }
 
   async heartbeat() {
@@ -97,6 +145,7 @@ class LanceDb extends VectorDatabase {
     topN = 4,
     similarityThreshold = 0.25,
     filterIdentifiers = [],
+    whereClause = null,
   }) {
     const reranker = getRerankerProviderSelection();
     const collection = await client.openTable(namespace);
@@ -124,11 +173,14 @@ class LanceDb extends VectorDatabase {
       10,
       Math.min(50, Math.ceil(totalEmbeddings * 0.1))
     );
-    const vectorSearchResults = await collection
-      .vectorSearch(queryVector)
-      .distanceType("cosine")
-      .limit(searchLimit)
-      .toArray();
+    const vectorSearchResults = await this.filteredQueryRows(
+      () =>
+        collection
+          .vectorSearch(queryVector)
+          .distanceType("cosine")
+          .limit(searchLimit),
+      whereClause
+    );
 
     await reranker
       .rerank(query, vectorSearchResults, { topK: topN })
@@ -180,6 +232,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    whereClause = null,
   }) {
     const collection = await client.openTable(namespace);
     const result = {
@@ -188,11 +241,11 @@ class LanceDb extends VectorDatabase {
       scores: [],
     };
 
-    const response = await collection
-      .vectorSearch(queryVector)
-      .distanceType("cosine")
-      .limit(topN)
-      .toArray();
+    const response = await this.filteredQueryRows(
+      () =>
+        collection.vectorSearch(queryVector).distanceType("cosine").limit(topN),
+      whereClause
+    );
 
     response.forEach((item) => {
       if (this.distanceToSimilarity(item._distance) < similarityThreshold)
@@ -338,6 +391,7 @@ class LanceDb extends VectorDatabase {
     topN = 4,
     similarityThreshold = 0.25,
     filterIdentifiers = [],
+    whereClause = null,
   }) {
     const collection = await client.openTable(namespace);
     const { hybridWeight, retrievalTopK } = await this.hybridSettings();
@@ -361,6 +415,7 @@ class LanceDb extends VectorDatabase {
       query,
       queryVector,
       armLimit,
+      whereClause,
     });
 
     const fused = this.weightedRRF(
@@ -401,29 +456,39 @@ class LanceDb extends VectorDatabase {
    * @param {number} params.armLimit
    * @returns {Promise<{vectorRows: object[], ftsRows: object[]}>}
    */
-  async hybridArms({ collection, query, queryVector, armLimit }) {
-    const vectorRows = await collection
-      .query()
-      .nearestTo(queryVector)
-      .distanceType("cosine")
-      .limit(armLimit)
-      .toArray()
-      .catch((e) => {
-        this.logger("hybridArms:vector", e.message);
-        return [];
-      });
+  async hybridArms({
+    collection,
+    query,
+    queryVector,
+    armLimit,
+    whereClause = null,
+  }) {
+    const vectorRows = await this.filteredQueryRows(
+      () =>
+        collection
+          .query()
+          .nearestTo(queryVector)
+          .distanceType("cosine")
+          .limit(armLimit),
+      whereClause
+    ).catch((e) => {
+      this.logger("hybridArms:vector", e.message);
+      return [];
+    });
 
     let ftsRows = [];
     if (typeof query === "string" && query.trim().length > 0) {
-      ftsRows = await collection
-        .query()
-        .fullTextSearch(query, { columns: "text" })
-        .limit(armLimit)
-        .toArray()
-        .catch((e) => {
-          this.logger("hybridArms:fts", e.message);
-          return [];
-        });
+      ftsRows = await this.filteredQueryRows(
+        () =>
+          collection
+            .query()
+            .fullTextSearch(query, { columns: "text" })
+            .limit(armLimit),
+        whereClause
+      ).catch((e) => {
+        this.logger("hybridArms:fts", e.message);
+        return [];
+      });
     }
 
     return { vectorRows, ftsRows };
@@ -457,6 +522,7 @@ class LanceDb extends VectorDatabase {
     topN = 4,
     similarityThreshold = 0.25,
     filterIdentifiers = [],
+    whereClause = null,
   }) {
     const collection = await client.openTable(namespace);
     const { hybridWeight, retrievalTopK, instruction } =
@@ -480,6 +546,7 @@ class LanceDb extends VectorDatabase {
       query,
       queryVector,
       armLimit,
+      whereClause,
     });
 
     // Fuse for (a) dedupe + candidate pool and (b) a deterministic fallback order.
@@ -633,6 +700,94 @@ class LanceDb extends VectorDatabase {
   }
 
   /**
+   * Infers a DataFusion SQL type for a generic (non-course) field from the
+   * first non-null value in the batch. Returns null when no value allows a
+   * safe inference — the field is then skipped by the schema migration.
+   * @param {object[]} data - Row batch about to be added.
+   * @param {string} fieldName
+   * @returns {string|null}
+   */
+  inferSqlTypeForField(data = [], fieldName) {
+    for (const row of data) {
+      const value = row?.[fieldName];
+      if (value === null || value === undefined) continue;
+      if (typeof value === "string") return "STRING";
+      if (typeof value === "number") return "DOUBLE";
+      if (typeof value === "boolean") return "BOOLEAN";
+      return null; // arrays/objects: never auto-migrated
+    }
+    return null;
+  }
+
+  /**
+   * Aligns an incoming row batch with the table schema before add() —
+   * LanceDB requires schema equality (KIE-480 auto-migration, "Weg 2"):
+   *   1. Columns the DATA carries but the TABLE lacks are added via
+   *      addColumns() with typed NULL defaults (existing rows get null),
+   *      so workspaces ingested before the metadata columns existed migrate
+   *      in place — no re-embedding required.
+   *   2. Fields the TABLE has but a ROW lacks are null-filled (e.g. info
+   *      pages without course metadata in a course workspace).
+   * Failures are swallowed (logged) and the original batch is returned —
+   * add() then surfaces any real problem itself.
+   * @param {import('@lancedb/lancedb').Table} collection - Open table.
+   * @param {object[]} data - Row batch about to be added.
+   * @returns {Promise<object[]>} Schema-aligned row batch.
+   */
+  async alignSchemaForAdd(collection, data = []) {
+    try {
+      if (!collection || typeof collection.schema !== "function") return data;
+      const schema = await collection.schema();
+      const existing = new Set(schema.fields.map((field) => field.name));
+      const incoming = new Set();
+      for (const row of data)
+        for (const key of Object.keys(row || {})) incoming.add(key);
+
+      const missingInTable = [...incoming].filter((key) => !existing.has(key));
+      if (missingInTable.length > 0) {
+        const additions = missingInTable
+          .map((name) => {
+            const sqlType =
+              COURSE_COLUMN_SQL_TYPES[name] ||
+              this.inferSqlTypeForField(data, name);
+            return sqlType
+              ? { name, valueSql: `CAST(NULL AS ${sqlType})` }
+              : null;
+          })
+          .filter(Boolean);
+        if (additions.length > 0) {
+          await collection.addColumns(additions);
+          this.logger(
+            `Schema migration: added column(s) ${additions
+              .map((a) => a.name)
+              .join(", ")} to existing collection.`
+          );
+        }
+      }
+
+      const finalSchema = await collection.schema();
+      // Boolean columns are filled with `false` instead of null: apache-arrow
+      // JS serializes an all-null Boolean vector with an empty data buffer
+      // that lance rejects ("Need at least 1 bytes for bitmap"), and for our
+      // hard-constraint filters false and null are equivalent (a
+      // `bookable = true` filter excludes both).
+      const fillValues = finalSchema.fields.map((field) => ({
+        name: field.name,
+        fill: String(field.type).toLowerCase().includes("bool") ? false : null,
+      }));
+      return data.map((row) => {
+        const filled = { ...row };
+        for (const { name, fill } of fillValues)
+          if (!(name in filled)) filled[name] = fill;
+        return filled;
+      });
+    } catch (e) {
+      this.logger("alignSchemaForAdd", e.message);
+      return data;
+    }
+  }
+
+  /**
    *
    * @param {LanceClient} client
    * @param {number[]} data
@@ -643,7 +798,8 @@ class LanceDb extends VectorDatabase {
     const hasNamespace = await this.hasNamespace(namespace);
     if (hasNamespace) {
       const collection = await client.openTable(namespace);
-      await collection.add(data);
+      const aligned = await this.alignSchemaForAdd(collection, data);
+      await collection.add(aligned);
       await this.ensureFullTextIndex(collection);
       await this.optimizeFtsIfStale(collection);
       return true;
@@ -858,6 +1014,10 @@ class LanceDb extends VectorDatabase {
    * @param {string[]} [params.filterIdentifiers=[]]
    * @param {("default"|"rerank"|"hybrid"|"hybrid_rerank")} [params.searchMode]
    * @param {boolean} [params.rerank=false] - Deprecated alias for searchMode "rerank".
+   * @param {object|null} [params.filters=null] - Hard-constraint metadata
+   *   filters (KIE-480), validated via sanitizeSearchFilters and applied as
+   *   a .where() prefilter in ALL modes. Invalid fields are dropped; legacy
+   *   tables without the metadata columns fall back to unfiltered queries.
    * @returns {Promise<{contextTexts:string[], sources:object[], message:(string|false)}>}
    */
   async performSimilaritySearch({
@@ -869,6 +1029,7 @@ class LanceDb extends VectorDatabase {
     filterIdentifiers = [],
     searchMode = null,
     rerank = false,
+    filters = null,
   }) {
     if (!namespace || !input || !LLMConnector)
       throw new Error("Invalid request to performSimilaritySearch.");
@@ -891,51 +1052,110 @@ class LanceDb extends VectorDatabase {
         ? "rerank"
         : "default";
 
+    // KIE-480: resolve the metadata filters. Explicit `filters` from the
+    // caller win; otherwise — when the metadata_filters SystemSetting is
+    // "on" — the deterministic German extractor derives them from the
+    // (already rewritten) query. Off/invalid compiles to null clause
+    // (= today's unfiltered behavior).
+    let activeFilters = sanitizeSearchFilters(filters);
+    if (!activeFilters) {
+      try {
+        const enabled = await SystemSettings.getValueOrFallback(
+          { label: "metadata_filters" },
+          "off"
+        );
+        if (enabled === "on") {
+          const locationSetting = await SystemSettings.getValueOrFallback(
+            { label: "metadata_filter_locations" },
+            ""
+          );
+          const knownLocations = String(locationSetting || "")
+            .split(",")
+            .map((loc) => loc.trim())
+            .filter(Boolean);
+          activeFilters = sanitizeSearchFilters(
+            extractFilters(input, { referenceDate: new Date(), knownLocations })
+          );
+        }
+      } catch (e) {
+        this.logger("metadata_filters resolution failed", e.message);
+      }
+    }
+
     const queryVector = await LLMConnector.embedTextInput(input);
-    let result;
-    switch (mode) {
-      case "rerank":
-        result = await this.rerankedSimilarityResponse({
-          client,
-          namespace,
-          query: input,
-          queryVector,
-          similarityThreshold,
-          topN,
-          filterIdentifiers,
-        });
-        break;
-      case "hybrid":
-        result = await this.hybridSimilarityResponse({
-          client,
-          namespace,
-          query: input,
-          queryVector,
-          similarityThreshold,
-          topN,
-          filterIdentifiers,
-        });
-        break;
-      case "hybrid_rerank":
-        result = await this.hybridRerankedSimilarityResponse({
-          client,
-          namespace,
-          query: input,
-          queryVector,
-          similarityThreshold,
-          topN,
-          filterIdentifiers,
-        });
-        break;
-      default:
-        result = await this.similarityResponse({
-          client,
-          namespace,
-          queryVector,
-          similarityThreshold,
-          topN,
-          filterIdentifiers,
-        });
+    const runSearch = async (whereClause) => {
+      switch (mode) {
+        case "rerank":
+          return await this.rerankedSimilarityResponse({
+            client,
+            namespace,
+            query: input,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+            whereClause,
+          });
+        case "hybrid":
+          return await this.hybridSimilarityResponse({
+            client,
+            namespace,
+            query: input,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+            whereClause,
+          });
+        case "hybrid_rerank":
+          return await this.hybridRerankedSimilarityResponse({
+            client,
+            namespace,
+            query: input,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+            whereClause,
+          });
+        default:
+          return await this.similarityResponse({
+            client,
+            namespace,
+            queryVector,
+            similarityThreshold,
+            topN,
+            filterIdentifiers,
+            whereClause,
+          });
+      }
+    };
+
+    // Staged empty-result fallback (KIE-480): (1) full filters, (2) without
+    // the time constraints ("nichts in diesem Quartal — aber ab Oktober…"),
+    // (3) unfiltered. When we relax, the LLM gets an explicit German note so
+    // the answer stays transparent instead of silently ignoring the ask.
+    let result = await runSearch(filtersToWhere(activeFilters));
+    let relaxNote = null;
+    if (activeFilters && result.sourceDocuments.length === 0) {
+      const withoutTime = sanitizeSearchFilters(stripTimeFilters(activeFilters));
+      const hadTime = filtersToWhere(withoutTime) !== filtersToWhere(activeFilters);
+      if (hadTime) {
+        result = await runSearch(filtersToWhere(withoutTime));
+        if (result.sourceDocuments.length > 0)
+          relaxNote =
+            "[Hinweis an den Assistenten: Für den angefragten Zeitraum wurden KEINE passenden Kurse gefunden. Die folgenden Treffer erfüllen die übrigen Kriterien, liegen aber außerhalb des angefragten Zeitraums — weise die Nutzerin/den Nutzer transparent darauf hin und nenne die tatsächlichen Termine.]";
+      }
+      if (result.sourceDocuments.length === 0) {
+        result = await runSearch(null);
+        if (result.sourceDocuments.length > 0)
+          relaxNote =
+            "[Hinweis an den Assistenten: Für die angefragten Kriterien (z. B. Zeitraum, Preis, Ort oder Verfügbarkeit) wurden KEINE passenden Kurse gefunden. Die folgenden Treffer sind thematisch ähnlich, erfüllen die Kriterien aber NICHT — sage das der Nutzerin/dem Nutzer klar und nenne die tatsächlichen Konditionen.]";
+      }
+      if (relaxNote)
+        this.logger(
+          "metadata_filters: empty result — relaxed filters, note injected."
+        );
     }
 
     const { contextTexts, sourceDocuments } = result;
@@ -943,7 +1163,10 @@ class LanceDb extends VectorDatabase {
       return { metadata: { ...metadata, text: contextTexts[i] } };
     });
     return {
-      contextTexts,
+      // The relax note goes to the LLM context ONLY — after the sources
+      // mapping above, so contextTexts[i] <-> sourceDocuments[i] stays
+      // aligned and no citation is fabricated for the note.
+      contextTexts: relaxNote ? [relaxNote, ...contextTexts] : contextTexts,
       sources: this.curateSources(sources),
       message: false,
     };
