@@ -151,6 +151,28 @@ tables via `addColumns` (typed NULLs — no re-embedding needed).
 
 ---
 
+## 3e. Search-Traces: Monitoring & Bewertung (opt-in)
+
+SystemSetting `search_trace` (Settings → Suche & Retrieval → Erweitert):
+
+| Wert | Verhalten |
+|---|---|
+| `off` | Default — nichts wird geschrieben |
+| `on` | Voller Trace, Query nur als SHA1-Hash + Länge |
+| `full` | Zusätzlich der Query-Text — **nur auf Test-Containern** |
+
+Pro Suche entsteht eine JSONL-Zeile unter `STORAGE_DIR/search-traces/traces-YYYY-MM-DD.jsonl` mit: beiden Retrieval-Armen (Latenz, Trefferzahl, Top-20 mit Scores), RRF-Fusion (α, Kandidaten, Arm-Herkunft je Dokument), Reranker (Provider/Modell, Latenz, Degradations-Flag) und den finalen Dokumenten inkl. **Rang-Verschiebung** (RRF-Rang → Final-Rang; `shift > 0` = vom Reranker nach oben geholt). Dokumente erscheinen nur als id/title/Scores — keine Chunk-Volltexte. Tracing ist non-throwing und fire-and-forget (verändert weder Ergebnis noch Latenz messbar; im Manual-Test per Ergebnisvergleich belegt).
+
+Auswertung zu einem Markdown-Bericht (Latenz-Perzentile, Degradations-/Fehlerraten, Ø-Rang-Verschiebung, „Reranker-Rettungen" jenseits topN, BM25- vs. Vektor-Beiträge der finalen Treffer, Relax-Statistik):
+
+```bash
+docker exec <container> node /app/server/utils/vectorDbProviders/lance/searchTraceReport.js
+# oder gezielt eine Datei:
+docker exec <container> node /app/server/utils/vectorDbProviders/lance/searchTraceReport.js /app/server/storage/search-traces/traces-2026-07-08.jsonl
+```
+
+---
+
 ## 4. Two supported wire formats
 
 The external `GenericReranker` speaks two HTTP shapes. Scores are always mapped

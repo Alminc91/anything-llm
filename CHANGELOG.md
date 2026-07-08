@@ -4,6 +4,10 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### Search-Traces — vollständige Hybrid-/Reranker-Metriken (2026-07-08)
+
+**Opt-in** per SystemSetting `search_trace` (off | on | full; GUI: Suche & Retrieval → Erweitert). Pro Suche eine JSONL-Zeile (`storage/search-traces/`): beide Arme (Latenz/Count/Top-Scores), RRF-Fusion (α, Arm-Herkunft), Reranker (Latenz, Degradation) und finale Dokumente mit Rang-Verschiebung (RRF→final). Datenschutz: Docs nur als id/title/Scores; Query-Text nur bei `full`. Auswertung: `searchTraceReport.js` (Latenz-Perzentile, Degradations-Rate, Reranker-Rettungen, BM25-Beiträge). Non-throwing, fire-and-forget — Ergebnis-Neutralität im Manual-Test belegt.
+
 ### KIE-480 — Metadaten-Filter: Zeit, Preis, Status, Format, Ort (2026-07-07)
 
 **Opt-in** per SystemSetting `metadata_filters` (Default aus) + `metadata_filter_locations` (Standort-Whitelist, GUI: Settings → Suche & Retrieval).

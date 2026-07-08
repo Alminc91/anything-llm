@@ -19,6 +19,7 @@ const {
   extractFilters,
   stripTimeFilters,
 } = require("../../chats/metadataFilterExtractor");
+const SearchTrace = require("./searchTrace");
 const path = require("path");
 
 // KIE-480: DataFusion NULL-cast types for the structured course-metadata
@@ -146,6 +147,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     filterIdentifiers = [],
     whereClause = null,
+    trace = null,
   }) {
     const reranker = getRerankerProviderSelection();
     const collection = await client.openTable(namespace);
@@ -173,6 +175,7 @@ class LanceDb extends VectorDatabase {
       10,
       Math.min(50, Math.ceil(totalEmbeddings * 0.1))
     );
+    const vectorStart = Date.now();
     const vectorSearchResults = await this.filteredQueryRows(
       () =>
         collection
@@ -181,7 +184,21 @@ class LanceDb extends VectorDatabase {
           .limit(searchLimit),
       whereClause
     );
+    if (trace)
+      trace.vectorArm = {
+        ms: Date.now() - vectorStart,
+        count: vectorSearchResults.length,
+        error: null,
+        top: SearchTrace.captureRows(vectorSearchResults, "similarity", (r) =>
+          this.distanceToSimilarity(r._distance)
+        ),
+      };
+    // Vektor-Rang je Kandidat (1-basiert) für die Shift-Metrik im Trace.
+    const vectorRankById = trace
+      ? new Map(vectorSearchResults.map((r, i) => [r.id, i + 1]))
+      : null;
 
+    const rerankStart = Date.now();
     await reranker
       .rerank(query, vectorSearchResults, { topK: topN })
       .then((rerankResults) => {
@@ -211,6 +228,38 @@ class LanceDb extends VectorDatabase {
         this.logger("rerankedSimilarityResponse", e.message);
       });
 
+    if (trace) {
+      // rerank_score bleibt via ...rest auf den Docs erhalten und ist der
+      // einzige verlässliche Indikator: `score` wird in diesem Pfad IMMER
+      // gesetzt (Fallback distanceToSimilarity) und taugt nicht zur Erkennung.
+      const degraded = !result.sourceDocuments.some(
+        (d) => typeof d.rerank_score === "number"
+      );
+      trace.rerank = {
+        provider: process.env.RERANKER_PROVIDER || "native",
+        model: process.env.RERANKER_MODEL_PREF || null,
+        ms: Date.now() - rerankStart,
+        sent: vectorSearchResults.length,
+        returned: result.sourceDocuments.length,
+        degraded,
+      };
+      trace.final = {
+        count: result.sourceDocuments.length,
+        docs: result.sourceDocuments.map((d, i) => {
+          const vectorRank = vectorRankById.get(d.id) ?? null;
+          return {
+            finalRank: i + 1,
+            ...SearchTrace.docRef(d),
+            rerankScore: SearchTrace.round(
+              typeof d.score === "number" ? d.score : null
+            ),
+            vectorRank,
+            shift: vectorRank !== null ? vectorRank - (i + 1) : null,
+          };
+        }),
+      };
+    }
+
     return result;
   }
 
@@ -233,6 +282,7 @@ class LanceDb extends VectorDatabase {
     topN = 4,
     filterIdentifiers = [],
     whereClause = null,
+    trace = null,
   }) {
     const collection = await client.openTable(namespace);
     const result = {
@@ -241,11 +291,21 @@ class LanceDb extends VectorDatabase {
       scores: [],
     };
 
+    const vectorStart = Date.now();
     const response = await this.filteredQueryRows(
       () =>
         collection.vectorSearch(queryVector).distanceType("cosine").limit(topN),
       whereClause
     );
+    if (trace)
+      trace.vectorArm = {
+        ms: Date.now() - vectorStart,
+        count: response.length,
+        error: null,
+        top: SearchTrace.captureRows(response, "similarity", (r) =>
+          this.distanceToSimilarity(r._distance)
+        ),
+      };
 
     response.forEach((item) => {
       if (this.distanceToSimilarity(item._distance) < similarityThreshold)
@@ -265,6 +325,16 @@ class LanceDb extends VectorDatabase {
       });
       result.scores.push(this.distanceToSimilarity(item._distance));
     });
+
+    if (trace)
+      trace.final = {
+        count: result.sourceDocuments.length,
+        docs: result.sourceDocuments.map((d, i) => ({
+          finalRank: i + 1,
+          ...SearchTrace.docRef(d),
+          similarity: SearchTrace.round(d.score),
+        })),
+      };
 
     return result;
   }
@@ -392,6 +462,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     filterIdentifiers = [],
     whereClause = null,
+    trace = null,
   }) {
     const collection = await client.openTable(namespace);
     const { hybridWeight, retrievalTopK } = await this.hybridSettings();
@@ -416,6 +487,7 @@ class LanceDb extends VectorDatabase {
       queryVector,
       armLimit,
       whereClause,
+      trace,
     });
 
     const fused = this.weightedRRF(
@@ -423,6 +495,24 @@ class LanceDb extends VectorDatabase {
       ftsRows,
       hybridWeight
     );
+
+    // Trace: Fusion mit Arm-Herkunft je Kandidat (inVector/inFts).
+    const vectorIds = trace ? new Set(vectorRows.map((r) => r.id)) : null;
+    const ftsIds = trace ? new Set(ftsRows.map((r) => r.id)) : null;
+    if (trace) {
+      trace.fusion = {
+        alpha: hybridWeight,
+        armLimit,
+        candidates: fused.length,
+        top: fused.slice(0, SearchTrace.CAPTURE_TOP_N).map((f, i) => ({
+          rank: i + 1,
+          ...SearchTrace.docRef(f.row),
+          rrf: SearchTrace.round(f.score),
+          inVector: vectorIds.has(f.row.id),
+          inFts: ftsIds.has(f.row.id),
+        })),
+      };
+    }
 
     for (const { row, score } of fused) {
       if (result.sourceDocuments.length >= topN) break;
@@ -441,6 +531,18 @@ class LanceDb extends VectorDatabase {
       result.sourceDocuments.push({ ...rest });
       result.scores.push(score);
     }
+
+    if (trace)
+      trace.final = {
+        count: result.sourceDocuments.length,
+        docs: result.sourceDocuments.map((d, i) => ({
+          finalRank: i + 1,
+          ...SearchTrace.docRef(d),
+          rrf: SearchTrace.round(result.scores[i]),
+          inVector: vectorIds.has(d.id),
+          inFts: ftsIds.has(d.id),
+        })),
+      };
 
     return result;
   }
@@ -462,7 +564,10 @@ class LanceDb extends VectorDatabase {
     queryVector,
     armLimit,
     whereClause = null,
+    trace = null,
   }) {
+    let vectorError = null;
+    const vectorStart = Date.now();
     const vectorRows = await this.filteredQueryRows(
       () =>
         collection
@@ -473,10 +578,22 @@ class LanceDb extends VectorDatabase {
       whereClause
     ).catch((e) => {
       this.logger("hybridArms:vector", e.message);
+      vectorError = e.message;
       return [];
     });
+    if (trace)
+      trace.vectorArm = {
+        ms: Date.now() - vectorStart,
+        count: vectorRows.length,
+        error: vectorError,
+        top: SearchTrace.captureRows(vectorRows, "similarity", (r) =>
+          this.distanceToSimilarity(r._distance)
+        ),
+      };
 
     let ftsRows = [];
+    let ftsError = null;
+    const ftsStart = Date.now();
     if (typeof query === "string" && query.trim().length > 0) {
       ftsRows = await this.filteredQueryRows(
         () =>
@@ -487,9 +604,17 @@ class LanceDb extends VectorDatabase {
         whereClause
       ).catch((e) => {
         this.logger("hybridArms:fts", e.message);
+        ftsError = e.message;
         return [];
       });
     }
+    if (trace)
+      trace.ftsArm = {
+        ms: Date.now() - ftsStart,
+        count: ftsRows.length,
+        error: ftsError,
+        top: SearchTrace.captureRows(ftsRows, "bm25", (r) => r._score),
+      };
 
     return { vectorRows, ftsRows };
   }
@@ -523,6 +648,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     filterIdentifiers = [],
     whereClause = null,
+    trace = null,
   }) {
     const collection = await client.openTable(namespace);
     const { hybridWeight, retrievalTopK, instruction } =
@@ -547,6 +673,7 @@ class LanceDb extends VectorDatabase {
       queryVector,
       armLimit,
       whereClause,
+      trace,
     });
 
     // Fuse for (a) dedupe + candidate pool and (b) a deterministic fallback order.
@@ -555,6 +682,23 @@ class LanceDb extends VectorDatabase {
       ftsRows,
       hybridWeight
     );
+
+    // Trace: Fusion mit Arm-Herkunft (inVector/inFts) je Kandidat.
+    const vectorIds = trace ? new Set(vectorRows.map((r) => r.id)) : null;
+    const ftsIds = trace ? new Set(ftsRows.map((r) => r.id)) : null;
+    if (trace)
+      trace.fusion = {
+        alpha: hybridWeight,
+        armLimit,
+        candidates: fused.length,
+        top: fused.slice(0, SearchTrace.CAPTURE_TOP_N).map((f, i) => ({
+          rank: i + 1,
+          ...SearchTrace.docRef(f.row),
+          rrf: SearchTrace.round(f.score),
+          inVector: vectorIds.has(f.row.id),
+          inFts: ftsIds.has(f.row.id),
+        })),
+      };
     if (fused.length === 0) return result;
 
     // Build the reranker candidate list (deduped by id via the fused Map),
@@ -583,7 +727,13 @@ class LanceDb extends VectorDatabase {
       .slice(0, retrievalTopK);
     if (candidates.length === 0) return result;
 
+    // RRF-Rang je Kandidat (1-basiert) — Basis für die Shift-Metrik im Trace.
+    const rrfRankById = trace
+      ? new Map(candidates.map((c, i) => [c.id, i + 1]))
+      : null;
+
     let ordered = candidates;
+    const rerankStart = Date.now();
     await reranker
       .rerank(query, candidates, { topK: topN })
       .then((rerankResults) => {
@@ -596,6 +746,7 @@ class LanceDb extends VectorDatabase {
         this.logger("hybridRerankedSimilarityResponse", e.message);
         ordered = candidates.slice(0, topN);
       });
+    const rerankMs = Date.now() - rerankStart;
 
     for (const item of ordered) {
       if (result.sourceDocuments.length >= topN) break;
@@ -610,6 +761,41 @@ class LanceDb extends VectorDatabase {
         ...(typeof rerank_score === "number" ? { score: rerank_score } : {}),
       });
       result.scores.push(score);
+    }
+
+    if (trace) {
+      // Degradation erkennbar am fehlenden rerank_score (Graceful-Fallback
+      // des Rerankers liefert die Kandidaten unverändert zurück).
+      const degraded = !ordered.some(
+        (item) => typeof item.rerank_score === "number"
+      );
+      trace.rerank = {
+        provider: process.env.RERANKER_PROVIDER || "native",
+        model: process.env.RERANKER_MODEL_PREF || null,
+        ms: rerankMs,
+        sent: candidates.length,
+        returned: ordered.length,
+        degraded,
+      };
+      // Finale Dokumente mit voller Herkunft: Rerank-Score, RRF-Rang →
+      // Final-Rang (shift > 0 = vom Reranker nach oben geholt), Arm-Herkunft.
+      trace.final = {
+        count: result.sourceDocuments.length,
+        docs: result.sourceDocuments.map((d, i) => {
+          const rrfRank = rrfRankById.get(d.id) ?? null;
+          return {
+            finalRank: i + 1,
+            ...SearchTrace.docRef(d),
+            rerankScore: SearchTrace.round(
+              typeof d.score === "number" ? d.score : null
+            ),
+            rrfRank,
+            shift: rrfRank !== null ? rrfRank - (i + 1) : null,
+            inVector: vectorIds.has(d.id),
+            inFts: ftsIds.has(d.id),
+          };
+        }),
+      };
     }
 
     return result;
@@ -1082,8 +1268,26 @@ class LanceDb extends VectorDatabase {
       }
     }
 
+    // Search-Trace (Opt-in via SystemSetting search_trace): vollständige
+    // Hybrid-/Reranker-Metriken pro Suche als JSONL — siehe searchTrace.js.
+    const traceLevel = await SearchTrace.resolveTraceLevel();
+    const trace =
+      traceLevel === "off"
+        ? null
+        : SearchTrace.beginTrace({
+            namespace,
+            mode,
+            query: input,
+            level: traceLevel,
+          });
+    const traceStart = Date.now();
+
     const queryVector = await LLMConnector.embedTextInput(input);
-    const runSearch = async (whereClause) => {
+    const runSearch = async (whereClause, relaxStage = 0) => {
+      if (trace) {
+        trace.relaxStage = relaxStage;
+        trace.whereClause = whereClause || null;
+      }
       switch (mode) {
         case "rerank":
           return await this.rerankedSimilarityResponse({
@@ -1095,6 +1299,7 @@ class LanceDb extends VectorDatabase {
             topN,
             filterIdentifiers,
             whereClause,
+            trace,
           });
         case "hybrid":
           return await this.hybridSimilarityResponse({
@@ -1106,6 +1311,7 @@ class LanceDb extends VectorDatabase {
             topN,
             filterIdentifiers,
             whereClause,
+            trace,
           });
         case "hybrid_rerank":
           return await this.hybridRerankedSimilarityResponse({
@@ -1117,6 +1323,7 @@ class LanceDb extends VectorDatabase {
             topN,
             filterIdentifiers,
             whereClause,
+            trace,
           });
         default:
           return await this.similarityResponse({
@@ -1127,6 +1334,7 @@ class LanceDb extends VectorDatabase {
             topN,
             filterIdentifiers,
             whereClause,
+            trace,
           });
       }
     };
@@ -1135,19 +1343,22 @@ class LanceDb extends VectorDatabase {
     // the time constraints ("nichts in diesem Quartal — aber ab Oktober…"),
     // (3) unfiltered. When we relax, the LLM gets an explicit German note so
     // the answer stays transparent instead of silently ignoring the ask.
-    let result = await runSearch(filtersToWhere(activeFilters));
+    // Bei Relax spiegeln die Arm-/Fusion-Felder im Trace den ZULETZT
+    // ausgeführten Suchlauf (dessen Ergebnis der Nutzer bekam); relaxStage
+    // dokumentiert die Stufe.
+    let result = await runSearch(filtersToWhere(activeFilters), 0);
     let relaxNote = null;
     if (activeFilters && result.sourceDocuments.length === 0) {
       const withoutTime = sanitizeSearchFilters(stripTimeFilters(activeFilters));
       const hadTime = filtersToWhere(withoutTime) !== filtersToWhere(activeFilters);
       if (hadTime) {
-        result = await runSearch(filtersToWhere(withoutTime));
+        result = await runSearch(filtersToWhere(withoutTime), 1);
         if (result.sourceDocuments.length > 0)
           relaxNote =
             "[Hinweis an den Assistenten: Für den angefragten Zeitraum wurden KEINE passenden Kurse gefunden. Die folgenden Treffer erfüllen die übrigen Kriterien, liegen aber außerhalb des angefragten Zeitraums — weise die Nutzerin/den Nutzer transparent darauf hin und nenne die tatsächlichen Termine.]";
       }
       if (result.sourceDocuments.length === 0) {
-        result = await runSearch(null);
+        result = await runSearch(null, 2);
         if (result.sourceDocuments.length > 0)
           relaxNote =
             "[Hinweis an den Assistenten: Für die angefragten Kriterien (z. B. Zeitraum, Preis, Ort oder Verfügbarkeit) wurden KEINE passenden Kurse gefunden. Die folgenden Treffer sind thematisch ähnlich, erfüllen die Kriterien aber NICHT — sage das der Nutzerin/dem Nutzer klar und nenne die tatsächlichen Konditionen.]";
@@ -1156,6 +1367,12 @@ class LanceDb extends VectorDatabase {
         this.logger(
           "metadata_filters: empty result — relaxed filters, note injected."
         );
+    }
+
+    if (trace) {
+      trace.totalMs = Date.now() - traceStart;
+      trace.relaxed = relaxNote !== null;
+      SearchTrace.writeTrace(trace);
     }
 
     const { contextTexts, sourceDocuments } = result;

@@ -917,6 +917,14 @@ const TRANSLATIONS = {
           "e.g. Represent this query for retrieving relevant courses",
       },
     },
+    trace: {
+      title: "Search diagnostics (trace)",
+      description:
+        "Writes full per-search metrics (both retrieval arms, RRF fusion, reranker latency and rank shifts) as JSONL to storage/search-traces/. Documents appear as ID/title/scores only. Use “incl. query text” on test containers only.",
+      off: "Off (default)",
+      on: "On (without query text)",
+      full: "On, incl. query text (test only!)",
+    },
     metadataFilters: {
       title: "Metadata filters (time, price, status, format, location)",
       description:
