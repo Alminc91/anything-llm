@@ -65,6 +65,32 @@ fi
       fi
     fi &&
 
+    # --- KIE-478/480: one-time FTS n-gram index backfill (Hybrid Search) ----
+    # Builds the BM25 full-text index over the EXISTING "text" column so all
+    # workspaces (incl. inactive ones the hourly delta-ingest never touches)
+    # can serve hybrid search. Additive: NO re-embedding, vectors untouched.
+    # Marker-gated (runs once per volume) and fully non-fatal — it must never
+    # block startup or trigger a crash loop. Runs as anythingllm so the index
+    # files are owned by the runtime user.
+    {
+      FTS_MARKER="${STORAGE_DIR:-/app/server/storage}/.fts-ngram-backfill.done"
+      if [ ! -f "$FTS_MARKER" ]; then
+        echo "[entrypoint] Running one-time FTS n-gram backfill (Hybrid Search)..."
+        if [ "$(id -u)" = "0" ] && command -v gosu >/dev/null 2>&1; then
+          FTS_RUN="gosu anythingllm"
+        else
+          FTS_RUN=""
+        fi
+        if $FTS_RUN node /app/server/utils/vectorDbProviders/lance/backfillFtsIndex.js; then
+          $FTS_RUN touch "$FTS_MARKER" 2>/dev/null || touch "$FTS_MARKER" 2>/dev/null || true
+          echo "[entrypoint] ✅ FTS backfill complete — marker set."
+        else
+          echo "[entrypoint] ⚠️  FTS backfill returned non-zero — continuing startup; will retry on next start."
+        fi
+      fi
+      true
+    } &&
+
     # Drop to anythingllm user if running as root
     if [ "$(id -u)" = "0" ] && command -v gosu >/dev/null 2>&1; then
       exec gosu anythingllm node /app/server/index.js
