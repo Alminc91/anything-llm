@@ -17,6 +17,7 @@ const SYSTEM_PREF_FIELDS = [
   "reranker_retrieval_topk",
   "metadata_filters",
   "metadata_filter_locations",
+  "search_trace",
 ];
 
 export default function SearchRetrievalPreference() {
@@ -50,6 +51,8 @@ export default function SearchRetrievalPreference() {
       const rerankerInstruction = form.get("reranker_instruction");
       if (rerankerInstruction !== null)
         prefsUpdate.reranker_instruction = rerankerInstruction;
+      const searchTrace = form.get("search_trace");
+      if (searchTrace !== null) prefsUpdate.search_trace = searchTrace;
       await Admin.updateSystemPreferences(prefsUpdate);
 
       // ENV keys (persisted via dumpENV through KEY_MAPPING). The provider
@@ -405,6 +408,31 @@ export default function SearchRetrievalPreference() {
                       autoComplete="off"
                       className={inputClass}
                     />
+                  </div>
+
+                  {/* Search-Trace (Diagnostik) */}
+                  <div className="flex flex-col max-w-[500px]">
+                    <div className="flex flex-col gap-y-2 mb-4">
+                      <label className="text-white text-sm font-semibold block">
+                        {t("searchRetrieval.trace.title")}
+                      </label>
+                      <p className="text-xs text-white/60">
+                        {t("searchRetrieval.trace.description")}
+                      </p>
+                    </div>
+                    <select
+                      name="search_trace"
+                      defaultValue={settings?.search_trace ?? "off"}
+                      className={inputClass}
+                    >
+                      <option value="off">
+                        {t("searchRetrieval.trace.off")}
+                      </option>
+                      <option value="on">{t("searchRetrieval.trace.on")}</option>
+                      <option value="full">
+                        {t("searchRetrieval.trace.full")}
+                      </option>
+                    </select>
                   </div>
 
                   {/* Reranker Timeout */}

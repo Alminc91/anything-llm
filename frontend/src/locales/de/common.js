@@ -911,6 +911,14 @@ const TRANSLATIONS = {
           "z. B. Repräsentiere diese Anfrage zum Abrufen relevanter Kurse",
       },
     },
+    trace: {
+      title: "Such-Diagnose (Trace)",
+      description:
+        "Schreibt pro Suchanfrage vollständige Metriken (beide Such-Arme, RRF-Fusion, Reranker-Latenz und Rang-Verschiebungen) als JSONL nach storage/search-traces/. Dokumente nur als ID/Titel/Scores. „Inkl. Fragetext“ nur auf Test-Containern verwenden.",
+      off: "Aus (Standard)",
+      on: "An (ohne Fragetext)",
+      full: "An, inkl. Fragetext (nur Test!)",
+    },
     metadataFilters: {
       title: "Metadaten-Filter (Zeit, Preis, Status, Format, Ort)",
       description:

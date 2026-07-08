@@ -46,6 +46,7 @@ const SystemSettings = {
     "reranker_retrieval_topk",
     "metadata_filters",
     "metadata_filter_locations",
+    "search_trace",
   ],
   supportedFields: [
     "logo_filename",
@@ -77,6 +78,7 @@ const SystemSettings = {
     "reranker_retrieval_topk",
     "metadata_filters",
     "metadata_filter_locations",
+    "search_trace",
 
     // Hub settings
     "hub_api_key",
@@ -189,6 +191,17 @@ const SystemSettings = {
         !update ||
         typeof update !== "string" ||
         !["on", "off"].includes(update)
+      )
+        return "off";
+      return String(update);
+    },
+    // Search-Trace (Hybrid-/Reranker-Metriken als JSONL): off | on | full.
+    // "full" schreibt zusätzlich den Query-Text mit (nur für Test-Container).
+    search_trace: (update) => {
+      if (
+        !update ||
+        typeof update !== "string" ||
+        !["off", "on", "full"].includes(update)
       )
         return "off";
       return String(update);
