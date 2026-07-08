@@ -1,5 +1,6 @@
 const { v4 } = require("uuid");
 const { getVectorDbClass, getLLMProvider } = require("../../../helpers");
+const { Workspace } = require("../../../../models/workspace");
 const { Deduplicator } = require("../utils/dedupe");
 
 const memory = {
@@ -99,7 +100,9 @@ const memory = {
                   input: query,
                   LLMConnector,
                   topN: workspace?.topN ?? 4,
-                  rerank: workspace?.vectorSearchMode === "rerank",
+                  searchMode: await Workspace._resolveVectorSearchMode(
+                    workspace?.vectorSearchMode
+                  ),
                 });
 
               if (contextTexts.length === 0) {

@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require("uuid");
 const { DocumentManager } = require("../DocumentManager");
 const { WorkspaceChats } = require("../../models/workspaceChats");
+const { Workspace } = require("../../models/workspace");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const {
@@ -122,19 +123,23 @@ async function chatSync({
 }) {
   const uuid = uuidv4();
   const chatMode = mode ?? "chat";
-  
+
   // Check if workspace has reached message limit
   const { checkWorkspaceMessagesLimit } = require("../helpers");
-  const { limitReached, errorData } = await checkWorkspaceMessagesLimit(workspace, null, { 
-    returnData: true,
-    uuid
-  });
-  
+  const { limitReached, errorData } = await checkWorkspaceMessagesLimit(
+    workspace,
+    null,
+    {
+      returnData: true,
+      uuid,
+    }
+  );
+
   if (limitReached) {
     // Add HTTP status code flag for the endpoint handler to use
     return {
       ...errorData,
-      httpStatusCode: 429
+      httpStatusCode: 429,
     };
   }
 
@@ -324,7 +329,9 @@ async function chatSync({
           similarityThreshold: workspace?.similarityThreshold,
           topN: workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
-          rerank: workspace?.vectorSearchMode === "rerank",
+          searchMode: await Workspace._resolveVectorSearchMode(
+            workspace?.vectorSearchMode
+          ),
         })
       : {
           contextTexts: [],
@@ -496,16 +503,20 @@ async function streamChat({
 }) {
   const uuid = uuidv4();
   const chatMode = mode ?? "chat";
-  
+
   // Check if workspace has reached message limit
   const { checkWorkspaceMessagesLimit } = require("../helpers");
-  const { limitReached } = await checkWorkspaceMessagesLimit(workspace, response, { 
-    isStreaming: true, 
-    writeResponseChunk, 
-    attachments,
-    uuid
-  });
-  
+  const { limitReached } = await checkWorkspaceMessagesLimit(
+    workspace,
+    response,
+    {
+      isStreaming: true,
+      writeResponseChunk,
+      attachments,
+      uuid,
+    }
+  );
+
   if (limitReached) {
     return;
   }
@@ -608,13 +619,13 @@ async function streamChat({
     const textResponse =
       workspace?.queryRefusalResponse ??
       "There is no relevant information in this workspace to answer your query.";
-    
+
     // Get message count for contingent parameter
     const messageCount = await WorkspaceChats.count({
       workspaceId: workspace.id,
     });
     const messagesLimit = workspace.messagesLimit;
-    
+
     writeResponseChunk(response, {
       id: uuid,
       type: "textResponse",
@@ -624,7 +635,7 @@ async function streamChat({
       close: true,
       error: null,
       metrics: {},
-      contingent: `${messageCount}/${messagesLimit ?? 'Unlimited'}`,
+      contingent: `${messageCount}/${messagesLimit ?? "Unlimited"}`,
       messages_limit: messagesLimit,
     });
     await WorkspaceChats.new({
@@ -717,7 +728,9 @@ async function streamChat({
           similarityThreshold: workspace?.similarityThreshold,
           topN: workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
-          rerank: workspace?.vectorSearchMode === "rerank",
+          searchMode: await Workspace._resolveVectorSearchMode(
+            workspace?.vectorSearchMode
+          ),
         })
       : {
           contextTexts: [],

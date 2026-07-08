@@ -88,11 +88,9 @@ const TRANSLATIONS = {
     "welcome-messages-updated":
       "Willkommensnachrichten erfolgreich aktualisiert.",
     "welcome-messages-max": "Maximal 4 Nachrichten erlaubt.",
-    "pfp-upload-error":
-      "Fehler beim Hochladen des Profilbilds: {{error}}",
+    "pfp-upload-error": "Fehler beim Hochladen des Profilbilds: {{error}}",
     "pfp-uploaded": "Profilbild hochgeladen.",
-    "pfp-remove-error":
-      "Fehler beim Entfernen des Profilbilds: {{error}}",
+    "pfp-remove-error": "Fehler beim Entfernen des Profilbilds: {{error}}",
     llm: {
       "save-success": "LLM-Einstellungen erfolgreich gespeichert.",
       "save-error": "Fehler beim Speichern der LLM-Einstellungen: {{error}}",
@@ -110,8 +108,7 @@ const TRANSLATIONS = {
         "Fehler beim Speichern der Text-zu-Sprache-Einstellungen: {{error}}",
     },
     vector: {
-      "save-success":
-        "Vektordatenbank-Einstellungen erfolgreich gespeichert.",
+      "save-success": "Vektordatenbank-Einstellungen erfolgreich gespeichert.",
       "save-error":
         "Fehler beim Speichern der Vektordatenbank-Einstellungen: {{error}}",
     },
@@ -121,15 +118,13 @@ const TRANSLATIONS = {
         "Fehler beim Speichern der Einbettungs-Einstellungen: {{error}}",
     },
     transcription: {
-      "save-success":
-        "Transkriptions-Einstellungen erfolgreich gespeichert.",
+      "save-success": "Transkriptions-Einstellungen erfolgreich gespeichert.",
       "save-error":
         "Fehler beim Speichern der Transkriptions-Einstellungen: {{error}}",
     },
     settings: {
       "app-name-success": "App-Name erfolgreich aktualisiert.",
-      "app-name-error":
-        "Fehler beim Aktualisieren des App-Namens: {{error}}",
+      "app-name-error": "Fehler beim Aktualisieren des App-Namens: {{error}}",
       "welcome-messages-success":
         "Willkommensnachrichten erfolgreich aktualisiert.",
       "welcome-messages-error":
@@ -146,14 +141,11 @@ const TRANSLATIONS = {
       "logo-remove-error": "Fehler beim Entfernen des Logos: {{error}}",
     },
     security: {
-      "multi-user-enabled":
-        "Mehrbenutzermodus erfolgreich aktiviert.",
+      "multi-user-enabled": "Mehrbenutzermodus erfolgreich aktiviert.",
       "multi-user-error":
         "Fehler beim Aktivieren des Mehrbenutzermodus: {{error}}",
-      "page-refresh":
-        "Die Seite wird in wenigen Sekunden aktualisiert.",
-      "password-error":
-        "Fehler beim Aktualisieren des Passworts: {{error}}",
+      "page-refresh": "Die Seite wird in wenigen Sekunden aktualisiert.",
+      "password-error": "Fehler beim Aktualisieren des Passworts: {{error}}",
       "password-chars":
         "Ihr Passwort enthält unzulässige Zeichen. Erlaubte Symbole sind _,-,!,@,$,%,^,&,*,(,),;",
     },
@@ -163,27 +155,22 @@ const TRANSLATIONS = {
       disconnected: "Vom AnythingLLM Community Hub getrennt",
       "disconnect-error": "Fehler beim Trennen vom Hub",
       "enter-item-id": "Bitte geben Sie eine Element-ID ein",
-      "applying-prompt":
-        "Systemprompt wird auf den Workspace angewendet...",
-      "apply-prompt-error":
-        "Fehler beim Anwenden des Systemprompts. {{error}}",
+      "applying-prompt": "Systemprompt wird auf den Workspace angewendet...",
+      "apply-prompt-error": "Fehler beim Anwenden des Systemprompts. {{error}}",
       "prompt-applied": "Systemprompt auf Workspace angewendet.",
     },
     "browser-ext": {
-      revoked:
-        "Browser-Extension API-Schlüssel dauerhaft widerrufen",
+      revoked: "Browser-Extension API-Schlüssel dauerhaft widerrufen",
       "revoke-error": "Fehler beim Widerrufen des API-Schlüssels",
       copied: "Verbindungszeichenfolge in die Zwischenablage kopiert",
-      connecting:
-        "Verbindung zur Browser-Extension wird hergestellt...",
+      connecting: "Verbindung zur Browser-Extension wird hergestellt...",
     },
     mobile: {
       granted: "Gerätezugriff gewährt",
       denied: "Gerätezugriff verweigert",
     },
     "embed-chats": {
-      "export-success":
-        "Embed-Chats erfolgreich als {{name}} exportiert.",
+      "export-success": "Embed-Chats erfolgreich als {{name}} exportiert.",
       "export-error": "Fehler beim Exportieren der Embed-Chats.",
     },
     "text-splitter": {
@@ -195,8 +182,7 @@ const TRANSLATIONS = {
         "Der Chunk-Overlap darf nicht größer oder gleich der Chunk-Größe sein.",
     },
     admin: {
-      "agent-flow-load-error":
-        "Verfügbare Flows konnten nicht geladen werden",
+      "agent-flow-load-error": "Verfügbare Flows konnten nicht geladen werden",
       "agent-flow-load-single-error": "Flow konnte nicht geladen werden",
       "agent-flow-saved": "Agenten-Flow erfolgreich gespeichert!",
       "agent-flow-save-error":
@@ -209,37 +195,29 @@ const TRANSLATIONS = {
       "flow-toggle-error": "Flow konnte nicht umgeschaltet werden",
       "skill-activated": "Skill aktiviert.",
       "skill-deactivated": "Skill deaktiviert.",
-      "skill-config-updated":
-        "Skill-Konfiguration erfolgreich aktualisiert.",
+      "skill-config-updated": "Skill-Konfiguration erfolgreich aktualisiert.",
       "skill-deleted": "Skill erfolgreich gelöscht.",
       "skill-delete-error": "Skill konnte nicht gelöscht werden.",
       "mcp-server-deleted": "MCP-Server erfolgreich gelöscht.",
-      "mcp-server-delete-error":
-        "MCP-Server konnte nicht gelöscht werden.",
-      "mcp-server-toggled":
-        "MCP-Server {{name}} erfolgreich {{state}}.",
-      "mcp-server-toggle-error":
-        "MCP-Server konnte nicht umgeschaltet werden.",
+      "mcp-server-delete-error": "MCP-Server konnte nicht gelöscht werden.",
+      "mcp-server-toggled": "MCP-Server {{name}} erfolgreich {{state}}.",
+      "mcp-server-toggle-error": "MCP-Server konnte nicht umgeschaltet werden.",
       "default-prompt-updated":
         "Standard-Systemprompt erfolgreich aktualisiert.",
       "default-prompt-update-error":
         "Fehler beim Aktualisieren des Standard-Systemprompts: {{error}}",
       "variable-updated": "Variable erfolgreich aktualisiert",
       "variable-deleted": "Variable erfolgreich gelöscht",
-      "variable-delete-error":
-        "Variable konnte nicht gelöscht werden",
+      "variable-delete-error": "Variable konnte nicht gelöscht werden",
       "variable-created": "Variable erfolgreich erstellt",
       "variables-not-found": "Keine Variablen gefunden",
       "user-deleted": "Benutzer aus dem System gelöscht.",
       "user-suspended": "Benutzer wurde gesperrt.",
       "user-unsuspended": "Benutzer ist nicht mehr gesperrt.",
       "logs-cleared": "Ereignisprotokolle erfolgreich gelöscht.",
-      "logs-clear-error":
-        "Fehler beim Löschen der Protokolle: {{error}}",
-      "invite-copied":
-        "Einladungslink in die Zwischenablage kopiert",
-      "feature-update-error":
-        "Fehler beim Aktualisieren des Feature-Status.",
+      "logs-clear-error": "Fehler beim Löschen der Protokolle: {{error}}",
+      "invite-copied": "Einladungslink in die Zwischenablage kopiert",
+      "feature-update-error": "Fehler beim Aktualisieren des Feature-Status.",
       "livesync-enabled":
         "Live-Dokumentinhaltssynchronisierung wurde aktiviert.",
       "livesync-disabled":
@@ -267,16 +245,11 @@ const TRANSLATIONS = {
         "Thread konnte nicht aktualisiert werden! {{message}}",
       "thread-delete-error": "Thread konnte nicht gelöscht werden!",
       "thread-deleted": "Thread erfolgreich gelöscht!",
-      "workspace-reorder-error":
-        "Workspaces konnten nicht neu sortiert werden",
-      "files-embedded":
-        "{{count}} {{fileWord}} erfolgreich eingebettet",
-      "files-embed-error":
-        "Dateien konnten nicht eingebettet werden",
-      "tts-play-error":
-        "TTS-Audio konnte nicht abgespielt werden",
-      "piper-voices-flushed":
-        "Alle Stimmen aus dem Browserspeicher gelöscht",
+      "workspace-reorder-error": "Workspaces konnten nicht neu sortiert werden",
+      "files-embedded": "{{count}} {{fileWord}} erfolgreich eingebettet",
+      "files-embed-error": "Dateien konnten nicht eingebettet werden",
+      "tts-play-error": "TTS-Audio konnte nicht abgespielt werden",
+      "piper-voices-flushed": "Alle Stimmen aus dem Browserspeicher gelöscht",
       "obsidian-importing":
         "Obsidian-Vault wird importiert – dies kann eine Weile dauern.",
       "obsidian-import-success":
@@ -285,16 +258,13 @@ const TRANSLATIONS = {
         "{{successCount}} Dateien importiert, {{failCount}} fehlgeschlagen",
       "website-scraping":
         "Website wird gescrapt – dies kann eine Weile dauern.",
-      "website-scrape-success":
-        "{{count}} {{pageWord}} erfolgreich gescrapt!",
-      "youtube-fetching":
-        "Transkript für YouTube-Video wird abgerufen.",
+      "website-scrape-success": "{{count}} {{pageWord}} erfolgreich gescrapt!",
+      "youtube-fetching": "Transkript für YouTube-Video wird abgerufen.",
       "youtube-transcription-complete":
         "{{title}} von {{author}} – Transkription abgeschlossen. Ausgabeordner ist {{destination}}.",
     },
     hooks: {
-      "provider-endpoint-discovered":
-        "Provider-Endpunkt automatisch erkannt.",
+      "provider-endpoint-discovered": "Provider-Endpunkt automatisch erkannt.",
       "provider-endpoint-manual":
         "Provider-Endpunkt konnte nicht automatisch erkannt werden. Bitte geben Sie ihn manuell ein.",
     },
@@ -846,6 +816,29 @@ const TRANSLATIONS = {
     },
   },
   // Suche & Retrieval
+  vectorSearchMode: {
+    title: "Suchmodus",
+    default: {
+      label: "Standard",
+      description:
+        "Reine Vektorsuche — schnellste Antwortzeit. Hinweis: Ist global ein anderer Suchmodus als Standard aktiv, folgt dieser Workspace dem globalen Modus.",
+    },
+    rerank: {
+      label: "Genauigkeit optimiert",
+      description:
+        "Antworten können etwas länger dauern, sind dafür genauer und relevanter (Reranking der Vektor-Treffer).",
+    },
+    hybrid: {
+      label: "Hybrid (Vektor + Stichwort)",
+      description:
+        "Kombiniert semantische Vektorsuche mit BM25-Stichwortsuche (gewichtete RRF-Fusion). Verbessert Treffer für exakte Begriffe, Namen und Kursnummern.",
+    },
+    hybrid_rerank: {
+      label: "Hybrid + Reranker",
+      description:
+        "Hybrid-Suche, danach bestimmt ein Reranker die finale Reihenfolge. Höchste Genauigkeit, Antworten können länger dauern. Benötigt einen konfigurierten Reranker.",
+    },
+  },
   searchRetrieval: {
     title: "Suche & Retrieval",
     description:
@@ -856,6 +849,67 @@ const TRANSLATIONS = {
         "Wenn aktiviert, werden Folgefragen anhand des Chat-Verlaufs in eigenständige Suchanfragen umgeschrieben, was die RAG-Ergebnisse in mehrstufigen Gesprächen verbessert.",
       on: "An — Folgefragen umschreiben (empfohlen)",
       off: "Aus — Anfragen unverändert senden",
+    },
+    hybrid: {
+      title: "Hybride Suche & Reranking",
+      description:
+        "Konfigurieren Sie die globale Standard-Suchstrategie und einen optionalen externen Reranker. Dies sind Standardwerte — einzelne Workspaces können den Suchmodus überschreiben.",
+      mode: {
+        title: "Standard-Suchmodus",
+        description:
+          "Die Suchstrategie, die für Workspaces gilt, die keinen eigenen Modus festlegen. Hinweis: Auf LanceDB 0.15.0 wird beim Keyword-Arm (BM25) kein deutsches Stemming durchgeführt — hybride Suche hilft vor allem bei exakten Token (Kursnummern, Dozentennamen, Daten), nicht bei Wortvarianten wie Kurs/Kurse.",
+        default: "Vektor — reine semantische Suche (Standard)",
+        rerank: "Rerank — Vektorsuche, danach Reranking der Ergebnisse",
+        hybrid: "Hybrid — Vektor- + Keyword-Suche (BM25) kombinieren",
+        hybrid_rerank:
+          "Hybrid + Rerank — Vektor + Keyword kombinieren, dann Reranking (empfohlen)",
+      },
+      provider: {
+        title: "Reranker-Anbieter",
+        description:
+          "Das Wire-Format des externen Reranking-Dienstes. Belassen Sie „Nativ“, um den integrierten On-Device-Reranker zu verwenden.",
+        native: "Nativ — integrierter On-Device-Reranker",
+        cohere: "Cohere-kompatibel (LiteLLM, vLLM, Jina, Infinity, Voyage)",
+        tei: "TEI — HuggingFace Text-Embeddings-Inference",
+      },
+      basePath: {
+        title: "Reranker-Basis-URL",
+        description:
+          "Die Basis-URL Ihres Reranker-Dienstes (z. B. http://localhost:8080). Verwenden Sie in Docker den Dienstnamen (http://vllm-reranker:8000), nicht localhost. /rerank wird angehängt, falls Sie es weglassen.",
+      },
+      model: {
+        title: "Reranker-Modell",
+        description: "Der an den Reranker-Dienst übergebene Modellname.",
+      },
+      apiKey: {
+        title: "Reranker-API-Schlüssel",
+        description:
+          "Optionales Bearer-Token, das an den Reranker-Dienst gesendet wird. Für einen vertrauenswürdigen In-Cluster- oder gemeinsamen Reranker-Container leer lassen.",
+        placeholder: "sk-... (leer lassen, falls nicht erforderlich)",
+      },
+      candidates: {
+        title: "Retrieval-Kandidaten",
+        description:
+          "Wie viele Kandidaten insgesamt an den Reranker gehen (1-500). Auf der GPU sind 100+ unkritisch; der native CPU-Reranker wird bei hohen Werten sehr langsam.",
+      },
+      advanced: "Erweiterte Einstellungen",
+      timeout: {
+        title: "Reranker-Timeout (ms)",
+        description:
+          "Wartezeit auf den Reranker-Dienst, bevor die Anfrage ohne Reranking fortgesetzt wird (500-60000 ms). Betrifft nur den Ausfall-Fall, nicht den Normalbetrieb.",
+      },
+      weight: {
+        title: "Hybrid-Vektorgewicht (Alpha)",
+        description:
+          "Gewicht für den Vektor-Arm in der RRF-Fusion (0-1). Höher bevorzugt semantische Suche; niedriger bevorzugt Keyword-Suche.",
+      },
+      instruction: {
+        title: "Reranker-Anweisung",
+        description:
+          "Optionale Anweisung, die der Anfrage für instruktionsgesteuerte Reranker vorangestellt wird.",
+        placeholder:
+          "z. B. Repräsentiere diese Anfrage zum Abrufen relevanter Kurse",
+      },
     },
   },
 
@@ -1064,7 +1118,8 @@ const TRANSLATIONS = {
     "no-conversations": "Keine Konversationen gefunden.",
     "no-chats": "Keine Chats gefunden.",
     "retention-header": "ℹ️ DSGVO-Datenlöschung aktiv",
-    "cutoff-date": "Aufbewahrung {{days}} Tage — heutige Chats verfallen am {{date}}",
+    "cutoff-date":
+      "Aufbewahrung {{days}} Tage — heutige Chats verfallen am {{date}}",
     table: {
       embed: "Einbettung",
       sender: "Absender",
@@ -1538,8 +1593,7 @@ const TRANSLATIONS = {
       "load-error": "Nutzungsdaten konnten nicht geladen werden.",
       loading: "Lade Nutzungsdaten...",
       "your-quota": "Ihr Kontingent",
-      "quota-description":
-        "Übersicht über Ihre Nutzung in diesem Workspace.",
+      "quota-description": "Übersicht über Ihre Nutzung in diesem Workspace.",
       "unlimited-quota": "Unbegrenztes Kontingent",
       "unlimited-description":
         "Sie können diesen Workspace ohne Einschränkungen nutzen.",

@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require("uuid");
 const { DocumentManager } = require("../DocumentManager");
 const { WorkspaceChats } = require("../../models/workspaceChats");
+const { Workspace } = require("../../models/workspace");
 const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
@@ -163,7 +164,9 @@ async function streamChatWithWorkspace(
           similarityThreshold: workspace?.similarityThreshold,
           topN: workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
-          rerank: workspace?.vectorSearchMode === "rerank",
+          searchMode: await Workspace._resolveVectorSearchMode(
+            workspace?.vectorSearchMode
+          ),
         })
       : {
           contextTexts: [],
@@ -175,8 +178,9 @@ async function streamChatWithWorkspace(
   if (!!vectorSearchResults.message) {
     // Get message limit info using the helper function
     const { getMessageLimitInfo } = require("../helpers");
-    const { contingent, messagesLimit: currentLimit } = await getMessageLimitInfo(workspace);
-    
+    const { contingent, messagesLimit: currentLimit } =
+      await getMessageLimitInfo(workspace);
+
     writeResponseChunk(response, {
       id: uuid,
       type: "abort",
@@ -210,13 +214,17 @@ async function streamChatWithWorkspace(
 
   // Check if workspace has reached message limit
   const { checkWorkspaceMessagesLimit } = require("../helpers");
-  const { limitReached, messageCount } = await checkWorkspaceMessagesLimit(workspace, response, { 
-    isStreaming: true, 
-    writeResponseChunk,
-    attachments,
-    uuid
-  });
-  
+  const { limitReached, messageCount } = await checkWorkspaceMessagesLimit(
+    workspace,
+    response,
+    {
+      isStreaming: true,
+      writeResponseChunk,
+      attachments,
+      uuid,
+    }
+  );
+
   if (limitReached) {
     return;
   }
@@ -227,11 +235,12 @@ async function streamChatWithWorkspace(
     const textResponse =
       workspace?.queryRefusalResponse ??
       "There is no relevant information in this workspace to answer your query.";
-    
+
     // Get message limit info using the helper function
     const { getMessageLimitInfo } = require("../helpers");
-    const { contingent, messagesLimit: currentLimit } = await getMessageLimitInfo(workspace);
-    
+    const { contingent, messagesLimit: currentLimit } =
+      await getMessageLimitInfo(workspace);
+
     writeResponseChunk(response, {
       id: uuid,
       type: "textResponse",
@@ -324,8 +333,9 @@ async function streamChatWithWorkspace(
 
     // Get updated message limit info
     const { getMessageLimitInfo } = require("../helpers");
-    const { contingent, messagesLimit: currentLimit } = await getMessageLimitInfo(workspace);
-    
+    const { contingent, messagesLimit: currentLimit } =
+      await getMessageLimitInfo(workspace);
+
     writeResponseChunk(response, {
       uuid,
       type: "finalizeResponseStream",
@@ -341,8 +351,9 @@ async function streamChatWithWorkspace(
 
   // Get updated message limit info
   const { getMessageLimitInfo } = require("../helpers");
-  const { contingent, messagesLimit: currentLimit } = await getMessageLimitInfo(workspace);
-  
+  const { contingent, messagesLimit: currentLimit } =
+    await getMessageLimitInfo(workspace);
+
   writeResponseChunk(response, {
     uuid,
     type: "finalizeResponseStream",

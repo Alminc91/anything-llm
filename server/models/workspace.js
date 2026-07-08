@@ -38,12 +38,58 @@ const Workspace = {
    * Priority: workspace override > system setting > ENV > "off"
    */
   _resolveQueryRewriteMode: async function (workspaceValue) {
-    if (workspaceValue === "on" || workspaceValue === "off") return workspaceValue;
-    const systemDefault = (
-      await SystemSettings.getValueOrFallback({ label: "query_rewrite_default" }, null)
+    if (workspaceValue === "on" || workspaceValue === "off")
+      return workspaceValue;
+    const systemDefault = await SystemSettings.getValueOrFallback(
+      { label: "query_rewrite_default" },
+      null
     );
     if (systemDefault === "on" || systemDefault === "off") return systemDefault;
     return process.env.QUERY_REWRITING === "true" ? "on" : "off";
+  },
+
+  /**
+   * The valid vector search modes a workspace (or the global default) may use.
+   * - `default`: pure dense vector search (unchanged legacy behavior).
+   * - `rerank`: dense vector search followed by a reranker.
+   * - `hybrid`: weighted RRF fusion of dense vector + BM25 full-text search.
+   * - `hybrid_rerank`: union of both arms, deduped, then reranked.
+   * @type {string[]}
+   */
+  validVectorSearchModes: ["default", "rerank", "hybrid", "hybrid_rerank"],
+
+  /**
+   * Resolve the effective vector search mode for a workspace.
+   * Priority: workspace override > system setting > ENV > "default".
+   * Mirrors {@link Workspace._resolveQueryRewriteMode}.
+   *
+   * NOTE: The `vectorSearchMode` column has a non-null schema default of
+   * `"default"` (schema.prisma:147) and the field validation coerces any
+   * invalid value to `"default"` (never null). We therefore treat a
+   * workspace value of `"default"` as "not overridden" so that a globally
+   * configured `vector_search_default` SystemSetting (or the
+   * `VECTOR_SEARCH_DEFAULT` env var) can take effect. The trade-off is that
+   * a workspace cannot explicitly pin itself to pure-vector `"default"` while
+   * a non-default global is active — matching the documented resolution chain.
+   * @param {string|null} workspaceValue - The per-workspace `vectorSearchMode` value (may be null).
+   * @returns {Promise<"default"|"rerank"|"hybrid"|"hybrid_rerank">} The resolved search mode.
+   */
+  _resolveVectorSearchMode: async function (workspaceValue) {
+    // An explicit non-"default" workspace override always wins.
+    if (
+      this.validVectorSearchModes.includes(workspaceValue) &&
+      workspaceValue !== "default"
+    )
+      return workspaceValue;
+    const systemDefault = await SystemSettings.getValueOrFallback(
+      { label: "vector_search_default" },
+      null
+    );
+    if (this.validVectorSearchModes.includes(systemDefault))
+      return systemDefault;
+    const envDefault = process.env.VECTOR_SEARCH_DEFAULT;
+    if (this.validVectorSearchModes.includes(envDefault)) return envDefault;
+    return "default";
   },
 
   // Default settings for workspaces
@@ -51,13 +97,13 @@ const Workspace = {
     // Default temperature values by provider
     temperature: {
       mistral: 0.15,
-      default: 0.7
+      default: 0.7,
     },
     historyCount: 20,
     similarityThreshold: 0.25,
     topN: 4,
     chatMode: "chat",
-    vectorSearchMode: "default"
+    vectorSearchMode: "default",
   },
 
   defaultPrompt: SystemSettings.saneDefaultSystemPrompt,
@@ -99,25 +145,27 @@ const Workspace = {
       // Get the appropriate default temperature based on provider
       const getDefaultTemp = () => {
         const tempDefaults = Workspace.defaults.temperature;
-        return provider && tempDefaults[provider] !== undefined 
-          ? tempDefaults[provider] 
+        return provider && tempDefaults[provider] !== undefined
+          ? tempDefaults[provider]
           : tempDefaults.default;
       };
-      
+
       if (value === null || value === undefined) return getDefaultTemp();
       const temp = parseFloat(value);
       if (isNullOrNaN(temp) || temp < 0) return getDefaultTemp();
       return temp;
     },
     openAiHistory: (value) => {
-      if (value === null || value === undefined) return Workspace.defaults.historyCount;
+      if (value === null || value === undefined)
+        return Workspace.defaults.historyCount;
       const history = parseInt(value);
       if (isNullOrNaN(history)) return Workspace.defaults.historyCount;
       if (history < 0) return 0;
       return history;
     },
     similarityThreshold: (value) => {
-      if (value === null || value === undefined) return Workspace.defaults.similarityThreshold;
+      if (value === null || value === undefined)
+        return Workspace.defaults.similarityThreshold;
       const threshold = parseFloat(value);
       if (isNullOrNaN(threshold)) return Workspace.defaults.similarityThreshold;
       if (threshold < 0) return 0.0;
@@ -132,7 +180,8 @@ const Workspace = {
       return n;
     },
     chatMode: (value) => {
-      if (!value || !["chat", "query"].includes(value)) return Workspace.defaults.chatMode;
+      if (!value || !["chat", "query"].includes(value))
+        return Workspace.defaults.chatMode;
       return value;
     },
     chatProvider: (value) => {
@@ -163,7 +212,7 @@ const Workspace = {
       if (
         !value ||
         typeof value !== "string" ||
-        !["default", "rerank"].includes(value)
+        !Workspace.validVectorSearchModes.includes(value)
       )
         return Workspace.defaults.vectorSearchMode;
       return value;
@@ -174,19 +223,19 @@ const Workspace = {
       return value;
     },
     messagesLimit: (value) => {
-      if (value === null || value === undefined || value === '') return null;
+      if (value === null || value === undefined || value === "") return null;
       const limit = parseInt(value);
       if (isNullOrNaN(limit) || limit < 0) return null;
       return limit;
     },
     cycleStartDate: (value) => {
-      if (value === null || value === undefined || value === '') return null;
+      if (value === null || value === undefined || value === "") return null;
       const date = new Date(value);
       if (isNaN(date.getTime())) return null;
       return date;
     },
     cycleDurationMonths: (value) => {
-      if (value === null || value === undefined || value === '') return null;
+      if (value === null || value === undefined || value === "") return null;
       const months = parseInt(value);
       // Only allow divisors of 12 for yearly consistency
       const validDurations = [1, 2, 3, 4, 6, 12];
@@ -355,7 +404,9 @@ const Workspace = {
       return {
         ...workspace,
         queryRewriteModeRaw: workspace.queryRewriteMode,
-        queryRewriteMode: await this._resolveQueryRewriteMode(workspace.queryRewriteMode),
+        queryRewriteMode: await this._resolveQueryRewriteMode(
+          workspace.queryRewriteMode
+        ),
         documents: await Document.forWorkspace(workspace.id),
         contextWindow: this._getContextWindow(workspace),
         currentContextTokenCount: await this._getCurrentContextTokenCount(
@@ -417,7 +468,9 @@ const Workspace = {
       return {
         ...workspace,
         queryRewriteModeRaw: workspace.queryRewriteMode,
-        queryRewriteMode: await this._resolveQueryRewriteMode(workspace.queryRewriteMode),
+        queryRewriteMode: await this._resolveQueryRewriteMode(
+          workspace.queryRewriteMode
+        ),
         contextWindow: this._getContextWindow(workspace),
         currentContextTokenCount: await this._getCurrentContextTokenCount(
           workspace.id

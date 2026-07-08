@@ -326,48 +326,59 @@ function apiWorkspaceEndpoints(app) {
       }
     }
     */
-    try {
-      const { slug = null } = request.params;
-      const data = reqBody(request);
-      const currWorkspace = await Workspace.get({ slug });
+      try {
+        const { slug = null } = request.params;
+        const data = reqBody(request);
+        const currWorkspace = await Workspace.get({ slug });
 
-      if (!currWorkspace) {
-        response.sendStatus(400).end();
-        return;
-      }
+        if (!currWorkspace) {
+          response.sendStatus(400).end();
+          return;
+        }
 
-      // Convert empty string messagesLimit to null for Prisma
-      if (data.messagesLimit === '') {
-        data.messagesLimit = null;
-      } else if (typeof data.messagesLimit === 'string') {
-        // Ensure it's an integer if not empty or null
-        data.messagesLimit = parseInt(data.messagesLimit, 10);
-        // Handle potential NaN from parseInt if input was not a valid number string
-        if (isNaN(data.messagesLimit)) data.messagesLimit = null; // Or set a default? Or throw error?
-      }
+        // Convert empty string messagesLimit to null for Prisma
+        if (data.messagesLimit === "") {
+          data.messagesLimit = null;
+        } else if (typeof data.messagesLimit === "string") {
+          // Ensure it's an integer if not empty or null
+          data.messagesLimit = parseInt(data.messagesLimit, 10);
+          // Handle potential NaN from parseInt if input was not a valid number string
+          if (isNaN(data.messagesLimit)) data.messagesLimit = null; // Or set a default? Or throw error?
+        }
 
-      console.log(`Attempting to update workspace ${currWorkspace.id} with data:`, JSON.stringify(data, null, 2));
-      // Log the specific messagesLimit value prepared for update
-      console.log(`Parsed messagesLimit for update:`, data.messagesLimit);
-
-      try { // Wrap the update in its own try block for specific logging
-        const { workspace, message } = await Workspace.update(
-          currWorkspace.id,
-          data
+        console.log(
+          `Attempting to update workspace ${currWorkspace.id} with data:`,
+          JSON.stringify(data, null, 2)
         );
-        // ADD SUCCESS LOG:
-        console.log(`Successfully updated workspace ${currWorkspace.id}. New limit: ${workspace.messagesLimit}`);
-        response.status(200).json({ workspace, message });
-      } catch (updateError) {
-        // ADD ERROR LOG:
-        console.error(`Failed to update workspace ${currWorkspace.id}:`, updateError.message, updateError);
-        response.sendStatus(500).end(); // Keep original error handling
+        // Log the specific messagesLimit value prepared for update
+        console.log(`Parsed messagesLimit for update:`, data.messagesLimit);
+
+        try {
+          // Wrap the update in its own try block for specific logging
+          const { workspace, message } = await Workspace.update(
+            currWorkspace.id,
+            data
+          );
+          // ADD SUCCESS LOG:
+          console.log(
+            `Successfully updated workspace ${currWorkspace.id}. New limit: ${workspace.messagesLimit}`
+          );
+          response.status(200).json({ workspace, message });
+        } catch (updateError) {
+          // ADD ERROR LOG:
+          console.error(
+            `Failed to update workspace ${currWorkspace.id}:`,
+            updateError.message,
+            updateError
+          );
+          response.sendStatus(500).end(); // Keep original error handling
+        }
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
       }
-    } catch (e) {
-      console.error(e.message, e);
-      response.sendStatus(500).end();
     }
-  });
+  );
 
   app.get(
     "/v1/workspace/:slug/chats",
@@ -438,32 +449,33 @@ function apiWorkspaceEndpoints(app) {
         } = request.query;
         const workspace = await Workspace.get({ slug });
 
-      if (!workspace) {
-        response.sendStatus(400).end();
-        return;
-      }
+        if (!workspace) {
+          response.sendStatus(400).end();
+          return;
+        }
 
         const validLimit = Math.max(1, parseInt(limit));
         const validOrderBy = ["asc", "desc"].includes(orderBy)
           ? orderBy
           : "asc";
 
-      const history = apiSessionId
-        ? await WorkspaceChats.forWorkspaceByApiSessionId(
-            workspace.id,
-            apiSessionId,
-            validLimit,
-            { createdAt: validOrderBy }
-          )
-        : await WorkspaceChats.forWorkspace(workspace.id, validLimit, {
-            createdAt: validOrderBy,
-          });
-      response.status(200).json({ history: convertToChatHistory(history) });
-    } catch (e) {
-      console.error(e.message, e);
-      response.sendStatus(500).end();
+        const history = apiSessionId
+          ? await WorkspaceChats.forWorkspaceByApiSessionId(
+              workspace.id,
+              apiSessionId,
+              validLimit,
+              { createdAt: validOrderBy }
+            )
+          : await WorkspaceChats.forWorkspace(workspace.id, validLimit, {
+              createdAt: validOrderBy,
+            });
+        response.status(200).json({ history: convertToChatHistory(history) });
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
+      }
     }
-  });
+  );
 
   app.post(
     "/v1/workspace/:slug/update-embeddings",
@@ -519,27 +531,28 @@ function apiWorkspaceEndpoints(app) {
       }
     }
     */
-    try {
-      const { slug = null } = request.params;
-      const { adds = [], deletes = [] } = reqBody(request);
-      const currWorkspace = await Workspace.get({ slug });
+      try {
+        const { slug = null } = request.params;
+        const { adds = [], deletes = [] } = reqBody(request);
+        const currWorkspace = await Workspace.get({ slug });
 
-      if (!currWorkspace) {
-        response.sendStatus(400).end();
-        return;
+        if (!currWorkspace) {
+          response.sendStatus(400).end();
+          return;
+        }
+
+        await Document.removeDocuments(currWorkspace, deletes);
+        await Document.addDocuments(currWorkspace, adds);
+        const updatedWorkspace = await Workspace.get({
+          id: Number(currWorkspace.id),
+        });
+        response.status(200).json({ workspace: updatedWorkspace });
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
       }
-
-      await Document.removeDocuments(currWorkspace, deletes);
-      await Document.addDocuments(currWorkspace, adds);
-      const updatedWorkspace = await Workspace.get({
-        id: Number(currWorkspace.id),
-      });
-      response.status(200).json({ workspace: updatedWorkspace });
-    } catch (e) {
-      console.error(e.message, e);
-      response.sendStatus(500).end();
     }
-  });
+  );
 
   app.post(
     "/v1/workspace/:slug/update-pin",
@@ -728,18 +741,19 @@ function apiWorkspaceEndpoints(app) {
         });
         // Get message limit info using the helper function
         const { getMessageLimitInfo } = require("../../../utils/helpers");
-        const { contingent, messagesLimit } = await getMessageLimitInfo(workspace);
-        
+        const { contingent, messagesLimit } =
+          await getMessageLimitInfo(workspace);
+
         // Check if result has a specific HTTP status code flag
         if (result.httpStatusCode) {
           // Use the specific status code (like 429 for limit reached)
           return response.status(result.httpStatusCode).json(result);
         } else {
           // Default to 200 OK for normal responses
-          return response.status(200).json({ 
+          return response.status(200).json({
             ...result,
             contingent, // Add contingent info
-            messages_limit: messagesLimit // Add raw messages limit value
+            messages_limit: messagesLimit, // Add raw messages limit value
           });
         }
       } catch (e) {
@@ -1017,7 +1031,9 @@ function apiWorkspaceEndpoints(app) {
           LLMConnector: getLLMProvider(),
           similarityThreshold: parseSimilarityThreshold(),
           topN: parseTopN(),
-          rerank: workspace?.vectorSearchMode === "rerank",
+          searchMode: await Workspace._resolveVectorSearchMode(
+            workspace?.vectorSearchMode
+          ),
         });
 
         response.status(200).json({

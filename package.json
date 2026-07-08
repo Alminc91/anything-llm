@@ -42,5 +42,11 @@
   "devDependencies": {
     "concurrently": "^9.1.2",
     "jest": "^29.7.0"
+  },
+  "jest": {
+    "testPathIgnorePatterns": [
+      "\\.manual\\.js$",
+      "\\.eval\\.js$"
+    ]
   }
 }

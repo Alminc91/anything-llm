@@ -81,8 +81,7 @@ const TRANSLATIONS = {
     "workspace-update-error": "Error: {{message}}",
     "workspace-delete-error": "Workspace could not be deleted!",
     "users-updated": "Users updated successfully.",
-    "llm-settings-save-error":
-      "Failed to save {{name}} settings: {{error}}",
+    "llm-settings-save-error": "Failed to save {{name}} settings: {{error}}",
     "welcome-messages-update-error":
       "Failed to update welcome messages: {{error}}",
     "welcome-messages-updated": "Successfully updated welcome messages.",
@@ -120,8 +119,7 @@ const TRANSLATIONS = {
       "app-name-success": "Successfully updated custom app name.",
       "app-name-error": "Failed to update custom app name: {{error}}",
       "welcome-messages-success": "Successfully updated welcome messages.",
-      "welcome-messages-error":
-        "Failed to update welcome messages: {{error}}",
+      "welcome-messages-error": "Failed to update welcome messages: {{error}}",
       "support-email-success": "Successfully updated support email.",
       "support-email-error": "Failed to update support email: {{error}}",
       "footer-icons-success": "Successfully updated footer icons.",
@@ -166,8 +164,7 @@ const TRANSLATIONS = {
     "text-splitter": {
       "save-success": "Text chunking strategy settings saved.",
       "save-error": "Failed to save text chunking strategy settings.",
-      "overlap-error":
-        "Chunk overlap cannot be larger or equal to chunk size.",
+      "overlap-error": "Chunk overlap cannot be larger or equal to chunk size.",
     },
     admin: {
       "agent-flow-load-error": "Failed to load available flows",
@@ -189,8 +186,7 @@ const TRANSLATIONS = {
       "mcp-server-delete-error": "Failed to delete MCP server.",
       "mcp-server-toggled": "MCP server {{name}} {{state}} successfully.",
       "mcp-server-toggle-error": "Failed to toggle MCP server.",
-      "default-prompt-updated":
-        "Default system prompt updated successfully.",
+      "default-prompt-updated": "Default system prompt updated successfully.",
       "default-prompt-update-error":
         "Failed to update default system prompt: {{error}}",
       "variable-updated": "Variable updated successfully",
@@ -236,8 +232,7 @@ const TRANSLATIONS = {
       "obsidian-import-partial":
         "Imported {{successCount}} files, {{failCount}} failed",
       "website-scraping": "Scraping website - this may take a while.",
-      "website-scrape-success":
-        "Successfully scraped {{count}} {{pageWord}}!",
+      "website-scrape-success": "Successfully scraped {{count}} {{pageWord}}!",
       "youtube-fetching": "Fetching transcript for YouTube video.",
       "youtube-transcription-complete":
         "{{title}} by {{author}} transcription completed. Output folder is {{destination}}.",
@@ -827,6 +822,29 @@ const TRANSLATIONS = {
   },
 
   // Search & Retrieval
+  vectorSearchMode: {
+    title: "Search Preference",
+    default: {
+      label: "Default",
+      description:
+        "Pure vector search — fastest response time. Note: if a non-default search mode is active globally, this workspace follows the global mode.",
+    },
+    rerank: {
+      label: "Accuracy Optimized",
+      description:
+        "Responses may take longer to generate, but will be more accurate and relevant (vector results are reranked).",
+    },
+    hybrid: {
+      label: "Hybrid (Vector + Keyword)",
+      description:
+        "Combines semantic vector search with BM25 keyword matching (weighted RRF fusion). Improves recall for exact terms, names, and course codes.",
+    },
+    hybrid_rerank: {
+      label: "Hybrid + Reranker",
+      description:
+        "Runs hybrid retrieval, then a reranker decides the final ordering. Highest accuracy, but responses may take longer. Requires a configured reranker.",
+    },
+  },
   searchRetrieval: {
     title: "Search & Retrieval",
     description:
@@ -837,6 +855,67 @@ const TRANSLATIONS = {
         "When enabled, follow-up questions are rewritten into standalone search queries using chat history, improving RAG results in multi-turn conversations.",
       on: "On — rewrite follow-up queries (recommended)",
       off: "Off — send queries as-is",
+    },
+    hybrid: {
+      title: "Hybrid Search & Reranking",
+      description:
+        "Configure the global default search strategy and an optional external reranker. These are defaults — individual workspaces can override the search mode.",
+      mode: {
+        title: "Default Search Mode",
+        description:
+          "The search strategy applied to workspaces that do not set their own mode. Note: on LanceDB 0.15.0 the keyword (BM25) arm does not stem German — hybrid helps most for exact tokens (course numbers, instructor names, dates), not for word variants like Kurs/Kurse.",
+        default: "Vector — pure semantic search (default)",
+        rerank: "Rerank — vector search, then rerank results",
+        hybrid: "Hybrid — fuse vector + keyword (BM25) search",
+        hybrid_rerank:
+          "Hybrid + Rerank — fuse vector + keyword, then rerank (recommended)",
+      },
+      provider: {
+        title: "Reranker Provider",
+        description:
+          "The external reranking service wire format. Leave as Native to use the built-in on-device reranker.",
+        native: "Native — built-in on-device reranker",
+        cohere: "Cohere-compatible (LiteLLM, vLLM, Jina, Infinity, Voyage)",
+        tei: "TEI — HuggingFace Text-Embeddings-Inference",
+      },
+      basePath: {
+        title: "Reranker Base URL",
+        description:
+          "The base URL of your reranker service (e.g. http://localhost:8080). In Docker, use the service name (http://vllm-reranker:8000), not localhost. /rerank is appended if you omit it.",
+      },
+      model: {
+        title: "Reranker Model",
+        description: "The model name passed to the reranker service.",
+      },
+      apiKey: {
+        title: "Reranker API Key",
+        description:
+          "Optional bearer token sent to the reranker service. Leave blank for a trusted in-cluster or shared reranker container.",
+        placeholder: "sk-... (leave blank if not required)",
+      },
+      candidates: {
+        title: "Retrieval Candidates",
+        description:
+          "Total number of candidates sent to the reranker (1-500). 100+ is fine on a GPU; the native CPU reranker becomes very slow at high values.",
+      },
+      advanced: "Advanced settings",
+      timeout: {
+        title: "Reranker Timeout (ms)",
+        description:
+          "How long to wait for the reranker service before continuing without reranking (500-60000 ms). Only affects the failure case, not normal operation.",
+      },
+      weight: {
+        title: "Hybrid Vector Weight (alpha)",
+        description:
+          "Weight for the vector arm in RRF fusion (0-1). Higher favors semantic; lower favors keyword.",
+      },
+      instruction: {
+        title: "Reranker Instruction",
+        description:
+          "Optional instruction prepended to the query for instruction-tuned rerankers.",
+        placeholder:
+          "e.g. Represent this query for retrieving relevant courses",
+      },
     },
   },
 
@@ -1544,8 +1623,7 @@ const TRANSLATIONS = {
     },
     admin: {
       "current-usage": "Current Usage",
-      "usage-description":
-        "Live view of customer usage for this workspace.",
+      "usage-description": "Live view of customer usage for this workspace.",
       "loading-usage": "Loading usage data...",
       consumed: "Consumed",
       remaining: "Remaining",

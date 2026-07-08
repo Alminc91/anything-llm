@@ -851,10 +851,47 @@ const KEY_MAPPING = {
     envKey: "SAMBANOVA_LLM_MODEL_PREF",
     checks: [isNotEmpty],
   },
+
+  // External Reranker Options (hybrid search / rerank modes - KIE-471)
+  // These are GLOBAL, opt-in settings. When RERANKER_PROVIDER is unset the
+  // system falls back to the NativeEmbeddingReranker (default/rerank behavior
+  // is preserved byte-for-byte).
+  RerankerProvider: {
+    envKey: "RERANKER_PROVIDER",
+    checks: [validRerankerProvider],
+  },
+  RerankerBasePath: {
+    envKey: "RERANKER_BASE_PATH",
+    // Blank is valid here: it clears the endpoint (native reranker needs none).
+    // The admin GUI always submits this key, so blank must not fail the save.
+    checks: [blankOr(isValidURL), blankOr(validDockerizedUrl)],
+  },
+  RerankerModelPref: {
+    envKey: "RERANKER_MODEL_PREF",
+    // Blank is valid: TEI serves a single model and needs no model name.
+    checks: [],
+  },
+  RerankerApiKey: {
+    envKey: "RERANKER_API_KEY",
+    checks: [],
+  },
+  RerankerTimeoutMs: {
+    envKey: "RERANKER_TIMEOUT_MS",
+    // Blank is valid: falls back to the built-in 8000ms default.
+    checks: [blankOr(validRerankerTimeoutMs)],
+  },
 };
 
 function isNotEmpty(input = "") {
   return !input || input.length === 0 ? "Value cannot be empty" : null;
+}
+
+// Wraps a validator so that a blank value passes (= "clear this key").
+function blankOr(validationFunc) {
+  return (input = "", ...args) =>
+    !input || String(input).trim().length === 0
+      ? null
+      : validationFunc(input, ...args);
 }
 
 function nonZero(input = "") {
@@ -1081,6 +1118,24 @@ function validHuggingFaceEndpoint(input = "") {
     : null;
 }
 
+// Validates the external reranker provider selection. Empty/unset is allowed
+// (it clears the provider and falls back to the native reranker).
+function validRerankerTimeoutMs(input = "") {
+  const ms = Number(input);
+  if (!Number.isFinite(ms)) return "Timeout must be a number (milliseconds)";
+  return ms >= 500 && ms <= 60000
+    ? null
+    : "Timeout must be between 500 and 60000 milliseconds";
+}
+
+function validRerankerProvider(input = "") {
+  if (!input || String(input).trim().length === 0) return null;
+  const supported = ["cohere", "tei"];
+  return supported.includes(String(input))
+    ? null
+    : `Invalid reranker provider. Must be one of: ${supported.join(", ")}, or empty to disable.`;
+}
+
 function noRestrictedChars(input = "") {
   const regExp = new RegExp(/^[a-zA-Z0-9_\-!@$%^&*();]+$/);
   return !regExp.test(input)
@@ -1280,6 +1335,9 @@ function dumpENV() {
     // Manually Add Keys here which are not already defined in KEY_MAPPING
     // and are either managed or manually set ENV key:values.
     "JWT_EXPIRY",
+    // Operator-seeded fleet default for vectorSearchMode (KIE-471) — not
+    // GUI-managed, but must survive dumpENV rewrites of the .env file.
+    "VECTOR_SEARCH_DEFAULT",
 
     "STORAGE_DIR",
     "SERVER_PORT",

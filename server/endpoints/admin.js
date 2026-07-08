@@ -407,6 +407,21 @@ function adminEndpoints(app) {
                 setting?.value ??
                 (process.env.QUERY_REWRITING === "true" ? "on" : "off");
               break;
+            // Hybrid search & external reranker settings (KIE-471).
+            case "vector_search_default":
+              requestedSettings[label] =
+                setting?.value ??
+                (process.env.VECTOR_SEARCH_DEFAULT || "default");
+              break;
+            case "hybrid_weight":
+              requestedSettings[label] = setting?.value ?? 0.7;
+              break;
+            case "reranker_instruction":
+              requestedSettings[label] = setting?.value ?? "";
+              break;
+            case "reranker_retrieval_topk":
+              requestedSettings[label] = setting?.value ?? 40;
+              break;
             default:
               break;
           }

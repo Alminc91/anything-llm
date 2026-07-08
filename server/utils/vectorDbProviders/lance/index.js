@@ -1,11 +1,14 @@
 const lancedb = require("@lancedb/lancedb");
-const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
+const {
+  toChunks,
+  getEmbeddingEngineSelection,
+  getRerankerProviderSelection,
+} = require("../../helpers");
 const { TextSplitter } = require("../../TextSplitter");
 const { SystemSettings } = require("../../../models/systemSettings");
 const { storeVectorResult, cachedVectorInformation } = require("../../files");
 const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
-const { NativeEmbeddingReranker } = require("../../EmbeddingRerankers/native");
 const { VectorDatabase } = require("../base");
 const path = require("path");
 
@@ -94,7 +97,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     filterIdentifiers = [],
   }) {
-    const reranker = new NativeEmbeddingReranker();
+    const reranker = getRerankerProviderSelection();
     const collection = await client.openTable(namespace);
     const totalEmbeddings = await this.namespaceCount(namespace);
     const result = {
@@ -213,6 +216,338 @@ class LanceDb extends VectorDatabase {
   }
 
   /**
+   * Resolves the hybrid-search knobs from SystemSettings with hard fallbacks.
+   * Kept here (not inline) so hybrid + hybrid_rerank read identical config.
+   * @returns {Promise<{hybridWeight:number, retrievalTopK:number, instruction:string}>}
+   */
+  async hybridSettings() {
+    const rawWeight = await SystemSettings.getValueOrFallback(
+      { label: "hybrid_weight" },
+      0.7
+    );
+    let hybridWeight = parseFloat(rawWeight);
+    if (!Number.isFinite(hybridWeight)) hybridWeight = 0.7;
+    hybridWeight = Math.min(1, Math.max(0, hybridWeight));
+
+    const rawTopK = await SystemSettings.getValueOrFallback(
+      { label: "reranker_retrieval_topk" },
+      40
+    );
+    let retrievalTopK = parseInt(rawTopK, 10);
+    if (!Number.isFinite(retrievalTopK)) retrievalTopK = 40;
+    // Keep in sync with the systemSettings validator clamp (1..500).
+    retrievalTopK = Math.min(500, Math.max(1, retrievalTopK));
+
+    const instruction = await SystemSettings.getValueOrFallback(
+      { label: "reranker_instruction" },
+      ""
+    );
+
+    return {
+      hybridWeight,
+      retrievalTopK,
+      instruction: typeof instruction === "string" ? instruction : "",
+    };
+  }
+
+  /**
+   * Weighted Reciprocal-Rank-Fusion of a vector-arm and an FTS-arm by RANK.
+   *
+   * score(doc) = alpha/(k + rank_vec) + (1 - alpha)/(k + rank_fts), k = 60.
+   * alpha is the vector-arm weight (hybrid_weight, default 0.7). A document that
+   * appears in only one arm simply omits the other term. Ranks are 1-based on the
+   * order returned by each arm (best = rank 1).
+   *
+   * NOTE: RRF scores are tiny (~0.02) and are NOT comparable to cosine
+   * similarity, so the 0.25 similarityThreshold MUST NOT be applied to them.
+   * @param {Array<object>} vectorRows - Vector-arm rows (best-first).
+   * @param {Array<object>} ftsRows - FTS-arm rows (best-first).
+   * @param {number} alpha - Vector-arm weight in [0,1].
+   * @param {number} [k=60] - RRF dampening constant.
+   * @returns {Array<{row: object, score: number}>} Fused rows, best-first.
+   */
+  weightedRRF(vectorRows = [], ftsRows = [], alpha = 0.7, k = 60) {
+    const fused = new Map(); // id -> { row, score }
+
+    const accumulate = (rows, weight) => {
+      rows.forEach((row, i) => {
+        const rank = i + 1;
+        const contribution = weight / (k + rank);
+        const id = row?.id ?? `__norank_${weight}_${i}`;
+        if (fused.has(id)) {
+          const existing = fused.get(id);
+          existing.score += contribution;
+        } else {
+          fused.set(id, { row, score: contribution });
+        }
+      });
+    };
+
+    accumulate(vectorRows, alpha);
+    accumulate(ftsRows, 1 - alpha);
+
+    return Array.from(fused.values()).sort((a, b) => b.score - a.score);
+  }
+
+  /**
+   * Applies the workspace similarityThreshold to the vector arm BEFORE fusion
+   * (same cosine semantics as similarityResponse). Keeps hybrid modes honest
+   * for query-mode refusal: if neither a relevant vector hit nor any BM25 hit
+   * exists, the fused result is empty. FTS rows are never passed through here —
+   * they have no cosine similarity to threshold.
+   * @param {Array<object>} vectorRows - Vector-arm rows (with _distance).
+   * @param {number} similarityThreshold - Minimum cosine similarity in [0,1].
+   * @returns {Array<object>} Rows meeting the threshold, original order.
+   */
+  thresholdVectorArm(vectorRows = [], similarityThreshold = 0.25) {
+    return vectorRows.filter(
+      (row) => this.distanceToSimilarity(row._distance) >= similarityThreshold
+    );
+  }
+
+  /**
+   * Performs a Hybrid (dense vector + BM25) search on a LanceDB namespace and
+   * fuses the two arms with weighted RRF (KIE-471).
+   *
+   * Runs two independent queries — a cosine vector search and a BM25 full-text
+   * search over the "text" column — then fuses by RANK (see weightedRRF). The
+   * emitted score is the fused RRF score. The vector field is stripped. The
+   * similarityThreshold filters the VECTOR arm (cosine) before fusion — same
+   * semantics as similarityResponse — so query-mode refusal keeps working;
+   * BM25-only hits carry no cosine similarity and are deliberately not
+   * thresholded, and neither are the (tiny) fused RRF scores.
+   * filterIdentifiers / sourceIdentifier / pinned-doc filtering is identical
+   * to similarityResponse.
+   * @param {Object} params
+   * @param {LanceClient} params.client
+   * @param {string} params.namespace
+   * @param {string} params.query - Plain-text query for BM25.
+   * @param {number[]} params.queryVector - Embedding for the vector arm.
+   * @param {number} [params.topN=4]
+   * @param {number} [params.similarityThreshold=0.25] - Applied to the vector
+   *   arm before fusion; NOT applied to FTS hits or RRF scores.
+   * @param {string[]} [params.filterIdentifiers=[]]
+   * @returns {Promise<{contextTexts:string[], sourceDocuments:object[], scores:number[]}>}
+   */
+  async hybridSimilarityResponse({
+    client,
+    namespace,
+    query,
+    queryVector,
+    topN = 4,
+    similarityThreshold = 0.25,
+    filterIdentifiers = [],
+  }) {
+    const collection = await client.openTable(namespace);
+    const { hybridWeight, retrievalTopK } = await this.hybridSettings();
+    const totalEmbeddings = await this.namespaceCount(namespace);
+
+    const result = {
+      contextTexts: [],
+      sourceDocuments: [],
+      scores: [],
+    };
+
+    // Retrieve a candidate pool per arm large enough to fuse meaningfully, but
+    // bounded by retrievalTopK and the collection size.
+    const armLimit = Math.max(
+      topN,
+      Math.min(retrievalTopK, totalEmbeddings || retrievalTopK)
+    );
+
+    const { vectorRows, ftsRows } = await this.hybridArms({
+      collection,
+      query,
+      queryVector,
+      armLimit,
+    });
+
+    const fused = this.weightedRRF(
+      this.thresholdVectorArm(vectorRows, similarityThreshold),
+      ftsRows,
+      hybridWeight
+    );
+
+    for (const { row, score } of fused) {
+      if (result.sourceDocuments.length >= topN) break;
+      const { vector: _v, _distance: _d, _score: _s, ...rest } = row;
+      if (filterIdentifiers.includes(sourceIdentifier(rest))) {
+        this.logger(
+          "A source was filtered from context as it's parent document is pinned."
+        );
+        continue;
+      }
+      result.contextTexts.push(rest.text);
+      // No `score` on the source documents here: raw RRF scores max out at
+      // 1/(k+1) ≈ 0.016 and the citation UI would render them as "2% match".
+      // Omitting the field triggers the UI's !!score guard (no percentage
+      // shown); the fused scores stay available via result.scores.
+      result.sourceDocuments.push({ ...rest });
+      result.scores.push(score);
+    }
+
+    return result;
+  }
+
+  /**
+   * Runs the two hybrid arms (cosine vector + BM25 FTS) and returns their raw
+   * result rows (best-first). Shared by hybrid and hybrid_rerank paths.
+   * The FTS arm degrades gracefully to [] if BM25 fails (e.g. empty query).
+   * @param {Object} params
+   * @param {import('@lancedb/lancedb').Table} params.collection
+   * @param {string} params.query
+   * @param {number[]} params.queryVector
+   * @param {number} params.armLimit
+   * @returns {Promise<{vectorRows: object[], ftsRows: object[]}>}
+   */
+  async hybridArms({ collection, query, queryVector, armLimit }) {
+    const vectorRows = await collection
+      .query()
+      .nearestTo(queryVector)
+      .distanceType("cosine")
+      .limit(armLimit)
+      .toArray()
+      .catch((e) => {
+        this.logger("hybridArms:vector", e.message);
+        return [];
+      });
+
+    let ftsRows = [];
+    if (typeof query === "string" && query.trim().length > 0) {
+      ftsRows = await collection
+        .query()
+        .fullTextSearch(query, { columns: "text" })
+        .limit(armLimit)
+        .toArray()
+        .catch((e) => {
+          this.logger("hybridArms:fts", e.message);
+          return [];
+        });
+    }
+
+    return { vectorRows, ftsRows };
+  }
+
+  /**
+   * Hybrid retrieval followed by an external/native reranker (KIE-471).
+   *
+   * Unions both arms (each up to retrievalTopK), dedupes by id, then delegates
+   * final ordering to the configured reranker
+   * (getRerankerProviderSelection()). If the reranker returns the candidates
+   * UNMODIFIED (its graceful-degradation contract on failure), we fall back to
+   * the weighted-RRF order so hybrid_rerank never regresses below hybrid.
+   * @param {Object} params
+   * @param {LanceClient} params.client
+   * @param {string} params.namespace
+   * @param {string} params.query
+   * @param {number[]} params.queryVector
+   * @param {number} [params.topN=4]
+   * @param {number} [params.similarityThreshold=0.25] - Applied to the vector
+   *   arm before fusion (see thresholdVectorArm); NOT applied to FTS hits,
+   *   RRF scores or rerank scores.
+   * @param {string[]} [params.filterIdentifiers=[]]
+   * @returns {Promise<{contextTexts:string[], sourceDocuments:object[], scores:number[]}>}
+   */
+  async hybridRerankedSimilarityResponse({
+    client,
+    namespace,
+    query,
+    queryVector,
+    topN = 4,
+    similarityThreshold = 0.25,
+    filterIdentifiers = [],
+  }) {
+    const collection = await client.openTable(namespace);
+    const { hybridWeight, retrievalTopK, instruction } =
+      await this.hybridSettings();
+    const totalEmbeddings = await this.namespaceCount(namespace);
+    const reranker = getRerankerProviderSelection({ instruction });
+
+    const result = {
+      contextTexts: [],
+      sourceDocuments: [],
+      scores: [],
+    };
+
+    const armLimit = Math.max(
+      topN,
+      Math.min(retrievalTopK, totalEmbeddings || retrievalTopK)
+    );
+
+    const { vectorRows, ftsRows } = await this.hybridArms({
+      collection,
+      query,
+      queryVector,
+      armLimit,
+    });
+
+    // Fuse for (a) dedupe + candidate pool and (b) a deterministic fallback order.
+    const fused = this.weightedRRF(
+      this.thresholdVectorArm(vectorRows, similarityThreshold),
+      ftsRows,
+      hybridWeight
+    );
+    if (fused.length === 0) return result;
+
+    // Build the reranker candidate list (deduped by id via the fused Map),
+    // stripping the raw vector so we never leak embeddings into the reranker
+    // payload or the final sources. The RRF order caps the pool at the
+    // configured reranker_retrieval_topk TOTAL (not per arm) — this is the
+    // documented contract and bounds the reranker workload, which matters
+    // most for the in-process native (CPU) reranker.
+    // Pinned-doc filtering must happen BEFORE the reranker call: the reranker
+    // slices to topN, so filtering afterwards could drain the final context
+    // below topN with no way to backfill (unlike hybrid, which filters while
+    // it still has the full fused list).
+    const candidates = fused
+      .map(({ row, score }) => {
+        const { vector: _v, _distance: _d, _score: _s, ...rest } = row;
+        return { ...rest, rrf_score: score };
+      })
+      .filter((candidate) => {
+        if (!filterIdentifiers.includes(sourceIdentifier(candidate)))
+          return true;
+        this.logger(
+          "A source was filtered from context as it's parent document is pinned."
+        );
+        return false;
+      })
+      .slice(0, retrievalTopK);
+    if (candidates.length === 0) return result;
+
+    let ordered = candidates;
+    await reranker
+      .rerank(query, candidates, { topK: topN })
+      .then((rerankResults) => {
+        if (Array.isArray(rerankResults) && rerankResults.length > 0)
+          ordered = rerankResults;
+      })
+      .catch((e) => {
+        // Belt-and-suspenders: the reranker contract is non-throwing, but if a
+        // provider ever violates it we still degrade to the RRF order.
+        this.logger("hybridRerankedSimilarityResponse", e.message);
+        ordered = candidates.slice(0, topN);
+      });
+
+    for (const item of ordered) {
+      if (result.sourceDocuments.length >= topN) break;
+      const { rrf_score, rerank_score, rerank_corpus_id, ...rest } = item;
+      const score = typeof rerank_score === "number" ? rerank_score : rrf_score;
+      result.contextTexts.push(rest.text);
+      // Only real reranker relevance scores ([0,1]) are meaningful in the
+      // citation UI; on RRF fallback the tiny fused score is omitted so the
+      // UI's !!score guard hides the misleading "2% match" percentage.
+      result.sourceDocuments.push({
+        ...rest,
+        ...(typeof rerank_score === "number" ? { score: rerank_score } : {}),
+      });
+      result.scores.push(score);
+    }
+
+    return result;
+  }
+
+  /**
    *
    * @param {LanceClient} client
    * @param {string} namespace
@@ -229,6 +564,74 @@ class LanceDb extends VectorDatabase {
   }
 
   /**
+   * Ensures a full-text-search (BM25) index exists on the "text" column of a
+   * collection so hybrid/hybrid_rerank modes can run BM25 queries (KIE-471).
+   *
+   * This is idempotent: if an FTS index already covers "text" we do nothing.
+   * German stemming is a no-op on lancedb 0.15.0, so we only enable
+   * lowercase + asciiFolding tokenization.
+   *
+   * NOTE: a table WITHOUT this index cannot serve fullTextSearch at all —
+   * lancedb 0.15.0 throws "Column text has no inverted index" and hybridArms
+   * degrades that query to vector-only. The flat-scan fallback only covers
+   * rows added AFTER index creation that optimize() has not folded in yet
+   * (see optimizeFtsIfStale).
+   *
+   * Failures are swallowed (logged) so indexing problems never break ingestion
+   * or the default/vector path.
+   * @param {import('@lancedb/lancedb').Table} collection - An open LanceDB table.
+   * @returns {Promise<boolean>} true if the index exists/was created.
+   */
+  async ensureFullTextIndex(collection) {
+    try {
+      if (!collection || typeof collection.listIndices !== "function")
+        return false;
+      const indices = await collection.listIndices();
+      const hasTextIndex = (indices || []).some((index) =>
+        (index?.columns || []).includes("text")
+      );
+      if (hasTextIndex) return true;
+
+      await collection.createIndex("text", {
+        config: lancedb.Index.fts({ lowercase: true, asciiFolding: true }),
+        replace: false,
+      });
+      this.logger("Created FTS index on 'text' column.");
+      return true;
+    } catch (e) {
+      this.logger("ensureFullTextIndex", e.message);
+      return false;
+    }
+  }
+
+  /**
+   * Folds newly added rows into the FTS index once the unindexed remainder
+   * exceeds a small threshold. Rows added after index creation stay findable
+   * via flat-scan (correctness is never at risk), but without optimize() the
+   * unindexed remainder grows monotonically with every (hourly) re-ingestion
+   * and BM25 gradually degrades to a brute-force scan. The threshold keeps
+   * per-document ingestion cheap while bounding the flat-scan cost.
+   *
+   * Failures are swallowed (logged) — same contract as ensureFullTextIndex.
+   * @param {import('@lancedb/lancedb').Table} collection - An open LanceDB table.
+   * @param {number} [threshold=100] - Unindexed-row count that triggers optimize().
+   * @returns {Promise<void>}
+   */
+  async optimizeFtsIfStale(collection, threshold = 100) {
+    try {
+      const stats = await collection.indexStats("text_idx");
+      const unindexed = stats?.numUnindexedRows ?? 0;
+      if (unindexed < threshold) return;
+      await collection.optimize();
+      this.logger(
+        `Optimized FTS index (${unindexed} unindexed rows folded in).`
+      );
+    } catch (e) {
+      this.logger("optimizeFtsIfStale", e.message);
+    }
+  }
+
+  /**
    *
    * @param {LanceClient} client
    * @param {number[]} data
@@ -240,10 +643,13 @@ class LanceDb extends VectorDatabase {
     if (hasNamespace) {
       const collection = await client.openTable(namespace);
       await collection.add(data);
+      await this.ensureFullTextIndex(collection);
+      await this.optimizeFtsIfStale(collection);
       return true;
     }
 
-    await client.createTable(namespace, data);
+    const collection = await client.createTable(namespace, data);
+    await this.ensureFullTextIndex(collection);
     return true;
   }
 
@@ -318,7 +724,9 @@ class LanceDb extends VectorDatabase {
     // Delete all vectors in a single transaction
     // This is much faster than individual deletions and prevents commit conflicts
     const idList = vectorIds.map((v) => `'${v}'`).join(",");
-    console.log(`LanceDB:deleteBatchFromNamespace - Deleting ${vectorIds.length} vectors from ${namespace}`);
+    console.log(
+      `LanceDB:deleteBatchFromNamespace - Deleting ${vectorIds.length} vectors from ${namespace}`
+    );
 
     await table.delete(`id IN (${idList})`);
     return true;
@@ -429,6 +837,28 @@ class LanceDb extends VectorDatabase {
     }
   }
 
+  /**
+   * Performs a similarity search on a namespace, dispatching by search mode.
+   *
+   * Modes (KIE-471):
+   *   - "default"       : pure cosine vector search (unchanged behavior).
+   *   - "rerank"        : vector search -> external/native reranker.
+   *   - "hybrid"        : weighted-RRF fusion of vector + BM25.
+   *   - "hybrid_rerank" : union of both arms -> external/native reranker.
+   *
+   * The legacy boolean `rerank` param is accepted as a DEPRECATED alias for
+   * searchMode "rerank" (kept for one release while call-sites migrate).
+   * @param {Object} params
+   * @param {string} params.namespace
+   * @param {string} params.input - Plain-text query.
+   * @param {object} params.LLMConnector
+   * @param {number} [params.similarityThreshold=0.25]
+   * @param {number} [params.topN=4]
+   * @param {string[]} [params.filterIdentifiers=[]]
+   * @param {("default"|"rerank"|"hybrid"|"hybrid_rerank")} [params.searchMode]
+   * @param {boolean} [params.rerank=false] - Deprecated alias for searchMode "rerank".
+   * @returns {Promise<{contextTexts:string[], sources:object[], message:(string|false)}>}
+   */
   async performSimilaritySearch({
     namespace = null,
     input = "",
@@ -436,6 +866,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    searchMode = null,
     rerank = false,
   }) {
     if (!namespace || !input || !LLMConnector)
@@ -450,9 +881,20 @@ class LanceDb extends VectorDatabase {
       };
     }
 
+    // Resolve the effective mode. Explicit searchMode wins; otherwise the
+    // deprecated boolean `rerank` maps to "rerank"; else "default".
+    const validModes = ["default", "rerank", "hybrid", "hybrid_rerank"];
+    let mode = validModes.includes(searchMode)
+      ? searchMode
+      : rerank === true
+        ? "rerank"
+        : "default";
+
     const queryVector = await LLMConnector.embedTextInput(input);
-    const result = rerank
-      ? await this.rerankedSimilarityResponse({
+    let result;
+    switch (mode) {
+      case "rerank":
+        result = await this.rerankedSimilarityResponse({
           client,
           namespace,
           query: input,
@@ -460,8 +902,32 @@ class LanceDb extends VectorDatabase {
           similarityThreshold,
           topN,
           filterIdentifiers,
-        })
-      : await this.similarityResponse({
+        });
+        break;
+      case "hybrid":
+        result = await this.hybridSimilarityResponse({
+          client,
+          namespace,
+          query: input,
+          queryVector,
+          similarityThreshold,
+          topN,
+          filterIdentifiers,
+        });
+        break;
+      case "hybrid_rerank":
+        result = await this.hybridRerankedSimilarityResponse({
+          client,
+          namespace,
+          query: input,
+          queryVector,
+          similarityThreshold,
+          topN,
+          filterIdentifiers,
+        });
+        break;
+      default:
+        result = await this.similarityResponse({
           client,
           namespace,
           queryVector,
@@ -469,6 +935,7 @@ class LanceDb extends VectorDatabase {
           topN,
           filterIdentifiers,
         });
+    }
 
     const { contextTexts, sourceDocuments } = result;
     const sources = sourceDocuments.map((metadata, i) => {

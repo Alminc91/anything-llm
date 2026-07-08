@@ -1,22 +1,13 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 // We dont support all vectorDBs yet for reranking due to complexities of how each provider
 // returns information. We need to normalize the response data so Reranker can be used for each provider.
 const supportedVectorDBs = ["lancedb"];
-const hint = {
-  default: {
-    title: "Default",
-    description:
-      "This is the fastest performance, but may not return the most relevant results leading to model hallucinations.",
-  },
-  rerank: {
-    title: "Accuracy Optimized",
-    description:
-      "LLM responses may take longer to generate, but your responses will be more accurate and relevant.",
-  },
-};
+const MODES = ["default", "rerank", "hybrid", "hybrid_rerank"];
 
 export default function VectorSearchMode({ workspace, setHasChanges }) {
+  const { t } = useTranslation();
   const [selection, setSelection] = useState(
     workspace?.vectorSearchMode ?? "default"
   );
@@ -27,7 +18,7 @@ export default function VectorSearchMode({ workspace, setHasChanges }) {
     <div>
       <div className="flex flex-col">
         <label htmlFor="name" className="block input-label">
-          Search Preference
+          {t("vectorSearchMode.title")}
         </label>
       </div>
       <select
@@ -40,11 +31,14 @@ export default function VectorSearchMode({ workspace, setHasChanges }) {
         }}
         required={true}
       >
-        <option value="default">Default</option>
-        <option value="rerank">Accuracy Optimized</option>
+        {MODES.map((mode) => (
+          <option key={mode} value={mode}>
+            {t(`vectorSearchMode.${mode}.label`)}
+          </option>
+        ))}
       </select>
       <p className="text-white text-opacity-60 text-xs font-medium py-1.5">
-        {hint[selection]?.description}
+        {t(`vectorSearchMode.${selection}.description`)}
       </p>
     </div>
   );
