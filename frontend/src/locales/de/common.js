@@ -901,7 +901,12 @@ const TRANSLATIONS = {
       weight: {
         title: "Hybrid-Vektorgewicht (Alpha)",
         description:
-          "Gewicht für den Vektor-Arm in der RRF-Fusion (0-1). Höher bevorzugt semantische Suche; niedriger bevorzugt Keyword-Suche.",
+          "Gewicht für den Vektor-Arm in der RRF-Fusion (0-1). Höher bevorzugt semantische Suche; niedriger bevorzugt Keyword-Suche. Wirkt als echtes Ranking nur im Hybrid-Modus (ohne Reranker); mit Reranker ordnet es lediglich den Degradations-Fallback.",
+      },
+      armSplit: {
+        title: "Nominierungs-Aufteilung (Vektor-Anteil)",
+        description:
+          "Wie das Kandidaten-Budget im Hybrid+Rerank-Modus auf die beiden Arme verteilt wird (0.1-0.9). 0.5 = neutrale Hälften; höher bei semantisch geprägten Inhalten, niedriger bei Stichwort-Lastigkeit. Gewichtet keine Ergebnisse — der Reranker bewertet alle Nominierten rein nach Relevanz.",
       },
       instruction: {
         title: "Reranker-Anweisung",

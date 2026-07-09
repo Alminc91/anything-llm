@@ -13,6 +13,7 @@ const SYSTEM_PREF_FIELDS = [
   "query_rewrite_default",
   "vector_search_default",
   "hybrid_weight",
+  "hybrid_arm_split",
   "reranker_instruction",
   "reranker_retrieval_topk",
   "metadata_filters",
@@ -48,6 +49,9 @@ export default function SearchRetrievalPreference() {
       };
       const hybridWeight = form.get("hybrid_weight");
       if (hybridWeight !== null) prefsUpdate.hybrid_weight = hybridWeight;
+      const hybridArmSplit = form.get("hybrid_arm_split");
+      if (hybridArmSplit !== null)
+        prefsUpdate.hybrid_arm_split = hybridArmSplit;
       const rerankerInstruction = form.get("reranker_instruction");
       if (rerankerInstruction !== null)
         prefsUpdate.reranker_instruction = rerankerInstruction;
@@ -384,6 +388,27 @@ export default function SearchRetrievalPreference() {
                       max={1}
                       step={0.05}
                       defaultValue={settings?.hybrid_weight ?? 0.7}
+                      className={inputClass}
+                    />
+                  </div>
+
+                  {/* Hybrid Arm Split (Nominierungs-Tiefe) */}
+                  <div className="flex flex-col max-w-[500px]">
+                    <div className="flex flex-col gap-y-2 mb-4">
+                      <label className="text-white text-sm font-semibold block">
+                        {t("searchRetrieval.hybrid.armSplit.title")}
+                      </label>
+                      <p className="text-xs text-white/60">
+                        {t("searchRetrieval.hybrid.armSplit.description")}
+                      </p>
+                    </div>
+                    <input
+                      type="number"
+                      name="hybrid_arm_split"
+                      min={0.1}
+                      max={0.9}
+                      step={0.05}
+                      defaultValue={settings?.hybrid_arm_split ?? 0.5}
                       className={inputClass}
                     />
                   </div>

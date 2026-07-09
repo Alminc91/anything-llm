@@ -342,34 +342,43 @@ class LanceDb extends VectorDatabase {
   /**
    * Resolves the hybrid-search knobs from SystemSettings with hard fallbacks.
    * Kept here (not inline) so hybrid + hybrid_rerank read identical config.
-   * @returns {Promise<{hybridWeight:number, retrievalTopK:number, instruction:string}>}
+   * @returns {Promise<{hybridWeight:number, retrievalTopK:number, armSplit:number, instruction:string}>}
    */
   async hybridSettings() {
-    const rawWeight = await SystemSettings.getValueOrFallback(
-      { label: "hybrid_weight" },
-      0.7
-    );
+    const splitClamp = SystemSettings.hybridArmSplitClamp;
+    // Independent reads — fetch in parallel, this sits on the per-message
+    // retrieval hot path.
+    const [rawWeight, rawTopK, rawSplit, instruction] = await Promise.all([
+      SystemSettings.getValueOrFallback({ label: "hybrid_weight" }, 0.7),
+      SystemSettings.getValueOrFallback({ label: "reranker_retrieval_topk" }, 40),
+      SystemSettings.getValueOrFallback(
+        { label: "hybrid_arm_split" },
+        splitClamp.DEFAULT
+      ),
+      SystemSettings.getValueOrFallback({ label: "reranker_instruction" }, ""),
+    ]);
+
     let hybridWeight = parseFloat(rawWeight);
     if (!Number.isFinite(hybridWeight)) hybridWeight = 0.7;
     hybridWeight = Math.min(1, Math.max(0, hybridWeight));
 
-    const rawTopK = await SystemSettings.getValueOrFallback(
-      { label: "reranker_retrieval_topk" },
-      40
-    );
     let retrievalTopK = parseInt(rawTopK, 10);
     if (!Number.isFinite(retrievalTopK)) retrievalTopK = 40;
     // Keep in sync with the systemSettings validator clamp (1..500).
     retrievalTopK = Math.min(500, Math.max(1, retrievalTopK));
 
-    const instruction = await SystemSettings.getValueOrFallback(
-      { label: "reranker_instruction" },
-      ""
-    );
+    // Vector share of the reranker nomination budget in hybrid_rerank
+    // (Qdrant-prefetch-style per-arm quota). 0.5 = neutral halves; raise for
+    // semantics-heavy corpora, lower for keyword-heavy ones. Clamp shared
+    // with the systemSettings validator via hybridArmSplitClamp.
+    let armSplit = parseFloat(rawSplit);
+    if (!Number.isFinite(armSplit)) armSplit = splitClamp.DEFAULT;
+    armSplit = Math.min(splitClamp.MAX, Math.max(splitClamp.MIN, armSplit));
 
     return {
       hybridWeight,
       retrievalTopK,
+      armSplit,
       instruction: typeof instruction === "string" ? instruction : "",
     };
   }
@@ -555,7 +564,7 @@ class LanceDb extends VectorDatabase {
    * @param {import('@lancedb/lancedb').Table} params.collection
    * @param {string} params.query
    * @param {number[]} params.queryVector
-   * @param {number} params.armLimit
+   * @param {number} params.armLimit - Per-arm retrieval limit.
    * @returns {Promise<{vectorRows: object[], ftsRows: object[]}>}
    */
   async hybridArms({
@@ -622,11 +631,22 @@ class LanceDb extends VectorDatabase {
   /**
    * Hybrid retrieval followed by an external/native reranker (KIE-471).
    *
-   * Unions both arms (each up to retrievalTopK), dedupes by id, then delegates
-   * final ordering to the configured reranker
-   * (getRerankerProviderSelection()). If the reranker returns the candidates
-   * UNMODIFIED (its graceful-degradation contract on failure), we fall back to
-   * the weighted-RRF order so hybrid_rerank never regresses below hybrid.
+   * The reranker nomination budget (retrievalTopK) is split between the arms
+   * via hybrid_arm_split (default 0.5, Qdrant-prefetch-style quotas whose
+   * shares sum to the budget exactly); slots freed by overlap, an
+   * under-delivering arm or a failed arm are backfilled from the other arm,
+   * so the reranker always receives min(budget, available candidates)
+   * documents and no candidate is dropped by RRF order before the reranker
+   * has seen it. This mirrors how production hybrid+rerank stacks behave
+   * (e.g. Open WebUI's ensemble → cross-encoder): fusion weights must not
+   * gate what the reranker may judge, because a weighted RRF cut
+   * systematically starves the lower-weighted arm's tail (empirically:
+   * BM25-only hits beyond rank ~α·k never reached the reranker).
+   * hybridWeight/α therefore only orders the graceful-degradation fallback
+   * here; it ranks for real only in the pure `hybrid` mode.
+   * If the reranker returns the candidates UNMODIFIED (its
+   * graceful-degradation contract on failure), we fall back to the
+   * weighted-RRF order so hybrid_rerank never regresses below hybrid.
    * @param {Object} params
    * @param {LanceClient} params.client
    * @param {string} params.namespace
@@ -651,7 +671,7 @@ class LanceDb extends VectorDatabase {
     trace = null,
   }) {
     const collection = await client.openTable(namespace);
-    const { hybridWeight, retrievalTopK, instruction } =
+    const { hybridWeight, retrievalTopK, armSplit, instruction } =
       await this.hybridSettings();
     const totalEmbeddings = await this.namespaceCount(namespace);
     const reranker = getRerankerProviderSelection({ instruction });
@@ -662,16 +682,18 @@ class LanceDb extends VectorDatabase {
       scores: [],
     };
 
-    const armLimit = Math.max(
-      topN,
-      Math.min(retrievalTopK, totalEmbeddings || retrievalTopK)
-    );
+    // Nomination budget = documents sent to the reranker. At least topN so a
+    // tiny budget can still fill the final context. Both arms FETCH the full
+    // budget (like plain rerank mode did) so the quota selection below can
+    // backfill from either arm when the other under-delivers or fails.
+    const budget = Math.max(topN, retrievalTopK);
+    const armFetch = Math.min(budget, totalEmbeddings || budget);
 
     const { vectorRows, ftsRows } = await this.hybridArms({
       collection,
       query,
       queryVector,
-      armLimit,
+      armLimit: armFetch,
       whereClause,
       trace,
     });
@@ -683,13 +705,51 @@ class LanceDb extends VectorDatabase {
       hybridWeight
     );
 
+    // Pinned-doc filtering must happen BEFORE quota selection and the
+    // reranker call: the reranker slices to topN, so filtering afterwards
+    // could drain the final context below topN with no way to backfill —
+    // and a pinned doc must not consume a nomination slot either.
+    const notPinned = (docLike) => {
+      if (!filterIdentifiers.includes(sourceIdentifier(docLike))) return true;
+      this.logger(
+        "A source was filtered from context as it's parent document is pinned."
+      );
+      return false;
+    };
+    const eligibleFused = fused.filter(({ row }) => notPinned(row));
+
+    // Quota selection (Qdrant-prefetch-style): the vector arm nominates its
+    // top round(armSplit·budget) hits by its OWN rank, BM25 the remaining
+    // slots — the shares sum to the budget exactly, so no candidate is ever
+    // dropped by weighted-RRF order before the reranker has judged it.
+    // Slots freed by overlap (a doc nominated by both arms), by an arm that
+    // under-delivered, or by a failed arm are backfilled from the remaining
+    // fused candidates, so the reranker always receives
+    // min(budget, eligible candidates) documents. hybridWeight/α only
+    // determines the backfill/fallback ORDER, never membership of the quota
+    // picks.
+    const vectorQuota = Math.round(budget * armSplit);
+    const ftsQuota = budget - vectorQuota;
+    const nominated = new Set();
+    for (const row of vectorRows.filter(notPinned).slice(0, vectorQuota))
+      nominated.add(row.id);
+    for (const row of ftsRows.filter(notPinned).slice(0, ftsQuota))
+      nominated.add(row.id);
+    for (const { row } of eligibleFused) {
+      if (nominated.size >= budget) break;
+      nominated.add(row.id);
+    }
+
     // Trace: Fusion mit Arm-Herkunft (inVector/inFts) je Kandidat.
     const vectorIds = trace ? new Set(vectorRows.map((r) => r.id)) : null;
     const ftsIds = trace ? new Set(ftsRows.map((r) => r.id)) : null;
     if (trace)
       trace.fusion = {
         alpha: hybridWeight,
-        armLimit,
+        armSplit,
+        budget,
+        vectorQuota,
+        ftsQuota,
         candidates: fused.length,
         top: fused.slice(0, SearchTrace.CAPTURE_TOP_N).map((f, i) => ({
           rank: i + 1,
@@ -701,30 +761,17 @@ class LanceDb extends VectorDatabase {
       };
     if (fused.length === 0) return result;
 
-    // Build the reranker candidate list (deduped by id via the fused Map),
-    // stripping the raw vector so we never leak embeddings into the reranker
-    // payload or the final sources. The RRF order caps the pool at the
-    // configured reranker_retrieval_topk TOTAL (not per arm) — this is the
-    // documented contract and bounds the reranker workload, which matters
-    // most for the in-process native (CPU) reranker.
-    // Pinned-doc filtering must happen BEFORE the reranker call: the reranker
-    // slices to topN, so filtering afterwards could drain the final context
-    // below topN with no way to backfill (unlike hybrid, which filters while
-    // it still has the full fused list).
-    const candidates = fused
+    // Build the reranker candidate list in RRF order (deterministic fallback
+    // order), stripping the raw vector so we never leak embeddings into the
+    // reranker payload or the final sources. By construction |nominated| ≤
+    // budget, so the slice is a pure safety clamp.
+    const candidates = eligibleFused
+      .filter(({ row }) => nominated.has(row.id))
       .map(({ row, score }) => {
         const { vector: _v, _distance: _d, _score: _s, ...rest } = row;
         return { ...rest, rrf_score: score };
       })
-      .filter((candidate) => {
-        if (!filterIdentifiers.includes(sourceIdentifier(candidate)))
-          return true;
-        this.logger(
-          "A source was filtered from context as it's parent document is pinned."
-        );
-        return false;
-      })
-      .slice(0, retrievalTopK);
+      .slice(0, budget);
     if (candidates.length === 0) return result;
 
     // RRF-Rang je Kandidat (1-basiert) — Basis für die Shift-Metrik im Trace.

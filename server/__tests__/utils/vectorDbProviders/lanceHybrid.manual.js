@@ -46,6 +46,7 @@ function ok(name) {
 // tests can flip alpha at runtime.
 const settingsStore = {
   hybrid_weight: 0.7,
+  hybrid_arm_split: 0.5,
   reranker_retrieval_topk: 40,
   reranker_instruction: "",
   text_splitter_chunk_size: 1000,
@@ -58,6 +59,7 @@ require.cache[systemSettingsPath] = {
   loaded: true,
   exports: {
     SystemSettings: {
+      hybridArmSplitClamp: { MIN: 0.1, MAX: 0.9, DEFAULT: 0.5 },
       getValueOrFallback: async (clause = {}, fallback = null) => {
         const label = clause?.label;
         return label in settingsStore ? settingsStore[label] : fallback;
@@ -369,6 +371,65 @@ async function run() {
       "hybrid_rerank falls back to RRF order/score when reranker no-ops"
     );
     ok("hybrid_rerank degrades to RRF order when reranker returns unmodified");
+
+    // (c) quota backfill: FTS arm yields nothing (empty query skips BM25) ->
+    // the vector arm must fill the ENTIRE nomination budget, not just its
+    // quota half. Regression guard for the fixed-budget starvation bug.
+    let capturedCount = null;
+    rerankerStub = () => ({
+      rerank: async (_q, docs, opts) => {
+        capturedCount = docs.length;
+        return docs.slice(0, opts?.topK ?? 4);
+      },
+    });
+    settingsStore.reranker_retrieval_topk = 4;
+    const backfilled = await lance.hybridRerankedSimilarityResponse({
+      client,
+      namespace,
+      query: "", // empty query -> FTS arm skipped -> ftsRows = []
+      queryVector,
+      topN: 2,
+      similarityThreshold: 0,
+      filterIdentifiers: [],
+    });
+    assert.ok(backfilled.sourceDocuments.length > 0, "backfill returned rows");
+    assert.strictEqual(
+      capturedCount,
+      4,
+      `reranker must receive the full budget (4) via backfill when one arm is empty; got ${capturedCount}`
+    );
+    ok("hybrid_rerank backfills the nomination budget when an arm is empty");
+
+    // (d) quota shares sum to the budget exactly (no ceil-overshoot -> no
+    // RRF-ordered slice cut) and the full eligible pool reaches the reranker
+    // when the budget exceeds the corpus.
+    settingsStore.reranker_retrieval_topk = 10;
+    settingsStore.hybrid_arm_split = 0.7;
+    const quotaTrace = {};
+    capturedCount = null;
+    await lance.hybridRerankedSimilarityResponse({
+      client,
+      namespace,
+      query,
+      queryVector,
+      topN: 2,
+      similarityThreshold: 0,
+      filterIdentifiers: [],
+      trace: quotaTrace,
+    });
+    assert.strictEqual(
+      quotaTrace.fusion.vectorQuota + quotaTrace.fusion.ftsQuota,
+      quotaTrace.fusion.budget,
+      "arm quotas must sum to the nomination budget exactly"
+    );
+    assert.strictEqual(
+      capturedCount,
+      quotaTrace.fusion.candidates,
+      `budget > corpus: the reranker must see every eligible candidate (${quotaTrace.fusion.candidates}); got ${capturedCount}`
+    );
+    ok("hybrid_rerank quotas sum to budget; full pool reaches the reranker");
+    settingsStore.reranker_retrieval_topk = 40; // restore
+    settingsStore.hybrid_arm_split = 0.5; // restore
     rerankerStub = null; // restore real factory
 
     console.log(`\n\x1b[32mAll ${passed} assertions passed.\x1b[0m`);

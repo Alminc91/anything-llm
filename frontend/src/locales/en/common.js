@@ -907,7 +907,12 @@ const TRANSLATIONS = {
       weight: {
         title: "Hybrid Vector Weight (alpha)",
         description:
-          "Weight for the vector arm in RRF fusion (0-1). Higher favors semantic; lower favors keyword.",
+          "Weight for the vector arm in RRF fusion (0-1). Higher favors semantic; lower favors keyword. Ranks for real only in hybrid mode (without reranker); with a reranker it merely orders the degradation fallback.",
+      },
+      armSplit: {
+        title: "Nomination Split (vector share)",
+        description:
+          "How the retrieval-candidate budget is split between the arms in hybrid+rerank mode (0.1-0.9). 0.5 = equal halves; raise for semantics-heavy corpora, lower for keyword-heavy ones. Does not weight results — the reranker judges all nominees purely by relevance.",
       },
       instruction: {
         title: "Reranker Instruction",

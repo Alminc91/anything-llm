@@ -19,7 +19,12 @@ function isNullOrNaN(value) {
   return isNaN(value);
 }
 
+// Clamp/default for hybrid_arm_split — single source of truth shared with the
+// read-clamp in the LanceDB provider (frontend min/max mirrors these values).
+const HYBRID_ARM_SPLIT = { MIN: 0.1, MAX: 0.9, DEFAULT: 0.5 };
+
 const SystemSettings = {
+  hybridArmSplitClamp: HYBRID_ARM_SPLIT,
   /** A default system prompt that is used when no other system prompt is set or available to the function caller. */
   saneDefaultSystemPrompt:
     "Given the following conversation, relevant context, and a follow up question, reply with an answer to the current question the user is asking. Return only your response to the question given the above information following the users instructions as needed.",
@@ -42,6 +47,7 @@ const SystemSettings = {
     "query_rewrite_default",
     "vector_search_default",
     "hybrid_weight",
+    "hybrid_arm_split",
     "reranker_instruction",
     "reranker_retrieval_topk",
     "metadata_filters",
@@ -74,6 +80,7 @@ const SystemSettings = {
     "query_rewrite_default",
     "vector_search_default",
     "hybrid_weight",
+    "hybrid_arm_split",
     "reranker_instruction",
     "reranker_retrieval_topk",
     "metadata_filters",
@@ -240,6 +247,16 @@ const SystemSettings = {
       if (isNullOrNaN(value)) return 0.7;
       if (value < 0) return 0.0;
       if (value > 1) return 1.0;
+      return value;
+    },
+    // Vector share of the hybrid_rerank nomination budget (per-arm depth,
+    // Qdrant-prefetch-style). Clamped away from 0/1 so neither arm can be
+    // starved entirely; 0.5 = neutral halves.
+    hybrid_arm_split: (update) => {
+      const value = parseFloat(update);
+      if (isNullOrNaN(value)) return HYBRID_ARM_SPLIT.DEFAULT;
+      if (value < HYBRID_ARM_SPLIT.MIN) return HYBRID_ARM_SPLIT.MIN;
+      if (value > HYBRID_ARM_SPLIT.MAX) return HYBRID_ARM_SPLIT.MAX;
       return value;
     },
     // Optional instruction prepended/passed to the reranker. Empty string clears it.
