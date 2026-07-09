@@ -622,11 +622,19 @@ class LanceDb extends VectorDatabase {
   /**
    * Hybrid retrieval followed by an external/native reranker (KIE-471).
    *
-   * Unions both arms (each up to retrievalTopK), dedupes by id, then delegates
-   * final ordering to the configured reranker
-   * (getRerankerProviderSelection()). If the reranker returns the candidates
-   * UNMODIFIED (its graceful-degradation contract on failure), we fall back to
-   * the weighted-RRF order so hybrid_rerank never regresses below hybrid.
+   * Each arm retrieves up to retrievalTopK/2 candidates so the deduped union
+   * (≤ retrievalTopK) goes to the reranker IN FULL — retrievalTopK is the
+   * "documents sent to the reranker" contract, and no candidate is dropped by
+   * RRF order before the reranker has seen it. This mirrors how production
+   * hybrid+rerank stacks behave (e.g. Open WebUI's ensemble → cross-encoder):
+   * fusion weights must not gate what the reranker may judge, because a
+   * weighted RRF cut systematically starves the lower-weighted arm's tail
+   * (empirically: BM25-only hits beyond rank ~α·k never reached the reranker).
+   * hybridWeight/α therefore only orders the graceful-degradation fallback
+   * here; it ranks for real only in the pure `hybrid` mode.
+   * If the reranker returns the candidates UNMODIFIED (its
+   * graceful-degradation contract on failure), we fall back to the
+   * weighted-RRF order so hybrid_rerank never regresses below hybrid.
    * @param {Object} params
    * @param {LanceClient} params.client
    * @param {string} params.namespace
@@ -662,9 +670,13 @@ class LanceDb extends VectorDatabase {
       scores: [],
     };
 
+    // Half of retrievalTopK per arm: the deduped union stays ≤ retrievalTopK,
+    // so the ENTIRE candidate pool reaches the reranker and retrievalTopK
+    // keeps its meaning as "documents sent to the reranker" (which also
+    // bounds the native CPU reranker's workload).
     const armLimit = Math.max(
       topN,
-      Math.min(retrievalTopK, totalEmbeddings || retrievalTopK)
+      Math.min(Math.ceil(retrievalTopK / 2), totalEmbeddings || retrievalTopK)
     );
 
     const { vectorRows, ftsRows } = await this.hybridArms({
@@ -703,10 +715,12 @@ class LanceDb extends VectorDatabase {
 
     // Build the reranker candidate list (deduped by id via the fused Map),
     // stripping the raw vector so we never leak embeddings into the reranker
-    // payload or the final sources. The RRF order caps the pool at the
-    // configured reranker_retrieval_topk TOTAL (not per arm) — this is the
-    // documented contract and bounds the reranker workload, which matters
-    // most for the in-process native (CPU) reranker.
+    // payload or the final sources. Because each arm is capped at
+    // retrievalTopK/2, the deduped union is ≤ retrievalTopK and the slice
+    // below normally never cuts — the reranker sees the full union; RRF no
+    // longer gates candidates. It still clamps in two corners: odd
+    // retrievalTopK (each arm rounds up) and retrievalTopK < 2·topN (the
+    // Math.max(topN, …) floor keeps each arm at least topN deep).
     // Pinned-doc filtering must happen BEFORE the reranker call: the reranker
     // slices to topN, so filtering afterwards could drain the final context
     // below topN with no way to backfill (unlike hybrid, which filters while

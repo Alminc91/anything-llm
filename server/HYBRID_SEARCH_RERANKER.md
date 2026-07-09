@@ -25,7 +25,7 @@ vector regardless of the setting.
 | `default` | Pure dense-vector (cosine) search. Unchanged upstream behavior. | No |
 | `rerank` | Vector search, then rerank the candidates. | Yes |
 | `hybrid` | Runs a vector arm **and** a BM25 keyword arm, fuses them app-side with weighted Reciprocal Rank Fusion (RRF). | No |
-| `hybrid_rerank` **(recommended)** | Union of both arms (up to `reranker_retrieval_topk` candidates), deduped, then the reranker decides the final order. RRF order is used only as a fallback if the reranker fails. | Yes |
+| `hybrid_rerank` **(recommended)** | Each arm retrieves up to `reranker_retrieval_topk / 2`; the deduped union (≤ `reranker_retrieval_topk`) goes to the reranker **in full** — no candidate is dropped by RRF before the reranker has judged it. RRF order is used only as a fallback if the reranker fails; `hybrid_weight` has no effect on which candidates the reranker sees. | Yes |
 
 **Weighted RRF** (used by `hybrid` and as the `hybrid_rerank` fallback):
 `score = alpha/(k + rank_vec) + (1 - alpha)/(k + rank_fts)`, with `k = 60` and
@@ -103,8 +103,8 @@ Edited from the same GUI page; stored in the DB (no Prisma migration — the
 | Setting | Default | Range | Meaning |
 |---------|---------|-------|---------|
 | `vector_search_default` | `default` | one of the 4 modes | Global default mode; invalid values coerce to `default`. |
-| `hybrid_weight` | `0.7` | `0.0`–`1.0` | Vector-arm weight (alpha) in RRF. Higher favors semantic, lower favors keyword. |
-| `reranker_retrieval_topk` | `40` | `1`–`500` | **Total** candidate pool sent to the reranker (each arm retrieves up to this many; the deduped union is capped at this value by RRF order). Also bounds the native CPU reranker's workload. |
+| `hybrid_weight` | `0.7` | `0.0`–`1.0` | Vector-arm weight (alpha) in RRF. Higher favors semantic, lower favors keyword. Ranks for real only in `hybrid` mode; in `hybrid_rerank` it merely orders the degradation fallback. |
+| `reranker_retrieval_topk` | `40` | `1`–`500` | **Total** documents sent to the reranker. In `hybrid_rerank` each arm retrieves up to half of this, so the full deduped union reaches the reranker (nothing is cut by RRF order). Also bounds the native CPU reranker's workload. |
 | `reranker_instruction` | `""` | free text | Optional instruction prepended to the query for instruction-tuned rerankers. Empty clears it. |
 
 ### 3c. Per-workspace override
