@@ -416,6 +416,9 @@ function adminEndpoints(app) {
             case "hybrid_weight":
               requestedSettings[label] = setting?.value ?? 0.7;
               break;
+            case "hybrid_arm_split":
+              requestedSettings[label] = setting?.value ?? 0.5;
+              break;
             case "reranker_instruction":
               requestedSettings[label] = setting?.value ?? "";
               break;
