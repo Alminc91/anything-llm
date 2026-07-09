@@ -42,6 +42,7 @@ const SystemSettings = {
     "query_rewrite_default",
     "vector_search_default",
     "hybrid_weight",
+    "hybrid_arm_split",
     "reranker_instruction",
     "reranker_retrieval_topk",
     "metadata_filters",
@@ -74,6 +75,7 @@ const SystemSettings = {
     "query_rewrite_default",
     "vector_search_default",
     "hybrid_weight",
+    "hybrid_arm_split",
     "reranker_instruction",
     "reranker_retrieval_topk",
     "metadata_filters",
@@ -240,6 +242,16 @@ const SystemSettings = {
       if (isNullOrNaN(value)) return 0.7;
       if (value < 0) return 0.0;
       if (value > 1) return 1.0;
+      return value;
+    },
+    // Vector share of the hybrid_rerank nomination budget (per-arm depth,
+    // Qdrant-prefetch-style). Float clamped 0.1..0.9 so neither arm can be
+    // starved entirely; 0.5 = neutral halves.
+    hybrid_arm_split: (update) => {
+      const value = parseFloat(update);
+      if (isNullOrNaN(value)) return 0.5;
+      if (value < 0.1) return 0.1;
+      if (value > 0.9) return 0.9;
       return value;
     },
     // Optional instruction prepended/passed to the reranker. Empty string clears it.

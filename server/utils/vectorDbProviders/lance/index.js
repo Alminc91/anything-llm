@@ -342,7 +342,7 @@ class LanceDb extends VectorDatabase {
   /**
    * Resolves the hybrid-search knobs from SystemSettings with hard fallbacks.
    * Kept here (not inline) so hybrid + hybrid_rerank read identical config.
-   * @returns {Promise<{hybridWeight:number, retrievalTopK:number, instruction:string}>}
+   * @returns {Promise<{hybridWeight:number, retrievalTopK:number, armSplit:number, instruction:string}>}
    */
   async hybridSettings() {
     const rawWeight = await SystemSettings.getValueOrFallback(
@@ -362,6 +362,20 @@ class LanceDb extends VectorDatabase {
     // Keep in sync with the systemSettings validator clamp (1..500).
     retrievalTopK = Math.min(500, Math.max(1, retrievalTopK));
 
+    // Vector share of the reranker nomination budget in hybrid_rerank
+    // (Qdrant-prefetch-style per-arm depth). 0.5 = neutral halves; raise for
+    // semantics-heavy corpora, lower for keyword-heavy ones. Deliberately
+    // clamped away from 0/1 so neither arm can be starved entirely — that
+    // would silently reduce hybrid_rerank to single-arm rerank.
+    const rawSplit = await SystemSettings.getValueOrFallback(
+      { label: "hybrid_arm_split" },
+      0.5
+    );
+    let armSplit = parseFloat(rawSplit);
+    if (!Number.isFinite(armSplit)) armSplit = 0.5;
+    // Keep in sync with the systemSettings validator clamp (0.1..0.9).
+    armSplit = Math.min(0.9, Math.max(0.1, armSplit));
+
     const instruction = await SystemSettings.getValueOrFallback(
       { label: "reranker_instruction" },
       ""
@@ -370,6 +384,7 @@ class LanceDb extends VectorDatabase {
     return {
       hybridWeight,
       retrievalTopK,
+      armSplit,
       instruction: typeof instruction === "string" ? instruction : "",
     };
   }
@@ -555,7 +570,9 @@ class LanceDb extends VectorDatabase {
    * @param {import('@lancedb/lancedb').Table} params.collection
    * @param {string} params.query
    * @param {number[]} params.queryVector
-   * @param {number} params.armLimit
+   * @param {number} params.armLimit - Shared per-arm limit (pure hybrid).
+   * @param {number} [params.vectorLimit] - Vector-arm override (hybrid_rerank split).
+   * @param {number} [params.ftsLimit] - BM25-arm override (hybrid_rerank split).
    * @returns {Promise<{vectorRows: object[], ftsRows: object[]}>}
    */
   async hybridArms({
@@ -563,9 +580,15 @@ class LanceDb extends VectorDatabase {
     query,
     queryVector,
     armLimit,
+    vectorLimit = null,
+    ftsLimit = null,
     whereClause = null,
     trace = null,
   }) {
+    // Per-arm limits (hybrid_rerank's nomination split) default to the shared
+    // armLimit so the pure-hybrid caller stays unchanged.
+    const vecLimit = vectorLimit ?? armLimit;
+    const keywordLimit = ftsLimit ?? armLimit;
     let vectorError = null;
     const vectorStart = Date.now();
     const vectorRows = await this.filteredQueryRows(
@@ -574,7 +597,7 @@ class LanceDb extends VectorDatabase {
           .query()
           .nearestTo(queryVector)
           .distanceType("cosine")
-          .limit(armLimit),
+          .limit(vecLimit),
       whereClause
     ).catch((e) => {
       this.logger("hybridArms:vector", e.message);
@@ -600,7 +623,7 @@ class LanceDb extends VectorDatabase {
           collection
             .query()
             .fullTextSearch(query, { columns: "text" })
-            .limit(armLimit),
+            .limit(keywordLimit),
         whereClause
       ).catch((e) => {
         this.logger("hybridArms:fts", e.message);
@@ -622,16 +645,18 @@ class LanceDb extends VectorDatabase {
   /**
    * Hybrid retrieval followed by an external/native reranker (KIE-471).
    *
-   * Each arm retrieves up to retrievalTopK/2 candidates so the deduped union
-   * (≤ retrievalTopK) goes to the reranker IN FULL — retrievalTopK is the
-   * "documents sent to the reranker" contract, and no candidate is dropped by
-   * RRF order before the reranker has seen it. This mirrors how production
-   * hybrid+rerank stacks behave (e.g. Open WebUI's ensemble → cross-encoder):
-   * fusion weights must not gate what the reranker may judge, because a
-   * weighted RRF cut systematically starves the lower-weighted arm's tail
-   * (empirically: BM25-only hits beyond rank ~α·k never reached the reranker).
-   * hybridWeight/α therefore only orders the graceful-degradation fallback
-   * here; it ranks for real only in the pure `hybrid` mode.
+   * The reranker nomination budget (retrievalTopK) is split between the arms
+   * via hybrid_arm_split (default 0.5 → topK/2 each, Qdrant-prefetch-style),
+   * so the deduped union (≤ retrievalTopK) goes to the reranker IN FULL —
+   * retrievalTopK is the "documents sent to the reranker" contract, and no
+   * candidate is dropped by RRF order before the reranker has seen it. This
+   * mirrors how production hybrid+rerank stacks behave (e.g. Open WebUI's
+   * ensemble → cross-encoder): fusion weights must not gate what the reranker
+   * may judge, because a weighted RRF cut systematically starves the
+   * lower-weighted arm's tail (empirically: BM25-only hits beyond rank ~α·k
+   * never reached the reranker). hybridWeight/α therefore only orders the
+   * graceful-degradation fallback here; it ranks for real only in the pure
+   * `hybrid` mode.
    * If the reranker returns the candidates UNMODIFIED (its
    * graceful-degradation contract on failure), we fall back to the
    * weighted-RRF order so hybrid_rerank never regresses below hybrid.
@@ -659,7 +684,7 @@ class LanceDb extends VectorDatabase {
     trace = null,
   }) {
     const collection = await client.openTable(namespace);
-    const { hybridWeight, retrievalTopK, instruction } =
+    const { hybridWeight, retrievalTopK, armSplit, instruction } =
       await this.hybridSettings();
     const totalEmbeddings = await this.namespaceCount(namespace);
     const reranker = getRerankerProviderSelection({ instruction });
@@ -670,20 +695,30 @@ class LanceDb extends VectorDatabase {
       scores: [],
     };
 
-    // Half of retrievalTopK per arm: the deduped union stays ≤ retrievalTopK,
-    // so the ENTIRE candidate pool reaches the reranker and retrievalTopK
-    // keeps its meaning as "documents sent to the reranker" (which also
-    // bounds the native CPU reranker's workload).
-    const armLimit = Math.max(
-      topN,
-      Math.min(Math.ceil(retrievalTopK / 2), totalEmbeddings || retrievalTopK)
-    );
+    // Split the reranker nomination budget between the arms
+    // (Qdrant-prefetch-style): vector gets armSplit·retrievalTopK, BM25 the
+    // rest, so the deduped union stays ≤ retrievalTopK and the ENTIRE
+    // candidate pool reaches the reranker — retrievalTopK keeps its meaning
+    // as "documents sent to the reranker" (which also bounds the native CPU
+    // reranker's workload). The topN floor keeps either arm at least topN
+    // deep so tiny budgets still fill the final context.
+    const clampArm = (share) =>
+      Math.max(
+        topN,
+        Math.min(
+          Math.ceil(retrievalTopK * share),
+          totalEmbeddings || retrievalTopK
+        )
+      );
+    const vectorLimit = clampArm(armSplit);
+    const ftsLimit = clampArm(1 - armSplit);
 
     const { vectorRows, ftsRows } = await this.hybridArms({
       collection,
       query,
       queryVector,
-      armLimit,
+      vectorLimit,
+      ftsLimit,
       whereClause,
       trace,
     });
@@ -701,7 +736,9 @@ class LanceDb extends VectorDatabase {
     if (trace)
       trace.fusion = {
         alpha: hybridWeight,
-        armLimit,
+        armSplit,
+        vectorLimit,
+        ftsLimit,
         candidates: fused.length,
         top: fused.slice(0, SearchTrace.CAPTURE_TOP_N).map((f, i) => ({
           rank: i + 1,
@@ -715,12 +752,12 @@ class LanceDb extends VectorDatabase {
 
     // Build the reranker candidate list (deduped by id via the fused Map),
     // stripping the raw vector so we never leak embeddings into the reranker
-    // payload or the final sources. Because each arm is capped at
-    // retrievalTopK/2, the deduped union is ≤ retrievalTopK and the slice
-    // below normally never cuts — the reranker sees the full union; RRF no
-    // longer gates candidates. It still clamps in two corners: odd
-    // retrievalTopK (each arm rounds up) and retrievalTopK < 2·topN (the
-    // Math.max(topN, …) floor keeps each arm at least topN deep).
+    // payload or the final sources. Because the arms share the retrievalTopK
+    // nomination budget (armSplit), the deduped union is ≤ retrievalTopK and
+    // the slice below normally never cuts — the reranker sees the full union;
+    // RRF no longer gates candidates. It still clamps in two corners:
+    // ceil-rounding of the split shares and small budgets (the
+    // Math.max(topN, …) floor keeps either arm at least topN deep).
     // Pinned-doc filtering must happen BEFORE the reranker call: the reranker
     // slices to topN, so filtering afterwards could drain the final context
     // below topN with no way to backfill (unlike hybrid, which filters while
