@@ -62,6 +62,7 @@ const EmbedChats = {
    * @param {number|null} limit the maximum number of chats to fetch
    * @param {string|null} orderBy the order to fetch chats in
    * @param {string|boolean} identifierType 'session_id' or 'conversation_id' (default: 'session_id' for backwards compatibility), or boolean for filterSources (legacy)
+   * @param {string|null} boundSessionId when identifierType is 'conversation_id', additionally binds the conversation to its owning session (BOLA/IDOR hardening, KIE-505)
    * @returns {Promise<EmbedChat[]>} Returns an array of chats for the given embed and identifier
    */
   forEmbedByUser: async function (
@@ -69,7 +70,8 @@ const EmbedChats = {
     identifierId = null,
     limit = null,
     orderBy = null,
-    identifierType = 'session_id'
+    identifierType = 'session_id',
+    boundSessionId = null
   ) {
     if (!embedId || !identifierId) return [];
 
@@ -89,6 +91,9 @@ const EmbedChats = {
 
       if (identifierType === 'conversation_id') {
         whereClause.conversation_id = String(identifierId);
+        // BOLA/IDOR hardening (KIE-505): bind the conversation to its owning
+        // session so a leaked conversationId alone cannot load foreign history.
+        if (boundSessionId) whereClause.session_id = String(boundSessionId);
       } else {
         whereClause.session_id = String(identifierId);
       }
@@ -108,7 +113,8 @@ const EmbedChats = {
   markHistoryInvalid: async function (
     embedId = null,
     identifierId = null,
-    identifierType = 'session_id'
+    identifierType = 'session_id',
+    boundSessionId = null
   ) {
     if (!embedId || !identifierId) return [];
 
@@ -120,6 +126,9 @@ const EmbedChats = {
 
       if (identifierType === 'conversation_id') {
         whereClause.conversation_id = String(identifierId);
+        // BOLA/IDOR hardening (KIE-505): only invalidate history that belongs
+        // to the requesting session, not any session sharing the conversationId.
+        if (boundSessionId) whereClause.session_id = String(boundSessionId);
       } else {
         whereClause.session_id = String(identifierId);
       }

@@ -90,7 +90,8 @@ async function streamChatWithForEmbed(
   const { rawHistory, chatHistory } = await recentEmbedChatHistory(
     conversationId, // Use conversationId instead of sessionId for RAG context
     embed,
-    messageLimit
+    messageLimit,
+    sessionId // BOLA/IDOR hardening (KIE-505): only load context of the owning session
   );
 
   // See stream.js comment for more information on this implementation.
@@ -249,12 +250,14 @@ async function streamChatWithForEmbed(
  * @param {string} conversationId the conversation id (or session id for backwards compatibility)
  * @param {Object} embed the embed config object
  * @param {Number} messageLimit the number of messages to return
+ * @param {string|null} boundSessionId when set, binds the conversation to its owning session (BOLA/IDOR hardening, KIE-505)
  * @returns {Promise<{rawHistory: import("@prisma/client").embed_chats[], chatHistory: {role: string, content: string, attachments?: Object[]}[]}>
  */
 async function recentEmbedChatHistory(
   conversationId,
   embed,
-  messageLimit = 20
+  messageLimit = 20,
+  boundSessionId = null
 ) {
   const rawHistory = (
     await EmbedChats.forEmbedByUser(
@@ -262,7 +265,8 @@ async function recentEmbedChatHistory(
       conversationId,
       messageLimit,
       { id: "desc" },
-      "conversation_id" // Use conversation_id field instead of session_id
+      "conversation_id", // Use conversation_id field instead of session_id
+      boundSessionId // BOLA/IDOR hardening (KIE-505): bind conversation to owning session
     )
   ).reverse();
   return { rawHistory, chatHistory: convertToPromptHistory(rawHistory) };
