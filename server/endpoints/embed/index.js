@@ -286,6 +286,46 @@ function embeddedEndpoints(app) {
     }
   );
 
+  // KIE-504: Bewertung (👍/👎) einer einzelnen Bot-Antwort setzen/entfernen.
+  // feedback: true = 👍, false = 👎, null = Bewertung entfernen (Toggle).
+  // BOLA/IDOR-Härtung (analog KIE-505): die chatId wird im Model an embed_id UND
+  // die sessionId aus dem Pfad gebunden — eine geleakte chatId reicht nicht.
+  app.post(
+    "/embed/:embedId/:sessionId/feedback",
+    [validEmbedConfig],
+    async (request, response) => {
+      try {
+        const { sessionId } = request.params;
+        const { chatId, feedback = null } = reqBody(request);
+        const embed = response.locals.embedConfig;
+
+        if (chatId === undefined || chatId === null) {
+          return response
+            .status(400)
+            .json({ success: false, error: "chatId is required." });
+        }
+        // feedback muss true (👍), false (👎) oder null (entfernen) sein.
+        if (feedback !== null && typeof feedback !== "boolean") {
+          return response.status(400).json({
+            success: false,
+            error: "feedback must be true, false, or null.",
+          });
+        }
+
+        const success = await EmbedChats.updateFeedbackScore(
+          embed.id,
+          sessionId,
+          chatId,
+          feedback
+        );
+        response.status(200).json({ success });
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
   // ============================================
   // Audio Endpoints for Embed Widget (STT/TTS)
   // ============================================

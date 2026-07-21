@@ -230,7 +230,7 @@ async function streamChatWithForEmbed(
     metrics = stream.metrics;
   }
 
-  await EmbedChats.new({
+  const { chat } = await EmbedChats.new({
     embedId: embed.id,
     prompt: message,
     response: { text: completeText, type: chatMode, sources, metrics },
@@ -242,6 +242,19 @@ async function streamChatWithForEmbed(
       : { username: !!username ? String(username) : null },
     sessionId,
     conversationId, // Save conversation ID for grouping
+  });
+
+  // KIE-504: chatId ans Widget nachreichen, damit die 👍/👎-Bewertung der gerade
+  // gestreamten Antwort sofort (ohne History-Reload) zugeordnet werden kann.
+  // Muster: workspace-Stream (stream.js finalizeResponseStream). Wird NACH dem
+  // Text-close gesendet; das Widget verarbeitet den Chunk additiv (nur chatId),
+  // ohne close/animate zu verändern -> keine Flicker-Regression.
+  writeResponseChunk(response, {
+    uuid,
+    type: "finalizeResponseStream",
+    close: true,
+    error: false,
+    chatId: chat?.id ?? null,
   });
   return;
 }
