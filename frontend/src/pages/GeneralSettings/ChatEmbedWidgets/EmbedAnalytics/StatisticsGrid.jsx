@@ -29,6 +29,34 @@ export default function StatisticsGrid({ stats }) {
     },
   ];
 
+  // Feedback (Daumen hoch/runter) — KIE-504
+  const satisfaction = stats.feedback_satisfaction;
+  const hasSatisfaction = satisfaction !== null && satisfaction !== undefined;
+  const feedbackCards = [
+    {
+      label: t("embed-analytics.stats.feedback-positive-label"),
+      value: (stats.feedback_positive || 0).toLocaleString("de-DE"),
+      description: t("embed-analytics.stats.feedback-positive-desc"),
+      color: "#22C55E",
+    },
+    {
+      label: t("embed-analytics.stats.feedback-negative-label"),
+      value: (stats.feedback_negative || 0).toLocaleString("de-DE"),
+      description: t("embed-analytics.stats.feedback-negative-desc"),
+      color: "#EF4444",
+    },
+    {
+      label: t("embed-analytics.stats.feedback-satisfaction-label"),
+      value: hasSatisfaction
+        ? `${satisfaction.toLocaleString("de-DE")} %`
+        : "–",
+      description: hasSatisfaction
+        ? t("embed-analytics.stats.feedback-satisfaction-desc")
+        : t("embed-analytics.stats.feedback-none"),
+      color: "#3B82F6",
+    },
+  ];
+
   const technicalStats = [
     {
       label: t("embed-analytics.stats.avg-words-prompt-label"),
@@ -55,6 +83,24 @@ export default function StatisticsGrid({ stats }) {
       {/* Standard Statistics (visible for all) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         {statCards.map((stat, idx) => (
+          <div
+            key={idx}
+            className="bg-theme-bg-secondary border border-white/10 light:border-gray-200 rounded-lg p-5"
+          >
+            <h4 className="text-theme-text-secondary text-xs uppercase tracking-wide mb-2">
+              {stat.label}
+            </h4>
+            <p className="text-4xl font-bold mb-2" style={{ color: stat.color }}>
+              {stat.value}
+            </p>
+            <p className="text-theme-text-secondary text-xs">{stat.description}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Feedback Statistics (Daumen hoch/runter) — KIE-504 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        {feedbackCards.map((stat, idx) => (
           <div
             key={idx}
             className="bg-theme-bg-secondary border border-white/10 light:border-gray-200 rounded-lg p-5"

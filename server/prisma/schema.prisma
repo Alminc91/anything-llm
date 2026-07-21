@@ -286,6 +286,7 @@ model embed_chats {
   conversation_id        String?       // Konversations-Gruppierung (für RAG Context Fix)
   include                Boolean       @default(true)
   connection_information String?
+  feedbackScore          Boolean?      // 👍/👎 pro Antwort (NULL = keine Bewertung), KIE-504
   embed_id               Int
   usersId                Int?
   createdAt              DateTime      @default(now())

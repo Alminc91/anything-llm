@@ -145,6 +145,43 @@ const EmbedChats = {
     }
   },
 
+  /**
+   * Setzt oder entfernt den Feedback-Score (👍/👎) für eine Embed-Antwort (KIE-504).
+   * BOLA/IDOR-Härtung (analog KIE-505): die chatId wird zusätzlich an embed_id UND
+   * session_id gebunden, damit eine geratene/geleakte chatId keine fremde Antwort
+   * bewerten kann. Verwendet updateMany, sodass ein Nicht-Treffer keinen Fehler wirft.
+   * @param {number|null} embedId the embed config id (scope)
+   * @param {string|null} sessionId the owning browser session
+   * @param {number|null} chatId the embed_chats row id
+   * @param {boolean|number|null} feedbackScore 1/true = 👍, 0/false = 👎, null = keine Bewertung
+   * @returns {Promise<boolean>} true wenn genau eine Zeile aktualisiert wurde
+   */
+  updateFeedbackScore: async function (
+    embedId = null,
+    sessionId = null,
+    chatId = null,
+    feedbackScore = null
+  ) {
+    if (!embedId || !sessionId || !chatId) return false;
+    try {
+      const result = await prisma.embed_chats.updateMany({
+        where: {
+          id: Number(chatId),
+          embed_id: Number(embedId),
+          session_id: String(sessionId),
+        },
+        data: {
+          feedbackScore:
+            feedbackScore === null ? null : Number(feedbackScore) === 1,
+        },
+      });
+      return result.count === 1;
+    } catch (error) {
+      console.error("updateFeedbackScore error:", error.message);
+      return false;
+    }
+  },
+
   get: async function (clause = {}, limit = null, orderBy = null) {
     try {
       const chat = await prisma.embed_chats.findFirst({
@@ -407,6 +444,7 @@ const EmbedChats = {
           createdAt: true,
           conversation_id: true,
           session_id: true,
+          feedbackScore: true, // KIE-504: 👍/👎-Anzeige im Admin
         },
       });
     } catch (error) {
@@ -447,6 +485,15 @@ const EmbedChats = {
 
       // Get total chats
       const totalChats = await prisma.embed_chats.count({ where });
+
+      // KIE-504: Feedback-Zähler (👍/👎) — NULL zählt nicht als Bewertung
+      const feedbackPositive = await prisma.embed_chats.count({
+        where: { ...where, feedbackScore: true },
+      });
+      const feedbackNegative = await prisma.embed_chats.count({
+        where: { ...where, feedbackScore: false },
+      });
+      const feedbackTotal = feedbackPositive + feedbackNegative;
 
       // Get unique conversations count (using conversation_id, fallback to session_id)
       const uniqueConversations = await prisma.$queryRaw`
@@ -497,6 +544,14 @@ const EmbedChats = {
         avg_chats_per_conversation:
           conversationCount > 0 ? totalChats / conversationCount : 0,
         avg_chats_per_day: days ? totalChats / days : null,
+        // KIE-504: Bewertungen
+        feedback_positive: feedbackPositive,
+        feedback_negative: feedbackNegative,
+        feedback_total: feedbackTotal,
+        feedback_satisfaction:
+          feedbackTotal > 0
+            ? Math.round((feedbackPositive / feedbackTotal) * 100)
+            : null,
       };
     } catch (error) {
       console.error("getBasicStats error:", error.message);
@@ -512,6 +567,10 @@ const EmbedChats = {
         max_words_response: 0,
         avg_chats_per_conversation: 0,
         avg_chats_per_day: null,
+        feedback_positive: 0,
+        feedback_negative: 0,
+        feedback_total: 0,
+        feedback_satisfaction: null,
       };
     }
   },

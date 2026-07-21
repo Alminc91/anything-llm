@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { CaretDown, CaretUp, ChatCircle, User, Copy } from "@phosphor-icons/react";
+import { CaretDown, CaretUp, ChatCircle, User, Copy, ThumbsUp, ThumbsDown } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import Embed from "@/models/embed";
 import { formatDateTimeDE } from "@/utils/directories";
@@ -239,6 +239,25 @@ function ConversationCard({ conversation, embedId }) {
                       <h5 className="text-gray-300 text-sm font-bold uppercase light:text-gray-700">
                         {t("embed-analytics.response")}
                       </h5>
+                      {/* Feedback (Daumen hoch/runter) — KIE-504, read-only */}
+                      {msg.feedbackScore === true && (
+                        <span
+                          className="inline-flex items-center"
+                          title={t("embed-analytics.feedback.positive")}
+                          aria-label={t("embed-analytics.feedback.positive")}
+                        >
+                          <ThumbsUp size={16} weight="fill" className="text-green-500 light:text-green-600" />
+                        </span>
+                      )}
+                      {msg.feedbackScore === false && (
+                        <span
+                          className="inline-flex items-center"
+                          title={t("embed-analytics.feedback.negative")}
+                          aria-label={t("embed-analytics.feedback.negative")}
+                        >
+                          <ThumbsDown size={16} weight="fill" className="text-red-500 light:text-red-600" />
+                        </span>
+                      )}
                     </div>
                     <div className="text-theme-text-primary text-sm leading-relaxed prose prose-sm max-w-none analytics-bot-response">
                       <MarkdownRenderer
