@@ -247,7 +247,8 @@ function embeddedEndpoints(app) {
           identifier,
           null,
           null,
-          identifierType
+          identifierType,
+          sessionId // BOLA/IDOR hardening (KIE-505): bind conversation to owning session
         );
 
         response.status(200).json({ history: convertToChatHistory(history) });
@@ -271,7 +272,12 @@ function embeddedEndpoints(app) {
         const identifier = conversationId || sessionId;
         const identifierType = conversationId ? 'conversation_id' : 'session_id';
 
-        await EmbedChats.markHistoryInvalid(embed.id, identifier, identifierType);
+        await EmbedChats.markHistoryInvalid(
+          embed.id,
+          identifier,
+          identifierType,
+          sessionId // BOLA/IDOR hardening (KIE-505): bind conversation to owning session
+        );
         response.status(200).end();
       } catch (e) {
         console.error(e.message, e);
