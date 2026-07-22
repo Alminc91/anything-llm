@@ -325,20 +325,15 @@ function ConversationCard({ conversation, embedId }) {
                     {msg.feedbackScore === false &&
                       (msg.feedbackReason || msg.feedbackText) && (
                         <div className="mt-3 rounded-md border border-red-400/40 bg-red-500/10 p-3 light:bg-red-50 light:border-red-200">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <ThumbsDown
-                              size={14}
-                              weight="fill"
-                              className="text-red-500 light:text-red-600"
-                            />
-                            {msg.feedbackReason && (
-                              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 light:bg-red-100 light:text-red-700">
-                                {msg.feedbackReason}
-                              </span>
-                            )}
-                          </div>
+                          {msg.feedbackReason && (
+                            <span className="inline-block text-xs font-medium px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 light:bg-red-100 light:text-red-700">
+                              {msg.feedbackReason}
+                            </span>
+                          )}
                           {msg.feedbackText && (
-                            <p className="mt-2 text-sm text-theme-text-secondary italic">
+                            <p
+                              className={`text-sm text-theme-text-secondary italic ${msg.feedbackReason ? "mt-2" : ""}`}
+                            >
                               „{msg.feedbackText}"
                             </p>
                           )}
