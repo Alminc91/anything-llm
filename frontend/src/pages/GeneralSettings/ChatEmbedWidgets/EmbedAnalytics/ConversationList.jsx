@@ -79,7 +79,7 @@ export default function ConversationList({ embedId, startDate, endDate }) {
       <div className="space-y-4">
         {conversations.map((conv) => (
           <ConversationCard
-            key={conv.session_id}
+            key={conv.conversation_id}
             conversation={conv}
             embedId={embedId}
           />
@@ -111,9 +111,13 @@ function ConversationCard({ conversation, embedId }) {
   const handleToggle = async () => {
     if (!expanded && !messages) {
       setLoading(true);
+      // KIE-507-Fix: nach conversation_id laden (nicht session_id) — sonst
+      // matcht der Detail-Abruf ALLE Nachrichten der Session statt nur dieser
+      // einen Konversation. Für Alt-Chats ist conversation_id == session_id
+      // (COALESCE aus getConversations), daher rückwärtskompatibel.
       const { success, messages: data } = await Embed.getConversationDetails(
         embedId,
-        conversation.session_id
+        conversation.conversation_id
       );
 
       if (success) {
@@ -271,6 +275,29 @@ function ConversationCard({ conversation, embedId }) {
                         })()}
                       />
                     </div>
+                    {/* KIE-507: 👎-Drill-down — Grund + Freitext des Nutzers */}
+                    {msg.feedbackScore === false &&
+                      (msg.feedbackReason || msg.feedbackText) && (
+                        <div className="mt-3 rounded-md border border-red-400/40 bg-red-500/10 p-3 light:bg-red-50 light:border-red-200">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <ThumbsDown
+                              size={14}
+                              weight="fill"
+                              className="text-red-500 light:text-red-600"
+                            />
+                            {msg.feedbackReason && (
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 light:bg-red-100 light:text-red-700">
+                                {msg.feedbackReason}
+                              </span>
+                            )}
+                          </div>
+                          {msg.feedbackText && (
+                            <p className="mt-2 text-sm text-theme-text-secondary italic">
+                              „{msg.feedbackText}"
+                            </p>
+                          )}
+                        </div>
+                      )}
                   </div>
 
                   {idx < messages.length - 1 && (

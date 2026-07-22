@@ -64,7 +64,12 @@ describe("updateFeedbackScore — chatId bound to embed + session (KIE-504)", ()
       embed_id: EMBED_ID,
       session_id: OWNER_SESSION,
     });
-    expect(data).toEqual({ feedbackScore: true });
+    // KIE-507: 👍 leert Kommentar/Grund konsistent mit (keine verwaisten Felder).
+    expect(data).toEqual({
+      feedbackScore: true,
+      feedbackText: null,
+      feedbackReason: null,
+    });
   });
 
   test("👎 (false) maps to feedbackScore false", async () => {
@@ -79,7 +84,7 @@ describe("updateFeedbackScore — chatId bound to embed + session (KIE-504)", ()
     expect(data).toEqual({ feedbackScore: false });
   });
 
-  test("null removes the rating (toggle) — feedbackScore null", async () => {
+  test("null removes the rating (toggle) — feedbackScore + Kommentar/Grund geleert", async () => {
     const ok = await EmbedChats.updateFeedbackScore(
       EMBED_ID,
       OWNER_SESSION,
@@ -88,7 +93,12 @@ describe("updateFeedbackScore — chatId bound to embed + session (KIE-504)", ()
     );
     expect(ok).toBe(true);
     const { data } = prisma.embed_chats.updateMany.mock.calls[0][0];
-    expect(data).toEqual({ feedbackScore: null });
+    // KIE-507: Entfernen der Bewertung leert auch Freitext + Grund konsistent.
+    expect(data).toEqual({
+      feedbackScore: null,
+      feedbackText: null,
+      feedbackReason: null,
+    });
   });
 
   test("foreign session cannot rate owner's chat (count 0 -> false)", async () => {
@@ -118,5 +128,74 @@ describe("updateFeedbackScore — chatId bound to embed + session (KIE-504)", ()
     expect(await EmbedChats.updateFeedbackScore(EMBED_ID, null, CHAT_ID, true)).toBe(false);
     expect(await EmbedChats.updateFeedbackScore(EMBED_ID, OWNER_SESSION, null, true)).toBe(false);
     expect(prisma.embed_chats.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateFeedbackScore — Freitext + Grund bei 👎 (KIE-507)", () => {
+  test("👎 mit comment + reason schreibt feedbackText/feedbackReason", async () => {
+    const ok = await EmbedChats.updateFeedbackScore(
+      EMBED_ID,
+      OWNER_SESSION,
+      CHAT_ID,
+      false,
+      { feedbackText: "Antwort war zu allgemein", feedbackReason: "Zu ungenau" }
+    );
+    expect(ok).toBe(true);
+    const { data } = prisma.embed_chats.updateMany.mock.calls[0][0];
+    expect(data).toEqual({
+      feedbackScore: false,
+      feedbackText: "Antwort war zu allgemein",
+      feedbackReason: "Zu ungenau",
+    });
+  });
+
+  test("ohne opts wird NUR feedbackScore geschrieben (Text/Grund unangetastet)", async () => {
+    await EmbedChats.updateFeedbackScore(EMBED_ID, OWNER_SESSION, CHAT_ID, false);
+    const { data } = prisma.embed_chats.updateMany.mock.calls[0][0];
+    expect(data).toEqual({ feedbackScore: false });
+    expect(data).not.toHaveProperty("feedbackText");
+    expect(data).not.toHaveProperty("feedbackReason");
+  });
+
+  test("nur comment übergeben → nur feedbackText in data (Grund unangetastet)", async () => {
+    await EmbedChats.updateFeedbackScore(EMBED_ID, OWNER_SESSION, CHAT_ID, false, {
+      feedbackText: "Detail fehlt",
+    });
+    const { data } = prisma.embed_chats.updateMany.mock.calls[0][0];
+    expect(data).toEqual({ feedbackScore: false, feedbackText: "Detail fehlt" });
+    expect(data).not.toHaveProperty("feedbackReason");
+  });
+
+  test("überlanger Freitext wird auf 2000 Zeichen gekürzt", async () => {
+    const long = "x".repeat(5000);
+    await EmbedChats.updateFeedbackScore(EMBED_ID, OWNER_SESSION, CHAT_ID, false, {
+      feedbackText: long,
+    });
+    const { data } = prisma.embed_chats.updateMany.mock.calls[0][0];
+    expect(data.feedbackText).toHaveLength(2000);
+  });
+
+  test("Wechsel 👎→👍 leert alten Kommentar/Grund (keine verwaisten Felder)", async () => {
+    // Nutzer klickt später 👍; Widget sendt keine comment/reason mit.
+    await EmbedChats.updateFeedbackScore(EMBED_ID, OWNER_SESSION, CHAT_ID, true);
+    const { data } = prisma.embed_chats.updateMany.mock.calls[0][0];
+    expect(data).toEqual({
+      feedbackScore: true,
+      feedbackText: null,
+      feedbackReason: null,
+    });
+  });
+
+  test("fremde Session kann auch mit Kommentar nichts schreiben (BOLA)", async () => {
+    const ok = await EmbedChats.updateFeedbackScore(
+      EMBED_ID,
+      ATTACKER_SESSION,
+      CHAT_ID,
+      false,
+      { feedbackText: "hack", feedbackReason: "Falsch" }
+    );
+    expect(ok).toBe(false);
+    const { where } = prisma.embed_chats.updateMany.mock.calls[0][0];
+    expect(where.session_id).toBe(ATTACKER_SESSION);
   });
 });
