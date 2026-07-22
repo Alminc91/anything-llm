@@ -330,10 +330,17 @@ const EmbedChats = {
     offset = 0,
     limit = 20,
     startDate = null,
-    endDate = null
+    endDate = null,
+    onlyNegative = false // KIE-508: nur Konversationen mit mind. einer 👎-Antwort
   ) {
     try {
       const { Prisma } = require("@prisma/client");
+
+      // KIE-508: Filter auf Konversationen mit mind. einer negativen Bewertung.
+      // feedbackScore ist in SQLite 0/1; false(👎)=0, null zählt nicht mit.
+      const havingClause = onlyNegative
+        ? Prisma.sql`HAVING SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) > 0`
+        : Prisma.empty;
 
       // Build WHERE conditions
       const whereConditions = [];
@@ -360,6 +367,7 @@ const EmbedChats = {
           started_at,
           last_message_at,
           message_count,
+          negative_count,
           conversation_number
         FROM (
           SELECT
@@ -370,10 +378,12 @@ const EmbedChats = {
             MIN(createdAt) as started_at,
             MAX(createdAt) as last_message_at,
             COUNT(*) as message_count,
+            SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) as negative_count,
             ROW_NUMBER() OVER (ORDER BY MIN(createdAt) DESC) as conversation_number
           FROM embed_chats
           ${whereConditions.length > 0 ? Prisma.join(whereConditions, " ") : Prisma.empty}
           GROUP BY COALESCE(conversation_id, session_id), session_id, embed_id
+          ${havingClause}
         )
         ORDER BY last_message_at DESC
         LIMIT ${limit}
@@ -389,6 +399,7 @@ const EmbedChats = {
         started_at: Number(conv.started_at),
         last_message_at: Number(conv.last_message_at),
         message_count: Number(conv.message_count),
+        negative_count: Number(conv.negative_count) || 0, // KIE-508
         conversation_number: Number(conv.conversation_number),
       }));
 

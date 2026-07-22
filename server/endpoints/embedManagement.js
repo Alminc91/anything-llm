@@ -271,14 +271,21 @@ function embedManagementEndpoints(app) {
     async (request, response) => {
       try {
         const { embedId } = request.params;
-        const { offset = 0, limit = 20, startDate, endDate } = reqBody(request);
+        const {
+          offset = 0,
+          limit = 20,
+          startDate,
+          endDate,
+          onlyNegative = false, // KIE-508: nur Konversationen mit 👎
+        } = reqBody(request);
 
         const conversations = await EmbedChats.getConversations(
           Number(embedId),
           offset,
           limit,
           startDate ? new Date(startDate) : null,
-          endDate ? new Date(endDate) : null
+          endDate ? new Date(endDate) : null,
+          !!onlyNegative
         );
 
         // Count total conversations for pagination
@@ -293,13 +300,27 @@ function embedManagementEndpoints(app) {
           dateConditions.push(Prisma.sql`AND createdAt <= ${new Date(endDate)}`);
         }
 
-        const totalCount = await prisma.$queryRaw`
-          SELECT COUNT(DISTINCT COALESCE(conversation_id, session_id)) as count
-          FROM embed_chats
-          WHERE embed_id = ${Number(embedId)}
-            ${dateConditions.length > 0 ? Prisma.join(dateConditions, " ") : Prisma.empty}
-            AND include = 1
-        `;
+        // KIE-508: bei aktivem Filter nur Konversationen mit mind. einer
+        // negativen Bewertung zählen (für korrekte Pagination).
+        const totalCount = onlyNegative
+          ? await prisma.$queryRaw`
+              SELECT COUNT(*) as count FROM (
+                SELECT COALESCE(conversation_id, session_id) as cid
+                FROM embed_chats
+                WHERE embed_id = ${Number(embedId)}
+                  ${dateConditions.length > 0 ? Prisma.join(dateConditions, " ") : Prisma.empty}
+                  AND include = 1
+                GROUP BY COALESCE(conversation_id, session_id), session_id, embed_id
+                HAVING SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) > 0
+              )
+            `
+          : await prisma.$queryRaw`
+              SELECT COUNT(DISTINCT COALESCE(conversation_id, session_id)) as count
+              FROM embed_chats
+              WHERE embed_id = ${Number(embedId)}
+                ${dateConditions.length > 0 ? Prisma.join(dateConditions, " ") : Prisma.empty}
+                AND include = 1
+            `;
 
         const hasMore = (offset + limit) < Number(totalCount[0]?.count || 0);
         const total = Number(totalCount[0]?.count || 0);

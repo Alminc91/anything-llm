@@ -34,12 +34,13 @@ export default function ConversationList({ embedId, startDate, endDate }) {
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [onlyNegative, setOnlyNegative] = useState(false); // KIE-508
 
   const ITEMS_PER_PAGE = 20;
 
   useEffect(() => {
     setOffset(0);
-  }, [embedId, startDate, endDate]);
+  }, [embedId, startDate, endDate, onlyNegative]);
 
   useEffect(() => {
     if (!embedId) return;
@@ -47,7 +48,14 @@ export default function ConversationList({ embedId, startDate, endDate }) {
     async function loadConversations() {
       setLoading(true);
       const { success, conversations: data, hasMore: more, totalCount: total } =
-        await Embed.getConversations(embedId, offset, ITEMS_PER_PAGE, startDate, endDate);
+        await Embed.getConversations(
+          embedId,
+          offset,
+          ITEMS_PER_PAGE,
+          startDate,
+          endDate,
+          onlyNegative
+        );
 
       if (success) {
         setConversations(data || []);
@@ -60,7 +68,23 @@ export default function ConversationList({ embedId, startDate, endDate }) {
     }
 
     loadConversations();
-  }, [embedId, startDate, endDate, offset, t]);
+  }, [embedId, startDate, endDate, offset, onlyNegative, t]);
+
+  // KIE-508: Toggle "nur mit 👎" — immer sichtbar (auch bei Leer-Zustand).
+  const NegativeFilterToggle = () => (
+    <button
+      type="button"
+      onClick={() => setOnlyNegative((v) => !v)}
+      className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border transition-colors ${
+        onlyNegative
+          ? "border-red-400 bg-red-500/10 text-red-400 light:bg-red-50 light:text-red-600"
+          : "border-white/10 text-theme-text-secondary hover:border-white/20 light:border-gray-200"
+      }`}
+    >
+      <ThumbsDown size={15} weight={onlyNegative ? "fill" : "regular"} />
+      {t("embed-analytics.conversations.only-negative")}
+    </button>
+  );
 
   if (loading) {
     return <div className="text-white">{t("common.loading")}</div>;
@@ -68,14 +92,24 @@ export default function ConversationList({ embedId, startDate, endDate }) {
 
   if (conversations.length === 0) {
     return (
-      <div className="text-white/60 text-center py-8">
-        {t("embed-analytics.no-conversations")}
+      <div>
+        <div className="flex justify-end mb-4">
+          <NegativeFilterToggle />
+        </div>
+        <div className="text-white/60 text-center py-8">
+          {onlyNegative
+            ? t("embed-analytics.conversations.no-negative")
+            : t("embed-analytics.no-conversations")}
+        </div>
       </div>
     );
   }
 
   return (
     <div>
+      <div className="flex justify-end mb-4">
+        <NegativeFilterToggle />
+      </div>
       <div className="space-y-4">
         {conversations.map((conv) => (
           <ConversationCard
@@ -154,6 +188,18 @@ function ConversationCard({ conversation, embedId }) {
               {isNew && (
                 <span className="px-2 py-0.5 text-xs font-bold bg-green-500/20 text-green-400 rounded border border-green-500/30">
                   {t("embed-analytics.conversations.new-badge")}
+                </span>
+              )}
+              {/* KIE-508: Badge mit Anzahl negativer Bewertungen */}
+              {conversation.negative_count > 0 && (
+                <span
+                  className="flex items-center gap-1 px-2 py-0.5 text-xs font-bold bg-red-500/20 text-red-400 rounded border border-red-500/30 light:bg-red-50 light:text-red-600 light:border-red-200"
+                  title={t("embed-analytics.conversations.negative-count", {
+                    count: conversation.negative_count,
+                  })}
+                >
+                  <ThumbsDown size={12} weight="fill" />
+                  {conversation.negative_count}
                 </span>
               )}
             </div>
