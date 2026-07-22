@@ -154,26 +154,47 @@ const EmbedChats = {
    * @param {string|null} sessionId the owning browser session
    * @param {number|null} chatId the embed_chats row id
    * @param {boolean|number|null} feedbackScore 1/true = 👍, 0/false = 👎, null = keine Bewertung
+   * @param {{feedbackText?: string|null, feedbackReason?: string|null}} [opts] optionaler
+   *   Freitext-Kommentar + 1-Klick-Grund bei 👎 (KIE-507). Nur gesetzte Felder werden
+   *   geschrieben; wird die Bewertung entfernt (feedbackScore null), werden beide geleert.
    * @returns {Promise<boolean>} true wenn genau eine Zeile aktualisiert wurde
    */
   updateFeedbackScore: async function (
     embedId = null,
     sessionId = null,
     chatId = null,
-    feedbackScore = null
+    feedbackScore = null,
+    { feedbackText, feedbackReason } = {}
   ) {
     if (!embedId || !sessionId || !chatId) return false;
     try {
+      const resolvedScore =
+        feedbackScore === null ? null : Number(feedbackScore) === 1;
+      const data = { feedbackScore: resolvedScore };
+      if (resolvedScore === false) {
+        // 👎: nur explizit übergebene Kommentar/Grund-Felder schreiben
+        // (undefined = unangetastet).
+        if (feedbackText !== undefined)
+          data.feedbackText =
+            feedbackText === null ? null : String(feedbackText).slice(0, 2000);
+        if (feedbackReason !== undefined)
+          data.feedbackReason =
+            feedbackReason === null
+              ? null
+              : String(feedbackReason).slice(0, 100);
+      } else {
+        // 👍 oder Bewertung entfernt (null): Kommentar/Grund konsistent leeren,
+        // damit keine verwaisten negativen Kommentare an einer 👍-Zeile hängen.
+        data.feedbackText = null;
+        data.feedbackReason = null;
+      }
       const result = await prisma.embed_chats.updateMany({
         where: {
           id: Number(chatId),
           embed_id: Number(embedId),
           session_id: String(sessionId),
         },
-        data: {
-          feedbackScore:
-            feedbackScore === null ? null : Number(feedbackScore) === 1,
-        },
+        data,
       });
       return result.count === 1;
     } catch (error) {
@@ -445,6 +466,8 @@ const EmbedChats = {
           conversation_id: true,
           session_id: true,
           feedbackScore: true, // KIE-504: 👍/👎-Anzeige im Admin
+          feedbackText: true, // KIE-507: Freitext bei 👎
+          feedbackReason: true, // KIE-507: 1-Klick-Grund bei 👎
         },
       });
     } catch (error) {

@@ -296,7 +296,8 @@ function embeddedEndpoints(app) {
     async (request, response) => {
       try {
         const { sessionId } = request.params;
-        const { chatId, feedback = null } = reqBody(request);
+        // KIE-507: comment (Freitext) + reason (1-Klick-Grund) sind optional.
+        const { chatId, feedback = null, comment, reason } = reqBody(request);
         const embed = response.locals.embedConfig;
 
         if (chatId === undefined || chatId === null) {
@@ -311,12 +312,25 @@ function embeddedEndpoints(app) {
             error: "feedback must be true, false, or null.",
           });
         }
+        // comment/reason (falls übergeben) müssen String oder null sein.
+        for (const [key, val] of [
+          ["comment", comment],
+          ["reason", reason],
+        ]) {
+          if (val !== undefined && val !== null && typeof val !== "string") {
+            return response.status(400).json({
+              success: false,
+              error: `${key} must be a string or null.`,
+            });
+          }
+        }
 
         const success = await EmbedChats.updateFeedbackScore(
           embed.id,
           sessionId,
           chatId,
-          feedback
+          feedback,
+          { feedbackText: comment, feedbackReason: reason }
         );
         response.status(200).json({ success });
       } catch (e) {

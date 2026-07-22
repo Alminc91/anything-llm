@@ -287,6 +287,8 @@ model embed_chats {
   include                Boolean       @default(true)
   connection_information String?
   feedbackScore          Boolean?      // 👍/👎 pro Antwort (NULL = keine Bewertung), KIE-504
+  feedbackText           String?       // Optionaler Freitext-Kommentar bei 👎, KIE-507
+  feedbackReason         String?       // 1-Klick-Grund bei 👎 (z. B. "Zu ungenau"), KIE-507
   embed_id               Int
   usersId                Int?
   createdAt              DateTime      @default(now())
