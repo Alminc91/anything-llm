@@ -1121,7 +1121,10 @@ const TRANSLATIONS = {
       hint: "Erlauben Sie die Einstellung des System-Prompts, um die Workspace-Standardeinstellung zu überschreiben.",
     },
     "script-info":
-      "Nach dem Erstellen einer Einbettung erhalten Sie einen Link, den Sie mit einem einfachen <script>-Tag auf Ihrer Website veröffentlichen können.",
+      // &lt;script&gt; escaped: der Text wird per dangerouslySetInnerHTML gerendert —
+      // ein rohes <script> würde als echtes Script-Element geparst und der Rest
+      // des Satzes verschluckt.
+      "Nach dem Erstellen einer Einbettung erhalten Sie einen Link, den Sie mit einem einfachen &lt;script&gt;-Tag auf Ihrer Website veröffentlichen können.",
   },
   "code-snippet-modal": {
     title: "Einbettungscode kopieren",

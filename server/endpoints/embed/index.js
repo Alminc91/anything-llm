@@ -91,6 +91,10 @@ function embeddedEndpoints(app) {
         if (visualConfig.greeting) mapped.greeting = visualConfig.greeting;
         if (visualConfig.sendMessageText) mapped.sendMessageText = visualConfig.sendMessageText;
         if (visualConfig.supportEmail) mapped.supportEmail = visualConfig.supportEmail;
+        // KIE-503: "Frühere Chats" pro Embed abschaltbar (Widget-Einstellungen,
+        // Spalte embed_configs.history_enabled). NULL = an (Bestands-Embeds),
+        // nur explizites false wird ans Widget gemeldet.
+        if (embed.history_enabled === false) mapped.historyEnabled = false;
 
         if (Array.isArray(visualConfig.defaultMessages)) {
           const cleaned = visualConfig.defaultMessages
@@ -225,6 +229,32 @@ function embeddedEndpoints(app) {
         console.error(e.message, e);
         // On error, return enabled=true so widget still shows
         response.status(200).json({ enabled: true });
+      }
+    }
+  );
+
+  // KIE-503: Konversationsliste einer Widget-Session ("Frühere Chats").
+  // BOLA/IDOR-Härtung (analog KIE-505): das Model bindet die Liste an embed_id
+  // UND die sessionId aus dem Pfad — es sind nur eigene Konversationen sichtbar.
+  // Hinweis zur Platzierung: diese 3-Segment-Route kollidiert NICHT mit der
+  // generischen 2-Segment-Route GET /embed/:embedId/:sessionId (Express matcht
+  // strikt nach Segmentanzahl) — sie steht nur der Lesbarkeit halber davor.
+  app.get(
+    "/embed/:embedId/:sessionId/conversations",
+    [validEmbedConfig],
+    async (request, response) => {
+      try {
+        const { sessionId } = request.params;
+        const embed = response.locals.embedConfig;
+
+        const conversations = await EmbedChats.listConversationsForSession(
+          embed.id,
+          sessionId
+        );
+        response.status(200).json({ conversations });
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
       }
     }
   );

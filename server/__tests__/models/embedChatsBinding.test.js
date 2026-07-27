@@ -48,7 +48,11 @@ const ROWS = [
 ];
 
 function rowMatches(row, where) {
-  return Object.entries(where).every(([k, v]) => row[k] === v);
+  return Object.entries(where).every(([k, v]) => {
+    // KIE-503: OR-Klausel (Legacy-NULL-Fallback) wie SQLite auswerten.
+    if (k === "OR") return v.some((sub) => rowMatches(row, sub));
+    return row[k] === v;
+  });
 }
 
 beforeEach(() => {
@@ -115,6 +119,49 @@ describe("forEmbedByUser — conversation bound to session (KIE-505)", () => {
     const { where } = prisma.embed_chats.findMany.mock.calls[0][0];
     expect(where.session_id).toBe(OWNER_SESSION);
     expect(where).not.toHaveProperty("conversation_id");
+  });
+
+  test("KIE-503: Legacy-Zeilen (conversation_id NULL) laden beim Session-Bucket mit", async () => {
+    // Vor KIE-502 gespeicherte Chats haben conversation_id NULL. Die
+    // Konversations-Liste gruppiert sie via COALESCE unter der session_id;
+    // wählt das Widget diesen Bucket (identifier == boundSessionId), müssen
+    // NULL-Zeilen mitkommen.
+    prisma.embed_chats.findMany.mockImplementationOnce(async ({ where }) =>
+      [
+        {
+          id: 20,
+          embed_id: 1,
+          session_id: "legacy-sess",
+          conversation_id: null,
+          include: true,
+        },
+        {
+          id: 21,
+          embed_id: 1,
+          session_id: "legacy-sess",
+          conversation_id: "legacy-sess",
+          include: true,
+        },
+        {
+          id: 22,
+          embed_id: 1,
+          session_id: "OTHER",
+          conversation_id: null,
+          include: true,
+        },
+      ].filter((r) => rowMatches(r, where))
+    );
+    const history = await EmbedChats.forEmbedByUser(
+      1,
+      "legacy-sess",
+      null,
+      null,
+      "conversation_id",
+      "legacy-sess"
+    );
+    // NULL-Zeile + migrierte Zeile der eigenen Session, NICHT die fremde.
+    expect(history).toHaveLength(2);
+    expect(history.map((r) => r.id).sort()).toEqual([20, 21]);
   });
 
   test("backwards-compat: old chats where conversation_id == session_id still match", async () => {

@@ -90,10 +90,24 @@ const EmbedChats = {
       };
 
       if (identifierType === 'conversation_id') {
-        whereClause.conversation_id = String(identifierId);
-        // BOLA/IDOR hardening (KIE-505): bind the conversation to its owning
-        // session so a leaked conversationId alone cannot load foreign history.
-        if (boundSessionId) whereClause.session_id = String(boundSessionId);
+        if (boundSessionId && String(identifierId) === String(boundSessionId)) {
+          // KIE-503: Legacy-Zeilen (vor KIE-502) haben conversation_id NULL und
+          // werden in Konversations-Listen via COALESCE unter der session_id
+          // gruppiert. Wählt das Widget diesen Bucket (identifierId ===
+          // boundSessionId), müssen die NULL-Zeilen mitgeladen werden — sonst
+          // verspricht die Liste N Nachrichten, die Auswahl lädt aber leer.
+          // Session-Bindung bleibt strikt (BOLA, KIE-505).
+          whereClause.session_id = String(boundSessionId);
+          whereClause.OR = [
+            { conversation_id: String(identifierId) },
+            { conversation_id: null },
+          ];
+        } else {
+          whereClause.conversation_id = String(identifierId);
+          // BOLA/IDOR hardening (KIE-505): bind the conversation to its owning
+          // session so a leaked conversationId alone cannot load foreign history.
+          if (boundSessionId) whereClause.session_id = String(boundSessionId);
+        }
       } else {
         whereClause.session_id = String(identifierId);
       }
@@ -125,10 +139,21 @@ const EmbedChats = {
       };
 
       if (identifierType === 'conversation_id') {
-        whereClause.conversation_id = String(identifierId);
-        // BOLA/IDOR hardening (KIE-505): only invalidate history that belongs
-        // to the requesting session, not any session sharing the conversationId.
-        if (boundSessionId) whereClause.session_id = String(boundSessionId);
+        if (boundSessionId && String(identifierId) === String(boundSessionId)) {
+          // KIE-503: Spiegel des Legacy-NULL-Zweigs aus forEmbedByUser — Lesen
+          // und Invalidieren müssen denselben Session-Bucket meinen, sonst
+          // tauchen "gelöschte" Legacy-Zeilen nach Reload wieder auf.
+          whereClause.session_id = String(boundSessionId);
+          whereClause.OR = [
+            { conversation_id: String(identifierId) },
+            { conversation_id: null },
+          ];
+        } else {
+          whereClause.conversation_id = String(identifierId);
+          // BOLA/IDOR hardening (KIE-505): only invalidate history that belongs
+          // to the requesting session, not any session sharing the conversationId.
+          if (boundSessionId) whereClause.session_id = String(boundSessionId);
+        }
       } else {
         whereClause.session_id = String(identifierId);
       }
@@ -448,6 +473,84 @@ const EmbedChats = {
       return conversationsNormalized;
     } catch (error) {
       console.error("getConversations error:", error.message);
+      return [];
+    }
+  },
+
+  /**
+   * KIE-503: Listet die Konversationen einer Widget-Session für den öffentlichen
+   * Embed-Endpoint ("Frühere Chats"). BOLA/IDOR-Härtung analog KIE-505: die Liste
+   * ist strikt an embed_id UND session_id gebunden — es werden ausschließlich
+   * Konversationen der anfragenden Session geliefert. DSGVO/Reset-invalidierte
+   * Chats (include = 0, via markHistoryInvalid) werden nicht mitgezählt.
+   * @param {number} embedId - The embed config ID (scope)
+   * @param {string} sessionId - The owning browser session
+   * @param {number} [limit=50] - Maximum number of conversations to return
+   * @returns {Promise<Array<{conversationId: string, title: string, startedAt: number, lastMessageAt: number, messageCount: number}>>}
+   *   Conversation summaries sorted by lastMessageAt DESC. Title is the first
+   *   prompt truncated to 80 characters.
+   */
+  listConversationsForSession: async function (
+    embedId = null,
+    sessionId = null,
+    limit = 50
+  ) {
+    if (!embedId || !sessionId) return [];
+
+    try {
+      // Group chats of THIS session into conversations. Legacy rows without a
+      // conversation_id fall back to the session_id bucket (KIE-502 pattern).
+      const rows = await prisma.$queryRaw`
+        SELECT
+          COALESCE(conversation_id, session_id) as conversation_id,
+          MIN(id) as first_chat_id,
+          MIN(createdAt) as started_at,
+          MAX(createdAt) as last_message_at,
+          COUNT(*) as message_count
+        FROM embed_chats
+        WHERE embed_id = ${Number(embedId)}
+          AND session_id = ${String(sessionId)}
+          AND include = 1
+        GROUP BY COALESCE(conversation_id, session_id)
+        ORDER BY last_message_at DESC
+        LIMIT ${Number(limit)}
+      `;
+
+      // Convert BigInt to Number for JSON serialization
+      const conversations = rows.map((row) => ({
+        conversationId: row.conversation_id,
+        first_chat_id: Number(row.first_chat_id),
+        startedAt: Number(row.started_at),
+        lastMessageAt: Number(row.last_message_at),
+        messageCount: Number(row.message_count),
+      }));
+      if (conversations.length === 0) return [];
+
+      // Load all titles (first prompt per conversation) in ONE query — no N+1.
+      // embed_id + session_id zusätzlich zum id-Filter (Defense-in-Depth): die
+      // ids stammen zwar aus der bereits scope-gebundenen Raw-Query, aber so
+      // bleibt der Lookup auch bei künftigen Änderungen dort session-gebunden.
+      const firstChats = await prisma.embed_chats.findMany({
+        where: {
+          id: { in: conversations.map((c) => c.first_chat_id) },
+          embed_id: Number(embedId),
+          session_id: String(sessionId),
+        },
+        select: { id: true, prompt: true },
+      });
+      const titleMap = new Map(
+        firstChats.map((chat) => [
+          chat.id,
+          String(chat.prompt || "").slice(0, 80),
+        ])
+      );
+
+      return conversations.map(({ first_chat_id, ...conv }) => ({
+        ...conv,
+        title: titleMap.get(first_chat_id) || "",
+      }));
+    } catch (error) {
+      console.error("listConversationsForSession error:", error.message);
       return [];
     }
   },
