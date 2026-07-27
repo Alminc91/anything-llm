@@ -1053,7 +1053,7 @@ const TRANSLATIONS = {
       hint: "Allow setting the system prompt to override the workspace default.",
     },
     "script-info":
-      "After creating an embed, you will receive a link that you can publish on your website with a simple <script> tag.",
+      "After creating an embed, you will receive a link that you can publish on your website with a simple &lt;script&gt; tag.",
   },
 
   "chat-row": {

@@ -22,6 +22,9 @@ export function enforceSubmissionSchema(form) {
     data.allow_temperature_override = false;
   if (!data.hasOwnProperty("allow_prompt_override"))
     data.allow_prompt_override = false;
+  // KIE-503: ausgeschalteter Toggle sendet nichts -> explizit false. Beide
+  // Embed-Modals rendern das Feld, daher ist "fehlt" hier immer "aus".
+  if (!data.hasOwnProperty("history_enabled")) data.history_enabled = false;
   if (!data.hasOwnProperty("message_limit")) data.message_limit = 20;
   if (!data.hasOwnProperty("chat_retention_days")) data.chat_retention_days = null;
   return data;
@@ -42,9 +45,11 @@ export default function NewEmbedModal({ closeModal }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-auto bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="relative w-full max-w-2xl bg-theme-bg-secondary rounded-lg shadow border-2 border-theme-modal-border">
-        <div className="relative p-6 border-b rounded-t border-theme-modal-border">
+    <div className="fixed inset-0 z-50 overflow-auto bg-black bg-opacity-50 flex items-center justify-center p-4">
+      {/* max-h + flex-col: Karte bleibt im Viewport, der Formularbereich scrollt
+          (Kopf/Fußzeile bleiben sichtbar) — auch bei kleinen Bildschirmen. */}
+      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-theme-bg-secondary rounded-lg shadow border-2 border-theme-modal-border">
+        <div className="relative p-6 border-b rounded-t border-theme-modal-border flex-shrink-0">
           <div className="w-full flex gap-x-2 items-center">
             <h3 className="text-xl font-semibold text-white overflow-hidden overflow-ellipsis whitespace-nowrap">
               {t("embed-modal.create-title")}
@@ -58,9 +63,9 @@ export default function NewEmbedModal({ closeModal }) {
             <X size={24} weight="bold" className="text-white" />
           </button>
         </div>
-        <div className="px-7 py-6">
-          <form onSubmit={handleCreate}>
-            <div className="space-y-6 max-h-[60vh] overflow-y-auto px-2">
+        <div className="px-7 py-6 flex-1 min-h-0 flex flex-col">
+          <form onSubmit={handleCreate} className="flex flex-col min-h-0 flex-1">
+            <div className="space-y-6 flex-1 min-h-0 overflow-y-auto px-2">
               <WorkspaceSelection />
               <ChatModeSelection />
               <PermittedDomains />
@@ -114,6 +119,13 @@ export default function NewEmbedModal({ closeModal }) {
                   </option>
                 </select>
               </div>
+              {/* KIE-503: "Frühere Chats" im Widget-Menü — Default an */}
+              <BooleanInput
+                name="history_enabled"
+                title="Frühere Chats erlauben"
+                hint="Besucher können über das Widget-Menü ihre früheren Konversationen aufrufen und fortführen. Für öffentliche/geteilte Geräte (z. B. Info-Terminals) deaktivieren."
+                defaultValue={true}
+              />
               <BooleanInput
                 name="allow_model_override"
                 title={t("embed-modal.model-override.label")}
@@ -142,7 +154,7 @@ export default function NewEmbedModal({ closeModal }) {
                 }}
               />
             </div>
-            <div className="flex justify-between items-center mt-6 pt-6 border-t border-theme-modal-border">
+            <div className="flex justify-between items-center mt-6 pt-6 border-t border-theme-modal-border flex-shrink-0">
               <button
                 onClick={closeModal}
                 type="button"

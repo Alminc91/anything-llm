@@ -269,6 +269,7 @@ model embed_configs {
   chat_retention_days        Int? // DSGVO: Number of days to keep chats, null = keep forever
   retention_started_at       DateTime? // DSGVO: When retention was activated, cleanup only starts after this + retention_days
   visual_config              String? // JSON-String with visual settings (colors, logo, position, etc.)
+  history_enabled            Boolean? // KIE-503: "Frühere Chats" im Widget-Menü. NULL = an (Fallback), false = aus
   workspace_id               Int
   createdBy                  Int?
   usersId                    Int?
@@ -296,6 +297,10 @@ model embed_chats {
   users                  users?        @relation(fields: [usersId], references: [id])
 
   @@index([conversation_id])
+  // KIE-503: deckt die Konversations-Listen-Query (WHERE embed_id + session_id
+  // + GROUP BY) ab — ohne ihn scannt jedes Öffnen von "Frühere Chats" alle
+  // Zeilen des Embeds.
+  @@index([embed_id, session_id])
 }
 
 model event_logs {

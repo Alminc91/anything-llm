@@ -17,6 +17,7 @@ const EmbedConfig = {
     "message_limit",
     "chat_retention_days",
     "visual_config",
+    "history_enabled", // KIE-503
   ],
 
   new: async function (data, creatorId = null) {
@@ -274,6 +275,14 @@ function validatedCreationData(value, field) {
     } catch {
       return null;
     }
+  }
+
+  // KIE-503: history_enabled ist ein nullable Feature-Flag — NULL bedeutet "an"
+  // (Fallback für Bestands-Embeds, kein @default im Schema). Deshalb NICHT über
+  // BOOLEAN_KEYS laufen lassen, das würde null/undefined zu false kippen und das
+  // Feature bei jedem Update ungewollt abschalten.
+  if (field === "history_enabled") {
+    return value === true || value === false ? value : null;
   }
 
   if (BOOLEAN_KEYS.includes(field)) {
