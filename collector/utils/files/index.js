@@ -149,6 +149,39 @@ function writeToServerDocuments({
   };
 }
 
+/**
+ * Kufer: Verschiebt frisch verarbeitete Dokumente in einen sweep-sicheren
+ * Ordner und aktualisiert deren location. Hintergrund: der nächtliche
+ * Orphan-Sweep der Crawl-Pipeline löscht in custom-documents alle Docs, die
+ * nicht im Pipeline-Manifest stehen — manuelle UI-Uploads würden dort also
+ * über Nacht verschwinden. Muss VOR dem Embedden passieren.
+ * @param {Object[]} documents - Rückgabe von processSingleFile (mit location).
+ * @param {string} folderName - Zielordner unterhalb des documents-Verzeichnisses.
+ * @returns {Object[]} - documents mit angepasster location.
+ */
+function moveDocumentsToFolder(documents = [], folderName = "zusatzwissen") {
+  const destination = path.resolve(documentsFolder, normalizePath(folderName));
+  if (!isWithin(path.resolve(documentsFolder), destination)) return documents;
+  if (!fs.existsSync(destination)) fs.mkdirSync(destination, { recursive: true });
+
+  for (const doc of documents) {
+    if (!doc?.location || doc.isDirectUpload) continue;
+    const src = path.resolve(documentsFolder, normalizePath(doc.location));
+    if (!fs.existsSync(src) || !isWithin(path.resolve(documentsFolder), src))
+      continue;
+    const filename = path.basename(src);
+    try {
+      fs.renameSync(src, path.resolve(destination, filename));
+      doc.location = `${folderName}/${filename}`;
+    } catch (e) {
+      console.error(
+        `Failed to relocate ${doc.location} to ${folderName}/: ${e.message}`
+      );
+    }
+  }
+  return documents;
+}
+
 // When required we can wipe the entire collector hotdir and tmp storage in case
 // there were some large file failures that we unable to be removed a reboot will
 // force remove them.
@@ -219,6 +252,7 @@ module.exports = {
   isTextType,
   createdDate,
   writeToServerDocuments,
+  moveDocumentsToFolder,
   wipeCollectorStorage,
   normalizePath,
   isWithin,
