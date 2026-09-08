@@ -142,8 +142,8 @@ class GenericReranker {
       [this.topKField]: topK,
     };
     if (this.model) body.model = this.model;
-    if (this.instruction && this.instruction.length > 0)
-      body.instruction = this.instruction;
+    // Cohere v2 rejects unknown fields with HTTP 422; the instruction is
+    // already prepended to the query via #decoratedQuery.
     return body;
   }
 
