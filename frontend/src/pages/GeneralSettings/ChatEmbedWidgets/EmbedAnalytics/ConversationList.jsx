@@ -34,13 +34,14 @@ export default function ConversationList({ embedId, startDate, endDate }) {
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [onlyNegative, setOnlyNegative] = useState(false); // KIE-508
+  // KIE-508/527: ein exklusiver Feedback-Filter — "all" | "negative" (👎) | "positive" (👍)
+  const [feedbackFilter, setFeedbackFilter] = useState("all");
 
   const ITEMS_PER_PAGE = 20;
 
   useEffect(() => {
     setOffset(0);
-  }, [embedId, startDate, endDate, onlyNegative]);
+  }, [embedId, startDate, endDate, feedbackFilter]);
 
   useEffect(() => {
     if (!embedId) return;
@@ -54,7 +55,7 @@ export default function ConversationList({ embedId, startDate, endDate }) {
           ITEMS_PER_PAGE,
           startDate,
           endDate,
-          onlyNegative
+          feedbackFilter
         );
 
       if (success) {
@@ -68,23 +69,55 @@ export default function ConversationList({ embedId, startDate, endDate }) {
     }
 
     loadConversations();
-  }, [embedId, startDate, endDate, offset, onlyNegative, t]);
+  }, [embedId, startDate, endDate, offset, feedbackFilter, t]);
 
-  // KIE-508: Toggle "nur mit 👎" — immer sichtbar (auch bei Leer-Zustand).
-  const NegativeFilterToggle = () => (
-    <button
-      type="button"
-      onClick={() => setOnlyNegative((v) => !v)}
-      className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border transition-colors ${
-        onlyNegative
-          ? "border-red-400 bg-red-500/10 text-red-400 light:bg-red-50 light:text-red-600"
-          : "border-white/10 text-theme-text-secondary hover:border-white/20 light:border-gray-200"
-      }`}
-    >
-      <ThumbsDown size={15} weight={onlyNegative ? "fill" : "regular"} />
-      {t("embed-analytics.conversations.only-negative")}
-    </button>
+  // KIE-508/527: Toggles "nur mit 👎" / "nur mit 👍" — wechselseitig exklusiv,
+  // erneuter Klick hebt den Filter auf. Immer sichtbar (auch bei Leer-Zustand).
+  const toggleFilter = (mode) =>
+    setFeedbackFilter((current) => (current === mode ? "all" : mode));
+
+  const onlyNegative = feedbackFilter === "negative";
+  const onlyPositive = feedbackFilter === "positive";
+  const toggleBaseClass =
+    "flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border transition-colors";
+  const toggleInactiveClass =
+    "border-white/10 text-theme-text-secondary hover:border-white/20 light:border-gray-200";
+  const feedbackFilterToggles = (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        aria-pressed={onlyPositive}
+        onClick={() => toggleFilter("positive")}
+        className={`${toggleBaseClass} ${
+          onlyPositive
+            ? "border-green-400 bg-green-500/10 text-green-400 light:bg-green-50 light:text-green-600"
+            : toggleInactiveClass
+        }`}
+      >
+        <ThumbsUp size={15} weight={onlyPositive ? "fill" : "regular"} />
+        {t("embed-analytics.conversations.only-positive")}
+      </button>
+      <button
+        type="button"
+        aria-pressed={onlyNegative}
+        onClick={() => toggleFilter("negative")}
+        className={`${toggleBaseClass} ${
+          onlyNegative
+            ? "border-red-400 bg-red-500/10 text-red-400 light:bg-red-50 light:text-red-600"
+            : toggleInactiveClass
+        }`}
+      >
+        <ThumbsDown size={15} weight={onlyNegative ? "fill" : "regular"} />
+        {t("embed-analytics.conversations.only-negative")}
+      </button>
+    </div>
   );
+
+  const emptyStateKey = {
+    negative: "embed-analytics.conversations.no-negative",
+    positive: "embed-analytics.conversations.no-positive",
+    all: "embed-analytics.no-conversations",
+  }[feedbackFilter];
 
   if (loading) {
     return <div className="text-white">{t("common.loading")}</div>;
@@ -93,23 +126,15 @@ export default function ConversationList({ embedId, startDate, endDate }) {
   if (conversations.length === 0) {
     return (
       <div>
-        <div className="flex justify-end mb-4">
-          <NegativeFilterToggle />
-        </div>
-        <div className="text-white/60 text-center py-8">
-          {onlyNegative
-            ? t("embed-analytics.conversations.no-negative")
-            : t("embed-analytics.no-conversations")}
-        </div>
+        <div className="flex justify-end mb-4">{feedbackFilterToggles}</div>
+        <div className="text-white/60 text-center py-8">{t(emptyStateKey)}</div>
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex justify-end mb-4">
-        <NegativeFilterToggle />
-      </div>
+      <div className="flex justify-end mb-4">{feedbackFilterToggles}</div>
       <div className="space-y-4">
         {conversations.map((conv) => (
           <ConversationCard
@@ -188,6 +213,18 @@ function ConversationCard({ conversation, embedId }) {
               {isNew && (
                 <span className="px-2 py-0.5 text-xs font-bold bg-green-500/20 text-green-400 rounded border border-green-500/30">
                   {t("embed-analytics.conversations.new-badge")}
+                </span>
+              )}
+              {/* KIE-527: Badge mit Anzahl positiver Bewertungen */}
+              {conversation.positive_count > 0 && (
+                <span
+                  className="flex items-center gap-1 px-2 py-0.5 text-xs font-bold bg-green-500/20 text-green-400 rounded border border-green-500/30 light:bg-green-50 light:text-green-600 light:border-green-200"
+                  title={t("embed-analytics.conversations.positive-count", {
+                    count: conversation.positive_count,
+                  })}
+                >
+                  <ThumbsUp size={12} weight="fill" />
+                  {conversation.positive_count}
                 </span>
               )}
               {/* KIE-508: Badge mit Anzahl negativer Bewertungen */}

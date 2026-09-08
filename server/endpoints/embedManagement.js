@@ -276,8 +276,13 @@ function embedManagementEndpoints(app) {
           limit = 20,
           startDate,
           endDate,
-          onlyNegative = false, // KIE-508: nur Konversationen mit 👎
+          onlyNegative = false, // KIE-508 (Legacy-Boolean, bleibt gültig)
+          feedbackFilter, // KIE-527: "all" | "negative" | "positive"
         } = reqBody(request);
+        // Neuer Parameter gewinnt; ohne ihn greift der Legacy-Boolean.
+        const filter = EmbedChats.normalizeFeedbackFilter(
+          feedbackFilter !== undefined ? feedbackFilter : !!onlyNegative
+        );
 
         const conversations = await EmbedChats.getConversations(
           Number(embedId),
@@ -285,7 +290,7 @@ function embedManagementEndpoints(app) {
           limit,
           startDate ? new Date(startDate) : null,
           endDate ? new Date(endDate) : null,
-          !!onlyNegative
+          filter
         );
 
         // Count total conversations for pagination
@@ -300,9 +305,10 @@ function embedManagementEndpoints(app) {
           dateConditions.push(Prisma.sql`AND createdAt <= ${new Date(endDate)}`);
         }
 
-        // KIE-508: bei aktivem Filter nur Konversationen mit mind. einer
-        // negativen Bewertung zählen (für korrekte Pagination).
-        const totalCount = onlyNegative
+        // KIE-508/527: bei aktivem Filter nur Konversationen mit mind. einer
+        // 👎- bzw. 👍-Bewertung zählen (für korrekte Pagination). Gleiche
+        // HAVING-Klausel wie die Liste (EmbedChats.feedbackHavingClause).
+        const totalCount = filter !== "all"
           ? await prisma.$queryRaw`
               SELECT COUNT(*) as count FROM (
                 SELECT COALESCE(conversation_id, session_id) as cid
@@ -311,7 +317,7 @@ function embedManagementEndpoints(app) {
                   ${dateConditions.length > 0 ? Prisma.join(dateConditions, " ") : Prisma.empty}
                   AND include = 1
                 GROUP BY COALESCE(conversation_id, session_id), session_id, embed_id
-                HAVING SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) > 0
+                ${EmbedChats.feedbackHavingClause(filter)}
               )
             `
           : await prisma.$queryRaw`

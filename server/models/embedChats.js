@@ -342,12 +342,48 @@ const EmbedChats = {
   },
 
   /**
+   * KIE-508/527: Normalisiert den Feedback-Filter der Analytics-Konversationsliste.
+   * Akzeptiert die neuen Strings sowie den Legacy-Boolean `onlyNegative`.
+   * Alles Unbekannte fällt auf "all" zurück — es gelangt nie User-Input in SQL.
+   * @param {string|boolean|null|undefined} value
+   * @returns {"all"|"negative"|"positive"}
+   */
+  normalizeFeedbackFilter: function (value) {
+    if (value === true) return "negative"; // Legacy onlyNegative=true
+    if (value === "negative" || value === "positive") return value;
+    return "all";
+  },
+
+  /**
+   * KIE-508/527: HAVING-Klausel für den Feedback-Filter — wird von der
+   * Konversationsliste UND der Count-Query (Pagination) benutzt.
+   * feedbackScore ist in SQLite 0/1; false(👎)=0, true(👍)=1, NULL zählt nie mit.
+   * @param {string|boolean} feedbackFilter
+   * @returns {import("@prisma/client").Prisma.Sql}
+   */
+  feedbackHavingClause: function (feedbackFilter) {
+    const { Prisma } = require("@prisma/client");
+    switch (this.normalizeFeedbackFilter(feedbackFilter)) {
+      case "negative":
+        return Prisma.sql`HAVING SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) > 0`;
+      case "positive":
+        return Prisma.sql`HAVING SUM(CASE WHEN feedbackScore = 1 THEN 1 ELSE 0 END) > 0`;
+      default:
+        return Prisma.empty;
+    }
+  },
+
+  /**
    * Analytics: Get conversations grouped by conversation_id (or session_id for backwards compatibility)
    * @param {number} embedId - The embed config ID
    * @param {number} offset - Pagination offset
    * @param {number} limit - Maximum number of conversations to return
    * @param {Date|null} startDate - Optional start date filter
    * @param {Date|null} endDate - Optional end date filter
+   * @param {"all"|"negative"|"positive"|boolean} feedbackFilter - KIE-508/KIE-527:
+   *   "negative" = nur Konversationen mit mind. einer 👎-Antwort,
+   *   "positive" = nur mit mind. einer 👍-Antwort, "all" = kein Filter.
+   *   Legacy: boolean `onlyNegative` (true → "negative").
    * @returns {Promise<Array>} Array of conversation summaries
    */
   getConversations: async function (
@@ -356,16 +392,15 @@ const EmbedChats = {
     limit = 20,
     startDate = null,
     endDate = null,
-    onlyNegative = false // KIE-508: nur Konversationen mit mind. einer 👎-Antwort
+    feedbackFilter = "all"
   ) {
     try {
       const { Prisma } = require("@prisma/client");
 
-      // KIE-508: Filter auf Konversationen mit mind. einer negativen Bewertung.
-      // feedbackScore ist in SQLite 0/1; false(👎)=0, null zählt nicht mit.
-      const havingClause = onlyNegative
-        ? Prisma.sql`HAVING SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) > 0`
-        : Prisma.empty;
+      // KIE-508/527: Filter auf Konversationen mit mind. einer 👎- bzw.
+      // 👍-Antwort. Gemeinsamer Helfer mit der Count-Query im Endpoint, damit
+      // Liste und Pagination nie auseinanderlaufen.
+      const havingClause = this.feedbackHavingClause(feedbackFilter);
 
       // Build WHERE conditions
       const whereConditions = [];
@@ -393,6 +428,7 @@ const EmbedChats = {
           last_message_at,
           message_count,
           negative_count,
+          positive_count,
           conversation_number
         FROM (
           SELECT
@@ -404,6 +440,7 @@ const EmbedChats = {
             MAX(createdAt) as last_message_at,
             COUNT(*) as message_count,
             SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) as negative_count,
+            SUM(CASE WHEN feedbackScore = 1 THEN 1 ELSE 0 END) as positive_count,
             ROW_NUMBER() OVER (ORDER BY MIN(createdAt) DESC) as conversation_number
           FROM embed_chats
           ${whereConditions.length > 0 ? Prisma.join(whereConditions, " ") : Prisma.empty}
@@ -425,6 +462,7 @@ const EmbedChats = {
         last_message_at: Number(conv.last_message_at),
         message_count: Number(conv.message_count),
         negative_count: Number(conv.negative_count) || 0, // KIE-508
+        positive_count: Number(conv.positive_count) || 0, // KIE-527
         conversation_number: Number(conv.conversation_number),
       }));
 

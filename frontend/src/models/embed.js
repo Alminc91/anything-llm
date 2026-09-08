@@ -121,14 +121,20 @@ const Embed = {
     limit = 20,
     startDate,
     endDate,
-    onlyNegative = false // KIE-508: nur Konversationen mit 👎
+    feedbackFilter = "all" // KIE-508/527: "all" | "negative" (👎) | "positive" (👍)
   ) => {
     return await fetch(
       `${API_BASE}/embed/${embedId}/analytics/conversations`,
       {
         method: "POST",
         headers: baseHeaders(),
-        body: JSON.stringify({ offset, limit, startDate, endDate, onlyNegative }),
+        body: JSON.stringify({
+          offset,
+          limit,
+          startDate,
+          endDate,
+          feedbackFilter,
+        }),
       }
     )
       .then((res) => res.json())
