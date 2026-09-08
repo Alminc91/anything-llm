@@ -1,5 +1,13 @@
 import { useState, useEffect } from "react";
-import { CaretDown, CaretUp, ChatCircle, User, Copy, ThumbsUp, ThumbsDown } from "@phosphor-icons/react";
+import {
+  CaretDown,
+  CaretUp,
+  ChatCircle,
+  User,
+  Copy,
+  ThumbsUp,
+  ThumbsDown,
+} from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import Embed from "@/models/embed";
 import { formatDateTimeDE } from "@/utils/directories";
@@ -16,15 +24,63 @@ function timeAgo(timestamp, t) {
   const days = Math.floor(hours / 24);
 
   if (seconds < 60) return t("embed-analytics.conversations.seconds-ago");
-  if (minutes < 60) return t("embed-analytics.conversations.minutes-ago", { count: minutes });
-  if (hours < 24) return t("embed-analytics.conversations.hours-ago", { count: hours });
-  if (days < 30) return t("embed-analytics.conversations.days-ago", { count: days });
+  if (minutes < 60)
+    return t("embed-analytics.conversations.minutes-ago", { count: minutes });
+  if (hours < 24)
+    return t("embed-analytics.conversations.hours-ago", { count: hours });
+  if (days < 30)
+    return t("embed-analytics.conversations.days-ago", { count: days });
 
   const months = Math.floor(days / 30);
-  if (months < 12) return t("embed-analytics.conversations.months-ago", { count: months });
+  if (months < 12)
+    return t("embed-analytics.conversations.months-ago", { count: months });
 
   const years = Math.floor(months / 12);
   return t("embed-analytics.conversations.years-ago", { count: years });
+}
+
+// KIE-508/527: die beiden exklusiven Feedback-Filter (ein Zustand:
+// "all" | "negative" | "positive"), als Config statt Copy-Paste-Buttons.
+const FEEDBACK_FILTERS = [
+  {
+    mode: "positive",
+    Icon: ThumbsUp,
+    labelKey: "embed-analytics.conversations.only-positive",
+    activeClass:
+      "border-emerald-400 bg-emerald-500/10 text-emerald-400 light:bg-emerald-50 light:text-emerald-600",
+  },
+  {
+    mode: "negative",
+    Icon: ThumbsDown,
+    labelKey: "embed-analytics.conversations.only-negative",
+    activeClass:
+      "border-red-400 bg-red-500/10 text-red-400 light:bg-red-50 light:text-red-600",
+  },
+];
+
+const EMPTY_STATE_KEYS = {
+  all: "embed-analytics.no-conversations",
+  negative: "embed-analytics.conversations.no-negative",
+  positive: "embed-analytics.conversations.no-positive",
+};
+
+// KIE-508/527: Badge „👍 n" / „👎 n" pro Konversation.
+function FeedbackCountBadge({ count, Icon, tone, labelKey }) {
+  const { t } = useTranslation();
+  if (!(count > 0)) return null;
+  const toneClass =
+    tone === "positive"
+      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30 light:bg-emerald-50 light:text-emerald-600 light:border-emerald-200"
+      : "bg-red-500/20 text-red-400 border-red-500/30 light:bg-red-50 light:text-red-600 light:border-red-200";
+  return (
+    <span
+      className={`flex items-center gap-1 px-2 py-0.5 text-xs font-bold rounded border ${toneClass}`}
+      title={t(labelKey, { count })}
+    >
+      <Icon size={12} weight="fill" />
+      {count}
+    </span>
+  );
 }
 
 export default function ConversationList({ embedId, startDate, endDate }) {
@@ -41,22 +97,30 @@ export default function ConversationList({ embedId, startDate, endDate }) {
 
   useEffect(() => {
     setOffset(0);
-  }, [embedId, startDate, endDate, feedbackFilter]);
+  }, [embedId, startDate, endDate]);
 
   useEffect(() => {
     if (!embedId) return;
+    // KIE-527: Antworten überholter Requests (z. B. Filterwechsel während ein
+    // Ladevorgang läuft) dürfen den aktuellen Zustand nicht überschreiben.
+    let ignore = false;
 
     async function loadConversations() {
       setLoading(true);
-      const { success, conversations: data, hasMore: more, totalCount: total } =
-        await Embed.getConversations(
-          embedId,
-          offset,
-          ITEMS_PER_PAGE,
-          startDate,
-          endDate,
-          feedbackFilter
-        );
+      const {
+        success,
+        conversations: data,
+        hasMore: more,
+        totalCount: total,
+      } = await Embed.getConversations(
+        embedId,
+        offset,
+        ITEMS_PER_PAGE,
+        startDate,
+        endDate,
+        feedbackFilter
+      );
+      if (ignore) return;
 
       if (success) {
         setConversations(data || []);
@@ -69,72 +133,66 @@ export default function ConversationList({ embedId, startDate, endDate }) {
     }
 
     loadConversations();
+    return () => {
+      ignore = true;
+    };
   }, [embedId, startDate, endDate, offset, feedbackFilter, t]);
 
-  // KIE-508/527: Toggles "nur mit 👎" / "nur mit 👍" — wechselseitig exklusiv,
-  // erneuter Klick hebt den Filter auf. Immer sichtbar (auch bei Leer-Zustand).
-  const toggleFilter = (mode) =>
+  // KIE-508/527: Toggles wechselseitig exklusiv, erneuter Klick hebt den
+  // Filter auf. Offset wird im selben Render zurückgesetzt → genau ein Request.
+  const toggleFilter = (mode) => {
     setFeedbackFilter((current) => (current === mode ? "all" : mode));
+    setOffset(0);
+  };
 
-  const onlyNegative = feedbackFilter === "negative";
-  const onlyPositive = feedbackFilter === "positive";
   const toggleBaseClass =
     "flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border transition-colors";
   const toggleInactiveClass =
     "border-white/10 text-theme-text-secondary hover:border-white/20 light:border-gray-200";
+  // Immer sichtbar — auch im Lade- und Leer-Zustand.
   const feedbackFilterToggles = (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        aria-pressed={onlyPositive}
-        onClick={() => toggleFilter("positive")}
-        className={`${toggleBaseClass} ${
-          onlyPositive
-            ? "border-green-400 bg-green-500/10 text-green-400 light:bg-green-50 light:text-green-600"
-            : toggleInactiveClass
-        }`}
-      >
-        <ThumbsUp size={15} weight={onlyPositive ? "fill" : "regular"} />
-        {t("embed-analytics.conversations.only-positive")}
-      </button>
-      <button
-        type="button"
-        aria-pressed={onlyNegative}
-        onClick={() => toggleFilter("negative")}
-        className={`${toggleBaseClass} ${
-          onlyNegative
-            ? "border-red-400 bg-red-500/10 text-red-400 light:bg-red-50 light:text-red-600"
-            : toggleInactiveClass
-        }`}
-      >
-        <ThumbsDown size={15} weight={onlyNegative ? "fill" : "regular"} />
-        {t("embed-analytics.conversations.only-negative")}
-      </button>
+    <div className="flex flex-wrap justify-end gap-2 mb-4">
+      {FEEDBACK_FILTERS.map(({ mode, Icon, labelKey, activeClass }) => {
+        const active = feedbackFilter === mode;
+        return (
+          <button
+            key={mode}
+            type="button"
+            aria-pressed={active}
+            onClick={() => toggleFilter(mode)}
+            className={`${toggleBaseClass} ${active ? activeClass : toggleInactiveClass}`}
+          >
+            <Icon size={15} weight={active ? "fill" : "regular"} />
+            {t(labelKey)}
+          </button>
+        );
+      })}
     </div>
   );
 
-  const emptyStateKey = {
-    negative: "embed-analytics.conversations.no-negative",
-    positive: "embed-analytics.conversations.no-positive",
-    all: "embed-analytics.no-conversations",
-  }[feedbackFilter];
-
   if (loading) {
-    return <div className="text-white">{t("common.loading")}</div>;
+    return (
+      <div>
+        {feedbackFilterToggles}
+        <div className="text-white">{t("common.loading")}</div>
+      </div>
+    );
   }
 
   if (conversations.length === 0) {
     return (
       <div>
-        <div className="flex justify-end mb-4">{feedbackFilterToggles}</div>
-        <div className="text-white/60 text-center py-8">{t(emptyStateKey)}</div>
+        {feedbackFilterToggles}
+        <div className="text-white/60 text-center py-8">
+          {t(EMPTY_STATE_KEYS[feedbackFilter])}
+        </div>
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex justify-end mb-4">{feedbackFilterToggles}</div>
+      {feedbackFilterToggles}
       <div className="space-y-4">
         {conversations.map((conv) => (
           <ConversationCard
@@ -198,16 +256,15 @@ function ConversationCard({ conversation, embedId }) {
   return (
     <div className="border border-white/10 light:border-gray-200 rounded-lg bg-theme-bg-primary hover:border-white/20 light:hover:border-gray-400 transition-all">
       {/* Header */}
-      <div
-        className="p-4 cursor-pointer"
-        onClick={handleToggle}
-      >
+      <div className="p-4 cursor-pointer" onClick={handleToggle}>
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2">
               {/* Workspace Name */}
               <h3 className="text-sm font-semibold text-white truncate">
-                {t("embed-analytics.conversations.conversation-number", { number: conversation.conversation_number || "?" })}
+                {t("embed-analytics.conversations.conversation-number", {
+                  number: conversation.conversation_number || "?",
+                })}
               </h3>
               {/* NEU Badge */}
               {isNew && (
@@ -215,49 +272,45 @@ function ConversationCard({ conversation, embedId }) {
                   {t("embed-analytics.conversations.new-badge")}
                 </span>
               )}
-              {/* KIE-527: Badge mit Anzahl positiver Bewertungen */}
-              {conversation.positive_count > 0 && (
-                <span
-                  className="flex items-center gap-1 px-2 py-0.5 text-xs font-bold bg-green-500/20 text-green-400 rounded border border-green-500/30 light:bg-green-50 light:text-green-600 light:border-green-200"
-                  title={t("embed-analytics.conversations.positive-count", {
-                    count: conversation.positive_count,
-                  })}
-                >
-                  <ThumbsUp size={12} weight="fill" />
-                  {conversation.positive_count}
-                </span>
-              )}
-              {/* KIE-508: Badge mit Anzahl negativer Bewertungen */}
-              {conversation.negative_count > 0 && (
-                <span
-                  className="flex items-center gap-1 px-2 py-0.5 text-xs font-bold bg-red-500/20 text-red-400 rounded border border-red-500/30 light:bg-red-50 light:text-red-600 light:border-red-200"
-                  title={t("embed-analytics.conversations.negative-count", {
-                    count: conversation.negative_count,
-                  })}
-                >
-                  <ThumbsDown size={12} weight="fill" />
-                  {conversation.negative_count}
-                </span>
-              )}
+              {/* KIE-508/527: Badges mit Anzahl positiver / negativer Bewertungen */}
+              <FeedbackCountBadge
+                count={conversation.positive_count}
+                Icon={ThumbsUp}
+                tone="positive"
+                labelKey="embed-analytics.conversations.positive-count"
+              />
+              <FeedbackCountBadge
+                count={conversation.negative_count}
+                Icon={ThumbsDown}
+                tone="negative"
+                labelKey="embed-analytics.conversations.negative-count"
+              />
             </div>
 
             {/* Preview */}
             <p className="text-xs text-theme-text-secondary mb-3 line-clamp-2 italic">
-              &quot;{conversation.preview || t("embed-analytics.conversations.no-preview")}&quot;
+              &quot;
+              {conversation.preview ||
+                t("embed-analytics.conversations.no-preview")}
+              &quot;
             </p>
 
             {/* Metadata */}
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-theme-text-secondary">
               <span>
-                {t("embed-analytics.conversations.created")} {formatDateTimeDE(conversation.started_at)}
+                {t("embed-analytics.conversations.created")}{" "}
+                {formatDateTimeDE(conversation.started_at)}
               </span>
               <span>•</span>
               <span>
-                {t("embed-analytics.conversations.last-message")} {timeAgo(conversation.last_message_at, t)}
+                {t("embed-analytics.conversations.last-message")}{" "}
+                {timeAgo(conversation.last_message_at, t)}
               </span>
               <span>•</span>
               <span>
-                {t("embed-analytics.conversations.message-count", { count: conversation.message_count })}
+                {t("embed-analytics.conversations.message-count", {
+                  count: conversation.message_count,
+                })}
               </span>
             </div>
           </div>
@@ -277,7 +330,11 @@ function ConversationCard({ conversation, embedId }) {
               <span className="text-theme-text-primary text-[10px] font-mono">
                 {conversation.conversation_id}
               </span>
-              <Copy size={12} weight="bold" className="text-theme-text-secondary group-hover:text-theme-text-primary transition-colors flex-shrink-0" />
+              <Copy
+                size={12}
+                weight="bold"
+                className="text-theme-text-secondary group-hover:text-theme-text-primary transition-colors flex-shrink-0"
+              />
             </button>
 
             {/* Expand Icon */}
@@ -305,7 +362,11 @@ function ConversationCard({ conversation, embedId }) {
                   <div className="bg-blue-900/20 border-l-4 border-blue-400 p-4 rounded-lg mb-3 light:bg-blue-100 light:border-blue-600">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <User size={18} weight="fill" className="text-blue-400 light:text-blue-600" />
+                        <User
+                          size={18}
+                          weight="fill"
+                          className="text-blue-400 light:text-blue-600"
+                        />
                         <h5 className="text-blue-300 text-sm font-bold uppercase light:text-blue-700">
                           {t("embed-analytics.request")}
                         </h5>
@@ -322,7 +383,11 @@ function ConversationCard({ conversation, embedId }) {
                   {/* Bot Response */}
                   <div className="bg-gray-800/20 border-l-4 border-gray-500 p-4 rounded-lg light:bg-gray-100 light:border-gray-400">
                     <div className="flex items-center gap-2 mb-2">
-                      <ChatCircle size={18} weight="fill" className="text-gray-400 light:text-gray-600" />
+                      <ChatCircle
+                        size={18}
+                        weight="fill"
+                        className="text-gray-400 light:text-gray-600"
+                      />
                       <h5 className="text-gray-300 text-sm font-bold uppercase light:text-gray-700">
                         {t("embed-analytics.response")}
                       </h5>
@@ -333,7 +398,11 @@ function ConversationCard({ conversation, embedId }) {
                           title={t("embed-analytics.feedback.positive")}
                           aria-label={t("embed-analytics.feedback.positive")}
                         >
-                          <ThumbsUp size={16} weight="fill" className="text-green-500 light:text-green-600" />
+                          <ThumbsUp
+                            size={16}
+                            weight="fill"
+                            className="text-green-500 light:text-green-600"
+                          />
                         </span>
                       )}
                       {msg.feedbackScore === false && (
@@ -342,7 +411,11 @@ function ConversationCard({ conversation, embedId }) {
                           title={t("embed-analytics.feedback.negative")}
                           aria-label={t("embed-analytics.feedback.negative")}
                         >
-                          <ThumbsDown size={16} weight="fill" className="text-red-500 light:text-red-600" />
+                          <ThumbsDown
+                            size={16}
+                            weight="fill"
+                            className="text-red-500 light:text-red-600"
+                          />
                         </span>
                       )}
                     </div>

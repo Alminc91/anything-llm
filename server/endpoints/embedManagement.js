@@ -265,12 +265,15 @@ function embedManagementEndpoints(app) {
   );
 
   // Analytics: Get conversations list for an embed
+  // KIE-527: chatHistoryViewable wie bei den übrigen Chat-Historien-Endpoints;
+  // Default-User sehen nur Embeds ihrer Workspaces (BOLA/IDOR-Härtung).
   app.post(
     "/embed/:embedId/analytics/conversations",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
+    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
     async (request, response) => {
       try {
-        const { embedId } = request.params;
+        const user = await userFromSession(request, response);
+        const embedId = Number(request.params.embedId);
         const {
           offset = 0,
           limit = 20,
@@ -279,64 +282,33 @@ function embedManagementEndpoints(app) {
           onlyNegative = false, // KIE-508 (Legacy-Boolean, bleibt gültig)
           feedbackFilter, // KIE-527: "all" | "negative" | "positive"
         } = reqBody(request);
-        // Neuer Parameter gewinnt; ohne ihn greift der Legacy-Boolean.
+
+        if (user?.role === ROLES.default) {
+          const embed = await EmbedConfig.get({ id: embedId });
+          const membership = embed
+            ? await WorkspaceUser.get({
+                user_id: user.id,
+                workspace_id: embed.workspace_id,
+              })
+            : null;
+          if (!membership) return response.sendStatus(403).end();
+        }
+
+        // Neuer Parameter gewinnt (auch bei "" oder ungültigem Wert → "all");
+        // nur wenn er fehlt (undefined/null), greift der Legacy-Boolean.
         const filter = EmbedChats.normalizeFeedbackFilter(
-          feedbackFilter !== undefined ? feedbackFilter : !!onlyNegative
+          feedbackFilter ?? !!onlyNegative
         );
+        const start = startDate ? new Date(startDate) : null;
+        const end = endDate ? new Date(endDate) : null;
 
-        const conversations = await EmbedChats.getConversations(
-          Number(embedId),
-          offset,
-          limit,
-          startDate ? new Date(startDate) : null,
-          endDate ? new Date(endDate) : null,
-          filter
-        );
-
-        // Count total conversations for pagination
-        const { Prisma } = require("@prisma/client");
-        const prisma = require("../utils/prisma");
-
-        const dateConditions = [];
-        if (startDate) {
-          dateConditions.push(Prisma.sql`AND createdAt >= ${new Date(startDate)}`);
-        }
-        if (endDate) {
-          dateConditions.push(Prisma.sql`AND createdAt <= ${new Date(endDate)}`);
-        }
-
-        // KIE-508/527: bei aktivem Filter nur Konversationen mit mind. einer
-        // 👎- bzw. 👍-Bewertung zählen (für korrekte Pagination). Gleiche
-        // HAVING-Klausel wie die Liste (EmbedChats.feedbackHavingClause).
-        const totalCount = filter !== "all"
-          ? await prisma.$queryRaw`
-              SELECT COUNT(*) as count FROM (
-                SELECT COALESCE(conversation_id, session_id) as cid
-                FROM embed_chats
-                WHERE embed_id = ${Number(embedId)}
-                  ${dateConditions.length > 0 ? Prisma.join(dateConditions, " ") : Prisma.empty}
-                  AND include = 1
-                GROUP BY COALESCE(conversation_id, session_id), session_id, embed_id
-                ${EmbedChats.feedbackHavingClause(filter)}
-              )
-            `
-          : await prisma.$queryRaw`
-              SELECT COUNT(DISTINCT COALESCE(conversation_id, session_id)) as count
-              FROM embed_chats
-              WHERE embed_id = ${Number(embedId)}
-                ${dateConditions.length > 0 ? Prisma.join(dateConditions, " ") : Prisma.empty}
-                AND include = 1
-            `;
-
-        const hasMore = (offset + limit) < Number(totalCount[0]?.count || 0);
-        const total = Number(totalCount[0]?.count || 0);
-
-        // Debug: Check for BigInt values
-        console.log("Conversations sample:", conversations[0]);
-        console.log("Types:", {
-          first: typeof conversations[0]?.first_chat_id,
-          count: typeof conversations[0]?.message_count,
-        });
+        // Liste und Zähler benutzen dieselbe Gruppierung + denselben Filter
+        // (EmbedChats._conversationGroupsSql / feedbackFilterCondition).
+        const [conversations, total] = await Promise.all([
+          EmbedChats.getConversations(embedId, offset, limit, start, end, filter),
+          EmbedChats.countConversations(embedId, start, end, filter),
+        ]);
+        const hasMore = offset + limit < total;
 
         response.status(200).json({
           success: true,

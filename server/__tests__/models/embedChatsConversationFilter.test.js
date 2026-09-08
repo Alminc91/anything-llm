@@ -1,10 +1,12 @@
 /* eslint-env jest, node */
 // KIE-508 / KIE-527 — Embed-Analytics: Konversationsliste nach 👎 bzw. 👍
-// filtern. getConversations muss (a) ohne Filter KEINE HAVING-Klausel senden,
-// (b) für "negative" auf feedbackScore = 0 und für "positive" auf
-// feedbackScore = 1 filtern, (c) den Legacy-Boolean onlyNegative=true weiter
-// akzeptieren, (d) unbekannte Werte auf "all" normalisieren (kein User-Input
-// im SQL) und (e) negative_count + positive_count als Number liefern.
+// filtern. getConversations/countConversations müssen (a) ohne Filter KEINE
+// Filterbedingung senden, (b) für "negative" auf negative_count und für
+// "positive" auf positive_count filtern — und zwar NACH der Gruppierung, damit
+// conversation_number stabil bleibt, (c) den Legacy-Boolean onlyNegative=true
+// weiter akzeptieren, (d) unbekannte Werte auf "all" normalisieren (kein
+// User-Input im SQL), (e) DSGVO: include = 1 in Liste UND Zähler, (f) Zähler
+// als Number liefern.
 const prisma = require("../../utils/prisma");
 
 jest.mock("../../utils/prisma", () => ({
@@ -71,8 +73,8 @@ const FIRST_CHATS = [
 ];
 
 // Flacht den zuletzt gesendeten $queryRaw-Aufruf zu lesbarem SQL ab: gebundene
-// Werte werden zu "?", verschachtelte Prisma.sql-Fragmente (WHERE-Join, HAVING)
-// werden rekursiv inline gesetzt — so lässt sich die HAVING-Klausel im Text prüfen.
+// Werte werden zu "?", verschachtelte Prisma.sql-Fragmente (WHERE-Join,
+// Gruppierungs-Subquery, Filterbedingung) werden rekursiv inline gesetzt.
 function flattenSql(strings, values) {
   let out = "";
   strings.forEach((str, i) => {
@@ -83,7 +85,7 @@ function flattenSql(strings, values) {
         v && Array.isArray(v.strings) ? flattenSql(v.strings, v.values) : "?";
     }
   });
-  return out;
+  return out.replace(/\s+/g, " ");
 }
 
 function lastSql() {
@@ -92,7 +94,7 @@ function lastSql() {
 }
 
 // Alle gebundenen Werte des letzten Aufrufs, inkl. der in verschachtelten
-// Prisma.sql-Fragmenten (z. B. `WHERE embed_id = ${embedId}`).
+// Prisma.sql-Fragmenten (z. B. `AND embed_id = ${embedId}`).
 function lastBoundValues() {
   const collect = (values) =>
     values.flatMap((v) =>
@@ -124,31 +126,40 @@ describe("normalizeFeedbackFilter", () => {
   });
 });
 
-describe("feedbackHavingClause", () => {
-  test("'all' liefert Prisma.empty (kein HAVING)", () => {
+describe("feedbackFilterCondition", () => {
+  test("'all' und Unbekanntes liefern Prisma.empty (keine Bedingung)", () => {
     const { Prisma } = require("@prisma/client");
-    expect(EmbedChats.feedbackHavingClause("all")).toBe(Prisma.empty);
-    expect(EmbedChats.feedbackHavingClause("garbage")).toBe(Prisma.empty);
+    expect(EmbedChats.feedbackFilterCondition("all")).toBe(Prisma.empty);
+    expect(EmbedChats.feedbackFilterCondition("garbage")).toBe(Prisma.empty);
   });
 
-  test("'negative' filtert auf feedbackScore = 0, 'positive' auf = 1", () => {
-    const neg = EmbedChats.feedbackHavingClause("negative").strings.join("?");
-    const pos = EmbedChats.feedbackHavingClause("positive").strings.join("?");
-    expect(neg).toMatch(
-      /HAVING SUM\(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END\) > 0/
+  test("'negative' filtert auf negative_count, 'positive' auf positive_count", () => {
+    const neg =
+      EmbedChats.feedbackFilterCondition("negative").strings.join("?");
+    const pos =
+      EmbedChats.feedbackFilterCondition("positive").strings.join("?");
+    expect(neg).toBe("WHERE negative_count > 0");
+    expect(pos).toBe("WHERE positive_count > 0");
+    // Legacy-Boolean landet auf der 👎-Bedingung
+    expect(EmbedChats.feedbackFilterCondition(true).strings.join("?")).toBe(
+      neg
     );
-    expect(pos).toMatch(
-      /HAVING SUM\(CASE WHEN feedbackScore = 1 THEN 1 ELSE 0 END\) > 0/
+  });
+
+  test("Helfer funktionieren auch losgelöst vom Objekt (kein this)", () => {
+    const { feedbackFilterCondition, normalizeFeedbackFilter } = EmbedChats;
+    expect(normalizeFeedbackFilter("positive")).toBe("positive");
+    expect(feedbackFilterCondition("positive").strings.join("?")).toBe(
+      "WHERE positive_count > 0"
     );
-    // Legacy-Boolean landet auf der 👎-Klausel
-    expect(EmbedChats.feedbackHavingClause(true).strings.join("?")).toBe(neg);
   });
 });
 
-describe("getConversations — Feedback-Filter im SQL", () => {
-  test("Default (kein Filter): keine HAVING-Klausel, beide Zähler im SELECT (NAK-2)", async () => {
+describe("getConversations — SQL-Form", () => {
+  test("Default (kein Filter): keine Filterbedingung, beide Zähler, include = 1 (NAK-2)", async () => {
     await EmbedChats.getConversations(EMBED_ID, 0, 20);
     const sql = lastSql();
+    expect(sql).not.toMatch(/negative_count > 0|positive_count > 0/);
     expect(sql).not.toMatch(/HAVING/i);
     expect(sql).toMatch(
       /SUM\(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END\) as negative_count/
@@ -156,24 +167,34 @@ describe("getConversations — Feedback-Filter im SQL", () => {
     expect(sql).toMatch(
       /SUM\(CASE WHEN feedbackScore = 1 THEN 1 ELSE 0 END\) as positive_count/
     );
-    // embed_id bleibt gebundener Wert
+    // DSGVO: invalidierte Zeilen (markHistoryInvalid) nie in der Liste
+    expect(sql).toMatch(/WHERE include = 1 AND embed_id = \?/);
     expect(lastBoundValues()).toContain(EMBED_ID);
   });
 
-  test("'negative' → HAVING auf feedbackScore = 0 (KIE-508)", async () => {
+  test("'negative' → Bedingung auf negative_count NACH der Gruppierung (KIE-508)", async () => {
     await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, "negative");
-    expect(lastSql()).toMatch(
-      /GROUP BY[^]*HAVING SUM\(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END\) > 0/
-    );
-    expect(lastSql()).not.toMatch(/feedbackScore = 1 THEN 1 ELSE 0 END\) > 0/);
+    const sql = lastSql();
+    expect(sql).toMatch(/GROUP BY .*\) WHERE negative_count > 0 ORDER BY/);
+    expect(sql).not.toMatch(/positive_count > 0/);
   });
 
-  test("'positive' → HAVING auf feedbackScore = 1 (KIE-527, AK-1)", async () => {
+  test("'positive' → Bedingung auf positive_count NACH der Gruppierung (KIE-527, AK-1)", async () => {
     await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, "positive");
-    expect(lastSql()).toMatch(
-      /GROUP BY[^]*HAVING SUM\(CASE WHEN feedbackScore = 1 THEN 1 ELSE 0 END\) > 0/
-    );
-    expect(lastSql()).not.toMatch(/feedbackScore = 0 THEN 1 ELSE 0 END\) > 0/);
+    const sql = lastSql();
+    expect(sql).toMatch(/GROUP BY .*\) WHERE positive_count > 0 ORDER BY/);
+    expect(sql).not.toMatch(/negative_count > 0/);
+  });
+
+  test("conversation_number wird VOR dem Filter vergeben (stabil je Filterzustand)", async () => {
+    await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, "positive");
+    const sql = lastSql();
+    const rowNumberIdx = sql.indexOf("ROW_NUMBER() OVER");
+    const filterIdx = sql.indexOf("WHERE positive_count > 0");
+    expect(rowNumberIdx).toBeGreaterThan(-1);
+    expect(filterIdx).toBeGreaterThan(rowNumberIdx);
+    // kein HAVING mehr innerhalb der Gruppierung
+    expect(sql).not.toMatch(/HAVING/i);
   });
 
   test("Legacy onlyNegative=true verhält sich wie 'negative' (AK-4)", async () => {
@@ -183,12 +204,64 @@ describe("getConversations — Feedback-Filter im SQL", () => {
     expect(legacySql).toBe(lastSql());
   });
 
-  test("ungültiger Filter-Wert → kein HAVING, Wert taucht nirgends im SQL auf (NAK-1)", async () => {
+  test("ungültiger Filter-Wert → keine Bedingung, Wert taucht nirgends auf (NAK-1)", async () => {
     const evil = "1=1) OR (1=1";
     await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, evil);
-    expect(lastSql()).not.toMatch(/HAVING/i);
+    expect(lastSql()).not.toMatch(/negative_count > 0|positive_count > 0/);
     expect(lastSql()).not.toContain(evil);
     expect(lastBoundValues()).not.toContain(evil);
+  });
+
+  test("Datumsfilter werden als gebundene Werte übergeben", async () => {
+    const start = new Date("2026-01-01T00:00:00Z");
+    const end = new Date("2026-02-01T00:00:00Z");
+    await EmbedChats.getConversations(EMBED_ID, 0, 20, start, end, "all");
+    expect(lastSql()).toMatch(/AND createdAt >= \? AND createdAt <= \?/);
+    expect(lastBoundValues()).toEqual(expect.arrayContaining([start, end]));
+  });
+});
+
+describe("countConversations — gleiche Gruppierung wie die Liste", () => {
+  beforeEach(() => {
+    prisma.$queryRaw.mockResolvedValue([{ count: BigInt(7) }]);
+  });
+
+  test("zählt Gruppen mit include = 1 und identischem Filter", async () => {
+    const total = await EmbedChats.countConversations(
+      EMBED_ID,
+      null,
+      null,
+      "positive"
+    );
+    expect(total).toBe(7);
+    const sql = lastSql();
+    expect(sql).toMatch(/SELECT COUNT\(\*\) as count FROM \( SELECT/);
+    expect(sql).toMatch(/WHERE include = 1 AND embed_id = \?/);
+    expect(sql).toMatch(/GROUP BY .*\) WHERE positive_count > 0/);
+  });
+
+  test("Liste und Zähler teilen exakt dasselbe Gruppierungs-Fragment", async () => {
+    await EmbedChats.countConversations(EMBED_ID, null, null, "negative");
+    const countSql = lastSql();
+    prisma.$queryRaw.mockResolvedValue(RAW_ROWS);
+    await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, "negative");
+    const listSql = lastSql();
+    const groupFragment = (sql) =>
+      sql.slice(sql.indexOf("( SELECT"), sql.indexOf("WHERE negative_count"));
+    expect(groupFragment(countSql)).toBe(groupFragment(listSql));
+  });
+
+  test("ohne Filter keine Bedingung; Ergebnis ist Number", async () => {
+    const total = await EmbedChats.countConversations(EMBED_ID);
+    expect(typeof total).toBe("number");
+    expect(lastSql()).not.toMatch(/_count > 0/);
+  });
+
+  test("DB-Fehler → 0 statt Exception", async () => {
+    prisma.$queryRaw.mockRejectedValue(new Error("boom"));
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
+    expect(await EmbedChats.countConversations(EMBED_ID)).toBe(0);
+    spy.mockRestore();
   });
 });
 

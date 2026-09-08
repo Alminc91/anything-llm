@@ -355,21 +355,94 @@ const EmbedChats = {
   },
 
   /**
-   * KIE-508/527: HAVING-Klausel für den Feedback-Filter — wird von der
-   * Konversationsliste UND der Count-Query (Pagination) benutzt.
-   * feedbackScore ist in SQLite 0/1; false(👎)=0, true(👍)=1, NULL zählt nie mit.
+   * KIE-508/527: Filterbedingung auf die aggregierten Konversationszeilen aus
+   * {@link EmbedChats._conversationGroupsSql} (Spalten positive_count /
+   * negative_count). Wird von Liste UND Zähl-Query benutzt. Der Filter greift
+   * NACH der Gruppierung, damit conversation_number über die ungefilterte
+   * Menge vergeben bleibt. Ausschließlich Konstanten — kein User-Input im SQL.
    * @param {string|boolean} feedbackFilter
    * @returns {import("@prisma/client").Prisma.Sql}
    */
-  feedbackHavingClause: function (feedbackFilter) {
+  feedbackFilterCondition: function (feedbackFilter) {
     const { Prisma } = require("@prisma/client");
-    switch (this.normalizeFeedbackFilter(feedbackFilter)) {
+    switch (EmbedChats.normalizeFeedbackFilter(feedbackFilter)) {
       case "negative":
-        return Prisma.sql`HAVING SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) > 0`;
+        return Prisma.sql`WHERE negative_count > 0`;
       case "positive":
-        return Prisma.sql`HAVING SUM(CASE WHEN feedbackScore = 1 THEN 1 ELSE 0 END) > 0`;
+        return Prisma.sql`WHERE positive_count > 0`;
       default:
         return Prisma.empty;
+    }
+  },
+
+  /**
+   * Gemeinsames Aggregations-Fragment für Konversationsliste und -zähler:
+   * gruppiert embed_chats zu Konversationen (conversation_id, Fallback
+   * session_id für Alt-Daten), zählt Nachrichten sowie 👍/👎 und vergibt
+   * conversation_number über die UNGEFILTERTE Menge (stabile Nummer je
+   * Konversation, unabhängig vom Feedback-Filter). DSGVO/Reset-invalidierte
+   * Zeilen (include = 0 via markHistoryInvalid) sind ausgeschlossen — wie in
+   * getBasicStats und listConversationsForSession.
+   * feedbackScore ist in SQLite 0/1; false(👎)=0, true(👍)=1, NULL zählt nie mit.
+   * @param {number|null} embedId - NULL = alle Embeds (globale Sicht)
+   * @param {Date|null} startDate
+   * @param {Date|null} endDate
+   * @returns {import("@prisma/client").Prisma.Sql}
+   */
+  _conversationGroupsSql: function (
+    embedId = null,
+    startDate = null,
+    endDate = null
+  ) {
+    const { Prisma } = require("@prisma/client");
+    const where = [Prisma.sql`WHERE include = 1`];
+    if (embedId !== null) where.push(Prisma.sql`AND embed_id = ${embedId}`);
+    if (startDate) where.push(Prisma.sql`AND createdAt >= ${startDate}`);
+    if (endDate) where.push(Prisma.sql`AND createdAt <= ${endDate}`);
+
+    return Prisma.sql`
+      SELECT
+        COALESCE(conversation_id, session_id) as conversation_id,
+        session_id,
+        embed_id,
+        MIN(id) as first_chat_id,
+        MIN(createdAt) as started_at,
+        MAX(createdAt) as last_message_at,
+        COUNT(*) as message_count,
+        SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) as negative_count,
+        SUM(CASE WHEN feedbackScore = 1 THEN 1 ELSE 0 END) as positive_count,
+        ROW_NUMBER() OVER (ORDER BY MIN(createdAt) DESC) as conversation_number
+      FROM embed_chats
+      ${Prisma.join(where, " ")}
+      GROUP BY COALESCE(conversation_id, session_id), session_id, embed_id`;
+  },
+
+  /**
+   * Analytics: Anzahl Konversationen (für Pagination) — exakt dieselbe
+   * Gruppierung und derselbe Feedback-Filter wie {@link EmbedChats.getConversations}.
+   * @param {number|null} embedId - NULL = alle Embeds
+   * @param {Date|null} startDate
+   * @param {Date|null} endDate
+   * @param {"all"|"negative"|"positive"|boolean} feedbackFilter
+   * @returns {Promise<number>}
+   */
+  countConversations: async function (
+    embedId = null,
+    startDate = null,
+    endDate = null,
+    feedbackFilter = "all"
+  ) {
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT COUNT(*) as count FROM (
+          ${EmbedChats._conversationGroupsSql(embedId, startDate, endDate)}
+        )
+        ${EmbedChats.feedbackFilterCondition(feedbackFilter)}
+      `;
+      return Number(rows[0]?.count || 0);
+    } catch (error) {
+      console.error("countConversations error:", error.message);
+      return 0;
     }
   },
 
@@ -395,32 +468,13 @@ const EmbedChats = {
     feedbackFilter = "all"
   ) {
     try {
-      const { Prisma } = require("@prisma/client");
-
-      // KIE-508/527: Filter auf Konversationen mit mind. einer 👎- bzw.
-      // 👍-Antwort. Gemeinsamer Helfer mit der Count-Query im Endpoint, damit
-      // Liste und Pagination nie auseinanderlaufen.
-      const havingClause = this.feedbackHavingClause(feedbackFilter);
-
-      // Build WHERE conditions
-      const whereConditions = [];
-      if (embedId !== null) {
-        whereConditions.push(Prisma.sql`WHERE embed_id = ${embedId}`);
-      } else {
-        whereConditions.push(Prisma.sql`WHERE 1=1`);  // Global view
-      }
-      if (startDate) {
-        whereConditions.push(Prisma.sql`AND createdAt >= ${startDate}`);
-      }
-      if (endDate) {
-        whereConditions.push(Prisma.sql`AND createdAt <= ${endDate}`);
-      }
-
-      // SQLite GROUP BY Query to get conversation summaries
-      // Use conversation_id for grouping (fallback to session_id for backwards compatibility)
+      // KIE-508/527: Gruppierung + Zähler kommen aus dem gemeinsamen Fragment
+      // (auch von countConversations benutzt), der Feedback-Filter greift auf
+      // der äußeren Ebene — so bleiben Liste, Pagination und conversation_number
+      // konsistent. include = 1 (DSGVO) ist Teil des Fragments.
       const conversations = await prisma.$queryRaw`
         SELECT
-          COALESCE(conversation_id, session_id) as conversation_id,
+          conversation_id,
           session_id,
           embed_id,
           first_chat_id,
@@ -431,22 +485,9 @@ const EmbedChats = {
           positive_count,
           conversation_number
         FROM (
-          SELECT
-            conversation_id,
-            session_id,
-            embed_id,
-            MIN(id) as first_chat_id,
-            MIN(createdAt) as started_at,
-            MAX(createdAt) as last_message_at,
-            COUNT(*) as message_count,
-            SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) as negative_count,
-            SUM(CASE WHEN feedbackScore = 1 THEN 1 ELSE 0 END) as positive_count,
-            ROW_NUMBER() OVER (ORDER BY MIN(createdAt) DESC) as conversation_number
-          FROM embed_chats
-          ${whereConditions.length > 0 ? Prisma.join(whereConditions, " ") : Prisma.empty}
-          GROUP BY COALESCE(conversation_id, session_id), session_id, embed_id
-          ${havingClause}
+          ${EmbedChats._conversationGroupsSql(embedId, startDate, endDate)}
         )
+        ${EmbedChats.feedbackFilterCondition(feedbackFilter)}
         ORDER BY last_message_at DESC
         LIMIT ${limit}
         OFFSET ${offset}

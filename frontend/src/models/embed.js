@@ -123,20 +123,17 @@ const Embed = {
     endDate,
     feedbackFilter = "all" // KIE-508/527: "all" | "negative" (👎) | "positive" (👍)
   ) => {
-    return await fetch(
-      `${API_BASE}/embed/${embedId}/analytics/conversations`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({
-          offset,
-          limit,
-          startDate,
-          endDate,
-          feedbackFilter,
-        }),
-      }
-    )
+    return await fetch(`${API_BASE}/embed/${embedId}/analytics/conversations`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({
+        offset,
+        limit,
+        startDate,
+        endDate,
+        feedbackFilter,
+      }),
+    })
       .then((res) => res.json())
       .catch((e) => {
         console.error(e);
