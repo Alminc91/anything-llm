@@ -30,25 +30,62 @@
  */
 
 const WEEKDAY_MAP = {
-  montag: "mon", dienstag: "tue", mittwoch: "wed", donnerstag: "thu",
-  freitag: "fri", samstag: "sat", sonnabend: "sat", sonntag: "sun",
+  montag: "mon",
+  dienstag: "tue",
+  mittwoch: "wed",
+  donnerstag: "thu",
+  freitag: "fri",
+  samstag: "sat",
+  sonnabend: "sat",
+  sonntag: "sun",
 };
 const MONTHS = {
-  januar: 1, februar: 2, "märz": 3, maerz: 3, april: 4, mai: 5, juni: 6,
-  juli: 7, august: 8, september: 9, oktober: 10, november: 11, dezember: 12,
+  januar: 1,
+  februar: 2,
+  märz: 3,
+  maerz: 3,
+  april: 4,
+  mai: 5,
+  juni: 6,
+  juli: 7,
+  august: 8,
+  september: 9,
+  oktober: 10,
+  november: 11,
+  dezember: 12,
 };
 const SEASONS = {
-  "frühling": [[3, 1], [5, 31]], fruehling: [[3, 1], [5, 31]],
-  sommer: [[6, 1], [8, 31]],
-  herbst: [[9, 1], [11, 30]],
-  winter: [[12, 1], [2, 28]], // über den Jahreswechsel
+  frühling: [
+    [3, 1],
+    [5, 31],
+  ],
+  fruehling: [
+    [3, 1],
+    [5, 31],
+  ],
+  sommer: [
+    [6, 1],
+    [8, 31],
+  ],
+  herbst: [
+    [9, 1],
+    [11, 30],
+  ],
+  winter: [
+    [12, 1],
+    [2, 28],
+  ], // über den Jahreswechsel
 };
 
 const iso = (d) => d.toISOString().slice(0, 10);
 const mkDate = (y, m, day) => {
   const d = new Date(Date.UTC(y, m - 1, day));
   // Validitätscheck: JS normalisiert 45.13. still weiter — ablehnen.
-  if (d.getUTCFullYear() !== y || d.getUTCMonth() !== m - 1 || d.getUTCDate() !== day)
+  if (
+    d.getUTCFullYear() !== y ||
+    d.getUTCMonth() !== m - 1 ||
+    d.getUTCDate() !== day
+  )
     return null;
   return d;
 };
@@ -69,7 +106,11 @@ function extractFilters(query, { referenceDate, knownLocations = [] } = {}) {
   const ref = new Date(
     typeof referenceDate === "string"
       ? `${referenceDate}T00:00:00Z`
-      : Date.UTC(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate())
+      : Date.UTC(
+          referenceDate.getFullYear(),
+          referenceDate.getMonth(),
+          referenceDate.getDate()
+        )
   );
   const refY = ref.getUTCFullYear();
   const refM = ref.getUTCMonth() + 1;
@@ -83,11 +124,15 @@ function extractFilters(query, { referenceDate, knownLocations = [] } = {}) {
   // Nächstes Vorkommen eines Monats (voller Monat)
   const nextMonthOccurrence = (monthNum) => {
     const year = monthNum >= refM ? refY : refY + 1;
-    return [mkDate(year, monthNum, 1), mkDate(year, monthNum, lastDayOfMonth(year, monthNum))];
+    return [
+      mkDate(year, monthNum, 1),
+      mkDate(year, monthNum, lastDayOfMonth(year, monthNum)),
+    ];
   };
   // dd.mm.(yyyy)? -> nächstes Vorkommen; null bei ungültigem Datum
   const parseDayMonth = (dd, mm, yyyy) => {
-    const day = parseInt(dd, 10), mon = parseInt(mm, 10);
+    const day = parseInt(dd, 10),
+      mon = parseInt(mm, 10);
     let year = yyyy ? parseInt(yyyy, 10) : refY;
     let d = mkDate(year, mon, day);
     if (!d) return null;
@@ -96,69 +141,204 @@ function extractFilters(query, { referenceDate, knownLocations = [] } = {}) {
   };
 
   const monthAlt = Object.keys(MONTHS).join("|");
+  // Zahlwörter für relative Fenster ("in den nächsten zwei Wochen")
+  const NUMWORDS = {
+    ein: 1,
+    eine: 1,
+    einer: 1,
+    einem: 1,
+    zwei: 2,
+    drei: 3,
+    vier: 4,
+    fünf: 5,
+    fuenf: 5,
+    sechs: 6,
+    sieben: 7,
+    acht: 8,
+    neun: 9,
+    zehn: 10,
+    elf: 11,
+    zwölf: 12,
+    zwoelf: 12,
+  };
+  const numAlt = `\\d{1,2}|${Object.keys(NUMWORDS).join("|")}`;
+  const toNum = (t) => (/^\d+$/.test(t) ? parseInt(t, 10) : NUMWORDS[t]);
   let matched = false;
 
   // "zwischen dem 01.08. und 15.08." / "vom X bis Y"
-  let m = q.match(/(?:zwischen|vom)\s+(?:dem\s+)?(\d{1,2})\.(\d{1,2})\.(\d{4})?\s*(?:und|bis)\s+(?:zum\s+)?(\d{1,2})\.(\d{1,2})\.(\d{4})?/);
+  let m = q.match(
+    /(?:zwischen|vom)\s+(?:dem\s+)?(\d{1,2})\.(\d{1,2})\.(\d{4})?\s*(?:und|bis)\s+(?:zum\s+)?(\d{1,2})\.(\d{1,2})\.(\d{4})?/
+  );
   if (m) {
     const from = parseDayMonth(m[1], m[2], m[3]);
     const to = parseDayMonth(m[4], m[5], m[6]);
-    if (from && to) { setRange(from, to); matched = true; }
+    if (from && to) {
+      setRange(from, to);
+      matched = true;
+    }
   }
   // "ab dem 15.09." / "ab 15.09.2026"
-  if (!matched && (m = q.match(/\bab\s+(?:dem\s+)?(\d{1,2})\.(\d{1,2})\.(\d{4})?/))) {
+  // "in den nächsten / kommenden N Tagen|Wochen|Monaten", "in N Wochen", "innerhalb der nächsten N Wochen",
+  // "die nächsten N Wochen" -> heute bis heute + N (Kursbeginn im Fenster). Bewusst NICHT: "seit N Wochen".
+  if (
+    !matched &&
+    (m = q.match(
+      new RegExp(
+        `\\b(?:in(?:nerhalb)?|die)\\s+(?:(?:der|den)\\s+)?(?:(?:nächsten|naechsten|kommenden)\\s+)?(${numAlt})\\s+(tagen?|wochen?|monaten?)\\b`
+      )
+    ))
+  ) {
+    const n = toNum(m[1]);
+    if (n && n > 0) {
+      const unit = m[2].startsWith("tag")
+        ? 1
+        : m[2].startsWith("woch")
+          ? 7
+          : null;
+      let to;
+      if (unit) to = addDays(ref, n * unit);
+      else {
+        const total = refM - 1 + n,
+          y = refY + Math.floor(total / 12),
+          mo = (total % 12) + 1;
+        const day = Math.min(ref.getUTCDate(), lastDayOfMonth(y, mo));
+        to = mkDate(y, mo, day);
+      }
+      if (to) {
+        setRange(ref, to);
+        matched = true;
+      }
+    }
+  }
+  // "Anfang / Mitte / Ende <Monat> [Jahr]" -> Drittel des Monats (1–10 / 11–20 / 21–Ende)
+  if (
+    !matched &&
+    (m = q.match(
+      new RegExp(`\\b(anfang|mitte|ende)\\s+(${monthAlt})(?:\\s+(\\d{4}))?\\b`)
+    ))
+  ) {
+    const mon = MONTHS[m[2]];
+    const year = m[3] ? parseInt(m[3], 10) : mon >= refM ? refY : refY + 1;
+    const last = lastDayOfMonth(year, mon);
+    const [d1, d2] =
+      m[1] === "anfang" ? [1, 10] : m[1] === "mitte" ? [11, 20] : [21, last];
+    const from = mkDate(year, mon, d1),
+      to = mkDate(year, mon, d2);
+    if (from && to) {
+      setRange(from, to);
+      matched = true;
+    }
+  }
+  if (
+    !matched &&
+    (m = q.match(/\bab\s+(?:dem\s+)?(\d{1,2})\.(\d{1,2})\.(\d{4})?/))
+  ) {
     const from = parseDayMonth(m[1], m[2], m[3]);
-    if (from) { setRange(from, null); matched = true; }
+    if (from) {
+      setRange(from, null);
+      matched = true;
+    }
   }
   // "ab Oktober"
   if (!matched && (m = q.match(new RegExp(`\\bab\\s+(${monthAlt})\\b`)))) {
     const [from] = nextMonthOccurrence(MONTHS[m[1]]);
-    if (from) { setRange(from, null); matched = true; }
+    if (from) {
+      setRange(from, null);
+      matched = true;
+    }
   }
   // "bis (Ende) August" / "bis zum 15.09."
-  if (!matched && (m = q.match(new RegExp(`\\bbis\\s+(?:ende\\s+)?(${monthAlt})\\b`)))) {
+  if (
+    !matched &&
+    (m = q.match(new RegExp(`\\bbis\\s+(?:ende\\s+)?(${monthAlt})\\b`)))
+  ) {
     const [, to] = nextMonthOccurrence(MONTHS[m[1]]);
-    if (to) { setRange(null, to); matched = true; }
+    if (to) {
+      setRange(null, to);
+      matched = true;
+    }
   }
-  if (!matched && (m = q.match(/\bbis\s+(?:zum\s+)?(\d{1,2})\.(\d{1,2})\.(\d{4})?/))) {
+  if (
+    !matched &&
+    (m = q.match(/\bbis\s+(?:zum\s+)?(\d{1,2})\.(\d{1,2})\.(\d{4})?/))
+  ) {
     const to = parseDayMonth(m[1], m[2], m[3]);
-    if (to) { setRange(null, to); matched = true; }
+    if (to) {
+      setRange(null, to);
+      matched = true;
+    }
   }
   // Einzeldatum "am 12.09." (nur mit Präposition, sonst Kursnummern-Gefahr)
-  if (!matched && (m = q.match(/\bam\s+(\d{1,2})\.(\d{1,2})\.(\d{4})?/))) {
+  if (
+    !matched &&
+    (m = q.match(/\b(?:am|den)\s+(\d{1,2})\.(\d{1,2})\.(\d{4})?(?![.\d])/))
+  ) {
     const day = parseDayMonth(m[1], m[2], m[3]);
-    if (day) { setRange(day, day); matched = true; }
-    else matched = false; // ungültiges Datum -> kein Filter (TE10)
+    if (day) {
+      setRange(day, day);
+      matched = true;
+    } else matched = false; // ungültiges Datum -> kein Filter (TE10)
   }
   // Relative Ausdrücke
   if (!matched) {
     // Kein \b vor Umlauten (JS-\b ist ASCII-basiert und matcht vor "ü" nie)
     if (/übermorgen/.test(q)) {
-      const d = addDays(ref, 2); setRange(d, d); matched = true;
-    } else if (/\bmorgen\b/.test(q) && !/\bvormittags?\b|\bmorgens\b|frühen morgen/.test(q)) {
-      const d = addDays(ref, 1); setRange(d, d); matched = true;
+      const d = addDays(ref, 2);
+      setRange(d, d);
+      matched = true;
+    } else if (
+      /\bmorgen\b/.test(q) &&
+      !/\bvormittags?\b|\bmorgens\b|frühen morgen/.test(q)
+    ) {
+      const d = addDays(ref, 1);
+      setRange(d, d);
+      matched = true;
     } else if (/\bheute\b/.test(q)) {
-      setRange(ref, ref); matched = true;
+      setRange(ref, ref);
+      matched = true;
     } else if (/\bdiese woche\b/.test(q)) {
       const monday = addDays(ref, -((ref.getUTCDay() + 6) % 7));
-      setRange(monday, addDays(monday, 6)); matched = true;
+      setRange(monday, addDays(monday, 6));
+      matched = true;
     } else if (/\bnächste woche\b|\bnaechste woche\b/.test(q)) {
       const monday = addDays(ref, -((ref.getUTCDay() + 6) % 7) + 7);
-      setRange(monday, addDays(monday, 6)); matched = true;
+      setRange(monday, addDays(monday, 6));
+      matched = true;
     } else if (/\bdiesen monat\b|\bdieser monat\b|\bdiesem monat\b/.test(q)) {
-      setRange(mkDate(refY, refM, 1), mkDate(refY, refM, lastDayOfMonth(refY, refM))); matched = true;
+      setRange(
+        mkDate(refY, refM, 1),
+        mkDate(refY, refM, lastDayOfMonth(refY, refM))
+      );
+      matched = true;
     } else if (/\bnächsten monat\b|\bnaechsten monat\b/.test(q)) {
-      const y = refM === 12 ? refY + 1 : refY, mo = refM === 12 ? 1 : refM + 1;
-      setRange(mkDate(y, mo, 1), mkDate(y, mo, lastDayOfMonth(y, mo))); matched = true;
+      const y = refM === 12 ? refY + 1 : refY,
+        mo = refM === 12 ? 1 : refM + 1;
+      setRange(mkDate(y, mo, 1), mkDate(y, mo, lastDayOfMonth(y, mo)));
+      matched = true;
     } else if (/\bdiesem quartal\b|\bdieses quartal\b/.test(q)) {
       const qStart = Math.floor((refM - 1) / 3) * 3 + 1;
-      setRange(mkDate(refY, qStart, 1), mkDate(refY, qStart + 2, lastDayOfMonth(refY, qStart + 2))); matched = true;
-    } else if (/\bnächsten quartal\b|\bnaechsten quartal\b|\bnächstes quartal\b/.test(q)) {
-      let qStart = Math.floor((refM - 1) / 3) * 3 + 4, y = refY;
-      if (qStart > 12) { qStart = 1; y += 1; }
-      setRange(mkDate(y, qStart, 1), mkDate(y, qStart + 2, lastDayOfMonth(y, qStart + 2))); matched = true;
+      setRange(
+        mkDate(refY, qStart, 1),
+        mkDate(refY, qStart + 2, lastDayOfMonth(refY, qStart + 2))
+      );
+      matched = true;
+    } else if (
+      /\bnächsten quartal\b|\bnaechsten quartal\b|\bnächstes quartal\b/.test(q)
+    ) {
+      let qStart = Math.floor((refM - 1) / 3) * 3 + 4,
+        y = refY;
+      if (qStart > 12) {
+        qStart = 1;
+        y += 1;
+      }
+      setRange(
+        mkDate(y, qStart, 1),
+        mkDate(y, qStart + 2, lastDayOfMonth(y, qStart + 2))
+      );
+      matched = true;
     } else if (/\bdieses jahr\b|\bdiesem jahr\b/.test(q)) {
-      setRange(ref, mkDate(refY, 12, 31)); matched = true;
+      setRange(ref, mkDate(refY, 12, 31));
+      matched = true;
     }
   }
   // Jahreszeiten
@@ -182,14 +362,20 @@ function extractFilters(query, { referenceDate, knownLocations = [] } = {}) {
 
   // --- Tageszeit -------------------------------------------------------------
   const buckets = new Set();
-  if (/\babends?\b|\bam abend\b|\bspätnachmittag/.test(q)) buckets.add("evening");
-  if (/\bvormittags?\b|\bmorgens\b|frühen morgen|\bam vormittag\b/.test(q)) buckets.add("morning");
-  if (/\bnachmittags?\b|\bam nachmittag\b|\bmittags\b/.test(q)) buckets.add("afternoon");
+  if (/\babends?\b|\bam abend\b|\bspätnachmittag/.test(q))
+    buckets.add("evening");
+  if (/\bvormittags?\b|\bmorgens\b|frühen morgen|\bam vormittag\b/.test(q))
+    buckets.add("morning");
+  if (/\bnachmittags?\b|\bam nachmittag\b|\bmittags\b/.test(q))
+    buckets.add("afternoon");
   if (buckets.size > 0 && buckets.size < 3) filters.timeOfDay = [...buckets];
 
   // --- Wochentage --------------------------------------------------------------
   const days = new Set();
-  if (/\bam wochenende\b|\bwochenendkurs/.test(q)) { days.add("sat"); days.add("sun"); }
+  if (/\bam wochenende\b|\bwochenendkurs/.test(q)) {
+    days.add("sat");
+    days.add("sun");
+  }
   if (/\bunter der woche\b|\bwerktags\b|\bwochentags\b/.test(q))
     for (const d of ["mon", "tue", "wed", "thu", "fri"]) days.add(d);
   for (const [name, token] of Object.entries(WEEKDAY_MAP)) {
@@ -198,20 +384,31 @@ function extractFilters(query, { referenceDate, knownLocations = [] } = {}) {
   if (days.size > 0 && days.size < 7) filters.weekdays = [...days];
 
   // --- Preis -------------------------------------------------------------------
-  if (/\bkostenlos|\bkostenfrei|\bgebührenfrei|\bgebuehrenfrei|\bgratis\b|\bumsonst\b|\bentgeltfrei/.test(q)) {
+  if (
+    /\bkostenlos|\bkostenfrei|\bgebührenfrei|\bgebuehrenfrei|\bgratis\b|\bumsonst\b|\bentgeltfrei/.test(
+      q
+    )
+  ) {
     filters.freeOnly = true;
   }
   // Kein \b NACH "€" (Nicht-Wort-Zeichen) — stattdessen negativer Lookahead.
-  m = q.match(/\b(?:unter|maximal|max\.?|höchstens|hoechstens|weniger als|bis(?:\s+zu)?|für unter|fuer unter)\s+(\d+(?:[.,]\d+)?)\s*(?:€|euros?|euro)(?![a-z0-9])/);
+  m = q.match(
+    /\b(?:unter|maximal|max\.?|höchstens|hoechstens|weniger als|bis(?:\s+zu)?|für unter|fuer unter)\s+(\d+(?:[.,]\d+)?)\s*(?:€|euros?|euro)(?![a-z0-9])/
+  );
   if (m) {
     const value = parseFloat(m[1].replace(",", "."));
     // "unter minus 20" o.ä.: Minus steht VOR der Zahl -> ablehnen
     const negated = new RegExp(`minus\\s+${m[1].replace(".", "\\.")}`).test(q);
-    if (Number.isFinite(value) && value >= 0 && !negated) filters.priceMax = value;
+    if (Number.isFinite(value) && value >= 0 && !negated)
+      filters.priceMax = value;
   }
 
   // --- Status / Buchbarkeit ------------------------------------------------------
-  if (/freien? plätzen?\b|freien? plaetzen?\b|\bnoch buchbar|\bbuchbare\b|\bnoch verfügbar|\bnoch verfuegbar|\bverfügbare\b|\bverfuegbare\b|\bnoch anmelden\b|anmeldung (noch )?möglich/.test(q)) {
+  if (
+    /freien? plätzen?\b|freien? plaetzen?\b|\bnoch buchbar|\bbuchbare\b|\bnoch verfügbar|\bnoch verfuegbar|\bverfügbare\b|\bverfuegbare\b|\bnoch anmelden\b|anmeldung (noch )?möglich/.test(
+      q
+    )
+  ) {
     filters.bookable = true;
   }
 
@@ -219,16 +416,25 @@ function extractFilters(query, { referenceDate, knownLocations = [] } = {}) {
   const onlineNegated = /\b(?:kein(?:e|en)?|nicht)\s+(?:\w+\s+)?online/.test(q);
   if (onlineNegated) {
     filters.format = ["onsite", "hybrid"];
-  } else if (/\bonline\b|\bonlinekurs|\bonline-|von zuhause|von zu hause|\bwebinar\b|\blivestream\b/.test(q)) {
+  } else if (
+    /\bonline\b|\bonlinekurs|\bonline-|von zuhause|von zu hause|\bwebinar\b|\blivestream\b/.test(
+      q
+    )
+  ) {
     filters.format = ["online"];
-  } else if (/\bin präsenz\b|\bin praesenz\b|\bpräsenzkurs|\bpraesenzkurs|\bvor ort\b/.test(q)) {
+  } else if (
+    /\bin präsenz\b|\bin praesenz\b|\bpräsenzkurs|\bpraesenzkurs|\bvor ort\b/.test(
+      q
+    )
+  ) {
     filters.format = ["onsite"];
   }
 
   // --- Ort (nur Whitelist!) ---------------------------------------------------------
   const locations = [];
   for (const loc of knownLocations) {
-    if (new RegExp(`(^|[^a-zäöüß])${loc}([^a-zäöüß]|$)`).test(q)) locations.push(loc);
+    if (new RegExp(`(^|[^a-zäöüß])${loc}([^a-zäöüß]|$)`).test(q))
+      locations.push(loc);
   }
   if (locations.length > 0) filters.location = locations;
 
