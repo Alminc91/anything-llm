@@ -115,3 +115,40 @@ describe("KIE-480 Extraktor — relative Fenster, Monatsdrittel, Datum nach Woch
     });
   });
 });
+
+describe("KIE-480 Extraktor — Preisspanne und Warteliste", () => {
+  const ex = (q) =>
+    extractFilters(q, { referenceDate: "2026-09-22", knownLocations: [] });
+  test("Preisspanne setzt Minimum und Maximum", () => {
+    expect(ex("Welche Kurse kosten zwischen 20 und 60 Euro?")).toEqual({
+      priceMin: 20,
+      priceMax: 60,
+    });
+    expect(ex("Kurse von 50 bis 100 €")).toEqual({
+      priceMin: 50,
+      priceMax: 100,
+    });
+    expect(ex("Gibt es Gesundheitskurse zwischen 20 und 60 €?")).toEqual({
+      priceMin: 20,
+      priceMax: 60,
+    });
+    expect(ex("Yoga für 30-80 Euro")).toEqual({ priceMin: 30, priceMax: 80 });
+    expect(ex("Ich suche einen Kurs für unter 30 €.")).toEqual({
+      priceMax: 30,
+    });
+  });
+  test("Warteliste / ausgebucht = nicht buchbar, freie Plätze = buchbar", () => {
+    expect(ex("Bei welchen Kursen gibt es nur noch eine Warteliste?")).toEqual({
+      bookable: false,
+    });
+    expect(ex("Welche Englischkurse stehen auf Warteliste?")).toEqual({
+      bookable: false,
+    });
+    expect(ex("Welche Kurse haben noch freie Plätze?")).toEqual({
+      bookable: true,
+    });
+    expect(ex("Welche Kurse sind fast ausgebucht?")).toEqual({
+      bookable: true,
+    });
+  });
+});

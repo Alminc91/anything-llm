@@ -16,7 +16,7 @@
  *   - Im Zweifel NICHT filtern: unbekannte Ausdrücke, ungültige Daten und
  *     unbekannte Orte werden verworfen, nie geraten.
  *   - Ausgabe entspricht dem sanitizeSearchFilters-Schema des Forks
- *     (dateFrom/dateTo ISO, timeOfDay[], weekdays[], priceMax, freeOnly,
+ *     (dateFrom/dateTo ISO, timeOfDay[], weekdays[], priceMin/priceMax, freeOnly,
  *     bookable, format[], location[]).
  *
  * Konventionen (mit Gold-Standard abgestimmt):
@@ -391,10 +391,25 @@ function extractFilters(query, { referenceDate, knownLocations = [] } = {}) {
   ) {
     filters.freeOnly = true;
   }
-  // Kein \b NACH "€" (Nicht-Wort-Zeichen) — stattdessen negativer Lookahead.
+  // Preisspanne: "zwischen 20 und 60 €", "von 50 bis 100 Euro", "20 bis 60 €", "20-60 €" -> priceMin + priceMax
   m = q.match(
-    /\b(?:unter|maximal|max\.?|höchstens|hoechstens|weniger als|bis(?:\s+zu)?|für unter|fuer unter)\s+(\d+(?:[.,]\d+)?)\s*(?:€|euros?|euro)(?![a-z0-9])/
+    /(?:\b(?:zwischen|von)\s+)?\b(\d+(?:[.,]\d+)?)\s*(?:€|euros?|euro)?\s*(?:und|bis|-|–)\s*(\d+(?:[.,]\d+)?)\s*(?:€|euros?|euro)(?![a-z0-9])/
   );
+  if (m) {
+    const lo = parseFloat(m[1].replace(",", ".")),
+      hi = parseFloat(m[2].replace(",", "."));
+    if (Number.isFinite(lo) && Number.isFinite(hi) && lo >= 0 && hi >= lo) {
+      filters.priceMin = lo;
+      filters.priceMax = hi;
+    }
+  }
+  // Kein \b NACH "€" (Nicht-Wort-Zeichen) — stattdessen negativer Lookahead.
+  m =
+    filters.priceMax !== undefined
+      ? null
+      : q.match(
+          /\b(?:unter|maximal|max\.?|höchstens|hoechstens|weniger als|bis(?:\s+zu)?|für unter|fuer unter)\s+(\d+(?:[.,]\d+)?)\s*(?:€|euros?|euro)(?![a-z0-9])/
+        );
   if (m) {
     const value = parseFloat(m[1].replace(",", "."));
     // "unter minus 20" o.ä.: Minus steht VOR der Zahl -> ablehnen
@@ -404,8 +419,16 @@ function extractFilters(query, { referenceDate, knownLocations = [] } = {}) {
   }
 
   // --- Status / Buchbarkeit ------------------------------------------------------
+  // "nur noch Warteliste" / "ausgebucht" = nicht buchbar; "fast ausgebucht" zählt als noch buchbar.
   if (
-    /freien? plätzen?\b|freien? plaetzen?\b|\bnoch buchbar|\bbuchbare\b|\bnoch verfügbar|\bnoch verfuegbar|\bverfügbare\b|\bverfuegbare\b|\bnoch anmelden\b|anmeldung (noch )?möglich/.test(
+    /\bwarteliste\b|\bausgebucht(?:e|en)?\b/.test(q) &&
+    !/\bfast ausgebucht\b|\bohne warteliste\b|\bkeine warteliste\b|\bnicht ausgebucht\b/.test(
+      q
+    )
+  ) {
+    filters.bookable = false;
+  } else if (
+    /freien? plätzen?\b|freien? plaetzen?\b|\bnoch buchbar|\bbuchbare\b|\bnoch verfügbar|\bnoch verfuegbar|\bverfügbare\b|\bverfuegbare\b|\bnoch anmelden\b|anmeldung (noch )?möglich|\bfast ausgebucht\b/.test(
       q
     )
   ) {

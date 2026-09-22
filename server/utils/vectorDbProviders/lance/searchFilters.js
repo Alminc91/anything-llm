@@ -78,8 +78,12 @@ function sanitizeSearchFilters(raw = null) {
 
   const priceMax = Number(raw.priceMax);
   if (Number.isFinite(priceMax) && priceMax >= 0) out.priceMax = priceMax;
+  const priceMin = Number(raw.priceMin);
+  if (Number.isFinite(priceMin) && priceMin >= 0) out.priceMin = priceMin;
   if (raw.freeOnly === true) out.freeOnly = true;
-  if (raw.bookable === true) out.bookable = true;
+  // bookable: true = noch buchbar, false = nur Warteliste/ausgebucht ("Bei welchen Kursen gibt es nur noch Warteliste?")
+  if (raw.bookable === true || raw.bookable === false)
+    out.bookable = raw.bookable;
 
   if (Array.isArray(raw.format)) {
     const formats = raw.format.filter(
@@ -117,7 +121,8 @@ function filtersToWhere(filters = null) {
   if (!filters || typeof filters !== "object") return null;
   const parts = [];
 
-  if (filters.dateFrom) parts.push(`start_date >= ${sqlString(filters.dateFrom)}`);
+  if (filters.dateFrom)
+    parts.push(`start_date >= ${sqlString(filters.dateFrom)}`);
   if (filters.dateTo) parts.push(`start_date <= ${sqlString(filters.dateTo)}`);
 
   if (filters.timeOfDay)
@@ -136,8 +141,11 @@ function filtersToWhere(filters = null) {
 
   if (typeof filters.priceMax === "number")
     parts.push(`price <= ${filters.priceMax}`);
+  if (typeof filters.priceMin === "number")
+    parts.push(`price >= ${filters.priceMin}`);
   if (filters.freeOnly) parts.push(`price <= 0`);
-  if (filters.bookable) parts.push(`bookable = true`);
+  if (filters.bookable === true) parts.push(`bookable = true`);
+  if (filters.bookable === false) parts.push(`bookable = false`);
 
   if (filters.format)
     parts.push(
