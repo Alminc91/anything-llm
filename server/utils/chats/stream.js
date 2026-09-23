@@ -154,7 +154,11 @@ async function streamChatWithWorkspace(
   // KIE-480: Filter-Erkennung startet parallel zu Rewrite + Einbettung (Roh-Nachricht)
   const filtersPromise =
     embeddingsCount !== 0
-      ? startMetadataFilterResolution({ userQuery: updatedMessage, LLMConnector })
+      ? startMetadataFilterResolution({
+          userQuery: updatedMessage,
+          chatHistory: chatHistory,
+          LLMConnector,
+        })
       : null;
 
   const searchQuery = await rewriteQueryForSearch({
