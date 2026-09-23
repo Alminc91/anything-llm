@@ -12,6 +12,7 @@
  *   resolveSymbolicFilters(sym, ref)  symbolische Ausgabe -> konkretes Filterobjekt (Schema wie extractFilters)
  *   normalizeWithLLM(query, opts)     ruft opts.complete(system, user) auf, parst JSON, löst auf, validiert
  *   cascade(query, opts)              Regeln -> (Signal || nicht deutsch) -> LLM; liefert {filters, stage}
+ *   always(query, opts)               LLM immer, Regeln nur bei Fehler/Timeout (Produktion, siehe metadataFilterResolver)
  */
 const { extractFilters } = require("./metadataFilterExtractor");
 
@@ -280,6 +281,21 @@ function buildNormalizerPrompt({ referenceDate, knownLocations = [] }) {
       : referenceDate;
   const today = iso(ref);
   const locs = knownLocations.length ? knownLocations.join(", ") : "(keine)";
+  // Few-Shots mit den Orten DIESES Kunden (ohne Liste: dieselben Beispiele ohne Ortsteil),
+  // damit kein fremder Kundenort als Beispiel im Prompt steht.
+  const cap = (l) => String(l).replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+  const [L1, L2] = [knownLocations[0], knownLocations[1] || knownLocations[0]].map((l) =>
+    l ? String(l).toLowerCase() : null
+  );
+  const locLine = L1
+    ? `- "location": IMMER setzen, wenn ein Name aus dieser Liste in der Frage vorkommt (auch gebeugt oder als Adjektiv, z. B. "in ${cap(L1)}", "${cap(L1)}er"): ${locs}. Andere Orte ignorieren.`
+    : `- "location": nie setzen (für diese Volkshochschule ist keine Ortsliste hinterlegt).`;
+  const exPriceLocation = L1
+    ? `"Englischkurs unter 60 Euro in ${cap(L1)}" → {"price_max":60,"location":["${L1}"]}`
+    : `"Englischkurs unter 60 Euro" → {"price_max":60}`;
+  const exBookableLocation = L2
+    ? `"Welche Malkurse in ${cap(L2)} haben noch freie Plätze?" → {"bookable":true,"location":["${L2}"]}`
+    : `"Welche Malkurse haben noch freie Plätze?" → {"bookable":true}`;
   return `Du extrahierst aus einer Kursanfrage an eine Volkshochschule harte Suchfilter als JSON. Du RECHNEST KEINE DATEN – du gibst Zeitangaben symbolisch an, ein Programm rechnet.
 Heute: ${WD_DE[ref.getUTCDay()]}, ${today}.
 
@@ -292,19 +308,19 @@ Felder:
 - "price_min"/"price_max": Zahlen in Euro, nur bei genannten Beträgen ("unter 50 €" → price_max 50; "zwischen 20 und 60 €" → 20/60).
 - "bookable": true bei "freie Plätze/buchbar/noch anmelden", false bei "Warteliste/ausgebucht".
 - "format": ["online"] oder ["onsite"] ("vor Ort", "in Präsenz", "nicht online" → onsite).
-- "location": IMMER setzen, wenn ein Name aus dieser Liste in der Frage vorkommt (auch als "in Leichlingen", "Wermelskirchener"): ${locs}. Andere Orte ignorieren.
+${locLine}
 Nicht setzen: Thema, Sprachniveau, Zielgruppe, Dozent, Kursnummer (das übernimmt die Suche). Fragen nach einem Termin ("Wann beginnt der Kurs X?") sind Informationsfragen → {} (außer "der nächste …" → date_from today).
 Andere Sprachen genauso behandeln.
 
 Beispiele:
 "Gibt es abends Yogakurse in den nächsten 2 Wochen?" → {"date_from":"today","date_to":"today+2w","time_of_day":["evening"]}
 "Welche Kurse fangen Ende Oktober an?" → {"date_from":"month:${ref.getUTCFullYear()}-10:late_start","date_to":"month:${ref.getUTCFullYear()}-10:end"}
-"Englischkurs unter 60 Euro in Leichlingen" → {"price_max":60,"location":["leichlingen"]}
+${exPriceLocation}
 "Wann beginnt der Spanischkurs A1?" → {}
 "Ich möchte Excel lernen." → {}
 "Are there any English classes on Saturday mornings?" → {"weekdays":["sat"],"time_of_day":["morning"]}
 "Welche Kurse haben nur noch Warteliste?" → {"bookable":false}
-"Welche Malkurse in Burscheid haben noch freie Plätze?" → {"bookable":true,"location":["burscheid"]}
+${exBookableLocation}
 "Kurse vormittags im VHS-Gebäude" → {"time_of_day":["morning"]}  (Gebäude ist kein Format und kein Listenort)`;
 }
 
@@ -318,18 +334,21 @@ async function normalizeWithLLM(query, opts) {
   const system = buildNormalizerPrompt(opts);
   const timeoutMs = opts.timeoutMs ?? 1500;
   let raw = null;
+  let timer = null;
   try {
     raw = await Promise.race([
       opts.complete(system, String(query)),
-      new Promise((_, rej) =>
-        setTimeout(
+      new Promise((_, rej) => {
+        timer = setTimeout(
           () => rej(new Error(`normalizer timeout ${timeoutMs}ms`)),
           timeoutMs
-        )
-      ),
+        );
+      }),
     ]);
-    const m = String(raw).match(/\{[\s\S]*\}/);
-    const sym = m ? JSON.parse(m[0]) : {};
+    const m = String(raw ?? "").match(/\{[\s\S]*\}/);
+    // Keine JSON-Antwort ist ein Fehler (→ Regel-Rückfall), nicht "kein Filter".
+    if (!m) throw new Error("normalizer: no JSON object in LLM output");
+    const sym = JSON.parse(m[0]);
     return {
       filters: resolveSymbolicFilters(sym, opts.referenceDate),
       raw,
@@ -337,6 +356,8 @@ async function normalizeWithLLM(query, opts) {
     };
   } catch (e) {
     return { filters: {}, raw, error: e.message }; // im Zweifel nicht filtern
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -379,7 +400,39 @@ async function gated(query, opts) {
   return { filters: rules, stage: "rules-fallback", error: r.error };
 }
 
+/**
+ * Verfahren der Wahl (unabhängiger Testsatz 23.09.2026: 315/320, Median 286 ms): LLM IMMER;
+ * nur wenn der Aufruf scheitert (Timeout, Netz, unparsbares JSON), greift der Regel-Extraktor.
+ * Ein leeres LLM-Ergebnis ({}) ist eine gültige Antwort ("kein Filter") und wird NICHT durch
+ * Regeln überstimmt — die Regeln machen gerade dort ihre selbstbewussten Fehlfilter.
+ */
+async function always(query, opts) {
+  const r = await normalizeWithLLM(query, opts);
+  if (!r.error) return { filters: r.filters, stage: "llm" };
+  const rules = extractFilters(query, {
+    referenceDate: opts.referenceDate,
+    knownLocations: opts.knownLocations || [],
+  });
+  return { filters: rules, stage: "rules-fallback", error: r.error };
+}
+
+/** opts.complete für einen AnythingLLM-LLM-Provider (getChatCompletion, Temperatur 0). */
+function completeWith(LLMConnector) {
+  return async (system, user) => {
+    const res = await LLMConnector.getChatCompletion(
+      [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      { temperature: 0 }
+    );
+    return String(res?.textResponse || "").replace(/<think>[\s\S]*?<\/think>/g, "");
+  };
+}
+
 module.exports = {
+  always,
+  completeWith,
   gated,
   hasFilterSignal,
   isLikelyGerman,

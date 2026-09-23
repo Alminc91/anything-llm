@@ -52,6 +52,7 @@ const SystemSettings = {
     "reranker_retrieval_topk",
     "metadata_filters",
     "metadata_filter_locations",
+    "metadata_filter_mode",
     "search_trace",
   ],
   supportedFields: [
@@ -85,6 +86,7 @@ const SystemSettings = {
     "reranker_retrieval_topk",
     "metadata_filters",
     "metadata_filter_locations",
+    "metadata_filter_mode",
     "search_trace",
 
     // Hub settings
@@ -222,6 +224,14 @@ const SystemSettings = {
       )
         return "off";
       return String(update);
+    },
+    // KIE-480: Verfahren der Filter-Erkennung. "llm" (Default) = LLM-Normalisierer mit
+    // symbolischer Zeitangabe, Regeln nur als Timeout-/Fehler-Rückfall; "rules" = nur der
+    // deterministische Extraktor (Notschalter / A/B-Vergleich ohne Image-Wechsel).
+    metadata_filter_mode: (update) => {
+      if (typeof update !== "string" || !["llm", "rules"].includes(update))
+        return "llm";
+      return update;
     },
     // KIE-480: Standort-Whitelist des Kunden (kommasepariert). Nur Werte,
     // die die location-Zeichen-Whitelist bestehen, überleben — Ortsfilter

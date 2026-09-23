@@ -14,6 +14,9 @@ const {
   sourceIdentifier,
 } = require("./index");
 const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
+const {
+  startMetadataFilterResolution,
+} = require("./metadataFilterResolver");
 
 const VALID_CHAT_MODE = ["chat", "query"];
 
@@ -148,6 +151,12 @@ async function streamChatWithWorkspace(
     });
   });
 
+  // KIE-480: Filter-Erkennung startet parallel zu Rewrite + Einbettung (Roh-Nachricht)
+  const filtersPromise =
+    embeddingsCount !== 0
+      ? startMetadataFilterResolution({ userQuery: updatedMessage, LLMConnector })
+      : null;
+
   const searchQuery = await rewriteQueryForSearch({
     userQuery: updatedMessage,
     chatHistory,
@@ -159,6 +168,7 @@ async function streamChatWithWorkspace(
     embeddingsCount !== 0
       ? await VectorDb.performSimilaritySearch({
           namespace: workspace.slug,
+          filtersPromise,
           input: searchQuery,
           LLMConnector,
           similarityThreshold: workspace?.similarityThreshold,
