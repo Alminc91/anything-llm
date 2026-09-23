@@ -21,6 +21,8 @@ const SIGNAL = new RegExp(
     "vormittag|nachmittag|abend|morgens|mittags|uhr|heute|morgen|übermorgen|uebermorgen|nächste|naechste|kommende|" +
     "diese woche|dieser woche|monat|jahr|quartal|semester|ferien|herbst|winter|frühling|fruehling|frühjahr|fruehjahr|sommer|" +
     "zeitraum|zwischen|bald|demnächst|demnaechst|in kürze|in kuerze|sofort|zeitnah|" +
+    "feierabend|tagsüber|tagsueber|nachts|nach der arbeit|vor der arbeit|angefangen|begonnen|gestartet|läuft schon|laeuft schon|" +
+    "wochentag|werktags|unter der woche|am tag|abends|früh|spät|mittag|" +
     "€|euro|preis|kost|günstig|guenstig|billig|teuer|gebühr|gebuehr|" +
     "frei|plätze|plaetze|warteliste|ausgebucht|buchbar|verfügbar|verfuegbar|" +
     "online|präsenz|praesenz|vor ort|zuhause|zu hause|webinar|livestream|" +
@@ -363,7 +365,22 @@ async function cascade(query, opts) {
   return { filters: rules, stage: hasAny(rules) ? "rules" : "none" };
 }
 
+/** LLM-zuerst-Variante: Signal oder Fremdsprache -> LLM; bei Fehler/Timeout Regeln; ohne Signal kein Filter. */
+async function gated(query, opts) {
+  const german = isLikelyGerman(query);
+  const signal = hasFilterSignal(query, opts.knownLocations || []);
+  if (german && !signal) return { filters: {}, stage: "none" };
+  const r = await normalizeWithLLM(query, opts);
+  if (!r.error) return { filters: r.filters, stage: "llm" };
+  const rules = extractFilters(query, {
+    referenceDate: opts.referenceDate,
+    knownLocations: opts.knownLocations || [],
+  });
+  return { filters: rules, stage: "rules-fallback", error: r.error };
+}
+
 module.exports = {
+  gated,
   hasFilterSignal,
   isLikelyGerman,
   buildNormalizerPrompt,
