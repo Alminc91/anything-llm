@@ -1,60 +1,17 @@
 /**
- * KIE-480 Stufe 2 — LLM-Normalisierer für Suchfilter (Kaskade hinter dem Regel-Extraktor).
- *
- * Grundsatz „LLM klassifiziert, Code rechnet": Das Modell gibt Zeitangaben SYMBOLISCH aus
- * ("today+14d", "month:2026-10:late_start", "next_week_start"), dieser Code löst sie deterministisch
- * in ISO-Daten auf. Damit entfallen die typischen LLM-Fehler (Datumsarithmetik, Wochenzählung).
+ * KIE-480 — LLM-Normalisierer für harte Suchfilter (einziges Verfahren; der frühere Regel-Extraktor
+ * ist entfernt). Grundsatz „LLM klassifiziert, Code rechnet": Das Modell gibt Zeitangaben SYMBOLISCH
+ * aus ("today+14d", "month:2026-10:late_start", "next_week_start"), dieser Code löst sie
+ * deterministisch in ISO-Daten auf. Damit entfallen die typischen LLM-Fehler (Datumsarithmetik).
  *
  * Exporte:
- *   hasFilterSignal(query)            grobes Wortnetz: steckt vermutlich eine Filterbedingung in der Frage?
- *   isLikelyGerman(query)             Heuristik ohne Netzwerk (Stoppwörter/Schrift)
- *   buildNormalizerPrompt(opts)       Systemprompt mit vorgerechneten Ankern + Few-Shots
- *   resolveSymbolicFilters(sym, ref)  symbolische Ausgabe -> konkretes Filterobjekt (Schema wie extractFilters)
- *   normalizeWithLLM(query, opts)     ruft opts.complete(system, user) auf, parst JSON, löst auf, validiert
- *   cascade(query, opts)              Regeln -> (Signal || nicht deutsch) -> LLM; liefert {filters, stage}
- *   always(query, opts)               LLM immer, Regeln nur bei Fehler/Timeout (Produktion, siehe metadataFilterResolver)
+ *   buildNormalizerPrompt(opts)       Systemprompt mit Tagesdatum + Few-Shots mit den Orten des Kunden
+ *   resolveSymbolicFilters(sym, ref)  symbolische Ausgabe -> Filterobjekt (Schema von sanitizeSearchFilters)
+ *   normalizeWithLLM(query, opts)     ruft opts.complete(system, user) auf, parst JSON, löst auf
+ *   always(query, opts)               Produktion: LLM immer; Fehler/Timeout -> KEIN Filter (ungefilterte Suche)
+ *   completeWith(LLMConnector)        opts.complete über getChatCompletion eines AnythingLLM-Providers
  */
-const { extractFilters } = require("./metadataFilterExtractor");
 
-const SIGNAL = new RegExp(
-  "\\b(januar|februar|märz|maerz|april|mai|juni|juli|august|september|oktober|november|dezember|" +
-    "montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonnabend|sonntag|wochenend|werktag|" +
-    "vormittag|nachmittag|abend|morgens|mittags|uhr|heute|morgen|übermorgen|uebermorgen|nächste|naechste|kommende|" +
-    "diese woche|dieser woche|monat|jahr|quartal|semester|ferien|herbst|winter|frühling|fruehling|frühjahr|fruehjahr|sommer|" +
-    "zeitraum|zwischen|bald|demnächst|demnaechst|in kürze|in kuerze|sofort|zeitnah|" +
-    "feierabend|tagsüber|tagsueber|nachts|nach der arbeit|vor der arbeit|angefangen|begonnen|gestartet|läuft schon|laeuft schon|" +
-    "wochentag|werktags|unter der woche|am tag|abends|früh|spät|mittag|" +
-    "€|euro|preis|kost|günstig|guenstig|billig|teuer|gebühr|gebuehr|" +
-    "frei|plätze|plaetze|warteliste|ausgebucht|buchbar|verfügbar|verfuegbar|" +
-    "online|präsenz|praesenz|vor ort|zuhause|zu hause|webinar|livestream|" +
-    "\\d{1,2}\\.\\d{1,2}\\.|\\d{1,2}:\\d{2})",
-  "i"
-);
-const DE_STOP =
-  /\b(ich|ist|und|der|die|das|ein|eine|gibt|es|für|fuer|kurs|kurse|wann|wie|wo|kann|möchte|moechte|habe|nicht|mit|auf|zu|noch|auch|oder|welche|bitte|hallo|sie|wir|bei|von|im|am|an|den|dem|des|was|hat|sind|mein|meine|suche|gerne)\b/i;
-
-function hasFilterSignal(query, knownLocations = []) {
-  const q = ` ${String(query || "").toLowerCase()} `;
-  if (SIGNAL.test(q)) return true;
-  return knownLocations.some(
-    (loc) => loc && q.includes(` ${String(loc).toLowerCase()}`)
-  );
-}
-
-function isLikelyGerman(query) {
-  const q = String(query || "");
-  if (/[؀-ۿЀ-ӿͰ-Ͽ一-鿿぀-ヿ]/.test(q)) return false;
-  const words = q.trim().split(/\s+/).length;
-  const deHits = (q.match(new RegExp(DE_STOP.source, "gi")) || []).length;
-  const enHits = (
-    q.match(
-      /\b(the|is|are|you|do|does|have|can|course|courses|when|where|how|what|please|want|need|there|for|and|with|class|classes|learn|evening|morning|weekend|price|under|online)\b/gi
-    ) || []
-  ).length;
-  if (words <= 2) return true; // Stichworte: im Zweifel deutsch (Regeln greifen ohnehin nur bei deutschen Mustern)
-  if (enHits >= 2 && enHits > deHits) return false;
-  return deHits > 0 || /[äöüß]/.test(q);
-}
 
 // ---------------------------------------------------------------- symbolische Auflösung
 const pad = (n) => String(n).padStart(2, "0");
@@ -148,7 +105,7 @@ function resolveDateExpr(expr, ref) {
   }
   if (
     (m = s.match(
-      /^school_holiday:(christmas|autumn|summer|easter):(\d{4}):(start|end)$/
+      /^school_holiday:(christmas|autumn):(\d{4}):(start|end)$/
     ))
   ) {
     const y = +m[1 + 1];
@@ -188,7 +145,7 @@ function resolveDateExpr(expr, ref) {
 }
 
 const WD = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-/** Symbolische LLM-/Gold-Angabe -> Filterobjekt im Schema von extractFilters (dateFrom/dateTo ISO, …). */
+/** Symbolische LLM-/Gold-Angabe -> Filterobjekt im Schema von sanitizeSearchFilters (dateFrom/dateTo ISO, …). */
 function resolveSymbolicFilters(sym, referenceDate) {
   const ref =
     typeof referenceDate === "string"
@@ -229,9 +186,15 @@ function resolveSymbolicFilters(sym, referenceDate) {
     ["price_max", "priceMax"],
     ["priceMax", "priceMax"],
   ]) {
-    const v = Number(sym[k]);
-    if (sym[k] !== undefined && sym[k] !== null && Number.isFinite(v) && v >= 0)
-      out[o] = v;
+    // nur echte Zahlen oder Zahl-Strings: Number(""), Number(false), Number([]) wären sonst 0
+    const raw = sym[k];
+    const v =
+      typeof raw === "number"
+        ? raw
+        : typeof raw === "string" && /^\s*\d+(?:[.,]\d+)?\s*$/.test(raw)
+          ? Number(raw.replace(",", "."))
+          : NaN;
+    if (Number.isFinite(v) && v >= 0) out[o] = v;
   }
   if (
     out.priceMin !== undefined &&
@@ -274,6 +237,11 @@ const WD_DE = [
   "Freitag",
   "Samstag",
 ];
+/**
+ * System-Prompt des Normalisierers (Tagesdatum + Ortsliste des Kunden als Few-Shots).
+ * @param {{referenceDate:string|Date, knownLocations?:string[]}} opts - referenceDate als ISO-Tag oder Date (UTC-Felder)
+ * @returns {string}
+ */
 function buildNormalizerPrompt({ referenceDate, knownLocations = [] }) {
   const ref =
     typeof referenceDate === "string"
@@ -306,7 +274,7 @@ Felder:
 - "time_of_day": ["morning"] (Beginn vor 12 Uhr), ["afternoon"] (12–17), ["evening"] (ab 17 Uhr). Uhrzeiten entsprechend einordnen ("um 18 Uhr" → evening, "nach der Arbeit" → evening).
 - "weekdays": aus mon,tue,wed,thu,fri,sat,sun ("am Wochenende" → ["sat","sun"], "unter der Woche" → mon–fri).
 - "price_min"/"price_max": Zahlen in Euro, nur bei genannten Beträgen ("unter 50 €" → price_max 50; "zwischen 20 und 60 €" → 20/60).
-- "bookable": true bei "freie Plätze/buchbar/noch anmelden", false bei "Warteliste/ausgebucht".
+- "bookable": true bei "freie Plätze/buchbar/noch anmelden"; false NUR, wenn ausdrücklich Kurse mit Warteliste/ausgebuchte Kurse gesucht werden. Ja/Nein- oder Info-Fragen ("Ist der Kurs ausgebucht?", "Wie funktioniert die Warteliste?", "ausgebucht – gibt es Alternativen?") → bookable nicht setzen.
 - "format": ["online"] oder ["onsite"] ("vor Ort", "in Präsenz", "nicht online" → onsite).
 ${locLine}
 Nicht setzen: Thema, Sprachniveau, Zielgruppe, Dozent, Kursnummer (das übernimmt die Suche). Fragen nach einem Termin ("Wann beginnt der Kurs X?") sind Informationsfragen → {} (außer "der nächste …" → date_from today).
@@ -325,11 +293,6 @@ ${exBookableLocation}
 }
 
 // ---------------------------------------------------------------- LLM-Aufruf + Kaskade
-/**
- * @param {string} query
- * @param {{referenceDate:string|Date, knownLocations?:string[], previousMessages?:string[], complete:(system:string,user:string)=>Promise<string>, timeoutMs?:number}} opts
- * @returns {Promise<{filters:object, raw:string|null, error:string|null}>}
- */
 // Nur mit Verlauf angehängt — Einzelfragen sehen exakt den gemessenen Prompt (315/320).
 const CARRY_RULES = `
 
@@ -348,6 +311,12 @@ function normalizerUserMessage(query, previousMessages = []) {
   return `Frühere Nachrichten (älteste zuerst):\n${prev.map((m) => `- ${m}`).join("\n")}\n\nAktuelle Nachricht: ${query}`;
 }
 
+/**
+ * Ruft den LLM-Normalisierer auf (symbolische Ausgabe → Code rechnet), mit Timeout.
+ * @param {string} query - aktuelle Nutzer-Nachricht
+ * @param {{referenceDate:string|Date, knownLocations?:string[], previousMessages?:string[], complete:(system:string,user:string)=>Promise<string>, timeoutMs?:number}} opts
+ * @returns {Promise<{filters:object, raw:string|null, error:string|null}>} error gesetzt bei Timeout/Netz/ohne JSON
+ */
 async function normalizeWithLLM(query, opts) {
   const hasHistory = (opts.previousMessages || []).some((m) => typeof m === "string" && m.trim());
   const system = buildNormalizerPrompt(opts) + (hasHistory ? CARRY_RULES : "");
@@ -374,65 +343,25 @@ async function normalizeWithLLM(query, opts) {
       error: null,
     };
   } catch (e) {
+    console.error(`[MetadataFilter] normalizer failed: ${e.message}`);
     return { filters: {}, raw, error: e.message }; // im Zweifel nicht filtern
   } finally {
     clearTimeout(timer);
   }
 }
 
-const TIME_KEYS = ["dateFrom", "dateTo", "timeOfDay", "weekdays"];
-const hasAny = (f) => f && Object.keys(f).length > 0;
-
-/** Kaskade: Regeln zuerst; LLM nur bei Signal ohne Regeltreffer oder nicht-deutscher Frage. */
-async function cascade(query, opts) {
-  const rules = extractFilters(query, {
-    referenceDate: opts.referenceDate,
-    knownLocations: opts.knownLocations || [],
-  });
-  const german = isLikelyGerman(query);
-  const signal = hasFilterSignal(query, opts.knownLocations || []);
-  if (hasAny(rules) && german) return { filters: rules, stage: "rules" };
-  if (!german || signal) {
-    const r = await normalizeWithLLM(query, opts);
-    if (hasAny(r.filters))
-      return { filters: r.filters, stage: "llm", error: r.error };
-    return {
-      filters: rules,
-      stage: hasAny(rules) ? "rules" : "none",
-      error: r.error,
-    };
-  }
-  return { filters: rules, stage: hasAny(rules) ? "rules" : "none" };
-}
-
-/** LLM-zuerst-Variante: Signal oder Fremdsprache -> LLM; bei Fehler/Timeout Regeln; ohne Signal kein Filter. */
-async function gated(query, opts) {
-  const german = isLikelyGerman(query);
-  const signal = hasFilterSignal(query, opts.knownLocations || []);
-  if (german && !signal) return { filters: {}, stage: "none" };
-  const r = await normalizeWithLLM(query, opts);
-  if (!r.error) return { filters: r.filters, stage: "llm" };
-  const rules = extractFilters(query, {
-    referenceDate: opts.referenceDate,
-    knownLocations: opts.knownLocations || [],
-  });
-  return { filters: rules, stage: "rules-fallback", error: r.error };
-}
-
 /**
- * Verfahren der Wahl (unabhängiger Testsatz 23.09.2026: 315/320, Median 286 ms): LLM IMMER;
- * nur wenn der Aufruf scheitert (Timeout, Netz, unparsbares JSON), greift der Regel-Extraktor.
- * Ein leeres LLM-Ergebnis ({}) ist eine gültige Antwort ("kein Filter") und wird NICHT durch
- * Regeln überstimmt — die Regeln machen gerade dort ihre selbstbewussten Fehlfilter.
+ * Verfahren der Wahl (unabhängiger Testsatz 23.09.2026: 315/320, Median ~290 ms): LLM IMMER.
+ * Scheitert der Aufruf (Timeout, Netz, kein JSON), wird NICHT gefiltert — die Suche läuft dann
+ * wie ohne KIE-480. Ein leeres Ergebnis ({}) ist eine gültige Antwort ("kein Filter").
+ * @param {string} query
+ * @param {object} opts - wie normalizeWithLLM
+ * @returns {Promise<{filters:object, stage:"llm"|"llm-error", error?:string}>}
  */
 async function always(query, opts) {
   const r = await normalizeWithLLM(query, opts);
   if (!r.error) return { filters: r.filters, stage: "llm" };
-  const rules = extractFilters(query, {
-    referenceDate: opts.referenceDate,
-    knownLocations: opts.knownLocations || [],
-  });
-  return { filters: rules, stage: "rules-fallback", error: r.error };
+  return { filters: {}, stage: "llm-error", error: r.error };
 }
 
 /** opts.complete für einen AnythingLLM-LLM-Provider (getChatCompletion, Temperatur 0). */
@@ -445,7 +374,9 @@ function completeWith(LLMConnector) {
       ],
       { temperature: 0 }
     );
-    return String(res?.textResponse || "").replace(/<think>[\s\S]*?<\/think>/g, "");
+    // Reasoning entfernen — auch ohne öffnendes Tag (Template schreibt <think> in den Prompt)
+    const text = String(res?.textResponse || "");
+    return text.includes("</think>") ? text.slice(text.lastIndexOf("</think>") + 8) : text;
   };
 }
 
@@ -454,13 +385,8 @@ module.exports = {
   normalizerUserMessage,
   always,
   completeWith,
-  gated,
-  hasFilterSignal,
-  isLikelyGerman,
   buildNormalizerPrompt,
   resolveDateExpr,
   resolveSymbolicFilters,
   normalizeWithLLM,
-  cascade,
-  TIME_KEYS,
 };

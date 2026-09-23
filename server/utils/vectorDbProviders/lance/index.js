@@ -14,11 +14,8 @@ const { FTS_INDEX_CONFIG } = require("./ftsConfig");
 const {
   sanitizeSearchFilters,
   filtersToWhere,
+  stripTimeFilters,
 } = require("./searchFilters");
-const { stripTimeFilters } = require("../../chats/metadataFilterExtractor");
-const {
-  startMetadataFilterResolution,
-} = require("../../chats/metadataFilterResolver");
 const SearchTrace = require("./searchTrace");
 const path = require("path");
 
@@ -1292,17 +1289,14 @@ class LanceDb extends VectorDatabase {
         : "default";
 
     // KIE-480: resolve the metadata filters. Explicit `filters` from the
-    // caller win. Otherwise the filter resolution (metadata_filters=on:
-    // LLM normalizer, rules as timeout fallback — metadataFilterResolver.js)
-    // runs IN PARALLEL to the query embedding: either the caller already
-    // started it before the query rewrite (`filtersPromise`, raw user
-    // message) or it is started here on `input`. Off → null clause
-    // (= today's unfiltered behavior). The promise never rejects.
+    // caller win. Otherwise the chat handlers start the LLM normalizer
+    // (metadataFilterResolver.js) before the query rewrite and pass its
+    // promise here; it is awaited IN PARALLEL to the query embedding.
+    // Callers without a promise (vector-search API, agent memory) search
+    // unfiltered. Off / timeout / error → null clause (= unfiltered 7.1
+    // behavior). The promise never rejects.
     let activeFilters = sanitizeSearchFilters(filters);
-    const filterTask = activeFilters
-      ? null
-      : pendingFilters ||
-        startMetadataFilterResolution({ userQuery: input, LLMConnector });
+    const filterTask = activeFilters ? null : pendingFilters;
     // Search-Trace (Opt-in via SystemSetting search_trace): vollständige
     // Hybrid-/Reranker-Metriken pro Suche als JSONL — siehe searchTrace.js.
     const traceLevel = await SearchTrace.resolveTraceLevel();
