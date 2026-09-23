@@ -55,6 +55,66 @@ const upload = multer({
   },
 });
 
+// Kufer Inline-Modus / Fenstergröße: Whitelist-Validierung der visual_config-
+// Felder, bevor sie ans (öffentliche) Widget gehen. Die Werte landen dort in
+// style/CSS — daher nur Zahl + erlaubte Einheit, Enums, Integer-Range, kurzer
+// Text. Ungültig -> Feld weglassen (Widget nutzt dann seinen Default). Das
+// Widget validiert zusätzlich selbst (utils/layout.js).
+const LAYOUT_ENUMS = {
+  displayMode: ["bubble", "inline"],
+  inlineStartState: ["collapsed", "expanded"],
+  inlineTheme: ["light", "dark"],
+};
+const LAYOUT_LENGTHS = {
+  windowWidth: ["px", "%", "vw", "vh"],
+  windowHeight: ["px", "%", "vw", "vh"],
+  inlineHeight: ["px", "vh"],
+  inlineMaxWidth: ["px"],
+};
+
+function validCssLength(value, units) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0)
+    value = String(value);
+  if (typeof value !== "string") return null;
+  const m = /^(\d{1,4}(?:\.\d{1,2})?)(px|%|vw|vh)?$/.exec(
+    value.trim().toLowerCase()
+  );
+  if (!m || Number(m[1]) <= 0) return null;
+  const unit = m[2] || "px";
+  return units.includes(unit) ? `${m[1]}${unit}` : null;
+}
+
+function validOffset(value) {
+  const n =
+    typeof value === "string" && /^\s*\d{1,3}\s*$/.test(value)
+      ? Number(value)
+      : value;
+  return Number.isInteger(n) && n >= 0 && n <= 200 ? n : null;
+}
+
+function mapLayoutConfig(visualConfig = {}) {
+  const out = {};
+  for (const [key, allowed] of Object.entries(LAYOUT_ENUMS)) {
+    const v = visualConfig[key];
+    if (typeof v === "string" && allowed.includes(v.trim())) out[key] = v.trim();
+  }
+  for (const [key, units] of Object.entries(LAYOUT_LENGTHS)) {
+    const v = validCssLength(visualConfig[key], units);
+    if (v) out[key] = v;
+  }
+  for (const key of ["offsetX", "offsetY"]) {
+    const v = validOffset(visualConfig[key]);
+    if (v !== null) out[key] = v;
+  }
+  if (typeof visualConfig.inlineCollapsedText === "string") {
+    const text = visualConfig.inlineCollapsedText.trim();
+    if (text.length > 0 && text.length <= 120) out.inlineCollapsedText = text;
+  }
+  if (typeof visualConfig.inheritFont === "boolean")
+    out.inheritFont = visualConfig.inheritFont;
+  return out;
+}
+
 function embeddedEndpoints(app) {
   if (!app) return;
 
@@ -108,6 +168,10 @@ function embeddedEndpoints(app) {
             .map((m) => m.trim());
           if (cleaned.length > 0) mapped.chatbotBubblesMessages = cleaned.join(",");
         }
+
+        // Darstellung (Blase/Inline) + Fenstergröße/Randabstand — nur
+        // validierte Werte ausliefern, ungültige Felder weglassen.
+        Object.assign(mapped, mapLayoutConfig(visualConfig));
 
         // Logo: serve from upload endpoint or use URL
         if (visualConfig.logoFilename) {

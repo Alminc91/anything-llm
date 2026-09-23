@@ -16,6 +16,9 @@ import {
   Microphone,
   SpeakerHigh,
   Check,
+  CaretDown,
+  CaretUp,
+  CopySimple,
 } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
 import CTAButton from "@/components/lib/CTAButton";
@@ -38,6 +41,116 @@ const POSITION_OPTIONS = [
   { value: "bottom-left", label: "Links" },
   { value: "bottom-right", label: "Rechts" },
 ];
+
+// Darstellung: Chat-Blase (Standard) oder Inline in der Webseite. "bubble" wird
+// NICHT gespeichert (Feld entfällt) — so bleibt ein data-display-mode am Script
+// weiterhin wirksam und Bestandskunden bekommen keinen neuen Wert geschrieben.
+const DISPLAY_MODE_OPTIONS = [
+  { value: "bubble", label: "Chat-Blase" },
+  { value: "inline", label: "Inline (in der Seite)" },
+];
+
+const INLINE_START_OPTIONS = [
+  { value: "collapsed", label: "Eingeklappt" },
+  { value: "expanded", label: "Aufgeklappt" },
+];
+
+const INLINE_THEME_OPTIONS = [
+  { value: "light", label: "Hell" },
+  { value: "dark", label: "Dunkel" },
+];
+
+const INLINE_PLACEHOLDER_SNIPPET = '<div id="kufer-assistent"></div>';
+const DEFAULT_INLINE_TEXT = "Jetzt mit unserem KI-Assistenten schreiben";
+
+// Optionale Layout-Felder (visual_config). Leer = Feld weglassen = Standard.
+// Gleiche Whitelist wie Server (endpoints/embed) und Widget (utils/layout).
+const CSS_LENGTH_RE = /^(\d{1,4}(?:\.\d{1,2})?)(px|%|vw|vh)?$/;
+const LAYOUT_LENGTH_FIELDS = {
+  windowWidth: {
+    units: ["px", "%", "vw", "vh"],
+    message: "Bitte eine Zahl mit Einheit angeben, z. B. 420px, 25% oder 30vw.",
+  },
+  windowHeight: {
+    units: ["px", "%", "vw", "vh"],
+    message: "Bitte eine Zahl mit Einheit angeben, z. B. 640px, 80% oder 70vh.",
+  },
+  inlineHeight: {
+    units: ["px", "vh"],
+    message: "Bitte px oder vh angeben, z. B. 600px oder 70vh.",
+  },
+  inlineMaxWidth: {
+    units: ["px"],
+    message: "Bitte eine Breite in px angeben, z. B. 900px.",
+  },
+};
+const LAYOUT_OFFSET_FIELDS = ["offsetX", "offsetY"];
+
+function normalizeCssLength(value, units) {
+  if (value === undefined || value === null) return null;
+  const m = CSS_LENGTH_RE.exec(String(value).trim().toLowerCase());
+  if (!m || Number(m[1]) <= 0) return undefined; // undefined = ungültig
+  const unit = m[2] || "px";
+  return units.includes(unit) ? `${m[1]}${unit}` : undefined;
+}
+
+function isBlank(value) {
+  return value === undefined || value === null || String(value).trim() === "";
+}
+
+// Fehlermeldungen je Feld (nur für gesetzte, ungültige Werte)
+function validateLayout(config) {
+  const errors = {};
+  for (const [field, { units, message }] of Object.entries(
+    LAYOUT_LENGTH_FIELDS
+  )) {
+    if (isBlank(config[field])) continue;
+    if (normalizeCssLength(config[field], units) === undefined)
+      errors[field] = message;
+  }
+  for (const field of LAYOUT_OFFSET_FIELDS) {
+    if (isBlank(config[field])) continue;
+    const s = String(config[field]).trim();
+    const n = Number(s);
+    if (!/^\d{1,3}$/.test(s) || n < 0 || n > 200)
+      errors[field] = "Bitte eine ganze Zahl zwischen 0 und 200 angeben.";
+  }
+  if (
+    !isBlank(config.inlineCollapsedText) &&
+    String(config.inlineCollapsedText).trim().length > 120
+  )
+    errors.inlineCollapsedText = "Maximal 120 Zeichen.";
+  return errors;
+}
+
+// Vor dem Speichern: leere Layout-Felder entfernen (nie "" speichern), Längen
+// normalisieren (nackte Zahl -> px), Abstände als Zahl, Text getrimmt.
+function cleanLayoutConfig(config) {
+  const cleaned = { ...config };
+  for (const [field, { units }] of Object.entries(LAYOUT_LENGTH_FIELDS)) {
+    if (isBlank(cleaned[field])) delete cleaned[field];
+    else cleaned[field] = normalizeCssLength(cleaned[field], units);
+  }
+  for (const field of LAYOUT_OFFSET_FIELDS) {
+    if (isBlank(cleaned[field])) delete cleaned[field];
+    else cleaned[field] = Number(String(cleaned[field]).trim());
+  }
+  if (isBlank(cleaned.inlineCollapsedText)) delete cleaned.inlineCollapsedText;
+  else cleaned.inlineCollapsedText = String(cleaned.inlineCollapsedText).trim();
+  if (cleaned.displayMode !== "inline") delete cleaned.displayMode;
+  if (cleaned.inheritFont !== true) delete cleaned.inheritFont;
+  return cleaned;
+}
+
+// Hinweis, wenn der Wert im Widget geklemmt wird (kein Fehler)
+function inlineHeightHint(value) {
+  const v = normalizeCssLength(value, ["px", "vh"]);
+  if (!v || !v.endsWith("px")) return null;
+  const n = parseFloat(v);
+  if (n < 400) return "Wird im Widget auf mindestens 400px gesetzt.";
+  if (n > 1200) return "Wird im Widget auf höchstens 1200px begrenzt.";
+  return null;
+}
 
 const USER_TEXT_COLOR_OPTIONS = [
   { value: "#FFFFFF", label: "Weiß" },
@@ -119,12 +232,39 @@ export default function EmbedAppearance() {
     setConfig((prev) => ({ ...prev, [field]: value }));
   }, []);
 
+  // Optionale Felder: leer/null -> Feld entfernen (nicht als "" speichern)
+  const updateOptionalField = useCallback((field, value) => {
+    setConfig((prev) => {
+      const next = { ...prev };
+      if (value === undefined || value === null || value === "")
+        delete next[field];
+      else next[field] = value;
+      return next;
+    });
+  }, []);
+
+  const layoutErrors = validateLayout(config);
+  const isInline = config.displayMode === "inline";
+
   const handleSave = async () => {
+    if (Object.keys(layoutErrors).length > 0) {
+      showToast(
+        "Bitte die markierten Felder unter „Aussehen“ korrigieren.",
+        "error"
+      );
+      setActiveTab("design");
+      return;
+    }
+    const cleanedConfig = cleanLayoutConfig(config);
     setSaving(true);
-    const { success, error } = await Embed.updateVisualConfig(embedId, config);
+    const { success, error } = await Embed.updateVisualConfig(
+      embedId,
+      cleanedConfig
+    );
     setSaving(false);
     if (success) {
-      setInitialConfig({ ...config });
+      setConfig(cleanedConfig);
+      setInitialConfig({ ...cleanedConfig });
       showToast("Erscheinungsbild gespeichert.", "success");
     } else {
       showToast(error || "Fehler beim Speichern.", "error");
@@ -351,7 +491,202 @@ export default function EmbedAppearance() {
                   </div>
                 </SettingsSection>
 
-                <SettingsSection title="Position" hint="Position des Chat-Widgets auf der Webseite.">
+                <SettingsSection
+                  title="Darstellung"
+                  hint="Chat-Blase am Bildschirmrand oder als Chat-Fläche direkt in Ihrer Webseite."
+                >
+                  <Segmented
+                    options={DISPLAY_MODE_OPTIONS}
+                    value={isInline ? "inline" : "bubble"}
+                    onChange={(v) =>
+                      updateOptionalField(
+                        "displayMode",
+                        v === "inline" ? "inline" : null
+                      )
+                    }
+                  />
+                </SettingsSection>
+
+                {isInline ? (
+                  <>
+                    <InlinePlaceholderHint />
+
+                    <SettingsSection
+                      title="Leistentext"
+                      hint="Text der eingeklappten Leiste (max. 120 Zeichen)."
+                      error={layoutErrors.inlineCollapsedText}
+                    >
+                      <input
+                        type="text"
+                        maxLength={120}
+                        value={config.inlineCollapsedText ?? ""}
+                        onChange={(e) =>
+                          updateOptionalField(
+                            "inlineCollapsedText",
+                            e.target.value
+                          )
+                        }
+                        placeholder={DEFAULT_INLINE_TEXT}
+                        className={inputClass(layoutErrors.inlineCollapsedText)}
+                      />
+                    </SettingsSection>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <SettingsSection
+                        title="Höhe aufgeklappt"
+                        hint="px oder vh — leer = 600px."
+                        error={layoutErrors.inlineHeight}
+                        note={inlineHeightHint(config.inlineHeight)}
+                      >
+                        <input
+                          type="text"
+                          value={config.inlineHeight ?? ""}
+                          onChange={(e) =>
+                            updateOptionalField("inlineHeight", e.target.value)
+                          }
+                          placeholder="z. B. 600px oder 70vh"
+                          className={inputClass(layoutErrors.inlineHeight)}
+                        />
+                      </SettingsSection>
+                      <SettingsSection
+                        title="Max. Breite"
+                        hint="px — leer = volle Breite."
+                        error={layoutErrors.inlineMaxWidth}
+                      >
+                        <input
+                          type="text"
+                          value={config.inlineMaxWidth ?? ""}
+                          onChange={(e) =>
+                            updateOptionalField("inlineMaxWidth", e.target.value)
+                          }
+                          placeholder="z. B. 900px"
+                          className={inputClass(layoutErrors.inlineMaxWidth)}
+                        />
+                      </SettingsSection>
+                    </div>
+
+                    <SettingsSection
+                      title="Startzustand"
+                      hint="Wie der Chat beim Laden der Seite erscheint."
+                    >
+                      <Segmented
+                        options={INLINE_START_OPTIONS}
+                        value={config.inlineStartState || "collapsed"}
+                        onChange={(v) => updateField("inlineStartState", v)}
+                      />
+                    </SettingsSection>
+
+                    <SettingsSection
+                      title="Leisten-Stil"
+                      hint="Hell (weiß mit grauem Rand) oder dunkel (für dunkle Seitenbereiche)."
+                    >
+                      <Segmented
+                        options={INLINE_THEME_OPTIONS}
+                        value={config.inlineTheme || "light"}
+                        onChange={(v) => updateField("inlineTheme", v)}
+                      />
+                    </SettingsSection>
+
+                    <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={config.inheritFont === true}
+                        onChange={(e) =>
+                          updateOptionalField(
+                            "inheritFont",
+                            e.target.checked ? true : null
+                          )
+                        }
+                        className="w-4 h-4 accent-primary-button cursor-pointer"
+                      />
+                      <span className="text-white text-sm">
+                        Schrift der Webseite übernehmen
+                      </span>
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <SettingsSection
+                        title="Fensterbreite"
+                        hint="Tablet/Desktop — leer = Standard."
+                        error={layoutErrors.windowWidth}
+                      >
+                        <input
+                          type="text"
+                          value={config.windowWidth ?? ""}
+                          onChange={(e) =>
+                            updateOptionalField("windowWidth", e.target.value)
+                          }
+                          placeholder="z. B. 420px oder 25%"
+                          className={inputClass(layoutErrors.windowWidth)}
+                        />
+                      </SettingsSection>
+                      <SettingsSection
+                        title="Fensterhöhe"
+                        hint="Tablet/Desktop — leer = Standard."
+                        error={layoutErrors.windowHeight}
+                      >
+                        <input
+                          type="text"
+                          value={config.windowHeight ?? ""}
+                          onChange={(e) =>
+                            updateOptionalField("windowHeight", e.target.value)
+                          }
+                          placeholder="z. B. 640px oder 80%"
+                          className={inputClass(layoutErrors.windowHeight)}
+                        />
+                      </SettingsSection>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <SettingsSection
+                        title="Abstand zum Rand X"
+                        hint="In px (0–200) — leer = 16px."
+                        error={layoutErrors.offsetX}
+                      >
+                        <input
+                          type="number"
+                          min={0}
+                          max={200}
+                          step={1}
+                          value={config.offsetX ?? ""}
+                          onChange={(e) =>
+                            updateOptionalField("offsetX", e.target.value)
+                          }
+                          placeholder="16"
+                          className={inputClass(layoutErrors.offsetX)}
+                        />
+                      </SettingsSection>
+                      <SettingsSection
+                        title="Abstand zum Rand Y"
+                        hint="In px (0–200) — leer = 16px."
+                        error={layoutErrors.offsetY}
+                      >
+                        <input
+                          type="number"
+                          min={0}
+                          max={200}
+                          step={1}
+                          value={config.offsetY ?? ""}
+                          onChange={(e) =>
+                            updateOptionalField("offsetY", e.target.value)
+                          }
+                          placeholder="16"
+                          className={inputClass(layoutErrors.offsetY)}
+                        />
+                      </SettingsSection>
+                    </div>
+                  </>
+                )}
+
+                <SettingsSection
+                  title="Position"
+                  hint={
+                    isInline
+                      ? "Position der Chat-Blase — gilt auf Seiten ohne Platzhalter."
+                      : "Position des Chat-Widgets auf der Webseite."
+                  }
+                >
                   <div className="flex rounded-lg overflow-hidden border border-white/10 w-fit">
                     {POSITION_OPTIONS.map((opt) => (
                       <button
@@ -480,7 +815,7 @@ export default function EmbedAppearance() {
   );
 }
 
-function SettingsSection({ title, hint, children }) {
+function SettingsSection({ title, hint, children, error = null, note = null }) {
   return (
     <div>
       <label className="block text-white text-sm font-medium mb-0.5">{title}</label>
@@ -488,6 +823,80 @@ function SettingsSection({ title, hint, children }) {
         <p className="text-theme-text-secondary text-xs mb-2.5 leading-relaxed">{hint}</p>
       )}
       {children}
+      {error ? (
+        <p className="text-red-400 text-xs mt-1.5 leading-relaxed">{error}</p>
+      ) : (
+        note && (
+          <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
+            {note}
+          </p>
+        )
+      )}
+    </div>
+  );
+}
+
+function inputClass(hasError) {
+  return `bg-theme-settings-input-bg text-white text-sm rounded-lg px-3 py-2 w-full border ${
+    hasError
+      ? "border-red-400/70 focus:border-red-400"
+      : "border-white/10 focus:border-white/25"
+  } focus:outline-none transition-colors`;
+}
+
+// Button-Gruppe im Stil der Positions-Auswahl
+function Segmented({ options, value, onChange }) {
+  return (
+    <div className="flex rounded-lg overflow-hidden border border-white/10 w-fit">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className={`px-5 py-2 text-sm font-medium transition-all ${
+            value === opt.value
+              ? "bg-primary-button text-white"
+              : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Hinweis + Kopieren des Platzhalters für den Inline-Modus
+function InlinePlaceholderHint() {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await window.navigator.clipboard.writeText(INLINE_PLACEHOLDER_SNIPPET);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      showToast("Platzhalter kopiert.", "success", { clear: true });
+    } catch {
+      showToast("Kopieren nicht möglich — bitte manuell markieren.", "error");
+    }
+  };
+  return (
+    <div className="rounded-lg border border-primary-button/40 bg-primary-button/10 p-3.5 space-y-2.5">
+      <p className="text-white text-xs leading-relaxed">
+        Fügen Sie an der gewünschten Stelle Ihrer Seite{" "}
+        <code className="font-mono bg-black/30 rounded px-1 py-0.5">
+          {INLINE_PLACEHOLDER_SNIPPET}
+        </code>{" "}
+        ein. Ohne diesen Platzhalter erscheint weiterhin die Chat-Blase. Das
+        Script-Snippet bleibt unverändert.
+      </p>
+      <button
+        type="button"
+        onClick={copy}
+        className="flex items-center gap-1.5 text-xs font-medium text-white bg-theme-settings-input-bg border border-white/10 hover:bg-theme-action-menu-item-hover rounded-lg px-3 py-1.5 transition-all"
+      >
+        {copied ? <Check size={14} weight="bold" /> : <CopySimple size={14} />}
+        {copied ? "Kopiert" : "Platzhalter kopieren"}
+      </button>
     </div>
   );
 }
@@ -524,6 +933,181 @@ function MessageList({ items, onAdd, onUpdate, onRemove, placeholder }) {
 }
 
 function WidgetPreview({ config, logoPreview }) {
+  if (config.displayMode === "inline")
+    return <InlinePreview config={config} logoPreview={logoPreview} />;
+  return <BubblePreview config={config} logoPreview={logoPreview} />;
+}
+
+// Mock-Vorschau Inline-Modus: angedeutete Webseite, darin die Leiste
+// (eingeklappt) bzw. die aufgeklappte Chat-Box. Klick schaltet um.
+function InlinePreview({ config, logoPreview }) {
+  const [expanded, setExpanded] = useState(
+    config.inlineStartState === "expanded"
+  );
+  useEffect(() => {
+    setExpanded(config.inlineStartState === "expanded");
+  }, [config.inlineStartState]);
+
+  const accentColor = config.accentColor || "#607D8B";
+  const name = config.name || "Ihr Online-Berater";
+  const logoSrc = logoPreview || DEFAULT_LOGO;
+  const greeting =
+    config.greeting ||
+    "Hallo und herzlich willkommen! Wie kann ich Ihnen helfen?";
+  const placeholder = config.sendMessageText || "Wie kann ich Ihnen helfen?";
+  const barText =
+    (config.inlineCollapsedText || "").trim() || DEFAULT_INLINE_TEXT;
+  const dark = config.inlineTheme === "dark";
+  const match = CHAT_ICONS.find((i) => i.id === config.chatIcon);
+  const BarIcon = match ? match.Icon : ChatCircleDots;
+  // Schrift der (Mock-)Webseite: Serif, damit "übernehmen" sichtbar wird
+  const pageFont = "Georgia, 'Times New Roman', serif";
+  const widgetFont = config.inheritFont === true ? pageFont : undefined;
+  const maxWidth = normalizeCssLength(config.inlineMaxWidth, ["px"]);
+
+  return (
+    <div className="relative h-full w-full flex items-center justify-center p-8">
+      <div
+        className="w-full max-w-[640px] bg-white rounded-xl shadow-[0_8px_40px_rgba(0,0,0,0.10)] px-8 py-7 flex flex-col"
+        style={{ fontFamily: pageFont, maxHeight: "calc(100vh - 200px)" }}
+      >
+        {/* angedeuteter Seiteninhalt */}
+        <div className="text-[22px] text-gray-800 font-bold mb-2">
+          Beratung &amp; Kontakt
+        </div>
+        <div className="space-y-1.5 mb-5">
+          <div className="h-2.5 rounded bg-gray-200 w-11/12" />
+          <div className="h-2.5 rounded bg-gray-200 w-9/12" />
+        </div>
+
+        <div
+          className="w-full mx-auto"
+          style={{
+            // Max. Breite relativ zu einer typischen 1100px-Inhaltsspalte
+            maxWidth: maxWidth
+              ? `${Math.min(100, (Math.max(280, parseFloat(maxWidth)) / 1100) * 100)}%`
+              : undefined,
+          }}
+        >
+          {expanded ? (
+            <div
+              className="w-full rounded-2xl flex flex-col overflow-hidden bg-white border border-gray-300"
+              style={{
+                height: "380px",
+                maxHeight: "calc(100vh - 360px)",
+                boxShadow: "0 4px 14px rgba(0,0,0,0.12)",
+                fontFamily: widgetFont,
+              }}
+            >
+              <div
+                className="flex items-center px-4 h-[56px] flex-shrink-0"
+                style={{ borderBottom: "1px solid #E9E9E9" }}
+              >
+                <div className="flex items-center flex-1 gap-3 min-w-0">
+                  <img
+                    src={logoSrc}
+                    alt="Logo"
+                    className="h-9 w-9 rounded-lg object-contain flex-shrink-0"
+                  />
+                  <span className="text-gray-800 font-semibold text-sm truncate">
+                    {name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <DotsThreeOutlineVertical
+                    size={18}
+                    weight="fill"
+                    className="text-slate-400"
+                  />
+                  <button
+                    onClick={() => setExpanded(false)}
+                    className="text-slate-400 hover:text-slate-600 transition-colors"
+                    title="Einklappen"
+                  >
+                    <CaretUp size={18} weight="bold" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 flex flex-col items-center justify-center px-6 text-center text-gray-400 text-[13px] leading-relaxed">
+                {greeting}
+              </div>
+              <div className="bg-white px-4 pb-3 pt-1 flex-shrink-0">
+                <div
+                  className="flex items-center w-full rounded-2xl"
+                  style={{ border: "1.5px solid #22262833" }}
+                >
+                  <input
+                    type="text"
+                    placeholder={placeholder}
+                    disabled
+                    className="flex-1 bg-transparent text-[13px] text-black placeholder:text-slate-800/50 outline-none py-2.5 px-3.5"
+                  />
+                  <PaperPlaneRight
+                    size={18}
+                    weight="fill"
+                    className="text-[#222628]/35 mr-3 flex-shrink-0"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="w-full flex items-center gap-3.5 rounded-2xl px-4 py-3 text-left transition-opacity hover:opacity-95"
+              style={{
+                fontFamily: widgetFont,
+                ...(dark
+                  ? {
+                      backgroundColor: "rgba(17, 24, 39, 0.78)",
+                      color: "#FFFFFF",
+                      border: "1px solid rgba(255,255,255,0.16)",
+                      boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+                    }
+                  : {
+                      backgroundColor: "#FFFFFF",
+                      color: "#1f2937",
+                      border: "1px solid #d1d5db",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                    }),
+              }}
+            >
+              <span
+                className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{
+                  backgroundColor: accentColor,
+                  boxShadow: dark
+                    ? "0 0 0 2px rgba(255,255,255,0.28)"
+                    : undefined,
+                }}
+              >
+                <BarIcon size={20} weight="fill" color="#ffffff" />
+              </span>
+              <span className="flex-1 min-w-0 text-[15px] font-semibold break-words">
+                {barText}
+              </span>
+              <CaretDown size={16} weight="bold" className="opacity-60" />
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-1.5 mt-5">
+          <div className="h-2.5 rounded bg-gray-200 w-10/12" />
+          <div className="h-2.5 rounded bg-gray-200 w-7/12" />
+        </div>
+        <p
+          className="text-[11px] text-gray-400 mt-4 select-none"
+          style={{ fontFamily: "inherit" }}
+        >
+          Vorschau — Klicken zum {expanded ? "Einklappen" : "Aufklappen"}. Mobil
+          öffnet die Leiste den Chat im Vollbild.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function BubblePreview({ config, logoPreview }) {
   const [previewOpen, setPreviewOpen] = useState(true);
   const accentColor = config.accentColor || "#607D8B";
   const name = config.name || "Ihr Online-Berater";

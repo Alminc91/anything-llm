@@ -28,6 +28,7 @@ export default function CodeSnippetModal({ embed, closeModal }) {
         <div className="px-7 py-6">
           <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
             <ScriptTag embed={embed} />
+            <InlinePlaceholderTag />
           </div>
           <div className="flex justify-between items-center mt-6 pt-6 border-t border-theme-modal-border">
             <button
@@ -44,6 +45,64 @@ export default function CodeSnippetModal({ embed, closeModal }) {
     </div>
   );
 }
+
+// Kufer Inline-Modus: optionaler Platzhalter. Nur wirksam, wenn im Design
+// Center "Darstellung: Inline" gewählt ist (oder data-display-mode="inline").
+const INLINE_PLACEHOLDER_SNIPPET = '<div id="kufer-assistent"></div>';
+
+const InlinePlaceholderTag = () => {
+  const [copied, setCopied] = useState(false);
+  const theme =
+    window.localStorage.getItem("theme") === "light" ? "github" : "github-dark";
+
+  const handleClick = () => {
+    window.navigator.clipboard.writeText(INLINE_PLACEHOLDER_SNIPPET);
+    setCopied(true);
+    setTimeout(() => {
+      setCopied(false);
+    }, 2500);
+    showToast("Platzhalter kopiert.", "success", { clear: true });
+  };
+
+  return (
+    <div>
+      <div className="flex flex-col mb-2">
+        <label className="block text-sm font-medium text-white">
+          Optional: Inline-Darstellung
+        </label>
+        <p className="text-theme-text-secondary text-xs">
+          Ist unter „Erscheinungsbild → Aussehen → Darstellung“ „Inline“
+          gewählt, fügen Sie diesen Platzhalter an der gewünschten Stelle Ihrer
+          Seite ein. Ohne diesen Platzhalter erscheint weiterhin die Chat-Blase.
+          Das Script-Snippet oben bleibt unverändert.
+        </p>
+      </div>
+      <button
+        disabled={copied}
+        onClick={handleClick}
+        className={`disabled:border disabled:border-green-300 disabled:light:border-green-600 border border-transparent relative w-full font-mono flex hljs ${theme} light:border light:border-gray-700 text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none p-2.5 m-1`}
+      >
+        <div
+          className="flex w-full text-left flex-col gap-y-1 pr-6 pl-4 whitespace-pre-line"
+          dangerouslySetInnerHTML={{
+            __html: hljs.highlight(INLINE_PLACEHOLDER_SNIPPET, {
+              language: "html",
+              ignoreIllegals: true,
+            }).value,
+          }}
+        />
+        {copied ? (
+          <CheckCircle
+            size={14}
+            className="text-green-300 light:text-green-600 absolute top-2 right-2"
+          />
+        ) : (
+          <CopySimple size={14} className="absolute top-2 right-2" />
+        )}
+      </button>
+    </div>
+  );
+};
 
 function createScriptTagSnippet(embed, scriptHost, serverHost, t) {
   return `<!--
