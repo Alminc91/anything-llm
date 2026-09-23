@@ -143,7 +143,11 @@ async function chatSync({
   // KIE-480: Filter-Erkennung startet parallel zu Rewrite + Einbettung (Roh-Nachricht)
   const filtersPromise =
     embeddingsCount !== 0
-      ? startMetadataFilterResolution({ userQuery: String(prompt), LLMConnector })
+      ? startMetadataFilterResolution({
+          userQuery: String(prompt),
+          chatHistory: history,
+          LLMConnector,
+        })
       : null;
 
   const searchQuery = await rewriteQueryForSearch({
@@ -486,7 +490,11 @@ async function streamChat({
   // KIE-480: Filter-Erkennung startet parallel zu Rewrite + Einbettung (Roh-Nachricht)
   const filtersPromise =
     embeddingsCount !== 0
-      ? startMetadataFilterResolution({ userQuery: String(prompt), LLMConnector })
+      ? startMetadataFilterResolution({
+          userQuery: String(prompt),
+          chatHistory: history,
+          LLMConnector,
+        })
       : null;
 
   const searchQuery = await rewriteQueryForSearch({

@@ -147,3 +147,47 @@ describe("Normalisierer-Prompt", () => {
     expect(p).not.toContain('"location":[');
   });
 });
+
+describe("Verlauf (Folgefragen)", () => {
+  test("letzte 3 Nutzer-Nachrichten + Übernahme-Regeln gehen an den Normalisierer", async () => {
+    settings({ metadata_filters: "on", metadata_filter_locations: "leichlingen" });
+    const L = llm('{"time_of_day":["evening"],"location":["leichlingen"]}');
+    const chatHistory = [
+      { role: "user", content: "Hallo" },
+      { role: "assistant", content: "Guten Tag!" },
+      { role: "user", content: "Yoga?" },
+      { role: "assistant", content: "Hier sind Yogakurse …" },
+      { role: "user", content: "Englisch abends in Leichlingen?" },
+      { role: "assistant", content: "Kurs A, Kurs B" },
+      { role: "user", content: "und Spanisch?" },
+    ];
+    const r = await resolveMetadataFilters({ userQuery: "gibts das auch für anfänger?", chatHistory, LLMConnector: L, referenceDate: REF });
+    expect(r.filters).toMatchObject({ timeOfDay: ["evening"], location: ["leichlingen"] });
+    const [messages] = L.getChatCompletion.mock.calls[0];
+    expect(messages[0].content).toContain("Gesprächsverlauf:");
+    expect(messages[1].content).toBe(
+      "Frühere Nachrichten (älteste zuerst):\n- Yoga?\n- Englisch abends in Leichlingen?\n- und Spanisch?\n\nAktuelle Nachricht: gibts das auch für anfänger?"
+    );
+    expect(messages[1].content).not.toContain("Kurs A"); // Assistenz-Antworten bleiben draußen
+  });
+
+  test("ohne Verlauf: Prompt exakt wie im Einzelfragen-Benchmark", async () => {
+    settings({ metadata_filters: "on" });
+    const L = llm("{}");
+    await resolveMetadataFilters({ userQuery: "Yoga abends", chatHistory: [], LLMConnector: L, referenceDate: REF });
+    const [messages] = L.getChatCompletion.mock.calls[0];
+    expect(messages[0].content).not.toContain("Gesprächsverlauf:");
+    expect(messages[0].content).toBe(buildNormalizerPrompt({ referenceDate: REF, knownLocations: [] }));
+    expect(messages[1].content).toBe("Yoga abends");
+  });
+
+  test("Regel-Rückfall nutzt nur die aktuelle Nachricht", async () => {
+    settings({ metadata_filters: "on" });
+    const r = await resolveMetadataFilters({
+      userQuery: "und samstags?", chatHistory: [{ role: "user", content: "Yoga abends" }],
+      LLMConnector: llm(new Error("502")), referenceDate: REF,
+    });
+    expect(r.stage).toBe("rules-fallback");
+    expect(r.filters).toEqual({ weekdays: ["sat"] });
+  });
+});

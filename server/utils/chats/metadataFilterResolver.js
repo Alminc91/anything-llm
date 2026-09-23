@@ -6,10 +6,11 @@
  * zusammen mit der Query-Einbettung abwartet. Netto kostet der LLM-Aufruf (~300 ms) damit
  * nur die Differenz zur ohnehin laufenden Rewrite-/Einbettungszeit.
  *
- * Bewusst die Roh-Nachricht, nicht der umgeschriebene Text: ein Filter aus einer früheren
- * Frage wird NICHT stillschweigend übernommen („…und für Anfänger?“ filtert nicht erneut auf
- * „abends“). Ein fehlender Filter fällt auf die ungefilterte Suche zurück (heutiges Verhalten),
- * ein falsch übernommener würde passende Kurse hart ausblenden.
+ * Eingabe: die Roh-Nachricht PLUS die letzten Nutzer-Nachrichten (chatHistory). Der
+ * Normalisierer entscheidet selbst, welche früheren Bedingungen weiter gelten, ersetzt oder
+ * aufgehoben werden (Übernahme-Regeln nur im Prompt, wenn es einen Verlauf gibt). Gemessen am
+ * unabhängigen Folgefragen-Satz (69 Such-Nachrichten): nur Roh-Nachricht 34, erst Rewrite dann
+ * Normalisierer 61 (seriell, 4 Überfilterungen), Roh-Nachricht + Verlauf 68 (parallel, 1).
  *
  * Das Promise wird NIE verworfen: Fehler/Timeout → Regel-Extraktor; Setting aus → null.
  */
@@ -43,13 +44,25 @@ function logLine(stage, ms, query, filters, error) {
   );
 }
 
+const HISTORY_USER_TURNS = 3;
+
+/** Letzte Nutzer-Nachrichten aus dem Prompt-Verlauf (Assistenz-Antworten bleiben draußen). */
+function recentUserMessages(chatHistory = []) {
+  if (!Array.isArray(chatHistory)) return [];
+  return chatHistory
+    .filter((m) => m?.role === "user" && typeof m.content === "string" && m.content.trim())
+    .slice(-HISTORY_USER_TURNS)
+    .map((m) => m.content.trim().slice(0, 500));
+}
+
 /**
- * @param {{userQuery:string, LLMConnector?:object, referenceDate?:Date, timeoutMs?:number}} params
+ * @param {{userQuery:string, chatHistory?:{role:string,content:string}[], LLMConnector?:object, referenceDate?:Date, timeoutMs?:number}} params
  * @returns {Promise<{filters:object, stage:string, ms:number, error?:string}|null>}
  *          null = Filter aus (Setting) oder keine Frage.
  */
 async function resolveMetadataFilters({
   userQuery,
+  chatHistory = [],
   LLMConnector = null,
   referenceDate = new Date(),
   timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -66,6 +79,7 @@ async function resolveMetadataFilters({
     } else {
       out = await always(userQuery, {
         ...opts,
+        previousMessages: recentUserMessages(chatHistory),
         complete: completeWith(LLMConnector),
         timeoutMs,
       });
@@ -89,5 +103,6 @@ module.exports = {
   resolveMetadataFilters,
   startMetadataFilterResolution,
   readFilterSettings,
+  recentUserMessages,
   DEFAULT_TIMEOUT_MS,
 };

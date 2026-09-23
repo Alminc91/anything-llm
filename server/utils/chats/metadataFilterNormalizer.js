@@ -327,17 +327,34 @@ ${exBookableLocation}
 // ---------------------------------------------------------------- LLM-Aufruf + Kaskade
 /**
  * @param {string} query
- * @param {{referenceDate:string|Date, knownLocations?:string[], complete:(system:string,user:string)=>Promise<string>, timeoutMs?:number}} opts
+ * @param {{referenceDate:string|Date, knownLocations?:string[], previousMessages?:string[], complete:(system:string,user:string)=>Promise<string>, timeoutMs?:number}} opts
  * @returns {Promise<{filters:object, raw:string|null, error:string|null}>}
  */
+// Nur mit Verlauf angehängt — Einzelfragen sehen exakt den gemessenen Prompt (315/320).
+const CARRY_RULES = `
+
+Gesprächsverlauf: Wenn frühere Nachrichten der Nutzerin/des Nutzers mitgeschickt werden, gib die Filter an, die für die AKTUELLE Suche gelten:
+- Bedingungen aus früheren Nachrichten gelten weiter, solange die aktuelle Nachricht dasselbe Anliegen weiterführt (Nachfrage, Ergänzung, "und …?", "gibt's das auch …").
+- Eine neue Angabe zur selben Bedingung ERSETZT die alte ("lieber vormittags", "und in <Ort>?").
+- "egal", "ist mir egal", "auch … ist ok", "geht auch" HEBT die betreffende Bedingung auf (nicht setzen; "online geht auch" = kein Format-Filter).
+- Neues Thema ohne Bezug ("ganz was anderes", anderer Kurswunsch ohne "auch/und") → nur Bedingungen der aktuellen Nachricht.`;
+
+/** Nutzer-Nachricht für den Normalisierer; mit Verlauf als Liste früherer Nachrichten. */
+function normalizerUserMessage(query, previousMessages = []) {
+  const prev = (previousMessages || []).filter((m) => typeof m === "string" && m.trim());
+  if (!prev.length) return String(query);
+  return `Frühere Nachrichten (älteste zuerst):\n${prev.map((m) => `- ${m}`).join("\n")}\n\nAktuelle Nachricht: ${query}`;
+}
+
 async function normalizeWithLLM(query, opts) {
-  const system = buildNormalizerPrompt(opts);
+  const hasHistory = (opts.previousMessages || []).some((m) => typeof m === "string" && m.trim());
+  const system = buildNormalizerPrompt(opts) + (hasHistory ? CARRY_RULES : "");
   const timeoutMs = opts.timeoutMs ?? 1500;
   let raw = null;
   let timer = null;
   try {
     raw = await Promise.race([
-      opts.complete(system, String(query)),
+      opts.complete(system, normalizerUserMessage(query, opts.previousMessages)),
       new Promise((_, rej) => {
         timer = setTimeout(
           () => rej(new Error(`normalizer timeout ${timeoutMs}ms`)),
@@ -431,6 +448,8 @@ function completeWith(LLMConnector) {
 }
 
 module.exports = {
+  CARRY_RULES,
+  normalizerUserMessage,
   always,
   completeWith,
   gated,
