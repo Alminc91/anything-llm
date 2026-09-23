@@ -320,7 +320,7 @@ function normalizerUserMessage(query, previousMessages = []) {
 async function normalizeWithLLM(query, opts) {
   const hasHistory = (opts.previousMessages || []).some((m) => typeof m === "string" && m.trim());
   const system = buildNormalizerPrompt(opts) + (hasHistory ? CARRY_RULES : "");
-  const timeoutMs = opts.timeoutMs ?? 1500;
+  const timeoutMs = opts.timeoutMs ?? 3000;
   let raw = null;
   let timer = null;
   try {
