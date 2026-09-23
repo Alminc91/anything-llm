@@ -911,9 +911,9 @@ const TRANSLATIONS = {
       instruction: {
         title: "Reranker-Anweisung",
         description:
-          "Optionale Anweisung, die der Anfrage für instruktionsgesteuerte Reranker vorangestellt wird.",
+          "Optionale Anweisung, die der Anfrage für instruktionsgesteuerte Reranker vorangestellt wird. Platzhalter: {date} = heutiges Datum mit Wochentag (z. B. „Dienstag, 22.09.2026“), {datetime} wie im System-Prompt — nötig, damit der Reranker relative Zeitangaben („nächste Woche“, „Ende Oktober“) einordnen kann.",
         placeholder:
-          "z. B. Repräsentiere diese Anfrage zum Abrufen relevanter Kurse",
+          "z. B. Heute ist {date}. Relevant ist nur ein Kurs, der Thema, Ort, Zeitraum und Tageszeit der Anfrage erfüllt.",
       },
     },
     trace: {
