@@ -5,6 +5,7 @@ import hljs from "highlight.js";
 import "@/utils/chat/themes/github-dark.css";
 import "@/utils/chat/themes/github.css";
 import { useTranslation } from "react-i18next";
+import { EMBED_INLINE_PLACEHOLDER_SNIPPET } from "@/utils/constants";
 
 export default function CodeSnippetModal({ embed, closeModal }) {
   const { t } = useTranslation();
@@ -46,116 +47,33 @@ export default function CodeSnippetModal({ embed, closeModal }) {
   );
 }
 
-// Kufer Inline-Modus: optionaler Platzhalter. Nur wirksam, wenn im Design
-// Center "Darstellung: Inline" gewählt ist (oder data-display-mode="inline").
-const INLINE_PLACEHOLDER_SNIPPET = '<div id="kufer-assistent"></div>';
-
-const InlinePlaceholderTag = () => {
-  const [copied, setCopied] = useState(false);
-  const theme =
-    window.localStorage.getItem("theme") === "light" ? "github" : "github-dark";
-
-  const handleClick = () => {
-    window.navigator.clipboard.writeText(INLINE_PLACEHOLDER_SNIPPET);
-    setCopied(true);
-    setTimeout(() => {
-      setCopied(false);
-    }, 2500);
-    showToast("Platzhalter kopiert.", "success", { clear: true });
-  };
-
-  return (
-    <div>
-      <div className="flex flex-col mb-2">
-        <label className="block text-sm font-medium text-white">
-          Optional: Inline-Darstellung
-        </label>
-        <p className="text-theme-text-secondary text-xs">
-          Ist unter „Erscheinungsbild → Aussehen → Darstellung“ „Inline“
-          gewählt, fügen Sie diesen Platzhalter an der gewünschten Stelle Ihrer
-          Seite ein. Ohne diesen Platzhalter erscheint weiterhin die Chat-Blase.
-          Das Script-Snippet oben bleibt unverändert.
-        </p>
-      </div>
-      <button
-        disabled={copied}
-        onClick={handleClick}
-        className={`disabled:border disabled:border-green-300 disabled:light:border-green-600 border border-transparent relative w-full font-mono flex hljs ${theme} light:border light:border-gray-700 text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none p-2.5 m-1`}
-      >
-        <div
-          className="flex w-full text-left flex-col gap-y-1 pr-6 pl-4 whitespace-pre-line"
-          dangerouslySetInnerHTML={{
-            __html: hljs.highlight(INLINE_PLACEHOLDER_SNIPPET, {
-              language: "html",
-              ignoreIllegals: true,
-            }).value,
-          }}
-        />
-        {copied ? (
-          <CheckCircle
-            size={14}
-            className="text-green-300 light:text-green-600 absolute top-2 right-2"
-          />
-        ) : (
-          <CopySimple size={14} className="absolute top-2 right-2" />
-        )}
-      </button>
-    </div>
-  );
-};
-
-function createScriptTagSnippet(embed, scriptHost, serverHost, t) {
-  return `<!--
-${t("code-snippet-modal.script-comment")}
--->
-<script
-  data-embed-id="${embed.uuid}"
-  data-base-api-url="${serverHost}/api/embed"
-  src="${scriptHost}/embed/anythingllm-chat-widget.min.js">
-</script>
-<!-- AnythingLLM (https://anythingllm.com) -->
-`;
-}
-
-const ScriptTag = ({ embed }) => {
+// Kopierbarer Code-Block (Script-Tag bzw. Inline-Platzhalter)
+function SnippetBlock({ label, hint, snippet, copiedToast, children = null }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
-  const scriptHost = import.meta.env.DEV
-    ? "http://localhost:3000"
-    : window.location.origin;
-  const serverHost = import.meta.env.DEV
-    ? "http://localhost:3001"
-    : window.location.origin;
-  const snippet = createScriptTagSnippet(embed, scriptHost, serverHost, t);
   const theme =
     window.localStorage.getItem("theme") === "light" ? "github" : "github-dark";
 
-  const handleClick = () => {
-    window.navigator.clipboard.writeText(snippet);
+  const handleClick = async () => {
+    try {
+      await window.navigator.clipboard.writeText(snippet);
+    } catch {
+      showToast(t("code-snippet-modal.copy-failed"), "error");
+      return;
+    }
     setCopied(true);
     setTimeout(() => {
       setCopied(false);
     }, 2500);
-    showToast(t("code-snippet-modal.copied"), "success", { clear: true });
+    showToast(copiedToast, "success", { clear: true });
   };
 
   return (
     <div>
       <div className="flex flex-col mb-2">
-        <label className="block text-sm font-medium text-white">
-          {t("code-snippet-modal.script-tag.label")}
-        </label>
-        <p className="text-theme-text-secondary text-xs">
-          {t("code-snippet-modal.script-tag.hint")}
-        </p>
-        <a
-          href="https://github.com/Mintplex-Labs/anythingllm-embed/blob/main/README.md"
-          target="_blank"
-          rel="noreferrer"
-          className="text-blue-300 light:text-blue-500 hover:underline"
-        >
-          {t("code-snippet-modal.script-tag.view-options")}
-        </a>
+        <label className="block text-sm font-medium text-white">{label}</label>
+        <p className="text-theme-text-secondary text-xs">{hint}</p>
+        {children}
       </div>
       <button
         disabled={copied}
@@ -181,5 +99,61 @@ const ScriptTag = ({ embed }) => {
         )}
       </button>
     </div>
+  );
+}
+
+// Kufer Inline-Modus: optionaler Platzhalter. Nur wirksam, wenn im Design
+// Center "Darstellung: Inline" gewählt ist (oder data-display-mode="inline").
+const InlinePlaceholderTag = () => {
+  const { t } = useTranslation();
+  return (
+    <SnippetBlock
+      label={t("code-snippet-modal.inline-tag.label")}
+      hint={t("code-snippet-modal.inline-tag.hint")}
+      snippet={EMBED_INLINE_PLACEHOLDER_SNIPPET}
+      copiedToast={t("code-snippet-modal.inline-tag.copied")}
+    />
+  );
+};
+
+function createScriptTagSnippet(embed, scriptHost, serverHost, t) {
+  return `<!--
+${t("code-snippet-modal.script-comment")}
+-->
+<script
+  data-embed-id="${embed.uuid}"
+  data-base-api-url="${serverHost}/api/embed"
+  src="${scriptHost}/embed/anythingllm-chat-widget.min.js">
+</script>
+<!-- AnythingLLM (https://anythingllm.com) -->
+`;
+}
+
+const ScriptTag = ({ embed }) => {
+  const { t } = useTranslation();
+  const scriptHost = import.meta.env.DEV
+    ? "http://localhost:3000"
+    : window.location.origin;
+  const serverHost = import.meta.env.DEV
+    ? "http://localhost:3001"
+    : window.location.origin;
+  const snippet = createScriptTagSnippet(embed, scriptHost, serverHost, t);
+
+  return (
+    <SnippetBlock
+      label={t("code-snippet-modal.script-tag.label")}
+      hint={t("code-snippet-modal.script-tag.hint")}
+      snippet={snippet}
+      copiedToast={t("code-snippet-modal.copied")}
+    >
+      <a
+        href="https://github.com/Mintplex-Labs/anythingllm-embed/blob/main/README.md"
+        target="_blank"
+        rel="noreferrer"
+        className="text-blue-300 light:text-blue-500 hover:underline"
+      >
+        {t("code-snippet-modal.script-tag.view-options")}
+      </a>
+    </SnippetBlock>
   );
 };

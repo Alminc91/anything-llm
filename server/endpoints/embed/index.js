@@ -84,11 +84,13 @@ function validCssLength(value, units) {
   return units.includes(unit) ? `${m[1]}${unit}` : null;
 }
 
+// Ganzzahl 0–200, als Zahl oder String (optional mit "px", wie im Widget)
 function validOffset(value) {
-  const n =
-    typeof value === "string" && /^\s*\d{1,3}\s*$/.test(value)
-      ? Number(value)
-      : value;
+  let n = value;
+  if (typeof value === "string") {
+    const m = /^\s*(\d{1,3})\s*(px)?\s*$/i.exec(value);
+    n = m ? Number(m[1]) : null;
+  }
   return Number.isInteger(n) && n >= 0 && n <= 200 ? n : null;
 }
 
@@ -96,7 +98,9 @@ function mapLayoutConfig(visualConfig = {}) {
   const out = {};
   for (const [key, allowed] of Object.entries(LAYOUT_ENUMS)) {
     const v = visualConfig[key];
-    if (typeof v === "string" && allowed.includes(v.trim())) out[key] = v.trim();
+    if (typeof v !== "string") continue;
+    const normalized = v.trim().toLowerCase(); // wie Widget: case-insensitiv
+    if (allowed.includes(normalized)) out[key] = normalized;
   }
   for (const [key, units] of Object.entries(LAYOUT_LENGTHS)) {
     const v = validCssLength(visualConfig[key], units);

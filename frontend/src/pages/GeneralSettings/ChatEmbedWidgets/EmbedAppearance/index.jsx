@@ -23,7 +23,7 @@ import {
 import showToast from "@/utils/toast";
 import CTAButton from "@/components/lib/CTAButton";
 import Embed from "@/models/embed";
-import { API_BASE } from "@/utils/constants";
+import { API_BASE, EMBED_INLINE_PLACEHOLDER_SNIPPET } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
 
 const CHAT_ICONS = [
@@ -42,9 +42,10 @@ const POSITION_OPTIONS = [
   { value: "bottom-right", label: "Rechts" },
 ];
 
-// Darstellung: Chat-Blase (Standard) oder Inline in der Webseite. "bubble" wird
-// NICHT gespeichert (Feld entfällt) — so bleibt ein data-display-mode am Script
-// weiterhin wirksam und Bestandskunden bekommen keinen neuen Wert geschrieben.
+// Darstellung: Chat-Blase (Standard) oder Inline in der Webseite. Gespeichert
+// wird displayMode nur, wenn der Admin aktiv gewählt hat (dann auch "bubble",
+// das einen data-display-mode="inline" am Script überschreibt). Bestandskunden
+// ohne Klick bekommen keinen neuen Key geschrieben.
 const DISPLAY_MODE_OPTIONS = [
   { value: "bubble", label: "Chat-Blase" },
   { value: "inline", label: "Inline (in der Seite)" },
@@ -60,12 +61,20 @@ const INLINE_THEME_OPTIONS = [
   { value: "dark", label: "Dunkel" },
 ];
 
-const INLINE_PLACEHOLDER_SNIPPET = '<div id="kufer-assistent"></div>';
 const DEFAULT_INLINE_TEXT = "Jetzt mit unserem KI-Assistenten schreiben";
+
+// Grenzen — gleich wie Server (endpoints/embed) und Widget (utils/layout)
+const OFFSET_MAX_PX = 200;
+const INLINE_TEXT_MAX_LEN = 120;
+const INLINE_MIN_HEIGHT_PX = 400;
+const INLINE_MAX_HEIGHT_PX = 1200;
+const INLINE_MIN_WIDTH_PX = 280;
+const PREVIEW_CONTENT_WIDTH_PX = 1100; // typische Inhaltsspalte (nur Vorschau)
 
 // Optionale Layout-Felder (visual_config). Leer = Feld weglassen = Standard.
 // Gleiche Whitelist wie Server (endpoints/embed) und Widget (utils/layout).
 const CSS_LENGTH_RE = /^(\d{1,4}(?:\.\d{1,2})?)(px|%|vw|vh)?$/;
+const OFFSET_RE = /^(\d{1,3})(px)?$/; // optional "px", wie Server/Widget
 const LAYOUT_LENGTH_FIELDS = {
   windowWidth: {
     units: ["px", "%", "vw", "vh"],
@@ -85,6 +94,15 @@ const LAYOUT_LENGTH_FIELDS = {
   },
 };
 const LAYOUT_OFFSET_FIELDS = ["offsetX", "offsetY"];
+const LAYOUT_TEXT_FIELDS = ["inlineCollapsedText"];
+
+// Welche Freitext-Felder zu welcher Darstellung gehören (nur die des aktiven
+// Modus werden geprüft; ungültige Werte des ausgeblendeten Modus werden beim
+// Speichern verworfen).
+const MODE_FIELDS = {
+  bubble: ["windowWidth", "windowHeight", "offsetX", "offsetY"],
+  inline: ["inlineCollapsedText", "inlineHeight", "inlineMaxWidth"],
+};
 
 function normalizeCssLength(value, units) {
   if (value === undefined || value === null) return null;
@@ -94,52 +112,88 @@ function normalizeCssLength(value, units) {
   return units.includes(unit) ? `${m[1]}${unit}` : undefined;
 }
 
+// Abstand -> Zahl 0–200 oder undefined (ungültig)
+function normalizeOffset(value) {
+  const m = OFFSET_RE.exec(String(value).trim().toLowerCase());
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  return n <= OFFSET_MAX_PX ? n : undefined;
+}
+
+// Text -> getrimmt oder undefined (zu lang)
+function normalizeText(value) {
+  const v = String(value).trim();
+  return v.length <= INLINE_TEXT_MAX_LEN ? v : undefined;
+}
+
 function isBlank(value) {
   return value === undefined || value === null || String(value).trim() === "";
 }
 
-// Fehlermeldungen je Feld (nur für gesetzte, ungültige Werte)
+// Gesetzter Wert -> normalisiert; undefined = ungültig
+function normalizeLayoutField(field, value) {
+  if (LAYOUT_LENGTH_FIELDS[field])
+    return normalizeCssLength(value, LAYOUT_LENGTH_FIELDS[field].units);
+  if (LAYOUT_OFFSET_FIELDS.includes(field)) return normalizeOffset(value);
+  if (LAYOUT_TEXT_FIELDS.includes(field)) return normalizeText(value);
+  return value;
+}
+
+function layoutErrorMessage(field) {
+  if (LAYOUT_LENGTH_FIELDS[field]) return LAYOUT_LENGTH_FIELDS[field].message;
+  if (LAYOUT_OFFSET_FIELDS.includes(field))
+    return `Bitte eine ganze Zahl zwischen 0 und ${OFFSET_MAX_PX} angeben.`;
+  return `Maximal ${INLINE_TEXT_MAX_LEN} Zeichen.`;
+}
+
+function activeDisplayMode(config) {
+  return config.displayMode === "inline" ? "inline" : "bubble";
+}
+
+// Fehlermeldungen je Feld — nur für gesetzte, ungültige Werte des aktiven Modus
 function validateLayout(config) {
   const errors = {};
-  for (const [field, { units, message }] of Object.entries(
-    LAYOUT_LENGTH_FIELDS
-  )) {
+  for (const field of MODE_FIELDS[activeDisplayMode(config)]) {
     if (isBlank(config[field])) continue;
-    if (normalizeCssLength(config[field], units) === undefined)
-      errors[field] = message;
+    if (normalizeLayoutField(field, config[field]) === undefined)
+      errors[field] = layoutErrorMessage(field);
   }
-  for (const field of LAYOUT_OFFSET_FIELDS) {
-    if (isBlank(config[field])) continue;
-    const s = String(config[field]).trim();
-    const n = Number(s);
-    if (!/^\d{1,3}$/.test(s) || n < 0 || n > 200)
-      errors[field] = "Bitte eine ganze Zahl zwischen 0 und 200 angeben.";
-  }
-  if (
-    !isBlank(config.inlineCollapsedText) &&
-    String(config.inlineCollapsedText).trim().length > 120
-  )
-    errors.inlineCollapsedText = "Maximal 120 Zeichen.";
   return errors;
 }
 
 // Vor dem Speichern: leere Layout-Felder entfernen (nie "" speichern), Längen
 // normalisieren (nackte Zahl -> px), Abstände als Zahl, Text getrimmt.
+// Ungültige Werte (nur im ausgeblendeten Modus möglich) werden verworfen.
+// displayMode/inheritFont nur behalten, wenn gültig (Key existiert nur nach
+// aktiver Wahl). Es werden nie Keys hinzugefügt.
 function cleanLayoutConfig(config) {
   const cleaned = { ...config };
-  for (const [field, { units }] of Object.entries(LAYOUT_LENGTH_FIELDS)) {
-    if (isBlank(cleaned[field])) delete cleaned[field];
-    else cleaned[field] = normalizeCssLength(cleaned[field], units);
+  for (const field of [...MODE_FIELDS.bubble, ...MODE_FIELDS.inline]) {
+    if (!(field in cleaned)) continue;
+    const value = isBlank(cleaned[field])
+      ? undefined
+      : normalizeLayoutField(field, cleaned[field]);
+    if (value === undefined) delete cleaned[field];
+    else cleaned[field] = value;
   }
-  for (const field of LAYOUT_OFFSET_FIELDS) {
-    if (isBlank(cleaned[field])) delete cleaned[field];
-    else cleaned[field] = Number(String(cleaned[field]).trim());
-  }
-  if (isBlank(cleaned.inlineCollapsedText)) delete cleaned.inlineCollapsedText;
-  else cleaned.inlineCollapsedText = String(cleaned.inlineCollapsedText).trim();
-  if (cleaned.displayMode !== "inline") delete cleaned.displayMode;
-  if (cleaned.inheritFont !== true) delete cleaned.inheritFont;
+  const validModes = DISPLAY_MODE_OPTIONS.map((o) => o.value);
+  if ("displayMode" in cleaned && !validModes.includes(cleaned.displayMode))
+    delete cleaned.displayMode;
+  if ("inheritFont" in cleaned && typeof cleaned.inheritFont !== "boolean")
+    delete cleaned.inheritFont;
   return cleaned;
+}
+
+// Reihenfolge-unabhängiger Vergleich (Keys sortiert) für den Dirty-Check
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.keys(value)
+      .filter((k) => value[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`)
+      .join(",")}}`;
+  return JSON.stringify(value) ?? "null";
 }
 
 // Hinweis, wenn der Wert im Widget geklemmt wird (kein Fehler)
@@ -147,8 +201,10 @@ function inlineHeightHint(value) {
   const v = normalizeCssLength(value, ["px", "vh"]);
   if (!v || !v.endsWith("px")) return null;
   const n = parseFloat(v);
-  if (n < 400) return "Wird im Widget auf mindestens 400px gesetzt.";
-  if (n > 1200) return "Wird im Widget auf höchstens 1200px begrenzt.";
+  if (n < INLINE_MIN_HEIGHT_PX)
+    return `Wird im Widget auf mindestens ${INLINE_MIN_HEIGHT_PX}px gesetzt.`;
+  if (n > INLINE_MAX_HEIGHT_PX)
+    return `Wird im Widget auf höchstens ${INLINE_MAX_HEIGHT_PX}px begrenzt.`;
   return null;
 }
 
@@ -187,8 +243,7 @@ export default function EmbedAppearance() {
   const [activeTab, setActiveTab] = useState("inhalt");
   const [logoPreview, setLogoPreview] = useState(null);
 
-  const hasChanges =
-    JSON.stringify(config) !== JSON.stringify(initialConfig);
+  const hasChanges = stableStringify(config) !== stableStringify(initialConfig);
 
   useEffect(() => {
     async function load() {
@@ -247,6 +302,7 @@ export default function EmbedAppearance() {
   const isInline = config.displayMode === "inline";
 
   const handleSave = async () => {
+    const savedConfig = config;
     if (Object.keys(layoutErrors).length > 0) {
       showToast(
         "Bitte die markierten Felder unter „Aussehen“ korrigieren.",
@@ -255,7 +311,7 @@ export default function EmbedAppearance() {
       setActiveTab("design");
       return;
     }
-    const cleanedConfig = cleanLayoutConfig(config);
+    const cleanedConfig = cleanLayoutConfig(savedConfig);
     setSaving(true);
     const { success, error } = await Embed.updateVisualConfig(
       embedId,
@@ -263,7 +319,9 @@ export default function EmbedAppearance() {
     );
     setSaving(false);
     if (success) {
-      setConfig(cleanedConfig);
+      // Funktional: wurde während des Requests weiter editiert, bleiben diese
+      // Eingaben erhalten (und als ungespeichert markiert).
+      setConfig((prev) => (prev === savedConfig ? cleanedConfig : prev));
       setInitialConfig({ ...cleanedConfig });
       showToast("Erscheinungsbild gespeichert.", "success");
     } else {
@@ -498,12 +556,7 @@ export default function EmbedAppearance() {
                   <Segmented
                     options={DISPLAY_MODE_OPTIONS}
                     value={isInline ? "inline" : "bubble"}
-                    onChange={(v) =>
-                      updateOptionalField(
-                        "displayMode",
-                        v === "inline" ? "inline" : null
-                      )
-                    }
+                    onChange={(v) => updateField("displayMode", v)}
                   />
                 </SettingsSection>
 
@@ -513,12 +566,12 @@ export default function EmbedAppearance() {
 
                     <SettingsSection
                       title="Leistentext"
-                      hint="Text der eingeklappten Leiste (max. 120 Zeichen)."
+                      hint={`Text der eingeklappten Leiste (max. ${INLINE_TEXT_MAX_LEN} Zeichen).`}
                       error={layoutErrors.inlineCollapsedText}
                     >
                       <input
                         type="text"
-                        maxLength={120}
+                        maxLength={INLINE_TEXT_MAX_LEN}
                         value={config.inlineCollapsedText ?? ""}
                         onChange={(e) =>
                           updateOptionalField(
@@ -567,7 +620,7 @@ export default function EmbedAppearance() {
 
                     <SettingsSection
                       title="Startzustand"
-                      hint="Wie der Chat beim Laden der Seite erscheint."
+                      hint="Wie der Chat beim Laden der Seite erscheint. Aufgeklappt gilt ab 768px Breite — mobil erscheint immer die Leiste."
                     >
                       <Segmented
                         options={INLINE_START_OPTIONS}
@@ -592,10 +645,7 @@ export default function EmbedAppearance() {
                         type="checkbox"
                         checked={config.inheritFont === true}
                         onChange={(e) =>
-                          updateOptionalField(
-                            "inheritFont",
-                            e.target.checked ? true : null
-                          )
+                          updateField("inheritFont", e.target.checked)
                         }
                         className="w-4 h-4 accent-primary-button cursor-pointer"
                       />
@@ -641,13 +691,13 @@ export default function EmbedAppearance() {
                     <div className="grid grid-cols-2 gap-4">
                       <SettingsSection
                         title="Abstand zum Rand X"
-                        hint="In px (0–200) — leer = 16px."
+                        hint={`In px (0–${OFFSET_MAX_PX}) — leer = 16px.`}
                         error={layoutErrors.offsetX}
                       >
                         <input
                           type="number"
                           min={0}
-                          max={200}
+                          max={OFFSET_MAX_PX}
                           step={1}
                           value={config.offsetX ?? ""}
                           onChange={(e) =>
@@ -659,13 +709,13 @@ export default function EmbedAppearance() {
                       </SettingsSection>
                       <SettingsSection
                         title="Abstand zum Rand Y"
-                        hint="In px (0–200) — leer = 16px."
+                        hint={`In px (0–${OFFSET_MAX_PX}) — leer = 16px.`}
                         error={layoutErrors.offsetY}
                       >
                         <input
                           type="number"
                           min={0}
-                          max={200}
+                          max={OFFSET_MAX_PX}
                           step={1}
                           value={config.offsetY ?? ""}
                           onChange={(e) =>
@@ -687,21 +737,11 @@ export default function EmbedAppearance() {
                       : "Position des Chat-Widgets auf der Webseite."
                   }
                 >
-                  <div className="flex rounded-lg overflow-hidden border border-white/10 w-fit">
-                    {POSITION_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => updateField("position", opt.value)}
-                        className={`px-5 py-2 text-sm font-medium transition-all ${
-                          config.position === opt.value
-                            ? "bg-primary-button text-white"
-                            : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
+                  <Segmented
+                    options={POSITION_OPTIONS}
+                    value={config.position}
+                    onChange={(v) => updateField("position", v)}
+                  />
                 </SettingsSection>
               </>
             )}
@@ -871,7 +911,9 @@ function InlinePlaceholderHint() {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
-      await window.navigator.clipboard.writeText(INLINE_PLACEHOLDER_SNIPPET);
+      await window.navigator.clipboard.writeText(
+        EMBED_INLINE_PLACEHOLDER_SNIPPET
+      );
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       showToast("Platzhalter kopiert.", "success", { clear: true });
@@ -884,7 +926,7 @@ function InlinePlaceholderHint() {
       <p className="text-white text-xs leading-relaxed">
         Fügen Sie an der gewünschten Stelle Ihrer Seite{" "}
         <code className="font-mono bg-black/30 rounded px-1 py-0.5">
-          {INLINE_PLACEHOLDER_SNIPPET}
+          {EMBED_INLINE_PLACEHOLDER_SNIPPET}
         </code>{" "}
         ein. Ohne diesen Platzhalter erscheint weiterhin die Chat-Blase. Das
         Script-Snippet bleibt unverändert.
@@ -933,8 +975,15 @@ function MessageList({ items, onAdd, onUpdate, onRemove, placeholder }) {
 }
 
 function WidgetPreview({ config, logoPreview }) {
+  // key: Startzustand geändert -> Vorschau neu mit diesem Zustand
   if (config.displayMode === "inline")
-    return <InlinePreview config={config} logoPreview={logoPreview} />;
+    return (
+      <InlinePreview
+        key={config.inlineStartState || "collapsed"}
+        config={config}
+        logoPreview={logoPreview}
+      />
+    );
   return <BubblePreview config={config} logoPreview={logoPreview} />;
 }
 
@@ -944,9 +993,6 @@ function InlinePreview({ config, logoPreview }) {
   const [expanded, setExpanded] = useState(
     config.inlineStartState === "expanded"
   );
-  useEffect(() => {
-    setExpanded(config.inlineStartState === "expanded");
-  }, [config.inlineStartState]);
 
   const accentColor = config.accentColor || "#607D8B";
   const name = config.name || "Ihr Online-Berater";
@@ -983,9 +1029,14 @@ function InlinePreview({ config, logoPreview }) {
         <div
           className="w-full mx-auto"
           style={{
-            // Max. Breite relativ zu einer typischen 1100px-Inhaltsspalte
+            // Max. Breite relativ zu einer typischen Inhaltsspalte
             maxWidth: maxWidth
-              ? `${Math.min(100, (Math.max(280, parseFloat(maxWidth)) / 1100) * 100)}%`
+              ? `${Math.min(
+                  100,
+                  (Math.max(INLINE_MIN_WIDTH_PX, parseFloat(maxWidth)) /
+                    PREVIEW_CONTENT_WIDTH_PX) *
+                    100
+                )}%`
               : undefined,
           }}
         >
@@ -1100,7 +1151,7 @@ function InlinePreview({ config, logoPreview }) {
           style={{ fontFamily: "inherit" }}
         >
           Vorschau — Klicken zum {expanded ? "Einklappen" : "Aufklappen"}. Mobil
-          öffnet die Leiste den Chat im Vollbild.
+          (unter 768px) öffnet die Leiste den Chat immer im Vollbild.
         </p>
       </div>
     </div>
