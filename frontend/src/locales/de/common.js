@@ -1136,6 +1136,12 @@ const TRANSLATIONS = {
     copied: "Snippet in Zwischenablage kopiert!",
     "script-comment":
       "Fügen Sie dieses Script-Tag in den <head> oder <body> Ihrer Website ein.",
+    "copy-failed": "Kopieren nicht möglich — bitte manuell markieren.",
+    "inline-tag": {
+      label: "Optional: Inline-Darstellung",
+      hint: "Ist unter „Erscheinungsbild → Aussehen → Darstellung“ „Inline“ gewählt, fügen Sie diesen Platzhalter an der gewünschten Stelle Ihrer Seite ein. Ohne diesen Platzhalter erscheint weiterhin die Chat-Blase. Das Script-Snippet oben bleibt unverändert.",
+      copied: "Platzhalter kopiert.",
+    },
     "script-tag": {
       label: "HTML Script Tag Einbettungscode",
       hint: "Betten Sie Ihr Chat-Widget als Helpdesk-Chat in der Ecke Ihrer Website ein.",
