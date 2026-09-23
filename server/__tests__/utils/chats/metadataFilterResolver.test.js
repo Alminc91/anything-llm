@@ -238,3 +238,19 @@ describe("Verlauf (Folgefragen)", () => {
     expect(line).not.toContain("x".repeat(80));
   });
 });
+
+describe("Timeout-Konfiguration", () => {
+  test("Standard 3 s, per METADATA_FILTER_TIMEOUT_MS einstellbar, unsinnige Werte → Standard", () => {
+    const load = (v) => {
+      jest.resetModules();
+      if (v === undefined) delete process.env.METADATA_FILTER_TIMEOUT_MS;
+      else process.env.METADATA_FILTER_TIMEOUT_MS = v;
+      return require("../../../utils/chats/metadataFilterResolver").DEFAULT_TIMEOUT_MS;
+    };
+    expect(load(undefined)).toBe(3000);
+    expect(load("2500")).toBe(2500);
+    expect(load("abc")).toBe(3000);
+    expect(load("50")).toBe(3000);
+    delete process.env.METADATA_FILTER_TIMEOUT_MS;
+  });
+});

@@ -11,13 +11,20 @@
  * aufgehoben werden (Übernahme-Regeln nur im Prompt, wenn es einen Verlauf gibt). Gemessen an
  * unabhängigen Folgefragen-Sätzen: nur Roh-Nachricht 34/69 · 42/91, Roh + Verlauf 68/69 · 81/91.
  *
- * Nur LLM (kein Regel-Extraktor): Timeout/Fehler → kein Filter, die Suche läuft wie ohne KIE-480.
+ * Nur LLM (kein Regel-Extraktor): Timeout (Standard 3 s) / Fehler → kein Filter, die Suche läuft
+ * wie ohne KIE-480.
  * Das Promise wird NIE verworfen; Setting aus → null.
  */
 const { SystemSettings } = require("../../models/systemSettings");
 const { always, completeWith } = require("./metadataFilterNormalizer");
 
-const DEFAULT_TIMEOUT_MS = 1500;
+// Obergrenze, wie lange die Suche auf den Normalisierer wartet (danach ungefiltert). Ruhig ~0,2 s,
+// unter Last auf dem gemeinsamen Modell 0,6–0,9 s mit Ausreißern; 1,5 s ließ ~11 % der Fragen
+// ungefiltert (Messung 23.09.2026). Per METADATA_FILTER_TIMEOUT_MS je Container einstellbar.
+const DEFAULT_TIMEOUT_MS = (() => {
+  const v = Number(process.env.METADATA_FILTER_TIMEOUT_MS);
+  return Number.isFinite(v) && v >= 200 && v <= 10000 ? v : 3000;
+})();
 const HISTORY_USER_TURNS = 3;
 
 /**
