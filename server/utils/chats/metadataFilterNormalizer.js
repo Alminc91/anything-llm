@@ -302,7 +302,7 @@ Heute: ${WD_DE[ref.getUTCDay()]}, ${today}.
 Ausgabe: NUR ein JSON-Objekt, keine Erklärung. Nur Felder setzen, die in der Frage ausdrücklich vorkommen. Kein Filter erkennbar → {}.
 Felder:
 - "date_from"/"date_to": Kursbeginn-Zeitraum. Werte: "today", "today+14d", "today+3w", "today+2m", "next_week_start", "next_week_end", "this_month_end", "month:YYYY-MM:start|end|early_end|mid_start|mid_end|late_start", "year:YYYY:start|end", "season:spring|summer|autumn|winter:YYYY:start|end", "semester:next:start", "school_holiday:christmas|autumn:YYYY:end", oder ein explizit genanntes Datum "YYYY-MM-DD".
-  Konventionen: "nächste Woche" = next_week_start..next_week_end; "in den nächsten 2 Wochen" = today..today+2w; "im Dezember" ohne Jahr = nächstes Vorkommen; "Anfang/Ende <Monat>" = start..early_end / late_start..end; "nächstes Jahr" = year:${ref.getUTCFullYear() + 1}:start..end; "demnächst/bald/der nächste Kurs/in nächster Zeit" = nur date_from "today"; "noch dieses Jahr" = today..year:${ref.getUTCFullYear()}:end.
+  Konventionen: "nächste Woche" = next_week_start..next_week_end; "in den nächsten 2 Wochen" = today..today+2w; "im Dezember" ohne Jahr = nächstes Vorkommen; "Anfang/Mitte/Ende <Monat>" = start..early_end / mid_start..mid_end / late_start..end; "ab <Zeitpunkt>" (z. B. "ab nächster Woche", "ab Januar") = NUR date_from; "nächstes Jahr" = year:${ref.getUTCFullYear() + 1}:start..end; "demnächst/bald/der nächste Kurs/in nächster Zeit" = nur date_from "today"; "noch dieses Jahr" = today..year:${ref.getUTCFullYear()}:end.
 - "time_of_day": ["morning"] (Beginn vor 12 Uhr), ["afternoon"] (12–17), ["evening"] (ab 17 Uhr). Uhrzeiten entsprechend einordnen ("um 18 Uhr" → evening, "nach der Arbeit" → evening).
 - "weekdays": aus mon,tue,wed,thu,fri,sat,sun ("am Wochenende" → ["sat","sun"], "unter der Woche" → mon–fri).
 - "price_min"/"price_max": Zahlen in Euro, nur bei genannten Beträgen ("unter 50 €" → price_max 50; "zwischen 20 und 60 €" → 20/60).
@@ -336,6 +336,8 @@ const CARRY_RULES = `
 Gesprächsverlauf: Wenn frühere Nachrichten der Nutzerin/des Nutzers mitgeschickt werden, gib die Filter an, die für die AKTUELLE Suche gelten:
 - Bedingungen aus früheren Nachrichten gelten weiter, solange die aktuelle Nachricht dasselbe Anliegen weiterführt (Nachfrage, Ergänzung, "und …?", "gibt's das auch …").
 - Eine neue Angabe zur selben Bedingung ERSETZT die alte ("lieber vormittags", "und in <Ort>?").
+- Kurze Nachfrage "und <neuer Wert>?" zur selben Bedingung ("und donnerstags?", "und in <Ort>?") ERSETZT den alten Wert; beide Werte nur bei "auch"/"oder" ("auch donnerstags?").
+- Wechsel zu online ("gibt's das online?", "lieber online") HEBT den Ort auf (location nicht setzen); Wechsel zu einem Ort hebt format online auf.
 - "egal", "ist mir egal", "auch … ist ok", "geht auch" HEBT die betreffende Bedingung auf (nicht setzen; "online geht auch" = kein Format-Filter).
 - Neues Thema ohne Bezug ("ganz was anderes", anderer Kurswunsch ohne "auch/und") → nur Bedingungen der aktuellen Nachricht.`;
 
