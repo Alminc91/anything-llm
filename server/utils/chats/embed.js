@@ -9,6 +9,9 @@ const {
 } = require("../helpers/chat/responses");
 const { DocumentManager } = require("../DocumentManager");
 const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
+const {
+  startMetadataFilterResolution,
+} = require("./metadataFilterResolver");
 
 async function streamChatWithForEmbed(
   response,
@@ -114,6 +117,12 @@ async function streamChatWithForEmbed(
       });
     });
 
+  // KIE-480: Filter-Erkennung startet parallel zu Rewrite + Einbettung (Roh-Nachricht)
+  const filtersPromise =
+    embeddingsCount !== 0
+      ? startMetadataFilterResolution({ userQuery: message, LLMConnector })
+      : null;
+
   const searchQuery = await rewriteQueryForSearch({
     userQuery: message,
     chatHistory,
@@ -125,6 +134,7 @@ async function streamChatWithForEmbed(
     embeddingsCount !== 0
       ? await VectorDb.performSimilaritySearch({
           namespace: embed.workspace.slug,
+          filtersPromise,
           input: searchQuery,
           LLMConnector,
           similarityThreshold: embed.workspace?.similarityThreshold,

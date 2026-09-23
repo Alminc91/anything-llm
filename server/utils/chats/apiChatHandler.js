@@ -15,6 +15,9 @@ const {
   EphemeralEventListener,
 } = require("../agents/ephemeral");
 const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
+const {
+  startMetadataFilterResolution,
+} = require("./metadataFilterResolver");
 const { Telemetry } = require("../../models/telemetry");
 const { CollectorApi } = require("../collectorApi");
 const fs = require("fs");
@@ -313,6 +316,12 @@ async function chatSync({
     }
   });
 
+  // KIE-480: Filter-Erkennung startet parallel zu Rewrite + Einbettung (Roh-Nachricht)
+  const filtersPromise =
+    embeddingsCount !== 0
+      ? startMetadataFilterResolution({ userQuery: message, LLMConnector })
+      : null;
+
   const searchQuery = await rewriteQueryForSearch({
     userQuery: message,
     chatHistory,
@@ -324,6 +333,7 @@ async function chatSync({
     embeddingsCount !== 0
       ? await VectorDb.performSimilaritySearch({
           namespace: workspace.slug,
+          filtersPromise,
           input: searchQuery,
           LLMConnector,
           similarityThreshold: workspace?.similarityThreshold,
@@ -712,6 +722,12 @@ async function streamChat({
     }
   });
 
+  // KIE-480: Filter-Erkennung startet parallel zu Rewrite + Einbettung (Roh-Nachricht)
+  const filtersPromise =
+    embeddingsCount !== 0
+      ? startMetadataFilterResolution({ userQuery: message, LLMConnector })
+      : null;
+
   const searchQuery = await rewriteQueryForSearch({
     userQuery: message,
     chatHistory,
@@ -723,6 +739,7 @@ async function streamChat({
     embeddingsCount !== 0
       ? await VectorDb.performSimilaritySearch({
           namespace: workspace.slug,
+          filtersPromise,
           input: searchQuery,
           LLMConnector,
           similarityThreshold: workspace?.similarityThreshold,

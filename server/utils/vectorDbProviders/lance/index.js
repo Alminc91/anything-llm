@@ -15,10 +15,10 @@ const {
   sanitizeSearchFilters,
   filtersToWhere,
 } = require("./searchFilters");
+const { stripTimeFilters } = require("../../chats/metadataFilterExtractor");
 const {
-  extractFilters,
-  stripTimeFilters,
-} = require("../../chats/metadataFilterExtractor");
+  startMetadataFilterResolution,
+} = require("../../chats/metadataFilterResolver");
 const SearchTrace = require("./searchTrace");
 const path = require("path");
 
@@ -1263,7 +1263,13 @@ class LanceDb extends VectorDatabase {
     searchMode = null,
     rerank = false,
     filters = null,
+    filtersPromise = null,
   }) {
+    // Attach the rejection handler synchronously, before the first await —
+    // a caller-started promise must never surface as an unhandled rejection.
+    const pendingFilters = filtersPromise
+      ? Promise.resolve(filtersPromise).catch(() => null)
+      : null;
     if (!namespace || !input || !LLMConnector)
       throw new Error("Invalid request to performSimilaritySearch.");
 
@@ -1286,35 +1292,17 @@ class LanceDb extends VectorDatabase {
         : "default";
 
     // KIE-480: resolve the metadata filters. Explicit `filters` from the
-    // caller win; otherwise — when the metadata_filters SystemSetting is
-    // "on" — the deterministic German extractor derives them from the
-    // (already rewritten) query. Off/invalid compiles to null clause
-    // (= today's unfiltered behavior).
+    // caller win. Otherwise the filter resolution (metadata_filters=on:
+    // LLM normalizer, rules as timeout fallback — metadataFilterResolver.js)
+    // runs IN PARALLEL to the query embedding: either the caller already
+    // started it before the query rewrite (`filtersPromise`, raw user
+    // message) or it is started here on `input`. Off → null clause
+    // (= today's unfiltered behavior). The promise never rejects.
     let activeFilters = sanitizeSearchFilters(filters);
-    if (!activeFilters) {
-      try {
-        const enabled = await SystemSettings.getValueOrFallback(
-          { label: "metadata_filters" },
-          "off"
-        );
-        if (enabled === "on") {
-          const locationSetting = await SystemSettings.getValueOrFallback(
-            { label: "metadata_filter_locations" },
-            ""
-          );
-          const knownLocations = String(locationSetting || "")
-            .split(",")
-            .map((loc) => loc.trim())
-            .filter(Boolean);
-          activeFilters = sanitizeSearchFilters(
-            extractFilters(input, { referenceDate: new Date(), knownLocations })
-          );
-        }
-      } catch (e) {
-        this.logger("metadata_filters resolution failed", e.message);
-      }
-    }
-
+    const filterTask = activeFilters
+      ? null
+      : pendingFilters ||
+        startMetadataFilterResolution({ userQuery: input, LLMConnector });
     // Search-Trace (Opt-in via SystemSetting search_trace): vollständige
     // Hybrid-/Reranker-Metriken pro Suche als JSONL — siehe searchTrace.js.
     const traceLevel = await SearchTrace.resolveTraceLevel();
@@ -1329,7 +1317,16 @@ class LanceDb extends VectorDatabase {
           });
     const traceStart = Date.now();
 
-    const queryVector = await LLMConnector.embedTextInput(input);
+    const [queryVector, resolvedFilters] = await Promise.all([
+      LLMConnector.embedTextInput(input),
+      filterTask,
+    ]);
+    if (!activeFilters && resolvedFilters)
+      activeFilters = sanitizeSearchFilters(resolvedFilters.filters);
+    if (trace && resolvedFilters) {
+      trace.filterStage = resolvedFilters.stage;
+      trace.filterMs = resolvedFilters.ms;
+    }
     const runSearch = async (whereClause, relaxStage = 0) => {
       if (trace) {
         trace.relaxStage = relaxStage;
