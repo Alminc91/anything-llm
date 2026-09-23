@@ -152,3 +152,72 @@ describe("KIE-480 Extraktor — Preisspanne und Warteliste", () => {
     });
   });
 });
+
+describe("KIE-480 Extraktor — Formen aus echten Beta-Fragen", () => {
+  const ex = (q) =>
+    extractFilters(q, { referenceDate: "2026-09-23", knownLocations: [] });
+  test("Monatsname ohne 'im', mit Jahr, Tag+Monat, zwei Monate", () => {
+    expect(ex("Pilates Februar 2026")).toEqual({
+      dateFrom: "2026-02-01",
+      dateTo: "2026-02-28",
+    });
+    expect(ex("gibt es noch platz B1 in november")).toEqual({
+      dateFrom: "2026-11-01",
+      dateTo: "2026-11-30",
+    });
+    expect(ex("Ich suche eine deutsche Kurs am 1 September 2026")).toEqual({
+      dateFrom: "2026-09-01",
+      dateTo: "2026-09-01",
+    });
+    expect(ex("Gibt es was für Februar oder März")).toEqual({
+      dateFrom: "2027-02-01",
+      dateTo: "2027-03-31",
+    });
+    expect(ex("Kurse seit März")).toEqual({});
+  });
+  test("nächster Kurs / demnächst / bald -> ab heute", () => {
+    expect(ex("Wann startet der nächste Spanischkurs A1?")).toEqual({
+      dateFrom: "2026-09-23",
+    });
+    expect(ex("Gibt es demnächst einen Kochkurs?")).toEqual({
+      dateFrom: "2026-09-23",
+    });
+    expect(ex("Ich hätte gerne einen Kochkurs in der nächsten Zeit")).toEqual({
+      dateFrom: "2026-09-23",
+    });
+  });
+  test("Jahr, Jahreszeit, Semester", () => {
+    expect(ex("Ich suche einen Bildungsurlaub für nächstes Jahr")).toEqual({
+      dateFrom: "2027-01-01",
+      dateTo: "2027-12-31",
+    });
+    expect(ex("Prüfungstermin Lohn und Gehalt Sommer 2027")).toEqual({
+      dateFrom: "2027-06-01",
+      dateTo: "2027-08-31",
+    });
+    expect(ex("gibt es schon herbstprogramm?")).toEqual({
+      dateFrom: "2026-09-01",
+      dateTo: "2026-11-30",
+    });
+    expect(ex("Wann beginnt das neue Semester?")).toEqual({
+      dateFrom: "2027-02-01",
+    });
+  });
+  test("Komposita und Uhrzeiten -> Tageszeit", () => {
+    expect(ex("Suche Abendkurs in Wolfsburg Deutsch A2")).toEqual({
+      timeOfDay: ["evening"],
+    });
+    expect(ex("Welche Abendkurse sind frei?")).toEqual({
+      timeOfDay: ["evening"],
+      bookable: true,
+    });
+    expect(ex("Der Unterricht soll um 18:00 Uhr beginnen")).toEqual({
+      timeOfDay: ["evening"],
+    });
+    expect(ex("in der zeit von 13.00-14.45 uhr könnte ich immer")).toEqual({
+      timeOfDay: ["afternoon"],
+    });
+    expect(ex("Wann haben Sie in den Ferien geöffnet?")).toEqual({});
+    expect(ex("wie viel uhr ist es?")).toEqual({});
+  });
+});

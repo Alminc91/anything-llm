@@ -361,18 +361,160 @@ function extractFilters(query, { referenceDate, knownLocations = [] } = {}) {
   }
 
   // --- Tageszeit -------------------------------------------------------------
+  // --- Aus echten Beta-Fragen (23.09.2026, 2.229 Zeit-Kandidaten) ergänzte Formen ---------------------
+  if (
+    !filters.dateFrom &&
+    !filters.dateTo &&
+    (m = q.match(/(?<![\d.])(\d{1,2})\.(\d{1,2})\.(\d{4})(?![.\d])/))
+  ) {
+    const d = parseDayMonth(m[1], m[2], m[3]); // nacktes Datum "Erziehung Beziehung 10.03.2026"
+    if (d) setRange(d, d);
+  }
+  if (!filters.dateFrom && !filters.dateTo) {
+    // "<Tag>. <Monat> [Jahr]" / "am 1 September 2026" -> konkreter Tag
+    if (
+      (m = q.match(
+        new RegExp(`\\b(\\d{1,2})\\.?\\s+(${monthAlt})(?:\\s+(\\d{4}))?\\b`)
+      ))
+    ) {
+      const mon = MONTHS[m[2]],
+        day = parseInt(m[1], 10);
+      let year = m[3] ? parseInt(m[3], 10) : refY;
+      let d = mkDate(year, mon, day);
+      if (d && !m[3] && d < ref) d = mkDate(year + 1, mon, day);
+      if (d) setRange(d, d);
+    }
+    // "Februar oder März", "März/April", "Februar bis März" -> Fenster über beide Monate
+    else if (
+      (m = q.match(
+        new RegExp(
+          `\\b(${monthAlt})\\s*(?:oder|/|bis|und|-|–)\\s*(${monthAlt})(?:\\s+(\\d{4}))?\\b`
+        )
+      ))
+    ) {
+      const m1 = MONTHS[m[1]],
+        m2 = MONTHS[m[2]];
+      const y1 = m[3] ? parseInt(m[3], 10) : m1 >= refM ? refY : refY + 1;
+      const y2 = m2 >= m1 ? y1 : y1 + 1;
+      setRange(mkDate(y1, m1, 1), mkDate(y2, m2, lastDayOfMonth(y2, m2)));
+    }
+    // nackter Monatsname, auch "in november", "für Mai", "Pilates Februar 2026"
+    else if (
+      (m = q.match(new RegExp(`\\b(${monthAlt})(?:\\s+(\\d{4}))?\\b`)))
+    ) {
+      const mon = MONTHS[m[1]];
+      const year = m[2] ? parseInt(m[2], 10) : mon >= refM ? refY : refY + 1;
+      // "seit <Monat>" ist Vergangenheit -> nicht filtern
+      if (!new RegExp(`\\bseit\\s+${m[1]}`).test(q))
+        setRange(
+          mkDate(year, mon, 1),
+          mkDate(year, mon, lastDayOfMonth(year, mon))
+        );
+    }
+    // "nächstes Jahr" / "im Jahr 2027" / "für 2027"
+    else if (
+      /\bnächstes jahr\b|\bnaechstes jahr\b|\bkommendes jahr\b|\bim nächsten jahr\b/.test(
+        q
+      )
+    ) {
+      setRange(mkDate(refY + 1, 1, 1), mkDate(refY + 1, 12, 31));
+    } else if (
+      (m = q.match(/\b(?:im jahr|für|fuer|ab)\s+(20\d{2})\b/)) &&
+      parseInt(m[1], 10) >= refY
+    ) {
+      const y = parseInt(m[1], 10);
+      setRange(y === refY ? ref : mkDate(y, 1, 1), mkDate(y, 12, 31));
+    }
+    // "<Jahreszeit> <Jahr>" ("Sommer 2026", "Herbstprogramm") -> Jahreszeit meteorologisch
+    else if (
+      (m = q.match(
+        /\b(frühling|fruehling|frühjahr|fruehjahr|sommer|herbst|winter)(?:programm|semester|kurse|halbjahr)?\b(?:\s+(\d{4}))?/
+      ))
+    ) {
+      const key =
+        m[1].startsWith("frühj") || m[1].startsWith("fruehj")
+          ? "frühling"
+          : m[1];
+      const [[fm, fd], [tm, td]] = SEASONS[key] || SEASONS["frühling"];
+      const fromYear = m[2] ? parseInt(m[2], 10) : fm >= refM ? refY : refY + 1;
+      const toYear = tm < fm ? fromYear + 1 : fromYear;
+      setRange(
+        mkDate(fromYear, fm, fd),
+        mkDate(toYear, tm, tm === 2 ? lastDayOfMonth(toYear, 2) : td)
+      );
+    }
+    // "nächstes/neues/kommendes Semester" -> ab nächstem VHS-Semesterstart (1. Feb. / 1. Sep.), offenes Ende
+    else if (
+      /\b(?:nächste[sn]?|naechste[sn]?|neue[sn]?|kommende[sn]?)\s+semester\b/.test(
+        q
+      )
+    ) {
+      const start =
+        refM < 2
+          ? mkDate(refY, 2, 1)
+          : refM < 9
+            ? mkDate(refY, 9, 1)
+            : mkDate(refY + 1, 2, 1);
+      setRange(start, null);
+    }
+    // "der nächste Kurs", "wann startet/beginnt der nächste …", "demnächst", "bald", "in nächster Zeit", "in Kürze",
+    // "ab sofort" -> nur zukünftige/laufende Kurse: Beginn ab heute (kein enges Fenster, im Zweifel weit)
+    else if (
+      /\b(?:nächste[rns]?|naechste[rns]?|kommende[rns]?)\s+(?:[\wäöüß-]+\s+){0,3}?(?:kurs|kurse|prüfung|pruefung|termin|termine|gruppe|start|durchgang|runde|möglichkeit|moeglichkeit|mal)\b|\bwann\s+(?:startet|beginnt|fängt|faengt|ist|findet|läuft|laeuft|geht)\b.*\bnächste|\bdemnächst\b|\bdemnaechst\b|\bbald\b|\bin kürze\b|\bin kuerze\b|\bin (?:der )?nächste[rn] zeit\b|\bab sofort\b|\bzeitnah\b/.test(
+        q
+      )
+    ) {
+      setRange(ref, null);
+    }
+  }
+  // Uhrzeiten -> Tageszeit-Bucket: "um 18:00 Uhr", "ab 18 Uhr", "von 13.00-14.45 Uhr", "nach 17 Uhr"; nicht bei Öffnungszeiten-Fragen
+  if (
+    !/\böffnungszeit|\boeffnungszeit|\berreichbar\b|\btelefonisch\b|\bwie viel uhr ist\b|\bwieviel uhr ist\b/.test(
+      q
+    )
+  ) {
+    const hm = q.match(
+      /\b(?:um|ab|von|nach|gegen)\s+(\d{1,2})(?:[:.]\d{2})?(?:\s*(?:-|–|bis)\s*\d{1,2}(?:[:.]\d{2})?)?\s*(?:uhr|h\b)/
+    );
+    if (hm) {
+      const h = parseInt(hm[1], 10);
+      if (h >= 0 && h < 24) filters.__hour = h;
+    }
+  }
   const buckets = new Set();
-  if (/\babends?\b|\bam abend\b|\bspätnachmittag/.test(q))
+  if (
+    /\babends?\b|\bam abend\b|\bspätnachmittag|abendkurs|abendveranstaltung|abendtermin|abendangebot/.test(
+      q
+    )
+  )
     buckets.add("evening");
-  if (/\bvormittags?\b|\bmorgens\b|frühen morgen|\bam vormittag\b/.test(q))
+  if (
+    /\bvormittags?\b|\bmorgens\b|frühen morgen|\bam vormittag\b|vormittagskurs|morgenkurs/.test(
+      q
+    )
+  )
     buckets.add("morning");
-  if (/\bnachmittags?\b|\bam nachmittag\b|\bmittags\b/.test(q))
+  if (/\bnachmittags?\b|\bam nachmittag\b|\bmittags\b|nachmittagskurs/.test(q))
     buckets.add("afternoon");
+  if (typeof filters.__hour === "number") {
+    buckets.add(
+      filters.__hour < 12
+        ? "morning"
+        : filters.__hour < 17
+          ? "afternoon"
+          : "evening"
+    );
+    delete filters.__hour;
+  }
   if (buckets.size > 0 && buckets.size < 3) filters.timeOfDay = [...buckets];
 
   // --- Wochentage --------------------------------------------------------------
   const days = new Set();
-  if (/\bam wochenende\b|\bwochenendkurs/.test(q)) {
+  if (
+    /\b(?:am|im|jedes|jeden|dieses|nächstes|kommendes|übernächstes)?\s*(?:kommenden|nächsten|naechsten)?\s*wochenende\b|\bwochenendkurs|\bwochenendseminar/.test(
+      q
+    )
+  ) {
     days.add("sat");
     days.add("sun");
   }
@@ -428,7 +570,7 @@ function extractFilters(query, { referenceDate, knownLocations = [] } = {}) {
   ) {
     filters.bookable = false;
   } else if (
-    /freien? plätzen?\b|freien? plaetzen?\b|\bnoch buchbar|\bbuchbare\b|\bnoch verfügbar|\bnoch verfuegbar|\bverfügbare\b|\bverfuegbare\b|\bnoch anmelden\b|anmeldung (noch )?möglich|\bfast ausgebucht\b/.test(
+    /freien? plätzen?\b|freien? plaetzen?\b|\bnoch buchbar|\bbuchbare\b|\bnoch verfügbar|\bnoch verfuegbar|\bverfügbare\b|\bverfuegbare\b|\bnoch anmelden\b|anmeldung (noch )?möglich|\bfast ausgebucht\b|\bsind (?:noch )?frei\b|\bnoch frei\b|\bplätze frei\b|\bplaetze frei\b/.test(
       q
     )
   ) {
