@@ -1,5 +1,5 @@
 /* eslint-env jest, node */
-// KIE-480: Filter-Erkennung für die Suche (LLM immer, Regeln als Timeout-/Fehler-Rückfall).
+// KIE-480: Filter-Erkennung für die Suche (nur LLM; Timeout/Fehler → kein Filter).
 jest.mock("../../../models/systemSettings", () => ({
   SystemSettings: { getValueOrFallback: jest.fn() },
 }));
@@ -7,6 +7,8 @@ const { SystemSettings } = require("../../../models/systemSettings");
 const {
   resolveMetadataFilters,
   startMetadataFilterResolution,
+  berlinToday,
+  isPlausiblePlace,
 } = require("../../../utils/chats/metadataFilterResolver");
 const {
   buildNormalizerPrompt,
@@ -32,8 +34,12 @@ function llm(reply, delayMs = 0) {
 beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(console, "log").mockImplementation(() => {});
+  jest.spyOn(console, "error").mockImplementation(() => {});
 });
-afterEach(() => console.log.mockRestore());
+afterEach(() => {
+  console.log.mockRestore();
+  console.error.mockRestore();
+});
 
 describe("metadataFilterResolver", () => {
   test("Setting aus → null, kein LLM-Aufruf", async () => {
@@ -65,7 +71,7 @@ describe("metadataFilterResolver", () => {
     expect(messages[1].content).toBe("Gibt es abends Yogakurse in Leichlingen in den nächsten 2 Wochen?");
   });
 
-  test("leeres LLM-Ergebnis {} wird NICHT von den Regeln überstimmt", async () => {
+  test("leeres LLM-Ergebnis {} bleibt {} (kein Filter)", async () => {
     settings({ metadata_filters: "on" });
     const r = await resolveMetadataFilters({
       userQuery: "Wann beginnt der Englischkurs am Montag?", // Informationsfrage
@@ -75,7 +81,7 @@ describe("metadataFilterResolver", () => {
     expect(r).toMatchObject({ stage: "llm", filters: {} });
   });
 
-  test("Timeout → Regel-Rückfall (nie leer, wenn die Regeln etwas finden)", async () => {
+  test("Timeout → kein Filter (ungefilterte Suche), Fehler auf stderr", async () => {
     settings({ metadata_filters: "on" });
     const r = await resolveMetadataFilters({
       userQuery: "Yogakurse am Abend",
@@ -83,18 +89,65 @@ describe("metadataFilterResolver", () => {
       referenceDate: REF,
       timeoutMs: 50,
     });
-    expect(r.stage).toBe("rules-fallback");
+    expect(r).toMatchObject({ stage: "llm-error", filters: {} });
     expect(r.error).toMatch(/timeout/);
-    expect(r.filters.timeOfDay).toEqual(["evening"]);
+    expect(console.error).toHaveBeenCalled();
   });
 
-  test("LLM-Fehler / unparsbares JSON → Regel-Rückfall", async () => {
+  test("LLM-Fehler / unparsbares JSON → kein Filter", async () => {
     settings({ metadata_filters: "on" });
     const e = await resolveMetadataFilters({ userQuery: "Kurse am Samstag", LLMConnector: llm(new Error("502")), referenceDate: REF });
-    expect(e.stage).toBe("rules-fallback");
-    expect(e.filters.weekdays).toEqual(["sat"]);
+    expect(e).toMatchObject({ stage: "llm-error", filters: {} });
     const j = await resolveMetadataFilters({ userQuery: "Kurse am Samstag", LLMConnector: llm("{kaputt"), referenceDate: REF });
-    expect(j.stage).toBe("rules-fallback");
+    expect(j).toMatchObject({ stage: "llm-error", filters: {} });
+  });
+
+  test("Ort nur aus der Kundenliste; ohne Liste kein Ortsfilter", async () => {
+    settings({ metadata_filters: "on", metadata_filter_locations: "leichlingen,0,en" });
+    const r = await resolveMetadataFilters({
+      userQuery: "Yoga in Lingen oder Leichlingen",
+      LLMConnector: llm('{"location":["lingen","leichlingen"],"price_max":50}'),
+      referenceDate: REF,
+    });
+    expect(r.filters).toEqual({ location: ["leichlingen"], priceMax: 50 });
+    settings({ metadata_filters: "on" });
+    const n = await resolveMetadataFilters({ userQuery: "Yoga in Berlin", LLMConnector: llm('{"location":["berlin"]}'), referenceDate: REF });
+    expect(n.filters).toEqual({});
+  });
+
+  test("Ortscodes aus dem Feed kommen nicht in den Prompt", async () => {
+    settings({ metadata_filters: "on", metadata_filter_locations: "0,en,ja,leichlingen" });
+    const L = llm("{}");
+    await resolveMetadataFilters({ userQuery: "Englisch unter 50 Euro", LLMConnector: L, referenceDate: REF });
+    const system = L.getChatCompletion.mock.calls[0][0][0].content;
+    expect(system).toContain(": leichlingen.");
+    expect(isPlausiblePlace("0")).toBe(false);
+    expect(isPlausiblePlace("online")).toBe(false);
+  });
+
+  test("Preiswerte nur aus echten Zahlen ('' / false ergeben keinen Preisfilter)", async () => {
+    settings({ metadata_filters: "on" });
+    for (const v of ['""', "false", "[]", "null"]) {
+      const r = await resolveMetadataFilters({ userQuery: "Kurse", LLMConnector: llm(`{"price_max":${v}}`), referenceDate: REF });
+      expect(r.filters).toEqual({});
+    }
+    const ok = await resolveMetadataFilters({ userQuery: "Kurse", LLMConnector: llm('{"price_max":"60"}'), referenceDate: REF });
+    expect(ok.filters).toEqual({ priceMax: 60 });
+  });
+
+  test("Reasoning ohne öffnendes Tag wird entfernt", async () => {
+    settings({ metadata_filters: "on" });
+    const r = await resolveMetadataFilters({
+      userQuery: "Kurse unter 50 Euro",
+      LLMConnector: llm('Entwurf {"price_max": 999}</think>{"price_max":50}'),
+      referenceDate: REF,
+    });
+    expect(r).toMatchObject({ stage: "llm", filters: { priceMax: 50 } });
+  });
+
+  test("Referenzdatum in Europe/Berlin (Container laufen in UTC)", () => {
+    expect(berlinToday(new Date("2026-09-27T22:30:00Z"))).toBe("2026-09-28"); // Berlin 00:30
+    expect(berlinToday(new Date("2026-12-31T23:30:00Z"))).toBe("2027-01-01");
   });
 
   test("<think>-Blöcke werden vor dem JSON-Parsing entfernt", async () => {
@@ -107,13 +160,9 @@ describe("metadataFilterResolver", () => {
     expect(r).toMatchObject({ stage: "llm", filters: { priceMax: 50 } });
   });
 
-  test("metadata_filter_mode=rules → kein LLM-Aufruf", async () => {
-    settings({ metadata_filters: "on", metadata_filter_mode: "rules" });
-    const L = llm("{}");
-    const r = await resolveMetadataFilters({ userQuery: "Yoga am Vormittag", LLMConnector: L, referenceDate: REF });
-    expect(r.stage).toBe("rules");
-    expect(r.filters.timeOfDay).toEqual(["morning"]);
-    expect(L.getChatCompletion).not.toHaveBeenCalled();
+  test("ohne LLM-Provider → null (kein Filter)", async () => {
+    settings({ metadata_filters: "on" });
+    expect(await resolveMetadataFilters({ userQuery: "Yoga am Vormittag", LLMConnector: {} })).toBeNull();
   });
 
   test("Settings-Fehler → Promise wird nie verworfen", async () => {
@@ -181,13 +230,11 @@ describe("Verlauf (Folgefragen)", () => {
     expect(messages[1].content).toBe("Yoga abends");
   });
 
-  test("Regel-Rückfall nutzt nur die aktuelle Nachricht", async () => {
+  test("Log-Zeile ohne Steuerzeichen und nur mit kurzem Anfang der Nachricht", async () => {
     settings({ metadata_filters: "on" });
-    const r = await resolveMetadataFilters({
-      userQuery: "und samstags?", chatHistory: [{ role: "user", content: "Yoga abends" }],
-      LLMConnector: llm(new Error("502")), referenceDate: REF,
-    });
-    expect(r.stage).toBe("rules-fallback");
-    expect(r.filters).toEqual({ weekdays: ["sat"] });
+    await resolveMetadataFilters({ userQuery: "\x1b[2KYoga\nabends " + "x".repeat(200), LLMConnector: llm("{}"), referenceDate: REF });
+    const line = console.log.mock.calls.flat().join(" ");
+    expect(line).not.toMatch(/\x1b\[2K|\n/);
+    expect(line).not.toContain("x".repeat(80));
   });
 });

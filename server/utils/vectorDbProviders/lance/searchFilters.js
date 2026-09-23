@@ -165,7 +165,19 @@ function filtersToWhere(filters = null) {
   return parts.length > 0 ? parts.join(" AND ") : null;
 }
 
+/**
+ * Entfernt die Zeit-Bedingungen (Stufe 1 des Leere-Treffer-Fallbacks:
+ * "in diesem Zeitraum nichts, aber …").
+ * @param {object} filters
+ * @returns {object}
+ */
+function stripTimeFilters(filters = {}) {
+  const { dateFrom, dateTo, timeOfDay, weekdays, ...rest } = filters || {};
+  return rest;
+}
+
 module.exports = {
+  stripTimeFilters,
   sanitizeSearchFilters,
   filtersToWhere,
   // exported for tests / P1 ingestion mapping

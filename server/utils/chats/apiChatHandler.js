@@ -321,7 +321,8 @@ async function chatSync({
     embeddingsCount !== 0
       ? startMetadataFilterResolution({
           userQuery: message,
-          chatHistory: chatHistory,
+          // ohne sessionId/User/Thread teilen sich alle API-Aufrufer einen Verlauf → nicht übernehmen
+          chatHistory: sessionId || user || thread ? chatHistory : [],
           LLMConnector,
         })
       : null;
@@ -731,7 +732,8 @@ async function streamChat({
     embeddingsCount !== 0
       ? startMetadataFilterResolution({
           userQuery: message,
-          chatHistory: chatHistory,
+          // ohne sessionId/User/Thread teilen sich alle API-Aufrufer einen Verlauf → nicht übernehmen
+          chatHistory: sessionId || user || thread ? chatHistory : [],
           LLMConnector,
         })
       : null;
