@@ -99,13 +99,35 @@ class GenericReranker {
   }
 
   /**
-   * Applies the optional instruction to the query text.
+   * Resolves date placeholders in the instruction at request time, so a
+   * static SystemSetting can carry "today" for time-relative queries
+   * ("nächste Woche", "Ende Oktober"). The reranker never sees the system
+   * prompt, so {datetime} there does not help the search path.
+   *   {date}     -> "Dienstag, 22.09.2026" (German weekday + date)
+   *   {datetime} -> same format as the system-prompt variable (moment LLLL)
+   * An instruction without placeholders is returned unchanged.
+   * @param {string} instruction
+   * @param {Date} [now]
+   * @returns {string}
+   */
+  static resolveInstruction(instruction, now = new Date()) {
+    if (typeof instruction !== "string" || instruction.length === 0) return "";
+    if (!/\{(date|datetime)\}/.test(instruction)) return instruction;
+    const moment = require("moment");
+    const de = moment(now).locale("de");
+    return instruction
+      .replace(/\{date\}/g, de.format("dddd, DD.MM.YYYY"))
+      .replace(/\{datetime\}/g, moment(now).format("LLLL"));
+  }
+
+  /**
+   * Applies the optional instruction (placeholders resolved) to the query text.
    * @param {string} query
    * @returns {string}
    */
   #decoratedQuery(query) {
-    if (this.instruction && this.instruction.length > 0)
-      return `${this.instruction}\n\n${query}`;
+    const instruction = GenericReranker.resolveInstruction(this.instruction);
+    if (instruction.length > 0) return `${instruction}\n\n${query}`;
     return query;
   }
 
@@ -118,6 +140,7 @@ class GenericReranker {
    */
   #encodeBody(query, texts, topK) {
     const decorated = this.#decoratedQuery(query);
+    const instruction = GenericReranker.resolveInstruction(this.instruction);
     if (this.provider === "tei") {
       // TEI: bare-array response, no model field, `texts`, `raw_scores:false`.
       // truncate:true is essential — TEI validates strictly by default and one
@@ -130,8 +153,7 @@ class GenericReranker {
         truncate: true,
         truncation_direction: "Right",
       };
-      if (this.instruction && this.instruction.length > 0)
-        body.instruction = this.instruction;
+      if (instruction.length > 0) body.instruction = instruction;
       return body;
     }
 
@@ -142,8 +164,7 @@ class GenericReranker {
       [this.topKField]: topK,
     };
     if (this.model) body.model = this.model;
-    if (this.instruction && this.instruction.length > 0)
-      body.instruction = this.instruction;
+    if (instruction.length > 0) body.instruction = instruction;
     return body;
   }
 

@@ -917,9 +917,9 @@ const TRANSLATIONS = {
       instruction: {
         title: "Reranker Instruction",
         description:
-          "Optional instruction prepended to the query for instruction-tuned rerankers.",
+          "Optional instruction prepended to the query for instruction-tuned rerankers. Placeholders: {date} = today's date with weekday (German, e.g. “Dienstag, 22.09.2026”), {datetime} as in the system prompt — required for the reranker to resolve relative time expressions (“next week”, “end of October”).",
         placeholder:
-          "e.g. Represent this query for retrieving relevant courses",
+          "e.g. Today is {date}. Only a course matching the query's topic, location, date range and time of day is relevant.",
       },
     },
     trace: {
