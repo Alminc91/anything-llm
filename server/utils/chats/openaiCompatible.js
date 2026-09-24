@@ -6,6 +6,9 @@ const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { chatPrompt, sourceIdentifier } = require("./index");
 const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
+const {
+  startMetadataFilterResolution,
+} = require("./metadataFilterResolver");
 
 const { PassThrough } = require("stream");
 
@@ -137,6 +140,16 @@ async function chatSync({
       });
     });
 
+  // KIE-480: Filter-Erkennung startet parallel zu Rewrite + Einbettung (Roh-Nachricht)
+  const filtersPromise =
+    embeddingsCount !== 0
+      ? startMetadataFilterResolution({
+          userQuery: String(prompt),
+          chatHistory: history,
+          LLMConnector,
+        })
+      : null;
+
   const searchQuery = await rewriteQueryForSearch({
     userQuery: String(prompt),
     chatHistory: history,
@@ -148,6 +161,7 @@ async function chatSync({
     embeddingsCount !== 0
       ? await VectorDb.performSimilaritySearch({
           namespace: workspace.slug,
+          filtersPromise,
           input: searchQuery,
           LLMConnector,
           similarityThreshold: workspace?.similarityThreshold,
@@ -473,6 +487,16 @@ async function streamChat({
       });
     });
 
+  // KIE-480: Filter-Erkennung startet parallel zu Rewrite + Einbettung (Roh-Nachricht)
+  const filtersPromise =
+    embeddingsCount !== 0
+      ? startMetadataFilterResolution({
+          userQuery: String(prompt),
+          chatHistory: history,
+          LLMConnector,
+        })
+      : null;
+
   const searchQuery = await rewriteQueryForSearch({
     userQuery: String(prompt),
     chatHistory: history,
@@ -484,6 +508,7 @@ async function streamChat({
     embeddingsCount !== 0
       ? await VectorDb.performSimilaritySearch({
           namespace: workspace.slug,
+          filtersPromise,
           input: searchQuery,
           LLMConnector,
           similarityThreshold: workspace?.similarityThreshold,
