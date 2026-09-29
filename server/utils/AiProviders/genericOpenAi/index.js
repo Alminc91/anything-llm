@@ -193,6 +193,22 @@ class GenericOpenAiLLM {
   }
 
   /**
+   * Kufer-Fork: Übernimmt `prompt_tokens_details` (z. B. `{ cached_tokens }`
+   * von vLLM/LiteLLM für das Prefix-Cache-Monitoring) unverändert aus der
+   * gemeldeten Usage in das eigene usage-Objekt (mutiert `usage`). Fehlt das
+   * Feld oder ist es kein Objekt (vLLM ohne --enable-prompt-tokens-details
+   * liefert `null`), bleibt `usage` unverändert.
+   * @param {Object|null|undefined} reportedUsage - `usage` aus Antwort oder Chunk
+   * @param {Object} usage - the usage object to mutate
+   */
+  #extractPromptTokensDetails(reportedUsage, usage) {
+    const details = reportedUsage?.prompt_tokens_details;
+    if (!details || typeof details !== "object" || Array.isArray(details))
+      return;
+    usage.prompt_tokens_details = details;
+  }
+
+  /**
    * Parses and prepends reasoning from the response and returns the full text response.
    * @param {Object} response
    * @returns {string}
@@ -203,18 +219,34 @@ class GenericOpenAiLLM {
       !!message?.reasoning_content &&
       message.reasoning_content.trim().length > 0
     )
-      textResponse = `<think>${message.reasoning_content}</think>${textResponse}`;
+      // content kann null sein, wenn das Thinking durch max_tokens
+      // abgeschnitten wurde (finish_reason "length") – dann kein "null" anhängen.
+      textResponse = `<think>${message.reasoning_content}</think>${textResponse ?? ""}`;
     return textResponse;
   }
 
-  async getChatCompletion(messages = null, { temperature = 0.7 }) {
+  async getChatCompletion(
+    messages = null,
+    {
+      temperature = 0.7,
+      max_tokens,
+      top_p,
+      reasoning_effort,
+      chat_template_kwargs,
+    } = {}
+  ) {
     const result = await LLMPerformanceMonitor.measureAsyncFunction(
       this.openai.chat.completions
         .create({
           model: this.model,
           messages,
           temperature,
-          max_tokens: this.maxTokens,
+          max_tokens: max_tokens ?? this.maxTokens,
+          // Optionale Anfrage-Optionen (utils/helpers/chat/llmRequestOptions.js):
+          // nur gesetzte Felder, damit der Body ohne sie byte-gleich bleibt.
+          ...(top_p !== undefined && { top_p }),
+          ...(reasoning_effort !== undefined && { reasoning_effort }),
+          ...(chat_template_kwargs !== undefined && { chat_template_kwargs }),
         })
         .catch((e) => {
           throw new Error(e.message);
@@ -233,6 +265,7 @@ class GenericOpenAiLLM {
       total_tokens: result.output?.usage?.total_tokens || 0,
       duration: result.duration,
     };
+    this.#extractPromptTokensDetails(result.output?.usage, usage);
     this.#extractLlamaCppTimings(result.output, usage);
 
     return {
@@ -247,14 +280,26 @@ class GenericOpenAiLLM {
     };
   }
 
-  async streamGetChatCompletion(messages = null, { temperature = 0.7 }) {
+  async streamGetChatCompletion(
+    messages = null,
+    {
+      temperature = 0.7,
+      max_tokens,
+      top_p,
+      reasoning_effort,
+      chat_template_kwargs,
+    } = {}
+  ) {
     const measuredStreamRequest = await LLMPerformanceMonitor.measureStream({
       func: this.openai.chat.completions.create({
         model: this.model,
         stream: true,
         messages,
         temperature,
-        max_tokens: this.maxTokens,
+        max_tokens: max_tokens ?? this.maxTokens,
+        ...(top_p !== undefined && { top_p }),
+        ...(reasoning_effort !== undefined && { reasoning_effort }),
+        ...(chat_template_kwargs !== undefined && { chat_template_kwargs }),
       }),
       messages,
       runPromptTokenCalculation: true,
@@ -277,13 +322,78 @@ class GenericOpenAiLLM {
     return new Promise(async (resolve) => {
       let fullText = "";
       let reasoningText = "";
+      let finished = false;
+
+      // Kufer-Fork: Schließt einen offenen <think>-Block und übernimmt ihn in
+      // fullText – wenn Content beginnt (auch im selben Chunk wie das letzte
+      // Reasoning-Token) oder beim Abschluss, falls nur Reasoning gestreamt
+      // wurde (z. B. Thinking durch max_tokens abgeschnitten, finish_reason
+      // "length"). fullText wird vor dem Schreiben aktualisiert, damit der
+      // Text auch bei einem Schreibfehler vollständig bleibt.
+      const closeOpenReasoning = ({ emit = true } = {}) => {
+        if (!reasoningText) return;
+        fullText += `${reasoningText}</think>`;
+        reasoningText = "";
+        if (emit)
+          writeResponseChunk(response, {
+            uuid,
+            sources: [],
+            type: "textResponseChunk",
+            textResponse: `</think>`,
+            close: false,
+            error: false,
+          });
+      };
+
+      // Regulärer Abschluss (finish_reason oder Stream-Ende ohne finish_reason).
+      // Löst in jedem Fall genau einmal mit fullText auf, auch wenn Schreiben,
+      // Listener-Abbau oder Messung werfen – sonst bliebe das Promise offen.
+      const finish = (lastChunk = null) => {
+        if (finished) return;
+        finished = true;
+        try {
+          closeOpenReasoning();
+          writeResponseChunk(response, {
+            uuid,
+            sources,
+            type: "textResponseChunk",
+            textResponse: "",
+            close: true,
+            error: false,
+          });
+          if (lastChunk) this.#extractLlamaCppTimings(lastChunk, usage);
+        } catch (e) {
+          console.error(
+            `[GenericOpenAiLLM] Error while finishing stream: ${e.message}`
+          );
+        } finally {
+          try {
+            response.removeListener("close", handleAbort);
+            stream?.endMeasurement(usage);
+          } catch (e) {
+            console.error(
+              `[GenericOpenAiLLM] Error while ending stream measurement: ${e.message}`
+            );
+          }
+          resolve(fullText);
+        }
+      };
 
       // Establish listener to early-abort a streaming response
       // in case things go sideways or the user does not like the response.
       // We preserve the generated text but continue as if chat was completed
       // to preserve previously generated content.
       const handleAbort = () => {
-        stream?.endMeasurement(usage);
+        if (finished) return;
+        finished = true;
+        try {
+          closeOpenReasoning({ emit: false });
+          stream?.endMeasurement(usage);
+        } catch (e) {
+          console.error(
+            `[GenericOpenAiLLM] Error while aborting stream: ${e.message}`
+          );
+        }
         clientAbortedHandler(resolve, fullText);
       };
       response.on("close", handleAbort);
@@ -307,50 +417,33 @@ class GenericOpenAiLLM {
               hasUsageMetrics = true; // to stop estimating counter
               usage.completion_tokens = Number(chunk.usage.completion_tokens);
             }
+
+            this.#extractPromptTokensDetails(chunk.usage, usage);
           }
 
           // Reasoning models will always return the reasoning text before the token text.
           if (reasoningToken) {
-            // If the reasoning text is empty (''), we need to initialize it
-            // and send the first chunk of reasoning text.
-            if (reasoningText.length === 0) {
-              writeResponseChunk(response, {
-                uuid,
-                sources: [],
-                type: "textResponseChunk",
-                textResponse: `<think>${reasoningToken}`,
-                close: false,
-                error: false,
-              });
-              reasoningText += `<think>${reasoningToken}`;
-              continue;
-            } else {
-              writeResponseChunk(response, {
-                uuid,
-                sources: [],
-                type: "textResponseChunk",
-                textResponse: reasoningToken,
-                close: false,
-                error: false,
-              });
-              reasoningText += reasoningToken;
-            }
-          }
-
-          // If the reasoning text is not empty, but the reasoning token is empty
-          // and the token text is not empty we need to close the reasoning text and begin sending the token text.
-          if (!!reasoningText && !reasoningToken && token) {
+            // The first reasoning chunk opens the <think> block.
+            const reasoningChunk =
+              reasoningText.length === 0
+                ? `<think>${reasoningToken}`
+                : reasoningToken;
             writeResponseChunk(response, {
               uuid,
               sources: [],
               type: "textResponseChunk",
-              textResponse: `</think>`,
+              textResponse: reasoningChunk,
               close: false,
               error: false,
             });
-            fullText += `${reasoningText}</think>`;
-            reasoningText = "";
+            reasoningText += reasoningChunk;
           }
+
+          // Kufer-Fork: Sobald Content kommt, zuerst den offenen <think>-Block
+          // schließen – auch wenn derselbe Chunk noch reasoning_content trägt
+          // (vLLM/DeepSeek an der Grenze Denken → Antwort). Sonst landete das
+          // erste Content-Token im Denkblock und das Reasoning dahinter.
+          if (!!reasoningText && token) closeOpenReasoning();
 
           if (token) {
             fullText += token;
@@ -371,33 +464,34 @@ class GenericOpenAiLLM {
             message.finish_reason !== "" &&
             message.finish_reason !== null
           ) {
-            writeResponseChunk(response, {
-              uuid,
-              sources,
-              type: "textResponseChunk",
-              textResponse: "",
-              close: true,
-              error: false,
-            });
-            this.#extractLlamaCppTimings(chunk, usage);
-
-            response.removeListener("close", handleAbort);
-            stream?.endMeasurement(usage);
-            resolve(fullText);
+            finish(chunk);
             break; // Break streaming when a valid finish_reason is first encountered
           }
         }
+        // Stream endete ohne finish_reason: trotzdem sauber abschließen.
+        finish();
       } catch (e) {
+        // Bereits abgeschlossen (finish/Abbruch): resolve ist idempotent,
+        // trotzdem nie ohne resolve enden.
+        if (finished) return resolve(fullText);
+        finished = true;
         console.log(`\x1b[43m\x1b[34m[STREAMING ERROR]\x1b[0m ${e.message}`);
-        writeResponseChunk(response, {
-          uuid,
-          type: "abort",
-          textResponse: null,
-          sources: [],
-          close: true,
-          error: e.message,
-        });
-        stream?.endMeasurement(usage);
+        try {
+          closeOpenReasoning({ emit: false });
+          writeResponseChunk(response, {
+            uuid,
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: e.message,
+          });
+          stream?.endMeasurement(usage);
+        } catch (err) {
+          console.error(
+            `[GenericOpenAiLLM] Error while handling stream error: ${err.message}`
+          );
+        }
         resolve(fullText);
       }
     });

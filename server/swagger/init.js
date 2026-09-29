@@ -1,6 +1,30 @@
 const swaggerAutogen = require("swagger-autogen")({ openapi: "3.0.0" });
 const fs = require("fs");
 const path = require("path");
+const {
+  LLM_OPTIONS_SWAGGER_PLACEHOLDER,
+  LLM_OPTIONS_SWAGGER_DESCRIPTION,
+} = require("../utils/helpers/chat/llmRequestOptions");
+
+/**
+ * Ersetzt gemeinsame Beschreibungstexte, die in den Endpunkt-Kommentaren nur
+ * als Platzhalter stehen (swagger-autogen löst dort keine Konstanten auf).
+ * @param {*} node - Teilbaum der generierten Spezifikation (wird mutiert)
+ */
+function replaceSharedDescriptions(node) {
+  if (Array.isArray(node)) return node.forEach(replaceSharedDescriptions);
+  if (!node || typeof node !== "object") return;
+  for (const [key, value] of Object.entries(node)) {
+    if (
+      typeof value === "string" &&
+      value.includes(LLM_OPTIONS_SWAGGER_PLACEHOLDER)
+    )
+      node[key] = value
+        .split(LLM_OPTIONS_SWAGGER_PLACEHOLDER)
+        .join(LLM_OPTIONS_SWAGGER_DESCRIPTION);
+    else replaceSharedDescriptions(value);
+  }
+}
 
 const doc = {
   info: {
@@ -62,6 +86,8 @@ swaggerAutogen(outputFile, endpointsFiles, doc).then(({ data }) => {
       data.paths[path].delete.parameters = parameters;
     }
   }
+
+  replaceSharedDescriptions(data);
 
   const openApiSpec = {
     ...data,

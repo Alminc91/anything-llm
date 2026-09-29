@@ -13,6 +13,10 @@ const {
 const { WorkspaceChats } = require("../../../models/workspaceChats");
 const { User } = require("../../../models/user");
 const { ApiChatHandler } = require("../../../utils/chats/apiChatHandler");
+const {
+  parseLLMRequestOptionsForWorkspace,
+  sendLLMOptionsError,
+} = require("../../../utils/helpers/chat/llmRequestOptions");
 const { getModelTag } = require("../../utils");
 
 function apiWorkspaceThreadEndpoints(app) {
@@ -338,7 +342,7 @@ function apiWorkspaceThreadEndpoints(app) {
           type: 'string'
       }
       #swagger.requestBody = {
-        description: 'Send a prompt to the workspace thread and the type of conversation (query or chat).',
+        description: 'Send a prompt to the workspace thread and the type of conversation (query or chat).<br/>%LLM_OPTIONS_DESCRIPTION%',
         required: true,
         content: {
           "application/json": {
@@ -353,7 +357,12 @@ function apiWorkspaceThreadEndpoints(app) {
                  contentString: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
                }
               ],
-              reset: false
+              reset: false,
+              llmOptions: {
+                max_tokens: 4096,
+                temperature: 0.2,
+                chat_template_kwargs: { enable_thinking: true }
+              }
             }
           }
         }
@@ -389,6 +398,7 @@ function apiWorkspaceThreadEndpoints(app) {
           userId,
           attachments = [],
           reset = false,
+          llmOptions: rawLLMOptions,
         } = reqBody(request);
         const workspace = await Workspace.get({ slug });
         const thread = await WorkspaceThread.get({
@@ -422,6 +432,15 @@ function apiWorkspaceThreadEndpoints(app) {
           return;
         }
 
+        // Strikt (keine Typumwandlung), max_tokens-Grenze aus dem Provider.
+        const parsedLLMOptions = parseLLMRequestOptionsForWorkspace(
+          rawLLMOptions,
+          workspace,
+          { allowTemperature: true, fieldPrefix: "llmOptions." }
+        );
+        if (!parsedLLMOptions.ok)
+          return sendLLMOptionsError(response, parsedLLMOptions.error);
+
         const user = userId ? await User.get({ id: Number(userId) }) : null;
         const result = await ApiChatHandler.chatSync({
           workspace,
@@ -431,6 +450,7 @@ function apiWorkspaceThreadEndpoints(app) {
           thread,
           attachments,
           reset,
+          llmOptions: parsedLLMOptions.options,
         });
         await Telemetry.sendTelemetry("sent_chat", {
           LLMSelection: process.env.LLM_PROVIDER || "openai",
@@ -480,7 +500,7 @@ function apiWorkspaceThreadEndpoints(app) {
           type: 'string'
       }
       #swagger.requestBody = {
-        description: 'Send a prompt to the workspace thread and the type of conversation (query or chat).',
+        description: 'Send a prompt to the workspace thread and the type of conversation (query or chat).<br/>%LLM_OPTIONS_DESCRIPTION%',
         required: true,
         content: {
           "application/json": {
@@ -500,7 +520,12 @@ function apiWorkspaceThreadEndpoints(app) {
                  contentString: "data:application/pdf;base64,iVBORw0KGgoAAAANSUhEUgAA..."
                }
               ],
-              reset: false
+              reset: false,
+              llmOptions: {
+                max_tokens: 4096,
+                temperature: 0.2,
+                chat_template_kwargs: { enable_thinking: true }
+              }
             }
           }
         }
@@ -557,6 +582,7 @@ function apiWorkspaceThreadEndpoints(app) {
           userId,
           attachments = [],
           reset = false,
+          llmOptions: rawLLMOptions,
         } = reqBody(request);
         const workspace = await Workspace.get({ slug });
         const thread = await WorkspaceThread.get({
@@ -590,6 +616,15 @@ function apiWorkspaceThreadEndpoints(app) {
           return;
         }
 
+        // Strikt (keine Typumwandlung), max_tokens-Grenze aus dem Provider.
+        const parsedLLMOptions = parseLLMRequestOptionsForWorkspace(
+          rawLLMOptions,
+          workspace,
+          { allowTemperature: true, fieldPrefix: "llmOptions." }
+        );
+        if (!parsedLLMOptions.ok)
+          return sendLLMOptionsError(response, parsedLLMOptions.error);
+
         const user = userId ? await User.get({ id: Number(userId) }) : null;
 
         response.setHeader("Cache-Control", "no-cache");
@@ -607,6 +642,7 @@ function apiWorkspaceThreadEndpoints(app) {
           thread,
           attachments,
           reset,
+          llmOptions: parsedLLMOptions.options,
         });
         await Telemetry.sendTelemetry("sent_chat", {
           LLMSelection: process.env.LLM_PROVIDER || "openai",

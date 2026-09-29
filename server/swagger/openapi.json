@@ -2387,7 +2387,7 @@
           }
         },
         "requestBody": {
-          "description": "Send a prompt to the workspace and the type of conversation (query or chat).<br/><b>Query:</b> Will not use LLM unless there are relevant sources from vectorDB & does not recall chat history.<br/><b>Chat:</b> Uses LLM general knowledge w/custom embeddings to produce output, uses rolling chat history.<br/><b>Attachments:</b> Can include images and documents.<br/><b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Document attachments:</b> must have the mime type <code>application/anythingllm-document</code> - otherwise it will be passed to the LLM as an image and may fail to process. This uses the built-in document processor to first parse the document to text before injecting it into the context window.",
+          "description": "Send a prompt to the workspace and the type of conversation (query or chat).<br/><b>Query:</b> Will not use LLM unless there are relevant sources from vectorDB & does not recall chat history.<br/><b>Chat:</b> Uses LLM general knowledge w/custom embeddings to produce output, uses rolling chat history.<br/><b>Attachments:</b> Can include images and documents.<br/><b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Document attachments:</b> must have the mime type <code>application/anythingllm-document</code> - otherwise it will be passed to the LLM as an image and may fail to process. This uses the built-in document processor to first parse the document to text before injecting it into the context window.<br/><b>llmOptions (optional):</b> per-request LLM options, only applied by the Generic OpenAI provider (other providers ignore them). Values are not type-converted and not clamped; invalid values return HTTP 400. Supported keys: <code>max_tokens</code> (integer ≥ 1 up to the server ceiling — <code>LLM_REQUEST_MAX_TOKENS_CEILING</code>, otherwise 16384 or the model context window if smaller; overrides the server default; with thinking enabled the reasoning tokens count towards it), <code>top_p</code> (0 &lt; x ≤ 1), <code>temperature</code> (0…2, priority: request → workspace → default), <code>reasoning_effort</code> (<code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>), <code>chat_template_kwargs</code> (flat object with allowed keys only — default <code>enable_thinking</code>, extendable by the server admin via <code>LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST</code>; values boolean/number/string ≤ 256 chars, e.g. <code>enable_thinking: true</code> to enable thinking for Gemma-4 via vLLM). The reasoning is returned as a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block in <code>textResponse</code>.",
           "required": true,
           "content": {
             "application/json": {
@@ -2407,7 +2407,14 @@
                     "contentString": "data:application/pdf;base64,iVBORw0KGgoAAAANSUhEUgAA..."
                   }
                 ],
-                "reset": false
+                "reset": false,
+                "llmOptions": {
+                  "max_tokens": 4096,
+                  "temperature": 0.2,
+                  "chat_template_kwargs": {
+                    "enable_thinking": true
+                  }
+                }
               }
             }
           }
@@ -2495,7 +2502,7 @@
           }
         },
         "requestBody": {
-          "description": "Send a prompt to the workspace and the type of conversation (query or chat).<br/><b>Query:</b> Will not use LLM unless there are relevant sources from vectorDB & does not recall chat history.<br/><b>Chat:</b> Uses LLM general knowledge w/custom embeddings to produce output, uses rolling chat history.<br/><b>Attachments:</b> Can include images and documents.<br/><b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Document attachments:</b> must have the mime type <code>application/anythingllm-document</code> - otherwise it will be passed to the LLM as an image and may fail to process. This uses the built-in document processor to first parse the document to text before injecting it into the context window.",
+          "description": "Send a prompt to the workspace and the type of conversation (query or chat).<br/><b>Query:</b> Will not use LLM unless there are relevant sources from vectorDB & does not recall chat history.<br/><b>Chat:</b> Uses LLM general knowledge w/custom embeddings to produce output, uses rolling chat history.<br/><b>Attachments:</b> Can include images and documents.<br/><b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Document attachments:</b> must have the mime type <code>application/anythingllm-document</code> - otherwise it will be passed to the LLM as an image and may fail to process. This uses the built-in document processor to first parse the document to text before injecting it into the context window.<br/><b>llmOptions (optional):</b> per-request LLM options, only applied by the Generic OpenAI provider (other providers ignore them). Values are not type-converted and not clamped; invalid values return HTTP 400. Supported keys: <code>max_tokens</code> (integer ≥ 1 up to the server ceiling — <code>LLM_REQUEST_MAX_TOKENS_CEILING</code>, otherwise 16384 or the model context window if smaller; overrides the server default; with thinking enabled the reasoning tokens count towards it), <code>top_p</code> (0 &lt; x ≤ 1), <code>temperature</code> (0…2, priority: request → workspace → default), <code>reasoning_effort</code> (<code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>), <code>chat_template_kwargs</code> (flat object with allowed keys only — default <code>enable_thinking</code>, extendable by the server admin via <code>LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST</code>; values boolean/number/string ≤ 256 chars, e.g. <code>enable_thinking: true</code> to enable thinking for Gemma-4 via vLLM). The reasoning is returned as a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block in <code>textResponse</code>.",
           "required": true,
           "content": {
             "application/json": {
@@ -2515,7 +2522,14 @@
                     "contentString": "data:application/pdf;base64,iVBORw0KGgoAAAANSUhEUgAA..."
                   }
                 ],
-                "reset": false
+                "reset": false,
+                "llmOptions": {
+                  "max_tokens": 4096,
+                  "temperature": 0.2,
+                  "chat_template_kwargs": {
+                    "enable_thinking": true
+                  }
+                }
               }
             }
           }
@@ -3262,7 +3276,7 @@
           }
         },
         "requestBody": {
-          "description": "Send a prompt to the workspace thread and the type of conversation (query or chat).",
+          "description": "Send a prompt to the workspace thread and the type of conversation (query or chat).<br/><b>llmOptions (optional):</b> per-request LLM options, only applied by the Generic OpenAI provider (other providers ignore them). Values are not type-converted and not clamped; invalid values return HTTP 400. Supported keys: <code>max_tokens</code> (integer ≥ 1 up to the server ceiling — <code>LLM_REQUEST_MAX_TOKENS_CEILING</code>, otherwise 16384 or the model context window if smaller; overrides the server default; with thinking enabled the reasoning tokens count towards it), <code>top_p</code> (0 &lt; x ≤ 1), <code>temperature</code> (0…2, priority: request → workspace → default), <code>reasoning_effort</code> (<code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>), <code>chat_template_kwargs</code> (flat object with allowed keys only — default <code>enable_thinking</code>, extendable by the server admin via <code>LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST</code>; values boolean/number/string ≤ 256 chars, e.g. <code>enable_thinking: true</code> to enable thinking for Gemma-4 via vLLM). The reasoning is returned as a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block in <code>textResponse</code>.",
           "required": true,
           "content": {
             "application/json": {
@@ -3277,7 +3291,14 @@
                     "contentString": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
                   }
                 ],
-                "reset": false
+                "reset": false,
+                "llmOptions": {
+                  "max_tokens": 4096,
+                  "temperature": 0.2,
+                  "chat_template_kwargs": {
+                    "enable_thinking": true
+                  }
+                }
               }
             }
           }
@@ -3375,7 +3396,7 @@
           }
         },
         "requestBody": {
-          "description": "Send a prompt to the workspace thread and the type of conversation (query or chat).",
+          "description": "Send a prompt to the workspace thread and the type of conversation (query or chat).<br/><b>llmOptions (optional):</b> per-request LLM options, only applied by the Generic OpenAI provider (other providers ignore them). Values are not type-converted and not clamped; invalid values return HTTP 400. Supported keys: <code>max_tokens</code> (integer ≥ 1 up to the server ceiling — <code>LLM_REQUEST_MAX_TOKENS_CEILING</code>, otherwise 16384 or the model context window if smaller; overrides the server default; with thinking enabled the reasoning tokens count towards it), <code>top_p</code> (0 &lt; x ≤ 1), <code>temperature</code> (0…2, priority: request → workspace → default), <code>reasoning_effort</code> (<code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>), <code>chat_template_kwargs</code> (flat object with allowed keys only — default <code>enable_thinking</code>, extendable by the server admin via <code>LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST</code>; values boolean/number/string ≤ 256 chars, e.g. <code>enable_thinking: true</code> to enable thinking for Gemma-4 via vLLM). The reasoning is returned as a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block in <code>textResponse</code>.",
           "required": true,
           "content": {
             "application/json": {
@@ -3395,7 +3416,14 @@
                     "contentString": "data:application/pdf;base64,iVBORw0KGgoAAAANSUhEUgAA..."
                   }
                 ],
-                "reset": false
+                "reset": false,
+                "llmOptions": {
+                  "max_tokens": 4096,
+                  "temperature": 0.2,
+                  "chat_template_kwargs": {
+                    "enable_thinking": true
+                  }
+                }
               }
             }
           }
@@ -3578,7 +3606,7 @@
         "tags": [
           "OpenAI Compatible Endpoints"
         ],
-        "description": "Execute a chat with a workspace using an OpenAI-compatible request shape. Supports streaming.<br><br><b>Required fields</b><ul><li><code>model</code> — workspace slug from <code>/v1/openai/models</code></li><li><code>messages</code> — array of OpenAI-style chat messages</li></ul><b>Multimodal (image description)</b><br>Pass the user message <code>content</code> as an array with a text item and one <code>image_url</code> item. <code>image_url.url</code> accepts either a public <code>https://…</code> URL <b>or</b> an inline <code>data:image/&lt;type&gt;;base64,…</code> data URL. Requires a workspace whose chat model supports vision — e.g. <b>Mistral-Small-3.2-24B</b>, <b>Qwen2-VL</b>, <b>GPT-4o</b>, <b>Claude 3.x</b>. See the request-body examples below for the exact shape.<br><br><b>Limitations</b> (subset of the official OpenAI spec):<ul><li><code>image_url.detail</code> is ignored</li><li>non-image content types (<code>input_audio</code>, <code>file</code>, …) are ignored</li></ul>",
+        "description": "Execute a chat with a workspace using an OpenAI-compatible request shape. Supports streaming.<br><br><b>Required fields</b><ul><li><code>model</code> — workspace slug from <code>/v1/openai/models</code></li><li><code>messages</code> — array of OpenAI-style chat messages</li></ul><b>Multimodal (image description)</b><br>Pass the user message <code>content</code> as an array with a text item and one <code>image_url</code> item. <code>image_url.url</code> accepts either a public <code>https://…</code> URL <b>or</b> an inline <code>data:image/&lt;type&gt;;base64,…</code> data URL. Requires a workspace whose chat model supports vision — e.g. <b>Mistral-Small-3.2-24B</b>, <b>Qwen2-VL</b>, <b>GPT-4o</b>, <b>Claude 3.x</b>. See the request-body examples below for the exact shape.<br><br><b>Limitations</b> (subset of the official OpenAI spec):<ul><li><code>image_url.detail</code> is ignored</li><li>non-image content types (<code>input_audio</code>, <code>file</code>, …) are ignored</li></ul><b>Optional LLM options</b> (flat in the body, like the OpenAI spec; only applied by the Generic OpenAI provider, other providers ignore them). For compatibility with existing OpenAI clients the endpoint is lenient: numbers may be sent as strings, <code>null</code> means \"not set\", and invalid values return HTTP 400 in the OpenAI error shape (<code>error.message</code>, <code>error.type</code> = <code>invalid_request_error</code>, <code>error.param</code>, <code>error.code</code>).<ul><li><code>max_tokens</code> — integer, overrides the server default (<code>GENERIC_OPEN_AI_MAX_TOKENS</code>). Values above the server ceiling (<code>LLM_REQUEST_MAX_TOKENS_CEILING</code>, otherwise 16384 or the model context window if smaller) are clamped to the ceiling; <code>0</code>, negative values (e.g. <code>-1</code> = unlimited) and non-numeric values mean \"not set\"; decimals return HTTP 400. <code>max_completion_tokens</code> is accepted as an alias (if both are sent, <code>max_tokens</code> wins). With thinking enabled the reasoning tokens count towards this limit.</li><li><code>temperature</code> — number 0…2 (priority: request → workspace → 0.7)</li><li><code>top_p</code> — number ≤ 1; values ≤ 0 mean \"not set\", values &gt; 1 return HTTP 400</li><li><code>reasoning_effort</code> — one of <code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code></li><li><code>chat_template_kwargs</code> — flat object with allowed keys only (default <code>enable_thinking</code>, extendable by the server admin via <code>LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST</code>), values boolean/number/string ≤ 256 chars, e.g. <code>{\"enable_thinking\": true}</code> to enable thinking for Gemma-4 via vLLM</li></ul>If thinking is requested (<code>chat_template_kwargs.enable_thinking: true</code> or a <code>reasoning_effort</code> other than <code>none</code>), a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block is returned in <code>message.reasoning_content</code> (streaming: <code>delta.reasoning_content</code>) instead of inside <code>content</code>. Otherwise the response is unchanged. If the model server reports <code>usage.prompt_tokens_details</code> (e.g. <code>cached_tokens</code>), it is passed through in <code>usage</code>.",
         "parameters": [],
         "responses": {
           "200": {
@@ -3637,6 +3665,24 @@
                       {
                         "role": "user",
                         "content": "Follow up question..."
+                      }
+                    ]
+                  }
+                },
+                "thinking_enabled": {
+                  "summary": "Thinking enabled (Gemma-4 via vLLM) with output limit",
+                  "value": {
+                    "model": "sample-workspace",
+                    "stream": false,
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "chat_template_kwargs": {
+                      "enable_thinking": true
+                    },
+                    "messages": [
+                      {
+                        "role": "user",
+                        "content": "Was ist 17*23? Denke kurz nach."
                       }
                     ]
                   }

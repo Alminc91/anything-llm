@@ -101,6 +101,28 @@ async function processDocumentAttachments(attachments = []) {
 }
 
 /**
+ * Baut die Optionen für LLMConnector.getChatCompletion/streamGetChatCompletion.
+ * Temperatur-Priorität: Anfrage (llmOptions.temperature) -> Workspace -> Provider-Default.
+ * Ohne llmOptions ist das Ergebnis identisch zum bisherigen `{ temperature, user }`.
+ * @param {{workspace: Object, LLMConnector: Object, user: Object|null, llmOptions?: Object}} params
+ * @returns {Object}
+ */
+function llmConnectorOptions({
+  workspace,
+  LLMConnector,
+  user,
+  llmOptions = {},
+}) {
+  const { temperature, ...requestOptions } = llmOptions || {};
+  return {
+    temperature:
+      temperature ?? workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+    user: user,
+    ...requestOptions,
+  };
+}
+
+/**
  * Handle synchronous chats with your workspace via the developer API endpoint
  * @param {{
  *  workspace: import("@prisma/client").workspaces,
@@ -111,6 +133,7 @@ async function processDocumentAttachments(attachments = []) {
  *  sessionId: string|null,
  *  attachments: { name: string; mime: string; contentString: string }[],
  *  reset: boolean,
+ *  llmOptions?: import("../helpers/chat/llmRequestOptions").LLMRequestOptions,
  * }} parameters
  * @returns {Promise<ResponseObject>}
  */
@@ -123,6 +146,7 @@ async function chatSync({
   sessionId = null,
   attachments = [],
   reset = false,
+  llmOptions = {}, // Validierte Anfrage-Optionen (body.llmOptions), siehe parseLLMRequestOptions
 }) {
   const uuid = uuidv4();
   const chatMode = mode ?? "chat";
@@ -440,10 +464,10 @@ async function chatSync({
 
   // Send the text completion.
   const { textResponse, metrics: performanceMetrics } =
-    await LLMConnector.getChatCompletion(messages, {
-      temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-      user: user,
-    });
+    await LLMConnector.getChatCompletion(
+      messages,
+      llmConnectorOptions({ workspace, LLMConnector, user, llmOptions })
+    );
 
   if (!textResponse) {
     return {
@@ -502,6 +526,7 @@ async function chatSync({
  *  sessionId: string|null,
  *  attachments: { name: string; mime: string; contentString: string }[],
  *  reset: boolean,
+ *  llmOptions?: import("../helpers/chat/llmRequestOptions").LLMRequestOptions,
  * }} parameters
  * @returns {Promise<VoidFunction>}
  */
@@ -515,6 +540,7 @@ async function streamChat({
   sessionId = null,
   attachments = [],
   reset = false,
+  llmOptions = {}, // Validierte Anfrage-Optionen (body.llmOptions), siehe parseLLMRequestOptions
 }) {
   const uuid = uuidv4();
   const chatMode = mode ?? "chat";
@@ -851,10 +877,10 @@ async function streamChat({
       `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming is not available for ${LLMConnector.constructor.name}. Will use regular chat method.`
     );
     const { textResponse, metrics: performanceMetrics } =
-      await LLMConnector.getChatCompletion(messages, {
-        temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-        user: user,
-      });
+      await LLMConnector.getChatCompletion(
+        messages,
+        llmConnectorOptions({ workspace, LLMConnector, user, llmOptions })
+      );
     completeText = textResponse;
     metrics = performanceMetrics;
     writeResponseChunk(response, {
@@ -867,10 +893,10 @@ async function streamChat({
       metrics,
     });
   } else {
-    const stream = await LLMConnector.streamGetChatCompletion(messages, {
-      temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-      user: user,
-    });
+    const stream = await LLMConnector.streamGetChatCompletion(
+      messages,
+      llmConnectorOptions({ workspace, LLMConnector, user, llmOptions })
+    );
     completeText = await LLMConnector.handleStream(response, stream, { uuid });
     metrics = stream.metrics;
   }
