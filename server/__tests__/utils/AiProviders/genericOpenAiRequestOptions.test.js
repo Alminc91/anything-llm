@@ -156,6 +156,39 @@ describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {
       });
       expect(result.textResponse).toBe("<think>17*23</think>391");
     });
+
+    test("nur reasoning_content, content null (Thinking abgeschnitten): kein 'null'", async () => {
+      const { llm, create } = makeGenericProvider();
+      create.mockResolvedValueOnce({
+        choices: [
+          {
+            finish_reason: "length",
+            message: { content: null, reasoning_content: "17*20=340, 17*3" },
+          },
+        ],
+        usage: {},
+      });
+      const result = await llm.getChatCompletion(messages, {
+        temperature: 0.7,
+        max_tokens: 20,
+        chat_template_kwargs: { enable_thinking: true },
+      });
+      expect(result.textResponse).toBe("<think>17*20=340, 17*3</think>");
+      expect(result.textResponse.endsWith("</think>")).toBe(true);
+      expect(result.textResponse).not.toContain("null");
+    });
+
+    test("ohne reasoning_content bleibt content null wie bisher", async () => {
+      const { llm, create } = makeGenericProvider();
+      create.mockResolvedValueOnce({
+        choices: [{ message: { content: null } }],
+        usage: {},
+      });
+      const result = await llm.getChatCompletion(messages, {
+        temperature: 0.7,
+      });
+      expect(result.textResponse).toBeNull();
+    });
   });
 
   describe("streamGetChatCompletion (Stream)", () => {
@@ -204,6 +237,94 @@ describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {
       expect(body.top_p).toBe(0.5);
       expect(body).not.toHaveProperty("reasoning_effort");
       expect(body).not.toHaveProperty("chat_template_kwargs");
+    });
+  });
+
+  describe("handleStream", () => {
+    function fakeResponse() {
+      const { EventEmitter } = require("events");
+      const res = new EventEmitter();
+      res.write = jest.fn();
+      return res;
+    }
+    function fakeStream(chunks) {
+      return {
+        endMeasurement: jest.fn(),
+        [Symbol.asyncIterator]: async function* () {
+          for (const chunk of chunks) yield chunk;
+        },
+      };
+    }
+    function written(res) {
+      return res.write.mock.calls.map(([raw]) =>
+        JSON.parse(String(raw).slice("data: ".length))
+      );
+    }
+    const reasoningChunk = (text, finish_reason = null) => ({
+      choices: [{ delta: { reasoning_content: text }, finish_reason }],
+    });
+
+    test("nur Reasoning + finish_reason length: <think>…</think> wird zurückgegeben", async () => {
+      const { llm } = makeGenericProvider();
+      const res = fakeResponse();
+      const stream = fakeStream([
+        reasoningChunk("17*20"),
+        reasoningChunk("=340, "),
+        reasoningChunk("17*3", "length"),
+      ]);
+      const text = await llm.handleStream(res, stream, { uuid: "u1" });
+      expect(text).toBe("<think>17*20=340, 17*3</think>");
+      const events = written(res);
+      const streamed = events.map((e) => e.textResponse).join("");
+      expect(streamed).toBe("<think>17*20=340, 17*3</think>");
+      // </think> kommt vor dem close-Chunk, genau ein close-Chunk
+      expect(events[events.length - 1]).toMatchObject({
+        close: true,
+        textResponse: "",
+      });
+      expect(events.filter((e) => e.close)).toHaveLength(1);
+      expect(stream.endMeasurement).toHaveBeenCalledTimes(1);
+    });
+
+    test("nur Reasoning, Stream endet ohne finish_reason: trotzdem abgeschlossen", async () => {
+      const { llm } = makeGenericProvider();
+      const res = fakeResponse();
+      const stream = fakeStream([reasoningChunk("denke"), reasoningChunk("…")]);
+      const text = await llm.handleStream(res, stream, { uuid: "u2" });
+      expect(text).toBe("<think>denke…</think>");
+      const events = written(res);
+      expect(events.filter((e) => e.close)).toHaveLength(1);
+      expect(stream.endMeasurement).toHaveBeenCalledTimes(1);
+    });
+
+    test("Reasoning gefolgt von Content: unverändert wie bisher", async () => {
+      const { llm } = makeGenericProvider();
+      const res = fakeResponse();
+      const stream = fakeStream([
+        reasoningChunk("17*23"),
+        { choices: [{ delta: { content: "39" }, finish_reason: null }] },
+        { choices: [{ delta: { content: "1" }, finish_reason: "stop" }] },
+      ]);
+      const text = await llm.handleStream(res, stream, { uuid: "u3" });
+      expect(text).toBe("<think>17*23</think>391");
+      const streamed = written(res)
+        .map((e) => e.textResponse)
+        .join("");
+      expect(streamed).toBe("<think>17*23</think>391");
+      expect(
+        written(res).filter((e) => e.textResponse === "</think>")
+      ).toHaveLength(1);
+    });
+
+    test("ohne Reasoning: unverändert wie bisher", async () => {
+      const { llm } = makeGenericProvider();
+      const res = fakeResponse();
+      const stream = fakeStream([
+        { choices: [{ delta: { content: "391" }, finish_reason: "stop" }] },
+      ]);
+      const text = await llm.handleStream(res, stream, { uuid: "u4" });
+      expect(text).toBe("391");
+      expect(written(res).map((e) => e.textResponse)).toEqual(["391", ""]);
     });
   });
 

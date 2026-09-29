@@ -203,7 +203,9 @@ class GenericOpenAiLLM {
       !!message?.reasoning_content &&
       message.reasoning_content.trim().length > 0
     )
-      textResponse = `<think>${message.reasoning_content}</think>${textResponse}`;
+      // content kann null sein, wenn das Thinking durch max_tokens
+      // abgeschnitten wurde (finish_reason "length") – dann kein "null" anhängen.
+      textResponse = `<think>${message.reasoning_content}</think>${textResponse ?? ""}`;
     return textResponse;
   }
 
@@ -330,12 +332,54 @@ class GenericOpenAiLLM {
     return new Promise(async (resolve) => {
       let fullText = "";
       let reasoningText = "";
+      let finished = false;
+
+      // Kufer-Fork: Wurde nur Reasoning gestreamt (z. B. Thinking durch
+      // max_tokens abgeschnitten, finish_reason "length"), ist der <think>-Block
+      // noch offen und fullText leer. Beim Abschluss den Block schließen und
+      // in fullText übernehmen, damit der Chat vollständig gespeichert wird.
+      const closeOpenReasoning = ({ emit = true } = {}) => {
+        if (!reasoningText) return;
+        if (emit)
+          writeResponseChunk(response, {
+            uuid,
+            sources: [],
+            type: "textResponseChunk",
+            textResponse: `</think>`,
+            close: false,
+            error: false,
+          });
+        fullText += `${reasoningText}</think>`;
+        reasoningText = "";
+      };
+
+      // Regulärer Abschluss (finish_reason oder Stream-Ende ohne finish_reason).
+      const finish = (lastChunk = null) => {
+        if (finished) return;
+        finished = true;
+        closeOpenReasoning();
+        writeResponseChunk(response, {
+          uuid,
+          sources,
+          type: "textResponseChunk",
+          textResponse: "",
+          close: true,
+          error: false,
+        });
+        if (lastChunk) this.#extractLlamaCppTimings(lastChunk, usage);
+
+        response.removeListener("close", handleAbort);
+        stream?.endMeasurement(usage);
+        resolve(fullText);
+      };
 
       // Establish listener to early-abort a streaming response
       // in case things go sideways or the user does not like the response.
       // We preserve the generated text but continue as if chat was completed
       // to preserve previously generated content.
       const handleAbort = () => {
+        finished = true;
+        closeOpenReasoning({ emit: false });
         stream?.endMeasurement(usage);
         clientAbortedHandler(resolve, fullText);
       };
@@ -424,23 +468,16 @@ class GenericOpenAiLLM {
             message.finish_reason !== "" &&
             message.finish_reason !== null
           ) {
-            writeResponseChunk(response, {
-              uuid,
-              sources,
-              type: "textResponseChunk",
-              textResponse: "",
-              close: true,
-              error: false,
-            });
-            this.#extractLlamaCppTimings(chunk, usage);
-
-            response.removeListener("close", handleAbort);
-            stream?.endMeasurement(usage);
-            resolve(fullText);
+            finish(chunk);
             break; // Break streaming when a valid finish_reason is first encountered
           }
         }
+        // Stream endete ohne finish_reason: trotzdem sauber abschließen.
+        finish();
       } catch (e) {
+        if (finished) return;
+        finished = true;
+        closeOpenReasoning({ emit: false });
         console.log(`\x1b[43m\x1b[34m[STREAMING ERROR]\x1b[0m ${e.message}`);
         writeResponseChunk(response, {
           uuid,
