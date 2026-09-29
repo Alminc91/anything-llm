@@ -22,6 +22,9 @@ const {
 const {
   WorkspaceMessageAdjustments,
 } = require("../../../models/workspaceMessageAdjustments");
+const {
+  parseLLMRequestOptions,
+} = require("../../../utils/helpers/chat/llmRequestOptions");
 
 /**
  * Builds the standardized quota/limit payload for a workspace.
@@ -164,7 +167,7 @@ function apiOpenAICompatibleEndpoints(app) {
     async (request, response) => {
       /*
       #swagger.tags = ['OpenAI Compatible Endpoints']
-      #swagger.description = 'Execute a chat with a workspace using an OpenAI-compatible request shape. Supports streaming.<br><br><b>Required fields</b><ul><li><code>model</code> — workspace slug from <code>/v1/openai/models</code></li><li><code>messages</code> — array of OpenAI-style chat messages</li></ul><b>Multimodal (image description)</b><br>Pass the user message <code>content</code> as an array with a text item and one <code>image_url</code> item. <code>image_url.url</code> accepts either a public <code>https://…</code> URL <b>or</b> an inline <code>data:image/&lt;type&gt;;base64,…</code> data URL. Requires a workspace whose chat model supports vision — e.g. <b>Mistral-Small-3.2-24B</b>, <b>Qwen2-VL</b>, <b>GPT-4o</b>, <b>Claude 3.x</b>. See the request-body examples below for the exact shape.<br><br><b>Limitations</b> (subset of the official OpenAI spec):<ul><li><code>image_url.detail</code> is ignored</li><li>non-image content types (<code>input_audio</code>, <code>file</code>, …) are ignored</li></ul>'
+      #swagger.description = 'Execute a chat with a workspace using an OpenAI-compatible request shape. Supports streaming.<br><br><b>Required fields</b><ul><li><code>model</code> — workspace slug from <code>/v1/openai/models</code></li><li><code>messages</code> — array of OpenAI-style chat messages</li></ul><b>Multimodal (image description)</b><br>Pass the user message <code>content</code> as an array with a text item and one <code>image_url</code> item. <code>image_url.url</code> accepts either a public <code>https://…</code> URL <b>or</b> an inline <code>data:image/&lt;type&gt;;base64,…</code> data URL. Requires a workspace whose chat model supports vision — e.g. <b>Mistral-Small-3.2-24B</b>, <b>Qwen2-VL</b>, <b>GPT-4o</b>, <b>Claude 3.x</b>. See the request-body examples below for the exact shape.<br><br><b>Limitations</b> (subset of the official OpenAI spec):<ul><li><code>image_url.detail</code> is ignored</li><li>non-image content types (<code>input_audio</code>, <code>file</code>, …) are ignored</li></ul><b>Optional LLM options</b> (flat in the body, like the OpenAI spec; only applied by the Generic OpenAI provider, other providers ignore them; invalid values return HTTP 400):<ul><li><code>max_tokens</code> — integer 1…1000000, overrides the server default (<code>GENERIC_OPEN_AI_MAX_TOKENS</code>). With thinking enabled the reasoning tokens count towards this limit.</li><li><code>top_p</code> — number, 0 &lt; x ≤ 1</li><li><code>reasoning_effort</code> — one of <code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code></li><li><code>chat_template_kwargs</code> — flat object (max. 10 keys, key pattern <code>^[A-Za-z_][A-Za-z0-9_]{0,63}$</code>, values boolean/number/string ≤ 256 chars), e.g. <code>{"enable_thinking": true}</code> to enable thinking for Gemma-4 via vLLM</li></ul>If <code>reasoning_effort</code> or <code>chat_template_kwargs</code> is sent, a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block is returned in <code>message.reasoning_content</code> (streaming: <code>delta.reasoning_content</code>) instead of inside <code>content</code>. Without these fields the response is unchanged.'
       #swagger.requestBody = {
           description: 'Send a prompt to the workspace with full use of documents as if sending a chat in AnythingLLM. The dropdown below offers ready-to-use payloads for plain text, image description via URL, and image description via base64.',
           required: true,
@@ -182,6 +185,19 @@ function apiOpenAICompatibleEndpoints(app) {
                       { role: "user", content: "What is AnythingLLM?" },
                       { role: "assistant", content: "AnythingLLM is...." },
                       { role: "user", content: "Follow up question..." }
+                    ]
+                  }
+                },
+                thinking_enabled: {
+                  summary: "Thinking enabled (Gemma-4 via vLLM) with output limit",
+                  value: {
+                    model: "sample-workspace",
+                    stream: false,
+                    temperature: 0.7,
+                    max_tokens: 4096,
+                    chat_template_kwargs: { enable_thinking: true },
+                    messages: [
+                      { role: "user", content: "Was ist 17*23? Denke kurz nach." }
                     ]
                   }
                 },
@@ -230,12 +246,26 @@ function apiOpenAICompatibleEndpoints(app) {
       }
       */
       try {
-        const {
-          model,
-          messages = [],
-          temperature,
-          stream = false,
-        } = reqBody(request);
+        const body = reqBody(request);
+        const { model, messages = [], temperature, stream = false } = body;
+
+        // Optionale LLM-Optionen (flach im Body wie im OpenAI-Standard).
+        // temperature wird hier weiterhin wie bisher behandelt (s. u.).
+        const parsedLLMOptions = parseLLMRequestOptions(body, {
+          allowTemperature: false,
+        });
+        if (!parsedLLMOptions.ok) {
+          return response.status(400).json({
+            id: uuidv4(),
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: parsedLLMOptions.error,
+          });
+        }
+        const llmOptions = parsedLLMOptions.options;
+
         const workspace = await Workspace.get({ slug: String(model) });
         if (!workspace) return response.status(401).end();
 
@@ -259,25 +289,27 @@ function apiOpenAICompatibleEndpoints(app) {
         const history = messages.filter((chat) => chat.role !== "system") ?? [];
 
         // Determine final temperature: Priority is request -> workspace -> 0.7
-        const finalTemperature = temperature !== undefined && temperature !== null
-          ? Number(temperature)
-          : workspace?.openAiTemp ?? 0.7;
+        const finalTemperature =
+          temperature !== undefined && temperature !== null
+            ? Number(temperature)
+            : workspace?.openAiTemp ?? 0.7;
 
         // Get message limit info using the helper function
         const { getMessageLimitInfo } = require("../../../utils/helpers");
-        const { messageCount, messagesLimit } = await getMessageLimitInfo(workspace);
-        
+        const { messageCount, messagesLimit } =
+          await getMessageLimitInfo(workspace);
+
         if (!stream) {
           const chatResult = await OpenAICompatibleChat.chatSync({
             messagesLimit, // Pass down for contingent
-            messageCount, // Pass down for contingent 
+            messageCount, // Pass down for contingent
             workspace,
             systemPrompt,
             history,
             prompt: extractTextContent(userMessage.content),
             attachments: extractAttachments(userMessage.content),
             temperature: finalTemperature,
-
+            llmOptions,
           });
 
           await Telemetry.sendTelemetry("sent_chat", {
@@ -293,7 +325,7 @@ function apiOpenAICompatibleEndpoints(app) {
           });
           // Add finalTemperature to the response
           chatResult.finalTemperature = finalTemperature;
-          
+
           // Check if the result contains a specific HTTP status code flag
           if (chatResult.httpStatusCode) {
             // Use the specified status code (like 429 for rate limiting)
@@ -321,6 +353,7 @@ function apiOpenAICompatibleEndpoints(app) {
           prompt: extractTextContent(userMessage.content),
           attachments: extractAttachments(userMessage.content),
           temperature: finalTemperature,
+          llmOptions,
           response,
         });
         await Telemetry.sendTelemetry("sent_chat", {

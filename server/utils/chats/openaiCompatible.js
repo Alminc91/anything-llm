@@ -9,6 +9,12 @@ const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
 const {
   startMetadataFilterResolution,
 } = require("./metadataFilterResolver");
+const {
+  withLLMRequestOptions,
+  shouldSeparateReasoning,
+  splitThinkBlock,
+  ThinkBlockSplitter,
+} = require("../helpers/chat/llmRequestOptions");
 
 const { PassThrough } = require("stream");
 
@@ -21,6 +27,7 @@ async function chatSync({
   temperature = null,
   messagesLimit, // Added: workspace messages limit (can be null)
   messageCount, // Added: Needed for contingent
+  llmOptions = {}, // Validierte Anfrage-Optionen, siehe parseLLMRequestOptions
 }) {
   const uuid = uuidv4();
   const chatMode = workspace?.chatMode ?? "chat";
@@ -262,10 +269,13 @@ async function chatSync({
   // Send the text completion.
   const { textResponse, metrics } = await LLMConnector.getChatCompletion(
     messages,
-    {
-      temperature:
-        temperature ?? workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-    }
+    withLLMRequestOptions(
+      {
+        temperature:
+          temperature ?? workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+      },
+      llmOptions
+    )
   );
 
   if (!textResponse) {
@@ -310,7 +320,7 @@ async function chatSync({
   const { messageCount: updatedCount, messagesLimit: updatedLimit } =
     await getMessageLimitInfo(workspace);
 
-  return formatJSON(
+  const result = formatJSON(
     {
       id: uuid,
       type: "textResponse",
@@ -328,6 +338,11 @@ async function chatSync({
       messagesLimit: updatedLimit,
     }
   );
+  // Nur für die API-Antwort: Reasoning in message.reasoning_content auslagern.
+  // Der gespeicherte Chat-Verlauf (WorkspaceChats) bleibt unverändert.
+  if (shouldSeparateReasoning(llmOptions))
+    separateReasoningInMessage(result.choices?.[0]?.message);
+  return result;
 }
 
 async function streamChat({
@@ -341,6 +356,7 @@ async function streamChat({
   attachments = [],
   temperature = null,
   finalTemperature = null,
+  llmOptions = {}, // Validierte Anfrage-Optionen, siehe parseLLMRequestOptions
 }) {
   const uuid = uuidv4();
   const chatMode = workspace?.chatMode ?? "chat";
@@ -410,6 +426,11 @@ async function streamChat({
   // The chunk is coming in the format from `writeResponseChunk` but in the AnythingLLM
   // response chunk schema, so we here we mutate each chunk.
   const responseInterceptor = new PassThrough({});
+  // Nur wenn der Aufrufer Reasoning-Optionen geschickt hat: <think>-Block
+  // statt in delta.content in delta.reasoning_content ausgeben.
+  const reasoningSplitter = shouldSeparateReasoning(llmOptions)
+    ? new ThinkBlockSplitter()
+    : null;
   responseInterceptor.on("data", (chunk) => {
     try {
       const originalData = JSON.parse(chunk.toString().split("data: ")[1]);
@@ -420,6 +441,12 @@ async function streamChat({
         messagesLimit, // Pass down for contingent
         finalTemperature, // Pass finalTemperature to the formatter
       }); // rewrite to OpenAI format
+      if (reasoningSplitter)
+        separateReasoningInDelta(
+          modified.choices?.[0]?.delta,
+          reasoningSplitter,
+          originalData?.close === true
+        );
       response.write(`data: ${JSON.stringify(modified)}\n\n`);
     } catch (e) {
       console.error(e);
@@ -615,10 +642,16 @@ async function streamChat({
     return;
   }
 
-  const stream = await LLMConnector.streamGetChatCompletion(messages, {
-    temperature:
-      temperature ?? workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-  });
+  const stream = await LLMConnector.streamGetChatCompletion(
+    messages,
+    withLLMRequestOptions(
+      {
+        temperature:
+          temperature ?? workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+      },
+      llmOptions
+    )
+  );
   const completeText = await LLMConnector.handleStream(
     responseInterceptor,
     stream,
@@ -696,6 +729,42 @@ async function streamChat({
     )
   );
   return;
+}
+
+/**
+ * Lagert einen führenden <think>…</think>-Block aus `message.content` in
+ * `message.reasoning_content` aus (mutiert `message`). Ohne think-Block
+ * bleibt die Nachricht unverändert.
+ * @param {{content: string|null}|undefined} message
+ */
+function separateReasoningInMessage(message) {
+  if (!message || typeof message.content !== "string") return;
+  const { reasoning, content } = splitThinkBlock(message.content);
+  message.content = content;
+  if (reasoning.length > 0) message.reasoning_content = reasoning;
+}
+
+/**
+ * Stream-Variante: verteilt den Text eines Chunks per `splitter` auf
+ * `delta.content` und `delta.reasoning_content` (mutiert `delta`).
+ * Beim letzten Chunk (`isFinal`) wird gepufferter Text mit ausgegeben.
+ * @param {{content: string|null}|undefined} delta
+ * @param {ThinkBlockSplitter} splitter
+ * @param {boolean} isFinal
+ */
+function separateReasoningInDelta(delta, splitter, isFinal = false) {
+  if (!delta) return;
+  const hasText = typeof delta.content === "string";
+  const part = hasText
+    ? splitter.push(delta.content)
+    : { reasoning: "", content: "" };
+  if (isFinal) {
+    const rest = splitter.flush();
+    part.reasoning += rest.reasoning;
+    part.content += rest.content;
+  }
+  if (hasText || part.content.length > 0) delta.content = part.content;
+  if (part.reasoning.length > 0) delta.reasoning_content = part.reasoning;
 }
 
 function formatJSON(

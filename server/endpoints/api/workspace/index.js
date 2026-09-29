@@ -14,6 +14,9 @@ const {
   writeResponseChunk,
 } = require("../../../utils/helpers/chat/responses");
 const { ApiChatHandler } = require("../../../utils/chats/apiChatHandler");
+const {
+  parseLLMRequestOptions,
+} = require("../../../utils/helpers/chat/llmRequestOptions");
 const { getModelTag } = require("../../utils");
 
 function apiWorkspaceEndpoints(app) {
@@ -630,7 +633,7 @@ function apiWorkspaceEndpoints(app) {
    #swagger.tags = ['Workspaces']
    #swagger.description = 'Execute a chat with a workspace'
    #swagger.requestBody = {
-       description: 'Send a prompt to the workspace and the type of conversation (query or chat).<br/><b>Query:</b> Will not use LLM unless there are relevant sources from vectorDB & does not recall chat history.<br/><b>Chat:</b> Uses LLM general knowledge w/custom embeddings to produce output, uses rolling chat history.<br/><b>Attachments:</b> Can include images and documents.<br/><b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Document attachments:</b> must have the mime type <code>application/anythingllm-document</code> - otherwise it will be passed to the LLM as an image and may fail to process. This uses the built-in document processor to first parse the document to text before injecting it into the context window.',
+       description: 'Send a prompt to the workspace and the type of conversation (query or chat).<br/><b>Query:</b> Will not use LLM unless there are relevant sources from vectorDB & does not recall chat history.<br/><b>Chat:</b> Uses LLM general knowledge w/custom embeddings to produce output, uses rolling chat history.<br/><b>Attachments:</b> Can include images and documents.<br/><b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Document attachments:</b> must have the mime type <code>application/anythingllm-document</code> - otherwise it will be passed to the LLM as an image and may fail to process. This uses the built-in document processor to first parse the document to text before injecting it into the context window.<br/><b>llmOptions (optional):</b> per-request LLM options, only applied by the Generic OpenAI provider (other providers ignore them). Invalid values return HTTP 400. Supported keys: <code>max_tokens</code> (integer 1…1000000, overrides the server default; with thinking enabled the reasoning tokens count towards it), <code>top_p</code> (0 &lt; x ≤ 1), <code>temperature</code> (0…2, priority: request → workspace → default), <code>reasoning_effort</code> (<code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>), <code>chat_template_kwargs</code> (flat object, max. 10 keys, values boolean/number/string ≤ 256 chars, e.g. <code>enable_thinking: true</code> to enable thinking for Gemma-4 via vLLM). The reasoning is returned as a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block in <code>textResponse</code>.',
        required: true,
        content: {
          "application/json": {
@@ -650,7 +653,12 @@ function apiWorkspaceEndpoints(app) {
                  contentString: "data:application/pdf;base64,iVBORw0KGgoAAAANSUhEUgAA..."
                }
              ],
-             reset: false
+             reset: false,
+             llmOptions: {
+               max_tokens: 4096,
+               temperature: 0.2,
+               chat_template_kwargs: { enable_thinking: true }
+             }
            }
          }
        }
@@ -686,6 +694,7 @@ function apiWorkspaceEndpoints(app) {
           sessionId = null,
           attachments = [],
           reset = false,
+          llmOptions: rawLLMOptions,
         } = reqBody(request);
         const workspace = await Workspace.get({ slug: String(slug) });
 
@@ -717,6 +726,22 @@ function apiWorkspaceEndpoints(app) {
           return;
         }
 
+        const parsedLLMOptions = parseLLMRequestOptions(rawLLMOptions, {
+          allowTemperature: true,
+          fieldPrefix: "llmOptions.",
+        });
+        if (!parsedLLMOptions.ok) {
+          response.status(400).json({
+            id: uuidv4(),
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: parsedLLMOptions.error,
+          });
+          return;
+        }
+
         const result = await ApiChatHandler.chatSync({
           workspace,
           message,
@@ -726,6 +751,7 @@ function apiWorkspaceEndpoints(app) {
           sessionId: !!sessionId ? String(sessionId) : null,
           attachments,
           reset,
+          llmOptions: parsedLLMOptions.options,
         });
 
         await Telemetry.sendTelemetry("sent_chat", {
@@ -778,7 +804,7 @@ function apiWorkspaceEndpoints(app) {
    #swagger.tags = ['Workspaces']
    #swagger.description = 'Execute a streamable chat with a workspace'
    #swagger.requestBody = {
-       description: 'Send a prompt to the workspace and the type of conversation (query or chat).<br/><b>Query:</b> Will not use LLM unless there are relevant sources from vectorDB & does not recall chat history.<br/><b>Chat:</b> Uses LLM general knowledge w/custom embeddings to produce output, uses rolling chat history.<br/><b>Attachments:</b> Can include images and documents.<br/><b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Document attachments:</b> must have the mime type <code>application/anythingllm-document</code> - otherwise it will be passed to the LLM as an image and may fail to process. This uses the built-in document processor to first parse the document to text before injecting it into the context window.',
+       description: 'Send a prompt to the workspace and the type of conversation (query or chat).<br/><b>Query:</b> Will not use LLM unless there are relevant sources from vectorDB & does not recall chat history.<br/><b>Chat:</b> Uses LLM general knowledge w/custom embeddings to produce output, uses rolling chat history.<br/><b>Attachments:</b> Can include images and documents.<br/><b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Document attachments:</b> must have the mime type <code>application/anythingllm-document</code> - otherwise it will be passed to the LLM as an image and may fail to process. This uses the built-in document processor to first parse the document to text before injecting it into the context window.<br/><b>llmOptions (optional):</b> per-request LLM options, only applied by the Generic OpenAI provider (other providers ignore them). Invalid values return HTTP 400. Supported keys: <code>max_tokens</code> (integer 1…1000000, overrides the server default; with thinking enabled the reasoning tokens count towards it), <code>top_p</code> (0 &lt; x ≤ 1), <code>temperature</code> (0…2, priority: request → workspace → default), <code>reasoning_effort</code> (<code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>), <code>chat_template_kwargs</code> (flat object, max. 10 keys, values boolean/number/string ≤ 256 chars, e.g. <code>enable_thinking: true</code> to enable thinking for Gemma-4 via vLLM). The reasoning is returned as a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block in <code>textResponse</code>.',
        required: true,
        content: {
          "application/json": {
@@ -798,7 +824,12 @@ function apiWorkspaceEndpoints(app) {
                  contentString: "data:application/pdf;base64,iVBORw0KGgoAAAANSUhEUgAA..."
                }
              ],
-             reset: false
+             reset: false,
+             llmOptions: {
+               max_tokens: 4096,
+               temperature: 0.2,
+               chat_template_kwargs: { enable_thinking: true }
+             }
            }
          }
        }
@@ -855,6 +886,7 @@ function apiWorkspaceEndpoints(app) {
           sessionId = null,
           attachments = [],
           reset = false,
+          llmOptions: rawLLMOptions,
         } = reqBody(request);
         const workspace = await Workspace.get({ slug: String(slug) });
 
@@ -886,6 +918,22 @@ function apiWorkspaceEndpoints(app) {
           return;
         }
 
+        const parsedLLMOptions = parseLLMRequestOptions(rawLLMOptions, {
+          allowTemperature: true,
+          fieldPrefix: "llmOptions.",
+        });
+        if (!parsedLLMOptions.ok) {
+          response.status(400).json({
+            id: uuidv4(),
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: parsedLLMOptions.error,
+          });
+          return;
+        }
+
         response.setHeader("Cache-Control", "no-cache");
         response.setHeader("Content-Type", "text/event-stream");
         response.setHeader("Access-Control-Allow-Origin", "*");
@@ -902,6 +950,7 @@ function apiWorkspaceEndpoints(app) {
           sessionId: !!sessionId ? String(sessionId) : null,
           attachments,
           reset,
+          llmOptions: parsedLLMOptions.options,
         });
         await Telemetry.sendTelemetry("sent_chat", {
           LLMSelection:
