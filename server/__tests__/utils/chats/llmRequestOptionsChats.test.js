@@ -142,14 +142,14 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
     await OpenAICompatibleChat.chatSync({
       ...baseArgs(),
       llmOptions: {
-        maxTokens: 4096,
-        chatTemplateKwargs: { enable_thinking: true },
+        max_tokens: 4096,
+        chat_template_kwargs: { enable_thinking: true },
       },
     });
     expect(connector.getChatCompletion.mock.calls[0][1]).toEqual({
       temperature: 0.7,
-      maxTokens: 4096,
-      chatTemplateKwargs: { enable_thinking: true },
+      max_tokens: 4096,
+      chat_template_kwargs: { enable_thinking: true },
     });
   });
 
@@ -158,12 +158,12 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
     await OpenAICompatibleChat.streamChat({
       ...baseArgs(),
       response,
-      llmOptions: { topP: 0.5, reasoningEffort: "high" },
+      llmOptions: { top_p: 0.5, reasoning_effort: "high" },
     });
     expect(connector.streamGetChatCompletion.mock.calls[0][1]).toEqual({
       temperature: 0.7,
-      topP: 0.5,
-      reasoningEffort: "high",
+      top_p: 0.5,
+      reasoning_effort: "high",
     });
   });
 
@@ -186,7 +186,7 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
     test("ohne Reasoning-Optionen bleibt content unverändert (inkl. <think>)", async () => {
       const result = await OpenAICompatibleChat.chatSync({
         ...baseArgs(),
-        llmOptions: { maxTokens: 100 },
+        llmOptions: { max_tokens: 100 },
       });
       const message = result.choices[0].message;
       expect(message.content).toBe("<think>17*20=340, 17*3=51</think>391");
@@ -196,7 +196,7 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
     test("mit chat_template_kwargs: reasoning_content getrennt, DB unverändert", async () => {
       const result = await OpenAICompatibleChat.chatSync({
         ...baseArgs(),
-        llmOptions: { chatTemplateKwargs: { enable_thinking: true } },
+        llmOptions: { chat_template_kwargs: { enable_thinking: true } },
       });
       const message = result.choices[0].message;
       expect(message.content).toBe("391");
@@ -210,6 +210,59 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
       );
     });
 
+    test.each([
+      [
+        "enable_thinking: false",
+        { chat_template_kwargs: { enable_thinking: false } },
+      ],
+      ["leere kwargs", { chat_template_kwargs: {} }],
+      ["reasoning_effort: none", { reasoning_effort: "none" }],
+    ])(
+      "%s: Antwortform unverändert (kein reasoning_content)",
+      async (_label, llmOptions) => {
+        const result = await OpenAICompatibleChat.chatSync({
+          ...baseArgs(),
+          llmOptions,
+        });
+        const message = result.choices[0].message;
+        expect(message.content).toBe("<think>17*20=340, 17*3=51</think>391");
+        expect(message).not.toHaveProperty("reasoning_content");
+      }
+    );
+
+    test("mit reasoning_effort low: reasoning_content getrennt", async () => {
+      const result = await OpenAICompatibleChat.chatSync({
+        ...baseArgs(),
+        llmOptions: { reasoning_effort: "low" },
+      });
+      expect(result.choices[0].message.content).toBe("391");
+      expect(result.choices[0].message.reasoning_content).toBe(
+        "17*20=340, 17*3=51"
+      );
+    });
+
+    test("nur Reasoning (abgeschnitten): content leer, reasoning_content gefüllt, gespeichert", async () => {
+      connector.getChatCompletion.mockResolvedValue({
+        textResponse: "<think>17*20=340, 17*3</think>",
+        metrics: {},
+      });
+      const result = await OpenAICompatibleChat.chatSync({
+        ...baseArgs(),
+        llmOptions: { chat_template_kwargs: { enable_thinking: true } },
+      });
+      expect(result.choices[0].message.content).toBe("");
+      expect(result.choices[0].message.reasoning_content).toBe(
+        "17*20=340, 17*3"
+      );
+      expect(WorkspaceChats.new).toHaveBeenCalledWith(
+        expect.objectContaining({
+          response: expect.objectContaining({
+            text: "<think>17*20=340, 17*3</think>",
+          }),
+        })
+      );
+    });
+
     test("mit reasoning_effort, aber ohne think-Block: keine Änderung", async () => {
       connector.getChatCompletion.mockResolvedValue({
         textResponse: "391",
@@ -217,7 +270,7 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
       });
       const result = await OpenAICompatibleChat.chatSync({
         ...baseArgs(),
-        llmOptions: { reasoningEffort: "none" },
+        llmOptions: { reasoning_effort: "high" },
       });
       expect(result.choices[0].message.content).toBe("391");
       expect(result.choices[0].message).not.toHaveProperty("reasoning_content");
@@ -275,9 +328,22 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
       ).toBe(false);
     });
 
+    test("mit enable_thinking: false: delta.content wie bisher", async () => {
+      const events = await runStream({
+        chat_template_kwargs: { enable_thinking: false },
+      });
+      const content = events
+        .map((e) => e.choices[0].delta.content ?? "")
+        .join("");
+      expect(content).toBe("<think>17*20=340</think>391");
+      expect(
+        events.some((e) => "reasoning_content" in e.choices[0].delta)
+      ).toBe(false);
+    });
+
     test("mit chat_template_kwargs: delta.reasoning_content getrennt", async () => {
       const events = await runStream({
-        chatTemplateKwargs: { enable_thinking: true },
+        chat_template_kwargs: { enable_thinking: true },
       });
       const content = events
         .map((e) => e.choices[0].delta.content ?? "")
@@ -348,19 +414,19 @@ describe("ApiChatHandler – llmOptions am workspace/chat-Pfad", () => {
     await ApiChatHandler.chatSync({
       ...baseArgs(),
       llmOptions: {
-        maxTokens: 4096,
-        topP: 0.9,
-        reasoningEffort: "low",
-        chatTemplateKwargs: { enable_thinking: true },
+        max_tokens: 4096,
+        top_p: 0.9,
+        reasoning_effort: "low",
+        chat_template_kwargs: { enable_thinking: true },
       },
     });
     expect(connector.getChatCompletion.mock.calls[0][1]).toEqual({
       temperature: 1.0,
       user: null,
-      maxTokens: 4096,
-      topP: 0.9,
-      reasoningEffort: "low",
-      chatTemplateKwargs: { enable_thinking: true },
+      max_tokens: 4096,
+      top_p: 0.9,
+      reasoning_effort: "low",
+      chat_template_kwargs: { enable_thinking: true },
     });
   });
 
@@ -369,12 +435,12 @@ describe("ApiChatHandler – llmOptions am workspace/chat-Pfad", () => {
     await ApiChatHandler.streamChat({
       ...baseArgs(),
       response,
-      llmOptions: { temperature: 0.1, maxTokens: 512 },
+      llmOptions: { temperature: 0.1, max_tokens: 512 },
     });
     expect(connector.streamGetChatCompletion.mock.calls[0][1]).toEqual({
       temperature: 0.1,
       user: null,
-      maxTokens: 512,
+      max_tokens: 512,
     });
   });
 
@@ -393,13 +459,13 @@ describe("ApiChatHandler – llmOptions am workspace/chat-Pfad", () => {
     await ApiChatHandler.streamChat({
       ...baseArgs(),
       response,
-      llmOptions: { chatTemplateKwargs: { enable_thinking: true } },
+      llmOptions: { chat_template_kwargs: { enable_thinking: true } },
     });
     expect(connector.streamGetChatCompletion).not.toHaveBeenCalled();
     expect(connector.getChatCompletion.mock.calls[0][1]).toEqual({
       temperature: 1.0,
       user: null,
-      chatTemplateKwargs: { enable_thinking: true },
+      chat_template_kwargs: { enable_thinking: true },
     });
   });
 });

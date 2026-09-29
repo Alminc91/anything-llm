@@ -23,7 +23,7 @@ const {
   WorkspaceMessageAdjustments,
 } = require("../../../models/workspaceMessageAdjustments");
 const {
-  parseLLMRequestOptions,
+  parseLLMRequestOptionsForWorkspace,
 } = require("../../../utils/helpers/chat/llmRequestOptions");
 
 /**
@@ -167,7 +167,7 @@ function apiOpenAICompatibleEndpoints(app) {
     async (request, response) => {
       /*
       #swagger.tags = ['OpenAI Compatible Endpoints']
-      #swagger.description = 'Execute a chat with a workspace using an OpenAI-compatible request shape. Supports streaming.<br><br><b>Required fields</b><ul><li><code>model</code> — workspace slug from <code>/v1/openai/models</code></li><li><code>messages</code> — array of OpenAI-style chat messages</li></ul><b>Multimodal (image description)</b><br>Pass the user message <code>content</code> as an array with a text item and one <code>image_url</code> item. <code>image_url.url</code> accepts either a public <code>https://…</code> URL <b>or</b> an inline <code>data:image/&lt;type&gt;;base64,…</code> data URL. Requires a workspace whose chat model supports vision — e.g. <b>Mistral-Small-3.2-24B</b>, <b>Qwen2-VL</b>, <b>GPT-4o</b>, <b>Claude 3.x</b>. See the request-body examples below for the exact shape.<br><br><b>Limitations</b> (subset of the official OpenAI spec):<ul><li><code>image_url.detail</code> is ignored</li><li>non-image content types (<code>input_audio</code>, <code>file</code>, …) are ignored</li></ul><b>Optional LLM options</b> (flat in the body, like the OpenAI spec; only applied by the Generic OpenAI provider, other providers ignore them; invalid values return HTTP 400):<ul><li><code>max_tokens</code> — integer 1…1000000, overrides the server default (<code>GENERIC_OPEN_AI_MAX_TOKENS</code>). With thinking enabled the reasoning tokens count towards this limit.</li><li><code>top_p</code> — number, 0 &lt; x ≤ 1</li><li><code>reasoning_effort</code> — one of <code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code></li><li><code>chat_template_kwargs</code> — flat object (max. 10 keys, key pattern <code>^[A-Za-z_][A-Za-z0-9_]{0,63}$</code>, values boolean/number/string ≤ 256 chars), e.g. <code>{"enable_thinking": true}</code> to enable thinking for Gemma-4 via vLLM</li></ul>If <code>reasoning_effort</code> or <code>chat_template_kwargs</code> is sent, a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block is returned in <code>message.reasoning_content</code> (streaming: <code>delta.reasoning_content</code>) instead of inside <code>content</code>. Without these fields the response is unchanged.'
+      #swagger.description = 'Execute a chat with a workspace using an OpenAI-compatible request shape. Supports streaming.<br><br><b>Required fields</b><ul><li><code>model</code> — workspace slug from <code>/v1/openai/models</code></li><li><code>messages</code> — array of OpenAI-style chat messages</li></ul><b>Multimodal (image description)</b><br>Pass the user message <code>content</code> as an array with a text item and one <code>image_url</code> item. <code>image_url.url</code> accepts either a public <code>https://…</code> URL <b>or</b> an inline <code>data:image/&lt;type&gt;;base64,…</code> data URL. Requires a workspace whose chat model supports vision — e.g. <b>Mistral-Small-3.2-24B</b>, <b>Qwen2-VL</b>, <b>GPT-4o</b>, <b>Claude 3.x</b>. See the request-body examples below for the exact shape.<br><br><b>Limitations</b> (subset of the official OpenAI spec):<ul><li><code>image_url.detail</code> is ignored</li><li>non-image content types (<code>input_audio</code>, <code>file</code>, …) are ignored</li></ul><b>Optional LLM options</b> (flat in the body, like the OpenAI spec; only applied by the Generic OpenAI provider, other providers ignore them; for compatibility with older OpenAI clients numbers may be sent as strings and <code>max_tokens</code> <code>0</code>/<code>null</code> means "not set"; any other invalid value returns HTTP 400):<ul><li><code>max_tokens</code> — integer ≥ 1 up to the server ceiling (<code>LLM_REQUEST_MAX_TOKENS_CEILING</code>, otherwise the model context window), overrides the server default (<code>GENERIC_OPEN_AI_MAX_TOKENS</code>). With thinking enabled the reasoning tokens count towards this limit.</li><li><code>temperature</code> — number 0…2 (priority: request → workspace → 0.7)</li><li><code>top_p</code> — number, 0 &lt; x ≤ 1</li><li><code>reasoning_effort</code> — one of <code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code></li><li><code>chat_template_kwargs</code> — flat object with allowed keys only (default <code>enable_thinking</code>, extendable by the server admin via <code>LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST</code>), values boolean/number/string ≤ 256 chars, e.g. <code>{"enable_thinking": true}</code> to enable thinking for Gemma-4 via vLLM</li></ul>If thinking is requested (<code>chat_template_kwargs.enable_thinking: true</code> or a <code>reasoning_effort</code> other than <code>none</code>), a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block is returned in <code>message.reasoning_content</code> (streaming: <code>delta.reasoning_content</code>) instead of inside <code>content</code>. Otherwise the response is unchanged.'
       #swagger.requestBody = {
           description: 'Send a prompt to the workspace with full use of documents as if sending a chat in AnythingLLM. The dropdown below offers ready-to-use payloads for plain text, image description via URL, and image description via base64.',
           required: true,
@@ -247,13 +247,18 @@ function apiOpenAICompatibleEndpoints(app) {
       */
       try {
         const body = reqBody(request);
-        const { model, messages = [], temperature, stream = false } = body;
+        const { model, messages = [], stream = false } = body;
+        const workspace = await Workspace.get({ slug: String(model) });
+        if (!workspace) return response.status(401).end();
 
-        // Optionale LLM-Optionen (flach im Body wie im OpenAI-Standard).
-        // temperature wird hier weiterhin wie bisher behandelt (s. u.).
-        const parsedLLMOptions = parseLLMRequestOptions(body, {
-          allowTemperature: false,
-        });
+        // Optionale LLM-Optionen (flach im Body wie im OpenAI-Standard),
+        // inkl. temperature. Tolerant gegenüber Altclients (coerce): Zahlen
+        // als String werden umgewandelt, max_tokens 0/null = nicht gesetzt.
+        const parsedLLMOptions = parseLLMRequestOptionsForWorkspace(
+          body,
+          workspace,
+          { allowTemperature: true, coerce: true }
+        );
         if (!parsedLLMOptions.ok) {
           return response.status(400).json({
             id: uuidv4(),
@@ -264,10 +269,8 @@ function apiOpenAICompatibleEndpoints(app) {
             error: parsedLLMOptions.error,
           });
         }
-        const llmOptions = parsedLLMOptions.options;
-
-        const workspace = await Workspace.get({ slug: String(model) });
-        if (!workspace) return response.status(401).end();
+        const { temperature: requestTemperature, ...llmOptions } =
+          parsedLLMOptions.options;
 
         // Get message count for limit check (now handled in the handler)
 
@@ -290,9 +293,7 @@ function apiOpenAICompatibleEndpoints(app) {
 
         // Determine final temperature: Priority is request -> workspace -> 0.7
         const finalTemperature =
-          temperature !== undefined && temperature !== null
-            ? Number(temperature)
-            : workspace?.openAiTemp ?? 0.7;
+          requestTemperature ?? workspace?.openAiTemp ?? 0.7;
 
         // Get message limit info using the helper function
         const { getMessageLimitInfo } = require("../../../utils/helpers");

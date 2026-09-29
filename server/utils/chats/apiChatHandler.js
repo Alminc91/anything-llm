@@ -18,7 +18,6 @@ const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
 const {
   startMetadataFilterResolution,
 } = require("./metadataFilterResolver");
-const { withLLMRequestOptions } = require("../helpers/chat/llmRequestOptions");
 const { Telemetry } = require("../../models/telemetry");
 const { CollectorApi } = require("../collectorApi");
 const fs = require("fs");
@@ -114,16 +113,13 @@ function llmConnectorOptions({
   user,
   llmOptions = {},
 }) {
-  return withLLMRequestOptions(
-    {
-      temperature:
-        llmOptions?.temperature ??
-        workspace?.openAiTemp ??
-        LLMConnector.defaultTemp,
-      user: user,
-    },
-    llmOptions
-  );
+  const { temperature, ...requestOptions } = llmOptions || {};
+  return {
+    temperature:
+      temperature ?? workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+    user: user,
+    ...requestOptions,
+  };
 }
 
 /**

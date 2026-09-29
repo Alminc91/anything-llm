@@ -23,11 +23,12 @@ const fakeEmbedder = {
   embedChunks: jest.fn(),
 };
 
+// Provider-fertige Optionen, wie parseLLMRequestOptions sie liefert.
 const EXTRA_OPTIONS = {
-  maxTokens: 4096,
-  topP: 0.9,
-  reasoningEffort: "high",
-  chatTemplateKwargs: { enable_thinking: true },
+  max_tokens: 4096,
+  top_p: 0.9,
+  reasoning_effort: "high",
+  chat_template_kwargs: { enable_thinking: true },
 };
 
 function makeGenericProvider() {
@@ -120,7 +121,7 @@ describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {
       const { llm, create } = makeGenericProvider();
       await llm.getChatCompletion(messages, {
         temperature: 0.7,
-        maxTokens: 4096,
+        max_tokens: 4096,
       });
       await llm.getChatCompletion(messages, { temperature: 0.7 });
       expect(create.mock.calls[0][0].max_tokens).toBe(4096);
@@ -131,7 +132,7 @@ describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {
       const { llm, create } = makeGenericProvider();
       await llm.getChatCompletion(messages, {
         temperature: 0.7,
-        chatTemplateKwargs: { enable_thinking: true },
+        chat_template_kwargs: { enable_thinking: true },
       });
       const body = create.mock.calls[0][0];
       expect(body.chat_template_kwargs).toEqual({ enable_thinking: true });
@@ -152,7 +153,7 @@ describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {
       });
       const result = await llm.getChatCompletion(messages, {
         temperature: 0.7,
-        chatTemplateKwargs: { enable_thinking: true },
+        chat_template_kwargs: { enable_thinking: true },
       });
       expect(result.textResponse).toBe("<think>17*23</think>391");
     });
@@ -188,6 +189,23 @@ describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {
         temperature: 0.7,
       });
       expect(result.textResponse).toBeNull();
+    });
+
+    test("user und unbekannte Optionen landen nicht im Body", async () => {
+      const { llm, create } = makeGenericProvider();
+      await llm.getChatCompletion(messages, {
+        temperature: 0.7,
+        user: { id: 1, username: "admin" },
+        maxTokens: 5,
+        foo: "bar",
+      });
+      expect(Object.keys(create.mock.calls[0][0])).toEqual([
+        "model",
+        "messages",
+        "temperature",
+        "max_tokens",
+      ]);
+      expect(create.mock.calls[0][0].max_tokens).toBe(2048);
     });
   });
 
@@ -230,7 +248,7 @@ describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {
       const { llm, create } = makeGenericProvider();
       await llm.streamGetChatCompletion(messages, {
         temperature: 0.7,
-        topP: 0.5,
+        top_p: 0.5,
       });
       const body = create.mock.calls[0][0];
       expect(body.max_tokens).toBe(2048);
@@ -385,7 +403,6 @@ describe("Andere Provider ignorieren die zusätzlichen Optionen", () => {
       "top_p",
       "reasoning_effort",
       "chat_template_kwargs",
-      "maxTokens",
     ])
       expect(create.mock.calls[0][0]).not.toHaveProperty(key);
   });

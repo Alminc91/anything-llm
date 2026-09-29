@@ -10,7 +10,6 @@ const {
   startMetadataFilterResolution,
 } = require("./metadataFilterResolver");
 const {
-  withLLMRequestOptions,
   shouldSeparateReasoning,
   splitThinkBlock,
   ThinkBlockSplitter,
@@ -27,7 +26,7 @@ async function chatSync({
   temperature = null,
   messagesLimit, // Added: workspace messages limit (can be null)
   messageCount, // Added: Needed for contingent
-  llmOptions = {}, // Validierte Anfrage-Optionen, siehe parseLLMRequestOptions
+  llmOptions = {}, // Validierte Anfrage-Optionen ohne temperature, siehe parseLLMRequestOptions
 }) {
   const uuid = uuidv4();
   const chatMode = workspace?.chatMode ?? "chat";
@@ -269,13 +268,12 @@ async function chatSync({
   // Send the text completion.
   const { textResponse, metrics } = await LLMConnector.getChatCompletion(
     messages,
-    withLLMRequestOptions(
-      {
-        temperature:
-          temperature ?? workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-      },
-      llmOptions
-    )
+    {
+      ...llmOptions,
+      // Die vom Endpunkt aufgelöste Temperatur hat immer Vorrang.
+      temperature:
+        temperature ?? workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+    }
   );
 
   if (!textResponse) {
@@ -356,7 +354,7 @@ async function streamChat({
   attachments = [],
   temperature = null,
   finalTemperature = null,
-  llmOptions = {}, // Validierte Anfrage-Optionen, siehe parseLLMRequestOptions
+  llmOptions = {}, // Validierte Anfrage-Optionen ohne temperature, siehe parseLLMRequestOptions
 }) {
   const uuid = uuidv4();
   const chatMode = workspace?.chatMode ?? "chat";
@@ -426,7 +424,7 @@ async function streamChat({
   // The chunk is coming in the format from `writeResponseChunk` but in the AnythingLLM
   // response chunk schema, so we here we mutate each chunk.
   const responseInterceptor = new PassThrough({});
-  // Nur wenn der Aufrufer Reasoning-Optionen geschickt hat: <think>-Block
+  // Nur wenn der Aufrufer Thinking angefordert hat: <think>-Block
   // statt in delta.content in delta.reasoning_content ausgeben.
   const reasoningSplitter = shouldSeparateReasoning(llmOptions)
     ? new ThinkBlockSplitter()
@@ -642,16 +640,12 @@ async function streamChat({
     return;
   }
 
-  const stream = await LLMConnector.streamGetChatCompletion(
-    messages,
-    withLLMRequestOptions(
-      {
-        temperature:
-          temperature ?? workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-      },
-      llmOptions
-    )
-  );
+  const stream = await LLMConnector.streamGetChatCompletion(messages, {
+    ...llmOptions,
+    // Die vom Endpunkt aufgelöste Temperatur hat immer Vorrang.
+    temperature:
+      temperature ?? workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+  });
   const completeText = await LLMConnector.handleStream(
     responseInterceptor,
     stream,
