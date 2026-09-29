@@ -207,14 +207,53 @@ class GenericOpenAiLLM {
     return textResponse;
   }
 
-  async getChatCompletion(messages = null, { temperature = 0.7 }) {
+  /**
+   * Baut die optionalen Anfrage-Felder (Kufer-Fork, siehe
+   * utils/helpers/chat/llmRequestOptions.js) für den Provider-Body.
+   * Nur gesetzte Optionen erscheinen als Schlüssel, damit der Body ohne
+   * Anfrage-Optionen byte-gleich zum bisherigen Body bleibt
+   * (`{ model, messages, temperature, max_tokens }`).
+   *
+   * Hinweis zum openai-SDK (v4): `chat.completions.create(body)` serialisiert
+   * `body` unverändert per JSON.stringify – auch Felder, die nicht im
+   * OpenAI-Standard stehen (z. B. `chat_template_kwargs`, das LiteLLM an vLLM
+   * durchreicht). Ein `body`-Override über das zweite Argument ist daher nicht
+   * nötig.
+   * @param {{topP?: number, reasoningEffort?: string, chatTemplateKwargs?: Object}} options
+   * @returns {Object}
+   */
+  #optionalRequestFields({ topP, reasoningEffort, chatTemplateKwargs } = {}) {
+    const fields = {};
+    if (topP !== undefined) fields.top_p = topP;
+    if (reasoningEffort !== undefined)
+      fields.reasoning_effort = reasoningEffort;
+    if (chatTemplateKwargs !== undefined)
+      fields.chat_template_kwargs = chatTemplateKwargs;
+    return fields;
+  }
+
+  async getChatCompletion(
+    messages = null,
+    {
+      temperature = 0.7,
+      maxTokens,
+      topP,
+      reasoningEffort,
+      chatTemplateKwargs,
+    } = {}
+  ) {
     const result = await LLMPerformanceMonitor.measureAsyncFunction(
       this.openai.chat.completions
         .create({
           model: this.model,
           messages,
           temperature,
-          max_tokens: this.maxTokens,
+          max_tokens: maxTokens ?? this.maxTokens,
+          ...this.#optionalRequestFields({
+            topP,
+            reasoningEffort,
+            chatTemplateKwargs,
+          }),
         })
         .catch((e) => {
           throw new Error(e.message);
@@ -247,14 +286,28 @@ class GenericOpenAiLLM {
     };
   }
 
-  async streamGetChatCompletion(messages = null, { temperature = 0.7 }) {
+  async streamGetChatCompletion(
+    messages = null,
+    {
+      temperature = 0.7,
+      maxTokens,
+      topP,
+      reasoningEffort,
+      chatTemplateKwargs,
+    } = {}
+  ) {
     const measuredStreamRequest = await LLMPerformanceMonitor.measureStream({
       func: this.openai.chat.completions.create({
         model: this.model,
         stream: true,
         messages,
         temperature,
-        max_tokens: this.maxTokens,
+        max_tokens: maxTokens ?? this.maxTokens,
+        ...this.#optionalRequestFields({
+          topP,
+          reasoningEffort,
+          chatTemplateKwargs,
+        }),
       }),
       messages,
       runPromptTokenCalculation: true,
