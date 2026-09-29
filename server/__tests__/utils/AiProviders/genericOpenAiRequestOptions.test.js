@@ -207,6 +207,33 @@ describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {
       ]);
       expect(create.mock.calls[0][0].max_tokens).toBe(2048);
     });
+    test("prompt_tokens_details wird unverändert in die Metriken übernommen", async () => {
+      const { llm, create } = makeGenericProvider();
+      create.mockResolvedValueOnce({
+        choices: [{ message: { content: "391" } }],
+        usage: {
+          prompt_tokens: 1200,
+          completion_tokens: 3,
+          total_tokens: 1203,
+          prompt_tokens_details: { cached_tokens: 1024 },
+        },
+      });
+      const { metrics } = await llm.getChatCompletion(messages, {});
+      expect(metrics.prompt_tokens_details).toEqual({ cached_tokens: 1024 });
+      expect(metrics.prompt_tokens).toBe(1200);
+    });
+
+    test("ohne prompt_tokens_details (oder null) keine neue Metrik", async () => {
+      const { llm, create } = makeGenericProvider();
+      let { metrics } = await llm.getChatCompletion(messages, {});
+      expect(metrics).not.toHaveProperty("prompt_tokens_details");
+      create.mockResolvedValueOnce({
+        choices: [{ message: { content: "391" } }],
+        usage: { prompt_tokens: 1, prompt_tokens_details: null },
+      });
+      ({ metrics } = await llm.getChatCompletion(messages, {}));
+      expect(metrics).not.toHaveProperty("prompt_tokens_details");
+    });
   });
 
   describe("streamGetChatCompletion (Stream)", () => {
@@ -459,6 +486,51 @@ describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {
         const text = await llm.handleStream(res, stream, { uuid: "u9" });
         expect(text).toBe("39");
         expect(stream.endMeasurement).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    test("prompt_tokens_details aus dem letzten usage-Chunk landet in den Metriken", async () => {
+      const { llm } = makeGenericProvider();
+      const res = fakeResponse();
+      const stream = fakeStream([
+        { choices: [{ delta: { content: "391" }, finish_reason: null }] },
+        {
+          choices: [{ delta: {}, finish_reason: "stop" }],
+          usage: {
+            prompt_tokens: 1200,
+            completion_tokens: 3,
+            total_tokens: 1203,
+            prompt_tokens_details: { cached_tokens: 1024 },
+          },
+        },
+      ]);
+      await llm.handleStream(res, stream, { uuid: "u10" });
+      expect(stream.endMeasurement).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt_tokens: 1200,
+          completion_tokens: 3,
+          prompt_tokens_details: { cached_tokens: 1024 },
+        })
+      );
+    });
+
+    test("ohne prompt_tokens_details (oder null) kein neues Feld", async () => {
+      const { llm } = makeGenericProvider();
+      const res = fakeResponse();
+      const stream = fakeStream([
+        {
+          choices: [{ delta: { content: "391" }, finish_reason: "stop" }],
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 1,
+            prompt_tokens_details: null,
+          },
+        },
+      ]);
+      await llm.handleStream(res, stream, { uuid: "u11" });
+      expect(stream.endMeasurement.mock.calls[0][0]).toEqual({
+        prompt_tokens: 10,
+        completion_tokens: 1,
       });
     });
   });

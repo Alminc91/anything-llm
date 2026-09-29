@@ -175,6 +175,45 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
     ).toEqual(["temperature"]);
   });
 
+  describe("usage.prompt_tokens_details in der API-Antwort", () => {
+    const details = { cached_tokens: 1024 };
+
+    test("chatSync: prompt_tokens_details aus den Metriken erscheint unter usage", async () => {
+      connector.getChatCompletion.mockResolvedValue({
+        textResponse: "391",
+        metrics: { prompt_tokens: 1200, prompt_tokens_details: details },
+      });
+      const result = await OpenAICompatibleChat.chatSync(baseArgs());
+      expect(result.usage.prompt_tokens_details).toEqual(details);
+    });
+
+    test("chatSync ohne prompt_tokens_details: usage unverändert", async () => {
+      connector.getChatCompletion.mockResolvedValue({
+        textResponse: "391",
+        metrics: { prompt_tokens: 12 },
+      });
+      const result = await OpenAICompatibleChat.chatSync(baseArgs());
+      expect(result.usage).toEqual({ prompt_tokens: 12 });
+    });
+
+    test("streamChat: prompt_tokens_details erscheint im Abschluss-Chunk", async () => {
+      const stream = { metrics: {} };
+      connector.streamGetChatCompletion.mockResolvedValue(stream);
+      connector.handleStream.mockImplementation(async () => {
+        // wie endMeasurement(usage) im GenericOpenAiLLM
+        stream.metrics = {
+          prompt_tokens: 1200,
+          prompt_tokens_details: details,
+        };
+        return "391";
+      });
+      const response = { write: jest.fn(), status: jest.fn() };
+      await OpenAICompatibleChat.streamChat({ ...baseArgs(), response });
+      const final = writtenEvents(response).pop();
+      expect(final.usage.prompt_tokens_details).toEqual(details);
+    });
+  });
+
   describe("reasoning_content-Trennung (Nicht-Stream)", () => {
     beforeEach(() => {
       connector.getChatCompletion.mockResolvedValue({

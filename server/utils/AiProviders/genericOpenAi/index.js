@@ -193,6 +193,22 @@ class GenericOpenAiLLM {
   }
 
   /**
+   * Kufer-Fork: Übernimmt `prompt_tokens_details` (z. B. `{ cached_tokens }`
+   * von vLLM/LiteLLM für das Prefix-Cache-Monitoring) unverändert aus der
+   * gemeldeten Usage in das eigene usage-Objekt (mutiert `usage`). Fehlt das
+   * Feld oder ist es kein Objekt (vLLM ohne --enable-prompt-tokens-details
+   * liefert `null`), bleibt `usage` unverändert.
+   * @param {Object|null|undefined} reportedUsage - `usage` aus Antwort oder Chunk
+   * @param {Object} usage - the usage object to mutate
+   */
+  #extractPromptTokensDetails(reportedUsage, usage) {
+    const details = reportedUsage?.prompt_tokens_details;
+    if (!details || typeof details !== "object" || Array.isArray(details))
+      return;
+    usage.prompt_tokens_details = details;
+  }
+
+  /**
    * Parses and prepends reasoning from the response and returns the full text response.
    * @param {Object} response
    * @returns {string}
@@ -249,6 +265,7 @@ class GenericOpenAiLLM {
       total_tokens: result.output?.usage?.total_tokens || 0,
       duration: result.duration,
     };
+    this.#extractPromptTokensDetails(result.output?.usage, usage);
     this.#extractLlamaCppTimings(result.output, usage);
 
     return {
@@ -400,6 +417,8 @@ class GenericOpenAiLLM {
               hasUsageMetrics = true; // to stop estimating counter
               usage.completion_tokens = Number(chunk.usage.completion_tokens);
             }
+
+            this.#extractPromptTokensDetails(chunk.usage, usage);
           }
 
           // Reasoning models will always return the reasoning text before the token text.
