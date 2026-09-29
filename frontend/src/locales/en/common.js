@@ -917,9 +917,9 @@ const TRANSLATIONS = {
       instruction: {
         title: "Reranker Instruction",
         description:
-          "Optional instruction prepended to the query for instruction-tuned rerankers.",
+          "Optional instruction prepended to the query for instruction-tuned rerankers. Placeholders: {date} = today's date with weekday (German, e.g. “Dienstag, 22.09.2026”), {datetime} as in the system prompt — required for the reranker to resolve relative time expressions (“next week”, “end of October”).",
         placeholder:
-          "e.g. Represent this query for retrieving relevant courses",
+          "e.g. Today is {date}. Only a course matching the query's topic, location, date range and time of day is relevant.",
       },
     },
     trace: {
@@ -1601,6 +1601,10 @@ const TRANSLATIONS = {
       "no-negative": "No conversations with negative feedback.",
       "negative-count_one": "{{count}} negative rating",
       "negative-count_other": "{{count}} negative ratings",
+      "only-positive": "Only with 👍",
+      "no-positive": "No conversations with positive feedback.",
+      "positive-count_one": "{{count}} positive rating",
+      "positive-count_other": "{{count}} positive ratings",
       "no-preview": "No preview available",
       created: "Created:",
       "last-message": "Last message:",
@@ -1628,6 +1632,12 @@ const TRANSLATIONS = {
     copied: "Snippet copied to clipboard!",
     "script-comment":
       "Paste this script tag into your website's <head> or <body> tag.",
+    "copy-failed": "Copying failed — please select the text manually.",
+    "inline-tag": {
+      label: "Optional: inline display",
+      hint: "If “Erscheinungsbild → Aussehen → Darstellung” is set to “Inline”, paste this placeholder where the chat should appear on your page. Without the placeholder the chat bubble is shown as before. The script snippet above stays unchanged.",
+      copied: "Placeholder copied.",
+    },
     "script-tag": {
       label: "HTML Script Tag Embed Code",
       hint: "Embed your chat widget as a helpdesk chat in the corner of your website.",

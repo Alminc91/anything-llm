@@ -911,9 +911,9 @@ const TRANSLATIONS = {
       instruction: {
         title: "Reranker-Anweisung",
         description:
-          "Optionale Anweisung, die der Anfrage für instruktionsgesteuerte Reranker vorangestellt wird.",
+          "Optionale Anweisung, die der Anfrage für instruktionsgesteuerte Reranker vorangestellt wird. Platzhalter: {date} = heutiges Datum mit Wochentag (z. B. „Dienstag, 22.09.2026“), {datetime} wie im System-Prompt — nötig, damit der Reranker relative Zeitangaben („nächste Woche“, „Ende Oktober“) einordnen kann.",
         placeholder:
-          "z. B. Repräsentiere diese Anfrage zum Abrufen relevanter Kurse",
+          "z. B. Heute ist {date}. Relevant ist nur ein Kurs, der Thema, Ort, Zeitraum und Tageszeit der Anfrage erfüllt.",
       },
     },
     trace: {
@@ -1029,6 +1029,10 @@ const TRANSLATIONS = {
       "no-negative": "Keine Konversationen mit negativer Bewertung.",
       "negative-count_one": "{{count}} negative Bewertung",
       "negative-count_other": "{{count}} negative Bewertungen",
+      "only-positive": "Nur mit 👍",
+      "no-positive": "Keine Konversationen mit positiver Bewertung.",
+      "positive-count_one": "{{count}} positive Bewertung",
+      "positive-count_other": "{{count}} positive Bewertungen",
       "no-preview": "Keine Vorschau verfügbar",
       created: "Erstellt:",
       "last-message": "Letzte Nachricht:",
@@ -1132,6 +1136,12 @@ const TRANSLATIONS = {
     copied: "Snippet in Zwischenablage kopiert!",
     "script-comment":
       "Fügen Sie dieses Script-Tag in den <head> oder <body> Ihrer Website ein.",
+    "copy-failed": "Kopieren nicht möglich — bitte manuell markieren.",
+    "inline-tag": {
+      label: "Optional: Inline-Darstellung",
+      hint: "Ist unter „Erscheinungsbild → Aussehen → Darstellung“ „Inline“ gewählt, fügen Sie diesen Platzhalter an der gewünschten Stelle Ihrer Seite ein. Ohne diesen Platzhalter erscheint weiterhin die Chat-Blase. Das Script-Snippet oben bleibt unverändert.",
+      copied: "Platzhalter kopiert.",
+    },
     "script-tag": {
       label: "HTML Script Tag Einbettungscode",
       hint: "Betten Sie Ihr Chat-Widget als Helpdesk-Chat in der Ecke Ihrer Website ein.",

@@ -68,3 +68,9 @@ export function fullApiUrl() {
 }
 
 export const POPUP_BROWSER_EXTENSION_EVENT = "NEW_BROWSER_EXTENSION_CONNECTION";
+
+// Kufer Inline-Modus: Platzhalter für die Einbettung mitten in der Seite
+// (Design Center + Einbettungscode-Dialog). Muss zum Widget-Default
+// (DEFAULT_MOUNT_SELECTOR "#kufer-assistent") passen.
+export const EMBED_INLINE_PLACEHOLDER_SNIPPET =
+  '<div id="kufer-assistent"></div>';

@@ -11,7 +11,10 @@ const { ACCEPTED_MIMES } = require("./utils/constants");
 const { reqBody } = require("./utils/http");
 const { processSingleFile } = require("./processSingleFile");
 const { processLink, getLinkText } = require("./processLink");
-const { wipeCollectorStorage } = require("./utils/files");
+const {
+  wipeCollectorStorage,
+  moveDocumentsToFolder,
+} = require("./utils/files");
 const extensions = require("./extensions");
 const { processRawText } = require("./processRawText");
 const { verifyPayloadIntegrity } = require("./middleware/verifyIntegrity");
@@ -54,6 +57,12 @@ app.post(
         reason,
         documents = [],
       } = await processSingleFile(targetFilename, options, metadata);
+      // Kufer: UI-Datei-Uploads sweep-sicher nach "zusatzwissen" verschieben
+      // (custom-documents gehört der Crawl-Pipeline; der nächtliche Orphan-
+      // Sweep löscht dort alle untracked Docs). Raw-Text-/Link-Uploads der
+      // Pipeline laufen über eigene Routen und bleiben unberührt.
+      if (success && !options?.parseOnly)
+        moveDocumentsToFolder(documents, "zusatzwissen");
       response
         .status(200)
         .json({ filename: targetFilename, success, reason, documents });

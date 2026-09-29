@@ -342,12 +342,121 @@ const EmbedChats = {
   },
 
   /**
+   * KIE-508/527: Normalisiert den Feedback-Filter der Analytics-Konversationsliste.
+   * Akzeptiert die neuen Strings sowie den Legacy-Boolean `onlyNegative`.
+   * Alles Unbekannte fällt auf "all" zurück — es gelangt nie User-Input in SQL.
+   * @param {string|boolean|null|undefined} value
+   * @returns {"all"|"negative"|"positive"}
+   */
+  normalizeFeedbackFilter: function (value) {
+    if (value === true) return "negative"; // Legacy onlyNegative=true
+    if (value === "negative" || value === "positive") return value;
+    return "all";
+  },
+
+  /**
+   * KIE-508/527: Filterbedingung auf die aggregierten Konversationszeilen aus
+   * {@link EmbedChats._conversationGroupsSql} (Spalten positive_count /
+   * negative_count). Wird von Liste UND Zähl-Query benutzt. Der Filter greift
+   * NACH der Gruppierung, damit conversation_number über die ungefilterte
+   * Menge vergeben bleibt. Ausschließlich Konstanten — kein User-Input im SQL.
+   * @param {string|boolean} feedbackFilter
+   * @returns {import("@prisma/client").Prisma.Sql}
+   */
+  feedbackFilterCondition: function (feedbackFilter) {
+    const { Prisma } = require("@prisma/client");
+    switch (EmbedChats.normalizeFeedbackFilter(feedbackFilter)) {
+      case "negative":
+        return Prisma.sql`WHERE negative_count > 0`;
+      case "positive":
+        return Prisma.sql`WHERE positive_count > 0`;
+      default:
+        return Prisma.empty;
+    }
+  },
+
+  /**
+   * Gemeinsames Aggregations-Fragment für Konversationsliste und -zähler:
+   * gruppiert embed_chats zu Konversationen (conversation_id, Fallback
+   * session_id für Alt-Daten), zählt Nachrichten sowie 👍/👎 und vergibt
+   * conversation_number über die UNGEFILTERTE Menge (stabile Nummer je
+   * Konversation, unabhängig vom Feedback-Filter). DSGVO/Reset-invalidierte
+   * Zeilen (include = 0 via markHistoryInvalid) sind ausgeschlossen — wie in
+   * getBasicStats und listConversationsForSession.
+   * feedbackScore ist in SQLite 0/1; false(👎)=0, true(👍)=1, NULL zählt nie mit.
+   * @param {number|null} embedId - NULL = alle Embeds (globale Sicht)
+   * @param {Date|null} startDate
+   * @param {Date|null} endDate
+   * @returns {import("@prisma/client").Prisma.Sql}
+   */
+  _conversationGroupsSql: function (
+    embedId = null,
+    startDate = null,
+    endDate = null
+  ) {
+    const { Prisma } = require("@prisma/client");
+    const where = [Prisma.sql`WHERE include = 1`];
+    if (embedId !== null) where.push(Prisma.sql`AND embed_id = ${embedId}`);
+    if (startDate) where.push(Prisma.sql`AND createdAt >= ${startDate}`);
+    if (endDate) where.push(Prisma.sql`AND createdAt <= ${endDate}`);
+
+    return Prisma.sql`
+      SELECT
+        COALESCE(conversation_id, session_id) as conversation_id,
+        session_id,
+        embed_id,
+        MIN(id) as first_chat_id,
+        MIN(createdAt) as started_at,
+        MAX(createdAt) as last_message_at,
+        COUNT(*) as message_count,
+        SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) as negative_count,
+        SUM(CASE WHEN feedbackScore = 1 THEN 1 ELSE 0 END) as positive_count,
+        ROW_NUMBER() OVER (ORDER BY MIN(createdAt) DESC) as conversation_number
+      FROM embed_chats
+      ${Prisma.join(where, " ")}
+      GROUP BY COALESCE(conversation_id, session_id), session_id, embed_id`;
+  },
+
+  /**
+   * Analytics: Anzahl Konversationen (für Pagination) — exakt dieselbe
+   * Gruppierung und derselbe Feedback-Filter wie {@link EmbedChats.getConversations}.
+   * @param {number|null} embedId - NULL = alle Embeds
+   * @param {Date|null} startDate
+   * @param {Date|null} endDate
+   * @param {"all"|"negative"|"positive"|boolean} feedbackFilter
+   * @returns {Promise<number>}
+   */
+  countConversations: async function (
+    embedId = null,
+    startDate = null,
+    endDate = null,
+    feedbackFilter = "all"
+  ) {
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT COUNT(*) as count FROM (
+          ${EmbedChats._conversationGroupsSql(embedId, startDate, endDate)}
+        )
+        ${EmbedChats.feedbackFilterCondition(feedbackFilter)}
+      `;
+      return Number(rows[0]?.count || 0);
+    } catch (error) {
+      console.error("countConversations error:", error.message);
+      return 0;
+    }
+  },
+
+  /**
    * Analytics: Get conversations grouped by conversation_id (or session_id for backwards compatibility)
    * @param {number} embedId - The embed config ID
    * @param {number} offset - Pagination offset
    * @param {number} limit - Maximum number of conversations to return
    * @param {Date|null} startDate - Optional start date filter
    * @param {Date|null} endDate - Optional end date filter
+   * @param {"all"|"negative"|"positive"|boolean} feedbackFilter - KIE-508/KIE-527:
+   *   "negative" = nur Konversationen mit mind. einer 👎-Antwort,
+   *   "positive" = nur mit mind. einer 👍-Antwort, "all" = kein Filter.
+   *   Legacy: boolean `onlyNegative` (true → "negative").
    * @returns {Promise<Array>} Array of conversation summaries
    */
   getConversations: async function (
@@ -356,36 +465,16 @@ const EmbedChats = {
     limit = 20,
     startDate = null,
     endDate = null,
-    onlyNegative = false // KIE-508: nur Konversationen mit mind. einer 👎-Antwort
+    feedbackFilter = "all"
   ) {
     try {
-      const { Prisma } = require("@prisma/client");
-
-      // KIE-508: Filter auf Konversationen mit mind. einer negativen Bewertung.
-      // feedbackScore ist in SQLite 0/1; false(👎)=0, null zählt nicht mit.
-      const havingClause = onlyNegative
-        ? Prisma.sql`HAVING SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) > 0`
-        : Prisma.empty;
-
-      // Build WHERE conditions
-      const whereConditions = [];
-      if (embedId !== null) {
-        whereConditions.push(Prisma.sql`WHERE embed_id = ${embedId}`);
-      } else {
-        whereConditions.push(Prisma.sql`WHERE 1=1`);  // Global view
-      }
-      if (startDate) {
-        whereConditions.push(Prisma.sql`AND createdAt >= ${startDate}`);
-      }
-      if (endDate) {
-        whereConditions.push(Prisma.sql`AND createdAt <= ${endDate}`);
-      }
-
-      // SQLite GROUP BY Query to get conversation summaries
-      // Use conversation_id for grouping (fallback to session_id for backwards compatibility)
+      // KIE-508/527: Gruppierung + Zähler kommen aus dem gemeinsamen Fragment
+      // (auch von countConversations benutzt), der Feedback-Filter greift auf
+      // der äußeren Ebene — so bleiben Liste, Pagination und conversation_number
+      // konsistent. include = 1 (DSGVO) ist Teil des Fragments.
       const conversations = await prisma.$queryRaw`
         SELECT
-          COALESCE(conversation_id, session_id) as conversation_id,
+          conversation_id,
           session_id,
           embed_id,
           first_chat_id,
@@ -393,23 +482,12 @@ const EmbedChats = {
           last_message_at,
           message_count,
           negative_count,
+          positive_count,
           conversation_number
         FROM (
-          SELECT
-            conversation_id,
-            session_id,
-            embed_id,
-            MIN(id) as first_chat_id,
-            MIN(createdAt) as started_at,
-            MAX(createdAt) as last_message_at,
-            COUNT(*) as message_count,
-            SUM(CASE WHEN feedbackScore = 0 THEN 1 ELSE 0 END) as negative_count,
-            ROW_NUMBER() OVER (ORDER BY MIN(createdAt) DESC) as conversation_number
-          FROM embed_chats
-          ${whereConditions.length > 0 ? Prisma.join(whereConditions, " ") : Prisma.empty}
-          GROUP BY COALESCE(conversation_id, session_id), session_id, embed_id
-          ${havingClause}
+          ${EmbedChats._conversationGroupsSql(embedId, startDate, endDate)}
         )
+        ${EmbedChats.feedbackFilterCondition(feedbackFilter)}
         ORDER BY last_message_at DESC
         LIMIT ${limit}
         OFFSET ${offset}
@@ -425,6 +503,7 @@ const EmbedChats = {
         last_message_at: Number(conv.last_message_at),
         message_count: Number(conv.message_count),
         negative_count: Number(conv.negative_count) || 0, // KIE-508
+        positive_count: Number(conv.positive_count) || 0, // KIE-527
         conversation_number: Number(conv.conversation_number),
       }));
 

@@ -339,7 +339,50 @@ async function run() {
   );
   ok("P3: performSimilaritySearch E2E-Filter + gestufter Leere-Treffer-Relax");
 
-  console.log("\n\x1b[32mAll 9 search-filter assertions passed.\x1b[0m");
+  // ---- P4: filtersPromise läuft PARALLEL zur Query-Einbettung --------------
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const slowLLM = {
+    embedTextInput: async () => {
+      await sleep(300);
+      return [1, 0, 0, 0];
+    },
+  };
+  const slowFilters = (async () => {
+    await sleep(300);
+    return { filters: { priceMax: 50 }, stage: "llm", ms: 300 };
+  })();
+  const t0 = Date.now();
+  const par = await lance.performSimilaritySearch({
+    namespace: ns,
+    input: "Yogakurse",
+    LLMConnector: slowLLM,
+    topN: 4,
+    similarityThreshold: 0,
+    searchMode: "hybrid",
+    filtersPromise: slowFilters,
+  });
+  const elapsed = Date.now() - t0;
+  assert.ok(elapsed < 550, `Einbettung + Filter parallel (${elapsed} ms < 550 ms, seriell wären ≥ 600)`);
+  assert.ok(par.sources.length > 0 && par.sources.every((s) => s.price <= 50), "Filter aus dem Promise wirkt");
+  // explizite filters schlagen das Promise; ein Promise ohne Ergebnis (null) = ungefiltert
+  const expl = await lance.performSimilaritySearch({
+    namespace: ns, input: "Yogakurse", LLMConnector: mockLLM, topN: 4, similarityThreshold: 0,
+    searchMode: "hybrid", filters: { priceMin: 100 }, filtersPromise: Promise.resolve({ filters: { priceMax: 50 } }),
+  });
+  assert.ok(expl.sources.every((s) => s.price >= 100), "explizite filters haben Vorrang");
+  const none = await lance.performSimilaritySearch({
+    namespace: ns, input: "Yogakurse", LLMConnector: mockLLM, topN: 4, similarityThreshold: 0,
+    searchMode: "hybrid", filtersPromise: Promise.resolve(null),
+  });
+  assert.ok(none.sources.some((s) => s.price > 50) && !none.contextTexts[0].startsWith("[Hinweis"), "null-Promise = ungefiltert, kein Hinweis");
+  const broken = await lance.performSimilaritySearch({
+    namespace: ns, input: "Yogakurse", LLMConnector: mockLLM, topN: 4, similarityThreshold: 0,
+    searchMode: "hybrid", filtersPromise: Promise.reject(new Error("boom")),
+  });
+  assert.ok(broken.sources.length > 0, "verworfenes Promise bricht die Suche nicht ab");
+  ok(`P4: Filter-Promise parallel zur Einbettung (${elapsed} ms), Vorrang expliziter Filter, null/Fehler = ungefiltert`);
+
+  console.log("\n\x1b[32mAll 10 search-filter assertions passed.\x1b[0m");
 }
 
 run()

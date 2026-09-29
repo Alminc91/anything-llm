@@ -213,7 +213,7 @@ const SystemSettings = {
         return "off";
       return String(update);
     },
-    // KIE-480: harte Metadaten-Filter (deterministischer Extraktor) an/aus.
+    // KIE-480: harte Metadaten-Filter (LLM-Normalisierer, parallel zur Suche) an/aus.
     metadata_filters: (update) => {
       if (
         !update ||
