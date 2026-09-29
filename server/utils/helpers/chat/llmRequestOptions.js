@@ -15,11 +15,18 @@
  * - `undefined` und `null` gelten als "nicht gesetzt" (OpenAI-Clients schicken
  *   teils explizit `null`).
  * - Ungültige Werte werden NICHT stillschweigend verworfen, sondern führen zu
- *   `{ ok: false, error }`, damit der Endpunkt mit HTTP 400 antworten kann.
- * - Standardmäßig keine Typumwandlung. Nur mit `coerce: true` (OpenAI-
- *   kompatibler Endpunkt, Rücksicht auf Altclients) werden Zahlen als String
- *   ("4096", "0.5") umgewandelt und `max_tokens: 0` als "nicht gesetzt"
- *   behandelt.
+ *   `{ ok: false, error, param }`, damit der Endpunkt mit HTTP 400 antworten
+ *   kann (`param` = betroffenes Feld, für die OpenAI-Fehlerform).
+ * - Standardmäßig strikt, ohne Typumwandlung (workspace-/thread-Endpunkte,
+ *   `llmOptions`). Nur mit `coerce: true` (OpenAI-kompatibler Endpunkt,
+ *   Rücksicht auf Altclients) gilt der Toleranzmodus:
+ *   - Zahlen als String ("4096", "0.5") werden umgewandelt.
+ *   - `max_tokens` ≤ 0 (z. B. -1 = "unbegrenzt" bei llama.cpp/LM Studio) oder
+ *     nicht als Zahl lesbar gilt als "nicht gesetzt".
+ *   - `max_tokens` über der Obergrenze wird auf die Obergrenze geklemmt
+ *     (einmal per `console.log` vermerkt) statt abgelehnt – Altclients
+ *     schicken oft pauschal 16384 oder mehr.
+ *   - `top_p` ≤ 0 gilt als "nicht gesetzt"; > 1 bleibt ein Fehler.
  * - `chat_template_kwargs` nur mit Schlüsseln aus einer Whitelist: vLLM
  *   übernimmt die kwargs NACH seinen eigenen Template-Argumenten
  *   (`chat_template`, `add_generation_prompt`, `tools`, `documents`, …) –
@@ -27,9 +34,11 @@
  *   Serverfehler auslösen.
  */
 
+const { v4: uuidv4 } = require("uuid");
+
 const REASONING_EFFORT_VALUES = ["none", "minimal", "low", "medium", "high"];
-// Absolute Obergrenze, falls der Aufrufer keine (kleinere) Grenze übergibt.
-const MAX_TOKENS_LIMIT = 1_000_000;
+// Standard-Obergrenze für max_tokens pro Anfrage (siehe resolveMaxTokensCeiling).
+const DEFAULT_MAX_TOKENS_CEILING = 16384;
 const MAX_TOKENS_CEILING_ENV = "LLM_REQUEST_MAX_TOKENS_CEILING";
 const CHAT_TEMPLATE_KWARGS_MAX_KEYS = 10;
 const CHAT_TEMPLATE_KWARGS_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -105,34 +114,79 @@ function resolveChatTemplateKwargsAllowlist(
 }
 
 /**
- * Serverseitige Obergrenze für `max_tokens`:
- * ENV `LLM_REQUEST_MAX_TOKENS_CEILING` (Ganzzahl ≥ 1), sonst das
- * Kontextfenster des Providers (`promptWindowLimit()`, beim generischen
- * OpenAI-Provider GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT), sonst 1.000.000.
- * @param {Object|(() => Object)|null} connector - LLMConnector oder eine
- *   Funktion, die ihn liefert (wird nur aufgerufen, wenn die ENV fehlt).
+ * Kontextfenster des Workspace-Modells, statisch über die Provider-Klasse
+ * ermittelt (wie `Workspace._getContextWindow` und
+ * `AIProvider.contextLimit`) – ohne Provider und Embedder zu instanziieren.
+ * @param {{chatProvider?: string, chatModel?: string}|null} workspace
+ * @returns {number|null} Kontextfenster in Token oder `null`, wenn unbekannt
+ */
+function workspaceContextWindow(workspace = null) {
+  // Lazy require: vermeidet Zirkelbezüge beim Laden der Helfer.
+  const { getLLMProviderClass, getBaseLLMProviderModel } = require("../index");
+  const provider = workspace?.chatProvider || process.env.LLM_PROVIDER || null;
+  const model =
+    workspace?.chatModel || getBaseLLMProviderModel({ provider }) || null;
+  const LLMProvider = getLLMProviderClass({ provider });
+  const limit = LLMProvider?.promptWindowLimit?.(model);
+  // Einzelne Provider ermitteln das Limit asynchron – hier nicht nutzbar.
+  if (limit && typeof limit.then === "function") {
+    limit.catch(() => {});
+    return null;
+  }
+  const value = Number(limit);
+  return Number.isFinite(value) && value >= 1 ? Math.floor(value) : null;
+}
+
+/**
+ * Serverseitige Obergrenze für `max_tokens` pro Anfrage:
+ * ENV `LLM_REQUEST_MAX_TOKENS_CEILING` (Ganzzahl ≥ 1) hat Vorrang; sonst
+ * `min(16384, Kontextfenster des Workspace-Modells)`; ist das Kontextfenster
+ * nicht ermittelbar, 16384.
+ *
+ * Warum nicht das ganze Kontextfenster: die GPU (vLLM) ist flottenweit
+ * geteilt. Sehr lange Generierungen belegen KV-Cache über lange Zeit und
+ * verdrängen den Prefix-Cache aller anderen Kunden (längere Wartezeit bis zum
+ * ersten Token für die ganze Flotte). Wer mehr braucht, setzt die ENV bewusst.
+ * @param {{chatProvider?: string, chatModel?: string}|null} [workspace]
  * @returns {number}
  */
-function resolveMaxTokensCeiling(connector = null) {
+function resolveMaxTokensCeiling(workspace = null) {
   const envValue = process.env[MAX_TOKENS_CEILING_ENV];
   if (isSet(envValue) && String(envValue).trim() !== "") {
     const parsed = Number(String(envValue).trim());
     if (Number.isInteger(parsed) && parsed >= 1) return parsed;
-    console.warn(
+    console.error(
       `[llmRequestOptions] ${MAX_TOKENS_CEILING_ENV}="${envValue}" is not a positive integer and is ignored.`
     );
   }
   try {
-    const LLMConnector =
-      typeof connector === "function" ? connector() : connector;
-    const limit = Number(LLMConnector?.promptWindowLimit?.());
-    if (Number.isFinite(limit) && limit >= 1) return Math.floor(limit);
+    const contextWindow = workspaceContextWindow(workspace);
+    if (contextWindow !== null)
+      return Math.min(DEFAULT_MAX_TOKENS_CEILING, contextWindow);
   } catch (e) {
-    console.warn(
-      `[llmRequestOptions] Could not determine promptWindowLimit: ${e.message}`
+    console.error(
+      `[llmRequestOptions] Could not determine the context window: ${e.message}`
     );
   }
-  return MAX_TOKENS_LIMIT;
+  return DEFAULT_MAX_TOKENS_CEILING;
+}
+
+/**
+ * Liest `max_tokens` im Toleranzmodus (coerce): ≤ 0, nicht endlich oder
+ * nicht als Zahl lesbar gilt als "nicht gesetzt" (`undefined`); über der
+ * Obergrenze wird geklemmt. Nicht-ganzzahlige positive Zahlen bleiben
+ * unverändert und werden danach als Fehler gemeldet.
+ * @returns {number|undefined}
+ */
+function lenientMaxTokens(value, ceiling, fieldName) {
+  if (!isFiniteNumber(value) || value <= 0) return undefined;
+  if (Number.isInteger(value) && value > ceiling) {
+    console.log(
+      `[llmRequestOptions] ${fieldName}=${value} exceeds the server ceiling and was clamped to ${ceiling}.`
+    );
+    return ceiling;
+  }
+  return value;
 }
 
 function validateChatTemplateKwargs(value, fieldName, allowlist) {
@@ -181,29 +235,36 @@ function validateChatTemplateKwargs(value, fieldName, allowlist) {
 /**
  * Validiert optionale LLM-Optionen einer API-Anfrage und liefert sie
  * provider-fertig (snake_case, nur gesetzte Felder).
- * Reine Funktion ohne Seiteneffekte; der Input wird nicht verändert.
+ * Der Input wird nicht verändert; einziger Seiteneffekt ist ein
+ * `console.log`, wenn im Toleranzmodus `max_tokens` geklemmt wird.
  *
  * @param {Object|undefined|null} input - Objekt mit snake_case-Feldern
  *   (`max_tokens`, `top_p`, `reasoning_effort`, `chat_template_kwargs`,
- *   optional `temperature`). Unbekannte Felder werden ignoriert.
+ *   optional `temperature`, `max_completion_tokens`). Unbekannte Felder
+ *   werden ignoriert.
  * @param {Object} [config]
  * @param {boolean} [config.allowTemperature=false] - `temperature` mit auswerten (0…2).
  *   Ist es `false`, wird ein `temperature`-Feld wie ein unbekanntes Feld ignoriert.
- * @param {boolean} [config.coerce=false] - Zahlen-Strings umwandeln und
- *   `max_tokens: 0` als "nicht gesetzt" behandeln (OpenAI-Altclients).
- * @param {number} [config.maxTokensCeiling=1000000] - Obergrenze für `max_tokens`
+ * @param {boolean} [config.coerce=false] - Toleranzmodus für OpenAI-Altclients
+ *   (siehe Moduldoku): Zahlen-Strings umwandeln, `max_tokens`/`top_p` ≤ 0 als
+ *   "nicht gesetzt", `max_tokens` über der Obergrenze klemmen.
+ * @param {boolean} [config.allowMaxCompletionTokens=false] - `max_completion_tokens`
+ *   als Alias für `max_tokens` akzeptieren (neuere OpenAI-Clients). Sind
+ *   beide gesetzt, gewinnt `max_tokens`.
+ * @param {number} [config.maxTokensCeiling=16384] - Obergrenze für `max_tokens`
  *   (siehe `resolveMaxTokensCeiling`).
  * @param {string[]} [config.chatTemplateKwargsAllowlist] - erlaubte Schlüssel
  *   für `chat_template_kwargs` (Default: `resolveChatTemplateKwargsAllowlist()`).
  * @param {string} [config.fieldPrefix=""] - Präfix für Fehlermeldungen, z. B. "llmOptions."
- * @returns {{ok: true, options: LLMRequestOptions} | {ok: false, error: string}}
+ * @returns {{ok: true, options: LLMRequestOptions} | {ok: false, error: string, param: string}}
  */
 function parseLLMRequestOptions(
   input,
   {
     allowTemperature = false,
     coerce = false,
-    maxTokensCeiling = MAX_TOKENS_LIMIT,
+    allowMaxCompletionTokens = false,
+    maxTokensCeiling = DEFAULT_MAX_TOKENS_CEILING,
     chatTemplateKwargsAllowlist = resolveChatTemplateKwargsAllowlist(),
     fieldPrefix = "",
   } = {}
@@ -212,42 +273,60 @@ function parseLLMRequestOptions(
 
   const container = fieldPrefix ? fieldPrefix.replace(/\.$/, "") : "options";
   if (!isPlainObject(input))
-    return { ok: false, error: `${container} must be a JSON object.` };
+    return {
+      ok: false,
+      error: `${container} must be a JSON object.`,
+      param: container,
+    };
 
   const name = (field) => `${fieldPrefix}${field}`;
+  const fail = (field, error) => ({ ok: false, error, param: name(field) });
   const options = {};
 
-  const maxTokens = coerceNumber(input.max_tokens, coerce);
-  if (isSet(maxTokens) && !(coerce && maxTokens === 0)) {
+  const maxTokensField =
+    allowMaxCompletionTokens &&
+    !isSet(input.max_tokens) &&
+    isSet(input.max_completion_tokens)
+      ? "max_completion_tokens"
+      : "max_tokens";
+  let maxTokens = coerceNumber(input[maxTokensField], coerce);
+  if (coerce && isSet(maxTokens))
+    maxTokens = lenientMaxTokens(
+      maxTokens,
+      maxTokensCeiling,
+      name(maxTokensField)
+    );
+  if (isSet(maxTokens)) {
     if (
       !Number.isInteger(maxTokens) ||
       maxTokens < 1 ||
       maxTokens > maxTokensCeiling
     )
-      return {
-        ok: false,
-        error: `${name("max_tokens")} must be an integer between 1 and ${maxTokensCeiling}.`,
-      };
+      return fail(
+        maxTokensField,
+        `${name(maxTokensField)} must be an integer between 1 and ${maxTokensCeiling}.`
+      );
     options.max_tokens = maxTokens;
   }
 
-  const topP = coerceNumber(input.top_p, coerce);
+  let topP = coerceNumber(input.top_p, coerce);
+  if (coerce && isFiniteNumber(topP) && topP <= 0) topP = undefined;
   if (isSet(topP)) {
     if (!isFiniteNumber(topP) || topP <= 0 || topP > 1)
-      return {
-        ok: false,
-        error: `${name("top_p")} must be a number greater than 0 and at most 1.`,
-      };
+      return fail(
+        "top_p",
+        `${name("top_p")} must be a number greater than 0 and at most 1.`
+      );
     options.top_p = topP;
   }
 
   if (isSet(input.reasoning_effort)) {
     const value = input.reasoning_effort;
     if (typeof value !== "string" || !REASONING_EFFORT_VALUES.includes(value))
-      return {
-        ok: false,
-        error: `${name("reasoning_effort")} must be one of: ${REASONING_EFFORT_VALUES.join(", ")}.`,
-      };
+      return fail(
+        "reasoning_effort",
+        `${name("reasoning_effort")} must be one of: ${REASONING_EFFORT_VALUES.join(", ")}.`
+      );
     options.reasoning_effort = value;
   }
 
@@ -257,7 +336,7 @@ function parseLLMRequestOptions(
       name("chat_template_kwargs"),
       chatTemplateKwargsAllowlist
     );
-    if (error) return { ok: false, error };
+    if (error) return fail("chat_template_kwargs", error);
     options.chat_template_kwargs = value;
   }
 
@@ -270,10 +349,10 @@ function parseLLMRequestOptions(
       temperature < TEMPERATURE_MIN ||
       temperature > TEMPERATURE_MAX
     )
-      return {
-        ok: false,
-        error: `${name("temperature")} must be a number between ${TEMPERATURE_MIN} and ${TEMPERATURE_MAX}.`,
-      };
+      return fail(
+        "temperature",
+        `${name("temperature")} must be a number between ${TEMPERATURE_MIN} and ${TEMPERATURE_MAX}.`
+      );
     options.temperature = temperature;
   }
 
@@ -282,26 +361,56 @@ function parseLLMRequestOptions(
 
 /**
  * Wie `parseLLMRequestOptions`, ermittelt aber die `max_tokens`-Obergrenze
- * aus dem LLMConnector des Workspaces (siehe `resolveMaxTokensCeiling`).
- * Der Connector wird nur erzeugt, wenn `max_tokens` überhaupt gesetzt ist und
- * keine ENV-Obergrenze existiert.
+ * für das Modell des Workspaces (siehe `resolveMaxTokensCeiling`) – nur, wenn
+ * `max_tokens` (bzw. der Alias) überhaupt gesetzt ist.
  * @param {Object|undefined|null} input
  * @param {Object|null} workspace - `{ chatProvider, chatModel }`
  * @param {Object} [config] - wie bei `parseLLMRequestOptions` (ohne maxTokensCeiling)
  */
 function parseLLMRequestOptionsForWorkspace(input, workspace, config = {}) {
-  const needsCeiling = isPlainObject(input) && isSet(input.max_tokens);
+  const needsCeiling =
+    isPlainObject(input) &&
+    (isSet(input.max_tokens) ||
+      (config.allowMaxCompletionTokens && isSet(input.max_completion_tokens)));
   const maxTokensCeiling = needsCeiling
-    ? resolveMaxTokensCeiling(() => {
-        // Lazy require: vermeidet Zirkelbezüge beim Laden der Helfer.
-        const { getLLMProvider } = require("../index");
-        return getLLMProvider({
-          provider: workspace?.chatProvider,
-          model: workspace?.chatModel,
-        });
-      })
-    : MAX_TOKENS_LIMIT;
+    ? resolveMaxTokensCeiling(workspace)
+    : DEFAULT_MAX_TOKENS_CEILING;
   return parseLLMRequestOptions(input, { ...config, maxTokensCeiling });
+}
+
+/**
+ * Antwortet auf ungültige `llmOptions` (workspace-/thread-Endpunkte) mit
+ * HTTP 400 im bestehenden Fehlerformat dieser Endpunkte.
+ * @param {import("express").Response} response
+ * @param {string} error - Fehlermeldung aus `parseLLMRequestOptions`
+ */
+function sendLLMOptionsError(response, error) {
+  return response.status(400).json({
+    id: uuidv4(),
+    type: "abort",
+    textResponse: null,
+    sources: [],
+    close: true,
+    error,
+  });
+}
+
+/**
+ * Antwortet auf ungültige LLM-Optionen am OpenAI-kompatiblen Endpunkt mit
+ * HTTP 400 in der OpenAI-Fehlerform, damit OpenAI-SDKs den Fehler als
+ * `BadRequestError` mit `param` erkennen.
+ * @param {import("express").Response} response
+ * @param {{error: string, param?: string}} parsed - Fehlerergebnis aus `parseLLMRequestOptions`
+ */
+function sendOpenAIInvalidRequestError(response, { error, param = null }) {
+  return response.status(400).json({
+    error: {
+      message: error,
+      type: "invalid_request_error",
+      param: param ?? null,
+      code: null,
+    },
+  });
 }
 
 /**
@@ -420,9 +529,12 @@ module.exports = {
   parseLLMRequestOptions,
   parseLLMRequestOptionsForWorkspace,
   resolveMaxTokensCeiling,
+  sendLLMOptionsError,
+  sendOpenAIInvalidRequestError,
   resolveChatTemplateKwargsAllowlist,
   shouldSeparateReasoning,
   splitThinkBlock,
   ThinkBlockSplitter,
   REASONING_EFFORT_VALUES,
+  DEFAULT_MAX_TOKENS_CEILING,
 };

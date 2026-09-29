@@ -23,6 +23,8 @@ jest.mock("../../utils/middleware/validApiKey", () => ({
 }));
 jest.mock("../../utils/helpers", () => ({
   getLLMProvider: jest.fn(),
+  getLLMProviderClass: jest.fn(),
+  getBaseLLMProviderModel: jest.fn(),
   getEmbeddingEngineSelection: jest.fn(),
   getVectorDbClass: jest.fn(),
   getMessageLimitInfo: jest.fn(),
@@ -110,6 +112,7 @@ const savedEnv = {};
 beforeAll(() => {
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
   jest.spyOn(console, "error").mockImplementation(() => {});
+  jest.spyOn(console, "log").mockImplementation(() => {});
 });
 
 afterAll(() => {
@@ -118,13 +121,16 @@ afterAll(() => {
     else process.env[key] = savedEnv[key];
   }
   console.error.mockRestore();
+  console.log.mockRestore();
 });
 
 beforeEach(() => {
   jest.clearAllMocks();
   for (const key of ENV_KEYS) delete process.env[key];
-  // Provider des Workspaces: Kontextfenster 131072 (-> max_tokens-Obergrenze)
-  helpers.getLLMProvider.mockReturnValue({ promptWindowLimit: () => 131072 });
+  // Modell des Workspaces: Kontextfenster 131072 -> Obergrenze min(16384, 131072)
+  helpers.getLLMProviderClass.mockReturnValue({
+    promptWindowLimit: () => 131072,
+  });
   WorkspaceThread.get.mockResolvedValue({ id: 7, slug: "t", name: "T" });
   Workspace.get.mockResolvedValue({
     id: 1,
@@ -233,26 +239,107 @@ describe("POST /v1/openai/chat/completions", () => {
     expect(args.llmOptions).toEqual({});
   });
 
-  test("max_tokens-Obergrenze = Kontextfenster des Workspace-Providers", async () => {
-    helpers.getLLMProvider.mockReturnValue({ promptWindowLimit: () => 8192 });
-    let res = await call({ max_tokens: 8192 });
-    expect(res.statusCode).toBe(200);
-    jest.clearAllMocks();
-    res = await call({ max_tokens: 8193 });
-    expect(res.statusCode).toBe(400);
-    expect(res.body.error).toBe(
-      "max_tokens must be an integer between 1 and 8192."
-    );
+  test("max_tokens über der Standard-Obergrenze 16384 wird geklemmt (kein 400)", async () => {
+    for (const stream of [false, true]) {
+      jest.clearAllMocks();
+      const res = await call({ max_tokens: 32000, stream });
+      expect(res.status).not.toHaveBeenCalledWith(400);
+      const chatFn = stream
+        ? OpenAICompatibleChat.streamChat
+        : OpenAICompatibleChat.chatSync;
+      expect(chatFn.mock.calls[0][0].llmOptions).toEqual({
+        max_tokens: 16384,
+      });
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining("clamped to 16384")
+      );
+    }
   });
 
-  test("max_tokens-Obergrenze per ENV LLM_REQUEST_MAX_TOKENS_CEILING", async () => {
+  test("Obergrenze = Kontextfenster, wenn kleiner als 16384 (statisch, ohne Provider-Instanz)", async () => {
+    helpers.getLLMProviderClass.mockReturnValue({
+      promptWindowLimit: () => 8192,
+    });
+    let res = await call({ max_tokens: 8192 });
+    expect(res.statusCode).toBe(200);
+    expect(OpenAICompatibleChat.chatSync.mock.calls[0][0].llmOptions).toEqual({
+      max_tokens: 8192,
+    });
+    jest.clearAllMocks();
+    res = await call({ max_tokens: 8193 });
+    expect(res.statusCode).toBe(200);
+    expect(OpenAICompatibleChat.chatSync.mock.calls[0][0].llmOptions).toEqual({
+      max_tokens: 8192,
+    });
+    expect(helpers.getLLMProvider).not.toHaveBeenCalled();
+  });
+
+  test("max_tokens-Obergrenze per ENV LLM_REQUEST_MAX_TOKENS_CEILING (geklemmt)", async () => {
     process.env.LLM_REQUEST_MAX_TOKENS_CEILING = "2048";
     const res = await call({ max_tokens: 4096 });
-    expect(res.statusCode).toBe(400);
-    expect(res.body.error).toBe(
-      "max_tokens must be an integer between 1 and 2048."
-    );
-    expect(OpenAICompatibleChat.chatSync).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(OpenAICompatibleChat.chatSync.mock.calls[0][0].llmOptions).toEqual({
+      max_tokens: 2048,
+    });
+    expect(helpers.getLLMProviderClass).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["-1 (unbegrenzt bei llama.cpp/LM Studio)", -1],
+    ["0", 0],
+    ["null", null],
+    ["nicht numerisch", "viel"],
+    ["-1 als String", "-1"],
+  ])("max_tokens %s gilt als nicht gesetzt", async (_label, value) => {
+    for (const stream of [false, true]) {
+      jest.clearAllMocks();
+      const res = await call({ max_tokens: value, stream });
+      expect(res.status).not.toHaveBeenCalledWith(400);
+      const chatFn = stream
+        ? OpenAICompatibleChat.streamChat
+        : OpenAICompatibleChat.chatSync;
+      expect(chatFn.mock.calls[0][0].llmOptions).toEqual({});
+    }
+  });
+
+  test.each([0, -0.5, "0"])(
+    "top_p %p gilt als nicht gesetzt",
+    async (value) => {
+      for (const stream of [false, true]) {
+        jest.clearAllMocks();
+        const res = await call({ top_p: value, stream });
+        expect(res.status).not.toHaveBeenCalledWith(400);
+        const chatFn = stream
+          ? OpenAICompatibleChat.streamChat
+          : OpenAICompatibleChat.chatSync;
+        expect(chatFn.mock.calls[0][0].llmOptions).toEqual({});
+      }
+    }
+  );
+
+  test("max_completion_tokens als Alias für max_tokens", async () => {
+    for (const stream of [false, true]) {
+      jest.clearAllMocks();
+      await call({ max_completion_tokens: 512, stream });
+      const chatFn = stream
+        ? OpenAICompatibleChat.streamChat
+        : OpenAICompatibleChat.chatSync;
+      expect(chatFn.mock.calls[0][0].llmOptions).toEqual({ max_tokens: 512 });
+    }
+  });
+
+  test("max_tokens gewinnt, wenn auch max_completion_tokens gesetzt ist", async () => {
+    await call({ max_tokens: 256, max_completion_tokens: 512 });
+    expect(OpenAICompatibleChat.chatSync.mock.calls[0][0].llmOptions).toEqual({
+      max_tokens: 256,
+    });
+  });
+
+  test("max_completion_tokens über der Obergrenze wird ebenfalls geklemmt", async () => {
+    await call({ max_completion_tokens: 50000 });
+    expect(OpenAICompatibleChat.chatSync.mock.calls[0][0].llmOptions).toEqual({
+      max_tokens: 16384,
+    });
   });
 
   test("unbekannter Workspace bleibt 401 (vor der Options-Prüfung)", async () => {
@@ -266,38 +353,50 @@ describe("POST /v1/openai/chat/completions", () => {
       "reasoning_effort: hoch",
       { reasoning_effort: "hoch" },
       /reasoning_effort must be one of: none, minimal, low, medium, high/,
+      "reasoning_effort",
     ],
     [
       "reasoning_effort: auto",
       { reasoning_effort: "auto" },
       /reasoning_effort must be one of/,
-    ],
-    ["max_tokens: -1", { max_tokens: -1 }, /max_tokens must be an integer/],
-    [
-      "max_tokens über dem Kontextfenster",
-      { max_tokens: 131073 },
-      /max_tokens must be an integer between 1 and 131072/,
+      "reasoning_effort",
     ],
     [
-      "max_tokens nicht numerisch",
-      { max_tokens: "viel" },
-      /max_tokens must be an integer/,
+      "max_tokens mit Nachkommastellen",
+      { max_tokens: 4096.5 },
+      /max_tokens must be an integer between 1 and 16384/,
+      "max_tokens",
     ],
-    ["top_p: 1.5", { top_p: 1.5 }, /top_p must be a number/],
+    [
+      "max_completion_tokens mit Nachkommastellen",
+      { max_completion_tokens: "12.5" },
+      /^max_completion_tokens must be an integer/,
+      "max_completion_tokens",
+    ],
+    ["top_p: 1.5", { top_p: 1.5 }, /top_p must be a number/, "top_p"],
+    [
+      "top_p nicht numerisch",
+      { top_p: "abc" },
+      /top_p must be a number/,
+      "top_p",
+    ],
     [
       "temperature: hot",
       { temperature: "hot" },
       /^temperature must be a number between 0 and 2/,
+      "temperature",
     ],
     [
       "temperature: 3",
       { temperature: 3 },
       /^temperature must be a number between 0 and 2/,
+      "temperature",
     ],
     [
       "nicht erlaubter kwargs-Schlüssel chat_template",
       { chat_template_kwargs: { chat_template: "{{ evil }}" } },
       /chat_template_kwargs contains the key "chat_template", which is not allowed/,
+      "chat_template_kwargs",
     ],
     [
       "nicht erlaubter kwargs-Schlüssel add_generation_prompt",
@@ -308,6 +407,7 @@ describe("POST /v1/openai/chat/completions", () => {
         },
       },
       /contains the key "add_generation_prompt", which is not allowed/,
+      "chat_template_kwargs",
     ],
     [
       "chat_template_kwargs mit 11 Schlüsseln",
@@ -317,40 +417,47 @@ describe("POST /v1/openai/chat/completions", () => {
         ),
       },
       /at most 10 keys/,
+      "chat_template_kwargs",
     ],
     [
       "verschachteltes Objekt",
       { chat_template_kwargs: { enable_thinking: { b: 1 } } },
       /chat_template_kwargs\.enable_thinking must be/,
+      "chat_template_kwargs",
     ],
     [
       "Array-Wert",
       { chat_template_kwargs: { enable_thinking: [true] } },
       /chat_template_kwargs\.enable_thinking must be/,
+      "chat_template_kwargs",
     ],
     [
       "Funktions-Wert",
       { chat_template_kwargs: { enable_thinking: () => 1 } },
       /chat_template_kwargs\.enable_thinking must be/,
+      "chat_template_kwargs",
     ],
-  ])("HTTP 400 bei %s", async (_label, extra, errorPattern) => {
-    for (const stream of [false, true]) {
-      jest.clearAllMocks();
-      const res = await call({ ...extra, stream });
-      expect(res.statusCode).toBe(400);
-      expect(res.body).toEqual({
-        id: expect.any(String),
-        type: "abort",
-        textResponse: null,
-        sources: [],
-        close: true,
-        error: expect.stringMatching(errorPattern),
-      });
-      expect(OpenAICompatibleChat.chatSync).not.toHaveBeenCalled();
-      expect(OpenAICompatibleChat.streamChat).not.toHaveBeenCalled();
-      expect(res.flushHeaders).not.toHaveBeenCalled();
+  ])(
+    "HTTP 400 (OpenAI-Fehlerform) bei %s",
+    async (_label, extra, errorPattern, param) => {
+      for (const stream of [false, true]) {
+        jest.clearAllMocks();
+        const res = await call({ ...extra, stream });
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({
+          error: {
+            message: expect.stringMatching(errorPattern),
+            type: "invalid_request_error",
+            param,
+            code: null,
+          },
+        });
+        expect(OpenAICompatibleChat.chatSync).not.toHaveBeenCalled();
+        expect(OpenAICompatibleChat.streamChat).not.toHaveBeenCalled();
+        expect(res.flushHeaders).not.toHaveBeenCalled();
+      }
     }
-  });
+  );
 });
 
 describe.each([
@@ -409,6 +516,24 @@ describe.each([
     });
   });
 
+  test("max_completion_tokens in llmOptions wird ignoriert (Alias nur am OpenAI-Endpunkt)", async () => {
+    const res = await call({ llmOptions: { max_completion_tokens: 512 } });
+    expect(res.status).not.toHaveBeenCalledWith(400);
+    expect(getChatFn().mock.calls[0][0].llmOptions).toEqual({});
+  });
+
+  test("Obergrenze = Kontextfenster, wenn kleiner als 16384", async () => {
+    helpers.getLLMProviderClass.mockReturnValue({
+      promptWindowLimit: () => 8192,
+    });
+    const res = await call({ llmOptions: { max_tokens: 8193 } });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toBe(
+      "llmOptions.max_tokens must be an integer between 1 and 8192."
+    );
+    expect(helpers.getLLMProvider).not.toHaveBeenCalled();
+  });
+
   test("flache Felder außerhalb von llmOptions werden wie bisher ignoriert", async () => {
     await call({ max_tokens: "egal", temperature: 99 });
     expect(getChatFn().mock.calls[0][0].llmOptions).toEqual({});
@@ -446,9 +571,19 @@ describe.each([
       /llmOptions\.chat_template_kwargs contains the key "tools", which is not allowed\. Allowed keys: enable_thinking\./,
     ],
     [
-      "max_tokens über dem Kontextfenster",
-      { llmOptions: { max_tokens: 131073 } },
-      /llmOptions\.max_tokens must be an integer between 1 and 131072/,
+      "max_tokens über der Obergrenze (kein Klemmen)",
+      { llmOptions: { max_tokens: 16385 } },
+      /llmOptions\.max_tokens must be an integer between 1 and 16384/,
+    ],
+    [
+      "max_tokens: -1 (strikt, nicht 'nicht gesetzt')",
+      { llmOptions: { max_tokens: -1 } },
+      /llmOptions\.max_tokens must be an integer/,
+    ],
+    [
+      "top_p: 0 (strikt)",
+      { llmOptions: { top_p: 0 } },
+      /llmOptions\.top_p must be a number greater than 0/,
     ],
     // Strikt: keine Koerzierung am workspace-Endpunkt
     [

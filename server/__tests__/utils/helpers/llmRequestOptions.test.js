@@ -27,17 +27,21 @@ const ENV_KEYS = [
 const savedEnv = {};
 beforeAll(() => {
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
-  jest.spyOn(console, "warn").mockImplementation(() => {});
+  jest.spyOn(console, "error").mockImplementation(() => {});
+  jest.spyOn(console, "log").mockImplementation(() => {});
 });
 afterAll(() => {
   for (const key of ENV_KEYS) {
     if (savedEnv[key] === undefined) delete process.env[key];
     else process.env[key] = savedEnv[key];
   }
-  console.warn.mockRestore();
+  console.error.mockRestore();
+  console.log.mockRestore();
 });
 beforeEach(() => {
   for (const key of ENV_KEYS) delete process.env[key];
+  console.error.mockClear();
+  console.log.mockClear();
 });
 
 describe("parseLLMRequestOptions", () => {
@@ -110,21 +114,39 @@ describe("parseLLMRequestOptions", () => {
   });
 
   describe("max_tokens", () => {
-    test.each([1, 4096, 1_000_000])("akzeptiert %p", (value) => {
+    test.each([1, 4096, 16384])("akzeptiert %p", (value) => {
       expect(parseLLMRequestOptions({ max_tokens: value }).options).toEqual({
         max_tokens: value,
       });
     });
-    test.each([0, -1, 1_000_001, 1.5, "4096", true, NaN, Infinity, {}, []])(
-      "lehnt %p ab",
+    test.each([0, -1, 16385, 1.5, "4096", true, NaN, Infinity, {}, []])(
+      "lehnt %p ab (Standard-Obergrenze 16384, strikt)",
       (value) => {
         const result = parseLLMRequestOptions({ max_tokens: value });
         expect(result.ok).toBe(false);
+        expect(result.param).toBe("max_tokens");
         expect(result.error).toMatch(
-          /max_tokens must be an integer between 1 and 1000000/
+          /max_tokens must be an integer between 1 and 16384/
         );
       }
     );
+
+    test("strikt: kein Klemmen, kein Log", () => {
+      const result = parseLLMRequestOptions(
+        { max_tokens: 20000 },
+        { fieldPrefix: "llmOptions." }
+      );
+      expect(result.ok).toBe(false);
+      expect(result.param).toBe("llmOptions.max_tokens");
+      expect(console.log).not.toHaveBeenCalled();
+    });
+
+    test("max_completion_tokens wird ohne allowMaxCompletionTokens ignoriert", () => {
+      expect(parseLLMRequestOptions({ max_completion_tokens: 512 })).toEqual({
+        ok: true,
+        options: {},
+      });
+    });
 
     test("respektiert die übergebene Obergrenze und nennt sie im Fehler", () => {
       expect(
@@ -138,6 +160,7 @@ describe("parseLLMRequestOptions", () => {
       expect(result).toEqual({
         ok: false,
         error: "llmOptions.max_tokens must be an integer between 1 and 8192.",
+        param: "llmOptions.max_tokens",
       });
     });
   });
@@ -326,6 +349,7 @@ describe("parseLLMRequestOptions", () => {
         expect(result).toEqual({
           ok: false,
           error: `llmOptions.chat_template_kwargs contains the key "${key}", which is not allowed. Allowed keys: enable_thinking.`,
+          param: "llmOptions.chat_template_kwargs",
         });
       });
 
@@ -413,36 +437,161 @@ describe("parseLLMRequestOptions", () => {
       });
     });
 
-    test.each([0, "0", null, undefined])(
-      "max_tokens %p gilt als nicht gesetzt",
-      (value) => {
+    test.each([
+      0,
+      "0",
+      -1,
+      "-1",
+      -4096,
+      null,
+      undefined,
+      "viel",
+      "0x10",
+      "",
+      true,
+      {},
+      [],
+    ])("max_tokens %p gilt als nicht gesetzt", (value) => {
+      expect(parseLLMRequestOptions({ max_tokens: value }, coerce)).toEqual({
+        ok: true,
+        options: {},
+      });
+    });
+
+    test.each([
+      [20000, 16384],
+      ["1000000", 16384],
+      [16384, 16384],
+    ])(
+      "max_tokens %p wird auf %p geklemmt (ohne Fehler)",
+      (value, expected) => {
         expect(parseLLMRequestOptions({ max_tokens: value }, coerce)).toEqual({
+          ok: true,
+          options: { max_tokens: expected },
+        });
+      }
+    );
+
+    test("Klemmen wird genau einmal per console.log vermerkt", () => {
+      const result = parseLLMRequestOptions(
+        { max_tokens: 9000 },
+        { ...coerce, maxTokensCeiling: 8192 }
+      );
+      expect(result.options).toEqual({ max_tokens: 8192 });
+      expect(console.log).toHaveBeenCalledTimes(1);
+      expect(console.log.mock.calls[0][0]).toMatch(
+        /max_tokens=9000 exceeds the server ceiling and was clamped to 8192/
+      );
+      expect(console.error).not.toHaveBeenCalled();
+    });
+
+    test("max_tokens unter der Obergrenze: kein Log", () => {
+      parseLLMRequestOptions({ max_tokens: 4096 }, coerce);
+      expect(console.log).not.toHaveBeenCalled();
+    });
+
+    test.each([0, "0", -0.5, "-1"])(
+      "top_p %p gilt als nicht gesetzt",
+      (value) => {
+        expect(parseLLMRequestOptions({ top_p: value }, coerce)).toEqual({
           ok: true,
           options: {},
         });
       }
     );
 
+    describe("max_completion_tokens (Alias, nur mit allowMaxCompletionTokens)", () => {
+      const alias = { ...coerce, allowMaxCompletionTokens: true };
+
+      test("wird als max_tokens übernommen", () => {
+        expect(
+          parseLLMRequestOptions({ max_completion_tokens: 512 }, alias)
+        ).toEqual({ ok: true, options: { max_tokens: 512 } });
+      });
+
+      test("max_tokens gewinnt, wenn beide gesetzt sind", () => {
+        expect(
+          parseLLMRequestOptions(
+            { max_tokens: 256, max_completion_tokens: 512 },
+            alias
+          ).options
+        ).toEqual({ max_tokens: 256 });
+        // auch wenn max_tokens "nicht gesetzt" bedeutet (-1 = unbegrenzt)
+        expect(
+          parseLLMRequestOptions(
+            { max_tokens: -1, max_completion_tokens: 512 },
+            alias
+          ).options
+        ).toEqual({});
+      });
+
+      test("max_tokens null: Alias greift", () => {
+        expect(
+          parseLLMRequestOptions(
+            { max_tokens: null, max_completion_tokens: "512" },
+            alias
+          ).options
+        ).toEqual({ max_tokens: 512 });
+      });
+
+      test("Alias wird ebenfalls geklemmt und tolerant gelesen", () => {
+        expect(
+          parseLLMRequestOptions({ max_completion_tokens: 50000 }, alias)
+            .options
+        ).toEqual({ max_tokens: 16384 });
+        expect(
+          parseLLMRequestOptions({ max_completion_tokens: 0 }, alias).options
+        ).toEqual({});
+      });
+
+      test("Fehler nennt den Alias als param", () => {
+        expect(
+          parseLLMRequestOptions({ max_completion_tokens: 12.5 }, alias)
+        ).toEqual({
+          ok: false,
+          error:
+            "max_completion_tokens must be an integer between 1 and 16384.",
+          param: "max_completion_tokens",
+        });
+      });
+    });
+
     test.each([
-      [{ reasoning_effort: "auto" }, /reasoning_effort must be one of/],
-      [{ top_p: 1.5 }, /top_p must be a number/],
-      [{ top_p: "1.5" }, /top_p must be a number/],
-      [{ max_tokens: "4096.5" }, /max_tokens must be an integer/],
-      [{ max_tokens: "viel" }, /max_tokens must be an integer/],
-      [{ max_tokens: -1 }, /max_tokens must be an integer/],
-      [{ max_tokens: "0x10" }, /max_tokens must be an integer/],
-      [{ max_tokens: true }, /max_tokens must be an integer/],
-      [{ temperature: "hot" }, /temperature must be a number between 0 and 2/],
-      [{ temperature: 3 }, /temperature must be a number between 0 and 2/],
-      [{ temperature: "" }, /temperature must be a number between 0 and 2/],
       [
-        { chat_template_kwargs: { enable_thinking: "true" }, max_tokens: "x" },
-        /max_tokens must be an integer/,
+        { reasoning_effort: "auto" },
+        /reasoning_effort must be one of/,
+        "reasoning_effort",
       ],
-    ])("bleibt strikt bei %p", (input, pattern) => {
+      [{ top_p: 1.5 }, /top_p must be a number/, "top_p"],
+      [{ top_p: "1.5" }, /top_p must be a number/, "top_p"],
+      [{ top_p: "abc" }, /top_p must be a number/, "top_p"],
+      [{ max_tokens: "4096.5" }, /max_tokens must be an integer/, "max_tokens"],
+      [{ max_tokens: 1.5 }, /max_tokens must be an integer/, "max_tokens"],
+      [
+        { temperature: "hot" },
+        /temperature must be a number between 0 and 2/,
+        "temperature",
+      ],
+      [
+        { temperature: 3 },
+        /temperature must be a number between 0 and 2/,
+        "temperature",
+      ],
+      [
+        { temperature: "" },
+        /temperature must be a number between 0 and 2/,
+        "temperature",
+      ],
+      [
+        { chat_template_kwargs: { enable_thinking: {} } },
+        /chat_template_kwargs\.enable_thinking must be/,
+        "chat_template_kwargs",
+      ],
+    ])("bleibt strikt bei %p", (input, pattern, param) => {
       const result = parseLLMRequestOptions(input, coerce);
       expect(result.ok).toBe(false);
       expect(result.error).toMatch(pattern);
+      expect(result.param).toBe(param);
     });
 
     test("kwargs-Werte werden nicht umgewandelt", () => {
@@ -492,50 +641,121 @@ describe("parseLLMRequestOptions", () => {
 });
 
 describe("resolveMaxTokensCeiling", () => {
-  const connector = (limit) => ({ promptWindowLimit: jest.fn(() => limit) });
+  const helpers = require("../../../utils/helpers");
+  let classSpy;
+  let modelSpy;
+  let providerSpy;
+  const workspace = { chatProvider: "generic-openai", chatModel: "Chat1" };
+  const withWindow = (limit) =>
+    classSpy.mockReturnValue({ promptWindowLimit: jest.fn(() => limit) });
 
-  test("ENV hat Vorrang vor dem Provider", () => {
-    process.env.LLM_REQUEST_MAX_TOKENS_CEILING = "2048";
-    const llm = connector(131072);
-    expect(resolveMaxTokensCeiling(llm)).toBe(2048);
-    expect(llm.promptWindowLimit).not.toHaveBeenCalled();
+  beforeEach(() => {
+    classSpy = jest.spyOn(helpers, "getLLMProviderClass");
+    modelSpy = jest
+      .spyOn(helpers, "getBaseLLMProviderModel")
+      .mockReturnValue("BaseModel");
+    providerSpy = jest.spyOn(helpers, "getLLMProvider");
+    withWindow(131072);
+  });
+  afterEach(() => {
+    classSpy.mockRestore();
+    modelSpy.mockRestore();
+    providerSpy.mockRestore();
   });
 
-  test("ohne ENV: promptWindowLimit() des Providers", () => {
-    expect(resolveMaxTokensCeiling(connector(131072))).toBe(131072);
-    expect(resolveMaxTokensCeiling(() => connector(8192))).toBe(8192);
+  test("ENV hat Vorrang vor Standard und Kontextfenster", () => {
+    process.env.LLM_REQUEST_MAX_TOKENS_CEILING = "32768";
+    expect(resolveMaxTokensCeiling(workspace)).toBe(32768);
+    expect(classSpy).not.toHaveBeenCalled();
+  });
+
+  test("ohne ENV: min(16384, Kontextfenster)", () => {
+    expect(resolveMaxTokensCeiling(workspace)).toBe(16384);
+    withWindow(8192);
+    expect(resolveMaxTokensCeiling(workspace)).toBe(8192);
+    withWindow("4096");
+    expect(resolveMaxTokensCeiling(workspace)).toBe(4096);
+  });
+
+  test("statisch über die Provider-Klasse, ohne Provider-Instanz", () => {
+    const promptWindowLimit = jest.fn(() => 8192);
+    classSpy.mockReturnValue({ promptWindowLimit });
+    resolveMaxTokensCeiling(workspace);
+    expect(classSpy).toHaveBeenCalledWith({ provider: "generic-openai" });
+    expect(promptWindowLimit).toHaveBeenCalledWith("Chat1");
+    expect(providerSpy).not.toHaveBeenCalled();
+  });
+
+  test("ohne Workspace-Provider/-Modell: System-Provider und Basis-Modell", () => {
+    const saved = process.env.LLM_PROVIDER;
+    process.env.LLM_PROVIDER = "generic-openai";
+    const promptWindowLimit = jest.fn(() => 8192);
+    classSpy.mockReturnValue({ promptWindowLimit });
+    try {
+      expect(resolveMaxTokensCeiling({})).toBe(8192);
+      expect(classSpy).toHaveBeenCalledWith({ provider: "generic-openai" });
+      expect(modelSpy).toHaveBeenCalledWith({ provider: "generic-openai" });
+      expect(promptWindowLimit).toHaveBeenCalledWith("BaseModel");
+    } finally {
+      if (saved === undefined) delete process.env.LLM_PROVIDER;
+      else process.env.LLM_PROVIDER = saved;
+    }
   });
 
   test.each(["abc", "0", "-5", "1.5", " "])(
     "ungültige ENV %p wird ignoriert",
     (value) => {
       process.env.LLM_REQUEST_MAX_TOKENS_CEILING = value;
-      expect(resolveMaxTokensCeiling(connector(4096))).toBe(4096);
+      withWindow(4096);
+      expect(resolveMaxTokensCeiling(workspace)).toBe(4096);
     }
   );
 
-  test("ohne ENV und ohne nutzbaren Provider: absolute Obergrenze", () => {
-    expect(resolveMaxTokensCeiling(null)).toBe(1_000_000);
-    expect(resolveMaxTokensCeiling({})).toBe(1_000_000);
-    expect(
-      resolveMaxTokensCeiling(() => {
-        throw new Error("kein Provider");
-      })
-    ).toBe(1_000_000);
+  test("ungültige ENV wird per console.error gemeldet", () => {
+    process.env.LLM_REQUEST_MAX_TOKENS_CEILING = "abc";
+    resolveMaxTokensCeiling(workspace);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("LLM_REQUEST_MAX_TOKENS_CEILING")
+    );
+  });
+
+  test("Kontextfenster nicht ermittelbar: konservativ 16384", () => {
+    classSpy.mockReturnValue(null);
+    expect(resolveMaxTokensCeiling(workspace)).toBe(16384);
+    classSpy.mockReturnValue({});
+    expect(resolveMaxTokensCeiling(workspace)).toBe(16384);
+    withWindow(NaN);
+    expect(resolveMaxTokensCeiling(workspace)).toBe(16384);
+    // asynchrones Limit (z. B. TogetherAI) ist hier nicht nutzbar
+    classSpy.mockReturnValue({
+      promptWindowLimit: () => Promise.reject(new Error("offline")),
+    });
+    expect(resolveMaxTokensCeiling(workspace)).toBe(16384);
+    expect(resolveMaxTokensCeiling(null)).toBe(16384);
+  });
+
+  test("Fehler beim Ermitteln: 16384 und console.error", () => {
+    classSpy.mockImplementation(() => {
+      throw new Error("kein Provider");
+    });
+    expect(resolveMaxTokensCeiling(workspace)).toBe(16384);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("kein Provider")
+    );
   });
 });
 
 describe("parseLLMRequestOptionsForWorkspace", () => {
   const helpers = require("../../../utils/helpers");
-  let spy;
+  let classSpy;
   beforeEach(() => {
-    spy = jest
-      .spyOn(helpers, "getLLMProvider")
+    classSpy = jest
+      .spyOn(helpers, "getLLMProviderClass")
       .mockReturnValue({ promptWindowLimit: () => 8192 });
   });
-  afterEach(() => spy.mockRestore());
+  afterEach(() => classSpy.mockRestore());
 
-  test("Obergrenze aus dem Workspace-Provider", () => {
+  test("Obergrenze aus dem Modell des Workspaces", () => {
     const workspace = { chatProvider: "generic-openai", chatModel: "Chat1" };
     expect(
       parseLLMRequestOptionsForWorkspace({ max_tokens: 8192 }, workspace)
@@ -547,19 +767,75 @@ describe("parseLLMRequestOptionsForWorkspace", () => {
     expect(result.error).toBe(
       "max_tokens must be an integer between 1 and 8192."
     );
-    expect(spy).toHaveBeenCalledWith({
-      provider: "generic-openai",
-      model: "Chat1",
-    });
+    expect(classSpy).toHaveBeenCalledWith({ provider: "generic-openai" });
   });
 
-  test("erzeugt keinen Provider, wenn max_tokens fehlt", () => {
+  test("ermittelt keine Obergrenze, wenn max_tokens fehlt", () => {
     expect(parseLLMRequestOptionsForWorkspace({ top_p: 0.5 }, {})).toEqual({
       ok: true,
       options: { top_p: 0.5 },
     });
     expect(parseLLMRequestOptionsForWorkspace(undefined, {}).ok).toBe(true);
-    expect(spy).not.toHaveBeenCalled();
+    // Alias ohne allowMaxCompletionTokens zählt nicht
+    parseLLMRequestOptionsForWorkspace({ max_completion_tokens: 5 }, {});
+    expect(classSpy).not.toHaveBeenCalled();
+  });
+
+  test("Alias max_completion_tokens nutzt dieselbe Obergrenze (geklemmt)", () => {
+    expect(
+      parseLLMRequestOptionsForWorkspace(
+        { max_completion_tokens: 10000 },
+        { chatProvider: "generic-openai" },
+        { coerce: true, allowMaxCompletionTokens: true }
+      )
+    ).toEqual({ ok: true, options: { max_tokens: 8192 } });
+    expect(classSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Fehlerantworten", () => {
+  const {
+    sendLLMOptionsError,
+    sendOpenAIInvalidRequestError,
+  } = require("../../../utils/helpers/chat/llmRequestOptions");
+  const mockResponse = () => {
+    const res = {
+      status: jest.fn(() => res),
+      json: jest.fn(() => res),
+    };
+    return res;
+  };
+
+  test("sendLLMOptionsError: bestehendes Format der workspace-Endpunkte", () => {
+    const res = mockResponse();
+    sendLLMOptionsError(res, "llmOptions.top_p must be …");
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      id: expect.any(String),
+      type: "abort",
+      textResponse: null,
+      sources: [],
+      close: true,
+      error: "llmOptions.top_p must be …",
+    });
+  });
+
+  test("sendOpenAIInvalidRequestError: OpenAI-Fehlerform", () => {
+    const res = mockResponse();
+    sendOpenAIInvalidRequestError(res, {
+      ok: false,
+      error: "top_p must be …",
+      param: "top_p",
+    });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      error: {
+        message: "top_p must be …",
+        type: "invalid_request_error",
+        param: "top_p",
+        code: null,
+      },
+    });
   });
 });
 
