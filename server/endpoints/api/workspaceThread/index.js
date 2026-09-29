@@ -13,6 +13,9 @@ const {
 const { WorkspaceChats } = require("../../../models/workspaceChats");
 const { User } = require("../../../models/user");
 const { ApiChatHandler } = require("../../../utils/chats/apiChatHandler");
+const {
+  parseLLMRequestOptionsForWorkspace,
+} = require("../../../utils/helpers/chat/llmRequestOptions");
 const { getModelTag } = require("../../utils");
 
 function apiWorkspaceThreadEndpoints(app) {
@@ -338,7 +341,7 @@ function apiWorkspaceThreadEndpoints(app) {
           type: 'string'
       }
       #swagger.requestBody = {
-        description: 'Send a prompt to the workspace thread and the type of conversation (query or chat).',
+        description: 'Send a prompt to the workspace thread and the type of conversation (query or chat).<br/><b>llmOptions (optional):</b> per-request LLM options, only applied by the Generic OpenAI provider (other providers ignore them). Values are not type-converted; invalid values return HTTP 400. Supported keys: <code>max_tokens</code> (integer ≥ 1 up to the server ceiling — <code>LLM_REQUEST_MAX_TOKENS_CEILING</code>, otherwise the model context window; overrides the server default; with thinking enabled the reasoning tokens count towards it), <code>top_p</code> (0 &lt; x ≤ 1), <code>temperature</code> (0…2, priority: request → workspace → default), <code>reasoning_effort</code> (<code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>), <code>chat_template_kwargs</code> (flat object with allowed keys only — default <code>enable_thinking</code>, extendable by the server admin via <code>LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST</code>; values boolean/number/string ≤ 256 chars, e.g. <code>enable_thinking: true</code> to enable thinking for Gemma-4 via vLLM). The reasoning is returned as a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block in <code>textResponse</code>.',
         required: true,
         content: {
           "application/json": {
@@ -353,7 +356,12 @@ function apiWorkspaceThreadEndpoints(app) {
                  contentString: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
                }
               ],
-              reset: false
+              reset: false,
+              llmOptions: {
+                max_tokens: 4096,
+                temperature: 0.2,
+                chat_template_kwargs: { enable_thinking: true }
+              }
             }
           }
         }
@@ -389,6 +397,7 @@ function apiWorkspaceThreadEndpoints(app) {
           userId,
           attachments = [],
           reset = false,
+          llmOptions: rawLLMOptions,
         } = reqBody(request);
         const workspace = await Workspace.get({ slug });
         const thread = await WorkspaceThread.get({
@@ -422,6 +431,24 @@ function apiWorkspaceThreadEndpoints(app) {
           return;
         }
 
+        // Strikt (keine Typumwandlung), max_tokens-Grenze aus dem Provider.
+        const parsedLLMOptions = parseLLMRequestOptionsForWorkspace(
+          rawLLMOptions,
+          workspace,
+          { allowTemperature: true, fieldPrefix: "llmOptions." }
+        );
+        if (!parsedLLMOptions.ok) {
+          response.status(400).json({
+            id: uuidv4(),
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: parsedLLMOptions.error,
+          });
+          return;
+        }
+
         const user = userId ? await User.get({ id: Number(userId) }) : null;
         const result = await ApiChatHandler.chatSync({
           workspace,
@@ -431,6 +458,7 @@ function apiWorkspaceThreadEndpoints(app) {
           thread,
           attachments,
           reset,
+          llmOptions: parsedLLMOptions.options,
         });
         await Telemetry.sendTelemetry("sent_chat", {
           LLMSelection: process.env.LLM_PROVIDER || "openai",
@@ -480,7 +508,7 @@ function apiWorkspaceThreadEndpoints(app) {
           type: 'string'
       }
       #swagger.requestBody = {
-        description: 'Send a prompt to the workspace thread and the type of conversation (query or chat).',
+        description: 'Send a prompt to the workspace thread and the type of conversation (query or chat).<br/><b>llmOptions (optional):</b> per-request LLM options, only applied by the Generic OpenAI provider (other providers ignore them). Values are not type-converted; invalid values return HTTP 400. Supported keys: <code>max_tokens</code> (integer ≥ 1 up to the server ceiling — <code>LLM_REQUEST_MAX_TOKENS_CEILING</code>, otherwise the model context window; overrides the server default; with thinking enabled the reasoning tokens count towards it), <code>top_p</code> (0 &lt; x ≤ 1), <code>temperature</code> (0…2, priority: request → workspace → default), <code>reasoning_effort</code> (<code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>), <code>chat_template_kwargs</code> (flat object with allowed keys only — default <code>enable_thinking</code>, extendable by the server admin via <code>LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST</code>; values boolean/number/string ≤ 256 chars, e.g. <code>enable_thinking: true</code> to enable thinking for Gemma-4 via vLLM). The reasoning is returned as a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block in <code>textResponse</code>.',
         required: true,
         content: {
           "application/json": {
@@ -500,7 +528,12 @@ function apiWorkspaceThreadEndpoints(app) {
                  contentString: "data:application/pdf;base64,iVBORw0KGgoAAAANSUhEUgAA..."
                }
               ],
-              reset: false
+              reset: false,
+              llmOptions: {
+                max_tokens: 4096,
+                temperature: 0.2,
+                chat_template_kwargs: { enable_thinking: true }
+              }
             }
           }
         }
@@ -557,6 +590,7 @@ function apiWorkspaceThreadEndpoints(app) {
           userId,
           attachments = [],
           reset = false,
+          llmOptions: rawLLMOptions,
         } = reqBody(request);
         const workspace = await Workspace.get({ slug });
         const thread = await WorkspaceThread.get({
@@ -590,6 +624,24 @@ function apiWorkspaceThreadEndpoints(app) {
           return;
         }
 
+        // Strikt (keine Typumwandlung), max_tokens-Grenze aus dem Provider.
+        const parsedLLMOptions = parseLLMRequestOptionsForWorkspace(
+          rawLLMOptions,
+          workspace,
+          { allowTemperature: true, fieldPrefix: "llmOptions." }
+        );
+        if (!parsedLLMOptions.ok) {
+          response.status(400).json({
+            id: uuidv4(),
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: parsedLLMOptions.error,
+          });
+          return;
+        }
+
         const user = userId ? await User.get({ id: Number(userId) }) : null;
 
         response.setHeader("Cache-Control", "no-cache");
@@ -607,6 +659,7 @@ function apiWorkspaceThreadEndpoints(app) {
           thread,
           attachments,
           reset,
+          llmOptions: parsedLLMOptions.options,
         });
         await Telemetry.sendTelemetry("sent_chat", {
           LLMSelection: process.env.LLM_PROVIDER || "openai",

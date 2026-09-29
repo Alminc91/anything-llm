@@ -2,11 +2,15 @@
 // Endpunkt-Validierung der optionalen LLM-Optionen:
 // - POST /v1/openai/chat/completions (Optionen flach im Body)
 // - POST /v1/workspace/:slug/chat und /stream-chat (Optionen unter `llmOptions`)
+// - POST /v1/workspace/:slug/thread/:threadSlug/chat und /stream-chat (dito)
 // Die Routen werden an einer Fake-App registriert und direkt aufgerufen.
 
 jest.mock("../../utils/prisma", () => ({}));
 jest.mock("../../models/workspace", () => ({
   Workspace: { get: jest.fn() },
+}));
+jest.mock("../../models/workspaceThread", () => ({
+  WorkspaceThread: { get: jest.fn() },
 }));
 jest.mock("../../models/telemetry", () => ({
   Telemetry: { sendTelemetry: jest.fn() },
@@ -34,11 +38,15 @@ jest.mock("../../endpoints/utils", () => ({
 }));
 
 const { Workspace } = require("../../models/workspace");
+const { WorkspaceThread } = require("../../models/workspaceThread");
 const helpers = require("../../utils/helpers");
 const { OpenAICompatibleChat } = require("../../utils/chats/openaiCompatible");
 const { ApiChatHandler } = require("../../utils/chats/apiChatHandler");
 const { apiOpenAICompatibleEndpoints } = require("../../endpoints/api/openai");
 const { apiWorkspaceEndpoints } = require("../../endpoints/api/workspace");
+const {
+  apiWorkspaceThreadEndpoints,
+} = require("../../endpoints/api/workspaceThread");
 
 function collectRoutes(register) {
   const routes = {};
@@ -87,6 +95,11 @@ const openaiChat = openaiRoutes["POST /v1/openai/chat/completions"];
 const workspaceChat = workspaceRoutes["POST /v1/workspace/:slug/chat"];
 const workspaceStreamChat =
   workspaceRoutes["POST /v1/workspace/:slug/stream-chat"];
+const threadRoutes = collectRoutes(apiWorkspaceThreadEndpoints);
+const threadChat =
+  threadRoutes["POST /v1/workspace/:slug/thread/:threadSlug/chat"];
+const threadStreamChat =
+  threadRoutes["POST /v1/workspace/:slug/thread/:threadSlug/stream-chat"];
 
 const ENV_KEYS = [
   "LLM_REQUEST_MAX_TOKENS_CEILING",
@@ -112,6 +125,7 @@ beforeEach(() => {
   for (const key of ENV_KEYS) delete process.env[key];
   // Provider des Workspaces: Kontextfenster 131072 (-> max_tokens-Obergrenze)
   helpers.getLLMProvider.mockReturnValue({ promptWindowLimit: () => 131072 });
+  WorkspaceThread.get.mockResolvedValue({ id: 7, slug: "t", name: "T" });
   Workspace.get.mockResolvedValue({
     id: 1,
     slug: "ws",
@@ -133,6 +147,8 @@ test("Routen sind registriert", () => {
   expect(typeof openaiChat).toBe("function");
   expect(typeof workspaceChat).toBe("function");
   expect(typeof workspaceStreamChat).toBe("function");
+  expect(typeof threadChat).toBe("function");
+  expect(typeof threadStreamChat).toBe("function");
 });
 
 describe("POST /v1/openai/chat/completions", () => {
@@ -348,12 +364,22 @@ describe.each([
     () => workspaceStreamChat,
     () => ApiChatHandler.streamChat,
   ],
+  [
+    "POST /v1/workspace/:slug/thread/:threadSlug/chat",
+    () => threadChat,
+    () => ApiChatHandler.chatSync,
+  ],
+  [
+    "POST /v1/workspace/:slug/thread/:threadSlug/stream-chat",
+    () => threadStreamChat,
+    () => ApiChatHandler.streamChat,
+  ],
 ])("%s", (_route, getHandler, getChatFn) => {
   async function call(body) {
     const res = mockResponse();
     await getHandler()(
       {
-        params: { slug: "ws" },
+        params: { slug: "ws", threadSlug: "t" },
         body: { message: "Hallo", mode: "chat", ...body },
       },
       res
