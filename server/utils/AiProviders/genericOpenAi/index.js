@@ -307,12 +307,16 @@ class GenericOpenAiLLM {
       let reasoningText = "";
       let finished = false;
 
-      // Kufer-Fork: Wurde nur Reasoning gestreamt (z. B. Thinking durch
-      // max_tokens abgeschnitten, finish_reason "length"), ist der <think>-Block
-      // noch offen und fullText leer. Beim Abschluss den Block schließen und
-      // in fullText übernehmen, damit der Chat vollständig gespeichert wird.
+      // Kufer-Fork: Schließt einen offenen <think>-Block und übernimmt ihn in
+      // fullText – wenn Content beginnt (auch im selben Chunk wie das letzte
+      // Reasoning-Token) oder beim Abschluss, falls nur Reasoning gestreamt
+      // wurde (z. B. Thinking durch max_tokens abgeschnitten, finish_reason
+      // "length"). fullText wird vor dem Schreiben aktualisiert, damit der
+      // Text auch bei einem Schreibfehler vollständig bleibt.
       const closeOpenReasoning = ({ emit = true } = {}) => {
         if (!reasoningText) return;
+        fullText += `${reasoningText}</think>`;
+        reasoningText = "";
         if (emit)
           writeResponseChunk(response, {
             uuid,
@@ -322,28 +326,40 @@ class GenericOpenAiLLM {
             close: false,
             error: false,
           });
-        fullText += `${reasoningText}</think>`;
-        reasoningText = "";
       };
 
       // Regulärer Abschluss (finish_reason oder Stream-Ende ohne finish_reason).
+      // Löst in jedem Fall genau einmal mit fullText auf, auch wenn Schreiben,
+      // Listener-Abbau oder Messung werfen – sonst bliebe das Promise offen.
       const finish = (lastChunk = null) => {
         if (finished) return;
         finished = true;
-        closeOpenReasoning();
-        writeResponseChunk(response, {
-          uuid,
-          sources,
-          type: "textResponseChunk",
-          textResponse: "",
-          close: true,
-          error: false,
-        });
-        if (lastChunk) this.#extractLlamaCppTimings(lastChunk, usage);
-
-        response.removeListener("close", handleAbort);
-        stream?.endMeasurement(usage);
-        resolve(fullText);
+        try {
+          closeOpenReasoning();
+          writeResponseChunk(response, {
+            uuid,
+            sources,
+            type: "textResponseChunk",
+            textResponse: "",
+            close: true,
+            error: false,
+          });
+          if (lastChunk) this.#extractLlamaCppTimings(lastChunk, usage);
+        } catch (e) {
+          console.error(
+            `[GenericOpenAiLLM] Error while finishing stream: ${e.message}`
+          );
+        } finally {
+          try {
+            response.removeListener("close", handleAbort);
+            stream?.endMeasurement(usage);
+          } catch (e) {
+            console.error(
+              `[GenericOpenAiLLM] Error while ending stream measurement: ${e.message}`
+            );
+          }
+          resolve(fullText);
+        }
       };
 
       // Establish listener to early-abort a streaming response
@@ -351,9 +367,16 @@ class GenericOpenAiLLM {
       // We preserve the generated text but continue as if chat was completed
       // to preserve previously generated content.
       const handleAbort = () => {
+        if (finished) return;
         finished = true;
-        closeOpenReasoning({ emit: false });
-        stream?.endMeasurement(usage);
+        try {
+          closeOpenReasoning({ emit: false });
+          stream?.endMeasurement(usage);
+        } catch (e) {
+          console.error(
+            `[GenericOpenAiLLM] Error while aborting stream: ${e.message}`
+          );
+        }
         clientAbortedHandler(resolve, fullText);
       };
       response.on("close", handleAbort);
@@ -381,46 +404,27 @@ class GenericOpenAiLLM {
 
           // Reasoning models will always return the reasoning text before the token text.
           if (reasoningToken) {
-            // If the reasoning text is empty (''), we need to initialize it
-            // and send the first chunk of reasoning text.
-            if (reasoningText.length === 0) {
-              writeResponseChunk(response, {
-                uuid,
-                sources: [],
-                type: "textResponseChunk",
-                textResponse: `<think>${reasoningToken}`,
-                close: false,
-                error: false,
-              });
-              reasoningText += `<think>${reasoningToken}`;
-              continue;
-            } else {
-              writeResponseChunk(response, {
-                uuid,
-                sources: [],
-                type: "textResponseChunk",
-                textResponse: reasoningToken,
-                close: false,
-                error: false,
-              });
-              reasoningText += reasoningToken;
-            }
-          }
-
-          // If the reasoning text is not empty, but the reasoning token is empty
-          // and the token text is not empty we need to close the reasoning text and begin sending the token text.
-          if (!!reasoningText && !reasoningToken && token) {
+            // The first reasoning chunk opens the <think> block.
+            const reasoningChunk =
+              reasoningText.length === 0
+                ? `<think>${reasoningToken}`
+                : reasoningToken;
             writeResponseChunk(response, {
               uuid,
               sources: [],
               type: "textResponseChunk",
-              textResponse: `</think>`,
+              textResponse: reasoningChunk,
               close: false,
               error: false,
             });
-            fullText += `${reasoningText}</think>`;
-            reasoningText = "";
+            reasoningText += reasoningChunk;
           }
+
+          // Kufer-Fork: Sobald Content kommt, zuerst den offenen <think>-Block
+          // schließen – auch wenn derselbe Chunk noch reasoning_content trägt
+          // (vLLM/DeepSeek an der Grenze Denken → Antwort). Sonst landete das
+          // erste Content-Token im Denkblock und das Reasoning dahinter.
+          if (!!reasoningText && token) closeOpenReasoning();
 
           if (token) {
             fullText += token;
@@ -448,19 +452,27 @@ class GenericOpenAiLLM {
         // Stream endete ohne finish_reason: trotzdem sauber abschließen.
         finish();
       } catch (e) {
-        if (finished) return;
+        // Bereits abgeschlossen (finish/Abbruch): resolve ist idempotent,
+        // trotzdem nie ohne resolve enden.
+        if (finished) return resolve(fullText);
         finished = true;
-        closeOpenReasoning({ emit: false });
         console.log(`\x1b[43m\x1b[34m[STREAMING ERROR]\x1b[0m ${e.message}`);
-        writeResponseChunk(response, {
-          uuid,
-          type: "abort",
-          textResponse: null,
-          sources: [],
-          close: true,
-          error: e.message,
-        });
-        stream?.endMeasurement(usage);
+        try {
+          closeOpenReasoning({ emit: false });
+          writeResponseChunk(response, {
+            uuid,
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: e.message,
+          });
+          stream?.endMeasurement(usage);
+        } catch (err) {
+          console.error(
+            `[GenericOpenAiLLM] Error while handling stream error: ${err.message}`
+          );
+        }
         resolve(fullText);
       }
     });

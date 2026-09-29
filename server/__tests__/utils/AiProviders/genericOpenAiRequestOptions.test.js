@@ -344,6 +344,123 @@ describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {
       expect(text).toBe("391");
       expect(written(res).map((e) => e.textResponse)).toEqual(["391", ""]);
     });
+
+    test("Chunk mit reasoning_content UND content: </think> vor dem Content", async () => {
+      const { llm } = makeGenericProvider();
+      const res = fakeResponse();
+      const stream = fakeStream([
+        reasoningChunk("17*23"),
+        {
+          choices: [
+            {
+              delta: { reasoning_content: " = 391", content: "39" },
+              finish_reason: null,
+            },
+          ],
+        },
+        { choices: [{ delta: { content: "1" }, finish_reason: "stop" }] },
+      ]);
+      const text = await llm.handleStream(res, stream, { uuid: "u5" });
+      expect(text).toBe("<think>17*23 = 391</think>391");
+      const events = written(res);
+      expect(events.map((e) => e.textResponse)).toEqual([
+        "<think>17*23",
+        " = 391",
+        "</think>",
+        "39",
+        "1",
+        "",
+      ]);
+      expect(events.filter((e) => e.textResponse === "</think>")).toHaveLength(
+        1
+      );
+    });
+
+    test("erster Chunk mit reasoning_content UND content: nichts geht verloren", async () => {
+      const { llm } = makeGenericProvider();
+      const res = fakeResponse();
+      const stream = fakeStream([
+        {
+          choices: [
+            {
+              delta: { reasoning_content: "kurz", content: "391" },
+              finish_reason: "stop",
+            },
+          ],
+        },
+      ]);
+      const text = await llm.handleStream(res, stream, { uuid: "u6" });
+      expect(text).toBe("<think>kurz</think>391");
+      expect(written(res).map((e) => e.textResponse)).toEqual([
+        "<think>kurz",
+        "</think>",
+        "391",
+        "",
+      ]);
+    });
+
+    describe("Fehler beim Abschluss", () => {
+      beforeEach(() => {
+        jest.spyOn(console, "error").mockImplementation(() => {});
+      });
+      afterEach(() => {
+        console.error.mockRestore();
+      });
+
+      test("endMeasurement wirft: Promise löst trotzdem auf, Fehler geloggt", async () => {
+        const { llm } = makeGenericProvider();
+        const res = fakeResponse();
+        const stream = fakeStream([
+          { choices: [{ delta: { content: "391" }, finish_reason: "stop" }] },
+        ]);
+        stream.endMeasurement.mockImplementation(() => {
+          throw new Error("measure kaputt");
+        });
+        const text = await llm.handleStream(res, stream, { uuid: "u7" });
+        expect(text).toBe("391");
+        expect(stream.endMeasurement).toHaveBeenCalledTimes(1);
+        expect(console.error).toHaveBeenCalledWith(
+          expect.stringContaining("measure kaputt")
+        );
+        // Abbruch-Listener ist trotz Fehler entfernt bzw. wirkungslos
+        res.emit("close");
+        expect(stream.endMeasurement).toHaveBeenCalledTimes(1);
+      });
+
+      test("Schreiben des close-Chunks wirft: Promise löst mit vollem Text auf", async () => {
+        const { llm } = makeGenericProvider();
+        const res = fakeResponse();
+        res.write.mockImplementation((raw) => {
+          if (String(raw).includes('"close":true'))
+            throw new Error("socket zu");
+        });
+        const stream = fakeStream([reasoningChunk("denke", "length")]);
+        const text = await llm.handleStream(res, stream, { uuid: "u8" });
+        expect(text).toBe("<think>denke</think>");
+        expect(stream.endMeasurement).toHaveBeenCalledTimes(1);
+        expect(console.error).toHaveBeenCalledWith(
+          expect.stringContaining("socket zu")
+        );
+      });
+
+      test("Fehler im Stream nach Abschluss: kein Hängen, kein zweites Ende", async () => {
+        const { llm } = makeGenericProvider();
+        const res = fakeResponse();
+        const stream = {
+          endMeasurement: jest.fn(),
+          [Symbol.asyncIterator]: async function* () {
+            yield {
+              choices: [{ delta: { content: "39" }, finish_reason: null }],
+            };
+            res.emit("close"); // Client bricht ab
+            throw new Error("Verbindung weg");
+          },
+        };
+        const text = await llm.handleStream(res, stream, { uuid: "u9" });
+        expect(text).toBe("39");
+        expect(stream.endMeasurement).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   test("openai-SDK serialisiert unbekannte Body-Felder unverändert", async () => {
