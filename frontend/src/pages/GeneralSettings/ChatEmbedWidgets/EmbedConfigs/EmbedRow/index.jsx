@@ -90,7 +90,7 @@ export default function EmbedRow({ embed, isReadOnly = false, userRole = null })
         >
           {moment(embed.createdAt).format("DD.MM.YYYY")}
         </th>
-        <td className="px-6 flex items-center gap-x-6 h-full mt-1">
+        <td className="px-6 flex items-center gap-x-1 h-full mt-1">
           {!isReadOnly && (
             <>
               <button
