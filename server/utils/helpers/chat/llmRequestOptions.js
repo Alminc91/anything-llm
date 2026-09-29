@@ -525,6 +525,30 @@ function splitThinkBlock(text) {
   };
 }
 
+/**
+ * Platzhalter in den Swagger-Kommentaren der workspace-/thread-Chat-Endpunkte;
+ * `swagger/init.js` ersetzt ihn nach der Generierung durch
+ * `LLM_OPTIONS_SWAGGER_DESCRIPTION`. So gibt es den Text nur einmal und die
+ * vier Beschreibungen können nicht auseinanderlaufen. (swagger-autogen kann
+ * in Kommentaren keine Konstanten auflösen.)
+ */
+const LLM_OPTIONS_SWAGGER_PLACEHOLDER = "%LLM_OPTIONS_DESCRIPTION%";
+
+/**
+ * Swagger-Beschreibung von `llmOptions` (workspace-/thread-Chat-Endpunkte),
+ * aus den Konstanten dieses Moduls gebaut. Bewusst ohne geschweifte
+ * Klammern: swagger-autogen stolpert darüber in requestBody-Beschreibungen.
+ */
+const LLM_OPTIONS_SWAGGER_DESCRIPTION =
+  "<b>llmOptions (optional):</b> per-request LLM options, only applied by the Generic OpenAI provider (other providers ignore them). " +
+  "Values are not type-converted and not clamped; invalid values return HTTP 400. Supported keys: " +
+  `<code>max_tokens</code> (integer ≥ 1 up to the server ceiling — <code>${MAX_TOKENS_CEILING_ENV}</code>, otherwise ${DEFAULT_MAX_TOKENS_CEILING} or the model context window if smaller; overrides the server default; with thinking enabled the reasoning tokens count towards it), ` +
+  "<code>top_p</code> (0 &lt; x ≤ 1), " +
+  `<code>temperature</code> (${TEMPERATURE_MIN}…${TEMPERATURE_MAX}, priority: request → workspace → default), ` +
+  `<code>reasoning_effort</code> (${REASONING_EFFORT_VALUES.map((value) => `<code>${value}</code>`).join(", ")}), ` +
+  `<code>chat_template_kwargs</code> (flat object with allowed keys only — default ${DEFAULT_CHAT_TEMPLATE_KWARGS_ALLOWLIST.map((key) => `<code>${key}</code>`).join(", ")}, extendable by the server admin via <code>${CHAT_TEMPLATE_KWARGS_ALLOWLIST_ENV}</code>; values boolean/number/string ≤ ${CHAT_TEMPLATE_KWARGS_MAX_STRING_LENGTH} chars, e.g. <code>enable_thinking: true</code> to enable thinking for Gemma-4 via vLLM). ` +
+  "The reasoning is returned as a leading <code>&lt;think&gt;…&lt;/think&gt;</code> block in <code>textResponse</code>.";
+
 module.exports = {
   parseLLMRequestOptions,
   parseLLMRequestOptionsForWorkspace,
@@ -537,4 +561,6 @@ module.exports = {
   ThinkBlockSplitter,
   REASONING_EFFORT_VALUES,
   DEFAULT_MAX_TOKENS_CEILING,
+  LLM_OPTIONS_SWAGGER_PLACEHOLDER,
+  LLM_OPTIONS_SWAGGER_DESCRIPTION,
 };

@@ -933,3 +933,24 @@ describe("splitThinkBlock / ThinkBlockSplitter", () => {
     expect(splitter.flush()).toEqual({ reasoning: "", content: "" });
   });
 });
+
+describe("Swagger-Beschreibung für llmOptions", () => {
+  const {
+    LLM_OPTIONS_SWAGGER_PLACEHOLDER,
+    LLM_OPTIONS_SWAGGER_DESCRIPTION,
+  } = require("../../../utils/helpers/chat/llmRequestOptions");
+
+  test("ohne geschweifte Klammern (swagger-autogen, requestBody)", () => {
+    expect(LLM_OPTIONS_SWAGGER_DESCRIPTION).not.toMatch(/[{}]/);
+    expect(LLM_OPTIONS_SWAGGER_DESCRIPTION).toMatch(/otherwise 16384/);
+  });
+
+  test("openapi.json enthält den Text an allen vier Chat-Endpunkten, keinen Platzhalter", () => {
+    const spec = JSON.stringify(require("../../../swagger/openapi.json"));
+    expect(spec).not.toContain(LLM_OPTIONS_SWAGGER_PLACEHOLDER);
+    const occurrences = spec.split(
+      JSON.stringify(LLM_OPTIONS_SWAGGER_DESCRIPTION).slice(1, -1)
+    ).length;
+    expect(occurrences - 1).toBe(4);
+  });
+});
