@@ -175,6 +175,17 @@ const Admin = {
         return null;
       });
   },
+  metadataFilterStatus: async () => {
+    return await fetch(`${API_BASE}/admin/metadata-filter-status`, {
+      method: "GET",
+      headers: baseHeaders(),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch((e) => {
+        console.error(e);
+        return null;
+      });
+  },
   updateSystemPreferences: async (updates = {}) => {
     return await fetch(`${API_BASE}/admin/system-preferences`, {
       method: "POST",

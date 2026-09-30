@@ -425,12 +425,62 @@ function adminEndpoints(app) {
             case "reranker_retrieval_topk":
               requestedSettings[label] = setting?.value ?? 40;
               break;
+            case "search_trace":
+              requestedSettings[label] = setting?.value || "off";
+              break;
             default:
               break;
           }
         }
 
         response.status(200).json({ settings: requestedSettings });
+      } catch (e) {
+        console.error(e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // KIE-480: lesender Status des Kursdaten-Filters (kein Schalter — der Filter wirkt
+  // automatisch in Workspaces, deren Tabelle Kursmetadaten trägt).
+  app.get(
+    "/admin/metadata-filter-status",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (_request, response) => {
+      try {
+        const { filterRunSummary } = require("../utils/chats/metadataFilterStats");
+        const VectorDb = getVectorDbClass();
+        const enabled =
+          (await SystemSettings.getValueOrFallback(
+            { label: "metadata_filters" },
+            SystemSettings.metadataFiltersDefault
+          )) === "on";
+        const locations = String(
+          (await SystemSettings.getValueOrFallback(
+            { label: "metadata_filter_locations" },
+            ""
+          )) || ""
+        )
+          .split(",")
+          .filter((l) => l.trim());
+        const workspaces = [];
+        if (typeof VectorDb?.hasCourseMetadata === "function") {
+          for (const ws of await Workspace.where()) {
+            if (!(await VectorDb.hasCourseMetadata(ws.slug))) continue;
+            workspaces.push({
+              name: ws.name,
+              slug: ws.slug,
+              courseEntries: await VectorDb.courseEntryCount(ws.slug),
+            });
+          }
+        }
+        response.status(200).json({
+          enabled,
+          active: enabled && workspaces.length > 0,
+          workspaces,
+          locationCount: locations.length,
+          last24h: filterRunSummary(),
+        });
       } catch (e) {
         console.error(e);
         response.sendStatus(500).end();

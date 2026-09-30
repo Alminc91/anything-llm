@@ -16,8 +16,6 @@ const SYSTEM_PREF_FIELDS = [
   "hybrid_arm_split",
   "reranker_instruction",
   "reranker_retrieval_topk",
-  "metadata_filters",
-  "metadata_filter_locations",
   "search_trace",
 ];
 
@@ -44,8 +42,6 @@ export default function SearchRetrievalPreference() {
         query_rewrite_default: form.get("query_rewrite_default"),
         vector_search_default: form.get("vector_search_default"),
         reranker_retrieval_topk: form.get("reranker_retrieval_topk"),
-        metadata_filters: form.get("metadata_filters"),
-        metadata_filter_locations: form.get("metadata_filter_locations"),
       };
       const hybridWeight = form.get("hybrid_weight");
       if (hybridWeight !== null) prefsUpdate.hybrid_weight = hybridWeight;
@@ -305,53 +301,8 @@ export default function SearchRetrievalPreference() {
                 />
               </div>
 
-              {/* Metadaten-Filter (KIE-480) */}
-              <div className="flex flex-col gap-y-1 mt-6 pb-2 border-white light:border-theme-sidebar-border border-b-2 border-opacity-10 max-w-[500px]">
-                <p className="text-sm leading-6 font-bold text-white">
-                  {t("searchRetrieval.metadataFilters.title")}
-                </p>
-                <p className="text-xs leading-[18px] font-base text-white text-opacity-60">
-                  {t("searchRetrieval.metadataFilters.description")}
-                </p>
-              </div>
-
-              <div className="flex flex-col max-w-[500px]">
-                <select
-                  name="metadata_filters"
-                  defaultValue={settings?.metadata_filters ?? "off"}
-                  className={inputClass}
-                >
-                  <option value="off">
-                    {t("searchRetrieval.metadataFilters.off")}
-                  </option>
-                  <option value="on">
-                    {t("searchRetrieval.metadataFilters.on")}
-                  </option>
-                </select>
-              </div>
-
-              {/* Standort-Whitelist */}
-              <div className="flex flex-col max-w-[500px]">
-                <div className="flex flex-col gap-y-2 mb-4">
-                  <label className="text-white text-sm font-semibold block">
-                    {t("searchRetrieval.metadataFilters.locations.title")}
-                  </label>
-                  <p className="text-xs text-white/60">
-                    {t("searchRetrieval.metadataFilters.locations.description")}
-                  </p>
-                </div>
-                <input
-                  type="text"
-                  name="metadata_filter_locations"
-                  defaultValue={settings?.metadata_filter_locations ?? ""}
-                  placeholder={t(
-                    "searchRetrieval.metadataFilters.locations.placeholder"
-                  )}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className={inputClass}
-                />
-              </div>
+              {/* Kursdaten-Filter (KIE-480): nur Status, kein Schalter */}
+              <MetadataFilterStatus />
 
               {/* Advanced (collapsed) */}
               <div className="flex flex-col max-w-[500px] mt-2">
@@ -453,7 +404,9 @@ export default function SearchRetrievalPreference() {
                       <option value="off">
                         {t("searchRetrieval.trace.off")}
                       </option>
-                      <option value="on">{t("searchRetrieval.trace.on")}</option>
+                      <option value="on">
+                        {t("searchRetrieval.trace.on")}
+                      </option>
                       <option value="full">
                         {t("searchRetrieval.trace.full")}
                       </option>
@@ -511,6 +464,68 @@ export default function SearchRetrievalPreference() {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+function MetadataFilterStatus() {
+  const { t } = useTranslation();
+  const [status, setStatus] = useState(null);
+  useEffect(() => {
+    Admin.metadataFilterStatus().then(setStatus);
+  }, []);
+  const n = (v) =>
+    v === null || v === undefined ? "–" : Number(v).toLocaleString("de-DE");
+  const sec = (ms) =>
+    ms === null || ms === undefined
+      ? "–"
+      : `${(ms / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} s`;
+  return (
+    <div className="flex flex-col gap-y-1 mt-6 pb-2 border-white light:border-theme-sidebar-border border-b-2 border-opacity-10 max-w-[500px]">
+      <p className="text-sm leading-6 font-bold text-white">
+        {t("searchRetrieval.metadataFilters.title")}
+      </p>
+      <p className="text-xs leading-[18px] font-base text-white text-opacity-60">
+        {t("searchRetrieval.metadataFilters.description")}
+      </p>
+      {!status ? (
+        <p className="text-xs text-white/60">
+          {t("searchRetrieval.metadataFilters.unavailable")}
+        </p>
+      ) : status.active ? (
+        <div className="text-xs text-white leading-[20px]">
+          <p className="font-semibold text-green-400">
+            {t("searchRetrieval.metadataFilters.active")}
+          </p>
+          {status.workspaces.map((ws) => (
+            <p key={ws.slug}>
+              {t("searchRetrieval.metadataFilters.workspace", {
+                name: ws.name,
+                entries: n(ws.courseEntries),
+              })}
+            </p>
+          ))}
+          <p>
+            {t("searchRetrieval.metadataFilters.locations", {
+              count: n(status.locationCount),
+            })}
+          </p>
+          <p className="text-white/60">
+            {t("searchRetrieval.metadataFilters.stats", {
+              count: n(status.last24h?.count),
+              median: sec(status.last24h?.medianMs),
+              timeouts: n(status.last24h?.timeouts),
+              errors: n(status.last24h?.errors),
+            })}
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-white/60">
+          {status.enabled
+            ? t("searchRetrieval.metadataFilters.inactive")
+            : t("searchRetrieval.metadataFilters.disabled")}
+        </p>
+      )}
     </div>
   );
 }

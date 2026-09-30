@@ -4,6 +4,12 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### 7.8 — Metadatenfilter Standard an, Ortsliste nur Pipeline, LanceDB-Versionen 1 Tag (2026-09-30)
+
+- `metadata_filters` ist ohne gespeicherten Wert **an** (vorher aus). Tabellen ohne Kursspalten (`start_date`) überspringen den Normalisierer-LLM-Aufruf (Schema-Check, 10 min gecacht). Abschalten auch mit `false`/`"OFF"`/`"0"`.
+- Einstellungsseite „Suche & Retrieval" zeigt `metadata_filters` und `search_trace` jetzt mit dem gespeicherten Wert (vorher immer „aus", Speichern überschrieb den Wert). Das Eingabefeld der Ortsliste ist entfernt — `metadata_filter_locations` pflegt die Crawler-Pipeline (`sync_metadata_locations.py`, nächtlich).
+- LanceDB `optimize()` räumt alte Tabellenversionen nach **1 Tag** statt 7 auf (`versionRetention.js`, auch im FTS-Backfill); die vor 10 min aktuelle Version bleibt für laufende Suchen erhalten. Vorher wuchsen Tabellen mit stündlichen Kurs-Updates auf > 60 GB.
+
 ### Search-Traces — vollständige Hybrid-/Reranker-Metriken (2026-07-08)
 
 **Opt-in** per SystemSetting `search_trace` (off | on | full; GUI: Suche & Retrieval → Erweitert). Pro Suche eine JSONL-Zeile (`storage/search-traces/`): beide Arme (Latenz/Count/Top-Scores), RRF-Fusion (α, Arm-Herkunft), Reranker (Latenz, Degradation) und finale Dokumente mit Rang-Verschiebung (RRF→final). Datenschutz: Docs nur als id/title/Scores; Query-Text nur bei `full`. Auswertung: `searchTraceReport.js` (Latenz-Perzentile, Degradations-Rate, Reranker-Rettungen, BM25-Beiträge). Non-throwing, fire-and-forget — Ergebnis-Neutralität im Manual-Test belegt.

@@ -16,6 +16,7 @@
  * Das Promise wird NIE verworfen; Setting aus → null.
  */
 const { SystemSettings } = require("../../models/systemSettings");
+const { recordFilterRun } = require("./metadataFilterStats");
 const { always, completeWith } = require("./metadataFilterNormalizer");
 
 // Obergrenze, wie lange die Suche auf den Normalisierer wartet (danach ungefiltert). Ruhig ~0,2 s,
@@ -38,14 +39,26 @@ function isPlausiblePlace(loc) {
   return l.length >= 3 && /[a-zäöüß]/.test(l) && l !== "online";
 }
 
+/** Nur LanceDB kennt Kursspalten; andere Vektor-DBs → true (Verhalten wie bisher). */
+async function hasCourseMetadata(namespace) {
+  try {
+    const { getVectorDbClass } = require("../helpers");
+    const VectorDb = getVectorDbClass();
+    if (typeof VectorDb?.hasCourseMetadata !== "function") return true;
+    return await VectorDb.hasCourseMetadata(namespace);
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Liest die Filter-Settings des Containers.
- * @returns {Promise<{knownLocations:string[]}|null>} null = metadata_filters aus
+ * @returns {Promise<{knownLocations:string[]}|null>} null = metadata_filters aus (Standard ohne Eintrag: an)
  */
 async function readFilterSettings() {
   const enabled = await SystemSettings.getValueOrFallback(
     { label: "metadata_filters" },
-    "off"
+    SystemSettings.metadataFiltersDefault
   );
   if (enabled !== "on") return null;
   const locationSetting = await SystemSettings.getValueOrFallback(
@@ -88,7 +101,7 @@ function recentUserMessages(chatHistory = []) {
 }
 
 /**
- * Ortsfilter nur aus der Kundenliste (Vertrag von metadata_filter_locations): das LLM darf
+ * Ortsfilter nur aus der Ortsliste (metadata_filter_locations, von der Pipeline gepflegt): das LLM darf
  * keinen Ort erfinden; ohne Liste gibt es keinen Ortsfilter.
  * @param {object} filters
  * @param {string[]} knownLocations
@@ -103,6 +116,7 @@ function restrictLocations(filters, knownLocations) {
 }
 
 function logLine(stage, ms, query, filters, error) {
+  recordFilterRun(stage, ms, error);
   // Steuerzeichen raus (Log-Injection), nur ein kurzer Anfang der Nachricht (Datensparsamkeit)
   const q = String(query)
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
@@ -125,6 +139,7 @@ async function resolveMetadataFilters({
   LLMConnector = null,
   referenceDate = null,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  namespace = null,
 }) {
   const t0 = Date.now();
   try {
@@ -132,6 +147,8 @@ async function resolveMetadataFilters({
     if (typeof LLMConnector?.getChatCompletion !== "function") return null;
     const settings = await readFilterSettings();
     if (!settings) return null;
+    // Tabelle ohne Kursspalten (Kunde ohne Kursdaten) → kein Filter möglich, kein LLM-Aufruf.
+    if (namespace && !(await hasCourseMetadata(namespace))) return null;
     const out = await always(userQuery, {
       referenceDate: referenceDate || berlinToday(),
       knownLocations: settings.knownLocations,

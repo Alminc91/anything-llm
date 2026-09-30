@@ -931,17 +931,18 @@ const TRANSLATIONS = {
       full: "On, incl. query text (test only!)",
     },
     metadataFilters: {
-      title: "Metadata filters (time, price, status, format, location)",
+      title: "Course-data filter (time, price, status, format, location)",
       description:
-        "Detects hard constraints in the query (e.g. „this quarter“, „under €50“, „still bookable“, „online only“) and pre-filters retrieval accordingly. Deterministic, no extra AI calls. Requires course data with metadata columns (re-ingest after the crawler update).",
-      off: "Off (default)",
-      on: "On",
-      locations: {
-        title: "Location list for location filters",
-        description:
-          "Comma-separated locations/branches of this customer. Location filters are ONLY created from this list — travel destinations in course titles never trigger one. Leave empty to disable location filters.",
-        placeholder: "e.g. lingen, meppen, baccum",
-      },
+        "Works automatically only in workspaces whose documents carry course metadata from the Kufer course feed. There a short AI call (about 0.3 s, in parallel to retrieval) detects constraints such as „this quarter“, „under €50“ or „online only“ and pre-filters retrieval. Nothing happens in other workspaces. The location list is maintained automatically by the pipeline.",
+      active: "Active",
+      workspace:
+        "Workspace „{{name}}“: {{entries}} course entries with metadata",
+      locations: "Location list: {{count}} locations",
+      stats:
+        "Last 24 h (since restart): {{count}} requests · median {{median}} · {{timeouts}} timeouts · {{errors}} errors",
+      inactive: "Not active — no workspace with course metadata.",
+      disabled: "Disabled by the operator.",
+      unavailable: "Status unavailable.",
     },
   },
 
