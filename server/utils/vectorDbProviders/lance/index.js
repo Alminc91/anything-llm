@@ -1506,7 +1506,12 @@ class LanceDb extends VectorDatabase {
     const documents = [];
     for (const source of sources) {
       const { text, vector: _v, _distance: _d, ...rest } = source;
-      const metadata = rest.hasOwnProperty("metadata") ? rest.metadata : rest;
+      const raw = rest.hasOwnProperty("metadata") ? rest.metadata : rest;
+      // KIE-480: BIGINT-Spalten (start_minutes) kommen als BigInt → JSON.stringify wirft
+      // („Do not know how to serialize a BigInt", HTTP 500 in der Nicht-Stream-Chat-API).
+      const metadata = Object.fromEntries(
+        Object.entries(raw).map(([k, v]) => [k, typeof v === "bigint" ? Number(v) : v])
+      );
       if (Object.keys(metadata).length > 0) {
         documents.push({
           ...metadata,
