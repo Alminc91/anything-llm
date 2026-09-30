@@ -925,17 +925,17 @@ const TRANSLATIONS = {
       full: "An, inkl. Fragetext (nur Test!)",
     },
     metadataFilters: {
-      title: "Metadaten-Filter (Zeit, Preis, Status, Format, Ort)",
+      title: "Kursdaten-Filter (Zeit, Preis, Status, Format, Ort)",
       description:
-        "Erkennt harte Bedingungen in der Anfrage (z. B. „dieses Quartal“, „unter 50 €“, „noch buchbar“, „nur online“) und filtert die Suche entsprechend vor. Deterministisch, ohne zusätzliche KI-Aufrufe. Benötigt Kursdaten mit Metadaten (Neu-Anlernen bzw. Update-Zyklus nach dem Crawler-Update).",
-      off: "Aus (Standard)",
-      on: "An",
-      locations: {
-        title: "Standort-Liste für Ortsfilter",
-        description:
-          "Kommagetrennte Orte/Außenstellen dieses Kunden. Ortsfilter entstehen NUR aus dieser Liste — Reiseziele in Kurstiteln lösen keinen Filter aus. Leer lassen, um Ortsfilter zu deaktivieren.",
-        placeholder: "z. B. lingen, meppen, baccum",
-      },
+        "Wirkt automatisch nur in Workspaces, deren Dokumente Kursmetadaten aus dem Kufer-Kursfeed tragen. Dort erkennt ein kurzer KI-Aufruf (ca. 0,3 s, parallel zur Suche) Bedingungen wie „dieses Quartal“, „unter 50 €“ oder „nur online“ und filtert die Suche vor. In allen anderen Workspaces passiert nichts. Die Ortsliste pflegt die Pipeline automatisch.",
+      active: "Aktiv",
+      workspace: "Workspace „{{name}}“: {{entries}} Kurseinträge mit Metadaten",
+      locations: "Ortsliste: {{count}} Orte",
+      stats:
+        "Letzte 24 h (seit Neustart): {{count}} Anfragen · Median {{median}} · {{timeouts}} Zeitüberschreitungen · {{errors}} Fehler",
+      inactive: "Nicht aktiv — kein Workspace mit Kursmetadaten.",
+      disabled: "Vom Betreiber abgeschaltet.",
+      unavailable: "Status nicht abrufbar.",
     },
   },
 

@@ -135,8 +135,10 @@ pre-filters retrieval via `.where()` on the flat metadata columns
 - time: "dieses Quartal", "nächste Woche", "ab Oktober", "abends", "dienstags"
 - price: "unter 50 €", "kostenlos" — status: "noch buchbar", "freie Plätze"
 - format: "nur online", "kein Onlinekurs" (negation) — location: only values
-  from the `metadata_filter_locations` whitelist (comma-separated, per
-  customer) ever become filters.
+  from the `metadata_filter_locations` list (comma-separated, per customer,
+  written nightly by the crawler pipeline from the course feed — not editable
+  in the GUI) ever become filters. `metadata_filters` defaults to on; tables
+  without course columns skip the normalizer LLM call.
 
 Rules: ambiguous → NO filter (a missing filter degrades to today's behavior);
 nothing reaches the SQL unvalidated; legacy tables without the columns fall

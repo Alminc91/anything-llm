@@ -11,6 +11,7 @@ const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
 const { FTS_INDEX_CONFIG } = require("./ftsConfig");
+const { optimizeWithRetention } = require("./versionRetention");
 const {
   sanitizeSearchFilters,
   filtersToWhere,
@@ -35,6 +36,10 @@ const COURSE_COLUMN_SQL_TYPES = Object.freeze({
   price: "DOUBLE",
   bookable: "BOOLEAN",
 });
+
+// hasCourseMetadata-Cache: namespace → {value, at}
+const courseMetadataCache = new Map();
+const COURSE_METADATA_CACHE_MS = 10 * 60 * 1000;
 
 /**
  * LancedDB Client connection object
@@ -920,7 +925,8 @@ class LanceDb extends VectorDatabase {
       const stats = await collection.indexStats("text_idx");
       const unindexed = stats?.numUnindexedRows ?? 0;
       if (unindexed < threshold) return;
-      await collection.optimize();
+      // Alte Versionen nach 1 Tag aufräumen statt nach 7 (siehe versionRetention.js).
+      await optimizeWithRetention(collection);
       this.logger(
         `Optimized FTS index (${unindexed} unindexed rows folded in).`
       );
@@ -1038,6 +1044,44 @@ class LanceDb extends VectorDatabase {
     const collection = await client.createTable(namespace, data);
     await this.ensureFullTextIndex(collection);
     return true;
+  }
+
+  /**
+   * KIE-480: Trägt die Tabelle die Kursmetadaten-Spalten (start_date …)? Ohne sie kann kein
+   * Metadatenfilter greifen — der Resolver spart sich dann den LLM-Aufruf. 10 min gecacht.
+   * @param {string} namespace
+   * @returns {Promise<boolean>}
+   */
+  async hasCourseMetadata(namespace = null) {
+    if (!namespace) return false;
+    const hit = courseMetadataCache.get(namespace);
+    if (hit && Date.now() - hit.at < COURSE_METADATA_CACHE_MS) return hit.value;
+    let value = false;
+    try {
+      const { client } = await this.connect();
+      if (await this.namespaceExists(client, namespace)) {
+        const schema = await (await client.openTable(namespace)).schema();
+        value = schema.fields.some((f) => f.name === "start_date");
+      }
+    } catch {
+      value = false;
+    }
+    courseMetadataCache.set(namespace, { value, at: Date.now() });
+    return value;
+  }
+
+  /**
+   * KIE-480: Anzahl Einträge (Chunks) mit Kursbeginn — für die Statusanzeige.
+   * @param {string} namespace
+   * @returns {Promise<number|null>} null bei Fehler
+   */
+  async courseEntryCount(namespace) {
+    try {
+      const { client } = await this.connect();
+      return await (await client.openTable(namespace)).countRows("start_date IS NOT NULL");
+    } catch {
+      return null;
+    }
   }
 
   async hasNamespace(namespace = null) {
@@ -1462,7 +1506,12 @@ class LanceDb extends VectorDatabase {
     const documents = [];
     for (const source of sources) {
       const { text, vector: _v, _distance: _d, ...rest } = source;
-      const metadata = rest.hasOwnProperty("metadata") ? rest.metadata : rest;
+      const raw = rest.hasOwnProperty("metadata") ? rest.metadata : rest;
+      // KIE-480: BIGINT-Spalten (start_minutes) kommen als BigInt → JSON.stringify wirft
+      // („Do not know how to serialize a BigInt", HTTP 500 in der Nicht-Stream-Chat-API).
+      const metadata = Object.fromEntries(
+        Object.entries(raw).map(([k, v]) => [k, typeof v === "bigint" ? Number(v) : v])
+      );
       if (Object.keys(metadata).length > 0) {
         documents.push({
           ...metadata,

@@ -35,6 +35,7 @@
 const path = require("path");
 const lancedb = require("@lancedb/lancedb");
 const { FTS_INDEX_CONFIG } = require("./ftsConfig");
+const { optimizeWithRetention } = require("./versionRetention");
 
 /**
  * Resolve the LanceDB storage directory the same way LanceDb.uri does, so the
@@ -138,7 +139,7 @@ async function backfillFtsIndex({
       });
       // optimize() folds the newly-written index fragments in; it does not
       // mutate vectors or row data.
-      if (typeof table.optimize === "function") await table.optimize();
+      if (typeof table.optimize === "function") await optimizeWithRetention(table);
 
       summary.created.push(name);
       log(

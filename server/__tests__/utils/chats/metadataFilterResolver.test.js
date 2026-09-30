@@ -1,7 +1,11 @@
 /* eslint-env jest, node */
 // KIE-480: Filter-Erkennung für die Suche (nur LLM; Timeout/Fehler → kein Filter).
 jest.mock("../../../models/systemSettings", () => ({
-  SystemSettings: { getValueOrFallback: jest.fn() },
+  SystemSettings: { getValueOrFallback: jest.fn(), metadataFiltersDefault: "on" },
+}));
+const mockHasCourseMetadata = jest.fn(async () => true);
+jest.mock("../../../utils/helpers", () => ({
+  getVectorDbClass: () => ({ hasCourseMetadata: mockHasCourseMetadata }),
 }));
 const { SystemSettings } = require("../../../models/systemSettings");
 const {
@@ -46,6 +50,23 @@ describe("metadataFilterResolver", () => {
     settings({ metadata_filters: "off" });
     const L = llm("{}");
     expect(await resolveMetadataFilters({ userQuery: "Yoga abends", LLMConnector: L })).toBeNull();
+    expect(L.getChatCompletion).not.toHaveBeenCalled();
+  });
+
+  test("Kein Setting-Eintrag → Standard an (Neukunden), LLM wird gefragt", async () => {
+    settings({});
+    const L = llm('{"date_from":"today","date_to":"today+2w"}');
+    const r = await resolveMetadataFilters({ userQuery: "Kurse in den nächsten 2 Wochen", LLMConnector: L, referenceDate: REF });
+    expect(L.getChatCompletion).toHaveBeenCalled();
+    expect(r.stage).toBe("llm");
+  });
+
+  test("Tabelle ohne Kursspalten → null, kein LLM-Aufruf", async () => {
+    settings({});
+    mockHasCourseMetadata.mockResolvedValueOnce(false);
+    const L = llm('{"date_from":"today"}');
+    expect(await resolveMetadataFilters({ userQuery: "Kurse heute", LLMConnector: L, namespace: "chatbot" })).toBeNull();
+    expect(mockHasCourseMetadata).toHaveBeenCalledWith("chatbot");
     expect(L.getChatCompletion).not.toHaveBeenCalled();
   });
 

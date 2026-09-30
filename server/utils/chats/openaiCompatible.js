@@ -152,6 +152,7 @@ async function chatSync({
       ? startMetadataFilterResolution({
           userQuery: String(prompt),
           chatHistory: history,
+          namespace: workspace.slug,
           LLMConnector,
         })
       : null;
@@ -518,6 +519,7 @@ async function streamChat({
       ? startMetadataFilterResolution({
           userQuery: String(prompt),
           chatHistory: history,
+          namespace: workspace.slug,
           LLMConnector,
         })
       : null;

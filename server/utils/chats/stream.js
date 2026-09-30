@@ -157,6 +157,7 @@ async function streamChatWithWorkspace(
       ? startMetadataFilterResolution({
           userQuery: updatedMessage,
           chatHistory: chatHistory,
+          namespace: workspace.slug,
           LLMConnector,
         })
       : null;

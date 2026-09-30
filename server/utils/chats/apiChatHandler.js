@@ -347,6 +347,7 @@ async function chatSync({
           userQuery: message,
           // ohne sessionId/User/Thread teilen sich alle API-Aufrufer einen Verlauf → nicht übernehmen
           chatHistory: sessionId || user || thread ? chatHistory : [],
+          namespace: workspace.slug,
           LLMConnector,
         })
       : null;
@@ -760,6 +761,7 @@ async function streamChat({
           userQuery: message,
           // ohne sessionId/User/Thread teilen sich alle API-Aufrufer einen Verlauf → nicht übernehmen
           chatHistory: sessionId || user || thread ? chatHistory : [],
+          namespace: workspace.slug,
           LLMConnector,
         })
       : null;

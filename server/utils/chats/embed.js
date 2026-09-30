@@ -123,6 +123,7 @@ async function streamChatWithForEmbed(
       ? startMetadataFilterResolution({
           userQuery: message,
           chatHistory: chatHistory,
+          namespace: embed.workspace.slug,
           LLMConnector,
         })
       : null;

@@ -22,9 +22,13 @@ function isNullOrNaN(value) {
 // Clamp/default for hybrid_arm_split — single source of truth shared with the
 // read-clamp in the LanceDB provider (frontend min/max mirrors these values).
 const HYBRID_ARM_SPLIT = { MIN: 0.1, MAX: 0.9, DEFAULT: 0.5 };
+// KIE-480: Metadatenfilter gelten ohne gespeicherten Wert als an (Kursdaten tragen Metadaten
+// für alle Kunden; ohne Kursspalten überspringt der Resolver den LLM-Aufruf).
+const METADATA_FILTERS_DEFAULT = "on";
 
 const SystemSettings = {
   hybridArmSplitClamp: HYBRID_ARM_SPLIT,
+  metadataFiltersDefault: METADATA_FILTERS_DEFAULT,
   /** A default system prompt that is used when no other system prompt is set or available to the function caller. */
   saneDefaultSystemPrompt:
     "Given the following conversation, relevant context, and a follow up question, reply with an answer to the current question the user is asking. Return only your response to the question given the above information following the users instructions as needed.",
@@ -215,15 +219,15 @@ const SystemSettings = {
     },
     // KIE-480: harte Metadaten-Filter (LLM-Normalisierer, parallel zur Suche) an/aus.
     metadata_filters: (update) => {
-      if (
-        !update ||
-        typeof update !== "string" ||
-        !["on", "off"].includes(update)
-      )
-        return "off";
-      return String(update);
+      // Ausdrückliches Abschalten auch in Varianten (false, "OFF", "0") respektieren;
+      // nur fehlende/unklare Werte fallen auf den Standard.
+      const v = String(update ?? "").trim().toLowerCase();
+      if (update === false || ["off", "false", "0", "aus"].includes(v)) return "off";
+      if (["on", "true", "1", "an"].includes(v)) return "on";
+      return METADATA_FILTERS_DEFAULT;
     },
-    // KIE-480: Standort-Whitelist des Kunden (kommasepariert). Nur Werte,
+    // KIE-480: Standort-Liste (kommasepariert), geschrieben von der Crawler-Pipeline
+    // (enable_metadata_filters.py / nächtlich sync_metadata_locations.py). Nur Werte,
     // die die location-Zeichen-Whitelist bestehen, überleben — Ortsfilter
     // entstehen ausschließlich aus dieser Liste.
     metadata_filter_locations: (update) => {
