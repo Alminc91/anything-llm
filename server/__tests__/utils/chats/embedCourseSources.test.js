@@ -5,11 +5,10 @@
 // dokumente Donau + Bergisch-Land-Klon, Stand 05.10.2026).
 
 const {
-  COURSE_SOURCE_FIELDS,
   courseCardsEnabled,
   buildCourseSources,
   sanitizeCourseSources,
-  pickCourseFields,
+  __test__: { COURSE_SOURCE_FIELDS, pickCourseFields },
 } = require("../../../utils/chats/embedCourseSources");
 const fixtures = require("./fixtures/praesentationSources.json");
 

@@ -66,6 +66,8 @@ const LAYOUT_ENUMS = {
   inlineTheme: ["light", "dark"],
   // Fenster-Theme (Embed-Issue CSS-Variablen/Theme)
   theme: ["light", "dark", "auto"],
+  // Kurskarten v2: Karten über oder unter der Antwort
+  courseCardsPosition: ["below", "above"],
 };
 
 // Widget-Schlüssel der Inline-/Kurskarten-Issues (Eingabe in der Leiste,

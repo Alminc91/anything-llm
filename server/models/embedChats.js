@@ -57,11 +57,21 @@ const EmbedChats = {
       const {
         sources: _sources,
         courseSources,
+        courseCardsAnnounced,
+        // Kurskarten v2: Marker-Nummern nur für den LLM-Verlauf, nie ans Widget
+        courseCardsMarker: _courseCardsMarker,
         ...responseRest
       } = parsed && typeof parsed === "object" ? parsed : {};
       const safeCourseSources = sanitizeCourseSources(courseSources);
-      if (safeCourseSources.length > 0)
+      if (safeCourseSources.length > 0) {
         responseRest.courseSources = safeCourseSources;
+        // Kurskarten v2: Anzahl der vorab angekündigten Kurse am Listenanfang
+        if (Number.isInteger(courseCardsAnnounced) && courseCardsAnnounced > 0)
+          responseRest.courseCardsAnnounced = Math.min(
+            courseCardsAnnounced,
+            safeCourseSources.length
+          );
+      }
       return { ...rest, response: JSON.stringify(responseRest) };
     });
   },

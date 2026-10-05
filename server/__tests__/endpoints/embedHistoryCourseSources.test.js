@@ -212,4 +212,72 @@ describe("GET /embed/:embedId/:sessionId — Historie für das Widget", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.history[1].courseSources).toEqual([COURSE]);
   });
+  test("Kurskarten v2: courseCardsAnnounced kommt mit, auf die Liste begrenzt", async () => {
+    const row = (id, extra) => ({
+      ...ROWS[0],
+      id,
+      response: JSON.stringify({
+        text: "Antwort",
+        type: "chat",
+        sources: [],
+        courseSources: [COURSE],
+        metrics: {},
+        ...extra,
+      }),
+    });
+    prisma.embed_chats.findMany.mockResolvedValue([
+      row(11, { courseCardsAnnounced: 1 }),
+      row(12, { courseCardsAnnounced: 5 }), // mehr als Einträge -> begrenzt
+      row(13, { courseCardsAnnounced: "2" }), // kein Integer -> weg
+      row(14, { courseCardsAnnounced: 1, courseSources: [] }), // ohne Karten -> weg
+    ]);
+    const res = mockResponse();
+    await handler(
+      {
+        params: { embedId: "embed-uuid", sessionId: "sess-1" },
+        query: { conversationId: "conv-1" },
+      },
+      res
+    );
+    const replies = res.body.history.filter((m) => m.role === "assistant");
+    expect(replies.map((m) => m.courseCardsAnnounced)).toEqual([
+      1,
+      1,
+      undefined,
+      undefined,
+    ]);
+    expect(replies[3]).not.toHaveProperty("courseSources");
+  });
+
+  test("Kurskarten v2: Marker-Nummern (courseCardsMarker) nie an das Widget", async () => {
+    prisma.embed_chats.findMany.mockResolvedValue([
+      {
+        ...ROWS[0],
+        response: JSON.stringify({
+          text: "Antwort",
+          type: "chat",
+          sources: [],
+          courseSources: [COURSE],
+          courseCardsAnnounced: 1,
+          courseCardsMarker: [0],
+        }),
+      },
+    ]);
+    const res = mockResponse();
+    await handler(
+      { params: { embedId: "embed-uuid", sessionId: "sess-1" }, query: {} },
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body.history[1].content).toBe("Antwort");
+    expect(JSON.stringify(res.body)).not.toMatch(/KARTEN|courseCardsMarker/);
+    const { EmbedChats } = require("../../models/embedChats");
+    const [filtered] = EmbedChats.filterSources([
+      {
+        id: 1,
+        response: JSON.stringify({ text: "x", courseCardsMarker: [0] }),
+      },
+    ]);
+    expect(JSON.parse(filtered.response)).toEqual({ text: "x" });
+  });
 });
