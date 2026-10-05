@@ -178,8 +178,10 @@ function embeddedEndpoints(app) {
         if (visualConfig.chatIcon) mapped.chatIcon = visualConfig.chatIcon;
         if (visualConfig.position) mapped.position = visualConfig.position;
         if (visualConfig.greeting) mapped.greeting = visualConfig.greeting;
-        if (visualConfig.sendMessageText) mapped.sendMessageText = visualConfig.sendMessageText;
-        if (visualConfig.supportEmail) mapped.supportEmail = visualConfig.supportEmail;
+        if (visualConfig.sendMessageText)
+          mapped.sendMessageText = visualConfig.sendMessageText;
+        if (visualConfig.supportEmail)
+          mapped.supportEmail = visualConfig.supportEmail;
         // KIE-503: "Frühere Chats" pro Embed abschaltbar (Widget-Einstellungen,
         // Spalte embed_configs.history_enabled). NULL = an (Bestands-Embeds),
         // nur explizites false wird ans Widget gemeldet.
@@ -195,7 +197,8 @@ function embeddedEndpoints(app) {
           const cleaned = visualConfig.chatbotBubblesMessages
             .filter((m) => typeof m === "string" && m.trim().length > 0)
             .map((m) => m.trim());
-          if (cleaned.length > 0) mapped.chatbotBubblesMessages = cleaned.join(",");
+          if (cleaned.length > 0)
+            mapped.chatbotBubblesMessages = cleaned.join(",");
         }
 
         // Darstellung (Blase/Inline), Fenstergröße/Randabstand, Theme und
@@ -364,7 +367,9 @@ function embeddedEndpoints(app) {
 
         // Use conversationId if provided, otherwise fallback to sessionId
         const identifier = conversationId || sessionId;
-        const identifierType = conversationId ? 'conversation_id' : 'session_id';
+        const identifierType = conversationId
+          ? "conversation_id"
+          : "session_id";
 
         const history = await EmbedChats.forEmbedByUser(
           embed.id,
@@ -375,7 +380,11 @@ function embeddedEndpoints(app) {
           sessionId // BOLA/IDOR hardening (KIE-505): bind conversation to owning session
         );
 
-        response.status(200).json({ history: convertToChatHistory(history) });
+        // Kontext-Schnipsel (sources) nie an Endnutzer herausgeben:
+        // forEmbedByUser filtert nur bei boolescher Legacy-Signatur, deshalb hier.
+        response.status(200).json({
+          history: convertToChatHistory(EmbedChats.filterSources(history)),
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -394,7 +403,9 @@ function embeddedEndpoints(app) {
 
         // Use conversationId if provided, otherwise fallback to sessionId
         const identifier = conversationId || sessionId;
-        const identifierType = conversationId ? 'conversation_id' : 'session_id';
+        const identifierType = conversationId
+          ? "conversation_id"
+          : "session_id";
 
         await EmbedChats.markHistoryInvalid(
           embed.id,
@@ -600,10 +611,10 @@ function embeddedEndpoints(app) {
         }
 
         // Check if provider supports streaming
-        if (typeof TTSProvider.ttsStream === 'function') {
+        if (typeof TTSProvider.ttsStream === "function") {
           // Get requested format from query param (mp3 default, webm for Firefox)
-          const format = request.query.format === 'webm' ? 'webm' : 'mp3';
-          const contentType = format === 'webm' ? 'audio/webm' : 'audio/mpeg';
+          const format = request.query.format === "webm" ? "webm" : "mp3";
+          const contentType = format === "webm" ? "audio/webm" : "audio/mpeg";
 
           response.writeHead(200, {
             "Content-Type": contentType,
