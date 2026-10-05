@@ -291,6 +291,20 @@ describe("GET /embed/:embedId/config — Leisten-Varianten (Öffnen/Schließen/H
     expect(res.body.inlineResumePlaceholder).toHaveLength(120);
   });
 
+  test("inlineResumeText/inlineRestartText: getrimmt, Grenzen 120/40", async () => {
+    const res = await fetchConfig({
+      inlineResumeText: "  Gespräch fortsetzen  ",
+      inlineRestartText: "Neu beginnen",
+    });
+    expect(res.body.inlineResumeText).toBe("Gespräch fortsetzen");
+    expect(res.body.inlineRestartText).toBe("Neu beginnen");
+    const tooLong = await fetchConfig({
+      inlineResumeText: "x".repeat(121),
+      inlineRestartText: "y".repeat(41),
+    });
+    expect(tooLong.body).toEqual({});
+  });
+
   test("inlineResumeHint: Strings wie im Widget als Boolean", async () => {
     for (const [input, expected] of [
       ["true", true],
