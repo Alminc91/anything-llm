@@ -317,10 +317,21 @@ function sanitizeCourseSources(list) {
 
 const COURSE_LOOKUPS_MAX = 5;
 const SLUG_MAX_LEN = 150; // manifest.py: url_slugify(url, max_length=150)
+// run_pipeline.py / raw-text-upload.py: Titel > 200 Zeichen ->
+// title[:200 - len(course_id) - 1] + "-" + course_id; der Collector kappt
+// den Dateinamen-Slug ebenfalls bei 200 (processRawText).
+const TITLE_MAX_LEN_PIPELINE = 200;
 const SLUG_RX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const DOC_SEGMENT_RX = /^[A-Za-z0-9._-]+$/;
 const UUID_PART =
   "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+// Dateiname eines Workspace-Dokuments: [raw-]<stamm>-<uuid>.json
+const DOC_FILE_RX = new RegExp(`^(?:raw-)?(.+)-${UUID_PART}\\.json$`);
+// optionaler Inhalts-Hash am Stammende (manifest.py make_filename)
+const HASH_SUFFIX_RX = /^(.+)-[0-9a-f]{16}$/;
+// Kursnummer im Query-String (webbasys u. a.; wie das Widget, COURSE_PATH_RX
+// in src/utils/courseCards.js)
+const COURSE_QUERY_KEYS = ["kursnr", "knr", "kursid", "courseid"];
 const HEADER_SCAN_LEN = 4000; // Kopfzeilen stehen am Dokumentanfang
 
 // Links der Antwort (wie das Widget, src/utils/courseCards.js extractLinks):
@@ -379,11 +390,6 @@ function urlKey(value) {
   return `${host}${u.pathname.replace(/\/+$/, "")}${u.search}`.toLowerCase();
 }
 
-function hostKey(value) {
-  const url = httpUrl(value);
-  return url ? new URL(url).hostname.toLowerCase().replace(/^www\./, "") : null;
-}
-
 // Transliteration wie unidecode für die Zeichen, die NFKD nicht zerlegt
 const TRANSLIT = {
   ß: "ss",
@@ -438,10 +444,6 @@ function urlSlugify(url, { maxLength = SLUG_MAX_LEN } = {}) {
   return text;
 }
 
-function escapeRx(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Sicherer Dateipfad eines Workspace-Dokuments: nur "<ordner>/<datei>.json"
  * aus [A-Za-z0-9._-], kein "..", Ergebnis liegt innerhalb von
@@ -459,12 +461,17 @@ function safeDocumentFile(docpath, documentsPath) {
   if (!DOC_SEGMENT_RX.test(folder) || !DOC_SEGMENT_RX.test(file)) return null;
   if (folder.startsWith(".") || file.startsWith(".") || !file.endsWith(".json"))
     return null;
-  const folderPath = path.resolve(documentsPath, folder);
-  const full = path.resolve(folderPath, file);
-  if (path.dirname(full) !== folderPath) return null;
-  if (!folderPath.startsWith(path.resolve(documentsPath) + path.sep))
+  try {
+    const { isWithin, normalizePath } = require("../files");
+    const root = path.resolve(documentsPath);
+    const folderPath = path.resolve(root, normalizePath(folder));
+    const full = path.resolve(folderPath, normalizePath(file));
+    if (path.dirname(full) !== folderPath || !isWithin(root, folderPath))
+      return null;
+    return full;
+  } catch {
     return null;
-  return full;
+  }
 }
 
 function docFileName(docpath) {
@@ -513,15 +520,49 @@ function defaultLookupDeps() {
   };
 }
 
+function addToIndex(map, key, docpath) {
+  const list = map.get(key);
+  if (list) list.push(docpath);
+  else map.set(key, [docpath]);
+}
+
 /**
- * Nachschlag-Kontext einer Antwort: Dokumentliste (einmal, erst bei Bedarf),
- * Cache je Dokument, Zähler der Dateizugriffe (höchstens COURSE_LOOKUPS_MAX).
- * Wird für Marker-Auflösung und Antwort-Links gemeinsam benutzt.
+ * Index der Workspace-Dokumente nach Dateinamen-Stamm (einmal je Nachschlag-
+ * Kontext gebaut, danach O(1) je Slug-Form): "raw-"-Präfix, UUID und ".json"
+ * abgestreift -> byStem; zusätzlich ohne Inhalts-Hash (16 Hex) -> byBase.
+ * @param {string[]} docpaths
+ * @returns {{byStem: Map<string, string[]>, byBase: Map<string, string[]>, count: number}}
+ */
+function buildDocIndex(docpaths = []) {
+  const index = { byStem: new Map(), byBase: new Map(), count: 0 };
+  if (!Array.isArray(docpaths)) return index;
+  for (const docpath of docpaths) {
+    index.count++;
+    const m = DOC_FILE_RX.exec(docFileName(docpath));
+    if (!m) continue;
+    addToIndex(index.byStem, m[1], docpath);
+    const hashed = HASH_SUFFIX_RX.exec(m[1]);
+    if (hashed) addToIndex(index.byBase, hashed[1], docpath);
+  }
+  return index;
+}
+
+// Dokumentliste oder fertiger Index -> Index
+function toDocIndex(docs) {
+  return docs && docs.byStem instanceof Map ? docs : buildDocIndex(docs);
+}
+
+/**
+ * Nachschlag-Kontext einer Antwort: Dokumentliste + Index (einmal, erst bei
+ * Bedarf), Cache je Dokument, Zähler der Dateizugriffe (höchstens
+ * COURSE_LOOKUPS_MAX). Wird für Marker-Auflösung und Antwort-Links gemeinsam
+ * benutzt. Kein workspace-übergreifender Cache.
  * @param {{workspace?: object, deps?: object}} options
  */
 function createCourseLookup({ workspace = null, deps = {} } = {}) {
   const d = { ...defaultLookupDeps(), ...deps };
   let docpathsPromise = null;
+  let indexPromise = null;
   const cache = new Map(); // docpath -> Promise<entry|null>
   const stats = { reads: 0, cacheHits: 0, listed: false };
 
@@ -536,6 +577,10 @@ function createCourseLookup({ workspace = null, deps = {} } = {}) {
         });
     }
     return docpathsPromise;
+  };
+  const docIndex = () => {
+    if (!indexPromise) indexPromise = docpaths().then(buildDocIndex);
+    return indexPromise;
   };
 
   // Dokument lesen (gecacht); null = kein Kurs/unlesbar, undefined = Limit
@@ -570,15 +615,30 @@ function createCourseLookup({ workspace = null, deps = {} } = {}) {
     stats,
     exhausted: () => stats.reads >= COURSE_LOOKUPS_MAX,
     docpaths,
+    docIndex,
     read,
   };
 }
 
-// Kursnummer-Segment einer Kurs-URL: das letzte Pfadsegment, das mindestens
-// so viele Ziffern wie Buchstaben hat ("262-3208", "26225121S", "XI91137",
-// Wolfsburg ".../kurs/261305028/kursname/<titel>"); sonst das letzte Segment.
-function courseNumberSegment(pathname) {
-  const segs = pathname.split("/").filter(Boolean);
+// Kursnummer aus dem Query-String (?knr=262-3209, kursnr, kursid,
+// courseid; Groß-/Kleinschreibung egal), sonst null.
+function courseQueryNumber(url) {
+  const clean = httpUrl(url);
+  if (!clean) return null;
+  for (const [key, value] of new URL(clean).searchParams)
+    if (COURSE_QUERY_KEYS.includes(key.toLowerCase()) && value.trim())
+      return value.trim();
+  return null;
+}
+
+// Kursnummer-Segment einer Kurs-URL: Kursnummer aus dem Query-String, sonst
+// das letzte Pfadsegment, das mindestens so viele Ziffern wie Buchstaben hat
+// ("262-3208", "26225121S", "XI91137", Wolfsburg ".../kurs/261305028/
+// kursname/<titel>"); sonst das letzte Segment.
+function courseNumberSegment(url) {
+  const fromQuery = courseQueryNumber(url);
+  if (fromQuery) return urlSlugify(fromQuery);
+  const segs = new URL(url).pathname.split("/").filter(Boolean);
   if (segs.length === 0) return null;
   const decode = (seg) => {
     try {
@@ -619,10 +679,12 @@ function knownCoursePrefix(courseUrls = []) {
   return prefix && prefix.length > 0 ? prefix : null;
 }
 
-// Sieht der Link wie eine Kursseite aus? Unter dem bekannten Kurs-Pfad oder
-// mit einem kursnummerartigen Segment (Ziffern >= Buchstaben). Kategorie-
-// und Info-Seiten ("/programm/gesundheit") verursachen so keinen Zugriff.
+// Sieht der Link wie eine Kursseite aus? Unter dem bekannten Kurs-Pfad, mit
+// Kursnummer im Query-String (webbasys "?knr=…") oder mit einem kursnummer-
+// artigen Segment (Ziffern >= Buchstaben). Kategorie- und Info-Seiten
+// ("/programm/gesundheit") verursachen so keinen Zugriff.
 function looksLikeCoursePage(url, prefix) {
+  if (courseQueryNumber(url)) return true;
   const segs = pathSegments(url);
   if (
     prefix &&
@@ -652,79 +714,118 @@ function urlVariants(url) {
   return [...new Set(variants)];
 }
 
+// Pipeline-Titel > 200 Zeichen (run_pipeline.py / raw-text-upload.py):
+// title[:200 - len(course_id) - 1] + "-" + course_id, course_id = letztes
+// URL-Segment roh; der Collector slugifiziert das (Kleinbuchstaben, "--"
+// zusammengezogen). Nur für course_id aus [A-Za-z0-9-] rekonstruierbar.
+function pipelineTitleSlug(fullSlug, variant) {
+  if (fullSlug.length <= TITLE_MAX_LEN_PIPELINE) return fullSlug;
+  const courseId = variant.includes("/") ? variant.split("/").pop() : "";
+  if (!courseId)
+    return fullSlug.slice(0, TITLE_MAX_LEN_PIPELINE).replace(/-+$/, "");
+  if (!/^[A-Za-z0-9-]+$/.test(courseId)) return null;
+  return `${fullSlug.slice(0, TITLE_MAX_LEN_PIPELINE - courseId.length - 1)}-${courseId}`
+    .toLowerCase()
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// Slug-Formen einer Kurs-URL, unter denen die Pipeline den Dateinamen
+// gebildet haben kann; truncated = Kursnummer kann im Slug fehlen.
+//  - manifest.py make_filename: url_slugify(url, max_length=150) (Kappung
+//    inkl. "https-") + "-<hash16>"
+//  - run_pipeline.py/raw-text-upload.py: ungekappter Slug bis 200 Zeichen,
+//    darüber gekürzt + "-<course_id>"
+//  jeweils zusätzlich ohne führendes "www-" (der Collector entfernt es erst
+//  nach der Kappung) und höchstens 200 Zeichen (Collector).
+function slugFormsForUrl(url) {
+  const forms = new Map(); // slug -> truncated
+  const add = (slug, truncated) => {
+    for (const s of slug.startsWith("www-") ? [slug, slug.slice(4)] : [slug]) {
+      const capped = s.slice(0, TITLE_MAX_LEN_PIPELINE).replace(/-+$/, "");
+      if (!capped || !SLUG_RX.test(capped)) continue;
+      forms.set(capped, (forms.get(capped) ?? false) || truncated);
+    }
+  };
+  for (const variant of urlVariants(url)) {
+    const full = urlSlugify(variant, { maxLength: Infinity });
+    const manifest = urlSlugify(variant);
+    add(manifest, full.length > manifest.length);
+    const legacy = pipelineTitleSlug(full, variant);
+    if (legacy) add(legacy, legacy !== full);
+  }
+  return forms;
+}
+
 /**
  * Kandidaten-Dokumente zu einer Kurs-URL. Dateiname =
- * [raw-]<slug>[-<hash16>]-<uuid>.json, wobei <slug> = url_slugify(URL) und
- * das Kursnummer-Segment enthalten sein muss. Ist der Slug länger als 150
- * Zeichen, kürzt die Pipeline ihn (Kursnummer fällt weg) — dann sind alle
- * Dokumente mit dem gekürzten Slug Kandidaten; der Aufrufer prüft nach dem
- * Lesen, dass "Kurs-Link:" genau diese URL ist.
+ * [raw-]<slug>[-<hash16>]-<uuid>.json, wobei <slug> eine der Slug-Formen der
+ * URL ist (slugFormsForUrl) und das Kursnummer-Segment enthalten sein muss.
+ * Ist der Slug gekürzt (Kursnummer kann wegfallen), sind alle Dokumente mit
+ * dem gekürzten Slug Kandidaten; der Aufrufer prüft nach dem Lesen, dass
+ * "Kurs-Link:" genau diese URL ist.
  * @param {string} url
- * @param {string[]} docpaths
+ * @param {string[]|object} docs - Dokumentpfade oder Index (buildDocIndex)
  * @returns {string[]} Kandidaten (exakte zuerst), leer = kein Treffer
  */
-function findDocpathCandidates(url, docpaths = []) {
+function findDocpathCandidates(url, docs = []) {
   const clean = httpUrl(url);
-  if (!clean || !Array.isArray(docpaths)) return [];
-  const numberSlug = courseNumberSegment(new URL(clean).pathname);
+  if (!clean) return [];
+  const numberSlug = courseNumberSegment(clean);
   if (!numberSlug || !SLUG_RX.test(numberSlug)) return [];
-  // Slug-Formen: url_slugify der Schreibweise (gekürzt auf 150 inkl.
-  // "https-"), zusätzlich ohne führendes "www-" (die Pipeline entfernt es
-  // erst nach dem Kürzen).
-  const slugForms = [];
-  for (const variant of urlVariants(url)) {
-    const slug = urlSlugify(variant);
-    const truncated =
-      urlSlugify(variant, { maxLength: Infinity }).length > slug.length;
-    slugForms.push({ slug, truncated });
-    if (slug.startsWith("www-"))
-      slugForms.push({ slug: slug.slice(4), truncated });
-  }
+  const index = toDocIndex(docs);
   const exact = [];
   const truncated = [];
-  for (const form of slugForms) {
-    if (!form.slug || !SLUG_RX.test(form.slug)) continue;
-    const rx = new RegExp(
-      `^(?:raw-)?${escapeRx(form.slug)}(?:-[0-9a-f]{16})?-${UUID_PART}\\.json$`
-    );
-    for (const dp of docpaths) {
-      const file = docFileName(dp);
-      if (!rx.test(file)) continue;
-      if (file.includes(numberSlug)) exact.push(dp);
-      else if (form.truncated) truncated.push(dp);
+  for (const [slug, isTruncated] of slugFormsForUrl(url)) {
+    const hits = [
+      ...(index.byStem.get(slug) || []),
+      ...(index.byBase.get(slug) || []),
+    ];
+    for (const dp of hits) {
+      if (docFileName(dp).includes(numberSlug)) exact.push(dp);
+      else if (isTruncated) truncated.push(dp);
     }
   }
   return [...new Set([...exact, ...truncated])];
 }
 
 /** Erstes Kandidaten-Dokument zu einer Kurs-URL (siehe findDocpathCandidates). */
-function findDocpathForUrl(url, docpaths = []) {
-  return findDocpathCandidates(url, docpaths)[0] || null;
+function findDocpathForUrl(url, docs = []) {
+  return findDocpathCandidates(url, docs)[0] || null;
 }
 
 /**
  * Dokument zu einem Treffer-Chunk ohne Kopfzeilen (Folge-Chunk eines Kurs-
- * dokuments): metadata.title ist der Upload-Dateiname "<slug>.txt".
+ * dokuments): metadata.title ist "<slug>.txt" (Collector stripAndSlug); der
+ * Dateiname ist [raw-]<slug ohne führendes "www-", höchstens 200>-<uuid>.json
+ * (ältere Dateien behalten "www-").
  * @param {object} source
- * @param {string[]} docpaths
+ * @param {string[]|object} docs - Dokumentpfade oder Index (buildDocIndex)
  * @returns {string|null}
  */
-function findDocpathForChunk(source, docpaths = []) {
+function findDocpathForChunk(source, docs = []) {
   const title = typeof source?.title === "string" ? source.title.trim() : "";
   const base = title.replace(/\.txt$/i, "").toLowerCase();
   if (!base || !SLUG_RX.test(base)) return null;
-  const rx = new RegExp(`^(?:raw-)?${escapeRx(base)}-${UUID_PART}\\.json$`);
-  return docpaths.find((dp) => rx.test(docFileName(dp))) || null;
+  const index = toDocIndex(docs);
+  const forms = [base.replace(/^www-/, ""), base].map((s) =>
+    s.slice(0, TITLE_MAX_LEN_PIPELINE).replace(/-+$/, "")
+  );
+  for (const form of forms) {
+    const hit = index.byStem.get(form);
+    if (hit) return hit[0];
+  }
+  return null;
 }
 
 /**
  * Ergänzt courseSources um Kurse, die die Antwort verlinkt, deren Kurs-
- * dokument aber nicht unter den Treffern war. Nur Links auf der Kunden-
- * domain (Host der vorhandenen courseSources; ohne courseSources muss die
- * Kopfzeile "Kurs-Link:" des gefundenen Workspace-Dokuments genau dieser
- * Link sein), deren Pfad wie eine Kursseite aussieht (bekannter Kurs-Pfad
- * oder kursnummerartiges Segment) und deren Slug ein Workspace-Dokument
- * trifft; höchstens COURSE_LOOKUPS_MAX Dateizugriffe, Gesamtliste
+ * dokument aber nicht unter den Treffern war. Nur Links, deren Pfad wie eine
+ * Kursseite aussieht (bekannter Kurs-Pfad, Kursnummer im Query-String oder
+ * kursnummerartiges Segment) und deren Slug ein Workspace-Dokument trifft;
+ * die Kopfzeile "Kurs-Link:" des gefundenen Dokuments muss genau dieser Link
+ * sein (kein Host-Filter: Multi-Site-Kunden haben Kurse auf mehreren Hosts
+ * in einem Workspace, fremde Domains scheitern am Kurs-Link-Vergleich); höchstens COURSE_LOOKUPS_MAX Dateizugriffe, Gesamtliste
  * höchstens COURSE_SOURCES_MAX. Sind alle verlinkten Kurse schon enthalten,
  * gibt es keinen Zugriff (weder Dokumentliste noch Datei).
  * @param {{replyText: string, courseSources?: object[], workspace?: object, lookup?: object, deps?: object}} args
@@ -741,28 +842,24 @@ async function completeCourseSourcesFromReply({
   try {
     if (base.length >= COURSE_SOURCES_MAX) return base;
     const known = new Set(base.map((e) => urlKey(e.url)));
-    const hosts = new Set(base.map((e) => hostKey(e.url)).filter(Boolean));
     const prefix = knownCoursePrefix(base.map((e) => e.url));
-    const candidates = extractReplyLinks(replyText).filter((link) => {
-      if (known.has(urlKey(link))) return false;
-      if (hosts.size > 0 && !hosts.has(hostKey(link))) return false;
-      return looksLikeCoursePage(link, prefix);
-    });
+    const candidates = extractReplyLinks(replyText).filter(
+      (link) => !known.has(urlKey(link)) && looksLikeCoursePage(link, prefix)
+    );
     if (candidates.length === 0) return base;
 
     const ctx = lookup || createCourseLookup({ workspace, deps });
-    const docpaths = await ctx.docpaths();
-    if (docpaths.length === 0) return base;
+    const index = await ctx.docIndex();
+    if (index.count === 0) return base;
 
     const out = [...base];
     for (const link of candidates) {
       if (out.length >= COURSE_SOURCES_MAX || ctx.exhausted()) break;
-      for (const docpath of findDocpathCandidates(link, docpaths)) {
+      for (const docpath of findDocpathCandidates(link, index)) {
         const entry = await ctx.read(docpath);
         if (entry === undefined) break; // Limit erreicht
         // Das Dokument muss genau dieser Kurs sein (schützt vor Slug-
-        // Kollisionen/gekürzten Slugs und legt ohne courseSources die
-        // Kundendomain fest).
+        // Kollisionen, gekürzten Slugs und fremden Domains).
         if (!entry || urlKey(entry.url) !== urlKey(link)) continue;
         if (!known.has(urlKey(entry.url))) {
           known.add(urlKey(entry.url));
@@ -811,8 +908,8 @@ async function courseSourcesFromMarker({
       if (!entry) {
         ctx = ctx || createCourseLookup({ workspace, deps });
         if (ctx.exhausted()) continue;
-        const docpaths = await ctx.docpaths();
-        const docpath = findDocpathForChunk(contextSources[index], docpaths);
+        const docIndex = await ctx.docIndex();
+        const docpath = findDocpathForChunk(contextSources[index], docIndex);
         entry = docpath ? await ctx.read(docpath) : null;
       }
       if (entry) picked.push(entry);
@@ -825,24 +922,28 @@ async function courseSourcesFromMarker({
 }
 
 module.exports = {
-  COURSE_SOURCE_FIELDS,
-  COURSE_SOURCES_MAX,
-  COURSE_LOOKUPS_MAX,
   courseCardsEnabled,
   buildCourseSources,
-  courseEntriesBySource,
   mergeCourseSources,
   completeCourseSourcesFromReply,
   courseSourcesFromMarker,
   createCourseLookup,
-  courseEntryFromDocument,
-  extractReplyLinks,
-  findDocpathForUrl,
-  findDocpathCandidates,
-  findDocpathForChunk,
-  safeDocumentFile,
-  urlSlugify,
-  urlKey,
   sanitizeCourseSources,
-  pickCourseFields,
+  // nur für Tests
+  __test__: {
+    COURSE_SOURCE_FIELDS,
+    COURSE_SOURCES_MAX,
+    COURSE_LOOKUPS_MAX,
+    courseEntriesBySource,
+    courseEntryFromDocument,
+    extractReplyLinks,
+    findDocpathForUrl,
+    findDocpathCandidates,
+    findDocpathForChunk,
+    buildDocIndex,
+    safeDocumentFile,
+    urlSlugify,
+    urlKey,
+    pickCourseFields,
+  },
 };

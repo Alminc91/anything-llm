@@ -22,9 +22,14 @@ jest.mock("../../../models/workspace", () => ({
 jest.mock("../../../models/documents", () => ({
   Document: { where: jest.fn() },
 }));
-jest.mock("../../../utils/files", () => ({
-  documentsPath: "/srv/storage/documents",
-}));
+jest.mock("../../../utils/files", () => {
+  const actual = jest.requireActual("../../../utils/files");
+  return {
+    documentsPath: "/srv/storage/documents",
+    isWithin: actual.isWithin,
+    normalizePath: actual.normalizePath,
+  };
+});
 jest.mock("../../../utils/helpers", () => ({
   getVectorDbClass: jest.fn(),
   getLLMProvider: jest.fn(),

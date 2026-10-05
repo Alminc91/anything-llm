@@ -8,18 +8,21 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const {
-  COURSE_SOURCE_FIELDS,
-  COURSE_LOOKUPS_MAX,
   buildCourseSources,
   completeCourseSourcesFromReply,
   courseSourcesFromMarker,
   createCourseLookup,
-  courseEntryFromDocument,
-  extractReplyLinks,
-  findDocpathCandidates,
-  findDocpathForUrl,
-  safeDocumentFile,
-  urlSlugify,
+  __test__: {
+    COURSE_SOURCE_FIELDS,
+    COURSE_LOOKUPS_MAX,
+    courseEntryFromDocument,
+    extractReplyLinks,
+    findDocpathCandidates,
+    findDocpathForChunk,
+    findDocpathForUrl,
+    safeDocumentFile,
+    urlSlugify,
+  },
 } = require("../../../utils/chats/embedCourseSources");
 const { documents } = require("./fixtures/demoInlineCourseDocuments.json");
 const sourcesFixture = require("./fixtures/praesentationSources.json");
@@ -212,9 +215,10 @@ describe("completeCourseSourcesFromReply", () => {
     expect(deps.readFile).not.toHaveBeenCalled();
   });
 
-  test("fremde Domain wird nicht nachgeschlagen (auch bei gleichem Slug)", async () => {
+  test("fremde Domain mit gleichem Slug: Dokument wird gelesen, Kurs-Link passt nicht -> keine Karte", async () => {
     const deps = makeDeps();
-    // aw-donau.kufer.de ergibt denselben Slug wie aw.donau.kufer.de
+    // aw-donau.kufer.de ergibt denselben Slug wie aw.donau.kufer.de; ohne
+    // Host-Filter (Multi-Site) schützt der exakte Kurs-Link-Vergleich
     const reply = `[Aerobic](https://aw-donau.kufer.de/kurssuche/kurs/aerobic/262-3208)`;
     const out = await completeCourseSourcesFromReply({
       replyText: reply,
@@ -222,8 +226,7 @@ describe("completeCourseSourcesFromReply", () => {
       deps,
     });
     expect(out).toEqual(PRESENT);
-    expect(deps.listDocpaths).not.toHaveBeenCalled();
-    expect(deps.readFile).not.toHaveBeenCalled();
+    expect(deps.readFile).toHaveBeenCalledTimes(1);
   });
 
   test("ohne courseSources: Kundendomain = Kurs-Link des Workspace-Dokuments", async () => {
@@ -512,5 +515,119 @@ describe("Hilfsfunktionen", () => {
       courseEntryFromDocument({ pageContent: "Titel: Kontakt\nTelefon: 123" })
     ).toBeNull();
     expect(courseEntryFromDocument(null)).toBeNull();
+  });
+});
+
+// Review-Befunde Kurskarten v2 (05.10.2026)
+describe("Review: Dateinamen-Formen, Query-Kursnummern, Multi-Site", () => {
+  const UUID = "0e87c26e-5b24-428f-8a7b-f6fc044bc9d7";
+  const courseDoc = (title, url) => ({
+    title: "x.txt",
+    pageContent: `Titel: ${title}\nKurs-Link: ${url}\nKursbeschreibung: …`,
+  });
+
+  test("Befund 1: Folge-Chunk mit 'www-'-Titel findet Datei ohne 'www-' (Collector)", () => {
+    const dp = `custom-documents/raw-vhs-lingen-de-kurse-262-3208-19300e4d19e4c2b3-${UUID}.json`;
+    expect(
+      findDocpathForChunk(
+        { title: "www-vhs-lingen-de-kurse-262-3208-19300e4d19e4c2b3.txt" },
+        [dp]
+      )
+    ).toBe(dp);
+    // ältere Dateien behalten "www-"
+    const old = `custom-documents/raw-www-vhs-lingen-de-kurse-262-3208-${UUID}.json`;
+    expect(
+      findDocpathForChunk({ title: "www-vhs-lingen-de-kurse-262-3208.txt" }, [
+        old,
+      ])
+    ).toBe(old);
+    // anderer Kurs -> kein Treffer
+    expect(
+      findDocpathForChunk({ title: "www-vhs-lingen-de-kurse-262-3209.txt" }, [
+        dp,
+      ])
+    ).toBeNull();
+  });
+
+  test("Befund 2: webbasys-Link mit ?knr= wird als Kursseite nachgeschlagen", async () => {
+    const url =
+      "https://www.vhs-x.de/webbasys/index.php?kathaupt=11&knr=262-3209";
+    // python-slugify 8.0.4: www-vhs-x-de-webbasys-index-php-kathaupt-11-knr-262-3209
+    const dp = `custom-documents/raw-vhs-x-de-webbasys-index-php-kathaupt-11-knr-262-3209-19300e4d19e4c2b3-${UUID}.json`;
+    const other = `custom-documents/raw-vhs-x-de-webbasys-index-php-kathaupt-11-knr-262-3210-19300e4d19e4c2b3-${UUID}.json`;
+    const deps = makeDeps({
+      docs: {
+        [dp]: courseDoc("Englisch A1", url),
+        [other]: courseDoc("Englisch A2", url.replace("3209", "3210")),
+      },
+    });
+    const out = await completeCourseSourcesFromReply({
+      replyText: `Passend: [Englisch A1](${url})`,
+      courseSources: [],
+      deps,
+    });
+    expect(out).toEqual([{ url, title: "Englisch A1" }]);
+    expect(deps.readFile).toHaveBeenCalledTimes(1);
+    expect(deps.readFile).toHaveBeenCalledWith(path.resolve(DOCS_ROOT, dp));
+
+    // Query ohne Kursnummer (Kategorie) -> kein Zugriff
+    const deps2 = makeDeps({ docs: { [dp]: courseDoc("Englisch A1", url) } });
+    await completeCourseSourcesFromReply({
+      replyText:
+        "[Sprachen](https://www.vhs-x.de/webbasys/index.php?kathaupt=11)",
+      courseSources: [],
+      deps: deps2,
+    });
+    expect(deps2.listDocpaths).not.toHaveBeenCalled();
+  });
+
+  test("Befund 3: Multi-Site — Kurs auf zweitem Host wird nachgeschlagen und ergibt Karte", async () => {
+    const primary =
+      "https://veranstaltungen.bildung-beratung-bethel.de/kurs/yoga/26-1001";
+    const second =
+      "https://www.bildung-beratung-bethel.de/kurs/pilates/26-2002";
+    const dp = `custom-documents/raw-bildung-beratung-bethel-de-kurs-pilates-26-2002-19300e4d19e4c2b3-${UUID}.json`;
+    const deps = makeDeps({ docs: { [dp]: courseDoc("Pilates", second) } });
+    const out = await completeCourseSourcesFromReply({
+      replyText: `[Yoga](${primary}) und [Pilates](${second})`,
+      courseSources: [{ url: primary, title: "Yoga" }],
+      deps,
+    });
+    expect(out.map((c) => c.title)).toEqual(["Yoga", "Pilates"]);
+    expect(out[1].url).toBe(second);
+  });
+
+  test("Befund 7: ungekappter Slug mit 160 Zeichen (Pipeline-Titel bis 200) wird gefunden", () => {
+    const url =
+      "https://www.vhs-bergisch-land.de/kurssuche/kurs/gesundheitsbildung-entspannung-und-achtsamkeit-im-alltag-praxisworkshop-fuer-berufstaetige-am-abend-mit-uebung/27125505S";
+    // python-slugify 8.0.4, run_pipeline.py: 160 Zeichen, ungekappt
+    const slug =
+      "www-vhs-bergisch-land-de-kurssuche-kurs-gesundheitsbildung-entspannung-und-achtsamkeit-im-alltag-praxisworkshop-fuer-berufstaetige-am-abend-mit-uebung-27125505s";
+    expect(slug).toHaveLength(160);
+    expect(urlSlugify(url, { maxLength: Infinity })).toBe(slug);
+    const dpNew = `custom-documents/raw-${slug.slice(4)}-${UUID}.json`;
+    const dpOld = `custom-documents/raw-${slug}-${UUID}.json`;
+    expect(findDocpathForUrl(url, [dpNew])).toBe(dpNew);
+    expect(findDocpathForUrl(url, [dpOld])).toBe(dpOld);
+  });
+
+  test("Befund 8: Index einmal je Nachschlag-Kontext, Treffer wie zuvor", async () => {
+    const deps = makeDeps();
+    const lookup = createCourseLookup({ deps });
+    const [a, b] = await Promise.all([lookup.docIndex(), lookup.docIndex()]);
+    expect(a).toBe(b);
+    expect(a.count).toBe(Object.keys(documents).length);
+    expect(findDocpathForUrl(AEROBIC_URL, a)).toBe(docpathOf("aerobic"));
+    expect(deps.listDocpaths).toHaveBeenCalledTimes(1);
+  });
+
+  test("Befund 7: Slug über 200 Zeichen -> Pipeline-Kürzung mit '-<course_id>'", () => {
+    const url =
+      "https://www.vhs-bergisch-land.de/kurssuche/kurs/gesundheitsbildung-entspannung-und-achtsamkeit-im-alltag-praxisworkshop-fuer-berufstaetige-am-abend-mit-anschliessender-gespraechsrunde-uebungen-und-material-zum-mitnehmen/27125507S";
+    // python: title[:190] + "-27125507S", Collector: Kleinbuchstaben, ohne "www-"
+    const stem =
+      "vhs-bergisch-land-de-kurssuche-kurs-gesundheitsbildung-entspannung-und-achtsamkeit-im-alltag-praxisworkshop-fuer-berufstaetige-am-abend-mit-anschliessender-gespraechsrunde-uebungen-und-m-27125507s";
+    const dp = `custom-documents/raw-${stem}-${UUID}.json`;
+    expect(findDocpathForUrl(url, [dp])).toBe(dp);
   });
 });
