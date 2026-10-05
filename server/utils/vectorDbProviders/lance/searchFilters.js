@@ -18,27 +18,23 @@
  *     result.
  */
 
+const {
+  WEEKDAYS,
+  FORMATS,
+  ISO_DATE_RX: ISO_DATE,
+  LOCATION_RX: SAFE_LOCATION,
+} = require("../../chats/courseMetadataSchema");
+
 const TIME_OF_DAY_RANGES = Object.freeze({
   // start_minutes = minutes since midnight of the course start time.
   morning: "(start_minutes >= 0 AND start_minutes < 720)",
   afternoon: "(start_minutes >= 720 AND start_minutes < 1020)",
   evening: "(start_minutes >= 1020 AND start_minutes < 1440)",
 });
-const WEEKDAYS = Object.freeze([
-  "mon",
-  "tue",
-  "wed",
-  "thu",
-  "fri",
-  "sat",
-  "sun",
-]);
-const FORMATS = Object.freeze(["online", "onsite", "hybrid"]);
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,64}$/;
-// Lowercased, trimmed location tokens: letters (incl. German), digits,
-// space, dot, dash. Anything else -> the value is dropped entirely.
-const SAFE_LOCATION = /^[a-z0-9äöüß\-. ]{1,80}$/;
+// WEEKDAYS, FORMATS, ISO_DATE and SAFE_LOCATION (lowercased, trimmed location
+// tokens) come from the shared course metadata schema
+// (server/utils/chats/courseMetadataSchema.js).
 
 /** Escapes a validated string literal for a single-quoted SQL string. */
 function sqlString(value) {

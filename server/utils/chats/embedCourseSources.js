@@ -13,6 +13,24 @@
 // den festen Kopfzeilen "Titel: …" und "Kurs-Link: …" (Extraktor). Deshalb
 // werden NUR diese zwei Zeilen serverseitig gelesen; ausgegeben werden nur
 // url und title, nie der Text selbst.
+//
+// Kurs = Eintrag mit gültiger Kurs-URL (Kopfzeile "Kurs-Link:" oder http(s)-/
+// web://…website-Metadaten) UND Titel. Datum/Wochentage/Preis usw. sind reine
+// Anreicherung — Kunden ohne KIE-480-Spalten bekommen trotzdem Karten.
+// Gecrawlte Info-/Kategorieseiten (nur chunkSource "link://…", kein
+// "Kurs-Link:") sind keine Kurse.
+//
+// Folge-Issue: typisierte Metadaten course_url/course_title beim Upload
+// (Collector + Pipeline) würden das Lesen der Kopfzeilen und die
+// web://…website-Rückübersetzung überflüssig machen.
+
+const {
+  ISO_DATE_RX,
+  WEEKDAYS_COLUMN_RX,
+  LOCATION_RX,
+  FORMATS,
+  isValidStartMinutes,
+} = require("./courseMetadataSchema");
 
 const COURSE_SOURCE_FIELDS = Object.freeze([
   "url",
@@ -30,33 +48,39 @@ const COURSE_SOURCES_MAX = 12;
 const URL_MAX_LEN = 500;
 const TITLE_MAX_LEN = 200;
 
-const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
-const WEEKDAYS_RX = /^,((mon|tue|wed|thu|fri|sat|sun),)+$/;
-const LOCATION_RX = /^[a-z0-9äöüß\-. ]{1,80}$/i;
 const FILENAME_TITLE_RX = /\.(txt|html?|json|pdf|md|csv|docx?)$/i;
+// Feste Kopfzeilen des Kursdokuments (Extraktor) — nur am Zeilenanfang, nur
+// die erste Fundstelle.
+const COURSE_LINK_HEADER_RX = /^Kurs-Link:[ \t]*(.+)$/m;
+const TITLE_HEADER_RX = /^Titel:[ \t]*(.+)$/m;
+// Collector processRawText: metadata.url (http/https) wird als
+// "web://<url in Kleinbuchstaben>.website" gespeichert.
+const WEB_WEBSITE_URL_RX = /^web:\/\/(https?:\/\/.+)\.website$/i;
 
-// Typprüfung je Feld (wie collector/processRawText METADATA_KEYS.course):
+// Typprüfung je Feld (gemeinsames Schema mit searchFilters.js / Collector):
 // gültig -> normalisierter Wert, sonst undefined (Feld fällt weg).
 const FIELD_VALIDATORS = {
   url: (v) => httpUrl(v),
   title: (v) => cleanTitle(v),
-  start_date: (v) => (typeof v === "string" && DATE_RX.test(v) ? v : undefined),
-  end_date: (v) => (typeof v === "string" && DATE_RX.test(v) ? v : undefined),
+  start_date: (v) =>
+    typeof v === "string" && ISO_DATE_RX.test(v) ? v : undefined,
+  end_date: (v) =>
+    typeof v === "string" && ISO_DATE_RX.test(v) ? v : undefined,
   start_minutes: (v) => {
     const n = typeof v === "bigint" ? Number(v) : v;
-    return Number.isInteger(n) && n >= 0 && n < 1440 ? n : undefined;
+    return isValidStartMinutes(n) ? n : undefined;
   },
   weekdays: (v) =>
-    typeof v === "string" && WEEKDAYS_RX.test(v) ? v : undefined,
+    typeof v === "string" && WEEKDAYS_COLUMN_RX.test(v) ? v : undefined,
   price: (v) =>
     typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined,
   bookable: (v) => (typeof v === "boolean" ? v : undefined),
-  format: (v) =>
-    typeof v === "string" && ["online", "onsite", "hybrid"].includes(v)
-      ? v
-      : undefined,
-  location: (v) =>
-    typeof v === "string" && LOCATION_RX.test(v.trim()) ? v.trim() : undefined,
+  format: (v) => (typeof v === "string" && FORMATS.includes(v) ? v : undefined),
+  location: (v) => {
+    if (typeof v !== "string") return undefined;
+    const normalized = v.trim().toLowerCase();
+    return LOCATION_RX.test(normalized) ? normalized : undefined;
+  },
 };
 
 function httpUrl(value) {
@@ -72,11 +96,27 @@ function httpUrl(value) {
   }
 }
 
+// Kurs-URL aus den Metadaten: echte http(s)-URL oder die Collector-Form
+// "web://<url>.website" (zurückübersetzt; Achtung: der Collector speichert
+// die URL kleingeschrieben). file://-Slugs sind nie eine Kurs-URL.
+function metadataUrl(value) {
+  const direct = httpUrl(value);
+  if (direct) return direct;
+  if (typeof value !== "string") return undefined;
+  const m = WEB_WEBSITE_URL_RX.exec(value.trim());
+  return m ? httpUrl(m[1]) : undefined;
+}
+
+// Überlange Titel werden gekürzt (an einer Wortgrenze, mit "…"), nicht
+// verworfen — sonst fiele der ganze Kurs weg.
 function cleanTitle(value) {
   if (typeof value !== "string") return undefined;
   const v = value.replace(/\s+/g, " ").trim();
-  if (v.length === 0 || v.length > TITLE_MAX_LEN) return undefined;
-  return v;
+  if (v.length === 0) return undefined;
+  if (v.length <= TITLE_MAX_LEN) return v;
+  const cut = v.slice(0, TITLE_MAX_LEN - 1);
+  const atWord = cut.replace(/\s+\S*$/, "");
+  return `${(atWord.length > 0 ? atWord : cut).trimEnd()}…`;
 }
 
 /**
@@ -90,7 +130,8 @@ function courseCardsEnabled(embed = {}) {
   if (typeof config === "string") {
     try {
       config = JSON.parse(config);
-    } catch {
+    } catch (e) {
+      console.error("[courseCardsEnabled] visual_config unparsable", e.message);
       return false;
     }
   }
@@ -98,31 +139,22 @@ function courseCardsEnabled(embed = {}) {
   return typeof value === "string" && value.trim().toLowerCase() === "auto";
 }
 
-// "Kurs-Link: https://…" / "Titel: …" — nur am Zeilenanfang, nur die erste.
-function headerLine(text, label) {
+function headerLine(text, rx) {
   if (typeof text !== "string" || text.length === 0) return undefined;
-  const m = new RegExp(`^${label}:[ \\t]*(.+)$`, "m").exec(text);
+  const m = rx.exec(text);
   return m ? m[1].trim() : undefined;
 }
 
-function urlFromSource(source) {
-  const direct = httpUrl(source?.url);
-  if (direct) return direct;
-  const fromHeader =
-    httpUrl(headerLine(source?.text, "Kurs-Link")) ||
-    httpUrl(headerLine(source?.text, "Link"));
-  if (fromHeader) return fromHeader;
-  // Gecrawlte Seiten: chunkSource = "link://https://…"
-  if (
-    typeof source?.chunkSource === "string" &&
-    source.chunkSource.startsWith("link://")
-  )
-    return httpUrl(source.chunkSource.slice("link://".length));
-  return undefined;
+// Kurs-URL eines Chunks: Metadaten-URL hat Vorrang, sonst "Kurs-Link:".
+function courseUrlFromChunk(source) {
+  return (
+    metadataUrl(source?.url) ||
+    httpUrl(headerLine(source?.text, COURSE_LINK_HEADER_RX))
+  );
 }
 
-function titleFromSource(source) {
-  const fromHeader = cleanTitle(headerLine(source?.text, "Titel"));
+function titleFromChunk(source) {
+  const fromHeader = cleanTitle(headerLine(source?.text, TITLE_HEADER_RX));
   if (fromHeader) return fromHeader;
   // metadata.title nur, wenn es kein Dateiname/Slug ist
   const title = cleanTitle(source?.title);
@@ -130,74 +162,88 @@ function titleFromSource(source) {
   return undefined;
 }
 
-// Dokument-Identität (mehrere Chunks derselben Datei teilen title/url/docId)
-function documentKey(source, index) {
-  return (
-    (typeof source?.docId === "string" && source.docId) ||
-    (typeof source?.title === "string" && source.title) ||
-    (typeof source?.url === "string" && source.url) ||
-    `#${index}`
-  );
+// Ersatz-Schlüssel für Folge-Chunks ohne Kopfzeilen (docId entfernt Lance):
+// chunkSource, sonst id, erst zuletzt title (Dateiname — mehrdeutig, wenn
+// zwei Kurse denselben Dateinamen haben).
+function fallbackKey(source) {
+  for (const field of ["chunkSource", "id", "title"]) {
+    const value = source?.[field];
+    if (typeof value === "string" && value.length > 0)
+      return `${field}:${value}`;
+  }
+  return undefined;
 }
 
 /**
  * Whitelist eines Eintrags: nur COURSE_SOURCE_FIELDS, typgeprüft.
- * @param {object} entry
+ * Nicht-Objekte (Altdaten wie "x", 1, true) ergeben {}.
+ * @param {any} entry
  * @returns {object}
  */
-function pickCourseFields(entry = {}) {
+function pickCourseFields(entry) {
+  if (!entry || typeof entry !== "object") return {};
   const out = {};
   for (const key of COURSE_SOURCE_FIELDS) {
-    if (!(key in (entry || {}))) continue;
+    if (!(key in entry)) continue;
     const value = FIELD_VALIDATORS[key](entry[key]);
     if (value !== undefined) out[key] = value;
   }
   return out;
 }
 
+// Kurs = gültige Kurs-URL + Titel; Datum/Wochentage sind Anreicherung.
 function isCourseEntry(entry) {
-  return (
-    !!entry?.url && !!entry?.title && (!!entry?.start_date || !!entry?.weekdays)
-  );
+  return !!entry?.url && !!entry?.title;
 }
 
 /**
  * Leitet aus den gesammelten Quellen einer Embed-Antwort die Kurskarten-
- * Metadaten ab: nur Kursdokumente (url + title + start_date oder weekdays),
- * Whitelist-Felder, Dedupe über url (erster gewinnt), höchstens 12.
+ * Metadaten ab: nur Kursdokumente (Kurs-URL + Titel), Whitelist-Felder,
+ * Dedupe über url (erster gewinnt), höchstens 12.
  * @param {object[]} sources - sources wie in streamChatWithForEmbed (inkl. text)
  * @returns {object[]} courseSources
  */
 function buildCourseSources(sources = []) {
   if (!Array.isArray(sources) || sources.length === 0) return [];
+  const chunks = sources.filter((s) => s && typeof s === "object");
 
-  // 1) url/title je Dokument aus irgendeinem seiner Chunks (nur der erste Chunk
-  //    eines Kursdokuments trägt die Kopfzeilen "Titel:"/"Kurs-Link:").
-  const docInfo = new Map();
-  sources.forEach((source, index) => {
-    if (!source || typeof source !== "object") return;
-    const key = documentKey(source, index);
-    const info = docInfo.get(key) || {};
-    if (!info.url) info.url = urlFromSource(source);
-    if (!info.title) info.title = titleFromSource(source);
-    docInfo.set(key, info);
+  // 1) Gruppierung über die Kurs-URL (nur der erste Chunk eines Kurs-
+  //    dokuments trägt "Titel:"/"Kurs-Link:"). Folge-Chunks erben die URL
+  //    über den Ersatz-Schlüssel — aber nur, wenn er eindeutig auf genau
+  //    eine Kurs-URL zeigt.
+  const titleByUrl = new Map();
+  const urlsByFallback = new Map();
+  const chunkUrls = chunks.map((source) => {
+    const url = courseUrlFromChunk(source);
+    if (!url) return undefined;
+    const title = titleFromChunk(source);
+    if (title && !titleByUrl.has(url)) titleByUrl.set(url, title);
+    const key = fallbackKey(source);
+    if (key) {
+      if (!urlsByFallback.has(key)) urlsByFallback.set(key, new Set());
+      urlsByFallback.get(key).add(url);
+    }
+    return url;
   });
 
   // 2) Einträge in Quellen-Reihenfolge (Relevanz), Whitelist, Dedupe, Limit
   const seen = new Set();
   const out = [];
-  sources.forEach((source, index) => {
+  chunks.forEach((source, index) => {
     if (out.length >= COURSE_SOURCES_MAX) return;
-    if (!source || typeof source !== "object") return;
-    const info = docInfo.get(documentKey(source, index)) || {};
+    let url = chunkUrls[index];
+    if (!url) {
+      const candidates = urlsByFallback.get(fallbackKey(source));
+      if (candidates?.size === 1) [url] = candidates;
+    }
+    if (!url || seen.has(url)) return;
     const { url: _url, title: _title, ...meta } = source;
     const entry = pickCourseFields({
       ...meta,
-      url: info.url,
-      title: info.title,
+      url,
+      title: titleByUrl.get(url) || titleFromChunk(source),
     });
     if (!isCourseEntry(entry)) return;
-    if (seen.has(entry.url)) return;
     seen.add(entry.url);
     out.push(entry);
   });
@@ -207,6 +253,7 @@ function buildCourseSources(sources = []) {
 /**
  * Bereits gespeicherte courseSources (Historie) nochmals auf die Whitelist
  * reduzieren — Abwehr in der Tiefe, falls je ein Altbestand mehr enthielte.
+ * Gespeichert wurden nur Einträge, die beim Erzeugen als Kurs galten.
  * @param {any} list
  * @returns {object[]}
  */

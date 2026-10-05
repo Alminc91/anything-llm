@@ -191,4 +191,25 @@ describe("GET /embed/:embedId/:sessionId — Historie für das Widget", () => {
     });
     expect(res.body.history[1]).not.toHaveProperty("courseSources");
   });
+
+  test("Altdaten mit Primitiven in courseSources: 200 statt 500, gültige Einträge bleiben", async () => {
+    prisma.embed_chats.findMany.mockResolvedValue([
+      {
+        ...ROWS[0],
+        response: JSON.stringify({
+          text: "Antwort",
+          type: "chat",
+          sources: [],
+          courseSources: ["x", 1, true, null, COURSE],
+        }),
+      },
+    ]);
+    const res = mockResponse();
+    await handler(
+      { params: { embedId: "embed-uuid", sessionId: "sess-1" }, query: {} },
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body.history[1].courseSources).toEqual([COURSE]);
+  });
 });

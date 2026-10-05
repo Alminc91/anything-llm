@@ -9,6 +9,7 @@ const {
   courseCardsEnabled,
   buildCourseSources,
   sanitizeCourseSources,
+  pickCourseFields,
 } = require("../../../utils/chats/embedCourseSources");
 const fixtures = require("./fixtures/praesentationSources.json");
 
@@ -49,7 +50,19 @@ describe("courseCardsEnabled (Gate visual_config.courseCards)", () => {
     ['{"courseCards":"on"}'],
     ["kein json"],
   ])("aus bei visual_config=%p", (visual_config) => {
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
     expect(courseCardsEnabled({ visual_config })).toBe(false);
+    spy.mockRestore();
+  });
+
+  test("unlesbares visual_config wird mit Präfix geloggt", () => {
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
+    expect(courseCardsEnabled({ visual_config: "{kaputt" })).toBe(false);
+    expect(spy).toHaveBeenCalledWith(
+      "[courseCardsEnabled] visual_config unparsable",
+      expect.any(String)
+    );
+    spy.mockRestore();
   });
 
   test("ohne Embed-Objekt aus", () => {
@@ -113,8 +126,9 @@ describe("buildCourseSources", () => {
     expect(buildCourseSources(clone(categoryOnly))).toEqual([]);
   });
 
-  test("nur Einträge mit url + title + (start_date oder weekdays)", () => {
+  test("Kurs = Kurs-URL + Titel; Datum/Wochentage sind nur Anreicherung", () => {
     const [course] = clone(fixtures.donauEnglish);
+    // Kunde ohne KIE-480-Spalten: keine Datums-/Wochentagsfelder
     const noDate = { ...course, start_date: undefined, weekdays: undefined };
     const weekdaysOnly = {
       ...clone(fixtures.donauEnglish[1]),
@@ -129,10 +143,133 @@ describe("buildCourseSources", () => {
       text: "Kurs-Link: https://aw.donau.kufer.de/kurssuche/kurs/english-i/262-4605",
     };
     const result = buildCourseSources([noDate, weekdaysOnly, noLink, noTitle]);
-    expect(result).toHaveLength(1);
-    expect(result[0].url).toMatch(/262-4601B$/);
-    expect(result[0].weekdays).toBe(",mon,");
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({
+      url: "https://aw.donau.kufer.de/kurssuche/kurs/englisch-1/262-4601A",
+      title: "Englisch 1",
+    });
     expect(result[0]).not.toHaveProperty("start_date");
+    expect(result[0]).not.toHaveProperty("weekdays");
+    expect(result[1].url).toMatch(/262-4601B$/);
+    expect(result[1].weekdays).toBe(",mon,");
+    expect(result[1]).not.toHaveProperty("start_date");
+  });
+
+  test("Kurs ganz ohne KIE-480-Spalten (nur Kopfzeilen) ergibt einen Eintrag", () => {
+    const result = buildCourseSources([
+      {
+        url: "file://vhs-x-kurs-englisch-a2.txt",
+        title: "vhs-x-kurs-englisch-a2.txt",
+        chunkSource: "vhs-x-kurs-englisch-a2.txt",
+        text: "Titel: Englisch A2\nKurs-Link: https://www.vhs-x.de/kurse/26H-40124-englisch-a2\nKursbeschreibung: …",
+      },
+    ]);
+    expect(result).toEqual([
+      {
+        url: "https://www.vhs-x.de/kurse/26H-40124-englisch-a2",
+        title: "Englisch A2",
+      },
+    ]);
+  });
+
+  test("gleicher Dateiname, verschiedene Kurs-Links -> zwei Einträge mit jeweils eigenen Feldern", () => {
+    const shared = {
+      url: "file://kurs-yoga.txt",
+      title: "kurs-yoga.txt",
+      chunkSource: "kurs-yoga.txt",
+    };
+    const a = {
+      ...shared,
+      text: "Titel: Yoga am Morgen\nKurs-Link: https://www.vhs-x.de/kurs/yoga/100",
+      start_date: "2026-10-01",
+      start_minutes: 540,
+      price: 50,
+    };
+    const b = {
+      ...shared,
+      text: "Titel: Yoga am Abend\nKurs-Link: https://www.vhs-x.de/kurs/yoga/200",
+      start_date: "2026-11-01",
+      start_minutes: 1110,
+      price: 70,
+    };
+    // Folge-Chunk ohne Kopfzeilen: Ersatz-Schlüssel ist mehrdeutig -> verworfen
+    const follow = { ...shared, text: "… zweiter Abschnitt …", price: 999 };
+    expect(buildCourseSources([a, follow, b])).toEqual([
+      {
+        url: "https://www.vhs-x.de/kurs/yoga/100",
+        title: "Yoga am Morgen",
+        start_date: "2026-10-01",
+        start_minutes: 540,
+        price: 50,
+      },
+      {
+        url: "https://www.vhs-x.de/kurs/yoga/200",
+        title: "Yoga am Abend",
+        start_date: "2026-11-01",
+        start_minutes: 1110,
+        price: 70,
+      },
+    ]);
+  });
+
+  test("Folge-Chunk vor dem Kopf-Chunk erbt die URL über eindeutigen chunkSource", () => {
+    const [course] = clone(fixtures.donauEnglish);
+    const follow = { ...course, text: "… ohne Kopfzeilen …" };
+    const result = buildCourseSources([follow, course]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      url: "https://aw.donau.kufer.de/kurssuche/kurs/englisch-1/262-4601A",
+      title: "Englisch 1",
+    });
+  });
+
+  test("Titel über 200 Zeichen wird gekürzt statt verworfen", () => {
+    const longTitle = `Orthopädische Yoga-Therapie ${"für reifere Erwachsene ".repeat(12)}Ende`;
+    expect(longTitle.length).toBeGreaterThan(200);
+    const [entry] = buildCourseSources([
+      {
+        chunkSource: "lang.txt",
+        text: `Titel: ${longTitle}\nKurs-Link: https://www.vhs-x.de/kurs/lang/1`,
+      },
+    ]);
+    expect(entry.url).toBe("https://www.vhs-x.de/kurs/lang/1");
+    expect(entry.title.length).toBeLessThanOrEqual(200);
+    expect(entry.title.endsWith("…")).toBe(true);
+    expect(longTitle.startsWith(entry.title.slice(0, -1))).toBe(true);
+  });
+
+  test("Collector-Form web://<url>.website wird zur https-URL", () => {
+    const [entry] = buildCourseSources([
+      {
+        url: "web://https://www.vhs-x.de/kurssuche/kurs/hatha-yoga/123.website",
+        title: "Hatha Yoga",
+        text: "",
+        start_date: "2026-10-01",
+      },
+    ]);
+    expect(entry).toEqual({
+      url: "https://www.vhs-x.de/kurssuche/kurs/hatha-yoga/123",
+      title: "Hatha Yoga",
+      start_date: "2026-10-01",
+    });
+    expect(
+      buildCourseSources([
+        { url: "web://javascript:alert(1).website", title: "X", text: "" },
+      ])
+    ).toEqual([]);
+  });
+
+  test("gecrawlte Seiten (nur chunkSource link://, kein Kurs-Link:) sind keine Kurse", () => {
+    expect(
+      buildCourseSources([
+        {
+          url: "file://www.vhs-x.de_kurse_sprachen.html",
+          title: "Sprachen",
+          chunkSource: "link://https://www.vhs-x.de/kurse/sprachen",
+          text: "Sprachen – alle Kurse",
+        },
+      ])
+    ).toEqual([]);
   });
 
   test("Dedupe über url: mehrere Chunks derselben Kursseite -> ein Eintrag (erster gewinnt)", () => {
@@ -221,7 +358,9 @@ describe("sanitizeCourseSources (Historie, Abwehr in der Tiefe)", () => {
         text: "geheimer Kontext",
         chunkSource: "x.txt",
       },
-      { url: "https://aw.donau.kufer.de/kontakt", title: "Kontakt" },
+      // ohne Titel bzw. ohne http-URL: kein Kurs
+      { url: "https://aw.donau.kufer.de/kontakt" },
+      { url: "file://kontakt.txt", title: "Kontakt" },
     ];
     expect(sanitizeCourseSources(stored)).toEqual([
       {
@@ -232,5 +371,18 @@ describe("sanitizeCourseSources (Historie, Abwehr in der Tiefe)", () => {
     ]);
     expect(sanitizeCourseSources(undefined)).toEqual([]);
     expect(sanitizeCourseSources("x")).toEqual([]);
+  });
+
+  test.each([[["x"]], [[1]], [[true]], [[null]], [[["verschachtelt"]]]])(
+    "Altdaten mit Primitiven werfen nicht: %p",
+    (stored) => {
+      expect(() => sanitizeCourseSources(stored)).not.toThrow();
+      expect(sanitizeCourseSources(stored)).toEqual([]);
+    }
+  );
+
+  test("pickCourseFields mit Nicht-Objekten -> {}", () => {
+    for (const value of ["x", 1, true, null, undefined])
+      expect(pickCourseFields(value)).toEqual({});
   });
 });
