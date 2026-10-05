@@ -215,3 +215,54 @@ describe("GET /embed/:embedId/config — courseCardsPosition (Kurskarten v2)", (
     });
   });
 });
+
+describe("GET /embed/:embedId/config — Leisten-Varianten (Öffnen/Schließen/Hinweis)", () => {
+  test("liefert inlineOpenOn, inlineCloseOn, inlineResumeHint, inlineResumePlaceholder", async () => {
+    const res = await fetchConfig({
+      inlineInput: true,
+      inlineOpenOn: "focus",
+      inlineCloseOn: "leave",
+      inlineResumeHint: true,
+      inlineResumePlaceholder: "  Weiter fragen …  ",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      inlineInput: true,
+      inlineOpenOn: "focus",
+      inlineCloseOn: "leave",
+      inlineResumeHint: true,
+      inlineResumePlaceholder: "Weiter fragen …",
+    });
+  });
+
+  test("false wird durchgereicht (Hinweis im Design Center abgeschaltet)", async () => {
+    const res = await fetchConfig({ inlineResumeHint: false });
+    expect(res.body).toEqual({ inlineResumeHint: false });
+  });
+
+  test("falscher Typ / leer wird weggelassen (Enum-Prüfung macht das Widget)", async () => {
+    const res = await fetchConfig({
+      inlineOpenOn: 1,
+      inlineCloseOn: "   ",
+      inlineResumeHint: "true",
+      inlineResumePlaceholder: "x".repeat(201),
+    });
+    expect(res.body).toEqual({});
+  });
+
+  test("unbekannte Enum-Werte gehen als Text durch (Widget warnt + Standard)", async () => {
+    const res = await fetchConfig({
+      inlineOpenOn: "hover",
+      inlineCloseOn: "never",
+    });
+    expect(res.body).toEqual({ inlineOpenOn: "hover", inlineCloseOn: "never" });
+  });
+
+  test("ohne die Schlüssel bleibt die Antwort wie bisher", async () => {
+    const res = await fetchConfig({
+      inlineInput: true,
+      inlineLayout: "overlay",
+    });
+    expect(res.body).toEqual({ inlineInput: true, inlineLayout: "overlay" });
+  });
+});

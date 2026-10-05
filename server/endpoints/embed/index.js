@@ -71,17 +71,22 @@ const LAYOUT_ENUMS = {
 };
 
 // Widget-Schlüssel der Inline-/Kurskarten-Issues (Eingabe in der Leiste,
-// Overlay/Effekte, Kurskarten). Werte nur durchreichen, wenn gesetzt und vom
-// erwarteten Typ; die genaue Werteprüfung (Enums, Defaults) macht das Widget
-// selbst (utils/layout.js), damit neue Werte keine Fork-Änderung brauchen.
+// Overlay/Effekte, Kurskarten, Leisten-Varianten Öffnen bei Klick / Schließen
+// bei Verlassen / Hinweis auf die Unterhaltung). Werte nur durchreichen, wenn
+// gesetzt und vom erwarteten Typ; die genaue Werteprüfung (Enums, Defaults)
+// macht das Widget selbst (utils/layout.js), damit neue Werte keine
+// Fork-Änderung brauchen.
 const WIDGET_STRING_KEYS = [
   "inlineInputPlaceholder",
   "inlineSendText",
   "courseCards",
   "inlineLayout",
   "inlineEffect",
+  "inlineOpenOn",
+  "inlineCloseOn",
+  "inlineResumePlaceholder",
 ];
-const WIDGET_BOOLEAN_KEYS = ["inlineInput"];
+const WIDGET_BOOLEAN_KEYS = ["inlineInput", "inlineResumeHint"];
 const WIDGET_STRING_MAX = 200;
 const LAYOUT_LENGTHS = {
   windowWidth: ["px", "%", "vw", "vh"],
