@@ -84,6 +84,9 @@ const WIDGET_TEXT_MAX = {
   inlineInputPlaceholder: 120,
   inlineSendText: 40,
   inlineResumePlaceholder: 120,
+  // Hinweis-Chip „Unterhaltung fortsetzen" / Link „Neu starten" (Issue 6)
+  inlineResumeText: 120,
+  inlineRestartText: 40,
   courseCards: 40,
   inlineLayout: 40,
   inlineEffect: 40,
