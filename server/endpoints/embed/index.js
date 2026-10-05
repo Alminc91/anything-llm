@@ -68,26 +68,29 @@ const LAYOUT_ENUMS = {
   theme: ["light", "dark", "auto"],
   // Kurskarten v2: Karten über oder unter der Antwort
   courseCardsPosition: ["below", "above"],
+  // Leisten-Varianten: Öffnen bei Klick / Schließen beim Verlassen
+  // (wie INLINE_OPEN_ON_VALUES / INLINE_CLOSE_ON_VALUES im Widget)
+  inlineOpenOn: ["submit", "focus"],
+  inlineCloseOn: ["outside", "leave"],
 };
 
-// Widget-Schlüssel der Inline-/Kurskarten-Issues (Eingabe in der Leiste,
-// Overlay/Effekte, Kurskarten, Leisten-Varianten Öffnen bei Klick / Schließen
-// bei Verlassen / Hinweis auf die Unterhaltung). Werte nur durchreichen, wenn
-// gesetzt und vom erwarteten Typ; die genaue Werteprüfung (Enums, Defaults)
-// macht das Widget selbst (utils/layout.js), damit neue Werte keine
-// Fork-Änderung brauchen.
-const WIDGET_STRING_KEYS = [
-  "inlineInputPlaceholder",
-  "inlineSendText",
-  "courseCards",
-  "inlineLayout",
-  "inlineEffect",
-  "inlineOpenOn",
-  "inlineCloseOn",
-  "inlineResumePlaceholder",
-];
+// Text-Schlüssel des Widgets mit Höchstlänge wie im Widget (utils/layout.js:
+// shortText mit INLINE_TEXT_MAX_LEN = 120, INLINE_SEND_TEXT_MAX_LEN = 40).
+// Wert wird getrimmt; leer oder zu lang -> weglassen (nicht kürzen).
+// courseCards/inlineLayout/inlineEffect gehen als kurzer Text durch, die
+// Enum-Prüfung macht das Widget, damit neue Werte keine Fork-Änderung brauchen.
+const WIDGET_TEXT_MAX = {
+  inlineCollapsedText: 120,
+  inlineInputPlaceholder: 120,
+  inlineSendText: 40,
+  inlineResumePlaceholder: 120,
+  courseCards: 40,
+  inlineLayout: 40,
+  inlineEffect: 40,
+};
+// Boolean-Schlüssel: echte Booleans oder "true"/"false"/"on"/"off"/"1"/"0"
+// (wie bool() im Widget); alles andere -> weglassen.
 const WIDGET_BOOLEAN_KEYS = ["inlineInput", "inlineResumeHint"];
-const WIDGET_STRING_MAX = 200;
 const LAYOUT_LENGTHS = {
   windowWidth: ["px", "%", "vw", "vh"],
   windowHeight: ["px", "%", "vw", "vh"],
@@ -105,6 +108,15 @@ function validCssLength(value, units) {
   if (!m || Number(m[1]) <= 0) return null;
   const unit = m[2] || "px";
   return units.includes(unit) ? `${m[1]}${unit}` : null;
+}
+
+function validBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return null;
+  const v = value.trim().toLowerCase();
+  if (["true", "on", "1"].includes(v)) return true;
+  if (["false", "off", "0"].includes(v)) return false;
+  return null;
 }
 
 // Ganzzahl 0–200, als Zahl oder String (optional mit "px", wie im Widget)
@@ -133,20 +145,17 @@ function mapLayoutConfig(visualConfig = {}) {
     const v = validOffset(visualConfig[key]);
     if (v !== null) out[key] = v;
   }
-  if (typeof visualConfig.inlineCollapsedText === "string") {
-    const text = visualConfig.inlineCollapsedText.trim();
-    if (text.length > 0 && text.length <= 120) out.inlineCollapsedText = text;
-  }
   if (typeof visualConfig.inheritFont === "boolean")
     out.inheritFont = visualConfig.inheritFont;
-  for (const key of WIDGET_STRING_KEYS) {
+  for (const [key, maxLen] of Object.entries(WIDGET_TEXT_MAX)) {
     const v = visualConfig[key];
     if (typeof v !== "string") continue;
     const text = v.trim();
-    if (text.length > 0 && text.length <= WIDGET_STRING_MAX) out[key] = text;
+    if (text.length > 0 && text.length <= maxLen) out[key] = text;
   }
   for (const key of WIDGET_BOOLEAN_KEYS) {
-    if (typeof visualConfig[key] === "boolean") out[key] = visualConfig[key];
+    const v = validBoolean(visualConfig[key]);
+    if (v !== null) out[key] = v;
   }
   return out;
 }
