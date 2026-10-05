@@ -15,6 +15,7 @@ const {
 const {
   courseCardsEnabled,
   buildCourseSources,
+  completeCourseSourcesFromReply,
 } = require("./embedCourseSources");
 
 async function streamChatWithForEmbed(
@@ -251,8 +252,14 @@ async function streamChatWithForEmbed(
 
   // Kurskarten (opt-in, visual_config.courseCards = "auto"): nur Kurs-
   // Metadaten der Whitelist, nie text — sources selbst bleiben serverseitig.
+  // Verlinkte Kurse ohne Treffer-Dokument werden per Dateiname nachgeschlagen
+  // (nach Stream-Ende, vor Abschluss-Chunk und Speichern).
   const courseSources = courseCardsEnabled(embed)
-    ? buildCourseSources(sources)
+    ? await completeCourseSourcesFromReply({
+        replyText: completeText,
+        courseSources: buildCourseSources(sources),
+        workspace: embed.workspace,
+      })
     : [];
 
   const { chat } = await EmbedChats.new({

@@ -183,3 +183,35 @@ describe("GET /embed/:embedId/config — Theme- und Inline-Schlüssel", () => {
     });
   });
 });
+
+describe("GET /embed/:embedId/config — courseCardsPosition (Kurskarten v2)", () => {
+  test("below/above wie theme: Enum, Groß-/Kleinschreibung egal", async () => {
+    for (const [input, expected] of [
+      ["below", "below"],
+      ["above", "above"],
+      [" Above ", "above"],
+    ]) {
+      const res = await fetchConfig({ courseCardsPosition: input });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.courseCardsPosition).toBe(expected);
+    }
+  });
+
+  test("ungültige Werte werden weggelassen", async () => {
+    for (const input of ["oben", "", 1, true, ["above"], { v: "above" }]) {
+      const res = await fetchConfig({ courseCardsPosition: input });
+      expect(res.body).not.toHaveProperty("courseCardsPosition");
+    }
+  });
+
+  test("zusammen mit courseCards ausgeliefert", async () => {
+    const res = await fetchConfig({
+      courseCards: "auto",
+      courseCardsPosition: "above",
+    });
+    expect(res.body).toEqual({
+      courseCards: "auto",
+      courseCardsPosition: "above",
+    });
+  });
+});
