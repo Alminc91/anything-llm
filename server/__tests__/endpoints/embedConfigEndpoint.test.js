@@ -144,8 +144,8 @@ describe("GET /embed/:embedId/config — Theme- und Inline-Schlüssel", () => {
   test("ungültige Werte werden weggelassen", async () => {
     const res = await fetchConfig({
       theme: "blau",
-      inlineInput: "true",
-      inlineInputPlaceholder: "x".repeat(201),
+      inlineInput: "ja",
+      inlineInputPlaceholder: "x".repeat(121),
       inlineSendText: "   ",
       courseCards: 1,
       inlineLayout: ["overlay"],
@@ -159,13 +159,49 @@ describe("GET /embed/:embedId/config — Theme- und Inline-Schlüssel", () => {
     expect(res.body).not.toHaveProperty("theme");
   });
 
-  test("200 Zeichen sind erlaubt, false wird durchgereicht", async () => {
+  test("Höchstlängen wie im Widget, false wird durchgereicht", async () => {
     const res = await fetchConfig({
-      inlineSendText: "y".repeat(200),
+      inlineSendText: "y".repeat(40),
+      inlineInputPlaceholder: "p".repeat(120),
       inlineInput: false,
     });
-    expect(res.body.inlineSendText).toHaveLength(200);
+    expect(res.body.inlineSendText).toHaveLength(40);
+    expect(res.body.inlineInputPlaceholder).toHaveLength(120);
     expect(res.body.inlineInput).toBe(false);
+  });
+
+  test("zu lange Texte werden weggelassen, nicht gekürzt", async () => {
+    const res = await fetchConfig({
+      inlineSendText: "y".repeat(41),
+      inlineInputPlaceholder: "p".repeat(121),
+      courseCards: "c".repeat(41),
+    });
+    expect(res.body).toEqual({});
+  });
+
+  test("inlineCollapsedText: getrimmt, 1–120 Zeichen", async () => {
+    let res = await fetchConfig({ inlineCollapsedText: "  Fragen Sie uns  " });
+    expect(res.body).toEqual({ inlineCollapsedText: "Fragen Sie uns" });
+    res = await fetchConfig({ inlineCollapsedText: "t".repeat(120) });
+    expect(res.body.inlineCollapsedText).toHaveLength(120);
+    for (const input of ["t".repeat(121), "   ", 5, true]) {
+      res = await fetchConfig({ inlineCollapsedText: input });
+      expect(res.body).not.toHaveProperty("inlineCollapsedText");
+    }
+  });
+
+  test("inlineInput: Strings wie im Widget als Boolean", async () => {
+    for (const [input, expected] of [
+      ["true", true],
+      [" ON ", true],
+      ["1", true],
+      ["false", false],
+      ["Off", false],
+      ["0", false],
+    ]) {
+      const res = await fetchConfig({ inlineInput: input });
+      expect(res.body.inlineInput).toBe(expected);
+    }
   });
 
   test("ohne die Schlüssel bleibt die Antwort wie bisher", async () => {
@@ -213,5 +249,98 @@ describe("GET /embed/:embedId/config — courseCardsPosition (Kurskarten v2)", (
       courseCards: "auto",
       courseCardsPosition: "above",
     });
+  });
+});
+
+describe("GET /embed/:embedId/config — Leisten-Varianten (Öffnen/Schließen/Hinweis)", () => {
+  test("liefert inlineOpenOn, inlineCloseOn, inlineResumeHint, inlineResumePlaceholder", async () => {
+    const res = await fetchConfig({
+      inlineInput: true,
+      inlineOpenOn: "focus",
+      inlineCloseOn: "leave",
+      inlineResumeHint: true,
+      inlineResumePlaceholder: "  Weiter fragen …  ",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      inlineInput: true,
+      inlineOpenOn: "focus",
+      inlineCloseOn: "leave",
+      inlineResumeHint: true,
+      inlineResumePlaceholder: "Weiter fragen …",
+    });
+  });
+
+  test("false wird durchgereicht (Hinweis im Design Center abgeschaltet)", async () => {
+    const res = await fetchConfig({ inlineResumeHint: false });
+    expect(res.body).toEqual({ inlineResumeHint: false });
+  });
+
+  test("falscher Typ / leer / zu lang wird weggelassen", async () => {
+    const res = await fetchConfig({
+      inlineOpenOn: 1,
+      inlineCloseOn: "   ",
+      inlineResumeHint: "ja",
+      inlineResumePlaceholder: "x".repeat(121),
+    });
+    expect(res.body).toEqual({});
+  });
+
+  test("inlineResumePlaceholder: 120 Zeichen sind erlaubt", async () => {
+    const res = await fetchConfig({ inlineResumePlaceholder: "w".repeat(120) });
+    expect(res.body.inlineResumePlaceholder).toHaveLength(120);
+  });
+
+  test("inlineResumeHint: Strings wie im Widget als Boolean", async () => {
+    for (const [input, expected] of [
+      ["true", true],
+      [" On ", true],
+      ["1", true],
+      ["false", false],
+      ["OFF", false],
+      ["0", false],
+    ]) {
+      const res = await fetchConfig({ inlineResumeHint: input });
+      expect(res.body).toEqual({ inlineResumeHint: expected });
+    }
+    for (const input of ["", "yes", "wahr", 1, null, ["true"]]) {
+      const res = await fetchConfig({ inlineResumeHint: input });
+      expect(res.body).not.toHaveProperty("inlineResumeHint");
+    }
+  });
+
+  test("inlineOpenOn/inlineCloseOn: Enum, Groß-/Kleinschreibung egal", async () => {
+    for (const [openOn, closeOn] of [
+      ["submit", "outside"],
+      ["focus", "leave"],
+      [" Focus ", " LEAVE "],
+    ]) {
+      const res = await fetchConfig({
+        inlineOpenOn: openOn,
+        inlineCloseOn: closeOn,
+      });
+      expect(res.body).toEqual({
+        inlineOpenOn: openOn.trim().toLowerCase(),
+        inlineCloseOn: closeOn.trim().toLowerCase(),
+      });
+    }
+  });
+
+  test("unbekannte Enum-Werte werden weggelassen", async () => {
+    const res = await fetchConfig({
+      inlineOpenOn: "hover",
+      inlineCloseOn: "never",
+    });
+    expect(res.body).toEqual({});
+    expect(res.body).not.toHaveProperty("inlineOpenOn");
+    expect(res.body).not.toHaveProperty("inlineCloseOn");
+  });
+
+  test("ohne die Schlüssel bleibt die Antwort wie bisher", async () => {
+    const res = await fetchConfig({
+      inlineInput: true,
+      inlineLayout: "overlay",
+    });
+    expect(res.body).toEqual({ inlineInput: true, inlineLayout: "overlay" });
   });
 });
