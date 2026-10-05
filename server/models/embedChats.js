@@ -1,4 +1,5 @@
 const { safeJsonParse } = require("../utils/http");
+const { sanitizeCourseSources } = require("../utils/chats/embedCourseSources");
 const prisma = require("../utils/prisma");
 
 /**
@@ -44,13 +45,23 @@ const EmbedChats = {
    * Loops through each chat and filters out the sources from the response object.
    * We do this when returning /history of an embed to the frontend to prevent inadvertent leaking
    * of private sources the user may not have intended to share with users.
+   * Kurskarten: `courseSources` (nur Kurs-Metadaten, nie text) bleibt erhalten,
+   * wird aber nochmals auf die Whitelist reduziert.
    * @param {EmbedChat[]} chats
    * @returns {EmbedChat[]} Returns a new array of chats with the sources filtered out of responses
    */
   filterSources: function (chats) {
     return chats.map((chat) => {
       const { response, ...rest } = chat;
-      const { sources, ...responseRest } = safeJsonParse(response);
+      const parsed = safeJsonParse(response, {});
+      const {
+        sources: _sources,
+        courseSources,
+        ...responseRest
+      } = parsed && typeof parsed === "object" ? parsed : {};
+      const safeCourseSources = sanitizeCourseSources(courseSources);
+      if (safeCourseSources.length > 0)
+        responseRest.courseSources = safeCourseSources;
       return { ...rest, response: JSON.stringify(responseRest) };
     });
   },

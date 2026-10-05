@@ -153,6 +153,10 @@ function convertToChatHistory(history = []) {
         role: "assistant",
         content: data.text,
         sources: data.sources || [],
+        // Kurskarten im Embed-Widget (nur vorhanden, wenn gespeichert)
+        ...(Array.isArray(data?.courseSources) && data.courseSources.length > 0
+          ? { courseSources: data.courseSources }
+          : {}),
         chatId: id,
         sentAt: moment(createdAt).unix(),
         feedbackScore,

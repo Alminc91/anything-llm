@@ -380,8 +380,9 @@ function embeddedEndpoints(app) {
           sessionId // BOLA/IDOR hardening (KIE-505): bind conversation to owning session
         );
 
-        // Kontext-Schnipsel (sources) nie an Endnutzer herausgeben:
-        // forEmbedByUser filtert nur bei boolescher Legacy-Signatur, deshalb hier.
+        // Kontext-Schnipsel (sources) nie an Endnutzer: vor der Ausgabe
+        // entfernen; courseSources (nur Kurs-Metadaten) bleibt für die
+        // Kurskarten erhalten.
         response.status(200).json({
           history: convertToChatHistory(EmbedChats.filterSources(history)),
         });

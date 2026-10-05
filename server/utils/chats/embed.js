@@ -12,6 +12,10 @@ const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
 const {
   startMetadataFilterResolution,
 } = require("./metadataFilterResolver");
+const {
+  courseCardsEnabled,
+  buildCourseSources,
+} = require("./embedCourseSources");
 
 async function streamChatWithForEmbed(
   response,
@@ -245,10 +249,22 @@ async function streamChatWithForEmbed(
     metrics = stream.metrics;
   }
 
+  // Kurskarten (opt-in, visual_config.courseCards = "auto"): nur Kurs-
+  // Metadaten der Whitelist, nie text — sources selbst bleiben serverseitig.
+  const courseSources = courseCardsEnabled(embed)
+    ? buildCourseSources(sources)
+    : [];
+
   const { chat } = await EmbedChats.new({
     embedId: embed.id,
     prompt: message,
-    response: { text: completeText, type: chatMode, sources, metrics },
+    response: {
+      text: completeText,
+      type: chatMode,
+      sources,
+      ...(courseSources.length > 0 ? { courseSources } : {}),
+      metrics,
+    },
     connection_information: response.locals.connection
       ? {
           ...response.locals.connection,
@@ -264,12 +280,16 @@ async function streamChatWithForEmbed(
   // Muster: workspace-Stream (stream.js finalizeResponseStream). Wird NACH dem
   // Text-close gesendet; das Widget verarbeitet den Chunk additiv (nur chatId),
   // ohne close/animate zu verändern -> keine Flicker-Regression.
+  // Kurskarten: courseSources reisen im selben Abschluss-Chunk mit (die
+  // Provider-Stream-Handler bleiben unverändert); das Widget zeigt die Karten
+  // damit erst nach Stream-Ende, genau einmal.
   writeResponseChunk(response, {
     uuid,
     type: "finalizeResponseStream",
     close: true,
     error: false,
     chatId: chat?.id ?? null,
+    ...(courseSources.length > 0 ? { courseSources } : {}),
   });
   return;
 }
