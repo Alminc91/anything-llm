@@ -58,6 +58,8 @@ const EmbedChats = {
         sources: _sources,
         courseSources,
         courseCardsAnnounced,
+        // Kurskarten v2: Marker-Nummern nur für den LLM-Verlauf, nie ans Widget
+        courseCardsMarker: _courseCardsMarker,
         ...responseRest
       } = parsed && typeof parsed === "object" ? parsed : {};
       const safeCourseSources = sanitizeCourseSources(courseSources);

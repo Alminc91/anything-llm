@@ -9,12 +9,17 @@ jest.mock("../../../utils/helpers/chat/responses", () => ({
 }));
 
 const {
-  CARDS_MARKER_BUFFER_MAX,
   parseCardsMarker,
-  parseMarkerIndices,
   stripCardsMarker,
-  CardsMarkerFilter,
   createCardsMarkerResponse,
+  restoreCardsMarkers,
+  storedMarkerIndices,
+  __test__: {
+    CARDS_MARKER_BUFFER_MAX,
+    parseMarkerIndices,
+    cardsMarkerLine,
+    CardsMarkerFilter,
+  },
 } = require("../../../utils/chats/embedCardsMarker");
 
 describe("parseCardsMarker", () => {
@@ -240,5 +245,101 @@ describe("createCardsMarkerResponse (Response-Hülle)", () => {
     await done();
     expect(onMarker).not.toHaveBeenCalled();
     expect(res.log.map((c) => c.textResponse).join("")).toBe("Ja, gern.");
+  });
+});
+
+// Review-Befunde Kurskarten v2 (05.10.2026)
+describe("Befund 6: gemeinsame Obergrenze für Stream-Filter und Stripping", () => {
+  function streamText(text, size = 9) {
+    const filter = new CardsMarkerFilter();
+    const pieces = text.match(new RegExp(`[\\s\\S]{1,${size}}`, "g"));
+    let marker = null;
+    const sent = pieces.map((piece, i) => {
+      const r = filter.push(piece, { final: false });
+      if (r.marker) marker = r.marker;
+      return r.text;
+    });
+    const end = filter.push("", { final: true });
+    if (end.marker) marker = end.marker;
+    sent.push(end.text);
+    return { text: sent.join(""), marker };
+  }
+
+  test("160-Zeichen-Marker: Stream und strip lassen den Text beide unverändert", () => {
+    const marker = `[[KARTEN: ${Array.from({ length: 50 }, (_, i) => i).join(", ")}]]`;
+    expect(marker.length).toBeGreaterThan(CARDS_MARKER_BUFFER_MAX);
+    expect(marker.length).toBeLessThanOrEqual(240);
+    const reply = `${marker}\nHier sind die Kurse.`;
+    expect(parseCardsMarker(reply, { final: true }).state).toBe("none");
+    expect(stripCardsMarker(reply)).toBe(reply);
+    const streamed = streamText(reply);
+    expect(streamed.marker).toBeNull();
+    expect(streamed.text).toBe(reply);
+  });
+
+  test("Marker knapp innerhalb der Grenze: beide entfernen ihn", () => {
+    const list = Array.from({ length: 40 }, (_, i) => i).join(",");
+    const marker = `[[KARTEN: ${list.slice(0, CARDS_MARKER_BUFFER_MAX - 12)}`;
+    const closed = `${marker.replace(/,\d*$/, "")}]]`;
+    expect(closed.length).toBeLessThanOrEqual(CARDS_MARKER_BUFFER_MAX);
+    const reply = `${closed}\nText`;
+    expect(stripCardsMarker(reply)).toBe("Text");
+    const streamed = streamText(reply);
+    expect(streamed.text).toBe("Text");
+    expect(streamed.marker.valid).toBe(true);
+  });
+
+  test("kaputte Zeile länger als die Grenze bleibt in beiden Wegen stehen", () => {
+    const reply = `[[KARTEN: ${"x".repeat(150)}\nText`;
+    expect(stripCardsMarker(reply)).toBe(reply);
+    expect(streamText(reply).text).toBe(reply);
+  });
+});
+
+describe("Befund 4: Marker im LLM-Verlauf (restoreCardsMarkers)", () => {
+  const { convertToPromptHistory } = jest.requireActual(
+    "../../../utils/helpers/chat/responses"
+  );
+  const record = (id, response) => ({
+    id,
+    prompt: `Frage ${id}`,
+    response: JSON.stringify(response),
+  });
+
+  test("stellt gespeicherte Nummern als erste Zeile voran, nur bei nicht leerer Liste", () => {
+    const raw = [
+      record(1, { text: "Kurse: …", courseCardsMarker: [0, 2], sources: [] }),
+      record(2, { text: "Keine.", courseCardsMarker: [] }),
+      record(3, { text: "Ohne Feld." }),
+      record(4, { text: "Kaputt.", courseCardsMarker: ["1; drop", -1] }),
+    ];
+    const restored = restoreCardsMarkers(raw);
+    expect(
+      convertToPromptHistory(restored)
+        .filter((m) => m.role === "assistant")
+        .map((m) => m.content)
+    ).toEqual([
+      "[[KARTEN: 0, 2]]\nKurse: …",
+      "Keine.",
+      "Ohne Feld.",
+      "Kaputt.",
+    ]);
+    // Originale bleiben unverändert (z. B. für /history)
+    expect(JSON.parse(raw[0].response).text).toBe("Kurse: …");
+    expect(restored[1]).toBe(raw[1]);
+    // vorangestellter Marker wird wieder als Marker erkannt
+    expect(
+      parseCardsMarker(JSON.parse(restored[0].response).text, { final: true })
+    ).toMatchObject({ state: "marker", indices: [0, 2], valid: true });
+  });
+
+  test("storedMarkerIndices / cardsMarkerLine prüfen die gespeicherte Liste", () => {
+    expect(storedMarkerIndices([3, 1, 3])).toEqual([3, 1]);
+    expect(storedMarkerIndices([1000])).toEqual([]);
+    expect(storedMarkerIndices([1.5])).toEqual([]);
+    expect(storedMarkerIndices("0,1")).toEqual([]);
+    expect(cardsMarkerLine([0, 4])).toBe("[[KARTEN: 0, 4]]");
+    expect(cardsMarkerLine([])).toBe("");
+    expect(restoreCardsMarkers(null)).toEqual([]);
   });
 });

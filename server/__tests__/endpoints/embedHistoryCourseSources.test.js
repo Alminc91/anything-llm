@@ -248,4 +248,36 @@ describe("GET /embed/:embedId/:sessionId — Historie für das Widget", () => {
     ]);
     expect(replies[3]).not.toHaveProperty("courseSources");
   });
+
+  test("Kurskarten v2: Marker-Nummern (courseCardsMarker) nie an das Widget", async () => {
+    prisma.embed_chats.findMany.mockResolvedValue([
+      {
+        ...ROWS[0],
+        response: JSON.stringify({
+          text: "Antwort",
+          type: "chat",
+          sources: [],
+          courseSources: [COURSE],
+          courseCardsAnnounced: 1,
+          courseCardsMarker: [0],
+        }),
+      },
+    ]);
+    const res = mockResponse();
+    await handler(
+      { params: { embedId: "embed-uuid", sessionId: "sess-1" }, query: {} },
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body.history[1].content).toBe("Antwort");
+    expect(JSON.stringify(res.body)).not.toMatch(/KARTEN|courseCardsMarker/);
+    const { EmbedChats } = require("../../models/embedChats");
+    const [filtered] = EmbedChats.filterSources([
+      {
+        id: 1,
+        response: JSON.stringify({ text: "x", courseCardsMarker: [0] }),
+      },
+    ]);
+    expect(JSON.parse(filtered.response)).toEqual({ text: "x" });
+  });
 });

@@ -302,24 +302,62 @@ test("ohne Streaming: courseSources-Chunk vor dem Text, Marker entfernt", async 
   expect(stored.courseCardsAnnounced).toBe(1);
 });
 
-test("NAK-2: courseCards nicht 'auto' -> keine Hülle, 0 Zugriffe, kein courseSources", async () => {
-  for (const vc of [null, JSON.stringify({ courseCards: "off" })]) {
-    jest.clearAllMocks();
-    const reply = `[[KARTEN: 1]]\n${REPLY_BODY}`;
-    const { log, stored, connector, response } = await run({
-      reply,
-      embed: makeEmbed(vc),
-    });
-    // Provider bekommt die echte Response, Text unverändert (Bestandskunden)
-    expect(connector.handleStream.mock.calls[0][0]).toBe(response);
-    expect(stored.text).toBe(reply);
-    expect(stored).not.toHaveProperty("courseSources");
-    expect(stored).not.toHaveProperty("courseCardsAnnounced");
-    expect(log.find((c) => c.type === "courseSources")).toBeUndefined();
-    expect(
-      log.find((c) => c.type === "finalizeResponseStream")
-    ).not.toHaveProperty("courseSources");
-    expect(Document.where).not.toHaveBeenCalled();
-    expect(readSpy).not.toHaveBeenCalled();
-  }
+test("NAK-2: courseCards nicht 'auto' -> Marker trotzdem entfernt, 0 Zugriffe, kein courseSources", async () => {
+  for (const streaming of [true, false])
+    for (const vc of [null, JSON.stringify({ courseCards: "off" })]) {
+      jest.clearAllMocks();
+      const reply = `[[KARTEN: 1]]\n${REPLY_BODY}`;
+      const { log, stored, text } = await run({
+        reply,
+        embed: makeEmbed(vc),
+        streaming,
+      });
+      // Prompt kann den Marker flottenweit verlangen: nie im Stream/DB-Text
+      expect(text).toBe(REPLY_BODY);
+      expect(JSON.stringify(log)).not.toMatch(/KARTEN/);
+      expect(stored.text).toBe(REPLY_BODY);
+      // Nummern nur für den LLM-Verlauf
+      expect(stored.courseCardsMarker).toEqual([1]);
+      expect(stored).not.toHaveProperty("courseSources");
+      expect(stored).not.toHaveProperty("courseCardsAnnounced");
+      expect(log.find((c) => c.type === "courseSources")).toBeUndefined();
+      expect(
+        log.find((c) => c.type === "finalizeResponseStream")
+      ).not.toHaveProperty("courseSources");
+      expect(Document.where).not.toHaveBeenCalled();
+      expect(readSpy).not.toHaveBeenCalled();
+    }
+});
+
+test("Befund 4: gespeicherter Marker steht im LLM-Verlauf wieder vorn, Text in der DB ohne", async () => {
+  const {
+    convertToPromptHistory,
+  } = require("../../../utils/helpers/chat/responses");
+  EmbedChats.forEmbedByUser.mockResolvedValueOnce([
+    {
+      id: 2,
+      prompt: "und abends?",
+      response: JSON.stringify({ text: "Nein.", courseCardsMarker: [] }),
+    },
+    {
+      id: 1,
+      prompt: "gibt es sportkurse?",
+      response: JSON.stringify({
+        text: REPLY_BODY,
+        courseCardsMarker: [1, 2],
+        courseCardsAnnounced: 2,
+      }),
+    },
+  ]);
+  const { connector } = await run({ reply: `[[KARTEN: 2]]\n${REPLY_BODY}` });
+  const history = convertToPromptHistory.mock.calls[0][0];
+  expect(history.map((r) => JSON.parse(r.response).text)).toEqual([
+    `[[KARTEN: 1, 2]]\n${REPLY_BODY}`,
+    "Nein.",
+  ]);
+  // dieselben Datensätze gehen an compressMessages (Verlaufskürzung)
+  expect(connector.compressMessages.mock.calls[0][1]).toBe(history);
+  const stored = EmbedChats.new.mock.calls[0][0].response;
+  expect(stored.text).toBe(REPLY_BODY);
+  expect(stored.courseCardsMarker).toEqual([2]);
 });

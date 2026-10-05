@@ -24,6 +24,7 @@ const {
   createCardsMarkerResponse,
   parseCardsMarker,
   stripCardsMarker,
+  restoreCardsMarkers,
 } = require("./embedCardsMarker");
 
 async function streamChatWithForEmbed(
@@ -233,16 +234,20 @@ async function streamChatWithForEmbed(
     rawHistory
   );
 
-  // Kurskarten v2 (opt-in): Karten-Marker in der ersten Antwortzeile
-  // ("[[KARTEN: 0, 2]]", siehe embedCardsMarker.js) -> angekündigte Kurse
-  // sofort als eigener Chunk; der Marker erreicht nie Widget oder DB.
-  // Nachschläge (Marker-Folge-Chunks + Antwort-Links) teilen Cache und Limit.
+  // Kurskarten v2: Karten-Marker in der ersten Antwortzeile ("[[KARTEN: 0,
+  // 2]]", siehe embedCardsMarker.js). Erkennen und Entfernen laufen IMMER
+  // (der Prompt kann den Marker flottenweit verlangen, auch wenn die Karten
+  // für dieses Embed aus sind) — der Marker erreicht nie Widget oder DB-Text.
+  // Nur mit Karten an (opt-in, visual_config.courseCards = "auto"): ange-
+  // kündigte Kurse sofort als eigener Chunk + Nachschläge (Marker-Folge-
+  // Chunks + Antwort-Links teilen Cache und Limit).
   const cardsOn = courseCardsEnabled(embed);
   const courseLookup = cardsOn
     ? createCourseLookup({ workspace: embed.workspace })
     : null;
   let announced = [];
   const announceCourses = async ({ indices }) => {
+    if (!cardsOn) return;
     announced = await courseSourcesFromMarker({
       indices,
       contextSources,
@@ -270,18 +275,14 @@ async function streamChatWithForEmbed(
       });
     completeText = textResponse;
     metrics = performanceMetrics;
-    if (cardsOn) {
-      const marker = parseCardsMarker(completeText, { final: true });
-      if (marker.state === "marker") {
-        await announceCourses({ indices: marker.indices ?? [] });
-        completeText = stripCardsMarker(completeText);
-      }
-    }
+    const marker = parseCardsMarker(completeText, { final: true });
+    if (marker.state === "marker")
+      await announceCourses({ indices: marker.indices ?? [] });
     writeResponseChunk(response, {
       uuid,
       sources: [],
       type: "textResponseChunk",
-      textResponse: completeText,
+      textResponse: stripCardsMarker(completeText),
       close: true,
       error: false,
     });
@@ -289,23 +290,30 @@ async function streamChatWithForEmbed(
     const stream = await LLMConnector.streamGetChatCompletion(messages, {
       temperature: embed.workspace?.openAiTemp ?? LLMConnector.defaultTemp,
     });
-    const markerStream = cardsOn
-      ? createCardsMarkerResponse(response, { onMarker: announceCourses })
-      : null;
+    const markerStream = createCardsMarkerResponse(response, {
+      onMarker: announceCourses,
+    });
     completeText = await LLMConnector.handleStream(
-      markerStream ? markerStream.response : response,
+      markerStream.response,
       stream,
       {
         uuid,
         sources: [],
       }
     );
-    if (markerStream) {
-      await markerStream.done();
-      completeText = stripCardsMarker(completeText);
-    }
+    await markerStream.done();
     metrics = stream.metrics;
   }
+
+  // Marker aus dem gespeicherten Text entfernen (gleiche Entscheidung wie
+  // der Stream-Filter); die Nummernliste bleibt als courseCardsMarker nur für
+  // den LLM-Verlauf von Folgefragen erhalten (restoreCardsMarkers).
+  const replyMarker = parseCardsMarker(completeText, { final: true });
+  const courseCardsMarker =
+    replyMarker.state === "marker" && replyMarker.valid
+      ? replyMarker.indices
+      : [];
+  completeText = stripCardsMarker(completeText);
 
   // Kurskarten (opt-in, visual_config.courseCards = "auto"): nur Kurs-
   // Metadaten der Whitelist, nie text — sources selbst bleiben serverseitig.
@@ -335,6 +343,7 @@ async function streamChatWithForEmbed(
       sources,
       ...(courseSources.length > 0 ? { courseSources } : {}),
       ...(courseCardsAnnounced > 0 ? { courseCardsAnnounced } : {}),
+      ...(courseCardsMarker.length > 0 ? { courseCardsMarker } : {}),
       metrics,
     },
     connection_information: response.locals.connection
@@ -378,6 +387,8 @@ async function streamChatWithForEmbed(
  * @param {Object} embed the embed config object
  * @param {Number} messageLimit the number of messages to return
  * @param {string|null} boundSessionId when set, binds the conversation to its owning session (BOLA/IDOR hardening, KIE-505)
+ * Kurskarten v2: rawHistory/chatHistory sind nur für den LLM-Prompt — gespeicherte
+ * Karten-Marker (courseCardsMarker) stehen dort wieder als erste Antwortzeile.
  * @returns {Promise<{rawHistory: import("@prisma/client").embed_chats[], chatHistory: {role: string, content: string, attachments?: Object[]}[]}>
  */
 async function recentEmbedChatHistory(
@@ -396,7 +407,13 @@ async function recentEmbedChatHistory(
       boundSessionId // BOLA/IDOR hardening (KIE-505): bind conversation to owning session
     )
   ).reverse();
-  return { rawHistory, chatHistory: convertToPromptHistory(rawHistory) };
+  // Kurskarten v2: Marker früherer Antworten nur im LLM-Verlauf wieder
+  // voranstellen (Vorbild für Folgeantworten); /history bleibt ohne Marker.
+  const promptHistory = restoreCardsMarkers(rawHistory);
+  return {
+    rawHistory: promptHistory,
+    chatHistory: convertToPromptHistory(promptHistory),
+  };
 }
 
 module.exports = {

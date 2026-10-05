@@ -17,15 +17,25 @@
 //     Zahlenliste = gültig, sonst kaputt (Marker wird trotzdem entfernt,
 //     keine Karten).
 //   - Zeilenende vor "]]" -> kaputte Markerzeile, wird entfernt.
-//   - Mehr als CARDS_MARKER_BUFFER_MAX Zeichen ohne "]]"/Zeilenende -> zu
-//     lang, gilt als kein Marker; Text bleibt unverändert (nichts geht
-//     verloren, das Widget entfernt einen späteren Marker zusätzlich).
+//   - Marker muss innerhalb der ersten CARDS_MARKER_BUFFER_MAX Zeichen
+//     (nach Leerraum) schließen bzw. die Zeile enden; sonst zu lang, gilt als
+//     kein Marker; Text bleibt unverändert (nichts geht verloren, das Widget
+//     entfernt einen späteren Marker zusätzlich). Dieselbe Grenze gilt für
+//     Stream-Filter und stripCardsMarker — beide entscheiden immer gleich.
+//
+// Damit Folgefragen den Marker im Verlauf sehen (kleine Modelle lassen ihn
+// sonst weg), wird die angekündigte Nummernliste als courseCardsMarker in der
+// Antwort-JSON gespeichert und nur für den LLM-Verlauf wieder als erste Zeile
+// vorangestellt (restoreCardsMarkers), nie in /history an das Widget.
 
 const { writeResponseChunk } = require("../helpers/chat/responses");
+const { safeJsonParse } = require("../http");
 
 const CARDS_MARKER_TAG = "[[KARTEN:";
+// Obergrenze (Zeichen ab Markeranfang) bis "]]" bzw. Zeilenende — einzige
+// Quelle der Wahrheit für Puffer und Stripping.
 const CARDS_MARKER_BUFFER_MAX = 120;
-const CARDS_MARKER_INDEX_MAX = 999;
+// Nummern 0–999 (höchstens drei Ziffern), durch Kommas getrennt
 const INDEX_LIST_RX = /^\d{1,3}(?:\s*,\s*\d{1,3})*$/;
 
 const PENDING = Object.freeze({ state: "pending" });
@@ -44,8 +54,7 @@ function parseMarkerIndices(content) {
   const out = [];
   for (const part of text.split(",")) {
     const n = Number(part.trim());
-    if (Number.isInteger(n) && n <= CARDS_MARKER_INDEX_MAX && !out.includes(n))
-      out.push(n);
+    if (!out.includes(n)) out.push(n);
   }
   return out;
 }
@@ -66,8 +75,12 @@ function parseCardsMarker(text, { final = false } = {}) {
   if (!CARDS_MARKER_TAG.startsWith(head)) return NONE;
   if (body.length < CARDS_MARKER_TAG.length) return final ? NONE : PENDING;
 
-  const close = body.indexOf("]]");
-  const newline = body.indexOf("\n");
+  // Nur das Fenster der ersten CARDS_MARKER_BUFFER_MAX Zeichen zählt: "]]"
+  // bzw. Zeilenende müssen vollständig darin liegen. So ist die Entscheidung
+  // für einen Antwortanfang dieselbe wie für die ganze Antwort.
+  const win = body.slice(0, CARDS_MARKER_BUFFER_MAX);
+  const close = win.indexOf("]]");
+  const newline = win.indexOf("\n");
   if (close !== -1 && (newline === -1 || close < newline)) {
     const indices = parseMarkerIndices(
       body.slice(CARDS_MARKER_TAG.length, close)
@@ -86,7 +99,7 @@ function parseCardsMarker(text, { final = false } = {}) {
       valid: false,
       end: lead + newline + 1,
     };
-  if (body.length > CARDS_MARKER_BUFFER_MAX) return NONE;
+  if (body.length >= CARDS_MARKER_BUFFER_MAX) return NONE;
   return final ? NONE : PENDING;
 }
 
@@ -150,12 +163,8 @@ class CardsMarkerFilter {
 // "data: {json}\n\n" (writeResponseChunk) -> Objekt, sonst null
 function parseSseChunk(raw) {
   if (typeof raw !== "string" || !raw.startsWith("data: ")) return null;
-  try {
-    const data = JSON.parse(raw.slice(6));
-    return data && typeof data === "object" ? data : null;
-  } catch {
-    return null;
-  }
+  const data = safeJsonParse(raw.slice(6), null);
+  return data && typeof data === "object" ? data : null;
 }
 
 /**
@@ -205,12 +214,64 @@ function createCardsMarkerResponse(response, { onMarker } = {}) {
   return { response: proxy, done: () => queue, filter };
 }
 
+/**
+ * Gespeicherte Nummernliste (courseCardsMarker) einer Antwort-JSON prüfen:
+ * nur ganze Zahlen 0–999, dedupliziert; sonst [].
+ * @param {any} value
+ * @returns {number[]}
+ */
+function storedMarkerIndices(value) {
+  if (!Array.isArray(value) || !value.every((n) => Number.isInteger(n)))
+    return [];
+  return parseMarkerIndices(value.join(",")) ?? [];
+}
+
+/**
+ * Markerzeile für eine Nummernliste ("[[KARTEN: 0, 2]]"); leer -> "".
+ * @param {number[]} indices
+ * @returns {string}
+ */
+function cardsMarkerLine(indices) {
+  const list = storedMarkerIndices(indices);
+  return list.length > 0 ? `${CARDS_MARKER_TAG} ${list.join(", ")}]]` : "";
+}
+
+/**
+ * Nur für den LLM-Verlauf (recentEmbedChatHistory): stellt den Marker, den
+ * der Bot in einer früheren Antwort gesendet hat (Antwort-JSON
+ * courseCardsMarker), wieder als erste Zeile vor den gespeicherten Text.
+ * Die Datensätze werden kopiert, nie verändert; ohne Marker unverändert.
+ * Nie für /history an das Widget verwenden.
+ * @param {object[]} rawHistory - embed_chats-Zeilen (response = JSON-String)
+ * @returns {object[]}
+ */
+function restoreCardsMarkers(rawHistory = []) {
+  if (!Array.isArray(rawHistory)) return [];
+  return rawHistory.map((record) => {
+    const data = safeJsonParse(record?.response, null);
+    if (!data || typeof data !== "object" || typeof data.text !== "string")
+      return record;
+    const line = cardsMarkerLine(data.courseCardsMarker);
+    if (!line) return record;
+    return {
+      ...record,
+      response: JSON.stringify({ ...data, text: `${line}\n${data.text}` }),
+    };
+  });
+}
+
 module.exports = {
-  CARDS_MARKER_TAG,
-  CARDS_MARKER_BUFFER_MAX,
   parseCardsMarker,
-  parseMarkerIndices,
   stripCardsMarker,
-  CardsMarkerFilter,
   createCardsMarkerResponse,
+  storedMarkerIndices,
+  restoreCardsMarkers,
+  // nur für Tests
+  __test__: {
+    CARDS_MARKER_TAG,
+    CARDS_MARKER_BUFFER_MAX,
+    parseMarkerIndices,
+    cardsMarkerLine,
+    CardsMarkerFilter,
+  },
 };
