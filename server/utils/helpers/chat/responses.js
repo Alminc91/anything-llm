@@ -155,7 +155,14 @@ function convertToChatHistory(history = []) {
         sources: data.sources || [],
         // Kurskarten im Embed-Widget (nur vorhanden, wenn gespeichert)
         ...(Array.isArray(data?.courseSources) && data.courseSources.length > 0
-          ? { courseSources: data.courseSources }
+          ? {
+              courseSources: data.courseSources,
+              // Kurskarten v2: vorab angekündigte Kurse (Listenanfang)
+              ...(Number.isInteger(data?.courseCardsAnnounced) &&
+              data.courseCardsAnnounced > 0
+                ? { courseCardsAnnounced: data.courseCardsAnnounced }
+                : {}),
+            }
           : {}),
         chatId: id,
         sentAt: moment(createdAt).unix(),
