@@ -252,105 +252,38 @@ describe("GET /embed/:embedId/config — courseCardsPosition (Kurskarten v2)", (
   });
 });
 
-describe("GET /embed/:embedId/config — Leisten-Varianten (Öffnen/Schließen/Hinweis)", () => {
-  test("liefert inlineOpenOn, inlineCloseOn, inlineResumeHint, inlineResumePlaceholder", async () => {
+describe("GET /embed/:embedId/config — Leisten-Variante „Öffnen bei Klick“", () => {
+  test("liefert inlineOpenOn, nicht die zurückgebauten Schlüssel (Schließen/Hinweis)", async () => {
     const res = await fetchConfig({
       inlineInput: true,
       inlineOpenOn: "focus",
-      inlineCloseOn: "leave",
-      inlineResumeHint: true,
-      inlineResumePlaceholder: "  Weiter fragen …  ",
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      inlineInput: true,
-      inlineOpenOn: "focus",
+      // Bestands-Werte aus der Zeit vor dem Rückbau: kein Fehler, nicht ausgeliefert
       inlineCloseOn: "leave",
       inlineResumeHint: true,
       inlineResumePlaceholder: "Weiter fragen …",
+      inlineResumeText: "Unterhaltung fortsetzen",
+      inlineRestartText: "Neu starten",
     });
+    expect(res.statusCode).toBe(200);
+    // toEqual ist streng: jeder zusätzliche Schlüssel ließe den Test scheitern
+    expect(res.body).toEqual({ inlineInput: true, inlineOpenOn: "focus" });
   });
 
-  test("false wird durchgereicht (Hinweis im Design Center abgeschaltet)", async () => {
-    const res = await fetchConfig({ inlineResumeHint: false });
-    expect(res.body).toEqual({ inlineResumeHint: false });
-  });
-
-  test("falscher Typ / leer / zu lang wird weggelassen", async () => {
-    const res = await fetchConfig({
-      inlineOpenOn: 1,
-      inlineCloseOn: "   ",
-      inlineResumeHint: "ja",
-      inlineResumePlaceholder: "x".repeat(121),
-    });
-    expect(res.body).toEqual({});
-  });
-
-  test("inlineResumePlaceholder: 120 Zeichen sind erlaubt", async () => {
-    const res = await fetchConfig({ inlineResumePlaceholder: "w".repeat(120) });
-    expect(res.body.inlineResumePlaceholder).toHaveLength(120);
-  });
-
-  test("inlineResumeText/inlineRestartText: getrimmt, Grenzen 120/40", async () => {
-    const res = await fetchConfig({
-      inlineResumeText: "  Gespräch fortsetzen  ",
-      inlineRestartText: "Neu beginnen",
-    });
-    expect(res.body.inlineResumeText).toBe("Gespräch fortsetzen");
-    expect(res.body.inlineRestartText).toBe("Neu beginnen");
-    const tooLong = await fetchConfig({
-      inlineResumeText: "x".repeat(121),
-      inlineRestartText: "y".repeat(41),
-    });
-    expect(tooLong.body).toEqual({});
-  });
-
-  test("inlineResumeHint: Strings wie im Widget als Boolean", async () => {
-    for (const [input, expected] of [
-      ["true", true],
-      [" On ", true],
-      ["1", true],
-      ["false", false],
-      ["OFF", false],
-      ["0", false],
-    ]) {
-      const res = await fetchConfig({ inlineResumeHint: input });
-      expect(res.body).toEqual({ inlineResumeHint: expected });
-    }
-    for (const input of ["", "yes", "wahr", 1, null, ["true"]]) {
-      const res = await fetchConfig({ inlineResumeHint: input });
-      expect(res.body).not.toHaveProperty("inlineResumeHint");
+  test("inlineOpenOn: Enum, Groß-/Kleinschreibung egal", async () => {
+    for (const openOn of ["submit", "focus", " Focus "]) {
+      const res = await fetchConfig({ inlineOpenOn: openOn });
+      expect(res.body).toEqual({ inlineOpenOn: openOn.trim().toLowerCase() });
     }
   });
 
-  test("inlineOpenOn/inlineCloseOn: Enum, Groß-/Kleinschreibung egal", async () => {
-    for (const [openOn, closeOn] of [
-      ["submit", "outside"],
-      ["focus", "leave"],
-      [" Focus ", " LEAVE "],
-    ]) {
-      const res = await fetchConfig({
-        inlineOpenOn: openOn,
-        inlineCloseOn: closeOn,
-      });
-      expect(res.body).toEqual({
-        inlineOpenOn: openOn.trim().toLowerCase(),
-        inlineCloseOn: closeOn.trim().toLowerCase(),
-      });
+  test("falscher Typ, leer oder unbekannter Wert wird weggelassen", async () => {
+    for (const openOn of [1, "   ", "hover", null, ["focus"], { v: "focus" }]) {
+      const res = await fetchConfig({ inlineOpenOn: openOn });
+      expect(res.body).toEqual({});
     }
   });
 
-  test("unbekannte Enum-Werte werden weggelassen", async () => {
-    const res = await fetchConfig({
-      inlineOpenOn: "hover",
-      inlineCloseOn: "never",
-    });
-    expect(res.body).toEqual({});
-    expect(res.body).not.toHaveProperty("inlineOpenOn");
-    expect(res.body).not.toHaveProperty("inlineCloseOn");
-  });
-
-  test("ohne die Schlüssel bleibt die Antwort wie bisher", async () => {
+  test("ohne den Schlüssel bleibt die Antwort wie bisher", async () => {
     const res = await fetchConfig({
       inlineInput: true,
       inlineLayout: "overlay",

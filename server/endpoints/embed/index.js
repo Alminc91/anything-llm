@@ -68,10 +68,8 @@ const LAYOUT_ENUMS = {
   theme: ["light", "dark", "auto"],
   // Kurskarten v2: Karten über oder unter der Antwort
   courseCardsPosition: ["below", "above"],
-  // Leisten-Varianten: Öffnen bei Klick / Schließen beim Verlassen
-  // (wie INLINE_OPEN_ON_VALUES / INLINE_CLOSE_ON_VALUES im Widget)
+  // Leisten-Variante: Öffnen bei Klick (wie INLINE_OPEN_ON_VALUES im Widget)
   inlineOpenOn: ["submit", "focus"],
-  inlineCloseOn: ["outside", "leave"],
 };
 
 // Text-Schlüssel des Widgets mit Höchstlänge wie im Widget (utils/layout.js:
@@ -83,17 +81,13 @@ const WIDGET_TEXT_MAX = {
   inlineCollapsedText: 120,
   inlineInputPlaceholder: 120,
   inlineSendText: 40,
-  inlineResumePlaceholder: 120,
-  // Hinweis-Chip „Unterhaltung fortsetzen" / Link „Neu starten" (Issue 6)
-  inlineResumeText: 120,
-  inlineRestartText: 40,
   courseCards: 40,
   inlineLayout: 40,
   inlineEffect: 40,
 };
 // Boolean-Schlüssel: echte Booleans oder "true"/"false"/"on"/"off"/"1"/"0"
 // (wie bool() im Widget); alles andere -> weglassen.
-const WIDGET_BOOLEAN_KEYS = ["inlineInput", "inlineResumeHint"];
+const WIDGET_BOOLEAN_KEYS = ["inlineInput"];
 const LAYOUT_LENGTHS = {
   windowWidth: ["px", "%", "vw", "vh"],
   windowHeight: ["px", "%", "vw", "vh"],
