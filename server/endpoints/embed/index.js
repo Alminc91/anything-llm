@@ -64,7 +64,23 @@ const LAYOUT_ENUMS = {
   displayMode: ["bubble", "inline"],
   inlineStartState: ["collapsed", "expanded"],
   inlineTheme: ["light", "dark"],
+  // Fenster-Theme (Embed-Issue CSS-Variablen/Theme)
+  theme: ["light", "dark", "auto"],
 };
+
+// Widget-Schlüssel der Inline-/Kurskarten-Issues (Eingabe in der Leiste,
+// Overlay/Effekte, Kurskarten). Werte nur durchreichen, wenn gesetzt und vom
+// erwarteten Typ; die genaue Werteprüfung (Enums, Defaults) macht das Widget
+// selbst (utils/layout.js), damit neue Werte keine Fork-Änderung brauchen.
+const WIDGET_STRING_KEYS = [
+  "inlineInputPlaceholder",
+  "inlineSendText",
+  "courseCards",
+  "inlineLayout",
+  "inlineEffect",
+];
+const WIDGET_BOOLEAN_KEYS = ["inlineInput"];
+const WIDGET_STRING_MAX = 200;
 const LAYOUT_LENGTHS = {
   windowWidth: ["px", "%", "vw", "vh"],
   windowHeight: ["px", "%", "vw", "vh"],
@@ -116,6 +132,15 @@ function mapLayoutConfig(visualConfig = {}) {
   }
   if (typeof visualConfig.inheritFont === "boolean")
     out.inheritFont = visualConfig.inheritFont;
+  for (const key of WIDGET_STRING_KEYS) {
+    const v = visualConfig[key];
+    if (typeof v !== "string") continue;
+    const text = v.trim();
+    if (text.length > 0 && text.length <= WIDGET_STRING_MAX) out[key] = text;
+  }
+  for (const key of WIDGET_BOOLEAN_KEYS) {
+    if (typeof visualConfig[key] === "boolean") out[key] = visualConfig[key];
+  }
   return out;
 }
 
@@ -173,8 +198,9 @@ function embeddedEndpoints(app) {
           if (cleaned.length > 0) mapped.chatbotBubblesMessages = cleaned.join(",");
         }
 
-        // Darstellung (Blase/Inline) + Fenstergröße/Randabstand — nur
-        // validierte Werte ausliefern, ungültige Felder weglassen.
+        // Darstellung (Blase/Inline), Fenstergröße/Randabstand, Theme und
+        // Inline-/Kurskarten-Schlüssel — nur validierte Werte ausliefern,
+        // ungültige Felder weglassen.
         Object.assign(mapped, mapLayoutConfig(visualConfig));
 
         // Logo: serve from upload endpoint or use URL
