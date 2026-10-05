@@ -308,11 +308,12 @@ async function streamChatWithForEmbed(
   // Marker aus dem gespeicherten Text entfernen (gleiche Entscheidung wie
   // der Stream-Filter); die Nummernliste bleibt als courseCardsMarker nur für
   // den LLM-Verlauf von Folgefragen erhalten (restoreCardsMarkers).
+  // [] = "[[KARTEN: -]]", null = kein/kaputter Marker (Feld fehlt).
   const replyMarker = parseCardsMarker(completeText, { final: true });
   const courseCardsMarker =
     replyMarker.state === "marker" && replyMarker.valid
       ? replyMarker.indices
-      : [];
+      : null;
   completeText = stripCardsMarker(completeText);
 
   // Kurskarten (opt-in, visual_config.courseCards = "auto"): nur Kurs-
@@ -343,7 +344,7 @@ async function streamChatWithForEmbed(
       sources,
       ...(courseSources.length > 0 ? { courseSources } : {}),
       ...(courseCardsAnnounced > 0 ? { courseCardsAnnounced } : {}),
-      ...(courseCardsMarker.length > 0 ? { courseCardsMarker } : {}),
+      ...(courseCardsMarker ? { courseCardsMarker } : {}),
       metrics,
     },
     connection_information: response.locals.connection

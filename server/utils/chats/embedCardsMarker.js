@@ -216,31 +216,37 @@ function createCardsMarkerResponse(response, { onMarker } = {}) {
 
 /**
  * Gespeicherte Nummernliste (courseCardsMarker) einer Antwort-JSON prüfen:
- * nur ganze Zahlen 0–999, dedupliziert; sonst [].
+ * [] = Marker war da, leer ("[[KARTEN: -]]"); Liste = nur ganze Zahlen
+ * 0–999, dedupliziert; null = kein (gültiger) Marker gespeichert.
  * @param {any} value
- * @returns {number[]}
+ * @returns {number[]|null}
  */
 function storedMarkerIndices(value) {
-  if (!Array.isArray(value) || !value.every((n) => Number.isInteger(n)))
-    return [];
-  return parseMarkerIndices(value.join(",")) ?? [];
+  if (!Array.isArray(value)) return null;
+  if (value.length === 0) return [];
+  if (!value.every((n) => Number.isInteger(n))) return null;
+  return parseMarkerIndices(value.join(","));
 }
 
 /**
- * Markerzeile für eine Nummernliste ("[[KARTEN: 0, 2]]"); leer -> "".
- * @param {number[]} indices
+ * Markerzeile für eine gespeicherte Nummernliste: "[[KARTEN: 0, 2]]",
+ * leere Liste -> "[[KARTEN: -]]", kein Marker -> "".
+ * @param {any} indices
  * @returns {string}
  */
 function cardsMarkerLine(indices) {
   const list = storedMarkerIndices(indices);
-  return list.length > 0 ? `${CARDS_MARKER_TAG} ${list.join(", ")}]]` : "";
+  if (list === null) return "";
+  return `${CARDS_MARKER_TAG} ${list.length > 0 ? list.join(", ") : "-"}]]`;
 }
 
 /**
  * Nur für den LLM-Verlauf (recentEmbedChatHistory): stellt den Marker, den
  * der Bot in einer früheren Antwort gesendet hat (Antwort-JSON
- * courseCardsMarker), wieder als erste Zeile vor den gespeicherten Text.
- * Die Datensätze werden kopiert, nie verändert; ohne Marker unverändert.
+ * courseCardsMarker), wieder als erste Zeile vor den gespeicherten Text —
+ * auch "[[KARTEN: -]]" (courseCardsMarker: []), damit jede frühere Antwort
+ * einen Marker zeigt. Die Datensätze werden kopiert, nie verändert; ohne
+ * gespeicherten Marker (Feld fehlt/null) unverändert.
  * Nie für /history an das Widget verwenden.
  * @param {object[]} rawHistory - embed_chats-Zeilen (response = JSON-String)
  * @returns {object[]}

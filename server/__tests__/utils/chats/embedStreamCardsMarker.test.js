@@ -286,7 +286,16 @@ test("[[KARTEN: -]] und kaputter Marker: entfernt, keine Vorab-Karten", async ()
     expect(log.find((c) => c.type === "courseSources")).toBeUndefined();
     expect(text).toBe("Leider habe ich keinen passenden Kurs gefunden.");
     expect(stored.text).toBe(text);
+    // "-" = Marker war da, leer -> []; kaputt -> Feld fehlt
+    if (marker === "[[KARTEN: -]]")
+      expect(stored.courseCardsMarker).toEqual([]);
+    else expect(stored).not.toHaveProperty("courseCardsMarker");
   }
+});
+
+test("ohne Marker: courseCardsMarker fehlt in der gespeicherten Antwort", async () => {
+  const { stored } = await run({ reply: REPLY_BODY });
+  expect(stored).not.toHaveProperty("courseCardsMarker");
 });
 
 test("ohne Streaming: courseSources-Chunk vor dem Text, Marker entfernt", async () => {
@@ -353,7 +362,7 @@ test("Befund 4: gespeicherter Marker steht im LLM-Verlauf wieder vorn, Text in d
   const history = convertToPromptHistory.mock.calls[0][0];
   expect(history.map((r) => JSON.parse(r.response).text)).toEqual([
     `[[KARTEN: 1, 2]]\n${REPLY_BODY}`,
-    "Nein.",
+    "[[KARTEN: -]]\nNein.",
   ]);
   // dieselben Datensätze gehen an compressMessages (Verlaufskürzung)
   expect(connector.compressMessages.mock.calls[0][1]).toBe(history);

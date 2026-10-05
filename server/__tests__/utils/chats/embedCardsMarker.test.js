@@ -306,12 +306,13 @@ describe("Befund 4: Marker im LLM-Verlauf (restoreCardsMarkers)", () => {
     response: JSON.stringify(response),
   });
 
-  test("stellt gespeicherte Nummern als erste Zeile voran, nur bei nicht leerer Liste", () => {
+  test("stellt gespeicherte Nummern als erste Zeile voran, [] als '[[KARTEN: -]]', ohne Feld nichts", () => {
     const raw = [
       record(1, { text: "Kurse: …", courseCardsMarker: [0, 2], sources: [] }),
       record(2, { text: "Keine.", courseCardsMarker: [] }),
       record(3, { text: "Ohne Feld." }),
       record(4, { text: "Kaputt.", courseCardsMarker: ["1; drop", -1] }),
+      record(5, { text: "Null.", courseCardsMarker: null }),
     ];
     const restored = restoreCardsMarkers(raw);
     expect(
@@ -320,13 +321,19 @@ describe("Befund 4: Marker im LLM-Verlauf (restoreCardsMarkers)", () => {
         .map((m) => m.content)
     ).toEqual([
       "[[KARTEN: 0, 2]]\nKurse: …",
-      "Keine.",
+      "[[KARTEN: -]]\nKeine.",
       "Ohne Feld.",
       "Kaputt.",
+      "Null.",
     ]);
     // Originale bleiben unverändert (z. B. für /history)
     expect(JSON.parse(raw[0].response).text).toBe("Kurse: …");
-    expect(restored[1]).toBe(raw[1]);
+    expect(restored[2]).toBe(raw[2]);
+    expect(restored[4]).toBe(raw[4]);
+    // auch der leere Marker wird wieder als (gültiger) Marker erkannt
+    expect(
+      parseCardsMarker(JSON.parse(restored[1].response).text, { final: true })
+    ).toMatchObject({ state: "marker", indices: [], valid: true });
     // vorangestellter Marker wird wieder als Marker erkannt
     expect(
       parseCardsMarker(JSON.parse(restored[0].response).text, { final: true })
@@ -335,11 +342,16 @@ describe("Befund 4: Marker im LLM-Verlauf (restoreCardsMarkers)", () => {
 
   test("storedMarkerIndices / cardsMarkerLine prüfen die gespeicherte Liste", () => {
     expect(storedMarkerIndices([3, 1, 3])).toEqual([3, 1]);
-    expect(storedMarkerIndices([1000])).toEqual([]);
-    expect(storedMarkerIndices([1.5])).toEqual([]);
-    expect(storedMarkerIndices("0,1")).toEqual([]);
+    expect(storedMarkerIndices([])).toEqual([]);
+    expect(storedMarkerIndices([1000])).toBeNull();
+    expect(storedMarkerIndices([1.5])).toBeNull();
+    expect(storedMarkerIndices("0,1")).toBeNull();
+    expect(storedMarkerIndices(null)).toBeNull();
+    expect(storedMarkerIndices(undefined)).toBeNull();
     expect(cardsMarkerLine([0, 4])).toBe("[[KARTEN: 0, 4]]");
-    expect(cardsMarkerLine([])).toBe("");
+    expect(cardsMarkerLine([])).toBe("[[KARTEN: -]]");
+    expect(cardsMarkerLine(null)).toBe("");
+    expect(cardsMarkerLine(undefined)).toBe("");
     expect(restoreCardsMarkers(null)).toEqual([]);
   });
 });
