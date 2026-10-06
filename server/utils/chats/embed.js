@@ -20,6 +20,8 @@ const {
   createCourseLookup,
   disclaimerFooterEnabled,
   DISCLAIMER_PROMPT_NOTE,
+  followUpsEnabled,
+  FOLLOW_UPS_PROMPT_NOTE,
 } = require("./embedCourseSources");
 const {
   createCardsMarkerResponse,
@@ -223,13 +225,18 @@ async function streamChatWithForEmbed(
     return;
   }
 
+  // Folgefragen (visual_config.followUps = "pills"): Prompt-Hinweis am Ende
+  // (nach dem Disclaimer-Hinweis) und Chunk an das Widget nur dann.
+  const followUpsOn = followUpsEnabled(embed);
+
   // Compress message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt:
         (await chatPrompt(embed.workspace, username)) +
-        (disclaimerFooterEnabled(embed) ? DISCLAIMER_PROMPT_NOTE : ""),
+        (disclaimerFooterEnabled(embed) ? DISCLAIMER_PROMPT_NOTE : "") +
+        (followUpsOn ? FOLLOW_UPS_PROMPT_NOTE : ""),
       userPrompt: message,
       contextTexts,
       chatHistory,
@@ -359,12 +366,12 @@ async function streamChatWithForEmbed(
   completeText = parsedReply.text;
 
   // Folgefragen: Endzeile "[[FRAGEN: … | …]]" (siehe embedCardsMarker.js) —
-  // Erkennen und Entfernen laufen IMMER (wie der Marker), das Widget zeigt
-  // die Vorschläge nur mit visual_config.followUps = "pills". Eigener Chunk
-  // nach dem letzten Textchunk (die Zeile steht am Ende, der Text ist jetzt
-  // vollständig) und vor finalizeResponseStream; gespeichert als followUps.
+  // Erkennen, Entfernen und Speichern (followUps) laufen IMMER (wie der
+  // Marker). Nur mit visual_config.followUps = "pills" eigener Chunk nach
+  // dem letzten Textchunk (die Zeile steht am Ende, der Text ist jetzt
+  // vollständig) und vor finalizeResponseStream.
   const followUps = parsedReply.followUps;
-  if (followUps.length > 0)
+  if (followUpsOn && followUps.length > 0)
     writeResponseChunk(response, {
       uuid,
       type: "followUps",

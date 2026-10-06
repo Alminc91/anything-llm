@@ -225,9 +225,8 @@ describe("Folgefragen im Embed-Stream", () => {
   test("AK-1: Zeile nicht im Text, Chunk followUps (2) nach dem letzten Text und vor finalize, gespeichert", async () => {
     for (const streaming of [true, false])
       for (const vc of [
-        null,
         JSON.stringify({ followUps: "pills" }),
-        JSON.stringify({ courseCards: "auto", followUps: "none" }),
+        JSON.stringify({ courseCards: "auto", followUps: " Pills " }),
       ]) {
         jest.clearAllMocks();
         const { log, stored, text } = await run({
@@ -247,6 +246,67 @@ describe("Folgefragen im Embed-Stream", () => {
       }
   });
 
+  test("Befund 3: ohne pills (none/fehlend/kaputt) kein Chunk — Zeile trotzdem entfernt und gespeichert", async () => {
+    for (const streaming of [true, false])
+      for (const vc of [
+        null,
+        JSON.stringify({ courseCards: "auto" }),
+        JSON.stringify({ courseCards: "auto", followUps: "none" }),
+        "{nicht json",
+      ]) {
+        jest.clearAllMocks();
+        const { log, stored, text } = await run({
+          reply: `${FU_BODY}\n${FU_LINE}`,
+          embed: makeEmbed(vc),
+          streaming,
+        });
+        expect(text).toBe(FU_BODY);
+        expect(JSON.stringify(log)).not.toMatch(/FRAGEN|B1-Kurse/);
+        expect(log.find((c) => c.type === "followUps")).toBeUndefined();
+        expect(stored.text).toBe(FU_BODY);
+        expect(stored.followUps).toEqual(FU);
+      }
+  });
+
+  test("Befund 3: Prompt-Hinweis nur bei pills, am Ende nach dem Disclaimer-Hinweis", async () => {
+    const {
+      DISCLAIMER_PROMPT_NOTE,
+      FOLLOW_UPS_PROMPT_NOTE,
+    } = require("../../../utils/chats/embedCourseSources");
+    const promptFor = async (vc) => {
+      jest.clearAllMocks();
+      const { connector } = await run({
+        reply: `${FU_BODY}\n${FU_LINE}`,
+        embed: makeEmbed(vc),
+      });
+      return connector.compressMessages.mock.calls[0][0].systemPrompt;
+    };
+    expect(FOLLOW_UPS_PROMPT_NOTE).toMatch(
+      /^\n\n### Follow-up Suggestions \(ACTIVE\)\n/
+    );
+    expect(FOLLOW_UPS_PROMPT_NOTE).toContain("[[FRAGEN: -]]");
+    expect(await promptFor(JSON.stringify({ followUps: "pills" }))).toBe(
+      `System${FOLLOW_UPS_PROMPT_NOTE}`
+    );
+    expect(
+      await promptFor(
+        JSON.stringify({ followUps: "pills", disclaimer: "footer" })
+      )
+    ).toBe(`System${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`);
+    for (const vc of [
+      null,
+      JSON.stringify({ followUps: "none" }),
+      JSON.stringify({ courseCards: "auto" }),
+      "{nicht json",
+    ])
+      expect(await promptFor(vc)).toBe("System");
+    expect(
+      await promptFor(
+        JSON.stringify({ followUps: "none", disclaimer: "footer" })
+      )
+    ).toBe(`System${DISCLAIMER_PROMPT_NOTE}`);
+  });
+
   test("Reihenfolge mit Karten und Teasern: courseSources -> courseTeasers -> Text -> followUps -> finalize", async () => {
     const reply = [
       "[[KARTEN: 1, 2]]",
@@ -256,7 +316,12 @@ describe("Folgefragen im Embed-Stream", () => {
       "",
       FU_LINE,
     ].join("\n");
-    const { log, stored, text } = await run({ reply });
+    const { log, stored, text } = await run({
+      reply,
+      embed: makeEmbed(
+        JSON.stringify({ courseCards: "auto", followUps: "pills" })
+      ),
+    });
     const types = log.map((c) => c.type);
     const order = [
       types.indexOf("courseSources"),

@@ -663,6 +663,7 @@ describe("visualConfigValue / disclaimerFooterEnabled", () => {
     visualConfigValue,
     disclaimerFooterEnabled,
     courseCardsEnabled,
+    followUpsEnabled,
   } = require("../../../utils/chats/embedCourseSources");
 
   test("liest JSON-String und Objekt, normalisiert Strings", () => {
@@ -692,5 +693,20 @@ describe("visualConfigValue / disclaimerFooterEnabled", () => {
     expect(
       courseCardsEnabled({ visual_config: '{"courseCards":"AUTO"}' })
     ).toBe(true);
+  });
+
+  test("followUpsEnabled nur bei pills", () => {
+    expect(followUpsEnabled({ visual_config: '{"followUps":"pills"}' })).toBe(
+      true
+    );
+    expect(followUpsEnabled({ visual_config: { followUps: " Pills " } })).toBe(
+      true
+    );
+    expect(followUpsEnabled({ visual_config: '{"followUps":"none"}' })).toBe(
+      false
+    );
+    expect(followUpsEnabled({ visual_config: "{kaputt" })).toBe(false);
+    expect(followUpsEnabled({})).toBe(false);
+    expect(followUpsEnabled()).toBe(false);
   });
 });
