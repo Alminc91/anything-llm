@@ -584,7 +584,7 @@ describe("Kurskarten v3: sessions/venue aus 'Dauer:'/'Kursort:'", () => {
     expect(urlByIndex.has(99)).toBe(false); // ungültige Nummer
   });
 
-  test("courseTeasersFromLines: fremde Nummern verworfen, erste Zeile je Karte, bereinigt", () => {
+  test("courseTeasersFromLines: fremde Nummern verworfen, erste Zeile je Karte, kein erneutes Bereinigen", () => {
     const urlByIndex = new Map([
       [0, "https://x.de/kurs/a/1"],
       [2, "https://x.de/kurs/b/2"],
@@ -593,7 +593,7 @@ describe("Kurskarten v3: sessions/venue aus 'Dauer:'/'Kursort:'", () => {
     expect(
       courseTeasersFromLines(
         [
-          { index: 0, text: "**Ideal** für Einsteiger am Abend." },
+          { index: 0, text: "Ideal für Einsteiger am Abend." },
           { index: 7, text: "fremd" },
           { index: 2, text: "Zweiter Kurs." },
           { index: 3, text: "Doppelt." },
@@ -605,23 +605,37 @@ describe("Kurskarten v3: sessions/venue aus 'Dauer:'/'Kursort:'", () => {
       "https://x.de/kurs/a/1": "Ideal für Einsteiger am Abend.",
       "https://x.de/kurs/b/2": "Zweiter Kurs.",
     });
+    // erwartet bereinigte Zeilen (storedTeaserLines) — reicht Text durch
+    expect(
+      courseTeasersFromLines([{ index: 0, text: "C# **x**" }], urlByIndex)
+    ).toEqual({ "https://x.de/kurs/a/1": "C# **x**" });
+    expect(courseTeasersFromLines([{ index: 0, text: 5 }], urlByIndex)).toEqual(
+      {}
+    );
     expect(courseTeasersFromLines(null, urlByIndex)).toEqual({});
   });
 
-  test("sanitizeCourseTeasers: nur URLs der Karten, Text bereinigt", () => {
+  test("sanitizeCourseTeasers: nur URLs der Karten, nur Typ/Länge (Grenzschutz, kein Bereinigen)", () => {
     const sources = [{ url: YOGA_URL, title: "Yoga" }];
     expect(
       sanitizeCourseTeasers(
         {
-          [YOGA_URL]: "<b>Sanft</b> starten.",
+          [YOGA_URL]: " Sanft starten. ",
           "https://fremd.de/x": "nie",
           __proto__: { [YOGA_URL]: "x" },
         },
         sources
       )
     ).toEqual({ [YOGA_URL]: "Sanft starten." });
+    const long = sanitizeCourseTeasers(
+      { [YOGA_URL]: "Wort ".repeat(100) },
+      sources
+    )[YOGA_URL];
+    expect(long.length).toBeLessThanOrEqual(TEASER_MAX_LEN);
+    expect(long.endsWith("…")).toBe(true);
     expect(sanitizeCourseTeasers(["x"], sources)).toEqual({});
     expect(sanitizeCourseTeasers("x", sources)).toEqual({});
     expect(sanitizeCourseTeasers({ [YOGA_URL]: 5 }, sources)).toEqual({});
+    expect(sanitizeCourseTeasers({ [YOGA_URL]: "  " }, sources)).toEqual({});
   });
 });

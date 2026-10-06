@@ -281,7 +281,7 @@ describe("GET /embed/:embedId/:sessionId — Historie für das Widget", () => {
     expect(JSON.parse(filtered.response)).toEqual({ text: "x" });
   });
 
-  test("Kurskarten v3: courseTeasers kommen bereinigt mit, Teaserzeilen (LLM) nie", async () => {
+  test("Kurskarten v3: courseTeasers kommen mit (nur Karten-URLs, Typ/Länge geprüft), Teaserzeilen (LLM) nie", async () => {
     const V3 = { ...COURSE, sessions: "16 Abende", venue: "Realschule" };
     prisma.embed_chats.findMany.mockResolvedValue([
       {
@@ -294,8 +294,10 @@ describe("GET /embed/:embedId/:sessionId — Historie für das Widget", () => {
           courseCardsAnnounced: 1,
           courseCardsMarker: [0],
           courseTeaserLines: [{ index: 0, text: "Sanft starten." }],
+          // gespeichert werden nur bereinigte Teaser (Bereinigung genau
+          // einmal beim Erzeugen); /history prüft nur noch Typ und Länge
           courseTeasers: {
-            [COURSE.url]: "<b>Sanft</b> starten am Abend.",
+            [COURSE.url]: " Sanft starten am Abend. ",
             "https://fremd.example/kurs/1": "darf nie raus",
           },
         }),

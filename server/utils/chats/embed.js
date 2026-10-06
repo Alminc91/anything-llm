@@ -9,9 +9,7 @@ const {
 } = require("../helpers/chat/responses");
 const { DocumentManager } = require("../DocumentManager");
 const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
-const {
-  startMetadataFilterResolution,
-} = require("./metadataFilterResolver");
+const { startMetadataFilterResolution } = require("./metadataFilterResolver");
 const {
   courseCardsEnabled,
   buildCourseSources,
@@ -269,9 +267,15 @@ async function streamChatWithForEmbed(
   // Kurskarten v3: Teaserzeilen ("[[TEASER n: …]]" direkt nach dem Marker)
   // gesammelt als eigener Chunk — nach den angekündigten Karten, vor dem
   // ersten Textchunk. Nur Nummern mit angekündigter Karte, Text bereinigt.
+  // Bereinigt wird genau einmal: Stream-Meldung (onTeasers) und Speichern
+  // teilen das Ergebnis (beide Wege entscheiden gleich, parseCardsReply).
+  let cleanedTeaserLines = null;
+  const cleanTeaserLines = (lines) =>
+    (cleanedTeaserLines ??= storedTeaserLines(lines));
   const sendCourseTeasers = (lines) => {
+    const cleaned = cleanTeaserLines(lines);
     if (!cardsOn || announced.length === 0) return;
-    const teasers = courseTeasersFromLines(lines, announcedUrlByIndex);
+    const teasers = courseTeasersFromLines(cleaned, announcedUrlByIndex);
     if (Object.keys(teasers).length === 0) return;
     writeResponseChunk(response, {
       uuid,
@@ -281,6 +285,9 @@ async function streamChatWithForEmbed(
       error: false,
     });
   };
+
+  // Marker/Teaser/Text der vollständigen Antwort (einmal geparst)
+  let parsedReply = null;
 
   // If streaming is not explicitly enabled for connector
   // we do regular waiting of a response and send a single chunk.
@@ -294,16 +301,16 @@ async function streamChatWithForEmbed(
       });
     completeText = textResponse;
     metrics = performanceMetrics;
-    const reply = parseCardsReply(completeText);
-    if (reply.marker.state === "marker") {
-      await announceCourses({ indices: reply.marker.indices ?? [] });
-      sendCourseTeasers(reply.teasers);
+    parsedReply = parseCardsReply(completeText);
+    if (parsedReply.marker.state === "marker") {
+      await announceCourses({ indices: parsedReply.marker.indices ?? [] });
+      sendCourseTeasers(parsedReply.teasers);
     }
     writeResponseChunk(response, {
       uuid,
       sources: [],
       type: "textResponseChunk",
-      textResponse: reply.text,
+      textResponse: parsedReply.text,
       close: true,
       error: false,
     });
@@ -331,20 +338,16 @@ async function streamChatWithForEmbed(
   // Entscheidung wie der Stream-Filter); die Nummernliste bleibt als
   // courseCardsMarker nur für den LLM-Verlauf von Folgefragen erhalten
   // (restoreCardsMarkers). [] = "[[KARTEN: -]]", null = kein/kaputter Marker
-  // (Feld fehlt). Kurskarten v3: Teaserzeilen zu Marker-Nummern ebenso als
-  // courseTeaserLines (LLM-Verlauf), den Karten zugeordnet als courseTeasers
-  // (Widget-Verlauf).
-  const parsedReply = parseCardsReply(completeText);
+  // (Feld fehlt). Kurskarten v3: Teaserzeilen zu Marker-Nummern (nur die
+  // sammelt parseCardsReply) ebenso als courseTeaserLines (LLM-Verlauf), den
+  // Karten zugeordnet als courseTeasers (Widget-Verlauf).
+  parsedReply ??= parseCardsReply(completeText);
   const replyMarker = parsedReply.marker;
   const courseCardsMarker =
     replyMarker.state === "marker" && replyMarker.valid
       ? replyMarker.indices
       : null;
-  const courseTeaserLines = storedTeaserLines(
-    parsedReply.teasers.filter((line) =>
-      courseCardsMarker?.includes(line.index)
-    )
-  );
+  const courseTeaserLines = cleanTeaserLines(parsedReply.teasers);
   const courseTeasers =
     cardsOn && announced.length > 0
       ? courseTeasersFromLines(courseTeaserLines, announcedUrlByIndex)

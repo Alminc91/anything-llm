@@ -148,12 +148,15 @@ function cleanTitle(value) {
   return truncateAtWord(v, TITLE_MAX_LEN);
 }
 
-// Kurze Klartext-Felder (Dauer, Ort): HTML-Tags und Steuerzeichen raus,
-// Leerraum zusammengezogen, gekürzt; leer -> undefined.
+// Nur echte HTML-Tags ("<b>", "</i>", "<a href=…>"), nicht "Kinder < 6 > …"
+const HTML_TAG_RX = /<\/?[a-zA-Z][^>]*>/g;
+
+// Kurze Klartext-Felder (Dauer, Ort, Teaser): HTML-Tags und Steuerzeichen
+// raus, Leerraum zusammengezogen, gekürzt; leer -> undefined.
 function cleanShortText(value, maxLen) {
   if (typeof value !== "string") return undefined;
   const v = value
-    .replace(/<[^>]*>/g, " ")
+    .replace(HTML_TAG_RX, " ")
     .replace(/\p{Cc}/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -161,15 +164,13 @@ function cleanShortText(value, maxLen) {
   return truncateAtWord(v, maxLen);
 }
 
-// Nur echte HTML-Tags ("<b>", "</i>", "<a href=…>"), nicht "Kinder < 6 > …"
-const HTML_TAG_RX = /<\/?[a-zA-Z][^>]*>/g;
-
 /**
- * Kurskarten v3: Teaser-Text bereinigen — HTML-Tags, Markdown nur an
- * Delimiter-Positionen (Links -> Linktext, "**"/"__", Backticks, "#" bzw.
- * ">" am Zeilenanfang), nackte URLs und Steuerzeichen raus, "[["/"]]" zu
- * einfachen Klammern, Leerraum zusammengezogen, höchstens TEASER_MAX_LEN
- * Zeichen (Wortgrenze). Einzelne Zeichen wie in "C#", "snake_case" oder
+ * Kurskarten v3: Teaser-Text bereinigen — Markdown nur an Delimiter-
+ * Positionen (Links -> Linktext, "**"/"__", Backticks, "#" bzw. ">" am
+ * Zeilenanfang), nackte URLs raus, "[["/"]]" zu einfachen Klammern, kein
+ * Leerraum vor Satzzeichen; danach wie cleanShortText (HTML-Tags,
+ * Steuerzeichen, Leerraum, höchstens TEASER_MAX_LEN Zeichen an einer
+ * Wortgrenze). Einzelne Zeichen wie in "C#", "snake_case" oder
  * "< 6 Jahre >" bleiben.
  * @param {any} value
  * @returns {string|undefined} leer/kein Text -> undefined
@@ -185,13 +186,9 @@ function cleanTeaserText(value) {
     .replace(/\*\*|__|`+/g, "")
     .replace(/^[ \t]*#+[ \t]+/gm, "")
     .replace(/^[ \t]*>[ \t]+/gm, "")
-    .replace(/\p{Cc}/gu, " ")
-    .replace(/\s+/g, " ")
-    .replace(/ ([.,;:!?])/g, "$1")
-    .replace(/^[\s\-–•:>]+/, "")
-    .trim();
-  if (v.length === 0) return undefined;
-  return truncateAtWord(v, TEASER_MAX_LEN);
+    .replace(/[\s\p{Cc}]+([.,;:!?])/gu, "$1")
+    .replace(/^[\s\p{Cc}\-–•:>]+/u, "");
+  return cleanShortText(v, TEASER_MAX_LEN);
 }
 
 /**
@@ -237,7 +234,11 @@ function headerBlock(text) {
  * @returns {{sessions?: string, venue?: string}}
  */
 function courseHeaderDetails(text) {
-  const block = headerBlock(text);
+  return headerDetailsFromBlock(headerBlock(text));
+}
+
+// Dauer und Ort aus einem bereits ausgeschnittenen Kopfblock (headerBlock)
+function headerDetailsFromBlock(block) {
   const out = {};
   const sessions = FIELD_VALIDATORS.sessions(
     headerLine(block, SESSIONS_HEADER_RX)
@@ -248,10 +249,9 @@ function courseHeaderDetails(text) {
   return out;
 }
 
-// Trägt der Chunk den Kopfblock des Kursdokuments (erste Zeilen mit
-// "Titel:"/"Kurs-Link:")? Nur dann zählen "Dauer:"/"Kursort:".
-function isHeaderChunk(source) {
-  const block = headerBlock(source?.text);
+// Ist der Kopfblock der des Kursdokuments (erste Zeilen mit "Titel:"/
+// "Kurs-Link:")? Nur dann zählen "Dauer:"/"Kursort:".
+function isCourseHeaderBlock(block) {
   return TITLE_HEADER_RX.test(block) || COURSE_LINK_HEADER_RX.test(block);
 }
 
@@ -329,8 +329,11 @@ function courseEntriesBySource(sources = []) {
     if (!url) return undefined;
     const title = titleFromChunk(source);
     if (title && !titleByUrl.has(url)) titleByUrl.set(url, title);
-    if (!detailsByUrl.has(url) && isHeaderChunk(source))
-      detailsByUrl.set(url, courseHeaderDetails(source.text));
+    if (!detailsByUrl.has(url)) {
+      const block = headerBlock(source.text); // einmal je Chunk
+      if (isCourseHeaderBlock(block))
+        detailsByUrl.set(url, headerDetailsFromBlock(block));
+    }
     const key = fallbackKey(source);
     if (key) {
       if (!urlsByFallback.has(key)) urlsByFallback.set(key, new Set());
@@ -1066,24 +1069,17 @@ async function resolveMarkerCourses({
     });
     return { courseSources, urlByIndex };
   } catch (e) {
-    console.error("[courseSourcesFromMarker]", e.message);
+    console.error("[resolveMarkerCourses]", e.message);
     return empty();
   }
 }
 
 /**
- * courseSources aus dem Karten-Marker (siehe resolveMarkerCourses).
- * @returns {Promise<object[]>}
- */
-async function courseSourcesFromMarker(args = {}) {
-  return (await resolveMarkerCourses(args)).courseSources;
-}
-
-/**
  * Kurskarten v3: Teaserzeilen ({index, text}, Reihenfolge des Streams) den
  * angekündigten Karten zuordnen — nur Nummern aus dem Marker mit Karte
- * (urlByIndex), erste Zeile je Karte gewinnt, Text bereinigt (≤ 200 Zeichen).
- * Fremde Nummern und leere Texte fallen weg.
+ * (urlByIndex), erste Zeile je Karte gewinnt. Erwartet bereits bereinigte
+ * Zeilen (storedTeaserLines) und bereinigt nicht erneut; Zeilen ohne
+ * Text-String fallen weg.
  * @param {{index: number, text: string}[]} lines
  * @param {Map<number, string>} urlByIndex
  * @returns {Object<string, string>} URL -> Teaser
@@ -1094,15 +1090,18 @@ function courseTeasersFromLines(lines = [], urlByIndex = new Map()) {
   for (const line of lines) {
     const url = urlByIndex.get(line?.index);
     if (!url || url in out) continue;
-    const text = cleanTeaserText(line?.text);
-    if (text) out[url] = text;
+    if (typeof line?.text === "string" && line.text.length > 0)
+      out[url] = line.text;
   }
   return out;
 }
 
 /**
- * Gespeicherte courseTeasers (Historie) nochmals prüfen: nur Einträge für
- * URLs der (bereinigten) courseSources, Text bereinigt; sonst {}.
+ * Gespeicherte courseTeasers (Historie) an der Grenze zum Widget prüfen:
+ * nur Einträge für URLs der (bereinigten) courseSources, nur nicht-leere
+ * Strings, höchstens TEASER_MAX_LEN Zeichen (sonst an einer Wortgrenze
+ * gekürzt); sonst {}. Kein erneutes Bereinigen — gespeichert werden nur
+ * bereinigte Teaser, das Widget bereinigt seinerseits.
  * @param {any} teasers
  * @param {object[]} courseSources - bereits bereinigt (sanitizeCourseSources)
  * @returns {Object<string, string>}
@@ -1115,8 +1114,9 @@ function sanitizeCourseTeasers(teasers, courseSources = []) {
     const url = entry?.url;
     if (typeof url !== "string" || url in out) continue;
     if (!Object.prototype.hasOwnProperty.call(teasers, url)) continue;
-    const text = cleanTeaserText(teasers[url]);
-    if (text) out[url] = text;
+    const value = teasers[url];
+    if (typeof value !== "string" || value.trim().length === 0) continue;
+    out[url] = truncateAtWord(value.trim(), TEASER_MAX_LEN);
   }
   return out;
 }
@@ -1126,7 +1126,6 @@ module.exports = {
   buildCourseSources,
   mergeCourseSources,
   completeCourseSourcesFromReply,
-  courseSourcesFromMarker,
   resolveMarkerCourses,
   courseTeasersFromLines,
   sanitizeCourseTeasers,

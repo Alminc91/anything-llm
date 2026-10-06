@@ -99,39 +99,64 @@ function parseMarkerIndices(content) {
  */
 function parseCardsMarker(text, { final = false } = {}) {
   const s = typeof text === "string" ? text : "";
-  const lead = s.length - s.trimStart().length;
-  const body = s.slice(lead);
-  if (body.length === 0) return final ? NONE : PENDING;
-  const head = body.slice(0, CARDS_MARKER_TAG.length).toUpperCase();
-  if (!CARDS_MARKER_TAG.startsWith(head)) return NONE;
-  if (body.length < CARDS_MARKER_TAG.length) return final ? NONE : PENDING;
+  const line = scanBracketLine(
+    s,
+    CARDS_MARKER_TAG,
+    CARDS_MARKER_BUFFER_MAX,
+    final
+  );
+  if (line.state === "pending") return PENDING;
+  if (line.state === "none") return NONE;
+  if (line.state === "broken")
+    return { state: "marker", indices: null, valid: false, end: line.end };
+  const indices = parseMarkerIndices(
+    s.slice(line.start + CARDS_MARKER_TAG.length, line.close)
+  );
+  return { state: "marker", indices, valid: indices !== null, end: line.end };
+}
 
-  // Nur das Fenster der ersten CARDS_MARKER_BUFFER_MAX Zeichen zählt: "]]"
-  // bzw. Zeilenende müssen vollständig darin liegen. So ist die Entscheidung
-  // für einen Antwortanfang dieselbe wie für die ganze Antwort.
-  const win = body.slice(0, CARDS_MARKER_BUFFER_MAX);
-  const close = win.indexOf("]]");
+/**
+ * Gemeinsamer Scanner für eine Protokollzeile "[[TAG … ]]" am Textanfang
+ * (Karten-Marker und Teaserzeilen) — gleiche Fenster-, Schluss- und
+ * Zeilenende-Entscheidung. Leerraum vorn wird übersprungen. Nur das Fenster
+ * der ersten maxLen Zeichen zählt: "]]" bzw. Zeilenende müssen vollständig
+ * darin liegen — so ist die Entscheidung für einen Antwortanfang dieselbe
+ * wie für die ganze Antwort.
+ *   - beginnt nicht mit tag -> "none"
+ *   - "]]" vor dem Zeilenende -> "closed"; closeAt "first": erstes "]]",
+ *     sofort entschieden (Marker); "last": letztes "]]" der Zeile, erst mit
+ *     Zeilenende, Fenstergrenze oder final entschieden (Teaser)
+ *   - Zeilenende ohne "]]" -> "broken" (kaputte Zeile)
+ *   - Fenster voll ohne "]]"/Zeilenende, oder final -> "none"
+ *   - sonst "pending" (weiter puffern)
+ * @param {string} text
+ * @param {string} tag - in Großbuchstaben, z. B. "[[KARTEN:"
+ * @param {number} maxLen - Fenster ab Zeilenanfang
+ * @param {boolean} final - Antwort ist vollständig
+ * @param {"first"|"last"} [closeAt="first"]
+ * @returns {{state: "pending"|"none"|"closed"|"broken", start: number, close?: number, end?: number}}
+ *   start = Zeilenanfang (hinter dem Leerraum); close = Position von "]]";
+ *   end = hinter "]]" ("closed") bzw. hinter dem Zeilenende ("broken")
+ */
+function scanBracketLine(text, tag, maxLen, final, closeAt = "first") {
+  const start = text.length - text.trimStart().length;
+  const body = text.slice(start);
+  const result = (state, extra = {}) => ({ state, start, ...extra });
+  if (body.length === 0) return result(final ? "none" : "pending");
+  if (!tag.startsWith(body.slice(0, tag.length).toUpperCase()))
+    return result("none");
+  if (body.length < tag.length) return result(final ? "none" : "pending");
+  const win = body.slice(0, maxLen);
   const newline = win.indexOf("\n");
-  if (close !== -1 && (newline === -1 || close < newline)) {
-    const indices = parseMarkerIndices(
-      body.slice(CARDS_MARKER_TAG.length, close)
-    );
-    return {
-      state: "marker",
-      indices,
-      valid: indices !== null,
-      end: lead + close + 2,
-    };
-  }
-  if (newline !== -1)
-    return {
-      state: "marker",
-      indices: null,
-      valid: false,
-      end: lead + newline + 1,
-    };
-  if (body.length >= CARDS_MARKER_BUFFER_MAX) return NONE;
-  return final ? NONE : PENDING;
+  const line = newline === -1 ? win : win.slice(0, newline);
+  const settled = newline !== -1 || body.length >= maxLen || final;
+  if (closeAt === "last" && !settled) return result("pending");
+  const close =
+    closeAt === "last" ? line.lastIndexOf("]]") : line.indexOf("]]");
+  if (close !== -1)
+    return result("closed", { close: start + close, end: start + close + 2 });
+  if (newline !== -1) return result("broken", { end: start + newline + 1 });
+  return result(settled ? "none" : "pending");
 }
 
 /**
@@ -172,29 +197,23 @@ function parseTeaserLines(text, { final = false, indices = [] } = {}) {
   const pending = (end) => ({ state: "pending", lines, end });
   let pos = 0;
   for (;;) {
-    let p = pos;
-    while (p < s.length && /\s/.test(s[p])) p++;
-    const rest = s.slice(p);
-    if (rest.length === 0) return final ? done(s.length) : pending(p);
-    const head = rest.slice(0, TEASER_TAG.length).toUpperCase();
-    if (!TEASER_TAG.startsWith(head)) return done(p);
-    if (rest.length < TEASER_TAG.length) return final ? done(p) : pending(p);
-    const win = rest.slice(0, TEASER_LINE_MAX);
-    const newline = win.indexOf("\n");
-    // Schluss = letztes "]]" der Zeile: erst entscheidbar, wenn das
-    // Zeilenende, die Fenstergrenze oder das Antwortende erreicht ist
-    if (newline === -1 && rest.length < TEASER_LINE_MAX && !final)
-      return pending(p);
-    const close = (newline === -1 ? win : win.slice(0, newline)).lastIndexOf(
-      "]]"
+    // Schluss = letztes "]]" der Zeile (der Teaser darf "]]" enthalten)
+    const line = scanBracketLine(
+      s.slice(pos),
+      TEASER_TAG,
+      TEASER_LINE_MAX,
+      final,
+      "last"
     );
-    if (close === -1) return done(p);
-    const m = TEASER_LINE_RX.exec(rest.slice(0, close + 2));
-    if (!m) return done(p);
+    const at = pos + line.start;
+    if (line.state === "pending") return pending(at);
+    if (line.state !== "closed") return done(at);
+    const m = TEASER_LINE_RX.exec(s.slice(at, pos + line.end));
+    if (!m) return done(at);
     const index = Number(m[1]);
-    if (wanted.includes(index) && !lines.some((line) => line.index === index))
+    if (wanted.includes(index) && !lines.some((l) => l.index === index))
       lines.push({ index, text: m[2] });
-    pos = p + close + 2;
+    pos += line.end;
   }
 }
 
@@ -247,10 +266,6 @@ class CardsMarkerFilter {
     this.marker = null; // { indices: number[], valid: boolean }
     this.teasers = []; // gesammelte Teaserzeilen ({index, text})
     this.teasersReported = false;
-  }
-
-  get decided() {
-    return this.phase !== "marker";
   }
 
   #teaserStep(final) {
@@ -471,6 +486,7 @@ module.exports = {
   __test__: {
     CARDS_MARKER_TAG,
     CARDS_MARKER_BUFFER_MAX,
+    scanBracketLine,
     TEASER_LINE_MAX,
     TEASER_LINES_MAX,
     parseMarkerIndices,

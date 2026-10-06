@@ -19,8 +19,50 @@ const {
     parseMarkerIndices,
     cardsMarkerLine,
     CardsMarkerFilter,
+    scanBracketLine,
   },
 } = require("../../../utils/chats/embedCardsMarker");
+
+describe("Review-Befund 10: scanBracketLine (gemeinsam für Marker und Teaser)", () => {
+  test("first: erstes ']]', sofort entschieden; last: letztes ']]' erst mit Zeilenende", () => {
+    const text = "  [[X: a]] b]]\nRest";
+    expect(scanBracketLine(text, "[[X:", 120, false)).toEqual({
+      state: "closed",
+      start: 2,
+      close: 8,
+      end: 10,
+    });
+    expect(scanBracketLine(text, "[[X:", 120, false, "last")).toEqual({
+      state: "closed",
+      start: 2,
+      close: 12,
+      end: 14,
+    });
+    expect(scanBracketLine("[[X: a]]", "[[X:", 120, false).state).toBe(
+      "closed"
+    );
+    expect(scanBracketLine("[[X: a]]", "[[X:", 120, false, "last").state).toBe(
+      "pending"
+    );
+    expect(scanBracketLine("[[X: a]]", "[[X:", 120, true, "last").state).toBe(
+      "closed"
+    );
+  });
+
+  test("Zeilenende ohne ']]' -> broken; Fenster voll -> none; kein Tag -> none", () => {
+    expect(scanBracketLine("[[X: a\nB", "[[X:", 120, false)).toEqual({
+      state: "broken",
+      start: 0,
+      end: 7,
+    });
+    expect(
+      scanBracketLine(`[[X: ${"a".repeat(20)}`, "[[X:", 10, false).state
+    ).toBe("none");
+    expect(scanBracketLine("Hallo", "[[X:", 120, false).state).toBe("none");
+    expect(scanBracketLine("[[", "[[X:", 120, false).state).toBe("pending");
+    expect(scanBracketLine("[[", "[[X:", 120, true).state).toBe("none");
+  });
+});
 
 describe("parseCardsMarker", () => {
   test.each([

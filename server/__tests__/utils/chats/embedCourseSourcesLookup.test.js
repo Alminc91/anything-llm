@@ -1,7 +1,7 @@
 /* eslint-env jest, node */
 // Kurskarten v2: verlinkte Kurse ohne Treffer-Dokument nachschlagen
 // (completeCourseSourcesFromReply) und Marker-Nummern auflösen
-// (courseSourcesFromMarker). Dokumente = echte Kursdokumente von demo-inline
+// (resolveMarkerCourses). Dokumente = echte Kursdokumente von demo-inline
 // (05.10.2026, Text gekürzt); Dateizugriffe laufen über injizierte Spies.
 
 const fs = require("fs");
@@ -10,7 +10,7 @@ const path = require("path");
 const {
   buildCourseSources,
   completeCourseSourcesFromReply,
-  courseSourcesFromMarker,
+  resolveMarkerCourses,
   createCourseLookup,
   __test__: {
     COURSE_SOURCE_FIELDS,
@@ -317,7 +317,7 @@ describe("completeCourseSourcesFromReply", () => {
         "aw-donau-kufer-de-kurssuche-kurs-aerobic-262-3208-19300e4d19e4c2b3.txt",
       text: "…zweiter Teil der Kursbeschreibung…",
     };
-    const announced = await courseSourcesFromMarker({
+    const { courseSources: announced } = await resolveMarkerCourses({
       indices: [0],
       contextSources: [chunk],
       lookup,
@@ -463,7 +463,7 @@ describe("NAK-3: kein Zugriff außerhalb von documents/<ordner>/", () => {
   });
 });
 
-describe("courseSourcesFromMarker (Nummern = [CONTEXT n], 0-basiert)", () => {
+describe("resolveMarkerCourses (Nummern = [CONTEXT n], 0-basiert)", () => {
   const SOURCES = sourcesFixture.donauYogaCategoryAndCourses;
   const entries = buildCourseSources(clone(SOURCES));
 
@@ -478,7 +478,7 @@ describe("courseSourcesFromMarker (Nummern = [CONTEXT n], 0-basiert)", () => {
         /link:\/\//.test(s.chunkSource || "")
     );
     const indices = [courseIdx[1], 99, infoIdx, courseIdx[0], courseIdx[1]];
-    const out = await courseSourcesFromMarker({
+    const { courseSources: out } = await resolveMarkerCourses({
       indices,
       contextSources: clone(SOURCES),
       deps,
@@ -496,13 +496,13 @@ describe("courseSourcesFromMarker (Nummern = [CONTEXT n], 0-basiert)", () => {
 
   test("leere Liste / '-' -> keine Einträge, kein Zugriff", async () => {
     const deps = makeDeps();
-    expect(
-      await courseSourcesFromMarker({
-        indices: [],
-        contextSources: SOURCES,
-        deps,
-      })
-    ).toEqual([]);
+    const { courseSources, urlByIndex } = await resolveMarkerCourses({
+      indices: [],
+      contextSources: SOURCES,
+      deps,
+    });
+    expect(courseSources).toEqual([]);
+    expect(urlByIndex.size).toBe(0);
     expect(deps.listDocpaths).not.toHaveBeenCalled();
   });
 });
