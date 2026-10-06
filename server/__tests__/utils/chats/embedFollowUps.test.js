@@ -44,12 +44,41 @@ describe("parseFollowUps (vollständige Antwort)", () => {
   });
 
   test("'-' bzw. leer: Protokoll ohne Vorschläge — Zeile entfernt", () => {
-    for (const line of ["[[FRAGEN: -]]", "[[FRAGEN:]]", "[[FRAGEN:  ]]"]) {
+    for (const line of [
+      "[[FRAGEN: -]]",
+      "[[FRAGEN:]]",
+      "[[FRAGEN:  ]]",
+      "[[FRAGEN: | | ]]",
+    ]) {
       const r = parseFollowUps(`${BODY}\n${line}`, { final: true });
       expect(r.state).toBe("followUps");
       expect(r.followUps).toEqual([]);
       expect(r.text).toBe(BODY);
     }
+  });
+
+  test("Befund 2: nur Satzzeichen/Striche/Aufzählungszeichen gelten als leer", () => {
+    for (const line of [
+      "[[FRAGEN: –]]",
+      "[[FRAGEN: —]]",
+      "[[FRAGEN: •]]",
+      "[[FRAGEN: ·]]",
+      "[[FRAGEN: *]]",
+      "[[FRAGEN: .]]",
+      "[[FRAGEN: … ]]",
+      "[[FRAGEN: - | – | — | • | · | * | .]]",
+    ]) {
+      const r = parseFollowUps(`${BODY}\n${line}`, { final: true });
+      expect(r.state).toBe("followUps");
+      expect(r.followUps).toEqual([]);
+      expect(r.text).toBe(BODY);
+    }
+    // gemischt: nur der echte Eintrag bleibt
+    expect(
+      parseFollowUps(`${BODY}\n[[FRAGEN: – | Auch online? | •]]`, {
+        final: true,
+      }).followUps
+    ).toEqual(["Auch online?"]);
   });
 
   test("nur die Zeile (ganze Antwort) wird erkannt", () => {
@@ -58,17 +87,39 @@ describe("parseFollowUps (vollständige Antwort)", () => {
     expect(r.text).toBe("");
   });
 
-  test("NAK-1: kaputt/zu lang/nicht am Ende -> Text unverändert, nichts gesammelt", () => {
+  test("Befund 1: erkennbare, inhaltlich kaputte Zeile wird trotzdem entfernt, gültige Einträge gesammelt", () => {
     const long = "x".repeat(FOLLOW_UP_MAX_LEN + 1);
     const cases = [
-      `${BODY}\n[[FRAGEN: a? | ${long}]]`, // Eintrag > 60
-      `${BODY}\n[[FRAGEN: a? | b? | c? | d?]]`, // 4 Einträge
-      `${BODY}\n[[FRAGEN: ${"Frage ".repeat(60)}]]`, // Zeile > 300
+      // Eintrag > 60 Zeichen: verworfen, nicht gekürzt
+      [`${BODY}\n[[FRAGEN: a? | ${long}]]`, ["a?"]],
+      // 4+ Einträge: die ersten 3 gültigen
+      [`${BODY}\n[[FRAGEN: a? | b? | c? | d?]]`, ["a?", "b?", "c?"]],
+      [
+        `${BODY}\n[[FRAGEN: ${long} | a? | | b? | c? | d?]]`,
+        ["a?", "b?", "c?"],
+      ],
+      // alle Einträge ungültig -> [] (kein Chunk), Zeile trotzdem weg
+      [`${BODY}\n[[FRAGEN: ${long} | ${long}y]]`, []],
+      // Zeile fast am Fenster (≤ 300 Zeichen) mit nur zu langen Einträgen
+      [`${BODY}\n[[FRAGEN: ${"Frage ".repeat(47)}]]`, []],
+    ];
+    for (const [text, followUps] of cases) {
+      const r = parseFollowUps(text, { final: true });
+      expect(r.state).toBe("followUps");
+      expect(r.followUps).toEqual(followUps);
+      expect(r.text).toBe(BODY);
+    }
+  });
+
+  test("NAK-1: offen/zu lang/nicht am Ende -> Text unverändert, nichts gesammelt", () => {
+    const cases = [
+      `${BODY}\n[[FRAGEN: ${"Frage ".repeat(60)}]]`, // "]]" hinter 300 Zeichen
       `${BODY}\n[[FRAGEN: a? | b?`, // ohne "]]"
+      `${BODY}\n[[FRAGEN: a? | b?\n`, // Zeilenende ohne "]]"
       `${BODY}\n[[FRAGEN: a? | b?]] und noch Text`, // Text hinter "]]"
+      `${BODY}\n[[FRAGEN: a [x]] b? | c?]]`, // erstes "]]" schließt
       `${BODY}\n${LINE}\nNoch ein Satz.`, // nicht am Ende
       `${BODY} ${LINE}`, // kein Zeilenanfang
-      `${BODY}\n[[FRAGEN: | | ]]`, // nur leere Einträge
       `${BODY}\n[[FRAGE: a? | b?]]`, // falsches Tag
     ];
     for (const text of cases) {
@@ -77,6 +128,20 @@ describe("parseFollowUps (vollständige Antwort)", () => {
       expect(r.text).toBe(text);
       expect(r.followUps).toBeUndefined();
     }
+  });
+
+  test('Befund 4: zwei Gruppen in einer Zeile — erstes "]]" schließt, Rest ist kein Leerraum -> ganze Zeile Text, keine verschluckte Gruppe', () => {
+    const text = `${BODY}\n[[FRAGEN: a? | b?]] [[FRAGEN: c?]]`;
+    const r = parseFollowUps(text, { final: true });
+    expect(r.state).toBe("none");
+    expect(r.text).toBe(text);
+    expect(r.followUps).toBeUndefined();
+    // die zweite Gruppe allein in der nächsten Zeile ist die Endzeile
+    const r2 = parseFollowUps(`${BODY}\n[[FRAGEN: a? | b?]]\n[[FRAGEN: c?]]`, {
+      final: true,
+    });
+    expect(r2.followUps).toEqual(["c?"]);
+    expect(r2.text).toBe(`${BODY}\n[[FRAGEN: a? | b?]]`);
   });
 
   test("Grenze: Zeile mit genau 300 Zeichen gilt, 301 nicht", () => {
@@ -103,12 +168,17 @@ describe("parseFollowUps (vollständige Antwort)", () => {
     );
   });
 
-  test("parseFollowUpItems: Grenzen", () => {
+  test("parseFollowUpItems: Grenzen (= storedFollowUps über die Einträge)", () => {
     expect(parseFollowUpItems("a | b | c")).toEqual(["a", "b", "c"]);
-    expect(parseFollowUpItems("a | b | c | d")).toBeNull();
+    expect(parseFollowUpItems("a | b | c | d")).toEqual(["a", "b", "c"]);
     expect(parseFollowUpItems("x".repeat(60))).toEqual(["x".repeat(60)]);
-    expect(parseFollowUpItems("x".repeat(61))).toBeNull();
+    expect(parseFollowUpItems("x".repeat(61))).toEqual([]);
     expect(parseFollowUpItems(" - ")).toEqual([]);
+    expect(parseFollowUpItems(" – ")).toEqual([]);
+    expect(parseFollowUpItems("")).toEqual([]);
+    expect(parseFollowUpItems(undefined)).toEqual([]);
+    for (const raw of ["a? | **B?** | a?", "x | - | y", "– | • Was? |"])
+      expect(parseFollowUpItems(raw)).toEqual(storedFollowUps(raw.split("|")));
   });
 });
 
@@ -163,6 +233,15 @@ describe("CardsMarkerFilter: Stream entscheidet wie die ganze Antwort", () => {
     `Liste:\n- [[Link]]\n- zwei\n[[FRAGEN: Mehr? | Online?]]`,
     `${BODY}\n[[ nicht das Tag]]\n`,
     `\n\n  ${BODY}\n[[fragen: klein? | auch?]]`,
+    `${BODY}\n[[FRAGEN: a? | b? | c? | d?]]`,
+    `${BODY}\n[[FRAGEN: | | ]]\n`,
+    `${BODY}\n[[FRAGEN: –]]`,
+    `${BODY}\n[[FRAGEN: — | • | Online?]]  \n`,
+    `${BODY}\n[[FRAGEN: a? | b?]] [[FRAGEN: c?]]`,
+    `${BODY}\n[[FRAGEN: a? | b?]]\n[[FRAGEN: c?]]`,
+    `${BODY}\n[[FRAGEN: a]] foo\n`,
+    `${BODY}\n[[FRAGEN: a? | b?\nWeiter.`,
+    `${BODY}\n[[FRAGEN: ${"Frage ".repeat(47)}]]`,
   ];
 
   function streamThrough(reply, size) {
@@ -205,6 +284,30 @@ describe("CardsMarkerFilter: Stream entscheidet wie die ganze Antwort", () => {
     expect(end.followUps).toEqual(["a?", "b?"]);
   });
 
+  test("Befund 7: terminierte Zeile, die nie Endzeile wird, geht sofort als Text raus (Pause nach Zeilenende)", () => {
+    // "]]" mit Text dahinter, Token endet mit Zeilenende, danach Pause
+    let filter = new CardsMarkerFilter();
+    expect(filter.push(`${BODY}\n[[FRAGEN: a]] foo\n`).text).toBe(
+      `${BODY}\n[[FRAGEN: a]] foo`
+    );
+    // schon ohne Zeilenende entschieden, sobald Text hinter "]]" steht
+    filter = new CardsMarkerFilter();
+    expect(filter.push(`${BODY}\n[[FRAGEN: a]] f`).text).toBe(
+      `${BODY}\n[[FRAGEN: a]] f`
+    );
+    // Zeilenende ohne "]]": kaputt, sofort Text
+    filter = new CardsMarkerFilter();
+    expect(filter.push(`${BODY}\n[[FRAGEN: a? | b?\n`).text).toBe(
+      `${BODY}\n[[FRAGEN: a? | b?`
+    );
+    // ohne Zeilenende bleibt die offene Zeile gehalten (könnte noch "]]" bekommen)
+    filter = new CardsMarkerFilter();
+    expect(filter.push(`${BODY}\n[[FRAGEN: a? | b?`).text).toBe(BODY);
+    // eine geschlossene Endzeile mit Zeilenende bleibt gehalten (Leerraum am Ende ist erlaubt)
+    filter = new CardsMarkerFilter();
+    expect(filter.push(`${BODY}\n${LINE}\n`).text).toBe(BODY);
+  });
+
   test("Zeile mitten im Text: sobald weiterer Text folgt, geht sie als Text raus", () => {
     const filter = new CardsMarkerFilter();
     let text = filter.push(`${BODY}\n${LINE}\n`).text;
@@ -230,6 +333,37 @@ describe("gespeicherte Folgefragen", () => {
     ).toEqual(["Gibt es B1?", "Online?", "Abends?"]);
     expect(storedFollowUps("a")).toEqual([]);
     expect(storedFollowUps(undefined)).toEqual([]);
+  });
+
+  test("Befund 2: storedFollowUps verwirft Einträge nur aus Satzzeichen/Strichen", () => {
+    expect(
+      storedFollowUps(["-", "–", "—", "•", "·", "*", ".", " … ", "Online?"])
+    ).toEqual(["Online?"]);
+  });
+
+  test("Befund 6: kaputte Zeile landet nicht im gespeicherten Text, Verlauf bekommt nur die bereinigte Zeile", () => {
+    const long = "x".repeat(FOLLOW_UP_MAX_LEN + 1);
+    for (const line of [
+      "[[FRAGEN: a? | b? | c? | d?]]",
+      `[[FRAGEN: a? | ${long} | b? | c?]]`,
+      `[[FRAGEN: ${long}]]`,
+      "[[FRAGEN: –]]",
+    ]) {
+      const parsed = parseCardsReply(`${BODY}\n${line}`);
+      expect(parsed.text).toBe(BODY);
+      expect(parsed.text).not.toMatch(/FRAGEN/);
+      const response = { text: parsed.text };
+      if (parsed.followUps.length > 0) response.followUps = parsed.followUps;
+      const [row] = restoreCardsMarkers([
+        { id: 1, response: JSON.stringify(response) },
+      ]);
+      const restored = JSON.parse(row.response).text;
+      const expected = parsed.followUps.length
+        ? `${BODY}\n[[FRAGEN: ${parsed.followUps.join(" | ")}]]`
+        : BODY;
+      expect(restored).toBe(expected);
+      expect(restored).not.toMatch(/d\?|x{61}|–/);
+    }
   });
 
   test("followUpsLine", () => {

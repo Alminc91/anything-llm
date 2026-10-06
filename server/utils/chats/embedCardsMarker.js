@@ -50,16 +50,25 @@
 //
 // Folgefragen: Die LETZTE Zeile der Antwort darf "[[FRAGEN: Frage eins? |
 // Frage zwei?]]" sein (Vorschläge für die nächste Nutzerfrage). Erkannt wird
-// sie nur am Antwortende (danach höchstens Leerraum, davor Zeilenanfang);
-// die Zeile ist höchstens FOLLOW_UPS_LINE_MAX Zeichen lang, enthält 1 bis
-// FOLLOW_UPS_MAX Einträge (durch "|" getrennt), je nach dem Bereinigen
-// (Markdown/HTML raus, Trim) höchstens FOLLOW_UP_MAX_LEN Zeichen. "-" bzw.
-// leer = Protokoll ohne Vorschläge (entfernt). Sonst kaputt: die Zeile bleibt
-// unverändert Text, nichts gesammelt. Im Stream hält der Filter dazu den
-// Leerraum am Ende und eine mögliche Endzeile zurück (höchstens eine Zeile
-// ≤ FOLLOW_UPS_LINE_MAX Zeichen) und entscheidet mit dem Antwortende —
-// gleiche Regeln wie parseFollowUps über die ganze Antwort. Gespeichert als
-// followUps (Widget-Verlauf), im LLM-Verlauf wieder als letzte Zeile.
+// sie nur am Antwortende (davor Zeilenanfang): Zeile beginnt mit
+// "[[FRAGEN:", Schluss ist das ERSTE "]]" innerhalb FOLLOW_UPS_LINE_MAX
+// Zeichen, danach nur noch Leerraum. Eine so erkannte Zeile ist Protokoll
+// und wird IMMER entfernt (nachsichtig, auch wenn ihr Inhalt kaputt ist);
+// gesammelt werden bis zu FOLLOW_UPS_MAX gültige Einträge nach den Regeln
+// von storedFollowUps (durch "|" getrennt, bereinigt, zu lange und leere
+// bzw. nur aus Satzzeichen/Strichen bestehende Einträge verworfen, nicht
+// gekürzt; "[[FRAGEN: -]]" = keine Vorschläge). Text bleibt die Zeile nur,
+// wenn kein "]]" kommt (Zeilenende bzw. Antwortende ohne "]]"), "]]" erst
+// hinter der Fenstergrenze steht oder hinter "]]" noch etwas anderes als
+// Leerraum folgt — auch eine zweite Gruppe: "[[FRAGEN: a? | b?]]
+// [[FRAGEN: c?]]" geht ganz als Text durch, nichts gesammelt. Im Stream hält
+// der Filter dazu den Leerraum am Ende und eine mögliche Endzeile zurück
+// (höchstens eine Zeile ≤ FOLLOW_UPS_LINE_MAX Zeichen) und entscheidet mit
+// dem Antwortende — gleiche Regeln wie parseFollowUps über die ganze
+// Antwort; eine Zeile, die so nicht mehr Endzeile werden kann ("]]" mit
+// Text dahinter, Zeilenende ohne "]]"), geht sofort als Text durch.
+// Gespeichert als followUps (Widget-Verlauf), im LLM-Verlauf wieder als
+// letzte Zeile.
 
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { safeJsonParse } = require("../http");
@@ -137,15 +146,16 @@ function parseCardsMarker(text, { final = false } = {}) {
 
 /**
  * Gemeinsamer Scanner für eine Protokollzeile "[[TAG … ]]" am Textanfang
- * (Karten-Marker und Teaserzeilen) — gleiche Fenster-, Schluss- und
+ * (Karten-Marker, Teaserzeilen, Folgefragen) — gleiche Fenster-, Schluss- und
  * Zeilenende-Entscheidung. Leerraum vorn wird übersprungen. Nur das Fenster
  * der ersten maxLen Zeichen zählt: "]]" bzw. Zeilenende müssen vollständig
  * darin liegen — so ist die Entscheidung für einen Antwortanfang dieselbe
  * wie für die ganze Antwort.
  *   - beginnt nicht mit tag -> "none"
  *   - "]]" vor dem Zeilenende -> "closed"; closeAt "first": erstes "]]",
- *     sofort entschieden (Marker); "last": letztes "]]" der Zeile, erst mit
- *     Zeilenende, Fenstergrenze oder final entschieden (Teaser)
+ *     sofort entschieden (Marker, Folgefragen); "last": letztes "]]" der
+ *     Zeile, erst mit Zeilenende, Fenstergrenze oder final entschieden
+ *     (Teaser)
  *   - Zeilenende ohne "]]" -> "broken" (kaputte Zeile)
  *   - Fenster voll ohne "]]"/Zeilenende, oder final -> "none"
  *   - sonst "pending" (weiter puffern)
@@ -238,36 +248,27 @@ function parseTeaserLines(text, { final = false, indices = [] } = {}) {
 }
 
 /**
- * Folgefragen: Inhalt zwischen "[[FRAGEN:" und "]]" -> Vorschläge. Einträge
- * durch "|" getrennt, bereinigt wie Teaser (Markdown/HTML raus, Trim), leere
- * verworfen, Dubletten (Groß-/Kleinschreibung egal) einmal.
- * "-" bzw. leer -> [] (Protokoll ohne Vorschläge); mehr als FOLLOW_UPS_MAX
- * Einträge oder einer über FOLLOW_UP_MAX_LEN Zeichen -> null (kaputt).
+ * Folgefragen: Inhalt zwischen "[[FRAGEN:" und "]]" -> Vorschläge, nach den
+ * Regeln von storedFollowUps (Einträge durch "|" getrennt). "-" bzw. leer
+ * -> [] (keine Vorschläge); kaputte Einträge werden verworfen, nie die Zeile.
  * @param {string} content
- * @returns {string[]|null}
+ * @returns {string[]}
  */
 function parseFollowUpItems(content) {
   const raw = String(content ?? "").trim();
-  if (raw === "" || raw === "-") return [];
-  const items = [];
-  for (const part of raw.split("|")) {
-    const text = cleanTeaserText(part);
-    if (!text) continue;
-    if (text.length > FOLLOW_UP_MAX_LEN) return null;
-    if (!items.some((i) => i.toLowerCase() === text.toLowerCase()))
-      items.push(text);
-  }
-  if (items.length === 0 || items.length > FOLLOW_UPS_MAX) return null;
-  return items;
+  if (raw === "") return [];
+  return storedFollowUps(raw.split("|"));
 }
 
 /**
  * Folgefragen-Zeile am Ende eines Texts erkennen. Betrachtet wird die letzte
- * Zeile vor dem abschließenden Leerraum (scanBracketLine, Schluss = letztes
- * "]]", Fenster FOLLOW_UPS_LINE_MAX); gültig nur, wenn "]]" die Zeile
- * beendet und die Einträge gültig sind (parseFollowUpItems).
+ * Zeile vor dem abschließenden Leerraum (scanBracketLine, Schluss = erstes
+ * "]]", Fenster FOLLOW_UPS_LINE_MAX); Endzeile, wenn hinter "]]" nur
+ * Leerraum folgt. Ihre Einträge liefert parseFollowUpItems (auch []).
+ * Folgt der Zeile im Text schon ein Zeilenende, bekommt der Scanner es mit
+ * (eine Zeile ohne "]]" ist dann sofort kaputt statt offen).
  *   - final: "followUps" (text = alles vor der Zeile, ohne den Leerraum
- *     davor) oder "none" (text unverändert).
+ *     davor; followUps evtl. []) oder "none" (text unverändert).
  *   - sonst (Stream): hold = ab hier zurückhalten — vor einer möglichen
  *     Endzeile (inkl. Leerraum davor; "pending") bzw. den Leerraum am Ende
  *     ("none"). Was davor liegt, ist endgültig Text.
@@ -284,33 +285,32 @@ function parseFollowUps(text, { final = false, atLineStart = true } = {}) {
   const lineStart = newline + 1;
   const line = newline === -1 && !atLineStart ? "" : content.slice(lineStart);
   const holdFrom = s.slice(0, lineStart).trimEnd().length;
+  // Zeilenende hinter der Zeile schon im Text -> dem Scanner mitgeben
+  const lineEnded = s.slice(content.length).includes("\n");
   const scan =
     line.length > 0
       ? scanBracketLine(
-          line,
+          lineEnded ? `${line}\n` : line,
           FOLLOW_UPS_TAG,
           FOLLOW_UPS_LINE_MAX,
-          final,
-          "last"
+          final
         )
       : { state: "none" };
-  const atEnd = scan.state === "closed" && scan.end === line.length;
+  const atEnd =
+    scan.state === "closed" && line.slice(scan.end).trim().length === 0;
   if (!final) {
     if (scan.state === "pending" || atEnd)
       return { state: "pending", hold: holdFrom };
     return { state: "none", hold: content.length };
   }
-  const items = atEnd
-    ? parseFollowUpItems(
-        line.slice(scan.start + FOLLOW_UPS_TAG.length, scan.close)
-      )
-    : null;
-  if (items === null) return { state: "none", hold: s.length, text: s };
+  if (!atEnd) return { state: "none", hold: s.length, text: s };
   return {
     state: "followUps",
     hold: holdFrom,
     text: s.slice(0, holdFrom),
-    followUps: items,
+    followUps: parseFollowUpItems(
+      line.slice(scan.start + FOLLOW_UPS_TAG.length, scan.close)
+    ),
   };
 }
 
@@ -582,11 +582,17 @@ function teaserLinesText(lines) {
   );
 }
 
+// Eintrag ohne Inhalt: nur Satzzeichen/Striche/Aufzählungszeichen
+// ("-", "–", "—", "•", "·", "*", ".", "…") und Leerraum
+const FOLLOW_UP_EMPTY_RX = /^[\p{P}\s]*$/u;
+
 /**
  * Folgefragen: gespeicherte Vorschläge (followUps) einer Antwort-JSON prüfen
- * (Widget-Verlauf /history und LLM-Verlauf): nur Strings, bereinigt wie beim
- * Erkennen, höchstens FOLLOW_UP_MAX_LEN Zeichen (längere verworfen), ohne
- * Dubletten, höchstens FOLLOW_UPS_MAX.
+ * (Widget-Verlauf /history und LLM-Verlauf) — dieselben Regeln gelten beim
+ * Erkennen der Endzeile (parseFollowUpItems): nur Strings, bereinigt,
+ * leere bzw. nur aus Satzzeichen/Strichen bestehende verworfen, höchstens
+ * FOLLOW_UP_MAX_LEN Zeichen (längere verworfen, nicht gekürzt), ohne
+ * Dubletten (Groß-/Kleinschreibung egal), die ersten FOLLOW_UPS_MAX.
  * @param {any} value
  * @returns {string[]}
  */
@@ -596,7 +602,8 @@ function storedFollowUps(value) {
   for (const item of value) {
     if (out.length >= FOLLOW_UPS_MAX) break;
     const text = cleanTeaserText(item);
-    if (!text || text.length > FOLLOW_UP_MAX_LEN) continue;
+    if (!text || FOLLOW_UP_EMPTY_RX.test(text)) continue;
+    if (text.length > FOLLOW_UP_MAX_LEN) continue;
     if (out.some((t) => t.toLowerCase() === text.toLowerCase())) continue;
     out.push(text);
   }

@@ -277,16 +277,50 @@ describe("Folgefragen im Embed-Stream", () => {
     expect(stored.courseTeaserLines).toHaveLength(2);
   });
 
-  test("NAK-1: kaputte/zu lange Zeile geht als Text durch, kein Chunk, nichts gespeichert", async () => {
+  test("Befund 1/6: erkennbare, inhaltlich kaputte Zeile wird entfernt, gültige Einträge als Chunk, gespeicherter Text ohne Reste", async () => {
+    for (const [line, expected] of [
+      [
+        `[[FRAGEN: Gibt es B1-Kurse? | ${"sehr lange Frage ".repeat(5)}?]]`,
+        ["Gibt es B1-Kurse?"],
+      ],
+      ["[[FRAGEN: a? | b? | c? | d?]]", ["a?", "b?", "c?"]],
+      [`[[FRAGEN: ${"sehr lange Frage ".repeat(5)}?]]`, []],
+      ["[[FRAGEN: | | ]]", []],
+    ]) {
+      for (const streaming of [true, false]) {
+        jest.clearAllMocks();
+        const reply = `${FU_BODY}\n${line}`;
+        const { log, stored, text } = await run({
+          reply,
+          embed: makeEmbed(JSON.stringify({ followUps: "pills" })),
+          streaming,
+        });
+        expect(text).toBe(FU_BODY);
+        expect(stored.text).toBe(FU_BODY);
+        expect(JSON.stringify(stored)).not.toMatch(/FRAGEN|d\?|sehr lange/);
+        if (expected.length > 0) {
+          expect(checkOrder(log).followUps).toEqual(expected);
+          expect(stored.followUps).toEqual(expected);
+        } else {
+          expect(log.find((c) => c.type === "followUps")).toBeUndefined();
+          expect(stored).not.toHaveProperty("followUps");
+        }
+      }
+    }
+  });
+
+  test("NAK-1: offene/zu lange Zeile oder zwei Gruppen gehen als Text durch, kein Chunk, nichts gespeichert", async () => {
     for (const line of [
-      `[[FRAGEN: Gibt es B1-Kurse? | ${"sehr lange Frage ".repeat(5)}?]]`,
-      "[[FRAGEN: a? | b? | c? | d?]]",
       `[[FRAGEN: ${"Frage ".repeat(60)}]]`,
       "[[FRAGEN: Gibt es B1-Kurse? | Auch online?",
+      "[[FRAGEN: a? | b?]] [[FRAGEN: c?]]",
     ]) {
       jest.clearAllMocks();
       const reply = `${FU_BODY}\n${line}`;
-      const { log, stored, text } = await run({ reply });
+      const { log, stored, text } = await run({
+        reply,
+        embed: makeEmbed(JSON.stringify({ followUps: "pills" })),
+      });
       expect(text).toBe(reply);
       expect(stored.text).toBe(reply);
       expect(log.find((c) => c.type === "followUps")).toBeUndefined();
@@ -309,14 +343,22 @@ describe("Folgefragen im Embed-Stream", () => {
     expect(stored).not.toHaveProperty("followUps");
   });
 
-  test("[[FRAGEN: -]]: Zeile entfernt, kein Chunk", async () => {
-    const { log, stored, text } = await run({
-      reply: `${FU_BODY}\n[[FRAGEN: -]]`,
-    });
-    expect(text).toBe(FU_BODY);
-    expect(stored.text).toBe(FU_BODY);
-    expect(log.find((c) => c.type === "followUps")).toBeUndefined();
-    expect(stored).not.toHaveProperty("followUps");
+  test("[[FRAGEN: -]] / [[FRAGEN: –]]: Zeile entfernt, kein Chunk", async () => {
+    for (const line of [
+      "[[FRAGEN: -]]",
+      "[[FRAGEN: –]]",
+      "[[FRAGEN: — | •]]",
+    ]) {
+      jest.clearAllMocks();
+      const { log, stored, text } = await run({
+        reply: `${FU_BODY}\n${line}`,
+        embed: makeEmbed(JSON.stringify({ followUps: "pills" })),
+      });
+      expect(text).toBe(FU_BODY);
+      expect(stored.text).toBe(FU_BODY);
+      expect(log.find((c) => c.type === "followUps")).toBeUndefined();
+      expect(stored).not.toHaveProperty("followUps");
+    }
   });
 
   test("LLM-Verlauf: gespeicherte Vorschläge stehen wieder als letzte Zeile", async () => {

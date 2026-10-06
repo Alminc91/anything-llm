@@ -563,6 +563,24 @@ describe("Kurskarten v3: sessions/venue aus 'Dauer:'/'Kursort:'", () => {
     );
   });
 
+  test("cleanTeaserText: gepaarte einfache Hervorhebung am Wortrand raus, sonst unverändert", () => {
+    expect(cleanTeaserText("*Kurs*")).toBe("Kurs");
+    expect(cleanTeaserText("_Kurs_")).toBe("Kurs");
+    expect(cleanTeaserText("Gibt es *Abendkurse*?")).toBe(
+      "Gibt es Abendkurse?"
+    );
+    expect(cleanTeaserText("Ein _ganz neuer_ Kurs, *x* und (*y*).")).toBe(
+      "Ein ganz neuer Kurs, x und (y)."
+    );
+    expect(cleanTeaserText("snake_case und C# und 2*3")).toBe(
+      "snake_case und C# und 2*3"
+    );
+    expect(cleanTeaserText("a_b_c und x*y*z")).toBe("a_b_c und x*y*z");
+    // ungleiche Zeichen bzw. offenes Ende bleiben
+    expect(cleanTeaserText("*Kurs_ und _offen")).toBe("*Kurs_ und _offen");
+    expect(cleanTeaserText("* Punkt *")).toBe("* Punkt *");
+  });
+
   test("resolveMarkerCourses: Nummer -> URL nur für Kurse mit Karte", async () => {
     const sources = clone(fixtures.donauYogaCategoryAndCourses);
     const courseIdx = sources

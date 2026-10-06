@@ -167,14 +167,20 @@ function cleanShortText(value, maxLen) {
 /**
  * Kurskarten v3: Teaser-Text bereinigen — Markdown nur an Delimiter-
  * Positionen (Links -> Linktext, "**"/"__", Backticks, "#" bzw. ">" am
- * Zeilenanfang), nackte URLs raus, "[["/"]]" zu einfachen Klammern, kein
+ * Zeilenanfang, gepaarte einfache Hervorhebung "*Kurs*"/"_Kurs_" am
+ * Wortrand), nackte URLs raus, "[["/"]]" zu einfachen Klammern, kein
  * Leerraum vor Satzzeichen; danach wie cleanShortText (HTML-Tags,
  * Steuerzeichen, Leerraum, höchstens TEASER_MAX_LEN Zeichen an einer
- * Wortgrenze). Einzelne Zeichen wie in "C#", "snake_case" oder
+ * Wortgrenze). Einzelne Zeichen wie in "C#", "snake_case", "2*3" oder
  * "< 6 Jahre >" bleiben.
  * @param {any} value
  * @returns {string|undefined} leer/kein Text -> undefined
  */
+// Gepaarte einfache Hervorhebung am Wortrand: "*Kurs*", "_zwei Wörter_"
+// (gleiches Zeichen vorn und hinten, davor Zeilenanfang/Leerraum/"(",
+// dahinter Ende/Leerraum/Satzzeichen) — nicht "snake_case" oder "2*3".
+const EMPHASIS_RX = /(^|[\s(])([*_])(\S|\S[^*_]*?\S)\2(?=[\s.,;:!?)]|$)/g;
+
 function cleanTeaserText(value) {
   if (typeof value !== "string") return undefined;
   const v = value
@@ -184,6 +190,7 @@ function cleanTeaserText(value) {
     .replace(/\[{2,}/g, "[")
     .replace(/\]{2,}/g, "]")
     .replace(/\*\*|__|`+/g, "")
+    .replace(EMPHASIS_RX, "$1$3")
     .replace(/^[ \t]*#+[ \t]+/gm, "")
     .replace(/^[ \t]*>[ \t]+/gm, "")
     .replace(/[\s\p{Cc}]+([.,;:!?])/gu, "$1")
