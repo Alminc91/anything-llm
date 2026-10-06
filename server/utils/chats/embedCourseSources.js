@@ -167,14 +167,20 @@ function cleanShortText(value, maxLen) {
 /**
  * Kurskarten v3: Teaser-Text bereinigen — Markdown nur an Delimiter-
  * Positionen (Links -> Linktext, "**"/"__", Backticks, "#" bzw. ">" am
- * Zeilenanfang), nackte URLs raus, "[["/"]]" zu einfachen Klammern, kein
+ * Zeilenanfang, gepaarte einfache Hervorhebung "*Kurs*"/"_Kurs_" am
+ * Wortrand), nackte URLs raus, "[["/"]]" zu einfachen Klammern, kein
  * Leerraum vor Satzzeichen; danach wie cleanShortText (HTML-Tags,
  * Steuerzeichen, Leerraum, höchstens TEASER_MAX_LEN Zeichen an einer
- * Wortgrenze). Einzelne Zeichen wie in "C#", "snake_case" oder
+ * Wortgrenze). Einzelne Zeichen wie in "C#", "snake_case", "2*3" oder
  * "< 6 Jahre >" bleiben.
  * @param {any} value
  * @returns {string|undefined} leer/kein Text -> undefined
  */
+// Gepaarte einfache Hervorhebung am Wortrand: "*Kurs*", "_zwei Wörter_"
+// (gleiches Zeichen vorn und hinten, davor Zeilenanfang/Leerraum/"(",
+// dahinter Ende/Leerraum/Satzzeichen) — nicht "snake_case" oder "2*3".
+const EMPHASIS_RX = /(^|[\s(])([*_])(\S|\S[^*_]*?\S)\2(?=[\s.,;:!?)]|$)/g;
+
 function cleanTeaserText(value) {
   if (typeof value !== "string") return undefined;
   const v = value
@@ -184,6 +190,7 @@ function cleanTeaserText(value) {
     .replace(/\[{2,}/g, "[")
     .replace(/\]{2,}/g, "]")
     .replace(/\*\*|__|`+/g, "")
+    .replace(EMPHASIS_RX, "$1$3")
     .replace(/^[ \t]*#+[ \t]+/gm, "")
     .replace(/^[ \t]*>[ \t]+/gm, "")
     .replace(/[\s\p{Cc}]+([.,;:!?])/gu, "$1")
@@ -236,6 +243,19 @@ function disclaimerFooterEnabled(embed = {}) {
 // gecachte Prompt-Präfix der Flotte unverändert bleibt.
 const DISCLAIMER_PROMPT_NOTE =
   "\n\n### Footer Override (ACTIVE)\nThe chat widget displays the AI disclaimer itself below the input field. Do NOT write the Mandatory Footer sentence (\u201eIch bin eine KI und kann Fehler machen \u2026\u201c or its translation) at the end of your answers. Everything else about the footer section is disabled.";
+
+// Folgefragen-Vorschläge im Widget (visual_config.followUps = "pills"): nur
+// dann sendet der Server den Chunk { type: "followUps" } und bittet das
+// Modell um die Endzeile "[[FRAGEN: …]]". Erkennen/Entfernen/Speichern der
+// Zeile laufen unabhängig davon immer (embedCardsMarker.js).
+function followUpsEnabled(embed = {}) {
+  return visualConfigValue(embed, "followUps", "followUpsEnabled") === "pills";
+}
+
+// Wird wie DISCLAIMER_PROMPT_NOTE ans ENDE des System-Prompts gehängt
+// (hinter den Disclaimer-Hinweis), der gecachte Präfix bleibt unverändert.
+const FOLLOW_UPS_PROMPT_NOTE =
+  "\n\n### Follow-up Suggestions (ACTIVE)\nEnd EVERY answer with one final line of exactly this form (no code formatting, no backticks): [[FRAGEN: q1 | q2]] \u2014 two short, self-contained follow-up questions the user might ask next (\u2264 60 characters each, in the user's language, no questions already answered). Write [[FRAGEN: -]] if none fit. Do NOT ask a question in the answer text itself. This line is removed automatically \u2014 never mention it.";
 
 function headerLine(text, rx) {
   if (typeof text !== "string" || text.length === 0) return undefined;
@@ -1151,6 +1171,8 @@ module.exports = {
   visualConfigValue,
   disclaimerFooterEnabled,
   DISCLAIMER_PROMPT_NOTE,
+  followUpsEnabled,
+  FOLLOW_UPS_PROMPT_NOTE,
   courseCardsEnabled,
   buildCourseSources,
   mergeCourseSources,

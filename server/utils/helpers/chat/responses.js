@@ -172,6 +172,13 @@ function convertToChatHistory(history = []) {
                 : {}),
             }
           : {}),
+        // Folgefragen (Embed): Vorschläge für die nächste Frage (bereits
+        // durch EmbedChats.filterSources geprüft)
+        ...(Array.isArray(data?.followUps) &&
+        data.followUps.length > 0 &&
+        data.followUps.every((f) => typeof f === "string")
+          ? { followUps: data.followUps }
+          : {}),
         chatId: id,
         sentAt: moment(createdAt).unix(),
         feedbackScore,

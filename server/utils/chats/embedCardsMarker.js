@@ -47,6 +47,28 @@
 // bzw. Grenze ohne "]]", falsches Format): sie und alles danach gehen
 // unverändert als Text durch. Gespeichert werden die gesammelten Zeilen als
 // courseTeaserLines (nur LLM-Verlauf).
+//
+// Folgefragen: Die LETZTE Zeile der Antwort darf "[[FRAGEN: Frage eins? |
+// Frage zwei?]]" sein (Vorschläge für die nächste Nutzerfrage). Erkannt wird
+// sie nur am Antwortende (davor Zeilenanfang): Zeile beginnt mit
+// "[[FRAGEN:", Schluss ist das ERSTE "]]" innerhalb FOLLOW_UPS_LINE_MAX
+// Zeichen, danach nur noch Leerraum. Eine so erkannte Zeile ist Protokoll
+// und wird IMMER entfernt (nachsichtig, auch wenn ihr Inhalt kaputt ist);
+// gesammelt werden bis zu FOLLOW_UPS_MAX gültige Einträge nach den Regeln
+// von storedFollowUps (durch "|" getrennt, bereinigt, zu lange und leere
+// bzw. nur aus Satzzeichen/Strichen bestehende Einträge verworfen, nicht
+// gekürzt; "[[FRAGEN: -]]" = keine Vorschläge). Text bleibt die Zeile nur,
+// wenn kein "]]" kommt (Zeilenende bzw. Antwortende ohne "]]"), "]]" erst
+// hinter der Fenstergrenze steht oder hinter "]]" noch etwas anderes als
+// Leerraum folgt — auch eine zweite Gruppe: "[[FRAGEN: a? | b?]]
+// [[FRAGEN: c?]]" geht ganz als Text durch, nichts gesammelt. Im Stream hält
+// der Filter dazu den Leerraum am Ende und eine mögliche Endzeile zurück
+// (höchstens eine Zeile ≤ FOLLOW_UPS_LINE_MAX Zeichen) und entscheidet mit
+// dem Antwortende — gleiche Regeln wie parseFollowUps über die ganze
+// Antwort; eine Zeile, die so nicht mehr Endzeile werden kann ("]]" mit
+// Text dahinter, Zeilenende ohne "]]"), geht sofort als Text durch.
+// Gespeichert als followUps (Widget-Verlauf), im LLM-Verlauf wieder als
+// letzte Zeile.
 
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { safeJsonParse } = require("../http");
@@ -68,6 +90,13 @@ const TEASER_LINE_MAX = 240;
 const TEASER_LINES_MAX = COURSE_SOURCES_MAX;
 const TEASER_LINE_RX =
   /^\[\[TEASER[ \t]*(\d{1,3})[ \t]*:[ \t]*([^\n]*?)[ \t]*\]\]$/i;
+
+// Folgefragen: Endzeile "[[FRAGEN: … | …]]"
+const FOLLOW_UPS_TAG = "[[FRAGEN:";
+// Obergrenze der Zeile (Zeichen ab "[[FRAGEN:" bis einschließlich "]]")
+const FOLLOW_UPS_LINE_MAX = 300;
+const FOLLOW_UPS_MAX = 3;
+const FOLLOW_UP_MAX_LEN = 60;
 
 const PENDING = Object.freeze({ state: "pending" });
 const NONE = Object.freeze({ state: "none" });
@@ -117,15 +146,16 @@ function parseCardsMarker(text, { final = false } = {}) {
 
 /**
  * Gemeinsamer Scanner für eine Protokollzeile "[[TAG … ]]" am Textanfang
- * (Karten-Marker und Teaserzeilen) — gleiche Fenster-, Schluss- und
+ * (Karten-Marker, Teaserzeilen, Folgefragen) — gleiche Fenster-, Schluss- und
  * Zeilenende-Entscheidung. Leerraum vorn wird übersprungen. Nur das Fenster
  * der ersten maxLen Zeichen zählt: "]]" bzw. Zeilenende müssen vollständig
  * darin liegen — so ist die Entscheidung für einen Antwortanfang dieselbe
  * wie für die ganze Antwort.
  *   - beginnt nicht mit tag -> "none"
  *   - "]]" vor dem Zeilenende -> "closed"; closeAt "first": erstes "]]",
- *     sofort entschieden (Marker); "last": letztes "]]" der Zeile, erst mit
- *     Zeilenende, Fenstergrenze oder final entschieden (Teaser)
+ *     sofort entschieden (Marker, Folgefragen); "last": letztes "]]" der
+ *     Zeile, erst mit Zeilenende, Fenstergrenze oder final entschieden
+ *     (Teaser)
  *   - Zeilenende ohne "]]" -> "broken" (kaputte Zeile)
  *   - Fenster voll ohne "]]"/Zeilenende, oder final -> "none"
  *   - sonst "pending" (weiter puffern)
@@ -218,23 +248,100 @@ function parseTeaserLines(text, { final = false, indices = [] } = {}) {
 }
 
 /**
- * Vollständige Antwort zerlegen: Marker, Teaserzeilen, Rest-Text (ohne
- * beides). Ohne Marker bleibt der Text unverändert (auch "[[TEASER"-Zeilen).
+ * Folgefragen: Inhalt zwischen "[[FRAGEN:" und "]]" -> Vorschläge, nach den
+ * Regeln von storedFollowUps (Einträge durch "|" getrennt). "-" bzw. leer
+ * -> [] (keine Vorschläge); kaputte Einträge werden verworfen, nie die Zeile.
+ * @param {string} content
+ * @returns {string[]}
+ */
+function parseFollowUpItems(content) {
+  const raw = String(content ?? "").trim();
+  if (raw === "") return [];
+  return storedFollowUps(raw.split("|"));
+}
+
+/**
+ * Folgefragen-Zeile am Ende eines Texts erkennen. Betrachtet wird die letzte
+ * Zeile vor dem abschließenden Leerraum (scanBracketLine, Schluss = erstes
+ * "]]", Fenster FOLLOW_UPS_LINE_MAX); Endzeile, wenn hinter "]]" nur
+ * Leerraum folgt. Ihre Einträge liefert parseFollowUpItems (auch []).
+ * Folgt der Zeile im Text schon ein Zeilenende, bekommt der Scanner es mit
+ * (eine Zeile ohne "]]" ist dann sofort kaputt statt offen).
+ *   - final: "followUps" (text = alles vor der Zeile, ohne den Leerraum
+ *     davor; followUps evtl. []) oder "none" (text unverändert).
+ *   - sonst (Stream): hold = ab hier zurückhalten — vor einer möglichen
+ *     Endzeile (inkl. Leerraum davor; "pending") bzw. den Leerraum am Ende
+ *     ("none"). Was davor liegt, ist endgültig Text.
  * @param {string} text
- * @returns {{marker: object, teasers: {index: number, text: string}[], text: string}}
+ * @param {{final?: boolean, atLineStart?: boolean}} [options] - atLineStart:
+ *   Textanfang ist ein Zeilenanfang (im Stream nur, solange noch nichts
+ *   gesendet wurde)
+ * @returns {{state: "pending"|"none"|"followUps", hold: number, text?: string, followUps?: string[]}}
+ */
+function parseFollowUps(text, { final = false, atLineStart = true } = {}) {
+  const s = typeof text === "string" ? text : "";
+  const content = s.trimEnd();
+  const newline = content.lastIndexOf("\n");
+  const lineStart = newline + 1;
+  const line = newline === -1 && !atLineStart ? "" : content.slice(lineStart);
+  const holdFrom = s.slice(0, lineStart).trimEnd().length;
+  // Zeilenende hinter der Zeile schon im Text -> dem Scanner mitgeben
+  const lineEnded = s.slice(content.length).includes("\n");
+  const scan =
+    line.length > 0
+      ? scanBracketLine(
+          lineEnded ? `${line}\n` : line,
+          FOLLOW_UPS_TAG,
+          FOLLOW_UPS_LINE_MAX,
+          final
+        )
+      : { state: "none" };
+  const atEnd =
+    scan.state === "closed" && line.slice(scan.end).trim().length === 0;
+  if (!final) {
+    if (scan.state === "pending" || atEnd)
+      return { state: "pending", hold: holdFrom };
+    return { state: "none", hold: content.length };
+  }
+  if (!atEnd) return { state: "none", hold: s.length, text: s };
+  return {
+    state: "followUps",
+    hold: holdFrom,
+    text: s.slice(0, holdFrom),
+    followUps: parseFollowUpItems(
+      line.slice(scan.start + FOLLOW_UPS_TAG.length, scan.close)
+    ),
+  };
+}
+
+/**
+ * Vollständige Antwort zerlegen: Marker, Teaserzeilen, Folgefragen-Endzeile,
+ * Rest-Text (ohne alles drei). Ohne Marker bleibt der Text bis auf eine
+ * gültige Folgefragen-Endzeile unverändert (auch "[[TEASER"-Zeilen).
+ * @param {string} text
+ * @returns {{marker: object, teasers: {index: number, text: string}[], followUps: string[], text: string}}
  */
 function parseCardsReply(text) {
   const marker = parseCardsMarker(text, { final: true });
-  if (marker.state !== "marker") return { marker, teasers: [], text };
-  const afterMarker = text.slice(marker.end).trimStart();
-  const teasers = parseTeaserLines(afterMarker, {
-    final: true,
-    indices: teaserIndices(marker),
-  });
+  if (typeof text !== "string")
+    return { marker, teasers: [], followUps: [], text };
+  let teasers = [];
+  let body = text;
+  if (marker.state === "marker") {
+    const afterMarker = text.slice(marker.end).trimStart();
+    const parsed = parseTeaserLines(afterMarker, {
+      final: true,
+      indices: teaserIndices(marker),
+    });
+    teasers = parsed.lines;
+    body = afterMarker.slice(parsed.end);
+  }
+  const followUps = parseFollowUps(body, { final: true });
   return {
     marker,
-    teasers: teasers.lines,
-    text: afterMarker.slice(teasers.end),
+    teasers,
+    followUps: followUps.followUps ?? [],
+    text: followUps.text,
   };
 }
 
@@ -258,6 +365,9 @@ function stripCardsMarker(text) {
  * Phasen: "marker" -> "teasers" (nur nach einem Marker) -> "text".
  * In der Teaser-Phase hält der Puffer nur den noch unentschiedenen Rest;
  * fertige Teaserzeilen werden sofort verworfen bzw. gesammelt (this.teasers).
+ * Folgefragen: Der Text aller Phasen läuft zusätzlich durch einen Endpuffer
+ * (this.tail), der Leerraum am Ende und eine mögliche "[[FRAGEN: …]]"-Zeile
+ * bis zum Antwortende zurückhält (parseFollowUps); gefunden -> this.followUps.
  */
 class CardsMarkerFilter {
   constructor() {
@@ -266,6 +376,29 @@ class CardsMarkerFilter {
     this.marker = null; // { indices: number[], valid: boolean }
     this.teasers = []; // gesammelte Teaserzeilen ({index, text})
     this.teasersReported = false;
+    this.tail = ""; // zurückgehaltenes Textende (Folgefragen)
+    this.textSent = false; // schon Text gesendet (Zeilenanfang-Regel)
+    this.followUps = null; // gültige Folgefragen (erst beim Antwortende)
+  }
+
+  // Text nach Marker/Teasern: Endzeile "[[FRAGEN: …]]" zurückhalten
+  #followUpsStep(text, final) {
+    this.tail += text;
+    const result = parseFollowUps(this.tail, {
+      final,
+      atLineStart: !this.textSent,
+    });
+    let out;
+    if (final) {
+      out = result.text;
+      this.tail = "";
+      if (result.state === "followUps") this.followUps = result.followUps;
+    } else {
+      out = this.tail.slice(0, result.hold);
+      this.tail = this.tail.slice(result.hold);
+    }
+    if (out.length > 0) this.textSent = true;
+    return out;
   }
 
   #teaserStep(final) {
@@ -298,11 +431,19 @@ class CardsMarkerFilter {
   /**
    * @param {string} token
    * @param {{final?: boolean}} [options]
-   * @returns {{text: string, marker?: {indices: number[], valid: boolean}, teasers?: {index: number, text: string}[]}}
+   * @returns {{text: string, marker?: {indices: number[], valid: boolean}, teasers?: {index: number, text: string}[], followUps?: string[]}}
    *   text = jetzt an das Widget zu sendender Text ("" = noch puffern);
-   *   teasers = einmalig, sobald die Teaserzeilen vollständig sind
+   *   teasers = einmalig, sobald die Teaserzeilen vollständig sind;
+   *   followUps = nur beim Antwortende (final), wenn die Endzeile gültig ist
    */
   push(token, { final = false } = {}) {
+    const out = this.#cardsStep(token, final);
+    out.text = this.#followUpsStep(out.text, final);
+    if (final && this.followUps) out.followUps = this.followUps.slice();
+    return out;
+  }
+
+  #cardsStep(token, final) {
     const piece = typeof token === "string" ? token : "";
     if (this.phase === "text") return { text: piece };
     this.buffer += piece;
@@ -441,13 +582,53 @@ function teaserLinesText(lines) {
   );
 }
 
+// Eintrag ohne Inhalt: nur Satzzeichen/Striche/Aufzählungszeichen
+// ("-", "–", "—", "•", "·", "*", ".", "…") und Leerraum
+const FOLLOW_UP_EMPTY_RX = /^[\p{P}\s]*$/u;
+
+/**
+ * Folgefragen: gespeicherte Vorschläge (followUps) einer Antwort-JSON prüfen
+ * (Widget-Verlauf /history und LLM-Verlauf) — dieselben Regeln gelten beim
+ * Erkennen der Endzeile (parseFollowUpItems): nur Strings, bereinigt,
+ * leere bzw. nur aus Satzzeichen/Strichen bestehende verworfen, höchstens
+ * FOLLOW_UP_MAX_LEN Zeichen (längere verworfen, nicht gekürzt), ohne
+ * Dubletten (Groß-/Kleinschreibung egal), die ersten FOLLOW_UPS_MAX.
+ * @param {any} value
+ * @returns {string[]}
+ */
+function storedFollowUps(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const item of value) {
+    if (out.length >= FOLLOW_UPS_MAX) break;
+    const text = cleanTeaserText(item);
+    if (!text || FOLLOW_UP_EMPTY_RX.test(text)) continue;
+    if (text.length > FOLLOW_UP_MAX_LEN) continue;
+    if (out.some((t) => t.toLowerCase() === text.toLowerCase())) continue;
+    out.push(text);
+  }
+  return out;
+}
+
+/**
+ * Folgefragen-Zeile für den LLM-Verlauf: "[[FRAGEN: a | b]]", keine -> "".
+ * @param {any} followUps
+ * @returns {string}
+ */
+function followUpsLine(followUps) {
+  const list = storedFollowUps(followUps);
+  return list.length > 0 ? `${FOLLOW_UPS_TAG} ${list.join(" | ")}]]` : "";
+}
+
 /**
  * Nur für den LLM-Verlauf (recentEmbedChatHistory): stellt den Marker, den
  * der Bot in einer früheren Antwort gesendet hat (Antwort-JSON
  * courseCardsMarker), wieder als erste Zeile vor den gespeicherten Text —
  * auch "[[KARTEN: -]]" (courseCardsMarker: []), damit jede frühere Antwort
  * einen Marker zeigt. Kurskarten v3: gespeicherte Teaserzeilen
- * (courseTeaserLines) folgen direkt nach dem Marker. Die Datensätze werden
+ * (courseTeaserLines) folgen direkt nach dem Marker. Folgefragen: gespei-
+ * cherte Vorschläge (followUps) stehen wieder als letzte Zeile
+ * "[[FRAGEN: … | …]]" (auch ohne Marker). Die Datensätze werden
  * kopiert, nie verändert; ohne gespeicherten Marker (Feld fehlt/null)
  * unverändert.
  * Nie für /history an das Widget verwenden.
@@ -461,14 +642,18 @@ function restoreCardsMarkers(rawHistory = []) {
     if (!data || typeof data !== "object" || typeof data.text !== "string")
       return record;
     const line = cardsMarkerLine(data.courseCardsMarker);
-    if (!line) return record;
-    const prefix = [line, ...teaserLinesText(data.courseTeaserLines)];
+    const prefix = line
+      ? [line, ...teaserLinesText(data.courseTeaserLines)]
+      : [];
+    // Folgefragen: gespeicherte Vorschläge wieder als letzte Zeile
+    const suffix = followUpsLine(data.followUps);
+    if (prefix.length === 0 && !suffix) return record;
+    let text = data.text;
+    if (prefix.length > 0) text = `${prefix.join("\n")}\n${text}`;
+    if (suffix) text = `${text}\n${suffix}`;
     return {
       ...record,
-      response: JSON.stringify({
-        ...data,
-        text: `${prefix.join("\n")}\n${data.text}`,
-      }),
+      response: JSON.stringify({ ...data, text }),
     };
   });
 }
@@ -481,9 +666,17 @@ module.exports = {
   createCardsMarkerResponse,
   storedMarkerIndices,
   storedTeaserLines,
+  parseFollowUps,
+  storedFollowUps,
   restoreCardsMarkers,
   // nur für Tests
   __test__: {
+    FOLLOW_UPS_TAG,
+    FOLLOW_UPS_LINE_MAX,
+    FOLLOW_UPS_MAX,
+    FOLLOW_UP_MAX_LEN,
+    parseFollowUpItems,
+    followUpsLine,
     CARDS_MARKER_TAG,
     CARDS_MARKER_BUFFER_MAX,
     scanBracketLine,

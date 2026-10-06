@@ -20,6 +20,8 @@ const {
   createCourseLookup,
   disclaimerFooterEnabled,
   DISCLAIMER_PROMPT_NOTE,
+  followUpsEnabled,
+  FOLLOW_UPS_PROMPT_NOTE,
 } = require("./embedCourseSources");
 const {
   createCardsMarkerResponse,
@@ -223,13 +225,18 @@ async function streamChatWithForEmbed(
     return;
   }
 
+  // Folgefragen (visual_config.followUps = "pills"): Prompt-Hinweis am Ende
+  // (nach dem Disclaimer-Hinweis) und Chunk an das Widget nur dann.
+  const followUpsOn = followUpsEnabled(embed);
+
   // Compress message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt:
         (await chatPrompt(embed.workspace, username)) +
-        (disclaimerFooterEnabled(embed) ? DISCLAIMER_PROMPT_NOTE : ""),
+        (disclaimerFooterEnabled(embed) ? DISCLAIMER_PROMPT_NOTE : "") +
+        (followUpsOn ? FOLLOW_UPS_PROMPT_NOTE : ""),
       userPrompt: message,
       contextTexts,
       chatHistory,
@@ -290,7 +297,7 @@ async function streamChatWithForEmbed(
     });
   };
 
-  // Marker/Teaser/Text der vollständigen Antwort (einmal geparst)
+  // Marker/Teaser/Folgefragen/Text der vollständigen Antwort (einmal geparst)
   let parsedReply = null;
 
   // If streaming is not explicitly enabled for connector
@@ -358,6 +365,21 @@ async function streamChatWithForEmbed(
       : {};
   completeText = parsedReply.text;
 
+  // Folgefragen: Endzeile "[[FRAGEN: … | …]]" (siehe embedCardsMarker.js) —
+  // Erkennen, Entfernen und Speichern (followUps) laufen IMMER (wie der
+  // Marker). Nur mit visual_config.followUps = "pills" eigener Chunk nach
+  // dem letzten Textchunk (die Zeile steht am Ende, der Text ist jetzt
+  // vollständig) und vor finalizeResponseStream.
+  const followUps = parsedReply.followUps;
+  if (followUpsOn && followUps.length > 0)
+    writeResponseChunk(response, {
+      uuid,
+      type: "followUps",
+      followUps,
+      close: false,
+      error: false,
+    });
+
   // Kurskarten (opt-in, visual_config.courseCards = "auto"): nur Kurs-
   // Metadaten der Whitelist, nie text — sources selbst bleiben serverseitig.
   // Reihenfolge: angekündigte Kurse (Marker), Kurse der Treffer, dann
@@ -389,6 +411,7 @@ async function streamChatWithForEmbed(
       ...(courseCardsMarker ? { courseCardsMarker } : {}),
       ...(Object.keys(courseTeasers).length > 0 ? { courseTeasers } : {}),
       ...(courseTeaserLines.length > 0 ? { courseTeaserLines } : {}),
+      ...(followUps.length > 0 ? { followUps } : {}),
       metrics,
     },
     connection_information: response.locals.connection
@@ -433,7 +456,8 @@ async function streamChatWithForEmbed(
  * @param {Number} messageLimit the number of messages to return
  * @param {string|null} boundSessionId when set, binds the conversation to its owning session (BOLA/IDOR hardening, KIE-505)
  * Kurskarten v2: rawHistory/chatHistory sind nur für den LLM-Prompt — gespeicherte
- * Karten-Marker (courseCardsMarker) stehen dort wieder als erste Antwortzeile.
+ * Karten-Marker (courseCardsMarker) stehen dort wieder als erste Antwortzeile,
+ * gespeicherte Folgefragen (followUps) als letzte.
  * @returns {Promise<{rawHistory: import("@prisma/client").embed_chats[], chatHistory: {role: string, content: string, attachments?: Object[]}[]}>
  */
 async function recentEmbedChatHistory(

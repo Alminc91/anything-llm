@@ -3,6 +3,7 @@ const {
   sanitizeCourseSources,
   sanitizeCourseTeasers,
 } = require("../utils/chats/embedCourseSources");
+const { storedFollowUps } = require("../utils/chats/embedCardsMarker");
 const prisma = require("../utils/prisma");
 
 /**
@@ -51,7 +52,8 @@ const EmbedChats = {
    * Kurskarten: `courseSources` (nur Kurs-Metadaten, nie text) bleibt erhalten,
    * wird aber nochmals auf die Whitelist reduziert. Kurskarten v3:
    * `courseTeasers` (URL -> Teaser) nur für URLs dieser Karten, Text bereinigt;
-   * `courseTeaserLines` (LLM-Verlauf) nie ans Widget.
+   * `courseTeaserLines` (LLM-Verlauf) nie ans Widget. Folgefragen:
+   * `followUps` nur bereinigt (storedFollowUps).
    * @param {EmbedChat[]} chats
    * @returns {EmbedChat[]} Returns a new array of chats with the sources filtered out of responses
    */
@@ -68,8 +70,12 @@ const EmbedChats = {
         // Kurskarten v3: Teaser je Karte (Widget) / Teaserzeilen (nur LLM)
         courseTeasers,
         courseTeaserLines: _courseTeaserLines,
+        // Folgefragen: nur bereinigt (Strings ≤ 60 Zeichen, höchstens 3)
+        followUps,
         ...responseRest
       } = parsed && typeof parsed === "object" ? parsed : {};
+      const safeFollowUps = storedFollowUps(followUps);
+      if (safeFollowUps.length > 0) responseRest.followUps = safeFollowUps;
       const safeCourseSources = sanitizeCourseSources(courseSources);
       if (safeCourseSources.length > 0) {
         responseRest.courseSources = safeCourseSources;

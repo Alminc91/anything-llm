@@ -319,4 +319,49 @@ describe("GET /embed/:embedId/:sessionId — Historie für das Widget", () => {
     const json = JSON.stringify(res.body);
     expect(json).not.toMatch(/courseTeaserLines|TEASER|darf nie raus/);
   });
+  test("Folgefragen: followUps bereinigt an der Antwort, Zeile nie im Text", async () => {
+    prisma.embed_chats.findMany.mockResolvedValue([
+      {
+        ...ROWS[1],
+        response: JSON.stringify({
+          text: "Über die Kursseite oder telefonisch.",
+          type: "chat",
+          sources: [],
+          followUps: [
+            "Gibt es B1-Kurse?",
+            " **Auch online?** ",
+            42,
+            "x".repeat(61),
+            "Abends?",
+            "Viertens?",
+          ],
+        }),
+      },
+      {
+        ...ROWS[1],
+        id: 4,
+        response: JSON.stringify({
+          text: "Ohne Vorschläge.",
+          type: "chat",
+          sources: [],
+          followUps: "kein Array",
+        }),
+      },
+    ]);
+    const res = mockResponse();
+    await handler(
+      { params: { embedId: "embed-uuid", sessionId: "sess-1" }, query: {} },
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    const [, reply, , plain] = res.body.history;
+    expect(reply.followUps).toEqual([
+      "Gibt es B1-Kurse?",
+      "Auch online?",
+      "Abends?",
+    ]);
+    expect(reply.content).toBe("Über die Kursseite oder telefonisch.");
+    expect(plain).not.toHaveProperty("followUps");
+    expect(JSON.stringify(res.body)).not.toMatch(/FRAGEN|xxxxx|Viertens/);
+  });
 });
