@@ -58,18 +58,27 @@ Antworttext bleiben verboten.
 Sicherheitsnetz im Server: `parseFollowUpItems` verwirft vor den übrigen
 Regeln (`storedFollowUps`: ≤ 60 Zeichen, höchstens 3, ohne Dubletten) jeden
 Eintrag, für den `addressesUser()` (`server/utils/chats/embedCardsMarker.js`)
-zutrifft. Groß-/Kleinschreibung egal, lineare Muster, Einträge werden nicht
-verändert:
+zutrifft. Bewusst eng, lineare Muster, Einträge werden nicht verändert.
+Geprüft wird in dieser Reihenfolge:
 
-| Sprache                                                       | Muster                                                                                                                                                                                                                      | verworfen (Beispiele)                                                                                     |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| deutsch, irgendwo im Eintrag                                  | `\b(suchen\|möchten\|wollen\|bevorzugen\|brauchen\|benötigen\|interessieren\|wünschen\|planen)\s+sie\b`                                                                                                                     | „Suchen Sie einen Anfängerkurs?“, „Für welches Alter suchen Sie?“, „Welche Sprache möchten Sie lernen?“   |
-| englisch, am Anfang (nach führenden Satz-/Aufzählungszeichen) | `are you (looking\|interested\|searching\|planning)`, `do you (prefer\|want\|need\|have a(n) (preference\|preferred))`, `would you (like\|prefer)`, `which … (do you (prefer\|want\|need\|like)\|would you (like\|prefer))` | „Are you looking for beginner courses?“, „Would you like evening classes?“, „Which level would you like?“ |
+| Regel                                                                          | Muster                                                                                                                                                                                                                                                                        | Beispiele                                                                                                                                         |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ausnahme: Bezug auf den Nutzer selbst → **nie** verwerfen (Groß/klein egal)    | `\b(mein\|meine\|meinen\|meiner\|meines\|mir\|mich)\b`                                                                                                                                                                                                                        | bleibt: „Brauchen Sie meine Kontodaten?“, „Möchten Sie meine Telefonnummer?“                                                                      |
+| deutsch, irgendwo: Verb + Höflichkeits-„Sie“ (großgeschrieben, kein i-Flag)    | `\b([sS]uchen\|[mM]öchten\|[wW]ollen\|[bB]evorzugen\|[iI]nteressieren\|[wW]ünschen)\s+Sie\b`                                                                                                                                                                                  | verworfen: „Suchen Sie einen Anfängerkurs?“, „Für welches Alter suchen Sie?“, „Welche Sprache möchten Sie lernen?“                                |
+| deutsch, irgendwo: Rückfrage nach Niveau/Alter                                 | `\bWelche[srn]?\s+(Niveau\|Alter\|Vorkenntnisse\|Erfahrung\|Stufe)\b[^\|]*\bSie\b` (linear zweistufig geprüft)                                                                                                                                                                | verworfen: „Welches Niveau haben Sie?“, „Welche Vorkenntnisse haben Sie?“                                                                         |
+| englisch, irgendwo (Groß/klein egal)                                           | `\byour (child\|kid\|son\|daughter)\b`                                                                                                                                                                                                                                        | verworfen: „How old is your child?“, „Is your child already at school?“                                                                           |
+| englisch, am Anfang (nach führenden Satz-/Aufzählungszeichen, Groß/klein egal) | `^(are you (looking\|interested\|searching)\|do you want to\|do you need to\|would you (like\|prefer\|rather)\|which [^\|]* (do\|would) you (prefer\|like\|want to)\|do you have (any )?(prior \|previous )?experience\|what level are you\|how old (is\|are) (your\|you))\b` | verworfen: „Are you looking for beginner courses?“, „Would you like evening classes?“, „Do you have any prior experience?“, „What level are you?“ |
 
-Erhalten bleiben Nutzerfragen an den Berater: „Haben Sie Kurse am
+Nicht in der deutschen Verbliste: brauchen, benötigen, planen — so bleiben
+Nutzerfragen an die VHS erhalten („Was brauchen Sie für die Anmeldung?“,
+„Planen Sie Kurse im Sommer?“). Das kleingeschriebene Pronomen
+der 3. Person trifft nicht („Gibt es Kurse, die sie gemeinsam besuchen
+können?“). Englisch bleiben „do you need/want“ ohne „to“ („Do you need my
+ID?“, „Do you want a deposit?“), „are you planning/open“, „Which courses do you
+offer?“, „Do you have a yoga course?“. Ebenso bleiben „Haben Sie Kurse am
 Wochenende?“, „Bieten Sie Online-Kurse an?“, „Können Sie mir Anfängerkurse
-zeigen?“, „Which courses do you offer?“, „Do you have a yoga course?“, „Are you
-open on Saturdays?“. Verworfene Einträge zählen nicht gegen die Höchstzahl.
+zeigen?“, „Welche Kurse haben Sie am Abend?“.
+Verworfene Einträge zählen nicht gegen die Höchstzahl.
 Bleibt kein Eintrag, sendet der Server keinen `followUps`-Chunk; die Zeile wird
 trotzdem aus dem Text entfernt, gespeichert wird wie bei `[[FRAGEN: -]]` kein
 `followUps`-Feld (= keine Vorschläge). Bereits gespeicherte Vorschläge

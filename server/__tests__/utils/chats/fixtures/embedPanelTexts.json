@@ -1,5 +1,5 @@
 {
-  "_comment": "Kopie von PANEL_TEXTS (Auszug) aus dem Embed-Repo anythingllm-embed, src/utils/layout.js, Stand c6bc308 (06.10.2026), greetingBubble de/en neu nach dem Widget-Issue „Zeilenkarten“ (embed-zeilenkarten-tasten-morph-datenschutz, Feedbackrunde 2). Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
+  "_comment": "Soll-Stand von PANEL_TEXTS (Auszug) für das Embed-Repo anythingllm-embed, src/utils/layout.js: greetingBubble de/en übernommen aus dem Issue server-folgefragen-nutzerstimme-teaser-laenge-kartenlayout §1.4 (06.10.2026, Widget-Issue „Zeilenkarten“, embed-zeilenkarten-tasten-morph-datenschutz, Feedbackrunde 2); der passende Embed-Commit folgt parallel. Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
   "de": {
     "greetingBubble": "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
     "privacyTitle": "Datenschutz:",

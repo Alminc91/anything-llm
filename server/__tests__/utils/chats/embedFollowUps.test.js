@@ -183,7 +183,7 @@ describe("parseFollowUps (vollständige Antwort)", () => {
 });
 
 describe("Folgefragen-Richtung im Nicht-Stream-Pfad", () => {
-  test("all-filtered-sync: nur Fragen an den Nutzer -> Zeile entfernt, followUps [] (ganze Antwort und Stream-Filter gleich)", () => {
+  test("all-filtered-sync: nur Fragen an den Nutzer -> Zeile entfernt, followUps [] (parseFollowUps final und parseCardsReply über die ganze Antwort)", () => {
     const line =
       "[[FRAGEN: Suchen Sie einen Anfängerkurs? | Welche Sprache möchten Sie lernen? | Are you looking for beginner courses?]]";
     const whole = parseFollowUps(`${BODY}\n${line}`, { final: true });

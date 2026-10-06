@@ -250,26 +250,56 @@ function parseTeaserLines(text, { final = false, indices = [] } = {}) {
 // Folgefragen-Richtung: Vorschläge sind Nachrichten des Nutzers an den
 // Berater. Rückfragen an den Nutzer („Suchen Sie …?“) kämen als Pille
 // geklickt als Nutzer-Nachricht zurück — Sicherheitsnetz zum Prompt-Hinweis
-// (FOLLOW_UPS_PROMPT_NOTE). Bewusst eng, nur diese Muster, Groß-/Klein-
-// schreibung egal, lineare Muster (kein ReDoS):
-//  - deutsch, irgendwo im Eintrag: eines der neun Verben + "Sie"
-//    („Suchen Sie …?“, „Für welches Alter suchen Sie?“, „Welche Sprache
-//    möchten Sie lernen?“, „Interessieren Sie sich …?“). Nutzerfragen an den
-//    Berater mit „Sie“ bleiben („Haben Sie …?“, „Bieten Sie …?“, „Können Sie
-//    …?“).
-//  - englisch, am Anfang: Rückfrage-Anfänge („Are you looking …?“, „Would
-//    you like …?“, „Do you prefer …?“, „Which level would you like?“).
-//    Enger als die Liste im Issue: „are you“ nur mit looking/interested/
-//    searching/planning, „do you have a“ nur mit preference/preferred,
-//    „which … do/would you“ nur mit prefer/want/need/like — „Are you open
-//    on Saturdays?“, „Do you have a yoga course?“, „Which courses do you
-//    offer?“ sind Nutzerfragen an den Berater und bleiben.
+// (FOLLOW_UPS_PROMPT_NOTE). Bewusst eng, nur diese Muster, lineare Muster
+// ohne verschachtelte Quantifizierer (kein ReDoS):
+//  - Ausnahme vor allen Mustern: Bezug auf den Nutzer selbst („mein…“, „mir“,
+//    „mich“, Groß-/Kleinschreibung egal) -> nie verwerfen („Brauchen Sie
+//    meine Kontodaten?“, „Möchten Sie meine Telefonnummer?“).
+//  - deutsch, irgendwo im Eintrag: eines der sechs Verben + Höflichkeits-„Sie“
+//    (großgeschrieben, kein i-Flag — das Pronomen „sie“ der 3. Person trifft
+//    nicht: „Kurse, die sie gemeinsam besuchen können“). Verben am Satzanfang
+//    oder mittendrin („Suchen Sie …?“, „Für welches Alter suchen Sie?“).
+//    Nicht in der Liste: brauchen, benötigen, planen — „Was brauchen Sie für
+//    die Anmeldung?“, „Planen Sie Kurse im Sommer?“ sind Nutzerfragen an die
+//    VHS. Dazu die Rückfrage „Welches Niveau/Alter … Sie“. Nutzerfragen mit
+//    „Sie“ bleiben („Haben Sie …?“, „Bieten Sie …?“, „Können Sie …?“).
+//  - englisch, am Anfang (Groß-/Kleinschreibung egal): Rückfrage-Anfänge
+//    („Are you looking …?“, „Would you like …?“, „Do you want to …?“,
+//    „Which level would you like?“, „Do you have any prior experience?“,
+//    „What level are you?“, „How old is your child?“), irgendwo: „your
+//    child/kid/son/daughter“. Nicht: „do you need/want“ ohne „to“ („Do you
+//    need my ID?“, „Do you want a deposit?“), „are you planning/open“,
+//    „Which courses do you offer?“, „Do you have a yoga course?“.
+const ADDRESSES_SELF_RX = /\b(?:mein|meine|meinen|meiner|meines|mir|mich)\b/i;
 const ADDRESSES_USER_DE_RX =
-  /\b(?:suchen|möchten|wollen|bevorzugen|brauchen|benötigen|interessieren|wünschen|planen)\s+sie\b/i;
+  /\b(?:[sS]uchen|[mM]öchten|[wW]ollen|[bB]evorzugen|[iI]nteressieren|[wW]ünschen)\s+Sie\b/;
+// Rückfrage \bWelche[srn]?\s+(Niveau|Alter|Vorkenntnisse|Erfahrung|Stufe)\b
+// [^|]*\bSie\b — zweistufig geprüft (asksUserLevel): als ein Muster wäre es
+// bei vielen „Welches Niveau“ hintereinander quadratisch (NAK-3).
+const ADDRESSES_USER_DE_ASK_HEAD_RX =
+  /\bWelche[srn]?\s+(?:Niveau|Alter|Vorkenntnisse|Erfahrung|Stufe)\b/;
+const POLITE_SIE_RX = /\bSie\b/;
 const ADDRESSES_USER_EN_RX =
-  /^(?:are you (?:looking|interested|searching|planning)|do you (?:prefer|want|need|have an? (?:preference|preferred))|would you (?:like|prefer)|which\b.*\b(?:do you (?:prefer|want|need|like)|would you (?:like|prefer)))\b/i;
+  /^(?:are you (?:looking|interested|searching)|do you want to|do you need to|would you (?:like|prefer|rather)|which [^|]* (?:do|would) you (?:prefer|like|want to)|do you have (?:any )?(?:prior |previous )?experience|what level are you|how old (?:is|are) (?:your|you))\b/i;
+const ADDRESSES_USER_EN_CHILD_RX = /\byour (?:child|kid|son|daughter)\b/i;
 // Führende Aufzählungs-/Satzzeichen vor dem englischen Anfangsmuster
 const LEADING_NON_LETTERS_RX = /^[^\p{L}]+/u;
+
+/**
+ * Rückfrage „Welches Niveau/Alter … Sie“: wie das Muster
+ * \bWelche[srn]?\s+(Niveau|…)\b[^|]*\bSie\b, aber linear — je Abschnitt
+ * zwischen "|" nur der erste Anfang (hat den längsten Rest), dahinter „Sie“.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function asksUserLevel(text) {
+  for (const part of text.split("|")) {
+    const head = ADDRESSES_USER_DE_ASK_HEAD_RX.exec(part);
+    if (head && POLITE_SIE_RX.test(part.slice(head.index + head[0].length)))
+      return true;
+  }
+  return false;
+}
 
 /**
  * Richtet sich ein Folgefragen-Vorschlag an den Nutzer (Rückfrage des
@@ -279,7 +309,10 @@ const LEADING_NON_LETTERS_RX = /^[^\p{L}]+/u;
  */
 function addressesUser(text) {
   if (typeof text !== "string" || text.length === 0) return false;
+  if (ADDRESSES_SELF_RX.test(text)) return false;
   if (ADDRESSES_USER_DE_RX.test(text)) return true;
+  if (asksUserLevel(text)) return true;
+  if (ADDRESSES_USER_EN_CHILD_RX.test(text)) return true;
   return ADDRESSES_USER_EN_RX.test(text.replace(LEADING_NON_LETTERS_RX, ""));
 }
 
