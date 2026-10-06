@@ -255,7 +255,7 @@ function followUpsEnabled(embed = {}) {
 // Wird wie DISCLAIMER_PROMPT_NOTE ans ENDE des System-Prompts gehängt
 // (hinter den Disclaimer-Hinweis), der gecachte Präfix bleibt unverändert.
 const FOLLOW_UPS_PROMPT_NOTE =
-  "\n\n### Follow-up Suggestions (ACTIVE)\nEnd EVERY answer with one final line `[[FRAGEN: q1 | q2]]`: two short, self-contained follow-up questions the user might ask next (\u2264 60 characters each, in the user's language, no questions already answered). Write `[[FRAGEN: -]]` if none fit. Do NOT ask a question in the answer text itself. This line is removed automatically \u2014 never mention it.";
+  "\n\n### Follow-up Suggestions (ACTIVE)\nEnd EVERY answer with one final line of exactly this form (no code formatting, no backticks): [[FRAGEN: q1 | q2]] \u2014 two short, self-contained follow-up questions the user might ask next (\u2264 60 characters each, in the user's language, no questions already answered). Write [[FRAGEN: -]] if none fit. Do NOT ask a question in the answer text itself. This line is removed automatically \u2014 never mention it.";
 
 function headerLine(text, rx) {
   if (typeof text !== "string" || text.length === 0) return undefined;
