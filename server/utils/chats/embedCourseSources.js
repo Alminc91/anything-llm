@@ -178,6 +178,7 @@ function cleanTeaserText(value) {
     .replace(/[*_`#~|]+/g, "")
     .replace(/\p{Cc}/gu, " ")
     .replace(/\s+/g, " ")
+    .replace(/ ([.,;:!?])/g, "$1")
     .replace(/^[\s\-–•:>]+/, "")
     .trim();
   if (v.length === 0) return undefined;
