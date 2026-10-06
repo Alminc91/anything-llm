@@ -18,6 +18,8 @@ const {
   resolveMarkerCourses,
   courseTeasersFromLines,
   createCourseLookup,
+  disclaimerFooterEnabled,
+  DISCLAIMER_PROMPT_NOTE,
 } = require("./embedCourseSources");
 const {
   createCardsMarkerResponse,
@@ -225,7 +227,9 @@ async function streamChatWithForEmbed(
   // and build system messages based on inputs and history.
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: await chatPrompt(embed.workspace, username),
+      systemPrompt:
+        (await chatPrompt(embed.workspace, username)) +
+        (disclaimerFooterEnabled(embed) ? DISCLAIMER_PROMPT_NOTE : ""),
       userPrompt: message,
       contextTexts,
       chatHistory,

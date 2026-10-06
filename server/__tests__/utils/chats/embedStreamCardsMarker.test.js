@@ -656,3 +656,41 @@ describe("Kurskarten v3: Teaser im Embed-Stream", () => {
     expect(JSON.parse(history[0].response).text).toBe(TEASER_REPLY);
   });
 });
+
+// Fester KI-Hinweis im Widget (visual_config.disclaimer = "footer"): der
+// System-Prompt bekommt am Ende eine Zeile, die den Modell-Footer unterdrückt.
+describe("disclaimer = footer: Prompt-Footer wird unterdrückt", () => {
+  const {
+    DISCLAIMER_PROMPT_NOTE,
+  } = require("../../../utils/chats/embedCourseSources");
+
+  test("mit disclaimer footer endet der System-Prompt mit dem Override", async () => {
+    const { connector } = await run({
+      reply: `[[KARTEN: -]]\nKurze Antwort.`,
+      embed: makeEmbed(
+        JSON.stringify({ courseCards: "auto", disclaimer: " Footer " })
+      ),
+    });
+    const systemPrompt =
+      connector.compressMessages.mock.calls[0][0].systemPrompt;
+    expect(systemPrompt.startsWith("System")).toBe(true);
+    expect(systemPrompt.endsWith(DISCLAIMER_PROMPT_NOTE)).toBe(true);
+  });
+
+  test("ohne disclaimer (oder none) bleibt der System-Prompt unverändert", async () => {
+    for (const vc of [
+      JSON.stringify({ courseCards: "auto" }),
+      JSON.stringify({ courseCards: "auto", disclaimer: "none" }),
+      "{nicht json",
+    ]) {
+      jest.clearAllMocks();
+      const { connector } = await run({
+        reply: `[[KARTEN: -]]\nKurze Antwort.`,
+        embed: makeEmbed(vc),
+      });
+      expect(connector.compressMessages.mock.calls[0][0].systemPrompt).toBe(
+        "System"
+      );
+    }
+  });
+});
