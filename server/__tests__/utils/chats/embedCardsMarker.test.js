@@ -848,6 +848,9 @@ describe("Folgefragen-Richtung: Fragen an den Nutzer werden verworfen (addresses
     ["Do you want to learn Spanish?", true],
     ["Do you need to improve your English?", true],
     ["Would you prefer online classes?", true],
+    ["Do you prefer morning or evening classes?", true],
+    ["Do you have a preferred start date?", true],
+    ["Do you have a preferred payment method?", true],
     ["Would you rather learn in the morning?", true],
     ["Which level would you like?", true],
     ["Which day do you prefer?", true],
@@ -895,7 +898,6 @@ describe("Folgefragen-Richtung: Fragen an den Nutzer werden verworfen (addresses
     ["Do you need a certificate?", false],
     ["Do you want a copy of my passport?", false],
     ["Which documents do you need?", false],
-    ["Do you have a preferred payment method?", false],
     // keine Teilwörter: besuchen/versuchen enthalten "suchen"
     ["Kann ich die Kurse vorher besuchen?", false],
     ["Wie versuchen Sie das?", false],

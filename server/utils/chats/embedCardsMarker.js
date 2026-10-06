@@ -265,7 +265,8 @@ function parseTeaserLines(text, { final = false, indices = [] } = {}) {
 //    „Sie“ bleiben („Haben Sie …?“, „Bieten Sie …?“, „Können Sie …?“).
 //  - englisch, am Anfang (Groß-/Kleinschreibung egal): Rückfrage-Anfänge
 //    („Are you looking …?“, „Would you like …?“, „Do you want to …?“,
-//    „Which level would you like?“, „Do you have any prior experience?“,
+//    „Do you prefer …?“, „Do you have a preferred …?“, „Which level would
+//    you like?“, „Do you have any prior experience?“,
 //    „What level are you?“, „How old is your child?“), irgendwo: „your
 //    child/kid/son/daughter“. Nicht: „do you need/want“ ohne „to“ („Do you
 //    need my ID?“, „Do you want a deposit?“), „are you planning/open“,
@@ -280,7 +281,7 @@ const ADDRESSES_USER_DE_ASK_HEAD_RX =
   /\bWelche[srn]?\s+(?:Niveau|Alter|Vorkenntnisse|Erfahrung|Stufe)\b/;
 const POLITE_SIE_RX = /\bSie\b/;
 const ADDRESSES_USER_EN_RX =
-  /^(?:are you (?:looking|interested|searching)|do you want to|do you need to|would you (?:like|prefer|rather)|which [^|]* (?:do|would) you (?:prefer|like|want to)|do you have (?:any )?(?:prior |previous )?experience|what level are you|how old (?:is|are) (?:your|you))\b/i;
+  /^(?:are you (?:looking|interested|searching)|do you prefer|do you have a preferred|do you want to|do you need to|would you (?:like|prefer|rather)|which [^|]* (?:do|would) you (?:prefer|like|want to)|do you have (?:any )?(?:prior |previous )?experience|what level are you|how old (?:is|are) (?:your|you))\b/i;
 const ADDRESSES_USER_EN_CHILD_RX = /\byour (?:child|kid|son|daughter)\b/i;
 // Führende Aufzählungs-/Satzzeichen vor dem englischen Anfangsmuster
 const LEADING_NON_LETTERS_RX = /^[^\p{L}]+/u;
