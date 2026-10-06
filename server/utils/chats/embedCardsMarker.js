@@ -247,17 +247,55 @@ function parseTeaserLines(text, { final = false, indices = [] } = {}) {
   }
 }
 
+// Folgefragen-Richtung: Vorschläge sind Nachrichten des Nutzers an den
+// Berater. Rückfragen an den Nutzer („Suchen Sie …?“) kämen als Pille
+// geklickt als Nutzer-Nachricht zurück — Sicherheitsnetz zum Prompt-Hinweis
+// (FOLLOW_UPS_PROMPT_NOTE). Bewusst eng, nur diese Muster, Groß-/Klein-
+// schreibung egal, lineare Muster (kein ReDoS):
+//  - deutsch, irgendwo im Eintrag: eines der neun Verben + "Sie"
+//    („Suchen Sie …?“, „Für welches Alter suchen Sie?“, „Welche Sprache
+//    möchten Sie lernen?“, „Interessieren Sie sich …?“). Nutzerfragen an den
+//    Berater mit „Sie“ bleiben („Haben Sie …?“, „Bieten Sie …?“, „Können Sie
+//    …?“).
+//  - englisch, am Anfang: Rückfrage-Anfänge („Are you looking …?“, „Would
+//    you like …?“, „Do you prefer …?“, „Which level would you like?“).
+//    Enger als die Liste im Issue: „are you“ nur mit looking/interested/
+//    searching/planning, „do you have a“ nur mit preference/preferred,
+//    „which … do/would you“ nur mit prefer/want/need/like — „Are you open
+//    on Saturdays?“, „Do you have a yoga course?“, „Which courses do you
+//    offer?“ sind Nutzerfragen an den Berater und bleiben.
+const ADDRESSES_USER_DE_RX =
+  /\b(?:suchen|möchten|wollen|bevorzugen|brauchen|benötigen|interessieren|wünschen|planen)\s+sie\b/i;
+const ADDRESSES_USER_EN_RX =
+  /^(?:are you (?:looking|interested|searching|planning)|do you (?:prefer|want|need|have an? (?:preference|preferred))|would you (?:like|prefer)|which\b.*\b(?:do you (?:prefer|want|need|like)|would you (?:like|prefer)))\b/i;
+// Führende Aufzählungs-/Satzzeichen vor dem englischen Anfangsmuster
+const LEADING_NON_LETTERS_RX = /^[^\p{L}]+/u;
+
+/**
+ * Richtet sich ein Folgefragen-Vorschlag an den Nutzer (Rückfrage des
+ * Beraters) statt an den Berater? Verändert nichts, nur die Entscheidung.
+ * @param {any} text
+ * @returns {boolean}
+ */
+function addressesUser(text) {
+  if (typeof text !== "string" || text.length === 0) return false;
+  if (ADDRESSES_USER_DE_RX.test(text)) return true;
+  return ADDRESSES_USER_EN_RX.test(text.replace(LEADING_NON_LETTERS_RX, ""));
+}
+
 /**
  * Folgefragen: Inhalt zwischen "[[FRAGEN:" und "]]" -> Vorschläge, nach den
  * Regeln von storedFollowUps (Einträge durch "|" getrennt). "-" bzw. leer
  * -> [] (keine Vorschläge); kaputte Einträge werden verworfen, nie die Zeile.
+ * Einträge, die den Nutzer adressieren (addressesUser), werden vorher
+ * verworfen (nicht verändert) — sie zählen nicht gegen FOLLOW_UPS_MAX.
  * @param {string} content
  * @returns {string[]}
  */
 function parseFollowUpItems(content) {
   const raw = String(content ?? "").trim();
   if (raw === "") return [];
-  return storedFollowUps(raw.split("|"));
+  return storedFollowUps(raw.split("|").filter((item) => !addressesUser(item)));
 }
 
 /**
@@ -668,6 +706,7 @@ module.exports = {
   storedTeaserLines,
   parseFollowUps,
   storedFollowUps,
+  addressesUser,
   restoreCardsMarkers,
   // nur für Tests
   __test__: {

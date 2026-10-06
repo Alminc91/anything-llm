@@ -808,3 +808,141 @@ describe("AK-8: Marker und Teaserzeilen im LLM-Verlauf (restoreCardsMarkers)", (
     expect(JSON.parse(raw[0].response).text).toBe("Ja, zwei Kurse passen.");
   });
 });
+
+describe("Folgefragen-Richtung: Fragen an den Nutzer werden verworfen (addressesUser)", () => {
+  const {
+    addressesUser,
+    storedFollowUps,
+    __test__: { parseFollowUpItems, FOLLOW_UP_MAX_LEN },
+  } = require("../../../utils/chats/embedCardsMarker");
+
+  // [Eintrag, verworfen?]
+  const CASES = [
+    // AK-2: Rückfragen an den Nutzer
+    ["Suchen Sie einen Anfängerkurs?", true],
+    ["Für welches Alter suchen Sie?", true],
+    ["Welche Sprache möchten Sie lernen?", true],
+    ["Interessieren Sie sich für Intensivkurse?", true],
+    ["Are you looking for beginner courses?", true],
+    ["Would you like evening classes?", true],
+    // Messläufe 06.10. (6 von 76)
+    ["Suchen Sie einen Kurs für Erwachsene?", true],
+    ["Suchen Sie einen Kurs mit Zertifikat?", true],
+    ["Bevorzugen Sie Termine am Abend?", true],
+    ["Möchten Sie Ihre Konversation verbessern?", true],
+    // alle neun Verben, Groß-/Kleinschreibung egal, mitten im Satz
+    ["Wollen Sie lieber online lernen?", true],
+    ["Brauchen Sie ein Zertifikat?", true],
+    ["Benötigen Sie Materialien?", true],
+    ["Was wünschen Sie sich vom Kurs?", true],
+    ["Planen Sie einen Urlaub?", true],
+    ["MÖCHTEN SIE mehr erfahren?", true],
+    ["Welches Niveau möchten   sie?", true],
+    // englische Anfänge, auch hinter Aufzählungszeichen
+    ["Are you interested in yoga?", true],
+    ["Do you prefer mornings?", true],
+    ["Do you want a weekend course?", true],
+    ["Do you need a certificate?", true],
+    ["Do you have a preferred day?", true],
+    ["Would you prefer online classes?", true],
+    ["Which level would you like?", true],
+    ["Which day do you prefer?", true],
+    ["- Are you looking for a course?", true],
+    // AK-2 / NAK-2: Fragen des Nutzers an den Berater bleiben
+    ["Gibt es Yoga am Abend?", false],
+    ["Haben Sie Kurse am Wochenende?", false],
+    ["Haben Sie auch Kurse am Wochenende?", false],
+    ["Bieten Sie Online-Kurse an?", false],
+    ["Können Sie mir Anfängerkurse zeigen?", false],
+    ["Gibt es Ermäßigungen?", false],
+    ["Welche Kurse gibt es in Demohausen?", false],
+    ["Which courses are in the evening?", false],
+    ["Which courses do you offer?", false],
+    ["Do you have a yoga course?", false],
+    ["Are you open on Saturdays?", false],
+    ["Do you offer online courses?", false],
+    // keine Teilwörter: besuchen/versuchen enthalten "suchen"
+    ["Kann ich die Kurse vorher besuchen?", false],
+    ["Wie versuchen Sie das?", false],
+    ["Kurse für Babys", false],
+  ];
+
+  test.each(CASES)(
+    "follow-ups-addressed-to-user: %p -> verworfen %p",
+    (text, dropped) => {
+      expect(addressesUser(text)).toBe(dropped);
+      expect(parseFollowUpItems(text)).toEqual(dropped ? [] : [text]);
+    }
+  );
+
+  test("follow-ups-addressed-to-user: Zeile aus AK-2 und gemischte Zeilen", () => {
+    expect(
+      parseFollowUpItems(
+        " Suchen Sie einen Anfängerkurs? | Gibt es Yoga am Abend?"
+      )
+    ).toEqual(["Gibt es Yoga am Abend?"]);
+    expect(
+      parseFollowUpItems(
+        "Für welches Alter suchen Sie? | Welche Sprache möchten Sie lernen?"
+      )
+    ).toEqual([]);
+    // NAK-2: alle vier Nutzerfragen bleiben (höchstens FOLLOW_UPS_MAX = 3)
+    expect(
+      parseFollowUpItems(
+        "Haben Sie auch Kurse am Wochenende? | Können Sie mir Anfängerkurse zeigen? | Bieten Sie Online-Kurse an?"
+      )
+    ).toEqual([
+      "Haben Sie auch Kurse am Wochenende?",
+      "Können Sie mir Anfängerkurse zeigen?",
+      "Bieten Sie Online-Kurse an?",
+    ]);
+    // verworfene Einträge zählen nicht gegen die Höchstzahl
+    expect(
+      parseFollowUpItems(
+        "Suchen Sie Yoga? | Gibt es Ermäßigungen? | Möchten Sie online? | Gibt es Pilates? | Gibt es Tanz?"
+      )
+    ).toEqual(["Gibt es Ermäßigungen?", "Gibt es Pilates?", "Gibt es Tanz?"]);
+    // Markdown/Link um die Rückfrage herum ändert nichts
+    expect(
+      parseFollowUpItems(
+        "**Suchen Sie** Yoga? | [Möchten Sie mehr?](https://x.de)"
+      )
+    ).toEqual([]);
+  });
+
+  test("Filter verändert Einträge nicht, nur Nicht-Strings/leer -> false", () => {
+    for (const v of [undefined, null, 5, {}, ["Suchen Sie?"], ""])
+      expect(addressesUser(v)).toBe(false);
+    expect(parseFollowUpItems("  Gibt es Kurse für Sie?  ")).toEqual([
+      "Gibt es Kurse für Sie?",
+    ]);
+    // storedFollowUps (Verlauf/History) bleibt unverändert: kein Richtungsfilter
+    expect(storedFollowUps(["Suchen Sie Yoga?"])).toEqual(["Suchen Sie Yoga?"]);
+  });
+
+  test("NAK-3: kein ReDoS (< 50 ms), Längenregeln unverändert", () => {
+    const inputs = [
+      "Sie ".repeat(75), // 300 Zeichen
+      `suchen ${" ".repeat(100000)}`,
+      `which ${"do you ".repeat(14300)}`,
+      `Are you ${"x".repeat(100000)}`,
+      "suchen\t".repeat(15000),
+      "x".repeat(100000),
+      `${"möchten ".repeat(12500)}`,
+    ];
+    for (const input of inputs) {
+      const start = process.hrtime.bigint();
+      addressesUser(input);
+      const ms = Number(process.hrtime.bigint() - start) / 1e6;
+      expect(ms).toBeLessThan(50);
+    }
+    // 300 Zeichen „Sie Sie …“: kein Verb davor -> nicht verworfen, aber zu lang
+    expect(addressesUser("Sie ".repeat(75))).toBe(false);
+    expect(parseFollowUpItems("Sie ".repeat(75))).toEqual([]);
+    // Grenze FOLLOW_UP_MAX_LEN gilt wie bisher
+    const ok = `Gibt es ${"a".repeat(FOLLOW_UP_MAX_LEN - 9)}?`;
+    expect(ok).toHaveLength(FOLLOW_UP_MAX_LEN);
+    expect(parseFollowUpItems(ok)).toEqual([ok]);
+    expect(parseFollowUpItems(`${ok}x`)).toEqual([]);
+  });
+});

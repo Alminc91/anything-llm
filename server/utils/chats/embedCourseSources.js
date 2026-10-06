@@ -274,8 +274,19 @@ function followUpsEnabled(embed = {}) {
 
 // Wird wie DISCLAIMER_PROMPT_NOTE ans ENDE des System-Prompts gehängt
 // (hinter den Disclaimer-Hinweis), der gecachte Präfix bleibt unverändert.
+// Richtung: Vorschläge sind Nachrichten des Nutzers an den Berater, nie
+// Rückfragen an den Nutzer (der Basis-Prompt v3.3 verlangt im Abschnitt
+// „Intelligent Follow-up Questions“ solche Rückfragen — als Pille geklickt
+// kämen sie als Nutzer-Nachricht zurück). Statt einer Rückfrage bietet das
+// Modell deren wahrscheinliche Antworten an. Sicherheitsnetz im Server:
+// addressesUser() in embedCardsMarker.js verwirft übrig gebliebene
+// Rückfragen.
 const FOLLOW_UPS_PROMPT_NOTE =
-  "\n\n### Follow-up Suggestions (ACTIVE)\nEnd EVERY answer with one final line of exactly this form (no code formatting, no backticks): [[FRAGEN: q1 | q2]] \u2014 two short, self-contained follow-up questions the user might ask next (\u2264 60 characters each, in the user's language, no questions already answered). Write [[FRAGEN: -]] if none fit. Do NOT ask a question in the answer text itself. This line is removed automatically \u2014 never mention it.";
+  "\n\n### Follow-up Suggestions (ACTIVE)\n" +
+  "End EVERY answer with one final line of exactly this form (no code formatting, no backticks): [[FRAGEN: q1 | q2]] \u2014 two short, self-contained suggestions for the user's NEXT message, in the user's own words to you, the advisor (e.g. \u201eGibt es auch Kurse am Wochenende?\u201c), \u2264 60 characters each, in the user's language, nothing already answered. " +
+  "NEVER questions to the user (\u201eSuchen Sie \u2026?\u201c, \u201eM\u00f6chten Sie \u2026?\u201c, \u201cAre you looking for \u2026?\u201d). " +
+  "Instead of a clarifying question, offer its likely answers as suggestions (e.g. [[FRAGEN: Kurse f\u00fcr Babys | Kurse f\u00fcr Schulkinder]]). " +
+  "Write [[FRAGEN: -]] if none fit. Do NOT ask a question in the answer text itself. Never mention this line.";
 
 function headerLine(text, rx) {
   if (typeof text !== "string" || text.length === 0) return undefined;

@@ -12,7 +12,7 @@
 const EMBED_DEFAULT_TEXTS = {
   de: {
     greetingBubbleText:
-      "Hallo! Ich bin Ihr digitaler Berater und arbeite mit künstlicher Intelligenz (KI). Beschreiben Sie, was Sie suchen, und ich finde passende Angebote.",
+      "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
     privacyTitle: "Datenschutz:",
     privacyPoints: [
       "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
@@ -25,7 +25,7 @@ const EMBED_DEFAULT_TEXTS = {
   },
   en: {
     greetingBubbleText:
-      "Hello! I am your digital advisor and work with artificial intelligence (AI). Describe what you are looking for and I will find suitable offers.",
+      "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for.",
     privacyTitle: "Privacy:",
     privacyPoints: [
       "Your requests stay on servers in Germany and are not passed on to third parties.",
@@ -94,7 +94,7 @@ const COURSE_CARDS_PROMPT_LINES = [
   "1. [**Yoga for Beginners**]($URL) …",
   "Card numbers and teasers below apply ONLY to answers in German.",
   '▪ **First line of EVERY German answer:** `[[KARTEN: n, n]]` — the numbers n of the context blocks with the courses you recommend, in the order of relevance. The numbers are exactly the block labels of [DOCUMENTS]: `[CONTEXT 0]` → 0, `[CONTEXT 1]` → 1 (counting starts at 0). Only use blocks that describe one single course (with a "Kurs-Link:" line). If you recommend no course — also for registration, contact, opening hours, greetings, general questions or no match — the first line is `[[KARTEN: -]]`. Then a line break and your answer. This line is removed automatically — never mention or explain it.',
-  "▪ **Directly after the marker line — one teaser line per recommended course:** `[[TEASER n: …]]`. n is the same number as in the marker; exactly ONE line per course, in the same order as in the marker. The teaser is ONE sentence in [USER_LANG] with **15–20 words — never fewer than 15** (a main clause plus a short subordinate clause, like the example) that says why this course fits the user's question (content, level, target group, atmosphere). Do NOT repeat the course title, weekday, time, date, duration, price or location — the card shows them. No Markdown, no links. With `[[KARTEN: -]]` write NO teaser lines. These lines are removed automatically and shown on the card — never mention or explain them.",
+  "▪ **Directly after the marker line — one teaser line per recommended course:** `[[TEASER n: …]]`. n is the same number as in the marker; exactly ONE line per course, in the same order as in the marker. The teaser is ONE sentence in [USER_LANG] with **15–20 words — never more than 20** (a main clause plus a short subordinate clause, like the example) that says why this course fits the user's question (content, level, target group, atmosphere). Do NOT repeat the course title, weekday, time, date, duration, price or location — the card shows them. No Markdown, no links. With `[[KARTEN: -]]` write NO teaser lines. These lines are removed automatically and shown on the card — never mention or explain them.",
   "▪ Your answer text is **one or two short sentences** that add what the cards cannot show: how many fitting courses there are, what distinguishes them (level, evening/morning, online/on site, already started), or which one fits the question best. Do NOT list the courses, do NOT repeat course titles, do NOT write any links, and do NOT write the Beginn/Ort/Leitung/Preis/Kurs/Status lines or the course description — the cards show all of this.",
   "▪ Recommend at most 5 courses in the marker (so at most 5 teaser lines).",
   "▪ The Mandatory Footer rules stay as they are (if a Footer Override is active, write no footer).",
@@ -117,7 +117,7 @@ const COURSE_CARDS_LONG_PROMPT_LINES = [
   "1. [**Yoga for Beginners**]($URL) …",
   "Card numbers and teasers below apply ONLY to answers in German.",
   '▪ **First line of EVERY German answer:** `[[KARTEN: n, n]]` — the numbers n of the context blocks with the courses you recommend, in the order you list them. The numbers are exactly the block labels of [DOCUMENTS]: `[CONTEXT 0]` → 0, `[CONTEXT 1]` → 1 (counting starts at 0). Only use blocks that describe one single course (with a "Kurs-Link:" line). If you recommend no course — also for registration, contact, opening hours, greetings, general questions or no match — the first line is `[[KARTEN: -]]`. Then a line break and your answer. This line is removed automatically — never mention or explain it.',
-  "▪ **Directly after the marker line — one teaser line per recommended course:** `[[TEASER n: …]]`. n is the same number as in the marker; exactly ONE line per course, in the same order as in the marker. The teaser is ONE sentence in [USER_LANG] with **15–20 words — never fewer than 15** (a main clause plus a short subordinate clause, like the example) that says why this course fits the user's question (content, level, target group, atmosphere). Do NOT repeat the course title, weekday, time, date, duration, price or location — the card shows them. No Markdown, no links. With `[[KARTEN: -]]` write NO teaser lines. These lines are removed automatically and shown on the card — never mention or explain them.",
+  "▪ **Directly after the marker line — one teaser line per recommended course:** `[[TEASER n: …]]`. n is the same number as in the marker; exactly ONE line per course, in the same order as in the marker. The teaser is ONE sentence in [USER_LANG] with **15–20 words — never more than 20** (a main clause plus a short subordinate clause, like the example) that says why this course fits the user's question (content, level, target group, atmosphere). Do NOT repeat the course title, weekday, time, date, duration, price or location — the card shows them. No Markdown, no links. With `[[KARTEN: -]]` write NO teaser lines. These lines are removed automatically and shown on the card — never mention or explain them.",
   '▪ When listing courses, write 1–2 short sentences that answer the question (e.g. which courses fit, when they take place in general, what the difference is), then a numbered list with **only** the course title as a Markdown link: `1. [**$COURSE_TITLE**]($URL)` — optionally followed by at most 6 words of reason (e.g. "– abends, für Anfänger").',
   "▪ Do NOT write the Beginn/Ort/Leitung/Preis/Kurs/Status lines or the course description — the cards show these.",
   "▪ List at most 3 courses. Every listed course MUST be linked with its exact URL from [DOCUMENTS].",
