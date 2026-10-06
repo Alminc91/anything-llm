@@ -70,6 +70,13 @@ const LAYOUT_ENUMS = {
   courseCardsPosition: ["below", "above"],
   // Leisten-Variante: Öffnen bei Klick (wie INLINE_OPEN_ON_VALUES im Widget)
   inlineOpenOn: ["submit", "focus"],
+  // Panel-Optik (Mockup „Wunschfragen im Panel“): Vorschläge als Balken oder
+  // Pillen, Begrüßung als Text oder Blase; Datenschutz-Hinweis in der
+  // Begrüßungsblase oder einmalig als Karte; fester KI-Hinweis im Fuß
+  suggestionStyle: ["bars", "pills"],
+  greetingStyle: ["text", "bubble"],
+  privacyNotice: ["none", "bubble", "modal"],
+  disclaimer: ["none", "footer"],
 };
 
 // Text-Schlüssel des Widgets mit Höchstlänge wie im Widget (utils/layout.js:
@@ -84,10 +91,21 @@ const WIDGET_TEXT_MAX = {
   courseCards: 40,
   inlineLayout: 40,
   inlineEffect: 40,
+  // Panel-Optik/Datenschutz-/KI-Hinweis (Höchstlängen wie im Widget,
+  // utils/layout.js). privacyText = Stichpunkte je Zeile bzw. "|" (Punkte
+  // und deren Länge prüft das Widget), privacyUrl prüft das Widget (https
+  // oder /pfad).
+  greetingBubbleText: 300,
+  assistantSubtitle: 60,
+  privacyTitle: 120,
+  privacyText: 1000,
+  privacyButtonText: 40,
+  privacyUrl: 512,
+  disclaimerText: 160,
 };
 // Boolean-Schlüssel: echte Booleans oder "true"/"false"/"on"/"off"/"1"/"0"
 // (wie bool() im Widget); alles andere -> weglassen.
-const WIDGET_BOOLEAN_KEYS = ["inlineInput"];
+const WIDGET_BOOLEAN_KEYS = ["inlineInput", "onlineDot"];
 const LAYOUT_LENGTHS = {
   windowWidth: ["px", "%", "vw", "vh"],
   windowHeight: ["px", "%", "vw", "vh"],

@@ -291,3 +291,98 @@ describe("GET /embed/:embedId/config — Leisten-Variante „Öffnen bei Klick�
     expect(res.body).toEqual({ inlineInput: true, inlineLayout: "overlay" });
   });
 });
+
+describe("GET /embed/:embedId/config — Panel-Optik, Datenschutz- und KI-Hinweis", () => {
+  const PANEL = {
+    suggestionStyle: "pills",
+    greetingStyle: "bubble",
+    greetingBubbleText: "Hallo! Ich bin Ihr KI-Kursberater.",
+    assistantSubtitle: "durchsucht 1.243 Kurse",
+    onlineDot: true,
+    privacyNotice: "modal",
+    privacyTitle: "Datenschutz:",
+    privacyText: "Läuft auf eigener Infrastruktur in Deutschland.\nKI-Hinweis",
+    privacyButtonText: "Start",
+    privacyUrl: "https://vhs.example/datenschutz",
+    disclaimer: "footer",
+    disclaimerText: "Ich bin eine KI und kann Fehler machen.",
+  };
+
+  test("liefert alle Schlüssel an das Widget", async () => {
+    const res = await fetchConfig(PANEL);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual(PANEL);
+  });
+
+  test("Enums: Groß-/Kleinschreibung egal, unbekannt oder falscher Typ weggelassen", async () => {
+    const res = await fetchConfig({
+      suggestionStyle: " Pills ",
+      greetingStyle: "TEXT",
+      privacyNotice: "None",
+      disclaimer: " FOOTER",
+    });
+    expect(res.body).toEqual({
+      suggestionStyle: "pills",
+      greetingStyle: "text",
+      privacyNotice: "none",
+      disclaimer: "footer",
+    });
+    for (const notice of ["none", "bubble", "modal"]) {
+      const r = await fetchConfig({ privacyNotice: notice });
+      expect(r.body).toEqual({ privacyNotice: notice });
+    }
+    for (const v of ["chips", 1, null, ["pills"], "   "]) {
+      const bad = await fetchConfig({
+        suggestionStyle: v,
+        greetingStyle: v,
+        privacyNotice: v,
+        disclaimer: v,
+      });
+      expect(bad.body).toEqual({});
+    }
+  });
+
+  test("Texte: getrimmt, Höchstlängen wie im Widget, zu lang weggelassen", async () => {
+    const ok = await fetchConfig({
+      greetingBubbleText: ` ${"x".repeat(300)} `,
+      assistantSubtitle: "y".repeat(60),
+      privacyTitle: "t".repeat(120),
+      privacyText: "z".repeat(1000),
+      privacyButtonText: "b".repeat(40),
+      privacyUrl: `https://vhs.example/${"p".repeat(480)}`,
+      disclaimerText: "d".repeat(160),
+    });
+    expect(ok.body.greetingBubbleText).toHaveLength(300);
+    expect(ok.body.assistantSubtitle).toHaveLength(60);
+    expect(ok.body.privacyTitle).toHaveLength(120);
+    expect(ok.body.privacyText).toHaveLength(1000);
+    expect(ok.body.privacyButtonText).toHaveLength(40);
+    expect(ok.body.privacyUrl).toHaveLength(500);
+    expect(ok.body.disclaimerText).toHaveLength(160);
+    const tooLong = await fetchConfig({
+      greetingBubbleText: "x".repeat(301),
+      assistantSubtitle: "y".repeat(61),
+      privacyTitle: "t".repeat(121),
+      privacyText: "z".repeat(1001),
+      privacyButtonText: "b".repeat(41),
+      privacyUrl: `https://vhs.example/${"p".repeat(500)}`,
+      disclaimerText: "d".repeat(161),
+    });
+    expect(tooLong.body).toEqual({});
+  });
+
+  test("onlineDot: Boolean bzw. Boolean-String, sonst weggelassen", async () => {
+    expect((await fetchConfig({ onlineDot: false })).body).toEqual({
+      onlineDot: false,
+    });
+    expect((await fetchConfig({ onlineDot: "on" })).body).toEqual({
+      onlineDot: true,
+    });
+    expect((await fetchConfig({ onlineDot: "vielleicht" })).body).toEqual({});
+  });
+
+  test("ohne die Schlüssel bleibt die Antwort wie bisher", async () => {
+    const res = await fetchConfig({ inlineInput: true, theme: "dark" });
+    expect(res.body).toEqual({ inlineInput: true, theme: "dark" });
+  });
+});
