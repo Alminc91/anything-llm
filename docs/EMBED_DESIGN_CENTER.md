@@ -18,11 +18,11 @@ Ohne diese Schlüssel bleibt der Workspace-Prompt unverändert.
 
 Antwortstil `courseCardsAnswerStyle`:
 
-| Wert | Abschnitt | Antwort |
-|---|---|---|
-| `short` (Standard, auch ohne Wert) | „Course Cards Mode — Search“ | ein, zwei Sätze, keine Links — die Karten sind der Link |
-| `long` | „Course Cards Mode“ | kurze Einleitung + nummerierte Liste mit Kurs-Links |
-| `classic` | **keiner** | Karten nur aus den Kurs-Links der Antwort bzw. einem Marker, den der Workspace-Prompt selbst verlangt |
+| Wert                               | Abschnitt                    | Antwort                                                                                               |
+| ---------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `short` (Standard, auch ohne Wert) | „Course Cards Mode — Search“ | ein, zwei Sätze, keine Links — die Karten sind der Link                                               |
+| `long`                             | „Course Cards Mode“          | kurze Einleitung + nummerierte Liste mit Kurs-Links                                                   |
+| `classic`                          | **keiner**                   | Karten nur aus den Kurs-Links der Antwort bzw. einem Marker, den der Workspace-Prompt selbst verlangt |
 
 Der Server besitzt den Abschnitt: Enthält der Workspace-Prompt noch einen
 Abschnitt, der mit `### Course Cards Mode` beginnt (Groß-/Kleinschreibung und
@@ -34,6 +34,67 @@ Prompts mit eigenem Abschnitt funktionieren dann wie bisher.
 Bei `disclaimer = "footer"` steht im Beispiel des Abschnitts keine
 KI-Hinweis-Zeile (der Widget-Fuß zeigt sie, der Footer Override verbietet sie).
 
+### Teaser-Regel
+
+Beide Abschnitte (`short`, `long`) verlangen je empfohlenem Kurs eine Zeile
+`[[TEASER n: …]]`: ein Satz mit **„15–20 words — never more than 20“** (vorher
+„never fewer than 15“). Die Obergrenze hält den Teaser in der Zeilen-Karte
+(`courseCardsLayout = "rows"`, Textbreite ≥ 500 px auf Desktop/Tablet) bei
+höchstens zwei Zeilen. Die Beispiel-Teaser im Abschnitt liegen im Bereich.
+
+## Folgefragen: Richtung und Filter
+
+Bei `followUps = "pills"` hängt der Server den Hinweis
+„### Follow-up Suggestions (ACTIVE)“ als **letzten** Abschnitt an
+(`FOLLOW_UPS_PROMPT_NOTE` in `server/utils/chats/embedCourseSources.js`). Er
+verlangt als letzte Zeile `[[FRAGEN: q1 | q2]]` mit zwei Vorschlägen **in den
+Worten des Nutzers an den Berater** („Gibt es auch Kurse am Wochenende?“), nie
+Fragen an den Nutzer („Suchen Sie …?“, „Möchten Sie …?“). Statt einer
+Rückfrage (Basis-Prompt, „Intelligent Follow-up Questions“) bietet das Modell
+deren wahrscheinliche Antworten als Vorschläge an
+(`[[FRAGEN: Kurse für Babys | Kurse für Schulkinder]]`). Rückfragen im
+Antworttext bleiben verboten.
+
+Sicherheitsnetz im Server: `parseFollowUpItems` verwirft vor den übrigen
+Regeln (`storedFollowUps`: ≤ 60 Zeichen, höchstens 3, ohne Dubletten) jeden
+Eintrag, für den `addressesUser()` (`server/utils/chats/embedCardsMarker.js`)
+zutrifft. Groß-/Kleinschreibung egal, lineare Muster, Einträge werden nicht
+verändert:
+
+| Sprache                                                       | Muster                                                                                                                                                                                                                      | verworfen (Beispiele)                                                                                     |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| deutsch, irgendwo im Eintrag                                  | `\b(suchen\|möchten\|wollen\|bevorzugen\|brauchen\|benötigen\|interessieren\|wünschen\|planen)\s+sie\b`                                                                                                                     | „Suchen Sie einen Anfängerkurs?“, „Für welches Alter suchen Sie?“, „Welche Sprache möchten Sie lernen?“   |
+| englisch, am Anfang (nach führenden Satz-/Aufzählungszeichen) | `are you (looking\|interested\|searching\|planning)`, `do you (prefer\|want\|need\|have a(n) (preference\|preferred))`, `would you (like\|prefer)`, `which … (do you (prefer\|want\|need\|like)\|would you (like\|prefer))` | „Are you looking for beginner courses?“, „Would you like evening classes?“, „Which level would you like?“ |
+
+Erhalten bleiben Nutzerfragen an den Berater: „Haben Sie Kurse am
+Wochenende?“, „Bieten Sie Online-Kurse an?“, „Können Sie mir Anfängerkurse
+zeigen?“, „Which courses do you offer?“, „Do you have a yoga course?“, „Are you
+open on Saturdays?“. Verworfene Einträge zählen nicht gegen die Höchstzahl.
+Bleibt kein Eintrag, sendet der Server keinen `followUps`-Chunk; die Zeile wird
+trotzdem aus dem Text entfernt, gespeichert wird wie bei `[[FRAGEN: -]]` kein
+`followUps`-Feld (= keine Vorschläge). Bereits gespeicherte Vorschläge
+(`/history`, LLM-Verlauf) laufen nur durch `storedFollowUps`, ohne Filter.
+
+## Kartenlayout `courseCardsLayout`
+
+| Wert                                         | Darstellung im Widget                                                   |
+| -------------------------------------------- | ----------------------------------------------------------------------- |
+| `grid` (Standard, auch ohne/ungültigen Wert) | Raster: zwei Karten nebeneinander                                       |
+| `rows`                                       | Zeilen: eine Karte je Zeile, Zeit links, Status rechts (wie im Entwurf) |
+
+`/embed/:id/config` liefert den Schlüssel nur mit gültigem Wert
+(Groß-/Kleinschreibung egal, `LAYOUT_ENUMS` in `server/endpoints/embed`,
+Quelle `COURSE_CARDS_LAYOUTS` in `embedDefaults.js`); sonst fehlt er und das
+Widget nimmt das Raster bzw. sein Script-Attribut `data-course-cards-layout`.
+Der Schlüssel ist reine Darstellung und kommt nie in den System-Prompt.
+
+Design Center, Reiter „Antworten & Hinweise“ › „Antwort & Karten“: Feld
+„Kartenlayout“ (Raster / Zeilen), nur sichtbar bei Kurskarten an. „Zeilen“
+speichert `courseCardsLayout: "rows"`; „Raster“ bzw. unberührt speichert
+nichts (Standard). Bei Karten aus ist das Feld ausgeblendet und ein
+vorhandener Wert bleibt unangetastet. Die Vorschau zeigt keine Karten und
+bleibt unverändert.
+
 ## Standardtexte
 
 Begrüßungsblase, Datenschutz-Titel/-Punkte/-Knopf und KI-Hinweis haben
@@ -41,4 +102,10 @@ Kufer-Standardtexte (de/en, wörtlich wie `PANEL_TEXTS` im Embed-Repo). Das
 Design Center lädt sie über `GET /api/embed/defaults?lang=de|en` (angemeldet,
 Rollen wie die übrigen Embed-Verwaltungsendpunkte), zeigt sie als Feldwert und
 speichert nur Abweichungen. Der öffentliche `/embed/:id/config` liefert sie
-nicht aus.
+nicht aus. Bei Textänderungen im Widget `EMBED_DEFAULT_TEXTS` und die Kopie
+`server/__tests__/utils/chats/fixtures/embedPanelTexts.json` nachziehen (sonst
+setzt „Auf Standardtext zurücksetzen“ den alten Text). Stand Begrüßungsblase:
+„Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI).
+Beschreiben Sie einfach, was Sie suchen.“ (en: „Hello! I am your digital
+advisor powered by artificial intelligence (AI). Just describe what you are
+looking for.“).
