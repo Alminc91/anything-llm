@@ -14,6 +14,12 @@
 // werden NUR diese zwei Zeilen serverseitig gelesen; ausgegeben werden nur
 // url und title, nie der Text selbst.
 //
+// Kurskarten v3: zusätzlich die Kopfzeilen "Dauer: …" (-> sessions, z. B.
+// "16 Abende") und "Kursort: …" (-> venue, nur der Teil vor dem ersten ";",
+// z. B. "Realschule") — ausschließlich aus dem Kopfblock am Dokumentanfang
+// (HEADER_SCAN_LEN, vor "Kursbeschreibung:"), nie aus Metadaten oder dem
+// Beschreibungstext. Fehlen die Zeilen, fehlen die Felder.
+//
 // Kurs = Eintrag mit gültiger Kurs-URL (Kopfzeile "Kurs-Link:" oder http(s)-/
 // web://…website-Metadaten) UND Titel. Datum/Wochentage/Preis usw. sind reine
 // Anreicherung — Kunden ohne KIE-480-Spalten bekommen trotzdem Karten.
@@ -44,16 +50,28 @@ const COURSE_SOURCE_FIELDS = Object.freeze([
   "bookable",
   "format",
   "location",
+  // Kurskarten v3: aus den Kopfzeilen "Dauer:"/"Kursort:" (nie Metadaten)
+  "sessions",
+  "venue",
 ]);
 const COURSE_SOURCES_MAX = 12;
 const URL_MAX_LEN = 500;
 const TITLE_MAX_LEN = 200;
+const SESSIONS_MAX_LEN = 30;
+const VENUE_MAX_LEN = 60;
+// Kurskarten v3: KI-Teaser je Karte (Text aus dem Stream, siehe
+// embedCardsMarker.js) — Markdown/HTML entfernt, höchstens 200 Zeichen.
+const TEASER_MAX_LEN = 200;
 
 const FILENAME_TITLE_RX = /\.(txt|html?|json|pdf|md|csv|docx?)$/i;
 // Feste Kopfzeilen des Kursdokuments (Extraktor) — nur am Zeilenanfang, nur
 // die erste Fundstelle.
 const COURSE_LINK_HEADER_RX = /^Kurs-Link:[ \t]*(.+)$/m;
 const TITLE_HEADER_RX = /^Titel:[ \t]*(.+)$/m;
+const SESSIONS_HEADER_RX = /^Dauer:[ \t]*(.+)$/m;
+const VENUE_HEADER_RX = /^Kursort:[ \t]*(.+)$/m;
+// Ende des Kopfblocks: ab "Kursbeschreibung:" folgt Freitext
+const DESCRIPTION_HEADER_RX = /^Kursbeschreibung:/m;
 // Collector processRawText: metadata.url (http/https) wird als
 // "web://<url in Kleinbuchstaben>.website" gespeichert.
 const WEB_WEBSITE_URL_RX = /^web:\/\/(https?:\/\/.+)\.website$/i;
@@ -82,6 +100,11 @@ const FIELD_VALIDATORS = {
     const normalized = v.trim().toLowerCase();
     return LOCATION_RX.test(normalized) ? normalized : undefined;
   },
+  sessions: (v) => cleanShortText(v, SESSIONS_MAX_LEN),
+  venue: (v) =>
+    typeof v === "string"
+      ? cleanShortText(v.split(";")[0], VENUE_MAX_LEN)
+      : undefined,
 };
 
 function httpUrl(value) {
@@ -108,16 +131,57 @@ function metadataUrl(value) {
   return m ? httpUrl(m[1]) : undefined;
 }
 
+// Auf maxLen kürzen (an einer Wortgrenze, mit "…").
+function truncateAtWord(v, maxLen) {
+  if (v.length <= maxLen) return v;
+  const cut = v.slice(0, maxLen - 1);
+  const atWord = cut.replace(/\s+\S*$/, "");
+  return `${(atWord.length > 0 ? atWord : cut).trimEnd()}…`;
+}
+
 // Überlange Titel werden gekürzt (an einer Wortgrenze, mit "…"), nicht
 // verworfen — sonst fiele der ganze Kurs weg.
 function cleanTitle(value) {
   if (typeof value !== "string") return undefined;
   const v = value.replace(/\s+/g, " ").trim();
   if (v.length === 0) return undefined;
-  if (v.length <= TITLE_MAX_LEN) return v;
-  const cut = v.slice(0, TITLE_MAX_LEN - 1);
-  const atWord = cut.replace(/\s+\S*$/, "");
-  return `${(atWord.length > 0 ? atWord : cut).trimEnd()}…`;
+  return truncateAtWord(v, TITLE_MAX_LEN);
+}
+
+// Kurze Klartext-Felder (Dauer, Ort): HTML-Tags und Steuerzeichen raus,
+// Leerraum zusammengezogen, gekürzt; leer -> undefined.
+function cleanShortText(value, maxLen) {
+  if (typeof value !== "string") return undefined;
+  const v = value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\p{Cc}/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (v.length === 0) return undefined;
+  return truncateAtWord(v, maxLen);
+}
+
+/**
+ * Kurskarten v3: Teaser-Text bereinigen — HTML, Markdown (Links -> Linktext,
+ * Hervorhebungen, Code, Überschriften), nackte URLs und Steuerzeichen raus,
+ * Leerraum zusammengezogen, höchstens TEASER_MAX_LEN Zeichen (Wortgrenze).
+ * @param {any} value
+ * @returns {string|undefined} leer/kein Text -> undefined
+ */
+function cleanTeaserText(value) {
+  if (typeof value !== "string") return undefined;
+  const v = value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/\[\[|\]\]/g, " ")
+    .replace(/[*_`#~|]+/g, "")
+    .replace(/\p{Cc}/gu, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s\-–•:>]+/, "")
+    .trim();
+  if (v.length === 0) return undefined;
+  return truncateAtWord(v, TEASER_MAX_LEN);
 }
 
 /**
@@ -144,6 +208,41 @@ function headerLine(text, rx) {
   if (typeof text !== "string" || text.length === 0) return undefined;
   const m = rx.exec(text);
   return m ? m[1].trim() : undefined;
+}
+
+// Kopfblock am Textanfang: höchstens HEADER_SCAN_LEN Zeichen, und nur bis
+// zur Zeile "Kursbeschreibung:" (danach Freitext, der auch "Dauer:" am
+// Zeilenanfang enthalten könnte).
+function headerBlock(text) {
+  if (typeof text !== "string" || text.length === 0) return "";
+  const head = text.slice(0, HEADER_SCAN_LEN);
+  const desc = head.search(DESCRIPTION_HEADER_RX);
+  return desc === -1 ? head : head.slice(0, desc);
+}
+
+/**
+ * Kurskarten v3: Dauer und Ort aus dem Kopfblock eines Dokumentanfangs
+ * (Kopfzeilen "Dauer:"/"Kursort:"), bereinigt; fehlende Zeilen fehlen.
+ * @param {string} text - Dokumentanfang bzw. Kopf-Chunk
+ * @returns {{sessions?: string, venue?: string}}
+ */
+function courseHeaderDetails(text) {
+  const block = headerBlock(text);
+  const out = {};
+  const sessions = FIELD_VALIDATORS.sessions(
+    headerLine(block, SESSIONS_HEADER_RX)
+  );
+  const venue = FIELD_VALIDATORS.venue(headerLine(block, VENUE_HEADER_RX));
+  if (sessions) out.sessions = sessions;
+  if (venue) out.venue = venue;
+  return out;
+}
+
+// Trägt der Chunk den Kopfblock des Kursdokuments (erste Zeilen mit
+// "Titel:"/"Kurs-Link:")? Nur dann zählen "Dauer:"/"Kursort:".
+function isHeaderChunk(source) {
+  const block = headerBlock(source?.text);
+  return TITLE_HEADER_RX.test(block) || COURSE_LINK_HEADER_RX.test(block);
 }
 
 // Kurs-URL eines Chunks: Metadaten-URL hat Vorrang, sonst "Kurs-Link:".
@@ -210,8 +309,9 @@ function courseEntriesBySource(sources = []) {
   const isChunk = (s) => !!s && typeof s === "object";
 
   // 1) Gruppierung über die Kurs-URL (nur der erste Chunk eines Kurs-
-  //    dokuments trägt "Titel:"/"Kurs-Link:").
+  //    dokuments trägt "Titel:"/"Kurs-Link:" und "Dauer:"/"Kursort:").
   const titleByUrl = new Map();
+  const detailsByUrl = new Map();
   const urlsByFallback = new Map();
   const chunkUrls = sources.map((source) => {
     if (!isChunk(source)) return undefined;
@@ -219,6 +319,8 @@ function courseEntriesBySource(sources = []) {
     if (!url) return undefined;
     const title = titleFromChunk(source);
     if (title && !titleByUrl.has(url)) titleByUrl.set(url, title);
+    if (!detailsByUrl.has(url) && isHeaderChunk(source))
+      detailsByUrl.set(url, courseHeaderDetails(source.text));
     const key = fallbackKey(source);
     if (key) {
       if (!urlsByFallback.has(key)) urlsByFallback.set(key, new Set());
@@ -236,11 +338,20 @@ function courseEntriesBySource(sources = []) {
       if (candidates?.size === 1) [url] = candidates;
     }
     if (!url) return undefined;
-    const { url: _url, title: _title, ...meta } = source;
+    // sessions/venue nie aus Metadaten, nur aus dem Kopf-Chunk derselben
+    // Kurs-URL (Folge-Chunks ohne Kopf-Chunk unter den Treffern: ohne)
+    const {
+      url: _url,
+      title: _title,
+      sessions: _sessions,
+      venue: _venue,
+      ...meta
+    } = source;
     const entry = pickCourseFields({
       ...meta,
       url,
       title: titleByUrl.get(url) || titleFromChunk(source),
+      ...(detailsByUrl.get(url) || {}),
     });
     return isCourseEntry(entry) ? entry : undefined;
   });
@@ -480,7 +591,8 @@ function docFileName(docpath) {
 
 /**
  * Kurs-Eintrag aus einer gelesenen Dokument-JSON: Metadaten-Spalten + die
- * Kopfzeilen "Titel:"/"Kurs-Link:" (nur aus dem Dokumentanfang), Whitelist.
+ * Kopfzeilen "Titel:"/"Kurs-Link:" sowie "Dauer:"/"Kursort:" (nur aus dem
+ * Dokumentanfang), Whitelist.
  * Kein Kurs (keine Kurs-URL oder kein Titel) -> null.
  * @param {object} doc
  * @returns {object|null}
@@ -494,8 +606,20 @@ function courseEntryFromDocument(doc) {
   const url = httpUrl(headerLine(head, COURSE_LINK_HEADER_RX));
   const title = cleanTitle(headerLine(head, TITLE_HEADER_RX));
   if (!url || !title) return null;
-  const { url: _u, title: _t, pageContent: _p, ...meta } = doc;
-  const entry = pickCourseFields({ ...meta, url, title });
+  const {
+    url: _u,
+    title: _t,
+    pageContent: _p,
+    sessions: _s,
+    venue: _v,
+    ...meta
+  } = doc;
+  const entry = pickCourseFields({
+    ...meta,
+    url,
+    title,
+    ...courseHeaderDetails(head),
+  });
   return isCourseEntry(entry) ? entry : null;
 }
 
@@ -876,26 +1000,30 @@ async function completeCourseSourcesFromReply({
 }
 
 /**
- * courseSources aus dem Karten-Marker der Antwort ("[[KARTEN: 0, 2]]"): die
+ * Kurse aus dem Karten-Marker der Antwort ("[[KARTEN: 0, 2]]"): die
  * Nummern sind die Kontextblöcke [CONTEXT n] (0-basiert, Reihenfolge wie
  * contextTexts). Kurs-Einträge aus den Kopfzeilen der Treffer; Folge-Chunks
  * ohne Kopfzeilen werden über ihren Dateinamen nachgeschlagen (gleiches
  * Limit/Cache wie completeCourseSourcesFromReply). Nicht-Kurse und ungültige
  * Nummern fallen weg, Dedupe über die URL, höchstens COURSE_SOURCES_MAX.
+ * urlByIndex ordnet jede Marker-Nummer der URL ihrer Karte zu (Kurskarten
+ * v3: Teaser "[[TEASER n: …]]" -> Karte); Nummern ohne Karte fehlen.
  * @param {{indices: number[], contextSources: object[], workspace?: object, lookup?: object, deps?: object}} args
- * @returns {Promise<object[]>}
+ * @returns {Promise<{courseSources: object[], urlByIndex: Map<number, string>}>}
  */
-async function courseSourcesFromMarker({
+async function resolveMarkerCourses({
   indices = [],
   contextSources = [],
   workspace = null,
   lookup = null,
   deps = {},
 } = {}) {
+  const empty = () => ({ courseSources: [], urlByIndex: new Map() });
   try {
-    if (!Array.isArray(indices) || indices.length === 0) return [];
+    if (!Array.isArray(indices) || indices.length === 0) return empty();
     const entries = courseEntriesBySource(contextSources);
     const picked = [];
+    const pickedIndices = [];
     let ctx = lookup;
     for (const index of indices) {
       if (
@@ -912,13 +1040,75 @@ async function courseSourcesFromMarker({
         const docpath = findDocpathForChunk(contextSources[index], docIndex);
         entry = docpath ? await ctx.read(docpath) : null;
       }
-      if (entry) picked.push(entry);
+      if (entry) {
+        picked.push(entry);
+        pickedIndices.push(index);
+      }
     }
-    return mergeCourseSources(picked);
+    const courseSources = mergeCourseSources(picked);
+    // Nummer -> URL der tatsächlich gelieferten Karte (gleiche Dedupe-Regel)
+    const urlByKey = new Map(courseSources.map((e) => [urlKey(e.url), e.url]));
+    const urlByIndex = new Map();
+    picked.forEach((entry, i) => {
+      const url = urlByKey.get(urlKey(entry.url));
+      if (url && !urlByIndex.has(pickedIndices[i]))
+        urlByIndex.set(pickedIndices[i], url);
+    });
+    return { courseSources, urlByIndex };
   } catch (e) {
     console.error("[courseSourcesFromMarker]", e.message);
-    return [];
+    return empty();
   }
+}
+
+/**
+ * courseSources aus dem Karten-Marker (siehe resolveMarkerCourses).
+ * @returns {Promise<object[]>}
+ */
+async function courseSourcesFromMarker(args = {}) {
+  return (await resolveMarkerCourses(args)).courseSources;
+}
+
+/**
+ * Kurskarten v3: Teaserzeilen ({index, text}, Reihenfolge des Streams) den
+ * angekündigten Karten zuordnen — nur Nummern aus dem Marker mit Karte
+ * (urlByIndex), erste Zeile je Karte gewinnt, Text bereinigt (≤ 200 Zeichen).
+ * Fremde Nummern und leere Texte fallen weg.
+ * @param {{index: number, text: string}[]} lines
+ * @param {Map<number, string>} urlByIndex
+ * @returns {Object<string, string>} URL -> Teaser
+ */
+function courseTeasersFromLines(lines = [], urlByIndex = new Map()) {
+  const out = {};
+  if (!Array.isArray(lines) || !(urlByIndex instanceof Map)) return out;
+  for (const line of lines) {
+    const url = urlByIndex.get(line?.index);
+    if (!url || url in out) continue;
+    const text = cleanTeaserText(line?.text);
+    if (text) out[url] = text;
+  }
+  return out;
+}
+
+/**
+ * Gespeicherte courseTeasers (Historie) nochmals prüfen: nur Einträge für
+ * URLs der (bereinigten) courseSources, Text bereinigt; sonst {}.
+ * @param {any} teasers
+ * @param {object[]} courseSources - bereits bereinigt (sanitizeCourseSources)
+ * @returns {Object<string, string>}
+ */
+function sanitizeCourseTeasers(teasers, courseSources = []) {
+  const out = {};
+  if (!teasers || typeof teasers !== "object" || Array.isArray(teasers))
+    return out;
+  for (const entry of Array.isArray(courseSources) ? courseSources : []) {
+    const url = entry?.url;
+    if (typeof url !== "string" || url in out) continue;
+    if (!Object.prototype.hasOwnProperty.call(teasers, url)) continue;
+    const text = cleanTeaserText(teasers[url]);
+    if (text) out[url] = text;
+  }
+  return out;
 }
 
 module.exports = {
@@ -927,11 +1117,19 @@ module.exports = {
   mergeCourseSources,
   completeCourseSourcesFromReply,
   courseSourcesFromMarker,
+  resolveMarkerCourses,
+  courseTeasersFromLines,
+  sanitizeCourseTeasers,
+  cleanTeaserText,
   createCourseLookup,
   sanitizeCourseSources,
   // nur für Tests
   __test__: {
     COURSE_SOURCE_FIELDS,
+    SESSIONS_MAX_LEN,
+    VENUE_MAX_LEN,
+    TEASER_MAX_LEN,
+    courseHeaderDetails,
     COURSE_SOURCES_MAX,
     COURSE_LOOKUPS_MAX,
     courseEntriesBySource,

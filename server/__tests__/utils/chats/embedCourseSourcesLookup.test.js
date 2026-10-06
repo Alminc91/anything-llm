@@ -173,6 +173,9 @@ describe("completeCourseSourcesFromReply", () => {
       price: 35,
       bookable: true,
       format: "onsite",
+      // Kurskarten v3: aus "Dauer:"/"Kursort:" des gelesenen Dokuments
+      sessions: "4 vorm.",
+      venue: "Realschule",
     });
     expect(deps.listDocpaths).toHaveBeenCalledWith({ id: 7 });
     expect(deps.readFile).toHaveBeenCalledTimes(1);
