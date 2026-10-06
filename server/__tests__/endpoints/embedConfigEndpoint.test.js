@@ -198,6 +198,8 @@ describe("GET /embed/:embedId/config — Theme- und Inline-Schlüssel", () => {
       ["false", false],
       ["Off", false],
       ["0", false],
+      ["yes", true],
+      [" No ", false],
     ]) {
       const res = await fetchConfig({ inlineInput: input });
       expect(res.body.inlineInput).toBe(expected);
@@ -289,5 +291,163 @@ describe("GET /embed/:embedId/config — Leisten-Variante „Öffnen bei Klick�
       inlineLayout: "overlay",
     });
     expect(res.body).toEqual({ inlineInput: true, inlineLayout: "overlay" });
+  });
+});
+
+describe("GET /embed/:embedId/config — Panel-Optik, Datenschutz- und KI-Hinweis", () => {
+  const PANEL = {
+    suggestionStyle: "pills",
+    greetingStyle: "bubble",
+    greetingBubbleText: "Hallo! Ich bin Ihr KI-Kursberater.",
+    assistantSubtitle: "durchsucht 1.243 Kurse",
+    onlineDot: true,
+    privacyNotice: "modal",
+    privacyTitle: "Datenschutz:",
+    privacyText: "Läuft auf eigener Infrastruktur in Deutschland.\nKI-Hinweis",
+    privacyButtonText: "Start",
+    privacyUrl: "https://vhs.example/datenschutz",
+    disclaimer: "footer",
+    disclaimerText: "Ich bin eine KI und kann Fehler machen.",
+  };
+
+  test("liefert alle Schlüssel an das Widget", async () => {
+    const res = await fetchConfig(PANEL);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual(PANEL);
+  });
+
+  test("Enums: Groß-/Kleinschreibung egal, unbekannt oder falscher Typ weggelassen", async () => {
+    const res = await fetchConfig({
+      suggestionStyle: " Pills ",
+      greetingStyle: "TEXT",
+      privacyNotice: "None",
+      disclaimer: " FOOTER",
+    });
+    expect(res.body).toEqual({
+      suggestionStyle: "pills",
+      greetingStyle: "text",
+      privacyNotice: "none",
+      disclaimer: "footer",
+    });
+    for (const notice of ["none", "bubble", "modal"]) {
+      const r = await fetchConfig({ privacyNotice: notice });
+      expect(r.body).toEqual({ privacyNotice: notice });
+    }
+    for (const v of ["chips", 1, null, ["pills"], "   "]) {
+      const bad = await fetchConfig({
+        suggestionStyle: v,
+        greetingStyle: v,
+        privacyNotice: v,
+        disclaimer: v,
+      });
+      expect(bad.body).toEqual({});
+    }
+  });
+
+  test("Texte: getrimmt, Höchstlängen wie im Widget, zu lang weggelassen", async () => {
+    const ok = await fetchConfig({
+      greetingBubbleText: ` ${"x".repeat(300)} `,
+      assistantSubtitle: "y".repeat(60),
+      privacyTitle: "t".repeat(120),
+      // 5 Punkte à 160 Zeichen, Trenner "|" + 49 Leerzeichen -> Rohtext 1000
+      privacyText: Array(5)
+        .fill("z".repeat(160))
+        .join(`|${" ".repeat(49)}`),
+      privacyButtonText: "b".repeat(40),
+      privacyUrl: `https://vhs.example/${"p".repeat(492)}`, // 512 Zeichen
+      disclaimerText: "d".repeat(160),
+    });
+    expect(ok.body.greetingBubbleText).toHaveLength(300);
+    expect(ok.body.assistantSubtitle).toHaveLength(60);
+    expect(ok.body.privacyTitle).toHaveLength(120);
+    expect(ok.body.privacyText).toBe(Array(5).fill("z".repeat(160)).join("\n"));
+    expect(ok.body.privacyButtonText).toHaveLength(40);
+    expect(ok.body.privacyUrl).toHaveLength(512);
+    expect(ok.body.disclaimerText).toHaveLength(160);
+    const tooLong = await fetchConfig({
+      greetingBubbleText: "x".repeat(301),
+      assistantSubtitle: "y".repeat(61),
+      privacyTitle: "t".repeat(121),
+      privacyText: Array(5)
+        .fill("z".repeat(160))
+        .join(`|${" ".repeat(50)}`),
+      privacyButtonText: "b".repeat(41),
+      privacyUrl: `https://vhs.example/${"p".repeat(493)}`, // 513 Zeichen
+      disclaimerText: "d".repeat(161),
+    });
+    expect(tooLong.body).toEqual({});
+  });
+
+  test("onlineDot: Boolean bzw. Boolean-String, sonst weggelassen", async () => {
+    expect((await fetchConfig({ onlineDot: false })).body).toEqual({
+      onlineDot: false,
+    });
+    expect((await fetchConfig({ onlineDot: "on" })).body).toEqual({
+      onlineDot: true,
+    });
+    for (const [input, expected] of [
+      [true, true],
+      ["yes", true],
+      ["1", true],
+      ["no", false],
+      ["0", false],
+      ["off", false],
+      ["false", false],
+    ]) {
+      expect((await fetchConfig({ onlineDot: input })).body).toEqual({
+        onlineDot: expected,
+      });
+    }
+    for (const bad of ["vielleicht", "", 1, null]) {
+      expect((await fetchConfig({ onlineDot: bad })).body).toEqual({});
+    }
+  });
+
+  test("privacyUrl: nur https:// oder /pfad, ohne Leer-/Steuerzeichen", async () => {
+    for (const url of ["https://vhs.example/datenschutz", "/datenschutz"]) {
+      expect((await fetchConfig({ privacyUrl: url })).body).toEqual({
+        privacyUrl: url,
+      });
+    }
+    expect((await fetchConfig({ privacyUrl: " /datenschutz " })).body).toEqual({
+      privacyUrl: "/datenschutz",
+    });
+    for (const bad of [
+      "javascript:alert(1)",
+      "http://vhs.example/datenschutz",
+      "//evil.example/x",
+      "https://vhs.example/daten schutz",
+      "/daten\tschutz",
+      "datenschutz",
+      "",
+      42,
+    ]) {
+      expect((await fetchConfig({ privacyUrl: bad })).body).toEqual({});
+    }
+  });
+
+  test("privacyText: Stichpunkte wie im Widget geprüft und normalisiert", async () => {
+    expect((await fetchConfig({ privacyText: "a | b | c" })).body).toEqual({
+      privacyText: "a\nb\nc",
+    });
+    expect(
+      (await fetchConfig({ privacyText: " a\r\n\n | b \n" })).body
+    ).toEqual({ privacyText: "a\nb" });
+    expect(
+      (await fetchConfig({ privacyText: "1|2|3|4|5" })).body.privacyText
+    ).toBe("1\n2\n3\n4\n5");
+    for (const bad of [
+      "1|2|3|4|5|6", // 6 Punkte
+      `ok|${"x".repeat(161)}`, // ein Punkt mit 161 Zeichen
+      " | \n ", // nur leere Punkte
+      42,
+    ]) {
+      expect((await fetchConfig({ privacyText: bad })).body).toEqual({});
+    }
+  });
+
+  test("ohne die Schlüssel bleibt die Antwort wie bisher", async () => {
+    const res = await fetchConfig({ inlineInput: true, theme: "dark" });
+    expect(res.body).toEqual({ inlineInput: true, theme: "dark" });
   });
 });
