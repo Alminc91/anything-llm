@@ -197,19 +197,45 @@ function cleanTeaserText(value) {
  * @param {{visual_config?: string|object|null}} embed
  * @returns {boolean}
  */
-function courseCardsEnabled(embed = {}) {
+// visual_config eines Embeds (JSON-String oder Objekt) → Wert eines
+// Schlüssels, normalisiert (String getrimmt + Kleinschreibung); null, wenn
+// nicht gesetzt oder nicht parsbar.
+function visualConfigValue(embed = {}, key, tag = "visualConfigValue") {
   let config = embed?.visual_config ?? null;
   if (typeof config === "string") {
     try {
       config = JSON.parse(config);
     } catch (e) {
-      console.error("[courseCardsEnabled] visual_config unparsable", e.message);
-      return false;
+      console.error(`[${tag}] visual_config unparsable`, e.message);
+      return null;
     }
   }
-  const value = config?.courseCards;
-  return typeof value === "string" && value.trim().toLowerCase() === "auto";
+  const value = config?.[key];
+  if (typeof value === "string") return value.trim().toLowerCase();
+  return value ?? null;
 }
+
+function courseCardsEnabled(embed = {}) {
+  return (
+    visualConfigValue(embed, "courseCards", "courseCardsEnabled") === "auto"
+  );
+}
+
+// Fester KI-Hinweis im Widget (visual_config.disclaimer = "footer"): das
+// Widget zeigt die Zeile selbst unter dem Eingabefeld, das Modell soll den
+// Prompt-Pflicht-Footer dann nicht mehr erzeugen (spart Tokens, keine
+// Dopplung, Sprachausgabe liest ihn nicht vor).
+function disclaimerFooterEnabled(embed = {}) {
+  return (
+    visualConfigValue(embed, "disclaimer", "disclaimerFooterEnabled") ===
+    "footer"
+  );
+}
+
+// Wird ans ENDE des System-Prompts gehängt (hinter der Zeitzeile), damit der
+// gecachte Prompt-Präfix der Flotte unverändert bleibt.
+const DISCLAIMER_PROMPT_NOTE =
+  "\n\n### Footer Override (ACTIVE)\nThe chat widget displays the AI disclaimer itself below the input field. Do NOT write the Mandatory Footer sentence (\u201eIch bin eine KI und kann Fehler machen \u2026\u201c or its translation) at the end of your answers. Everything else about the footer section is disabled.";
 
 function headerLine(text, rx) {
   if (typeof text !== "string" || text.length === 0) return undefined;
@@ -1122,6 +1148,9 @@ function sanitizeCourseTeasers(teasers, courseSources = []) {
 }
 
 module.exports = {
+  visualConfigValue,
+  disclaimerFooterEnabled,
+  DISCLAIMER_PROMPT_NOTE,
   courseCardsEnabled,
   buildCourseSources,
   mergeCourseSources,

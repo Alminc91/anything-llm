@@ -639,3 +639,40 @@ describe("Kurskarten v3: sessions/venue aus 'Dauer:'/'Kursort:'", () => {
     expect(sanitizeCourseTeasers({ [YOGA_URL]: "  " }, sources)).toEqual({});
   });
 });
+
+describe("visualConfigValue / disclaimerFooterEnabled", () => {
+  const {
+    visualConfigValue,
+    disclaimerFooterEnabled,
+    courseCardsEnabled,
+  } = require("../../../utils/chats/embedCourseSources");
+
+  test("liest JSON-String und Objekt, normalisiert Strings", () => {
+    expect(
+      visualConfigValue(
+        { visual_config: '{"disclaimer":" Footer "}' },
+        "disclaimer"
+      )
+    ).toBe("footer");
+    expect(
+      visualConfigValue({ visual_config: { onlineDot: true } }, "onlineDot")
+    ).toBe(true);
+    expect(visualConfigValue({ visual_config: "{kaputt" }, "disclaimer")).toBe(
+      null
+    );
+    expect(visualConfigValue({}, "disclaimer")).toBe(null);
+  });
+
+  test("disclaimerFooterEnabled nur bei footer; courseCardsEnabled unverändert", () => {
+    expect(
+      disclaimerFooterEnabled({ visual_config: '{"disclaimer":"footer"}' })
+    ).toBe(true);
+    expect(
+      disclaimerFooterEnabled({ visual_config: '{"disclaimer":"none"}' })
+    ).toBe(false);
+    expect(disclaimerFooterEnabled({})).toBe(false);
+    expect(
+      courseCardsEnabled({ visual_config: '{"courseCards":"AUTO"}' })
+    ).toBe(true);
+  });
+});
