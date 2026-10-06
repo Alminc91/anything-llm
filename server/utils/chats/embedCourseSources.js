@@ -70,8 +70,14 @@ const COURSE_LINK_HEADER_RX = /^Kurs-Link:[ \t]*(.+)$/m;
 const TITLE_HEADER_RX = /^Titel:[ \t]*(.+)$/m;
 const SESSIONS_HEADER_RX = /^Dauer:[ \t]*(.+)$/m;
 const VENUE_HEADER_RX = /^Kursort:[ \t]*(.+)$/m;
-// Ende des Kopfblocks: ab "Kursbeschreibung:" folgt Freitext
+// Ende des Kopfblocks: ab "Kursbeschreibung:" folgt Freitext, ebenso nach
+// der ersten Leerzeile (der Extraktor trennt Kopf und Beschreibung so).
 const DESCRIPTION_HEADER_RX = /^Kursbeschreibung:/m;
+const BLANK_LINE_RX = /\n[ \t]*\r?\n/;
+// Treffer-Chunks beginnen mit "<document_metadata>…</document_metadata>"
+// (Collector), danach Leerzeilen; das gehört nicht zum Kopfblock.
+const DOC_METADATA_OPEN = "<document_metadata>";
+const DOC_METADATA_CLOSE = "</document_metadata>";
 // Collector processRawText: metadata.url (http/https) wird als
 // "web://<url in Kleinbuchstaben>.website" gespeichert.
 const WEB_WEBSITE_URL_RX = /^web:\/\/(https?:\/\/.+)\.website$/i;
@@ -263,14 +269,24 @@ function headerLine(text, rx) {
   return m ? m[1].trim() : undefined;
 }
 
-// Kopfblock am Textanfang: höchstens HEADER_SCAN_LEN Zeichen, und nur bis
-// zur Zeile "Kursbeschreibung:" (danach Freitext, der auch "Dauer:" am
-// Zeilenanfang enthalten könnte).
+// Kopfblock am Textanfang: höchstens HEADER_SCAN_LEN Zeichen (ohne einen
+// führenden <document_metadata>-Block), und nur bis zur Zeile
+// "Kursbeschreibung:" bzw. zur ersten Leerzeile — danach Freitext, der auch
+// "Dauer:", "Titel:" oder "Kurs-Link:" am Zeilenanfang enthalten könnte
+// (Security: gecrawlte/fremde Beschreibungstexte dürfen keine Karte mit
+// beliebigem Ziel erzeugen). ALLE Kopfzeilen werden nur hieraus gelesen.
 function headerBlock(text) {
   if (typeof text !== "string" || text.length === 0) return "";
-  const head = text.slice(0, HEADER_SCAN_LEN);
+  let head = text.slice(0, HEADER_SCAN_LEN);
+  if (head.trimStart().startsWith(DOC_METADATA_OPEN)) {
+    const close = head.indexOf(DOC_METADATA_CLOSE);
+    head = close === -1 ? "" : head.slice(close + DOC_METADATA_CLOSE.length);
+  }
+  head = head.replace(/^(?:[ \t]*\r?\n)+/, "");
   const desc = head.search(DESCRIPTION_HEADER_RX);
-  return desc === -1 ? head : head.slice(0, desc);
+  if (desc !== -1) head = head.slice(0, desc);
+  const blank = head.search(BLANK_LINE_RX);
+  return blank === -1 ? head : head.slice(0, blank);
 }
 
 /**
@@ -301,16 +317,40 @@ function isCourseHeaderBlock(block) {
   return TITLE_HEADER_RX.test(block) || COURSE_LINK_HEADER_RX.test(block);
 }
 
-// Kurs-URL eines Chunks: Metadaten-URL hat Vorrang, sonst "Kurs-Link:".
-function courseUrlFromChunk(source) {
-  return (
-    metadataUrl(source?.url) ||
-    httpUrl(headerLine(source?.text, COURSE_LINK_HEADER_RX))
-  );
+// Gleiche Seite (Host ohne "www." + Pfad, Groß-/Kleinschreibung egal —
+// der Collector speichert die Metadaten-URL kleingeschrieben)?
+function sameHostAndPath(a, b) {
+  const page = (value) => {
+    const u = new URL(value);
+    const host = u.hostname.toLowerCase().replace(/^www\./, "");
+    return `${host}${u.pathname.replace(/\/+$/, "")}`.toLowerCase();
+  };
+  return page(a) === page(b);
 }
 
-function titleFromChunk(source) {
-  const fromHeader = cleanTitle(headerLine(source?.text, TITLE_HEADER_RX));
+/**
+ * Kurs-URL und Kopfblock eines Chunks. Kopfzeilen nur aus headerBlock (nie
+ * aus dem Beschreibungstext). Hat der Chunk eine Metadaten-URL, gilt der
+ * Kopfblock nur, wenn sein "Kurs-Link:" auf dieselbe Seite (Host + Pfad)
+ * zeigt — dann wird die Kopfzeilen-URL verwendet (korrekte Schreibweise),
+ * sonst die Metadaten-URL ohne Kopfblock-Daten. Ohne Metadaten-URL zählt
+ * "Kurs-Link:" aus dem Kopfblock.
+ * @param {object} source
+ * @returns {{url?: string, block: string}}
+ */
+function chunkCourseHeader(source) {
+  const metaUrl = metadataUrl(source?.url);
+  const block = headerBlock(source?.text);
+  const headerUrl = httpUrl(headerLine(block, COURSE_LINK_HEADER_RX));
+  if (!metaUrl) return { url: headerUrl, block };
+  if (!headerUrl) return { url: metaUrl, block };
+  if (sameHostAndPath(metaUrl, headerUrl)) return { url: headerUrl, block };
+  return { url: metaUrl, block: "" };
+}
+
+// Kurs-Titel eines Chunks aus seinem Kopfblock (chunkCourseHeader().block)
+function titleFromChunk(source, block = headerBlock(source?.text)) {
+  const fromHeader = cleanTitle(headerLine(block, TITLE_HEADER_RX));
   if (fromHeader) return fromHeader;
   // metadata.title nur, wenn es kein Dateiname/Slug ist
   const title = cleanTitle(source?.title);
@@ -369,14 +409,16 @@ function courseEntriesBySource(sources = []) {
   const titleByUrl = new Map();
   const detailsByUrl = new Map();
   const urlsByFallback = new Map();
-  const chunkUrls = sources.map((source) => {
+  const headers = sources.map((source) =>
+    isChunk(source) ? chunkCourseHeader(source) : undefined
+  ); // einmal je Chunk
+  const chunkUrls = sources.map((source, index) => {
     if (!isChunk(source)) return undefined;
-    const url = courseUrlFromChunk(source);
+    const { url, block } = headers[index];
     if (!url) return undefined;
-    const title = titleFromChunk(source);
+    const title = titleFromChunk(source, block);
     if (title && !titleByUrl.has(url)) titleByUrl.set(url, title);
     if (!detailsByUrl.has(url)) {
-      const block = headerBlock(source.text); // einmal je Chunk
       if (isCourseHeaderBlock(block))
         detailsByUrl.set(url, headerDetailsFromBlock(block));
     }
@@ -409,7 +451,8 @@ function courseEntriesBySource(sources = []) {
     const entry = pickCourseFields({
       ...meta,
       url,
-      title: titleByUrl.get(url) || titleFromChunk(source),
+      title:
+        titleByUrl.get(url) || titleFromChunk(source, headers[index].block),
       ...(detailsByUrl.get(url) || {}),
     });
     return isCourseEntry(entry) ? entry : undefined;
@@ -506,9 +549,17 @@ const HEADER_SCAN_LEN = 4000; // Kopfzeilen stehen am Dokumentanfang
 
 // Links der Antwort (wie das Widget, src/utils/courseCards.js extractLinks):
 // [Text](url), <a href="url">, nackte URLs.
+// Security (ReDoS): Linktext und Anchor-Attribute sind begrenzt und enden an
+// der Zeile — sonst läuft die Suche bei vielen "[" bzw. "<a " ohne
+// Abschluss quadratisch (100.000 "[" = ~17 s blockierter Event-Loop).
 const MD_LINK_RX =
-  /\[([^\]]*)\]\(\s*<?(https?:\/\/(?:[^\s()<>]|\([^\s()<>]*\))+)>?(?:\s+"[^"]*")?\s*\)/g;
-const ANCHOR_RX = /<a\s[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>/gi;
+  /\[([^\]\n]{0,300})\]\(\s*<?(https?:\/\/(?:[^\s()<>]|\([^\s()<>]*\))+)>?(?:\s+"[^"\n]*")?\s*\)/g;
+const ANCHOR_RX =
+  /<a\s[^>\n]{0,500}href=["'](https?:\/\/[^"'\n]{1,1000})["'][^>\n]{0,500}>/gi;
+// Nur die ersten REPLY_SCAN_LEN Zeichen der Antwort werden nach Links
+// durchsucht (Rest ignoriert): begrenzt die Laufzeit auch für die übrigen
+// Muster; Kurs-Links stehen in echten Antworten weit davor.
+const REPLY_SCAN_LEN = 20000;
 const BARE_URL_RX = /<?(https?:\/\/[^\s<>"'\]]+)>?/g;
 
 // Satzzeichen am URL-Ende abschneiden; ")" nur, wenn sie keine "(" in der
@@ -527,16 +578,24 @@ function trimUrlTail(url) {
  * @returns {string[]}
  */
 function extractReplyLinks(replyText = "") {
-  const text = typeof replyText === "string" ? replyText : "";
+  const text =
+    typeof replyText === "string" ? replyText.slice(0, REPLY_SCAN_LEN) : "";
   const found = [];
   const push = (url, index) => {
     const clean = trimUrlTail(url);
     if (httpUrl(clean)) found.push({ url: clean, index });
   };
-  for (const m of text.matchAll(MD_LINK_RX)) push(m[2], m.index);
-  for (const m of text.matchAll(ANCHOR_RX)) push(m[1], m.index);
-  const blank = (m) => " ".repeat(m.length);
-  const rest = text.replace(MD_LINK_RX, blank).replace(ANCHOR_RX, blank);
+  // je Muster EIN Durchlauf: Link merken und durch gleich lange Leerzeichen
+  // ersetzen (Positionen bleiben), danach nackte URLs im Rest
+  const rest = text
+    .replace(MD_LINK_RX, (m, _text, url, index) => {
+      push(url, index);
+      return " ".repeat(m.length);
+    })
+    .replace(ANCHOR_RX, (m, url, index) => {
+      push(url, index);
+      return " ".repeat(m.length);
+    });
   for (const m of rest.matchAll(BARE_URL_RX)) push(m[1], m.index);
   const seen = new Set();
   return found
@@ -582,6 +641,15 @@ const TRANSLIT = {
   "€": "EUR",
 };
 const HTML_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+const MAX_CODE_POINT = 0x10ffff;
+
+// Zeichen einer numerischen Entity; ungültige Codepoints (> U+10FFFF, z. B.
+// "&#99999999;") werden verworfen statt zu werfen (String.fromCodePoint
+// -> RangeError hätte alle gefundenen Kurse der Antwort gekostet).
+function codePointChar(n) {
+  if (!Number.isInteger(n) || n > MAX_CODE_POINT) return "";
+  return String.fromCodePoint(n || 32);
+}
 
 /**
  * Nachbau von python-slugify 8 (`slugify(url, max_length=150)`, Pipeline
@@ -598,13 +666,9 @@ function urlSlugify(url, { maxLength = SLUG_MAX_LEN } = {}) {
     .replace(/'+/g, "-")
     .toLowerCase()
     .replace(/(\d),(?=\d)/g, "$1")
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/g, (m, ent) => {
-      if (ent.startsWith("#x"))
-        return String.fromCodePoint(parseInt(ent.slice(2), 16) || 32);
-      if (ent.startsWith("#"))
-        return String.fromCodePoint(Number(ent.slice(1)) || 32);
-      return HTML_ENTITIES[ent] ?? m;
-    })
+    .replace(/&([a-z]+);/g, (m, ent) => HTML_ENTITIES[ent] ?? m)
+    .replace(/&#(\d+);/g, (m, n) => codePointChar(Number(n)))
+    .replace(/&#x([0-9a-f]+);/g, (m, n) => codePointChar(parseInt(n, 16)))
     .replace(/[^-a-z0-9]+/g, "-")
     .replace(/-{2,}/g, "-")
     .replace(/^-+|-+$/g, "");
@@ -651,17 +715,15 @@ function docFileName(docpath) {
 /**
  * Kurs-Eintrag aus einer gelesenen Dokument-JSON: Metadaten-Spalten + die
  * Kopfzeilen "Titel:"/"Kurs-Link:" sowie "Dauer:"/"Kursort:" (nur aus dem
- * Dokumentanfang), Whitelist.
+ * Kopfblock am Dokumentanfang, headerBlock), Whitelist.
  * Kein Kurs (keine Kurs-URL oder kein Titel) -> null.
  * @param {object} doc
  * @returns {object|null}
  */
 function courseEntryFromDocument(doc) {
   if (!doc || typeof doc !== "object") return null;
-  const head =
-    typeof doc.pageContent === "string"
-      ? doc.pageContent.slice(0, HEADER_SCAN_LEN)
-      : "";
+  // Kopfzeilen nur aus dem Kopfblock (nie aus "Kursbeschreibung:"-Text)
+  const head = headerBlock(doc.pageContent);
   const url = httpUrl(headerLine(head, COURSE_LINK_HEADER_RX));
   const title = cleanTitle(headerLine(head, TITLE_HEADER_RX));
   if (!url || !title) return null;
@@ -677,7 +739,7 @@ function courseEntryFromDocument(doc) {
     ...meta,
     url,
     title,
-    ...courseHeaderDetails(head),
+    ...headerDetailsFromBlock(head),
   });
   return isCourseEntry(entry) ? entry : null;
 }

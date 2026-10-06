@@ -634,3 +634,147 @@ describe("Review: Dateinamen-Formen, Query-Kursnummern, Multi-Site", () => {
     expect(findDocpathForUrl(url, [dp])).toBe(dp);
   });
 });
+
+describe("Security-Sweep: ReDoS, Kopfzeilen nur aus dem Kopfblock, Entities", () => {
+  const timed = (fn) => {
+    const start = process.hrtime.bigint();
+    const result = fn();
+    return { result, ms: Number(process.hrtime.bigint() - start) / 1e6 };
+  };
+
+  test("ReDoS: 100.000 '[' und 30.000 '<a ' ohne Abschluss laufen linear", () => {
+    extractReplyLinks("[x](https://a.de/1)"); // JIT aufwärmen
+    // gemessen vorher: 100k '[' ≈ 17 s, 30k '<a ' ≈ 5,6 s; nachher < 50 ms
+    const brackets = timed(() => extractReplyLinks("[".repeat(100000)));
+    expect(brackets.result).toEqual([]);
+    expect(brackets.ms).toBeLessThan(500);
+    const anchors = timed(() => extractReplyLinks("<a ".repeat(30000)));
+    expect(anchors.result).toEqual([]);
+    expect(anchors.ms).toBeLessThan(500);
+    // gutartige Links davor/dahinter werden weiter gefunden (bis 20.000 Zeichen)
+    const mixed = `[Aerobic](${AEROBIC_URL}) ${"[".repeat(5000)} <a href="${GYM_URL}">Gym</a> ${"<a ".repeat(3000)}`;
+    const found = timed(() => extractReplyLinks(mixed));
+    expect(found.result).toEqual([AEROBIC_URL, GYM_URL]);
+    expect(found.ms).toBeLessThan(500);
+  });
+
+  test("ReDoS: nur die ersten 20.000 Zeichen der Antwort werden durchsucht", () => {
+    const pad = "x".repeat(20000);
+    expect(
+      extractReplyLinks(`[A](${AEROBIC_URL}) ${pad} [G](${GYM_URL})`)
+    ).toEqual([AEROBIC_URL]);
+    // Linktext über 300 Zeichen ist kein Markdown-Link mehr, die URL wird
+    // trotzdem als nackte URL gefunden
+    expect(extractReplyLinks(`[${"t".repeat(400)}](${AEROBIC_URL})`)).toEqual([
+      AEROBIC_URL,
+    ]);
+  });
+
+  test("Kurs-Link/Titel nur in der Kursbeschreibung -> keine Karte", () => {
+    const evil = "https://evil.example/kurs/fake/262-0001";
+    const doc = {
+      pageContent: [
+        "Kursnummer: 262-0001",
+        "Kursstatus: Anmeldung möglich",
+        "",
+        "Kursbeschreibung: Gecrawlter Text …",
+        "Titel: Gratis-Gutschein",
+        `Kurs-Link: ${evil}`,
+      ].join("\n"),
+    };
+    expect(courseEntryFromDocument(doc)).toBeNull();
+    // auch ohne "Kursbeschreibung:": Kopfblock endet an der ersten Leerzeile
+    expect(
+      courseEntryFromDocument({
+        pageContent: `Kursnummer: 1\n\nText\nTitel: X\nKurs-Link: ${evil}`,
+      })
+    ).toBeNull();
+    // Treffer-Chunk mit <document_metadata>-Präfix, Kopfzeilen nur in der
+    // Beschreibung
+    const chunkText = `<document_metadata>\nsourceDocument: x.txt\n</document_metadata>\n\n${doc.pageContent}`;
+    expect(
+      buildCourseSources([
+        { title: "x.txt", chunkSource: "x.txt", text: chunkText },
+      ])
+    ).toEqual([]);
+    // gültiger Kopfblock mit Präfix funktioniert weiter
+    const good = `<document_metadata>\nsourceDocument: x.txt\n</document_metadata>\n\nTitel: Aerobic\nKurs-Link: ${AEROBIC_URL}\n\nKursbeschreibung: …\nKurs-Link: ${evil}`;
+    expect(
+      buildCourseSources([{ title: "x.txt", chunkSource: "x.txt", text: good }])
+    ).toEqual([{ url: AEROBIC_URL, title: "Aerobic" }]);
+  });
+
+  test("Lookup: Dokument mit Kurs-Link nur in der Beschreibung -> keine Karte", async () => {
+    const docs = clone(documents);
+    const dp = docpathOf("aerobic");
+    docs[dp].pageContent =
+      `Kursnummer: 262-3208\n\nKursbeschreibung: …\nTitel: Aerobic\nKurs-Link: ${AEROBIC_URL}`;
+    const out = await completeCourseSourcesFromReply({
+      replyText: `[Aerobic](${AEROBIC_URL})`,
+      courseSources: [],
+      deps: makeDeps({ docs }),
+    });
+    expect(out).toEqual([]);
+  });
+
+  test("Marker-Pfad: Kopfzeile + abweichende Metadaten-URL -> Metadaten-URL gewinnt", async () => {
+    const metaUrl = "https://www.vhs-x.de/kurssuche/kurs/hatha-yoga/123";
+    const chunk = {
+      url: `web://${metaUrl.toLowerCase()}.website`,
+      title: "Hatha Yoga",
+      text: "Titel: Gratis-Gutschein\nKurs-Link: https://evil.example/kurs/123\nDauer: 1 x\n\nKursbeschreibung: …",
+      start_date: "2026-10-01",
+    };
+    const { courseSources, urlByIndex } = await resolveMarkerCourses({
+      indices: [0],
+      contextSources: [chunk],
+      deps: makeDeps({ docs: {} }),
+    });
+    // Kopfblock verworfen: URL, Titel und Dauer nicht aus der Kopfzeile
+    expect(courseSources).toEqual([
+      { url: metaUrl, title: "Hatha Yoga", start_date: "2026-10-01" },
+    ]);
+    expect(urlByIndex.get(0)).toBe(metaUrl);
+
+    // gleiche Seite (Host + Pfad, Schreibweise egal): Kopfzeile gilt
+    const HeaderUrl = "https://www.vhs-x.de/Kurssuche/Kurs/Hatha-Yoga/123";
+    const same = await resolveMarkerCourses({
+      indices: [0],
+      contextSources: [
+        {
+          ...chunk,
+          text: `Titel: Hatha Yoga am Abend\nKurs-Link: ${HeaderUrl}\nDauer: 8 Abende`,
+        },
+      ],
+      deps: makeDeps({ docs: {} }),
+    });
+    expect(same.courseSources).toEqual([
+      {
+        url: HeaderUrl,
+        title: "Hatha Yoga am Abend",
+        start_date: "2026-10-01",
+        sessions: "8 Abende",
+      },
+    ]);
+  });
+
+  test("urlSlugify: ungültige Entity '&#99999999;' wirft nicht, Zeichen fällt weg", () => {
+    expect(() => urlSlugify("https://x.de/kurs?knr=&#99999999;")).not.toThrow();
+    expect(urlSlugify("a&#99999999;b&#x110000;c")).toBe("abc");
+    expect(urlSlugify("a&#98;c&#x64;e&amp;f")).toBe("abcde-f");
+  });
+
+  test("completeCourseSourcesFromReply: ungültige Entity in Query/Pfad -> übrige Kurse bleiben", async () => {
+    for (const bad of [
+      "https://aw.donau.kufer.de/kurssuche?knr=%26%2399999999%3B",
+      `${BASE}/boese/%26%2399999999%3B`,
+    ]) {
+      const out = await completeCourseSourcesFromReply({
+        replyText: `[Böse](${bad}) und [Aerobic](${AEROBIC_URL})`,
+        courseSources: clone(PRESENT),
+        deps: makeDeps(),
+      });
+      expect(out.map((c) => c.url)).toEqual([GYM_URL, SPORT_URL, AEROBIC_URL]);
+    }
+  });
+});
