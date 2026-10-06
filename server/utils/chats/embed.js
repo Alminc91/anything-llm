@@ -26,7 +26,7 @@ const {
 } = require("./embedCourseSources");
 const {
   courseCardsPromptNote,
-  promptHasCourseCardsSection,
+  removeCourseCardsSections,
 } = require("./embedDefaults");
 const {
   createCardsMarkerResponse,
@@ -462,25 +462,30 @@ async function streamChatWithForEmbed(
  * nur am ENDE (der gecachte Präfix der Flotte bleibt unverändert), in dieser
  * Reihenfolge:
  *  1. Karten-Abschnitt (courseCards = "auto"; Stil nach
- *     courseCardsAnswerStyle) — nicht, wenn der Workspace-Prompt schon einen
- *     Abschnitt "### Course Cards Mode" enthält (Prompt-Rollout/Demo),
+ *     courseCardsAnswerStyle, Beispiel ohne KI-Hinweis-Zeile bei
+ *     disclaimer = "footer"),
  *  2. Disclaimer-Hinweis (disclaimer = "footer"),
  *  3. Folgefragen-Hinweis (followUps = "pills").
- * Ohne diese Schlüssel bleibt der Prompt unverändert.
+ * Der Server besitzt den Karten-Abschnitt: Steht im Workspace-Prompt schon
+ * ein Abschnitt "### Course Cards Mode…" (Prompt-Rollout/Demo), wird er bei
+ * short/long dort entfernt und der serverseitige am Ende angehängt (genau
+ * einer, immer aktuell). Bei "classic" bleibt der Workspace-Prompt
+ * unangetastet — auch ein vorhandener Abschnitt —, damit Bestands-Prompts
+ * mit eigenem Abschnitt weiter funktionieren; angehängt wird dann nichts.
+ * Ohne courseCards = "auto" bleibt der Workspace-Prompt ebenfalls unverändert.
  * @param {string} basePrompt
  * @param {Object} embed
  * @param {{cardsOn: boolean, followUpsOn: boolean}} switches
  * @returns {string}
  */
 function embedSystemPrompt(basePrompt, embed, { cardsOn, followUpsOn }) {
-  const cardsNote =
-    cardsOn && !promptHasCourseCardsSection(basePrompt)
-      ? courseCardsPromptNote(courseCardsAnswerStyle(embed))
-      : "";
+  const footer = disclaimerFooterEnabled(embed);
+  const style = cardsOn ? courseCardsAnswerStyle(embed) : "classic";
+  const ownsSection = style !== "classic";
   return (
-    basePrompt +
-    cardsNote +
-    (disclaimerFooterEnabled(embed) ? DISCLAIMER_PROMPT_NOTE : "") +
+    (ownsSection ? removeCourseCardsSections(basePrompt) : basePrompt) +
+    (ownsSection ? courseCardsPromptNote({ style, footer }) : "") +
+    (footer ? DISCLAIMER_PROMPT_NOTE : "") +
     (followUpsOn ? FOLLOW_UPS_PROMPT_NOTE : "")
   );
 }

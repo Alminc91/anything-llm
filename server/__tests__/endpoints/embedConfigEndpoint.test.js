@@ -475,10 +475,13 @@ describe("GET /embed/:embedId/config — Folgefragen", () => {
 });
 
 describe("GET /embed/:embedId/config — Design Center (courseCardsAnswerStyle, Standardtexte)", () => {
-  test("courseCardsAnswerStyle: short/long (Groß-/Kleinschreibung egal)", async () => {
+  test("courseCardsAnswerStyle: short/long/classic (Groß-/Kleinschreibung egal)", async () => {
     expect(
       (await fetchConfig({ courseCardsAnswerStyle: "long" })).body
     ).toEqual({ courseCardsAnswerStyle: "long" });
+    expect(
+      (await fetchConfig({ courseCardsAnswerStyle: " CLASSIC" })).body
+    ).toEqual({ courseCardsAnswerStyle: "classic" });
     expect(
       (await fetchConfig({ courseCardsAnswerStyle: " Short " })).body
     ).toEqual({ courseCardsAnswerStyle: "short" });

@@ -717,8 +717,12 @@ describe("Karten-Abschnitt am Prompt-Ende (courseCards = auto)", () => {
   const {
     COURSE_CARDS_PROMPT_NOTE,
     COURSE_CARDS_LONG_PROMPT_NOTE,
+    courseCardsPromptNote,
   } = require("../../../utils/chats/embedDefaults");
   const { chatPrompt } = require("../../../utils/chats/index");
+  // Abschnitte mit Footer Override: Beispiel ohne KI-Hinweis-Zeile
+  const SHORT_FOOTER = courseCardsPromptNote({ style: "short", footer: true });
+  const LONG_FOOTER = courseCardsPromptNote({ style: "long", footer: true });
 
   const WORKSPACE_PROMPT =
     "### Security Rules\n…\n### Time Reference\nHeute ist Dienstag, 06.10.2026.";
@@ -741,7 +745,7 @@ describe("Karten-Abschnitt am Prompt-Ende (courseCards = auto)", () => {
         followUps: "pills",
       })
     ).toBe(
-      `${WORKSPACE_PROMPT}${COURSE_CARDS_PROMPT_NOTE}${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
+      `${WORKSPACE_PROMPT}${SHORT_FOOTER}${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
     );
     expect(await promptFor({ courseCards: "auto", followUps: "pills" })).toBe(
       `${WORKSPACE_PROMPT}${COURSE_CARDS_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
@@ -762,6 +766,37 @@ describe("Karten-Abschnitt am Prompt-Ende (courseCards = auto)", () => {
     );
   });
 
+  test("disclaimer = footer: Beispiel im Karten-Abschnitt ohne KI-Hinweis-Zeile", async () => {
+    const KI = "*Ich bin eine KI und kann Fehler machen.";
+    const withFooter = await promptFor({
+      courseCards: "auto",
+      disclaimer: "footer",
+    });
+    expect(withFooter).not.toContain(KI);
+    expect(withFooter).toContain("[[TEASER 1:");
+    const withoutFooter = await promptFor({ courseCards: "auto" });
+    expect(withoutFooter).toContain(KI);
+  });
+
+  test("courseCardsAnswerStyle classic: kein Karten-Abschnitt, übrige Hinweise bleiben", async () => {
+    expect(
+      await promptFor({
+        courseCards: "auto",
+        courseCardsAnswerStyle: "classic",
+      })
+    ).toBe(WORKSPACE_PROMPT);
+    expect(
+      await promptFor({
+        courseCards: "auto",
+        courseCardsAnswerStyle: " Classic ",
+        disclaimer: "footer",
+        followUps: "pills",
+      })
+    ).toBe(
+      `${WORKSPACE_PROMPT}${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
+    );
+  });
+
   test("courseCardsAnswerStyle: long -> Liste mit Links, short/fehlend/ungültig -> Suche", async () => {
     expect(
       await promptFor({ courseCards: "auto", courseCardsAnswerStyle: "long" })
@@ -772,9 +807,7 @@ describe("Karten-Abschnitt am Prompt-Ende (courseCards = auto)", () => {
         courseCardsAnswerStyle: " Long ",
         disclaimer: "footer",
       })
-    ).toBe(
-      `${WORKSPACE_PROMPT}${COURSE_CARDS_LONG_PROMPT_NOTE}${DISCLAIMER_PROMPT_NOTE}`
-    );
+    ).toBe(`${WORKSPACE_PROMPT}${LONG_FOOTER}${DISCLAIMER_PROMPT_NOTE}`);
     for (const style of ["short", "lang", 1, undefined])
       expect(
         await promptFor({ courseCards: "auto", courseCardsAnswerStyle: style })
@@ -810,26 +843,79 @@ Heute ist Dienstag, 06.10.2026."
 `);
   });
 
-  test("NAK-2: Workspace-Prompt hat schon einen Karten-Abschnitt -> kein zweiter", async () => {
-    for (const section of [
-      "### Course Cards Mode — Search (ACTIVE — overrides the Course Information Blueprint)\n…",
-      "### Course Cards Mode (ACTIVE — overrides the Course Information Blueprint)\n…",
-    ]) {
-      const base = `### Security Rules\n…\n${section}\n### Time Reference\nHeute.`;
-      expect(
-        await promptFor(
-          { courseCards: "auto", disclaimer: "footer", followUps: "pills" },
-          base
-        )
-      ).toBe(`${base}${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`);
+  // Server besitzt den Abschnitt: vorhandener Abschnitt im Workspace-Prompt
+  // (Prompt-Rollout/Demo) wird entfernt und der serverseitige angehängt
+  const SECTIONS = [
+    "### Course Cards Mode — Search (ACTIVE — overrides the Course Information Blueprint)\nAlte Regel 1\n[[KARTEN: 3, 1]]\n",
+    "### Course Cards Mode (ACTIVE — overrides the Course Information Blueprint)\nAlte Regel 2\n",
+    "  ###   course  CARDS mode — Search (alt)\nAlte Regel 3\n",
+  ];
+  const withSection = (section) =>
+    `### Security Rules\n…\n▪▪▪\n\n${section}▪▪▪\n\n### Time Reference\nHeute.`;
+  const WITHOUT =
+    "### Security Rules\n…\n▪▪▪\n\n▪▪▪\n\n### Time Reference\nHeute.";
+
+  test("NAK-2: Workspace-Abschnitt + short -> genau ein Abschnitt, am Ende (vor Disclaimer/Folgefragen)", async () => {
+    for (const section of SECTIONS) {
+      const prompt = await promptFor(
+        { courseCards: "auto", disclaimer: "footer", followUps: "pills" },
+        withSection(section)
+      );
+      expect(prompt).toBe(
+        `${WITHOUT}${SHORT_FOOTER}${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
+      );
+      expect(prompt.match(/###\s*course\s+cards\s+mode/gi)).toHaveLength(1);
+      expect(prompt).not.toMatch(/Alte Regel/);
       expect(
         await promptFor(
           { courseCards: "auto", courseCardsAnswerStyle: "long" },
-          base
+          withSection(section)
         )
-      ).toBe(base);
+      ).toBe(`${WITHOUT}${COURSE_CARDS_LONG_PROMPT_NOTE}`);
     }
     const prompt = await promptFor({ courseCards: "auto" });
     expect(prompt.split("### Course Cards Mode")).toHaveLength(2);
+  });
+
+  test("Workspace-Abschnitt bis zur nächsten ###-Überschrift bzw. bis zum Ende", async () => {
+    const base =
+      "### A\nx\n\n### Course Cards Mode — Search\nalt\n\n### Time Reference\nHeute.";
+    expect(await promptFor({ courseCards: "auto" }, base)).toBe(
+      `### A\nx\n\n### Time Reference\nHeute.${COURSE_CARDS_PROMPT_NOTE}`
+    );
+    const atEnd = "### A\nx\n\n### Course Cards Mode\nalt\n";
+    expect(await promptFor({ courseCards: "auto" }, atEnd)).toBe(
+      `### A\nx${COURSE_CARDS_PROMPT_NOTE}`
+    );
+  });
+
+  test("classic: Workspace-Prompt mit Abschnitt bleibt unverändert (Bestands-Prompts)", async () => {
+    for (const section of SECTIONS) {
+      const base = withSection(section);
+      expect(
+        await promptFor(
+          { courseCards: "auto", courseCardsAnswerStyle: "classic" },
+          base
+        )
+      ).toBe(base);
+      expect(
+        await promptFor(
+          {
+            courseCards: "auto",
+            courseCardsAnswerStyle: "classic",
+            disclaimer: "footer",
+          },
+          base
+        )
+      ).toBe(`${base}${DISCLAIMER_PROMPT_NOTE}`);
+    }
+  });
+
+  test("ohne courseCards = auto: vorhandener Workspace-Abschnitt bleibt unangetastet", async () => {
+    const base = withSection(SECTIONS[0]);
+    expect(await promptFor({}, base)).toBe(base);
+    expect(await promptFor({ courseCardsAnswerStyle: "short" }, base)).toBe(
+      base
+    );
   });
 });

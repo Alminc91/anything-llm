@@ -10,8 +10,10 @@ const {
   COURSE_CARDS_PROMPT_NOTE,
   COURSE_CARDS_LONG_PROMPT_NOTE,
   COURSE_CARDS_SECTION_HEADING,
+  COURSE_CARDS_ANSWER_STYLES,
   courseCardsPromptNote,
   promptHasCourseCardsSection,
+  removeCourseCardsSections,
 } = require("../../../utils/chats/embedDefaults");
 const {
   DISCLAIMER_PROMPT_NOTE,
@@ -137,22 +139,68 @@ describe("Prompt-Abschnitte des Karten-Modus", () => {
     );
   });
 
-  test("courseCardsPromptNote: long -> Liste, alles andere -> kurz", () => {
-    expect(courseCardsPromptNote("long")).toBe(COURSE_CARDS_LONG_PROMPT_NOTE);
-    for (const v of ["short", undefined, "", "LONG", null])
-      expect(courseCardsPromptNote(v)).toBe(COURSE_CARDS_PROMPT_NOTE);
+  test("courseCardsPromptNote: long -> Liste, classic -> nichts, sonst kurz", () => {
+    expect(COURSE_CARDS_ANSWER_STYLES).toEqual(["short", "long", "classic"]);
+    expect(courseCardsPromptNote({ style: "long" })).toBe(
+      COURSE_CARDS_LONG_PROMPT_NOTE
+    );
+    expect(courseCardsPromptNote({ style: "classic" })).toBe("");
+    expect(courseCardsPromptNote({ style: "classic", footer: true })).toBe("");
+    expect(courseCardsPromptNote()).toBe(COURSE_CARDS_PROMPT_NOTE);
+    for (const style of ["short", undefined, "", "LONG", null])
+      expect(courseCardsPromptNote({ style })).toBe(COURSE_CARDS_PROMPT_NOTE);
   });
 
-  test("promptHasCourseCardsSection erkennt beide Überschriften", () => {
+  test.each(["short", "long"])(
+    "%s: Beispiel mit KI-Hinweis-Zeile, bei footer ohne",
+    (style) => {
+      const KI =
+        "*Ich bin eine KI und kann Fehler machen. Bitte überprüfen Sie meine Antworten.*";
+      const plain = courseCardsPromptNote({ style });
+      const footer = courseCardsPromptNote({ style, footer: true });
+      expect(plain).toContain(`\n\n${KI}\n▪ Everything else`);
+      expect(footer).not.toContain(KI);
+      // sonst identisch: nur Leerzeile + KI-Zeile fehlen
+      expect(footer).toBe(plain.replace(`\n\n${KI}`, ""));
+      expect(footer.endsWith("stays unchanged.")).toBe(true);
+      // footer nur bei true (kein Wahrheitswert-Durchrutschen)
+      expect(courseCardsPromptNote({ style, footer: "footer" })).toBe(plain);
+    }
+  );
+
+  test("promptHasCourseCardsSection erkennt beide Überschriften (Groß-/Kleinschreibung, Leerraum egal)", () => {
     expect(promptHasCourseCardsSection(`A\n${COURSE_CARDS_PROMPT_NOTE}`)).toBe(
       true
     );
     expect(
       promptHasCourseCardsSection(`A${COURSE_CARDS_LONG_PROMPT_NOTE}`)
     ).toBe(true);
+    expect(promptHasCourseCardsSection("x\n  ###course   CARDS Mode\n")).toBe(
+      true
+    );
     expect(
       promptHasCourseCardsSection("### Course Information Blueprint")
     ).toBe(false);
+    // nur am Zeilenanfang (Erwähnung im Fließtext zählt nicht)
+    expect(promptHasCourseCardsSection("see ### Course Cards Mode below")).toBe(
+      false
+    );
     expect(promptHasCourseCardsSection(null)).toBe(false);
+  });
+
+  test("removeCourseCardsSections: bis ▪▪▪ bzw. nächste ###-Überschrift, sonst unverändert", () => {
+    const base = "### A\na\n\n▪▪▪\n\n### B\nb";
+    expect(removeCourseCardsSections(base)).toBe(base);
+    expect(
+      removeCourseCardsSections(
+        "### A\na\n\n### Course Cards Mode — Search\nr1\n[[KARTEN: -]]\n\n▪▪▪\n\n### B\nb"
+      )
+    ).toBe("### A\na\n\n▪▪▪\n\n### B\nb");
+    expect(
+      removeCourseCardsSections(
+        "### A\n### Course Cards Mode\nr\n### B\nb\n### course cards mode (alt)\nr2"
+      )
+    ).toBe("### A\n### B\nb");
+    expect(removeCourseCardsSections(null)).toBe(null);
   });
 });

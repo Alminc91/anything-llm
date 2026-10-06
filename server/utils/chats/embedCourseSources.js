@@ -30,6 +30,7 @@
 // (Collector + Pipeline) würden das Lesen der Kopfzeilen und die
 // web://…website-Rückübersetzung überflüssig machen.
 
+const { COURSE_CARDS_ANSWER_STYLES } = require("./embedDefaults");
 const path = require("path");
 const {
   ISO_DATE_RX,
@@ -235,16 +236,16 @@ function courseCardsEnabled(embed = {}) {
 }
 
 // Antwortstil im Karten-Modus (visual_config.courseCardsAnswerStyle):
-// "long" = ausführlich (Liste mit Links), sonst "short" (Standard: Suche,
-// kurze Antwort ohne Links) — wählt den Prompt-Abschnitt in embedDefaults.js.
+// "long" = ausführlich (Liste mit Links), "classic" = kein Prompt-Abschnitt
+// (Karten nur aus Links/Marker), sonst "short" (Standard: Suche, kurze
+// Antwort ohne Links) — wählt den Prompt-Abschnitt in embedDefaults.js.
 function courseCardsAnswerStyle(embed = {}) {
-  return visualConfigValue(
+  const style = visualConfigValue(
     embed,
     "courseCardsAnswerStyle",
     "courseCardsAnswerStyle"
-  ) === "long"
-    ? "long"
-    : "short";
+  );
+  return COURSE_CARDS_ANSWER_STYLES.includes(style) ? style : "short";
 }
 
 // Fester KI-Hinweis im Widget (visual_config.disclaimer = "footer"): das

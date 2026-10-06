@@ -20,6 +20,9 @@ const {
 const { getTTSProvider, isTTSConfigured } = require("../../utils/TextToSpeech");
 const { getSTTProvider, isSTTConfigured } = require("../../utils/SpeechToText");
 const multer = require("multer");
+const {
+  COURSE_CARDS_ANSWER_STYLES,
+} = require("../../utils/chats/embedDefaults");
 
 // Configure multer for audio file uploads (store in memory)
 const upload = multer({
@@ -68,10 +71,11 @@ const LAYOUT_ENUMS = {
   theme: ["light", "dark", "auto"],
   // Kurskarten v2: Karten über oder unter der Antwort
   courseCardsPosition: ["below", "above"],
-  // Antwortstil im Karten-Modus: kurz (Standard, Such-Abschnitt ohne Links)
-  // oder ausführlich (Liste mit Links) — wählt den Prompt-Abschnitt, den der
-  // Server bei courseCards = "auto" anhängt (utils/chats/embedDefaults.js)
-  courseCardsAnswerStyle: ["short", "long"],
+  // Antwortstil im Karten-Modus: kurz (Standard, Such-Abschnitt ohne Links),
+  // ausführlich (Liste mit Links) oder klassisch (kein Abschnitt, Karten nur
+  // aus Links/Marker) — wählt den Prompt-Abschnitt, den der Server bei
+  // courseCards = "auto" anhängt (utils/chats/embedDefaults.js)
+  courseCardsAnswerStyle: COURSE_CARDS_ANSWER_STYLES,
   // Leisten-Variante: Öffnen bei Klick (wie INLINE_OPEN_ON_VALUES im Widget)
   inlineOpenOn: ["submit", "focus"],
   // Panel-Optik (Mockup „Wunschfragen im Panel“): Vorschläge als Balken oder
