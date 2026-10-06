@@ -163,17 +163,30 @@ const Embed = {
     return embeds.find((e) => e.id === Number(embedId)) || null;
   },
 
-  // Design Center: Kufer-Standardtexte des Widgets (de/en) oder null
+  // Design Center: Kufer-Standardtexte des Widgets (de/en).
+  // Ergebnis { defaults, error }: bei Fehler defaults = null und error mit
+  // Meldung (das Design Center zeigt sie und behandelt dann nichts als
+  // Standard).
   getDefaults: async (lang = "de") => {
     return await fetch(
       `${API_BASE}/embed/defaults?lang=${encodeURIComponent(lang)}`,
       { method: "GET", headers: baseHeaders() }
     )
-      .then((res) => (res.ok ? res.json() : null))
-      .then((res) => res?.defaults ?? null)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        const defaults = body?.defaults;
+        if (
+          !defaults ||
+          typeof defaults !== "object" ||
+          Array.isArray(defaults)
+        )
+          throw new Error("Antwort ohne Standardtexte");
+        return { defaults, error: null };
+      })
       .catch((e) => {
         console.error(e);
-        return null;
+        return { defaults: null, error: e.message || String(e) };
       });
   },
 

@@ -35,6 +35,8 @@ import {
 import {
   validateWidgetKeys,
   cleanWidgetKeys,
+  textItems,
+  textValue,
   FIELD_TAB,
 } from "./widgetKeys";
 import {
@@ -267,8 +269,13 @@ export default function EmbedAppearance() {
   const [initialConfig, setInitialConfig] = useState({ ...DEFAULT_CONFIG });
   const [activeTab, setActiveTab] = useState("inhalt");
   const [logoPreview, setLogoPreview] = useState(null);
-  // Kufer-Standardtexte (GET /embed/defaults); null = nicht geladen
+  // Kufer-Standardtexte (GET /embed/defaults?lang=…); null = nicht (oder
+  // noch nicht) geladen. defaultsError: Laden fehlgeschlagen -> nichts gilt
+  // als Standard, Zurücksetzen deaktiviert. Sprache gilt für Felder,
+  // Vorschau und den Vergleich beim Speichern.
+  const [defaultsLang, setDefaultsLang] = useState("de");
   const [defaults, setDefaults] = useState(null);
+  const [defaultsError, setDefaultsError] = useState(false);
 
   const hasChanges = stableStringify(config) !== stableStringify(initialConfig);
 
@@ -281,9 +288,6 @@ export default function EmbedAppearance() {
         return;
       }
       setEmbed(embedData);
-      // Standardtexte parallel laden; ohne sie bleiben die Felder leer
-      // (Platzhalter) und es wird nichts als Standard erkannt.
-      Embed.getDefaults("de").then(setDefaults);
 
       let visualConfig = {};
       if (embedData.visual_config) {
@@ -313,6 +317,29 @@ export default function EmbedAppearance() {
     load();
   }, [embedId]);
 
+  // Standardtexte laden (beim Öffnen und bei Sprachwechsel). Bis sie da
+  // sind bzw. bei Fehler bleiben Felder ohne eigenen Text leer (Platzhalter)
+  // und nichts wird als Standard erkannt (kein Text geht beim Speichern
+  // verloren).
+  useEffect(() => {
+    let cancelled = false;
+    setDefaults(null);
+    setDefaultsError(false);
+    Embed.getDefaults(defaultsLang).then(({ defaults, error }) => {
+      if (cancelled) return;
+      setDefaults(defaults);
+      setDefaultsError(!!error);
+      if (error)
+        showToast(
+          `Standardtexte konnten nicht geladen werden (${error}). Eigene Texte bleiben erhalten; Zurücksetzen ist deaktiviert.`,
+          "error"
+        );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [defaultsLang]);
+
   const updateField = useCallback((field, value) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
   }, []);
@@ -328,11 +355,9 @@ export default function EmbedAppearance() {
     });
   }, []);
 
-  // Felder mit Kufer-Standardtext: "" bleibt beim Bearbeiten stehen (leeres
-  // Feld), Zurücksetzen entfernt den Schlüssel (Standard wird wieder Wert)
-  const setDefaultText = useCallback((field, value) => {
-    setConfig((prev) => ({ ...prev, [field]: value }));
-  }, []);
+  // Felder mit Kufer-Standardtext: Eingaben über updateField ("" bleibt beim
+  // Bearbeiten stehen = leeres Feld), Zurücksetzen entfernt den Schlüssel
+  // (Standard wird wieder Wert)
   const resetDefaultText = useCallback((field) => {
     setConfig((prev) => {
       const next = { ...prev };
@@ -348,9 +373,11 @@ export default function EmbedAppearance() {
     config,
     errors: widgetErrors,
     defaults,
+    defaultsError,
+    defaultsLang,
+    setDefaultsLang,
     updateField,
     updateOptionalField,
-    setDefaultText,
     resetDefaultText,
   };
 
@@ -1032,7 +1059,7 @@ function InlinePreview({ config, logoPreview, defaults }) {
   const name = config.name || "Ihr Online-Berater";
   const logoSrc = logoPreview || DEFAULT_LOGO;
   const greeting =
-    config.greeting ||
+    textValue(config.greeting) ||
     "Hallo und herzlich willkommen! Wie kann ich Ihnen helfen?";
   const placeholder = config.sendMessageText || "Wie kann ich Ihnen helfen?";
   const barText =
@@ -1199,12 +1226,12 @@ function BubblePreview({ config, logoPreview, defaults }) {
   const name = config.name || "Ihr Online-Berater";
   const logoSrc = logoPreview || DEFAULT_LOGO;
   const greeting =
-    config.greeting ||
+    textValue(config.greeting) ||
     "Hallo und herzlich willkommen! Wie kann ich Ihnen helfen?";
   const placeholder = config.sendMessageText || "Wie kann ich Ihnen helfen?";
 
   const isLeft = config.position?.includes("left");
-  const bubbles = config.chatbotBubblesMessages?.filter((m) => m.trim()) || [];
+  const bubbles = textItems(config.chatbotBubblesMessages);
   const btnAlign = isLeft ? "self-start" : "self-end";
 
   return (
@@ -1255,8 +1282,15 @@ function BubblePreview({ config, logoPreview, defaults }) {
                 config={config}
                 defaults={defaults}
                 greeting={greeting}
+                suggestions={
+                  textItems(config.defaultMessages).length > 0 ? (
+                    <PreviewSuggestions
+                      config={config}
+                      accentColor={accentColor}
+                    />
+                  ) : null
+                }
               />
-              <PreviewSuggestions config={config} accentColor={accentColor} />
             </div>
           </div>
 

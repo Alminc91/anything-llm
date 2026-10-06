@@ -16,6 +16,7 @@ export const COURSE_CARDS_POSITION_OPTIONS = [
 export const COURSE_CARDS_ANSWER_STYLE_OPTIONS = [
   { value: "short", label: "Kurz" },
   { value: "long", label: "Ausführlich" },
+  { value: "classic", label: "Klassisch" },
 ];
 export const FOLLOW_UPS_OPTIONS = [
   { value: "none", label: "Aus" },
@@ -79,6 +80,17 @@ export const WIDGET_ENUMS = {
   disclaimer: { options: DISCLAIMER_OPTIONS, fallback: "none" },
 };
 
+// Auswahl-Schlüssel, die der Server als kurzen Freitext speichert (dort in
+// WIDGET_TEXT_MAX, die Enum-Prüfung macht das Widget): unbekannte Werte
+// (z. B. per API gesetzt oder neuer als dieses Design Center) bleiben beim
+// Speichern erhalten und gelten nicht als Fehler.
+export const FREE_TEXT_ENUM_KEYS = [
+  "courseCards",
+  "inlineLayout",
+  "inlineEffect",
+];
+export const FREE_TEXT_ENUM_MAX = 40;
+
 // Text-Schlüssel mit Höchstlänge wie der Server (WIDGET_TEXT_MAX)
 export const WIDGET_TEXT_MAX = {
   inlineInputPlaceholder: 120,
@@ -121,14 +133,21 @@ export function hiddenWidgetKeys(config, { inline }) {
     ["courseCardsPosition", "courseCardsAnswerStyle"].forEach((k) =>
       hidden.add(k)
     );
-  const notice = enumValue(config.privacyNotice);
-  if (notice !== "bubble" && notice !== "modal")
+  if (!privacyFieldsVisible(config))
     ["privacyTitle", "privacyText", "privacyUrl", "privacyButtonText"].forEach(
       (k) => hidden.add(k)
     );
-  if (notice !== "modal") hidden.add("privacyButtonText");
+  if (enumValue(config.privacyNotice) !== "modal")
+    hidden.add("privacyButtonText");
   if (enumValue(config.disclaimer) !== "footer") hidden.add("disclaimerText");
   return hidden;
+}
+
+// Datenschutz-Felder genau bei privacyNotice "bubble" oder "modal" (auch die
+// Sichtbarkeit in WidgetKeySections richtet sich danach)
+export function privacyFieldsVisible(config) {
+  const notice = enumValue(config.privacyNotice);
+  return notice === "bubble" || notice === "modal";
 }
 
 // Reiter, in dem ein Feld steht (für „Fehler korrigieren“ beim Speichern)
@@ -155,12 +174,30 @@ export const FIELD_TAB = {
   disclaimerText: "antworten",
 };
 
+// Nur Strings zählen als Text; alles andere (Zahl, Objekt, Liste aus einer
+// per API gesetzten visual_config) wird wie ein leeres Feld behandelt.
+export function textValue(value) {
+  return typeof value === "string" ? value : "";
+}
+
 function isBlank(value) {
-  return value === undefined || value === null || String(value).trim() === "";
+  return textValue(value).trim() === "";
 }
 
 export function enumValue(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : value;
+}
+
+function enumAllowed(key) {
+  return WIDGET_ENUMS[key].options.map((o) => o.value).filter(Boolean);
+}
+
+// Gespeicherter Auswahl-Wert, den das Design Center nicht kennt (gesetzt,
+// String, keine der Optionen)
+export function unknownEnumValue(config, key) {
+  return (
+    !isBlank(config[key]) && !enumAllowed(key).includes(enumValue(config[key]))
+  );
 }
 
 // Datenschutz-Punkte wie validPrivacyText() im Server
@@ -173,7 +210,7 @@ export function splitPrivacyPoints(text) {
 }
 
 export function privacyTextError(value) {
-  const v = String(value).trim();
+  const v = textValue(value).trim();
   if (v.length > PRIVACY_TEXT_MAX_LEN)
     return `Maximal ${PRIVACY_TEXT_MAX_LEN} Zeichen insgesamt.`;
   const points = splitPrivacyPoints(v);
@@ -211,15 +248,17 @@ export function validateWidgetKeys(config, { inline }) {
   const errors = {};
   const hidden = hiddenWidgetKeys(config, { inline });
   const skip = (key) => hidden.has(key);
-  for (const [key, { options }] of Object.entries(WIDGET_ENUMS)) {
-    if (skip(key) || isBlank(config[key])) continue;
-    const allowed = options.map((o) => o.value).filter(Boolean);
-    if (!allowed.includes(enumValue(config[key])))
+  for (const key of Object.keys(WIDGET_ENUMS)) {
+    if (skip(key) || !unknownEnumValue(config, key)) continue;
+    if (!FREE_TEXT_ENUM_KEYS.includes(key))
       errors[key] = "Ungültiger Wert — bitte eine Option wählen.";
+    else if (config[key].trim().length > FREE_TEXT_ENUM_MAX)
+      errors[key] =
+        `Eigener Wert zu lang (maximal ${FREE_TEXT_ENUM_MAX} Zeichen) — bitte eine Option wählen.`;
   }
   for (const [key, max] of Object.entries(WIDGET_TEXT_MAX)) {
     if (skip(key) || isBlank(config[key])) continue;
-    if (String(config[key]).trim().length > max)
+    if (config[key].trim().length > max)
       errors[key] = `Maximal ${max} Zeichen.`;
   }
   if (!skip("privacyText") && !isBlank(config.privacyText)) {
@@ -236,23 +275,35 @@ export function validateWidgetKeys(config, { inline }) {
   return errors;
 }
 
-function sameAsDefault(key, value, defaults) {
+/**
+ * Entspricht der Text dem Kufer-Standard? Nur für DEFAULT_TEXT_KEYS und nur
+ * mit geladenen Standardtexten — ohne sie (Laden fehlgeschlagen) nie, damit
+ * ein eigener Text beim Speichern nicht versehentlich gelöscht wird.
+ * @param {string} key
+ * @param {*} value
+ * @param {Object|null} defaults
+ * @returns {boolean}
+ */
+export function sameAsDefault(key, value, defaults) {
+  if (!DEFAULT_TEXT_KEYS.includes(key)) return false;
   const standard = defaults?.[key];
-  if (typeof standard !== "string") return false;
+  if (typeof standard !== "string" || typeof value !== "string") return false;
   if (key === "privacyText")
     return (
       splitPrivacyPoints(value).join("\n") ===
       splitPrivacyPoints(standard).join("\n")
     );
-  return String(value).trim() === standard.trim();
+  return value.trim() === standard.trim();
 }
 
 /**
  * Vor dem Speichern: leere Felder entfernen (nie "" speichern), Texte
  * trimmen, Datenschutz-Punkte als „ein Punkt je Zeile“ normalisieren,
  * Standardtexte weglassen (leer = Widget-Standard), Enums klein schreiben.
- * Ungültige Werte (nur in ausgeblendeten Leisten-Feldern möglich) werden
- * verworfen. Es werden nie Schlüssel hinzugefügt.
+ * Nicht-Strings gelten als leer. Ungültige Werte (nur in ausgeblendeten
+ * Feldern möglich) werden verworfen — außer bei FREE_TEXT_ENUM_KEYS: dort
+ * bleibt ein unbekannter Wert erhalten (der Server speichert ihn als
+ * Freitext). Es werden nie Schlüssel hinzugefügt.
  * @param {Object} config
  * @param {Object|null} defaults Standardtexte (GET /embed/defaults) oder null
  * @returns {Object}
@@ -260,22 +311,31 @@ function sameAsDefault(key, value, defaults) {
 export function cleanWidgetKeys(config, defaults = null) {
   const cleaned = { ...config };
   const drop = (key) => delete cleaned[key];
-  for (const [key, { options }] of Object.entries(WIDGET_ENUMS)) {
+  for (const key of Object.keys(WIDGET_ENUMS)) {
     if (!(key in cleaned)) continue;
-    const v = enumValue(cleaned[key]);
-    const allowed = options.map((o) => o.value).filter(Boolean);
-    if (allowed.includes(v)) cleaned[key] = v;
+    if (isBlank(cleaned[key])) drop(key);
+    else if (!unknownEnumValue(cleaned, key))
+      cleaned[key] = enumValue(cleaned[key]);
+    else if (
+      FREE_TEXT_ENUM_KEYS.includes(key) &&
+      cleaned[key].trim().length <= FREE_TEXT_ENUM_MAX
+    )
+      cleaned[key] = cleaned[key].trim();
     else drop(key);
   }
   for (const [key, max] of Object.entries(WIDGET_TEXT_MAX)) {
     if (!(key in cleaned)) continue;
-    const v = isBlank(cleaned[key]) ? "" : String(cleaned[key]).trim();
+    const v = textValue(cleaned[key]).trim();
     if (!v || v.length > max || sameAsDefault(key, v, defaults)) drop(key);
     else cleaned[key] = v;
   }
   if ("privacyText" in cleaned) {
-    const v = isBlank(cleaned.privacyText) ? "" : String(cleaned.privacyText);
-    if (!v || privacyTextError(v) || sameAsDefault("privacyText", v, defaults))
+    const v = textValue(cleaned.privacyText);
+    if (
+      !v.trim() ||
+      privacyTextError(v) ||
+      sameAsDefault("privacyText", v, defaults)
+    )
       drop("privacyText");
     else cleaned.privacyText = splitPrivacyPoints(v).join("\n");
   }
@@ -290,8 +350,15 @@ export function cleanWidgetKeys(config, defaults = null) {
 }
 
 // Wert für die Anzeige: gespeicherter/bearbeiteter Wert, sonst Standardtext
+// (Nicht-Strings wie leer: dann der Standardtext)
 export function displayedText(config, key, defaults) {
-  if (key in config && config[key] !== undefined && config[key] !== null)
-    return String(config[key]);
-  return defaults?.[key] ?? "";
+  if (typeof config[key] === "string") return config[key];
+  return textValue(defaults?.[key]);
+}
+
+// Startvorschläge für die Vorschau: nur nicht-leere Strings
+export function textItems(list) {
+  return Array.isArray(list)
+    ? list.filter((m) => typeof m === "string" && m.trim())
+    : [];
 }

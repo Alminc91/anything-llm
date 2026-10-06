@@ -40,22 +40,36 @@ export function inputClass(hasError) {
 }
 
 // Button-Gruppe im Stil der Positions-Auswahl; compact = kleinere Knöpfe
-// (für Gruppen mit vielen Optionen, bricht bei Bedarf um)
-export function Segmented({ options, value, onChange, compact = false }) {
+// (für Gruppen mit vielen Optionen, bricht bei Bedarf um). placeholder: vorn
+// ein nicht wählbares, markiertes Feld (z. B. „bitte wählen“ bei einem
+// ungültigen gespeicherten Wert, dann ist keine Option aktiv).
+export function Segmented({
+  options,
+  value,
+  onChange,
+  compact = false,
+  placeholder = null,
+}) {
+  const size = compact ? "px-3 py-1.5 text-xs" : "px-5 py-2 text-sm";
   return (
     <div
-      className={`flex rounded-lg overflow-hidden border border-white/10 w-fit ${
-        compact ? "flex-wrap" : ""
-      }`}
+      className={`flex rounded-lg overflow-hidden border w-fit ${
+        placeholder ? "border-red-400/70" : "border-white/10"
+      } ${compact ? "flex-wrap" : ""}`}
     >
+      {placeholder && (
+        <span
+          className={`${size} font-medium bg-red-400/15 text-red-300 select-none`}
+        >
+          {placeholder}
+        </span>
+      )}
       {options.map((opt) => (
         <button
           key={opt.value}
           type="button"
           onClick={() => onChange(opt.value)}
-          className={`${
-            compact ? "px-3 py-1.5 text-xs" : "px-5 py-2 text-sm"
-          } font-medium transition-all ${
+          className={`${size} font-medium transition-all ${
             value === opt.value
               ? "bg-primary-button text-white"
               : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"

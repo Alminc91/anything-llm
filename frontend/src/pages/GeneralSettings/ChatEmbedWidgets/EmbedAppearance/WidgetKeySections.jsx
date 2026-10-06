@@ -14,25 +14,51 @@ import {
 import {
   WIDGET_ENUMS,
   WIDGET_TEXT_MAX,
+  FREE_TEXT_ENUM_KEYS,
   PRIVACY_POINTS_MAX,
   PRIVACY_POINT_MAX_LEN,
   PRIVACY_TEXT_MAX_LEN,
   URL_MAX_LEN,
   enumValue,
   displayedText,
+  sameAsDefault,
+  textValue,
+  unknownEnumValue,
+  privacyFieldsVisible,
 } from "./widgetKeys";
 
-// Auswahl eines Enum-Schlüssels: gespeicherter Wert oder Widget-Standard
+export const DEFAULTS_LANG_OPTIONS = [
+  { value: "de", label: "Deutsch" },
+  { value: "en", label: "Englisch" },
+];
+const DEFAULTS_LOAD_ERROR = "Standardtexte konnten nicht geladen werden";
+
+// Auswahl eines Enum-Schlüssels: gespeicherter Wert oder Widget-Standard.
+// Unbekannter gespeicherter Wert: bei Freitext-Schlüsseln (Server speichert
+// sie als Text) Hinweis, sonst „bitte wählen“ + Feldfehler (Validierung).
 function EnumField({ field, config, errors, onChange, title, hint }) {
   const { options, fallback } = WIDGET_ENUMS[field];
-  const value = field in config ? enumValue(config[field]) : fallback;
+  const unknown = unknownEnumValue(config, field);
+  const freeText = FREE_TEXT_ENUM_KEYS.includes(field);
+  const stored = textValue(config[field]).trim();
+  const value = unknown ? null : stored ? enumValue(stored) : fallback;
   return (
-    <SettingsSection title={title} hint={hint} error={errors[field]}>
+    <SettingsSection
+      title={title}
+      hint={hint}
+      error={errors[field]}
+      note={
+        unknown && freeText
+          ? `Eigener Wert „${stored}“ (z. B. per API gesetzt) — bleibt gespeichert, bis Sie eine Option wählen.`
+          : null
+      }
+    >
       <Segmented
         options={options}
         value={value}
         onChange={(v) => onChange(field, v)}
         compact={options.length > 3}
+        placeholder={unknown && !freeText ? "bitte wählen" : null}
       />
     </SettingsSection>
   );
@@ -53,7 +79,7 @@ function OptionalTextField({
     <SettingsSection title={title} hint={hint} error={errors[field]}>
       <input
         type="text"
-        value={config[field] ?? ""}
+        value={textValue(config[field])}
         maxLength={maxLength}
         onChange={(e) => onChange(field, e.target.value)}
         placeholder={placeholder}
@@ -65,12 +91,15 @@ function OptionalTextField({
 
 // Text mit Kufer-Standard: Standard als Wert, Knopf zum Zurücksetzen.
 // Kein maxLength am Feld, damit zu lange (z. B. per API gesetzte) Werte
-// sichtbar bleiben und als Fehler gemeldet werden.
+// sichtbar bleiben und als Fehler gemeldet werden. Konnten die
+// Standardtexte nicht geladen werden, bleibt ein eigener Text als solcher
+// erhalten und der Knopf ist deaktiviert.
 function DefaultTextField({
   field,
   config,
   errors,
   defaults,
+  defaultsError,
   onText,
   onReset,
   title,
@@ -79,8 +108,9 @@ function DefaultTextField({
   rows = 3,
 }) {
   const value = displayedText(config, field, defaults);
-  const standard = defaults?.[field];
-  const isStandard = !(field in config) || value === standard;
+  const standard = textValue(defaults?.[field]);
+  const custom = typeof config[field] === "string";
+  const isStandard = !custom || sameAsDefault(field, value, defaults);
   const Input = multiline ? "textarea" : "input";
   return (
     <SettingsSection
@@ -99,21 +129,56 @@ function DefaultTextField({
         {...(multiline ? { rows } : { type: "text" })}
         value={value}
         onChange={(e) => onText(field, e.target.value)}
-        placeholder={standard || ""}
+        placeholder={standard}
         className={`${inputClass(errors[field])} ${
           multiline ? "resize-y" : ""
         }`}
       />
-      {!isStandard && standard && (
+      {defaultsError && custom ? (
         <button
           type="button"
-          onClick={() => onReset(field)}
-          className="mt-1.5 flex items-center gap-1.5 text-xs text-theme-text-secondary hover:text-white transition-colors"
+          disabled
+          title={DEFAULTS_LOAD_ERROR}
+          className="mt-1.5 flex items-center gap-1.5 text-xs text-theme-text-secondary opacity-50 cursor-not-allowed"
         >
           <ArrowCounterClockwise size={13} weight="bold" />
-          Auf Standardtext zurücksetzen
+          Auf Standardtext zurücksetzen — {DEFAULTS_LOAD_ERROR}
         </button>
+      ) : (
+        !isStandard &&
+        standard && (
+          <button
+            type="button"
+            onClick={() => onReset(field)}
+            className="mt-1.5 flex items-center gap-1.5 text-xs text-theme-text-secondary hover:text-white transition-colors"
+          >
+            <ArrowCounterClockwise size={13} weight="bold" />
+            Auf Standardtext zurücksetzen
+          </button>
+        )
       )}
+    </SettingsSection>
+  );
+}
+
+// Sprache der Kufer-Standardtexte (Felder, Vorschau, Vergleich „Standard“)
+function DefaultsLanguageSwitch({
+  defaultsLang,
+  setDefaultsLang,
+  defaultsError,
+}) {
+  return (
+    <SettingsSection
+      title="Standardtexte"
+      hint="Sprache der Kufer-Standardtexte in den Feldern und der Vorschau. Nur ein Text, der vom Standard dieser Sprache abweicht, wird gespeichert."
+      error={defaultsError ? `${DEFAULTS_LOAD_ERROR}.` : null}
+    >
+      <Segmented
+        options={DEFAULTS_LANG_OPTIONS}
+        value={defaultsLang}
+        onChange={setDefaultsLang}
+        compact
+      />
     </SettingsSection>
   );
 }
@@ -196,9 +261,11 @@ export function PanelSection({
   config,
   errors,
   defaults,
+  defaultsError,
+  defaultsLang,
+  setDefaultsLang,
   updateField,
   updateOptionalField,
-  setDefaultText,
   resetDefaultText,
 }) {
   return (
@@ -206,6 +273,11 @@ export function PanelSection({
       <GroupHeading
         title="Panel"
         hint="Darstellung des geöffneten Chats vor der ersten Frage."
+      />
+      <DefaultsLanguageSwitch
+        defaultsLang={defaultsLang}
+        setDefaultsLang={setDefaultsLang}
+        defaultsError={defaultsError}
       />
       <EnumField
         field="suggestionStyle"
@@ -232,7 +304,8 @@ export function PanelSection({
         config={config}
         errors={errors}
         defaults={defaults}
-        onText={setDefaultText}
+        defaultsError={defaultsError}
+        onText={updateField}
         onReset={resetDefaultText}
       />
       <OptionalTextField
@@ -283,7 +356,7 @@ export function AnswerCardsSection({ config, errors, updateField }) {
           <EnumField
             field="courseCardsAnswerStyle"
             title="Antwortstil bei Karten"
-            hint="Kurz (Standard): ein, zwei Sätze, die Karten sind der Link. Ausführlich: Text mit nummerierter Liste und Kurs-Links."
+            hint="Kurz (Standard): ein, zwei Sätze, die Karten sind der Link. Ausführlich: Text mit nummerierter Liste und Kurs-Links. Klassisch: Karten nur aus den Links, kein Prompt-Abschnitt (der Workspace-Prompt bleibt, wie er ist)."
             config={config}
             errors={errors}
             onChange={updateField}
@@ -307,18 +380,22 @@ export function PrivacySection({
   config,
   errors,
   defaults,
+  defaultsError,
+  defaultsLang,
+  setDefaultsLang,
   updateField,
   updateOptionalField,
-  setDefaultText,
   resetDefaultText,
 }) {
-  const notice = enumValue(config.privacyNotice) || "none";
+  const notice = enumValue(config.privacyNotice);
+  const showPrivacyFields = privacyFieldsVisible(config);
   const disclaimerFooter = enumValue(config.disclaimer) === "footer";
   const textProps = {
     config,
     errors,
     defaults,
-    onText: setDefaultText,
+    defaultsError,
+    onText: updateField,
     onReset: resetDefaultText,
   };
   return (
@@ -326,6 +403,11 @@ export function PrivacySection({
       <GroupHeading
         title="Datenschutz & Hinweise"
         hint="Verlinken Sie Ihre eigene Datenschutzerklärung und nennen Sie bei Bedarf Ihre Speicherdauer."
+      />
+      <DefaultsLanguageSwitch
+        defaultsLang={defaultsLang}
+        setDefaultsLang={setDefaultsLang}
+        defaultsError={defaultsError}
       />
       <EnumField
         field="privacyNotice"
@@ -335,7 +417,7 @@ export function PrivacySection({
         errors={errors}
         onChange={updateField}
       />
-      {notice !== "none" && (
+      {showPrivacyFields && (
         <>
           <DefaultTextField
             field="privacyTitle"

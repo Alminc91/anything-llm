@@ -2,11 +2,21 @@
 // Kopf mit Untertitel/Online-Punkt, Begrüßung als Text oder Blase (mit
 // Datenschutz-Punkten bei privacyNotice "bubble"), Startvorschläge als
 // Balken oder Pillen, fester KI-Hinweis unter der Eingabe.
-import { displayedText, enumValue, splitPrivacyPoints } from "./widgetKeys";
+// visual_config kann per API beliebige Typen enthalten: Texte nur als
+// String (sonst wie leer), Listen nur mit String-Einträgen.
+import {
+  displayedText,
+  enumValue,
+  splitPrivacyPoints,
+  textItems,
+  textValue,
+} from "./widgetKeys";
 
 // Wirksamer Text wie im Widget: leeres Feld = Kufer-Standard
 function textOrDefault(config, key, defaults) {
-  return displayedText(config, key, defaults).trim() || defaults?.[key] || "";
+  return (
+    displayedText(config, key, defaults).trim() || textValue(defaults?.[key])
+  );
 }
 
 // Begrüßung als Blase: aktiv gewählt oder durch Datenschutz in der Blase
@@ -19,7 +29,7 @@ function greetingAsBubble(config) {
 }
 
 export function PreviewIdentity({ config, logoSrc, name, logoClass }) {
-  const subtitle = (config.assistantSubtitle || "").trim();
+  const subtitle = textValue(config.assistantSubtitle).trim();
   return (
     <div className="flex items-center flex-1 gap-3 min-w-0">
       <span className="relative flex-shrink-0">
@@ -44,12 +54,25 @@ export function PreviewIdentity({ config, logoSrc, name, logoClass }) {
   );
 }
 
-export function PreviewGreeting({ config, defaults, greeting }) {
+// Begrüßung + Startvorschläge in der Reihenfolge des Widgets:
+// Text-Begrüßung: greeting, darunter die Vorschläge (ChatHistory im Widget).
+// Blase (PanelWelcome im Widget): Blase -> Vorschläge -> kleiner greeting-
+// Text; der kleine Text nur mit eigenem greeting und nicht bei
+// privacyNotice "bubble" (die Datenschutz-Punkte stehen dann in der Blase).
+export function PreviewGreeting({
+  config,
+  defaults,
+  greeting,
+  suggestions = null,
+}) {
   if (!greetingAsBubble(config))
     return (
-      <div className="text-center text-gray-400 text-[13px] px-2 mb-4 leading-relaxed">
-        {greeting}
-      </div>
+      <>
+        <div className="text-center text-gray-400 text-[13px] px-2 mb-4 leading-relaxed">
+          {textValue(greeting)}
+        </div>
+        {suggestions}
+      </>
     );
   const bubbleText = textOrDefault(config, "greetingBubbleText", defaults);
   const privacyInBubble = enumValue(config.privacyNotice) === "bubble";
@@ -57,8 +80,11 @@ export function PreviewGreeting({ config, defaults, greeting }) {
   const points = splitPrivacyPoints(
     textOrDefault(config, "privacyText", defaults)
   );
+  const smallGreeting = privacyInBubble
+    ? ""
+    : textValue(config.greeting).trim();
   return (
-    <div className="w-full px-2 mb-4 space-y-1.5">
+    <div className="w-full px-2 mb-4 space-y-2.5">
       <div className="bg-gray-100 text-gray-800 text-[12px] leading-relaxed rounded-2xl rounded-tl-[4px] px-3.5 py-2.5 max-w-[90%] space-y-1.5">
         {bubbleText && <p>{bubbleText}</p>}
         {privacyInBubble && (
@@ -72,9 +98,12 @@ export function PreviewGreeting({ config, defaults, greeting }) {
           </div>
         )}
       </div>
-      {greeting && (
+      {suggestions && (
+        <div className="flex justify-center w-full">{suggestions}</div>
+      )}
+      {smallGreeting && (
         <p className="text-gray-400 text-[11px] px-1 leading-relaxed">
-          {greeting}
+          {smallGreeting}
         </p>
       )}
     </div>
@@ -82,9 +111,9 @@ export function PreviewGreeting({ config, defaults, greeting }) {
 }
 
 export function PreviewSuggestions({ config, accentColor }) {
-  const items = (config.defaultMessages || []).filter((m) => m.trim());
+  const items = textItems(config.defaultMessages);
   if (items.length === 0) return null;
-  const textColor = config.userTextColor || "#FFFFFF";
+  const textColor = textValue(config.userTextColor) || "#FFFFFF";
   if (enumValue(config.suggestionStyle) === "pills")
     return (
       <div className="flex flex-wrap justify-center gap-1.5 w-[90%]">
