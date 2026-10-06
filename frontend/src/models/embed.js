@@ -163,6 +163,20 @@ const Embed = {
     return embeds.find((e) => e.id === Number(embedId)) || null;
   },
 
+  // Design Center: Kufer-Standardtexte des Widgets (de/en) oder null
+  getDefaults: async (lang = "de") => {
+    return await fetch(
+      `${API_BASE}/embed/defaults?lang=${encodeURIComponent(lang)}`,
+      { method: "GET", headers: baseHeaders() }
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => res?.defaults ?? null)
+      .catch((e) => {
+        console.error(e);
+        return null;
+      });
+  },
+
   // Visual Config: Update visual config
   updateVisualConfig: async (embedId, visualConfig) => {
     return await fetch(`${API_BASE}/embed/update/${embedId}`, {

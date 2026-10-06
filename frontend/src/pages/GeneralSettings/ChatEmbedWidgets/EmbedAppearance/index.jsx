@@ -25,6 +25,24 @@ import CTAButton from "@/components/lib/CTAButton";
 import Embed from "@/models/embed";
 import { API_BASE, EMBED_INLINE_PLACEHOLDER_SNIPPET } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
+import { SettingsSection, Segmented, inputClass } from "./controls";
+import {
+  LeisteSection,
+  PanelSection,
+  AnswerCardsSection,
+  PrivacySection,
+} from "./WidgetKeySections";
+import {
+  validateWidgetKeys,
+  cleanWidgetKeys,
+  FIELD_TAB,
+} from "./widgetKeys";
+import {
+  PreviewIdentity,
+  PreviewGreeting,
+  PreviewSuggestions,
+  PreviewDisclaimer,
+} from "./PanelPreviewParts";
 
 const CHAT_ICONS = [
   { id: "chatBubble", label: "Chat-Blase", Icon: ChatCircleDots },
@@ -232,6 +250,13 @@ const DEFAULT_CONFIG = {
   logoUrl: null,
 };
 
+const TABS = [
+  { id: "inhalt", label: "Inhalt" },
+  { id: "design", label: "Aussehen" },
+  { id: "antworten", label: "Antworten & Hinweise" },
+];
+const TAB_LABELS = Object.fromEntries(TABS.map((t) => [t.id, t.label]));
+
 export default function EmbedAppearance() {
   const { embedId } = useParams();
   const navigate = useNavigate();
@@ -242,6 +267,8 @@ export default function EmbedAppearance() {
   const [initialConfig, setInitialConfig] = useState({ ...DEFAULT_CONFIG });
   const [activeTab, setActiveTab] = useState("inhalt");
   const [logoPreview, setLogoPreview] = useState(null);
+  // Kufer-Standardtexte (GET /embed/defaults); null = nicht geladen
+  const [defaults, setDefaults] = useState(null);
 
   const hasChanges = stableStringify(config) !== stableStringify(initialConfig);
 
@@ -254,6 +281,9 @@ export default function EmbedAppearance() {
         return;
       }
       setEmbed(embedData);
+      // Standardtexte parallel laden; ohne sie bleiben die Felder leer
+      // (Platzhalter) und es wird nichts als Standard erkannt.
+      Embed.getDefaults("de").then(setDefaults);
 
       let visualConfig = {};
       if (embedData.visual_config) {
@@ -298,8 +328,31 @@ export default function EmbedAppearance() {
     });
   }, []);
 
-  const layoutErrors = validateLayout(config);
+  // Felder mit Kufer-Standardtext: "" bleibt beim Bearbeiten stehen (leeres
+  // Feld), Zurücksetzen entfernt den Schlüssel (Standard wird wieder Wert)
+  const setDefaultText = useCallback((field, value) => {
+    setConfig((prev) => ({ ...prev, [field]: value }));
+  }, []);
+  const resetDefaultText = useCallback((field) => {
+    setConfig((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }, []);
+
   const isInline = config.displayMode === "inline";
+  const layoutErrors = validateLayout(config);
+  const widgetErrors = validateWidgetKeys(config, { inline: isInline });
+  const sectionProps = {
+    config,
+    errors: widgetErrors,
+    defaults,
+    updateField,
+    updateOptionalField,
+    setDefaultText,
+    resetDefaultText,
+  };
 
   const handleSave = async () => {
     const savedConfig = config;
@@ -311,7 +364,20 @@ export default function EmbedAppearance() {
       setActiveTab("design");
       return;
     }
-    const cleanedConfig = cleanLayoutConfig(savedConfig);
+    const firstWidgetError = Object.keys(widgetErrors)[0];
+    if (firstWidgetError) {
+      const tab = FIELD_TAB[firstWidgetError] || "inhalt";
+      showToast(
+        `Bitte die markierten Felder unter „${TAB_LABELS[tab]}“ korrigieren.`,
+        "error"
+      );
+      setActiveTab(tab);
+      return;
+    }
+    const cleanedConfig = cleanWidgetKeys(
+      cleanLayoutConfig(savedConfig),
+      defaults
+    );
     setSaving(true);
     const { success, error } = await Embed.updateVisualConfig(
       embedId,
@@ -421,10 +487,7 @@ export default function EmbedAppearance() {
         <div className="w-1/2 max-w-[600px] flex flex-col border-r border-white/10">
           {/* Tabs */}
           <div className="flex border-b border-white/10 px-5 pt-3">
-            {[
-              { id: "inhalt", label: "Inhalt" },
-              { id: "design", label: "Aussehen" },
-            ].map((tab) => (
+            {TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -653,6 +716,8 @@ export default function EmbedAppearance() {
                         Schrift der Webseite übernehmen
                       </span>
                     </label>
+
+                    <LeisteSection {...sectionProps} />
                   </>
                 ) : (
                   <>
@@ -807,6 +872,15 @@ export default function EmbedAppearance() {
                     className="bg-theme-settings-input-bg text-white text-sm rounded-lg px-3 py-2 w-full border border-white/10 focus:border-white/25 focus:outline-none transition-colors"
                   />
                 </SettingsSection>
+
+                <PanelSection {...sectionProps} />
+              </>
+            )}
+
+            {activeTab === "antworten" && (
+              <>
+                <AnswerCardsSection {...sectionProps} />
+                <PrivacySection {...sectionProps} />
               </>
             )}
           </div>
@@ -848,60 +922,13 @@ export default function EmbedAppearance() {
             `,
           }}
         >
-          <WidgetPreview config={config} logoPreview={logoPreview} />
+          <WidgetPreview
+            config={config}
+            logoPreview={logoPreview}
+            defaults={defaults}
+          />
         </div>
       </div>
-    </div>
-  );
-}
-
-function SettingsSection({ title, hint, children, error = null, note = null }) {
-  return (
-    <div>
-      <label className="block text-white text-sm font-medium mb-0.5">{title}</label>
-      {hint && (
-        <p className="text-theme-text-secondary text-xs mb-2.5 leading-relaxed">{hint}</p>
-      )}
-      {children}
-      {error ? (
-        <p className="text-red-400 text-xs mt-1.5 leading-relaxed">{error}</p>
-      ) : (
-        note && (
-          <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
-            {note}
-          </p>
-        )
-      )}
-    </div>
-  );
-}
-
-function inputClass(hasError) {
-  return `bg-theme-settings-input-bg text-white text-sm rounded-lg px-3 py-2 w-full border ${
-    hasError
-      ? "border-red-400/70 focus:border-red-400"
-      : "border-white/10 focus:border-white/25"
-  } focus:outline-none transition-colors`;
-}
-
-// Button-Gruppe im Stil der Positions-Auswahl
-function Segmented({ options, value, onChange }) {
-  return (
-    <div className="flex rounded-lg overflow-hidden border border-white/10 w-fit">
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          onClick={() => onChange(opt.value)}
-          className={`px-5 py-2 text-sm font-medium transition-all ${
-            value === opt.value
-              ? "bg-primary-button text-white"
-              : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"
-          }`}
-        >
-          {opt.label}
-        </button>
-      ))}
     </div>
   );
 }
@@ -974,7 +1001,7 @@ function MessageList({ items, onAdd, onUpdate, onRemove, placeholder }) {
   );
 }
 
-function WidgetPreview({ config, logoPreview }) {
+function WidgetPreview({ config, logoPreview, defaults }) {
   // key: Startzustand geändert -> Vorschau neu mit diesem Zustand
   if (config.displayMode === "inline")
     return (
@@ -982,14 +1009,21 @@ function WidgetPreview({ config, logoPreview }) {
         key={config.inlineStartState || "collapsed"}
         config={config}
         logoPreview={logoPreview}
+        defaults={defaults}
       />
     );
-  return <BubblePreview config={config} logoPreview={logoPreview} />;
+  return (
+    <BubblePreview
+      config={config}
+      logoPreview={logoPreview}
+      defaults={defaults}
+    />
+  );
 }
 
 // Mock-Vorschau Inline-Modus: angedeutete Webseite, darin die Leiste
 // (eingeklappt) bzw. die aufgeklappte Chat-Box. Klick schaltet um.
-function InlinePreview({ config, logoPreview }) {
+function InlinePreview({ config, logoPreview, defaults }) {
   const [expanded, setExpanded] = useState(
     config.inlineStartState === "expanded"
   );
@@ -1054,16 +1088,12 @@ function InlinePreview({ config, logoPreview }) {
                 className="flex items-center px-4 h-[56px] flex-shrink-0"
                 style={{ borderBottom: "1px solid #E9E9E9" }}
               >
-                <div className="flex items-center flex-1 gap-3 min-w-0">
-                  <img
-                    src={logoSrc}
-                    alt="Logo"
-                    className="h-9 w-9 rounded-lg object-contain flex-shrink-0"
-                  />
-                  <span className="text-gray-800 font-semibold text-sm truncate">
-                    {name}
-                  </span>
-                </div>
+                <PreviewIdentity
+                  config={config}
+                  logoSrc={logoSrc}
+                  name={name}
+                  logoClass="h-9 w-9"
+                />
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   <DotsThreeOutlineVertical
                     size={18}
@@ -1079,8 +1109,12 @@ function InlinePreview({ config, logoPreview }) {
                   </button>
                 </div>
               </div>
-              <div className="flex-1 flex flex-col items-center justify-center px-6 text-center text-gray-400 text-[13px] leading-relaxed">
-                {greeting}
+              <div className="flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto no-scroll">
+                <PreviewGreeting
+                  config={config}
+                  defaults={defaults}
+                  greeting={greeting}
+                />
               </div>
               <div className="bg-white px-4 pb-3 pt-1 flex-shrink-0">
                 <div
@@ -1099,6 +1133,7 @@ function InlinePreview({ config, logoPreview }) {
                     className="text-[#222628]/35 mr-3 flex-shrink-0"
                   />
                 </div>
+                <PreviewDisclaimer config={config} defaults={defaults} />
               </div>
             </div>
           ) : (
@@ -1158,7 +1193,7 @@ function InlinePreview({ config, logoPreview }) {
   );
 }
 
-function BubblePreview({ config, logoPreview }) {
+function BubblePreview({ config, logoPreview, defaults }) {
   const [previewOpen, setPreviewOpen] = useState(true);
   const accentColor = config.accentColor || "#607D8B";
   const name = config.name || "Ihr Online-Berater";
@@ -1189,14 +1224,12 @@ function BubblePreview({ config, logoPreview }) {
             className="flex items-center px-4 h-[64px] flex-shrink-0"
             style={{ borderBottom: "1px solid #E9E9E9" }}
           >
-            <div className="flex items-center flex-1 gap-3 min-w-0">
-              <img
-                src={logoSrc}
-                alt="Logo"
-                className="h-10 w-10 rounded-lg object-contain flex-shrink-0"
-              />
-              <span className="text-gray-800 font-semibold text-sm truncate">{name}</span>
-            </div>
+            <PreviewIdentity
+              config={config}
+              logoSrc={logoSrc}
+              name={name}
+              logoClass="h-10 w-10"
+            />
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <DotsThreeOutlineVertical size={18} weight="fill" className="text-slate-400" />
               <button onClick={() => setPreviewOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
@@ -1218,24 +1251,12 @@ function BubblePreview({ config, logoPreview }) {
           {/* Chat Area — scrollable, hidden scrollbar (matches embed widget) */}
           <div className="flex-1 flex flex-col px-2 bg-white overflow-y-auto no-scroll py-4">
             <div className="flex flex-col items-center my-auto">
-              <div className="text-center text-gray-400 text-[13px] px-2 mb-4 leading-relaxed">
-                {greeting}
-              </div>
-              {config.defaultMessages?.length > 0 && (
-                <div className="flex flex-col gap-2 w-[75%]">
-                  {config.defaultMessages
-                    .filter((m) => m.trim())
-                    .map((msg, i) => (
-                      <div
-                        key={i}
-                        className="rounded-xl px-5 py-3 text-[13px] text-center font-medium"
-                        style={{ backgroundColor: accentColor, color: config.userTextColor || "#FFFFFF" }}
-                      >
-                        {msg}
-                      </div>
-                    ))}
-                </div>
-              )}
+              <PreviewGreeting
+                config={config}
+                defaults={defaults}
+                greeting={greeting}
+              />
+              <PreviewSuggestions config={config} accentColor={accentColor} />
             </div>
           </div>
 
@@ -1254,6 +1275,7 @@ function BubblePreview({ config, logoPreview }) {
               <Microphone size={20} weight="fill" className="text-[#222628]/35 mr-1.5 flex-shrink-0" />
               <PaperPlaneRight size={20} weight="fill" className="text-[#222628]/35 mr-3 flex-shrink-0" />
             </div>
+            <PreviewDisclaimer config={config} defaults={defaults} />
           </div>
         </div>
       ) : (
