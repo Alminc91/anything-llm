@@ -68,6 +68,10 @@ const LAYOUT_ENUMS = {
   theme: ["light", "dark", "auto"],
   // Kurskarten v2: Karten über oder unter der Antwort
   courseCardsPosition: ["below", "above"],
+  // Antwortstil im Karten-Modus: kurz (Standard, Such-Abschnitt ohne Links)
+  // oder ausführlich (Liste mit Links) — wählt den Prompt-Abschnitt, den der
+  // Server bei courseCards = "auto" anhängt (utils/chats/embedDefaults.js)
+  courseCardsAnswerStyle: ["short", "long"],
   // Leisten-Variante: Öffnen bei Klick (wie INLINE_OPEN_ON_VALUES im Widget)
   inlineOpenOn: ["submit", "focus"],
   // Panel-Optik (Mockup „Wunschfragen im Panel“): Vorschläge als Balken oder

@@ -659,10 +659,14 @@ describe("Kurskarten v3: Teaser im Embed-Stream", () => {
 
 // Fester KI-Hinweis im Widget (visual_config.disclaimer = "footer"): der
 // System-Prompt bekommt am Ende eine Zeile, die den Modell-Footer unterdrückt.
+// Mit courseCards = "auto" steht davor der Karten-Abschnitt (Design Center).
 describe("disclaimer = footer: Prompt-Footer wird unterdrückt", () => {
   const {
     DISCLAIMER_PROMPT_NOTE,
   } = require("../../../utils/chats/embedCourseSources");
+  const {
+    COURSE_CARDS_PROMPT_NOTE,
+  } = require("../../../utils/chats/embedDefaults");
 
   test("mit disclaimer footer endet der System-Prompt mit dem Override", async () => {
     const { connector } = await run({
@@ -677,11 +681,10 @@ describe("disclaimer = footer: Prompt-Footer wird unterdrückt", () => {
     expect(systemPrompt.endsWith(DISCLAIMER_PROMPT_NOTE)).toBe(true);
   });
 
-  test("ohne disclaimer (oder none) bleibt der System-Prompt unverändert", async () => {
+  test("ohne disclaimer (oder none) kein Footer-Override", async () => {
     for (const vc of [
       JSON.stringify({ courseCards: "auto" }),
       JSON.stringify({ courseCards: "auto", disclaimer: "none" }),
-      "{nicht json",
     ]) {
       jest.clearAllMocks();
       const { connector } = await run({
@@ -689,8 +692,144 @@ describe("disclaimer = footer: Prompt-Footer wird unterdrückt", () => {
         embed: makeEmbed(vc),
       });
       expect(connector.compressMessages.mock.calls[0][0].systemPrompt).toBe(
-        "System"
+        `System${COURSE_CARDS_PROMPT_NOTE}`
       );
     }
+    jest.clearAllMocks();
+    const { connector } = await run({
+      reply: `[[KARTEN: -]]\nKurze Antwort.`,
+      embed: makeEmbed("{nicht json"),
+    });
+    expect(connector.compressMessages.mock.calls[0][0].systemPrompt).toBe(
+      "System"
+    );
+  });
+});
+
+// Design Center: Karten-Modus serverseitig. Bei courseCards = "auto" hängt
+// der Server den Karten-Abschnitt ans Ende des System-Prompts (nach der
+// Zeitzeile des Workspace-Prompts), vor Disclaimer- und Folgefragen-Hinweis.
+describe("Karten-Abschnitt am Prompt-Ende (courseCards = auto)", () => {
+  const {
+    DISCLAIMER_PROMPT_NOTE,
+    FOLLOW_UPS_PROMPT_NOTE,
+  } = require("../../../utils/chats/embedCourseSources");
+  const {
+    COURSE_CARDS_PROMPT_NOTE,
+    COURSE_CARDS_LONG_PROMPT_NOTE,
+  } = require("../../../utils/chats/embedDefaults");
+  const { chatPrompt } = require("../../../utils/chats/index");
+
+  const WORKSPACE_PROMPT =
+    "### Security Rules\n…\n### Time Reference\nHeute ist Dienstag, 06.10.2026.";
+
+  async function promptFor(vc, basePrompt = WORKSPACE_PROMPT) {
+    jest.clearAllMocks();
+    chatPrompt.mockResolvedValueOnce(basePrompt);
+    const { connector } = await run({
+      reply: `[[KARTEN: -]]\nKurze Antwort.`,
+      embed: makeEmbed(vc === null ? null : JSON.stringify(vc)),
+    });
+    return connector.compressMessages.mock.calls[0][0].systemPrompt;
+  }
+
+  test("AK-4: Reihenfolge Workspace-Prompt -> Karten -> Disclaimer -> Folgefragen", async () => {
+    expect(
+      await promptFor({
+        courseCards: "auto",
+        disclaimer: "footer",
+        followUps: "pills",
+      })
+    ).toBe(
+      `${WORKSPACE_PROMPT}${COURSE_CARDS_PROMPT_NOTE}${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
+    );
+    expect(await promptFor({ courseCards: "auto", followUps: "pills" })).toBe(
+      `${WORKSPACE_PROMPT}${COURSE_CARDS_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
+    );
+    expect(await promptFor({ courseCards: " AUTO " })).toBe(
+      `${WORKSPACE_PROMPT}${COURSE_CARDS_PROMPT_NOTE}`
+    );
+  });
+
+  test("AK-4: Präfix bleibt unverändert (Anhang nur am Ende, nach der Zeitzeile)", async () => {
+    const prompt = await promptFor({
+      courseCards: "auto",
+      disclaimer: "footer",
+    });
+    expect(prompt.startsWith(WORKSPACE_PROMPT)).toBe(true);
+    expect(prompt.indexOf("### Course Cards Mode")).toBeGreaterThan(
+      prompt.indexOf("### Time Reference")
+    );
+  });
+
+  test("courseCardsAnswerStyle: long -> Liste mit Links, short/fehlend/ungültig -> Suche", async () => {
+    expect(
+      await promptFor({ courseCards: "auto", courseCardsAnswerStyle: "long" })
+    ).toBe(`${WORKSPACE_PROMPT}${COURSE_CARDS_LONG_PROMPT_NOTE}`);
+    expect(
+      await promptFor({
+        courseCards: "auto",
+        courseCardsAnswerStyle: " Long ",
+        disclaimer: "footer",
+      })
+    ).toBe(
+      `${WORKSPACE_PROMPT}${COURSE_CARDS_LONG_PROMPT_NOTE}${DISCLAIMER_PROMPT_NOTE}`
+    );
+    for (const style of ["short", "lang", 1, undefined])
+      expect(
+        await promptFor({ courseCards: "auto", courseCardsAnswerStyle: style })
+      ).toBe(`${WORKSPACE_PROMPT}${COURSE_CARDS_PROMPT_NOTE}`);
+  });
+
+  test("AK-4/AK-6: ohne courseCards = auto kein Karten-Abschnitt", async () => {
+    for (const vc of [
+      null,
+      {},
+      { courseCards: "off" },
+      { courseCards: "" },
+      { courseCardsAnswerStyle: "long" },
+      { courseCardsPosition: "above" },
+    ])
+      expect(await promptFor(vc)).toBe(WORKSPACE_PROMPT);
+    expect(await promptFor({ disclaimer: "footer", followUps: "pills" })).toBe(
+      `${WORKSPACE_PROMPT}${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
+    );
+  });
+
+  test("AK-6: Bestandskunde ohne neue Schlüssel — Prompt exakt unverändert (Snapshot)", async () => {
+    const prompt = await promptFor({
+      accentColor: "#FFA102",
+      name: "Ihr Online-Berater",
+      displayMode: "inline",
+    });
+    expect(prompt).toMatchInlineSnapshot(`
+"### Security Rules
+…
+### Time Reference
+Heute ist Dienstag, 06.10.2026."
+`);
+  });
+
+  test("NAK-2: Workspace-Prompt hat schon einen Karten-Abschnitt -> kein zweiter", async () => {
+    for (const section of [
+      "### Course Cards Mode — Search (ACTIVE — overrides the Course Information Blueprint)\n…",
+      "### Course Cards Mode (ACTIVE — overrides the Course Information Blueprint)\n…",
+    ]) {
+      const base = `### Security Rules\n…\n${section}\n### Time Reference\nHeute.`;
+      expect(
+        await promptFor(
+          { courseCards: "auto", disclaimer: "footer", followUps: "pills" },
+          base
+        )
+      ).toBe(`${base}${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`);
+      expect(
+        await promptFor(
+          { courseCards: "auto", courseCardsAnswerStyle: "long" },
+          base
+        )
+      ).toBe(base);
+    }
+    const prompt = await promptFor({ courseCards: "auto" });
+    expect(prompt.split("### Course Cards Mode")).toHaveLength(2);
   });
 });

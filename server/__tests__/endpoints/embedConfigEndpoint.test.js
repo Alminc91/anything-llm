@@ -473,3 +473,72 @@ describe("GET /embed/:embedId/config — Folgefragen", () => {
     }
   });
 });
+
+describe("GET /embed/:embedId/config — Design Center (courseCardsAnswerStyle, Standardtexte)", () => {
+  test("courseCardsAnswerStyle: short/long (Groß-/Kleinschreibung egal)", async () => {
+    expect(
+      (await fetchConfig({ courseCardsAnswerStyle: "long" })).body
+    ).toEqual({ courseCardsAnswerStyle: "long" });
+    expect(
+      (await fetchConfig({ courseCardsAnswerStyle: " Short " })).body
+    ).toEqual({ courseCardsAnswerStyle: "short" });
+    for (const v of ["lang", "", 1, true, null, ["long"]])
+      expect((await fetchConfig({ courseCardsAnswerStyle: v })).body).toEqual(
+        {}
+      );
+  });
+
+  test("AK-1: alle Design-Center-Schlüssel werden gespeichert/geliefert", async () => {
+    const vc = {
+      inlineInput: true,
+      inlineOpenOn: "focus",
+      inlineLayout: "overlay",
+      inlineEffect: "morph",
+      inlineInputPlaceholder: "Frage?",
+      inlineSendText: "Los",
+      courseCards: "auto",
+      courseCardsPosition: "above",
+      courseCardsAnswerStyle: "long",
+      followUps: "pills",
+      suggestionStyle: "pills",
+      greetingStyle: "bubble",
+      greetingBubbleText: "Hallo!",
+      assistantSubtitle: "KI-Assistent",
+      onlineDot: true,
+      privacyNotice: "modal",
+      privacyTitle: "Datenschutz",
+      privacyText: "Punkt 1\nPunkt 2",
+      privacyButtonText: "OK",
+      privacyUrl: "/datenschutz",
+      disclaimer: "footer",
+      disclaimerText: "KI-Hinweis",
+    };
+    expect((await fetchConfig(vc)).body).toEqual(vc);
+  });
+
+  test("Standardtexte werden NICHT ausgeliefert (Widget hat sie selbst)", async () => {
+    const res = await fetchConfig({
+      privacyNotice: "modal",
+      disclaimer: "footer",
+    });
+    expect(res.body).toEqual({ privacyNotice: "modal", disclaimer: "footer" });
+  });
+
+  test("AK-6: Bestandskunde ohne neue Schlüssel — /config unverändert", async () => {
+    const res = await fetchConfig({
+      accentColor: "#FFA102",
+      name: "Ihr Online-Berater",
+      greeting: "Hallo",
+      position: "bottom-left",
+    });
+    expect(res.body).toEqual({
+      buttonColor: "#FFA102",
+      userBgColor: "#FFA102",
+      linkColor: "#FFA102",
+      brandText: "Ihr Online-Berater",
+      assistantName: "Ihr Online-Berater",
+      greeting: "Hallo",
+      position: "bottom-left",
+    });
+  });
+});

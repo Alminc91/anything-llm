@@ -234,6 +234,19 @@ function courseCardsEnabled(embed = {}) {
   );
 }
 
+// Antwortstil im Karten-Modus (visual_config.courseCardsAnswerStyle):
+// "long" = ausführlich (Liste mit Links), sonst "short" (Standard: Suche,
+// kurze Antwort ohne Links) — wählt den Prompt-Abschnitt in embedDefaults.js.
+function courseCardsAnswerStyle(embed = {}) {
+  return visualConfigValue(
+    embed,
+    "courseCardsAnswerStyle",
+    "courseCardsAnswerStyle"
+  ) === "long"
+    ? "long"
+    : "short";
+}
+
 // Fester KI-Hinweis im Widget (visual_config.disclaimer = "footer"): das
 // Widget zeigt die Zeile selbst unter dem Eingabefeld, das Modell soll den
 // Prompt-Pflicht-Footer dann nicht mehr erzeugen (spart Tokens, keine
@@ -1236,6 +1249,7 @@ module.exports = {
   followUpsEnabled,
   FOLLOW_UPS_PROMPT_NOTE,
   courseCardsEnabled,
+  courseCardsAnswerStyle,
   buildCourseSources,
   mergeCourseSources,
   completeCourseSourcesFromReply,
