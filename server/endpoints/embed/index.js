@@ -22,6 +22,7 @@ const { getSTTProvider, isSTTConfigured } = require("../../utils/SpeechToText");
 const multer = require("multer");
 const {
   COURSE_CARDS_ANSWER_STYLES,
+  COURSE_CARDS_LAYOUTS,
 } = require("../../utils/chats/embedDefaults");
 
 // Configure multer for audio file uploads (store in memory)
@@ -76,6 +77,9 @@ const LAYOUT_ENUMS = {
   // aus Links/Marker) — wählt den Prompt-Abschnitt, den der Server bei
   // courseCards = "auto" anhängt (utils/chats/embedDefaults.js)
   courseCardsAnswerStyle: COURSE_CARDS_ANSWER_STYLES,
+  // Kartenlayout: Raster (zwei nebeneinander, Widget-Standard) oder Zeilen
+  // (eine Karte je Zeile, Zeit links, Status rechts) — nur Darstellung
+  courseCardsLayout: COURSE_CARDS_LAYOUTS,
   // Leisten-Variante: Öffnen bei Klick (wie INLINE_OPEN_ON_VALUES im Widget)
   inlineOpenOn: ["submit", "focus"],
   // Panel-Optik (Mockup „Wunschfragen im Panel“): Vorschläge als Balken oder

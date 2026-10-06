@@ -11,6 +11,7 @@ const {
   COURSE_CARDS_LONG_PROMPT_NOTE,
   COURSE_CARDS_SECTION_HEADING,
   COURSE_CARDS_ANSWER_STYLES,
+  COURSE_CARDS_LAYOUTS,
   courseCardsPromptNote,
   promptHasCourseCardsSection,
   removeCourseCardsSections,
@@ -166,6 +167,8 @@ describe("Prompt-Abschnitte des Karten-Modus", () => {
 
   test("courseCardsPromptNote: long -> Liste, classic -> nichts, sonst kurz", () => {
     expect(COURSE_CARDS_ANSWER_STYLES).toEqual(["short", "long", "classic"]);
+    // Kartenlayout: nur Darstellung (Widget), Standard "grid"
+    expect(COURSE_CARDS_LAYOUTS).toEqual(["grid", "rows"]);
     expect(courseCardsPromptNote({ style: "long" })).toBe(
       COURSE_CARDS_LONG_PROMPT_NOTE
     );

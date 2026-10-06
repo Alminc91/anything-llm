@@ -18,6 +18,12 @@ export const COURSE_CARDS_ANSWER_STYLE_OPTIONS = [
   { value: "long", label: "Ausführlich" },
   { value: "classic", label: "Klassisch" },
 ];
+// Kartenlayout: Raster = zwei Karten nebeneinander (Widget-Standard),
+// Zeilen = eine Karte je Zeile (Zeit links, Status rechts)
+export const COURSE_CARDS_LAYOUT_OPTIONS = [
+  { value: "grid", label: "Raster" },
+  { value: "rows", label: "Zeilen" },
+];
 export const FOLLOW_UPS_OPTIONS = [
   { value: "none", label: "Aus" },
   { value: "pills", label: "An" },
@@ -70,6 +76,10 @@ export const WIDGET_ENUMS = {
     options: COURSE_CARDS_ANSWER_STYLE_OPTIONS,
     fallback: "short",
   },
+  courseCardsLayout: {
+    options: COURSE_CARDS_LAYOUT_OPTIONS,
+    fallback: "grid",
+  },
   followUps: { options: FOLLOW_UPS_OPTIONS, fallback: "none" },
   inlineOpenOn: { options: INLINE_OPEN_ON_OPTIONS, fallback: "submit" },
   inlineLayout: { options: INLINE_LAYOUT_OPTIONS, fallback: "flow" },
@@ -107,6 +117,12 @@ export const PRIVACY_TEXT_MAX_LEN = 1000;
 export const URL_MAX_LEN = 512;
 export const WIDGET_BOOLEAN_KEYS = ["inlineInput", "onlineDot"];
 
+// Enum-Schlüssel, deren Standard nie gespeichert wird: die aktive Wahl des
+// Standards entfernt den Schlüssel (fehlend = Standard im Widget) — aber nur,
+// solange das Feld sichtbar ist; ausgeblendet bleibt ein vorhandener Wert
+// unangetastet.
+export const ENUM_DEFAULTS_NOT_STORED = { courseCardsLayout: "grid" };
+
 // Felder mit Kufer-Standardtext (GET /embed/defaults): stehen als Wert im
 // Feld, solange nichts gespeichert ist; gespeichert wird nur eine Abweichung.
 export const DEFAULT_TEXT_KEYS = [
@@ -130,9 +146,11 @@ export function hiddenWidgetKeys(config, { inline }) {
     );
   if (!inline) ["inlineLayout", "inlineEffect"].forEach((k) => hidden.add(k));
   if (enumValue(config.courseCards) !== "auto")
-    ["courseCardsPosition", "courseCardsAnswerStyle"].forEach((k) =>
-      hidden.add(k)
-    );
+    [
+      "courseCardsPosition",
+      "courseCardsAnswerStyle",
+      "courseCardsLayout",
+    ].forEach((k) => hidden.add(k));
   if (!privacyFieldsVisible(config))
     ["privacyTitle", "privacyText", "privacyUrl", "privacyButtonText"].forEach(
       (k) => hidden.add(k)
@@ -164,6 +182,7 @@ export const FIELD_TAB = {
   courseCards: "antworten",
   courseCardsPosition: "antworten",
   courseCardsAnswerStyle: "antworten",
+  courseCardsLayout: "antworten",
   followUps: "antworten",
   privacyNotice: "antworten",
   privacyTitle: "antworten",
@@ -303,7 +322,8 @@ export function sameAsDefault(key, value, defaults) {
  * Nicht-Strings gelten als leer. Ungültige Werte (nur in ausgeblendeten
  * Feldern möglich) werden verworfen — außer bei FREE_TEXT_ENUM_KEYS: dort
  * bleibt ein unbekannter Wert erhalten (der Server speichert ihn als
- * Freitext). Es werden nie Schlüssel hinzugefügt.
+ * Freitext). ENUM_DEFAULTS_NOT_STORED: Standardwert im sichtbaren Feld wird
+ * entfernt (ausgeblendet unangetastet). Es werden nie Schlüssel hinzugefügt.
  * @param {Object} config
  * @param {Object|null} defaults Standardtexte (GET /embed/defaults) oder null
  * @returns {Object}
@@ -323,6 +343,11 @@ export function cleanWidgetKeys(config, defaults = null) {
       cleaned[key] = cleaned[key].trim();
     else drop(key);
   }
+  // Standard nicht speichern — nur bei sichtbarem Feld (hiddenWidgetKeys
+  // hängt für diese Schlüssel nicht vom Inline-Modus ab)
+  const hidden = hiddenWidgetKeys(cleaned, { inline: true });
+  for (const [key, standard] of Object.entries(ENUM_DEFAULTS_NOT_STORED))
+    if (cleaned[key] === standard && !hidden.has(key)) drop(key);
   for (const [key, max] of Object.entries(WIDGET_TEXT_MAX)) {
     if (!(key in cleaned)) continue;
     const v = textValue(cleaned[key]).trim();

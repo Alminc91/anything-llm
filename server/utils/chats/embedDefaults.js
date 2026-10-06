@@ -170,6 +170,13 @@ const SECTION_END_RE = /^[ \t]*(?:▪▪▪[ \t]*$|###[ \t])/;
 // LAYOUT_ENUMS in endpoints/embed). Standard ohne/ungültigen Wert: "short".
 const COURSE_CARDS_ANSWER_STYLES = ["short", "long", "classic"];
 
+// Kartenlayout im Widget (Enum visual_config.courseCardsLayout, ebenfalls
+// Quelle für LAYOUT_ENUMS in endpoints/embed): "grid" zwei Karten
+// nebeneinander (Widget-Standard, auch ohne/ungültigen Wert), "rows" eine
+// Karte je Zeile (Zeit links, Status rechts). Reine Darstellung — kommt nie
+// in den System-Prompt.
+const COURSE_CARDS_LAYOUTS = ["grid", "rows"];
+
 /**
  * Prompt-Abschnitt zum Antwortstil.
  * @param {{style?: string, footer?: boolean}} [opts] style "long" -> Liste
@@ -230,6 +237,7 @@ module.exports = {
   COURSE_CARDS_LONG_PROMPT_NOTE,
   COURSE_CARDS_SECTION_HEADING,
   COURSE_CARDS_ANSWER_STYLES,
+  COURSE_CARDS_LAYOUTS,
   courseCardsPromptNote,
   promptHasCourseCardsSection,
   removeCourseCardsSections,
