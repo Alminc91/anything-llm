@@ -19,8 +19,50 @@ const {
     parseMarkerIndices,
     cardsMarkerLine,
     CardsMarkerFilter,
+    scanBracketLine,
   },
 } = require("../../../utils/chats/embedCardsMarker");
+
+describe("Review-Befund 10: scanBracketLine (gemeinsam für Marker und Teaser)", () => {
+  test("first: erstes ']]', sofort entschieden; last: letztes ']]' erst mit Zeilenende", () => {
+    const text = "  [[X: a]] b]]\nRest";
+    expect(scanBracketLine(text, "[[X:", 120, false)).toEqual({
+      state: "closed",
+      start: 2,
+      close: 8,
+      end: 10,
+    });
+    expect(scanBracketLine(text, "[[X:", 120, false, "last")).toEqual({
+      state: "closed",
+      start: 2,
+      close: 12,
+      end: 14,
+    });
+    expect(scanBracketLine("[[X: a]]", "[[X:", 120, false).state).toBe(
+      "closed"
+    );
+    expect(scanBracketLine("[[X: a]]", "[[X:", 120, false, "last").state).toBe(
+      "pending"
+    );
+    expect(scanBracketLine("[[X: a]]", "[[X:", 120, true, "last").state).toBe(
+      "closed"
+    );
+  });
+
+  test("Zeilenende ohne ']]' -> broken; Fenster voll -> none; kein Tag -> none", () => {
+    expect(scanBracketLine("[[X: a\nB", "[[X:", 120, false)).toEqual({
+      state: "broken",
+      start: 0,
+      end: 7,
+    });
+    expect(
+      scanBracketLine(`[[X: ${"a".repeat(20)}`, "[[X:", 10, false).state
+    ).toBe("none");
+    expect(scanBracketLine("Hallo", "[[X:", 120, false).state).toBe("none");
+    expect(scanBracketLine("[[", "[[X:", 120, false).state).toBe("pending");
+    expect(scanBracketLine("[[", "[[X:", 120, true).state).toBe("none");
+  });
+});
 
 describe("parseCardsMarker", () => {
   test.each([
@@ -353,5 +395,416 @@ describe("Befund 4: Marker im LLM-Verlauf (restoreCardsMarkers)", () => {
     expect(cardsMarkerLine(null)).toBe("");
     expect(cardsMarkerLine(undefined)).toBe("");
     expect(restoreCardsMarkers(null)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Kurskarten v3: Teaserzeilen "[[TEASER n: …]]" direkt nach dem Marker
+// ---------------------------------------------------------------------------
+describe("Kurskarten v3: parseTeaserLines / parseCardsReply", () => {
+  const {
+    parseTeaserLines,
+    parseCardsReply,
+    storedTeaserLines,
+    __test__: { TEASER_LINE_MAX, TEASER_LINES_MAX, teaserLinesText },
+  } = require("../../../utils/chats/embedCardsMarker");
+
+  test("zwei Teaserzeilen, dann Text", () => {
+    const text =
+      "\n[[TEASER 0: Sanft starten am Abend.]]\n[[teaser 2:Zweiter Kurs.]]\n\nJa, zwei Kurse.";
+    const r = parseTeaserLines(text, { indices: [0, 2] });
+    expect(r.state).toBe("done");
+    expect(r.lines).toEqual([
+      { index: 0, text: "Sanft starten am Abend." },
+      { index: 2, text: "Zweiter Kurs." },
+    ]);
+    expect(text.slice(r.end)).toBe("Ja, zwei Kurse.");
+  });
+
+  test("offen: Anfang des Tags, Zeile ohne ']]', Leerraum am Ende", () => {
+    expect(parseTeaserLines("").state).toBe("pending");
+    expect(parseTeaserLines("[[TEA").state).toBe("pending");
+    expect(parseTeaserLines("[[TEASER 0: halb").state).toBe("pending");
+    expect(parseTeaserLines("[[TEASER 0: ganz]]\n").state).toBe("pending");
+    expect(
+      parseTeaserLines("[[TEASER 0: ganz]]\n", { indices: [0] }).lines
+    ).toHaveLength(1);
+    // Schluss = letztes "]]" der Zeile -> erst mit dem Zeilenende entschieden
+    expect(parseTeaserLines("[[TEASER 0: ganz]]").state).toBe("pending");
+    expect(
+      parseTeaserLines("[[TEASER 0: ganz]]", { final: true, indices: [0] })
+        .lines
+    ).toEqual([{ index: 0, text: "ganz" }]);
+  });
+
+  test("kein Teaser: sofort entschieden", () => {
+    for (const t of ["Ja", "[Aerobic](https://x.de)", "[[Hinweis]]", "**x**"])
+      expect(parseTeaserLines(t)).toMatchObject({ state: "done", end: 0 });
+  });
+
+  test("NAK-1: kaputte Zeile (Zeilenende vor ']]') bleibt Text, auch alles danach", () => {
+    const text = "[[TEASER 0: ohne Ende\n[[TEASER 1: gut]]\nText";
+    const r = parseTeaserLines(text);
+    expect(r).toMatchObject({ state: "done", lines: [], end: 0 });
+  });
+
+  test("NAK-1: überlange Zeile (> 240 ohne ']]') bleibt Text", () => {
+    const text = `[[TEASER 0: ${"x".repeat(TEASER_LINE_MAX)}]]\nText`;
+    const r = parseTeaserLines(text);
+    expect(r).toMatchObject({ state: "done", lines: [], end: 0 });
+    // ohne Zeilenende entscheidet die Grenze schon im Strom
+    expect(parseTeaserLines(text.slice(0, TEASER_LINE_MAX)).state).toBe("done");
+  });
+
+  test("falsches Format bleibt Text", () => {
+    for (const t of [
+      "[[TEASER x: a]]\nT",
+      "[[TEASER: a]]\nT",
+      "[[TEASERS 1: a]]",
+    ])
+      expect(parseTeaserLines(t, { final: true })).toMatchObject({
+        lines: [],
+        end: 0,
+      });
+  });
+
+  test("Review-Befund 1: 6 Karten + 6 Teaser -> 6 Teaser, nichts davon im Text", () => {
+    const n = 6;
+    const marker = `[[KARTEN: ${Array.from({ length: n }, (_, i) => i).join(", ")}]]`;
+    const teaserLines = Array.from(
+      { length: n },
+      (_, i) => `[[TEASER ${i}: Kurs ${i}.]]`
+    );
+    const reply = `${marker}\n${teaserLines.join("\n")}\nText`;
+    const parsed = parseCardsReply(reply);
+    expect(parsed.teasers.map((t) => t.index)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(parsed.text).toBe("Text");
+  });
+
+  test("Review-Befund 1: 13 Teaserzeilen -> 12 verarbeitet, die 13. entfernt", () => {
+    expect(TEASER_LINES_MAX).toBe(12);
+    const n = 13;
+    const marker = `[[KARTEN: ${Array.from({ length: n }, (_, i) => i).join(", ")}]]`;
+    const teaserLines = Array.from(
+      { length: n },
+      (_, i) => `[[TEASER ${i}: Kurs ${i}.]]`
+    );
+    const reply = `${marker}\n${teaserLines.join("\n")}\nText`;
+    const parsed = parseCardsReply(reply);
+    expect(parsed.teasers).toHaveLength(TEASER_LINES_MAX);
+    expect(parsed.teasers.map((t) => t.index)).toEqual(
+      Array.from({ length: 12 }, (_, i) => i)
+    );
+    expect(parsed.text).toBe("Text");
+  });
+
+  test("wohlgeformte Zeilen fremder Nummern / Dubletten: entfernt, nicht gesammelt", () => {
+    const text = "[[TEASER 7: fremd]]\n[[TEASER 0: a]]\n[[TEASER 0: b]]\nText";
+    const r = parseTeaserLines(text, { final: true, indices: [0] });
+    expect(r.lines).toEqual([{ index: 0, text: "a" }]);
+    expect(text.slice(r.end)).toBe("Text");
+  });
+
+  test("Review-Befund 2: ']]' im Teasertext -> Schluss am letzten ']]' der Zeile", () => {
+    const reply =
+      "[[KARTEN: 0]]\n[[TEASER 0: Kurs [Modul A]] für Einsteiger]]\nText";
+    expect(parseCardsReply(reply)).toMatchObject({
+      teasers: [{ index: 0, text: "Kurs [Modul A]] für Einsteiger" }],
+      text: "Text",
+    });
+  });
+
+  test("Review-Befund 4: ungültiger Marker -> wohlgeformte Teaserzeilen entfernt, nichts gesammelt; kaputte bleiben Text", () => {
+    expect(
+      parseCardsReply("[[KARTEN: kaputt]]\n[[TEASER 0: a]]\nText")
+    ).toMatchObject({ marker: { valid: false }, teasers: [], text: "Text" });
+    expect(
+      parseCardsReply("[[KARTEN: 1, x]]\n[[TEASER 1: ohne Ende\nText")
+    ).toMatchObject({ teasers: [], text: "[[TEASER 1: ohne Ende\nText" });
+  });
+
+  test("final: Antwort endet mitten in einer Teaserzeile -> Rest bleibt Text", () => {
+    const r = parseTeaserLines("[[TEASER 0: a]]\n[[TEASER 1: hal", {
+      final: true,
+      indices: [0, 1],
+    });
+    expect(r.lines).toHaveLength(1);
+    expect("[[TEASER 0: a]]\n[[TEASER 1: hal".slice(r.end)).toBe(
+      "[[TEASER 1: hal"
+    );
+  });
+
+  test("parseCardsReply: Marker + Teaser + Text; ohne Marker bleibt alles", () => {
+    const reply =
+      "[[KARTEN: 0, 2]]\n[[TEASER 0: A.]]\n[[TEASER 2: B.]]\nJa, zwei Kurse.";
+    expect(parseCardsReply(reply)).toMatchObject({
+      marker: { state: "marker", indices: [0, 2] },
+      teasers: [
+        { index: 0, text: "A." },
+        { index: 2, text: "B." },
+      ],
+      text: "Ja, zwei Kurse.",
+    });
+    const noMarker = "[[TEASER 0: A.]]\nJa.";
+    expect(parseCardsReply(noMarker)).toMatchObject({
+      teasers: [],
+      text: noMarker,
+    });
+    expect(parseCardsReply("[[KARTEN: 0]]\n[[TEASER 0: A.]]\n\nJa.").text).toBe(
+      "Ja."
+    );
+    expect(parseCardsReply("[[KARTEN: 0]]\nJa.").text).toBe("Ja.");
+  });
+
+  test("storedTeaserLines / teaserLinesText prüfen die gespeicherte Liste", () => {
+    expect(
+      storedTeaserLines([
+        { index: 0, text: "**A** <b>x</b>" },
+        { index: 0, text: "doppelt" },
+        { index: 1000, text: "zu groß" },
+        { index: 1.5, text: "kein int" },
+        { index: 2, text: "" },
+        "x",
+        null,
+      ])
+    ).toEqual([{ index: 0, text: "A x" }]);
+    expect(storedTeaserLines("x")).toEqual([]);
+    expect(teaserLinesText([{ index: 3, text: "Gut." }])).toEqual([
+      "[[TEASER 3: Gut.]]",
+    ]);
+  });
+});
+
+describe("Kurskarten v3: CardsMarkerFilter mit Teaserzeilen (Token-Strom)", () => {
+  function stream(text, size = 5) {
+    const filter = new CardsMarkerFilter();
+    const pieces = text.match(new RegExp(`[\\s\\S]{1,${size}}`, "g"));
+    const events = [];
+    pieces.forEach((piece, i) => {
+      const r = filter.push(piece, { final: i === pieces.length - 1 });
+      if (r.marker) events.push({ marker: r.marker, at: i });
+      if (r.teasers) events.push({ teasers: r.teasers, at: i });
+      if (r.text) events.push({ text: r.text, at: i });
+    });
+    return {
+      events,
+      pieces,
+      text: events
+        .filter((e) => e.text)
+        .map((e) => e.text)
+        .join(""),
+    };
+  }
+
+  const REPLY =
+    "[[KARTEN: 0, 2]]\n[[TEASER 0: Sanft starten nach Feierabend.]]\n[[TEASER 2: Kraft und Ruhe für Fortgeschrittene.]]\nJa, zwei Kurse passen.";
+
+  test("AK-3/AK-4: Marker sofort, Teaser gesammelt sobald die letzte Zeile zu ist, dann Text", () => {
+    const { events, pieces, text } = stream(REPLY);
+    const markerAt = events.find((e) => e.marker).at;
+    const teaser = events.find((e) => e.teasers);
+    const firstText = events.find((e) => e.text);
+    // Marker wird mit dem Token entschieden, das "]]" abschließt
+    expect(pieces.slice(0, markerAt + 1).join("")).toMatch(/\]\]$|\]\]\n/);
+    expect(pieces.slice(0, markerAt).join("")).not.toMatch(/TEASER/);
+    expect(teaser.teasers.map((t) => t.index)).toEqual([0, 2]);
+    // gemeldet mit dem Token, das die letzte Teaserzeile abschließt
+    // (Zeilenende) — vor dem Text
+    expect(pieces.slice(0, teaser.at + 1).join("")).toMatch(
+      /Fortgeschrittene\.\]\]\n/
+    );
+    expect(pieces.slice(0, teaser.at).join("")).not.toMatch(
+      /Fortgeschrittene\.\]\]\n/
+    );
+    // Token für Token: mit dem Zeilenende hinter der letzten Teaserzeile
+    // (Schluss = letztes "]]" der Zeile, erst dann entschieden)
+    const fine = stream(REPLY, 1);
+    const at = fine.events.find((e) => e.teasers).at;
+    expect(fine.pieces.slice(0, at + 1).join("")).toMatch(
+      /Fortgeschrittene\.\]\]\n$/
+    );
+    expect(teaser.at).toBeLessThanOrEqual(firstText.at);
+    expect(events.filter((e) => e.teasers)).toHaveLength(1);
+    expect(text).toBe("Ja, zwei Kurse passen.");
+  });
+
+  test("weniger Teaser als Marker-Nummern: Meldung beim ersten Nicht-Teaser-Zeichen", () => {
+    const { events, text } = stream(
+      "[[KARTEN: 0, 2]]\n[[TEASER 0: Nur einer.]]\nText dahinter."
+    );
+    const teaser = events.find((e) => e.teasers);
+    expect(teaser.teasers).toEqual([{ index: 0, text: "Nur einer." }]);
+    expect(text).toBe("Text dahinter.");
+  });
+
+  test("NAK-3: Marker ohne Teaserzeilen wie v2 (keine Meldung, Text sofort)", () => {
+    const { events, text } = stream("[[KARTEN: 1]]\n\nJa, gern.");
+    expect(events.find((e) => e.teasers)).toBeUndefined();
+    expect(text).toBe("Ja, gern.");
+  });
+
+  test("Review-Befund 1: Meldung bei erreichter Grenze, auch wenn dahinter '[[TE' offen ist", () => {
+    const filter = new CardsMarkerFilter();
+    expect(filter.push("[[KARTEN: 0]]\n").marker).toEqual({
+      indices: [0],
+      valid: true,
+    });
+    const r = filter.push("[[TEASER 0: a]]\n[[TE");
+    expect(r.teasers).toEqual([{ index: 0, text: "a" }]);
+    expect(r.text).toBe("");
+    // weitere wohlgeformte Zeile (über der Grenze) wird entfernt
+    expect(filter.push("ASER 0: b]]\nText").text).toBe("Text");
+  });
+
+  test("Review-Befund 1/2/4: Stream und parseCardsReply gleich bei vielen Teasern, ']]' im Text, ungültigem Marker", () => {
+    const {
+      parseCardsReply,
+    } = require("../../../utils/chats/embedCardsMarker");
+    const many = (n) =>
+      `[[KARTEN: ${Array.from({ length: n }, (_, i) => i).join(", ")}]]\n${Array.from(
+        { length: n },
+        (_, i) => `[[TEASER ${i}: Kurs ${i}.]]`
+      ).join("\n")}\nText`;
+    const replies = [
+      many(6),
+      many(13),
+      "[[KARTEN: 0]]\n[[TEASER 0: Kurs [Modul A]] für Einsteiger]]\nText",
+      "[[KARTEN: kaputt]]\n[[TEASER 0: a]]\nText",
+    ];
+    for (const reply of replies)
+      for (const size of [1, 3, 7, 50]) {
+        const { events, text } = stream(reply, size);
+        const parsed = parseCardsReply(reply);
+        expect(text).toBe(parsed.text);
+        expect(text).not.toMatch(/TEASER/);
+        const reported = events.filter((e) => e.teasers);
+        expect(reported.length).toBeLessThanOrEqual(1);
+        expect(reported[0]?.teasers ?? []).toEqual(parsed.teasers);
+      }
+  });
+
+  test("ohne Marker: Teaserzeilen bleiben Text (nur nach dem Marker gültig)", () => {
+    const reply = "[[TEASER 0: a]]\nJa.";
+    const { events, text } = stream(reply);
+    expect(events.find((e) => e.teasers)).toBeUndefined();
+    expect(text).toBe(reply);
+  });
+
+  test("NAK-1: kaputte Teaserzeile -> als Text durchgereicht (kein Verlust)", () => {
+    const broken = `[[TEASER 0: ${"lang ".repeat(60)}`;
+    const reply = `[[KARTEN: 0]]\n${broken}\nText`;
+    const { events, text } = stream(reply);
+    expect(events.find((e) => e.teasers)).toBeUndefined();
+    expect(text).toBe(`${broken}\nText`);
+    // gleiche Entscheidung wie für die gespeicherte Antwort
+    expect(
+      require("../../../utils/chats/embedCardsMarker").parseCardsReply(reply)
+        .text
+    ).toBe(text);
+  });
+
+  test("Stream und parseCardsReply entscheiden gleich (verschiedene Token-Größen)", () => {
+    const {
+      parseCardsReply,
+    } = require("../../../utils/chats/embedCardsMarker");
+    const replies = [
+      REPLY,
+      "[[KARTEN: -]]\n[[TEASER 1: fremd]]\nKeine Kurse.",
+      "[[KARTEN: 0]]\n[[TEASER 0: a]] und gleich Text",
+      "[[KARTEN: 0]]\n[[TEASER 0: a]]",
+      "[[KARTEN: 0]]\n[[TEASER 0: a]]\n[[TEASER 0: b\nText",
+    ];
+    for (const reply of replies)
+      for (const size of [1, 3, 7, 50]) {
+        const { text } = stream(reply, size);
+        expect(text).toBe(parseCardsReply(reply).text);
+      }
+  });
+
+  test("createCardsMarkerResponse: courseSources -> courseTeasers -> Text, Teaser nie im Text", async () => {
+    const log = [];
+    const res = {
+      locals: {},
+      write: jest.fn((raw) => log.push(JSON.parse(raw.slice(6)))),
+      on: jest.fn(),
+      removeListener: jest.fn(),
+    };
+    const { response, done } = createCardsMarkerResponse(res, {
+      onMarker: async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        res.write(`data: ${JSON.stringify({ type: "courseSources" })}\n\n`);
+      },
+      onTeasers: (lines) =>
+        res.write(
+          `data: ${JSON.stringify({ type: "courseTeasers", lines })}\n\n`
+        ),
+    });
+    for (const t of REPLY.match(/[\s\S]{1,6}/g))
+      response.write(
+        `data: ${JSON.stringify({ type: "textResponseChunk", textResponse: t, close: false })}\n\n`
+      );
+    response.write(
+      `data: ${JSON.stringify({ type: "textResponseChunk", textResponse: "", close: true })}\n\n`
+    );
+    await done();
+    const types = log.map((c) => c.type);
+    expect(types.slice(0, 2)).toEqual(["courseSources", "courseTeasers"]);
+    expect(types.slice(2).every((t) => t === "textResponseChunk")).toBe(true);
+    expect(
+      log
+        .filter((c) => c.type === "textResponseChunk")
+        .map((c) => c.textResponse)
+        .join("")
+    ).toBe("Ja, zwei Kurse passen.");
+    expect(
+      JSON.stringify(log.filter((c) => c.type === "textResponseChunk"))
+    ).not.toMatch(/TEASER|KARTEN/);
+  });
+});
+
+describe("AK-8: Marker und Teaserzeilen im LLM-Verlauf (restoreCardsMarkers)", () => {
+  const { convertToPromptHistory } = jest.requireActual(
+    "../../../utils/helpers/chat/responses"
+  );
+  test("Teaserzeilen folgen direkt auf den Marker, vor der Antwort", () => {
+    const raw = [
+      {
+        id: 1,
+        prompt: "Yoga am Abend?",
+        response: JSON.stringify({
+          text: "Ja, zwei Kurse passen.",
+          courseCardsMarker: [0, 2],
+          courseTeaserLines: [
+            { index: 0, text: "Sanft starten." },
+            { index: 2, text: "Für Fortgeschrittene." },
+          ],
+          courseTeasers: { "https://x.de/k/1": "Sanft starten." },
+        }),
+      },
+      {
+        id: 2,
+        prompt: "ohne Marker",
+        response: JSON.stringify({
+          text: "Hallo.",
+          courseTeaserLines: [{ index: 0, text: "nie ohne Marker" }],
+        }),
+      },
+    ];
+    const content = convertToPromptHistory(restoreCardsMarkers(raw))
+      .filter((m) => m.role === "assistant")
+      .map((m) => m.content);
+    expect(content).toEqual([
+      "[[KARTEN: 0, 2]]\n[[TEASER 0: Sanft starten.]]\n[[TEASER 2: Für Fortgeschrittene.]]\nJa, zwei Kurse passen.",
+      "Hallo.",
+    ]);
+    // wiederhergestellter Verlauf wird wieder als Marker + Teaser erkannt
+    const {
+      parseCardsReply,
+    } = require("../../../utils/chats/embedCardsMarker");
+    expect(parseCardsReply(content[0])).toMatchObject({
+      teasers: [{ index: 0 }, { index: 2 }],
+      text: "Ja, zwei Kurse passen.",
+    });
+    expect(JSON.parse(raw[0].response).text).toBe("Ja, zwei Kurse passen.");
   });
 });

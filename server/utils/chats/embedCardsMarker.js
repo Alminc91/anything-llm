@@ -27,9 +27,30 @@
 // sonst weg), wird die angekündigte Nummernliste als courseCardsMarker in der
 // Antwort-JSON gespeichert und nur für den LLM-Verlauf wieder als erste Zeile
 // vorangestellt (restoreCardsMarkers), nie in /history an das Widget.
+//
+// Kurskarten v3 — KI-Teaser: Direkt nach der Markerzeile darf je angekündig-
+// tem Kurs eine Zeile "[[TEASER n: <15–20 Wörter>]]" folgen (n = Nummer aus
+// dem Marker). Nach dem Marker-Abschluss (Karten gehen sofort raus) puffert
+// der Filter diese Zeilen (parseTeaserLines), entfernt sie aus dem Text und
+// meldet sie gesammelt (onTeasers), sobald zu jeder Marker-Nummer eine Zeile
+// da ist — spätestens beim ersten Zeichen, das keine Teaserzeile beginnt.
+// Grenzen: je Zeile höchstens TEASER_LINE_MAX Zeichen; Schluss ist das
+// LETZTE "]]" vor dem Zeilenende (der Teaser darf selbst "]]" enthalten),
+// daher fällt die Entscheidung je Zeile erst mit dem Zeilenende, der
+// Fenstergrenze oder dem Antwortende. Gesammelt wird höchstens eine Zeile je
+// Marker-Nummer, also höchstens so viele wie der Marker Nummern hat (max.
+// TEASER_LINES_MAX = COURSE_SOURCES_MAX).
+// Wohlgeformte Teaserzeilen sind Protokoll, kein Nutztext: auch die nicht
+// gesammelten (fremde Nummer, Dublette, über der Grenze, nach "[[KARTEN: -]]"
+// oder nach einem ungültigen Marker) werden entfernt und nirgends gespeichert
+// oder gesendet. "Kein Datenverlust" gilt nur für kaputte Zeilen (Zeilenende
+// bzw. Grenze ohne "]]", falsches Format): sie und alles danach gehen
+// unverändert als Text durch. Gespeichert werden die gesammelten Zeilen als
+// courseTeaserLines (nur LLM-Verlauf).
 
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { safeJsonParse } = require("../http");
+const { cleanTeaserText, COURSE_SOURCES_MAX } = require("./embedCourseSources");
 
 const CARDS_MARKER_TAG = "[[KARTEN:";
 // Obergrenze (Zeichen ab Markeranfang) bis "]]" bzw. Zeilenende — einzige
@@ -37,6 +58,16 @@ const CARDS_MARKER_TAG = "[[KARTEN:";
 const CARDS_MARKER_BUFFER_MAX = 120;
 // Nummern 0–999 (höchstens drei Ziffern), durch Kommas getrennt
 const INDEX_LIST_RX = /^\d{1,3}(?:\s*,\s*\d{1,3})*$/;
+
+// Kurskarten v3: Teaserzeilen direkt nach dem Marker
+const TEASER_TAG = "[[TEASER";
+// Obergrenze je Teaserzeile (Zeichen ab Zeilenanfang) bis "]]"
+const TEASER_LINE_MAX = 240;
+// höchstens so viele Teaserzeilen werden gesammelt (eine je Karte); weitere
+// wohlgeformte Zeilen werden nur entfernt
+const TEASER_LINES_MAX = COURSE_SOURCES_MAX;
+const TEASER_LINE_RX =
+  /^\[\[TEASER[ \t]*(\d{1,3})[ \t]*:[ \t]*([^\n]*?)[ \t]*\]\]$/i;
 
 const PENDING = Object.freeze({ state: "pending" });
 const NONE = Object.freeze({ state: "none" });
@@ -68,39 +99,143 @@ function parseMarkerIndices(content) {
  */
 function parseCardsMarker(text, { final = false } = {}) {
   const s = typeof text === "string" ? text : "";
-  const lead = s.length - s.trimStart().length;
-  const body = s.slice(lead);
-  if (body.length === 0) return final ? NONE : PENDING;
-  const head = body.slice(0, CARDS_MARKER_TAG.length).toUpperCase();
-  if (!CARDS_MARKER_TAG.startsWith(head)) return NONE;
-  if (body.length < CARDS_MARKER_TAG.length) return final ? NONE : PENDING;
+  const line = scanBracketLine(
+    s,
+    CARDS_MARKER_TAG,
+    CARDS_MARKER_BUFFER_MAX,
+    final
+  );
+  if (line.state === "pending") return PENDING;
+  if (line.state === "none") return NONE;
+  if (line.state === "broken")
+    return { state: "marker", indices: null, valid: false, end: line.end };
+  const indices = parseMarkerIndices(
+    s.slice(line.start + CARDS_MARKER_TAG.length, line.close)
+  );
+  return { state: "marker", indices, valid: indices !== null, end: line.end };
+}
 
-  // Nur das Fenster der ersten CARDS_MARKER_BUFFER_MAX Zeichen zählt: "]]"
-  // bzw. Zeilenende müssen vollständig darin liegen. So ist die Entscheidung
-  // für einen Antwortanfang dieselbe wie für die ganze Antwort.
-  const win = body.slice(0, CARDS_MARKER_BUFFER_MAX);
-  const close = win.indexOf("]]");
+/**
+ * Gemeinsamer Scanner für eine Protokollzeile "[[TAG … ]]" am Textanfang
+ * (Karten-Marker und Teaserzeilen) — gleiche Fenster-, Schluss- und
+ * Zeilenende-Entscheidung. Leerraum vorn wird übersprungen. Nur das Fenster
+ * der ersten maxLen Zeichen zählt: "]]" bzw. Zeilenende müssen vollständig
+ * darin liegen — so ist die Entscheidung für einen Antwortanfang dieselbe
+ * wie für die ganze Antwort.
+ *   - beginnt nicht mit tag -> "none"
+ *   - "]]" vor dem Zeilenende -> "closed"; closeAt "first": erstes "]]",
+ *     sofort entschieden (Marker); "last": letztes "]]" der Zeile, erst mit
+ *     Zeilenende, Fenstergrenze oder final entschieden (Teaser)
+ *   - Zeilenende ohne "]]" -> "broken" (kaputte Zeile)
+ *   - Fenster voll ohne "]]"/Zeilenende, oder final -> "none"
+ *   - sonst "pending" (weiter puffern)
+ * @param {string} text
+ * @param {string} tag - in Großbuchstaben, z. B. "[[KARTEN:"
+ * @param {number} maxLen - Fenster ab Zeilenanfang
+ * @param {boolean} final - Antwort ist vollständig
+ * @param {"first"|"last"} [closeAt="first"]
+ * @returns {{state: "pending"|"none"|"closed"|"broken", start: number, close?: number, end?: number}}
+ *   start = Zeilenanfang (hinter dem Leerraum); close = Position von "]]";
+ *   end = hinter "]]" ("closed") bzw. hinter dem Zeilenende ("broken")
+ */
+function scanBracketLine(text, tag, maxLen, final, closeAt = "first") {
+  const start = text.length - text.trimStart().length;
+  const body = text.slice(start);
+  const result = (state, extra = {}) => ({ state, start, ...extra });
+  if (body.length === 0) return result(final ? "none" : "pending");
+  if (!tag.startsWith(body.slice(0, tag.length).toUpperCase()))
+    return result("none");
+  if (body.length < tag.length) return result(final ? "none" : "pending");
+  const win = body.slice(0, maxLen);
   const newline = win.indexOf("\n");
-  if (close !== -1 && (newline === -1 || close < newline)) {
-    const indices = parseMarkerIndices(
-      body.slice(CARDS_MARKER_TAG.length, close)
+  const line = newline === -1 ? win : win.slice(0, newline);
+  const settled = newline !== -1 || body.length >= maxLen || final;
+  if (closeAt === "last" && !settled) return result("pending");
+  const close =
+    closeAt === "last" ? line.lastIndexOf("]]") : line.indexOf("]]");
+  if (close !== -1)
+    return result("closed", { close: start + close, end: start + close + 2 });
+  if (newline !== -1) return result("broken", { end: start + newline + 1 });
+  return result(settled ? "none" : "pending");
+}
+
+/**
+ * Marker-Nummern, für die Teaserzeilen gesammelt werden: nur bei gültigem
+ * Marker, höchstens TEASER_LINES_MAX (so viele Karten gibt es höchstens).
+ * @param {{indices?: number[]|null, valid?: boolean}|null} marker
+ * @returns {number[]}
+ */
+function teaserIndices(marker) {
+  if (!marker?.valid || !Array.isArray(marker.indices)) return [];
+  return marker.indices.slice(0, TEASER_LINES_MAX);
+}
+
+/**
+ * Kurskarten v3: Teaserzeilen am Anfang des Texts hinter dem Marker
+ * erkennen. Leerraum vor/zwischen den Zeilen wird übersprungen.
+ *   - Zeile beginnt nicht mit "[[TEASER" -> fertig (Text ab hier).
+ *   - "[[TEASER n: …]]" mit dem letzten "]]" vor dem Zeilenende, innerhalb
+ *     TEASER_LINE_MAX Zeichen -> Teaserzeile (entfernt); gesammelt nur für
+ *     Nummern aus indices (erste Zeile je Nummer); weiter mit der nächsten
+ *     Zeile. Entschieden wird erst mit Zeilenende, Fenstergrenze oder final.
+ *   - kaputt (Zeilenende bzw. Grenze ohne "]]", Format falsch) -> fertig,
+ *     die Zeile bleibt Text.
+ * Neu aufsetzbar: ab end mit den noch fehlenden Nummern weiterparsen ergibt
+ * dasselbe wie ein Durchlauf über den ganzen Text (Stream-Filter).
+ * @param {string} text - Text direkt hinter dem Marker
+ * @param {{final?: boolean, indices?: number[]}} [options] - final: Antwort
+ *   ist vollständig; indices: Nummern, deren Zeilen gesammelt werden
+ * @returns {{state: "pending"|"done", lines: {index: number, text: string}[], end: number}}
+ *   end = alles davor ist entschieden (entfernte Teaserzeilen + Leerraum);
+ *   bei "done" beginnt hier der normale Text
+ */
+function parseTeaserLines(text, { final = false, indices = [] } = {}) {
+  const s = typeof text === "string" ? text : "";
+  const wanted = Array.isArray(indices) ? indices : [];
+  const lines = [];
+  const done = (end) => ({ state: "done", lines, end });
+  const pending = (end) => ({ state: "pending", lines, end });
+  let pos = 0;
+  for (;;) {
+    // Schluss = letztes "]]" der Zeile (der Teaser darf "]]" enthalten)
+    const line = scanBracketLine(
+      s.slice(pos),
+      TEASER_TAG,
+      TEASER_LINE_MAX,
+      final,
+      "last"
     );
-    return {
-      state: "marker",
-      indices,
-      valid: indices !== null,
-      end: lead + close + 2,
-    };
+    const at = pos + line.start;
+    if (line.state === "pending") return pending(at);
+    if (line.state !== "closed") return done(at);
+    const m = TEASER_LINE_RX.exec(s.slice(at, pos + line.end));
+    if (!m) return done(at);
+    const index = Number(m[1]);
+    if (wanted.includes(index) && !lines.some((l) => l.index === index))
+      lines.push({ index, text: m[2] });
+    pos += line.end;
   }
-  if (newline !== -1)
-    return {
-      state: "marker",
-      indices: null,
-      valid: false,
-      end: lead + newline + 1,
-    };
-  if (body.length >= CARDS_MARKER_BUFFER_MAX) return NONE;
-  return final ? NONE : PENDING;
+}
+
+/**
+ * Vollständige Antwort zerlegen: Marker, Teaserzeilen, Rest-Text (ohne
+ * beides). Ohne Marker bleibt der Text unverändert (auch "[[TEASER"-Zeilen).
+ * @param {string} text
+ * @returns {{marker: object, teasers: {index: number, text: string}[], text: string}}
+ */
+function parseCardsReply(text) {
+  const marker = parseCardsMarker(text, { final: true });
+  if (marker.state !== "marker") return { marker, teasers: [], text };
+  const afterMarker = text.slice(marker.end).trimStart();
+  const teasers = parseTeaserLines(afterMarker, {
+    final: true,
+    indices: teaserIndices(marker),
+  });
+  return {
+    marker,
+    teasers: teasers.lines,
+    text: afterMarker.slice(teasers.end),
+  };
 }
 
 /**
@@ -117,46 +252,74 @@ function stripCardsMarker(text) {
 
 /**
  * Zustandsbehafteter Filter für den Token-Strom: puffert den Anfang, bis die
- * Marker-Entscheidung fällt, und entfernt danach den Leerraum hinter dem
- * Marker bis zum ersten sichtbaren Zeichen.
+ * Marker-Entscheidung fällt; danach (Kurskarten v3) die Teaserzeilen bis zum
+ * ersten Zeichen, das keine Teaserzeile beginnt — Leerraum hinter Marker und
+ * Teasern wird bis zum ersten sichtbaren Zeichen entfernt.
+ * Phasen: "marker" -> "teasers" (nur nach einem Marker) -> "text".
+ * In der Teaser-Phase hält der Puffer nur den noch unentschiedenen Rest;
+ * fertige Teaserzeilen werden sofort verworfen bzw. gesammelt (this.teasers).
  */
 class CardsMarkerFilter {
   constructor() {
     this.buffer = "";
-    this.decided = false;
-    this.stripLeading = false;
+    this.phase = "marker";
     this.marker = null; // { indices: number[], valid: boolean }
+    this.teasers = []; // gesammelte Teaserzeilen ({index, text})
+    this.teasersReported = false;
   }
 
-  #afterMarker(text) {
-    if (!this.stripLeading) return text;
-    const rest = text.replace(/^\s+/, "");
-    if (rest.length > 0) this.stripLeading = false;
-    return rest;
+  #teaserStep(final) {
+    const wanted = teaserIndices(this.marker);
+    const result = parseTeaserLines(this.buffer, {
+      final,
+      indices: wanted.filter((n) => !this.teasers.some((t) => t.index === n)),
+    });
+    this.teasers.push(...result.lines);
+    this.buffer = this.buffer.slice(result.end);
+    const out = { text: "" };
+    // Meldung, sobald zu jeder gesuchten Nummer eine Zeile da ist (Grenze
+    // erreicht) — unabhängig davon, ob dahinter noch etwas offen ist —,
+    // spätestens wenn die Teaser-Phase endet
+    const report =
+      !this.teasersReported &&
+      this.teasers.length > 0 &&
+      (result.state === "done" || this.teasers.length >= wanted.length);
+    if (report) {
+      this.teasersReported = true;
+      out.teasers = this.teasers.slice();
+    }
+    if (result.state === "pending") return out;
+    this.phase = "text";
+    out.text = this.buffer;
+    this.buffer = "";
+    return out;
   }
 
   /**
    * @param {string} token
    * @param {{final?: boolean}} [options]
-   * @returns {{text: string, marker?: {indices: number[], valid: boolean}}}
-   *   text = jetzt an das Widget zu sendender Text ("" = noch puffern)
+   * @returns {{text: string, marker?: {indices: number[], valid: boolean}, teasers?: {index: number, text: string}[]}}
+   *   text = jetzt an das Widget zu sendender Text ("" = noch puffern);
+   *   teasers = einmalig, sobald die Teaserzeilen vollständig sind
    */
   push(token, { final = false } = {}) {
     const piece = typeof token === "string" ? token : "";
-    if (this.decided) return { text: this.#afterMarker(piece) };
+    if (this.phase === "text") return { text: piece };
     this.buffer += piece;
+    if (this.phase === "teasers") return this.#teaserStep(final);
+
     const result = parseCardsMarker(this.buffer, { final });
     if (result.state === "pending") return { text: "" };
-    this.decided = true;
     const buffered = this.buffer;
-    this.buffer = "";
-    if (result.state === "none") return { text: buffered };
-    this.stripLeading = true;
+    if (result.state === "none") {
+      this.phase = "text";
+      this.buffer = "";
+      return { text: buffered };
+    }
     this.marker = { indices: result.indices ?? [], valid: result.valid };
-    return {
-      text: this.#afterMarker(buffered.slice(result.end)),
-      marker: this.marker,
-    };
+    this.phase = "teasers";
+    this.buffer = buffered.slice(result.end);
+    return { ...this.#teaserStep(final), marker: this.marker };
   }
 }
 
@@ -174,11 +337,13 @@ function parseSseChunk(raw) {
  * über eine Warteschlange, damit der (asynchrone) courseSources-Chunk vor dem
  * Text hinter dem Marker ankommt. Alles andere (on/removeListener/locals …)
  * geht direkt an die echte Response — Abbruch und Kontingent unverändert.
+ * Kurskarten v3: onTeasers bekommt die Teaserzeilen einmalig, eingereiht
+ * HINTER onMarker (Karten zuerst) und VOR dem Text dahinter.
  * @param {import("express").Response} response
- * @param {{onMarker: (marker: {indices: number[], valid: boolean}) => (void|Promise<void>)}} options
+ * @param {{onMarker: (marker: {indices: number[], valid: boolean}) => (void|Promise<void>), onTeasers?: (lines: {index: number, text: string}[]) => (void|Promise<void>)}} options
  * @returns {{response: import("express").Response, done: () => Promise<void>, filter: CardsMarkerFilter}}
  */
-function createCardsMarkerResponse(response, { onMarker } = {}) {
+function createCardsMarkerResponse(response, { onMarker, onTeasers } = {}) {
   const filter = new CardsMarkerFilter();
   let queue = Promise.resolve();
   const later = (fn) => {
@@ -194,8 +359,12 @@ function createCardsMarkerResponse(response, { onMarker } = {}) {
       return true;
     }
     const final = data.close === true;
-    const { text, marker } = filter.push(data.textResponse ?? "", { final });
+    const { text, marker, teasers } = filter.push(data.textResponse ?? "", {
+      final,
+    });
     if (marker && typeof onMarker === "function") later(() => onMarker(marker));
+    if (teasers && typeof onTeasers === "function")
+      later(() => onTeasers(teasers));
     if (text.length > 0 || final)
       later(() =>
         writeResponseChunk(response, { ...data, textResponse: text })
@@ -241,12 +410,46 @@ function cardsMarkerLine(indices) {
 }
 
 /**
+ * Kurskarten v3: gespeicherte Teaserzeilen (courseTeaserLines) einer
+ * Antwort-JSON prüfen: nur {index: 0–999, text: string}, Text bereinigt
+ * (≤ 200 Zeichen), höchstens TEASER_LINES_MAX (12), erste Zeile je Nummer.
+ * @param {any} value
+ * @returns {{index: number, text: string}[]}
+ */
+function storedTeaserLines(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const item of value) {
+    if (out.length >= TEASER_LINES_MAX) break;
+    const index = item?.index;
+    if (!Number.isInteger(index) || index < 0 || index > 999) continue;
+    if (out.some((line) => line.index === index)) continue;
+    const text = cleanTeaserText(item?.text);
+    if (text) out.push({ index, text });
+  }
+  return out;
+}
+
+/**
+ * Teaserzeilen für den LLM-Verlauf: "[[TEASER 0: …]]" je Zeile.
+ * @param {any} lines
+ * @returns {string[]}
+ */
+function teaserLinesText(lines) {
+  return storedTeaserLines(lines).map(
+    ({ index, text }) => `${TEASER_TAG} ${index}: ${text}]]`
+  );
+}
+
+/**
  * Nur für den LLM-Verlauf (recentEmbedChatHistory): stellt den Marker, den
  * der Bot in einer früheren Antwort gesendet hat (Antwort-JSON
  * courseCardsMarker), wieder als erste Zeile vor den gespeicherten Text —
  * auch "[[KARTEN: -]]" (courseCardsMarker: []), damit jede frühere Antwort
- * einen Marker zeigt. Die Datensätze werden kopiert, nie verändert; ohne
- * gespeicherten Marker (Feld fehlt/null) unverändert.
+ * einen Marker zeigt. Kurskarten v3: gespeicherte Teaserzeilen
+ * (courseTeaserLines) folgen direkt nach dem Marker. Die Datensätze werden
+ * kopiert, nie verändert; ohne gespeicherten Marker (Feld fehlt/null)
+ * unverändert.
  * Nie für /history an das Widget verwenden.
  * @param {object[]} rawHistory - embed_chats-Zeilen (response = JSON-String)
  * @returns {object[]}
@@ -259,9 +462,13 @@ function restoreCardsMarkers(rawHistory = []) {
       return record;
     const line = cardsMarkerLine(data.courseCardsMarker);
     if (!line) return record;
+    const prefix = [line, ...teaserLinesText(data.courseTeaserLines)];
     return {
       ...record,
-      response: JSON.stringify({ ...data, text: `${line}\n${data.text}` }),
+      response: JSON.stringify({
+        ...data,
+        text: `${prefix.join("\n")}\n${data.text}`,
+      }),
     };
   });
 }
@@ -269,15 +476,22 @@ function restoreCardsMarkers(rawHistory = []) {
 module.exports = {
   parseCardsMarker,
   stripCardsMarker,
+  parseTeaserLines,
+  parseCardsReply,
   createCardsMarkerResponse,
   storedMarkerIndices,
+  storedTeaserLines,
   restoreCardsMarkers,
   // nur für Tests
   __test__: {
     CARDS_MARKER_TAG,
     CARDS_MARKER_BUFFER_MAX,
+    scanBracketLine,
+    TEASER_LINE_MAX,
+    TEASER_LINES_MAX,
     parseMarkerIndices,
     cardsMarkerLine,
+    teaserLinesText,
     CardsMarkerFilter,
   },
 };

@@ -370,3 +370,289 @@ test("Befund 4: gespeicherter Marker steht im LLM-Verlauf wieder vorn, Text in d
   expect(stored.text).toBe(REPLY_BODY);
   expect(stored.courseCardsMarker).toEqual([2]);
 });
+
+// ---------------------------------------------------------------------------
+// Kurskarten v3: KI-Teaser "[[TEASER n: …]]" direkt nach dem Marker
+// ---------------------------------------------------------------------------
+describe("Kurskarten v3: Teaser im Embed-Stream", () => {
+  const TEASER_GYM =
+    "Spielerisch bewegen mit Ihrem Kind und Anregungen für zu Hause.";
+  const TEASER_SPORT =
+    "Ein gemeinsamer Nachmittag voller Bewegung für Familien.";
+  const BODY = "Ja, zwei Kurse passen gut zu Ihrer Frage.";
+  const TEASER_REPLY = [
+    "[[KARTEN: 1, 2]]",
+    `[[TEASER 1: ${TEASER_GYM}]]`,
+    `[[TEASER 2: ${TEASER_SPORT}]]`,
+    BODY,
+  ].join("\n");
+
+  // Wie run(), protokolliert aber zusätzlich jedes Provider-Token im selben
+  // Log (type "__token") — zeigt, WANN ein Chunk relativ zum Strom rausgeht.
+  async function runLogged({ reply, embed = makeEmbed(), size = 4 }) {
+    const log = [];
+    const response = {
+      locals: {},
+      write: jest.fn((raw) => log.push(JSON.parse(raw.slice(6)))),
+      on: jest.fn(),
+      removeListener: jest.fn(),
+    };
+    const tokens = reply.match(new RegExp(`[\\s\\S]{1,${size}}`, "g"));
+    const connector = {
+      defaultTemp: 0.7,
+      promptWindowLimit: jest.fn().mockReturnValue(4096),
+      compressMessages: jest.fn().mockResolvedValue([]),
+      streamingEnabled: jest.fn().mockReturnValue(true),
+      streamGetChatCompletion: jest.fn().mockResolvedValue({ metrics: {} }),
+      handleStream: jest.fn(async (res, _stream, { uuid }) => {
+        let full = "";
+        for (const token of tokens) {
+          full += token;
+          log.push({ type: "__token", token, sofar: full });
+          writeResponseChunk(res, {
+            uuid,
+            sources: [],
+            type: "textResponseChunk",
+            textResponse: token,
+            close: false,
+            error: false,
+          });
+          await new Promise((r) => setImmediate(r));
+        }
+        writeResponseChunk(res, {
+          uuid,
+          sources: [],
+          type: "textResponseChunk",
+          textResponse: "",
+          close: true,
+          error: false,
+        });
+        return full;
+      }),
+    };
+    helpers.getLLMProvider.mockReturnValue(connector);
+    await streamChatWithForEmbed(
+      response,
+      embed,
+      "gibt es sportkurse?",
+      "sess",
+      {
+        conversationId: "conv",
+      }
+    );
+    const stored = EmbedChats.new.mock.calls[0][0].response;
+    const chunks = log.filter((c) => c.type !== "__token");
+    const text = chunks
+      .filter((c) => c.type === "textResponseChunk")
+      .map((c) => c.textResponse)
+      .join("");
+    return { log, chunks, stored, text };
+  }
+
+  test("AK-3: courseSources -> courseTeasers (URL -> Text) -> Text ab 'Ja, …'; gespeichert ohne Marker/Teaser", async () => {
+    const { chunks, stored, text } = await runLogged({ reply: TEASER_REPLY });
+    const types = chunks.map((c) => c.type);
+    const iSources = types.indexOf("courseSources");
+    const iTeasers = types.indexOf("courseTeasers");
+    const iText = chunks.findIndex(
+      (c) => c.type === "textResponseChunk" && c.textResponse
+    );
+    expect(iSources).toBeGreaterThanOrEqual(0);
+    expect(iSources).toBeLessThan(iTeasers);
+    expect(iTeasers).toBeLessThan(iText);
+    expect(types.filter((t) => t === "courseTeasers")).toHaveLength(1);
+    expect(chunks[iSources].courseSources.map((c) => c.url)).toEqual([
+      GYM_URL,
+      SPORT_URL,
+    ]);
+    expect(chunks[iTeasers].teasers).toEqual({
+      [GYM_URL]: TEASER_GYM,
+      [SPORT_URL]: TEASER_SPORT,
+    });
+    // Text an das Widget und in der DB ohne Marker/Teaser
+    expect(text).toBe(BODY);
+    expect(chunks[iText].textResponse.startsWith("Ja")).toBe(true);
+    expect(
+      JSON.stringify(chunks.filter((c) => c.type === "textResponseChunk"))
+    ).not.toMatch(/TEASER|KARTEN/);
+    expect(stored.text).toBe(BODY);
+    expect(stored.courseTeasers).toEqual({
+      [GYM_URL]: TEASER_GYM,
+      [SPORT_URL]: TEASER_SPORT,
+    });
+    expect(stored.courseTeaserLines).toEqual([
+      { index: 1, text: TEASER_GYM },
+      { index: 2, text: TEASER_SPORT },
+    ]);
+    expect(stored.courseCardsMarker).toEqual([1, 2]);
+    // Karten mit Dauer/Ort aus den Kopfzeilen
+    expect(chunks[iSources].courseSources[0]).toMatchObject({
+      sessions: "14 x vormittags",
+      venue: "vhs-Haus",
+    });
+  });
+
+  test("AK-4: courseSources geht direkt nach dem Marker raus, bevor Teaserzeilen eintreffen", async () => {
+    for (const size of [1, 4, 9]) {
+      jest.clearAllMocks();
+      const { log } = await runLogged({ reply: TEASER_REPLY, size });
+      const iSources = log.findIndex((c) => c.type === "courseSources");
+      const firstTeaserToken = log.findIndex(
+        (c) => c.type === "__token" && /\[\[TEASER/.test(c.sofar)
+      );
+      expect(iSources).toBeGreaterThan(0);
+      // vor dem Token, mit dem "[[TEASER" vollständig wäre
+      expect(iSources).toBeLessThan(firstTeaserToken);
+      // courseTeasers erst nach dem Token, das die letzte Zeile schließt
+      const lastTeaserClosed = log.findIndex(
+        (c) => c.type === "__token" && c.sofar.includes(`${TEASER_SPORT}]]`)
+      );
+      const iTeasers = log.findIndex((c) => c.type === "courseTeasers");
+      expect(iTeasers).toBeGreaterThan(lastTeaserClosed);
+    }
+  });
+
+  test("NAK-1: fremder Index verworfen, kaputte Zeile als Text; nichts davon in courseTeasers", async () => {
+    const broken = `[[TEASER 2: ${"sehr lang ".repeat(30)}`;
+    const reply = [
+      "[[KARTEN: 1, 2]]",
+      `[[TEASER 7: Fremder Kurs.]]`,
+      `[[TEASER 1: ${TEASER_GYM}]]`,
+      broken,
+      BODY,
+    ].join("\n");
+    const { chunks, stored, text } = await runLogged({ reply });
+    const teasers = chunks.find((c) => c.type === "courseTeasers");
+    expect(teasers.teasers).toEqual({ [GYM_URL]: TEASER_GYM });
+    expect(JSON.stringify(chunks)).not.toMatch(/Fremder Kurs/);
+    // kaputte Zeile + Rest unverändert als Text, nichts verloren
+    expect(text).toBe(`${broken}\n${BODY}`);
+    expect(stored.text).toBe(text);
+    expect(stored.courseTeasers).toEqual({ [GYM_URL]: TEASER_GYM });
+    expect(stored.courseTeaserLines).toEqual([{ index: 1, text: TEASER_GYM }]);
+  });
+
+  test("NAK-2: Teaser bereinigt (Markdown/HTML), ≤ 200 Zeichen, nur Whitelist-Felder", async () => {
+    const reply = [
+      "[[KARTEN: 1, 2]]",
+      `[[TEASER 1: **Ideal** <i>für</i> [Familien](${GYM_URL}) und mehr]]`,
+      `[[TEASER 2: ${"Bewegung ".repeat(24)}]]`,
+      BODY,
+    ].join("\n");
+    const { chunks, text } = await runLogged({ reply });
+    expect(text).toBe(BODY);
+    const { teasers } = chunks.find((c) => c.type === "courseTeasers");
+    expect(Object.keys(teasers)).toEqual([GYM_URL, SPORT_URL]);
+    expect(teasers[GYM_URL]).toBe("Ideal für Familien und mehr");
+    expect(teasers[SPORT_URL].length).toBeLessThanOrEqual(200);
+    expect(teasers[SPORT_URL].endsWith("…")).toBe(true);
+    const sources = chunks.find((c) => c.type === "courseSources");
+    expect(JSON.stringify(sources)).not.toMatch(/Kursbeschreibung|"text"/);
+  });
+
+  test("NAK-3: alter Prompt ohne Teaserzeilen -> wie v2, kein courseTeasers", async () => {
+    const { chunks, stored, text } = await runLogged({
+      reply: `[[KARTEN: 1, 2]]\n\n${BODY}`,
+    });
+    expect(chunks.find((c) => c.type === "courseTeasers")).toBeUndefined();
+    expect(chunks.find((c) => c.type === "courseSources")).toBeDefined();
+    expect(text).toBe(BODY);
+    expect(stored).not.toHaveProperty("courseTeasers");
+    expect(stored).not.toHaveProperty("courseTeaserLines");
+  });
+
+  test("[[KARTEN: -]] mit (verbotenen) Teaserzeilen: entfernt, keine Chunks", async () => {
+    const { chunks, stored, text } = await runLogged({
+      reply: `[[KARTEN: -]]\n[[TEASER 1: Doch einer.]]\nLeider nichts.`,
+    });
+    expect(chunks.find((c) => c.type === "courseTeasers")).toBeUndefined();
+    expect(text).toBe("Leider nichts.");
+    expect(stored).not.toHaveProperty("courseTeaserLines");
+  });
+
+  test("Review-Befund 4: ungültiger Marker mit Teaserzeilen -> Teaser entfernt (Protokoll), nichts gesendet/gespeichert", async () => {
+    const { chunks, stored, text } = await runLogged({
+      reply: `[[KARTEN: 1, x]]\n[[TEASER 1: ${TEASER_GYM}]]\n${BODY}`,
+    });
+    expect(text).toBe(BODY);
+    expect(JSON.stringify(chunks)).not.toMatch(/TEASER|KARTEN/);
+    expect(chunks.find((c) => c.type === "courseSources")).toBeUndefined();
+    expect(chunks.find((c) => c.type === "courseTeasers")).toBeUndefined();
+    expect(stored.text).toBe(BODY);
+    expect(stored).not.toHaveProperty("courseCardsMarker");
+    expect(stored).not.toHaveProperty("courseTeasers");
+    expect(stored).not.toHaveProperty("courseTeaserLines");
+  });
+
+  test("Review-Befund 2: ']]' im Teasertext -> nichts davon im Text, Teaser bereinigt", async () => {
+    const { chunks, stored, text } = await runLogged({
+      reply: `[[KARTEN: 1]]\n[[TEASER 1: Kurs [Modul A]] für Einsteiger]]\n${BODY}`,
+    });
+    expect(text).toBe(BODY);
+    const { teasers } = chunks.find((c) => c.type === "courseTeasers");
+    expect(teasers).toEqual({ [GYM_URL]: "Kurs [Modul A] für Einsteiger" });
+    expect(stored.courseTeaserLines).toEqual([
+      { index: 1, text: "Kurs [Modul A] für Einsteiger" },
+    ]);
+  });
+
+  test("NAK-4: courseCards nicht 'auto' -> Marker und Teaser entfernt, keine Chunks", async () => {
+    for (const vc of [null, JSON.stringify({ courseCards: "off" })]) {
+      jest.clearAllMocks();
+      const { chunks, stored, text } = await runLogged({
+        reply: TEASER_REPLY,
+        embed: makeEmbed(vc),
+      });
+      expect(text).toBe(BODY);
+      expect(JSON.stringify(chunks)).not.toMatch(/TEASER|KARTEN/);
+      expect(chunks.find((c) => c.type === "courseSources")).toBeUndefined();
+      expect(chunks.find((c) => c.type === "courseTeasers")).toBeUndefined();
+      expect(stored.text).toBe(BODY);
+      expect(stored).not.toHaveProperty("courseTeasers");
+      // nur für den LLM-Verlauf
+      expect(stored.courseTeaserLines).toHaveLength(2);
+    }
+  });
+
+  test("ohne Streaming: courseSources -> courseTeasers -> Text", async () => {
+    const { log, stored } = await run({
+      reply: TEASER_REPLY,
+      streaming: false,
+    });
+    const types = log.map((c) => c.type);
+    expect(types.indexOf("courseSources")).toBeLessThan(
+      types.indexOf("courseTeasers")
+    );
+    expect(types.indexOf("courseTeasers")).toBeLessThan(
+      types.indexOf("textResponseChunk")
+    );
+    expect(log.find((c) => c.type === "textResponseChunk").textResponse).toBe(
+      BODY
+    );
+    expect(stored.courseTeasers[GYM_URL]).toBe(TEASER_GYM);
+  });
+
+  test("AK-8: Folgefrage — Marker und Teaserzeilen stehen im LLM-Verlauf wieder vor der Antwort", async () => {
+    const {
+      convertToPromptHistory,
+    } = require("../../../utils/helpers/chat/responses");
+    EmbedChats.forEmbedByUser.mockResolvedValueOnce([
+      {
+        id: 1,
+        prompt: "gibt es sportkurse?",
+        response: JSON.stringify({
+          text: BODY,
+          courseCardsMarker: [1, 2],
+          courseTeaserLines: [
+            { index: 1, text: TEASER_GYM },
+            { index: 2, text: TEASER_SPORT },
+          ],
+          courseTeasers: { [GYM_URL]: TEASER_GYM },
+        }),
+      },
+    ]);
+    await run({ reply: TEASER_REPLY });
+    const history = convertToPromptHistory.mock.calls[0][0];
+    expect(JSON.parse(history[0].response).text).toBe(TEASER_REPLY);
+  });
+});

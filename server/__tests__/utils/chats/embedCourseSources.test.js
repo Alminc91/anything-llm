@@ -71,7 +71,7 @@ describe("courseCardsEnabled (Gate visual_config.courseCards)", () => {
 });
 
 describe("buildCourseSources", () => {
-  test("whitelist: nur die zehn Kursfelder, niemals text/pageContent/chunkSource/docSource", () => {
+  test("whitelist: nur die Kursfelder, niemals text/pageContent/chunkSource/docSource", () => {
     const result = buildCourseSources(
       clone(fixtures.donauYogaCategoryAndCourses)
     );
@@ -101,6 +101,8 @@ describe("buildCourseSources", () => {
         price: 60,
         bookable: true,
         format: "onsite",
+        sessions: "16 Abende",
+        venue: "Realschule",
       },
       {
         url: "https://aw.donau.kufer.de/kurssuche/kurs/yoga-fuer-anfaenger-innen-und-teilnehmer-innen-mit-etwas-vorerfahrung/262-3102",
@@ -112,6 +114,8 @@ describe("buildCourseSources", () => {
         price: 40,
         bookable: true,
         format: "onsite",
+        sessions: "12 x",
+        venue: "Realschule",
       },
     ]);
   });
@@ -311,7 +315,7 @@ describe("buildCourseSources", () => {
       },
     ]);
     expect(Object.keys(result[0]).sort()).toEqual(
-      ["start_date", "title", "url", "weekdays"].sort()
+      ["start_date", "title", "url", "weekdays", "sessions", "venue"].sort()
     );
   });
 
@@ -383,5 +387,255 @@ describe("sanitizeCourseSources (Historie, Abwehr in der Tiefe)", () => {
   test("pickCourseFields mit Nicht-Objekten -> {}", () => {
     for (const value of ["x", 1, true, null, undefined])
       expect(pickCourseFields(value)).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Kurskarten v3: Dauer und Ort aus den Kopfzeilen, KI-Teaser (Sanitizer)
+// ---------------------------------------------------------------------------
+describe("Kurskarten v3: sessions/venue aus 'Dauer:'/'Kursort:'", () => {
+  const {
+    resolveMarkerCourses,
+    courseTeasersFromLines,
+    sanitizeCourseTeasers,
+    cleanTeaserText,
+    __test__: {
+      courseEntryFromDocument,
+      courseHeaderDetails,
+      SESSIONS_MAX_LEN,
+      VENUE_MAX_LEN,
+      TEASER_MAX_LEN,
+    },
+  } = require("../../../utils/chats/embedCourseSources");
+
+  const YOGA_URL =
+    "https://aw.donau.kufer.de/kurssuche/kurs/yoga-aufbaukurs/262-3103";
+  const header = (lines) =>
+    [
+      "Titel: Yoga (Aufbaukurs)",
+      "Kursnummer: 262-3103",
+      ...lines,
+      `Kurs-Link: ${YOGA_URL}`,
+      "",
+      "Kursbeschreibung: Hatha-Yoga ist …",
+    ].join("\n");
+
+  test("AK-1: Dokument mit 'Dauer: 16 Abende' und 'Kursort: Realschule; 1. Stock; Raum 145'", () => {
+    const entry = courseEntryFromDocument({
+      pageContent: header([
+        "Dauer: 16 Abende",
+        "Kursort: Realschule; 1. Stock; Raum 145",
+      ]),
+      start_date: "2026-09-14",
+      price: 60,
+    });
+    expect(entry).toMatchObject({
+      url: YOGA_URL,
+      title: "Yoga (Aufbaukurs)",
+      sessions: "16 Abende",
+      venue: "Realschule",
+    });
+  });
+
+  test("AK-1: ohne Kopfzeilen fehlen beide Felder (Karte wie heute)", () => {
+    const entry = courseEntryFromDocument({ pageContent: header([]) });
+    expect(entry).not.toHaveProperty("sessions");
+    expect(entry).not.toHaveProperty("venue");
+    const [chunk] = buildCourseSources([
+      { text: header([]), title: "x.txt", chunkSource: "x.txt" },
+    ]);
+    expect(chunk).toEqual({ url: YOGA_URL, title: "Yoga (Aufbaukurs)" });
+  });
+
+  test("echter Treffer-Chunk (Fixture Donau Yoga) liefert sessions/venue", () => {
+    const result = buildCourseSources(
+      clone(fixtures.donauYogaCategoryAndCourses)
+    );
+    expect(result[0]).toMatchObject({
+      sessions: "16 Abende",
+      venue: "Realschule",
+    });
+  });
+
+  test("Konstraint 4: nie aus Metadaten, nie aus dem Beschreibungstext", () => {
+    // Metadaten-Felder sessions/venue werden ignoriert
+    const fromMeta = buildCourseSources([
+      {
+        text: header([]),
+        title: "x.txt",
+        sessions: "99 Abende",
+        venue: "Geheimort",
+      },
+    ]);
+    expect(fromMeta[0]).not.toHaveProperty("sessions");
+    expect(fromMeta[0]).not.toHaveProperty("venue");
+    // "Dauer:" erst nach "Kursbeschreibung:" zählt nicht
+    const late = `${header([])}\nDauer: 90 Minuten\nKursort: Turnhalle`;
+    expect(courseHeaderDetails(late)).toEqual({});
+    expect(courseEntryFromDocument({ pageContent: late })).not.toHaveProperty(
+      "sessions"
+    );
+    // nur innerhalb HEADER_SCAN_LEN
+    const far = `Titel: X\nKurs-Link: ${YOGA_URL}\n${"a".repeat(4100)}\nDauer: 3 x`;
+    expect(courseHeaderDetails(far)).toEqual({});
+  });
+
+  test("Folge-Chunk ohne Kopfzeilen: erbt Dauer/Ort vom Kopf-Chunk, eigene 'Dauer:'-Zeile zählt nicht", () => {
+    const head = {
+      text: header(["Dauer: 16 Abende", "Kursort: Realschule; Raum 1"]),
+      title: "yoga.txt",
+      chunkSource: "yoga.txt",
+    };
+    const follow = {
+      text: "Dauer: 2 Stunden je Termin\nKursort: Hallenbad\nweiterer Text",
+      title: "yoga.txt",
+      chunkSource: "yoga.txt",
+    };
+    const [entry] = buildCourseSources([follow, head]);
+    expect(entry).toMatchObject({ sessions: "16 Abende", venue: "Realschule" });
+    // Folge-Chunk allein (ohne Kopf-Chunk): keine Kopfzeilen -> kein Kurs
+    expect(buildCourseSources([follow])).toEqual([]);
+  });
+
+  test("NAK-2: Längen und Bereinigung (venue ≤ 60, sessions ≤ 30, kein HTML)", () => {
+    const d = courseHeaderDetails(
+      header([
+        `Dauer: <b>${"12 Termine ".repeat(10)}</b>`,
+        `Kursort: ${"Sehr langer Ortsname ".repeat(8)}; Raum 2`,
+      ])
+    );
+    expect(d.sessions.length).toBeLessThanOrEqual(SESSIONS_MAX_LEN);
+    expect(d.sessions).not.toMatch(/[<>]/);
+    expect(d.venue.length).toBeLessThanOrEqual(VENUE_MAX_LEN);
+    expect(d.venue).not.toMatch(/Raum 2/);
+    expect(courseHeaderDetails(header(["Kursort: ; Raum 2"]))).toEqual({});
+  });
+
+  test("NAK-2: sanitizeCourseSources behält sessions/venue, prüft sie erneut", () => {
+    const [entry] = sanitizeCourseSources([
+      {
+        url: YOGA_URL,
+        title: "Yoga",
+        sessions: "16 Abende",
+        venue: "Realschule; Raum 5",
+        text: "nie",
+      },
+      { url: `${YOGA_URL}x`, title: "Yoga 2", sessions: 5, venue: {} },
+    ]);
+    expect(entry).toEqual({
+      url: YOGA_URL,
+      title: "Yoga",
+      sessions: "16 Abende",
+      venue: "Realschule",
+    });
+    const [, second] = sanitizeCourseSources([
+      entry,
+      { url: `${YOGA_URL}x`, title: "Yoga 2", sessions: 5, venue: {} },
+    ]);
+    expect(second).toEqual({ url: `${YOGA_URL}x`, title: "Yoga 2" });
+  });
+
+  test("cleanTeaserText: Markdown/HTML/URLs raus, ≤ 200 Zeichen", () => {
+    expect(
+      cleanTeaserText(
+        "**Sanftes** Hatha-Yoga <i>für</i> [Einsteiger](https://x.de/a) – siehe https://x.de/b"
+      )
+    ).toBe("Sanftes Hatha-Yoga für Einsteiger – siehe");
+    expect(cleanTeaserText("   ")).toBeUndefined();
+    expect(cleanTeaserText(42)).toBeUndefined();
+    const long = cleanTeaserText("Wort ".repeat(100));
+    expect(long.length).toBeLessThanOrEqual(TEASER_MAX_LEN);
+    expect(long.endsWith("…")).toBe(true);
+  });
+
+  test("Review-Befund 3: cleanTeaserText entfernt Markdown nur an Delimitern, Tags nur in Tag-Form", () => {
+    expect(cleanTeaserText("C# und snake_case")).toBe("C# und snake_case");
+    expect(cleanTeaserText("Kinder < 6 Jahre > bitte")).toBe(
+      "Kinder < 6 Jahre > bitte"
+    );
+    expect(cleanTeaserText("**fett**")).toBe("fett");
+    expect(cleanTeaserText("__fett__ und `Code`")).toBe("fett und Code");
+    expect(cleanTeaserText("## Überschrift")).toBe("Überschrift");
+    expect(cleanTeaserText("> Zitat")).toBe("Zitat");
+    expect(cleanTeaserText("Text <b>fett</b>.")).toBe("Text fett.");
+    expect(cleanTeaserText("Kurs [Modul A]] für Einsteiger")).toBe(
+      "Kurs [Modul A] für Einsteiger"
+    );
+  });
+
+  test("resolveMarkerCourses: Nummer -> URL nur für Kurse mit Karte", async () => {
+    const sources = clone(fixtures.donauYogaCategoryAndCourses);
+    const courseIdx = sources
+      .map((s, i) => (/^Titel:/m.test(s.text || "") ? i : -1))
+      .filter((i) => i >= 0);
+    const { courseSources, urlByIndex } = await resolveMarkerCourses({
+      indices: [0, ...courseIdx, 99],
+      contextSources: sources,
+      lookup: {
+        exhausted: () => true,
+        docIndex: async () => ({}),
+        read: async () => null,
+      },
+    });
+    expect(courseSources.map((c) => c.url)).toEqual(
+      courseIdx.map((i) => urlByIndex.get(i))
+    );
+    expect(urlByIndex.has(0)).toBe(false); // Kategorieseite
+    expect(urlByIndex.has(99)).toBe(false); // ungültige Nummer
+  });
+
+  test("courseTeasersFromLines: fremde Nummern verworfen, erste Zeile je Karte, kein erneutes Bereinigen", () => {
+    const urlByIndex = new Map([
+      [0, "https://x.de/kurs/a/1"],
+      [2, "https://x.de/kurs/b/2"],
+      [3, "https://x.de/kurs/b/2"], // zweiter Chunk derselben Karte
+    ]);
+    expect(
+      courseTeasersFromLines(
+        [
+          { index: 0, text: "Ideal für Einsteiger am Abend." },
+          { index: 7, text: "fremd" },
+          { index: 2, text: "Zweiter Kurs." },
+          { index: 3, text: "Doppelt." },
+          { index: 0, text: "Nochmal." },
+        ],
+        urlByIndex
+      )
+    ).toEqual({
+      "https://x.de/kurs/a/1": "Ideal für Einsteiger am Abend.",
+      "https://x.de/kurs/b/2": "Zweiter Kurs.",
+    });
+    // erwartet bereinigte Zeilen (storedTeaserLines) — reicht Text durch
+    expect(
+      courseTeasersFromLines([{ index: 0, text: "C# **x**" }], urlByIndex)
+    ).toEqual({ "https://x.de/kurs/a/1": "C# **x**" });
+    expect(courseTeasersFromLines([{ index: 0, text: 5 }], urlByIndex)).toEqual(
+      {}
+    );
+    expect(courseTeasersFromLines(null, urlByIndex)).toEqual({});
+  });
+
+  test("sanitizeCourseTeasers: nur URLs der Karten, nur Typ/Länge (Grenzschutz, kein Bereinigen)", () => {
+    const sources = [{ url: YOGA_URL, title: "Yoga" }];
+    expect(
+      sanitizeCourseTeasers(
+        {
+          [YOGA_URL]: " Sanft starten. ",
+          "https://fremd.de/x": "nie",
+          __proto__: { [YOGA_URL]: "x" },
+        },
+        sources
+      )
+    ).toEqual({ [YOGA_URL]: "Sanft starten." });
+    const long = sanitizeCourseTeasers(
+      { [YOGA_URL]: "Wort ".repeat(100) },
+      sources
+    )[YOGA_URL];
+    expect(long.length).toBeLessThanOrEqual(TEASER_MAX_LEN);
+    expect(long.endsWith("…")).toBe(true);
+    expect(sanitizeCourseTeasers(["x"], sources)).toEqual({});
+    expect(sanitizeCourseTeasers("x", sources)).toEqual({});
+    expect(sanitizeCourseTeasers({ [YOGA_URL]: 5 }, sources)).toEqual({});
+    expect(sanitizeCourseTeasers({ [YOGA_URL]: "  " }, sources)).toEqual({});
   });
 });
