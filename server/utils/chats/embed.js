@@ -12,6 +12,7 @@ const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
 const { startMetadataFilterResolution } = require("./metadataFilterResolver");
 const {
   courseCardsEnabled,
+  courseCardsAnswerStyle,
   buildCourseSources,
   mergeCourseSources,
   completeCourseSourcesFromReply,
@@ -23,6 +24,10 @@ const {
   followUpsEnabled,
   FOLLOW_UPS_PROMPT_NOTE,
 } = require("./embedCourseSources");
+const {
+  courseCardsPromptNote,
+  removeCourseCardsSections,
+} = require("./embedDefaults");
 const {
   createCardsMarkerResponse,
   parseCardsReply,
@@ -228,15 +233,18 @@ async function streamChatWithForEmbed(
   // Folgefragen (visual_config.followUps = "pills"): Prompt-Hinweis am Ende
   // (nach dem Disclaimer-Hinweis) und Chunk an das Widget nur dann.
   const followUpsOn = followUpsEnabled(embed);
+  // Kurskarten (opt-in, visual_config.courseCards = "auto")
+  const cardsOn = courseCardsEnabled(embed);
 
   // Compress message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt:
-        (await chatPrompt(embed.workspace, username)) +
-        (disclaimerFooterEnabled(embed) ? DISCLAIMER_PROMPT_NOTE : "") +
-        (followUpsOn ? FOLLOW_UPS_PROMPT_NOTE : ""),
+      systemPrompt: embedSystemPrompt(
+        await chatPrompt(embed.workspace, username),
+        embed,
+        { cardsOn, followUpsOn }
+      ),
       userPrompt: message,
       contextTexts,
       chatHistory,
@@ -251,7 +259,6 @@ async function streamChatWithForEmbed(
   // Nur mit Karten an (opt-in, visual_config.courseCards = "auto"): ange-
   // kündigte Kurse sofort als eigener Chunk + Nachschläge (Marker-Folge-
   // Chunks + Antwort-Links teilen Cache und Limit).
-  const cardsOn = courseCardsEnabled(embed);
   const courseLookup = cardsOn
     ? createCourseLookup({ workspace: embed.workspace })
     : null;
@@ -451,6 +458,39 @@ async function streamChatWithForEmbed(
 }
 
 /**
+ * System-Prompt des Embeds: Workspace-Prompt (inkl. Zeitzeile) plus Hinweise
+ * nur am ENDE (der gecachte Präfix der Flotte bleibt unverändert), in dieser
+ * Reihenfolge:
+ *  1. Karten-Abschnitt (courseCards = "auto"; Stil nach
+ *     courseCardsAnswerStyle, Beispiel ohne KI-Hinweis-Zeile bei
+ *     disclaimer = "footer"),
+ *  2. Disclaimer-Hinweis (disclaimer = "footer"),
+ *  3. Folgefragen-Hinweis (followUps = "pills").
+ * Der Server besitzt den Karten-Abschnitt: Steht im Workspace-Prompt schon
+ * ein Abschnitt "### Course Cards Mode…" (Prompt-Rollout/Demo), wird er bei
+ * short/long dort entfernt und der serverseitige am Ende angehängt (genau
+ * einer, immer aktuell). Bei "classic" bleibt der Workspace-Prompt
+ * unangetastet — auch ein vorhandener Abschnitt —, damit Bestands-Prompts
+ * mit eigenem Abschnitt weiter funktionieren; angehängt wird dann nichts.
+ * Ohne courseCards = "auto" bleibt der Workspace-Prompt ebenfalls unverändert.
+ * @param {string} basePrompt
+ * @param {Object} embed
+ * @param {{cardsOn: boolean, followUpsOn: boolean}} switches
+ * @returns {string}
+ */
+function embedSystemPrompt(basePrompt, embed, { cardsOn, followUpsOn }) {
+  const footer = disclaimerFooterEnabled(embed);
+  const style = cardsOn ? courseCardsAnswerStyle(embed) : "classic";
+  const ownsSection = style !== "classic";
+  return (
+    (ownsSection ? removeCourseCardsSections(basePrompt) : basePrompt) +
+    (ownsSection ? courseCardsPromptNote({ style, footer }) : "") +
+    (footer ? DISCLAIMER_PROMPT_NOTE : "") +
+    (followUpsOn ? FOLLOW_UPS_PROMPT_NOTE : "")
+  );
+}
+
+/**
  * @param {string} conversationId the conversation id (or session id for backwards compatibility)
  * @param {Object} embed the embed config object
  * @param {Number} messageLimit the number of messages to return
@@ -487,4 +527,5 @@ async function recentEmbedChatHistory(
 
 module.exports = {
   streamChatWithForEmbed,
+  embedSystemPrompt,
 };

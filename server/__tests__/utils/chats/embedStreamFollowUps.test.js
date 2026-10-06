@@ -296,10 +296,16 @@ describe("Folgefragen im Embed-Stream", () => {
     for (const vc of [
       null,
       JSON.stringify({ followUps: "none" }),
-      JSON.stringify({ courseCards: "auto" }),
       "{nicht json",
     ])
       expect(await promptFor(vc)).toBe("System");
+    // Karten an: Karten-Abschnitt davor (Design Center), kein Folgefragen-Hinweis
+    const {
+      COURSE_CARDS_PROMPT_NOTE,
+    } = require("../../../utils/chats/embedDefaults");
+    expect(await promptFor(JSON.stringify({ courseCards: "auto" }))).toBe(
+      `System${COURSE_CARDS_PROMPT_NOTE}`
+    );
     expect(
       await promptFor(
         JSON.stringify({ followUps: "none", disclaimer: "footer" })

@@ -14,6 +14,10 @@ const {
 } = require("../utils/middleware/chatHistoryViewable");
 const { handleEmbedLogoUpload } = require("../utils/files/multer");
 const { deleteOldEmbedLogo } = require("../utils/files/embedLogo");
+const {
+  embedDefaultsLanguage,
+  embedDefaultTexts,
+} = require("../utils/chats/embedDefaults");
 
 function embedManagementEndpoints(app) {
   if (!app) return;
@@ -45,6 +49,24 @@ function embedManagementEndpoints(app) {
         }
 
         response.status(200).json({ embeds });
+      } catch (e) {
+        console.error(e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // Design Center: Kufer-Standardtexte des Widgets (Begrüßungsblase,
+  // Datenschutz, KI-Hinweis) für ?lang=de|en — gleiche Anmeldung/Rollen wie
+  // die übrigen Embed-Verwaltungsendpunkte. Der öffentliche /config liefert
+  // sie nicht (das Widget hat sie selbst).
+  app.get(
+    "/embed/defaults",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
+    async (request, response) => {
+      try {
+        const lang = embedDefaultsLanguage(request.query?.lang);
+        response.status(200).json({ lang, defaults: embedDefaultTexts(lang) });
       } catch (e) {
         console.error(e);
         response.sendStatus(500).end();

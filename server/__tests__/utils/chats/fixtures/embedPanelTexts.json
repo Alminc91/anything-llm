@@ -1,0 +1,25 @@
+{
+  "_comment": "Kopie von PANEL_TEXTS (Auszug) aus dem Embed-Repo anythingllm-embed, src/utils/layout.js, Stand c6bc308 (06.10.2026). Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
+  "de": {
+    "greetingBubble": "Hallo! Ich bin Ihr digitaler Berater und arbeite mit künstlicher Intelligenz (KI). Beschreiben Sie, was Sie suchen, und ich finde passende Angebote.",
+    "privacyTitle": "Datenschutz:",
+    "privacyPoints": [
+      "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
+      "Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
+      "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind."
+    ],
+    "privacyButton": "Start",
+    "aiDisclaimer": "Ich bin eine KI und kann Fehler machen. Bitte überprüfen Sie meine Antworten."
+  },
+  "en": {
+    "greetingBubble": "Hello! I am your digital advisor and work with artificial intelligence (AI). Describe what you are looking for and I will find suitable offers.",
+    "privacyTitle": "Privacy:",
+    "privacyPoints": [
+      "Your requests stay on servers in Germany and are not passed on to third parties.",
+      "Staff of the institution may view conversations for quality assurance.",
+      "Please only share information that is necessary for your request."
+    ],
+    "privacyButton": "Start",
+    "aiDisclaimer": "I am an AI and can make mistakes. Please double-check my answers."
+  }
+}
