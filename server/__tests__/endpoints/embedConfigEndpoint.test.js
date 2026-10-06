@@ -416,6 +416,8 @@ describe("GET /embed/:embedId/config — Panel-Optik, Datenschutz- und KI-Hinwei
       "javascript:alert(1)",
       "http://vhs.example/datenschutz",
       "//evil.example/x",
+      "/\\\\evil.example/x",
+      "https://vhs.example/a\\\\b",
       "https://vhs.example/daten schutz",
       "/daten\tschutz",
       "datenschutz",
