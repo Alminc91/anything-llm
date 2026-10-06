@@ -359,10 +359,9 @@ describe("Befund 4: Marker im LLM-Verlauf (restoreCardsMarkers)", () => {
 // ---------------------------------------------------------------------------
 // Kurskarten v3: Teaserzeilen "[[TEASER n: …]]" direkt nach dem Marker
 // ---------------------------------------------------------------------------
-describe("Kurskarten v3: parseTeaserLines / stripTeasers / parseCardsReply", () => {
+describe("Kurskarten v3: parseTeaserLines / parseCardsReply", () => {
   const {
     parseTeaserLines,
-    stripTeasers,
     parseCardsReply,
     storedTeaserLines,
     __test__: { TEASER_LINE_MAX, TEASER_LINES_MAX, teaserLinesText },
@@ -371,7 +370,7 @@ describe("Kurskarten v3: parseTeaserLines / stripTeasers / parseCardsReply", () 
   test("zwei Teaserzeilen, dann Text", () => {
     const text =
       "\n[[TEASER 0: Sanft starten am Abend.]]\n[[teaser 2:Zweiter Kurs.]]\n\nJa, zwei Kurse.";
-    const r = parseTeaserLines(text);
+    const r = parseTeaserLines(text, { indices: [0, 2] });
     expect(r.state).toBe("done");
     expect(r.lines).toEqual([
       { index: 0, text: "Sanft starten am Abend." },
@@ -385,7 +384,15 @@ describe("Kurskarten v3: parseTeaserLines / stripTeasers / parseCardsReply", () 
     expect(parseTeaserLines("[[TEA").state).toBe("pending");
     expect(parseTeaserLines("[[TEASER 0: halb").state).toBe("pending");
     expect(parseTeaserLines("[[TEASER 0: ganz]]\n").state).toBe("pending");
-    expect(parseTeaserLines("[[TEASER 0: ganz]]\n").lines).toHaveLength(1);
+    expect(
+      parseTeaserLines("[[TEASER 0: ganz]]\n", { indices: [0] }).lines
+    ).toHaveLength(1);
+    // Schluss = letztes "]]" der Zeile -> erst mit dem Zeilenende entschieden
+    expect(parseTeaserLines("[[TEASER 0: ganz]]").state).toBe("pending");
+    expect(
+      parseTeaserLines("[[TEASER 0: ganz]]", { final: true, indices: [0] })
+        .lines
+    ).toEqual([{ index: 0, text: "ganz" }]);
   });
 
   test("kein Teaser: sofort entschieden", () => {
@@ -419,20 +426,65 @@ describe("Kurskarten v3: parseTeaserLines / stripTeasers / parseCardsReply", () 
       });
   });
 
-  test("höchstens 5 Zeilen, die sechste bleibt Text", () => {
-    const lines = Array.from(
-      { length: 6 },
+  test("Review-Befund 1: 6 Karten + 6 Teaser -> 6 Teaser, nichts davon im Text", () => {
+    const n = 6;
+    const marker = `[[KARTEN: ${Array.from({ length: n }, (_, i) => i).join(", ")}]]`;
+    const teaserLines = Array.from(
+      { length: n },
       (_, i) => `[[TEASER ${i}: Kurs ${i}.]]`
     );
-    const text = `${lines.join("\n")}\nText`;
-    const r = parseTeaserLines(text, { final: true });
-    expect(r.lines).toHaveLength(TEASER_LINES_MAX);
-    expect(text.slice(r.end)).toBe(`${lines[5]}\nText`);
+    const reply = `${marker}\n${teaserLines.join("\n")}\nText`;
+    const parsed = parseCardsReply(reply);
+    expect(parsed.teasers.map((t) => t.index)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(parsed.text).toBe("Text");
+  });
+
+  test("Review-Befund 1: 13 Teaserzeilen -> 12 verarbeitet, die 13. entfernt", () => {
+    expect(TEASER_LINES_MAX).toBe(12);
+    const n = 13;
+    const marker = `[[KARTEN: ${Array.from({ length: n }, (_, i) => i).join(", ")}]]`;
+    const teaserLines = Array.from(
+      { length: n },
+      (_, i) => `[[TEASER ${i}: Kurs ${i}.]]`
+    );
+    const reply = `${marker}\n${teaserLines.join("\n")}\nText`;
+    const parsed = parseCardsReply(reply);
+    expect(parsed.teasers).toHaveLength(TEASER_LINES_MAX);
+    expect(parsed.teasers.map((t) => t.index)).toEqual(
+      Array.from({ length: 12 }, (_, i) => i)
+    );
+    expect(parsed.text).toBe("Text");
+  });
+
+  test("wohlgeformte Zeilen fremder Nummern / Dubletten: entfernt, nicht gesammelt", () => {
+    const text = "[[TEASER 7: fremd]]\n[[TEASER 0: a]]\n[[TEASER 0: b]]\nText";
+    const r = parseTeaserLines(text, { final: true, indices: [0] });
+    expect(r.lines).toEqual([{ index: 0, text: "a" }]);
+    expect(text.slice(r.end)).toBe("Text");
+  });
+
+  test("Review-Befund 2: ']]' im Teasertext -> Schluss am letzten ']]' der Zeile", () => {
+    const reply =
+      "[[KARTEN: 0]]\n[[TEASER 0: Kurs [Modul A]] für Einsteiger]]\nText";
+    expect(parseCardsReply(reply)).toMatchObject({
+      teasers: [{ index: 0, text: "Kurs [Modul A]] für Einsteiger" }],
+      text: "Text",
+    });
+  });
+
+  test("Review-Befund 4: ungültiger Marker -> wohlgeformte Teaserzeilen entfernt, nichts gesammelt; kaputte bleiben Text", () => {
+    expect(
+      parseCardsReply("[[KARTEN: kaputt]]\n[[TEASER 0: a]]\nText")
+    ).toMatchObject({ marker: { valid: false }, teasers: [], text: "Text" });
+    expect(
+      parseCardsReply("[[KARTEN: 1, x]]\n[[TEASER 1: ohne Ende\nText")
+    ).toMatchObject({ teasers: [], text: "[[TEASER 1: ohne Ende\nText" });
   });
 
   test("final: Antwort endet mitten in einer Teaserzeile -> Rest bleibt Text", () => {
     const r = parseTeaserLines("[[TEASER 0: a]]\n[[TEASER 1: hal", {
       final: true,
+      indices: [0, 1],
     });
     expect(r.lines).toHaveLength(1);
     expect("[[TEASER 0: a]]\n[[TEASER 1: hal".slice(r.end)).toBe(
@@ -456,8 +508,10 @@ describe("Kurskarten v3: parseTeaserLines / stripTeasers / parseCardsReply", () 
       teasers: [],
       text: noMarker,
     });
-    expect(stripTeasers("[[TEASER 0: A.]]\n\nJa.")).toBe("Ja.");
-    expect(stripTeasers("Ja.")).toBe("Ja.");
+    expect(parseCardsReply("[[KARTEN: 0]]\n[[TEASER 0: A.]]\n\nJa.").text).toBe(
+      "Ja."
+    );
+    expect(parseCardsReply("[[KARTEN: 0]]\nJa.").text).toBe("Ja.");
   });
 
   test("storedTeaserLines / teaserLinesText prüfen die gespeicherte Liste", () => {
@@ -512,18 +566,20 @@ describe("Kurskarten v3: CardsMarkerFilter mit Teaserzeilen (Token-Strom)", () =
     expect(pieces.slice(0, markerAt + 1).join("")).toMatch(/\]\]$|\]\]\n/);
     expect(pieces.slice(0, markerAt).join("")).not.toMatch(/TEASER/);
     expect(teaser.teasers.map((t) => t.index)).toEqual([0, 2]);
-    // gemeldet mit dem Token, das die letzte Teaserzeile schließt — vor dem Text
+    // gemeldet mit dem Token, das die letzte Teaserzeile abschließt
+    // (Zeilenende) — vor dem Text
     expect(pieces.slice(0, teaser.at + 1).join("")).toMatch(
-      /Fortgeschrittene\.\]\]/
+      /Fortgeschrittene\.\]\]\n/
     );
     expect(pieces.slice(0, teaser.at).join("")).not.toMatch(
-      /Fortgeschrittene\.\]\]/
+      /Fortgeschrittene\.\]\]\n/
     );
-    // Token für Token: genau beim schließenden "]", noch vor dem Zeilenende
+    // Token für Token: mit dem Zeilenende hinter der letzten Teaserzeile
+    // (Schluss = letztes "]]" der Zeile, erst dann entschieden)
     const fine = stream(REPLY, 1);
     const at = fine.events.find((e) => e.teasers).at;
     expect(fine.pieces.slice(0, at + 1).join("")).toMatch(
-      /Fortgeschrittene\.\]\]$/
+      /Fortgeschrittene\.\]\]\n$/
     );
     expect(teaser.at).toBeLessThanOrEqual(firstText.at);
     expect(events.filter((e) => e.teasers)).toHaveLength(1);
@@ -543,6 +599,46 @@ describe("Kurskarten v3: CardsMarkerFilter mit Teaserzeilen (Token-Strom)", () =
     const { events, text } = stream("[[KARTEN: 1]]\n\nJa, gern.");
     expect(events.find((e) => e.teasers)).toBeUndefined();
     expect(text).toBe("Ja, gern.");
+  });
+
+  test("Review-Befund 1: Meldung bei erreichter Grenze, auch wenn dahinter '[[TE' offen ist", () => {
+    const filter = new CardsMarkerFilter();
+    expect(filter.push("[[KARTEN: 0]]\n").marker).toEqual({
+      indices: [0],
+      valid: true,
+    });
+    const r = filter.push("[[TEASER 0: a]]\n[[TE");
+    expect(r.teasers).toEqual([{ index: 0, text: "a" }]);
+    expect(r.text).toBe("");
+    // weitere wohlgeformte Zeile (über der Grenze) wird entfernt
+    expect(filter.push("ASER 0: b]]\nText").text).toBe("Text");
+  });
+
+  test("Review-Befund 1/2/4: Stream und parseCardsReply gleich bei vielen Teasern, ']]' im Text, ungültigem Marker", () => {
+    const {
+      parseCardsReply,
+    } = require("../../../utils/chats/embedCardsMarker");
+    const many = (n) =>
+      `[[KARTEN: ${Array.from({ length: n }, (_, i) => i).join(", ")}]]\n${Array.from(
+        { length: n },
+        (_, i) => `[[TEASER ${i}: Kurs ${i}.]]`
+      ).join("\n")}\nText`;
+    const replies = [
+      many(6),
+      many(13),
+      "[[KARTEN: 0]]\n[[TEASER 0: Kurs [Modul A]] für Einsteiger]]\nText",
+      "[[KARTEN: kaputt]]\n[[TEASER 0: a]]\nText",
+    ];
+    for (const reply of replies)
+      for (const size of [1, 3, 7, 50]) {
+        const { events, text } = stream(reply, size);
+        const parsed = parseCardsReply(reply);
+        expect(text).toBe(parsed.text);
+        expect(text).not.toMatch(/TEASER/);
+        const reported = events.filter((e) => e.teasers);
+        expect(reported.length).toBeLessThanOrEqual(1);
+        expect(reported[0]?.teasers ?? []).toEqual(parsed.teasers);
+      }
   });
 
   test("ohne Marker: Teaserzeilen bleiben Text (nur nach dem Marker gültig)", () => {

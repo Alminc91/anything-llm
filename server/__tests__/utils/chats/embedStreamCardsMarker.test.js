@@ -570,6 +570,32 @@ describe("Kurskarten v3: Teaser im Embed-Stream", () => {
     expect(stored).not.toHaveProperty("courseTeaserLines");
   });
 
+  test("Review-Befund 4: ungültiger Marker mit Teaserzeilen -> Teaser entfernt (Protokoll), nichts gesendet/gespeichert", async () => {
+    const { chunks, stored, text } = await runLogged({
+      reply: `[[KARTEN: 1, x]]\n[[TEASER 1: ${TEASER_GYM}]]\n${BODY}`,
+    });
+    expect(text).toBe(BODY);
+    expect(JSON.stringify(chunks)).not.toMatch(/TEASER|KARTEN/);
+    expect(chunks.find((c) => c.type === "courseSources")).toBeUndefined();
+    expect(chunks.find((c) => c.type === "courseTeasers")).toBeUndefined();
+    expect(stored.text).toBe(BODY);
+    expect(stored).not.toHaveProperty("courseCardsMarker");
+    expect(stored).not.toHaveProperty("courseTeasers");
+    expect(stored).not.toHaveProperty("courseTeaserLines");
+  });
+
+  test("Review-Befund 2: ']]' im Teasertext -> nichts davon im Text, Teaser bereinigt", async () => {
+    const { chunks, stored, text } = await runLogged({
+      reply: `[[KARTEN: 1]]\n[[TEASER 1: Kurs [Modul A]] für Einsteiger]]\n${BODY}`,
+    });
+    expect(text).toBe(BODY);
+    const { teasers } = chunks.find((c) => c.type === "courseTeasers");
+    expect(teasers).toEqual({ [GYM_URL]: "Kurs [Modul A] für Einsteiger" });
+    expect(stored.courseTeaserLines).toEqual([
+      { index: 1, text: "Kurs [Modul A] für Einsteiger" },
+    ]);
+  });
+
   test("NAK-4: courseCards nicht 'auto' -> Marker und Teaser entfernt, keine Chunks", async () => {
     for (const vc of [null, JSON.stringify({ courseCards: "off" })]) {
       jest.clearAllMocks();

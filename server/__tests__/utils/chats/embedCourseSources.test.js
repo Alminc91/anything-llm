@@ -548,6 +548,21 @@ describe("Kurskarten v3: sessions/venue aus 'Dauer:'/'Kursort:'", () => {
     expect(long.endsWith("…")).toBe(true);
   });
 
+  test("Review-Befund 3: cleanTeaserText entfernt Markdown nur an Delimitern, Tags nur in Tag-Form", () => {
+    expect(cleanTeaserText("C# und snake_case")).toBe("C# und snake_case");
+    expect(cleanTeaserText("Kinder < 6 Jahre > bitte")).toBe(
+      "Kinder < 6 Jahre > bitte"
+    );
+    expect(cleanTeaserText("**fett**")).toBe("fett");
+    expect(cleanTeaserText("__fett__ und `Code`")).toBe("fett und Code");
+    expect(cleanTeaserText("## Überschrift")).toBe("Überschrift");
+    expect(cleanTeaserText("> Zitat")).toBe("Zitat");
+    expect(cleanTeaserText("Text <b>fett</b>.")).toBe("Text fett.");
+    expect(cleanTeaserText("Kurs [Modul A]] für Einsteiger")).toBe(
+      "Kurs [Modul A] für Einsteiger"
+    );
+  });
+
   test("resolveMarkerCourses: Nummer -> URL nur für Kurse mit Karte", async () => {
     const sources = clone(fixtures.donauYogaCategoryAndCourses);
     const courseIdx = sources

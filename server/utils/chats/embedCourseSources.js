@@ -161,21 +161,30 @@ function cleanShortText(value, maxLen) {
   return truncateAtWord(v, maxLen);
 }
 
+// Nur echte HTML-Tags ("<b>", "</i>", "<a href=…>"), nicht "Kinder < 6 > …"
+const HTML_TAG_RX = /<\/?[a-zA-Z][^>]*>/g;
+
 /**
- * Kurskarten v3: Teaser-Text bereinigen — HTML, Markdown (Links -> Linktext,
- * Hervorhebungen, Code, Überschriften), nackte URLs und Steuerzeichen raus,
- * Leerraum zusammengezogen, höchstens TEASER_MAX_LEN Zeichen (Wortgrenze).
+ * Kurskarten v3: Teaser-Text bereinigen — HTML-Tags, Markdown nur an
+ * Delimiter-Positionen (Links -> Linktext, "**"/"__", Backticks, "#" bzw.
+ * ">" am Zeilenanfang), nackte URLs und Steuerzeichen raus, "[["/"]]" zu
+ * einfachen Klammern, Leerraum zusammengezogen, höchstens TEASER_MAX_LEN
+ * Zeichen (Wortgrenze). Einzelne Zeichen wie in "C#", "snake_case" oder
+ * "< 6 Jahre >" bleiben.
  * @param {any} value
  * @returns {string|undefined} leer/kein Text -> undefined
  */
 function cleanTeaserText(value) {
   if (typeof value !== "string") return undefined;
   const v = value
-    .replace(/<[^>]*>/g, " ")
+    .replace(HTML_TAG_RX, " ")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/https?:\/\/\S+/g, " ")
-    .replace(/\[\[|\]\]/g, " ")
-    .replace(/[*_`#~|]+/g, "")
+    .replace(/\[{2,}/g, "[")
+    .replace(/\]{2,}/g, "]")
+    .replace(/\*\*|__|`+/g, "")
+    .replace(/^[ \t]*#+[ \t]+/gm, "")
+    .replace(/^[ \t]*>[ \t]+/gm, "")
     .replace(/\p{Cc}/gu, " ")
     .replace(/\s+/g, " ")
     .replace(/ ([.,;:!?])/g, "$1")
@@ -1122,6 +1131,7 @@ module.exports = {
   courseTeasersFromLines,
   sanitizeCourseTeasers,
   cleanTeaserText,
+  COURSE_SOURCES_MAX,
   createCourseLookup,
   sanitizeCourseSources,
   // nur für Tests

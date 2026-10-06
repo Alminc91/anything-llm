@@ -34,14 +34,23 @@
 // der Filter diese Zeilen (parseTeaserLines), entfernt sie aus dem Text und
 // meldet sie gesammelt (onTeasers), sobald zu jeder Marker-Nummer eine Zeile
 // da ist — spätestens beim ersten Zeichen, das keine Teaserzeile beginnt.
-// Grenzen: je Zeile TEASER_LINE_MAX Zeichen bis "]]" (vor dem Zeilenende),
-// höchstens TEASER_LINES_MAX Zeilen. Kaputte/überlange Zeilen und alles
-// danach gehen unverändert als Text durch (kein Datenverlust). Gespeichert
-// werden die angenommenen Zeilen als courseTeaserLines (nur LLM-Verlauf).
+// Grenzen: je Zeile höchstens TEASER_LINE_MAX Zeichen; Schluss ist das
+// LETZTE "]]" vor dem Zeilenende (der Teaser darf selbst "]]" enthalten),
+// daher fällt die Entscheidung je Zeile erst mit dem Zeilenende, der
+// Fenstergrenze oder dem Antwortende. Gesammelt wird höchstens eine Zeile je
+// Marker-Nummer, also höchstens so viele wie der Marker Nummern hat (max.
+// TEASER_LINES_MAX = COURSE_SOURCES_MAX).
+// Wohlgeformte Teaserzeilen sind Protokoll, kein Nutztext: auch die nicht
+// gesammelten (fremde Nummer, Dublette, über der Grenze, nach "[[KARTEN: -]]"
+// oder nach einem ungültigen Marker) werden entfernt und nirgends gespeichert
+// oder gesendet. "Kein Datenverlust" gilt nur für kaputte Zeilen (Zeilenende
+// bzw. Grenze ohne "]]", falsches Format): sie und alles danach gehen
+// unverändert als Text durch. Gespeichert werden die gesammelten Zeilen als
+// courseTeaserLines (nur LLM-Verlauf).
 
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { safeJsonParse } = require("../http");
-const { cleanTeaserText } = require("./embedCourseSources");
+const { cleanTeaserText, COURSE_SOURCES_MAX } = require("./embedCourseSources");
 
 const CARDS_MARKER_TAG = "[[KARTEN:";
 // Obergrenze (Zeichen ab Markeranfang) bis "]]" bzw. Zeilenende — einzige
@@ -54,8 +63,9 @@ const INDEX_LIST_RX = /^\d{1,3}(?:\s*,\s*\d{1,3})*$/;
 const TEASER_TAG = "[[TEASER";
 // Obergrenze je Teaserzeile (Zeichen ab Zeilenanfang) bis "]]"
 const TEASER_LINE_MAX = 240;
-// höchstens so viele Teaserzeilen; weitere gehen als Text durch
-const TEASER_LINES_MAX = 5;
+// höchstens so viele Teaserzeilen werden gesammelt (eine je Karte); weitere
+// wohlgeformte Zeilen werden nur entfernt
+const TEASER_LINES_MAX = COURSE_SOURCES_MAX;
 const TEASER_LINE_RX =
   /^\[\[TEASER[ \t]*(\d{1,3})[ \t]*:[ \t]*([^\n]*?)[ \t]*\]\]$/i;
 
@@ -125,59 +135,67 @@ function parseCardsMarker(text, { final = false } = {}) {
 }
 
 /**
+ * Marker-Nummern, für die Teaserzeilen gesammelt werden: nur bei gültigem
+ * Marker, höchstens TEASER_LINES_MAX (so viele Karten gibt es höchstens).
+ * @param {{indices?: number[]|null, valid?: boolean}|null} marker
+ * @returns {number[]}
+ */
+function teaserIndices(marker) {
+  if (!marker?.valid || !Array.isArray(marker.indices)) return [];
+  return marker.indices.slice(0, TEASER_LINES_MAX);
+}
+
+/**
  * Kurskarten v3: Teaserzeilen am Anfang des Texts hinter dem Marker
  * erkennen. Leerraum vor/zwischen den Zeilen wird übersprungen.
  *   - Zeile beginnt nicht mit "[[TEASER" -> fertig (Text ab hier).
- *   - "[[TEASER n: …]]" vor dem Zeilenende und innerhalb TEASER_LINE_MAX
- *     Zeichen -> Teaserzeile (entfernt); weiter mit der nächsten Zeile.
- *   - kaputt (Zeilenende vor "]]", zu lang, Format falsch) oder schon
- *     TEASER_LINES_MAX Zeilen -> fertig, die Zeile bleibt Text.
+ *   - "[[TEASER n: …]]" mit dem letzten "]]" vor dem Zeilenende, innerhalb
+ *     TEASER_LINE_MAX Zeichen -> Teaserzeile (entfernt); gesammelt nur für
+ *     Nummern aus indices (erste Zeile je Nummer); weiter mit der nächsten
+ *     Zeile. Entschieden wird erst mit Zeilenende, Fenstergrenze oder final.
+ *   - kaputt (Zeilenende bzw. Grenze ohne "]]", Format falsch) -> fertig,
+ *     die Zeile bleibt Text.
+ * Neu aufsetzbar: ab end mit den noch fehlenden Nummern weiterparsen ergibt
+ * dasselbe wie ein Durchlauf über den ganzen Text (Stream-Filter).
  * @param {string} text - Text direkt hinter dem Marker
- * @param {{final?: boolean}} [options] - final: Antwort ist vollständig
- * @returns {{state: "pending"|"done", lines: {index: number, text: string}[], end?: number}}
- *   end (nur "done") = Position, ab der normaler Text beginnt
+ * @param {{final?: boolean, indices?: number[]}} [options] - final: Antwort
+ *   ist vollständig; indices: Nummern, deren Zeilen gesammelt werden
+ * @returns {{state: "pending"|"done", lines: {index: number, text: string}[], end: number}}
+ *   end = alles davor ist entschieden (entfernte Teaserzeilen + Leerraum);
+ *   bei "done" beginnt hier der normale Text
  */
-function parseTeaserLines(text, { final = false } = {}) {
+function parseTeaserLines(text, { final = false, indices = [] } = {}) {
   const s = typeof text === "string" ? text : "";
+  const wanted = Array.isArray(indices) ? indices : [];
   const lines = [];
   const done = (end) => ({ state: "done", lines, end });
-  const pending = () => ({ state: "pending", lines });
+  const pending = (end) => ({ state: "pending", lines, end });
   let pos = 0;
   for (;;) {
     let p = pos;
     while (p < s.length && /\s/.test(s[p])) p++;
     const rest = s.slice(p);
-    if (rest.length === 0) return final ? done(s.length) : pending();
+    if (rest.length === 0) return final ? done(s.length) : pending(p);
     const head = rest.slice(0, TEASER_TAG.length).toUpperCase();
     if (!TEASER_TAG.startsWith(head)) return done(p);
-    if (rest.length < TEASER_TAG.length) return final ? done(p) : pending();
-    if (lines.length >= TEASER_LINES_MAX) return done(p);
+    if (rest.length < TEASER_TAG.length) return final ? done(p) : pending(p);
     const win = rest.slice(0, TEASER_LINE_MAX);
-    const close = win.indexOf("]]");
     const newline = win.indexOf("\n");
-    if (close !== -1 && (newline === -1 || close < newline)) {
-      const m = TEASER_LINE_RX.exec(rest.slice(0, close + 2));
-      if (!m) return done(p);
-      lines.push({ index: Number(m[1]), text: m[2] });
-      pos = p + close + 2;
-      continue;
-    }
-    if (newline !== -1 || rest.length >= TEASER_LINE_MAX) return done(p);
-    return final ? done(p) : pending();
+    // Schluss = letztes "]]" der Zeile: erst entscheidbar, wenn das
+    // Zeilenende, die Fenstergrenze oder das Antwortende erreicht ist
+    if (newline === -1 && rest.length < TEASER_LINE_MAX && !final)
+      return pending(p);
+    const close = (newline === -1 ? win : win.slice(0, newline)).lastIndexOf(
+      "]]"
+    );
+    if (close === -1) return done(p);
+    const m = TEASER_LINE_RX.exec(rest.slice(0, close + 2));
+    if (!m) return done(p);
+    const index = Number(m[1]);
+    if (wanted.includes(index) && !lines.some((line) => line.index === index))
+      lines.push({ index, text: m[2] });
+    pos = p + close + 2;
   }
-}
-
-/**
- * Teaserzeilen vom Anfang eines Texts (hinter dem bereits entfernten Marker)
- * entfernen — dieselbe Entscheidung wie der Stream-Filter. Nur aufrufen,
- * wenn die Antwort einen Marker hatte.
- * @param {string} text
- * @returns {string}
- */
-function stripTeasers(text) {
-  if (typeof text !== "string") return text;
-  const result = parseTeaserLines(text, { final: true });
-  return result.lines.length > 0 ? text.slice(result.end) : text;
 }
 
 /**
@@ -190,7 +208,10 @@ function parseCardsReply(text) {
   const marker = parseCardsMarker(text, { final: true });
   if (marker.state !== "marker") return { marker, teasers: [], text };
   const afterMarker = text.slice(marker.end).trimStart();
-  const teasers = parseTeaserLines(afterMarker, { final: true });
+  const teasers = parseTeaserLines(afterMarker, {
+    final: true,
+    indices: teaserIndices(marker),
+  });
   return {
     marker,
     teasers: teasers.lines,
@@ -216,13 +237,15 @@ function stripCardsMarker(text) {
  * ersten Zeichen, das keine Teaserzeile beginnt — Leerraum hinter Marker und
  * Teasern wird bis zum ersten sichtbaren Zeichen entfernt.
  * Phasen: "marker" -> "teasers" (nur nach einem Marker) -> "text".
+ * In der Teaser-Phase hält der Puffer nur den noch unentschiedenen Rest;
+ * fertige Teaserzeilen werden sofort verworfen bzw. gesammelt (this.teasers).
  */
 class CardsMarkerFilter {
   constructor() {
     this.buffer = "";
     this.phase = "marker";
     this.marker = null; // { indices: number[], valid: boolean }
-    this.teaserLines = []; // angenommene Teaserzeilen ({index, text})
+    this.teasers = []; // gesammelte Teaserzeilen ({index, text})
     this.teasersReported = false;
   }
 
@@ -230,29 +253,29 @@ class CardsMarkerFilter {
     return this.phase !== "marker";
   }
 
-  // Zu jeder Marker-Nummer eine Teaserzeile da (oder Höchstzahl erreicht)?
-  #teasersComplete(lines) {
-    if (lines.length >= TEASER_LINES_MAX) return true;
-    const wanted = this.marker?.valid ? this.marker.indices : [];
-    if (wanted.length === 0) return false;
-    return wanted.every((n) => lines.some((line) => line.index === n));
-  }
-
   #teaserStep(final) {
-    const result = parseTeaserLines(this.buffer, { final });
-    this.teaserLines = result.lines;
+    const wanted = teaserIndices(this.marker);
+    const result = parseTeaserLines(this.buffer, {
+      final,
+      indices: wanted.filter((n) => !this.teasers.some((t) => t.index === n)),
+    });
+    this.teasers.push(...result.lines);
+    this.buffer = this.buffer.slice(result.end);
     const out = { text: "" };
+    // Meldung, sobald zu jeder gesuchten Nummer eine Zeile da ist (Grenze
+    // erreicht) — unabhängig davon, ob dahinter noch etwas offen ist —,
+    // spätestens wenn die Teaser-Phase endet
     const report =
       !this.teasersReported &&
-      result.lines.length > 0 &&
-      (result.state === "done" || this.#teasersComplete(result.lines));
+      this.teasers.length > 0 &&
+      (result.state === "done" || this.teasers.length >= wanted.length);
     if (report) {
       this.teasersReported = true;
-      out.teasers = result.lines.slice();
+      out.teasers = this.teasers.slice();
     }
     if (result.state === "pending") return out;
     this.phase = "text";
-    out.text = this.buffer.slice(result.end);
+    out.text = this.buffer;
     this.buffer = "";
     return out;
   }
@@ -374,7 +397,7 @@ function cardsMarkerLine(indices) {
 /**
  * Kurskarten v3: gespeicherte Teaserzeilen (courseTeaserLines) einer
  * Antwort-JSON prüfen: nur {index: 0–999, text: string}, Text bereinigt
- * (≤ 200 Zeichen), höchstens TEASER_LINES_MAX, erste Zeile je Nummer.
+ * (≤ 200 Zeichen), höchstens TEASER_LINES_MAX (12), erste Zeile je Nummer.
  * @param {any} value
  * @returns {{index: number, text: string}[]}
  */
@@ -439,7 +462,6 @@ module.exports = {
   parseCardsMarker,
   stripCardsMarker,
   parseTeaserLines,
-  stripTeasers,
   parseCardsReply,
   createCardsMarkerResponse,
   storedMarkerIndices,
