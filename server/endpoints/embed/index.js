@@ -83,6 +83,9 @@ const LAYOUT_ENUMS = {
   // eine Systemprompt-Zeile anhängen, die den Modell-Footer unterdrückt).
   // Bis dahin kann der Hinweis doppelt erscheinen.
   disclaimer: ["none", "footer"],
+  // Folgefragen: Vorschläge des Modells als Pillen unter der letzten Antwort
+  // (der Server entfernt die Zeile "[[FRAGEN: …]]" unabhängig davon immer)
+  followUps: ["none", "pills"],
 };
 
 // Text-Schlüssel des Widgets mit Höchstlänge wie im Widget (utils/layout.js:

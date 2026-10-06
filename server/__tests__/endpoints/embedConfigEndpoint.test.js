@@ -453,3 +453,23 @@ describe("GET /embed/:embedId/config — Panel-Optik, Datenschutz- und KI-Hinwei
     expect(res.body).toEqual({ inlineInput: true, theme: "dark" });
   });
 });
+
+describe("GET /embed/:embedId/config — Folgefragen", () => {
+  test("followUps: pills/none (Groß-/Kleinschreibung egal) werden geliefert", async () => {
+    expect((await fetchConfig({ followUps: "pills" })).body).toEqual({
+      followUps: "pills",
+    });
+    expect((await fetchConfig({ followUps: " PILLS " })).body).toEqual({
+      followUps: "pills",
+    });
+    expect((await fetchConfig({ followUps: "none" })).body).toEqual({
+      followUps: "none",
+    });
+  });
+
+  test("ungültig oder falscher Typ wird weggelassen", async () => {
+    for (const v of ["chips", "", 1, true, null, ["pills"], { v: "pills" }]) {
+      expect((await fetchConfig({ followUps: v })).body).toEqual({});
+    }
+  });
+});
