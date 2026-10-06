@@ -162,6 +162,14 @@ function convertToChatHistory(history = []) {
               data.courseCardsAnnounced > 0
                 ? { courseCardsAnnounced: data.courseCardsAnnounced }
                 : {}),
+              // Kurskarten v3: KI-Teaser je Karte (URL -> Text; bereits
+              // durch EmbedChats.filterSources geprüft)
+              ...(data?.courseTeasers &&
+              typeof data.courseTeasers === "object" &&
+              !Array.isArray(data.courseTeasers) &&
+              Object.keys(data.courseTeasers).length > 0
+                ? { courseTeasers: data.courseTeasers }
+                : {}),
             }
           : {}),
         chatId: id,

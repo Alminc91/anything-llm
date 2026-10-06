@@ -17,13 +17,14 @@ const {
   buildCourseSources,
   mergeCourseSources,
   completeCourseSourcesFromReply,
-  courseSourcesFromMarker,
+  resolveMarkerCourses,
+  courseTeasersFromLines,
   createCourseLookup,
 } = require("./embedCourseSources");
 const {
   createCardsMarkerResponse,
-  parseCardsMarker,
-  stripCardsMarker,
+  parseCardsReply,
+  storedTeaserLines,
   restoreCardsMarkers,
 } = require("./embedCardsMarker");
 
@@ -246,18 +247,36 @@ async function streamChatWithForEmbed(
     ? createCourseLookup({ workspace: embed.workspace })
     : null;
   let announced = [];
+  let announcedUrlByIndex = new Map();
   const announceCourses = async ({ indices }) => {
     if (!cardsOn) return;
-    announced = await courseSourcesFromMarker({
+    const resolved = await resolveMarkerCourses({
       indices,
       contextSources,
       lookup: courseLookup,
     });
+    announced = resolved.courseSources;
+    announcedUrlByIndex = resolved.urlByIndex;
     if (announced.length === 0) return;
     writeResponseChunk(response, {
       uuid,
       type: "courseSources",
       courseSources: announced,
+      close: false,
+      error: false,
+    });
+  };
+  // Kurskarten v3: Teaserzeilen ("[[TEASER n: …]]" direkt nach dem Marker)
+  // gesammelt als eigener Chunk — nach den angekündigten Karten, vor dem
+  // ersten Textchunk. Nur Nummern mit angekündigter Karte, Text bereinigt.
+  const sendCourseTeasers = (lines) => {
+    if (!cardsOn || announced.length === 0) return;
+    const teasers = courseTeasersFromLines(lines, announcedUrlByIndex);
+    if (Object.keys(teasers).length === 0) return;
+    writeResponseChunk(response, {
+      uuid,
+      type: "courseTeasers",
+      teasers,
       close: false,
       error: false,
     });
@@ -275,14 +294,16 @@ async function streamChatWithForEmbed(
       });
     completeText = textResponse;
     metrics = performanceMetrics;
-    const marker = parseCardsMarker(completeText, { final: true });
-    if (marker.state === "marker")
-      await announceCourses({ indices: marker.indices ?? [] });
+    const reply = parseCardsReply(completeText);
+    if (reply.marker.state === "marker") {
+      await announceCourses({ indices: reply.marker.indices ?? [] });
+      sendCourseTeasers(reply.teasers);
+    }
     writeResponseChunk(response, {
       uuid,
       sources: [],
       type: "textResponseChunk",
-      textResponse: stripCardsMarker(completeText),
+      textResponse: reply.text,
       close: true,
       error: false,
     });
@@ -292,6 +313,7 @@ async function streamChatWithForEmbed(
     });
     const markerStream = createCardsMarkerResponse(response, {
       onMarker: announceCourses,
+      onTeasers: sendCourseTeasers,
     });
     completeText = await LLMConnector.handleStream(
       markerStream.response,
@@ -305,16 +327,29 @@ async function streamChatWithForEmbed(
     metrics = stream.metrics;
   }
 
-  // Marker aus dem gespeicherten Text entfernen (gleiche Entscheidung wie
-  // der Stream-Filter); die Nummernliste bleibt als courseCardsMarker nur für
-  // den LLM-Verlauf von Folgefragen erhalten (restoreCardsMarkers).
-  // [] = "[[KARTEN: -]]", null = kein/kaputter Marker (Feld fehlt).
-  const replyMarker = parseCardsMarker(completeText, { final: true });
+  // Marker und Teaserzeilen aus dem gespeicherten Text entfernen (gleiche
+  // Entscheidung wie der Stream-Filter); die Nummernliste bleibt als
+  // courseCardsMarker nur für den LLM-Verlauf von Folgefragen erhalten
+  // (restoreCardsMarkers). [] = "[[KARTEN: -]]", null = kein/kaputter Marker
+  // (Feld fehlt). Kurskarten v3: Teaserzeilen zu Marker-Nummern ebenso als
+  // courseTeaserLines (LLM-Verlauf), den Karten zugeordnet als courseTeasers
+  // (Widget-Verlauf).
+  const parsedReply = parseCardsReply(completeText);
+  const replyMarker = parsedReply.marker;
   const courseCardsMarker =
     replyMarker.state === "marker" && replyMarker.valid
       ? replyMarker.indices
       : null;
-  completeText = stripCardsMarker(completeText);
+  const courseTeaserLines = storedTeaserLines(
+    parsedReply.teasers.filter((line) =>
+      courseCardsMarker?.includes(line.index)
+    )
+  );
+  const courseTeasers =
+    cardsOn && announced.length > 0
+      ? courseTeasersFromLines(courseTeaserLines, announcedUrlByIndex)
+      : {};
+  completeText = parsedReply.text;
 
   // Kurskarten (opt-in, visual_config.courseCards = "auto"): nur Kurs-
   // Metadaten der Whitelist, nie text — sources selbst bleiben serverseitig.
@@ -345,6 +380,8 @@ async function streamChatWithForEmbed(
       ...(courseSources.length > 0 ? { courseSources } : {}),
       ...(courseCardsAnnounced > 0 ? { courseCardsAnnounced } : {}),
       ...(courseCardsMarker ? { courseCardsMarker } : {}),
+      ...(Object.keys(courseTeasers).length > 0 ? { courseTeasers } : {}),
+      ...(courseTeaserLines.length > 0 ? { courseTeaserLines } : {}),
       metrics,
     },
     connection_information: response.locals.connection

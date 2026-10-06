@@ -1,5 +1,8 @@
 const { safeJsonParse } = require("../utils/http");
-const { sanitizeCourseSources } = require("../utils/chats/embedCourseSources");
+const {
+  sanitizeCourseSources,
+  sanitizeCourseTeasers,
+} = require("../utils/chats/embedCourseSources");
 const prisma = require("../utils/prisma");
 
 /**
@@ -46,7 +49,9 @@ const EmbedChats = {
    * We do this when returning /history of an embed to the frontend to prevent inadvertent leaking
    * of private sources the user may not have intended to share with users.
    * Kurskarten: `courseSources` (nur Kurs-Metadaten, nie text) bleibt erhalten,
-   * wird aber nochmals auf die Whitelist reduziert.
+   * wird aber nochmals auf die Whitelist reduziert. Kurskarten v3:
+   * `courseTeasers` (URL -> Teaser) nur für URLs dieser Karten, Text bereinigt;
+   * `courseTeaserLines` (LLM-Verlauf) nie ans Widget.
    * @param {EmbedChat[]} chats
    * @returns {EmbedChat[]} Returns a new array of chats with the sources filtered out of responses
    */
@@ -60,6 +65,9 @@ const EmbedChats = {
         courseCardsAnnounced,
         // Kurskarten v2: Marker-Nummern nur für den LLM-Verlauf, nie ans Widget
         courseCardsMarker: _courseCardsMarker,
+        // Kurskarten v3: Teaser je Karte (Widget) / Teaserzeilen (nur LLM)
+        courseTeasers,
+        courseTeaserLines: _courseTeaserLines,
         ...responseRest
       } = parsed && typeof parsed === "object" ? parsed : {};
       const safeCourseSources = sanitizeCourseSources(courseSources);
@@ -71,6 +79,12 @@ const EmbedChats = {
             courseCardsAnnounced,
             safeCourseSources.length
           );
+        const safeTeasers = sanitizeCourseTeasers(
+          courseTeasers,
+          safeCourseSources
+        );
+        if (Object.keys(safeTeasers).length > 0)
+          responseRest.courseTeasers = safeTeasers;
       }
       return { ...rest, response: JSON.stringify(responseRest) };
     });

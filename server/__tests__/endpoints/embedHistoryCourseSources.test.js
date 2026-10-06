@@ -280,4 +280,41 @@ describe("GET /embed/:embedId/:sessionId — Historie für das Widget", () => {
     ]);
     expect(JSON.parse(filtered.response)).toEqual({ text: "x" });
   });
+
+  test("Kurskarten v3: courseTeasers kommen bereinigt mit, Teaserzeilen (LLM) nie", async () => {
+    const V3 = { ...COURSE, sessions: "16 Abende", venue: "Realschule" };
+    prisma.embed_chats.findMany.mockResolvedValue([
+      {
+        ...ROWS[0],
+        response: JSON.stringify({
+          text: "Antwort",
+          type: "chat",
+          sources: [],
+          courseSources: [V3],
+          courseCardsAnnounced: 1,
+          courseCardsMarker: [0],
+          courseTeaserLines: [{ index: 0, text: "Sanft starten." }],
+          courseTeasers: {
+            [COURSE.url]: "<b>Sanft</b> starten am Abend.",
+            "https://fremd.example/kurs/1": "darf nie raus",
+          },
+        }),
+      },
+      { ...ROWS[1], id: 3 },
+    ]);
+    const res = mockResponse();
+    await handler(
+      { params: { embedId: "embed-uuid", sessionId: "sess-1" }, query: {} },
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    const [, reply, , plain] = res.body.history;
+    expect(reply.courseSources).toEqual([V3]);
+    expect(reply.courseTeasers).toEqual({
+      [COURSE.url]: "Sanft starten am Abend.",
+    });
+    expect(plain).not.toHaveProperty("courseTeasers");
+    const json = JSON.stringify(res.body);
+    expect(json).not.toMatch(/courseTeaserLines|TEASER|darf nie raus/);
+  });
 });
