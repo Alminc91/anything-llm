@@ -76,6 +76,12 @@ const LAYOUT_ENUMS = {
   suggestionStyle: ["bars", "pills"],
   greetingStyle: ["text", "bubble"],
   privacyNotice: ["none", "bubble", "modal"],
+  // disclaimer "footer": das Widget zeigt den KI-Hinweis fest unter dem
+  // Eingabefeld. Der vom Modell erzeugte Prompt-Footer entfällt damit NICHT
+  // automatisch – das regelt separat server/utils/chats/embed.js (Folge-
+  // änderung nach dem Merge von Kurskarten v3: bei disclaimer === "footer"
+  // eine Systemprompt-Zeile anhängen, die den Modell-Footer unterdrückt).
+  // Bis dahin kann der Hinweis doppelt erscheinen.
   disclaimer: ["none", "footer"],
 };
 
@@ -92,19 +98,22 @@ const WIDGET_TEXT_MAX = {
   inlineLayout: 40,
   inlineEffect: 40,
   // Panel-Optik/Datenschutz-/KI-Hinweis (Höchstlängen wie im Widget,
-  // utils/layout.js). privacyText = Stichpunkte je Zeile bzw. "|" (Punkte
-  // und deren Länge prüft das Widget), privacyUrl prüft das Widget (https
-  // oder /pfad).
+  // utils/layout.js). privacyText und privacyUrl haben eigene Prüfungen
+  // (validPrivacyText, validUrl).
   greetingBubbleText: 300,
   assistantSubtitle: 60,
   privacyTitle: 120,
-  privacyText: 1000,
   privacyButtonText: 40,
-  privacyUrl: 512,
   disclaimerText: 160,
 };
-// Boolean-Schlüssel: echte Booleans oder "true"/"false"/"on"/"off"/"1"/"0"
-// (wie bool() im Widget); alles andere -> weglassen.
+// privacyText wie privacyTextValue() im Widget: Stichpunkte je Zeile bzw. "|"
+const PRIVACY_POINTS_MAX = 5;
+const PRIVACY_POINT_MAX_LEN = 160;
+const PRIVACY_TEXT_MAX_LEN = 1000;
+// privacyUrl wie safeUrl() im Widget
+const URL_MAX_LEN = 512;
+// Boolean-Schlüssel: echte Booleans oder "true"/"false"/"on"/"off"/"1"/"0"/
+// "yes"/"no" (wie bool() im Widget); alles andere -> weglassen.
 const WIDGET_BOOLEAN_KEYS = ["inlineInput", "onlineDot"];
 const LAYOUT_LENGTHS = {
   windowWidth: ["px", "%", "vw", "vh"],
@@ -129,9 +138,48 @@ function validBoolean(value) {
   if (typeof value === "boolean") return value;
   if (typeof value !== "string") return null;
   const v = value.trim().toLowerCase();
-  if (["true", "on", "1"].includes(v)) return true;
-  if (["false", "off", "0"].includes(v)) return false;
+  if (["true", "on", "1", "yes"].includes(v)) return true;
+  if (["false", "off", "0", "no"].includes(v)) return false;
   return null;
+}
+
+// Link (Datenschutz) wie safeUrl() im Widget: absolute https-URL oder Pfad
+// der eigenen Seite ("/…", nicht "//…"), ohne Leer-/Steuerzeichen, höchstens
+// URL_MAX_LEN Zeichen. Sonst null (-> weglassen).
+function validUrl(value) {
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  // eslint-disable-next-line no-control-regex
+  if (!v || v.length > URL_MAX_LEN || /[\s\u0000-\u001f\u007f]/.test(v))
+    return null;
+  if (/^\/(?!\/)/.test(v)) return v;
+  try {
+    return new URL(v).protocol === "https:" ? v : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Datenschutz-Stichpunkte wie privacyTextValue() im Widget: Rohtext (getrimmt)
+// höchstens PRIVACY_TEXT_MAX_LEN Zeichen, Punkte per Zeilenumbruch oder "|"
+// getrennt, getrimmt, leere verworfen; 1–5 Punkte mit je höchstens 160
+// Zeichen. Verletzt -> null (weglassen, nicht kürzen). Rückgabe normalisiert:
+// ein Punkt je Zeile.
+function validPrivacyText(value) {
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  if (v.length === 0 || v.length > PRIVACY_TEXT_MAX_LEN) return null;
+  const points = v
+    .split(/\r?\n|\|/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (
+    points.length === 0 ||
+    points.length > PRIVACY_POINTS_MAX ||
+    points.some((p) => p.length > PRIVACY_POINT_MAX_LEN)
+  )
+    return null;
+  return points.join("\n");
 }
 
 // Ganzzahl 0–200, als Zahl oder String (optional mit "px", wie im Widget)
@@ -168,6 +216,10 @@ function mapLayoutConfig(visualConfig = {}) {
     const text = v.trim();
     if (text.length > 0 && text.length <= maxLen) out[key] = text;
   }
+  const privacyText = validPrivacyText(visualConfig.privacyText);
+  if (privacyText !== null) out.privacyText = privacyText;
+  const privacyUrl = validUrl(visualConfig.privacyUrl);
+  if (privacyUrl !== null) out.privacyUrl = privacyUrl;
   for (const key of WIDGET_BOOLEAN_KEYS) {
     const v = validBoolean(visualConfig[key]);
     if (v !== null) out[key] = v;
