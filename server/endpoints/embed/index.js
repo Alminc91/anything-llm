@@ -149,10 +149,11 @@ function validBoolean(value) {
 function validUrl(value) {
   if (typeof value !== "string") return null;
   const v = value.trim();
+  // Backslash überall verboten: Browser lesen "/\\host" wie "//host" (fremder Host)
   // eslint-disable-next-line no-control-regex
-  if (!v || v.length > URL_MAX_LEN || /[\s\u0000-\u001f\u007f]/.test(v))
+  if (!v || v.length > URL_MAX_LEN || /[\s\u0000-\u001f\u007f\\]/.test(v))
     return null;
-  if (/^\/(?!\/)/.test(v)) return v;
+  if (/^\/(?![\/\\])/.test(v)) return v;
   try {
     return new URL(v).protocol === "https:" ? v : null;
   } catch (e) {
