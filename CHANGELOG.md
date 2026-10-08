@@ -4,9 +4,9 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
-### Auswahlstufe hinter dem Reranker — frühester Kurs bei Gleichstand, Abgelaufene raus, höchstens eine Übersichtsseite (2026-10-08)
+### Auswahlstufe hinter dem Reranker — frühester Kurs bei Gleichstand, entfernt nie einen Kurs, höchstens eine Übersichtsseite (2026-10-08)
 
-- Neue Nachstufe `contextSelection.js` in den Modi `rerank`/`hybrid_rerank`: Reranker-Pool `topK = max(topN, 12)`; die 2 relevantesten Kurse bleiben, weitere Kursplätze gehen bei Score-Gleichstand (Band 0,1, Boden 0,3) an den früher startenden Kurs; abgelaufene Kurse (`start_date` vorbei und `bookable = false`) fallen weg; bei klaren Kursfragen höchstens 1 Übersichtsseite. Reihenfolge bleibt Reranker-Reihenfolge.
+- Neue Nachstufe `contextSelection.js` in den Modi `rerank`/`hybrid_rerank`: Reranker-Pool `topK = max(topN, 12)`; die 2 relevantesten Kurse bleiben, weitere Kursplätze gehen bei Score-Gleichstand (Band 0,1, Boden 0,3) an den früher startenden Kurs; die Stufe entfernt nie einen Kurs — gestartete Kurse mit `bookable = false` sind Wartelisten-Kurse (Kufer-Status 4), bleiben in der Auswahl, wenn der Score sie dorthin trägt, rücken aber nie als „früher“ nach; bei klaren Kursfragen höchstens 1 Übersichtsseite. Reihenfolge bleibt Reranker-Reihenfolge.
 - SystemSetting `course_selection` (Standard **an**, wirkt nur mit Kursspalten), Env `COURSE_SELECTION_KEEP/BAND/FLOOR`; Search-Trace-Block `selection`.
 - Schalter aus / ohne Kursspalten / ohne Reranker-Scores: Ergebnis byte-gleich zum Stand davor (Snapshot-Tests gegen master).
 

@@ -185,15 +185,31 @@ Sie ändert nur die **Menge** der Kontexte, nie deren Reihenfolge (Reranker-Scor
 
 1. **Pool:** Der Reranker wird mit `topK = max(topN, 12)` aufgerufen (er bewertet ohnehin alle
    Kandidaten). Kursdokument = Zeile mit gültigem `start_date` (KIE-480-Spalte).
-2. **Abgelaufen:** `start_date < heute` und `bookable === false` → fällt immer weg.
-   `start_date < heute` und buchbar/unbekannt = *laufend* (Nähe 0 Tage), sonst Nähe = Tage bis
-   Start. „Heute" = Datum in `Europe/Berlin`.
-3. **Datum:** Die 2 relevantesten Kurse bleiben fest. Die übrigen Kursplätze bekommen die
-   **frühesten** Kurse mit `score ≥ max(topScore − 0,1; 0,3)`, bei gleicher Nähe der höhere Score.
-   Greift damit nur bei Gleichstand im Band — Kurse mit niedrigem Score werden nie nach vorn gezogen.
-4. **Übersichts-Deckel:** Bei einer klaren Kursfrage (≥ 3 Kurse mit `score ≥ 0,3`, nicht abgelaufen)
-   höchstens 1 Nicht-Kurs-Dokument (das bestbewertete). Ersetzt wird nur durch Kurse mit
-   `score ≥ 0,3`; reichen die nicht, bleiben Übersichten drin (nie weniger Dokumente als heute).
+2. **Zustände:** „Heute" = Datum in `Europe/Berlin`.
+
+   | Zustand | Bedingung | Nähe |
+   |---|---|---|
+   | `zukuenftig` | `start_date ≥ heute` | Tage bis Start |
+   | `laufend` | `start_date < heute` und `bookable !== false` (buchbar oder unbekannt) | 0 |
+   | `warteliste` | `start_date < heute` und `bookable === false` | keine (`null`) |
+
+   **`bookable`-Semantik der Pipeline:** `bookable = false` schreibt die Crawler-Pipeline für
+   Kufer-Status 4 („Warteliste/ausgebucht") — der Kurs läuft noch und ist eine gültige Antwort.
+   Abgeschlossene oder abgesagte Kurse bekommen `bookable` NULL und werden von der Feed-Uhr der
+   Pipeline gelöscht. Ein Zustand „abgelaufen" ist aus `bookable` deshalb **nicht** ableitbar —
+   **die Stufe entfernt nie einen Kurs**. (Erste Fassung: `bookable === false` und gestartet →
+   entfernt; die Nachmessung auf demo-next am 08.10.2026 zeigte, dass das laufende
+   Wartelisten-Kurse mit Score 0,997 gegen spätere Kurse austauschte.)
+3. **Datum:** Die 2 relevantesten Kurse bleiben fest, ebenso Wartelisten-Kurse, die heute in
+   den Top-N stehen. Die übrigen Kursplätze bekommen die **frühesten** Kurse mit Nähe
+   (`zukuenftig`/`laufend`) und `score ≥ max(topScore − 0,1; 0,3)`, bei gleicher Nähe der höhere
+   Score. Greift damit nur bei Gleichstand im Band — Kurse mit niedrigem Score werden nie nach
+   vorn gezogen; ein Kurs der heutigen Top-N fällt nur heraus, wenn ein früher startender seinen
+   Platz bekommt. Wartelisten-Kurse rücken nie als „früher" nach.
+4. **Übersichts-Deckel:** Bei einer klaren Kursfrage (≥ 3 Kurse mit `score ≥ 0,3`, Warteliste
+   zählt mit) höchstens 1 Nicht-Kurs-Dokument (das bestbewertete). Ersetzt wird nur durch Kurse
+   mit `score ≥ 0,3` (zuerst die frühesten im Band, dann nach Score); reichen die nicht, bleiben
+   Übersichten drin (nie weniger Dokumente als heute).
 
 | Steuerung | Wert |
 |---|---|
@@ -204,7 +220,7 @@ Sie ändert nur die **Menge** der Kontexte, nie deren Reihenfolge (Reranker-Scor
 Kursspalten — nur dann ruft der Pfad den Reranker wie bisher mit `topK = topN` auf. Bei
 aktivem Schalter und Kursspalten wird der Reranker **immer** mit `topK = max(topN, 12)`
 aufgerufen; bei Reranker ohne Scores (Degradation) oder < 2 Kursen unter den Kandidaten
-(sofern kein abgelaufener Kurs in den Top-N steht) bleibt das Ergebnis trotzdem byte-gleich,
+bleibt das Ergebnis trotzdem byte-gleich,
 weil die Stufe dann genau die ersten `topN` Kandidaten (`ordered.slice(0, topN)`) liefert.
 Belegt durch Snapshot-Tests, die gegen den Stand vor der Stufe aufgenommen wurden
 (`__tests__/utils/vectorDbProviders/lance/selectionPaths.test.js`).
@@ -213,8 +229,11 @@ Pin-Filter wirken dort erst nach dem Reranker, die Stufe wählt nur aus den zul�
 Kandidaten und liefert so viele, wie unter den ersten `topN` zulässig waren.
 
 **Search-Trace:** Block `selection` mit `active`, `reason` (`off`, `no_metadata`, `degraded`,
-`few_courses`, …), `courseQuery`, `rule`, `poolTopK` und `swappedIn`/`swappedOut` je Dokument
-(id, title, score, naehe, state, kind, reason = `datum`/`deckel`/`vorbei`/`auffuellen`).
+`few_courses`, …), `courseQuery`, `rule` (z. B. `keep2-band0.1-floor0.3-deckel1-nodrop`), `poolTopK`
+und `swappedIn`/`swappedOut` je Dokument (id, title, score, naehe, state =
+`zukuenftig`/`laufend`/`warteliste`/`kein-kurs`, kind, reason = `datum` (Kurs gegen früheren
+getauscht) oder `deckel` (Übersicht durch Kurs ersetzt)). Je Grund stehen gleich viele Dokumente
+in `swappedIn` wie in `swappedOut`.
 `rerank.returned` zählt im Modus `hybrid_rerank` den Pool, `final.count` die ausgelieferten Dokumente.
 
 ---
