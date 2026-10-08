@@ -200,13 +200,17 @@ Sie ändert nur die **Menge** der Kontexte, nie deren Reihenfolge (Reranker-Scor
 | SystemSetting `course_selection` | `on` (Standard ohne Eintrag) / `off`; wirkt nur in Tabellen mit Kursspalten (`hasCourseMetadata`) |
 | Env `COURSE_SELECTION_KEEP` / `_BAND` / `_FLOOR` | Standard `2` / `0.1` / `0.3`; ungültige Werte → Standard |
 
-**Unverändert (byte-gleich zum Stand ohne Stufe):** Schalter aus, Tabelle ohne Kursspalten,
-Reranker ohne Scores (Degradation) oder < 2 Kurse unter den Kandidaten (sofern kein
-abgelaufener Kurs in den Top-N steht) — dann ruft der Pfad den Reranker wie bisher mit
-`topK = topN` auf bzw. liefert `ordered.slice(0, topN)`. Belegt durch Snapshot-Tests, die gegen
-den Stand vor der Stufe aufgenommen wurden (`__tests__/utils/vectorDbProviders/lance/selectionPaths.test.js`).
-Im Modus `rerank` behält die Stufe die bisherige Dokumentanzahl (Ähnlichkeitsschwelle und
-Pin-Filter wirken dort erst nach dem Reranker).
+**Unverändert (byte-gleich zum Stand ohne Stufe):** Schalter aus oder Tabelle ohne
+Kursspalten — nur dann ruft der Pfad den Reranker wie bisher mit `topK = topN` auf. Bei
+aktivem Schalter und Kursspalten wird der Reranker **immer** mit `topK = max(topN, 12)`
+aufgerufen; bei Reranker ohne Scores (Degradation) oder < 2 Kursen unter den Kandidaten
+(sofern kein abgelaufener Kurs in den Top-N steht) bleibt das Ergebnis trotzdem byte-gleich,
+weil die Stufe dann genau die ersten `topN` Kandidaten (`ordered.slice(0, topN)`) liefert.
+Belegt durch Snapshot-Tests, die gegen den Stand vor der Stufe aufgenommen wurden
+(`__tests__/utils/vectorDbProviders/lance/selectionPaths.test.js`).
+Im Modus `rerank` behält die Stufe die bisherige Dokumentanzahl: Ähnlichkeitsschwelle und
+Pin-Filter wirken dort erst nach dem Reranker, die Stufe wählt nur aus den zulässigen
+Kandidaten und liefert so viele, wie unter den ersten `topN` zulässig waren.
 
 **Search-Trace:** Block `selection` mit `active`, `reason` (`off`, `no_metadata`, `degraded`,
 `few_courses`, …), `courseQuery`, `rule`, `poolTopK` und `swappedIn`/`swappedOut` je Dokument
