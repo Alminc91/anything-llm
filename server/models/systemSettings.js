@@ -25,10 +25,14 @@ const HYBRID_ARM_SPLIT = { MIN: 0.1, MAX: 0.9, DEFAULT: 0.5 };
 // KIE-480: Metadatenfilter gelten ohne gespeicherten Wert als an (Kursdaten tragen Metadaten
 // für alle Kunden; ohne Kursspalten überspringt der Resolver den LLM-Aufruf).
 const METADATA_FILTERS_DEFAULT = "on";
+// Auswahlstufe hinter dem Reranker (lance/contextSelection.js): ohne gespeicherten Wert an;
+// wirkt nur in Tabellen mit Kursmetadaten und nur mit Reranker-Scores.
+const COURSE_SELECTION_DEFAULT = "on";
 
 const SystemSettings = {
   hybridArmSplitClamp: HYBRID_ARM_SPLIT,
   metadataFiltersDefault: METADATA_FILTERS_DEFAULT,
+  courseSelectionDefault: COURSE_SELECTION_DEFAULT,
   /** A default system prompt that is used when no other system prompt is set or available to the function caller. */
   saneDefaultSystemPrompt:
     "Given the following conversation, relevant context, and a follow up question, reply with an answer to the current question the user is asking. Return only your response to the question given the above information following the users instructions as needed.",
@@ -57,6 +61,7 @@ const SystemSettings = {
     "metadata_filters",
     "metadata_filter_locations",
     "search_trace",
+    "course_selection",
   ],
   supportedFields: [
     "logo_filename",
@@ -90,6 +95,7 @@ const SystemSettings = {
     "metadata_filters",
     "metadata_filter_locations",
     "search_trace",
+    "course_selection",
 
     // Hub settings
     "hub_api_key",
@@ -221,10 +227,24 @@ const SystemSettings = {
     metadata_filters: (update) => {
       // Ausdrückliches Abschalten auch in Varianten (false, "OFF", "0") respektieren;
       // nur fehlende/unklare Werte fallen auf den Standard.
-      const v = String(update ?? "").trim().toLowerCase();
-      if (update === false || ["off", "false", "0", "aus"].includes(v)) return "off";
+      const v = String(update ?? "")
+        .trim()
+        .toLowerCase();
+      if (update === false || ["off", "false", "0", "aus"].includes(v))
+        return "off";
       if (["on", "true", "1", "an"].includes(v)) return "on";
       return METADATA_FILTERS_DEFAULT;
+    },
+    // Auswahlstufe hinter dem Reranker (frühester Kurs bei Gleichstand, Abgelaufene raus,
+    // höchstens eine Übersichtsseite bei Kursfragen) an/aus — gleiche Logik wie metadata_filters.
+    course_selection: (update) => {
+      const v = String(update ?? "")
+        .trim()
+        .toLowerCase();
+      if (update === false || ["off", "false", "0", "aus"].includes(v))
+        return "off";
+      if (["on", "true", "1", "an"].includes(v)) return "on";
+      return COURSE_SELECTION_DEFAULT;
     },
     // KIE-480: Standort-Liste (kommasepariert), geschrieben von der Crawler-Pipeline
     // (enable_metadata_filters.py / nächtlich sync_metadata_locations.py). Nur Werte,

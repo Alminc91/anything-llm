@@ -190,6 +190,11 @@ beforeAll(async () => {
   await makeTable("sel_ein_kurs", { onlyOneCourse: true });
 }, 60000);
 
+afterAll(() => {
+  // Temp-Speicher des Tests wieder entfernen
+  fs.rmSync(process.env.STORAGE_DIR, { recursive: true, force: true });
+});
+
 beforeEach(() => {
   settings = {};
   mockRerank.mockReset();
@@ -284,6 +289,12 @@ describe("Auswahlstufe aktiv (course_selection = on, Kursmetadaten)", () => {
       expect(result.sources).toHaveLength(4);
     });
   }
+
+  test("ohne gespeicherten Wert ist die Stufe an (courseSelectionDefault)", async () => {
+    settings = {};
+    const result = await search("sel_kurse", "hybrid_rerank");
+    expect(ids(result)).toEqual(["k1", "k2", "k3", "k5"]);
+  });
 
   test("Default- und hybrid-Modus lösen die Stufe nicht auf", async () => {
     settings = { course_selection: "on" };
