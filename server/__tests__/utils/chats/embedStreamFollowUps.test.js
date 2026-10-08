@@ -432,6 +432,90 @@ describe("Folgefragen im Embed-Stream", () => {
     }
   });
 
+  test("prompt-note-user-voice: Nutzerstimme, Verbot Rückfragen, Rückfrage -> Antworten; letzter Abschnitt hinter Karten und Disclaimer", async () => {
+    const {
+      DISCLAIMER_PROMPT_NOTE,
+      FOLLOW_UPS_PROMPT_NOTE,
+    } = require("../../../utils/chats/embedCourseSources");
+    const {
+      courseCardsPromptNote,
+    } = require("../../../utils/chats/embedDefaults");
+    const note = FOLLOW_UPS_PROMPT_NOTE;
+    // Richtung: Worte des Nutzers an den Berater, mit Beispiel
+    expect(note).toContain("in the user's own words to you, the advisor");
+    expect(note).toContain("\u201eGibt es auch Kurse am Wochenende?\u201c");
+    // Verbot von Fragen an den Nutzer mit Beispielen
+    expect(note).toContain("NEVER questions to the user");
+    expect(note).toContain("\u201eSuchen Sie \u2026?\u201c");
+    expect(note).toContain("\u201eM\u00f6chten Sie \u2026?\u201c");
+    // Rückfrage -> wahrscheinliche Antworten als Vorschläge
+    expect(note).toContain(
+      "Instead of a clarifying question, offer its likely answers as suggestions"
+    );
+    expect(note).toContain(
+      "[[FRAGEN: Kurse f\u00fcr Babys | Kurse f\u00fcr Schulkinder]]"
+    );
+    // bestehende Regeln bleiben
+    expect(note).toContain("[[FRAGEN: q1 | q2]]");
+    expect(note).toContain("[[FRAGEN: -]]");
+    expect(note).toContain("Do NOT ask a question in the answer text itself.");
+    // englisch, ≤ 120 Wörter (ohne Überschrift)
+    const body = note.split("\n").slice(3).join(" ").trim();
+    expect(body.split(/\s+/).length).toBeLessThanOrEqual(120);
+    // Reihenfolge: Karten-Abschnitt -> Disclaimer-Hinweis -> Folgefragen-Hinweis
+    const { connector } = await run({
+      reply: `${FU_BODY}\n${FU_LINE}`,
+      embed: makeEmbed(
+        JSON.stringify({
+          courseCards: "auto",
+          disclaimer: "footer",
+          followUps: "pills",
+        })
+      ),
+    });
+    const prompt = connector.compressMessages.mock.calls[0][0].systemPrompt;
+    expect(prompt).toBe(
+      `System${courseCardsPromptNote({ style: "short", footer: true })}${DISCLAIMER_PROMPT_NOTE}${note}`
+    );
+    expect(prompt.endsWith(note)).toBe(true);
+  });
+
+  test("all-filtered-no-chunk: nur Fragen an den Nutzer -> kein Chunk, followUps leer, Zeile nicht im Text (Stream und Nicht-Stream)", async () => {
+    for (const streaming of [true, false])
+      for (const line of [
+        "[[FRAGEN: Suchen Sie einen Anfängerkurs? | Möchten Sie online lernen?]]",
+        "[[FRAGEN: Für welches Alter suchen Sie? | Would you like evening classes?]]",
+      ]) {
+        jest.clearAllMocks();
+        const { log, stored, text } = await run({
+          reply: `${FU_BODY}\n${line}`,
+          embed: makeEmbed(JSON.stringify({ followUps: "pills" })),
+          streaming,
+        });
+        expect(text).toBe(FU_BODY);
+        expect(JSON.stringify(log)).not.toMatch(/FRAGEN|Sie\?|evening/);
+        expect(log.find((c) => c.type === "followUps")).toBeUndefined();
+        expect(stored.text).toBe(FU_BODY);
+        // leer = wie "[[FRAGEN: -]]": Feld fehlt (gelesen als [])
+        expect(stored).not.toHaveProperty("followUps");
+        expect(stored.followUps ?? []).toEqual([]);
+      }
+  });
+
+  test("teilweise gefiltert: nur die Nutzerfrage bleibt als Chunk und gespeichert", async () => {
+    for (const streaming of [true, false]) {
+      jest.clearAllMocks();
+      const { log, stored, text } = await run({
+        reply: `${FU_BODY}\n[[FRAGEN: Suchen Sie einen Anfängerkurs? | Gibt es Yoga am Abend?]]`,
+        embed: makeEmbed(JSON.stringify({ followUps: "pills" })),
+        streaming,
+      });
+      expect(text).toBe(FU_BODY);
+      expect(checkOrder(log).followUps).toEqual(["Gibt es Yoga am Abend?"]);
+      expect(stored.followUps).toEqual(["Gibt es Yoga am Abend?"]);
+    }
+  });
+
   test("LLM-Verlauf: gespeicherte Vorschläge stehen wieder als letzte Zeile", async () => {
     const {
       convertToPromptHistory,

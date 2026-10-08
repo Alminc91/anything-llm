@@ -182,6 +182,21 @@ describe("parseFollowUps (vollständige Antwort)", () => {
   });
 });
 
+describe("Folgefragen-Richtung im Nicht-Stream-Pfad", () => {
+  test("all-filtered-sync: nur Fragen an den Nutzer -> Zeile entfernt, followUps [] (parseFollowUps final und parseCardsReply über die ganze Antwort)", () => {
+    const line =
+      "[[FRAGEN: Suchen Sie einen Anfängerkurs? | Welche Sprache möchten Sie lernen? | Are you looking for beginner courses?]]";
+    const whole = parseFollowUps(`${BODY}\n${line}`, { final: true });
+    expect(whole.state).toBe("followUps");
+    expect(whole.followUps).toEqual([]);
+    expect(whole.text).toBe(BODY);
+    const reply = parseCardsReply(`[[KARTEN: -]]\n${BODY}\n${line}`);
+    expect(reply.followUps).toEqual([]);
+    expect(reply.text).toBe(BODY);
+    expect(reply.text).not.toMatch(/FRAGEN|Suchen Sie/);
+  });
+});
+
 describe("parseCardsReply mit Folgefragen", () => {
   test("Marker + Teaser + Text + Endzeile", () => {
     const reply = [

@@ -11,6 +11,7 @@ const {
   COURSE_CARDS_LONG_PROMPT_NOTE,
   COURSE_CARDS_SECTION_HEADING,
   COURSE_CARDS_ANSWER_STYLES,
+  COURSE_CARDS_LAYOUTS,
   courseCardsPromptNote,
   promptHasCourseCardsSection,
   removeCourseCardsSections,
@@ -36,7 +37,10 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
   test("Hard Constraint 4: deutsche Texte wörtlich", () => {
     const de = embedDefaultTexts("de");
     expect(de.greetingBubbleText).toBe(
-      "Hallo! Ich bin Ihr digitaler Berater und arbeite mit künstlicher Intelligenz (KI). Beschreiben Sie, was Sie suchen, und ich finde passende Angebote."
+      "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen."
+    );
+    expect(embedDefaultTexts("en").greetingBubbleText).toBe(
+      "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for."
     );
     expect(de.privacyText.split("\n")).toEqual([
       "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
@@ -139,8 +143,32 @@ describe("Prompt-Abschnitte des Karten-Modus", () => {
     );
   });
 
+  test.each(["short", "long"])(
+    "teaser-rule-15-20: %s — Regel genau einmal, Beispiel-Teaser ≤ 20 Wörter",
+    (style) => {
+      for (const footer of [false, true]) {
+        const note = courseCardsPromptNote({ style, footer });
+        expect(note.split("15–20 words — never more than 20")).toHaveLength(2);
+        expect(note).not.toContain("never fewer than 15");
+        const examples = note
+          .split("\n")
+          .map((line) => /^\[\[TEASER \d+: (.*)\]\]$/.exec(line))
+          .filter(Boolean)
+          .map((m) => m[1]);
+        expect(examples).toHaveLength(2);
+        for (const teaser of examples) {
+          const words = teaser.trim().split(/\s+/).length;
+          expect(words).toBeGreaterThanOrEqual(15);
+          expect(words).toBeLessThanOrEqual(20);
+        }
+      }
+    }
+  );
+
   test("courseCardsPromptNote: long -> Liste, classic -> nichts, sonst kurz", () => {
     expect(COURSE_CARDS_ANSWER_STYLES).toEqual(["short", "long", "classic"]);
+    // Kartenlayout: nur Darstellung (Widget), Standard "grid"
+    expect(COURSE_CARDS_LAYOUTS).toEqual(["grid", "rows"]);
     expect(courseCardsPromptNote({ style: "long" })).toBe(
       COURSE_CARDS_LONG_PROMPT_NOTE
     );

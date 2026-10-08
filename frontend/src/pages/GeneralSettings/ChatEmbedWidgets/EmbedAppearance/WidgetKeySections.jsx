@@ -354,6 +354,14 @@ export function AnswerCardsSection({ config, errors, updateField }) {
             onChange={updateField}
           />
           <EnumField
+            field="courseCardsLayout"
+            title="Kartenlayout"
+            hint="Zeilen: eine Karte je Zeile mit Zeit links und Status rechts, wie im Entwurf; Raster: zwei Karten nebeneinander"
+            config={config}
+            errors={errors}
+            onChange={updateField}
+          />
+          <EnumField
             field="courseCardsAnswerStyle"
             title="Antwortstil bei Karten"
             hint="Kurz (Standard): ein, zwei Sätze, die Karten sind der Link. Ausführlich: Text mit nummerierter Liste und Kurs-Links. Klassisch: Karten nur aus den Links, kein Prompt-Abschnitt (der Workspace-Prompt bleibt, wie er ist)."

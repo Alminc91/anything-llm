@@ -1,7 +1,7 @@
 {
-  "_comment": "Kopie von PANEL_TEXTS (Auszug) aus dem Embed-Repo anythingllm-embed, src/utils/layout.js, Stand c6bc308 (06.10.2026). Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
+  "_comment": "Soll-Stand von PANEL_TEXTS (Auszug) für das Embed-Repo anythingllm-embed, src/utils/layout.js: greetingBubble de/en übernommen aus dem Issue server-folgefragen-nutzerstimme-teaser-laenge-kartenlayout §1.4 (06.10.2026, Widget-Issue „Zeilenkarten“, embed-zeilenkarten-tasten-morph-datenschutz, Feedbackrunde 2); der passende Embed-Commit folgt parallel. Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
   "de": {
-    "greetingBubble": "Hallo! Ich bin Ihr digitaler Berater und arbeite mit künstlicher Intelligenz (KI). Beschreiben Sie, was Sie suchen, und ich finde passende Angebote.",
+    "greetingBubble": "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
     "privacyTitle": "Datenschutz:",
     "privacyPoints": [
       "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
@@ -12,7 +12,7 @@
     "aiDisclaimer": "Ich bin eine KI und kann Fehler machen. Bitte überprüfen Sie meine Antworten."
   },
   "en": {
-    "greetingBubble": "Hello! I am your digital advisor and work with artificial intelligence (AI). Describe what you are looking for and I will find suitable offers.",
+    "greetingBubble": "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for.",
     "privacyTitle": "Privacy:",
     "privacyPoints": [
       "Your requests stay on servers in Germany and are not passed on to third parties.",
