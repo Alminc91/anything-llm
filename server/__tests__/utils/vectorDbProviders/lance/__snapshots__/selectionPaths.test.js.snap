@@ -305,6 +305,48 @@ exports[`Byte-gleich zu heute (Snapshots aus origin/master) schalter-aus (rerank
 }
 `;
 
+exports[`Byte-gleich zu heute (Snapshots aus origin/master) threshold-pin schalter-aus (rerank) 1`] = `
+{
+  "contextTexts": [
+    "Intensivkurs Französisch Termin Termin Termin p1",
+    "Intensivkurs Französisch Termin Termin Termin Termin p2",
+  ],
+  "message": false,
+  "sources": [
+    {
+      "_distance": 0.0019939541816711426,
+      "bookable": true,
+      "end_date": "heute+60",
+      "id": "p1",
+      "price": 80,
+      "published": "1/1/2026, 10:00:00 AM",
+      "rerank_corpus_id": 1,
+      "rerank_score": 0.97,
+      "score": 0.97,
+      "start_date": "heute+60",
+      "start_minutes": 600,
+      "text": "Intensivkurs Französisch Termin Termin Termin p1",
+      "title": "kurs-franzoesisch-p1.txt",
+    },
+    {
+      "_distance": 0.0036301612854003906,
+      "bookable": true,
+      "end_date": "heute+50",
+      "id": "p2",
+      "price": 80,
+      "published": "1/1/2026, 10:00:00 AM",
+      "rerank_corpus_id": 2,
+      "rerank_score": 0.96,
+      "score": 0.96,
+      "start_date": "heute+50",
+      "start_minutes": 600,
+      "text": "Intensivkurs Französisch Termin Termin Termin Termin p2",
+      "title": "kurs-franzoesisch-p2.txt",
+    },
+  ],
+}
+`;
+
 exports[`Byte-gleich zu heute (Snapshots aus origin/master) wenige-kurse (hybrid_rerank) 1`] = `
 {
   "contextTexts": [

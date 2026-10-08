@@ -4,8 +4,8 @@
  * temporäre LanceDB-Tabelle, mit gemocktem Reranker und gestubbten
  * SystemSettings.
  *
- * Die Snapshot-Tests (schalter-aus, degradiert, ohne-metadaten, wenige-kurse)
- * wurden gegen den UNVERÄNDERTEN Stand origin/master 4662ddfe aufgenommen —
+ * Die Snapshot-Tests (schalter-aus, degradiert, ohne-metadaten, wenige-kurse,
+ * threshold-pin schalter-aus) wurden gegen den UNVERÄNDERTEN Stand origin/master 4662ddfe aufgenommen —
  * sie belegen, dass das Ergebnis in diesen Fällen byte-gleich zu heute bleibt.
  */
 const fs = require("fs");
@@ -68,6 +68,14 @@ const SCORES = {
   u1: 0.97,
   u2: 0.6,
   fern: 0.98,
+  // Tabelle sel_pin (Threshold/Pin im rerank-Pfad)
+  tief: 0.99,
+  pin: 0.985,
+  p1: 0.97,
+  p2: 0.96,
+  p3: 0.95,
+  p4: 0.94,
+  pu1: 0.5,
 };
 const COURSES = [
   ["k1", 88],
@@ -183,8 +191,60 @@ async function makeManyTable(ns) {
   await lance.updateOrCreateCollection(client, rows, ns);
 }
 
+// Threshold/Pin im rerank-Pfad: in den Reranker-Top-4 stehen ein Kurs unter
+// dem similarityThreshold („tief“, Start morgen) und ein Kurs aus einem
+// gepinnten Dokument („pin“) — beide dürfen nie ausgeliefert werden.
+// `published` ohne ISO-Datum, damit die Snapshot-Normalisierung es nicht als
+// Termin umschreibt.
+const PUBLISHED = "1/1/2026, 10:00:00 AM";
+const PIN_TITLE = "kurs-franzoesisch-pin.txt";
+const PIN_IDENTIFIER = `title:${PIN_TITLE}-timestamp:${PUBLISHED}`;
+async function makePinTable(ns) {
+  const { client } = await lance.connect();
+  await client.dropTable(ns).catch(() => {});
+  await lance.updateOrCreateCollection(
+    client,
+    [
+      {
+        id: "pu1",
+        title: "programm_sprachen_pin.html",
+        text: "Intensivkurs Französisch Übersicht",
+        vector: vec(10),
+        published: PUBLISHED,
+      },
+    ],
+    ns
+  );
+  const course = (id, title, vector, days, i) => ({
+    id,
+    title,
+    text: `Intensivkurs Französisch ${"Termin ".repeat(i + 1)}${id}`,
+    vector,
+    published: PUBLISHED,
+    start_date: inDays(days),
+    end_date: inDays(days),
+    bookable: true,
+    start_minutes: 600,
+    price: 80,
+  });
+  await lance.updateOrCreateCollection(
+    client,
+    [
+      // Kosinus-Ähnlichkeit ≈ 0,2 < 0,25
+      course("tief", "kurs-franzoesisch-tief.txt", [0.2, 1, 0, 0], 1, 0),
+      course("pin", PIN_TITLE, vec(1), 2, 1),
+      course("p1", "kurs-franzoesisch-p1.txt", vec(2), 60, 2),
+      course("p2", "kurs-franzoesisch-p2.txt", vec(3), 50, 3),
+      course("p3", "kurs-franzoesisch-p3.txt", vec(4), 3, 4),
+      course("p4", "kurs-franzoesisch-p4.txt", vec(5), 4, 5),
+    ],
+    ns
+  );
+}
+
 beforeAll(async () => {
   await makeManyTable("sel_viele");
+  await makePinTable("sel_pin");
   await makeTable("sel_kurse", {});
   await makeTable("sel_ohne_meta", { withCourses: false });
   await makeTable("sel_ein_kurs", { onlyOneCourse: true });
@@ -246,6 +306,52 @@ describe("Byte-gleich zu heute (Snapshots aus origin/master)", () => {
       expect(normalize(result)).toMatchSnapshot();
     });
   }
+
+  test("threshold-pin schalter-aus (rerank)", async () => {
+    settings = { course_selection: "off" };
+    const result = await search("sel_pin", "rerank", {
+      filterIdentifiers: [PIN_IDENTIFIER],
+    });
+    expect(normalize(result)).toMatchSnapshot();
+    expect(mockRerank.mock.calls.map((c) => c[2])).toEqual([{ topK: 4 }]);
+  });
+});
+
+describe("rerank-Pfad: similarityThreshold und gepinnte Dokumente", () => {
+  const PIN_EXTRA = { filterIdentifiers: [PIN_IDENTIFIER] };
+
+  test("Reranker-Top-4 mit Kurs unter Threshold + gepinntem Kurs → beide fehlen, Anzahl wie heute", async () => {
+    settings = { course_selection: "off" };
+    const today = await search("sel_pin", "rerank", PIN_EXTRA);
+    // Vorbedingung: beide stehen in den Reranker-Top-4
+    const [, docs, opts] = mockRerank.mock.calls[0];
+    const top4 = (await scoredRerank(QUERY, docs, opts)).map((d) => d.id);
+    expect(top4).toEqual(["tief", "pin", "p1", "p2"]);
+    expect(ids(today)).toEqual(["p1", "p2"]);
+
+    mockRerank.mockClear();
+    settings = { course_selection: "on" };
+    const result = await search("sel_pin", "rerank", PIN_EXTRA);
+    expect(mockRerank.mock.calls.map((c) => c[2])).toEqual([{ topK: 12 }]);
+    const got = ids(result);
+    expect(got).not.toContain("tief");
+    expect(got).not.toContain("pin");
+    // todaysCount: 2 der ersten 4 sind zulässig → genau 2 Dokumente, auch
+    // wenn im Pool weitere frühe Kurse (p3, p4) bereitstehen
+    expect(result.sources).toHaveLength(today.sources.length);
+    expect(got).toEqual(["p1", "p2"]);
+    expect(result).toEqual(today);
+  });
+
+  test("ohne Pin zählt nur der Threshold-Ausfall → 3 Dokumente wie heute", async () => {
+    settings = { course_selection: "off" };
+    const today = await search("sel_pin", "rerank");
+    expect(ids(today)).toEqual(["pin", "p1", "p2"]);
+    settings = { course_selection: "on" };
+    const result = await search("sel_pin", "rerank");
+    expect(ids(result)).not.toContain("tief");
+    expect(result.sources).toHaveLength(3);
+  });
 });
 
 describe("Kandidaten-Zeilen tragen die KIE-480-Spalten", () => {
@@ -358,6 +464,39 @@ describe("Search-Trace: trace.selection (AK-8)", () => {
       // final = ausgelieferte Dokumente, keine Chunk-Volltexte im Trace
       expect(traces[0].final.count).toBe(4);
       expect(JSON.stringify(traces[0])).not.toContain("Termin Termin");
+    });
+
+    test(`searchTrace-selection Stichtag Europe/Berlin (${mode})`, async () => {
+      // 23:30 UTC am 07.10. ist in Berlin schon der 08.10. — nur die Uhr
+      // (Date) wird festgesetzt, Timer/Microtasks bleiben echt (Lance-I/O).
+      jest.useFakeTimers({
+        now: new Date("2026-10-07T23:30:00Z"),
+        doNotFake: [
+          "hrtime",
+          "nextTick",
+          "performance",
+          "queueMicrotask",
+          "requestAnimationFrame",
+          "cancelAnimationFrame",
+          "requestIdleCallback",
+          "cancelIdleCallback",
+          "setImmediate",
+          "clearImmediate",
+          "setInterval",
+          "clearInterval",
+          "setTimeout",
+          "clearTimeout",
+        ],
+      });
+      try {
+        settings = { course_selection: "on", search_trace: "on" };
+        await search("sel_kurse", mode);
+      } finally {
+        jest.useRealTimers();
+      }
+      expect(traces).toHaveLength(1);
+      expect(traces[0].selection.active).toBe(true);
+      expect(traces[0].selection.today).toBe("2026-10-08");
     });
 
     test(`searchTrace-selection aus/ohne Metadaten (${mode})`, async () => {

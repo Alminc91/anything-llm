@@ -143,6 +143,40 @@ describe("selectContexts — Akzeptanzkriterien AK-1 bis AK-6", () => {
     expect(out.changed).toBe(false);
   });
 
+  test("boden-im-band: Top-Score 0,35 → Kurs mit 0,29 (Start morgen) bleibt draußen", () => {
+    // Band reicht bis 0,25, der Boden 0,3 schneidet darüber ab — der
+    // morgen startende Kurs (0,29) liegt im Band, aber unter dem Boden.
+    const c = [
+      kurs("k1", 0.35, "2027-03-01"),
+      kurs("k2", 0.34, "2027-02-01"),
+      kurs("k3", 0.33, "2027-01-15"),
+      kurs("k4", 0.32, "2026-12-20"),
+      kurs("morgen", 0.29, "2026-10-09"),
+    ];
+    const out = run(c);
+    expect(out.active).toBe(true);
+    expect(ids(out.selected)).toEqual(["k1", "k2", "k3", "k4"]);
+    expect(out.swappedIn).toEqual([]);
+    expect(out.changed).toBe(false);
+  });
+
+  test("boden-im-band: Top-Score 0,25 (alles unter dem Boden) → unverändert", () => {
+    // Band reicht bis 0,15 und enthält alle Kurse — trotzdem wird kein Kurs
+    // < 0,3 eingewechselt, auch nicht der morgen startende (0,20).
+    const c = [
+      kurs("k1", 0.25, "2027-03-01"),
+      kurs("k2", 0.24, "2027-02-01"),
+      kurs("k3", 0.23, "2027-01-15"),
+      kurs("k4", 0.22, "2026-12-20"),
+      kurs("morgen", 0.2, "2026-10-09"),
+    ];
+    const out = run(c);
+    expect(out.active).toBe(true);
+    expect(ids(out.selected)).toEqual(["k1", "k2", "k3", "k4"]);
+    expect(out.swappedIn).toEqual([]);
+    expect(out.changed).toBe(false);
+  });
+
   test("laufend-und-vorbei", () => {
     const c = [
       kurs("A", 0.9, "2026-11-20"),
@@ -214,6 +248,41 @@ describe("selectContexts — Akzeptanzkriterien AK-1 bis AK-6", () => {
       kurs("K4", 0.2, "2026-10-09"),
     ];
     expect(ids(run(few, 5).selected)).toEqual(["K1", "K2", "U1", "U2", "K3"]);
+  });
+
+  test("kursfrage-grenze: genau 2 Kurse ≥ Boden → keine Kursfrage, Übersichten bleiben", () => {
+    // K2 (0,5) läge als Ersatz bereit — ohne Kursfrage greift der Deckel nicht.
+    const c = [
+      kurs("K1", 0.9, "2026-11-01"),
+      info("U1", 0.85),
+      info("U2", 0.8),
+      info("U3", 0.75),
+      kurs("K2", 0.5, "2026-11-01"),
+      kurs("K3", 0.29, "2026-10-09"),
+    ];
+    const out = run(c);
+    expect(out.active).toBe(true);
+    expect(out.courseQuery).toBe(false);
+    expect(ids(out.selected)).toEqual(["K1", "U1", "U2", "U3"]);
+    expect(out.changed).toBe(false);
+  });
+
+  test("kursfrage-grenze: genau 3 Kurse ≥ Boden → Deckel greift", () => {
+    const c = [
+      kurs("K1", 0.9, "2026-11-01"),
+      info("U1", 0.85),
+      info("U2", 0.8),
+      info("U3", 0.75),
+      kurs("K2", 0.5, "2026-11-01"),
+      kurs("K3", 0.3, "2026-11-01"), // genau auf dem Boden
+    ];
+    const out = run(c);
+    expect(out.courseQuery).toBe(true);
+    expect(ids(out.selected)).toEqual(["K1", "U1", "K2", "K3"]);
+    expect(out.swappedOut.map((s) => [s.row.id, s.reason])).toEqual([
+      ["U2", "deckel"],
+      ["U3", "deckel"],
+    ]);
   });
 
   test("kein-deckel-infofrage", () => {
@@ -343,6 +412,18 @@ describe("selectContexts — Negativfälle", () => {
     expect(out.changed).toBe(false);
   });
 
+  test("Band: gleiche Nähe → der höhere Score gewinnt (unabhängig von der Pool-Reihenfolge)", () => {
+    const c = [
+      kurs("k1", 0.9, "2027-06-01"),
+      kurs("k2", 0.89, "2027-05-01"),
+      kurs("niedrig", 0.84, "2026-10-13"),
+      kurs("hoch", 0.85, "2026-10-13"),
+    ];
+    const out = run(c, 3);
+    expect(ids(out.selected)).toEqual(["k1", "k2", "hoch"]);
+    expect(ids(out.swappedOut.map((s) => s.row))).toEqual(["niedrig"]);
+  });
+
   test("Die K relevantesten bleiben auch bei späterem Start fest", () => {
     const c = [
       kurs("spaet1", 0.99, "2027-06-01"),
@@ -375,6 +456,7 @@ describe("selectContexts — Replay der Messdaten (AK-9)", () => {
       .filter(Boolean)
       .map((l) => JSON.parse(l));
 
+  const POOL = 12;
   const replay = (file) => {
     const stats = {
       lists: 0,
@@ -386,7 +468,8 @@ describe("selectContexts — Replay der Messdaten (AK-9)", () => {
     };
     for (const entry of load(file)) {
       stats.lists += 1;
-      const rows = toRows(entry.kandidaten);
+      // Produktionspool: der Reranker liefert topK = max(topN, 12) Zeilen.
+      const rows = toRows(entry.kandidaten).slice(0, POOL);
       const out = selectContexts(rows, { topN: 4, today: TODAY });
       const info = rows.map((r) => classifyRow(r, TODAY));
       if (!info.some((i) => i.score !== null)) {
@@ -426,7 +509,8 @@ describe("selectContexts — Replay der Messdaten (AK-9)", () => {
       const after = nearest(out.selected);
       if (before !== null && after !== null && after < before)
         stats.earlier += 1;
-      // Tausch: ein eingewechselter Kurs startet früher als ein ausgewechselter
+      // Tausch-Lesart (AK-9): ein später startender Kurs der Score-Top-4 wird
+      // durch einen früher startenden aus dem Pool ersetzt.
       const outDates = out.swappedOut
         .filter((s) => s.reason === "datum")
         .map((s) => s.naehe);
@@ -445,13 +529,17 @@ describe("selectContexts — Replay der Messdaten (AK-9)", () => {
     const stats = replay("kandidaten_intern_20261008_0657.jsonl");
     expect(stats.lists).toBe(40);
     expect(stats.valid).toBe(40);
-    // AK-9: in ≥ 2 Listen ersetzt ein früherer Kurs einen späteren aus der
-    // Score-Top-4 (gemessen: 5 — Fragen 4, 12, 17, 26, 37).
+    // AK-9 (Tausch-Lesart): in ≥ 2 Listen ersetzt ein früher startender Kurs
+    // aus dem Pool einen später startenden der Score-Top-4.
     expect(stats.earlierSwap).toBeGreaterThanOrEqual(2);
-    // Strengere Lesart „frühester gezeigter Kurs startet früher“: 1 Liste
-    // (Frage 4: 27 → 4 Tage). Die Analyse (2/37) zählte zusätzlich Frage 27,
-    // deren zweiter Kurs (0,56) nach §2.4 keine Übersicht verdrängen darf.
-    expect(stats.earlier).toBeGreaterThanOrEqual(1);
+    // Strengere Lesart „frühester gezeigter Kurs startet früher“ — nur als
+    // Info, kein Kriterium (trifft auf diesen Daten 1/40, weil die Regeln aus
+    // §2 dort keinen weiteren Tausch zulassen).
+    console.info(
+      `replay-intern: Tausch-Lesart ${stats.earlierSwap}/${stats.valid}, ` +
+        `streng (frühester gezeigter Kurs früher) ${stats.earlier}/${stats.valid}, ` +
+        `geändert ${stats.changed}/${stats.valid}`
+    );
   });
 
   test("replay-intern-degradiert", () => {
