@@ -7,15 +7,28 @@
  * Reihenfolge der Ausgabe bleibt die Reranker-Reihenfolge.
  *
  * Regeln (siehe server/HYBRID_SEARCH_RERANKER.md, Abschnitt 3f):
- * 1. Abgelaufen (`start_date < heute` und `bookable === false`) fällt weg.
- * 2. Die K relevantesten Kurse bleiben fest; die übrigen Kursplätze bekommen
- *    die frühesten Kurse mit `score ≥ max(topScore − BAND; FLOOR)`
- *    (laufend = 0 Tage), bei gleicher Nähe der höhere Score.
- * 3. Klare Kursfrage (≥ 3 Kurse mit `score ≥ FLOOR`): höchstens 1
- *    Nicht-Kurs-Dokument (das bestbewertete); ersetzt wird nur durch Kurse
- *    mit `score ≥ FLOOR` — fehlen solche, bleiben die Nicht-Kurs-Dokumente.
- * 4. Ohne Reranker-Scores, mit < 2 Kursen (und ohne Abgelaufene in den
- *    Top-N) oder ohne gültiges Datum: Ausgabe = `candidates.slice(0, topN)`.
+ * 1. Zustände eines Kurses (Zeile mit gültigem `start_date`):
+ *    - `zukuenftig`: `start_date ≥ heute`, Nähe = Tage bis Start;
+ *    - `laufend`: `start_date < heute` und `bookable !== false`, Nähe 0;
+ *    - `warteliste`: `start_date < heute` und `bookable === false`, Nähe null.
+ *    `bookable`-Semantik der Pipeline: `false` = Kufer-Status 4
+ *    („Warteliste/ausgebucht“) — der Kurs läuft noch. Abgeschlossene oder
+ *    abgesagte Kurse haben `bookable` NULL und werden von der Feed-Uhr der
+ *    Pipeline gelöscht. „Abgelaufen“ ist aus `bookable` daher NICHT
+ *    ableitbar; die Stufe entfernt nie einen Kurs.
+ * 2. Die K relevantesten Kurse bleiben fest; Wartelisten-Kurse der heutigen
+ *    Top-N ebenfalls (sie sind nicht „später“ als ein anderer Kurs). Die
+ *    übrigen Kursplätze bekommen die frühesten Kurse mit Nähe ≠ null und
+ *    `score ≥ max(topScore − BAND; FLOOR)`, bei gleicher Nähe der höhere
+ *    Score. Ein Kurs der Top-N fällt also nur heraus, wenn ein früher
+ *    startender Kurs seinen Platz bekommt; `warteliste` rückt nie als
+ *    „früher“ nach.
+ * 3. Klare Kursfrage (≥ 3 Kurse mit `score ≥ FLOOR`, Warteliste zählt mit):
+ *    höchstens 1 Nicht-Kurs-Dokument (das bestbewertete); ersetzt wird nur
+ *    durch Kurse mit `score ≥ FLOOR` (zuerst die frühesten im Band, dann nach
+ *    Score) — fehlen solche, bleiben die Nicht-Kurs-Dokumente.
+ * 4. Ohne Reranker-Scores, mit < 2 Kursen oder ohne gültiges Datum:
+ *    Ausgabe = `candidates.slice(0, topN)`.
  *
  * Kandidaten werden nie verändert; die Ausgabe enthält dieselben Objekt-
  * Referenzen wie die Eingabe.
@@ -124,7 +137,7 @@ function normalizeSettings(settings) {
  * @param {object} row - Reranker-Kandidat (rerank_score, start_date, bookable)
  * @param {number|string} today - Tagesnummer (parseIsoDay) oder ISO-Tag
  * @returns {{score:number|null, course:boolean,
- *   state:"kein-kurs"|"vorbei"|"laufend"|"zukuenftig", naehe:number|null}}
+ *   state:"kein-kurs"|"warteliste"|"laufend"|"zukuenftig", naehe:number|null}}
  */
 function classifyRow(row, today) {
   const todayDay = typeof today === "number" ? today : parseIsoDay(today);
@@ -136,8 +149,10 @@ function classifyRow(row, today) {
   if (startDay === null || !Number.isFinite(todayDay))
     return { score, course: false, state: "kein-kurs", naehe: null };
   if (startDay < todayDay) {
+    // bookable=false = Warteliste/ausgebucht (Kufer-Status 4): läuft noch,
+    // hat aber keine Nähe — rückt nie als „früher“ nach.
     if (row.bookable === false)
-      return { score, course: true, state: "vorbei", naehe: null };
+      return { score, course: true, state: "warteliste", naehe: null };
     return { score, course: true, state: "laufend", naehe: 0 };
   }
   return {
@@ -149,7 +164,7 @@ function classifyRow(row, today) {
 }
 
 const ruleLabel = (cfg) =>
-  `keep${cfg.keep}-band${cfg.band}-floor${cfg.floor}-deckel${MAX_NON_COURSE}`;
+  `keep${cfg.keep}-band${cfg.band}-floor${cfg.floor}-deckel${MAX_NON_COURSE}-nodrop`;
 
 /**
  * Auswahlstufe: wählt höchstens topN Kontexte aus dem Reranker-Pool.
@@ -161,7 +176,10 @@ const ruleLabel = (cfg) =>
  * @returns {{selected:object[], active:boolean, reason:string|null,
  *   changed:boolean, courseQuery:boolean, rule:string,
  *   swappedIn:object[], swappedOut:object[]}}
- *   `swappedIn`/`swappedOut`: {row, score, naehe, state, kind, reason}
+ *   `swappedIn`/`swappedOut`: {row, score, naehe, state, kind, reason};
+ *   reason `datum` (Kurs gegen früheren getauscht) oder `deckel`
+ *   (Nicht-Kurs-Dokument durch Kurs ersetzt). Je Grund gibt es gleich viele
+ *   ein- wie ausgewechselte Dokumente.
  */
 function selectContexts(candidates, { topN, today, settings } = {}) {
   const list = Array.isArray(candidates) ? candidates : [];
@@ -188,13 +206,12 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
 
   const all = list.map((_, i) => i);
   const isScoredCourse = (i) => info[i].course && info[i].score !== null;
-  const live = all.filter((i) => info[i].state !== "vorbei");
-  const liveCourses = live.filter(isScoredCourse);
-  const expiredInTop = all.slice(0, n).some((i) => info[i].state === "vorbei");
-  if (liveCourses.length < 2 && !expiredInTop) return identity("few_courses");
+  const courses = all.filter(isScoredCourse);
+  if (courses.length < 2) return identity("few_courses");
 
-  // Basis = heutige Auswahl ohne Abgelaufene (aufgefüllt in Pool-Reihenfolge).
-  const base = live.slice(0, n);
+  // Basis = heutige Auswahl (Score-Top-N). Die Stufe entfernt daraus nie
+  // einen Kurs — sie tauscht nur gegen frühere bzw. ersetzt Übersichten.
+  const base = all.slice(0, n);
   const inBase = new Set(base);
   const baseCourses = base.filter(isScoredCourse).length;
   const baseOthers = base.length - baseCourses;
@@ -202,11 +219,11 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
   // Wählbare Kurse: was heute schon drin ist, plus Kurse über dem Boden.
   // Damit kann strukturell kein Kurs < FLOOR eingewechselt werden.
   const byScore = (a, b) => info[b].score - info[a].score || a - b;
-  const eligible = liveCourses
+  const eligible = courses
     .filter((i) => inBase.has(i) || info[i].score >= cfg.floor)
     .sort(byScore);
 
-  const strongCourses = liveCourses.filter(
+  const strongCourses = courses.filter(
     (i) => info[i].score >= cfg.floor
   ).length;
   const courseQuery = strongCourses >= COURSE_QUERY_MIN;
@@ -225,18 +242,26 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
   }
 
   // Nicht-Kurs-Dokumente: die bestplatzierten (Teilmenge der Basis).
-  const others = live.filter((i) => !isScoredCourse(i)).slice(0, otherSlots);
+  const others = all.filter((i) => !isScoredCourse(i)).slice(0, otherSlots);
 
-  // Kurse: K feste nach Score, dann die frühesten im Band, Rest nach Score.
+  // Feste Kurse: die K relevantesten nach Score, dazu Wartelisten-Kurse der
+  // Basis (Nähe null → nie „später“ als ein Kandidat, also nie getauscht).
   const keep = eligible.slice(0, Math.min(cfg.keep, courseSlots));
-  const keepSet = new Set(keep);
+  const fixed = [
+    ...keep,
+    ...eligible.filter(
+      (i) => inBase.has(i) && info[i].naehe === null && !keep.includes(i)
+    ),
+  ].slice(0, courseSlots);
+  const fixedSet = new Set(fixed);
+  // Übrige Kursplätze: die frühesten im Band (nur mit Nähe), Rest nach Score.
   const topScore = eligible.length > 0 ? info[eligible[0]].score : 0;
   const threshold = Math.max(topScore - cfg.band - BAND_EPSILON, cfg.floor);
-  const rest = eligible.filter((i) => !keepSet.has(i));
+  const rest = eligible.filter((i) => !fixedSet.has(i));
   const bandPicks = rest
-    .filter((i) => info[i].score >= threshold)
+    .filter((i) => info[i].naehe !== null && info[i].score >= threshold)
     .sort((a, b) => info[a].naehe - info[b].naehe || byScore(a, b));
-  const remaining = courseSlots - keep.length;
+  const remaining = courseSlots - fixed.length;
   const picks = bandPicks.slice(0, remaining);
   const picked = new Set(picks);
   for (const i of rest) {
@@ -247,10 +272,8 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
     }
   }
 
-  const chosen = new Set([...keep, ...picks, ...others]);
+  const chosen = new Set([...fixed, ...picks, ...others]);
   const selectedIdx = all.filter((i) => chosen.has(i));
-  const before = all.slice(0, n);
-  const beforeSet = new Set(before);
 
   const describe = (i, reason) => ({
     row: list[i],
@@ -260,21 +283,21 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
     kind: info[i].course ? "kurs" : "info",
     reason,
   });
-  const swappedOut = before
-    .filter((i) => !chosen.has(i))
-    .map((i) =>
-      describe(
-        i,
-        info[i].state === "vorbei"
-          ? "vorbei"
-          : isScoredCourse(i)
-            ? "datum"
-            : "deckel"
-      )
-    );
-  const swappedIn = selectedIdx
-    .filter((i) => !beforeSet.has(i))
-    .map((i) => describe(i, bandPicks.includes(i) ? "datum" : "auffuellen"));
+  // Ausgewechselt: Kurse nur per Datumstausch, Nicht-Kurse nur per Deckel.
+  const outIdx = base.filter((i) => !chosen.has(i));
+  const swappedOut = outIdx.map((i) =>
+    describe(i, isScoredCourse(i) ? "datum" : "deckel")
+  );
+  // Eingewechselt: so viele `datum` wie Kurse getauscht wurden (die
+  // frühesten Band-Kandidaten), der Rest ersetzt Übersichten (`deckel`).
+  const inIdx = selectedIdx.filter((i) => !inBase.has(i));
+  const datumOut = outIdx.filter(isScoredCourse).length;
+  const datumIn = new Set(
+    bandPicks.filter((i) => inIdx.includes(i)).slice(0, datumOut)
+  );
+  const swappedIn = inIdx.map((i) =>
+    describe(i, datumIn.has(i) ? "datum" : "deckel")
+  );
 
   return {
     selected: selectedIdx.map((i) => list[i]),

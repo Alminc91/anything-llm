@@ -235,8 +235,8 @@ const SystemSettings = {
       if (["on", "true", "1", "an"].includes(v)) return "on";
       return METADATA_FILTERS_DEFAULT;
     },
-    // Auswahlstufe hinter dem Reranker (frühester Kurs bei Gleichstand, Abgelaufene raus,
-    // höchstens eine Übersichtsseite bei Kursfragen) an/aus — gleiche Logik wie metadata_filters.
+    // Auswahlstufe hinter dem Reranker (frühester Kurs bei Gleichstand, entfernt nie einen
+    // Kurs, höchstens eine Übersichtsseite bei Kursfragen) an/aus — gleiche Logik wie metadata_filters.
     course_selection: (update) => {
       const v = String(update ?? "")
         .trim()

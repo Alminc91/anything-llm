@@ -122,6 +122,9 @@ const courseRows = () => [
     start_minutes: 1080,
     price: 120.5,
   })),
+  // Warteliste-Kurs: gestartet, bookable=false (Kufer-Status 4). Text/Titel
+  // stammen aus der ersten Fassung („abgelaufen“) und bleiben unverändert,
+  // weil die Byte-gleich-Snapshots gegen origin/master damit aufgenommen sind.
   {
     id: "alt",
     title: "kurs-franzoesisch-alt.txt",
@@ -290,7 +293,7 @@ describe("Byte-gleich zu heute (Snapshots aus origin/master)", () => {
       mockRerank.mockImplementation(degradedRerank);
       const result = await search("sel_kurse", mode);
       expect(normalize(result)).toMatchSnapshot();
-      // abgelaufener Kurs bleibt drin, wenn er heute drin war (keine Stufe)
+      // Warteliste-Kurs bleibt drin, wenn er heute drin war (keine Stufe)
     });
 
     test(`ohne-metadaten (${mode})`, async () => {
@@ -369,15 +372,31 @@ describe("Kandidaten-Zeilen tragen die KIE-480-Spalten", () => {
   }
 });
 
+// Heutige Top-4 (Snapshots „schalter-aus“): rerank alt,k1,k2,k3 —
+// hybrid_rerank k1,k2,alt,k3 (alle Score 1,0). Der Warteliste-Kurs „alt“
+// bleibt (nie entfernt, nie getauscht); fest sind die zwei ersten nach
+// Score, der freie Platz geht an den frühesten im Band (k5 in 18 Tagen),
+// ausgewechselt wird der späteste Kurs der Top-4 ohne festen Platz.
+const FRANZ = {
+  rerank: { ids: ["alt", "k1", "k3", "k5"], out: ["k2", 48] },
+  hybrid_rerank: { ids: ["k1", "k2", "alt", "k5"], out: ["k3", 26] },
+};
+
 describe("Auswahlstufe aktiv (course_selection = on, Kursmetadaten)", () => {
   for (const mode of MODES) {
     test(`franzoesisch-pfad (${mode})`, async () => {
+      settings = { course_selection: "off" };
+      const today = await search("sel_kurse", mode);
+      expect(ids(today)).toContain("alt");
+      mockRerank.mockClear();
       settings = { course_selection: "on" };
       const result = await search("sel_kurse", mode);
-      // heute: abgelaufener Kurs + k1..k3; jetzt: alt raus, k1/k2 fest,
-      // dazu die frühesten im Band (k5 in 18 Tagen, k3 in 26 Tagen)
-      expect(ids(result)).toEqual(["k1", "k2", "k3", "k5"]);
-      expect(result.sources.every((s) => s.bookable !== false)).toBe(true);
+      expect(ids(result)).toEqual(FRANZ[mode].ids);
+      // kein Kurs der heutigen Top-4 fehlt außer dem einen Datumstausch
+      expect(ids(today).filter((id) => !ids(result).includes(id))).toEqual([
+        FRANZ[mode].out[0],
+      ]);
+      expect(result.sources.find((s) => s.id === "alt").bookable).toBe(false);
       expect(result.sources.every((s) => !("vector" in s))).toBe(true);
       expect(result.sources.map((s) => s.score)).toEqual([1, 1, 1, 1]);
       expect(result.contextTexts).toEqual(result.sources.map((s) => s.text));
@@ -399,7 +418,7 @@ describe("Auswahlstufe aktiv (course_selection = on, Kursmetadaten)", () => {
   test("ohne gespeicherten Wert ist die Stufe an (courseSelectionDefault)", async () => {
     settings = {};
     const result = await search("sel_kurse", "hybrid_rerank");
-    expect(ids(result)).toEqual(["k1", "k2", "k3", "k5"]);
+    expect(ids(result)).toEqual(FRANZ.hybrid_rerank.ids);
   });
 
   test("Default- und hybrid-Modus lösen die Stufe nicht auf", async () => {
@@ -435,7 +454,7 @@ describe("Search-Trace: trace.selection (AK-8)", () => {
         reason: null,
         courseQuery: true,
         changed: true,
-        rule: "keep2-band0.1-floor0.3-deckel1",
+        rule: "keep2-band0.1-floor0.3-deckel1-nodrop",
         today: TODAY,
         poolTopK: 12,
       });
@@ -450,15 +469,17 @@ describe("Search-Trace: trace.selection (AK-8)", () => {
           reason: "datum",
         },
       ]);
+      // Warteliste-Kurs „alt“ wird nicht mehr ausgewechselt (kein „vorbei“)
+      const [outId, outNaehe] = FRANZ[mode].out;
       expect(sel.swappedOut).toEqual([
         {
-          id: "alt",
-          title: "kurs-franzoesisch-alt.txt",
+          id: outId,
+          title: `kurs-franzoesisch-${outId}.txt`,
           score: 1,
-          naehe: null,
-          state: "vorbei",
+          naehe: outNaehe,
+          state: "zukuenftig",
           kind: "kurs",
-          reason: "vorbei",
+          reason: "datum",
         },
       ]);
       // final = ausgelieferte Dokumente, keine Chunk-Volltexte im Trace
