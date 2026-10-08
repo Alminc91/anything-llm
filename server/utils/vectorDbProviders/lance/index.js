@@ -18,6 +18,12 @@ const {
   stripTimeFilters,
 } = require("./searchFilters");
 const SearchTrace = require("./searchTrace");
+const {
+  selectContexts,
+  selectionConfig,
+  berlinToday,
+  SELECTION_POOL_MIN,
+} = require("./contextSelection");
 const path = require("path");
 
 // KIE-480: DataFusion NULL-cast types for the structured course-metadata
@@ -138,6 +144,8 @@ class LanceDb extends VectorDatabase {
    * @param {number} params.similarityThreshold - The threshold for similarity.
    * @param {number} params.topN - the number of results to return from this process.
    * @param {string[]} params.filterIdentifiers - The identifiers of the documents to filter out.
+   * @param {object|null} [params.selection] - Auswahlstufe (resolveCourseSelection);
+   *   null/disabled = Verhalten wie vor der Stufe (Reranker-topK = topN).
    * @returns
    */
   async rerankedSimilarityResponse({
@@ -150,6 +158,7 @@ class LanceDb extends VectorDatabase {
     filterIdentifiers = [],
     whereClause = null,
     trace = null,
+    selection = null,
   }) {
     const reranker = getRerankerProviderSelection();
     const collection = await client.openTable(namespace);
@@ -200,20 +209,47 @@ class LanceDb extends VectorDatabase {
       ? new Map(vectorSearchResults.map((r, i) => [r.id, i + 1]))
       : null;
 
+    // Auswahlstufe: Reranker liefert einen größeren Pool (topK ≥ 12), die
+    // Stufe wählt daraus. Ohne Stufe exakt der bisherige Aufruf (topK = topN).
+    const selectionOn = selection?.enabled === true;
+    const rerankTopK = selectionOn ? Math.max(topN, SELECTION_POOL_MIN) : topN;
+    let selectionResult = null;
+
     const rerankStart = Date.now();
     await reranker
-      .rerank(query, vectorSearchResults, { topK: topN })
+      .rerank(query, vectorSearchResults, { topK: rerankTopK })
       .then((rerankResults) => {
-        rerankResults.forEach((item) => {
+        const passes = (item) => {
           if (this.distanceToSimilarity(item._distance) < similarityThreshold)
-            return;
+            return false;
           const { vector: _, ...rest } = item;
           if (filterIdentifiers.includes(sourceIdentifier(rest))) {
             this.logger(
               "A source was filtered from context as it's parent document is pinned."
             );
-            return;
+            return false;
           }
+          return true;
+        };
+        let chosen;
+        if (selectionOn) {
+          // Heutige Auswahl = die zulässigen unter den ersten topN; sie ist
+          // genau der Anfang von `eligible`. Die Stufe behält deren Anzahl
+          // (nie weniger, nie mehr Dokumente als heute).
+          const ok = rerankResults.map(passes);
+          const eligible = rerankResults.filter((_, i) => ok[i]);
+          const todaysCount = ok.slice(0, topN).filter(Boolean).length;
+          selectionResult = selectContexts(eligible, {
+            topN: todaysCount,
+            today: selection.today,
+            settings: selection.settings,
+          });
+          chosen = selectionResult.selected;
+        } else {
+          chosen = rerankResults.filter(passes);
+        }
+        chosen.forEach((item) => {
+          const { vector: _, ...rest } = item;
           const score =
             item?.rerank_score || this.distanceToSimilarity(item._distance);
 
@@ -245,6 +281,11 @@ class LanceDb extends VectorDatabase {
         returned: result.sourceDocuments.length,
         degraded,
       };
+      trace.selection = SearchTrace.selectionBlock(
+        selection,
+        selectionResult,
+        rerankTopK
+      );
       trace.final = {
         count: result.sourceDocuments.length,
         docs: result.sourceDocuments.map((d, i) => {
@@ -352,7 +393,10 @@ class LanceDb extends VectorDatabase {
     // retrieval hot path.
     const [rawWeight, rawTopK, rawSplit, instruction] = await Promise.all([
       SystemSettings.getValueOrFallback({ label: "hybrid_weight" }, 0.7),
-      SystemSettings.getValueOrFallback({ label: "reranker_retrieval_topk" }, 40),
+      SystemSettings.getValueOrFallback(
+        { label: "reranker_retrieval_topk" },
+        40
+      ),
       SystemSettings.getValueOrFallback(
         { label: "hybrid_arm_split" },
         splitClamp.DEFAULT
@@ -659,6 +703,8 @@ class LanceDb extends VectorDatabase {
    *   arm before fusion (see thresholdVectorArm); NOT applied to FTS hits,
    *   RRF scores or rerank scores.
    * @param {string[]} [params.filterIdentifiers=[]]
+   * @param {object|null} [params.selection] - Auswahlstufe (resolveCourseSelection);
+   *   null/disabled = Verhalten wie vor der Stufe (Reranker-topK = topN).
    * @returns {Promise<{contextTexts:string[], sourceDocuments:object[], scores:number[]}>}
    */
   async hybridRerankedSimilarityResponse({
@@ -671,6 +717,7 @@ class LanceDb extends VectorDatabase {
     filterIdentifiers = [],
     whereClause = null,
     trace = null,
+    selection = null,
   }) {
     const collection = await client.openTable(namespace);
     const { hybridWeight, retrievalTopK, armSplit, instruction } =
@@ -781,10 +828,15 @@ class LanceDb extends VectorDatabase {
       ? new Map(candidates.map((c, i) => [c.id, i + 1]))
       : null;
 
+    // Auswahlstufe: größerer Reranker-Pool (topK ≥ 12); ohne Stufe exakt der
+    // bisherige Aufruf (topK = topN).
+    const selectionOn = selection?.enabled === true;
+    const rerankTopK = selectionOn ? Math.max(topN, SELECTION_POOL_MIN) : topN;
+
     let ordered = candidates;
     const rerankStart = Date.now();
     await reranker
-      .rerank(query, candidates, { topK: topN })
+      .rerank(query, candidates, { topK: rerankTopK })
       .then((rerankResults) => {
         if (Array.isArray(rerankResults) && rerankResults.length > 0)
           ordered = rerankResults;
@@ -797,7 +849,18 @@ class LanceDb extends VectorDatabase {
       });
     const rerankMs = Date.now() - rerankStart;
 
-    for (const item of ordered) {
+    // Ohne Reranker-Scores (Degradation) liefert die Stufe ordered.slice(0, topN)
+    // — identisch zur bisherigen Schleife.
+    const selectionResult = selectionOn
+      ? selectContexts(ordered, {
+          topN,
+          today: selection.today,
+          settings: selection.settings,
+        })
+      : null;
+    const finalItems = selectionResult ? selectionResult.selected : ordered;
+
+    for (const item of finalItems) {
       if (result.sourceDocuments.length >= topN) break;
       const { rrf_score, rerank_score, rerank_corpus_id, ...rest } = item;
       const score = typeof rerank_score === "number" ? rerank_score : rrf_score;
@@ -826,6 +889,11 @@ class LanceDb extends VectorDatabase {
         returned: ordered.length,
         degraded,
       };
+      trace.selection = SearchTrace.selectionBlock(
+        selection,
+        selectionResult,
+        rerankTopK
+      );
       // Finale Dokumente mit voller Herkunft: Rerank-Score, RRF-Rang →
       // Final-Rang (shift > 0 = vom Reranker nach oben geholt), Arm-Herkunft.
       trace.final = {
@@ -1071,6 +1139,36 @@ class LanceDb extends VectorDatabase {
   }
 
   /**
+   * Auswahlstufe hinter dem Reranker (contextSelection.js): aktiv, wenn das
+   * SystemSetting `course_selection` an ist (Standard: an) und die Tabelle
+   * Kursmetadaten trägt. Non-throwing — jeder Fehler schaltet die Stufe ab
+   * (= Verhalten wie ohne Stufe).
+   * @param {string} namespace
+   * @returns {Promise<{enabled:boolean, reason:string|null, today?:string,
+   *   settings?:{keep:number, band:number, floor:number}}>}
+   */
+  async resolveCourseSelection(namespace) {
+    try {
+      const value = await SystemSettings.getValueOrFallback(
+        { label: "course_selection" },
+        SystemSettings.courseSelectionDefault
+      );
+      if (value !== "on") return { enabled: false, reason: "off" };
+      if (!(await this.hasCourseMetadata(namespace)))
+        return { enabled: false, reason: "no_metadata" };
+      return {
+        enabled: true,
+        reason: null,
+        today: berlinToday(),
+        settings: selectionConfig(),
+      };
+    } catch (e) {
+      this.logger("resolveCourseSelection", e.message);
+      return { enabled: false, reason: "error" };
+    }
+  }
+
+  /**
    * KIE-480: Anzahl Einträge (Chunks) mit Kursbeginn — für die Statusanzeige.
    * @param {string} namespace
    * @returns {Promise<number|null>} null bei Fehler
@@ -1078,7 +1176,9 @@ class LanceDb extends VectorDatabase {
   async courseEntryCount(namespace) {
     try {
       const { client } = await this.connect();
-      return await (await client.openTable(namespace)).countRows("start_date IS NOT NULL");
+      return await (
+        await client.openTable(namespace)
+      ).countRows("start_date IS NOT NULL");
     } catch {
       return null;
     }
@@ -1355,9 +1455,16 @@ class LanceDb extends VectorDatabase {
           });
     const traceStart = Date.now();
 
-    const [queryVector, resolvedFilters] = await Promise.all([
+    // Auswahlstufe nur in den Reranker-Modi (braucht rerank_score); parallel
+    // zum Embedding aufgelöst.
+    const selectionTask =
+      mode === "rerank" || mode === "hybrid_rerank"
+        ? this.resolveCourseSelection(namespace)
+        : null;
+    const [queryVector, resolvedFilters, selection] = await Promise.all([
       LLMConnector.embedTextInput(input),
       filterTask,
+      selectionTask,
     ]);
     if (!activeFilters && resolvedFilters)
       activeFilters = sanitizeSearchFilters(resolvedFilters.filters);
@@ -1382,6 +1489,7 @@ class LanceDb extends VectorDatabase {
             filterIdentifiers,
             whereClause,
             trace,
+            selection,
           });
         case "hybrid":
           return await this.hybridSimilarityResponse({
@@ -1406,6 +1514,7 @@ class LanceDb extends VectorDatabase {
             filterIdentifiers,
             whereClause,
             trace,
+            selection,
           });
         default:
           return await this.similarityResponse({
@@ -1431,8 +1540,11 @@ class LanceDb extends VectorDatabase {
     let result = await runSearch(filtersToWhere(activeFilters), 0);
     let relaxNote = null;
     if (activeFilters && result.sourceDocuments.length === 0) {
-      const withoutTime = sanitizeSearchFilters(stripTimeFilters(activeFilters));
-      const hadTime = filtersToWhere(withoutTime) !== filtersToWhere(activeFilters);
+      const withoutTime = sanitizeSearchFilters(
+        stripTimeFilters(activeFilters)
+      );
+      const hadTime =
+        filtersToWhere(withoutTime) !== filtersToWhere(activeFilters);
       if (hadTime) {
         result = await runSearch(filtersToWhere(withoutTime), 1);
         if (result.sourceDocuments.length > 0)
@@ -1510,7 +1622,10 @@ class LanceDb extends VectorDatabase {
       // KIE-480: BIGINT-Spalten (start_minutes) kommen als BigInt → JSON.stringify wirft
       // („Do not know how to serialize a BigInt", HTTP 500 in der Nicht-Stream-Chat-API).
       const metadata = Object.fromEntries(
-        Object.entries(raw).map(([k, v]) => [k, typeof v === "bigint" ? Number(v) : v])
+        Object.entries(raw).map(([k, v]) => [
+          k,
+          typeof v === "bigint" ? Number(v) : v,
+        ])
       );
       if (Object.keys(metadata).length > 0) {
         documents.push({

@@ -1,0 +1,461 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Byte-gleich zu heute (Snapshots aus origin/master) degradiert (hybrid_rerank) 1`] = `
+{
+  "contextTexts": [
+    "Intensivkurs Französisch Termin k1",
+    "Intensivkurs Französisch Termin Termin k2",
+    "Intensivkurs Französisch abgelaufen Termin Termin Termin Termin Termin Termin Termin Termin",
+    "Intensivkurs Französisch Termin Termin Termin k3",
+  ],
+  "message": false,
+  "sources": [
+    {
+      "bookable": true,
+      "end_date": "heute+88",
+      "id": "k1",
+      "price": 120.5,
+      "start_date": "heute+88",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin k1",
+      "title": "kurs-franzoesisch-k1.txt",
+    },
+    {
+      "bookable": true,
+      "end_date": "heute+48",
+      "id": "k2",
+      "price": 120.5,
+      "start_date": "heute+48",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin Termin k2",
+      "title": "kurs-franzoesisch-k2.txt",
+    },
+    {
+      "bookable": false,
+      "end_date": "heute-30",
+      "id": "alt",
+      "price": 99,
+      "start_date": "heute-30",
+      "start_minutes": 600,
+      "text": "Intensivkurs Französisch abgelaufen Termin Termin Termin Termin Termin Termin Termin Termin",
+      "title": "kurs-franzoesisch-alt.txt",
+    },
+    {
+      "bookable": true,
+      "end_date": "heute+26",
+      "id": "k3",
+      "price": 120.5,
+      "start_date": "heute+26",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin Termin Termin k3",
+      "title": "kurs-franzoesisch-k3.txt",
+    },
+  ],
+}
+`;
+
+exports[`Byte-gleich zu heute (Snapshots aus origin/master) degradiert (rerank) 1`] = `
+{
+  "contextTexts": [
+    "Intensivkurs Französisch abgelaufen Termin Termin Termin Termin Termin Termin Termin Termin",
+    "Intensivkurs Französisch Termin k1",
+    "Intensivkurs Französisch Termin Termin k2",
+    "Intensivkurs Französisch Termin Termin Termin k3",
+  ],
+  "message": false,
+  "sources": [
+    {
+      "_distance": 0,
+      "bookable": false,
+      "end_date": "heute-30",
+      "id": "alt",
+      "price": 99,
+      "score": 1,
+      "start_date": "heute-30",
+      "start_minutes": 600,
+      "text": "Intensivkurs Französisch abgelaufen Termin Termin Termin Termin Termin Termin Termin Termin",
+      "title": "kurs-franzoesisch-alt.txt",
+    },
+    {
+      "_distance": 0.00019985437393188477,
+      "bookable": true,
+      "end_date": "heute+88",
+      "id": "k1",
+      "price": 120.5,
+      "score": 0.9998001456260681,
+      "start_date": "heute+88",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin k1",
+      "title": "kurs-franzoesisch-k1.txt",
+    },
+    {
+      "_distance": 0.0008488893508911133,
+      "bookable": true,
+      "end_date": "heute+48",
+      "id": "k2",
+      "price": 120.5,
+      "score": 0.9991511106491089,
+      "start_date": "heute+48",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin Termin k2",
+      "title": "kurs-franzoesisch-k2.txt",
+    },
+    {
+      "_distance": 0.0019939541816711426,
+      "bookable": true,
+      "end_date": "heute+26",
+      "id": "k3",
+      "price": 120.5,
+      "score": 0.9980060458183289,
+      "start_date": "heute+26",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin Termin Termin k3",
+      "title": "kurs-franzoesisch-k3.txt",
+    },
+  ],
+}
+`;
+
+exports[`Byte-gleich zu heute (Snapshots aus origin/master) ohne-metadaten (hybrid_rerank) 1`] = `
+{
+  "contextTexts": [
+    "Intensivkurs Französisch ganz anderes Thema",
+    "Intensivkurs Französisch Übersicht Sprachen Kategorie Seite eins",
+    "Französisch Kultur Programm",
+  ],
+  "message": false,
+  "sources": [
+    {
+      "id": "fern",
+      "score": 0.98,
+      "text": "Intensivkurs Französisch ganz anderes Thema",
+      "title": "fern.html",
+    },
+    {
+      "id": "u1",
+      "score": 0.97,
+      "text": "Intensivkurs Französisch Übersicht Sprachen Kategorie Seite eins",
+      "title": "programm_sprachen_kategorie.html",
+    },
+    {
+      "id": "u2",
+      "score": 0.6,
+      "text": "Französisch Kultur Programm",
+      "title": "programm_kultur_kategorie.html",
+    },
+  ],
+}
+`;
+
+exports[`Byte-gleich zu heute (Snapshots aus origin/master) ohne-metadaten (rerank) 1`] = `
+{
+  "contextTexts": [
+    "Intensivkurs Französisch Übersicht Sprachen Kategorie Seite eins",
+    "Französisch Kultur Programm",
+  ],
+  "message": false,
+  "sources": [
+    {
+      "_distance": 0.027980268001556396,
+      "id": "u1",
+      "rerank_corpus_id": 0,
+      "rerank_score": 0.97,
+      "score": 0.97,
+      "text": "Intensivkurs Französisch Übersicht Sprachen Kategorie Seite eins",
+      "title": "programm_sprachen_kategorie.html",
+    },
+    {
+      "_distance": 0.03312796354293823,
+      "id": "u2",
+      "rerank_corpus_id": 1,
+      "rerank_score": 0.6,
+      "score": 0.6,
+      "text": "Französisch Kultur Programm",
+      "title": "programm_kultur_kategorie.html",
+    },
+  ],
+}
+`;
+
+exports[`Byte-gleich zu heute (Snapshots aus origin/master) schalter-aus (hybrid_rerank) 1`] = `
+{
+  "contextTexts": [
+    "Intensivkurs Französisch Termin k1",
+    "Intensivkurs Französisch Termin Termin k2",
+    "Intensivkurs Französisch abgelaufen Termin Termin Termin Termin Termin Termin Termin Termin",
+    "Intensivkurs Französisch Termin Termin Termin k3",
+  ],
+  "message": false,
+  "sources": [
+    {
+      "bookable": true,
+      "end_date": "heute+88",
+      "id": "k1",
+      "price": 120.5,
+      "score": 1,
+      "start_date": "heute+88",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin k1",
+      "title": "kurs-franzoesisch-k1.txt",
+    },
+    {
+      "bookable": true,
+      "end_date": "heute+48",
+      "id": "k2",
+      "price": 120.5,
+      "score": 1,
+      "start_date": "heute+48",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin Termin k2",
+      "title": "kurs-franzoesisch-k2.txt",
+    },
+    {
+      "bookable": false,
+      "end_date": "heute-30",
+      "id": "alt",
+      "price": 99,
+      "score": 1,
+      "start_date": "heute-30",
+      "start_minutes": 600,
+      "text": "Intensivkurs Französisch abgelaufen Termin Termin Termin Termin Termin Termin Termin Termin",
+      "title": "kurs-franzoesisch-alt.txt",
+    },
+    {
+      "bookable": true,
+      "end_date": "heute+26",
+      "id": "k3",
+      "price": 120.5,
+      "score": 1,
+      "start_date": "heute+26",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin Termin Termin k3",
+      "title": "kurs-franzoesisch-k3.txt",
+    },
+  ],
+}
+`;
+
+exports[`Byte-gleich zu heute (Snapshots aus origin/master) schalter-aus (rerank) 1`] = `
+{
+  "contextTexts": [
+    "Intensivkurs Französisch abgelaufen Termin Termin Termin Termin Termin Termin Termin Termin",
+    "Intensivkurs Französisch Termin k1",
+    "Intensivkurs Französisch Termin Termin k2",
+    "Intensivkurs Französisch Termin Termin Termin k3",
+  ],
+  "message": false,
+  "sources": [
+    {
+      "_distance": 0,
+      "bookable": false,
+      "end_date": "heute-30",
+      "id": "alt",
+      "price": 99,
+      "rerank_corpus_id": 0,
+      "rerank_score": 1,
+      "score": 1,
+      "start_date": "heute-30",
+      "start_minutes": 600,
+      "text": "Intensivkurs Französisch abgelaufen Termin Termin Termin Termin Termin Termin Termin Termin",
+      "title": "kurs-franzoesisch-alt.txt",
+    },
+    {
+      "_distance": 0.00019985437393188477,
+      "bookable": true,
+      "end_date": "heute+88",
+      "id": "k1",
+      "price": 120.5,
+      "rerank_corpus_id": 1,
+      "rerank_score": 1,
+      "score": 1,
+      "start_date": "heute+88",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin k1",
+      "title": "kurs-franzoesisch-k1.txt",
+    },
+    {
+      "_distance": 0.0008488893508911133,
+      "bookable": true,
+      "end_date": "heute+48",
+      "id": "k2",
+      "price": 120.5,
+      "rerank_corpus_id": 2,
+      "rerank_score": 1,
+      "score": 1,
+      "start_date": "heute+48",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin Termin k2",
+      "title": "kurs-franzoesisch-k2.txt",
+    },
+    {
+      "_distance": 0.0019939541816711426,
+      "bookable": true,
+      "end_date": "heute+26",
+      "id": "k3",
+      "price": 120.5,
+      "rerank_corpus_id": 3,
+      "rerank_score": 1,
+      "score": 1,
+      "start_date": "heute+26",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin Termin Termin k3",
+      "title": "kurs-franzoesisch-k3.txt",
+    },
+  ],
+}
+`;
+
+exports[`Byte-gleich zu heute (Snapshots aus origin/master) threshold-pin schalter-aus (rerank) 1`] = `
+{
+  "contextTexts": [
+    "Intensivkurs Französisch Termin Termin Termin p1",
+    "Intensivkurs Französisch Termin Termin Termin Termin p2",
+  ],
+  "message": false,
+  "sources": [
+    {
+      "_distance": 0.0019939541816711426,
+      "bookable": true,
+      "end_date": "heute+60",
+      "id": "p1",
+      "price": 80,
+      "published": "1/1/2026, 10:00:00 AM",
+      "rerank_corpus_id": 1,
+      "rerank_score": 0.97,
+      "score": 0.97,
+      "start_date": "heute+60",
+      "start_minutes": 600,
+      "text": "Intensivkurs Französisch Termin Termin Termin p1",
+      "title": "kurs-franzoesisch-p1.txt",
+    },
+    {
+      "_distance": 0.0036301612854003906,
+      "bookable": true,
+      "end_date": "heute+50",
+      "id": "p2",
+      "price": 80,
+      "published": "1/1/2026, 10:00:00 AM",
+      "rerank_corpus_id": 2,
+      "rerank_score": 0.96,
+      "score": 0.96,
+      "start_date": "heute+50",
+      "start_minutes": 600,
+      "text": "Intensivkurs Französisch Termin Termin Termin Termin p2",
+      "title": "kurs-franzoesisch-p2.txt",
+    },
+  ],
+}
+`;
+
+exports[`Byte-gleich zu heute (Snapshots aus origin/master) wenige-kurse (hybrid_rerank) 1`] = `
+{
+  "contextTexts": [
+    "Intensivkurs Französisch Termin k1",
+    "Intensivkurs Französisch ganz anderes Thema",
+    "Intensivkurs Französisch Übersicht Sprachen Kategorie Seite eins",
+    "Französisch Kultur Programm",
+  ],
+  "message": false,
+  "sources": [
+    {
+      "bookable": true,
+      "end_date": "heute+88",
+      "id": "k1",
+      "price": 120.5,
+      "score": 1,
+      "start_date": "heute+88",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin k1",
+      "title": "kurs-franzoesisch-k1.txt",
+    },
+    {
+      "bookable": null,
+      "end_date": null,
+      "id": "fern",
+      "price": null,
+      "score": 0.98,
+      "start_date": null,
+      "start_minutes": null,
+      "text": "Intensivkurs Französisch ganz anderes Thema",
+      "title": "fern.html",
+    },
+    {
+      "bookable": null,
+      "end_date": null,
+      "id": "u1",
+      "price": null,
+      "score": 0.97,
+      "start_date": null,
+      "start_minutes": null,
+      "text": "Intensivkurs Französisch Übersicht Sprachen Kategorie Seite eins",
+      "title": "programm_sprachen_kategorie.html",
+    },
+    {
+      "bookable": null,
+      "end_date": null,
+      "id": "u2",
+      "price": null,
+      "score": 0.6,
+      "start_date": null,
+      "start_minutes": null,
+      "text": "Französisch Kultur Programm",
+      "title": "programm_kultur_kategorie.html",
+    },
+  ],
+}
+`;
+
+exports[`Byte-gleich zu heute (Snapshots aus origin/master) wenige-kurse (rerank) 1`] = `
+{
+  "contextTexts": [
+    "Intensivkurs Französisch Termin k1",
+    "Intensivkurs Französisch Übersicht Sprachen Kategorie Seite eins",
+    "Französisch Kultur Programm",
+  ],
+  "message": false,
+  "sources": [
+    {
+      "_distance": 0.00019985437393188477,
+      "bookable": true,
+      "end_date": "heute+88",
+      "id": "k1",
+      "price": 120.5,
+      "rerank_corpus_id": 0,
+      "rerank_score": 1,
+      "score": 1,
+      "start_date": "heute+88",
+      "start_minutes": 1080,
+      "text": "Intensivkurs Französisch Termin k1",
+      "title": "kurs-franzoesisch-k1.txt",
+    },
+    {
+      "_distance": 0.027980268001556396,
+      "bookable": null,
+      "end_date": null,
+      "id": "u1",
+      "price": null,
+      "rerank_corpus_id": 1,
+      "rerank_score": 0.97,
+      "score": 0.97,
+      "start_date": null,
+      "start_minutes": null,
+      "text": "Intensivkurs Französisch Übersicht Sprachen Kategorie Seite eins",
+      "title": "programm_sprachen_kategorie.html",
+    },
+    {
+      "_distance": 0.03312796354293823,
+      "bookable": null,
+      "end_date": null,
+      "id": "u2",
+      "price": null,
+      "rerank_corpus_id": 2,
+      "rerank_score": 0.6,
+      "score": 0.6,
+      "start_date": null,
+      "start_minutes": null,
+      "text": "Französisch Kultur Programm",
+      "title": "programm_kultur_kategorie.html",
+    },
+  ],
+}
+`;
