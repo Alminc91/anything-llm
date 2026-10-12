@@ -14,6 +14,7 @@ export default function MenuOption({
   roles = [],
   hidden = false,
   isChild = false,
+  activePrefixes = [],
 }) {
   const storageKey = generateStorageKey({ key: btnText });
   const location = useLocation();
@@ -28,9 +29,11 @@ export default function MenuOption({
 
   const isActive = hasChildren
     ? (!isExpanded &&
-        childOptions.some((child) => child.href === location.pathname)) ||
+        childOptions.some((child) =>
+          matchesLocation(child, location.pathname)
+        )) ||
       location.pathname === href
-    : location.pathname === href;
+    : matchesLocation({ href, activePrefixes }, location.pathname);
 
   const { ref } = useScrollActiveItemIntoView({
     isActive,
@@ -141,15 +144,15 @@ function useIsExpanded({
       if (storedValue !== null) {
         return safeJsonParse(storedValue, false);
       }
-      return childOptions.some((child) => child.href === location);
+      return childOptions.some((child) => matchesLocation(child, location));
     }
     return false;
   });
 
   useEffect(() => {
     if (hasVisibleChildren) {
-      const shouldExpand = childOptions.some(
-        (child) => child.href === location
+      const shouldExpand = childOptions.some((child) =>
+        matchesLocation(child, location)
       );
       if (shouldExpand && !isExpanded) {
         setIsExpanded(true);
@@ -159,6 +162,23 @@ function useIsExpanded({
   }, [location]);
 
   return { isExpanded, setIsExpanded };
+}
+
+/**
+ * Checks if an option belongs to the current location.
+ * An option matches when its `href` is the current path or when the path starts
+ * with one of its optional `activePrefixes` - used for sub pages that have their
+ * own address but no menu entry (eg: the embed design center below "Widgets").
+ * @param {{href?: string, activePrefixes?: string[]}} option - The (child) option.
+ * @param {string} pathname - The current location pathname.
+ * @returns {boolean} - True if the option should be treated as the current page.
+ */
+function matchesLocation({ href, activePrefixes = [] } = {}, pathname = "") {
+  if (href === pathname) return true;
+  if (!Array.isArray(activePrefixes)) return false;
+  return activePrefixes.some(
+    (prefix) => !!prefix && pathname.startsWith(prefix)
+  );
 }
 
 /**
