@@ -499,6 +499,52 @@ describe("koernung (AK-3)", () => {
     expect(sum(result.body.buckets, "conversations")).toBe(3);
   });
 
+  test("koernung: nie über 92 Abschnitte - 92 Kalendermonate sind der längste Zeitraum, der 93. Monat ergibt 400", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    await countsOnly(embed, [
+      { day: "2019-02-28", messages: 9, conversationsStarted: 9 },
+      { day: "2019-03-01", messages: 3, conversationsStarted: 1 },
+      { day: "2026-10-12", messages: 4, conversationsStarted: 2 },
+    ]);
+
+    // 01.03.2019 bis 12.10.2026: März 2019 bis Oktober 2026 = 92 Monate
+    const longest = await summary(embed, {
+      fromDay: "2019-03-01",
+      toDay: "2026-10-12",
+    });
+    expect(longest.statusCode).toBe(200);
+    expect(longest.body.granularity).toBe("month");
+    expect(longest.body.buckets).toHaveLength(92);
+    expect(longest.body.buckets[0]).toMatchObject({
+      start: "2019-03-01",
+      end: "2019-03-31",
+      partial: false,
+      messages: 3,
+    });
+    expect(longest.body.buckets.at(-1)).toMatchObject({
+      start: "2026-10-01",
+      end: "2026-10-12",
+      partial: true,
+      messages: 4,
+    });
+    expect(longest.body.totals).toMatchObject({
+      messages: 7,
+      conversations: 3,
+    });
+
+    // Einen Tag früher begonnen wären es 93 Monate: keine Körnung passt mehr.
+    timelineSpy.mockClear();
+    const tooLong = await summary(embed, {
+      fromDay: "2019-02-28",
+      toDay: "2026-10-12",
+    });
+    expect(tooLong.statusCode).toBe(400);
+    expect(tooLong.body).toEqual({ success: false, error: expect.any(String) });
+    expect(tooLong.body.buckets).toBeUndefined();
+    expect(timelineSpy).not.toHaveBeenCalled();
+  });
+
   test("koernung: angeschnittene Kalenderwoche und angeschnittener Monat sind gekennzeichnet", async () => {
     const workspace = await createWorkspace(db.client);
     const embed = await createEmbed(db.client, workspace);
@@ -847,7 +893,7 @@ describe("Lesefunktionen (MessageLedger.timelineForEmbed, firstDayForEmbed)", ()
       { fromDay: "2026-10-06", toDay: "2026-10-06" },
       { fromDay: "2026-09-01", toDay: "2026-10-12" },
       { fromDay: "2025-10-13", toDay: "2026-10-12" },
-      { fromDay: "2016-10-13", toDay: "2026-10-12" },
+      { fromDay: "2019-03-01", toDay: "2026-10-12" },
     ])
       expect((await summary(embed, body)).statusCode).toBe(200);
 
@@ -884,6 +930,7 @@ describe("Lesefunktionen (MessageLedger.timelineForEmbed, firstDayForEmbed)", ()
     for (const [fromDay, toDay] of [
       ["2026-10-07", "2026-10-06"],
       ["2026-02-30", "2026-03-05"],
+      ["2019-02-28", "2026-10-12"],
       ["2016-10-12", "2026-10-12"],
       [undefined, undefined],
     ])
@@ -1316,6 +1363,14 @@ describe("eingaben (NAK-6)", () => {
     ],
     ["SQL im Wert", { fromDay: "2026-10-06' OR '1'='1", toDay: "2026-10-12" }],
     [
+      "mehr als 92 Kalendermonate (93, um einen Tag)",
+      { fromDay: "2019-02-28", toDay: "2026-10-12" },
+    ],
+    [
+      "genau 10 Jahre (121 Kalendermonate)",
+      { fromDay: "2016-10-13", toDay: "2026-10-12" },
+    ],
+    [
       "mehr als 10 Jahre (10 Jahre und 1 Tag)",
       { fromDay: "2016-10-12", toDay: "2026-10-12" },
     ],
@@ -1352,21 +1407,22 @@ describe("eingaben (NAK-6)", () => {
     expect(timelineSpy).not.toHaveBeenCalled();
   });
 
-  test("eingaben: genau 10 Jahre und ein einzelner Tag sind gültig", async () => {
+  test("eingaben: genau 92 Kalendermonate und ein einzelner Tag sind gültig", async () => {
     // Gegenprobe zu den Spionen oben: Ein gültiger Aufruf liest das Zählerbuch.
     const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
     const findFirst = jest.spyOn(db.client.message_ledger, "findFirst");
 
-    const decade = await summary(embed, {
-      fromDay: "2016-10-13",
+    const longest = await summary(embed, {
+      fromDay: "2019-03-01",
       toDay: "2026-10-12",
     });
-    expect(decade.statusCode).toBe(200);
+    expect(longest.statusCode).toBe(200);
     expect(groupBy).toHaveBeenCalledTimes(1);
     expect(findFirst).toHaveBeenCalledTimes(1);
     expect(timelineSpy).toHaveBeenCalledTimes(1);
-    expect(decade.body.granularity).toBe("month");
-    expect(decade.body.totals.messages).toBe(3);
+    expect(longest.body.granularity).toBe("month");
+    expect(longest.body.buckets).toHaveLength(92);
+    expect(longest.body.totals.messages).toBe(3);
 
     const day = await summary(embed, {
       fromDay: "2026-10-06",

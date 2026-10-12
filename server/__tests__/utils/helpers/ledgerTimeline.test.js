@@ -98,12 +98,16 @@ describe("parseCalendarDay", () => {
 });
 
 describe("validateDayRange", () => {
-  test("gültig: ein Tag, mehrere Tage, genau 10 Jahre", () => {
+  test("gültig: ein Tag, mehrere Tage, genau 92 Kalendermonate", () => {
     expect(validateDayRange("2026-10-06", "2026-10-06").valid).toBe(true);
     expect(validateDayRange("2026-09-13", "2026-10-12").valid).toBe(true);
-    // 13.10.2016 bis 12.10.2026 sind genau 10 Jahre.
-    expect(validateDayRange("2016-10-13", "2026-10-12").valid).toBe(true);
-    expect(validateDayRange("2016-02-29", "2026-02-28").valid).toBe(true);
+    // März 2019 bis Oktober 2026 sind 92 Kalendermonate - ganz oder berührt.
+    expect(validateDayRange("2019-03-01", "2026-10-31").valid).toBe(true);
+    expect(validateDayRange("2019-03-01", "2026-10-12").valid).toBe(true);
+    expect(validateDayRange("2019-03-31", "2026-10-01").valid).toBe(true);
+    // über den Jahreswechsel und den 29. Februar
+    expect(validateDayRange("2016-05-01", "2023-12-31").valid).toBe(true);
+    expect(validateDayRange("2016-07-15", "2024-02-29").valid).toBe(true);
   });
 
   test("ungültig: fromDay nach toDay", () => {
@@ -114,11 +118,23 @@ describe("validateDayRange", () => {
     expect(validateDayRange("2027-01-01", "2026-12-31").valid).toBe(false);
   });
 
-  test("ungültig: mehr als 10 Jahre", () => {
+  test("ungültig: mehr als 92 Kalendermonate - auch nur um einen Tag", () => {
+    expect(validateDayRange("2019-02-28", "2026-10-12")).toEqual({
+      valid: false,
+      error: expect.stringContaining(`${MAX_BUCKETS} calendar months`),
+    });
+    expect(validateDayRange("2019-03-31", "2026-11-01").valid).toBe(false);
+    expect(validateDayRange("2016-04-30", "2023-12-31").valid).toBe(false);
+    expect(validateDayRange("2016-06-30", "2024-02-29").valid).toBe(false);
+  });
+
+  test("ungültig: mehr als 10 Jahre (NAK-6)", () => {
+    // 13.10.2016 bis 12.10.2026 sind genau 10 Jahre: 121 Kalendermonate.
+    expect(validateDayRange("2016-10-13", "2026-10-12").valid).toBe(false);
     expect(validateDayRange("2016-10-12", "2026-10-12").valid).toBe(false);
     expect(validateDayRange("2016-02-29", "2026-03-01").valid).toBe(false);
     expect(validateDayRange("1990-01-01", "2026-10-12").valid).toBe(false);
-    expect(validateDayRange("0001-01-01", "9999-12-31").valid).toBe(false);
+    expect(validateDayRange("0001-01-01", "9998-12-31").valid).toBe(false);
   });
 
   test("ungültig: ein Wert ist kein Kalendertag", () => {
@@ -165,13 +181,16 @@ describe("koernung (AK-3)", () => {
     }
   );
 
-  test("koernung: höchstens 92 Abschnitte für jeden Zeitraum bis 92 Monate, an jedem Wochentag begonnen", () => {
+  test("koernung: höchstens 92 Abschnitte für jeden gültigen Zeitraum, an jedem Wochentag begonnen", () => {
     const seen = new Set();
     for (const start of daysOf("2025-01-06", "2025-01-12"))
       for (const days of [
         1, 2, 3, 7, 30, 31, 91, 92, 93, 94, 100, 364, 365, 366, 637, 638, 639,
         643, 644, 645, 646, 700, 1100, 2000, 2780,
       ]) {
+        expect(validateDayRange(start, addDays(start, days - 1)).valid).toBe(
+          true
+        );
         const layout = timelineLayout(start, addDays(start, days - 1));
         seen.add(layout.granularity);
         expect([
@@ -197,13 +216,51 @@ describe("koernung (AK-3)", () => {
     expect(layout.buckets).toHaveLength(22);
   });
 
-  test("koernung: Der Monat ist die gröbste Körnung - 10 Jahre ergeben bis zu 121 Abschnitte", () => {
-    expect(timelineLayout("2016-11-01", "2026-10-31").buckets).toHaveLength(
-      120
-    );
-    const layout = timelineLayout("2016-10-13", "2026-10-12");
-    expect(layout.granularity).toBe("month");
-    expect(layout.buckets).toHaveLength(121);
+  test("koernung: Der Monat ist die gröbste Körnung - 92 Monate sind der längste Zeitraum, 93 gibt es nicht", () => {
+    for (const [fromDay, toDay] of [
+      ["2019-03-01", "2026-10-31"],
+      ["2019-03-31", "2026-10-01"],
+    ]) {
+      const layout = timelineLayout(fromDay, toDay);
+      expect(layout.granularity).toBe("month");
+      expect(layout.buckets).toHaveLength(MAX_BUCKETS);
+      expect(layout.buckets[0].start).toBe(fromDay);
+      expect(layout.buckets.at(-1).end).toBe(toDay);
+    }
+    // Ein Tag mehr an einem der beiden Enden berührt den 93. Monat.
+    for (const [fromDay, toDay] of [
+      ["2019-02-28", "2026-10-31"],
+      ["2019-03-01", "2026-11-01"],
+      ["2016-10-13", "2026-10-12"],
+    ])
+      expect(() => timelineLayout(fromDay, toDay)).toThrow(
+        /timelineLayout: The period must not span more than 92 calendar months/
+      );
+  });
+
+  test("koernung: kein Zeitraum ergibt mehr als 92 Abschnitte - er ist gültig mit höchstens 92 oder ungültig", () => {
+    // Zeiträume um die Grenze von 92 Monaten, von jedem Tag eines Monats aus
+    // und mit jedem Ende im Grenzmonat und in dessen Nachbarn.
+    let valid = 0;
+    let invalid = 0;
+    for (const fromDay of daysOf("2019-02-01", "2019-03-31"))
+      for (const toDay of daysOf("2026-09-28", "2026-11-03")) {
+        const range = validateDayRange(fromDay, toDay);
+        if (!range.valid) {
+          invalid++;
+          expect(() => timelineLayout(fromDay, toDay)).toThrow();
+          continue;
+        }
+        valid++;
+        const layout = timelineLayout(fromDay, toDay);
+        expect([fromDay, toDay, layout.buckets.length <= MAX_BUCKETS]).toEqual([
+          fromDay,
+          toDay,
+          true,
+        ]);
+      }
+    expect(valid).toBeGreaterThan(100);
+    expect(invalid).toBeGreaterThan(100);
   });
 });
 

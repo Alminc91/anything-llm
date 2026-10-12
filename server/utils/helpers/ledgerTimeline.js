@@ -14,8 +14,9 @@
  *   Abschnitte, die der Zeitraum berührt: 644 Tage ab einem Montag sind 92
  *   Kalenderwochen, 644 Tage ab einem Mittwoch berühren 93 und fallen auf
  *   Monate.
- * - Der Monat ist die gröbste Körnung. Der längste zulässige Zeitraum (10
- *   Jahre) ergibt damit bis zu 121 Abschnitte.
+ * - Der Monat ist die gröbste Körnung. Ein Zeitraum, der mehr als
+ *   MAX_BUCKETS Kalendermonate berührt, ist deshalb ungültig
+ *   (validateDayRange): Kein Diagramm hat mehr als MAX_BUCKETS Säulen.
  * - Erster und letzter Abschnitt enden am Zeitraum, nicht am Kalender: Umfasst
  *   der Zeitraum die Kalenderwoche bzw. den Monat nur teilweise, ist der
  *   Abschnitt „angeschnitten" (partial).
@@ -23,7 +24,6 @@
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MAX_BUCKETS = 92;
-const MAX_RANGE_YEARS = 10;
 
 /**
  * @typedef {Object} TimelineBucket
@@ -101,8 +101,12 @@ function monthIndexOf(serial) {
 
 /**
  * Prüft einen Zeitraum aus zwei Kalendertagen.
- * Ungültig: ein Wert, der kein Kalendertag ist; fromDay nach toDay; mehr als
- * MAX_RANGE_YEARS Jahre (13.10.2016-12.10.2026 sind genau 10 Jahre und gelten).
+ * Ungültig: ein Wert, der kein Kalendertag ist; fromDay nach toDay; ein
+ * Zeitraum, der mehr als MAX_BUCKETS Kalendermonate berührt - für ihn gäbe es
+ * keine Körnung mit höchstens MAX_BUCKETS Abschnitten (01.03.2019-12.10.2026
+ * berühren 92 Monate und gelten, 28.02.2019-12.10.2026 berühren 93). Der
+ * längste Zeitraum hat damit keine 7 Jahre und 8 Monate; mehr als 10 Jahre
+ * sind immer ungültig.
  * @param {*} fromDay
  * @param {*} toDay
  * @returns {{valid: true, from: number, to: number}|{valid: false, error: string}}
@@ -118,11 +122,10 @@ function validateDayRange(fromDay, toDay) {
   if (from > to)
     return { valid: false, error: "fromDay must not be after toDay." };
 
-  const { year, month, day } = fieldsOf(from);
-  if (to >= serialOf(year + MAX_RANGE_YEARS, month, day))
+  if (monthIndexOf(to) - monthIndexOf(from) + 1 > MAX_BUCKETS)
     return {
       valid: false,
-      error: `The period must not exceed ${MAX_RANGE_YEARS} years.`,
+      error: `The period must not span more than ${MAX_BUCKETS} calendar months.`,
     };
   return { valid: true, from, to };
 }
@@ -193,6 +196,7 @@ function timelineLayout(fromDay, toDay) {
         ),
     };
 
+  // Höchstens MAX_BUCKETS Monate: Mehr lässt validateDayRange nicht zu.
   const firstMonth = monthIndexOf(from);
   const months = monthIndexOf(to) - firstMonth + 1;
   return {
@@ -231,7 +235,6 @@ function nextDay(day) {
 
 module.exports = {
   MAX_BUCKETS,
-  MAX_RANGE_YEARS,
   parseCalendarDay,
   validateDayRange,
   timelineLayout,

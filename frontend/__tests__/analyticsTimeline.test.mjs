@@ -10,9 +10,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import de from "../src/locales/de/common.js";
 import en from "../src/locales/en/common.js";
+// Die Prüfung des Servers, gegen die der Browser seinen Zeitraum bildet.
+import ledgerTimeline from "../../server/utils/helpers/ledgerTimeline.js";
 import {
   BAR_MAX_WIDTH,
   DEFAULT_RANGE_DAYS,
+  MAX_BUCKETS,
   addDays,
   allTimeRange,
   barPath,
@@ -128,11 +131,58 @@ test("„Gesamt“: kein Zeitraum aus der Datumsauswahl, dafür vom ersten Zähl
     fromDay: "2026-10-12",
     toDay: "2026-10-12",
   });
-  // höchstens der längste Zeitraum, den der Server annimmt (10 Jahre)
+  // höchstens der längste Zeitraum, den der Server annimmt: 92 Kalendermonate
   assert.deepEqual(allTimeRange("2001-05-17", "2026-10-12"), {
-    fromDay: "2016-10-13",
+    fromDay: "2019-03-01",
     toDay: "2026-10-12",
   });
+  assert.deepEqual(allTimeRange("2019-03-01", "2026-10-12"), {
+    fromDay: "2019-03-01",
+    toDay: "2026-10-12",
+  });
+  assert.deepEqual(allTimeRange("2019-02-28", "2026-10-12"), {
+    fromDay: "2019-03-01",
+    toDay: "2026-10-12",
+  });
+});
+
+test("„Gesamt“ (AK-3): Der längste Zeitraum des Browsers ist für den Server gültig und ergibt genau 92 Monats-Säulen", () => {
+  const {
+    MAX_BUCKETS: serverMax,
+    validateDayRange,
+    timelineLayout,
+  } = ledgerTimeline;
+  assert.equal(MAX_BUCKETS, 92);
+  assert.equal(MAX_BUCKETS, serverMax);
+
+  // heute: Monatsanfang, Monatsende, Schalttag, Jahreswechsel
+  for (const today of [
+    "2026-10-12",
+    "2026-10-01",
+    "2026-10-31",
+    "2028-02-29",
+    "2027-01-01",
+    "2026-12-31",
+    "2026-03-31",
+  ]) {
+    const range = allTimeRange("2001-05-17", today);
+    assert.equal(range.toDay, today);
+    assert.equal(range.fromDay.slice(8), "01", today);
+    assert.equal(
+      validateDayRange(range.fromDay, range.toDay).valid,
+      true,
+      `${range.fromDay} bis ${today}`
+    );
+    const layout = timelineLayout(range.fromDay, range.toDay);
+    assert.equal(layout.granularity, "month");
+    assert.equal(layout.buckets.length, 92, today);
+    // Ein Tag früher wäre dem Server zu lang.
+    assert.equal(
+      validateDayRange(addDays(range.fromDay, -1), today).valid,
+      false,
+      today
+    );
+  }
 });
 
 test("Kalendertage rechnen ohne Zeitzone – auch über die Zeitumstellung", () => {

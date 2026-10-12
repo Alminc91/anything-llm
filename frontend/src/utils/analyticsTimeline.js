@@ -15,7 +15,9 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NUMBER_LOCALE = "de-DE";
 
 export const DEFAULT_RANGE_DAYS = 30;
-export const MAX_RANGE_YEARS = 10;
+// Mehr Säulen zeigt kein Diagramm; der Server nimmt deshalb höchstens so viele
+// Kalendermonate an (server/utils/helpers/ledgerTimeline.js).
+export const MAX_BUCKETS = 92;
 // Säulen: höchstens so breit, nie die ganze Spalte; oben abgerundet.
 export const BAR_MAX_WIDTH = 24;
 export const BAR_RADIUS = 4;
@@ -133,17 +135,17 @@ export function lastMonthsRange(months, now = new Date()) {
 
 /**
  * Zeitraum für „Gesamt": vom ersten Tag mit Zählwerten bis heute, höchstens
- * der längste Zeitraum, den der Server annimmt (10 Jahre).
+ * der längste Zeitraum, den der Server annimmt – MAX_BUCKETS Kalendermonate
+ * einschließlich des laufenden (am 12.10.2026 ab dem 01.03.2019).
  * @param {string|null} firstLedgerDay
  * @param {string} today
  * @returns {{fromDay: string, toDay: string}}
  */
 export function allTimeRange(firstLedgerDay, today) {
-  const [year, month, date] = today.split("-").map(Number);
-  const earliest = dayOfSerial(
-    Math.round(Date.UTC(year - MAX_RANGE_YEARS, month - 1, date) / MS_PER_DAY) +
-      1
-  );
+  const [year, month] = today.split("-").map(Number);
+  const earliest = new Date(Date.UTC(year, month - MAX_BUCKETS, 1))
+    .toISOString()
+    .slice(0, 10);
   const first =
     firstLedgerDay && firstLedgerDay <= today ? firstLedgerDay : today;
   return { fromDay: first < earliest ? earliest : first, toDay: today };
