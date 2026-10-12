@@ -47,7 +47,8 @@
   "jest": {
     "testPathIgnorePatterns": [
       "\\.manual\\.js$",
-      "\\.eval\\.js$"
+      "\\.eval\\.js$",
+      "/__tests__/(.*/)?support/"
     ]
   }
 }
