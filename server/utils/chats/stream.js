@@ -7,6 +7,9 @@ const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { grepAgents } = require("./agents");
 const {
+  WorkspaceAgentInvocation,
+} = require("../../models/workspaceAgentInvocation");
+const {
   grepCommand,
   VALID_COMMANDS,
   chatPrompt,
@@ -14,9 +17,7 @@ const {
   sourceIdentifier,
 } = require("./index");
 const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
-const {
-  startMetadataFilterResolution,
-} = require("./metadataFilterResolver");
+const { startMetadataFilterResolution } = require("./metadataFilterResolver");
 
 const VALID_CHAT_MODE = ["chat", "query"];
 
@@ -42,6 +43,26 @@ async function streamChatWithWorkspace(
     );
     writeResponseChunk(response, data);
     return;
+  }
+
+  // KIE-534: Eine @agent-Nachricht verlässt diesen Ablauf gleich darunter – die
+  // Limitprüfung weiter unten wird für sie nie erreicht. Deshalb hier vorab mit
+  // derselben Funktion und derselben Meldung wie im normalen Chat prüfen, bevor
+  // eine Agent-Sitzung angelegt wird. Nachrichten ohne @agent sind nicht
+  // betroffen: Ihre Prüfung bleibt unverändert an der bisherigen Stelle.
+  if (WorkspaceAgentInvocation.parseAgents(updatedMessage).length > 0) {
+    const { checkWorkspaceMessagesLimit } = require("../helpers");
+    const { limitReached } = await checkWorkspaceMessagesLimit(
+      workspace,
+      response,
+      {
+        isStreaming: true,
+        writeResponseChunk,
+        attachments,
+        uuid,
+      }
+    );
+    if (limitReached) return;
   }
 
   // If is agent enabled chat we will exit this flow early.
