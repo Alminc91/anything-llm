@@ -13,6 +13,88 @@ function isNullOrNaN(value) {
   return isNaN(value);
 }
 
+// KIE-533: Abrechnungsfelder werden geprüft und bei ungültigen Werten
+// abgelehnt, nie umgedeutet (siehe Workspace.validateBillingFields).
+const INVALID_BILLING_VALUE = Symbol("invalid billing value");
+const MAX_BILLING_INT = 2147483647; // Spaltentyp Int (32 Bit)
+const MIN_CYCLE_START_DAY = "2020-01-01";
+const MAX_CYCLE_START_YEARS_AHEAD = 5;
+
+/**
+ * Ganze Zahl ≥ 0 aus einer Zahl oder einer reinen Ziffernfolge ("500").
+ * null und "" (leeres Formularfeld) bedeuten "kein Wert".
+ * "10.000", "abc", -1 oder 1.5 sind ungültig und werden nicht umgedeutet.
+ * @param {*} value
+ * @returns {number|null|symbol} - INVALID_BILLING_VALUE bei ungültigem Wert
+ */
+function parseBillingInteger(value) {
+  if (value === null || value === "") return null;
+  if (typeof value === "number")
+    return Number.isInteger(value) && value >= 0 && value <= MAX_BILLING_INT
+      ? value + 0 // -0 → 0
+      : INVALID_BILLING_VALUE;
+  if (typeof value !== "string" || !/^\d+$/.test(value.trim()))
+    return INVALID_BILLING_VALUE;
+  const number = Number(value.trim());
+  return number <= MAX_BILLING_INT ? number : INVALID_BILLING_VALUE;
+}
+
+/**
+ * Datum aus einem Date oder einer ISO-Zeichenkette, die mit YYYY-MM-DD
+ * beginnt. Andere Schreibweisen ("15.01.2026", "2026", Zahlen) und Tage, die
+ * es nicht gibt ("2026-02-30"), sind ungültig.
+ * @param {*} value
+ * @returns {Date|null|symbol} - INVALID_BILLING_VALUE bei ungültigem Wert
+ */
+function parseBillingDate(value) {
+  if (value === null || value === "") return null;
+  if (value instanceof Date)
+    return isNaN(value.getTime()) ? INVALID_BILLING_VALUE : value;
+  if (typeof value !== "string") return INVALID_BILLING_VALUE;
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T ])/.exec(value.trim());
+  if (!match) return INVALID_BILLING_VALUE;
+  const [year, month, day] = match.slice(1).map(Number);
+  // new Date() rollt "2026-02-30" stillschweigend auf den 02.03. weiter.
+  const calendarDay = new Date(Date.UTC(year, month - 1, day));
+  if (
+    calendarDay.getUTCMonth() !== month - 1 ||
+    calendarDay.getUTCDate() !== day
+  )
+    return INVALID_BILLING_VALUE;
+
+  const date = new Date(value.trim());
+  return isNaN(date.getTime()) ? INVALID_BILLING_VALUE : date;
+}
+
+/**
+ * Entspricht der gesendete Wert dem gespeicherten? Bewusst großzügig und ohne
+ * Regelprüfung: Ein unverändert zurückgesendeter Bestandswert soll nie an den
+ * neuen Regeln scheitern.
+ * @param {*} value - gesendeter Wert
+ * @param {number|null} stored - gespeicherter Wert
+ * @returns {boolean}
+ */
+function sameBillingInteger(value, stored) {
+  if (stored === null) return value === null || value === "";
+  if (typeof value === "number") return value === stored;
+  return typeof value === "string" && value.trim() === String(stored);
+}
+
+/**
+ * Wie sameBillingInteger, für das Startdatum (Vergleich des Zeitpunkts).
+ * @param {*} value - gesendeter Wert
+ * @param {Date|null} stored - gespeicherter Wert
+ * @returns {boolean}
+ */
+function sameBillingDate(value, stored) {
+  if (stored === null) return value === null || value === "";
+  if (!(value instanceof Date) && typeof value !== "string") return false;
+  if (value === "") return false;
+  const date = new Date(value);
+  return !isNaN(date.getTime()) && date.getTime() === stored.getTime();
+}
+
 /**
  * @typedef {Object} Workspace
  * @property {number} id - The ID of the workspace
@@ -134,6 +216,13 @@ const Workspace = {
     "cycleDurationMonths",
   ],
 
+  // KIE-533: Abrechnungsfelder. Sie laufen nicht über `validations`, sondern
+  // über validateBillingFields: ungültige Werte werden abgelehnt.
+  billingFields: ["messagesLimit", "cycleStartDate", "cycleDurationMonths"],
+
+  // Only divisors of 12 for yearly consistency
+  validCycleDurations: [1, 2, 3, 4, 6, 12],
+
   validations: {
     name: (value) => {
       // If the name is not provided or is not a string then we will use a default name.
@@ -222,26 +311,6 @@ const Workspace = {
         return null;
       return value;
     },
-    messagesLimit: (value) => {
-      if (value === null || value === undefined || value === "") return null;
-      const limit = parseInt(value);
-      if (isNullOrNaN(limit) || limit < 0) return null;
-      return limit;
-    },
-    cycleStartDate: (value) => {
-      if (value === null || value === undefined || value === "") return null;
-      const date = new Date(value);
-      if (isNaN(date.getTime())) return null;
-      return date;
-    },
-    cycleDurationMonths: (value) => {
-      if (value === null || value === undefined || value === "") return null;
-      const months = parseInt(value);
-      // Only allow divisors of 12 for yearly consistency
-      const validDurations = [1, 2, 3, 4, 6, 12];
-      if (isNullOrNaN(months) || !validDurations.includes(months)) return null;
-      return months;
-    },
   },
 
   /**
@@ -278,6 +347,9 @@ const Workspace = {
     const validatedFields = {};
     for (const [key, value] of Object.entries(updates)) {
       if (!this.writable.includes(key)) continue;
+      // Abrechnungsfelder prüft validateBillingFields (KIE-533); hier werden
+      // sie nie durchgereicht oder umgedeutet.
+      if (this.billingFields.includes(key)) continue;
       if (this.validations[key]) {
         validatedFields[key] = this.validations[key](value);
       } else {
@@ -289,14 +361,131 @@ const Workspace = {
   },
 
   /**
+   * Prüft die Abrechnungsfelder eines Updates (KIE-533). Ungültige Werte
+   * werden abgelehnt statt umgedeutet:
+   * - messagesLimit: ganze Zahl ≥ 0 (0 = gesperrt) oder null (unbegrenzt)
+   * - cycleDurationMonths: 1, 2, 3, 4, 6, 12 oder null; nur zusammen mit einem
+   *   Startdatum (gesendet oder gespeichert)
+   * - cycleStartDate: ISO-Datum zwischen 2020-01-01 und heute + 5 Jahre
+   *   (Berliner Kalendertag) oder null; ein Start in der Zukunft ist zulässig
+   *
+   * null und "" (leeres Formularfeld) bedeuten "kein Wert". Fehlende Felder
+   * bleiben unberührt. Ein Wert, der dem gespeicherten entspricht, gilt als
+   * unverändert und wird nicht geprüft: So scheitert das Speichern nie an
+   * einem Bestandswert, der nach diesen Regeln ungültig wäre.
+   * @param {Object} updates - The updates of the request
+   * @param {{messagesLimit?: number|null, cycleStartDate?: Date|string|null, cycleDurationMonths?: number|null}|null} current - Stored values (null when creating)
+   * @param {Date} [now] - Reference time (default: now)
+   * @returns {{values: Object, errors: Object<string, string>|null, message: string|null}} - values: validated billing fields; errors: one message per rejected field
+   */
+  validateBillingFields: function (
+    updates = {},
+    current = null,
+    now = new Date()
+  ) {
+    const values = {};
+    const errors = {};
+    const storedStart = current?.cycleStartDate
+      ? new Date(current.cycleStartDate)
+      : null;
+    const stored = {
+      messagesLimit: current?.messagesLimit ?? null,
+      cycleStartDate:
+        storedStart && !isNaN(storedStart.getTime()) ? storedStart : null,
+      cycleDurationMonths: current?.cycleDurationMonths ?? null,
+    };
+    const sent = (key) =>
+      Object.prototype.hasOwnProperty.call(updates ?? {}, key) &&
+      updates[key] !== undefined;
+
+    // Je Feld: unverändert → gespeicherter Wert; sonst prüfen.
+    const resolve = (key, isSame, parse, isValid, error) => {
+      if (!sent(key)) return { changed: false, value: stored[key] };
+      if (isSame(updates[key], stored[key])) {
+        values[key] = stored[key];
+        return { changed: false, value: stored[key] };
+      }
+      const parsed = parse(updates[key]);
+      if (parsed === INVALID_BILLING_VALUE || !isValid(parsed)) {
+        errors[key] = error;
+        return { changed: true, value: stored[key] };
+      }
+      values[key] = parsed;
+      return { changed: true, value: parsed };
+    };
+
+    resolve(
+      "messagesLimit",
+      sameBillingInteger,
+      parseBillingInteger,
+      () => true,
+      "messagesLimit must be a whole number >= 0 (0 = blocked) or null (unlimited)."
+    );
+
+    const { berlinDayOf } = require("../utils/helpers/billingWindow");
+    const today = berlinDayOf(now);
+    const maxDay = `${Number(today.slice(0, 4)) + MAX_CYCLE_START_YEARS_AHEAD}${today.slice(4)}`;
+    const start = resolve(
+      "cycleStartDate",
+      sameBillingDate,
+      parseBillingDate,
+      (date) => {
+        if (date === null) return true;
+        const day = berlinDayOf(date);
+        return (
+          /^\d{4}-/.test(day) && day >= MIN_CYCLE_START_DAY && day <= maxDay
+        );
+      },
+      `cycleStartDate must be an ISO date (YYYY-MM-DD) between ${MIN_CYCLE_START_DAY} and ${maxDay}, or null.`
+    );
+
+    const duration = resolve(
+      "cycleDurationMonths",
+      sameBillingInteger,
+      parseBillingInteger,
+      (months) => months === null || this.validCycleDurations.includes(months),
+      `cycleDurationMonths must be one of ${this.validCycleDurations.join(", ")}, or null.`
+    );
+
+    // Dauer nur zusammen mit Startdatum - geprüft am Ergebnis, sobald die
+    // Anfrage eines der beiden Felder ändert.
+    if (
+      (start.changed || duration.changed) &&
+      !errors.cycleStartDate &&
+      !errors.cycleDurationMonths &&
+      duration.value !== null &&
+      start.value === null
+    )
+      errors.cycleDurationMonths =
+        "cycleDurationMonths requires a cycleStartDate. Send both, or set cycleDurationMonths to null.";
+
+    if (Object.keys(errors).length === 0)
+      return { values, errors: null, message: null };
+    return {
+      values: {},
+      errors,
+      message: `Invalid billing values - ${Object.entries(errors)
+        .map(([key, error]) => `${key}: ${error}`)
+        .join(" ")}`,
+    };
+  },
+
+  /**
    * Create a new workspace.
    * @param {string} name - The name of the workspace.
    * @param {number} creatorId - The ID of the user creating the workspace.
    * @param {Object} additionalFields - Additional fields to apply to the workspace - will be validated.
-   * @returns {Promise<{workspace: Object | null, message: string | null}>} A promise that resolves to an object containing the created workspace and an error message if applicable.
+   * @returns {Promise<{workspace: Object | null, message: string | null, errors?: Object<string, string>}>} A promise that resolves to an object containing the created workspace and an error message if applicable. `errors` is only set when billing fields were rejected (one message per field).
    */
   new: async function (name = null, creatorId = null, additionalFields = {}) {
     if (!name) return { workspace: null, message: "name cannot be null" };
+    const billing = this.validateBillingFields(additionalFields);
+    if (billing.errors)
+      return {
+        workspace: null,
+        message: billing.message,
+        errors: billing.errors,
+      };
     var slug = this.slugify(name, { lower: true });
     slug = slug || uuidv4();
 
@@ -319,6 +508,7 @@ const Workspace = {
         data: {
           name: this.validations.name(name),
           ...this.validateFields(additionalFields),
+          ...billing.values,
           slug,
         },
       });
@@ -338,12 +528,34 @@ const Workspace = {
    * Update the settings for a workspace. Applies validations to the updates provided.
    * @param {number} id - The ID of the workspace to update.
    * @param {Object} updates - The data to update.
-   * @returns {Promise<{workspace: Object | null, message: string | null}>} A promise that resolves to an object containing the updated workspace and an error message if applicable.
+   * @returns {Promise<{workspace: Object | null, message: string | null, errors?: Object<string, string>}>} A promise that resolves to an object containing the updated workspace and an error message if applicable. `errors` is only set when billing fields were rejected (one message per field) - nothing is written then.
    */
   update: async function (id = null, updates = {}) {
     if (!id) throw new Error("No workspace id provided for update");
 
     const validatedUpdates = this.validateFields(updates);
+
+    // KIE-533: Abrechnungsfelder gegen den gespeicherten Stand prüfen. Ist
+    // eines ungültig, wird die ganze Anfrage abgelehnt und nichts geschrieben.
+    if (this.billingFields.some((key) => updates?.[key] !== undefined)) {
+      const current = await prisma.workspaces.findFirst({
+        where: { id },
+        select: {
+          messagesLimit: true,
+          cycleStartDate: true,
+          cycleDurationMonths: true,
+        },
+      });
+      const billing = this.validateBillingFields(updates, current);
+      if (billing.errors)
+        return {
+          workspace: null,
+          message: billing.message,
+          errors: billing.errors,
+        };
+      Object.assign(validatedUpdates, billing.values);
+    }
+
     if (Object.keys(validatedUpdates).length === 0)
       return { workspace: { id }, message: "No valid fields to update!" };
 

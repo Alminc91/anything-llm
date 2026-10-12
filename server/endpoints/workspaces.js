@@ -88,9 +88,11 @@ function workspaceEndpoints(app) {
         const { slug = null } = request.params;
         let data = reqBody(request);
 
-        // Only admin can modify messagesLimit (billing protection)
-        if (user?.role !== ROLES.admin && data.hasOwnProperty('messagesLimit')) {
-          delete data.messagesLimit;
+        // Only admin can modify the billing fields (billing protection).
+        // KIE-533: Zyklusstart und -dauer wie das Limit - sonst setzt ein
+        // Manager den Verbrauch über einen neuen Zyklusstart auf 0.
+        if (user?.role !== ROLES.admin) {
+          for (const field of Workspace.billingFields) delete data[field];
         }
 
         const currWorkspace = multiUserMode(response)
@@ -102,11 +104,18 @@ function workspaceEndpoints(app) {
           return;
         }
 
-        await Workspace.trackChange(currWorkspace, data, user);
-        const { workspace, message } = await Workspace.update(
+        const { workspace, message, errors } = await Workspace.update(
           currWorkspace.id,
           data
         );
+        // KIE-533: Ungültige Abrechnungswerte werden abgelehnt, nichts ist
+        // gespeichert - deshalb auch kein Eintrag in der Prompt-Historie.
+        if (errors) {
+          response.status(400).json({ workspace: null, message, errors });
+          return;
+        }
+
+        await Workspace.trackChange(currWorkspace, data, user);
         response.status(200).json({ workspace, message });
       } catch (e) {
         console.error(e.message, e);
