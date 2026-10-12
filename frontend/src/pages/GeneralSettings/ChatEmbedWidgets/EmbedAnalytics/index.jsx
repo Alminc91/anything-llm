@@ -121,12 +121,12 @@ export default function EmbedAnalyticsView() {
   return (
     <div className="flex-1 flex-col p-6">
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-wrap gap-3 justify-between items-center mb-6">
         <h2 className="text-white text-2xl font-bold">
           {t("embed-analytics.title")}
         </h2>
 
-        <div className="flex gap-3 items-center">
+        <div className="flex flex-wrap gap-3 items-center">
           {/* Embed Selector */}
           <div className="relative" ref={embedDropdownRef}>
             <button

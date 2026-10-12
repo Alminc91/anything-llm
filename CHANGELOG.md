@@ -25,6 +25,17 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 - **Vor dem Rollout:** `server/scripts/quota-snapshot.js` (ohne laufenden Server gegen die SQLite-Datei) erstellt je einen Schnappschuss mit den bisherigen (`--mode legacy --legacy-tz <TZ des Containers>`) und den neuen Grenzen (`--mode current`), beide mit demselben `--now`; `compare` nennt je Abweichung die Ursache, listet Workspaces, die durch die neuen Grenzen ihr Limit erreichen, und endet bei einem unerklärten Unterschied mit Status 1. Eine eigene Liste nennt die Workspaces mit Starttag 29.–31., deren Zyklusstart oder nächster Reset wegen der bisherigen Klemmung auf einen anderen Tag fällt, auch bei unverändertem Stand. `compare` nimmt nur `legacy` → `current` mit demselben `--now` an; jede andere Paarung endet mit Status 2.
 - Tests in drei Zeitzonen: `yarn test:tz` (bzw. `cd server && yarn test`) lässt Jest mit `TZ=UTC`, `Europe/Berlin` und `America/New_York` laufen; die CI verwendet diesen Aufruf.
 
+### KIE-535 — Navigation: Obermenüpunkt „Chatbot" statt „Werkzeuge → Chat-Widgets" (2026-10-12)
+
+- Einstellungs-Sidebar: neuer erster Block **Chatbot** mit **Widgets**, **Konversationen**, **Nachrichtentabelle** (vorher „Werkzeuge → Chat-Widgets" mit innerer Auswahlspalte „Widgets / Konversationen (neu) / Verlauf (klassisch)").
+- Jede Ansicht hat eine eigene Adresse: `/settings/chatbot/widgets`, `/settings/chatbot/conversations`, `/settings/chatbot/messages`. Die alte Adresse `/settings/embed-chat-widgets` leitet auf die Widget-Liste um.
+- Die Ansichten nutzen die volle Inhaltsbreite (linksbündig, höchstens 1180 px); die zweite Auswahlspalte und der mobile Zwischenschritt Liste → Vollbild entfallen. Inhalte der drei Ansichten unverändert.
+- „Widgets" hängt nicht mehr am einsehbaren Chat-Verlauf (`DisableViewChatHistory`); „Konversationen" und „Nachrichtentabelle" weiterhin — ohne das Recht leiten ihre Adressen auf die Widget-Liste um.
+- Kundennutzer (`default`) landen über das Einstellungssymbol auf „Konversationen" (bei abgeschaltetem Chat-Verlauf auf „Widgets").
+- Das Design Center (`/settings/embed-config/:embedId/appearance`) bleibt eine Vollbildseite ohne Einstellungs-Sidebar (Einstellungen und Vorschau behalten ihre Breite); „Zurück" und der Rücksprung nach einem Ladefehler führen auf `/settings/chatbot/widgets`.
+- Erste Frontend-Tests unter `frontend/__tests__/` (Node-Test-Runner, über `yarn test` mit ausgeführt): Sidebar-Zustand auf den drei Chatbot-Adressen, Design Center ohne Sidebar und mit beiden Rücksprüngen auf die Widget-Liste.
+- Reines Frontend, keine Server- oder Datenbankänderung. Übersetzungen: neue Menünamen in allen Sprachdateien; die 421 Fork-Schlüssel, die in 21 Sprachdateien fehlten, stehen dort jetzt als `null` (Rückfall auf Englisch wie bisher), `verify:translations` ist grün.
+
 ### Auswahlstufe hinter dem Reranker — frühester Kurs bei Gleichstand, entfernt nie einen Kurs, höchstens eine Übersichtsseite (2026-10-08)
 
 - Neue Nachstufe `contextSelection.js` in den Modi `rerank`/`hybrid_rerank`: Reranker-Pool `topK = max(topN, 12)`; die 2 relevantesten Kurse bleiben, weitere Kursplätze gehen bei Score-Gleichstand (Band 0,1, Boden 0,3) an den früher startenden Kurs; die Stufe entfernt nie einen Kurs — gestartete Kurse mit `bookable = false` sind Wartelisten-Kurse (Kufer-Status 4), bleiben in der Auswahl, wenn der Score sie dorthin trägt, rücken aber nie als „früher“ nach; bei klaren Kursfragen höchstens 1 Übersichtsseite. Reihenfolge bleibt Reranker-Reihenfolge.

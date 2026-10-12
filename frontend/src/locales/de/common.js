@@ -289,6 +289,10 @@ const TRANSLATIONS = {
     "voice-speech": "Sprache & Sprachausgabe",
     "vector-database": "Vektordatenbank",
     embeds: "Chat-Widgets",
+    chatbot: "Chatbot",
+    "chatbot-widgets": "Widgets",
+    "chatbot-conversations": "Konversationen",
+    "chatbot-messages": "Nachrichtentabelle",
     "embed-chats": "Chat-Widget-Verlauf",
     security: "Sicherheit",
     "event-logs": "Ereignisprotokolle",
@@ -959,11 +963,6 @@ const TRANSLATIONS = {
       active: "Aktive Domains",
       created: "Erstellt",
     },
-  },
-  "embed-widgets": {
-    widgets: "Widgets",
-    history: "Verlauf (klassisch)",
-    analytics: "Konversationen (neu)",
   },
   "embed-analytics": {
     title: "Konversationen",

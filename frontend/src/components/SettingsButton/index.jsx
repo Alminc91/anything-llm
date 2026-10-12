@@ -3,13 +3,21 @@ import paths from "@/utils/paths";
 import { ArrowUUpLeft, Wrench } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 import { useMatch } from "react-router-dom";
+import { useCanViewChatHistory } from "@/components/CanViewChatHistory";
 
 export default function SettingsButton() {
   const isInSettings = !!useMatch("/settings/*");
   const { user } = useUser();
+  const { loading, viewable } = useCanViewChatHistory();
 
-  // Default users can access settings (for workspace-chats and embed-chat-widgets)
-  const defaultUserSettingsPath = paths.settings.embedChatWidgets();
+  // Default users enter the settings in the "Chatbot" section: on "Konversationen",
+  // or on "Widgets" when the chat history is not viewable on this instance.
+  // While the flag is still loading we link to the conversations - that route
+  // redirects to the widgets by itself if the history turns out to be disabled.
+  const defaultUserSettingsPath =
+    loading || viewable
+      ? paths.settings.chatbot.conversations()
+      : paths.settings.chatbot.widgets();
 
   if (isInSettings)
     return (
@@ -29,10 +37,11 @@ export default function SettingsButton() {
       </div>
     );
 
-  // Default users go to workspace-chats, others go to interface settings
-  const settingsPath = user?.role === "default"
-    ? defaultUserSettingsPath
-    : paths.settings.interface();
+  // Default users go to the chatbot section, others go to interface settings
+  const settingsPath =
+    user?.role === "default"
+      ? defaultUserSettingsPath
+      : paths.settings.interface();
 
   return (
     <div className="flex w-fit">
