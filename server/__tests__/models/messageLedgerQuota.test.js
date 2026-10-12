@@ -43,6 +43,7 @@ const {
 } = require("../../utils/helpers");
 const {
   getCycleInfoWithMessageCount,
+  countMessagesForCurrentCycle,
 } = require("../../utils/helpers/cycleHelpers");
 const { getBillingWindow } = require("../../utils/helpers/billingWindow");
 
@@ -904,5 +905,168 @@ describe("eine_quelle (NAK-8)", () => {
     expect(await usage(workspace)).toBe(12);
     await WorkspaceChats.delete({ workspaceId: workspace.id });
     expect(await usage(workspace)).toBe(12);
+  });
+});
+
+// KIE-534 reicht throwOnError durch alle Zählfunktionen: Die Limitprüfung der
+// Agent-Sitzung darf einen Zählfehler nicht als Verbrauch 0 werten. Das gilt
+// auch für das Zählerbuch als Quelle. Die Fehler entstehen hier in der echten
+// Datenbank: Die jeweilige Tabelle fehlt.
+describe("Lesefehler der Zählquelle (KIE-534: throwOnError)", () => {
+  const STRICT = { throwOnError: true };
+
+  async function workspaceWithUsage(messages = 4) {
+    const workspace = await cycleWorkspace({ messagesLimit: 100 });
+    for (let i = 0; i < messages; i++)
+      await WorkspaceChats.new({ workspaceId: workspace.id, prompt: "a" });
+    return await reload(workspace);
+  }
+  const windowOf = (workspace) => getBillingWindow(workspace);
+  const count = (workspace, options) =>
+    countMessagesInDateRange(
+      workspace,
+      windowOf(workspace).start,
+      windowOf(workspace).endExclusive,
+      options
+    );
+  /** Jeder Einstieg, über den die Limitprüfung zählt. */
+  const strictEntryPoints = (workspace) => [
+    () => count(workspace, STRICT),
+    () => getMessageLimitInfo(workspace, new Date(), STRICT),
+    () => countMessagesForCurrentCycle(workspace, null, STRICT),
+    () =>
+      checkWorkspaceMessagesLimit(workspace, null, {
+        returnData: true,
+        ...STRICT,
+      }),
+  ];
+  async function expectEveryStrictEntryPointToThrow(workspace, table) {
+    for (const attempt of strictEntryPoints(workspace))
+      await expect(attempt()).rejects.toThrow(table);
+  }
+
+  test("Zählerbuch nicht lesbar: ohne throwOnError zählt es wie bisher als 0, mit throwOnError wirft jeder Einstieg", async () => {
+    const workspace = await workspaceWithUsage(4);
+    await completeBackfill();
+    await WorkspaceMessageAdjustments.new({
+      workspaceId: workspace.id,
+      amount: 3,
+    });
+    expect(await count(workspace)).toEqual({
+      total: 7,
+      workspaceChatCount: 4,
+      embedChatCount: 0,
+      adjustmentsTotal: 3,
+    });
+    expect(await count(workspace, STRICT)).toEqual(await count(workspace));
+
+    await db.client.$executeRawUnsafe(`DROP TABLE message_ledger`);
+
+    // Ohne die Option: 0 Nachrichten, kein Rückfall auf die 4 vorhandenen
+    // Zeilen; die Buchungen zählen weiter.
+    expect(await count(workspace)).toEqual({
+      total: 3,
+      workspaceChatCount: 0,
+      embedChatCount: 0,
+      adjustmentsTotal: 3,
+    });
+    expect(await count(workspace, { throwOnError: false })).toEqual(
+      await count(workspace)
+    );
+    expect(await usage(workspace)).toBe(3);
+    const lenient = await checkWorkspaceMessagesLimit(workspace, null, {
+      returnData: true,
+    });
+    expect(lenient.limitReached).toBe(false);
+    expect(lenient.messageCount).toBe(3);
+
+    await expectEveryStrictEntryPointToThrow(workspace, /message_ledger/);
+
+    const { fromDay, toDayExclusive } = MessageLedger.daysOfWindow(
+      windowOf(workspace).start,
+      windowOf(workspace).endExclusive
+    );
+    expect(
+      await MessageLedger.sumMessages(workspace.id, fromDay, toDayExclusive)
+    ).toBe(0);
+    await expect(
+      MessageLedger.sumMessages(workspace.id, fromDay, toDayExclusive, STRICT)
+    ).rejects.toThrow(/message_ledger/);
+  });
+
+  test("Markierung des Nachtrags nicht lesbar: ohne throwOnError gilt wie bisher die Live-Zählung, mit throwOnError wirft jeder Einstieg", async () => {
+    const workspace = await workspaceWithUsage(4);
+    await completeBackfill();
+    // Zählerbuch 4, vorhandene Zeilen 1 - die Quellen sind unterscheidbar.
+    const [first] = await db.client.workspace_chats.findMany({ take: 1 });
+    await db.client.workspace_chats.deleteMany({
+      where: { id: { not: first.id } },
+    });
+    expect((await count(workspace, STRICT)).total).toBe(4);
+
+    // Neuer Prozess (nichts gemerkt), die Markierung ist nicht lesbar.
+    MessageLedger._resetCache();
+    await db.client.$executeRawUnsafe(`DROP TABLE system_settings`);
+
+    expect(await MessageLedger.isBackfillComplete()).toBe(false);
+    expect((await count(workspace)).total).toBe(1);
+    await expect(MessageLedger.isBackfillComplete(STRICT)).rejects.toThrow(
+      /system_settings/
+    );
+    await expectEveryStrictEntryPointToThrow(workspace, /system_settings/);
+    // Ein Lesefehler wird nicht als "nicht abgeschlossen" gemerkt.
+    expect((await count(workspace)).total).toBe(1);
+  });
+
+  test("Markierung lesbar, Nachtrag offen: der Rückfall auf die Live-Zählung wirft mit throwOnError, wenn sie nicht lesbar ist", async () => {
+    const workspace = await workspaceWithUsage(4);
+    const embed = await createEmbed(db.client, workspace);
+    await EmbedChats.new({ embedId: embed.id, prompt: "b", sessionId: "s" });
+    expect((await MessageLedger.backfillState()).state).toBe("pending");
+    expect((await count(workspace, STRICT)).total).toBe(5);
+
+    await db.client.$executeRawUnsafe(`DROP TABLE embed_chats`);
+
+    // Ohne die Option fehlt wie bisher nur der Anteil der Widgets.
+    expect(await count(workspace)).toEqual({
+      total: 4,
+      workspaceChatCount: 4,
+      embedChatCount: 0,
+      adjustmentsTotal: 0,
+    });
+    await expectEveryStrictEntryPointToThrow(workspace, /embed_chats/);
+  });
+
+  test("Nachtrag abgeschlossen, Vergleichszählung nicht lesbar: ohne throwOnError gilt das Zählerbuch ohne Alarm, mit throwOnError wirft jeder Einstieg", async () => {
+    const workspace = await workspaceWithUsage(4);
+    const embed = await createEmbed(db.client, workspace);
+    await EmbedChats.new({ embedId: embed.id, prompt: "b", sessionId: "s" });
+    await completeBackfill();
+
+    await db.client.$executeRawUnsafe(`DROP TABLE embed_chats`);
+
+    expect(await count(workspace)).toEqual({
+      total: 5,
+      workspaceChatCount: 4,
+      embedChatCount: 1,
+      adjustmentsTotal: 0,
+    });
+    expect(await eventsOf(db.client, "message_ledger_mismatch")).toEqual([]);
+    // Streng heißt: Jede Abfrage der Zählung muss gelingen, auch die, die nur
+    // dem Vergleich dient.
+    await expectEveryStrictEntryPointToThrow(workspace, /embed_chats/);
+  });
+
+  test("Zählerbuch lesbar, Abweichung nicht meldbar: die Zählung gelingt auch mit throwOnError", async () => {
+    const workspace = await workspaceWithUsage(4);
+    await completeBackfill();
+    // Eine ungezählte Zeile: Abweichung zwischen Zählerbuch (4) und Zeilen (5)
+    await seedWorkspaceChats(db.client, [
+      { workspaceId: workspace.id, createdAt: new Date(Date.now() - HOUR) },
+    ]);
+    await db.client.$executeRawUnsafe(`DROP TABLE event_logs`);
+
+    expect((await count(workspace, STRICT)).total).toBe(4);
+    expect((await count(workspace)).total).toBe(4);
   });
 });

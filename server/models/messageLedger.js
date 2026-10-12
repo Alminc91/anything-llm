@@ -514,9 +514,16 @@ const MessageLedger = {
    * @param {number} workspaceId
    * @param {string} fromDay - "YYYY-MM-DD", inklusiv
    * @param {string} toDayExclusive - "YYYY-MM-DD", exklusiv
+   * @param {{throwOnError?: boolean}} [options] - KIE-534: true reicht einen
+   * Datenbankfehler weiter, statt ihn als 0 zu zählen (Limitprüfung der Agent-Sitzung).
    * @returns {Promise<number>}
    */
-  sumMessages: async function (workspaceId, fromDay, toDayExclusive) {
+  sumMessages: async function (
+    workspaceId,
+    fromDay,
+    toDayExclusive,
+    { throwOnError = false } = {}
+  ) {
     try {
       const sums = await MessageLedger.sumForWorkspace(
         workspaceId,
@@ -526,6 +533,7 @@ const MessageLedger = {
       return sums.messages;
     } catch (error) {
       console.error(error.message);
+      if (throwOnError) throw error;
       return 0;
     }
   },
@@ -728,9 +736,12 @@ const MessageLedger = {
   /**
    * Ist der Nachtrag als abgeschlossen markiert? Erst dann liest das
    * Kontingent das Zählerbuch. Bei einem Lesefehler: nein.
+   * @param {{throwOnError?: boolean}} [options] - KIE-534: true reicht den
+   * Lesefehler weiter. Sonst fiele die Limitprüfung der Agent-Sitzung still
+   * auf die Live-Zählung zurück (zu niedrig, sobald Zeilen gelöscht wurden).
    * @returns {Promise<boolean>}
    */
-  isBackfillComplete: async function () {
+  isBackfillComplete: async function ({ throwOnError = false } = {}) {
     if (backfillComplete) return true;
     try {
       const state = await MessageLedger.backfillState();
@@ -739,6 +750,7 @@ const MessageLedger = {
       return backfillComplete;
     } catch (error) {
       console.error(error.message);
+      if (throwOnError) throw error;
       return false;
     }
   },

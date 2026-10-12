@@ -579,7 +579,10 @@ function toChunks(arr, size) {
  * @param {Date} endExclusive - The end of the window (exclusive)
  * @param {Object} options
  * @param {boolean} options.throwOnError - KIE-534: If true, a failing count query rejects
- * instead of being counted as 0 (default false: unchanged for normal chat and API paths)
+ * instead of being counted as 0 (default false: unchanged for normal chat and API paths).
+ * Gilt für jede Quelle (KIE-532): Zählerbuch, Markierung des Nachtrags, Live-Zählung
+ * und Buchungen. Ohne die Option gilt eine nicht lesbare Markierung als "Nachtrag
+ * nicht abgeschlossen" (Live-Zählung), ein nicht lesbares Zählerbuch als 0.
  * @returns {Promise<MessageCountBreakdown>} - Breakdown of messages within the window
  */
 async function countMessagesInDateRange(workspace, start, endExclusive, { throwOnError = false } = {}) {
@@ -614,7 +617,7 @@ async function countMessagesInDateRange(workspace, start, endExclusive, { throwO
         endExclusive,
         { throwOnError }
       ),
-      MessageLedger.isBackfillComplete(),
+      MessageLedger.isBackfillComplete({ throwOnError }),
     ]);
 
   if (!ledgerReady)
@@ -633,7 +636,8 @@ async function countMessagesInDateRange(workspace, start, endExclusive, { throwO
     workspace,
     start,
     endExclusive,
-    workspaceChatCount + embedChatCount
+    workspaceChatCount + embedChatCount,
+    { throwOnError }
   );
   return {
     // Credits cannot push the billable count below zero
@@ -649,32 +653,42 @@ async function countMessagesInDateRange(workspace, start, endExclusive, { throwO
  * Live-Zählung desselben Fensters und meldet eine Abweichung (Ereignis
  * message_ledger_mismatch, höchstens einmal je Workspace und Stunde) - ohne
  * Rückfall auf die Live-Zählung. Wie die übrigen Zähler liefert ein
- * Datenbankfehler 0.
+ * Datenbankfehler 0, mit throwOnError wird er weitergereicht (KIE-534). Der
+ * Vergleich selbst lässt die Zählung nie scheitern.
  * @param {Object} workspace - The workspace object
  * @param {Date} start - The start of the window (inclusive)
  * @param {Date} endExclusive - The end of the window (exclusive)
  * @param {number} liveCount - Vorhandene Chat-Zeilen im selben Fenster
+ * @param {{throwOnError?: boolean}} [options] - see countMessagesInDateRange
  * @returns {Promise<{messages: number, copied: number, workspaceMessages: number, embedMessages: number}>}
  */
 async function countLedgerMessagesInDateRange(
   workspace,
   start,
   endExclusive,
-  liveCount
+  liveCount,
+  { throwOnError = false } = {}
 ) {
   const { MessageLedger } = require("../../models/messageLedger");
+  let ledger;
+  let aligned;
   try {
-    const { fromDay, toDayExclusive, aligned } = MessageLedger.daysOfWindow(
-      start,
-      endExclusive
-    );
-    const ledger = await MessageLedger.sumForWorkspace(
+    const days = MessageLedger.daysOfWindow(start, endExclusive);
+    aligned = days.aligned;
+    ledger = await MessageLedger.sumForWorkspace(
       workspace.id,
-      fromDay,
-      toDayExclusive
+      days.fromDay,
+      days.toDayExclusive
     );
-    // Nur ganze Berliner Tage sind mit der Live-Zählung vergleichbar.
-    if (aligned)
+  } catch (error) {
+    console.error(error.message);
+    if (throwOnError) throw error;
+    return { messages: 0, copied: 0, workspaceMessages: 0, embedMessages: 0 };
+  }
+
+  // Nur ganze Berliner Tage sind mit der Live-Zählung vergleichbar.
+  if (aligned)
+    try {
       await MessageLedger.reportMismatch({
         workspace,
         ledger,
@@ -682,11 +696,10 @@ async function countLedgerMessagesInDateRange(
         start,
         endExclusive,
       });
-    return ledger;
-  } catch (error) {
-    console.error(error.message);
-    return { messages: 0, copied: 0, workspaceMessages: 0, embedMessages: 0 };
-  }
+    } catch (error) {
+      console.error(error.message);
+    }
+  return ledger;
 }
 
 /**
