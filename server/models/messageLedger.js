@@ -371,6 +371,14 @@ const MessageLedger = {
    * workspaceId (der heutige Workspace des Widgets) gilt nur, wenn es für
    * Widget, Tag und Stunde noch keine Zeile gibt.
    *
+   * Gibt es für Widget, Tag und Stunde Zeilen unter mehreren Workspaces (in
+   * dieser Stunde umgehängt, oder ledger-resync hat Fehlendes dem heutigen
+   * Workspace gutgeschrieben), nennt das Zählerbuch die Zeile der einzelnen
+   * Nachricht nicht. Eine Bewertung wird dann dort abgezogen, wo sie steht:
+   * auf einer Zeile, deren Stand für diesen Zähler über 0 liegt. Das neue
+   * Vorzeichen eines Wechsels (👍 → 👎) geht auf dieselbe Zeile. So bleibt
+   * nach dem Entfernen kein alter Stand stehen.
+   *
    * @param {import("@prisma/client").Prisma.TransactionClient} tx
    * @param {Object} params
    * @param {number} params.workspaceId - heutiger Workspace des Widgets
@@ -390,11 +398,29 @@ const MessageLedger = {
     const { day, hour } = berlinDayHour(at);
     const counted = await tx.message_ledger.findMany({
       where: { embed_id: embedId, day, hour },
-      select: { workspace_id: true, messages: true },
+      select: {
+        workspace_id: true,
+        messages: true,
+        feedback_positive: true,
+        feedback_negative: true,
+      },
     });
+    // Reihenfolge der Wahl: der heutige Workspace, sonst die meisten Nachrichten
+    const candidates = counted.sort(
+      (a, b) =>
+        (b.workspace_id === workspaceId) - (a.workspace_id === workspaceId) ||
+        b.messages - a.messages
+    );
+    // Was abgezogen wird, muss auf der Zeile stehen.
+    const removed =
+      positive < 0
+        ? "feedback_positive"
+        : negative < 0
+          ? "feedback_negative"
+          : null;
     const target =
-      counted.find((cell) => cell.workspace_id === workspaceId) ??
-      counted.sort((a, b) => b.messages - a.messages)[0];
+      (removed && candidates.find((cell) => cell[removed] > 0)) ??
+      candidates[0];
     // Ohne Zeile gibt es nichts abzuziehen.
     if (!target && positive <= 0 && negative <= 0) return;
     const targetWorkspaceId = target?.workspace_id ?? workspaceId;

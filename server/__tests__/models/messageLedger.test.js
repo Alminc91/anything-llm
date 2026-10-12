@@ -504,6 +504,108 @@ describe("feedback_uebergaenge (AK-11)", () => {
       expect.objectContaining({ feedback_positive: 0, messages: 0 })
     );
   });
+
+  describe("in derselben Stunde umgehängt: Zeilen unter beiden Workspaces", () => {
+    const createdAt = new Date("2026-10-01T09:15:00+02:00");
+    let first;
+    let second;
+    let embed;
+    let chat;
+
+    // Eine Nachricht des Widgets unter first gezählt, danach umgehängt; eine
+    // weitere Nachricht derselben Stunde zählt unter second.
+    async function moveWithinHour(score) {
+      first = await createWorkspace(db.client);
+      second = await createWorkspace(db.client);
+      embed = await createEmbed(db.client, first);
+      await seedEmbedChats(db.client, [
+        { embed_id: embed.id, createdAt, session_id: "sitzung" },
+      ]);
+      chat = await db.client.embed_chats.findFirst();
+      expect((await runMessageLedgerBackfill(quiet)).ok).toBe(true);
+      await EmbedChats.updateFeedbackScore(embed.id, "sitzung", chat.id, score);
+
+      await db.client.embed_configs.update({
+        where: { id: embed.id },
+        data: { workspace_id: second.id },
+      });
+      await MessageLedger.transaction({ source: "test" }, (tx) =>
+        MessageLedger.record(tx, {
+          workspaceId: second.id,
+          embedId: embed.id,
+          at: new Date("2026-10-01T09:40:00+02:00"),
+          messages: 1,
+        })
+      );
+      expect(
+        (await ledgerRows(db.client)).map((row) => [
+          row.workspace_id,
+          row.hour,
+          row.messages,
+        ])
+      ).toEqual([
+        [first.id, 9, 1],
+        [second.id, 9, 1],
+      ]);
+    }
+    const feedback = async () => [
+      await feedbackOf(first.id, embed.id, createdAt),
+      await feedbackOf(second.id, embed.id, createdAt),
+    ];
+    const rate = (score) =>
+      EmbedChats.updateFeedbackScore(embed.id, "sitzung", chat.id, score);
+
+    test("feedback_uebergaenge: eine entfernte Bewertung wird dort abgezogen, wo sie gebucht wurde - es bleibt kein alter Stand stehen", async () => {
+      await moveWithinHour(true);
+      expect(await feedback()).toEqual([
+        [1, 0],
+        [0, 0],
+      ]);
+
+      expect(await rate(null)).toBe(true);
+      expect(await feedback()).toEqual([
+        [0, 0],
+        [0, 0],
+      ]);
+
+      // Eine neue Bewertung steht unter dem heutigen Workspace des Widgets
+      // und wird auch dort wieder abgezogen.
+      await rate(false);
+      expect(await feedback()).toEqual([
+        [0, 0],
+        [0, 1],
+      ]);
+      await rate(null);
+      expect(await feedback()).toEqual([
+        [0, 0],
+        [0, 0],
+      ]);
+    });
+
+    test("feedback_uebergaenge: ein Wechsel 👎 → 👍 bleibt auf der Zeile, auf der die Bewertung steht", async () => {
+      await moveWithinHour(false);
+      expect(await feedback()).toEqual([
+        [0, 1],
+        [0, 0],
+      ]);
+
+      await rate(true);
+      expect(await feedback()).toEqual([
+        [1, 0],
+        [0, 0],
+      ]);
+      await rate(false);
+      expect(await feedback()).toEqual([
+        [0, 1],
+        [0, 0],
+      ]);
+      await rate(null);
+      expect(await feedback()).toEqual([
+        [0, 0],
+        [0, 0],
+      ]);
+    });
+  });
 });
 
 describe("konversationen (AK-12)", () => {
