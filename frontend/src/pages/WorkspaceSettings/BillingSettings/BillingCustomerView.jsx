@@ -58,10 +58,12 @@ export default function BillingCustomerView({ workspace }) {
   // Format next reset date
   const formatNextReset = () => {
     if (cycleInfo?.nextReset) {
+      // Tagesmarke des Servers (00:00 UTC des Berliner Kalendertags)
       return new Date(cycleInfo.nextReset).toLocaleDateString("de-DE", {
         day: "numeric",
         month: "long",
         year: "numeric",
+        timeZone: "UTC",
       });
     }
     // Fallback to next month
