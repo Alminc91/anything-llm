@@ -19,7 +19,47 @@ const { MessageLedger } = require("./messageLedger");
  * @property {boolean} include
  */
 
+// Bewertungen (KIE-532): Der Endpunkt ist öffentlich, und jede gebuchte
+// Bewertung läuft durch die eine Reihe der Zählerbuch-Transaktionen, in der
+// auch die Chat-Speicherungen stehen. Deshalb zwei Grenzen - beide greifen
+// erst, nachdem die Chat-Zeile zu Widget und Sitzung gefunden wurde:
+// je Widget und Sitzung höchstens FEEDBACK_MAX_PER_WINDOW Bewertungen je
+// Minute, und höchstens FEEDBACK_MAX_PENDING Bewertungen gleichzeitig in der
+// Reihe.
+const FEEDBACK_WINDOW_MS = 60_000;
+const FEEDBACK_MAX_PER_WINDOW = 30;
+const FEEDBACK_MAX_PENDING = 32;
+const FEEDBACK_MAX_TRACKED_SESSIONS = 5_000;
+
+// Widget|Sitzung → { startedAt, count } des laufenden Zeitfensters
+const feedbackWindows = new Map();
+let pendingFeedback = 0;
+
+/**
+ * Zählt eine Bewertung im Zeitfenster von Widget und Sitzung.
+ * @returns {boolean} - false, wenn die Grenze je Sitzung überschritten ist
+ */
+function takeFeedbackSlot(embedId, sessionId) {
+  const now = Date.now();
+  const key = `${embedId}|${sessionId}`;
+  const current = feedbackWindows.get(key);
+  if (current && now - current.startedAt < FEEDBACK_WINDOW_MS) {
+    current.count += 1;
+    return current.count <= FEEDBACK_MAX_PER_WINDOW;
+  }
+
+  if (feedbackWindows.size >= FEEDBACK_MAX_TRACKED_SESSIONS)
+    for (const [tracked, window] of feedbackWindows)
+      if (now - window.startedAt >= FEEDBACK_WINDOW_MS)
+        feedbackWindows.delete(tracked);
+  feedbackWindows.set(key, { startedAt: now, count: 1 });
+  return true;
+}
+
 const EmbedChats = {
+  FEEDBACK_MAX_PER_WINDOW,
+  FEEDBACK_MAX_PENDING,
+
   /**
    * Legt eine Widget-Chat-Zeile an und zählt sie im Zählerbuch (KIE-532): +1
    * messages in der Zeile des Widgets für den Berliner Tag und die Berliner
@@ -271,6 +311,22 @@ const EmbedChats = {
   },
 
   /**
+   * Zeilenschlüssel einer Chat-Zeile aus einer Eingabe von außen: eine positive
+   * ganze Zahl, als Zahl oder als Ziffernfolge. Alles andere ist keine chatId.
+   * @param {*} value
+   * @returns {number|null}
+   */
+  parseChatId: function (value) {
+    const id =
+      typeof value === "string" && /^[1-9]\d{0,15}$/.test(value)
+        ? Number(value)
+        : value;
+    return typeof id === "number" && Number.isSafeInteger(id) && id > 0
+      ? id
+      : null;
+  },
+
+  /**
    * Setzt oder entfernt den Feedback-Score (👍/👎) für eine Embed-Antwort (KIE-504).
    * BOLA/IDOR-Härtung (analog KIE-505): die chatId wird zusätzlich an embed_id UND
    * session_id gebunden, damit eine geratene/geleakte chatId keine fremde Antwort
@@ -285,16 +341,48 @@ const EmbedChats = {
    * @param {{feedbackText?: string|null, feedbackReason?: string|null}} [opts] optionaler
    *   Freitext-Kommentar + 1-Klick-Grund bei 👎 (KIE-507). Nur gesetzte Felder werden
    *   geschrieben; wird die Bewertung entfernt (feedbackScore null), werden beide geleert.
-   * @returns {Promise<boolean>} true wenn genau eine Zeile aktualisiert wurde
+   * @returns {Promise<boolean>} true, wenn die Bewertung der Zeile jetzt dem Wunsch entspricht
    */
   updateFeedbackScore: async function (
     embedId = null,
     sessionId = null,
     chatId = null,
     feedbackScore = null,
+    opts = {}
+  ) {
+    const outcome = await EmbedChats.applyFeedback(
+      embedId,
+      sessionId,
+      chatId,
+      feedbackScore,
+      opts
+    );
+    return outcome === "updated";
+  },
+
+  /**
+   * Wie updateFeedbackScore, nennt aber den Ausgang - der Endpunkt
+   * unterscheidet damit "nichts gefunden" von "zu viele Anfragen".
+   *
+   * Der Endpunkt ist öffentlich. Bevor eine Zählerbuch-Transaktion entsteht
+   * (und damit die Reihe belegt, in der auch die Chat-Speicherungen stehen):
+   * - muss chatId eine positive ganze Zahl sein (sonst kein Datenbankzugriff),
+   * - wird die Zeile außerhalb der Reihe gelesen; ohne Treffer endet der Aufruf,
+   * - gelten die Grenzen je Sitzung und für die Reihe (siehe oben).
+   * Ändert sich die Bewertung nicht, gibt es nichts zu buchen: Kommentar und
+   * Grund werden dann ohne Transaktion geschrieben.
+   *
+   * @returns {Promise<"updated"|"not_found"|"rate_limited"|"busy"|"error">}
+   */
+  applyFeedback: async function (
+    embedId = null,
+    sessionId = null,
+    chatId = null,
+    feedbackScore = null,
     { feedbackText, feedbackReason } = {}
   ) {
-    if (!embedId || !sessionId || !chatId) return false;
+    const id = EmbedChats.parseChatId(chatId);
+    if (!embedId || !sessionId || id === null) return "not_found";
     try {
       const resolvedScore =
         feedbackScore === null ? null : Number(feedbackScore) === 1;
@@ -317,45 +405,86 @@ const EmbedChats = {
         data.feedbackReason = null;
       }
       const where = {
-        id: Number(chatId),
+        id,
         embed_id: Number(embedId),
         session_id: String(sessionId),
       };
-      return await MessageLedger.transaction(
-        { source: "embed_feedback", embedId: Number(embedId) },
-        async (tx) => {
-          const before = await tx.embed_chats.findFirst({
-            where,
-            select: {
-              id: true,
-              createdAt: true,
-              feedbackScore: true,
-              embed_config: { select: { workspace_id: true } },
-            },
-          });
-          if (!before) return false;
 
-          const result = await tx.embed_chats.updateMany({ where, data });
-          if (result.count !== 1) return false;
+      // Außerhalb der Reihe: Anfragen ohne Treffer (geratene chatId, fremde
+      // Session) kosten einen Lesezugriff und halten keine Speicherung auf.
+      const current = await prisma.embed_chats.findFirst({
+        where,
+        select: {
+          feedbackScore: true,
+          feedbackText: true,
+          feedbackReason: true,
+        },
+      });
+      if (!current) return "not_found";
+      if (!takeFeedbackSlot(where.embed_id, where.session_id))
+        return "rate_limited";
 
-          if (
-            before.feedbackScore !== resolvedScore &&
-            (await MessageLedger.isRowCounted(tx, "embed_chats", before.id))
-          )
-            await MessageLedger.adjustFeedback(tx, {
-              workspaceId: before.embed_config.workspace_id,
-              embedId: Number(embedId),
-              at: before.createdAt,
-              from: before.feedbackScore,
-              to: resolvedScore,
+      if (current.feedbackScore === resolvedScore) {
+        // Kein Übergang, nichts zu buchen. Die Bedingung auf feedbackScore
+        // hält eine gleichzeitig geänderte Bewertung heraus - die läuft dann
+        // unten durch die Transaktion.
+        const { feedbackScore: _unchanged, ...comment } = data;
+        if (Object.keys(comment).every((key) => comment[key] === current[key]))
+          return "updated";
+        const written = await prisma.embed_chats.updateMany({
+          where: { ...where, feedbackScore: resolvedScore },
+          data: comment,
+        });
+        if (written.count === 1) return "updated";
+      }
+
+      if (pendingFeedback >= FEEDBACK_MAX_PENDING) return "busy";
+      pendingFeedback += 1;
+      try {
+        const updated = await MessageLedger.transaction(
+          { source: "embed_feedback", embedId: where.embed_id },
+          async (tx) => {
+            const before = await tx.embed_chats.findFirst({
+              where,
+              select: {
+                id: true,
+                createdAt: true,
+                feedbackScore: true,
+                embed_config: { select: { workspace_id: true } },
+              },
             });
-          return true;
-        }
-      );
+            if (!before) return false;
+
+            const result = await tx.embed_chats.updateMany({ where, data });
+            if (result.count !== 1) return false;
+
+            if (
+              before.feedbackScore !== resolvedScore &&
+              (await MessageLedger.isRowCounted(tx, "embed_chats", before.id))
+            )
+              await MessageLedger.adjustFeedback(tx, {
+                workspaceId: before.embed_config.workspace_id,
+                embedId: where.embed_id,
+                at: before.createdAt,
+                from: before.feedbackScore,
+                to: resolvedScore,
+              });
+            return true;
+          }
+        );
+        return updated ? "updated" : "not_found";
+      } finally {
+        pendingFeedback -= 1;
+      }
     } catch (error) {
       console.error("updateFeedbackScore error:", error.message);
-      return false;
+      return "error";
     }
+  },
+
+  /** Nur für Tests: vergisst die Zeitfenster der Bewertungen. */
+  _resetFeedbackLimits: function () {
+    feedbackWindows.clear();
   },
 
   get: async function (clause = {}, limit = null, orderBy = null) {

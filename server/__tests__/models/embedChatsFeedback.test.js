@@ -20,7 +20,9 @@ const {
   removeTestDatabases,
   createWorkspace,
   createEmbed,
+  seedEmbedChats,
   ledgerRows,
+  eventsOf,
 } = require("../helpers/sqliteTestDatabase");
 const { MessageLedger } = require("../../models/messageLedger");
 const { EmbedChats } = require("../../models/embedChats");
@@ -40,6 +42,7 @@ let CHAT_ID;
 
 beforeEach(async () => {
   MessageLedger._resetCache();
+  EmbedChats._resetFeedbackLimits();
   db = await createTestDatabase();
   errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
   logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
@@ -58,8 +61,7 @@ beforeEach(async () => {
   CHAT_ID = chat.id;
 });
 afterEach(async () => {
-  errorSpy.mockRestore();
-  logSpy.mockRestore();
+  jest.restoreAllMocks();
   await db.close();
 });
 afterAll(() => removeTestDatabases());
@@ -371,5 +373,286 @@ describe("updateFeedbackScore — Freitext + Grund bei 👎 (KIE-507)", () => {
       feedbackReason: null,
     });
     expect(await ledgerRows(db.client)).toEqual(ledgerBefore);
+  });
+});
+
+// Der Endpunkt POST /embed/:embedId/:sessionId/feedback ist öffentlich. Jede
+// Zählerbuch-Transaktion belegt die eine Reihe, in der auch die
+// Chat-Speicherungen stehen; ein Fehler darin schreibt ein Ereignis.
+describe("updateFeedbackScore — nur passende Anfragen erreichen die Reihe des Zählerbuchs (KIE-532)", () => {
+  const INVALID_CHAT_IDS = [
+    "abc",
+    "1e999",
+    "12abc",
+    " 5",
+    "0",
+    "-1",
+    "1.0",
+    "99999999999999999999",
+    0,
+    -1,
+    1.5,
+    NaN,
+    Infinity,
+    2 ** 60,
+    true,
+    {},
+    { a: 1 },
+    [1, 2],
+  ];
+
+  test("ungültige chatId: kein Datenbankzugriff, keine Transaktion, kein Ereignis message_ledger_write_failed", async () => {
+    const readSpy = jest.spyOn(db.client.embed_chats, "findFirst");
+    const transactionSpy = jest.spyOn(MessageLedger, "transaction");
+    errorSpy.mockClear();
+
+    for (const chatId of [...INVALID_CHAT_IDS, [CHAT_ID]]) {
+      expect(EmbedChats.parseChatId(chatId)).toBeNull();
+      expect(
+        await EmbedChats.updateFeedbackScore(
+          EMBED_ID,
+          OWNER_SESSION,
+          chatId,
+          true
+        )
+      ).toBe(false);
+    }
+
+    expect(readSpy).not.toHaveBeenCalled();
+    expect(transactionSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(await eventsOf(db.client, "message_ledger_write_failed")).toEqual(
+      []
+    );
+    expect((await storedChat()).feedbackScore).toBeNull();
+    expect(await ledgerFeedback()).toEqual([0, 0]);
+  });
+
+  test("eine Ziffernfolge ist eine gültige chatId", async () => {
+    expect(EmbedChats.parseChatId(String(CHAT_ID))).toBe(CHAT_ID);
+    expect(EmbedChats.parseChatId(CHAT_ID)).toBe(CHAT_ID);
+    expect(EmbedChats.parseChatId(Number.MAX_SAFE_INTEGER)).toBe(
+      Number.MAX_SAFE_INTEGER
+    );
+    expect(
+      await EmbedChats.updateFeedbackScore(
+        EMBED_ID,
+        OWNER_SESSION,
+        String(CHAT_ID),
+        true
+      )
+    ).toBe(true);
+    expect((await storedChat()).feedbackScore).toBe(true);
+    expect(await ledgerFeedback()).toEqual([1, 0]);
+  });
+
+  test("ohne Treffer (geratene chatId, fremde Session, fremdes Widget) entsteht keine Transaktion", async () => {
+    const transactionSpy = jest.spyOn(MessageLedger, "transaction");
+    const clientSpy = jest.spyOn(db.client, "$transaction");
+
+    for (const [embedId, sessionId, chatId] of [
+      [EMBED_ID, OWNER_SESSION, 424242],
+      [EMBED_ID, ATTACKER_SESSION, CHAT_ID],
+      [OTHER_EMBED_ID, OWNER_SESSION, CHAT_ID],
+    ])
+      expect(
+        await EmbedChats.applyFeedback(embedId, sessionId, chatId, true)
+      ).toBe("not_found");
+
+    expect(transactionSpy).not.toHaveBeenCalled();
+    expect(clientSpy).not.toHaveBeenCalled();
+    expect((await storedChat()).feedbackScore).toBeNull();
+  });
+
+  test("unveränderte Bewertung: nichts zu buchen, keine Transaktion - Kommentar und Grund werden trotzdem gespeichert", async () => {
+    const transactionSpy = jest.spyOn(MessageLedger, "transaction");
+    const rate = (score, opts) =>
+      EmbedChats.updateFeedbackScore(
+        EMBED_ID,
+        OWNER_SESSION,
+        CHAT_ID,
+        score,
+        opts
+      );
+
+    // Übergang: eine Transaktion
+    expect(await rate(false, { feedbackText: "zu allgemein" })).toBe(true);
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+
+    // dieselbe Bewertung noch einmal, dann mit neuem Kommentar und Grund
+    expect(await rate(false)).toBe(true);
+    expect(
+      await rate(false, {
+        feedbackText: "Detail fehlt",
+        feedbackReason: "Zu ungenau",
+      })
+    ).toBe(true);
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(await storedChat()).toEqual({
+      feedbackScore: false,
+      feedbackText: "Detail fehlt",
+      feedbackReason: "Zu ungenau",
+    });
+    expect(await ledgerFeedback()).toEqual([0, 1]);
+
+    // Entfernen ist wieder ein Übergang, das Wiederholen nicht.
+    expect(await rate(null)).toBe(true);
+    expect(await rate(null)).toBe(true);
+    expect(transactionSpy).toHaveBeenCalledTimes(2);
+    expect(await ledgerFeedback()).toEqual([0, 0]);
+  });
+
+  test("ändert sich die Bewertung zwischen Lesen und Schreiben, wird der Übergang trotzdem gebucht", async () => {
+    await EmbedChats.updateFeedbackScore(
+      EMBED_ID,
+      OWNER_SESSION,
+      CHAT_ID,
+      true
+    );
+    expect(await ledgerFeedback()).toEqual([1, 0]);
+
+    // Das Lesen vor der Reihe sieht noch 👎: Eine zweite Anfrage hat die
+    // Bewertung inzwischen auf 👍 gesetzt.
+    jest.spyOn(db.client.embed_chats, "findFirst").mockResolvedValueOnce({
+      feedbackScore: false,
+      feedbackText: null,
+      feedbackReason: null,
+    });
+    expect(
+      await EmbedChats.updateFeedbackScore(
+        EMBED_ID,
+        OWNER_SESSION,
+        CHAT_ID,
+        false,
+        { feedbackText: "doch nicht" }
+      )
+    ).toBe(true);
+
+    expect(await storedChat()).toEqual({
+      feedbackScore: false,
+      feedbackText: "doch nicht",
+      feedbackReason: null,
+    });
+    expect(await ledgerFeedback()).toEqual([0, 1]);
+  });
+
+  test("je Widget und Sitzung höchstens FEEDBACK_MAX_PER_WINDOW Bewertungen je Minute; Anfragen ohne Treffer zählen nicht", async () => {
+    const { chat: otherChat } = await EmbedChats.new({
+      embedId: EMBED_ID,
+      prompt: "Frage",
+      sessionId: "andere-sitzung",
+    });
+    const startedAt = Date.now();
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(startedAt);
+    const rate = (score, sessionId = OWNER_SESSION, chatId = CHAT_ID) =>
+      EmbedChats.applyFeedback(EMBED_ID, sessionId, chatId, score);
+
+    // Eine fremde Session verbraucht nichts vom Fenster des Besitzers.
+    for (let i = 0; i < EmbedChats.FEEDBACK_MAX_PER_WINDOW + 5; i++)
+      expect(await rate(true, ATTACKER_SESSION)).toBe("not_found");
+
+    for (let i = 0; i < EmbedChats.FEEDBACK_MAX_PER_WINDOW; i++)
+      expect(await rate(i % 2 === 0)).toBe("updated");
+    const stored = await storedChat();
+    const ledger = await ledgerFeedback();
+    expect(stored.feedbackScore).toBe(false);
+    expect(ledger).toEqual([0, 1]);
+
+    // Die nächste Bewertung derselben Sitzung wird abgewiesen und ändert nichts.
+    const transactionSpy = jest.spyOn(MessageLedger, "transaction");
+    expect(await rate(true)).toBe("rate_limited");
+    expect(
+      await EmbedChats.updateFeedbackScore(
+        EMBED_ID,
+        OWNER_SESSION,
+        CHAT_ID,
+        null
+      )
+    ).toBe(false);
+    expect(transactionSpy).not.toHaveBeenCalled();
+    expect(await storedChat()).toEqual(stored);
+    expect(await ledgerFeedback()).toEqual(ledger);
+
+    // Eine andere Sitzung desselben Widgets ist nicht betroffen.
+    expect(await rate(true, "andere-sitzung", otherChat.id)).toBe("updated");
+
+    // Kurz vor Ablauf der Minute noch gesperrt, danach wieder frei.
+    nowSpy.mockReturnValue(startedAt + 59_999);
+    expect(await rate(true)).toBe("rate_limited");
+    nowSpy.mockReturnValue(startedAt + 60_000);
+    expect(await rate(true)).toBe("updated");
+    expect(await ledgerFeedback()).toEqual([2, 0]);
+  });
+
+  test("steht die Reihe, warten höchstens FEEDBACK_MAX_PENDING Bewertungen darin - weitere werden abgewiesen, Chat-Speicherungen nicht", async () => {
+    const REJECTED = 8;
+    await seedEmbedChats(
+      db.client,
+      Array.from(
+        { length: EmbedChats.FEEDBACK_MAX_PENDING + REJECTED },
+        (_, i) => ({
+          embed_id: EMBED_ID,
+          createdAt: new Date("2026-10-01T09:15:00+02:00"),
+          session_id: `sitzung-${i}`,
+        })
+      )
+    );
+    const chats = await db.client.embed_chats.findMany({
+      where: { session_id: { startsWith: "sitzung-" } },
+    });
+
+    // Die Reihe steht, z. B. hinter einer langen Thread-Verzweigung.
+    let release;
+    const blocker = MessageLedger.exclusive(
+      () => new Promise((resolve) => (release = resolve))
+    );
+    const settled = [];
+    const requests = chats.map((chat) =>
+      EmbedChats.applyFeedback(EMBED_ID, chat.session_id, chat.id, true).then(
+        (outcome) => {
+          settled.push(outcome);
+          return outcome;
+        }
+      )
+    );
+    for (let i = 0; i < 300 && settled.length < REJECTED; i++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    // Abgewiesen wird sofort, ohne auf die Reihe zu warten.
+    expect(settled).toEqual(Array(REJECTED).fill("busy"));
+
+    // Eine Chat-Speicherung stellt sich hinter die wartenden Bewertungen.
+    const saving = EmbedChats.new({
+      embedId: EMBED_ID,
+      prompt: "Frage",
+      sessionId: "neu",
+    });
+    release();
+    await blocker;
+
+    const outcomes = await Promise.all(requests);
+    expect(outcomes.filter((outcome) => outcome === "updated")).toHaveLength(
+      EmbedChats.FEEDBACK_MAX_PENDING
+    );
+    expect(outcomes.filter((outcome) => outcome === "busy")).toHaveLength(
+      REJECTED
+    );
+    expect((await saving).message).toBeNull();
+    expect(await ledgerFeedback()).toEqual([
+      EmbedChats.FEEDBACK_MAX_PENDING,
+      0,
+    ]);
+
+    // Die Reihe ist wieder frei: Eine vorhin abgewiesene Bewertung gelingt.
+    const unrated = await db.client.embed_chats.findFirst({
+      where: { session_id: { startsWith: "sitzung-" }, feedbackScore: null },
+    });
+    expect(
+      await EmbedChats.applyFeedback(
+        EMBED_ID,
+        unrated.session_id,
+        unrated.id,
+        true
+      )
+    ).toBe("updated");
   });
 });

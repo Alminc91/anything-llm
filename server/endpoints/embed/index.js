@@ -525,6 +525,10 @@ function embeddedEndpoints(app) {
   // feedback: true = 👍, false = 👎, null = Bewertung entfernen (Toggle).
   // BOLA/IDOR-Härtung (analog KIE-505): die chatId wird im Model an embed_id UND
   // die sessionId aus dem Pfad gebunden — eine geleakte chatId reicht nicht.
+  // KIE-532: Der Endpunkt ist öffentlich und jede gebuchte Bewertung belegt die
+  // Reihe der Zählerbuch-Transaktionen. chatId muss deshalb eine positive ganze
+  // Zahl sein (sonst 400, ohne Datenbankzugriff); zu viele Bewertungen einer
+  // Sitzung bzw. eine volle Reihe beantwortet das Model mit 429.
   app.post(
     "/embed/:embedId/:sessionId/feedback",
     [validEmbedConfig],
@@ -539,6 +543,12 @@ function embeddedEndpoints(app) {
           return response
             .status(400)
             .json({ success: false, error: "chatId is required." });
+        }
+        if (EmbedChats.parseChatId(chatId) === null) {
+          return response.status(400).json({
+            success: false,
+            error: "chatId must be a positive integer.",
+          });
         }
         // feedback muss true (👍), false (👎) oder null (entfernen) sein.
         if (feedback !== null && typeof feedback !== "boolean") {
@@ -560,14 +570,20 @@ function embeddedEndpoints(app) {
           }
         }
 
-        const success = await EmbedChats.updateFeedbackScore(
+        const outcome = await EmbedChats.applyFeedback(
           embed.id,
           sessionId,
           chatId,
           feedback,
           { feedbackText: comment, feedbackReason: reason }
         );
-        response.status(200).json({ success });
+        if (outcome === "rate_limited" || outcome === "busy") {
+          return response.status(429).json({
+            success: false,
+            error: "Too many feedback requests - try again later.",
+          });
+        }
+        response.status(200).json({ success: outcome === "updated" });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();

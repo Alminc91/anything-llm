@@ -134,6 +134,9 @@ let backfillComplete = false;
 let watermarkCaptured = false;
 // Workspace → Stunde (Epoche), in der zuletzt eine Abweichung gemeldet wurde
 const reportedMismatches = new Map();
+// Quelle|Workspace|Widget → Stunde (Epoche) des letzten Ereignisses
+// message_ledger_write_failed und Zahl der seither nicht gemeldeten Fehler
+const reportedWriteFailures = new Map();
 
 function emptyTableState(maxId) {
   return {
@@ -181,7 +184,8 @@ const MessageLedger = {
   /**
    * Führt work in einer interaktiven Transaktion aus, in der Chat-Zeile und
    * Zähler gemeinsam entstehen. Schlägt sie fehl, entsteht nichts von beidem,
-   * ein Ereignis message_ledger_write_failed wird geschrieben und der Fehler
+   * ein Ereignis message_ledger_write_failed wird geschrieben (höchstens
+   * einmal je Quelle, Workspace bzw. Widget und Stunde) und der Fehler
    * weitergereicht.
    *
    * Vor der ersten Transaktion wird der Wasserstand des Nachtrags
@@ -225,16 +229,37 @@ const MessageLedger = {
     }
   },
 
+  /**
+   * Schreibt das Ereignis message_ledger_write_failed, höchstens einmal je
+   * Quelle, Workspace bzw. Widget und Stunde: Ein anhaltender Fehler (oder
+   * jemand, der ihn von außen auslösen kann) soll das Ereignisprotokoll nicht
+   * füllen. Was dazwischen nicht gemeldet wurde, nennt das nächste Ereignis
+   * als suppressed; in der Konsole steht jeder Fehler.
+   */
   _logWriteFailed: async function (context = {}, error) {
     console.error(
       `\x1b[31m[MessageLedger]\x1b[0m Chat-Zeile und Zähler nicht geschrieben (${context?.source ?? "unbekannt"}): ${error?.message}`
     );
+    const source = context?.source ?? null;
+    const workspaceId = context?.workspaceId ?? null;
+    const embedId = context?.embedId ?? null;
+
+    const key = `${source}|${workspaceId}|${embedId}`;
+    const hourBucket = Math.floor(Date.now() / MS_PER_HOUR);
+    const last = reportedWriteFailures.get(key);
+    if (last?.hourBucket === hourBucket) {
+      last.suppressed += 1;
+      return;
+    }
+    reportedWriteFailures.set(key, { hourBucket, suppressed: 0 });
+
     const { EventLogs } = require("./eventLogs");
     await EventLogs.logEvent(EVENT_WRITE_FAILED, {
-      source: context?.source ?? null,
-      workspaceId: context?.workspaceId ?? null,
-      embedId: context?.embedId ?? null,
+      source,
+      workspaceId,
+      embedId,
       error: MessageLedger.errorSummary(error),
+      ...(last?.suppressed ? { suppressed: last.suppressed } : {}),
     });
   },
 
@@ -742,6 +767,7 @@ const MessageLedger = {
     backfillComplete = false;
     watermarkCaptured = false;
     reportedMismatches.clear();
+    reportedWriteFailures.clear();
   },
 };
 

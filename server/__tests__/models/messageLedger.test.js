@@ -824,6 +824,76 @@ describe("atomar (NAK-3)", () => {
     ).toHaveLength(1);
   });
 
+  test("atomar: das Ereignis wird je Quelle, Workspace bzw. Widget und Stunde höchstens einmal geschrieben; das nächste nennt, was dazwischen ausblieb", async () => {
+    const workspace = await createWorkspace(db.client);
+    const other = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    await breakLedger();
+    const startedAt = Date.now();
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(startedAt);
+    const fail = async (workspaceId) =>
+      expect(
+        (await WorkspaceChats.new({ workspaceId, prompt: "Hallo" })).chat
+      ).toBeNull();
+    const reported = async () =>
+      (await eventsOf(db.client, "message_ledger_write_failed")).map(
+        ({ metadata }) => [
+          metadata.source,
+          metadata.workspaceId,
+          metadata.embedId,
+          metadata.suppressed,
+        ]
+      );
+
+    // Ein anhaltender Fehler: vier gescheiterte Speicherungen, ein Ereignis.
+    for (let i = 0; i < 4; i++) await fail(workspace.id);
+    errorSpy.mockClear();
+    await fail(workspace.id);
+    expect(await reported()).toEqual([
+      ["workspace_chat", workspace.id, null, undefined],
+    ]);
+    // In der Konsole steht jeder Fehler.
+    expect(
+      errorSpy.mock.calls.filter(([text]) =>
+        String(text).includes("Chat-Zeile und Zähler nicht geschrieben")
+      )
+    ).toHaveLength(1);
+
+    // Ein anderer Workspace, eine andere Quelle und ein Widget melden für sich.
+    await fail(other.id);
+    await WorkspaceChats.bulkCreate([
+      { workspaceId: workspace.id, prompt: "a", response: "{}" },
+    ]);
+    for (let i = 0; i < 2; i++)
+      await EmbedChats.new({ embedId: embed.id, prompt: "a", sessionId: "s" });
+    expect(await reported()).toEqual([
+      ["workspace_chat", workspace.id, null, undefined],
+      ["workspace_chat", other.id, null, undefined],
+      ["thread_fork", workspace.id, null, undefined],
+      ["embed_chat", null, embed.id, undefined],
+    ]);
+
+    // Kurz vor dem Stundenwechsel noch still, in der nächsten Stunde wieder
+    // ein Ereignis - mit der Zahl der seither nicht gemeldeten Fehler.
+    const nextHour = (Math.floor(startedAt / 3600000) + 1) * 3600000;
+    nowSpy.mockReturnValue(nextHour - 1);
+    await fail(workspace.id);
+    expect(await reported()).toHaveLength(4);
+    nowSpy.mockReturnValue(nextHour);
+    await fail(workspace.id);
+    await fail(workspace.id);
+    expect((await reported()).slice(4)).toEqual([
+      ["workspace_chat", workspace.id, null, 5],
+    ]);
+    nowSpy.mockReturnValue(nextHour + 3600000);
+    await fail(workspace.id);
+    expect((await reported()).slice(5)).toEqual([
+      ["workspace_chat", workspace.id, null, 1],
+    ]);
+    nowSpy.mockRestore();
+    expect(await db.client.workspace_chats.count()).toBe(0);
+  });
+
   test("atomar: kein Zähler ohne Zeile - scheitert das Anlegen der Chat-Zeile, bleibt das Zählerbuch unverändert", async () => {
     const workspace = await createWorkspace(db.client);
     await WorkspaceChats.new({ workspaceId: workspace.id, prompt: "ok" });
