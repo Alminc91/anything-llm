@@ -1034,6 +1034,135 @@ describe("NAK-2 Bail-Kommando ohne Agent-Laufzeit", () => {
   });
 });
 
+// Unter dem Limit: Bricht der Nutzer ab, bevor die Agent-Laufzeit gestartet
+// ist, schließt das Bail-Kommando den Socket. Liefe der Handler danach weiter,
+// folgten ein LLM-Aufruf und eine gespeicherte Chat-Zeile (Verbrauch +1) für
+// eine Sitzung, die es nicht mehr gibt. Die Gegenprobe ohne Bail-Kommando ist
+// AK-3 unter_limit (Ablauf, Telemetrie, Chat-Zeilen und Verbrauch unverändert).
+describe("Sitzungsstart unter dem Limit endet vor der Agent-Laufzeit", () => {
+  const buildRuntime = AgentHandler.prototype.createAIbitat;
+  let createAIbitat;
+  let startAgentCluster;
+
+  beforeEach(() => {
+    createAIbitat = jest.spyOn(AgentHandler.prototype, "createAIbitat");
+    startAgentCluster = jest.spyOn(AgentHandler.prototype, "startAgentCluster");
+  });
+
+  afterEach(() => {
+    createAIbitat.mockRestore();
+    startAgentCluster.mockRestore();
+  });
+
+  async function invocationUnderLimit() {
+    const workspace = makeWorkspace({ messagesLimit: 100, chats: 3 });
+    const response = await sendGuiChat(workspace, AGENT_PROMPT);
+    return { workspace, uuid: response.events()[0].websocketUUID };
+  }
+
+  // Nach einem Abbruch vor dem Start: nichts gelaufen, nichts gezählt, nichts
+  // mehr am Socket – auch keine wartende Rückfrage mit 5-Minuten-Timer.
+  async function expectNoSession(socket, workspace) {
+    expect(socket.closed).toBe(true);
+    expect(socket.frames).toEqual([]);
+    expect(socket.listenerCount("message")).toBe(0);
+    expect(socket.handleFeedback).toBeUndefined();
+    expect(startAgentCluster).not.toHaveBeenCalled();
+    expect(mockAgentLlm.complete).not.toHaveBeenCalled();
+    expect(prisma.workspace_chats.create).not.toHaveBeenCalled();
+    expect(chatRows(workspace)).toHaveLength(3);
+    expect(await usage(workspace)).toBe(3);
+    expect(db.invocations[0].closed).toBe(true);
+  }
+
+  test("Bail-Kommando während der laufenden Startprüfung: kein Agent, kein LLM-Aufruf, keine Chat-Zeile, kein Verbrauch", async () => {
+    const { workspace, uuid } = await invocationUnderLimit();
+    // Die Zählabfrage der Startprüfung bleibt offen, bis der Test sie freigibt.
+    let releaseCheck;
+    const countRows = prisma.workspace_chats.count.getMockImplementation();
+    prisma.workspace_chats.count.mockImplementationOnce(async (args) => {
+      await new Promise((resolve) => (releaseCheck = resolve));
+      return countRows(args);
+    });
+
+    const socket = makeSocket();
+    const started = websocketHandler(socket, { params: { uuid } });
+    await settle();
+    expect(releaseCheck).toEqual(expect.any(Function));
+    expect(socket.listenerCount("message")).toBe(1);
+
+    bail(socket);
+    expect(socket.closed).toBe(true);
+    releaseCheck();
+    await started;
+    await settle();
+
+    expect(createAIbitat).not.toHaveBeenCalled();
+    expect(AgentHandler.created).toBe(0);
+    expect(Telemetry.sendTelemetry).not.toHaveBeenCalledWith(
+      "agent_chat_started"
+    );
+    await expectNoSession(socket, workspace);
+  });
+
+  test.each([
+    ["bevor die Laufzeit existiert", false],
+    ["nachdem die Laufzeit existiert", true],
+  ])(
+    "Bail-Kommando während createAIbitat (%s): startAgentCluster wird nicht aufgerufen",
+    async (_fall, runtimeExists) => {
+      const { workspace, uuid } = await invocationUnderLimit();
+      // createAIbitat bleibt offen, bis der Test es freigibt – der echte
+      // AgentHandler lädt dort Verlauf, Agenten und Plugins.
+      let releaseCreate;
+      createAIbitat.mockImplementationOnce(async function (args) {
+        if (runtimeExists) await buildRuntime.call(this, args);
+        await new Promise((resolve) => (releaseCreate = resolve));
+        if (!runtimeExists) await buildRuntime.call(this, args);
+      });
+
+      const socket = makeSocket();
+      const started = websocketHandler(socket, { params: { uuid } });
+      await settle();
+      expect(releaseCreate).toEqual(expect.any(Function));
+      expect(AgentHandler.created).toBe(runtimeExists ? 1 : 0);
+
+      expect(() => bail(socket)).not.toThrow();
+      expect(socket.closed).toBe(true);
+      releaseCreate();
+      await started;
+      await settle();
+
+      expect(createAIbitat).toHaveBeenCalledTimes(1);
+      await expectNoSession(socket, workspace);
+    }
+  );
+
+  test("wirft createAIbitat, hängt danach kein message-Listener mehr am Socket", async () => {
+    const { workspace, uuid } = await invocationUnderLimit();
+    createAIbitat.mockRejectedValueOnce(
+      new Error("Agent-Modell nicht eingerichtet")
+    );
+
+    const socket = await connect(uuid);
+
+    expect(socket.frames).toEqual([
+      { type: "wssFailure", content: "Agent-Modell nicht eingerichtet" },
+    ]);
+    expect(socket.closed).toBe(true);
+    expect(socket.listenerCount("message")).toBe(0);
+    expect(startAgentCluster).not.toHaveBeenCalled();
+    expect(db.invocations[0].closed).toBe(true);
+
+    // Ein echter Socket ist hier nur im Zustand CLOSING und stellt weiter zu.
+    expect(() => bail(socket)).not.toThrow();
+    await settle();
+    expect(socket.close).toHaveBeenCalledTimes(1);
+    expect(socket.frames).toHaveLength(1);
+    expect(chatRows(workspace)).toHaveLength(3);
+  });
+});
+
 // Die strikte Zählung ist dieselbe Zählfunktion wie im normalen Chat – nur mit
 // throwOnError. Ohne die Option bleibt sie fehlertolerant wie bisher.
 describe("NAK-2 Zählfehler: throwOnError der Limitprüfung", () => {

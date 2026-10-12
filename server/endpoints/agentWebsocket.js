@@ -91,12 +91,16 @@ function agentWebsocket(app) {
         return;
       });
 
+      // KIE-534: Merker für den ausdrücklichen Abbruch durch den Nutzer. Ein
+      // bloßer Verbindungsabbruch setzt ihn nicht und verhält sich wie bisher.
+      let bailed = false;
       socket.checkBailCommand = (data) => {
         const content = safeJsonParse(data)?.feedback;
         if (WEBSOCKET_BAIL_COMMANDS.includes(content)) {
           agentHandler.log(
             `User invoked bail command while processing. Closing session now.`
           );
+          bailed = true;
           // Vor createAIbitat (Startprüfung, Telemetrie, Verlauf) gibt es noch
           // keine Laufzeit. Der Wurf läge im message-Listener des Sockets, wo
           // ihn niemand abfängt – er würde den Serverprozess beenden.
@@ -119,11 +123,28 @@ function agentWebsocket(app) {
         return;
       }
 
+      // Bail-Kommando während der Startprüfung: Der Socket ist zu, der Handler
+      // liefe aber weiter – bis zum LLM-Aufruf und einer gespeicherten
+      // Chat-Zeile (Verbrauch +1) für eine Sitzung, die der Nutzer beendet hat.
+      if (bailed) {
+        socket.off("message", relayToSocket);
+        return;
+      }
+
       await Telemetry.sendTelemetry("agent_chat_started");
       await agentHandler.createAIbitat({ socket });
+      // Dasselbe, wenn das Bail-Kommando eintrifft, während die Laufzeit
+      // aufgebaut wird: Sie wird dann nicht mehr gestartet.
+      if (bailed) {
+        socket.off("message", relayToSocket);
+        return;
+      }
+
       await agentHandler.startAgentCluster();
     } catch (e) {
       console.error(e.message, e);
+      // Ohne Sitzung soll keine Nachricht mehr einen Listener treffen.
+      socket?.off("message", relayToSocket);
       socket?.send(JSON.stringify({ type: "wssFailure", content: e.message }));
       socket?.close();
     }
