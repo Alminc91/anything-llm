@@ -102,6 +102,19 @@ const websocket = {
             return;
           }
 
+          // KIE-534: Jede weitere Nutzernachricht zählt gegen das Kontingent des
+          // Workspaces. Der Endpunkt hängt die Prüfung an den Socket; liefert sie
+          // true, ist das Limit erreicht (oder die Prüfung fehlgeschlagen), der
+          // Client informiert und die Sitzung beendet – die Nachricht wird dann
+          // nicht mehr an den Agenten übergeben.
+          if (socket.checkMessagesLimit) {
+            // Die vorige Frage zählt erst, wenn das chat-history-Plugin ihre
+            // Zeile gespeichert hat. Antwortet der Client schneller, würde die
+            // Prüfung sonst noch den alten Verbrauch sehen.
+            await aibitat._pendingHistorySave;
+            if (await socket.checkMessagesLimit()) return;
+          }
+
           await aibitat.continue(feedback);
         });
 

@@ -12,7 +12,7 @@ const chatHistory = {
     return {
       name: this.name,
       setup: function (aibitat) {
-        aibitat.onMessage(async () => {
+        const saveLastExchange = async () => {
           try {
             const lastResponses = aibitat.chats.slice(-2);
             if (lastResponses.length !== 2) return;
@@ -39,6 +39,19 @@ const chatHistory = {
               response: last.content,
             });
           } catch {}
+        };
+
+        // KIE-534: Niemand wartet auf diesen Listener. Das laufende Speichern
+        // hängt deshalb am aibitat-Objekt, damit das Websocket-Plugin es vor
+        // der Limitprüfung der nächsten Nutzernachricht abwarten kann – erst
+        // die gespeicherte Zeile zählt als Verbrauch. Das Promise lehnt nie
+        // ab, saveLastExchange fängt jeden Fehler selbst.
+        aibitat.onMessage(() => {
+          const pending = aibitat._pendingHistorySave;
+          const save = saveLastExchange();
+          aibitat._pendingHistorySave = pending
+            ? pending.then(() => save)
+            : save;
         });
       },
       _store: async function (aibitat, { prompt, response } = {}) {

@@ -90,10 +90,12 @@ describe("countMessagesInDateRange - adjustment breakdown", () => {
       workspaceId: workspace.id,
       createdAt: { gte: start, lt: end },
     });
+    // KIE-534: throwOnError is always passed on; false keeps a failing count at 0
     expect(EmbedChats.countForWorkspaceInDateRange).toHaveBeenCalledWith(
       workspace.id,
       start,
-      end
+      end,
+      { throwOnError: false }
     );
   });
 });

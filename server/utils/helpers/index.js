@@ -570,9 +570,12 @@ function toChunks(arr, size) {
  * @param {Object} workspace - The workspace object
  * @param {Date} start - The start of the window (inclusive)
  * @param {Date} endExclusive - The end of the window (exclusive)
+ * @param {Object} options
+ * @param {boolean} options.throwOnError - KIE-534: If true, a failing count query rejects
+ * instead of being counted as 0 (default false: unchanged for normal chat and API paths)
  * @returns {Promise<MessageCountBreakdown>} - Breakdown of messages within the window
  */
-async function countMessagesInDateRange(workspace, start, endExclusive) {
+async function countMessagesInDateRange(workspace, start, endExclusive, { throwOnError = false } = {}) {
   const { WorkspaceChats } = require("../../models/workspaceChats");
   const { EmbedChats } = require("../../models/embedChats");
   const {
@@ -581,22 +584,27 @@ async function countMessagesInDateRange(workspace, start, endExclusive) {
 
   const [workspaceChatCount, embedChatCount, adjustmentsTotal] =
     await Promise.all([
-      WorkspaceChats.count({
-        workspaceId: workspace.id,
-        createdAt: {
-          gte: start,
-          lt: endExclusive,
+      WorkspaceChats.count(
+        {
+          workspaceId: workspace.id,
+          createdAt: {
+            gte: start,
+            lt: endExclusive,
+          },
         },
-      }),
+        { throwOnError }
+      ),
       EmbedChats.countForWorkspaceInDateRange(
         workspace.id,
         start,
-        endExclusive
+        endExclusive,
+        { throwOnError }
       ),
       WorkspaceMessageAdjustments.sumForWorkspaceInDateRange(
         workspace.id,
         start,
-        endExclusive
+        endExclusive,
+        { throwOnError }
       ),
     ]);
 
@@ -613,13 +621,14 @@ async function countMessagesInDateRange(workspace, start, endExclusive) {
  * Counts messages for a workspace for the current calendar month (Berlin time),
  * regardless of any cycle fields on the workspace.
  * @param {Object} workspace - The workspace object
+ * @param {Object} options - Passed on to countMessagesInDateRange (throwOnError)
  * @returns {Promise<MessageCountBreakdown>} - Breakdown of messages for the current month
  */
-async function countMessagesForCurrentMonth(workspace) {
+async function countMessagesForCurrentMonth(workspace, options = {}) {
   const { getBillingWindow } = require("./billingWindow");
   const { start, endExclusive } = getBillingWindow({ cycleStartDate: null });
 
-  return await countMessagesInDateRange(workspace, start, endExclusive);
+  return await countMessagesInDateRange(workspace, start, endExclusive, options);
 }
 
 /**
@@ -650,15 +659,19 @@ function getBillingWindowWithCycleInfo(workspace, now = new Date()) {
  * started yet. cycleInfo is only set while a cycle is running.
  * @param {Object} workspace - The workspace object
  * @param {Date} [now] - Reference time (default: now)
+ * @param {Object} options
+ * @param {boolean} options.throwOnError - KIE-534: If true, a failing count query rejects
+ * instead of being counted as 0 (see countMessagesInDateRange)
  * @returns {Promise<{messageCount: number, messagesLimit: number|null, contingent: string, adjustmentsTotal: number, cycleInfo: Object|null, billingWindow: import("./billingWindow").BillingWindow}>}
  */
-async function getMessageLimitInfo(workspace, now = new Date()) {
+async function getMessageLimitInfo(workspace, now = new Date(), { throwOnError = false } = {}) {
   const messagesLimit = workspace.messagesLimit; // Can be null
   const { billingWindow, cycleInfo } = getBillingWindowWithCycleInfo(workspace, now);
   const countBreakdown = await countMessagesInDateRange(
     workspace,
     billingWindow.start,
-    billingWindow.endExclusive
+    billingWindow.endExclusive,
+    { throwOnError }
   );
 
   const messageCount = countBreakdown.total;
@@ -874,6 +887,9 @@ function getWorkspaceMessageLimitErrorText(workspace, messagesLimit, language = 
  * @param {string} options.uuid - UUID to use for the response (or will generate new one)
  * @param {boolean} options.returnData - If true, returns the data instead of sending a response (for compatibility handlers)
  * @param {string} options.language - The language code for error messages (default: 'en')
+ * @param {boolean} options.throwOnError - KIE-534: If true, a database error while counting rejects
+ * instead of being counted as 0 messages. The agent entry points use this so a failed check ends the
+ * session instead of silently passing; default false keeps normal chat and API paths unchanged.
  * @returns {Promise<{limitReached: boolean, messageCount: number, messagesLimit: number|null, errorData: Object|null, cycleInfo: Object|null}>}
  */
 async function checkWorkspaceMessagesLimit(workspace, response, options = {}) {
@@ -885,11 +901,12 @@ async function checkWorkspaceMessagesLimit(workspace, response, options = {}) {
     attachments = [],
     uuid = uuidv4(),
     returnData = false,
-    language = 'de' // Default to German as requested
+    language = 'de', // Default to German as requested
+    throwOnError = false
   } = options;
 
   // Use the helper function to get consistent message limit info (cycle-aware)
-  const { messageCount, messagesLimit, contingent, cycleInfo, billingWindow } = await getMessageLimitInfo(workspace);
+  const { messageCount, messagesLimit, contingent, cycleInfo, billingWindow } = await getMessageLimitInfo(workspace, new Date(), { throwOnError });
   const { periodName, daysRemaining, formattedResetDate } = getMessageLimitResetInfo(billingWindow, cycleInfo);
 
   // Determine period info for logging

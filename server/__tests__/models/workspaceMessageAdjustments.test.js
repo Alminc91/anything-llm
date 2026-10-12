@@ -179,6 +179,52 @@ describe("WorkspaceMessageAdjustments.sumAmount / sumForWorkspaceInDateRange", (
       )
     ).toBe(0);
   });
+
+  // KIE-534: strict counting for the agent session's limit check
+  test("throwOnError passes a DB failure on instead of counting 0", async () => {
+    prisma.workspace_message_adjustments.aggregate.mockRejectedValue(
+      new Error("SQLITE_BUSY: database is locked")
+    );
+    await expect(
+      WorkspaceMessageAdjustments.sumForWorkspaceInDateRange(
+        5,
+        new Date(),
+        new Date(),
+        { throwOnError: true }
+      )
+    ).rejects.toThrow("SQLITE_BUSY");
+    await expect(
+      WorkspaceMessageAdjustments.sumAmount({}, { throwOnError: true })
+    ).rejects.toThrow("SQLITE_BUSY");
+  });
+
+  test("throwOnError still degrades to 0 when the table is missing (no table, no bookings)", async () => {
+    prisma.workspace_message_adjustments.aggregate.mockRejectedValue(
+      Object.assign(
+        new Error(
+          "The table `main.workspace_message_adjustments` does not exist in the current database."
+        ),
+        { code: "P2021" }
+      )
+    );
+    expect(
+      await WorkspaceMessageAdjustments.sumForWorkspaceInDateRange(
+        5,
+        new Date(),
+        new Date(),
+        { throwOnError: true }
+      )
+    ).toBe(0);
+  });
+
+  test("throwOnError does not change the sum when the query succeeds", async () => {
+    prisma.workspace_message_adjustments.aggregate.mockResolvedValue({
+      _sum: { amount: 12 },
+    });
+    expect(
+      await WorkspaceMessageAdjustments.sumAmount({}, { throwOnError: true })
+    ).toBe(12);
+  });
 });
 
 describe("WorkspaceMessageAdjustments.sumForWorkspaceInDateRange - Abrechnungsfenster (KIE-531)", () => {

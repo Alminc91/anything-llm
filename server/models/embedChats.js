@@ -364,12 +364,15 @@ const EmbedChats = {
    * @param {number} workspaceId
    * @param {Date} start - inclusive
    * @param {Date} endExclusive - exclusive
+   * @param {{throwOnError?: boolean}} [options] - KIE-534: true reicht einen
+   * Datenbankfehler weiter, statt ihn als 0 zu zählen (Limitprüfung der Agent-Sitzung).
    * @returns {Promise<number>}
    */
   countForWorkspaceInDateRange: async function (
     workspaceId,
     start,
-    endExclusive
+    endExclusive,
+    { throwOnError = false } = {}
   ) {
     try {
       const count = await prisma.embed_chats.count({
@@ -386,6 +389,7 @@ const EmbedChats = {
       return count;
     } catch (error) {
       console.error(error.message);
+      if (throwOnError) throw error;
       return 0;
     }
   },
