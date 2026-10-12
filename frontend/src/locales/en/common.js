@@ -1560,6 +1560,8 @@ const TRANSLATIONS = {
       "max-words-prompt-label": "Max Words (Request)",
       "max-words-prompt-desc": "Longest user request (outlier indicator)",
       "show-technical": "Show technical details",
+      "technical-note":
+        "Calculated from the conversation contents that still exist in the selected period – without deleted messages and messages cleared by the visitor. The figures above count every message.",
       "feedback-positive-label": "👍 Positive",
       "feedback-positive-desc": "Positively rated responses",
       "feedback-negative-label": "👎 Negative",
@@ -1583,6 +1585,100 @@ const TRANSLATIONS = {
       "GDPR data deletion active — retention {{days}} days, chats expire on {{expiryDate}}",
     "select-embed": "Select embed",
     "embed-label": "Embed #{{id}} ({{workspace}})",
+    "retention-line_one":
+      "Conversation contents are deleted after {{count}} day. The counts are kept.",
+    "retention-line_other":
+      "Conversation contents are deleted after {{count}} days. The counts are kept.",
+    "widget-label": "Widget",
+    "no-widget": {
+      title: "No widget yet",
+      description:
+        "As soon as a widget has been created and embedded under “Widgets”, its conversations appear here.",
+      link: "Go to widgets",
+    },
+    kpi: {
+      "aria-label": "Key figures for the selected period",
+      messages: "Messages",
+      conversations: "Conversations",
+      positive: "Positively rated responses",
+      negative: "Negatively rated responses",
+      "avg-per": {
+        hour: "Avg. {{value}} per hour",
+        day: "Avg. {{value}} per day",
+        week: "Avg. {{value}} per week",
+        month: "Avg. {{value}} per month",
+      },
+      "avg-per-conversation": "Avg. {{value}} messages per conversation",
+      "positive-share": "{{value}} % of rated responses",
+      "no-ratings": "No ratings",
+      "show-negative": "Show affected conversations",
+      "conversations-hint":
+        "Conversations started in the period. The list below only shows conversations whose contents still exist – the numbers may differ.",
+    },
+    chart: {
+      metric: {
+        messages: "Messages",
+        conversations: "Conversations",
+      },
+      "metric-switch": "Displayed measure",
+      per: {
+        hour: "per hour",
+        day: "per day",
+        week: "per week",
+        month: "per month",
+      },
+      "as-table": "As table",
+      "counts-since": "Counts are available from {{date}}",
+      summary:
+        "Column chart: {{metric}} {{per}}, {{from}} to {{to}}. Total {{total}}, highest value {{max}}.",
+      "keyboard-hint": "Use the arrow keys to move between the columns.",
+      "filter-hint":
+        "Enter shows only the conversations of this section in the list.",
+      tooltip: "{{period}} — {{value}}",
+      value: {
+        messages_one: "{{formatted}} message",
+        messages_other: "{{formatted}} messages",
+        conversations_one: "{{formatted}} conversation",
+        conversations_other: "{{formatted}} conversations",
+      },
+      period: {
+        hour: "{{day}}, {{from}}:00–{{to}}:00",
+        week: "CW {{week}}",
+        "week-range": "{{period}} ({{start}}–{{end}})",
+        "partial-from": "{{period}} – from {{start}}",
+        "partial-until": "{{period}} – until {{end}}",
+        "partial-between": "{{period}} – {{start}} to {{end}}",
+      },
+      tick: {
+        hour: "{{hour}}:00",
+      },
+      empty: {
+        range: "No messages in the selected period",
+        conversations: "No conversation was started in the selected period",
+        widget:
+          "No messages have been counted for this widget yet. Check under “Widgets” whether it is embedded and active.",
+        "widget-link": "Go to widgets",
+        error: "The counts could not be loaded.",
+      },
+      table: {
+        caption: "Messages and conversations {{per}}",
+        period: "Period",
+        messages: "Messages",
+        conversations: "Conversations",
+        total: "Total",
+      },
+    },
+    list: {
+      title: "Conversations",
+      viewable_one: "{{formatted}} viewable",
+      viewable_other: "{{formatted}} viewable",
+      "viewable-hint":
+        "Conversations whose contents still exist and have not been cleared by the visitor. The key figure “Conversations” counts all conversations started in the period.",
+      "only-bucket": "Only {{period}}",
+      "clear-bucket": "Remove filter “{{period}}”",
+      "deleted-hint":
+        "Older contents were deleted according to the retention period.",
+    },
     conversations: {
       "seconds-ago": "a few seconds ago",
       "minutes-ago_one": "{{count}} minute ago",
@@ -1625,6 +1721,8 @@ const TRANSLATIONS = {
     all: "All Time",
     apply: "Apply",
     "custom-range": "Select period",
+    "last-30-days": "Last 30 days",
+    "last-12-months": "Last 12 months",
   },
   "code-snippet-modal": {
     title: "Copy Embed Code",

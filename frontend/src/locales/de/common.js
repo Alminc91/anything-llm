@@ -987,6 +987,8 @@ const TRANSLATIONS = {
       "max-words-prompt-label": "Max Wörter (Anfrage)",
       "max-words-prompt-desc": "Längste User-Anfrage (Outlier-Indikator)",
       "show-technical": "Technische Details anzeigen",
+      "technical-note":
+        "Berechnet aus den noch vorhandenen Konversationsinhalten im gewählten Zeitraum – ohne gelöschte und vom Besucher geleerte Nachrichten. Die Kennzahlen oben zählen dagegen jede Nachricht.",
       "feedback-positive-label": "👍 Positiv",
       "feedback-positive-desc": "Positiv bewertete Antworten",
       "feedback-negative-label": "👎 Negativ",
@@ -1010,6 +1012,101 @@ const TRANSLATIONS = {
       "DSGVO-Datenlöschung aktiv — Aufbewahrung {{days}} Tage, Chats verfallen am {{expiryDate}}",
     "select-embed": "Embed wählen",
     "embed-label": "Embed #{{id}} ({{workspace}})",
+    "retention-line_one":
+      "Konversationsinhalte werden nach {{count}} Tag gelöscht. Die Zählwerte bleiben erhalten.",
+    "retention-line_other":
+      "Konversationsinhalte werden nach {{count}} Tagen gelöscht. Die Zählwerte bleiben erhalten.",
+    "widget-label": "Widget",
+    "no-widget": {
+      title: "Noch kein Widget vorhanden",
+      description:
+        "Sobald unter „Widgets“ ein Widget angelegt und eingebunden ist, erscheinen hier seine Konversationen.",
+      link: "Zu den Widgets",
+    },
+    kpi: {
+      "aria-label": "Kennzahlen im gewählten Zeitraum",
+      messages: "Nachrichten",
+      conversations: "Konversationen",
+      positive: "Positiv bewertete Antworten",
+      negative: "Negativ bewertete Antworten",
+      "avg-per": {
+        hour: "Ø {{value}} pro Stunde",
+        day: "Ø {{value}} pro Tag",
+        week: "Ø {{value}} pro Woche",
+        month: "Ø {{value}} pro Monat",
+      },
+      "avg-per-conversation": "Ø {{value}} Nachrichten je Konversation",
+      "positive-share": "{{value}} % der bewerteten Antworten",
+      "no-ratings": "Keine Bewertungen",
+      "show-negative": "Betroffene Konversationen anzeigen",
+      "conversations-hint":
+        "Im Zeitraum begonnene Konversationen. Die Liste unten zeigt nur Konversationen, deren Inhalte noch vorhanden sind – die Zahlen können sich unterscheiden.",
+    },
+    chart: {
+      metric: {
+        messages: "Nachrichten",
+        conversations: "Konversationen",
+      },
+      "metric-switch": "Dargestellte Größe",
+      per: {
+        hour: "pro Stunde",
+        day: "pro Tag",
+        week: "pro Woche",
+        month: "pro Monat",
+      },
+      "as-table": "Als Tabelle",
+      "counts-since": "Zählwerte liegen ab {{date}} vor",
+      summary:
+        "Säulendiagramm: {{metric}} {{per}}, {{from}} bis {{to}}. Summe {{total}}, höchster Wert {{max}}.",
+      "keyboard-hint": "Mit den Pfeiltasten wechseln Sie zwischen den Säulen.",
+      "filter-hint":
+        "Die Eingabetaste zeigt in der Liste nur die Konversationen dieses Abschnitts.",
+      tooltip: "{{period}} — {{value}}",
+      value: {
+        messages_one: "{{formatted}} Nachricht",
+        messages_other: "{{formatted}} Nachrichten",
+        conversations_one: "{{formatted}} Konversation",
+        conversations_other: "{{formatted}} Konversationen",
+      },
+      period: {
+        hour: "{{day}}, {{from}}–{{to}} Uhr",
+        week: "KW {{week}}",
+        "week-range": "{{period}} ({{start}}–{{end}})",
+        "partial-from": "{{period}} – ab {{start}}",
+        "partial-until": "{{period}} – bis {{end}}",
+        "partial-between": "{{period}} – {{start}} bis {{end}}",
+      },
+      tick: {
+        hour: "{{hour}} Uhr",
+      },
+      empty: {
+        range: "Keine Nachrichten im gewählten Zeitraum",
+        conversations:
+          "Im gewählten Zeitraum wurde keine Konversation begonnen",
+        widget:
+          "Für dieses Widget wurden noch keine Nachrichten gezählt. Ob es eingebunden und aktiv ist, sehen Sie unter „Widgets“.",
+        "widget-link": "Zu den Widgets",
+        error: "Die Zählwerte konnten nicht geladen werden.",
+      },
+      table: {
+        caption: "Nachrichten und Konversationen {{per}}",
+        period: "Zeitabschnitt",
+        messages: "Nachrichten",
+        conversations: "Konversationen",
+        total: "Summe",
+      },
+    },
+    list: {
+      title: "Konversationen",
+      viewable_one: "{{formatted}} einsehbar",
+      viewable_other: "{{formatted}} einsehbar",
+      "viewable-hint":
+        "Konversationen, deren Inhalte noch vorhanden und nicht vom Besucher geleert sind. Die Kennzahl „Konversationen“ zählt dagegen alle im Zeitraum begonnenen.",
+      "only-bucket": "Nur {{period}}",
+      "clear-bucket": "Filter „{{period}}“ aufheben",
+      "deleted-hint":
+        "Ältere Inhalte wurden gemäß Aufbewahrungsfrist gelöscht.",
+    },
     conversations: {
       "seconds-ago": "vor wenigen Sekunden",
       "minutes-ago_one": "vor {{count}} Minute",
@@ -1633,6 +1730,8 @@ const TRANSLATIONS = {
     all: "Gesamt",
     apply: "Anwenden",
     "custom-range": "Zeitraum wählen",
+    "last-30-days": "Letzte 30 Tage",
+    "last-12-months": "Letzte 12 Monate",
   },
   home: {
     welcome: "Willkommen",
