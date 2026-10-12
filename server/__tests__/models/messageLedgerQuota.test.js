@@ -202,8 +202,11 @@ describe("loeschpfade_halten_stand (AK-3)", () => {
     const workspace = await cycleWorkspace({ messagesLimit: 1000 });
     const first = await createEmbed(db.client, workspace);
     const second = await createEmbed(db.client, workspace);
+    // admin: Seit KIE-533 prüfen die Widget-Endpunkte die Rolle im Handler
+    // ("Chats löschen" nur admin und manager, ein Default-User nur in Widgets
+    // seiner Workspaces). Hier löscht, wer alle diese Wege gehen darf.
     const user = await db.client.users.create({
-      data: { username: "anna", password: "x" },
+      data: { username: "anna", password: "x", role: "admin" },
     });
     const thread = await db.client.workspace_threads.create({
       data: {
