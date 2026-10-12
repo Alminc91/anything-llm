@@ -6,6 +6,7 @@ const {
   berlinMidnight,
   dayToMarker,
 } = require("../utils/helpers/billingWindow");
+const { timelineLayout } = require("../utils/helpers/ledgerTimeline");
 
 /**
  * Zählerbuch (KIE-532) - die eine Quelle für Kontingent und Statistik.
@@ -34,6 +35,9 @@ const {
  * message_ledger_backfill) wird ebenfalls hier geführt, weil Schreib- und
  * Lesepfad sie brauchen. Den Nachtrag selbst führt
  * utils/boot/messageLedgerBackfill.js aus.
+ *
+ * Die Auswertung „Konversationen" (KIE-536) liest Kennzahlen und Zeitreihe
+ * eines Widgets hier (timelineForEmbed, firstDayForEmbed). Sie liest nur.
  */
 
 /**
@@ -47,6 +51,14 @@ const {
  * @property {number} [conversationsStarted]
  * @property {number} [feedbackPositive]
  * @property {number} [feedbackNegative]
+ */
+
+/**
+ * @typedef {Object} EmbedCounts
+ * @property {number} messages
+ * @property {number} conversations - begonnene Konversationen
+ * @property {number} feedbackPositive
+ * @property {number} feedbackNegative
  */
 
 /**
@@ -660,6 +672,106 @@ const MessageLedger = {
       if (throwOnError) throw error;
       return 0;
     }
+  },
+
+  /**
+   * Kennzahlen und Zeitreihe eines Widgets (KIE-536) über die Berliner
+   * Kalendertage [fromDay, toDay], beide einschließlich. Die Körnung der
+   * Abschnitte bestimmt timelineLayout (utils/helpers/ledgerTimeline.js):
+   * ein einzelner Tag in Stunden, sonst Tage, Kalenderwochen oder Monate.
+   *
+   * Summen und Abschnitte entstehen aus derselben Abfrage: Jede gelesene
+   * Zeile geht in genau einen Abschnitt und in die Summen. Die Summe der
+   * Abschnitte ist damit immer die Kennzahl. Bewertungen gibt es nur als
+   * Summe, nicht je Abschnitt.
+   *
+   * Gezählt werden alle Zeilen mit der embed_id, unter welchem Workspace sie
+   * auch stehen: Nach dem Umhängen eines Widgets bleiben seine früheren
+   * Zeilen beim damaligen Workspace, gehören aber weiter zur Auswertung des
+   * Widgets - wie seine Konversationen in embed_chats. embed_id 0
+   * (Workspace-Chats) ist hier nie gemeint. Wirft bei Datenbankfehlern.
+   *
+   * @param {number} embedId
+   * @param {string} fromDay - "YYYY-MM-DD", einschließlich
+   * @param {string} toDay - "YYYY-MM-DD", einschließlich
+   * @param {import("@prisma/client").PrismaClient} [client]
+   * @returns {Promise<{granularity: "hour"|"day"|"week"|"month", totals: EmbedCounts, buckets: Array<import("../utils/helpers/ledgerTimeline").TimelineBucket & {messages: number, conversations: number}>}>}
+   */
+  timelineForEmbed: async function (embedId, fromDay, toDay, client = prisma) {
+    const id = Number(embedId);
+    if (!Number.isInteger(id) || id <= 0)
+      throw new Error(`MessageLedger: invalid embedId ${embedId}`);
+
+    const layout = timelineLayout(fromDay, toDay);
+    const groups = await client.message_ledger.groupBy({
+      by: [layout.granularity === "hour" ? "hour" : "day"],
+      where: { embed_id: id, day: { gte: fromDay, lte: toDay } },
+      _sum: {
+        messages: true,
+        conversations_started: true,
+        feedback_positive: true,
+        feedback_negative: true,
+      },
+    });
+
+    const totals = {
+      messages: 0,
+      conversations: 0,
+      feedbackPositive: 0,
+      feedbackNegative: 0,
+    };
+    const buckets = layout.buckets.map((bucket) => ({
+      ...bucket,
+      messages: 0,
+      conversations: 0,
+    }));
+    for (const group of groups) {
+      const bucket = buckets[layout.indexOf(group)];
+      if (!bucket)
+        throw new Error(
+          `MessageLedger: no bucket for ${group.day ?? group.hour}`
+        );
+      const messages = group._sum.messages ?? 0;
+      const conversations = group._sum.conversations_started ?? 0;
+      bucket.messages += messages;
+      bucket.conversations += conversations;
+      totals.messages += messages;
+      totals.conversations += conversations;
+      totals.feedbackPositive += group._sum.feedback_positive ?? 0;
+      totals.feedbackNegative += group._sum.feedback_negative ?? 0;
+    }
+
+    return { granularity: layout.granularity, totals, buckets };
+  },
+
+  /**
+   * Frühester Berliner Kalendertag, für den das Zählerbuch zu einem Widget
+   * Zählwerte führt (KIE-536) - unabhängig vom Workspace der Zeile. Davor
+   * gibt es für das Widget keine Statistik. Wirft bei Datenbankfehlern.
+   *
+   * @param {number} embedId
+   * @param {import("@prisma/client").PrismaClient} [client]
+   * @returns {Promise<string|null>} - "YYYY-MM-DD" oder null ohne Zählwerte
+   */
+  firstDayForEmbed: async function (embedId, client = prisma) {
+    const id = Number(embedId);
+    if (!Number.isInteger(id) || id <= 0)
+      throw new Error(`MessageLedger: invalid embedId ${embedId}`);
+
+    const first = await client.message_ledger.findFirst({
+      where: {
+        embed_id: id,
+        OR: [
+          { messages: { gt: 0 } },
+          { conversations_started: { gt: 0 } },
+          { feedback_positive: { gt: 0 } },
+          { feedback_negative: { gt: 0 } },
+        ],
+      },
+      orderBy: { day: "asc" },
+      select: { day: true },
+    });
+    return first?.day ?? null;
   },
 
   /**
