@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { isMobile } from "react-device-detect";
 import {
   ArrowLeft,
   FloppyDisk,
@@ -20,6 +21,7 @@ import {
   CaretUp,
   CopySimple,
 } from "@phosphor-icons/react";
+import Sidebar from "@/components/SettingsSidebar";
 import showToast from "@/utils/toast";
 import CTAButton from "@/components/lib/CTAButton";
 import Embed from "@/models/embed";
@@ -260,7 +262,26 @@ const TABS = [
 ];
 const TAB_LABELS = Object.fromEntries(TABS.map((t) => [t.id, t.label]));
 
+// Seitenrahmen des Design Centers: links die Einstellungs-Sidebar (dort ist
+// „Chatbot → Widgets" markiert, KIE-535), rechts Kopfzeile, Einstellungen und
+// Vorschau. Mobil liegt die Sidebar als feste Kopfleiste (h-16) über der
+// Seite – der Inhalt beginnt darunter.
 export default function EmbedAppearance() {
+  return (
+    <div className="w-screen h-screen flex bg-theme-bg-container overflow-hidden">
+      <Sidebar />
+      <div
+        className={`flex-1 min-w-0 h-full flex flex-col overflow-hidden ${
+          isMobile ? "pt-16" : ""
+        }`}
+      >
+        <DesignCenter />
+      </div>
+    </div>
+  );
+}
+
+function DesignCenter() {
   const { embedId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -488,7 +509,7 @@ export default function EmbedAppearance() {
   }
 
   return (
-    <div className="w-screen h-screen flex flex-col bg-theme-bg-container overflow-hidden">
+    <>
       {/* Header */}
       <div className="flex items-center px-6 pr-16 md:pr-24 pt-[2.25rem] pb-5 border-b border-white/10">
         <div className="flex items-center gap-3">
@@ -957,7 +978,7 @@ export default function EmbedAppearance() {
           />
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
