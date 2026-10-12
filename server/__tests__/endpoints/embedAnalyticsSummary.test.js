@@ -39,6 +39,13 @@ jest.mock("../../utils/files/embedLogo", () => ({
 
 // Setzt JWT_SECRET, bevor utils/http geladen wird.
 const { collectRoutes, invoke } = require("./support/routeHarness");
+// Adressen und Rümpfe, wie der Browser sie sendet - dieselben, gegen die das
+// Frontend geprüft ist.
+const {
+  ROUTES,
+  summaryBody,
+  conversationsBody,
+} = require("./support/embedAnalyticsRequests");
 const {
   createTestDatabase,
   removeTestDatabases,
@@ -54,8 +61,9 @@ const { EmbedConfig } = require("../../models/embedConfig");
 const { embedManagementEndpoints } = require("../../endpoints/embedManagement");
 
 const routes = collectRoutes(embedManagementEndpoints);
-const SUMMARY = routes["POST /embed/:embedId/analytics/summary"];
-const CONVERSATIONS = routes["POST /embed/:embedId/analytics/conversations"];
+const SUMMARY = routes[`${ROUTES.summary.method} ${ROUTES.summary.path}`];
+const CONVERSATIONS =
+  routes[`${ROUTES.conversations.method} ${ROUTES.conversations.path}`];
 const OVERVIEW = routes["POST /embed/:embedId/analytics/overview"];
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -231,10 +239,10 @@ describe("tage_mit_luecken (AK-1)", () => {
       10
     );
 
-    const result = await summary(embed, {
-      fromDay: "2026-09-13",
-      toDay: "2026-10-12",
-    });
+    const result = await summary(
+      embed,
+      summaryBody("2026-09-13", "2026-10-12")
+    );
 
     expect(result.statusCode).toBe(200);
     expect(result.body.success).toBe(true);
@@ -1314,6 +1322,164 @@ describe("kein_tagesversatz (NAK-4)", () => {
     expect(
       list.body.conversations.map((c) => c.conversation_id).sort()
     ).toEqual(["frueh", "spaet"]);
+  });
+});
+
+// ============================================================================
+// AK-7 — Klick auf eine Säule filtert die Liste: Tag, Kalenderwoche, Monat
+// ============================================================================
+describe("beginn_im_abschnitt (AK-7) über den Endpunkt", () => {
+  // Der Browser sendet den Abschnitt der Säule als Kalendertage; die Berliner
+  // Grenzen [00:00 des ersten Tages, 00:00 nach dem letzten) bildet der
+  // Endpunkt. Dazu wie immer den Zeitraum der Ansicht als Zeitstempel.
+  const VIEW = {
+    startDate: "2026-09-12T22:00:00.000Z",
+    endDate: "2026-11-12T22:59:59.999Z",
+  };
+
+  /** Je Eintrag eine Konversation, begonnen zur Berliner Wanduhrzeit. */
+  async function startConversations(embed, entries) {
+    for (const [name, day, hour, minute] of entries)
+      await chatAt(embed, berlinInstant(day, hour, minute), {
+        session_id: name,
+        conversation_id: name,
+      });
+  }
+
+  async function listed(embed, bucket, request = {}) {
+    const result = await conversations(
+      embed,
+      conversationsBody({ ...VIEW, ...request, bucket })
+    );
+    expect(result.statusCode).toBe(200);
+    expect(result.body.success).toBe(true);
+    const names = result.body.conversations.map((c) => c.conversation_id);
+    expect(result.body.totalCount).toBe(names.length);
+    return names.sort();
+  }
+
+  test("beginn_im_abschnitt: Kalenderwoche 05.10.-11.10. - Montag 00:00 bis Sonntag 23:59 Berliner Zeit, nicht nur der Montag", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    await startConversations(embed, [
+      ["a-so-2359", "2026-10-04", 23, 59],
+      ["b-mo-0000", "2026-10-05", 0, 0],
+      ["c-do-1200", "2026-10-08", 12, 0],
+      ["d-so-2359", "2026-10-11", 23, 59],
+      ["e-mo-0000", "2026-10-12", 0, 0],
+      ["f-mo-2359", "2026-10-12", 23, 59],
+      ["g-di-0000", "2026-10-13", 0, 0],
+    ]);
+    // Am Sonntag davor begonnen, in der Woche fortgesetzt: gehört zur Vorwoche.
+    await chatAt(embed, berlinInstant("2026-10-06", 9, 0), {
+      session_id: "a-so-2359",
+      conversation_id: "a-so-2359",
+    });
+
+    expect(
+      await listed(embed, { start: "2026-10-05", end: "2026-10-11" })
+    ).toEqual(["b-mo-0000", "c-do-1200", "d-so-2359"]);
+
+    // Angeschnittener Abschnitt „KW 42 - bis 12.10.": nur der Montag.
+    expect(
+      await listed(embed, { start: "2026-10-12", end: "2026-10-12" })
+    ).toEqual(["e-mo-0000", "f-mo-2359"]);
+
+    // Angeschnitten an beiden Enden: Dienstag bis Donnerstag der KW 41.
+    expect(
+      await listed(embed, { start: "2026-10-06", end: "2026-10-08" })
+    ).toEqual(["c-do-1200"]);
+
+    // Ohne Abschnitt: alle sieben.
+    expect(await listed(embed, null)).toHaveLength(7);
+  });
+
+  test("beginn_im_abschnitt: Monat 01.10.-31.10. - vom Ersten 00:00 bis zum Letzten 23:59, über die Zeitumstellung hinweg", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    await startConversations(embed, [
+      ["a-sep-30", "2026-09-30", 23, 59],
+      ["b-okt-01", "2026-10-01", 0, 0],
+      ["c-okt-12", "2026-10-12", 23, 59],
+      ["d-okt-13", "2026-10-13", 0, 0],
+      // 25.10.2026: Ende der Sommerzeit
+      ["e-okt-25", "2026-10-25", 2, 30],
+      ["f-okt-31", "2026-10-31", 23, 59],
+      ["g-nov-01", "2026-11-01", 0, 0],
+    ]);
+    // Sommerzeit am Anfang, Winterzeit am Ende des Monats.
+    expect(berlinInstant("2026-10-01", 0, 0).toISOString()).toBe(
+      "2026-09-30T22:00:00.000Z"
+    );
+    expect(berlinInstant("2026-11-01", 0, 0).toISOString()).toBe(
+      "2026-10-31T23:00:00.000Z"
+    );
+
+    expect(
+      await listed(embed, { start: "2026-10-01", end: "2026-10-31" })
+    ).toEqual(["b-okt-01", "c-okt-12", "d-okt-13", "e-okt-25", "f-okt-31"]);
+
+    // Angeschnittener Abschnitt „Oktober 2026 - bis 12.10."
+    expect(
+      await listed(embed, { start: "2026-10-01", end: "2026-10-12" })
+    ).toEqual(["b-okt-01", "c-okt-12"]);
+
+    // Nachbarmonate nennen je genau ihre eine Konversation.
+    expect(
+      await listed(embed, { start: "2026-09-01", end: "2026-09-30" })
+    ).toEqual(["a-sep-30"]);
+    expect(
+      await listed(embed, { start: "2026-11-01", end: "2026-11-30" })
+    ).toEqual(["g-nov-01"]);
+  });
+
+  test("beginn_im_abschnitt: Blättern und Feedback-Filter gelten innerhalb des Abschnitts", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    await startConversations(embed, [
+      ["a-vorwoche", "2026-10-04", 12, 0],
+      ["b-mo", "2026-10-05", 9, 0],
+      ["c-mi", "2026-10-07", 9, 0],
+      ["d-so", "2026-10-11", 9, 0],
+      ["e-folgewoche", "2026-10-12", 9, 0],
+    ]);
+    const week = { start: "2026-10-05", end: "2026-10-11" };
+
+    const first = await conversations(
+      embed,
+      conversationsBody({ ...VIEW, limit: 2, bucket: week })
+    );
+    expect(first.body.totalCount).toBe(3);
+    expect(first.body.hasMore).toBe(true);
+    // jüngste zuerst
+    expect(first.body.conversations.map((c) => c.conversation_id)).toEqual([
+      "d-so",
+      "c-mi",
+    ]);
+    const second = await conversations(
+      embed,
+      conversationsBody({ ...VIEW, offset: 2, limit: 2, bucket: week })
+    );
+    expect(second.body.hasMore).toBe(false);
+    expect(second.body.conversations.map((c) => c.conversation_id)).toEqual([
+      "b-mo",
+    ]);
+
+    // 👎 am Mittwoch und in der Folgewoche
+    for (const name of ["c-mi", "e-folgewoche"]) {
+      const chat = await db.client.embed_chats.findFirst({
+        where: { conversation_id: name },
+      });
+      expect(
+        await EmbedChats.updateFeedbackScore(embed.id, name, chat.id, false)
+      ).toBeTruthy();
+    }
+    expect(await listed(embed, week, { feedbackFilter: "negative" })).toEqual([
+      "c-mi",
+    ]);
+    expect(await listed(embed, week, { feedbackFilter: "positive" })).toEqual(
+      []
+    );
   });
 });
 
