@@ -358,10 +358,21 @@ const EmbedChats = {
     }
   },
 
+  /**
+   * Zählt die Embed-Chats eines Workspaces im halboffenen Fenster
+   * [start, endExclusive), passend zu getBillingWindow.
+   * @param {number} workspaceId
+   * @param {Date} start - inclusive
+   * @param {Date} endExclusive - exclusive
+   * @param {{throwOnError?: boolean}} [options] - KIE-534: true reicht einen
+   * Datenbankfehler weiter, statt ihn als 0 zu zählen (Limitprüfung der Agent-Sitzung).
+   * @returns {Promise<number>}
+   */
   countForWorkspaceInDateRange: async function (
     workspaceId,
-    startDate,
-    endDate
+    start,
+    endExclusive,
+    { throwOnError = false } = {}
   ) {
     try {
       const count = await prisma.embed_chats.count({
@@ -370,14 +381,15 @@ const EmbedChats = {
             workspace_id: workspaceId,
           },
           createdAt: {
-            gte: startDate,
-            lte: endDate,
+            gte: start,
+            lt: endExclusive,
           },
         },
       });
       return count;
     } catch (error) {
       console.error(error.message);
+      if (throwOnError) throw error;
       return 0;
     }
   },

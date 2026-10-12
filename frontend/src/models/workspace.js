@@ -590,7 +590,7 @@ const Workspace = {
   /**
    * Gets usage information for billing display
    * @param {string} slug - workspace slug
-   * @returns {Promise<{messageCount: number, messagesLimit: number|null, cycleInfo: object|null}>}
+   * @returns {Promise<{messageCount: number, messagesLimit: number|null, cycleInfo: object|null, resetInfo: {nextReset: string, daysRemaining: number}|null}>}
    */
   getUsageInfo: async function (slug) {
     return await fetch(`${API_BASE}/workspace/${slug}/usage`, {
@@ -603,7 +603,12 @@ const Workspace = {
       })
       .catch((e) => {
         console.error(e);
-        return { messageCount: 0, messagesLimit: null, cycleInfo: null };
+        return {
+          messageCount: 0,
+          messagesLimit: null,
+          cycleInfo: null,
+          resetInfo: null,
+        };
       });
   },
 

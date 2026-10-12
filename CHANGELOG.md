@@ -4,6 +4,27 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### KIE-534 — Kontingent: Limitprüfung für `@agent` im GUI-Chat (2026-10-12)
+
+- `@agent` umging das Nachrichtenlimit. Jetzt prüft `stream.js` das Limit vor dem Start einer Agent-Sitzung, und der Agent-WebSocket prüft es vor jeder weiteren Nutzernachricht. Am Limit erscheint dieselbe Meldung wie im normalen Chat; es entsteht keine Sitzung und keine Chat-Zeile.
+- Der Workspace wird je Prüfung frisch geladen (ein geändertes Limit gilt sofort); die Prüfung wartet, bis die vorige Antwortzeile gespeichert ist.
+- Kann der Verbrauch nicht gezählt werden, endet die Agent-Sitzung mit einer neutralen Meldung, statt mit Verbrauch 0 weiterzulaufen. Die Zählfunktionen kennen dafür die Option `throwOnError` (Standard `false`); normaler Chat, Embed und API verhalten sich unverändert.
+- Ein Bail-Kommando (`exit`) während des Sitzungsstarts beendet die Sitzung ohne Agent-Start und ohne Verbrauch. Bisher beendete ein solcher Frame vor dem Aufbau der Agent-Laufzeit den Serverprozess.
+- Keine Schemaänderung, keine neue Abhängigkeit. Weitere Absturzwege über fehlerhafte WebSocket-Frames (Bestand aus dem Upstream-Code): KIE-540.
+
+### KIE-531 — Kontingent: ein einheitliches Zyklusfenster in Berliner Zeit (2026-10-12)
+
+- Eine Funktion bestimmt das Abrechnungsfenster: `getBillingWindow` (`server/utils/helpers/billingWindow.js`). Fenster = `[Start 00:00 Berliner Zeit, nächster Start 00:00 Berliner Zeit)`, ausdrücklich `Europe/Berlin`, unabhängig von `TZ` des Containers. Zählung, Gutschriften/Abbuchungen, API und Abrechnungsansicht verwenden sie.
+- **Keine Lücke mehr am Zykluswechsel:** Bisher zählten Nachrichten und Buchungen am Reset-Tag zwischen 00:00 Uhr und 01:00/02:00 Uhr Berliner Zeit in keinem Zyklus. Sie zählen jetzt im neuen Zyklus.
+- **Der Reset-Tag wandert nicht mehr:** Start am 29.–31. fällt jeden Zyklus auf den Originaltag, soweit der Monat ihn hat (31.01. → 28.02., 31.03., 30.04. …). Bisher blieb er nach dem ersten kurzen Monat auf dem 28. hängen. **Betroffene Workspaces sehen ein anderes Reset-Datum.**
+- **Zyklusstart in der Zukunft:** Bis zum Starttag gilt der Berliner Kalendermonat mit dem gesetzten Limit (bisher zählte bis dahin nichts); mit dem Starttag beginnt der erste Zyklus bei 0. `cycleInfo` der API ist bis dahin `null`.
+- API-Felder unverändert in Name und Typ. `currentCycleStart`, `currentCycleEnd` (letzter Tag des Zyklus) und `nextReset` sind Tagesmarken: 00:00 UTC des Berliner Kalendertags, das ISO-Datum nennt also immer den richtigen Tag. `daysRemaining` zählt Kalendertage bis zum Reset.
+- Keine Schemaänderung, keine neue Abhängigkeit. Zählquelle bleibt die Live-Zählung (Zählerbuch: KIE-532).
+- **Abrechnungsansicht rechnet nicht mehr selbst:** `GET /workspace/:slug/usage` liefert zusätzlich `resetInfo` (`nextReset`, `daysRemaining`) für das laufende Fenster, auch im Kalendermonat und vor dem Zyklusstart – dieselben Werte wie die Sperrmeldung. Kunden- und Admin-Ansicht zeigen sie an; beginnt der erste Zyklus im laufenden Monat, ist der genannte Reset der Starttag. Die ungenutzte Altkomponente `CycleSettings` ist entfernt.
+- Die Limit-Meldung des OpenAI-kompatiblen Pfads wird aus demselben Fenster gebildet (`getWorkspaceMessageLimitErrorText`), nicht mehr aus dem Kalendermonat des Prozesses.
+- **Vor dem Rollout:** `server/scripts/quota-snapshot.js` (ohne laufenden Server gegen die SQLite-Datei) erstellt je einen Schnappschuss mit den bisherigen (`--mode legacy --legacy-tz <TZ des Containers>`) und den neuen Grenzen (`--mode current`), beide mit demselben `--now`; `compare` nennt je Abweichung die Ursache, listet Workspaces, die durch die neuen Grenzen ihr Limit erreichen, und endet bei einem unerklärten Unterschied mit Status 1. Eine eigene Liste nennt die Workspaces mit Starttag 29.–31., deren Zyklusstart oder nächster Reset wegen der bisherigen Klemmung auf einen anderen Tag fällt, auch bei unverändertem Stand. `compare` nimmt nur `legacy` → `current` mit demselben `--now` an; jede andere Paarung endet mit Status 2.
+- Tests in drei Zeitzonen: `yarn test:tz` (bzw. `cd server && yarn test`) lässt Jest mit `TZ=UTC`, `Europe/Berlin` und `America/New_York` laufen; die CI verwendet diesen Aufruf.
+
 ### KIE-535 — Navigation: Obermenüpunkt „Chatbot" statt „Werkzeuge → Chat-Widgets" (2026-10-12)
 
 - Einstellungs-Sidebar: neuer erster Block **Chatbot** mit **Widgets**, **Konversationen**, **Nachrichtentabelle** (vorher „Werkzeuge → Chat-Widgets" mit innerer Auswahlspalte „Widgets / Konversationen (neu) / Verlauf (klassisch)").

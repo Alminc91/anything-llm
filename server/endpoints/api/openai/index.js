@@ -26,6 +26,7 @@ const {
   parseLLMRequestOptionsForWorkspace,
   sendOpenAIInvalidRequestError,
 } = require("../../../utils/helpers/chat/llmRequestOptions");
+const { getBillingWindow } = require("../../../utils/helpers/billingWindow");
 
 /**
  * Builds the standardized quota/limit payload for a workspace.
@@ -72,29 +73,6 @@ async function buildWorkspaceLimitsPayload(workspace) {
         }
       : null,
   };
-}
-
-/**
- * Resolves the current billing window for a workspace — the active cycle when
- * cycle fields are set, otherwise the current calendar month. End date is
- * clamped to end-of-day, mirroring countMessagesInDateRange.
- * @param {Object} workspace - The workspace object
- * @returns {{startDate: Date, endDate: Date}}
- */
-function getCurrentBillingWindow(workspace) {
-  const now = new Date();
-  let startDate, endDate;
-  if (workspace.cycleStartDate) {
-    const { getCycleInfo } = require("../../../utils/helpers/cycleHelpers");
-    const cycleInfo = getCycleInfo(workspace);
-    startDate = new Date(cycleInfo.currentCycleStart);
-    endDate = new Date(cycleInfo.currentCycleEnd);
-  } else {
-    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  }
-  endDate.setHours(23, 59, 59, 999);
-  return { startDate, endDate };
 }
 
 function apiOpenAICompatibleEndpoints(app) {
@@ -792,8 +770,9 @@ function apiOpenAICompatibleEndpoints(app) {
 
         const clause = { workspaceId: workspace.id };
         if (currentCycle) {
-          const { startDate, endDate } = getCurrentBillingWindow(workspace);
-          clause.createdAt = { gte: startDate, lte: endDate };
+          // Dasselbe halboffene Fenster wie die Zählung (KIE-531)
+          const { start, endExclusive } = getBillingWindow(workspace);
+          clause.createdAt = { gte: start, lt: endExclusive };
         }
 
         const [adjustments, totalCount, adjustmentsTotal] = await Promise.all([

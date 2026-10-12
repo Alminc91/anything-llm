@@ -40,35 +40,19 @@ export default function BillingAdminView({ workspace }) {
     return date.toISOString().split("T")[0];
   };
 
-  // Calculate next reset date for display
-  const calculateNextReset = (startDate, durationMonths) => {
-    if (!startDate || !durationMonths) return null;
-
-    const start = new Date(startDate);
-    if (isNaN(start.getTime())) return null;
-
-    const now = new Date();
-    let cycleStart = new Date(start);
-
-    // Find current cycle start
-    while (addMonths(cycleStart, durationMonths) <= now) {
-      cycleStart = addMonths(cycleStart, durationMonths);
-    }
-
-    return addMonths(cycleStart, durationMonths);
-  };
-
-  // Add months with clamping (same logic as backend)
-  const addMonths = (date, months) => {
-    const originalDay = date.getDate();
-    const result = new Date(date);
-    result.setMonth(result.getMonth() + months);
-
-    if (result.getDate() !== originalDay) {
-      result.setDate(0);
-    }
-
-    return result;
+  // Reset-Tag aus den Serverwerten. Der Server liefert eine Tagesmarke
+  // (00:00 UTC des Berliner Kalendertags), deshalb in UTC formatieren:
+  // so stimmt der Tag unabhängig von der Zeitzone des Browsers.
+  const formatResetDay = (dateValue) => {
+    if (!dateValue) return null;
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) return null;
+    return date.toLocaleDateString("de-DE", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
   };
 
   const [cycleStartDate, setCycleStartDate] = useState(
@@ -81,7 +65,15 @@ export default function BillingAdminView({ workspace }) {
     workspace?.messagesLimit ?? ""
   );
 
-  const nextReset = calculateNextReset(cycleStartDate, cycleDurationMonths);
+  // Das Abrechnungsfenster bestimmt allein der Server (getBillingWindow),
+  // auch vor dem Zyklusstart: Bis dahin gilt der Kalendermonat, der spätestens
+  // am Starttag endet. Solange ungespeicherte Änderungen bestehen, passt sein
+  // Wert nicht zu den Eingaben; nach dem Speichern wird er neu geladen.
+  const resetInfo = usageData?.resetInfo;
+  const nextReset =
+    hasChanges || !cycleStartDate
+      ? null
+      : formatResetDay(resetInfo?.nextReset);
 
   const cycleDurationOptions = [
     { value: 1, label: t("billing.cycle.1-month") },
@@ -218,48 +210,48 @@ export default function BillingAdminView({ workspace }) {
                 </div>
               )}
 
-              {/* Cycle Info */}
-              {usageData.cycleInfo && (
+              {/* Reset of the current billing window (limited workspaces), plus cycle info while a cycle is running */}
+              {!!resetInfo && (!!usageData.cycleInfo || usageData.messagesLimit != null) && (
                 <div className="flex gap-x-8 pt-2">
                   <div>
                     <span className="text-white/60 text-xs block">{t("billing.admin.next-cycle-start")}</span>
                     <p className="text-white text-sm font-medium">
-                      {new Date(usageData.cycleInfo.nextReset).toLocaleDateString("de-DE", {
-                        day: "numeric",
-                        month: "long",
-                        year: "numeric",
-                      })}
+                      {formatResetDay(resetInfo.nextReset)}
                     </p>
                   </div>
                   <div>
                     <span className="text-white/60 text-xs block">{t("billing.admin.remaining")}</span>
                     <p className="text-white text-sm font-medium">
-                      {usageData.cycleInfo.daysRemaining} {usageData.cycleInfo.daysRemaining === 1 ? t("billing.admin.day") : t("billing.admin.days")}
+                      {resetInfo.daysRemaining} {resetInfo.daysRemaining === 1 ? t("billing.admin.day") : t("billing.admin.days")}
                     </p>
                   </div>
-                  <div>
-                    <span className="text-white/60 text-xs block">{t("billing.admin.cycle-duration")}</span>
-                    <p className="text-white text-sm font-medium">
-                      {(() => {
-                        const months = usageData.cycleInfo.cycleDurationMonths;
-                        switch (months) {
-                          case 1: return t("billing.cycle.1-month");
-                          case 2: return t("billing.cycle.2-months");
-                          case 3: return t("billing.cycle.3-months");
-                          case 4: return t("billing.cycle.4-months");
-                          case 6: return t("billing.cycle.6-months");
-                          case 12: return t("billing.cycle.12-months");
-                          default: return `${months} ${t("billing.cycle.months")}`;
-                        }
-                      })()}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-white/60 text-xs block">{t("billing.admin.current-cycle")}</span>
-                    <p className="text-white text-sm font-medium">
-                      {usageData.cycleInfo.cycleNumber}
-                    </p>
-                  </div>
+                  {usageData.cycleInfo && (
+                    <>
+                      <div>
+                        <span className="text-white/60 text-xs block">{t("billing.admin.cycle-duration")}</span>
+                        <p className="text-white text-sm font-medium">
+                          {(() => {
+                            const months = usageData.cycleInfo.cycleDurationMonths;
+                            switch (months) {
+                              case 1: return t("billing.cycle.1-month");
+                              case 2: return t("billing.cycle.2-months");
+                              case 3: return t("billing.cycle.3-months");
+                              case 4: return t("billing.cycle.4-months");
+                              case 6: return t("billing.cycle.6-months");
+                              case 12: return t("billing.cycle.12-months");
+                              default: return `${months} ${t("billing.cycle.months")}`;
+                            }
+                          })()}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-white/60 text-xs block">{t("billing.admin.current-cycle")}</span>
+                        <p className="text-white text-sm font-medium">
+                          {usageData.cycleInfo.cycleNumber}
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -361,11 +353,7 @@ export default function BillingAdminView({ workspace }) {
             <p className="text-sm text-white/60 mt-3">
               {t("billing.admin.next-cycle-start-label")}{" "}
               <span className="font-medium text-white">
-                {nextReset.toLocaleDateString("de-DE", {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })}
+                {nextReset}
               </span>
             </p>
           )}

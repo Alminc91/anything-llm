@@ -9,6 +9,9 @@ const prisma = require("../utils/prisma");
  * @property {Date} createdAt
  */
 
+// Prisma error code "The table does not exist in the current database".
+const TABLE_MISSING = "P2021";
+
 // Enterprise Billing: manual bookings against a workspace's message contingent.
 // Adjustments are counted inside the billing window (cycle or calendar month)
 // alongside real chats, so they expire automatically on cycle reset.
@@ -60,22 +63,33 @@ const WorkspaceMessageAdjustments = {
   },
 
   /**
-   * Sums adjustment amounts for a workspace within a date range.
+   * Sums adjustment amounts for a workspace within a billing window.
+   * The window is half-open [start, endExclusive), exactly like the chat
+   * counts (see getBillingWindow) — a booking belongs to exactly one window.
    * Returns 0 on any failure — billing counting must never break chats,
    * even if the table is missing (degrades to plain chat counting).
    * @param {number} workspaceId
-   * @param {Date} startDate - inclusive
-   * @param {Date} endDate - inclusive
+   * @param {Date} start - inclusive
+   * @param {Date} endExclusive - exclusive
+   * @param {{throwOnError?: boolean}} [options] - see sumAmount
    * @returns {Promise<number>}
    */
-  sumForWorkspaceInDateRange: async function (workspaceId, startDate, endDate) {
-    return await WorkspaceMessageAdjustments.sumAmount({
-      workspaceId: Number(workspaceId),
-      createdAt: {
-        gte: startDate,
-        lte: endDate,
+  sumForWorkspaceInDateRange: async function (
+    workspaceId,
+    start,
+    endExclusive,
+    options = {}
+  ) {
+    return await WorkspaceMessageAdjustments.sumAmount(
+      {
+        workspaceId: Number(workspaceId),
+        createdAt: {
+          gte: start,
+          lt: endExclusive,
+        },
       },
-    });
+      options
+    );
   },
 
   /**
@@ -114,9 +128,13 @@ const WorkspaceMessageAdjustments = {
   /**
    * Sums adjustment amounts matching a clause. Returns 0 on failure.
    * @param {Object} clause - Prisma where clause
+   * @param {{throwOnError?: boolean}} [options] - KIE-534: true reicht einen
+   * Datenbankfehler weiter, statt ihn als 0 zu zählen (Limitprüfung der Agent-Sitzung).
+   * Ausnahme bleibt die fehlende Tabelle: Ohne Tabelle gibt es keine Buchungen,
+   * 0 ist dann der richtige Wert und kein verschluckter Fehler.
    * @returns {Promise<number>}
    */
-  sumAmount: async function (clause = {}) {
+  sumAmount: async function (clause = {}, { throwOnError = false } = {}) {
     try {
       const result = await prisma.workspace_message_adjustments.aggregate({
         _sum: { amount: true },
@@ -125,6 +143,7 @@ const WorkspaceMessageAdjustments = {
       return result?._sum?.amount ?? 0;
     } catch (error) {
       console.error(error.message);
+      if (throwOnError && error?.code !== TABLE_MISSING) throw error;
       return 0;
     }
   },

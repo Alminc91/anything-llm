@@ -221,7 +221,13 @@ const WorkspaceChats = {
     }
   },
 
-  count: async function (clause = {}) {
+  /**
+   * @param {Object} clause - Prisma where clause
+   * @param {{throwOnError?: boolean}} [options] - KIE-534: true reicht einen
+   * Datenbankfehler weiter, statt ihn als 0 zu zählen (Limitprüfung der Agent-Sitzung).
+   * @returns {Promise<number>}
+   */
+  count: async function (clause = {}, { throwOnError = false } = {}) {
     try {
       const count = await prisma.workspace_chats.count({
         where: clause,
@@ -229,6 +235,7 @@ const WorkspaceChats = {
       return count;
     } catch (error) {
       console.error(error.message);
+      if (throwOnError) throw error;
       return 0;
     }
   },

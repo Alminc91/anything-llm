@@ -1114,7 +1114,8 @@ function workspaceEndpoints(app) {
 
   /**
    * Gets usage information for a workspace (billing display)
-   * Returns message count, limit, and cycle info
+   * Returns message count, limit, cycle info and the next reset of the
+   * current billing window (see getWorkspaceUsageInfo)
    */
   app.get(
     "/workspace/:slug/usage",
@@ -1122,26 +1123,9 @@ function workspaceEndpoints(app) {
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
-        const { getMessageLimitInfo } = require("../utils/helpers");
+        const { getWorkspaceUsageInfo } = require("../utils/helpers");
 
-        const usageInfo = await getMessageLimitInfo(workspace);
-
-        response.status(200).json({
-          messageCount: usageInfo.messageCount,
-          messagesLimit: usageInfo.messagesLimit,
-          contingent: usageInfo.contingent,
-          adjustmentsTotal: usageInfo.adjustmentsTotal,
-          cycleInfo: usageInfo.cycleInfo
-            ? {
-                cycleNumber: usageInfo.cycleInfo.cycleNumber,
-                cycleDurationMonths: usageInfo.cycleInfo.cycleDurationMonths,
-                currentCycleStart: usageInfo.cycleInfo.currentCycleStart,
-                currentCycleEnd: usageInfo.cycleInfo.currentCycleEnd,
-                nextReset: usageInfo.cycleInfo.nextReset,
-                daysRemaining: usageInfo.cycleInfo.daysRemaining,
-              }
-            : null,
-        });
+        response.status(200).json(await getWorkspaceUsageInfo(workspace));
       } catch (error) {
         console.error("Error fetching workspace usage:", error);
         response.sendStatus(500).end();

@@ -34,26 +34,13 @@ async function chatSync({
   // Since messageCount and messagesLimit are passed as parameters,
   // we're just checking if we're already at the limit
   if (messagesLimit !== null && messageCount >= messagesLimit) {
-    // Get more detailed error message with reset date from helpers
-    const now = new Date();
-    const monthName = now.toLocaleString("default", { month: "long" });
-    const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    const daysRemaining = lastDayOfMonth.getDate() - now.getDate();
-    const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-    // Format the reset date in the same way as in checkWorkspaceMessagesLimit
-    const formattedResetDate = new Intl.DateTimeFormat("de-DE", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }).format(resetDate);
-
-    const { getMessageLimitErrorText } = require("../helpers");
-    const errorMessage = getMessageLimitErrorText(
-      messagesLimit,
-      monthName,
-      daysRemaining,
-      formattedResetDate
+    // Meldung wie in checkWorkspaceMessagesLimit: Zeitraum, Resttage und
+    // Reset-Tag kommen aus dem Abrechnungsfenster des Workspaces
+    // (getBillingWindow), nicht aus dem Kalendermonat des Prozesses.
+    const { getWorkspaceMessageLimitErrorText } = require("../helpers");
+    const errorMessage = getWorkspaceMessageLimitErrorText(
+      workspace,
+      messagesLimit
     );
 
     return formatJSON(
@@ -363,26 +350,13 @@ async function streamChat({
   // Since messageCount and messagesLimit are passed as parameters,
   // we check if we're already at the limit
   if (messagesLimit !== null && messageCount >= messagesLimit) {
-    // Get more detailed error message with reset date from helpers
-    const now = new Date();
-    const monthName = now.toLocaleString("default", { month: "long" });
-    const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    const daysRemaining = lastDayOfMonth.getDate() - now.getDate();
-    const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-    // Format the reset date in the same way as in checkWorkspaceMessagesLimit
-    const formattedResetDate = new Intl.DateTimeFormat("de-DE", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }).format(resetDate);
-
-    const { getMessageLimitErrorText } = require("../helpers");
-    const errorMessage = getMessageLimitErrorText(
-      messagesLimit,
-      monthName,
-      daysRemaining,
-      formattedResetDate
+    // Meldung wie in checkWorkspaceMessagesLimit: Zeitraum, Resttage und
+    // Reset-Tag kommen aus dem Abrechnungsfenster des Workspaces
+    // (getBillingWindow), nicht aus dem Kalendermonat des Prozesses.
+    const { getWorkspaceMessageLimitErrorText } = require("../helpers");
+    const errorMessage = getWorkspaceMessageLimitErrorText(
+      workspace,
+      messagesLimit
     );
 
     const errorData = formatJSON(

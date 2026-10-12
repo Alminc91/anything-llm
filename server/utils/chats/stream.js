@@ -7,6 +7,9 @@ const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { grepAgents } = require("./agents");
 const {
+  WorkspaceAgentInvocation,
+} = require("../../models/workspaceAgentInvocation");
+const {
   grepCommand,
   VALID_COMMANDS,
   chatPrompt,
@@ -14,11 +17,14 @@ const {
   sourceIdentifier,
 } = require("./index");
 const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
-const {
-  startMetadataFilterResolution,
-} = require("./metadataFilterResolver");
+const { startMetadataFilterResolution } = require("./metadataFilterResolver");
 
 const VALID_CHAT_MODE = ["chat", "query"];
+
+// KIE-534: Meldung an den Client, wenn die Limitprüfung vor dem Start einer
+// Agent-Sitzung selbst fehlschlägt (Datenbankfehler).
+const AGENT_LIMIT_CHECK_FAILED =
+  "The message limit of this workspace could not be verified. The agent session was not started.";
 
 async function streamChatWithWorkspace(
   response,
@@ -42,6 +48,45 @@ async function streamChatWithWorkspace(
     );
     writeResponseChunk(response, data);
     return;
+  }
+
+  // KIE-534: Eine @agent-Nachricht verlässt diesen Ablauf gleich darunter – die
+  // Limitprüfung weiter unten wird für sie nie erreicht. Deshalb hier vorab mit
+  // derselben Funktion und derselben Meldung wie im normalen Chat prüfen, bevor
+  // eine Agent-Sitzung angelegt wird. Nachrichten ohne @agent sind nicht
+  // betroffen: Ihre Prüfung bleibt unverändert an der bisherigen Stelle.
+  if (WorkspaceAgentInvocation.parseAgents(updatedMessage).length > 0) {
+    const { checkWorkspaceMessagesLimit } = require("../helpers");
+    let limitReached;
+    try {
+      // throwOnError: Ein Datenbankfehler beim Zählen gilt hier nicht als
+      // Verbrauch 0 – sonst käme ein Workspace am Limit still durch.
+      ({ limitReached } = await checkWorkspaceMessagesLimit(
+        workspace,
+        response,
+        {
+          isStreaming: true,
+          writeResponseChunk,
+          attachments,
+          uuid,
+          throwOnError: true,
+        }
+      ));
+    } catch (e) {
+      // Ohne Ergebnis der Prüfung beginnt keine Sitzung. Der Client erhält eine
+      // neutrale Meldung statt des Datenbankfehlers.
+      console.error(e.message, e);
+      writeResponseChunk(response, {
+        id: uuid,
+        type: "abort",
+        textResponse: null,
+        sources: [],
+        close: true,
+        error: AGENT_LIMIT_CHECK_FAILED,
+      });
+      return;
+    }
+    if (limitReached) return;
   }
 
   // If is agent enabled chat we will exit this flow early.
