@@ -16,9 +16,10 @@ const MESSAGES_LIMIT_CHECK_FAILED =
  * KIE-534: Prüft das Nachrichtenlimit des Workspaces für eine Agent-Sitzung – mit
  * derselben Funktion wie der normale Chat, nur ohne HTTP-Antwortobjekt.
  * Ist das Limit erreicht, erhält der Client die Limit-Meldung des normalen Chats
- * und die Sitzung wird beendet. Schlägt die Prüfung selbst fehl, endet die Sitzung
- * mit einer Fehlermeldung. Ein Fehler verlässt diese Funktion nie: Sie läuft auch
- * im Interrupt-Listener des Websocket-Plugins, wo niemand ihn abfangen würde.
+ * und die Sitzung wird beendet. Schlägt die Prüfung selbst fehl (Workspace nicht
+ * ladbar, Datenbankfehler beim Zählen), endet die Sitzung mit einer Fehlermeldung.
+ * Ein Fehler verlässt diese Funktion nie: Sie läuft auch im Interrupt-Listener
+ * des Websocket-Plugins, wo niemand ihn abfangen würde.
  * @param {import("ws").WebSocket} socket
  * @param {AgentHandler} agentHandler
  * @returns {Promise<boolean>} true, wenn die Sitzung beendet wurde
@@ -27,10 +28,22 @@ async function closeOnMessagesLimit(socket, agentHandler) {
   let content;
   try {
     const { checkWorkspaceMessagesLimit } = require("../utils/helpers");
+    // Den Workspace je Prüfung frisch laden: agentHandler.invocation.workspace
+    // ist der Stand vom Verbindungsaufbau – ein inzwischen gesenktes oder
+    // erstmals gesetztes Limit (oder ein neuer Zyklus) bliebe sonst für die
+    // ganze Sitzung unbemerkt. Das frische Objekt dient nur dieser Prüfung.
+    const current = await WorkspaceAgentInvocation.getWithWorkspace({
+      uuid: String(agentHandler.invocation.uuid),
+    });
+    if (!current?.workspace)
+      throw new Error("Workspace of the agent invocation could not be loaded.");
+
+    // throwOnError: Ein Datenbankfehler beim Zählen gilt hier nicht als
+    // Verbrauch 0, sondern landet im catch-Zweig und beendet die Sitzung.
     const { limitReached, errorData } = await checkWorkspaceMessagesLimit(
-      agentHandler.invocation.workspace,
+      current.workspace,
       null,
-      { returnData: true }
+      { returnData: true, throwOnError: true }
     );
     if (!limitReached) return false;
 
