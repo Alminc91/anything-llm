@@ -2290,6 +2290,59 @@ describe("quota-snapshot: Vergleich Live-Zählung → Zählerbuch (KIE-532)", ()
     );
   });
 
+  test("vorher_nachher: gleicher Stand in einem anderen Fenster ist eine Abweichung", async () => {
+    const before = await snapshotOf("live");
+    const after = await snapshotOf("ledger");
+    // Zyklus ab 15.07., drei Monate
+    expect(after.workspaces[1].window).toEqual(
+      expect.objectContaining({
+        start: "2026-07-14T22:00:00.000Z",
+        endExclusive: "2026-10-14T22:00:00.000Z",
+      })
+    );
+    const withWindow = (window) => ({
+      ...after,
+      workspaces: [
+        after.workspaces[0],
+        {
+          ...after.workspaces[1],
+          window: { ...after.workspaces[1].window, ...window },
+        },
+      ],
+    });
+
+    for (const [window, text] of [
+      [
+        { start: "2026-07-13T22:00:00.000Z" },
+        "Fenster 2026-07-14T22:00:00.000Z – 2026-10-14T22:00:00.000Z → 2026-07-13T22:00:00.000Z – 2026-10-14T22:00:00.000Z",
+      ],
+      [
+        { endExclusive: "2026-10-15T22:00:00.000Z" },
+        "Fenster 2026-07-14T22:00:00.000Z – 2026-10-14T22:00:00.000Z → 2026-07-14T22:00:00.000Z – 2026-10-15T22:00:00.000Z",
+      ],
+    ]) {
+      const comparison = compareLedgerSnapshots(before, withWindow(window));
+      expect(comparison.ok).toBe(false);
+      expect(comparison.workspaces.map((ws) => ws.status)).toEqual([
+        "identical",
+        "different",
+      ]);
+      // Stand, Chats, Widget-Chats und Buchungen sind gleich geblieben.
+      expect(comparison.different[0]).toEqual(
+        expect.objectContaining({ id: 2, before: 1, after: 1, delta: 0 })
+      );
+      expect(
+        comparison.different[0].differences.map((entry) => entry.field)
+      ).toEqual(["window"]);
+      expect(comparison.different[0].message).toBe(
+        `[2] zwei: abweichend – ${text}`
+      );
+      expect(formatLedgerComparison(comparison)).toContain(
+        "Abweichung: Der Rollout darf nicht fortgesetzt werden."
+      );
+    }
+  });
+
   test("vorher_nachher: fehlende und nicht auswertbare Workspaces gelten als abweichend", async () => {
     const before = await snapshotOf("live");
     const after = await snapshotOf("ledger");
@@ -2594,6 +2647,70 @@ describe("quota-snapshot: Vorschlagsliste für bereits gelöschte Mengen (KIE-53
       "06.10.2026  Chats löschen, Widget 99: 8 Nachrichten"
     );
     expect(text).not.toContain("ruhig");
+  });
+
+  test("loeschmengen_vorschlag: Grenzen - eine Löschung genau am Fensterbeginn gehört zum Fenster, eine Frist genau am Fensterbeginn betrifft es nicht", () => {
+    // Fenster des Monats-Workspaces: ab 01.10. 00:00 Uhr Berliner Zeit
+    const windowStart = "2026-09-30T22:00:00.000Z";
+    const report = buildDeletedReport({
+      workspaces: [monthly],
+      embeds,
+      events: [
+        // einen Augenblick vor dem Fensterbeginn: voriges Fenster
+        event("embed_chats_cleared", "2026-09-30T21:59:59.999Z", {
+          embedId: 10,
+          deletedCount: 100,
+        }),
+        // genau am Fensterbeginn gelöscht
+        event("embed_chats_cleared", windowStart, {
+          embedId: 10,
+          deletedCount: 3,
+        }),
+        // Löschjob genau am Fensterbeginn; gelöscht wurde nur Älteres
+        event("embed_chats_auto_deleted", windowStart, {
+          embedId: 11,
+          deletedCount: 20,
+          cutoffDate: "2026-09-29T22:00:00.000Z",
+        }),
+        // Frist genau am Fensterbeginn: Alle gelöschten Zeilen sind älter.
+        event("embed_chats_auto_deleted", "2026-10-03T03:00:00+02:00", {
+          embedId: 10,
+          deletedCount: 7,
+          cutoffDate: windowStart,
+        }),
+        // Frist einen Augenblick nach dem Fensterbeginn
+        event("embed_chats_auto_deleted", "2026-10-04T03:00:00+02:00", {
+          embedId: 10,
+          deletedCount: 9,
+          cutoffDate: "2026-09-30T22:00:00.001Z",
+        }),
+        // genau am Bezugszeitpunkt
+        event("embed_chats_cleared", NOW.toISOString(), {
+          embedId: 11,
+          deletedCount: 2,
+        }),
+      ],
+      now: NOW,
+    });
+
+    expect(report.workspaces).toHaveLength(1);
+    expect(
+      report.workspaces[0].entries.map((entry) => [
+        entry.occurredAt,
+        entry.event,
+        entry.deletedCount,
+        entry.suggestedMax,
+      ])
+    ).toEqual([
+      [windowStart, "embed_chats_cleared", 3, 3],
+      [windowStart, "embed_chats_auto_deleted", 20, 0],
+      ["2026-10-03T01:00:00.000Z", "embed_chats_auto_deleted", 7, 0],
+      ["2026-10-04T01:00:00.000Z", "embed_chats_auto_deleted", 9, 9],
+      [NOW.toISOString(), "embed_chats_cleared", 2, 2],
+    ]);
+    expect(report.workspaces[0]).toEqual(
+      expect.objectContaining({ deletedTotal: 41, suggestedMax: 14 })
+    );
   });
 
   test("loeschmengen_vorschlag: ohne protokollierte Löschungen sagt die Ausgabe das ausdrücklich", () => {

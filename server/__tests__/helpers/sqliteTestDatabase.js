@@ -22,6 +22,7 @@
 // Servers arbeiten so ohne Änderung gegen die Testdatei.
 //
 // Die Dateien liegen unter os.tmpdir() und werden beim Schließen entfernt.
+const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -374,6 +375,25 @@ async function eventsOf(client, event) {
 }
 
 /**
+ * Zeilenzahl und Prüfsumme über alle Spalten aller Zeilen einer Tabelle.
+ * @param {import("@prisma/client").PrismaClient} client
+ * @param {string} table - fester Tabellenname, nie Eingabe von außen
+ * @returns {Promise<{rows: number, sha256: string}>}
+ */
+async function tableChecksum(client, table) {
+  const rows = await client.$queryRawUnsafe(
+    `SELECT * FROM "${table}" ORDER BY id`
+  );
+  const text = JSON.stringify(rows, (_key, value) =>
+    typeof value === "bigint" ? value.toString() : value
+  );
+  return {
+    rows: rows.length,
+    sha256: crypto.createHash("sha256").update(text).digest("hex"),
+  };
+}
+
+/**
  * Registriert Endpunkte an einer Fake-App und liefert je Route den letzten
  * Handler (ohne Middleware), wie in llmRequestOptionsEndpoints.test.js.
  */
@@ -438,6 +458,7 @@ module.exports = {
   berlinCell,
   berlinInstant,
   eventsOf,
+  tableChecksum,
   collectRoutes,
   mockRequest,
   mockResponse,

@@ -28,7 +28,6 @@ jest.mock("../../utils/PushNotifications", () => ({
   PushNotifications: { setupPushNotificationService: jest.fn() },
 }));
 
-const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -42,6 +41,7 @@ const {
   ledgerRows,
   berlinCell,
   eventsOf,
+  tableChecksum,
 } = require("../helpers/sqliteTestDatabase");
 const { MessageLedger } = require("../../models/messageLedger");
 const { WorkspaceChats } = require("../../models/workspaceChats");
@@ -889,20 +889,6 @@ async function seedRunningQuotas(client) {
   return await client.workspaces.findMany({ orderBy: { id: "asc" } });
 }
 
-/** Zeilenzahl und Prüfsumme über alle Spalten aller Zeilen einer Tabelle. */
-async function checksum(client, table) {
-  const rows = await client.$queryRawUnsafe(
-    `SELECT * FROM "${table}" ORDER BY id`
-  );
-  const text = JSON.stringify(rows, (_key, value) =>
-    typeof value === "bigint" ? value.toString() : value
-  );
-  return {
-    rows: rows.length,
-    sha256: crypto.createHash("sha256").update(text).digest("hex"),
-  };
-}
-
 const PROTECTED_TABLES = [
   "workspace_chats",
   "embed_chats",
@@ -1279,7 +1265,7 @@ describe("vorher_nachher und bestand_unveraendert (AK-10, NAK-1, NAK-2)", () => 
     await seedRunningQuotas(db.client);
     const before = {};
     for (const table of PROTECTED_TABLES)
-      before[table] = await checksum(db.client, table);
+      before[table] = await tableChecksum(db.client, table);
     expect(before.workspace_chats.rows).toBe(359);
     expect(before.embed_chats.rows).toBe(173);
     const tablesBefore = await db.client.$queryRaw`
@@ -1288,13 +1274,13 @@ describe("vorher_nachher und bestand_unveraendert (AK-10, NAK-1, NAK-2)", () => 
 
     await db.migrate();
     for (const table of PROTECTED_TABLES)
-      expect(await checksum(db.client, table)).toEqual(before[table]);
+      expect(await tableChecksum(db.client, table)).toEqual(before[table]);
 
     expect(
       (await runMessageLedgerBackfill({ ...quiet, batchSize: 50 })).ok
     ).toBe(true);
     for (const table of PROTECTED_TABLES)
-      expect(await checksum(db.client, table)).toEqual(before[table]);
+      expect(await tableChecksum(db.client, table)).toEqual(before[table]);
     expect(await db.client.message_ledger.count()).toBeGreaterThan(100);
 
     // Die Migration hat keine bestehende Tabelle umgebaut: Hinzugekommen ist
