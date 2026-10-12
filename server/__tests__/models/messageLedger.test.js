@@ -162,7 +162,10 @@ describe("zaehlt_je_pfad (AK-1)", () => {
       onMessage: (handler) => handlers.push(handler),
     };
     chatHistory.plugin().setup(aibitat);
-    await handlers[0]();
+    // KIE-534: Der Listener wartet nicht selbst; das laufende Speichern hängt
+    // am aibitat-Objekt.
+    handlers[0]();
+    await aibitat._pendingHistorySave;
     const agentChat = await db.client.workspace_chats.findFirst({
       where: { prompt: "@agent such etwas" },
     });
