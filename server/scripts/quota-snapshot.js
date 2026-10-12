@@ -247,13 +247,69 @@ function dayOfMonth(day) {
   return Number(day.slice(-2));
 }
 
+/** "2026-10-31" und "2026-10-30" liegen im selben Monat. */
+function sameMonth(dayA, dayB) {
+  return dayA.slice(0, -3) === dayB.slice(0, -3);
+}
+
+/**
+ * Starttag 29.–31.: Bisher blieb der Reset auf dem geklemmten Tag, jetzt fällt
+ * er auf den Originaltag, soweit der Monat ihn hat. Nennt, ob dadurch der
+ * Zyklusstart und der nächste Reset auf einen anderen Tag fallen als bisher.
+ *
+ * Verglichen werden Kalendertage, nicht Uhrzeiten. Steht der bisherige Reset
+ * am Tag des neuen Fensterbeginns nur noch aus (bisherige Lücke bzw. 00:00 UTC
+ * statt 00:00 Uhr Berliner Zeit), ist das derselbe Reset-Tag: Maßgeblich ist
+ * dann das bisherige Fenster, das mit diesem Reset beginnt.
+ *
+ * @returns {{shiftFromDay: number|null, shiftToDay: number|null, nextResetBefore: string|null, nextResetAfter: string|null}}
+ */
+function resetDayChanges({ workspace, legacy, current, legacyTimeZone }) {
+  const changes = {
+    shiftFromDay: null,
+    shiftToDay: null,
+    nextResetBefore: null,
+    nextResetAfter: null,
+  };
+  const sameCycle =
+    berlinDayOf(legacy.nextStart) === current.startDay
+      ? legacyWindow(workspace, legacy.nextStart, legacyTimeZone)
+      : legacy;
+
+  // Verschoben ist der Zyklusstart nur, wenn der bisherige Start im selben
+  // Monat auf einem anderen Tag lag als der neue. Der neue Start dieses Zyklus
+  // ist der Beginn des laufenden Fensters oder – hatte bisher schon der
+  // Folgezyklus begonnen (28.03. statt 31.03.) – dessen Ende. Ein bisheriger
+  // Start in einem anderen Monat ist ein anderer Zyklus, kein geklemmter Tag.
+  const legacyStartDay = berlinDayOf(sameCycle.start);
+  const newStartDay =
+    sameCycle.start < current.start
+      ? current.startDay
+      : current.endDayExclusive;
+  if (sameMonth(legacyStartDay, newStartDay)) {
+    changes.shiftFromDay = dayOfMonth(legacyStartDay);
+    changes.shiftToDay = dayOfMonth(newStartDay);
+  }
+
+  // Das betrifft den nächsten Reset auch dann, wenn das laufende Fenster am
+  // selben Tag begann (Start 31.03.: bisher 30.09. → 30.10., neu 30.09. →
+  // 31.10.).
+  const legacyNextStartDay = berlinDayOf(sameCycle.nextStart);
+  if (legacyNextStartDay !== current.endDayExclusive) {
+    changes.nextResetBefore = legacyNextStartDay;
+    changes.nextResetAfter = current.endDayExclusive;
+  }
+  return changes;
+}
+
 /**
  * Beschreibt, worin sich bisheriges und neues Fenster eines Workspaces
  * unterscheiden und wie viele Einheiten (Nachrichten plus Buchungsbeträge) in
  * den Abschnitten liegen, die nur eines der beiden Fenster enthält. Daraus
  * leitet compare die Ursache einer Abweichung ab. Bei Starttag 29.–31. steht
- * außerdem darin, ob der nächste Reset auf einen anderen Tag fällt als bisher
- * – auch dann, wenn beide Fenster am selben Tag begonnen haben.
+ * außerdem darin, ob Zyklusstart oder nächster Reset auf einen anderen Tag
+ * fallen als bisher – auch dann, wenn beide Fenster am selben Tag begonnen
+ * haben oder der Bezugszeitpunkt in der bisherigen Lücke liegt.
  *
  * @returns {Promise<Object>}
  */
@@ -283,6 +339,16 @@ async function describeTransition({
     nextResetAfter: null,
   };
 
+  // Solange der Kalendermonat gilt (Zyklusstart in der Zukunft), gibt es
+  // keinen Zyklus-Reset, der sich verschoben haben könnte.
+  const originDate = toValidDate(workspace.cycleStartDate);
+  const originDay = originDate ? dayOfMonth(berlinDayOf(originDate)) : null;
+  if (originDay !== null && originDay >= 29 && current.cycleNumber !== 0)
+    Object.assign(
+      transition,
+      resetDayChanges({ workspace, legacy, current, legacyTimeZone })
+    );
+
   // Nur wenn beide Fenster den Bezugszeitpunkt enthalten, unterscheiden sie
   // sich allein am Anfang. Sonst zählen sie verschiedene Zyklen.
   if (now < legacy.start || now >= legacy.endExclusive) {
@@ -299,27 +365,11 @@ async function describeTransition({
     return transition;
   }
 
-  const originDate = toValidDate(workspace.cycleStartDate);
-  const originDay = originDate ? dayOfMonth(berlinDayOf(originDate)) : null;
   const countUnits = async (start, endExclusive) =>
     start < endExclusive
       ? rawTotal(await countInWindow(workspace, start, endExclusive))
       : 0;
   const upToNow = new Date(now.getTime() + 1);
-
-  // Starttag 29.–31.: Bisher blieb der Reset auf dem geklemmten Tag, jetzt
-  // fällt er auf den Originaltag, soweit der Monat ihn hat. Das betrifft den
-  // nächsten Reset auch dann, wenn das laufende Fenster am selben Tag begann
-  // (Start 31.03.: bisher 30.09. → 30.10., neu 30.09. → 31.10.).
-  const legacyNextStartDay = berlinDayOf(legacy.nextStart);
-  if (
-    originDay !== null &&
-    originDay >= 29 &&
-    legacyNextStartDay !== current.endDayExclusive
-  ) {
-    transition.nextResetBefore = legacyNextStartDay;
-    transition.nextResetAfter = current.endDayExclusive;
-  }
 
   if (legacyStartDay === current.startDay) {
     if (current.start < legacy.start) {
@@ -337,21 +387,17 @@ async function describeTransition({
       const gapEnd = legacy.start < upToNow ? legacy.start : upToNow;
       transition.gapUnits = await countUnits(gapStart, gapEnd);
     }
-  } else if (originDay !== null && originDay >= 29) {
-    // Starttag 29.–31.: Der bisherige Start blieb auf dem geklemmten Tag.
-    // Entweder hat das neue Fenster später begonnen (die Tage dazwischen
-    // fallen heraus), oder es läuft noch bis zum Originaltag weiter (der
-    // bisher schon abgeschnittene Zyklus zählt noch mit).
+  } else if (transition.shiftFromDay !== null) {
+    // Der bisherige Start blieb auf dem geklemmten Tag. Entweder hat das neue
+    // Fenster später begonnen (die Tage dazwischen fallen heraus), oder es
+    // läuft noch bis zum Originaltag weiter (der bisher schon abgeschnittene
+    // Zyklus zählt noch mit).
     const newStartsLater = legacy.start < current.start;
     const [from, to] = newStartsLater
       ? [legacy.start, current.start]
       : [current.start, legacy.start];
     const units = await countUnits(from, to < upToNow ? to : upToNow);
     transition.shiftUnits = newStartsLater ? -units : units;
-    transition.shiftFromDay = dayOfMonth(legacyStartDay);
-    transition.shiftToDay = dayOfMonth(
-      newStartsLater ? current.startDay : current.endDayExclusive
-    );
   }
 
   return transition;

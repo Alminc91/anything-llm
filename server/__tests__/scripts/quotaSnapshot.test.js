@@ -608,6 +608,126 @@ describe("quota-snapshot: Vergleich", () => {
     expect(comparison.resetDayChanged.map((entry) => entry.id)).toEqual([5, 6]);
   });
 
+  test("reset_tag: Bezugszeitpunkt in der bisherigen Lücke – die Liste bleibt vollständig", async () => {
+    // 30.10.2026 00:30 Uhr, Start 31.03.: Bisher galt bis 02:00 Uhr noch das
+    // Fenster ab dem 30.09., der Reset stand am selben Tag an. Neu läuft das
+    // Fenster bis zum 31.10. – wie am Vortag, nur dass die Fenster hier nicht
+    // vergleichbar sind.
+    const endOfMarch = monthly(1, "start-31-03", "2026-03-31");
+    const rows = many(1, 25, "2026-10-05T10:00:00+02:00");
+    const expected = [
+      {
+        id: 1,
+        slug: "start-31-03",
+        name: "start-31-03",
+        fromDay: null,
+        toDay: null,
+        nextResetBefore: "2026-10-30",
+        nextResetAfter: "2026-10-31",
+      },
+    ];
+    for (const now of [
+      "2026-10-29T12:00:00+01:00",
+      "2026-10-30T00:30:00+01:00",
+    ]) {
+      const { before, after } = await snapshotPair({
+        workspaces: [endOfMarch],
+        rows,
+        now,
+      });
+      expect(before.workspaces[0].transition.comparable).toBe(
+        now.startsWith("2026-10-29")
+      );
+      const comparison = compareSnapshots(before, after);
+      expect(comparison.workspaces[0].message).toBe(
+        "[1] start-31-03: identisch (25)"
+      );
+      expect(comparison.resetDayChanged).toEqual(expected);
+      expect(formatComparison(comparison)).toContain(
+        "  [1] start-31-03: nächster Reset am 31.10.2026 statt am 30.10.2026"
+      );
+    }
+  });
+
+  test("reset_tag: in der bisherigen Lücke wird auch der verschobene Zyklusstart gelistet", async () => {
+    // 28.06.2026 00:30 Uhr, Start 31.01.: bisher 28.05. → 28.06. (der Reset
+    // steht noch aus), neu 31.05. → 30.06.
+    const { before, after } = await snapshotPair({
+      workspaces: [endOfMonth],
+      rows: many(3, 25, "2026-06-05T10:00:00+02:00"),
+      now: "2026-06-28T00:30:00+02:00",
+    });
+    expect(before.workspaces[0].transition).toMatchObject({
+      comparable: false,
+      shiftUnits: 0,
+    });
+    const comparison = compareSnapshots(before, after);
+    expect(comparison.workspaces[0].message).toBe(
+      "[3] monatsende: identisch (25)"
+    );
+    expect(comparison.workspaces[0].notes).toEqual([
+      "Zyklusstart verschoben vom 28. auf den 31. (ohne Auswirkung auf den Stand)",
+    ]);
+    expect(comparison.resetDayChanged).toEqual([
+      {
+        id: 3,
+        slug: "monatsende",
+        name: "Monatsende",
+        fromDay: 28,
+        toDay: 31,
+        nextResetBefore: "2026-06-28",
+        nextResetAfter: "2026-06-30",
+      },
+    ]);
+  });
+
+  test("reset_tag: steht der bisherige Reset am Tag des neuen Fensterbeginns nur noch aus, zählt der Reset danach", async () => {
+    // 30.09.2026 00:30 Uhr: Neu hat das Fenster um 00:00 Uhr begonnen, bisher
+    // begann es erst um 02:00 Uhr – derselbe Reset-Tag. Start 31.03.: Der
+    // Reset danach fällt neu auf den 31.10. statt auf den 30.10. Start 30.03.:
+    // nichts geändert.
+    const { before, after } = await snapshotPair({
+      workspaces: [
+        monthly(1, "start-31-03", "2026-03-31"),
+        monthly(2, "start-30-03", "2026-03-30"),
+      ],
+      rows: [],
+      now: "2026-09-30T00:30:00+02:00",
+    });
+    expect(before.workspaces[0].window).toMatchObject({
+      startDay: "2026-08-30",
+      endDayExclusive: "2026-09-30",
+    });
+    expect(after.workspaces[0].window.startDay).toBe("2026-09-30");
+    const comparison = compareSnapshots(before, after);
+    expect(comparison.ok).toBe(true);
+    expect(comparison.resetDayChanged).toEqual([
+      {
+        id: 1,
+        slug: "start-31-03",
+        name: "start-31-03",
+        fromDay: null,
+        toDay: null,
+        nextResetBefore: "2026-10-30",
+        nextResetAfter: "2026-10-31",
+      },
+    ]);
+  });
+
+  test("reset_tag: Zyklusstart in der Zukunft ist kein geänderter Reset-Tag", async () => {
+    // Start 31.12.2026, Stand 12.10.2026: Es gilt der Kalendermonat, einen
+    // Zyklus-Reset gibt es noch nicht.
+    const { before, after } = await snapshotPair({
+      workspaces: [monthly(1, "start-31-12", "2026-12-31")],
+      rows: [],
+      now: "2026-10-12T10:00:00+02:00",
+    });
+    expect(after.workspaces[0].window.cycleNumber).toBe(0);
+    const comparison = compareSnapshots(before, after);
+    expect(comparison.workspaces[0].status).toBe("identical");
+    expect(comparison.resetDayChanged).toEqual([]);
+  });
+
   test("reset_tag: verschobener Zyklusstart, dessen nächster Reset auf denselben Tag fällt", async () => {
     // 10.02.2027, Start 31.01.2026: bisher 28.01. → 28.02., neu 31.01. → 28.02.
     const { before, after } = await snapshotPair({
@@ -813,6 +933,64 @@ describe("quota-snapshot: Vergleich", () => {
     expect(comparison.ok).toBe(false);
     expect(comparison.workspaces[0].causes).toEqual([]);
     expect(comparison.workspaces[0].status).toBe("unexplained");
+  });
+
+  test("unerklaert_bricht_ab: Serverprozess lief in UTC – der Vorzyklus am Reset-Tag ist kein verschobener Zyklusstart (Starttag 30./31.)", async () => {
+    // 30.09.2026 00:30 Uhr Berliner Zeit: Mit TZ=UTC lief bis 02:00 Uhr noch
+    // der Zyklus ab dem 30.08., neu zählt schon der ab dem 30.09. Der bisherige
+    // Start lag auf keinem geklemmten Tag, also ist das keine benannte Ursache.
+    const workspaces = [
+      monthly(1, "start-31-03", "2026-03-31"),
+      monthly(2, "start-30-03", "2026-03-30"),
+    ];
+    const { before, after } = await snapshotPair({
+      workspaces,
+      rows: workspaces.flatMap((workspace) =>
+        many(workspace.id, 25, "2026-09-03T10:00:00+02:00")
+      ),
+      now: "2026-09-29T22:30:00Z",
+      legacyTimeZone: "UTC",
+    });
+    for (const entry of before.workspaces) {
+      expect(entry.window).toMatchObject({
+        startDay: "2026-08-30",
+        endDayExclusive: "2026-09-30",
+      });
+      expect(entry.transition).toMatchObject({
+        comparable: true,
+        shiftUnits: 0,
+        shiftFromDay: null,
+        shiftToDay: null,
+      });
+    }
+
+    const comparison = compareSnapshots(before, after);
+    expect(comparison.ok).toBe(false);
+    expect(comparison.workspaces.map((result) => result.message)).toEqual([
+      "[1] start-31-03: 25 → 0, -25, unerklärt: keine der benannten Ursachen",
+      "[2] start-30-03: 25 → 0, -25, unerklärt: keine der benannten Ursachen",
+    ]);
+    expect(comparison.workspaces.map((result) => result.causes)).toEqual([
+      [],
+      [],
+    ]);
+    // Der Reset am 30.09. ist bisher wie neu derselbe Tag. Gelistet wird nur
+    // Start 31.03., dessen Reset danach vom 30.10. auf den 31.10. fällt.
+    expect(comparison.resetDayChanged).toEqual([
+      {
+        id: 1,
+        slug: "start-31-03",
+        name: "start-31-03",
+        fromDay: null,
+        toDay: null,
+        nextResetBefore: "2026-10-30",
+        nextResetAfter: "2026-10-31",
+      },
+    ]);
+    const text = formatComparison(comparison);
+    expect(text).not.toContain("Zyklusstart verschoben");
+    expect(text).not.toContain("[2] start-30-03: nächster Reset");
+    expect(text).toContain("Ergebnis: 0 identisch, 0 erklärt, 2 unerklärt.");
   });
 
   test("unerklaert_bricht_ab: Zyklusstart in der Zukunft zählt jetzt den Kalendermonat", async () => {
