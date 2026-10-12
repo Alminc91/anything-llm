@@ -372,7 +372,11 @@ const EmbedChats = {
    * Ändert sich die Bewertung nicht, gibt es nichts zu buchen: Kommentar und
    * Grund werden dann ohne Transaktion geschrieben.
    *
+   * Parameter wie updateFeedbackScore.
    * @returns {Promise<"updated"|"not_found"|"rate_limited"|"busy"|"error">}
+   *   not_found: keine Chat-Zeile zu chatId, Widget und Sitzung (oder keine
+   *   gültige chatId); rate_limited: Grenze je Sitzung; busy: Reihe voll;
+   *   error: Schreibfehler
    */
   applyFeedback: async function (
     embedId = null,

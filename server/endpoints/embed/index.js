@@ -527,8 +527,8 @@ function embeddedEndpoints(app) {
   // die sessionId aus dem Pfad gebunden — eine geleakte chatId reicht nicht.
   // KIE-532: Der Endpunkt ist öffentlich und jede gebuchte Bewertung belegt die
   // Reihe der Zählerbuch-Transaktionen. chatId muss deshalb eine positive ganze
-  // Zahl sein (sonst 400, ohne Datenbankzugriff); zu viele Bewertungen einer
-  // Sitzung bzw. eine volle Reihe beantwortet das Model mit 429.
+  // Zahl sein (sonst 400, ohne Datenbankzugriff). Zu viele Bewertungen einer
+  // Sitzung bzw. eine volle Reihe meldet das Model; die Antwort ist dann 429.
   app.post(
     "/embed/:embedId/:sessionId/feedback",
     [validEmbedConfig],
