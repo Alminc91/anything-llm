@@ -327,6 +327,11 @@ async function say(socket, feedback) {
   await settle();
 }
 
+// Bail-Kommando außerhalb einer Rückfrage – so nimmt es der Endpunkt selbst an.
+function bail(socket) {
+  socket.emit("message", JSON.stringify({ feedback: "exit" }));
+}
+
 const agentReplies = (socket) =>
   socket.frames.filter((frame) => frame.from === "@agent");
 const failures = (socket) =>
@@ -952,6 +957,80 @@ describe("NAK-2 pruefung_fehlt", () => {
     expect(failures(socket)).toHaveLength(0);
     expect(socket.closed).toBe(false);
     expect(unhandled).toEqual([]);
+  });
+});
+
+// Der message-Listener des Sockets läuft außerhalb jedes try/catch: Ein Wurf
+// dort beendet den Serverprozess. Solange es keine Agent-Laufzeit gibt (Start
+// abgewiesen oder Startprüfung läuft noch), darf ein Bail-Kommando nichts
+// abbrechen wollen.
+describe("NAK-2 Bail-Kommando ohne Agent-Laufzeit", () => {
+  const dbError = new Error("SQLITE_BUSY: database is locked");
+
+  // Sitzung unter dem Limit angelegt; bis der Websocket verbindet, ist das
+  // Limit erreicht.
+  async function invocationAtLimit() {
+    const workspace = makeWorkspace({ messagesLimit: 3, chats: 2 });
+    const response = await sendGuiChat(workspace, AGENT_PROMPT);
+    const { websocketUUID } = response.events()[0];
+    db.chats.push({
+      id: db.chats.length + 1,
+      workspaceId: workspace.id,
+      prompt: "anderer Nutzer",
+      response: "{}",
+      createdAt: new Date(),
+    });
+    return websocketUUID;
+  }
+
+  test.each([
+    ["Limit erreicht", () => {}, LIMIT_TEXT],
+    [
+      "Prüfung fehlgeschlagen",
+      () => prisma.workspace_chats.count.mockRejectedValueOnce(dbError),
+      CHECK_FAILED_TEXT,
+    ],
+  ])(
+    "abgewiesener Start (%s): ein Bail-Kommando danach wirft nicht und trifft keinen Listener mehr",
+    async (_fall, arrange, text) => {
+      const uuid = await invocationAtLimit();
+      arrange();
+      const socket = await connect(uuid);
+      expect(socket.frames).toHaveLength(1);
+      expect(socket.frames[0].content).toMatch(text);
+      expect(AgentHandler.created).toBe(0);
+      expect(socket.close).toHaveBeenCalledTimes(1);
+
+      // Ein echter Socket ist hier nur im Zustand CLOSING und stellt weiter zu.
+      expect(() => bail(socket)).not.toThrow();
+      await settle();
+
+      expect(socket.listenerCount("message")).toBe(0);
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      expect(socket.frames).toHaveLength(1);
+      expect(mockAgentLlm.complete).not.toHaveBeenCalled();
+    }
+  );
+
+  test("ein Bail-Kommando während der Startprüfung wirft nicht und schließt den Socket", async () => {
+    const uuid = await invocationAtLimit();
+    const socket = makeSocket();
+    const started = websocketHandler(socket, { params: { uuid } });
+    // Der Listener hängt, sobald die Invocation geladen ist – die Startprüfung
+    // läuft dann noch, eine Agent-Laufzeit gibt es nicht.
+    for (let i = 0; i < 100 && !socket.listenerCount("message"); i++)
+      await Promise.resolve();
+    expect(socket.listenerCount("message")).toBe(1);
+    expect(socket.frames).toHaveLength(0);
+    expect(AgentHandler.created).toBe(0);
+
+    expect(() => bail(socket)).not.toThrow();
+    expect(socket.closed).toBe(true);
+
+    await started;
+    await settle();
+    expect(AgentHandler.created).toBe(0);
+    expect(mockAgentLlm.complete).not.toHaveBeenCalled();
   });
 });
 

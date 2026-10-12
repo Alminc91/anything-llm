@@ -97,7 +97,10 @@ function agentWebsocket(app) {
           agentHandler.log(
             `User invoked bail command while processing. Closing session now.`
           );
-          agentHandler.aibitat.abort();
+          // Vor createAIbitat (Startprüfung, Telemetrie, Verlauf) gibt es noch
+          // keine Laufzeit. Der Wurf läge im message-Listener des Sockets, wo
+          // ihn niemand abfängt – er würde den Serverprozess beenden.
+          agentHandler.aibitat?.abort();
           socket.close();
           return;
         }
@@ -108,7 +111,13 @@ function agentWebsocket(app) {
       // bei erreichtem Limit beginnt die Sitzung gar nicht erst.
       socket.checkMessagesLimit = () =>
         closeOnMessagesLimit(socket, agentHandler);
-      if (await socket.checkMessagesLimit()) return;
+      if (await socket.checkMessagesLimit()) {
+        // Abgewiesen: Es gibt keine Sitzung, die ein Bail-Kommando beenden
+        // könnte. Bis der Client das Schließen bestätigt, stellt der Socket
+        // aber weiter Nachrichten zu – sie sollen keinen Listener mehr treffen.
+        socket.off("message", relayToSocket);
+        return;
+      }
 
       await Telemetry.sendTelemetry("agent_chat_started");
       await agentHandler.createAIbitat({ socket });
