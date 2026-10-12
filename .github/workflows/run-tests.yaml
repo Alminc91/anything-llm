@@ -14,6 +14,8 @@ on:
 jobs:
   run-script:
     runs-on: ubuntu-latest
+    # Ein hängendes `yarn install` lief sonst bis zum Abbruch nach 6 Stunden.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -73,8 +75,12 @@ jobs:
       # des Prozesses abhängen. Ein Rückfall zeigt sich je nach Fehler nur in
       # einer Zone, deshalb läuft die Suite mit TZ=UTC, Europe/Berlin und
       # America/New_York (extras/scripts/testTimezones.mjs).
+      # Mehrere Suiten laden Server-Code, der Pfade aus STORAGE_DIR bildet; ohne
+      # die Variable scheitern sie schon beim Laden ("paths[0]" undefined).
       - name: Run test suites in three time zones
-        run: yarn test:tz
+        env:
+          STORAGE_DIR: ${{ runner.temp }}/anythingllm-test-storage
+        run: mkdir -p "$STORAGE_DIR" && yarn test:tz
 
       - name: Fail job on error
         if: failure()
