@@ -8,6 +8,7 @@
 // Schalter (CanViewChatHistory lädt ihn im Effekt) wird deshalb durch einen
 // festen Wert ersetzt; Seiten zeigen ihren Zustand vor dem ersten Laden.
 import { existsSync } from "node:fs";
+import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,7 +29,7 @@ export const hasFrontendDeps = ["vite", "react-dom", "react-router-dom"].every(
 );
 
 /**
- * Startet Vite (ohne HTTP-Server) und liefert eine Renderfunktion.
+ * Startet Vite (ohne lauschenden Server) und liefert eine Renderfunktion.
  * @returns {Promise<{render: Function, load: Function, imports: Function, close: Function}>}
  */
 export async function createRenderer() {
@@ -51,7 +52,14 @@ export async function createRenderer() {
     root: FRONTEND_ROOT,
     logLevel: "error",
     appType: "custom",
-    server: { middlewareMode: true, hmr: false, watch: null },
+    // Vite öffnet im Middleware-Modus sonst einen eigenen HMR-WebSocket-Server
+    // auf Port 24678 an allen Schnittstellen, auch mit `hmr: false`. Mit einem
+    // übergebenen, nie gestarteten HTTP-Server lauscht nichts.
+    server: {
+      middlewareMode: true,
+      hmr: { server: http.createServer() },
+      watch: null,
+    },
     optimizeDeps: { disabled: true },
     plugins: [
       {
