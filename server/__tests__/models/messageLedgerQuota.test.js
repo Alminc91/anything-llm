@@ -554,30 +554,46 @@ describe("verzweigung (AK-7)", () => {
 });
 
 describe("alarm_ohne_rueckfall (AK-13)", () => {
-  test("alarm_ohne_rueckfall: liegt das Zählerbuch unter der Live-Zählung, gilt trotzdem das Zählerbuch - mit Ereignis, höchstens einmal je Workspace und Stunde", async () => {
-    const workspace = await cycleWorkspace({ messagesLimit: 100 });
-    const other = await cycleWorkspace({ messagesLimit: 100 });
-    for (let i = 0; i < 10; i++) {
-      await WorkspaceChats.new({ workspaceId: workspace.id, prompt: "a" });
-      await WorkspaceChats.new({ workspaceId: other.id, prompt: "b" });
-    }
-    await completeBackfill();
-    expect(await usage(workspace)).toBe(10);
-    expect(await eventsOf(db.client, "message_ledger_mismatch")).toEqual([]);
-
-    // Künstlich: Das Zählerbuch von workspace liegt unter der Live-Zählung
-    // (4 statt 10, auch wenn die Nachrichten in zwei Stunden entstanden sind).
+  /**
+   * Künstlich: setzt das Zählerbuch eines Workspaces auf genau diese Summen,
+   * auch wenn seine Nachrichten in zwei Stunden entstanden sind.
+   */
+  async function setLedger(workspace, messages, copied = 0) {
     await db.client.message_ledger.updateMany({
       where: { workspace_id: workspace.id },
-      data: { messages: 0 },
+      data: { messages: 0, copied: 0 },
     });
     const cell = await db.client.message_ledger.findFirst({
       where: { workspace_id: workspace.id },
     });
     await db.client.message_ledger.update({
       where: { id: cell.id },
-      data: { messages: 4 },
+      data: { messages, copied },
     });
+  }
+  const mismatchWorkspaces = async () =>
+    (await eventsOf(db.client, "message_ledger_mismatch")).map(
+      (event) => event.metadata.workspaceId
+    );
+
+  test("alarm_ohne_rueckfall: liegt das Zählerbuch unter der Live-Zählung, gilt trotzdem das Zählerbuch - mit Ereignis, höchstens einmal je Workspace und Stunde", async () => {
+    const workspace = await cycleWorkspace({ messagesLimit: 100 });
+    const other = await cycleWorkspace({ messagesLimit: 100 });
+    const second = await cycleWorkspace({ messagesLimit: 100 });
+    for (let i = 0; i < 10; i++) {
+      await WorkspaceChats.new({ workspaceId: workspace.id, prompt: "a" });
+      await WorkspaceChats.new({ workspaceId: other.id, prompt: "b" });
+    }
+    for (let i = 0; i < 7; i++)
+      await WorkspaceChats.new({ workspaceId: second.id, prompt: "c" });
+    await completeBackfill();
+    expect(await usage(workspace)).toBe(10);
+    expect(await eventsOf(db.client, "message_ledger_mismatch")).toEqual([]);
+
+    // Künstlich: Das Zählerbuch von workspace und von second liegt unter der
+    // Live-Zählung (4 statt 10 bzw. 0 statt 7).
+    await setLedger(workspace, 4);
+    await setLedger(second, 0);
 
     // Die Uhr des Alarms steht für diesen Test: Ein Stundenwechsel mitten im
     // Lauf soll kein zweites Ereignis auslösen.
@@ -625,16 +641,74 @@ describe("alarm_ohne_rueckfall (AK-13)", () => {
       1
     );
 
-    // In einer späteren Stunde wird erneut gemeldet, solange die Abweichung
-    // besteht - und auch dann nur einmal.
-    nowSpy.mockReturnValue(startedAt + 2 * HOUR);
-    expect(await usage(workspace)).toBe(4);
-    expect(await usage(workspace)).toBe(4);
-    nowSpy.mockRestore();
+    // Die Sperre gilt je Workspace: Ein zweiter Workspace mit Abweichung wird
+    // in derselben Stunde ebenfalls gemeldet - gleich nach einem Neustart, wenn
+    // allein das Ereignisprotokoll sagt, wer in dieser Stunde schon gemeldet ist.
+    MessageLedger._resetCache();
+    expect(await usage(second)).toBe(0);
+    expect(await mismatchWorkspaces()).toEqual([workspace.id, second.id]);
     events = await eventsOf(db.client, "message_ledger_mismatch");
-    expect(events.map((event) => event.metadata.workspaceId)).toEqual([
+    expect(events[1].metadata).toEqual(
+      expect.objectContaining({ ledgerMessages: 0, liveCount: 7 })
+    );
+    // Beide sind für diese Stunde gemeldet, mit und ohne Gedächtnis des Prozesses.
+    for (const forget of [false, true, true]) {
+      if (forget) MessageLedger._resetCache();
+      expect(await usage(second)).toBe(0);
+      expect(await usage(workspace)).toBe(4);
+    }
+    expect(await mismatchWorkspaces()).toEqual([workspace.id, second.id]);
+
+    // In einer späteren Stunde wird erneut gemeldet, solange die Abweichung
+    // besteht - und auch dann je Workspace nur einmal.
+    nowSpy.mockReturnValue(startedAt + 2 * HOUR);
+    for (let i = 0; i < 2; i++) {
+      expect(await usage(workspace)).toBe(4);
+      expect(await usage(second)).toBe(0);
+    }
+    nowSpy.mockRestore();
+    expect(await mismatchWorkspaces()).toEqual([
       workspace.id,
+      second.id,
       workspace.id,
+      second.id,
+    ]);
+  });
+
+  test("alarm_ohne_rueckfall: schon eine einzige ungezählte Chat-Zeile ist eine Abweichung, Gleichstand ist keine - Kopien zählen dabei mit", async () => {
+    const equal = await cycleWorkspace();
+    const oneBelow = await cycleWorkspace();
+    const copiesEqual = await cycleWorkspace();
+    const copiesOneBelow = await cycleWorkspace();
+    for (const workspace of [equal, oneBelow, copiesEqual, copiesOneBelow])
+      for (let i = 0; i < 5; i++)
+        await WorkspaceChats.new({ workspaceId: workspace.id, prompt: "a" });
+    await completeBackfill();
+
+    // Live-Zählung 5 in jedem Workspace; das Zählerbuch künstlich darauf bzw.
+    // genau eins darunter gesetzt.
+    await setLedger(equal, 5);
+    await setLedger(oneBelow, 4);
+    await setLedger(copiesEqual, 3, 2);
+    await setLedger(copiesOneBelow, 3, 1);
+
+    expect(await usage(equal)).toBe(5);
+    expect(await usage(copiesEqual)).toBe(3);
+    expect(await eventsOf(db.client, "message_ledger_mismatch")).toEqual([]);
+
+    expect(await usage(oneBelow)).toBe(4);
+    expect(await usage(copiesOneBelow)).toBe(3);
+    const events = await eventsOf(db.client, "message_ledger_mismatch");
+    expect(
+      events.map(({ metadata }) => [
+        metadata.workspaceId,
+        metadata.ledgerMessages,
+        metadata.ledgerCopied,
+        metadata.liveCount,
+      ])
+    ).toEqual([
+      [oneBelow.id, 4, 0, 5],
+      [copiesOneBelow.id, 3, 1, 5],
     ]);
   });
 
