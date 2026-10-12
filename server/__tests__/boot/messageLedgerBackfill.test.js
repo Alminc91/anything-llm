@@ -68,6 +68,7 @@ let errorSpy;
 let logSpy;
 beforeEach(async () => {
   MessageLedger._resetCache();
+  EmbedChats._resetFeedbackLimits();
   db = await createTestDatabase();
   errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
   logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
@@ -548,6 +549,206 @@ describe("wasserstand (AK-9)", () => {
     expect(a.rows + b.rows).toBe(680);
     await expectEveryMessageOnce();
   }, 60000);
+});
+
+describe("konversationen (AK-12): Schreibpfad und Nachtrag", () => {
+  test("konversationen: über den gemischten 40-Tage-Bestand beginnt beim Anlegen jede Zeile genau dann eine Konversation, wenn der Nachtrag sie so zählt", async () => {
+    const { embeds } = await seedFortyDays(db.client);
+    const rows = await db.client.embed_chats.findMany({
+      orderBy: { id: "asc" },
+      select: { embed_id: true, session_id: true, conversation_id: true },
+    });
+
+    // Unabhängig bestimmt: Eine Zeile beginnt eine Konversation, wenn es für
+    // COALESCE(conversation_id, session_id) in ihrem Widget noch keine gab.
+    const seen = new Set();
+    const expectedStarts = rows.map((row) => {
+      const key = `${row.embed_id}|${row.conversation_id ?? row.session_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const expectedPerEmbed = {};
+    rows.forEach((row, i) => {
+      expectedPerEmbed[row.embed_id] ??= { messages: 0, started: 0 };
+      expectedPerEmbed[row.embed_id].messages += 1;
+      if (expectedStarts[i]) expectedPerEmbed[row.embed_id].started += 1;
+    });
+    // Der Bestand enthält die Fälle, an denen sich die Regel entscheidet:
+    // dieselbe conversation_id in mehreren Widgets und Sitzungen, die Zeilen
+    // mit und ohne conversation_id mischen.
+    const widgetsOfConversation = new Map();
+    const kindsOfSession = new Map();
+    for (const row of rows) {
+      if (row.conversation_id !== null) {
+        if (!widgetsOfConversation.has(row.conversation_id))
+          widgetsOfConversation.set(row.conversation_id, new Set());
+        widgetsOfConversation.get(row.conversation_id).add(row.embed_id);
+      }
+      const session = `${row.embed_id}|${row.session_id}`;
+      if (!kindsOfSession.has(session)) kindsOfSession.set(session, new Set());
+      kindsOfSession.get(session).add(row.conversation_id === null);
+    }
+    expect(
+      [...widgetsOfConversation.values()].filter((set) => set.size > 1).length
+    ).toBeGreaterThan(20);
+    expect(
+      [...kindsOfSession.values()].filter((set) => set.size > 1).length
+    ).toBeGreaterThan(20);
+
+    const perEmbed = async () =>
+      Object.fromEntries(
+        (
+          await db.client.message_ledger.groupBy({
+            by: ["embed_id"],
+            where: { embed_id: { not: 0 } },
+            _sum: { messages: true, conversations_started: true },
+          })
+        ).map((group) => [
+          group.embed_id,
+          {
+            messages: group._sum.messages,
+            started: group._sum.conversations_started,
+          },
+        ])
+      );
+
+    // Nachtrag
+    expect((await runMessageLedgerBackfill(quiet)).ok).toBe(true);
+    expect(await perEmbed()).toEqual(expectedPerEmbed);
+
+    // Schreibpfad: dieselben Zeilen in derselben Reihenfolge über EmbedChats.new
+    await db.close();
+    db = await createTestDatabase();
+    MessageLedger._resetCache();
+    const first = await createWorkspace(db.client);
+    const second = await createWorkspace(db.client);
+    const again = [
+      await createEmbed(db.client, first),
+      await createEmbed(db.client, first),
+      await createEmbed(db.client, second),
+    ];
+    expect(again.map((embed) => embed.id)).toEqual(
+      embeds.map((embed) => embed.id)
+    );
+
+    const startedSoFar = async () =>
+      (
+        await db.client.message_ledger.aggregate({
+          _sum: { conversations_started: true },
+        })
+      )._sum.conversations_started ?? 0;
+    const writtenStarts = [];
+    let started = 0;
+    for (const row of rows) {
+      const { message } = await EmbedChats.new({
+        embedId: row.embed_id,
+        prompt: "Frage",
+        sessionId: row.session_id,
+        conversationId: row.conversation_id,
+      });
+      expect(message).toBeNull();
+      const now = await startedSoFar();
+      writtenStarts.push(now - started === 1);
+      started = now;
+    }
+    expect(writtenStarts).toEqual(expectedStarts);
+    expect(await perEmbed()).toEqual(expectedPerEmbed);
+  }, 120000);
+});
+
+describe("Bewertungen bei abgebrochenem Nachtrag (AK-11, AK-14)", () => {
+  test("feedback_uebergaenge: eine schon nachgetragene Zeile wird sofort gebucht, eine noch nicht nachgetragene erst mit dem fortgesetzten Nachtrag - jede genau einmal", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    // sechs Zeilen, jede in einer eigenen Stunde
+    await seedEmbedChats(
+      db.client,
+      Array.from({ length: 6 }, (_, i) => ({
+        embed_id: embed.id,
+        createdAt: new Date(Date.parse("2026-10-01T08:15:00+02:00") + i * HOUR),
+        session_id: `sitzung-${i}`,
+      }))
+    );
+    const chats = await db.client.embed_chats.findMany({
+      orderBy: { id: "asc" },
+    });
+    const feedbackOfHour = async (chat) => {
+      const { day, hour } = berlinCell(chat.createdAt);
+      const [cell] = await ledgerRows(db.client, {
+        embed_id: embed.id,
+        day,
+        hour,
+      });
+      return cell ? [cell.feedback_positive, cell.feedback_negative] : null;
+    };
+    const rate = (chat, score) =>
+      EmbedChats.updateFeedbackScore(embed.id, chat.session_id, chat.id, score);
+
+    // Der Nachtrag bricht nach dem ersten Paket von embed_chats ab.
+    const aborted = await runMessageLedgerBackfill({
+      ...quiet,
+      batchSize: 2,
+      afterBatch: ({ table }) => {
+        if (table === "embed_chats")
+          throw new Error("Abbruch nach dem ersten Paket");
+      },
+    });
+    expect(aborted.ok).toBe(false);
+    expect((await MessageLedger.backfillState()).tables.embed_chats).toEqual(
+      expect.objectContaining({ maxId: 6, lastId: 2, done: false })
+    );
+    expect(await MessageLedger.isBackfillComplete()).toBe(false);
+    // Die Grenzen: die letzte nachgetragene Zeile, die erste und die letzte
+    // noch nicht nachgetragene (der Wasserstand selbst).
+    const [, counted, pending, , , lastPending] = chats;
+    expect([counted.id, pending.id, lastPending.id]).toEqual([2, 3, 6]);
+
+    // Schon nachgetragen (id <= lastId): Der Nachtrag fasst die Zeile nicht
+    // mehr an, der Übergang muss jetzt gebucht werden.
+    expect(await feedbackOfHour(counted)).toEqual([0, 0]);
+    expect(await rate(counted, true)).toBe(true);
+    expect(await feedbackOfHour(counted)).toEqual([1, 0]);
+
+    // Noch nicht nachgetragen (lastId < id <= Wasserstand): Der Nachtrag
+    // erfasst die Zeile mit ihrem dann aktuellen Stand - jetzt wird nichts
+    // gebucht, auch nicht bei einem Wechsel.
+    expect(await rate(pending, true)).toBe(true);
+    expect(await rate(pending, false)).toBe(true);
+    expect(await feedbackOfHour(pending)).toBeNull();
+    expect(await rate(lastPending, true)).toBe(true);
+    expect(await feedbackOfHour(lastPending)).toBeNull();
+
+    // Nach dem Wasserstand entstanden: beim Anlegen gezählt, sofort gebucht.
+    const { chat: fresh } = await EmbedChats.new({
+      embedId: embed.id,
+      prompt: "neu",
+      sessionId: "sitzung-neu",
+    });
+    expect(await rate(fresh, false)).toBe(true);
+    expect(await feedbackOfHour(fresh)).toEqual([0, 1]);
+
+    // Der nächste Start setzt fort: Danach steht jede Bewertung genau einmal
+    // im Zählerbuch.
+    const resumed = await runMessageLedgerBackfill({ ...quiet, batchSize: 2 });
+    expect(resumed.ok).toBe(true);
+    expect(resumed.rows).toBe(4);
+    expect(await feedbackOfHour(counted)).toEqual([1, 0]);
+    expect(await feedbackOfHour(pending)).toEqual([0, 1]);
+    expect(await feedbackOfHour(lastPending)).toEqual([1, 0]);
+    expect(await ledgerRows(db.client)).toEqual(
+      await expectedLedger(db.client)
+    );
+
+    // Jetzt wird auch für die später nachgetragene Zeile der Übergang gebucht.
+    expect(await rate(pending, true)).toBe(true);
+    expect(await rate(counted, null)).toBe(true);
+    expect(await feedbackOfHour(pending)).toEqual([1, 0]);
+    expect(await feedbackOfHour(counted)).toEqual([0, 0]);
+    expect(await ledgerRows(db.client)).toEqual(
+      await expectedLedger(db.client)
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

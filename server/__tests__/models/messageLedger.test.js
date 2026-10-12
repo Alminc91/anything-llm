@@ -46,6 +46,7 @@ let errorSpy;
 let logSpy;
 beforeEach(async () => {
   MessageLedger._resetCache();
+  EmbedChats._resetFeedbackLimits();
   db = await createTestDatabase();
   errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
   logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
@@ -648,6 +649,88 @@ describe("konversationen (AK-12)", () => {
     );
     expect(await totals({ embed_id: other.id })).toEqual(
       expect.objectContaining({ messages: 1, conversations_started: 1 })
+    );
+  });
+
+  test("konversationen: dieselbe conversation_id in zwei Widgets beginnt in jedem Widget eine eigene Konversation", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    const other = await createEmbed(db.client, workspace);
+    for (const [embedId, sessionId] of [
+      [embed.id, "sitzung-1"],
+      [embed.id, "sitzung-1"],
+      [other.id, "sitzung-2"],
+      [other.id, "sitzung-2"],
+      // auch mit derselben Sitzungskennung: weiter die Konversation des Widgets
+      [other.id, "sitzung-1"],
+    ])
+      await EmbedChats.new({
+        embedId,
+        prompt: "Frage",
+        sessionId,
+        conversationId: "gleiche-konversation",
+      });
+
+    expect(await totals({ embed_id: embed.id })).toEqual(
+      expect.objectContaining({ messages: 2, conversations_started: 1 })
+    );
+    expect(await totals({ embed_id: other.id })).toEqual(
+      expect.objectContaining({ messages: 3, conversations_started: 1 })
+    );
+  });
+
+  test("konversationen: mischt eine Sitzung Zeilen mit und ohne conversation_id, zählt COALESCE(conversation_id, session_id) - beim Anlegen wie im Nachtrag", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    // [conversation_id, beginnt eine Konversation?]
+    const sequence = [
+      ["k-1", true],
+      // ohne conversation_id: Schlüssel ist die Sitzung - noch nicht gesehen,
+      // obwohl die Sitzung schon eine Zeile hat
+      [null, true],
+      ["k-1", false],
+      [null, false],
+      ["k-2", true],
+      // conversation_id gleich der Sitzungskennung: setzt die Zeilen ohne
+      // conversation_id fort
+      ["gemischt", false],
+    ];
+    let started = 0;
+    for (const [conversationId, starts] of sequence) {
+      await EmbedChats.new({
+        embedId: embed.id,
+        prompt: "Frage",
+        sessionId: "gemischt",
+        conversationId,
+      });
+      if (starts) started += 1;
+      expect(await totals({ embed_id: embed.id })).toEqual(
+        expect.objectContaining({ conversations_started: started })
+      );
+    }
+    expect(started).toBe(3);
+
+    // Der Nachtrag zählt dieselben Zeilen genauso.
+    const written = await db.client.embed_chats.findMany({
+      orderBy: { id: "asc" },
+    });
+    await db.close();
+    db = await createTestDatabase();
+    MessageLedger._resetCache();
+    const again = await createWorkspace(db.client);
+    const againEmbed = await createEmbed(db.client, again);
+    await seedEmbedChats(
+      db.client,
+      written.map(({ createdAt, session_id, conversation_id }) => ({
+        embed_id: againEmbed.id,
+        createdAt,
+        session_id,
+        conversation_id,
+      }))
+    );
+    expect((await runMessageLedgerBackfill(quiet)).ok).toBe(true);
+    expect(await totals({ embed_id: againEmbed.id })).toEqual(
+      expect.objectContaining({ messages: 6, conversations_started: 3 })
     );
   });
 
