@@ -247,7 +247,7 @@ async function processBatch(tx, { batchSize }) {
 
 /** Markierung auf "failed" setzen und das Ereignis schreiben - beides ohne zu werfen. */
 async function reportFailure(client, error) {
-  const message = String(error?.message ?? error).slice(0, 500);
+  const message = MessageLedger.errorSummary(error);
   let state = null;
   try {
     state = await client.$transaction(async (tx) => {
@@ -355,7 +355,7 @@ async function runMessageLedgerBackfill({
       state,
       rows,
       durationMs: Date.now() - runStartedAt,
-      error: String(error?.message ?? error),
+      error: MessageLedger.errorSummary(error),
     };
   }
 }

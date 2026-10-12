@@ -682,6 +682,26 @@ describe("atomar (NAK-3)", () => {
     expect(JSON.stringify(events)).not.toContain("Hallo");
   });
 
+  test("atomar: das Ereignis enthält keine Inhalte, auch wenn die Fehlermeldung von Prisma die Argumente des Aufrufs nennt", async () => {
+    const workspace = await createWorkspace(db.client);
+    // response fehlt: Prisma beschreibt in der Meldung den ganzen Aufruf.
+    const copies = await WorkspaceChats.bulkCreate([
+      { workspaceId: workspace.id, prompt: "STRENG GEHEIMER INHALT" },
+    ]);
+    expect(copies.chats).toBeNull();
+    expect(copies.message).toContain("STRENG GEHEIMER INHALT");
+
+    const events = await eventsOf(db.client, "message_ledger_write_failed");
+    expect(events).toHaveLength(1);
+    expect(events[0].metadata).toEqual({
+      source: "thread_fork",
+      workspaceId: workspace.id,
+      embedId: null,
+      error: "PrismaClientValidationError: Argument `response` is missing.",
+    });
+    expect(JSON.stringify(events)).not.toContain("GEHEIM");
+  });
+
   test("atomar: auch ein Fehler in der Zählfunktion selbst lässt keine Chat-Zeile zurück", async () => {
     const workspace = await createWorkspace(db.client);
     const recordSpy = jest

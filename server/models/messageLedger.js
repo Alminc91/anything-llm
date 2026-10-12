@@ -74,6 +74,7 @@ const BACKFILL_LABEL = "message_ledger_backfill";
 const BACKFILL_TABLES = ["workspace_chats", "embed_chats"];
 const EVENT_WRITE_FAILED = "message_ledger_write_failed";
 const EVENT_MISMATCH = "message_ledger_mismatch";
+const EVENT_MARKER_RECOVERED = "message_ledger_marker_recovered";
 const MS_PER_HOUR = 60 * 60 * 1000;
 // Höchstens 999 Platzhalter je Anweisung (ältere SQLite-Grenze), 9 je Zeile.
 const CELLS_PER_STATEMENT = 100;
@@ -168,6 +169,7 @@ const MessageLedger = {
   BACKFILL_TABLES,
   EVENT_WRITE_FAILED,
   EVENT_MISMATCH,
+  EVENT_MARKER_RECOVERED,
 
   // Ausdrücklich gesetzt: höchstens 5 s auf den Beginn warten (Busy-Timeout
   // von SQLite), danach höchstens 10 s für die wenigen Anweisungen.
@@ -185,6 +187,9 @@ const MessageLedger = {
    * Vor der ersten Transaktion wird der Wasserstand des Nachtrags
    * festgehalten, falls das beim Start nicht gelungen ist: Sonst würde ein
    * späterer Nachtrag Zeilen erfassen, die hier schon gezählt wurden.
+   *
+   * Transaktionen eines Prozesses laufen nacheinander: work darf selbst keine
+   * weitere MessageLedger.transaction öffnen (sie würde auf sich selbst warten).
    *
    * @template T
    * @param {{source: string, workspaceId?: number|null, embedId?: number|null}} context - für das Fehler-Ereignis, keine Inhalte
@@ -224,8 +229,26 @@ const MessageLedger = {
       source: context?.source ?? null,
       workspaceId: context?.workspaceId ?? null,
       embedId: context?.embedId ?? null,
-      error: String(error?.message ?? error).slice(0, 500),
+      error: MessageLedger.errorSummary(error),
     });
+  },
+
+  /**
+   * Kurzfassung eines Fehlers für Ereignisse: Art, Prisma-Code und die letzte
+   * Zeile der Meldung (die Ursache). Die vollständige Meldung von Prisma kann
+   * die Argumente des Aufrufs enthalten, also Inhalte einer Nachricht - die
+   * gehören nicht ins Ereignisprotokoll.
+   * @param {Error|*} error
+   * @returns {string}
+   */
+  errorSummary: function (error) {
+    const lines = String(error?.message ?? error)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const cause = lines[lines.length - 1] ?? "";
+    const kind = [error?.name, error?.code].filter(Boolean).join(" ");
+    return `${kind ? `${kind}: ` : ""}${cause}`.slice(0, 300);
   },
 
   /**
@@ -601,6 +624,7 @@ const MessageLedger = {
       SELECT
         (SELECT MAX(id) FROM workspace_chats) AS workspace_chats,
         (SELECT MAX(id) FROM embed_chats) AS embed_chats`;
+    const now = new Date().toISOString();
     const state = {
       version: 1,
       state: "pending",
@@ -608,12 +632,39 @@ const MessageLedger = {
         workspace_chats: emptyTableState(Number(max.workspace_chats ?? 0)),
         embed_chats: emptyTableState(Number(max.embed_chats ?? 0)),
       },
-      capturedAt: new Date().toISOString(),
+      capturedAt: now,
       startedAt: null,
       completedAt: null,
       durationMs: 0,
       error: null,
     };
+
+    // Ein gefülltes Zählerbuch ohne Markierung gibt es im Betrieb nicht: Jede
+    // Buchung hält vorher den Wasserstand fest. Die Markierung ist also
+    // verloren gegangen oder unlesbar. Ein neuer Nachtrag würde den Bestand
+    // ein zweites Mal buchen, und senken lässt sich das Zählerbuch nicht mehr.
+    // Deshalb gilt der Nachtrag als abgeschlossen; was dem Zählerbuch fehlen
+    // sollte, meldet der Vergleich mit der Live-Zählung (ledger-resync).
+    if ((await tx.message_ledger.count()) > 0) {
+      state.state = "complete";
+      state.completedAt = now;
+      state.recovered = true;
+      for (const table of BACKFILL_TABLES) {
+        state.tables[table].lastId = state.tables[table].maxId;
+        state.tables[table].done = true;
+      }
+      console.error(
+        `\x1b[31m[MessageLedger]\x1b[0m Markierung ${BACKFILL_LABEL} fehlt bei gefülltem Zählerbuch. Kein neuer Nachtrag (er würde doppelt zählen); der Nachtrag gilt als abgeschlossen.`
+      );
+      await tx.event_logs.create({
+        data: {
+          event: EVENT_MARKER_RECOVERED,
+          metadata: JSON.stringify({ tables: state.tables }),
+          occurredAt: new Date(),
+        },
+      });
+    }
+
     await MessageLedger.writeBackfillState(tx, state);
     return state;
   },

@@ -24,6 +24,9 @@
  *   Workspaces hinweg. Ein umgehängtes Widget verschiebt dadurch nichts; nur
  *   was insgesamt fehlt, wird dem heutigen Workspace des Widgets gutgeschrieben.
  * - Chat-Zeilen werden nur gelesen.
+ * - Grenze: Verglichen wird je Stunde die Zahl der vorhandenen Zeilen mit dem
+ *   gebuchten Stand. Wurden in derselben Stunde gezählte Zeilen gelöscht und
+ *   ungezählte angelegt, bleibt diese Differenz unerkannt.
  *
  * Voraussetzung: Der Nachtrag ist abgeschlossen (Markierung
  * message_ledger_backfill). Vorher würde der Nachtrag dieselben Zeilen später
@@ -245,15 +248,13 @@ function formatResult(result) {
       `Workspace ${cell.workspaceId}, ${cell.embedId ? `Widget ${cell.embedId}` : "Workspace-Chats"}, ${cell.day} ${String(cell.hour).padStart(2, "0")} Uhr: ${parts.join(", ")}`
     );
   }
+  if (result.raised.length === 0)
+    lines.push("Nichts anzuheben: Alle vorhandenen Zeilen sind gezählt.");
   lines.push(
-    result.raised.length
-      ? ""
-      : "Nichts anzuheben: Alle vorhandenen Zeilen sind gezählt.",
+    "",
     `Ergebnis: ${result.raised.length} Stunde(n) angehoben, messages +${result.messagesAdded}. Kein Wert wurde gesenkt.`
   );
-  return lines
-    .filter((line, i, all) => line !== "" || all[i - 1] !== "")
-    .join("\n");
+  return lines.join("\n");
 }
 
 function parseArgs(argv) {

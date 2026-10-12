@@ -929,17 +929,19 @@ describe("nicht_fatal (AK-14)", () => {
     expect(failed).toEqual(
       expect.objectContaining({
         ok: false,
-        error: "künstlicher Fehler im Nachtrag",
+        error: "Error: künstlicher Fehler im Nachtrag",
       })
     );
 
     const marker = await MessageLedger.backfillState();
     expect(marker.state).toBe("failed");
-    expect(marker.error).toBe("künstlicher Fehler im Nachtrag");
+    expect(marker.error).toBe("Error: künstlicher Fehler im Nachtrag");
     expect(marker.completedAt).toBeNull();
     const events = await eventsOf(db.client, "message_ledger_backfill_failed");
     expect(events).toHaveLength(1);
-    expect(events[0].metadata.error).toBe("künstlicher Fehler im Nachtrag");
+    expect(events[0].metadata.error).toBe(
+      "Error: künstlicher Fehler im Nachtrag"
+    );
 
     // Das Kontingent liefert die Live-Zählung (10 der 30 Zeilen stehen im Zählerbuch).
     expect(await MessageLedger.isBackfillComplete()).toBe(false);
@@ -1034,6 +1036,36 @@ describe("nicht_fatal (AK-14)", () => {
       expect(stateAtListen.tables.workspace_chats.rows).toBe(5);
     });
 
+    test("Startpfad: die Thread-Zahl der Query-Engine gilt nur bis zum Lauschen im Prozess", async () => {
+      const { bootHTTP } = require("../../utils/boot");
+      const {
+        ensureEngineThreads,
+      } = require("../../utils/prisma/engineThreads");
+      const saved = process.env.TOKIO_WORKER_THREADS;
+      try {
+        // wie utils/prisma beim Laden
+        delete process.env.TOKIO_WORKER_THREADS;
+        ensureEngineThreads();
+        expect(process.env.TOKIO_WORKER_THREADS).toEqual(expect.any(String));
+
+        // Beim Lauschen ist die Engine geladen und die Variable wieder frei
+        // für Module, die erst mit den Anfragen laden (LanceDB).
+        const app = fakeApp(() => process.env.TOKIO_WORKER_THREADS);
+        bootHTTP(app, 3999);
+        expect(await untilListening(app)).toBeUndefined();
+
+        // Ein vom Betrieb gesetzter Wert bleibt stehen.
+        process.env.TOKIO_WORKER_THREADS = "24";
+        ensureEngineThreads();
+        const second = fakeApp(() => process.env.TOKIO_WORKER_THREADS);
+        bootHTTP(second, 3999);
+        expect(await untilListening(second)).toBe("24");
+      } finally {
+        if (saved === undefined) delete process.env.TOKIO_WORKER_THREADS;
+        else process.env.TOKIO_WORKER_THREADS = saved;
+      }
+    });
+
     test("nicht_fatal: schlägt der Nachtrag fehl, startet der Server trotzdem", async () => {
       const { bootHTTP } = require("../../utils/boot");
       const workspace = await createWorkspace(db.client);
@@ -1055,6 +1087,62 @@ describe("nicht_fatal (AK-14)", () => {
       ).toHaveLength(1);
       expect((await getMessageLimitInfo(workspace)).messageCount).toBe(1);
     });
+  });
+});
+
+describe("verlorene Markierung", () => {
+  test("wasserstand: fehlt die Markierung bei gefülltem Zählerbuch, wird nicht ein zweites Mal nachgetragen", async () => {
+    const { first, embeds } = await seedFortyDays(db.client);
+    expect((await runMessageLedgerBackfill(quiet)).ok).toBe(true);
+    await WorkspaceChats.new({ workspaceId: first.id, prompt: "neu" });
+    const expected = await expectedLedger(db.client);
+    expect(await ledgerRows(db.client)).toEqual(expected);
+
+    // Die Markierung geht verloren (von Hand gelöscht) bzw. ist unlesbar.
+    for (const damage of [
+      () =>
+        db.client.system_settings.delete({
+          where: { label: "message_ledger_backfill" },
+        }),
+      () =>
+        db.client.system_settings.update({
+          where: { label: "message_ledger_backfill" },
+          data: { value: "{kaputt" },
+        }),
+    ]) {
+      await damage();
+      MessageLedger._resetCache();
+
+      const result = await runMessageLedgerBackfill(quiet);
+      expect(result).toEqual(
+        expect.objectContaining({ ok: true, alreadyComplete: true, rows: 0 })
+      );
+      expect(result.state).toEqual(
+        expect.objectContaining({ state: "complete", recovered: true })
+      );
+      // nichts doppelt gebucht
+      expect(await ledgerRows(db.client)).toEqual(expected);
+      expect(await MessageLedger.isBackfillComplete()).toBe(true);
+    }
+    expect(
+      await eventsOf(db.client, "message_ledger_marker_recovered")
+    ).toHaveLength(2);
+
+    // Auch die erste Nachricht nach dem Verlust löst keinen Nachtrag aus.
+    await db.client.system_settings.delete({
+      where: { label: "message_ledger_backfill" },
+    });
+    MessageLedger._resetCache();
+    await EmbedChats.new({
+      embedId: embeds[0].id,
+      prompt: "neu",
+      sessionId: "nach-verlust",
+    });
+    expect((await MessageLedger.backfillState()).state).toBe("complete");
+    expect((await runMessageLedgerBackfill(quiet)).alreadyComplete).toBe(true);
+    expect(await ledgerRows(db.client)).toEqual(
+      await expectedLedger(db.client)
+    );
   });
 });
 
