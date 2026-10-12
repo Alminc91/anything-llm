@@ -497,16 +497,30 @@ describe("getBillingWindow", () => {
     expect(window.endDayExclusive).toBe("2026-10-31");
 
     // Auch ein Start im Jahr 1 (rund 24.000 Monatszyklen) bleibt eine Rechnung.
-    const ancientStartedAt = process.hrtime.bigint();
     const ancient = getBillingWindow(
       { cycleStartDate: "0001-01-01T12:00:00Z", cycleDurationMonths: 1 },
       now
     );
-    expect(
-      Number(process.hrtime.bigint() - ancientStartedAt) / 1e6
-    ).toBeLessThan(5);
     expect(ancient.cycleNumber).toBe(2025 * 12 + 9 + 1);
     expect(ancient.startDay).toBe("2026-10-01");
+
+    // Die 5 ms oben schafft für 1900 auch eine Zählschleife. Den Unterschied
+    // zeigt ein Start nahe am frühesten darstellbaren Datum: 2.424.322
+    // Monatszyklen. Hochgezählt dauert das mehrere hundert Millisekunden,
+    // gerechnet wie jedes andere Fenster deutlich unter einer.
+    const earliestStartedAt = process.hrtime.bigint();
+    const earliest = getBillingWindow(
+      { cycleStartDate: "-200000-01-01T00:00:00Z", cycleDurationMonths: 1 },
+      now
+    );
+    expect(
+      Number(process.hrtime.bigint() - earliestStartedAt) / 1e6
+    ).toBeLessThan(50);
+    // Januar −200000 ist Zyklus 1: 202.026 Jahre × 12 + 9 + 1.
+    expect(earliest.cycleNumber).toBe(2424322);
+    expect(earliest.cycleNumber).toBe((200000 + 2026) * 12 + 9 + 1);
+    expect(earliest.startDay).toBe("2026-10-01");
+    expect(earliest.endDayExclusive).toBe("2026-11-01");
   });
 
   test("cycleDurationMonths: unbrauchbare Werte zählen wie bisher als 1 Monat", () => {

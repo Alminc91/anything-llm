@@ -364,6 +364,11 @@ describe("Kontingent-Abfrage - Vertrag der API-Antwort (KIE-531, AK-8)", () => {
       id: 1,
       amount: 500,
     });
+    // Genau auf dem Fensterstart (28.02. 00:00 Uhr Berliner Zeit): gehört dazu.
+    addRow("workspace_message_adjustments", "2026-02-28T00:00:00+01:00", {
+      id: 5,
+      amount: 7,
+    });
     addRow("workspace_message_adjustments", "2026-02-28T00:30:00+01:00", {
       id: 2,
       amount: 10,
@@ -382,19 +387,19 @@ describe("Kontingent-Abfrage - Vertrag der API-Antwort (KIE-531, AK-8)", () => {
       query: { currentCycle: "true" },
     });
     expect(current.statusCode).toBe(200);
-    expect(current.body.adjustments.map((row) => row.id)).toEqual([3, 2]);
-    expect(current.body.totalCount).toBe(2);
-    expect(current.body.adjustmentsTotal).toBe(6);
+    expect(current.body.adjustments.map((row) => row.id)).toEqual([3, 2, 5]);
+    expect(current.body.totalCount).toBe(3);
+    expect(current.body.adjustmentsTotal).toBe(13);
     expect(current.body.currentCycle).toBe(true);
 
     // Die Kontingent-Abfrage nennt für dasselbe Fenster dieselbe Summe.
     const { body } = await call(limits, { params: { slug: "kufersql" } });
-    expect(body.adjustmentsTotal).toBe(6);
+    expect(body.adjustmentsTotal).toBe(13);
 
     const all = await call(listAdjustments, {
       params: { slug: "kufersql" },
       query: {},
     });
-    expect(all.body.totalCount).toBe(4);
+    expect(all.body.totalCount).toBe(5);
   });
 });
