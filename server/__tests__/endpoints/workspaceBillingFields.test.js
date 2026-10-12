@@ -615,6 +615,12 @@ describe("null_gegen_nullwert (AK-9)", () => {
 // ============================================================================
 // NAK-1 — Kundenmanager-Integration bricht nicht
 // ============================================================================
+// Herkunft der Fälle: aus dem Vertrag der beiden API-Routen abgeleitet
+// (POST /v1/workspace/:slug/update, POST /v1/workspace/new). Die tatsächlichen
+// Anfragen des Kundenmanagers sind hier NICHT hinterlegt: Sein Code liegt
+// außerhalb dieses Repositorys. Sobald sie gesichtet sind, gehören sie mit
+// Quelle als Fixtures in diesen Abschnitt. Bis dahin hält "bewusst 400" fest,
+// welche bisher still umgedeuteten Schreibweisen jetzt abgelehnt werden.
 describe("vertrag_kundenmanager (NAK-1)", () => {
   test("Limit, Start und Dauer setzen: Antwort { workspace, message } mit dem gespeicherten Workspace", async () => {
     const result = await apiUpdate({
@@ -673,6 +679,107 @@ describe("vertrag_kundenmanager (NAK-1)", () => {
       messagesLimit: 500,
       cycleStartDate: new Date("2026-09-01T00:00:00.000Z"),
       cycleDurationMonths: 3,
+    });
+  });
+
+  test("weiter gültig: Leerzeichen am Rand, führende Null, Zeitstempel mit Zeitzonen-Versatz", async () => {
+    const result = await apiUpdate({
+      messagesLimit: " 500 ",
+      cycleStartDate: "2026-09-01T00:00:00+02:00",
+      cycleDurationMonths: "03",
+    });
+    expect(result.statusCode).toBe(200);
+    expect(result.body.message).toBeNull();
+    expect(billingOf()).toEqual({
+      messagesLimit: 500,
+      // der gesendete Zeitpunkt; der Zyklus beginnt am Berliner Tag 01.09.
+      cycleStartDate: new Date("2026-08-31T22:00:00.000Z"),
+      cycleDurationMonths: 3,
+    });
+  });
+
+  // [Anfrage, Feld mit Fehlermeldung, was die Vergleichsbasis daraus machte]
+  const rejectedSpellings = [
+    [
+      { cycleStartDate: "2026-9-1", cycleDurationMonths: 3 },
+      "cycleStartDate",
+      "Mitternacht in der Zeitzone des Containers",
+    ],
+    [
+      { cycleStartDate: "2026/09/01", cycleDurationMonths: 3 },
+      "cycleStartDate",
+      "Mitternacht in der Zeitzone des Containers",
+    ],
+    [
+      { cycleStartDate: "01.09.2026", cycleDurationMonths: 3 },
+      "cycleStartDate",
+      "9. Januar 2026 (Monat und Tag vertauscht)",
+    ],
+    [{ messagesLimit: "500.0" }, "messagesLimit", "500"],
+    [{ messagesLimit: "+500" }, "messagesLimit", "500"],
+    [{ messagesLimit: "1.000" }, "messagesLimit", "1"],
+    [{ messagesLimit: "500 Nachrichten" }, "messagesLimit", "500"],
+    [
+      { cycleStartDate: "2026-09-01", cycleDurationMonths: "3.0" },
+      "cycleDurationMonths",
+      "3",
+    ],
+    [
+      { cycleDurationMonths: 12 },
+      "cycleDurationMonths",
+      "Dauer ohne Start gespeichert, es galt der Kalendermonat",
+    ],
+  ];
+
+  test.each(rejectedSpellings)(
+    "bewusst 400: %j (Feld %s, bisher: %s)",
+    async (body, field) => {
+      seedWorkspace("ohne-zyklus", { messagesLimit: 100 });
+      const before = JSON.stringify(row("ohne-zyklus"));
+
+      const result = await apiUpdate(body, "ohne-zyklus");
+
+      expect(result.statusCode).toBe(400);
+      expect(Object.keys(result.body)).toEqual([
+        "workspace",
+        "message",
+        "errors",
+      ]);
+      expect(result.body.workspace).toBeNull();
+      expect(Object.keys(result.body.errors)).toEqual([field]);
+      expect(result.body.message).toContain(result.body.errors[field]);
+      expect(JSON.stringify(row("ohne-zyklus"))).toBe(before);
+    }
+  );
+
+  test("Reihenfolge getrennter Aufrufe: erst Start, dann Dauer gilt - erst Dauer, dann Start scheitert am ersten Aufruf", async () => {
+    seedWorkspace("start-zuerst");
+    expect(
+      (await apiUpdate({ cycleStartDate: "2026-09-01" }, "start-zuerst"))
+        .statusCode
+    ).toBe(200);
+    expect(
+      (await apiUpdate({ cycleDurationMonths: 12 }, "start-zuerst")).statusCode
+    ).toBe(200);
+    expect(billingOf("start-zuerst")).toEqual({
+      messagesLimit: null,
+      cycleStartDate: new Date("2026-09-01T00:00:00.000Z"),
+      cycleDurationMonths: 12,
+    });
+
+    seedWorkspace("dauer-zuerst");
+    const first = await apiUpdate({ cycleDurationMonths: 12 }, "dauer-zuerst");
+    expect(first.statusCode).toBe(400);
+    expect(Object.keys(first.body.errors)).toEqual(["cycleDurationMonths"]);
+    expect(
+      (await apiUpdate({ cycleStartDate: "2026-09-01" }, "dauer-zuerst"))
+        .statusCode
+    ).toBe(200);
+    // Die Dauer des abgelehnten Aufrufs fehlt: Es gilt 1 Monat ab dem Start.
+    expect(billingOf("dauer-zuerst")).toEqual({
+      messagesLimit: null,
+      cycleStartDate: new Date("2026-09-01T00:00:00.000Z"),
+      cycleDurationMonths: null,
     });
   });
 
