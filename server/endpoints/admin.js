@@ -256,6 +256,13 @@ function adminEndpoints(app) {
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
+        // KIE-533: Workspaces legt nur admin an - ein neuer Workspace hat
+        // kein Limit (messagesLimit NULL = unbegrenzt). Manager: 403.
+        if (user?.role !== ROLES.admin) {
+          response.sendStatus(403).end();
+          return;
+        }
+
         const { name } = reqBody(request);
         const { workspace, message: error } = await Workspace.new(
           name,
