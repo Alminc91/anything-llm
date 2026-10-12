@@ -92,6 +92,10 @@ const TRANSLATIONS = {
     "voice-speech": "קול ודיבור",
     "vector-database": "מסד נתונים וקטורי",
     embeds: "הטמעות צ'אט (Embeds)",
+    chatbot: "צ'אטבוט",
+    "chatbot-widgets": "ווידג'טים",
+    "chatbot-conversations": "שיחות",
+    "chatbot-messages": "טבלת הודעות",
     "embed-chats": "היסטוריית הטמעות צ'אט",
     security: "אבטחה",
     "event-logs": "יומני אירועים",
@@ -1412,11 +1416,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

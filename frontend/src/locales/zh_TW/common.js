@@ -87,6 +87,10 @@ const TRANSLATIONS = {
     "voice-speech": "語音與發音",
     "vector-database": "向量資料庫",
     embeds: "對話嵌入",
+    chatbot: "聊天機器人",
+    "chatbot-widgets": "小工具",
+    "chatbot-conversations": "對話",
+    "chatbot-messages": "訊息表",
     "embed-chats": "對話嵌入紀錄",
     security: "安全性設定",
     "event-logs": "事件記錄",
@@ -1381,11 +1385,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

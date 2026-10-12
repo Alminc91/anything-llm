@@ -92,6 +92,10 @@ const TRANSLATIONS = {
     "voice-speech": "Ses & Konuşma",
     "vector-database": "Vektör Veritabanı",
     embeds: "Sohbet Gömme",
+    chatbot: "Sohbet botu",
+    "chatbot-widgets": "Widget'lar",
+    "chatbot-conversations": "Konuşmalar",
+    "chatbot-messages": "Mesaj tablosu",
     "embed-chats": "Gömme Sohbet Geçmişi",
     security: "Güvenlik",
     "event-logs": "Olay Kayıtları",
@@ -1447,11 +1451,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

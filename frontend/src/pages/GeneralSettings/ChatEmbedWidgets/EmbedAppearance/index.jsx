@@ -23,6 +23,7 @@ import {
 import showToast from "@/utils/toast";
 import CTAButton from "@/components/lib/CTAButton";
 import Embed from "@/models/embed";
+import paths from "@/utils/paths";
 import { API_BASE, EMBED_INLINE_PLACEHOLDER_SNIPPET } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
 import { SettingsSection, Segmented, inputClass } from "./controls";
@@ -284,7 +285,7 @@ export default function EmbedAppearance() {
       const embedData = await Embed.getEmbed(embedId);
       if (!embedData) {
         showToast("Einbettung nicht gefunden.", "error");
-        navigate("/settings/embed-chat-widgets");
+        navigate(paths.settings.chatbot.widgets());
         return;
       }
       setEmbed(embedData);
@@ -492,7 +493,7 @@ export default function EmbedAppearance() {
       <div className="flex items-center px-6 pr-16 md:pr-24 pt-[2.25rem] pb-5 border-b border-white/10">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate("/settings/embed-chat-widgets")}
+            onClick={() => navigate(paths.settings.chatbot.widgets())}
             className="text-theme-text-secondary hover:text-white p-1.5 rounded-lg hover:bg-white/5 transition-colors"
           >
             <ArrowLeft size={20} />

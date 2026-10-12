@@ -93,6 +93,10 @@ const TRANSLATIONS = {
     "voice-speech": "Hääle ja kõne seaded",
     "vector-database": "Vektoriandmebaas",
     embeds: "Vestluse embed",
+    chatbot: "Vestlusrobot",
+    "chatbot-widgets": "Vidinad",
+    "chatbot-conversations": "Vestlused",
+    "chatbot-messages": "Sõnumite tabel",
     "embed-chats": "Embed-vestluste ajalugu",
     security: "Turvalisus",
     "event-logs": "Sündmuste logid",
@@ -1404,11 +1408,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

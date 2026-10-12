@@ -94,6 +94,10 @@ const TRANSLATIONS = {
     "voice-speech": "Balss un runa",
     "vector-database": "Vektoru datubāze",
     embeds: "Sarunas ietvere",
+    chatbot: "Tērzēšanas robots",
+    "chatbot-widgets": "Logrīki",
+    "chatbot-conversations": "Sarunas",
+    "chatbot-messages": "Ziņojumu tabula",
     "embed-chats": "Sarunas ietveres vēsture",
     security: "Drošība",
     "event-logs": "Notikumu žurnāli",
@@ -1453,11 +1457,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

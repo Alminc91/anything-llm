@@ -92,6 +92,10 @@ const TRANSLATIONS = {
     "voice-speech": "Giọng nói & Phát âm",
     "vector-database": "Cơ sở dữ liệu Vector",
     embeds: "Nhúng hội thoại",
+    chatbot: "Chatbot",
+    "chatbot-widgets": "Widget",
+    "chatbot-conversations": "Hội thoại",
+    "chatbot-messages": "Bảng tin nhắn",
     "embed-chats": "Lịch sử Nhúng hội thoại",
     security: "Bảo mật",
     "event-logs": "Nhật ký sự kiện",
@@ -1447,11 +1451,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

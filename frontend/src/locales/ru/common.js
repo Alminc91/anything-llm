@@ -91,6 +91,10 @@ const TRANSLATIONS = {
     "voice-speech": "Голос и Речь",
     "vector-database": "Векторная база данных",
     embeds: "Виджеты встраивания чата",
+    chatbot: "Чат-бот",
+    "chatbot-widgets": "Виджеты",
+    "chatbot-conversations": "Диалоги",
+    "chatbot-messages": "Таблица сообщений",
     "embed-chats": "История встраивания чатов",
     security: "Безопасность",
     "event-logs": "Журналы событий",
@@ -1466,11 +1470,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

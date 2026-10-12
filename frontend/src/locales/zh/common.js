@@ -90,6 +90,10 @@ const TRANSLATIONS = {
     "voice-speech": "语音和讲话",
     "vector-database": "向量数据库",
     embeds: "嵌入式对话",
+    chatbot: "聊天机器人",
+    "chatbot-widgets": "小组件",
+    "chatbot-conversations": "对话",
+    "chatbot-messages": "消息表",
     "embed-chats": "嵌入式对话历史记录",
     security: "用户与安全",
     "event-logs": "事件日志",
@@ -1378,11 +1382,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

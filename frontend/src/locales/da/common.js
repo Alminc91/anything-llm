@@ -92,6 +92,10 @@ const TRANSLATIONS = {
     "voice-speech": "Stemme & Tale",
     "vector-database": "Vektordatabase",
     embeds: "Chat-indlejring",
+    chatbot: "Chatbot",
+    "chatbot-widgets": "Widgets",
+    "chatbot-conversations": "Samtaler",
+    "chatbot-messages": "Beskedtabel",
     "embed-chats": "Historik for chat-indlejringer",
     security: "Sikkerhed",
     "event-logs": "Hændelseslog",
@@ -1456,11 +1460,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

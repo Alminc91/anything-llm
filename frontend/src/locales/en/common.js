@@ -273,6 +273,10 @@ const TRANSLATIONS = {
     "voice-speech": "Voice & Speech",
     "vector-database": "Vector Database",
     embeds: "Chat Embed",
+    chatbot: "Chatbot",
+    "chatbot-widgets": "Widgets",
+    "chatbot-conversations": "Conversations",
+    "chatbot-messages": "Message table",
     "embed-chats": "Chat Embed History",
     security: "Security",
     "event-logs": "Event Logs",
@@ -1532,11 +1536,6 @@ const TRANSLATIONS = {
         },
       },
     },
-  },
-  "embed-widgets": {
-    widgets: "Widgets",
-    history: "History (classic)",
-    analytics: "Conversations (new)",
   },
   "embed-analytics": {
     title: "Analytics Dashboard",

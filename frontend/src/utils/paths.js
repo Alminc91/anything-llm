@@ -159,8 +159,19 @@ export default {
     privacy: () => {
       return "/settings/privacy";
     },
-    embedChatWidgets: () => {
-      return `/settings/embed-chat-widgets`;
+    chatbot: {
+      widgets: () => {
+        return `/settings/chatbot/widgets`;
+      },
+      conversations: () => {
+        return `/settings/chatbot/conversations`;
+      },
+      messages: () => {
+        return `/settings/chatbot/messages`;
+      },
+    },
+    embedConfig: () => {
+      return `/settings/embed-config`;
     },
     browserExtension: () => {
       return `/settings/browser-extension`;

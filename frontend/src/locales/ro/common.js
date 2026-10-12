@@ -95,6 +95,10 @@ const TRANSLATIONS = {
     "voice-speech": "Voce & Vorbire",
     "vector-database": "Baza de date vectorială",
     embeds: "Chat Embed",
+    chatbot: "Chatbot",
+    "chatbot-widgets": "Widgeturi",
+    "chatbot-conversations": "Conversații",
+    "chatbot-messages": "Tabel de mesaje",
     "embed-chats": "Istoricul chat embed",
     security: "Securitate",
     "event-logs": "Jurnale de evenimente",
@@ -1455,11 +1459,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

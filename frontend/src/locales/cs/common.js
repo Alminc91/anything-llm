@@ -102,6 +102,10 @@ const TRANSLATIONS = {
     "voice-speech": "Hlas a řeč",
     "vector-database": "Vektorová databáze",
     embeds: "Vložený chat",
+    chatbot: "Chatbot",
+    "chatbot-widgets": "Widgety",
+    "chatbot-conversations": "Konverzace",
+    "chatbot-messages": "Tabulka zpráv",
     "embed-chats": "Historie vložených chatů",
     security: "Zabezpečení",
     "event-logs": "Protokoly událostí",
@@ -1448,11 +1452,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

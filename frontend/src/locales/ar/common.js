@@ -90,6 +90,10 @@ const TRANSLATIONS = {
     "voice-speech": "الصوت والخطاب",
     "vector-database": "قاعدة بيانات المتجهات",
     embeds: "تضمين المحادثة",
+    chatbot: "روبوت المحادثة",
+    "chatbot-widgets": "الأدوات المصغّرة",
+    "chatbot-conversations": "المحادثات",
+    "chatbot-messages": "جدول الرسائل",
     "embed-chats": "سجل تضمين المحادثة",
     security: "حماية",
     "event-logs": "سجلات الأحداث",
@@ -1429,11 +1433,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

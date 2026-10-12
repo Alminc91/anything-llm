@@ -90,6 +90,10 @@ const TRANSLATIONS = {
     "voice-speech": "음성과 말하기",
     "vector-database": "벡터 데이터베이스",
     embeds: "채팅 임베드",
+    chatbot: "챗봇",
+    "chatbot-widgets": "위젯",
+    "chatbot-conversations": "대화",
+    "chatbot-messages": "메시지 표",
     "embed-chats": "채팅 임베드 기록",
     security: "보안",
     "event-logs": "이벤트 로그",
@@ -1427,11 +1431,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

@@ -91,6 +91,10 @@ const TRANSLATIONS = {
     "voice-speech": "Voix et Parole",
     "vector-database": "Base de données vectorielle",
     embeds: "Widgets de chat intégrés",
+    chatbot: "Chatbot",
+    "chatbot-widgets": "Widgets",
+    "chatbot-conversations": "Conversations",
+    "chatbot-messages": "Tableau des messages",
     "embed-chats": "Historique des chats intégrés",
     security: "Sécurité",
     "event-logs": "Journaux d'événements",
@@ -1454,11 +1458,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

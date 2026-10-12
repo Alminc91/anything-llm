@@ -93,6 +93,10 @@ const TRANSLATIONS = {
     "voice-speech": "صدا و گفتار",
     "vector-database": "پایگاه داده برداری",
     embeds: "جاسازی گفتگو",
+    chatbot: "چت‌بات",
+    "chatbot-widgets": "ویجت‌ها",
+    "chatbot-conversations": "گفتگوها",
+    "chatbot-messages": "جدول پیام‌ها",
     "embed-chats": "تاریخچه گفتگوهای جاسازی شده",
     security: "امنیت",
     "event-logs": "گزارش رویدادها",
@@ -1449,11 +1453,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

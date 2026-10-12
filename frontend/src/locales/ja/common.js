@@ -91,6 +91,10 @@ const TRANSLATIONS = {
     "voice-speech": "音声とスピーチ",
     "vector-database": "ベクターデータベース",
     embeds: "チャット埋め込み",
+    chatbot: "チャットボット",
+    "chatbot-widgets": "ウィジェット",
+    "chatbot-conversations": "会話",
+    "chatbot-messages": "メッセージ一覧",
     "embed-chats": "チャット埋め込み履歴",
     security: "セキュリティ",
     "event-logs": "イベントログ",
@@ -1453,11 +1457,6 @@ const TRANSLATIONS = {
     "client-ip": null,
     "client-host": null,
     "view-thoughts": null,
-  },
-  "embed-widgets": {
-    widgets: null,
-    history: null,
-    analytics: null,
   },
   "embed-analytics": {
     title: null,

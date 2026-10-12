@@ -1,6 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import {
+  createBrowserRouter,
+  Navigate,
+  RouterProvider,
+} from "react-router-dom";
 import App from "@/App.jsx";
 import PrivateRoute, {
   AdminRoute,
@@ -184,14 +188,40 @@ const router = createBrowserRouter([
           return { element: <AdminRoute Component={AdminLogs} /> };
         },
       },
+      // Bereich „Chatbot" (KIE-535): je Ansicht eine eigene Adresse
       {
-        path: "/settings/embed-chat-widgets",
+        path: "/settings/chatbot/widgets",
         lazy: async () => {
-          const { default: ChatEmbedWidgets } = await import(
+          const { ChatbotWidgets } = await import(
             "@/pages/GeneralSettings/ChatEmbedWidgets"
           );
-          return { element: <PrivateRoute Component={ChatEmbedWidgets} /> };
+          return { element: <PrivateRoute Component={ChatbotWidgets} /> };
         },
+      },
+      {
+        path: "/settings/chatbot/conversations",
+        lazy: async () => {
+          const { ChatbotConversations } = await import(
+            "@/pages/GeneralSettings/ChatEmbedWidgets"
+          );
+          return {
+            element: <PrivateRoute Component={ChatbotConversations} />,
+          };
+        },
+      },
+      {
+        path: "/settings/chatbot/messages",
+        lazy: async () => {
+          const { ChatbotMessages } = await import(
+            "@/pages/GeneralSettings/ChatEmbedWidgets"
+          );
+          return { element: <PrivateRoute Component={ChatbotMessages} /> };
+        },
+      },
+      // Alte Adresse (Lesezeichen, Doku) leitet auf die Widget-Liste um
+      {
+        path: "/settings/embed-chat-widgets",
+        element: <Navigate to="/settings/chatbot/widgets" replace />,
       },
       {
         path: "/settings/embed-config/:embedId/appearance",

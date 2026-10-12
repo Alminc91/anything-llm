@@ -12,6 +12,7 @@ import {
   Nut,
   Toolbox,
   Globe,
+  ChatsCircle,
 } from "@phosphor-icons/react";
 import useUser from "@/hooks/useUser";
 import { isMobile } from "react-device-detect";
@@ -216,6 +217,35 @@ const SidebarOptions = ({ user = null, t }) => (
     {({ viewable: canViewChatHistory }) => (
       <>
         <Option
+          btnText={t("settings.chatbot")}
+          icon={<ChatsCircle className="h-5 w-5 flex-shrink-0" />}
+          user={user}
+          childOptions={[
+            {
+              btnText: t("settings.chatbot-widgets"),
+              href: paths.settings.chatbot.widgets(),
+              // Das Design Center hat eine eigene Adresse, gehört aber zu „Widgets".
+              activePrefixes: [`${paths.settings.embedConfig()}/`],
+              flex: true,
+              roles: ["admin", "manager", "default"],
+            },
+            {
+              hidden: !canViewChatHistory,
+              btnText: t("settings.chatbot-conversations"),
+              href: paths.settings.chatbot.conversations(),
+              flex: true,
+              roles: ["admin", "manager", "default"],
+            },
+            {
+              hidden: !canViewChatHistory,
+              btnText: t("settings.chatbot-messages"),
+              href: paths.settings.chatbot.messages(),
+              flex: true,
+              roles: ["admin", "manager", "default"],
+            },
+          ]}
+        />
+        <Option
           btnText={t("settings.ai-providers")}
           icon={<Gear className="h-5 w-5 flex-shrink-0" />}
           user={user}
@@ -363,13 +393,6 @@ const SidebarOptions = ({ user = null, t }) => (
           icon={<Toolbox className="h-5 w-5 flex-shrink-0" />}
           user={user}
           childOptions={[
-            {
-              hidden: !canViewChatHistory,
-              btnText: t("settings.embeds"),
-              href: paths.settings.embedChatWidgets(),
-              flex: true,
-              roles: ["admin", "manager", "default"],
-            },
             {
               btnText: t("settings.event-logs"),
               href: paths.settings.logs(),
