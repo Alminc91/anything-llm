@@ -189,6 +189,18 @@ const endOfMonth = {
   cycleDurationMonths: 1,
 };
 
+/** Workspace mit Monatszyklus ab dem genannten Tag. */
+function monthly(id, slug, cycleStartDate) {
+  return {
+    id,
+    slug,
+    name: slug,
+    messagesLimit: 600,
+    cycleStartDate: new Date(cycleStartDate),
+    cycleDurationMonths: 1,
+  };
+}
+
 function ak10Rows() {
   return [
     // 1: alter Zyklus, dann Nachrichten klar im laufenden Zyklus
@@ -458,20 +470,17 @@ describe("quota-snapshot: Vergleich", () => {
   test("reset_tag: der nächste Reset verschiebt sich auch, wenn das laufende Fenster am selben Tag begann", async () => {
     // Stand 12.10.2026. Start 31.03. und 31.08.: Das laufende Fenster begann
     // bisher wie neu am 30.09.; der nächste Reset war bisher der 30.10., neu
-    // ist es der 31.10. Start 31.01.: zusätzlich ein anderer Starttag.
-    const monthly = (id, slug, cycleStartDate) => ({
-      id,
-      slug,
-      name: slug,
-      messagesLimit: 600,
-      cycleStartDate: new Date(cycleStartDate),
-      cycleDurationMonths: 1,
-    });
+    // ist es der 31.10. Start 31.01.: zusätzlich ein anderer Starttag. Start
+    // 30.01. und 29.01. blieben bisher seit dem Februar ebenfalls auf dem 28.
+    // hängen; Start 28.01. ist die Grenze, ab der sich nichts ändert.
     const workspaces = [
       monthly(1, "start-31-03", "2026-03-31"),
       monthly(2, "start-31-08", "2026-08-31"),
       monthly(3, "start-31-01", "2026-01-31"),
       monthly(4, "start-15-01", "2026-01-15"),
+      monthly(5, "start-30-01", "2026-01-30"),
+      monthly(6, "start-29-01", "2026-01-29"),
+      monthly(7, "start-28-01", "2026-01-28"),
     ];
     const { before, after } = await snapshotPair({
       workspaces,
@@ -492,12 +501,9 @@ describe("quota-snapshot: Vergleich", () => {
     const comparison = compareSnapshots(before, after);
     // Der Stand ist überall gleich – gelistet wird trotzdem.
     expect(comparison.ok).toBe(true);
-    expect(comparison.workspaces.map((result) => result.status)).toEqual([
-      "identical",
-      "identical",
-      "identical",
-      "identical",
-    ]);
+    expect(comparison.workspaces.map((result) => result.status)).toEqual(
+      workspaces.map(() => "identical")
+    );
     expect(comparison.resetDayChanged).toEqual([
       {
         id: 1,
@@ -526,11 +532,30 @@ describe("quota-snapshot: Vergleich", () => {
         nextResetBefore: "2026-10-28",
         nextResetAfter: "2026-10-31",
       },
+      {
+        id: 5,
+        slug: "start-30-01",
+        name: "start-30-01",
+        fromDay: 28,
+        toDay: 30,
+        nextResetBefore: "2026-10-28",
+        nextResetAfter: "2026-10-30",
+      },
+      {
+        id: 6,
+        slug: "start-29-01",
+        name: "start-29-01",
+        fromDay: 28,
+        toDay: 29,
+        nextResetBefore: "2026-10-28",
+        nextResetAfter: "2026-10-29",
+      },
     ]);
     expect(comparison.workspaces[0].notes).toEqual([
       "Nächster Reset am 31.10.2026 statt am 30.10.2026 (ohne Auswirkung auf den Stand)",
     ]);
     expect(comparison.workspaces[3].notes).toEqual([]);
+    expect(comparison.workspaces[6].notes).toEqual([]);
 
     const text = formatComparison(comparison);
     expect(text).toContain(
@@ -542,10 +567,45 @@ describe("quota-snapshot: Vergleich", () => {
     expect(text).toContain(
       "  [3] start-31-01: Zyklusstart vom 28. auf den 30., nächster Reset am 31.10.2026 statt am 28.10.2026"
     );
-    // Starttag 15.: nichts geändert, also nicht in der Liste.
-    expect(text.slice(text.indexOf("Geänderter Reset-Tag"))).not.toContain(
-      "[4] start-15-01"
+    expect(text).toContain(
+      "  [5] start-30-01: Zyklusstart vom 28. auf den 30., nächster Reset am 30.10.2026 statt am 28.10.2026"
     );
+    expect(text).toContain(
+      "  [6] start-29-01: Zyklusstart vom 28. auf den 29., nächster Reset am 29.10.2026 statt am 28.10.2026"
+    );
+    // Starttag 15. und 28.: nichts geändert, also nicht in der Liste.
+    const list = text.slice(text.indexOf("Geänderter Reset-Tag"));
+    expect(list).not.toContain("[4] start-15-01");
+    expect(list).not.toContain("[7] start-28-01");
+  });
+
+  test("ursachen: Starttag 29. und 30. blieben bisher ebenfalls auf dem 28. hängen", async () => {
+    // Stand 12.10.2026: bisher begann das Fenster überall am 28.09., neu am
+    // 30.09. bzw. 29.09. Die Nachrichten dazwischen fallen heraus. Starttag
+    // 28.: Der 28.09. zählt bisher wie neu.
+    const workspaces = [
+      monthly(5, "start-30-01", "2026-01-30"),
+      monthly(6, "start-29-01", "2026-01-29"),
+      monthly(7, "start-28-01", "2026-01-28"),
+    ];
+    const { before, after } = await snapshotPair({
+      workspaces,
+      rows: workspaces.flatMap((workspace) => [
+        ...many(workspace.id, 2, "2026-09-28T10:00:00+02:00"),
+        ...many(workspace.id, 3, "2026-09-29T10:00:00+02:00"),
+        ...many(workspace.id, 5, "2026-10-05T10:00:00+02:00"),
+      ]),
+      now: "2026-10-12T10:00:00+02:00",
+    });
+    const comparison = compareSnapshots(before, after);
+    expect(comparison.ok).toBe(true);
+    expect(comparison.workspaces.map((result) => result.message)).toEqual([
+      "[5] start-30-01: 10 → 5, -5, Ursache: Zyklusstart verschoben vom 28. auf den 30.",
+      "[6] start-29-01: 10 → 8, -2, Ursache: Zyklusstart verschoben vom 28. auf den 29.",
+      "[7] start-28-01: identisch (10)",
+    ]);
+    expect(comparison.workspaces[2].causes).toEqual([]);
+    expect(comparison.resetDayChanged.map((entry) => entry.id)).toEqual([5, 6]);
   });
 
   test("reset_tag: verschobener Zyklusstart, dessen nächster Reset auf denselben Tag fällt", async () => {
