@@ -9,9 +9,9 @@
 
 ## Navigation
 
-1. Öffne `http://localhost:3000/settings/embed-chat-widgets`
-2. Klicke links auf **"Konversationen (neu)"** (dritter Eintrag in der Liste)
-3. Das Analytics Dashboard sollte laden
+1. Öffne `http://localhost:3000/settings/chatbot/conversations`
+   (Einstellungs-Sidebar: **Chatbot → Konversationen**)
+2. Das Analytics Dashboard sollte laden
 
 ---
 
