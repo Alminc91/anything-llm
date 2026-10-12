@@ -8,6 +8,49 @@ const {
 } = require("../utils/agents/aibitat/plugins/websocket");
 const { safeJsonParse } = require("../utils/http");
 
+// KIE-534: Meldung an den Client, wenn die Limitprüfung selbst fehlschlägt.
+const MESSAGES_LIMIT_CHECK_FAILED =
+  "The message limit of this workspace could not be verified. Closing agent session.";
+
+/**
+ * KIE-534: Prüft das Nachrichtenlimit des Workspaces für eine Agent-Sitzung – mit
+ * derselben Funktion wie der normale Chat, nur ohne HTTP-Antwortobjekt.
+ * Ist das Limit erreicht, erhält der Client die Limit-Meldung des normalen Chats
+ * und die Sitzung wird beendet. Schlägt die Prüfung selbst fehl, endet die Sitzung
+ * mit einer Fehlermeldung. Ein Fehler verlässt diese Funktion nie: Sie läuft auch
+ * im Interrupt-Listener des Websocket-Plugins, wo niemand ihn abfangen würde.
+ * @param {import("ws").WebSocket} socket
+ * @param {AgentHandler} agentHandler
+ * @returns {Promise<boolean>} true, wenn die Sitzung beendet wurde
+ */
+async function closeOnMessagesLimit(socket, agentHandler) {
+  let content;
+  try {
+    const { checkWorkspaceMessagesLimit } = require("../utils/helpers");
+    const { limitReached, errorData } = await checkWorkspaceMessagesLimit(
+      agentHandler.invocation.workspace,
+      null,
+      { returnData: true }
+    );
+    if (!limitReached) return false;
+
+    agentHandler.log(`Workspace message limit reached. Closing session now.`);
+    content = errorData.error;
+  } catch (e) {
+    console.error(e.message, e);
+    content = MESSAGES_LIMIT_CHECK_FAILED;
+  }
+
+  try {
+    socket.send(JSON.stringify({ type: "wssFailure", content }));
+  } catch (e) {
+    console.error(e.message, e);
+  } finally {
+    socket.close();
+  }
+  return true;
+}
+
 // Setup listener for incoming messages to relay to socket so it can be handled by agent plugin.
 function relayToSocket(message) {
   if (this.handleFeedback) return this?.handleFeedback?.(message);
@@ -46,6 +89,13 @@ function agentWebsocket(app) {
           return;
         }
       };
+
+      // KIE-534: Das Websocket-Plugin ruft diese Prüfung vor jeder weiteren
+      // Nutzernachricht auf. Der Prompt der Invocation ist die erste davon –
+      // bei erreichtem Limit beginnt die Sitzung gar nicht erst.
+      socket.checkMessagesLimit = () =>
+        closeOnMessagesLimit(socket, agentHandler);
+      if (await socket.checkMessagesLimit()) return;
 
       await Telemetry.sendTelemetry("agent_chat_started");
       await agentHandler.createAIbitat({ socket });
