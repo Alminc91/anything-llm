@@ -7,6 +7,7 @@ const eagerLoadContextWindows = require("./eagerLoadContextWindows");
 const markOnboarded = require("./markOnboarded");
 const { PushNotifications } = require("../PushNotifications");
 const { runMessageLedgerBackfill } = require("./messageLedgerBackfill");
+const { releaseEngineThreads } = require("../prisma/engineThreads");
 
 // KIE-532: Der Nachtrag des Zählerbuchs läuft, bevor der Server Anfragen
 // annimmt. Er wirft nie; schlägt er fehl, startet der Server trotzdem und das
@@ -14,7 +15,22 @@ const { runMessageLedgerBackfill } = require("./messageLedgerBackfill");
 function listenAfterLedgerBackfill(listen) {
   runMessageLedgerBackfill()
     .catch((e) => console.error(e.message))
+    .then(releaseEngineThreadsOnceLoaded)
     .then(listen);
+}
+
+// Die Thread-Zahl der Query-Engine (utils/prisma/engineThreads.js) steht in
+// einer Variablen des ganzen Prozesses. Nach einer gelungenen Abfrage ist die
+// Engine geladen und behält ihre Threads; die Variable wird zurückgenommen,
+// bevor mit den ersten Anfragen weitere native Module laden.
+async function releaseEngineThreadsOnceLoaded() {
+  try {
+    const prisma = require("../prisma");
+    await prisma.$queryRaw`SELECT 1`;
+    releaseEngineThreads();
+  } catch (e) {
+    console.error(e.message);
+  }
 }
 
 // Testing SSL? You can make a self signed certificate and point the ENVs to that location

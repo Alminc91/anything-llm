@@ -30,7 +30,10 @@ const {
   createEmbed,
   eventsOf,
 } = require("../helpers/sqliteTestDatabase");
-const { ensureEngineThreads } = require("../../utils/prisma/engineThreads");
+const {
+  ensureEngineThreads,
+  releaseEngineThreads,
+} = require("../../utils/prisma/engineThreads");
 
 // Der erste Test jeder Datei erzeugt die Vorlage mit `prisma migrate deploy`.
 jest.setTimeout(60000);
@@ -127,6 +130,24 @@ describe("ensureEngineThreads", () => {
     process.env.TOKIO_WORKER_THREADS = "3";
     ensureEngineThreads();
     expect(process.env.TOKIO_WORKER_THREADS).toBe("3");
+    releaseEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBe("3");
+  });
+
+  test("releaseEngineThreads nimmt nur den selbst gesetzten Wert zurück", () => {
+    delete process.env.TOKIO_WORKER_THREADS;
+    releaseEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBeUndefined();
+
+    ensureEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toEqual(expect.any(String));
+    releaseEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBeUndefined();
+
+    // Danach vom Betrieb gesetzt: bleibt.
+    process.env.TOKIO_WORKER_THREADS = "12";
+    releaseEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBe("12");
   });
 
   test("utils/prisma setzt den Wert, bevor der Client entsteht", () => {
