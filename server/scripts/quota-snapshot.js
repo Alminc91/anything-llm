@@ -53,10 +53,13 @@
  * den vorhandenen Zeilen (Standard: --source live), so wie der Server nach
  * abgeschlossenem Nachtrag. Nur mit --mode current; der Nachtrag muss als
  * abgeschlossen markiert sein. Das Zählerbuch ist stundengenau: Gezählt wird
- * bis einschließlich der Berliner Stunde von --now. Für den Vergleich deshalb
- * beide Schnappschüsse auf demselben eingefrorenen Stand erstellen (gestoppter
- * Container oder Kopie), sonst zählen Nachrichten mit, die nach --now in
- * derselben Stunde entstanden sind.
+ * bis einschließlich der Berliner Stunde von --now; Chat-Zeilen, die nach
+ * --now in dieser Stunde entstanden sind, werden wieder abgezogen. So
+ * beschreiben beide Schnappschüsse denselben Zeitpunkt, auch wenn der Server
+ * zwischen ihnen weiterläuft. Wurden solche Zeilen inzwischen gelöscht, lässt
+ * sich das nicht mehr abziehen: Der Vergleich meldet dann eine Abweichung -
+ * im Zweifel auf einem eingefrorenen Stand wiederholen (gestoppter Container
+ * oder Kopie).
  *
  * compare-ledger vergleicht vorher = current/live mit nachher =
  * current/ledger bei demselben --now. Die Umstellung darf keinen Stand
@@ -1219,11 +1222,29 @@ function databaseCounter(prisma) {
  * Zählfunktion wie im Server nach abgeschlossenem Nachtrag: Nachrichten aus
  * dem Zählerbuch (KIE-532), Buchungen wie bisher. Das Zählerbuch ist
  * stundengenau; gezählt wird ab dem Berliner Tag des Fensterbeginns bis
- * einschließlich der Berliner Stunde, in der das Fenster endet.
+ * einschließlich der Berliner Stunde, in der das Fenster endet. Endet es
+ * mitten in einer Stunde (am Bezugszeitpunkt), werden die danach in dieser
+ * Stunde entstandenen Chat-Zeilen abgezogen: Sie stehen schon im Zählerbuch,
+ * gehören aber nicht zum Schnappschuss.
  * @param {import("@prisma/client").PrismaClient} prisma
  */
 function ledgerCounter(prisma) {
   const { MessageLedger } = require("../models/messageLedger");
+  const MS_PER_HOUR = 60 * 60 * 1000;
+
+  /** Ende der Berliner Stunde, in der ein Zeitpunkt liegt. */
+  function endOfBerlinHour(instantMs) {
+    const cell = MessageLedger.berlinDayHour(instantMs);
+    let end = (Math.floor(instantMs / MS_PER_HOUR) + 1) * MS_PER_HOUR;
+    // Stunde 2 dauert am Tag der Rückstellung auf Winterzeit zwei Stunden.
+    for (;;) {
+      const next = MessageLedger.berlinDayHour(end);
+      if (next.day !== cell.day || next.hour !== cell.hour) break;
+      end += MS_PER_HOUR;
+    }
+    return new Date(end);
+  }
+
   return async function countInWindow(workspace, start, endExclusive) {
     const fromDay = berlinDayOf(start);
     if (berlinMidnight(fromDay).getTime() !== start.getTime())
@@ -1232,7 +1253,12 @@ function ledgerCounter(prisma) {
       );
     // Letzter Zeitpunkt, der noch im Fenster liegt
     const last = MessageLedger.berlinDayHour(endExclusive.getTime() - 1);
-    const [cells, adjustments] = await Promise.all([
+    const lateRows = {
+      gte: endExclusive,
+      lt: endOfBerlinHour(endExclusive.getTime() - 1),
+    };
+    const hasLateRows = lateRows.gte < lateRows.lt;
+    const [cells, adjustments, lateChats, lateEmbedChats] = await Promise.all([
       prisma.message_ledger.groupBy({
         by: ["embed_id"],
         where: {
@@ -1251,6 +1277,19 @@ function ledgerCounter(prisma) {
           createdAt: { gte: start, lt: endExclusive },
         },
       }),
+      hasLateRows
+        ? prisma.workspace_chats.count({
+            where: { workspaceId: workspace.id, createdAt: lateRows },
+          })
+        : 0,
+      hasLateRows
+        ? prisma.embed_chats.count({
+            where: {
+              embed_config: { workspace_id: workspace.id },
+              createdAt: lateRows,
+            },
+          })
+        : 0,
     ]);
 
     let workspaceChatCount = 0;
@@ -1261,8 +1300,8 @@ function ledgerCounter(prisma) {
       else embedChatCount += cell._sum.messages ?? 0;
     }
     return {
-      workspaceChatCount,
-      embedChatCount,
+      workspaceChatCount: workspaceChatCount - lateChats,
+      embedChatCount: embedChatCount - lateEmbedChats,
       adjustmentsTotal: adjustments?._sum?.amount ?? 0,
     };
   };

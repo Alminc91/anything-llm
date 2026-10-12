@@ -657,6 +657,18 @@ async function seedRunningQuotas(client) {
     where: { id: movedEmbed.id },
     data: { workspace_id: adopter.id },
   });
+  // Nach dem Bezugszeitpunkt (10:00 Uhr Berliner Zeit), aber noch in derselben
+  // Stunde entstanden: gehören in keinen der beiden Schnappschüsse.
+  await seedWorkspaceChats(client, [
+    { workspaceId: adopter.id, createdAt: at("2026-10-12T10:59:59.999+02:00") },
+  ]);
+  await seedEmbedChats(client, [
+    {
+      embed_id: movedEmbed.id,
+      createdAt: at("2026-10-12T10:20:00+02:00"),
+      session_id: "y",
+    },
+  ]);
   // createdAt als Text (an Prisma vorbei): zählt weder bisher noch künftig
   await client.$executeRaw`
     INSERT INTO workspace_chats (workspaceId, prompt, response, createdAt)
@@ -745,8 +757,9 @@ describe("vorher_nachher und bestand_unveraendert (AK-10, NAK-1, NAK-2)", () => 
       "0/10",
       // 17 Chats im Oktober, der erste genau am 01.10. um 00:00 Uhr
       "17/30",
-      // 17 Chats des hierher umgehängten Widgets
-      "17/40",
+      // 17 Chats des hierher umgehängten Widgets, dazu 2 Nachrichten nach
+      // dem Bezugszeitpunkt (der Server zählt das ganze Fenster)
+      "19/40",
     ]);
 
     const snapshotArgs = [
@@ -783,7 +796,7 @@ describe("vorher_nachher und bestand_unveraendert (AK-10, NAK-1, NAK-2)", () => 
     expect(backfill.ok).toBe(true);
     expect(backfill.state.tables.workspace_chats).toEqual(
       expect.objectContaining({
-        rows: 356,
+        rows: 357,
         skippedOrphaned: 1,
         skippedWithoutTime: 1,
       })
@@ -869,13 +882,75 @@ describe("vorher_nachher und bestand_unveraendert (AK-10, NAK-1, NAK-2)", () => 
     );
   }, 120000);
 
+  test("vorher_nachher: Nachrichten nach --now in derselben Berliner Stunde zählen in keinem der beiden Schnappschüsse, auch in der doppelten Stunde 2", async () => {
+    const workspace = await createWorkspace(db.client, { messagesLimit: 10 });
+    const embed = await createEmbed(db.client, workspace);
+    const at = (iso) => new Date(iso);
+    // 25.10.2026, Rückstellung auf Winterzeit: 02:00–02:59 Uhr gibt es zweimal.
+    await seedWorkspaceChats(db.client, [
+      { workspaceId: workspace.id, createdAt: at("2026-10-25T01:10:00+02:00") },
+      { workspaceId: workspace.id, createdAt: at("2026-10-25T02:30:00+02:00") },
+      // nach dem Bezugszeitpunkt: erster Durchlauf, zweiter Durchlauf, später
+      { workspaceId: workspace.id, createdAt: at("2026-10-25T02:50:00+02:00") },
+      { workspaceId: workspace.id, createdAt: at("2026-10-25T02:30:00+01:00") },
+      { workspaceId: workspace.id, createdAt: at("2026-10-25T03:05:00+01:00") },
+    ]);
+    await seedEmbedChats(db.client, [
+      { embed_id: embed.id, createdAt: at("2026-10-25T02:39:59+02:00") },
+      { embed_id: embed.id, createdAt: at("2026-10-25T02:40:00+02:00") },
+      { embed_id: embed.id, createdAt: at("2026-10-25T02:59:00+01:00") },
+    ]);
+    // Bezugszeitpunkt 02:40 Uhr im ersten Durchlauf
+    const args = [
+      "snapshot",
+      "--mode",
+      "current",
+      "--db",
+      db.file,
+      "--now",
+      "2026-10-25T00:40:00.000Z",
+    ];
+    const before = path.join(workDir, "vorher.json");
+    const after = path.join(workDir, "nachher.json");
+    await runCli(quotaSnapshot.main, [...args, "--out", before]);
+
+    await db.migrate();
+    expect((await runMessageLedgerBackfill(quiet)).ok).toBe(true);
+    await runCli(quotaSnapshot.main, [
+      ...args,
+      "--source",
+      "ledger",
+      "--out",
+      after,
+    ]);
+
+    const numbers = (file) => {
+      const [ws] = JSON.parse(fs.readFileSync(file, "utf8")).workspaces;
+      return [ws.messageCount, ws.workspaceChatCount, ws.embedChatCount];
+    };
+    // 2 Chats und 2 Widget-Chats bis 02:40:00,000 Uhr (einschließlich)
+    expect(numbers(before)).toEqual([4, 2, 2]);
+    expect(numbers(after)).toEqual([4, 2, 2]);
+    expect(
+      (await runCli(quotaSnapshot.main, ["compare-ledger", before, after]))
+        .status
+    ).toBe(0);
+    // Im Zählerbuch stehen alle Nachrichten der Stunde 2 in einer Zeile.
+    expect(
+      await db.client.message_ledger.aggregate({
+        where: { day: "2026-10-25", hour: 2 },
+        _sum: { messages: true },
+      })
+    ).toEqual({ _sum: { messages: 6 } });
+  }, 120000);
+
   test("bestand_unveraendert: Migration und Nachtrag ändern keine Zeile in workspace_chats, embed_chats, workspaces und workspace_message_adjustments", async () => {
     await seedRunningQuotas(db.client);
     const before = {};
     for (const table of PROTECTED_TABLES)
       before[table] = await checksum(db.client, table);
-    expect(before.workspace_chats.rows).toBe(358);
-    expect(before.embed_chats.rows).toBe(172);
+    expect(before.workspace_chats.rows).toBe(359);
+    expect(before.embed_chats.rows).toBe(173);
     const tablesBefore = await db.client.$queryRaw`
       SELECT name, sql FROM sqlite_master
       WHERE type = 'table' AND name NOT LIKE '_prisma%' ORDER BY name`;
