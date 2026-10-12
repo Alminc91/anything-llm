@@ -48,6 +48,8 @@ jest.mock("../../utils/prisma", () => {
       findMany: async ({ where }) =>
         adjustments(where).sort((a, b) => b.createdAt - a.createdAt),
     },
+    // KIE-532: keine Markierung des Nachtrags - es zählt die Live-Zählung.
+    system_settings: { findUnique: async () => null },
   };
 });
 jest.mock("../../models/workspace", () => ({

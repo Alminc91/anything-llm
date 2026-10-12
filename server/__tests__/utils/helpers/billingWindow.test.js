@@ -52,6 +52,8 @@ jest.mock("../../../utils/prisma", () => {
         },
       }),
     },
+    // KIE-532: keine Markierung des Nachtrags - es zählt die Live-Zählung.
+    system_settings: { findUnique: async () => null },
   };
 });
 
