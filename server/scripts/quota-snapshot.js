@@ -29,9 +29,9 @@
  *     Tag hängen blieb).
  * Workspaces, die durch die neuen Grenzen ihr Limit erreichen, stehen in einer
  * eigenen Liste, ebenso Workspaces mit Starttag 29.–31., deren Zyklusstart
- * oder nächster Reset auf einen anderen Tag fällt. Bleibt ein Unterschied ohne
- * eine der beiden Ursachen, endet compare mit Status 1: Der Rollout darf dann
- * nicht fortgesetzt werden.
+ * oder nächster Reset wegen der bisherigen Klemmung auf einen anderen Tag
+ * fällt. Bleibt ein Unterschied ohne eine der beiden Ursachen, endet compare
+ * mit Status 1: Der Rollout darf dann nicht fortgesetzt werden.
  *
  * compare verlangt vorher = legacy, nachher = current und in beiden denselben
  * Bezugszeitpunkt. Alles andere ist ein Aufruffehler (Status 2): Es wurde
@@ -253,6 +253,22 @@ function sameMonth(dayA, dayB) {
 }
 
 /**
+ * Kalendertag (Berliner Zeit), an dem der bisherige Zyklus mit dieser Nummer
+ * begonnen hätte, wäre der geklemmte Tag nicht hängen geblieben: ein einziges
+ * addMonths vom gespeicherten Start statt der Kette. Zeitzone und Uhrzeit sind
+ * dieselben wie in der Kette, beide unterscheidet also allein die Klemmung.
+ * @param {{cycleStartDate: Date|string, cycleDurationMonths?: number|null}} workspace
+ * @param {number} cycleNumber - Zyklusnummer der bisherigen Zählung (ab 1)
+ * @param {string} timeZone - Zeitzone des damaligen Serverprozesses (IANA)
+ * @returns {string} - "YYYY-MM-DD"
+ */
+function unclampedLegacyStartDay(workspace, cycleNumber, timeZone) {
+  const origin = toValidDate(workspace.cycleStartDate).getTime();
+  const months = (cycleNumber - 1) * (workspace.cycleDurationMonths || 1);
+  return berlinDayOf(new Date(legacyAddMonths(origin, months, timeZone)));
+}
+
+/**
  * Starttag 29.–31.: Bisher blieb der Reset auf dem geklemmten Tag, jetzt fällt
  * er auf den Originaltag, soweit der Monat ihn hat. Nennt, ob dadurch der
  * Zyklusstart und der nächste Reset auf einen anderen Tag fallen als bisher.
@@ -261,6 +277,13 @@ function sameMonth(dayA, dayB) {
  * am Tag des neuen Fensterbeginns nur noch aus (bisherige Lücke bzw. 00:00 UTC
  * statt 00:00 Uhr Berliner Zeit), ist das derselbe Reset-Tag: Maßgeblich ist
  * dann das bisherige Fenster, das mit diesem Reset beginnt.
+ *
+ * Gemeldet wird nur, was auf die hängen gebliebene Klemmung zurückgeht.
+ * Maßstab ist der Tag, an dem derselbe bisherige Zyklus ohne sie begonnen
+ * hätte. Liegt der bisherige Tag nur deshalb neben dem neuen, weil
+ * cycleStartDate eine Uhrzeit trägt oder der Serverprozess in einer Zeitzone
+ * fern von Berlin lief, hat die bisherige Logik nicht geklemmt: Das ist keine
+ * der benannten Ursachen, ein Unterschied im Stand bleibt unerklärt.
  *
  * @returns {{shiftFromDay: number|null, shiftToDay: number|null, nextResetBefore: string|null, nextResetAfter: string|null}}
  */
@@ -275,27 +298,46 @@ function resetDayChanges({ workspace, legacy, current, legacyTimeZone }) {
     berlinDayOf(legacy.nextStart) === current.startDay
       ? legacyWindow(workspace, legacy.nextStart, legacyTimeZone)
       : legacy;
+  const legacyStartDay = berlinDayOf(sameCycle.start);
+  const legacyNextStartDay = berlinDayOf(sameCycle.nextStart);
+  const unclampedStartDay = unclampedLegacyStartDay(
+    workspace,
+    sameCycle.cycleNumber,
+    legacyTimeZone
+  );
+  const unclampedNextStartDay = unclampedLegacyStartDay(
+    workspace,
+    sameCycle.cycleNumber + 1,
+    legacyTimeZone
+  );
 
   // Verschoben ist der Zyklusstart nur, wenn der bisherige Start im selben
   // Monat auf einem anderen Tag lag als der neue. Der neue Start dieses Zyklus
   // ist der Beginn des laufenden Fensters oder – hatte bisher schon der
   // Folgezyklus begonnen (28.03. statt 31.03.) – dessen Ende. Ein bisheriger
   // Start in einem anderen Monat ist ein anderer Zyklus, kein geklemmter Tag.
-  const legacyStartDay = berlinDayOf(sameCycle.start);
+  // Und nur die Klemmung darf beide trennen: Ohne sie hätte der bisherige
+  // Zyklus am neuen Starttag begonnen.
   const newStartDay =
     sameCycle.start < current.start
       ? current.startDay
       : current.endDayExclusive;
-  if (sameMonth(legacyStartDay, newStartDay)) {
+  if (
+    sameMonth(legacyStartDay, newStartDay) &&
+    unclampedStartDay === newStartDay
+  ) {
     changes.shiftFromDay = dayOfMonth(legacyStartDay);
     changes.shiftToDay = dayOfMonth(newStartDay);
   }
 
   // Das betrifft den nächsten Reset auch dann, wenn das laufende Fenster am
   // selben Tag begann (Start 31.03.: bisher 30.09. → 30.10., neu 30.09. →
-  // 31.10.).
-  const legacyNextStartDay = berlinDayOf(sameCycle.nextStart);
-  if (legacyNextStartDay !== current.endDayExclusive) {
+  // 31.10.). Auch hier zählt nur ein bisheriger Zyklus, dessen Start oder
+  // nächster Reset auf dem geklemmten Tag hing.
+  const legacyClamped =
+    legacyStartDay !== unclampedStartDay ||
+    legacyNextStartDay !== unclampedNextStartDay;
+  if (legacyClamped && legacyNextStartDay !== current.endDayExclusive) {
     changes.nextResetBefore = legacyNextStartDay;
     changes.nextResetAfter = current.endDayExclusive;
   }
@@ -539,8 +581,9 @@ function formatDayDE(day) {
  * limitReached listet gesondert die Workspaces, die erst durch die neuen
  * Grenzen ihr Limit erreichen oder überschreiten. resetDayChanged listet die
  * Workspaces mit Starttag 29.–31., deren Zyklusstart (fromDay/toDay) oder
- * nächster Reset (nextResetBefore/nextResetAfter) auf einen anderen Tag fällt
- * – unabhängig davon, ob sich der Stand ändert.
+ * nächster Reset (nextResetBefore/nextResetAfter) wegen der bisherigen
+ * Klemmung auf einen anderen Tag fällt – unabhängig davon, ob sich der Stand
+ * ändert.
  *
  * Verglichen wird nur vorher = legacy gegen nachher = current mit demselben
  * Bezugszeitpunkt. Jede andere Paarung wirft: Zwei gleichartige oder zu
@@ -647,9 +690,11 @@ function compareSnapshots(before, after) {
         result.notes.push(
           `Zyklusstart verschoben vom ${transition.shiftFromDay}. auf den ${transition.shiftToDay}. (ohne Auswirkung auf den Stand)`
         );
+      // Der Zusatz steht nur neben einem unveränderten Stand. Neben einer
+      // Abweichung läse er sich wie eine Entwarnung.
       if (nextResetMoved && !startShifted)
         result.notes.push(
-          `Nächster Reset am ${formatDayDE(transition.nextResetAfter)} statt am ${formatDayDE(transition.nextResetBefore)} (ohne Auswirkung auf den Stand)`
+          `Nächster Reset am ${formatDayDE(transition.nextResetAfter)} statt am ${formatDayDE(transition.nextResetBefore)}${rawDelta === 0 ? " (ohne Auswirkung auf den Stand)" : ""}`
         );
     }
 
