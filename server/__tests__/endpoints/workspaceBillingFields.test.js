@@ -39,6 +39,7 @@ jest.mock("../../utils/chats/openaiCompatible", () => ({
 
 const prisma = require("../../utils/prisma");
 const { Workspace } = require("../../models/workspace");
+const { EventLogs } = require("../../models/eventLogs");
 const { workspaceEndpoints } = require("../../endpoints/workspaces");
 const { apiWorkspaceEndpoints } = require("../../endpoints/api/workspace");
 const { apiOpenAICompatibleEndpoints } = require("../../endpoints/api/openai");
@@ -393,6 +394,60 @@ describe("validierung (AK-8)", () => {
     expect(result.body.workspace).toBeNull();
     expect(Object.keys(result.body.errors)).toEqual(["messagesLimit"]);
     expect(JSON.stringify(row())).toBe(before);
+  });
+
+  // Die Route trägt den bisherigen Prompt erst in die Prompt-Historie ein,
+  // wenn das Update gespeichert ist (Workspace.trackChange).
+  const promptEvents = () =>
+    EventLogs.logEvent.mock.calls.filter(
+      ([event]) => event === "workspace_prompt_changed"
+    );
+
+  test("Oberfläche (admin): bei 400 entsteht kein Eintrag in der Prompt-Historie", async () => {
+    const admin = createUser(prisma, "admin");
+    row().openAiPrompt = "Eigener Prompt";
+
+    const result = await sessionUpdate(admin, {
+      openAiPrompt: "Neuer Prompt",
+      messagesLimit: "10.000",
+    });
+
+    expect(result.statusCode).toBe(400);
+    expect(Object.keys(result.body.errors)).toEqual(["messagesLimit"]);
+    expect(row().openAiPrompt).toBe("Eigener Prompt");
+    expect(prisma.__rows("prompt_history")).toEqual([]);
+    expect(promptEvents()).toEqual([]);
+  });
+
+  test("Oberfläche (admin): gültige Anfrage mit neuem Prompt → genau ein Eintrag mit dem bisherigen Prompt", async () => {
+    const admin = createUser(prisma, "admin");
+    row().openAiPrompt = "Eigener Prompt";
+
+    const result = await sessionUpdate(admin, {
+      openAiPrompt: "Neuer Prompt",
+      messagesLimit: "700",
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(row().openAiPrompt).toBe("Neuer Prompt");
+    expect(row().messagesLimit).toBe(700);
+    expect(prisma.__rows("prompt_history")).toEqual([
+      expect.objectContaining({
+        workspaceId: workspace.id,
+        prompt: "Eigener Prompt",
+        modifiedBy: admin.id,
+      }),
+    ]);
+    expect(promptEvents()).toEqual([
+      [
+        "workspace_prompt_changed",
+        expect.objectContaining({
+          prevSystemPrompt: "Eigener Prompt",
+          newSystemPrompt: "Neuer Prompt",
+        }),
+        admin.id,
+      ],
+    ]);
   });
 
   test("API: Anlegen mit ungültigen Werten → 400, es entsteht kein Workspace", async () => {
