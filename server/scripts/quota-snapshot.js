@@ -39,6 +39,38 @@
  *
  * Status: 0 = alles erklärt, 1 = unerklärter Unterschied, 2 = Aufruf- oder
  * Laufzeitfehler.
+ *
+ * Zählerbuch (KIE-532)
+ *
+ *   node scripts/quota-snapshot.js snapshot --mode current \
+ *        --db /pfad/anythingllm.db --now 2026-10-12T08:00:00Z --out vorher.json
+ *   (Migration und Nachtrag laufen lassen)
+ *   node scripts/quota-snapshot.js snapshot --mode current --source ledger \
+ *        --db /pfad/anythingllm.db --now 2026-10-12T08:00:00Z --out nachher.json
+ *   node scripts/quota-snapshot.js compare-ledger vorher.json nachher.json
+ *
+ * snapshot --source ledger liest die Nachrichten aus dem Zählerbuch statt aus
+ * den vorhandenen Zeilen (Standard: --source live), so wie der Server nach
+ * abgeschlossenem Nachtrag. Nur mit --mode current; der Nachtrag muss als
+ * abgeschlossen markiert sein. Das Zählerbuch ist stundengenau: Gezählt wird
+ * bis einschließlich der Berliner Stunde von --now. Für den Vergleich deshalb
+ * beide Schnappschüsse auf demselben eingefrorenen Stand erstellen (gestoppter
+ * Container oder Kopie), sonst zählen Nachrichten mit, die nach --now in
+ * derselben Stunde entstanden sind.
+ *
+ * compare-ledger vergleicht vorher = current/live mit nachher =
+ * current/ledger bei demselben --now. Die Umstellung darf keinen Stand
+ * ändern: Jeder Workspace muss "identisch" sein (Stand, Chats, Widget-Chats,
+ * Buchungen), sonst endet der Befehl mit Status 1.
+ *
+ *   node scripts/quota-snapshot.js --deleted-report [--db /pfad/anythingllm.db]
+ *        [--now <ISO-Zeitpunkt>] [--json]
+ *
+ * --deleted-report listet je Workspace die im laufenden Fenster
+ * protokollierten Löschmengen (Ereignisse embed_chats_auto_deleted und
+ * embed_chats_cleared) mit Datum - als Vorschlag für eine manuelle Abbuchung
+ * der Nachrichten, die vor dem Zählerbuch gelöscht wurden und dem Stand
+ * deshalb fehlen. Es wird nichts gebucht.
  */
 
 const fs = require("fs");
@@ -46,6 +78,7 @@ const path = require("path");
 const {
   getBillingWindow,
   berlinDayOf,
+  berlinMidnight,
 } = require("../utils/helpers/billingWindow");
 
 const SNAPSHOT_SCHEMA = "quota-snapshot/1";
@@ -455,6 +488,7 @@ async function describeTransition({
  * @param {"legacy"|"current"} params.mode
  * @param {string|null} [params.legacyTimeZone] - Pflicht für mode "legacy"
  * @param {string|null} [params.database]
+ * @param {"live"|"ledger"} [params.source] - Quelle der Nachrichten; "ledger" nur mit mode "current" und ohne legacyTimeZone
  * @returns {Promise<Object>}
  */
 async function buildSnapshot({
@@ -464,11 +498,20 @@ async function buildSnapshot({
   mode,
   legacyTimeZone = null,
   database = null,
+  source = "live",
 }) {
   if (!["legacy", "current"].includes(mode))
     throw new Error(`Unbekannter Modus: ${mode}`);
   if (mode === "legacy" && !legacyTimeZone)
     throw new Error("Für mode legacy muss legacyTimeZone angegeben sein.");
+  if (!["live", "ledger"].includes(source))
+    throw new Error(`Unbekannte Quelle: ${source}`);
+  // Das Zählerbuch kennt nur ganze Berliner Stunden; die bisherigen Fenster
+  // und ihre Teilabschnitte lassen sich damit nicht auszählen.
+  if (source === "ledger" && (mode !== "current" || legacyTimeZone))
+    throw new Error(
+      "source ledger gibt es nur mit mode current und ohne legacyTimeZone."
+    );
   if (legacyTimeZone) zoneFormatter(legacyTimeZone); // wirft bei unbekannter Zeitzone
 
   // Nach dem Bezugszeitpunkt eingegangene Zeilen bleiben außen vor, damit
@@ -544,6 +587,8 @@ async function buildSnapshot({
   return {
     schema: SNAPSHOT_SCHEMA,
     mode,
+    // Ohne Angabe: Live-Zählung (Schnappschüsse vor KIE-532 kennen das Feld nicht).
+    ...(source === "ledger" ? { source } : {}),
     legacyTimeZone,
     now: now.toISOString(),
     database,
@@ -829,6 +874,300 @@ function formatComparison(comparison) {
 }
 
 // ---------------------------------------------------------------------------
+// Vergleich für die Umstellung auf das Zählerbuch (KIE-532, reine Funktion)
+// ---------------------------------------------------------------------------
+
+const LEDGER_COMPARED_FIELDS = [
+  ["messageCount", "Stand"],
+  ["workspaceChatCount", "Chats"],
+  ["embedChatCount", "Widget-Chats"],
+  ["adjustmentsTotal", "Buchungen"],
+];
+
+/**
+ * Vergleicht den Stand vor der Umstellung (Live-Zählung) mit dem Stand nach
+ * Migration und Nachtrag (Zählerbuch). Die Umstellung darf nichts ändern:
+ * Jeder Workspace ist "identical" oder "different", eine Erklärung für einen
+ * Unterschied gibt es hier nicht.
+ *
+ * Verglichen wird nur vorher = current/live gegen nachher = current/ledger
+ * mit demselben Bezugszeitpunkt. Jede andere Paarung wirft.
+ *
+ * @param {Object} before - Schnappschuss vor Migration und Nachtrag (mode current, Live-Zählung)
+ * @param {Object} after - Schnappschuss danach (mode current, source ledger)
+ * @returns {{ok: boolean, workspaces: Object[], different: Object[]}}
+ */
+function compareLedgerSnapshots(before, after) {
+  for (const [name, snapshot] of [
+    ["vorher", before],
+    ["nachher", after],
+  ]) {
+    if (snapshot?.schema !== SNAPSHOT_SCHEMA)
+      throw new Error(
+        `Schnappschuss "${name}" hat nicht das Format ${SNAPSHOT_SCHEMA}.`
+      );
+  }
+  const sourceOf = (snapshot) => snapshot.source ?? "live";
+  if (
+    before.mode !== "current" ||
+    after.mode !== "current" ||
+    sourceOf(before) !== "live" ||
+    sourceOf(after) !== "ledger"
+  )
+    throw new Error(
+      `Nicht vergleichbar: erwartet wird vorher = current mit Live-Zählung und nachher = current mit --source ledger (ist: ${before.mode}/${sourceOf(before)} und ${after.mode}/${sourceOf(after)}).`
+    );
+  if (before.now !== after.now)
+    throw new Error(
+      `Nicht vergleichbar: unterschiedliche Bezugszeitpunkte (vorher ${before.now}, nachher ${after.now}). Beide Schnappschüsse mit demselben --now erstellen.`
+    );
+
+  const beforeById = new Map(before.workspaces.map((ws) => [ws.id, ws]));
+  const afterById = new Map(after.workspaces.map((ws) => [ws.id, ws]));
+  const ids = [...new Set([...beforeById.keys(), ...afterById.keys()])].sort(
+    (a, b) => a - b
+  );
+
+  const results = ids.map((id) => {
+    const old = beforeById.get(id);
+    const now = afterById.get(id);
+    const reference = now ?? old;
+    const result = {
+      id,
+      slug: reference.slug,
+      name: reference.name,
+      messagesLimit: reference.messagesLimit,
+      before: old?.messageCount ?? null,
+      after: now?.messageCount ?? null,
+      delta: null,
+      status: "different",
+      differences: [],
+      message: "",
+    };
+
+    if (!old || !now) {
+      result.message = `${label(reference)}: nur im Schnappschuss ${old ? "vorher" : "nachher"} enthalten, abweichend`;
+      return result;
+    }
+    if (old.error || now.error) {
+      result.message = `${label(reference)}: nicht auswertbar (${old.error ?? now.error}), abweichend`;
+      return result;
+    }
+
+    result.delta = now.messageCount - old.messageCount;
+    for (const [field, text] of LEDGER_COMPARED_FIELDS)
+      if (old[field] !== now[field])
+        result.differences.push({
+          field,
+          text,
+          before: old[field],
+          after: now[field],
+        });
+    if (
+      old.window?.start !== now.window?.start ||
+      old.window?.endExclusive !== now.window?.endExclusive
+    )
+      result.differences.push({
+        field: "window",
+        text: "Fenster",
+        before: `${old.window?.start} – ${old.window?.endExclusive}`,
+        after: `${now.window?.start} – ${now.window?.endExclusive}`,
+      });
+
+    if (result.differences.length === 0) {
+      result.status = "identical";
+      result.message = `${label(reference)}: identisch (${now.messageCount})`;
+    } else {
+      result.message = `${label(reference)}: abweichend – ${result.differences
+        .map((entry) => `${entry.text} ${entry.before} → ${entry.after}`)
+        .join(", ")}`;
+    }
+    return result;
+  });
+
+  const different = results.filter((result) => result.status !== "identical");
+  return { ok: different.length === 0, workspaces: results, different };
+}
+
+/**
+ * Lesbare Ausgabe des Vergleichs für die Umstellung auf das Zählerbuch.
+ * @param {ReturnType<typeof compareLedgerSnapshots>} comparison
+ * @returns {string}
+ */
+function formatLedgerComparison(comparison) {
+  const lines = [
+    "Vergleich Live-Zählung → Zählerbuch (KIE-532)",
+    "",
+    ...comparison.workspaces.map((result) => result.message),
+    "",
+    `Ergebnis: ${comparison.workspaces.length - comparison.different.length} identisch, ${comparison.different.length} abweichend.`,
+  ];
+  if (!comparison.ok)
+    lines.push("Abweichung: Der Rollout darf nicht fortgesetzt werden.");
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Vorschlagsliste für bereits gelöschte Mengen (KIE-532, reine Funktion)
+// ---------------------------------------------------------------------------
+
+const DELETION_EVENTS = ["embed_chats_auto_deleted", "embed_chats_cleared"];
+
+function parseMetadata(value) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Listet je Workspace die im laufenden Fenster protokollierten Löschmengen
+ * als Vorschlag für eine manuelle Abbuchung. Bucht nichts.
+ *
+ * Die Protokolle nennen nur, wie viele Zeilen eines Widgets gelöscht wurden,
+ * nicht wann diese entstanden sind. Der Vorschlag ist deshalb eine Obergrenze:
+ * - embed_chats_cleared ("Chats löschen"): alle Zeilen des Widgets, auch
+ *   solche aus früheren Fenstern.
+ * - embed_chats_auto_deleted (Löschjob): Zeilen, die älter waren als die
+ *   Frist (cutoffDate). Liegt diese Grenze nicht nach dem Fensterbeginn,
+ *   stammt keine der gelöschten Zeilen aus dem laufenden Fenster; der Eintrag
+ *   wird gelistet, aber nicht vorgeschlagen.
+ *
+ * @param {Object} params
+ * @param {Array<Object>} params.workspaces - id, slug, name, messagesLimit, cycleStartDate, cycleDurationMonths
+ * @param {Array<{id: number, workspace_id: number}>} params.embeds - heutige Zuordnung der Widgets
+ * @param {Array<{event: string, metadata: string|null, occurredAt: Date}>} params.events
+ * @param {Date} params.now - Bezugszeitpunkt
+ * @returns {{now: string, workspaces: Object[], unassigned: Object[]}}
+ */
+function buildDeletedReport({ workspaces, embeds, events, now }) {
+  const workspaceOfEmbed = new Map(
+    embeds.map((embed) => [embed.id, embed.workspace_id])
+  );
+  const byWorkspace = new Map();
+  const unassigned = [];
+
+  for (const event of events) {
+    if (!DELETION_EVENTS.includes(event.event)) continue;
+    const occurredAt = toValidDate(event.occurredAt);
+    if (!occurredAt || occurredAt > now) continue;
+    const metadata = parseMetadata(event.metadata);
+    const embedId = Number(metadata.embedId);
+    const deletedCount = Number(metadata.deletedCount);
+    if (!Number.isInteger(deletedCount) || deletedCount <= 0) continue;
+
+    const entry = {
+      event: event.event,
+      embedId: Number.isInteger(embedId) ? embedId : null,
+      occurredAt: occurredAt.toISOString(),
+      day: berlinDayOf(occurredAt),
+      deletedCount,
+      cutoffDate: toValidDate(metadata.cutoffDate)?.toISOString() ?? null,
+    };
+    const workspaceId = workspaceOfEmbed.get(entry.embedId);
+    if (workspaceId === undefined) {
+      // Widget inzwischen gelöscht: keinem Workspace mehr zuzuordnen.
+      unassigned.push(entry);
+      continue;
+    }
+    if (!byWorkspace.has(workspaceId)) byWorkspace.set(workspaceId, []);
+    byWorkspace.get(workspaceId).push(entry);
+  }
+
+  const report = [];
+  for (const workspace of workspaces) {
+    const window = getBillingWindow(workspace, now);
+    const entries = (byWorkspace.get(workspace.id) ?? [])
+      .filter((entry) => new Date(entry.occurredAt) >= window.start)
+      .map((entry) => {
+        // Der Löschjob entfernt nur Zeilen vor cutoffDate. Liegt die Grenze
+        // nicht nach dem Fensterbeginn, betrifft die Löschung das Fenster nicht.
+        const insideWindow =
+          entry.event !== "embed_chats_auto_deleted" ||
+          !entry.cutoffDate ||
+          new Date(entry.cutoffDate) > window.start;
+        return {
+          ...entry,
+          suggestedMax: insideWindow ? entry.deletedCount : 0,
+        };
+      })
+      .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+    if (entries.length === 0) continue;
+
+    report.push({
+      id: workspace.id,
+      slug: workspace.slug ?? null,
+      name: workspace.name ?? null,
+      messagesLimit: workspace.messagesLimit ?? null,
+      window: {
+        startDay: window.startDay,
+        endDayExclusive: window.endDayExclusive,
+      },
+      deletedTotal: entries.reduce((sum, entry) => sum + entry.deletedCount, 0),
+      suggestedMax: entries.reduce((sum, entry) => sum + entry.suggestedMax, 0),
+      entries,
+    });
+  }
+
+  return {
+    now: now.toISOString(),
+    workspaces: report,
+    unassigned: unassigned.sort((a, b) =>
+      a.occurredAt.localeCompare(b.occurredAt)
+    ),
+  };
+}
+
+const DELETION_EVENT_TEXT = {
+  embed_chats_auto_deleted: "Löschjob",
+  embed_chats_cleared: "Chats löschen",
+};
+
+/**
+ * Lesbare Ausgabe der Vorschlagsliste.
+ * @param {ReturnType<typeof buildDeletedReport>} report
+ * @returns {string}
+ */
+function formatDeletedReport(report) {
+  const lines = [
+    "Protokollierte Löschmengen im laufenden Fenster (KIE-532) – Vorschlag für eine manuelle Abbuchung, es wird nichts gebucht",
+    "",
+  ];
+  if (report.workspaces.length === 0)
+    lines.push("Keine protokollierten Löschungen im laufenden Fenster.");
+
+  for (const workspace of report.workspaces) {
+    lines.push(
+      `[${workspace.id}] ${workspace.slug ?? "?"} – Fenster ab ${formatDayDE(workspace.window.startDay)}: gelöscht ${workspace.deletedTotal}, Vorschlag höchstens ${workspace.suggestedMax}`
+    );
+    for (const entry of workspace.entries)
+      lines.push(
+        `    ${formatDayDE(entry.day)}  ${DELETION_EVENT_TEXT[entry.event]}, Widget ${entry.embedId}: ${entry.deletedCount} Nachrichten${
+          entry.suggestedMax === 0
+            ? " (alle älter als der Fensterbeginn, kein Vorschlag)"
+            : ""
+        }`
+      );
+  }
+
+  if (report.unassigned.length) {
+    lines.push("", "Nicht zuordenbar (Widget inzwischen gelöscht):");
+    for (const entry of report.unassigned)
+      lines.push(
+        `    ${formatDayDE(entry.day)}  ${DELETION_EVENT_TEXT[entry.event]}, Widget ${entry.embedId ?? "?"}: ${entry.deletedCount} Nachrichten`
+      );
+  }
+
+  lines.push(
+    "",
+    "Die Mengen sind Obergrenzen: Die Protokolle nennen nicht, aus welchem Fenster die gelöschten Nachrichten stammen."
+  );
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Datenbankzugriff und Aufruf
 // ---------------------------------------------------------------------------
 
@@ -876,6 +1215,59 @@ function databaseCounter(prisma) {
   };
 }
 
+/**
+ * Zählfunktion wie im Server nach abgeschlossenem Nachtrag: Nachrichten aus
+ * dem Zählerbuch (KIE-532), Buchungen wie bisher. Das Zählerbuch ist
+ * stundengenau; gezählt wird ab dem Berliner Tag des Fensterbeginns bis
+ * einschließlich der Berliner Stunde, in der das Fenster endet.
+ * @param {import("@prisma/client").PrismaClient} prisma
+ */
+function ledgerCounter(prisma) {
+  const { MessageLedger } = require("../models/messageLedger");
+  return async function countInWindow(workspace, start, endExclusive) {
+    const fromDay = berlinDayOf(start);
+    if (berlinMidnight(fromDay).getTime() !== start.getTime())
+      throw new Error(
+        `Das Zählerbuch zählt nur ab 00:00 Uhr Berliner Zeit (Fensterbeginn ${start.toISOString()}).`
+      );
+    // Letzter Zeitpunkt, der noch im Fenster liegt
+    const last = MessageLedger.berlinDayHour(endExclusive.getTime() - 1);
+    const [cells, adjustments] = await Promise.all([
+      prisma.message_ledger.groupBy({
+        by: ["embed_id"],
+        where: {
+          workspace_id: workspace.id,
+          OR: [
+            { day: { gte: fromDay, lt: last.day } },
+            { day: last.day, hour: { lte: last.hour } },
+          ],
+        },
+        _sum: { messages: true },
+      }),
+      prisma.workspace_message_adjustments.aggregate({
+        _sum: { amount: true },
+        where: {
+          workspaceId: workspace.id,
+          createdAt: { gte: start, lt: endExclusive },
+        },
+      }),
+    ]);
+
+    let workspaceChatCount = 0;
+    let embedChatCount = 0;
+    for (const cell of cells) {
+      if (cell.embed_id === MessageLedger.WORKSPACE_EMBED_ID)
+        workspaceChatCount += cell._sum.messages ?? 0;
+      else embedChatCount += cell._sum.messages ?? 0;
+    }
+    return {
+      workspaceChatCount,
+      embedChatCount,
+      adjustmentsTotal: adjustments?._sum?.amount ?? 0,
+    };
+  };
+}
+
 function parseArgs(argv) {
   const positional = [];
   const options = {};
@@ -886,7 +1278,7 @@ function parseArgs(argv) {
       continue;
     }
     const name = arg.slice(2);
-    if (name === "json" || name === "help") {
+    if (name === "json" || name === "help" || name === "deleted-report") {
       options[name] = true;
       continue;
     }
@@ -899,8 +1291,19 @@ function parseArgs(argv) {
 
 const USAGE = `Aufruf:
   node scripts/quota-snapshot.js snapshot --mode <legacy|current> [--legacy-tz <Zeitzone>]
-       [--db <datei.db>] [--now <ISO-Zeitpunkt>] [--out <datei.json>]
-  node scripts/quota-snapshot.js compare <vorher.json> <nachher.json> [--json]`;
+       [--source <live|ledger>] [--db <datei.db>] [--now <ISO-Zeitpunkt>] [--out <datei.json>]
+  node scripts/quota-snapshot.js compare <vorher.json> <nachher.json> [--json]
+  node scripts/quota-snapshot.js compare-ledger <vorher.json> <nachher.json> [--json]
+  node scripts/quota-snapshot.js --deleted-report [--db <datei.db>] [--now <ISO-Zeitpunkt>] [--json]`;
+
+const WORKSPACE_FIELDS = {
+  id: true,
+  name: true,
+  slug: true,
+  messagesLimit: true,
+  cycleStartDate: true,
+  cycleDurationMonths: true,
+};
 
 async function runSnapshot(options, stdout) {
   const mode = options.mode;
@@ -910,6 +1313,14 @@ async function runSnapshot(options, stdout) {
   if (mode === "legacy" && !legacyTimeZone)
     throw new Error(
       "--legacy-tz angeben: die Zeitzone des bisherigen Serverprozesses, z. B. Europe/Berlin."
+    );
+
+  const source = options.source ?? "live";
+  if (!["live", "ledger"].includes(source))
+    throw new Error("--source live oder --source ledger angeben.");
+  if (source === "ledger" && (mode !== "current" || legacyTimeZone))
+    throw new Error(
+      "--source ledger gibt es nur mit --mode current und ohne --legacy-tz."
     );
 
   const now = options.now ? new Date(options.now) : new Date();
@@ -922,24 +1333,29 @@ async function runSnapshot(options, stdout) {
 
   const prisma = openDatabase(databasePath);
   try {
+    if (source === "ledger") {
+      // Wie der Server: Das Zählerbuch gilt erst nach abgeschlossenem Nachtrag.
+      const { MessageLedger } = require("../models/messageLedger");
+      const backfill = await MessageLedger.backfillState(prisma);
+      if (backfill?.state !== "complete")
+        throw new Error(
+          "Der Nachtrag des Zählerbuchs ist nicht als abgeschlossen markiert; der Server liest noch die Live-Zählung."
+        );
+    }
+
     const workspaces = await prisma.workspaces.findMany({
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        messagesLimit: true,
-        cycleStartDate: true,
-        cycleDurationMonths: true,
-      },
+      select: WORKSPACE_FIELDS,
       orderBy: { id: "asc" },
     });
     const snapshot = await buildSnapshot({
       workspaces,
-      countInWindow: databaseCounter(prisma),
+      countInWindow:
+        source === "ledger" ? ledgerCounter(prisma) : databaseCounter(prisma),
       now,
       mode,
       legacyTimeZone,
       database: databasePath,
+      source,
     });
 
     const json = JSON.stringify(snapshot, null, 2);
@@ -966,6 +1382,58 @@ function runCompare(positional, options, stdout) {
   return comparison.ok ? 0 : 1;
 }
 
+function runCompareLedger(positional, options, stdout) {
+  if (positional.length !== 2)
+    throw new Error("compare-ledger braucht genau zwei Schnappschuss-Dateien.");
+  const [before, after] = positional.map((file) =>
+    JSON.parse(fs.readFileSync(path.resolve(file), "utf8"))
+  );
+  const comparison = compareLedgerSnapshots(before, after);
+  stdout.write(
+    options.json
+      ? `${JSON.stringify(comparison, null, 2)}\n`
+      : `${formatLedgerComparison(comparison)}\n`
+  );
+  return comparison.ok ? 0 : 1;
+}
+
+async function runDeletedReport(options, stdout) {
+  const now = options.now ? new Date(options.now) : new Date();
+  if (isNaN(now.getTime()))
+    throw new Error(`--now ist kein Zeitpunkt: ${options.now}`);
+
+  const databasePath = options.db ? path.resolve(options.db) : null;
+  if (databasePath && !fs.existsSync(databasePath))
+    throw new Error(`Datenbank nicht gefunden: ${databasePath}`);
+
+  const prisma = openDatabase(databasePath);
+  try {
+    const [workspaces, embeds, events] = await Promise.all([
+      prisma.workspaces.findMany({
+        select: WORKSPACE_FIELDS,
+        orderBy: { id: "asc" },
+      }),
+      prisma.embed_configs.findMany({
+        select: { id: true, workspace_id: true },
+      }),
+      prisma.event_logs.findMany({
+        where: { event: { in: DELETION_EVENTS } },
+        select: { event: true, metadata: true, occurredAt: true },
+        orderBy: { occurredAt: "asc" },
+      }),
+    ]);
+    const report = buildDeletedReport({ workspaces, embeds, events, now });
+    stdout.write(
+      options.json
+        ? `${JSON.stringify(report, null, 2)}\n`
+        : `${formatDeletedReport(report)}\n`
+    );
+    return 0;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 /**
  * @param {string[]} argv - Argumente ohne node und Skriptpfad
  * @returns {Promise<number>} - Exit-Status
@@ -977,12 +1445,16 @@ async function main(
   try {
     const { positional, options } = parseArgs(argv);
     const [command, ...rest] = positional;
+    if (options["deleted-report"] && !options.help)
+      return await runDeletedReport(options, stdout);
     if (options.help || !command) {
       stdout.write(`${USAGE}\n`);
       return options.help ? 0 : 2;
     }
     if (command === "snapshot") return await runSnapshot(options, stdout);
     if (command === "compare") return runCompare(rest, options, stdout);
+    if (command === "compare-ledger")
+      return runCompareLedger(rest, options, stdout);
     throw new Error(`Unbekannter Befehl: ${command}`);
   } catch (error) {
     stderr.write(`quota-snapshot: ${error.message}\n${USAGE}\n`);
@@ -1002,5 +1474,9 @@ module.exports = {
   buildSnapshot,
   compareSnapshots,
   formatComparison,
+  compareLedgerSnapshots,
+  formatLedgerComparison,
+  buildDeletedReport,
+  formatDeletedReport,
   main,
 };
