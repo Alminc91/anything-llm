@@ -7,15 +7,21 @@ const eagerLoadContextWindows = require("./eagerLoadContextWindows");
 const markOnboarded = require("./markOnboarded");
 const { PushNotifications } = require("../PushNotifications");
 const { runMessageLedgerBackfill } = require("./messageLedgerBackfill");
+const { runMessageLedgerEngineCheck } = require("./messageLedgerEngineCheck");
 const { releaseEngineThreads } = require("../prisma/engineThreads");
 
 // KIE-532: Der Nachtrag des Zählerbuchs läuft, bevor der Server Anfragen
 // annimmt. Er wirft nie; schlägt er fehl, startet der Server trotzdem und das
-// Kontingent liest weiter die Live-Zählung.
+// Kontingent liest weiter die Live-Zählung. Danach, ebenfalls vor dem
+// Lauschen, prüft der Selbsttest, ob die Query-Engine mehr Arbeits-Threads als
+// Verbindungen hat (AK-19). Auch er hält den Start nie auf: Ein nicht
+// bestandener Test steht in der Konsole und im Ereignisprotokoll.
 function listenAfterLedgerBackfill(listen) {
   runMessageLedgerBackfill()
     .catch((e) => console.error(e.message))
     .then(releaseEngineThreadsOnceLoaded)
+    .then(() => runMessageLedgerEngineCheck())
+    .catch((e) => console.error(e.message))
     .then(listen);
 }
 

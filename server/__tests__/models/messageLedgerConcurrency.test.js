@@ -33,6 +33,7 @@ const {
 const {
   ensureEngineThreads,
   releaseEngineThreads,
+  minimumEngineThreads,
 } = require("../../utils/prisma/engineThreads");
 
 // Der erste Test jeder Datei erzeugt die Vorlage mit `prisma migrate deploy`.
@@ -126,12 +127,28 @@ describe("ensureEngineThreads", () => {
     );
   });
 
-  test("ein vom Betrieb gesetzter Wert bleibt erhalten", () => {
+  test("ein vom Betrieb gesetzter Wert bleibt erhalten, wenn er das Minimum erreicht", () => {
+    const operatorValue = String(minimumEngineThreads() + 3);
+    process.env.TOKIO_WORKER_THREADS = operatorValue;
+    ensureEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBe(operatorValue);
+    releaseEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBe(operatorValue);
+  });
+
+  // AK-20, ausführlich in utils/prisma/engineThreads.test.js
+  test("ein vom Betrieb gesetzter Wert unter dem Minimum gilt nicht für die Engine", () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
     process.env.TOKIO_WORKER_THREADS = "3";
     ensureEngineThreads();
-    expect(process.env.TOKIO_WORKER_THREADS).toBe("3");
+    expect(process.env.TOKIO_WORKER_THREADS).toBe(
+      String(minimumEngineThreads())
+    );
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    // Für Module, die nach der Engine laden, gilt wieder der Wert des Betriebs.
     releaseEngineThreads();
     expect(process.env.TOKIO_WORKER_THREADS).toBe("3");
+    warnSpy.mockRestore();
   });
 
   test("releaseEngineThreads nimmt nur den selbst gesetzten Wert zurück", () => {

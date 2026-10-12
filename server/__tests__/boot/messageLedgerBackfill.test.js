@@ -27,6 +27,15 @@ jest.mock("../../utils/boot/markOnboarded", () => jest.fn());
 jest.mock("../../utils/PushNotifications", () => ({
   PushNotifications: { setupPushNotificationService: jest.fn() },
 }));
+// Der Selbsttest der Query-Engine (AK-19) hängt an den Arbeits-Threads des
+// Prozesses. Jest gibt Tests nur eine Kopie von process.env, die die Engine
+// nicht erreicht; geprüft wird er deshalb in einem gewöhnlichen Node-Prozess
+// (boot/messageLedgerEngineCheck.test.js). Hier zählt seine Stelle im Startpfad.
+const mockEngineCheck = { run: null };
+jest.mock("../../utils/boot/messageLedgerEngineCheck", () => ({
+  runMessageLedgerEngineCheck: async () =>
+    mockEngineCheck.run ? await mockEngineCheck.run() : { ok: true },
+}));
 
 const fs = require("fs");
 const os = require("os");
@@ -75,6 +84,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   jest.restoreAllMocks();
+  mockEngineCheck.run = null;
   await db.close();
 });
 afterAll(() => removeTestDatabases());
@@ -1432,6 +1442,7 @@ describe("nicht_fatal (AK-14)", () => {
       const { bootHTTP } = require("../../utils/boot");
       const {
         ensureEngineThreads,
+        minimumEngineThreads,
       } = require("../../utils/prisma/engineThreads");
       const saved = process.env.TOKIO_WORKER_THREADS;
       try {
@@ -1446,16 +1457,88 @@ describe("nicht_fatal (AK-14)", () => {
         bootHTTP(app, 3999);
         expect(await untilListening(app)).toBeUndefined();
 
-        // Ein vom Betrieb gesetzter Wert bleibt stehen.
-        process.env.TOKIO_WORKER_THREADS = "24";
+        // Ein vom Betrieb gesetzter Wert ab dem Minimum bleibt stehen.
+        const operatorValue = String(minimumEngineThreads() + 14);
+        process.env.TOKIO_WORKER_THREADS = operatorValue;
         ensureEngineThreads();
         const second = fakeApp(() => process.env.TOKIO_WORKER_THREADS);
         bootHTTP(second, 3999);
-        expect(await untilListening(second)).toBe("24");
+        expect(await untilListening(second)).toBe(operatorValue);
+
+        // Ein zu niedriger Wert gilt nur für die Engine nicht (AK-20): Beim
+        // Lauschen steht er wieder da, für Module, die später laden.
+        const warnSpy = jest
+          .spyOn(console, "warn")
+          .mockImplementation(() => {});
+        process.env.TOKIO_WORKER_THREADS = "2";
+        ensureEngineThreads();
+        expect(process.env.TOKIO_WORKER_THREADS).toBe(
+          String(minimumEngineThreads())
+        );
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        const third = fakeApp(() => process.env.TOKIO_WORKER_THREADS);
+        bootHTTP(third, 3999);
+        expect(await untilListening(third)).toBe("2");
       } finally {
         if (saved === undefined) delete process.env.TOKIO_WORKER_THREADS;
         else process.env.TOKIO_WORKER_THREADS = saved;
       }
+    });
+
+    test("Startpfad: der Selbsttest der Query-Engine läuft nach Nachtrag und Freigabe der Thread-Zahl, vor dem Lauschen (AK-19)", async () => {
+      const { bootHTTP } = require("../../utils/boot");
+      const {
+        ensureEngineThreads,
+        engineThreadsInEffect,
+        minimumEngineThreads,
+      } = require("../../utils/prisma/engineThreads");
+      const saved = process.env.TOKIO_WORKER_THREADS;
+      try {
+        delete process.env.TOKIO_WORKER_THREADS;
+        ensureEngineThreads();
+
+        const order = [];
+        mockEngineCheck.run = async () => {
+          order.push({
+            step: "selbsttest",
+            backfill: (await MessageLedger.backfillState())?.state,
+            variable: process.env.TOKIO_WORKER_THREADS,
+            engineThreads: engineThreadsInEffect(),
+          });
+          return { ok: true };
+        };
+        const app = fakeApp(() => order.push({ step: "lauschen" }));
+        bootHTTP(app, 3999);
+        await untilListening(app);
+
+        expect(order).toEqual([
+          {
+            step: "selbsttest",
+            backfill: "complete",
+            // schon zurückgenommen - der Selbsttest kennt den Wert der Engine
+            variable: undefined,
+            engineThreads: minimumEngineThreads(),
+          },
+          { step: "lauschen" },
+        ]);
+      } finally {
+        if (saved === undefined) delete process.env.TOKIO_WORKER_THREADS;
+        else process.env.TOKIO_WORKER_THREADS = saved;
+      }
+    });
+
+    test("Startpfad: ein Selbsttest, der wirft, hält den Start nicht auf (AK-19)", async () => {
+      const { bootHTTP } = require("../../utils/boot");
+      mockEngineCheck.run = async () => {
+        throw new Error("künstlicher Fehler im Selbsttest");
+      };
+
+      const app = fakeApp(() => MessageLedger.backfillState());
+      bootHTTP(app, 3999);
+      const stateAtListen = await untilListening(app);
+
+      expect(stateAtListen.state).toBe("complete");
+      expect(errorSpy).toHaveBeenCalledWith("künstlicher Fehler im Selbsttest");
     });
 
     test("nicht_fatal: schlägt der Nachtrag fehl, startet der Server trotzdem", async () => {
