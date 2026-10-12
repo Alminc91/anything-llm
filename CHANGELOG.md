@@ -4,6 +4,18 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### KIE-533 — Kontingent: Umgehungen über Rollen geschlossen (2026-10-12)
+
+- **Limit, Zyklusstart und Zyklusdauer ändert über die Oberfläche nur noch `admin`.** `POST /workspace/:slug/update` verwirft für alle anderen jetzt auch `cycleStartDate` und `cycleDurationMonths` (bisher nur `messagesLimit`); ein Manager konnte den Verbrauch über einen neuen Zyklusstart auf 0 setzen. Die Abrechnungsansicht zeigt die drei Felder für Manager gesperrt. Wie bisher schon beim Limit gilt das auch ohne Mehrbenutzermodus: Dort ändert nur die API mit Schlüssel. **Kunden mit Rolle `manager`, die den Zyklus bisher selbst gepflegt haben, wenden sich an Kufer.**
+- **Workspaces legt nur noch `admin` an:** `POST /admin/workspaces/new` antwortet für `manager` mit 403 (ein neuer Workspace hat kein Limit).
+- **Widget-Endpunkte sind an den Workspace gebunden.** Ändern, Löschen, Logo hochladen/entfernen, einzelnen Chat löschen und `analytics/overview`: Ein Nutzer mit Rolle `default` braucht die Mitgliedschaft im Workspace des Widgets, sonst 403 (auch für ein unbekanntes Widget). Anlegen und Umhängen (`workspace_id`) nur in einen Workspace, auf den er selbst Zugriff hat. `admin` und `manager` sind nicht eingeschränkt; ohne Mehrbenutzermodus wird nicht geprüft. `DELETE /embed-chats/clear/:embedId` bleibt `admin`/`manager` vorbehalten und antwortet für `default` jetzt mit 403 statt 401.
+- `POST /embed/:embedId/analytics/overview` beachtet `DISABLE_VIEW_CHAT_HISTORY` (422) und zählt wie die Konversationsliste nur `include = 1`. **Die Zahlen können dadurch kleiner ausfallen als bisher.**
+- **Sammel-Export aller Widget-Chats nur für `admin`:** `GET /system/export-chats?chatType=embed` antwortet für `manager` und `default` mit 403; die Schaltfläche ist für sie ausgeblendet. Der Export der Workspace-Chats ist unverändert.
+- **Ungültige Abrechnungswerte werden mit 400 abgelehnt statt umgedeutet** (`POST /v1/workspace/:slug/update`, `POST /v1/workspace/new`, Oberfläche): `messagesLimit` ganze Zahl ≥ 0 oder `null`; `cycleDurationMonths` aus 1, 2, 3, 4, 6, 12 oder `null` und nur zusammen mit einem Startdatum (gesendet oder gespeichert); `cycleStartDate` als ISO-Datum zwischen 2020-01-01 und heute + 5 Jahre oder `null`. Antwort: `{ workspace: null, message, errors: { <Feld>: <Meldung> } }`, gespeichert wird dann nichts. Bisher wurde z. B. `"abc"` oder `-1` zu unbegrenzt, `"10.000"` zu 10 und eine Dauer von 5 zu einem Monat. Gültige Aufrufe antworten wie zuvor; `null`, `""` und Zahlen als Zeichenkette (`"500"`) gelten weiter. **Wer nur das Startdatum entfernt, muss die Dauer mit auf `null` setzen.**
+- Bestandswerte bleiben stehen: Ein Wert, der unverändert zurückgesendet wird, wird nicht geprüft; Lesen, Chatten und das Speichern anderer Felder scheitern nicht an einem Altwert.
+- **`messagesLimit = 0` heißt überall „gesperrt", `null` „unbegrenzt"** – jetzt auch in `cycleHelpers` (`isCycleLimitReached`, `messagesRemaining`) und in der Abrechnungsansicht (bisher dort wie unbegrenzt behandelt).
+- Keine Schemaänderung, keine Migration; Zählung und Fenstergrenzen unberührt.
+
 ### KIE-534 — Kontingent: Limitprüfung für `@agent` im GUI-Chat (2026-10-12)
 
 - `@agent` umging das Nachrichtenlimit. Jetzt prüft `stream.js` das Limit vor dem Start einer Agent-Sitzung, und der Agent-WebSocket prüft es vor jeder weiteren Nutzernachricht. Am Limit erscheint dieselbe Meldung wie im normalen Chat; es entsteht keine Sitzung und keine Chat-Zeile.
