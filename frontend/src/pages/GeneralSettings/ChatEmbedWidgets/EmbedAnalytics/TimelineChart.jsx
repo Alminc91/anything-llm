@@ -200,9 +200,12 @@ function Columns({
   const wrapperRef = useRef(null);
   const columnRefs = useRef([]);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
-  // Platz unter dem Mauszeiger bzw. mit Tastaturfokus
+  // Platz unter dem Mauszeiger bzw. mit Fokus. Auch ein Mausklick setzt den
+  // Fokus – deshalb entscheidet die letzte Eingabe (lead), welcher der beiden
+  // Tooltip und Hervorhebung trägt.
   const [hovered, setHovered] = useState(null);
   const [focused, setFocused] = useState(null);
+  const [lead, setLead] = useState("pointer");
   // Zuletzt fokussierter Platz (Tab-Stopp des Diagramms)
   const [tabStop, setTabStop] = useState(null);
 
@@ -287,7 +290,15 @@ function Columns({
     event.preventDefault();
   };
 
-  const active = focused ?? hovered;
+  // Der Mauszeiger auf einem Platz löst den Fokus ab, ein neuer Fokus (Tab,
+  // Pfeiltasten) den Mauszeiger; fällt der eine weg, gilt wieder der andere.
+  const pointAt = (i) => {
+    setHovered(i);
+    setLead("pointer");
+  };
+  const [leading, other] =
+    lead === "focus" ? [focused, hovered] : [hovered, focused];
+  const active = leading ?? other;
   const activeColumn = active !== null ? columns[active] : null;
 
   return (
@@ -361,13 +372,15 @@ function Columns({
                     : tooltipOf(i)
                 }
                 tabIndex={i === currentTabStop ? 0 : -1}
-                onPointerEnter={() => setHovered(i)}
+                onPointerEnter={() => pointAt(i)}
+                onPointerMove={() => pointAt(i)}
                 onPointerLeave={() =>
                   setHovered((current) => (current === i ? null : current))
                 }
                 onFocus={() => {
                   setFocused(i);
                   setTabStop(i);
+                  setLead("focus");
                 }}
                 onBlur={() =>
                   setFocused((current) => (current === i ? null : current))
