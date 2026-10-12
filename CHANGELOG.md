@@ -4,6 +4,14 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### KIE-534 — Kontingent: Limitprüfung für `@agent` im GUI-Chat (2026-10-12)
+
+- `@agent` umging das Nachrichtenlimit. Jetzt prüft `stream.js` das Limit vor dem Start einer Agent-Sitzung, und der Agent-WebSocket prüft es vor jeder weiteren Nutzernachricht. Am Limit erscheint dieselbe Meldung wie im normalen Chat; es entsteht keine Sitzung und keine Chat-Zeile.
+- Der Workspace wird je Prüfung frisch geladen (ein geändertes Limit gilt sofort); die Prüfung wartet, bis die vorige Antwortzeile gespeichert ist.
+- Kann der Verbrauch nicht gezählt werden, endet die Agent-Sitzung mit einer neutralen Meldung, statt mit Verbrauch 0 weiterzulaufen. Die Zählfunktionen kennen dafür die Option `throwOnError` (Standard `false`); normaler Chat, Embed und API verhalten sich unverändert.
+- Ein Bail-Kommando (`exit`) während des Sitzungsstarts beendet die Sitzung ohne Agent-Start und ohne Verbrauch. Bisher beendete ein solcher Frame vor dem Aufbau der Agent-Laufzeit den Serverprozess.
+- Keine Schemaänderung, keine neue Abhängigkeit. Weitere Absturzwege über fehlerhafte WebSocket-Frames (Bestand aus dem Upstream-Code): KIE-540.
+
 ### KIE-531 — Kontingent: ein einheitliches Zyklusfenster in Berliner Zeit (2026-10-12)
 
 - Eine Funktion bestimmt das Abrechnungsfenster: `getBillingWindow` (`server/utils/helpers/billingWindow.js`). Fenster = `[Start 00:00 Berliner Zeit, nächster Start 00:00 Berliner Zeit)`, ausdrücklich `Europe/Berlin`, unabhängig von `TZ` des Containers. Zählung, Gutschriften/Abbuchungen, API und Abrechnungsansicht verwenden sie.
