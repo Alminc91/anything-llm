@@ -565,11 +565,24 @@ describe("alarm_ohne_rueckfall (AK-13)", () => {
     expect(await usage(workspace)).toBe(10);
     expect(await eventsOf(db.client, "message_ledger_mismatch")).toEqual([]);
 
-    // Künstlich: Das Zählerbuch von workspace liegt unter der Live-Zählung.
+    // Künstlich: Das Zählerbuch von workspace liegt unter der Live-Zählung
+    // (4 statt 10, auch wenn die Nachrichten in zwei Stunden entstanden sind).
     await db.client.message_ledger.updateMany({
       where: { workspace_id: workspace.id },
+      data: { messages: 0 },
+    });
+    const cell = await db.client.message_ledger.findFirst({
+      where: { workspace_id: workspace.id },
+    });
+    await db.client.message_ledger.update({
+      where: { id: cell.id },
       data: { messages: 4 },
     });
+
+    // Die Uhr des Alarms steht für diesen Test: Ein Stundenwechsel mitten im
+    // Lauf soll kein zweites Ereignis auslösen.
+    const startedAt = Date.now();
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(startedAt);
 
     const info = await getMessageLimitInfo(await reload(workspace));
     // kein Rückfall auf die Live-Zählung (10), keine Summe (14)
@@ -612,9 +625,9 @@ describe("alarm_ohne_rueckfall (AK-13)", () => {
       1
     );
 
-    // Eine Stunde später wird erneut gemeldet, solange die Abweichung besteht.
-    const realNow = Date.now();
-    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(realNow + HOUR);
+    // In einer späteren Stunde wird erneut gemeldet, solange die Abweichung
+    // besteht - und auch dann nur einmal.
+    nowSpy.mockReturnValue(startedAt + 2 * HOUR);
     expect(await usage(workspace)).toBe(4);
     expect(await usage(workspace)).toBe(4);
     nowSpy.mockRestore();

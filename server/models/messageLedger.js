@@ -215,7 +215,12 @@ const MessageLedger = {
         return result;
       });
     } catch (error) {
-      await MessageLedger._logWriteFailed(context, error);
+      // Das Protokollieren darf den eigentlichen Fehler nicht verdecken.
+      try {
+        await MessageLedger._logWriteFailed(context, error);
+      } catch (logError) {
+        console.error(logError.message);
+      }
       throw error;
     }
   },
