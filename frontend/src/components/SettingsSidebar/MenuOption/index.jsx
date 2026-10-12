@@ -3,7 +3,6 @@ import { CaretRight } from "@phosphor-icons/react";
 import { Link, useLocation } from "react-router-dom";
 import { safeJsonParse } from "@/utils/request";
 import useScrollActiveItemIntoView from "@/hooks/useScrollActiveItemIntoView";
-import matchesLocation from "./matchesLocation";
 
 export default function MenuOption({
   btnText,
@@ -15,7 +14,6 @@ export default function MenuOption({
   roles = [],
   hidden = false,
   isChild = false,
-  activePrefixes = [],
 }) {
   const storageKey = generateStorageKey({ key: btnText });
   const location = useLocation();
@@ -30,11 +28,9 @@ export default function MenuOption({
 
   const isActive = hasChildren
     ? (!isExpanded &&
-        childOptions.some((child) =>
-          matchesLocation(child, location.pathname)
-        )) ||
+        childOptions.some((child) => child.href === location.pathname)) ||
       location.pathname === href
-    : matchesLocation({ href, activePrefixes }, location.pathname);
+    : location.pathname === href;
 
   const { ref } = useScrollActiveItemIntoView({
     isActive,
@@ -145,15 +141,15 @@ function useIsExpanded({
       if (storedValue !== null) {
         return safeJsonParse(storedValue, false);
       }
-      return childOptions.some((child) => matchesLocation(child, location));
+      return childOptions.some((child) => child.href === location);
     }
     return false;
   });
 
   useEffect(() => {
     if (hasVisibleChildren) {
-      const shouldExpand = childOptions.some((child) =>
-        matchesLocation(child, location)
+      const shouldExpand = childOptions.some(
+        (child) => child.href === location
       );
       if (shouldExpand && !isExpanded) {
         setIsExpanded(true);

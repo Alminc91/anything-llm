@@ -224,8 +224,6 @@ const SidebarOptions = ({ user = null, t }) => (
             {
               btnText: t("settings.chatbot-widgets"),
               href: paths.settings.chatbot.widgets(),
-              // Das Design Center hat eine eigene Adresse, gehört aber zu „Widgets".
-              activePrefixes: [`${paths.settings.embedConfig()}/`],
               flex: true,
               roles: ["admin", "manager", "default"],
             },

@@ -170,9 +170,6 @@ export default {
         return `/settings/chatbot/messages`;
       },
     },
-    embedConfig: () => {
-      return `/settings/embed-config`;
-    },
     browserExtension: () => {
       return `/settings/browser-extension`;
     },
