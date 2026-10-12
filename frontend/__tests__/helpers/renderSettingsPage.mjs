@@ -1,7 +1,8 @@
 // Rendert Einstellungsseiten des Frontends ohne Browser: Vite lädt die Quellen
 // wie im Build (Alias "@", JSX, import.meta.env), React rendert sie serverseitig
 // zu HTML. Damit lässt sich prüfen, was die Einstellungs-Sidebar auf einer
-// Adresse anzeigt (aufgeklappter Block, markierter Menüpunkt).
+// Adresse anzeigt (aufgeklappter Block, markierter Menüpunkt) und ob eine Seite
+// die Sidebar überhaupt lädt.
 //
 // Grenzen: Beim serverseitigen Rendern laufen keine Effekte. Der Chat-Verlauf-
 // Schalter (CanViewChatHistory lädt ihn im Effekt) wird deshalb durch einen
@@ -28,7 +29,7 @@ export const hasFrontendDeps = ["vite", "react-dom", "react-router-dom"].every(
 
 /**
  * Startet Vite (ohne HTTP-Server) und liefert eine Renderfunktion.
- * @returns {Promise<{render: Function, close: Function}>}
+ * @returns {Promise<{render: Function, load: Function, imports: Function, close: Function}>}
  */
 export async function createRenderer() {
   const storage = new Map();
@@ -145,7 +146,29 @@ export async function createRenderer() {
     }
   }
 
-  return { render, close: () => server.close() };
+  /** Lädt ein Modul der Quellen wie im Build, z. B. "/src/utils/paths.js". */
+  const load = (modulePath) => server.ssrLoadModule(modulePath);
+
+  /**
+   * Alle Quelldateien, die ein Modul direkt oder über andere Module lädt.
+   * @param {string} modulePath - z. B. "/src/pages/…/index.jsx".
+   * @returns {Promise<Set<string>>} Adressen wie "/src/components/…/index.jsx".
+   */
+  async function imports(modulePath) {
+    await load(modulePath);
+    const seen = new Set();
+    const queue = [await server.moduleGraph.getModuleByUrl(modulePath, true)];
+    while (queue.length) {
+      for (const mod of queue.pop().ssrImportedModules) {
+        if (seen.has(mod.url)) continue;
+        seen.add(mod.url);
+        queue.push(mod);
+      }
+    }
+    return seen;
+  }
+
+  return { render, load, imports, close: () => server.close() };
 }
 
 /**
