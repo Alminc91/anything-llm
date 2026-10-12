@@ -10,6 +10,7 @@ import BillingCustomerView from "./BillingCustomerView";
  *
  * Shows different views based on user role:
  * - Admin: Full write access to billing configuration
+ * - Manager: Same view, but limit and billing cycle are read-only (KIE-533)
  * - Customer: Read-only view with usage stats and progress bar
  */
 export default function BillingSettings({ workspace }) {
@@ -33,6 +34,11 @@ export default function BillingSettings({ workspace }) {
   // - Multi-user mode with default role: Show customer view (read-only)
   const isMultiUserMode = settings?.MultiUserMode === true;
   const isCustomer = isMultiUserMode && user?.role === "default";
+  // KIE-533: Limit und Zyklus ändert nur admin. Für alle anderen verwirft der
+  // Server die Felder (POST /workspace/:slug/update) - auch ohne
+  // Mehrbenutzermodus, dort bleibt die API mit Schlüssel. Die Ansicht zeigt
+  // die Werte dann gesperrt, statt ein Speichern vorzutäuschen.
+  const canEditBilling = user?.role === "admin";
 
   if (loading) {
     return (
@@ -50,6 +56,6 @@ export default function BillingSettings({ workspace }) {
   return isCustomer ? (
     <BillingCustomerView workspace={workspace} />
   ) : (
-    <BillingAdminView workspace={workspace} />
+    <BillingAdminView workspace={workspace} canEdit={canEditBilling} />
   );
 }

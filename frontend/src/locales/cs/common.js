@@ -1611,6 +1611,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "Limit dosažen",
+      "read-only-hint":
+        "Limit a fakturační cyklus jsou spravovány centrálně a nelze je zde změnit.",
     },
     cycle: {
       "1-month": null,

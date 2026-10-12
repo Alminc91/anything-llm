@@ -1617,6 +1617,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "Limite atteinte",
+      "read-only-hint":
+        "La limite et le cycle de facturation sont gérés de manière centralisée et ne peuvent pas être modifiés ici.",
     },
     cycle: {
       "1-month": null,

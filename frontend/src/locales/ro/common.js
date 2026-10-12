@@ -1618,6 +1618,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "Limită atinsă",
+      "read-only-hint":
+        "Limita și ciclul de facturare sunt gestionate centralizat și nu pot fi modificate aici.",
     },
     cycle: {
       "1-month": null,

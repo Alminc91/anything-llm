@@ -58,6 +58,10 @@ export default function EmbedChatsView() {
   const [offset, setOffset] = useState(Number(query.get("offset") || 0));
   const [canNext, setCanNext] = useState(false);
   const isReadOnly = user?.role === "default";
+  // KIE-533: Der Sammel-Export aller Widget-Chats ist admin vorbehalten
+  // (Server: 403 für manager und default). Ohne Mehrbenutzermodus gibt es
+  // kein Nutzerobjekt, dort bleibt der Export.
+  const canExport = !user || user?.role === "admin";
   const [retentionInfo, setRetentionInfo] = useState({});
 
   const handleDumpChats = async (exportType) => {
@@ -159,38 +163,40 @@ export default function EmbedChatsView() {
           <p className="text-lg leading-6 font-bold text-theme-text-primary">
             {t("embed-chats.title")}
           </p>
-          <div className="relative">
-            <button
-              ref={openMenuButton}
-              onClick={toggleMenu}
-              className="flex items-center gap-x-2 px-4 py-1 rounded-lg text-theme-bg-chat bg-primary-button hover:bg-secondary hover:text-white text-xs font-semibold h-[34px] w-fit"
-            >
-              <Download size={18} weight="bold" />
-              {t("embed-chats.export")}
-              <CaretDown size={18} weight="bold" />
-            </button>
-            <div
-              ref={menuRef}
-              className={`${
-                showMenu ? "slide-down" : "slide-up hidden"
-              } z-20 w-fit rounded-lg absolute top-full right-0 bg-secondary light:bg-theme-bg-secondary mt-2 shadow-md`}
-            >
-              <div className="py-2">
-                {Object.entries(exportOptions).map(([key, data]) => (
-                  <button
-                    key={key}
-                    onClick={() => {
-                      handleDumpChats(key);
-                      setShowMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2 text-white text-sm hover:bg-[#3D4147] light:hover:bg-theme-sidebar-item-hover"
-                  >
-                    {data.name}
-                  </button>
-                ))}
+          {canExport && (
+            <div className="relative">
+              <button
+                ref={openMenuButton}
+                onClick={toggleMenu}
+                className="flex items-center gap-x-2 px-4 py-1 rounded-lg text-theme-bg-chat bg-primary-button hover:bg-secondary hover:text-white text-xs font-semibold h-[34px] w-fit"
+              >
+                <Download size={18} weight="bold" />
+                {t("embed-chats.export")}
+                <CaretDown size={18} weight="bold" />
+              </button>
+              <div
+                ref={menuRef}
+                className={`${
+                  showMenu ? "slide-down" : "slide-up hidden"
+                } z-20 w-fit rounded-lg absolute top-full right-0 bg-secondary light:bg-theme-bg-secondary mt-2 shadow-md`}
+              >
+                <div className="py-2">
+                  {Object.entries(exportOptions).map(([key, data]) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        handleDumpChats(key);
+                        setShowMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-2 text-white text-sm hover:bg-[#3D4147] light:hover:bg-theme-sidebar-item-hover"
+                    >
+                      {data.name}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
         <p className="text-xs leading-[18px] font-base text-theme-text-secondary mt-2">
           {t("embed-chats.description")}

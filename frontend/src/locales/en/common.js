@@ -1704,6 +1704,9 @@ const TRANSLATIONS = {
       "info-title": "Note:",
       "info-text":
         "When upgrading, the start date can be set to the current date to reset the cycle immediately. The quota will then start counting from scratch.",
+      "limit-reached": "Limit reached",
+      "read-only-hint":
+        "The limit and billing cycle are managed centrally and cannot be changed here.",
     },
     cycle: {
       "1-month": "1 Month",

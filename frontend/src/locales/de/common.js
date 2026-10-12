@@ -1702,6 +1702,9 @@ const TRANSLATIONS = {
       "info-title": "Hinweis:",
       "info-text":
         "Bei einem Upgrade kann das Startdatum auf das aktuelle Datum gesetzt werden, um den Zyklus sofort zurückzusetzen. Das Kontingent beginnt dann neu zu zählen.",
+      "limit-reached": "Limit erreicht",
+      "read-only-hint":
+        "Limit und Abrechnungszyklus werden zentral verwaltet und können hier nicht geändert werden.",
     },
     cycle: {
       "1-month": "1 Monat",

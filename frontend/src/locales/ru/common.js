@@ -1629,6 +1629,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "Лимит достигнут",
+      "read-only-hint":
+        "Лимит и расчётный цикл управляются централизованно и не могут быть изменены здесь.",
     },
     cycle: {
       "1-month": null,

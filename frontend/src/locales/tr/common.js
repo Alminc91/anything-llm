@@ -1610,6 +1610,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "Sınıra ulaşıldı",
+      "read-only-hint":
+        "Sınır ve faturalandırma döngüsü merkezi olarak yönetilir ve burada değiştirilemez.",
     },
     cycle: {
       "1-month": null,

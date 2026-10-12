@@ -1616,6 +1616,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "Limits sasniegts",
+      "read-only-hint":
+        "Limits un norēķinu cikls tiek pārvaldīti centralizēti, un tos šeit nevar mainīt.",
     },
     cycle: {
       "1-month": null,
