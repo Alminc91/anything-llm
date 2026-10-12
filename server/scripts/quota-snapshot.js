@@ -28,8 +28,14 @@
  *   - Zyklusstart verschoben (Starttag 29.–31., der bisher auf dem geklemmten
  *     Tag hängen blieb).
  * Workspaces, die durch die neuen Grenzen ihr Limit erreichen, stehen in einer
- * eigenen Liste. Bleibt ein Unterschied ohne eine der beiden Ursachen, endet
- * compare mit Status 1: Der Rollout darf dann nicht fortgesetzt werden.
+ * eigenen Liste, ebenso Workspaces mit Starttag 29.–31., deren Zyklusstart
+ * oder nächster Reset auf einen anderen Tag fällt. Bleibt ein Unterschied ohne
+ * eine der beiden Ursachen, endet compare mit Status 1: Der Rollout darf dann
+ * nicht fortgesetzt werden.
+ *
+ * compare verlangt vorher = legacy, nachher = current und in beiden denselben
+ * Bezugszeitpunkt. Alles andere ist ein Aufruffehler (Status 2): Es wurde
+ * dann nichts verglichen, was den Rollout freigeben könnte.
  *
  * Status: 0 = alles erklärt, 1 = unerklärter Unterschied, 2 = Aufruf- oder
  * Laufzeitfehler.
@@ -151,12 +157,13 @@ function toValidDate(value) {
  * gespeicherten Zeitpunkt (00:00 UTC, also 01:00/02:00 Uhr in Berlin); das
  * Ende ist der Vortag des nächsten Starts, geklemmt auf 23:59:59,999. Ohne
  * cycleStartDate: der Kalendermonat in Ortszeit. Das inklusive Ende wird
- * hier als exklusives Ende (+1 ms) zurückgegeben.
+ * hier als exklusives Ende (+1 ms) zurückgegeben. nextStart ist der Zeitpunkt,
+ * an dem bisher das nächste Fenster begann (der bisherige nächste Reset).
  *
  * @param {{cycleStartDate?: Date|string|null, cycleDurationMonths?: number|null}} workspace
  * @param {Date} now
  * @param {string} timeZone - Zeitzone des damaligen Serverprozesses (IANA)
- * @returns {{start: Date, endExclusive: Date, cycleNumber: number|null}}
+ * @returns {{start: Date, endExclusive: Date, nextStart: Date, cycleNumber: number|null}}
  */
 function legacyWindow(workspace, now, timeZone) {
   const nowMs = now.getTime();
@@ -183,6 +190,7 @@ function legacyWindow(workspace, now, timeZone) {
     return {
       start: new Date(cycleStart),
       endExclusive: new Date(legacyEndOfDay(cycleEnd, timeZone) + 1),
+      nextStart: new Date(nextReset),
       cycleNumber,
     };
   }
@@ -200,12 +208,13 @@ function legacyWindow(workspace, now, timeZone) {
     wallNow.getUTCMonth() + 1,
     0
   );
+  const endExclusive = new Date(
+    legacyEndOfDay(fromWallClock(endOfMonth.getTime(), timeZone), timeZone) + 1
+  );
   return {
     start: new Date(fromWallClock(startOfMonth.getTime(), timeZone)),
-    endExclusive: new Date(
-      legacyEndOfDay(fromWallClock(endOfMonth.getTime(), timeZone), timeZone) +
-        1
-    ),
+    endExclusive,
+    nextStart: endExclusive,
     cycleNumber: null,
   };
 }
@@ -242,7 +251,9 @@ function dayOfMonth(day) {
  * Beschreibt, worin sich bisheriges und neues Fenster eines Workspaces
  * unterscheiden und wie viele Einheiten (Nachrichten plus Buchungsbeträge) in
  * den Abschnitten liegen, die nur eines der beiden Fenster enthält. Daraus
- * leitet compare die Ursache einer Abweichung ab.
+ * leitet compare die Ursache einer Abweichung ab. Bei Starttag 29.–31. steht
+ * außerdem darin, ob der nächste Reset auf einen anderen Tag fällt als bisher
+ * – auch dann, wenn beide Fenster am selben Tag begonnen haben.
  *
  * @returns {Promise<Object>}
  */
@@ -268,6 +279,8 @@ async function describeTransition({
     shiftUnits: 0,
     shiftFromDay: null,
     shiftToDay: null,
+    nextResetBefore: null,
+    nextResetAfter: null,
   };
 
   // Nur wenn beide Fenster den Bezugszeitpunkt enthalten, unterscheiden sie
@@ -293,6 +306,20 @@ async function describeTransition({
       ? rawTotal(await countInWindow(workspace, start, endExclusive))
       : 0;
   const upToNow = new Date(now.getTime() + 1);
+
+  // Starttag 29.–31.: Bisher blieb der Reset auf dem geklemmten Tag, jetzt
+  // fällt er auf den Originaltag, soweit der Monat ihn hat. Das betrifft den
+  // nächsten Reset auch dann, wenn das laufende Fenster am selben Tag begann
+  // (Start 31.03.: bisher 30.09. → 30.10., neu 30.09. → 31.10.).
+  const legacyNextStartDay = berlinDayOf(legacy.nextStart);
+  if (
+    originDay !== null &&
+    originDay >= 29 &&
+    legacyNextStartDay !== current.endDayExclusive
+  ) {
+    transition.nextResetBefore = legacyNextStartDay;
+    transition.nextResetAfter = current.endDayExclusive;
+  }
 
   if (legacyStartDay === current.startDay) {
     if (current.start < legacy.start) {
@@ -448,6 +475,12 @@ function label(entry) {
   return `[${entry.id}] ${entry.slug ?? "?"}`;
 }
 
+/** "2026-10-31" → "31.10.2026" */
+function formatDayDE(day) {
+  const match = /^(.+)-(\d{2})-(\d{2})$/.exec(String(day));
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : String(day);
+}
+
 /**
  * Vergleicht zwei Schnappschüsse und nennt je Abweichung die Ursache.
  *
@@ -458,14 +491,21 @@ function label(entry) {
  * - "unexplained": alles andere. Dann ist ok false.
  *
  * limitReached listet gesondert die Workspaces, die erst durch die neuen
- * Grenzen ihr Limit erreichen oder überschreiten.
+ * Grenzen ihr Limit erreichen oder überschreiten. resetDayChanged listet die
+ * Workspaces mit Starttag 29.–31., deren Zyklusstart (fromDay/toDay) oder
+ * nächster Reset (nextResetBefore/nextResetAfter) auf einen anderen Tag fällt
+ * – unabhängig davon, ob sich der Stand ändert.
+ *
+ * Verglichen wird nur vorher = legacy gegen nachher = current mit demselben
+ * Bezugszeitpunkt. Jede andere Paarung wirft: Zwei gleichartige oder zu
+ * verschiedenen Zeitpunkten erstellte Schnappschüsse können gleiche Stände
+ * zeigen, ohne dass die neuen Grenzen bewertet wurden.
  *
  * @param {Object} before - Schnappschuss vor dem Wechsel (mode legacy)
  * @param {Object} after - Schnappschuss nach dem Wechsel (mode current)
- * @returns {{ok: boolean, warnings: string[], workspaces: Object[], unexplained: Object[], limitReached: Object[], resetDayChanged: Object[]}}
+ * @returns {{ok: boolean, workspaces: Object[], unexplained: Object[], limitReached: Object[], resetDayChanged: Object[]}}
  */
 function compareSnapshots(before, after) {
-  const warnings = [];
   for (const [name, snapshot] of [
     ["vorher", before],
     ["nachher", after],
@@ -476,14 +516,17 @@ function compareSnapshots(before, after) {
       );
   }
 
-  const sameNow = before.now === after.now;
-  if (!sameNow)
-    warnings.push(
-      `Unterschiedliche Bezugszeitpunkte (vorher ${before.now}, nachher ${after.now}): Abweichungen lassen sich keiner Ursache zuordnen. Beide Schnappschüsse mit demselben --now erstellen.`
+  if (
+    before.mode !== "legacy" ||
+    after.mode !== "current" ||
+    !before.legacyTimeZone
+  )
+    throw new Error(
+      `Nicht vergleichbar: erwartet wird vorher = legacy (mit --legacy-tz) und nachher = current (ist: ${before.mode} und ${after.mode}).`
     );
-  if (before.mode !== "legacy" || after.mode !== "current")
-    warnings.push(
-      `Erwartet wird vorher = legacy und nachher = current (ist: ${before.mode} und ${after.mode}).`
+  if (before.now !== after.now)
+    throw new Error(
+      `Nicht vergleichbar: unterschiedliche Bezugszeitpunkte (vorher ${before.now}, nachher ${after.now}). Beide Schnappschüsse mit demselben --now erstellen.`
     );
 
   const beforeById = new Map(before.workspaces.map((ws) => [ws.id, ws]));
@@ -526,22 +569,41 @@ function compareSnapshots(before, after) {
       continue;
     }
 
+    // Ohne die Angaben zum bisherigen Fenster lässt sich weder eine Ursache
+    // noch ein geänderter Reset-Tag feststellen.
+    const transition = old.transition;
+    if (!transition) {
+      result.message = `${label(reference)}: Angaben zum bisherigen Fenster fehlen im Schnappschuss vorher, unerklärt`;
+      results.push(result);
+      continue;
+    }
+
     result.delta = now.messageCount - old.messageCount;
     const rawDelta = rawTotal(now) - rawTotal(old);
-    const transition = sameNow ? old.transition ?? now.transition : null;
 
-    if (transition?.shiftFromDay && transition?.shiftToDay) {
-      const change = {
+    const startShifted = Boolean(
+      transition.shiftFromDay && transition.shiftToDay
+    );
+    const nextResetMoved = Boolean(
+      transition.nextResetBefore && transition.nextResetAfter
+    );
+    if (startShifted || nextResetMoved) {
+      resetDayChanged.push({
         id,
         slug: reference.slug,
         name: reference.name,
-        fromDay: transition.shiftFromDay,
-        toDay: transition.shiftToDay,
-      };
-      resetDayChanged.push(change);
-      if (rawDelta === 0)
+        fromDay: startShifted ? transition.shiftFromDay : null,
+        toDay: startShifted ? transition.shiftToDay : null,
+        nextResetBefore: nextResetMoved ? transition.nextResetBefore : null,
+        nextResetAfter: nextResetMoved ? transition.nextResetAfter : null,
+      });
+      if (startShifted && rawDelta === 0)
         result.notes.push(
-          `Zyklusstart verschoben vom ${change.fromDay}. auf den ${change.toDay}. (ohne Auswirkung auf den Stand)`
+          `Zyklusstart verschoben vom ${transition.shiftFromDay}. auf den ${transition.shiftToDay}. (ohne Auswirkung auf den Stand)`
+        );
+      if (nextResetMoved && !startShifted)
+        result.notes.push(
+          `Nächster Reset am ${formatDayDE(transition.nextResetAfter)} statt am ${formatDayDE(transition.nextResetBefore)} (ohne Auswirkung auf den Stand)`
         );
     }
 
@@ -549,13 +611,13 @@ function compareSnapshots(before, after) {
       result.status = "identical";
       result.message = `${label(reference)}: identisch (${now.messageCount})`;
     } else {
-      if (transition?.gapUnits)
+      if (transition.gapUnits)
         result.causes.push({
           code: "legacy_gap",
           units: transition.gapUnits,
           text: "Nachrichten in der bisherigen Lücke",
         });
-      if (transition?.shiftUnits)
+      if (transition.shiftUnits)
         result.causes.push({
           code: "cycle_start_shifted",
           units: transition.shiftUnits,
@@ -579,8 +641,14 @@ function compareSnapshots(before, after) {
       if (result.unexplainedUnits === 0 && result.causes.length > 0) {
         result.status = "explained";
         result.message = `${change}, Ursache: ${causeText}`;
+        // Gutschriften über dem Verbrauch halten den Stand bei 0; was in den
+        // Fenstern liegt, hat sich trotzdem geändert und braucht eine Ursache.
+        if (result.delta === 0)
+          result.notes.push(
+            `Stand unverändert, weil Gutschriften überwiegen: Summe vor der Klemmung auf 0 bisher ${rawTotal(old)}, neu ${rawTotal(now)}.`
+          );
       } else {
-        if (transition?.note) result.notes.push(transition.note);
+        if (transition.note) result.notes.push(transition.note);
         result.message =
           result.causes.length > 0
             ? `${change}, unerklärt: ${formatSigned(result.unexplainedUnits)} neben ${causeText}`
@@ -607,7 +675,6 @@ function compareSnapshots(before, after) {
   );
   return {
     ok: unexplained.length === 0,
-    warnings,
     workspaces: results,
     unexplained,
     limitReached,
@@ -622,8 +689,6 @@ function compareSnapshots(before, after) {
  */
 function formatComparison(comparison) {
   const lines = ["Vergleich der Kontingent-Schnappschüsse (KIE-531)", ""];
-  for (const warning of comparison.warnings) lines.push(`Warnung: ${warning}`);
-  if (comparison.warnings.length) lines.push("");
 
   for (const result of comparison.workspaces) {
     lines.push(result.message);
@@ -645,10 +710,18 @@ function formatComparison(comparison) {
 
   if (comparison.resetDayChanged.length) {
     lines.push("", "Geänderter Reset-Tag (Starttag 29.–31.):");
-    for (const entry of comparison.resetDayChanged)
-      lines.push(
-        `  [${entry.id}] ${entry.slug ?? "?"}: vom ${entry.fromDay}. auf den ${entry.toDay}.`
-      );
+    for (const entry of comparison.resetDayChanged) {
+      const changes = [];
+      if (entry.fromDay && entry.toDay)
+        changes.push(
+          `Zyklusstart vom ${entry.fromDay}. auf den ${entry.toDay}.`
+        );
+      if (entry.nextResetBefore && entry.nextResetAfter)
+        changes.push(
+          `nächster Reset am ${formatDayDE(entry.nextResetAfter)} statt am ${formatDayDE(entry.nextResetBefore)}`
+        );
+      lines.push(`  [${entry.id}] ${entry.slug ?? "?"}: ${changes.join(", ")}`);
+    }
   }
 
   const count = (status) =>

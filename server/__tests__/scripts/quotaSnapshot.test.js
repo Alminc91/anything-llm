@@ -5,6 +5,93 @@
 // dafür eine Zählfunktion, die das halboffene Fenster wie die Datenbank
 // auswertet. Die Zeitzone des bisherigen Serverprozesses wird dem Skript
 // ausdrücklich genannt, die Tests hängen nicht an der Zeitzone des Testlaufs.
+//
+// Der Befehl snapshot läuft zusätzlich über seinen echten Weg (Workspace-
+// Auswahl, Zählklauseln, Embed-Relation) gegen einen Prisma-Ersatz im
+// Speicher, der select, gte/gt/lt/lte und die Relation wie die Datenbank
+// auswertet.
+jest.mock("../../utils/prisma", () => {
+  const tables = {
+    workspaces: [],
+    workspace_chats: [],
+    embed_configs: [],
+    embed_chats: [],
+    workspace_message_adjustments: [],
+  };
+  const inRange = (createdAt, range = {}) =>
+    (range.gte === undefined || createdAt >= range.gte) &&
+    (range.gt === undefined || createdAt > range.gt) &&
+    (range.lt === undefined || createdAt < range.lt) &&
+    (range.lte === undefined || createdAt <= range.lte);
+  // Ein fehlender Filter schränkt wie in der Datenbank nicht ein.
+  const matches = (value, expected) =>
+    expected === undefined || value === expected;
+  return {
+    __tables: tables,
+    __clientOptions: [],
+    $disconnect: jest.fn(async () => {}),
+    workspaces: {
+      findMany: async ({ select, orderBy } = {}) =>
+        [...tables.workspaces]
+          .sort((a, b) => (orderBy?.id === "asc" ? a.id - b.id : 0))
+          .map((row) =>
+            select
+              ? Object.fromEntries(
+                  Object.keys(select)
+                    .filter((key) => select[key])
+                    .map((key) => [key, row[key]])
+                )
+              : { ...row }
+          ),
+    },
+    workspace_chats: {
+      count: async ({ where = {} }) =>
+        tables.workspace_chats.filter(
+          (row) =>
+            matches(row.workspaceId, where.workspaceId) &&
+            inRange(row.createdAt, where.createdAt)
+        ).length,
+    },
+    embed_chats: {
+      count: async ({ where = {} }) =>
+        tables.embed_chats.filter((row) => {
+          const config = tables.embed_configs.find(
+            (entry) => entry.id === row.embed_id
+          );
+          return (
+            matches(config?.workspace_id, where.embed_config?.workspace_id) &&
+            inRange(row.createdAt, where.createdAt)
+          );
+        }).length,
+    },
+    workspace_message_adjustments: {
+      aggregate: async ({ where = {} }) => {
+        const rows = tables.workspace_message_adjustments.filter(
+          (row) =>
+            matches(row.workspaceId, where.workspaceId) &&
+            inRange(row.createdAt, where.createdAt)
+        );
+        // Wie Prisma: ohne Zeilen ist die Summe null, nicht 0.
+        return {
+          _sum: {
+            amount: rows.length
+              ? rows.reduce((sum, row) => sum + row.amount, 0)
+              : null,
+          },
+        };
+      },
+    },
+  };
+});
+// Mit --db öffnet das Skript die Datei über einen eigenen PrismaClient.
+jest.mock("@prisma/client", () => ({
+  PrismaClient: function PrismaClient(options) {
+    const prisma = require("../../utils/prisma");
+    prisma.__clientOptions.push(options);
+    return prisma;
+  },
+}));
+
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -16,6 +103,7 @@ const {
   formatComparison,
   main,
 } = require("../../scripts/quota-snapshot");
+const prisma = require("../../utils/prisma");
 
 const LEGACY_TZ = "Europe/Berlin";
 
@@ -253,10 +341,22 @@ describe("quota-snapshot: Vergleich", () => {
     expect(comparison.unexplained).toEqual([]);
     expect(comparison.limitReached).toEqual([]);
     expect(comparison.resetDayChanged).toEqual([
-      { id: 3, slug: "monatsende", name: "Monatsende", fromDay: 28, toDay: 31 },
+      {
+        id: 3,
+        slug: "monatsende",
+        name: "Monatsende",
+        fromDay: 28,
+        toDay: 31,
+        nextResetBefore: "2026-04-28",
+        nextResetAfter: "2026-04-30",
+      },
     ]);
 
     const text = formatComparison(comparison);
+    expect(text).toContain("Geänderter Reset-Tag (Starttag 29.–31.):");
+    expect(text).toContain(
+      "  [3] monatsende: Zyklusstart vom 28. auf den 31., nächster Reset am 30.04.2026 statt am 28.04.2026"
+    );
     expect(text).toContain("identisch");
     expect(text).toContain("+4, Ursache: Nachrichten in der bisherigen Lücke");
     expect(text).toContain(
@@ -355,6 +455,124 @@ describe("quota-snapshot: Vergleich", () => {
     expect(comparison.ok).toBe(true);
   });
 
+  test("reset_tag: der nächste Reset verschiebt sich auch, wenn das laufende Fenster am selben Tag begann", async () => {
+    // Stand 12.10.2026. Start 31.03. und 31.08.: Das laufende Fenster begann
+    // bisher wie neu am 30.09.; der nächste Reset war bisher der 30.10., neu
+    // ist es der 31.10. Start 31.01.: zusätzlich ein anderer Starttag.
+    const monthly = (id, slug, cycleStartDate) => ({
+      id,
+      slug,
+      name: slug,
+      messagesLimit: 600,
+      cycleStartDate: new Date(cycleStartDate),
+      cycleDurationMonths: 1,
+    });
+    const workspaces = [
+      monthly(1, "start-31-03", "2026-03-31"),
+      monthly(2, "start-31-08", "2026-08-31"),
+      monthly(3, "start-31-01", "2026-01-31"),
+      monthly(4, "start-15-01", "2026-01-15"),
+    ];
+    const { before, after } = await snapshotPair({
+      workspaces,
+      rows: workspaces.flatMap((workspace) =>
+        many(workspace.id, 5, "2026-10-05T10:00:00+02:00")
+      ),
+      now: "2026-10-12T10:00:00+02:00",
+    });
+    expect(before.workspaces[0].window).toMatchObject({
+      startDay: "2026-09-30",
+      endDayExclusive: "2026-10-30",
+    });
+    expect(after.workspaces[0].window).toMatchObject({
+      startDay: "2026-09-30",
+      endDayExclusive: "2026-10-31",
+    });
+
+    const comparison = compareSnapshots(before, after);
+    // Der Stand ist überall gleich – gelistet wird trotzdem.
+    expect(comparison.ok).toBe(true);
+    expect(comparison.workspaces.map((result) => result.status)).toEqual([
+      "identical",
+      "identical",
+      "identical",
+      "identical",
+    ]);
+    expect(comparison.resetDayChanged).toEqual([
+      {
+        id: 1,
+        slug: "start-31-03",
+        name: "start-31-03",
+        fromDay: null,
+        toDay: null,
+        nextResetBefore: "2026-10-30",
+        nextResetAfter: "2026-10-31",
+      },
+      {
+        id: 2,
+        slug: "start-31-08",
+        name: "start-31-08",
+        fromDay: null,
+        toDay: null,
+        nextResetBefore: "2026-10-30",
+        nextResetAfter: "2026-10-31",
+      },
+      {
+        id: 3,
+        slug: "start-31-01",
+        name: "start-31-01",
+        fromDay: 28,
+        toDay: 30,
+        nextResetBefore: "2026-10-28",
+        nextResetAfter: "2026-10-31",
+      },
+    ]);
+    expect(comparison.workspaces[0].notes).toEqual([
+      "Nächster Reset am 31.10.2026 statt am 30.10.2026 (ohne Auswirkung auf den Stand)",
+    ]);
+    expect(comparison.workspaces[3].notes).toEqual([]);
+
+    const text = formatComparison(comparison);
+    expect(text).toContain(
+      "  [1] start-31-03: nächster Reset am 31.10.2026 statt am 30.10.2026"
+    );
+    expect(text).toContain(
+      "  [2] start-31-08: nächster Reset am 31.10.2026 statt am 30.10.2026"
+    );
+    expect(text).toContain(
+      "  [3] start-31-01: Zyklusstart vom 28. auf den 30., nächster Reset am 31.10.2026 statt am 28.10.2026"
+    );
+    // Starttag 15.: nichts geändert, also nicht in der Liste.
+    expect(text.slice(text.indexOf("Geänderter Reset-Tag"))).not.toContain(
+      "[4] start-15-01"
+    );
+  });
+
+  test("reset_tag: verschobener Zyklusstart, dessen nächster Reset auf denselben Tag fällt", async () => {
+    // 10.02.2027, Start 31.01.2026: bisher 28.01. → 28.02., neu 31.01. → 28.02.
+    const { before, after } = await snapshotPair({
+      workspaces: [endOfMonth],
+      rows: many(3, 4, "2027-02-05T10:00:00+01:00"),
+      now: "2027-02-10T10:00:00+01:00",
+    });
+    const comparison = compareSnapshots(before, after);
+    expect(comparison.workspaces[0].status).toBe("identical");
+    expect(comparison.resetDayChanged).toEqual([
+      {
+        id: 3,
+        slug: "monatsende",
+        name: "Monatsende",
+        fromDay: 28,
+        toDay: 31,
+        nextResetBefore: null,
+        nextResetAfter: null,
+      },
+    ]);
+    expect(formatComparison(comparison)).toContain(
+      "  [3] monatsende: Zyklusstart vom 28. auf den 31.\n"
+    );
+  });
+
   test("unerklaert_bricht_ab: Unterschied ohne benannte Ursache beendet den Vergleich mit Fehlerstatus (NAK-1)", async () => {
     const { before, after } = await snapshotPair({
       workspaces: [plain, withGap],
@@ -431,26 +649,93 @@ describe("quota-snapshot: Vergleich", () => {
     );
   });
 
-  test("unerklaert_bricht_ab: unterschiedliche Bezugszeitpunkte erklären nichts", async () => {
-    const workspaces = [withGap];
-    const rows = ak10Rows();
-    const before = await buildSnapshot({
-      workspaces,
-      countInWindow: memoryCounter(rows),
-      now: new Date(NOW),
-      mode: "legacy",
-      legacyTimeZone: LEGACY_TZ,
+  test("unerklaert_bricht_ab: nicht auswertbarer Workspace gilt als unerklärt und stoppt den Rollout (NAK-1)", async () => {
+    // Die Zählung scheitert für genau einen Workspace.
+    const failingCounter = (rows) => {
+      const count = memoryCounter(rows);
+      return async (workspace, start, endExclusive) => {
+        if (workspace.id === withGap.id)
+          throw new Error("no such table: embed_chats");
+        return count(workspace, start, endExclusive);
+      };
+    };
+    const build = (countInWindow, mode) =>
+      buildSnapshot({
+        workspaces: [plain, withGap],
+        countInWindow,
+        now: new Date(NOW),
+        mode,
+        legacyTimeZone: mode === "legacy" ? LEGACY_TZ : null,
+      });
+    const rows = ak10Rows().filter((entry) => entry.workspaceId === 1);
+    const before = await build(memoryCounter(rows), "legacy");
+    const after = await build(failingCounter(rows), "current");
+
+    // Der Workspace bleibt im Schnappschuss sichtbar, ohne Stand.
+    expect(after.workspaces[1]).toMatchObject({
+      id: 2,
+      slug: "luecke",
+      error: "no such table: embed_chats",
     });
-    const after = await buildSnapshot({
-      workspaces,
-      countInWindow: memoryCounter(rows),
-      now: new Date("2026-04-20T10:05:00+02:00"),
-      mode: "current",
+    expect(after.workspaces[1].messageCount).toBeUndefined();
+    expect(after.workspaces[0].error).toBeUndefined();
+
+    for (const [old, now] of [
+      [before, after],
+      [await build(failingCounter(rows), "legacy"), after],
+      [
+        await build(failingCounter(rows), "legacy"),
+        await build(memoryCounter(rows), "current"),
+      ],
+    ]) {
+      const comparison = compareSnapshots(old, now);
+      expect(comparison.ok).toBe(false);
+      expect(comparison.unexplained.map((result) => result.id)).toEqual([2]);
+      expect(comparison.workspaces[0].status).toBe("identical");
+      expect(comparison.workspaces[1]).toMatchObject({
+        status: "unexplained",
+        delta: null,
+        message:
+          "[2] luecke: nicht auswertbar (no such table: embed_chats), unerklärt",
+      });
+    }
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quota-snapshot-"));
+    try {
+      const beforeFile = path.join(dir, "vorher.json");
+      const afterFile = path.join(dir, "nachher.json");
+      fs.writeFileSync(beforeFile, JSON.stringify(before));
+      fs.writeFileSync(afterFile, JSON.stringify(after));
+      const output = [];
+      expect(
+        await main(["compare", beforeFile, afterFile], {
+          stdout: { write: (text) => output.push(text) },
+          stderr: { write: () => {} },
+        })
+      ).toBe(1);
+      expect(output.join("")).toContain(
+        "[2] luecke: nicht auswertbar (no such table: embed_chats), unerklärt"
+      );
+      expect(output.join("")).toContain(
+        "Unerklärter Unterschied: Der Rollout darf nicht fortgesetzt werden."
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("unerklaert_bricht_ab: ohne Angaben zum bisherigen Fenster bleibt ein Workspace unerklärt", async () => {
+    const { before, after } = await snapshotPair({
+      workspaces: [plain],
+      rows: ak10Rows(),
+      now: NOW,
     });
+    delete before.workspaces[0].transition;
     const comparison = compareSnapshots(before, after);
     expect(comparison.ok).toBe(false);
-    expect(comparison.warnings[0]).toMatch(/Unterschiedliche Bezugszeitpunkte/);
-    expect(comparison.workspaces[0].status).toBe("unexplained");
+    expect(comparison.workspaces[0].message).toBe(
+      "[1] ohne-besonderheit: Angaben zum bisherigen Fenster fehlen im Schnappschuss vorher, unerklärt"
+    );
   });
 
   test("unerklaert_bricht_ab: Serverprozess lief in UTC – verschobene Grenze ist keine Lücke", async () => {
@@ -508,6 +793,126 @@ describe("quota-snapshot: Vergleich", () => {
     expect(comparison.workspaces[1].message).toBe(
       "[2] luecke: nur im Schnappschuss vorher enthalten, unerklärt"
     );
+  });
+
+  test("unerklaert_bricht_ab: abweichender Starttag ohne Starttag 29.–31. ist keine benannte Ursache", async () => {
+    // Serverprozess in New York: Der gespeicherte Start (01.03. 00:00 UTC) ist
+    // dort der 28.02. 19:00 Uhr, die bisherigen Zyklen begannen deshalb in
+    // Berliner Zeit am 29. – ein Tageswechsel der Zeitzone, kein geklemmter
+    // Reset-Tag.
+    const firstOfMonth = {
+      id: 7,
+      slug: "monatserster",
+      name: "Monatserster",
+      messagesLimit: 600,
+      cycleStartDate: new Date("2026-03-01"),
+      cycleDurationMonths: 1,
+    };
+    const { before, after } = await snapshotPair({
+      workspaces: [firstOfMonth],
+      rows: [
+        ...many(7, 3, "2026-03-30T10:00:00+02:00"),
+        ...many(7, 10, "2026-04-02T10:00:00+02:00"),
+      ],
+      now: NOW,
+      legacyTimeZone: "America/New_York",
+    });
+    expect(before.workspaces[0].window.startDay).toBe("2026-03-29");
+    expect(after.workspaces[0].window.startDay).toBe("2026-04-01");
+    expect(before.workspaces[0].transition).toMatchObject({
+      shiftUnits: 0,
+      shiftFromDay: null,
+      shiftToDay: null,
+      nextResetBefore: null,
+      nextResetAfter: null,
+    });
+
+    const comparison = compareSnapshots(before, after);
+    expect(comparison.ok).toBe(false);
+    expect(comparison.resetDayChanged).toEqual([]);
+    expect(comparison.workspaces[0]).toMatchObject({
+      status: "unexplained",
+      causes: [],
+      message:
+        "[7] monatserster: 13 → 10, -3, unerklärt: keine der benannten Ursachen",
+    });
+  });
+
+  test("klemmung: Gutschriften über dem Verbrauch halten den Stand bei 0, die Lücke bleibt als Ursache benannt", async () => {
+    const credited = { ...withGap, id: 6, slug: "gutschrift" };
+    const rows = [
+      row(6, "2026-04-15T00:20:00+02:00"),
+      row(6, "2026-04-15T00:40:00+02:00", "embed"),
+      ...many(6, 5, "2026-04-15T01:00:00+02:00"),
+      row(6, "2026-04-16T09:00:00+02:00", "adjustment", -20),
+    ];
+    const { before, after } = await snapshotPair({
+      workspaces: [credited],
+      rows,
+      now: NOW,
+    });
+    // Wie der Server: nie unter 0, auch wenn die Summe negativ ist.
+    expect(before.workspaces[0]).toMatchObject({
+      messageCount: 0,
+      workspaceChatCount: 5,
+      embedChatCount: 0,
+      adjustmentsTotal: -20,
+      limitReached: false,
+    });
+    expect(after.workspaces[0]).toMatchObject({
+      messageCount: 0,
+      workspaceChatCount: 6,
+      embedChatCount: 1,
+      adjustmentsTotal: -20,
+      limitReached: false,
+    });
+
+    // Der Stand ist gleich, in den Fenstern liegt aber anderes: Das gilt
+    // nicht als identisch, sondern braucht eine Ursache.
+    const comparison = compareSnapshots(before, after);
+    expect(comparison.ok).toBe(true);
+    expect(comparison.workspaces[0]).toMatchObject({
+      status: "explained",
+      before: 0,
+      after: 0,
+      delta: 0,
+      unexplainedUnits: 0,
+      causes: [
+        {
+          code: "legacy_gap",
+          units: 2,
+          text: "Nachrichten in der bisherigen Lücke",
+        },
+      ],
+      message:
+        "[6] gutschrift: 0 → 0, 0, Ursache: Nachrichten in der bisherigen Lücke",
+      notes: [
+        "Stand unverändert, weil Gutschriften überwiegen: Summe vor der Klemmung auf 0 bisher -15, neu -13.",
+      ],
+    });
+
+    // Ohne Ursache bleibt derselbe verdeckte Unterschied unerklärt.
+    after.workspaces[0].workspaceChatCount += 1;
+    const tampered = compareSnapshots(before, after);
+    expect(tampered.ok).toBe(false);
+    expect(tampered.workspaces[0].message).toBe(
+      "[6] gutschrift: 0 → 0, 0, unerklärt: +1 neben Nachrichten in der bisherigen Lücke"
+    );
+  });
+
+  test("klemmung: Gutschriften über dem Verbrauch ohne Unterschied in den Fenstern sind identisch", async () => {
+    const credited = { ...withGap, id: 6, slug: "gutschrift" };
+    const { before, after } = await snapshotPair({
+      workspaces: [credited],
+      rows: [
+        ...many(6, 5, "2026-04-15T01:00:00+02:00"),
+        row(6, "2026-04-16T09:00:00+02:00", "adjustment", -20),
+      ],
+      now: NOW,
+    });
+    const [result] = compareSnapshots(before, after).workspaces;
+    expect(result.status).toBe("identical");
+    expect(result.message).toBe("[6] gutschrift: identisch (0)");
   });
 
   test("limit_erreicht_gelistet: Workspaces, die durch die neuen Grenzen ihr Limit erreichen, stehen gesondert (NAK-2)", async () => {
@@ -578,6 +983,135 @@ describe("quota-snapshot: Vergleich", () => {
 
   test("lehnt Dateien ab, die keine Schnappschüsse sind", () => {
     expect(() => compareSnapshots({}, {})).toThrow(/Format/);
+  });
+});
+
+describe("quota-snapshot: Vergleich nur legacy → current mit demselben Bezugszeitpunkt", () => {
+  // Limit 100, Start 15.07., 3 Monate: 4 Nachrichten am 15.10. um 00:30 Uhr
+  // Berliner Zeit (bisherige Lücke), 98 danach. Bisher 98, neu 102.
+  const customer = {
+    id: 1,
+    slug: "kunde",
+    name: "Kunde",
+    messagesLimit: 100,
+    cycleStartDate: new Date("2026-07-15"),
+    cycleDurationMonths: 3,
+  };
+  const rows = [
+    ...many(1, 4, "2026-10-15T00:30:00+02:00"),
+    ...many(1, 98, "2026-10-15T09:00:00+02:00"),
+  ];
+  const now = "2026-10-20T08:00:00Z";
+
+  let dir;
+  let files;
+  beforeEach(async () => {
+    const { before, after } = await snapshotPair({
+      workspaces: [customer],
+      rows,
+      now,
+    });
+    const later = await buildSnapshot({
+      workspaces: [customer],
+      countInWindow: memoryCounter(rows),
+      now: new Date("2026-10-20T08:05:00Z"),
+      mode: "current",
+    });
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "quota-snapshot-"));
+    files = {};
+    for (const [name, snapshot] of Object.entries({
+      legacy: before,
+      current: after,
+      later,
+    })) {
+      files[name] = path.join(dir, `${name}.json`);
+      fs.writeFileSync(files[name], JSON.stringify(snapshot));
+    }
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  async function compare(beforeName, afterName) {
+    const output = [];
+    const errors = [];
+    const status = await main(
+      ["compare", files[beforeName], files[afterName]],
+      {
+        stdout: { write: (text) => output.push(text) },
+        stderr: { write: (text) => errors.push(text) },
+      }
+    );
+    return { status, output: output.join(""), errors: errors.join("") };
+  }
+
+  test("legacy → current: der Vergleich läuft und listet den Workspace am Limit", async () => {
+    const { status, output } = await compare("legacy", "current");
+    expect(status).toBe(0);
+    expect(output).toContain(
+      "[1] kunde: 98 → 102, +4, Ursache: Nachrichten in der bisherigen Lücke"
+    );
+    expect(output).toContain("  [1] kunde: 98 → 102 bei Limit 100");
+  });
+
+  test.each([
+    ["current", "current"],
+    ["legacy", "legacy"],
+    ["current", "legacy"],
+  ])(
+    "unerklaert_bricht_ab: %s → %s ist ein Aufruffehler, kein bestandener Vergleich",
+    async (beforeName, afterName) => {
+      const { status, output, errors } = await compare(beforeName, afterName);
+      expect(status).toBe(2);
+      expect(errors).toContain(
+        `Nicht vergleichbar: erwartet wird vorher = legacy (mit --legacy-tz) und nachher = current (ist: ${beforeName} und ${afterName}).`
+      );
+      // Keine Entwarnung, wenn nichts verglichen wurde.
+      expect(output).toBe("");
+    }
+  );
+
+  test("unerklaert_bricht_ab: unterschiedliche Bezugszeitpunkte sind nicht vergleichbar, auch bei gleichem Stand", async () => {
+    const later = JSON.parse(fs.readFileSync(files.later, "utf8"));
+    const current = JSON.parse(fs.readFileSync(files.current, "utf8"));
+    // Der Stand ist derselbe wie zum richtigen Bezugszeitpunkt.
+    expect(later.workspaces[0].messageCount).toBe(
+      current.workspaces[0].messageCount
+    );
+
+    const { status, output, errors } = await compare("legacy", "later");
+    expect(status).toBe(2);
+    expect(errors).toContain(
+      "Nicht vergleichbar: unterschiedliche Bezugszeitpunkte (vorher 2026-10-20T08:00:00.000Z, nachher 2026-10-20T08:05:00.000Z)."
+    );
+    expect(output).toBe("");
+  });
+
+  test("unerklaert_bricht_ab: compareSnapshots wirft bei falscher Paarung und bei legacy ohne Zeitzone", async () => {
+    const legacy = JSON.parse(fs.readFileSync(files.legacy, "utf8"));
+    const current = JSON.parse(fs.readFileSync(files.current, "utf8"));
+    expect(() => compareSnapshots(current, current)).toThrow(
+      /Nicht vergleichbar/
+    );
+    expect(() => compareSnapshots(legacy, legacy)).toThrow(
+      /Nicht vergleichbar/
+    );
+    expect(() =>
+      compareSnapshots({ ...legacy, legacyTimeZone: null }, current)
+    ).toThrow(/Nicht vergleichbar/);
+    // Auch ein current-Schnappschuss mit --legacy-tz ist kein Vorher.
+    const currentWithTimeZone = await buildSnapshot({
+      workspaces: [customer],
+      countInWindow: memoryCounter(rows),
+      now: new Date(now),
+      mode: "current",
+      legacyTimeZone: LEGACY_TZ,
+    });
+    expect(() => compareSnapshots(currentWithTimeZone, current)).toThrow(
+      /Nicht vergleichbar/
+    );
+    expect(() =>
+      compareSnapshots(legacy, { ...current, now: "2026-10-20T08:00:01.000Z" })
+    ).toThrow(/unterschiedliche Bezugszeitpunkte/);
+    expect(compareSnapshots(legacy, current).ok).toBe(true);
   });
 });
 
@@ -667,6 +1201,8 @@ describe("quota-snapshot: bisherige Fensterlogik", () => {
     );
     // Ende 14.04. 23:59:59,999 MESZ, der nächste Zyklus beginnt aber erst 01:00.
     expect(quarter.endExclusive.toISOString()).toBe("2026-04-14T22:00:00.000Z");
+    // Der bisherige nächste Reset: 15.04. 01:00 Uhr MESZ.
+    expect(quarter.nextStart.toISOString()).toBe("2026-04-14T23:00:00.000Z");
     const next = legacyWindow(
       { cycleStartDate: "2026-01-15", cycleDurationMonths: 3 },
       new Date("2026-04-15T01:00:00+02:00"),
@@ -703,7 +1239,319 @@ describe("quota-snapshot: bisherige Fensterlogik", () => {
       "UTC"
     );
     expect(first.endExclusive.toISOString()).toBe("2026-04-15T00:00:00.000Z");
+    expect(first.nextStart.toISOString()).toBe("2026-04-15T00:00:00.000Z");
     expect(second.start.toISOString()).toBe("2026-04-15T00:00:00.000Z");
+
+    // Ohne Zyklus ist der nächste Start der Beginn des Folgemonats.
+    const month = legacyWindow({}, new Date("2026-04-14T12:00:00Z"), "UTC");
+    expect(month.endExclusive.toISOString()).toBe("2026-05-01T00:00:00.000Z");
+    expect(month.nextStart.toISOString()).toBe("2026-05-01T00:00:00.000Z");
+  });
+});
+
+describe("quota-snapshot: Befehl snapshot gegen die Datenbank", () => {
+  const silent = { write: () => {} };
+  let dir;
+  let dbFile;
+
+  function fillDatabase(workspaces, rows) {
+    const tables = prisma.__tables;
+    for (const table of Object.values(tables)) table.length = 0;
+    // Absichtlich nicht nach id sortiert und mit einer Spalte mehr, als der
+    // Schnappschuss braucht.
+    tables.workspaces.push(
+      ...[...workspaces]
+        .reverse()
+        .map((workspace) => ({ ...workspace, openAiPrompt: "nicht gefragt" }))
+    );
+    for (const workspace of workspaces)
+      tables.embed_configs.push({
+        id: workspace.id * 10,
+        workspace_id: workspace.id,
+      });
+    for (const entry of rows) {
+      if (entry.kind === "chat")
+        tables.workspace_chats.push({
+          workspaceId: entry.workspaceId,
+          createdAt: entry.at,
+        });
+      else if (entry.kind === "embed")
+        tables.embed_chats.push({
+          embed_id: entry.workspaceId * 10,
+          createdAt: entry.at,
+        });
+      else
+        tables.workspace_message_adjustments.push({
+          workspaceId: entry.workspaceId,
+          amount: entry.amount,
+          createdAt: entry.at,
+        });
+    }
+  }
+
+  const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
+
+  beforeEach(() => {
+    prisma.__clientOptions.length = 0;
+    prisma.$disconnect.mockClear();
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "quota-snapshot-"));
+    dbFile = path.join(dir, "anythingllm.db");
+    fs.writeFileSync(dbFile, "");
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  test("ursachen: snapshot in beiden Modi und compare melden die drei Fälle aus AK-10", async () => {
+    fillDatabase(
+      [plain, withGap, endOfMonth],
+      [
+        ...ak10Rows(),
+        // Eine Millisekunde nach dem Bezugszeitpunkt eingegangen, in allen
+        // drei Tabellen: zählt in keinem der beiden Schnappschüsse.
+        row(1, "2026-04-20T10:00:00.001+02:00"),
+        row(1, "2026-04-20T10:00:00.001+02:00", "embed"),
+        row(1, "2026-04-20T10:00:00.001+02:00", "adjustment", 100),
+      ]
+    );
+    const beforeFile = path.join(dir, "vorher.json");
+    const afterFile = path.join(dir, "nachher.json");
+    const run = (args) => main(args, { stdout: silent, stderr: silent });
+
+    expect(
+      await run([
+        "snapshot",
+        "--mode",
+        "legacy",
+        "--legacy-tz",
+        LEGACY_TZ,
+        "--db",
+        dbFile,
+        "--now",
+        NOW,
+        "--out",
+        beforeFile,
+      ])
+    ).toBe(0);
+    expect(
+      await run([
+        "snapshot",
+        "--mode",
+        "current",
+        "--db",
+        dbFile,
+        "--now",
+        NOW,
+        "--out",
+        afterFile,
+      ])
+    ).toBe(0);
+
+    // Genau die genannte Datei wird geöffnet und wieder geschlossen.
+    expect(prisma.__clientOptions).toEqual([
+      { datasources: { db: { url: `file:${dbFile}` } } },
+      { datasources: { db: { url: `file:${dbFile}` } } },
+    ]);
+    expect(prisma.$disconnect).toHaveBeenCalledTimes(2);
+
+    const before = readJson(beforeFile);
+    const after = readJson(afterFile);
+    expect(before).toMatchObject({
+      schema: SNAPSHOT_SCHEMA,
+      mode: "legacy",
+      legacyTimeZone: LEGACY_TZ,
+      now: "2026-04-20T08:00:00.000Z",
+      database: dbFile,
+    });
+    expect(after).toMatchObject({
+      schema: SNAPSHOT_SCHEMA,
+      mode: "current",
+      legacyTimeZone: null,
+      now: "2026-04-20T08:00:00.000Z",
+      database: dbFile,
+    });
+
+    // Bisherige Grenzen: 30+5 Chats und Embed-Chats plus Buchung, 50 ohne die
+    // Lücke, 60 seit dem 28.03.
+    expect(
+      before.workspaces.map((workspace) => [
+        workspace.id,
+        workspace.slug,
+        workspace.messagesLimit,
+        workspace.messageCount,
+      ])
+    ).toEqual([
+      [1, "ohne-besonderheit", 600, 35],
+      [2, "luecke", 600, 50],
+      [3, "monatsende", 600, 60],
+    ]);
+    expect(before.workspaces[1].window.start).toBe("2026-04-14T23:00:00.000Z");
+    expect(before.workspaces[2].window.startDay).toBe("2026-03-28");
+    // Neue Grenzen: die Lücke zählt mit, der Zyklus beginnt am 31.03.
+    expect(
+      after.workspaces.map((workspace) => [
+        workspace.id,
+        workspace.messageCount,
+        workspace.workspaceChatCount,
+        workspace.embedChatCount,
+        workspace.adjustmentsTotal,
+      ])
+    ).toEqual([
+      [1, 35, 20, 5, 10],
+      [2, 54, 52, 2, 0],
+      [3, 40, 40, 0, 0],
+    ]);
+    expect(after.workspaces[1].window).toEqual({
+      start: "2026-04-14T22:00:00.000Z",
+      endExclusive: "2026-07-14T22:00:00.000Z",
+      startDay: "2026-04-15",
+      endDayExclusive: "2026-07-15",
+      cycleNumber: 2,
+    });
+    expect(after.workspaces[0].openAiPrompt).toBeUndefined();
+
+    const output = [];
+    expect(
+      await main(["compare", beforeFile, afterFile], {
+        stdout: { write: (text) => output.push(text) },
+        stderr: silent,
+      })
+    ).toBe(0);
+    const text = output.join("");
+    expect(text).toContain("[1] ohne-besonderheit: identisch (35)");
+    expect(text).toContain(
+      "[2] luecke: 50 → 54, +4, Ursache: Nachrichten in der bisherigen Lücke"
+    );
+    expect(text).toContain(
+      "[3] monatsende: 60 → 40, -20, Ursache: Zyklusstart verschoben vom 28. auf den 31."
+    );
+    expect(text).toContain("Ergebnis: 1 identisch, 2 erklärt, 0 unerklärt.");
+  });
+
+  test("limit_erreicht_gelistet: ohne --db gilt die Prisma-Konfiguration des Servers, das Limit kommt aus der Datenbank", async () => {
+    fillDatabase([plain, { ...withGap, messagesLimit: 54 }], ak10Rows());
+    const snapshot = async (args) => {
+      const output = [];
+      const status = await main(["snapshot", "--now", NOW, ...args], {
+        stdout: { write: (text) => output.push(text) },
+        stderr: silent,
+      });
+      expect(status).toBe(0);
+      return JSON.parse(output.join(""));
+    };
+
+    // Ohne --out geht der Schnappschuss auf die Standardausgabe.
+    const before = await snapshot([
+      "--mode",
+      "legacy",
+      "--legacy-tz",
+      LEGACY_TZ,
+    ]);
+    const after = await snapshot(["--mode", "current"]);
+    expect(prisma.__clientOptions).toEqual([]);
+    expect(prisma.$disconnect).toHaveBeenCalledTimes(2);
+    expect(before.database).toBeNull();
+    expect(before.workspaces[1]).toMatchObject({
+      messagesLimit: 54,
+      messageCount: 50,
+      limitReached: false,
+    });
+    expect(after.workspaces[1]).toMatchObject({
+      messagesLimit: 54,
+      messageCount: 54,
+      limitReached: true,
+    });
+    expect(compareSnapshots(before, after).limitReached).toEqual([
+      {
+        id: 2,
+        slug: "luecke",
+        name: "Lücke",
+        messagesLimit: 54,
+        before: 50,
+        after: 54,
+        status: "explained",
+      },
+    ]);
+  });
+
+  test("unerklaert_bricht_ab: Datenbankfehler beim Zählen werden nicht verschluckt (NAK-1)", async () => {
+    fillDatabase([plain, withGap], ak10Rows());
+    const beforeFile = path.join(dir, "vorher.json");
+    const afterFile = path.join(dir, "nachher.json");
+    const run = (args) => main(args, { stdout: silent, stderr: silent });
+    expect(
+      await run([
+        "snapshot",
+        "--mode",
+        "legacy",
+        "--legacy-tz",
+        LEGACY_TZ,
+        "--db",
+        dbFile,
+        "--now",
+        NOW,
+        "--out",
+        beforeFile,
+      ])
+    ).toBe(0);
+
+    const count = prisma.embed_chats.count;
+    prisma.embed_chats.count = async (args) => {
+      if (args.where.embed_config.workspace_id === withGap.id)
+        throw new Error("no such table: embed_chats");
+      return count(args);
+    };
+    try {
+      expect(
+        await run([
+          "snapshot",
+          "--mode",
+          "current",
+          "--db",
+          dbFile,
+          "--now",
+          NOW,
+          "--out",
+          afterFile,
+        ])
+      ).toBe(0);
+    } finally {
+      prisma.embed_chats.count = count;
+    }
+    expect(readJson(afterFile).workspaces[1]).toMatchObject({
+      id: 2,
+      error: "no such table: embed_chats",
+    });
+
+    const output = [];
+    expect(
+      await main(["compare", beforeFile, afterFile], {
+        stdout: { write: (text) => output.push(text) },
+        stderr: silent,
+      })
+    ).toBe(1);
+    expect(output.join("")).toContain(
+      "[2] luecke: nicht auswertbar (no such table: embed_chats), unerklärt"
+    );
+  });
+
+  test("die Datenbank wird auch nach einem Fehler geschlossen", async () => {
+    fillDatabase([plain], []);
+    const findMany = prisma.workspaces.findMany;
+    prisma.workspaces.findMany = async () => {
+      throw new Error("no such table: workspaces");
+    };
+    const errors = [];
+    try {
+      expect(
+        await main(
+          ["snapshot", "--mode", "current", "--db", dbFile, "--now", NOW],
+          { stdout: silent, stderr: { write: (text) => errors.push(text) } }
+        )
+      ).toBe(2);
+    } finally {
+      prisma.workspaces.findMany = findMany;
+    }
+    expect(errors.join("")).toContain("no such table: workspaces");
+    expect(prisma.$disconnect).toHaveBeenCalledTimes(1);
   });
 });
 
