@@ -7,9 +7,11 @@ import {
   Copy,
   ThumbsUp,
   ThumbsDown,
+  X,
 } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import Embed from "@/models/embed";
+import { formatNumber } from "@/utils/analyticsTimeline";
 import { formatDateTimeDE } from "@/utils/directories";
 import showToast from "@/utils/toast";
 import MarkdownRenderer from "../EmbedChats/MarkdownRenderer";
@@ -83,21 +85,59 @@ function FeedbackCountBadge({ count, Icon, tone, labelKey }) {
   );
 }
 
-export default function ConversationList({ embedId, startDate, endDate }) {
+const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
+
+/**
+ * Konversationsliste der Auswertung. Sie liest embed_chats – also nur
+ * Konversationen, deren Inhalte noch vorhanden und nicht vom Besucher geleert
+ * sind („einsehbar"). Die Kennzahl „Konversationen" kommt dagegen aus dem
+ * Zählerbuch; beide Zahlen können sich unterscheiden.
+ *
+ * @param {Object} props
+ * @param {number} props.embedId
+ * @param {string|null} props.startDate - ISO-Zeitstempel des Browsers
+ * @param {string|null} props.endDate
+ * @param {"all"|"negative"|"positive"} props.feedbackFilter - KIE-508/527
+ * @param {(filter: "all"|"negative"|"positive") => void} props.onFeedbackFilterChange
+ * @param {{start: string, end: string, label: string}|null} [props.bucket] -
+ *   KIE-536: Abschnitt aus dem Diagramm (Kalendertage). Gezeigt werden nur
+ *   Konversationen, deren erste vorhandene Nachricht darin liegt.
+ * @param {() => void} [props.onClearBucket]
+ * @param {boolean} [props.showDeletedHint] - Hinweis auf gelöschte Inhalte
+ */
+export default function ConversationList({
+  embedId,
+  startDate,
+  endDate,
+  feedbackFilter = "all",
+  onFeedbackFilterChange = () => {},
+  bucket = null,
+  onClearBucket = () => {},
+  showDeletedHint = false,
+}) {
   const { t } = useTranslation();
   const [conversations, setConversations] = useState([]);
-  const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  // KIE-508/527: ein exklusiver Feedback-Filter — "all" | "negative" (👎) | "positive" (👍)
-  const [feedbackFilter, setFeedbackFilter] = useState("all");
 
   const ITEMS_PER_PAGE = 20;
+  const bucketStart = bucket?.start ?? null;
+  const bucketEnd = bucket?.end ?? null;
 
-  useEffect(() => {
-    setOffset(0);
-  }, [embedId, startDate, endDate]);
+  // Die Seite gilt für genau einen Zuschnitt der Liste. Ändert sich Widget,
+  // Zeitraum, Filter oder Abschnitt, beginnt sie im selben Render wieder
+  // vorn → genau ein Request.
+  const scope = [
+    embedId,
+    startDate,
+    endDate,
+    feedbackFilter,
+    bucketStart,
+    bucketEnd,
+  ].join("|");
+  const [page, setPage] = useState({ scope, offset: 0 });
+  const offset = page.scope === scope ? page.offset : 0;
 
   useEffect(() => {
     if (!embedId) return;
@@ -118,7 +158,10 @@ export default function ConversationList({ embedId, startDate, endDate }) {
         ITEMS_PER_PAGE,
         startDate,
         endDate,
-        feedbackFilter
+        feedbackFilter,
+        bucketStart && bucketEnd
+          ? { fromDay: bucketStart, toDay: bucketEnd }
+          : null
       );
       if (ignore) return;
 
@@ -136,81 +179,133 @@ export default function ConversationList({ embedId, startDate, endDate }) {
     return () => {
       ignore = true;
     };
-  }, [embedId, startDate, endDate, offset, feedbackFilter, t]);
+  }, [
+    embedId,
+    startDate,
+    endDate,
+    offset,
+    feedbackFilter,
+    bucketStart,
+    bucketEnd,
+    t,
+  ]);
 
   // KIE-508/527: Toggles wechselseitig exklusiv, erneuter Klick hebt den
-  // Filter auf. Offset wird im selben Render zurückgesetzt → genau ein Request.
-  const toggleFilter = (mode) => {
-    setFeedbackFilter((current) => (current === mode ? "all" : mode));
-    setOffset(0);
-  };
+  // Filter auf.
+  const toggleFilter = (mode) =>
+    onFeedbackFilterChange(feedbackFilter === mode ? "all" : mode);
 
   const toggleBaseClass =
     "flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border transition-colors";
   const toggleInactiveClass =
     "border-white/10 text-theme-text-secondary hover:border-white/20 light:border-gray-200";
-  // Immer sichtbar — auch im Lade- und Leer-Zustand.
-  const feedbackFilterToggles = (
-    <div className="flex flex-wrap justify-end gap-2 mb-4">
-      {FEEDBACK_FILTERS.map(({ mode, Icon, labelKey, activeClass }) => {
-        const active = feedbackFilter === mode;
-        return (
-          <button
-            key={mode}
-            type="button"
-            aria-pressed={active}
-            onClick={() => toggleFilter(mode)}
-            className={`${toggleBaseClass} ${active ? activeClass : toggleInactiveClass}`}
-          >
-            <Icon size={15} weight={active ? "fill" : "regular"} />
-            {t(labelKey)}
-          </button>
-        );
-      })}
-    </div>
-  );
-
-  if (loading) {
-    return (
-      <div>
-        {feedbackFilterToggles}
-        <div className="text-white">{t("common.loading")}</div>
-      </div>
-    );
-  }
-
-  if (conversations.length === 0) {
-    return (
-      <div>
-        {feedbackFilterToggles}
-        <div className="text-white/60 text-center py-8">
-          {t(EMPTY_STATE_KEYS[feedbackFilter])}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div>
-      {feedbackFilterToggles}
-      <div className="space-y-4">
-        {conversations.map((conv) => (
-          <ConversationCard
-            key={conv.conversation_id}
-            conversation={conv}
-            embedId={embedId}
-          />
-        ))}
+      {/* Kopfzeile – immer sichtbar, auch im Lade- und Leer-Zustand. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+          <h3 className="text-base font-semibold text-theme-text-primary">
+            {t("embed-analytics.list.title")}
+          </h3>
+          {!loading && (
+            <span
+              data-viewable-count=""
+              title={t("embed-analytics.list.viewable-hint")}
+              className={`text-sm ${MUTED}`}
+            >
+              {t("embed-analytics.list.viewable", {
+                count: totalCount,
+                formatted: formatNumber(totalCount),
+              })}
+            </span>
+          )}
+          {bucket && (
+            <span
+              data-bucket-filter=""
+              className="inline-flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-theme-settings-input-bg py-0.5 pl-3 pr-1 text-sm text-theme-text-primary"
+            >
+              <span className="truncate">
+                {t("embed-analytics.list.only-bucket", {
+                  period: bucket.label,
+                })}
+              </span>
+              <button
+                type="button"
+                onClick={onClearBucket}
+                aria-label={t("embed-analytics.list.clear-bucket", {
+                  period: bucket.label,
+                })}
+                title={t("embed-analytics.list.clear-bucket", {
+                  period: bucket.label,
+                })}
+                className="shrink-0 rounded-full p-1 hover:bg-white/10 light:hover:bg-black/10"
+              >
+                <X size={12} weight="bold" aria-hidden="true" />
+              </button>
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          {FEEDBACK_FILTERS.map(({ mode, Icon, labelKey, activeClass }) => {
+            const active = feedbackFilter === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggleFilter(mode)}
+                className={`${toggleBaseClass} ${active ? activeClass : toggleInactiveClass}`}
+              >
+                <Icon size={15} weight={active ? "fill" : "regular"} />
+                {t(labelKey)}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {totalCount > 0 && (
-        <Pagination
-          currentPage={offset / ITEMS_PER_PAGE}
-          totalPages={Math.ceil(totalCount / ITEMS_PER_PAGE)}
-          onPageChange={(page) => setOffset(page * ITEMS_PER_PAGE)}
-          totalItems={totalCount}
-          itemsPerPage={ITEMS_PER_PAGE}
-        />
+      {loading ? (
+        <div className="text-white">{t("common.loading")}</div>
+      ) : conversations.length === 0 ? (
+        <div className="text-white/60 text-center py-8">
+          {t(EMPTY_STATE_KEYS[feedbackFilter])}
+        </div>
+      ) : (
+        <>
+          <div className="space-y-4">
+            {conversations.map((conv) => (
+              <ConversationCard
+                key={conv.conversation_id}
+                conversation={conv}
+                embedId={embedId}
+              />
+            ))}
+          </div>
+
+          {/* Die Seitenleiste ist breiter als ein schmales Fenster: Sie
+              scrollt dann in sich, nicht die Seite. */}
+          {totalCount > 0 && (
+            <div className="max-w-full overflow-x-auto">
+              <Pagination
+                currentPage={offset / ITEMS_PER_PAGE}
+                totalPages={Math.ceil(totalCount / ITEMS_PER_PAGE)}
+                onPageChange={(next) =>
+                  setPage({ scope, offset: next * ITEMS_PER_PAGE })
+                }
+                totalItems={totalCount}
+                itemsPerPage={ITEMS_PER_PAGE}
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* KIE-536: Das Diagramm zählt weiter, die Inhalte sind gelöscht. */}
+      {showDeletedHint && !loading && !hasMore && (
+        <p data-deleted-hint="" className={`mt-4 text-center text-xs ${MUTED}`}>
+          {t("embed-analytics.list.deleted-hint")}
+        </p>
       )}
     </div>
   );
@@ -257,7 +352,9 @@ function ConversationCard({ conversation, embedId }) {
     <div className="border border-white/10 light:border-gray-200 rounded-lg bg-theme-bg-primary hover:border-white/20 light:hover:border-gray-400 transition-all">
       {/* Header */}
       <div className="p-4 cursor-pointer" onClick={handleToggle}>
-        <div className="flex items-start justify-between gap-4">
+        {/* Schmale Fenster: ID und Aufklapp-Symbol stehen über dem Inhalt
+            statt daneben, sonst bleibt für ihn kein Platz. */}
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2">
               {/* Workspace Name */}
@@ -316,18 +413,18 @@ function ConversationCard({ conversation, embedId }) {
           </div>
 
           {/* Right side: Conversation ID Badge + Expand Icon */}
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex min-w-0 items-center justify-between gap-3 sm:flex-shrink-0 sm:justify-start">
             {/* Conversation ID Badge — entire badge is clickable */}
             <button
               type="button"
-              className="relative z-10 flex items-center gap-2 bg-theme-settings-input-bg px-2 py-1 rounded border border-white/10 light:border-gray-300 cursor-pointer hover:bg-white/15 hover:border-white/30 light:hover:bg-gray-100 light:hover:border-gray-400 transition-all group"
+              className="relative z-10 flex min-w-0 items-center gap-2 bg-theme-settings-input-bg px-2 py-1 rounded border border-white/10 light:border-gray-300 cursor-pointer hover:bg-white/15 hover:border-white/30 light:hover:bg-gray-100 light:hover:border-gray-400 transition-all group"
               onClick={handleCopyConversationId}
               title={t("embed-analytics.conversations.copy-id")}
             >
               <span className="text-theme-text-secondary text-[10px] font-semibold uppercase">
                 ID:
               </span>
-              <span className="text-theme-text-primary text-[10px] font-mono">
+              <span className="min-w-0 truncate text-theme-text-primary text-[10px] font-mono">
                 {conversation.conversation_id}
               </span>
               <Copy

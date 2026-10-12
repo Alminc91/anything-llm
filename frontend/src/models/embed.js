@@ -114,6 +114,23 @@ const Embed = {
       });
   },
 
+  // Analytics (KIE-536): Kennzahlen und Zeitreihe aus dem Zählerbuch.
+  // fromDay/toDay sind Kalendertage ("YYYY-MM-DD", beide einschließlich) –
+  // die Tage, die der Nutzer gewählt hat; der Server rechnet in Berliner Zeit.
+  // Antwort: { success, granularity, totals, buckets, firstLedgerDay }.
+  getAnalyticsSummary: async (embedId, fromDay, toDay) => {
+    return await fetch(`${API_BASE}/embed/${embedId}/analytics/summary`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ fromDay, toDay }),
+    })
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+
   // Analytics: Get conversations list
   getConversations: async (
     embedId,
@@ -121,7 +138,10 @@ const Embed = {
     limit = 20,
     startDate,
     endDate,
-    feedbackFilter = "all" // KIE-508/527: "all" | "negative" (👎) | "positive" (👍)
+    feedbackFilter = "all", // KIE-508/527: "all" | "negative" (👎) | "positive" (👍)
+    // KIE-536: { fromDay, toDay } – nur Konversationen, deren erste
+    // vorhandene Nachricht in diesem Abschnitt liegt (Klick auf eine Säule).
+    startedBetween = null
   ) => {
     return await fetch(`${API_BASE}/embed/${embedId}/analytics/conversations`, {
       method: "POST",
@@ -132,6 +152,12 @@ const Embed = {
         startDate,
         endDate,
         feedbackFilter,
+        ...(startedBetween
+          ? {
+              startedFromDay: startedBetween.fromDay,
+              startedToDay: startedBetween.toDay,
+            }
+          : {}),
       }),
     })
       .then((res) => res.json())

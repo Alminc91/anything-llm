@@ -1,37 +1,34 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { CaretDown, Check } from "@phosphor-icons/react";
 import Embed from "@/models/embed";
 import ConversationList from "./ConversationList";
 import StatisticsGrid from "./StatisticsGrid";
+import TimelineChart from "./TimelineChart";
 import DateRangePicker from "@/components/DateRangePicker";
 import showToast from "@/utils/toast";
+import paths from "@/utils/paths";
+import {
+  DEFAULT_RANGE_DAYS,
+  allTimeRange,
+  lastDaysRange,
+  rangeFromDates,
+  showsDeletedHint,
+  toDayString,
+  viewState,
+} from "@/utils/analyticsTimeline";
 
-/**
- * Returns "this week" default: Monday of current week to today.
- * German convention: week starts on Monday.
- */
-function getThisWeekRange() {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dayOfWeek = today.getDay(); // 0=Sun, 1=Mon...
-  const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - diff);
-  const endOfToday = new Date(today);
-  endOfToday.setHours(23, 59, 59, 999);
-  return { startDate: monday, endDate: endOfToday };
-}
+// Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
+// Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
+// Säulendiagramm, Konversationsliste.
+//
+// Kennzahlen und Diagramm kommen aus einem Aufruf von analytics/summary
+// (Zählerbuch) und stimmen deshalb überein; sie bleiben vollständig, wenn
+// Konversationsinhalte gelöscht sind. Die Liste liest weiterhin embed_chats
+// und arbeitet mit den Zeitstempeln des Browsers.
 
-/**
- * Format a Date as DD.MM.YYYY (German convention).
- */
-function formatDate(date) {
-  const d = date.getDate().toString().padStart(2, "0");
-  const m = (date.getMonth() + 1).toString().padStart(2, "0");
-  const y = date.getFullYear();
-  return `${d}.${m}.${y}`;
-}
+const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 
 /**
  * Convert Date|null to ISO string|null for stable useEffect deps.
@@ -41,12 +38,228 @@ function toISO(date) {
 }
 
 export default function EmbedAnalyticsView() {
-  const { t } = useTranslation();
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedEmbed, setSelectedEmbed] = useState(null);
   const [embeds, setEmbeds] = useState([]);
-  const [retentionDays, setRetentionDays] = useState(null);
+  const [embedsLoaded, setEmbedsLoaded] = useState(false);
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadEmbeds() {
+      const embedsData = (await Embed.embeds()) || [];
+      if (ignore) return;
+      setEmbeds(embedsData);
+      // Auch ohne Widget ist das Laden beendet – sonst bliebe „Laden…" stehen.
+      setEmbedsLoaded(true);
+    }
+    loadEmbeds();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  return <AnalyticsScreen embedsLoaded={embedsLoaded} embeds={embeds} />;
+}
+
+/**
+ * Die Ansicht zu einem Stand der Widget-Liste: „Laden…", der Leerzustand ohne
+ * Widget oder die Auswertung.
+ * @param {{embedsLoaded: boolean, embeds: Array<object>}} props
+ */
+export function AnalyticsScreen({ embedsLoaded, embeds }) {
+  const { t } = useTranslation();
+  const state = viewState({ embedsLoaded, embeds });
+  if (state === "loading")
+    return <div className="p-6 text-white">{t("common.loading")}</div>;
+  if (state === "no-widget") return <NoWidget />;
+  return <WidgetAnalytics embeds={embeds} />;
+}
+
+function WidgetAnalytics({ embeds }) {
+  const { t } = useTranslation();
+  const [selectedEmbed, setSelectedEmbed] = useState(embeds[0].id);
+  // Zählwerte des Zeitraums: { embedId, data, loading, failed }
+  const [summary, setSummary] = useState({
+    embedId: null,
+    data: null,
+    loading: true,
+    failed: false,
+  });
+  // KIE-508/527: Feedback-Filter der Liste – hier geführt, weil auch die
+  // Kennzahl „negativ bewertet" ihn setzt.
+  const [feedbackFilter, setFeedbackFilter] = useState("all");
+  // Abschnitt aus dem Diagramm, auf den die Liste gefiltert ist
+  const [bucketFilter, setBucketFilter] = useState({ scope: "", bucket: null });
+  const listRef = useRef(null);
+
+  // Date range as Date objects (null = "all time"). Standard: letzte 30 Tage.
+  const [startDate, setStartDate] = useState(
+    () => lastDaysRange(DEFAULT_RANGE_DAYS).startDate
+  );
+  const [endDate, setEndDate] = useState(
+    () => lastDaysRange(DEFAULT_RANGE_DAYS).endDate
+  );
+
+  // ISO strings for stable useEffect dependencies
+  const startDateISO = toISO(startDate);
+  const endDateISO = toISO(endDate);
+  // Die Kalendertage, die der Nutzer gewählt hat (null = „Gesamt")
+  const range = rangeFromDates(startDate, endDate);
+  const fromDay = range?.fromDay ?? null;
+  const toDay = range?.toDay ?? null;
+
+  useEffect(() => {
+    if (!selectedEmbed) return;
+    let ignore = false;
+
+    async function loadSummary() {
+      setSummary((current) => ({
+        embedId: selectedEmbed,
+        // Beim Wechsel des Zeitraums bleibt die bisherige Darstellung stehen,
+        // beim Wechsel des Widgets nicht.
+        data: current.embedId === selectedEmbed ? current.data : null,
+        loading: true,
+        failed: false,
+      }));
+
+      let days = fromDay && toDay ? { fromDay, toDay } : null;
+      if (!days) {
+        // „Gesamt": Der Endpunkt nimmt nur Kalendertage an. Der erste Tag mit
+        // Zählwerten steht in jeder Antwort – also erst nach heute fragen.
+        const today = toDayString(new Date());
+        const probe = await Embed.getAnalyticsSummary(
+          selectedEmbed,
+          today,
+          today
+        );
+        if (ignore) return;
+        days = probe?.success
+          ? allTimeRange(probe.firstLedgerDay, today)
+          : null;
+      }
+
+      const data = days
+        ? await Embed.getAnalyticsSummary(
+            selectedEmbed,
+            days.fromDay,
+            days.toDay
+          )
+        : null;
+      if (ignore) return;
+
+      if (data?.success) {
+        setSummary({
+          embedId: selectedEmbed,
+          data,
+          loading: false,
+          failed: false,
+        });
+      } else {
+        setSummary({
+          embedId: selectedEmbed,
+          data: null,
+          loading: false,
+          failed: true,
+        });
+        showToast(t("embed-analytics.load-error"), "error");
+      }
+    }
+
+    loadSummary();
+    return () => {
+      ignore = true;
+    };
+  }, [selectedEmbed, fromDay, toDay, t]);
+
+  const handleDateChange = useCallback(
+    ({ startDate: newStart, endDate: newEnd }) => {
+      setStartDate(newStart);
+      setEndDate(newEnd);
+    },
+    []
+  );
+
+  const currentEmbed = embeds.find((e) => e.id === selectedEmbed);
+  const retentionDays = currentEmbed?.chat_retention_days || null;
+  const summaryData = summary.embedId === selectedEmbed ? summary.data : null;
+
+  // Der Abschnitts-Filter gilt für genau ein Widget und einen Zeitraum.
+  const scope = [selectedEmbed, startDateISO, endDateISO].join("|");
+  const bucket = bucketFilter.scope === scope ? bucketFilter.bucket : null;
+  const selectBucket = (next) => setBucketFilter({ scope, bucket: next });
+
+  const showNegative = () => {
+    setFeedbackFilter("negative");
+    listRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  };
+
+  return (
+    <div className="flex w-full min-w-0 flex-col p-2 md:p-6">
+      <Header
+        embeds={embeds}
+        selectedEmbed={selectedEmbed}
+        onSelectEmbed={setSelectedEmbed}
+        startDate={startDate}
+        endDate={endDate}
+        onDateChange={handleDateChange}
+      />
+
+      {/* Aufbewahrung: eine Zeile statt des bisherigen Kastens */}
+      {retentionDays > 0 && (
+        <p data-retention-line="" className={`-mt-2 mb-4 text-sm ${MUTED}`}>
+          {t("embed-analytics.retention-line", { count: retentionDays })}
+        </p>
+      )}
+
+      <div className="mb-4">
+        <StatisticsGrid
+          summary={summaryData}
+          loading={summary.loading}
+          onShowNegative={showNegative}
+          embedId={selectedEmbed}
+          startDate={startDateISO}
+          endDate={endDateISO}
+        />
+      </div>
+
+      <div className="mb-6">
+        <TimelineChart
+          summary={summaryData}
+          loading={summary.loading}
+          failed={summary.failed}
+          selectedBucket={bucket}
+          onSelectBucket={selectBucket}
+        />
+      </div>
+
+      <div ref={listRef} className="scroll-mt-4">
+        <ConversationList
+          embedId={selectedEmbed}
+          startDate={startDateISO}
+          endDate={endDateISO}
+          feedbackFilter={feedbackFilter}
+          onFeedbackFilterChange={setFeedbackFilter}
+          bucket={bucket}
+          onClearBucket={() => selectBucket(null)}
+          showDeletedHint={showsDeletedHint({
+            retentionDays,
+            startDay: bucket?.start ?? summaryData?.fromDay ?? fromDay,
+            today: toDayString(new Date()),
+          })}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Kopfzeile: Titel, Widget-Auswahl (nur bei mehreren Widgets) und Zeitraum. */
+function Header({
+  embeds,
+  selectedEmbed,
+  onSelectEmbed,
+  startDate,
+  endDate,
+  onDateChange,
+}) {
+  const { t } = useTranslation();
   const [embedDropdownOpen, setEmbedDropdownOpen] = useState(false);
   const embedDropdownRef = useRef(null);
 
@@ -54,7 +267,10 @@ export default function EmbedAnalyticsView() {
   useEffect(() => {
     if (!embedDropdownOpen) return;
     function handleMouseDown(e) {
-      if (embedDropdownRef.current && !embedDropdownRef.current.contains(e.target)) {
+      if (
+        embedDropdownRef.current &&
+        !embedDropdownRef.current.contains(e.target)
+      ) {
         setEmbedDropdownOpen(false);
       }
     }
@@ -62,80 +278,34 @@ export default function EmbedAnalyticsView() {
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, [embedDropdownOpen]);
 
-  // Date range as Date objects (null = "all time")
-  const [startDate, setStartDate] = useState(
-    () => getThisWeekRange().startDate
-  );
-  const [endDate, setEndDate] = useState(() => getThisWeekRange().endDate);
-
-  // ISO strings for stable useEffect dependencies
-  const startDateISO = toISO(startDate);
-  const endDateISO = toISO(endDate);
-
-  useEffect(() => {
-    async function loadEmbeds() {
-      const embedsData = await Embed.embeds();
-      setEmbeds(embedsData || []);
-      if (embedsData?.length > 0) {
-        setSelectedEmbed(embedsData[0].id);
-        setRetentionDays(embedsData[0].chat_retention_days || null);
-      }
-    }
-    loadEmbeds();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedEmbed) return;
-
-    // Update retention days for selected embed
-    const currentEmbed = embeds.find((e) => e.id === selectedEmbed);
-    setRetentionDays(currentEmbed?.chat_retention_days || null);
-
-    async function loadStats() {
-      setLoading(true);
-      const { success, stats: data } = await Embed.getAnalyticsOverview(
-        selectedEmbed,
-        startDateISO,
-        endDateISO
-      );
-
-      if (success) {
-        setStats(data);
-      } else {
-        showToast(t("embed-analytics.load-error"), "error");
-      }
-      setLoading(false);
-    }
-    loadStats();
-  }, [selectedEmbed, startDateISO, endDateISO, embeds, t]);
-
-  const handleDateChange = useCallback(({ startDate: newStart, endDate: newEnd }) => {
-    setStartDate(newStart);
-    setEndDate(newEnd);
-  }, []);
-
-  if (loading || !stats) {
-    return <div className="p-6 text-white">{t("common.loading")}</div>;
-  }
+  const embedLabel = (embed) =>
+    t("embed-analytics.embed-label", {
+      id: embed.id,
+      workspace: embed.workspace?.name,
+    });
+  const current = embeds.find((e) => e.id === selectedEmbed);
 
   return (
-    <div className="flex-1 flex-col p-6">
-      {/* Header */}
-      <div className="flex flex-wrap gap-3 justify-between items-center mb-6">
-        <h2 className="text-white text-2xl font-bold">
-          {t("embed-analytics.title")}
-        </h2>
+    <div className="flex flex-wrap gap-3 justify-between items-center mb-6">
+      <h2 className="text-white text-2xl font-bold">
+        {t("embed-analytics.title")}
+      </h2>
 
-        <div className="flex flex-wrap gap-3 items-center">
-          {/* Embed Selector */}
+      <div className="flex flex-wrap gap-3 items-center">
+        {/* Widget-Auswahl – bei genau einem Widget gibt es nichts zu wählen. */}
+        {embeds.length > 1 && (
           <div className="relative" ref={embedDropdownRef}>
             <button
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={embedDropdownOpen}
+              aria-label={t("embed-analytics.widget-label")}
               onClick={() => setEmbedDropdownOpen(!embedDropdownOpen)}
               className="flex items-center gap-2 bg-theme-settings-input-bg text-theme-text-primary rounded-lg px-4 py-2 text-sm border border-white/10 cursor-pointer"
             >
               <span>
-                {embeds.find((e) => e.id === selectedEmbed)
-                  ? t("embed-analytics.embed-label", { id: selectedEmbed, workspace: embeds.find((e) => e.id === selectedEmbed)?.workspace?.name })
+                {current
+                  ? embedLabel(current)
                   : t("embed-analytics.select-embed")}
               </span>
               <CaretDown
@@ -145,77 +315,75 @@ export default function EmbedAnalyticsView() {
             </button>
 
             {embedDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1 w-full bg-theme-bg-secondary border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden">
+              <div
+                role="listbox"
+                aria-label={t("embed-analytics.widget-label")}
+                className="absolute left-0 top-full mt-1 w-full bg-theme-bg-secondary border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden"
+              >
                 {embeds.map((embed) => (
                   <button
                     key={embed.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedEmbed === embed.id}
                     onClick={() => {
-                      setSelectedEmbed(embed.id);
+                      onSelectEmbed(embed.id);
                       setEmbedDropdownOpen(false);
                     }}
                     className={`flex items-center justify-between w-full px-3 py-2 text-sm text-left transition-all cursor-pointer
                       ${selectedEmbed === embed.id ? "bg-white/10 text-theme-text-primary font-medium" : "text-theme-text-secondary hover:bg-white/5 hover:text-theme-text-primary"}`}
                   >
-                    <span>{t("embed-analytics.embed-label", { id: embed.id, workspace: embed.workspace?.name })}</span>
+                    <span>{embedLabel(embed)}</span>
                     {selectedEmbed === embed.id && (
-                      <Check size={14} className="text-theme-text-primary" weight="bold" />
+                      <Check
+                        size={14}
+                        className="text-theme-text-primary"
+                        weight="bold"
+                      />
                     )}
                   </button>
                 ))}
               </div>
             )}
           </div>
+        )}
 
-          {/* Date Range Picker */}
-          <DateRangePicker
-            startDate={startDate}
-            endDate={endDate}
-            onChange={handleDateChange}
-          />
-        </div>
+        {/* Date Range Picker */}
+        <DateRangePicker
+          startDate={startDate}
+          endDate={endDate}
+          onChange={onDateChange}
+        />
       </div>
+    </div>
+  );
+}
 
-      {/* DSGVO Retention Notice */}
-      {retentionDays && retentionDays > 0 && (() => {
-        const expiry = new Date();
-        expiry.setDate(expiry.getDate() + retentionDays);
-        return (
-          <div className="mb-6 p-4 bg-blue-500/10 border-l-4 border-blue-400 rounded-lg light:bg-blue-50 light:border-blue-600">
-            <div className="flex items-center gap-2">
-              <svg
-                className="w-5 h-5 text-blue-400 light:text-blue-600 flex-shrink-0"
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <span className="text-blue-300 text-sm light:text-blue-700">
-                {t("embed-analytics.retention-notice", {
-                  days: retentionDays,
-                  expiryDate: formatDate(expiry),
-                })}
-              </span>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Statistics Grid */}
-      <StatisticsGrid stats={stats} />
-
-      {/* Divider */}
-      <div className="h-px bg-white/20 my-4" />
-
-      {/* Conversations List */}
-      <ConversationList
-        embedId={selectedEmbed}
-        startDate={startDateISO}
-        endDate={endDateISO}
-      />
+/** Leerzustand: Der Nutzer kann kein einziges Widget sehen. */
+function NoWidget() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex w-full min-w-0 flex-col p-2 md:p-6">
+      <h2 className="text-white text-2xl font-bold mb-6">
+        {t("embed-analytics.title")}
+      </h2>
+      <div
+        data-empty-state="no-widget"
+        className="flex flex-col items-center rounded-xl border border-dashed border-white/10 px-4 py-12 text-center"
+      >
+        <p className="text-base font-semibold text-theme-text-primary">
+          {t("embed-analytics.no-widget.title")}
+        </p>
+        <p className={`mt-2 max-w-md text-sm ${MUTED}`}>
+          {t("embed-analytics.no-widget.description")}
+        </p>
+        <Link
+          to={paths.settings.chatbot.widgets()}
+          className="mt-4 text-sm text-theme-text-primary underline underline-offset-2"
+        >
+          {t("embed-analytics.no-widget.link")}
+        </Link>
+      </div>
     </div>
   );
 }

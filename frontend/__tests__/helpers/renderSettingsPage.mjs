@@ -7,6 +7,9 @@
 // Grenzen: Beim serverseitigen Rendern laufen keine Effekte. Der Chat-Verlauf-
 // Schalter (CanViewChatHistory lädt ihn im Effekt) wird deshalb durch einen
 // festen Wert ersetzt; Seiten zeigen ihren Zustand vor dem ersten Laden.
+// Komponenten lassen sich mit Eigenschaften rendern (props, exportName), um
+// einen bestimmten Stand zu zeigen. DOMPurify (utils/chat/purify.js) ist
+// ersetzt, weil es ein Dokument braucht.
 import { existsSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -21,6 +24,7 @@ const CAN_VIEW_CHAT_HISTORY = path.join(
   "src/components/CanViewChatHistory/index.jsx"
 );
 const VIEWABLE_FLAG = "__TEST_CAN_VIEW_CHAT_HISTORY__";
+const PURIFY = path.join(FRONTEND_ROOT, "src/utils/chat/purify.js");
 const SELECTED_CLASS = "bg-theme-sidebar-subitem-selected";
 
 // Der Job „Run backend tests" installiert die Frontend-Pakete nicht.
@@ -66,6 +70,18 @@ export async function createRenderer() {
         name: "test-can-view-chat-history",
         enforce: "pre",
         load(id) {
+          // DOMPurify braucht ein Dokument und richtet sich beim Laden des
+          // Moduls ein. Ohne Browser gibt es nichts zu bereinigen: Wer es im
+          // Test dennoch aufruft, bekommt einen Fehler statt ungeprüftes HTML.
+          if (id === PURIFY)
+            return `
+              export default {
+                setConfig() {},
+                sanitize() {
+                  throw new Error("DOMPurify steht im Test-Renderer nicht zur Verfügung.");
+                },
+              };
+            `;
           if (id !== CAN_VIEW_CHAT_HISTORY) return null;
           return `
             const state = () => ({
@@ -109,6 +125,8 @@ export async function createRenderer() {
    * @param {string} [options.role] - Rolle des angemeldeten Nutzers.
    * @param {boolean} [options.canViewChatHistory] - Chat-Verlauf einsehbar?
    * @param {Object<string,string>} [options.stored] - Inhalt des Browser-Speichers.
+   * @param {string} [options.exportName] - Benannter Export statt des Default-Exports.
+   * @param {object} [options.props] - Eigenschaften der Komponente.
    * @returns {Promise<string>} HTML der Seite.
    */
   async function render(
@@ -119,9 +137,12 @@ export async function createRenderer() {
       role = "admin",
       canViewChatHistory = true,
       stored = {},
+      exportName = "default",
+      props = {},
     }
   ) {
-    const { default: Page } = await server.ssrLoadModule(modulePath);
+    const { [exportName]: Page } = await server.ssrLoadModule(modulePath);
+    if (!Page) throw new Error(`${modulePath}: kein Export „${exportName}“`);
     storage.clear();
     for (const [key, value] of Object.entries(stored)) storage.set(key, value);
     globalThis[VIEWABLE_FLAG] = canViewChatHistory;
@@ -136,7 +157,7 @@ export async function createRenderer() {
         h(
           MemoryRouter,
           { initialEntries: [location] },
-          h(Routes, null, h(Route, { path: route, element: h(Page) }))
+          h(Routes, null, h(Route, { path: route, element: h(Page, props) }))
         )
       )
     );
