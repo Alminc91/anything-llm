@@ -4,6 +4,7 @@ import { CalendarBlank, CaretDown, Check } from "@phosphor-icons/react";
 import { DayPicker } from "react-day-picker";
 import { de } from "react-day-picker/locale";
 import "react-day-picker/style.css";
+import { lastDaysRange, lastMonthsRange } from "@/utils/analyticsTimeline";
 
 /**
  * Computes fixed calendar-boundary preset dates (NOT rolling windows).
@@ -51,6 +52,11 @@ function getPresetRange(presetKey) {
       lastSunday.setDate(thisMonday.getDate() - 1);
       return { from: lastMonday, to: endOfDay(lastSunday) };
     }
+    case "last-30-days": {
+      // KIE-536: heute und die 29 Tage davor (rollierend)
+      const { startDate, endDate } = lastDaysRange(30, now);
+      return { from: startDate, to: endDate };
+    }
     case "this-month":
       return {
         from: new Date(today.getFullYear(), today.getMonth(), 1),
@@ -69,11 +75,37 @@ function getPresetRange(presetKey) {
       );
       return { from: firstOfLastMonth, to: endOfDay(lastOfLastMonth) };
     }
+    case "last-12-months": {
+      // KIE-536: der Tag nach dem heutigen Datum vor 12 Monaten bis heute
+      const { startDate, endDate } = lastMonthsRange(12, now);
+      return { from: startDate, to: endDate };
+    }
     case "all":
       return { from: null, to: null };
     default:
       return { from: null, to: null };
   }
+}
+
+/**
+ * Welche Vorauswahl entspricht dem Zeitraum? Verglichen wird nur der Tag.
+ * @param {Date|null} startDate
+ * @param {Date|null} endDate
+ * @returns {string|null} - Schlüssel der Vorauswahl oder null (eigener Zeitraum)
+ */
+function matchPreset(startDate, endDate) {
+  const sameDay = (a, b) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const matched = PRESET_KEYS.find((key) => {
+    const { from, to } = getPresetRange(key);
+    if (key === "all") return startDate === null && endDate === null;
+    if (!from || !to || !startDate || !endDate) return false;
+    return sameDay(from, startDate) && sameDay(to, endDate);
+  });
+  return matched || null;
 }
 
 /**
@@ -92,8 +124,10 @@ const PRESET_KEYS = [
   "yesterday",
   "this-week",
   "last-week",
+  "last-30-days",
   "this-month",
   "last-month",
+  "last-12-months",
   "all",
 ];
 
@@ -113,24 +147,15 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
     from: startDate,
     to: endDate,
   });
-  const [activePreset, setActivePreset] = useState("this-week");
+  const [activePreset, setActivePreset] = useState(() =>
+    matchPreset(startDate, endDate)
+  );
   const popoverRef = useRef(null);
   const triggerRef = useRef(null);
 
   // Detect which preset matches current dates (compare date part only)
   useEffect(() => {
-    const sameDay = (a, b) =>
-      a.getFullYear() === b.getFullYear() &&
-      a.getMonth() === b.getMonth() &&
-      a.getDate() === b.getDate();
-
-    const matched = PRESET_KEYS.find((key) => {
-      const { from, to } = getPresetRange(key);
-      if (key === "all") return startDate === null && endDate === null;
-      if (!from || !to || !startDate || !endDate) return false;
-      return sameDay(from, startDate) && sameDay(to, endDate);
-    });
-    setActivePreset(matched || null);
+    setActivePreset(matchPreset(startDate, endDate));
   }, [startDate, endDate]);
 
   // Sync calendarRange when popover opens
