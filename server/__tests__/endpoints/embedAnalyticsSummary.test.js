@@ -828,6 +828,92 @@ describe("beginn_der_zaehlung (AK-14)", () => {
 });
 
 // ============================================================================
+// Lesefunktionen des Zählerbuchs
+// ============================================================================
+describe("Lesefunktionen (MessageLedger.timelineForEmbed, firstDayForEmbed)", () => {
+  const { tableChecksum } = require("../helpers/sqliteTestDatabase");
+
+  test("lesen nur: Das Zählerbuch ist nach den Abfragen Byte für Byte dasselbe", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    await chatAt(embed, berlinInstant("2026-10-06", 10));
+    await countsOnly(embed, [
+      { day: "2026-09-01", messages: 5, conversationsStarted: 2 },
+    ]);
+    const before = await tableChecksum(db.client, "message_ledger");
+    expect(before.rows).toBe(2);
+
+    for (const body of [
+      { fromDay: "2026-10-06", toDay: "2026-10-06" },
+      { fromDay: "2026-09-01", toDay: "2026-10-12" },
+      { fromDay: "2025-10-13", toDay: "2026-10-12" },
+      { fromDay: "2016-10-13", toDay: "2026-10-12" },
+    ])
+      expect((await summary(embed, body)).statusCode).toBe(200);
+
+    expect(await tableChecksum(db.client, "message_ledger")).toEqual(before);
+  });
+
+  test("embed_id 0 (Workspace-Chats) und Unsinn als Kennung werfen, statt fremde Zähler zu liefern", async () => {
+    const workspace = await createWorkspace(db.client);
+    await MessageLedger.transaction({ source: "test" }, (tx) =>
+      MessageLedger.addCells(tx, [
+        {
+          workspaceId: workspace.id,
+          embedId: 0,
+          day: "2026-10-06",
+          hour: 9,
+          messages: 777,
+        },
+      ])
+    );
+    for (const embedId of [0, -1, 1.5, "abc", null, undefined, NaN]) {
+      await expect(
+        MessageLedger.timelineForEmbed(embedId, "2026-10-01", "2026-10-12")
+      ).rejects.toThrow(/invalid embedId/);
+      await expect(MessageLedger.firstDayForEmbed(embedId)).rejects.toThrow(
+        /invalid embedId/
+      );
+    }
+  });
+
+  test("ein ungültiger Zeitraum wirft vor der Abfrage", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+    for (const [fromDay, toDay] of [
+      ["2026-10-07", "2026-10-06"],
+      ["2026-02-30", "2026-03-05"],
+      ["2016-10-12", "2026-10-12"],
+      [undefined, undefined],
+    ])
+      await expect(
+        MessageLedger.timelineForEmbed(embed.id, fromDay, toDay)
+      ).rejects.toThrow(/timelineLayout/);
+    expect(groupBy).not.toHaveBeenCalled();
+  });
+
+  test("ein Datenbankfehler wird weitergereicht; der Endpunkt antwortet mit 500 ohne Zahlen", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    await countsOnly(embed, [{ day: "2026-10-06", messages: 3 }]);
+    jest
+      .spyOn(db.client.message_ledger, "groupBy")
+      .mockRejectedValue(new Error("database is locked"));
+
+    await expect(
+      MessageLedger.timelineForEmbed(embed.id, "2026-10-01", "2026-10-12")
+    ).rejects.toThrow("database is locked");
+    const result = await summary(embed, {
+      fromDay: "2026-10-01",
+      toDay: "2026-10-12",
+    });
+    expect(result.statusCode).toBe(500);
+    expect(result.body).toBeUndefined();
+  });
+});
+
+// ============================================================================
 // NAK-1 — Keine fremden Zahlen
 // ============================================================================
 describe("fremdes_widget (NAK-1)", () => {
