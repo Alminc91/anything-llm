@@ -1,6 +1,7 @@
 const { EmbedChats } = require("../models/embedChats");
 const { EmbedConfig } = require("../models/embedConfig");
 const { EventLogs } = require("../models/eventLogs");
+const { MessageLedger } = require("../models/messageLedger");
 const { WorkspaceUser } = require("../models/workspaceUsers");
 const { reqBody, userFromSession } = require("../utils/http");
 const { validEmbedConfigId } = require("../utils/middleware/embedMiddleware");
@@ -18,6 +19,11 @@ const {
   embedDefaultsLanguage,
   embedDefaultTexts,
 } = require("../utils/chats/embedDefaults");
+const { berlinMidnight } = require("../utils/helpers/billingWindow");
+const {
+  validateDayRange,
+  nextDay,
+} = require("../utils/helpers/ledgerTimeline");
 
 /**
  * KIE-533: Darf der Nutzer auf diesen Workspace zugreifen?
@@ -365,9 +371,62 @@ function embedManagementEndpoints(app) {
     }
   );
 
+  // Analytics: Kennzahlen und Zeitreihe eines Widgets aus dem Zählerbuch
+  // KIE-536: Der Zeitraum kommt als Kalendertage (fromDay, toDay im Format
+  // YYYY-MM-DD, beide einschließlich); das Zählerbuch führt Berliner
+  // Kalendertage, die Zeitzone des Prozesses und des Browsers spielt keine
+  // Rolle. Dieselben Prüfungen wie overview und die Konversationsliste:
+  // chatHistoryViewable, Default-User nur für Widgets ihrer Workspaces.
+  // Die Antwort enthält nur Zählwerte und Kalendertage - keine Inhalte, keine
+  // Sitzungs- oder Verbindungsdaten. Ein ungültiger Zeitraum endet mit 400,
+  // bevor das Zählerbuch gelesen wird.
+  app.post(
+    "/embed/:embedId/analytics/summary",
+    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess, validEmbedConfigId],
+    async (request, response) => {
+      try {
+        // Nur eine ganze, positive Kennung meint ein Widget; embed_id 0 sind
+        // im Zählerbuch die Workspace-Chats.
+        const embedId = Number(request.params.embedId);
+        if (!Number.isInteger(embedId) || embedId <= 0) {
+          response.sendStatus(404).end();
+          return;
+        }
+
+        const { fromDay, toDay } = reqBody(request) ?? {};
+        const range = validateDayRange(fromDay, toDay);
+        if (!range.valid) {
+          response.status(400).json({ success: false, error: range.error });
+          return;
+        }
+
+        const [timeline, firstLedgerDay] = await Promise.all([
+          MessageLedger.timelineForEmbed(embedId, fromDay, toDay),
+          MessageLedger.firstDayForEmbed(embedId),
+        ]);
+
+        response.status(200).json({
+          success: true,
+          fromDay,
+          toDay,
+          granularity: timeline.granularity,
+          totals: timeline.totals,
+          buckets: timeline.buckets,
+          firstLedgerDay,
+        });
+      } catch (e) {
+        console.error(e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
   // Analytics: Get conversations list for an embed
   // KIE-527: chatHistoryViewable wie bei den übrigen Chat-Historien-Endpoints;
   // Default-User sehen nur Embeds ihrer Workspaces (BOLA/IDOR-Härtung).
+  // KIE-536: optional startedFromDay/startedToDay (Kalendertage, beide
+  // einschließlich, Berliner Zeit) - nur Konversationen, deren erste
+  // vorhandene Nachricht in diesem Abschnitt liegt (Klick auf eine Säule).
   app.post(
     "/embed/:embedId/analytics/conversations",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
@@ -382,6 +441,8 @@ function embedManagementEndpoints(app) {
           endDate,
           onlyNegative = false, // KIE-508 (Legacy-Boolean, bleibt gültig)
           feedbackFilter, // KIE-527: "all" | "negative" | "positive"
+          startedFromDay, // KIE-536
+          startedToDay, // KIE-536
         } = reqBody(request);
 
         if (user?.role === ROLES.default) {
@@ -403,11 +464,27 @@ function embedManagementEndpoints(app) {
         const start = startDate ? new Date(startDate) : null;
         const end = endDate ? new Date(endDate) : null;
 
+        // KIE-536: Der Abschnitt kommt als Kalendertage und wird hier zu den
+        // Berliner Grenzen [00:00 des ersten Tages, 00:00 nach dem letzten).
+        // Fehlt er (undefined/null), bleibt alles wie bisher.
+        let startedBetween = null;
+        if (startedFromDay != null || startedToDay != null) {
+          const range = validateDayRange(startedFromDay, startedToDay);
+          if (!range.valid) {
+            response.status(400).json({ success: false, error: range.error });
+            return;
+          }
+          startedBetween = {
+            start: berlinMidnight(startedFromDay),
+            endExclusive: berlinMidnight(nextDay(startedToDay)),
+          };
+        }
+
         // Liste und Zähler benutzen dieselbe Gruppierung + denselben Filter
-        // (EmbedChats._conversationGroupsSql / feedbackFilterCondition).
+        // (EmbedChats._conversationGroupsSql / conversationFilterCondition).
         const [conversations, total] = await Promise.all([
-          EmbedChats.getConversations(embedId, offset, limit, start, end, filter),
-          EmbedChats.countConversations(embedId, start, end, filter),
+          EmbedChats.getConversations(embedId, offset, limit, start, end, filter, startedBetween),
+          EmbedChats.countConversations(embedId, start, end, filter, startedBetween),
         ]);
         const hasMore = offset + limit < total;
 
