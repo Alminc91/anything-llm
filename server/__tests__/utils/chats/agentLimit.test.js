@@ -11,6 +11,9 @@
 // AIbitat-Laufzeit und ihre Plugins websocket + chat-history.
 // Attrappen sind: die Datenbank (Prisma im Speicher), der Websocket, das LLM und
 // der AgentHandler (verdrahtet die echte Laufzeit ohne Skills, MCP, Provider).
+// Das Zählerbuch (KIE-532) gilt hier als nicht nachgetragen: Es zählt die
+// Live-Zählung. Limitprüfung über das Zählerbuch samt throwOnError:
+// models/messageLedgerQuota.test.js gegen eine echte Datenbank.
 const { EventEmitter } = require("events");
 
 jest.mock("../../../utils/prisma", () => {
@@ -68,6 +71,18 @@ jest.mock("../../../utils/prisma", () => {
     },
   };
 });
+// KIE-532: WorkspaceChats.new legt die Chat-Zeile in der Transaktion des
+// Zählerbuchs an. Die Prisma-Attrappe kennt keine Transaktionen und kein
+// Zählerbuch; die Zeile entsteht hier direkt, gezählt wird live.
+jest.mock("../../../models/messageLedger", () => ({
+  MessageLedger: {
+    isBackfillComplete: jest.fn(async () => false),
+    transaction: jest.fn(async (_context, work) =>
+      work(require("../../../utils/prisma"))
+    ),
+    record: jest.fn(async () => {}),
+  },
+}));
 jest.mock("../../../models/telemetry", () => ({
   Telemetry: { sendTelemetry: jest.fn() },
 }));

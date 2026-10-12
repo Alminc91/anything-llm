@@ -1,0 +1,195 @@
+/* eslint-env jest, node */
+// KIE-532 — Chat-Zeile und Zähler entstehen in einer interaktiven Transaktion.
+// Unter parallelen Anfragen darf das weder Nachrichten kosten noch andere
+// Schreibzugriffe scheitern lassen.
+//
+// Hintergrund: Die Query-Engine führt SQLite-Aufrufe blockierend auf ihren
+// Arbeits-Threads aus. Warten so viele Schreiber auf die Sperre einer offenen
+// Transaktion, wie es Threads gibt, kommt die Transaktion selbst nicht mehr an
+// die Reihe - Stillstand bis zum Busy-Timeout (5 s), danach schlagen
+// Schreibzugriffe fehl. Dagegen stehen zwei Vorkehrungen, die dieser Test
+// absichert: utils/prisma/engineThreads.js (mehr Threads als Verbindungen) und
+// die Reihe in MessageLedger.transaction (eine Transaktion zur Zeit).
+//
+// Die parallelen Anfragen laufen in einem gewöhnlichen Node-Prozess
+// (helpers/concurrentRequests.js) gegen eine echte SQLite-Datei: Jest gibt
+// Tests nur eine Kopie von process.env, die die Engine nicht erreicht.
+jest.mock(
+  "../../utils/prisma",
+  () => require("../helpers/sqliteTestDatabase").testPrisma
+);
+
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { execFileSync } = require("child_process");
+const {
+  createTestDatabase,
+  removeTestDatabases,
+  createWorkspace,
+  createEmbed,
+  eventsOf,
+} = require("../helpers/sqliteTestDatabase");
+const {
+  ensureEngineThreads,
+  releaseEngineThreads,
+  minimumEngineThreads,
+} = require("../../utils/prisma/engineThreads");
+
+// Der erste Test jeder Datei erzeugt die Vorlage mit `prisma migrate deploy`.
+jest.setTimeout(60000);
+
+// Stillstand heißt: Über ein Busy-Timeout (5 s) hinweg wird keine Speicherung
+// fertig. Die Grenze liegt bei der Hälfte. Gemessen (4 Kerne, 12.10.2026) als
+// längste Pause zwischen zwei abgeschlossenen Speicherungen: 140-270 ms im
+// Leerlauf, 270-400 ms unter künstlicher Plattenlast (dd und fsync-Schleifen,
+// I/O-Druck "some" um 50 %), 4960-5010 ms ohne ensureEngineThreads.
+const LONGEST_PAUSE_MS = 2500;
+
+let db;
+beforeEach(async () => {
+  db = await createTestDatabase();
+});
+afterEach(async () => db.close());
+afterAll(() => removeTestDatabases());
+
+describe("parallele Anfragen", () => {
+  test("jede Nachricht wird gespeichert und genau einmal gezählt, kein anderer Schreibzugriff scheitert", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    const REQUESTS = 60;
+
+    // Wie im Container: Der Betrieb setzt TOKIO_WORKER_THREADS nicht.
+    const env = { ...process.env };
+    delete env.TOKIO_WORKER_THREADS;
+    const output = execFileSync(
+      process.execPath,
+      [
+        path.resolve(__dirname, "../helpers/concurrentRequests.js"),
+        db.file,
+        String(workspace.id),
+        String(embed.id),
+        String(REQUESTS),
+      ],
+      { env, encoding: "utf8", timeout: 100000 }
+    );
+    const result = JSON.parse(output.trim().split("\n").pop());
+
+    expect(result.crashed).toBeUndefined();
+    expect(result.errors).toEqual([]);
+    expect(Number(result.engineThreads)).toBeGreaterThan(
+      2 * os.cpus().length + 1
+    );
+    expect(result.failedSaves).toBe(0);
+    expect(result.failedEvents).toBe(0);
+    expect(result.ratings).toEqual(Array(10).fill(true));
+    expect(result.newChats).toEqual(Array(10).fill(null));
+    expect(result.copies).toBeNull();
+    // Ohne genügend Threads steht der Lauf ein Busy-Timeout lang still. Die
+    // Gesamtdauer (result.durationMs) zeigt das nicht: Sie hängt an der Platte -
+    // jede Speicherung wartet auf fsync - und lag unter Last des Hosts auch
+    // ohne Stillstand über 5 s. Gegen einen Hänger steht die Zeitgrenze des
+    // Kindprozesses.
+    expect(result.longestPauseMs).toBeLessThan(LONGEST_PAUSE_MS);
+    // Die Reihe: Nie steht mehr als eine Transaktion in der Engine an. Ohne sie
+    // sind es alle 60 zugleich; sie scheitern erst, wenn das Abarbeiten länger
+    // dauert als das Busy-Timeout - auf einer schnellen Platte also nie.
+    expect(result.mostOpenTransactions).toBe(1);
+
+    // 60 parallele Anfragen, danach 10 weitere Nachrichten und 10 Kopien
+    expect(await db.client.workspace_chats.count()).toBe(REQUESTS / 2 + 20);
+    expect(await db.client.embed_chats.count()).toBe(REQUESTS / 2);
+    expect(
+      await db.client.event_logs.count({ where: { event: "sent_chat" } })
+    ).toBe(REQUESTS);
+    expect(await eventsOf(db.client, "message_ledger_write_failed")).toEqual(
+      []
+    );
+
+    const sum = await db.client.message_ledger.aggregate({
+      _sum: {
+        messages: true,
+        copied: true,
+        conversations_started: true,
+        feedback_positive: true,
+        feedback_negative: true,
+      },
+    });
+    expect(sum._sum).toEqual({
+      messages: REQUESTS + 10,
+      copied: 10,
+      // 5 Konversationen, jede genau einmal begonnen - auch wenn ihre ersten
+      // Nachrichten gleichzeitig eintreffen.
+      conversations_started: 5,
+      feedback_positive: 5,
+      feedback_negative: 5,
+    });
+  }, 120000);
+});
+
+describe("ensureEngineThreads", () => {
+  const saved = process.env.TOKIO_WORKER_THREADS;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.TOKIO_WORKER_THREADS;
+    else process.env.TOKIO_WORKER_THREADS = saved;
+  });
+
+  test("setzt mehr Arbeits-Threads, als die Engine Verbindungen hält (2 × CPUs + 1)", () => {
+    delete process.env.TOKIO_WORKER_THREADS;
+    ensureEngineThreads();
+    expect(Number(process.env.TOKIO_WORKER_THREADS)).toBeGreaterThan(
+      2 * os.cpus().length + 1
+    );
+  });
+
+  test("ein vom Betrieb gesetzter Wert bleibt erhalten, wenn er das Minimum erreicht", () => {
+    const operatorValue = String(minimumEngineThreads() + 3);
+    process.env.TOKIO_WORKER_THREADS = operatorValue;
+    ensureEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBe(operatorValue);
+    releaseEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBe(operatorValue);
+  });
+
+  // AK-20, ausführlich in utils/prisma/engineThreads.test.js
+  test("ein vom Betrieb gesetzter Wert unter dem Minimum gilt nicht für die Engine", () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.TOKIO_WORKER_THREADS = "3";
+    ensureEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBe(
+      String(minimumEngineThreads())
+    );
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    // Für Module, die nach der Engine laden, gilt wieder der Wert des Betriebs.
+    releaseEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBe("3");
+    warnSpy.mockRestore();
+  });
+
+  test("releaseEngineThreads nimmt nur den selbst gesetzten Wert zurück", () => {
+    delete process.env.TOKIO_WORKER_THREADS;
+    releaseEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBeUndefined();
+
+    ensureEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toEqual(expect.any(String));
+    releaseEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBeUndefined();
+
+    // Danach vom Betrieb gesetzt: bleibt.
+    process.env.TOKIO_WORKER_THREADS = "12";
+    releaseEngineThreads();
+    expect(process.env.TOKIO_WORKER_THREADS).toBe("12");
+  });
+
+  test("utils/prisma setzt den Wert, bevor der Client entsteht", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../../utils/prisma/index.js"),
+      "utf8"
+    );
+    expect(source.indexOf("ensureEngineThreads()")).toBeGreaterThan(-1);
+    expect(source.indexOf("ensureEngineThreads()")).toBeLessThan(
+      source.indexOf('require("@prisma/client")')
+    );
+  });
+});

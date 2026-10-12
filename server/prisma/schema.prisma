@@ -158,6 +158,7 @@ model workspaces {
   prompt_history               prompt_history[]
   workspace_parsed_files       workspace_parsed_files[]
   message_adjustments          workspace_message_adjustments[]
+  message_ledger               message_ledger[]
 }
 
 // Enterprise Billing: manual quota bookings against the message contingent.
@@ -172,6 +173,34 @@ model workspace_message_adjustments {
   workspace   workspaces @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+}
+
+// Zählerbuch (KIE-532): die eine Quelle für Kontingent und Statistik.
+// Eine Zeile je Workspace, Widget, Berliner Kalendertag und Berliner Stunde.
+// Hochgezählt wird beim Anlegen der Chat-Zeile in derselben Transaktion
+// (models/messageLedger.js); kein Löschpfad fasst die Tabelle an, messages und
+// copied sinken nie. Nur Zählspalten - keine Inhalte, keine Sitzungs-,
+// Konversations- oder Verbindungsdaten.
+// embed_id: 0 = Workspace-Chat (GUI, API, Agent), sonst die Widget-ID. Bewusst
+// ohne Fremdschlüssel: Die Zähler überleben das Löschen des Widgets.
+// workspace_id: für Widget-Nachrichten der Workspace des Widgets zum Zeitpunkt
+// des Schreibens; die Zeilen verschwinden erst mit dem Workspace.
+model message_ledger {
+  id                    Int        @id @default(autoincrement())
+  workspace_id          Int
+  embed_id              Int        @default(0)
+  day                   String // Berliner Kalendertag "YYYY-MM-DD"
+  hour                  Int // Berliner Stunde 0-23
+  messages              Int        @default(0) // angelegte Chat-Zeilen, kontingentwirksam
+  copied                Int        @default(0) // Kopien aus der Thread-Verzweigung, nicht kontingentwirksam
+  conversations_started Int        @default(0)
+  feedback_positive     Int        @default(0)
+  feedback_negative     Int        @default(0)
+  workspace             workspaces @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@unique([workspace_id, embed_id, day, hour])
+  @@index([workspace_id, day])
+  @@index([embed_id, day])
 }
 
 model workspace_threads {
@@ -301,6 +330,9 @@ model embed_chats {
   // + GROUP BY) ab — ohne ihn scannt jedes Öffnen von "Frühere Chats" alle
   // Zeilen des Embeds.
   @@index([embed_id, session_id])
+  // KIE-532: Auswertungen je Widget und Zeitraum (Nachtrag und Neuaufbau des
+  // Zählerbuchs, Löschjob) ohne Scan über alle Zeilen des Widgets.
+  @@index([embed_id, createdAt])
 }
 
 model event_logs {

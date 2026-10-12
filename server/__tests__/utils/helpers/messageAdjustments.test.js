@@ -24,6 +24,12 @@ jest.mock("../../../models/embedChats", () => ({
 jest.mock("../../../models/workspaceMessageAdjustments", () => ({
   WorkspaceMessageAdjustments: { sumForWorkspaceInDateRange: jest.fn() },
 }));
+// KIE-532: Der Nachtrag des Zählerbuchs gilt hier als nicht abgeschlossen, es
+// zählt also die Live-Zählung. Das Zählerbuch hat eigene Tests gegen eine
+// echte Datenbank (models/messageLedger*.test.js).
+jest.mock("../../../models/messageLedger", () => ({
+  MessageLedger: { isBackfillComplete: jest.fn(async () => false) },
+}));
 
 const workspace = { id: 5, slug: "test-ws", messagesLimit: 600 };
 const start = new Date("2026-06-01T00:00:00");

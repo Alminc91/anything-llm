@@ -5,10 +5,15 @@ const { fileData } = require("../utils/files");
 const { log, conclude, updateSourceDocument } = require('./helpers/index.js');
 const { getVectorDbClass } = require('../utils/helpers/index.js');
 const { DocumentSyncRun } = require('../models/documentSyncRun.js');
+const { releaseEngineThreads } = require('../utils/prisma/engineThreads');
 
 (async () => {
   try {
     const queuesToProcess = await DocumentSyncQueue.staleDocumentQueues();
+    // KIE-532: Der Job läuft als eigener Prozess. Mit dieser Abfrage hat die Query-Engine geladen und
+    // behält ihre Threads; TOKIO_WORKER_THREADS wird zurückgenommen, bevor getVectorDbClass() LanceDB
+    // lädt (liest die Variable beim require). Siehe utils/prisma/engineThreads.js.
+    releaseEngineThreads();
     if (queuesToProcess.length === 0) {
       log('No outstanding documents to sync. Exiting.');
       return;

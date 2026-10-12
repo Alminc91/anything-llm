@@ -17,6 +17,7 @@ jest.mock("../../utils/prisma", () => {
     embed_configs: [],
     embed_chats: [],
     workspace_message_adjustments: [],
+    event_logs: [],
   };
   const inRange = (createdAt, range = {}) =>
     (range.gte === undefined || createdAt >= range.gte) &&
@@ -81,6 +82,24 @@ jest.mock("../../utils/prisma", () => {
         };
       },
     },
+    // KIE-532 (--deleted-report): nur Lesezugriffe. Schreibende Aufrufe gibt
+    // es in diesem Ersatz nicht; ein Buchungsversuch würde scheitern.
+    embed_configs: {
+      findMany: async () =>
+        tables.embed_configs.map(({ id, workspace_id }) => ({
+          id,
+          workspace_id,
+        })),
+    },
+    event_logs: {
+      findMany: async ({ where = {} } = {}) =>
+        tables.event_logs
+          .filter(
+            (row) => !where.event?.in || where.event.in.includes(row.event)
+          )
+          .sort((a, b) => a.occurredAt - b.occurredAt)
+          .map((row) => ({ ...row })),
+    },
   };
 });
 // Mit --db öffnet das Skript die Datei über einen eigenen PrismaClient.
@@ -101,6 +120,10 @@ const {
   buildSnapshot,
   compareSnapshots,
   formatComparison,
+  compareLedgerSnapshots,
+  formatLedgerComparison,
+  buildDeletedReport,
+  formatDeletedReport,
   main,
 } = require("../../scripts/quota-snapshot");
 const prisma = require("../../utils/prisma");
@@ -2152,5 +2175,701 @@ describe("quota-snapshot: Aufruf", () => {
 
   test("compare braucht zwei Dateien", async () => {
     expect(await main(["compare"], { stdout: silent, stderr: silent })).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// KIE-532 — Zählerbuch
+// ---------------------------------------------------------------------------
+
+describe("quota-snapshot: Vergleich Live-Zählung → Zählerbuch (KIE-532)", () => {
+  const NOW = new Date("2026-10-12T10:00:00+02:00");
+  const workspaces = [
+    { id: 1, slug: "eins", name: "Eins", messagesLimit: 600 },
+    {
+      id: 2,
+      slug: "zwei",
+      name: "Zwei",
+      messagesLimit: 100,
+      cycleStartDate: new Date("2026-07-15"),
+      cycleDurationMonths: 3,
+    },
+  ];
+  const rows = [
+    row(1, "2026-10-02T10:00:00+02:00"),
+    row(1, "2026-10-03T10:00:00+02:00", "embed"),
+    row(1, "2026-10-04T10:00:00+02:00", "adjustment", 5),
+    row(2, "2026-08-01T10:00:00+02:00"),
+  ];
+
+  const snapshotOf = (source, sourceRows = rows) =>
+    buildSnapshot({
+      workspaces,
+      countInWindow: memoryCounter(sourceRows),
+      now: NOW,
+      mode: "current",
+      source,
+    });
+
+  test("ohne Angabe ist die Quelle die Live-Zählung; das Feld source steht nur bei ledger im Schnappschuss", async () => {
+    const live = await snapshotOf(undefined);
+    const ledger = await snapshotOf("ledger");
+    expect(live).not.toHaveProperty("source");
+    expect(ledger.source).toBe("ledger");
+    expect(ledger.workspaces).toEqual(live.workspaces);
+
+    await expect(snapshotOf("anders")).rejects.toThrow("Unbekannte Quelle");
+    // Das Zählerbuch kennt die bisherigen Fenster nicht.
+    await expect(
+      buildSnapshot({
+        workspaces,
+        countInWindow: memoryCounter(rows),
+        now: NOW,
+        mode: "legacy",
+        legacyTimeZone: LEGACY_TZ,
+        source: "ledger",
+      })
+    ).rejects.toThrow("source ledger gibt es nur mit mode current");
+  });
+
+  test("vorher_nachher: gleicher Stand in beiden Quellen ist für jeden Workspace identisch", async () => {
+    const comparison = compareLedgerSnapshots(
+      await snapshotOf("live"),
+      await snapshotOf("ledger")
+    );
+    expect(comparison.ok).toBe(true);
+    expect(comparison.different).toEqual([]);
+    expect(comparison.workspaces.map((ws) => ws.status)).toEqual([
+      "identical",
+      "identical",
+    ]);
+    const text = formatLedgerComparison(comparison);
+    expect(text).toContain("[1] eins: identisch (7)");
+    expect(text).toContain("[2] zwei: identisch (1)");
+    expect(text).toContain("Ergebnis: 2 identisch, 0 abweichend.");
+    expect(text).not.toContain("Rollout darf nicht");
+  });
+
+  test("vorher_nachher: jede Abweichung stoppt den Rollout - nach oben wie nach unten, auch bei gleichem Gesamtstand (NAK-1)", async () => {
+    const before = await snapshotOf("live");
+
+    const higher = compareLedgerSnapshots(
+      before,
+      await snapshotOf("ledger", [...rows, row(2, "2026-09-01T10:00:00+02:00")])
+    );
+    expect(higher.ok).toBe(false);
+    expect(higher.different.map((ws) => [ws.id, ws.delta])).toEqual([[2, 1]]);
+    expect(formatLedgerComparison(higher)).toContain(
+      "[2] zwei: abweichend – Stand 1 → 2, Chats 1 → 2"
+    );
+    expect(formatLedgerComparison(higher)).toContain(
+      "Abweichung: Der Rollout darf nicht fortgesetzt werden."
+    );
+
+    const lower = compareLedgerSnapshots(
+      before,
+      await snapshotOf("ledger", rows.slice(1))
+    );
+    expect(lower.ok).toBe(false);
+    expect(lower.different.map((ws) => [ws.id, ws.delta])).toEqual([[1, -1]]);
+
+    // Gleicher Stand, aber ein Chat zählt plötzlich als Widget-Chat
+    const shifted = compareLedgerSnapshots(
+      before,
+      await snapshotOf("ledger", [
+        row(1, "2026-10-02T10:00:00+02:00", "embed"),
+        ...rows.slice(1),
+      ])
+    );
+    expect(shifted.ok).toBe(false);
+    expect(shifted.different[0]).toEqual(
+      expect.objectContaining({ id: 1, delta: 0, status: "different" })
+    );
+    expect(shifted.different[0].message).toContain(
+      "Chats 1 → 0, Widget-Chats 1 → 2"
+    );
+  });
+
+  test("vorher_nachher: gleicher Stand in einem anderen Fenster ist eine Abweichung", async () => {
+    const before = await snapshotOf("live");
+    const after = await snapshotOf("ledger");
+    // Zyklus ab 15.07., drei Monate
+    expect(after.workspaces[1].window).toEqual(
+      expect.objectContaining({
+        start: "2026-07-14T22:00:00.000Z",
+        endExclusive: "2026-10-14T22:00:00.000Z",
+      })
+    );
+    const withWindow = (window) => ({
+      ...after,
+      workspaces: [
+        after.workspaces[0],
+        {
+          ...after.workspaces[1],
+          window: { ...after.workspaces[1].window, ...window },
+        },
+      ],
+    });
+
+    for (const [window, text] of [
+      [
+        { start: "2026-07-13T22:00:00.000Z" },
+        "Fenster 2026-07-14T22:00:00.000Z – 2026-10-14T22:00:00.000Z → 2026-07-13T22:00:00.000Z – 2026-10-14T22:00:00.000Z",
+      ],
+      [
+        { endExclusive: "2026-10-15T22:00:00.000Z" },
+        "Fenster 2026-07-14T22:00:00.000Z – 2026-10-14T22:00:00.000Z → 2026-07-14T22:00:00.000Z – 2026-10-15T22:00:00.000Z",
+      ],
+    ]) {
+      const comparison = compareLedgerSnapshots(before, withWindow(window));
+      expect(comparison.ok).toBe(false);
+      expect(comparison.workspaces.map((ws) => ws.status)).toEqual([
+        "identical",
+        "different",
+      ]);
+      // Stand, Chats, Widget-Chats und Buchungen sind gleich geblieben.
+      expect(comparison.different[0]).toEqual(
+        expect.objectContaining({ id: 2, before: 1, after: 1, delta: 0 })
+      );
+      expect(
+        comparison.different[0].differences.map((entry) => entry.field)
+      ).toEqual(["window"]);
+      expect(comparison.different[0].message).toBe(
+        `[2] zwei: abweichend – ${text}`
+      );
+      expect(formatLedgerComparison(comparison)).toContain(
+        "Abweichung: Der Rollout darf nicht fortgesetzt werden."
+      );
+    }
+  });
+
+  test("vorher_nachher: fehlende und nicht auswertbare Workspaces gelten als abweichend", async () => {
+    const before = await snapshotOf("live");
+    const after = await snapshotOf("ledger");
+
+    const missing = compareLedgerSnapshots(before, {
+      ...after,
+      workspaces: after.workspaces.slice(0, 1),
+    });
+    expect(missing.ok).toBe(false);
+    expect(missing.different[0].message).toContain(
+      "nur im Schnappschuss vorher enthalten"
+    );
+
+    const broken = compareLedgerSnapshots(before, {
+      ...after,
+      workspaces: [
+        after.workspaces[0],
+        { ...after.workspaces[1], error: "kaputt" },
+      ],
+    });
+    expect(broken.ok).toBe(false);
+    expect(broken.different[0].message).toContain("nicht auswertbar (kaputt)");
+  });
+
+  test("vorher_nachher: verglichen wird nur current/live gegen current/ledger mit demselben Bezugszeitpunkt", async () => {
+    const live = await snapshotOf("live");
+    const ledger = await snapshotOf("ledger");
+    const legacy = await buildSnapshot({
+      workspaces,
+      countInWindow: memoryCounter(rows),
+      now: NOW,
+      mode: "legacy",
+      legacyTimeZone: LEGACY_TZ,
+    });
+
+    for (const [before, after] of [
+      [live, live],
+      [ledger, ledger],
+      [ledger, live],
+      [legacy, ledger],
+    ])
+      expect(() => compareLedgerSnapshots(before, after)).toThrow(
+        "Nicht vergleichbar: erwartet wird vorher = current mit Live-Zählung und nachher = current mit --source ledger"
+      );
+    expect(() =>
+      compareLedgerSnapshots(live, {
+        ...ledger,
+        now: "2026-10-12T08:00:01.000Z",
+      })
+    ).toThrow("unterschiedliche Bezugszeitpunkte");
+    expect(() => compareLedgerSnapshots({}, ledger)).toThrow(
+      `nicht das Format ${SNAPSHOT_SCHEMA}`
+    );
+    // Der Vergleich von KIE-531 nimmt die neue Paarung weiterhin nicht an.
+    expect(() => compareSnapshots(live, ledger)).toThrow("Nicht vergleichbar");
+  });
+
+  test("Befehl compare-ledger: Status 0 bei identischem Stand, 1 bei Abweichung, 2 bei falschem Aufruf", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quota-snapshot-"));
+    try {
+      const write = (name, snapshot) => {
+        const file = path.join(dir, name);
+        fs.writeFileSync(file, JSON.stringify(snapshot));
+        return file;
+      };
+      const before = write("vorher.json", await snapshotOf("live"));
+      const same = write("gleich.json", await snapshotOf("ledger"));
+      const other = write(
+        "anders.json",
+        await snapshotOf("ledger", rows.slice(1))
+      );
+
+      let output = "";
+      const stdout = { write: (text) => (output += text) };
+      const silent = { write: () => {} };
+      expect(
+        await main(["compare-ledger", before, same], { stdout, stderr: silent })
+      ).toBe(0);
+      expect(output).toContain("Ergebnis: 2 identisch, 0 abweichend.");
+
+      output = "";
+      expect(
+        await main(["compare-ledger", before, other, "--json"], {
+          stdout,
+          stderr: silent,
+        })
+      ).toBe(1);
+      expect(JSON.parse(output).different.map((ws) => ws.id)).toEqual([1]);
+
+      expect(
+        await main(["compare-ledger", before], {
+          stdout: silent,
+          stderr: silent,
+        })
+      ).toBe(2);
+      expect(
+        await main(["compare-ledger", before, before], {
+          stdout: silent,
+          stderr: silent,
+        })
+      ).toBe(2);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("Limit 0 ist gesperrt, Limit null unbegrenzt - in beiden Quellen gleich (KIE-533)", async () => {
+    // Wie checkWorkspaceMessagesLimit: 0 ist ein Limit (erreicht ab Stand 0),
+    // nur null heißt unbegrenzt - auch ohne eine einzige Nachricht.
+    const limits = [
+      { id: 1, slug: "gesperrt", name: "Gesperrt", messagesLimit: 0 },
+      { id: 2, slug: "offen", name: "Offen", messagesLimit: null },
+      { id: 3, slug: "leer-gesperrt", name: "Leer", messagesLimit: 0 },
+      { id: 4, slug: "leer-offen", name: "Leer", messagesLimit: null },
+    ];
+    const usage = [
+      row(1, "2026-10-02T10:00:00+02:00"),
+      row(2, "2026-10-02T10:00:00+02:00"),
+      row(2, "2026-10-03T10:00:00+02:00", "embed"),
+    ];
+    const of = (source) =>
+      buildSnapshot({
+        workspaces: limits,
+        countInWindow: memoryCounter(usage),
+        now: NOW,
+        mode: "current",
+        source,
+      });
+    const live = await of("live");
+    const ledger = await of("ledger");
+
+    for (const snapshot of [live, ledger])
+      expect(
+        snapshot.workspaces.map((ws) => [
+          ws.slug,
+          ws.messagesLimit,
+          ws.messageCount,
+          ws.limitReached,
+        ])
+      ).toEqual([
+        ["gesperrt", 0, 1, true],
+        ["offen", null, 2, false],
+        ["leer-gesperrt", 0, 0, true],
+        ["leer-offen", null, 0, false],
+      ]);
+
+    const comparison = compareLedgerSnapshots(live, ledger);
+    expect(comparison.ok).toBe(true);
+    expect(
+      comparison.workspaces.map((ws) => [ws.messagesLimit, ws.status])
+    ).toEqual([
+      [0, "identical"],
+      [null, "identical"],
+      [0, "identical"],
+      [null, "identical"],
+    ]);
+  });
+
+  test("Befehl snapshot: --source ledger nur mit --mode current und ohne --legacy-tz", async () => {
+    const errors = [];
+    const stderr = { write: (text) => errors.push(text) };
+    const silent = { write: () => {} };
+    const run = (args) => main(args, { stdout: silent, stderr });
+
+    expect(await run(["snapshot", "--mode", "current", "--source", "x"])).toBe(
+      2
+    );
+    expect(
+      await run([
+        "snapshot",
+        "--mode",
+        "legacy",
+        "--legacy-tz",
+        LEGACY_TZ,
+        "--source",
+        "ledger",
+      ])
+    ).toBe(2);
+    expect(errors.join("")).toContain("--source live oder --source ledger");
+    expect(errors.join("")).toContain(
+      "--source ledger gibt es nur mit --mode current und ohne --legacy-tz"
+    );
+  });
+});
+
+describe("quota-snapshot: Vorschlagsliste für bereits gelöschte Mengen (KIE-532, AK-18)", () => {
+  const NOW = new Date("2026-10-12T10:00:00+02:00");
+  const monthly = { id: 1, slug: "monat", name: "Monat", messagesLimit: 600 };
+  // Zyklus ab 15.07., drei Monate: laufendes Fenster 15.07. bis 15.10.
+  const cycle = {
+    id: 2,
+    slug: "zyklus",
+    name: "Zyklus",
+    messagesLimit: 100,
+    cycleStartDate: new Date("2026-07-15"),
+    cycleDurationMonths: 3,
+  };
+  const untouched = {
+    id: 3,
+    slug: "ruhig",
+    name: "Ruhig",
+    messagesLimit: null,
+  };
+  const embeds = [
+    { id: 10, workspace_id: 1 },
+    { id: 11, workspace_id: 1 },
+    { id: 20, workspace_id: 2 },
+  ];
+  const event = (name, iso, metadata) => ({
+    event: name,
+    occurredAt: new Date(iso),
+    metadata: metadata === undefined ? null : JSON.stringify(metadata),
+  });
+  const events = [
+    // Löschjob im Oktober, Frist reicht ins laufende Fenster
+    event("embed_chats_auto_deleted", "2026-10-05T03:00:00+02:00", {
+      embedId: 10,
+      deletedCount: 40,
+      retentionDays: 3,
+      cutoffDate: "2026-10-02T01:00:00.000Z",
+    }),
+    // Löschjob am 02.10.: gelöscht wurde nur, was älter war als der 30.09. -
+    // also nichts aus dem laufenden Monat
+    event("embed_chats_auto_deleted", "2026-10-02T03:00:00+02:00", {
+      embedId: 11,
+      deletedCount: 300,
+      retentionDays: 2,
+      cutoffDate: "2026-09-30T01:00:00.000Z",
+    }),
+    // "Chats löschen" im Widget
+    event("embed_chats_cleared", "2026-10-10T16:30:00+02:00", {
+      embedId: 11,
+      deletedCount: 25,
+    }),
+    // vor dem laufenden Fenster des Monats-Workspaces
+    event("embed_chats_cleared", "2026-09-30T23:59:59+02:00", {
+      embedId: 10,
+      deletedCount: 999,
+    }),
+    // Zyklus-Workspace: im August, also im laufenden Zyklus
+    event("embed_chats_cleared", "2026-08-20T09:00:00+02:00", {
+      embedId: 20,
+      deletedCount: 12,
+    }),
+    // vor dem Zyklusstart
+    event("embed_chats_auto_deleted", "2026-07-14T23:00:00+02:00", {
+      embedId: 20,
+      deletedCount: 77,
+      cutoffDate: "2026-07-10T00:00:00.000Z",
+    }),
+    // nach dem Bezugszeitpunkt
+    event("embed_chats_cleared", "2026-10-12T10:00:01+02:00", {
+      embedId: 10,
+      deletedCount: 5,
+    }),
+    // Widget inzwischen gelöscht
+    event("embed_chats_cleared", "2026-10-06T12:00:00+02:00", {
+      embedId: 99,
+      deletedCount: 8,
+    }),
+    // andere Ereignisse und unbrauchbare Einträge
+    event("embed_chats_cleared_all", "2026-10-07T12:00:00+02:00", {
+      deletedCount: 1000,
+    }),
+    event("workspace_deleted", "2026-10-07T12:00:00+02:00", { embedId: 10 }),
+    event("embed_chats_cleared", "2026-10-08T12:00:00+02:00", {
+      embedId: 10,
+      deletedCount: 0,
+    }),
+    event("embed_chats_cleared", "2026-10-08T13:00:00+02:00"),
+    {
+      event: "embed_chats_cleared",
+      occurredAt: new Date("2026-10-08T14:00:00+02:00"),
+      metadata: "{kein JSON",
+    },
+  ];
+
+  test("loeschmengen_vorschlag: listet je Workspace die protokollierten Löschmengen des laufenden Fensters mit Datum", () => {
+    const report = buildDeletedReport({
+      workspaces: [monthly, cycle, untouched],
+      embeds,
+      events,
+      now: NOW,
+    });
+
+    expect(report.now).toBe(NOW.toISOString());
+    expect(report.workspaces.map((ws) => ws.id)).toEqual([1, 2]);
+
+    const [first, second] = report.workspaces;
+    expect(first).toEqual(
+      expect.objectContaining({
+        slug: "monat",
+        messagesLimit: 600,
+        window: { startDay: "2026-10-01", endDayExclusive: "2026-11-01" },
+        deletedTotal: 365,
+        // 40 + 25; die 300 waren alle älter als der Fensterbeginn
+        suggestedMax: 65,
+      })
+    );
+    expect(
+      first.entries.map((entry) => [
+        entry.day,
+        entry.event,
+        entry.embedId,
+        entry.deletedCount,
+        entry.suggestedMax,
+      ])
+    ).toEqual([
+      ["2026-10-02", "embed_chats_auto_deleted", 11, 300, 0],
+      ["2026-10-05", "embed_chats_auto_deleted", 10, 40, 40],
+      ["2026-10-10", "embed_chats_cleared", 11, 25, 25],
+    ]);
+    expect(first.entries[1]).toEqual(
+      expect.objectContaining({
+        occurredAt: "2026-10-05T01:00:00.000Z",
+        cutoffDate: "2026-10-02T01:00:00.000Z",
+      })
+    );
+
+    expect(second).toEqual(
+      expect.objectContaining({
+        slug: "zyklus",
+        window: { startDay: "2026-07-15", endDayExclusive: "2026-10-15" },
+        deletedTotal: 12,
+        suggestedMax: 12,
+      })
+    );
+
+    expect(
+      report.unassigned.map((entry) => [
+        entry.day,
+        entry.embedId,
+        entry.deletedCount,
+      ])
+    ).toEqual([["2026-10-06", 99, 8]]);
+
+    const text = formatDeletedReport(report);
+    expect(text).toContain("es wird nichts gebucht");
+    expect(text).toContain(
+      "[1] monat – Fenster ab 01.10.2026: gelöscht 365, Vorschlag höchstens 65"
+    );
+    expect(text).toContain(
+      "02.10.2026  Löschjob, Widget 11: 300 Nachrichten (alle älter als der Fensterbeginn, kein Vorschlag)"
+    );
+    expect(text).toContain("05.10.2026  Löschjob, Widget 10: 40 Nachrichten");
+    expect(text).toContain(
+      "10.10.2026  Chats löschen, Widget 11: 25 Nachrichten"
+    );
+    expect(text).toContain(
+      "[2] zyklus – Fenster ab 15.07.2026: gelöscht 12, Vorschlag höchstens 12"
+    );
+    expect(text).toContain("Nicht zuordenbar (Widget inzwischen gelöscht):");
+    expect(text).toContain(
+      "06.10.2026  Chats löschen, Widget 99: 8 Nachrichten"
+    );
+    expect(text).not.toContain("ruhig");
+  });
+
+  test("loeschmengen_vorschlag: ein gesperrter Workspace (Limit 0) steht mit Limit 0 in der Liste, nicht als unbegrenzt (KIE-533)", () => {
+    const report = buildDeletedReport({
+      workspaces: [{ ...monthly, messagesLimit: 0 }, cycle, untouched],
+      embeds,
+      events,
+      now: NOW,
+    });
+
+    expect(
+      report.workspaces.map((ws) => [ws.id, ws.messagesLimit, ws.suggestedMax])
+    ).toEqual([
+      [1, 0, 65],
+      [2, 100, 12],
+    ]);
+  });
+
+  test("loeschmengen_vorschlag: Grenzen - eine Löschung genau am Fensterbeginn gehört zum Fenster, eine Frist genau am Fensterbeginn betrifft es nicht", () => {
+    // Fenster des Monats-Workspaces: ab 01.10. 00:00 Uhr Berliner Zeit
+    const windowStart = "2026-09-30T22:00:00.000Z";
+    const report = buildDeletedReport({
+      workspaces: [monthly],
+      embeds,
+      events: [
+        // einen Augenblick vor dem Fensterbeginn: voriges Fenster
+        event("embed_chats_cleared", "2026-09-30T21:59:59.999Z", {
+          embedId: 10,
+          deletedCount: 100,
+        }),
+        // genau am Fensterbeginn gelöscht
+        event("embed_chats_cleared", windowStart, {
+          embedId: 10,
+          deletedCount: 3,
+        }),
+        // Löschjob genau am Fensterbeginn; gelöscht wurde nur Älteres
+        event("embed_chats_auto_deleted", windowStart, {
+          embedId: 11,
+          deletedCount: 20,
+          cutoffDate: "2026-09-29T22:00:00.000Z",
+        }),
+        // Frist genau am Fensterbeginn: Alle gelöschten Zeilen sind älter.
+        event("embed_chats_auto_deleted", "2026-10-03T03:00:00+02:00", {
+          embedId: 10,
+          deletedCount: 7,
+          cutoffDate: windowStart,
+        }),
+        // Frist einen Augenblick nach dem Fensterbeginn
+        event("embed_chats_auto_deleted", "2026-10-04T03:00:00+02:00", {
+          embedId: 10,
+          deletedCount: 9,
+          cutoffDate: "2026-09-30T22:00:00.001Z",
+        }),
+        // genau am Bezugszeitpunkt
+        event("embed_chats_cleared", NOW.toISOString(), {
+          embedId: 11,
+          deletedCount: 2,
+        }),
+      ],
+      now: NOW,
+    });
+
+    expect(report.workspaces).toHaveLength(1);
+    expect(
+      report.workspaces[0].entries.map((entry) => [
+        entry.occurredAt,
+        entry.event,
+        entry.deletedCount,
+        entry.suggestedMax,
+      ])
+    ).toEqual([
+      [windowStart, "embed_chats_cleared", 3, 3],
+      [windowStart, "embed_chats_auto_deleted", 20, 0],
+      ["2026-10-03T01:00:00.000Z", "embed_chats_auto_deleted", 7, 0],
+      ["2026-10-04T01:00:00.000Z", "embed_chats_auto_deleted", 9, 9],
+      [NOW.toISOString(), "embed_chats_cleared", 2, 2],
+    ]);
+    expect(report.workspaces[0]).toEqual(
+      expect.objectContaining({ deletedTotal: 41, suggestedMax: 14 })
+    );
+  });
+
+  test("loeschmengen_vorschlag: ohne protokollierte Löschungen sagt die Ausgabe das ausdrücklich", () => {
+    const report = buildDeletedReport({
+      workspaces: [monthly],
+      embeds,
+      events: [],
+      now: NOW,
+    });
+    expect(report).toEqual({
+      now: NOW.toISOString(),
+      workspaces: [],
+      unassigned: [],
+    });
+    expect(formatDeletedReport(report)).toContain(
+      "Keine protokollierten Löschungen im laufenden Fenster."
+    );
+  });
+
+  describe("Befehl --deleted-report", () => {
+    const silent = { write: () => {} };
+    let dir;
+    let dbFile;
+
+    beforeEach(() => {
+      const tables = prisma.__tables;
+      for (const table of Object.values(tables)) table.length = 0;
+      tables.workspaces.push(untouched, cycle, monthly);
+      tables.embed_configs.push(...embeds);
+      tables.event_logs.push(...events);
+      tables.workspace_message_adjustments.push({
+        workspaceId: 1,
+        amount: 5,
+        createdAt: new Date("2026-10-03T10:00:00+02:00"),
+      });
+      prisma.__clientOptions.length = 0;
+      prisma.$disconnect.mockClear();
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), "quota-snapshot-"));
+      dbFile = path.join(dir, "anythingllm.db");
+      fs.writeFileSync(dbFile, "");
+    });
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    test("loeschmengen_vorschlag: quota-snapshot --deleted-report listet die Mengen und bucht nichts", async () => {
+      const before = JSON.stringify(prisma.__tables);
+      let output = "";
+      const status = await main(
+        ["--deleted-report", "--db", dbFile, "--now", NOW.toISOString()],
+        { stdout: { write: (text) => (output += text) }, stderr: silent }
+      );
+
+      expect(status).toBe(0);
+      expect(prisma.__clientOptions).toEqual([
+        { datasources: { db: { url: `file:${dbFile}` } } },
+      ]);
+      expect(output).toContain(
+        "[1] monat – Fenster ab 01.10.2026: gelöscht 365, Vorschlag höchstens 65"
+      );
+      expect(output).toContain(
+        "[2] zyklus – Fenster ab 15.07.2026: gelöscht 12, Vorschlag höchstens 12"
+      );
+      // Es bucht nichts: Keine Tabelle hat sich geändert, auch nicht die Buchungen.
+      expect(JSON.stringify(prisma.__tables)).toBe(before);
+      expect(prisma.__tables.workspace_message_adjustments).toHaveLength(1);
+      expect(prisma.$disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    test("loeschmengen_vorschlag: --json gibt die Liste maschinenlesbar aus; ohne --db gilt die Prisma-Konfiguration des Servers", async () => {
+      let output = "";
+      const status = await main(
+        ["--deleted-report", "--json", "--now", NOW.toISOString()],
+        { stdout: { write: (text) => (output += text) }, stderr: silent }
+      );
+      expect(status).toBe(0);
+      expect(prisma.__clientOptions).toEqual([]);
+      const report = JSON.parse(output);
+      expect(
+        report.workspaces.map((ws) => [ws.id, ws.deletedTotal, ws.suggestedMax])
+      ).toEqual([
+        [1, 365, 65],
+        [2, 12, 12],
+      ]);
+      expect(report.unassigned).toHaveLength(1);
+    });
+
+    test("loeschmengen_vorschlag: ungültiger Zeitpunkt und fehlende Datei sind Aufruffehler", async () => {
+      const run = (args) => main(args, { stdout: silent, stderr: silent });
+      expect(await run(["--deleted-report", "--now", "kein Datum"])).toBe(2);
+      expect(
+        await run(["--deleted-report", "--db", path.join(dir, "fehlt.db")])
+      ).toBe(2);
+    });
   });
 });
