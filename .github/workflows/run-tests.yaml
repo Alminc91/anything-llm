@@ -69,8 +69,12 @@ jobs:
       - name: Setup environment and Prisma
         run: yarn setup:envs && yarn prisma:setup
 
-      - name: Run test suites
-        run: yarn test
+      # KIE-531: Kontingent und Abrechnungsfenster dürfen nicht von der Zeitzone
+      # des Prozesses abhängen. Ein Rückfall zeigt sich je nach Fehler nur in
+      # einer Zone, deshalb läuft die Suite mit TZ=UTC, Europe/Berlin und
+      # America/New_York (extras/scripts/testTimezones.mjs).
+      - name: Run test suites in three time zones
+        run: yarn test:tz
 
       - name: Fail job on error
         if: failure()

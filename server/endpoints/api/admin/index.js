@@ -877,9 +877,9 @@ function apiAdminEndpoints(app) {
           yearlyAnchorCheck: {
             originalDate: cycleStartDate,
             afterOneYear: afterOneYear.toISOString().split('T')[0],
-            originalDay: originalDate.getDate(),
-            afterOneYearDay: afterOneYear.getDate(),
-            matches: originalDate.getDate() === afterOneYear.getDate()
+            originalDay: originalDate.getUTCDate(),
+            afterOneYearDay: afterOneYear.getUTCDate(),
+            matches: originalDate.getUTCDate() === afterOneYear.getUTCDate()
           }
         }
       });

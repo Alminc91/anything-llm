@@ -8,6 +8,10 @@
  * - Upgrade scenarios
  * - Long-term consistency (multi-year)
  * - Various message packages
+ *
+ * Die Datumsfelder aus getCycleInfo sind Tagesmarken (00:00 UTC des Berliner
+ * Kalendertags) und addMonths rechnet im UTC-Kalender. Deshalb wird hier mit
+ * den UTC-Gettern geprüft, die Tests laufen so in jeder Prozess-Zeitzone.
  */
 
 const {
@@ -25,36 +29,36 @@ const {
 describe('addMonths - Core Logic', () => {
   test('adds 1 month correctly', () => {
     const result = addMonths(new Date('2025-01-15'), 1);
-    expect(result.getFullYear()).toBe(2025);
-    expect(result.getMonth()).toBe(1); // February
-    expect(result.getDate()).toBe(15);
+    expect(result.getUTCFullYear()).toBe(2025);
+    expect(result.getUTCMonth()).toBe(1); // February
+    expect(result.getUTCDate()).toBe(15);
   });
 
   test('adds 3 months correctly', () => {
     const result = addMonths(new Date('2025-01-15'), 3);
-    expect(result.getFullYear()).toBe(2025);
-    expect(result.getMonth()).toBe(3); // April
-    expect(result.getDate()).toBe(15);
+    expect(result.getUTCFullYear()).toBe(2025);
+    expect(result.getUTCMonth()).toBe(3); // April
+    expect(result.getUTCDate()).toBe(15);
   });
 
   test('adds 6 months correctly', () => {
     const result = addMonths(new Date('2025-01-15'), 6);
-    expect(result.getFullYear()).toBe(2025);
-    expect(result.getMonth()).toBe(6); // July
-    expect(result.getDate()).toBe(15);
+    expect(result.getUTCFullYear()).toBe(2025);
+    expect(result.getUTCMonth()).toBe(6); // July
+    expect(result.getUTCDate()).toBe(15);
   });
 
   test('adds 12 months correctly', () => {
     const result = addMonths(new Date('2025-01-15'), 12);
-    expect(result.getFullYear()).toBe(2026);
-    expect(result.getMonth()).toBe(0); // January
-    expect(result.getDate()).toBe(15);
+    expect(result.getUTCFullYear()).toBe(2026);
+    expect(result.getUTCMonth()).toBe(0); // January
+    expect(result.getUTCDate()).toBe(15);
   });
 
   test('handles string date input', () => {
     const result = addMonths('2025-01-15', 1);
-    expect(result.getMonth()).toBe(1); // February
-    expect(result.getDate()).toBe(15);
+    expect(result.getUTCMonth()).toBe(1); // February
+    expect(result.getUTCDate()).toBe(15);
   });
 });
 
@@ -65,50 +69,50 @@ describe('addMonths - Core Logic', () => {
 describe('addMonths - Edge Cases (Clamping)', () => {
   test('31. Januar + 1 Monat = 28. Februar (kein Schaltjahr)', () => {
     const result = addMonths(new Date('2025-01-31'), 1);
-    expect(result.getMonth()).toBe(1); // February
-    expect(result.getDate()).toBe(28);
+    expect(result.getUTCMonth()).toBe(1); // February
+    expect(result.getUTCDate()).toBe(28);
   });
 
   test('31. Januar + 1 Monat = 29. Februar (Schaltjahr 2024)', () => {
     const result = addMonths(new Date('2024-01-31'), 1);
-    expect(result.getMonth()).toBe(1); // February
-    expect(result.getDate()).toBe(29);
+    expect(result.getUTCMonth()).toBe(1); // February
+    expect(result.getUTCDate()).toBe(29);
   });
 
   test('31. März + 1 Monat = 30. April (April hat 30 Tage)', () => {
     const result = addMonths(new Date('2025-03-31'), 1);
-    expect(result.getMonth()).toBe(3); // April
-    expect(result.getDate()).toBe(30);
+    expect(result.getUTCMonth()).toBe(3); // April
+    expect(result.getUTCDate()).toBe(30);
   });
 
   test('30. Januar + 1 Monat = 28. Februar (kein Schaltjahr)', () => {
     const result = addMonths(new Date('2025-01-30'), 1);
-    expect(result.getMonth()).toBe(1); // February
-    expect(result.getDate()).toBe(28);
+    expect(result.getUTCMonth()).toBe(1); // February
+    expect(result.getUTCDate()).toBe(28);
   });
 
   test('29. Januar + 1 Monat = 28. Februar (kein Schaltjahr)', () => {
     const result = addMonths(new Date('2025-01-29'), 1);
-    expect(result.getMonth()).toBe(1); // February
-    expect(result.getDate()).toBe(28);
+    expect(result.getUTCMonth()).toBe(1); // February
+    expect(result.getUTCDate()).toBe(28);
   });
 
   test('31. Mai + 1 Monat = 30. Juni', () => {
     const result = addMonths(new Date('2025-05-31'), 1);
-    expect(result.getMonth()).toBe(5); // June
-    expect(result.getDate()).toBe(30);
+    expect(result.getUTCMonth()).toBe(5); // June
+    expect(result.getUTCDate()).toBe(30);
   });
 
   test('31. August + 1 Monat = 30. September', () => {
     const result = addMonths(new Date('2025-08-31'), 1);
-    expect(result.getMonth()).toBe(8); // September
-    expect(result.getDate()).toBe(30);
+    expect(result.getUTCMonth()).toBe(8); // September
+    expect(result.getUTCDate()).toBe(30);
   });
 
   test('31. Oktober + 1 Monat = 30. November', () => {
     const result = addMonths(new Date('2025-10-31'), 1);
-    expect(result.getMonth()).toBe(10); // November
-    expect(result.getDate()).toBe(30);
+    expect(result.getUTCMonth()).toBe(10); // November
+    expect(result.getUTCDate()).toBe(30);
   });
 });
 
@@ -128,9 +132,9 @@ describe('addMonths - Jahres-Konsistenz (KRITISCH)', () => {
         date = addMonths(date, months);
       }
 
-      expect(date.getDate()).toBe(originalDate.getDate());
-      expect(date.getMonth()).toBe(originalDate.getMonth());
-      expect(date.getFullYear()).toBe(originalDate.getFullYear() + 1);
+      expect(date.getUTCDate()).toBe(originalDate.getUTCDate());
+      expect(date.getUTCMonth()).toBe(originalDate.getUTCMonth());
+      expect(date.getUTCFullYear()).toBe(originalDate.getUTCFullYear() + 1);
     }
   );
 
@@ -141,8 +145,8 @@ describe('addMonths - Jahres-Konsistenz (KRITISCH)', () => {
     date = addMonths(date, 3); // → 30.10.2025
     date = addMonths(date, 3); // → 30.01.2026
 
-    expect(date.getMonth()).toBe(0); // Januar
-    expect(date.getFullYear()).toBe(2026);
+    expect(date.getUTCMonth()).toBe(0); // Januar
+    expect(date.getUTCFullYear()).toBe(2026);
     // Note: Day may be 30 due to April clamping propagating
   });
 
@@ -150,9 +154,9 @@ describe('addMonths - Jahres-Konsistenz (KRITISCH)', () => {
     const start = new Date('2025-02-28');
     const end = addMonths(start, 12);
 
-    expect(end.getDate()).toBe(28);
-    expect(end.getMonth()).toBe(1); // Februar
-    expect(end.getFullYear()).toBe(2026);
+    expect(end.getUTCDate()).toBe(28);
+    expect(end.getUTCMonth()).toBe(1); // Februar
+    expect(end.getUTCFullYear()).toBe(2026);
   });
 
   test('15. des Monats bleibt immer 15.', () => {
@@ -161,7 +165,7 @@ describe('addMonths - Jahres-Konsistenz (KRITISCH)', () => {
     for (let i = 0; i < 24; i++) {
       // 2 years monthly
       date = addMonths(date, 1);
-      expect(date.getDate()).toBe(15);
+      expect(date.getUTCDate()).toBe(15);
     }
   });
 });
@@ -302,7 +306,7 @@ describe('Alle Zykluslängen', () => {
     const info = getCycleInfo(workspace, new Date('2025-03-15'));
 
     expect(info.cycleNumber).toBe(1);
-    expect(info.currentCycleStart.getDate()).toBe(15);
+    expect(info.currentCycleStart.getUTCDate()).toBe(15);
   });
 
   test.each(testCases)('$name: cycleDurationMonths korrekt zurückgegeben', ({ months }) => {
@@ -564,8 +568,12 @@ describe('Edge Case: Startdatum in der Zukunft', () => {
     // Simulate "today" before start date
     const info = getCycleInfo(workspace, new Date('2025-03-15'));
 
-    // Should still be cycle 1 (hasn't started yet)
-    expect(info.cycleNumber).toBe(1);
+    // KIE-531: Bis zum Start gilt der Kalendermonat, der erste Zyklus hat
+    // noch nicht begonnen (cycleNumber 0).
+    expect(info.cycleNumber).toBe(0);
+    expect(info.currentCycleStart.toISOString()).toBe('2025-03-01T00:00:00.000Z');
+    expect(info.currentCycleEnd.toISOString()).toBe('2025-03-31T00:00:00.000Z');
+    expect(info.nextReset.toISOString()).toBe('2025-04-01T00:00:00.000Z');
   });
 });
 
