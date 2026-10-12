@@ -105,8 +105,8 @@ function monthIndexOf(serial) {
  * Zeitraum, der mehr als MAX_BUCKETS Kalendermonate berührt - für ihn gäbe es
  * keine Körnung mit höchstens MAX_BUCKETS Abschnitten (01.03.2019-12.10.2026
  * berühren 92 Monate und gelten, 28.02.2019-12.10.2026 berühren 93). Der
- * längste Zeitraum hat damit keine 7 Jahre und 8 Monate; mehr als 10 Jahre
- * sind immer ungültig.
+ * längste Zeitraum hat damit 7 Jahre und 8 Monate; mehr als 10 Jahre sind
+ * immer ungültig.
  * @param {*} fromDay
  * @param {*} toDay
  * @returns {{valid: true, from: number, to: number}|{valid: false, error: string}}
