@@ -1098,6 +1098,63 @@ describe("Regeln am Quelltext", () => {
     );
   });
 
+  test("keine Batch-Transaktion: $transaction erhält überall eine an Ort und Stelle geschriebene Funktion, nie eine Liste (Hard Constraint 2)", () => {
+    // Hard Constraint 2 (KIE-532): Batch-Transaktionen - prisma.$transaction([…])
+    // - sind für Schreibpfade unzulässig. Prisma 6.14 lässt mit SQLite nach
+    // einem fehlgeschlagenen COMMIT die Verbindung mit offener Transaktion
+    // zurück: Die Datenbank bleibt bis zum Neustart gesperrt, spätere
+    // Schreibzugriffe gehen still verloren (gemessen im Architektur-Review vom
+    // 12.10.2026). Zulässig ist allein die interaktive Form
+    // $transaction(async (tx) => …).
+    //
+    // Geprüft wird das erste Argument jedes Aufrufs: Es muss eine dort
+    // geschriebene Funktion sein. Eine Liste ([…], x.map(…)) oder ein Name,
+    // hinter dem eine Liste stehen kann, zählt als Batch-Transaktion.
+    const INLINE_FUNCTION =
+      /^(async\s+)?(function\b|\([^()]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/;
+    const batches = {};
+    let calls = 0;
+    for (const file of sourceFiles()) {
+      const source = fs.readFileSync(file, "utf8");
+      for (const match of source.matchAll(/\$transaction\s*\(\s*/g)) {
+        calls += 1;
+        const argument = source.slice(match.index + match[0].length);
+        if (INLINE_FUNCTION.test(argument)) continue;
+        const name = path.relative(serverRoot, file).split(path.sep).join("/");
+        batches[name] = (batches[name] ?? 0) + 1;
+      }
+    }
+
+    expect(batches).toEqual({
+      // Namentliche Ausnahmen: Bestand aus dem Upstream-Code, vor KIE-532 und
+      // außerhalb des Zählerbuchs (Rechtezuordnung, Wiederherstellungscodes,
+      // Vektor-Verweise). Sie tragen dasselbe Risiko und sind hier
+      // festgehalten, damit keine weitere dazukommt; ihre Umstellung ist nicht
+      // Teil von KIE-532.
+      "models/workspaceUsers.js": 2,
+      "models/passwordRecovery.js": 1,
+      "models/vectors.js": 1,
+    });
+    // Die Prüfung sieht die interaktiven Transaktionen des Zählerbuchs.
+    expect(calls).toBeGreaterThanOrEqual(4 + 5);
+
+    // Gegenprobe der Erkennung
+    for (const batch of [
+      "[a, b])",
+      "inserts)",
+      "ids.map((id) => prisma.x.create({ data: { id } })))",
+      "[\n  prisma.a.create()])",
+    ])
+      expect(INLINE_FUNCTION.test(batch)).toBe(false);
+    for (const interactive of [
+      "async (tx) => {",
+      "(tx) => work(tx),",
+      "async function (tx) {",
+      "tx => work(tx))",
+    ])
+      expect(INLINE_FUNCTION.test(interactive)).toBe(true);
+  });
+
   test("kein Löschpfad fasst das Zählerbuch an: nirgends wird eine Zeile gelöscht oder ein Zähler gesenkt", () => {
     expect(
       occurrences(
