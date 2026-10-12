@@ -1273,7 +1273,12 @@ describe("nicht_fatal (AK-14)", () => {
 
     test("nicht_fatal: schlägt der Nachtrag fehl, startet der Server trotzdem", async () => {
       const { bootHTTP } = require("../../utils/boot");
-      const workspace = await createWorkspace(db.client);
+      // Laufender Zyklus seit 20 Tagen: Die Zeile von vor einer Stunde liegt
+      // an jedem Kalendertag im Fenster, auch in der ersten Stunde eines Monats.
+      const workspace = await createWorkspace(db.client, {
+        cycleStartDate: new Date(Date.now() - 20 * DAY),
+        cycleDurationMonths: 1,
+      });
       await seedWorkspaceChats(db.client, [
         { workspaceId: workspace.id, createdAt: new Date(Date.now() - HOUR) },
       ]);
@@ -1416,6 +1421,11 @@ describe("resync (AK-17)", () => {
         workspaceId: other.id,
         createdAt: new Date("2026-10-10T09:30:00+02:00"),
       },
+      // Stunden 13 und 14: gezählt, später (teilweise) gelöscht
+      ...["13:05", "13:15", "13:25", "14:05", "14:15"].map((time) => ({
+        workspaceId: workspace.id,
+        createdAt: new Date(`2026-10-10T${time}:00+02:00`),
+      })),
     ]);
     await seedEmbedChats(db.client, [
       {
@@ -1424,6 +1434,20 @@ describe("resync (AK-17)", () => {
         session_id: "frueh",
         conversation_id: "frueh-1",
       },
+      // Stunde 17: zwei Konversationen, zwei Bewertungen - gezählt, später
+      // bis auf die letzte Zeile gelöscht
+      ...[
+        ["17:05", "spaet-1", true],
+        ["17:10", "spaet-2", false],
+        ["17:15", "spaet-1", null],
+        ["17:25", "spaet-1", null],
+      ].map(([time, conversation_id, feedbackScore]) => ({
+        embed_id: embed.id,
+        createdAt: new Date(`2026-10-10T${time}:00+02:00`),
+        session_id: "spaet",
+        conversation_id,
+        feedbackScore,
+      })),
     ]);
     expect((await runMessageLedgerBackfill(quiet)).ok).toBe(true);
     return { workspace, other, embed };
@@ -1446,6 +1470,27 @@ describe("resync (AK-17)", () => {
     await db.client.workspace_chats.deleteMany({
       where: { id: { in: hourNine.map((chat) => chat.id) } },
     });
+    // Der Normalfall nach jedem Löschjob: gezählte Zeilen fehlen ersatzlos,
+    // das Zählerbuch liegt über dem Bestand. Stunde 13: eine von drei Zeilen
+    // bleibt; Stunde 14: keine; Widget, Stunde 17: eine von vier - gelöscht
+    // sind beide bewerteten Zeilen und der Beginn beider Konversationen.
+    const between = (from, to) => ({
+      gte: new Date(`2026-10-10T${from}:00+02:00`),
+      lt: new Date(`2026-10-10T${to}:00+02:00`),
+    });
+    expect(
+      await db.client.workspace_chats.deleteMany({
+        where: {
+          workspaceId: workspace.id,
+          createdAt: between("13:10", "15:00"),
+        },
+      })
+    ).toEqual({ count: 4 });
+    expect(
+      await db.client.embed_chats.deleteMany({
+        where: { embed_id: embed.id, createdAt: between("17:00", "17:20") },
+      })
+    ).toEqual({ count: 3 });
     // Rollback auf ein älteres Image: Zeilen entstehen ohne Zählung - auch
     // vor dem Datum, ab dem nachher neu berechnet wird.
     await rollbackPeriod(workspace, embed);
@@ -1484,6 +1529,41 @@ describe("resync (AK-17)", () => {
           row.day === day &&
           row.hour === hour
       );
+    // Wo das Zählerbuch über dem Bestand liegt, bleibt es stehen: Stunde 13
+    // (1 Zeile vorhanden, 3 gezählt), Stunde 14 (0 von 2) und die Stunde 17
+    // des Widgets (1 von 4 Zeilen, 1 von 2 Konversationen, keine Bewertung
+    // mehr vorhanden).
+    expect(cellOf(after, workspace.id, 0, "2026-10-10", 13).messages).toBe(3);
+    expect(cellOf(after, workspace.id, 0, "2026-10-10", 14).messages).toBe(2);
+    expect(cellOf(after, workspace.id, embed.id, "2026-10-10", 17)).toEqual(
+      expect.objectContaining({
+        messages: 4,
+        conversations_started: 2,
+        feedback_positive: 1,
+        feedback_negative: 1,
+      })
+    );
+    for (const [embedId, hour] of [
+      [0, 13],
+      [0, 14],
+      [embed.id, 17],
+    ])
+      expect(cellOf(after, workspace.id, embedId, "2026-10-10", hour)).toEqual(
+        cellOf(before, workspace.id, embedId, "2026-10-10", hour)
+      );
+    // Angehoben wurden allein die Stunden aus der Zeit des Rollbacks.
+    expect(
+      JSON.parse(result.stdout)
+        .raised.map((cell) => [cell.embedId, cell.day, cell.hour])
+        .sort()
+    ).toEqual(
+      [
+        [0, "2026-10-11", 15],
+        [0, "2026-10-12", 0],
+        [embed.id, "2026-10-11", 15],
+      ].sort()
+    );
+    expect(dryRun.raised).toEqual(JSON.parse(result.stdout).raised);
     // Stunde 9 am 10.10.: 3 gezählt, 2 davon gelöscht, 2 ungezählte neue →
     // 3 Zeilen vorhanden, 3 gezählt: nichts anzuheben, nichts zu senken.
     expect(cellOf(after, workspace.id, 0, "2026-10-10", 9).messages).toBe(3);
