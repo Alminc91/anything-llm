@@ -1,4 +1,5 @@
 const prisma = require("../utils/prisma");
+const { EventLogs } = require("./eventLogs");
 const {
   BILLING_TIME_ZONE,
   berlinDayOf,
@@ -76,6 +77,8 @@ const EVENT_WRITE_FAILED = "message_ledger_write_failed";
 const EVENT_MISMATCH = "message_ledger_mismatch";
 const EVENT_MARKER_RECOVERED = "message_ledger_marker_recovered";
 const MS_PER_HOUR = 60 * 60 * 1000;
+// Ließ sich message_ledger_write_failed nicht schreiben: nächster Versuch
+const WRITE_FAILED_RETRY_MS = 60 * 1000;
 // Höchstens 999 Platzhalter je Anweisung (ältere SQLite-Grenze), 9 je Zeile.
 const CELLS_PER_STATEMENT = 100;
 
@@ -134,9 +137,13 @@ let backfillComplete = false;
 let watermarkCaptured = false;
 // Workspace → Stunde (Epoche), in der zuletzt eine Abweichung gemeldet wurde
 const reportedMismatches = new Map();
-// Quelle|Workspace|Widget → Stunde (Epoche) des letzten Ereignisses
-// message_ledger_write_failed und Zahl der seither nicht gemeldeten Fehler
-const reportedWriteFailures = new Map();
+// Quelle|Workspace|Widget → Meldestand zu message_ledger_write_failed: die
+// Stunde (Epoche) des letzten geschriebenen Ereignisses und die Fehler, die
+// noch in keinem Ereignis stehen (Anzahl, der letzte davon, sein Zeitpunkt)
+const writeFailures = new Map();
+// Geplantes Nachreichen (Timer und Fälligkeit), siehe scheduleWriteFailureFlush
+let writeFailureFlush = null;
+let writeFailureFlushDueAt = null;
 
 function emptyTableState(maxId) {
   return {
@@ -166,6 +173,91 @@ function parseBackfillState(value) {
   }
 }
 
+/**
+ * Schreibt das Ereignis message_ledger_write_failed für die noch nicht
+ * gemeldeten Fehler eines Schlüssels, sofern in dieser Stunde für ihn noch
+ * keines im Protokoll steht. Gemeldet ist erst, was geschrieben wurde:
+ * EventLogs.logEvent wirft bei einem Datenbankfehler nicht, sondern liefert
+ * eventLog null - etwa bei derselben Schreibsperre, an der schon die
+ * Transaktion gescheitert ist. Die Fehler bleiben dann offen.
+ *
+ * @param {Object} entry - Eintrag aus writeFailures
+ * @param {boolean} deferred - nachgereicht, also nicht vom Fehler selbst ausgelöst
+ * @returns {Promise<boolean>} - true, wenn ein Ereignis geschrieben wurde
+ */
+async function reportWriteFailures(entry, deferred) {
+  const hourBucket = Math.floor(Date.now() / MS_PER_HOUR);
+  // Je Schlüssel ein Schreibversuch zur Zeit: Was währenddessen scheitert,
+  // zählt weiter und steht im nächsten Ereignis.
+  if (entry.writing || !entry.unreported || entry.reportedHour === hourBucket)
+    return false;
+
+  const count = entry.unreported;
+  entry.writing = true;
+  try {
+    const logged = await EventLogs.logEvent(EVENT_WRITE_FAILED, {
+      source: entry.source,
+      workspaceId: entry.workspaceId,
+      embedId: entry.embedId,
+      error: entry.lastError,
+      ...(count > 1 ? { suppressed: count - 1 } : {}),
+      ...(deferred
+        ? {
+            deferred: true,
+            lastFailureAt: new Date(entry.lastFailureAt).toISOString(),
+          }
+        : {}),
+    });
+    if (!logged?.eventLog) return false;
+    entry.reportedHour = hourBucket;
+    entry.unreported -= count;
+    return true;
+  } finally {
+    entry.writing = false;
+  }
+}
+
+function cancelWriteFailureFlush() {
+  clearTimeout(writeFailureFlush);
+  writeFailureFlush = null;
+  writeFailureFlushDueAt = null;
+}
+
+/**
+ * Plant das Nachreichen offener Fehler, damit sie auch ohne einen weiteren
+ * Fehler im Protokoll ankommen: Ließ sich das Ereignis nicht schreiben, folgt
+ * der nächste Versuch nach WRITE_FAILED_RETRY_MS. Steht für die Stunde schon
+ * eines im Protokoll, wird der Rest mit dem Stundenwechsel nachgereicht. Der
+ * Timer hält den Prozess nicht am Leben.
+ */
+function scheduleWriteFailureFlush() {
+  const now = Date.now();
+  const hourBucket = Math.floor(now / MS_PER_HOUR);
+  let dueAt = null;
+  for (const entry of writeFailures.values()) {
+    if (!entry.unreported) continue;
+    const entryDueAt =
+      entry.reportedHour === hourBucket
+        ? (hourBucket + 1) * MS_PER_HOUR
+        : now + WRITE_FAILED_RETRY_MS;
+    dueAt = dueAt === null ? entryDueAt : Math.min(dueAt, entryDueAt);
+  }
+  if (dueAt === null) return cancelWriteFailureFlush();
+  if (writeFailureFlush && writeFailureFlushDueAt <= dueAt) return;
+
+  cancelWriteFailureFlush();
+  writeFailureFlushDueAt = dueAt;
+  writeFailureFlush = setTimeout(
+    () => {
+      writeFailureFlush = null;
+      writeFailureFlushDueAt = null;
+      MessageLedger._flushWriteFailures();
+    },
+    Math.max(dueAt - now, 0)
+  );
+  writeFailureFlush.unref?.();
+}
+
 const MessageLedger = {
   WORKSPACE_EMBED_ID: 0,
   BACKFILL_LABEL,
@@ -185,8 +277,8 @@ const MessageLedger = {
    * Führt work in einer interaktiven Transaktion aus, in der Chat-Zeile und
    * Zähler gemeinsam entstehen. Schlägt sie fehl, entsteht nichts von beidem,
    * ein Ereignis message_ledger_write_failed wird geschrieben (höchstens
-   * einmal je Quelle, Workspace bzw. Widget und Stunde) und der Fehler
-   * weitergereicht.
+   * einmal je Quelle, Workspace bzw. Widget und Stunde; lässt es sich nicht
+   * schreiben, wird es nachgereicht) und der Fehler weitergereicht.
    *
    * Vor der ersten Transaktion wird der Wasserstand des Nachtrags
    * festgehalten, falls das beim Start nicht gelungen ist: Sonst würde ein
@@ -234,7 +326,15 @@ const MessageLedger = {
    * Quelle, Workspace bzw. Widget und Stunde: Ein anhaltender Fehler (oder
    * jemand, der ihn von außen auslösen kann) soll das Ereignisprotokoll nicht
    * füllen. Was dazwischen nicht gemeldet wurde, nennt das nächste Ereignis
-   * als suppressed; in der Konsole steht jeder Fehler.
+   * als suppressed; in der Konsole steht jeder Fehler. Über alle Ereignisse
+   * eines Schlüssels ergibt 1 + suppressed die Zahl der Fehler.
+   *
+   * Als gemeldet gilt ein Fehler erst, wenn sein Ereignis im Protokoll steht.
+   * Lässt es sich nicht schreiben, bleibt der Schlüssel offen: Der nächste
+   * Fehler versucht es erneut, sonst _flushWriteFailures nach
+   * WRITE_FAILED_RETRY_MS. Was in einer Stunde nach dem Ereignis noch
+   * scheitert, wird spätestens mit dem Stundenwechsel nachgereicht. Offene
+   * Fehler stehen nur im Speicher des Prozesses; ein Neustart verliert sie.
    */
   _logWriteFailed: async function (context = {}, error) {
     console.error(
@@ -245,22 +345,46 @@ const MessageLedger = {
     const embedId = context?.embedId ?? null;
 
     const key = `${source}|${workspaceId}|${embedId}`;
-    const hourBucket = Math.floor(Date.now() / MS_PER_HOUR);
-    const last = reportedWriteFailures.get(key);
-    if (last?.hourBucket === hourBucket) {
-      last.suppressed += 1;
-      return;
+    let entry = writeFailures.get(key);
+    if (!entry) {
+      entry = {
+        source,
+        workspaceId,
+        embedId,
+        reportedHour: null,
+        unreported: 0,
+        lastError: null,
+        lastFailureAt: null,
+        writing: false,
+      };
+      writeFailures.set(key, entry);
     }
-    reportedWriteFailures.set(key, { hourBucket, suppressed: 0 });
+    entry.unreported += 1;
+    entry.lastError = MessageLedger.errorSummary(error);
+    entry.lastFailureAt = Date.now();
 
-    const { EventLogs } = require("./eventLogs");
-    await EventLogs.logEvent(EVENT_WRITE_FAILED, {
-      source,
-      workspaceId,
-      embedId,
-      error: MessageLedger.errorSummary(error),
-      ...(last?.suppressed ? { suppressed: last.suppressed } : {}),
-    });
+    try {
+      await reportWriteFailures(entry, false);
+    } finally {
+      scheduleWriteFailureFlush();
+    }
+  },
+
+  /**
+   * Reicht nach, was zu message_ledger_write_failed noch in keinem Ereignis
+   * steht (deferred: true, lastFailureAt nennt den letzten Fehler), und plant
+   * den nächsten Lauf, solange etwas offen bleibt. Wirft nie.
+   * @returns {Promise<void>}
+   */
+  _flushWriteFailures: async function () {
+    for (const entry of [...writeFailures.values()]) {
+      try {
+        await reportWriteFailures(entry, true);
+      } catch (error) {
+        console.error(error.message);
+      }
+    }
+    scheduleWriteFailureFlush();
   },
 
   /**
@@ -616,7 +740,6 @@ const MessageLedger = {
       console.error(
         `\x1b[31m[MessageLedger]\x1b[0m Abweichung in Workspace ${workspace.id}: Zählerbuch ${ledger.messages} (+${ledger.copied} Kopien), vorhandene Chat-Zeilen ${liveCount}. Es gilt das Zählerbuch.`
       );
-      const { EventLogs } = require("./eventLogs");
       await EventLogs.logEvent(EVENT_MISMATCH, {
         workspaceId: workspace.id,
         workspaceSlug: workspace.slug ?? null,
@@ -779,7 +902,8 @@ const MessageLedger = {
     backfillComplete = false;
     watermarkCaptured = false;
     reportedMismatches.clear();
-    reportedWriteFailures.clear();
+    writeFailures.clear();
+    cancelWriteFailureFlush();
   },
 };
 

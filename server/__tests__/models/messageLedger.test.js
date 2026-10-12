@@ -27,6 +27,7 @@ const {
   eventsOf,
 } = require("../helpers/sqliteTestDatabase");
 const { MessageLedger } = require("../../models/messageLedger");
+const { EventLogs } = require("../../models/eventLogs");
 const { WorkspaceChats } = require("../../models/workspaceChats");
 const { EmbedChats } = require("../../models/embedChats");
 const {
@@ -56,7 +57,11 @@ afterEach(async () => {
   logSpy.mockRestore();
   await db.close();
 });
-afterAll(() => removeTestDatabases());
+afterAll(() => {
+  // auch das geplante Nachreichen von message_ledger_write_failed
+  MessageLedger._resetCache();
+  removeTestDatabases();
+});
 
 /** Zeile des Zählerbuchs für Workspace, Widget und den Zeitpunkt (oder null). */
 async function cellAt(workspaceId, embedId, instant) {
@@ -915,7 +920,9 @@ describe("atomar (NAK-3)", () => {
     const other = await createWorkspace(db.client);
     const embed = await createEmbed(db.client, workspace);
     await breakLedger();
-    const startedAt = Date.now();
+    // Mitten in der Stunde: Das für den Stundenwechsel geplante Nachreichen
+    // fällt so nie in diesen Test.
+    const startedAt = Math.floor(Date.now() / 3600000) * 3600000 + 1800000;
     const nowSpy = jest.spyOn(Date, "now").mockReturnValue(startedAt);
     const fail = async (workspaceId) =>
       expect(
@@ -978,6 +985,190 @@ describe("atomar (NAK-3)", () => {
     ]);
     nowSpy.mockRestore();
     expect(await db.client.workspace_chats.count()).toBe(0);
+  });
+
+  test("atomar: lässt sich das Ereignis nicht schreiben, gilt der Fehler nicht als gemeldet - der nächste Fehler versucht es erneut und nennt, was ausblieb", async () => {
+    const workspace = await createWorkspace(db.client);
+    await breakLedger();
+    const fail = async () =>
+      expect(
+        (
+          await WorkspaceChats.new({
+            workspaceId: workspace.id,
+            prompt: "Hallo",
+          })
+        ).chat
+      ).toBeNull();
+    const reported = async () =>
+      (await eventsOf(db.client, "message_ledger_write_failed")).map(
+        ({ metadata }) => metadata
+      );
+
+    // Wie bei einer Schreibsperre: Die Transaktion scheitert, und das Ereignis
+    // lässt sich in dieselbe Datenbank ebenfalls nicht schreiben
+    // (EventLogs.logEvent wirft dann nicht, sondern liefert eventLog null).
+    await db.client.$executeRawUnsafe(
+      `CREATE TRIGGER kein_ereignis BEFORE INSERT ON event_logs
+       BEGIN SELECT RAISE(ABORT, 'künstlicher Fehler im Ereignisprotokoll'); END`
+    );
+    await fail();
+    await fail();
+    expect(await reported()).toEqual([]);
+    expect(
+      errorSpy.mock.calls.filter(([text]) =>
+        String(text).includes("[Event Logging Failed]")
+      )
+    ).toHaveLength(2);
+
+    // Die Datenbank ist wieder beschreibbar. Der Schlüssel ist offen
+    // geblieben: Der nächste Fehler derselben Stunde schreibt das Ereignis und
+    // nennt die beiden, die noch in keinem stehen.
+    await db.client.$executeRawUnsafe(`DROP TRIGGER kein_ereignis`);
+    await fail();
+    expect(await reported()).toEqual([
+      {
+        source: "workspace_chat",
+        workspaceId: workspace.id,
+        embedId: null,
+        error: expect.stringMatching(/künstlicher Fehler im Zählerbuch/),
+        suppressed: 2,
+      },
+    ]);
+
+    // Erst jetzt gilt die Stunde als gemeldet.
+    await fail();
+    expect(await reported()).toHaveLength(1);
+    expect(await db.client.workspace_chats.count()).toBe(0);
+  });
+
+  describe("Nachreichen ohne weiteren Fehler", () => {
+    // Ohne Datenbank: EventLogs.logEvent ist ersetzt, die Uhr gestellt.
+    const HOUR_MS = 3600000;
+    const MID_HOUR = Date.parse("2026-10-12T10:30:00.000Z");
+    const context = { source: "embed_chat", embedId: 7 };
+    const written = { eventLog: { id: 1 }, message: null };
+    const notWritten = { eventLog: null, message: "database is locked" };
+    let logEvent;
+    beforeEach(() => {
+      logEvent = jest.spyOn(EventLogs, "logEvent");
+      jest.useFakeTimers({ now: MID_HOUR });
+    });
+    afterEach(() => {
+      MessageLedger._resetCache();
+      jest.useRealTimers();
+      logEvent.mockRestore();
+    });
+
+    test("atomar: bleibt es bei dem einen Fehler, dessen Ereignis sich nicht schreiben ließ, wird es nach 60 s nachgereicht - und weiter, bis es im Protokoll steht", async () => {
+      logEvent
+        .mockResolvedValueOnce(notWritten)
+        .mockResolvedValueOnce(notWritten)
+        .mockResolvedValue(written);
+
+      await MessageLedger._logWriteFailed(context, new Error("gesperrt"));
+      expect(logEvent).toHaveBeenCalledTimes(1);
+      expect(logEvent).toHaveBeenLastCalledWith("message_ledger_write_failed", {
+        source: "embed_chat",
+        workspaceId: null,
+        embedId: 7,
+        error: "Error: gesperrt",
+      });
+
+      await jest.advanceTimersByTimeAsync(59999);
+      expect(logEvent).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(logEvent).toHaveBeenCalledTimes(2);
+      // Auch der zweite Versuch scheitert: nach weiteren 60 s der dritte.
+      await jest.advanceTimersByTimeAsync(60000);
+      expect(logEvent).toHaveBeenCalledTimes(3);
+      expect(logEvent).toHaveBeenLastCalledWith("message_ledger_write_failed", {
+        source: "embed_chat",
+        workspaceId: null,
+        embedId: 7,
+        error: "Error: gesperrt",
+        deferred: true,
+        lastFailureAt: new Date(MID_HOUR).toISOString(),
+      });
+
+      // Geschrieben: Es bleibt nichts offen und nichts geplant.
+      expect(jest.getTimerCount()).toBe(0);
+      await jest.advanceTimersByTimeAsync(2 * HOUR_MS);
+      expect(logEvent).toHaveBeenCalledTimes(3);
+    });
+
+    test("atomar: was in der Stunde nach dem Ereignis noch scheitert, wird mit dem Stundenwechsel nachgereicht", async () => {
+      logEvent.mockResolvedValue(written);
+
+      await MessageLedger._logWriteFailed(context, new Error("erster"));
+      await jest.advanceTimersByTimeAsync(60000);
+      await MessageLedger._logWriteFailed(context, new Error("zweiter"));
+      await MessageLedger._logWriteFailed(context, new Error("dritter"));
+      await jest.advanceTimersByTimeAsync(60000);
+      await MessageLedger._logWriteFailed(context, new Error("vierter"));
+      expect(logEvent).toHaveBeenCalledTimes(1);
+
+      const nextHour = (Math.floor(MID_HOUR / HOUR_MS) + 1) * HOUR_MS;
+      await jest.advanceTimersByTimeAsync(nextHour - Date.now() - 1);
+      expect(logEvent).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(logEvent).toHaveBeenCalledTimes(2);
+      // 1 + suppressed je Ereignis ergibt zusammen die vier Fehler.
+      expect(logEvent).toHaveBeenLastCalledWith("message_ledger_write_failed", {
+        source: "embed_chat",
+        workspaceId: null,
+        embedId: 7,
+        error: "Error: vierter",
+        suppressed: 2,
+        deferred: true,
+        lastFailureAt: new Date(MID_HOUR + 120000).toISOString(),
+      });
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    test("atomar: je Schlüssel läuft ein Schreibversuch zur Zeit - was währenddessen scheitert, zählt weiter und erzeugt kein zweites Ereignis", async () => {
+      let finish;
+      logEvent
+        .mockImplementationOnce(
+          () => new Promise((resolve) => (finish = resolve))
+        )
+        .mockResolvedValue(written);
+
+      const first = MessageLedger._logWriteFailed(context, new Error("erster"));
+      await MessageLedger._logWriteFailed(context, new Error("zweiter"));
+      expect(logEvent).toHaveBeenCalledTimes(1);
+      finish(written);
+      await first;
+
+      // Der zweite Fehler steht in keinem Ereignis: Er folgt als suppressed.
+      await MessageLedger._logWriteFailed(context, new Error("dritter"));
+      expect(logEvent).toHaveBeenCalledTimes(1);
+      jest.setSystemTime(MID_HOUR + HOUR_MS);
+      await MessageLedger._logWriteFailed(context, new Error("vierter"));
+      expect(logEvent).toHaveBeenCalledTimes(2);
+      expect(logEvent).toHaveBeenLastCalledWith("message_ledger_write_failed", {
+        source: "embed_chat",
+        workspaceId: null,
+        embedId: 7,
+        error: "Error: vierter",
+        suppressed: 2,
+      });
+    });
+
+    test("atomar: wirft das Protokollieren, bleibt der Fehler offen und wird nachgereicht", async () => {
+      logEvent
+        .mockRejectedValueOnce(new Error("Protokoll nicht erreichbar"))
+        .mockResolvedValue(written);
+
+      await expect(
+        MessageLedger._logWriteFailed(context, new Error("gesperrt"))
+      ).rejects.toThrow("Protokoll nicht erreichbar");
+      await jest.advanceTimersByTimeAsync(60000);
+      expect(logEvent).toHaveBeenCalledTimes(2);
+      expect(logEvent.mock.calls[1][1]).toEqual(
+        expect.objectContaining({ error: "Error: gesperrt", deferred: true })
+      );
+      expect(jest.getTimerCount()).toBe(0);
+    });
   });
 
   test("atomar: kein Zähler ohne Zeile - scheitert das Anlegen der Chat-Zeile, bleibt das Zählerbuch unverändert", async () => {
