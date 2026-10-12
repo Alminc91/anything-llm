@@ -11,7 +11,10 @@ const { EmbedChats } = require("../../../models/embedChats");
 const {
   WorkspaceMessageAdjustments,
 } = require("../../../models/workspaceMessageAdjustments");
-const { checkWorkspaceMessagesLimit } = require("../../../utils/helpers");
+const {
+  checkWorkspaceMessagesLimit,
+  getWorkspaceMessageLimitErrorText,
+} = require("../../../utils/helpers");
 
 jest.mock("../../../models/workspaceChats", () => ({
   WorkspaceChats: { count: jest.fn() },
@@ -206,6 +209,76 @@ describe("checkWorkspaceMessagesLimit - Meldung unverändert", () => {
     expect(errorData.cycle_info).toBeUndefined();
     expect(errorData.error).toBe(
       "Dieser Workspace hat das monatliche Limit von 600 Nachrichten für den Monat Oktober erreicht. Ihr Limit wird in 7 Tagen am 20.10.2026 zurückgesetzt."
+    );
+  });
+});
+
+describe("getWorkspaceMessageLimitErrorText - dieselbe Meldung ohne Zählung", () => {
+  const preStartWorkspace = {
+    ...monthlyWorkspace,
+    cycleStartDate: "2026-10-20",
+    cycleDurationMonths: 3,
+  };
+
+  test.each([
+    ["Kalendermonat", monthlyWorkspace, "2026-10-12T10:00:00+02:00"],
+    [
+      "Kalendermonat, letzter Tag",
+      monthlyWorkspace,
+      "2026-10-31T10:00:00+01:00",
+    ],
+    // 01.11. 00:30 Uhr in Berlin; in UTC und New York ist noch der 31.10.
+    [
+      "Monatswechsel in Berliner Zeit",
+      monthlyWorkspace,
+      "2026-10-31T23:30:00Z",
+    ],
+    ["Zyklus", cycleWorkspace, "2026-05-20T10:00:00+02:00"],
+    // 15.04. 00:30 Uhr in Berlin: bereits der neue Zyklus.
+    ["Zykluswechsel in Berliner Zeit", cycleWorkspace, "2026-04-14T22:30:00Z"],
+    ["vor dem Zyklusstart", preStartWorkspace, "2026-10-12T10:00:00+02:00"],
+  ])("%s: wortgleich mit checkWorkspaceMessagesLimit", async (_, ws, now) => {
+    setNow(now);
+    mockCounts({ chats: 600 });
+    for (const language of ["de", "en"]) {
+      const { errorData } = await checkWorkspaceMessagesLimit(ws, null, {
+        returnData: true,
+        language,
+      });
+      expect(getWorkspaceMessageLimitErrorText(ws, 600, language)).toBe(
+        errorData.error
+      );
+    }
+    // Für die Meldung allein wird nicht noch einmal gezählt.
+    jest.clearAllMocks();
+    getWorkspaceMessageLimitErrorText(ws, 600);
+    expect(WorkspaceChats.count).not.toHaveBeenCalled();
+  });
+
+  test("Zyklus: Standard ist Englisch, Reset aus dem Zyklusfenster statt aus dem Kalendermonat", () => {
+    // Limit am 20.04. erreicht: Der Reset ist der 15.07., nicht der 01.05.
+    expect(
+      getWorkspaceMessageLimitErrorText(
+        cycleWorkspace,
+        600,
+        undefined,
+        new Date("2026-04-20T10:00:00+02:00")
+      )
+    ).toBe(
+      "This workspace has reached the message limit of 600 for the current quarterly cycle. Your limit will reset in 86 days on 15.07.2026."
+    );
+  });
+
+  test("Kalendermonat: Monat und Reset in Berliner Zeit", () => {
+    expect(
+      getWorkspaceMessageLimitErrorText(
+        monthlyWorkspace,
+        600,
+        "de",
+        new Date("2026-10-31T23:30:00Z")
+      )
+    ).toBe(
+      "Dieser Workspace hat das monatliche Limit von 600 Nachrichten für den Monat November erreicht. Ihr Limit wird in 29 Tagen am 01.12.2026 zurückgesetzt."
     );
   });
 });

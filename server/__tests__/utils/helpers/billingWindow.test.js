@@ -75,7 +75,10 @@ const {
   berlinMidnight,
   cycleStartDay,
 } = require("../../../utils/helpers/billingWindow");
-const { getMessageLimitInfo } = require("../../../utils/helpers");
+const {
+  getMessageLimitInfo,
+  getWorkspaceUsageInfo,
+} = require("../../../utils/helpers");
 const {
   getCycleInfo,
   countMessagesForCurrentCycle,
@@ -543,6 +546,100 @@ describe("getBillingWindow", () => {
         expected
       );
     }
+  });
+});
+
+describe("getWorkspaceUsageInfo - Daten der Abrechnungsansicht", () => {
+  // Wie über HTTP: Dates kommen als ISO-Zeichenkette in der Ansicht an.
+  const overHttp = (payload) => JSON.parse(JSON.stringify(payload));
+  const now = new Date("2026-10-12T10:00:00+02:00");
+
+  test("vor dem Zyklusstart im laufenden Monat: Reset ist der Starttag, nicht der Monatserste", async () => {
+    addChat("2026-09-30T23:59:59+02:00"); // September
+    addChat("2026-10-05T09:00:00+02:00");
+    addChat("2026-10-11T15:00:00+02:00", "embed_chats");
+
+    const usage = overHttp(
+      await getWorkspaceUsageInfo(
+        {
+          id: WORKSPACE_ID,
+          messagesLimit: 100,
+          cycleStartDate: "2026-10-20",
+          cycleDurationMonths: 3,
+        },
+        now
+      )
+    );
+    // Dieselben Angaben wie die Sperrmeldung: „in 7 Tagen am 20.10.2026“.
+    expect(usage).toEqual({
+      messageCount: 2,
+      messagesLimit: 100,
+      contingent: "2/100",
+      adjustmentsTotal: 0,
+      cycleInfo: null,
+      resetInfo: { nextReset: "2026-10-20T00:00:00.000Z", daysRemaining: 7 },
+    });
+  });
+
+  test("ohne Zyklus und bei Zyklusstart in einem späteren Monat: Reset am Monatsersten", async () => {
+    for (const workspace of [
+      { id: WORKSPACE_ID, messagesLimit: 100 },
+      {
+        id: WORKSPACE_ID,
+        messagesLimit: 100,
+        cycleStartDate: "2026-12-01",
+        cycleDurationMonths: 3,
+      },
+    ]) {
+      const usage = overHttp(await getWorkspaceUsageInfo(workspace, now));
+      expect(usage.cycleInfo).toBeNull();
+      // Wie bisher in der Ansicht: 19 Tage bis zum letzten Tag des Monats.
+      expect(usage.resetInfo).toEqual({
+        nextReset: "2026-11-01T00:00:00.000Z",
+        daysRemaining: 19,
+      });
+    }
+  });
+
+  test("Monatswechsel richtet sich nach Berliner Zeit", async () => {
+    // 01.11. 00:30 Uhr in Berlin; in UTC und New York ist noch der 31.10.
+    const usage = overHttp(
+      await getWorkspaceUsageInfo(
+        { id: WORKSPACE_ID, messagesLimit: 100 },
+        new Date("2026-10-31T23:30:00Z")
+      )
+    );
+    expect(usage.resetInfo).toEqual({
+      nextReset: "2026-12-01T00:00:00.000Z",
+      daysRemaining: 29,
+    });
+  });
+
+  test("im laufenden Zyklus: resetInfo nennt dieselben Werte wie cycleInfo, dessen Aufbau bleibt", async () => {
+    const usage = overHttp(
+      await getWorkspaceUsageInfo(
+        {
+          id: WORKSPACE_ID,
+          messagesLimit: 600,
+          cycleStartDate: "2026-01-31",
+          cycleDurationMonths: 1,
+        },
+        new Date("2026-03-20T10:00:00+01:00")
+      )
+    );
+    expect(usage.cycleInfo).toEqual({
+      cycleNumber: 2,
+      cycleDurationMonths: 1,
+      currentCycleStart: "2026-02-28T00:00:00.000Z",
+      currentCycleEnd: "2026-03-30T00:00:00.000Z",
+      nextReset: "2026-03-31T00:00:00.000Z",
+      daysRemaining: 11,
+    });
+    // AK-9: Start 31.01., im März ist der nächste Reset der 31.03.
+    expect(usage.resetInfo).toEqual({
+      nextReset: "2026-03-31T00:00:00.000Z",
+      daysRemaining: 11,
+    });
   });
 });
 

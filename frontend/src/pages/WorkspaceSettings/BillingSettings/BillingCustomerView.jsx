@@ -55,33 +55,28 @@ export default function BillingCustomerView({ workspace }) {
   const isNearLimit = percentage >= 80;
   const isAtLimit = percentage >= 100;
 
+  // Reset-Tag und Resttage des laufenden Fensters kommen immer vom Server
+  // (resetInfo aus getBillingWindow), auch solange der Kalendermonat gilt.
+  // Hier wird nichts selbst berechnet.
+  const resetInfo = usageData?.resetInfo;
+
   // Format next reset date
   const formatNextReset = () => {
-    if (cycleInfo?.nextReset) {
-      // Tagesmarke des Servers (00:00 UTC des Berliner Kalendertags)
-      return new Date(cycleInfo.nextReset).toLocaleDateString("de-DE", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-        timeZone: "UTC",
-      });
-    }
-    // Fallback to next month
-    const now = new Date();
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    return nextMonth.toLocaleDateString("de-DE", {
+    const nextReset = resetInfo?.nextReset
+      ? new Date(resetInfo.nextReset)
+      : null;
+    if (!nextReset || isNaN(nextReset.getTime())) return "–";
+    // Tagesmarke des Servers (00:00 UTC des Berliner Kalendertags)
+    return nextReset.toLocaleDateString("de-DE", {
       day: "numeric",
       month: "long",
       year: "numeric",
+      timeZone: "UTC",
     });
   };
 
   // Get days remaining
-  const daysRemaining = cycleInfo?.daysRemaining ?? (() => {
-    const now = new Date();
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    return lastDay.getDate() - now.getDate();
-  })();
+  const daysRemaining = resetInfo?.daysRemaining ?? "–";
 
   // Get cycle duration text with description in parentheses
   const getCycleDurationText = () => {
