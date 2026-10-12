@@ -106,6 +106,10 @@ function minimumEngineThreads() {
  * 2. Die Variable gilt für den ganzen Prozess. LanceDB liest sie beim
  *    require; im Server geschieht das erst mit den Anfragen. Vor dem Lauschen
  *    nimmt utils/boot den Wert deshalb wieder zurück (releaseEngineThreads).
+ *    Jobs laufen als eigene Prozesse ohne diesen Startpfad:
+ *    jobs/sync-watched-documents.js lädt LanceDB und nimmt den Wert nach
+ *    seiner ersten Abfrage selbst zurück. Das gilt für jeden Prozess, der nach
+ *    Prisma noch ein natives Modul mit eigenen tokio-Threads lädt.
  * 3. Jeder weitere PrismaClient des Prozesses teilt sich die Threads der
  *    Engine; ein späterer Wert der Variablen ändert an ihnen nichts mehr.
  * Ob die Engine tatsächlich mehr Threads als Verbindungen hat, prüft der
@@ -137,6 +141,8 @@ function ensureEngineThreads() {
  * wenn die Engine geladen ist (nach der ersten Abfrage): Sie behält ihre
  * Threads. Die Variable gilt für den ganzen Prozess und würde sonst auch die
  * Threads anderer nativer Module bestimmen, die später laden (LanceDB).
+ * Aufgerufen je Prozess: im Server von utils/boot, im Job
+ * sync-watched-documents von ihm selbst.
  * Ein vom Betrieb gesetzter Wert steht danach wieder so da, wie er war - auch
  * ein zu niedriger, den ensureEngineThreads für die Engine ersetzt hatte.
  */

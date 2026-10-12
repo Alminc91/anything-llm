@@ -14,14 +14,20 @@ jest.mock(
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { fork } = require("child_process");
 const {
   createTestDatabase,
   removeTestDatabases,
+  createWorkspace,
   eventsOf,
 } = require("../../helpers/sqliteTestDatabase");
 const { bootInProcess } = require("../../helpers/engineCheckBoot");
 
 const serverRoot = path.resolve(__dirname, "../../..");
+const syncJobProcess = path.resolve(
+  __dirname,
+  "../../helpers/syncJobProcess.js"
+);
 const ENV_KEY = "TOKIO_WORKER_THREADS";
 
 // Der erste Test jeder Datei erzeugt die Vorlage mit `prisma migrate deploy`.
@@ -294,6 +300,146 @@ describe("betriebswert_unter_minimum (AK-20)", () => {
         threadsAtListen: operatorValue,
       });
     });
+  });
+});
+
+// Jobs laufen als eigene Prozesse (Bree, runJobsAs "process"): Der Startpfad
+// des Servers nimmt die Variable dort nicht zurück. sync-watched-documents
+// lädt nach Prisma auch LanceDB - das liest die Variable beim require.
+describe("im Job-Prozess sync-watched-documents", () => {
+  let db;
+  beforeEach(async () => {
+    db = await createTestDatabase();
+    // Ein überwachtes Dokument, dessen Abgleich fällig ist.
+    const workspace = await createWorkspace(db.client);
+    const document = await db.client.workspace_documents.create({
+      data: {
+        docId: "doc-1",
+        filename: "seite.json",
+        docpath: "custom-documents/seite.json",
+        workspaceId: workspace.id,
+        metadata: JSON.stringify({
+          chunkSource: "link://https://example.org/seite",
+        }),
+        watched: true,
+      },
+    });
+    await db.client.document_sync_queues.create({
+      data: {
+        nextSyncAt: new Date(Date.now() - 60000),
+        workspaceDocId: document.id,
+      },
+    });
+  });
+  afterEach(async () => db.close());
+
+  /**
+   * Führt den Job wie Bree als eigenen Prozess aus
+   * (helpers/syncJobProcess.js), mit eigenem, sonst leerem Storage.
+   * @param {string|null} operatorValue - TOKIO_WORKER_THREADS, wie der Betrieb sie setzt (null: nicht gesetzt)
+   * @returns {Promise<{code: number|null, lanceLoad: Object|null, log: string[]}>}
+   */
+  function runSyncJob(operatorValue = null) {
+    const storage = fs.mkdtempSync(path.join(os.tmpdir(), "sync-job-test-"));
+    const documents = path.join(storage, "documents", "custom-documents");
+    fs.mkdirSync(documents, { recursive: true });
+    fs.writeFileSync(
+      path.join(documents, "seite.json"),
+      JSON.stringify({ pageContent: "alter Inhalt" })
+    );
+
+    const env = { ...process.env, STORAGE_DIR: storage, VECTOR_DB: "lancedb" };
+    if (operatorValue === null) delete env[ENV_KEY];
+    else env[ENV_KEY] = operatorValue;
+
+    return new Promise((resolve, reject) => {
+      const messages = [];
+      const child = fork(syncJobProcess, [db.file], { env, silent: true });
+      const timer = setTimeout(() => child.kill("SIGKILL"), 100000);
+      child.on("message", (message) => messages.push(message));
+      child.on("error", reject);
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        fs.rmSync(storage, { recursive: true, force: true });
+        resolve({
+          code,
+          lanceLoad:
+            messages.find((message) => message?.lanceLoad)?.lanceLoad ?? null,
+          log: messages.filter((message) => typeof message === "string"),
+        });
+      });
+    });
+  }
+
+  test("ohne Wert des Betriebs lädt die Query-Engine mit dem Minimum; lädt der Job danach LanceDB, ist die Variable zurückgenommen", async () => {
+    const job = await runSyncJob();
+
+    expect(job.code).toBe(0);
+    expect(job.log.join("\n")).toContain("1 watched documents");
+    expect(job.lanceLoad).toEqual({
+      threads: null,
+      threadsAtLoad: String(job.lanceLoad.minimumThreads),
+      minimumThreads: engineThreads.minimumEngineThreads(),
+      warnings: [],
+    });
+  });
+
+  test("betriebswert_unter_minimum: mit TOKIO_WORKER_THREADS=2 lädt die Query-Engine mit dem Minimum - für LanceDB gilt wieder 2, wie die Warnung zusagt", async () => {
+    const job = await runSyncJob("2");
+
+    expect(job.code).toBe(0);
+    expect(job.lanceLoad.threadsAtLoad).toBe(
+      String(job.lanceLoad.minimumThreads)
+    );
+    expect(job.lanceLoad.warnings).toHaveLength(1);
+    expect(job.lanceLoad.warnings[0]).toContain(`${ENV_KEY}=2 `);
+    expect(job.lanceLoad.warnings[0]).toContain(
+      "für später ladende Module gilt wieder 2"
+    );
+    expect(job.lanceLoad.threads).toBe("2");
+  });
+
+  test("ein Betriebswert ab dem Minimum bleibt im Job unverändert", async () => {
+    const operatorValue = String(engineThreads.minimumEngineThreads() + 5);
+    const job = await runSyncJob(operatorValue);
+
+    expect(job.code).toBe(0);
+    expect(job.lanceLoad).toEqual(
+      expect.objectContaining({
+        threads: operatorValue,
+        threadsAtLoad: operatorValue,
+        warnings: [],
+      })
+    );
+  });
+
+  test("kein Job und kein Skript lädt eine Vektor-Datenbank, ohne die Variable vorher zurückzunehmen", () => {
+    const loadsVectorDatabase =
+      /getVectorDbClass\(|vectorDbProviders|@lancedb\/lancedb/;
+    const sources = ["jobs", "scripts"].flatMap((directory) =>
+      fs
+        .readdirSync(path.join(serverRoot, directory))
+        .filter((name) => name.endsWith(".js"))
+        .map((name) => path.join(directory, name))
+    );
+    expect(sources).toContain(path.join("jobs", "sync-watched-documents.js"));
+
+    const loading = sources.filter((file) =>
+      loadsVectorDatabase.test(
+        fs.readFileSync(path.join(serverRoot, file), "utf8")
+      )
+    );
+    // Wer hier dazukommt, muss wie dieser Job nach seiner ersten Abfrage
+    // releaseEngineThreads() aufrufen, bevor die Vektor-Datenbank lädt.
+    expect(loading).toEqual([path.join("jobs", "sync-watched-documents.js")]);
+    const source = fs.readFileSync(path.join(serverRoot, loading[0]), "utf8");
+    const release = source.indexOf("releaseEngineThreads();");
+    expect(release).toBeGreaterThan(
+      source.indexOf("await DocumentSyncQueue.staleDocumentQueues()")
+    );
+    expect(release).toBeLessThan(
+      source.indexOf("const vectorDatabase = getVectorDbClass();")
+    );
   });
 });
 
