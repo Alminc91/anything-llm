@@ -40,6 +40,8 @@ describe("parseCalendarDay", () => {
     "2026-12-31",
     "2026-01-01",
     "1999-05-30",
+    "0001-01-01",
+    "9998-12-31",
   ])("%s ist ein Kalendertag", (day) => {
     expect(parseCalendarDay(day)).toEqual(expect.any(Number));
   });
@@ -77,6 +79,9 @@ describe("parseCalendarDay", () => {
     ["2026-10-06T00:00:00Z"],
     ["2026-10-06 "],
     [" 2026-10-06"],
+    ["0000-01-01"],
+    ["9999-01-01"],
+    ["9999-12-31"],
     ["+002026-10-06"],
     ["-2026-10-06"],
     [""],
@@ -361,6 +366,9 @@ describe("nextDay", () => {
     expect(nextDay("2026-12-31")).toBe("2027-01-01");
     expect(nextDay("2024-02-28")).toBe("2024-02-29");
     expect(nextDay("2026-02-28")).toBe("2026-03-01");
+    // Der Folgetag jedes gültigen Tages bleibt ein vierstelliges Datum.
+    expect(nextDay("9998-12-31")).toBe("9999-01-01");
     expect(() => nextDay("2026-02-30")).toThrow();
+    expect(() => nextDay("9999-12-31")).toThrow();
   });
 });

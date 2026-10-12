@@ -72,7 +72,9 @@ function dayOf(serial) {
 
 /**
  * Liest einen Kalendertag. Angenommen wird nur die Schreibweise "YYYY-MM-DD"
- * eines Tages, den es gibt (kein 30.02., kein 13. Monat).
+ * eines Tages, den es gibt (kein 30.02., kein 13. Monat), in den Jahren 0001
+ * bis 9998: So bleibt auch der Folgetag (nextDay) ein Tag in dieser
+ * Schreibweise.
  * @param {*} value
  * @returns {number|null} - laufende Tagesnummer oder null
  */
@@ -80,7 +82,9 @@ function parseCalendarDay(value) {
   if (typeof value !== "string") return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return null;
-  const serial = serialOf(Number(match[1]), Number(match[2]), Number(match[3]));
+  const year = Number(match[1]);
+  if (year < 1 || year > 9998) return null;
+  const serial = serialOf(year, Number(match[2]), Number(match[3]));
   return dayOf(serial) === value ? serial : null;
 }
 

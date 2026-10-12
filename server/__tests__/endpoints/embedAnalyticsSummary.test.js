@@ -1387,6 +1387,17 @@ describe("eingaben (NAK-6)", () => {
     expect(result.statusCode).toBe(403);
   });
 
+  test("eingaben: Abschnitts-Filter der Liste - Tage am Rand des Kalenders ergeben Grenzen statt eines Fehlers", async () => {
+    for (const body of [
+      { startedFromDay: "9998-12-31", startedToDay: "9998-12-31" },
+      { startedFromDay: "0001-01-01", startedToDay: "0001-01-01" },
+    ]) {
+      const result = await conversations(embed, body);
+      expect([body, result.statusCode]).toEqual([body, 200]);
+      expect(result.body).toMatchObject({ conversations: [], totalCount: 0 });
+    }
+  });
+
   test("eingaben: Abschnitts-Filter der Liste - ungültige Kalendertage → 400 ohne Abfrage der Konversationen", async () => {
     const listSpy = jest.spyOn(EmbedChats, "getConversations");
     const countSpy = jest.spyOn(EmbedChats, "countConversations");
@@ -1398,6 +1409,8 @@ describe("eingaben (NAK-6)", () => {
       { startedFromDay: "", startedToDay: "" },
       { startedFromDay: 20261006, startedToDay: 20261006 },
       { startedFromDay: "2026-10-06' OR '1'='1", startedToDay: "2026-10-06" },
+      { startedFromDay: "9999-12-31", startedToDay: "9999-12-31" },
+      { startedFromDay: "0000-01-01", startedToDay: "0000-01-02" },
     ]) {
       const result = await conversations(embed, body);
       expect([body, result.statusCode]).toEqual([body, 400]);
