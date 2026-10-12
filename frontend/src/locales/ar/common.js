@@ -1592,6 +1592,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "تم بلوغ الحد",
+      "read-only-hint":
+        "تتم إدارة الحد ودورة الفوترة مركزيًا ولا يمكن تغييرهما هنا.",
     },
     cycle: {
       "1-month": null,

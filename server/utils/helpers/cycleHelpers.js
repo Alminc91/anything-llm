@@ -50,6 +50,19 @@ function addMonths(date, months) {
 }
 
 /**
+ * Hat der Workspace ein Limit? null/undefined = unbegrenzt; 0 ist ein Limit
+ * (gesperrt), wie in checkWorkspaceMessagesLimit.
+ *
+ * @param {Object} workspace - Workspace with messagesLimit
+ * @returns {boolean}
+ */
+function hasMessagesLimit(workspace) {
+  return (
+    workspace.messagesLimit !== null && workspace.messagesLimit !== undefined
+  );
+}
+
+/**
  * Calculates all cycle information for a workspace.
  *
  * Die Datumsfelder sind Tagesmarken: 00:00 UTC des Berliner Kalendertags.
@@ -105,7 +118,8 @@ async function getCycleInfoWithMessageCount(workspace, simulateDate = null) {
     ...cycleInfo,
     messageCount,
     adjustmentsTotal: countBreakdown.adjustmentsTotal,
-    messagesRemaining: workspace.messagesLimit
+    // KIE-533: 0 heißt gesperrt (0 verbleibend), nur null heißt unbegrenzt
+    messagesRemaining: hasMessagesLimit(workspace)
       ? Math.max(0, workspace.messagesLimit - messageCount)
       : null,
     contingent: `${messageCount}/${workspace.messagesLimit ?? "Unlimited"}`,
@@ -145,7 +159,8 @@ async function countMessagesForCurrentCycle(
  * @returns {Promise<boolean>} - True if limit reached
  */
 async function isCycleLimitReached(workspace, simulateDate = null) {
-  if (!workspace.messagesLimit) {
+  // KIE-533: Ein Limit von 0 sperrt (0 >= 0), nur null/undefined ist unbegrenzt
+  if (!hasMessagesLimit(workspace)) {
     return false; // No limit set
   }
 

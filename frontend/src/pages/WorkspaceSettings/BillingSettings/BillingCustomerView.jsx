@@ -51,7 +51,12 @@ export default function BillingCustomerView({ workspace }) {
   const isUnlimited = messagesLimit === null || messagesLimit === undefined;
 
   // Calculate percentage
-  const percentage = isUnlimited ? 0 : Math.min((messageCount / messagesLimit) * 100, 100);
+  // KIE-533: Ein Limit von 0 heißt gesperrt - das Kontingent ist erschöpft.
+  const percentage = isUnlimited
+    ? 0
+    : messagesLimit > 0
+      ? Math.min((messageCount / messagesLimit) * 100, 100)
+      : 100;
   const isNearLimit = percentage >= 80;
   const isAtLimit = percentage >= 100;
 

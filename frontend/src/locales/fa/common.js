@@ -1612,6 +1612,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "سقف مجاز پر شده است",
+      "read-only-hint":
+        "سقف پیام و دوره صورت‌حساب به‌صورت متمرکز مدیریت می‌شوند و در اینجا قابل تغییر نیستند.",
     },
     cycle: {
       "1-month": null,

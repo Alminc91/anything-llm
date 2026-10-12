@@ -1610,6 +1610,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "Đã đạt giới hạn",
+      "read-only-hint":
+        "Giới hạn và chu kỳ thanh toán được quản lý tập trung và không thể thay đổi tại đây.",
     },
     cycle: {
       "1-month": null,

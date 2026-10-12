@@ -1210,6 +1210,18 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const { type = "jsonl", chatType = "workspace" } = request.query;
+
+        // KIE-533: Der Sammel-Export der Widget-Chats liefert die Nachrichten
+        // aller Workspaces der Instanz und ist deshalb admin vorbehalten.
+        // Ohne Mehrbenutzermodus (kein Nutzerobjekt) wird nicht geprüft.
+        if (chatType !== "workspace") {
+          const user = await userFromSession(request, response);
+          if (!!user && user.role !== ROLES.admin) {
+            response.sendStatus(403).end();
+            return;
+          }
+        }
+
         const { contentType, data } = await exportChatsAsType(type, chatType);
         await EventLogs.logEvent(
           "exported_chats",

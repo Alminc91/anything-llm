@@ -75,14 +75,17 @@ function apiWorkspaceEndpoints(app) {
     */
     try {
       const { name = null, ...additionalFields } = reqBody(request);
-      const { workspace, message } = await Workspace.new(
+      const { workspace, message, errors } = await Workspace.new(
         name,
         null,
         additionalFields
       );
 
       if (!workspace) {
-        response.status(400).json({ workspace: null, message });
+        // KIE-533: `errors` nennt je abgelehntem Abrechnungsfeld die Meldung
+        response
+          .status(400)
+          .json({ workspace: null, message, ...(errors ? { errors } : {}) });
         return;
       }
 
@@ -340,29 +343,28 @@ function apiWorkspaceEndpoints(app) {
           return;
         }
 
-        // Convert empty string messagesLimit to null for Prisma
-        if (data.messagesLimit === "") {
-          data.messagesLimit = null;
-        } else if (typeof data.messagesLimit === "string") {
-          // Ensure it's an integer if not empty or null
-          data.messagesLimit = parseInt(data.messagesLimit, 10);
-          // Handle potential NaN from parseInt if input was not a valid number string
-          if (isNaN(data.messagesLimit)) data.messagesLimit = null; // Or set a default? Or throw error?
-        }
-
+        // KIE-533: messagesLimit, cycleStartDate und cycleDurationMonths
+        // prüft Workspace.update (validateBillingFields). Hier wird nichts
+        // mehr vorab umgedeutet ("10.000" → 10, "abc" → unbegrenzt).
         console.log(
           `Attempting to update workspace ${currWorkspace.id} with data:`,
           JSON.stringify(data, null, 2)
         );
-        // Log the specific messagesLimit value prepared for update
-        console.log(`Parsed messagesLimit for update:`, data.messagesLimit);
 
         try {
           // Wrap the update in its own try block for specific logging
-          const { workspace, message } = await Workspace.update(
+          const { workspace, message, errors } = await Workspace.update(
             currWorkspace.id,
             data
           );
+          if (errors) {
+            // Ungültige Abrechnungswerte: nichts gespeichert, Meldung je Feld
+            console.log(
+              `Rejected update of workspace ${currWorkspace.id}: ${message}`
+            );
+            response.status(400).json({ workspace: null, message, errors });
+            return;
+          }
           // ADD SUCCESS LOG:
           console.log(
             `Successfully updated workspace ${currWorkspace.id}. New limit: ${workspace.messagesLimit}`

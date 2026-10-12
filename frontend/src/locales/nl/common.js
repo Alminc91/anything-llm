@@ -1618,6 +1618,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "Limiet bereikt",
+      "read-only-hint":
+        "De limiet en de factureringscyclus worden centraal beheerd en kunnen hier niet worden gewijzigd.",
     },
     cycle: {
       "1-month": null,

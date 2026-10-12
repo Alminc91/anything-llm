@@ -1590,6 +1590,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "한도 도달",
+      "read-only-hint":
+        "한도와 결제 주기는 중앙에서 관리되며 여기에서 변경할 수 없습니다.",
     },
     cycle: {
       "1-month": null,

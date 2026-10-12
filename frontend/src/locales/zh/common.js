@@ -1541,6 +1541,8 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "已达上限",
+      "read-only-hint": "消息上限和计费周期由系统统一管理，无法在此处修改。",
     },
     cycle: {
       "1-month": null,

@@ -724,6 +724,8 @@ const EmbedChats = {
 
   /**
    * Analytics: Get basic statistics for an embed
+   * KIE-533: Zählt wie die Konversationsliste nur Zeilen mit include = 1
+   * (ohne die per markHistoryInvalid zurückgesetzten).
    * @param {number} embedId - The embed config ID
    * @param {Date|null} startDate - Optional start date filter
    * @param {Date|null} endDate - Optional end date filter
@@ -738,7 +740,7 @@ const EmbedChats = {
       const { Prisma } = require("@prisma/client");
 
       // Build WHERE clause
-      const where = { embed_id: Number(embedId) };
+      const where = { embed_id: Number(embedId), include: true };
       if (startDate && endDate) {
         where.createdAt = { gte: startDate, lte: endDate };
       }
@@ -769,6 +771,7 @@ const EmbedChats = {
         SELECT COUNT(DISTINCT COALESCE(conversation_id, session_id)) as count
         FROM embed_chats
         WHERE embed_id = ${embedId}
+          AND include = 1
           ${dateConditions.length > 0 ? Prisma.join(dateConditions, " ") : Prisma.empty}
       `;
 
@@ -783,6 +786,7 @@ const EmbedChats = {
           MAX(LENGTH(response) - LENGTH(REPLACE(response, ' ', '')) + 1) as max_words_response
         FROM embed_chats
         WHERE embed_id = ${embedId}
+          AND include = 1
           ${dateConditions.length > 0 ? Prisma.join(dateConditions, " ") : Prisma.empty}
       `;
 

@@ -1619,6 +1619,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "Grænse nået",
+      "read-only-hint":
+        "Grænsen og faktureringscyklussen administreres centralt og kan ikke ændres her.",
     },
     cycle: {
       "1-month": null,

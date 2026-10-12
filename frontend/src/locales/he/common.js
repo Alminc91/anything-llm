@@ -1575,6 +1575,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "הגעת למגבלה",
+      "read-only-hint":
+        "המגבלה ומחזור החיוב מנוהלים באופן מרכזי ולא ניתן לשנות אותם כאן.",
     },
     cycle: {
       "1-month": null,

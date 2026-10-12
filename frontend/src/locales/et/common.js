@@ -1567,6 +1567,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "Limiit on täis",
+      "read-only-hint":
+        "Limiiti ja arveldustsüklit hallatakse keskselt ning neid ei saa siin muuta.",
     },
     cycle: {
       "1-month": null,

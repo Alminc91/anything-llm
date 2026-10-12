@@ -3,14 +3,18 @@ import { useTranslation } from "react-i18next";
 import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import { castToType } from "@/utils/types";
+import { formatDateForInput } from "@/utils/billingDate";
 import CTAButton from "@/components/lib/CTAButton";
 
 /**
  * Admin View for Billing Settings
  * Allows admins to configure message limits and billing cycles
  * Also shows current usage statistics for support purposes
+ *
+ * KIE-533: Mit canEdit = false (Manager) sind Limit, Zyklusstart und -dauer
+ * sichtbar, aber gesperrt; der Server verwirft diese Felder ohnehin.
  */
-export default function BillingAdminView({ workspace }) {
+export default function BillingAdminView({ workspace, canEdit = true }) {
   const { t } = useTranslation();
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -31,14 +35,6 @@ export default function BillingAdminView({ workspace }) {
     }
     loadInitialUsageData();
   }, [workspace.slug]);
-
-  // Format date for input (YYYY-MM-DD)
-  const formatDateForInput = (dateValue) => {
-    if (!dateValue) return "";
-    const date = new Date(dateValue);
-    if (isNaN(date.getTime())) return "";
-    return date.toISOString().split("T")[0];
-  };
 
   // Reset-Tag aus den Serverwerten. Der Server liefert eine Tagesmarke
   // (00:00 UTC des Berliner Kalendertags), deshalb in UTC formatieren:
@@ -70,6 +66,17 @@ export default function BillingAdminView({ workspace }) {
   // am Starttag endet. Solange ungespeicherte Änderungen bestehen, passt sein
   // Wert nicht zu den Eingaben; nach dem Speichern wird er neu geladen.
   const resetInfo = usageData?.resetInfo;
+
+  // KIE-533: 0 heißt gesperrt (Limit erreicht), nur null heißt unbegrenzt.
+  const usageLimit = usageData?.messagesLimit;
+  const hasLimit = usageLimit !== null && usageLimit !== undefined;
+  const usageRatio = !hasLimit
+    ? 0
+    : usageLimit > 0
+      ? (usageData.messageCount ?? 0) / usageLimit
+      : 1;
+  const limitReached = hasLimit && usageRatio >= 1;
+
   const nextReset =
     hasChanges || !cycleStartDate
       ? null
@@ -96,6 +103,7 @@ export default function BillingAdminView({ workspace }) {
 
   const handleUpdate = async (e) => {
     e.preventDefault();
+    if (!canEdit) return;
     setSaving(true);
     const data = {};
     const form = new FormData(formEl.current);
@@ -120,7 +128,7 @@ export default function BillingAdminView({ workspace }) {
     <div id="workspace-billing-settings-container" className="relative">
       <form ref={formEl} onSubmit={handleUpdate} className="w-1/2 flex flex-col gap-y-6">
         {/* Save Button - top right like other tabs */}
-        {hasChanges && (
+        {canEdit && hasChanges && (
           <div className="absolute top-0 right-0">
             <CTAButton type="submit" disabled={saving}>
               {saving ? t("billing.admin.saving") : t("billing.admin.update-workspace")}
@@ -156,7 +164,7 @@ export default function BillingAdminView({ workspace }) {
                     </span>
                   </p>
                 </div>
-                {usageData.messagesLimit && (
+                {hasLimit && (
                   <div className="text-right">
                     <p className="text-white/60 text-sm">{t("billing.admin.remaining")}</p>
                     <p className="text-2xl font-semibold text-white">
@@ -167,33 +175,38 @@ export default function BillingAdminView({ workspace }) {
               </div>
 
               {/* Progress Bar */}
-              {usageData.messagesLimit && (
+              {hasLimit && (
                 <div className="w-full bg-theme-settings-input-bg rounded-full h-4 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${
-                      (usageData.messageCount / usageData.messagesLimit) >= 1
+                      usageRatio >= 1
                         ? "bg-red-500"
-                        : (usageData.messageCount / usageData.messagesLimit) >= 0.8
+                        : usageRatio >= 0.8
                           ? "bg-yellow-500"
                           : "bg-green-500"
                     }`}
-                    style={{ width: `${Math.min((usageData.messageCount / usageData.messagesLimit) * 100, 100)}%` }}
+                    style={{ width: `${Math.min(usageRatio * 100, 100)}%` }}
                   />
                 </div>
               )}
 
               {/* Percentage */}
-              {usageData.messagesLimit && (
+              {hasLimit && (
                 <div className="text-sm">
                   <span className={`font-medium ${
-                    (usageData.messageCount / usageData.messagesLimit) >= 1
+                    usageRatio >= 1
                       ? "text-red-400"
-                      : (usageData.messageCount / usageData.messagesLimit) >= 0.8
+                      : usageRatio >= 0.8
                         ? "text-yellow-400"
                         : "text-white/60"
                   }`}>
-                    {((usageData.messageCount / usageData.messagesLimit) * 100).toFixed(1)}% {t("billing.admin.used")}
+                    {(usageRatio * 100).toFixed(1)}% {t("billing.admin.used")}
                   </span>
+                  {limitReached && (
+                    <span className="ml-2 font-semibold text-red-400">
+                      {t("billing.admin.limit-reached")}
+                    </span>
+                  )}
                 </div>
               )}
 
@@ -279,7 +292,8 @@ export default function BillingAdminView({ workspace }) {
             step={1}
             onWheel={(e) => e.target.blur()}
             value={messagesLimit}
-            className="border-none bg-theme-settings-input-bg text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5 mt-4"
+            disabled={!canEdit}
+            className="border-none bg-theme-settings-input-bg text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5 mt-4 disabled:opacity-60 disabled:cursor-not-allowed"
             placeholder={t("billing.admin.unlimited")}
             autoComplete="off"
             onChange={(e) => {
@@ -313,11 +327,12 @@ export default function BillingAdminView({ workspace }) {
                 name="cycleStartDate"
                 type="date"
                 value={cycleStartDate}
+                disabled={!canEdit}
                 onChange={(e) => {
                   setCycleStartDate(e.target.value);
                   setHasChanges(true);
                 }}
-                className="border-none bg-theme-settings-input-bg text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5"
+                className="border-none bg-theme-settings-input-bg text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5 disabled:opacity-60 disabled:cursor-not-allowed"
               />
             </div>
 
@@ -332,11 +347,12 @@ export default function BillingAdminView({ workspace }) {
               <select
                 name="cycleDurationMonths"
                 value={cycleDurationMonths}
+                disabled={!canEdit}
                 onChange={(e) => {
                   setCycleDurationMonths(e.target.value ? parseInt(e.target.value) : "");
                   setHasChanges(true);
                 }}
-                className="border-none bg-theme-settings-input-bg text-white text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5"
+                className="border-none bg-theme-settings-input-bg text-white text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <option value="">{t("billing.admin.select-placeholder")}</option>
                 {cycleDurationOptions.map((option) => (
@@ -359,11 +375,13 @@ export default function BillingAdminView({ workspace }) {
           )}
         </div>
 
-        {/* Info Box */}
+        {/* Info Box: Upgrade-Hinweis nur für den, der den Zyklus ändern darf */}
         <div className="p-4 bg-blue-500/15 rounded-lg border border-blue-500/30">
           <p className="text-sm text-blue-400">
             <strong>{t("billing.admin.info-title")}</strong>{" "}
-            {t("billing.admin.info-text")}
+            {canEdit
+              ? t("billing.admin.info-text")
+              : t("billing.admin.read-only-hint")}
           </p>
         </div>
       </form>

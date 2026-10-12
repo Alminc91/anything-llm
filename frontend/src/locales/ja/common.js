@@ -1616,6 +1616,9 @@ const TRANSLATIONS = {
       "update-workspace": null,
       "info-title": null,
       "info-text": null,
+      "limit-reached": "上限に達しました",
+      "read-only-hint":
+        "上限と請求サイクルは一元管理されており、ここでは変更できません。",
     },
     cycle: {
       "1-month": null,

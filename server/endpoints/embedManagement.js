@@ -19,6 +19,53 @@ const {
   embedDefaultTexts,
 } = require("../utils/chats/embedDefaults");
 
+/**
+ * KIE-533: Darf der Nutzer auf diesen Workspace zugreifen?
+ * Muster des Konversations-Endpunkts (KIE-527): Geprüft wird nur die Rolle
+ * default (Mitgliedschaft im Workspace). admin und manager sind nicht
+ * eingeschränkt; ohne Mehrbenutzermodus gibt es kein Nutzerobjekt, dann wird
+ * nicht geprüft.
+ * @param {{id: number, role: string}|null} user
+ * @param {number|string|null} workspaceId
+ * @returns {Promise<boolean>}
+ */
+async function userCanAccessWorkspace(user, workspaceId) {
+  if (user?.role !== ROLES.default) return true;
+  const id = Number(workspaceId);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  const membership = await WorkspaceUser.get({
+    user_id: user.id,
+    workspace_id: id,
+  });
+  return !!membership;
+}
+
+/**
+ * KIE-533: Darf der Nutzer dieses Widget verwalten bzw. dessen Daten lesen?
+ * Ein Default-User nur, wenn er zum Workspace des Widgets gehört - ein
+ * unbekanntes Widget ist für ihn von einem fremden nicht zu unterscheiden.
+ * @param {{id: number, role: string}|null} user
+ * @param {number|string} embedId
+ * @returns {Promise<boolean>}
+ */
+async function userCanAccessEmbed(user, embedId) {
+  if (user?.role !== ROLES.default) return true;
+  const embed = await EmbedConfig.get({ id: Number(embedId) });
+  if (!embed) return false;
+  return await userCanAccessWorkspace(user, embed.workspace_id);
+}
+
+// Middleware für /:embedId-Routen: 403, wenn der Nutzer das Widget nicht
+// verwalten darf. Steht vor validEmbedConfigId und vor jedem Upload.
+async function validEmbedAccess(request, response, next) {
+  const user = await userFromSession(request, response);
+  if (!(await userCanAccessEmbed(user, request.params.embedId))) {
+    response.sendStatus(403).end();
+    return;
+  }
+  next();
+}
+
 function embedManagementEndpoints(app) {
   if (!app) return;
 
@@ -81,6 +128,13 @@ function embedManagementEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const data = reqBody(request);
+
+        // KIE-533: Default-User legen Widgets nur in ihren Workspaces an.
+        if (!(await userCanAccessWorkspace(user, data?.workspace_id))) {
+          response.sendStatus(403).end();
+          return;
+        }
+
         const { embed, message: error } = await EmbedConfig.new(data, user?.id);
         await EventLogs.logEvent(
           "embed_created",
@@ -97,12 +151,23 @@ function embedManagementEndpoints(app) {
 
   app.post(
     "/embed/update/:embedId",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedConfigId],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess, validEmbedConfigId],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
         const { embedId } = request.params;
         const updates = reqBody(request);
+
+        // KIE-533: Umhängen nur in einen Workspace, auf den der Nutzer selbst
+        // Zugriff hat (das Widget selbst prüft validEmbedAccess).
+        if (
+          updates?.workspace_id !== undefined &&
+          !(await userCanAccessWorkspace(user, updates.workspace_id))
+        ) {
+          response.sendStatus(403).end();
+          return;
+        }
+
         const { success, error } = await EmbedConfig.update(embedId, updates);
         await EventLogs.logEvent("embed_updated", { embedId }, user?.id);
         response.status(200).json({ success, error });
@@ -115,7 +180,7 @@ function embedManagementEndpoints(app) {
 
   app.delete(
     "/embed/:embedId",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedConfigId],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess, validEmbedConfigId],
     async (request, response) => {
       try {
         const { embedId } = request.params;
@@ -181,7 +246,18 @@ function embedManagementEndpoints(app) {
     [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
     async (request, response) => {
       try {
+        const user = await userFromSession(request, response);
         const { chatId } = request.params;
+
+        // KIE-533: Default-User löschen nur Chats von Widgets ihrer Workspaces.
+        if (user?.role === ROLES.default) {
+          const chat = await EmbedChats.get({ id: Number(chatId) });
+          if (!chat || !(await userCanAccessEmbed(user, chat.embed_id))) {
+            response.sendStatus(403).end();
+            return;
+          }
+        }
+
         await EmbedChats.delete({ id: Number(chatId) });
         response.status(200).json({ success: true, error: null });
       } catch (e) {
@@ -264,9 +340,12 @@ function embedManagementEndpoints(app) {
   );
 
   // Analytics: Get basic statistics for an embed
+  // KIE-533: wie der Konversations-Endpunkt darunter - chatHistoryViewable,
+  // Default-User nur für Widgets ihrer Workspaces; gezählt wird nur
+  // include = 1 (EmbedChats.getBasicStats), wie in der Liste.
   app.post(
     "/embed/:embedId/analytics/overview",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
+    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess],
     async (request, response) => {
       try {
         const { embedId } = request.params;
@@ -346,9 +425,11 @@ function embedManagementEndpoints(app) {
   );
 
   // Analytics: Get conversation details
+  // KIE-533 (AK-13): wie die Konversationsliste darüber - chatHistoryViewable,
+  // Default-User nur für Widgets ihrer Workspaces (sonst 403 ohne Inhalte).
   app.get(
     "/embed/:embedId/conversation/:sessionId",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
+    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess],
     async (request, response) => {
       try {
         const { embedId, sessionId } = request.params;
@@ -369,7 +450,7 @@ function embedManagementEndpoints(app) {
   // Upload logo for an embed widget
   app.post(
     "/embed/:embedId/upload-logo",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedConfigId, handleEmbedLogoUpload],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess, validEmbedConfigId, handleEmbedLogoUpload],
     async (request, response) => {
       try {
         const { embedId } = request.params;
@@ -408,7 +489,7 @@ function embedManagementEndpoints(app) {
   // Remove logo for an embed widget
   app.delete(
     "/embed/:embedId/remove-logo",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedConfigId],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess, validEmbedConfigId],
     async (request, response) => {
       try {
         const { embedId } = request.params;
@@ -441,11 +522,20 @@ function embedManagementEndpoints(app) {
   // DSGVO: Clear all chats (global or per-embed)
   app.delete(
     "/embed-chats/clear/:embedId",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
     async (request, response) => {
       try {
         const { embedId } = request.params;
         const user = await userFromSession(request, response);
+
+        // Leeren bleibt admin und manager vorbehalten. KIE-533: Default-User
+        // erhalten wie an den übrigen Widget-Endpunkten 403 (bisher 401 aus
+        // der Rollenprüfung) - für fremde wie für eigene Widgets. Ohne
+        // Mehrbenutzermodus gibt es kein Nutzerobjekt.
+        if (!!user && ![ROLES.admin, ROLES.manager].includes(user.role)) {
+          response.sendStatus(403).end();
+          return;
+        }
 
         if (Number(embedId) === -1) {
           // Global: Delete ALL embed chats
