@@ -8,8 +8,9 @@
 // ergeben sich aus dem Tag allein.
 //
 // Datumsangaben stehen wie überall im Fork in deutscher Schreibweise
-// (TT.MM.JJJJ), Zahlen mit toLocaleString("de-DE"). Nur die Namen (Wochentag,
-// Monat) folgen der Sprache der Oberfläche.
+// (TT.MM.JJJJ), Zahlen mit toLocaleString("de-DE"). Nur der Wochentag und die
+// Angabe „Monat Jahr" folgen der Sprache der Oberfläche – immer im
+// gregorianischen Kalender und mit denselben Ziffern wie die Datumsangaben.
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NUMBER_LOCALE = "de-DE";
@@ -21,6 +22,8 @@ export const MAX_BUCKETS = 92;
 // Säulen: höchstens so breit, nie die ganze Spalte; oben abgerundet.
 export const BAR_MAX_WIDTH = 24;
 export const BAR_RADIUS = 4;
+// Mittlere Zeichenbreite der Achsenbeschriftung (11 px Schrift)
+const TICK_CHAR_WIDTH = 6;
 
 /** @typedef {"hour"|"day"|"week"|"month"} Granularity */
 /** @typedef {{start: string, end: string, partial: boolean, hour?: number, messages: number, conversations: number}} Bucket */
@@ -156,29 +159,33 @@ export function allTimeRange(firstLedgerDay, today) {
 // ---------------------------------------------------------------------------
 
 const formatters = new Map();
-function partOf(day, locale, options, type) {
+/**
+ * Formatierer für Kalendertage in der Sprache der Oberfläche. Der Kalender
+ * ist fest gregorianisch (fa und ar-SA rechnen sonst persisch bzw. nach der
+ * Hidschra – der Kalendertag ist aber ein gregorianischer), die Ziffern sind
+ * die lateinischen der Datumsangaben daneben.
+ */
+function formatterOf(locale, options) {
   const key = `${locale}|${JSON.stringify(options)}`;
   if (!formatters.has(key)) {
+    const fixed = {
+      ...options,
+      calendar: "gregory",
+      numberingSystem: "latn",
+      timeZone: "UTC",
+    };
     let formatter;
     try {
-      formatter = new Intl.DateTimeFormat(locale, {
-        ...options,
-        timeZone: "UTC",
-      });
+      formatter = new Intl.DateTimeFormat(locale, fixed);
     } catch {
-      formatter = new Intl.DateTimeFormat(NUMBER_LOCALE, {
-        ...options,
-        timeZone: "UTC",
-      });
+      formatter = new Intl.DateTimeFormat(NUMBER_LOCALE, fixed);
     }
     formatters.set(key, formatter);
   }
-  const part = formatters
-    .get(key)
-    .formatToParts(new Date(`${day}T00:00:00Z`))
-    .find((entry) => entry.type === type);
-  return part?.value ?? "";
+  return formatters.get(key);
 }
+
+const instantOf = (day) => new Date(`${day}T00:00:00Z`);
 
 /**
  * @param {number} value
@@ -206,24 +213,31 @@ export function formatDateShort(day) {
 
 /** "Di., 06.10.2026" */
 export function formatWeekdayDate(day, locale) {
-  const weekday = partOf(
-    day,
-    locale,
-    { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" },
-    "weekday"
-  );
-  return `${weekday}, ${formatDate(day)}`;
+  // Der Wochentag, wie er vor einem Datum steht ("Di." statt "Di").
+  const weekday = formatterOf(locale, {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  })
+    .formatToParts(instantOf(day))
+    .find((part) => part.type === "weekday");
+  return `${weekday?.value ?? ""}, ${formatDate(day)}`;
 }
 
-/** "Oktober 2026" */
-export function formatMonth(day, locale) {
-  const month = partOf(
-    day,
-    locale,
-    { month: "long", year: "numeric" },
-    "month"
+/**
+ * "Oktober 2026", kurz "Okt. 2026" – Monat und Jahr, wie die Sprache sie
+ * schreibt: Reihenfolge und Form sind nicht überall „Name Jahr" (japanisch
+ * "2026年10月").
+ * @param {string} day - ein Tag des Monats
+ * @param {string} locale
+ * @param {"long"|"short"} [width]
+ * @returns {string}
+ */
+export function formatMonth(day, locale, width = "long") {
+  return formatterOf(locale, { month: width, year: "numeric" }).format(
+    instantOf(day)
   );
-  return `${month} ${day.slice(0, 4)}`;
 }
 
 /** Erster und letzter Tag des Kalenderabschnitts, zu dem ein Abschnitt gehört. */
@@ -313,13 +327,7 @@ export function bucketTick(bucket, granularity, { t, locale }) {
     return t("embed-analytics.chart.period.week", {
       week: isoWeek(bucket.start).week,
     });
-  const month = partOf(
-    bucket.start,
-    locale,
-    { month: "short", year: "numeric" },
-    "month"
-  );
-  return `${month} ${bucket.start.slice(0, 4)}`;
+  return formatMonth(bucket.start, locale, "short");
 }
 
 /**
@@ -454,6 +462,19 @@ export function tickStep(count, plotWidth, labelWidth) {
   return (
     [1, 2, 3, 4, 6, 7, 12, 14, 24, 28].find((nice) => nice >= step) ?? step
   );
+}
+
+/**
+ * Platz je Beschriftung an der Zeitachse: der übliche, bei langen
+ * Beschriftungen (Monat und Jahr, z. B. lettisch "2026. g. sept.") so viel,
+ * wie die längste nach ihrer Zeichenzahl braucht.
+ * @param {string[]} labels
+ * @param {number} minimum - üblicher Platz in px
+ * @returns {number}
+ */
+export function tickLabelWidth(labels, minimum) {
+  const longest = Math.max(0, ...labels.map((label) => label.length));
+  return Math.max(minimum, longest * TICK_CHAR_WIDTH + 8);
 }
 
 /**

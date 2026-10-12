@@ -26,6 +26,7 @@ import {
   countsSinceDay,
   daysBetween,
   formatDate,
+  formatMonth,
   formatNumber,
   isoWeek,
   kpiValues,
@@ -33,6 +34,7 @@ import {
   lastMonthsRange,
   rangeFromDates,
   showsDeletedHint,
+  tickLabelWidth,
   tickStep,
   toDayString,
   valueLabel,
@@ -379,6 +381,85 @@ test("Englische Oberfläche: Namen englisch, Datumsangaben in deutscher Schreibw
     "October 2026 – until 12.10."
   );
   assert.equal(valueLabel(1, "messages", english.t), "1 message");
+});
+
+test("Monate in Sprachen mit anderem Kalender (fa, ar-SA): der gregorianische Monat zum gregorianischen Jahr", () => {
+  // Der Oktober 2026 liegt im persischen Monat Mehr 1405 und im
+  // Hidschra-Monat Rabīʿ ath-thānī 1448 – beide Namen wären hier falsch.
+  const october = new Date("2026-10-01T00:00:00Z");
+  const monthIn = (tag) =>
+    new Intl.DateTimeFormat(tag, { month: "long", timeZone: "UTC" }).format(
+      october
+    );
+  for (const [locale, foreign] of [
+    ["fa", "persian"],
+    ["ar-sa", "islamic-umalqura"],
+    ["ar", "islamic-umalqura"],
+  ]) {
+    const gregorian = monthIn(`${locale}-u-ca-gregory`);
+    const other = monthIn(`${locale}-u-ca-${foreign}`);
+    assert.notEqual(gregorian, other, locale);
+
+    const label = formatMonth("2026-10-01", locale);
+    assert.ok(label.includes(gregorian), `${locale}: ${label}`);
+    assert.ok(!label.includes(other), `${locale}: ${label}`);
+    // Das Jahr in denselben Ziffern wie die Datumsangaben daneben
+    assert.ok(label.includes("2026"), `${locale}: ${label}`);
+    assert.doesNotMatch(label, /1405|1448|[٠-٩۰-۹]/, locale);
+
+    const tick = bucketTick(
+      { start: "2026-10-01", end: "2026-10-31" },
+      "month",
+      { t, locale }
+    );
+    assert.ok(tick.includes("2026") && !tick.includes(other), tick);
+    assert.equal(
+      bucketLabel(
+        { start: "2026-10-01", end: "2026-10-12", partial: true },
+        "month",
+        { t, locale }
+      ),
+      `${label} – bis 12.10.`
+    );
+  }
+});
+
+test("Monate in Sprachen, die den Monat als Zahl schreiben (ja, zh, zh-tw, ko): Monat und Jahr in der Schreibweise der Sprache", () => {
+  for (const [locale, long] of [
+    ["ja", "2026年10月"],
+    ["zh", "2026年10月"],
+    ["zh-tw", "2026年10月"],
+    ["ko", "2026년 10월"],
+  ]) {
+    assert.equal(formatMonth("2026-10-01", locale), long, locale);
+    assert.equal(
+      bucketTick({ start: "2026-10-01", end: "2026-10-31" }, "month", {
+        t,
+        locale,
+      }),
+      long,
+      locale
+    );
+  }
+  // Wo der Monat einen Namen hat, bleibt es bei Name und Jahr.
+  assert.equal(formatMonth("2026-10-01", "de"), "Oktober 2026");
+  assert.equal(formatMonth("2026-10-01", "de", "short"), "Okt. 2026");
+  assert.equal(formatMonth("2026-10-01", "en"), "October 2026");
+  assert.equal(formatMonth("2026-03-01", "fr"), "mars 2026");
+});
+
+test("Wochentag in Sprachen mit anderem Kalender: Name der Sprache, Datum in deutscher Schreibweise", () => {
+  const tuesday = new Intl.DateTimeFormat("fa", {
+    weekday: "short",
+    timeZone: "UTC",
+  }).format(new Date("2026-10-06T00:00:00Z"));
+  assert.equal(
+    bucketLabel({ start: "2026-10-06", end: "2026-10-06" }, "day", {
+      t,
+      locale: "fa",
+    }),
+    `${tuesday}, 06.10.2026`
+  );
 });
 
 test("Unbekannte Sprache der Oberfläche: Beschriftung fällt nicht aus", () => {
@@ -734,7 +815,7 @@ test("Zeitachse: nur so viele Beschriftungen, wie nebeneinander passen", () => {
     [92, 272, 48],
     [92, 1000, 48],
     [53, 600, 52],
-    [121, 300, 68],
+    [92, 300, 68],
     [24, 900, 52],
   ]) {
     const step = tickStep(count, width, label);
@@ -746,4 +827,21 @@ test("Zeitachse: nur so viele Beschriftungen, wie nebeneinander passen", () => {
   }
   assert.equal(tickStep(0, 900, 48), 1);
   assert.equal(tickStep(30, 0, 48), 1);
+});
+
+test("Zeitachse: Lange Beschriftungen (Monat und Jahr in manchen Sprachen) bekommen mehr Platz, kurze den üblichen", () => {
+  assert.equal(tickLabelWidth(["Aug. 2026", "Sept. 2026"], 68), 68);
+  assert.equal(tickLabelWidth(["2026年9月", "2026年10月"], 68), 68);
+  assert.equal(tickLabelWidth(["06.10.", "07.10."], 48), 48);
+  assert.equal(tickLabelWidth([], 52), 52);
+  // lettisch und russisch: "2026. g. sept.", "сент. 2026 г."
+  for (const locale of ["lv", "ru", "pt"]) {
+    const ticks = ["2026-08-01", "2026-09-01"].map((start) =>
+      bucketTick({ start, end: start }, "month", { t, locale })
+    );
+    const longest = Math.max(...ticks.map((tick) => tick.length));
+    assert.ok(longest > 10, `${locale}: ${ticks}`);
+    assert.ok(tickLabelWidth(ticks, 68) >= longest * 6, locale);
+    assert.ok(tickLabelWidth(ticks, 68) > 68, locale);
+  }
 });

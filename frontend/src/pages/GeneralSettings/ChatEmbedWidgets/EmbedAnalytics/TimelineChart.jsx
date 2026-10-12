@@ -12,6 +12,7 @@ import {
   countsSinceDay,
   formatDate,
   formatNumber,
+  tickLabelWidth,
   tickStep,
   valueLabel,
   valueScale,
@@ -30,7 +31,7 @@ const METRICS = ["messages", "conversations"];
 const DEFAULT_WIDTH = 960;
 const MARGIN = { top: 12, right: 8, bottom: 26, left: 44 };
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
-// Platz je Beschriftung an der Zeitachse (px)
+// Üblicher Platz je Beschriftung an der Zeitachse (px)
 const TICK_WIDTH = { hour: 52, day: 48, week: 52, month: 68 };
 
 /**
@@ -240,7 +241,14 @@ function Columns({
     height: plotHeight,
     max: scale.max,
   });
-  const step = tickStep(buckets.length, plotWidth, TICK_WIDTH[granularity]);
+  const ticks = buckets.map((bucket) =>
+    bucketTick(bucket, granularity, context)
+  );
+  const step = tickStep(
+    buckets.length,
+    plotWidth,
+    tickLabelWidth(ticks, TICK_WIDTH[granularity])
+  );
 
   const clickable = granularity !== "hour";
   const isSelected = (bucket) =>
@@ -438,7 +446,7 @@ function Columns({
                   fontSize={11}
                   fill="var(--theme-analytics-text-muted)"
                 >
-                  {bucketTick(buckets[i], granularity, context)}
+                  {ticks[i]}
                 </text>
               ) : null
             )}
