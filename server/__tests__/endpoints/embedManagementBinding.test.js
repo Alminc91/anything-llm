@@ -43,6 +43,7 @@ jest.mock("../../utils/files/embedLogo", () => ({
 
 const prisma = require("../../utils/prisma");
 const { EventLogs } = require("../../models/eventLogs");
+const { EmbedChats } = require("../../models/embedChats");
 const { handleEmbedLogoUpload } = require("../../utils/files/multer");
 const { deleteOldEmbedLogo } = require("../../utils/files/embedLogo");
 const { embedManagementEndpoints } = require("../../endpoints/embedManagement");
@@ -63,7 +64,12 @@ const ROUTE = {
   uploadLogo: routes["POST /embed/:embedId/upload-logo"],
   removeLogo: routes["DELETE /embed/:embedId/remove-logo"],
   overview: routes["POST /embed/:embedId/analytics/overview"],
+  conversation: routes["GET /embed/:embedId/conversation/:sessionId"],
 };
+// Vergleichsroute für AK-13 (KIE-527): dieselbe Ablehnung bei abgeschaltetem
+// Chat-Verlauf.
+const CONVERSATION_LIST =
+  routes["POST /embed/:embedId/analytics/conversations"];
 
 let workspaceA, workspaceB, workspaceC;
 let embedA, embedB;
@@ -278,12 +284,228 @@ describe("fremdes_widget (AK-3)", () => {
     const before = snapshot();
     for (const [name, chain] of Object.entries(ROUTE)) {
       const result = await invoke(chain, {
-        params: { embedId: String(embedB.id), chatId: String(chatB.id) },
+        params: {
+          embedId: String(embedB.id),
+          chatId: String(chatB.id),
+          sessionId: chatB.session_id,
+        },
         body: { workspace_id: workspaceB.id },
       });
       expect([name, result.statusCode]).toEqual([name, 401]);
     }
     expect(snapshot()).toBe(before);
+  });
+});
+
+// ============================================================================
+// AK-13 — Einzelne Konversation eines fremden Widgets (Nachtrag 12.10.2026)
+// ============================================================================
+describe("konversation_detail (AK-13)", () => {
+  let kunde;
+  let detailSpy;
+  let followUpA, followUpB;
+
+  beforeEach(() => {
+    // Zugriff auf A und C, nicht auf B
+    kunde = createUser(prisma, "default", [workspaceA.id, workspaceC.id]);
+    // Je Widget eine Konversation mit zwei Nachrichten
+    followUpA = seedChat(embedA, {
+      prompt: "Und wo findet er statt?",
+      response: JSON.stringify({ text: "Im Haus der Bildung." }),
+      conversation_id: "konversation-a",
+    });
+    followUpB = seedChat(embedB, {
+      prompt: "Was kostet der Kurs?",
+      response: JSON.stringify({ text: "89 Euro." }),
+      conversation_id: "konversation-b",
+    });
+    detailSpy = jest.spyOn(EmbedChats, "getConversationDetails");
+  });
+
+  afterEach(() => {
+    detailSpy.mockRestore();
+  });
+
+  const detail = (embedId, sessionId, token = null) =>
+    invoke(ROUTE.conversation, {
+      params: { embedId: String(embedId), sessionId },
+      token,
+    });
+
+  // Antwort wie vor der Änderung: genau die Felder aus getConversationDetails.
+  const message = (chat) => ({
+    id: chat.id,
+    prompt: chat.prompt,
+    response: chat.response,
+    createdAt: chat.createdAt.toISOString(),
+    conversation_id: chat.conversation_id,
+    session_id: chat.session_id,
+    feedbackScore: null,
+    feedbackText: null,
+    feedbackReason: null,
+  });
+
+  describe("Rolle default", () => {
+    test.each([
+      ["über die session_id", () => chatB.session_id],
+      ["über die conversation_id", () => followUpB.conversation_id],
+    ])(
+      "fremdes Widget %s: 403 ohne Inhalte, nichts abgefragt",
+      async (_name, sessionId) => {
+        const result = await detail(embedB.id, sessionId(), kunde.token);
+
+        expect(result.statusCode).toBe(403);
+        expect(result.body).toBeUndefined();
+        expect(detailSpy).not.toHaveBeenCalled();
+      }
+    );
+
+    test("unbekanntes Widget ist von einem fremden nicht zu unterscheiden (403)", async () => {
+      for (const embedId of ["9999", "abc", "-1", "0"]) {
+        const result = await detail(embedId, chatB.session_id, kunde.token);
+        expect([embedId, result.statusCode]).toEqual([embedId, 403]);
+        expect(result.body).toBeUndefined();
+      }
+      expect(detailSpy).not.toHaveBeenCalled();
+    });
+
+    test("Nutzer ohne jeden Workspace erreicht keine Konversation", async () => {
+      const ohneWorkspace = createUser(prisma, "default", []);
+      for (const [embed, chat] of [
+        [embedA, chatA],
+        [embedB, chatB],
+      ]) {
+        const result = await detail(
+          embed.id,
+          chat.session_id,
+          ohneWorkspace.token
+        );
+        expect(result.statusCode).toBe(403);
+        expect(result.body).toBeUndefined();
+      }
+      expect(detailSpy).not.toHaveBeenCalled();
+    });
+
+    test("eigenes Widget: Antwort unverändert", async () => {
+      const result = await detail(embedA.id, chatA.session_id, kunde.token);
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body).toEqual({
+        success: true,
+        messages: [message(chatA), message(followUpA)],
+      });
+    });
+
+    test("eigenes Widget über die conversation_id", async () => {
+      const result = await detail(
+        embedA.id,
+        followUpA.conversation_id,
+        kunde.token
+      );
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body).toEqual({
+        success: true,
+        messages: [message(followUpA)],
+      });
+    });
+
+    test("fremde Konversation über das eigene Widget: keine Inhalte", async () => {
+      for (const sessionId of [chatB.session_id, followUpB.conversation_id]) {
+        const result = await detail(embedA.id, sessionId, kunde.token);
+        expect(result.statusCode).toBe(200);
+        expect(result.body).toEqual({ success: true, messages: [] });
+      }
+    });
+  });
+
+  describe.each(["admin", "manager"])("Rolle %s", (role) => {
+    let user;
+    beforeEach(() => {
+      // Bewusst ohne jede Workspace-Mitgliedschaft
+      user = createUser(prisma, role, []);
+    });
+
+    test("Konversationen beliebiger Widgets wie zuvor", async () => {
+      for (const [embed, chat, followUp] of [
+        [embedA, chatA, followUpA],
+        [embedB, chatB, followUpB],
+      ]) {
+        const result = await detail(embed.id, chat.session_id, user.token);
+        expect(result.statusCode).toBe(200);
+        expect(result.body).toEqual({
+          success: true,
+          messages: [message(chat), message(followUp)],
+        });
+      }
+    });
+
+    test("unbekanntes Widget: leere Liste wie zuvor", async () => {
+      const result = await detail("9999", chatB.session_id, user.token);
+      expect(result.statusCode).toBe(200);
+      expect(result.body).toEqual({ success: true, messages: [] });
+    });
+  });
+
+  test("ohne Mehrbenutzermodus: keine Prüfung (NAK-2)", async () => {
+    setMultiUserMode(prisma, false);
+    for (const [embed, chat, followUp] of [
+      [embedA, chatA, followUpA],
+      [embedB, chatB, followUpB],
+    ]) {
+      const result = await detail(embed.id, chat.session_id);
+      expect(result.statusCode).toBe(200);
+      expect(result.body).toEqual({
+        success: true,
+        messages: [message(chat), message(followUp)],
+      });
+    }
+  });
+
+  describe("Chat-Verlauf abgeschaltet (DISABLE_VIEW_CHAT_HISTORY)", () => {
+    beforeEach(() => {
+      process.env.DISABLE_VIEW_CHAT_HISTORY = "1";
+    });
+
+    test("dieselbe Ablehnung wie die Konversationsliste, für jede Rolle, ohne Inhalte", async () => {
+      const users = [
+        createUser(prisma, "admin"),
+        createUser(prisma, "manager"),
+        kunde,
+      ];
+      for (const user of users) {
+        for (const [embed, chat] of [
+          [embedA, chatA],
+          [embedB, chatB],
+        ]) {
+          const list = await invoke(CONVERSATION_LIST, {
+            params: { embedId: String(embed.id) },
+            body: {},
+            token: user.token,
+          });
+          const result = await detail(embed.id, chat.session_id, user.token);
+
+          expect(list.statusCode).toBe(422);
+          expect([user.role, result.statusCode]).toEqual([user.role, 422]);
+          expect(result.body).toBe(list.body);
+          expect(typeof result.body).toBe("string");
+        }
+      }
+      expect(detailSpy).not.toHaveBeenCalled();
+    });
+
+    test("ohne Mehrbenutzermodus ebenso", async () => {
+      setMultiUserMode(prisma, false);
+      const list = await invoke(CONVERSATION_LIST, {
+        params: { embedId: String(embedB.id) },
+        body: {},
+      });
+      const result = await detail(embedB.id, chatB.session_id);
+
+      expect(result.statusCode).toBe(422);
+      expect(result.body).toBe(list.body);
+      expect(detailSpy).not.toHaveBeenCalled();
+    });
   });
 });
 

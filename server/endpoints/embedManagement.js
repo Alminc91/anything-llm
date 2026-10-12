@@ -425,9 +425,11 @@ function embedManagementEndpoints(app) {
   );
 
   // Analytics: Get conversation details
+  // KIE-533 (AK-13): wie die Konversationsliste darüber - chatHistoryViewable,
+  // Default-User nur für Widgets ihrer Workspaces (sonst 403 ohne Inhalte).
   app.get(
     "/embed/:embedId/conversation/:sessionId",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
+    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess],
     async (request, response) => {
       try {
         const { embedId, sessionId } = request.params;
