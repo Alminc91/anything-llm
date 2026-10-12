@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require("uuid");
 const { User } = require("./user");
 const { PromptHistory } = require("./promptHistory");
 const { SystemSettings } = require("./systemSettings");
+const { berlinDayOf } = require("../utils/helpers/billingWindow");
 
 function isNullOrNaN(value) {
   if (value === null) return true;
@@ -83,10 +84,17 @@ function sameBillingInteger(value, stored) {
 
 /**
  * Wie sameBillingInteger, für das Startdatum: derselbe Zeitpunkt - oder, bei
- * einem reinen Tageswert (YYYY-MM-DD), der UTC-Kalendertag des gespeicherten
- * Werts. So sendet ihn die Abrechnungsansicht zurück (formatDateForInput),
- * auch wenn der gespeicherte Wert eine Uhrzeit trägt (z. B. per API als
- * Zeitstempel gesetzt). Der gespeicherte Zeitpunkt bleibt dann stehen.
+ * einem reinen Tageswert (YYYY-MM-DD), der Berliner Kalendertag des
+ * gespeicherten Werts. So sendet ihn die Abrechnungsansicht zurück
+ * (formatDateForInput), auch wenn der gespeicherte Wert eine Uhrzeit trägt
+ * (z. B. per API als Zeitstempel gesetzt). Der gespeicherte Zeitpunkt bleibt
+ * dann stehen.
+ *
+ * Verglichen wird mit dem Berliner Tag, weil das Abrechnungsfenster mit ihm
+ * rechnet (billingWindow.js) - nicht mit dem UTC-Tag: Für einen gespeicherten
+ * Zeitpunkt am späten UTC-Abend ("2026-09-01T00:00:00+02:00") sind das zwei
+ * verschiedene Tage, und der UTC-Tag (31.08.) ist eine echte Änderung des
+ * Zyklusstarts, die gespeichert werden muss.
  * @param {*} value - gesendeter Wert
  * @param {Date|null} stored - gespeicherter Wert
  * @returns {boolean}
@@ -96,7 +104,7 @@ function sameBillingDate(value, stored) {
   if (!(value instanceof Date) && typeof value !== "string") return false;
   if (value === "") return false;
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim()))
-    return value.trim() === stored.toISOString().slice(0, 10);
+    return value.trim() === berlinDayOf(stored);
   const date = new Date(value);
   return !isNaN(date.getTime()) && date.getTime() === stored.getTime();
 }
@@ -379,7 +387,8 @@ const Workspace = {
    * bleiben unberührt. Ein Wert, der dem gespeicherten entspricht, gilt als
    * unverändert und wird nicht geprüft: So scheitert das Speichern nie an
    * einem Bestandswert, der nach diesen Regeln ungültig wäre. Beim Startdatum
-   * genügt dafür der UTC-Kalendertag des gespeicherten Werts (sameBillingDate).
+   * genügt dafür der Berliner Kalendertag des gespeicherten Werts
+   * (sameBillingDate).
    * @param {Object} updates - The updates of the request
    * @param {{messagesLimit?: number|null, cycleStartDate?: Date|string|null, cycleDurationMonths?: number|null}|null} current - Stored values (null when creating)
    * @param {Date} [now] - Reference time (default: now)
@@ -429,7 +438,6 @@ const Workspace = {
       "messagesLimit must be a whole number >= 0 (0 = blocked) or null (unlimited)."
     );
 
-    const { berlinDayOf } = require("../utils/helpers/billingWindow");
     const today = berlinDayOf(now);
     const maxDay = `${Number(today.slice(0, 4)) + MAX_CYCLE_START_YEARS_AHEAD}${today.slice(4)}`;
     const start = resolve(

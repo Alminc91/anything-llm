@@ -48,6 +48,7 @@ const {
   getCycleInfoWithMessageCount,
   isCycleLimitReached,
 } = require("../../utils/helpers/cycleHelpers");
+const { getBillingWindow } = require("../../utils/helpers/billingWindow");
 const {
   collectRoutes,
   invoke,
@@ -963,15 +964,19 @@ describe("bestand (NAK-4)", () => {
     });
   });
 
-  // Die Abrechnungsansicht sendet vom Startdatum nur den UTC-Kalendertag
-  // zurück (BillingAdminView.jsx, formatDateForInput).
-  const formDay = (date) => date.toISOString().split("T")[0];
+  // Die Abrechnungsansicht sendet vom Startdatum nur den Berliner Kalendertag
+  // zurück - den Tag, ab dem abgerechnet wird (frontend/src/utils/billingDate.js,
+  // formatDateForInput; dort gegen berlinDayOf geprüft).
+  const formDay = (date) =>
+    date.toLocaleDateString("sv-SE", { timeZone: "Europe/Berlin" });
 
   test.each([
     // per API als Zeitstempel gesetzt
     ["1999-06-01T10:00:00.000Z", "1999-06-01"],
     // "2019-07-01T00:00:00+02:00": UTC-Tag und Berliner Tag fallen auseinander
-    ["2019-06-30T22:00:00.000Z", "2019-06-30"],
+    ["2019-06-30T22:00:00.000Z", "2019-07-01"],
+    // dasselbe in der Winterzeit ("2019-01-01T00:30:00+01:00")
+    ["2018-12-31T23:30:00.000Z", "2019-01-01"],
     // mehr als 5 Jahre voraus
     ["2040-03-15T08:30:00.000Z", "2040-03-15"],
   ])(
@@ -1009,13 +1014,14 @@ describe("bestand (NAK-4)", () => {
   );
 
   test("Oberfläche: auch ein gültiger Startwert mit Uhrzeit bleibt stehen, wenn nur das Limit geändert wird", async () => {
-    // "2026-09-01T00:00:00+02:00": Das Formular zeigt und sendet "2026-08-31".
+    // "2026-09-01T00:00:00+02:00": Das Formular zeigt und sendet "2026-09-01".
     const stored = new Date("2026-08-31T22:00:00.000Z");
     seedWorkspace("mit-uhrzeit", {
       messagesLimit: 100,
       cycleStartDate: stored,
       cycleDurationMonths: 3,
     });
+    expect(formDay(stored)).toBe("2026-09-01");
     const result = await sessionUpdate(
       admin,
       {
@@ -1026,14 +1032,103 @@ describe("bestand (NAK-4)", () => {
       "mit-uhrzeit"
     );
     expect(result.statusCode).toBe(200);
-    // nicht auf 00:00 UTC des 31.08. umgeschrieben: Der Zyklus beginnt weiter
-    // am Berliner Tag 01.09.
+    // der gespeicherte Zeitpunkt bleibt stehen: Der Zyklus beginnt weiter am
+    // Berliner Tag 01.09.
     expect(billingOf("mit-uhrzeit")).toEqual({
       messagesLimit: 200,
       cycleStartDate: new Date("2026-08-31T22:00:00.000Z"),
       cycleDurationMonths: 3,
     });
+    expect(getBillingWindow(row("mit-uhrzeit"), NOW).startDay).toBe(
+      "2026-09-01"
+    );
   });
+
+  // "Unverändert" heißt: derselbe Tag, ab dem abgerechnet wird (Berliner
+  // Tag). Der UTC-Tag eines Zeitpunkts am späten UTC-Abend ist ein anderer Tag
+  // und damit eine Änderung des Zyklusstarts. Sie wird gespeichert wie auf der
+  // Vergleichsbasis (00:00 UTC des gesendeten Tags), nicht still verworfen
+  // (NAK-1).
+  describe.each([
+    // [gespeichert, Berliner Starttag, gesendeter UTC-Tag, Fenster vorher, Fenster nachher]
+    [
+      // "2026-09-01T00:00:00+02:00", so hält ihn der Vertrags-Test fest
+      "2026-08-31T22:00:00.000Z",
+      "2026-09-01",
+      "2026-08-31",
+      ["2026-10-01", "2026-11-01"],
+      ["2026-09-30", "2026-10-31"],
+    ],
+    [
+      "2026-09-30T22:00:00.000Z",
+      "2026-10-01",
+      "2026-09-30",
+      ["2026-10-01", "2026-11-01"],
+      ["2026-09-30", "2026-10-30"],
+    ],
+    [
+      // Winterzeit: "2026-02-01T00:00:00+01:00"
+      "2026-01-31T23:00:00.000Z",
+      "2026-02-01",
+      "2026-01-31",
+      ["2026-10-01", "2026-11-01"],
+      ["2026-09-30", "2026-10-31"],
+    ],
+  ])(
+    "Startwert %s (Berliner Tag %s)",
+    (storedIso, berlinDay, utcDay, windowBefore, windowAfter) => {
+      const windowOf = (slug) => {
+        const { startDay, endDayExclusive } = getBillingWindow(row(slug), NOW);
+        return [startDay, endDayExclusive];
+      };
+
+      beforeEach(() => {
+        seedWorkspace("abend", {
+          messagesLimit: 100,
+          cycleStartDate: new Date(storedIso),
+          cycleDurationMonths: 1,
+        });
+        expect(formDay(new Date(storedIso))).toBe(berlinDay);
+        expect(windowOf("abend")).toEqual(windowBefore);
+      });
+
+      test.each([
+        ["API", (body) => apiUpdate(body, "abend")],
+        ["Oberfläche", (body) => sessionUpdate(admin, body, "abend")],
+      ])(
+        `%s: der Tag davor (${utcDay}, sein UTC-Tag) ist eine Änderung und wird gespeichert`,
+        async (_label, update) => {
+          const result = await update({ cycleStartDate: utcDay });
+
+          expect(result.statusCode).toBe(200);
+          expect(result.body.message).toBeNull();
+          expect(billingOf("abend").cycleStartDate).toEqual(
+            new Date(`${utcDay}T00:00:00.000Z`)
+          );
+          expect(result.body.workspace.cycleStartDate).toBe(
+            `${utcDay}T00:00:00.000Z`
+          );
+          expect(windowOf("abend")).toEqual(windowAfter);
+        }
+      );
+
+      test.each([
+        ["API", (body) => apiUpdate(body, "abend")],
+        ["Oberfläche", (body) => sessionUpdate(admin, body, "abend")],
+      ])(
+        `%s: der Starttag selbst (${berlinDay}) lässt Zeitpunkt und Fenster stehen`,
+        async (_label, update) => {
+          const result = await update({ cycleStartDate: berlinDay });
+
+          expect(result.statusCode).toBe(200);
+          expect(billingOf("abend").cycleStartDate).toEqual(
+            new Date(storedIso)
+          );
+          expect(windowOf("abend")).toEqual(windowBefore);
+        }
+      );
+    }
+  );
 
   test("Altwert mit Uhrzeit: ein anderer Tag oder eine andere Uhrzeit ist eine Änderung und wird geprüft", async () => {
     const stored = new Date("1999-06-01T10:00:00.000Z");
@@ -1088,6 +1183,41 @@ describe("bestand (NAK-4)", () => {
       Workspace.validateBillingFields({ cycleStartDate: "1999-05-06" }, current)
         .errors
     ).toHaveProperty("cycleStartDate");
+  });
+
+  test("validateBillingFields: maßgeblich ist der Berliner Tag des Bestandswerts, nicht sein UTC-Tag", () => {
+    // "2019-07-01T00:00:00+02:00"
+    const stored = new Date("2019-06-30T22:00:00.000Z");
+    const current = {
+      messagesLimit: 100,
+      cycleStartDate: stored,
+      cycleDurationMonths: 3,
+    };
+    expect(
+      Workspace.validateBillingFields({ cycleStartDate: "2019-07-01" }, current)
+    ).toEqual({
+      values: { cycleStartDate: stored },
+      errors: null,
+      message: null,
+    });
+    // Der UTC-Tag ist ein anderer Starttag: eine Änderung, die geprüft wird
+    // (vor 2020) ...
+    expect(
+      Workspace.validateBillingFields({ cycleStartDate: "2019-06-30" }, current)
+        .errors
+    ).toHaveProperty("cycleStartDate");
+    // ... und bei einem gültigen Tag übernommen wird.
+    expect(
+      Workspace.validateBillingFields(
+        { cycleStartDate: "2026-08-31" },
+        { ...current, cycleStartDate: new Date("2026-08-31T22:00:00.000Z") },
+        NOW
+      )
+    ).toEqual({
+      values: { cycleStartDate: new Date("2026-08-31T00:00:00.000Z") },
+      errors: null,
+      message: null,
+    });
   });
 
   test("API: Bestandswerte unverändert zurückgesendet - kein Fehler", async () => {

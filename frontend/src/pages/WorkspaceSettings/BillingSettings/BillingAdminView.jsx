@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import { castToType } from "@/utils/types";
+import { formatDateForInput } from "@/utils/billingDate";
 import CTAButton from "@/components/lib/CTAButton";
 
 /**
@@ -34,14 +35,6 @@ export default function BillingAdminView({ workspace, canEdit = true }) {
     }
     loadInitialUsageData();
   }, [workspace.slug]);
-
-  // Format date for input (YYYY-MM-DD)
-  const formatDateForInput = (dateValue) => {
-    if (!dateValue) return "";
-    const date = new Date(dateValue);
-    if (isNaN(date.getTime())) return "";
-    return date.toISOString().split("T")[0];
-  };
 
   // Reset-Tag aus den Serverwerten. Der Server liefert eine Tagesmarke
   // (00:00 UTC des Berliner Kalendertags), deshalb in UTC formatieren:
