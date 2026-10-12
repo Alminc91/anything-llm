@@ -944,6 +944,136 @@ describe("vorher_nachher und bestand_unveraendert (AK-10, NAK-1, NAK-2)", () => 
     ).toEqual({ _sum: { messages: 6 } });
   }, 120000);
 
+  test("vorher_nachher: Kopien einer Thread-Verzweigung nach --now in derselben Berliner Stunde werden nicht als Nachrichten abgezogen - der Workspace gilt als nicht auswertbar", async () => {
+    const at = (iso) => new Date(iso);
+    const copies = (workspace, iso, count) =>
+      Array.from({ length: count }, () => ({
+        workspaceId: workspace.id,
+        prompt: "Kopie",
+        response: "{}",
+        createdAt: at(iso),
+      }));
+    // Bezugszeitpunkt 10:00 Uhr Berliner Zeit. Jeder Workspace hat eine
+    // Nachricht davor; was danach kommt, unterscheidet sie.
+    const forked = await createWorkspace(db.client, { messagesLimit: 10 });
+    const forkedEarlier = await createWorkspace(db.client);
+    const nothingLate = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, nothingLate);
+    await seedWorkspaceChats(db.client, [
+      { workspaceId: forked.id, createdAt: at("2026-10-12T09:50:00+02:00") },
+      // genau am Bezugszeitpunkt: zählt noch
+      { workspaceId: forked.id, createdAt: at("2026-10-12T10:00:00+02:00") },
+      // späte Nachricht derselben Stunde
+      { workspaceId: forked.id, createdAt: at("2026-10-12T10:20:00+02:00") },
+      {
+        workspaceId: forkedEarlier.id,
+        createdAt: at("2026-10-12T09:50:00+02:00"),
+      },
+      {
+        workspaceId: forkedEarlier.id,
+        createdAt: at("2026-10-12T10:20:00+02:00"),
+      },
+      {
+        workspaceId: nothingLate.id,
+        createdAt: at("2026-10-12T09:50:00+02:00"),
+      },
+    ]);
+    await seedEmbedChats(db.client, [
+      { embed_id: embed.id, createdAt: at("2026-10-12T09:55:00+02:00") },
+      // späte Widget-Zeile: Widget-Zeilen sind nie Kopien
+      { embed_id: embed.id, createdAt: at("2026-10-12T10:25:00+02:00") },
+    ]);
+
+    const args = [
+      "snapshot",
+      "--mode",
+      "current",
+      "--db",
+      db.file,
+      "--now",
+      ROLLOUT_NOW,
+    ];
+    const before = path.join(workDir, "vorher.json");
+    const after = path.join(workDir, "nachher.json");
+    await runCli(quotaSnapshot.main, [...args, "--out", before]);
+
+    await db.migrate();
+    expect((await runMessageLedgerBackfill(quiet)).ok).toBe(true);
+    // Das neue Image läuft: Threads werden verzweigt.
+    for (const chatsData of [
+      // nach dem Bezugszeitpunkt, in derselben Stunde wie die späte Nachricht
+      copies(forked, "2026-10-12T10:30:00+02:00", 3),
+      // in der Stunde davor: Die Stunde des Bezugszeitpunkts führt keine Kopien
+      copies(forkedEarlier, "2026-10-12T09:40:00+02:00", 3),
+      // in der Stunde des Bezugszeitpunkts, aber keine späte Zeile
+      copies(nothingLate, "2026-10-12T10:00:00+02:00", 2),
+    ])
+      expect((await WorkspaceChats.bulkCreate(chatsData)).message).toBeNull();
+    expect(
+      (await ledgerRows(db.client, { day: "2026-10-12", hour: 10 })).map(
+        (row) => [row.workspace_id, row.embed_id, row.messages, row.copied]
+      )
+    ).toEqual([
+      [forked.id, 0, 2, 3],
+      [forkedEarlier.id, 0, 1, 0],
+      [nothingLate.id, 0, 0, 2],
+      [nothingLate.id, embed.id, 1, 0],
+    ]);
+
+    expect(
+      (
+        await runCli(quotaSnapshot.main, [
+          ...args,
+          "--source",
+          "ledger",
+          "--out",
+          after,
+        ])
+      ).status
+    ).toBe(0);
+    const entries = (file) =>
+      Object.fromEntries(
+        JSON.parse(fs.readFileSync(file, "utf8")).workspaces.map((ws) => [
+          ws.id,
+          ws.error
+            ? { error: ws.error, messageCount: ws.messageCount }
+            : [ws.messageCount, ws.workspaceChatCount, ws.embedChatCount],
+        ])
+      );
+    expect(entries(before)).toEqual({
+      [forked.id]: [2, 2, 0],
+      [forkedEarlier.id]: [1, 1, 0],
+      [nothingLate.id]: [2, 1, 1],
+    });
+    const ledger = entries(after);
+    // Von den vier späten Zeilen sind drei Kopien: Das Zählerbuch kann sie
+    // nicht von der Nachricht unterscheiden und nennt deshalb keine Zahl.
+    expect(ledger[forked.id]).toEqual({
+      error: expect.stringMatching(
+        /^Stand der Stunde 2026-10-12 10 Uhr nicht bestimmbar: .*Kopien aus einer Thread-Verzweigung.*eingefrorenen Stand/
+      ),
+      messageCount: undefined,
+    });
+    // Ohne Kopien in der Stunde bzw. ohne späte Chat-Zeilen bleibt es exakt.
+    expect(ledger[forkedEarlier.id]).toEqual([1, 1, 0]);
+    expect(ledger[nothingLate.id]).toEqual([2, 1, 1]);
+
+    const comparison = await runCli(quotaSnapshot.main, [
+      "compare-ledger",
+      before,
+      after,
+    ]);
+    expect(comparison.status).toBe(1);
+    expect(comparison.stdout).toMatch(
+      new RegExp(
+        `\\[${forked.id}\\] ${forked.slug}: nicht auswertbar \\(Stand der Stunde 2026-10-12 10 Uhr nicht bestimmbar`
+      )
+    );
+    // keine falsche Zahl
+    expect(comparison.stdout).not.toMatch(/Stand 2 →/);
+    expect(comparison.stdout).toContain("Ergebnis: 2 identisch, 1 abweichend.");
+  }, 120000);
+
   test("bestand_unveraendert: Migration und Nachtrag ändern keine Zeile in workspace_chats, embed_chats, workspaces und workspace_message_adjustments", async () => {
     await seedRunningQuotas(db.client);
     const before = {};

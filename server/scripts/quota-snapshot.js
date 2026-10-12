@@ -56,10 +56,16 @@
  * bis einschließlich der Berliner Stunde von --now; Chat-Zeilen, die nach
  * --now in dieser Stunde entstanden sind, werden wieder abgezogen. So
  * beschreiben beide Schnappschüsse denselben Zeitpunkt, auch wenn der Server
- * zwischen ihnen weiterläuft. Wurden solche Zeilen inzwischen gelöscht, lässt
- * sich das nicht mehr abziehen: Der Vergleich meldet dann eine Abweichung -
- * im Zweifel auf einem eingefrorenen Stand wiederholen (gestoppter Container
- * oder Kopie).
+ * zwischen ihnen weiterläuft. Zwei Ausnahmen, in denen sich der Stand dieser
+ * Stunde nicht mehr bestimmen lässt - dann auf einem eingefrorenen Stand
+ * wiederholen (gestoppter Container oder Kopie):
+ *   - Solche Zeilen wurden inzwischen gelöscht: Sie lassen sich nicht mehr
+ *     abziehen, der Vergleich meldet eine Abweichung.
+ *   - In der Stunde wurde ein Thread verzweigt: Kopien stehen in
+ *     workspace_chats, im Zählerbuch aber unter copied statt unter messages.
+ *     Ob eine späte Zeile Nachricht oder Kopie ist, lässt sich nicht mehr
+ *     unterscheiden; der Workspace wird als nicht auswertbar ausgewiesen
+ *     statt mit einer falschen Zahl.
  *
  * compare-ledger vergleicht vorher = current/live mit nachher =
  * current/ledger bei demselben --now. Die Umstellung darf keinen Stand
@@ -1226,6 +1232,11 @@ function databaseCounter(prisma) {
  * mitten in einer Stunde (am Bezugszeitpunkt), werden die danach in dieser
  * Stunde entstandenen Chat-Zeilen abgezogen: Sie stehen schon im Zählerbuch,
  * gehören aber nicht zum Schnappschuss.
+ * Abgezogen wird von messages. Kopien aus einer Thread-Verzweigung stehen
+ * ebenfalls in workspace_chats, im Zählerbuch aber unter copied. Führt die
+ * letzte Stunde Kopien und gibt es späte Zeilen, ist nicht zu entscheiden,
+ * wie viele davon Nachrichten sind: Die Zählfunktion wirft, der Workspace
+ * gilt als nicht auswertbar.
  * @param {import("@prisma/client").PrismaClient} prisma
  */
 function ledgerCounter(prisma) {
@@ -1258,39 +1269,58 @@ function ledgerCounter(prisma) {
       lt: endOfBerlinHour(endExclusive.getTime() - 1),
     };
     const hasLateRows = lateRows.gte < lateRows.lt;
-    const [cells, adjustments, lateChats, lateEmbedChats] = await Promise.all([
-      prisma.message_ledger.groupBy({
-        by: ["embed_id"],
-        where: {
-          workspace_id: workspace.id,
-          OR: [
-            { day: { gte: fromDay, lt: last.day } },
-            { day: last.day, hour: { lte: last.hour } },
-          ],
-        },
-        _sum: { messages: true },
-      }),
-      prisma.workspace_message_adjustments.aggregate({
-        _sum: { amount: true },
-        where: {
-          workspaceId: workspace.id,
-          createdAt: { gte: start, lt: endExclusive },
-        },
-      }),
-      hasLateRows
-        ? prisma.workspace_chats.count({
-            where: { workspaceId: workspace.id, createdAt: lateRows },
-          })
-        : 0,
-      hasLateRows
-        ? prisma.embed_chats.count({
-            where: {
-              embed_config: { workspace_id: workspace.id },
-              createdAt: lateRows,
-            },
-          })
-        : 0,
-    ]);
+    const [cells, adjustments, lateChats, lateEmbedChats, lastHour] =
+      await Promise.all([
+        prisma.message_ledger.groupBy({
+          by: ["embed_id"],
+          where: {
+            workspace_id: workspace.id,
+            OR: [
+              { day: { gte: fromDay, lt: last.day } },
+              { day: last.day, hour: { lte: last.hour } },
+            ],
+          },
+          _sum: { messages: true },
+        }),
+        prisma.workspace_message_adjustments.aggregate({
+          _sum: { amount: true },
+          where: {
+            workspaceId: workspace.id,
+            createdAt: { gte: start, lt: endExclusive },
+          },
+        }),
+        hasLateRows
+          ? prisma.workspace_chats.count({
+              where: { workspaceId: workspace.id, createdAt: lateRows },
+            })
+          : 0,
+        hasLateRows
+          ? prisma.embed_chats.count({
+              where: {
+                embed_config: { workspace_id: workspace.id },
+                createdAt: lateRows,
+              },
+            })
+          : 0,
+        hasLateRows
+          ? prisma.message_ledger.aggregate({
+              _sum: { copied: true },
+              where: {
+                workspace_id: workspace.id,
+                embed_id: MessageLedger.WORKSPACE_EMBED_ID,
+                day: last.day,
+                hour: last.hour,
+              },
+            })
+          : null,
+      ]);
+
+    // Späte Zeilen lassen sich nur abziehen, wenn sie alle als messages
+    // gebucht sind. Mit Kopien in derselben Stunde ist das nicht entscheidbar.
+    if (lateChats > 0 && (lastHour?._sum?.copied ?? 0) > 0)
+      throw new Error(
+        `Stand der Stunde ${last.day} ${String(last.hour).padStart(2, "0")} Uhr nicht bestimmbar: Nach dem Bezugszeitpunkt sind in dieser Stunde Chat-Zeilen entstanden, und das Zählerbuch führt dort Kopien aus einer Thread-Verzweigung. Auf einem eingefrorenen Stand wiederholen (gestoppter Container oder Kopie).`
+      );
 
     let workspaceChatCount = 0;
     let embedChatCount = 0;
