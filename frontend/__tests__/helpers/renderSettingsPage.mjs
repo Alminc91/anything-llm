@@ -10,10 +10,16 @@
 // Komponenten lassen sich mit Eigenschaften rendern (props, exportName), um
 // einen bestimmten Stand zu zeigen. DOMPurify (utils/chat/purify.js) ist
 // ersetzt, weil es ein Dokument braucht.
+//
+// mount() hängt dieselbe Seite stattdessen mit React DOM in ein Dokument ohne
+// Browser ein (helpers/testDom.mjs): Effekte laufen, Handler lassen sich
+// aufrufen, der Zustand ändert sich. Das Dokument bleibt danach im Prozess
+// stehen – Tests mit mount() gehören in eine eigene Datei.
 import { existsSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createDocument } from "./testDom.mjs";
 
 const FRONTEND_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -34,7 +40,7 @@ export const hasFrontendDeps = ["vite", "react-dom", "react-router-dom"].every(
 
 /**
  * Startet Vite (ohne lauschenden Server) und liefert eine Renderfunktion.
- * @returns {Promise<{render: Function, load: Function, imports: Function, close: Function}>}
+ * @returns {Promise<{render: Function, mount: Function, load: Function, imports: Function, close: Function}>}
  */
 export async function createRenderer() {
   const storage = new Map();
@@ -118,6 +124,7 @@ export async function createRenderer() {
   const { AuthContext } = await server.ssrLoadModule("/src/AuthContext.jsx");
 
   /**
+   * Die Seite mit allem, was sie umgibt: Logo, angemeldeter Nutzer, Adresse.
    * @param {string} modulePath - Seite/Komponente (Default-Export), z. B. "/src/pages/…/index.jsx".
    * @param {object} options
    * @param {string} options.location - Aufgerufene Adresse.
@@ -127,9 +134,9 @@ export async function createRenderer() {
    * @param {Object<string,string>} [options.stored] - Inhalt des Browser-Speichers.
    * @param {string} [options.exportName] - Benannter Export statt des Default-Exports.
    * @param {object} [options.props] - Eigenschaften der Komponente.
-   * @returns {Promise<string>} HTML der Seite.
+   * @returns {Promise<object>} React-Element.
    */
-  async function render(
+  async function treeOf(
     modulePath,
     {
       location,
@@ -148,7 +155,7 @@ export async function createRenderer() {
     globalThis[VIEWABLE_FLAG] = canViewChatHistory;
 
     const h = React.createElement;
-    const tree = h(
+    return h(
       LogoContext.Provider,
       { value: { logo: "", loginLogo: "", isCustomLogo: false } },
       h(
@@ -161,6 +168,16 @@ export async function createRenderer() {
         )
       )
     );
+  }
+
+  /**
+   * Rendert die Seite serverseitig – ihr Zustand vor dem ersten Laden.
+   * @param {string} modulePath - siehe treeOf
+   * @param {object} options - siehe treeOf
+   * @returns {Promise<string>} HTML der Seite.
+   */
+  async function render(modulePath, options) {
+    const tree = await treeOf(modulePath, options);
 
     // React meldet jedes useLayoutEffect beim serverseitigen Rendern.
     const consoleError = console.error;
@@ -173,6 +190,52 @@ export async function createRenderer() {
     } finally {
       console.error = consoleError;
     }
+  }
+
+  let dom = null;
+  /** Richtet beim ersten mount() das Dokument ein und lädt React DOM. */
+  async function useDom() {
+    if (dom) return dom;
+    const document = createDocument();
+    globalThis.document = document;
+    Object.assign(globalThis.window, {
+      document,
+      // React DOM prüft vor jedem Zeichnen, ob der Fokus in einem iframe liegt.
+      HTMLIFrameElement: class {},
+      // Nicht das oberste Fenster: React DOM sucht dann nicht nach den DevTools.
+      top: null,
+    });
+    // React meldet sonst jede Zustandsänderung als „nicht in act(...)".
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const { createRoot } = await import("react-dom/client");
+    dom = { document, createRoot };
+    return dom;
+  }
+
+  /**
+   * Hängt die Seite in ein Dokument ohne Browser ein: Effekte laufen, der
+   * Zustand ändert sich. Alles, was den Zustand ändert (Handler aufrufen,
+   * Antworten abwarten), gehört in act().
+   * @param {string} modulePath - siehe treeOf
+   * @param {object} options - siehe treeOf
+   * @returns {Promise<{container: object, document: object, act: (action?: Function) => Promise<void>, unmount: () => Promise<void>}>}
+   */
+  async function mount(modulePath, options) {
+    const tree = await treeOf(modulePath, options);
+    const { document, createRoot } = await useDom();
+    const container = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(container);
+    const act = (action = () => {}) => React.act(async () => await action());
+    await act(() => root.render(tree));
+    return {
+      container,
+      document,
+      act,
+      unmount: async () => {
+        await act(() => root.unmount());
+        document.body.removeChild(container);
+      },
+    };
   }
 
   /** Lädt ein Modul der Quellen wie im Build, z. B. "/src/utils/paths.js". */
@@ -197,7 +260,7 @@ export async function createRenderer() {
     return seen;
   }
 
-  return { render, load, imports, close: () => server.close() };
+  return { render, mount, load, imports, close: () => server.close() };
 }
 
 /**
