@@ -563,40 +563,40 @@ function toChunks(arr, size) {
  * Counts billable messages for a workspace within the given time range.
  * Includes manual quota adjustments (workspace_message_adjustments) so API-side
  * deductions consume the contingent exactly like real chat messages.
+ *
+ * Das Fenster ist halboffen: Start inklusiv, Ende exklusiv. So schließen zwei
+ * aufeinanderfolgende Fenster lückenlos und ohne Überschneidung aneinander an.
+ * Die Grenzen kommen aus getBillingWindow (billingWindow.js).
  * @param {Object} workspace - The workspace object
- * @param {Date} startDate - The start date (inclusive)
- * @param {Date} endDate - The end date (inclusive)
- * @returns {Promise<MessageCountBreakdown>} - Breakdown of messages within the date range
+ * @param {Date} start - The start of the window (inclusive)
+ * @param {Date} endExclusive - The end of the window (exclusive)
+ * @returns {Promise<MessageCountBreakdown>} - Breakdown of messages within the window
  */
-async function countMessagesInDateRange(workspace, startDate, endDate) {
+async function countMessagesInDateRange(workspace, start, endExclusive) {
   const { WorkspaceChats } = require("../../models/workspaceChats");
   const { EmbedChats } = require("../../models/embedChats");
   const {
     WorkspaceMessageAdjustments,
   } = require("../../models/workspaceMessageAdjustments");
 
-  // Set the end date to the end of the day
-  const adjustedEndDate = new Date(endDate);
-  adjustedEndDate.setHours(23, 59, 59, 999);
-
   const [workspaceChatCount, embedChatCount, adjustmentsTotal] =
     await Promise.all([
       WorkspaceChats.count({
         workspaceId: workspace.id,
         createdAt: {
-          gte: startDate,
-          lte: adjustedEndDate,
+          gte: start,
+          lt: endExclusive,
         },
       }),
       EmbedChats.countForWorkspaceInDateRange(
         workspace.id,
-        startDate,
-        adjustedEndDate
+        start,
+        endExclusive
       ),
       WorkspaceMessageAdjustments.sumForWorkspaceInDateRange(
         workspace.id,
-        startDate,
-        adjustedEndDate
+        start,
+        endExclusive
       ),
     ]);
 
@@ -610,40 +610,41 @@ async function countMessagesInDateRange(workspace, startDate, endDate) {
 }
 
 /**
- * Counts messages for a workspace for the current month only
+ * Counts messages for a workspace for the current calendar month (Berlin time),
+ * regardless of any cycle fields on the workspace.
  * @param {Object} workspace - The workspace object
  * @returns {Promise<MessageCountBreakdown>} - Breakdown of messages for the current month
  */
 async function countMessagesForCurrentMonth(workspace) {
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const { getBillingWindow } = require("./billingWindow");
+  const { start, endExclusive } = getBillingWindow({ cycleStartDate: null });
 
-  return await countMessagesInDateRange(workspace, startOfMonth, endOfMonth);
+  return await countMessagesInDateRange(workspace, start, endExclusive);
 }
 
 /**
  * Gets standardized message limit info for consistent response formatting.
- * Uses cycle-aware counting when cycle fields are set, otherwise falls back to monthly.
+ * Counts inside the workspace's billing window (see getBillingWindow): the
+ * active cycle, or the calendar month when no cycle is set or it has not
+ * started yet. cycleInfo is only set while a cycle is running.
  * @param {Object} workspace - The workspace object
- * @returns {Promise<{messageCount: number, messagesLimit: number|null, contingent: string, adjustmentsTotal: number, cycleInfo: Object|null}>}
+ * @param {Date} [now] - Reference time (default: now)
+ * @returns {Promise<{messageCount: number, messagesLimit: number|null, contingent: string, adjustmentsTotal: number, cycleInfo: Object|null, billingWindow: import("./billingWindow").BillingWindow}>}
  */
-async function getMessageLimitInfo(workspace) {
+async function getMessageLimitInfo(workspace, now = new Date()) {
+  const { getBillingWindow } = require("./billingWindow");
   const messagesLimit = workspace.messagesLimit; // Can be null
-  let countBreakdown;
-  let cycleInfo = null;
+  const billingWindow = getBillingWindow(workspace, now);
+  const countBreakdown = await countMessagesInDateRange(
+    workspace,
+    billingWindow.start,
+    billingWindow.endExclusive
+  );
 
-  // Use cycle-aware counting if cycle fields are set
-  if (workspace.cycleStartDate) {
-    const {
-      countMessagesForCurrentCycle,
-      getCycleInfo
-    } = require("./cycleHelpers");
-    countBreakdown = await countMessagesForCurrentCycle(workspace);
-    cycleInfo = getCycleInfo(workspace);
-  } else {
-    // Fallback to monthly counting
-    countBreakdown = await countMessagesForCurrentMonth(workspace);
+  let cycleInfo = null;
+  if (billingWindow.cycleNumber > 0) {
+    const { getCycleInfo } = require("./cycleHelpers");
+    cycleInfo = getCycleInfo(workspace, now);
   }
 
   const messageCount = countBreakdown.total;
@@ -652,7 +653,8 @@ async function getMessageLimitInfo(workspace) {
     messagesLimit,
     contingent: `${messageCount}/${messagesLimit ?? 'Unlimited'}`,
     adjustmentsTotal: countBreakdown.adjustmentsTotal,
-    cycleInfo
+    cycleInfo,
+    billingWindow
   };
 }
 
@@ -770,18 +772,20 @@ async function checkWorkspaceMessagesLimit(workspace, response, options = {}) {
   } = options;
 
   // Use the helper function to get consistent message limit info (cycle-aware)
-  const { messageCount, messagesLimit, contingent, cycleInfo } = await getMessageLimitInfo(workspace);
+  const { messageCount, messagesLimit, contingent, cycleInfo, billingWindow } = await getMessageLimitInfo(workspace);
+  const { BILLING_TIME_ZONE } = require("./billingWindow");
 
   // Determine period info for logging
-  const now = new Date();
   const isCycleBased = cycleInfo !== null;
   let periodDescription;
+  // Monat und Jahr des Fensters in Berliner Zeit, nicht in der Zeitzone des Prozesses
+  const monthName = billingWindow.start.toLocaleString('default', { month: 'long', timeZone: BILLING_TIME_ZONE });
 
   if (isCycleBased) {
     const cyclePeriodText = getCyclePeriodText(cycleInfo.cycleDurationMonths, 'en');
     periodDescription = `${cyclePeriodText} (Cycle #${cycleInfo.cycleNumber})`;
   } else {
-    periodDescription = `${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
+    periodDescription = `${monthName} ${billingWindow.startDay.slice(0, 4)}`;
   }
 
   console.log(`---
@@ -814,19 +818,20 @@ Days Remaining: ${cycleInfo.daysRemaining}` : ''}
       resetDate = cycleInfo.nextReset;
       periodName = getCyclePeriodText(cycleInfo.cycleDurationMonths, 'en');
     } else {
-      // Fallback to monthly reset (first day of next month)
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      daysRemaining = lastDayOfMonth.getDate() - now.getDate();
-      resetDate = nextMonth;
-      periodName = now.toLocaleString('default', { month: 'long' });
+      // Fallback to monthly reset (first day of next month).
+      // Wie bisher: Tage bis zum letzten Tag des Fensters, am letzten Tag also 0.
+      daysRemaining = billingWindow.daysRemaining - 1;
+      resetDate = billingWindow.nextReset;
+      periodName = monthName;
     }
 
-    // Format the date using Intl.DateTimeFormat for proper internationalization
+    // Format the date using Intl.DateTimeFormat for proper internationalization.
+    // resetDate ist eine Tagesmarke (00:00 UTC), deshalb in UTC formatieren.
     const formattedResetDate = new Intl.DateTimeFormat('de-DE', {
       day: '2-digit',
       month: '2-digit',
-      year: 'numeric'
+      year: 'numeric',
+      timeZone: 'UTC'
     }).format(resetDate);
 
     // Get the error message in the appropriate language (now cycle-aware)

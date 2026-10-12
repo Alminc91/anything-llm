@@ -3,6 +3,7 @@ const prisma = require("../../utils/prisma");
 const {
   WorkspaceMessageAdjustments,
 } = require("../../models/workspaceMessageAdjustments");
+const { getBillingWindow } = require("../../utils/helpers/billingWindow");
 
 jest.mock("../../utils/prisma", () => ({
   workspace_message_adjustments: {
@@ -152,18 +153,18 @@ describe("WorkspaceMessageAdjustments.sumAmount / sumForWorkspaceInDateRange", (
         new Date("2026-06-30")
       )
     ).toBe(230);
-    expect(
-      prisma.workspace_message_adjustments.aggregate
-    ).toHaveBeenCalledWith({
-      _sum: { amount: true },
-      where: {
-        workspaceId: 5,
-        createdAt: {
-          gte: new Date("2026-06-01"),
-          lte: new Date("2026-06-30"),
+    expect(prisma.workspace_message_adjustments.aggregate).toHaveBeenCalledWith(
+      {
+        _sum: { amount: true },
+        where: {
+          workspaceId: 5,
+          createdAt: {
+            gte: new Date("2026-06-01"),
+            lt: new Date("2026-06-30"),
+          },
         },
-      },
-    });
+      }
+    );
   });
 
   test("degrades gracefully to 0 on DB failure (missing table must never break chats)", async () => {
@@ -180,20 +181,127 @@ describe("WorkspaceMessageAdjustments.sumAmount / sumForWorkspaceInDateRange", (
   });
 });
 
+describe("WorkspaceMessageAdjustments.sumForWorkspaceInDateRange - Abrechnungsfenster (KIE-531)", () => {
+  const workspace = {
+    id: 5,
+    cycleStartDate: "2026-01-15",
+    cycleDurationMonths: 3,
+  };
+  let bookings;
+
+  // aggregate wertet die Klausel wie die Datenbank aus, damit die Grenzen des
+  // Modells geprüft werden und nicht nur der Aufruf.
+  beforeEach(() => {
+    jest.clearAllMocks();
+    bookings = [];
+    prisma.workspace_message_adjustments.aggregate.mockImplementation(
+      async ({ where }) => {
+        const { gte, gt, lt, lte } = where.createdAt ?? {};
+        const matching = bookings.filter(
+          (row) =>
+            row.workspaceId === where.workspaceId &&
+            (gte === undefined || row.createdAt >= gte) &&
+            (gt === undefined || row.createdAt > gt) &&
+            (lt === undefined || row.createdAt < lt) &&
+            (lte === undefined || row.createdAt <= lte)
+        );
+        // Wie SQL: SUM über keine Zeile ist NULL
+        const amount = matching.length
+          ? matching.reduce((sum, row) => sum + row.amount, 0)
+          : null;
+        return { _sum: { amount } };
+      }
+    );
+  });
+
+  function book(iso, amount) {
+    bookings.push({ workspaceId: 5, createdAt: new Date(iso), amount });
+  }
+
+  async function sumIn(window) {
+    return await WorkspaceMessageAdjustments.sumForWorkspaceInDateRange(
+      workspace.id,
+      window.start,
+      window.endExclusive
+    );
+  }
+
+  test("fenster: Abbuchung am 15.04. um 00:30 Berliner Zeit zählt im zweiten Zyklus, nicht im ersten (AK-7)", async () => {
+    book("2026-04-15T00:30:00+02:00", 10);
+
+    const first = getBillingWindow(
+      workspace,
+      new Date("2026-04-14T23:59:59.999+02:00")
+    );
+    const second = getBillingWindow(
+      workspace,
+      new Date("2026-04-15T00:00:00+02:00")
+    );
+    expect(first.cycleNumber).toBe(1);
+    expect(second.cycleNumber).toBe(2);
+
+    expect(await sumIn(first)).toBe(0);
+    expect(await sumIn(second)).toBe(10);
+  });
+
+  test("fenster: jede Buchung um den Zykluswechsel zählt in genau einem Fenster, Vorzeichen bleiben", async () => {
+    book("2026-04-14T23:59:59.999+02:00", 7); // letzter Augenblick des ersten Zyklus
+    book("2026-04-15T00:00:00+02:00", 100); // erster Augenblick des zweiten
+    book("2026-04-15T01:59:00+02:00", -30); // Gutschrift in der bisherigen Lücke
+    book("2026-07-14T23:59:59.999+02:00", 5); // letzter Augenblick des zweiten
+    book("2026-07-15T00:00:00+02:00", 1000); // gehört schon zum dritten
+
+    const first = getBillingWindow(
+      workspace,
+      new Date("2026-03-01T12:00:00+01:00")
+    );
+    const second = getBillingWindow(
+      workspace,
+      new Date("2026-06-01T12:00:00+02:00")
+    );
+    const third = getBillingWindow(
+      workspace,
+      new Date("2026-08-01T12:00:00+02:00")
+    );
+
+    expect(await sumIn(first)).toBe(7);
+    expect(await sumIn(second)).toBe(75);
+    expect(await sumIn(third)).toBe(1000);
+  });
+
+  test("fenster: Klausel ist halboffen (gte Start, lt nächster Start)", async () => {
+    const window = getBillingWindow(
+      workspace,
+      new Date("2026-06-01T12:00:00+02:00")
+    );
+    await sumIn(window);
+    expect(prisma.workspace_message_adjustments.aggregate).toHaveBeenCalledWith(
+      {
+        _sum: { amount: true },
+        where: {
+          workspaceId: 5,
+          createdAt: {
+            gte: new Date("2026-04-14T22:00:00.000Z"),
+            lt: new Date("2026-07-14T22:00:00.000Z"),
+          },
+        },
+      }
+    );
+  });
+});
+
 describe("WorkspaceMessageAdjustments.where / count", () => {
   beforeEach(() => jest.clearAllMocks());
 
   test("lists newest first with pagination", async () => {
     prisma.workspace_message_adjustments.findMany.mockResolvedValue([]);
     await WorkspaceMessageAdjustments.where({ workspaceId: 1 }, 100, 20);
-    expect(prisma.workspace_message_adjustments.findMany).toHaveBeenCalledWith(
-      {
-        where: { workspaceId: 1 },
-        take: 100,
-        skip: 20,
-        orderBy: { createdAt: "desc" },
-      }
-    );
+    expect(prisma.workspace_message_adjustments.findMany).toHaveBeenCalledWith({
+      where: { workspaceId: 1 },
+      take: 100,
+      skip: 20,
+      orderBy: { createdAt: "desc" },
+    });
   });
 
   test("returns [] / 0 on DB failure", async () => {

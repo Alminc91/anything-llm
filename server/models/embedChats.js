@@ -358,10 +358,18 @@ const EmbedChats = {
     }
   },
 
+  /**
+   * Zählt die Embed-Chats eines Workspaces im halboffenen Fenster
+   * [start, endExclusive), passend zu getBillingWindow.
+   * @param {number} workspaceId
+   * @param {Date} start - inclusive
+   * @param {Date} endExclusive - exclusive
+   * @returns {Promise<number>}
+   */
   countForWorkspaceInDateRange: async function (
     workspaceId,
-    startDate,
-    endDate
+    start,
+    endExclusive
   ) {
     try {
       const count = await prisma.embed_chats.count({
@@ -370,8 +378,8 @@ const EmbedChats = {
             workspace_id: workspaceId,
           },
           createdAt: {
-            gte: startDate,
-            lte: endDate,
+            gte: start,
+            lt: endExclusive,
           },
         },
       });

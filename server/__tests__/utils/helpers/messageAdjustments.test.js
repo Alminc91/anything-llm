@@ -74,20 +74,27 @@ describe("countMessagesInDateRange - adjustment breakdown", () => {
     expect(total).toBe(10);
   });
 
-  test("queries the adjustment sum with the same end-of-day clamped window as the chat counts", async () => {
+  test("queries the adjustment sum with the same half-open window as the chat counts", async () => {
     mockCounts();
     await countMessagesInDateRange(workspace, start, end);
     const [wsId, sumStart, sumEnd] =
       WorkspaceMessageAdjustments.sumForWorkspaceInDateRange.mock.calls[0];
     expect(wsId).toBe(workspace.id);
+    // KIE-531: Die Grenzen werden unverändert durchgereicht, kein Klemmen
+    // auf das Tagesende mehr.
     expect(sumStart).toEqual(start);
-    expect(sumEnd.getHours()).toBe(23);
-    expect(sumEnd.getMinutes()).toBe(59);
-    expect(sumEnd.getSeconds()).toBe(59);
-    expect(sumEnd.getMilliseconds()).toBe(999);
-    // Same window the workspace chat count uses
+    expect(sumEnd).toEqual(end);
+    // Same window the workspace and embed chat counts use
     const chatClause = WorkspaceChats.count.mock.calls[0][0];
-    expect(chatClause.createdAt.lte).toEqual(sumEnd);
+    expect(chatClause).toEqual({
+      workspaceId: workspace.id,
+      createdAt: { gte: start, lt: end },
+    });
+    expect(EmbedChats.countForWorkspaceInDateRange).toHaveBeenCalledWith(
+      workspace.id,
+      start,
+      end
+    );
   });
 });
 

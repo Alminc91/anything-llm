@@ -60,20 +60,26 @@ const WorkspaceMessageAdjustments = {
   },
 
   /**
-   * Sums adjustment amounts for a workspace within a date range.
+   * Sums adjustment amounts for a workspace within a billing window.
+   * The window is half-open [start, endExclusive), exactly like the chat
+   * counts (see getBillingWindow) — a booking belongs to exactly one window.
    * Returns 0 on any failure — billing counting must never break chats,
    * even if the table is missing (degrades to plain chat counting).
    * @param {number} workspaceId
-   * @param {Date} startDate - inclusive
-   * @param {Date} endDate - inclusive
+   * @param {Date} start - inclusive
+   * @param {Date} endExclusive - exclusive
    * @returns {Promise<number>}
    */
-  sumForWorkspaceInDateRange: async function (workspaceId, startDate, endDate) {
+  sumForWorkspaceInDateRange: async function (
+    workspaceId,
+    start,
+    endExclusive
+  ) {
     return await WorkspaceMessageAdjustments.sumAmount({
       workspaceId: Number(workspaceId),
       createdAt: {
-        gte: startDate,
-        lte: endDate,
+        gte: start,
+        lt: endExclusive,
       },
     });
   },
