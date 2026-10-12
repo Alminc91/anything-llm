@@ -225,13 +225,22 @@ export async function createRenderer() {
     const { document, createRoot } = await useDom();
     const container = document.body.appendChild(document.createElement("div"));
     const root = createRoot(container);
-    const act = (action = () => {}) => React.act(async () => await action());
+    // Nach der Aktion eine Runde der Ereignisschleife: Dann sind auch die
+    // Antworten eines ersetzten fetch verarbeitet.
+    const act = (action = () => {}) =>
+      React.act(async () => {
+        await action();
+        await new Promise((resolve) => setImmediate(resolve));
+      });
     await act(() => root.render(tree));
+    let mounted = true;
     return {
       container,
       document,
       act,
       unmount: async () => {
+        if (!mounted) return;
+        mounted = false;
         await act(() => root.unmount());
         document.body.removeChild(container);
       },

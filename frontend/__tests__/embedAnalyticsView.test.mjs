@@ -1,8 +1,9 @@
 // KIE-536: Ansicht „Konversationen" – Kennzahlen-Streifen, Säulendiagramm und
 // Leerzustände, serverseitig gerendert (helpers/renderSettingsPage.mjs).
 // Effekte laufen dabei nicht: Geprüft wird, was die Komponenten zu einem
-// gegebenen Stand zeichnen, nicht das Laden. Maus, Tastatur und Themes gehören
-// in den Browser-Test.
+// gegebenen Stand zeichnen, nicht das Laden. Maus, Tastatur und die Anfragen
+// an den Server prüft embedAnalyticsInteraction.test.mjs; Themes und Layout
+// gehören in den Browser-Test.
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import {

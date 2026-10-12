@@ -12,10 +12,22 @@ import {
   hasFrontendDeps,
 } from "./helpers/renderSettingsPage.mjs";
 import { click, elements, movePointer, pressKey } from "./helpers/testDom.mjs";
-import { addDays } from "../src/utils/analyticsTimeline.js";
+import {
+  DEFAULT_RANGE_DAYS,
+  addDays,
+  formatDate,
+  lastDaysRange,
+  rangeFromDates,
+} from "../src/utils/analyticsTimeline.js";
+// Adressen und Rümpfe der Anfragen – dieselben, mit denen der Server-Test die
+// echten Routen aufruft (embedAnalyticsSummary.test.js).
+import requests from "../../server/__tests__/endpoints/support/embedAnalyticsRequests.js";
+
+const { ROUTES, summaryBody, conversationsBody } = requests;
 
 const DIR = "/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics";
 const CHART = `${DIR}/TimelineChart.jsx`;
+const VIEW = `${DIR}/index.jsx`;
 const LOCATION = "/settings/chatbot/conversations";
 const skip = hasFrontendDeps
   ? false
@@ -194,5 +206,389 @@ test(
         .filter(([tabindex]) => tabindex === "0"),
       [["0", 0]]
     );
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Anfragen an den Server (Hard Constraint 5, AK-7)
+// ---------------------------------------------------------------------------
+
+const EMBED = {
+  id: 3,
+  chat_retention_days: 30,
+  workspace: { name: "VHS Musterstadt" },
+};
+const TOTALS = {
+  messages: 885,
+  conversations: 60,
+  feedbackPositive: 9,
+  feedbackNegative: 3,
+};
+
+/** Adresse einer Route für das Widget, wie das Frontend sie aufruft. */
+async function urlOf(route, embedId = EMBED.id) {
+  const { API_BASE } = await renderer.load("/src/utils/constants.js");
+  return `${API_BASE}${route.path.replace(":embedId", embedId)}`;
+}
+
+/**
+ * Ersetzt fetch für die Dauer eines Tests: merkt sich jede Anfrage (Methode,
+ * Adresse, Rumpf) und antwortet mit dem, was respond liefert.
+ */
+function stubFetch(t, respond) {
+  const original = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const call = {
+      method: init.method,
+      url,
+      body: init.body === undefined ? undefined : JSON.parse(init.body),
+    };
+    calls.push(call);
+    return { ok: true, status: 200, json: async () => respond(call) };
+  };
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  return calls;
+}
+
+/**
+ * Der Server der Ansicht: analytics/summary antwortet mit den übergebenen
+ * Abschnitten (sonst je Tag des angefragten Zeitraums einer), die
+ * Konversationsliste ist leer.
+ */
+async function analyticsServer(t, { granularity = "day", buckets } = {}) {
+  const summaryUrl = await urlOf(ROUTES.summary);
+  const listUrl = await urlOf(ROUTES.conversations);
+  const calls = stubFetch(t, ({ url, body }) => {
+    if (url === listUrl)
+      return {
+        success: true,
+        conversations: [],
+        hasMore: false,
+        totalCount: 0,
+      };
+    if (url !== summaryUrl) return { success: false, error: "unbekannt" };
+    const days = [];
+    for (let day = body.fromDay; day <= body.toDay; day = addDays(day, 1))
+      days.push(day);
+    return {
+      success: true,
+      granularity,
+      fromDay: body.fromDay,
+      toDay: body.toDay,
+      firstLedgerDay: "2026-01-01",
+      totals: TOTALS,
+      buckets:
+        buckets ??
+        days.map((day, i) => ({
+          start: day,
+          end: day,
+          partial: false,
+          messages: 14 + i,
+          conversations: 2,
+        })),
+    };
+  });
+  const to = (url) => calls.filter((call) => call.url === url);
+  return {
+    calls,
+    summaries: () => to(summaryUrl),
+    lists: () => to(listUrl),
+    summaryUrl,
+    listUrl,
+  };
+}
+
+/** Die Ansicht mit einem Widget, im Standard-Zeitraum (letzte 30 Tage). */
+async function mountView(t, server) {
+  const { startDate, endDate } = lastDaysRange(DEFAULT_RANGE_DAYS);
+  const mounted = await mount(
+    t,
+    VIEW,
+    { embedsLoaded: true, embeds: [EMBED] },
+    { exportName: "AnalyticsScreen" }
+  );
+  return {
+    ...mounted,
+    days: rangeFromDates(startDate, endDate),
+    // Die Liste bekommt denselben Zeitraum als Zeitstempel des Browsers.
+    period: {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+    },
+    listRequest: (request = {}) => ({
+      method: ROUTES.conversations.method,
+      url: server.listUrl,
+      body: conversationsBody({
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        ...request,
+      }),
+    }),
+  };
+}
+
+/** Markierung „Nur <Abschnitt>" der Liste; null, wenn kein Abschnitt gewählt ist. */
+function bucketMarkOf(container) {
+  const [mark] = elements(container, (element) =>
+    element.hasAttribute("data-bucket-filter")
+  );
+  return mark ?? null;
+}
+const kpiTextOf = (container) =>
+  elements(container, (element) => element.hasAttribute("data-kpi")).map(
+    (element) => element.textContent
+  );
+
+test(
+  "Anfrage (Hard Constraint 5): getAnalyticsSummary sendet die gewählten Kalendertage als { fromDay, toDay } an analytics/summary",
+  { skip },
+  async (t) => {
+    const calls = stubFetch(t, () => ({ success: true }));
+    const { default: Embed } = await renderer.load("/src/models/embed.js");
+
+    const answer = await Embed.getAnalyticsSummary(
+      3,
+      "2026-09-13",
+      "2026-10-12"
+    );
+
+    assert.deepEqual(answer, { success: true });
+    assert.deepEqual(calls, [
+      {
+        method: ROUTES.summary.method,
+        url: await urlOf(ROUTES.summary, 3),
+        body: summaryBody("2026-09-13", "2026-10-12"),
+      },
+    ]);
+    assert.deepEqual(Object.keys(calls[0].body), ["fromDay", "toDay"]);
+    assert.match(calls[0].url, /\/embed\/3\/analytics\/summary$/);
+  }
+);
+
+test(
+  "Anfrage (AK-7): getConversations sendet den Abschnitt als startedFromDay/startedToDay – ohne Abschnitt keines der beiden Felder",
+  { skip },
+  async (t) => {
+    const calls = stubFetch(t, () => ({ success: true, conversations: [] }));
+    const { default: Embed } = await renderer.load("/src/models/embed.js");
+    const period = {
+      startDate: "2026-09-12T22:00:00.000Z",
+      endDate: "2026-10-12T21:59:59.999Z",
+    };
+
+    await Embed.getConversations(
+      3,
+      20,
+      20,
+      period.startDate,
+      period.endDate,
+      "negative",
+      { fromDay: "2026-10-05", toDay: "2026-10-11" }
+    );
+    await Embed.getConversations(
+      3,
+      0,
+      20,
+      period.startDate,
+      period.endDate,
+      "all",
+      null
+    );
+    await Embed.getConversations(3, 0, 20, null, null);
+
+    const url = await urlOf(ROUTES.conversations, 3);
+    assert.deepEqual(calls, [
+      {
+        method: ROUTES.conversations.method,
+        url,
+        body: conversationsBody({
+          ...period,
+          offset: 20,
+          feedbackFilter: "negative",
+          bucket: { start: "2026-10-05", end: "2026-10-11" },
+        }),
+      },
+      {
+        method: ROUTES.conversations.method,
+        url,
+        body: conversationsBody(period),
+      },
+      { method: ROUTES.conversations.method, url, body: conversationsBody() },
+    ]);
+    assert.equal(calls[0].body.startedFromDay, "2026-10-05");
+    assert.equal(calls[0].body.startedToDay, "2026-10-11");
+    for (const { body } of calls.slice(1)) {
+      assert.ok(!("startedFromDay" in body));
+      assert.ok(!("startedToDay" in body));
+    }
+    assert.match(url, /\/embed\/3\/analytics\/conversations$/);
+  }
+);
+
+test(
+  "Laden (Hard Constraint 5): Die Ansicht fragt Zählwerte mit den Kalendertagen des Zeitraums ab, die Liste mit den Zeitstempeln des Browsers",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t);
+    const { container, days, listRequest } = await mountView(t, server);
+
+    assert.equal(addDays(days.fromDay, DEFAULT_RANGE_DAYS - 1), days.toDay);
+    assert.deepEqual(server.summaries(), [
+      {
+        method: ROUTES.summary.method,
+        url: server.summaryUrl,
+        body: summaryBody(days.fromDay, days.toDay),
+      },
+    ]);
+    assert.deepEqual(server.lists(), [listRequest()]);
+    assert.equal(server.calls.length, 2);
+    // Die Antwort ist gezeichnet: 30 Säulenplätze, Kennzahlen aus totals.
+    assert.equal(columnsOf(container).length, 30);
+    assert.match(kpiTextOf(container)[0], /^Nachrichten885/);
+    assert.equal(bucketMarkOf(container), null);
+  }
+);
+
+test(
+  "Klick auf eine Säule (AK-7): Die Liste wird mit dem Abschnitt neu geladen und markiert; zweiter Klick oder Schließen hebt den Filter auf; die Kennzahlen bleiben",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t);
+    const { container, act, days, listRequest } = await mountView(t, server);
+    const day = addDays(days.fromDay, 23);
+    const bucket = { start: day, end: day };
+    const kpis = kpiTextOf(container);
+    assert.equal(kpis.length, 4);
+
+    await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(server.lists(), [listRequest(), listRequest({ bucket })]);
+    assert.equal(server.lists().at(-1).body.startedFromDay, day);
+    assert.equal(server.lists().at(-1).body.startedToDay, day);
+    const mark = bucketMarkOf(container);
+    assert.match(mark.textContent, /^Nur \S+, /);
+    assert.ok(mark.textContent.endsWith(formatDate(day)), mark.textContent);
+    assert.equal(columnsOf(container)[23].getAttribute("aria-pressed"), "true");
+
+    // zweiter Klick auf dieselbe Säule
+    await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(server.lists().at(-1), listRequest());
+    assert.equal(server.lists().length, 3);
+    assert.equal(bucketMarkOf(container), null);
+
+    // andere Säule, dann die Schließen-Schaltfläche der Markierung
+    const other = addDays(days.fromDay, 5);
+    await act(() => click(columnsOf(container)[5]));
+    assert.deepEqual(
+      server.lists().at(-1),
+      listRequest({ bucket: { start: other, end: other } })
+    );
+    const [close] = elements(bucketMarkOf(container), (element) =>
+      (element.getAttribute("aria-label") ?? "").startsWith("Filter „")
+    );
+    await act(() => click(close));
+    assert.deepEqual(server.lists().at(-1), listRequest());
+    assert.equal(server.lists().length, 5);
+    assert.equal(bucketMarkOf(container), null);
+
+    // Die Kennzahlen wurden nicht neu abgefragt und stehen unverändert da.
+    assert.equal(server.summaries().length, 1);
+    assert.deepEqual(kpiTextOf(container), kpis);
+  }
+);
+
+test(
+  "Klick auf eine Säule (AK-7): Kalenderwoche, angeschnittene Woche und Monat gehen mit ihrem ersten und letzten Tag an die Liste",
+  { skip },
+  async (t) => {
+    const week = (start, end, partial) => ({
+      start,
+      end,
+      partial,
+      messages: 10,
+      conversations: 3,
+    });
+    const weeks = await analyticsServer(t, {
+      granularity: "week",
+      buckets: [
+        week("2026-09-28", "2026-10-04", false),
+        week("2026-10-05", "2026-10-11", false),
+        week("2026-10-12", "2026-10-12", true),
+      ],
+    });
+    const view = await mountView(t, weeks);
+    assert.equal(columnsOf(view.container).length, 3);
+
+    await view.act(() => click(columnsOf(view.container)[1]));
+    assert.deepEqual(
+      weeks.lists().at(-1),
+      view.listRequest({ bucket: { start: "2026-10-05", end: "2026-10-11" } })
+    );
+    assert.equal(
+      bucketMarkOf(view.container).textContent,
+      "Nur KW 41 (05.10.–11.10.2026)"
+    );
+
+    await view.act(() => click(columnsOf(view.container)[2]));
+    assert.deepEqual(
+      weeks.lists().at(-1),
+      view.listRequest({ bucket: { start: "2026-10-12", end: "2026-10-12" } })
+    );
+    assert.equal(
+      bucketMarkOf(view.container).textContent,
+      "Nur KW 42 – bis 12.10."
+    );
+    await view.unmount();
+
+    const months = await analyticsServer(t, {
+      granularity: "month",
+      buckets: [
+        week("2026-09-01", "2026-09-30", false),
+        week("2026-10-01", "2026-10-12", true),
+      ],
+    });
+    const monthly = await mountView(t, months);
+    await monthly.act(() => click(columnsOf(monthly.container)[0]));
+    assert.deepEqual(
+      months.lists().at(-1),
+      monthly.listRequest({
+        bucket: { start: "2026-09-01", end: "2026-09-30" },
+      })
+    );
+    assert.equal(
+      bucketMarkOf(monthly.container).textContent,
+      "Nur September 2026"
+    );
+  }
+);
+
+test(
+  "Klick auf eine Säule (AK-9): Im Stundendiagramm filtert er die Liste nicht",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, {
+      granularity: "hour",
+      buckets: Array.from({ length: 24 }, (_, hour) => ({
+        start: "2026-10-06",
+        end: "2026-10-06",
+        partial: false,
+        hour,
+        messages: hour,
+        conversations: 1,
+      })),
+    });
+    const { container, act } = await mountView(t, server);
+    assert.equal(columnsOf(container).length, 24);
+
+    await act(() => click(columnsOf(container)[13]));
+    assert.equal(
+      tooltipOf(container),
+      "Di., 06.10.2026, 13–14 Uhr — 13 Nachrichten"
+    );
+    assert.equal(server.lists().length, 1);
+    assert.equal(bucketMarkOf(container), null);
+    assert.equal(server.summaries().length, 1);
   }
 );
