@@ -6,6 +6,16 @@ const setupTelemetry = require("../telemetry");
 const eagerLoadContextWindows = require("./eagerLoadContextWindows");
 const markOnboarded = require("./markOnboarded");
 const { PushNotifications } = require("../PushNotifications");
+const { runMessageLedgerBackfill } = require("./messageLedgerBackfill");
+
+// KIE-532: Der Nachtrag des Zählerbuchs läuft, bevor der Server Anfragen
+// annimmt. Er wirft nie; schlägt er fehl, startet der Server trotzdem und das
+// Kontingent liest weiter die Live-Zählung.
+function listenAfterLedgerBackfill(listen) {
+  runMessageLedgerBackfill()
+    .catch((e) => console.error(e.message))
+    .then(listen);
+}
 
 // Testing SSL? You can make a self signed certificate and point the ENVs to that location
 // make a directory in server called 'sslcert' - cd into it
@@ -28,18 +38,20 @@ function bootSSL(app, port = 3001) {
     const credentials = { key: privateKey, cert: certificate };
     const server = https.createServer(credentials, app);
 
-    server
-      .listen(port, async () => {
-        await markOnboarded();
-        await setupTelemetry();
-        new CommunicationKey(true);
-        new EncryptionManager();
-        new BackgroundService().boot();
-        await eagerLoadContextWindows();
-        await PushNotifications.setupPushNotificationService();
-        console.log(`Primary server in HTTPS mode listening on port ${port}`);
-      })
-      .on("error", catchSigTerms);
+    listenAfterLedgerBackfill(() =>
+      server
+        .listen(port, async () => {
+          await markOnboarded();
+          await setupTelemetry();
+          new CommunicationKey(true);
+          new EncryptionManager();
+          new BackgroundService().boot();
+          await eagerLoadContextWindows();
+          await PushNotifications.setupPushNotificationService();
+          console.log(`Primary server in HTTPS mode listening on port ${port}`);
+        })
+        .on("error", catchSigTerms)
+    );
 
     require("@mintplex-labs/express-ws").default(app, server);
     return { app, server };
@@ -60,18 +72,20 @@ function bootSSL(app, port = 3001) {
 function bootHTTP(app, port = 3001) {
   if (!app) throw new Error('No "app" defined - crashing!');
 
-  app
-    .listen(port, async () => {
-      await markOnboarded();
-      await setupTelemetry();
-      new CommunicationKey(true);
-      new EncryptionManager();
-      new BackgroundService().boot();
-      await eagerLoadContextWindows();
-      await PushNotifications.setupPushNotificationService();
-      console.log(`Primary server in HTTP mode listening on port ${port}`);
-    })
-    .on("error", catchSigTerms);
+  listenAfterLedgerBackfill(() =>
+    app
+      .listen(port, async () => {
+        await markOnboarded();
+        await setupTelemetry();
+        new CommunicationKey(true);
+        new EncryptionManager();
+        new BackgroundService().boot();
+        await eagerLoadContextWindows();
+        await PushNotifications.setupPushNotificationService();
+        console.log(`Primary server in HTTP mode listening on port ${port}`);
+      })
+      .on("error", catchSigTerms)
+  );
 
   return { app, server: null };
 }
