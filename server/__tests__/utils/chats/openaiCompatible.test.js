@@ -63,8 +63,13 @@ describe("OpenAICompatibleChat", () => {
     jest.clearAllMocks();
 
     // Die Filter-Erkennung (KIE-480) meldet die Antwort des Attrappen-LLM als
-    // unlesbar und filtert dann nicht; die Meldungen bleiben aus der Ausgabe.
-    jest.spyOn(console, "error").mockImplementation(() => {});
+    // unlesbar und filtert dann nicht. Nur diese erwarteten Meldungen bleiben
+    // aus der Ausgabe; jeder andere Fehler erscheint wie sonst auch.
+    const originalConsoleError = console.error;
+    jest.spyOn(console, "error").mockImplementation((...args) => {
+      if (String(args[0]).includes("[MetadataFilter]")) return;
+      originalConsoleError.apply(console, args);
+    });
 
     // Wie nach dem Start des Servers: Der Nachtrag ist abgeschlossen, das
     // Kontingent liest das Zählerbuch.
@@ -131,7 +136,8 @@ describe("OpenAICompatibleChat", () => {
 
   afterEach(async () => {
     jest.restoreAllMocks();
-    await db.close();
+    // Scheitert beforeEach vor dem Anlegen, gibt es nichts zu schließen.
+    await db?.close();
   });
 
   afterAll(() => removeTestDatabases());
@@ -441,6 +447,106 @@ describe("OpenAICompatibleChat", () => {
       expect(done).toBe("data: [DONE]\n\n");
       expect(mockLLMConnector.handleStream).not.toHaveBeenCalled();
       await expectNothingHappened();
+    });
+  });
+
+  // Fork: Ohne Limit (messagesLimit null) sperrt der Handler nie. Die
+  // Kontingentangabe nennt dann "Unlimited", wie getMessageLimitInfo sie
+  // liefert, und messages_limit bleibt null.
+  describe("Kein Limit", () => {
+    const request = {
+      prompt: "Hello world",
+      systemPrompt: "You are a helpful assistant",
+      history: [
+        { role: "user", content: "Previous message" },
+        { role: "assistant", content: "Previous response" },
+      ],
+      temperature: 0.7,
+    };
+
+    beforeEach(async () => {
+      // Unbegrenzt bei zwei verbrauchten Nachrichten
+      mockWorkspace = await db.client.workspaces.update({
+        where: { id: mockWorkspace.id },
+        data: { messagesLimit: null },
+      });
+    });
+
+    async function expectMessageSaved(text) {
+      expect(WorkspaceChats.new).toHaveBeenCalledTimes(1);
+      expect(WorkspaceChats.new).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceId: mockWorkspace.id,
+          prompt: request.prompt,
+          response: expect.objectContaining({ text }),
+        })
+      );
+      expect(await db.client.workspace_chats.count()).toBe(3);
+      expect(await getMessageLimitInfo(mockWorkspace)).toEqual(
+        expect.objectContaining({
+          messageCount: 3,
+          messagesLimit: null,
+          contingent: "3/Unlimited",
+        })
+      );
+    }
+
+    test("chatSync: keine Sperre, Antwort gespeichert, Kontingent 3/Unlimited", async () => {
+      const before = await limitBefore();
+      expect(before).toEqual({ messageCount: 2, messagesLimit: null });
+
+      const result = await OpenAICompatibleChat.chatSync({
+        ...before,
+        workspace: mockWorkspace,
+        ...request,
+      });
+
+      // Der Aufruf für die Antwort: mit den Nachrichten aus compressMessages.
+      // (Die Filter-Erkennung ruft dieselbe Attrappe zusätzlich auf.)
+      expect(mockLLMConnector.getChatCompletion).toHaveBeenCalledWith(
+        [],
+        expect.objectContaining({ temperature: 0.7 })
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          object: "chat.completion",
+          choices: [
+            expect.objectContaining({
+              message: { role: "assistant", content: "Mock response" },
+              finish_reason: "stop",
+            }),
+          ],
+          contingent: "3/Unlimited",
+          messages_limit: null,
+        })
+      );
+      expect(result).not.toHaveProperty("httpStatusCode");
+      await expectMessageSaved("Mock response");
+    });
+
+    test("streamChat: keine Sperre, Antwort gespeichert, Abschluss-Chunk mit 3/Unlimited", async () => {
+      const before = await limitBefore();
+      expect(before).toEqual({ messageCount: 2, messagesLimit: null });
+
+      mockResponse.status = jest.fn();
+      await OpenAICompatibleChat.streamChat({
+        ...before,
+        workspace: mockWorkspace,
+        response: mockResponse,
+        ...request,
+      });
+
+      expect(mockResponse.status).not.toHaveBeenCalled();
+      expect(mockLLMConnector.streamGetChatCompletion).toHaveBeenCalledTimes(1);
+      expect(mockLLMConnector.handleStream).toHaveBeenCalledTimes(1);
+      expect(finalChunk()).toEqual(
+        expect.objectContaining({
+          contingent: "3/Unlimited",
+          messages_limit: null,
+        })
+      );
+      expect(finalChunk()).not.toHaveProperty("httpStatusCode");
+      await expectMessageSaved("Mock streamed response");
     });
   });
 });
