@@ -5,6 +5,7 @@ const {
 } = require("../utils/chats/embedCourseSources");
 const { storedFollowUps } = require("../utils/chats/embedCardsMarker");
 const prisma = require("../utils/prisma");
+const { MessageLedger } = require("./messageLedger");
 
 /**
  * @typedef {Object} EmbedChat
@@ -19,6 +20,14 @@ const prisma = require("../utils/prisma");
  */
 
 const EmbedChats = {
+  /**
+   * Legt eine Widget-Chat-Zeile an und zählt sie im Zählerbuch (KIE-532): +1
+   * messages in der Zeile des Widgets für den Berliner Tag und die Berliner
+   * Stunde, unter dem Workspace, dem das Widget in diesem Moment gehört.
+   * conversations_started steigt, wenn es für COALESCE(conversation_id,
+   * session_id) in diesem Widget noch keine Zeile gab. Zeile und Zähler
+   * entstehen in einer Transaktion - gemeinsam oder gar nicht.
+   */
   new: async function ({
     embedId,
     prompt,
@@ -28,21 +37,71 @@ const EmbedChats = {
     conversationId = null,
   }) {
     try {
-      const chat = await prisma.embed_chats.create({
-        data: {
-          prompt,
-          embed_id: Number(embedId),
-          response: JSON.stringify(response),
-          connection_information: JSON.stringify(connection_information),
-          session_id: String(sessionId),
-          conversation_id: conversationId ? String(conversationId) : null,
-        },
-      });
+      const chat = await MessageLedger.transaction(
+        { source: "embed_chat", embedId: Number(embedId) },
+        async (tx) => {
+          const created = await tx.embed_chats.create({
+            data: {
+              prompt,
+              embed_id: Number(embedId),
+              response: JSON.stringify(response),
+              connection_information: JSON.stringify(connection_information),
+              session_id: String(sessionId),
+              conversation_id: conversationId ? String(conversationId) : null,
+            },
+          });
+          const embed = await tx.embed_configs.findUnique({
+            where: { id: created.embed_id },
+            select: { workspace_id: true },
+          });
+          await MessageLedger.record(tx, {
+            workspaceId: embed.workspace_id,
+            embedId: created.embed_id,
+            at: created.createdAt,
+            messages: 1,
+            conversationStarted: await EmbedChats._startsConversation(
+              tx,
+              created
+            ),
+          });
+          return created;
+        }
+      );
       return { chat, message: null };
     } catch (error) {
       console.error(error.message);
       return { chat: null, message: error.message };
     }
+  },
+
+  /**
+   * Beginnt diese Zeile eine Konversation? Ja, wenn es für
+   * COALESCE(conversation_id, session_id) in diesem Widget keine frühere Zeile
+   * gibt. Wurden frühere Zeilen derselben Konversation gelöscht, zählt sie
+   * erneut. Dieselbe Regel wendet der Nachtrag an
+   * (utils/boot/messageLedgerBackfill.js, STARTS_CONVERSATION_SQL).
+   * Das vorangestellte + nimmt eine Spalte aus der Indexwahl: Gesucht wird über
+   * conversation_id bzw. (embed_id, session_id), nie über alle Zeilen des Widgets.
+   * @param {import("@prisma/client").Prisma.TransactionClient} tx
+   * @param {EmbedChat} chat - die eben angelegte Zeile
+   * @returns {Promise<boolean>}
+   */
+  _startsConversation: async function (tx, chat) {
+    const key = chat.conversation_id ?? chat.session_id;
+    const [row] = await tx.$queryRaw`
+      SELECT (
+        EXISTS (
+          SELECT 1 FROM embed_chats p
+          WHERE p.conversation_id = ${key} AND +p.embed_id = ${chat.embed_id}
+            AND p.id < ${chat.id}
+        )
+        OR EXISTS (
+          SELECT 1 FROM embed_chats p
+          WHERE p.embed_id = ${chat.embed_id} AND p.session_id = ${key}
+            AND +p.conversation_id IS NULL AND p.id < ${chat.id}
+        )
+      ) AS continued`;
+    return Number(row.continued) === 0;
   },
 
   /**
@@ -216,6 +275,9 @@ const EmbedChats = {
    * BOLA/IDOR-Härtung (analog KIE-505): die chatId wird zusätzlich an embed_id UND
    * session_id gebunden, damit eine geratene/geleakte chatId keine fremde Antwort
    * bewerten kann. Verwendet updateMany, sodass ein Nicht-Treffer keinen Fehler wirft.
+   * Zählerbuch (KIE-532): Der alte Wert wird gelesen und der Übergang in derselben
+   * Transaktion auf die Stunde gebucht, in der die Nachricht entstand. Ohne Treffer
+   * (fremde Session, fremdes Widget) ändert sich weder die Zeile noch das Zählerbuch.
    * @param {number|null} embedId the embed config id (scope)
    * @param {string|null} sessionId the owning browser session
    * @param {number|null} chatId the embed_chats row id
@@ -254,15 +316,42 @@ const EmbedChats = {
         data.feedbackText = null;
         data.feedbackReason = null;
       }
-      const result = await prisma.embed_chats.updateMany({
-        where: {
-          id: Number(chatId),
-          embed_id: Number(embedId),
-          session_id: String(sessionId),
-        },
-        data,
-      });
-      return result.count === 1;
+      const where = {
+        id: Number(chatId),
+        embed_id: Number(embedId),
+        session_id: String(sessionId),
+      };
+      return await MessageLedger.transaction(
+        { source: "embed_feedback", embedId: Number(embedId) },
+        async (tx) => {
+          const before = await tx.embed_chats.findFirst({
+            where,
+            select: {
+              id: true,
+              createdAt: true,
+              feedbackScore: true,
+              embed_config: { select: { workspace_id: true } },
+            },
+          });
+          if (!before) return false;
+
+          const result = await tx.embed_chats.updateMany({ where, data });
+          if (result.count !== 1) return false;
+
+          if (
+            before.feedbackScore !== resolvedScore &&
+            (await MessageLedger.isRowCounted(tx, "embed_chats", before.id))
+          )
+            await MessageLedger.adjustFeedback(tx, {
+              workspaceId: before.embed_config.workspace_id,
+              embedId: Number(embedId),
+              at: before.createdAt,
+              from: before.feedbackScore,
+              to: resolvedScore,
+            });
+          return true;
+        }
+      );
     } catch (error) {
       console.error("updateFeedbackScore error:", error.message);
       return false;

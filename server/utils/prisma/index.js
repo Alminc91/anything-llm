@@ -1,3 +1,5 @@
+// KIE-532: vor dem Laden der Engine, siehe engineThreads.js
+require("./engineThreads").ensureEngineThreads();
 const { PrismaClient } = require("@prisma/client");
 
 // npx prisma introspect

@@ -48,7 +48,8 @@
     "testPathIgnorePatterns": [
       "\\.manual\\.js$",
       "\\.eval\\.js$",
-      "/__tests__/(.*/)?support/"
+      "/__tests__/(.*/)?support/",
+      "/__tests__/helpers/"
     ]
   }
 }

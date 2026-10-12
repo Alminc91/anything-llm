@@ -1,7 +1,14 @@
 const prisma = require("../utils/prisma");
 const { safeJSONStringify } = require("../utils/helpers/chat/responses");
+const { MessageLedger } = require("./messageLedger");
 
 const WorkspaceChats = {
+  /**
+   * Legt eine Chat-Zeile an und zählt sie im Zählerbuch (KIE-532): +1 messages
+   * in der Zeile des Workspaces (embed_id 0) für den Berliner Tag und die
+   * Berliner Stunde, auch bei include = false. Zeile und Zähler entstehen in
+   * einer Transaktion - gemeinsam oder gar nicht.
+   */
   new: async function ({
     workspaceId,
     prompt,
@@ -12,17 +19,28 @@ const WorkspaceChats = {
     apiSessionId = null,
   }) {
     try {
-      const chat = await prisma.workspace_chats.create({
-        data: {
-          workspaceId,
-          prompt,
-          response: safeJSONStringify(response),
-          user_id: user?.id || null,
-          thread_id: threadId,
-          api_session_id: apiSessionId,
-          include,
-        },
-      });
+      const chat = await MessageLedger.transaction(
+        { source: "workspace_chat", workspaceId },
+        async (tx) => {
+          const created = await tx.workspace_chats.create({
+            data: {
+              workspaceId,
+              prompt,
+              response: safeJSONStringify(response),
+              user_id: user?.id || null,
+              thread_id: threadId,
+              api_session_id: apiSessionId,
+              include,
+            },
+          });
+          await MessageLedger.record(tx, {
+            workspaceId: created.workspaceId,
+            at: created.createdAt,
+            messages: 1,
+          });
+          return created;
+        }
+      );
       return { chat, message: null };
     } catch (error) {
       console.error(error.message);
@@ -305,17 +323,50 @@ const WorkspaceChats = {
       return false;
     }
   },
-  bulkCreate: async function (chatsData) {
+  /**
+   * Legt Kopien vorhandener Chats an (Thread-Verzweigung). Kopien zählen nicht
+   * aufs Kontingent (KIE-532): Im Zählerbuch steigt copied, nicht messages.
+   * Alle Kopien und ihre Zähler entstehen in einer Transaktion.
+   * Nicht für neue Nachrichten verwenden - dafür gibt es new.
+   */
+  bulkCreate: async function (chatsData = []) {
     // TODO: Replace with createMany when we update prisma to latest version
     // The version of prisma that we are currently using does not support createMany with SQLite
     try {
-      const createdChats = [];
-      for (const chatData of chatsData) {
-        const chat = await prisma.workspace_chats.create({
-          data: chatData,
-        });
-        createdChats.push(chat);
-      }
+      if (chatsData.length === 0) return { chats: [], message: null };
+      const createdChats = await MessageLedger.transaction(
+        { source: "thread_fork", workspaceId: chatsData[0]?.workspaceId },
+        async (tx) => {
+          const chats = [];
+          // Kopien je Workspace und Berliner Stunde zusammengefasst buchen
+          const copies = new Map();
+          for (const chatData of chatsData) {
+            const chat = await tx.workspace_chats.create({
+              data: chatData,
+            });
+            chats.push(chat);
+
+            const { day, hour } = MessageLedger.berlinDayHour(chat.createdAt);
+            const key = `${chat.workspaceId}|${day}|${hour}`;
+            const entry = copies.get(key) ?? {
+              workspaceId: chat.workspaceId,
+              at: chat.createdAt,
+              copied: 0,
+            };
+            entry.copied += 1;
+            copies.set(key, entry);
+          }
+          for (const entry of copies.values())
+            await MessageLedger.record(tx, entry);
+          return chats;
+        },
+        // Eine Anweisung je Kopie: lange Threads brauchen mehr als die
+        // Zeitgrenze einer einzelnen Nachricht.
+        {
+          timeout:
+            MessageLedger.TRANSACTION_OPTIONS.timeout + 20 * chatsData.length,
+        }
+      );
       return { chats: createdChats, message: null };
     } catch (error) {
       console.error(error.message);
