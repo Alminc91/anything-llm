@@ -65,6 +65,29 @@ fi
       fi
     fi &&
 
+    # --- KIE-532: Zählerbuch absichern (message_ledger) ----------------------
+    # Der Fallback oben markiert eine fehlgeschlagene Migration als angewendet,
+    # ohne ihre Anweisungen auszuführen. Ohne die Tabelle message_ledger könnte
+    # der Server keine Chat-Zeile mehr speichern (Zeile und Zähler entstehen in
+    # einer Transaktion). Das Skript führt deshalb die Anweisungen der Migration
+    # 20261012150626_add_message_ledger aus: nur CREATE TABLE IF NOT EXISTS /
+    # CREATE INDEX IF NOT EXISTS (Tabelle message_ledger mit ihren Indizes und
+    # der Index embed_chats(embed_id, createdAt)). Idempotent, ändert keine
+    # bestehende Zeile, braucht kein sqlite3 im Image. Nie fatal: Ein Fehler
+    # darf den Start nicht verhindern. Läuft als anythingllm, damit keine
+    # Journal-Dateien mit fremdem Besitzer entstehen.
+    {
+      if [ "$(id -u)" = "0" ] && command -v gosu >/dev/null 2>&1; then
+        LEDGER_RUN="gosu anythingllm"
+      else
+        LEDGER_RUN=""
+      fi
+      if ! $LEDGER_RUN node /app/server/scripts/ensure-message-ledger.js; then
+        echo "[entrypoint] ⚠️  message_ledger konnte nicht abgesichert werden — Start läuft weiter. Ohne die Tabelle speichert der Server keine Chats (Ereignis message_ledger_write_failed)."
+      fi
+      true
+    } &&
+
     # --- KIE-478/480: one-time FTS n-gram index backfill (Hybrid Search) ----
     # Builds the BM25 full-text index over the EXISTING "text" column so all
     # workspaces (incl. inactive ones the hourly delta-ingest never touches)
