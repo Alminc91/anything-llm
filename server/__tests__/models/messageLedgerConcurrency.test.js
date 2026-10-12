@@ -39,6 +39,13 @@ const {
 // Der erste Test jeder Datei erzeugt die Vorlage mit `prisma migrate deploy`.
 jest.setTimeout(60000);
 
+// Stillstand heißt: Über ein Busy-Timeout (5 s) hinweg wird keine Speicherung
+// fertig. Die Grenze liegt bei der Hälfte. Gemessen (4 Kerne, 12.10.2026) als
+// längste Pause zwischen zwei abgeschlossenen Speicherungen: 140-270 ms im
+// Leerlauf, 270-400 ms unter künstlicher Plattenlast (dd und fsync-Schleifen,
+// I/O-Druck "some" um 50 %), 4960-5010 ms ohne ensureEngineThreads.
+const LONGEST_PAUSE_MS = 2500;
+
 let db;
 beforeEach(async () => {
   db = await createTestDatabase();
@@ -78,8 +85,16 @@ describe("parallele Anfragen", () => {
     expect(result.ratings).toEqual(Array(10).fill(true));
     expect(result.newChats).toEqual(Array(10).fill(null));
     expect(result.copies).toBeNull();
-    // Ohne die Vorkehrungen steht der Lauf mindestens ein Busy-Timeout (5 s) still.
-    expect(result.durationMs).toBeLessThan(5000);
+    // Ohne genügend Threads steht der Lauf ein Busy-Timeout lang still. Die
+    // Gesamtdauer (result.durationMs) zeigt das nicht: Sie hängt an der Platte -
+    // jede Speicherung wartet auf fsync - und lag unter Last des Hosts auch
+    // ohne Stillstand über 5 s. Gegen einen Hänger steht die Zeitgrenze des
+    // Kindprozesses.
+    expect(result.longestPauseMs).toBeLessThan(LONGEST_PAUSE_MS);
+    // Die Reihe: Nie steht mehr als eine Transaktion in der Engine an. Ohne sie
+    // sind es alle 60 zugleich; sie scheitern erst, wenn das Abarbeiten länger
+    // dauert als das Busy-Timeout - auf einer schnellen Platte also nie.
+    expect(result.mostOpenTransactions).toBe(1);
 
     // 60 parallele Anfragen, danach 10 weitere Nachrichten und 10 Kopien
     expect(await db.client.workspace_chats.count()).toBe(REQUESTS / 2 + 20);
