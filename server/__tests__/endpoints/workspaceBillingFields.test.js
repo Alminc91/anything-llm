@@ -801,6 +801,133 @@ describe("bestand (NAK-4)", () => {
     });
   });
 
+  // Die Abrechnungsansicht sendet vom Startdatum nur den UTC-Kalendertag
+  // zurück (BillingAdminView.jsx, formatDateForInput).
+  const formDay = (date) => date.toISOString().split("T")[0];
+
+  test.each([
+    // per API als Zeitstempel gesetzt
+    ["1999-06-01T10:00:00.000Z", "1999-06-01"],
+    // "2019-07-01T00:00:00+02:00": UTC-Tag und Berliner Tag fallen auseinander
+    ["2019-06-30T22:00:00.000Z", "2019-06-30"],
+    // mehr als 5 Jahre voraus
+    ["2040-03-15T08:30:00.000Z", "2040-03-15"],
+  ])(
+    "Oberfläche: Altwert mit Uhrzeit (%s) - das Formular sendet nur den Tag, das Limit wird trotzdem gespeichert",
+    async (storedIso, day) => {
+      const stored = new Date(storedIso);
+      seedWorkspace("alt-uhrzeit", {
+        messagesLimit: 100,
+        cycleStartDate: stored,
+        cycleDurationMonths: 3,
+      });
+      expect(formDay(stored)).toBe(day);
+
+      const result = await sessionUpdate(
+        admin,
+        {
+          messagesLimit: "200",
+          cycleStartDate: formDay(stored),
+          cycleDurationMonths: "3",
+        },
+        "alt-uhrzeit"
+      );
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body.message).toBeNull();
+      // Der gespeicherte Zeitpunkt bleibt stehen, er wird nicht auf 00:00 UTC
+      // des Tages umgeschrieben.
+      expect(billingOf("alt-uhrzeit")).toEqual({
+        messagesLimit: 200,
+        cycleStartDate: new Date(storedIso),
+        cycleDurationMonths: 3,
+      });
+      expect(result.body.workspace.cycleStartDate).toBe(storedIso);
+    }
+  );
+
+  test("Oberfläche: auch ein gültiger Startwert mit Uhrzeit bleibt stehen, wenn nur das Limit geändert wird", async () => {
+    // "2026-09-01T00:00:00+02:00": Das Formular zeigt und sendet "2026-08-31".
+    const stored = new Date("2026-08-31T22:00:00.000Z");
+    seedWorkspace("mit-uhrzeit", {
+      messagesLimit: 100,
+      cycleStartDate: stored,
+      cycleDurationMonths: 3,
+    });
+    const result = await sessionUpdate(
+      admin,
+      {
+        messagesLimit: "200",
+        cycleStartDate: formDay(stored),
+        cycleDurationMonths: "3",
+      },
+      "mit-uhrzeit"
+    );
+    expect(result.statusCode).toBe(200);
+    // nicht auf 00:00 UTC des 31.08. umgeschrieben: Der Zyklus beginnt weiter
+    // am Berliner Tag 01.09.
+    expect(billingOf("mit-uhrzeit")).toEqual({
+      messagesLimit: 200,
+      cycleStartDate: new Date("2026-08-31T22:00:00.000Z"),
+      cycleDurationMonths: 3,
+    });
+  });
+
+  test("Altwert mit Uhrzeit: ein anderer Tag oder eine andere Uhrzeit ist eine Änderung und wird geprüft", async () => {
+    const stored = new Date("1999-06-01T10:00:00.000Z");
+    seedWorkspace("alt-uhrzeit", {
+      messagesLimit: 100,
+      cycleStartDate: stored,
+      cycleDurationMonths: 3,
+    });
+    for (const cycleStartDate of [
+      "1999-06-02",
+      "1999-05-31",
+      "1999-06-01T00:00:00.000Z",
+      "1999-06-01T11:00:00.000Z",
+    ]) {
+      const result = await sessionUpdate(
+        admin,
+        { messagesLimit: "200", cycleStartDate },
+        "alt-uhrzeit"
+      );
+      expect(result.statusCode).toBe(400);
+      expect(Object.keys(result.body.errors)).toEqual(["cycleStartDate"]);
+    }
+    expect(billingOf("alt-uhrzeit")).toEqual({
+      messagesLimit: 100,
+      cycleStartDate: stored,
+      cycleDurationMonths: 3,
+    });
+  });
+
+  test("validateBillingFields: der reine Tageswert eines Bestandswerts mit Uhrzeit gilt als unverändert", () => {
+    const stored = new Date("1999-05-05T10:00:00.000Z");
+    const current = {
+      messagesLimit: 100,
+      cycleStartDate: stored,
+      cycleDurationMonths: 3,
+    };
+    expect(
+      Workspace.validateBillingFields({ cycleStartDate: "1999-05-05" }, current)
+    ).toEqual({
+      values: { cycleStartDate: stored },
+      errors: null,
+      message: null,
+    });
+    // Auch als Zeichenkette aus der Datenbank gelesen
+    expect(
+      Workspace.validateBillingFields(
+        { cycleStartDate: " 1999-05-05 " },
+        { ...current, cycleStartDate: "1999-05-05T10:00:00.000Z" }
+      ).errors
+    ).toBeNull();
+    expect(
+      Workspace.validateBillingFields({ cycleStartDate: "1999-05-06" }, current)
+        .errors
+    ).toHaveProperty("cycleStartDate");
+  });
+
   test("API: Bestandswerte unverändert zurückgesendet - kein Fehler", async () => {
     const result = await apiUpdate(
       {
