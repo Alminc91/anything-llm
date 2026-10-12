@@ -247,6 +247,14 @@ function createFakePrisma() {
         const [row] = sorted(find(where), orderBy);
         return row ? project(table, row, shape) : null;
       },
+      // KIE-532: Die Limitprüfung liest die Markierung des Nachtrags
+      // (system_settings.findUnique, MessageLedger.backfillState). Hier gibt
+      // es keine: Das Zählerbuch gilt als nicht nachgetragen, es zählt die
+      // Live-Zählung - wie in utils/chats/agentLimit.test.js.
+      findUnique: async ({ where, ...shape } = {}) => {
+        const [row] = find(where);
+        return row ? project(table, row, shape) : null;
+      },
       findMany: async ({ where, orderBy, take, skip, ...shape } = {}) => {
         let rows = sorted(find(where), orderBy);
         if (skip) rows = rows.slice(skip);
