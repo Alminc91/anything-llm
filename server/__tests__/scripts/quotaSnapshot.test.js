@@ -2449,6 +2449,58 @@ describe("quota-snapshot: Vergleich Live-Zählung → Zählerbuch (KIE-532)", ()
     }
   });
 
+  test("Limit 0 ist gesperrt, Limit null unbegrenzt - in beiden Quellen gleich (KIE-533)", async () => {
+    // Wie checkWorkspaceMessagesLimit: 0 ist ein Limit (erreicht ab Stand 0),
+    // nur null heißt unbegrenzt - auch ohne eine einzige Nachricht.
+    const limits = [
+      { id: 1, slug: "gesperrt", name: "Gesperrt", messagesLimit: 0 },
+      { id: 2, slug: "offen", name: "Offen", messagesLimit: null },
+      { id: 3, slug: "leer-gesperrt", name: "Leer", messagesLimit: 0 },
+      { id: 4, slug: "leer-offen", name: "Leer", messagesLimit: null },
+    ];
+    const usage = [
+      row(1, "2026-10-02T10:00:00+02:00"),
+      row(2, "2026-10-02T10:00:00+02:00"),
+      row(2, "2026-10-03T10:00:00+02:00", "embed"),
+    ];
+    const of = (source) =>
+      buildSnapshot({
+        workspaces: limits,
+        countInWindow: memoryCounter(usage),
+        now: NOW,
+        mode: "current",
+        source,
+      });
+    const live = await of("live");
+    const ledger = await of("ledger");
+
+    for (const snapshot of [live, ledger])
+      expect(
+        snapshot.workspaces.map((ws) => [
+          ws.slug,
+          ws.messagesLimit,
+          ws.messageCount,
+          ws.limitReached,
+        ])
+      ).toEqual([
+        ["gesperrt", 0, 1, true],
+        ["offen", null, 2, false],
+        ["leer-gesperrt", 0, 0, true],
+        ["leer-offen", null, 0, false],
+      ]);
+
+    const comparison = compareLedgerSnapshots(live, ledger);
+    expect(comparison.ok).toBe(true);
+    expect(
+      comparison.workspaces.map((ws) => [ws.messagesLimit, ws.status])
+    ).toEqual([
+      [0, "identical"],
+      [null, "identical"],
+      [0, "identical"],
+      [null, "identical"],
+    ]);
+  });
+
   test("Befehl snapshot: --source ledger nur mit --mode current und ohne --legacy-tz", async () => {
     const errors = [];
     const stderr = { write: (text) => errors.push(text) };
@@ -2647,6 +2699,22 @@ describe("quota-snapshot: Vorschlagsliste für bereits gelöschte Mengen (KIE-53
       "06.10.2026  Chats löschen, Widget 99: 8 Nachrichten"
     );
     expect(text).not.toContain("ruhig");
+  });
+
+  test("loeschmengen_vorschlag: ein gesperrter Workspace (Limit 0) steht mit Limit 0 in der Liste, nicht als unbegrenzt (KIE-533)", () => {
+    const report = buildDeletedReport({
+      workspaces: [{ ...monthly, messagesLimit: 0 }, cycle, untouched],
+      embeds,
+      events,
+      now: NOW,
+    });
+
+    expect(
+      report.workspaces.map((ws) => [ws.id, ws.messagesLimit, ws.suggestedMax])
+    ).toEqual([
+      [1, 0, 65],
+      [2, 100, 12],
+    ]);
   });
 
   test("loeschmengen_vorschlag: Grenzen - eine Löschung genau am Fensterbeginn gehört zum Fenster, eine Frist genau am Fensterbeginn betrifft es nicht", () => {

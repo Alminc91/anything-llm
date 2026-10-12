@@ -44,6 +44,7 @@ const {
 const {
   getCycleInfoWithMessageCount,
   countMessagesForCurrentCycle,
+  isCycleLimitReached,
 } = require("../../utils/helpers/cycleHelpers");
 const { getBillingWindow } = require("../../utils/helpers/billingWindow");
 
@@ -803,6 +804,111 @@ describe("limit_meldung (NAK-7)", () => {
     expect(await db.client.workspace_chats.count()).toBe(0);
     expect(await db.client.message_ledger.findMany()).toEqual(before);
     expect(await usage(workspace)).toBe(3);
+  });
+});
+
+// KIE-533: 0 heißt gesperrt, null heißt unbegrenzt. Die Tests von KIE-533
+// (endpoints/workspaceBillingFields.test.js) laufen gegen eine Attrappe ohne
+// Zählerbuch, also mit der Live-Zählung. Hier dieselbe Regel, wenn das
+// Kontingent das Zählerbuch liest.
+describe("limit_null_gegen_nullwert (KIE-533, AK-9) mit dem Zählerbuch als Quelle", () => {
+  test("Limit 0 sperrt schon beim Stand 0, Limit null sperrt nie - auch nach Löschungen und mit throwOnError", async () => {
+    const gesperrt = await cycleWorkspace({ messagesLimit: 0 });
+    const unbegrenzt = await cycleWorkspace({ messagesLimit: null });
+    const embed = await createEmbed(db.client, gesperrt);
+    for (let i = 0; i < 5; i++)
+      await WorkspaceChats.new({ workspaceId: unbegrenzt.id, prompt: "a" });
+    await completeBackfill();
+    // Gelöschte Zeilen senken den Stand nicht: Es zählt das Zählerbuch.
+    await WorkspaceChats.delete({ workspaceId: unbegrenzt.id });
+    expect(await db.client.workspace_chats.count()).toBe(0);
+    expect(await MessageLedger.isBackfillComplete()).toBe(true);
+    const before = await db.client.message_ledger.findMany();
+
+    for (const options of [{}, { throwOnError: true }]) {
+      const blocked = await checkWorkspaceMessagesLimit(
+        await reload(gesperrt),
+        null,
+        { returnData: true, ...options }
+      );
+      expect(blocked).toEqual(
+        expect.objectContaining({
+          limitReached: true,
+          messageCount: 0,
+          messagesLimit: 0,
+        })
+      );
+      expect(blocked.errorData.contingent).toBe("0/0");
+
+      const open = await checkWorkspaceMessagesLimit(
+        await reload(unbegrenzt),
+        null,
+        { returnData: true, ...options }
+      );
+      expect(open).toEqual(
+        expect.objectContaining({
+          limitReached: false,
+          messageCount: 5,
+          messagesLimit: null,
+        })
+      );
+      expect(open.errorData).toBeNull();
+
+      expect(
+        await getMessageLimitInfo(await reload(gesperrt), new Date(), options)
+      ).toEqual(
+        expect.objectContaining({
+          messageCount: 0,
+          messagesLimit: 0,
+          contingent: "0/0",
+        })
+      );
+      expect(
+        await getMessageLimitInfo(await reload(unbegrenzt), new Date(), options)
+      ).toEqual(
+        expect.objectContaining({
+          messageCount: 5,
+          messagesLimit: null,
+          contingent: "5/Unlimited",
+        })
+      );
+    }
+
+    // Zyklusinfo (cycleHelpers, seit KIE-533 mit 0 = gesperrt)
+    expect(await isCycleLimitReached(await reload(gesperrt))).toBe(true);
+    expect(await isCycleLimitReached(await reload(unbegrenzt))).toBe(false);
+    expect(await getCycleInfoWithMessageCount(await reload(gesperrt))).toEqual(
+      expect.objectContaining({
+        messageCount: 0,
+        messagesRemaining: 0,
+        contingent: "0/0",
+      })
+    );
+    expect(
+      await getCycleInfoWithMessageCount(await reload(unbegrenzt))
+    ).toEqual(
+      expect.objectContaining({
+        messageCount: 5,
+        messagesRemaining: null,
+        contingent: "5/Unlimited",
+      })
+    );
+
+    // Widget eines gesperrten Workspaces: Der echte Stream-Handler bricht mit
+    // der Limit-Meldung ab, es entsteht weder Chat-Zeile noch Zähler.
+    const { streamChatWithForEmbed } = require("../../utils/chats/embed");
+    const chunks = [];
+    await streamChatWithForEmbed(
+      { write: (chunk) => chunks.push(chunk) },
+      { ...embed, workspace: await reload(gesperrt) },
+      "Eine Frage",
+      "s",
+      {}
+    );
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatch(/"httpStatusCode":429/);
+    expect(await db.client.embed_chats.count()).toBe(0);
+    expect(await db.client.message_ledger.findMany()).toEqual(before);
   });
 });
 
