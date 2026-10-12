@@ -24,7 +24,10 @@ const { MessageLedger } = require("../../models/messageLedger");
  * b) Tatsächlich: Ein zweiter Client auf einer temporären SQLite-Datei (er
  *    teilt sich die Threads der Engine) führt so viele interaktive
  *    Transaktionen gleichzeitig aus, dass auf jeder Verbindung eine wartet,
- *    je zwei Rundläufe. Mit zu wenigen Threads bleibt das stehen.
+ *    je zwei Rundläufe. Mit zu wenigen Threads bleibt das stehen. Die
+ *    Transaktionen nehmen die Schreibsperre, ändern aber keine Zeile: Der
+ *    gemessene Lauf schreibt nicht auf die Platte, eine langsame Platte
+ *    führt deshalb nicht zu einem Alarm.
  *
  * Schlägt eine Prüfung fehl, steht das als Fehler in der Konsole und als
  * Ereignis message_ledger_engine_check_failed im Protokoll (nur Zahlen, keine
@@ -33,18 +36,18 @@ const { MessageLedger } = require("../../models/messageLedger");
  */
 
 const EVENT_ENGINE_CHECK_FAILED = "message_ledger_engine_check_failed";
-// Zeitgrenze für alle Transaktionen zusammen; bestanden: rund 0,15 s
+// Zeitgrenze für alle Transaktionen zusammen; bestanden: rund 0,06 s
 const TIME_LIMIT_MS = 1_500;
 // Über den Pool hinaus: Transaktionen, die auf eine Verbindung warten
 const QUEUED_TRANSACTIONS = 3;
 // Größter Pool, den der Lauf nachbildet. Jeder weitere wartende Schreiber
 // verlängert auch den bestandenen Lauf (Wartestufen von SQLite, zuletzt je
-// 0,1 s; gemessen: 5 Verbindungen 0,15 s, 7 Verbindungen 0,25 s, 9
-// Verbindungen 0,45 s, 17 Verbindungen 1,15 s, ab 25 über der Zeitgrenze).
-// Unter starker Last beim Start (60 rechnende Prozesse auf 4 Kernen) gemessen:
-// 5 Verbindungen bis 0,7 s, 7 bis 0,5 s, 9 bis 0,95 s. Die Grenze von 7 lässt
-// auch dann Abstand zur Zeitgrenze. Für größere Pools gilt allein die
-// rechnerische Prüfung.
+// 0,1 s; gemessen: 5 Verbindungen 0,06 s, 7 Verbindungen 0,1 s, 9
+// Verbindungen 0,18 s, 17 Verbindungen bis 0,85 s, 25 bis 1,6 s und damit über
+// der Zeitgrenze). Unter starker Last beim Start (60 rechnende Prozesse auf 4
+// Kernen) gemessen, noch mit ändernden Anweisungen: 5 Verbindungen bis 0,7 s,
+// 7 bis 0,5 s, 9 bis 0,95 s. Die Grenze von 7 lässt auch dann Abstand zur
+// Zeitgrenze. Für größere Pools gilt allein die rechnerische Prüfung.
 const MAX_POOL_SIZE = 7;
 // Busy-Timeout der Testdatei in Sekunden: über der Zeitgrenze, damit er einen
 // bestandenen Lauf nie beendet, und unter den 5 s der Engine, damit ein
@@ -101,11 +104,16 @@ async function runParallelTransactions({ poolSize, engineThreads }) {
     client.$on("info", (event) => {
       ownPoolSize = parsePoolSize(event.message) ?? ownPoolSize;
     });
+    // Die Tabelle bleibt leer: Die Anweisungen unten nehmen die Schreibsperre
+    // und halten sie bis zum COMMIT, finden aber keine Zeile. Wartende
+    // Schreiber belegen die Threads der Engine damit wie im Betrieb; es
+    // entsteht aber keine geänderte Seite, also kein Journal und kein fsync.
+    // Die Zeitgrenze misst so die Engine, nicht die Platte. Mit ändernden
+    // Anweisungen enthielt der Lauf rund 40 fsync und meldete sich ab etwa
+    // 40 ms je fsync, obwohl die Engine genug Threads hatte (nachgestellt mit
+    // verzögertem fsync; ohne Änderung besteht er auch bei 1 s je fsync).
     await client.$executeRawUnsafe(
       `CREATE TABLE engine_check (id INTEGER PRIMARY KEY, rounds INTEGER NOT NULL)`
-    );
-    await client.$executeRawUnsafe(
-      `INSERT INTO engine_check (id, rounds) VALUES (1, 0)`
     );
 
     const knownPoolSize = poolSize ?? ownPoolSize;

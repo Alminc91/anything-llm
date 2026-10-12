@@ -78,9 +78,15 @@ describe("selbsttest (AK-19)", () => {
     });
     expect(boot.check.engineThreads).toBeGreaterThan(boot.check.poolSize);
     expect(boot.check.durationMs).toBeLessThan(1500);
-    // Gemessen rund 0,17 s einschließlich Client, Datei und Aufräumen.
+    // Gemessen rund 0,1 s einschließlich Client, Datei und Aufräumen.
     expect(boot.checkMs).toBeLessThan(1500);
     expect(boot.errors).toEqual([]);
+    // Die Zeitgrenze misst die Engine, nicht die Platte: Die parallelen
+    // Transaktionen nehmen die Schreibsperre, ändern die Testdatei aber
+    // nicht (kein Journal, kein fsync). Geändert hat sie allein das Anlegen
+    // der Tabelle. Mit ändernden Transaktionen meldete der Selbsttest eine
+    // langsame Platte als message_ledger_engine_check_failed.
+    expect(boot.checkFileChanges).toBe(1);
 
     // Keine Spuren: nichts im temporären Verzeichnis, nichts im Storage,
     // die Datenbank des Servers unberührt - und der Nachtrag lief davor.
@@ -155,6 +161,9 @@ describe("selbsttest (AK-19)", () => {
     expect(boot.check.parallel).toBe(Math.min(boot.check.poolSize, 7) + 3);
     expect(boot.check.completed).toBeLessThan(boot.check.parallel);
     expect(boot.check.durationMs).toBeGreaterThanOrEqual(1500);
+    // Auch ohne eine geänderte Zeile bleiben die Transaktionen stehen: Die
+    // wartenden Schreiber belegen die Threads der Engine.
+    expect(boot.checkFileChanges).toBe(1);
     expect(boot.errors.join("\n")).toContain("Selbsttest der Query-Engine");
 
     const events = await eventsOf(db.client, EVENT);

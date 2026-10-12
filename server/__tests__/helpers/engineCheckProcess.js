@@ -25,6 +25,7 @@
 // Ausgabe: eine Zeile JSON.
 const fs = require("fs");
 const os = require("os");
+const path = require("path");
 const [file, scenario = "wirksam"] = process.argv.slice(2);
 
 const output = { errors: [], warnings: [] };
@@ -69,6 +70,17 @@ replaceModule("../../utils/telemetry", () => {});
 replaceModule("../../utils/boot/eagerLoadContextWindows", () => {});
 replaceModule("../../utils/boot/markOnboarded", () => {});
 replaceModule("../../utils/PushNotifications", { PushNotifications: {} });
+
+// Was der Selbsttest in seine Testdatei geschrieben hat, kurz bevor er sie
+// entfernt: SQLite zählt im Kopf der Datei (Byte 24 bis 27) jede Transaktion,
+// die etwas geändert hat.
+const rmSync = fs.rmSync;
+fs.rmSync = (target, ...rest) => {
+  const checkFile = path.join(String(target), "check.db");
+  if (fs.existsSync(checkFile))
+    output.checkFileChanges = fs.readFileSync(checkFile).readUInt32BE(24);
+  return rmSync(target, ...rest);
+};
 
 // Ergebnis und Dauer des Selbsttests mitschreiben, ohne ihn zu verändern.
 const engineCheck = require("../../utils/boot/messageLedgerEngineCheck");
