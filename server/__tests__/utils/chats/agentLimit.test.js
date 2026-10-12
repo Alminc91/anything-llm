@@ -707,14 +707,17 @@ describe("NAK-2 pruefung_fehlt", () => {
     expect(unhandled).toEqual([]);
   });
 
-  test("pruefung_fehlt: Fehler der Limitprüfung beim Start legt keine Sitzung an (Fehler geht an den Chat-Endpunkt)", async () => {
+  test("pruefung_fehlt: Fehler der Limitprüfung beim Start legt keine Sitzung an und meldet den Fehler neutral", async () => {
     const workspace = makeWorkspace({ messagesLimit: 100, chats: 0 });
     failNextLimitCheck(dbError);
 
-    // endpoints/chat.js fängt den Fehler und schreibt ihn als "abort"-Chunk.
-    await expect(sendGuiChat(workspace, AGENT_PROMPT)).rejects.toThrow(
-      dbError.message
-    );
+    const response = await sendGuiChat(workspace, AGENT_PROMPT);
+
+    const events = response.events();
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("abort");
+    expect(events[0].error).toMatch(/could not be verified/);
+    expect(events[0].error).not.toContain("SQLITE");
     expect(db.invocations).toHaveLength(0);
     expect(mockAgentLlm.complete).not.toHaveBeenCalled();
   });

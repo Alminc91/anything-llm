@@ -119,15 +119,21 @@ async function getCycleInfoWithMessageCount(workspace, simulateDate = null) {
  *
  * @param {Object} workspace - Workspace object
  * @param {Date|null} simulateDate - Optional: Simulated date for testing
+ * @param {Object} options - Passed on to countMessagesInDateRange (throwOnError)
  * @returns {Promise<import("./index").MessageCountBreakdown>} - Message count breakdown
  */
-async function countMessagesForCurrentCycle(workspace, simulateDate = null) {
+async function countMessagesForCurrentCycle(
+  workspace,
+  simulateDate = null,
+  options = {}
+) {
   const now = simulateDate ? new Date(simulateDate) : new Date();
   const billingWindow = getBillingWindow(workspace, now);
   return await countMessagesInDateRange(
     workspace,
     billingWindow.start,
-    billingWindow.endExclusive
+    billingWindow.endExclusive,
+    options
   );
 }
 

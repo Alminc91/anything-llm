@@ -87,6 +87,20 @@ const { checkWorkspaceMessagesLimit, getWorkspaceMessageLimitErrorText } =
   helpers;
 const LIMIT_TEXT = /Limit von 5 Nachrichten .* erreicht/;
 
+// KIE-534: Die Zählabfragen erhalten immer die Option throwOnError. Ohne
+// Agent-Einstieg ist sie false – Zählfehler bleiben wie bisher eine 0.
+const NO_THROW = { throwOnError: false };
+
+// Mit welcher Fehlerbehandlung die drei Zählabfragen zuletzt aufgerufen wurden
+// (KIE-534: throwOnError ist nur an den Agent-Einstiegen gesetzt).
+function countOptions() {
+  return [
+    WorkspaceChats.count.mock.calls.at(-1)[1],
+    EmbedChats.countForWorkspaceInDateRange.mock.calls.at(-1)[3],
+    WorkspaceMessageAdjustments.sumForWorkspaceInDateRange.mock.calls.at(-1)[3],
+  ];
+}
+
 function mockCounts({ chats = 0, embeds = 0, adjustments = 0 } = {}) {
   WorkspaceChats.count.mockResolvedValue(chats);
   EmbedChats.countForWorkspaceInDateRange.mockResolvedValue(embeds);
@@ -217,13 +231,16 @@ describe("checkWorkspaceMessagesLimit - Meldung unverändert", () => {
     expect(errorData.error).toBe(
       "Dieser Workspace hat das monatliche Limit von 600 Nachrichten für den Monat November erreicht. Ihr Limit wird in 29 Tagen am 01.12.2026 zurückgesetzt."
     );
-    expect(WorkspaceChats.count).toHaveBeenCalledWith({
-      workspaceId: 1,
-      createdAt: {
-        gte: new Date("2026-10-31T23:00:00.000Z"),
-        lt: new Date("2026-11-30T23:00:00.000Z"),
+    expect(WorkspaceChats.count).toHaveBeenCalledWith(
+      {
+        workspaceId: 1,
+        createdAt: {
+          gte: new Date("2026-10-31T23:00:00.000Z"),
+          lt: new Date("2026-11-30T23:00:00.000Z"),
+        },
       },
-    });
+      NO_THROW
+    );
   });
 
   test("Zyklus, deutsch, mit cycle_info", async () => {
@@ -466,18 +483,19 @@ describe("checkWorkspaceMessagesLimit - Sperrverhalten unverändert", () => {
     await checkWorkspaceMessagesLimit(cycleWorkspace, mockResponse());
     const start = new Date("2026-04-14T22:00:00.000Z"); // 15.04. 00:00 MESZ
     const endExclusive = new Date("2026-07-14T22:00:00.000Z"); // 15.07. 00:00 MESZ
-    expect(WorkspaceChats.count).toHaveBeenCalledWith({
-      workspaceId: 1,
-      createdAt: { gte: start, lt: endExclusive },
-    });
+    expect(WorkspaceChats.count).toHaveBeenCalledWith(
+      { workspaceId: 1, createdAt: { gte: start, lt: endExclusive } },
+      NO_THROW
+    );
     expect(EmbedChats.countForWorkspaceInDateRange).toHaveBeenCalledWith(
       1,
       start,
-      endExclusive
+      endExclusive,
+      NO_THROW
     );
     expect(
       WorkspaceMessageAdjustments.sumForWorkspaceInDateRange
-    ).toHaveBeenCalledWith(1, start, endExclusive);
+    ).toHaveBeenCalledWith(1, start, endExclusive, NO_THROW);
   });
 });
 
@@ -663,6 +681,13 @@ describe("streamChatWithWorkspace – Zeitpunkt der Limitprüfung", () => {
       uuid: expect.any(String),
     });
 
+    // Zählfehler behandelt die bestehende Prüfung wie bisher (als 0).
+    expect(countOptions()).toEqual([
+      { throwOnError: false },
+      { throwOnError: false },
+      { throwOnError: false },
+    ]);
+
     expect(connector.streamGetChatCompletion).toHaveBeenCalledTimes(1);
     expect(WorkspaceChats.new).toHaveBeenCalledTimes(1);
     expect(WorkspaceAgentInvocation.new).not.toHaveBeenCalled();
@@ -717,16 +742,30 @@ describe("streamChatWithWorkspace – Zeitpunkt der Limitprüfung", () => {
 
   test("mit @agent: eine Prüfung vor dem Anlegen der Sitzung, Vektorsuche und LLM werden nicht erreicht", async () => {
     mockCounts({ chats: 2 });
+    const workspace = makeWorkspace();
     const response = makeResponse();
     await streamChatWithWorkspace(
       response,
-      makeWorkspace(),
+      workspace,
       "@agent Wie ist das Wetter?",
       "chat",
       { id: 1 }
     );
 
     expect(limitCheck).toHaveBeenCalledTimes(1);
+    // Nur die Vorabprüfung für @agent reicht Zählfehler weiter.
+    expect(limitCheck).toHaveBeenCalledWith(workspace, response, {
+      isStreaming: true,
+      writeResponseChunk,
+      attachments: [],
+      uuid: expect.any(String),
+      throwOnError: true,
+    });
+    expect(countOptions()).toEqual([
+      { throwOnError: true },
+      { throwOnError: true },
+      { throwOnError: true },
+    ]);
     expect(order(limitCheck)).toBeLessThan(order(WorkspaceAgentInvocation.new));
     expect(vectorDb.performSimilaritySearch).not.toHaveBeenCalled();
     expect(helpers.getLLMProvider).not.toHaveBeenCalled();

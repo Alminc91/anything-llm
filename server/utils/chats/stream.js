@@ -21,6 +21,11 @@ const { startMetadataFilterResolution } = require("./metadataFilterResolver");
 
 const VALID_CHAT_MODE = ["chat", "query"];
 
+// KIE-534: Meldung an den Client, wenn die Limitprüfung vor dem Start einer
+// Agent-Sitzung selbst fehlschlägt (Datenbankfehler).
+const AGENT_LIMIT_CHECK_FAILED =
+  "The message limit of this workspace could not be verified. The agent session was not started.";
+
 async function streamChatWithWorkspace(
   response,
   workspace,
@@ -52,16 +57,35 @@ async function streamChatWithWorkspace(
   // betroffen: Ihre Prüfung bleibt unverändert an der bisherigen Stelle.
   if (WorkspaceAgentInvocation.parseAgents(updatedMessage).length > 0) {
     const { checkWorkspaceMessagesLimit } = require("../helpers");
-    const { limitReached } = await checkWorkspaceMessagesLimit(
-      workspace,
-      response,
-      {
-        isStreaming: true,
-        writeResponseChunk,
-        attachments,
-        uuid,
-      }
-    );
+    let limitReached;
+    try {
+      // throwOnError: Ein Datenbankfehler beim Zählen gilt hier nicht als
+      // Verbrauch 0 – sonst käme ein Workspace am Limit still durch.
+      ({ limitReached } = await checkWorkspaceMessagesLimit(
+        workspace,
+        response,
+        {
+          isStreaming: true,
+          writeResponseChunk,
+          attachments,
+          uuid,
+          throwOnError: true,
+        }
+      ));
+    } catch (e) {
+      // Ohne Ergebnis der Prüfung beginnt keine Sitzung. Der Client erhält eine
+      // neutrale Meldung statt des Datenbankfehlers.
+      console.error(e.message, e);
+      writeResponseChunk(response, {
+        id: uuid,
+        type: "abort",
+        textResponse: null,
+        sources: [],
+        close: true,
+        error: AGENT_LIMIT_CHECK_FAILED,
+      });
+      return;
+    }
     if (limitReached) return;
   }
 
