@@ -651,6 +651,44 @@ const EmbedChats = {
   },
 
   /**
+   * KIE-536: Normalisiert den Abschnitts-Filter der Konversationsliste
+   * („erste vorhandene Nachricht der Konversation liegt im Abschnitt").
+   * @param {{start: Date, endExclusive: Date}|null|undefined} value
+   * @returns {{start: Date, endExclusive: Date}|null} - null = kein Filter
+   */
+  normalizeStartedBetween: function (value) {
+    const valid = (date) => date instanceof Date && !isNaN(date.getTime());
+    if (!value || !valid(value.start) || !valid(value.endExclusive))
+      return null;
+    return { start: value.start, endExclusive: value.endExclusive };
+  },
+
+  /**
+   * KIE-536: Filterbedingung der äußeren Ebene für Liste UND Zähl-Query -
+   * der Feedback-Filter ({@link EmbedChats.feedbackFilterCondition}) und,
+   * falls gesetzt, der Abschnitts-Filter auf started_at (= MIN(createdAt) der
+   * Gruppe). Beide greifen NACH der Gruppierung. Ohne Abschnitts-Filter ist
+   * das Ergebnis genau die Feedback-Bedingung.
+   * @param {string|boolean} feedbackFilter
+   * @param {{start: Date, endExclusive: Date}|null} [startedBetween] - halboffen [start, endExclusive)
+   * @returns {import("@prisma/client").Prisma.Sql}
+   */
+  conversationFilterCondition: function (
+    feedbackFilter,
+    startedBetween = null
+  ) {
+    const { Prisma } = require("@prisma/client");
+    const feedback = EmbedChats.feedbackFilterCondition(feedbackFilter);
+    const between = EmbedChats.normalizeStartedBetween(startedBetween);
+    if (!between) return feedback;
+
+    const started = Prisma.sql`started_at >= ${between.start} AND started_at < ${between.endExclusive}`;
+    return feedback === Prisma.empty
+      ? Prisma.sql`WHERE ${started}`
+      : Prisma.sql`${feedback} AND ${started}`;
+  },
+
+  /**
    * Gemeinsames Aggregations-Fragment für Konversationsliste und -zähler:
    * gruppiert embed_chats zu Konversationen (conversation_id, Fallback
    * session_id für Alt-Daten), zählt Nachrichten sowie 👍/👎 und vergibt
@@ -699,20 +737,27 @@ const EmbedChats = {
    * @param {Date|null} startDate
    * @param {Date|null} endDate
    * @param {"all"|"negative"|"positive"|boolean} feedbackFilter
+   * @param {{start: Date, endExclusive: Date}|null} [startedBetween] - KIE-536, siehe getConversations
    * @returns {Promise<number>}
    */
   countConversations: async function (
     embedId = null,
     startDate = null,
     endDate = null,
-    feedbackFilter = "all"
+    feedbackFilter = "all",
+    startedBetween = null
   ) {
     try {
+      const between = EmbedChats.normalizeStartedBetween(startedBetween);
       const rows = await prisma.$queryRaw`
         SELECT COUNT(*) as count FROM (
-          ${EmbedChats._conversationGroupsSql(embedId, startDate, endDate)}
+          ${EmbedChats._conversationGroupsSql(
+            embedId,
+            between ? null : startDate,
+            between ? null : endDate
+          )}
         )
-        ${EmbedChats.feedbackFilterCondition(feedbackFilter)}
+        ${EmbedChats.conversationFilterCondition(feedbackFilter, between)}
       `;
       return Number(rows[0]?.count || 0);
     } catch (error) {
@@ -732,6 +777,12 @@ const EmbedChats = {
    *   "negative" = nur Konversationen mit mind. einer 👎-Antwort,
    *   "positive" = nur mit mind. einer 👍-Antwort, "all" = kein Filter.
    *   Legacy: boolean `onlyNegative` (true → "negative").
+   * @param {{start: Date, endExclusive: Date}|null} [startedBetween] - KIE-536:
+   *   nur Konversationen, deren erste vorhandene Nachricht in [start,
+   *   endExclusive) liegt (Klick auf eine Säule des Diagramms). Die Gruppierung
+   *   läuft dann OHNE Datumsfilter - started_at ist die erste vorhandene
+   *   Nachricht der Konversation, nicht die erste im Zeitraum -, startDate und
+   *   endDate bleiben unbeachtet; die Bedingung greift nach der Gruppierung.
    * @returns {Promise<Array>} Array of conversation summaries
    */
   getConversations: async function (
@@ -740,9 +791,11 @@ const EmbedChats = {
     limit = 20,
     startDate = null,
     endDate = null,
-    feedbackFilter = "all"
+    feedbackFilter = "all",
+    startedBetween = null
   ) {
     try {
+      const between = EmbedChats.normalizeStartedBetween(startedBetween);
       // KIE-508/527: Gruppierung + Zähler kommen aus dem gemeinsamen Fragment
       // (auch von countConversations benutzt), der Feedback-Filter greift auf
       // der äußeren Ebene — so bleiben Liste, Pagination und conversation_number
@@ -760,9 +813,13 @@ const EmbedChats = {
           positive_count,
           conversation_number
         FROM (
-          ${EmbedChats._conversationGroupsSql(embedId, startDate, endDate)}
+          ${EmbedChats._conversationGroupsSql(
+            embedId,
+            between ? null : startDate,
+            between ? null : endDate
+          )}
         )
-        ${EmbedChats.feedbackFilterCondition(feedbackFilter)}
+        ${EmbedChats.conversationFilterCondition(feedbackFilter, between)}
         ORDER BY last_message_at DESC
         LIMIT ${limit}
         OFFSET ${offset}
