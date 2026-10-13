@@ -1630,9 +1630,13 @@ test(
     });
     await act();
     await act();
+    // nachgeladen in großen Seiten (Fixliste 3, S2): eine Anfrage statt zwei
     assert.deepEqual(
-      server.lists().map((call) => call.body.offset),
-      [0, 20, 40]
+      server.lists().map((call) => [call.body.offset, call.body.limit]),
+      [
+        [0, 20],
+        [20, 100],
+      ]
     );
     assert.deepEqual(currentRows(container), [745]);
     const panel = panelOf(container);
@@ -1646,10 +1650,10 @@ test(
 );
 
 test(
-  "Fixliste 19: per Link geöffnet, nicht in der Liste (Filter) – höchstens 10 Seiten nachgeladen, dann Hinweis; vorherige/nächste gesperrt",
+  "Fixliste 19: per Link geöffnet, nicht in der Liste (Filter) – höchstens 500 Zeilen in Seiten zu 100 nachgeladen (Fixliste 3, S2), dann Hinweis; vorherige/nächste gesperrt",
   { skip },
   async (t) => {
-    const rows = Array.from({ length: 400 }, (_, i) =>
+    const rows = Array.from({ length: 700 }, (_, i) =>
       row(1000 + i, {
         last_message_at: berlin("2026-10-12", "12:00") - i * 1000,
       })
@@ -1664,7 +1668,18 @@ test(
       query: "?widget=3&conversation=5",
     });
     for (let i = 0; i < 12; i++) await act();
-    assert.equal(server.lists().length, 11);
+    assert.deepEqual(
+      server.lists().map((call) => [call.body.offset, call.body.limit]),
+      [
+        [0, 20],
+        [20, 100],
+        [120, 100],
+        [220, 100],
+        [320, 100],
+        [420, 80],
+      ]
+    );
+    assert.equal(rowsOf(container).length, 500);
     const panel = panelOf(container);
     assert.equal(
       one(panel, "data-panel-navigation-hint").textContent,
@@ -2611,5 +2626,118 @@ test(
     assert.deepEqual(scrolled, []);
     await mountView("?widget=3", true);
     assert.deepEqual(scrolled, []);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 3 (Kontroll-Review 2): Zustand der Link-Suche abgeleitet
+// ---------------------------------------------------------------------------
+
+test(
+  "Fixliste 3, C4: Per Link geöffnet, ein Nachladen scheitert – der Hinweis „konnte nicht weiter geladen werden“ verschwindet, sobald ein Nachladen wieder gelingt; die Suche findet die Konversation dann doch",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const rows = Array.from({ length: 160 }, (_, i) =>
+      row(700 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    let failures = 1;
+    const server = await panelServer(t, {
+      rows,
+      // genau das erste Nachladen scheitert
+      failList: (body) => body.offset > 0 && failures-- > 0,
+      details: {
+        845: {
+          messages: [message(845, "konv-845", { session_id: "sitzung-845" })],
+        },
+      },
+    });
+    const { container, act } = await mountList(t, {
+      query: "?widget=3&conversation=845",
+    });
+    for (let i = 0; i < 6; i++) await act();
+    assert.deepEqual(
+      server.lists().map((call) => [call.body.offset, call.body.limit]),
+      [
+        [0, 20],
+        [20, 100],
+      ]
+    );
+    assert.equal(shown.filter(([kind]) => kind === "error").length, 1);
+    const hint = () =>
+      withAttribute(panelOf(container), "data-panel-navigation-hint").map(
+        (element) => element.textContent
+      );
+    assert.deepEqual(hint(), [
+      "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar.",
+    ]);
+
+    // „Weitere laden“ gelingt: Der Hinweis ist fort, die Suche läuft weiter
+    await act(() => click(one(container, "data-load-more")));
+    for (let i = 0; i < 6; i++) await act();
+    assert.deepEqual(
+      server.lists().map((call) => [call.body.offset, call.body.limit]),
+      [
+        [0, 20],
+        [20, 100],
+        [20, 20],
+        [40, 100],
+        [140, 100],
+      ]
+    );
+    assert.deepEqual(hint(), []);
+    assert.deepEqual(currentRows(container), [845]);
+    assert.equal(
+      one(panelOf(container), "data-panel-next").hasAttribute("disabled"),
+      false
+    );
+  }
+);
+
+test(
+  "Fixliste 3, C6: Hat der gesperrte Eintrag „Alle Konversationen dieses Besuchers löschen“ den Fokus und verschwindet (kein weiterer Besuch), geht der Fokus auf den letzten verbliebenen Eintrag",
+  { skip },
+  async (t) => {
+    let release;
+    await panelServer(t, {
+      rows: [row(1)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+      holdPreview: new Promise((resolve) => {
+        release = resolve;
+      }),
+      preview: { success: true, messageCount: 1, visitor: null },
+    });
+    const { container, document, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    await act(() => click(one(container, "data-panel-menu-button")));
+    const menu = one(container, "data-panel-menu");
+    // Ende: der gesperrte Eintrag (mit den Pfeiltasten erreichbar)
+    await act(() =>
+      handlersOf(menu).onKeyDown({
+        key: "End",
+        target: document.activeElement,
+        preventDefault() {},
+      })
+    );
+    assert.equal(document.activeElement, one(container, "data-delete-visitor"));
+
+    await act(() => release());
+    await act();
+    assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
+    assert.equal(document.activeElement, one(container, "data-menu-delete"));
+    // die Pfeiltasten gehen von dort aus weiter
+    await act(() =>
+      handlersOf(one(container, "data-panel-menu")).onKeyDown({
+        key: "ArrowUp",
+        target: document.activeElement,
+        preventDefault() {},
+      })
+    );
+    assert.equal(document.activeElement, one(container, "data-menu-copy-link"));
   }
 );

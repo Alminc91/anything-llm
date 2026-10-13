@@ -39,9 +39,14 @@ import useConversationLocation from "./useConversationLocation";
 const PAGE_SIZE = 20;
 // Größte Seite, die der Server liefert (analytics/conversations)
 const PAGE_MAX = 100;
-// Per Link geöffnet, aber nicht unter den geladenen Konversationen: so viele
-// Seiten lädt die Liste höchstens nach, um sie zu finden (vorherige/nächste).
-const LINK_SEARCH_PAGES = 10;
+// Per Link geöffnet, aber nicht unter den geladenen Konversationen: bis zu so
+// vielen Zeilen lädt die Liste nach, um sie zu finden (vorherige/nächste) –
+// in Seiten zu PAGE_MAX (Fixliste 3, S2).
+const LINK_SEARCH_ROWS = 500;
+// Höchstens so viele Anfragen stellt das automatische Nachladen (Link-Suche,
+// „Nächste“ am Ende, Auffüllen nach dem Löschen) hintereinander – zusätzlich
+// zum Abbruch, wenn eine Seite keine neue Zeile bringt (Fixliste 3, C1).
+const AUTO_LOAD_ROUNDS = 30;
 // Verzögerung der Suche nach der letzten Eingabe
 const SEARCH_DELAY_MS = 300;
 
@@ -208,8 +213,9 @@ export default function ConversationList({
   // erste Seite ließ sich nicht laden – dann gibt es keine Zählung (kein
   // alter Stand eines anderen Zuschnitts) und keinen Export.
   // moreFailed: Das letzte Nachladen (append) scheiterte – der bisherige
-  // Stand bleibt; die Suche nach einer per Link geöffneten Konversation und
-  // das Auffüllen nach dem Löschen hören dann auf.
+  // Stand bleibt; das automatische Nachladen hält an, bis ein Nachladen
+  // wieder gelingt. added: neue Zeilen des letzten Nachladens (null nach
+  // der ersten Seite) – 0 heißt, die Seite brachte nur Doppelte.
   const [list, setList] = useState({
     scope: null,
     requestId: 0,
@@ -218,6 +224,7 @@ export default function ConversationList({
     total: 0,
     failed: false,
     moreFailed: false,
+    added: null,
   });
 
   // Einsehbare Konversationen ohne Bewertungsfilter und ohne Suche im selben
@@ -303,18 +310,22 @@ export default function ConversationList({
         totalCount: total,
       } = answer;
       if (success) {
-        setList((previous) => ({
-          scope,
-          requestId: request.id,
-          items:
-            request.append && previous.scope === scope
-              ? appendUnique(previous.items, data || [])
-              : data || [],
-          hasMore: !!hasMore,
-          total: total || 0,
-          failed: false,
-          moreFailed: false,
-        }));
+        setList((previous) => {
+          const append = request.append && previous.scope === scope;
+          const items = append
+            ? appendUnique(previous.items, data || [])
+            : data || [];
+          return {
+            scope,
+            requestId: request.id,
+            items,
+            hasMore: !!hasMore,
+            total: total || 0,
+            failed: false,
+            moreFailed: false,
+            added: append ? items.length - previous.items.length : null,
+          };
+        });
         if (!filtered) rememberUnfiltered(total);
       } else {
         showToast(t("embed-analytics.load-error"), "error");
@@ -332,6 +343,7 @@ export default function ConversationList({
                 total: 0,
                 failed: true,
                 moreFailed: false,
+                added: null,
               }
         );
       }
@@ -381,11 +393,14 @@ export default function ConversationList({
 
   // Nach dem Löschen: dieselbe Auswahl ab vorn, so viele Zeilen wie geladen
   // waren – die erste Seite des Servers (höchstens PAGE_MAX) sofort, den
-  // Rest danach in PAGE_MAX-Schritten (Fixliste 2, S6).
+  // Rest danach über das automatische Nachladen (Fixliste 2, S6). Der Wunsch
+  // gilt nur für seinen Zuschnitt: Ein Wechsel verwirft ihn – er lebt auch
+  // nicht wieder auf, wenn der Zuschnitt zurückkehrt (Fixliste 3, C5).
   const [refill, setRefill] = useState(null);
+  if (refill && refill.scope !== scope) setRefill(null);
   const reloadList = useCallback(() => {
     setReloadCount((count) => count + 1);
-    setRefill({ scope, count: list.items.length });
+    setRefill({ scope, rows: list.items.length });
     setRequest((current) => ({
       id: current.id + 1,
       scope: current.scope,
@@ -394,24 +409,6 @@ export default function ConversationList({
       append: false,
     }));
   }, [list.items.length, scope]);
-  const refillCount = refill && refill.scope === scope ? refill.count : 0;
-  useEffect(() => {
-    if (!refillCount || loading || loadingMore) return;
-    if (failed || moreFailed || !hasMore || items.length >= refillCount) {
-      setRefill(null);
-      return;
-    }
-    loadMore(Math.min(PAGE_MAX, refillCount - items.length));
-  }, [
-    refillCount,
-    loading,
-    loadingMore,
-    failed,
-    moreFailed,
-    hasMore,
-    items.length,
-    loadMore,
-  ]);
 
   // Nach einem Ladefehler: dieselbe Auswahl noch einmal.
   const retry = () =>
@@ -485,55 +482,36 @@ export default function ConversationList({
     (advanceAfter.chatId !== chatId || advanceAfter.scope !== scope)
   )
     setAdvanceAfter(null);
-  const pendingAdvance =
-    advanceAfter &&
-    advanceAfter.chatId === chatId &&
-    advanceAfter.scope === scope
-      ? advanceAfter.key
-      : null;
   const navigate = (direction) => {
     if (currentIndex < 0) return;
     const target = currentIndex + direction;
     if (target >= 0 && target < items.length) openFollowing(items[target]);
-    else if (direction === 1 && hasMore && !loadingMore) {
+    else if (direction === 1 && hasMore && !advanceAfter) {
       setAdvanceAfter({
         chatId,
         scope,
         key: conversationKey(items[currentIndex]),
+        rows: items.length + PAGE_SIZE,
       });
-      loadMore();
+      // Der Klick lädt sofort nach; läuft gerade ein automatisches
+      // Nachladen, übernimmt das gemeinsame Nachladen unten den Wunsch.
+      if (!loading && !loadingMore) loadMore();
     }
   };
-  useEffect(() => {
-    if (pendingAdvance === null || loadingMore) return;
-    const index = items.findIndex(
-      (item) => conversationKey(item) === pendingAdvance
-    );
-    setAdvanceAfter(null);
-    if (index >= 0 && index + 1 < items.length) openFollowing(items[index + 1]);
-  }, [pendingAdvance, loadingMore, items, openFollowing]);
+
 
   // Per Link (Adresse beim Öffnen der Seite) geöffnet und (noch) nicht unter
-  // den geladenen Konversationen: nachladen, bis sie gefunden ist – höchstens
-  // LINK_SEARCH_PAGES Seiten. Nur im Zuschnitt, mit dem die Seite geöffnet
+  // den geladenen Konversationen: nachladen, bis sie gefunden ist – bis zu
+  // LINK_SEARCH_ROWS Zeilen. Nur im Zuschnitt, mit dem die Seite geöffnet
   // wurde: Wechselt bei offenem Panel Filter oder Suche, lädt die Liste
-  // nichts nach, der Hinweis erscheint gleich (Fixliste 2, R5). Scheitert
-  // ein Nachladen, hört die Suche auf – ein Toast, der Hinweis sagt, dass
-  // die Liste nicht geladen werden konnte (R4). Liegt die Konversation
-  // außerhalb des Zeitraums, steht sie nie in der Liste.
+  // nichts nach, der Hinweis erscheint gleich (Fixliste 2, R5). Liegt die
+  // Konversation außerhalb des Zeitraums, steht sie nie in der Liste. Der
+  // Stand der Suche folgt allein aus der Liste (Fixliste 3, C4): Scheitert
+  // ein Nachladen, hält sie an und der Hinweis sagt es; gelingt später ein
+  // Nachladen (etwa „Weitere laden“), verschwindet er wieder.
   const [linkScope] = useState(() =>
     chatId !== null ? { chatId, scope } : null
   );
-  const [linkPages, setLinkPages] = useState({
-    chatId: null,
-    scope: null,
-    count: 0,
-    failed: false,
-  });
-  const linkSearch =
-    linkPages.chatId === chatId && linkPages.scope === scope
-      ? linkPages
-      : { count: 0, failed: false };
   const fromLink =
     linkScope !== null &&
     linkScope.chatId === chatId &&
@@ -546,38 +524,61 @@ export default function ConversationList({
     !loadedKey.outside &&
     !loading &&
     !failed;
-  const searchingLink =
-    fromLink &&
-    notListed &&
-    hasMore &&
-    !linkSearch.failed &&
-    linkSearch.count < LINK_SEARCH_PAGES;
+  const linkRows =
+    fromLink && notListed && items.length < LINK_SEARCH_ROWS
+      ? Math.min(LINK_SEARCH_ROWS, items.length + PAGE_MAX)
+      : 0;
+
+  // Gemeinsames Nachladen (Fixliste 3, S3): „Nächste“ am Ende, Link-Suche
+  // und Auffüllen nach dem Löschen sagen nur, wie viele Zeilen sie brauchen;
+  // ein Effekt stellt die Anfragen – eine nach der anderen, keiner
+  // überschreibt die eines anderen. Es hält an, wenn eine Seite keine neue
+  // Zeile bringt (nur Doppelte, etwa nach Verschiebungen), ein Nachladen
+  // scheitert oder AUTO_LOAD_ROUNDS Anfragen gestellt sind (Fixliste 3, C1).
+  const wantedRows = Math.max(
+    refill?.rows ?? 0,
+    advanceAfter?.rows ?? 0,
+    linkRows
+  );
+  const [autoRounds, setAutoRounds] = useState({ scope: null, count: 0 });
+  const rounds = autoRounds.scope === scope ? autoRounds.count : 0;
+  const idle = !loading && !loadingMore;
+  const stuck =
+    failed ||
+    moreFailed ||
+    !hasMore ||
+    list.added === 0 ||
+    rounds >= AUTO_LOAD_ROUNDS;
+  const autoLoad = idle && !stuck && items.length < wantedRows;
   useEffect(() => {
-    if (!searchingLink || loadingMore) return;
-    if (linkSearch.count > 0 && moreFailed) {
-      setLinkPages({ chatId, scope, count: linkSearch.count, failed: true });
-      return;
-    }
-    setLinkPages({
-      chatId,
-      scope,
-      count: linkSearch.count + 1,
-      failed: false,
-    });
-    loadMore();
-  }, [
-    searchingLink,
-    loadingMore,
-    moreFailed,
-    chatId,
-    scope,
-    linkSearch.count,
-    loadMore,
-  ]);
+    if (!autoLoad) return;
+    setAutoRounds({ scope, count: rounds + 1 });
+    loadMore(Math.min(PAGE_MAX, wantedRows - items.length));
+  }, [autoLoad, scope, rounds, wantedRows, items.length, loadMore]);
+  // Ohne Wunsch beginnt die Zählung der Anfragen von vorn.
+  useEffect(() => {
+    if (wantedRows === 0 && rounds > 0) setAutoRounds({ scope, count: 0 });
+  }, [wantedRows, rounds, scope]);
+
+  // Erfüllt oder nicht erfüllbar: Auffüllen und „Nächste“ sind erledigt.
+  const settled = (wish) =>
+    !!wish && idle && (items.length >= wish.rows || stuck);
+  if (settled(refill)) setRefill(null);
+  const advanceSettled = settled(advanceAfter);
+  useEffect(() => {
+    if (!advanceSettled) return;
+    const index = items.findIndex(
+      (item) => conversationKey(item) === advanceAfter.key
+    );
+    setAdvanceAfter(null);
+    if (index >= 0 && index + 1 < items.length) openFollowing(items[index + 1]);
+  }, [advanceSettled, advanceAfter, items, openFollowing]);
+
+  const searchingLink = linkRows > 0 && !stuck;
   const navigationHint =
     notListed && !searchingLink && !loadingMore
       ? t(
-          linkSearch.failed
+          moreFailed
             ? "embed-analytics.panel.not-loaded"
             : "embed-analytics.panel.not-in-list"
         )

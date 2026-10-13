@@ -444,6 +444,18 @@ export default function ConversationDetail({
   // „Alle Konversationen dieses Besuchers löschen". Der zweite Eintrag steht
   // gesperrt da, bis die Vorschau sagt, ob es weitere Konversationen gibt –
   // nichts schiebt sich nachträglich vor einen anderen Eintrag.
+  const visitorEntry =
+    !!deletable && (deletion.offerVisitor || !deletion.previewLoaded);
+  // Verschwindet der gesperrte Eintrag, während er den Fokus hat (die
+  // Vorschau kennt keine weitere Konversation), geht der Fokus auf den
+  // letzten verbliebenen Eintrag – nicht ins Leere (Fixliste 3, C6).
+  useEffect(() => {
+    if (!menuOpen || visitorEntry || typeof document === "undefined") return;
+    const active = document.activeElement;
+    const lost =
+      !active || active === document.body || !document.body.contains(active);
+    if (lost) menuItemsOf().at(-1)?.focus?.();
+  }, [menuOpen, visitorEntry, menuItemsOf]);
   const menuItems = [
     conversationId && {
       id: "data-menu-copy-id",
@@ -464,15 +476,14 @@ export default function ConversationDetail({
       onClick: () => openDelete("conversation"),
       label: t("embed-analytics.delete.conversation"),
     },
-    deletable &&
-      (deletion.offerVisitor || !deletion.previewLoaded) && {
-        id: "data-delete-visitor",
-        Icon: Trash,
-        danger: true,
-        pending: !deletion.offerVisitor,
-        onClick: () => openDelete("visitor"),
-        label: t("embed-analytics.delete.visitor"),
-      },
+    visitorEntry && {
+      id: "data-delete-visitor",
+      Icon: Trash,
+      danger: true,
+      pending: !deletion.offerVisitor,
+      onClick: () => openDelete("visitor"),
+      label: t("embed-analytics.delete.visitor"),
+    },
   ].filter(Boolean);
 
   const headDay = head ? formatDateForInput(head.startedAt) : "";

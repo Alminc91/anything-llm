@@ -143,6 +143,17 @@ async function listServer(t, state) {
     if (is(ROUTES.conversations, listUrl)) {
       const { offset = 0, limit = 20 } = call.body ?? {};
       const total = state.conversations.length;
+      // state.holdMore: Nachladen (offset > 0) wartet auf dieses Versprechen
+      if (offset > 0 && state.holdMore) await state.holdMore;
+      // state.repeatFirstPage: Nachladen liefert wieder die erste Seite (nur
+      // Doppelte, etwa nach Verschiebungen) und meldet weiter hasMore
+      if (offset > 0 && state.repeatFirstPage)
+        return json({
+          success: true,
+          conversations: state.conversations.slice(0, limit),
+          hasMore: true,
+          totalCount: total,
+        });
       return json({
         success: true,
         conversations: state.conversations.slice(offset, offset + limit),
@@ -733,7 +744,10 @@ test(
     );
     await mounted.act();
     assert.deepEqual(shown, [
-      ["error", "Der Export ist fehlgeschlagen. Bitte versuchen Sie es erneut."],
+      [
+        "error",
+        "Der Export ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+      ],
     ]);
   }
 );
@@ -1263,6 +1277,108 @@ test(
       "k-5",
       "k-7",
     ]);
+  }
+);
+
+test(
+  "Konversation löschen (Fixliste 3, C1): Bringt eine nachgeladene Seite nur Doppelte, hört das Auffüllen auf – keine Endlosschleife",
+  { skip },
+  async (t) => {
+    const ids = (from, to) =>
+      Array.from({ length: to - from + 1 }, (_, i) => `k-${from + i}`);
+    const state = { conversations: ids(1, 260).map((id) => conversation(id)) };
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    const pages = () =>
+      server.lists().map((call) => [call.body.offset, call.body.limit]);
+    for (let i = 0; i < 11; i++) {
+      await act(() => click(withAttribute(container, "data-load-more")[0]));
+      await act();
+    }
+    assert.equal(cardIdsOf(container).length, 240);
+    const before = server.lists().length;
+
+    state.repeatFirstPage = true;
+    await expand(mounted, 5);
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    await act();
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    for (let i = 0; i < 20; i++) await act();
+
+    // die erste Seite, ein Nachladen ohne neue Zeile – dann Schluss
+    assert.deepEqual(pages().slice(before), [
+      [0, 100],
+      [100, 100],
+    ]);
+    assert.equal(cardIdsOf(container).length, 100);
+    // „Weitere laden“ bleibt für den Nutzer da
+    assert.equal(withAttribute(container, "data-load-more").length, 1);
+  }
+);
+
+test(
+  "Konversation löschen (Fixliste 3, C5): Wechselt der Zuschnitt, während die Liste auffüllt, verfällt das Auffüllen – auch wenn der Zuschnitt zurückkehrt",
+  { skip },
+  async (t) => {
+    const ids = (from, to) =>
+      Array.from({ length: to - from + 1 }, (_, i) => `k-${from + i}`);
+    const state = { conversations: ids(1, 260).map((id) => conversation(id)) };
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    const pages = () =>
+      server
+        .lists()
+        .map((call) => [call.body.offset, call.body.limit, call.body.q ?? ""]);
+    for (let i = 0; i < 11; i++) {
+      await act(() => click(withAttribute(container, "data-load-more")[0]));
+      await act();
+    }
+    const before = server.lists().length;
+
+    let release;
+    state.holdMore = new Promise((resolve) => {
+      release = resolve;
+    });
+    await expand(mounted, 5);
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    await act();
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    for (let i = 0; i < 4; i++) await act();
+    assert.deepEqual(pages().slice(before), [
+      [0, 100, ""],
+      [100, 100, ""],
+    ]);
+
+    // Suche: ein anderer Zuschnitt, während das Nachladen noch wartet
+    const input = withAttribute(container, "data-search-input")[0];
+    const { handlersOf } = await import("./helpers/testDom.mjs");
+    await act(() => handlersOf(input).onChange({ target: { value: "kurs" } }));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 350)));
+    await act();
+    state.holdMore = null;
+    await act(() => release());
+    await act();
+    // zurück zum alten Zuschnitt (✕ im Suchfeld)
+    await act(() => click(withAttribute(container, "data-search-clear")[0]));
+    for (let i = 0; i < 8; i++) await act();
+
+    assert.deepEqual(pages().slice(before), [
+      [0, 100, ""],
+      [100, 100, ""],
+      [0, 20, "kurs"],
+      [0, 20, ""],
+    ]);
+    assert.equal(cardIdsOf(container).length, 20);
   }
 );
 
