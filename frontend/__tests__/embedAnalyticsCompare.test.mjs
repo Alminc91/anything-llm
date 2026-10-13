@@ -330,7 +330,7 @@ async function chooseWidget({ container, act }, embed) {
     container,
     (element) =>
       element.getAttribute("role") === "option" &&
-      element.textContent.startsWith(`Embed #${embed.id} `)
+      element.textContent === embed.workspace.name
   );
   await act(() => click(option));
 }

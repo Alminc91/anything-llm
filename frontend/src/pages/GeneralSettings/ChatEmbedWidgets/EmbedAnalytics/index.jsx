@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { CaretDown, Check } from "@phosphor-icons/react";
@@ -19,6 +19,7 @@ import {
   toDayString,
   viewState,
 } from "@/utils/analyticsTimeline";
+import { embedLabels, sortEmbedsByLabel } from "@/utils/embedLabel";
 
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
 // Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
@@ -80,6 +81,8 @@ export function AnalyticsScreen({ embedsLoaded, embeds }) {
 
 function WidgetAnalytics({ embeds }) {
   const { t } = useTranslation();
+  // Vorauswahl: das erste Widget in der Reihenfolge des Servers (das zuletzt
+  // angelegte) – unabhängig davon, wie die Auswahl ihre Einträge ordnet.
   const [selectedEmbed, setSelectedEmbed] = useState(embeds[0].id);
   // Zählwerte des Zeitraums: { embedId, data, loading, failed, period } –
   // period ist der gewählte Zeitraum, zu dem data gehört.
@@ -296,7 +299,7 @@ function Header({
   endDate,
   onDateChange,
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [embedDropdownOpen, setEmbedDropdownOpen] = useState(false);
   const embedDropdownRef = useRef(null);
 
@@ -315,11 +318,14 @@ function Header({
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, [embedDropdownOpen]);
 
-  const embedLabel = (embed) =>
-    t("embed-analytics.embed-label", {
-      id: embed.id,
-      workspace: embed.workspace?.name,
-    });
+  // Ein Widget heißt wie sein Workspace; die Widget-Nummer kommt nur dazu, wo
+  // die Bezeichnung in dieser Liste mehrfach vorkommt (utils/embedLabel).
+  const labels = useMemo(() => embedLabels(embeds, t), [embeds, t]);
+  const options = useMemo(
+    () => sortEmbedsByLabel(embeds, labels, i18n.language),
+    [embeds, labels, i18n.language]
+  );
+  const embedLabel = (embed) => labels.get(embed.id)?.label;
   const current = embeds.find((e) => e.id === selectedEmbed);
 
   return (
@@ -357,7 +363,7 @@ function Header({
                 aria-label={t("embed-analytics.widget-label")}
                 className="absolute left-0 top-full mt-1 w-full bg-theme-bg-secondary border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden"
               >
-                {embeds.map((embed) => (
+                {options.map((embed) => (
                   <button
                     key={embed.id}
                     type="button"

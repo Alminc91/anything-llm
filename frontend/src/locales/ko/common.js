@@ -1477,7 +1477,10 @@ const TRANSLATIONS = {
     "session-copied": null,
     "retention-notice": null,
     "select-embed": null,
-    "embed-label": null,
+    "embed-label": {
+      unnamed: null,
+      suffix: null,
+    },
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,

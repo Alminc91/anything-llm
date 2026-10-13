@@ -170,8 +170,8 @@ const TRANSLATIONS = {
       denied: "Gerätezugriff verweigert",
     },
     "embed-chats": {
-      "export-success": "Embed-Chats erfolgreich als {{name}} exportiert.",
-      "export-error": "Fehler beim Exportieren der Embed-Chats.",
+      "export-success": "Widget-Chats erfolgreich als {{name}} exportiert.",
+      "export-error": "Fehler beim Exportieren der Widget-Chats.",
     },
     "text-splitter": {
       "save-success":
@@ -1010,8 +1010,11 @@ const TRANSLATIONS = {
     "session-copied": "Session ID kopiert!",
     "retention-notice":
       "DSGVO-Datenlöschung aktiv — Aufbewahrung {{days}} Tage, Chats verfallen am {{expiryDate}}",
-    "select-embed": "Embed wählen",
-    "embed-label": "Embed #{{id}} ({{workspace}})",
+    "select-embed": "Widget wählen",
+    "embed-label": {
+      unnamed: "Widget {{id}}",
+      suffix: "· Widget {{id}}",
+    },
     "retention-line_one":
       "Konversationsinhalte werden nach {{count}} Tag gelöscht. Die Zählwerte bleiben erhalten.",
     "retention-line_other":
@@ -1332,9 +1335,9 @@ const TRANSLATIONS = {
     export: "Exportieren",
     "clear-all": "Alle Chats löschen",
     "clear-all-confirm":
-      "Möchten Sie wirklich ALLE Embed-Chats löschen?\n\nDiese Aktion kann nicht rückgängig gemacht werden.",
-    "clear-all-success": "{{count}} Embed-Chats erfolgreich gelöscht.",
-    "clear-all-error": "Fehler beim Löschen der Embed-Chats.",
+      "Möchten Sie wirklich ALLE Widget-Chats löschen?\n\nDiese Aktion kann nicht rückgängig gemacht werden.",
+    "clear-all-success": "{{count}} Widget-Chats erfolgreich gelöscht.",
+    "clear-all-error": "Fehler beim Löschen der Widget-Chats.",
     description:
       "Dies sind alle aufgezeichneten Chat-Nachrichten von jeder Einbettung, die Sie veröffentlicht haben.",
     "no-conversations": "Keine Konversationen gefunden.",

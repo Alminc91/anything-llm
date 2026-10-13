@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   FloppyDisk,
@@ -26,6 +27,7 @@ import Embed from "@/models/embed";
 import paths from "@/utils/paths";
 import { API_BASE, EMBED_INLINE_PLACEHOLDER_SNIPPET } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
+import { embedLabels } from "@/utils/embedLabel";
 import { SettingsSection, Segmented, inputClass } from "./controls";
 import {
   LeisteSection,
@@ -263,9 +265,13 @@ const TAB_LABELS = Object.fromEntries(TABS.map((t) => [t.id, t.label]));
 export default function EmbedAppearance() {
   const { embedId } = useParams();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [embed, setEmbed] = useState(null);
+  // Alle Widgets, die der Nutzer sieht – nur für die Bezeichnung in der
+  // Kopfzeile: Ob sie die Widget-Nummer braucht, hängt von den übrigen ab.
+  const [embeds, setEmbeds] = useState([]);
   const [config, setConfig] = useState({ ...DEFAULT_CONFIG });
   const [initialConfig, setInitialConfig] = useState({ ...DEFAULT_CONFIG });
   const [activeTab, setActiveTab] = useState("inhalt");
@@ -282,13 +288,17 @@ export default function EmbedAppearance() {
 
   useEffect(() => {
     async function load() {
-      const embedData = await Embed.getEmbed(embedId);
+      // Dieselbe Anfrage wie Embed.getEmbed() – die Liste wird hier behalten.
+      const allEmbeds = (await Embed.embeds()) || [];
+      const embedData =
+        allEmbeds.find((e) => e.id === Number(embedId)) || null;
       if (!embedData) {
         showToast("Einbettung nicht gefunden.", "error");
         navigate(paths.settings.chatbot.widgets());
         return;
       }
       setEmbed(embedData);
+      setEmbeds(allEmbeds);
 
       let visualConfig = {};
       if (embedData.visual_config) {
@@ -503,7 +513,7 @@ export default function EmbedAppearance() {
               Erscheinungsbild
             </h1>
             <p className="text-xs leading-[18px] font-base text-white text-opacity-60">
-              {embed?.workspace?.name || "Embed"}
+              {embedLabels(embeds, t).get(embed?.id)?.label}
             </p>
           </div>
         </div>

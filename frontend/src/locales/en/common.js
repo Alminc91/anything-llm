@@ -1583,8 +1583,11 @@ const TRANSLATIONS = {
     "session-copied": "Session ID copied!",
     "retention-notice":
       "GDPR data deletion active — retention {{days}} days, chats expire on {{expiryDate}}",
-    "select-embed": "Select embed",
-    "embed-label": "Embed #{{id}} ({{workspace}})",
+    "select-embed": "Select widget",
+    "embed-label": {
+      unnamed: "Widget {{id}}",
+      suffix: "· Widget {{id}}",
+    },
     "retention-line_one":
       "Conversation contents are deleted after {{count}} day. The counts are kept.",
     "retention-line_other":

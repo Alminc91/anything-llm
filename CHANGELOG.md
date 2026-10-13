@@ -4,6 +4,15 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### Chatbot: Widgets heißen wie ihr Workspace – Auswahl ohne „Embed #" (2026-10-13)
+
+- **Widget-Auswahl der Ansicht „Konversationen":** Statt „Embed #5 (chatbot-elbe)" steht der Name des Workspaces („Chatbot Elbe"). Kommt eine Bezeichnung unter den sichtbaren Widgets mehrfach vor – mehrere Widgets in einem Workspace oder zwei gleich benannte Workspaces –, tragen genau diese Einträge die Widget-Nummer als Zusatz („KuferMedia · Widget 2", „KuferMedia · Widget 3"); Groß-/Kleinschreibung und Leerzeichen am Rand unterscheiden dabei nicht. Die Nummer ist `embed.id` – sie ändert sich nicht, wenn ein anderes Widget gelöscht wird, und steht auch im Ereignisprotokoll. Ohne Workspace-Namen heißt ein Widget „Widget 7". Platzhalter „Widget wählen" statt „Embed wählen".
+- **Reihenfolge der Auswahl:** alphabetisch nach Bezeichnung in der Sortierung der Sprache (`Intl.Collator`, Umlaute bei ihren Grundbuchstaben), bei gleicher Bezeichnung nach Widget-Nummer. **Die Vorauswahl beim Öffnen ist unverändert** das erste Widget der Server-Antwort (das zuletzt angelegte) – sie steht deshalb nicht immer an erster Stelle der Auswahl.
+- **Dieselbe Bezeichnung an den übrigen Stellen** (eine Funktion, `frontend/src/utils/embedLabel.js`): Die Widget-Liste zeigt bei mehrdeutigen Einträgen den Zusatz „· Widget 3" gedämpft neben dem Namen (eindeutige Einträge unverändert, Reihenfolge der Liste unverändert); der Dialog „Einbettung aktualisieren" nennt im Titel die Bezeichnung statt „#5"; die Kopfzeile des Design Centers nennt sie statt des bloßen Workspace-Namens (Rückfall „Widget 7" statt „Embed").
+- **Deutsche Texte:** „Embed-Chats" heißt in den Meldungen der Nachrichtentabelle „Widget-Chats" (Export, „Alle … löschen"). Englisch: „Select widget"; die Bezeichnung selbst ist in beiden Sprachen gleich aufgebaut.
+- Sprachdateien: `embed-analytics.embed-label` ist jetzt ein Objekt mit `unnamed` („Widget {{id}}") und `suffix` („· Widget {{id}}") – Deutsch und Englisch ausformuliert, sonst `null`. Keine Änderung an Server, Endpunkten, Export-Dateinamen oder Ereignisprotokoll.
+- Tests: `frontend/__tests__/embedLabel.test.mjs` (Bezeichnung, Sortierung, Texte; im deutschen Bereich „Chatbot" kein „Embed" mehr) und `embedLabelView.test.mjs` (Auswahl, Vorauswahl, Widget-Liste, Dialog, Design Center – eingehängt). Das Test-Dokument (`helpers/testDom.mjs`) hat dafür ein `<head>` und die Einträge eines `<select>`.
+
 ### KIE-539 — Konversationen: Karte „Wann schreiben Ihre Besucher?" (Wochentag × Uhrzeit) (2026-10-13)
 
 - **Neue Karte in der Ansicht „Konversationen"** (`/settings/chatbot/conversations`), zwischen Säulendiagramm und Konversationsliste: Nachrichten des gewählten Zeitraums nach Wochentag (7 Zeilen, Montag bis Sonntag) und Uhrzeit (24 Spalten, Berliner Stunde) – je stärker das Feld, desto mehr Nachrichten. Wochentage links, Uhrzeiten alle drei Stunden unten, Titel und Zeitraum links oben, Legende rechts.

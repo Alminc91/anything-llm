@@ -741,7 +741,7 @@ test(
       { exportName: "AnalyticsScreen" }
     );
     assert.doesNotMatch(one, /aria-haspopup="listbox"/);
-    assert.doesNotMatch(textOf(one), /Embed #3/);
+    assert.doesNotMatch(textOf(one), /VHS Musterstadt/);
 
     const two = await render(
       VIEW,
@@ -755,7 +755,7 @@ test(
       two,
       /<button type="button" aria-haspopup="listbox"[^>]*aria-label="Widget"/
     );
-    assert.match(textOf(two), /Embed #3 \(VHS Musterstadt\)/);
+    assert.match(textOf(two), /VHS Musterstadt/);
     // Das erste Widget ist gewählt: Seine Aufbewahrungsfrist steht da.
     assert.match(two, /data-retention-line=""/);
   }
