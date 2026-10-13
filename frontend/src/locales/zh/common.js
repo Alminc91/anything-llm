@@ -1456,6 +1456,26 @@ const TRANSLATIONS = {
       "show-negative": null,
       "conversations-hint": null,
     },
+    compare: {
+      toggle: null,
+      legend: {
+        label: null,
+        current: null,
+        previous: null,
+      },
+      range: null,
+      change: null,
+      "previous-value": null,
+      "previous-range": null,
+      unavailable: null,
+      "unavailable-since": null,
+      "unavailable-no-counts": null,
+      summary: null,
+      table: {
+        messages: null,
+        conversations: null,
+      },
+    },
     chart: {
       metric: {
         messages: null,

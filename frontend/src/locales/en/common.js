@@ -1616,6 +1616,29 @@ const TRANSLATIONS = {
       "conversations-hint":
         "Conversations started in the period. The list below only shows conversations whose contents still exist – the numbers may differ.",
     },
+    compare: {
+      toggle: "Compare with previous period",
+      legend: {
+        label: "Legend",
+        current: "Selected period",
+        previous: "Previous period",
+      },
+      range: "{{from}}–{{to}}",
+      change: "{{change}} % vs. previous period ({{previous}})",
+      "previous-value": "Previous period: {{value}}",
+      "previous-range": "Previous period: {{range}}",
+      unavailable: "No comparison available",
+      "unavailable-since":
+        "No comparison available: the previous period begins before {{date}}, the first day with counts.",
+      "unavailable-no-counts":
+        "No comparison available: there are no counts for the previous period.",
+      summary:
+        "Previous period {{range}} as a dotted line: total {{total}}, highest value {{max}}.",
+      table: {
+        messages: "Messages (previous period)",
+        conversations: "Conversations (previous period)",
+      },
+    },
     chart: {
       metric: {
         messages: "Messages",

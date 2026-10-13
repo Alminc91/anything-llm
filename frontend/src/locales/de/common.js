@@ -1043,6 +1043,29 @@ const TRANSLATIONS = {
       "conversations-hint":
         "Im Zeitraum begonnene Konversationen. Die Liste unten zeigt nur Konversationen, deren Inhalte noch vorhanden sind – die Zahlen können sich unterscheiden.",
     },
+    compare: {
+      toggle: "Vorzeitraum vergleichen",
+      legend: {
+        label: "Legende",
+        current: "Gewählter Zeitraum",
+        previous: "Vorzeitraum",
+      },
+      range: "{{from}}–{{to}}",
+      change: "{{change}} % ggü. Vorzeitraum ({{previous}})",
+      "previous-value": "Vorzeitraum: {{value}}",
+      "previous-range": "Vorzeitraum: {{range}}",
+      unavailable: "Kein Vergleich verfügbar",
+      "unavailable-since":
+        "Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem {{date}}, dem ersten Tag mit Zählwerten.",
+      "unavailable-no-counts":
+        "Kein Vergleich verfügbar: Für den Vorzeitraum liegen keine Zählwerte vor.",
+      summary:
+        "Vorzeitraum {{range}} als gepunktete Linie: Summe {{total}}, höchster Wert {{max}}.",
+      table: {
+        messages: "Nachrichten (Vorzeitraum)",
+        conversations: "Konversationen (Vorzeitraum)",
+      },
+    },
     chart: {
       metric: {
         messages: "Nachrichten",
