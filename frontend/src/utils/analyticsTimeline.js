@@ -43,8 +43,8 @@ export const PREVIOUS_LINE = {
 
 /** @typedef {"hour"|"day"|"week"|"month"} Granularity */
 /** @typedef {{start: string, end: string, partial: boolean, hour?: number, messages: number, conversations: number}} Bucket */
-/** @typedef {{granularity: Granularity, buckets: Bucket[], totals: {messages: number, conversations: number, feedbackPositive: number, feedbackNegative: number}, firstLedgerDay: string|null, fromDay: string, toDay: string, previous?: Previous}} Summary */
-/** @typedef {{available: boolean, fromDay: string|null, toDay: string|null, totals: Summary["totals"]|null, buckets: Bucket[]}} Previous - Vorzeitraum (KIE-537), nur mit eingeschaltetem Vergleich */
+/** @typedef {{granularity: Granularity, buckets: Bucket[], totals: {messages: number, conversations: number, feedbackPositive: number, feedbackNegative: number}, firstLedgerDay: string|null, fromDay: string, toDay: string, weekdayHour: number[][], previous?: Previous}} Summary - weekdayHour (KIE-539): Nachrichten des Zeitraums als [Wochentag 0 = Montag … 6 = Sonntag][Stunde 0–23] */
+/** @typedef {{available: boolean, fromDay: string|null, toDay: string|null, totals: Summary["totals"]|null, buckets: Bucket[]}} Previous - Vorzeitraum (KIE-537), nur mit eingeschaltetem Vergleich; ohne weekdayHour */
 
 // ---------------------------------------------------------------------------
 // Kalendertage
