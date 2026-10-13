@@ -359,11 +359,15 @@ export default function ConversationList({
     [place, embedId]
   );
 
+  // Blättert das Panel (vorherige/nächste), folgt die Liste der markierten
+  // Zeile; ein Klick in die Liste verschiebt sie nicht (AK-4).
+  const followCurrent = useRef(false);
   // „Nächste" am Ende der geladenen Konversationen: nachladen, dann weiter.
   const [advanceAfter, setAdvanceAfter] = useState(null);
   const navigate = (direction) => {
     if (currentIndex < 0) return;
     const target = currentIndex + direction;
+    followCurrent.current = true;
     if (target >= 0 && target < items.length) openRow(items[target]);
     else if (direction === 1 && hasMore && !loadingMore) {
       setAdvanceAfter(conversationKey(items[currentIndex]));
@@ -384,7 +388,8 @@ export default function ConversationList({
   const rowRefs = useRef(new Map());
   const currentKey = currentRow ? conversationKey(currentRow) : null;
   useEffect(() => {
-    if (!currentKey) return;
+    if (!currentKey || !followCurrent.current) return;
+    followCurrent.current = false;
     const wide =
       typeof window !== "undefined" &&
       window.matchMedia?.("(min-width: 1024px)")?.matches;
