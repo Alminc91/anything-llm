@@ -95,7 +95,7 @@ function WidgetAnalytics({ embeds }) {
     period: null,
   });
   // KIE-508/527: Feedback-Filter der Liste – hier geführt, weil auch die
-  // Kennzahl „negativ bewertet" ihn setzt.
+  // Verweise „N positiv"/„N negativ" im Feld „Bewertungen" ihn setzen.
   const [feedbackFilter, setFeedbackFilter] = useState("all");
   // Abschnitt aus dem Diagramm, auf den die Liste gefiltert ist
   const [bucketFilter, setBucketFilter] = useState({ scope: "", bucket: null });
@@ -220,8 +220,8 @@ function WidgetAnalytics({ embeds }) {
   const bucket = bucketFilter.scope === scope ? bucketFilter.bucket : null;
   const selectBucket = (next) => setBucketFilter({ scope, bucket: next });
 
-  const showNegative = () => {
-    setFeedbackFilter("negative");
+  const showRated = (mode) => {
+    setFeedbackFilter(mode);
     listRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   };
   // Verweis in der Kopfzeile: weich zur Liste, der Fokus auf ihre Überschrift
@@ -238,6 +238,8 @@ function WidgetAnalytics({ embeds }) {
         selectedEmbed={selectedEmbed}
         onSelectEmbed={setSelectedEmbed}
         viewableCount={viewableCount}
+        feedbackFilter={feedbackFilter}
+        bucket={bucket}
         onJumpToList={jumpToList}
         startDate={startDate}
         endDate={endDate}
@@ -256,7 +258,7 @@ function WidgetAnalytics({ embeds }) {
           summary={summaryData}
           loading={summary.loading}
           compare={compare}
-          onShowNegative={showNegative}
+          onShowRated={showRated}
           embedId={selectedEmbed}
           startDate={startDateISO}
           endDate={endDateISO}
@@ -306,6 +308,30 @@ function WidgetAnalytics({ embeds }) {
 }
 
 /**
+ * Text des Verweises zur Liste. Er nennt die Zahl der Liste und, was sie
+ * filtert: „18 negativ bewertete Konversationen ansehen", „4 Konversationen
+ * aus „Di., 06.10.2026" ansehen"; mit Bewertungsfilter und Abschnitt kurz
+ * „3 gefilterte Konversationen ansehen" – die Liste zeigt beide Markierungen.
+ * @param {Function} t
+ * @param {number|null} count - null, solange die Liste lädt
+ * @param {"all"|"negative"|"positive"} feedbackFilter
+ * @param {{label: string}|null} bucket
+ */
+function jumpText(t, count, feedbackFilter, bucket) {
+  if (count === null) return t("embed-analytics.list.jump-pending");
+  const values = { count, formatted: formatNumber(count) };
+  const rated = feedbackFilter === "negative" || feedbackFilter === "positive";
+  if (rated && bucket) return t("embed-analytics.list.jump-filtered", values);
+  if (rated) return t(`embed-analytics.list.jump-${feedbackFilter}`, values);
+  if (bucket)
+    return t("embed-analytics.list.jump-bucket", {
+      ...values,
+      period: bucket.label,
+    });
+  return t("embed-analytics.list.jump", values);
+}
+
+/**
  * Kopfzeile: Titel mit dem Verweis zur Liste, Widget-Auswahl (nur bei
  * mehreren Widgets) und Zeitraum.
  */
@@ -314,6 +340,8 @@ function Header({
   selectedEmbed,
   onSelectEmbed,
   viewableCount,
+  feedbackFilter,
+  bucket,
   onJumpToList,
   startDate,
   endDate,
@@ -364,12 +392,7 @@ function Header({
             onClick={onJumpToList}
             className={`text-sm ${MUTED} underline underline-offset-2 hover:text-theme-text-primary`}
           >
-            {viewableCount === null
-              ? t("embed-analytics.list.jump-pending")
-              : t("embed-analytics.list.jump", {
-                  count: viewableCount,
-                  formatted: formatNumber(viewableCount),
-                })}
+            {jumpText(t, viewableCount, feedbackFilter, bucket)}
             <span aria-hidden="true"> ↓</span>
           </button>
         )}

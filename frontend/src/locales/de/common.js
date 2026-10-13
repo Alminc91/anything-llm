@@ -1047,6 +1047,8 @@ const TRANSLATIONS = {
       "negative-count": "{{value}} negativ",
       "negative-action":
         "{{value}} negativ – Betroffene Konversationen anzeigen",
+      "positive-action":
+        "{{value}} positiv – Betroffene Konversationen anzeigen",
       satisfaction: "Zufriedenheit",
       "satisfaction-value": "{{value}} %",
       "satisfaction-of": "{{positive}} von {{total}} Bewertungen positiv",
@@ -1185,12 +1187,29 @@ const TRANSLATIONS = {
       jump_one: "{{formatted}} Konversation ansehen",
       jump_other: "{{formatted}} Konversationen ansehen",
       "jump-pending": "Konversationen ansehen",
+      "jump-negative_one":
+        "{{formatted}} negativ bewertete Konversation ansehen",
+      "jump-negative_other":
+        "{{formatted}} negativ bewertete Konversationen ansehen",
+      "jump-positive_one":
+        "{{formatted}} positiv bewertete Konversation ansehen",
+      "jump-positive_other":
+        "{{formatted}} positiv bewertete Konversationen ansehen",
+      "jump-bucket_one": "{{formatted}} Konversation aus „{{period}}“ ansehen",
+      "jump-bucket_other":
+        "{{formatted}} Konversationen aus „{{period}}“ ansehen",
+      "jump-filtered_one": "{{formatted}} gefilterte Konversation ansehen",
+      "jump-filtered_other": "{{formatted}} gefilterte Konversationen ansehen",
       viewable_one: "{{formatted}} einsehbar",
       viewable_other: "{{formatted}} einsehbar",
+      "viewable-of_one": "{{formatted}} von {{total}} einsehbar",
+      "viewable-of_other": "{{formatted}} von {{total}} einsehbar",
       "viewable-hint":
         "Konversationen, deren Inhalte noch vorhanden und nicht vom Besucher geleert sind. Die Kennzahl „Konversationen“ zählt dagegen alle im Zeitraum begonnenen.",
       "only-bucket": "Nur {{period}}",
       "clear-bucket": "Filter „{{period}}“ aufheben",
+      "only-feedback": "Filter: {{filter}}",
+      "clear-feedback": "Filter „{{filter}}“ aufheben",
       "deleted-hint":
         "Ältere Inhalte wurden gemäß Aufbewahrungsfrist gelöscht.",
     },

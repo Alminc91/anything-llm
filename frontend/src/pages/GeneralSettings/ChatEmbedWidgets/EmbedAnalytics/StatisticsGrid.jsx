@@ -51,7 +51,8 @@ const NO_VALUE = "–";
  * @param {import("@/utils/analyticsTimeline").Summary|null} props.summary
  * @param {boolean} props.loading
  * @param {boolean} [props.compare] - Schalter „Vorzeitraum vergleichen" (KIE-537)
- * @param {() => void} props.onShowNegative - setzt den Listenfilter „negativ"
+ * @param {(mode: "positive"|"negative") => void} props.onShowRated - setzt
+ *   den Bewertungsfilter der Liste und springt zu ihr
  * @param {number|null} props.embedId
  * @param {string|null} props.startDate - ISO-Zeitstempel (für die technischen Details)
  * @param {string|null} props.endDate
@@ -60,7 +61,7 @@ export default function StatisticsGrid({
   summary,
   loading,
   compare = false,
-  onShowNegative,
+  onShowRated,
   embedId,
   startDate,
   endDate,
@@ -157,7 +158,7 @@ export default function StatisticsGrid({
         ? {
             ratings: {
               share: formatRatedShare(kpi.rated, kpi.messages),
-              positive: formatNumber(kpi.positive),
+              positive: kpi.positive,
               negative: kpi.negative,
             },
           }
@@ -246,7 +247,7 @@ export default function StatisticsGrid({
               {field.ratings && (
                 <RatingsDetail
                   {...field.ratings}
-                  onShowNegative={onShowNegative}
+                  onShowRated={onShowRated}
                   t={t}
                 />
               )}
@@ -316,15 +317,12 @@ export default function StatisticsGrid({
 
 /**
  * Nebenzeile des Felds „Bewertungen": „13 % der Antworten bewertet ·
- * 9 positiv, 3 negativ". „3 negativ" ist der Verweis, der die Liste auf
- * negativ bewertete Konversationen filtert und zu ihr springt – nur, wenn es
- * welche gibt.
- * @param {{share: string|null, positive: string, negative: number, onShowNegative: () => void, t: Function}} props
+ * 9 positiv, 3 negativ". „9 positiv" und „3 negativ" sind Verweise, die die
+ * Liste auf positiv bzw. negativ bewertete Konversationen filtern und zu ihr
+ * springen – jeweils nur, wenn es welche gibt.
+ * @param {{share: string|null, positive: number, negative: number, onShowRated: (mode: "positive"|"negative") => void, t: Function}} props
  */
-function RatingsDetail({ share, positive, negative, onShowNegative, t }) {
-  const negativeText = t("embed-analytics.kpi.negative-count", {
-    value: formatNumber(negative),
-  });
+function RatingsDetail({ share, positive, negative, onShowRated, t }) {
   return (
     <span data-kpi-ratings="" className={`mt-1 block text-xs ${MUTED}`}>
       {share !== null && (
@@ -333,24 +331,32 @@ function RatingsDetail({ share, positive, negative, onShowNegative, t }) {
           {" · "}
         </>
       )}
-      {t("embed-analytics.kpi.positive-count", { value: positive })}
+      <RatedCount mode="positive" count={positive} onShow={onShowRated} t={t} />
       {", "}
-      {negative > 0 ? (
-        <button
-          type="button"
-          onClick={onShowNegative}
-          aria-label={t("embed-analytics.kpi.negative-action", {
-            value: formatNumber(negative),
-          })}
-          title={t("embed-analytics.kpi.show-negative")}
-          className="text-left text-theme-text-primary underline underline-offset-2 hover:no-underline"
-        >
-          {negativeText}
-        </button>
-      ) : (
-        negativeText
-      )}
+      <RatedCount mode="negative" count={negative} onShow={onShowRated} t={t} />
     </span>
+  );
+}
+
+/**
+ * „9 positiv" bzw. „3 negativ" – bei mehr als 0 der Verweis zur gefilterten
+ * Liste, sonst nur Text.
+ * @param {{mode: "positive"|"negative", count: number, onShow: (mode: "positive"|"negative") => void, t: Function}} props
+ */
+function RatedCount({ mode, count, onShow, t }) {
+  const value = formatNumber(count);
+  const text = t(`embed-analytics.kpi.${mode}-count`, { value });
+  if (!(count > 0)) return text;
+  return (
+    <button
+      type="button"
+      onClick={() => onShow?.(mode)}
+      aria-label={t(`embed-analytics.kpi.${mode}-action`, { value })}
+      title={t("embed-analytics.kpi.show-negative")}
+      className="text-left text-theme-text-primary underline underline-offset-2 hover:no-underline"
+    >
+      {text}
+    </button>
   );
 }
 

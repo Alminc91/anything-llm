@@ -456,14 +456,20 @@ test(
       ["messages", "Nachrichten 1.284 Ø 42,8 pro Tag"],
       ["conversations", "Konversationen 321 Ø 4,0 Nachrichten je Konversation"],
       // 12 bewertete Antworten bei 1.284 Nachrichten: 0,93 % → 1 %
+      // (das Leerzeichen vor dem Komma ist das Ende des Verweises „9 positiv“)
       [
         "ratings",
-        "Bewertungen 12 1 % der Antworten bewertet · 9 positiv, 3 negativ",
+        "Bewertungen 12 1 % der Antworten bewertet · 9 positiv , 3 negativ",
       ],
       ["satisfaction", "Zufriedenheit 75 % 9 von 12 Bewertungen positiv"],
     ]);
-    // „3 negativ“ ist der Verweis – eine Schaltfläche, die den Listenfilter
-    // „Negativ bewertet“ setzt; ihr Name nennt, was sie tut.
+    // „9 positiv“ und „3 negativ“ sind Verweise – Schaltflächen, die den
+    // Listenfilter „Positiv bewertet“ bzw. „Negativ bewertet“ setzen; ihr
+    // Name nennt, was sie tun.
+    assert.match(
+      html,
+      /<button type="button" aria-label="9 positiv – Betroffene Konversationen anzeigen" title="Betroffene Konversationen anzeigen"[^>]*>9 positiv<\/button>/
+    );
     assert.match(
       html,
       /<button type="button" aria-label="3 negativ – Betroffene Konversationen anzeigen" title="Betroffene Konversationen anzeigen"[^>]*>3 negativ<\/button>/
@@ -542,7 +548,7 @@ test(
 );
 
 test(
-  "Kennzahlen-Streifen: „M negativ“ ist nur ein Verweis, wenn es negativ bewertete Antworten gibt – bei 0 Text",
+  "Kennzahlen-Streifen: „N positiv“ und „M negativ“ sind nur Verweise, wenn es so bewertete Antworten gibt – bei 0 Text",
   { skip },
   async () => {
     const withRatings = async (feedbackPositive, feedbackNegative) => {
@@ -556,11 +562,15 @@ test(
       });
       const ratings = Object.fromEntries(kpiFields(html)).ratings;
       return {
-        // ohne die Bewertungsquote am Anfang
-        ratings: ratings.replace(
-          /^Bewertungen \d+ \d+ % der Antworten bewertet · /,
-          ""
-        ),
+        // ohne die Bewertungsquote am Anfang und ohne das Leerzeichen, das
+        // das Ende des Verweises „N positiv“ vor dem Komma hinterlässt
+        ratings: ratings
+          .replace(/^Bewertungen \d+ \d+ % der Antworten bewertet · /, "")
+          .replace(" ,", ","),
+        positiveLink:
+          /<button type="button" aria-label="\d+ positiv – Betroffene Konversationen anzeigen"[^>]*>\d+ positiv<\/button>/.test(
+            html
+          ),
         link: /<button type="button" aria-label="\d+ negativ – Betroffene Konversationen anzeigen"[^>]*>\d+ negativ<\/button>/.test(
           html
         ),
@@ -570,20 +580,25 @@ test(
     // nur positive Bewertungen: „0 negativ“ ist Text, kein Verweis.
     assert.deepEqual(await withRatings(5, 0), {
       ratings: "5 positiv, 0 negativ",
+      positiveLink: true,
       link: false,
     });
     // gar keine Bewertung
     assert.deepEqual(await withRatings(0, 0), {
       ratings: "Bewertungen 0 Keine Bewertungen",
+      positiveLink: false,
       link: false,
     });
     // ab der ersten negativen Bewertung der Verweis
     assert.deepEqual(await withRatings(5, 1), {
       ratings: "5 positiv, 1 negativ",
+      positiveLink: true,
       link: true,
     });
+    // nur negative Bewertungen: „0 positiv“ ist Text, kein Verweis.
     assert.deepEqual(await withRatings(0, 2), {
       ratings: "0 positiv, 2 negativ",
+      positiveLink: false,
       link: true,
     });
   }

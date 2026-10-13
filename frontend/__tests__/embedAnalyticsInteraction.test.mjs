@@ -1359,8 +1359,7 @@ test(
     const scrolls = [];
     listArea.scrollIntoView = (options) => scrolls.push(options);
 
-    const [link] = elements(ratings, (element) => element.tagName === "BUTTON");
-    assert.equal(link.textContent, "3 negativ");
+    const link = buttonOf(ratings, "3 negativ");
     assert.equal(
       link.getAttribute("aria-label"),
       "3 negativ – Betroffene Konversationen anzeigen"
@@ -1375,6 +1374,54 @@ test(
       "true"
     );
     assert.deepEqual(scrolls, [{ behavior: "smooth", block: "start" }]);
+    // Die Liste zeigt sofort, welcher Filter gilt.
+    const [mark] = elements(container, (element) =>
+      element.hasAttribute("data-feedback-filter-mark")
+    );
+    assert.equal(mark.textContent, "Filter: Negativ bewertet");
+  }
+);
+
+test(
+  "Feld „Bewertungen“: „9 positiv“ setzt den Listenfilter „Positiv bewertet“ und springt zur Liste – die Markierung „Filter: Positiv bewertet“ erscheint",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t);
+    const view = await mountView(t, server);
+    const { container, act, listRequest } = view;
+    const [ratings] = elements(
+      container,
+      (element) => element.getAttribute("data-kpi") === "ratings"
+    );
+    const [listArea] = elements(container, (element) =>
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-4")
+    );
+    const scrolls = [];
+    listArea.scrollIntoView = (options) => scrolls.push(options);
+
+    const link = buttonOf(ratings, "9 positiv");
+    assert.equal(
+      link.getAttribute("aria-label"),
+      "9 positiv – Betroffene Konversationen anzeigen"
+    );
+    assert.equal(
+      link.getAttribute("class"),
+      buttonOf(ratings, "3 negativ").getAttribute("class")
+    );
+    await act(() => click(link));
+    assert.deepEqual(
+      server.lists().at(-1),
+      listRequest({ feedbackFilter: "positive" })
+    );
+    assert.equal(
+      feedbackFilterOf(container, ONLY_POSITIVE).getAttribute("aria-pressed"),
+      "true"
+    );
+    assert.deepEqual(scrolls, [{ behavior: "smooth", block: "start" }]);
+    const [mark] = elements(container, (element) =>
+      element.hasAttribute("data-feedback-filter-mark")
+    );
+    assert.equal(mark.textContent, "Filter: Positiv bewertet");
   }
 );
 
@@ -1441,6 +1488,258 @@ test(
     assert.equal(await jumpText(1), "1 Konversation ansehen ↓");
     assert.equal(await jumpText(1234), "1.234 Konversationen ansehen ↓");
     assert.equal(await jumpText(0), null);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Gesetzte Filter sichtbar: Verweis, „N von M einsehbar", Markierung
+// ---------------------------------------------------------------------------
+
+/**
+ * Liste, deren Zahl vom Filter abhängt: im Zeitraum 214 einsehbare
+ * Konversationen, davon 18 negativ und 25 positiv bewertet (zwei Seiten);
+ * im gewählten
+ * Abschnitt 6, davon 2 negativ und 3 positiv.
+ */
+function ratedList({ body }) {
+  const totals = body.startedFromDay
+    ? { all: 6, negative: 2, positive: 3 }
+    : { all: 214, negative: 18, positive: 25 };
+  const total = totals[body.feedbackFilter];
+  const count = Math.max(0, Math.min(body.limit, total - body.offset));
+  return {
+    ...pagedList({ body }),
+    totalCount: total,
+    hasMore: body.offset + count < total,
+    conversations: pagedList({ body }).conversations.slice(0, count),
+  };
+}
+
+/** Verweis zur Liste in der Kopfzeile (Text); null, wenn er fehlt. */
+const jumpTextOf = (container) =>
+  elements(container, (element) => element.hasAttribute("data-jump-to-list"))[0]
+    ?.textContent ?? null;
+/** „N einsehbar" bzw. „N von M einsehbar" in der Kopfzeile der Liste. */
+const viewableOf = (container) =>
+  elements(container, (element) =>
+    element.hasAttribute("data-viewable-count")
+  )[0]?.textContent ?? null;
+/** Markierung „Filter: …" der Liste; null ohne Bewertungsfilter. */
+const feedbackMarkOf = (container) =>
+  elements(container, (element) =>
+    element.hasAttribute("data-feedback-filter-mark")
+  )[0] ?? null;
+
+test(
+  "Gesetzte Filter: Der Verweis in der Kopfzeile nennt Bewertungsfilter und Abschnitt – ohne Filter wie bisher",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: ratedList });
+    const view = await mountView(t, server);
+    const { container, act } = view;
+    assert.equal(jumpTextOf(container), "214 Konversationen ansehen ↓");
+
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    assert.equal(
+      jumpTextOf(container),
+      "18 negativ bewertete Konversationen ansehen ↓"
+    );
+    await act(() => click(feedbackFilterOf(container, ONLY_POSITIVE)));
+    assert.equal(
+      jumpTextOf(container),
+      "25 positiv bewertete Konversationen ansehen ↓"
+    );
+    await act(() => click(feedbackFilterOf(container, ONLY_POSITIVE)));
+    assert.equal(jumpTextOf(container), "214 Konversationen ansehen ↓");
+
+    // Abschnitt: so benannt wie in der Markierung „Nur …“
+    await act(() => click(columnsOf(container)[23]));
+    const period = bucketMarkOf(container).textContent.replace(/^Nur /, "");
+    assert.match(period, /^\S+, \d{2}\.\d{2}\.\d{4}$/);
+    assert.equal(
+      jumpTextOf(container),
+      `6 Konversationen aus „${period}“ ansehen ↓`
+    );
+
+    // beides: die Kurzform – die Liste zeigt beide Markierungen
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    assert.equal(
+      jumpTextOf(container),
+      "2 gefilterte Konversationen ansehen ↓"
+    );
+    assert.ok(bucketMarkOf(container));
+    assert.ok(feedbackMarkOf(container));
+
+    // Einzahl
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    await act(() => click(columnsOf(container)[23]));
+    assert.equal(bucketMarkOf(container), null);
+    const single = await analyticsServer(t, {
+      list: ({ body }) => ({
+        ...ratedList({ body }),
+        totalCount: 1,
+        hasMore: false,
+        conversations: ratedList({ body }).conversations.slice(0, 1),
+      }),
+    });
+    await view.unmount();
+    const one = await mountView(t, single);
+    await one.act(() => click(feedbackFilterOf(one.container, ONLY_NEGATIVE)));
+    assert.equal(
+      jumpTextOf(one.container),
+      "1 negativ bewertete Konversation ansehen ↓"
+    );
+    assert.equal(viewableOf(one.container), "1 von 1 einsehbar");
+  }
+);
+
+test(
+  "Gesetzte Filter: Mit Bewertungsfilter „18 von 214 einsehbar“ und die Markierung „Filter: Negativ bewertet“ – ihr ✕ hebt ihn auf (ungefiltert, Seite 1)",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: ratedList });
+    const view = await mountView(t, server);
+    const { container, act, listRequest } = view;
+    assert.equal(viewableOf(container), "214 einsehbar");
+    assert.equal(feedbackMarkOf(container), null);
+
+    const before = server.lists().length;
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    // Die Zahl ohne Filter kam schon mit der ungefilterten Liste: keine
+    // zusätzliche Anfrage.
+    assert.deepEqual(server.lists().slice(before), [
+      listRequest({ feedbackFilter: "negative" }),
+    ]);
+    assert.equal(viewableOf(container), "18 von 214 einsehbar");
+    const mark = feedbackMarkOf(container);
+    assert.equal(mark.getAttribute("data-feedback-filter-mark"), "negative");
+    assert.equal(mark.textContent, "Filter: Negativ bewertet");
+    // gleiche Gestaltung wie die Markierung „Nur …“
+    await act(() => click(columnsOf(container)[23]));
+    assert.equal(
+      mark.getAttribute("class"),
+      bucketMarkOf(container).getAttribute("class")
+    );
+    await act(() => click(columnsOf(container)[23]));
+    assert.equal(bucketMarkOf(container), null);
+
+    // ✕ hebt den Filter auf
+    const closeOf = () =>
+      elements(
+        feedbackMarkOf(container),
+        (element) => element.tagName === "BUTTON"
+      )[0];
+    assert.equal(
+      closeOf().getAttribute("aria-label"),
+      "Filter „Negativ bewertet“ aufheben"
+    );
+    assert.equal(
+      closeOf().getAttribute("title"),
+      closeOf().getAttribute("aria-label")
+    );
+    await act(() => click(closeOf()));
+    assert.deepEqual(server.lists().at(-1), listRequest());
+    assert.equal(feedbackMarkOf(container), null);
+    assert.equal(viewableOf(container), "214 einsehbar");
+    assert.equal(
+      feedbackFilterOf(container, ONLY_NEGATIVE).getAttribute("aria-pressed"),
+      "false"
+    );
+    assert.equal(jumpTextOf(container), "214 Konversationen ansehen ↓");
+
+    // positiv ebenso – auf Seite 2 geblättert führt ✕ auf Seite 1
+    await act(() => click(feedbackFilterOf(container, ONLY_POSITIVE)));
+    assert.equal(viewableOf(container), "25 von 214 einsehbar");
+    assert.equal(
+      feedbackMarkOf(container).textContent,
+      "Filter: Positiv bewertet"
+    );
+    await openSecondPage(view, server);
+    assert.equal(server.lists().at(-1).body.feedbackFilter, "positive");
+    assert.equal(
+      closeOf().getAttribute("aria-label"),
+      "Filter „Positiv bewertet“ aufheben"
+    );
+    await act(() => click(closeOf()));
+    assert.deepEqual(server.lists().at(-1), listRequest());
+    assert.equal(server.lists().at(-1).body.offset, 0);
+    assert.equal(feedbackMarkOf(container), null);
+    assert.equal(
+      feedbackFilterOf(container, ONLY_POSITIVE).getAttribute("aria-pressed"),
+      "false"
+    );
+    assert.match(container.textContent, /Konversation #1"/);
+    assert.doesNotMatch(container.textContent, /Konversation #21"/);
+  }
+);
+
+test(
+  "Gesetzte Filter: Fehlt die Zahl ohne Bewertungsfilter für den Zuschnitt, fragt die Liste sie einmal parallel an (eine Konversation, ohne Filter) – ohne Bewertungsfilter nie",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: ratedList });
+    const view = await mountView(t, server);
+    const { container, act, days, listRequest } = view;
+    const day = addDays(days.fromDay, 23);
+    const bucket = { start: day, end: day };
+
+    // ohne Bewertungsfilter: Laden, Abschnitt an und aus, Blättern – jede
+    // Anfrage ist eine Seite der Liste
+    await act(() => click(columnsOf(container)[23]));
+    await act(() => click(columnsOf(container)[23]));
+    await openSecondPage(view, server);
+    assert.deepEqual(
+      server.lists().map(({ body }) => [body.limit, body.feedbackFilter]),
+      [
+        [20, "all"],
+        [20, "all"],
+        [20, "all"],
+        [20, "all"],
+      ]
+    );
+
+    // Filter an (Zahl bekannt), dann ein Abschnitt, für den sie fehlt
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    let before = server.lists().length;
+    await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(server.lists().slice(before), [
+      listRequest({ limit: 1, bucket }),
+      listRequest({ feedbackFilter: "negative", bucket }),
+    ]);
+    assert.equal(viewableOf(container), "2 von 6 einsehbar");
+
+    // Wechsel zu positiv und zurück im selben Abschnitt: bekannt
+    before = server.lists().length;
+    await act(() => click(feedbackFilterOf(container, ONLY_POSITIVE)));
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    assert.deepEqual(server.lists().slice(before), [
+      listRequest({ feedbackFilter: "positive", bucket }),
+      listRequest({ feedbackFilter: "negative", bucket }),
+    ]);
+
+    // Abschnitt aus: wieder ein anderer Zuschnitt – einmal die Zählabfrage
+    before = server.lists().length;
+    await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(server.lists().slice(before), [
+      listRequest({ limit: 1 }),
+      listRequest({ feedbackFilter: "negative" }),
+    ]);
+    assert.equal(viewableOf(container), "18 von 214 einsehbar");
+
+    // anderer Zeitraum mit gesetztem Filter: einmal die Zählabfrage
+    before = server.lists().length;
+    await choosePreset(view, "Letzter Monat");
+    const added = server.lists().slice(before);
+    assert.deepEqual(
+      added.map(({ body }) => [body.offset, body.limit, body.feedbackFilter]),
+      [
+        [0, 1, "all"],
+        [0, 20, "negative"],
+      ]
+    );
+    assert.equal(added[0].body.startDate, added[1].body.startDate);
+    assert.equal(added[0].body.endDate, added[1].body.endDate);
+    assert.equal(viewableOf(container), "18 von 214 einsehbar");
   }
 );
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   CaretDown,
   CaretUp,
@@ -88,6 +88,32 @@ function FeedbackCountBadge({ count, Icon, tone, labelKey }) {
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 
 /**
+ * Markierung eines gesetzten Filters in der Kopfzeile der Liste („Nur …",
+ * „Filter: …") – ✕ hebt ihn auf.
+ * @param {{label: string, clearLabel: string, onClear: () => void}} props
+ *   (übrige Props, z. B. data-*, gehen an die Markierung)
+ */
+function FilterMark({ label, clearLabel, onClear, ...rest }) {
+  return (
+    <span
+      {...rest}
+      className="inline-flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-theme-settings-input-bg py-0.5 pl-3 pr-1 text-sm text-theme-text-primary"
+    >
+      <span className="truncate">{label}</span>
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={clearLabel}
+        title={clearLabel}
+        className="shrink-0 rounded-full p-1 hover:bg-white/10 light:hover:bg-black/10"
+      >
+        <X size={12} weight="bold" aria-hidden="true" />
+      </button>
+    </span>
+  );
+}
+
+/**
  * Konversationsliste der Auswertung. Sie liest embed_chats – also nur
  * Konversationen, deren Inhalte noch vorhanden und nicht vom Besucher geleert
  * sind („einsehbar"). Die Kennzahl „Konversationen" kommt dagegen aus dem
@@ -144,6 +170,20 @@ export default function ConversationList({
     bucketEnd,
   ].join("|");
   const [page, setPage] = useState({ scope, offset: 0 });
+  // Einsehbare Konversationen ohne Bewertungsfilter im selben Zeitraum und
+  // Abschnitt – für „18 von 214 einsehbar". Jede ungefilterte Antwort bringt
+  // die Zahl mit; nur wenn ein Bewertungsfilter gilt und sie für diesen
+  // Zuschnitt fehlt, fragt die Liste sie einmal zusätzlich an.
+  const unfilteredScope = [
+    embedId,
+    startDate,
+    endDate,
+    bucketStart,
+    bucketEnd,
+  ].join("|");
+  const [unfiltered, setUnfiltered] = useState({ scope: null, total: 0 });
+  // Für die Entscheidung im Effekt, ohne dass er von der Zahl abhängt
+  const unfilteredRef = useRef(unfiltered);
   // Mit dem Zuschnitt verfällt die gemerkte Seite – sonst käme sie zurück,
   // sobald der frühere Zuschnitt wieder gilt (Filter an und wieder aus).
   if (page.scope !== scope) setPage({ scope, offset: 0 });
@@ -157,28 +197,58 @@ export default function ConversationList({
 
     async function loadConversations() {
       setLoading(true);
+      const startedBetween =
+        bucketStart && bucketEnd
+          ? { fromDay: bucketStart, toDay: bucketEnd }
+          : null;
+      const needsUnfiltered =
+        feedbackFilter !== "all" &&
+        unfilteredRef.current.scope !== unfilteredScope;
+      // Die Zählabfrage (eine Konversation, ohne Bewertungsfilter) startet
+      // neben der Liste, nicht danach.
+      const [unfilteredAnswer, answer] = await Promise.all([
+        needsUnfiltered
+          ? Embed.getConversations(
+              embedId,
+              0,
+              1,
+              startDate,
+              endDate,
+              "all",
+              startedBetween
+            )
+          : null,
+        Embed.getConversations(
+          embedId,
+          offset,
+          ITEMS_PER_PAGE,
+          startDate,
+          endDate,
+          feedbackFilter,
+          startedBetween
+        ),
+      ]);
+      if (ignore) return;
+
+      const rememberUnfiltered = (total) => {
+        const next = { scope: unfilteredScope, total: total || 0 };
+        unfilteredRef.current = next;
+        setUnfiltered(next);
+      };
+      if (unfilteredAnswer?.success)
+        rememberUnfiltered(unfilteredAnswer.totalCount);
+
       const {
         success,
         conversations: data,
         hasMore: more,
         totalCount: total,
-      } = await Embed.getConversations(
-        embedId,
-        offset,
-        ITEMS_PER_PAGE,
-        startDate,
-        endDate,
-        feedbackFilter,
-        bucketStart && bucketEnd
-          ? { fromDay: bucketStart, toDay: bucketEnd }
-          : null
-      );
-      if (ignore) return;
-
+      } = answer;
       if (success) {
         setConversations(data || []);
         setHasMore(more);
         setTotalCount(total || 0);
+        if (feedbackFilter === "all") rememberUnfiltered(total);
       } else {
         showToast(t("embed-analytics.load-error"), "error");
       }
@@ -197,6 +267,7 @@ export default function ConversationList({
     feedbackFilter,
     bucketStart,
     bucketEnd,
+    unfilteredScope,
     t,
   ]);
 
@@ -209,6 +280,17 @@ export default function ConversationList({
     "flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border transition-colors";
   const toggleInactiveClass =
     "border-white/10 text-theme-text-secondary hover:border-white/20 light:border-gray-200";
+
+  // Bewertungsfilter: „18 von 214 einsehbar" – sobald die Zahl ohne Filter
+  // für diesen Zuschnitt bekannt ist.
+  const feedbackActive = feedbackFilter !== "all";
+  const outOf =
+    feedbackActive && unfiltered.scope === unfilteredScope
+      ? unfiltered.total
+      : null;
+  const feedbackLabel = feedbackActive
+    ? t(`embed-analytics.conversations.only-${feedbackFilter}`)
+    : null;
 
   // Die Kopfzeile der Ansicht nennt, wie viele Konversationen die Liste zeigt.
   const viewableCount = loading ? null : totalCount;
@@ -235,36 +317,41 @@ export default function ConversationList({
               title={t("embed-analytics.list.viewable-hint")}
               className={`text-sm ${MUTED}`}
             >
-              {t("embed-analytics.list.viewable", {
-                count: totalCount,
-                formatted: formatNumber(totalCount),
-              })}
+              {outOf === null
+                ? t("embed-analytics.list.viewable", {
+                    count: totalCount,
+                    formatted: formatNumber(totalCount),
+                  })
+                : t("embed-analytics.list.viewable-of", {
+                    count: totalCount,
+                    formatted: formatNumber(totalCount),
+                    total: formatNumber(outOf),
+                  })}
             </span>
           )}
+          {feedbackActive && (
+            <FilterMark
+              data-feedback-filter-mark={feedbackFilter}
+              label={t("embed-analytics.list.only-feedback", {
+                filter: feedbackLabel,
+              })}
+              clearLabel={t("embed-analytics.list.clear-feedback", {
+                filter: feedbackLabel,
+              })}
+              onClear={() => onFeedbackFilterChange("all")}
+            />
+          )}
           {bucket && (
-            <span
+            <FilterMark
               data-bucket-filter=""
-              className="inline-flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-theme-settings-input-bg py-0.5 pl-3 pr-1 text-sm text-theme-text-primary"
-            >
-              <span className="truncate">
-                {t("embed-analytics.list.only-bucket", {
-                  period: bucket.label,
-                })}
-              </span>
-              <button
-                type="button"
-                onClick={onClearBucket}
-                aria-label={t("embed-analytics.list.clear-bucket", {
-                  period: bucket.label,
-                })}
-                title={t("embed-analytics.list.clear-bucket", {
-                  period: bucket.label,
-                })}
-                className="shrink-0 rounded-full p-1 hover:bg-white/10 light:hover:bg-black/10"
-              >
-                <X size={12} weight="bold" aria-hidden="true" />
-              </button>
-            </span>
+              label={t("embed-analytics.list.only-bucket", {
+                period: bucket.label,
+              })}
+              clearLabel={t("embed-analytics.list.clear-bucket", {
+                period: bucket.label,
+              })}
+              onClear={onClearBucket}
+            />
           )}
         </div>
         <div className="flex flex-wrap justify-end gap-2">
