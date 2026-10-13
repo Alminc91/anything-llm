@@ -1137,6 +1137,11 @@ const TRANSLATIONS = {
       tooltip: "{{slot}}: {{value}}",
       peak: {
         label: "Stärkster Zeitabschnitt",
+        "tie-slot": "{{value}} · gleichauf mit {{slot}}",
+        "tie-count_one":
+          "{{value}} · gleichauf mit {{count}} weiteren Zeitabschnitt",
+        "tie-count_other":
+          "{{value}} · gleichauf mit {{count}} weiteren Zeitabschnitten",
       },
       outside: {
         label: "Außerhalb von {{from}}–{{to}}, {{hours}}",

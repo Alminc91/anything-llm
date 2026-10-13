@@ -27,6 +27,7 @@ import {
   outsideCoreLabel,
   outsideCoreShare,
   peakCell,
+  peakNote,
   rowLabelWidth,
   rowTotals,
   slotLabel,
@@ -197,8 +198,10 @@ function Frame({ children }) {
 
 /**
  * Die zwei Aussagen über dem Raster: der stärkste Zeitabschnitt und der Anteil
- * der Nachrichten außerhalb der Kernzeit. Die zweite nennt die feste Grenze
- * wörtlich und sagt am Feld, dass Feiertage als normale Wochentage zählen.
+ * der Nachrichten außerhalb der Kernzeit. Die erste sagt in ihrer Nebenzeile,
+ * wenn weitere Felder denselben Höchstwert haben (peakNote). Die zweite nennt
+ * die feste Grenze wörtlich und sagt am Feld, dass Feiertage als normale
+ * Wochentage zählen.
  */
 function Statements({ grid, peak, context }) {
   const { t } = context;
@@ -212,9 +215,7 @@ function Statements({ grid, peak, context }) {
           {t("embed-analytics.weekday-hour.peak.label")}
         </dt>
         <dd className={value}>{slotLabel(peak, context)}</dd>
-        <dd className={`mt-0.5 ${label}`}>
-          {valueLabel(peak.messages, "messages", t)}
-        </dd>
+        <dd className={`mt-0.5 ${label}`}>{peakNote(grid, context)}</dd>
       </div>
       <div data-statement="outside" className="min-w-0">
         <dt className={label}>{outsideCoreLabel(context)}</dt>

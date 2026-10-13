@@ -1709,6 +1709,9 @@ const TRANSLATIONS = {
       tooltip: "{{slot}}: {{value}}",
       peak: {
         label: "Busiest time slot",
+        "tie-slot": "{{value}} · tied with {{slot}}",
+        "tie-count_one": "{{value}} · tied with {{count}} other time slot",
+        "tie-count_other": "{{value}} · tied with {{count}} other time slots",
       },
       outside: {
         label: "Outside {{from}}–{{to}}, {{hours}}",

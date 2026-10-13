@@ -38,6 +38,8 @@ import {
   outsideCoreLabel,
   outsideCoreShare,
   peakCell,
+  peakNote,
+  peakTies,
   periodDays,
   rowLabelWidth,
   rowTotals,
@@ -263,6 +265,97 @@ test("staerkster_zeitabschnitt: mehrere Felder mit dem Höchstwert – das erste
   grid[6][23] = 8;
   assert.deepEqual(peakCell(grid), { weekday: 6, hour: 23, messages: 8 });
   assert.equal(peakCell(emptyGrid()), null);
+});
+
+test("staerkster_zeitabschnitt: Gleichstand ist zu erkennen – die Nebenzeile nennt das eine weitere Feld mit dem Höchstwert oder die Zahl der weiteren", () => {
+  // Browser-Abnahme: Dienstag 20–21 Uhr und Donnerstag 10–11 Uhr mit je 16
+  const grid = emptyGrid();
+  grid[1][20] = 16;
+  grid[3][10] = 16;
+  grid[0][9] = 15;
+  // Die Regel bleibt: genannt wird das erste Feld in Leserichtung.
+  assert.deepEqual(peakCell(grid), { weekday: 1, hour: 20, messages: 16 });
+  assert.deepEqual(peakTies(grid), [{ weekday: 3, hour: 10 }]);
+  assert.equal(
+    peakNote(grid, context),
+    "16 Nachrichten · gleichauf mit Donnerstag, 10–11 Uhr"
+  );
+  assert.equal(
+    peakNote(grid, english),
+    "16 messages · tied with Thursday, 10:00–11:00"
+  );
+
+  // mehrere weitere Felder: ihre Zahl, in Leserichtung gezählt
+  grid[6][23] = 16;
+  assert.deepEqual(peakTies(grid), [
+    { weekday: 3, hour: 10 },
+    { weekday: 6, hour: 23 },
+  ]);
+  assert.equal(
+    peakNote(grid, context),
+    "16 Nachrichten · gleichauf mit 2 weiteren Zeitabschnitten"
+  );
+  assert.equal(
+    peakNote(grid, english),
+    "16 messages · tied with 2 other time slots"
+  );
+  grid[0][0] = 16;
+  // Jetzt steht Montag, 0–1 Uhr vorn – der Dienstag zählt zu den weiteren.
+  assert.deepEqual(peakCell(grid), { weekday: 0, hour: 0, messages: 16 });
+  assert.equal(peakTies(grid).length, 3);
+  assert.ok(
+    peakTies(grid).every(({ weekday, hour }) => weekday !== 0 || hour !== 0)
+  );
+  assert.equal(
+    peakNote(grid, context),
+    "16 Nachrichten · gleichauf mit 3 weiteren Zeitabschnitten"
+  );
+
+  // ohne Gleichstand nur die Anzahl – auch mit einem Feld knapp darunter
+  const single = gridOf(DISTRIBUTION.cells);
+  assert.deepEqual(peakTies(single), []);
+  assert.equal(peakNote(single, context), "14 Nachrichten");
+  assert.equal(peakNote(single, english), "14 messages");
+  const one = emptyGrid();
+  one[2][8] = 1;
+  assert.equal(peakNote(one, context), "1 Nachricht");
+  // Alle 168 Felder gleich: 167 weitere, große Werte in deutscher Schreibweise
+  const even = emptyGrid().map((row) => row.map(() => 1200));
+  assert.equal(peakTies(even).length, 167);
+  assert.equal(
+    peakNote(even, context),
+    "1.200 Nachrichten · gleichauf mit 167 weiteren Zeitabschnitten"
+  );
+  // ohne Nachrichten weder Feld noch Zeile
+  assert.deepEqual(peakTies(emptyGrid()), []);
+  assert.equal(peakNote(emptyGrid(), context), null);
+
+  // Die Texte stehen im Block der Karte, mit Einzahl und Mehrzahl.
+  for (const resources of [de, en]) {
+    const peak = resources["embed-analytics"]["weekday-hour"].peak;
+    assert.deepEqual(Object.keys(peak).sort(), [
+      "label",
+      "tie-count_one",
+      "tie-count_other",
+      "tie-slot",
+    ]);
+    for (const text of Object.values(peak))
+      assert.ok(typeof text === "string" && text.length > 0);
+  }
+  assert.equal(
+    t("embed-analytics.weekday-hour.peak.tie-count", {
+      value: "3 Nachrichten",
+      count: 1,
+    }),
+    "3 Nachrichten · gleichauf mit 1 weiteren Zeitabschnitt"
+  );
+  assert.equal(
+    english.t("embed-analytics.weekday-hour.peak.tie-count", {
+      value: "3 messages",
+      count: 1,
+    }),
+    "3 messages · tied with 1 other time slot"
+  );
 });
 
 test("anteil_ausserhalb (AK-4): 100 Nachrichten, davon 60 Montag–Freitag zwischen 8:00 und 16:59 Uhr – „40 % der Nachrichten“ unter „Außerhalb von Montag–Freitag, 8–17 Uhr“", () => {

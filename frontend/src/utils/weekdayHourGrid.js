@@ -11,7 +11,11 @@
 // gregorianischen Kalender. Stundenangaben stehen wie im Diagramm darüber in
 // den Sprachdateien („10–11 Uhr"): Intl schreibt sie je nach Sprache und
 // Browser anders („08–17 Uhr") und kennt keine Stunde 23–24.
-import { daysBetween, tooltipPlacement } from "./analyticsTimeline.js";
+import {
+  daysBetween,
+  tooltipPlacement,
+  valueLabel,
+} from "./analyticsTimeline.js";
 
 export const WEEKDAYS = 7;
 export const HOURS = 24;
@@ -132,7 +136,7 @@ export function heatmapState(summary) {
 /**
  * Das Feld mit dem Höchstwert – der stärkste Zeitabschnitt. Teilen sich
  * mehrere Felder den Höchstwert, gilt das erste in Leserichtung (Montag vor
- * Dienstag, früh vor spät).
+ * Dienstag, früh vor spät); die übrigen nennt peakTies.
  * @param {number[][]} grid
  * @returns {(Slot & {messages: number})|null} - null ohne Nachrichten
  */
@@ -144,6 +148,26 @@ export function peakCell(grid) {
     })
   );
   return peak;
+}
+
+/**
+ * Die weiteren Felder mit dem Höchstwert, in Leserichtung – ohne das Feld, das
+ * peakCell nennt. Leer, wenn der Höchstwert nur einmal vorkommt.
+ * @param {number[][]} grid
+ * @returns {Slot[]}
+ */
+export function peakTies(grid) {
+  const peak = peakCell(grid);
+  if (!peak) return [];
+  const ties = [];
+  grid.forEach((row, weekday) =>
+    row.forEach((messages, hour) => {
+      if (messages !== peak.messages) return;
+      if (weekday === peak.weekday && hour === peak.hour) return;
+      ties.push({ weekday, hour });
+    })
+  );
+  return ties;
 }
 
 /** Liegt das Feld in der Kernzeit (Montag–Freitag, 8–17 Uhr)? */
@@ -280,6 +304,36 @@ export function slotLabel({ weekday, hour }, { t, locale }) {
   return t("embed-analytics.weekday-hour.slot", {
     weekday: weekdayName(weekday, locale),
     hours: hoursLabel(hour, hour + 1, t),
+  });
+}
+
+/**
+ * Nebenzeile der ersten Aussage: die Anzahl im stärksten Zeitabschnitt – und,
+ * wenn weitere Felder denselben Höchstwert haben, dass es so ist. Die Aussage
+ * nennt weiter das erste Feld in Leserichtung (peakCell); ohne den Hinweis
+ * sähe es aus, als läge es allein vorn.
+ *   "16 Nachrichten"
+ *   "16 Nachrichten · gleichauf mit Donnerstag, 10–11 Uhr"
+ *   "16 Nachrichten · gleichauf mit 2 weiteren Zeitabschnitten"
+ * @param {number[][]} grid
+ * @param {{t: Function, locale: string}} context
+ * @returns {string|null} - null ohne Nachrichten
+ */
+export function peakNote(grid, context) {
+  const peak = peakCell(grid);
+  if (!peak) return null;
+  const { t } = context;
+  const value = valueLabel(peak.messages, "messages", t);
+  const ties = peakTies(grid);
+  if (ties.length === 0) return value;
+  if (ties.length === 1)
+    return t("embed-analytics.weekday-hour.peak.tie-slot", {
+      value,
+      slot: slotLabel(ties[0], context),
+    });
+  return t("embed-analytics.weekday-hour.peak.tie-count", {
+    value,
+    count: ties.length,
   });
 }
 

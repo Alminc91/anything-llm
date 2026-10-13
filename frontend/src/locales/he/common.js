@@ -1575,6 +1575,9 @@ const TRANSLATIONS = {
       tooltip: null,
       peak: {
         label: null,
+        "tie-slot": null,
+        "tie-count_one": null,
+        "tie-count_other": null,
       },
       outside: {
         label: null,

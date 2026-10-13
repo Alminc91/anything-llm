@@ -231,6 +231,55 @@ test(
 );
 
 test(
+  "staerkster_zeitabschnitt: Gleichstand – die Nebenzeile der Aussage nennt das weitere Feld mit dem Höchstwert bzw. die Zahl der weiteren; ohne Gleichstand bleibt sie bei der Anzahl",
+  { skip },
+  async () => {
+    // Browser-Abnahme: Dienstag 20–21 Uhr und Donnerstag 10–11 Uhr mit je 16
+    // Nachrichten; dazu 200 Nachrichten an den Werktagen von 9 bis 17 Uhr
+    const tied = gridOf([]);
+    for (let weekday = 0; weekday < 5; weekday++)
+      for (let hour = 9; hour < 17; hour++) tied[weekday][hour] = 5;
+    tied[1][20] = 16;
+    tied[3][10] = 16;
+    const peakOf = async (grid) =>
+      /<div data-statement="peak"[^>]*>.*?<\/div>/.exec(
+        await card(summaryOf([], { weekdayHour: grid }))
+      )[0];
+
+    assert.match(
+      await peakOf(tied),
+      /<dt[^>]*>Stärkster Zeitabschnitt<\/dt><dd[^>]*>Dienstag, 20–21 Uhr<\/dd><dd[^>]*>16 Nachrichten · gleichauf mit Donnerstag, 10–11 Uhr<\/dd><\/div>$/
+    );
+    // Die Stufe zeigt es ohnehin: beide Felder haben die stärkste.
+    const html = await card(summaryOf([], { weekdayHour: tied }));
+    assert.deepEqual(
+      cellsOf(html)
+        .filter((cell) => cell.level === 5)
+        .map((cell) => cell.label),
+      [
+        "Dienstag, 20–21 Uhr: 16 Nachrichten",
+        "Donnerstag, 10–11 Uhr: 16 Nachrichten",
+      ]
+    );
+
+    // zwei weitere Felder: ihre Zahl statt ihrer Namen
+    tied[5][11] = 16;
+    assert.match(
+      await peakOf(tied),
+      /<dd[^>]*>Dienstag, 20–21 Uhr<\/dd><dd[^>]*>16 Nachrichten · gleichauf mit 2 weiteren Zeitabschnitten<\/dd><\/div>$/
+    );
+
+    // ohne Gleichstand: nur die Anzahl
+    tied[1][20] = 17;
+    assert.match(
+      await peakOf(tied),
+      /<dd[^>]*>Dienstag, 20–21 Uhr<\/dd><dd[^>]*>17 Nachrichten<\/dd><\/div>$/
+    );
+    assert.doesNotMatch(textOf(await card(DATA)), /gleichauf/);
+  }
+);
+
+test(
   "anteil_ausserhalb (AK-4, NAK-3): je 100 Nachrichten 60 Montag–Freitag zwischen 8:00 und 16:59 Uhr – „40 % der Nachrichten“ unter „Außerhalb von Montag–Freitag, 8–17 Uhr“, mit dem Hinweis zu Feiertagen",
   { skip },
   async () => {
