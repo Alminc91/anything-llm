@@ -1245,3 +1245,75 @@ for (const [name, late] of [
     }
   );
 }
+
+// ---------------------------------------------------------------------------
+// Konversations-ID kopieren
+// ---------------------------------------------------------------------------
+
+/** Ersetzt navigator für die Dauer eines Tests. */
+function stubNavigator(t, navigator) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    value: navigator,
+    configurable: true,
+  });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "navigator", original);
+    else delete globalThis.navigator;
+  });
+}
+
+for (const [name, clipboard, expected] of [
+  [
+    "Der Browser kopiert: Erfolgsmeldung",
+    { writeText: async () => {} },
+    { type: "success", message: "Konversations-ID kopiert" },
+  ],
+  [
+    "Der Browser lehnt das Kopieren ab: Fehlermeldung statt Erfolgsmeldung",
+    {
+      writeText: async () => {
+        throw new DOMException("Write permission denied.", "NotAllowedError");
+      },
+    },
+    {
+      type: "error",
+      message: "Kopieren nicht möglich — bitte manuell markieren.",
+    },
+  ],
+  [
+    "Ohne Zwischenablage (kein HTTPS): Fehlermeldung statt Erfolgsmeldung",
+    undefined,
+    {
+      type: "error",
+      message: "Kopieren nicht möglich — bitte manuell markieren.",
+    },
+  ],
+]) {
+  test(`Konversations-ID kopieren – ${name}`, { skip }, async (t) => {
+    const written = [];
+    stubNavigator(t, {
+      clipboard: clipboard && {
+        writeText: (text) => {
+          written.push(text);
+          return clipboard.writeText(text);
+        },
+      },
+    });
+    const toasts = await watchToasts(t);
+    const server = await analyticsServer(t, { list: pagedList });
+    const { container, act } = await mountView(t, server);
+    const [copy] = elements(
+      container,
+      (element) => element.getAttribute("title") === "Konversations-ID kopieren"
+    );
+    assert.equal(copy.textContent, "ID:konversation-1");
+
+    await act(() => click(copy));
+
+    assert.deepEqual(toasts, [expected]);
+    assert.deepEqual(written, clipboard ? ["konversation-1"] : []);
+    // Die Karte klappt dabei nicht auf.
+    assert.equal(server.calls.length, 2);
+  });
+}

@@ -345,9 +345,16 @@ function ConversationCard({ conversation, embedId }) {
     setExpanded(!expanded);
   };
 
-  const handleCopyConversationId = (e) => {
+  const handleCopyConversationId = async (e) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(conversation.conversation_id);
+    // Erfolg erst melden, wenn die ID in der Zwischenablage ist – der Browser
+    // kann das Kopieren ablehnen, ohne HTTPS fehlt navigator.clipboard.
+    try {
+      await navigator.clipboard.writeText(conversation.conversation_id);
+    } catch {
+      showToast(t("code-snippet-modal.copy-failed"), "error");
+      return;
+    }
     showToast(t("embed-analytics.conversations.id-copied"), "success");
   };
 
