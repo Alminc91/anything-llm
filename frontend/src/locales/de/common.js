@@ -169,10 +169,6 @@ const TRANSLATIONS = {
       granted: "Gerätezugriff gewährt",
       denied: "Gerätezugriff verweigert",
     },
-    "embed-chats": {
-      "export-success": "Widget-Chats erfolgreich als {{name}} exportiert.",
-      "export-error": "Fehler beim Exportieren der Widget-Chats.",
-    },
     "text-splitter": {
       "save-success":
         "Einstellungen für die Text-Chunking-Strategie gespeichert.",
@@ -292,7 +288,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
     "chatbot-conversations": "Konversationen",
-    "chatbot-messages": "Nachrichtentabelle",
     "embed-chats": "Chat-Widget-Verlauf",
     security: "Sicherheit",
     "event-logs": "Ereignisprotokolle",
@@ -1213,6 +1208,46 @@ const TRANSLATIONS = {
       "deleted-hint":
         "Ältere Inhalte wurden gemäß Aufbewahrungsfrist gelöscht.",
     },
+    // KIE-538
+    export: {
+      button: "Exportieren",
+      "menu-label": "Exportformat",
+      csv: "CSV (für Excel)",
+      json: "JSON",
+      hint: "Exportiert die Konversationen der aktuellen Auswahl – Widget, Zeitraum und Filter.",
+      running: "Export läuft …",
+      success: "Export gespeichert: {{filename}}",
+      error: "Der Export ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+    },
+    delete: {
+      conversation: "Konversation löschen",
+      visitor: "Alle Konversationen dieses Besuchers löschen",
+      "first-question": "Erste Frage",
+      "confirm-title": "Konversation löschen?",
+      "confirm-count_one":
+        "Die Konversation mit {{formatted}} Nachricht wird endgültig gelöscht.",
+      "confirm-count_other":
+        "Die Konversation mit {{formatted}} Nachrichten wird endgültig gelöscht.",
+      "confirm-note":
+        "Das lässt sich nicht rückgängig machen. Kennzahlen, Diagramm und Kontingent bleiben unverändert.",
+      "visitor-title": "Alle Konversationen dieses Besuchers löschen?",
+      "visitor-count_one":
+        "Aus demselben Browser stammt in diesem Widget {{conversations}} Konversation mit {{messages}} Nachrichten. Sie wird endgültig gelöscht.",
+      "visitor-count_other":
+        "Aus demselben Browser stammen in diesem Widget {{conversations}} Konversationen mit zusammen {{messages}} Nachrichten. Alle werden endgültig gelöscht.",
+      "visitor-note":
+        "Dazu gehören auch Konversationen, die der Besucher im Widget selbst geleert hat und die in dieser Liste nicht mehr erscheinen. Konversationen aus anderen Browsern bleiben erhalten.",
+      confirm: "Endgültig löschen",
+      cancel: "Abbrechen",
+      deleting: "Wird gelöscht …",
+      success_one: "Konversation gelöscht ({{formatted}} Nachricht).",
+      success_other: "Konversation gelöscht ({{formatted}} Nachrichten).",
+      "visitor-success_one":
+        "{{conversations}} Konversation gelöscht ({{messages}} Nachrichten).",
+      "visitor-success_other":
+        "{{conversations}} Konversationen gelöscht ({{messages}} Nachrichten).",
+      error: "Die Konversation konnte nicht gelöscht werden.",
+    },
     conversations: {
       "seconds-ago": "vor wenigen Sekunden",
       "minutes-ago_one": "vor {{count}} Minute",
@@ -1357,38 +1392,7 @@ const TRANSLATIONS = {
     },
   },
   "chat-row": {
-    delete: "Löschen",
-    "confirm-delete":
-      "Möchten Sie diesen Chat wirklich löschen?\n\nDiese Aktion kann nicht rückgängig gemacht werden.",
-    "view-text": "Text anzeigen",
-    "session-id": "Sitzungs-ID:",
-    username: "Benutzername:",
-    "client-ip": "Client-IP-Adresse:",
-    "client-host": "Client-Host-URL:",
     "view-thoughts": "Gedanken anzeigen",
-  },
-  "embed-chats": {
-    title: "Eingebettete Chats",
-    export: "Exportieren",
-    "clear-all": "Alle Chats löschen",
-    "clear-all-confirm":
-      "Möchten Sie wirklich ALLE Widget-Chats löschen?\n\nDiese Aktion kann nicht rückgängig gemacht werden.",
-    "clear-all-success": "{{count}} Widget-Chats erfolgreich gelöscht.",
-    "clear-all-error": "Fehler beim Löschen der Widget-Chats.",
-    description:
-      "Dies sind alle aufgezeichneten Chat-Nachrichten von jeder Einbettung, die Sie veröffentlicht haben.",
-    "no-conversations": "Keine Konversationen gefunden.",
-    "no-chats": "Keine Chats gefunden.",
-    "retention-header": "ℹ️ DSGVO-Datenlöschung aktiv",
-    "cutoff-date":
-      "Aufbewahrung {{days}} Tage — heutige Chats verfallen am {{date}}",
-    table: {
-      embed: "Einbettung",
-      sender: "Absender",
-      message: "Nachricht",
-      response: "Antwort",
-      at: "Gesendet am",
-    },
   },
   event: {
     title: "Ereignisprotokolle",

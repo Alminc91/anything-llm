@@ -1129,6 +1129,8 @@ function pagedList({ body }) {
     hasMore: body.offset + count < total,
     conversations: Array.from({ length: count }, (_, i) => ({
       conversation_id: `konversation-${body.offset + i + 1}`,
+      // Schlüssel der Karte (KIE-538): die id der ersten Zeile
+      first_chat_id: 1000 + body.offset + i,
       conversation_number: body.offset + i + 1,
       preview: "Gibt es Sportkurse?",
       started_at: Date.UTC(2026, 9, 6, 10),

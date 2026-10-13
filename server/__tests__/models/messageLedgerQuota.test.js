@@ -186,7 +186,7 @@ describe("loeschjob_haelt_stand (AK-2)", () => {
 });
 
 describe("loeschpfade_halten_stand (AK-3)", () => {
-  test("loeschpfade_halten_stand: einzelner Chat, alle Chats eines Widgets, alle Widget-Chats, das Widget selbst und die Workspace-Chats - der Verbrauch bleibt 120", async () => {
+  test("loeschpfade_halten_stand: eine Konversation, alle Konversationen eines Besuchers, alle Chats eines Widgets, alle Widget-Chats, das Widget selbst und die Workspace-Chats - der Verbrauch bleibt 120", async () => {
     const {
       embedManagementEndpoints,
     } = require("../../endpoints/embedManagement");
@@ -278,13 +278,39 @@ describe("loeschpfade_halten_stand (AK-3)", () => {
       expect(await usage(workspace)).toBe(120);
     };
 
-    // 1. ein einzelner Widget-Chat
-    const single = await db.client.embed_chats.findFirst({
-      where: { embed_id: first.id },
+    // Die Konversation bezeichnet eine ihrer Zeilen (first_chat_id der Liste).
+    const chatOf = async (embed, sessionId) =>
+      (
+        await db.client.embed_chats.findFirst({
+          where: { embed_id: embed.id, session_id: sessionId },
+          orderBy: { id: "asc" },
+        })
+      ).id;
+
+    // 1. eine ganze Konversation (KIE-538; das Löschen einer einzelnen
+    // Nachricht ist entfallen): die 20 Bestandszeilen des ersten Widgets
+    // (Alt-Zeilen der Sitzung "sitzung")
+    await call(embedRoutes, "DELETE /embed/:embedId/conversation", {
+      params: { embedId: String(first.id) },
+      body: { chatId: await chatOf(first, "sitzung") },
     });
-    await call(embedRoutes, "DELETE /embed/chats/:chatId", {
-      params: { chatId: String(single.id) },
+    expect(
+      await db.client.embed_chats.count({
+        where: { embed_id: first.id, session_id: "sitzung" },
+      })
+    ).toBe(0);
+    await expectDeletedAndUnchanged();
+    // 1b. alle Konversationen eines Besuchers (KIE-538): die 15 beim Anlegen
+    // gezählten Zeilen der Sitzung "s" im zweiten Widget
+    await call(embedRoutes, "DELETE /embed/:embedId/conversation/visitor", {
+      params: { embedId: String(second.id) },
+      body: { chatId: await chatOf(second, "s") },
     });
+    expect(
+      await db.client.embed_chats.count({
+        where: { embed_id: second.id, session_id: "s" },
+      })
+    ).toBe(0);
     await expectDeletedAndUnchanged();
 
     // 2. alle Chats eines Widgets ("Chats löschen")
@@ -375,10 +401,36 @@ describe("loeschpfade_halten_stand (AK-3)", () => {
     await EmbedChats.markHistoryInvalid(embed.id, "s");
     await WorkspaceChats.markHistoryInvalid(workspace.id, null);
     expect(await usage(workspace)).toBe(8);
+    // KIE-538: eine Konversation bzw. alle Konversationen eines Besuchers
+    const { chat: own } = await EmbedChats.new({
+      embedId: embed.id,
+      prompt: "a",
+      sessionId: "t",
+      conversationId: "konversation",
+    });
+    const { chat: legacy } = await EmbedChats.new({
+      embedId: embed.id,
+      prompt: "a",
+      sessionId: "t",
+    });
+    expect(await usage(workspace)).toBe(10);
+    const earlier = await db.client.embed_chats.findFirst({
+      where: { embed_id: embed.id, session_id: "s" },
+    });
+    // bezeichnet über eine Zeile der Konversation (first_chat_id der Liste)
+    expect(await EmbedChats.deleteConversation(embed.id, own.id)).toBe(1);
+    expect(
+      await EmbedChats.deleteVisitorConversations(embed.id, legacy.id)
+    ).toEqual({ deletedCount: 1, conversationCount: 1 });
+    expect(
+      await EmbedChats.deleteVisitorConversations(embed.id, earlier.id)
+    ).toEqual({ deletedCount: 4, conversationCount: 1 });
+    expect(await db.client.embed_chats.count()).toBe(0);
+    expect(await usage(workspace)).toBe(10);
     await EmbedChats.delete({ embed_id: embed.id });
     await WorkspaceChats.delete({ workspaceId: workspace.id });
     await EmbedConfig.delete({ id: embed.id });
-    expect(await usage(workspace)).toBe(8);
+    expect(await usage(workspace)).toBe(10);
   });
 });
 

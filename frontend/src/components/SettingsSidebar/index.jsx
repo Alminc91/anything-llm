@@ -234,13 +234,6 @@ const SidebarOptions = ({ user = null, t }) => (
               flex: true,
               roles: ["admin", "manager", "default"],
             },
-            {
-              hidden: !canViewChatHistory,
-              btnText: t("settings.chatbot-messages"),
-              href: paths.settings.chatbot.messages(),
-              flex: true,
-              roles: ["admin", "manager", "default"],
-            },
           ]}
         />
         <Option

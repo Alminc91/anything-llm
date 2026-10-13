@@ -192,6 +192,10 @@ export function createDocument() {
   // Hat das Fenster den Fokus? (leaveWindow, returnToWindow)
   document.windowFocused = true;
   document.hasFocus = () => document.windowFocused;
+  // Portale (ModalWrapper) hängen sich an das Element mit der id "root".
+  document.getElementById = (id) =>
+    elements(document, (element) => element.getAttribute("id") === id)[0] ??
+    null;
   // Element unter dem Mauszeiger (movePointer)
   document.hoveredElement = null;
   return document;
