@@ -1847,6 +1847,82 @@ describe("gross (AK-11)", () => {
     );
   });
 
+  test("gross: an einer echten http.ServerResponse mit langsamem Empfänger - alle Zeilen kommen in Reihenfolge an, die Antwort endet regulär; nach einem Fehler mittendrin fehlt das Ende", async () => {
+    const http = require("http");
+    const { Duplex } = require("stream");
+
+    /**
+     * Eine Antwort von Node selbst, an einem Empfänger ohne Netz: Er nimmt
+     * je Schreibvorgang erst nach einer Millisekunde ab und puffert wenig -
+     * write() meldet deshalb „voll", und es muss gewartet werden.
+     */
+    function connection() {
+      const received = [];
+      const socket = new Duplex({
+        highWaterMark: 64,
+        read() {},
+        write(chunk, _encoding, callback) {
+          received.push(Buffer.from(chunk));
+          setTimeout(callback, 1);
+        },
+      });
+      socket.on("error", () => {});
+      const response = new http.ServerResponse({
+        method: "POST",
+        httpVersionMajor: 1,
+        httpVersionMinor: 1,
+      });
+      response.on("error", () => {});
+      response.assignSocket(socket);
+      // Wie der HTTP-Server (socketOnDrain): Fließt der Socket ab, erfährt es
+      // die Antwort.
+      socket.on("drain", () => response.emit("drain"));
+      return {
+        response,
+        raw: () => Buffer.concat(received).toString("utf8"),
+      };
+    }
+    const settled = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const rowsIn = (raw) => raw.match(/Zeile \d+;/g) ?? [];
+
+    // 1. vollständiger Export
+    async function* rows(n) {
+      for (let i = 0; i < n; i++) yield `Zeile ${i};"äöü"\r\n`;
+    }
+    const complete = connection();
+    let waited = 0;
+    complete.response.on("drain", () => (waited += 1));
+    complete.response.setHeader("Content-Type", "text/csv; charset=utf-8");
+    expect(await writeChunks(complete.response, rows(300))).toBe(true);
+    complete.response.end();
+    await settled();
+
+    expect(waited).toBeGreaterThan(10);
+    expect(complete.raw()).toMatch(/transfer-encoding: chunked/i);
+    expect(rowsIn(complete.raw())).toEqual(
+      Array.from({ length: 300 }, (_, i) => `Zeile ${i};`)
+    );
+    // reguläres Ende der Antwort: der abschließende leere Chunk
+    expect(complete.raw().endsWith("\r\n0\r\n\r\n")).toBe(true);
+
+    // 2. Fehler mitten im Export: Die Verbindung wird abgebrochen (wie im
+    // Endpunkt) - der Empfänger sieht kein reguläres Ende.
+    async function* failing() {
+      for (let i = 0; i < 50; i++) yield `Zeile ${i};\r\n`;
+      throw new Error("database is locked");
+    }
+    const broken = connection();
+    await expect(writeChunks(broken.response, failing())).rejects.toThrow(
+      "database is locked"
+    );
+    broken.response.destroy(new Error("database is locked"));
+    await settled();
+
+    expect(broken.response.destroyed).toBe(true);
+    expect(broken.raw().endsWith("0\r\n\r\n")).toBe(false);
+    expect(rowsIn(broken.raw()).length).toBeLessThanOrEqual(50);
+  });
+
   test("gross: writeChunks wartet, wenn der Empfänger nicht nachkommt, und hört auf, wenn er die Verbindung beendet", async () => {
     const { EventEmitter } = require("events");
     async function* numbers(n) {
