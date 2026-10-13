@@ -6,6 +6,7 @@ import Embed from "@/models/embed";
 import ConversationList from "./ConversationList";
 import StatisticsGrid from "./StatisticsGrid";
 import TimelineChart from "./TimelineChart";
+import WeekdayHourCard from "./WeekdayHourCard";
 import DateRangePicker from "@/components/DateRangePicker";
 import showToast from "@/utils/toast";
 import paths from "@/utils/paths";
@@ -21,7 +22,8 @@ import {
 
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
 // Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
-// Säulendiagramm, Konversationsliste.
+// Säulendiagramm, Karte „Wann schreiben Ihre Besucher?" (KIE-539),
+// Konversationsliste.
 //
 // Kennzahlen und Diagramm kommen aus einem Aufruf von analytics/summary
 // (Zählerbuch) und stimmen deshalb überein; sie bleiben vollständig, wenn
@@ -241,6 +243,14 @@ function WidgetAnalytics({ embeds }) {
           onCompareChange={setCompare}
         />
       </div>
+
+      {/* KIE-539: Nachrichten nach Wochentag und Uhrzeit – aus derselben
+          Antwort wie Kennzahlen und Diagramm */}
+      <WeekdayHourCard
+        summary={summaryData}
+        loading={summary.loading}
+        failed={summary.failed}
+      />
 
       <div ref={listRef} className="scroll-mt-4">
         <ConversationList
