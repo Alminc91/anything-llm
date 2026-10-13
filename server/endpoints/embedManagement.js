@@ -384,6 +384,7 @@ function embedManagementEndpoints(app) {
   // Zählwerte des Vorzeitraums desselben Widgets (totals, buckets, fromDay,
   // toDay) und available: Gibt es den Vergleich? Ohne compare bleibt die
   // Antwort, wie sie war.
+  // KIE-539: weekdayHour steht in jeder Antwort, mit und ohne compare.
   app.post(
     "/embed/:embedId/analytics/summary",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess, validEmbedConfigId],
@@ -414,6 +415,8 @@ function embedManagementEndpoints(app) {
           MessageLedger.firstDayForEmbed(embedId),
         ]);
         // KIE-537: Der Vorzeitraum beginnt vor firstLedgerDay → available false.
+        // Er wird nur mit compare gelesen, mit einer eigenen Abfrage, und hat
+        // kein Raster: weekdayHour gilt allein für den gewählten Zeitraum.
         const previous =
           compare === true
             ? await MessageLedger.previousTimelineForEmbed(

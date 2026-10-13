@@ -216,6 +216,48 @@ function conversations(embed, body, user = null) {
 const sum = (buckets, key) =>
   buckets.reduce((total, bucket) => total + bucket[key], 0);
 
+/** Text einer Anweisung, wie sie an $queryRaw ging (ohne die Werte). */
+const sqlOf = ([strings, ...values]) =>
+  strings.reduce(
+    (text, part, i) => text + (values[i - 1]?.strings?.join("?") ?? "?") + part
+  );
+
+/**
+ * Spione auf jeden Weg, auf dem die Route das Zählerbuch lesen kann. Je
+ * Anfrage liest sie: Kennzahlen, Zeitreihe und Raster des Zeitraums in einer
+ * Anweisung (statement: $queryRaw, KIE-539), den Beginn der Zählung
+ * (findFirst, KIE-536) und - nur mit compare - den Vorzeitraum in einer
+ * Abfrage (groupBy, KIE-537). other sind die Wege, die sie nie nimmt.
+ */
+function spyOnLedgerReads() {
+  const ledger = db.client.message_ledger;
+  return {
+    statement: jest.spyOn(db.client, "$queryRaw"),
+    groupBy: jest.spyOn(ledger, "groupBy"),
+    findFirst: jest.spyOn(ledger, "findFirst"),
+    other: [
+      jest.spyOn(db.client, "$queryRawUnsafe"),
+      ...["findMany", "findUnique", "count", "aggregate"].map((method) =>
+        jest.spyOn(ledger, method)
+      ),
+    ],
+  };
+}
+
+/** Spione auf jeden Lesezugriff über das Modell embed_chats. */
+function spyOnChatReads() {
+  return [
+    "findMany",
+    "findFirst",
+    "findFirstOrThrow",
+    "findUnique",
+    "findUniqueOrThrow",
+    "groupBy",
+    "count",
+    "aggregate",
+  ].map((method) => jest.spyOn(db.client.embed_chats, method));
+}
+
 // ============================================================================
 // AK-1 — Säulen zeigen Nachrichten pro Tag
 // ============================================================================
@@ -806,13 +848,6 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
     totals,
     buckets,
   });
-  /** Text einer Anweisung, wie sie an $queryRaw ging (ohne die Werte). */
-  const sqlOf = ([strings, ...values]) =>
-    strings.reduce(
-      (text, part, i) =>
-        text + (values[i - 1]?.strings?.join("?") ?? "?") + part
-    );
-
   /**
    * Legt die Nachrichten eines Bestands an: je Feld eine echte Widget-Nachricht
    * zur Berliner Wanduhrzeit (minute, sonst :30) über den Schreibpfad, den
@@ -1025,16 +1060,7 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
       expect(await db.client.embed_chats.count()).toBe(
         CORE_TIME_WEEK.cells.length
       );
-      const chatReads = [
-        "findMany",
-        "findFirst",
-        "findFirstOrThrow",
-        "findUnique",
-        "findUniqueOrThrow",
-        "groupBy",
-        "count",
-        "aggregate",
-      ].map((method) => jest.spyOn(db.client.embed_chats, method));
+      const chatReads = spyOnChatReads();
       const queryRaw = jest.spyOn(db.client, "$queryRaw");
       const queryRawUnsafe = jest.spyOn(db.client, "$queryRawUnsafe");
 
@@ -1733,8 +1759,11 @@ describe("beginn_der_zaehlung (AK-14)", () => {
 describe("Vorzeitraum (KIE-537)", () => {
   const { tableChecksum } = require("../helpers/sqliteTestDatabase");
   let previousSpy;
+  let summarySpy;
   beforeEach(() => {
     previousSpy = jest.spyOn(MessageLedger, "previousTimelineForEmbed");
+    // KIE-539: Den Zeitraum liest die Route mit summaryForEmbed.
+    summarySpy = jest.spyOn(MessageLedger, "summaryForEmbed");
   });
 
   /** Anfrage mit eingeschaltetem Vergleich, wie der Browser sie sendet. */
@@ -2291,7 +2320,7 @@ describe("Vorzeitraum (KIE-537)", () => {
         { day: "2019-03-01", messages: 3 },
         { day: "2026-10-06", messages: 5 },
       ]);
-      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+      const reads = spyOnLedgerReads();
 
       const result = await compared(embed, "2019-03-01", "2026-10-12");
 
@@ -2306,19 +2335,23 @@ describe("Vorzeitraum (KIE-537)", () => {
       expect(sum(result.body.previous.buckets, "messages")).toBe(0);
 
       // Keine unbegrenzte Abfrage: Der Vorzeitraum hat feste Grenzen, so
-      // viele Abschnitte wie der Zeitraum - und endet vor ihm.
-      expect(groupBy).toHaveBeenCalledTimes(2);
-      expect(groupBy.mock.calls[1][0].where).toEqual({
+      // viele Abschnitte wie der Zeitraum - und endet vor ihm. Zwei
+      // Lesezugriffe wie bisher: die Anweisung des Zeitraums (KIE-539) und
+      // die eine Abfrage des Vorzeitraums.
+      expect(reads.statement).toHaveBeenCalledTimes(1);
+      expect(reads.groupBy).toHaveBeenCalledTimes(1);
+      expect(reads.groupBy.mock.calls[0][0].where).toEqual({
         embed_id: embed.id,
         day: { gte: "2011-07-01", lte: "2019-02-28" },
       });
+      for (const read of reads.other) expect(read).not.toHaveBeenCalled();
     });
 
     test("vergleich_ohne_daten: Vor dem 01.01.0001 gibt es keinen Vorzeitraum - available false ohne Tage und ohne Abfrage", async () => {
       const workspace = await createWorkspace(db.client);
       const embed = await createEmbed(db.client, workspace);
       await countsOnly(embed, [{ day: "2026-10-06", messages: 5 }]);
-      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+      const reads = spyOnLedgerReads();
 
       const result = await compared(embed, "0001-01-05", "0001-02-01");
 
@@ -2331,7 +2364,12 @@ describe("Vorzeitraum (KIE-537)", () => {
         totals: null,
         buckets: [],
       });
-      expect(groupBy).toHaveBeenCalledTimes(1);
+      // Gelesen wird nur der Zeitraum (eine Anweisung, KIE-539); für den
+      // Vorzeitraum gibt es keine Abfrage.
+      expect(previousSpy).toHaveBeenCalledTimes(1);
+      expect(reads.statement).toHaveBeenCalledTimes(1);
+      expect(reads.groupBy).not.toHaveBeenCalled();
+      for (const read of reads.other) expect(read).not.toHaveBeenCalled();
     });
   });
 
@@ -2356,7 +2394,7 @@ describe("Vorzeitraum (KIE-537)", () => {
           { day: "2026-08-20", messages: 7 },
           { day: "2026-10-06", messages: 3 },
         ]);
-        const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+        const reads = spyOnLedgerReads();
 
         const result = await summary(embed, {
           ...summaryBody("2026-09-13", "2026-10-12"),
@@ -2364,6 +2402,7 @@ describe("Vorzeitraum (KIE-537)", () => {
         });
 
         expect(result.statusCode).toBe(200);
+        // Die Felder ohne Vergleich: die aus KIE-536 und das Raster (KIE-539).
         expect(Object.keys(result.body).sort()).toEqual([
           "buckets",
           "firstLedgerDay",
@@ -2372,10 +2411,16 @@ describe("Vorzeitraum (KIE-537)", () => {
           "success",
           "toDay",
           "totals",
+          "weekdayHour",
         ]);
         expect(result.body.totals.messages).toBe(3);
         expect(previousSpy).not.toHaveBeenCalled();
-        expect(groupBy).toHaveBeenCalledTimes(1);
+        // Ein Lesezugriff für Kennzahlen, Zeitreihe und Raster - die
+        // Anweisung des Zeitraums (KIE-539); die Abfrage des Vorzeitraums
+        // (groupBy) gibt es nicht.
+        expect(reads.statement).toHaveBeenCalledTimes(1);
+        expect(reads.groupBy).not.toHaveBeenCalled();
+        for (const read of reads.other) expect(read).not.toHaveBeenCalled();
       }
     );
 
@@ -2422,18 +2467,21 @@ describe("Vorzeitraum (KIE-537)", () => {
 
     test("fremdes_widget: default aus Workspace A erhält den Vergleich für ein Widget aus Workspace B nicht - 403 und keine Zahlen", async () => {
       const kunde = await createUser("default", [workspaceA.id]);
-      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
-      const findFirst = jest.spyOn(db.client.message_ledger, "findFirst");
+      const reads = spyOnLedgerReads();
 
       const result = await compared(embedB, FROM, TO, kunde);
 
       expect(result.statusCode).toBe(403);
       expect(result.body).toBeUndefined();
+      expect(summarySpy).not.toHaveBeenCalled();
       expect(timelineSpy).not.toHaveBeenCalled();
       expect(firstDaySpy).not.toHaveBeenCalled();
       expect(previousSpy).not.toHaveBeenCalled();
-      expect(groupBy).not.toHaveBeenCalled();
-      expect(findFirst).not.toHaveBeenCalled();
+      // Kein Lesezugriff - auch nicht die Anweisung des Zeitraums (KIE-539).
+      expect(reads.statement).not.toHaveBeenCalled();
+      expect(reads.groupBy).not.toHaveBeenCalled();
+      expect(reads.findFirst).not.toHaveBeenCalled();
+      for (const read of reads.other) expect(read).not.toHaveBeenCalled();
     });
 
     test("fremdes_widget: mit Vergleich ist ein unbekanntes Widget für default von einem fremden nicht zu unterscheiden (403), ohne Mitgliedschaft ebenso", async () => {
@@ -2564,6 +2612,8 @@ describe("Vorzeitraum (KIE-537)", () => {
     ]) {
       const result = await compared(embed, fromDay, toDay);
       expect(result.statusCode).toBe(200);
+      // Genau diese Felder: die des Zeitraums samt Raster (KIE-539) und
+      // previous. Der Vorzeitraum selbst hat kein Raster.
       expect(Object.keys(result.body).sort()).toEqual([
         "buckets",
         "firstLedgerDay",
@@ -2573,7 +2623,13 @@ describe("Vorzeitraum (KIE-537)", () => {
         "success",
         "toDay",
         "totals",
+        "weekdayHour",
       ]);
+      expect(result.body.weekdayHour.map((row) => row.length)).toEqual(
+        new Array(7).fill(24)
+      );
+      for (const value of result.body.weekdayHour.flat())
+        expect(Number.isInteger(value) && value >= 0).toBe(true);
       const { previous } = result.body;
       expect(Object.keys(previous).sort()).toEqual([
         "available",
@@ -2616,8 +2672,7 @@ describe("Vorzeitraum (KIE-537)", () => {
     const workspace = await createWorkspace(db.client);
     const embed = await createEmbed(db.client, workspace);
     await countsOnly(embed, [{ day: "2026-10-06", messages: 3 }]);
-    const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
-    const findFirst = jest.spyOn(db.client.message_ledger, "findFirst");
+    const reads = spyOnLedgerReads();
 
     for (const [fromDay, toDay] of [
       ["2026-10-07", "2026-10-06"],
@@ -2633,9 +2688,13 @@ describe("Vorzeitraum (KIE-537)", () => {
         error: expect.any(String),
       });
     }
+    expect(summarySpy).not.toHaveBeenCalled();
     expect(previousSpy).not.toHaveBeenCalled();
-    expect(groupBy).not.toHaveBeenCalled();
-    expect(findFirst).not.toHaveBeenCalled();
+    // Kein Lesezugriff - auch nicht die Anweisung des Zeitraums (KIE-539).
+    expect(reads.statement).not.toHaveBeenCalled();
+    expect(reads.groupBy).not.toHaveBeenCalled();
+    expect(reads.findFirst).not.toHaveBeenCalled();
+    for (const read of reads.other) expect(read).not.toHaveBeenCalled();
   });
 
   describe("Lesefunktion (MessageLedger.previousTimelineForEmbed)", () => {
@@ -2666,8 +2725,7 @@ describe("Vorzeitraum (KIE-537)", () => {
     test("eine Abfrage mit festen Grenzen: von der früheren der beiden Untergrenzen bis zum Tag vor dem Zeitraum", async () => {
       const workspace = await createWorkspace(db.client);
       const embed = await createEmbed(db.client, workspace);
-      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
-      const findFirst = jest.spyOn(db.client.message_ledger, "findFirst");
+      const { groupBy, findFirst, statement, other } = spyOnLedgerReads();
 
       for (const [fromDay, toDay, by, gte, lte] of [
         ["2026-10-12", "2026-10-12", "hour", "2026-10-11", "2026-10-11"],
@@ -2695,6 +2753,10 @@ describe("Vorzeitraum (KIE-537)", () => {
         });
         // firstLedgerDay wird übergeben, nicht noch einmal gelesen.
         expect(findFirst).not.toHaveBeenCalled();
+        // Der Vorzeitraum hat kein Raster: keine Anweisung wie für den
+        // Zeitraum (KIE-539), kein weiterer Lesezugriff.
+        expect(statement).not.toHaveBeenCalled();
+        for (const read of other) expect(read).not.toHaveBeenCalled();
       }
     });
 
@@ -2768,16 +2830,19 @@ describe("Vorzeitraum (KIE-537)", () => {
         { day: "2026-10-06", messages: 3 },
       ]);
       // Die Abfrage des Zeitraums gelingt, die des Vorzeitraums scheitert.
-      const groupBy = db.client.message_ledger.groupBy.bind(
-        db.client.message_ledger
-      );
+      // Den Zeitraum liest die Route mit einer Anweisung ($queryRaw,
+      // KIE-539), das groupBy gehört allein dem Vorzeitraum.
+      const statement = jest.spyOn(db.client, "$queryRaw");
       jest
         .spyOn(db.client.message_ledger, "groupBy")
-        .mockImplementationOnce((args) => groupBy(args))
         .mockRejectedValue(new Error("database is locked"));
 
       const result = await compared(embed, "2026-09-13", "2026-10-12");
 
+      expect(statement).toHaveBeenCalledTimes(1);
+      expect(summarySpy).toHaveBeenCalledTimes(1);
+      const period = await summarySpy.mock.results[0].value;
+      expect(period.totals.messages).toBe(3);
       expect(timelineSpy).toHaveBeenCalledTimes(1);
       expect(previousSpy).toHaveBeenCalledTimes(1);
       expect(result.statusCode).toBe(500);
@@ -2791,6 +2856,157 @@ describe("Vorzeitraum (KIE-537)", () => {
         )
       ).rejects.toThrow("database is locked");
     });
+  });
+});
+
+// ============================================================================
+// KIE-539 auf KIE-537 — Raster und Vorzeitraum in einer Antwort: was je
+// Anfrage gelesen wird, und dass das Raster nur den gewählten Zeitraum zeigt
+// ============================================================================
+describe("Raster und Vorzeitraum in einer Antwort (KIE-539, KIE-537)", () => {
+  let previousSpy;
+  let summarySpy;
+  beforeEach(() => {
+    previousSpy = jest.spyOn(MessageLedger, "previousTimelineForEmbed");
+    summarySpy = jest.spyOn(MessageLedger, "summaryForEmbed");
+  });
+
+  const compared = (embed, fromDay, toDay, user = null) =>
+    summary(embed, summaryBody(fromDay, toDay, { compare: true }), user);
+  const gridSum = (grid) =>
+    grid.flat().reduce((total, value) => total + value, 0);
+
+  test.each([
+    // Zeitraum, Körnung, Grenzen der Abfrage des Vorzeitraums, dazu was von
+    // 4 Nachrichten am ersten und 1 am letzten Tag dieser Grenzen zu den
+    // Kennzahlen und was zur Linie zählt
+    ["2026-10-12", "2026-10-12", "hour", "2026-10-11", "2026-10-11", 5, 5],
+    ["2026-09-13", "2026-10-12", "day", "2026-08-14", "2026-09-12", 5, 5],
+    // Wochen: Die Linie beginnt früher und endet früher als die Kennzahlen.
+    ["2025-10-15", "2026-10-12", "week", "2024-10-07", "2025-10-14", 1, 4],
+    // Monate: Die Kennzahlen beginnen einen Tag früher als die Linie.
+    ["2023-11-01", "2025-10-31", "month", "2021-10-31", "2023-10-31", 5, 1],
+    // der längste Zeitraum (92 Kalendermonate): Die Linie beginnt früher.
+    ["2019-03-01", "2026-10-12", "month", "2011-07-01", "2019-02-28", 1, 5],
+  ])(
+    "lesezugriffe: %s bis %s (%s) - ohne Vergleich eine Anweisung für Kennzahlen, Zeitreihe und Raster, mit Vergleich genau eine Abfrage mehr für den Vorzeitraum; nie embed_chats",
+    async (fromDay, toDay, granularity, gte, lte, inTotals, inLine) => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      // Inhalte und Zählwerte im Zeitraum und im Vorzeitraum - auch am Tag
+      // vor dessen Grenzen, der zu keinem der beiden zählt
+      await chatAt(embed, berlinInstant(toDay, 10));
+      await chatAt(embed, berlinInstant(lte, 15));
+      await countsOnly(embed, [
+        { day: gte, messages: 4 },
+        { day: addDays(gte, -1), messages: 100 },
+      ]);
+      expect(await db.client.embed_chats.count()).toBe(2);
+      const reads = spyOnLedgerReads();
+      const chatReads = spyOnChatReads();
+      const clear = () => {
+        for (const read of [reads.statement, reads.groupBy, reads.findFirst])
+          read.mockClear();
+      };
+      /** Die Anweisung des Zeitraums: nur das Zählerbuch, nur seine Tage. */
+      const expectStatementOfPeriod = () => {
+        expect(reads.statement).toHaveBeenCalledTimes(1);
+        const [call] = reads.statement.mock.calls;
+        expect(sqlOf(call)).toMatch(/\bFROM message_ledger\b/);
+        expect(sqlOf(call)).not.toMatch(/embed_chats|workspace_chats/);
+        expect(
+          call.slice(1).filter((value) => typeof value !== "object")
+        ).toEqual([embed.id, fromDay, toDay, embed.id, fromDay, toDay]);
+      };
+
+      // ohne Vergleich
+      const plain = await summary(embed, summaryBody(fromDay, toDay));
+      expect(plain.statusCode).toBe(200);
+      expect(plain.body.granularity).toBe(granularity);
+      expect(plain.body.totals.messages).toBe(1);
+      expect(gridSum(plain.body.weekdayHour)).toBe(1);
+      expectStatementOfPeriod();
+      expect(reads.groupBy).not.toHaveBeenCalled();
+      expect(reads.findFirst).toHaveBeenCalledTimes(1); // firstLedgerDay
+      expect(previousSpy).not.toHaveBeenCalled();
+
+      // mit Vergleich: dieselbe Anweisung, dazu die eine Abfrage des
+      // Vorzeitraums mit festen Grenzen - sie endet vor dem Zeitraum
+      clear();
+      const result = await compared(embed, fromDay, toDay);
+      expect(result.statusCode).toBe(200);
+      expect(result.body.previous.available).toBe(true);
+      expect(result.body.previous.totals.messages).toBe(inTotals);
+      expect(sum(result.body.previous.buckets, "messages")).toBe(inLine);
+      expectStatementOfPeriod();
+      expect(reads.groupBy).toHaveBeenCalledTimes(1);
+      expect(reads.groupBy.mock.calls[0][0].where).toEqual({
+        embed_id: embed.id,
+        day: { gte, lte },
+      });
+      expect(lte < fromDay).toBe(true);
+      expect(reads.findFirst).toHaveBeenCalledTimes(1);
+      expect(summarySpy).toHaveBeenCalledTimes(2);
+      expect(previousSpy).toHaveBeenCalledTimes(1);
+
+      for (const read of reads.other) expect(read).not.toHaveBeenCalled();
+      for (const read of chatReads) expect(read).not.toHaveBeenCalled();
+    }
+  );
+
+  test("raster_ohne_vorzeitraum: weekdayHour ist mit Vergleich das Raster des gewählten Zeitraums wie ohne - Nachrichten des Vorzeitraums stehen nur in previous, und previous hat kein Raster", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    // Zeitraum 13.09.-12.10.2026: Dienstag 10 Uhr. Vorzeitraum 14.08.-12.09.:
+    // Donnerstag 15 Uhr und Samstag 23 Uhr, der Tag vor dem Zeitraum.
+    // Die Zählung beginnt davor (Montag 9 Uhr) - es gibt den Vergleich.
+    await countsOnly(embed, [
+      { day: "2026-10-06", hour: 10, messages: 3 },
+      { day: "2026-08-20", hour: 15, messages: 40 },
+      { day: "2026-09-12", hour: 23, messages: 7 },
+      { day: "2026-08-03", hour: 9, messages: 100 },
+    ]);
+    const expected = Array.from({ length: 7 }, () => new Array(24).fill(0));
+    expected[1][10] = 3;
+
+    const plain = await summary(embed, summaryBody("2026-09-13", "2026-10-12"));
+    const result = await compared(embed, "2026-09-13", "2026-10-12");
+
+    expect(plain.body.weekdayHour).toEqual(expected);
+    expect(result.body.weekdayHour).toEqual(expected);
+    expect(gridSum(result.body.weekdayHour)).toBe(result.body.totals.messages);
+    // Gegenprobe: Der Vorzeitraum ist gelesen und gezählt.
+    expect(result.body.previous.available).toBe(true);
+    expect(result.body.previous.totals.messages).toBe(47);
+    expect(Object.keys(result.body.previous).sort()).toEqual([
+      "available",
+      "buckets",
+      "fromDay",
+      "toDay",
+      "totals",
+    ]);
+    expect(JSON.stringify(result.body.previous)).not.toMatch(/weekday/i);
+  });
+
+  test("ein Datenbankfehler im Zeitraum: 500 ohne Zahlen - der Vorzeitraum wird dann nicht mehr gelesen", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    await countsOnly(embed, [
+      { day: "2026-08-20", messages: 7 },
+      { day: "2026-10-06", messages: 3 },
+    ]);
+    jest
+      .spyOn(db.client, "$queryRaw")
+      .mockRejectedValue(new Error("database is locked"));
+    const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+
+    const result = await compared(embed, "2026-09-13", "2026-10-12");
+
+    expect(result.statusCode).toBe(500);
+    expect(result.body).toBeUndefined();
+    expect(summarySpy).toHaveBeenCalledTimes(1);
+    expect(previousSpy).not.toHaveBeenCalled();
+    expect(groupBy).not.toHaveBeenCalled();
   });
 });
 
@@ -3125,6 +3341,11 @@ describe("nur_zahlen (NAK-3)", () => {
         "totals",
         "weekdayHour",
       ]);
+      expect(result.body.weekdayHour.map((row) => row.length)).toEqual(
+        new Array(7).fill(24)
+      );
+      for (const value of result.body.weekdayHour.flat())
+        expect(Number.isInteger(value) && value >= 0).toBe(true);
       for (const bucket of result.body.buckets) {
         const { start, end, partial, messages, conversations, hour, ...rest } =
           bucket;
@@ -3495,8 +3716,10 @@ describe("eingaben (NAK-6)", () => {
 
   test("eingaben: genau 92 Kalendermonate und ein einzelner Tag sind gültig", async () => {
     // Gegenprobe zu den Spionen oben: Ein gültiger Aufruf liest das Zählerbuch
-    // (KIE-539: Zeitreihe und Raster in einer Anweisung, $queryRaw).
+    // (KIE-539: Zeitreihe und Raster in einer Anweisung, $queryRaw - das
+    // groupBy gehört seit KIE-537 allein dem Vorzeitraum).
     const queryRaw = jest.spyOn(db.client, "$queryRaw");
+    const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
     const findFirst = jest.spyOn(db.client.message_ledger, "findFirst");
 
     const longest = await summary(embed, {
@@ -3505,6 +3728,7 @@ describe("eingaben (NAK-6)", () => {
     });
     expect(longest.statusCode).toBe(200);
     expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(groupBy).not.toHaveBeenCalled();
     expect(findFirst).toHaveBeenCalledTimes(1);
     expect(timelineSpy).toHaveBeenCalledTimes(1);
     expect(longest.body.granularity).toBe("month");
