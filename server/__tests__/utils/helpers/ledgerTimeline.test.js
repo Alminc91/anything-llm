@@ -615,6 +615,41 @@ describe("previousLayout (KIE-537)", () => {
     expect(previous.inTotals({ day: "2022-11-01" })).toBe(false);
   });
 
+  test("Monate, der Zeitraum hat mehr Tage als die 24 Monate davor: Die Kennzahlen beginnen vor der Linie - gelesen wird ab ihrem ersten Tag", () => {
+    // 731 Tage im Zeitraum (29.02.2024), 730 in den 24 Monaten davor.
+    const current = timelineLayout("2023-11-01", "2025-10-31");
+    expect(current.granularity).toBe("month");
+    expect(current.buckets).toHaveLength(24);
+    expect(dayCount("2023-11-01", "2025-10-31")).toBe(731);
+    expect(dayCount("2021-11-01", "2023-10-31")).toBe(730);
+
+    const previous = previousLayout("2023-11-01", "2025-10-31");
+    expect(previous.granularity).toBe("month");
+    expect(previous.buckets).toHaveLength(24);
+    expect(previous.buckets[0]).toEqual({
+      start: "2021-11-01",
+      end: "2021-11-30",
+      partial: false,
+    });
+    expect(previous.buckets.at(-1)).toEqual({
+      start: "2023-10-01",
+      end: "2023-10-31",
+      partial: false,
+    });
+    expect(previous.fromDay).toBe("2021-10-31");
+    expect(previous.toDay).toBe("2023-10-31");
+    expect(dayCount(previous.fromDay, previous.toDay)).toBe(731);
+    // Der frühere der beiden Bereiche: hier die Kennzahlen, nicht die Linie.
+    expect(previous.readFromDay).toBe("2021-10-31");
+    // Der 31.10.2021: Kennzahlen ja, Linie nein.
+    expect(previous.inTotals({ day: "2021-10-31" })).toBe(true);
+    expect(previous.indexOf({ day: "2021-10-31" })).toBe(-1);
+    expect(previous.inTotals({ day: "2021-10-30" })).toBe(false);
+    expect(previous.indexOf({ day: "2021-10-30" })).toBe(-1);
+    expect(previous.inTotals({ day: "2021-11-01" })).toBe(true);
+    expect(previous.indexOf({ day: "2021-11-01" })).toBe(0);
+  });
+
   test("Monate, erste Säule angeschnitten: ganze Monate vor dem Monat der ersten Säule", () => {
     const current = timelineLayout("2023-10-09", "2026-10-12");
     expect(current.buckets).toHaveLength(37);
@@ -647,6 +682,8 @@ describe("previousLayout (KIE-537)", () => {
       ["2025-01-01", "2026-10-04"], // 92 Wochen
       ["2023-10-09", "2026-10-12"], // Monate
       ["2024-03-31", "2026-03-01"], // Monate, beide Ränder angeschnitten
+      ["2024-11-01", "2026-10-31"], // Monate, die Linie beginnt einen Tag früher
+      ["2023-11-01", "2025-10-31"], // Monate, die Kennzahlen beginnen einen Tag früher
     ]) {
       const current = timelineLayout(from, to);
       const previous = previousLayout(from, to);
@@ -671,6 +708,10 @@ describe("previousLayout (KIE-537)", () => {
       expect(previous.readFromDay).toBe(
         first < previous.fromDay ? first : previous.fromDay
       );
+      // Der Tag davor gehört zu keinem der beiden Bereiche.
+      const before = addDays(previous.readFromDay, -1);
+      expect(previous.indexOf({ day: before })).toBe(-1);
+      expect(previous.inTotals({ day: before })).toBe(false);
       // Kennzahlen: genau die Tage fromDay bis toDay.
       for (const day of daysOf(previous.readFromDay, addDays(from, 3)))
         expect([day, previous.inTotals({ day })]).toEqual([

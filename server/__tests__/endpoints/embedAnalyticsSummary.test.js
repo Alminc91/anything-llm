@@ -1123,6 +1123,15 @@ describe("Vorzeitraum (KIE-537)", () => {
         ["2022-11-02", "2024-10-31"],
       ],
       [
+        // 731 Tage (29.02.2024); die 24 Monate davor haben 730 - die
+        // Kennzahlen beginnen einen Tag vor der Linie
+        "month",
+        ["2023-11-01", "2025-10-31"],
+        24,
+        ["2021-11-01", "2023-10-31"],
+        ["2021-10-31", "2023-10-31"],
+      ],
+      [
         // beide Randsäulen angeschnitten, 1100 Tage
         "month",
         ["2023-10-09", "2026-10-12"],
@@ -1181,6 +1190,15 @@ describe("Vorzeitraum (KIE-537)", () => {
         const expected = totalsOf(cells, range[0], range[1]);
         expect(expected.messages).toBeGreaterThan(0);
         expect(previous.totals).toEqual(expected);
+        // Beginnen die Kennzahlen vor der Linie, zählen auch diese Tage - sie
+        // haben hier Zählwerte.
+        if (range[0] < line[0]) {
+          const ahead = totalsOf(cells, range[0], addDays(line[0], -1));
+          expect(ahead.messages).toBeGreaterThan(0);
+          expect(previous.totals).not.toEqual(
+            totalsOf(cells, line[0], range[1])
+          );
+        }
         // Decken sich die Bereiche nicht, ist die Summe der Linie eine andere.
         if (line[0] !== range[0] || line[1] !== range[1])
           expect(sum(previous.buckets, "messages")).not.toBe(
@@ -1192,6 +1210,57 @@ describe("Vorzeitraum (KIE-537)", () => {
           );
       }
     );
+
+    test("vorzeitraum_wochen_monate: Monate, der Zeitraum hat einen Tag mehr als die 24 Monate davor - der Tag vor der Linie zählt zu den Kennzahlen, nicht zur Linie", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      // 01.11.2023-31.10.2025: 731 Tage. Kennzahlen ab 31.10.2021, Linie ab
+      // 01.11.2021.
+      await countsOnly(embed, [
+        { day: "2021-10-30", messages: 9, conversationsStarted: 4 }, // davor
+        { day: "2021-10-31", messages: 5, conversationsStarted: 3 },
+        { day: "2021-11-02", messages: 2, conversationsStarted: 1 },
+        { day: "2023-10-31", messages: 4, conversationsStarted: 1 },
+        { day: "2023-11-01", messages: 7 }, // im Zeitraum
+      ]);
+
+      const result = await compared(embed, "2023-11-01", "2025-10-31");
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body.granularity).toBe("month");
+      expect(result.body.buckets).toHaveLength(24);
+      expect(result.body.totals.messages).toBe(7);
+      const { previous } = result.body;
+      expect(previous.fromDay).toBe("2021-10-31");
+      expect(previous.toDay).toBe("2023-10-31");
+      expect(previous.buckets).toHaveLength(24);
+      expect(previous.buckets[0]).toEqual({
+        start: "2021-11-01",
+        end: "2021-11-30",
+        partial: false,
+        messages: 2,
+        conversations: 1,
+      });
+      expect(previous.buckets.at(-1)).toEqual({
+        start: "2023-10-01",
+        end: "2023-10-31",
+        partial: false,
+        messages: 4,
+        conversations: 1,
+      });
+      // Kennzahlen mit dem 31.10.2021, Linie ohne ihn.
+      expect(previous.totals).toEqual({
+        messages: 11,
+        conversations: 5,
+        feedbackPositive: 0,
+        feedbackNegative: 0,
+      });
+      expect(sum(previous.buckets, "messages")).toBe(6);
+      expect(sum(previous.buckets, "conversations")).toBe(2);
+      // Die Zählung beginnt vor dem Vorzeitraum.
+      expect(result.body.firstLedgerDay).toBe("2021-10-30");
+      expect(previous.available).toBe(true);
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -1347,6 +1416,10 @@ describe("Vorzeitraum (KIE-537)", () => {
       // Monate: Die Kennzahlen beginnen am 02.11.2022, die Linie am 01.11.
       ["2024-11-01", "2026-10-31", "2022-11-01", true],
       ["2024-11-01", "2026-10-31", "2022-11-02", false],
+      // Monate, umgekehrt: Die Kennzahlen beginnen am 31.10.2021, die Linie
+      // am 01.11.2021.
+      ["2023-11-01", "2025-10-31", "2021-10-31", true],
+      ["2023-11-01", "2025-10-31", "2021-11-01", false],
       // Monate, erste Säule angeschnitten: Linie ab 01.09.2020, Kennzahlen
       // ab 04.10.2020.
       ["2023-10-09", "2026-10-12", "2020-09-01", true],
@@ -1755,8 +1828,10 @@ describe("Vorzeitraum (KIE-537)", () => {
         ["2026-09-13", "2026-10-12", "day", "2026-08-14", "2026-09-12"],
         // Wochen: Die Linie beginnt früher als die Kennzahlen.
         ["2025-10-15", "2026-10-12", "day", "2024-10-07", "2025-10-14"],
-        // Monate: Die Kennzahlen beginnen früher als die Linie.
+        // Monate: Die Linie beginnt einen Tag früher als die Kennzahlen.
         ["2024-11-01", "2026-10-31", "day", "2022-11-01", "2024-10-31"],
+        // Monate: Die Kennzahlen beginnen einen Tag früher als die Linie.
+        ["2023-11-01", "2025-10-31", "day", "2021-10-31", "2023-10-31"],
       ]) {
         groupBy.mockClear();
         findFirst.mockClear();
