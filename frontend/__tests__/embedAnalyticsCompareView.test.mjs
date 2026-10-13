@@ -133,6 +133,19 @@ const CURRENT = (i) => (i % 3 === 2 ? 0 : 5 + i);
 const PREVIOUS = (i) => (i === 11 ? 0 : i === 12 ? 70 : i === 13 ? 0 : 4 + i);
 const COMPARED = daySummary({ value: CURRENT, previous: PREVIOUS });
 const PLAIN = daySummary({ value: CURRENT });
+// Kein Tag mit Nachricht, der Vorzeitraum wie oben.
+const EMPTY_NOW = daySummary({ value: () => 0, previous: PREVIOUS });
+
+/** Die 24 Stunden eines Tages. */
+const hours = (day, value) =>
+  Array.from({ length: 24 }, (_, hour) => ({
+    start: day,
+    end: day,
+    partial: false,
+    hour,
+    messages: value(hour),
+    conversations: 0,
+  }));
 
 let renderer;
 before(async () => {
@@ -436,15 +449,6 @@ test(
   "Einzelner Tag (AK-7): Die Linie zeigt die 24 Stundenwerte des Vortags, die Legende nennt den Tag",
   { skip },
   async () => {
-    const hours = (day, value) =>
-      Array.from({ length: 24 }, (_, hour) => ({
-        start: day,
-        end: day,
-        partial: false,
-        hour,
-        messages: value(hour),
-        conversations: 0,
-      }));
     const html = await render(CHART, {
       loading: false,
       compare: true,
@@ -632,19 +636,182 @@ test(
   }
 );
 
+// ---------------------------------------------------------------------------
+// Zeitraum ohne Nachrichten, Vorzeitraum mit Werten (AK-7: „Heute“ vor der
+// ersten Nachricht)
+// ---------------------------------------------------------------------------
+
 test(
-  "Leerzustand mit Vergleich: Ohne Nachrichten im Zeitraum bleibt es beim Hinweis – keine Linie ohne Säulen",
+  "Zeitraum ohne Nachrichten, Vorzeitraum mit Werten: kein Leerzustand – Linie und Legende über Plätzen ohne Säulen, der Hinweis steht als Zeile darüber",
   { skip },
   async () => {
     const html = await render(CHART, {
       loading: false,
       compare: true,
-      summary: daySummary({ value: () => 0, previous: PREVIOUS }),
+      summary: EMPTY_NOW,
     });
+    const compared = await render(CHART, {
+      summary: COMPARED,
+      loading: false,
+      compare: true,
+    });
+
+    assert.doesNotMatch(html, /data-chart-frame/);
+    // Plätze wie sonst, nur ohne Säulen – keiner ist eine Schaltfläche.
+    assert.equal(columns(html), 30);
+    assert.equal(bars(html), 0);
+    assert.equal(count(html, /<g data-column="" role="img"/g), 30);
+    assert.equal(count(html, /<g data-column=""[^>]* tabindex="0"/g), 1);
+    // Die Linie ist dieselbe wie über den Säulen: Die Achse kommt aus den
+    // Werten des Vorzeitraums (Höchstwert 70 → bis 80).
+    assert.ok(lineOf(html), "keine Linie");
+    assert.equal(lineOf(html), lineOf(compared));
+    assert.deepEqual(axisValues(html), [0, 20, 40, 60, 80]);
+    assert.equal(legendOf(html), legendOf(compared));
+    // Die Säulenfarbe steht nur noch am Muster der Legende.
+    assert.equal(count(html, /theme-analytics-bar/g), 1);
+
+    // Der Hinweis des Leerzustands: eine Zeile über Legende und Diagramm
+    assert.equal(count(html, /Keine Nachrichten im gewählten Zeitraum/g), 1);
+    assert.match(
+      html,
+      /<p data-chart-note=""[^>]*>Keine Nachrichten im gewählten Zeitraum<\/p>/
+    );
+    const noteAt = html.indexOf("data-chart-note");
+    assert.ok(noteAt < html.indexOf("data-chart-legend"));
+    assert.ok(noteAt < html.indexOf("<svg width="));
+
+    // Jeder Platz nennt beide Werte, die Zusammenfassung beide Serien.
+    assert.match(
+      html,
+      /aria-label="So\., 13\.09\.2026 — 0 Nachrichten\. Vorzeitraum: 4"/
+    );
+    assert.match(
+      html,
+      /aria-label="Fr\., 25\.09\.2026 — 0 Nachrichten\. Vorzeitraum: 70"/
+    );
+    assert.match(
+      html,
+      /Summe 0, höchster Wert 0\. Vorzeitraum 14\.08\.2026–12\.09\.2026 als gepunktete Linie: Summe [\d.]+, höchster Wert 70\./
+    );
+  }
+);
+
+test(
+  "Einzelner Tag ohne Nachricht (AK-7): „Heute“ vor der ersten Nachricht – die Linie zeigt die 24 Stundenwerte des Vortags",
+  { skip },
+  async () => {
+    const totals = (messages) => ({
+      messages,
+      conversations: 0,
+      feedbackPositive: 0,
+      feedbackNegative: 0,
+    });
+    const html = await render(CHART, {
+      loading: false,
+      compare: true,
+      summary: {
+        granularity: "hour",
+        fromDay: "2026-10-13",
+        toDay: "2026-10-13",
+        firstLedgerDay: "2026-01-01",
+        totals: totals(0),
+        buckets: hours("2026-10-13", () => 0),
+        previous: {
+          available: true,
+          fromDay: "2026-10-12",
+          toDay: "2026-10-12",
+          totals: totals(143),
+          buckets: hours("2026-10-12", (hour) =>
+            hour >= 8 && hour <= 18 ? hour : 0
+          ),
+        },
+      },
+    });
+
+    assert.doesNotMatch(html, /data-chart-frame/);
+    assert.equal(columns(html), 24);
+    assert.equal(bars(html), 0);
+    const line = lineOf(html);
+    assert.ok(line, "keine Linie");
+    const ys = line
+      .match(/<path d="([^"]+)"/)[1]
+      .split(" ")
+      .map((command) => Number(command.slice(1).split(",")[1]));
+    assert.equal(ys.length, 24);
+    // 18 Uhr ist der Höchstwert (18 von 20 der Achse), nachts die Grundlinie.
+    const plotHeight = 240 - 12 - 26;
+    assert.deepEqual(axisValues(html), [0, 5, 10, 15, 20]);
+    assert.equal(ys[18], Math.round(plotHeight * (1 - 18 / 20) * 100) / 100);
+    assert.equal(ys[3], plotHeight);
+    assert.equal(count(line, /<circle/g), 24);
+    assert.equal(
+      textOf(legendOf(html)),
+      "Gewählter Zeitraum Vorzeitraum 12.10.2026"
+    );
+    assert.match(
+      html,
+      /<p data-chart-note=""[^>]*>Keine Nachrichten im gewählten Zeitraum<\/p>/
+    );
+    assert.match(
+      html,
+      /aria-label="Di\., 13\.10\.2026, 9–10 Uhr — 0 Nachrichten\. Vorzeitraum: 9"/
+    );
+  }
+);
+
+test(
+  "Leerzustand mit Vergleich: Ist auch der Vorzeitraum ohne Nachrichten, bleibt es beim Hinweis im Rahmen – keine Linie, keine Legende, keine Plätze",
+  { skip },
+  async () => {
+    const empty = daySummary({ value: () => 0 });
+    const plain = await render(CHART, { summary: empty, loading: false });
+    assert.match(plain, /data-chart-frame="empty"/);
+    const withoutSwitch = (source) =>
+      source.replace(/<button[^>]*data-compare-switch.*?<\/button>/, "");
+
+    for (const props of [
+      // Vorzeitraum ebenfalls leer
+      {
+        compare: true,
+        summary: daySummary({ value: () => 0, previous: () => 0 }),
+      },
+      // Vorzeitraum mit Werten, der Schalter ist aus
+      { compare: false, summary: EMPTY_NOW },
+      { summary: EMPTY_NOW },
+    ]) {
+      const html = await render(CHART, { loading: false, ...props });
+      assert.match(html, /Keine Nachrichten im gewählten Zeitraum/);
+      assert.equal(lineOf(html), null);
+      assert.equal(legendOf(html), null);
+      assert.equal(columns(html), 0);
+      assert.doesNotMatch(html, /data-chart-note|<svg[^>]* role="group"/);
+      // Dieselbe Darstellung wie in KIE-536
+      assert.equal(withoutSwitch(html), withoutSwitch(plain));
+    }
+  }
+);
+
+test(
+  "Leerzustand ohne verfügbaren Vergleich (AK-6): Zeitraum ohne Nachrichten, der Vorzeitraum beginnt vor dem ersten Zählwert – Hinweis im Rahmen und die Angabe, keine Linie",
+  { skip },
+  async () => {
+    const html = await render(CHART, {
+      loading: false,
+      compare: true,
+      summary: {
+        ...EMPTY_NOW,
+        firstLedgerDay: "2026-09-01",
+        previous: { ...EMPTY_NOW.previous, available: false },
+      },
+    });
+    assert.match(html, /data-chart-frame="empty"/);
     assert.match(html, /Keine Nachrichten im gewählten Zeitraum/);
+    assert.match(html, /<p data-compare-note=""/);
     assert.equal(lineOf(html), null);
     assert.equal(legendOf(html), null);
     assert.equal(columns(html), 0);
+    assert.doesNotMatch(html, /data-chart-note|Vorzeitraum: \d/);
   }
 );
 
@@ -841,13 +1008,18 @@ async function tailwindRules(classes) {
 }
 
 test(
-  "Klassen: Für jede Klasse von Schalter, Legende, Angabe und Zeile der Veränderung erzeugt Tailwind CSS – in beiden Zuständen des Schalters",
+  "Klassen: Für jede Klasse von Schalter, Legende, Angabe, Hinweis und Zeile der Veränderung erzeugt Tailwind CSS – in beiden Zuständen des Schalters",
   { skip },
   async () => {
     const used = new Set();
     for (const html of [
       await render(CHART, { summary: PLAIN, loading: false }),
       await render(CHART, { summary: COMPARED, loading: false, compare: true }),
+      await render(CHART, {
+        summary: EMPTY_NOW,
+        loading: false,
+        compare: true,
+      }),
       await render(CHART, {
         summary: UNAVAILABLE,
         loading: false,

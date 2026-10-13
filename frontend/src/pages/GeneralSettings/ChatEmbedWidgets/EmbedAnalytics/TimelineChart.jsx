@@ -41,7 +41,10 @@ import {
 // gepunktete Linie mit Punktmarken unterscheiden sich auch ohne Farbe.
 // Tooltip und Tabelle nennen den zweiten Wert. Gibt es keinen Vergleich
 // (der Vorzeitraum beginnt vor dem ersten Zählwert), steht das am Diagramm,
-// und es bleibt bei den Säulen.
+// und es bleibt bei den Säulen. Hat der gewählte Zeitraum nichts zu zeigen
+// („Heute" vor der ersten Nachricht), der Vorzeitraum aber schon, bleibt es
+// nicht beim Leerzustand: Die Linie liegt über Plätzen ohne Säulen, der
+// Hinweis des Leerzustands steht als Zeile darüber.
 
 const METRICS = ["messages", "conversations"];
 const DEFAULT_WIDTH = 960;
@@ -85,8 +88,26 @@ export default function TimelineChart({
   // Zählwerte vorliegen (ohne jeden Zählwert sagt es schon der Leerzustand).
   const noComparisonSince =
     comparison && !comparison.available ? comparison.since : null;
-  // Die Linie gibt es nur über den Säulen – mit ihr die Legende.
-  const showsLine = !!previous && state === "data" && !showTable;
+  // Leerzustand des gewählten Zeitraums (keine Nachrichten bzw. keine
+  // Konversation) – der Vorzeitraum kann trotzdem Werte haben. Dann gibt es
+  // etwas zu zeigen: im Diagramm die Linie über Plätzen ohne Säulen (für die
+  // gewählte Größe), in der Tabelle die Spalten des Vorzeitraums (beide
+  // Größen). Ohne Wert im Vorzeitraum bleibt es beim Leerzustand.
+  const emptyNote =
+    state === "empty-range"
+      ? "range"
+      : state === "empty-metric"
+        ? "conversations"
+        : null;
+  const previousHas = (key) =>
+    !!previous && previous.buckets.some((bucket) => (bucket[key] ?? 0) > 0);
+  const lineOnly = !!emptyNote && previousHas(metric);
+  const emptyRange =
+    state === "empty-range" &&
+    !(showTable ? METRICS.some(previousHas) : lineOnly);
+  // Die Linie gibt es nur im Diagramm, nicht in der Tabelle – mit ihr die
+  // Legende.
+  const showsLine = !!previous && (state === "data" || lineOnly) && !showTable;
 
   const toggleBase =
     "px-3 py-1.5 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[color:var(--theme-text-primary)]";
@@ -160,7 +181,16 @@ export default function TimelineChart({
       >
         {/* KIE-537 – über dem Diagramm, an derselben Stelle: die Legende
             oder die Angabe, warum es keinen Vergleich gibt. Die Kopfzeile
-            mit dem Schalter bleibt dabei, wo sie ist. */}
+            mit dem Schalter bleibt dabei, wo sie ist. Liegt die Linie über
+            Plätzen ohne Säulen, steht davor, warum es keine gibt. */}
+        {showsLine && lineOnly && (
+          <p
+            data-chart-note=""
+            className="mb-3 text-sm text-theme-text-primary"
+          >
+            {t(`embed-analytics.chart.empty.${emptyNote}`)}
+          </p>
+        )}
         {showsLine && <Legend previous={previous} t={t} />}
         {noComparisonSince && (
           <p data-compare-note="" className={`mb-3 text-xs ${MUTED}`}>
@@ -189,7 +219,7 @@ export default function TimelineChart({
               {t("embed-analytics.chart.empty.widget-link")}
             </Link>
           </Frame>
-        ) : state === "empty-range" ? (
+        ) : emptyRange ? (
           <Frame>
             <p className="text-sm text-theme-text-primary">
               {t("embed-analytics.chart.empty.range")}
@@ -202,7 +232,7 @@ export default function TimelineChart({
             context={context}
             previous={previous}
           />
-        ) : state === "empty-metric" ? (
+        ) : state === "empty-metric" && !lineOnly ? (
           <Frame>
             <p className="text-sm text-theme-text-primary">
               {t("embed-analytics.chart.empty.conversations")}

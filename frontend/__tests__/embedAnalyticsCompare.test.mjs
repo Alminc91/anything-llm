@@ -74,6 +74,12 @@ const legendOf = (container) =>
   withAttribute(container, "data-chart-legend")[0] ?? null;
 const noteOf = (container) =>
   withAttribute(container, "data-compare-note")[0] ?? null;
+/** Hinweis über dem Diagramm, warum es keine Säulen gibt; null ohne. */
+const chartNoteOf = (container) =>
+  withAttribute(container, "data-chart-note")[0]?.textContent ?? null;
+/** Text des Leerzustands im Rahmen des Diagramms; null ohne Rahmen. */
+const frameOf = (container) =>
+  withAttribute(container, "data-chart-frame")[0]?.textContent ?? null;
 /** Zeilen der Veränderung in den Kennzahl-Feldern (sichtbarer Text). */
 const changesOf = (container) =>
   withAttribute(container, "data-kpi-change").map(
@@ -155,9 +161,11 @@ async function urlOf(route, embedId = EMBED.id) {
  * der Server: je Tag des angefragten Zeitraums ein Abschnitt – und nur auf
  * compare: true zusätzlich previous, mit gleich vielen Tagen unmittelbar
  * davor. Der Vergleich ist verfügbar, solange der Vorzeitraum nicht vor
- * firstLedgerDay beginnt. Die Konversationsliste ist leer.
+ * firstLedgerDay beginnt. Die Konversationsliste ist leer. summaryOf kann
+ * die Antwort von analytics/summary für einzelne Anfragen ersetzen (Rumpf der
+ * Anfrage → Antwort, null = wie oben).
  */
-async function analyticsServer(t, { firstLedgerDay } = {}) {
+async function analyticsServer(t, { firstLedgerDay, summaryOf } = {}) {
   const first = firstLedgerDay ?? addDays(toDayString(new Date()), -400);
   const original = globalThis.fetch;
   const calls = [];
@@ -189,6 +197,8 @@ async function analyticsServer(t, { firstLedgerDay } = {}) {
         totalCount: 0,
       };
     if (!isSummary(url)) return { success: false, error: "unbekannt" };
+    const own = summaryOf?.(body);
+    if (own) return own;
     let count = 0;
     for (let day = body.fromDay; day <= body.toDay; day = addDays(day, 1))
       count++;
@@ -736,6 +746,392 @@ test(
       assert.equal(!!noteOf(container), props.compare);
       await unmount();
     }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Zeitraum ohne Werte, Vorzeitraum mit Werten (AK-5, AK-7)
+// ---------------------------------------------------------------------------
+
+/** Kopfzeile, Zeilen und Summe der Tabelle; null ohne Tabelle. */
+function tableOf(container) {
+  const [table] = elements(container, (element) => element.tagName === "TABLE");
+  if (!table) return null;
+  const rowsOf = (section) =>
+    elements(table, (element) => element.tagName === section).flatMap((part) =>
+      elements(part, (element) => element.tagName === "TR").map((row) =>
+        elements(row, (cell) => ["TH", "TD"].includes(cell.tagName)).map(
+          (cell) => cell.textContent
+        )
+      )
+    );
+  return {
+    head: rowsOf("THEAD")[0],
+    body: rowsOf("TBODY"),
+    foot: rowsOf("TFOOT")[0],
+  };
+}
+
+// Wie THIRTY_DAYS, im gewählten Zeitraum aber keine Nachricht.
+const NO_MESSAGES = {
+  ...THIRTY_DAYS,
+  totals: {
+    messages: 0,
+    conversations: 0,
+    feedbackPositive: 0,
+    feedbackNegative: 0,
+  },
+  buckets: dayBuckets(
+    FROM,
+    () => 0,
+    () => 0
+  ),
+};
+
+test(
+  "Zeitraum ohne Nachrichten: Mit Vergleich zeigt „Als Tabelle“ die Werte des Vorzeitraums, das Diagramm die Linie über Plätzen ohne Säulen – ohne Vergleich bleibt es in beiden beim Leerzustand",
+  { skip },
+  async (t) => {
+    const { container, document, act } = await mount(t, CHART, {
+      summary: NO_MESSAGES,
+      loading: false,
+      compare: true,
+    });
+    assert.equal(frameOf(container), null);
+    assert.equal(columnsOf(container).length, 30);
+    assert.deepEqual(barsOf(container), []);
+    assert.ok(lineOf(container), "keine Linie");
+    assert.ok(legendOf(container), "keine Legende");
+    assert.equal(
+      chartNoteOf(container),
+      "Keine Nachrichten im gewählten Zeitraum"
+    );
+    // Der Tooltip nennt beide Werte; ein Platz ohne Säule filtert nicht.
+    await act(() => movePointer(document, columnsOf(container)[OCT_06]));
+    assert.equal(
+      tooltipOf(container).textContent,
+      "Di., 06.10.2026 — 0 NachrichtenVorzeitraum: 1.008"
+    );
+    assert.equal(columnsOf(container)[OCT_06].getAttribute("role"), "img");
+    await act(() => movePointer(document, null));
+
+    await act(() => click(buttonOf(container, "Als Tabelle")));
+    assert.equal(frameOf(container), null);
+    const table = tableOf(container);
+    assert.ok(table, "keine Tabelle");
+    assert.deepEqual(table.head, [
+      "Zeitabschnitt",
+      "Nachrichten",
+      "Nachrichten (Vorzeitraum)",
+      "Konversationen",
+      "Konversationen (Vorzeitraum)",
+    ]);
+    assert.equal(table.body.length, 30);
+    assert.deepEqual(table.body[0], ["So., 13.09.2026", "0", "8", "0", "0"]);
+    assert.deepEqual(table.body[OCT_06], [
+      "Di., 06.10.2026",
+      "0",
+      "1.008",
+      "0",
+      "2",
+    ]);
+    assert.deepEqual(table.foot, [
+      "Summe",
+      "0",
+      "1.652",
+      "0",
+      String(sum(THIRTY_DAYS.previous.buckets, "conversations")),
+    ]);
+    // Linie, Legende und Hinweis gehören zum Diagramm.
+    assert.equal(lineOf(container), null);
+    assert.equal(legendOf(container), null);
+    assert.equal(chartNoteOf(container), null);
+    await act(() => click(buttonOf(container, "Als Tabelle")));
+    assert.ok(lineOf(container));
+
+    // Die Linie zeigt die gewählte Größe, die Tabelle beide: Ohne Konversation
+    // im Vorzeitraum bleibt „Konversationen“ beim Leerzustand, die Tabelle
+    // nennt weiter die Nachrichten des Vorzeitraums.
+    const messagesOnly = await mount(t, CHART, {
+      loading: false,
+      compare: true,
+      summary: {
+        ...NO_MESSAGES,
+        previous: {
+          ...NO_MESSAGES.previous,
+          buckets: NO_MESSAGES.previous.buckets.map((bucket) => ({
+            ...bucket,
+            conversations: 0,
+          })),
+        },
+      },
+    });
+    await messagesOnly.act(() =>
+      click(buttonOf(messagesOnly.container, "Konversationen"))
+    );
+    assert.equal(
+      frameOf(messagesOnly.container),
+      "Keine Nachrichten im gewählten Zeitraum"
+    );
+    assert.equal(lineOf(messagesOnly.container), null);
+    assert.equal(legendOf(messagesOnly.container), null);
+    await messagesOnly.act(() =>
+      click(buttonOf(messagesOnly.container, "Als Tabelle"))
+    );
+    assert.deepEqual(tableOf(messagesOnly.container).body[OCT_06], [
+      "Di., 06.10.2026",
+      "0",
+      "1.008",
+      "0",
+      "0",
+    ]);
+    await messagesOnly.unmount();
+
+    // Ohne Vergleich, ohne verfügbaren Vergleich und mit einem Vorzeitraum
+    // ohne Werte: der Leerzustand von KIE-536 – auch als Tabelle.
+    for (const props of [
+      { summary: NO_MESSAGES, compare: false },
+      {
+        summary: {
+          ...NO_MESSAGES,
+          firstLedgerDay: "2026-09-01",
+          previous: { ...NO_MESSAGES.previous, available: false },
+        },
+        compare: true,
+      },
+      {
+        summary: {
+          ...NO_MESSAGES,
+          previous: {
+            ...NO_MESSAGES.previous,
+            buckets: NO_MESSAGES.buckets.map((bucket, i) => ({
+              ...bucket,
+              start: addDays("2026-08-14", i),
+              end: addDays("2026-08-14", i),
+            })),
+          },
+        },
+        compare: true,
+      },
+    ]) {
+      const other = await mount(t, CHART, { ...props, loading: false });
+      for (const asTable of [false, true]) {
+        if (asTable)
+          await other.act(() =>
+            click(buttonOf(other.container, "Als Tabelle"))
+          );
+        assert.equal(
+          frameOf(other.container),
+          "Keine Nachrichten im gewählten Zeitraum"
+        );
+        assert.equal(tableOf(other.container), null);
+        assert.equal(columnsOf(other.container).length, 0);
+        assert.equal(lineOf(other.container), null);
+        assert.equal(legendOf(other.container), null);
+        assert.equal(chartNoteOf(other.container), null);
+      }
+      await other.unmount();
+    }
+  }
+);
+
+test(
+  "Größe „Konversationen“ ohne begonnene Konversation: Mit Werten im Vorzeitraum liegt die Linie über Plätzen ohne Säulen, der Hinweis steht darüber – ohne Werte bleibt es beim Leerzustand",
+  { skip },
+  async (t) => {
+    // Nachrichten wie in THIRTY_DAYS, aber keine begonnene Konversation
+    const noConversations = {
+      ...THIRTY_DAYS,
+      totals: { ...THIRTY_DAYS.totals, conversations: 0 },
+      buckets: dayBuckets(
+        FROM,
+        (i) => 14 + i,
+        () => 0
+      ),
+    };
+    const { container, document, act } = await mount(t, CHART, {
+      summary: noConversations,
+      loading: false,
+      compare: true,
+    });
+    // „Nachrichten“: Säulen und Linie wie sonst, kein Hinweis
+    assert.equal(barsOf(container).length, 30);
+    assert.ok(lineOf(container));
+    assert.equal(chartNoteOf(container), null);
+    const pathOf = () =>
+      elements(
+        lineOf(container),
+        (element) => element.tagName === "path"
+      )[0].getAttribute("d");
+    const messages = pathOf();
+
+    await act(() => click(buttonOf(container, "Konversationen")));
+    assert.equal(frameOf(container), null);
+    assert.equal(columnsOf(container).length, 30);
+    assert.deepEqual(barsOf(container), []);
+    assert.ok(lineOf(container), "keine Linie");
+    assert.notEqual(pathOf(), messages);
+    assert.ok(legendOf(container), "keine Legende");
+    assert.equal(
+      chartNoteOf(container),
+      "Im gewählten Zeitraum wurde keine Konversation begonnen"
+    );
+    await act(() => movePointer(document, columnsOf(container)[OCT_06]));
+    assert.equal(
+      tooltipOf(container).textContent,
+      "Di., 06.10.2026 — 0 KonversationenVorzeitraum: 2"
+    );
+    await act(() => movePointer(document, null));
+    // Die Tabelle gab es hier schon in KIE-536 – jetzt mit dem Vorzeitraum.
+    await act(() => click(buttonOf(container, "Als Tabelle")));
+    assert.deepEqual(tableOf(container).body[OCT_06], [
+      "Di., 06.10.2026",
+      "37",
+      "1.008",
+      "0",
+      "2",
+    ]);
+    assert.equal(chartNoteOf(container), null);
+
+    // Auch im Vorzeitraum keine Konversation, und ohne Vergleich: der
+    // Leerzustand von KIE-536 – die Nachrichten des Vorzeitraums zählen für
+    // diese Größe nicht.
+    for (const props of [
+      {
+        summary: {
+          ...noConversations,
+          previous: {
+            ...noConversations.previous,
+            buckets: noConversations.previous.buckets.map((bucket) => ({
+              ...bucket,
+              conversations: 0,
+            })),
+          },
+        },
+        compare: true,
+      },
+      { summary: noConversations, compare: false },
+    ]) {
+      const other = await mount(t, CHART, { ...props, loading: false });
+      await other.act(() => click(buttonOf(other.container, "Konversationen")));
+      assert.equal(
+        frameOf(other.container),
+        "Im gewählten Zeitraum wurde keine Konversation begonnen"
+      );
+      assert.equal(columnsOf(other.container).length, 0);
+      assert.equal(lineOf(other.container), null);
+      assert.equal(legendOf(other.container), null);
+      assert.equal(chartNoteOf(other.container), null);
+      // „Nachrichten“ zeigt weiter die Säulen.
+      await other.act(() => click(buttonOf(other.container, "Nachrichten")));
+      assert.equal(barsOf(other.container).length, 30);
+      assert.equal(!!lineOf(other.container), props.compare);
+      await other.unmount();
+    }
+  }
+);
+
+test(
+  "„Heute“ vor der ersten Nachricht (AK-7): Die Ansicht zeigt die 24 Stundenwerte von gestern als Linie, die Kennzahlen den Rückgang – ausgeschaltet wieder den Leerzustand",
+  { skip },
+  async (t) => {
+    const today = toDayString(new Date());
+    const yesterday = addDays(today, -1);
+    const hoursOf = (day, value) =>
+      Array.from({ length: 24 }, (_, hour) => ({
+        start: day,
+        end: day,
+        partial: false,
+        hour,
+        messages: value(hour),
+        conversations: value(hour) > 0 ? 1 : 0,
+      }));
+    const totalsOf = (buckets) => ({
+      messages: sum(buckets, "messages"),
+      conversations: sum(buckets, "conversations"),
+      feedbackPositive: 0,
+      feedbackNegative: 0,
+    });
+    // Heute noch keine Nachricht, gestern 8–18 Uhr je so viele wie die Stunde
+    const server = await analyticsServer(t, {
+      summaryOf: (body) => {
+        if (body.fromDay !== body.toDay) return null;
+        const buckets = hoursOf(body.fromDay, () => 0);
+        const before = hoursOf(addDays(body.fromDay, -1), (hour) =>
+          hour >= 8 && hour <= 18 ? hour : 0
+        );
+        return {
+          success: true,
+          granularity: "hour",
+          fromDay: body.fromDay,
+          toDay: body.toDay,
+          firstLedgerDay: addDays(today, -400),
+          totals: totalsOf(buckets),
+          buckets,
+          ...(body.compare === true
+            ? {
+                previous: {
+                  available: true,
+                  fromDay: addDays(body.fromDay, -1),
+                  toDay: addDays(body.fromDay, -1),
+                  totals: totalsOf(before),
+                  buckets: before,
+                },
+              }
+            : {}),
+        };
+      },
+    });
+    const view = await mountView(t);
+    const { container, act } = view;
+    await act(() => click(switchOf(container)));
+    await choosePreset(view, "Heute");
+
+    assert.deepEqual(
+      server.summaries().at(-1).body,
+      summaryBody(today, today, { compare: true })
+    );
+    assert.equal(frameOf(container), null);
+    assert.equal(columnsOf(container).length, 24);
+    assert.deepEqual(barsOf(container), []);
+    const [path] = elements(
+      lineOf(container),
+      (element) => element.tagName === "path"
+    );
+    assert.equal(path.getAttribute("d").split(" ").length, 24);
+    assert.equal(
+      legendOf(container).textContent,
+      `Gewählter ZeitraumVorzeitraum${formatDate(yesterday)}`
+    );
+    assert.equal(
+      chartNoteOf(container),
+      "Keine Nachrichten im gewählten Zeitraum"
+    );
+    assert.match(
+      columnsOf(container)[9].getAttribute("aria-label"),
+      / — 0 Nachrichten\. Vorzeitraum: 9$/
+    );
+    assert.deepEqual(changesOf(container).slice(0, 2), [
+      "−100 % ggü. Vorzeitraum (143)",
+      "−100 % ggü. Vorzeitraum (11)",
+    ]);
+
+    await act(() => click(buttonOf(container, "Als Tabelle")));
+    const table = tableOf(container);
+    assert.equal(table.body.length, 24);
+    assert.deepEqual(table.body[9].slice(1), ["0", "9", "0", "1"]);
+    assert.deepEqual(table.foot, ["Summe", "0", "143", "0", "11"]);
+    await act(() => click(buttonOf(container, "Als Tabelle")));
+
+    // aus: der Leerzustand von KIE-536
+    await act(() => click(switchOf(container)));
+    assert.deepEqual(server.summaries().at(-1).body, summaryBody(today, today));
+    assert.equal(frameOf(container), "Keine Nachrichten im gewählten Zeitraum");
+    assert.equal(columnsOf(container).length, 0);
+    assert.equal(lineOf(container), null);
+    assert.equal(legendOf(container), null);
+    assert.equal(chartNoteOf(container), null);
+    assert.deepEqual(changesOf(container), []);
   }
 );
 
