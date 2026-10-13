@@ -280,19 +280,27 @@ test(
       html
     )[0];
     assert.equal(textOf(legend), "weniger 0 1–2 3–5 6–8 9–11 12–14 mehr");
+    // Je Stufe Fläche und Wertebereich; „weniger“ gehört zur ersten, „mehr“
+    // zur letzten Stufe (sie brechen in der schmalen Karte mit ihr um).
     const steps = [
       ...legend.matchAll(
-        /<li data-heat-step="(\d)"[^>]*><span aria-hidden="true"[^>]*style="background-color:([^"]+)"><\/span><span[^>]*>([^<]*)<\/span><\/li>/g
+        /<li data-heat-step="(\d)"[^>]*>(?:<span aria-hidden="true"[^>]*>(weniger)<\/span>)?<span[^>]*><span aria-hidden="true"[^>]*style="background-color:([^"]+)"><\/span><span[^>]*>([^<]*)<\/span><\/span>(?:<span aria-hidden="true"[^>]*>(mehr)<\/span>)?<\/li>/g
       ),
-    ].map(([, level, color, range]) => [Number(level), color, range]);
-    assert.deepEqual(steps, [
-      [0, "var(--theme-analytics-heat-0)", "0"],
-      [1, "var(--theme-analytics-heat-1)", "1–2"],
-      [2, "var(--theme-analytics-heat-2)", "3–5"],
-      [3, "var(--theme-analytics-heat-3)", "6–8"],
-      [4, "var(--theme-analytics-heat-4)", "9–11"],
-      [5, "var(--theme-analytics-heat-5)", "12–14"],
+    ].map(([, level, less, color, range, more]) => [
+      Number(level),
+      color,
+      range,
+      less ?? more ?? null,
     ]);
+    assert.deepEqual(steps, [
+      [0, "var(--theme-analytics-heat-0)", "0", "weniger"],
+      [1, "var(--theme-analytics-heat-1)", "1–2", null],
+      [2, "var(--theme-analytics-heat-2)", "3–5", null],
+      [3, "var(--theme-analytics-heat-3)", "6–8", null],
+      [4, "var(--theme-analytics-heat-4)", "9–11", null],
+      [5, "var(--theme-analytics-heat-5)", "12–14", "mehr"],
+    ]);
+    assert.equal(count(legend, /<li /g), 6);
     assert.match(legend, /<ul aria-label="Legende: Nachrichten je Feld"/);
 
     // Große Werte in deutscher Schreibweise; ein einzelner Wert ohne Bereich

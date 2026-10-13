@@ -480,6 +480,123 @@ test(
 // Tabellenansicht (AK-9, NAK-2)
 // ---------------------------------------------------------------------------
 
+/** Was Tailwind für eine Klasse festlegt: Eigenschaft → Wert (ohne Varianten). */
+async function declarationsOf(classes) {
+  const css = await tailwindCss(classes);
+  const escape = (name) => name.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  return Object.fromEntries(
+    classes.map((name) => {
+      const declarations = {};
+      css.walkRules((rule) => {
+        if (rule.parent.type === "root" && rule.selector === `.${escape(name)}`)
+          rule.walkDecls((decl) => {
+            declarations[decl.prop] = decl.value;
+          });
+      });
+      return [name, declarations];
+    })
+  );
+}
+
+test(
+  "Schmale Karte (AK-10, 390 px): Die Legende bricht in der Karte um, statt über sie hinauszuragen – auch mit drei-, vier- und fünfstelligen Wertebereichen",
+  { skip },
+  async (t) => {
+    const classes = (element) =>
+      (element.getAttribute("class") ?? "").split(/\s+/).filter(Boolean);
+    for (const [max, ranges] of [
+      [504, ["0", "1–100", "101–201", "202–302", "303–403", "404–504"]],
+      [
+        1680,
+        ["0", "1–336", "337–672", "673–1.008", "1.009–1.344", "1.345–1.680"],
+      ],
+      [
+        12345,
+        [
+          "0",
+          "1–2.469",
+          "2.470–4.938",
+          "4.939–7.407",
+          "7.408–9.876",
+          "9.877–12.345",
+        ],
+      ],
+    ]) {
+      const grid = gridOf([]);
+      grid[TUESDAY][10] = max;
+      grid[2][11] = 1;
+      const { container } = await mount(t, CARD, {
+        summary: { ...DATA, weekdayHour: grid },
+        loading: false,
+      });
+      const card = cardOf(container);
+      const [legend] = withAttribute(container, "data-heat-legend");
+      const steps = withAttribute(container, "data-heat-step");
+
+      // Die sechs Stufen stehen in einer Reihe, die umbricht. „weniger“
+      // gehört zur ersten, „mehr“ zur letzten Stufe: Beide brechen mit ihrer
+      // Stufe um, nie allein.
+      const row = steps[0].parentNode;
+      assert.equal(row.parentNode, legend);
+      assert.deepEqual(row.childNodes, steps);
+      assert.equal(steps.length, 6);
+      assert.deepEqual(
+        steps.map((step) => step.childNodes.map((part) => part.textContent)),
+        [
+          ["weniger", ranges[0]],
+          [ranges[1]],
+          [ranges[2]],
+          [ranges[3]],
+          [ranges[4]],
+          [ranges[5], "mehr"],
+        ]
+      );
+
+      // Von der Reihe bis zur Karte: Jedes Element darf schmaler werden als
+      // sein Inhalt und wird nie breiter als die Karte; jede Zeile bricht um.
+      const chain = [];
+      for (let node = row; node !== card; node = node.parentNode)
+        chain.push(node);
+      assert.equal(chain.length, 4, "Reihe, Legende, Block, Kopf der Karte");
+      const names = [...new Set(elements(card).flatMap(classes))];
+      const css = await declarationsOf(names);
+      const styleOf = (element) =>
+        Object.assign({}, ...classes(element).map((name) => css[name]));
+      for (const node of chain)
+        if (styleOf(node).display === "flex")
+          assert.equal(styleOf(node)["flex-wrap"], "wrap");
+      assert.equal(styleOf(row).display, "flex");
+      for (const item of [chain[1], chain[2]]) {
+        assert.equal(styleOf(item)["min-width"], "0px");
+        assert.equal(styleOf(item)["max-width"], "100%");
+      }
+      // Nichts in der Legende hat eine feste Breite, nichts schiebt.
+      for (const node of elements(legend)) {
+        const style = styleOf(node);
+        assert.ok(style.width === undefined || style.width === "100%");
+        assert.equal(style["flex-shrink"], undefined);
+        assert.equal(style["overflow-x"], undefined);
+      }
+
+      // Nicht umbrechen darf nur der Wertebereich einer einzelnen Stufe: Das
+      // breiteste unteilbare Stück der Legende ist eine Stufe mit ihrem Wort
+      // („9.877–12.345 mehr“) – ein Bruchteil der 308 px in der Karte.
+      const unbreakable = elements(
+        card.firstChild,
+        (element) => styleOf(element)["white-space"] === "nowrap"
+      );
+      assert.deepEqual(
+        unbreakable.map((element) => element.textContent),
+        ranges
+      );
+      for (const step of steps) {
+        assert.equal(styleOf(step)["flex-wrap"], undefined);
+        assert.ok(step.textContent.length <= "9.877–12.345mehr".length);
+      }
+    }
+  }
+);
+
 test(
   "Tabellenansicht (AK-9): „Als Tabelle“ zeigt die 168 Werte mit Wochentagen als Zeilen und Stunden als Spalten – mit Zeilen- und Spaltensummen",
   { skip },
@@ -539,27 +656,39 @@ test(
         "Sonntag",
       ]
     );
-    // 7 × 24 Werte – genau das Raster – und die Zeilensummen
+    // 7 × 24 Werte – genau das Raster, jeder ausgeschrieben – und die
+    // Zeilensummen
     assert.deepEqual(
-      body.map((row) => row.slice(1, 25).map(Number)),
-      GRID
+      body.map((row) => row.slice(1, 25)),
+      GRID.map((row) => row.map(String))
     );
     assert.equal(body.flatMap((row) => row.slice(1, 25)).length, 168);
     assert.deepEqual(
-      body.map((row) => Number(row[25])),
-      GRID.map((row) => row.reduce((a, b) => a + b))
+      body.map((row) => row[25]),
+      GRID.map((row) => String(row.reduce((a, b) => a + b)))
     );
     assert.equal(body[TUESDAY][1 + 10], "14");
+    // Ein Feld ohne Nachricht steht als „0“ in der Tabelle, nicht leer:
+    // nachts schreibt niemand (84 der 168 Felder).
+    assert.equal(GRID[0][0], 0);
+    assert.equal(body[0][1 + 0], "0");
+    assert.equal(
+      body.flatMap((row) => row.slice(1, 25)).filter((text) => text === "0")
+        .length,
+      84
+    );
 
     // Spaltensummen und Gesamtsumme = Kennzahl „Nachrichten“
     const [foot] = rowsOf("TFOOT");
     assert.equal(foot[0], "Summe");
     assert.deepEqual(
-      foot.slice(1, 25).map(Number),
+      foot.slice(1, 25),
       Array.from({ length: 24 }, (_, hour) =>
-        GRID.reduce((total, row) => total + row[hour], 0)
+        String(GRID.reduce((total, row) => total + row[hour], 0))
       )
     );
+    // auch die Summe einer Stunde ohne Nachricht
+    assert.equal(foot[1 + 0], "0");
     assert.equal(foot[25], "252");
     assert.equal(Number(foot[25]), DATA.totals.messages);
 

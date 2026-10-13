@@ -114,7 +114,7 @@ export default function WeekdayHourCard({ summary, loading, failed = false }) {
         </div>
 
         {hasData && (
-          <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+          <div className="flex min-w-0 max-w-full flex-wrap items-end gap-x-4 gap-y-3">
             <Legend max={peak.messages} t={t} />
             <button
               type="button"
@@ -231,7 +231,13 @@ function Statements({ grid, peak, context }) {
   );
 }
 
-/** Legende „weniger … mehr": die sechs Stufen mit ihren Wertebereichen. */
+/**
+ * Legende „weniger … mehr": die sechs Stufen mit ihren Wertebereichen. Wie
+ * breit sie ist, hängt vom Höchstwert ab („1.345–1.680"). Sie steht in einer
+ * Zeile, solange die Karte dafür reicht; in der schmalen Karte brechen die
+ * Stufen um, statt über die Karte hinauszuragen. „weniger" gehört zur ersten,
+ * „mehr" zur letzten Stufe – beide brechen mit ihr um, nie allein.
+ */
 function Legend({ max, t }) {
   const rangeOf = ({ from, to }) => {
     if (from === null) return t("embed-analytics.weekday-hour.legend.unused");
@@ -241,38 +247,45 @@ function Legend({ max, t }) {
       to: formatNumber(to),
     });
   };
+  const steps = heatLegend(max);
   return (
     <div
       data-heat-legend=""
-      className={`flex items-start gap-2 text-[11px] leading-none ${MUTED}`}
+      className={`min-w-0 max-w-full text-[11px] leading-none ${MUTED}`}
     >
-      <span aria-hidden="true" className="leading-[14px]">
-        {t("embed-analytics.weekday-hour.legend.less")}
-      </span>
       <ul
         aria-label={t("embed-analytics.weekday-hour.legend.label")}
-        className="flex gap-1"
+        className="flex flex-wrap items-start gap-x-1 gap-y-2"
       >
-        {heatLegend(max).map((step) => (
+        {steps.map((step, index) => (
           <li
             key={step.level}
             data-heat-step={step.level}
-            className="flex min-w-[26px] flex-col items-center gap-1"
+            className="flex items-start gap-2"
           >
-            <span
-              aria-hidden="true"
-              className="block h-[14px] w-full rounded-[3px]"
-              style={{ backgroundColor: heatColor(step.level) }}
-            />
-            <span className="tabular-nums whitespace-nowrap">
-              {rangeOf(step)}
+            {index === 0 && (
+              <span aria-hidden="true" className="leading-[14px]">
+                {t("embed-analytics.weekday-hour.legend.less")}
+              </span>
+            )}
+            <span className="flex min-w-[26px] flex-col items-center gap-1">
+              <span
+                aria-hidden="true"
+                className="block h-[14px] w-full rounded-[3px]"
+                style={{ backgroundColor: heatColor(step.level) }}
+              />
+              <span className="tabular-nums whitespace-nowrap">
+                {rangeOf(step)}
+              </span>
             </span>
+            {index === steps.length - 1 && (
+              <span aria-hidden="true" className="leading-[14px]">
+                {t("embed-analytics.weekday-hour.legend.more")}
+              </span>
+            )}
           </li>
         ))}
       </ul>
-      <span aria-hidden="true" className="leading-[14px]">
-        {t("embed-analytics.weekday-hour.legend.more")}
-      </span>
     </div>
   );
 }
