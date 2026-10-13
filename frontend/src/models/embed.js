@@ -206,10 +206,19 @@ const Embed = {
   // Antwort: { success, messageCount, visitor: { conversationCount,
   // messageCount } | null }; visitor nennt, was derselbe Browser in diesem
   // Widget insgesamt hat.
+  //
+  // Die Kennung der Konversation steht hier und in den beiden Lösch-Aufrufen
+  // im Rumpf, nie in der Adresse: Sie stammt vom Besucher, und der Browser
+  // löst "." und ".." in einer Adresse als Pfadsegmente auf (auch kodiert) –
+  // „Konversation .. löschen" träfe sonst DELETE /embed/:embedId, das Widget.
   getConversationDeletionPreview: async (embedId, conversationId) => {
     return await fetch(
-      `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(conversationId)}/deletion-preview`,
-      { method: "GET", headers: baseHeaders() }
+      `${API_BASE}/embed/${embedId}/conversation/deletion-preview`,
+      {
+        method: "POST",
+        headers: baseHeaders(),
+        body: JSON.stringify({ conversationId }),
+      }
     )
       .then((res) => res.json())
       .catch((e) => {
@@ -221,10 +230,11 @@ const Embed = {
   // Konversation löschen (KIE-538). conversationId wie in der Liste.
   // Antwort: { success, deletedCount } bzw. { success: false, error }.
   deleteConversation: async (embedId, conversationId) => {
-    return await fetch(
-      `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(conversationId)}`,
-      { method: "DELETE", headers: baseHeaders() }
-    )
+    return await fetch(`${API_BASE}/embed/${embedId}/conversation`, {
+      method: "DELETE",
+      headers: baseHeaders(),
+      body: JSON.stringify({ conversationId }),
+    })
       .then((res) => res.json())
       .catch((e) => {
         console.error(e);
@@ -235,10 +245,11 @@ const Embed = {
   // Alle Konversationen des Besuchers (derselbe Browser) in diesem Widget
   // löschen (KIE-538). Antwort: { success, deletedCount, conversationCount }.
   deleteVisitorConversations: async (embedId, conversationId) => {
-    return await fetch(
-      `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(conversationId)}/visitor`,
-      { method: "DELETE", headers: baseHeaders() }
-    )
+    return await fetch(`${API_BASE}/embed/${embedId}/conversation/visitor`, {
+      method: "DELETE",
+      headers: baseHeaders(),
+      body: JSON.stringify({ conversationId }),
+    })
       .then((res) => res.json())
       .catch((e) => {
         console.error(e);
@@ -247,9 +258,11 @@ const Embed = {
   },
 
   // Analytics: Get conversation details
+  // KIE-538: Die Kennung ist kodiert – „/", „?" und „#" aus einer vom
+  // Besucher vergebenen Kennung bleiben Teil des einen Pfadsegments.
   getConversationDetails: async (embedId, sessionId) => {
     return await fetch(
-      `${API_BASE}/embed/${embedId}/conversation/${sessionId}`,
+      `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(sessionId)}`,
       {
         method: "GET",
         headers: baseHeaders(),

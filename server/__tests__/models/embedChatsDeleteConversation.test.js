@@ -1,9 +1,10 @@
 /* eslint-env jest, node */
 // KIE-538 — „Konversation löschen": EmbedChats.deleteConversation und
 // deleteVisitorConversations über die Endpunkte
-//   DELETE /embed/:embedId/conversation/:conversationId
-//   DELETE /embed/:embedId/conversation/:conversationId/visitor
-//   GET    /embed/:embedId/conversation/:conversationId/deletion-preview
+//   DELETE /embed/:embedId/conversation
+//   DELETE /embed/:embedId/conversation/visitor
+//   POST   /embed/:embedId/conversation/deletion-preview
+// Die Kennung der Konversation steht jeweils im Rumpf ({ conversationId }).
 //
 // Geprüft wird gegen die echten Routen mit ihrer ganzen Middleware-Kette
 // (endpoints/support/routeHarness.js: Anmeldung, Rollenprüfung, Bindung an
@@ -45,6 +46,7 @@ const {
   ROUTES,
   summaryBody,
   conversationsBody,
+  conversationBody,
 } = require("../endpoints/support/embedAnalyticsRequests");
 const {
   createTestDatabase,
@@ -191,7 +193,8 @@ async function converse(embed, { conversation, session, n, at, ...data }) {
 
 const call = (chain, embed, conversationId, user = null) =>
   invoke(chain, {
-    params: { embedId: String(embed?.id ?? embed), conversationId },
+    params: { embedId: String(embed?.id ?? embed) },
+    body: conversationBody(conversationId),
     token: user?.token ?? null,
   });
 const deleteConversation = (embed, conversationId, user) =>
@@ -874,6 +877,214 @@ describe("ganze_sitzung (AK-12)", () => {
         await EmbedChats.deleteVisitorConversations(embedId, conversationId)
       ).toEqual({ deletedCount: 0, conversationCount: 0, ambiguous: false });
     expect(deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// Die Kennung der Konversation steht im Rumpf, nie in der Adresse
+// ============================================================================
+// Die conversation_id vergibt der Besucher (der öffentliche Chat-Endpunkt
+// speichert sie ungeprüft). Als Teil der Adresse würde ein Browser "." und
+// ".." als Pfadsegmente auflösen - aus „Konversation .. löschen" würde
+// DELETE /embed/:embedId, das Löschen des ganzen Widgets.
+describe("kennung_im_rumpf", () => {
+  const express = require("express");
+  const TRICKY = ["..", ".", "%2e%2e", "../..", "a/../../b", "x?y#z", "ä ö"];
+  let workspace, embed, kunde, rest;
+
+  beforeEach(async () => {
+    workspace = await createWorkspace(db.client);
+    embed = await createEmbed(db.client, workspace);
+    kunde = await createUser("default", [workspace.id]);
+    for (const [i, conversation] of TRICKY.entries())
+      await converse(embed, {
+        conversation,
+        session: `besucher-${i}`,
+        n: 2,
+        at: new Date(T0().getTime() + i * 3_600_000),
+      });
+    rest = await converse(embed, {
+      conversation: "bleibt",
+      session: "anderer",
+      n: 3,
+      at: T0(),
+    });
+  });
+
+  /**
+   * Die Anfrage, wie sie beim Server ankommt: Die Adresse löst ein Browser
+   * vor dem Senden auf (WHATWG URL, wie fetch), der echte Express-Router
+   * ordnet sie einer Route zu. Der Rumpf ist Text, wie das Frontend ihn
+   * sendet (JSON ohne Content-Type: bodyParser.text).
+   */
+  function send(route, conversationId, user) {
+    const address = `/api${route.path.replace(":embedId", embed.id)}`;
+    const { pathname } = new URL(
+      address,
+      "https://kunde.example.org/settings/chatbot/conversations"
+    );
+    const router = express.Router();
+    embedManagementEndpoints(router);
+    const headers = { authorization: `Bearer ${user.token}` };
+    return new Promise((resolve, reject) => {
+      const result = { address, pathname, statusCode: 200, body: undefined };
+      const done = () => resolve(result);
+      const response = {
+        locals: {},
+        status: (code) => {
+          result.statusCode = code;
+          return response;
+        },
+        sendStatus: (code) => {
+          result.statusCode = code;
+          done();
+          return response;
+        },
+        json: (payload) => {
+          result.body = payload;
+          done();
+          return response;
+        },
+        send: (payload) => {
+          result.body = payload;
+          done();
+          return response;
+        },
+        setHeader: () => {},
+        end: () => {
+          done();
+          return response;
+        },
+      };
+      const request = {
+        method: route.method,
+        url: pathname.replace(/^\/api/, ""),
+        headers,
+        header: (name) => headers[String(name).toLowerCase()],
+        params: {},
+        query: {},
+        body: JSON.stringify(conversationBody(conversationId)),
+      };
+      router.handle(request, response, (error) =>
+        error ? reject(error) : resolve({ ...result, statusCode: 404 })
+      );
+    });
+  }
+
+  test("kennung_im_rumpf: Konversationen mit den Kennungen „..“ und „.“ stehen in der Liste und lassen sich löschen - genau ihre Zeilen, das Widget bleibt", async () => {
+    expect(await listed(embed, kunde)).toEqual([...TRICKY, "bleibt"].sort());
+
+    for (const id of TRICKY) {
+      expect((await preview(embed, id, kunde)).body).toEqual({
+        success: true,
+        messageCount: 2,
+        visitor: { conversationCount: 1, messageCount: 2 },
+      });
+      const result = await deleteConversation(embed, id, kunde);
+      expect([id, result.statusCode, result.body]).toEqual([
+        id,
+        200,
+        { success: true, deletedCount: 2 },
+      ]);
+    }
+
+    expect(await chatIds()).toEqual(rest.map((chat) => chat.id));
+    expect(await listed(embed, kunde)).toEqual(["bleibt"]);
+    // Das Widget ist noch da - gelöscht wurden Konversationen, sonst nichts.
+    expect(await db.client.embed_configs.count()).toBe(1);
+    expect(await eventsOf(db.client, "embed_deleted")).toEqual([]);
+    expect(
+      await eventsOf(db.client, "embed_conversation_deleted")
+    ).toHaveLength(TRICKY.length);
+  });
+
+  test("kennung_im_rumpf: durch den echten Express-Router, mit der Adresse, wie ein Browser sie auflöst - Vorschau, Löschen und „alle des Besuchers“ treffen ihre Route, das Widget bleibt", async () => {
+    for (const id of TRICKY) {
+      const look = await send(ROUTES.deletionPreview, id, kunde);
+      // Die Adresse enthält nichts vom Besucher: Es gibt nichts aufzulösen.
+      expect([id, look.pathname]).toEqual([id, look.address]);
+      expect([id, look.statusCode, look.body]).toEqual([
+        id,
+        200,
+        {
+          success: true,
+          messageCount: 2,
+          visitor: { conversationCount: 1, messageCount: 2 },
+        },
+      ]);
+    }
+
+    const [first, second, ...others] = TRICKY;
+    const one = await send(ROUTES.deleteConversation, first, kunde);
+    expect(one.pathname).toBe(`/api/embed/${embed.id}/conversation`);
+    expect([one.statusCode, one.body]).toEqual([
+      200,
+      { success: true, deletedCount: 2 },
+    ]);
+    const all = await send(ROUTES.deleteVisitor, second, kunde);
+    expect(all.pathname).toBe(`/api/embed/${embed.id}/conversation/visitor`);
+    expect([all.statusCode, all.body]).toEqual([
+      200,
+      { success: true, deletedCount: 2, conversationCount: 1 },
+    ]);
+    for (const id of others)
+      expect((await send(ROUTES.deleteConversation, id, kunde)).body).toEqual({
+        success: true,
+        deletedCount: 2,
+      });
+
+    expect(await chatIds()).toEqual(rest.map((chat) => chat.id));
+    expect(await db.client.embed_configs.count()).toBe(1);
+    expect(await eventsOf(db.client, "embed_deleted")).toEqual([]);
+  });
+
+  test("kennung_im_rumpf: ohne Kennung im Rumpf trifft die Anfrage keine Zeile - 404, nichts gelöscht; eine Kennung in der Adresse zählt nicht", async () => {
+    const before = await tableChecksum(db.client, "embed_chats");
+    for (const body of [
+      undefined,
+      {},
+      null,
+      "null",
+      "{}",
+      '".."',
+      { conversationId: null },
+      { conversationId: "" },
+      { conversationId: ["bleibt"] },
+      { conversationId: { equals: "bleibt" } },
+      { conversation_id: "bleibt" },
+      { sessionId: "anderer" },
+    ])
+      for (const chain of [DELETE_CONVERSATION, DELETE_VISITOR]) {
+        const result = await invoke(chain, {
+          // wie früher in der Adresse: wird nicht gelesen
+          params: { embedId: String(embed.id), conversationId: "bleibt" },
+          body,
+          token: kunde.token,
+        });
+        expect([JSON.stringify(body), result.statusCode]).toEqual([
+          JSON.stringify(body),
+          404,
+        ]);
+      }
+    expect(
+      (
+        await invoke(PREVIEW, {
+          params: { embedId: String(embed.id), conversationId: "bleibt" },
+          body: {},
+          token: kunde.token,
+        })
+      ).body
+    ).toEqual({ success: true, messageCount: 0, visitor: null });
+    expect(await tableChecksum(db.client, "embed_chats")).toEqual(before);
+    expect(await db.client.event_logs.count()).toBe(0);
+
+    // Der Rumpf als Text, wie das Frontend ihn sendet
+    const result = await invoke(DELETE_CONVERSATION, {
+      params: { embedId: String(embed.id) },
+      body: JSON.stringify(conversationBody("bleibt")),
+      token: kunde.token,
+    });
+    expect(result.body).toEqual({ success: true, deletedCount: 3 });
   });
 });
 

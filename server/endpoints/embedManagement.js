@@ -302,7 +302,7 @@ function embedManagementEndpoints(app) {
 
   // KIE-538: DELETE /embed/chats/:chatId (einzelne Nachricht löschen) ist mit
   // der Nachrichtentabelle entfallen. Gelöscht wird die ganze Konversation:
-  // DELETE /embed/:embedId/conversation/:conversationId (weiter unten).
+  // DELETE /embed/:embedId/conversation (weiter unten).
 
   // Get conversations (global view, grouped by conversation_id)
   app.post(
@@ -688,8 +688,15 @@ function embedManagementEndpoints(app) {
   // Konversation und, für „Alle Konversationen dieses Besuchers löschen",
   // Konversationen und Zeilen ihrer Browser-Sitzung in diesem Widget. Keine
   // Inhalte, keine Sitzungs-Kennung. Prüfungen wie beim Einsehen.
-  app.get(
-    "/embed/:embedId/conversation/:conversationId/deletion-preview",
+  //
+  // Die Kennung der Konversation steht hier und in den beiden Lösch-Routen
+  // darunter im Rumpf ({ conversationId }), nicht in der Adresse: Sie stammt
+  // vom Besucher (der öffentliche Chat-Endpunkt speichert sie ungeprüft), und
+  // ein Browser löst "." und ".." in einer Adresse als Pfadsegmente auf - auch
+  // kodiert (%2e%2e). Aus „Konversation .. löschen" würde so
+  // DELETE /embed/:embedId, das Löschen des ganzen Widgets.
+  app.post(
+    "/embed/:embedId/conversation/deletion-preview",
     [
       chatHistoryViewable,
       validatedRequest,
@@ -699,7 +706,8 @@ function embedManagementEndpoints(app) {
     ],
     async (request, response) => {
       try {
-        const { embedId, conversationId } = request.params;
+        const { embedId } = request.params;
+        const { conversationId } = reqBody(request) ?? {};
         const preview = await EmbedChats.conversationDeletionPreview(
           Number(embedId),
           conversationId
@@ -724,9 +732,10 @@ function embedManagementEndpoints(app) {
   // Widget (EmbedChats.deleteConversation); eine conversationId eines anderen
   // Widgets trifft keine Zeile (404). Das Zählerbuch bleibt unberührt.
   // event_logs: wer, welches Widget, wie viele Zeilen - keine Inhalte, keine
-  // Sitzungs-Kennung.
+  // Sitzungs-Kennung. Die Kennung steht im Rumpf (siehe Vorschau); fehlt
+  // sie, trifft die Anfrage keine Zeile (404).
   app.delete(
-    "/embed/:embedId/conversation/:conversationId",
+    "/embed/:embedId/conversation",
     [
       chatHistoryViewable,
       validatedRequest,
@@ -738,9 +747,10 @@ function embedManagementEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const embedId = Number(request.params.embedId);
+        const { conversationId } = reqBody(request) ?? {};
         const deletedCount = await EmbedChats.deleteConversation(
           embedId,
-          request.params.conversationId
+          conversationId
         );
         if (deletedCount === null) {
           response.sendStatus(500).end();
@@ -771,9 +781,10 @@ function embedManagementEndpoints(app) {
   // die genannte Konversation gehört; die Sitzung bestimmt der Server, sie
   // steht weder in der Anfrage noch in der Antwort oder im Protokoll.
   // Prüfungen und Protokoll wie beim Löschen einer Konversation. 409, wenn
-  // die Konversation keiner einzelnen Sitzung zuzuordnen ist.
+  // die Konversation keiner einzelnen Sitzung zuzuordnen ist. Die Kennung der
+  // Konversation steht im Rumpf (siehe Vorschau).
   app.delete(
-    "/embed/:embedId/conversation/:conversationId/visitor",
+    "/embed/:embedId/conversation/visitor",
     [
       chatHistoryViewable,
       validatedRequest,
@@ -785,9 +796,10 @@ function embedManagementEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const embedId = Number(request.params.embedId);
+        const { conversationId } = reqBody(request) ?? {};
         const result = await EmbedChats.deleteVisitorConversations(
           embedId,
-          request.params.conversationId
+          conversationId
         );
         if (!result) {
           response.sendStatus(500).end();

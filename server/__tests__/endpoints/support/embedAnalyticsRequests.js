@@ -19,17 +19,20 @@ const ROUTES = {
     path: "/embed/:embedId/analytics/conversations",
   },
   export: { method: "POST", path: "/embed/:embedId/analytics/export" },
+  // Die Kennung der Konversation steht im Rumpf (conversationBody), nicht in
+  // der Adresse: Sie stammt vom Besucher, und "." bzw. ".." löst der Browser
+  // als Pfadsegmente auf.
   deletionPreview: {
-    method: "GET",
-    path: "/embed/:embedId/conversation/:conversationId/deletion-preview",
+    method: "POST",
+    path: "/embed/:embedId/conversation/deletion-preview",
   },
   deleteConversation: {
     method: "DELETE",
-    path: "/embed/:embedId/conversation/:conversationId",
+    path: "/embed/:embedId/conversation",
   },
   deleteVisitor: {
     method: "DELETE",
-    path: "/embed/:embedId/conversation/:conversationId/visitor",
+    path: "/embed/:embedId/conversation/visitor",
   },
 };
 
@@ -91,4 +94,19 @@ function exportBody(format, request = {}) {
   return { format, ...selection };
 }
 
-module.exports = { ROUTES, summaryBody, conversationsBody, exportBody };
+/**
+ * Vorschau und Löschen einer Konversation bzw. aller Konversationen ihres
+ * Besuchers: die Kennung, wie die Liste sie zeigt (conversation_id).
+ * @param {string} conversationId
+ */
+function conversationBody(conversationId) {
+  return { conversationId };
+}
+
+module.exports = {
+  ROUTES,
+  summaryBody,
+  conversationsBody,
+  exportBody,
+  conversationBody,
+};

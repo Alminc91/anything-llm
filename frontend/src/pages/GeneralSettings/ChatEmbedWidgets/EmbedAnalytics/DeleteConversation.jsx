@@ -81,7 +81,13 @@ export default function DeleteConversation({
     setDeleting(false);
     setDialog(null);
 
-    if (!result?.success) {
+    // Gelöscht ist nur, was der Server mit Zahlen belegt – ein bloßes
+    // { success: true } einer anderen Route gilt nicht als Erfolg.
+    const deleted =
+      result?.success === true &&
+      Number.isInteger(result.deletedCount) &&
+      (!wholeVisitor || Number.isInteger(result.conversationCount));
+    if (!deleted) {
       showToast(t("embed-analytics.delete.error"), "error");
     } else if (wholeVisitor) {
       showToast(

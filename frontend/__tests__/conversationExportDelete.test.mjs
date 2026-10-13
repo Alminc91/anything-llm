@@ -19,7 +19,7 @@ import { click, elements } from "./helpers/testDom.mjs";
 // embedChatsDeleteConversation.test.js).
 import requests from "../../server/__tests__/endpoints/support/embedAnalyticsRequests.js";
 
-const { ROUTES, conversationsBody, exportBody } = requests;
+const { ROUTES, conversationsBody, exportBody, conversationBody } = requests;
 
 const DIR = "/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics";
 const LIST = `${DIR}/ConversationList.jsx`;
@@ -70,21 +70,33 @@ function conversation(id, extra = {}) {
 }
 
 /** Adresse einer Route, wie das Frontend sie aufruft. */
-async function urlOf(route, conversationId = null) {
+async function urlOf(route) {
   const { API_BASE } = await renderer.load("/src/utils/constants.js");
-  return `${API_BASE}${route.path
-    .replace(":embedId", EMBED_ID)
-    .replace(":conversationId", encodeURIComponent(conversationId))}`;
+  return `${API_BASE}${route.path.replace(":embedId", EMBED_ID)}`;
 }
+
+/**
+ * Die Adresse, wie ein Browser sie sendet: fetch löst "." und ".." vorher als
+ * Pfadsegmente auf (WHATWG URL), auch kodiert als %2e.
+ */
+const sentPath = (url) => new URL(url, "https://kunde.example.org").pathname;
 
 /**
  * Der Server der Liste. `state.conversations` ist der Bestand; Löschen
  * entfernt daraus. Jede Anfrage wird mit Methode, Adresse und Rumpf gemerkt.
+ * Die Liste blättert wie der echte Server (offset, limit, hasMore), und die
+ * Anfragen werden der Route zugeordnet, bei der sie nach dem Auflösen der
+ * Adresse ankommen – darunter DELETE /embed/:embedId, das Löschen des Widgets
+ * (`state.widgetDeleted`).
  */
 async function listServer(t, state) {
   const { API_BASE } = await renderer.load("/src/utils/constants.js");
   const listUrl = await urlOf(ROUTES.conversations);
   const exportUrl = await urlOf(ROUTES.export);
+  const previewUrl = await urlOf(ROUTES.deletionPreview);
+  const deleteUrl = await urlOf(ROUTES.deleteConversation);
+  const visitorUrl = await urlOf(ROUTES.deleteVisitor);
+  const widgetUrl = `${API_BASE}/embed/${EMBED_ID}`;
   const calls = [];
   const original = globalThis.fetch;
   const json = (body, status = 200) => ({
@@ -92,6 +104,15 @@ async function listServer(t, state) {
     status,
     headers: { get: () => null },
     json: async () => body,
+  });
+  // Keine Route: Express antwortet mit einer HTML-Seite, kein JSON.
+  const notFound = () => ({
+    ok: false,
+    status: 404,
+    headers: { get: () => null },
+    json: async () => {
+      throw new SyntaxError("Unexpected token '<'");
+    },
   });
 
   globalThis.fetch = async (url, init = {}) => {
@@ -101,15 +122,21 @@ async function listServer(t, state) {
       body: init.body === undefined ? undefined : JSON.parse(init.body),
     };
     calls.push(call);
+    const path = sentPath(url);
+    const is = (route, address) =>
+      call.method === route.method && path === address;
 
-    if (url === listUrl)
+    if (is(ROUTES.conversations, listUrl)) {
+      const { offset = 0, limit = 20 } = call.body ?? {};
+      const total = state.conversations.length;
       return json({
         success: true,
-        conversations: state.conversations,
-        hasMore: false,
-        totalCount: state.conversations.length,
+        conversations: state.conversations.slice(offset, offset + limit),
+        hasMore: offset + limit < total,
+        totalCount: total,
       });
-    if (url === exportUrl) {
+    }
+    if (is(ROUTES.export, exportUrl)) {
       if (state.exportStatus) return json(null, state.exportStatus);
       return {
         ok: true,
@@ -123,24 +150,21 @@ async function listServer(t, state) {
         blob: async () => CSV,
       };
     }
+    // DELETE /embed/:embedId (Express ohne strict: auch mit Schrägstrich am
+    // Ende) löscht das Widget samt allen Konversationen.
+    if (call.method === "DELETE" && path.replace(/\/$/, "") === widgetUrl) {
+      state.widgetDeleted = true;
+      state.conversations = [];
+      return json({ success: true, error: null });
+    }
 
-    const match = new RegExp(
-      `^${API_BASE}/embed/${EMBED_ID}/conversation/([^/]+)(/deletion-preview|/visitor)?$`
-    ).exec(url);
-    if (!match) return json({ success: false, error: "unbekannt" }, 404);
-    const id = decodeURIComponent(match[1]);
-    // Ohne Nachrichten: Deren Darstellung (MarkdownRenderer) braucht
-    // DOMPurify und damit einen Browser.
-    if (call.method === "GET" && !match[2])
-      return json({ success: true, messages: [] });
-    if (match[2] === "/deletion-preview")
+    const id = call.body?.conversationId;
+    if (is(ROUTES.deletionPreview, previewUrl))
       return json(
         state.preview?.[id] ?? { success: true, messageCount: 4, visitor: null }
       );
-    if (call.method !== "DELETE") return json({ success: false }, 405);
-    if (state.deleteFails)
-      return json({ success: false, error: "Conversation not found." }, 404);
-    if (match[2] === "/visitor") {
+    if (is(ROUTES.deleteVisitor, visitorUrl)) {
+      if (state.deleteAnswer) return json(state.deleteAnswer);
       const session = state.conversations.find(
         (c) => c.conversation_id === id
       )?.session_id;
@@ -154,10 +178,26 @@ async function listServer(t, state) {
         conversationCount: gone.length,
       });
     }
-    state.conversations = state.conversations.filter(
-      (c) => c.conversation_id !== id
-    );
-    return json({ success: true, deletedCount: 4 });
+    if (is(ROUTES.deleteConversation, deleteUrl)) {
+      if (state.deleteAnswer) return json(state.deleteAnswer);
+      if (state.deleteFails)
+        return json({ success: false, error: "Conversation not found." }, 404);
+      state.conversations = state.conversations.filter(
+        (c) => c.conversation_id !== id
+      );
+      return json({ success: true, deletedCount: 4 });
+    }
+    // Einzelansicht: GET /embed/:embedId/conversation/:sessionId. Ohne
+    // Nachrichten: Deren Darstellung (MarkdownRenderer) braucht DOMPurify und
+    // damit einen Browser.
+    if (
+      call.method === "GET" &&
+      new RegExp(`^${API_BASE}/embed/${EMBED_ID}/conversation/[^/]+$`).test(
+        path
+      )
+    )
+      return json({ success: true, messages: [] });
+    return notFound();
   };
   t.after(() => {
     globalThis.fetch = original;
@@ -171,7 +211,32 @@ async function listServer(t, state) {
     deletes: () => calls.filter((call) => call.method === "DELETE"),
     listUrl,
     exportUrl,
+    detailUrl: (id) =>
+      `${API_BASE}/embed/${EMBED_ID}/conversation/${encodeURIComponent(id)}`,
   };
+}
+
+/**
+ * Fängt die Meldungen ab, die die Ansicht anzeigen würde (react-toastify).
+ * @returns {Promise<Array<[string, string]>>} - [Art, Text] in der Reihenfolge des Erscheinens
+ */
+async function toasts(t) {
+  const { toast } = await import("react-toastify");
+  const shown = [];
+  const original = { success: toast.success, error: toast.error };
+  toast.success = (message) => shown.push(["success", message]);
+  toast.error = (message) => shown.push(["error", message]);
+  t.after(() => Object.assign(toast, original));
+  return shown;
+}
+
+/** console.error für die Dauer eines Tests stumm (erwartete Fehlschläge). */
+function quiet(t) {
+  const original = console.error;
+  console.error = () => {};
+  t.after(() => {
+    console.error = original;
+  });
 }
 
 /** Hängt die Liste ein; Rückfragen erscheinen im Element mit der id "root". */
@@ -355,40 +420,73 @@ test(
 );
 
 test(
-  "Anfrage (AK-6, AK-12): Vorschau, Löschen einer Konversation und aller Konversationen eines Besuchers – Methode und Adresse, Kennung kodiert, ohne Rumpf",
+  "Anfrage (AK-6, AK-12): Vorschau, Löschen einer Konversation und aller Konversationen eines Besuchers – die Kennung steht im Rumpf, die Adresse enthält nichts vom Besucher",
   { skip },
   async (t) => {
     const server = await listServer(t, { conversations: [] });
     const { default: Embed } = await renderer.load("/src/models/embed.js");
-    const id = "konv/1 ä?#%";
+    const { API_BASE } = await renderer.load("/src/utils/constants.js");
 
-    await Embed.getConversationDeletionPreview(EMBED_ID, id);
-    await Embed.deleteConversation(EMBED_ID, id);
-    await Embed.deleteVisitorConversations(EMBED_ID, id);
+    for (const id of ["konv/1 ä?#%", "..", ".", "%2e%2e", "../../system/x"]) {
+      server.calls.length = 0;
+      await Embed.getConversationDeletionPreview(EMBED_ID, id);
+      await Embed.deleteConversation(EMBED_ID, id);
+      await Embed.deleteVisitorConversations(EMBED_ID, id);
 
+      assert.deepEqual(
+        server.calls,
+        [
+          ROUTES.deletionPreview,
+          ROUTES.deleteConversation,
+          ROUTES.deleteVisitor,
+        ].map((route) => ({
+          method: route.method,
+          url: `${API_BASE}${route.path.replace(":embedId", EMBED_ID)}`,
+          body: conversationBody(id),
+        })),
+        id
+      );
+      // Was der Browser daraus sendet, ist dieselbe Adresse: Es gibt kein
+      // Segment, das er auflösen könnte.
+      for (const call of server.calls)
+        assert.equal(sentPath(call.url), call.url, id);
+    }
+    assert.deepEqual(
+      server.calls.map((call) => [call.method, call.url]),
+      [
+        ["POST", "/api/embed/3/conversation/deletion-preview"],
+        ["DELETE", "/api/embed/3/conversation"],
+        ["DELETE", "/api/embed/3/conversation/visitor"],
+      ]
+    );
+  }
+);
+
+test(
+  "Anfrage: Die Einzelansicht einer Konversation kodiert die Kennung – „/“, „?“ und „#“ bleiben ein Pfadsegment",
+  { skip },
+  async (t) => {
+    const server = await listServer(t, { conversations: [] });
+    const { default: Embed } = await renderer.load("/src/models/embed.js");
+
+    const answer = await Embed.getConversationDetails(EMBED_ID, "a/b?c#d ä");
+    assert.deepEqual(answer, { success: true, messages: [] });
     assert.deepEqual(server.calls, [
       {
-        method: ROUTES.deletionPreview.method,
-        url: await urlOf(ROUTES.deletionPreview, id),
-        body: undefined,
-      },
-      {
-        method: ROUTES.deleteConversation.method,
-        url: await urlOf(ROUTES.deleteConversation, id),
-        body: undefined,
-      },
-      {
-        method: ROUTES.deleteVisitor.method,
-        url: await urlOf(ROUTES.deleteVisitor, id),
+        method: "GET",
+        url: "/api/embed/3/conversation/a%2Fb%3Fc%23d%20%C3%A4",
         body: undefined,
       },
     ]);
-    assert.match(
-      server.calls[1].url,
-      /\/embed\/3\/conversation\/konv%2F1%20%C3%A4%3F%23%25$/
+    assert.equal(server.calls[0].url, server.detailUrl("a/b?c#d ä"));
+    assert.equal(sentPath(server.calls[0].url), server.calls[0].url);
+
+    // Eine Kennung, die aus der Einzelansicht herausführen soll, bleibt darin.
+    await Embed.getConversationDetails(EMBED_ID, "../../system/logs");
+    assert.equal(
+      sentPath(server.calls[1].url),
+      "/api/embed/3/conversation/..%2F..%2Fsystem%2Flogs"
     );
-    assert.match(server.calls[2].url, /%25\/visitor$/);
-    assert.match(server.calls[0].url, /%25\/deletion-preview$/);
   }
 );
 
@@ -564,16 +662,14 @@ test(
       0
     );
     await expand(mounted, 0);
-    assert.deepEqual(
-      server.calls.slice(1).map((call) => [call.method, call.url]),
-      [
-        [
-          "GET",
-          (await urlOf(ROUTES.deleteConversation, "k-1")).replace(/$/, ""),
-        ],
-        ["GET", await urlOf(ROUTES.deletionPreview, "k-1")],
-      ]
-    );
+    assert.deepEqual(server.calls.slice(1), [
+      { method: "GET", url: server.detailUrl("k-1"), body: undefined },
+      {
+        method: ROUTES.deletionPreview.method,
+        url: await urlOf(ROUTES.deletionPreview),
+        body: conversationBody("k-1"),
+      },
+    ]);
 
     const [remove] = withAttribute(container, "data-delete-conversation");
     assert.equal(remove.textContent, "Konversation löschen");
@@ -636,8 +732,8 @@ test(
     assert.deepEqual(server.deletes(), [
       {
         method: ROUTES.deleteConversation.method,
-        url: await urlOf(ROUTES.deleteConversation, "k-2"),
-        body: undefined,
+        url: await urlOf(ROUTES.deleteConversation),
+        body: conversationBody("k-2"),
       },
     ]);
     assert.equal(dialogOf(document), null);
@@ -672,6 +768,137 @@ test(
     assert.equal(dialogOf(document), null);
     assert.equal(server.lists().length, 2);
     assert.deepEqual(cardIdsOf(container), ["k-1"]);
+  }
+);
+
+test(
+  "Konversation löschen: Eine vom Besucher vergebene Kennung „..“ oder „.“ löscht genau diese Konversation – nicht das Widget",
+  { skip },
+  async (t) => {
+    quiet(t);
+    const shown = await toasts(t);
+    const state = { conversations: [] };
+    const server = await listServer(t, state);
+
+    for (const id of ["..", ".", "%2e%2e", "../.."]) {
+      state.conversations = [
+        conversation("k-1"),
+        conversation(id, { preview: "Bitte löschen Sie meine Daten (DSGVO)" }),
+      ];
+      state.widgetDeleted = false;
+      server.calls.length = 0;
+      shown.length = 0;
+      const mounted = await mountList(t);
+      const { container, document, act } = mounted;
+
+      // Auch wenn sich die Konversation nicht aufklappen lässt (ihre
+      // Einzelansicht führt bei „.." und „." zu keiner Route), steht
+      // „Konversation löschen" bereit.
+      await expand(mounted, 1);
+      const [remove] = withAttribute(container, "data-delete-conversation");
+      await act(() => click(remove));
+      assert.match(
+        withAttribute(dialogOf(document), "data-confirm-question")[0]
+          .textContent,
+        /Bitte löschen Sie meine Daten/
+      );
+      await act(() =>
+        click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+      );
+      await act();
+
+      assert.deepEqual(
+        server.deletes(),
+        [
+          {
+            method: ROUTES.deleteConversation.method,
+            url: await urlOf(ROUTES.deleteConversation),
+            body: conversationBody(id),
+          },
+        ],
+        id
+      );
+      // Keine Anfrage dieser Ansicht kommt – nach dem Auflösen der Adresse
+      // durch den Browser – beim Löschen des Widgets an.
+      assert.equal(state.widgetDeleted, false, id);
+      assert.deepEqual(cardIdsOf(container), ["k-1"], id);
+      assert.deepEqual(
+        shown.filter(([type]) => type === "success"),
+        [["success", "Konversation gelöscht (4 Nachrichten)."]],
+        id
+      );
+      await mounted.unmount();
+    }
+  }
+);
+
+test(
+  "Konversation löschen: Als gelöscht gilt nur, was der Server mit der Zahl der Nachrichten belegt – ein bloßes { success: true } wird als Fehlschlag gemeldet",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const state = {
+      conversations: [conversation("k-1"), conversation("k-2")],
+      // so antwortet etwa DELETE /embed/:embedId (Widget löschen)
+      deleteAnswer: { success: true, error: null },
+      preview: {
+        "k-1": {
+          success: true,
+          messageCount: 4,
+          visitor: { conversationCount: 2, messageCount: 8 },
+        },
+      },
+    };
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    const confirm = async (attribute) => {
+      await expand(mounted, 0);
+      await act(() => click(withAttribute(container, attribute)[0]));
+      await act(() =>
+        click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+      );
+      await act();
+    };
+    const failed = ["error", "Die Konversation konnte nicht gelöscht werden."];
+
+    await confirm("data-delete-conversation");
+    assert.deepEqual(shown, [failed]);
+    assert.equal(dialogOf(document), null);
+    // Die Liste zeigt den tatsächlichen Stand.
+    assert.equal(server.lists().length, 2);
+    assert.deepEqual(cardIdsOf(container), ["k-1", "k-2"]);
+
+    // ebenso mit einer Zahl, die keine ist …
+    for (const deletedCount of [null, "4", 4.5, NaN]) {
+      shown.length = 0;
+      state.deleteAnswer = { success: true, deletedCount };
+      await confirm("data-delete-conversation");
+      assert.deepEqual(shown, [failed], String(deletedCount));
+    }
+    // … und bei „alle Konversationen dieses Besuchers" ohne deren Anzahl.
+    shown.length = 0;
+    state.deleteAnswer = { success: true, deletedCount: 8 };
+    await confirm("data-delete-visitor");
+    assert.deepEqual(shown, [failed]);
+
+    // Gegenprobe: Mit den Zahlen des Servers ist es ein Erfolg.
+    shown.length = 0;
+    state.deleteAnswer = {
+      success: true,
+      deletedCount: 8,
+      conversationCount: 2,
+    };
+    await confirm("data-delete-visitor");
+    assert.deepEqual(shown, [
+      ["success", "2 Konversationen gelöscht (8 Nachrichten)."],
+    ]);
+    shown.length = 0;
+    state.deleteAnswer = { success: true, deletedCount: 0 };
+    await confirm("data-delete-conversation");
+    assert.deepEqual(shown, [
+      ["success", "Konversation gelöscht (0 Nachrichten)."],
+    ]);
   }
 );
 
@@ -744,8 +971,8 @@ test(
     assert.deepEqual(server.deletes(), [
       {
         method: ROUTES.deleteVisitor.method,
-        url: await urlOf(ROUTES.deleteVisitor, "k-1"),
-        body: undefined,
+        url: await urlOf(ROUTES.deleteVisitor),
+        body: conversationBody("k-1"),
       },
     ]);
     assert.equal(dialogOf(document), null);

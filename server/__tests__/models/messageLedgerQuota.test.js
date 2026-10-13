@@ -281,13 +281,10 @@ describe("loeschpfade_halten_stand (AK-3)", () => {
     // 1. eine ganze Konversation (KIE-538; das Löschen einer einzelnen
     // Nachricht ist entfallen): die 20 Bestandszeilen des ersten Widgets
     // (Alt-Zeilen der Sitzung "sitzung")
-    await call(
-      embedRoutes,
-      "DELETE /embed/:embedId/conversation/:conversationId",
-      {
-        params: { embedId: String(first.id), conversationId: "sitzung" },
-      }
-    );
+    await call(embedRoutes, "DELETE /embed/:embedId/conversation", {
+      params: { embedId: String(first.id) },
+      body: { conversationId: "sitzung" },
+    });
     expect(
       await db.client.embed_chats.count({
         where: { embed_id: first.id, session_id: "sitzung" },
@@ -296,11 +293,10 @@ describe("loeschpfade_halten_stand (AK-3)", () => {
     await expectDeletedAndUnchanged();
     // 1b. alle Konversationen eines Besuchers (KIE-538): die 15 beim Anlegen
     // gezählten Zeilen der Sitzung "s" im zweiten Widget
-    await call(
-      embedRoutes,
-      "DELETE /embed/:embedId/conversation/:conversationId/visitor",
-      { params: { embedId: String(second.id), conversationId: "s" } }
-    );
+    await call(embedRoutes, "DELETE /embed/:embedId/conversation/visitor", {
+      params: { embedId: String(second.id) },
+      body: { conversationId: "s" },
+    });
     expect(
       await db.client.embed_chats.count({
         where: { embed_id: second.id, session_id: "s" },

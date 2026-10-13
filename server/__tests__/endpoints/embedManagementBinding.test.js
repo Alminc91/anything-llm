@@ -60,10 +60,10 @@ const ROUTE = {
   update: routes["POST /embed/update/:embedId"],
   remove: routes["DELETE /embed/:embedId"],
   // KIE-538: tritt an die Stelle von DELETE /embed/chats/:chatId (einzelne
-  // Nachricht), das mit der Nachrichtentabelle entfallen ist. Ausführlich
-  // geprüft in models/embedChatsDeleteConversation.test.js.
-  deleteConversation:
-    routes["DELETE /embed/:embedId/conversation/:conversationId"],
+  // Nachricht), das mit der Nachrichtentabelle entfallen ist. Die Kennung der
+  // Konversation steht im Rumpf. Ausführlich geprüft in
+  // models/embedChatsDeleteConversation.test.js.
+  deleteConversation: routes["DELETE /embed/:embedId/conversation"],
   clearChats: routes["DELETE /embed-chats/clear/:embedId"],
   uploadLogo: routes["POST /embed/:embedId/upload-logo"],
   removeLogo: routes["DELETE /embed/:embedId/remove-logo"],
@@ -171,10 +171,8 @@ describe("fremdes_widget (AK-3)", () => {
     "Konversation löschen": [
       ROUTE.deleteConversation,
       {
-        params: {
-          embedId: String(embedB.id),
-          conversationId: chatB.session_id,
-        },
+        params: { embedId: String(embedB.id) },
+        body: { conversationId: chatB.session_id },
       },
     ],
     "Chats leeren": [
@@ -285,10 +283,12 @@ describe("fremdes_widget (AK-3)", () => {
       const result = await invoke(chain, {
         params: {
           embedId: String(embedB.id),
-          conversationId: chatB.session_id,
           sessionId: chatB.session_id,
         },
-        body: { workspace_id: workspaceB.id },
+        body: {
+          workspace_id: workspaceB.id,
+          conversationId: chatB.session_id,
+        },
       });
       expect([name, result.statusCode]).toEqual([name, 401]);
     }
@@ -585,10 +585,8 @@ describe("eigenes_widget (AK-4)", () => {
 
   test("Konversation des eigenen Widgets löschen (KIE-538) und eigenes Widget löschen wie zuvor", async () => {
     const chat = await invoke(ROUTE.deleteConversation, {
-      params: {
-        embedId: String(embedA.id),
-        conversationId: chatA.session_id,
-      },
+      params: { embedId: String(embedA.id) },
+      body: { conversationId: chatA.session_id },
       token: kunde.token,
     });
     expect(chat.statusCode).toBe(200);
@@ -870,10 +868,8 @@ describe("ohne_mehrbenutzer (NAK-2)", () => {
     expect(overview.body.stats.total_chats).toBe(1);
 
     const chat = await invoke(ROUTE.deleteConversation, {
-      params: {
-        embedId: String(embedA.id),
-        conversationId: chatA.session_id,
-      },
+      params: { embedId: String(embedA.id) },
+      body: { conversationId: chatA.session_id },
     });
     expect(chat.statusCode).toBe(200);
     expect(chatIds()).toEqual([chatB.id]);
@@ -962,10 +958,8 @@ describe("admin_manager (NAK-3)", () => {
       expect(overview.body.stats.total_chats).toBe(1);
 
       const chat = await invoke(ROUTE.deleteConversation, {
-        params: {
-          embedId: String(embedA.id),
-          conversationId: chatA.session_id,
-        },
+        params: { embedId: String(embedA.id) },
+        body: { conversationId: chatA.session_id },
         token: user.token,
       });
       expect(chat.statusCode).toBe(200);
