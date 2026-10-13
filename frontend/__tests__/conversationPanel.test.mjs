@@ -2116,14 +2116,16 @@ test(
         "sm:order-none",
         "w-full",
         // V7: von sm bis xl so breit wie möglich (mindestens 240 px), ab xl
-        // fest 240 px (Fixliste 4, V2: Platz für den Abstand zum
-        // Benutzermenü)
+        // mit der Basis 240 px (Fixliste 4, V2: Platz für den Abstand zum
+        // Benutzermenü); wächst, wenn die Leiste allein in ihrer Zeile steht
+        // (Fixliste 5, S4)
         "sm:flex-1",
         "sm:min-w-[240px]",
         "xl:w-60",
-        "xl:flex-none",
+        "xl:flex-auto",
       ])
     );
+    assert.ok(!classesOf(field).includes("xl:flex-none"));
     // Fixliste 4, V5: von sm bis xl Basis 0 (sm:flex-1) – nicht die volle
     // Zeile über w-full (sm:basis-auto); Filter und Export stehen daneben,
     // sobald sie hineinpassen
@@ -2193,11 +2195,12 @@ test(
     );
     assert.ok(hasClasses(caret, ["hidden", "xl:block"]));
 
-    // B6: voller Platzhalter, Name des Felds ausführlich
+    // B6: voller Platzhalter, Name des Felds ausführlich (Fixliste 5, V1:
+    // kürzer, damit er bei 240 px Rahmen ganz zu lesen ist)
     const input = one(container, "data-search-input");
     assert.equal(
       input.getAttribute("placeholder"),
-      "In Fragen und Antworten suchen"
+      "Fragen & Antworten suchen"
     );
     assert.equal(
       input.getAttribute("aria-label"),
@@ -3375,3 +3378,146 @@ test(
     assert.equal(detail.berlinDateTime, undefined);
   }
 );
+// ---------------------------------------------------------------------------
+// Fixliste 5 (Browser-Nachprüfung rc17, Kontroll-Review 4)
+// ---------------------------------------------------------------------------
+
+// Breiten in Plus Jakarta Sans 14 px (wght 400), gerechnet aus den Metriken
+// der Schrift (frontend/public/fonts/PlusJakartaSans.ttf, mit Unterschneidung)
+// und im Browser bestätigt am alten Text (209/210 bzw. 200 px, BO4).
+const PLACEHOLDER_WIDTH = {
+  "In Fragen und Antworten suchen": 210.3,
+  "Search questions and answers": 199.7,
+  "Fragen & Antworten suchen": 181.3,
+  "Search questions & answers": 184.6,
+};
+// Tailwind-Klassen des Rahmens → Pixel (Abstände im Rahmen um das Feld)
+const FRAME_SPACING = {
+  "pl-2.5": 10,
+  "pl-3": 12,
+  "gap-1.5": 6,
+  "gap-2": 8,
+};
+
+test(
+  "Fixliste 5, V1/S4: Platzhalter ganz lesbar bei 240 px Rahmen (de und en); ab xl neben der Überschrift Suche 240 px, umgebrochen füllt die Leiste ihre Zeile links bündig",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [row(1)] });
+    const { container } = await mountList(t);
+    const field = one(container, "data-search-field");
+    const input = one(container, "data-search-input");
+    const de = (await renderer.load("/src/locales/de/common.js")).default;
+    const en = (await renderer.load("/src/locales/en/common.js")).default;
+    const placeholders = [
+      de["embed-analytics"].search.placeholder,
+      en["embed-analytics"].search.placeholder,
+    ];
+    assert.equal(input.getAttribute("placeholder"), placeholders[0]);
+    assert.deepEqual(placeholders, [
+      "Fragen & Antworten suchen",
+      "Search questions & answers",
+    ]);
+    // Rechnung: Rahmen 2 + Innenabstand links + Lupe 16 + zwei Lücken +
+    // Platzhalter-Ersatz w-1 (4) – der Rest bleibt dem Feld
+    const classes = classesOf(field);
+    const padding = classes
+      .filter((name) => /^pl-/.test(name))
+      .map((name) => FRAME_SPACING[name]);
+    const gap = classes
+      .filter((name) => /^gap-/.test(name))
+      .map((name) => FRAME_SPACING[name]);
+    assert.deepEqual([padding.length, gap.length], [1, 1]);
+    const spacer = elements(
+      field,
+      (e) => e.tagName === "SPAN" && e.getAttribute("aria-hidden") === "true"
+    ).find((e) => classesOf(e).includes("w-1"));
+    assert.ok(spacer, "Platzhalter-Ersatz w-1 fehlt");
+    const overhead = 2 + padding[0] + 16 + 2 * gap[0] + 4;
+    assert.equal(overhead, 44);
+    // kleinste Breite des Rahmens ab sm: 240 px (ab xl neben der
+    // Überschrift genau 240, bei 1024 px 253); darunter volle Breite ≥ 328
+    assert.ok(hasClasses(field, ["sm:min-w-[240px]", "xl:w-60"]));
+    for (const text of placeholders)
+      assert.ok(
+        PLACEHOLDER_WIDTH[text] <= 240 - overhead - 8,
+        `${text}: ${PLACEHOLDER_WIDTH[text]} px > ${240 - overhead - 8} px`
+      );
+    // der alte Text passte nicht (V1)
+    assert.ok(PLACEHOLDER_WIDTH["In Fragen und Antworten suchen"] > 196);
+    // voller Name für Screenreader
+    assert.equal(
+      input.getAttribute("aria-label"),
+      "In Fragen, Antworten und Bewertungen suchen"
+    );
+
+    // S4: ab xl Basis 240 px (Breite, nicht flex-basis 0) – ob die Leiste
+    // neben die Überschrift passt, hängt nicht an der Fensterbreite; daneben
+    // geht der freie Platz an den Titel (999 : 1), allein in ihrer Zeile
+    // füllt die Leiste sie (grow) und die Suche wächst
+    assert.ok(hasClasses(field, ["sm:flex-1", "xl:flex-auto"]));
+    assert.ok(!classes.includes("xl:flex-none"));
+    const tools = one(container, "data-list-tools");
+    assert.ok(hasClasses(tools, ["sm:basis-full", "xl:basis-auto", "xl:grow"]));
+    const title = one(container, "data-list-title");
+    assert.ok(hasClasses(title, ["flex-1", "basis-40", "xl:grow-[999]"]));
+  }
+);
+
+test(
+  "Fixliste 5, V2: Mobil (unter sm) Marken kompakt ohne Pille, „Grund: …“ in eigener Zeile – ab sm unverändert am Ende der Metazeile",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    await panelServer(t, {
+      rows: [
+        row(201, {
+          preview: "Welche Kurse gibt es?",
+          last_message_at: berlin("2026-10-13", "23:42"),
+          started_at: berlin("2026-10-13", "23:40"),
+          message_count: 3,
+          positive_count: 1,
+          negative_count: 1,
+          first_negative_reason: "Unvollständig",
+        }),
+        row(202, { negative_count: 1, first_negative_reason: null }),
+      ],
+    });
+    const { container } = await mountList(t);
+    const [first, second] = rowsOf(container);
+    // Grund mobil eigene Zeile, ab sm ausgeblendet
+    const reason = one(first, "data-row-reason");
+    assert.equal(reason.textContent, "Grund: Unvollständig");
+    assert.ok(hasClasses(reason, ["truncate", "sm:hidden"]));
+    // ab sm am Ende der Metazeile (AK-1), mobil dort ausgeblendet
+    const meta = one(first, "data-row-meta");
+    assert.equal(meta.textContent, "23:42 · 3 Fragen · Grund: Unvollständig");
+    const desktopReason = elements(meta, (e) =>
+      classesOf(e).includes("sm:inline")
+    );
+    assert.equal(desktopReason.length, 1);
+    assert.ok(hasClasses(desktopReason[0], ["hidden", "sm:inline"]));
+    assert.equal(desktopReason[0].textContent, " · Grund: Unvollständig");
+    // ohne Grund keine eigene Zeile
+    assert.equal(withAttribute(second, "data-row-reason").length, 0);
+
+    // Marken: mobil nur Daumen und Zahl (keine Pille, kein Innenabstand),
+    // ab sm die Pille wie bisher
+    for (const badge of withAttribute(first, "data-rating-badge")) {
+      const names = classesOf(badge);
+      assert.ok(hasClasses(badge, ["sm:px-2", "gap-0.5", "sm:gap-1"]));
+      assert.ok(!names.includes("px-2"));
+      assert.ok(!names.some((name) => /^bg-/.test(name)));
+      assert.ok(names.some((name) => /^sm:bg-/.test(name)));
+      assert.ok(names.some((name) => /^light:sm:bg-/.test(name)));
+    }
+    // Rechnung bei 360 px (Zeileninhalt 277 px): Spalten Text | Marken |
+    // Pfeil 16 mit zwei Lücken 12 – Marken kompakt 2 × (13 + 2 + 5) + 8 =
+    // 48 px statt zwei Pillen 2 × 38 + 6 = 82 px. Die Textspalte hat so
+    // 189 statt 155 px: „Welche Kurse gibt es?“ (15 px, 157) und „Grund:
+    // Unvollständig“ (13 px, 129) passen ganz.
+    assert.ok(277 - 2 * 12 - 16 - 48 >= 157);
+    assert.ok(277 - 2 * 12 - 16 - 82 < 157);
+  }
+);
+

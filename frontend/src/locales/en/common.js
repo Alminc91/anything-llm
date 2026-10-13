@@ -1812,7 +1812,7 @@ const TRANSLATIONS = {
       "filter-group": "Filter by rating",
     },
     search: {
-      placeholder: "Search questions and answers",
+      placeholder: "Search questions & answers",
       label: "Search questions, answers and ratings",
       mark: "Search: {{term}}",
       clear: "Clear search “{{term}}”",

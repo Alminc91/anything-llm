@@ -1280,7 +1280,7 @@ const TRANSLATIONS = {
       "filter-group": "Nach Bewertung filtern",
     },
     search: {
-      placeholder: "In Fragen und Antworten suchen",
+      placeholder: "Fragen & Antworten suchen",
       label: "In Fragen, Antworten und Bewertungen suchen",
       mark: "Suche: {{term}}",
       clear: "Suche „{{term}}“ aufheben",

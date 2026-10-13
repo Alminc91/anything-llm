@@ -720,9 +720,15 @@ export default function ConversationList({
           darunter – nichts überlappt (B1). */}
       <div data-list-header="" className="mb-3 flex flex-col gap-3">
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+          {/* Ab xl teilen sich Titelblock und Leiste den freien Platz einer
+              gemeinsamen Zeile fast ganz zugunsten des Titels (grow 999 zu 1):
+              Die Suche bleibt dort 240 px, „N einsehbar“ neben der
+              Überschrift. Bricht die Leiste unter die Überschrift (1280 px),
+              ist sie allein in ihrer Zeile und füllt sie – wie von sm bis xl
+              (Fixliste 5, S4). */}
           <div
             data-list-title=""
-            className="order-1 flex min-w-0 flex-1 basis-40 flex-wrap content-start items-center gap-x-3 gap-y-0.5"
+            className="order-1 flex min-w-0 flex-1 basis-40 flex-wrap content-start items-center gap-x-3 gap-y-0.5 xl:grow-[999]"
           >
             <h3
               ref={headingRef}
@@ -759,17 +765,22 @@ export default function ConversationList({
               Export brechen nur gemeinsam um – „Exportieren“ steht nie allein
               in einer Zeile (Fixliste 3, V7). Rechts hält die Leiste Abstand
               zum schwebenden Benutzermenü: Der Export-Knopf bleibt in jeder
-              Scrollstellung frei (Fixliste 4, V2); dafür ist die Suche ab xl
-              240 px breit. */}
+              Scrollstellung frei (Fixliste 4, V2).
+              Ab xl ist die Basis der Suche fest 240 px (xl:w-60 mit Basis
+              auto): Ob die Leiste neben die Überschrift passt, hängt so nicht
+              an der Breite des Fensters. Neben der Überschrift bekommt sie
+              keinen nennenswerten Zuwachs (Titel grow 999); bricht sie um,
+              füllt sie ihre Zeile (xl:grow), und die Suche wächst – links
+              bündig wie von sm bis xl (Fixliste 5, S4). */}
           <div
             data-list-tools=""
-            className={`contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 xl:basis-auto ${AVATAR_CLEARANCE.toolbarEnd}`}
+            className={`contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 xl:grow xl:basis-auto ${AVATAR_CLEARANCE.toolbarEnd}`}
           >
             <SearchField
               value={place.search}
               onSearch={setPlaceSearch}
               inputRef={searchInputRef}
-              className="order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 xl:w-60 xl:flex-none"
+              className="order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 xl:w-60 xl:flex-auto"
             />
             <div
               data-list-actions=""
@@ -1104,14 +1115,21 @@ function SearchField({ value, onSearch, inputRef: outerRef, className = "" }) {
 
   // Kein <label> um Feld und ✕: Eine Schaltfläche darf darin nicht stehen.
   // Den Namen trägt das Feld (aria-label); ein Klick in den Rahmen fokussiert
-  // es wie ein <label>. Platzhalter in voller Länge: Das Feld ist ab xl
-  // 240 px breit (Fixliste 4, V2), von sm bis xl mindestens 240 px und sonst
-  // so breit wie möglich, darunter volle Breite (B6, Fixliste 3 V7).
+  // es wie ein <label>.
+  // Platzhalter in voller Länge (Fixliste 2 B6, Fixliste 5 V1): Der Rahmen
+  // ist ab sm mindestens 240 px breit (ab xl neben der Überschrift genau
+  // 240 px, bei 1024 px 253 px), darunter volle Breite (≥ 328 px). Davon
+  // gehen 44 px ab – Rahmen 2, pl-2.5 10, Lupe 16, zwei Lücken gap-1.5 je 6,
+  // Platzhalter-Ersatz w-1 4 –, dem Feld bleiben mindestens 196 px. Der
+  // Platzhalter (Plus Jakarta Sans 14 px) misst „Fragen & Antworten suchen“
+  // 181 px, „Search questions & answers“ 185 px; der frühere Text „In
+  // Fragen und Antworten suchen“ (210 px) passte nicht. Den vollen Namen
+  // trägt aria-label.
   return (
     <div
       data-search-field=""
       onClick={focusField}
-      className={`flex h-11 w-full min-w-0 cursor-text items-center gap-2 rounded-lg border border-white/10 bg-theme-settings-input-bg pl-3 ${MUTED} sm:h-10 light:border-gray-200 ${className}`}
+      className={`flex h-11 w-full min-w-0 cursor-text items-center gap-1.5 rounded-lg border border-white/10 bg-theme-settings-input-bg pl-2.5 ${MUTED} sm:h-10 light:border-gray-200 ${className}`}
     >
       <MagnifyingGlass size={16} aria-hidden="true" className="shrink-0" />
       <input
@@ -1181,8 +1199,8 @@ function ConversationRow({
       t("embed-analytics.rows.started", {
         date: shortDayLabel(startedDay, today),
       }),
-    reason && t("embed-analytics.rows.reason", { reason }),
   ].filter(Boolean);
+  const reasonText = reason && t("embed-analytics.rows.reason", { reason });
 
   return (
     <button
@@ -1214,15 +1232,29 @@ function ConversationRow({
           {conversation.preview ||
             t("embed-analytics.conversations.no-preview")}
         </span>
+        {/* Ab sm steht „Grund: …“ am Ende dieser Zeile (AK-1). Unter sm
+            hat er eine eigene Zeile: Neben Uhrzeit, „N Fragen“ und Marken
+            blieb davon bei 360 px nichts lesbar (Fixliste 5, V2). */}
         <span
           data-row-meta=""
           className={`truncate text-[13px] leading-[18px] ${MUTED}`}
         >
           <span className="sm:hidden">{time} · </span>
           {meta.join(" · ")}
+          {reasonText && (
+            <span className="hidden sm:inline"> · {reasonText}</span>
+          )}
         </span>
+        {reasonText && (
+          <span
+            data-row-reason=""
+            className={`truncate text-[13px] leading-[18px] ${MUTED} sm:hidden`}
+          >
+            {reasonText}
+          </span>
+        )}
       </span>
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-2 sm:gap-1.5">
         <RatingBadge
           count={conversation.positive_count}
           Icon={ThumbsUp}
@@ -1242,19 +1274,22 @@ function ConversationRow({
 }
 
 // KIE-508/527: Marke „👍 n" / „👎 n" je Konversation – als Umriss-Daumen.
+// Unter sm kompakt – nur Daumen und Zahl in der Farbe der Marke, ohne Pille
+// und Innenabstand (Fixliste 5, V2): Zwei Pillen nahmen bei 360 px der
+// Frage und dem Grund rund 80 px; kompakt sind es rund 50.
 function RatingBadge({ count, Icon, tone, labelKey }) {
   const { t } = useTranslation();
   if (!(count > 0)) return null;
   const label = t(labelKey, { count });
   const toneClass =
     tone === "positive"
-      ? "bg-sky-500/15 text-sky-300 light:bg-sky-50 light:text-sky-700"
-      : "bg-orange-500/15 text-orange-300 light:bg-orange-50 light:text-orange-700";
+      ? "text-sky-300 sm:bg-sky-500/15 light:text-sky-700 light:sm:bg-sky-50"
+      : "text-orange-300 sm:bg-orange-500/15 light:text-orange-700 light:sm:bg-orange-50";
   return (
     <span
       data-rating-badge={tone}
       title={label}
-      className={`inline-flex h-6 items-center gap-1 rounded-full px-2 text-xs font-semibold ${toneClass}`}
+      className={`inline-flex h-6 items-center gap-0.5 rounded-full text-xs font-semibold sm:gap-1 sm:px-2 ${toneClass}`}
     >
       <Icon size={13} aria-hidden="true" />
       <span aria-hidden="true">{count}</span>
