@@ -813,3 +813,198 @@ test(
     );
   }
 );
+
+// ---------------------------------------------------------------------------
+// Laden: Nur die jüngste Anfrage setzt den Zustand
+// ---------------------------------------------------------------------------
+
+const LOAD_ERROR = "Die Zählwerte konnten nicht geladen werden.";
+
+/**
+ * Ersetzt fetch durch eines, dessen Antworten der Test auslöst: Jede Anfrage
+ * bleibt offen, bis answer() (Antwort als JSON) oder fail() (die Anfrage
+ * selbst scheitert, z. B. abgebrochen) aufgerufen wird.
+ */
+function heldFetch(t) {
+  const original = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = (url, init = {}) =>
+    new Promise((resolve, reject) => {
+      calls.push({
+        url,
+        body: init.body === undefined ? undefined : JSON.parse(init.body),
+        answer: (json) =>
+          resolve({ ok: true, status: 200, json: async () => json }),
+        fail: (error) => reject(error),
+      });
+    });
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  const open = (suffix, embed) =>
+    calls.filter((call) => call.url.endsWith(`/embed/${embed.id}${suffix}`));
+  return {
+    calls,
+    summaries: (embed) => open("/analytics/summary", embed),
+    lists: (embed) => open("/analytics/conversations", embed),
+  };
+}
+
+/** Merkt sich die Meldungen (Toasts), die die Ansicht während des Tests zeigt. */
+async function watchToasts(t) {
+  const { toast } = await import("react-toastify");
+  const shown = [];
+  for (const type of ["success", "error", "info", "warn"]) {
+    const original = toast[type];
+    toast[type] = (message) => shown.push({ type, message });
+    t.after(() => {
+      toast[type] = original;
+    });
+  }
+  return shown;
+}
+
+/** Die Model-Funktionen melden gescheiterte Anfragen auf der Konsole. */
+function silenceConsoleError(t) {
+  const original = console.error;
+  console.error = () => {};
+  t.after(() => {
+    console.error = original;
+  });
+}
+
+const summaryOf = (call, messages) => ({
+  success: true,
+  granularity: "day",
+  fromDay: call.body.fromDay,
+  toDay: call.body.toDay,
+  firstLedgerDay: "2026-01-01",
+  totals: {
+    messages,
+    conversations: 1,
+    feedbackPositive: 0,
+    feedbackNegative: 0,
+  },
+  buckets: [
+    {
+      start: call.body.fromDay,
+      end: call.body.fromDay,
+      partial: false,
+      messages,
+      conversations: 1,
+    },
+    {
+      start: call.body.toDay,
+      end: call.body.toDay,
+      partial: false,
+      messages: 0,
+      conversations: 0,
+    },
+  ],
+});
+const EMPTY_LIST = {
+  success: true,
+  conversations: [],
+  hasMore: false,
+  totalCount: 0,
+};
+
+test(
+  "Laden: Scheitert die jüngste Anfrage, zeigt die Ansicht die Meldung im Diagramm und einen Toast",
+  { skip },
+  async (t) => {
+    silenceConsoleError(t);
+    const toasts = await watchToasts(t);
+    const server = heldFetch(t);
+    const { container, act } = await mountView(t, server);
+
+    await act(() => server.lists(EMBED)[0].answer(EMPTY_LIST));
+    assert.doesNotMatch(container.textContent, new RegExp(LOAD_ERROR));
+    await act(() => server.summaries(EMBED)[0].fail(new TypeError("fetch")));
+
+    assert.match(container.textContent, new RegExp(LOAD_ERROR));
+    assert.deepEqual(toasts, [
+      { type: "error", message: "Fehler beim Laden der Konversationsdaten." },
+    ]);
+    assert.match(kpiTextOf(container)[0], /^Nachrichten–/);
+  }
+);
+
+for (const [name, late] of [
+  ["mit Erfolg", (call) => call.answer(summaryOf(call, 885))],
+  ["mit einem Fehler", (call) => call.answer({ success: false })],
+  [
+    "abgebrochen",
+    (call) => call.fail(new DOMException("aborted", "AbortError")),
+  ],
+]) {
+  test(
+    `Laden: Widget gewechselt – die überholte Anfrage des ersten Widgets antwortet danach ${name}: Die Ansicht zeigt die Zählwerte des zweiten, ohne Fehlertext und ohne Toast`,
+    { skip },
+    async (t) => {
+      silenceConsoleError(t);
+      const toasts = await watchToasts(t);
+      const server = heldFetch(t);
+      const view = await mountView(t, server, [EMBED, SECOND_EMBED]);
+      const { container, act } = view;
+      assert.equal(server.summaries(EMBED).length, 1);
+
+      // Die Anfrage des ersten Widgets ist noch offen.
+      await chooseWidget(view, SECOND_EMBED);
+      const [second] = server.summaries(SECOND_EMBED);
+      await act(() => {
+        second.answer(summaryOf(second, 5));
+        server.lists(SECOND_EMBED)[0].answer(EMPTY_LIST);
+      });
+      assert.match(kpiTextOf(container)[0], /^Nachrichten5Ø/);
+
+      // Jetzt erst antworten die Anfragen des ersten Widgets.
+      await act(() => {
+        late(server.summaries(EMBED)[0]);
+        late(server.lists(EMBED)[0]);
+      });
+      assert.match(kpiTextOf(container)[0], /^Nachrichten5Ø/);
+      assert.equal(columnsOf(container).length, 2);
+      assert.doesNotMatch(container.textContent, new RegExp(LOAD_ERROR));
+      assert.deepEqual(toasts, []);
+      assert.equal(server.calls.length, 4);
+    }
+  );
+}
+
+for (const [name, late] of [
+  ["mit Erfolg", (call) => call.answer(summaryOf(call, 885))],
+  ["mit einem Fehler", (call) => call.answer({ success: false })],
+]) {
+  test(
+    `Laden: „Gesamt“ fragt in zwei Schritten – wird währenddessen ein anderer Zeitraum gewählt, zählt nur dessen Antwort; der erste Schritt antwortet danach ${name} und löst keinen zweiten aus`,
+    { skip },
+    async (t) => {
+      silenceConsoleError(t);
+      const toasts = await watchToasts(t);
+      const server = heldFetch(t);
+      const view = await mountView(t, server);
+      const { container, act, days } = view;
+      const [first] = server.summaries(EMBED);
+      await act(() => first.answer(summaryOf(first, 885)));
+
+      // „Gesamt": erst die Frage nach heute (erster Tag mit Zählwerten) …
+      await choosePreset(view, "Gesamt");
+      const probe = server.summaries(EMBED)[1];
+      assert.equal(probe.body.fromDay, probe.body.toDay);
+
+      // … die noch offen ist, als wieder „Letzte 30 Tage" gewählt wird.
+      await choosePreset(view, "Letzte 30 Tage");
+      const latest = server.summaries(EMBED)[2];
+      assert.deepEqual(latest.body, summaryBody(days.fromDay, days.toDay));
+      await act(() => latest.answer(summaryOf(latest, 7)));
+      assert.match(kpiTextOf(container)[0], /^Nachrichten7Ø/);
+
+      await act(() => late(probe));
+      assert.equal(server.summaries(EMBED).length, 3);
+      assert.match(kpiTextOf(container)[0], /^Nachrichten7Ø/);
+      assert.doesNotMatch(container.textContent, new RegExp(LOAD_ERROR));
+      assert.deepEqual(toasts, []);
+    }
+  );
+}
