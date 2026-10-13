@@ -1,0 +1,887 @@
+// KIE-537: Vergleich mit dem Vorzeitraum – was Diagramm und Kennzahlen-Streifen
+// zu einem gegebenen Stand zeichnen, serverseitig gerendert
+// (helpers/renderSettingsPage.mjs). Effekte laufen dabei nicht: Schalter,
+// Anfragen, Tooltip und Tabelle prüft embedAnalyticsCompare.test.mjs; Themes,
+// Graustufen und Layout gehören in den Browser-Test.
+import test, { after, before } from "node:test";
+import assert from "node:assert/strict";
+import {
+  createRenderer,
+  hasFrontendDeps,
+} from "./helpers/renderSettingsPage.mjs";
+import { PREVIOUS_LINE, addDays } from "../src/utils/analyticsTimeline.js";
+
+const DIR = "/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics";
+const CHART = `${DIR}/TimelineChart.jsx`;
+const KPI = `${DIR}/StatisticsGrid.jsx`;
+const LOCATION = "/settings/chatbot/conversations";
+const skip = hasFrontendDeps
+  ? false
+  : "frontend/node_modules nicht installiert";
+
+const BAR = "var(--theme-analytics-bar)";
+const TEXT = "var(--theme-text-primary)";
+const count = (html, pattern) => (html.match(pattern) ?? []).length;
+const columns = (html) => count(html, /<g data-column=""/g);
+const bars = (html) => count(html, /<path data-bar=""/g);
+/** Sichtbarer Text ohne Markup. */
+const textOf = (html) =>
+  html
+    .replace(/<!-- -->/g, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+/** Die Gruppe der Linie des Vorzeitraums; null ohne Linie. */
+const lineOf = (html) =>
+  html.match(/<g data-previous-line=""[^>]*>(.*?)<\/g>/)?.[0] ?? null;
+/** Die Legende; null ohne Legende. */
+const legendOf = (html) =>
+  html.match(/<ul data-chart-legend=""[^>]*>.*?<\/ul>/)?.[0] ?? null;
+const switchOf = (html) =>
+  html.match(/<button[^>]*data-compare-switch=""[^>]*>.*?<\/button>/)?.[0];
+/** Beschriftungen der Wertachse (rechtsbündig vor der Zeichenfläche). */
+const axisValues = (html) =>
+  [...html.matchAll(/<text x="-8"[^>]*>([^<]*)<\/text>/g)].map(([, text]) =>
+    Number(text.replace(/\./g, ""))
+  );
+/** Zeile der Veränderung je Kennzahl-Feld: [Feld, Text, Tooltip]. */
+const changesOf = (html) =>
+  [...html.matchAll(/<div data-kpi="([^"]+)"[^>]*>(.*?)<\/dd><\/div>/g)].map(
+    ([, key, inner]) => {
+      const change = inner.match(
+        /<span data-kpi-change="" title="([^"]*)"[^>]*>(.*?)<\/span>(?=<\/dd>|$)/
+      );
+      if (!change) return [key, null, null];
+      // ohne den Text nur für Screenreader
+      const visible = change[2].replace(
+        /<span class="sr-only">.*?<\/span>/,
+        ""
+      );
+      return [key, textOf(visible), change[1]];
+    }
+  );
+
+const FROM = "2026-09-13";
+function dayBuckets(from, days, value) {
+  return Array.from({ length: days }, (_, i) => {
+    const messages = value(i);
+    return {
+      start: addDays(from, i),
+      end: addDays(from, i),
+      partial: false,
+      messages,
+      conversations: Math.ceil(messages / 3),
+    };
+  });
+}
+const sum = (buckets, key) =>
+  buckets.reduce((total, bucket) => total + bucket[key], 0);
+
+/**
+ * Antwort von analytics/summary für Tage ab from – mit Vorzeitraum (dieselbe
+ * Zahl Tage unmittelbar davor), wenn previous die Werte nennt.
+ */
+function daySummary({
+  from = FROM,
+  days = 30,
+  value,
+  previous,
+  totals,
+  ...overrides
+}) {
+  const buckets = dayBuckets(from, days, value);
+  const before = previous
+    ? dayBuckets(addDays(from, -days), days, previous)
+    : null;
+  return {
+    success: true,
+    granularity: "day",
+    fromDay: from,
+    toDay: addDays(from, days - 1),
+    firstLedgerDay: "2026-01-01",
+    totals: {
+      messages: sum(buckets, "messages"),
+      conversations: sum(buckets, "conversations"),
+      feedbackPositive: 9,
+      feedbackNegative: 3,
+    },
+    buckets,
+    ...(before
+      ? {
+          previous: {
+            available: true,
+            fromDay: addDays(from, -days),
+            toDay: addDays(from, -1),
+            totals: {
+              messages: sum(before, "messages"),
+              conversations: sum(before, "conversations"),
+              feedbackPositive: 6,
+              feedbackNegative: 4,
+              ...totals,
+            },
+            buckets: before,
+          },
+        }
+      : {}),
+    ...overrides,
+  };
+}
+
+// 30 Tage, an jedem dritten Tag keine Nachricht; im Vorzeitraum liegt der
+// Höchstwert (70) höher als im Zeitraum (33) und steht neben einer Null.
+const CURRENT = (i) => (i % 3 === 2 ? 0 : 5 + i);
+const PREVIOUS = (i) => (i === 11 ? 0 : i === 12 ? 70 : i === 13 ? 0 : 4 + i);
+const COMPARED = daySummary({ value: CURRENT, previous: PREVIOUS });
+const PLAIN = daySummary({ value: CURRENT });
+
+let renderer;
+before(async () => {
+  if (hasFrontendDeps) renderer = await createRenderer();
+});
+after(async () => {
+  await renderer?.close();
+});
+
+const render = (modulePath, props, options = {}) =>
+  renderer.render(modulePath, { location: LOCATION, props, ...options });
+
+// ---------------------------------------------------------------------------
+// Schalter aus (AK-8, Hard Constraint 6)
+// ---------------------------------------------------------------------------
+
+test(
+  "Schalter aus (AK-8): Der Vergleich ist standardmäßig aus – ein Schalter „Vorzeitraum vergleichen“, sonst das Diagramm von KIE-536: keine Linie, keine Legende",
+  { skip },
+  async () => {
+    const html = await render(CHART, { summary: PLAIN, loading: false });
+
+    const toggle = switchOf(html);
+    assert.match(toggle, /role="switch"/);
+    assert.match(toggle, /aria-checked="false"/);
+    assert.match(toggle, /^<button type="button"/);
+    assert.equal(textOf(toggle), "Vorzeitraum vergleichen");
+    assert.equal(count(html, /role="switch"/g), 1);
+
+    assert.equal(lineOf(html), null);
+    assert.equal(legendOf(html), null);
+    assert.doesNotMatch(html, /legend/i);
+    assert.doesNotMatch(html, /data-previous|data-compare-note/);
+    assert.doesNotMatch(textOf(html), /Vorzeitraum(?! vergleichen)/);
+    assert.equal(columns(html), 30);
+    assert.equal(bars(html), 20);
+    // Die Säulenfarbe steht nur an den Säulen.
+    assert.equal(count(html, /theme-analytics-bar/g), 20);
+    assert.deepEqual(axisValues(html), [0, 10, 20, 30, 40]);
+  }
+);
+
+test(
+  "Schalter aus: Nennt die Antwort noch einen Vorzeitraum, wird er nicht gezeigt – dieselbe Darstellung wie ohne",
+  { skip },
+  async () => {
+    const plain = await render(CHART, { summary: PLAIN, loading: false });
+    for (const props of [
+      { summary: PLAIN, loading: false, compare: false },
+      { summary: COMPARED, loading: false },
+      { summary: COMPARED, loading: false, compare: false },
+    ])
+      assert.equal(await render(CHART, props), plain);
+
+    const kpi = await render(KPI, { summary: PLAIN, loading: false });
+    for (const props of [
+      { summary: PLAIN, loading: false, compare: false },
+      { summary: COMPARED, loading: false },
+      { summary: COMPARED, loading: false, compare: false },
+    ])
+      assert.equal(await render(KPI, props), kpi);
+    assert.doesNotMatch(kpi, /data-kpi-change|Vorzeitraum|Vergleich/);
+  }
+);
+
+test(
+  "Schalter an, die Antwort ist noch ohne Vergleich geladen: Säulen und Kennzahlen bleiben stehen, noch keine Linie und kein „kein Vergleich“",
+  { skip },
+  async () => {
+    const plain = await render(CHART, { summary: PLAIN, loading: false });
+    const html = await render(CHART, {
+      summary: PLAIN,
+      loading: true,
+      compare: true,
+    });
+
+    assert.match(switchOf(html), /aria-checked="true"/);
+    assert.equal(lineOf(html), null);
+    assert.equal(legendOf(html), null);
+    assert.doesNotMatch(html, /data-compare-note/);
+    // dieselben Säulen wie ausgeschaltet
+    const barsOf = (source) =>
+      [...source.matchAll(/<path data-bar="" d="([^"]+)"/g)].map(
+        (match) => match[1]
+      );
+    assert.deepEqual(barsOf(html), barsOf(plain));
+
+    const kpi = await render(KPI, {
+      summary: PLAIN,
+      loading: true,
+      compare: true,
+    });
+    assert.doesNotMatch(kpi, /data-kpi-change/);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Linie und Legende (AK-3, NAK-1, NAK-4)
+// ---------------------------------------------------------------------------
+
+test(
+  "Linie und Legende (AK-3): gepunktete Linie über den Säulen, Legende „Gewählter Zeitraum“ / „Vorzeitraum“, die Achse reicht bis zum höheren Höchstwert",
+  { skip },
+  async () => {
+    const html = await render(CHART, {
+      summary: COMPARED,
+      loading: false,
+      compare: true,
+    });
+    assert.match(switchOf(html), /aria-checked="true"/);
+
+    // Linie: ein Pfad, gepunktet, ohne Fläche
+    const line = lineOf(html);
+    assert.ok(line, "keine Linie");
+    assert.equal(count(html, /<g data-previous-line=""/g), 1);
+    const [, path] = line.match(/<path d="([^"]+)"/);
+    assert.match(line, /<path [^>]*fill="none"/);
+    assert.match(line, new RegExp(`stroke-dasharray="${PREVIOUS_LINE.dash}"`));
+    assert.match(line, /stroke-linecap="round"/);
+    assert.match(line, new RegExp(`stroke-width="${PREVIOUS_LINE.width}"`));
+    // 30 Werte, gerade verbunden
+    assert.equal(path.split(" ").length, 30);
+    assert.match(path, /^M[\d.]+,[\d.]+( L[\d.]+,[\d.]+){29}$/);
+
+    // Sie liegt über den Säulen (später gezeichnet) und vor der Zeitachse.
+    const lastBar = html.lastIndexOf("<path data-bar");
+    const firstTick = html.indexOf("<text data-tick");
+    const lineAt = html.indexOf("<g data-previous-line");
+    assert.ok(lastBar < lineAt && lineAt < firstTick);
+
+    // Legende: beide Serien, mit den Tagen des Vorzeitraums
+    const legend = legendOf(html);
+    assert.ok(legend, "keine Legende");
+    assert.equal(
+      textOf(legend),
+      "Gewählter Zeitraum Vorzeitraum 14.08.2026–12.09.2026"
+    );
+    assert.equal(count(legend, /<li /g), 2);
+    assert.match(legend, /aria-label="Legende"/);
+    // Sie steht vor dem Diagramm, nicht darin.
+    assert.ok(html.indexOf("data-chart-legend") < html.indexOf("<svg width="));
+
+    // Achse: Höchstwert im Zeitraum 33, im Vorzeitraum 70 → bis 80
+    assert.deepEqual(axisValues(html), [0, 20, 40, 60, 80]);
+    // Der höchste Punkt der Linie liegt auf 70 von 80 der Zeichenfläche.
+    const ys = path
+      .split(" ")
+      .map((command) => Number(command.slice(1).split(",")[1]));
+    const plotHeight = 240 - 12 - 26;
+    assert.equal(
+      Math.min(...ys),
+      Math.round(plotHeight * (1 - 70 / 80) * 100) / 100
+    );
+    assert.equal(ys[12], Math.min(...ys));
+    // Die Nullen daneben liegen auf der Grundlinie, nicht darunter (NAK-1).
+    assert.equal(ys[11], plotHeight);
+    assert.equal(ys[13], plotHeight);
+    assert.ok(ys.every((y) => y >= 0 && y <= plotHeight));
+  }
+);
+
+test(
+  "Linie: in der Textfarbe des Themes, nicht in einer zweiten Akzentfarbe – die Säulen bleiben das Hauptelement",
+  { skip },
+  async () => {
+    const html = await render(CHART, {
+      summary: COMPARED,
+      loading: false,
+      compare: true,
+    });
+    const line = lineOf(html);
+
+    assert.match(
+      line,
+      new RegExp(`<path [^>]*stroke="${TEXT.replace(/[()]/g, "\\$&")}"`)
+    );
+    assert.doesNotMatch(line, /theme-analytics-bar/);
+    // Säulen: unverändert alle in der einen Akzentfarbe, mit voller Deckkraft
+    const fills = [...html.matchAll(/<path data-bar=""[^>]* fill="([^"]+)"/g)];
+    assert.equal(fills.length, 20);
+    assert.deepEqual([...new Set(fills.map((match) => match[1]))], [BAR]);
+    assert.equal(count(html, /<path data-bar=""[^>]* fill-opacity="1"/g), 20);
+    // Die Akzentfarbe steht sonst nur am Muster der Legende.
+    assert.equal(count(html, /theme-analytics-bar/g), 21);
+    assert.equal(count(legendOf(html), /theme-analytics-bar/g), 1);
+    // Kein fest verdrahteter Farbwert, keine weitere Farbe im Diagramm.
+    assert.doesNotMatch(html, /#[0-9a-f]{6}\b/i);
+    const colours = new Set(
+      [...html.matchAll(/(?:fill|stroke)="(var\([^"]+\))"/g)].map(
+        (match) => match[1]
+      )
+    );
+    assert.deepEqual([...colours].sort(), [
+      "var(--theme-analytics-bar)",
+      "var(--theme-analytics-grid)",
+      "var(--theme-analytics-text-muted)",
+      "var(--theme-bg-primary)",
+      "var(--theme-text-primary)",
+    ]);
+  }
+);
+
+test(
+  "Linie (NAK-4): nicht nur über die Farbe erkennbar – gepunktet mit Punktmarken gegen gefüllte Säulen, dasselbe Muster in der Legende",
+  { skip },
+  async () => {
+    const html = await render(CHART, {
+      summary: COMPARED,
+      loading: false,
+      compare: true,
+    });
+    const line = lineOf(html);
+
+    // je Wert eine Punktmarke
+    assert.equal(count(line, /<circle data-previous-marker=""/g), 30);
+    assert.equal(
+      count(
+        line,
+        new RegExp(`<circle [^>]*r="${PREVIOUS_LINE.markerRadius}"`, "g")
+      ),
+      30
+    );
+    // Legende: Säulenform für den Zeitraum, gepunktete Linie mit Marke für
+    // den Vorzeitraum
+    const [current, previous] = legendOf(html).split("</li>");
+    assert.match(
+      current,
+      /<path d="M[^"]+Z" fill="var\(--theme-analytics-bar\)"/
+    );
+    assert.doesNotMatch(current, /stroke-dasharray|<circle/);
+    assert.match(
+      previous,
+      new RegExp(`<line [^>]*stroke-dasharray="${PREVIOUS_LINE.dash}"`)
+    );
+    assert.match(previous, /<circle /);
+    assert.doesNotMatch(previous, /theme-analytics-bar/);
+  }
+);
+
+test(
+  "Linie: nimmt keine Eingaben an und ist für Screenreader kein eigenes Element – jeder Säulenplatz nennt seinen Vorzeitraumwert",
+  { skip },
+  async () => {
+    const html = await render(CHART, {
+      summary: COMPARED,
+      loading: false,
+      compare: true,
+    });
+
+    assert.match(
+      html,
+      /<g data-previous-line="" aria-hidden="true" pointer-events="none">/
+    );
+    // Säulenplätze: unverändert viele, ein Tab-Stopp
+    assert.equal(columns(html), 30);
+    assert.equal(count(html, /<g data-column="" role="button"/g), 20);
+    assert.equal(count(html, /<g data-column=""[^>]* tabindex="0"/g), 1);
+    // 13.09. (5 Nachrichten, davor 4), mit Hinweis auf den Filter
+    assert.match(
+      html,
+      /aria-label="So\., 13\.09\.2026 — 5 Nachrichten\. Vorzeitraum: 4\. Die Eingabetaste /
+    );
+    // 15.09. ohne Nachricht (keine Schaltfläche), Vorzeitraum 6
+    assert.match(
+      html,
+      /aria-label="Di\., 15\.09\.2026 — 0 Nachrichten\. Vorzeitraum: 6"/
+    );
+    // Zusammenfassung des Diagramms nennt die zweite Serie
+    assert.match(
+      html,
+      /aria-label="Säulendiagramm: Nachrichten pro Tag, 13\.09\.2026 bis 12\.10\.2026\. Summe [\d.]+, höchster Wert 33\. Vorzeitraum 14\.08\.2026–12\.09\.2026 als gepunktete Linie: Summe [\d.]+, höchster Wert 70\. Mit den Pfeiltasten /
+    );
+    // Der Tooltip-Text kollidiert nicht mit dem einzigen Tooltip-Element.
+    assert.equal(count(html, /pointer-events-none/g), 0);
+  }
+);
+
+test(
+  "Linie bei vielen Säulenplätzen (92 Tage): gepunktete Linie ohne Punktmarken – sie berührten einander",
+  { skip },
+  async () => {
+    const html = await render(CHART, {
+      summary: daySummary({
+        from: "2026-07-13",
+        days: 92,
+        value: (i) => 4 + ((i * 11) % 23),
+        previous: (i) => 2 + ((i * 7) % 17),
+      }),
+      loading: false,
+      compare: true,
+    });
+    const line = lineOf(html);
+    assert.ok(line);
+    assert.equal(line.match(/<path d="([^"]+)"/)[1].split(" ").length, 92);
+    assert.equal(count(line, /<circle/g), 0);
+    assert.equal(columns(html), 92);
+  }
+);
+
+test(
+  "Einzelner Tag (AK-7): Die Linie zeigt die 24 Stundenwerte des Vortags, die Legende nennt den Tag",
+  { skip },
+  async () => {
+    const hours = (day, value) =>
+      Array.from({ length: 24 }, (_, hour) => ({
+        start: day,
+        end: day,
+        partial: false,
+        hour,
+        messages: value(hour),
+        conversations: 0,
+      }));
+    const html = await render(CHART, {
+      loading: false,
+      compare: true,
+      summary: {
+        granularity: "hour",
+        fromDay: "2026-10-12",
+        toDay: "2026-10-12",
+        firstLedgerDay: "2026-01-01",
+        totals: {
+          messages: 182,
+          conversations: 0,
+          feedbackPositive: 0,
+          feedbackNegative: 0,
+        },
+        buckets: hours("2026-10-12", (hour) =>
+          hour >= 8 && hour <= 20 ? hour : 0
+        ),
+        previous: {
+          available: true,
+          fromDay: "2026-10-11",
+          toDay: "2026-10-11",
+          totals: {
+            messages: 48,
+            conversations: 0,
+            feedbackPositive: 0,
+            feedbackNegative: 0,
+          },
+          buckets: hours("2026-10-11", (hour) => (hour % 2 ? 4 : 0)),
+        },
+      },
+    });
+
+    assert.equal(columns(html), 24);
+    const line = lineOf(html);
+    assert.equal(line.match(/<path d="([^"]+)"/)[1].split(" ").length, 24);
+    assert.equal(count(line, /<circle/g), 24);
+    assert.equal(
+      textOf(legendOf(html)),
+      "Gewählter Zeitraum Vorzeitraum 11.10.2026"
+    );
+    assert.match(
+      html,
+      /aria-label="Mo\., 12\.10\.2026, 13–14 Uhr — 13 Nachrichten\. Vorzeitraum: 4"/
+    );
+    assert.match(
+      html,
+      /aria-label="Mo\., 12\.10\.2026, 0–1 Uhr — 0 Nachrichten\. Vorzeitraum: 0"/
+    );
+  }
+);
+
+test(
+  "Wochen: Die Legende nennt die Tage der Linie (ganze Kalenderwochen), nicht die der Kennzahlen",
+  { skip },
+  async () => {
+    const week = (start, end, partial, messages) => ({
+      start,
+      end,
+      partial,
+      messages,
+      conversations: 1,
+    });
+    const summary = {
+      granularity: "week",
+      fromDay: "2026-09-30",
+      toDay: "2026-10-12",
+      firstLedgerDay: "2026-01-01",
+      totals: {
+        messages: 30,
+        conversations: 3,
+        feedbackPositive: 0,
+        feedbackNegative: 0,
+      },
+      buckets: [
+        week("2026-09-30", "2026-10-04", true, 10),
+        week("2026-10-05", "2026-10-11", false, 15),
+        week("2026-10-12", "2026-10-12", true, 5),
+      ],
+      previous: {
+        available: true,
+        // 13 Tage unmittelbar vor dem 30.09.
+        fromDay: "2026-09-17",
+        toDay: "2026-09-29",
+        totals: {
+          messages: 20,
+          conversations: 2,
+          feedbackPositive: 0,
+          feedbackNegative: 0,
+        },
+        // drei ganze Kalenderwochen vor der Woche der ersten Säule
+        buckets: [
+          week("2026-09-07", "2026-09-13", false, 7),
+          week("2026-09-14", "2026-09-20", false, 12),
+          week("2026-09-21", "2026-09-27", false, 9),
+        ],
+      },
+    };
+    const html = await render(CHART, {
+      summary,
+      loading: false,
+      compare: true,
+    });
+
+    assert.equal(
+      textOf(legendOf(html)),
+      "Gewählter Zeitraum Vorzeitraum 07.09.2026–27.09.2026"
+    );
+    assert.match(
+      html,
+      /aria-label="KW 41 \(05\.10\.–11\.10\.2026\) — 15 Nachrichten\. Vorzeitraum: 12\./
+    );
+    // Die Kennzahlen nennen ihre eigenen Tage.
+    const kpi = await render(KPI, { summary, loading: false, compare: true });
+    assert.deepEqual(changesOf(kpi)[0], [
+      "messages",
+      "+50 % ggü. Vorzeitraum (20)",
+      "Vorzeitraum: 17.09.2026–29.09.2026",
+    ]);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Kein Vergleich ohne Daten (AK-6, Hard Constraint 5)
+// ---------------------------------------------------------------------------
+
+const UNAVAILABLE = {
+  ...COMPARED,
+  firstLedgerDay: "2026-09-01",
+  previous: { ...COMPARED.previous, available: false },
+};
+
+test(
+  "Kein Vergleich (AK-6): keine Linie, keine Legende – das Diagramm nennt den Tag, ab dem Zählwerte vorliegen; Säulen und Achse wie ohne Vergleich",
+  { skip },
+  async () => {
+    const html = await render(CHART, {
+      summary: UNAVAILABLE,
+      loading: false,
+      compare: true,
+    });
+    const plain = await render(CHART, {
+      summary: { ...PLAIN, firstLedgerDay: "2026-09-01" },
+      loading: false,
+    });
+
+    assert.match(switchOf(html), /aria-checked="true"/);
+    assert.equal(lineOf(html), null);
+    assert.equal(legendOf(html), null);
+    assert.match(
+      html,
+      /<p data-compare-note=""[^>]*>Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem 01\.09\.2026, dem ersten Tag mit Zählwerten\.<\/p>/
+    );
+    // Die Werte des Vorzeitraums erscheinen nirgends – auch die 70 nicht.
+    assert.doesNotMatch(html, /Vorzeitraum: \d/);
+    assert.deepEqual(axisValues(html), [0, 10, 20, 30, 40]);
+    // Bis auf Schalter und Angabe dieselbe Darstellung wie ohne Vergleich
+    const without = (source) =>
+      source
+        .replace(/<button[^>]*data-compare-switch.*?<\/button>/, "")
+        .replace(/<p data-compare-note.*?<\/p>/, "");
+    assert.equal(without(html), without(plain));
+  }
+);
+
+test(
+  "Kein Vergleich: ein Widget ohne jeden Zählwert – der Leerzustand sagt es schon, keine zweite Angabe",
+  { skip },
+  async () => {
+    const html = await render(CHART, {
+      loading: false,
+      compare: true,
+      summary: {
+        ...UNAVAILABLE,
+        firstLedgerDay: null,
+        totals: {
+          messages: 0,
+          conversations: 0,
+          feedbackPositive: 0,
+          feedbackNegative: 0,
+        },
+      },
+    });
+    assert.match(html, /data-chart-frame="empty"/);
+    assert.doesNotMatch(html, /data-compare-note|data-previous-line|legend/);
+  }
+);
+
+test(
+  "Leerzustand mit Vergleich: Ohne Nachrichten im Zeitraum bleibt es beim Hinweis – keine Linie ohne Säulen",
+  { skip },
+  async () => {
+    const html = await render(CHART, {
+      loading: false,
+      compare: true,
+      summary: daySummary({ value: () => 0, previous: PREVIOUS }),
+    });
+    assert.match(html, /Keine Nachrichten im gewählten Zeitraum/);
+    assert.equal(lineOf(html), null);
+    assert.equal(legendOf(html), null);
+    assert.equal(columns(html), 0);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Kennzahlen (AK-4, AK-6, NAK-2)
+// ---------------------------------------------------------------------------
+
+const KPI_SUMMARY = {
+  ...COMPARED,
+  totals: {
+    messages: 421,
+    conversations: 60,
+    feedbackPositive: 9,
+    feedbackNegative: 3,
+  },
+  previous: {
+    ...COMPARED.previous,
+    totals: {
+      messages: 266,
+      conversations: 0,
+      feedbackPositive: 6,
+      feedbackNegative: 4,
+    },
+  },
+};
+
+test(
+  "Kennzahlen (AK-4): 421 Nachrichten gegenüber 266 – „+58 % ggü. Vorzeitraum (266)“; bei 0 im Vorzeitraum „Vorzeitraum: 0“ ohne Prozentzahl",
+  { skip },
+  async () => {
+    const html = await render(KPI, {
+      summary: KPI_SUMMARY,
+      loading: false,
+      compare: true,
+    });
+    const range = "Vorzeitraum: 14.08.2026–12.09.2026";
+
+    assert.deepEqual(changesOf(html), [
+      ["messages", "+58 % ggü. Vorzeitraum (266)", range],
+      ["conversations", "Vorzeitraum: 0", range],
+      ["positive", "+50 % ggü. Vorzeitraum (6)", range],
+      ["negative", "−25 % ggü. Vorzeitraum (4)", range],
+    ]);
+    // Die Tage des Vergleichs stehen auch im Text für Screenreader.
+    assert.equal(
+      count(
+        html,
+        /<span class="sr-only"> \(Vorzeitraum: 14\.08\.2026–12\.09\.2026\)<\/span>/g
+      ),
+      4
+    );
+  }
+);
+
+test(
+  "Kennzahlen (NAK-2): Die großen Zahlen und die übrigen Nebenwerte sind mit und ohne Vergleich dieselben – es kommt nur die Zeile der Veränderung dazu",
+  { skip },
+  async () => {
+    const off = await render(KPI, {
+      summary: KPI_SUMMARY,
+      loading: false,
+      compare: false,
+    });
+    const on = await render(KPI, {
+      summary: KPI_SUMMARY,
+      loading: false,
+      compare: true,
+    });
+
+    assert.equal(count(on, /data-kpi-change/g), 4);
+    assert.equal(count(off, /data-kpi-change/g), 0);
+    const withoutChange = on.replace(
+      /<span data-kpi-change="".*?<\/span><\/span>/g,
+      ""
+    );
+    assert.equal(withoutChange, off);
+    // Rückgang auf 0 und unveränderter Wert
+    const edge = await render(KPI, {
+      loading: false,
+      compare: true,
+      summary: {
+        ...KPI_SUMMARY,
+        totals: {
+          messages: 0,
+          conversations: 0,
+          feedbackPositive: 6,
+          feedbackNegative: 0,
+        },
+      },
+    });
+    assert.deepEqual(
+      changesOf(edge).map(([key, text]) => [key, text]),
+      [
+        ["messages", "−100 % ggü. Vorzeitraum (266)"],
+        ["conversations", "Vorzeitraum: 0"],
+        ["positive", "±0 % ggü. Vorzeitraum (6)"],
+        ["negative", "−100 % ggü. Vorzeitraum (4)"],
+      ]
+    );
+  }
+);
+
+test(
+  "Kennzahlen (AK-6): ohne Vergleich steht in jedem Feld „Kein Vergleich verfügbar“ – keine Prozentzahl, kein Wert des Vorzeitraums; der Tooltip nennt den ersten Tag mit Zählwerten",
+  { skip },
+  async () => {
+    const html = await render(KPI, {
+      loading: false,
+      compare: true,
+      summary: {
+        ...KPI_SUMMARY,
+        firstLedgerDay: "2026-09-01",
+        previous: { ...KPI_SUMMARY.previous, available: false },
+      },
+    });
+    const reason =
+      "Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem 01.09.2026, dem ersten Tag mit Zählwerten.";
+
+    assert.deepEqual(
+      changesOf(html),
+      ["messages", "conversations", "positive", "negative"].map((key) => [
+        key,
+        "Kein Vergleich verfügbar",
+        reason,
+      ])
+    );
+    assert.doesNotMatch(html, /266|ggü\.|sr-only/);
+    // Die großen Zahlen bleiben.
+    assert.match(textOf(html), /^Nachrichten 421 /);
+
+    // Ohne jeden Zählwert: derselbe Text, eine andere Begründung
+    const empty = await render(KPI, {
+      loading: false,
+      compare: true,
+      summary: {
+        ...KPI_SUMMARY,
+        firstLedgerDay: null,
+        previous: { ...KPI_SUMMARY.previous, available: false },
+      },
+    });
+    assert.deepEqual(changesOf(empty)[0], [
+      "messages",
+      "Kein Vergleich verfügbar",
+      "Kein Vergleich verfügbar: Für den Vorzeitraum liegen keine Zählwerte vor.",
+    ]);
+  }
+);
+
+test(
+  "Kennzahlen: vor der ersten Antwort Platzhalter – auch mit eingeschaltetem Vergleich keine Zeile der Veränderung",
+  { skip },
+  async () => {
+    const html = await render(KPI, {
+      summary: null,
+      loading: true,
+      compare: true,
+    });
+    assert.doesNotMatch(html, /data-kpi-change/);
+    assert.equal(count(html, /data-kpi=/g), 4);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Klassen
+// ---------------------------------------------------------------------------
+
+/** Deklarationen, die Tailwind mit der Konfiguration des Projekts erzeugt. */
+async function tailwindRules(classes) {
+  const { default: postcss } = await import("postcss");
+  const { default: tailwind } = await import("tailwindcss");
+  const { default: config } = await import("../tailwind.config.js");
+  const { root } = await postcss([
+    tailwind({
+      ...config,
+      content: [{ raw: classes.join(" ") }],
+      safelist: [],
+    }),
+  ]).process("@tailwind utilities;", { from: undefined });
+  const escapeClass = (name) => name.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  return (className) => {
+    const selector = `.${escapeClass(className)}`;
+    let found = 0;
+    root.walkRules((rule) => {
+      const names = rule.selectors.some((candidate) => {
+        const at = candidate.indexOf(selector);
+        return (
+          at >= 0 && !/[\w\\-]/.test(candidate[at + selector.length] ?? "")
+        );
+      });
+      if (names) rule.walkDecls(() => found++);
+    });
+    return found;
+  };
+}
+
+test(
+  "Klassen: Für jede Klasse von Schalter, Legende, Angabe und Zeile der Veränderung erzeugt Tailwind CSS – in beiden Zuständen des Schalters",
+  { skip },
+  async () => {
+    const used = new Set();
+    for (const html of [
+      await render(CHART, { summary: PLAIN, loading: false }),
+      await render(CHART, { summary: COMPARED, loading: false, compare: true }),
+      await render(CHART, {
+        summary: UNAVAILABLE,
+        loading: false,
+        compare: true,
+      }),
+      await render(KPI, {
+        summary: KPI_SUMMARY,
+        loading: false,
+        compare: true,
+      }),
+      await render(KPI, {
+        summary: UNAVAILABLE,
+        loading: false,
+        compare: true,
+      }),
+    ])
+      for (const [, classes] of html.matchAll(/ class="([^"]*)"/g))
+        for (const name of classes.split(/\s+/)) if (name) used.add(name);
+
+    // Darunter die neuen: Bahn und Knopf des Schalters in beiden Zuständen
+    for (const expected of [
+      "bg-theme-text-primary",
+      "border-theme-text-primary",
+      "bg-theme-bg-primary",
+      "translate-x-[14px]",
+      "border-[color:var(--theme-analytics-text-muted)]",
+      "bg-[color:var(--theme-analytics-text-muted)]",
+      "bg-transparent",
+      "sr-only",
+    ])
+      assert.ok(used.has(expected), expected);
+
+    const declarations = await tailwindRules([...used]);
+    const missing = [...used].filter((name) => declarations(name) === 0);
+    assert.deepEqual(missing, [], "Klassen ohne CSS");
+  }
+);

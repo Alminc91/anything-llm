@@ -4,14 +4,20 @@ import { Link } from "react-router-dom";
 import { Table } from "@phosphor-icons/react";
 import paths from "@/utils/paths";
 import {
+  PREVIOUS_LINE,
   barPath,
   bucketLabel,
   bucketTick,
   chartState,
   columnLayout,
+  comparisonOf,
   countsSinceDay,
   formatDate,
+  formatDayRange,
   formatNumber,
+  linePath,
+  linePoints,
+  previousValueLabel,
   tickLabelWidth,
   tickStep,
   tooltipPlacement,
@@ -27,6 +33,15 @@ import {
 // Wert ist auch ohne Maus erreichbar: Die Säulenplätze sind fokussierbar (ein
 // Tab-Stopp, Pfeiltasten wechseln den Platz), und „Als Tabelle" zeigt
 // dieselben Werte als Tabelle.
+//
+// KIE-537 – Schalter „Vorzeitraum vergleichen": Die Werte des Vorzeitraums
+// liegen als gepunktete Linie über den Säulen – gerade von Wert zu Wert, in
+// der Textfarbe des Themes, nicht in einer zweiten Akzentfarbe. Die Säulen
+// bleiben das Hauptelement. Mit zwei Serien gibt es eine Legende; Säule und
+// gepunktete Linie mit Punktmarken unterscheiden sich auch ohne Farbe.
+// Tooltip und Tabelle nennen den zweiten Wert. Gibt es keinen Vergleich
+// (der Vorzeitraum beginnt vor dem ersten Zählwert), steht das am Diagramm,
+// und es bleibt bei den Säulen.
 
 const METRICS = ["messages", "conversations"];
 const DEFAULT_WIDTH = 960;
@@ -42,6 +57,8 @@ const TICK_WIDTH = { hour: 52, day: 48, week: 52, month: 68 };
  * @param {boolean} [props.failed] - das Laden ist fehlgeschlagen
  * @param {{start: string, end: string}|null} [props.selectedBucket] - Abschnitt, auf den die Liste gefiltert ist
  * @param {(bucket: {start: string, end: string, label: string}|null) => void} [props.onSelectBucket]
+ * @param {boolean} [props.compare] - Schalter „Vorzeitraum vergleichen" (KIE-537); der Zustand liegt bei der Ansicht
+ * @param {(compare: boolean) => void} [props.onCompareChange]
  */
 export default function TimelineChart({
   summary,
@@ -49,6 +66,8 @@ export default function TimelineChart({
   failed = false,
   selectedBucket = null,
   onSelectBucket = () => {},
+  compare = false,
+  onCompareChange = () => {},
 }) {
   const { t, i18n } = useTranslation();
   const [metric, setMetric] = useState("messages");
@@ -59,6 +78,15 @@ export default function TimelineChart({
   const state = chartState(summary, metric);
   const since = countsSinceDay(summary);
   const context = { t, locale: i18n.language };
+  // KIE-537: null = Vergleich aus (oder noch nicht geladen)
+  const comparison = comparisonOf(summary, compare);
+  const previous = comparison?.available ? comparison : null;
+  // Kein Vergleich: Die Angabe über dem Diagramm nennt den Tag, ab dem
+  // Zählwerte vorliegen (ohne jeden Zählwert sagt es schon der Leerzustand).
+  const noComparisonSince =
+    comparison && !comparison.available ? comparison.since : null;
+  // Die Linie gibt es nur über den Säulen – mit ihr die Legende.
+  const showsLine = !!previous && state === "data" && !showTable;
 
   const toggleBase =
     "px-3 py-1.5 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[color:var(--theme-text-primary)]";
@@ -92,6 +120,11 @@ export default function TimelineChart({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <CompareSwitch
+            checked={compare}
+            onChange={onCompareChange}
+            label={t("embed-analytics.compare.toggle")}
+          />
           <div
             role="group"
             aria-label={t("embed-analytics.chart.metric-switch")}
@@ -125,6 +158,17 @@ export default function TimelineChart({
         className={`transition-opacity ${loading && summary ? "opacity-50" : ""}`}
         aria-busy={loading}
       >
+        {/* KIE-537 – über dem Diagramm, an derselben Stelle: die Legende
+            oder die Angabe, warum es keinen Vergleich gibt. Die Kopfzeile
+            mit dem Schalter bleibt dabei, wo sie ist. */}
+        {showsLine && <Legend previous={previous} t={t} />}
+        {noComparisonSince && (
+          <p data-compare-note="" className={`mb-3 text-xs ${MUTED}`}>
+            {t("embed-analytics.compare.unavailable-since", {
+              date: formatDate(noComparisonSince),
+            })}
+          </p>
+        )}
         {!summary ? (
           <Frame>
             <p className={`text-sm ${MUTED}`}>
@@ -156,6 +200,7 @@ export default function TimelineChart({
             summary={summary}
             granularity={granularity}
             context={context}
+            previous={previous}
           />
         ) : state === "empty-metric" ? (
           <Frame>
@@ -171,10 +216,90 @@ export default function TimelineChart({
             context={context}
             selectedBucket={selectedBucket}
             onSelectBucket={onSelectBucket}
+            previous={previous}
           />
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * Schalter „Vorzeitraum vergleichen" (KIE-537): aus = leere Bahn, an =
+ * gefüllte Bahn mit dem Knopf rechts – in den Textfarben des Themes, der
+ * Zustand hängt nicht an einer Farbe.
+ * @param {{checked: boolean, onChange: (checked: boolean) => void, label: string}} props
+ */
+function CompareSwitch({ checked, onChange, label }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      data-compare-switch=""
+      onClick={() => onChange(!checked)}
+      className="mr-1 inline-flex items-center gap-2 rounded-lg py-1.5 text-left text-sm text-theme-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)]"
+    >
+      <span
+        aria-hidden="true"
+        className={`relative inline-block h-[18px] w-[32px] shrink-0 rounded-full border transition-colors ${checked ? "border-theme-text-primary bg-theme-text-primary" : "border-[color:var(--theme-analytics-text-muted)] bg-transparent"}`}
+      >
+        <span
+          className={`absolute left-[2px] top-[2px] h-[12px] w-[12px] rounded-full transition-transform ${checked ? "translate-x-[14px] bg-theme-bg-primary" : "bg-[color:var(--theme-analytics-text-muted)]"}`}
+        />
+      </span>
+      {label}
+    </button>
+  );
+}
+
+/**
+ * Legende für zwei Serien (KIE-537): Säule = gewählter Zeitraum, gepunktete
+ * Linie mit Punktmarke = Vorzeitraum mit den Tagen, die die Linie zeigt.
+ * @param {{previous: {lineFromDay: string, lineToDay: string}, t: Function}} props
+ */
+function Legend({ previous, t }) {
+  const { width, dash, markerRadius } = PREVIOUS_LINE;
+  return (
+    <ul
+      data-chart-legend=""
+      aria-label={t("embed-analytics.compare.legend.label")}
+      className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-theme-text-primary"
+    >
+      <li className="inline-flex items-center gap-1.5">
+        <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true">
+          <path
+            d={barPath({ x: 2, y: 0, width: 8, height: 12 })}
+            fill="var(--theme-analytics-bar)"
+          />
+        </svg>
+        {t("embed-analytics.compare.legend.current")}
+      </li>
+      <li className="inline-flex flex-wrap items-center gap-x-1.5">
+        <svg width={28} height={12} viewBox="0 0 28 12" aria-hidden="true">
+          <line
+            x1={1}
+            x2={27}
+            y1={6}
+            y2={6}
+            stroke="var(--theme-text-primary)"
+            strokeWidth={width}
+            strokeDasharray={dash}
+            strokeLinecap="round"
+          />
+          <circle
+            cx={14}
+            cy={6}
+            r={markerRadius}
+            fill="var(--theme-text-primary)"
+          />
+        </svg>
+        {t("embed-analytics.compare.legend.previous")}
+        <span className={MUTED}>
+          {formatDayRange(previous.lineFromDay, previous.lineToDay, t)}
+        </span>
+      </li>
+    </ul>
   );
 }
 
@@ -197,6 +322,7 @@ function Columns({
   context,
   selectedBucket,
   onSelectBucket,
+  previous,
 }) {
   const { t } = context;
   const wrapperRef = useRef(null);
@@ -243,16 +369,35 @@ function Columns({
     () => buckets.map((bucket) => bucket[metric] ?? 0),
     [buckets, metric]
   );
+  // KIE-537: Werte des Vorzeitraums, je Säule der Abschnitt an derselben
+  // Stelle – null ohne Vergleich.
+  const previousBuckets = previous?.buckets ?? null;
+  const previousValues = useMemo(
+    () => previousBuckets?.map((bucket) => bucket[metric] ?? 0) ?? null,
+    [previousBuckets, metric]
+  );
   const height = width < 520 ? 200 : 240;
   const plotWidth = Math.max(40, width - MARGIN.left - MARGIN.right);
   const plotHeight = height - MARGIN.top - MARGIN.bottom;
-  const scale = valueScale(Math.max(...values, 0));
+  // Die Wertachse reicht bis zum höheren der beiden Höchstwerte.
+  const scale = valueScale(Math.max(...values, ...(previousValues ?? []), 0));
   const columns = columnLayout({
     values,
     width: plotWidth,
     height: plotHeight,
     max: scale.max,
   });
+  const line = previousValues
+    ? linePoints({
+        values: previousValues,
+        columns,
+        height: plotHeight,
+        max: scale.max,
+      })
+    : null;
+  // Punktmarken nur, solange sie einander nicht berühren.
+  const showMarkers =
+    !!line && (columns[0]?.width ?? 0) >= PREVIOUS_LINE.markerMinSlot;
   const ticks = buckets.map((bucket) =>
     bucketTick(bucket, granularity, context)
   );
@@ -284,6 +429,18 @@ function Columns({
       period: labelOf(i),
       value: valueLabel(values[i], metric, t),
     });
+  // KIE-537: zweite Zeile des Tooltips, „Vorzeitraum: N" – null ohne Vergleich
+  const previousOf = (i) =>
+    previousValues ? previousValueLabel(previousValues[i], t) : null;
+  // Angabe eines Platzes für Screenreader: Wert, Vorzeitraum, Hinweis.
+  const describe = (i, actionable) =>
+    [
+      tooltipOf(i),
+      previousOf(i),
+      actionable ? t("embed-analytics.chart.filter-hint") : null,
+    ]
+      .filter(Boolean)
+      .join(". ");
 
   const select = (i) => {
     if (!clickable || !(values[i] > 0)) return;
@@ -335,10 +492,14 @@ function Columns({
       ? tooltipPlacement({
           columns,
           active,
-          text: tooltipOf(active),
+          // Die längere der beiden Zeilen bestimmt die Breite.
+          text: [tooltipOf(active), previousOf(active) ?? ""].reduce(
+            (longest, text) => (text.length > longest.length ? text : longest)
+          ),
           width,
           plotLeft: MARGIN.left,
           plotHeight,
+          line,
         })
       : null;
 
@@ -358,6 +519,21 @@ function Columns({
             total: formatNumber(summary.totals[metric]),
             max: formatNumber(Math.max(...values, 0)),
           }),
+          ...(previousValues
+            ? [
+                t("embed-analytics.compare.summary", {
+                  range: formatDayRange(
+                    previous.lineFromDay,
+                    previous.lineToDay,
+                    t
+                  ),
+                  total: formatNumber(
+                    previousValues.reduce((total, value) => total + value, 0)
+                  ),
+                  max: formatNumber(Math.max(...previousValues, 0)),
+                }),
+              ]
+            : []),
           t("embed-analytics.chart.keyboard-hint"),
         ].join(" ")}
         className="block max-w-full"
@@ -407,11 +583,7 @@ function Columns({
                 data-column=""
                 role={actionable ? "button" : "img"}
                 aria-pressed={actionable ? selected : undefined}
-                aria-label={
-                  actionable
-                    ? `${tooltipOf(i)}. ${t("embed-analytics.chart.filter-hint")}`
-                    : tooltipOf(i)
-                }
+                aria-label={describe(i, actionable)}
                 tabIndex={i === currentTabStop ? 0 : -1}
                 onPointerEnter={() => pointAt(i)}
                 onPointerMove={() => pointAt(i)}
@@ -479,6 +651,38 @@ function Columns({
             );
           })}
 
+          {/* KIE-537 – Linie des Vorzeitraums: über den Säulen, gerade von
+              Wert zu Wert. Sie nimmt keine Eingaben an (die Säulenplätze
+              darunter bleiben erreichbar) und ist für Screenreader kein
+              eigenes Element – jeder Platz nennt seinen Vorzeitraumwert. */}
+          {line && (
+            <g data-previous-line="" aria-hidden="true" pointerEvents="none">
+              <path
+                d={linePath(line)}
+                fill="none"
+                stroke="var(--theme-text-primary)"
+                strokeWidth={PREVIOUS_LINE.width}
+                strokeDasharray={PREVIOUS_LINE.dash}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {line.map((point, i) =>
+                showMarkers || i === active ? (
+                  <circle
+                    key={i}
+                    data-previous-marker=""
+                    cx={point.x}
+                    cy={point.y}
+                    r={PREVIOUS_LINE.markerRadius + (i === active ? 1 : 0)}
+                    fill="var(--theme-text-primary)"
+                    stroke="var(--theme-bg-primary)"
+                    strokeWidth={1}
+                  />
+                ) : null
+              )}
+            </g>
+          )}
+
           {/* Grundlinie und Zeitachse */}
           <g aria-hidden="true">
             <line
@@ -523,6 +727,11 @@ function Columns({
           <span className="font-semibold">
             {valueLabel(values[active], metric, t)}
           </span>
+          {previousValues && (
+            <span data-tooltip-previous="" className="block">
+              {previousOf(active)}
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -542,10 +751,18 @@ function tooltipStyle({ align, x, maxWidth }) {
   return { left: x, maxWidth, transform: "translate(-50%, -100%)" };
 }
 
-/** Dieselben Werte als Tabelle: markierbar, per Tastatur erreichbar. */
-function BucketTable({ summary, granularity, context }) {
+/**
+ * Dieselben Werte als Tabelle: markierbar, per Tastatur erreichbar. Mit
+ * Vergleich (KIE-537) hat jede Größe eine zweite Spalte mit dem Wert des
+ * Vorzeitraums – dem Abschnitt an derselben Stelle, wie ihn die Linie zeigt;
+ * die Summe darunter ist die dieser Spalte.
+ */
+function BucketTable({ summary, granularity, context, previous }) {
   const { t } = context;
   const cell = "px-3 py-1.5 text-right tabular-nums";
+  const previousCell = `${cell} ${MUTED}`;
+  const previousSum = (key) =>
+    previous.buckets.reduce((total, bucket) => total + (bucket[key] ?? 0), 0);
   return (
     <div
       tabIndex={0}
@@ -569,13 +786,23 @@ function BucketTable({ summary, granularity, context }) {
             <th scope="col" className="px-3 py-2 text-right font-medium">
               {t("embed-analytics.chart.table.messages")}
             </th>
+            {previous && (
+              <th scope="col" className="px-3 py-2 text-right font-medium">
+                {t("embed-analytics.compare.table.messages")}
+              </th>
+            )}
             <th scope="col" className="px-3 py-2 text-right font-medium">
               {t("embed-analytics.chart.table.conversations")}
             </th>
+            {previous && (
+              <th scope="col" className="px-3 py-2 text-right font-medium">
+                {t("embed-analytics.compare.table.conversations")}
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
-          {summary.buckets.map((bucket) => (
+          {summary.buckets.map((bucket, i) => (
             <tr
               key={`${bucket.start}-${bucket.hour ?? ""}`}
               className="border-t border-white/10"
@@ -584,7 +811,17 @@ function BucketTable({ summary, granularity, context }) {
                 {bucketLabel(bucket, granularity, context)}
               </th>
               <td className={cell}>{formatNumber(bucket.messages)}</td>
+              {previous && (
+                <td className={previousCell}>
+                  {formatNumber(previous.buckets[i].messages)}
+                </td>
+              )}
               <td className={cell}>{formatNumber(bucket.conversations)}</td>
+              {previous && (
+                <td className={previousCell}>
+                  {formatNumber(previous.buckets[i].conversations)}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -594,9 +831,19 @@ function BucketTable({ summary, granularity, context }) {
               {t("embed-analytics.chart.table.total")}
             </th>
             <td className={cell}>{formatNumber(summary.totals.messages)}</td>
+            {previous && (
+              <td className={previousCell}>
+                {formatNumber(previousSum("messages"))}
+              </td>
+            )}
             <td className={cell}>
               {formatNumber(summary.totals.conversations)}
             </td>
+            {previous && (
+              <td className={previousCell}>
+                {formatNumber(previousSum("conversations"))}
+              </td>
+            )}
           </tr>
         </tfoot>
       </table>

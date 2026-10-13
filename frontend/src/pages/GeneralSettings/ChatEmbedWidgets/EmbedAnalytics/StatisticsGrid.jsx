@@ -3,12 +3,24 @@ import { useTranslation } from "react-i18next";
 import { CaretDown, CaretUp, Info } from "@phosphor-icons/react";
 import Embed from "@/models/embed";
 import useUser from "@/hooks/useUser";
-import { formatNumber, kpiValues } from "@/utils/analyticsTimeline";
+import {
+  changeLabel,
+  comparisonOf,
+  formatDate,
+  formatDayRange,
+  formatNumber,
+  kpiValues,
+} from "@/utils/analyticsTimeline";
 
 // KIE-536 – Kennzahlen-Streifen: vier Felder aus dem Zählerbuch
 // (analytics/summary), dieselbe Quelle wie das Diagramm. Die einklappbaren
 // technischen Details für Admins lesen weiterhin analytics/overview, also die
 // noch vorhandenen Konversationsinhalte – deshalb steht dort, was sie zählen.
+//
+// KIE-537 – Mit eingeschaltetem Vergleich hat jedes Feld eine weitere Zeile:
+// die Veränderung gegenüber dem Vorzeitraum (gleich viele Kalendertage
+// unmittelbar davor) oder „Kein Vergleich verfügbar". Die großen Zahlen und
+// die übrigen Nebenwerte bleiben, wie sie sind.
 
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 const NO_VALUE = "–";
@@ -17,6 +29,7 @@ const NO_VALUE = "–";
  * @param {Object} props
  * @param {import("@/utils/analyticsTimeline").Summary|null} props.summary
  * @param {boolean} props.loading
+ * @param {boolean} [props.compare] - Schalter „Vorzeitraum vergleichen" (KIE-537)
  * @param {() => void} props.onShowNegative - setzt den Listenfilter „negativ"
  * @param {number|null} props.embedId
  * @param {string|null} props.startDate - ISO-Zeitstempel (für die technischen Details)
@@ -25,6 +38,7 @@ const NO_VALUE = "–";
 export default function StatisticsGrid({
   summary,
   loading,
+  compare = false,
   onShowNegative,
   embedId,
   startDate,
@@ -36,11 +50,37 @@ export default function StatisticsGrid({
   const value = (number) => (summary ? formatNumber(number) : NO_VALUE);
   const granularity = summary?.granularity ?? "day";
 
+  // KIE-537: Zeile der Veränderung je Feld – null, solange der Vergleich aus
+  // ist oder die Antwort noch keinen Vorzeitraum nennt. Der Tooltip nennt die
+  // Tage, mit denen verglichen wird, bzw. warum es keinen Vergleich gibt.
+  const comparison = comparisonOf(summary, compare);
+  const change = (current, key) => {
+    if (!comparison) return null;
+    if (!comparison.available)
+      return {
+        available: false,
+        text: t("embed-analytics.compare.unavailable"),
+        title: comparison.since
+          ? t("embed-analytics.compare.unavailable-since", {
+              date: formatDate(comparison.since),
+            })
+          : t("embed-analytics.compare.unavailable-no-counts"),
+      };
+    return {
+      available: true,
+      text: changeLabel(current, comparison.totals[key] ?? 0, t),
+      title: t("embed-analytics.compare.previous-range", {
+        range: formatDayRange(comparison.fromDay, comparison.toDay, t),
+      }),
+    };
+  };
+
   const fields = [
     {
       key: "messages",
       label: t("embed-analytics.kpi.messages"),
       value: value(kpi.messages),
+      change: change(kpi.messages, "messages"),
       detail:
         summary && kpi.averagePerBucket !== null
           ? t(`embed-analytics.kpi.avg-per.${granularity}`, {
@@ -53,6 +93,7 @@ export default function StatisticsGrid({
       label: t("embed-analytics.kpi.conversations"),
       hint: t("embed-analytics.kpi.conversations-hint"),
       value: value(kpi.conversations),
+      change: change(kpi.conversations, "conversations"),
       detail:
         kpi.averagePerConversation !== null
           ? t("embed-analytics.kpi.avg-per-conversation", {
@@ -64,6 +105,7 @@ export default function StatisticsGrid({
       key: "positive",
       label: t("embed-analytics.kpi.positive"),
       value: value(kpi.positive),
+      change: change(kpi.positive, "feedbackPositive"),
       detail:
         kpi.positiveShare !== null
           ? t("embed-analytics.kpi.positive-share", {
@@ -77,6 +119,7 @@ export default function StatisticsGrid({
       key: "negative",
       label: t("embed-analytics.kpi.negative"),
       value: value(kpi.negative),
+      change: change(kpi.negative, "feedbackNegative"),
       // Der Verweis filtert die Liste auf negativ bewertete Konversationen –
       // ohne eine solche Bewertung steht dort der Nebentext.
       ...(kpi.negative > 0
@@ -149,6 +192,21 @@ export default function StatisticsGrid({
                 >
                   {field.action.label}
                 </button>
+              )}
+              {field.change && (
+                <span
+                  data-kpi-change=""
+                  title={field.change.title}
+                  className={`mt-1 block text-xs ${field.change.available ? "text-theme-text-primary" : MUTED}`}
+                >
+                  {field.change.text}
+                  {/* Der Tooltip ist nur mit der Maus erreichbar: Die Tage
+                      des Vergleichs stehen deshalb auch im Text – der Grund
+                      für „Kein Vergleich" steht sichtbar am Diagramm. */}
+                  {field.change.available && (
+                    <span className="sr-only">{` (${field.change.title})`}</span>
+                  )}
+                </span>
               )}
             </dd>
           </div>
