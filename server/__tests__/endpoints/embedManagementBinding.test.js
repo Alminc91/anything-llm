@@ -307,7 +307,10 @@ describe("konversation_detail (AK-13)", () => {
   beforeEach(() => {
     // Zugriff auf A und C, nicht auf B
     kunde = createUser(prisma, "default", [workspaceA.id, workspaceC.id]);
-    // Je Widget eine Konversation mit zwei Nachrichten
+    // Je Widget eine zweite Konversation in derselben Browser-Sitzung, mit
+    // eigener Kennung. KIE-538: Die Einzelansicht zeigt eine Konversation wie
+    // Liste, Export und Löschen sie verstehen - über die session_id nur die
+    // Alt-Zeilen ohne conversation_id (chatA/chatB), nicht die ganze Sitzung.
     followUpA = seedChat(embedA, {
       prompt: "Und wo findet er statt?",
       response: JSON.stringify({ text: "Im Haus der Bildung." }),
@@ -331,7 +334,7 @@ describe("konversation_detail (AK-13)", () => {
       token,
     });
 
-  // Antwort wie vor der Änderung: genau die Felder aus getConversationDetails.
+  // Felder wie vor KIE-533: genau die aus getConversationDetails.
   const message = (chat) => ({
     id: chat.id,
     prompt: chat.prompt,
@@ -385,13 +388,13 @@ describe("konversation_detail (AK-13)", () => {
       expect(detailSpy).not.toHaveBeenCalled();
     });
 
-    test("eigenes Widget: Antwort unverändert", async () => {
+    test("eigenes Widget über die session_id: die Alt-Zeilen der Sitzung, nicht ihre übrigen Konversationen", async () => {
       const result = await detail(embedA.id, chatA.session_id, kunde.token);
 
       expect(result.statusCode).toBe(200);
       expect(result.body).toEqual({
         success: true,
-        messages: [message(chatA), message(followUpA)],
+        messages: [message(chatA)],
       });
     });
 
@@ -430,12 +433,17 @@ describe("konversation_detail (AK-13)", () => {
         [embedA, chatA, followUpA],
         [embedB, chatB, followUpB],
       ]) {
-        const result = await detail(embed.id, chat.session_id, user.token);
-        expect(result.statusCode).toBe(200);
-        expect(result.body).toEqual({
-          success: true,
-          messages: [message(chat), message(followUp)],
-        });
+        for (const [key, row] of [
+          [chat.session_id, chat],
+          [followUp.conversation_id, followUp],
+        ]) {
+          const result = await detail(embed.id, key, user.token);
+          expect(result.statusCode).toBe(200);
+          expect(result.body).toEqual({
+            success: true,
+            messages: [message(row)],
+          });
+        }
       }
     });
 
@@ -452,12 +460,17 @@ describe("konversation_detail (AK-13)", () => {
       [embedA, chatA, followUpA],
       [embedB, chatB, followUpB],
     ]) {
-      const result = await detail(embed.id, chat.session_id);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toEqual({
-        success: true,
-        messages: [message(chat), message(followUp)],
-      });
+      for (const [key, row] of [
+        [chat.session_id, chat],
+        [followUp.conversation_id, followUp],
+      ]) {
+        const result = await detail(embed.id, key);
+        expect(result.statusCode).toBe(200);
+        expect(result.body).toEqual({
+          success: true,
+          messages: [message(row)],
+        });
+      }
     }
   });
 

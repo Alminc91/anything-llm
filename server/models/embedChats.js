@@ -987,20 +987,21 @@ const EmbedChats = {
 
   /**
    * Analytics: Get all messages for a specific conversation
+   * KIE-538: derselbe Begriff von „Konversation" wie Liste, Export und
+   * Löschen ({@link EmbedChats._conversationScope}) - die aufgeklappte
+   * Konversation zeigt genau die Zeilen, die „Konversation löschen" entfernt.
+   * Die session_id bezeichnet nur noch die Alt-Zeilen ohne conversation_id,
+   * nicht mehr alle Konversationen der Browser-Sitzung.
    * @param {string} conversationId - The conversation ID (or session ID for backwards compatibility)
    * @param {number} embedId - The embed config ID
    * @returns {Promise<Array>} Array of chat messages
    */
   getConversationDetails: async function (conversationId, embedId) {
+    const scope = EmbedChats._conversationScope(embedId, conversationId);
+    if (!scope) return [];
     try {
       return await prisma.embed_chats.findMany({
-        where: {
-          OR: [
-            { conversation_id: String(conversationId) },
-            { session_id: String(conversationId) }, // Backwards compatibility
-          ],
-          embed_id: Number(embedId),
-        },
+        where: scope.where,
         orderBy: { createdAt: "asc" },
         select: {
           id: true,

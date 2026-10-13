@@ -204,6 +204,16 @@ const deleteVisitor = (embed, conversationId, user) =>
 const preview = (embed, conversationId, user) =>
   call(PREVIEW, embed, conversationId, user);
 
+/** Die aufgeklappte Konversation: ihre Nachrichten, wie die Karte sie lädt. */
+async function shown(embed, conversationId, user) {
+  const result = await invoke(DETAIL, {
+    params: { embedId: String(embed.id), sessionId: conversationId },
+    token: user?.token ?? null,
+  });
+  expect(result.statusCode).toBe(200);
+  return result.body.messages;
+}
+
 /** IDs der Konversationen, die die Liste des Widgets zeigt. */
 async function listed(embed, user) {
   const result = await invoke(CONVERSATIONS, {
@@ -380,6 +390,54 @@ describe("loescht_genau_diese (AK-6)", () => {
         },
       })
     ).toBe(0);
+  });
+
+  test("loescht_genau_diese: Die aufgeklappte Konversation zeigt genau die Zeilen, die gelöscht werden - auch die Alt-Konversation, deren ID die session_id ist", async () => {
+    // Alt-Konversation der Sitzung besucher-1: zwei Zeilen - nicht die acht
+    // der ganzen Sitzung (ziel, nachbar und die Alt-Zeilen).
+    expect(
+      (await shown(embed, "besucher-1", kunde)).map((m) => [
+        m.prompt,
+        m.conversation_id,
+      ])
+    ).toEqual([
+      ["besucher-1: Frage 1", null],
+      ["besucher-1: Frage 2", null],
+    ]);
+    // Eine vom Besucher geleerte Zeile zählt die Liste nicht mehr; angezeigt
+    // und gelöscht wird sie weiterhin.
+    await db.client.embed_chats.update({
+      where: { id: target[0].id },
+      data: { include: false },
+    });
+
+    const ids = await listed(embed, kunde);
+    expect(ids).toEqual(["besucher-1", "fremd", "nachbar", "ziel"]);
+    for (const id of ids) {
+      const visible = (await shown(embed, id, kunde))
+        .map((m) => m.id)
+        .sort((a, b) => a - b);
+      const look = await preview(embed, id, kunde);
+      expect([id, look.body.messageCount]).toEqual([id, visible.length]);
+
+      const before = await chatIds();
+      const result = await deleteConversation(embed, id, kunde);
+      expect([id, result.body]).toEqual([
+        id,
+        { success: true, deletedCount: visible.length },
+      ]);
+      const after = await chatIds();
+      expect([id, before.filter((chat) => !after.includes(chat))]).toEqual([
+        id,
+        visible,
+      ]);
+      expect(await shown(embed, id, kunde)).toEqual([]);
+    }
+    // Übrig ist nur das andere Widget.
+    expect(
+      await db.client.embed_chats.count({ where: { embed_id: embed.id } })
+    ).toBe(0);
+    expect(await db.client.embed_chats.count()).toBe(2);
   });
 
   test("loescht_genau_diese: Die session_id einer Sitzung ohne Alt-Zeilen bezeichnet keine Konversation - nichts wird gelöscht", async () => {
