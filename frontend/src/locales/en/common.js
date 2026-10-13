@@ -1638,6 +1638,7 @@ const TRANSLATIONS = {
       table: {
         messages: "Messages (previous period)",
         conversations: "Conversations (previous period)",
+        period: "Section in the previous period",
       },
     },
     chart: {

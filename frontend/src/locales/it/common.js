@@ -1579,6 +1579,7 @@ const TRANSLATIONS = {
       table: {
         messages: null,
         conversations: null,
+        period: null,
       },
     },
     chart: {

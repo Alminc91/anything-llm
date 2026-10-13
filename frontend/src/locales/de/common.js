@@ -1065,6 +1065,7 @@ const TRANSLATIONS = {
       table: {
         messages: "Nachrichten (Vorzeitraum)",
         conversations: "Konversationen (Vorzeitraum)",
+        period: "Abschnitt im Vorzeitraum",
       },
     },
     chart: {

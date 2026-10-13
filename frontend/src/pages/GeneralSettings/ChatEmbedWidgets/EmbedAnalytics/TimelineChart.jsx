@@ -797,98 +797,138 @@ function tooltipStyle({ align, x, maxWidth }) {
  * Dieselben Werte als Tabelle: markierbar, per Tastatur erreichbar. Mit
  * Vergleich (KIE-537) hat jede Größe eine zweite Spalte mit dem Wert des
  * Vorzeitraums – dem Abschnitt an derselben Stelle, wie ihn die Linie zeigt;
- * die Summe darunter ist die dieser Spalte.
+ * die Summe darunter ist die dieser Spalte. Welcher Abschnitt das ist, steht
+ * in jeder Zeile in einer eigenen Spalte vor dem ersten Vorzeitraumwert –
+ * sichtbar, nicht als Tooltip: Der wäre mit Finger und Tastatur nicht zu
+ * erreichen. Die Legende des Diagramms gibt es hier nicht; die Tage, aus
+ * denen die Spalten stammen, stehen deshalb über der Tabelle und in ihrer
+ * Beschriftung.
  */
 function BucketTable({ summary, granularity, context, previous }) {
   const { t } = context;
   const cell = "px-3 py-1.5 text-right tabular-nums";
   const previousCell = `${cell} ${MUTED}`;
+  const previousPeriodCell = `px-3 py-1.5 text-left text-xs ${MUTED}`;
   const previousSum = (key) =>
     previous.buckets.reduce((total, bucket) => total + (bucket[key] ?? 0), 0);
+  // Die Tage der Spalten des Vorzeitraums – dieselben wie in der Legende.
+  const previousDays = previous
+    ? formatDayRange(previous.lineFromDay, previous.lineToDay, t)
+    : null;
+  const previousRange = previous
+    ? t("embed-analytics.compare.previous-range", { range: previousDays })
+    : null;
+  const caption = [
+    t("embed-analytics.chart.table.caption", {
+      per: t(`embed-analytics.chart.per.${granularity}`),
+    }),
+    previousRange,
+  ]
+    .filter(Boolean)
+    .join(". ");
   return (
-    <div
-      tabIndex={0}
-      role="region"
-      aria-label={t("embed-analytics.chart.table.caption", {
-        per: t(`embed-analytics.chart.per.${granularity}`),
-      })}
-      className="max-h-[320px] overflow-auto rounded-lg border border-white/10 select-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--theme-text-primary)]"
-    >
-      <table className="w-full border-collapse text-sm text-theme-text-primary">
-        <caption className="sr-only">
-          {t("embed-analytics.chart.table.caption", {
-            per: t(`embed-analytics.chart.per.${granularity}`),
-          })}
-        </caption>
-        <thead className="sticky top-0 bg-theme-bg-primary">
-          <tr className={`text-xs ${MUTED}`}>
-            <th scope="col" className="px-3 py-2 text-left font-medium">
-              {t("embed-analytics.chart.table.period")}
-            </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              {t("embed-analytics.chart.table.messages")}
-            </th>
-            {previous && (
+    <>
+      {previousRange && (
+        <p data-table-previous-range="" className={`mb-3 text-xs ${MUTED}`}>
+          {previousRange}
+        </p>
+      )}
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label={caption}
+        className="max-h-[320px] overflow-auto rounded-lg border border-white/10 select-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--theme-text-primary)]"
+      >
+        <table className="w-full border-collapse text-sm text-theme-text-primary">
+          <caption className="sr-only">{caption}</caption>
+          <thead className="sticky top-0 bg-theme-bg-primary">
+            <tr className={`text-xs ${MUTED}`}>
+              <th scope="col" className="px-3 py-2 text-left font-medium">
+                {t("embed-analytics.chart.table.period")}
+              </th>
               <th scope="col" className="px-3 py-2 text-right font-medium">
-                {t("embed-analytics.compare.table.messages")}
+                {t("embed-analytics.chart.table.messages")}
               </th>
-            )}
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              {t("embed-analytics.chart.table.conversations")}
-            </th>
-            {previous && (
-              <th scope="col" className="px-3 py-2 text-right font-medium">
-                {t("embed-analytics.compare.table.conversations")}
-              </th>
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {summary.buckets.map((bucket, i) => (
-            <tr
-              key={`${bucket.start}-${bucket.hour ?? ""}`}
-              className="border-t border-white/10"
-            >
-              <th scope="row" className="px-3 py-1.5 text-left font-normal">
-                {bucketLabel(bucket, granularity, context)}
-              </th>
-              <td className={cell}>{formatNumber(bucket.messages)}</td>
               {previous && (
-                <td className={previousCell}>
-                  {formatNumber(previous.buckets[i].messages)}
-                </td>
+                <>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">
+                    {t("embed-analytics.compare.table.period")}
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">
+                    {t("embed-analytics.compare.table.messages")}
+                  </th>
+                </>
               )}
-              <td className={cell}>{formatNumber(bucket.conversations)}</td>
+              <th scope="col" className="px-3 py-2 text-right font-medium">
+                {t("embed-analytics.chart.table.conversations")}
+              </th>
+              {previous && (
+                <th scope="col" className="px-3 py-2 text-right font-medium">
+                  {t("embed-analytics.compare.table.conversations")}
+                </th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {summary.buckets.map((bucket, i) => (
+              <tr
+                key={`${bucket.start}-${bucket.hour ?? ""}`}
+                className="border-t border-white/10"
+              >
+                <th scope="row" className="px-3 py-1.5 text-left font-normal">
+                  {bucketLabel(bucket, granularity, context)}
+                </th>
+                <td className={cell}>{formatNumber(bucket.messages)}</td>
+                {previous && (
+                  <>
+                    <td data-previous-period="" className={previousPeriodCell}>
+                      {bucketLabel(previous.buckets[i], granularity, context)}
+                    </td>
+                    <td className={previousCell}>
+                      {formatNumber(previous.buckets[i].messages)}
+                    </td>
+                  </>
+                )}
+                <td className={cell}>{formatNumber(bucket.conversations)}</td>
+                {previous && (
+                  <td className={previousCell}>
+                    {formatNumber(previous.buckets[i].conversations)}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-white/10 font-semibold">
+              <th scope="row" className="px-3 py-2 text-left">
+                {t("embed-analytics.chart.table.total")}
+              </th>
+              <td className={cell}>{formatNumber(summary.totals.messages)}</td>
+              {previous && (
+                <>
+                  <td
+                    data-previous-period=""
+                    className={`${previousPeriodCell} font-normal`}
+                  >
+                    {previousDays}
+                  </td>
+                  <td className={previousCell}>
+                    {formatNumber(previousSum("messages"))}
+                  </td>
+                </>
+              )}
+              <td className={cell}>
+                {formatNumber(summary.totals.conversations)}
+              </td>
               {previous && (
                 <td className={previousCell}>
-                  {formatNumber(previous.buckets[i].conversations)}
+                  {formatNumber(previousSum("conversations"))}
                 </td>
               )}
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t border-white/10 font-semibold">
-            <th scope="row" className="px-3 py-2 text-left">
-              {t("embed-analytics.chart.table.total")}
-            </th>
-            <td className={cell}>{formatNumber(summary.totals.messages)}</td>
-            {previous && (
-              <td className={previousCell}>
-                {formatNumber(previousSum("messages"))}
-              </td>
-            )}
-            <td className={cell}>
-              {formatNumber(summary.totals.conversations)}
-            </td>
-            {previous && (
-              <td className={previousCell}>
-                {formatNumber(previousSum("conversations"))}
-              </td>
-            )}
-          </tr>
-        </tfoot>
-      </table>
-    </div>
+          </tfoot>
+        </table>
+      </div>
+    </>
   );
 }

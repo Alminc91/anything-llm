@@ -100,6 +100,27 @@ function tooltipOf(container) {
   assert.equal(more.length, 0, "mehr als ein Tooltip");
   return tooltip ?? null;
 }
+/** Zeile über der Tabelle mit den Tagen des Vorzeitraums; null ohne. */
+const tableRangeOf = (container) =>
+  withAttribute(container, "data-table-previous-range")[0]?.textContent ?? null;
+/** Beschriftungen der Tabelle: die des scrollbaren Bereichs und die caption. */
+const tableCaptionsOf = (container) => [
+  elements(
+    container,
+    (element) => element.getAttribute("role") === "region"
+  )[0]?.getAttribute("aria-label") ?? null,
+  elements(container, (element) => element.tagName === "CAPTION")[0]
+    ?.textContent ?? null,
+];
+/** Kopf der Tabelle mit Vergleich. */
+const COMPARED_HEAD = [
+  "Zeitabschnitt",
+  "Nachrichten",
+  "Abschnitt im Vorzeitraum",
+  "Nachrichten (Vorzeitraum)",
+  "Konversationen",
+  "Konversationen (Vorzeitraum)",
+];
 /** Zweite Zeile des Tooltips; null ohne Vergleich oder ohne Tooltip. */
 const tooltipPreviousOf = (container) => {
   const tooltip = tooltipOf(container);
@@ -830,7 +851,7 @@ test(
 );
 
 test(
-  "Tabelle (AK-5): Mit Vergleich hat jede Größe eine zweite Spalte mit dem Wert des Vorzeitraums; die Summen sind die der Spalten",
+  "Tabelle (AK-5): Mit Vergleich hat jede Größe eine zweite Spalte mit dem Wert des Vorzeitraums, davor steht in jeder Zeile der Abschnitt des Vorzeitraums; die Summen sind die der Spalten",
   { skip },
   async (t) => {
     const { container, act } = await mount(t, CHART, {
@@ -849,33 +870,74 @@ test(
             )
           )
       );
-    assert.deepEqual(rowsOf("THEAD"), [
-      [
-        "Zeitabschnitt",
-        "Nachrichten",
-        "Nachrichten (Vorzeitraum)",
-        "Konversationen",
-        "Konversationen (Vorzeitraum)",
-      ],
-    ]);
+    // Der Abschnitt des Vorzeitraums: eine eigene Spalte direkt vor dem
+    // ersten Vorzeitraumwert.
+    assert.deepEqual(rowsOf("THEAD"), [COMPARED_HEAD]);
     const body = rowsOf("TBODY");
     assert.equal(body.length, 30);
-    assert.deepEqual(body[0], ["So., 13.09.2026", "14", "8", "2", "0"]);
+    assert.deepEqual(body[0], [
+      "So., 13.09.2026",
+      "14",
+      "Fr., 14.08.2026",
+      "8",
+      "2",
+      "0",
+    ]);
     assert.deepEqual(body[OCT_06], [
       "Di., 06.10.2026",
       "37",
+      "So., 06.09.2026",
       "1.008",
       "2",
       "2",
     ]);
-    assert.deepEqual(body[29], ["Mo., 12.10.2026", "43", "37", "2", "2"]);
-    for (const row of body) assert.equal(row.length, 5);
+    assert.deepEqual(body[29], [
+      "Mo., 12.10.2026",
+      "43",
+      "Sa., 12.09.2026",
+      "37",
+      "2",
+      "2",
+    ]);
+    for (const row of body) assert.equal(row.length, 6);
+    // Die Angabe ist Text in einer Zelle – kein Tooltip, den Finger und
+    // Tastatur nicht erreichen.
+    const periods = withAttribute(container, "data-previous-period");
+    assert.equal(periods.length, 31);
+    for (const cell of periods) {
+      assert.equal(cell.tagName, "TD");
+      assert.equal(cell.getAttribute("title"), null);
+      assert.notEqual(cell.textContent, "");
+    }
 
     const previous = THIRTY_DAYS.previous.buckets;
     assert.equal(sum(previous, "messages"), 1652);
+    // Die Summenzeile nennt die Tage, über die die Spalten summieren.
     assert.deepEqual(rowsOf("TFOOT"), [
-      ["Summe", "885", "1.652", "60", String(sum(previous, "conversations"))],
+      [
+        "Summe",
+        "885",
+        "14.08.2026–12.09.2026",
+        "1.652",
+        "60",
+        String(sum(previous, "conversations")),
+      ],
     ]);
+    // Ohne Legende: Die Tage des Vorzeitraums stehen über der Tabelle und in
+    // ihrer Beschriftung.
+    assert.equal(tableRangeOf(container), "Vorzeitraum: 14.08.2026–12.09.2026");
+    assert.deepEqual(tableCaptionsOf(container), [
+      "Nachrichten und Konversationen pro Tag. Vorzeitraum: 14.08.2026–12.09.2026",
+      "Nachrichten und Konversationen pro Tag. Vorzeitraum: 14.08.2026–12.09.2026",
+    ]);
+    const [range] = withAttribute(container, "data-table-previous-range");
+    const [table] = elements(
+      container,
+      (element) => element.tagName === "TABLE"
+    );
+    const order = elements(container);
+    assert.ok(order.indexOf(range) < order.indexOf(table));
+    assert.equal(range.tagName, "P");
     // In der Tabelle gibt es keine Linie und keine Legende.
     assert.equal(lineOf(container), null);
     assert.equal(legendOf(container), null);
@@ -912,11 +974,207 @@ test(
         "Nachrichten",
         "Konversationen",
       ]);
-      assert.doesNotMatch(container.textContent, /1\.008|\(Vorzeitraum\)/);
+      assert.doesNotMatch(
+        container.textContent,
+        /1\.008|\(Vorzeitraum\)|Abschnitt im Vorzeitraum/
+      );
+      // keine Zeile über der Tabelle, die Beschriftung wie in KIE-536
+      assert.equal(tableRangeOf(container), null);
+      assert.deepEqual(withAttribute(container, "data-previous-period"), []);
+      assert.deepEqual(tableCaptionsOf(container), [
+        "Nachrichten und Konversationen pro Tag",
+        "Nachrichten und Konversationen pro Tag",
+      ]);
       // Warum es keinen Vergleich gibt, steht auch über der Tabelle.
       assert.equal(!!noteOf(container), props.compare);
       await unmount();
     }
+  }
+);
+
+test(
+  "Tabelle bei Wochen und Monaten: Zeile über der Tabelle, Beschriftung und Spalte nennen die Abschnitte der Linie (ganze Kalenderwochen bzw. Monate) – nicht die Tage der Kennzahlen",
+  { skip },
+  async (t) => {
+    const part = (start, end, partial, messages) => ({
+      start,
+      end,
+      partial,
+      messages,
+      conversations: 1,
+    });
+    const totals = (messages, conversations) => ({
+      messages,
+      conversations,
+      feedbackPositive: 0,
+      feedbackNegative: 0,
+    });
+    const tableWith = async (summary) => {
+      const { container, act } = await mount(t, CHART, {
+        summary: { success: true, firstLedgerDay: "2025-01-01", ...summary },
+        loading: false,
+        compare: true,
+      });
+      await act(() => click(buttonOf(container, "Als Tabelle")));
+      return container;
+    };
+
+    // 30.09.–12.10.2026: drei Wochensäulen, die erste und letzte angeschnitten
+    const weeks = await tableWith({
+      granularity: "week",
+      fromDay: "2026-09-30",
+      toDay: "2026-10-12",
+      totals: totals(30, 3),
+      buckets: [
+        part("2026-09-30", "2026-10-04", true, 10),
+        part("2026-10-05", "2026-10-11", false, 15),
+        part("2026-10-12", "2026-10-12", true, 5),
+      ],
+      previous: {
+        available: true,
+        // Kennzahlen: 13 Tage unmittelbar vor dem 30.09.
+        fromDay: "2026-09-17",
+        toDay: "2026-09-29",
+        totals: totals(20, 2),
+        // Linie und Spalten: drei ganze Kalenderwochen davor
+        buckets: [
+          part("2026-09-07", "2026-09-13", false, 7),
+          part("2026-09-14", "2026-09-20", false, 12),
+          part("2026-09-21", "2026-09-27", false, 9),
+        ],
+      },
+    });
+    assert.equal(tableRangeOf(weeks), "Vorzeitraum: 07.09.2026–27.09.2026");
+    assert.deepEqual(tableCaptionsOf(weeks), [
+      "Nachrichten und Konversationen pro Woche. Vorzeitraum: 07.09.2026–27.09.2026",
+      "Nachrichten und Konversationen pro Woche. Vorzeitraum: 07.09.2026–27.09.2026",
+    ]);
+    const weekTable = tableOf(weeks);
+    assert.deepEqual(weekTable.head, COMPARED_HEAD);
+    assert.deepEqual(weekTable.body, [
+      ["KW 40 – ab 30.09.", "10", "KW 37 (07.09.–13.09.2026)", "7", "1", "1"],
+      [
+        "KW 41 (05.10.–11.10.2026)",
+        "15",
+        "KW 38 (14.09.–20.09.2026)",
+        "12",
+        "1",
+        "1",
+      ],
+      ["KW 42 – bis 12.10.", "5", "KW 39 (21.09.–27.09.2026)", "9", "1", "1"],
+    ]);
+    assert.deepEqual(weekTable.foot, [
+      "Summe",
+      "30",
+      "07.09.2026–27.09.2026",
+      "28",
+      "3",
+      "3",
+    ]);
+    // Die Tage der Kennzahlen (17.09.–29.09.) stehen am Kennzahlen-Streifen.
+    assert.doesNotMatch(weeks.textContent, /17\.09\.|29\.09\./);
+
+    // 15.09.–12.10.2026: zwei Monatssäulen, davor Juli und August
+    const months = await tableWith({
+      granularity: "month",
+      fromDay: "2026-09-15",
+      toDay: "2026-10-12",
+      totals: totals(50, 2),
+      buckets: [
+        part("2026-09-15", "2026-09-30", true, 20),
+        part("2026-10-01", "2026-10-12", true, 30),
+      ],
+      previous: {
+        available: true,
+        fromDay: "2026-08-18",
+        toDay: "2026-09-14",
+        totals: totals(40, 2),
+        buckets: [
+          part("2026-07-01", "2026-07-31", false, 11),
+          part("2026-08-01", "2026-08-31", false, 22),
+        ],
+      },
+    });
+    assert.equal(tableRangeOf(months), "Vorzeitraum: 01.07.2026–31.08.2026");
+    assert.deepEqual(tableOf(months).body, [
+      ["September 2026 – ab 15.09.", "20", "Juli 2026", "11", "1", "1"],
+      ["Oktober 2026 – bis 12.10.", "30", "August 2026", "22", "1", "1"],
+    ]);
+    assert.deepEqual(tableOf(months).foot, [
+      "Summe",
+      "50",
+      "01.07.2026–31.08.2026",
+      "33",
+      "2",
+      "2",
+    ]);
+  }
+);
+
+/** Deklarationen, die Tailwind mit der Konfiguration des Projekts erzeugt. */
+async function tailwindRules(classes) {
+  const { default: postcss } = await import("postcss");
+  const { default: tailwind } = await import("tailwindcss");
+  const { default: config } = await import("../tailwind.config.js");
+  const { root } = await postcss([
+    tailwind({
+      ...config,
+      content: [{ raw: classes.join(" ") }],
+      safelist: [],
+    }),
+  ]).process("@tailwind utilities;", { from: undefined });
+  const escapeClass = (name) => name.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  return (className) => {
+    const selector = `.${escapeClass(className)}`;
+    let found = 0;
+    root.walkRules((rule) => {
+      const names = rule.selectors.some((candidate) => {
+        const at = candidate.indexOf(selector);
+        return (
+          at >= 0 && !/[\w\\-]/.test(candidate[at + selector.length] ?? "")
+        );
+      });
+      if (names) rule.walkDecls(() => found++);
+    });
+    return found;
+  };
+}
+
+/** Alle Klassen, die unter einem Knoten vorkommen. */
+const classesOf = (root) =>
+  new Set(
+    elements(root).flatMap((element) =>
+      (element.getAttribute("class") ?? "").split(/\s+/).filter(Boolean)
+    )
+  );
+
+test(
+  "Klassen der Tabelle mit Vergleich: Für jede Klasse der Zeile über der Tabelle, der Spalte „Abschnitt im Vorzeitraum“ und der übrigen Zellen erzeugt Tailwind CSS",
+  { skip },
+  async (t) => {
+    const { container, act } = await mount(t, CHART, {
+      summary: THIRTY_DAYS,
+      loading: false,
+      compare: true,
+    });
+    await act(() => click(buttonOf(container, "Als Tabelle")));
+    const [range] = withAttribute(container, "data-table-previous-range");
+    const [period, ...more] = withAttribute(container, "data-previous-period");
+    const used = classesOf(container);
+
+    // gedämpft und klein – wie die Angabe „Zählwerte liegen ab … vor“
+    for (const element of [range, period, more.at(-1)]) {
+      const classes = element.getAttribute("class").split(" ");
+      assert.ok(classes.includes("text-xs"));
+      assert.ok(
+        classes.includes("text-[color:var(--theme-analytics-text-muted)]")
+      );
+    }
+    assert.ok(period.getAttribute("class").split(" ").includes("text-left"));
+
+    const declarations = await tailwindRules([...used]);
+    const missing = [...used].filter((name) => declarations(name) === 0);
+    assert.deepEqual(missing, [], "Klassen ohne CSS");
   }
 );
 
@@ -990,18 +1248,20 @@ test(
     assert.equal(frameOf(container), null);
     const table = tableOf(container);
     assert.ok(table, "keine Tabelle");
-    assert.deepEqual(table.head, [
-      "Zeitabschnitt",
-      "Nachrichten",
-      "Nachrichten (Vorzeitraum)",
-      "Konversationen",
-      "Konversationen (Vorzeitraum)",
-    ]);
+    assert.deepEqual(table.head, COMPARED_HEAD);
     assert.equal(table.body.length, 30);
-    assert.deepEqual(table.body[0], ["So., 13.09.2026", "0", "8", "0", "0"]);
+    assert.deepEqual(table.body[0], [
+      "So., 13.09.2026",
+      "0",
+      "Fr., 14.08.2026",
+      "8",
+      "0",
+      "0",
+    ]);
     assert.deepEqual(table.body[OCT_06], [
       "Di., 06.10.2026",
       "0",
+      "So., 06.09.2026",
       "1.008",
       "0",
       "2",
@@ -1009,10 +1269,12 @@ test(
     assert.deepEqual(table.foot, [
       "Summe",
       "0",
+      "14.08.2026–12.09.2026",
       "1.652",
       "0",
       String(sum(THIRTY_DAYS.previous.buckets, "conversations")),
     ]);
+    assert.equal(tableRangeOf(container), "Vorzeitraum: 14.08.2026–12.09.2026");
     // Linie, Legende und Hinweis gehören zum Diagramm.
     assert.equal(lineOf(container), null);
     assert.equal(legendOf(container), null);
@@ -1052,6 +1314,7 @@ test(
     assert.deepEqual(tableOf(messagesOnly.container).body[OCT_06], [
       "Di., 06.10.2026",
       "0",
+      "So., 06.09.2026",
       "1.008",
       "0",
       "0",
@@ -1096,6 +1359,7 @@ test(
           "Keine Nachrichten im gewählten Zeitraum"
         );
         assert.equal(tableOf(other.container), null);
+        assert.equal(tableRangeOf(other.container), null);
         assert.equal(columnsOf(other.container).length, 0);
         assert.equal(lineOf(other.container), null);
         assert.equal(legendOf(other.container), null);
@@ -1158,6 +1422,7 @@ test(
     assert.deepEqual(tableOf(container).body[OCT_06], [
       "Di., 06.10.2026",
       "37",
+      "So., 06.09.2026",
       "1.008",
       "0",
       "2",
@@ -1295,8 +1560,26 @@ test(
     await act(() => click(buttonOf(container, "Als Tabelle")));
     const table = tableOf(container);
     assert.equal(table.body.length, 24);
-    assert.deepEqual(table.body[9].slice(1), ["0", "9", "0", "1"]);
-    assert.deepEqual(table.foot, ["Summe", "0", "143", "0", "11"]);
+    assert.deepEqual(table.body[9], [
+      `${weekdayOf(today)}, ${formatDate(today)}, 9–10 Uhr`,
+      "0",
+      `${weekdayOf(yesterday)}, ${formatDate(yesterday)}, 9–10 Uhr`,
+      "9",
+      "0",
+      "1",
+    ]);
+    assert.deepEqual(table.foot, [
+      "Summe",
+      "0",
+      formatDate(yesterday),
+      "143",
+      "0",
+      "11",
+    ]);
+    assert.equal(
+      tableRangeOf(container),
+      `Vorzeitraum: ${formatDate(yesterday)}`
+    );
     await act(() => click(buttonOf(container, "Als Tabelle")));
 
     // aus: der Leerzustand von KIE-536
