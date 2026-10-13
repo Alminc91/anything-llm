@@ -201,12 +201,21 @@ function Columns({
   const wrapperRef = useRef(null);
   const columnRefs = useRef([]);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
-  // Platz unter dem Mauszeiger bzw. mit Fokus. Auch ein Mausklick setzt den
-  // Fokus – deshalb entscheidet die letzte Eingabe (lead), welcher der beiden
-  // Tooltip und Hervorhebung trägt.
+  // Platz unter dem Mauszeiger bzw. mit Tastaturfokus; die letzte Eingabe
+  // (lead) entscheidet, welcher der beiden Tooltip und Hervorhebung trägt.
+  // Auch ein Mausklick setzt den Fokus, er zählt aber nicht als Tastaturfokus
+  // (wie :focus-visible): kein Rahmen – und verlässt der Zeiger das Diagramm,
+  // verschwinden Tooltip und Hervorhebung.
   const [hovered, setHovered] = useState(null);
   const [focused, setFocused] = useState(null);
   const [lead, setLead] = useState("pointer");
+  // Die Maustaste ist auf einem Platz gedrückt: Der Fokus, der jetzt folgt,
+  // kommt vom Klick. Ein Tippen (Touch) zählt wie die Tastatur – ohne
+  // Mauszeiger zeigt nur der Fokus den Tooltip.
+  const mouseDown = useRef(false);
+  // Das Fenster hat den Fokus verloren; kehrt es zurück, bekommt der Platz
+  // erneut ein focus-Ereignis – das ist keine neue Eingabe.
+  const windowLeft = useRef(false);
   // Zuletzt fokussierter Platz (Tab-Stopp des Diagramms)
   const [tabStop, setTabStop] = useState(null);
 
@@ -283,9 +292,15 @@ function Columns({
     );
   };
 
+  const showFocus = (i) => {
+    setFocused(i);
+    setLead("focus");
+  };
   const moveFocus = (i) => {
     const next = Math.max(0, Math.min(buckets.length - 1, i));
     setTabStop(next);
+    // Am Rand bleibt der Fokus, wo er ist – kam er vom Klick, gilt er ab jetzt.
+    if (focused !== next) showFocus(next);
     columnRefs.current[next]?.focus();
   };
   const onKeyDown = (event, i) => {
@@ -293,8 +308,10 @@ function Columns({
     else if (event.key === "ArrowLeft") moveFocus(i - 1);
     else if (event.key === "Home") moveFocus(0);
     else if (event.key === "End") moveFocus(buckets.length - 1);
-    else if (event.key === "Enter" || event.key === " ") select(i);
-    else return;
+    else if (event.key === "Enter" || event.key === " ") {
+      if (focused !== i) showFocus(i);
+      select(i);
+    } else return;
     event.preventDefault();
   };
 
@@ -303,6 +320,9 @@ function Columns({
   const pointAt = (i) => {
     setHovered(i);
     setLead("pointer");
+  };
+  const releaseMouse = () => {
+    mouseDown.current = false;
   };
   const [leading, other] =
     lead === "focus" ? [focused, hovered] : [hovered, focused];
@@ -382,17 +402,33 @@ function Columns({
                 tabIndex={i === currentTabStop ? 0 : -1}
                 onPointerEnter={() => pointAt(i)}
                 onPointerMove={() => pointAt(i)}
-                onPointerLeave={() =>
-                  setHovered((current) => (current === i ? null : current))
-                }
-                onFocus={() => {
-                  setFocused(i);
-                  setTabStop(i);
-                  setLead("focus");
+                onPointerDown={(event) => {
+                  mouseDown.current = event.pointerType === "mouse";
                 }}
-                onBlur={() =>
-                  setFocused((current) => (current === i ? null : current))
-                }
+                onPointerUp={releaseMouse}
+                onPointerCancel={releaseMouse}
+                onPointerLeave={() => {
+                  releaseMouse();
+                  setHovered((current) => (current === i ? null : current));
+                }}
+                onFocus={() => {
+                  const byMouse = mouseDown.current;
+                  const returned = windowLeft.current;
+                  mouseDown.current = false;
+                  windowLeft.current = false;
+                  if (returned) return;
+                  setTabStop(i);
+                  if (!byMouse) showFocus(i);
+                }}
+                onBlur={(event) => {
+                  // Der Platz bleibt das aktive Element: Nicht er, das Fenster
+                  // hat den Fokus verloren.
+                  windowLeft.current =
+                    event.currentTarget.ownerDocument?.activeElement ===
+                    event.currentTarget;
+                  if (windowLeft.current) return;
+                  setFocused((current) => (current === i ? null : current));
+                }}
                 onKeyDown={(event) => onKeyDown(event, i)}
                 onClick={() => select(i)}
                 style={{

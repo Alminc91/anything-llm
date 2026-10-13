@@ -11,7 +11,15 @@ import {
   createRenderer,
   hasFrontendDeps,
 } from "./helpers/renderSettingsPage.mjs";
-import { click, elements, movePointer, pressKey } from "./helpers/testDom.mjs";
+import {
+  click,
+  elements,
+  leaveWindow,
+  movePointer,
+  pressKey,
+  returnToWindow,
+  tap,
+} from "./helpers/testDom.mjs";
 import {
   DEFAULT_RANGE_DAYS,
   addDays,
@@ -67,6 +75,13 @@ const ringsOf = (container) =>
   columnsOf(container)
     .map((column, i) => [column.firstChild.getAttribute("stroke"), i])
     .filter(([stroke]) => stroke !== "none")
+    .map(([, i]) => i);
+
+/** Säulenplätze mit Hervorhebung (Index). */
+const highlightsOf = (container) =>
+  columnsOf(container)
+    .map((column, i) => [column.firstChild.getAttribute("fill-opacity"), i])
+    .filter(([opacity]) => opacity !== "0")
     .map(([, i]) => i);
 
 // 30 Tage ab 13.09.2026: der 06.10. ist Platz 23, der 07.10. Platz 24.
@@ -206,6 +221,189 @@ test(
         .filter(([tabindex]) => tabindex === "0"),
       [["0", 0]]
     );
+  }
+);
+
+test(
+  "Tooltip: Tastatur allein – Tab, Pfeiltasten, Pos1/Ende, Eingabe- und Leertaste; Tooltip und Rahmen bleiben auf der fokussierten Säule",
+  { skip },
+  async (t) => {
+    const selected = [];
+    const { container, document, act } = await mount(t, CHART, {
+      summary: THIRTY_DAYS,
+      loading: false,
+      onSelectBucket: (bucket) => selected.push(bucket),
+    });
+    const columns = columnsOf(container);
+
+    await act(() => columns[29].focus());
+    assert.equal(tooltipOf(container), "Mo., 12.10.2026 — 43 Nachrichten");
+    assert.deepEqual(ringsOf(container), [29]);
+    assert.deepEqual(highlightsOf(container), [29]);
+
+    await act(() => pressKey(document, "Home"));
+    assert.equal(document.activeElement, columns[0]);
+    await act(() => pressKey(document, "ArrowRight"));
+    assert.equal(tooltipOf(container), "Mo., 14.09.2026 — 15 Nachrichten");
+    assert.deepEqual(ringsOf(container), [1]);
+
+    await act(() => pressKey(document, "Enter"));
+    assert.equal(selected.at(-1).start, "2026-09-14");
+    assert.equal(tooltipOf(container), "Mo., 14.09.2026 — 15 Nachrichten");
+    assert.deepEqual(ringsOf(container), [1]);
+
+    await act(() => pressKey(document, "End"));
+    await act(() => pressKey(document, " "));
+    assert.equal(selected.at(-1).start, "2026-10-12");
+    assert.equal(selected.length, 2);
+    assert.equal(tooltipOf(container), "Mo., 12.10.2026 — 43 Nachrichten");
+    assert.deepEqual(ringsOf(container), [29]);
+
+    // Am Rand bleibt der Fokus stehen.
+    await act(() => pressKey(document, "ArrowRight"));
+    assert.equal(document.activeElement, columns[29]);
+    assert.deepEqual(ringsOf(container), [29]);
+  }
+);
+
+test(
+  "Tooltip: Nach einem Mausklick verschwinden Tooltip und Hervorhebung, sobald der Zeiger das Diagramm verlässt – kein Fokusrahmen; der Abschnitts-Filter bleibt",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t);
+    const { container, document, act, days } = await mountView(t, server);
+    const day = addDays(days.fromDay, 23);
+
+    await act(() => click(columnsOf(container)[23]));
+    assert.equal(document.activeElement, columnsOf(container)[23]);
+    assert.match(tooltipOf(container), / — 37 Nachrichten$/);
+    assert.deepEqual(highlightsOf(container), [23]);
+    // Der Klick fokussiert den Platz, ein Rahmen erscheint dabei nicht.
+    assert.deepEqual(ringsOf(container), []);
+
+    await act(() => movePointer(document, null));
+    assert.equal(tooltipOf(container), null);
+    assert.deepEqual(highlightsOf(container), []);
+    assert.deepEqual(ringsOf(container), []);
+
+    // Die Auswahl bleibt: Säule gedrückt, Liste gefiltert und markiert.
+    assert.equal(columnsOf(container)[23].getAttribute("aria-pressed"), "true");
+    assert.ok(bucketMarkOf(container).textContent.endsWith(formatDate(day)));
+    assert.equal(server.lists().at(-1).body.startedFromDay, day);
+    // Der Platz bleibt Tab-Stopp und aktives Element – die Tastatur setzt dort fort.
+    assert.equal(document.activeElement, columnsOf(container)[23]);
+    assert.equal(columnsOf(container)[23].getAttribute("tabindex"), "0");
+
+    // Ein zweiter Klick hebt den Filter auf, wieder ohne Rahmen.
+    await act(() => click(columnsOf(container)[23]));
+    assert.equal(bucketMarkOf(container), null);
+    assert.deepEqual(ringsOf(container), []);
+    await act(() => movePointer(document, null));
+    assert.equal(tooltipOf(container), null);
+  }
+);
+
+test(
+  "Tooltip: Nach einem Mausklick übernimmt die Tastatur – Pfeiltasten und Eingabetaste zeigen Rahmen und Tooltip wieder",
+  { skip },
+  async (t) => {
+    const selected = [];
+    const { container, document, act } = await mount(t, CHART, {
+      summary: THIRTY_DAYS,
+      loading: false,
+      onSelectBucket: (bucket) => selected.push(bucket),
+    });
+    const columns = columnsOf(container);
+
+    await act(() => click(columns[OCT_06]));
+    await act(() => movePointer(document, null));
+    assert.equal(tooltipOf(container), null);
+
+    await act(() => pressKey(document, "Enter"));
+    assert.equal(selected.length, 2);
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.deepEqual(ringsOf(container), [OCT_06]);
+
+    await act(() => pressKey(document, "ArrowRight"));
+    assert.equal(document.activeElement, columns[OCT_07]);
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.deepEqual(ringsOf(container), [OCT_07]);
+
+    // Klick auf die letzte Säule, Zeiger weg, Pfeil nach rechts: Der Fokus
+    // bleibt am Rand stehen und gilt jetzt als Tastaturfokus.
+    await act(() => click(columns[29]));
+    assert.deepEqual(ringsOf(container), []);
+    await act(() => movePointer(document, null));
+    assert.equal(tooltipOf(container), null);
+    await act(() => pressKey(document, "ArrowRight"));
+    assert.equal(tooltipOf(container), "Mo., 12.10.2026 — 43 Nachrichten");
+    assert.deepEqual(ringsOf(container), [29]);
+
+    // Tab aus dem Diagramm und zurück: Tastaturfokus mit Rahmen.
+    await act(() => columns[29].blur());
+    assert.equal(tooltipOf(container), null);
+    await act(() => click(columns[OCT_06]));
+    await act(() => movePointer(document, null));
+    await act(() => columns[OCT_06].blur());
+    await act(() => columns[OCT_06].focus());
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.deepEqual(ringsOf(container), [OCT_06]);
+  }
+);
+
+test(
+  "Tooltip: Fensterwechsel ist keine Eingabe – nach einem Mausklick bleibt das Diagramm bei der Rückkehr ohne Tooltip, ein Tastaturfokus behält ihn",
+  { skip },
+  async (t) => {
+    const { container, document, act } = await mount(t, CHART, {
+      summary: THIRTY_DAYS,
+      loading: false,
+    });
+    const columns = columnsOf(container);
+
+    await act(() => click(columns[OCT_06]));
+    await act(() => movePointer(document, null));
+    await act(() => leaveWindow(document));
+    await act(() => returnToWindow(document));
+    assert.equal(document.activeElement, columns[OCT_06]);
+    assert.equal(tooltipOf(container), null);
+    assert.deepEqual(ringsOf(container), []);
+
+    await act(() => pressKey(document, "ArrowRight"));
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    await act(() => leaveWindow(document));
+    await act(() => returnToWindow(document));
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.deepEqual(ringsOf(container), [OCT_07]);
+
+    // Danach verlässt der Fokus das Diagramm wie gewohnt.
+    await act(() => columns[OCT_07].blur());
+    assert.equal(tooltipOf(container), null);
+    assert.deepEqual(ringsOf(container), []);
+  }
+);
+
+test(
+  "Tooltip: Tippen (Touch) zeigt den Tooltip der Säule, auch nachdem der Finger weg ist – ohne Mauszeiger trägt ihn der Fokus",
+  { skip },
+  async (t) => {
+    const selected = [];
+    const { container, document, act } = await mount(t, CHART, {
+      summary: THIRTY_DAYS,
+      loading: false,
+      onSelectBucket: (bucket) => selected.push(bucket),
+    });
+    const columns = columnsOf(container);
+
+    await act(() => tap(columns[OCT_06]));
+    assert.equal(selected.length, 1);
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+
+    await act(() => tap(columns[OCT_07]));
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+
+    await act(() => columns[OCT_07].blur());
+    assert.equal(tooltipOf(container), null);
   }
 );
 

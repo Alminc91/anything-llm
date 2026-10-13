@@ -7,9 +7,10 @@
 // keine Ereignisse des Browsers. Eine Eingabe wird nachgestellt, indem der
 // Handler aufgerufen wird, den React dem Element gegeben hat (handlersOf) –
 // der Handler des Elements selbst, ohne Weiterreichen an die Eltern. Die
-// Reihenfolge der Ereignisse, die ein Browser bei Mauszeiger, Klick und Tasten
-// auslöst, steht in movePointer, click und pressKey. Ob ein Browser sie so
-// auslöst, zeigt nur der Browser-Test.
+// Reihenfolge der Ereignisse, die ein Browser bei Mauszeiger, Klick, Tippen,
+// Tasten und Fensterwechsel auslöst, steht in movePointer, click, tap,
+// pressKey, leaveWindow und returnToWindow. Ob ein Browser sie so auslöst,
+// zeigt nur der Browser-Test.
 
 const ELEMENT = 1;
 const TEXT = 3;
@@ -229,16 +230,56 @@ export function movePointer(document, element) {
   if (element) handlersOf(element).onPointerEnter?.(eventOn(element));
 }
 
+const isFocusable = (element) =>
+  element.hasAttribute("tabindex") || element.tagName === "BUTTON";
+
 /**
  * Mausklick: Der Zeiger steht auf dem Element; ein fokussierbares Element
- * (tabindex, Schaltfläche) bekommt beim Drücken den Fokus, danach folgt click.
+ * (tabindex, Schaltfläche) bekommt beim Drücken der Taste den Fokus, nach dem
+ * Loslassen folgt click.
  * @param {object} element
  */
 export function click(element) {
+  const pointer = eventOn(element, { pointerType: "mouse" });
   movePointer(element.ownerDocument, element);
-  if (element.hasAttribute("tabindex") || element.tagName === "BUTTON")
-    element.focus();
+  handlersOf(element).onPointerDown?.(pointer);
+  if (isFocusable(element)) element.focus();
+  handlersOf(element).onPointerUp?.(pointer);
   handlersOf(element).onClick?.(eventOn(element));
+}
+
+/**
+ * Tippen (Touch): Der Zeiger entsteht mit dem Finger und endet mit ihm –
+ * pointerenter, pointerdown, pointerup, pointerleave. Fokus und click folgen
+ * erst danach.
+ * @param {object} element
+ */
+export function tap(element) {
+  const document = element.ownerDocument;
+  const pointer = eventOn(element, { pointerType: "touch" });
+  movePointer(document, null);
+  handlersOf(element).onPointerEnter?.(pointer);
+  handlersOf(element).onPointerDown?.(pointer);
+  handlersOf(element).onPointerUp?.(pointer);
+  handlersOf(element).onPointerLeave?.(pointer);
+  if (isFocusable(element)) element.focus();
+  handlersOf(element).onClick?.(eventOn(element));
+}
+
+/**
+ * Das Fenster verliert den Fokus (anderes Fenster, anderer Tab): Das aktive
+ * Element bleibt es und bekommt blur – bei der Rückkehr wieder focus.
+ * @param {object} document
+ */
+export function leaveWindow(document) {
+  const element = document.activeElement;
+  handlersOf(element).onBlur?.(eventOn(element));
+}
+
+/** @param {object} document */
+export function returnToWindow(document) {
+  const element = document.activeElement;
+  handlersOf(element).onFocus?.(eventOn(element));
 }
 
 /**
