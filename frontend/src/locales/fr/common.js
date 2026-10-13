@@ -1606,6 +1606,41 @@ const TRANSLATIONS = {
         total: null,
       },
     },
+    "weekday-hour": {
+      title: null,
+      subtitle: null,
+      summary: null,
+      "keyboard-hint": null,
+      hours: null,
+      "hour-tick": null,
+      slot: null,
+      tooltip: null,
+      peak: {
+        label: null,
+      },
+      outside: {
+        label: null,
+        value: null,
+        note: null,
+      },
+      legend: {
+        label: null,
+        less: null,
+        more: null,
+        range: null,
+        unused: null,
+      },
+      hint: {
+        "short-range": null,
+        "few-messages": null,
+      },
+      table: {
+        caption: null,
+        weekday: null,
+        hours: null,
+        total: null,
+      },
+    },
     list: {
       title: null,
       viewable_one: null,

@@ -1125,6 +1125,44 @@ const TRANSLATIONS = {
         total: "Summe",
       },
     },
+    "weekday-hour": {
+      title: "Wann schreiben Ihre Besucher?",
+      subtitle: "Nachrichten nach Wochentag und Uhrzeit, {{from}}–{{to}}",
+      summary:
+        "Raster mit 7 Wochentagen und 24 Stunden: Nachrichten nach Wochentag und Uhrzeit, {{from}} bis {{to}}. Summe {{total}}, höchster Wert {{max}} ({{peak}}).",
+      "keyboard-hint": "Mit den Pfeiltasten wechseln Sie zwischen den Feldern.",
+      hours: "{{from}}–{{to}} Uhr",
+      "hour-tick": "{{hour}} Uhr",
+      slot: "{{weekday}}, {{hours}}",
+      tooltip: "{{slot}}: {{value}}",
+      peak: {
+        label: "Stärkster Zeitabschnitt",
+      },
+      outside: {
+        label: "Außerhalb von {{from}}–{{to}}, {{hours}}",
+        value: "{{percent}} % der Nachrichten",
+        note: "Feiertage zählen als normale Wochentage.",
+      },
+      legend: {
+        label: "Legende: Nachrichten je Feld",
+        less: "weniger",
+        more: "mehr",
+        range: "{{from}}–{{to}}",
+        unused: "–",
+      },
+      hint: {
+        "short-range":
+          "Für diese Ansicht bitte mindestens {{days}} Tage wählen",
+        "few-messages":
+          "Zu wenige Nachrichten für ein verlässliches Muster (mindestens {{messages}})",
+      },
+      table: {
+        caption: "Nachrichten nach Wochentag und Uhrzeit",
+        weekday: "Wochentag",
+        hours: "Stunde ab … Uhr",
+        total: "Summe",
+      },
+    },
     list: {
       title: "Konversationen",
       viewable_one: "{{formatted}} einsehbar",

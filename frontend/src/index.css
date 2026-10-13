@@ -110,6 +110,16 @@
   --theme-analytics-bar: #1a9bdc;
   --theme-analytics-grid: rgba(255, 255, 255, 0.1);
   --theme-analytics-text-muted: rgba(255, 255, 255, 0.6);
+
+  /* Karte „Wann schreiben Ihre Besucher?" (KIE-539): eine Farbe in fünf
+     Stufen – auf dunklem Grund ist mehr heller –, dazu eine eigene, neutrale
+     Fläche für Felder ohne Nachricht. Text steht nie in diesen Farben. */
+  --theme-analytics-heat-0: #26282a;
+  --theme-analytics-heat-1: #15608f;
+  --theme-analytics-heat-2: #0b7ab3;
+  --theme-analytics-heat-3: #1a9bdc;
+  --theme-analytics-heat-4: #5cbcf0;
+  --theme-analytics-heat-5: #a5dcfa;
 }
 
 [data-theme="light"] {
@@ -217,6 +227,14 @@
   --theme-analytics-bar: #0284c7;
   --theme-analytics-grid: #e4e6e8;
   --theme-analytics-text-muted: #5f6368;
+
+  /* Auf hellem Grund ist mehr dunkler. */
+  --theme-analytics-heat-0: #e9ecef;
+  --theme-analytics-heat-1: #5fbdf2;
+  --theme-analytics-heat-2: #2e9fe0;
+  --theme-analytics-heat-3: #0284c7;
+  --theme-analytics-heat-4: #0a659b;
+  --theme-analytics-heat-5: #0c4a70;
 }
 
 [data-theme="light"] .text-white {
