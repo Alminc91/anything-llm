@@ -1806,6 +1806,7 @@ const TRANSLATIONS = {
       reason: "Reason: {{reason}}",
       "load-more": "Load more conversations",
       "loading-more": "Loading …",
+      "load-more-failed": "More conversations could not be loaded.",
       all: "All",
       "all-hint": "Show all conversations",
       "filter-group": "Filter by rating",

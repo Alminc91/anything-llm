@@ -14,6 +14,7 @@ import showToast from "@/utils/toast";
 import {
   MUTED,
   SEARCH_MAX_LENGTH,
+  berlinDateTime,
   berlinTime,
   conversationKey,
   dayGroupLabel,
@@ -24,7 +25,7 @@ import {
   shortDayLabel,
   startedOnOtherDay,
 } from "@/utils/conversationView";
-import ConversationDetail, { berlinDateTime } from "./ConversationDetail";
+import ConversationDetail from "./ConversationDetail";
 import ExportMenu from "./ExportMenu";
 import useConversationLocation from "./useConversationLocation";
 
@@ -348,7 +349,11 @@ export default function ConversationList({
         });
         if (!filtered) rememberUnfiltered(total);
       } else {
-        showToast(t("embed-analytics.load-error"), "error");
+        // Kein Toast (Fixliste 4, V6): Beide Fälle melden sich in der Liste
+        // selbst – die erste Seite mit „Erneut versuchen“, das Nachladen
+        // (auch das automatische: Link-Suche, „Nächste“, Auffüllen) am
+        // Knopf „Weitere Konversationen laden“. Ein Toast stünde doppelt
+        // daneben und verdeckte unten den Knopf.
         // Nachladen gescheitert: der bisherige Stand bleibt vollständig
         // (Zeilen, Zählung, „Weitere laden"). Erste Seite gescheitert: kein
         // Stand – nicht die Zählung eines anderen Zuschnitts stehen lassen.
@@ -961,7 +966,18 @@ export default function ConversationList({
                 );
               })}
               {hasMore && (
-                <div className="flex justify-center border-t border-white/5 px-4 py-3 light:border-gray-100">
+                <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border-t border-white/5 px-4 py-3 light:border-gray-100">
+                  {/* Nachladen gescheitert: die Meldung hier am Knopf, der
+                      Knopf versucht es erneut (Fixliste 4, V6) */}
+                  {moreFailed && !loadingMore && (
+                    <span
+                      data-load-more-error=""
+                      role="alert"
+                      className={`text-sm ${MUTED}`}
+                    >
+                      {t("embed-analytics.rows.load-more-failed")}
+                    </span>
+                  )}
                   <button
                     type="button"
                     data-load-more=""
@@ -971,7 +987,9 @@ export default function ConversationList({
                   >
                     {loadingMore
                       ? t("embed-analytics.rows.loading-more")
-                      : t("embed-analytics.rows.load-more")}
+                      : moreFailed
+                        ? t("embed-analytics.panel.retry")
+                        : t("embed-analytics.rows.load-more")}
                   </button>
                 </div>
               )}

@@ -114,6 +114,32 @@ export function berlinTime(instant) {
   return isNaN(date.getTime()) ? "" : timeFormatter.format(date);
 }
 
+const dateTimeFormatter = new Intl.DateTimeFormat(GERMAN, {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  timeZone: BERLIN,
+});
+
+/**
+ * Zeitpunkt mit Datum in Berliner Zeit, „12.10.2026, 12:05:00 Uhr“ – für
+ * Tooltips der Liste und des Panels, wie die sichtbaren Uhrzeiten (Fixliste
+ * 2, S1). Dasselbe Format wie formatDateTimeDE (utils/directories.js) mit
+ * fester Zeitzone; hier ohne dessen Abhängigkeiten (moment), damit diese
+ * Datei ohne Frontend-Pakete läuft (Fixliste 4, S2). "-" ohne gültigen
+ * Zeitpunkt.
+ * @param {number|string|Date} instant
+ * @returns {string}
+ */
+export function berlinDateTime(instant) {
+  if (!instant) return "-";
+  const date = new Date(instant);
+  return isNaN(date.getTime()) ? "-" : `${dateTimeFormatter.format(date)} Uhr`;
+}
+
 /** Mitternacht (UTC) eines Kalendertags – formatterOf rechnet in UTC. */
 const instantOf = (day) => new Date(`${day}T00:00:00Z`);
 

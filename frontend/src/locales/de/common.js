@@ -1274,6 +1274,7 @@ const TRANSLATIONS = {
       reason: "Grund: {{reason}}",
       "load-more": "Weitere Konversationen laden",
       "loading-more": "Wird geladen …",
+      "load-more-failed": "Weitere Konversationen konnten nicht geladen werden.",
       all: "Alle",
       "all-hint": "Alle Konversationen anzeigen",
       "filter-group": "Nach Bewertung filtern",

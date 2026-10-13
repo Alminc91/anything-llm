@@ -12,6 +12,7 @@ import en from "../src/locales/en/common.js";
 import {
   SEARCH_MAX_LENGTH,
   answerText,
+  berlinDateTime,
   berlinTime,
   centeredScrollTop,
   conversationKey,
@@ -539,4 +540,23 @@ test("Fixliste 3, S4: isWide – eine Stelle für die Breitenprüfung, auch ohne
   } finally {
     globalThis.window = original;
   }
+});
+
+test("Fixliste 4, S2: berlinDateTime – voller Zeitpunkt in Berliner Zeit im Format von formatDateTimeDE, unabhängig von der Zeitzone des Prozesses", () => {
+  // Sommerzeit (UTC+2) und Winterzeit (UTC+1), Tageswechsel in Berlin
+  assert.equal(
+    berlinDateTime(Date.parse("2026-10-13T05:48:00Z")),
+    "13.10.2026, 07:48:00 Uhr"
+  );
+  assert.equal(
+    berlinDateTime("2026-12-31T23:30:05.000Z"),
+    "01.01.2027, 00:30:05 Uhr"
+  );
+  assert.equal(
+    berlinDateTime(new Date("2026-03-01T12:00:00Z")),
+    "01.03.2026, 13:00:00 Uhr"
+  );
+  // ohne gültigen Zeitpunkt wie formatDateTimeDE: "-"
+  for (const value of [null, undefined, "", "kein Datum", NaN])
+    assert.equal(berlinDateTime(value), "-", String(value));
 });

@@ -16,14 +16,13 @@ import { useTranslation } from "react-i18next";
 import Embed from "@/models/embed";
 import { formatDateShort, formatNumber } from "@/utils/analyticsTimeline";
 import { formatDateForInput } from "@/utils/billingDate";
-import { formatDateTimeDE } from "@/utils/directories";
 import showToast from "@/utils/toast";
 import {
   AVATAR_CLEARANCE,
-  BERLIN,
   MUTED,
   WIDE_QUERY,
   answerText,
+  berlinDateTime,
   berlinTime,
   centeredScrollTop,
   conversationSummary,
@@ -57,15 +56,6 @@ const ICON_BUTTON = `grid h-11 w-11 shrink-0 place-items-center rounded-lg ${MUT
 const META_LINE = "-ml-4 flex flex-wrap gap-y-0.5";
 const META_ITEM =
   "whitespace-nowrap before:inline-block before:w-4 before:text-center before:text-[color:var(--theme-analytics-text-muted)] before:content-['·']";
-
-/**
- * Zeitpunkt mit Datum in Berliner Zeit – für Tooltips, wie die sichtbaren
- * Uhrzeiten (Fixliste 2, S1); auch in der Liste.
- * @param {number|string|Date} instant
- * @returns {string}
- */
-export const berlinDateTime = (instant) =>
-  formatDateTimeDE(instant, { timeZone: BERLIN });
 
 /**
  * Text mit hervorgehobenen Treffern der Suche – als Text, nie als HTML.

@@ -1501,7 +1501,7 @@ test(
 );
 
 test(
-  "Fixliste 17: Scheitert das Laden der Liste, steht keine alte Zählung – Fehlermeldung mit „Erneut versuchen“, Export gesperrt; gescheitertes Nachladen behält den Stand",
+  "Fixliste 17 / Fixliste 4 V6: Scheitert das Laden der Liste, steht keine alte Zählung – Fehlermeldung mit „Erneut versuchen“, Export gesperrt; gescheitertes Nachladen behält den Stand, meldet sich am Knopf „Weitere Konversationen laden“; in beiden Fällen kein Toast",
   { skip },
   async (t) => {
     const shown = await toasts(t);
@@ -1536,9 +1536,17 @@ test(
       "25 einsehbar"
     );
     assert.equal(withAttribute(container, "data-list-load-error").length, 0);
-    assert.deepEqual(shown, [
-      ["error", "Fehler beim Laden der Konversationsdaten."],
-    ]);
+    // Fixliste 4, V6: kein Toast (er verdeckte den Knopf) – die Meldung
+    // steht am Knopf, der es erneut versucht
+    assert.deepEqual(shown, []);
+    assert.equal(
+      one(container, "data-load-more-error").textContent,
+      "Weitere Konversationen konnten nicht geladen werden."
+    );
+    assert.equal(
+      one(container, "data-load-more").textContent,
+      "Erneut versuchen"
+    );
 
     // Erste Seite einer neuen Auswahl scheitert: keine (alte) Zählung,
     // kein Export, Meldung mit „Erneut versuchen"
@@ -1551,6 +1559,8 @@ test(
     assert.equal(rowsOf(container).length, 0);
     assert.equal(exportButton().hasAttribute("disabled"), true);
     assert.equal(counts.at(-1), null);
+    // Fixliste 4, V6: nur die Meldung in der Liste, kein Toast daneben
+    assert.deepEqual(shown, []);
 
     fail = () => false;
     await act(() => click(one(container, "data-list-retry")));
@@ -2349,10 +2359,10 @@ test(
       server.lists().map((call) => call.body.offset),
       [0, 20]
     );
-    assert.deepEqual(
-      shown.filter(([kind]) => kind === "error"),
-      [["error", "Fehler beim Laden der Konversationsdaten."]]
-    );
+    // eine Meldung – seit Fixliste 4, V6 am Knopf „Weitere Konversationen
+    // laden“ statt als Toast, der ihn verdeckte
+    assert.deepEqual(shown, []);
+    assert.equal(withAttribute(container, "data-load-more-error").length, 1);
     const panel = panelOf(container);
     assert.equal(
       one(panel, "data-panel-navigation-hint").textContent,
@@ -2735,7 +2745,9 @@ test(
         [20, 100],
       ]
     );
-    assert.equal(shown.filter(([kind]) => kind === "error").length, 1);
+    // Fixliste 4, V6: die Meldung am Knopf, kein Toast
+    assert.deepEqual(shown, []);
+    assert.equal(withAttribute(container, "data-load-more-error").length, 1);
     const hint = () =>
       withAttribute(panelOf(container), "data-panel-navigation-hint").map(
         (element) => element.textContent
@@ -2758,6 +2770,7 @@ test(
       ]
     );
     assert.deepEqual(hint(), []);
+    assert.equal(withAttribute(container, "data-load-more-error").length, 0);
     assert.deepEqual(currentRows(container), [845]);
     assert.equal(
       one(panelOf(container), "data-panel-next").hasAttribute("disabled"),
@@ -3030,5 +3043,35 @@ test(
     await act(() => release());
     await act();
     assert.equal(panelOf(container), null);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 4 (Browser-Nachprüfung rc16, Kontroll-Review 3)
+// ---------------------------------------------------------------------------
+
+test(
+  "Fixliste 4, S2: berlinDateTime liegt in utils/conversationView und liefert dasselbe wie formatDateTimeDE mit Berliner Zeit",
+  { skip },
+  async () => {
+    const view = await renderer.load("/src/utils/conversationView.js");
+    const { formatDateTimeDE } = await renderer.load(
+      "/src/utils/directories.js"
+    );
+    for (const instant of [
+      berlin("2026-10-13", "07:48"),
+      "2026-12-31T23:30:05.000Z",
+      new Date("2026-03-29T01:30:00Z"),
+      null,
+      "kein Datum",
+    ])
+      assert.equal(
+        view.berlinDateTime(instant),
+        formatDateTimeDE(instant, { timeZone: view.BERLIN }),
+        String(instant)
+      );
+    // nicht mehr aus der Komponente des Panels
+    const detail = await renderer.load(`${DIR}/ConversationDetail.jsx`);
+    assert.equal(detail.berlinDateTime, undefined);
   }
 );

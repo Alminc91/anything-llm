@@ -1693,6 +1693,7 @@ const TRANSLATIONS = {
       reason: null,
       "load-more": null,
       "loading-more": null,
+      "load-more-failed": null,
       all: null,
       "all-hint": null,
       "filter-group": null,

@@ -345,17 +345,6 @@ const Embed = {
       { method: "GET", headers: baseHeaders() }
     )
       .then(async (res) => {
-        if (res.status === 413) {
-          const body = await res.json().catch(() => ({}));
-          return {
-            success: false,
-            blob: null,
-            filename: null,
-            error: body.error ?? `HTTP ${res.status}`,
-            reason: body.reason ?? null,
-            max: Number.isSafeInteger(body.max) ? body.max : null,
-          };
-        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const body = await res.json();
         const defaults = body?.defaults;
