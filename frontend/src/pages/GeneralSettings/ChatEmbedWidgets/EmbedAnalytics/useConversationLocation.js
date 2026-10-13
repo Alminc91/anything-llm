@@ -142,17 +142,20 @@ export default function useConversationLocation() {
     [update]
   );
 
+  // Der Link zum Kopieren nennt nur Widget und Konversation – nicht den
+  // Suchbegriff: Er ist oft ein Name oder eine E-Mail-Adresse und landete so
+  // in Mails, Tickets und Protokollen (Datenminimierung). In der Adressleiste
+  // bleibt q (AK-14).
   const conversationUrl = useCallback(
     (id, widget) => {
       const next = new URLSearchParams();
       next.set(PARAM_WIDGET, String(widget));
       next.set(PARAM_CONVERSATION, String(id));
-      if (search) next.set(PARAM_SEARCH, search);
       const origin =
         typeof window !== "undefined" ? (window.location?.origin ?? "") : "";
       return `${origin}${location.pathname}?${next.toString()}`;
     },
-    [location.pathname, search]
+    [location.pathname]
   );
 
   return useMemo(

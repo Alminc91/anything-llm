@@ -10,22 +10,30 @@ import assert from "node:assert/strict";
 import de from "../src/locales/de/common.js";
 import en from "../src/locales/en/common.js";
 import {
+  SEARCH_MAX_LENGTH,
   answerText,
-  berlinDay,
   berlinTime,
+  centeredScrollTop,
   conversationKey,
   conversationSummary,
   dayGroupLabel,
   effectiveSearch,
+  firstElementWith,
   groupByLastMessageDay,
+  hasVisibleHit,
   highlightParts,
   highlightTextNodes,
   longDateLabel,
   outsidePeriod,
+  searchLinkIssue,
+  searchPattern,
   shortDayLabel,
   shortId,
   startedOnOtherDay,
+  visibleAnswerText,
 } from "../src/utils/conversationView.js";
+import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
+import serverSearch from "../../server/utils/helpers/chat/conversationSearch.js";
 import { createDocument, elements } from "./helpers/testDom.mjs";
 
 /** Minimales t() über eine Sprachdatei: Interpolation und _one/_other. */
@@ -91,20 +99,32 @@ test("AK-2: K1 (Beginn 09.10., letzte Nachricht 13.10.) steht unter „Heute · 
     dayGroupLabel("2025-12-31", today, context),
     "Mittwoch, 31. Dezember 2025"
   );
+  // Englische Oberfläche: nur „Today" übersetzt, das Datum bleibt deutsch
+  // (CLAUDE.md „Deutsche Datumsformate überall", Fixliste Punkt 22).
   assert.equal(
     dayGroupLabel("2026-10-13", today, { t: tEn, locale: "en" }),
-    "Today · Tuesday, October 13"
+    "Today · Dienstag, 13. Oktober"
+  );
+  assert.equal(
+    dayGroupLabel("2026-10-12", today, { t: tEn, locale: "en" }),
+    "Yesterday · Montag, 12. Oktober"
   );
 
   assert.equal(startedOnOtherDay(k1), "2026-10-09");
   assert.equal(startedOnOtherDay(k2), null);
   assert.equal(
     tDe("embed-analytics.rows.started", {
-      date: shortDayLabel(startedOnOtherDay(k1), today, "de"),
+      date: shortDayLabel(startedOnOtherDay(k1), today),
     }),
     "begonnen am 9. Okt."
   );
-  assert.equal(shortDayLabel("2025-10-09", today, "de"), "9. Okt. 2025");
+  assert.equal(
+    tEn("embed-analytics.rows.started", {
+      date: shortDayLabel(startedOnOtherDay(k1), today),
+    }),
+    "started on 9. Okt."
+  );
+  assert.equal(shortDayLabel("2025-10-09", today), "9. Okt. 2025");
   assert.equal(berlinTime(k1.last_message_at), "07:47");
 });
 
@@ -141,9 +161,29 @@ test("AK-2: Die Tagesgrenze ist Mitternacht in Berlin – unabhängig von der Ze
   );
 });
 
-test("Datum im Kopf des Panels: Wochentag und deutsches Datum", () => {
-  assert.equal(longDateLabel("2026-10-13", "de"), "Dienstag, 13.10.2026");
-  assert.equal(longDateLabel("2026-10-09", "en"), "Friday, 09.10.2026");
+test("Datum im Kopf des Panels: deutsch, auch bei englischer Oberfläche", () => {
+  assert.equal(longDateLabel("2026-10-13"), "Dienstag, 13.10.2026");
+  assert.equal(longDateLabel("2026-10-09"), "Freitag, 09.10.2026");
+});
+
+test("Ungültiger Zeitpunkt (NaN): nichts wirft – leerer Tag, „–“ als Gruppe, keine Uhrzeit (Fixliste Punkt 22)", () => {
+  assert.equal(berlinDay(NaN), "");
+  assert.equal(berlinTime(NaN), "");
+  const groups = groupByLastMessageDay([
+    { last_message_at: NaN },
+    { last_message_at: Date.parse("2026-10-12T10:00:00Z") },
+  ]);
+  assert.deepEqual(
+    groups.map((group) => group.day),
+    ["", "2026-10-12"]
+  );
+  assert.equal(dayGroupLabel("", "2026-10-13", { t: tDe }), "–");
+  assert.equal(shortDayLabel("", "2026-10-13"), "–");
+  assert.equal(longDateLabel(""), "");
+  assert.equal(
+    startedOnOtherDay({ started_at: NaN, last_message_at: Date.now() }),
+    null
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -156,6 +196,24 @@ test("Suchbegriff: getrimmt, ab 2 Zeichen, zerlegte Umlaute zusammengesetzt", ()
   assert.equal(effectiveSearch("  a  "), "");
   assert.equal(effectiveSearch(null), "");
   assert.equal(effectiveSearch("u\u0308b"), "üb");
+});
+
+test("Suchbegriff aus einem Link: auf 200 Zeichen gekürzt, ungültiger verworfen – nie eine 400 des Servers (Fixliste Punkt 18)", () => {
+  // dieselbe Grenze wie der Server
+  assert.equal(SEARCH_MAX_LENGTH, serverSearch.SEARCH_MAX_LENGTH);
+  const long = "ä".repeat(150) + "b".repeat(100);
+  assert.equal([...effectiveSearch(long)].length, SEARCH_MAX_LENGTH);
+  assert.equal(searchLinkIssue(long), "too-long");
+  assert.equal(serverSearch.parseSearch(effectiveSearch(long)).error, null);
+  // Emoji zählen als ein Zeichen (Codepoints)
+  assert.equal(effectiveSearch("😀".repeat(250)), "😀".repeat(200));
+  for (const raw of ["ab\u0000cd", "\ud800ab", "a\tb", "x\u007fy"]) {
+    assert.equal(effectiveSearch(raw), "", raw);
+    assert.equal(searchLinkIssue(raw), "invalid", raw);
+  }
+  assert.equal(searchLinkIssue("spanisch"), null);
+  assert.equal(searchLinkIssue(""), null);
+  assert.equal(searchLinkIssue(null), null);
 });
 
 test("Hervorhebung: Groß/klein egal, auch bei Umlauten; Sonderzeichen wörtlich", () => {
@@ -294,4 +352,84 @@ test("Antworttext: bei JSON das Feld text (nicht Quellen), sonst wörtlich; Kenn
   assert.equal(answerText(null), "");
   assert.equal(shortId("3f311a2b-e8cd-4b30-9627-2758deb20006"), "3f311a2b…");
   assert.equal(shortId("kurz"), "kurz");
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste nach den Reviews (13.10.2026)
+// ---------------------------------------------------------------------------
+
+test("NFD: Ein zerlegtes „ü“ im Text wird hervorgehoben wie ein zusammengesetztes – auch mit zerlegtem Begriff (Fixliste Punkt 24)", () => {
+  const nfd = (text) => text.normalize("NFD");
+  const hits = (text, term) =>
+    highlightParts(text, term)
+      .filter((part) => part.hit)
+      .map((part) => part.text);
+  assert.deepEqual(hits(nfd("Die Übung und die ÜBUNG"), "übung"), [
+    nfd("Übung"),
+    nfd("ÜBUNG"),
+  ]);
+  assert.deepEqual(hits("Die Übung", nfd("übung")), ["Übung"]);
+  assert.deepEqual(hits(`${nfd("Größe")} und Größe`, "GRÖßE"), [
+    nfd("Größe"),
+    "Größe",
+  ]);
+  // Das Muster wird einmal gebaut und für viele Texte benutzt (g-Flag).
+  const pattern = searchPattern("kurs");
+  assert.equal(highlightParts("Kurs A", pattern).length, 2);
+  assert.equal(highlightParts("Kurs B", pattern).length, 2);
+});
+
+test("Sichtbarer Treffer: Link-Adressen, HTML und <think> zählen nicht; Frage, Grund, Kommentar und Linktext schon (Fixliste Punkt 11)", () => {
+  const answer = (text) => JSON.stringify({ text, sources: [{ text: "Q" }] });
+  const message = (extra) => ({
+    prompt: "Wo melde ich mich an?",
+    response: answer(
+      'Hier: [Anmeldung](https://vhs-lingen.example/anmeldung) <span data-x="geheimattribut">ok</span><think>Gedanke zu Yoga</think>'
+    ),
+    feedbackReason: null,
+    feedbackText: null,
+    ...extra,
+  });
+  assert.equal(
+    visibleAnswerText(
+      '[Kurs](https://a.example/b) <b class="x">fett</b><think>still</think>'
+    ),
+    "[Kurs]  fett  "
+  );
+  assert.equal(hasVisibleHit([message()], "vhs-lingen"), false);
+  assert.equal(hasVisibleHit([message()], "geheimattribut"), false);
+  assert.equal(hasVisibleHit([message()], "yoga"), false);
+  assert.equal(hasVisibleHit([message()], "anmeldung"), true);
+  assert.equal(hasVisibleHit([message()], "melde ich"), true);
+  assert.equal(
+    hasVisibleHit(
+      [message({ feedbackText: "vhs-lingen ist toll" })],
+      "vhs-lingen"
+    ),
+    true
+  );
+  // ohne Suche: kein Hinweis
+  assert.equal(hasVisibleHit([message()], ""), true);
+});
+
+test("Sprung zum Treffer: Nur der Verlauf scrollt – die Position steht mittig, nie negativ (Fixliste Punkt 13)", () => {
+  const container = {
+    scrollTop: 100,
+    clientHeight: 400,
+    getBoundingClientRect: () => ({ top: 50, height: 400 }),
+  };
+  const element = { getBoundingClientRect: () => ({ top: 650, height: 20 }) };
+  // 650 - 50 + 100 = 700 vom Anfang; mittig: 700 - (400 - 20) / 2
+  assert.equal(centeredScrollTop(container, element), 510);
+  const near = { getBoundingClientRect: () => ({ top: 60, height: 20 }) };
+  assert.equal(centeredScrollTop({ ...container, scrollTop: 0 }, near), 0);
+
+  const document = createDocument();
+  const root = document.createElement("div");
+  const inner = root.appendChild(document.createElement("p"));
+  const mark = inner.appendChild(document.createElement("mark"));
+  mark.setAttribute("data-search-hit", "");
+  assert.equal(firstElementWith(root, "data-search-hit"), mark);
+  assert.equal(firstElementWith(root, "data-nichts"), null);
+  assert.equal(firstElementWith(null, "data-search-hit"), null);
 });

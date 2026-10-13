@@ -699,16 +699,13 @@ test(
       0
     );
     await expand(mounted, 0);
+    // Die Lösch-Vorschau lädt erst, wenn sie gebraucht wird (Menü „⋯" oder
+    // Rückfrage) – Öffnen und Blättern fragen sie nicht an.
     assert.deepEqual(server.calls.slice(1), [
       {
         method: "GET",
         url: server.detailUrl(chatIdOf("k-1")),
         body: undefined,
-      },
-      {
-        method: ROUTES.deletionPreview.method,
-        url: await urlOf(ROUTES.deletionPreview),
-        body: conversationBody(chatIdOf("k-1")),
       },
     ]);
 
@@ -719,6 +716,13 @@ test(
     assert.equal(actions.parentNode.lastChild, actions);
     // nur eine Konversation dieses Besuchers: kein zweites Angebot
     await openMenu(mounted);
+    assert.deepEqual(server.calls.slice(2), [
+      {
+        method: ROUTES.deletionPreview.method,
+        url: await urlOf(ROUTES.deletionPreview),
+        body: conversationBody(chatIdOf("k-1")),
+      },
+    ]);
     assert.equal(withAttribute(container, "data-menu-delete").length, 1);
     assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
     assert.equal(dialogOf(document), null);
@@ -837,6 +841,8 @@ test(
       // Aufklappen und Vorschau nennen die Zeile, nicht die Kennung: Keine
       // Adresse enthält etwas, das der Browser auflösen könnte.
       await expand(mounted, 1);
+      const [remove] = withAttribute(container, "data-delete-conversation");
+      await act(() => click(remove));
       assert.deepEqual(
         server.calls.slice(1),
         [
@@ -855,8 +861,6 @@ test(
       );
       for (const call of server.calls)
         assert.equal(sentPath(call.url), call.url, id);
-      const [remove] = withAttribute(container, "data-delete-conversation");
-      await act(() => click(remove));
       assert.match(
         withAttribute(dialogOf(document), "data-confirm-question")[0]
           .textContent,
@@ -938,6 +942,12 @@ test(
 
     assert.deepEqual(cardIdsOf(container), ["k-1", "k-1", "k-2"]);
     await expand(mounted, 1);
+    // nur die zweite Konversation ist geöffnet, ihr Besucher hat nur diese
+    assert.equal(
+      withAttribute(container, "data-delete-conversation").length,
+      1
+    );
+    await openMenu(mounted);
     assert.deepEqual(server.calls.slice(1), [
       { method: "GET", url: server.detailUrl(12), body: undefined },
       {
@@ -946,12 +956,6 @@ test(
         body: conversationBody(12),
       },
     ]);
-    // nur die zweite Konversation ist geöffnet, ihr Besucher hat nur diese
-    assert.equal(
-      withAttribute(container, "data-delete-conversation").length,
-      1
-    );
-    await openMenu(mounted);
     assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
 
     await act(() =>

@@ -289,6 +289,9 @@ const Embed = {
   // Abschnitt in jedem Fall ein einziges Pfadsegment bleibt. Ohne Zeitraum:
   // Das Seitenpanel öffnet so auch Konversationen per Link, die außerhalb des
   // gewählten Zeitraums liegen. Ohne Recht auf das Widget: success false.
+  // status: HTTP-Status bei einer Ablehnung (403/404 = nicht gefunden oder
+  // kein Zugriff), null bei einem Netzfehler – das Panel unterscheidet
+  // „nicht gefunden" von „Laden fehlgeschlagen".
   getConversationDetails: async (embedId, chatId) => {
     return await fetch(
       `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(chatId)}`,
@@ -300,12 +303,17 @@ const Embed = {
       .then((res) => {
         // 403/404 ohne JSON: keine Inhalte, kein Fehler in der Konsole
         if (!res.ok)
-          return { success: false, error: `HTTP ${res.status}`, messages: [] };
+          return {
+            success: false,
+            status: res.status,
+            error: `HTTP ${res.status}`,
+            messages: [],
+          };
         return res.json();
       })
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return { success: false, status: null, error: e.message };
       });
   },
 

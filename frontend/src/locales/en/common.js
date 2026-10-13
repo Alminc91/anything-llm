@@ -1816,6 +1816,13 @@ const TRANSLATIONS = {
       empty: "No conversations with “{{term}}” in the selected period",
       jump_one: "View {{formatted}} conversation with “{{term}}”",
       jump_other: "View {{formatted}} conversations with “{{term}}”",
+      "link-too-long":
+        "The search term from the link was longer than {{max}} characters and has been shortened.",
+      "link-invalid":
+        "The search term from the link contained invalid characters and was discarded.",
+      quoted: "“{{text}}”",
+      "empty-filtered":
+        "No conversations with “{{term}}” and filter {{filters}} in the selected period",
     },
     panel: {
       label: "Selected conversation",
@@ -1842,6 +1849,14 @@ const TRANSLATIONS = {
       outside: "This conversation is outside the selected period",
       "not-found":
         "This conversation was not found, or you do not have access to it.",
+      "load-error": "The conversation could not be loaded.",
+      retry: "Try again",
+      "hidden-hit":
+        "“{{term}}” appears in this conversation only in link addresses, markup or hidden thoughts of a response.",
+      "not-in-list":
+        "This conversation is not in the loaded list – previous and next are not available.",
+      "quote-open": "“",
+      "quote-close": "”",
     },
   },
   "date-picker": {

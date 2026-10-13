@@ -1284,6 +1284,13 @@ const TRANSLATIONS = {
       empty: "Keine Konversationen mit „{{term}}“ im gewählten Zeitraum",
       jump_one: "{{formatted}} Konversation mit „{{term}}“ ansehen",
       jump_other: "{{formatted}} Konversationen mit „{{term}}“ ansehen",
+      "link-too-long":
+        "Der Suchbegriff aus dem Link war länger als {{max}} Zeichen und wurde gekürzt.",
+      "link-invalid":
+        "Der Suchbegriff aus dem Link enthielt ungültige Zeichen und wurde verworfen.",
+      quoted: "„{{text}}“",
+      "empty-filtered":
+        "Keine Konversationen mit „{{term}}“ und Filter {{filters}} im gewählten Zeitraum",
     },
     panel: {
       label: "Ausgewählte Konversation",
@@ -1310,6 +1317,14 @@ const TRANSLATIONS = {
       outside: "Diese Konversation liegt außerhalb des gewählten Zeitraums",
       "not-found":
         "Diese Konversation wurde nicht gefunden, oder Sie haben keinen Zugriff darauf.",
+      "load-error": "Die Konversation konnte nicht geladen werden.",
+      retry: "Erneut versuchen",
+      "hidden-hit":
+        "„{{term}}“ steht in dieser Konversation nur in Link-Adressen, im Quelltext oder in ausgeblendeten Gedanken einer Antwort.",
+      "not-in-list":
+        "Diese Konversation steht nicht in der geladenen Liste – vorherige und nächste sind nicht verfügbar.",
+      "quote-open": "„",
+      "quote-close": "“",
     },
   },
   "embed-row": {

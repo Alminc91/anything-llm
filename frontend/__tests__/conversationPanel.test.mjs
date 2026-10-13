@@ -119,8 +119,15 @@ async function panelServer(t, state) {
     calls.push(call);
     if (isList(url)) {
       const { offset = 0, limit = 20, q, feedbackFilter } = call.body;
+      // state.holdMore: Nachladen (offset > 0) wartet auf dieses Versprechen
+      if (offset > 0 && state.holdMore) await state.holdMore;
+      // state.failList(body): diese Anfrage scheitert (500)
+      if (state.failList?.(call.body))
+        return json({ success: false, error: "kaputt" }, 500);
       let rows = state.rows;
-      if (q)
+      // state.searchAll: jede Suche trifft alle Zeilen (Treffer, die das
+      // Panel nicht sieht – Link-Adressen, Quelltext)
+      if (q && !state.searchAll)
         rows = rows.filter((r) =>
           r.preview.toLowerCase().includes(q.toLowerCase())
         );
@@ -154,6 +161,7 @@ async function panelServer(t, state) {
     if (call.method === "GET" && detail) {
       const answer = state.details?.[detail[1]];
       if (!answer) return json({ success: true, messages: [] });
+      if (answer.network) throw new TypeError("Failed to fetch");
       if (answer.status && answer.status >= 400)
         return {
           ok: false,
@@ -201,9 +209,14 @@ async function panelServer(t, state) {
 async function toasts(t) {
   const { toast } = await import("react-toastify");
   const shown = [];
-  const original = { success: toast.success, error: toast.error };
+  const original = {
+    success: toast.success,
+    error: toast.error,
+    info: toast.info,
+  };
   toast.success = (text) => shown.push(["success", text]);
   toast.error = (text) => shown.push(["error", text]);
+  toast.info = (text) => shown.push(["info", text]);
   t.after(() => Object.assign(toast, original));
   return shown;
 }
@@ -933,9 +946,11 @@ test(
     assert.equal(withAttribute(container, "data-panel-menu").length, 0);
     await act(() => click(menuButton));
     await act(() => click(one(container, "data-menu-copy-link")));
+    // Der kopierte Link nennt Widget und Konversation – nicht den
+    // Suchbegriff (Fixliste Punkt 23: oft ein Name oder eine E-Mail-Adresse).
     assert.deepEqual(written, [
       "3f311a2b-e8cd-4b30-9627-2758deb20006",
-      `${LOCATION}?widget=3&conversation=1&q=frage`,
+      `${LOCATION}?widget=3&conversation=1`,
     ]);
     assert.deepEqual(shown, [
       ["success", "Kennung kopiert"],
@@ -1154,5 +1169,762 @@ test(
       saved.map((file) => file.filename),
       ["konversationen_vhs-3_2026-09-13_2026-10-13.csv"]
     );
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste nach den Reviews (13.10.2026) – Frontend
+// ---------------------------------------------------------------------------
+
+/**
+ * Tastatur-Lauscher am Dokument und am Fenster mitschneiden (das Test-
+ * Dokument löst selbst keine Ereignisse aus). escape() spielt Escape so ab
+ * wie ein Browser: erst die Lauscher am Dokument (Menüs, Rückfrage), dann
+ * die am Fenster (Panel) – mit einem gemeinsamen defaultPrevented.
+ */
+function captureKeys(t, document) {
+  const lists = { document: [], window: [] };
+  const targets = { document, window: globalThis.window };
+  const originals = {};
+  for (const [name, target] of Object.entries(targets)) {
+    originals[name] = {
+      add: Object.getOwnPropertyDescriptor(target, "addEventListener"),
+      remove: Object.getOwnPropertyDescriptor(target, "removeEventListener"),
+    };
+    target.addEventListener = (type, listener) => {
+      if (type === "keydown") lists[name].push(listener);
+    };
+    target.removeEventListener = (type, listener) => {
+      const index = lists[name].indexOf(listener);
+      if (index >= 0) lists[name].splice(index, 1);
+    };
+  }
+  t.after(() => {
+    for (const [name, target] of Object.entries(targets))
+      for (const [key, descriptor] of [
+        ["addEventListener", originals[name].add],
+        ["removeEventListener", originals[name].remove],
+      ])
+        if (descriptor) Object.defineProperty(target, key, descriptor);
+        else delete target[key];
+  });
+  return (act, key = "Escape") =>
+    act(() => {
+      const event = {
+        key,
+        target: document.activeElement ?? document.body,
+        defaultPrevented: false,
+        preventDefault() {
+          this.defaultPrevented = true;
+        },
+      };
+      for (const listener of [...lists.document]) listener(event);
+      for (const listener of [...lists.window]) listener(event);
+    });
+}
+
+/** window.matchMedia für eine Breite (lg = ab 1024 px). */
+function stubWidth(t, wide) {
+  const original = globalThis.window.matchMedia;
+  globalThis.window.matchMedia = (query) => ({
+    matches: query.includes("1024") ? wide : false,
+    addEventListener() {},
+    removeEventListener() {},
+  });
+  t.after(() => {
+    globalThis.window.matchMedia = original;
+  });
+}
+
+const rowIds = (container) =>
+  rowsOf(container).map((r) => Number(r.getAttribute("data-conversation-row")));
+
+test(
+  "Fixliste 12: Escape in Lösch-Rückfrage (aus Menü und Fußzeile), Menü „⋯“ und Exportmenü schließt nur diese – erst ein weiteres Escape das Panel",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [row(1), row(2)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const view = await mountList(t);
+    const { container, document, act } = view;
+    const escape = captureKeys(t, document);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const dialog = () => withAttribute(document.body, "data-confirm-dialog");
+
+    // Rückfrage aus dem Menü
+    await act(() => click(one(container, "data-panel-menu-button")));
+    await act(() => click(one(container, "data-menu-delete")));
+    assert.equal(dialog().length, 1);
+    await escape(act);
+    assert.equal(dialog().length, 0);
+    assert.ok(
+      panelOf(container),
+      "Panel bleibt nach Escape in der Rückfrage (Menü)"
+    );
+
+    // Rückfrage aus der Fußzeile
+    await act(() => click(one(container, "data-delete-conversation")));
+    assert.equal(dialog().length, 1);
+    await escape(act);
+    assert.equal(dialog().length, 0);
+    assert.ok(
+      panelOf(container),
+      "Panel bleibt nach Escape in der Rückfrage (Fußzeile)"
+    );
+
+    // Menü „⋯": Escape schließt es, der Fokus kehrt auf die Schaltfläche
+    const menuButton = one(container, "data-panel-menu-button");
+    await act(() => click(menuButton));
+    assert.equal(withAttribute(container, "data-panel-menu").length, 1);
+    await escape(act);
+    assert.equal(withAttribute(container, "data-panel-menu").length, 0);
+    assert.equal(document.activeElement, menuButton);
+    assert.ok(panelOf(container), "Panel bleibt nach Escape im Menü");
+
+    // Exportmenü
+    const exportButton = elements(
+      one(container, "data-export-menu"),
+      (e) => e.tagName === "BUTTON"
+    )[0];
+    await act(() => click(exportButton));
+    assert.equal(exportButton.getAttribute("aria-expanded"), "true");
+    await escape(act);
+    assert.equal(exportButton.getAttribute("aria-expanded"), "false");
+    assert.ok(panelOf(container), "Panel bleibt nach Escape im Exportmenü");
+
+    // ohne offenes Menü: Escape schließt das Panel
+    await escape(act);
+    assert.equal(panelOf(container), null);
+  }
+);
+
+test(
+  "Fixliste 13: Sprung zum ersten Treffer scrollt nur den Verlauf (scrollTop), nicht die Seite (kein scrollIntoView)",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [row(1, { preview: "Frage zum Kurs" })],
+      details: {
+        1: {
+          messages: [
+            message(1, "konv-1", {
+              session_id: "sitzung-1",
+              prompt: "Frage zum Kurs",
+            }),
+          ],
+        },
+      },
+    });
+    const view = await mountList(t, { query: "?q=kurs" });
+    const { container, act } = view;
+    const prototype = Object.getPrototypeOf(rowsOf(container)[0]);
+    const scrolled = [];
+    const originals = {
+      scrollIntoView: prototype.scrollIntoView,
+      getBoundingClientRect: prototype.getBoundingClientRect,
+    };
+    prototype.scrollIntoView = function () {
+      scrolled.push(this);
+    };
+    prototype.getBoundingClientRect = function () {
+      if (this.hasAttribute("data-search-hit")) return { top: 700, height: 20 };
+      return { top: 100, height: 400 };
+    };
+    Object.defineProperty(prototype, "clientHeight", {
+      configurable: true,
+      get: () => 400,
+    });
+    t.after(() => {
+      Object.assign(prototype, originals);
+      delete prototype.clientHeight;
+    });
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const body = one(container, "data-panel-body");
+    assert.ok(withAttribute(body, "data-search-hit").length > 0);
+    // 700 − 100 vom Anfang des Verlaufs; mittig: 600 − (400 − 20) / 2
+    assert.equal(body.scrollTop, 410);
+    assert.deepEqual(scrolled, []);
+  }
+);
+
+test(
+  "Fixliste 14: „Vorherige“ ohne Ziel setzt kein Folgen – ein späterer Klick in die Liste verschiebt sie nicht",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    await panelServer(t, { rows: [row(1), row(2), row(3)] });
+    const { container, act } = await mountList(t);
+    const prototype = Object.getPrototypeOf(rowsOf(container)[0]);
+    const scrolled = [];
+    const original = prototype.scrollIntoView;
+    prototype.scrollIntoView = function () {
+      scrolled.push(this);
+    };
+    t.after(() => {
+      prototype.scrollIntoView = original;
+    });
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    // am Anfang: nichts zu öffnen (Handler direkt, die Schaltfläche ist gesperrt)
+    await act(() =>
+      handlersOf(one(container, "data-panel-previous")).onClick()
+    );
+    assert.deepEqual(currentRows(container), [1]);
+    await act(() => click(rowsOf(container)[2]));
+    await act();
+    assert.deepEqual(currentRows(container), [3]);
+    assert.deepEqual(scrolled, []);
+    // Blättern im Panel folgt weiterhin
+    await act(() => click(one(container, "data-panel-previous")));
+    await act();
+    assert.deepEqual(currentRows(container), [2]);
+    assert.equal(scrolled.length, 1);
+  }
+);
+
+test(
+  "Fixliste 15: „Nächste“ am Seitenende, dann eine andere Zeile geöffnet – nach dem Nachladen springt das Panel nicht weiter",
+  { skip },
+  async (t) => {
+    let release;
+    const rows = Array.from({ length: 25 }, (_, i) =>
+      row(500 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    const state = {
+      rows,
+      holdMore: new Promise((resolve) => {
+        release = resolve;
+      }),
+    };
+    const server = await panelServer(t, state);
+    const { container, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[19]));
+    await act();
+    await act(() => click(one(container, "data-panel-next")));
+    assert.equal(server.lists().at(-1).body.offset, 20);
+    // noch beim Laden: eine andere Zeile öffnen
+    await act(() => click(rowsOf(container)[4]));
+    await act();
+    assert.deepEqual(currentRows(container), [504]);
+    await act(() => release());
+    await act();
+    await act();
+    assert.equal(rowsOf(container).length, 25);
+    assert.deepEqual(currentRows(container), [504]);
+    assert.equal(server.details().at(-1), 504);
+  }
+);
+
+test(
+  "Fixliste 16: Ladefehler im Verlauf (500, Netzfehler) – Meldung mit „Erneut versuchen“, keine Aktionen; 403 bleibt „nicht gefunden“",
+  { skip },
+  async (t) => {
+    const state = {
+      rows: [row(1), row(2)],
+      details: { 1: { status: 500 }, 2: { network: true } },
+    };
+    const server = await panelServer(t, state);
+    const { container, act } = await mountList(t);
+    const errors = [];
+    const original = console.error;
+    console.error = (...args) => errors.push(args.map(String).join(" "));
+    t.after(() => {
+      console.error = original;
+    });
+
+    for (const index of [0, 1]) {
+      await act(() => click(rowsOf(container)[index]));
+      await act();
+      const panel = panelOf(container);
+      assert.equal(
+        one(panel, "data-panel-load-error").textContent.startsWith(
+          "Die Konversation konnte nicht geladen werden."
+        ),
+        true
+      );
+      assert.equal(withAttribute(panel, "data-panel-not-found").length, 0);
+      assert.equal(withAttribute(panel, "data-conversation-actions").length, 0);
+      assert.equal(
+        one(panel, "data-panel-menu-button").hasAttribute("disabled"),
+        true
+      );
+    }
+    // erneut versuchen: diesmal klappt es
+    state.details[2] = {
+      messages: [message(2, "konv-2", { session_id: "sitzung-2" })],
+    };
+    const before = server.details().length;
+    await act(() => click(one(container, "data-panel-retry")));
+    await act();
+    assert.equal(server.details().length, before + 1);
+    const panel = panelOf(container);
+    assert.equal(withAttribute(panel, "data-panel-load-error").length, 0);
+    assert.equal(withAttribute(panel, "data-message").length, 1);
+    assert.equal(withAttribute(panel, "data-conversation-actions").length, 1);
+  }
+);
+
+test(
+  "Fixliste 17: Scheitert das Laden der Liste, steht keine alte Zählung – Fehlermeldung mit „Erneut versuchen“, Export gesperrt; gescheitertes Nachladen behält den Stand",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const rows = Array.from({ length: 25 }, (_, i) =>
+      row(600 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    let fail = () => false;
+    await panelServer(t, { rows, failList: (body) => fail(body) });
+    const counts = [];
+    const view = await mountList(t, {
+      props: { onViewableCountChange: (count) => counts.push(count) },
+    });
+    const { container, act } = view;
+    assert.equal(rowsOf(container).length, 20);
+    const exportButton = () =>
+      elements(
+        one(container, "data-export-menu"),
+        (e) => e.tagName === "BUTTON"
+      )[0];
+    assert.equal(exportButton().hasAttribute("disabled"), false);
+
+    // Nachladen scheitert: Zeilen, Zählung und „Weitere laden" bleiben
+    fail = (body) => body.offset > 0;
+    await act(() => click(one(container, "data-load-more")));
+    await act();
+    assert.equal(rowsOf(container).length, 20);
+    assert.equal(withAttribute(container, "data-load-more").length, 1);
+    assert.equal(
+      one(container, "data-viewable-count").textContent,
+      "25 einsehbar"
+    );
+    assert.equal(withAttribute(container, "data-list-load-error").length, 0);
+    assert.deepEqual(shown, [
+      ["error", "Fehler beim Laden der Konversationsdaten."],
+    ]);
+
+    // Erste Seite einer neuen Auswahl scheitert: keine (alte) Zählung,
+    // kein Export, Meldung mit „Erneut versuchen"
+    fail = (body) => body.q === "frage";
+    await type(view, "frage");
+    await act(() => wait(350));
+    await act();
+    assert.equal(withAttribute(container, "data-list-load-error").length, 1);
+    assert.equal(withAttribute(container, "data-viewable-count").length, 0);
+    assert.equal(rowsOf(container).length, 0);
+    assert.equal(exportButton().hasAttribute("disabled"), true);
+    assert.equal(counts.at(-1), null);
+
+    fail = () => false;
+    await act(() => click(one(container, "data-list-retry")));
+    await act();
+    assert.equal(withAttribute(container, "data-list-load-error").length, 0);
+    assert.equal(rowsOf(container).length, 20);
+    assert.equal(counts.at(-1), 25);
+    assert.equal(exportButton().hasAttribute("disabled"), false);
+  }
+);
+
+test(
+  "Fixliste 18: ?q= aus einem Link länger als 200 Zeichen – gekürzt angefragt, mit Hinweis; ungültiges q verworfen – kein 400-Leerzustand",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const server = await panelServer(t, {
+      rows: [row(1, { preview: "x".repeat(300) })],
+    });
+    const long = "x".repeat(250);
+    const { container } = await mountList(t, { query: `?q=${long}` });
+    const sent = server.lists().map((call) => call.body.q);
+    assert.ok(sent.length > 0);
+    for (const q of sent)
+      assert.equal(q === undefined || [...q].length <= 200, true);
+    assert.equal(sent.at(-1), "x".repeat(200));
+    assert.deepEqual(rowIds(container), [1]);
+    // dieselbe Grenze im Feld (gemeinsame Konstante)
+    assert.equal(
+      handlersOf(one(container, "data-search-input")).maxLength,
+      200
+    );
+    assert.deepEqual(shown, [
+      [
+        "info",
+        "Der Suchbegriff aus dem Link war länger als 200 Zeichen und wurde gekürzt.",
+      ],
+    ]);
+  }
+);
+
+test(
+  "Fixliste 18: ?q= mit Steuerzeichen aus einem Link – verworfen mit Hinweis, die Liste ohne Suche",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const server = await panelServer(t, { rows: [row(1), row(2)] });
+    const { container } = await mountList(t, { query: "?q=ab%00cd" });
+    for (const call of server.lists()) assert.equal(call.body.q, undefined);
+    assert.deepEqual(rowIds(container), [1, 2]);
+    assert.deepEqual(shown, [
+      [
+        "info",
+        "Der Suchbegriff aus dem Link enthielt ungültige Zeichen und wurde verworfen.",
+      ],
+    ]);
+  }
+);
+
+test(
+  "Fixliste 19: per Link geöffnet, Konversation auf Seite 3 – die Liste lädt nach, bis sie gefunden ist; dann markiert, vorherige/nächste frei",
+  { skip },
+  async (t) => {
+    const rows = Array.from({ length: 60 }, (_, i) =>
+      row(700 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    const server = await panelServer(t, {
+      rows,
+      details: {
+        745: {
+          messages: [message(745, "konv-745", { session_id: "sitzung-745" })],
+        },
+      },
+    });
+    const { container, act } = await mountList(t, {
+      query: "?widget=3&conversation=745",
+    });
+    await act();
+    await act();
+    assert.deepEqual(
+      server.lists().map((call) => call.body.offset),
+      [0, 20, 40]
+    );
+    assert.deepEqual(currentRows(container), [745]);
+    const panel = panelOf(container);
+    assert.equal(
+      one(panel, "data-panel-previous").hasAttribute("disabled"),
+      false
+    );
+    assert.equal(one(panel, "data-panel-next").hasAttribute("disabled"), false);
+    assert.equal(withAttribute(panel, "data-panel-navigation-hint").length, 0);
+  }
+);
+
+test(
+  "Fixliste 19: per Link geöffnet, nicht in der Liste (Filter) – höchstens 10 Seiten nachgeladen, dann Hinweis; vorherige/nächste gesperrt",
+  { skip },
+  async (t) => {
+    const rows = Array.from({ length: 400 }, (_, i) =>
+      row(1000 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 1000,
+      })
+    );
+    const server = await panelServer(t, {
+      rows,
+      details: {
+        5: { messages: [message(5, "nirgends", { session_id: "sitzung-n" })] },
+      },
+    });
+    const { container, act } = await mountList(t, {
+      query: "?widget=3&conversation=5",
+    });
+    for (let i = 0; i < 12; i++) await act();
+    assert.equal(server.lists().length, 11);
+    const panel = panelOf(container);
+    assert.equal(
+      one(panel, "data-panel-navigation-hint").textContent,
+      "Diese Konversation steht nicht in der geladenen Liste – vorherige und nächste sind nicht verfügbar."
+    );
+    assert.equal(
+      one(panel, "data-panel-previous").hasAttribute("disabled"),
+      true
+    );
+    assert.equal(one(panel, "data-panel-next").hasAttribute("disabled"), true);
+    assert.deepEqual(currentRows(container), []);
+  }
+);
+
+test(
+  "Fixliste 20: Leerzustand mit Suche und weiterem Filter nennt alle Filter",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [row(1, { preview: "Yoga" })] });
+    const { container } = await mountList(t, {
+      query: "?q=spanisch",
+      props: {
+        feedbackFilter: "negative",
+        bucket: { start: "2026-10-12", end: "2026-10-12", label: "12.10.2026" },
+      },
+    });
+    assert.equal(
+      one(container, "data-empty-search").textContent,
+      "Keine Konversationen mit „spanisch“ und Filter „Negativ bewertet“, „12.10.2026“ im gewählten Zeitraum"
+    );
+  }
+);
+
+test(
+  "Fixliste 21: Ein Zeichen, das getippt wird, während die Adresse die Suche übernimmt, bleibt im Feld; ✕ leert es weiterhin",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [row(1, { preview: "Spanischkurs" }), row(2, { preview: "Yoga" })],
+    });
+    const view = await mountList(t);
+    const { container, act } = view;
+    const input = () => one(container, "data-search-input");
+    await type(view, "spanis");
+    // Die Suche geht in die Adresse (Enter), im selben Augenblick kommt „c"
+    await act(() => {
+      handlersOf(input()).onKeyDown({ key: "Enter" });
+      handlersOf(input()).onChange({ target: { value: "spanisc" } });
+    });
+    await act();
+    assert.equal(input().value, "spanisc");
+    assert.equal(
+      one(container, "data-search-filter-mark").textContent,
+      "Suche: spanis"
+    );
+    // von außen (✕): das Feld folgt
+    const [clear] = elements(
+      one(container, "data-search-filter-mark"),
+      (e) => e.tagName === "BUTTON"
+    );
+    await act(() => click(clear));
+    await act();
+    assert.equal(input().value, "");
+  }
+);
+
+test(
+  "Fixliste 25: Vollbild unter lg – Fokus in den Kopf, Hintergrund inert/aria-hidden; beim Schließen zurück auf die Zeile und alles wieder bedienbar",
+  { skip },
+  async (t) => {
+    stubWidth(t, false);
+    await panelServer(t, {
+      rows: [row(1), row(2)],
+      details: {
+        2: { messages: [message(2, "konv-2", { session_id: "sitzung-2" })] },
+      },
+    });
+    const { container, document, act } = await mountList(t);
+    const rowTwo = rowsOf(container)[1];
+    await act(() => click(rowTwo));
+    await act();
+    const panel = panelOf(container);
+    assert.ok(
+      document.activeElement === one(panel, "data-panel-back"),
+      "Fokus im Kopf des Vollbilds"
+    );
+    assert.equal(panel.getAttribute("role"), "dialog");
+    assert.equal(panel.getAttribute("aria-modal"), "true");
+    const list = one(container, "data-conversation-list");
+    const inertAncestor = (element) => {
+      for (let node = element; node; node = node.parentNode)
+        if (node.hasAttribute?.("inert")) return node;
+      return null;
+    };
+    assert.ok(inertAncestor(list), "Liste liegt hinter dem Vollbild (inert)");
+    assert.equal(inertAncestor(list).getAttribute("aria-hidden"), "true");
+    assert.equal(inertAncestor(panel), null);
+
+    await act(() => click(one(panel, "data-panel-back")));
+    await act();
+    assert.equal(panelOf(container), null);
+    assert.equal(inertAncestor(list), null);
+    assert.equal(
+      elements(
+        document.body,
+        (e) => e.hasAttribute("aria-hidden") && e.hasAttribute("inert")
+      ).length,
+      0
+    );
+    assert.ok(
+      document.activeElement === rowsOf(container)[1],
+      "Fokus zurück auf der Zeile"
+    );
+  }
+);
+
+test(
+  "Fixliste 25: ab lg kein Vollbild – kein inert, der Fokus bleibt in der Liste (↑/↓)",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    await panelServer(t, { rows: [row(1), row(2)] });
+    const { container, document, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    assert.equal(document.activeElement, rowsOf(container)[0]);
+    assert.equal(
+      elements(document.body, (e) => e.hasAttribute("inert")).length,
+      0
+    );
+    assert.equal(panelOf(container).hasAttribute("role"), false);
+  }
+);
+
+test(
+  "Fixliste 26: Menü „⋯“ mit der Tastatur – Fokus auf dem ersten Eintrag, ↑/↓ wechseln (rundum), Pos1/Ende, Escape zurück auf die Schaltfläche",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [row(1)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const { container, document, act } = await mountList(t);
+    const escape = captureKeys(t, document);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const button = one(container, "data-panel-menu-button");
+    await act(() => click(button));
+    const menu = one(container, "data-panel-menu");
+    const items = elements(menu, (e) => e.getAttribute("role") === "menuitem");
+    assert.equal(items.length, 3);
+    assert.equal(document.activeElement, items[0]);
+    const key = (name) =>
+      act(() =>
+        handlersOf(menu).onKeyDown({
+          key: name,
+          target: document.activeElement,
+          preventDefault() {},
+        })
+      );
+    await key("ArrowDown");
+    assert.equal(document.activeElement, items[1]);
+    await key("ArrowDown");
+    await key("ArrowDown");
+    assert.equal(document.activeElement, items[0]);
+    await key("ArrowUp");
+    assert.equal(document.activeElement, items[2]);
+    await key("Home");
+    assert.equal(document.activeElement, items[0]);
+    await key("End");
+    assert.equal(document.activeElement, items[2]);
+    await escape(act);
+    assert.equal(withAttribute(container, "data-panel-menu").length, 0);
+    assert.equal(document.activeElement, button);
+  }
+);
+
+test(
+  "Fixliste 27: mobil 44 px – Bewertungs-Umschalter h-11 (ab sm h-9), ✕ der Filtermarkierungen mit 44 × 44 px Trefferfläche",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [row(1, { preview: "Spanisch" })] });
+    const { container } = await mountList(t, {
+      query: "?q=spanisch",
+      props: { feedbackFilter: "negative" },
+    });
+    const classes = (element) =>
+      (element.getAttribute("class") ?? "").split(/\s+/);
+    const segments = elements(
+      one(container, "data-feedback-filters"),
+      (e) => e.tagName === "BUTTON"
+    );
+    assert.equal(segments.length, 3);
+    for (const segment of segments) {
+      assert.ok(classes(segment).includes("h-11"));
+      assert.ok(classes(segment).includes("sm:h-9"));
+    }
+    const clears = withAttribute(container, "data-filter-clear");
+    assert.equal(clears.length, 2);
+    for (const clear of clears)
+      for (const name of ["before:h-11", "before:w-11", "relative"])
+        assert.ok(classes(clear).includes(name), name);
+  }
+);
+
+test(
+  "Fixliste 11: Treffer nur außerhalb des sichtbaren Texts (Link-Adresse, Quelltext) – das Panel weist darauf hin",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      searchAll: true,
+      rows: [row(1, { preview: "Wo melde ich mich an?" })],
+      details: {
+        1: {
+          messages: [
+            message(1, "konv-1", {
+              session_id: "sitzung-1",
+              prompt: "Wo melde ich mich an?",
+            }),
+          ],
+        },
+      },
+    });
+    const { container, act } = await mountList(t, { query: "?q=vhs-lingen" });
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    assert.equal(
+      one(panelOf(container), "data-panel-hidden-hit").textContent,
+      "„vhs-lingen“ steht in dieser Konversation nur in Link-Adressen, im Quelltext oder in ausgeblendeten Gedanken einer Antwort."
+    );
+  }
+);
+
+test(
+  "Fixliste 5: Steht die Konversation in der Liste, zählt der Kopf dieselben Zeilen wie ihre Zeile – nicht die Nachrichten außerhalb des Zeitraums",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    await panelServer(t, {
+      rows: [
+        row(1, {
+          message_count: 2,
+          negative_count: 1,
+          started_at: berlin("2026-10-12", "12:00"),
+          last_message_at: berlin("2026-10-12", "12:05"),
+        }),
+      ],
+      details: {
+        1: {
+          messages: [
+            message(0, "konv-1", {
+              session_id: "sitzung-1",
+              prompt: "Vor dem Zeitraum",
+              createdAt: "2026-08-01T10:00:00.000Z",
+              feedbackScore: false,
+            }),
+            message(1, "konv-1", {
+              session_id: "sitzung-1",
+              prompt: "Erste Frage im Zeitraum",
+              createdAt: new Date(berlin("2026-10-12", "12:00")).toISOString(),
+              feedbackScore: false,
+            }),
+            message(2, "konv-1", {
+              session_id: "sitzung-1",
+              prompt: "Zweite Frage",
+              createdAt: new Date(berlin("2026-10-12", "12:05")).toISOString(),
+            }),
+          ],
+        },
+      },
+    });
+    const { container, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const panel = panelOf(container);
+    assert.equal(
+      one(panel, "data-panel-question").textContent,
+      "Erste Frage im Zeitraum"
+    );
+    assert.equal(
+      one(panel, "data-panel-meta").textContent,
+      "Montag, 12.10.2026 ·2 Fragen · 12:00–12:05 Uhr· 1 Antwort negativ bewertet"
+    );
+    // angezeigt werden alle einsehbaren Nachrichten
+    assert.equal(withAttribute(panel, "data-message").length, 3);
   }
 );

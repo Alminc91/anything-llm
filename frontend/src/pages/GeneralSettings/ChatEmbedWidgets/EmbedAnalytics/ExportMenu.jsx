@@ -48,7 +48,11 @@ export default function ExportMenu({
         setOpen(false);
     }
     function handleKeyDown(e) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      // Escape schließt nur die Auswahl, nicht auch das Seitenpanel
+      // (ConversationDetail achtet auf defaultPrevented).
+      e.preventDefault();
+      setOpen(false);
     }
     document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("keydown", handleKeyDown);

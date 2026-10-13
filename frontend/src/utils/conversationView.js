@@ -2,125 +2,99 @@
 // Reine Hilfsfunktionen ohne React – Tagesgruppen und Uhrzeiten in Berliner
 // Zeit (unabhängig von der Zeitzone des Browsers), Suchbegriff, Hervorhebung
 // der Treffer und die Kennzahlen einer geöffneten Konversation.
+//
+// Datumsangaben stehen immer in deutscher Schreibweise, auch bei englischer
+// Oberfläche – übersetzt werden nur die Wörter darum („Heute", „begonnen
+// am"). Kalendertage kommen aus formatDateForInput (Berliner Tag eines
+// Zeitpunkts), Tagesnamen aus formatterOf (analyticsTimeline).
+
+import { formatDateForInput } from "./billingDate.js";
+import { addDays, formatDate, formatterOf } from "./analyticsTimeline.js";
 
 const BERLIN = "Europe/Berlin";
+const GERMAN = "de-DE";
 
 /** Kürzester Suchbegriff, ab dem gesucht wird. */
 export const SEARCH_MIN_LENGTH = 2;
-
-const formatters = new Map();
-function berlinFormatter(locale, options) {
-  const key = `${locale}|${JSON.stringify(options)}`;
-  if (!formatters.has(key)) {
-    const fixed = {
-      ...options,
-      calendar: "gregory",
-      numberingSystem: "latn",
-      timeZone: BERLIN,
-    };
-    let formatter;
-    try {
-      formatter = new Intl.DateTimeFormat(locale, fixed);
-    } catch {
-      formatter = new Intl.DateTimeFormat("de-DE", fixed);
-    }
-    formatters.set(key, formatter);
-  }
-  return formatters.get(key);
-}
-
 /**
- * Berliner Kalendertag eines Zeitpunkts.
- * @param {number|string|Date} instant - Millisekunden, ISO-Zeitstempel oder Date
- * @returns {string} - "YYYY-MM-DD"
+ * Längster Suchbegriff (Zeichen) – derselbe Wert wie SEARCH_MAX_LENGTH des
+ * Servers (server/utils/helpers/chat/conversationSearch.js; ein Test prüft
+ * die Gleichheit).
  */
-export function berlinDay(instant) {
-  const parts = berlinFormatter("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date(instant));
-  const part = (type) => parts.find((p) => p.type === type)?.value;
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
+export const SEARCH_MAX_LENGTH = 200;
+
+const timeFormatter = new Intl.DateTimeFormat(GERMAN, {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+  timeZone: BERLIN,
+});
 
 /**
- * Berliner Uhrzeit "HH:MM".
+ * Berliner Uhrzeit "HH:MM"; "" ohne gültigen Zeitpunkt.
  * @param {number|string|Date} instant
  * @returns {string}
  */
 export function berlinTime(instant) {
-  return berlinFormatter("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(new Date(instant));
+  const date = new Date(instant);
+  return isNaN(date.getTime()) ? "" : timeFormatter.format(date);
 }
 
-/** Mittag (Berlin) eines Kalendertags – zum Formatieren von Namen. */
-function noonOf(day) {
-  return new Date(`${day}T10:00:00Z`);
-}
-
-/** Der Tag vor einem Kalendertag. */
-function previousDay(day) {
-  const date = new Date(`${day}T12:00:00Z`);
-  date.setUTCDate(date.getUTCDate() - 1);
-  return date.toISOString().slice(0, 10);
-}
+/** Mitternacht (UTC) eines Kalendertags – formatterOf rechnet in UTC. */
+const instantOf = (day) => new Date(`${day}T00:00:00Z`);
 
 /**
  * Überschrift einer Tagesgruppe: „Heute · Dienstag, 13. Oktober",
  * „Gestern · Montag, 12. Oktober", „Sonntag, 11. Oktober"; aus einem anderen
- * Jahr als heute mit Jahreszahl.
- * @param {string} day - Berliner Kalendertag "YYYY-MM-DD"
+ * Jahr als heute mit Jahreszahl. Das Datum steht immer deutsch, nur „Heute"
+ * und „Gestern" folgen der Sprache der Oberfläche.
+ * @param {string} day - Berliner Kalendertag "YYYY-MM-DD" ("" = unbekannt)
  * @param {string} today - heutiger Berliner Kalendertag
- * @param {{t: Function, locale: string}} context
+ * @param {{t: Function}} context
  * @returns {string}
  */
-export function dayGroupLabel(day, today, { t, locale }) {
+export function dayGroupLabel(day, today, { t }) {
+  if (!day) return "–";
   const sameYear = day.slice(0, 4) === today.slice(0, 4);
-  const date = berlinFormatter(locale, {
+  const date = formatterOf(GERMAN, {
     weekday: "long",
     day: "numeric",
     month: "long",
     ...(sameYear ? {} : { year: "numeric" }),
-  }).format(noonOf(day));
+  }).format(instantOf(day));
   if (day === today) return t("embed-analytics.rows.today", { date });
-  if (day === previousDay(today))
+  if (day === addDays(today, -1))
     return t("embed-analytics.rows.yesterday", { date });
   return date;
 }
 
 /**
- * „9. Okt." – kurzer Tag für „begonnen am …"; aus einem anderen Jahr als
- * heute mit Jahreszahl.
+ * „9. Okt." – kurzer Tag für „begonnen am …" (immer deutsch); aus einem
+ * anderen Jahr als heute mit Jahreszahl.
  * @param {string} day
  * @param {string} today
- * @param {string} locale
  * @returns {string}
  */
-export function shortDayLabel(day, today, locale) {
-  return berlinFormatter(locale, {
+export function shortDayLabel(day, today) {
+  if (!day) return "–";
+  return formatterOf(GERMAN, {
     day: "numeric",
     month: "short",
     ...(day.slice(0, 4) === today.slice(0, 4) ? {} : { year: "numeric" }),
-  }).format(noonOf(day));
+  }).format(instantOf(day));
 }
 
 /**
- * „Dienstag, 13.10.2026" – Wochentag in der Sprache der Oberfläche, Datum in
- * deutscher Schreibweise.
+ * „Dienstag, 13.10.2026" – Kopf des Panels, immer deutsch.
  * @param {string} day
- * @param {string} locale
  * @returns {string}
  */
-export function longDateLabel(day, locale) {
-  const weekday = berlinFormatter(locale, { weekday: "long" }).format(
-    noonOf(day)
+export function longDateLabel(day) {
+  if (!day) return "";
+  const weekday = formatterOf(GERMAN, { weekday: "long" }).format(
+    instantOf(day)
   );
-  const [year, month, date] = day.split("-");
-  return `${weekday}, ${date}.${month}.${year}`;
+  return `${weekday}, ${formatDate(day)}`;
 }
 
 /**
@@ -133,7 +107,7 @@ export function longDateLabel(day, locale) {
 export function groupByLastMessageDay(conversations) {
   const groups = [];
   for (const conversation of conversations) {
-    const day = berlinDay(conversation.last_message_at);
+    const day = formatDateForInput(conversation.last_message_at);
     const last = groups.at(-1);
     if (last && last.day === day) last.conversations.push(conversation);
     else groups.push({ day, conversations: [conversation] });
@@ -148,20 +122,55 @@ export function groupByLastMessageDay(conversations) {
  * @returns {string|null} - Berliner Kalendertag des Beginns
  */
 export function startedOnOtherDay(conversation) {
-  const started = berlinDay(conversation.started_at);
-  return started === berlinDay(conversation.last_message_at) ? null : started;
+  const started = formatDateForInput(conversation.started_at);
+  return !started ||
+    started === formatDateForInput(conversation.last_message_at)
+    ? null
+    : started;
+}
+
+// Steuerzeichen und allein stehende Ersatzhälften lehnt der Server ab (400).
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+const LONE_SURROGATE = /[\uD800-\uDFFF]/u;
+
+/** getrimmt, NFC; null, wenn der Server den Begriff ablehnen würde */
+function cleanTerm(value) {
+  const raw = String(value ?? "");
+  if (LONE_SURROGATE.test(raw)) return null;
+  const term = raw.normalize("NFC").trim();
+  return CONTROL_CHARACTERS.test(term) ? null : term;
 }
 
 /**
- * Suchbegriff der Liste: getrimmt; kürzer als SEARCH_MIN_LENGTH = keine Suche.
+ * Suchbegriff der Liste: getrimmt, in NFC, auf SEARCH_MAX_LENGTH Zeichen
+ * gekürzt; kürzer als SEARCH_MIN_LENGTH oder für den Server ungültig
+ * (Steuerzeichen, kaputtes Unicode) = keine Suche.
  * @param {string|null|undefined} value
  * @returns {string} - "" ohne Suche
  */
 export function effectiveSearch(value) {
-  const term = String(value ?? "")
-    .normalize("NFC")
-    .trim();
-  return [...term].length >= SEARCH_MIN_LENGTH ? term : "";
+  const term = cleanTerm(value);
+  if (term === null) return "";
+  const chars = [...term];
+  const cut =
+    chars.length > SEARCH_MAX_LENGTH
+      ? chars.slice(0, SEARCH_MAX_LENGTH).join("").trim()
+      : term;
+  return [...cut].length >= SEARCH_MIN_LENGTH ? cut : "";
+}
+
+/**
+ * Ein Suchbegriff aus der Adresse (Link), den die Ansicht nicht unverändert
+ * übernehmen kann: zu lang (wird gekürzt) oder ungültig (wird verworfen).
+ * @param {string|null|undefined} value
+ * @returns {"too-long"|"invalid"|null}
+ */
+export function searchLinkIssue(value) {
+  if (!value) return null;
+  const term = cleanTerm(value);
+  if (term === null) return "invalid";
+  return [...term].length > SEARCH_MAX_LENGTH ? "too-long" : null;
 }
 
 /**
@@ -200,6 +209,20 @@ export function answerText(response) {
     // keine JSON-Antwort: wörtlich
   }
   return response;
+}
+
+/**
+ * Was von einem Antworttext sichtbar ist (ungefähr wie der MarkdownRenderer
+ * ihn zeigt): ohne <think>-Blöcke (eingeklappt), ohne Ziele von Links und
+ * Bildern ("[Text](https://…)" → "Text"), ohne HTML-Tags und Attribute.
+ * @param {string} text
+ * @returns {string}
+ */
+export function visibleAnswerText(text) {
+  return String(text ?? "")
+    .replace(/<think>[^]*?<\/think>/g, " ")
+    .replace(/\]\([^)]*\)/g, "]")
+    .replace(/<\/?[a-zA-Z][^>]*>/g, " ");
 }
 
 /**
@@ -247,41 +270,69 @@ export function outsidePeriod(messages, startDate, endDate) {
 }
 
 const REGEXP_SPECIAL = /[.*+?^${}()|[\]\\/]/g;
+const escapeRegExp = (text) => text.replace(REGEXP_SPECIAL, "\\$&");
 
 /**
  * Regulärer Ausdruck für den Suchbegriff: wörtlich, Groß/klein egal (auch
- * bei Umlauten). null ohne Begriff.
+ * bei Umlauten), in NFC und NFD – ein zerlegtes „ü" im Text trifft wie ein
+ * zusammengesetztes. null ohne Begriff.
  * @param {string} term
  * @returns {RegExp|null}
  */
 export function searchPattern(term) {
   const search = effectiveSearch(term);
   if (!search) return null;
-  return new RegExp(search.replace(REGEXP_SPECIAL, "\\$&"), "giu");
+  const forms = [...new Set([search, search.normalize("NFD")])];
+  return new RegExp(forms.map(escapeRegExp).join("|"), "giu");
 }
 
 /**
  * Teilt einen Text in Abschnitte mit und ohne Treffer – für die Hervorhebung
  * in React (der Text bleibt Text, kein HTML).
  * @param {string} text
- * @param {string} term
+ * @param {string|RegExp|null} term - Suchbegriff oder schon gebautes Muster
  * @returns {Array<{text: string, hit: boolean}>}
  */
 export function highlightParts(text, term) {
   const value = String(text ?? "");
-  const pattern = searchPattern(term);
+  const pattern = term instanceof RegExp ? term : searchPattern(term);
   if (!pattern || value === "") return [{ text: value, hit: false }];
   const parts = [];
   let last = 0;
+  // Der Begriff hat mindestens SEARCH_MIN_LENGTH Zeichen: kein leerer Treffer.
   for (const match of value.matchAll(pattern)) {
-    if (match[0] === "") continue;
     if (match.index > last)
       parts.push({ text: value.slice(last, match.index), hit: false });
     parts.push({ text: match[0], hit: true });
     last = match.index + match[0].length;
   }
   if (last < value.length) parts.push({ text: value.slice(last), hit: false });
-  return parts.length > 0 ? parts : [{ text: value, hit: false }];
+  return parts;
+}
+
+/**
+ * Steht der Suchbegriff irgendwo SICHTBAR in der Konversation – in einer
+ * Frage, im sichtbaren Antworttext, in Grund oder Kommentar? Die Suche des
+ * Servers liest auch Link-Adressen, HTML und <think>-Blöcke der Antwort; nur
+ * dort getroffen, weist das Panel darauf hin (Fixliste Punkt 11).
+ * @param {Array<{prompt: string, response: string, feedbackReason?: string|null, feedbackText?: string|null}>} messages
+ * @param {string} term
+ * @returns {boolean} - true auch ohne Suche
+ */
+export function hasVisibleHit(messages, term) {
+  const pattern = searchPattern(term);
+  if (!pattern) return true;
+  const hit = (text) => {
+    pattern.lastIndex = 0;
+    return pattern.test(String(text ?? ""));
+  };
+  return (messages ?? []).some(
+    (message) =>
+      hit(message.prompt) ||
+      hit(message.feedbackReason) ||
+      hit(message.feedbackText) ||
+      hit(visibleAnswerText(answerText(message.response)))
+  );
 }
 
 const TEXT_NODE = 3;
@@ -300,7 +351,8 @@ const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "TEXTAREA", "MARK"]);
  * @returns {number} - Zahl der Treffer
  */
 export function highlightTextNodes(root, term, doc) {
-  if (!root || !doc || !searchPattern(term)) return 0;
+  const pattern = searchPattern(term);
+  if (!root || !doc || !pattern) return 0;
   const textNodes = [];
   const walk = (node) => {
     for (const child of [...node.childNodes]) {
@@ -316,7 +368,7 @@ export function highlightTextNodes(root, term, doc) {
 
   let hits = 0;
   for (const node of textNodes) {
-    const parts = highlightParts(node.nodeValue, term);
+    const parts = highlightParts(node.nodeValue, pattern);
     if (!parts.some((part) => part.hit)) continue;
     const parent = node.parentNode;
     for (const part of parts) {
@@ -333,4 +385,52 @@ export function highlightTextNodes(root, term, doc) {
     parent.removeChild(node);
   }
   return hits;
+}
+
+/**
+ * Das erste Element mit einem Attribut unter einem Knoten (Dokumentreihenfolge).
+ * @param {Node|null} root
+ * @param {string} attribute
+ * @returns {Element|null}
+ */
+export function firstElementWith(root, attribute) {
+  for (const child of root?.childNodes ?? []) {
+    if (child.nodeType !== ELEMENT_NODE) continue;
+    if (child.hasAttribute?.(attribute)) return child;
+    const found = firstElementWith(child, attribute);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Alle Elemente unter einem Knoten mit einem Attributwert
+ * (Dokumentreihenfolge), etwa die Einträge eines Menüs (role="menuitem").
+ * @param {Node|null} root
+ * @param {string} attribute
+ * @param {string} value
+ * @returns {Element[]}
+ */
+export function elementsWith(root, attribute, value, found = []) {
+  for (const child of root?.childNodes ?? []) {
+    if (child.nodeType !== ELEMENT_NODE) continue;
+    if (child.getAttribute?.(attribute) === value) found.push(child);
+    elementsWith(child, attribute, value, found);
+  }
+  return found;
+}
+
+/**
+ * Scrollposition eines Bereichs, bei der ein Element darin mittig steht –
+ * nur der Bereich scrollt, nicht die Seite (anders als scrollIntoView).
+ * @param {{scrollTop: number, clientHeight: number, getBoundingClientRect: Function}} container
+ * @param {{getBoundingClientRect: Function}} element
+ * @returns {number}
+ */
+export function centeredScrollTop(container, element) {
+  const box = container.getBoundingClientRect();
+  const target = element.getBoundingClientRect();
+  const offset = target.top - box.top + (container.scrollTop || 0);
+  const centered = offset - ((container.clientHeight || 0) - target.height) / 2;
+  return Number.isFinite(centered) ? Math.max(0, Math.round(centered)) : 0;
 }

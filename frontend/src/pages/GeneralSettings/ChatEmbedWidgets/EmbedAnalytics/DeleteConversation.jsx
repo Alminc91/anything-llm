@@ -32,6 +32,11 @@ function shortQuestion(text) {
 /**
  * Löschen einer Konversation (und aller Konversationen ihres Besuchers) mit
  * Rückfrage.
+ *
+ * Die Vorschau (was das Löschen entfernen würde) lädt erst, wenn sie
+ * gebraucht wird: beim Öffnen des Menüs „⋯" (loadPreview – ob „Alle
+ * Konversationen dieses Besuchers löschen" angeboten wird) oder einer
+ * Rückfrage (die Zahl der Nachrichten). Blättern im Panel fragt nichts an.
  * @param {Object} props
  * @param {number} props.embedId
  * @param {{first_chat_id: number, preview?: string, message_count: number}|null} props.conversation -
@@ -39,7 +44,7 @@ function shortQuestion(text) {
  *   geladen ist
  * @param {() => void} props.onDeleted - nach dem Löschen (auch nach einem
  *   Fehlschlag: Die Liste lädt dann den tatsächlichen Stand)
- * @returns {{offerVisitor: boolean, openDialog: (kind: "conversation"|"visitor") => void, dialog: React.ReactNode}}
+ * @returns {{offerVisitor: boolean, loadPreview: () => void, openDialog: (kind: "conversation"|"visitor") => void, dialog: React.ReactNode}}
  */
 export function useConversationDeletion({
   embedId,
@@ -47,35 +52,42 @@ export function useConversationDeletion({
   onDeleted = () => {},
 }) {
   const { t } = useTranslation();
-  // Was das Löschen entfernen würde: { messageCount, visitor } – nur Zahlen,
-  // je Konversation (chatId) gemerkt.
-  const [preview, setPreview] = useState({ chatId: null, data: null });
-  // offene Rückfrage: null | "conversation" | "visitor"
-  const [dialog, setDialog] = useState(null);
-  const [deleting, setDeleting] = useState(false);
   // Die Konversation: eine ihrer Zeilen. Die conversation_id vergibt der
   // Besucher, eine zweite Sitzung kann dieselbe tragen.
   const chatId = conversation?.first_chat_id ?? null;
+  // Für welche Konversation die Vorschau gebraucht wird (null: noch nicht)
+  const [wanted, setWanted] = useState(null);
+  // Was das Löschen entfernen würde: { messageCount, visitor } – nur Zahlen,
+  // je Konversation (chatId) gemerkt; data null, wenn die Anfrage scheiterte.
+  const [preview, setPreview] = useState({ chatId: null, data: null });
+  // offene Rückfrage: { kind: "conversation" | "visitor", chatId } | null
+  const [dialog, setDialog] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (!chatId) return;
+    if (!chatId || wanted !== chatId) return;
     let ignore = false;
     async function loadPreview() {
       const data = await Embed.getConversationDeletionPreview(embedId, chatId);
-      if (!ignore && data?.success) setPreview({ chatId, data });
+      if (!ignore) setPreview({ chatId, data: data?.success ? data : null });
     }
     loadPreview();
     return () => {
       ignore = true;
     };
-  }, [embedId, chatId]);
+  }, [embedId, chatId, wanted]);
 
-  const current = preview.chatId === chatId ? preview.data : null;
+  const previewLoaded = chatId !== null && preview.chatId === chatId;
+  const current = previewLoaded ? preview.data : null;
   // Die Liste zählt nur einsehbare Nachrichten im Zeitraum; gelöscht wird die
   // ganze Konversation – die Rückfrage nennt die Zahl vom Server.
   const messageCount = current?.messageCount ?? conversation?.message_count;
   const visitor = current?.visitor ?? null;
   const offerVisitor = (visitor?.conversationCount ?? 0) > 1;
+
+  const loadPreview = useCallback(() => {
+    if (chatId) setWanted(chatId);
+  }, [chatId]);
 
   const close = useCallback(() => {
     if (!deleting) setDialog(null);
@@ -83,7 +95,7 @@ export function useConversationDeletion({
 
   const handleDelete = async () => {
     setDeleting(true);
-    const wholeVisitor = dialog === "visitor";
+    const wholeVisitor = dialog?.kind === "visitor";
     const result = wholeVisitor
       ? await Embed.deleteVisitorConversations(embedId, chatId)
       : await Embed.deleteConversation(embedId, chatId);
@@ -123,13 +135,21 @@ export function useConversationDeletion({
     (kind) => {
       if (!chatId) return;
       if (kind === "visitor" && !offerVisitor) return;
-      setDialog(kind);
+      setWanted(chatId);
+      setDialog({ kind, chatId });
     },
     [chatId, offerVisitor]
   );
 
+  // Die Rückfrage gilt der Konversation, für die sie geöffnet wurde – zeigt
+  // das Panel inzwischen eine andere (Zurück-Knopf), ist sie hinfällig.
+  if (dialog && dialog.chatId !== chatId && !deleting) setDialog(null);
+  // Sie erscheint, sobald die Vorschau da ist (oder scheiterte).
+  const kind =
+    dialog && dialog.chatId === chatId && previewLoaded ? dialog.kind : null;
+
   let element = null;
-  if (dialog === "conversation" && conversation)
+  if (kind === "conversation" && conversation)
     element = (
       <ConfirmDialog
         title={t("embed-analytics.delete.confirm-title")}
@@ -146,7 +166,7 @@ export function useConversationDeletion({
         </p>
       </ConfirmDialog>
     );
-  else if (dialog === "visitor" && visitor)
+  else if (kind === "visitor" && visitor)
     element = (
       <ConfirmDialog
         title={t("embed-analytics.delete.visitor-title")}
@@ -165,7 +185,7 @@ export function useConversationDeletion({
       </ConfirmDialog>
     );
 
-  return { offerVisitor, openDialog, dialog: element };
+  return { offerVisitor, loadPreview, openDialog, dialog: element };
 }
 
 /** Die erste Frage der Konversation, damit die richtige gelöscht wird. */
@@ -190,14 +210,18 @@ function Question({ text }) {
 
 /**
  * Rückfrage vor dem Löschen. Abbrechen ist die Vorgabe (Fokus); Escape
- * schließt.
+ * schließt nur sie.
  */
 function ConfirmDialog({ title, children, deleting, onConfirm, onCancel }) {
   const { t } = useTranslation();
 
   useEffect(() => {
     function handleKeyDown(e) {
-      if (e.key === "Escape") onCancel();
+      if (e.key !== "Escape") return;
+      // Escape gilt der Rückfrage – nicht auch dem Panel darunter (es
+      // achtet auf defaultPrevented).
+      e.preventDefault();
+      onCancel();
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);

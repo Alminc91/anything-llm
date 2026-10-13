@@ -182,7 +182,7 @@ const formatters = new Map();
  * Hidschra – der Kalendertag ist aber ein gregorianischer), die Ziffern sind
  * die lateinischen der Datumsangaben daneben.
  */
-function formatterOf(locale, options) {
+export function formatterOf(locale, options) {
   const key = `${locale}|${JSON.stringify(options)}`;
   if (!formatters.has(key)) {
     const fixed = {

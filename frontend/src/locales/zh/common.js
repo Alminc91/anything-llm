@@ -1636,6 +1636,10 @@ const TRANSLATIONS = {
       empty: null,
       jump_one: null,
       jump_other: null,
+      "link-too-long": null,
+      "link-invalid": null,
+      quoted: null,
+      "empty-filtered": null,
     },
     panel: {
       label: null,
@@ -1661,6 +1665,12 @@ const TRANSLATIONS = {
       "span-days": null,
       outside: null,
       "not-found": null,
+      "load-error": null,
+      retry: null,
+      "hidden-hit": null,
+      "not-in-list": null,
+      "quote-open": null,
+      "quote-close": null,
     },
   },
   "date-picker": {

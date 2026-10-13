@@ -782,6 +782,10 @@ async function analyticsServer(t, { granularity = "day", buckets, list } = {}) {
           totalCount: 0,
         }
       );
+    // Gesprächsverlauf (Seitenpanel): geladen, ohne Nachrichten – das Panel
+    // zeigt dann die Angaben der Zeile.
+    if (call.method === "GET" && /\/conversation\/\d+$/.test(url))
+      return { success: true, messages: [] };
     if (!isSummary(url)) return { success: false, error: "unbekannt" };
     const days = [];
     for (let day = body.fromDay; day <= body.toDay; day = addDays(day, 1))
