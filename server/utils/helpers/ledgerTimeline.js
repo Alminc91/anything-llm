@@ -93,18 +93,6 @@ function weekStartOf(serial) {
   return serial - ((((serial + 3) % 7) + 7) % 7);
 }
 
-/**
- * Wochentag eines Kalendertags (KIE-539): 0 = Montag … 6 = Sonntag. Wie alles
- * hier reine Kalenderrechnung - der Wochentag hängt nur vom Tag ab, nicht von
- * einem Zeitpunkt und nicht von der Zeitzone des Prozesses.
- * @param {*} day - "YYYY-MM-DD"
- * @returns {number|null} - null, wenn day kein Kalendertag ist
- */
-function weekdayOf(day) {
-  const serial = parseCalendarDay(day);
-  return serial === null ? null : serial - weekStartOf(serial);
-}
-
 /** Laufende Monatsnummer eines Tages. */
 function monthIndexOf(serial) {
   const { year, month } = fieldsOf(serial);
@@ -378,5 +366,4 @@ module.exports = {
   timelineLayout,
   nextDay,
   previousLayout,
-  weekdayOf,
 };

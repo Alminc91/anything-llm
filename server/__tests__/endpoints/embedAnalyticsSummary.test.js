@@ -800,6 +800,18 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
   const emptyGrid = () => gridOf([]);
   const gridSum = (grid) =>
     grid.flat().reduce((total, value) => total + value, 0);
+  /** Was die Antwort außer dem Raster über den Zeitraum sagt. */
+  const timelineOf = ({ granularity, totals, buckets }) => ({
+    granularity,
+    totals,
+    buckets,
+  });
+  /** Text einer Anweisung, wie sie an $queryRaw ging (ohne die Werte). */
+  const sqlOf = ([strings, ...values]) =>
+    strings.reduce(
+      (text, part, i) =>
+        text + (values[i - 1]?.strings?.join("?") ?? "?") + part
+    );
 
   /**
    * Legt die Nachrichten eines Bestands an: je Feld eine echte Widget-Nachricht
@@ -1004,6 +1016,51 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
       expect(gridSum(weekdayHour)).toBe(1);
       expect(JSON.stringify(weekdayHour)).not.toMatch(/GEHEIM/);
     });
+
+    test("wochentag_stunde: Gelesen wird nur das Zählerbuch - keine Abfrage auf embed_chats (Hard Constraint 1)", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      // Es gibt Konversationsinhalte - gelesen werden dürfen sie nicht.
+      await seed(embed, CORE_TIME_WEEK.cells);
+      expect(await db.client.embed_chats.count()).toBe(
+        CORE_TIME_WEEK.cells.length
+      );
+      const chatReads = [
+        "findMany",
+        "findFirst",
+        "findFirstOrThrow",
+        "findUnique",
+        "findUniqueOrThrow",
+        "groupBy",
+        "count",
+        "aggregate",
+      ].map((method) => jest.spyOn(db.client.embed_chats, method));
+      const queryRaw = jest.spyOn(db.client, "$queryRaw");
+      const queryRawUnsafe = jest.spyOn(db.client, "$queryRawUnsafe");
+
+      const result = await summary(
+        embed,
+        summaryBody(CORE_TIME_WEEK.fromDay, CORE_TIME_WEEK.toDay)
+      );
+      const direct = await MessageLedger.summaryForEmbed(
+        embed.id,
+        CORE_TIME_WEEK.fromDay,
+        CORE_TIME_WEEK.toDay
+      );
+
+      // Gegenprobe: Beide Aufrufe haben gelesen und das Raster geliefert.
+      expect(result.statusCode).toBe(200);
+      expect(result.body.weekdayHour).toEqual(gridOf(CORE_TIME_WEEK.cells));
+      expect(direct.weekdayHour).toEqual(gridOf(CORE_TIME_WEEK.cells));
+      expect(queryRaw).toHaveBeenCalledTimes(2);
+
+      for (const read of chatReads) expect(read).not.toHaveBeenCalled();
+      expect(queryRawUnsafe).not.toHaveBeenCalled();
+      for (const call of queryRaw.mock.calls) {
+        expect(sqlOf(call)).toMatch(/\bFROM message_ledger\b/);
+        expect(sqlOf(call)).not.toMatch(/embed_chats|workspace_chats/);
+      }
+    });
   });
 
   // ==========================================================================
@@ -1071,6 +1128,11 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
         expect(result.body.totals.messages).toBeGreaterThan(0);
         expect(gridSum(grid)).toBe(result.body.totals.messages);
         expect(gridSum(grid)).toBe(sum(result.body.buckets, "messages"));
+        // Kennzahlen und Abschnitte sind dieselben wie aus der Gruppierung
+        // von timelineForEmbed - in jeder Körnung.
+        expect(timelineOf(result.body)).toEqual(
+          await MessageLedger.timelineForEmbed(embed.id, fromDay, toDay)
+        );
 
         // Jedes Feld nennt genau die Werte seines Wochentags und seiner Stunde.
         const own = (await db.client.message_ledger.findMany()).filter(
@@ -1098,6 +1160,72 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
         expect(gridSum(result.body.weekdayHour)).toBe(messages);
       }
     });
+
+    test.each([
+      ["30 Tage", PERIOD.fromDay, PERIOD.toDay],
+      ["ein einzelner Tag", "2026-10-07", "2026-10-07"],
+    ])(
+      "raster_summe: %s - wird während der Abfrage gezählt, bleibt die Summe der 168 Felder die Kennzahl derselben Antwort (ein Lesestand)",
+      async (_name, fromDay, toDay) => {
+        const workspace = await createWorkspace(db.client);
+        const embed = await createEmbed(db.client, workspace);
+        await countsOnly(embed, [{ day: "2026-10-07", hour: 10, messages: 3 }]);
+
+        // Nach jedem Lesezugriff auf das Zählerbuch entsteht eine weitere
+        // Widget-Nachricht im Zeitraum - über den echten Schreibpfad und
+        // bevor der Aufrufer weiterliest. Der Schreibpfad liest selbst (in
+        // seiner Transaktion); das löst keine weitere Nachricht aus.
+        let written = 0;
+        let writing = false;
+        const writeAfter = (target, method) => {
+          const read = target[method];
+          return jest.spyOn(target, method).mockImplementation(async function (
+            ...args
+          ) {
+            const result = await read.apply(this, args);
+            if (writing) return result;
+            writing = true;
+            try {
+              written += 1;
+              await chatAt(embed, berlinInstant("2026-10-07", 11, written), {
+                session_id: `dazwischen-${written}`,
+              });
+            } finally {
+              writing = false;
+            }
+            return result;
+          });
+        };
+        timelineSpy.mockRestore();
+        const hooks = [
+          writeAfter(db.client, "$queryRaw"),
+          writeAfter(db.client.message_ledger, "groupBy"),
+          writeAfter(db.client.message_ledger, "findMany"),
+          writeAfter(MessageLedger, "timelineForEmbed"),
+        ];
+
+        const result = await summary(embed, summaryBody(fromDay, toDay));
+
+        expect(result.statusCode).toBe(200);
+        // Gegenprobe: Während der Abfrage ist wirklich gezählt worden.
+        expect(written).toBeGreaterThanOrEqual(2);
+        expect(await db.client.message_ledger.count()).toBe(2);
+        const { totals, buckets, weekdayHour } = result.body;
+        expect(gridSum(weekdayHour)).toBe(totals.messages);
+        expect(sum(buckets, "messages")).toBe(totals.messages);
+        // Der Stand vor dem ersten Schreibzugriff - in allen drei Angaben.
+        expect(totals.messages).toBe(3);
+        expect(weekdayHour[2][10]).toBe(3);
+        expect(weekdayHour[2][11]).toBe(0);
+
+        // Die nächste Abfrage zeigt, was inzwischen gezählt wurde.
+        for (const hook of hooks) hook.mockRestore();
+        const later = await summary(embed, summaryBody(fromDay, toDay));
+        expect(later.body.totals.messages).toBe(3 + written);
+        expect(gridSum(later.body.weekdayHour)).toBe(3 + written);
+        expect(later.body.weekdayHour[2][11]).toBe(written);
+      }
+    );
   });
 
   // ==========================================================================
@@ -1206,7 +1334,7 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
   // NAK-1 — Keine fremden Zahlen: dieselben Prüfungen wie für die Kennzahlen
   // ==========================================================================
   describe("fremdes_widget (NAK-1, erweitert)", () => {
-    let workspaceA, workspaceB, embedA, embedB, weekdayHourSpy;
+    let workspaceA, workspaceB, embedA, embedB, summarySpy;
     const body = summaryBody(PERIOD.fromDay, PERIOD.toDay);
 
     beforeEach(async () => {
@@ -1217,19 +1345,23 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
       embedB = await createEmbed(db.client, workspaceB);
       await countsOnly(embedA, [{ day: "2026-10-06", hour: 10, messages: 3 }]);
       await countsOnly(embedB, [{ day: "2026-10-06", hour: 15, messages: 40 }]);
-      weekdayHourSpy = jest.spyOn(MessageLedger, "weekdayHourForEmbed");
+      summarySpy = jest.spyOn(MessageLedger, "summaryForEmbed");
     });
 
     test("fremdes_widget: default aus Workspace A erhält für ein Widget aus Workspace B 403 - kein Raster, das Zählerbuch wird nicht gelesen", async () => {
       const kunde = await createUser("default", [workspaceA.id]);
-      const findMany = jest.spyOn(db.client.message_ledger, "findMany");
+      const reads = [
+        jest.spyOn(db.client, "$queryRaw"),
+        jest.spyOn(db.client.message_ledger, "groupBy"),
+        jest.spyOn(db.client.message_ledger, "findMany"),
+      ];
 
       const result = await summary(embedB, body, kunde);
 
       expect(result.statusCode).toBe(403);
       expect(result.body).toBeUndefined();
-      expect(weekdayHourSpy).not.toHaveBeenCalled();
-      expect(findMany).not.toHaveBeenCalled();
+      expect(summarySpy).not.toHaveBeenCalled();
+      for (const read of reads) expect(read).not.toHaveBeenCalled();
     });
 
     test("fremdes_widget: das eigene Widget liefert nur dessen Raster", async () => {
@@ -1278,7 +1410,7 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
       expect(disabled.statusCode).toBe(422);
       expect(disabled.body?.weekdayHour).toBeUndefined();
 
-      expect(weekdayHourSpy).not.toHaveBeenCalled();
+      expect(summarySpy).not.toHaveBeenCalled();
     });
 
     test("fremdes_widget: admin und manager sind nicht eingeschränkt", async () => {
@@ -1293,7 +1425,7 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
   // ==========================================================================
   // Lesefunktion des Zählerbuchs
   // ==========================================================================
-  describe("Lesefunktion (MessageLedger.weekdayHourForEmbed)", () => {
+  describe("Lesefunktion (MessageLedger.summaryForEmbed)", () => {
     test("liest nur: Das Zählerbuch ist nach den Abfragen Byte für Byte dasselbe", async () => {
       const workspace = await createWorkspace(db.client);
       const embed = await createEmbed(db.client, workspace);
@@ -1306,15 +1438,71 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
         [PERIOD.fromDay, PERIOD.toDay],
         ["2019-03-01", "2026-10-12"],
       ]) {
-        const grid = await MessageLedger.weekdayHourForEmbed(
+        const read = await MessageLedger.summaryForEmbed(
           embed.id,
           fromDay,
           toDay
         );
-        expect(grid.flat()).toHaveLength(168);
+        expect(read.weekdayHour.flat()).toHaveLength(168);
+        // Dazu genau das, was timelineForEmbed liefert.
+        expect(timelineOf(read)).toEqual(
+          await MessageLedger.timelineForEmbed(embed.id, fromDay, toDay)
+        );
+        expect(Object.keys(read).sort()).toEqual([
+          "buckets",
+          "granularity",
+          "totals",
+          "weekdayHour",
+        ]);
       }
 
       expect(await tableChecksum(db.client, "message_ledger")).toEqual(before);
+    });
+
+    test("gruppiert in der Datenbank: eine Anweisung, je Tag eine Zeile und höchstens 168 für das Raster - die Stundenzeilen des Zeitraums kommen nicht in den Prozess", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      // Neun Wochen, jede Stunde belegt: 63 Tage × 24 Stunden = 1512 Zeilen
+      const days = daysOf("2026-08-10", "2026-10-11");
+      const cells = days.flatMap((day, i) =>
+        Array.from({ length: 24 }, (_, hour) => ({
+          day,
+          hour,
+          messages: 1 + ((i + hour) % 3),
+        }))
+      );
+      await countsOnly(embed, cells);
+      expect(await db.client.message_ledger.count()).toBe(63 * 24);
+
+      const reads = [];
+      const queryRaw = db.client.$queryRaw;
+      jest.spyOn(db.client, "$queryRaw").mockImplementation(async function (
+        ...args
+      ) {
+        const rows = await queryRaw.apply(this, args);
+        reads.push(rows);
+        return rows;
+      });
+      const findMany = jest.spyOn(db.client.message_ledger, "findMany");
+      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+
+      const result = await summary(
+        embed,
+        summaryBody("2026-08-10", "2026-10-11")
+      );
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body.weekdayHour).toEqual(gridOf(cells));
+      expect(result.body.totals.messages).toBe(totalOf(cells));
+      expect(gridSum(result.body.weekdayHour)).toBe(totalOf(cells));
+      // Eine einzige Anweisung für Zeitreihe und Raster, keine weitere Lesung
+      expect(reads).toHaveLength(1);
+      expect(findMany).not.toHaveBeenCalled();
+      expect(groupBy).not.toHaveBeenCalled();
+      const [rows] = reads;
+      expect(rows.filter((row) => Number(row.grid) === 1)).toHaveLength(168);
+      expect(rows.filter((row) => Number(row.grid) === 0)).toHaveLength(63);
+      expect(rows).toHaveLength(63 + 168);
     });
 
     test("embed_id 0 (Workspace-Chats) und Unsinn als Kennung werfen, statt fremde Zähler zu liefern", async () => {
@@ -1330,18 +1518,18 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
           },
         ])
       );
-      const findMany = jest.spyOn(db.client.message_ledger, "findMany");
+      const queryRaw = jest.spyOn(db.client, "$queryRaw");
       for (const embedId of [0, -1, 1.5, "abc", null, undefined, NaN])
         await expect(
-          MessageLedger.weekdayHourForEmbed(embedId, "2026-10-01", "2026-10-12")
+          MessageLedger.summaryForEmbed(embedId, "2026-10-01", "2026-10-12")
         ).rejects.toThrow(/invalid embedId/);
-      expect(findMany).not.toHaveBeenCalled();
+      expect(queryRaw).not.toHaveBeenCalled();
     });
 
     test("ein ungültiger Zeitraum wirft vor der Abfrage", async () => {
       const workspace = await createWorkspace(db.client);
       const embed = await createEmbed(db.client, workspace);
-      const findMany = jest.spyOn(db.client.message_ledger, "findMany");
+      const queryRaw = jest.spyOn(db.client, "$queryRaw");
       for (const [fromDay, toDay] of [
         ["2026-10-07", "2026-10-06"],
         ["2026-02-30", "2026-03-05"],
@@ -1349,26 +1537,68 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
         [undefined, undefined],
       ])
         await expect(
-          MessageLedger.weekdayHourForEmbed(embed.id, fromDay, toDay)
-        ).rejects.toThrow(/weekdayHourForEmbed/);
-      expect(findMany).not.toHaveBeenCalled();
+          MessageLedger.summaryForEmbed(embed.id, fromDay, toDay)
+        ).rejects.toThrow(/timelineLayout/);
+      expect(queryRaw).not.toHaveBeenCalled();
     });
 
     test("eine Zeile mit einer Stunde außerhalb 0-23 wirft, statt die Summe zu verfälschen", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await countsOnly(embed, [{ day: "2026-10-06", hour: 10, messages: 2 }]);
+      const outside = async (hour) =>
+        await db.client.message_ledger.create({
+          data: {
+            workspace_id: workspace.id,
+            embed_id: embed.id,
+            day: "2026-10-06",
+            hour,
+            messages: 1,
+          },
+        });
+
+      for (const hour of [24, -1]) {
+        const row = await outside(hour);
+        // über mehrere Tage und für den einzelnen Tag (Abschnitte in Stunden)
+        await expect(
+          MessageLedger.summaryForEmbed(embed.id, "2026-10-01", "2026-10-12")
+        ).rejects.toThrow(/no weekday-hour cell/);
+        await expect(
+          MessageLedger.summaryForEmbed(embed.id, "2026-10-06", "2026-10-06")
+        ).rejects.toThrow(/no weekday-hour cell/);
+        const result = await summary(
+          embed,
+          summaryBody("2026-10-01", "2026-10-12")
+        );
+        expect(result.statusCode).toBe(500);
+        expect(result.body).toBeUndefined();
+        await db.client.message_ledger.delete({ where: { id: row.id } });
+      }
+
+      // Gegenprobe: Ohne die Zeile gibt es das Raster wieder.
+      const read = await MessageLedger.summaryForEmbed(
+        embed.id,
+        "2026-10-01",
+        "2026-10-12"
+      );
+      expect(gridSum(read.weekdayHour)).toBe(2);
+    });
+
+    test("eine Zeile ohne gültigen Kalendertag wirft, statt in einem Wochentag zu landen", async () => {
       const workspace = await createWorkspace(db.client);
       const embed = await createEmbed(db.client, workspace);
       await db.client.message_ledger.create({
         data: {
           workspace_id: workspace.id,
           embed_id: embed.id,
-          day: "2026-10-06",
-          hour: 24,
+          day: "2026-10-1x",
+          hour: 10,
           messages: 1,
         },
       });
 
       await expect(
-        MessageLedger.weekdayHourForEmbed(embed.id, "2026-10-01", "2026-10-12")
+        MessageLedger.summaryForEmbed(embed.id, "2026-10-01", "2026-10-31")
       ).rejects.toThrow(/no weekday-hour cell/);
     });
 
@@ -1377,11 +1607,11 @@ describe("Raster Wochentag × Stunde (KIE-539)", () => {
       const embed = await createEmbed(db.client, workspace);
       await countsOnly(embed, [{ day: "2026-10-06", messages: 3 }]);
       jest
-        .spyOn(db.client.message_ledger, "findMany")
+        .spyOn(db.client, "$queryRaw")
         .mockRejectedValue(new Error("database is locked"));
 
       await expect(
-        MessageLedger.weekdayHourForEmbed(embed.id, "2026-10-01", "2026-10-12")
+        MessageLedger.summaryForEmbed(embed.id, "2026-10-01", "2026-10-12")
       ).rejects.toThrow("database is locked");
       const result = await summary(
         embed,
@@ -2642,6 +2872,10 @@ describe("Lesefunktionen (MessageLedger.timelineForEmbed, firstDayForEmbed)", ()
     await expect(
       MessageLedger.timelineForEmbed(embed.id, "2026-10-01", "2026-10-12")
     ).rejects.toThrow("database is locked");
+    // KIE-539: Die Route liest Zeitreihe und Raster in einer Anweisung.
+    jest
+      .spyOn(db.client, "$queryRaw")
+      .mockRejectedValue(new Error("database is locked"));
     const result = await summary(embed, {
       fromDay: "2026-10-01",
       toDay: "2026-10-12",
@@ -3233,6 +3467,7 @@ describe("eingaben (NAK-6)", () => {
     async (_name, body) => {
       const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
       const findFirst = jest.spyOn(db.client.message_ledger, "findFirst");
+      const queryRaw = jest.spyOn(db.client, "$queryRaw");
 
       const result = await summary(embed, body);
 
@@ -3245,6 +3480,7 @@ describe("eingaben (NAK-6)", () => {
       expect(firstDaySpy).not.toHaveBeenCalled();
       expect(groupBy).not.toHaveBeenCalled();
       expect(findFirst).not.toHaveBeenCalled();
+      expect(queryRaw).not.toHaveBeenCalled();
     }
   );
 
@@ -3258,8 +3494,9 @@ describe("eingaben (NAK-6)", () => {
   });
 
   test("eingaben: genau 92 Kalendermonate und ein einzelner Tag sind gültig", async () => {
-    // Gegenprobe zu den Spionen oben: Ein gültiger Aufruf liest das Zählerbuch.
-    const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+    // Gegenprobe zu den Spionen oben: Ein gültiger Aufruf liest das Zählerbuch
+    // (KIE-539: Zeitreihe und Raster in einer Anweisung, $queryRaw).
+    const queryRaw = jest.spyOn(db.client, "$queryRaw");
     const findFirst = jest.spyOn(db.client.message_ledger, "findFirst");
 
     const longest = await summary(embed, {
@@ -3267,7 +3504,7 @@ describe("eingaben (NAK-6)", () => {
       toDay: "2026-10-12",
     });
     expect(longest.statusCode).toBe(200);
-    expect(groupBy).toHaveBeenCalledTimes(1);
+    expect(queryRaw).toHaveBeenCalledTimes(1);
     expect(findFirst).toHaveBeenCalledTimes(1);
     expect(timelineSpy).toHaveBeenCalledTimes(1);
     expect(longest.body.granularity).toBe("month");

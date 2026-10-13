@@ -404,8 +404,13 @@ function embedManagementEndpoints(app) {
           return;
         }
 
+        // KIE-539: summaryForEmbed liest mit Kennzahlen und Zeitreihe auch
+        // weekdayHour - Nachrichten nach Wochentag und Stunde, 7 × 24 Felder
+        // (Montag bis Sonntag, Berliner Stunde 0-23) für die Karte „Wann
+        // schreiben Ihre Besucher?". Eine Anweisung, ein Lesestand: Die Summe
+        // der Felder ist die Kennzahl „Nachrichten". Ebenfalls nur Zählwerte.
         const [timeline, firstLedgerDay] = await Promise.all([
-          MessageLedger.timelineForEmbed(embedId, fromDay, toDay),
+          MessageLedger.summaryForEmbed(embedId, fromDay, toDay),
           MessageLedger.firstDayForEmbed(embedId),
         ]);
         // KIE-537: Der Vorzeitraum beginnt vor firstLedgerDay → available false.
@@ -418,14 +423,6 @@ function embedManagementEndpoints(app) {
                 firstLedgerDay
               )
             : null;
-        // KIE-539: Nachrichten nach Wochentag und Stunde, 7 × 24 Felder
-        // (Montag bis Sonntag, Berliner Stunde 0-23) für die Karte „Wann
-        // schreiben Ihre Besucher?". Ebenfalls nur Zählwerte.
-        const weekdayHour = await MessageLedger.weekdayHourForEmbed(
-          embedId,
-          fromDay,
-          toDay
-        );
 
         response.status(200).json({
           success: true,
@@ -435,7 +432,7 @@ function embedManagementEndpoints(app) {
           totals: timeline.totals,
           buckets: timeline.buckets,
           firstLedgerDay,
-          weekdayHour,
+          weekdayHour: timeline.weekdayHour,
           ...(previous ? { previous } : {}),
         });
       } catch (e) {

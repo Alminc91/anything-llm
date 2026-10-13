@@ -9,8 +9,6 @@ const {
 const {
   timelineLayout,
   previousLayout,
-  validateDayRange,
-  weekdayOf,
 } = require("../utils/helpers/ledgerTimeline");
 
 /**
@@ -47,8 +45,8 @@ const {
  * previousTimelineForEmbed).
  *
  * Die Karte „Wann schreiben Ihre Besucher?" (KIE-539) liest die Nachrichten
- * eines Widgets nach Wochentag und Stunde (weekdayHourForEmbed). Auch sie
- * liest nur.
+ * eines Widgets nach Wochentag und Stunde zusammen mit Kennzahlen und
+ * Zeitreihe in einer Anweisung (summaryForEmbed). Auch sie liest nur.
  */
 
 /**
@@ -706,24 +704,36 @@ const MessageLedger = {
    * @param {string} fromDay - "YYYY-MM-DD", einschließlich
    * @param {string} toDay - "YYYY-MM-DD", einschließlich
    * @param {import("@prisma/client").PrismaClient} [client]
+   * @param {{groups?: Array<Object>}} [options] - KIE-539: groups sind die
+   * schon gelesenen Gruppen dieses Widgets und Zeitraums in der Form von
+   * groupBy (summaryForEmbed liest sie mit dem Raster in einer Anweisung);
+   * dann wird hier nicht noch einmal gelesen.
    * @returns {Promise<{granularity: "hour"|"day"|"week"|"month", totals: EmbedCounts, buckets: Array<import("../utils/helpers/ledgerTimeline").TimelineBucket & {messages: number, conversations: number}>}>}
    */
-  timelineForEmbed: async function (embedId, fromDay, toDay, client = prisma) {
+  timelineForEmbed: async function (
+    embedId,
+    fromDay,
+    toDay,
+    client = prisma,
+    { groups: groupsRead = null } = {}
+  ) {
     const id = Number(embedId);
     if (!Number.isInteger(id) || id <= 0)
       throw new Error(`MessageLedger: invalid embedId ${embedId}`);
 
     const layout = timelineLayout(fromDay, toDay);
-    const groups = await client.message_ledger.groupBy({
-      by: [layout.granularity === "hour" ? "hour" : "day"],
-      where: { embed_id: id, day: { gte: fromDay, lte: toDay } },
-      _sum: {
-        messages: true,
-        conversations_started: true,
-        feedback_positive: true,
-        feedback_negative: true,
-      },
-    });
+    const groups =
+      groupsRead ??
+      (await client.message_ledger.groupBy({
+        by: [layout.granularity === "hour" ? "hour" : "day"],
+        where: { embed_id: id, day: { gte: fromDay, lte: toDay } },
+        _sum: {
+          messages: true,
+          conversations_started: true,
+          feedback_positive: true,
+          feedback_negative: true,
+        },
+      }));
 
     const totals = {
       messages: 0,
@@ -892,63 +902,104 @@ const MessageLedger = {
   },
 
   /**
-   * Nachrichten eines Widgets nach Wochentag und Stunde (KIE-539) über die
-   * Berliner Kalendertage [fromDay, toDay], beide einschließlich: 7 Zeilen
+   * Kennzahlen, Zeitreihe und Nachrichten nach Wochentag und Stunde eines
+   * Widgets (KIE-539) über die Berliner Kalendertage [fromDay, toDay], beide
+   * einschließlich: was timelineForEmbed liefert, dazu weekdayHour - 7 Zeilen
    * (Montag bis Sonntag) mit je 24 Feldern (Berliner Stunde 0-23).
    *
-   * Der Wochentag ergibt sich aus dem Kalendertag der Zeile (weekdayOf):
+   * Eine einzige Anweisung liest beides, also aus einem Lesestand: Die Summe
+   * der 168 Felder ist die Kennzahl „Nachrichten" derselben Antwort, auch
+   * wenn währenddessen gezählt wird. Eine Transaktion wäre dafür der falsche
+   * Weg - die Engine beginnt jede mit BEGIN IMMEDIATE, sie nähme also die
+   * Schreibsperre und stünde den Buchungen im Weg.
+   *
+   * Gruppiert wird in der Datenbank: je Abschnitt der Zeitreihe eine Zeile
+   * wie in timelineForEmbed und höchstens 168 für das Raster, nie die
+   * Stundenzeilen des Zeitraums selbst.
+   *
+   * Der Wochentag ergibt sich aus dem Kalendertag der Zeile (strftime %w):
    * reine Kalenderrechnung, ohne Zeitpunkt und ohne die Zeitzone des
    * Prozesses. Die Stunde ist die der Zeile - am Tag der Umstellung auf
    * Sommerzeit bleibt die Stunde 2 leer, am Tag der Rückstellung stehen beide
    * Durchläufe in der Stunde 2 (berlinCell). Feiertage sind Wochentage wie
    * alle anderen.
    *
-   * Gelesen werden dieselben Zeilen wie in timelineForEmbed (alle Zeilen der
+   * Gezählt werden dieselben Zeilen wie in timelineForEmbed (alle Zeilen der
    * embed_id, unter welchem Workspace sie auch stehen; embed_id 0 ist nie
-   * gemeint). Jede Zeile geht in genau ein Feld: Die Summe der 168 Felder ist
-   * die Kennzahl „Nachrichten" des Zeitraums. Wirft bei einem ungültigen
-   * Zeitraum (validateDayRange) und bei Datenbankfehlern.
+   * gemeint). Wirft bei einem ungültigen Zeitraum (timelineLayout) und bei
+   * Datenbankfehlern.
    *
    * @param {number} embedId
    * @param {string} fromDay - "YYYY-MM-DD", einschließlich
    * @param {string} toDay - "YYYY-MM-DD", einschließlich
    * @param {import("@prisma/client").PrismaClient} [client]
-   * @returns {Promise<number[][]>} - [Wochentag 0 = Montag … 6 = Sonntag][Stunde 0-23]
+   * @returns {Promise<{granularity: "hour"|"day"|"week"|"month", totals: EmbedCounts, buckets: Array<import("../utils/helpers/ledgerTimeline").TimelineBucket & {messages: number, conversations: number}>, weekdayHour: number[][]}>} - weekdayHour: [Wochentag 0 = Montag … 6 = Sonntag][Stunde 0-23]
    */
-  weekdayHourForEmbed: async function (
-    embedId,
-    fromDay,
-    toDay,
-    client = prisma
-  ) {
+  summaryForEmbed: async function (embedId, fromDay, toDay, client = prisma) {
     const id = Number(embedId);
     if (!Number.isInteger(id) || id <= 0)
       throw new Error(`MessageLedger: invalid embedId ${embedId}`);
-    const range = validateDayRange(fromDay, toDay);
-    if (!range.valid)
-      throw new Error(`MessageLedger: weekdayHourForEmbed: ${range.error}`);
 
-    // Je Tag und Stunde eine Zeile (nach dem Umhängen des Widgets eine je
-    // Workspace) - der Wochentag ist keine Spalte, summiert wird deshalb hier.
-    const cells = await client.message_ledger.findMany({
-      where: {
-        embed_id: id,
-        day: { gte: fromDay, lte: toDay },
-        messages: { gt: 0 },
-      },
-      select: { day: true, hour: true, messages: true },
-    });
+    const { Prisma } = require("@prisma/client");
+    // Ein einzelner Tag steht in Stunden, sonst je Tag - wie timelineForEmbed.
+    const hourly = timelineLayout(fromDay, toDay).granularity === "hour";
+    const slot = hourly ? Prisma.sql`hour` : Prisma.sql`day`;
+    // Zeilen der Zeitreihe (grid 0): slot ist Tag bzw. Stunde. Zeilen des
+    // Rasters (grid 1): slot ist die Stunde, weekday der Wochentag des Tages.
+    const rows = await client.$queryRaw`
+      SELECT 0 AS grid, ${slot} AS slot, NULL AS weekday,
+        SUM(messages) AS messages,
+        SUM(conversations_started) AS conversations_started,
+        SUM(feedback_positive) AS feedback_positive,
+        SUM(feedback_negative) AS feedback_negative
+      FROM message_ledger
+      WHERE embed_id = ${id} AND day >= ${fromDay} AND day <= ${toDay}
+      GROUP BY ${slot}
+      UNION ALL
+      SELECT 1, hour, CAST(strftime('%w', day) AS INTEGER),
+        SUM(messages), 0, 0, 0
+      FROM message_ledger
+      WHERE embed_id = ${id} AND day >= ${fromDay} AND day <= ${toDay}
+        AND messages > 0
+      GROUP BY 2, 3`;
 
-    const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
-    for (const { day, hour, messages } of cells) {
-      const row = grid[weekdayOf(day)];
-      if (!row || !Number.isInteger(hour) || hour < 0 || hour > 23)
+    // Ganze Zahlen kommen als BigInt, eine fehlende Angabe als null.
+    const whole = (value) => (value === null ? null : Number(value));
+    const groups = [];
+    const weekdayHour = Array.from({ length: 7 }, () => new Array(24).fill(0));
+    for (const row of rows) {
+      if (whole(row.grid) === 0) {
+        groups.push({
+          ...(hourly ? { hour: whole(row.slot) } : { day: row.slot }),
+          _sum: {
+            messages: whole(row.messages),
+            conversations_started: whole(row.conversations_started),
+            feedback_positive: whole(row.feedback_positive),
+            feedback_negative: whole(row.feedback_negative),
+          },
+        });
+        continue;
+      }
+      // strftime %w zählt ab Sonntag (0); ohne gültigen Tag fehlt der Wert.
+      const fromSunday = whole(row.weekday);
+      const hour = whole(row.slot);
+      const cells =
+        fromSunday === null ? null : weekdayHour[(fromSunday + 6) % 7];
+      if (!cells || !Number.isInteger(hour) || hour < 0 || hour > 23)
         throw new Error(
-          `MessageLedger: no weekday-hour cell for ${day} ${hour}`
+          `MessageLedger: no weekday-hour cell for ${row.weekday} ${row.slot}`
         );
-      row[hour] += messages;
+      cells[hour] += whole(row.messages);
     }
-    return grid;
+
+    const timeline = await MessageLedger.timelineForEmbed(
+      id,
+      fromDay,
+      toDay,
+      client,
+      { groups }
+    );
+    return { ...timeline, weekdayHour };
   },
 
   /**
