@@ -1379,6 +1379,72 @@ test(
 );
 
 test(
+  "Sprung zur Liste: In der Kopfzeile „45 Konversationen ansehen ↓“ – der Klick scrollt weich zur Liste und setzt den Fokus auf ihre Überschrift",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: pagedList });
+    const { container, document, act } = await mountView(t, server);
+    const jumpOf = () =>
+      elements(container, (element) =>
+        element.hasAttribute("data-jump-to-list")
+      )[0] ?? null;
+
+    const jump = jumpOf();
+    assert.ok(jump, "kein Verweis zur Liste");
+    assert.equal(jump.tagName, "BUTTON");
+    assert.equal(jump.textContent, "45 Konversationen ansehen ↓");
+    // bei der Überschrift „Konversationen“ der Ansicht, nicht beim Zeitraum
+    assert.equal(jump.parentNode.firstChild.tagName, "H2");
+    assert.equal(jump.parentNode.firstChild.textContent, "Konversationen");
+
+    const [listArea] = elements(container, (element) =>
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-4")
+    );
+    const scrolls = [];
+    listArea.scrollIntoView = (options) => scrolls.push(options);
+    const [heading] = elements(container, (element) =>
+      element.hasAttribute("data-list-heading")
+    );
+    assert.equal(heading.getAttribute("tabindex"), "-1");
+    assert.notEqual(document.activeElement, heading);
+
+    const before = server.lists().length;
+    await act(() => click(jump));
+    assert.deepEqual(scrolls, [{ behavior: "smooth", block: "start" }]);
+    assert.equal(document.activeElement, heading);
+    // Der Sprung lädt nichts neu.
+    assert.equal(server.lists().length, before);
+  }
+);
+
+test(
+  "Sprung zur Liste: Die Zahl folgt der Liste – „1 Konversation ansehen ↓“; ohne einsehbare Konversation entfällt der Verweis",
+  { skip },
+  async (t) => {
+    const listOf =
+      (totalCount) =>
+      ({ body }) => ({
+        ...pagedList({ body }),
+        totalCount,
+        hasMore: false,
+        conversations: pagedList({ body }).conversations.slice(0, totalCount),
+      });
+    const jumpText = async (totalCount) => {
+      const server = await analyticsServer(t, { list: listOf(totalCount) });
+      const view = await mountView(t, server);
+      const [jump] = elements(view.container, (element) =>
+        element.hasAttribute("data-jump-to-list")
+      );
+      await view.unmount();
+      return jump?.textContent ?? null;
+    };
+    assert.equal(await jumpText(1), "1 Konversation ansehen ↓");
+    assert.equal(await jumpText(1234), "1.234 Konversationen ansehen ↓");
+    assert.equal(await jumpText(0), null);
+  }
+);
+
+test(
   "Blättern (NAK-5): Abschnitts-Filter an und wieder aus (zweiter Klick, Schließen) führt auf Seite 1",
   { skip },
   async (t) => {

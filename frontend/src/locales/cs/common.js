@@ -1650,6 +1650,9 @@ const TRANSLATIONS = {
     },
     list: {
       title: null,
+      jump_one: null,
+      jump_other: null,
+      "jump-pending": null,
       viewable_one: null,
       viewable_other: null,
       "viewable-hint": null,

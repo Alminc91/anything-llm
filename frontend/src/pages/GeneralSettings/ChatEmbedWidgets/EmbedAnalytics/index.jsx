@@ -13,6 +13,7 @@ import paths from "@/utils/paths";
 import {
   DEFAULT_RANGE_DAYS,
   allTimeRange,
+  formatNumber,
   lastDaysRange,
   rangeFromDates,
   showsDeletedHint,
@@ -103,6 +104,10 @@ function WidgetAnalytics({ embeds }) {
   // bleibt er stehen. Nur eingeschaltet fragt die Ansicht den Vorzeitraum an.
   const [compare, setCompare] = useState(false);
   const listRef = useRef(null);
+  const listHeadingRef = useRef(null);
+  // Einsehbare Konversationen der Liste (null, solange sie lädt) – für den
+  // Verweis in der Kopfzeile.
+  const [viewableCount, setViewableCount] = useState(null);
 
   // Date range as Date objects (null = "all time"). Standard: letzte 30 Tage.
   const [startDate, setStartDate] = useState(
@@ -219,6 +224,12 @@ function WidgetAnalytics({ embeds }) {
     setFeedbackFilter("negative");
     listRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   };
+  // Verweis in der Kopfzeile: weich zur Liste, der Fokus auf ihre Überschrift
+  // (ohne zweites, hartes Scrollen).
+  const jumpToList = () => {
+    listRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    listHeadingRef.current?.focus?.({ preventScroll: true });
+  };
 
   return (
     <div className="flex w-full min-w-0 flex-col p-2 md:p-6">
@@ -226,6 +237,8 @@ function WidgetAnalytics({ embeds }) {
         embeds={embeds}
         selectedEmbed={selectedEmbed}
         onSelectEmbed={setSelectedEmbed}
+        viewableCount={viewableCount}
+        onJumpToList={jumpToList}
         startDate={startDate}
         endDate={endDate}
         onDateChange={handleDateChange}
@@ -279,6 +292,8 @@ function WidgetAnalytics({ embeds }) {
           onFeedbackFilterChange={setFeedbackFilter}
           bucket={bucket}
           onClearBucket={() => selectBucket(null)}
+          onViewableCountChange={setViewableCount}
+          headingRef={listHeadingRef}
           showDeletedHint={showsDeletedHint({
             retentionDays,
             startDay: bucket?.start ?? summaryData?.fromDay ?? fromDay,
@@ -290,11 +305,16 @@ function WidgetAnalytics({ embeds }) {
   );
 }
 
-/** Kopfzeile: Titel, Widget-Auswahl (nur bei mehreren Widgets) und Zeitraum. */
+/**
+ * Kopfzeile: Titel mit dem Verweis zur Liste, Widget-Auswahl (nur bei
+ * mehreren Widgets) und Zeitraum.
+ */
 function Header({
   embeds,
   selectedEmbed,
   onSelectEmbed,
+  viewableCount,
+  onJumpToList,
   startDate,
   endDate,
   onDateChange,
@@ -330,9 +350,30 @@ function Header({
 
   return (
     <div className="flex flex-wrap gap-3 justify-between items-center mb-6">
-      <h2 className="text-white text-2xl font-bold">
-        {t("embed-analytics.title")}
-      </h2>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-white text-2xl font-bold">
+          {t("embed-analytics.title")}
+        </h2>
+        {/* Sprung zur Liste. Ohne einsehbare Konversation entfällt er: Die
+            Liste sagt es selbst, und „keine Konversationen“ stünde neben der
+            Kennzahl „Konversationen“ aus dem Zählerbuch, die mehr zählt. */}
+        {viewableCount !== 0 && (
+          <button
+            type="button"
+            data-jump-to-list=""
+            onClick={onJumpToList}
+            className={`text-sm ${MUTED} underline underline-offset-2 hover:text-theme-text-primary`}
+          >
+            {viewableCount === null
+              ? t("embed-analytics.list.jump-pending")
+              : t("embed-analytics.list.jump", {
+                  count: viewableCount,
+                  formatted: formatNumber(viewableCount),
+                })}
+            <span aria-hidden="true"> ↓</span>
+          </button>
+        )}
+      </div>
 
       <div className="flex flex-wrap gap-3 items-center">
         {/* Widget-Auswahl – bei genau einem Widget gibt es nichts zu wählen. */}

@@ -104,6 +104,11 @@ const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
  *   Konversationen, deren erste vorhandene Nachricht darin liegt.
  * @param {() => void} [props.onClearBucket]
  * @param {boolean} [props.showDeletedHint] - Hinweis auf gelöschte Inhalte
+ * @param {(count: number|null) => void} [props.onViewableCountChange] - Zahl
+ *   der einsehbaren Konversationen für die Kopfzeile der Ansicht; null,
+ *   solange die Liste lädt
+ * @param {{current: object|null}} [props.headingRef] - Überschrift der Liste
+ *   (Ziel des Verweises „Konversationen ansehen" in der Kopfzeile)
  */
 export default function ConversationList({
   embedId,
@@ -114,6 +119,8 @@ export default function ConversationList({
   bucket = null,
   onClearBucket = () => {},
   showDeletedHint = false,
+  onViewableCountChange = () => {},
+  headingRef = null,
 }) {
   const { t } = useTranslation();
   const [conversations, setConversations] = useState([]);
@@ -203,12 +210,23 @@ export default function ConversationList({
   const toggleInactiveClass =
     "border-white/10 text-theme-text-secondary hover:border-white/20 light:border-gray-200";
 
+  // Die Kopfzeile der Ansicht nennt, wie viele Konversationen die Liste zeigt.
+  const viewableCount = loading ? null : totalCount;
+  useEffect(() => {
+    onViewableCountChange(viewableCount);
+  }, [viewableCount, onViewableCountChange]);
+
   return (
     <div>
       {/* Kopfzeile – immer sichtbar, auch im Lade- und Leer-Zustand. */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-4">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-          <h3 className="text-base font-semibold text-theme-text-primary">
+          <h3
+            ref={headingRef}
+            tabIndex={-1}
+            data-list-heading=""
+            className="text-base font-semibold text-theme-text-primary"
+          >
             {t("embed-analytics.list.title")}
           </h3>
           {!loading && (

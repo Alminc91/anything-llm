@@ -1049,3 +1049,39 @@ test(
     assert.match(tag, /\bopacity-50\b/);
   }
 );
+
+test(
+  "Sprung zur Liste: Solange die Liste die Zahl nicht kennt, „Konversationen ansehen ↓“ ohne Zahl – in der Kopfzeile bei der Überschrift",
+  { skip },
+  async () => {
+    const html = await render(
+      VIEW,
+      { embedsLoaded: true, embeds: [EMBED] },
+      { exportName: "AnalyticsScreen" }
+    );
+    assert.match(
+      html,
+      /<h2 [^>]*>Konversationen<\/h2><button type="button" data-jump-to-list=""[^>]*>Konversationen ansehen<span aria-hidden="true"> ↓<\/span><\/button>/
+    );
+    // Reihenfolge der Seite (D): Kopfzeile, Aufbewahrung, Kennzahlen,
+    // Diagramm, Uhrzeit-Karte, Liste – keine Reiter.
+    const order = [
+      html.indexOf("data-jump-to-list"),
+      html.indexOf('data-retention-line=""'),
+      html.indexOf('data-kpi="messages"'),
+      html.indexOf('data-kpi="satisfaction"'),
+      html.indexOf("<section"),
+      html.indexOf("data-weekday-hour-card"),
+      html.indexOf("data-list-heading"),
+    ];
+    assert.ok(
+      order.every((index) => index >= 0),
+      `Reihenfolge: ${order}`
+    );
+    assert.deepEqual(
+      order,
+      [...order].sort((a, b) => a - b)
+    );
+    assert.doesNotMatch(html, /role="tab"/);
+  }
+);

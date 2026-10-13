@@ -1751,6 +1751,9 @@ const TRANSLATIONS = {
     },
     list: {
       title: "Conversations",
+      jump_one: "View {{formatted}} conversation",
+      jump_other: "View {{formatted}} conversations",
+      "jump-pending": "View conversations",
       viewable_one: "{{formatted}} viewable",
       viewable_other: "{{formatted}} viewable",
       "viewable-hint":
