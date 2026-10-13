@@ -1,4 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { CalendarBlank, CaretDown, Check } from "@phosphor-icons/react";
 import { DayPicker } from "react-day-picker";
@@ -131,6 +137,72 @@ const PRESET_KEYS = [
   "all",
 ];
 
+// Ab dieser Fensterbreite (Tailwind „sm") steht das Popover wie bisher:
+// rechtsbündig am Auslöser, mindestens 580 px breit, zwei Kalendermonate.
+// Darunter (KIE-536): ein Monat, höchstens so breit wie der sichtbare Bereich.
+const WIDE_QUERY = "(min-width: 640px)";
+// Schmales Popover: ein Kalendermonat (7 × 36 px) mit Innenabstand und Rand
+const NARROW_POPOVER_WIDTH = 320;
+// Abstand des schmalen Popovers zum Rand des sichtbaren Bereichs
+const NARROW_POPOVER_MARGIN = 8;
+
+/**
+ * Lage des Popovers in einem schmalen Fenster: höchstens so breit wie der
+ * sichtbare Bereich abzüglich Rand, linksbündig am Auslöser – und so weit
+ * verschoben, dass es ganz im sichtbaren Bereich bleibt.
+ * @param {{anchorLeft: number, from: number, to: number}} params - linke Kante
+ *   des Auslösers und sichtbarer Bereich (visibleRange), in px ab dem
+ *   linken Fensterrand
+ * @returns {{left: number, width: number}} - left ab der linken Kante des Auslösers
+ */
+export function narrowPopoverPlacement({ anchorLeft, from, to }) {
+  const width = Math.max(
+    0,
+    Math.min(NARROW_POPOVER_WIDTH, to - from - 2 * NARROW_POPOVER_MARGIN)
+  );
+  const left = Math.max(
+    from + NARROW_POPOVER_MARGIN,
+    Math.min(anchorLeft, to - NARROW_POPOVER_MARGIN - width)
+  );
+  return { left: left - anchorLeft, width };
+}
+
+/**
+ * Waagerechter Bereich, in dem ein Element zu sehen ist: das Fenster,
+ * eingeengt durch Vorfahren, die ihren Inhalt beschneiden oder scrollen (die
+ * Einstellungsseiten scrollen in einem Rahmen, dessen Scrollleiste Platz
+ * braucht). Was darüber hinausragt, ließe den Rahmen waagerecht scrollen.
+ * @param {Element} element
+ * @returns {{from: number, to: number}} - px ab dem linken Fensterrand
+ */
+function visibleRange(element) {
+  let from = 0;
+  let to = document.documentElement.clientWidth || window.innerWidth;
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (window.getComputedStyle(node).overflowX === "visible") continue;
+    const left = node.getBoundingClientRect().left + node.clientLeft;
+    from = Math.max(from, left);
+    to = Math.min(to, left + node.clientWidth);
+  }
+  return { from, to };
+}
+
+/** Ist das Fenster schmaler als 640 px? Folgt Änderungen der Fensterbreite. */
+function useNarrowWindow() {
+  const [narrow, setNarrow] = useState(
+    () => !(window.matchMedia?.(WIDE_QUERY).matches ?? true)
+  );
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const wide = window.matchMedia(WIDE_QUERY);
+    const update = () => setNarrow(!wide.matches);
+    update();
+    wide.addEventListener("change", update);
+    return () => wide.removeEventListener("change", update);
+  }, []);
+  return narrow;
+}
+
 /**
  * Chatbase-inspired DateRange picker with preset dropdown + dual calendar.
  *
@@ -142,6 +214,9 @@ const PRESET_KEYS = [
 export default function DateRangePicker({ startDate, endDate, onChange }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const narrow = useNarrowWindow();
+  const [narrowPlacement, setNarrowPlacement] = useState(null);
+  const wrapperRef = useRef(null);
   const [presetDropdownOpen, setPresetDropdownOpen] = useState(false);
   const [calendarRange, setCalendarRange] = useState({
     from: startDate,
@@ -164,6 +239,25 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
       setCalendarRange({ from: startDate, to: endDate });
     }
   }, [open, startDate, endDate]);
+
+  // Schmales Fenster: Das Popover wird am sichtbaren Bereich ausgerichtet,
+  // nicht am Auslöser – sonst ragte es links oder rechts hinaus.
+  useLayoutEffect(() => {
+    if (!open || !narrow) return;
+    function place() {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      setNarrowPlacement(
+        narrowPopoverPlacement({
+          anchorLeft: wrapper.getBoundingClientRect().left,
+          ...visibleRange(wrapper),
+        })
+      );
+    }
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open, narrow]);
 
   // Click outside to close
   useEffect(() => {
@@ -228,7 +322,7 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
   );
 
   return (
-    <div className="relative">
+    <div ref={wrapperRef} className="relative">
       {/* Trigger Button */}
       <button
         ref={triggerRef}
@@ -247,7 +341,13 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
       {open && (
         <div
           ref={popoverRef}
-          className="absolute right-0 top-full mt-2 z-50 bg-theme-bg-secondary border border-white/10 rounded-xl shadow-2xl p-4 min-w-[580px]"
+          data-date-popover={narrow ? "narrow" : "wide"}
+          className={`absolute right-0 top-full mt-2 z-50 bg-theme-bg-secondary border border-white/10 rounded-xl shadow-2xl p-4 ${narrow ? "max-w-[calc(100vw-16px)]" : "min-w-[580px]"}`}
+          style={
+            narrow && narrowPlacement
+              ? { ...narrowPlacement, right: "auto" }
+              : undefined
+          }
         >
           {/* Preset Dropdown */}
           <div className="relative mb-3">
@@ -292,14 +392,16 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
           {/* Divider */}
           <div className="h-px bg-white/10 mb-3" />
 
-          {/* Dual Calendar */}
-          <div className="rdp-theme-wrapper">
+          {/* Dual Calendar – im schmalen Fenster ein Monat, mittig */}
+          <div
+            className={`rdp-theme-wrapper${narrow ? " flex justify-center" : ""}`}
+          >
             <DayPicker
               mode="range"
               locale={de}
               weekStartsOn={1}
-              numberOfMonths={2}
-              defaultMonth={calendarMonth}
+              numberOfMonths={narrow ? 1 : 2}
+              defaultMonth={narrow ? defaultMonth : calendarMonth}
               selected={
                 calendarRange.from
                   ? { from: calendarRange.from, to: calendarRange.to }
