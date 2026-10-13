@@ -24,6 +24,11 @@ export const BAR_MAX_WIDTH = 24;
 export const BAR_RADIUS = 4;
 // Mittlere Zeichenbreite der Achsenbeschriftung (11 px Schrift)
 const TICK_CHAR_WIDTH = 6;
+// Tooltip: Abstand zur Säule; für die geschätzte Breite die mittlere
+// Zeichenbreite (12 px Schrift, großzügig) und Innenabstand samt Rand.
+export const TOOLTIP_GAP = 8;
+const TOOLTIP_CHAR_WIDTH = 6.5;
+const TOOLTIP_PADDING = 22;
 
 /** @typedef {"hour"|"day"|"week"|"month"} Granularity */
 /** @typedef {{start: string, end: string, partial: boolean, hour?: number, messages: number, conversations: number}} Bucket */
@@ -524,4 +529,55 @@ export function barPath({ x, y, width, height }) {
     `V${n(y + height)}`,
     "Z",
   ].join(" ");
+}
+
+/**
+ * Lage des Tooltips im Diagramm. Waagerecht steht er mittig über dem
+ * angesteuerten Platz, im linken und rechten Drittel nach innen gerückt.
+ * Senkrecht steht er über der höchsten Säule, die er überspannt – so verdeckt
+ * er weder die angesteuerte Säule noch ihre Nachbarn (eine niedrige Säule
+ * neben einer hohen). Seine Breite ist dafür nach der Zeichenzahl geschätzt.
+ * @param {Object} params
+ * @param {ReturnType<typeof columnLayout>} params.columns
+ * @param {number} params.active - Index des angesteuerten Platzes
+ * @param {string} params.text - Text des Tooltips
+ * @param {number} params.width - Breite des Diagramms in px
+ * @param {number} params.plotLeft - linker Rand der Zeichenfläche im Diagramm
+ * @param {number} params.plotHeight - Höhe der Zeichenfläche
+ * @returns {{align: "start"|"center"|"end", x: number, y: number, from: number, to: number}} -
+ *   x: Abstand vom linken Rand (start), Mitte (center) oder Abstand vom
+ *   rechten Rand (end); y: Unterkante des Tooltips, ab der Oberkante der
+ *   Zeichenfläche; from/to: geschätzte Ausdehnung im Diagramm
+ */
+export function tooltipPlacement({
+  columns,
+  active,
+  text,
+  width,
+  plotLeft,
+  plotHeight,
+}) {
+  const center = plotLeft + columns[active].center;
+  const size = text.length * TOOLTIP_CHAR_WIDTH + TOOLTIP_PADDING;
+  let align = "center";
+  let x = center;
+  let from = center - size / 2;
+  if (center < width * 0.3) {
+    align = "start";
+    x = Math.max(0, center - 16);
+    from = x;
+  } else if (center > width * 0.7) {
+    align = "end";
+    x = Math.max(0, width - center - 16);
+    from = width - x - size;
+  }
+  const to = from + size;
+
+  let top = columns[active].bar ? columns[active].bar.y : plotHeight;
+  for (const { bar } of columns) {
+    if (!bar) continue;
+    const left = plotLeft + bar.x;
+    if (left < to && left + bar.width > from) top = Math.min(top, bar.y);
+  }
+  return { align, x, y: top - TOOLTIP_GAP, from, to };
 }

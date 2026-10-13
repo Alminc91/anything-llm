@@ -14,6 +14,7 @@ import {
   formatNumber,
   tickLabelWidth,
   tickStep,
+  tooltipPlacement,
   valueLabel,
   valueScale,
 } from "@/utils/analyticsTimeline";
@@ -327,7 +328,17 @@ function Columns({
   const [leading, other] =
     lead === "focus" ? [focused, hovered] : [hovered, focused];
   const active = leading ?? other;
-  const activeColumn = active !== null ? columns[active] : null;
+  const tooltip =
+    active !== null && columns[active]
+      ? tooltipPlacement({
+          columns,
+          active,
+          text: tooltipOf(active),
+          width,
+          plotLeft: MARGIN.left,
+          plotHeight,
+        })
+      : null;
 
   return (
     <div ref={wrapperRef} className="relative w-full">
@@ -491,17 +502,11 @@ function Columns({
       </svg>
 
       {/* Tooltip – dieselbe Angabe wie das aria-label des Platzes */}
-      {activeColumn && (
+      {tooltip && (
         <div
           aria-hidden="true"
           className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-white/10 bg-theme-bg-secondary px-2.5 py-1.5 text-xs text-theme-text-primary shadow-lg"
-          style={{
-            top:
-              MARGIN.top +
-              (activeColumn.bar ? activeColumn.bar.y : plotHeight) -
-              8,
-            ...tooltipPosition(MARGIN.left + activeColumn.center, width),
-          }}
+          style={{ top: MARGIN.top + tooltip.y, ...tooltipStyle(tooltip) }}
         >
           {labelOf(active)}
           {" — "}
@@ -515,19 +520,14 @@ function Columns({
 }
 
 /**
- * Der Tooltip steht über der Säule; an den Rändern bleibt er im Diagramm.
- * @param {number} center - Mitte des Säulenplatzes in px
- * @param {number} width - Breite des Diagramms in px
+ * Der Tooltip steht mit seiner Unterkante über den Säulen; an den Rändern
+ * bleibt er im Diagramm (tooltipPlacement).
+ * @param {{align: "start"|"center"|"end", x: number}} placement
  */
-function tooltipPosition(center, width) {
-  if (center < width * 0.3)
-    return { left: Math.max(0, center - 16), transform: "translateY(-100%)" };
-  if (center > width * 0.7)
-    return {
-      right: Math.max(0, width - center - 16),
-      transform: "translateY(-100%)",
-    };
-  return { left: center, transform: "translate(-50%, -100%)" };
+function tooltipStyle({ align, x }) {
+  if (align === "start") return { left: x, transform: "translateY(-100%)" };
+  if (align === "end") return { right: x, transform: "translateY(-100%)" };
+  return { left: x, transform: "translate(-50%, -100%)" };
 }
 
 /** Dieselben Werte als Tabelle: markierbar, per Tastatur erreichbar. */

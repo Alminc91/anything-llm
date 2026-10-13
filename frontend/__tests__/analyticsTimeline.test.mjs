@@ -37,6 +37,8 @@ import {
   tickLabelWidth,
   tickStep,
   toDayString,
+  tooltipPlacement,
+  TOOLTIP_GAP,
   valueLabel,
   valueScale,
   viewState,
@@ -844,4 +846,108 @@ test("Zeitachse: Lange Beschriftungen (Monat und Jahr in manchen Sprachen) bekom
     assert.ok(tickLabelWidth(ticks, 68) >= longest * 6, locale);
     assert.ok(tickLabelWidth(ticks, 68) > 68, locale);
   }
+});
+
+// 30 Tage wie in der Abnahme: am 06.10. (Platz 22) 84 Nachrichten, daneben
+// einzelne; Diagramm 960 px breit, Zeichenfläche 908 × 202 ab x = 44.
+const TOOLTIP_CHART = { width: 960, plotLeft: 44, plotHeight: 202 };
+const TOOLTIP_VALUES = Array.from(
+  { length: 30 },
+  (_, i) => ({ 2: 3, 21: 2, 22: 84, 23: 1, 24: 8, 25: 12 })[i] ?? 0
+);
+const TOOLTIP_COLUMNS = columnLayout({
+  values: TOOLTIP_VALUES,
+  width: 908,
+  height: TOOLTIP_CHART.plotHeight,
+  max: valueScale(84).max,
+});
+const placeTooltip = (active, text = "Mi., 07.10.2026 — 1 Nachricht") =>
+  tooltipPlacement({
+    columns: TOOLTIP_COLUMNS,
+    active,
+    text,
+    ...TOOLTIP_CHART,
+  });
+
+test("Tooltip: steht über der höchsten Säule, die er überspannt – eine niedrige Säule neben einer hohen verdeckt die hohe nicht", () => {
+  const tall = TOOLTIP_COLUMNS[22].bar;
+  assert.ok(tall.y < 40);
+
+  // die hohe Säule selbst: direkt über ihr
+  assert.equal(placeTooltip(22).y, tall.y - TOOLTIP_GAP);
+  // Rechts von ihr (1, 8 und 12 Nachrichten, ein Platz ohne Säule) reicht
+  // der Tooltip nach links über sie hinweg: auf derselben Höhe wie bei ihr.
+  for (const neighbour of [23, 24, 25, 26]) {
+    const place = placeTooltip(neighbour);
+    assert.equal(place.align, "end");
+    assert.ok(place.from < 44 + tall.x, neighbour);
+    assert.equal(place.y, tall.y - TOOLTIP_GAP, neighbour);
+  }
+  // Links von ihr endet er vor ihr: direkt über der eigenen Säule.
+  const left = placeTooltip(21);
+  assert.ok(left.to <= 44 + tall.x);
+  assert.equal(left.y, TOOLTIP_COLUMNS[21].bar.y - TOOLTIP_GAP);
+
+  // weit weg von ihr: direkt über der eigenen Säule bzw. der Grundlinie
+  assert.equal(placeTooltip(2).y, TOOLTIP_COLUMNS[2].bar.y - TOOLTIP_GAP);
+  assert.equal(placeTooltip(10).y, TOOLTIP_CHART.plotHeight - TOOLTIP_GAP);
+});
+
+test("Tooltip: verdeckt an keinem Platz eine Säule – bei 30, 53 und 92 Plätzen, breit und schmal", () => {
+  for (const [count, width] of [
+    [30, 960],
+    [30, 300],
+    [53, 340],
+    [92, 1100],
+    [7, 600],
+  ]) {
+    const chart = { width, plotLeft: 44, plotHeight: 162 };
+    const values = Array.from({ length: count }, (_, i) => (i * 37) % 23);
+    const columns = columnLayout({
+      values,
+      width: width - 52,
+      height: chart.plotHeight,
+      max: valueScale(22).max,
+    });
+    for (let active = 0; active < count; active++) {
+      const text = "KW 41 (05.10.–11.10.2026) — 111 Nachrichten";
+      const place = tooltipPlacement({ columns, active, text, ...chart });
+      const where = `${count} Plätze, ${width} px, Platz ${active}`;
+      // breit genug für den Text und um den Platz herum
+      assert.ok(place.to - place.from >= text.length * 6, where);
+      const center = chart.plotLeft + columns[active].center;
+      assert.ok(place.from <= center && center <= place.to, where);
+      for (const { bar } of columns) {
+        if (!bar) continue;
+        const left = chart.plotLeft + bar.x;
+        if (left >= place.to || left + bar.width <= place.from) continue;
+        assert.ok(place.y + TOOLTIP_GAP <= bar.y, where);
+      }
+      // nie tiefer als über der eigenen Säule
+      const own = columns[active].bar?.y ?? chart.plotHeight;
+      assert.ok(place.y <= own - TOOLTIP_GAP, where);
+    }
+  }
+});
+
+test("Tooltip: mittig über dem Platz, im linken und rechten Drittel nach innen gerückt", () => {
+  const middle = placeTooltip(15);
+  assert.equal(middle.align, "center");
+  assert.equal(middle.x, 44 + TOOLTIP_COLUMNS[15].center);
+  assert.equal((middle.from + middle.to) / 2, middle.x);
+
+  const first = placeTooltip(0);
+  assert.equal(first.align, "start");
+  assert.equal(first.x, 44 + TOOLTIP_COLUMNS[0].center - 16);
+  assert.equal(first.from, first.x);
+
+  const last = placeTooltip(29);
+  assert.equal(last.align, "end");
+  assert.equal(last.x, 960 - (44 + TOOLTIP_COLUMNS[29].center) - 16);
+  assert.equal(last.to, 960 - last.x);
+  assert.ok(last.to <= 960 && first.from >= 0);
+
+  // Ein längerer Text überspannt mehr.
+  const long = placeTooltip(15, "KW 41 (05.10.–11.10.2026) — 111 Nachrichten");
+  assert.ok(long.to - long.from > middle.to - middle.from);
 });

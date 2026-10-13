@@ -407,6 +407,45 @@ test(
   }
 );
 
+test(
+  "Tooltip: steht über der hohen Nachbarsäule statt auf ihr – ohne die Karte zu verschieben",
+  { skip },
+  async (t) => {
+    // wie in der Abnahme: 84 Nachrichten am 06.10., eine am 07.10.
+    const summary = {
+      ...THIRTY_DAYS,
+      buckets: THIRTY_DAYS.buckets.map((bucket, i) => ({
+        ...bucket,
+        messages: { 2: 3, [OCT_06]: 84, [OCT_07]: 1 }[i] ?? 0,
+      })),
+    };
+    const { container, document, act } = await mount(t, CHART, {
+      summary,
+      loading: false,
+    });
+    const columns = columnsOf(container);
+    const tooltipTop = async (i) => {
+      await act(() => movePointer(document, columns[i]));
+      const [tooltip] = elements(container, (element) =>
+        (element.getAttribute("class") ?? "").includes("pointer-events-none")
+      );
+      // außerhalb des Textflusses: Die Karte ändert ihre Größe nicht.
+      assert.match(tooltip.getAttribute("class"), /(^| )absolute( |$)/);
+      return parseFloat(tooltip.style.top);
+    };
+
+    const tall = await tooltipTop(OCT_06);
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 84 Nachrichten");
+    assert.equal(await tooltipTop(OCT_07), tall);
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 1 Nachricht");
+    // Platz ohne Säule rechts daneben: dieselbe Höhe
+    assert.equal(await tooltipTop(OCT_07 + 1), tall);
+    // weit weg von der hohen Säule: direkt über der eigenen, also viel tiefer
+    assert.ok((await tooltipTop(2)) > tall + 100);
+    assert.equal(tooltipOf(container), "Di., 15.09.2026 — 3 Nachrichten");
+  }
+);
+
 // ---------------------------------------------------------------------------
 // Anfragen an den Server (Hard Constraint 5, AK-7)
 // ---------------------------------------------------------------------------
