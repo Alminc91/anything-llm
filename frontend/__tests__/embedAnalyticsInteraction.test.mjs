@@ -990,10 +990,11 @@ test(
     const view = await mountView(t, server);
     await openSecondPage(view, server);
 
+    // „Letzter Monat" endet am letzten Tag des Vormonats, nie heute.
     await choosePreset(view, "Letzter Monat");
     const other = server.lists().at(-1).body;
     assert.equal(other.offset, 0);
-    assert.notEqual(other.startDate, view.period.startDate);
+    assert.notEqual(other.endDate, view.period.endDate);
 
     await choosePreset(view, "Letzte 30 Tage");
     assert.deepEqual(server.lists().at(-1), view.listRequest());

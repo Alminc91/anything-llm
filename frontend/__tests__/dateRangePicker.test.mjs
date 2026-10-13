@@ -21,9 +21,10 @@ const skip = hasFrontendDeps
 // Popover der Datumsauswahl auf master (vor KIE-536)
 const WIDE_CLASS =
   "absolute right-0 top-full mt-2 z-50 bg-theme-bg-secondary border border-white/10 rounded-xl shadow-2xl p-4 min-w-[580px]";
-// 14.09.2026–13.10.2026, wie „Letzte 30 Tage" am 13.10.2026
+// Ein eigener Zeitraum (Montag bis Freitag), der an keinem künftigen Tag einer
+// Vorauswahl entspricht – die Beschriftungen hängen so nicht vom Datum ab.
 const START = new Date(2026, 8, 14);
-const END = new Date(2026, 9, 13, 23, 59, 59, 999);
+const END = new Date(2026, 8, 18, 23, 59, 59, 999);
 
 let renderer;
 before(async () => {
@@ -165,7 +166,7 @@ for (const [name, width] of [
     async (t) => {
       const view = width === null ? null : windowOf(t, width);
       const picker = await mountPicker(t, { anchorLeft: 900, view });
-      assert.equal(picker.trigger().textContent, "14.09.2026 - 13.10.2026");
+      assert.equal(picker.trigger().textContent, "14.09.2026 - 18.09.2026");
       assert.equal(picker.popover(), null);
 
       await picker.act(() => click(picker.trigger()));
@@ -206,7 +207,7 @@ test(
     // Reihenfolge im Popover: Vorauswahlen, Kalender, „Anwenden“
     const inPopover = elements(popover);
     const presets = picker.buttons()[1];
-    assert.equal(presets.textContent, "Letzte 30 Tage");
+    assert.equal(presets.textContent, "Zeitraum wählen");
     const apply = picker.buttons().at(-1);
     assert.equal(apply.textContent, "Anwenden");
     assert.ok(
