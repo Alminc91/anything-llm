@@ -400,8 +400,8 @@ test(
     assert.deepEqual(changesOf(container), [
       "+58 % ggü. Vorzeitraum (266)",
       "Vorzeitraum: 0",
-      "+50 % ggü. Vorzeitraum (6)",
-      "−25 % ggü. Vorzeitraum (4)",
+      "+20 % ggü. Vorzeitraum (10)",
+      "+15 Punkte ggü. Vorzeitraum (60 %)",
     ]);
     // Womit verglichen wird, steht sichtbar unter dem Streifen: die 30 Tage
     // unmittelbar davor – zwischen den Feldern und dem Diagramm.

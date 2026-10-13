@@ -405,9 +405,91 @@ export function countsSinceDay(summary) {
 }
 
 /**
+ * Ab so vielen Bewertungen nennt das Feld „Zufriedenheit" eine Prozentzahl –
+ * darunter wäre sie Zufall (3 von 4 = 75 %).
+ */
+export const MIN_RATINGS = 10;
+
+/**
+ * Anteil der Antworten mit Bewertung in ganzen Prozent, kaufmännisch
+ * gerundet; Bezugsgröße sind die Nachrichten im Zeitraum. Höchstens 100.
+ * @param {number} rated - positiv + negativ bewertete Antworten
+ * @param {number} messages - Nachrichten im Zeitraum
+ * @returns {number|null} - null ohne Nachrichten
+ */
+export function ratedShare(rated, messages) {
+  if (!(messages > 0)) return null;
+  return Math.min(100, Math.round(((rated || 0) * 100) / messages));
+}
+
+/**
+ * Die Bewertungsquote als Zahl für den Text „X % der Antworten bewertet":
+ * "13", "100" – und "< 1", wenn es Bewertungen gibt, die Quote aber auf 0
+ * gerundet würde (eine Bewertung bei 400 Nachrichten ist nicht „0 %").
+ * @param {number} rated
+ * @param {number} messages
+ * @returns {string|null} - null ohne Nachrichten
+ */
+export function formatRatedShare(rated, messages) {
+  const share = ratedShare(rated, messages);
+  if (share === null) return null;
+  if (share === 0 && rated > 0) return "< 1";
+  return formatNumber(share);
+}
+
+/**
+ * Zufriedenheit: Anteil positiver an allen Bewertungen in ganzen Prozent,
+ * kaufmännisch gerundet – erst ab MIN_RATINGS Bewertungen.
+ * @param {number} positive
+ * @param {number} negative
+ * @returns {number|null} - null unter MIN_RATINGS Bewertungen
+ */
+export function satisfactionShare(positive, negative) {
+  const rated = (positive || 0) + (negative || 0);
+  if (rated < MIN_RATINGS) return null;
+  return Math.round(((positive || 0) * 100) / rated);
+}
+
+/**
+ * Veränderung der Zufriedenheit gegenüber dem Vorzeitraum in Prozentpunkten –
+ * die Differenz der beiden angezeigten (gerundeten) Prozentzahlen, damit sie
+ * zu dem passt, was dasteht. Nur, wenn beide Zeiträume mindestens
+ * MIN_RATINGS Bewertungen haben.
+ * @param {{positive: number, negative: number}} current
+ * @param {{positive: number, negative: number}} previous
+ * @returns {{points: number, previous: number}|null}
+ */
+export function satisfactionChange(current, previous) {
+  const now = satisfactionShare(current?.positive, current?.negative);
+  const before = satisfactionShare(previous?.positive, previous?.negative);
+  if (now === null || before === null) return null;
+  // || 0: nie -0
+  return { points: now - before || 0, previous: before };
+}
+
+/**
+ * Zeile der Veränderung im Feld „Zufriedenheit":
+ * "+5 Punkte ggü. Vorzeitraum (61 %)" – null, wenn einer der Zeiträume zu
+ * wenige Bewertungen hat.
+ * @param {{positive: number, negative: number}} current
+ * @param {{positive: number, negative: number}} previous
+ * @param {Function} t
+ * @returns {string|null}
+ */
+export function satisfactionChangeLabel(current, previous, t) {
+  const change = satisfactionChange(current, previous);
+  if (!change) return null;
+  return t("embed-analytics.compare.change-points", {
+    count: Math.abs(change.points),
+    change: formatPercentChange(change.points),
+    previous: formatNumber(change.previous),
+  });
+}
+
+/**
  * Die vier Kennzahlen mit ihren Nebenwerten.
  * @param {Summary|null} summary
- * @returns {{messages: number, conversations: number, positive: number, negative: number, averagePerBucket: number|null, averagePerConversation: number|null, positiveShare: number|null}}
+ * @returns {{messages: number, conversations: number, positive: number, negative: number, rated: number, ratedShare: number|null, satisfaction: number|null, averagePerBucket: number|null, averagePerConversation: number|null}}
  */
 export function kpiValues(summary) {
   const totals = summary?.totals ?? {};
@@ -422,9 +504,11 @@ export function kpiValues(summary) {
     conversations,
     positive,
     negative,
+    rated,
+    ratedShare: ratedShare(rated, messages),
+    satisfaction: satisfactionShare(positive, negative),
     averagePerBucket: bucketCount > 0 ? messages / bucketCount : null,
     averagePerConversation: conversations > 0 ? messages / conversations : null,
-    positiveShare: rated > 0 ? Math.round((positive / rated) * 100) : null,
   };
 }
 

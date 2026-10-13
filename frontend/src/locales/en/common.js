@@ -1603,8 +1603,6 @@ const TRANSLATIONS = {
       "aria-label": "Key figures for the selected period",
       messages: "Messages",
       conversations: "Conversations",
-      positive: "Positively rated responses",
-      negative: "Negatively rated responses",
       "avg-per": {
         hour: "Avg. {{value}} per hour",
         day: "Avg. {{value}} per day",
@@ -1612,12 +1610,19 @@ const TRANSLATIONS = {
         month: "Avg. {{value}} per month",
       },
       "avg-per-conversation": "Avg. {{value}} messages per conversation",
-      "positive-share": "{{value}} % of rated responses",
       "no-ratings": "No ratings",
-      "no-negative": "No negative ratings",
       "show-negative": "Show affected conversations",
       "conversations-hint":
         "Conversations started in the period. The list below only shows conversations whose contents still exist – the numbers may differ.",
+      ratings: "Ratings",
+      "rated-share": "{{value}} % of responses rated",
+      "positive-count": "{{value}} positive",
+      "negative-count": "{{value}} negative",
+      "negative-action": "{{value}} negative – Show affected conversations",
+      satisfaction: "Satisfaction",
+      "satisfaction-value": "{{value}} %",
+      "satisfaction-of": "{{positive}} of {{total}} ratings positive",
+      "few-ratings": "Too few ratings ({{count}})",
     },
     compare: {
       toggle: "Compare with previous period",
@@ -1628,6 +1633,10 @@ const TRANSLATIONS = {
       },
       range: "{{from}}–{{to}}",
       change: "{{change}} % vs. previous period ({{previous}})",
+      "change-points_one":
+        "{{change}} point vs. previous period ({{previous}} %)",
+      "change-points_other":
+        "{{change}} points vs. previous period ({{previous}} %)",
       "previous-value": "Previous period: {{value}}",
       "previous-bucket": "Previous period: {{period}} — {{value}}",
       "previous-range": "Previous period: {{range}}",

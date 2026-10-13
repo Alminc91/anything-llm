@@ -9,14 +9,22 @@ import {
   formatDate,
   formatDayRange,
   formatNumber,
+  formatRatedShare,
   isRunningRange,
   kpiValues,
+  satisfactionChangeLabel,
 } from "@/utils/analyticsTimeline";
 
 // KIE-536 – Kennzahlen-Streifen: vier Felder aus dem Zählerbuch
 // (analytics/summary), dieselbe Quelle wie das Diagramm. Die einklappbaren
 // technischen Details für Admins lesen weiterhin analytics/overview, also die
 // noch vorhandenen Konversationsinhalte – deshalb steht dort, was sie zählen.
+//
+// Die Felder: Nachrichten, Konversationen, Bewertungen (bewertete Antworten;
+// darunter die Bewertungsquote, bezogen auf die Nachrichten, und wie viele
+// positiv und negativ waren – „M negativ" setzt den Listenfilter), und
+// Zufriedenheit (Anteil positiver an allen Bewertungen, erst ab MIN_RATINGS
+// Bewertungen; darunter „Zu wenige Bewertungen (N)").
 //
 // KIE-537 – Mit eingeschaltetem Vergleich hat jedes Feld eine weitere Zeile:
 // die Veränderung gegenüber dem Vorzeitraum (gleich viele Kalendertage
@@ -88,21 +96,29 @@ export default function StatisticsGrid({
   // kein Einbruch. Heute = der Berliner Kalendertag des Zählerbuchs.
   const running =
     !!comparedDays && isRunningRange(summary.fromDay, summary.toDay);
-  const change = (current, key) => {
+  // Zeile der Veränderung: text(totals des Vorzeitraums) liefert ihren Text,
+  // null = keine Zeile (Zufriedenheit mit zu wenigen Bewertungen).
+  const changeOf = (text) => {
     if (!comparison) return null;
     if (!comparison.available)
       return {
         available: false,
         text: t("embed-analytics.compare.unavailable"),
       };
+    const label = text(comparison.totals ?? {});
+    if (label === null) return null;
     return {
       available: true,
-      text: changeLabel(current, comparison.totals[key] ?? 0, t),
+      text: label,
       title: t("embed-analytics.compare.previous-range", {
         range: comparedDays,
       }),
     };
   };
+  const change = (current, key) =>
+    changeOf((totals) => changeLabel(current, totals[key] ?? 0, t));
+  const ratingsOf = (totals) =>
+    (totals.feedbackPositive ?? 0) + (totals.feedbackNegative ?? 0);
 
   const fields = [
     {
@@ -131,40 +147,54 @@ export default function StatisticsGrid({
           : NO_VALUE,
     },
     {
-      key: "positive",
-      label: t("embed-analytics.kpi.positive"),
-      value: value(kpi.positive),
-      change: change(kpi.positive, "feedbackPositive"),
-      detail:
-        kpi.positiveShare !== null
-          ? t("embed-analytics.kpi.positive-share", {
-              value: formatNumber(kpi.positiveShare),
-            })
-          : summary
-            ? t("embed-analytics.kpi.no-ratings")
-            : NO_VALUE,
-    },
-    {
-      key: "negative",
-      label: t("embed-analytics.kpi.negative"),
-      value: value(kpi.negative),
-      change: change(kpi.negative, "feedbackNegative"),
-      // Der Verweis filtert die Liste auf negativ bewertete Konversationen –
-      // ohne eine solche Bewertung steht dort der Nebentext.
-      ...(kpi.negative > 0
+      key: "ratings",
+      label: t("embed-analytics.kpi.ratings"),
+      value: value(kpi.rated),
+      change: changeOf((totals) =>
+        changeLabel(kpi.rated, ratingsOf(totals), t)
+      ),
+      ...(summary && kpi.rated > 0
         ? {
-            action: {
-              label: t("embed-analytics.kpi.show-negative"),
-              onClick: onShowNegative,
+            ratings: {
+              share: formatRatedShare(kpi.rated, kpi.messages),
+              positive: formatNumber(kpi.positive),
+              negative: kpi.negative,
             },
           }
-        : {
-            detail: !summary
-              ? NO_VALUE
-              : kpi.positive > 0
-                ? t("embed-analytics.kpi.no-negative")
-                : t("embed-analytics.kpi.no-ratings"),
-          }),
+        : { detail: summary ? t("embed-analytics.kpi.no-ratings") : NO_VALUE }),
+    },
+    {
+      key: "satisfaction",
+      label: t("embed-analytics.kpi.satisfaction"),
+      value:
+        summary && kpi.satisfaction !== null
+          ? t("embed-analytics.kpi.satisfaction-value", {
+              value: formatNumber(kpi.satisfaction),
+            })
+          : NO_VALUE,
+      // Prozentpunkte – nur, wenn beide Zeiträume genug Bewertungen haben.
+      change: changeOf((totals) =>
+        satisfactionChangeLabel(
+          kpi,
+          {
+            positive: totals.feedbackPositive ?? 0,
+            negative: totals.feedbackNegative ?? 0,
+          },
+          t
+        )
+      ),
+      detail: !summary
+        ? NO_VALUE
+        : kpi.satisfaction !== null
+          ? t("embed-analytics.kpi.satisfaction-of", {
+              positive: formatNumber(kpi.positive),
+              total: formatNumber(kpi.rated),
+            })
+          : kpi.rated === 0
+            ? t("embed-analytics.kpi.no-ratings")
+            : t("embed-analytics.kpi.few-ratings", {
+                count: formatNumber(kpi.rated),
+              }),
     },
   ];
 
@@ -213,14 +243,12 @@ export default function StatisticsGrid({
                   {field.detail}
                 </span>
               )}
-              {field.action && (
-                <button
-                  type="button"
-                  onClick={field.action.onClick}
-                  className="mt-1 block text-left text-xs text-theme-text-primary underline underline-offset-2 hover:no-underline"
-                >
-                  {field.action.label}
-                </button>
+              {field.ratings && (
+                <RatingsDetail
+                  {...field.ratings}
+                  onShowNegative={onShowNegative}
+                  t={t}
+                />
               )}
               {field.change?.available && (
                 <span
@@ -283,6 +311,46 @@ export default function StatisticsGrid({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Nebenzeile des Felds „Bewertungen": „13 % der Antworten bewertet ·
+ * 9 positiv, 3 negativ". „3 negativ" ist der Verweis, der die Liste auf
+ * negativ bewertete Konversationen filtert und zu ihr springt – nur, wenn es
+ * welche gibt.
+ * @param {{share: string|null, positive: string, negative: number, onShowNegative: () => void, t: Function}} props
+ */
+function RatingsDetail({ share, positive, negative, onShowNegative, t }) {
+  const negativeText = t("embed-analytics.kpi.negative-count", {
+    value: formatNumber(negative),
+  });
+  return (
+    <span data-kpi-ratings="" className={`mt-1 block text-xs ${MUTED}`}>
+      {share !== null && (
+        <>
+          {t("embed-analytics.kpi.rated-share", { value: share })}
+          {" · "}
+        </>
+      )}
+      {t("embed-analytics.kpi.positive-count", { value: positive })}
+      {", "}
+      {negative > 0 ? (
+        <button
+          type="button"
+          onClick={onShowNegative}
+          aria-label={t("embed-analytics.kpi.negative-action", {
+            value: formatNumber(negative),
+          })}
+          title={t("embed-analytics.kpi.show-negative")}
+          className="text-left text-theme-text-primary underline underline-offset-2 hover:no-underline"
+        >
+          {negativeText}
+        </button>
+      ) : (
+        negativeText
+      )}
+    </span>
   );
 }
 

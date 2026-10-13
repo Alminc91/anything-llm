@@ -455,19 +455,18 @@ test(
     assert.deepEqual(kpiFields(html), [
       ["messages", "Nachrichten 1.284 Ø 42,8 pro Tag"],
       ["conversations", "Konversationen 321 Ø 4,0 Nachrichten je Konversation"],
+      // 12 bewertete Antworten bei 1.284 Nachrichten: 0,93 % → 1 %
       [
-        "positive",
-        "Positiv bewertete Antworten 9 75 % der bewerteten Antworten",
+        "ratings",
+        "Bewertungen 12 1 % der Antworten bewertet · 9 positiv, 3 negativ",
       ],
-      [
-        "negative",
-        "Negativ bewertete Antworten 3 Betroffene Konversationen anzeigen",
-      ],
+      ["satisfaction", "Zufriedenheit 75 % 9 von 12 Bewertungen positiv"],
     ]);
-    // Der Verweis ist eine Schaltfläche (setzt den Listenfilter „negativ“).
+    // „3 negativ“ ist der Verweis – eine Schaltfläche, die den Listenfilter
+    // „Negativ bewertet“ setzt; ihr Name nennt, was sie tut.
     assert.match(
       html,
-      /<button type="button"[^>]*>Betroffene Konversationen anzeigen<\/button>/
+      /<button type="button" aria-label="3 negativ – Betroffene Konversationen anzeigen" title="Betroffene Konversationen anzeigen"[^>]*>3 negativ<\/button>/
     );
     // Erklärung an der Kennzahl „Konversationen“
     assert.match(html, /title="Im Zeitraum begonnene Konversationen\./);
@@ -532,15 +531,18 @@ test(
     assert.deepEqual(kpiFields(html), [
       ["messages", "Nachrichten 25 Ø 12,5 pro Woche"],
       ["conversations", "Konversationen 0 –"],
-      ["positive", "Positiv bewertete Antworten 0 Keine Bewertungen"],
-      ["negative", "Negativ bewertete Antworten 0 Keine Bewertungen"],
+      ["ratings", "Bewertungen 0 Keine Bewertungen"],
+      ["satisfaction", "Zufriedenheit – Keine Bewertungen"],
     ]);
-    assert.doesNotMatch(html, /Betroffene Konversationen anzeigen/);
+    assert.doesNotMatch(
+      html,
+      /Betroffene Konversationen anzeigen|negativ<\/button>/
+    );
   }
 );
 
 test(
-  "Kennzahlen-Streifen: „Betroffene Konversationen anzeigen“ nur, wenn es negativ bewertete Antworten gibt – bei 0 der Nebentext",
+  "Kennzahlen-Streifen: „M negativ“ ist nur ein Verweis, wenn es negativ bewertete Antworten gibt – bei 0 Text",
   { skip },
   async () => {
     const withRatings = async (feedbackPositive, feedbackNegative) => {
@@ -552,34 +554,36 @@ test(
           totals: { ...THIRTY_DAYS.totals, feedbackPositive, feedbackNegative },
         },
       });
-      const negative = Object.fromEntries(kpiFields(html)).negative;
+      const ratings = Object.fromEntries(kpiFields(html)).ratings;
       return {
-        negative,
-        link: /<button type="button"[^>]*>Betroffene Konversationen anzeigen<\/button>/.test(
+        // ohne die Bewertungsquote am Anfang
+        ratings: ratings.replace(
+          /^Bewertungen \d+ \d+ % der Antworten bewertet · /,
+          ""
+        ),
+        link: /<button type="button" aria-label="\d+ negativ – Betroffene Konversationen anzeigen"[^>]*>\d+ negativ<\/button>/.test(
           html
         ),
       };
     };
 
-    // nur positive Bewertungen: Es gibt Bewertungen, aber keine negative.
+    // nur positive Bewertungen: „0 negativ“ ist Text, kein Verweis.
     assert.deepEqual(await withRatings(5, 0), {
-      negative: "Negativ bewertete Antworten 0 Keine negativen Bewertungen",
+      ratings: "5 positiv, 0 negativ",
       link: false,
     });
-    // gar keine Bewertung: derselbe Nebentext wie im Feld „positiv“
+    // gar keine Bewertung
     assert.deepEqual(await withRatings(0, 0), {
-      negative: "Negativ bewertete Antworten 0 Keine Bewertungen",
+      ratings: "Bewertungen 0 Keine Bewertungen",
       link: false,
     });
-    // ab der ersten negativen Bewertung der Verweis, kein Nebentext
+    // ab der ersten negativen Bewertung der Verweis
     assert.deepEqual(await withRatings(5, 1), {
-      negative:
-        "Negativ bewertete Antworten 1 Betroffene Konversationen anzeigen",
+      ratings: "5 positiv, 1 negativ",
       link: true,
     });
     assert.deepEqual(await withRatings(0, 2), {
-      negative:
-        "Negativ bewertete Antworten 2 Betroffene Konversationen anzeigen",
+      ratings: "0 positiv, 2 negativ",
       link: true,
     });
   }
@@ -599,8 +603,8 @@ test(
       [
         ["messages", "–"],
         ["conversations", "–"],
-        ["positive", "–"],
-        ["negative", "–"],
+        ["ratings", "–"],
+        ["satisfaction", "–"],
       ]
     );
     assert.doesNotMatch(html, /Betroffene Konversationen anzeigen/);

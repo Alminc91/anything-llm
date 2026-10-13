@@ -1328,6 +1328,57 @@ test(
 );
 
 test(
+  "Feld „Bewertungen“: „3 negativ“ setzt den Listenfilter „Negativ bewertet“ und springt zur Liste",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t);
+    const view = await mountView(t, server);
+    const { container, act, listRequest } = view;
+    const [ratings] = elements(
+      container,
+      (element) => element.getAttribute("data-kpi") === "ratings"
+    );
+    assert.equal(
+      ratings.textContent,
+      // 12 von 885 Antworten bewertet: 1,36 % → 1 %
+      "Bewertungen121 % der Antworten bewertet · 9 positiv, 3 negativ"
+    );
+    const [satisfaction] = elements(
+      container,
+      (element) => element.getAttribute("data-kpi") === "satisfaction"
+    );
+    assert.equal(
+      satisfaction.textContent,
+      "Zufriedenheit75 %9 von 12 Bewertungen positiv"
+    );
+
+    // Der Bereich der Liste merkt sich, dass zu ihm gesprungen wird.
+    const [listArea] = elements(container, (element) =>
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-4")
+    );
+    const scrolls = [];
+    listArea.scrollIntoView = (options) => scrolls.push(options);
+
+    const [link] = elements(ratings, (element) => element.tagName === "BUTTON");
+    assert.equal(link.textContent, "3 negativ");
+    assert.equal(
+      link.getAttribute("aria-label"),
+      "3 negativ – Betroffene Konversationen anzeigen"
+    );
+    await act(() => click(link));
+    assert.deepEqual(
+      server.lists().at(-1),
+      listRequest({ feedbackFilter: "negative" })
+    );
+    assert.equal(
+      feedbackFilterOf(container, ONLY_NEGATIVE).getAttribute("aria-pressed"),
+      "true"
+    );
+    assert.deepEqual(scrolls, [{ behavior: "smooth", block: "start" }]);
+  }
+);
+
+test(
   "Blättern (NAK-5): Abschnitts-Filter an und wieder aus (zweiter Klick, Schließen) führt auf Seite 1",
   { skip },
   async (t) => {

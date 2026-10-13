@@ -1030,8 +1030,6 @@ const TRANSLATIONS = {
       "aria-label": "Kennzahlen im gewählten Zeitraum",
       messages: "Nachrichten",
       conversations: "Konversationen",
-      positive: "Positiv bewertete Antworten",
-      negative: "Negativ bewertete Antworten",
       "avg-per": {
         hour: "Ø {{value}} pro Stunde",
         day: "Ø {{value}} pro Tag",
@@ -1039,12 +1037,20 @@ const TRANSLATIONS = {
         month: "Ø {{value}} pro Monat",
       },
       "avg-per-conversation": "Ø {{value}} Nachrichten je Konversation",
-      "positive-share": "{{value}} % der bewerteten Antworten",
       "no-ratings": "Keine Bewertungen",
-      "no-negative": "Keine negativen Bewertungen",
       "show-negative": "Betroffene Konversationen anzeigen",
       "conversations-hint":
         "Im Zeitraum begonnene Konversationen. Die Liste unten zeigt nur Konversationen, deren Inhalte noch vorhanden sind – die Zahlen können sich unterscheiden.",
+      ratings: "Bewertungen",
+      "rated-share": "{{value}} % der Antworten bewertet",
+      "positive-count": "{{value}} positiv",
+      "negative-count": "{{value}} negativ",
+      "negative-action":
+        "{{value}} negativ – Betroffene Konversationen anzeigen",
+      satisfaction: "Zufriedenheit",
+      "satisfaction-value": "{{value}} %",
+      "satisfaction-of": "{{positive}} von {{total}} Bewertungen positiv",
+      "few-ratings": "Zu wenige Bewertungen ({{count}})",
     },
     compare: {
       toggle: "Vorzeitraum vergleichen",
@@ -1055,6 +1061,9 @@ const TRANSLATIONS = {
       },
       range: "{{from}}–{{to}}",
       change: "{{change}} % ggü. Vorzeitraum ({{previous}})",
+      "change-points_one": "{{change}} Punkt ggü. Vorzeitraum ({{previous}} %)",
+      "change-points_other":
+        "{{change}} Punkte ggü. Vorzeitraum ({{previous}} %)",
       "previous-value": "Vorzeitraum: {{value}}",
       "previous-bucket": "Vorzeitraum: {{period}} — {{value}}",
       "previous-range": "Vorzeitraum: {{range}}",

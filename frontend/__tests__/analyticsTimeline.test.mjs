@@ -16,6 +16,7 @@ import {
   BAR_MAX_WIDTH,
   DEFAULT_RANGE_DAYS,
   MAX_BUCKETS,
+  MIN_RATINGS,
   addDays,
   allTimeRange,
   barPath,
@@ -28,11 +29,16 @@ import {
   formatDate,
   formatMonth,
   formatNumber,
+  formatRatedShare,
   isoWeek,
   kpiValues,
   lastDaysRange,
   lastMonthsRange,
   rangeFromDates,
+  ratedShare,
+  satisfactionChange,
+  satisfactionChangeLabel,
+  satisfactionShare,
   showsDeletedHint,
   tickLabelWidth,
   tickStep,
@@ -644,16 +650,18 @@ test("Aufbewahrung als eine Zeile (AK-13)", () => {
 // Kennzahlen
 // ---------------------------------------------------------------------------
 
-test("Kennzahlen-Streifen (AK-8): Summen aus totals, Ø je Säuleneinheit, Ø je Konversation, Anteil positiv", () => {
+test("Kennzahlen-Streifen (AK-8): Summen aus totals, Ø je Säuleneinheit, Ø je Konversation, Bewertungen", () => {
   const kpi = kpiValues(summaryOf());
   assert.deepEqual(kpi, {
     messages: 12,
     conversations: 5,
     positive: 3,
     negative: 1,
+    rated: 4,
+    ratedShare: 33, // 4 von 12 Antworten bewertet
+    satisfaction: null, // 4 Bewertungen: zu wenige für eine Prozentzahl
     averagePerBucket: 4, // 12 Nachrichten in 3 Tagen
     averagePerConversation: 2.4,
-    positiveShare: 75, // 3 von 4 bewerteten
   });
   assert.equal(
     t("embed-analytics.kpi.avg-per.day", {
@@ -668,8 +676,8 @@ test("Kennzahlen-Streifen (AK-8): Summen aus totals, Ø je Säuleneinheit, Ø je
     "Ø 2,4 Nachrichten je Konversation"
   );
   assert.equal(
-    t("embed-analytics.kpi.positive-share", { value: kpi.positiveShare }),
-    "75 % der bewerteten Antworten"
+    t("embed-analytics.kpi.rated-share", { value: kpi.ratedShare }),
+    "33 % der Antworten bewertet"
   );
   assert.equal(
     de["embed-analytics"].kpi["show-negative"],
@@ -692,18 +700,22 @@ test("Kennzahlen ohne Werte: keine Division durch 0", () => {
     conversations: 0,
     positive: 0,
     negative: 0,
+    rated: 0,
+    ratedShare: null,
+    satisfaction: null,
     averagePerBucket: 0,
     averagePerConversation: null,
-    positiveShare: null,
   });
   assert.deepEqual(kpiValues(null), {
     messages: 0,
     conversations: 0,
     positive: 0,
     negative: 0,
+    rated: 0,
+    ratedShare: null,
+    satisfaction: null,
     averagePerBucket: null,
     averagePerConversation: null,
-    positiveShare: null,
   });
   // Ø je Säuleneinheit bei Stunden: geteilt durch 24
   const hours = summaryOf({
@@ -721,6 +733,155 @@ test("Kennzahlen ohne Werte: keine Division durch 0", () => {
   assert.equal(
     t("embed-analytics.kpi.avg-per.hour", { value: formatNumber(0.5, 1) }),
     "Ø 0,5 pro Stunde"
+  );
+});
+
+test("Bewertungsquote: bewertete Antworten je Nachricht, kaufmännisch gerundet, höchstens 100 – ohne Nachrichten keine Quote", () => {
+  assert.equal(ratedShare(12, 96), 13); // 12,5 → 13
+  assert.equal(ratedShare(1, 8), 13); // 12,5
+  assert.equal(ratedShare(1, 3), 33);
+  assert.equal(ratedShare(2, 3), 67);
+  assert.equal(ratedShare(0, 50), 0);
+  assert.equal(ratedShare(5, 5), 100);
+  assert.equal(ratedShare(7, 5), 100); // nie über 100
+  assert.equal(ratedShare(0, 0), null);
+  assert.equal(ratedShare(3, 0), null);
+  assert.equal(ratedShare(3, undefined), null);
+  // Text: Eine Bewertung bei vielen Nachrichten ist nicht „0 %“.
+  assert.equal(formatRatedShare(1, 400), "< 1");
+  assert.equal(formatRatedShare(2, 400), "1"); // 0,5 → 1
+  assert.equal(formatRatedShare(0, 400), "0");
+  assert.equal(formatRatedShare(12, 96), "13");
+  assert.equal(formatRatedShare(1, 0), null);
+  assert.equal(
+    t("embed-analytics.kpi.rated-share", { value: formatRatedShare(1, 400) }),
+    "< 1 % der Antworten bewertet"
+  );
+});
+
+test("Zufriedenheit: Anteil positiver an allen Bewertungen – erst ab 10 Bewertungen", () => {
+  assert.equal(MIN_RATINGS, 10);
+  assert.equal(satisfactionShare(9, 0), null); // 9 Bewertungen
+  assert.equal(satisfactionShare(5, 4), null);
+  assert.equal(satisfactionShare(0, 0), null);
+  assert.equal(satisfactionShare(10, 0), 100);
+  assert.equal(satisfactionShare(0, 10), 0);
+  assert.equal(satisfactionShare(9, 3), 75);
+  assert.equal(satisfactionShare(7, 4), 64); // 63,6
+  assert.equal(satisfactionShare(13, 7), 65);
+  assert.equal(satisfactionShare(1, 7), null);
+  assert.equal(satisfactionShare(17, 23), 43); // 42,5 → 43
+  // ab 10 auch in kpiValues
+  assert.equal(
+    kpiValues(
+      summaryOf({
+        totals: {
+          messages: 40,
+          conversations: 5,
+          feedbackPositive: 9,
+          feedbackNegative: 3,
+        },
+      })
+    ).satisfaction,
+    75
+  );
+  assert.equal(
+    t("embed-analytics.kpi.few-ratings", { count: formatNumber(4) }),
+    "Zu wenige Bewertungen (4)"
+  );
+  assert.equal(
+    t("embed-analytics.kpi.satisfaction-of", { positive: "9", total: "12" }),
+    "9 von 12 Bewertungen positiv"
+  );
+});
+
+test("Zufriedenheit im Vergleich: Veränderung in Prozentpunkten der angezeigten Zahlen – nur, wenn beide Zeiträume genug Bewertungen haben", () => {
+  // 75 % gegenüber 60 %: +15 Punkte
+  assert.deepEqual(
+    satisfactionChange(
+      { positive: 9, negative: 3 },
+      { positive: 6, negative: 4 }
+    ),
+    { points: 15, previous: 60 }
+  );
+  // Gerechnet mit den gerundeten Zahlen, die dastehen: 64 % (7/11) – 67 % (8/12)
+  assert.deepEqual(
+    satisfactionChange(
+      { positive: 7, negative: 4 },
+      { positive: 8, negative: 4 }
+    ),
+    { points: -3, previous: 67 }
+  );
+  assert.deepEqual(
+    satisfactionChange(
+      { positive: 5, negative: 5 },
+      { positive: 6, negative: 6 }
+    ),
+    { points: 0, previous: 50 }
+  );
+  assert.ok(
+    !Object.is(
+      satisfactionChange(
+        { positive: 5, negative: 5 },
+        { positive: 6, negative: 6 }
+      ).points,
+      -0
+    )
+  );
+  // zu wenige Bewertungen in einem der beiden Zeiträume: keine Veränderung
+  assert.equal(
+    satisfactionChange(
+      { positive: 9, negative: 3 },
+      { positive: 6, negative: 3 }
+    ),
+    null
+  );
+  assert.equal(
+    satisfactionChange(
+      { positive: 5, negative: 3 },
+      { positive: 6, negative: 4 }
+    ),
+    null
+  );
+  assert.equal(
+    satisfactionChange(
+      { positive: 0, negative: 0 },
+      { positive: 0, negative: 0 }
+    ),
+    null
+  );
+
+  // Texte: Vorzeichen +, − (U+2212), ±0; ein Punkt, mehrere Punkte
+  const label = (current, previous, translate = t) =>
+    satisfactionChangeLabel(current, previous, translate);
+  assert.equal(
+    label({ positive: 9, negative: 3 }, { positive: 6, negative: 4 }),
+    "+15 Punkte ggü. Vorzeitraum (60 %)"
+  );
+  assert.equal(
+    label({ positive: 7, negative: 4 }, { positive: 8, negative: 4 }),
+    "\u22123 Punkte ggü. Vorzeitraum (67 %)"
+  );
+  assert.equal(
+    label({ positive: 5, negative: 5 }, { positive: 6, negative: 6 }),
+    "±0 Punkte ggü. Vorzeitraum (50 %)"
+  );
+  // 51 % (51/100) gegenüber 50 %: ein Punkt
+  assert.equal(
+    label({ positive: 51, negative: 49 }, { positive: 5, negative: 5 }),
+    "+1 Punkt ggü. Vorzeitraum (50 %)"
+  );
+  assert.equal(
+    label(
+      { positive: 51, negative: 49 },
+      { positive: 5, negative: 5 },
+      translator(en)
+    ),
+    "+1 point vs. previous period (50 %)"
+  );
+  assert.equal(
+    label({ positive: 9, negative: 3 }, { positive: 6, negative: 3 }),
+    null
   );
 });
 
