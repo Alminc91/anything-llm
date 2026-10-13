@@ -524,11 +524,13 @@ test(
     const { container, act } = mounted;
 
     // Kopfzeile: erst die beiden Bewertungsfilter, dann „Exportieren"
+    // (Bewertungsfilter mit kurzem und ausgeschriebenem Text, je nach Breite
+    // ist einer sichtbar)
     const [menu] = withAttribute(container, "data-export-menu");
     const headerRight = menu.parentNode;
     assert.deepEqual(
       buttonsOf(headerRight).map((button) => button.textContent),
-      ["Nur mit 👍", "Nur mit 👎", "Exportieren"]
+      ["PositivPositiv bewertet", "NegativNegativ bewertet", "Exportieren"]
     );
     assert.deepEqual(
       headerRight.childNodes.map((child) => child.tagName),
@@ -575,8 +577,14 @@ test(
     const { container, act } = mounted;
     saved.length = 0;
 
-    // Die Liste selbst hat mit genau dieser Auswahl geladen.
+    // Die Liste selbst hat mit genau dieser Auswahl geladen – daneben einmal
+    // die Zählabfrage ohne Bewertungsfilter für „N von M einsehbar".
     assert.deepEqual(server.lists(), [
+      {
+        method: ROUTES.conversations.method,
+        url: server.listUrl,
+        body: conversationsBody({ ...PERIOD, limit: 1, bucket }),
+      },
       {
         method: ROUTES.conversations.method,
         url: server.listUrl,
@@ -619,7 +627,7 @@ test(
       exportBody("json", { ...PERIOD, feedbackFilter: "negative", bucket })
     );
     // Der Export lädt die Liste nicht neu.
-    assert.equal(server.lists().length, 1);
+    assert.equal(server.lists().length, 2);
   }
 );
 
