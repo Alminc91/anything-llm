@@ -371,7 +371,7 @@ function collectRoutes(register) {
  * mit next(), ob es weitergeht.
  * @param {Function[]} chain
  * @param {{params?: object, query?: object, body?: any, token?: string|null}} request
- * @returns {Promise<{statusCode: number, body: any, headers: object, sent: number}>}
+ * @returns {Promise<{statusCode: number, body: any, headers: object, sent: number, chunks: string[], destroyed: any}>}
  */
 async function invoke(
   chain,
@@ -387,7 +387,17 @@ async function invoke(
     header: (name) => headers[String(name).toLowerCase()],
   };
 
-  const result = { statusCode: 200, body: undefined, headers: {}, sent: 0 };
+  const result = {
+    statusCode: 200,
+    body: undefined,
+    headers: {},
+    sent: 0,
+    // Gestreamte Antwort (KIE-538): jedes write() ein Stück, in der
+    // Reihenfolge des Schreibens; body ist danach der ganze Text.
+    chunks: [],
+    // Mit destroy() abgebrochene Verbindung: der Grund, sonst null.
+    destroyed: null,
+  };
   const response = {
     locals: {},
     status: (code) => {
@@ -413,7 +423,21 @@ async function invoke(
     setHeader: (name, value) => {
       result.headers[name] = value;
     },
-    end: () => response,
+    write: (chunk) => {
+      result.chunks.push(String(chunk));
+      return true;
+    },
+    end: () => {
+      if (result.chunks.length > 0 && result.body === undefined) {
+        result.body = result.chunks.join("");
+        result.sent += 1;
+      }
+      return response;
+    },
+    destroy: (error) => {
+      result.destroyed = error ?? true;
+      return response;
+    },
   };
 
   for (const handler of chain) {

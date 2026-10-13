@@ -19,11 +19,21 @@ const {
   embedDefaultsLanguage,
   embedDefaultTexts,
 } = require("../utils/chats/embedDefaults");
-const { berlinMidnight } = require("../utils/helpers/billingWindow");
+const {
+  berlinMidnight,
+  berlinDayOf,
+} = require("../utils/helpers/billingWindow");
 const {
   validateDayRange,
   nextDay,
 } = require("../utils/helpers/ledgerTimeline");
+const {
+  EXPORT_FORMATS,
+  conversationExport,
+  primed,
+  writeChunks,
+  exportFileName,
+} = require("../utils/helpers/chat/embedConversationExport");
 
 /**
  * KIE-533: Darf der Nutzer auf diesen Workspace zugreifen?
@@ -70,6 +80,49 @@ async function validEmbedAccess(request, response, next) {
     return;
   }
   next();
+}
+
+/**
+ * KIE-538: Die Auswahl der Konversationsliste aus dem Rumpf einer Anfrage -
+ * Zeitraum, Feedback-Filter und Abschnitts-Filter. Die Liste
+ * (analytics/conversations) und der Export (analytics/export) lesen sie über
+ * diese eine Stelle: Dieselben Parameter ergeben dieselben Konversationen.
+ * @param {object} body
+ * @returns {{filter: "all"|"negative"|"positive", start: Date|null, end: Date|null, startedBetween: {start: Date, endExclusive: Date}|null, error: string|null}}
+ *   error: der Abschnitt besteht nicht aus gültigen Kalendertagen (→ 400)
+ */
+function conversationSelection(body) {
+  const {
+    startDate,
+    endDate,
+    onlyNegative = false, // KIE-508 (Legacy-Boolean, bleibt gültig)
+    feedbackFilter, // KIE-527: "all" | "negative" | "positive"
+    startedFromDay, // KIE-536
+    startedToDay, // KIE-536
+  } = body ?? {};
+
+  // Neuer Parameter gewinnt (auch bei "" oder ungültigem Wert → "all");
+  // nur wenn er fehlt (undefined/null), greift der Legacy-Boolean.
+  const filter = EmbedChats.normalizeFeedbackFilter(
+    feedbackFilter ?? !!onlyNegative
+  );
+  const start = startDate ? new Date(startDate) : null;
+  const end = endDate ? new Date(endDate) : null;
+
+  // KIE-536: Der Abschnitt kommt als Kalendertage und wird hier zu den
+  // Berliner Grenzen [00:00 des ersten Tages, 00:00 nach dem letzten).
+  // Fehlt er (undefined/null), bleibt alles wie bisher.
+  let startedBetween = null;
+  if (startedFromDay != null || startedToDay != null) {
+    const range = validateDayRange(startedFromDay, startedToDay);
+    if (!range.valid)
+      return { filter, start, end, startedBetween, error: range.error };
+    startedBetween = {
+      start: berlinMidnight(startedFromDay),
+      endExclusive: berlinMidnight(nextDay(startedToDay)),
+    };
+  }
+  return { filter, start, end, startedBetween, error: null };
 }
 
 function embedManagementEndpoints(app) {
@@ -434,16 +487,8 @@ function embedManagementEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const embedId = Number(request.params.embedId);
-        const {
-          offset = 0,
-          limit = 20,
-          startDate,
-          endDate,
-          onlyNegative = false, // KIE-508 (Legacy-Boolean, bleibt gültig)
-          feedbackFilter, // KIE-527: "all" | "negative" | "positive"
-          startedFromDay, // KIE-536
-          startedToDay, // KIE-536
-        } = reqBody(request);
+        const body = reqBody(request);
+        const { offset = 0, limit = 20 } = body;
 
         if (user?.role === ROLES.default) {
           const embed = await EmbedConfig.get({ id: embedId });
@@ -456,28 +501,18 @@ function embedManagementEndpoints(app) {
           if (!membership) return response.sendStatus(403).end();
         }
 
-        // Neuer Parameter gewinnt (auch bei "" oder ungültigem Wert → "all");
-        // nur wenn er fehlt (undefined/null), greift der Legacy-Boolean.
-        const filter = EmbedChats.normalizeFeedbackFilter(
-          feedbackFilter ?? !!onlyNegative
-        );
-        const start = startDate ? new Date(startDate) : null;
-        const end = endDate ? new Date(endDate) : null;
-
-        // KIE-536: Der Abschnitt kommt als Kalendertage und wird hier zu den
-        // Berliner Grenzen [00:00 des ersten Tages, 00:00 nach dem letzten).
-        // Fehlt er (undefined/null), bleibt alles wie bisher.
-        let startedBetween = null;
-        if (startedFromDay != null || startedToDay != null) {
-          const range = validateDayRange(startedFromDay, startedToDay);
-          if (!range.valid) {
-            response.status(400).json({ success: false, error: range.error });
-            return;
-          }
-          startedBetween = {
-            start: berlinMidnight(startedFromDay),
-            endExclusive: berlinMidnight(nextDay(startedToDay)),
-          };
+        // Zeitraum, Feedback-Filter und Abschnitt (KIE-508/527/536) - über
+        // dieselbe Stelle wie der Export (KIE-538).
+        const {
+          filter,
+          start,
+          end,
+          startedBetween,
+          error: selectionError,
+        } = conversationSelection(body);
+        if (selectionError) {
+          response.status(400).json({ success: false, error: selectionError });
+          return;
         }
 
         // Liste und Zähler benutzen dieselbe Gruppierung + denselben Filter
@@ -497,6 +532,152 @@ function embedManagementEndpoints(app) {
       } catch (e) {
         console.error(e);
         response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // Analytics: Export der Konversationen einer Auswahl (KIE-538)
+  // Dieselben Parameter wie analytics/conversations (Zeitraum,
+  // Feedback-Filter, Abschnitt) plus format ("csv" | "json"); geliefert
+  // werden genau die Konversationen, die die Liste über alle Seiten zeigt.
+  // Dieselben Prüfungen wie beim Einsehen: chatHistoryViewable, Default-User
+  // nur für Widgets ihrer Workspaces (403 ohne Daten).
+  // Die Datei enthält keine IP-Adresse, keinen Host, keine Kennung der
+  // Browser-Sitzung und keine Quellen-Texte (siehe embedConversationExport).
+  // Sie wird Zeile für Zeile geschrieben, die Datenbank in Paketen gelesen.
+  // Jeder Export steht in event_logs: wer, welches Widget, Format, Zeitraum,
+  // Zahl der Konversationen und Zeilen - keine Inhalte.
+  app.post(
+    "/embed/:embedId/analytics/export",
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+      validEmbedAccess,
+      validEmbedConfigId,
+    ],
+    async (request, response) => {
+      let streaming = false;
+      try {
+        const user = await userFromSession(request, response);
+        const embedId = Number(request.params.embedId);
+        const body = reqBody(request) ?? {};
+        const { format } = body;
+
+        if (
+          typeof format !== "string" ||
+          !Object.prototype.hasOwnProperty.call(EXPORT_FORMATS, format)
+        ) {
+          response.status(400).json({
+            success: false,
+            error: "format must be one of: csv, json.",
+          });
+          return;
+        }
+
+        const selection = conversationSelection(body);
+        if (selection.error) {
+          response.status(400).json({ success: false, error: selection.error });
+          return;
+        }
+        const { filter, start, end, startedBetween } = selection;
+        // Anders als die Liste (leeres Ergebnis) lehnt der Export einen
+        // unlesbaren Zeitpunkt ab - eine leere Datei sähe aus wie „keine
+        // Konversationen".
+        if (
+          (start && isNaN(start.getTime())) ||
+          (end && isNaN(end.getTime()))
+        ) {
+          response.status(400).json({
+            success: false,
+            error: "startDate and endDate must be valid timestamps.",
+          });
+          return;
+        }
+
+        const embed = await EmbedConfig.getWithWorkspace({ id: embedId });
+        // Exportiert wird der Abschnitt, wenn einer gewählt ist, sonst der
+        // Zeitraum - als Berliner Kalendertage, wie die Zeitpunkte der Datei.
+        const fromDay = startedBetween
+          ? body.startedFromDay
+          : start
+            ? berlinDayOf(start)
+            : null;
+        const toDay = startedBetween
+          ? body.startedToDay
+          : end
+            ? berlinDayOf(end)
+            : null;
+
+        const exported = conversationExport(
+          format,
+          // Die erste Abfrage läuft, bevor die Antwort beginnt: Scheitert
+          // sie, gibt es eine 500 statt einer leeren Datei.
+          await primed(
+            EmbedChats.conversationsForExport(embedId, {
+              startDate: start,
+              endDate: end,
+              feedbackFilter: filter,
+              startedBetween,
+            })
+          )
+        );
+        const filename = exportFileName({
+          embedId,
+          workspaceName: embed?.workspace?.name,
+          fromDay,
+          toDay,
+          extension: exported.extension,
+        });
+        const logExport = (completed) =>
+          EventLogs.logEvent(
+            "embed_conversations_exported",
+            {
+              embedId,
+              format,
+              fromDay,
+              toDay,
+              startDate: start ? start.toISOString() : null,
+              endDate: end ? end.toISOString() : null,
+              feedbackFilter: filter,
+              startedFromDay: startedBetween ? body.startedFromDay : null,
+              startedToDay: startedBetween ? body.startedToDay : null,
+              conversationCount: exported.stats.conversations,
+              rowCount: exported.stats.rows,
+              completed,
+            },
+            user?.id
+          );
+
+        response.setHeader("Content-Type", exported.contentType);
+        response.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${filename}"`
+        );
+        // Der Browser liest den Dateinamen aus der Antwort (fetch).
+        response.setHeader(
+          "Access-Control-Expose-Headers",
+          "Content-Disposition"
+        );
+        response.setHeader("Cache-Control", "no-store");
+        response.status(200);
+        streaming = true;
+
+        let completed = false;
+        try {
+          completed = await writeChunks(response, exported.chunks);
+        } finally {
+          // Auch ein abgebrochener Export hat Daten ausgeliefert.
+          await logExport(completed);
+        }
+        response.end();
+      } catch (e) {
+        console.error(e);
+        // Hat die Antwort schon begonnen, lässt sich kein Fehlerstatus mehr
+        // senden: Die Verbindung wird abgebrochen, damit der Download als
+        // fehlgeschlagen gilt und nicht als vollständige Datei.
+        if (streaming) response.destroy(e);
+        else response.sendStatus(500).end();
       }
     }
   );

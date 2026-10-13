@@ -6,6 +6,9 @@
 //   server/__tests__/endpoints/embedAnalyticsSummary.test.js: Die echten
 //     Routen verstehen genau das.
 // Benennt eine Seite ein Feld um, wird der Test der anderen rot.
+//
+// KIE-538: Export der Auswahl -
+//   server/__tests__/endpoints/embedConversationExport.test.js
 
 const ROUTES = {
   summary: { method: "POST", path: "/embed/:embedId/analytics/summary" },
@@ -13,6 +16,7 @@ const ROUTES = {
     method: "POST",
     path: "/embed/:embedId/analytics/conversations",
   },
+  export: { method: "POST", path: "/embed/:embedId/analytics/export" },
 };
 
 /**
@@ -58,4 +62,19 @@ function conversationsBody({
   };
 }
 
-module.exports = { ROUTES, summaryBody, conversationsBody };
+/**
+ * Export der Auswahl: dieselben Felder wie eine Seite der Liste, ohne das
+ * Blättern, dazu das Format.
+ * @param {"csv"|"json"} format
+ * @param {Object} [request] - startDate, endDate, feedbackFilter, bucket wie conversationsBody
+ */
+function exportBody(format, request = {}) {
+  const {
+    offset: _offset,
+    limit: _limit,
+    ...selection
+  } = conversationsBody(request);
+  return { format, ...selection };
+}
+
+module.exports = { ROUTES, summaryBody, conversationsBody, exportBody };
