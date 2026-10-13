@@ -1537,6 +1537,7 @@ const TRANSLATIONS = {
       "previous-value": null,
       "previous-bucket": null,
       "previous-range": null,
+      "change-range": null,
       unavailable: null,
       "unavailable-since": null,
       "unavailable-no-counts": null,

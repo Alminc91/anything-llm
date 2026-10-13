@@ -85,6 +85,10 @@ const changesOf = (html) =>
     }
   );
 
+/** Zeile unter dem Kennzahlen-Streifen (das ganze Element); null ohne. */
+const compareLineOf = (html) =>
+  html.match(/<p data-compare-line=""[^>]*>.*?<\/p>/)?.[0] ?? null;
+
 const FROM = "2026-09-13";
 function dayBuckets(from, days, value) {
   return Array.from({ length: days }, (_, i) => {
@@ -231,7 +235,10 @@ test(
       { summary: COMPARED, loading: false, compare: false },
     ])
       assert.equal(await render(KPI, props), kpi);
-    assert.doesNotMatch(kpi, /data-kpi-change|Vorzeitraum|Vergleich/);
+    assert.doesNotMatch(
+      kpi,
+      /data-kpi-change|data-compare-line|Vorzeitraum|Vergleich|Veränderung/
+    );
   }
 );
 
@@ -262,7 +269,7 @@ test(
       loading: true,
       compare: true,
     });
-    assert.doesNotMatch(kpi, /data-kpi-change/);
+    assert.doesNotMatch(kpi, /data-kpi-change|data-compare-line/);
   }
 );
 
@@ -691,13 +698,21 @@ test(
       html,
       /aria-label="KW 40 – ab 30\.09\. — 10 Nachrichten\. Vorzeitraum: KW 37 \(07\.09\.–13\.09\.2026\) — 7 Nachrichten\./
     );
-    // Die Kennzahlen nennen ihre eigenen Tage.
+    // Die Kennzahlen nennen ihre eigenen Tage – im Tooltip der Felder und
+    // sichtbar in der Zeile unter dem Streifen: gleich viele Kalendertage
+    // unmittelbar davor, nicht die Kalenderwochen der Linie.
     const kpi = await render(KPI, { summary, loading: false, compare: true });
     assert.deepEqual(changesOf(kpi)[0], [
       "messages",
       "+50 % ggü. Vorzeitraum (20)",
       "Vorzeitraum: 17.09.2026–29.09.2026",
     ]);
+    assert.equal(
+      textOf(compareLineOf(kpi)),
+      "Veränderung gegenüber dem Vorzeitraum 17.09.2026–29.09.2026."
+    );
+    assert.doesNotMatch(kpi, /07\.09\.2026|27\.09\.2026/);
+    assert.doesNotMatch(html, /17\.09\.2026|29\.09\.2026/);
   }
 );
 
@@ -1002,6 +1017,75 @@ test(
 );
 
 test(
+  "Kennzahlen: Die Tage des Vorzeitraums stehen einmal sichtbar in einer gedämpften Zeile direkt unter dem Streifen – nicht nur im Tooltip der Felder",
+  { skip },
+  async () => {
+    const html = await render(KPI, {
+      summary: KPI_SUMMARY,
+      loading: false,
+      compare: true,
+    });
+
+    // eine Zeile, als Text im Lesefluss: weder title noch nur für Screenreader
+    assert.equal(count(html, /data-compare-line/g), 1);
+    const line = compareLineOf(html);
+    assert.equal(
+      textOf(line),
+      "Veränderung gegenüber dem Vorzeitraum 14.08.2026–12.09.2026."
+    );
+    assert.match(line, /^<p data-compare-line="" class="[^"]*">/);
+    assert.doesNotMatch(line, /title=|sr-only|aria-hidden|hidden/);
+    const classes = line.match(/class="([^"]*)"/)[1].split(/\s+/);
+    assert.ok(classes.includes("text-xs"));
+    assert.ok(
+      classes.includes("text-[color:var(--theme-analytics-text-muted)]")
+    );
+    // direkt unter dem Streifen: nach den vier Feldern, vor den technischen
+    // Details
+    const at = html.indexOf("<p data-compare-line");
+    assert.equal(html.slice(at - 5, at), "</dl>");
+    assert.ok(html.lastIndexOf("data-kpi=") < at);
+    assert.ok(at < html.indexOf("Technische Details anzeigen"));
+    // auch ohne die technischen Details (kein Admin)
+    const manager = await render(
+      KPI,
+      { summary: KPI_SUMMARY, loading: false, compare: true },
+      { role: "manager" }
+    );
+    assert.doesNotMatch(manager, /Technische Details/);
+    assert.equal(textOf(compareLineOf(manager)), textOf(line));
+
+    // Ein einzelner Tag steht allein.
+    const day = await render(KPI, {
+      loading: false,
+      compare: true,
+      summary: {
+        ...KPI_SUMMARY,
+        fromDay: "2026-10-12",
+        toDay: "2026-10-12",
+        previous: {
+          ...KPI_SUMMARY.previous,
+          fromDay: "2026-10-11",
+          toDay: "2026-10-11",
+        },
+      },
+    });
+    assert.equal(
+      textOf(compareLineOf(day)),
+      "Veränderung gegenüber dem Vorzeitraum 11.10.2026."
+    );
+    // Während neu geladen wird, tritt die Zeile mit dem Streifen zurück.
+    const loading = await render(KPI, {
+      summary: KPI_SUMMARY,
+      loading: true,
+      compare: true,
+    });
+    assert.match(compareLineOf(loading), /class="[^"]*\bopacity-50\b/);
+    assert.doesNotMatch(line, /opacity-50/);
+  }
+);
+
+test(
   "Kennzahlen (NAK-2): Die großen Zahlen und die übrigen Nebenwerte sind mit und ohne Vergleich dieselben – es kommt nur die Zeile der Veränderung dazu",
   { skip },
   async () => {
@@ -1018,10 +1102,11 @@ test(
 
     assert.equal(count(on, /data-kpi-change/g), 4);
     assert.equal(count(off, /data-kpi-change/g), 0);
-    const withoutChange = on.replace(
-      /<span data-kpi-change="".*?<\/span><\/span>/g,
-      ""
-    );
+    assert.equal(count(on, /data-compare-line/g), 1);
+    assert.equal(count(off, /data-compare-line/g), 0);
+    const withoutChange = on
+      .replace(/<span data-kpi-change="".*?<\/span><\/span>/g, "")
+      .replace(/<p data-compare-line="".*?<\/p>/, "");
     assert.equal(withoutChange, off);
     // Rückgang auf 0 und unveränderter Wert
     const edge = await render(KPI, {
@@ -1104,7 +1189,7 @@ test(
       loading: true,
       compare: true,
     });
-    assert.doesNotMatch(html, /data-kpi-change/);
+    assert.doesNotMatch(html, /data-kpi-change|data-compare-line/);
     assert.equal(count(html, /data-kpi=/g), 4);
   }
 );

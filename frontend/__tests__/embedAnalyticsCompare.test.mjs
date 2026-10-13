@@ -85,6 +85,13 @@ const changesOf = (container) =>
   withAttribute(container, "data-kpi-change").map(
     (line) => line.firstChild.textContent
   );
+/**
+ * Zeile unter dem Kennzahlen-Streifen: womit die Felder vergleichen; null
+ * ohne Zeile.
+ */
+const compareLineOf = (container) =>
+  withAttribute(container, "data-compare-line")[0]?.firstChild.textContent ??
+  null;
 /** Die Kennzahl-Felder ohne die Zeile der Veränderung. */
 const kpiTextOf = (container) =>
   withAttribute(container, "data-kpi").map((field) => {
@@ -332,6 +339,7 @@ test(
     assert.equal(lineOf(container), null);
     assert.equal(legendOf(container), null);
     assert.deepEqual(changesOf(container), []);
+    assert.equal(compareLineOf(container), null);
     assert.equal(columnsOf(container).length, 30);
   }
 );
@@ -369,6 +377,19 @@ test(
       "+50 % ggü. Vorzeitraum (6)",
       "−25 % ggü. Vorzeitraum (4)",
     ]);
+    // Womit verglichen wird, steht sichtbar unter dem Streifen: die 30 Tage
+    // unmittelbar davor – zwischen den Feldern und dem Diagramm.
+    assert.equal(
+      compareLineOf(container),
+      `Veränderung gegenüber dem Vorzeitraum ${formatDate(addDays(days.fromDay, -30))}–${formatDate(addDays(days.fromDay, -1))}.`
+    );
+    const order = elements(container);
+    const [line] = withAttribute(container, "data-compare-line");
+    assert.ok(
+      order.indexOf(withAttribute(container, "data-kpi")[3]) <
+        order.indexOf(line)
+    );
+    assert.ok(order.indexOf(line) < order.indexOf(switchOf(container)));
     // Zahlen und Säulen des gewählten Zeitraums: unverändert
     assert.deepEqual(kpiTextOf(container), kpis);
     assert.deepEqual(barsOf(container), bars);
@@ -385,6 +406,7 @@ test(
     assert.equal(lineOf(container), null);
     assert.equal(legendOf(container), null);
     assert.deepEqual(changesOf(container), []);
+    assert.equal(compareLineOf(container), null);
     assert.deepEqual(kpiTextOf(container), kpis);
     assert.deepEqual(barsOf(container), bars);
 

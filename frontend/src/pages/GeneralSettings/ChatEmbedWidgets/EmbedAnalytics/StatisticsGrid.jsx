@@ -20,7 +20,9 @@ import {
 // KIE-537 – Mit eingeschaltetem Vergleich hat jedes Feld eine weitere Zeile:
 // die Veränderung gegenüber dem Vorzeitraum (gleich viele Kalendertage
 // unmittelbar davor) oder „Kein Vergleich verfügbar". Die großen Zahlen und
-// die übrigen Nebenwerte bleiben, wie sie sind.
+// die übrigen Nebenwerte bleiben, wie sie sind. Mit welchen Tagen verglichen
+// wird, steht einmal sichtbar in einer Zeile direkt unter dem Streifen – ein
+// Tooltip allein wäre mit Finger und Tastatur nicht zu erreichen.
 
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 const NO_VALUE = "–";
@@ -54,6 +56,12 @@ export default function StatisticsGrid({
   // ist oder die Antwort noch keinen Vorzeitraum nennt. Der Tooltip nennt die
   // Tage, mit denen verglichen wird, bzw. warum es keinen Vergleich gibt.
   const comparison = comparisonOf(summary, compare);
+  // Die Tage des Vorzeitraums der Kennzahlen (gleich viele Kalendertage
+  // unmittelbar davor). Bei Wochen und Monaten sind das andere Tage als die
+  // der Linie, die die Legende am Diagramm nennt.
+  const comparedDays = comparison?.available
+    ? formatDayRange(comparison.fromDay, comparison.toDay, t)
+    : null;
   const change = (current, key) => {
     if (!comparison) return null;
     if (!comparison.available)
@@ -70,7 +78,7 @@ export default function StatisticsGrid({
       available: true,
       text: changeLabel(current, comparison.totals[key] ?? 0, t),
       title: t("embed-analytics.compare.previous-range", {
-        range: formatDayRange(comparison.fromDay, comparison.toDay, t),
+        range: comparedDays,
       }),
     };
   };
@@ -212,6 +220,17 @@ export default function StatisticsGrid({
           </div>
         ))}
       </dl>
+
+      {/* KIE-537 – womit die Felder vergleichen: eine Zeile für alle vier,
+          sichtbar und im Lesefluss direkt nach dem Streifen. */}
+      {comparedDays && (
+        <p
+          data-compare-line=""
+          className={`mt-2 text-xs ${MUTED} transition-opacity ${loading ? "opacity-50" : ""}`}
+        >
+          {t("embed-analytics.compare.change-range", { range: comparedDays })}
+        </p>
+      )}
 
       {user?.role === "admin" && (
         <TechnicalDetails

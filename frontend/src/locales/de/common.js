@@ -1055,6 +1055,7 @@ const TRANSLATIONS = {
       "previous-value": "Vorzeitraum: {{value}}",
       "previous-bucket": "Vorzeitraum: {{period}} — {{value}}",
       "previous-range": "Vorzeitraum: {{range}}",
+      "change-range": "Veränderung gegenüber dem Vorzeitraum {{range}}.",
       unavailable: "Kein Vergleich verfügbar",
       "unavailable-since":
         "Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem {{date}}, dem ersten Tag mit Zählwerten.",
