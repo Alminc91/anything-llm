@@ -533,10 +533,14 @@ export function barPath({ x, y, width, height }) {
 
 /**
  * Lage des Tooltips im Diagramm. Waagerecht steht er mittig über dem
- * angesteuerten Platz, im linken und rechten Drittel nach innen gerückt.
- * Senkrecht steht er über der höchsten Säule, die er überspannt – so verdeckt
- * er weder die angesteuerte Säule noch ihre Nachbarn (eine niedrige Säule
- * neben einer hohen). Seine Breite ist dafür nach der Zeichenzahl geschätzt.
+ * angesteuerten Platz, im linken und rechten Drittel nach innen gerückt – und
+ * nie außerhalb des Diagramms: Ragte er hinaus (schmales Diagramm, langer
+ * Text), rückt er so weit zurück, dass er am Rand endet; ist er breiter als
+ * das Diagramm, nimmt er dessen Breite ein und bricht um.
+ * Senkrecht steht er mit seiner Unterkante über der höchsten Säule, die er
+ * überspannt – so verdeckt er weder die angesteuerte Säule noch ihre Nachbarn
+ * (eine niedrige Säule neben einer hohen), auch nicht mit zwei Zeilen: Er
+ * wächst nach oben. Seine Breite ist dafür nach der Zeichenzahl geschätzt.
  * @param {Object} params
  * @param {ReturnType<typeof columnLayout>} params.columns
  * @param {number} params.active - Index des angesteuerten Platzes
@@ -544,10 +548,12 @@ export function barPath({ x, y, width, height }) {
  * @param {number} params.width - Breite des Diagramms in px
  * @param {number} params.plotLeft - linker Rand der Zeichenfläche im Diagramm
  * @param {number} params.plotHeight - Höhe der Zeichenfläche
- * @returns {{align: "start"|"center"|"end", x: number, y: number, from: number, to: number}} -
+ * @returns {{align: "start"|"center"|"end", x: number, y: number, from: number, to: number, maxWidth: number}} -
  *   x: Abstand vom linken Rand (start), Mitte (center) oder Abstand vom
  *   rechten Rand (end); y: Unterkante des Tooltips, ab der Oberkante der
- *   Zeichenfläche; from/to: geschätzte Ausdehnung im Diagramm
+ *   Zeichenfläche; from/to: geschätzte Ausdehnung im Diagramm; maxWidth: so
+ *   breit darf er an dieser Stelle höchstens werden, ohne aus dem Diagramm
+ *   zu ragen (ein breiterer Text bricht um)
  */
 export function tooltipPlacement({
   columns,
@@ -558,20 +564,40 @@ export function tooltipPlacement({
   plotHeight,
 }) {
   const center = plotLeft + columns[active].center;
-  const size = text.length * TOOLTIP_CHAR_WIDTH + TOOLTIP_PADDING;
+  const size = Math.min(
+    width,
+    text.length * TOOLTIP_CHAR_WIDTH + TOOLTIP_PADDING
+  );
+  // So weit darf der Tooltip vom Rand stehen, an dem er verankert ist, ohne
+  // am anderen Rand hinauszuragen.
+  const room = width - size;
   let align = "center";
   let x = center;
-  let from = center - size / 2;
   if (center < width * 0.3) {
     align = "start";
-    x = Math.max(0, center - 16);
-    from = x;
+    x = Math.max(0, Math.min(center - 16, room));
   } else if (center > width * 0.7) {
     align = "end";
-    x = Math.max(0, width - center - 16);
-    from = width - x - size;
+    x = Math.max(0, Math.min(width - center - 16, room));
+  } else if (center - size / 2 < 0) {
+    // Mittig ragte er links hinaus: an den linken Rand …
+    align = "start";
+    x = 0;
+  } else if (center + size / 2 > width) {
+    // … oder rechts: an den rechten Rand.
+    align = "end";
+    x = 0;
   }
-  const to = from + size;
+  const from = Math.max(
+    0,
+    align === "start"
+      ? x
+      : align === "end"
+        ? width - x - size
+        : center - size / 2
+  );
+  const to = Math.min(width, from + size);
+  const maxWidth = align === "center" ? 2 * Math.min(x, width - x) : width - x;
 
   let top = columns[active].bar ? columns[active].bar.y : plotHeight;
   for (const { bar } of columns) {
@@ -579,5 +605,5 @@ export function tooltipPlacement({
     const left = plotLeft + bar.x;
     if (left < to && left + bar.width > from) top = Math.min(top, bar.y);
   }
-  return { align, x, y: top - TOOLTIP_GAP, from, to };
+  return { align, x, y: top - TOOLTIP_GAP, from, to, maxWidth };
 }

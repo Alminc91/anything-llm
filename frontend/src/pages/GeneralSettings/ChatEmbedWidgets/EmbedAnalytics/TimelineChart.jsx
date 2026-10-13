@@ -501,11 +501,13 @@ function Columns({
         </g>
       </svg>
 
-      {/* Tooltip – dieselbe Angabe wie das aria-label des Platzes */}
+      {/* Tooltip – dieselbe Angabe wie das aria-label des Platzes. So breit
+          wie sein Text (w-max), höchstens bis an den Rand des Diagramms
+          (maxWidth) – ein längerer Text bricht um, statt hinauszuragen. */}
       {tooltip && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-white/10 bg-theme-bg-secondary px-2.5 py-1.5 text-xs text-theme-text-primary shadow-lg"
+          className="pointer-events-none absolute z-10 w-max break-words rounded-md border border-white/10 bg-theme-bg-secondary px-2.5 py-1.5 text-xs text-theme-text-primary shadow-lg"
           style={{ top: MARGIN.top + tooltip.y, ...tooltipStyle(tooltip) }}
         >
           {labelOf(active)}
@@ -520,14 +522,16 @@ function Columns({
 }
 
 /**
- * Der Tooltip steht mit seiner Unterkante über den Säulen; an den Rändern
- * bleibt er im Diagramm (tooltipPlacement).
- * @param {{align: "start"|"center"|"end", x: number}} placement
+ * Der Tooltip steht mit seiner Unterkante über den Säulen (mit zwei Zeilen
+ * wächst er nach oben); waagerecht bleibt er im Diagramm (tooltipPlacement).
+ * @param {{align: "start"|"center"|"end", x: number, maxWidth: number}} placement
  */
-function tooltipStyle({ align, x }) {
-  if (align === "start") return { left: x, transform: "translateY(-100%)" };
-  if (align === "end") return { right: x, transform: "translateY(-100%)" };
-  return { left: x, transform: "translate(-50%, -100%)" };
+function tooltipStyle({ align, x, maxWidth }) {
+  if (align === "start")
+    return { left: x, maxWidth, transform: "translateY(-100%)" };
+  if (align === "end")
+    return { right: x, maxWidth, transform: "translateY(-100%)" };
+  return { left: x, maxWidth, transform: "translate(-50%, -100%)" };
 }
 
 /** Dieselben Werte als Tabelle: markierbar, per Tastatur erreichbar. */

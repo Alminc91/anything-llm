@@ -446,6 +446,132 @@ test(
   }
 );
 
+/**
+ * Das Diagramm misst seine Breite am umgebenden Element und folgt ihr über
+ * einen ResizeObserver. Liefert eine Funktion, die die Breite setzt.
+ */
+function chartWidth(t) {
+  const observers = [];
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+    }
+    observe(element) {
+      observers.push({ element, callback: this.callback });
+    }
+    disconnect() {}
+  };
+  t.after(() => delete globalThis.ResizeObserver);
+  return (width) => {
+    assert.equal(observers.length, 1);
+    for (const { element, callback } of observers) {
+      element.getBoundingClientRect = () => ({ width });
+      callback();
+    }
+  };
+}
+
+test(
+  "Tooltip im schmalen Diagramm (340 px, 240 px): ragt an keinem Platz hinaus – am Diagramm verankert, höchstens bis zum anderen Rand breit, ein längerer Text bricht um und wächst nach oben",
+  { skip },
+  async (t) => {
+    // 13 Kalenderwochen ab 13.07.2026, die letzte angeschnitten
+    const start = "2026-07-13";
+    const summary = {
+      ...THIRTY_DAYS,
+      granularity: "week",
+      fromDay: start,
+      toDay: addDays(start, 12 * 7 + 1),
+      buckets: Array.from({ length: 13 }, (_, i) => ({
+        start: addDays(start, i * 7),
+        end: addDays(start, i === 12 ? i * 7 + 1 : i * 7 + 6),
+        partial: i === 12,
+        messages: 1234 + i,
+        conversations: 2,
+      })),
+    };
+    const setWidth = chartWidth(t);
+    const { container, document, act } = await mount(t, CHART, {
+      summary,
+      loading: false,
+    });
+    const columns = columnsOf(container);
+    const tooltipAt = async (i) => {
+      await act(() => movePointer(document, columns[i]));
+      const [tooltip] = elements(container, (element) =>
+        (element.getAttribute("class") ?? "").includes("pointer-events-none")
+      );
+      return tooltip;
+    };
+    /** Wo der Tooltip höchstens liegen kann: Anker und Höchstbreite. */
+    const boxOf = ({ style }, width) => {
+      const max = parseFloat(style.maxWidth);
+      assert.ok(max > 0, "keine Höchstbreite");
+      if (style.right !== undefined && style.right !== "") {
+        const right = width - parseFloat(style.right);
+        return { left: right - max, right, max };
+      }
+      const left = parseFloat(style.left);
+      return style.transform.startsWith("translate(-50%")
+        ? { left: left - max / 2, right: left + max / 2, max }
+        : { left, right: left + max, max };
+    };
+
+    for (const width of [340, 240]) {
+      await act(() => setWidth(width));
+      // das Diagramm, nicht das Symbol am Schalter „Als Tabelle“
+      const [chart] = elements(
+        container,
+        (element) => element.getAttribute("role") === "group"
+      ).filter((element) => element.tagName === "svg");
+      assert.equal(chart.getAttribute("width"), String(width));
+      for (let i = 0; i < columns.length; i++) {
+        const tooltip = await tooltipAt(i);
+        const where = `${width} px, Platz ${i}`;
+        const classes = tooltip.getAttribute("class").split(" ");
+        // so breit wie der Text, aber umbrechbar – und außerhalb des Textflusses
+        assert.ok(classes.includes("w-max"), where);
+        assert.ok(classes.includes("absolute"), where);
+        assert.ok(!classes.includes("whitespace-nowrap"), where);
+        const box = boxOf(tooltip, width);
+        assert.ok(box.left >= 0 && box.right <= width, where);
+        // Die Unterkante steht fest: Mehr Zeilen wachsen nach oben.
+        assert.match(tooltip.style.transform, /-100%\)$/, where);
+      }
+    }
+
+    // 340 px: „KW 29 (13.07.–19.07.2026) — 1.234 Nachrichten" ist geschätzt
+    // 314,5 px breit.
+    await act(() => setWidth(340));
+    const first = await tooltipAt(0);
+    assert.equal(
+      first.textContent,
+      "KW 29 (13.07.–19.07.2026) — 1.234 Nachrichten"
+    );
+    // links verankert bei 39 px ragte er rechts hinaus (353,5 px): 25,5 px
+    assert.equal(first.style.left, "25.5px");
+    assert.equal(first.style.maxWidth, "314.5px");
+    // mittig (188 px) ragte er rechts hinaus: am rechten Rand
+    const middle = await tooltipAt(6);
+    assert.equal(middle.style.right, "0");
+    assert.equal(middle.style.maxWidth, "340px");
+    assert.equal(middle.style.transform, "translateY(-100%)");
+
+    // 240 px: breiter als das Diagramm – über die ganze Breite, mit Umbruch.
+    await act(() => setWidth(240));
+    const narrow = await tooltipAt(0);
+    assert.equal(narrow.style.left, "0");
+    assert.equal(narrow.style.maxWidth, "240px");
+
+    // Breit bleibt er, wie er war: mittig über dem Platz, viel Luft.
+    await act(() => setWidth(1130));
+    const wide = await tooltipAt(6);
+    assert.equal(wide.style.left, `${44 + 6.5 * (1078 / 13)}px`);
+    assert.equal(wide.style.transform, "translate(-50%, -100%)");
+    assert.ok(parseFloat(wide.style.maxWidth) > 600);
+  }
+);
+
 // ---------------------------------------------------------------------------
 // Anfragen an den Server (Hard Constraint 5, AK-7)
 // ---------------------------------------------------------------------------

@@ -951,3 +951,184 @@ test("Tooltip: mittig über dem Platz, im linken und rechten Drittel nach innen 
   const long = placeTooltip(15, "KW 41 (05.10.–11.10.2026) — 111 Nachrichten");
   assert.ok(long.to - long.from > middle.to - middle.from);
 });
+
+// Tooltip-Texte, wie sie das Diagramm zeigt – der kürzeste und die längsten
+// je Körnung (angeschnittene Abschnitte nennen ihren Bereich).
+const TOOLTIP_TEXTS = [
+  [
+    "Tag",
+    "day",
+    { start: "2026-10-06", end: "2026-10-06", partial: false },
+    "Di., 06.10.2026 — 100 Konversationen",
+  ],
+  [
+    "Woche",
+    "week",
+    { start: "2026-10-05", end: "2026-10-11", partial: false },
+    "KW 41 (05.10.–11.10.2026) — 100 Konversationen",
+  ],
+  [
+    "Woche, angeschnitten",
+    "week",
+    { start: "2026-10-13", end: "2026-10-15", partial: true },
+    "KW 42 – 13.10. bis 15.10. — 100 Konversationen",
+  ],
+  [
+    "Monat",
+    "month",
+    { start: "2026-09-01", end: "2026-09-30", partial: false },
+    "September 2026 — 100 Konversationen",
+  ],
+  [
+    "Monat, angeschnitten",
+    "month",
+    { start: "2026-09-14", end: "2026-09-28", partial: true },
+    "September 2026 – 14.09. bis 28.09. — 100 Konversationen",
+  ],
+].map(([name, granularity, bucket, expected]) => {
+  const text = tooltip(
+    { ...bucket, conversations: 100 },
+    granularity,
+    "conversations"
+  );
+  assert.equal(text, expected);
+  return [name, text];
+});
+
+/**
+ * Wo der Tooltip im Browser höchstens liegen kann: Er ist an x verankert
+ * (TimelineChart, tooltipStyle) und wird nie breiter als maxWidth.
+ */
+function tooltipBox({ align, x, maxWidth }, width) {
+  if (align === "start") return { left: x, right: x + maxWidth };
+  if (align === "end") return { left: width - x - maxWidth, right: width - x };
+  return { left: x - maxWidth / 2, right: x + maxWidth / 2 };
+}
+
+test("Tooltip: ragt nie aus dem Diagramm – bei 240, 340, 390 und 1130 px, für Tag, Woche und Monat (auch angeschnitten), an jedem Platz; und verdeckt keine Säule", () => {
+  let clamped = 0;
+  let wrapped = 0;
+  for (const width of [240, 340, 390, 1130]) {
+    // wie TimelineChart: Zeichenfläche ab 44 px, rechts 8 px Rand
+    const chart = { width, plotLeft: 44, plotHeight: width < 520 ? 162 : 202 };
+    for (const count of [7, 30, 53, 92]) {
+      const values = Array.from({ length: count }, (_, i) => (i * 37) % 23);
+      const columns = columnLayout({
+        values,
+        width: width - 52,
+        height: chart.plotHeight,
+        max: valueScale(22).max,
+      });
+      for (const [name, text] of TOOLTIP_TEXTS)
+        for (let active = 0; active < count; active++) {
+          const where = `${width} px, ${count} Plätze, ${name}, Platz ${active}`;
+          const place = tooltipPlacement({ columns, active, text, ...chart });
+          const estimated = text.length * 6.5 + 22;
+
+          // geschätzte Ausdehnung: im Diagramm, nie breiter als nötig
+          assert.ok(place.from >= 0, where);
+          assert.ok(place.to <= width, where);
+          assert.equal(
+            Math.round((place.to - place.from) * 100),
+            Math.round(Math.min(estimated, width) * 100),
+            where
+          );
+          // Der Browser hält ihn dort: verankert an x, höchstens maxWidth breit
+          // – auch wenn der Text breiter ausfällt als geschätzt.
+          const box = tooltipBox(place, width);
+          assert.ok(box.left >= 0 && box.right <= width, where);
+          assert.ok(box.left <= place.from && place.to <= box.right, where);
+          // Ein Text, der breiter ist als das Diagramm, nimmt dessen Breite ein
+          // und bricht um.
+          if (estimated > width) {
+            wrapped++;
+            assert.deepEqual(
+              [place.from, place.to, place.maxWidth, box.left, box.right],
+              [0, width, width, 0, width],
+              where
+            );
+          }
+
+          // über dem angesteuerten Platz
+          const center = chart.plotLeft + columns[active].center;
+          assert.ok(place.from <= center && center <= place.to, where);
+          // Senkrecht: Die Unterkante liegt über jeder Säule, die er
+          // überspannt – mit zwei Zeilen wächst er nach oben, nicht nach unten.
+          for (const { bar } of columns) {
+            if (!bar) continue;
+            const left = chart.plotLeft + bar.x;
+            if (left >= place.to || left + bar.width <= place.from) continue;
+            assert.ok(place.y + TOOLTIP_GAP <= bar.y, where);
+          }
+          const own = columns[active].bar?.y ?? chart.plotHeight;
+          assert.ok(place.y <= own - TOOLTIP_GAP, where);
+
+          // Wo er ohnehin hineinpasst, steht er wie bisher: mittig über dem
+          // Platz, im linken und rechten Drittel 16 px nach innen gerückt.
+          const [align, x, from] =
+            center < width * 0.3
+              ? ["start", Math.max(0, center - 16), Math.max(0, center - 16)]
+              : center > width * 0.7
+                ? [
+                    "end",
+                    Math.max(0, width - center - 16),
+                    width - Math.max(0, width - center - 16) - estimated,
+                  ]
+                : ["center", center, center - estimated / 2];
+          if (from >= 0 && from + estimated <= width) {
+            assert.deepEqual([place.align, place.x], [align, x], where);
+            assert.ok(Math.abs(place.from - from) < 1e-6, where);
+          } else {
+            clamped++;
+            // nur so weit gerückt, dass er am Rand des Diagramms endet
+            assert.ok(place.from === 0 || place.to === width, where);
+          }
+          // Im breiten Diagramm ist nichts zu rücken.
+          if (width === 1130)
+            assert.ok(from >= 0 && from + estimated <= width, where);
+        }
+    }
+  }
+  // Beides kommt in den schmalen Diagrammen vor.
+  assert.ok(clamped > 0 && wrapped > 0 && wrapped < clamped);
+});
+
+test("Tooltip bei 340 px: Der Wochentext (geschätzt 321 px) ragte links, mittig und rechts hinaus – er endet jetzt am Rand; der angeschnittene Monat (379,5 px) bricht um", () => {
+  const chart = { width: 340, plotLeft: 44, plotHeight: 162 };
+  const columns = columnLayout({
+    values: Array.from({ length: 13 }, (_, i) => (i === 6 ? 100 : i)),
+    width: 288,
+    height: chart.plotHeight,
+    max: valueScale(100).max,
+  });
+  const place = (active, text) => {
+    const { align, x, from, to, maxWidth } = tooltipPlacement({
+      columns,
+      active,
+      text,
+      ...chart,
+    });
+    return [align, x, from, to, maxWidth];
+  };
+  const week = TOOLTIP_TEXTS[1][1];
+  // Platz 0 (55 px), links verankert: bisher 39–360 px
+  assert.deepEqual(place(0, week), ["start", 19, 19, 340, 321]);
+  // Platz 6 (188 px), mittig: bisher 27,5–348,5 px
+  assert.deepEqual(place(6, week), ["end", 0, 19, 340, 340]);
+  // Platz 9 (254,5 px), rechts verankert: bisher −50,5 bis 270,5 px
+  assert.deepEqual(place(9, week), ["end", 19, 0, 321, 321]);
+  // Platz 12 (321 px) passte schon: unverändert 16 px nach innen gerückt
+  const [align, x, from, to] = place(12, week);
+  assert.equal(align, "end");
+  assert.equal(x, 340 - (44 + columns[12].center) - 16);
+  assert.ok(from > 0 && to === 340 - x);
+
+  // Breiter als das Diagramm: über die ganze Breite – und damit über der
+  // höchsten Säule des Diagramms.
+  const month = TOOLTIP_TEXTS[4][1];
+  assert.deepEqual(place(0, month), ["start", 0, 0, 340, 340]);
+  assert.deepEqual(place(12, month), ["end", 0, 0, 340, 340]);
+  const wide = tooltipPlacement({ columns, active: 0, text: month, ...chart });
+  assert.equal(wide.y, columns[6].bar.y - TOOLTIP_GAP);
+  assert.ok(columns[0].bar === null && wide.y < 0);
+});
