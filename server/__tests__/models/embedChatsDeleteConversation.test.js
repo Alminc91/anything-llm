@@ -460,8 +460,9 @@ describe("loescht_genau_diese (AK-6)", () => {
       ["besucher-1: Frage 1", null],
       ["besucher-1: Frage 2", null],
     ]);
-    // Eine vom Besucher geleerte Zeile zählt die Liste nicht mehr; angezeigt
-    // und gelöscht wird sie weiterhin.
+    // Eine vom Besucher geleerte Zeile zählt die Liste nicht mehr und die
+    // aufgeklappte Konversation zeigt sie nicht (Konversationen-Ansicht,
+    // Fixliste Punkt 5); gelöscht wird sie weiterhin mit.
     await db.client.embed_chats.update({
       where: { id: target[0].id },
       data: { include: false },
@@ -480,19 +481,22 @@ describe("loescht_genau_diese (AK-6)", () => {
       const visible = (await shown(embed, chatId, kunde))
         .map((m) => m.id)
         .sort((a, b) => a - b);
+      const hidden = id === "ziel" ? [target[0].id] : [];
+      expect(visible).not.toContain(target[0].id);
+      const all = [...visible, ...hidden].sort((a, b) => a - b);
       const look = await preview(embed, chatId, kunde);
-      expect([id, look.body.messageCount]).toEqual([id, visible.length]);
+      expect([id, look.body.messageCount]).toEqual([id, all.length]);
 
       const before = await chatIds();
       const result = await deleteConversation(embed, chatId, kunde);
       expect([id, result.body]).toEqual([
         id,
-        { success: true, deletedCount: visible.length },
+        { success: true, deletedCount: all.length },
       ]);
       const after = await chatIds();
       expect([id, before.filter((chat) => !after.includes(chat))]).toEqual([
         id,
-        visible,
+        all,
       ]);
       expect(await shown(embed, chatId, kunde)).toEqual([]);
     }

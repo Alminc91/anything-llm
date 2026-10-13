@@ -34,7 +34,10 @@ const {
   writeChunks,
   exportFileName,
 } = require("../utils/helpers/chat/embedConversationExport");
-const { parseSearch } = require("../utils/helpers/chat/conversationSearch");
+const {
+  parseSearch,
+  loggableError,
+} = require("../utils/helpers/chat/conversationSearch");
 
 /**
  * KIE-533: Darf der Nutzer auf diesen Workspace zugreifen?
@@ -138,6 +141,31 @@ function conversationSelection(body) {
     };
   }
   return { filter, start, end, startedBetween, search, error: null };
+}
+
+/** Größte Seite der Konversationsliste (analytics/conversations). */
+const CONVERSATION_PAGE_MAX = 100;
+
+/**
+ * Blättern in der Konversationsliste: offset und limit aus dem Rumpf. Fehlen
+ * sie, gelten 0 und 20 wie bisher; sonst müssen es ganze Zahlen sein -
+ * offset ab 0, limit 1 bis CONVERSATION_PAGE_MAX (Fixliste Punkt 4).
+ * @param {object} body
+ * @returns {{offset: number, limit: number, error: string|null}}
+ */
+function conversationPaging(body) {
+  const { offset = 0, limit = 20 } = body ?? {};
+  const valid = (value, min, max) =>
+    Number.isSafeInteger(value) && value >= min && value <= max;
+  if (!valid(offset ?? 0, 0, Number.MAX_SAFE_INTEGER))
+    return { offset: 0, limit: 20, error: "offset must be an integer ≥ 0." };
+  if (!valid(limit ?? 20, 1, CONVERSATION_PAGE_MAX))
+    return {
+      offset: 0,
+      limit: 20,
+      error: `limit must be an integer between 1 and ${CONVERSATION_PAGE_MAX}.`,
+    };
+  return { offset: offset ?? 0, limit: limit ?? 20, error: null };
 }
 
 function embedManagementEndpoints(app) {
@@ -500,7 +528,8 @@ function embedManagementEndpoints(app) {
   // Optional q: Suchbegriff - nur Konversationen mit Treffer in Frage,
   // angezeigtem Antworttext, Grund oder Kommentar (Groß/klein egal, auch bei
   // Umlauten; Platzhalterzeichen gelten wörtlich). Die Rechteprüfung ist
-  // dieselbe wie ohne q.
+  // dieselbe wie ohne q. offset (ab 0) und limit (1–100) sind ganze Zahlen,
+  // sonst 400; ohne Angabe 0 und 20.
   app.post(
     "/embed/:embedId/analytics/conversations",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
@@ -508,8 +537,12 @@ function embedManagementEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const embedId = Number(request.params.embedId);
-        const body = reqBody(request);
-        const { offset = 0, limit = 20 } = body;
+        const body = reqBody(request) ?? {};
+        const { offset, limit, error: pagingError } = conversationPaging(body);
+        if (pagingError) {
+          response.status(400).json({ success: false, error: pagingError });
+          return;
+        }
 
         if (user?.role === ROLES.default) {
           const embed = await EmbedConfig.get({ id: embedId });
@@ -537,9 +570,8 @@ function embedManagementEndpoints(app) {
           return;
         }
 
-        // Liste und Zähler: dieselbe Gruppierung + derselbe Filter
-        // (EmbedChats._conversationGroupsSql / conversationFilterCondition),
-        // in einer Abfrage (conversationPage).
+        // Liste und Zähler: dieselbe Auswahl (EmbedChats._conversationSelection:
+        // Gruppierung, Filter, Suche), in einer Abfrage (conversationPage).
         const { conversations, totalCount: total } =
           await EmbedChats.conversationPage(embedId, {
             offset,
@@ -559,7 +591,8 @@ function embedManagementEndpoints(app) {
           totalCount: total,
         });
       } catch (e) {
-        console.error(e);
+        // Ohne Meldungstext: Er könnte die Suchmuster enthalten.
+        console.error("analytics/conversations error:", loggableError(e));
         response.sendStatus(500).end();
       }
     }
@@ -575,7 +608,8 @@ function embedManagementEndpoints(app) {
   // Browser-Sitzung und keine Quellen-Texte (siehe embedConversationExport).
   // Sie wird Zeile für Zeile geschrieben, die Datenbank in Paketen gelesen.
   // Jeder Export steht in event_logs: wer, welches Widget, Format, Zeitraum,
-  // Zahl der Konversationen und Zeilen - keine Inhalte.
+  // ob gesucht wurde, Zahl der Konversationen und Zeilen - keine Inhalte,
+  // nicht der Suchbegriff.
   app.post(
     "/embed/:embedId/analytics/export",
     [
@@ -672,6 +706,9 @@ function embedManagementEndpoints(app) {
               feedbackFilter: filter,
               startedFromDay: startedBetween ? body.startedFromDay : null,
               startedToDay: startedBetween ? body.startedToDay : null,
+              // Nur ob gesucht wurde - der Begriff (oft ein Name oder eine
+              // E-Mail-Adresse) gehört nicht ins Protokoll.
+              searched: search !== null,
               conversationCount: exported.stats.conversations,
               rowCount: exported.stats.rows,
               completed,
@@ -702,7 +739,8 @@ function embedManagementEndpoints(app) {
         }
         response.end();
       } catch (e) {
-        console.error(e);
+        // Ohne Meldungstext: Er könnte die Suchmuster enthalten.
+        console.error("analytics/export error:", loggableError(e));
         // Hat die Antwort schon begonnen, lässt sich kein Fehlerstatus mehr
         // senden: Die Verbindung wird abgebrochen, damit der Download als
         // fehlgeschlagen gilt und nicht als vollständige Datei.

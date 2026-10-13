@@ -52,16 +52,20 @@ const {
   createWorkspace,
   createEmbed,
   berlinInstant,
+  eventsOf,
 } = require("../helpers/sqliteTestDatabase");
 const { makeJWT } = require("../../utils/http");
 const { MessageLedger } = require("../../models/messageLedger");
 const { embedManagementEndpoints } = require("../../endpoints/embedManagement");
 const {
   parseSearch,
+  searchForms,
   searchGlobPattern,
-  canPrefilterRawResponse,
+  searchProbe,
+  loggableError,
   SEARCH_MAX_LENGTH,
 } = require("../../utils/helpers/chat/conversationSearch");
+const { EmbedChats } = require("../../models/embedChats");
 
 const routes = collectRoutes(embedManagementEndpoints);
 const route = ({ method, path }) => routes[`${method} ${path}`];
@@ -242,10 +246,98 @@ describe("suchmuster", () => {
     expect(searchGlobPattern("^-]")).toBe("*^-]*");
   });
 
-  test("canPrefilterRawResponse: nur ohne Zeichen, die JSON maskiert", () => {
-    expect(canPrefilterRawResponse("Spanisch ü%_*?[")).toBe(true);
-    for (const search of ['"zitat"', "C:\\pfad", "a\tb"])
-      expect(canPrefilterRawResponse(search)).toBe(false);
+  test("parseSearch: Rohlänge, Steuerzeichen und allein stehende Ersatzhälften → Fehler (Fixliste 1–3)", () => {
+    // Rohwert zu lang: abgelehnt, bevor er normalisiert oder zerlegt wird
+    const huge = " ".repeat(5_000_000) + "x";
+    const normalize = jest.spyOn(String.prototype, "normalize");
+    expect(parseSearch(huge).error).toMatch(/longer/);
+    expect(normalize).not.toHaveBeenCalled();
+    normalize.mockRestore();
+    expect(
+      parseSearch(" ".repeat(SEARCH_MAX_LENGTH * 4 - 1) + "x").search
+    ).toBe("x");
+    // NUL und andere Steuerzeichen
+    for (const value of [
+      "\u0000",
+      "\u0000zzz",
+      "ab\u0000xy",
+      "a\tb",
+      "x\u007f",
+    ])
+      expect([value, parseSearch(value).error]).toEqual([
+        value,
+        expect.stringMatching(/control/),
+      ]);
+    // nur Leerraum (auch Tabulator/Umbruch) bleibt „keine Suche"
+    expect(parseSearch("\n\t ")).toEqual({ search: null, error: null });
+    // Ersatzhälften allein: kein gültiges Unicode; ein Paar ist ein Zeichen
+    for (const value of ["\ud800", "a\udc00b", "\ud83d"])
+      expect(parseSearch(value).error).toMatch(/well-formed/);
+    expect(parseSearch("Kurs 😀")).toEqual({ search: "Kurs 😀", error: null });
+  });
+
+  test("searchForms: NFC und – falls verschieden – NFD", () => {
+    expect(searchForms("Übung")).toEqual(["Übung", "U\u0308bung"]);
+    expect(searchForms("kurs")).toEqual(["kurs"]);
+    expect(searchForms("größe")).toEqual(["größe", "gro\u0308ße"]);
+  });
+
+  test("searchProbe: billige Vorprüfung, wählerisch auch bei Umlauten und Kyrillisch (Fixliste 6)", () => {
+    // ohne Buchstaben außerhalb von ASCII: ein LIKE, schon genau
+    expect(searchProbe("kurs")).toEqual({
+      op: "like",
+      values: ["%kurs%"],
+      exact: true,
+    });
+    expect(searchProbe("10 %_\\")).toEqual({
+      op: "like",
+      values: ["%10 \\%\\_\\\\%"],
+      exact: true,
+    });
+    // längster Abschnitt ohne Umlaut (ab drei Buchstaben)
+    expect(searchProbe("Übung")).toEqual({
+      op: "like",
+      values: ["%bung%"],
+      exact: false,
+    });
+    // kurzer Begriff: Schreibweisen ausgeschrieben; ASCII-Buchstaben → LIKE
+    expect(searchProbe("für")).toEqual({
+      op: "like",
+      values: ["%für%", "%fÜr%"],
+      exact: false,
+    });
+    expect(searchProbe("äa").values).toEqual(["%äa%", "%Äa%"]);
+    // ohne ASCII-Buchstaben: instr, höchstens vier Schreibweisen
+    expect(searchProbe("курс")).toEqual({
+      op: "instr",
+      values: ["ку", "кУ", "Ку", "КУ"],
+      exact: false,
+    });
+    expect(searchProbe("äöü").values).toEqual(["äö", "äÖ", "Äö", "ÄÖ"]);
+    // ß hat zwei Schreibweisen (ß, ẞ)
+    expect(searchProbe("ßü").values).toHaveLength(4);
+    // Kein Zeichen „_" für einen Umlaut: Die Vorprüfung ließe sonst fast
+    // jede Zeile durch.
+    for (const term of ["üb", "äa", "äöü", "курс", "für"])
+      expect(searchProbe(term).values.join("")).not.toMatch(/_/);
+  });
+
+  test("loggableError: Name und Codes, nie der Meldungstext (Fixliste 3)", () => {
+    const error = Object.assign(
+      new Error("Raw query failed … LIKE '%geheim%' …"),
+      { code: "P2010", meta: { code: "1" } }
+    );
+    expect(loggableError(error)).toEqual({
+      name: "Error",
+      code: "P2010",
+      dbCode: "1",
+    });
+    expect(JSON.stringify(loggableError(error))).not.toMatch(/geheim/);
+    expect(loggableError(undefined)).toEqual({
+      name: null,
+      code: null,
+      dbCode: null,
+    });
   });
 });
 
@@ -978,5 +1070,416 @@ describe("zeile (AK-1)", () => {
       hasMore: false,
       totalCount: 5,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste nach den Reviews (13.10.2026) – Server
+// ---------------------------------------------------------------------------
+
+describe("eingaben (Fixliste 1–4)", () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    for (let i = 0; i < 5; i++)
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, i),
+        prompt: `Hallo Kurs ${i}`,
+        conversation: `k-${i}`,
+      });
+  });
+
+  const rawList = (body) =>
+    invoke(CONVERSATIONS, {
+      params: { embedId: String(embed.id) },
+      body: { ...conversationsBody({ ...OCTOBER }), ...body },
+      token: admin.token,
+    });
+
+  test("NUL und Steuerzeichen im Begriff: 400 – kein Treffer auf alles (NAK-3)", async () => {
+    for (const q of ["\u0000", "\u0000zzz", "ab\u0000xy", "x\u0001", "a\tb"]) {
+      const result = await rawList({ q });
+      expect([q, result.statusCode]).toEqual([q, 400]);
+      expect(result.body).toEqual({
+        success: false,
+        error: expect.any(String),
+      });
+      const exported = await invoke(EXPORT, {
+        params: { embedId: String(embed.id) },
+        body: { ...exportBody("csv", OCTOBER), q },
+        token: admin.token,
+      });
+      expect([q, exported.statusCode]).toEqual([q, 400]);
+      expect(exported.chunks).toEqual([]);
+    }
+  });
+
+  test("allein stehende Ersatzhälfte: 400; riesiges q: 400, bevor es verarbeitet wird", async () => {
+    expect((await rawList({ q: "\ud800" })).statusCode).toBe(400);
+    expect((await rawList({ q: "Kurs\udfff" })).statusCode).toBe(400);
+    const normalize = jest.spyOn(String.prototype, "normalize");
+    const huge = await rawList({ q: "x".repeat(2_000_000) });
+    expect(huge.statusCode).toBe(400);
+    expect(normalize).not.toHaveBeenCalled();
+  });
+
+  test("limit und offset: ganze Zahlen, limit 1–100, offset ab 0 – sonst 400; ohne Angabe 0 und 20; hasMore stimmt", async () => {
+    for (const body of [
+      { limit: -1 },
+      { limit: 0 },
+      { limit: 101 },
+      { limit: 1.5 },
+      { limit: "5" },
+      { limit: "1; DROP TABLE embed_chats" },
+      { limit: [1] },
+      { limit: 1e12 },
+      { offset: -5 },
+      { offset: "1" },
+      { offset: 2.5 },
+      { offset: { $gt: 0 } },
+    ]) {
+      const result = await rawList(body);
+      expect([body, result.statusCode]).toEqual([body, 400]);
+      expect(result.body).toEqual({
+        success: false,
+        error: expect.any(String),
+      });
+    }
+    // ohne Angabe: Vorgaben
+    const defaults = await invoke(CONVERSATIONS, {
+      params: { embedId: String(embed.id) },
+      body: { startDate: OCTOBER.startDate, endDate: OCTOBER.endDate },
+      token: admin.token,
+    });
+    expect(defaults.statusCode).toBe(200);
+    expect(defaults.body).toMatchObject({ totalCount: 5, hasMore: false });
+    expect(defaults.body.conversations).toHaveLength(5);
+    // Grenzen und hasMore
+    for (const [offset, limit, length, hasMore] of [
+      [0, 1, 1, true],
+      [0, 100, 5, false],
+      [3, 2, 2, false],
+      [2, 2, 2, true],
+      [5, 2, 0, false],
+    ]) {
+      const result = await rawList({ offset, limit, q: "kurs" });
+      expect(result.statusCode).toBe(200);
+      expect([offset, limit, result.body.conversations.length]).toEqual([
+        offset,
+        limit,
+        length,
+      ]);
+      expect(result.body.hasMore).toBe(hasMore);
+      expect(result.body.totalCount).toBe(5);
+    }
+    expect(await db.client.embed_chats.count()).toBe(5);
+  });
+
+  test("Datenbankfehler: das Protokoll nennt weder Begriff noch Suchmuster", async () => {
+    const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+    const original = db.client.$queryRaw;
+    jest.spyOn(EmbedChats, "_conversationList").mockImplementation(() => {
+      throw Object.assign(
+        new Error("Raw query failed: … LIKE '%geheimname%' ESCAPE …"),
+        { code: "P2010" }
+      );
+    });
+    const result = await rawList({ q: "geheimname" });
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toMatchObject({ conversations: [], totalCount: 0 });
+    expect(db.client.$queryRaw).toBe(original);
+    const logged = JSON.stringify(errors.mock.calls);
+    expect(logged).toMatch(/P2010/);
+    expect(logged).not.toMatch(/geheimname/);
+  });
+});
+
+describe("panel (Fixliste 5)", () => {
+  test("Der Gesprächsverlauf zeigt keine vom Besucher geleerten Zeilen (include = 0); Löschen und Lösch-Vorschau meinen weiter alle", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    const visible = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "sichtbare Frage",
+      conversation: "k",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "GELEERT geheim",
+      conversation: "k",
+      include: false,
+    });
+    const cleared = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "ganz GELEERT",
+      conversation: "z",
+      include: false,
+    });
+
+    const opened = await details(embed, visible.id);
+    expect(opened.body.messages.map((m) => m.prompt)).toEqual([
+      "sichtbare Frage",
+    ]);
+    // über die geleerte Zeile angefragt: dieselbe Konversation, ohne sie
+    const viaCleared = await details(embed, visible.id + 1);
+    expect(viaCleared.body.messages.map((m) => m.prompt)).toEqual([
+      "sichtbare Frage",
+    ]);
+    // ganz geleert: nichts zu zeigen
+    const empty = await details(embed, cleared.id);
+    expect(empty.body).toEqual({ success: true, messages: [] });
+    expect(JSON.stringify(empty.body)).not.toMatch(/GELEERT/);
+    // Liste und Suche wie bisher ohne die geleerten Zeilen
+    expect(await found(embed, "geheim")).toEqual([]);
+    expect(
+      (await listPage(embed, {})).body.conversations.map((c) => [
+        c.conversation_id,
+        c.message_count,
+      ])
+    ).toEqual([["k", 1]]);
+    // Lösch-Vorschau (KIE-538) zählt alle Zeilen der Konversation
+    expect(
+      await EmbedChats.conversationDeletionPreview(embed.id, visible.id)
+    ).toMatchObject({ messageCount: 2 });
+  });
+});
+
+describe("leistung (Fixliste 6–8)", () => {
+  test("Säulenklick + Suche: Der Begriff wird nur in den Konversationen des Abschnitts gesucht (EXISTS nach den Filtern), nicht in der ganzen Historie", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-10-06", 9, 0),
+      prompt: "Gibt es Yoga?",
+      conversation: "im-abschnitt",
+    });
+    // Treffer erst in einer späteren Zeile derselben Konversation
+    await addChat(embed, {
+      at: berlinInstant("2026-10-20", 9, 0),
+      prompt: "Und Spanisch?",
+      conversation: "im-abschnitt",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-02", 9, 0),
+      prompt: "Spanisch am Abend",
+      conversation: "davor",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-06", 10, 0),
+      prompt: "Kein Treffer hier",
+      conversation: "im-abschnitt-ohne",
+    });
+    const bucket = { start: "2026-10-06", end: "2026-10-06" };
+    expect(await found(embed, "spanisch", { bucket })).toEqual([
+      "im-abschnitt",
+    ]);
+    expect((await found(embed, "spanisch")).sort()).toEqual([
+      "davor",
+      "im-abschnitt",
+    ]);
+    // Bewertungsfilter: ebenso erst filtern, dann suchen
+    await addChat(embed, {
+      at: berlinInstant("2026-10-07", 9, 0),
+      prompt: "Spanisch negativ",
+      feedbackScore: false,
+      conversation: "negativ",
+    });
+    expect(
+      await found(embed, "spanisch", { feedbackFilter: "negative" })
+    ).toEqual(["negativ"]);
+
+    // Form der Abfrage: Gruppen ohne Suche, die Suche als EXISTS danach
+    const { Prisma } = require("@prisma/client");
+    const between = {
+      start: berlinInstant("2026-10-06", 0, 0),
+      endExclusive: berlinInstant("2026-10-07", 0, 0),
+    };
+    const { source, where } = EmbedChats._conversationSelection({
+      embedId: embed.id,
+      startedBetween: between,
+      search: "spanisch",
+    });
+    const text = Prisma.sql`${source} ${where}`.sql;
+    expect(text).not.toMatch(/row_search_hit/);
+    expect(text).toMatch(/started_at >= \? AND started_at < \? AND EXISTS/);
+    const plain = EmbedChats._conversationSelection({
+      embedId: embed.id,
+      search: "spanisch",
+    });
+    expect(Prisma.sql`${plain.source} ${plain.where}`.sql).toMatch(
+      /MAX\(row_search_hit\)[\s\S]*WHERE search_hit = 1$/
+    );
+  });
+
+  test("Export mit Suche: die Treffer-Konversationen werden EINMAL bestimmt, nicht je Seite – Inhalt wie die Liste", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const total = EmbedChats.EXPORT_CONVERSATION_PAGE + 3;
+    await db.client.embed_chats.createMany({
+      data: Array.from({ length: total }, (_, i) => ({
+        embed_id: embed.id,
+        prompt: i % 2 === 0 ? `Frage ${i} zum Kurs` : `Frage ${i}`,
+        response: JSON.stringify({ text: "Antwort", type: "chat" }),
+        session_id: `s-${i}`,
+        conversation_id: `k-${i}`,
+        createdAt: new Date(berlinInstant("2026-10-05", 9, 0).getTime() + i),
+      })),
+    });
+    const pages = jest.spyOn(EmbedChats, "_exportConversationPage");
+    const result = await exportFile(embed, "json", {
+      ...OCTOBER,
+      search: "kurs",
+    });
+    expect(result.statusCode).toBe(200);
+    const exported = JSON.parse(result.body).map((c) => c.conversationId);
+    expect(pages).toHaveBeenCalledTimes(1);
+    expect(pages.mock.calls[0][0]).toMatchObject({
+      search: "kurs",
+      limit: null,
+    });
+    expect(exported).toHaveLength(Math.ceil(total / 2));
+    // ohne Suche weiter seitenweise
+    pages.mockClear();
+    await exportFile(embed, "json", OCTOBER);
+    expect(pages).toHaveBeenCalledTimes(2);
+    expect(pages.mock.calls[0][0].limit).toBe(
+      EmbedChats.EXPORT_CONVERSATION_PAGE
+    );
+  });
+});
+
+describe("protokoll (Fixliste 9)", () => {
+  test("Der Export vermerkt, ob gesucht wurde – den Begriff nicht", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage von max.mustermann@example.org",
+      conversation: "k",
+    });
+    await exportFile(embed, "csv", {
+      ...OCTOBER,
+      search: "max.mustermann@example.org",
+    });
+    await exportFile(embed, "csv", OCTOBER);
+    const events = await eventsOf(db.client, "embed_conversations_exported");
+    expect(events.map((event) => event.metadata.searched)).toEqual([
+      true,
+      false,
+    ]);
+    expect(events[0].metadata.conversationCount).toBe(1);
+    const raw = await db.client.event_logs.findMany();
+    expect(JSON.stringify(raw)).not.toMatch(/mustermann/);
+  });
+});
+
+describe("globale sicht (Fixliste 10)", () => {
+  test("first_negative_reason: gleiche Kennung und Sitzung in zwei Widgets – jeder Grund bleibt bei seinem Widget", async () => {
+    const workspace = await createWorkspace(db.client);
+    const widgetA = await createEmbed(db.client, workspace);
+    const widgetB = await createEmbed(db.client, workspace);
+    await addChat(widgetA, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage in A",
+      feedbackScore: false,
+      feedbackReason: "Grund aus A",
+      conversation: "gleich",
+      session: "gleiche-sitzung",
+    });
+    await addChat(widgetB, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Frage in B",
+      feedbackScore: false,
+      feedbackReason: "Grund aus B",
+      conversation: "gleich",
+      session: "gleiche-sitzung",
+    });
+    const conversations = await EmbedChats.getConversations(null, 0, 20);
+    expect(
+      conversations.map((c) => [c.embed_id, c.first_negative_reason])
+    ).toEqual([
+      [widgetB.id, "Grund aus B"],
+      [widgetA.id, "Grund aus A"],
+    ]);
+  });
+});
+
+describe("sichtbarer text (Fixliste 11, 24)", () => {
+  test("NFD: zerlegte Umlaute im gespeicherten Text werden mit NFC gefunden – in Frage, Antwort, Grund und Kommentar", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const nfd = (text) => text.normalize("NFD");
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: nfd("Gibt es eine Übung?"),
+      conversation: "frage",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "Wo?",
+      answer: nfd('Im GRÖßEREN Raum, mit "Übung" am Abend'),
+      conversation: "antwort",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 2),
+      prompt: "Ok",
+      feedbackScore: false,
+      feedbackReason: nfd("Unvollständig"),
+      feedbackText: nfd("Übung fehlt"),
+      conversation: "bewertung",
+    });
+    expect((await found(embed, "übung")).sort()).toEqual([
+      "antwort",
+      "bewertung",
+      "frage",
+    ]);
+    expect(await found(embed, "größeren")).toEqual(["antwort"]);
+    expect(await found(embed, "unvollständig")).toEqual(["bewertung"]);
+    // NFD im Begriff findet NFD wie NFC
+    expect((await found(embed, nfd("ÜBUNG"))).sort()).toEqual([
+      "antwort",
+      "bewertung",
+      "frage",
+    ]);
+  });
+
+  test("Antwort mit maskierten Zeichen: Treffer über den Text, nicht über die Maskierung im JSON", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Kurse?",
+      answer: "Kurs\nYoga am Abend",
+      conversation: "umbruch",
+    });
+    // „\nYoga" steht im JSON als \n – das „n" davor gehört nicht zum Text
+    expect(await found(embed, "nyoga")).toEqual([]);
+    expect(await found(embed, "Yoga am")).toEqual(["umbruch"]);
+    expect(await found(embed, "kurs")).toEqual(["umbruch"]);
+  });
+
+  test("dokumentiert (Entscheidung Punkt 11): Ein Begriff nur in einer Link-Adresse der Antwort trifft – die Ansicht weist dann darauf hin (Frontend)", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Wo melde ich mich an?",
+      answer: "Hier: [Anmeldung](https://vhs-lingen.example/anmeldung)",
+      conversation: "link",
+    });
+    expect(await found(embed, "vhs-lingen")).toEqual(["link"]);
+    expect(await found(embed, "Anmeldung")).toEqual(["link"]);
   });
 });

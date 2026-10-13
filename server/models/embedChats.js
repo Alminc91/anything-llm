@@ -5,10 +5,13 @@ const {
 } = require("../utils/chats/embedCourseSources");
 const { storedFollowUps } = require("../utils/chats/embedCardsMarker");
 const {
+  searchForms,
+  jsonEscaped,
   searchGlobPattern,
   searchLikePattern,
   needsGlobCheck,
-  canPrefilterRawResponse,
+  searchProbe,
+  loggableError,
 } = require("../utils/helpers/chat/conversationSearch");
 const prisma = require("../utils/prisma");
 const { MessageLedger } = require("./messageLedger");
@@ -686,35 +689,37 @@ const EmbedChats = {
    * der Feedback-Filter ({@link EmbedChats.feedbackFilterCondition}) und,
    * falls gesetzt, der Abschnitts-Filter auf started_at (= MIN(createdAt) der
    * Gruppe). Beide greifen NACH der Gruppierung. Ohne Abschnitts-Filter ist
-   * das Ergebnis genau die Feedback-Bedingung.
+   * das Ergebnis genau die Feedback-Bedingung. Die Suche kommt über
+   * {@link EmbedChats._conversationSelection} dazu.
    * @param {string|boolean} feedbackFilter
    * @param {{start: Date, endExclusive: Date}|null} [startedBetween] - halboffen [start, endExclusive)
-   * @param {string|null} [search] - Suchbegriff: nur Gruppen mit search_hit = 1
-   *   (die Gruppierung muss dann mit demselben Begriff gebaut sein)
    * @returns {import("@prisma/client").Prisma.Sql}
    */
   conversationFilterCondition: function (
     feedbackFilter,
-    startedBetween = null,
-    search = null
+    startedBetween = null
   ) {
     const { Prisma } = require("@prisma/client");
     const feedback = EmbedChats.feedbackFilterCondition(feedbackFilter);
     const between = EmbedChats.normalizeStartedBetween(startedBetween);
-    const conditions = [];
-    if (between)
-      conditions.push(
-        Prisma.sql`started_at >= ${between.start} AND started_at < ${between.endExclusive}`
-      );
-    // Suche: search_hit steht in der Gruppierung, sobald gesucht wird
-    // (_conversationGroupsSql mit { search }).
-    if (search) conditions.push(Prisma.sql`search_hit = 1`);
-    if (conditions.length === 0) return feedback;
+    if (!between) return feedback;
 
-    const joined = Prisma.join(conditions, " AND ");
+    const started = Prisma.sql`started_at >= ${between.start} AND started_at < ${between.endExclusive}`;
     return feedback === Prisma.empty
-      ? Prisma.sql`WHERE ${joined}`
-      : Prisma.sql`${feedback} AND ${joined}`;
+      ? Prisma.sql`WHERE ${started}`
+      : Prisma.sql`${feedback} AND ${started}`;
+  },
+
+  /**
+   * Eine WHERE-Bedingung um eine weitere erweitern (beide Prisma.Sql; die
+   * erste ist leer oder beginnt mit WHERE).
+   * @returns {import("@prisma/client").Prisma.Sql}
+   */
+  _whereAnd: function (where, condition) {
+    const { Prisma } = require("@prisma/client");
+    return where === Prisma.empty
+      ? Prisma.sql`WHERE ${condition}`
+      : Prisma.sql`${where} AND ${condition}`;
   },
 
   /**
@@ -724,63 +729,124 @@ const EmbedChats = {
    * `text` (json_extract), nicht Quellen, Kurskarten oder Metadaten; eine
    * Antwort, die kein JSON-Objekt ist, zeigt die Ansicht wörtlich.
    *
-   * Groß/klein egal, auch bei Umlauten: je Spalte ein schnelles LIKE und,
-   * nur wenn der Begriff Buchstaben außerhalb von ASCII enthält, ein genaues
-   * GLOB mit Zeichenklassen dahinter (utils/helpers/chat/conversationSearch).
-   * Die Muster sind gebundene Werte.
+   * Groß/klein egal, auch bei Umlauten, für den Begriff in NFC und NFD: je
+   * Spalte eine billige Vorprüfung und, wo nötig, ein genaues GLOB dahinter
+   * (utils/helpers/chat/conversationSearch). Alle Muster sind gebundene
+   * Werte.
    *
-   * Das Antwort-JSON wird nur gelesen, wo der Begriff im gespeicherten Text
-   * vorkommt (Vorprüfung auf der Spalte, sofern der Begriff keine Zeichen
-   * enthält, die JSON maskiert) - und nur, wenn Frage, Grund und Kommentar
-   * nicht schon treffen.
+   * Die Antwort: Die Antworten des Widgets beginnen mit dem Text
+   * ({"text":"…","type":…, "sources":…}); in einem JSON-Text steht jedes
+   * Anführungszeichen maskiert (\"), die Folge "," (Anführungszeichen,
+   * Komma, Anführungszeichen) beendet ihn deshalb sicher. Diesen Anfang
+   * liefert die Spalte answer_head ({@link EmbedChats._searchRowsSql}), NULL
+   * bei jeder anderen Antwort. Die Vorprüfung sucht dort den Begriff in
+   * seiner JSON-Schreibweise (" als \", \ als \\) - Quellen und Metadaten
+   * treffen sie so nicht. Steht im Anfang kein Rückstrich, ist er der Text
+   * selbst; sonst (maskierte Zeichen, Zeilenumbrüche) wird der Text nur für
+   * diese Zeile aus dem JSON gelesen. Die ganze Antwort (response, mehrere
+   * KB mit Quellen) wird nicht durch die Unterabfrage gereicht: Das kostete
+   * je Durchlauf rund eine halbe Sekunde auf 100.000 Zeilen (Fixliste
+   * Punkt 6); gelesen wird sie nur für die wenigen Zeilen, die es brauchen,
+   * über ihre id.
    * @param {string} search - getrimmter Suchbegriff (parseSearch)
-   * @returns {import("@prisma/client").Prisma.Sql} - boolescher Ausdruck über eine Zeile von embed_chats
+   * @param {string} rows - Name der Unterabfrage mit den Spalten id, prompt,
+   *   feedbackReason, feedbackText und answer_head
+   * @returns {import("@prisma/client").Prisma.Sql} - boolescher Ausdruck über eine Zeile
    */
-  _searchMatchSql: function (search) {
+  _searchMatchSql: function (search, rows = "search_rows") {
     const { Prisma } = require("@prisma/client");
-    const like = searchLikePattern(search);
-    const glob = needsGlobCheck(search) ? searchGlobPattern(search) : null;
-    const matches = (column) =>
-      glob
-        ? Prisma.sql`(${column} LIKE ${like} ESCAPE '\\' AND ${column} GLOB ${glob})`
-        : Prisma.sql`${column} LIKE ${like} ESCAPE '\\'`;
+    const forms = searchForms(search);
+    const probeSql = (expression, text) => {
+      const probe = searchProbe(text);
+      const tests = probe.values.map((value) =>
+        probe.op === "instr"
+          ? Prisma.sql`instr(${expression}, ${value}) > 0`
+          : Prisma.sql`${expression} LIKE ${value} ESCAPE '\\'`
+      );
+      return { probe, sql: Prisma.sql`(${Prisma.join(tests, " OR ")})` };
+    };
+    // Genau: GLOB, wenn es Buchstaben außerhalb von ASCII mit zweiter
+    // Schreibweise gibt, sonst LIKE (Groß/klein egal für A–Z).
+    const exactSql = (expression, text) =>
+      needsGlobCheck(text)
+        ? Prisma.sql`${expression} GLOB ${searchGlobPattern(text)}`
+        : Prisma.sql`${expression} LIKE ${searchLikePattern(text)} ESCAPE '\\'`;
+    const matches = (expression) =>
+      Prisma.sql`(${Prisma.join(
+        forms.map((text) => {
+          const { probe, sql } = probeSql(expression, text);
+          return probe.exact
+            ? sql
+            : Prisma.sql`(${sql} AND ${exactSql(expression, text)})`;
+        }),
+        " OR "
+      )})`;
+    const anyExact = (expression) =>
+      Prisma.sql`(${Prisma.join(
+        forms.map((text) => exactSql(expression, text)),
+        " OR "
+      )})`;
+    const head = Prisma.raw("answer_head");
+    const headProbe = Prisma.join(
+      forms.map((text) => probeSql(head, jsonEscaped(text)).sql),
+      " OR "
+    );
+    // Der angezeigte Text der Antwort, aus der Zeile selbst gelesen.
     const visibleAnswer = Prisma.sql`(CASE
       WHEN json_valid(response) AND json_type(response) = 'object'
       THEN CASE WHEN json_type(response, '$.text') = 'text' THEN json_extract(response, '$.text') END
       ELSE response
     END)`;
-    // Vorprüfung ohne JSON-Auslesen: Die Antworten des Widgets beginnen mit
-    // dem Text ({"text":"…","type":…, "sources":…}). In einem JSON-Text steht
-    // jedes Anführungszeichen maskiert (\"); die Folge "," (Anführungszeichen,
-    // Komma, Anführungszeichen) beendet deshalb sicher den Text. Geprüft wird
-    // nur dieser Anfang - so treffen Quellen und Metadaten auch die
-    // Vorprüfung nicht. Andere Antworten: die ganze Spalte.
-    const rawText = Prisma.sql`(CASE
-      WHEN substr(response, 1, 9) = '{"text":"' AND instr(response, '","') > 0
-      THEN substr(response, 1, instr(response, '","'))
-      ELSE response
-    END)`;
-    const answer = canPrefilterRawResponse(search)
-      ? Prisma.sql`(${rawText} LIKE ${like} ESCAPE '\\' AND ${matches(visibleAnswer)})`
-      : matches(visibleAnswer);
+    const fromRow = (test) =>
+      Prisma.sql`(SELECT ${test} FROM embed_chats AS search_source WHERE search_source.id = ${Prisma.raw(rows)}.id)`;
     return Prisma.sql`(${matches(Prisma.raw("prompt"))}
       OR ${matches(Prisma.raw("feedbackReason"))}
       OR ${matches(Prisma.raw("feedbackText"))}
-      OR ${answer})`;
+      OR (CASE
+        WHEN answer_head IS NULL THEN ${fromRow(matches(visibleAnswer))}
+        WHEN NOT (${headProbe}) THEN 0
+        WHEN instr(answer_head, '\\') = 0 THEN ${anyExact(head)}
+        ELSE ${fromRow(anyExact(visibleAnswer))}
+      END))`;
   },
 
   /**
-   * Gemeinsames Aggregations-Fragment für Konversationsliste und -zähler:
-   * gruppiert embed_chats zu Konversationen (conversation_id, Fallback
-   * session_id für Alt-Daten), zählt Nachrichten sowie 👍/👎 und vergibt
-   * conversation_number über die UNGEFILTERTE Menge (stabile Nummer je
-   * Konversation, unabhängig vom Feedback-Filter). DSGVO/Reset-invalidierte
-   * Zeilen (include = 0 via markHistoryInvalid) sind ausgeschlossen — wie in
-   * getBasicStats und listConversationsForSession.
-   * feedbackScore ist in SQLite 0/1; false(👎)=0, true(👍)=1, NULL zählt nie mit.
-   * Beginnen zwei Konversationen im selben Augenblick, entscheidet die
-   * frühere Zeile (MIN(id)) über die Nummer - sie ist damit in jeder Abfrage
-   * dieselbe, auch im Export (KIE-538).
+   * Die Zeilen von embed_chats mit den Spalten, die die Suche liest
+   * ({@link EmbedChats._searchMatchSql}) - answer_head einmal je Zeile
+   * berechnet, ohne die ganze Antwort. LIMIT -1 (kein Limit) hält SQLite
+   * davon ab, die Unterabfrage in die umgebende einzufalten (sonst stünde
+   * answer_head an jeder Stelle neu).
+   * @param {import("@prisma/client").Prisma.Sql} where - WHERE … über embed_chats
+   * @param {string} [alias] - Name der Tabelle in der Bedingung
+   * @returns {import("@prisma/client").Prisma.Sql} - "(…) AS search_rows"
+   */
+  _searchRowsSql: function (where, alias = "embed_chats") {
+    const { Prisma } = require("@prisma/client");
+    return Prisma.sql`(
+      SELECT id, session_id, conversation_id, embed_id, createdAt, feedbackScore,
+        prompt, feedbackReason, feedbackText,
+        CASE
+          WHEN substr(response, 1, 9) = '{"text":"' AND instr(response, '","') > 0
+          THEN substr(response, 10, instr(response, '","') - 10)
+        END as answer_head
+      FROM embed_chats AS ${Prisma.raw(alias)}
+      ${where}
+      LIMIT -1
+    ) AS search_rows`;
+  },
+
+  /**
+   * Gruppierung der Konversationsliste (KIE-508/527): eine Zeile je
+   * Konversation, mit Zählern für Feedback-Filter UND Badges.
+   * Kanonische Quelle für getConversations und countConversations — beide
+   * MÜSSEN dieselbe Gruppierung verwenden, sonst driften Pagination-Zähler und
+   * Liste auseinander. Filter (Feedback, Abschnitt, Suche) greifen danach
+   * ({@link EmbedChats._conversationSelection}), damit conversation_number
+   * über die ungefilterte Menge vergeben bleibt.
+   *
+   * DSGVO (KIE-533): Nur Zeilen mit include = 1 - per markHistoryInvalid
+   * zurückgesetzte Chats erscheinen nicht in der Liste.
+   *
    * @param {number|null} embedId - NULL = alle Embeds (globale Sicht)
    * @param {Date|null} startDate
    * @param {Date|null} endDate
@@ -788,7 +854,9 @@ const EmbedChats = {
    *   (KIE-538): nur Zeilen bis zu dieser id (der Export hält damit seinen
    *   Stand fest, während er läuft); search: Suchbegriff - die Gruppe trägt
    *   dann search_hit (1, wenn eine ihrer Zeilen trifft, siehe
-   *   {@link EmbedChats._searchMatchSql})
+   *   {@link EmbedChats._searchMatchSql}). Der Begriff wird so für jede Zeile
+   *   geprüft - nur ohne Feedback- und Abschnitts-Filter sinnvoll, siehe
+   *   {@link EmbedChats._conversationSelection}.
    * @returns {import("@prisma/client").Prisma.Sql}
    */
   _conversationGroupsSql: function (
@@ -798,29 +866,25 @@ const EmbedChats = {
     { maxId = null, search = null } = {}
   ) {
     const { Prisma } = require("@prisma/client");
-    const where = [Prisma.sql`WHERE include = 1`];
-    if (embedId !== null) where.push(Prisma.sql`AND embed_id = ${embedId}`);
-    if (startDate) where.push(Prisma.sql`AND createdAt >= ${startDate}`);
-    if (endDate) where.push(Prisma.sql`AND createdAt <= ${endDate}`);
-    if (maxId !== null) where.push(Prisma.sql`AND id <= ${maxId}`);
+    const where = Prisma.join(
+      EmbedChats._rowConditions({ embedId, startDate, endDate, maxId }),
+      " "
+    );
     // Suche: Die Konversation trifft, wenn eine ihrer gezählten Zeilen
     // trifft (MAX über den Treffer je Zeile). Der Treffer wird je Zeile in
     // einer Unterabfrage bestimmt, bevor gruppiert wird: Sonst trüge SQLite
     // Fragen und Antworten aller Zeilen durch die Sortierung der Gruppierung.
-    // LIMIT -1 (kein Limit) hält SQLite davon ab, die Unterabfrage in die
-    // Gruppierung einzufalten. Ein Durchlauf über die Zeilen. Gefiltert wird
-    // danach (conversationFilterCondition), damit conversation_number über
-    // die ungefilterte Menge vergeben bleibt.
+    // LIMIT -1 hält SQLite davon ab, die Unterabfrage in die Gruppierung
+    // einzufalten. Ein Durchlauf über die Zeilen.
     const rows = search
       ? Prisma.sql`(
           SELECT id, session_id, conversation_id, embed_id, createdAt, feedbackScore,
             CASE WHEN ${EmbedChats._searchMatchSql(search)} THEN 1 ELSE 0 END as row_search_hit
-          FROM embed_chats
-          ${Prisma.join(where, " ")}
+          FROM ${EmbedChats._searchRowsSql(where)}
           LIMIT -1
         )`
       : Prisma.sql`embed_chats
-      ${Prisma.join(where, " ")}`;
+      ${where}`;
     const searchHit = search
       ? Prisma.sql`,
         MAX(row_search_hit) as search_hit`
@@ -844,6 +908,123 @@ const EmbedChats = {
   },
 
   /**
+   * Die Zeilen, die die Liste zählt: include = 1 (DSGVO), Widget, Zeitraum,
+   * Stand des Exports - als WHERE-Teile über embed_chats.
+   * @param {{embedId: number|null, startDate: Date|null, endDate: Date|null, maxId: number|null}} params
+   * @param {string|null} [alias] - Tabellenname vor den Spalten (EXISTS)
+   * @returns {import("@prisma/client").Prisma.Sql[]}
+   */
+  _rowConditions: function (
+    { embedId = null, startDate = null, endDate = null, maxId = null },
+    alias = null
+  ) {
+    const { Prisma } = require("@prisma/client");
+    const column = (name) => Prisma.raw(alias ? `${alias}.${name}` : name);
+    const where = [Prisma.sql`WHERE ${column("include")} = 1`];
+    if (embedId !== null)
+      where.push(Prisma.sql`AND ${column("embed_id")} = ${embedId}`);
+    if (startDate)
+      where.push(Prisma.sql`AND ${column("createdAt")} >= ${startDate}`);
+    if (endDate)
+      where.push(Prisma.sql`AND ${column("createdAt")} <= ${endDate}`);
+    if (maxId !== null) where.push(Prisma.sql`AND ${column("id")} <= ${maxId}`);
+    return where;
+  },
+
+  /**
+   * Die Auswahl der Konversationsliste - Gruppierung und Filter an einer
+   * Stelle, für Liste, Zähler und Export: `FROM ${source} ${where}`.
+   *
+   * Ohne Suche: die Gruppierung ({@link EmbedChats._conversationGroupsSql})
+   * und dahinter Feedback- und Abschnitts-Filter
+   * ({@link EmbedChats.conversationFilterCondition}).
+   *
+   * Mit Suche wird der Begriff erst auf die Zeilen angewandt, die die anderen
+   * Filter übrig lassen (Fixliste Punkt 7):
+   * - ohne Feedback- und Abschnitts-Filter: ein Durchlauf über die Zeilen des
+   *   Zeitraums, search_hit je Gruppe;
+   * - mit einem dieser Filter: erst die Gruppen filtern, dann je
+   *   verbliebener Konversation ihre gezählten Zeilen prüfen (EXISTS über
+   *   den Index embed_id + session_id). Mit Abschnitt (Säulenklick) zählt
+   *   die ganze Konversation - durchsucht werden dann nur die Konversationen
+   *   des Abschnitts, nicht die ganze Historie.
+   * @param {Object} params
+   * @param {number|null} params.embedId
+   * @param {Date|null} [params.startDate] - nur ohne startedBetween
+   * @param {Date|null} [params.endDate]
+   * @param {number|null} [params.maxId]
+   * @param {"all"|"negative"|"positive"|boolean} [params.feedbackFilter]
+   * @param {{start: Date, endExclusive: Date}|null} [params.startedBetween]
+   * @param {string|null} [params.search]
+   * @returns {{source: import("@prisma/client").Prisma.Sql, where: import("@prisma/client").Prisma.Sql}}
+   */
+  _conversationSelection: function ({
+    embedId = null,
+    startDate = null,
+    endDate = null,
+    maxId = null,
+    feedbackFilter = "all",
+    startedBetween = null,
+    search = null,
+  }) {
+    const { Prisma } = require("@prisma/client");
+    const between = EmbedChats.normalizeStartedBetween(startedBetween);
+    // KIE-536: Mit Abschnitt zählt die ganze Konversation - ohne Zeitraum.
+    const rows = {
+      embedId,
+      startDate: between ? null : startDate,
+      endDate: between ? null : endDate,
+      maxId,
+    };
+    const filter = EmbedChats.conversationFilterCondition(
+      feedbackFilter,
+      between
+    );
+    if (!search)
+      return {
+        source: Prisma.sql`(${EmbedChats._conversationGroupsSql(
+          rows.embedId,
+          rows.startDate,
+          rows.endDate,
+          { maxId }
+        )})`,
+        where: filter,
+      };
+
+    if (filter === Prisma.empty)
+      return {
+        source: Prisma.sql`(${EmbedChats._conversationGroupsSql(
+          rows.embedId,
+          rows.startDate,
+          rows.endDate,
+          { maxId, search }
+        )})`,
+        where: Prisma.sql`WHERE search_hit = 1`,
+      };
+
+    const conditions = Prisma.join(EmbedChats._rowConditions(rows, "c"), " ");
+    const own = Prisma.sql`${conditions}
+      AND c.embed_id = conversation_groups.embed_id
+      AND c.session_id = conversation_groups.session_id
+      AND COALESCE(c.conversation_id, c.session_id) = conversation_groups.conversation_id`;
+    return {
+      source: Prisma.sql`(${EmbedChats._conversationGroupsSql(
+        rows.embedId,
+        rows.startDate,
+        rows.endDate,
+        { maxId }
+      )}) AS conversation_groups`,
+      where: EmbedChats._whereAnd(
+        filter,
+        Prisma.sql`EXISTS (
+          SELECT 1 FROM ${EmbedChats._searchRowsSql(own, "c")}
+          WHERE ${EmbedChats._searchMatchSql(search)}
+        )`
+      ),
+    };
+  },
+
+  /**
    * Analytics: Anzahl Konversationen (für Pagination) — exakt dieselbe
    * Gruppierung und derselbe Feedback-Filter wie {@link EmbedChats.getConversations}.
    * @param {number|null} embedId - NULL = alle Embeds
@@ -863,39 +1044,41 @@ const EmbedChats = {
     search = null
   ) {
     try {
-      const between = EmbedChats.normalizeStartedBetween(startedBetween);
+      const { source, where } = EmbedChats._conversationSelection({
+        embedId,
+        startDate,
+        endDate,
+        feedbackFilter,
+        startedBetween,
+        search,
+      });
       const rows = await prisma.$queryRaw`
-        SELECT COUNT(*) as count FROM (
-          ${EmbedChats._conversationGroupsSql(
-            embedId,
-            between ? null : startDate,
-            between ? null : endDate,
-            { search }
-          )}
-        )
-        ${EmbedChats.conversationFilterCondition(feedbackFilter, between, search)}
+        SELECT COUNT(*) as count FROM ${source}
+        ${where}
       `;
       return Number(rows[0]?.count || 0);
     } catch (error) {
-      console.error("countConversations error:", error.message);
+      console.error("countConversations error:", loggableError(error));
       return 0;
     }
   },
 
   /**
-   * Analytics: Get conversations grouped by conversation_id (or session_id for backwards compatibility)
-   * @param {number} embedId - The embed config ID
+   * Analytics: Get conversations list for an embed (grouped by conversation_id)
+   * Uses raw SQL to properly GROUP BY in the database (not JavaScript)
+   * DSGVO: include = 1 Filter (KIE-533) - invalidierte Chats erscheinen nicht.
+   * @param {number|null} embedId - The embed config ID (null = global view across all embeds)
    * @param {number} offset - Pagination offset
-   * @param {number} limit - Maximum number of conversations to return
+   * @param {number} limit - Max conversations to return
    * @param {Date|null} startDate - Optional start date filter
    * @param {Date|null} endDate - Optional end date filter
-   * @param {"all"|"negative"|"positive"|boolean} feedbackFilter - KIE-508/KIE-527:
-   *   "negative" = nur Konversationen mit mind. einer 👎-Antwort,
-   *   "positive" = nur mit mind. einer 👍-Antwort, "all" = kein Filter.
-   *   Legacy: boolean `onlyNegative` (true → "negative").
+   * @param {"all"|"negative"|"positive"|boolean} feedbackFilter - KIE-508/527:
+   *   "negative" = nur Konversationen mit ≥1 👎, "positive" = nur mit ≥1 👍,
+   *   sonst ungefiltert. Legacy-Boolean onlyNegative=true wird als "negative"
+   *   behandelt.
    * @param {{start: Date, endExclusive: Date}|null} [startedBetween] - KIE-536:
-   *   nur Konversationen, deren erste vorhandene Nachricht in [start,
-   *   endExclusive) liegt (Klick auf eine Säule des Diagramms). Die Gruppierung
+   *   nur Konversationen, deren erste vorhandene Nachricht (started_at =
+   *   MIN(createdAt) der Gruppe) im halboffenen Intervall liegt. Die Gruppierung
    *   läuft dann OHNE Datumsfilter - started_at ist die erste vorhandene
    *   Nachricht der Konversation, nicht die erste im Zeitraum -, startDate und
    *   endDate bleiben unbeachtet; die Bedingung greift nach der Gruppierung.
@@ -906,7 +1089,7 @@ const EmbedChats = {
    * @returns {Promise<Array>} Array of conversation summaries
    */
   getConversations: async function (
-    embedId = null,  // NULL = global view across all embeds
+    embedId = null,
     offset = 0,
     limit = 20,
     startDate = null,
@@ -928,7 +1111,7 @@ const EmbedChats = {
       });
       return conversations;
     } catch (error) {
-      console.error("getConversations error:", error.message);
+      console.error("getConversations error:", loggableError(error));
       return [];
     }
   },
@@ -938,8 +1121,8 @@ const EmbedChats = {
    * analytics/conversations. Liste und Zahl kommen aus EINER Abfrage
    * (COUNT(*) OVER () über die gefilterte Menge): Mit Suche ist jeder
    * Durchlauf über die Zeilen teuer (NAK-7). Nur wenn die Seite leer ist
-   * (hinter dem Ende geblättert), zählt {@link EmbedChats.countConversations}
-   * noch einmal.
+   * und hinter dem Anfang geblättert wurde, zählt
+   * {@link EmbedChats.countConversations} noch einmal.
    * Parameter und Ergebnisform der Einträge wie {@link EmbedChats.getConversations}.
    * @param {number} embedId
    * @param {Object} options
@@ -977,9 +1160,10 @@ const EmbedChats = {
         startedBetween,
         search,
       });
+      // Leere Seite: am Anfang gibt es nichts, dahinter muss gezählt werden.
       const totalCount =
         total ??
-        (offset > 0 || conversations.length > 0
+        (offset > 0
           ? await EmbedChats.countConversations(
               embedId,
               startDate,
@@ -991,7 +1175,8 @@ const EmbedChats = {
           : 0);
       return { conversations, totalCount };
     } catch (error) {
-      console.error("conversationPage error:", error.message);
+      // Ohne Meldungstext: Sie enthielte die Suchmuster (Fixliste Punkt 3).
+      console.error("conversationPage error:", loggableError(error));
       return { conversations: [], totalCount: 0 };
     }
   },
@@ -1017,10 +1202,18 @@ const EmbedChats = {
     search = null,
   }) {
     const between = EmbedChats.normalizeStartedBetween(startedBetween);
-    // KIE-508/527: Gruppierung + Zähler kommen aus dem gemeinsamen Fragment
-    // (auch von countConversations benutzt), der Feedback-Filter greift auf
-    // der äußeren Ebene — so bleiben Liste, Pagination und conversation_number
-    // konsistent. include = 1 (DSGVO) ist Teil des Fragments.
+    // KIE-508/527: Gruppierung, Filter und Suche kommen aus der gemeinsamen
+    // Auswahl (auch von countConversations und dem Export benutzt) - so
+    // bleiben Liste, Pagination und conversation_number konsistent.
+    // include = 1 (DSGVO) ist Teil der Gruppierung.
+    const { source, where } = EmbedChats._conversationSelection({
+      embedId,
+      startDate,
+      endDate,
+      feedbackFilter,
+      startedBetween: between,
+      search,
+    });
     const conversations = await prisma.$queryRaw`
       SELECT
         conversation_id,
@@ -1034,15 +1227,8 @@ const EmbedChats = {
         positive_count,
         conversation_number,
         COUNT(*) OVER () as total_count
-      FROM (
-        ${EmbedChats._conversationGroupsSql(
-          embedId,
-          between ? null : startDate,
-          between ? null : endDate,
-          { search }
-        )}
-      )
-      ${EmbedChats.conversationFilterCondition(feedbackFilter, between, search)}
+      FROM ${source}
+      ${where}
       ORDER BY last_message_at DESC, first_chat_id DESC
       LIMIT ${limit}
       OFFSET ${offset}
@@ -1062,9 +1248,7 @@ const EmbedChats = {
       conversation_number: Number(conv.conversation_number),
     }));
     const total =
-      conversations.length > 0 && conversations[0].total_count !== undefined
-        ? Number(conversations[0].total_count)
-        : null;
+      conversations.length > 0 ? Number(conversations[0].total_count) : null;
 
     // Get preview texts and embed info for all conversations in one query (performance optimization)
     if (conversationsNormalized.length > 0) {
@@ -1112,27 +1296,41 @@ const EmbedChats = {
       );
       for (const conv of conversationsNormalized)
         conv.first_negative_reason =
-          reasons.get(EmbedChats._exportGroupKey(conv)) ?? null;
+          reasons.get(EmbedChats._widgetGroupKey(conv)) ?? null;
     }
 
     return { conversations: conversationsNormalized, total };
   },
 
   /**
+   * Schlüssel einer Konversation über Widgets hinweg: Widget, Kennung und
+   * Browser-Sitzung - in der globalen Sicht (embedId null) können zwei
+   * Widgets dieselbe Kennung und Sitzung tragen.
+   * @param {{embed_id: number, conversation_id: string, session_id: string}} conversation
+   * @returns {string}
+   */
+  _widgetGroupKey: function ({ embed_id, conversation_id, session_id }) {
+    return `${Number(embed_id)}\u0000${EmbedChats._exportGroupKey({
+      conversation_id,
+      session_id,
+    })}`;
+  },
+
+  /**
    * Erster Grund einer negativen Bewertung je Konversation der Seite - für
    * die Zeile der Liste („Grund: Unvollständig"). Eine Abfrage für die ganze
-   * Seite, gebunden an das Widget der Konversationen; dieselben Zeilen wie
+   * Seite, gebunden an die Widgets der Konversationen; dieselben Zeilen wie
    * die Liste (include = 1, im Zeitraum).
    * @param {Array<{conversation_id: string, session_id: string, embed_id: number, negative_count: number}>} conversations
    * @param {Date|null} startDate
    * @param {Date|null} endDate
-   * @returns {Promise<Map<string, string>>} - Schlüssel: {@link EmbedChats._exportGroupKey}
+   * @returns {Promise<Map<string, string>>} - Schlüssel: {@link EmbedChats._widgetGroupKey}
    */
   _firstNegativeReasons: async function (conversations, startDate, endDate) {
     const rated = conversations.filter((conv) => conv.negative_count > 0);
     const reasons = new Map();
     if (rated.length === 0) return reasons;
-    const wanted = new Set(rated.map(EmbedChats._exportGroupKey));
+    const wanted = new Set(rated.map(EmbedChats._widgetGroupKey));
     const rows = await prisma.embed_chats.findMany({
       where: {
         embed_id: { in: [...new Set(rated.map((conv) => conv.embed_id))] },
@@ -1151,13 +1349,15 @@ const EmbedChats = {
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: {
+        embed_id: true,
         session_id: true,
         conversation_id: true,
         feedbackReason: true,
       },
     });
     for (const row of rows) {
-      const key = EmbedChats._exportGroupKey({
+      const key = EmbedChats._widgetGroupKey({
+        embed_id: row.embed_id,
         conversation_id: row.conversation_id ?? row.session_id,
         session_id: row.session_id,
       });
@@ -1249,10 +1449,10 @@ const EmbedChats = {
   /**
    * Analytics: Get all messages for a specific conversation
    * KIE-538: derselbe Begriff von „Konversation" wie Liste, Export und
-   * Löschen ({@link EmbedChats._conversationScope}) - die aufgeklappte
-   * Konversation zeigt genau die Zeilen, die „Konversation löschen" entfernt:
-   * die der Karte, nicht alle Konversationen der Browser-Sitzung und nicht
-   * die Zeilen einer anderen Sitzung mit derselben Kennung.
+   * Löschen ({@link EmbedChats._conversationScope}) - die Konversation der
+   * Zeile, nicht alle Konversationen der Browser-Sitzung und nicht die Zeilen
+   * einer anderen Sitzung mit derselben Kennung. Angezeigt werden nur Zeilen
+   * mit include = 1, wie in der Liste; ohne Zeitraum (Öffnen per Link).
    * @param {number|string} chatId - id einer Zeile der Konversation; die Liste nennt die erste (first_chat_id)
    * @param {number} embedId - The embed config ID
    * @returns {Promise<Array>} Array of chat messages
@@ -1261,8 +1461,11 @@ const EmbedChats = {
     try {
       const scope = await EmbedChats._conversationScope(embedId, chatId);
       if (!scope) return [];
+      // Angezeigt wird nur, was die Liste zählt: Vom Besucher geleerte Zeilen
+      // (include = 0, markHistoryInvalid) bleiben verborgen. Löschen und
+      // Lösch-Vorschau meinen dagegen alle Zeilen (_conversationScope).
       return await prisma.embed_chats.findMany({
-        where: scope.where,
+        where: { ...scope.where, include: true },
         orderBy: { createdAt: "asc" },
         select: {
           id: true,
@@ -1448,7 +1651,7 @@ const EmbedChats = {
    * @param {{start: Date, endExclusive: Date}|null} page.startedBetween - bereits normalisiert
    * @param {number} page.maxId
    * @param {{startedAt: number, firstChatId: number}|null} page.after - letzte Konversation der vorigen Seite
-   * @param {number} page.limit
+   * @param {number|null} page.limit - null: alle Konversationen der Auswahl
    * @param {string|null} [page.search] - Suchbegriff wie in der Liste
    * @returns {Promise<Array<{conversation_id: string, session_id: string, first_chat_id: number, started_at: number, message_count: number, conversation_number: number}>>}
    */
@@ -1464,19 +1667,23 @@ const EmbedChats = {
     search = null,
   }) {
     const { Prisma } = require("@prisma/client");
-    const filter = EmbedChats.conversationFilterCondition(
+    const { source, where: filter } = EmbedChats._conversationSelection({
+      embedId,
+      startDate,
+      endDate,
+      maxId,
       feedbackFilter,
       startedBetween,
-      search
-    );
-    const cursor = after
-      ? Prisma.sql`(started_at < ${after.startedAt} OR (started_at = ${after.startedAt} AND first_chat_id < ${after.firstChatId}))`
-      : null;
-    const where = !cursor
-      ? filter
-      : filter === Prisma.empty
-        ? Prisma.sql`WHERE ${cursor}`
-        : Prisma.sql`${filter} AND ${cursor}`;
+      search,
+    });
+    const where = after
+      ? EmbedChats._whereAnd(
+          filter,
+          Prisma.sql`(started_at < ${after.startedAt} OR (started_at = ${after.startedAt} AND first_chat_id < ${after.firstChatId}))`
+        )
+      : filter;
+    // limit null: alle auf einmal (Export mit Suche, siehe conversationsForExport)
+    const page = limit === null ? Prisma.empty : Prisma.sql`LIMIT ${limit}`;
 
     const rows = await prisma.$queryRaw`
       SELECT
@@ -1486,17 +1693,10 @@ const EmbedChats = {
         started_at,
         message_count,
         conversation_number
-      FROM (
-        ${EmbedChats._conversationGroupsSql(
-          embedId,
-          startedBetween ? null : startDate,
-          startedBetween ? null : endDate,
-          { maxId, search }
-        )}
-      )
+      FROM ${source}
       ${where}
       ORDER BY started_at DESC, first_chat_id DESC
-      LIMIT ${limit}
+      ${page}
     `;
     return rows.map((row) => ({
       conversation_id: row.conversation_id,
@@ -1623,7 +1823,8 @@ const EmbedChats = {
    * Die Kennung der Browser-Sitzung gehört nicht in den Export.
    *
    * Gelesen wird in Paketen (siehe EXPORT_* oben), Konversationen über einen
-   * Schlüssel statt über OFFSET. Zu Beginn wird die höchste id des Widgets
+   * Schlüssel statt über OFFSET - mit Suche alle Treffer-Konversationen in
+   * einer Abfrage, die Nachrichten weiter in Paketen. Zu Beginn wird die höchste id des Widgets
    * festgehalten: Nachrichten, die während des Exports entstehen, verschieben
    * weder Nummern noch Seiten. Datenbankfehler werden nicht geschluckt - eine
    * abgeschnittene Datei darf nicht wie eine vollständige aussehen.
@@ -1666,6 +1867,10 @@ const EmbedChats = {
       maxId: newest.id,
     };
 
+    // Mit Suche werden die Treffer-Konversationen EINMAL bestimmt - alle auf
+    // einer „Seite" (nur ihre Kennzahlen, keine Inhalte): Jede weitere Seite
+    // würde die Suche über alle Zeilen wiederholen (Fixliste Punkt 8). Ohne
+    // Suche wird wie bisher über einen Schlüssel geblättert.
     let after = null;
     for (;;) {
       const page = await EmbedChats._exportConversationPage({
@@ -1673,7 +1878,7 @@ const EmbedChats = {
         feedbackFilter,
         search,
         after,
-        limit: EXPORT_CONVERSATION_PAGE,
+        limit: search ? null : EXPORT_CONVERSATION_PAGE,
       });
 
       for (let from = 0; from < page.length; ) {
@@ -1711,7 +1916,7 @@ const EmbedChats = {
         }
       }
 
-      if (page.length < EXPORT_CONVERSATION_PAGE) return;
+      if (search || page.length < EXPORT_CONVERSATION_PAGE) return;
       const last = page[page.length - 1];
       after = { startedAt: last.started_at, firstChatId: last.first_chat_id };
     }

@@ -2,29 +2,54 @@
 // Groß- und Kleinschreibung egal, auch bei Umlauten.
 //
 // SQLite kann das nicht allein: lower(), upper() und LIKE kennen nur die
-// ASCII-Buchstaben ("Ü" LIKE "ü" ist falsch). Deshalb zwei Muster aus einem
-// Begriff, beide als gebundene Werte, nie im SQL-Text:
+// ASCII-Buchstaben ("Ü" LIKE "ü" ist falsch). Deshalb je Begriff zwei Stufen,
+// alle Muster als gebundene Werte, nie im SQL-Text:
 //
-// - LIKE-Muster (searchLikePattern): schnell (SQLite sucht das erste feste
-//   Zeichen und vergleicht erst dort), Groß/klein egal für A–Z. Jeder Buchstabe
-//   außerhalb von ASCII, der eine zweite Schreibweise hat (ü/Ü, ß/ẞ, é/É …),
-//   steht dort als "_" (genau ein beliebiges Zeichen). "%", "_" und "\" sind
-//   mit "\" maskiert (ESCAPE '\') und gelten wörtlich. Für Begriffe ohne
-//   solche Buchstaben ist LIKE allein schon genau.
-// - GLOB-Muster (searchGlobPattern): genau, aber langsam - jeder Buchstabe als
-//   Zeichenklasse aus seinen Schreibweisen ("übung" → "*[üÜ][bB][uU][nN][gG]*");
-//   *, ? und [ als Klasse aus sich selbst. Es prüft nur noch, was LIKE schon
-//   durchgelassen hat, und nur, wenn der Begriff solche Buchstaben enthält
-//   (needsGlobCheck).
+// - Vorprüfung (searchProbe): billig und möglichst wählerisch. Ohne
+//   Buchstaben außerhalb von ASCII, die eine zweite Schreibweise haben
+//   (ü/Ü, ß/ẞ, к/К …), ist das ein LIKE über den ganzen Begriff – Groß/klein
+//   egal für A–Z, und schon genau. Sonst ein Teil des Begriffs: der längste
+//   Abschnitt ohne solche Buchstaben (ab drei Buchstaben/Ziffern), oder ein
+//   kurzes Fenster, dessen Schreibweisen ausgeschrieben werden – höchstens
+//   vier (LIKE '%üb%' OR LIKE '%Üb%'; ohne ASCII-Buchstaben im Fenster
+//   instr(), das noch schneller ist). Gemessen (Fixliste Punkt 6): Ein
+//   Zeichen „_" je Umlaut ließe fast jede Zeile durch, die Genauprüfung
+//   dahinter läse dann alle Antworten.
+// - Genauprüfung (searchGlobPattern): GLOB mit Zeichenklassen aus den
+//   Schreibweisen ("übung" → "*[üÜ][bB][uU][nN][gG]*"); *, ? und [ als
+//   Klasse aus sich selbst. Sie läuft nur auf Zeilen, die die Vorprüfung
+//   durchlässt.
 //
-// GLOB und LIKE vergleichen Zeichen für Zeichen (UTF-8), ohne Kollation.
+// Zerlegte Umlaute (NFD, „u" + Trema – etwa aus macOS oder PDF kopiert)
+// gelten wie zusammengesetzte: searchForms liefert beide Formen, gesucht wird
+// nach jeder (Punkt 24).
+//
+// GLOB, LIKE und instr vergleichen Zeichen für Zeichen (UTF-8), ohne
+// Kollation.
 
 /** Längster zulässiger Suchbegriff (Zeichen nach dem Trimmen). */
 const SEARCH_MAX_LENGTH = 200;
+/**
+ * Längster Rohwert von `q` (UTF-16-Einheiten) – geprüft, bevor der Wert
+ * normalisiert oder in Zeichen zerlegt wird: Ein riesiger Rumpf soll keinen
+ * Speicher binden (Punkt 1). Vier Einheiten je Zeichen lassen Leerraum und
+ * zerlegte Zeichen zu.
+ */
+const SEARCH_MAX_RAW_LENGTH = SEARCH_MAX_LENGTH * 4;
+
+// Steuerzeichen: SQLite schneidet ein Muster am NUL ab (trifft dann alles),
+// Tabulator und Zeilenumbruch stehen in keinem sichtbaren Begriff (Punkt 2).
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+// Mit dem u-Flag trifft die Klasse nur Hälften eines Ersatzpaars, die allein
+// stehen – ein vollständiges Paar ist ein Zeichen außerhalb der Klasse.
+const LONE_SURROGATE = /[\uD800-\uDFFF]/u;
 
 /**
- * Der Suchbegriff einer Anfrage: getrimmt, in NFC (ein „ü" ist ein Zeichen,
- * wie in den gespeicherten Texten). Leer → keine Suche.
+ * Der Suchbegriff einer Anfrage: getrimmt, in NFC (ein „ü" ist ein Zeichen).
+ * Leer → keine Suche. Abgelehnt (→ 400): kein Text, Rohwert über
+ * SEARCH_MAX_RAW_LENGTH, allein stehende Ersatzhälften (kein gültiges
+ * Unicode), Steuerzeichen, mehr als SEARCH_MAX_LENGTH Zeichen.
  * @param {unknown} value - Feld `q` des Rumpfs
  * @returns {{search: string|null, error: string|null}}
  */
@@ -33,14 +58,43 @@ function parseSearch(value) {
     return { search: null, error: null };
   if (typeof value !== "string")
     return { search: null, error: "q must be a string." };
+  const tooLong = {
+    search: null,
+    error: `q must not be longer than ${SEARCH_MAX_LENGTH} characters.`,
+  };
+  if (value.length > SEARCH_MAX_RAW_LENGTH) return tooLong;
+  if (LONE_SURROGATE.test(value))
+    return { search: null, error: "q must be well-formed Unicode." };
   const search = value.normalize("NFC").trim();
   if (search === "") return { search: null, error: null };
-  if ([...search].length > SEARCH_MAX_LENGTH)
-    return {
-      search: null,
-      error: `q must not be longer than ${SEARCH_MAX_LENGTH} characters.`,
-    };
+  if (CONTROL_CHARACTERS.test(search))
+    return { search: null, error: "q must not contain control characters." };
+  if ([...search].length > SEARCH_MAX_LENGTH) return tooLong;
   return { search, error: null };
+}
+
+/**
+ * Die Formen, in denen der Begriff gesucht wird: NFC (wie parseSearch ihn
+ * liefert) und, falls verschieden, NFD – gespeicherte Texte können zerlegte
+ * Umlaute enthalten.
+ * @param {string} search - Ergebnis von parseSearch
+ * @returns {string[]}
+ */
+function searchForms(search) {
+  const decomposed = search.normalize("NFD");
+  return decomposed === search ? [search] : [search, decomposed];
+}
+
+/**
+ * Der Begriff, wie er in einem JSON-Text gespeichert steht: Anführungszeichen
+ * und Rückstrich maskiert (JSON.stringify ohne die äußeren Anführungszeichen).
+ * Steuerzeichen und Ersatzhälften lehnt parseSearch vorher ab; andere
+ * Zeichen schreibt JSON.stringify wörtlich.
+ * @param {string} text
+ * @returns {string}
+ */
+function jsonEscaped(text) {
+  return JSON.stringify(text).slice(1, -1);
 }
 
 // Platzhalter von GLOB: als Klasse mit nur diesem Zeichen wörtlich.
@@ -69,12 +123,12 @@ function variantsOf(char) {
  * Zeichen mit mehreren Schreibweisen werden zur Klasse ("[üÜ]"), Platzhalter
  * zur Klasse aus sich selbst ("[*]"). „]" und „^" stehen nie in einer Klasse
  * und gelten außerhalb wörtlich, „-" ebenso.
- * @param {string} search - Ergebnis von parseSearch
+ * @param {string} text - eine Form des Begriffs (searchForms)
  * @returns {string}
  */
-function searchGlobPattern(search) {
+function searchGlobPattern(text) {
   let pattern = "*";
-  for (const char of search) {
+  for (const char of text) {
     const variants = variantsOf(char);
     if (variants.length > 1) pattern += `[${variants.join("")}]`;
     else if (GLOB_SPECIAL.has(char)) pattern += `[${char}]`;
@@ -83,57 +137,145 @@ function searchGlobPattern(search) {
   return `${pattern}*`;
 }
 
-/** Buchstabe außerhalb von ASCII mit einer zweiten Schreibweise (ü, ß, é …)? */
+/** Buchstabe außerhalb von ASCII mit einer zweiten Schreibweise (ü, ß, к …)? */
 function isFoldedNonAscii(char) {
   return char.codePointAt(0) > 0x7f && variantsOf(char).length > 1;
 }
 
+/** Zeichen für LIKE ... ESCAPE '\' maskieren: %, _ und \ gelten wörtlich. */
+function likeEscaped(text) {
+  return text.replace(/[%_\\]/g, (char) => `\\${char}`);
+}
+
 /**
- * LIKE-Muster „enthält den Begriff" (mit ESCAPE '\\'), Vorprüfung zu
- * {@link searchGlobPattern}: trifft alles, was das GLOB-Muster trifft.
- * @param {string} search - Ergebnis von parseSearch
+ * LIKE-Muster „enthält den Begriff" (ESCAPE '\'). Groß/klein egal nur für
+ * A–Z; für Begriffe ohne Buchstaben außerhalb von ASCII mit zweiter
+ * Schreibweise ist es genau.
+ * @param {string} text
  * @returns {string}
  */
-function searchLikePattern(search) {
-  let pattern = "%";
-  for (const char of search) {
-    if (char === "%" || char === "_" || char === "\\") pattern += `\\${char}`;
-    else if (isFoldedNonAscii(char)) pattern += "_";
-    else pattern += char;
+function searchLikePattern(text) {
+  return `%${likeEscaped(text)}%`;
+}
+
+/**
+ * Braucht der Begriff die Genauprüfung mit GLOB? Ja, sobald er einen
+ * Buchstaben außerhalb von ASCII mit zweiter Schreibweise enthält.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function needsGlobCheck(text) {
+  return [...text].some(isFoldedNonAscii);
+}
+
+// Vorprüfung: höchstens so viele ausgeschriebene Schreibweisen (Durchläufe
+// über den Text) …
+const MAX_PROBE_VARIANTS = 4;
+// … es sei denn, ein Abschnitt ohne solche Buchstaben hat mindestens so
+// viele Buchstaben/Ziffern: Dann reicht ein LIKE über ihn.
+const MIN_PLAIN_RUN = 3;
+const ALPHANUMERIC = /[\p{L}\p{N}]/u;
+const ASCII_LETTER = /[A-Za-z]/;
+
+/** Alle Schreibweisen einer Zeichenfolge (Kreuzprodukt). */
+function spellings(chars) {
+  let all = [""];
+  for (const char of chars) {
+    const variants = isFoldedNonAscii(char) ? variantsOf(char) : [char];
+    all = all.flatMap((prefix) => variants.map((v) => prefix + v));
   }
-  return `${pattern}%`;
+  return all;
 }
 
 /**
- * Reicht LIKE allein? Nur, wenn der Begriff keinen Buchstaben außerhalb von
- * ASCII mit zweiter Schreibweise enthält - sonst prüft GLOB nach.
- * @param {string} search
- * @returns {boolean}
+ * Vorprüfung „kann den Begriff enthalten" – trifft alles, was
+ * {@link searchGlobPattern} trifft, aber nur durch billige Vergleiche:
+ * - `like`: ein oder mehrere LIKE-Muster (ESCAPE '\'), verbunden mit OR;
+ * - `instr`: eine oder mehrere Zeichenfolgen für instr(), verbunden mit OR.
+ * `exact`: die Vorprüfung ist schon die ganze Prüfung (Begriff ohne
+ * Buchstaben außerhalb von ASCII mit zweiter Schreibweise).
+ * @param {string} text - eine Form des Begriffs (bzw. ihre JSON-Schreibweise)
+ * @returns {{op: "like"|"instr", values: string[], exact: boolean}}
  */
-function needsGlobCheck(search) {
-  return [...search].some(isFoldedNonAscii);
+function searchProbe(text) {
+  const chars = [...text];
+  if (!chars.some(isFoldedNonAscii))
+    return { op: "like", values: [searchLikePattern(text)], exact: true };
+
+  // Längster Abschnitt ohne Buchstaben mit zweiter Schreibweise außerhalb
+  // von ASCII („Übung" → "bung").
+  let run = [];
+  let best = [];
+  for (const char of [...chars, null]) {
+    if (char !== null && !isFoldedNonAscii(char)) {
+      run.push(char);
+      continue;
+    }
+    const letters = (part) => part.filter((c) => ALPHANUMERIC.test(c)).length;
+    if (letters(run) > letters(best)) best = run;
+    run = [];
+  }
+  if (best.filter((c) => ALPHANUMERIC.test(c)).length >= MIN_PLAIN_RUN)
+    return {
+      op: "like",
+      values: [searchLikePattern(best.join(""))],
+      exact: false,
+    };
+
+  // Sonst das längste Fenster mit höchstens MAX_PROBE_VARIANTS
+  // Schreibweisen; bei gleicher Länge das mit weniger Schreibweisen, dann
+  // das vordere.
+  const count = (char) =>
+    isFoldedNonAscii(char) ? variantsOf(char).length : 1;
+  let window = { start: 0, end: 1, product: count(chars[0]) };
+  for (let start = 0; start < chars.length; start++) {
+    let product = 1;
+    for (let end = start; end < chars.length; end++) {
+      product *= count(chars[end]);
+      if (product > MAX_PROBE_VARIANTS) break;
+      const length = end + 1 - start;
+      const bestLength = window.end - window.start;
+      if (
+        length > bestLength ||
+        (length === bestLength && product < window.product)
+      )
+        window = { start, end: end + 1, product };
+    }
+  }
+  const part = chars.slice(window.start, window.end);
+  // ASCII-Buchstaben: LIKE vergleicht sie ohne Groß/klein; instr() nicht.
+  if (part.some((c) => ASCII_LETTER.test(c)))
+    return {
+      op: "like",
+      values: spellings(part).map(searchLikePattern),
+      exact: false,
+    };
+  return { op: "instr", values: spellings(part), exact: false };
 }
 
 /**
- * Darf der Treffer im gespeicherten Antwort-JSON vorgeprüft werden? Der Text
- * einer JSON-Antwort steht dort wörtlich – außer Zeichen, die JSON.stringify
- * maskiert (Anführungszeichen, Rückstrich, Steuerzeichen). Enthält der Begriff
- * keines davon, kann er im Text nur stehen, wenn er auch in der ganzen
- * Spalte steht: Die billige Prüfung der Spalte erspart dann das Auslesen des
- * JSON für fast alle Zeilen.
- * @param {string} search
- * @returns {boolean}
+ * Ein Datenbankfehler für das Protokoll – ohne Meldungstext: Prisma nennt in
+ * der Meldung die Abfrage, darin stehen die Suchmuster (Punkt 3).
+ * @param {unknown} error
+ * @returns {{name: string|null, code: string|null, dbCode: string|null}}
  */
-function canPrefilterRawResponse(search) {
-  // eslint-disable-next-line no-control-regex
-  return !/["\\\u0000-\u001f\u007f]/.test(search);
+function loggableError(error) {
+  return {
+    name: error?.name ?? null,
+    code: error?.code ?? null,
+    dbCode: error?.meta?.code ?? null,
+  };
 }
 
 module.exports = {
   SEARCH_MAX_LENGTH,
+  SEARCH_MAX_RAW_LENGTH,
   parseSearch,
+  searchForms,
+  jsonEscaped,
   searchGlobPattern,
   searchLikePattern,
   needsGlobCheck,
-  canPrefilterRawResponse,
+  searchProbe,
+  loggableError,
 };

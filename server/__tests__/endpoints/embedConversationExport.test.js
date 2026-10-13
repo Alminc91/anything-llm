@@ -1662,6 +1662,7 @@ describe("protokoll (AK-9)", () => {
       feedbackFilter: "all",
       startedFromDay: null,
       startedToDay: null,
+      searched: false,
       conversationCount: 3,
       rowCount: 7,
       completed: true,
@@ -1723,6 +1724,7 @@ describe("protokoll (AK-9)", () => {
           "format",
           "fromDay",
           "rowCount",
+          "searched",
           "startDate",
           "startedFromDay",
           "startedToDay",
@@ -2108,15 +2110,19 @@ describe("gross (AK-11)", () => {
       firstChatId: groups.get("gleich-b").firstId,
     });
 
-    // dieselben Nummern wie die Liste
-    const list = await invoke(CONVERSATIONS, {
-      params: { embedId: String(embed.id) },
-      body: conversationsBody({ ...SEPTEMBER, limit: 2 * PAGE }),
-      token: admin.token,
-    });
-    expect(list.body.totalCount).toBe(total);
+    // dieselben Nummern wie die Liste (Seiten zu höchstens 100)
+    const listed = [];
+    for (let offset = 0; offset < total; offset += 100) {
+      const list = await invoke(CONVERSATIONS, {
+        params: { embedId: String(embed.id) },
+        body: conversationsBody({ ...SEPTEMBER, offset, limit: 100 }),
+        token: admin.token,
+      });
+      expect(list.body.totalCount).toBe(total);
+      listed.push(...list.body.conversations);
+    }
     expect(
-      list.body.conversations
+      listed
         .map((c) => [c.conversation_number, c.conversation_id])
         .sort((a, b) => a[0] - b[0])
     ).toEqual(expected.map((group, index) => [index + 1, group.id]));
