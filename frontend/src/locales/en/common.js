@@ -1680,6 +1680,46 @@ const TRANSLATIONS = {
       "deleted-hint":
         "Older contents were deleted according to the retention period.",
     },
+    // KIE-538
+    export: {
+      button: "Export",
+      "menu-label": "Export format",
+      csv: "CSV (for Excel)",
+      json: "JSON",
+      hint: "Exports the conversations of the current selection – widget, period and filter.",
+      running: "Exporting …",
+      success: "Export saved: {{filename}}",
+      error: "The export failed. Please try again.",
+    },
+    delete: {
+      conversation: "Delete conversation",
+      visitor: "Delete all conversations of this visitor",
+      "first-question": "First question",
+      "confirm-title": "Delete conversation?",
+      "confirm-count_one":
+        "The conversation with {{formatted}} message will be deleted permanently.",
+      "confirm-count_other":
+        "The conversation with {{formatted}} messages will be deleted permanently.",
+      "confirm-note":
+        "This cannot be undone. Key figures, chart and quota remain unchanged.",
+      "visitor-title": "Delete all conversations of this visitor?",
+      "visitor-count_one":
+        "The same browser has {{conversations}} conversation with {{messages}} messages in this widget. It will be deleted permanently.",
+      "visitor-count_other":
+        "The same browser has {{conversations}} conversations with {{messages}} messages in total in this widget. All of them will be deleted permanently.",
+      "visitor-note":
+        "This includes conversations the visitor has cleared in the widget, which no longer appear in this list. Conversations from other browsers are kept.",
+      confirm: "Delete permanently",
+      cancel: "Cancel",
+      deleting: "Deleting …",
+      success_one: "Conversation deleted ({{formatted}} message).",
+      success_other: "Conversation deleted ({{formatted}} messages).",
+      "visitor-success_one":
+        "{{conversations}} conversation deleted ({{messages}} messages).",
+      "visitor-success_other":
+        "{{conversations}} conversations deleted ({{messages}} messages).",
+      error: "The conversation could not be deleted.",
+    },
     conversations: {
       "seconds-ago": "a few seconds ago",
       "minutes-ago_one": "{{count}} minute ago",

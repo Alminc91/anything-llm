@@ -1108,6 +1108,46 @@ const TRANSLATIONS = {
       "deleted-hint":
         "Ältere Inhalte wurden gemäß Aufbewahrungsfrist gelöscht.",
     },
+    // KIE-538
+    export: {
+      button: "Exportieren",
+      "menu-label": "Exportformat",
+      csv: "CSV (für Excel)",
+      json: "JSON",
+      hint: "Exportiert die Konversationen der aktuellen Auswahl – Widget, Zeitraum und Filter.",
+      running: "Export läuft …",
+      success: "Export gespeichert: {{filename}}",
+      error: "Der Export ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+    },
+    delete: {
+      conversation: "Konversation löschen",
+      visitor: "Alle Konversationen dieses Besuchers löschen",
+      "first-question": "Erste Frage",
+      "confirm-title": "Konversation löschen?",
+      "confirm-count_one":
+        "Die Konversation mit {{formatted}} Nachricht wird endgültig gelöscht.",
+      "confirm-count_other":
+        "Die Konversation mit {{formatted}} Nachrichten wird endgültig gelöscht.",
+      "confirm-note":
+        "Das lässt sich nicht rückgängig machen. Kennzahlen, Diagramm und Kontingent bleiben unverändert.",
+      "visitor-title": "Alle Konversationen dieses Besuchers löschen?",
+      "visitor-count_one":
+        "Aus demselben Browser stammt in diesem Widget {{conversations}} Konversation mit {{messages}} Nachrichten. Sie wird endgültig gelöscht.",
+      "visitor-count_other":
+        "Aus demselben Browser stammen in diesem Widget {{conversations}} Konversationen mit zusammen {{messages}} Nachrichten. Alle werden endgültig gelöscht.",
+      "visitor-note":
+        "Dazu gehören auch Konversationen, die der Besucher im Widget selbst geleert hat und die in dieser Liste nicht mehr erscheinen. Konversationen aus anderen Browsern bleiben erhalten.",
+      confirm: "Endgültig löschen",
+      cancel: "Abbrechen",
+      deleting: "Wird gelöscht …",
+      success_one: "Konversation gelöscht ({{formatted}} Nachricht).",
+      success_other: "Konversation gelöscht ({{formatted}} Nachrichten).",
+      "visitor-success_one":
+        "{{conversations}} Konversation gelöscht ({{messages}} Nachrichten).",
+      "visitor-success_other":
+        "{{conversations}} Konversationen gelöscht ({{messages}} Nachrichten).",
+      error: "Die Konversation konnte nicht gelöscht werden.",
+    },
     conversations: {
       "seconds-ago": "vor wenigen Sekunden",
       "minutes-ago_one": "vor {{count}} Minute",

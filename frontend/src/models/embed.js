@@ -1,6 +1,18 @@
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
 
+/**
+ * Dateiname aus dem Content-Disposition-Header des Exports (KIE-538). Der
+ * Server sendet nur Buchstaben, Ziffern, ".", "_" und "-"; alles andere wird
+ * nicht übernommen.
+ * @param {string|null} header
+ * @returns {string|null}
+ */
+export function filenameFromDisposition(header) {
+  const name = /filename="([^"]*)"/i.exec(header ?? "")?.[1] ?? "";
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name) ? name : null;
+}
+
 const Embed = {
   embeds: async () => {
     return await fetch(`${API_BASE}/embeds`, {
@@ -160,6 +172,96 @@ const Embed = {
           : {}),
       }),
     })
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+
+  // Analytics (KIE-538): Export der Konversationen der aktuellen Auswahl.
+  // Dieselben Felder wie eine Seite der Liste (getConversations) ohne das
+  // Blättern, dazu format ("csv" | "json"). Die Antwort ist die Datei;
+  // Ergebnis { success, blob, filename, error } – der Dateiname kommt vom
+  // Server (konversationen_<widget>_<von>_<bis>.<endung>).
+  exportConversations: async (
+    embedId,
+    format,
+    { startDate, endDate, feedbackFilter = "all", startedBetween = null } = {}
+  ) => {
+    return await fetch(`${API_BASE}/embed/${embedId}/analytics/export`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({
+        format,
+        startDate,
+        endDate,
+        feedbackFilter,
+        ...(startedBetween
+          ? {
+              startedFromDay: startedBetween.fromDay,
+              startedToDay: startedBetween.toDay,
+            }
+          : {}),
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        // Bricht die Verbindung mitten im Export ab, scheitert blob() – eine
+        // abgeschnittene Datei wird nicht gespeichert.
+        const blob = await res.blob();
+        return {
+          success: true,
+          blob,
+          filename:
+            filenameFromDisposition(res.headers.get("Content-Disposition")) ??
+            `konversationen_widget-${Number(embedId)}.${format === "json" ? "json" : "csv"}`,
+          error: null,
+        };
+      })
+      .catch((e) => {
+        console.error(e);
+        return { success: false, blob: null, filename: null, error: e.message };
+      });
+  },
+
+  // Konversation löschen (KIE-538): Vorschau – nur Zahlen.
+  // Antwort: { success, messageCount, visitor: { conversationCount,
+  // messageCount } | null }; visitor nennt, was derselbe Browser in diesem
+  // Widget insgesamt hat.
+  getConversationDeletionPreview: async (embedId, conversationId) => {
+    return await fetch(
+      `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(conversationId)}/deletion-preview`,
+      { method: "GET", headers: baseHeaders() }
+    )
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+
+  // Konversation löschen (KIE-538). conversationId wie in der Liste.
+  // Antwort: { success, deletedCount } bzw. { success: false, error }.
+  deleteConversation: async (embedId, conversationId) => {
+    return await fetch(
+      `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(conversationId)}`,
+      { method: "DELETE", headers: baseHeaders() }
+    )
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+
+  // Alle Konversationen des Besuchers (derselbe Browser) in diesem Widget
+  // löschen (KIE-538). Antwort: { success, deletedCount, conversationCount }.
+  deleteVisitorConversations: async (embedId, conversationId) => {
+    return await fetch(
+      `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(conversationId)}/visitor`,
+      { method: "DELETE", headers: baseHeaders() }
+    )
       .then((res) => res.json())
       .catch((e) => {
         console.error(e);
