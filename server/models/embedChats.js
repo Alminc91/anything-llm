@@ -1034,6 +1034,9 @@ const EmbedChats = {
    * @param {{start: Date, endExclusive: Date}|null} [startedBetween] - KIE-536, siehe getConversations
    * @param {string|null} [search] - Suchbegriff, siehe getConversations
    * @returns {Promise<number>}
+   * @throws bei einem Datenbankfehler - eine 0 sähe aus wie „keine
+   *   Konversationen" (Fixliste 2, R2); einziger Aufrufer ist
+   *   {@link EmbedChats.conversationPage}
    */
   countConversations: async function (
     embedId = null,
@@ -1043,24 +1046,19 @@ const EmbedChats = {
     startedBetween = null,
     search = null
   ) {
-    try {
-      const { source, where } = EmbedChats._conversationSelection({
-        embedId,
-        startDate,
-        endDate,
-        feedbackFilter,
-        startedBetween,
-        search,
-      });
-      const rows = await prisma.$queryRaw`
-        SELECT COUNT(*) as count FROM ${source}
-        ${where}
-      `;
-      return Number(rows[0]?.count || 0);
-    } catch (error) {
-      console.error("countConversations error:", loggableError(error));
-      return 0;
-    }
+    const { source, where } = EmbedChats._conversationSelection({
+      embedId,
+      startDate,
+      endDate,
+      feedbackFilter,
+      startedBetween,
+      search,
+    });
+    const rows = await prisma.$queryRaw`
+      SELECT COUNT(*) as count FROM ${source}
+      ${where}
+    `;
+    return Number(rows[0]?.count || 0);
   },
 
   /**
@@ -1133,9 +1131,11 @@ const EmbedChats = {
    * @param {"all"|"negative"|"positive"|boolean} [options.feedbackFilter]
    * @param {{start: Date, endExclusive: Date}|null} [options.startedBetween]
    * @param {string|null} [options.search]
-   * @returns {Promise<{conversations: Array, totalCount: number}>} - bei einem
-   *   Datenbankfehler { conversations: [], totalCount: 0 } wie die beiden
-   *   Einzelabfragen
+   * @returns {Promise<{conversations: Array, totalCount: number}>}
+   * @throws bei einem Datenbankfehler: Die Route antwortet 500, die Liste
+   *   zeigt „Fehler beim Laden" mit „Erneut versuchen" statt einer leeren
+   *   Liste (Fixliste 2, R2). Protokolliert wird in der Route, ohne
+   *   Meldungstext (Suchmuster).
    */
   conversationPage: async function (
     embedId,
@@ -1149,36 +1149,30 @@ const EmbedChats = {
       search = null,
     } = {}
   ) {
-    try {
-      const { conversations, total } = await EmbedChats._conversationList({
-        embedId,
-        offset,
-        limit,
-        startDate,
-        endDate,
-        feedbackFilter,
-        startedBetween,
-        search,
-      });
-      // Leere Seite: am Anfang gibt es nichts, dahinter muss gezählt werden.
-      const totalCount =
-        total ??
-        (offset > 0
-          ? await EmbedChats.countConversations(
-              embedId,
-              startDate,
-              endDate,
-              feedbackFilter,
-              startedBetween,
-              search
-            )
-          : 0);
-      return { conversations, totalCount };
-    } catch (error) {
-      // Ohne Meldungstext: Sie enthielte die Suchmuster (Fixliste Punkt 3).
-      console.error("conversationPage error:", loggableError(error));
-      return { conversations: [], totalCount: 0 };
-    }
+    const { conversations, total } = await EmbedChats._conversationList({
+      embedId,
+      offset,
+      limit,
+      startDate,
+      endDate,
+      feedbackFilter,
+      startedBetween,
+      search,
+    });
+    // Leere Seite: am Anfang gibt es nichts, dahinter muss gezählt werden.
+    const totalCount =
+      total ??
+      (offset > 0
+        ? await EmbedChats.countConversations(
+            embedId,
+            startDate,
+            endDate,
+            feedbackFilter,
+            startedBetween,
+            search
+          )
+        : 0);
+    return { conversations, totalCount };
   },
 
   /**
@@ -1455,34 +1449,33 @@ const EmbedChats = {
    * mit include = 1, wie in der Liste; ohne Zeitraum (Öffnen per Link).
    * @param {number|string} chatId - id einer Zeile der Konversation; die Liste nennt die erste (first_chat_id)
    * @param {number} embedId - The embed config ID
-   * @returns {Promise<Array>} Array of chat messages
+   * @returns {Promise<Array>} Array of chat messages - leer, wenn die Angaben
+   *   keine Konversation des Widgets bezeichnen
+   * @throws bei einem Datenbankfehler: Die Route antwortet dann 500, das
+   *   Panel zeigt „konnte nicht geladen werden" mit „Erneut versuchen" - nicht
+   *   „nicht gefunden" (Fixliste 2, R1)
    */
   getConversationDetails: async function (chatId, embedId) {
-    try {
-      const scope = await EmbedChats._conversationScope(embedId, chatId);
-      if (!scope) return [];
-      // Angezeigt wird nur, was die Liste zählt: Vom Besucher geleerte Zeilen
-      // (include = 0, markHistoryInvalid) bleiben verborgen. Löschen und
-      // Lösch-Vorschau meinen dagegen alle Zeilen (_conversationScope).
-      return await prisma.embed_chats.findMany({
-        where: { ...scope.where, include: true },
-        orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          prompt: true,
-          response: true,
-          createdAt: true,
-          conversation_id: true,
-          session_id: true,
-          feedbackScore: true, // KIE-504: 👍/👎-Anzeige im Admin
-          feedbackText: true, // KIE-507: Freitext bei 👎
-          feedbackReason: true, // KIE-507: 1-Klick-Grund bei 👎
-        },
-      });
-    } catch (error) {
-      console.error("getConversationDetails error:", error.message);
-      return [];
-    }
+    const scope = await EmbedChats._conversationScope(embedId, chatId);
+    if (!scope) return [];
+    // Angezeigt wird nur, was die Liste zählt: Vom Besucher geleerte Zeilen
+    // (include = 0, markHistoryInvalid) bleiben verborgen. Löschen und
+    // Lösch-Vorschau meinen dagegen alle Zeilen (_conversationScope).
+    return await prisma.embed_chats.findMany({
+      where: { ...scope.where, include: true },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        prompt: true,
+        response: true,
+        createdAt: true,
+        conversation_id: true,
+        session_id: true,
+        feedbackScore: true, // KIE-504: 👍/👎-Anzeige im Admin
+        feedbackText: true, // KIE-507: Freitext bei 👎
+        feedbackReason: true, // KIE-507: 1-Klick-Grund bei 👎
+      },
+    });
   },
 
   /**

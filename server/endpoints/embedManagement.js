@@ -354,7 +354,16 @@ function embedManagementEndpoints(app) {
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
-        const { offset = 0, limit = 20, startDate, endDate } = reqBody(request);
+        const body = reqBody(request) ?? {};
+        const { startDate, endDate } = body;
+        // Dieselbe Prüfung wie die Liste eines Widgets (Fixliste 2, R10):
+        // ganze Zahlen, limit 1–100 - sonst 400 statt LIMIT -1 (alle
+        // Konversationen aller Widgets) oder "5" + 20 = "520".
+        const { offset, limit, error: pagingError } = conversationPaging(body);
+        if (pagingError) {
+          response.status(400).json({ success: false, error: pagingError });
+          return;
+        }
 
         // Get all conversations (global view)
         const conversations = await EmbedChats.getConversations(
@@ -591,9 +600,14 @@ function embedManagementEndpoints(app) {
           totalCount: total,
         });
       } catch (e) {
-        // Ohne Meldungstext: Er könnte die Suchmuster enthalten.
+        // Ohne Meldungstext: Er könnte die Suchmuster enthalten. Ein
+        // Datenbankfehler ist keine leere Liste (Fixliste 2, R2): 500, die
+        // Liste zeigt „Fehler beim Laden" mit „Erneut versuchen".
         console.error("analytics/conversations error:", loggableError(e));
-        response.sendStatus(500).end();
+        response.status(500).json({
+          success: false,
+          error: "Konversationen konnten nicht geladen werden.",
+        });
       }
     }
   );
@@ -770,8 +784,14 @@ function embedManagementEndpoints(app) {
 
         response.status(200).json({ success: true, messages });
       } catch (e) {
-        console.error(e);
-        response.sendStatus(500).end();
+        // Ein Datenbankfehler ist nicht „nicht gefunden" (Fixliste 2, R1):
+        // 500, das Panel zeigt „konnte nicht geladen werden" mit „Erneut
+        // versuchen".
+        console.error("conversation details error:", loggableError(e));
+        response.status(500).json({
+          success: false,
+          error: "Konversation konnte nicht geladen werden.",
+        });
       }
     }
   );

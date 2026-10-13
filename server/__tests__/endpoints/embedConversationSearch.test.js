@@ -1175,7 +1175,7 @@ describe("eingaben (Fixliste 1–4)", () => {
     expect(await db.client.embed_chats.count()).toBe(5);
   });
 
-  test("Datenbankfehler: das Protokoll nennt weder Begriff noch Suchmuster", async () => {
+  test("Datenbankfehler (Fixliste 2, R2): 500 { success: false } statt einer leeren Liste – das Protokoll nennt weder Begriff noch Suchmuster", async () => {
     const errors = jest.spyOn(console, "error").mockImplementation(() => {});
     const original = db.client.$queryRaw;
     jest.spyOn(EmbedChats, "_conversationList").mockImplementation(() => {
@@ -1185,12 +1185,63 @@ describe("eingaben (Fixliste 1–4)", () => {
       );
     });
     const result = await rawList({ q: "geheimname" });
-    expect(result.statusCode).toBe(200);
-    expect(result.body).toMatchObject({ conversations: [], totalCount: 0 });
+    expect(result.statusCode).toBe(500);
+    expect(result.body).toEqual({ success: false, error: expect.any(String) });
+    expect(JSON.stringify(result.body)).not.toMatch(/geheimname|P2010/);
     expect(db.client.$queryRaw).toBe(original);
     const logged = JSON.stringify(errors.mock.calls);
     expect(logged).toMatch(/P2010/);
     expect(logged).not.toMatch(/geheimname/);
+  });
+
+  test("Datenbankfehler in der Zählung hinter der letzten Seite (Fixliste 2, R2): 500 – keine 0, die wie „keine Konversationen“ aussähe", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const count = jest
+      .spyOn(EmbedChats, "countConversations")
+      .mockRejectedValue(Object.assign(new Error("boom"), { code: "P2010" }));
+    // Seite hinter dem Ende: leer, die Zahl kommt aus countConversations
+    const result = await rawList({ offset: 50, limit: 20 });
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(result.statusCode).toBe(500);
+    expect(result.body).toEqual({ success: false, error: expect.any(String) });
+    // Modell: beide melden den Fehler, statt ihn zu schlucken
+    count.mockRestore();
+    jest.spyOn(db.client, "$queryRaw").mockRejectedValue(new Error("kaputt"));
+    await expect(EmbedChats.countConversations(embed.id)).rejects.toThrow(
+      "kaputt"
+    );
+    await expect(
+      EmbedChats.conversationPage(embed.id, { search: "kurs" })
+    ).rejects.toThrow("kaputt");
+  });
+
+  test("Globale Liste /embed/chats/conversations (Fixliste 2, R10): dieselbe Prüfung von limit und offset – sonst 400; ohne Angabe 0 und 20", async () => {
+    const GLOBAL = routes["POST /embed/chats/conversations"];
+    const global = (body) => invoke(GLOBAL, { body, token: admin.token });
+    for (const body of [
+      { limit: -1 },
+      { limit: 0 },
+      { limit: 101 },
+      { limit: "5" },
+      { offset: "5" },
+      { offset: -1 },
+      { offset: 1.5 },
+    ]) {
+      const result = await global(body);
+      expect([body, result.statusCode]).toEqual([body, 400]);
+      expect(result.body).toEqual({
+        success: false,
+        error: expect.any(String),
+      });
+    }
+    const defaults = await global({});
+    expect(defaults.statusCode).toBe(200);
+    expect(defaults.body).toMatchObject({ totalCount: 5, hasMore: false });
+    expect(defaults.body.conversations).toHaveLength(5);
+    const paged = await global({ offset: 1, limit: 2 });
+    expect(paged.body.conversations).toHaveLength(2);
+    // eine Zahl, keine Zeichenkette ("1" + 2 = "12")
+    expect(paged.body.hasMore).toBe(true);
   });
 });
 
@@ -1481,5 +1532,46 @@ describe("sichtbarer text (Fixliste 11, 24)", () => {
     });
     expect(await found(embed, "vhs-lingen")).toEqual(["link"]);
     expect(await found(embed, "Anmeldung")).toEqual(["link"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 2: Fehler melden statt verschlucken
+// ---------------------------------------------------------------------------
+
+describe("fehler im verlauf (Fixliste 2, R1)", () => {
+  test("Datenbankfehler beim Öffnen: 500 { success: false } – nicht „nicht gefunden“ und kein leerer Verlauf", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const chat = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage",
+      conversation: "k",
+    });
+    const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+    const findMany = jest
+      .spyOn(db.client.embed_chats, "findMany")
+      .mockRejectedValue(
+        Object.assign(new Error("SQLITE_BUSY"), { code: "P1008" })
+      );
+    const result = await details(embed, chat.id);
+    expect(result.statusCode).toBe(500);
+    expect(result.body).toEqual({ success: false, error: expect.any(String) });
+    expect(JSON.stringify(errors.mock.calls)).toMatch(/P1008/);
+    await expect(
+      EmbedChats.getConversationDetails(chat.id, embed.id)
+    ).rejects.toThrow("SQLITE_BUSY");
+    // wieder erreichbar: dieselbe Konversation lädt
+    findMany.mockRestore();
+    const again = await details(embed, chat.id);
+    expect(again.statusCode).toBe(200);
+    expect(again.body.messages.map((m) => m.prompt)).toEqual(["Frage"]);
+    // unbekannte Zeile bleibt „nicht gefunden“ (leer, 200 – wie bisher)
+    expect((await details(embed, chat.id + 99)).body).toEqual({
+      success: true,
+      messages: [],
+    });
   });
 });

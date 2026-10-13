@@ -257,11 +257,11 @@ describe("countConversations — gleiche Gruppierung wie die Liste", () => {
     expect(lastSql()).not.toMatch(/_count > 0/);
   });
 
-  test("DB-Fehler → 0 statt Exception", async () => {
+  test("DB-Fehler → Exception statt 0 (Fixliste 2, R2: eine 0 sähe aus wie „keine Konversationen“; die Route antwortet 500)", async () => {
     prisma.$queryRaw.mockRejectedValue(new Error("boom"));
-    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    expect(await EmbedChats.countConversations(EMBED_ID)).toBe(0);
-    spy.mockRestore();
+    await expect(EmbedChats.countConversations(EMBED_ID)).rejects.toThrow(
+      "boom"
+    );
   });
 });
 
