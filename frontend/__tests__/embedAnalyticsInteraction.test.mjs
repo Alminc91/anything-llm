@@ -1097,6 +1097,27 @@ function buttonOf(container, label) {
   return button;
 }
 
+/**
+ * Bewertungsfilter der Liste, benannt wie für Screenreader und im Tooltip.
+ * Sein Text steht doppelt im Dokument (kurz für schmale Fenster, sonst
+ * ausgeschrieben) – welcher zu sehen ist, entscheidet das CSS.
+ */
+function feedbackFilterOf(container, name) {
+  const [button, ...more] = elements(
+    container,
+    (element) =>
+      element.tagName === "BUTTON" &&
+      element.getAttribute("aria-label") === name
+  );
+  assert.ok(button, `kein Bewertungsfilter „${name}“`);
+  assert.equal(more.length, 0, `mehrere Bewertungsfilter „${name}“`);
+  return button;
+}
+const ONLY_POSITIVE =
+  "Nur Konversationen mit positiv bewerteter Antwort anzeigen";
+const ONLY_NEGATIVE =
+  "Nur Konversationen mit negativ bewerteter Antwort anzeigen";
+
 /** Blättert auf Seite 2 und prüft, dass die Liste sie anfragt. */
 async function openSecondPage({ container, act }, server) {
   await act(() => click(buttonOf(container, "2")));
@@ -1143,16 +1164,16 @@ test(
     const { container, act, listRequest } = view;
 
     for (const [label, feedbackFilter] of [
-      ["Nur mit 👍", "positive"],
-      ["Nur mit 👎", "negative"],
+      [ONLY_POSITIVE, "positive"],
+      [ONLY_NEGATIVE, "negative"],
     ]) {
       await openSecondPage(view, server);
       const before = server.lists().length;
 
-      await act(() => click(buttonOf(container, label)));
+      await act(() => click(feedbackFilterOf(container, label)));
       assert.deepEqual(server.lists().at(-1), listRequest({ feedbackFilter }));
 
-      await act(() => click(buttonOf(container, label)));
+      await act(() => click(feedbackFilterOf(container, label)));
       assert.deepEqual(server.lists().at(-1), listRequest());
       assert.equal(server.lists().at(-1).body.offset, 0);
       // je Wechsel genau eine Anfrage
@@ -1161,6 +1182,94 @@ test(
       assert.match(container.textContent, /Konversation #1"/);
       assert.doesNotMatch(container.textContent, /Konversation #21"/);
     }
+  }
+);
+
+test(
+  "Bewertungsfilter: ein Daumen und Text je Schaltfläche, kein Emoji – der Klick setzt aria-pressed und fragt die Liste mit feedbackFilter an",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t);
+    const view = await mountView(t, server);
+    const { container, act, listRequest } = view;
+    const positive = () => feedbackFilterOf(container, ONLY_POSITIVE);
+    const negative = () => feedbackFilterOf(container, ONLY_NEGATIVE);
+    const pressed = () =>
+      [positive(), negative()].map((button) =>
+        button.getAttribute("aria-pressed")
+      );
+    /** Der Daumen einer Schaltfläche: sein Pfad (Umriss oder gefüllt). */
+    const thumbOf = (button) => {
+      const icons = elements(button, (element) => element.tagName === "svg");
+      assert.equal(icons.length, 1, "genau ein Symbol je Schaltfläche");
+      assert.equal(icons[0].getAttribute("fill"), "currentColor");
+      const [path] = elements(
+        icons[0],
+        (element) => element.tagName === "path"
+      );
+      return path.getAttribute("d");
+    };
+    const outline = {
+      positive: thumbOf(positive()),
+      negative: thumbOf(negative()),
+    };
+    assert.notEqual(outline.positive, outline.negative);
+
+    // Bildzeichen wie 👍 und 👎 – in keiner der beiden Schaltflächen.
+    const emoji =
+      /\p{Extended_Pictographic}|[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+    assert.match("Nur mit 👍", emoji);
+    for (const [button, short, long] of [
+      [positive(), "Positiv", "Positiv bewertet"],
+      [negative(), "Negativ", "Negativ bewertet"],
+    ]) {
+      assert.deepEqual(
+        elements(button, (element) => element.tagName === "SPAN").map(
+          (span) => [span.getAttribute("class"), span.textContent]
+        ),
+        [
+          ["sm:hidden", short],
+          ["hidden sm:inline", long],
+        ]
+      );
+      assert.doesNotMatch(button.textContent, emoji);
+      assert.equal(
+        button.getAttribute("title"),
+        button.getAttribute("aria-label")
+      );
+    }
+    assert.deepEqual(pressed(), ["false", "false"]);
+    assert.deepEqual(server.lists().at(-1), listRequest());
+
+    // an: aria-pressed und der gefüllte Daumen – nicht nur die Farbe
+    let before = server.lists().length;
+    await act(() => click(positive()));
+    assert.deepEqual(pressed(), ["true", "false"]);
+    assert.notEqual(thumbOf(positive()), outline.positive);
+    assert.equal(thumbOf(negative()), outline.negative);
+    assert.deepEqual(
+      server.lists().at(-1),
+      listRequest({ feedbackFilter: "positive" })
+    );
+    assert.equal(server.lists().length, before + 1);
+
+    // Die beiden Filter schließen sich aus.
+    before = server.lists().length;
+    await act(() => click(negative()));
+    assert.deepEqual(pressed(), ["false", "true"]);
+    assert.equal(thumbOf(positive()), outline.positive);
+    assert.notEqual(thumbOf(negative()), outline.negative);
+    assert.deepEqual(
+      server.lists().at(-1),
+      listRequest({ feedbackFilter: "negative" })
+    );
+    assert.equal(server.lists().length, before + 1);
+
+    // Der zweite Klick hebt den Filter auf.
+    await act(() => click(negative()));
+    assert.deepEqual(pressed(), ["false", "false"]);
+    assert.equal(thumbOf(negative()), outline.negative);
+    assert.deepEqual(server.lists().at(-1), listRequest());
   }
 );
 

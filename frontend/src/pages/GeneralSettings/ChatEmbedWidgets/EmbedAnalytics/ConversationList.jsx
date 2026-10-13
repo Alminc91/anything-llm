@@ -257,11 +257,24 @@ export default function ConversationList({
                 key={mode}
                 type="button"
                 aria-pressed={active}
+                // Texte neben labelKey: …-hint (Tooltip, Name für
+                // Screenreader) und …-short (schmale Fenster).
+                aria-label={t(`${labelKey}-hint`)}
+                title={t(`${labelKey}-hint`)}
                 onClick={() => toggleFilter(mode)}
-                className={`${toggleBaseClass} ${active ? activeClass : toggleInactiveClass}`}
+                className={`${toggleBaseClass} whitespace-nowrap ${active ? activeClass : toggleInactiveClass}`}
               >
-                <Icon size={15} weight={active ? "fill" : "regular"} />
-                {t(labelKey)}
+                {/* Ein Daumen je Schaltfläche, in der Textfarbe; gefüllt, wenn
+                    der Filter gesetzt ist – wie in der Chat-Oberfläche. */}
+                <Icon
+                  size={15}
+                  weight={active ? "fill" : "regular"}
+                  aria-hidden="true"
+                />
+                {/* Schmale Fenster: der kurze Text, damit beide Schaltflächen
+                    in eine Zeile passen. */}
+                <span className="sm:hidden">{t(`${labelKey}-short`)}</span>
+                <span className="hidden sm:inline">{t(labelKey)}</span>
               </button>
             );
           })}

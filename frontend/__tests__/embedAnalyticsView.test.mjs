@@ -17,6 +17,8 @@ import {
   lastDaysRange,
   toDayString,
 } from "../src/utils/analyticsTimeline.js";
+import de from "../src/locales/de/common.js";
+import en from "../src/locales/en/common.js";
 
 const DIR = "/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics";
 const CHART = `${DIR}/TimelineChart.jsx`;
@@ -677,7 +679,7 @@ test(
       html.indexOf('data-retention-line=""'),
       html.indexOf('data-kpi="messages"'),
       html.indexOf("<section"),
-      html.indexOf("Nur mit 👍"),
+      html.indexOf(">Positiv bewertet</span>"),
     ];
     assert.deepEqual(
       order,
@@ -790,7 +792,7 @@ test(
     assert.match(textOf(filtered), /^Konversationen /);
     assert.match(
       filtered,
-      /<button type="button" aria-pressed="false"[^>]*>.*?Nur mit 👍<\/button><button type="button" aria-pressed="true"[^>]*>.*?Nur mit 👎<\/button>/
+      /<button type="button" aria-pressed="false"[^>]*>.*?Positiv bewertet<\/span><\/button><button type="button" aria-pressed="true"[^>]*>.*?Negativ bewertet<\/span><\/button>/
     );
 
     const plain = await render(LIST, props);
@@ -799,3 +801,168 @@ test(
     assert.doesNotMatch(plain, /data-viewable-count|data-deleted-hint/);
   }
 );
+
+// ---------------------------------------------------------------------------
+// Bewertungsfilter der Liste: ein Umriss-Daumen und Text – keine Emojis
+// ---------------------------------------------------------------------------
+
+// Bildzeichen: alles, was Unicode als Piktogramm führt (👍 U+1F44D, 👎 U+1F44E,
+// ℹ, ✅ …), dazu die Blöcke der Symbole und der Umschalter „als Emoji zeigen".
+const EMOJI =
+  /\p{Extended_Pictographic}|[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+
+/** Die beiden Filter-Schaltflächen der Liste: Attribute und Inhalt. */
+function feedbackFilters(html) {
+  return [
+    ...html.matchAll(
+      /<button type="button" aria-pressed="(true|false)" aria-label="(Nur Konversationen[^"]*)" title="([^"]*)" class="([^"]*)">(.*?)<\/button>/g
+    ),
+  ].map(([, pressed, label, title, className, content]) => ({
+    pressed: pressed === "true",
+    label,
+    title,
+    className,
+    content,
+    icons: content.match(/<svg[^>]*>.*?<\/svg>/g) ?? [],
+    spans: [...content.matchAll(/<span class="([^"]*)">([^<]*)<\/span>/g)].map(
+      ([, spanClass, text]) => [spanClass, text]
+    ),
+  }));
+}
+
+/** Zeichnet das Symbol eine Fläche (gefüllter Daumen) oder nur den Umriss? */
+const iconPath = (icon) => icon.match(/ d="([^"]*)"/)?.[1];
+
+test(
+  "Bewertungsfilter: je Schaltfläche genau ein Umriss-Daumen und der Text „Positiv bewertet“ / „Negativ bewertet“ – kein Emoji",
+  { skip },
+  async () => {
+    const props = {
+      embedId: 3,
+      startDate: "2026-09-12T22:00:00.000Z",
+      endDate: "2026-10-12T21:59:59.999Z",
+    };
+    const html = await render(LIST, props);
+    const [positive, negative, ...more] = feedbackFilters(html);
+    assert.equal(more.length, 0);
+
+    assert.deepEqual(
+      [positive, negative].map(({ pressed, label, title }) => ({
+        pressed,
+        label,
+        title,
+      })),
+      [
+        {
+          pressed: false,
+          label: "Nur Konversationen mit positiv bewerteter Antwort anzeigen",
+          title: "Nur Konversationen mit positiv bewerteter Antwort anzeigen",
+        },
+        {
+          pressed: false,
+          label: "Nur Konversationen mit negativ bewerteter Antwort anzeigen",
+          title: "Nur Konversationen mit negativ bewerteter Antwort anzeigen",
+        },
+      ]
+    );
+    // Der ausgeschriebene Text ab 640 px, darunter der kurze – nie beide.
+    assert.deepEqual(positive.spans, [
+      ["sm:hidden", "Positiv"],
+      ["hidden sm:inline", "Positiv bewertet"],
+    ]);
+    assert.deepEqual(negative.spans, [
+      ["sm:hidden", "Negativ"],
+      ["hidden sm:inline", "Negativ bewertet"],
+    ]);
+
+    for (const filter of [positive, negative]) {
+      assert.equal(filter.icons.length, 1, "genau ein Symbol");
+      // Das Symbol nimmt die Textfarbe der Schaltfläche, keine eigene.
+      assert.match(filter.icons[0], / fill="currentColor"/);
+      assert.match(filter.icons[0], / aria-hidden="true"/);
+      assert.doesNotMatch(filter.icons[0], /(emerald|red|green|yellow)-\d/);
+      assert.doesNotMatch(filter.content, EMOJI);
+      assert.doesNotMatch(filter.label, EMOJI);
+      // Der Text der Schaltfläche bricht nicht um.
+      assert.match(filter.className, /\bwhitespace-nowrap\b/);
+      assert.match(filter.className, /\btext-theme-text-secondary\b/);
+    }
+    assert.doesNotMatch(html, EMOJI);
+    assert.doesNotMatch(textOf(html), /Nur mit/);
+
+    // Gesetzter Filter: aria-pressed und ein gefüllter Daumen – nicht nur
+    // eine andere Farbe.
+    const filtered = feedbackFilters(
+      await render(LIST, { ...props, feedbackFilter: "positive" })
+    );
+    assert.deepEqual(
+      filtered.map(({ pressed }) => pressed),
+      [true, false]
+    );
+    assert.ok(iconPath(positive.icons[0]) && iconPath(negative.icons[0]));
+    assert.notEqual(
+      iconPath(filtered[0].icons[0]),
+      iconPath(positive.icons[0])
+    );
+    assert.equal(iconPath(filtered[1].icons[0]), iconPath(negative.icons[0]));
+    assert.notEqual(filtered[0].className, positive.className);
+    assert.equal(filtered[1].className, negative.className);
+    assert.deepEqual(filtered[0].spans, positive.spans);
+  }
+);
+
+/** Alle Texte unter einem Knoten der Sprachdatei, mit ihrem Schlüssel. */
+function textsUnder(node, path, found = []) {
+  if (typeof node === "string") found.push([path, node]);
+  else if (node && typeof node === "object")
+    for (const [key, value] of Object.entries(node))
+      textsUnder(value, `${path}.${key}`, found);
+  return found;
+}
+
+test("Texte der Ansicht „Konversationen“: Deutsch und Englisch ohne Emoji", () => {
+  assert.match("Nur mit 👍", EMOJI);
+  assert.match("👎 Negativ", EMOJI);
+  assert.match("ℹ️ DSGVO-Datenlöschung aktiv", EMOJI);
+  assert.match("✅", EMOJI);
+  // Satzzeichen und Sonderzeichen der Texte sind keine Emojis.
+  assert.doesNotMatch("Ø 12,5 · KW 41 – „05.10.–11.10.“ → 3 % #1 •", EMOJI);
+
+  for (const [language, resources] of Object.entries({ de, en })) {
+    const texts = textsUnder(resources["embed-analytics"], "embed-analytics");
+    assert.ok(texts.length > 150, `${language}: nur ${texts.length} Texte`);
+    assert.deepEqual(
+      texts.filter(([, text]) => EMOJI.test(text)),
+      [],
+      language
+    );
+  }
+
+  const filters = (resources) => {
+    const texts = resources["embed-analytics"].conversations;
+    return [
+      texts["only-positive"],
+      texts["only-positive-short"],
+      texts["only-positive-hint"],
+      texts["only-negative"],
+      texts["only-negative-short"],
+      texts["only-negative-hint"],
+    ];
+  };
+  assert.deepEqual(filters(de), [
+    "Positiv bewertet",
+    "Positiv",
+    "Nur Konversationen mit positiv bewerteter Antwort anzeigen",
+    "Negativ bewertet",
+    "Negativ",
+    "Nur Konversationen mit negativ bewerteter Antwort anzeigen",
+  ]);
+  assert.deepEqual(filters(en), [
+    "Rated positive",
+    "Positive",
+    "Show only conversations with a positively rated response",
+    "Rated negative",
+    "Negative",
+    "Show only conversations with a negatively rated response",
+  ]);
+});

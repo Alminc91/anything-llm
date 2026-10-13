@@ -657,7 +657,7 @@ test(
       html.indexOf("Dargestellte Größe"),
       sections[1],
       html.indexOf("Wann schreiben Ihre Besucher?"),
-      html.indexOf("Nur mit 👍"),
+      html.indexOf(">Positiv bewertet</span>"),
     ];
     assert.ok(
       order.every((index) => index >= 0),
