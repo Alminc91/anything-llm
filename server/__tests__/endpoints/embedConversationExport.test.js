@@ -71,6 +71,7 @@ const {
   fileNameSlug,
   formatBerlinDateTime,
   formatBerlinIso,
+  primed,
   writeChunks,
 } = require("../../utils/helpers/chat/embedConversationExport");
 
@@ -198,11 +199,12 @@ function period(fromDay, toDay) {
 const SEPTEMBER = period("2026-09-01", "2026-09-30");
 const OCTOBER = period("2026-10-01", "2026-10-31");
 
-function exportFile(embed, format, request = {}, user = admin) {
+function exportFile(embed, format, request = {}, user = admin, prepare) {
   return invoke(EXPORT, {
     params: { embedId: String(embed?.id ?? embed) },
     body: exportBody(format, request),
     token: user?.token ?? null,
+    prepare,
   });
 }
 
@@ -1374,6 +1376,90 @@ describe("json (AK-5)", () => {
     ]);
   });
 
+  test("json: Zeilentrenner U+2028 und U+2029 sowie Zeilenumbrüche in Frage, Antwort, Grund, Kommentar und Kennung kommen unverändert zurück - das Einrücken der Datei verändert keinen Wert", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    const text = (name) =>
+      `${name}1\u2028${name}2\u2029${name}3\n${name}4\r\n${name}5\u2028\u2028  ${name}6\u2029`;
+    await addChat(embed, {
+      at: berlinInstant("2026-09-01", 8, 30),
+      prompt: text("Frage"),
+      answer: text("Antwort"),
+      conversation: "konv\u2028mit\u2029Trenner",
+      session: "s-1",
+      feedbackScore: false,
+      feedbackReason: text("Grund"),
+      feedbackText: text("Kommentar"),
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-09-02", 8, 30),
+      prompt: "\u2028am Anfang und am Ende\u2029",
+      answer: "\u2029",
+      conversation: "konv-2",
+    });
+
+    const result = await exportFile(embed, "json");
+    expect(JSON.parse(result.body)).toEqual([
+      {
+        conversation: 1,
+        conversationId: "konv-2",
+        messages: [
+          {
+            message: 1,
+            timestamp: "2026-09-02T08:30:00+02:00",
+            prompt: "\u2028am Anfang und am Ende\u2029",
+            response: "\u2029",
+            rating: null,
+            ratingReason: null,
+            ratingComment: null,
+          },
+        ],
+      },
+      {
+        conversation: 2,
+        conversationId: "konv\u2028mit\u2029Trenner",
+        messages: [
+          {
+            message: 1,
+            timestamp: "2026-09-01T08:30:00+02:00",
+            prompt: text("Frage"),
+            response: text("Antwort"),
+            rating: "negative",
+            ratingReason: text("Grund"),
+            ratingComment: text("Kommentar"),
+          },
+        ],
+      },
+    ]);
+    // Die Datei bleibt eingerückt: je Konversation zwei Leerzeichen tiefer.
+    expect(result.body.startsWith('[\n  {\n    "conversation": 1,\n')).toBe(
+      true
+    );
+    expect(result.body).toContain('\n  },\n  {\n    "conversation": 2,\n');
+    expect(result.body.endsWith("\n  }\n]\n")).toBe(true);
+
+    // Die CSV derselben Auswahl enthält dieselben Texte.
+    const rows = table(await exportFile(embed, "csv"));
+    expect(
+      rows.map((row) => [
+        row["Konversations-ID"],
+        row.Frage,
+        row.Antwort,
+        row["Grund der negativen Bewertung"],
+        row["Kommentar zur negativen Bewertung"],
+      ])
+    ).toEqual([
+      ["konv-2", "\u2028am Anfang und am Ende\u2029", "\u2029", "", ""],
+      [
+        "konv\u2028mit\u2029Trenner",
+        text("Frage"),
+        text("Antwort"),
+        text("Grund"),
+        text("Kommentar"),
+      ],
+    ]);
+  });
+
   test("json: dieselbe Auswahl ergibt in CSV und JSON dieselben Konversationen, Nachrichten und Werte", async () => {
     const workspace = await createWorkspace(db.client);
     const embed = await createEmbed(db.client, workspace);
@@ -1845,6 +1931,173 @@ describe("gross (AK-11)", () => {
     expect(event.metadata).toEqual(
       expect.objectContaining({ rowCount: 1000, completed: false })
     );
+  });
+
+  test("gross: Beendet der Empfänger die Verbindung mitten im Export, wird nicht weiter gelesen - das Protokoll nennt completed: false und die bis dahin geschriebenen Zeilen", async () => {
+    await seedLarge();
+    const pages = jest.spyOn(EmbedChats, "_exportConversationPage");
+    const batches = jest.spyOn(EmbedChats, "_exportMessages");
+    // Kopfzeile + 700 Zeilen: mitten im zweiten Paket
+    const WRITTEN = 700;
+
+    const result = await exportFile(
+      embed,
+      "csv",
+      SEPTEMBER,
+      admin,
+      (response, outcome) => {
+        const write = response.write;
+        // Der Empfänger nimmt jedes Stück an (kein Warten auf „drain") und
+        // ist nach dem 701. weg.
+        response.destroyed = false;
+        response.write = (chunk) => {
+          write(chunk);
+          if (outcome.chunks.length === 1 + WRITTEN) response.destroyed = true;
+          return true;
+        };
+      }
+    );
+
+    expect(result.statusCode).toBe(200);
+    expect(result.chunks).toHaveLength(1 + WRITTEN);
+    // Die Antwort hat der Empfänger beendet, nicht der Server (kein Fehler).
+    expect(result.destroyed).toBeNull();
+    // Gelesen sind eine Seite Konversationen und zwei Pakete Nachrichten -
+    // nicht die 40 der ganzen Auswahl.
+    expect(pages).toHaveBeenCalledTimes(1);
+    expect(batches).toHaveBeenCalledTimes(2);
+
+    const events = await eventsOf(db.client, "embed_conversations_exported");
+    expect(events).toHaveLength(1);
+    expect(events[0].metadata).toEqual(
+      expect.objectContaining({
+        embedId: embed.id,
+        format: "csv",
+        conversationCount: WRITTEN / PER_CONVERSATION,
+        rowCount: WRITTEN,
+        completed: false,
+      })
+    );
+  });
+
+  test("gross: writeChunks erzeugt nach dem Ende der Verbindung kein weiteres Stück und schreibt keines mehr - auch wenn der Empfänger bis dahin jedes angenommen hat", async () => {
+    /** Zählt, was erzeugt wurde, und merkt sich, ob die Folge geschlossen ist. */
+    function counted(n, onProduce = () => {}) {
+      const state = { produced: 0, closed: false };
+      state.chunks = (async function* () {
+        try {
+          for (let i = 0; i < n; i++) {
+            state.produced += 1;
+            onProduce(state.produced);
+            yield `${i}\r\n`;
+          }
+        } finally {
+          state.closed = true;
+        }
+      })();
+      return state;
+    }
+    function receiver(onWrite = () => {}) {
+      const response = { destroyed: false, writableEnded: false, taken: [] };
+      response.write = (chunk) => {
+        response.taken.push(chunk);
+        onWrite(response);
+        return true;
+      };
+      return response;
+    }
+
+    // 1. Der Empfänger ist nach dem vierten Stück weg: Rückgabe false, das
+    // fünfte Stück entsteht gar nicht erst, die Folge wird geschlossen.
+    const gone = receiver((response) => {
+      if (response.taken.length === 4) response.destroyed = true;
+    });
+    const first = counted(1000);
+    expect(await writeChunks(gone, first.chunks)).toBe(false);
+    expect(gone.taken).toEqual(["0\r\n", "1\r\n", "2\r\n", "3\r\n"]);
+    expect(first.produced).toBe(4);
+    expect(first.closed).toBe(true);
+
+    // 2. Die Verbindung endet, während das nächste Stück entsteht (die
+    // Datenbank wird gelesen): Es wird nicht mehr geschrieben.
+    const during = receiver();
+    const second = counted(1000, (produced) => {
+      if (produced === 3) during.destroyed = true;
+    });
+    expect(await writeChunks(during, second.chunks)).toBe(false);
+    expect(during.taken).toEqual(["0\r\n", "1\r\n"]);
+    expect(second.produced).toBe(3);
+    expect(second.closed).toBe(true);
+
+    // 3. Die Antwort ist schon beendet: nichts wird erzeugt, nichts geschrieben.
+    for (const state of [{ destroyed: true }, { writableEnded: true }]) {
+      const ended = Object.assign(receiver(), state);
+      const third = counted(10);
+      expect(await writeChunks(ended, third.chunks)).toBe(false);
+      expect(ended.taken).toEqual([]);
+      expect(third.produced).toBe(0);
+    }
+
+    // 4. Weg nach dem letzten Stück: nicht als vollständig gemeldet.
+    const last = receiver((response) => {
+      if (response.taken.length === 5) response.destroyed = true;
+    });
+    expect(await writeChunks(last, counted(5).chunks)).toBe(false);
+    expect(last.taken).toHaveLength(5);
+
+    // Gegenprobe: Ein Empfänger, der bleibt, bekommt alles.
+    const stays = receiver();
+    const all = counted(5);
+    expect(await writeChunks(stays, all.chunks)).toBe(true);
+    expect(stays.taken).toHaveLength(5);
+    expect(all.closed).toBe(true);
+  });
+
+  test("gross: primed gibt die Quelle frei, wenn der Abnehmer vorzeitig aufhört - die Abfrage hinter dem Export bleibt nicht offen", async () => {
+    function source() {
+      const state = { produced: 0, closed: false };
+      state.rows = (async function* () {
+        try {
+          for (let i = 0; i < 100; i++) {
+            state.produced += 1;
+            yield i;
+          }
+        } finally {
+          state.closed = true;
+        }
+      })();
+      return state;
+    }
+
+    // vollständig gelesen
+    const whole = source();
+    const values = [];
+    for await (const value of await primed(whole.rows)) values.push(value);
+    expect(values).toEqual(Array.from({ length: 100 }, (_, i) => i));
+    expect(whole.closed).toBe(true);
+
+    // vorzeitig beendet: Das erste Element ist bereits gelesen (primed), die
+    // Quelle wird trotzdem geschlossen.
+    const partial = source();
+    const sequence = await primed(partial.rows);
+    expect(partial.produced).toBe(1);
+    for await (const value of sequence) if (value === 2) break;
+    expect(partial.produced).toBe(3);
+    expect(partial.closed).toBe(true);
+
+    // über writeChunks, wie im Endpunkt
+    const viaWrite = source();
+    const receiver = { destroyed: false, taken: [] };
+    receiver.write = (chunk) => {
+      receiver.taken.push(chunk);
+      if (receiver.taken.length === 3) receiver.destroyed = true;
+      return true;
+    };
+    expect(await writeChunks(receiver, await primed(viaWrite.rows))).toBe(
+      false
+    );
+    expect(receiver.taken).toEqual([0, 1, 2]);
+    expect(viaWrite.closed).toBe(true);
   });
 
   test("gross: an einer echten http.ServerResponse mit langsamem Empfänger - alle Zeilen kommen in Reihenfolge an, die Antwort endet regulär; nach einem Fehler mittendrin fehlt das Ende", async () => {

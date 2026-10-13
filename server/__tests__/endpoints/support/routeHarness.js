@@ -370,12 +370,14 @@ function collectRoutes(register) {
  * Durchläuft die Kette einer Route wie Express: Jede Middleware entscheidet
  * mit next(), ob es weitergeht.
  * @param {Function[]} chain
- * @param {{params?: object, query?: object, body?: any, token?: string|null}} request
+ * @param {{params?: object, query?: object, body?: any, token?: string|null, prepare?: (response: object, result: object) => void}} request
+ *   prepare: richtet die Antwort vor dem Durchlauf ein - etwa einen
+ *   Empfänger, der die Verbindung mitten in einer gestreamten Antwort beendet
  * @returns {Promise<{statusCode: number, body: any, headers: object, sent: number, chunks: string[], destroyed: any}>}
  */
 async function invoke(
   chain,
-  { params = {}, query = {}, body = {}, token = null } = {}
+  { params = {}, query = {}, body = {}, token = null, prepare = null } = {}
 ) {
   if (!Array.isArray(chain)) throw new Error("Route ist nicht registriert");
   const headers = token ? { authorization: `Bearer ${token}` } : {};
@@ -440,6 +442,7 @@ async function invoke(
     },
   };
 
+  prepare?.(response, result);
   for (const handler of chain) {
     let proceed = false;
     await handler(request, response, () => {

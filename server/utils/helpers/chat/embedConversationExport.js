@@ -251,9 +251,11 @@ function conversationExport(format, conversations) {
     yield "[";
     for await (const conversation of conversations) {
       const text = JSON.stringify(jsonConversation(conversation), null, 2);
-      // Zeichenketten enthalten in JSON keine rohen Zeilenumbrüche: Das
-      // Einrücken je Zeile verändert keinen Wert.
-      yield `${stats.conversations === 0 ? "\n" : ",\n"}${text.replace(/^/gm, "  ")}`;
+      // Eingerückt wird nur nach "\n": Ein roher Zeilenvorschub kommt in
+      // einer JSON-Zeichenkette nicht vor, das Einrücken verändert also
+      // keinen Wert. U+2028 und U+2029 gibt JSON.stringify dagegen
+      // unmaskiert aus - für /^/m wären auch sie ein Zeilenanfang.
+      yield `${stats.conversations === 0 ? "\n" : ",\n"}  ${text.replace(/\n/g, "\n  ")}`;
       stats.conversations += 1;
       stats.rows += conversation.messages.length;
     }
@@ -320,12 +322,24 @@ function drained(response) {
  * @returns {Promise<boolean>} - true, wenn alles geschrieben wurde; false, wenn der Empfänger die Verbindung vorher beendet hat
  */
 async function writeChunks(response, chunks) {
-  for await (const chunk of chunks) {
-    if (response.destroyed || response.writableEnded) return false;
-    if (response.write(chunk) === false && !(await drained(response)))
-      return false;
+  const closed = () => response.destroyed || response.writableEnded;
+  const iterator = chunks[Symbol.asyncIterator]();
+  try {
+    for (;;) {
+      // Vor dem Lesen: Nach einem Abbruch entsteht kein weiteres Stück (und
+      // keine weitere Abfrage an die Datenbank) …
+      if (closed()) return false;
+      const step = await iterator.next();
+      // … und danach noch einmal: Die Verbindung kann während des Lesens
+      // geendet haben, auf „drain" würde dann vergeblich gewartet.
+      if (closed()) return false;
+      if (step.done) return true;
+      if (response.write(step.value) === false && !(await drained(response)))
+        return false;
+    }
+  } finally {
+    await iterator.return?.();
   }
-  return !response.destroyed;
 }
 
 /**
