@@ -53,6 +53,13 @@ export const AVATAR_CLEARANCE = {
   // rechter Rand der Kopfzeile ab md: Widget-Auswahl und Zeitraum enden links
   // vom Benutzermenü
   headerEnd: "md:pr-12",
+  // rechter Rand der Werkzeugleiste der Liste (ab sm, wo sie eine eigene
+  // Leiste ist): Der Export-Knopf endet links vom Benutzermenü – auch wenn
+  // der Listenkopf beim Scrollen oben am Fensterrand steht (Fixliste 4, V2).
+  // Das Menü (35 px, 40 px vom rechten Fensterrand) deckt sonst die
+  // rechten 35 px des Inhalts ab; 44 px lassen 9 px Luft und halten Filter
+  // und Export auch bei 768 px Fensterbreite in einer Zeile (V5).
+  toolbarEnd: "sm:pr-11",
 };
 /** Oberkante des klebenden Panels im Fenster (16 px Rand + lg:top-16). */
 export const PANEL_STUCK_TOP = 80;

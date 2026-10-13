@@ -12,6 +12,7 @@ import { formatNumber } from "@/utils/analyticsTimeline";
 import { formatDateForInput } from "@/utils/billingDate";
 import showToast from "@/utils/toast";
 import {
+  AVATAR_CLEARANCE,
   MUTED,
   SEARCH_MAX_LENGTH,
   berlinDateTime,
@@ -72,8 +73,11 @@ const EMPTY_STATE_KEYS = {
 };
 
 // Umschalter „Alle / Positiv bewertet / Negativ bewertet"
+// Von sm bis xl etwas schmaler (px-2.5): Suche (≥ 240 px), Filter und Export
+// passen so bei 1024 px neben dem Abstand zum Benutzermenü in eine Zeile
+// (Fixliste 4, V5).
 const SEGMENT_CLASS =
-  "flex h-11 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm transition-colors sm:h-9";
+  "flex h-11 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm transition-colors sm:h-9 sm:px-2.5 xl:px-3";
 const SEGMENT_ACTIVE =
   "bg-white/10 text-theme-text-primary font-medium light:bg-black/[0.07]";
 // Gedämpfte Schrift wie die Kopfzeile: im hellen Theme #5f6368 statt
@@ -706,22 +710,25 @@ export default function ConversationList({
           die Überschrift, nicht die Werkzeugleiste um. Die Werkzeugleiste
           steht fest neben (schmaler: unter) der Überschrift; ob sie dorthin
           passt, hängt nicht an der Zahl (basis-40) – sie springt nicht, wenn
-          ein Filter die Zahl verlängert (Fixliste 2, B7). Darunter eine
-          Zeile mit den Filtermarkierungen, nur wenn ein Filter gesetzt ist.
-          Unter sm: „Exportieren“ als Symbol neben der Überschrift, Suche und
-          Bewertungsfilter je in voller Breite darunter – nichts überlappt
-          (B1). */}
+          ein Filter die Zahl verlängert (Fixliste 2, B7). Die Überschrift
+          hat eine feste Zeile so hoch wie die Leiste (min-h-10), der
+          Titelblock wächst nur nach unten (content-start): Bricht die Zahl
+          um, bleiben Überschrift und Leiste, wo sie waren (Fixliste 4, V1).
+          Darunter eine Zeile mit den Filtermarkierungen, nur wenn ein
+          Filter gesetzt ist. Unter sm: „Exportieren“ als Symbol neben der
+          Überschrift, Suche und Bewertungsfilter je in voller Breite
+          darunter – nichts überlappt (B1). */}
       <div data-list-header="" className="mb-3 flex flex-col gap-3">
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
           <div
             data-list-title=""
-            className="order-1 flex min-h-11 min-w-0 flex-1 basis-40 flex-wrap items-center gap-x-3 gap-y-0.5 sm:min-h-10"
+            className="order-1 flex min-w-0 flex-1 basis-40 flex-wrap content-start items-center gap-x-3 gap-y-0.5"
           >
             <h3
               ref={headingRef}
               tabIndex={-1}
               data-list-heading=""
-              className="text-base font-semibold text-theme-text-primary"
+              className="flex min-h-11 items-center text-base font-semibold text-theme-text-primary sm:min-h-10"
             >
               {t("embed-analytics.list.title")}
             </h3>
@@ -746,19 +753,23 @@ export default function ConversationList({
           </div>
           {/* unter sm „contents“: Die Teile ordnen sich in die Kopfzeile ein.
               Von sm bis xl steht die Leiste in einer eigenen Zeile: Suche so
-              breit wie möglich, Bewertungsfilter mit kurzen Namen und Export
-              ohne Pfeil daneben; Filter und Export brechen nur gemeinsam um
-              – „Exportieren“ steht nie allein in einer Zeile (Fixliste 3,
-              V7). */}
+              breit wie möglich (mindestens 240 px, Basis 0 – nicht die volle
+              Zeile, Fixliste 4 V5), Bewertungsfilter mit kurzen Namen und
+              Export ohne Pfeil daneben, sobald sie hineinpassen; Filter und
+              Export brechen nur gemeinsam um – „Exportieren“ steht nie allein
+              in einer Zeile (Fixliste 3, V7). Rechts hält die Leiste Abstand
+              zum schwebenden Benutzermenü: Der Export-Knopf bleibt in jeder
+              Scrollstellung frei (Fixliste 4, V2); dafür ist die Suche ab xl
+              240 px breit. */}
           <div
             data-list-tools=""
-            className="contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 xl:basis-auto"
+            className={`contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 xl:basis-auto ${AVATAR_CLEARANCE.toolbarEnd}`}
           >
             <SearchField
               value={place.search}
               onSearch={setPlaceSearch}
               inputRef={searchInputRef}
-              className="order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 sm:basis-auto xl:w-72 xl:flex-none"
+              className="order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 xl:w-60 xl:flex-none"
             />
             <div
               data-list-actions=""
@@ -827,7 +838,7 @@ export default function ConversationList({
                 search={search}
                 disabled={loading || failed || totalCount === 0}
                 wrapperClassName="order-2 sm:order-none"
-                className="flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-3 xl:px-3.5 light:border-gray-200"
+                className="flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-2.5 xl:px-3.5 light:border-gray-200"
               />
             </div>
           </div>
@@ -1094,8 +1105,8 @@ function SearchField({ value, onSearch, inputRef: outerRef, className = "" }) {
   // Kein <label> um Feld und ✕: Eine Schaltfläche darf darin nicht stehen.
   // Den Namen trägt das Feld (aria-label); ein Klick in den Rahmen fokussiert
   // es wie ein <label>. Platzhalter in voller Länge: Das Feld ist ab xl
-  // 288 px breit, von sm bis xl mindestens 240 px und sonst so breit wie
-  // möglich, darunter volle Breite (B6, Fixliste 3 V7).
+  // 240 px breit (Fixliste 4, V2), von sm bis xl mindestens 240 px und sonst
+  // so breit wie möglich, darunter volle Breite (B6, Fixliste 3 V7).
   return (
     <div
       data-search-field=""

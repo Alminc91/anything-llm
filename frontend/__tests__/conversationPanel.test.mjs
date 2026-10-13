@@ -1999,6 +1999,9 @@ test(
 
 const classesOf = (element) =>
   (element.getAttribute("class") ?? "").split(/\s+/).filter(Boolean);
+/** Zeile aus Titelblock und Werkzeugleiste im Listenkopf. */
+const toolbarRowOf = (container) =>
+  one(container, "data-list-header").childNodes[0];
 const hasClasses = (element, names) =>
   names.every((name) => classesOf(element).includes(name));
 
@@ -2113,13 +2116,52 @@ test(
         "sm:order-none",
         "w-full",
         // V7: von sm bis xl so breit wie möglich (mindestens 240 px), ab xl
-        // fest 288 px
+        // fest 240 px (Fixliste 4, V2: Platz für den Abstand zum
+        // Benutzermenü)
         "sm:flex-1",
         "sm:min-w-[240px]",
-        "xl:w-72",
+        "xl:w-60",
         "xl:flex-none",
       ])
     );
+    // Fixliste 4, V5: von sm bis xl Basis 0 (sm:flex-1) – nicht die volle
+    // Zeile über w-full (sm:basis-auto); Filter und Export stehen daneben,
+    // sobald sie hineinpassen
+    assert.ok(!classesOf(field).includes("sm:basis-auto"));
+    assert.ok(!classesOf(field).includes("xl:w-72"));
+    // Fixliste 4, V2: die Leiste endet links vom Benutzermenü (rechter
+    // Abstand 44 px ab sm: 35 px Menü + 9 px Luft), in jeder Scrollstellung
+    assert.ok(hasClasses(tools, ["sm:pr-11"]));
+    // Fixliste 4, V1/S3: Die Überschrift hat eine feste Zeile so hoch wie
+    // die Leiste; der Titelblock wächst nur nach unten – bricht „X von Y“
+    // um, bleiben Überschrift und Leiste stehen (gleiche Klassen mit und
+    // ohne Filter: shape oben)
+    assert.ok(
+      hasClasses(one(container, "data-list-title"), [
+        "content-start",
+        "items-center",
+      ])
+    );
+    assert.ok(
+      !classesOf(one(container, "data-list-title")).some((name) =>
+        /min-h-/.test(name)
+      )
+    );
+    assert.ok(
+      hasClasses(one(container, "data-list-heading"), [
+        "flex",
+        "items-center",
+        "min-h-11",
+        "sm:min-h-10",
+      ])
+    );
+    assert.ok(hasClasses(toolbarRowOf(container), ["items-start"]));
+    // Fixliste 4, V5: von sm bis xl etwas schmalere Filter und Export
+    for (const segment of elements(
+      one(container, "data-feedback-filters"),
+      (e) => e.tagName === "BUTTON"
+    ))
+      assert.ok(hasClasses(segment, ["px-3", "sm:px-2.5", "xl:px-3"]));
     // V7: Filter und Export brechen nur gemeinsam um; mobil ordnen sie sich
     // einzeln ein (contents)
     const actions = one(container, "data-list-actions");
@@ -2132,7 +2174,14 @@ test(
     assert.ok(hasClasses(exportMenu, ["order-2", "sm:order-none"]));
     const [exportButton] = elements(exportMenu, (e) => e.tagName === "BUTTON");
     assert.ok(
-      hasClasses(exportButton, ["h-11", "w-11", "sm:w-auto", "sm:h-10"])
+      hasClasses(exportButton, [
+        "h-11",
+        "w-11",
+        "sm:w-auto",
+        "sm:h-10",
+        "sm:px-2.5",
+        "xl:px-3.5",
+      ])
     );
     // der Name „Exportieren“ bleibt für Screenreader, sichtbar erst ab sm;
     // der Pfeil erst ab xl (kompakt, V7)
