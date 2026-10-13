@@ -1109,7 +1109,8 @@ test(
 );
 
 // ---------------------------------------------------------------------------
-// Blättern (NAK-5): Jeder Wechsel des Zuschnitts führt auf Seite 1
+// Blättern (NAK-5): Jeder Wechsel des Zuschnitts führt auf Seite 1 – seit
+// der Konversationen-Ansicht: Nachgeladenes verfällt, die Liste beginnt vorn
 // ---------------------------------------------------------------------------
 
 const SECOND_EMBED = {
@@ -1174,11 +1175,25 @@ const ONLY_POSITIVE =
 const ONLY_NEGATIVE =
   "Nur Konversationen mit negativ bewerteter Antwort anzeigen";
 
-/** Blättert auf Seite 2 und prüft, dass die Liste sie anfragt. */
+/**
+ * Lädt weitere Konversationen nach („Weitere Konversationen laden") und
+ * prüft, dass die Liste die zweite Seite anfragt.
+ */
 async function openSecondPage({ container, act }, server) {
-  await act(() => click(buttonOf(container, "2")));
+  const [more] = elements(container, (element) =>
+    element.hasAttribute("data-load-more")
+  );
+  assert.ok(more, "keine Schaltfläche „Weitere Konversationen laden“");
+  assert.equal(more.textContent, "Weitere Konversationen laden");
+  await act(() => click(more));
   assert.equal(server.lists().at(-1).body.offset, PAGE_SIZE);
 }
+
+/** Die Zeilen der Liste: id ihrer ersten Zeile (first_chat_id). */
+const rowIdsOf = (container) =>
+  elements(container, (element) =>
+    element.hasAttribute("data-conversation-row")
+  ).map((element) => Number(element.getAttribute("data-conversation-row")));
 
 /** Wählt in der Datumsauswahl eine Vorauswahl, z. B. „Letzter Monat". */
 async function choosePreset({ container, act }, label) {
@@ -1235,8 +1250,11 @@ test(
       // je Wechsel genau eine Anfrage
       assert.equal(server.lists().length, before + 2);
       // Die Liste zeigt die Einträge 1–20.
-      assert.match(container.textContent, /Konversation #1"/);
-      assert.doesNotMatch(container.textContent, /Konversation #21"/);
+      // Die Liste zeigt wieder die ersten 20 – nicht die nachgeladenen.
+      assert.deepEqual(
+        rowIdsOf(container),
+        Array.from({ length: PAGE_SIZE }, (_, i) => 1000 + i)
+      );
     }
   }
 );
@@ -1670,8 +1688,10 @@ test(
       feedbackFilterOf(container, ONLY_POSITIVE).getAttribute("aria-pressed"),
       "false"
     );
-    assert.match(container.textContent, /Konversation #1"/);
-    assert.doesNotMatch(container.textContent, /Konversation #21"/);
+    assert.deepEqual(
+      rowIdsOf(container),
+      Array.from({ length: PAGE_SIZE }, (_, i) => 1000 + i)
+    );
   }
 );
 
@@ -2045,7 +2065,7 @@ for (const [name, late] of [
 }
 
 // ---------------------------------------------------------------------------
-// Konversations-ID kopieren
+// Kennung kopieren – in der Fußzeile des Seitenpanels (AK-15)
 // ---------------------------------------------------------------------------
 
 /** Ersetzt navigator für die Dauer eines Tests. */
@@ -2065,7 +2085,7 @@ for (const [name, clipboard, expected] of [
   [
     "Der Browser kopiert: Erfolgsmeldung",
     { writeText: async () => {} },
-    { type: "success", message: "Konversations-ID kopiert" },
+    { type: "success", message: "Kennung kopiert" },
   ],
   [
     "Der Browser lehnt das Kopieren ab: Fehlermeldung statt Erfolgsmeldung",
@@ -2088,7 +2108,7 @@ for (const [name, clipboard, expected] of [
     },
   ],
 ]) {
-  test(`Konversations-ID kopieren – ${name}`, { skip }, async (t) => {
+  test(`Kennung kopieren – ${name}`, { skip }, async (t) => {
     const written = [];
     stubNavigator(t, {
       clipboard: clipboard && {
@@ -2101,17 +2121,31 @@ for (const [name, clipboard, expected] of [
     const toasts = await watchToasts(t);
     const server = await analyticsServer(t, { list: pagedList });
     const { container, act } = await mountView(t, server);
+    // Die Zeile zeigt keine Kennung (AK-1) – erst das geöffnete Panel.
+    assert.equal(
+      elements(
+        container,
+        (element) => element.getAttribute("title") === "Kennung kopieren"
+      ).length,
+      0
+    );
+    assert.doesNotMatch(container.textContent, /konversation-1/);
+    const [row] = elements(container, (element) =>
+      element.hasAttribute("data-conversation-row")
+    );
+    await act(() => click(row));
     const [copy] = elements(
       container,
-      (element) => element.getAttribute("title") === "Konversations-ID kopieren"
+      (element) =>
+        element.hasAttribute("data-panel-id") &&
+        element.getAttribute("title") === "Kennung kopieren"
     );
-    assert.equal(copy.textContent, "ID:konversation-1");
+    // gekürzt: die ersten 8 Zeichen
+    assert.equal(copy.textContent, "ID konversa…");
 
     await act(() => click(copy));
 
     assert.deepEqual(toasts, [expected]);
     assert.deepEqual(written, clipboard ? ["konversation-1"] : []);
-    // Die Karte klappt dabei nicht auf.
-    assert.equal(server.calls.length, 2);
   });
 }

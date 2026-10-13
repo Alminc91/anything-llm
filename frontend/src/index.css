@@ -1162,9 +1162,20 @@ does not extend the close button beyond the viewport. */
   animation: fadein 0.3s linear forwards;
 }
 
+/* Konversationen-Ansicht: Treffer der Suche im Gesprächsverlauf. Gelb mit
+   dunkler Schrift in beiden Themes (Kontrast > 10:1), auch in der
+   Sprechblase der Frage und in Antworten (.analytics-bot-response setzt die
+   Textfarbe sonst mit !important). */
+mark[data-search-hit] {
+  background-color: #fde047;
+  color: #1c1917 !important;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* Analytics Bot Response Text Fix - Use theme colors */
 .analytics-bot-response,
-.analytics-bot-response * {
+.analytics-bot-response *:not(mark[data-search-hit]) {
   color: var(--theme-text-primary) !important;
 }
 
@@ -1175,6 +1186,10 @@ does not extend the close button beyond the viewport. */
 .analytics-bot-response strong,
 .analytics-bot-response em {
   color: var(--theme-text-primary) !important;
+}
+
+.analytics-bot-response mark[data-search-hit] {
+  color: #1c1917 !important;
 }
 
 /* ===== react-day-picker Theme Overrides ===== */

@@ -143,7 +143,10 @@ const Embed = {
     feedbackFilter = "all", // KIE-508/527: "all" | "negative" (👎) | "positive" (👍)
     // KIE-536: { fromDay, toDay } – nur Konversationen, deren erste
     // vorhandene Nachricht in diesem Abschnitt liegt (Klick auf eine Säule).
-    startedBetween = null
+    startedBetween = null,
+    // Suchbegriff (q) – nur Konversationen mit Treffer in Frage, Antworttext,
+    // Grund oder Kommentar. Ohne Suche fehlt das Feld.
+    search = ""
   ) => {
     return await fetch(`${API_BASE}/embed/${embedId}/analytics/conversations`, {
       method: "POST",
@@ -160,6 +163,7 @@ const Embed = {
               startedToDay: startedBetween.toDay,
             }
           : {}),
+        ...(search ? { q: search } : {}),
       }),
     })
       .then((res) => res.json())
@@ -171,13 +175,19 @@ const Embed = {
 
   // Analytics (KIE-538): Export der Konversationen der aktuellen Auswahl.
   // Dieselben Felder wie eine Seite der Liste (getConversations) ohne das
-  // Blättern, dazu format ("csv" | "json"). Die Antwort ist die Datei;
+  // Blättern – auch der Suchbegriff –, dazu format ("csv" | "json"). Die Antwort ist die Datei;
   // Ergebnis { success, blob, filename, error } – der Dateiname kommt vom
   // Server (konversationen_<widget>_<von>_<bis>.<endung>).
   exportConversations: async (
     embedId,
     format,
-    { startDate, endDate, feedbackFilter = "all", startedBetween = null } = {}
+    {
+      startDate,
+      endDate,
+      feedbackFilter = "all",
+      startedBetween = null,
+      search = "",
+    } = {}
   ) => {
     return await fetch(`${API_BASE}/embed/${embedId}/analytics/export`, {
       method: "POST",
@@ -193,6 +203,7 @@ const Embed = {
               startedToDay: startedBetween.toDay,
             }
           : {}),
+        ...(search ? { q: search } : {}),
       }),
     })
       .then(async (res) => {
@@ -275,7 +286,9 @@ const Embed = {
   // Analytics: Get conversation details
   // KIE-538: chatId ist first_chat_id aus der Liste (siehe Vorschau) – eine
   // Zahl des Servers, keine Kennung des Besuchers. Kodiert, damit der
-  // Abschnitt in jedem Fall ein einziges Pfadsegment bleibt.
+  // Abschnitt in jedem Fall ein einziges Pfadsegment bleibt. Ohne Zeitraum:
+  // Das Seitenpanel öffnet so auch Konversationen per Link, die außerhalb des
+  // gewählten Zeitraums liegen. Ohne Recht auf das Widget: success false.
   getConversationDetails: async (embedId, chatId) => {
     return await fetch(
       `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(chatId)}`,
@@ -284,7 +297,12 @@ const Embed = {
         headers: baseHeaders(),
       }
     )
-      .then((res) => res.json())
+      .then((res) => {
+        // 403/404 ohne JSON: keine Inhalte, kein Fehler in der Konsole
+        if (!res.ok)
+          return { success: false, error: `HTTP ${res.status}`, messages: [] };
+        return res.json();
+      })
       .catch((e) => {
         console.error(e);
         return { success: false, error: e.message };

@@ -21,11 +21,19 @@ import {
   viewState,
 } from "@/utils/analyticsTimeline";
 import { embedLabels, sortEmbedsByLabel } from "@/utils/embedLabel";
+import { effectiveSearch } from "@/utils/conversationView";
+import useConversationLocation from "./useConversationLocation";
 
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
 // Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
 // Säulendiagramm, Karte „Wann schreiben Ihre Besucher?" (KIE-539),
-// Konversationsliste.
+// Konversationsliste mit Seitenpanel.
+//
+// Widget, geöffnete Konversation und Suche stehen in der Adresse
+// (useConversationLocation): Ein Link auf eine Konversation lässt sich
+// teilen, der Zurück-Knopf schließt sie wieder. Kennzahlen, Diagramm und
+// Uhrzeit-Karte hängen nur von Widget und Zeitraum ab – Suche und geöffnete
+// Konversation ändern sie nicht.
 //
 // Kennzahlen und Diagramm kommen aus einem Aufruf von analytics/summary
 // (Zählerbuch) und stimmen deshalb überein; sie bleiben vollständig, wenn
@@ -82,9 +90,23 @@ export function AnalyticsScreen({ embedsLoaded, embeds }) {
 
 function WidgetAnalytics({ embeds }) {
   const { t } = useTranslation();
+  const place = useConversationLocation();
+  // Das Widget aus der Adresse – nur eines, das der Nutzer sehen darf (die
+  // Liste der Widgets kommt vom Server, gefiltert nach seinen Rechten).
   // Vorauswahl: das erste Widget in der Reihenfolge des Servers (das zuletzt
   // angelegte) – unabhängig davon, wie die Auswahl ihre Einträge ordnet.
-  const [selectedEmbed, setSelectedEmbed] = useState(embeds[0].id);
+  const linkedEmbed = embeds.find((embed) => embed.id === place.widgetId);
+  const selectedEmbed = linkedEmbed ? linkedEmbed.id : embeds[0].id;
+  const setSelectedEmbed = place.setWidget;
+  // Ein Link auf ein Widget, das es für diesen Nutzer nicht gibt (fremd,
+  // gelöscht): Hinweis, die Ansicht zeigt das erste Widget ohne Konversation.
+  const unknownLink = place.widgetId !== null && !linkedEmbed;
+  const clearLink = place.clearLink;
+  useEffect(() => {
+    if (!unknownLink) return;
+    showToast(t("embed-analytics.panel.not-found"), "error");
+    clearLink();
+  }, [unknownLink, clearLink, t]);
   // Zählwerte des Zeitraums: { embedId, data, loading, failed, period } –
   // period ist der gewählte Zeitraum, zu dem data gehört.
   const [summary, setSummary] = useState({
@@ -240,6 +262,7 @@ function WidgetAnalytics({ embeds }) {
         viewableCount={viewableCount}
         feedbackFilter={feedbackFilter}
         bucket={bucket}
+        search={effectiveSearch(place.search)}
         onJumpToList={jumpToList}
         startDate={startDate}
         endDate={endDate}
@@ -287,7 +310,7 @@ function WidgetAnalytics({ embeds }) {
 
       <div ref={listRef} className="scroll-mt-4">
         <ConversationList
-          embedId={selectedEmbed}
+          embedId={unknownLink ? null : selectedEmbed}
           startDate={startDateISO}
           endDate={endDateISO}
           feedbackFilter={feedbackFilter}
@@ -316,12 +339,17 @@ function WidgetAnalytics({ embeds }) {
  * @param {number|null} count - null, solange die Liste lädt
  * @param {"all"|"negative"|"positive"} feedbackFilter
  * @param {{label: string}|null} bucket
+ * @param {string} [search] - Suchbegriff der Liste: allein „3 Konversationen
+ *   mit „spanisch" ansehen", mit weiteren Filtern „gefilterte"
  */
-function jumpText(t, count, feedbackFilter, bucket) {
+function jumpText(t, count, feedbackFilter, bucket, search = "") {
   if (count === null) return t("embed-analytics.list.jump-pending");
   const values = { count, formatted: formatNumber(count) };
   const rated = feedbackFilter === "negative" || feedbackFilter === "positive";
-  if (rated && bucket) return t("embed-analytics.list.jump-filtered", values);
+  if (search && !rated && !bucket)
+    return t("embed-analytics.search.jump", { ...values, term: search });
+  if ((rated && bucket) || search)
+    return t("embed-analytics.list.jump-filtered", values);
   if (rated) return t(`embed-analytics.list.jump-${feedbackFilter}`, values);
   if (bucket)
     return t("embed-analytics.list.jump-bucket", {
@@ -342,6 +370,7 @@ function Header({
   viewableCount,
   feedbackFilter,
   bucket,
+  search,
   onJumpToList,
   startDate,
   endDate,
@@ -392,7 +421,7 @@ function Header({
             onClick={onJumpToList}
             className={`text-sm ${MUTED} underline underline-offset-2 hover:text-theme-text-primary`}
           >
-            {jumpText(t, viewableCount, feedbackFilter, bucket)}
+            {jumpText(t, viewableCount, feedbackFilter, bucket, search)}
             <span aria-hidden="true"> ↓</span>
           </button>
         )}

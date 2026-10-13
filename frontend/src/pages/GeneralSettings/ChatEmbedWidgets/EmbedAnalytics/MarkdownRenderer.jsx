@@ -5,6 +5,7 @@ import { CaretDown } from "@phosphor-icons/react";
 import "highlight.js/styles/github-dark.css";
 import DOMPurify from "@/utils/chat/purify";
 import { useTranslation } from "react-i18next";
+import { highlightTextNodes, searchPattern } from "@/utils/conversationView";
 
 const md = new MarkdownIt({
   html: true,
@@ -39,7 +40,9 @@ const ThoughtBubble = ({ thought }) => {
           weight="bold"
           className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}
         />
-        <span className="text-xs font-medium">{t("chat-row.view-thoughts")}</span>
+        <span className="text-xs font-medium">
+          {t("chat-row.view-thoughts")}
+        </span>
       </div>
       {isExpanded && (
         <div className="bg-theme-bg-chat-input rounded-md p-3 border-l-2 border-theme-text-secondary/30">
@@ -68,7 +71,29 @@ function parseContent(content) {
   return parts;
 }
 
-export default function MarkdownRenderer({ content }) {
+/**
+ * Bereinigtes HTML einer Antwort, die Treffer der Suche als <mark> markiert.
+ * Hervorgehoben wird nach dem Bereinigen in einem inaktiven Dokument
+ * (DOMParser: keine Skripte, keine Ladevorgänge) und nur in Textknoten – aus
+ * Nutzertext entsteht kein HTML. Das Ergebnis wird noch einmal bereinigt.
+ * @param {string} html - gerendertes Markdown
+ * @param {string} highlight - Suchbegriff ("" = keine Hervorhebung)
+ * @returns {string}
+ */
+function sanitizedHtml(html, highlight) {
+  const clean = DOMPurify.sanitize(html);
+  if (!searchPattern(highlight) || typeof DOMParser === "undefined")
+    return clean;
+  const doc = new DOMParser().parseFromString(clean, "text/html");
+  if (highlightTextNodes(doc.body, highlight, doc) === 0) return clean;
+  return DOMPurify.sanitize(doc.body.innerHTML);
+}
+
+/**
+ * @param {{content: string, highlight?: string}} props - highlight:
+ *   Suchbegriff, dessen Treffer hervorgehoben werden (Konversationen-Ansicht)
+ */
+export default function MarkdownRenderer({ content, highlight = "" }) {
   if (!content) return null;
 
   const parts = parseContent(content);
@@ -81,7 +106,9 @@ export default function MarkdownRenderer({ content }) {
         return (
           <div
             key={index}
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
+            dangerouslySetInnerHTML={{
+              __html: sanitizedHtml(html, highlight),
+            }}
           />
         );
       })}

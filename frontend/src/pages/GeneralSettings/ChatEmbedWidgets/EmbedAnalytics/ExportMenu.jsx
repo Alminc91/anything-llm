@@ -6,8 +6,8 @@ import Embed from "@/models/embed";
 import showToast from "@/utils/toast";
 
 // KIE-538: „Exportieren" in der Kopfzeile der Konversationsliste. Exportiert
-// wird, was die Liste gerade zeigt – Widget, Zeitraum, Feedback-Filter und
-// der Abschnitt aus dem Diagramm –, über alle Seiten.
+// wird, was die Liste gerade zeigt – Widget, Zeitraum, Feedback-Filter, der
+// Abschnitt aus dem Diagramm und der Suchbegriff –, über alle Seiten.
 
 const FORMATS = [
   { format: "csv", labelKey: "embed-analytics.export.csv" },
@@ -21,6 +21,7 @@ const FORMATS = [
  * @param {string|null} props.endDate
  * @param {"all"|"negative"|"positive"} props.feedbackFilter
  * @param {{start: string, end: string}|null} [props.bucket] - Abschnitt aus dem Diagramm
+ * @param {string} [props.search] - Suchbegriff der Liste ("" = keine Suche)
  * @param {boolean} [props.disabled] - nichts zu exportieren (Liste leer oder lädt)
  * @param {string} [props.className] - Aussehen der Schaltfläche (wie die Filter daneben)
  */
@@ -30,6 +31,7 @@ export default function ExportMenu({
   endDate,
   feedbackFilter = "all",
   bucket = null,
+  search = "",
   disabled = false,
   className = "",
 }) {
@@ -69,6 +71,7 @@ export default function ExportMenu({
         startedBetween: bucket
           ? { fromDay: bucket.start, toDay: bucket.end }
           : null,
+        search,
       }
     );
     setRunning(false);

@@ -1,17 +1,21 @@
-import { useEffect, useState } from "react";
-import { Trash, Warning, X } from "@phosphor-icons/react";
+import { useCallback, useEffect, useState } from "react";
+import { Warning, X } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import ModalWrapper from "@/components/ModalWrapper";
 import Embed from "@/models/embed";
 import { formatNumber } from "@/utils/analyticsTimeline";
 import showToast from "@/utils/toast";
 
-// KIE-538: „Konversation löschen" am Fuß einer aufgeklappten Konversation –
-// etwa bei der Löschanfrage eines Besuchers. Gelöscht wird die ganze
-// Konversation, nach einer Rückfrage mit erster Frage und Zahl der
-// Nachrichten. Hat derselbe Browser in diesem Widget weitere Konversationen,
-// lassen sich alle auf einmal löschen (AK-12). Kennzahlen, Diagramm und
-// Kontingent bleiben unverändert: Sie kommen aus dem Zählerbuch.
+// KIE-538: „Konversation löschen" – etwa bei der Löschanfrage eines
+// Besuchers. Gelöscht wird die ganze Konversation, nach einer Rückfrage mit
+// erster Frage und Zahl der Nachrichten. Hat derselbe Browser in diesem
+// Widget weitere Konversationen, lassen sich alle auf einmal löschen (AK-12).
+// Kennzahlen, Diagramm und Kontingent bleiben unverändert: Sie kommen aus dem
+// Zählerbuch.
+//
+// Konversationen-Ansicht: Die Schaltflächen stehen im Seitenpanel (Menü „⋯"
+// und Fußzeile); dieses Modul liefert Vorschau, Rückfragen und das Löschen
+// (useConversationDeletion).
 
 const QUESTION_MAX_LENGTH = 80;
 
@@ -25,35 +29,40 @@ function shortQuestion(text) {
     : line;
 }
 
-const ACTION_CLASS =
-  "inline-flex max-w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-xs text-theme-text-secondary transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text";
-
 /**
+ * Löschen einer Konversation (und aller Konversationen ihres Besuchers) mit
+ * Rückfrage.
  * @param {Object} props
  * @param {number} props.embedId
- * @param {{first_chat_id: number, preview?: string, message_count: number}} props.conversation - Eintrag der Liste
- * @param {() => void} props.onDeleted - nach dem Löschen (auch nach einem Fehlschlag: Die Liste lädt dann den tatsächlichen Stand)
+ * @param {{first_chat_id: number, preview?: string, message_count: number}|null} props.conversation -
+ *   first_chat_id: id einer Zeile der Konversation; null, solange sie nicht
+ *   geladen ist
+ * @param {() => void} props.onDeleted - nach dem Löschen (auch nach einem
+ *   Fehlschlag: Die Liste lädt dann den tatsächlichen Stand)
+ * @returns {{offerVisitor: boolean, openDialog: (kind: "conversation"|"visitor") => void, dialog: React.ReactNode}}
  */
-export default function DeleteConversation({
+export function useConversationDeletion({
   embedId,
   conversation,
   onDeleted = () => {},
 }) {
   const { t } = useTranslation();
-  // Was das Löschen entfernen würde: { messageCount, visitor } – nur Zahlen
-  const [preview, setPreview] = useState(null);
+  // Was das Löschen entfernen würde: { messageCount, visitor } – nur Zahlen,
+  // je Konversation (chatId) gemerkt.
+  const [preview, setPreview] = useState({ chatId: null, data: null });
   // offene Rückfrage: null | "conversation" | "visitor"
   const [dialog, setDialog] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  // Die Karte der Liste: ihre erste Zeile. Die conversation_id vergibt der
+  // Die Konversation: eine ihrer Zeilen. Die conversation_id vergibt der
   // Besucher, eine zweite Sitzung kann dieselbe tragen.
-  const chatId = conversation.first_chat_id;
+  const chatId = conversation?.first_chat_id ?? null;
 
   useEffect(() => {
+    if (!chatId) return;
     let ignore = false;
     async function loadPreview() {
       const data = await Embed.getConversationDeletionPreview(embedId, chatId);
-      if (!ignore && data?.success) setPreview(data);
+      if (!ignore && data?.success) setPreview({ chatId, data });
     }
     loadPreview();
     return () => {
@@ -61,15 +70,16 @@ export default function DeleteConversation({
     };
   }, [embedId, chatId]);
 
+  const current = preview.chatId === chatId ? preview.data : null;
   // Die Liste zählt nur einsehbare Nachrichten im Zeitraum; gelöscht wird die
   // ganze Konversation – die Rückfrage nennt die Zahl vom Server.
-  const messageCount = preview?.messageCount ?? conversation.message_count;
-  const visitor = preview?.visitor ?? null;
+  const messageCount = current?.messageCount ?? conversation?.message_count;
+  const visitor = current?.visitor ?? null;
   const offerVisitor = (visitor?.conversationCount ?? 0) > 1;
 
-  const close = () => {
+  const close = useCallback(() => {
     if (!deleting) setDialog(null);
-  };
+  }, [deleting]);
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -106,70 +116,56 @@ export default function DeleteConversation({
         "success"
       );
     }
-    onDeleted();
+    onDeleted({ deleted });
   };
 
-  return (
-    <div
-      data-conversation-actions=""
-      className="mt-5 flex flex-wrap justify-end gap-x-4 gap-y-1 border-t border-white/10 pt-3 light:border-gray-200"
-    >
-      {offerVisitor && (
-        <button
-          type="button"
-          data-delete-visitor=""
-          onClick={() => setDialog("visitor")}
-          className={ACTION_CLASS}
-        >
-          <Trash size={14} aria-hidden="true" className="shrink-0" />
-          {t("embed-analytics.delete.visitor")}
-        </button>
-      )}
-      <button
-        type="button"
-        data-delete-conversation=""
-        onClick={() => setDialog("conversation")}
-        className={ACTION_CLASS}
-      >
-        <Trash size={14} aria-hidden="true" className="shrink-0" />
-        {t("embed-analytics.delete.conversation")}
-      </button>
-
-      {dialog === "conversation" && (
-        <ConfirmDialog
-          title={t("embed-analytics.delete.confirm-title")}
-          deleting={deleting}
-          onConfirm={handleDelete}
-          onCancel={close}
-        >
-          <Question text={conversation.preview} />
-          <p>
-            {t("embed-analytics.delete.confirm-count", {
-              count: messageCount,
-              formatted: formatNumber(messageCount),
-            })}
-          </p>
-        </ConfirmDialog>
-      )}
-      {dialog === "visitor" && visitor && (
-        <ConfirmDialog
-          title={t("embed-analytics.delete.visitor-title")}
-          deleting={deleting}
-          onConfirm={handleDelete}
-          onCancel={close}
-        >
-          <p>
-            {t("embed-analytics.delete.visitor-count", {
-              count: visitor.conversationCount,
-              conversations: formatNumber(visitor.conversationCount),
-              messages: formatNumber(visitor.messageCount),
-            })}
-          </p>
-          <p>{t("embed-analytics.delete.visitor-note")}</p>
-        </ConfirmDialog>
-      )}
-    </div>
+  const openDialog = useCallback(
+    (kind) => {
+      if (!chatId) return;
+      if (kind === "visitor" && !offerVisitor) return;
+      setDialog(kind);
+    },
+    [chatId, offerVisitor]
   );
+
+  let element = null;
+  if (dialog === "conversation" && conversation)
+    element = (
+      <ConfirmDialog
+        title={t("embed-analytics.delete.confirm-title")}
+        deleting={deleting}
+        onConfirm={handleDelete}
+        onCancel={close}
+      >
+        <Question text={conversation.preview} />
+        <p>
+          {t("embed-analytics.delete.confirm-count", {
+            count: messageCount,
+            formatted: formatNumber(messageCount),
+          })}
+        </p>
+      </ConfirmDialog>
+    );
+  else if (dialog === "visitor" && visitor)
+    element = (
+      <ConfirmDialog
+        title={t("embed-analytics.delete.visitor-title")}
+        deleting={deleting}
+        onConfirm={handleDelete}
+        onCancel={close}
+      >
+        <p>
+          {t("embed-analytics.delete.visitor-count", {
+            count: visitor.conversationCount,
+            conversations: formatNumber(visitor.conversationCount),
+            messages: formatNumber(visitor.messageCount),
+          })}
+        </p>
+        <p>{t("embed-analytics.delete.visitor-note")}</p>
+      </ConfirmDialog>
+    );
+
+  return { offerVisitor, openDialog, dialog: element };
 }
 
 /** Die erste Frage der Konversation, damit die richtige gelöscht wird. */
