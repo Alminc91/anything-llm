@@ -1,11 +1,16 @@
-// KIE-536: Datumsauswahl in schmalen Fenstern. Unter 640 px Fensterbreite
-// zeigt das Popover einen Kalendermonat und richtet sich am Fenster aus; ab
-// 640 px bleibt es, wie es war. Die Komponente ist mit React DOM in ein
-// Dokument ohne Browser eingehängt (helpers/renderSettingsPage.mjs, mount).
+// KIE-536: Datumsauswahl bei wenig Platz. Über das Layout des Popovers
+// entscheidet der Bereich, in dem es zu sehen ist – das Fenster, eingeengt
+// durch scrollende oder beschneidende Vorfahren (neben der Einstellungs-Sidebar
+// bleibt nur der Inhaltsbereich): Passt das breite Popover (zwei
+// Kalendermonate, 580 px) mit 8 px Rand hinein, bleibt es, wie es war; sonst
+// zeigt es einen Kalendermonat und richtet sich am sichtbaren Bereich aus. Die
+// Komponente ist mit React DOM in ein Dokument ohne Browser eingehängt
+// (helpers/renderSettingsPage.mjs, mount).
 //
 // Ohne Browser gibt es kein Layout: Geprüft werden Struktur, Klassen und die
-// berechnete Lage. Ob das Popover bei 390 px tatsächlich ganz im Fenster
-// steht und die Seite nicht waagerecht scrollt, zeigt der Browser-Test.
+// berechnete Lage; Fensterbreite, Lage des Auslösers und der Rahmen der Seite
+// sind vorgegeben. Ob das Popover tatsächlich ganz zu sehen ist und die Seite
+// nicht waagerecht scrollt, zeigt der Browser-Test.
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -22,6 +27,10 @@ const skip = hasFrontendDeps
 // Popover der Datumsauswahl auf master (vor KIE-536)
 const WIDE_CLASS =
   "absolute right-0 top-full mt-2 z-50 bg-theme-bg-secondary border border-white/10 rounded-xl shadow-2xl p-4 min-w-[580px]";
+// Breite des Auslösers
+const TRIGGER_WIDTH = 240;
+// Die Einstellungs-Sidebar: Der Rahmen der Seite beginnt rechts von ihr.
+const SIDEBAR = 290;
 // Ein eigener Zeitraum (Montag bis Freitag), der an keinem künftigen Tag einer
 // Vorauswahl entspricht – die Beschriftungen hängen so nicht vom Datum ab.
 const START = new Date(2026, 8, 14);
@@ -36,29 +45,18 @@ after(async () => {
 });
 
 /**
- * Ein Fenster mit dieser Breite: matchMedia für die Schwelle 640 px, die
- * Breite des Dokuments und die resize-Ereignisse. resize(width) ändert sie.
+ * Ein Fenster mit dieser Breite: die Breite des Dokuments und die
+ * resize-Ereignisse. resize(width) ändert sie. matchMedia gibt es nicht –
+ * die Fensterbreite allein entscheidet nichts.
  */
 function windowOf(t, initialWidth) {
   const original = {
-    matchMedia: window.matchMedia,
     addEventListener: window.addEventListener,
     removeEventListener: window.removeEventListener,
   };
+  assert.equal(window.matchMedia, undefined);
   let width = initialWidth;
-  const mediaListeners = new Set();
   const resizeListeners = new Set();
-  const media = {
-    get matches() {
-      return width >= 640;
-    },
-    addEventListener: (_type, listener) => mediaListeners.add(listener),
-    removeEventListener: (_type, listener) => mediaListeners.delete(listener),
-  };
-  window.matchMedia = (query) => {
-    assert.equal(query, "(min-width: 640px)");
-    return media;
-  };
   window.addEventListener = (type, listener) => {
     if (type === "resize") resizeListeners.add(listener);
   };
@@ -75,18 +73,21 @@ function windowOf(t, initialWidth) {
       document.documentElement.clientWidth = width;
     },
     resize(next) {
-      const crossed = width >= 640 !== next >= 640;
       width = next;
       document.documentElement.clientWidth = width;
-      if (crossed) for (const listener of [...mediaListeners]) listener(media);
       for (const listener of [...resizeListeners]) listener();
     },
-    listeners: () => mediaListeners.size + resizeListeners.size,
+    listeners: () => resizeListeners.size,
   };
 }
 
-/** Hängt die Datumsauswahl ein; der Auslöser steht anchorLeft px vom Fensterrand. */
-async function mountPicker(t, { anchorLeft = 0, view = null } = {}) {
+/**
+ * Hängt die Datumsauswahl ein; der Auslöser (240 px breit) steht anchorLeft px
+ * vom Fensterrand. frame: der Rahmen der Seite, { left, width } – er scrollt,
+ * nur was in ihm liegt, ist zu sehen (wie neben der Einstellungs-Sidebar).
+ * anchor und frame lassen sich danach ändern (mit dem Fenster wandern sie).
+ */
+async function mountPicker(t, { anchorLeft = 0, view = null, frame } = {}) {
   const changes = [];
   const mounted = await renderer.mount(PICKER, {
     location: "/settings/chatbot/conversations",
@@ -100,7 +101,24 @@ async function mountPicker(t, { anchorLeft = 0, view = null } = {}) {
   view?.apply();
   const { container } = mounted;
   const wrapper = container.firstChild;
-  wrapper.getBoundingClientRect = () => ({ left: anchorLeft, width: 240 });
+  const anchor = { left: anchorLeft };
+  wrapper.getBoundingClientRect = () => ({
+    left: anchor.left,
+    right: anchor.left + TRIGGER_WIDTH,
+    width: TRIGGER_WIDTH,
+  });
+  if (frame) {
+    wrapper.parentElement = {
+      parentElement: null,
+      clientLeft: 0,
+      get clientWidth() {
+        return frame.width;
+      },
+      getBoundingClientRect: () => ({ left: frame.left }),
+    };
+    window.getComputedStyle = () => ({ overflowX: "auto" });
+    t.after(() => delete window.getComputedStyle);
+  }
   const classOf = (element) => element.getAttribute("class") ?? "";
   const withClass = (name) =>
     elements(container, (element) =>
@@ -109,6 +127,7 @@ async function mountPicker(t, { anchorLeft = 0, view = null } = {}) {
   return {
     ...mounted,
     changes,
+    anchor,
     classOf,
     buttons: () =>
       elements(container, (element) => element.tagName === "BUTTON"),
@@ -123,8 +142,33 @@ async function mountPicker(t, { anchorLeft = 0, view = null } = {}) {
   };
 }
 
+/** Das breite Popover, wie es auf master war: Klassen, zwei Monate. */
+function assertWide(picker) {
+  const popover = picker.popover();
+  assert.equal(picker.classOf(popover), WIDE_CLASS);
+  assert.equal(popover.getAttribute("data-date-popover"), "wide");
+  for (const property of ["left", "width"])
+    assert.equal(popover.style[property] ?? "", "", property);
+  assert.equal(picker.months().length, 2);
+  assert.deepEqual(picker.captions(), ["August 2026", "September 2026"]);
+  assert.equal(picker.classOf(picker.calendar()), "rdp-theme-wrapper");
+}
+
+/** Das schmale Popover: ein Monat, keine Mindestbreite, eigene Lage. */
+function assertNarrow(picker, { left, width }) {
+  const popover = picker.popover();
+  assert.equal(popover.getAttribute("data-date-popover"), "narrow");
+  assert.doesNotMatch(picker.classOf(popover), /min-w-/);
+  assert.match(picker.classOf(popover), /max-w-\[calc\(100vw-16px\)\]/);
+  assert.equal(popover.style.left, left);
+  assert.equal(popover.style.width, width);
+  assert.equal(popover.style.right, "auto");
+  assert.equal(picker.months().length, 1);
+  assert.match(picker.classOf(picker.calendar()), /flex justify-center/);
+}
+
 test(
-  "Lage im schmalen Fenster: höchstens 320 px, nie breiter als der sichtbare Bereich abzüglich Rand, immer ganz darin",
+  "Lage des schmalen Popovers: höchstens 320 px, nie breiter als der sichtbare Bereich abzüglich Rand, immer ganz darin",
   { skip },
   async () => {
     const { narrowPopoverPlacement } = await renderer.load(PICKER);
@@ -156,35 +200,167 @@ test(
   }
 );
 
-for (const [name, width] of [
-  ["ohne matchMedia", null],
-  ["bei 640 px", 640],
-  ["bei 1440 px", 1440],
+test(
+  "Breit oder schmal entscheidet der sichtbare Bereich: breit, wenn 580 px mit 8 px Rand hineinpassen – sonst schmal",
+  { skip },
+  async () => {
+    const { popoverLayout } = await renderer.load(PICKER);
+    const layout = (anchorLeft, from, to) =>
+      popoverLayout({
+        anchorLeft,
+        anchorRight: anchorLeft + TRIGGER_WIDTH,
+        from,
+        to,
+      });
+    const wide = { narrow: false, style: undefined };
+
+    // Fenster 640 px mit Sidebar: 350 px sichtbar – schmal, ganz im Bereich
+    // (312–632 px)
+    assert.deepEqual(layout(315, SIDEBAR, 640), {
+      narrow: true,
+      style: { left: -3, width: 320, right: "auto" },
+    });
+    // Fenster 1440 px mit Sidebar: 1130 px sichtbar, Auslöser rechts – wie bisher
+    assert.deepEqual(layout(1160, SIDEBAR, 1420), wide);
+    // Fenster 900 px mit Sidebar: 610 px sichtbar. Auslöser rechts im Bereich:
+    // Das Popover (300–880 px) passt gerade, wie bisher.
+    assert.deepEqual(layout(640, SIDEBAR, 900), wide);
+    // 20 px weiter links ragte es links hinaus (280 px): nach rechts gerückt,
+    // bis der Rand von 8 px stimmt (298–878 px).
+    assert.deepEqual(layout(620, SIDEBAR, 900), {
+      narrow: false,
+      style: { right: -18 },
+    });
+    // 580 px sichtbar: Mit Rand passt es nicht mehr.
+    assert.deepEqual(layout(630, SIDEBAR, 870), {
+      narrow: true,
+      style: { left: -88, width: 320, right: "auto" },
+    });
+    // Die Grenze: 580 px und zweimal 8 px Rand
+    assert.equal(layout(300, 0, 596).narrow, false);
+    assert.equal(layout(300, 0, 595).narrow, true);
+    // Ohne Sidebar entscheidet dieselbe Regel (640 px: breit, 390 px: schmal).
+    assert.equal(layout(392, 0, 640).narrow, false);
+    assert.equal(layout(25, 0, 390).narrow, true);
+    // Ohne messbaren Bereich (kein Layout): wie bisher
+    assert.deepEqual(
+      popoverLayout({
+        anchorLeft: 0,
+        anchorRight: undefined,
+        from: 0,
+        to: undefined,
+      }),
+      wide
+    );
+
+    for (const from of [0, 64, SIDEBAR])
+      for (let available = 240; available <= 1200; available += 7)
+        for (
+          let anchorLeft = from;
+          anchorLeft <= from + available - TRIGGER_WIDTH;
+          anchorLeft += 13
+        ) {
+          const to = from + available;
+          const where = `sichtbar ${from}–${to} px, Auslöser bei ${anchorLeft} px`;
+          const { narrow, style } = layout(anchorLeft, from, to);
+          assert.equal(narrow, available < 596, where);
+          // linke und rechte Kante des Popovers im Fenster
+          const right = narrow
+            ? anchorLeft + style.left + style.width
+            : anchorLeft + TRIGGER_WIDTH - (style?.right ?? 0);
+          const left = narrow ? anchorLeft + style.left : right - 580;
+          assert.ok(left >= from + 8, where);
+          // Am Auslöser rechtsbündig steht es, wo der Auslöser steht.
+          assert.ok(right <= (narrow || style ? to - 8 : to), where);
+          if (!narrow && style) assert.equal(left, from + 8, where);
+        }
+  }
+);
+
+for (const [name, { width, anchorLeft, frame }] of [
+  ["ohne messbare Fensterbreite", { width: null, anchorLeft: 900 }],
+  [
+    "Fenster 1440 px mit Sidebar, 1130 px sichtbar",
+    { width: 1440, anchorLeft: 1160, frame: { left: SIDEBAR, width: 1130 } },
+  ],
+  [
+    "Fenster 900 px mit Sidebar, 610 px sichtbar – das Popover passt gerade",
+    { width: 900, anchorLeft: 640, frame: { left: SIDEBAR, width: 610 } },
+  ],
+  ["Fenster 640 px ohne Sidebar", { width: 640, anchorLeft: 392 }],
 ]) {
   test(
-    `Ab 640 px wie bisher (${name}): rechtsbündig, mindestens 580 px, zwei Kalendermonate – ohne eigene Lage`,
+    `Passt das breite Popover in den sichtbaren Bereich, bleibt es wie bisher (${name}): rechtsbündig, mindestens 580 px, zwei Kalendermonate – ohne eigene Lage`,
     { skip },
     async (t) => {
       const view = width === null ? null : windowOf(t, width);
-      const picker = await mountPicker(t, { anchorLeft: 900, view });
+      const picker = await mountPicker(t, { anchorLeft, view, frame });
       assert.equal(picker.trigger().textContent, "14.09.2026 - 18.09.2026");
       assert.equal(picker.popover(), null);
 
       await picker.act(() => click(picker.trigger()));
-      const popover = picker.popover();
-      assert.equal(picker.classOf(popover), WIDE_CLASS);
-      assert.equal(popover.getAttribute("data-date-popover"), "wide");
-      for (const property of ["left", "right", "width"])
-        assert.equal(popover.style[property], undefined, property);
-      assert.equal(picker.months().length, 2);
-      assert.deepEqual(picker.captions(), ["August 2026", "September 2026"]);
-      assert.equal(picker.classOf(picker.calendar()), "rdp-theme-wrapper");
+      assertWide(picker);
+      assert.equal(picker.popover().style.right, undefined);
     }
   );
 }
 
 test(
-  "Unter 640 px (390 px): ein Kalendermonat, keine Mindestbreite, am Fenster ausgerichtet; Vorauswahlen über dem Kalender, „Anwenden“ darunter",
+  "Fenster 640 px mit offener Sidebar (350 px sichtbar): schmal – ein Kalendermonat, ganz im sichtbaren Bereich statt unter der Sidebar",
+  { skip },
+  async (t) => {
+    const view = windowOf(t, 640);
+    const picker = await mountPicker(t, {
+      anchorLeft: 315,
+      view,
+      frame: { left: SIDEBAR, width: 350 },
+    });
+
+    await picker.act(() => click(picker.trigger()));
+    // 315 px − 3 px = 312 px vom linken Rand, 320 px breit: endet bei 632 px.
+    assertNarrow(picker, { left: "-3px", width: "320px" });
+    assert.deepEqual(picker.captions(), ["September 2026"]);
+  }
+);
+
+test(
+  "580 px sichtbar: Mit 8 px Rand passt das breite Popover nicht – schmal",
+  { skip },
+  async (t) => {
+    const view = windowOf(t, 870);
+    const picker = await mountPicker(t, {
+      anchorLeft: 630,
+      view,
+      frame: { left: SIDEBAR, width: 580 },
+    });
+
+    await picker.act(() => click(picker.trigger()));
+    // 630 px − 88 px = 542 px, 320 px breit: endet bei 862 px.
+    assertNarrow(picker, { left: "-88px", width: "320px" });
+  }
+);
+
+test(
+  "Fenster 900 px mit Sidebar, Auslöser weiter links: Das breite Popover rückt in den sichtbaren Bereich, statt unter der Sidebar zu liegen",
+  { skip },
+  async (t) => {
+    const view = windowOf(t, 900);
+    const picker = await mountPicker(t, {
+      anchorLeft: 315,
+      view,
+      frame: { left: SIDEBAR, width: 610 },
+    });
+
+    await picker.act(() => click(picker.trigger()));
+    // Rechtsbündig am Auslöser (555 px) begänne es bei −25 px; 323 px nach
+    // rechts gerückt steht es bei 298–878 px.
+    assertWide(picker);
+    assert.equal(picker.popover().style.right, "-323px");
+  }
+);
+
+test(
+  "Fenster 390 px: ein Kalendermonat, keine Mindestbreite, am Fenster ausgerichtet; Vorauswahlen über dem Kalender, „Anwenden“ darunter",
   { skip },
   async (t) => {
     const view = windowOf(t, 390);
@@ -192,18 +368,10 @@ test(
 
     await picker.act(() => click(picker.trigger()));
     const popover = picker.popover();
-    assert.equal(popover.getAttribute("data-date-popover"), "narrow");
-    assert.doesNotMatch(picker.classOf(popover), /min-w-/);
-    assert.match(picker.classOf(popover), /max-w-\[calc\(100vw-16px\)\]/);
     // 200 px + (−138 px) = 62 px vom linken Rand, 320 px breit: endet bei 382 px.
-    assert.equal(popover.style.left, "-138px");
-    assert.equal(popover.style.width, "320px");
-    assert.equal(popover.style.right, "auto");
-
-    assert.equal(picker.months().length, 1);
+    assertNarrow(picker, { left: "-138px", width: "320px" });
     // der Monat, in dem der Zeitraum beginnt
     assert.deepEqual(picker.captions(), ["September 2026"]);
-    assert.match(picker.classOf(picker.calendar()), /flex justify-center/);
 
     // Reihenfolge im Popover: Vorauswahlen, Kalender, „Anwenden“
     const inPopover = elements(popover);
@@ -243,53 +411,68 @@ test(
 );
 
 test(
-  "Unter 640 px: Die Lage folgt dem Fenster – 320 px, Größenänderung, über die Schwelle und zurück",
+  "Layout und Lage folgen dem sichtbaren Bereich – beim Öffnen und bei jeder Größenänderung: Fenster, Rahmen der Seite, breit und zurück",
   { skip },
   async (t) => {
     const view = windowOf(t, 320);
-    const picker = await mountPicker(t, { anchorLeft: 25, view });
+    const frame = { left: 0, width: 320 };
+    const picker = await mountPicker(t, { anchorLeft: 25, view, frame });
+    const resize = (width, frameWidth = width - frame.left) =>
+      picker.act(() => {
+        frame.width = frameWidth;
+        view.resize(width);
+      });
+    // Geschlossen lauscht nichts.
+    assert.equal(view.listeners(), 0);
 
     await picker.act(() => click(picker.trigger()));
-    assert.equal(picker.popover().style.left, "-17px");
-    assert.equal(picker.popover().style.width, "304px");
-    assert.equal(picker.months().length, 1);
+    assert.equal(view.listeners(), 1);
+    assertNarrow(picker, { left: "-17px", width: "304px" });
 
-    await picker.act(() => view.resize(500));
+    await resize(500);
     // linksbündig am Auslöser (React schreibt 0 ohne Einheit)
-    assert.equal(picker.popover().style.left, "0");
-    assert.equal(picker.popover().style.width, "320px");
+    assertNarrow(picker, { left: "0", width: "320px" });
+    assert.deepEqual(picker.captions(), ["September 2026"]);
 
-    // über die Schwelle: wie bisher
-    await picker.act(() => view.resize(800));
-    assert.equal(picker.classOf(picker.popover()), WIDE_CLASS);
-    assert.equal(picker.popover().style.width, "");
-    assert.equal(picker.popover().style.left, "");
-    assert.equal(picker.months().length, 2);
+    // Das Fenster ist breit genug, der Rahmen der Seite (Scrollleiste) lässt
+    // aber nur 595 px: weiter schmal.
+    await resize(610, 595);
+    assertNarrow(picker, { left: "0", width: "320px" });
 
-    // und zurück
-    await picker.act(() => view.resize(390));
-    assert.equal(picker.popover().style.width, "320px");
-    assert.equal(picker.months().length, 1);
+    // 596 px: breit – mit den Monaten, die es frisch geöffnet zeigt (nicht
+    // September und der noch gesperrte Oktober). Rechtsbündig am Auslöser
+    // (265 px) ragte es links hinaus: Es rückt in den sichtbaren Bereich
+    // (8–588 px).
+    await resize(611, 596);
+    assertWide(picker);
+    assert.equal(picker.popover().style.right, "-323px");
 
-    // Der Rahmen der Seite scrollt und ist schmaler als das Fenster
-    // (Scrollleiste): Das Popover richtet sich nach ihm.
-    const frame = {
-      parentElement: null,
-      clientLeft: 0,
-      clientWidth: 300,
-      getBoundingClientRect: () => ({ left: 0 }),
-    };
-    picker.container.firstChild.parentElement = frame;
-    window.getComputedStyle = () => ({ overflowX: "auto" });
-    t.after(() => delete window.getComputedStyle);
-    await picker.act(() => view.resize(330));
-    assert.equal(picker.popover().style.left, "-17px");
-    assert.equal(picker.popover().style.width, "284px");
+    // Mit dem Fenster wandert der Auslöser nach rechts: wie bisher.
+    picker.anchor.left = 1160;
+    await resize(1440);
+    assertWide(picker);
+    assert.equal(picker.popover().style.right, "");
 
-    // Geschlossen lauscht nur noch die Schwelle.
+    // Die Sidebar nimmt dem Rahmen den Platz (Fenster 640 px, 350 px sichtbar).
+    frame.left = SIDEBAR;
+    picker.anchor.left = 315;
+    await resize(640);
+    assertNarrow(picker, { left: "-3px", width: "320px" });
+    assert.deepEqual(picker.captions(), ["September 2026"]);
+
+    // Geschlossen und wieder geöffnet wird neu vermessen.
     await picker.act(() => click(picker.trigger()));
     assert.equal(picker.popover(), null);
-    assert.equal(view.listeners(), 1);
+    assert.equal(view.listeners(), 0);
+    frame.left = 0;
+    frame.width = 1440;
+    view.resize(1440);
+    picker.anchor.left = 1160;
+    await picker.act(() => click(picker.trigger()));
+    assertWide(picker);
+    assert.equal(picker.popover().style.right, undefined);
+    assert.deepEqual(picker.captions(), ["August 2026", "September 2026"]);
+
     await picker.unmount();
     assert.equal(view.listeners(), 0);
   }

@@ -137,19 +137,19 @@ const PRESET_KEYS = [
   "all",
 ];
 
-// Ab dieser Fensterbreite (Tailwind „sm") steht das Popover wie bisher:
-// rechtsbündig am Auslöser, mindestens 580 px breit, zwei Kalendermonate.
-// Darunter (KIE-536): ein Monat, höchstens so breit wie der sichtbare Bereich.
-const WIDE_QUERY = "(min-width: 640px)";
-// Schmales Popover: ein Kalendermonat (7 × 36 px) mit Innenabstand und Rand
+// Breites Popover (wie bisher): zwei Kalendermonate, rechtsbündig am Auslöser,
+// so breit wie seine Mindestbreite (min-w-[580px]) – der Inhalt ist schmaler.
+const WIDE_POPOVER_WIDTH = 580;
+// Schmales Popover (KIE-536): ein Kalendermonat (7 × 36 px) mit Innenabstand
+// und Rand, höchstens so breit wie der sichtbare Bereich.
 const NARROW_POPOVER_WIDTH = 320;
-// Abstand des schmalen Popovers zum Rand des sichtbaren Bereichs
-const NARROW_POPOVER_MARGIN = 8;
+// Abstand des Popovers zum Rand des sichtbaren Bereichs
+const POPOVER_MARGIN = 8;
 
 /**
- * Lage des Popovers in einem schmalen Fenster: höchstens so breit wie der
- * sichtbare Bereich abzüglich Rand, linksbündig am Auslöser – und so weit
- * verschoben, dass es ganz im sichtbaren Bereich bleibt.
+ * Lage des schmalen Popovers: höchstens so breit wie der sichtbare Bereich
+ * abzüglich Rand, linksbündig am Auslöser – und so weit verschoben, dass es
+ * ganz im sichtbaren Bereich bleibt.
  * @param {{anchorLeft: number, from: number, to: number}} params - linke Kante
  *   des Auslösers und sichtbarer Bereich (visibleRange), in px ab dem
  *   linken Fensterrand
@@ -158,13 +158,43 @@ const NARROW_POPOVER_MARGIN = 8;
 export function narrowPopoverPlacement({ anchorLeft, from, to }) {
   const width = Math.max(
     0,
-    Math.min(NARROW_POPOVER_WIDTH, to - from - 2 * NARROW_POPOVER_MARGIN)
+    Math.min(NARROW_POPOVER_WIDTH, to - from - 2 * POPOVER_MARGIN)
   );
   const left = Math.max(
-    from + NARROW_POPOVER_MARGIN,
-    Math.min(anchorLeft, to - NARROW_POPOVER_MARGIN - width)
+    from + POPOVER_MARGIN,
+    Math.min(anchorLeft, to - POPOVER_MARGIN - width)
   );
   return { left: left - anchorLeft, width };
+}
+
+/**
+ * Breit oder schmal? Es entscheidet der Bereich, in dem das Popover zu sehen
+ * ist (visibleRange), nicht die Fensterbreite: Neben der Einstellungs-Sidebar
+ * bleibt vom Fenster nur der Inhaltsbereich. Passt das breite Popover mit
+ * Rand hinein, steht es wie bisher rechtsbündig am Auslöser (ohne eigene
+ * Lage); ragte es dabei links aus dem Bereich, rückt es so weit nach rechts,
+ * dass es ganz darin steht. Sonst gilt das schmale Popover.
+ * Ohne messbaren Bereich (kein Layout) bleibt es beim breiten Popover.
+ * @param {{anchorLeft: number, anchorRight: number, from: number, to: number}} params -
+ *   linke und rechte Kante des Auslösers und sichtbarer Bereich, in px ab
+ *   dem linken Fensterrand
+ * @returns {{narrow: boolean, style: object|undefined}} - style: Lage des
+ *   Popovers, soweit sie von seinen Klassen abweicht
+ */
+export function popoverLayout({ anchorLeft, anchorRight, from, to }) {
+  if (to - from < WIDE_POPOVER_WIDTH + 2 * POPOVER_MARGIN)
+    return {
+      narrow: true,
+      style: {
+        ...narrowPopoverPlacement({ anchorLeft, from, to }),
+        right: "auto",
+      },
+    };
+  const overhang = from + POPOVER_MARGIN - (anchorRight - WIDE_POPOVER_WIDTH);
+  return {
+    narrow: false,
+    style: overhang > 0 ? { right: -overhang } : undefined,
+  };
 }
 
 /**
@@ -187,22 +217,6 @@ function visibleRange(element) {
   return { from, to };
 }
 
-/** Ist das Fenster schmaler als 640 px? Folgt Änderungen der Fensterbreite. */
-function useNarrowWindow() {
-  const [narrow, setNarrow] = useState(
-    () => !(window.matchMedia?.(WIDE_QUERY).matches ?? true)
-  );
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const wide = window.matchMedia(WIDE_QUERY);
-    const update = () => setNarrow(!wide.matches);
-    update();
-    wide.addEventListener("change", update);
-    return () => wide.removeEventListener("change", update);
-  }, []);
-  return narrow;
-}
-
 /**
  * Chatbase-inspired DateRange picker with preset dropdown + dual calendar.
  *
@@ -214,8 +228,10 @@ function useNarrowWindow() {
 export default function DateRangePicker({ startDate, endDate, onChange }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const narrow = useNarrowWindow();
-  const [narrowPlacement, setNarrowPlacement] = useState(null);
+  // Layout und Lage des offenen Popovers (popoverLayout); null, solange es
+  // geschlossen oder noch nicht vermessen ist.
+  const [layout, setLayout] = useState(null);
+  const narrow = layout?.narrow ?? false;
   const wrapperRef = useRef(null);
   const [presetDropdownOpen, setPresetDropdownOpen] = useState(false);
   const [calendarRange, setCalendarRange] = useState({
@@ -240,24 +256,31 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
     }
   }, [open, startDate, endDate]);
 
-  // Schmales Fenster: Das Popover wird am sichtbaren Bereich ausgerichtet,
-  // nicht am Auslöser – sonst ragte es links oder rechts hinaus.
+  // Beim Öffnen und bei jeder Größenänderung des Fensters wird der sichtbare
+  // Bereich vermessen: Er entscheidet über ein oder zwei Kalendermonate und
+  // über die Lage. Das Popover erscheint erst vermessen – der Kalender zeigt
+  // so von Anfang an den richtigen Monat.
   useLayoutEffect(() => {
-    if (!open || !narrow) return;
+    if (!open) return;
     function place() {
       const wrapper = wrapperRef.current;
       if (!wrapper) return;
-      setNarrowPlacement(
-        narrowPopoverPlacement({
-          anchorLeft: wrapper.getBoundingClientRect().left,
+      const { left, right } = wrapper.getBoundingClientRect();
+      setLayout(
+        popoverLayout({
+          anchorLeft: left,
+          anchorRight: right,
           ...visibleRange(wrapper),
         })
       );
     }
     place();
     window.addEventListener("resize", place);
-    return () => window.removeEventListener("resize", place);
-  }, [open, narrow]);
+    return () => {
+      window.removeEventListener("resize", place);
+      setLayout(null);
+    };
+  }, [open]);
 
   // Click outside to close
   useEffect(() => {
@@ -338,16 +361,12 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
       </button>
 
       {/* Popover */}
-      {open && (
+      {open && layout && (
         <div
           ref={popoverRef}
           data-date-popover={narrow ? "narrow" : "wide"}
           className={`absolute right-0 top-full mt-2 z-50 bg-theme-bg-secondary border border-white/10 rounded-xl shadow-2xl p-4 ${narrow ? "max-w-[calc(100vw-16px)]" : "min-w-[580px]"}`}
-          style={
-            narrow && narrowPlacement
-              ? { ...narrowPlacement, right: "auto" }
-              : undefined
-          }
+          style={layout.style}
         >
           {/* Preset Dropdown */}
           <div className="relative mb-3">
@@ -392,11 +411,14 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
           {/* Divider */}
           <div className="h-px bg-white/10 mb-3" />
 
-          {/* Dual Calendar – im schmalen Fenster ein Monat, mittig */}
+          {/* Dual Calendar – im schmalen Popover ein Monat, mittig */}
           <div
             className={`rdp-theme-wrapper${narrow ? " flex justify-center" : ""}`}
           >
+            {/* key: Wechselt das Layout bei offenem Popover, beginnt der
+                Kalender wie frisch geöffnet (defaultMonth gilt nur anfangs). */}
             <DayPicker
+              key={narrow ? "narrow" : "wide"}
               mode="range"
               locale={de}
               weekStartsOn={1}
