@@ -38,7 +38,8 @@ import {
 // liegen als gepunktete Linie über den Säulen – gerade von Wert zu Wert, in
 // der Textfarbe des Themes, nicht in einer zweiten Akzentfarbe. Die Säulen
 // bleiben das Hauptelement. Mit zwei Serien gibt es eine Legende; Säule und
-// gepunktete Linie mit Punktmarken unterscheiden sich auch ohne Farbe.
+// gepunktete Linie mit Punktmarken an ihren Werten unterscheiden sich auch
+// ohne Farbe.
 // Tooltip und Tabelle nennen den zweiten Wert – der Tooltip mit dem Abschnitt
 // des Vorzeitraums, zu dem er gehört. Gibt es keinen Vergleich
 // (der Vorzeitraum beginnt vor dem ersten Zählwert), steht das am Diagramm,
@@ -426,9 +427,13 @@ function Columns({
         max: scale.max,
       })
     : null;
-  // Punktmarken nur, solange sie einander nicht berühren.
+  // Punktmarken nur, solange sie einander nicht berühren – und nur an Plätzen
+  // mit einem Wert im Vorzeitraum: Durch die Nullwerte läuft die gepunktete
+  // Linie ohne Marke weiter. Sonst stünde auf der Grundlinie eine dichte
+  // Punktreihe (24 Stunden, die meisten ohne Nachricht).
   const showMarkers =
     !!line && (columns[0]?.width ?? 0) >= PREVIOUS_LINE.markerMinSlot;
+  const hasMarker = (i) => showMarkers && previousValues[i] > 0;
   const ticks = buckets.map((bucket) =>
     bucketTick(bucket, granularity, context)
   );
@@ -701,8 +706,10 @@ function Columns({
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
+              {/* Der angesteuerte Platz zeigt seine Marke immer – auch
+                  bei 0 und zwischen dicht stehenden Plätzen. */}
               {line.map((point, i) =>
-                showMarkers || i === active ? (
+                hasMarker(i) || i === active ? (
                   <circle
                     key={i}
                     data-previous-marker=""

@@ -30,8 +30,8 @@ export const TOOLTIP_GAP = 8;
 const TOOLTIP_CHAR_WIDTH = 6.5;
 const TOOLTIP_PADDING = 22;
 // Linie des Vorzeitraums (KIE-537): gepunktet (runde Punkte im Abstand von
-// 5 px), mit einer Punktmarke je Wert – solange die Säulenplätze breit genug
-// sind, dass die Marken einander nicht berühren.
+// 5 px), mit einer Punktmarke je Wert über 0 – solange die Säulenplätze breit
+// genug sind, dass die Marken einander nicht berühren.
 export const PREVIOUS_LINE = {
   width: 2,
   dash: "0.1 5",

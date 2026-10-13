@@ -34,6 +34,30 @@ const textOf = (html) =>
 /** Die Gruppe der Linie des Vorzeitraums; null ohne Linie. */
 const lineOf = (html) =>
   html.match(/<g data-previous-line=""[^>]*>(.*?)<\/g>/)?.[0] ?? null;
+/** Ecken der Linie [x, y], je Säulenplatz eine. */
+const pointsOf = (line) =>
+  line
+    .match(/<path d="([^"]+)"/)[1]
+    .split(" ")
+    .map((command) => command.slice(1).split(",").map(Number));
+/** Punktmarken der Linie [x, y, Radius]. */
+const markersOf = (line) =>
+  [
+    ...line.matchAll(
+      /<circle data-previous-marker="" cx="([^"]+)" cy="([^"]+)" r="([^"]+)"/g
+    ),
+  ].map((match) => match.slice(1).map(Number));
+/** Plätze (Index), an denen eine Punktmarke sitzt. */
+const markedPlaces = (line) => {
+  const points = pointsOf(line);
+  return markersOf(line).map(([cx, cy]) => {
+    const at = points.findIndex(
+      ([x, y]) => Math.abs(x - cx) < 0.01 && Math.abs(y - cy) < 0.01
+    );
+    assert.ok(at >= 0, `Marke bei ${cx},${cy} liegt auf keinem Wert`);
+    return at;
+  });
+};
 /** Die Legende; null ohne Legende. */
 const legendOf = (html) =>
   html.match(/<ul data-chart-legend=""[^>]*>.*?<\/ul>/)?.[0] ?? null;
@@ -349,7 +373,7 @@ test(
 );
 
 test(
-  "Linie (NAK-4): nicht nur über die Farbe erkennbar – gepunktet mit Punktmarken gegen gefüllte Säulen, dasselbe Muster in der Legende",
+  "Linie (NAK-4): nicht nur über die Farbe erkennbar – gepunktet mit Punktmarken an den Werten gegen gefüllte Säulen, dasselbe Muster in der Legende",
   { skip },
   async () => {
     const html = await render(CHART, {
@@ -359,15 +383,26 @@ test(
     });
     const line = lineOf(html);
 
-    // je Wert eine Punktmarke
-    assert.equal(count(line, /<circle data-previous-marker=""/g), 30);
+    // Je Wert über 0 eine Punktmarke: 30 Werte, zwei davon 0 (neben dem
+    // Höchstwert) – dort läuft die gepunktete Linie ohne Marke durch.
+    assert.equal(pointsOf(line).length, 30);
+    assert.equal(count(line, /<circle data-previous-marker=""/g), 28);
     assert.equal(
       count(
         line,
         new RegExp(`<circle [^>]*r="${PREVIOUS_LINE.markerRadius}"`, "g")
       ),
-      30
+      28
     );
+    assert.deepEqual(
+      markedPlaces(line),
+      Array.from({ length: 30 }, (_, i) => i).filter((i) => PREVIOUS(i) > 0)
+    );
+    assert.ok(!markedPlaces(line).includes(11));
+    assert.ok(markedPlaces(line).includes(12));
+    // Keine Marke liegt auf der Grundlinie.
+    const plotHeight = 240 - 12 - 26;
+    assert.ok(markersOf(line).every(([, cy]) => cy < plotHeight));
     // Legende: Säulenform für den Zeitraum, gepunktete Linie mit Marke für
     // den Vorzeitraum
     const [current, previous] = legendOf(html).split("</li>");
@@ -494,7 +529,11 @@ test(
     assert.equal(columns(html), 24);
     const line = lineOf(html);
     assert.equal(line.match(/<path d="([^"]+)"/)[1].split(" ").length, 24);
-    assert.equal(count(line, /<circle/g), 24);
+    // Marken an den zwölf Stunden mit Nachrichten (jede ungerade)
+    assert.deepEqual(
+      markedPlaces(line),
+      [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23]
+    );
     assert.equal(
       textOf(legendOf(html)),
       "Gewählter Zeitraum Vorzeitraum 11.10.2026"
@@ -508,6 +547,81 @@ test(
       html,
       /aria-label="Mo\., 12\.10\.2026, 0–1 Uhr — 0 Nachrichten\. Vorzeitraum: So\., 11\.10\.2026, 0–1 Uhr — 0 Nachrichten"/
     );
+  }
+);
+
+test(
+  "Stundenansicht mit vielen Nullwerten („Gestern“): Punktmarken nur an Stunden mit Wert im Vorzeitraum – keine Punktreihe auf der Grundlinie; die gepunktete Linie läuft durch die Nullwerte, die Legende bleibt",
+  { skip },
+  async () => {
+    const totals = (messages) => ({
+      messages,
+      conversations: 0,
+      feedbackPositive: 0,
+      feedbackNegative: 0,
+    });
+    // wie in der Abnahme: 12.10. mit 2 und 3 Nachrichten um 11 und 12 Uhr,
+    // am 11.10. vier Nachrichten um 17 Uhr – sonst nichts
+    const yesterday = (previous) => ({
+      granularity: "hour",
+      fromDay: "2026-10-12",
+      toDay: "2026-10-12",
+      firstLedgerDay: "2026-01-01",
+      totals: totals(5),
+      buckets: hours("2026-10-12", (hour) =>
+        hour === 11 ? 2 : hour === 12 ? 3 : 0
+      ),
+      previous: {
+        available: true,
+        fromDay: "2026-10-11",
+        toDay: "2026-10-11",
+        totals: totals(4),
+        buckets: hours("2026-10-11", previous),
+      },
+    });
+    const html = await render(CHART, {
+      loading: false,
+      compare: true,
+      summary: yesterday((hour) => (hour === 17 ? 4 : 0)),
+    });
+    const line = lineOf(html);
+    const plotHeight = 240 - 12 - 26;
+
+    // Die Linie: 24 Werte, gepunktet, 23 davon auf der Grundlinie
+    const points = pointsOf(line);
+    assert.equal(points.length, 24);
+    assert.equal(points.filter(([, y]) => y === plotHeight).length, 23);
+    assert.match(line, new RegExp(`stroke-dasharray="${PREVIOUS_LINE.dash}"`));
+    // eine Marke, am Wert von 17 Uhr (4 von 4 der Achse: Oberkante)
+    assert.deepEqual(markedPlaces(line), [17]);
+    assert.deepEqual(
+      markersOf(line).map(([, cy, radius]) => [cy, radius]),
+      [[0, PREVIOUS_LINE.markerRadius]]
+    );
+    assert.equal(count(html, /<circle data-previous-marker=""/g), 1);
+    // Legende unverändert: gepunktete Linie mit Marke
+    const [, previous] = legendOf(html).split("</li>");
+    assert.match(
+      previous,
+      new RegExp(`<line [^>]*stroke-dasharray="${PREVIOUS_LINE.dash}"`)
+    );
+    assert.equal(count(previous, /<circle /g), 1);
+    // Jeder Platz nennt weiter seinen Wert – auch die ohne Marke.
+    assert.match(
+      html,
+      /aria-label="Mo\., 12\.10\.2026, 3–4 Uhr — 0 Nachrichten\. Vorzeitraum: So\., 11\.10\.2026, 3–4 Uhr — 0 Nachrichten"/
+    );
+
+    // Vorzeitraum ganz ohne Wert: die gepunktete Linie auf der Grundlinie,
+    // keine Marke – erkennbar bleibt sie am Muster und an der Legende.
+    const flat = await render(CHART, {
+      loading: false,
+      compare: true,
+      summary: yesterday(() => 0),
+    });
+    assert.equal(pointsOf(lineOf(flat)).length, 24);
+    assert.deepEqual(markersOf(lineOf(flat)), []);
+    assert.ok(legendOf(flat));
   }
 );
 
@@ -761,7 +875,11 @@ test(
     assert.deepEqual(axisValues(html), [0, 5, 10, 15, 20]);
     assert.equal(ys[18], Math.round(plotHeight * (1 - 18 / 20) * 100) / 100);
     assert.equal(ys[3], plotHeight);
-    assert.equal(count(line, /<circle/g), 24);
+    // Marken an den elf Stunden mit Nachrichten (8–18 Uhr)
+    assert.deepEqual(
+      markedPlaces(line),
+      [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+    );
     assert.equal(
       textOf(legendOf(html)),
       "Gewählter Zeitraum Vorzeitraum 12.10.2026"

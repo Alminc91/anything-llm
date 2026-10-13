@@ -1408,6 +1408,96 @@ test(
 );
 
 test(
+  "Punktmarken: nur an Plätzen mit Wert im Vorzeitraum – der angesteuerte Platz zeigt seine Marke immer, mit Mauszeiger wie mit Tastatur, und verliert sie danach wieder",
+  { skip },
+  async (t) => {
+    // 24 Stunden: am Vortag nur um 17 Uhr Nachrichten
+    const hoursOf = (day, value) =>
+      Array.from({ length: 24 }, (_, hour) => ({
+        start: day,
+        end: day,
+        partial: false,
+        hour,
+        messages: value(hour),
+        conversations: 0,
+      }));
+    const { container, document, act } = await mount(t, CHART, {
+      loading: false,
+      compare: true,
+      summary: {
+        ...THIRTY_DAYS,
+        granularity: "hour",
+        fromDay: "2026-10-12",
+        toDay: "2026-10-12",
+        buckets: hoursOf("2026-10-12", (hour) => (hour === 11 ? 2 : 0)),
+        previous: {
+          ...THIRTY_DAYS.previous,
+          fromDay: "2026-10-11",
+          toDay: "2026-10-11",
+          buckets: hoursOf("2026-10-11", (hour) => (hour === 17 ? 4 : 0)),
+        },
+      },
+    });
+    const columns = columnsOf(container);
+    assert.equal(columns.length, 24);
+    /** Punktmarken: [Mitte, Höhe, Radius] */
+    const markers = () =>
+      withAttribute(container, "data-previous-marker").map((marker) =>
+        ["cx", "cy", "r"].map((name) => Number(marker.getAttribute(name)))
+      );
+    const [path] = elements(
+      lineOf(container),
+      (element) => element.tagName === "path"
+    );
+    const points = path
+      .getAttribute("d")
+      .split(" ")
+      .map((command) => command.slice(1).split(",").map(Number));
+    assert.equal(points.length, 24);
+    const near = (a, b) => Math.abs(a - b) < 0.01;
+    const baseline = 240 - 12 - 26;
+
+    // in Ruhe: eine Marke, am Wert von 17 Uhr
+    assert.equal(markers().length, 1);
+    assert.ok(near(markers()[0][0], points[17][0]));
+    assert.deepEqual(markers()[0].slice(1), [0, 3]);
+
+    // Mauszeiger auf 3 Uhr (Vorzeitraum 0): Der Platz zeigt seine Marke – auf
+    // der Grundlinie, hervorgehoben.
+    await act(() => movePointer(document, columns[3]));
+    assert.equal(
+      tooltipPreviousOf(container),
+      "Vorzeitraum: So., 11.10.2026, 3–4 Uhr — 0 Nachrichten"
+    );
+    assert.equal(markers().length, 2);
+    assert.ok(near(markers()[0][0], points[3][0]));
+    assert.deepEqual(markers()[0].slice(1), [baseline, 4]);
+    assert.deepEqual(markers()[1].slice(1), [0, 3]);
+    // weiter auf 17 Uhr: wieder eine Marke, jetzt hervorgehoben
+    await act(() => movePointer(document, columns[17]));
+    assert.deepEqual(
+      markers().map((marker) => marker.slice(1)),
+      [[0, 4]]
+    );
+    await act(() => movePointer(document, null));
+    assert.deepEqual(
+      markers().map((marker) => marker.slice(1)),
+      [[0, 3]]
+    );
+
+    // Tastatur: Der fokussierte Platz zeigt seine Marke ebenso.
+    await act(() => columns[20].focus());
+    assert.equal(markers().length, 2);
+    assert.ok(near(markers()[1][0], points[20][0]));
+    assert.deepEqual(markers()[1].slice(1), [baseline, 4]);
+    await act(() => pressKey(document, "ArrowLeft"));
+    assert.ok(near(markers()[1][0], points[19][0]));
+    await act(() => columns[19].blur());
+    assert.equal(markers().length, 1);
+  }
+);
+
+test(
   "Mit Vergleich unverändert: Der Klick-Filter der Ansicht lädt die Liste mit dem Abschnitt, die Zählwerte werden nicht neu angefragt – der Schalter bleibt an",
   { skip },
   async (t) => {
