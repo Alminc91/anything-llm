@@ -333,8 +333,8 @@ function berlinText(instant) {
  * Wagenrücklauf, oder das erste Zeichen nach führendem Leerraum ist eines der
  * Formelzeichen.
  */
-const BLANK = [" ", "\t", "\n", "\r", " ", "​", "﻿", "　"];
-const TRIGGERS = ["=", "+", "-", "@", "＝", "＋", "－", "＠"];
+const BLANK = [" ", "\t", "\n", "\r", "\u00A0", "\u200B", "\uFEFF", "\u3000"];
+const TRIGGERS = ["=", "+", "-", "@", "\uFF1D", "\uFF0B", "\uFF0D", "\uFF20"];
 function looksLikeFormula(text) {
   if (text.startsWith("\t") || text.startsWith("\r")) return true;
   let i = 0;
@@ -685,7 +685,9 @@ describe("entspricht_auswahl (AK-1)", () => {
     const empty = period("2025-01-01", "2025-01-31");
     const csv = await exportFile(widgetA, "csv", empty);
     expect(table(csv)).toEqual([]);
-    expect(csv.body).toBe(`﻿${HEADERS.map((h) => `"${h}"`).join(";")}\r\n`);
+    expect(csv.body).toBe(
+      `\uFEFF${HEADERS.map((h) => `"${h}"`).join(";")}\r\n`
+    );
 
     const json = await exportFile(widgetA, "json", empty);
     expect(json.statusCode).toBe(200);
@@ -904,7 +906,7 @@ describe("csv_format (AK-3)", () => {
 
     expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
     // genau ein BOM, am Anfang
-    expect(result.body.indexOf("﻿", 1)).toBe(-1);
+    expect(result.body.indexOf("\uFEFF", 1)).toBe(-1);
     // Kopfzeile: neun Spalten, Semikolon
     const firstLine = result.body.slice(1, result.body.indexOf("\r\n"));
     expect(firstLine).toBe(HEADERS.map((name) => `"${name}"`).join(";"));
@@ -977,14 +979,14 @@ describe("csv_format (AK-3)", () => {
       "\t",
       " ",
       " ",
-      " ",
-      "​",
+      "\u00A0",
+      "\u200B",
       "'",
       "=",
       "+",
       "-",
       "@",
-      "＝",
+      "\uFF1D",
       "|",
       "\\",
     ];
@@ -2147,7 +2149,18 @@ describe("formel_entschaerft (NAK-3)", () => {
   test("formel_entschaerft: auch nach führendem Leerraum - Leerzeichen, geschütztes Leerzeichen, Zeilenumbruch, unsichtbare Zeichen", async () => {
     // Manche Programme und Importwege schneiden Leerraum am Zellanfang ab;
     // danach stünde das Formelzeichen vorn.
-    const blanks = [" ", "   ", " ", "\n", " \t ", "​", "﻿", "　", "⁠", "­"];
+    const blanks = [
+      " ",
+      "   ",
+      "\u00A0",
+      "\n",
+      " \t ",
+      "\u200B",
+      "\uFEFF",
+      "\u3000",
+      "\u2060",
+      "\u00AD",
+    ];
     for (const [i, blank] of blanks.entries())
       await addChat(embed, {
         at: berlinInstant("2026-09-01", 9, i),
@@ -2175,10 +2188,10 @@ describe("formel_entschaerft (NAK-3)", () => {
       "\r\n=1",
       " =1",
       "\n-1",
-      "＝1",
-      "＋1",
-      "－1",
-      "＠x",
+      "\uFF1D1",
+      "\uFF0B1",
+      "\uFF0D1",
+      "\uFF20x",
       "- Punkt 1",
       "+49 591 1234",
       "-",

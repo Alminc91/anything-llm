@@ -46,7 +46,7 @@ const PERIOD = {
   startDate: "2026-08-31T22:00:00.000Z",
   endDate: "2026-09-30T21:59:59.999Z",
 };
-const CSV = new Blob(["﻿Konversation;…\r\n"], {
+const CSV = new Blob(["\uFEFFKonversation;…\r\n"], {
   type: "text/csv; charset=utf-8",
 });
 const FILE_NAME = "konversationen_vhs-musterstadt-3_2026-09-01_2026-09-30.csv";

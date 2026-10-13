@@ -206,6 +206,9 @@ describe("embed_nur_admin (AK-7)", () => {
 
 // ============================================================================
 // NAK-5 — Export der Workspace-Chats unverändert
+// (auch KIE-538, NAK-6: Der Export der Konversationen eines Widgets ist ein
+// eigener Endpunkt mit eigener Aufbereitung - Komma als Trenner, kein BOM,
+// Spalten und JSONL-Standard dieses Exports bleiben, wie sie waren.)
 // ============================================================================
 describe("workspace_unveraendert (NAK-5)", () => {
   const expectedJson = () => [

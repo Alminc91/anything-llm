@@ -18,7 +18,7 @@
 // Zahlen und leere Zellen stehen ohne.
 const { BILLING_TIME_ZONE } = require("../billingWindow");
 
-const CSV_BOM = "﻿";
+const CSV_BOM = "\uFEFF";
 const CSV_DELIMITER = ";";
 const CSV_EOL = "\r\n";
 const CSV_HEADERS = [
@@ -116,7 +116,8 @@ function formatBerlinIso(instant) {
 // Die Zelle ist dann Text. Beim Öffnen einer CSV zeigt Excel das Hochkomma
 // mit an - das trifft auch harmlose Zellen wie "- Punkt 1" oder "+49 …" und
 // ist der Preis dafür, dass keine Formel ausgeführt wird.
-const FORMULA_START = /^[\t\r]|^[\s­᠎​-‍⁠]*[=+\-@＝＋－＠]/;
+const FORMULA_START =
+  /^[\t\r]|^[\s\u00AD\u180E\u200B-\u200D\u2060]*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20]/;
 const DEFUSE_PREFIX = "'";
 
 /**
