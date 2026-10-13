@@ -745,8 +745,8 @@ export function changeLabel(current, previous, t) {
 }
 
 /**
- * Wert des Vorzeitraums, wie er im Tooltip des Diagramms steht:
- * "Vorzeitraum: 31".
+ * Wert des Vorzeitraums ohne Abschnitt, wie er im Kennzahl-Feld steht, wenn
+ * es keine Prozentzahl gibt: "Vorzeitraum: 0".
  * @param {number} value
  * @param {Function} t
  * @returns {string}
@@ -754,6 +754,28 @@ export function changeLabel(current, previous, t) {
 export function previousValueLabel(value, t) {
   return t("embed-analytics.compare.previous-value", {
     value: formatNumber(value),
+  });
+}
+
+/**
+ * Zweite Zeile im Tooltip des Diagramms: der Abschnitt des Vorzeitraums, der
+ * an der Stelle der Säule steht, und sein Wert – der Abschnitt in derselben
+ * Schreibweise wie in der ersten Zeile (bucketLabel), damit zu lesen ist,
+ * wozu die Zahl gehört:
+ *   Tag:    "Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten"
+ *   Stunde: "Vorzeitraum: So., 11.10.2026, 10–11 Uhr — 3 Nachrichten"
+ *   Woche:  "Vorzeitraum: KW 37 (07.09.–13.09.2026) — 12 Nachrichten"
+ *   Monat:  "Vorzeitraum: September 2026 — 12 Nachrichten"
+ * @param {Bucket} bucket - Abschnitt des Vorzeitraums
+ * @param {"messages"|"conversations"} metric
+ * @param {Granularity} granularity
+ * @param {{t: Function, locale: string}} context
+ * @returns {string}
+ */
+export function previousBucketLabel(bucket, metric, granularity, context) {
+  return context.t("embed-analytics.compare.previous-bucket", {
+    period: bucketLabel(bucket, granularity, context),
+    value: valueLabel(bucket[metric] ?? 0, metric, context.t),
   });
 }
 

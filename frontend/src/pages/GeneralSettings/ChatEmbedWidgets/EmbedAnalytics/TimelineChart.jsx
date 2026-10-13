@@ -17,7 +17,7 @@ import {
   formatNumber,
   linePath,
   linePoints,
-  previousValueLabel,
+  previousBucketLabel,
   tickLabelWidth,
   tickStep,
   tooltipPlacement,
@@ -39,7 +39,8 @@ import {
 // der Textfarbe des Themes, nicht in einer zweiten Akzentfarbe. Die Säulen
 // bleiben das Hauptelement. Mit zwei Serien gibt es eine Legende; Säule und
 // gepunktete Linie mit Punktmarken unterscheiden sich auch ohne Farbe.
-// Tooltip und Tabelle nennen den zweiten Wert. Gibt es keinen Vergleich
+// Tooltip und Tabelle nennen den zweiten Wert – der Tooltip mit dem Abschnitt
+// des Vorzeitraums, zu dem er gehört. Gibt es keinen Vergleich
 // (der Vorzeitraum beginnt vor dem ersten Zählwert), steht das am Diagramm,
 // und es bleibt bei den Säulen. Hat der gewählte Zeitraum nichts zu zeigen
 // („Heute" vor der ersten Nachricht), der Vorzeitraum aber schon, bleibt es
@@ -459,9 +460,13 @@ function Columns({
       period: labelOf(i),
       value: valueLabel(values[i], metric, t),
     });
-  // KIE-537: zweite Zeile des Tooltips, „Vorzeitraum: N" – null ohne Vergleich
+  // KIE-537: zweite Zeile des Tooltips – der Abschnitt des Vorzeitraums an
+  // dieser Stelle und sein Wert, „Vorzeitraum: Fr., 09.10.2026 — 12
+  // Nachrichten"; null ohne Vergleich
   const previousOf = (i) =>
-    previousValues ? previousValueLabel(previousValues[i], t) : null;
+    previousBuckets
+      ? previousBucketLabel(previousBuckets[i], metric, granularity, context)
+      : null;
   // Angabe eines Platzes für Screenreader: Wert, Vorzeitraum, Hinweis.
   const describe = (i, actionable) =>
     [

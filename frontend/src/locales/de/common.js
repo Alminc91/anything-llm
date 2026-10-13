@@ -1053,6 +1053,7 @@ const TRANSLATIONS = {
       range: "{{from}}–{{to}}",
       change: "{{change}} % ggü. Vorzeitraum ({{previous}})",
       "previous-value": "Vorzeitraum: {{value}}",
+      "previous-bucket": "Vorzeitraum: {{period}} — {{value}}",
       "previous-range": "Vorzeitraum: {{range}}",
       unavailable: "Kein Vergleich verfügbar",
       "unavailable-since":

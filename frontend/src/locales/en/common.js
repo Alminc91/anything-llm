@@ -1626,6 +1626,7 @@ const TRANSLATIONS = {
       range: "{{from}}–{{to}}",
       change: "{{change}} % vs. previous period ({{previous}})",
       "previous-value": "Previous period: {{value}}",
+      "previous-bucket": "Previous period: {{period}} — {{value}}",
       "previous-range": "Previous period: {{range}}",
       unavailable: "No comparison available",
       "unavailable-since":

@@ -108,6 +108,11 @@ const tooltipPreviousOf = (container) => {
     withAttribute(tooltip, "data-tooltip-previous")[0]?.textContent ?? null
   );
 };
+/** Wochentag eines Kalendertags, wie die deutsche Oberfläche ihn schreibt. */
+const weekdayOf = (day) =>
+  ["So.", "Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa."][
+    new Date(`${day}T00:00:00Z`).getUTCDay()
+  ];
 /** Schaltfläche mit genau dieser Beschriftung. */
 function buttonOf(container, label) {
   const [button, ...more] = elements(
@@ -550,7 +555,7 @@ const THIRTY_DAYS = {
 };
 
 test(
-  "Tooltip (AK-5): nennt zusätzlich „Vorzeitraum: N“ – unter dem Mauszeiger und mit der Tastatur; ohne Vergleich bleibt er einzeilig",
+  "Tooltip (AK-5): nennt zusätzlich den Wert des Vorzeitraums mit seinem Abschnitt, „Vorzeitraum: Mo., 07.09.2026 — 32 Nachrichten“ – unter dem Mauszeiger und mit der Tastatur",
   { skip },
   async (t) => {
     const { container, document, act } = await mount(t, CHART, {
@@ -562,15 +567,24 @@ test(
     assert.equal(columns.length, 30);
     assert.equal(tooltipOf(container), null);
 
+    // Der 07.10. ist der 25. Tag des Zeitraums: Die Linie zeigt dort den 25.
+    // Tag des Vorzeitraums, den 07.09. – die zweite Zeile nennt ihn, in
+    // derselben Schreibweise wie die erste.
     await act(() => movePointer(document, columns[OCT_07]));
-    assert.equal(tooltipPreviousOf(container), "Vorzeitraum: 32");
+    assert.equal(
+      tooltipPreviousOf(container),
+      "Vorzeitraum: Mo., 07.09.2026 — 32 Nachrichten"
+    );
     assert.equal(
       tooltipOf(container).textContent,
-      "Mi., 07.10.2026 — 38 NachrichtenVorzeitraum: 32"
+      "Mi., 07.10.2026 — 38 NachrichtenVorzeitraum: Mo., 07.09.2026 — 32 Nachrichten"
     );
     // Die zweite Zeile ist eine eigene Zeile, in deutscher Zahlenschreibweise.
     await act(() => movePointer(document, columns[OCT_06]));
-    assert.equal(tooltipPreviousOf(container), "Vorzeitraum: 1.008");
+    assert.equal(
+      tooltipPreviousOf(container),
+      "Vorzeitraum: So., 06.09.2026 — 1.008 Nachrichten"
+    );
     const [second] = withAttribute(
       tooltipOf(container),
       "data-tooltip-previous"
@@ -583,21 +597,36 @@ test(
     await act(() => columns[29].focus());
     assert.equal(
       tooltipOf(container).textContent,
-      "Mo., 12.10.2026 — 43 NachrichtenVorzeitraum: 37"
+      "Mo., 12.10.2026 — 43 NachrichtenVorzeitraum: Sa., 12.09.2026 — 37 Nachrichten"
     );
     await act(() => pressKey(document, "ArrowLeft"));
     assert.equal(document.activeElement, columns[28]);
-    assert.equal(tooltipPreviousOf(container), "Vorzeitraum: 36");
+    assert.equal(
+      tooltipPreviousOf(container),
+      "Vorzeitraum: Fr., 11.09.2026 — 36 Nachrichten"
+    );
     await act(() => pressKey(document, "Home"));
     assert.equal(
       tooltipOf(container).textContent,
-      "So., 13.09.2026 — 14 NachrichtenVorzeitraum: 8"
+      "So., 13.09.2026 — 14 NachrichtenVorzeitraum: Fr., 14.08.2026 — 8 Nachrichten"
     );
-    // Dieselbe Angabe wie am Säulenplatz für Screenreader
+    // Dieselbe Angabe wie am Säulenplatz für Screenreader – an jedem Platz
     assert.match(
       columns[0].getAttribute("aria-label"),
-      /^So\., 13\.09\.2026 — 14 Nachrichten\. Vorzeitraum: 8\. Die Eingabetaste /
+      /^So\., 13\.09\.2026 — 14 Nachrichten\. Vorzeitraum: Fr\., 14\.08\.2026 — 8 Nachrichten\. Die Eingabetaste /
     );
+    for (const [i, column] of columns.entries()) {
+      await act(() => movePointer(document, column));
+      const previous = tooltipPreviousOf(container);
+      assert.match(
+        previous,
+        /^Vorzeitraum: [A-Z][a-z]\., \d\d\.\d\d\.2026 — [\d.]+ Nachrichten$/
+      );
+      assert.ok(
+        column.getAttribute("aria-label").includes(`. ${previous}. `),
+        `Platz ${i}`
+      );
+    }
   }
 );
 
@@ -655,6 +684,148 @@ test(
     const plain = await top(false, OCT_06);
     assert.equal(plain.marker, null);
     assert.ok(Number.isFinite(plain.top));
+  }
+);
+
+/**
+ * Das Diagramm misst seine Breite am umgebenden Element und folgt ihr über
+ * einen ResizeObserver. Liefert eine Funktion, die die Breite setzt.
+ */
+function chartWidth(t) {
+  const observers = [];
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+    }
+    observe(element) {
+      observers.push({ element, callback: this.callback });
+    }
+    disconnect() {}
+  };
+  t.after(() => delete globalThis.ResizeObserver);
+  return (width) => {
+    assert.equal(observers.length, 1);
+    for (const { element, callback } of observers) {
+      element.getBoundingClientRect = () => ({ width });
+      callback();
+    }
+  };
+}
+
+test(
+  "Tooltip mit dem Abschnitt des Vorzeitraums im schmalen Diagramm (320, 308 und 240 px): Die längere zweite Zeile bestimmt die Breite – er bleibt an jedem Platz im Diagramm und über Säulen und Linie",
+  { skip },
+  async (t) => {
+    const setWidth = chartWidth(t);
+    const { container, document, act } = await mount(t, CHART, {
+      summary: THIRTY_DAYS,
+      loading: false,
+      compare: true,
+    });
+    const columns = columnsOf(container);
+    /** Wo der Tooltip höchstens liegen kann: Anker und Höchstbreite. */
+    const boxOf = ({ style }, width) => {
+      const max = parseFloat(style.maxWidth);
+      assert.ok(max > 0, "keine Höchstbreite");
+      if (style.right !== undefined && style.right !== "") {
+        const right = width - parseFloat(style.right);
+        return { left: right - max, right, max };
+      }
+      const left = parseFloat(style.left);
+      return style.transform.startsWith("translate(-50%")
+        ? { left: left - max / 2, right: left + max / 2, max }
+        : { left, right: left + max, max };
+    };
+    /**
+     * Oberkanten der Säulen und der Punktmarken der Linie (3 px Radius), ab
+     * der Zeichenfläche.
+     */
+    const topsOf = () => [
+      ...barsOf(container).map((d) => Number(d.match(/Q[\d.]+,([\d.]+) /)[1])),
+      ...elements(lineOf(container), (element) => element.tagName === "path")[0]
+        .getAttribute("d")
+        .split(" ")
+        .map((command) => Number(command.slice(1).split(",")[1]) - 3),
+    ];
+
+    for (const width of [320, 308, 240]) {
+      await act(() => setWidth(width));
+      const highest = Math.min(...topsOf());
+      for (const [i, column] of columns.entries()) {
+        await act(() => movePointer(document, column));
+        const tooltip = tooltipOf(container);
+        const where = `${width} px, Platz ${i}`;
+        const first = tooltip.firstChild.textContent;
+        const second = tooltipPreviousOf(container);
+        assert.ok(second.length > tooltip.textContent.length / 2, where);
+        const classes = tooltip.getAttribute("class").split(" ");
+        // so breit wie der Text, aber umbrechbar – und außerhalb des Textflusses
+        for (const name of ["w-max", "break-words", "absolute"])
+          assert.ok(classes.includes(name), where);
+        assert.ok(!classes.includes("whitespace-nowrap"), where);
+        const box = boxOf(tooltip, width);
+        assert.ok(box.left >= 0 && box.right <= width, where);
+        // Platz für die längere Zeile – die erste allein brauchte weniger.
+        const estimated = Math.min(width, second.length * 6.5 + 22);
+        assert.ok(first.length < second.length, where);
+        assert.ok(box.max >= estimated, where);
+        // Die Unterkante steht fest: Mehr Zeilen wachsen nach oben.
+        assert.match(tooltip.style.transform, /-100%\)$/, where);
+        // Überspannt er das ganze Diagramm, steht er über der höchsten Säule
+        // und der höchsten Punktmarke der Linie, mit 8 px Abstand (Oberkante
+        // der Zeichenfläche bei 12 px; der Pfad der Linie ist auf 0,01 px
+        // gerundet).
+        if (estimated === width)
+          assert.ok(
+            Math.abs(parseFloat(tooltip.style.top) - (12 + highest - 8)) < 0.01,
+            where
+          );
+      }
+    }
+
+    // 320 px, erster Platz: „So., 13.09.2026 — 14 Nachrichten“ (geschätzt
+    // 230 px) stünde 16 px nach innen gerückt bei 32,3 px. „Vorzeitraum: Fr.,
+    // 14.08.2026 — 8 Nachrichten“ (308 px) ragte dort hinaus: 12 px vom Rand.
+    await act(() => setWidth(320));
+    await act(() => movePointer(document, columns[0]));
+    const first = tooltipOf(container);
+    assert.equal(
+      tooltipPreviousOf(container),
+      "Vorzeitraum: Fr., 14.08.2026 — 8 Nachrichten"
+    );
+    assert.equal(first.style.left, "12px");
+    assert.equal(first.style.maxWidth, "308px");
+    assert.equal(first.style.transform, "translateY(-100%)");
+    // Platz des 10.10. (bei 289,7 px), vom rechten Rand: 16 px nach innen
+    // gerückt wären 14,3 px – mit 314,5 px Breite bleiben 5,5 px.
+    await act(() => movePointer(document, columns[27]));
+    const right = tooltipOf(container);
+    assert.equal(
+      tooltipPreviousOf(container),
+      "Vorzeitraum: Do., 10.09.2026 — 35 Nachrichten"
+    );
+    assert.equal(right.style.right, "5.5px");
+    assert.equal(right.style.maxWidth, "314.5px");
+
+    // 308 px (Handy): breiter geschätzt als das Diagramm – über die ganze
+    // Breite, mit Umbruch.
+    await act(() => setWidth(308));
+    await act(() => movePointer(document, columns[29]));
+    assert.equal(tooltipOf(container).style.right, "0");
+    assert.equal(tooltipOf(container).style.maxWidth, "308px");
+
+    // Breit bleibt er, wie er war: mittig über dem Platz.
+    await act(() => setWidth(1130));
+    await act(() => movePointer(document, columns[15]));
+    assert.ok(
+      Math.abs(
+        parseFloat(tooltipOf(container).style.left) - (44 + 15.5 * (1078 / 30))
+      ) < 1e-6
+    );
+    assert.equal(
+      tooltipOf(container).style.transform,
+      "translate(-50%, -100%)"
+    );
   }
 );
 
@@ -810,7 +981,7 @@ test(
     await act(() => movePointer(document, columnsOf(container)[OCT_06]));
     assert.equal(
       tooltipOf(container).textContent,
-      "Di., 06.10.2026 — 0 NachrichtenVorzeitraum: 1.008"
+      "Di., 06.10.2026 — 0 NachrichtenVorzeitraum: So., 06.09.2026 — 1.008 Nachrichten"
     );
     assert.equal(columnsOf(container)[OCT_06].getAttribute("role"), "img");
     await act(() => movePointer(document, null));
@@ -979,7 +1150,7 @@ test(
     await act(() => movePointer(document, columnsOf(container)[OCT_06]));
     assert.equal(
       tooltipOf(container).textContent,
-      "Di., 06.10.2026 — 0 KonversationenVorzeitraum: 2"
+      "Di., 06.10.2026 — 0 KonversationenVorzeitraum: So., 06.09.2026 — 2 Konversationen"
     );
     await act(() => movePointer(document, null));
     // Die Tabelle gab es hier schon in KIE-536 – jetzt mit dem Vorzeitraum.
@@ -1107,9 +1278,14 @@ test(
       chartNoteOf(container),
       "Keine Nachrichten im gewählten Zeitraum"
     );
-    assert.match(
-      columnsOf(container)[9].getAttribute("aria-label"),
-      / — 0 Nachrichten\. Vorzeitraum: 9$/
+    // 9–10 Uhr heute: 0 – gestern in derselben Stunde 9
+    assert.ok(
+      columnsOf(container)[9]
+        .getAttribute("aria-label")
+        .endsWith(
+          `${formatDate(today)}, 9–10 Uhr — 0 Nachrichten. Vorzeitraum: ${weekdayOf(yesterday)}, ${formatDate(yesterday)}, 9–10 Uhr — 9 Nachrichten`
+        ),
+      columnsOf(container)[9].getAttribute("aria-label")
     );
     assert.deepEqual(changesOf(container).slice(0, 2), [
       "−100 % ggü. Vorzeitraum (143)",
@@ -1161,10 +1337,13 @@ test(
     await act(() => movePointer(document, columnsOf(container)[OCT_06]));
     assert.equal(
       tooltipOf(container).textContent,
-      "Di., 06.10.2026 — 2 KonversationenVorzeitraum: 2"
+      "Di., 06.10.2026 — 2 KonversationenVorzeitraum: So., 06.09.2026 — 2 Konversationen"
     );
     await act(() => movePointer(document, columnsOf(container)[OCT_07]));
-    assert.equal(tooltipPreviousOf(container), "Vorzeitraum: 0");
+    assert.equal(
+      tooltipPreviousOf(container),
+      "Vorzeitraum: Mo., 07.09.2026 — 0 Konversationen"
+    );
     await act(() => movePointer(document, null));
 
     await act(() => click(buttonOf(container, "Nachrichten")));

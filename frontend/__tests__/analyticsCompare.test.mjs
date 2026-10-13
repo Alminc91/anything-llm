@@ -13,6 +13,7 @@ import {
   PREVIOUS_LINE,
   TOOLTIP_GAP,
   addDays,
+  bucketLabel,
   changeLabel,
   columnLayout,
   comparisonOf,
@@ -21,8 +22,10 @@ import {
   linePath,
   linePoints,
   percentChange,
+  previousBucketLabel,
   previousValueLabel,
   tooltipPlacement,
+  valueLabel,
   valueScale,
 } from "../src/utils/analyticsTimeline.js";
 
@@ -39,6 +42,7 @@ function translator(resources) {
   };
 }
 const t = translator(de);
+const context = { t, locale: "de" };
 
 // ---------------------------------------------------------------------------
 // Texte (Hard Constraint 8)
@@ -163,10 +167,129 @@ test("Zeile im Kennzahl-Feld und Tooltip, englische Oberfläche: Zahlen bleiben 
   assert.equal(previousValueLabel(1234, tEn), "Previous period: 1.234");
 });
 
-test("Tooltip (AK-5): zweite Zeile „Vorzeitraum: N“", () => {
+test("Wert des Vorzeitraums ohne Abschnitt: „Vorzeitraum: N“ – so steht er im Kennzahl-Feld, wenn es keine Prozentzahl gibt", () => {
   assert.equal(previousValueLabel(31, t), "Vorzeitraum: 31");
   assert.equal(previousValueLabel(0, t), "Vorzeitraum: 0");
   assert.equal(previousValueLabel(1234, t), "Vorzeitraum: 1.234");
+});
+
+/** Ein Abschnitt, wie analytics/summary ihn im Vorzeitraum nennt. */
+const section = (start, end, fields = {}) => ({
+  start,
+  end,
+  partial: false,
+  messages: 12,
+  conversations: 1,
+  ...fields,
+});
+// Je Körnung ein Abschnitt des Zeitraums und der Abschnitt des Vorzeitraums
+// an derselben Stelle.
+const SECTIONS = [
+  [
+    "Tag",
+    "day",
+    section("2026-10-13", "2026-10-13"),
+    section("2026-10-09", "2026-10-09"),
+    "Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten",
+  ],
+  [
+    "Stunde",
+    "hour",
+    section("2026-10-12", "2026-10-12", { hour: 10 }),
+    section("2026-10-11", "2026-10-11", { hour: 10 }),
+    "Vorzeitraum: So., 11.10.2026, 10–11 Uhr — 12 Nachrichten",
+  ],
+  [
+    "Woche",
+    "week",
+    section("2026-10-05", "2026-10-11"),
+    section("2026-09-07", "2026-09-13"),
+    "Vorzeitraum: KW 37 (07.09.–13.09.2026) — 12 Nachrichten",
+  ],
+  [
+    "Monat",
+    "month",
+    section("2026-10-01", "2026-10-31"),
+    section("2026-09-01", "2026-09-30"),
+    "Vorzeitraum: September 2026 — 12 Nachrichten",
+  ],
+];
+
+test("Tooltip (AK-5): Die zweite Zeile nennt den Abschnitt des Vorzeitraums, zu dem der Wert gehört – Tag, Stunde, Kalenderwoche, Monat, in der Schreibweise der ersten Zeile", () => {
+  for (const [name, granularity, , previous, expected] of SECTIONS) {
+    const label = previousBucketLabel(
+      previous,
+      "messages",
+      granularity,
+      context
+    );
+    assert.equal(label, expected, name);
+    // dieselbe Schreibweise wie die erste Zeile: Abschnitt — Wert
+    assert.equal(
+      label,
+      `Vorzeitraum: ${t("embed-analytics.chart.tooltip", {
+        period: bucketLabel(previous, granularity, context),
+        value: valueLabel(12, "messages", t),
+      })}`,
+      name
+    );
+  }
+  // Der Fall aus der Abnahme: Am Platz des 13.10. zeigt die Linie den 09.10.
+  const [, , , oct09] = SECTIONS[0];
+  assert.equal(
+    previousBucketLabel(oct09, "messages", "day", context),
+    "Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten"
+  );
+  // die gewählte Größe, Einzahl, Tausenderpunkt, kein Wert
+  assert.equal(
+    previousBucketLabel(oct09, "conversations", "day", context),
+    "Vorzeitraum: Fr., 09.10.2026 — 1 Konversation"
+  );
+  assert.equal(
+    previousBucketLabel(
+      { ...oct09, messages: 1234 },
+      "messages",
+      "day",
+      context
+    ),
+    "Vorzeitraum: Fr., 09.10.2026 — 1.234 Nachrichten"
+  );
+  assert.equal(
+    previousBucketLabel(
+      { ...oct09, messages: undefined },
+      "messages",
+      "day",
+      context
+    ),
+    "Vorzeitraum: Fr., 09.10.2026 — 0 Nachrichten"
+  );
+  // über den Jahreswechsel: Woche und Jahr des Abschnitts, nicht des Platzes
+  assert.equal(
+    previousBucketLabel(
+      section("2025-12-29", "2026-01-04"),
+      "messages",
+      "week",
+      context
+    ),
+    "Vorzeitraum: KW 1 (29.12.–04.01.2026) — 12 Nachrichten"
+  );
+  assert.equal(
+    previousBucketLabel(
+      section("2025-12-01", "2025-12-31"),
+      "messages",
+      "month",
+      context
+    ),
+    "Vorzeitraum: Dezember 2025 — 12 Nachrichten"
+  );
+  // englische Oberfläche
+  assert.equal(
+    previousBucketLabel(oct09, "messages", "day", {
+      t: translator(en),
+      locale: "en",
+    }),
+    "Previous period: Fri, 09.10.2026 — 12 messages"
+  );
 });
 
 test("Bereich des Vorzeitraums: zwei Tage mit Halbgeviertstrich, ein einzelner Tag allein", () => {
@@ -498,9 +621,57 @@ test("Tooltip: Ohne Linie steht er, wo er vor KIE-537 stand", () => {
   }
 });
 
-test("Tooltip (AK-5): verdeckt mit der Zeile „Vorzeitraum: N“ weder eine Säule noch die Linie oder eine Punktmarke – bei 30, 53 und 92 Plätzen, breit und schmal", () => {
-  for (const count of [30, 53, 92])
-    for (const width of [1130, 960, 390, 340]) {
+/**
+ * Wo der Tooltip im Browser höchstens liegen kann: Er ist an x verankert
+ * (TimelineChart, tooltipStyle) und wird nie breiter als maxWidth.
+ */
+function tooltipBox({ align, x, maxWidth }, width) {
+  if (align === "start") return { left: x, right: x + maxWidth };
+  if (align === "end") return { left: width - x - maxWidth, right: width - x };
+  return { left: x - maxWidth / 2, right: x + maxWidth / 2 };
+}
+
+// Beide Zeilen des Tooltips je Körnung, mit vierstelligem Wert: Mit dem
+// Abschnitt des Vorzeitraums ist die zweite Zeile die längere.
+const TOOLTIP_LINES = SECTIONS.map(([name, granularity, current, previous]) => [
+  name,
+  t("embed-analytics.chart.tooltip", {
+    period: bucketLabel(current, granularity, context),
+    value: valueLabel(1234, "conversations", t),
+  }),
+  previousBucketLabel(
+    { ...previous, conversations: 1234 },
+    "conversations",
+    granularity,
+    context
+  ),
+]);
+
+test("Tooltip (AK-5): Mit dem Abschnitt des Vorzeitraums ist die zweite Zeile die längere – sie bestimmt die geschätzte Breite", () => {
+  assert.deepEqual(
+    TOOLTIP_LINES.map(([name, first, second]) => [
+      name,
+      first.length,
+      second.length,
+    ]),
+    [
+      ["Tag", 38, 51],
+      ["Stunde", 49, 62],
+      ["Woche", 48, 61],
+      ["Monat", 35, 50],
+    ]
+  );
+  assert.equal(
+    TOOLTIP_LINES[2][2],
+    "Vorzeitraum: KW 37 (07.09.–13.09.2026) — 1.234 Konversationen"
+  );
+});
+
+test("Tooltip (AK-5): bleibt mit dem Abschnitt des Vorzeitraums im Diagramm und verdeckt weder eine Säule noch die Linie oder eine Punktmarke – für Tag, Stunde, Woche und Monat, bei 24 bis 92 Plätzen, von 240 bis 1130 px", () => {
+  let wrapped = 0;
+  let clamped = 0;
+  for (const count of [24, 30, 53, 92])
+    for (const width of [1130, 960, 390, 340, 308, 240]) {
       // Säulen und Linie mit Spitzen an verschiedenen Stellen
       const values = Array.from({ length: count }, (_, i) =>
         i % 9 === 4 ? 0 : 3 + ((i * 7) % 40)
@@ -509,43 +680,102 @@ test("Tooltip (AK-5): verdeckt mit der Zeile „Vorzeitraum: N“ weder eine Sä
         i % 11 === 3 ? 95 : i % 5 === 0 ? 0 : 2 + ((i * 13) % 30)
       );
       const { columns, line, place } = chartOf(width, values, previousValues);
-      const first = "KW 41 (05.10.–11.10.2026) — 1.234 Nachrichten";
-      const second = previousValueLabel(1234, t);
-      const text = first.length > second.length ? first : second;
+      const slot = columns[0].width;
 
-      for (let active = 0; active < count; active++) {
-        const placement = place(active, text);
-        const where = `${count} Plätze, ${width} px, Platz ${active}`;
-        // im Diagramm
-        assert.ok(placement.from >= 0, where);
-        assert.ok(placement.to <= width, where);
-        // Unterkante des Tooltips: über jeder Säule, die er überspannt …
-        for (const { bar } of columns) {
-          if (!bar) continue;
-          const left = MARGIN_LEFT + bar.x;
-          if (left < placement.to && left + bar.width > placement.from)
-            assert.ok(placement.y <= bar.y - TOOLTIP_GAP, where);
-        }
-        // … über jeder Punktmarke …
-        const radius = PREVIOUS_LINE.markerRadius;
-        for (const point of line) {
-          const x = MARGIN_LEFT + point.x;
-          if (x + radius > placement.from && x - radius < placement.to)
-            assert.ok(placement.y <= point.y - radius - TOOLTIP_GAP, where);
-        }
-        // … und über der Linie an jeder Stelle seiner Breite.
-        for (let x = placement.from; x <= placement.to; x += 1) {
-          const at = x - MARGIN_LEFT;
-          const i = line.findIndex(
-            (point, index) =>
-              line[index + 1] && point.x <= at && at <= line[index + 1].x
+      for (const [name, first, second] of TOOLTIP_LINES) {
+        // wie TimelineChart: Die längere der beiden Zeilen bestimmt die Breite.
+        const text = first.length > second.length ? first : second;
+        assert.equal(text, second, name);
+        const estimated = text.length * 6.5 + 22;
+
+        for (let active = 0; active < count; active++) {
+          const placement = place(active, text);
+          const where = `${name}, ${count} Plätze, ${width} px, Platz ${active}`;
+          // geschätzte Ausdehnung: im Diagramm, so breit wie die längere Zeile
+          assert.ok(placement.from >= 0, where);
+          assert.ok(placement.to <= width, where);
+          assert.equal(
+            Math.round((placement.to - placement.from) * 100),
+            Math.round(Math.min(estimated, width) * 100),
+            where
           );
-          if (i < 0) continue;
-          const [a, b] = [line[i], line[i + 1]];
-          const y = a.y + ((b.y - a.y) * (at - a.x)) / (b.x - a.x);
-          assert.ok(placement.y <= y - TOOLTIP_GAP + 0.001, where);
+          // Der Browser hält ihn dort: verankert an x, höchstens maxWidth
+          // breit – auch wenn der Text breiter ausfällt als geschätzt.
+          const box = tooltipBox(placement, width);
+          assert.ok(box.left >= 0 && box.right <= width, where);
+          assert.ok(
+            box.left <= placement.from && placement.to <= box.right,
+            where
+          );
+          // Breiter als das Diagramm: Er nimmt dessen Breite ein und bricht um.
+          if (estimated > width) {
+            wrapped++;
+            assert.deepEqual(
+              [placement.from, placement.to, placement.maxWidth],
+              [0, width, width],
+              where
+            );
+          } else if (placement.from === 0 || placement.to === width) clamped++;
+          // über dem angesteuerten Platz
+          const center = MARGIN_LEFT + columns[active].center;
+          assert.ok(placement.from <= center && center <= placement.to, where);
+
+          // Unterkante des Tooltips: über jeder Säule, die er überspannt …
+          for (const { bar } of columns) {
+            if (!bar) continue;
+            const left = MARGIN_LEFT + bar.x;
+            if (left < placement.to && left + bar.width > placement.from)
+              assert.ok(placement.y <= bar.y - TOOLTIP_GAP, where);
+          }
+          // … über jeder Punktmarke …
+          const radius = PREVIOUS_LINE.markerRadius;
+          for (const point of line) {
+            const x = MARGIN_LEFT + point.x;
+            if (x + radius > placement.from && x - radius < placement.to)
+              assert.ok(placement.y <= point.y - radius - TOOLTIP_GAP, where);
+          }
+          // … und über der Linie an jeder Stelle seiner Breite.
+          for (let x = placement.from; x <= placement.to; x += 1) {
+            const at = x - MARGIN_LEFT;
+            const i = Math.floor((at - slot / 2) / slot);
+            if (i < 0 || i >= count - 1) continue;
+            const [a, b] = [line[i], line[i + 1]];
+            assert.ok(a.x <= at + 1e-9 && at <= b.x + 1e-9, where);
+            const y = a.y + ((b.y - a.y) * (at - a.x)) / (b.x - a.x);
+            assert.ok(placement.y <= y - TOOLTIP_GAP + 0.001, where);
+          }
         }
       }
+    }
+  // Schmal bricht die lange Zeile um oder rückt an den Rand; beides kommt vor.
+  assert.ok(wrapped > 0 && clamped > 0, `${wrapped} / ${clamped}`);
+});
+
+test("Tooltip auf dem Handy (Diagramm 308 px): Die Zeile des Vorzeitraums ist für jede Körnung breiter geschätzt als das Diagramm – der Tooltip nimmt dessen Breite ein und steht über allen Säulen und der ganzen Linie", () => {
+  const width = 308;
+  const values = Array.from({ length: 24 }, (_, i) => (i === 11 ? 3 : 0));
+  const previousValues = Array.from({ length: 24 }, (_, i) =>
+    i === 17 ? 4 : 0
+  );
+  const { columns, line, place } = chartOf(width, values, previousValues);
+  const highest = Math.min(
+    columns[11].bar.y,
+    ...line.map((point) => point.y - PREVIOUS_LINE.markerRadius)
+  );
+
+  // „Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten“: geschätzt 314,5 px
+  const day = SECTIONS[0][4];
+  assert.equal(day.length * 6.5 + 22, 314.5);
+  for (const text of [day, ...TOOLTIP_LINES.map(([, , second]) => second)])
+    for (let active = 0; active < 24; active++) {
+      const placement = place(active, text);
+      assert.deepEqual(
+        [placement.x, placement.from, placement.to, placement.maxWidth],
+        [0, 0, width, width],
+        `${text}, Platz ${active}`
+      );
+      assert.notEqual(placement.align, "center");
+      assert.equal(placement.y, highest - TOOLTIP_GAP);
     }
 });
 
