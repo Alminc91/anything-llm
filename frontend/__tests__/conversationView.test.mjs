@@ -10,7 +10,9 @@ import assert from "node:assert/strict";
 import de from "../src/locales/de/common.js";
 import en from "../src/locales/en/common.js";
 import {
+  HOLD_SCROLL_MAX_MS,
   SEARCH_MAX_LENGTH,
+  ancestorsOf,
   answerText,
   berlinDateTime,
   berlinTime,
@@ -24,6 +26,7 @@ import {
   hasVisibleHit,
   highlightParts,
   highlightTextNodes,
+  holdScrollTarget,
   isWide,
   longDateLabel,
   outsidePeriod,
@@ -559,4 +562,130 @@ test("Fixliste 4, S2: berlinDateTime – voller Zeitpunkt in Berliner Zeit im Fo
   // ohne gültigen Zeitpunkt wie formatDateTimeDE: "-"
   for (const value of [null, undefined, "", "kein Datum", NaN])
     assert.equal(berlinDateTime(value), "-", String(value));
+});
+
+test("Fixliste 4, V3: panelFit – am Seitenende endet das Panel über der Unterkante seines Bereichs und bleibt so unter dem Benutzermenü", () => {
+  // Bereich reicht weit nach unten: wie bisher (32 px über dem Fensterrand)
+  assert.deepEqual(panelFit(80, 900, 2000), { maxHeight: 788, reveal: false });
+  // ganz unten gescrollt, kurze Liste: Unter dem Bereich liegen 64 px Rand –
+  // das Panel endet an seiner Unterkante (836) und steht bei 80, nicht bei
+  // 47 unter dem Benutzermenü
+  const fit = panelFit(47, 900, 836);
+  assert.deepEqual(fit, { maxHeight: 756, reveal: false });
+  assert.ok(80 + fit.maxHeight <= 836);
+  // noch nicht klebend: Die Unterkante des Fensters bleibt maßgeblich
+  assert.deepEqual(panelFit(300, 900, 1088), { maxHeight: 568, reveal: false });
+  // ohne gültige Unterkante: ohne diese Grenze
+  for (const bottom of [undefined, NaN, null])
+    assert.deepEqual(panelFit(80, 900, bottom), {
+      maxHeight: 788,
+      reveal: false,
+    });
+  // nie niedriger als 240 px
+  assert.equal(panelFit(80, 900, 200).maxHeight, 240);
+});
+
+test("Fixliste 4, V7: holdScrollTarget – springt, hält das Ziel bei jeder Größenänderung eines Vorfahren und bei fremdem Scrollen, bis zur ersten Eingabe", () => {
+  const doc = createDocument();
+  const outer = doc.body.appendChild(doc.createElement("div"));
+  const middle = outer.appendChild(doc.createElement("div"));
+  const target = middle.appendChild(doc.createElement("div"));
+  assert.deepEqual(ancestorsOf(target), [middle, outer]);
+  assert.deepEqual(ancestorsOf(null), []);
+
+  // Lage des Ziels im Fenster: Der Sprung bringt es auf 96
+  let top = 640;
+  target.getBoundingClientRect = () => ({ top });
+  let jumps = 0;
+  const jump = () => {
+    jumps += 1;
+    top = 96;
+  };
+  // Ereignisse am Dokument
+  const listeners = new Map();
+  doc.addEventListener = (type, listener, options) =>
+    listeners.set(type, { listener, options });
+  doc.removeEventListener = (type) => listeners.delete(type);
+  const fire = (type) => listeners.get(type)?.listener({ type });
+  // ResizeObserver
+  const observers = [];
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.observed = [];
+      this.disconnected = false;
+      observers.push(this);
+    }
+    observe(element) {
+      this.observed.push(element);
+    }
+    disconnect() {
+      this.disconnected = true;
+    }
+  };
+  const timers = [];
+  try {
+    holdScrollTarget(target, jump, {
+      setTimer: (callback, ms) => timers.push({ callback, ms }),
+      clearTimer: () => {},
+    });
+    assert.equal(jumps, 1);
+    assert.deepEqual(observers[0].observed, [middle, outer]);
+    assert.deepEqual(
+      timers.map((timer) => timer.ms),
+      [HOLD_SCROLL_MAX_MS]
+    );
+    // Eingaben des Nutzers lauschen passiv (kein preventDefault)
+    for (const type of [
+      "wheel",
+      "touchstart",
+      "pointerdown",
+      "mousedown",
+      "keydown",
+    ])
+      assert.deepEqual(listeners.get(type)?.options, {
+        capture: true,
+        passive: true,
+      });
+
+    // Etwas über dem Ziel wird höher: erneut springen
+    top = 680;
+    observers[0].callback([]);
+    assert.equal(jumps, 2);
+    assert.equal(top, 96);
+    // Scrollen, das das Ziel nicht verschiebt (eigener Sprung, Verlauf im
+    // Panel): nichts
+    fire("scroll");
+    assert.equal(jumps, 2);
+    // Der Browser setzt die Scrollposition (Wiederherstellen): zurück
+    top = 0;
+    fire("scroll");
+    assert.equal(jumps, 3);
+
+    // erste Eingabe: Schluss – kein Sprung mehr, Beobachter getrennt,
+    // keine Lauscher mehr
+    fire("wheel");
+    assert.equal(observers[0].disconnected, true);
+    assert.equal(listeners.size, 0);
+    top = 500;
+    observers[0].callback([]);
+    assert.equal(jumps, 3);
+  } finally {
+    globalThis.ResizeObserver = original;
+  }
+
+  // Ohne ResizeObserver: einmal springen; nach HOLD_SCROLL_MAX_MS Schluss
+  const later = [];
+  let once = 0;
+  const stop = holdScrollTarget(target, () => (once += 1), {
+    setTimer: (callback) => later.push(callback),
+    clearTimer: () => {},
+  });
+  assert.equal(once, 1);
+  later[0]();
+  assert.equal(listeners.size, 0);
+  stop();
+  // ohne Ziel: nichts
+  assert.equal(typeof holdScrollTarget(null, () => assert.fail()), "function");
 });

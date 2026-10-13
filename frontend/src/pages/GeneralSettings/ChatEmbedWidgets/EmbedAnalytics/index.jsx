@@ -25,6 +25,7 @@ import {
   AVATAR_CLEARANCE,
   MUTED,
   effectiveSearch,
+  holdScrollTarget,
   isWide,
 } from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
@@ -270,15 +271,24 @@ function WidgetAnalytics({ embeds }) {
   // Panel unter dem sichtbaren Bereich (Fixliste 2, B5). Nur ab lg: darunter
   // öffnet die Konversation ohnehin als Vollbild. Ein Merker: true, solange
   // der Sprung aussteht (Fixliste 3, S4).
+  // Der Sprung hält, bis der Nutzer selbst scrollt oder etwas tut: Ändert
+  // sich danach das Layout über der Liste oder setzt der Browser die
+  // Scrollposition, springt die Ansicht erneut (holdScrollTarget) – ein
+  // einmaliger Sprung ließ die Seite manchmal ungescrollt (Fixliste 4, V7).
   const [linkJumpPending, setLinkJumpPending] = useState(
     () => place.chatId !== null
   );
   const listReady = viewableCount !== null && !summary.loading;
+  const releaseLinkJump = useRef(null);
   useEffect(() => {
     if (!linkJumpPending || !listReady) return;
     setLinkJumpPending(false);
-    if (isWide()) listRef.current?.scrollIntoView?.({ block: "start" });
+    if (!isWide()) return;
+    releaseLinkJump.current = holdScrollTarget(listRef.current, () =>
+      listRef.current?.scrollIntoView?.({ block: "start" })
+    );
   }, [linkJumpPending, listReady]);
+  useEffect(() => () => releaseLinkJump.current?.(), []);
 
   return (
     <div className="flex w-full min-w-0 flex-col p-2 md:p-6">

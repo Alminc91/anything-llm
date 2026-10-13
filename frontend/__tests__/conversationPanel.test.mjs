@@ -2878,7 +2878,17 @@ test(
  * Maße für das Panel (Fixliste 3, V3/V8): Oberkante im Fenster und
  * Fensterhöhe; scrollIntoView des Panels wird gemerkt.
  */
-function panelGeometry(t, document, { top, viewportHeight = 900 }) {
+/**
+ * Maße des Panels im Fenster. top und containerBottom (Unterkante des
+ * Bereichs aus Liste und Panel) sind Zahlen oder Funktionen – so lässt sich
+ * eine Verschiebung ohne Scrollen nachstellen.
+ */
+function panelGeometry(
+  t,
+  document,
+  { top, viewportHeight = 900, containerBottom }
+) {
+  const valueOf = (value) => (typeof value === "function" ? value() : value);
   // die Klasse, die getBoundingClientRect und scrollIntoView liefert
   let proto = Object.getPrototypeOf(document.body);
   while (!Object.prototype.hasOwnProperty.call(proto, "getBoundingClientRect"))
@@ -2889,10 +2899,24 @@ function panelGeometry(t, document, { top, viewportHeight = 900 }) {
     height: globalThis.window.innerHeight,
   };
   const scrolled = [];
+  const isPanel = (node) => node?.hasAttribute?.("data-conversation-panel");
   proto.getBoundingClientRect = function () {
-    return this.hasAttribute?.("data-conversation-panel")
-      ? { x: 0, y: top, top, left: 0, width: 520, height: 600 }
-      : original.rect.call(this);
+    if (isPanel(this)) {
+      const y = valueOf(top);
+      return { x: 0, y, top: y, left: 0, width: 520, height: 600 };
+    }
+    const bottom = valueOf(containerBottom);
+    if (bottom !== undefined && (this.childNodes ?? []).some(isPanel))
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        width: 1000,
+        height: bottom,
+        bottom,
+      };
+    return original.rect.call(this);
   };
   proto.scrollIntoView = function (options) {
     if (this.hasAttribute?.("data-conversation-panel")) scrolled.push(options);
@@ -3098,6 +3122,233 @@ test(
 // ---------------------------------------------------------------------------
 // Fixliste 4 (Browser-Nachprüfung rc16, Kontroll-Review 3)
 // ---------------------------------------------------------------------------
+
+/** ResizeObserver der Ansicht abfangen: je Beobachter Rückruf und Ziele. */
+function stubResizeObserver(t) {
+  const observers = [];
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.observed = [];
+      this.disconnected = false;
+      observers.push(this);
+    }
+    observe(element) {
+      this.observed.push(element);
+    }
+    disconnect() {
+      this.disconnected = true;
+    }
+  };
+  t.after(() => {
+    globalThis.ResizeObserver = original;
+  });
+  return observers;
+}
+
+/** Lauscher am Dokument abfangen (je Ereignistyp der zuletzt angemeldete). */
+function captureDocumentListeners(t, document) {
+  const listeners = new Map();
+  const original = {
+    add: Object.getOwnPropertyDescriptor(document, "addEventListener"),
+    remove: Object.getOwnPropertyDescriptor(document, "removeEventListener"),
+  };
+  document.addEventListener = (type, listener) => {
+    const list = listeners.get(type) ?? [];
+    list.push(listener);
+    listeners.set(type, list);
+  };
+  document.removeEventListener = (type, listener) => {
+    const list = listeners.get(type) ?? [];
+    const index = list.indexOf(listener);
+    if (index >= 0) list.splice(index, 1);
+  };
+  t.after(() => {
+    for (const [key, descriptor] of [
+      ["addEventListener", original.add],
+      ["removeEventListener", original.remove],
+    ])
+      if (descriptor) Object.defineProperty(document, key, descriptor);
+      else delete document[key];
+  });
+  return {
+    fire: (type) =>
+      [...(listeners.get(type) ?? [])].forEach((listener) =>
+        listener({ type, target: document.body })
+      ),
+    count: (type) => (listeners.get(type) ?? []).length,
+  };
+}
+
+test(
+  "Fixliste 4, V4: Verschiebt sich das Panel ohne Scrollen (Zeile der Filtermarkierungen erscheint/verschwindet), passt sich seine Höhe an – ResizeObserver auf den Vorfahren",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const observers = stubResizeObserver(t);
+    await panelServer(t, {
+      rows: [row(1, { preview: "Spanisch" }), row(2)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const view = await mountList(t);
+    const { container, act } = view;
+    let top = 300;
+    panelGeometry(t, view.document, { top: () => top });
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const panel = panelOf(container);
+    assert.equal(panel.style.maxHeight, "568px");
+
+    // Beobachtet werden die Vorfahren des Panels: der Bereich aus Liste
+    // und Panel und die Liste mit ihrem Kopf (darin erscheint die Zeile)
+    const observer = observers.find((o) =>
+      o.observed.includes(panel.parentNode)
+    );
+    assert.ok(observer, "kein ResizeObserver auf dem Bereich des Panels");
+    assert.ok(
+      observer.observed.includes(one(container, "data-list-header").parentNode)
+    );
+
+    // Suche: Die Zeile „Suche: …“ erscheint, das Panel rutscht 38 px tiefer
+    // – kein Scroll-Ereignis, nur die Größe der Liste ändert sich
+    await type(view, "spanisch");
+    await act(() => wait(350));
+    await act();
+    assert.equal(withAttribute(container, "data-list-status").length, 1);
+    top = 338;
+    await act(() => observer.callback([]));
+    await act(() => wait(20));
+    assert.equal(panel.style.maxHeight, "530px");
+    // Die Zeile verschwindet wieder (✕): keine Lücke
+    await act(() => click(one(container, "data-filter-clear")));
+    await act(() => wait(350));
+    top = 300;
+    await act(() => observer.callback([]));
+    await act(() => wait(20));
+    assert.equal(panel.style.maxHeight, "568px");
+
+    // Schließen trennt den Beobachter
+    await act(() => click(one(container, "data-panel-close")));
+    await act();
+    assert.equal(observer.disconnected, true);
+  }
+);
+
+test(
+  "Fixliste 4, V3: Am Seitenende (kurze Liste) endet das Panel über der Unterkante seines Bereichs – es bleibt bei 80 px unter dem Benutzermenü statt nach oben geschoben zu werden",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    await panelServer(t, {
+      rows: [row(1), row(2)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const view = await mountList(t);
+    // ganz unten gescrollt: Der Bereich endet 64 px über dem Fensterrand
+    // (836 bei 900), das Panel stand mit 788 px Höhe bei 47
+    const scrolled = panelGeometry(t, view.document, {
+      top: 47,
+      containerBottom: 836,
+    });
+    await view.act(() => click(rowsOf(view.container)[0]));
+    await view.act();
+    assert.equal(panelOf(view.container).style.maxHeight, "756px");
+    assert.ok(80 + 756 <= 836);
+    assert.deepEqual(scrolled, []);
+  }
+);
+
+test(
+  "Fixliste 4, V7: Per Link geöffnet – der Sprung zur Liste hält bei Layoutänderungen (ResizeObserver) und fremdem Scrollen, bis der Nutzer selbst scrollt",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [row(1), row(5)],
+      details: {
+        5: { messages: [message(5, "konv-5", { session_id: "sitzung-5" })] },
+      },
+    });
+    const observers = stubResizeObserver(t);
+    const probe = await mountList(t);
+    const prototype = Object.getPrototypeOf(rowsOf(probe.container)[0]);
+    const document = probe.document;
+    await probe.unmount();
+    const events = captureDocumentListeners(t, document);
+    // Sprünge zum Ziel „Liste“ (scroll-mt-20); die Liste steht danach bei 96
+    const jumps = [];
+    let listTop = 900;
+    const original = {
+      scroll: prototype.scrollIntoView,
+      rect: prototype.getBoundingClientRect,
+    };
+    const isTarget = (element) => classesOf(element).includes("scroll-mt-20");
+    prototype.scrollIntoView = function (options) {
+      if (isTarget(this)) {
+        jumps.push(options);
+        listTop = 96;
+      }
+    };
+    prototype.getBoundingClientRect = function () {
+      return isTarget(this)
+        ? { x: 0, y: listTop, top: listTop, left: 0, width: 1000, height: 900 }
+        : original.rect.call(this);
+    };
+    t.after(() => {
+      prototype.scrollIntoView = original.scroll;
+      prototype.getBoundingClientRect = original.rect;
+    });
+    stubWidth(t, true);
+    const mounted = await renderer.mount(VIEW, {
+      location: `${LOCATION}?widget=3&conversation=5`,
+      route: LOCATION,
+      exportName: "AnalyticsScreen",
+      props: {
+        embedsLoaded: true,
+        embeds: [
+          {
+            id: EMBED_ID,
+            chat_retention_days: null,
+            workspace: { name: "VHS" },
+          },
+        ],
+      },
+    });
+    t.after(() => mounted.unmount());
+    for (let i = 0; i < 4; i++) await mounted.act();
+    assert.deepEqual(jumps, [{ block: "start" }]);
+    // der Beobachter des Sprungs: zuerst der Elternknoten der Liste (das
+    // Panel beobachtet seine eigenen Vorfahren)
+    const hold = observers.find((o) =>
+      (o.observed[0]?.childNodes ?? []).some((child) => isTarget(child))
+    );
+    assert.ok(hold, "kein ResizeObserver auf den Vorfahren der Liste");
+
+    // Über der Liste wird etwas höher (Layout nach dem Sprung): erneut
+    listTop = 140;
+    await mounted.act(() => hold.callback([]));
+    assert.equal(jumps.length, 2);
+    // Der Browser setzt die Scrollposition (Wiederherstellen): erneut
+    listTop = 400;
+    await mounted.act(() => events.fire("scroll"));
+    assert.equal(jumps.length, 3);
+    // Scrollen ohne Verschiebung des Ziels: nichts
+    await mounted.act(() => events.fire("scroll"));
+    assert.equal(jumps.length, 3);
+
+    // Der Nutzer scrollt selbst: Schluss – kein weiterer Sprung
+    await mounted.act(() => events.fire("wheel"));
+    assert.equal(hold.disconnected, true);
+    listTop = 700;
+    await mounted.act(() => hold.callback([]));
+    await mounted.act(() => events.fire("scroll"));
+    assert.equal(jumps.length, 3);
+  }
+);
 
 test(
   "Fixliste 4, S2: berlinDateTime liegt in utils/conversationView und liefert dasselbe wie formatDateTimeDE mit Berliner Zeit",

@@ -21,6 +21,7 @@ import {
   AVATAR_CLEARANCE,
   MUTED,
   WIDE_QUERY,
+  ancestorsOf,
   answerText,
   berlinDateTime,
   berlinTime,
@@ -166,8 +167,13 @@ function useInertOutside(ref, active) {
 /**
  * Ab lg: Das Panel endet über dem unteren Fensterrand, wo immer es steht
  * (panelFit) – auch direkt nach dem Sprung zur Liste, wenn es noch nicht oben
- * klebt (Fixliste 3, V3). Angepasst beim Öffnen, beim Scrollen der Seite (nicht
- * des Verlaufs im Panel) und bei Größenänderungen, höchstens einmal je Bild.
+ * klebt (Fixliste 3, V3), und über dem Ende seines Bereichs, damit es am
+ * Seitenende unter dem Benutzermenü bleibt (Fixliste 4, V3). Angepasst beim
+ * Öffnen, beim Scrollen der Seite (nicht des Verlaufs im Panel), bei
+ * Größenänderungen des Fensters und bei jeder Größenänderung eines Vorfahren
+ * (ResizeObserver) – so auch, wenn es sich ohne Scrollen verschiebt, etwa
+ * weil über der Liste die Zeile der Filtermarkierungen erscheint oder
+ * verschwindet (Fixliste 4, V4). Höchstens einmal je Bild.
  * @param {{current: HTMLElement|null}} ref
  * @param {boolean} active
  * @param {*} content - Wechselt er (andere Konversation), wird neu angepasst
@@ -189,7 +195,8 @@ function usePanelFit(ref, active, content) {
       pending = null;
       const result = panelFit(
         panel.getBoundingClientRect?.().top,
-        window.innerHeight
+        window.innerHeight,
+        panel.parentNode?.getBoundingClientRect?.().bottom
       );
       if (result) panel.style.maxHeight = `${result.maxHeight}px`;
     };
@@ -201,8 +208,17 @@ function usePanelFit(ref, active, content) {
     const doc = panel.ownerDocument;
     doc?.addEventListener?.("scroll", schedule, true);
     window.addEventListener?.("resize", schedule);
+    // Lageänderungen ohne Scrollen: Ändert sich etwas über dem Panel, ändert
+    // sich die Größe eines Vorfahren (das Panel selbst nicht – es wird nur
+    // hier angepasst).
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => schedule());
+    for (const element of ancestorsOf(panel)) observer?.observe(element);
     return () => {
       if (pending !== null) cancel(pending);
+      observer?.disconnect();
       doc?.removeEventListener?.("scroll", schedule, true);
       window.removeEventListener?.("resize", schedule);
       panel.style.maxHeight = "";

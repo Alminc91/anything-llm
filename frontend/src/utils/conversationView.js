@@ -79,20 +79,115 @@ export const PANEL_MIN_VISIBLE = 320;
  * tiefer, solange die Seite noch nicht so weit gescrollt ist (etwa direkt
  * nach dem Sprung zur Liste). reveal: Beim Öffnen ist zu wenig davon zu
  * sehen.
+ *
+ * containerBottom: Unterkante des Bereichs, in dem das Panel klebt (Liste
+ * und Panel). Ein klebendes Element verlässt ihn nie – reicht er nicht bis
+ * PANEL_STUCK_TOP + Höhe, schiebt der Browser das Panel nach oben unter das
+ * Benutzermenü. Das geschieht am Seitenende: Unter dem Bereich liegen dann
+ * noch 64 px Rand (24 + 24 + 16), nicht 32. Das Panel endet deshalb auch
+ * über dieser Kante und bleibt bei PANEL_STUCK_TOP (Fixliste 4, V3).
  * @param {number} top - Oberkante des Panels im Fenster (px)
  * @param {number} viewportHeight - Höhe des Fensters (px)
+ * @param {number} [containerBottom] - Unterkante des Bereichs im Fenster
+ *   (px); ohne gültigen Wert ohne diese Grenze
  * @returns {{maxHeight: number, reveal: boolean}|null} - null ohne gültige Maße
  */
-export function panelFit(top, viewportHeight) {
+export function panelFit(top, viewportHeight, containerBottom) {
   if (!Number.isFinite(top) || !Number.isFinite(viewportHeight)) return null;
   const visibleTop = Math.max(top, PANEL_STUCK_TOP);
+  const bottom = Math.min(
+    viewportHeight - PANEL_BOTTOM_GAP,
+    Number.isFinite(containerBottom) ? containerBottom : Infinity
+  );
   return {
-    maxHeight: Math.max(
-      PANEL_MIN_HEIGHT,
-      Math.round(viewportHeight - PANEL_BOTTOM_GAP - visibleTop)
-    ),
+    maxHeight: Math.max(PANEL_MIN_HEIGHT, Math.round(bottom - visibleTop)),
     reveal: viewportHeight - top < PANEL_MIN_VISIBLE,
   };
+}
+
+/** Elternelemente eines Knotens bis unter <body> (nur Elemente). */
+export function ancestorsOf(node) {
+  const found = [];
+  const body = node?.ownerDocument?.body;
+  for (
+    let current = node?.parentNode;
+    current && current !== body && current.nodeType === 1;
+    current = current.parentNode
+  )
+    found.push(current);
+  return found;
+}
+
+/** Eingaben, mit denen der Nutzer selbst scrollt oder etwas tut. */
+const USER_INPUT_EVENTS = [
+  "wheel",
+  "touchstart",
+  "pointerdown",
+  "mousedown",
+  "keydown",
+];
+/** So lange hält holdScrollTarget höchstens, auch ohne Eingabe. */
+export const HOLD_SCROLL_MAX_MS = 10000;
+
+/**
+ * Hält ein Sprungziel an seiner Stelle, bis der Nutzer selbst etwas tut
+ * (Fixliste 4, V7). Ein einmaliger Sprung (scrollIntoView) gilt nur für das
+ * Layout dieses Augenblicks: Wird danach etwas über dem Ziel höher oder
+ * niedriger (nachgeladene Inhalte, Schriften, Diagramme) oder setzt der
+ * Browser die Scrollposition selbst (Wiederherstellen nach dem Neuladen,
+ * Scroll-Anker), stünde das Ziel woanders – beim Öffnen per Link bliebe
+ * die Seite scheinbar ungescrollt. Deshalb: springen, dann bei jeder
+ * Größenänderung eines Vorfahren (ResizeObserver) und bei jedem fremden
+ * Scrollen, das das Ziel verschiebt, erneut springen – bis zur ersten
+ * Eingabe (Rad, Tippen, Zeiger, Taste) oder nach HOLD_SCROLL_MAX_MS.
+ * @param {Element|null} target
+ * @param {() => void} jump - der Sprung (etwa scrollIntoView)
+ * @param {{maxMs?: number, setTimer?: Function, clearTimer?: Function}} [options]
+ * @returns {() => void} - beendet das Halten
+ */
+export function holdScrollTarget(target, jump, options = {}) {
+  const {
+    maxMs = HOLD_SCROLL_MAX_MS,
+    setTimer = setTimeout,
+    clearTimer = clearTimeout,
+  } = options;
+  if (!target) return () => {};
+  const topOf = () => target.getBoundingClientRect?.().top;
+  let held = topOf();
+  const align = () => {
+    jump();
+    held = topOf();
+  };
+  align();
+
+  const doc = target.ownerDocument;
+  let stopped = false;
+  let observer = null;
+  let timer = null;
+  const onScroll = () => {
+    const top = topOf();
+    if (!stopped && Number.isFinite(top) && Math.abs(top - held) > 1) align();
+  };
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    observer?.disconnect?.();
+    clearTimer(timer);
+    doc?.removeEventListener?.("scroll", onScroll, true);
+    for (const type of USER_INPUT_EVENTS)
+      doc?.removeEventListener?.(type, stop, true);
+  };
+  if (typeof ResizeObserver !== "undefined") {
+    observer = new ResizeObserver(() => {
+      if (!stopped) align();
+    });
+    for (const element of ancestorsOf(target)) observer.observe(element);
+  }
+  doc?.addEventListener?.("scroll", onScroll, true);
+  for (const type of USER_INPUT_EVENTS)
+    doc?.addEventListener?.(type, stop, { capture: true, passive: true });
+  timer = setTimer(stop, maxMs);
+  return stop;
 }
 
 /** Kürzester Suchbegriff, ab dem gesucht wird. */
