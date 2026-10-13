@@ -20,12 +20,20 @@ import {
 //
 // KIE-537 – Mit eingeschaltetem Vergleich hat jedes Feld eine weitere Zeile:
 // die Veränderung gegenüber dem Vorzeitraum (gleich viele Kalendertage
-// unmittelbar davor) oder „Kein Vergleich verfügbar". Die großen Zahlen und
-// die übrigen Nebenwerte bleiben, wie sie sind. Mit welchen Tagen verglichen
-// wird, steht einmal sichtbar in einer Zeile direkt unter dem Streifen – ein
-// Tooltip allein wäre mit Finger und Tastatur nicht zu erreichen. Enthält der
-// Zeitraum den heutigen Tag, sagt die Zeile auch das: Verglichen wird dann
-// ein laufender Zeitraum mit einem abgeschlossenen.
+// unmittelbar davor). Die großen Zahlen und die übrigen Nebenwerte bleiben,
+// wie sie sind. Mit welchen Tagen verglichen wird, steht einmal sichtbar in
+// einer Zeile direkt unter dem Streifen – ein Tooltip allein wäre mit Finger
+// und Tastatur nicht zu erreichen. Enthält der Zeitraum den heutigen Tag,
+// sagt die Zeile auch das: Verglichen wird dann ein laufender Zeitraum mit
+// einem abgeschlossenen.
+//
+// Gibt es keinen Vergleich (der Vorzeitraum beginnt vor dem ersten Zählwert),
+// steht an derselben Stelle einmal, warum – mit dem Tag, ab dem Zählwerte
+// vorliegen. Die Zeile gehört zum Streifen und steht direkt über dem
+// Diagramm mit dem Schalter: eine Angabe für beide, statt derselben Worte in
+// allen vier Feldern und noch einmal am Diagramm. Die Felder selbst bekommen
+// dann keine sichtbare Zeile (ihre Höhe ist dieselbe wie ohne Vergleich);
+// für Screenreader nennt jedes Feld „Kein Vergleich verfügbar".
 
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 const NO_VALUE = "–";
@@ -57,8 +65,18 @@ export default function StatisticsGrid({
 
   // KIE-537: Zeile der Veränderung je Feld – null, solange der Vergleich aus
   // ist oder die Antwort noch keinen Vorzeitraum nennt. Der Tooltip nennt die
-  // Tage, mit denen verglichen wird, bzw. warum es keinen Vergleich gibt.
+  // Tage, mit denen verglichen wird.
   const comparison = comparisonOf(summary, compare);
+  // Kein Vergleich: warum – mit dem ersten Tag der Zählwerte, wenn es einen
+  // gibt. Steht einmal, in der Zeile unter dem Streifen.
+  const unavailableReason =
+    comparison && !comparison.available
+      ? comparison.since
+        ? t("embed-analytics.compare.unavailable-since", {
+            date: formatDate(comparison.since),
+          })
+        : t("embed-analytics.compare.unavailable-no-counts")
+      : null;
   // Die Tage des Vorzeitraums der Kennzahlen (gleich viele Kalendertage
   // unmittelbar davor). Bei Wochen und Monaten sind das andere Tage als die
   // der Linie, die die Legende am Diagramm nennt.
@@ -76,11 +94,6 @@ export default function StatisticsGrid({
       return {
         available: false,
         text: t("embed-analytics.compare.unavailable"),
-        title: comparison.since
-          ? t("embed-analytics.compare.unavailable-since", {
-              date: formatDate(comparison.since),
-            })
-          : t("embed-analytics.compare.unavailable-no-counts"),
       };
     return {
       available: true,
@@ -209,19 +222,24 @@ export default function StatisticsGrid({
                   {field.action.label}
                 </button>
               )}
-              {field.change && (
+              {field.change?.available && (
                 <span
                   data-kpi-change=""
                   title={field.change.title}
-                  className={`mt-1 block text-xs ${field.change.available ? "text-theme-text-primary" : MUTED}`}
+                  className="mt-1 block text-xs text-theme-text-primary"
                 >
                   {field.change.text}
                   {/* Der Tooltip ist nur mit der Maus erreichbar: Die Tage
-                      des Vergleichs stehen deshalb auch im Text – der Grund
-                      für „Kein Vergleich" steht sichtbar am Diagramm. */}
-                  {field.change.available && (
-                    <span className="sr-only">{` (${field.change.title})`}</span>
-                  )}
+                      des Vergleichs stehen deshalb auch im Text. */}
+                  <span className="sr-only">{` (${field.change.title})`}</span>
+                </span>
+              )}
+              {/* Kein Vergleich: sichtbar steht es einmal unter dem Streifen.
+                  Das Feld bekommt keine Zeile – nur den Text für
+                  Screenreader, der keinen Platz einnimmt. */}
+              {field.change && !field.change.available && (
+                <span data-kpi-change="" className="sr-only">
+                  {field.change.text}
                 </span>
               )}
             </dd>
@@ -245,6 +263,15 @@ export default function StatisticsGrid({
               </span>
             </>
           )}
+        </p>
+      )}
+
+      {unavailableReason && (
+        <p
+          data-compare-note=""
+          className={`mt-2 text-xs ${MUTED} transition-opacity ${loading ? "opacity-50" : ""}`}
+        >
+          {unavailableReason}
         </p>
       )}
 

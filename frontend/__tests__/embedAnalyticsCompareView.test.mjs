@@ -69,7 +69,10 @@ const axisValues = (html) =>
   [...html.matchAll(/<text x="-8"[^>]*>([^<]*)<\/text>/g)].map(([, text]) =>
     Number(text.replace(/\./g, ""))
   );
-/** Zeile der Veränderung je Kennzahl-Feld: [Feld, Text, Tooltip]. */
+/**
+ * Zeile der Veränderung je Kennzahl-Feld: [Feld, Text, Tooltip] – null ohne
+ * sichtbare Zeile (auch wenn das Feld nur einen Text für Screenreader hat).
+ */
 const changesOf = (html) =>
   [...html.matchAll(/<div data-kpi="([^"]+)"[^>]*>(.*?)<\/dd><\/div>/g)].map(
     ([, key, inner]) => {
@@ -86,6 +89,17 @@ const changesOf = (html) =>
     }
   );
 
+/** Die vier Kennzahl-Felder (das ganze Element), in ihrer Reihenfolge. */
+const fieldsOf = (html) =>
+  [...html.matchAll(/<div data-kpi="[^"]+"[^>]*>.*?<\/dd><\/div>/g)].map(
+    ([field]) => field
+  );
+/** Ohne alles, was nur Screenreader lesen (keinen Platz einnimmt). */
+const withoutSrOnly = (html) =>
+  html.replace(/<span [^>]*class="sr-only"[^>]*>.*?<\/span>/g, "");
+/** Angabe unter dem Kennzahlen-Streifen, warum es keinen Vergleich gibt. */
+const compareNoteOf = (html) =>
+  html.match(/<p data-compare-note=""[^>]*>.*?<\/p>/)?.[0] ?? null;
 /** Zeile unter dem Kennzahlen-Streifen (das ganze Element); null ohne. */
 const compareLineOf = (html) =>
   html.match(/<p data-compare-line=""[^>]*>.*?<\/p>/)?.[0] ?? null;
@@ -728,7 +742,7 @@ const UNAVAILABLE = {
 };
 
 test(
-  "Kein Vergleich (AK-6): keine Linie, keine Legende – das Diagramm nennt den Tag, ab dem Zählwerte vorliegen; Säulen und Achse wie ohne Vergleich",
+  "Kein Vergleich (AK-6): keine Linie, keine Legende – Säulen und Achse wie ohne Vergleich; warum, steht einmal am Kennzahlen-Streifen und nicht noch einmal im Diagramm",
   { skip },
   async () => {
     const html = await render(CHART, {
@@ -744,18 +758,15 @@ test(
     assert.match(switchOf(html), /aria-checked="true"/);
     assert.equal(lineOf(html), null);
     assert.equal(legendOf(html), null);
-    assert.match(
-      html,
-      /<p data-compare-note=""[^>]*>Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem 01\.09\.2026, dem ersten Tag mit Zählwerten\.<\/p>/
-    );
+    // Die Angabe steht in der Zeile unter dem Kennzahlen-Streifen, direkt
+    // über dieser Karte – im Diagramm steht sie kein zweites Mal.
+    assert.doesNotMatch(html, /data-compare-note|Kein Vergleich/);
     // Die Werte des Vorzeitraums erscheinen nirgends – auch die 70 nicht.
     assert.doesNotMatch(html, /Vorzeitraum: \d/);
     assert.deepEqual(axisValues(html), [0, 10, 20, 30, 40]);
-    // Bis auf Schalter und Angabe dieselbe Darstellung wie ohne Vergleich
+    // Bis auf den Schalter dieselbe Darstellung wie ohne Vergleich
     const without = (source) =>
-      source
-        .replace(/<button[^>]*data-compare-switch.*?<\/button>/, "")
-        .replace(/<p data-compare-note.*?<\/p>/, "");
+      source.replace(/<button[^>]*data-compare-switch.*?<\/button>/, "");
     assert.equal(without(html), without(plain));
   }
 );
@@ -944,25 +955,36 @@ test(
 );
 
 test(
-  "Leerzustand ohne verfügbaren Vergleich (AK-6): Zeitraum ohne Nachrichten, der Vorzeitraum beginnt vor dem ersten Zählwert – Hinweis im Rahmen und die Angabe, keine Linie",
+  "Leerzustand ohne verfügbaren Vergleich (AK-6): Zeitraum ohne Nachrichten, der Vorzeitraum beginnt vor dem ersten Zählwert – Hinweis im Rahmen, keine Linie; die Angabe steht am Kennzahlen-Streifen",
   { skip },
   async () => {
+    const summary = {
+      ...EMPTY_NOW,
+      firstLedgerDay: "2026-09-01",
+      previous: { ...EMPTY_NOW.previous, available: false },
+    };
     const html = await render(CHART, {
       loading: false,
       compare: true,
-      summary: {
-        ...EMPTY_NOW,
-        firstLedgerDay: "2026-09-01",
-        previous: { ...EMPTY_NOW.previous, available: false },
-      },
+      summary,
     });
     assert.match(html, /data-chart-frame="empty"/);
     assert.match(html, /Keine Nachrichten im gewählten Zeitraum/);
-    assert.match(html, /<p data-compare-note=""/);
     assert.equal(lineOf(html), null);
     assert.equal(legendOf(html), null);
     assert.equal(columns(html), 0);
-    assert.doesNotMatch(html, /data-chart-note|Vorzeitraum: \d/);
+    assert.doesNotMatch(
+      html,
+      /data-chart-note|data-compare-note|Vorzeitraum: \d/
+    );
+    assert.match(
+      textOf(
+        compareNoteOf(
+          await render(KPI, { loading: false, compare: true, summary })
+        )
+      ),
+      /^Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem 01\.09\.2026, /
+    );
   }
 );
 
@@ -1244,48 +1266,95 @@ test(
 );
 
 test(
-  "Kennzahlen (AK-6): ohne Vergleich steht in jedem Feld „Kein Vergleich verfügbar“ – keine Prozentzahl, kein Wert des Vorzeitraums; der Tooltip nennt den ersten Tag mit Zählwerten",
+  "Kennzahlen (AK-6): Ohne Vergleich zeigen die Kennzahl-Felder „Kein Vergleich verfügbar“ – sichtbar einmal für alle vier, in der Zeile direkt unter dem Streifen mit dem ersten Tag der Zählwerte, und je Feld für Screenreader; keine Prozentzahl, kein Wert des Vorzeitraums",
   { skip },
   async () => {
-    const html = await render(KPI, {
-      loading: false,
-      compare: true,
-      summary: {
-        ...KPI_SUMMARY,
-        firstLedgerDay: "2026-09-01",
-        previous: { ...KPI_SUMMARY.previous, available: false },
-      },
-    });
+    const summary = {
+      ...KPI_SUMMARY,
+      firstLedgerDay: "2026-09-01",
+      previous: { ...KPI_SUMMARY.previous, available: false },
+    };
+    const html = await render(KPI, { loading: false, compare: true, summary });
+    const off = await render(KPI, { loading: false, compare: false, summary });
     const reason =
       "Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem 01.09.2026, dem ersten Tag mit Zählwerten.";
 
+    // Jedes der vier Felder trägt die Angabe – als Text für Screenreader,
+    // der keinen Platz einnimmt.
+    const fields = fieldsOf(html);
+    assert.equal(fields.length, 4);
+    for (const field of fields) {
+      assert.equal(
+        count(
+          field,
+          /<span data-kpi-change="" class="sr-only">Kein Vergleich verfügbar<\/span><\/dd>/g
+        ),
+        1
+      );
+      assert.equal(count(field, /Kein Vergleich/g), 1);
+    }
+    // Sichtbar steht sie einmal: in der Zeile, die zum Streifen gehört –
+    // direkt nach den vier Feldern, vor den technischen Details.
+    const visible = withoutSrOnly(html);
+    assert.equal(count(visible, /Kein Vergleich verfügbar/g), 1);
+    assert.equal(count(html, /data-compare-note/g), 1);
+    const note = compareNoteOf(html);
+    assert.equal(textOf(note), reason);
+    assert.doesNotMatch(note, /sr-only|title=|aria-hidden/);
+    const at = html.indexOf("<p data-compare-note");
+    assert.equal(html.slice(at - 5, at), "</dl>");
+    assert.ok(at < html.indexOf("Technische Details anzeigen"));
+    // gedämpft und klein, wie die Zeile mit den Tagen des Vorzeitraums
+    const classes = note.match(/class="([^"]*)"/)[1].split(/\s+/);
+    assert.ok(classes.includes("text-xs"));
+    assert.ok(
+      classes.includes("text-[color:var(--theme-analytics-text-muted)]")
+    );
+
+    // Keine Zeile der Veränderung in den Feldern: Sichtbar sind sie dieselben
+    // wie mit ausgeschaltetem Vergleich – ihre Höhe springt nicht.
     assert.deepEqual(
       changesOf(html),
       ["messages", "conversations", "positive", "negative"].map((key) => [
         key,
-        "Kein Vergleich verfügbar",
-        reason,
+        null,
+        null,
       ])
     );
-    assert.doesNotMatch(html, /266|ggü\.|sr-only/);
+    assert.deepEqual(fieldsOf(visible), fieldsOf(off));
+    assert.equal(visible.replace(/<p data-compare-note.*?<\/p>/, ""), off);
+    // weder Werte des Vorzeitraums noch die Zeile mit seinen Tagen
+    assert.doesNotMatch(html, /266|ggü\.|data-compare-line|läuft noch/);
     // Die großen Zahlen bleiben.
     assert.match(textOf(html), /^Nachrichten 421 /);
 
-    // Ohne jeden Zählwert: derselbe Text, eine andere Begründung
+    // Ohne jeden Zählwert: dieselbe Stelle, eine andere Begründung
     const empty = await render(KPI, {
       loading: false,
       compare: true,
+      summary: { ...summary, firstLedgerDay: null },
+    });
+    assert.equal(
+      textOf(compareNoteOf(empty)),
+      "Kein Vergleich verfügbar: Für den Vorzeitraum liegen keine Zählwerte vor."
+    );
+    assert.equal(count(withoutSrOnly(empty), /Kein Vergleich/g), 1);
+    assert.equal(count(empty, /<span data-kpi-change="" class="sr-only">/g), 4);
+
+    // Ein laufender Zeitraum ohne Vergleich: kein Hinweis „läuft noch“ – es
+    // gibt keine Veränderung, die vorläufig wäre.
+    const today = new Date().toISOString().slice(0, 10);
+    const running = await render(KPI, {
+      loading: false,
+      compare: true,
       summary: {
-        ...KPI_SUMMARY,
-        firstLedgerDay: null,
-        previous: { ...KPI_SUMMARY.previous, available: false },
+        ...summary,
+        fromDay: addDays(today, -29),
+        toDay: addDays(today, 1),
       },
     });
-    assert.deepEqual(changesOf(empty)[0], [
-      "messages",
-      "Kein Vergleich verfügbar",
-      "Kein Vergleich verfügbar: Für den Vorzeitraum liegen keine Zählwerte vor.",
-    ]);
+    assert.equal(textOf(compareNoteOf(running)), reason);
+    assert.doesNotMatch(running, /data-compare-running|läuft noch/);
   }
 );
 

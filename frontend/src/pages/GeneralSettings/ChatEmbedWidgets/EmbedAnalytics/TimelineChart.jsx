@@ -41,12 +41,13 @@ import {
 // gepunktete Linie mit Punktmarken an ihren Werten unterscheiden sich auch
 // ohne Farbe.
 // Tooltip und Tabelle nennen den zweiten Wert – der Tooltip mit dem Abschnitt
-// des Vorzeitraums, zu dem er gehört. Gibt es keinen Vergleich
-// (der Vorzeitraum beginnt vor dem ersten Zählwert), steht das am Diagramm,
-// und es bleibt bei den Säulen. Hat der gewählte Zeitraum nichts zu zeigen
-// („Heute" vor der ersten Nachricht), der Vorzeitraum aber schon, bleibt es
-// nicht beim Leerzustand: Die Linie liegt über Plätzen ohne Säulen, der
-// Hinweis des Leerzustands steht als Zeile darüber.
+// des Vorzeitraums, zu dem er gehört. Gibt es keinen Vergleich (der
+// Vorzeitraum beginnt vor dem ersten Zählwert), bleibt es bei den Säulen;
+// warum, steht einmal – in der Zeile unter dem Kennzahlen-Streifen, direkt
+// über dieser Karte (StatisticsGrid). Hat der gewählte Zeitraum nichts zu
+// zeigen („Heute" vor der ersten Nachricht), der Vorzeitraum aber schon,
+// bleibt es nicht beim Leerzustand: Die Linie liegt über Plätzen ohne Säulen,
+// der Hinweis des Leerzustands steht als Zeile darüber.
 
 const METRICS = ["messages", "conversations"];
 const DEFAULT_WIDTH = 960;
@@ -86,10 +87,6 @@ export default function TimelineChart({
   // KIE-537: null = Vergleich aus (oder noch nicht geladen)
   const comparison = comparisonOf(summary, compare);
   const previous = comparison?.available ? comparison : null;
-  // Kein Vergleich: Die Angabe über dem Diagramm nennt den Tag, ab dem
-  // Zählwerte vorliegen (ohne jeden Zählwert sagt es schon der Leerzustand).
-  const noComparisonSince =
-    comparison && !comparison.available ? comparison.since : null;
   // Leerzustand des gewählten Zeitraums (keine Nachrichten bzw. keine
   // Konversation) – der Vorzeitraum kann trotzdem Werte haben. Dann gibt es
   // etwas zu zeigen: im Diagramm die Linie über Plätzen ohne Säulen (für die
@@ -181,10 +178,9 @@ export default function TimelineChart({
         className={`transition-opacity ${loading && summary ? "opacity-50" : ""}`}
         aria-busy={loading}
       >
-        {/* KIE-537 – über dem Diagramm, an derselben Stelle: die Legende
-            oder die Angabe, warum es keinen Vergleich gibt. Die Kopfzeile
-            mit dem Schalter bleibt dabei, wo sie ist. Liegt die Linie über
-            Plätzen ohne Säulen, steht davor, warum es keine gibt. */}
+        {/* KIE-537 – über dem Diagramm: die Legende. Die Kopfzeile mit dem
+            Schalter bleibt dabei, wo sie ist. Liegt die Linie über Plätzen
+            ohne Säulen, steht davor, warum es keine gibt. */}
         {showsLine && lineOnly && (
           <p
             data-chart-note=""
@@ -194,13 +190,6 @@ export default function TimelineChart({
           </p>
         )}
         {showsLine && <Legend previous={previous} t={t} />}
-        {noComparisonSince && (
-          <p data-compare-note="" className={`mb-3 text-xs ${MUTED}`}>
-            {t("embed-analytics.compare.unavailable-since", {
-              date: formatDate(noComparisonSince),
-            })}
-          </p>
-        )}
         {!summary ? (
           <Frame>
             <p className={`text-sm ${MUTED}`}>

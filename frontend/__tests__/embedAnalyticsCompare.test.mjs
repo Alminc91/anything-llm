@@ -81,11 +81,33 @@ const chartNoteOf = (container) =>
 /** Text des Leerzustands im Rahmen des Diagramms; null ohne Rahmen. */
 const frameOf = (container) =>
   withAttribute(container, "data-chart-frame")[0]?.textContent ?? null;
-/** Zeilen der Veränderung in den Kennzahl-Feldern (sichtbarer Text). */
+/** Nur für Screenreader: Das Element nimmt keinen Platz ein. */
+const isSrOnly = (element) =>
+  (element.getAttribute("class") ?? "").split(" ").includes("sr-only");
+/**
+ * Angaben zur Veränderung in den Kennzahl-Feldern (der Text ohne den Zusatz
+ * für Screenreader) – als sichtbare Zeile oder, ohne Vergleich, nur für
+ * Screenreader.
+ */
 const changesOf = (container) =>
   withAttribute(container, "data-kpi-change").map(
     (line) => line.firstChild.textContent
   );
+/**
+ * Was ein Kennzahl-Feld untereinander zeigt: die sichtbaren Zeilen unter der
+ * Beschriftung, in ihrer Reihenfolge. Jede Zeile ist ein Block – ihre Zahl
+ * bestimmt die Höhe des Feldes.
+ */
+const fieldLinesOf = (container) =>
+  withAttribute(container, "data-kpi").map((field) => {
+    const [dd] = elements(field, (element) => element.tagName === "DD");
+    return dd.childNodes
+      .filter((child) => child.nodeType === 1 && !isSrOnly(child))
+      .map((child) => {
+        assert.match(child.getAttribute("class"), /(^| )block( |$)/);
+        return child.textContent;
+      });
+  });
 /**
  * Zeile unter dem Kennzahlen-Streifen: womit die Felder vergleichen; null
  * ohne Zeile.
@@ -470,7 +492,7 @@ test(
 );
 
 test(
-  "Kein Vergleich (AK-6): Beginnt der Vorzeitraum vor dem ersten Zählwert, zeigen die Kennzahl-Felder „Kein Vergleich verfügbar“, das Diagramm nennt den Tag – keine Linie; die Säulen bleiben",
+  "Kein Vergleich (AK-6): Beginnt der Vorzeitraum vor dem ersten Zählwert, zeigen die Kennzahl-Felder „Kein Vergleich verfügbar“ – einmal sichtbar in der Zeile unter dem Streifen mit dem Tag, je Feld für Screenreader; keine Linie, die Säulen bleiben, die Felder behalten ihre Höhe",
   { skip },
   async (t) => {
     // Zählwerte erst seit 40 Tagen: Der Vorzeitraum der letzten 30 Tage
@@ -482,6 +504,12 @@ test(
     const { container, act } = await mountView(t);
     const kpis = kpiTextOf(container);
     const bars = barsOf(container);
+    const lines = fieldLinesOf(container);
+    assert.deepEqual(
+      lines.map((field) => field.length),
+      [2, 2, 2, 2]
+    );
+    assert.equal(lines[0][0], "421");
 
     await act(() => click(switchOf(container)));
 
@@ -489,14 +517,50 @@ test(
     assert.equal(isOn(container), true);
     assert.equal(lineOf(container), null);
     assert.equal(legendOf(container), null);
+    // Jedes Feld nennt es – für Screenreader, ohne eigene Zeile.
     assert.deepEqual(
       changesOf(container),
       Array.from({ length: 4 }, () => "Kein Vergleich verfügbar")
     );
+    for (const change of withAttribute(container, "data-kpi-change")) {
+      assert.ok(isSrOnly(change));
+      assert.equal(change.getAttribute("title"), null);
+    }
+    // Die Felder zeigen dieselben Zeilen wie ausgeschaltet: Ihre Höhe springt
+    // nicht, wenn der Vergleich an- und ausgeht.
+    assert.deepEqual(fieldLinesOf(container), lines);
+    // Sichtbar steht es einmal – mit dem Tag, in der Zeile unter dem Streifen:
+    // nach den vier Feldern, über dem Diagramm mit dem Schalter.
+    const reason = `Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem ${formatDate(addDays(today, -40))}, dem ersten Tag mit Zählwerten.`;
+    assert.equal(noteOf(container).textContent, reason);
+    assert.equal(withAttribute(container, "data-compare-note").length, 1);
+    const visibleText = (root) =>
+      root.nodeType === 3
+        ? root.nodeValue
+        : root.nodeType !== 1 || isSrOnly(root)
+          ? ""
+          : root.childNodes.map(visibleText).join("");
     assert.equal(
-      noteOf(container).textContent,
-      `Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem ${formatDate(addDays(today, -40))}, dem ersten Tag mit Zählwerten.`
+      visibleText(container).match(/Kein Vergleich verfügbar/g).length,
+      1
     );
+    const order = elements(container);
+    const fields = withAttribute(container, "data-kpi");
+    const chart = switchOf(container);
+    assert.ok(order.indexOf(fields[3]) < order.indexOf(noteOf(container)));
+    assert.ok(order.indexOf(noteOf(container)) < order.indexOf(chart));
+    assert.ok(!fields.some((field) => field.contains(noteOf(container))));
+    // nicht noch einmal in der Karte des Diagramms
+    const [card] = elements(
+      container,
+      (element) => element.tagName === "SECTION" && element.contains(chart)
+    );
+    assert.ok(card, "keine Karte des Diagramms");
+    assert.ok(!card.contains(noteOf(container)));
+    assert.doesNotMatch(card.textContent, /Kein Vergleich/);
+    // weder die Zeile mit den Tagen des Vorzeitraums noch „läuft noch“
+    assert.equal(compareLineOf(container), null);
+    assert.equal(runningHintOf(container), null);
     assert.deepEqual(kpiTextOf(container), kpis);
     assert.deepEqual(barsOf(container), bars);
     // Kein Wert des Vorzeitraums, auch nicht im Tooltip
@@ -511,6 +575,33 @@ test(
     await act(() => click(switchOf(container)));
     assert.equal(noteOf(container), null);
     assert.deepEqual(changesOf(container), []);
+    assert.deepEqual(fieldLinesOf(container), lines);
+  }
+);
+
+test(
+  "Höhe der Kennzahl-Felder: Mit verfügbarem Vergleich kommt je Feld genau eine Zeile dazu (die Veränderung) – ohne verfügbaren Vergleich keine",
+  { skip },
+  async (t) => {
+    await analyticsServer(t);
+    const { container, act } = await mountView(t);
+    const off = fieldLinesOf(container);
+
+    await act(() => click(switchOf(container)));
+    const on = fieldLinesOf(container);
+    assert.deepEqual(
+      on.map((field) => field.slice(0, -1)),
+      off
+    );
+    assert.deepEqual(
+      on.map((field) => field.at(-1).replace(/ \(Vorzeitraum: .*\)$/, "")),
+      changesOf(container)
+    );
+    assert.equal(noteOf(container), null);
+    assert.ok(compareLineOf(container));
+
+    await act(() => click(switchOf(container)));
+    assert.deepEqual(fieldLinesOf(container), off);
   }
 );
 
@@ -1136,8 +1227,9 @@ test(
         "Nachrichten und Konversationen pro Tag",
         "Nachrichten und Konversationen pro Tag",
       ]);
-      // Warum es keinen Vergleich gibt, steht auch über der Tabelle.
-      assert.equal(!!noteOf(container), props.compare);
+      // Warum es keinen Vergleich gibt, steht am Kennzahlen-Streifen über
+      // dieser Karte – in der Karte kein zweites Mal.
+      assert.equal(noteOf(container), null);
       await unmount();
     }
   }
