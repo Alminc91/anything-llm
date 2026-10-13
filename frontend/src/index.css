@@ -1188,10 +1188,6 @@ mark[data-search-hit] {
   color: var(--theme-text-primary) !important;
 }
 
-.analytics-bot-response mark[data-search-hit] {
-  color: #1c1917 !important;
-}
-
 /* ===== react-day-picker Theme Overrides ===== */
 .rdp-theme-wrapper .rdp-root {
   --rdp-accent-color: var(--theme-button-primary);

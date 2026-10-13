@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import MarkdownIt from "markdown-it";
 import hljs from "highlight.js";
 import { CaretDown } from "@phosphor-icons/react";
@@ -90,28 +90,40 @@ function sanitizedHtml(html, highlight) {
 }
 
 /**
+ * Gerendert wird nur neu, wenn sich Antwort oder Suchbegriff ändern (memo):
+ * Markdown, DOMPurify und Hervorhebung kosten je Antwort – sonst liefen sie
+ * bei jedem Tastendruck im Suchfeld für den ganzen Verlauf.
  * @param {{content: string, highlight?: string}} props - highlight:
  *   Suchbegriff, dessen Treffer hervorgehoben werden (Konversationen-Ansicht)
  */
-export default function MarkdownRenderer({ content, highlight = "" }) {
+function MarkdownRenderer({ content, highlight = "" }) {
+  const parts = useMemo(
+    () =>
+      content
+        ? parseContent(content).map((part) =>
+            part.type === "think"
+              ? part
+              : {
+                  ...part,
+                  html: sanitizedHtml(md.render(part.text), highlight),
+                }
+          )
+        : [],
+    [content, highlight]
+  );
   if (!content) return null;
 
-  const parts = parseContent(content);
   return (
     <div className="whitespace-normal">
-      {parts.map((part, index) => {
-        const html = md.render(part.text);
-        if (part.type === "think")
-          return <ThoughtBubble key={index} thought={part.text} />;
-        return (
-          <div
-            key={index}
-            dangerouslySetInnerHTML={{
-              __html: sanitizedHtml(html, highlight),
-            }}
-          />
-        );
-      })}
+      {parts.map((part, index) =>
+        part.type === "think" ? (
+          <ThoughtBubble key={index} thought={part.text} />
+        ) : (
+          <div key={index} dangerouslySetInnerHTML={{ __html: part.html }} />
+        )
+      )}
     </div>
   );
 }
+
+export default memo(MarkdownRenderer);
