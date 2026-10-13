@@ -395,7 +395,6 @@ export default function ConversationList({
     request,
     reloadCount,
     unfilteredScope,
-    t,
   ]);
 
   const loading = list.scope !== scope;
@@ -592,6 +591,20 @@ export default function ConversationList({
   const settled = (wish) =>
     !!wish && idle && (items.length >= wish.rows || stuck);
   if (settled(refill)) setRefill(null);
+  // „Nächste“ am Ende, und das Nachladen scheiterte: Das Panel sagt es
+  // (Fixliste 5, C2) – die Meldung am Knopf „Weitere Konversationen laden“
+  // liegt nach dem Blättern oft unter dem Fensterrand. Ein erneuter Klick auf
+  // „Nächste“ lädt wieder nach. Der Hinweis gilt für diese Konversation in
+  // diesem Zuschnitt, solange das Nachladen gescheitert ist: Er verschwindet
+  // nach gelungenem Nachladen, beim Zeilenwechsel und beim Schließen.
+  const [advanceFailed, setAdvanceFailed] = useState(null);
+  if (
+    advanceFailed &&
+    (advanceFailed.chatId !== chatId ||
+      advanceFailed.scope !== scope ||
+      !moreFailed)
+  )
+    setAdvanceFailed(null);
   const advanceSettled = settled(advanceAfter);
   useEffect(() => {
     if (!advanceSettled) return;
@@ -600,7 +613,9 @@ export default function ConversationList({
     );
     setAdvanceAfter(null);
     if (index >= 0 && index + 1 < items.length) openFollowing(items[index + 1]);
-  }, [advanceSettled, advanceAfter, items, openFollowing]);
+    else if (moreFailed)
+      setAdvanceFailed({ chatId: advanceAfter.chatId, scope });
+  }, [advanceSettled, advanceAfter, items, openFollowing, moreFailed, scope]);
 
   const searchingLink = linkRows > 0 && !stuck;
   const navigationHint =
@@ -610,7 +625,9 @@ export default function ConversationList({
             ? "embed-analytics.panel.not-loaded"
             : "embed-analytics.panel.not-in-list"
         )
-      : null;
+      : advanceFailed && !loadingMore
+        ? t("embed-analytics.panel.not-loaded")
+        : null;
 
   // Die markierte Zeile bleibt im Blick, wenn das Panel blättert (nur, wenn
   // sie neben dem Panel steht: ab lg).

@@ -72,6 +72,26 @@ export const PANEL_MIN_HEIGHT = 240;
  * sonst holt die Ansicht es nach oben (Fixliste 3, V8).
  */
 export const PANEL_MIN_VISIBLE = 320;
+/**
+ * So viel Verlauf bleibt mindestens zwischen Kopf und Fußzeile sichtbar,
+ * auch wenn das Panel dafür über die Mindesthöhe wächst (Fixliste 5, S5).
+ */
+export const PANEL_MIN_BODY = 64;
+
+/**
+ * Mindesthöhe des Panels aus Kopf und Fußzeile: Kopf + Fußzeile +
+ * PANEL_MIN_BODY + Rahmen (2 px). Die Fußzeile bleibt so in jeder Höhe
+ * innerhalb des Panelrahmens – nur der Verlauf dazwischen scrollt
+ * (Fixliste 5, S5). 0 ohne gemessenen Kopf.
+ * @param {number} [headHeight] - Höhe des Kopfs (px)
+ * @param {number} [footerHeight] - Höhe der Fußzeile (px; fehlt sie, 0)
+ * @returns {number}
+ */
+export function panelChromeHeight(headHeight, footerHeight) {
+  if (!Number.isFinite(headHeight) || headHeight <= 0) return 0;
+  const footer = Number.isFinite(footerHeight) ? footerHeight : 0;
+  return Math.ceil(headHeight + footer + PANEL_MIN_BODY + 2);
+}
 
 /**
  * Höhe des Seitenpanels ab lg (Fixliste 3, V3/V8): Es endet über dem unteren
@@ -86,13 +106,18 @@ export const PANEL_MIN_VISIBLE = 320;
  * Benutzermenü. Das geschieht am Seitenende: Unter dem Bereich liegen dann
  * noch 64 px Rand (24 + 24 + 16), nicht 32. Das Panel endet deshalb auch
  * über dieser Kante und bleibt bei PANEL_STUCK_TOP (Fixliste 4, V3).
+ *
+ * minHeight: Kopf und Fußzeile mit einem Rest Verlauf (panelChromeHeight) –
+ * darunter wird das Panel nie, auch nicht an der Mindesthöhe; sonst läge die
+ * Fußzeile außerhalb des Panelrahmens (Fixliste 5, S5).
  * @param {number} top - Oberkante des Panels im Fenster (px)
  * @param {number} viewportHeight - Höhe des Fensters (px)
  * @param {number} [containerBottom] - Unterkante des Bereichs im Fenster
  *   (px); ohne gültigen Wert ohne diese Grenze
+ * @param {number} [minHeight] - Mindesthöhe aus Kopf und Fußzeile (px)
  * @returns {{maxHeight: number, reveal: boolean}|null} - null ohne gültige Maße
  */
-export function panelFit(top, viewportHeight, containerBottom) {
+export function panelFit(top, viewportHeight, containerBottom, minHeight = 0) {
   if (!Number.isFinite(top) || !Number.isFinite(viewportHeight)) return null;
   const visibleTop = Math.max(top, PANEL_STUCK_TOP);
   const bottom = Math.min(
@@ -100,7 +125,11 @@ export function panelFit(top, viewportHeight, containerBottom) {
     Number.isFinite(containerBottom) ? containerBottom : Infinity
   );
   return {
-    maxHeight: Math.max(PANEL_MIN_HEIGHT, Math.round(bottom - visibleTop)),
+    maxHeight: Math.max(
+      PANEL_MIN_HEIGHT,
+      Number.isFinite(minHeight) ? minHeight : 0,
+      Math.round(bottom - visibleTop)
+    ),
     reveal: viewportHeight - top < PANEL_MIN_VISIBLE,
   };
 }

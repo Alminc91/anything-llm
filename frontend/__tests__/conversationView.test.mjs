@@ -11,6 +11,8 @@ import de from "../src/locales/de/common.js";
 import en from "../src/locales/en/common.js";
 import {
   HOLD_SCROLL_MAX_MS,
+  PANEL_MIN_BODY,
+  PANEL_MIN_HEIGHT,
   SEARCH_MAX_LENGTH,
   ancestorsOf,
   answerText,
@@ -30,6 +32,7 @@ import {
   isWide,
   longDateLabel,
   outsidePeriod,
+  panelChromeHeight,
   panelFit,
   searchLinkIssue,
   searchPattern,
@@ -689,3 +692,24 @@ test("Fixliste 4, V7: holdScrollTarget – springt, hält das Ziel bei jeder Gr�
   // ohne Ziel: nichts
   assert.equal(typeof holdScrollTarget(null, () => assert.fail()), "function");
 });
+// ---------------------------------------------------------------------------
+// Fixliste 5 (Browser-Nachprüfung rc17, Kontroll-Review 4)
+// ---------------------------------------------------------------------------
+
+test("Fixliste 5, S5: panelFit – nie niedriger als Kopf und Fußzeile mit einem Rest Verlauf; die Fußzeile bleibt im Panelrahmen", () => {
+  // Kopf 196 px (schmales Panel, Frage über zwei Zeilen), Fußzeile 49 px
+  const min = panelChromeHeight(196, 49);
+  assert.equal(min, 196 + 49 + PANEL_MIN_BODY + 2);
+  // Panel weit unten (Mindesthöhe 240 reichte nicht): so hoch wie nötig
+  assert.equal(panelFit(700, 900, undefined, min).maxHeight, min);
+  assert.ok(min > PANEL_MIN_HEIGHT);
+  // sonst wie bisher
+  assert.equal(panelFit(300, 900, undefined, min).maxHeight, 568);
+  assert.equal(panelFit(700, 900).maxHeight, PANEL_MIN_HEIGHT);
+  // ohne Fußzeile (Konversation lädt) und ohne gemessenen Kopf
+  assert.equal(panelChromeHeight(120, undefined), 120 + PANEL_MIN_BODY + 2);
+  assert.equal(panelChromeHeight(0, 49), 0);
+  assert.equal(panelChromeHeight(undefined, 49), 0);
+  assert.equal(panelFit(700, 900, undefined, NaN).maxHeight, PANEL_MIN_HEIGHT);
+});
+

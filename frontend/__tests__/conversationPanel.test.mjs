@@ -2418,7 +2418,7 @@ test(
     const panel = panelOf(container);
     assert.equal(
       one(panel, "data-panel-navigation-hint").textContent,
-      "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar."
+      "Die Liste konnte nicht weiter geladen werden – bitte erneut versuchen."
     );
     assert.equal(
       one(panel, "data-panel-previous").hasAttribute("disabled"),
@@ -2805,7 +2805,7 @@ test(
         (element) => element.textContent
       );
     assert.deepEqual(hint(), [
-      "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar.",
+      "Die Liste konnte nicht weiter geladen werden – bitte erneut versuchen.",
     ]);
 
     // „Weitere laden“ gelingt: Der Hinweis ist fort, die Suche läuft weiter
@@ -3378,6 +3378,7 @@ test(
     assert.equal(detail.berlinDateTime, undefined);
   }
 );
+
 // ---------------------------------------------------------------------------
 // Fixliste 5 (Browser-Nachprüfung rc17, Kontroll-Review 4)
 // ---------------------------------------------------------------------------
@@ -3521,3 +3522,247 @@ test(
   }
 );
 
+test(
+  "Fixliste 5, C1: Größenänderung des Fensters mit offenem Panel – das Ereignis „resize“ (Ziel: das Fenster) wirft nicht und setzt die Höhe neu",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const windowListeners = new Map();
+    const original = {
+      add: globalThis.window.addEventListener,
+      remove: globalThis.window.removeEventListener,
+    };
+    globalThis.window.addEventListener = (type, listener) => {
+      windowListeners.set(type, [
+        ...(windowListeners.get(type) ?? []),
+        listener,
+      ]);
+    };
+    globalThis.window.removeEventListener = (type, listener) =>
+      windowListeners.set(
+        type,
+        (windowListeners.get(type) ?? []).filter((l) => l !== listener)
+      );
+    t.after(() => {
+      globalThis.window.addEventListener = original.add;
+      globalThis.window.removeEventListener = original.remove;
+    });
+    await panelServer(t, {
+      rows: [row(1), row(2)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const view = await mountList(t);
+    panelGeometry(t, view.document, { top: 300 });
+    await view.act(() => click(rowsOf(view.container)[0]));
+    await view.act();
+    const panel = panelOf(view.container);
+    assert.equal(panel.style.maxHeight, "568px");
+    // wie im Browser: contains() wirft bei einem Ziel, das kein Knoten ist
+    const contains = panel.contains.bind(panel);
+    panel.contains = (node) => {
+      if (typeof node?.nodeType !== "number")
+        throw new TypeError(
+          "Failed to execute 'contains' on 'Node': parameter 1 is not of type 'Node'."
+        );
+      return contains(node);
+    };
+    const resize = windowListeners.get("resize") ?? [];
+    assert.ok(resize.length > 0, "kein Lauscher für resize");
+    for (const height of [700, 800, 900, 1000]) {
+      globalThis.window.innerHeight = height;
+      await view.act(() =>
+        resize.forEach((listener) =>
+          listener({ type: "resize", target: globalThis.window })
+        )
+      );
+      await view.act(() => wait(20));
+      assert.equal(panel.style.maxHeight, `${height - 32 - 300}px`);
+    }
+  }
+);
+
+test(
+  "Fixliste 5, C2: „Nächste“ an der letzten geladenen Zeile, das Nachladen scheitert – Hinweis im Panel, kein Toast; ein erneutes „Nächste“ lädt nach und öffnet die nächste, der Hinweis ist fort",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const rows = Array.from({ length: 30 }, (_, i) =>
+      row(300 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    let failing = true;
+    const server = await panelServer(t, {
+      rows,
+      failList: (body) => failing && body.offset > 0,
+      details: Object.fromEntries(
+        [319, 320].map((id) => [
+          id,
+          {
+            messages: [
+              message(id, `konv-${id}`, { session_id: `sitzung-${id}` }),
+            ],
+          },
+        ])
+      ),
+    });
+    const { container, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[19]));
+    await act();
+    const panel = () => panelOf(container);
+    const hint = () =>
+      withAttribute(panel(), "data-panel-navigation-hint").map(
+        (element) => element.textContent
+      );
+    assert.deepEqual(currentRows(container), [319]);
+    assert.deepEqual(hint(), []);
+
+    // „Nächste“ über das Seitenende: Nachladen scheitert
+    await act(() => click(one(panel(), "data-panel-next")));
+    for (let i = 0; i < 4; i++) await act();
+    assert.deepEqual(
+      server.lists().map((call) => call.body.offset),
+      [0, 20]
+    );
+    assert.deepEqual(currentRows(container), [319]);
+    assert.deepEqual(hint(), [
+      "Die Liste konnte nicht weiter geladen werden – bitte erneut versuchen.",
+    ]);
+    assert.deepEqual(shown, []);
+    // „Nächste“ bleibt bedienbar – er versucht es erneut
+    assert.equal(
+      one(panel(), "data-panel-next").hasAttribute("disabled"),
+      false
+    );
+
+    // erneut, jetzt gelingt es: nächste Konversation offen, Hinweis fort
+    failing = false;
+    await act(() => click(one(panel(), "data-panel-next")));
+    for (let i = 0; i < 6; i++) await act();
+    assert.deepEqual(
+      server.lists().map((call) => call.body.offset),
+      [0, 20, 20]
+    );
+    assert.deepEqual(currentRows(container), [320]);
+    assert.deepEqual(hint(), []);
+    assert.equal(withAttribute(container, "data-load-more-error").length, 0);
+    assert.deepEqual(shown, []);
+  }
+);
+
+test(
+  "Fixliste 5, C2: Der Hinweis nach gescheitertem „Nächste“ verschwindet beim Zeilenwechsel und nach gelungenem „Weitere laden“",
+  { skip },
+  async (t) => {
+    const rows = Array.from({ length: 30 }, (_, i) =>
+      row(400 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    let failing = true;
+    await panelServer(t, {
+      rows,
+      failList: (body) => failing && body.offset > 0,
+      details: Object.fromEntries(
+        [418, 419].map((id) => [
+          id,
+          {
+            messages: [
+              message(id, `konv-${id}`, { session_id: `sitzung-${id}` }),
+            ],
+          },
+        ])
+      ),
+    });
+    const { container, act } = await mountList(t);
+    const hint = () =>
+      withAttribute(panelOf(container), "data-panel-navigation-hint").length;
+    await act(() => click(rowsOf(container)[19]));
+    await act();
+    await act(() => click(one(panelOf(container), "data-panel-next")));
+    for (let i = 0; i < 4; i++) await act();
+    assert.equal(hint(), 1);
+    // Zeilenwechsel: fort – auch zurück auf derselben Zeile kein Hinweis
+    await act(() => click(rowsOf(container)[18]));
+    await act();
+    assert.equal(hint(), 0);
+    await act(() => click(rowsOf(container)[19]));
+    await act();
+    assert.equal(hint(), 0);
+
+    // erneut scheitern, dann gelingt „Weitere laden“: fort
+    await act(() => click(one(panelOf(container), "data-panel-next")));
+    for (let i = 0; i < 4; i++) await act();
+    assert.equal(hint(), 1);
+    failing = false;
+    await act(() => click(one(container, "data-load-more")));
+    for (let i = 0; i < 4; i++) await act();
+    assert.equal(hint(), 0);
+  }
+);
+
+test(
+  "Fixliste 5, S5: Schmales Panel – Datum einzeilig (von lg bis xl in der Zeile unter der Frage), Fußzeile eine Zeile mit gekürzter Kennung; nie niedriger als Kopf und Fußzeile",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const observers = stubResizeObserver(t);
+    await panelServer(t, {
+      rows: [row(1), row(2)],
+      details: {
+        1: {
+          messages: [
+            message(1, "3f311a2b-1111-2222", { session_id: "sitzung-1" }),
+          ],
+        },
+      },
+    });
+    const view = await mountList(t);
+    panelGeometry(t, view.document, { top: 700 });
+    await view.act(() => click(rowsOf(view.container)[0]));
+    await view.act();
+    const panel = panelOf(view.container);
+
+    // Kopf: Datum neben den Schaltflächen erst ab xl, bis dahin einzeilig
+    // in der Zeile unter der Frage; die Schaltflächen rechts
+    const date = one(panel, "data-panel-date");
+    assert.ok(hasClasses(date, ["hidden", "xl:block", "whitespace-nowrap"]));
+    const metaDate = one(panel, "data-meta-date");
+    assert.ok(hasClasses(metaDate, ["xl:hidden", "whitespace-nowrap"]));
+    assert.equal(metaDate.textContent, date.textContent);
+    assert.ok(
+      hasClasses(one(panel, "data-panel-previous").parentNode, ["ml-auto"])
+    );
+    // Fußzeile: eine Zeile, die Kennung kürzt, „Konversation löschen“ ganz
+    const footer = one(panel, "data-conversation-actions");
+    assert.ok(hasClasses(footer, ["flex", "shrink-0"]));
+    assert.ok(!classesOf(footer).includes("flex-wrap"));
+    const id = one(panel, "data-panel-id");
+    assert.ok(hasClasses(id, ["min-w-0"]));
+    assert.ok(
+      elements(id, (e) => classesOf(e).includes("truncate")).length === 1
+    );
+    assert.ok(
+      hasClasses(one(panel, "data-delete-conversation"), [
+        "shrink-0",
+        "whitespace-nowrap",
+      ])
+    );
+    assert.ok(hasClasses(one(panel, "data-panel-head"), ["shrink-0"]));
+    assert.ok(hasClasses(one(panel, "data-panel-body"), ["min-h-0", "flex-1"]));
+
+    // Mindesthöhe: weit unten 240 px – Kopf 196 + Fußzeile 49 brauchen mehr
+    assert.equal(panel.style.maxHeight, "240px");
+    const head = one(panel, "data-panel-head");
+    const observer = observers.find((o) => o.observed.includes(head));
+    assert.ok(observer, "Kopf des Panels wird nicht beobachtet");
+    assert.ok(observer.observed.includes(one(panel, "data-panel-body")));
+    head.getBoundingClientRect = () => ({ top: 700, height: 196 });
+    footer.getBoundingClientRect = () => ({ top: 1011, height: 49 });
+    await view.act(() => observer.callback([]));
+    await view.act(() => wait(20));
+    assert.equal(panel.style.maxHeight, `${196 + 49 + 64 + 2}px`);
+  }
+);

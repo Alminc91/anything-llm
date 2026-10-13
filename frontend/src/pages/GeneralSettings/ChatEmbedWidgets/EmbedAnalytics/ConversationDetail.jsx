@@ -33,6 +33,7 @@ import {
   highlightParts,
   longDateLabel,
   outsidePeriod,
+  panelChromeHeight,
   panelFit,
   shortId,
 } from "@/utils/conversationView";
@@ -174,6 +175,17 @@ function useInertOutside(ref, active) {
  * (ResizeObserver) – so auch, wenn es sich ohne Scrollen verschiebt, etwa
  * weil über der Liste die Zeile der Filtermarkierungen erscheint oder
  * verschwindet (Fixliste 4, V4). Höchstens einmal je Bild.
+ *
+ * Nie niedriger als Kopf und Fußzeile zusammen (plus ein Rest Verlauf,
+ * PANEL_MIN_BODY): Steht das Panel weit unten (Mindesthöhe) und ist es
+ * schmal (1024 px), läge die Fußzeile sonst unter dem Panelrahmen
+ * (Fixliste 5, S5). Kopf und Verlauf werden dafür mit beobachtet – sie
+ * ändern ihre Höhe, wenn die Konversation geladen ist bzw. die Fußzeile
+ * erscheint.
+ *
+ * Scrollen und Größenänderungen des Fensters haben getrennte Lauscher: Beim
+ * Ereignis „resize“ ist das Ziel das Fenster, kein Knoten – contains()
+ * warf dort und die Höhe wurde nicht neu berechnet (Fixliste 5, C1).
  * @param {{current: HTMLElement|null}} ref
  * @param {boolean} active
  * @param {*} content - Wechselt er (andere Konversation), wird neu angepasst
@@ -190,37 +202,61 @@ function usePanelFit(ref, active, content) {
       typeof window.cancelAnimationFrame === "function"
         ? (id) => window.cancelAnimationFrame(id)
         : (id) => clearTimeout(id);
+    // Kopf, Verlauf und Fußzeile sind Kinder des Panels (nicht den ganzen
+    // Verlauf durchsuchen – fit läuft beim Scrollen)
+    const partOf = (attribute) =>
+      [...(panel.childNodes ?? [])].find(
+        (child) => child.nodeType === 1 && child.hasAttribute?.(attribute)
+      ) ?? null;
+    const heightOf = (attribute) =>
+      partOf(attribute)?.getBoundingClientRect?.().height;
     let pending = null;
     const fit = () => {
       pending = null;
       const result = panelFit(
         panel.getBoundingClientRect?.().top,
         window.innerHeight,
-        panel.parentNode?.getBoundingClientRect?.().bottom
+        panel.parentNode?.getBoundingClientRect?.().bottom,
+        panelChromeHeight(
+          heightOf("data-panel-head"),
+          heightOf("data-conversation-actions")
+        )
       );
       if (result) panel.style.maxHeight = `${result.maxHeight}px`;
     };
-    const schedule = (event) => {
-      if (event?.target && panel.contains?.(event.target)) return;
+    const schedule = () => {
       if (pending === null) pending = frame(fit);
     };
+    // Scrollt nur der Verlauf im Panel, bleibt die Höhe. Das Ziel eines
+    // Scroll-Ereignisses kann das Dokument sein (kein Element im Panel).
+    const onScroll = (event) => {
+      const target = event?.target;
+      if (target?.nodeType === 1 && panel.contains?.(target)) return;
+      schedule();
+    };
+    const onResize = () => schedule();
     fit();
     const doc = panel.ownerDocument;
-    doc?.addEventListener?.("scroll", schedule, true);
-    window.addEventListener?.("resize", schedule);
+    doc?.addEventListener?.("scroll", onScroll, true);
+    window.addEventListener?.("resize", onResize);
     // Lageänderungen ohne Scrollen: Ändert sich etwas über dem Panel, ändert
     // sich die Größe eines Vorfahren (das Panel selbst nicht – es wird nur
-    // hier angepasst).
+    // hier angepasst). Kopf und Verlauf: Mindesthöhe (S5).
     const observer =
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => schedule());
-    for (const element of ancestorsOf(panel)) observer?.observe(element);
+    for (const element of [
+      ...ancestorsOf(panel),
+      partOf("data-panel-head"),
+      partOf("data-panel-body"),
+    ])
+      if (element) observer?.observe(element);
     return () => {
       if (pending !== null) cancel(pending);
       observer?.disconnect();
-      doc?.removeEventListener?.("scroll", schedule, true);
-      window.removeEventListener?.("resize", schedule);
+      doc?.removeEventListener?.("scroll", onScroll, true);
+      window.removeEventListener?.("resize", onResize);
       panel.style.maxHeight = "";
     };
   }, [ref, active, content]);
@@ -602,13 +638,17 @@ export default function ConversationDetail({
             <CaretLeft size={20} aria-hidden="true" />
             {t("embed-analytics.panel.back")}
           </button>
+          {/* Datum neben den Schaltflächen erst ab xl: Von lg bis xl ist das
+              Panel schmal (bei 1024 px 321 px) – dort brach „Dienstag,“ /
+              „13.10.2026“ um. Das Datum steht dann (wie mobil) einzeilig in
+              der Zeile unter der Frage (Fixliste 5, S5). */}
           <span
             data-panel-date=""
-            className={`hidden text-sm ${MUTED} lg:block`}
+            className={`hidden whitespace-nowrap text-sm ${MUTED} xl:block`}
           >
             {longDateLabel(headDay)}
           </span>
-          <span className="flex items-center gap-1">
+          <span className="ml-auto flex items-center gap-1">
             <button
               type="button"
               data-panel-previous=""
@@ -689,7 +729,11 @@ export default function ConversationDetail({
                 data-panel-meta=""
                 className={`${META_LINE} text-[13px] ${MUTED}`}
               >
-                <span data-meta-item="" className={`${META_ITEM} lg:hidden`}>
+                <span
+                  data-meta-item=""
+                  data-meta-date=""
+                  className={`${META_ITEM} xl:hidden`}
+                >
                   {longDateLabel(headDay)}
                 </span>
                 <span
@@ -800,21 +844,24 @@ export default function ConversationDetail({
         )}
       </div>
 
-      {/* Fußzeile: gekürzte Kennung (kopieren) und Löschen */}
+      {/* Fußzeile: gekürzte Kennung (kopieren) und Löschen – immer eine
+          Zeile: Reicht die Breite nicht (Panel bei 1024 px), wird die
+          Kennung weiter gekürzt, „Konversation löschen“ bleibt ganz
+          (Fixliste 5, S5). */}
       {deletable && (
         <footer
           data-conversation-actions=""
-          className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-white/10 px-3 py-2 light:border-gray-200 lg:px-4"
+          className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 px-3 py-2 light:border-gray-200 lg:px-4"
         >
           <button
             type="button"
             data-panel-id=""
             onClick={copyId}
             title={t("embed-analytics.panel.copy-id")}
-            className={`flex h-11 items-center gap-1.5 rounded-md px-2 text-xs ${MUTED} hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 lg:h-8`}
+            className={`flex h-11 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs ${MUTED} hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 lg:h-8`}
           >
-            <Copy size={13} aria-hidden="true" />
-            <span className="font-mono">
+            <Copy size={13} aria-hidden="true" className="shrink-0" />
+            <span className="truncate font-mono">
               {t("embed-analytics.panel.id", { id: shortId(conversationId) })}
             </span>
           </button>
@@ -822,7 +869,7 @@ export default function ConversationDetail({
             type="button"
             data-delete-conversation=""
             onClick={() => openDelete("conversation")}
-            className={`flex h-11 items-center gap-1.5 rounded-md px-2 text-[13px] ${MUTED} transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text lg:h-8`}
+            className={`flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[13px] ${MUTED} transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text lg:h-8`}
           >
             <Trash size={14} aria-hidden="true" />
             {t("embed-analytics.delete.conversation")}
