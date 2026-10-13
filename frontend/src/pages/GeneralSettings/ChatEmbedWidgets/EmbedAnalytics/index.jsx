@@ -39,6 +39,9 @@ function toISO(date) {
   return date ? date.toISOString() : null;
 }
 
+/** Der gewählte Zeitraum als ein Wert zum Vergleichen (null = „Gesamt"). */
+const periodOf = (fromDay, toDay) => `${fromDay}|${toDay}`;
+
 export default function EmbedAnalyticsView() {
   const [embeds, setEmbeds] = useState([]);
   const [embedsLoaded, setEmbedsLoaded] = useState(false);
@@ -78,12 +81,14 @@ export function AnalyticsScreen({ embedsLoaded, embeds }) {
 function WidgetAnalytics({ embeds }) {
   const { t } = useTranslation();
   const [selectedEmbed, setSelectedEmbed] = useState(embeds[0].id);
-  // Zählwerte des Zeitraums: { embedId, data, loading, failed }
+  // Zählwerte des Zeitraums: { embedId, data, loading, failed, period } –
+  // period ist der gewählte Zeitraum, zu dem data gehört.
   const [summary, setSummary] = useState({
     embedId: null,
     data: null,
     loading: true,
     failed: false,
+    period: null,
   });
   // KIE-508/527: Feedback-Filter der Liste – hier geführt, weil auch die
   // Kennzahl „negativ bewertet" ihn setzt.
@@ -124,6 +129,7 @@ function WidgetAnalytics({ embeds }) {
         data: current.embedId === selectedEmbed ? current.data : null,
         loading: true,
         failed: false,
+        period: current.period,
       }));
 
       let days = fromDay && toDay ? { fromDay, toDay } : null;
@@ -158,6 +164,7 @@ function WidgetAnalytics({ embeds }) {
           data,
           loading: false,
           failed: false,
+          period: periodOf(fromDay, toDay),
         });
       } else {
         setSummary({
@@ -165,6 +172,7 @@ function WidgetAnalytics({ embeds }) {
           data: null,
           loading: false,
           failed: true,
+          period: null,
         });
         showToast(t("embed-analytics.load-error"), "error");
       }
@@ -187,6 +195,13 @@ function WidgetAnalytics({ embeds }) {
   const currentEmbed = embeds.find((e) => e.id === selectedEmbed);
   const retentionDays = currentEmbed?.chat_retention_days || null;
   const summaryData = summary.embedId === selectedEmbed ? summary.data : null;
+  // KIE-539: Die Karte „Wann schreiben Ihre Besucher?" zeigt nur den gewählten
+  // Zeitraum, nie den Vorzeitraum. Lädt die Ansicht denselben Zeitraum noch
+  // einmal – das ist der Schalter „Vorzeitraum vergleichen" (KIE-537) –,
+  // bleibt die Karte stehen, wie sie ist: Ihr Inhalt ändert sich nicht.
+  const cardLoading =
+    summary.loading &&
+    !(summaryData && summary.period === periodOf(fromDay, toDay));
 
   // Der Abschnitts-Filter gilt für genau ein Widget und einen Zeitraum.
   const scope = [selectedEmbed, startDateISO, endDateISO].join("|");
@@ -245,10 +260,10 @@ function WidgetAnalytics({ embeds }) {
       </div>
 
       {/* KIE-539: Nachrichten nach Wochentag und Uhrzeit – aus derselben
-          Antwort wie Kennzahlen und Diagramm */}
+          Antwort wie Kennzahlen und Diagramm; ohne den Vergleich (KIE-537) */}
       <WeekdayHourCard
         summary={summaryData}
-        loading={summary.loading}
+        loading={cardLoading}
         failed={summary.failed}
       />
 

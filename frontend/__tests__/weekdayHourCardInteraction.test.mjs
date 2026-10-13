@@ -1050,3 +1050,189 @@ test(
     );
   }
 );
+
+// ---------------------------------------------------------------------------
+// Mit dem Vergleich aus KIE-537: Die Karte zeigt nur den gewählten Zeitraum
+// ---------------------------------------------------------------------------
+
+// Zählwerte des Vorzeitraums, die im gewählten Zeitraum nirgends vorkommen
+const PREVIOUS_TOTALS = {
+  messages: 98765,
+  conversations: 4321,
+  feedbackPositive: 77,
+  feedbackNegative: 66,
+};
+
+/** Ein Teil der Seite als Text: jedes Element mit seinen Attributen, jeder Text. */
+function markupOf(node) {
+  if (node.nodeType !== 1) return node.textContent;
+  const attributes = [...node.attributes]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([name, value]) => ` ${name}="${value}"`)
+    .join("");
+  return `<${node.tagName}${attributes}>${node.childNodes.map(markupOf).join("")}</${node.tagName}>`;
+}
+
+/**
+ * Wie analyticsServer, dazu der Vergleich aus KIE-537: Auf compare: true –
+ * und nur dann – nennt die Antwort previous mit gleich vielen Tagen
+ * unmittelbar davor. Wie beim Server hat previous kein Raster. hold() hält
+ * die Antworten von analytics/summary an, bis die zurückgegebene Funktion sie
+ * freigibt.
+ */
+async function comparingServer(t, cellsFor) {
+  const original = globalThis.fetch;
+  const summaries = [];
+  let held = null;
+  globalThis.fetch = async (url, init = {}) => {
+    const body = init.body === undefined ? undefined : JSON.parse(init.body);
+    if (!url.endsWith("/analytics/summary"))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          conversations: [],
+          hasMore: false,
+          totalCount: 0,
+        }),
+      };
+    summaries.push(body);
+    if (held) await held;
+    const json = summaryOf(cellsFor(body), body);
+    if (body.compare === true) {
+      const count = json.buckets.length;
+      json.previous = {
+        available: true,
+        fromDay: addDays(body.fromDay, -count),
+        toDay: addDays(body.fromDay, -1),
+        totals: PREVIOUS_TOTALS,
+        buckets: json.buckets.map((bucket, i) => ({
+          start: addDays(body.fromDay, i - count),
+          end: addDays(body.fromDay, i - count),
+          partial: false,
+          messages: 3000 + i,
+          conversations: 100 + i,
+        })),
+      };
+    }
+    return { ok: true, status: 200, json: async () => json };
+  };
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  return {
+    summaries,
+    hold() {
+      let release;
+      held = new Promise((resolve) => (release = resolve));
+      return () => {
+        held = null;
+        release();
+      };
+    },
+  };
+}
+
+test(
+  "Ansicht mit Vergleich (KIE-537): Der Schalter „Vorzeitraum vergleichen“ ändert die Karte nicht – sie zeigt nur den gewählten Zeitraum, auch während die Ansicht dafür neu lädt",
+  { skip },
+  async (t) => {
+    const server = await comparingServer(t, perDay(10));
+    const view = await mount(
+      t,
+      VIEW,
+      { embedsLoaded: true, embeds: [EMBED] },
+      { exportName: "AnalyticsScreen" }
+    );
+    const { container, act } = view;
+    const card = () => cardOf(container);
+    const switchOf = () => withAttribute(container, "data-compare-switch")[0];
+    /** aria-busy der Bereiche: Kennzahlen, Diagramm, Karte. */
+    const busyOf = () =>
+      withAttribute(container, "aria-busy").map((element) => [
+        card().contains(element) ? "card" : "other",
+        element.getAttribute("aria-busy"),
+        /\bopacity-50\b/.test(element.getAttribute("class")),
+      ]);
+    const idle = [
+      ["other", "false", false],
+      ["other", "false", false],
+      ["card", "false", false],
+    ];
+    const lineOf = () =>
+      withAttribute(container, "data-previous-line")[0] ?? null;
+    const changesOf = () => withAttribute(container, "data-kpi-change");
+
+    assert.equal(card().getAttribute("data-weekday-hour-card"), "data");
+    assert.equal(cellsOf(container).length, 168);
+    assert.equal(switchOf().getAttribute("aria-checked"), "false");
+    assert.deepEqual(busyOf(), idle);
+    assert.ok(!("compare" in server.summaries[0]));
+    const before = markupOf(card());
+
+    // Schalter ein: Die Ansicht fragt denselben Zeitraum mit compare an.
+    // Solange die Antwort aussteht, laden Kennzahlen und Diagramm – die Karte
+    // bleibt, wie sie ist.
+    let release = server.hold();
+    await act(() => click(switchOf()));
+    assert.equal(server.summaries.length, 2);
+    assert.deepEqual(server.summaries[1], {
+      ...server.summaries[0],
+      compare: true,
+    });
+    assert.deepEqual(busyOf(), [
+      ["other", "true", true],
+      ["other", "true", true],
+      ["card", "false", false],
+    ]);
+    assert.equal(markupOf(card()), before);
+
+    // Die Antwort mit previous: Linie im Diagramm, Veränderung in den
+    // Kennzahlen (Gegenprobe) – und dieselbe Karte, ohne Vorzeitraum.
+    await act(() => release());
+    assert.equal(switchOf().getAttribute("aria-checked"), "true");
+    assert.ok(lineOf(), "keine Linie des Vorzeitraums im Diagramm");
+    assert.equal(changesOf().length, 4);
+    assert.match(changesOf()[0].textContent, /98\.765/);
+    assert.deepEqual(busyOf(), idle);
+    assert.equal(markupOf(card()), before);
+    assert.doesNotMatch(card().textContent, /Vorzeitraum|98\.765|3\.0\d\d/);
+    for (const name of [
+      "data-previous-line",
+      "data-chart-legend",
+      "data-kpi-change",
+      "data-compare-switch",
+    ])
+      assert.equal(withAttribute(card(), name).length, 0, name);
+
+    // Auch die Tabellenansicht der Karte bleibt stehen – Schalter wieder aus.
+    await act(() => click(buttonOf(card(), "Als Tabelle")));
+    assert.equal(cellsOf(container).length, 0);
+    const table = markupOf(card());
+    assert.notEqual(table, before);
+    release = server.hold();
+    await act(() => click(switchOf()));
+    assert.equal(server.summaries.length, 3);
+    assert.deepEqual(server.summaries[2], server.summaries[0]);
+    assert.equal(markupOf(card()), table);
+    await act(() => release());
+    assert.equal(lineOf(), null);
+    assert.equal(changesOf().length, 0);
+    assert.equal(markupOf(card()), table);
+
+    // Gegenprobe: Ein anderer Zeitraum ändert die Karte – solange er lädt,
+    // ist auch sie als ladend gekennzeichnet.
+    release = server.hold();
+    await choosePreset(view, "Letzte 12 Monate");
+    assert.equal(server.summaries.length, 4);
+    assert.deepEqual(busyOf(), [
+      ["other", "true", true],
+      ["other", "true", true],
+      ["card", "true", true],
+    ]);
+    await act(() => release());
+    assert.deepEqual(busyOf(), idle);
+    assert.notEqual(markupOf(card()), table);
+  }
+);
