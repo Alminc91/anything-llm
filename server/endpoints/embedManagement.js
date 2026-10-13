@@ -384,6 +384,7 @@ function embedManagementEndpoints(app) {
   // Zählwerte des Vorzeitraums desselben Widgets (totals, buckets, fromDay,
   // toDay) und available: Gibt es den Vergleich? Ohne compare bleibt die
   // Antwort, wie sie war.
+  // KIE-539: weekdayHour steht in jeder Antwort, mit und ohne compare.
   app.post(
     "/embed/:embedId/analytics/summary",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess, validEmbedConfigId],
@@ -404,11 +405,18 @@ function embedManagementEndpoints(app) {
           return;
         }
 
+        // KIE-539: summaryForEmbed liest mit Kennzahlen und Zeitreihe auch
+        // weekdayHour - Nachrichten nach Wochentag und Stunde, 7 × 24 Felder
+        // (Montag bis Sonntag, Berliner Stunde 0-23) für die Karte „Wann
+        // schreiben Ihre Besucher?". Eine Anweisung, ein Lesestand: Die Summe
+        // der Felder ist die Kennzahl „Nachrichten". Ebenfalls nur Zählwerte.
         const [timeline, firstLedgerDay] = await Promise.all([
-          MessageLedger.timelineForEmbed(embedId, fromDay, toDay),
+          MessageLedger.summaryForEmbed(embedId, fromDay, toDay),
           MessageLedger.firstDayForEmbed(embedId),
         ]);
         // KIE-537: Der Vorzeitraum beginnt vor firstLedgerDay → available false.
+        // Er wird nur mit compare gelesen, mit einer eigenen Abfrage, und hat
+        // kein Raster: weekdayHour gilt allein für den gewählten Zeitraum.
         const previous =
           compare === true
             ? await MessageLedger.previousTimelineForEmbed(
@@ -427,6 +435,7 @@ function embedManagementEndpoints(app) {
           totals: timeline.totals,
           buckets: timeline.buckets,
           firstLedgerDay,
+          weekdayHour: timeline.weekdayHour,
           ...(previous ? { previous } : {}),
         });
       } catch (e) {

@@ -1697,6 +1697,46 @@ const TRANSLATIONS = {
         total: "Total",
       },
     },
+    "weekday-hour": {
+      title: "When do your visitors write?",
+      subtitle: "Messages by weekday and time of day, {{from}}–{{to}}",
+      summary:
+        "Grid with 7 weekdays and 24 hours: messages by weekday and time of day, {{from}} to {{to}}. Total {{total}}, highest value {{max}} ({{peak}}).",
+      "keyboard-hint": "Use the arrow keys to move between the cells.",
+      hours: "{{from}}:00–{{to}}:00",
+      "hour-tick": "{{hour}}:00",
+      slot: "{{weekday}}, {{hours}}",
+      tooltip: "{{slot}}: {{value}}",
+      peak: {
+        label: "Busiest time slot",
+        "tie-slot": "{{value}} · tied with {{slot}}",
+        "tie-count_one": "{{value}} · tied with {{count}} other time slot",
+        "tie-count_other": "{{value}} · tied with {{count}} other time slots",
+      },
+      outside: {
+        label: "Outside {{from}}–{{to}}, {{hours}}",
+        value: "{{percent}}% of messages",
+        note: "Public holidays count as normal weekdays.",
+      },
+      legend: {
+        label: "Legend: messages per cell",
+        less: "fewer",
+        more: "more",
+        range: "{{from}}–{{to}}",
+        unused: "–",
+      },
+      hint: {
+        "short-range": "Please select at least {{days}} days for this view",
+        "few-messages":
+          "Too few messages for a reliable pattern (at least {{messages}})",
+      },
+      table: {
+        caption: "Messages by weekday and time of day",
+        weekday: "Weekday",
+        hours: "Hour starting at …:00",
+        total: "Total",
+      },
+    },
     list: {
       title: "Conversations",
       viewable_one: "{{formatted}} viewable",

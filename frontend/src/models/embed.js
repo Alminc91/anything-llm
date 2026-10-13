@@ -117,9 +117,11 @@ const Embed = {
   // Analytics (KIE-536): Kennzahlen und Zeitreihe aus dem Zählerbuch.
   // fromDay/toDay sind Kalendertage ("YYYY-MM-DD", beide einschließlich) –
   // die Tage, die der Nutzer gewählt hat; der Server rechnet in Berliner Zeit.
-  // Antwort: { success, granularity, totals, buckets, firstLedgerDay }.
+  // Antwort: { success, granularity, totals, buckets, firstLedgerDay,
+  // weekdayHour }. KIE-539: weekdayHour sind die Nachrichten des Zeitraums
+  // nach Wochentag (0 = Montag … 6 = Sonntag) und Berliner Stunde (0–23).
   // KIE-537: Mit compare zusätzlich { previous } – die Zählwerte des
-  // Vorzeitraums. Ausgeschaltet wird compare nicht gesendet.
+  // Vorzeitraums, ohne Raster. Ausgeschaltet wird compare nicht gesendet.
   getAnalyticsSummary: async (
     embedId,
     fromDay,
