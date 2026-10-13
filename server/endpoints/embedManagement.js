@@ -3,6 +3,7 @@ const { EmbedConfig } = require("../models/embedConfig");
 const { EventLogs } = require("../models/eventLogs");
 const { MessageLedger } = require("../models/messageLedger");
 const { WorkspaceUser } = require("../models/workspaceUsers");
+const prisma = require("../utils/prisma");
 const { reqBody, userFromSession } = require("../utils/http");
 const { validEmbedConfigId } = require("../utils/middleware/embedMiddleware");
 const {
@@ -382,12 +383,21 @@ function embedManagementEndpoints(app) {
         }
 
         // null = alle Widgets; für einen Default-User die seiner Workspaces
-        // (keine Mitgliedschaft: keine Widgets, leere Liste)
+        // (keine Mitgliedschaft: keine Widgets, leere Liste). Direkt über
+        // Prisma: WorkspaceUser.where/EmbedConfig.where fangen Fehler ab und
+        // liefern [] - ein Datenbankfehler sähe dann wie „keine
+        // Konversationen“ aus statt 500 (Fixliste 4, C2).
         let embedIds = null;
         if (user?.role === ROLES.default) {
-          const memberships = await WorkspaceUser.where({ user_id: user.id });
-          const allowed = await EmbedConfig.where({
-            workspace_id: { in: memberships.map((ws) => ws.workspace_id) },
+          const memberships = await prisma.workspace_users.findMany({
+            where: { user_id: user.id },
+            select: { workspace_id: true },
+          });
+          const allowed = await prisma.embed_configs.findMany({
+            where: {
+              workspace_id: { in: memberships.map((ws) => ws.workspace_id) },
+            },
+            select: { id: true },
           });
           embedIds = allowed.map((embed) => embed.id);
         }

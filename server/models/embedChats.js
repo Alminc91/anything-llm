@@ -762,10 +762,8 @@ const EmbedChats = {
    * enthält er immer den ganzen Text (Fixliste 3, C9 - vorher fehlten im
    * zweiten Fall die letzten beiden Zeichen, und die Vorprüfung schloss
    * echte Treffer aus). Die zwei Zeichen zu viel (", ohne Rückstrich davor)
-   * treffen nie: Ein Begriff mit Anführungszeichen besteht die Vorprüfung
-   * nur mit \" (dann gibt es einen Rückstrich, und die Zeile wird aus dem
-   * JSON gelesen), einer ohne kann das Anführungszeichen nicht enthalten.
-   * Die Vorprüfung sucht dort den Begriff in
+   * zählen nur für die Vorprüfung; der genaue Vergleich läuft gegen den
+   * Anfang ohne sie (Fixliste 4, C1). Die Vorprüfung sucht dort den Begriff in
    * seiner JSON-Schreibweise (" als \", \ als \\) - Quellen und Metadaten
    * treffen sie so nicht. Steht im Anfang kein Rückstrich, ist er der Text
    * selbst. Fast jede echte Antwort ist mehrzeiliges Markdown (\n): Diese
@@ -834,15 +832,32 @@ const EmbedChats = {
     // replace (\") kostete je Zeile mehr, als es spart (Messung Fixliste 2,
     // R6: „kurs" 891 statt 1049 ms für das Prädikat allein über 100.000
     // Zeilen; Zeiten der ganzen Route: benchmarks/conversationSearch.manual.js).
+    //
+    // Genau verglichen wird nur der Text OHNE die beiden Zeichen ", am Ende
+    // des Anfangs (headText): Sie gehören nur zur Vorprüfung. Sonst träfe
+    // ein Begriff, der auf " endet und dessen Vorprüfung das Zeichen nicht
+    // enthält (bei Umlauten prüft searchProbe nur einen ASCII-Abschnitt),
+    // das Textende - „Kurs für"“ fände „… Kurs für“ (Fixliste 4, C1). In
+    // beiden schnellen Zweigen ist der Anfang der Text plus ",: Endet der
+    // Text selbst auf \", bleibt immer ein Rückstrich, und die Zeile wird
+    // aus dem JSON gelesen.
+    const headText = Prisma.raw(
+      "substr(answer_head, 1, length(answer_head) - 2)"
+    );
+    // Die Bedingung darf den ganzen Anfang lesen (", enthält keinen
+    // Rückstrich), der Vergleich nur den Text.
     const answerPlain = Prisma.raw(`replace(answer_head, '\\n', char(10))`);
+    const answerPlainText = Prisma.raw(
+      `replace(substr(answer_head, 1, length(answer_head) - 2), '\\n', char(10))`
+    );
     return Prisma.sql`(${matches(Prisma.raw("prompt"))}
       OR ${matches(Prisma.raw("feedbackReason"))}
       OR ${matches(Prisma.raw("feedbackText"))}
       OR (CASE
         WHEN answer_head IS NULL THEN ${fromRow(matches(visibleAnswer))}
         WHEN NOT (${headProbe}) THEN 0
-        WHEN instr(answer_head, '\\') = 0 THEN ${anyExact(head)}
-        WHEN instr(${answerPlain}, '\\') = 0 THEN ${anyExact(answerPlain)}
+        WHEN instr(answer_head, '\\') = 0 THEN ${anyExact(headText)}
+        WHEN instr(${answerPlain}, '\\') = 0 THEN ${anyExact(answerPlainText)}
         ELSE ${fromRow(anyExact(visibleAnswer))}
       END))`;
   },

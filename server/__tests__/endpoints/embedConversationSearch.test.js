@@ -1810,6 +1810,30 @@ describe("globale liste (Fixliste 3, C7/C8)", () => {
       error: expect.any(String),
     });
   });
+
+  test.each([
+    ["workspace_users", "Mitgliedschaften"],
+    ["embed_configs", "Widgets"],
+  ])(
+    "Default-User, Datenbankfehler beim Lesen der %s (%s): 500 statt 200 mit leerer Liste (Fixliste 4, C2)",
+    async (model) => {
+      const kunde = await createUser("default", [workspaceA.id]);
+      expect((await global({}, kunde)).body.totalCount).toBe(2);
+      jest
+        .spyOn(db.client[model], "findMany")
+        .mockRejectedValue(Object.assign(new Error("boom"), { code: "P1001" }));
+      const failed = await global({}, kunde);
+      expect(failed.statusCode).toBe(500);
+      expect(failed.body).toEqual({
+        success: false,
+        error: expect.any(String),
+      });
+      // admin liest keine Mitgliedschaften: unverändert
+      const all = await global({});
+      expect(all.statusCode).toBe(200);
+      expect(all.body.totalCount).toBe(5);
+    }
+  );
 });
 
 describe('antwortanfang endet auf \\" (Fixliste 3, C9)', () => {
@@ -1882,6 +1906,56 @@ describe('antwortanfang endet auf \\" (Fixliste 3, C9)', () => {
     ["Yoga,", []],
   ])("„%s“", async (search, expected) => {
     expect((await found(embed, search)).sort()).toEqual(expected);
+  });
+});
+
+describe('begriff endet auf " (Fixliste 4, C1)', () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    // gewöhnliches Textende ohne Anführungszeichen, mit Umlaut im Begriff:
+    // Die Vorprüfung prüft dann nur einen ASCII-Abschnitt („Kurs“, „Yoga“)
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Was gibt es?",
+      answer: "Wir haben einen Kurs für",
+      conversation: "kurs-fuer",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Wann?",
+      answer: "Heute Yoga am Ä",
+      conversation: "yoga-ae",
+    });
+    // mehrzeilig (\n wird im Anfang aufgelöst), ebenfalls ohne " am Ende
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 11, 0),
+      prompt: "Mehrzeilig?",
+      answer: "Zeile eins\nKurs für",
+      conversation: "mehrzeilig-fuer",
+    });
+    // Text, der wirklich auf " endet – mit und ohne Umlaut
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 12, 0),
+      prompt: "Zitat?",
+      answer: 'Der Kurs heißt "Yoga für Ältere"',
+      conversation: "zitat-ende",
+    });
+  });
+
+  test.each([
+    // Die beiden Zeichen ", hinter dem Text im Anfang treffen nicht mehr –
+    // auch nicht im mehrzeiligen Text (Zweig mit aufgelöstem \n)
+    ['Kurs für"', []],
+    ['Yoga am Ä"', []],
+    ['kurs für",', []],
+    // echte Treffer bleiben – auch mit " am Ende
+    ["Kurs für", ["kurs-fuer", "mehrzeilig-fuer"]],
+    ["Yoga am Ä", ["yoga-ae"]],
+    ['für Ältere"', ["zitat-ende"]],
+    ['"Yoga für Ältere"', ["zitat-ende"]],
+  ])("„%s“", async (search, expected) => {
+    expect((await found(embed, search)).sort()).toEqual(expected.sort());
   });
 });
 
