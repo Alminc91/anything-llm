@@ -103,6 +103,13 @@
   --theme-button-disable-hover-bg: #3a3128;
   --theme-button-delete-hover-text: #f97066;
   --theme-button-delete-hover-bg: #37282b;
+
+  /* Auswertung „Konversationen" (KIE-536): eine Akzentfarbe für die Säulen,
+     zurückhaltendes Gitter, gedämpfter Text mit mindestens 4,5:1 auf den
+     Flächen der Ansicht. Text steht nie in der Säulenfarbe. */
+  --theme-analytics-bar: #1a9bdc;
+  --theme-analytics-grid: rgba(255, 255, 255, 0.1);
+  --theme-analytics-text-muted: rgba(255, 255, 255, 0.6);
 }
 
 [data-theme="light"] {
@@ -205,6 +212,11 @@
   --theme-button-disable-hover-bg: #fef7e6;
   --theme-button-delete-hover-text: #b42318;
   --theme-button-delete-hover-bg: #fee4e2;
+
+  /* --theme-text-secondary (#7a7d7e) erreicht auf Weiß nur 4,2:1. */
+  --theme-analytics-bar: #0284c7;
+  --theme-analytics-grid: #e4e6e8;
+  --theme-analytics-text-muted: #5f6368;
 }
 
 [data-theme="light"] .text-white {

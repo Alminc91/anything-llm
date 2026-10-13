@@ -1,9 +1,16 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { CalendarBlank, CaretDown, Check } from "@phosphor-icons/react";
 import { DayPicker } from "react-day-picker";
 import { de } from "react-day-picker/locale";
 import "react-day-picker/style.css";
+import { lastDaysRange, lastMonthsRange } from "@/utils/analyticsTimeline";
 
 /**
  * Computes fixed calendar-boundary preset dates (NOT rolling windows).
@@ -51,6 +58,11 @@ function getPresetRange(presetKey) {
       lastSunday.setDate(thisMonday.getDate() - 1);
       return { from: lastMonday, to: endOfDay(lastSunday) };
     }
+    case "last-30-days": {
+      // KIE-536: heute und die 29 Tage davor (rollierend)
+      const { startDate, endDate } = lastDaysRange(30, now);
+      return { from: startDate, to: endDate };
+    }
     case "this-month":
       return {
         from: new Date(today.getFullYear(), today.getMonth(), 1),
@@ -69,11 +81,37 @@ function getPresetRange(presetKey) {
       );
       return { from: firstOfLastMonth, to: endOfDay(lastOfLastMonth) };
     }
+    case "last-12-months": {
+      // KIE-536: der Tag nach dem heutigen Datum vor 12 Monaten bis heute
+      const { startDate, endDate } = lastMonthsRange(12, now);
+      return { from: startDate, to: endDate };
+    }
     case "all":
       return { from: null, to: null };
     default:
       return { from: null, to: null };
   }
+}
+
+/**
+ * Welche Vorauswahl entspricht dem Zeitraum? Verglichen wird nur der Tag.
+ * @param {Date|null} startDate
+ * @param {Date|null} endDate
+ * @returns {string|null} - Schlüssel der Vorauswahl oder null (eigener Zeitraum)
+ */
+function matchPreset(startDate, endDate) {
+  const sameDay = (a, b) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const matched = PRESET_KEYS.find((key) => {
+    const { from, to } = getPresetRange(key);
+    if (key === "all") return startDate === null && endDate === null;
+    if (!from || !to || !startDate || !endDate) return false;
+    return sameDay(from, startDate) && sameDay(to, endDate);
+  });
+  return matched || null;
 }
 
 /**
@@ -92,10 +130,92 @@ const PRESET_KEYS = [
   "yesterday",
   "this-week",
   "last-week",
+  "last-30-days",
   "this-month",
   "last-month",
+  "last-12-months",
   "all",
 ];
+
+// Breites Popover (wie bisher): zwei Kalendermonate, rechtsbündig am Auslöser,
+// so breit wie seine Mindestbreite (min-w-[580px]) – der Inhalt ist schmaler.
+const WIDE_POPOVER_WIDTH = 580;
+// Schmales Popover (KIE-536): ein Kalendermonat (7 × 36 px) mit Innenabstand
+// und Rand, höchstens so breit wie der sichtbare Bereich.
+const NARROW_POPOVER_WIDTH = 320;
+// Abstand des Popovers zum Rand des sichtbaren Bereichs
+const POPOVER_MARGIN = 8;
+
+/**
+ * Lage des schmalen Popovers: höchstens so breit wie der sichtbare Bereich
+ * abzüglich Rand, linksbündig am Auslöser – und so weit verschoben, dass es
+ * ganz im sichtbaren Bereich bleibt.
+ * @param {{anchorLeft: number, from: number, to: number}} params - linke Kante
+ *   des Auslösers und sichtbarer Bereich (visibleRange), in px ab dem
+ *   linken Fensterrand
+ * @returns {{left: number, width: number}} - left ab der linken Kante des Auslösers
+ */
+export function narrowPopoverPlacement({ anchorLeft, from, to }) {
+  const width = Math.max(
+    0,
+    Math.min(NARROW_POPOVER_WIDTH, to - from - 2 * POPOVER_MARGIN)
+  );
+  const left = Math.max(
+    from + POPOVER_MARGIN,
+    Math.min(anchorLeft, to - POPOVER_MARGIN - width)
+  );
+  return { left: left - anchorLeft, width };
+}
+
+/**
+ * Breit oder schmal? Es entscheidet der Bereich, in dem das Popover zu sehen
+ * ist (visibleRange), nicht die Fensterbreite: Neben der Einstellungs-Sidebar
+ * bleibt vom Fenster nur der Inhaltsbereich. Passt das breite Popover mit
+ * Rand hinein, steht es wie bisher rechtsbündig am Auslöser (ohne eigene
+ * Lage); ragte es dabei links aus dem Bereich, rückt es so weit nach rechts,
+ * dass es ganz darin steht. Sonst gilt das schmale Popover.
+ * Ohne messbaren Bereich (kein Layout) bleibt es beim breiten Popover.
+ * @param {{anchorLeft: number, anchorRight: number, from: number, to: number}} params -
+ *   linke und rechte Kante des Auslösers und sichtbarer Bereich, in px ab
+ *   dem linken Fensterrand
+ * @returns {{narrow: boolean, style: object|undefined}} - style: Lage des
+ *   Popovers, soweit sie von seinen Klassen abweicht
+ */
+export function popoverLayout({ anchorLeft, anchorRight, from, to }) {
+  if (to - from < WIDE_POPOVER_WIDTH + 2 * POPOVER_MARGIN)
+    return {
+      narrow: true,
+      style: {
+        ...narrowPopoverPlacement({ anchorLeft, from, to }),
+        right: "auto",
+      },
+    };
+  const overhang = from + POPOVER_MARGIN - (anchorRight - WIDE_POPOVER_WIDTH);
+  return {
+    narrow: false,
+    style: overhang > 0 ? { right: -overhang } : undefined,
+  };
+}
+
+/**
+ * Waagerechter Bereich, in dem ein Element zu sehen ist: das Fenster,
+ * eingeengt durch Vorfahren, die ihren Inhalt beschneiden oder scrollen (die
+ * Einstellungsseiten scrollen in einem Rahmen, dessen Scrollleiste Platz
+ * braucht). Was darüber hinausragt, ließe den Rahmen waagerecht scrollen.
+ * @param {Element} element
+ * @returns {{from: number, to: number}} - px ab dem linken Fensterrand
+ */
+function visibleRange(element) {
+  let from = 0;
+  let to = document.documentElement.clientWidth || window.innerWidth;
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (window.getComputedStyle(node).overflowX === "visible") continue;
+    const left = node.getBoundingClientRect().left + node.clientLeft;
+    from = Math.max(from, left);
+    to = Math.min(to, left + node.clientWidth);
+  }
+  return { from, to };
+}
 
 /**
  * Chatbase-inspired DateRange picker with preset dropdown + dual calendar.
@@ -108,29 +228,25 @@ const PRESET_KEYS = [
 export default function DateRangePicker({ startDate, endDate, onChange }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  // Layout und Lage des offenen Popovers (popoverLayout); null, solange es
+  // geschlossen oder noch nicht vermessen ist.
+  const [layout, setLayout] = useState(null);
+  const narrow = layout?.narrow ?? false;
+  const wrapperRef = useRef(null);
   const [presetDropdownOpen, setPresetDropdownOpen] = useState(false);
   const [calendarRange, setCalendarRange] = useState({
     from: startDate,
     to: endDate,
   });
-  const [activePreset, setActivePreset] = useState("this-week");
+  const [activePreset, setActivePreset] = useState(() =>
+    matchPreset(startDate, endDate)
+  );
   const popoverRef = useRef(null);
   const triggerRef = useRef(null);
 
   // Detect which preset matches current dates (compare date part only)
   useEffect(() => {
-    const sameDay = (a, b) =>
-      a.getFullYear() === b.getFullYear() &&
-      a.getMonth() === b.getMonth() &&
-      a.getDate() === b.getDate();
-
-    const matched = PRESET_KEYS.find((key) => {
-      const { from, to } = getPresetRange(key);
-      if (key === "all") return startDate === null && endDate === null;
-      if (!from || !to || !startDate || !endDate) return false;
-      return sameDay(from, startDate) && sameDay(to, endDate);
-    });
-    setActivePreset(matched || null);
+    setActivePreset(matchPreset(startDate, endDate));
   }, [startDate, endDate]);
 
   // Sync calendarRange when popover opens
@@ -139,6 +255,32 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
       setCalendarRange({ from: startDate, to: endDate });
     }
   }, [open, startDate, endDate]);
+
+  // Beim Öffnen und bei jeder Größenänderung des Fensters wird der sichtbare
+  // Bereich vermessen: Er entscheidet über ein oder zwei Kalendermonate und
+  // über die Lage. Das Popover erscheint erst vermessen – der Kalender zeigt
+  // so von Anfang an den richtigen Monat.
+  useLayoutEffect(() => {
+    if (!open) return;
+    function place() {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      const { left, right } = wrapper.getBoundingClientRect();
+      setLayout(
+        popoverLayout({
+          anchorLeft: left,
+          anchorRight: right,
+          ...visibleRange(wrapper),
+        })
+      );
+    }
+    place();
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("resize", place);
+      setLayout(null);
+    };
+  }, [open]);
 
   // Click outside to close
   useEffect(() => {
@@ -203,7 +345,7 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
   );
 
   return (
-    <div className="relative">
+    <div ref={wrapperRef} className="relative">
       {/* Trigger Button */}
       <button
         ref={triggerRef}
@@ -219,10 +361,12 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
       </button>
 
       {/* Popover */}
-      {open && (
+      {open && layout && (
         <div
           ref={popoverRef}
-          className="absolute right-0 top-full mt-2 z-50 bg-theme-bg-secondary border border-white/10 rounded-xl shadow-2xl p-4 min-w-[580px]"
+          data-date-popover={narrow ? "narrow" : "wide"}
+          className={`absolute right-0 top-full mt-2 z-50 bg-theme-bg-secondary border border-white/10 rounded-xl shadow-2xl p-4 ${narrow ? "max-w-[calc(100vw-16px)]" : "min-w-[580px]"}`}
+          style={layout.style}
         >
           {/* Preset Dropdown */}
           <div className="relative mb-3">
@@ -267,14 +411,19 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
           {/* Divider */}
           <div className="h-px bg-white/10 mb-3" />
 
-          {/* Dual Calendar */}
-          <div className="rdp-theme-wrapper">
+          {/* Dual Calendar – im schmalen Popover ein Monat, mittig */}
+          <div
+            className={`rdp-theme-wrapper${narrow ? " flex justify-center" : ""}`}
+          >
+            {/* key: Wechselt das Layout bei offenem Popover, beginnt der
+                Kalender wie frisch geöffnet (defaultMonth gilt nur anfangs). */}
             <DayPicker
+              key={narrow ? "narrow" : "wide"}
               mode="range"
               locale={de}
               weekStartsOn={1}
-              numberOfMonths={2}
-              defaultMonth={calendarMonth}
+              numberOfMonths={narrow ? 1 : 2}
+              defaultMonth={narrow ? defaultMonth : calendarMonth}
               selected={
                 calendarRange.from
                   ? { from: calendarRange.from, to: calendarRange.to }
@@ -285,13 +434,16 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
             />
           </div>
 
-          {/* Apply Button */}
+          {/* Apply Button – primäre Schaltfläche (bg-primary-button =
+              --theme-button-primary). Schwarze Schrift in beiden Themes:
+              10,97:1 auf #46c8ff (dunkel), 7,61:1 auf #0ba5ec (hell); Weiß
+              erreichte dort nur 1,91:1 bzw. 2,76:1. */}
           <div className="flex justify-end mt-3 pt-3 border-t border-white/10">
             <button
               onClick={handleApply}
               disabled={!calendarRange.from}
               className="px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer
-                bg-theme-button-primary text-black hover:opacity-90
+                bg-primary-button text-black hover:opacity-90
                 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {t("date-picker.apply")}
