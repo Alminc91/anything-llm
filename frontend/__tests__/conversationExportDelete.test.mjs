@@ -87,7 +87,9 @@ const sentPath = (url) => new URL(url, "https://kunde.example.org").pathname;
  * Die Liste blättert wie der echte Server (offset, limit, hasMore), und die
  * Anfragen werden der Route zugeordnet, bei der sie nach dem Auflösen der
  * Adresse ankommen – darunter DELETE /embed/:embedId, das Löschen des Widgets
- * (`state.widgetDeleted`).
+ * (`state.widgetDeleted`). `state.totalCount` ersetzt den Zähler: Der echte
+ * Server ermittelt ihn mit einer zweiten Abfrage, er kann von der Liste
+ * abweichen.
  */
 async function listServer(t, state) {
   const { API_BASE } = await renderer.load("/src/utils/constants.js");
@@ -133,7 +135,7 @@ async function listServer(t, state) {
         success: true,
         conversations: state.conversations.slice(offset, offset + limit),
         hasMore: offset + limit < total,
-        totalCount: total,
+        totalCount: state.totalCount ?? total,
       });
     }
     if (is(ROUTES.export, exportUrl)) {
@@ -968,6 +970,57 @@ test(
       withAttribute(single.container, "data-viewable-count")[0].textContent,
       "0 einsehbar"
     );
+  }
+);
+
+test(
+  "Konversation löschen: Nennt der Zähler zu einer leeren Seite keine frühere Seite (Liste und Zähler sind zwei Abfragen), endet das Laden im leeren Zustand – kein „Laden…“ auf Dauer, keine weitere Anfrage",
+  { skip },
+  async (t) => {
+    const ids = (from, to) =>
+      Array.from({ length: to - from + 1 }, (_, i) => `k-${from + i}`);
+    // 21 und 61: Der Zähler nennt die leere Seite selbst bzw. eine dahinter.
+    for (const counted of [21, 61]) {
+      // zwei Seiten: 20 + 1
+      const state = { conversations: ids(1, 21).map((id) => conversation(id)) };
+      const server = await listServer(t, state);
+      const mounted = await mountList(t);
+      const { container, document, act } = mounted;
+      const offsets = () => server.lists().map((call) => call.body.offset);
+
+      await act(() =>
+        click(buttonsOf(container).find((button) => button.textContent === "2"))
+      );
+      await act();
+      assert.deepEqual(offsets(), [0, 20], String(counted));
+      assert.deepEqual(cardIdsOf(container), ["k-21"]);
+
+      // Zwischen den beiden Abfragen des Servers beginnt eine Konversation:
+      // Die Liste hat sie noch nicht, der Zähler schon.
+      state.totalCount = counted;
+      await expand(mounted, 0);
+      await act(() =>
+        click(withAttribute(container, "data-delete-conversation")[0])
+      );
+      await act(() =>
+        click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+      );
+      for (let i = 0; i < 5; i++) await act();
+
+      // neu geladen: Seite 2 ist leer – und dabei bleibt es
+      assert.deepEqual(offsets(), [0, 20, 20], String(counted));
+      assert.doesNotMatch(container.textContent, /Laden/, String(counted));
+      assert.match(container.textContent, /Keine Konversationen vorhanden\./);
+      assert.deepEqual(cardIdsOf(container), []);
+      assert.equal(
+        withAttribute(container, "data-viewable-count")[0].textContent,
+        `${counted} einsehbar`
+      );
+      // „Exportieren" ist nicht länger gesperrt.
+      const [menu] = withAttribute(container, "data-export-menu");
+      assert.equal(buttonsOf(menu)[0].hasAttribute("disabled"), false);
+      await mounted.unmount();
+    }
   }
 );
 

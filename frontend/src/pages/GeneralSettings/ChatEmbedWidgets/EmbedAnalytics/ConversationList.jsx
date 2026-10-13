@@ -174,12 +174,14 @@ export default function ConversationList({
 
       if (success) {
         // KIE-538: Die Seite gibt es nicht mehr (ihre letzten Konversationen
-        // wurden gelöscht) → zur letzten vorhandenen Seite.
-        if ((data || []).length === 0 && offset > 0 && total > 0) {
-          setPage({
-            scope,
-            offset: (Math.ceil(total / ITEMS_PER_PAGE) - 1) * ITEMS_PER_PAGE,
-          });
+        // wurden gelöscht) → zur letzten vorhandenen Seite. Nur, wenn die
+        // weiter vorn liegt: Liste und Zähler sind auf dem Server zwei
+        // Abfragen. Nennt der Zähler zu einer leeren Seite dieselbe Seite,
+        // lädt nichts mehr nach – die Liste bliebe bei „Laden…" stehen.
+        const lastOffset =
+          (Math.ceil(total / ITEMS_PER_PAGE) - 1) * ITEMS_PER_PAGE;
+        if ((data || []).length === 0 && total > 0 && lastOffset < offset) {
+          setPage({ scope, offset: lastOffset });
           return;
         }
         setConversations(data || []);
