@@ -59,7 +59,11 @@ const ROUTE = {
   create: routes["POST /embeds/new"],
   update: routes["POST /embed/update/:embedId"],
   remove: routes["DELETE /embed/:embedId"],
-  deleteChat: routes["DELETE /embed/chats/:chatId"],
+  // KIE-538: tritt an die Stelle von DELETE /embed/chats/:chatId (einzelne
+  // Nachricht), das mit der Nachrichtentabelle entfallen ist. Ausführlich
+  // geprüft in models/embedChatsDeleteConversation.test.js.
+  deleteConversation:
+    routes["DELETE /embed/:embedId/conversation/:conversationId"],
   clearChats: routes["DELETE /embed-chats/clear/:embedId"],
   uploadLogo: routes["POST /embed/:embedId/upload-logo"],
   removeLogo: routes["DELETE /embed/:embedId/remove-logo"],
@@ -164,9 +168,14 @@ describe("fremdes_widget (AK-3)", () => {
       ROUTE.remove,
       { params: { embedId: String(embedB.id) } },
     ],
-    "Chat löschen": [
-      ROUTE.deleteChat,
-      { params: { chatId: String(chatB.id) } },
+    "Konversation löschen": [
+      ROUTE.deleteConversation,
+      {
+        params: {
+          embedId: String(embedB.id),
+          conversationId: chatB.session_id,
+        },
+      },
     ],
     "Chats leeren": [
       ROUTE.clearChats,
@@ -189,7 +198,7 @@ describe("fremdes_widget (AK-3)", () => {
   test.each([
     "Widget ändern",
     "Widget löschen",
-    "Chat löschen",
+    "Konversation löschen",
     "Chats leeren",
     "Logo hochladen",
     "Logo entfernen",
@@ -232,6 +241,7 @@ describe("fremdes_widget (AK-3)", () => {
       ROUTE.uploadLogo,
       ROUTE.removeLogo,
       ROUTE.overview,
+      ROUTE.deleteConversation,
     ]) {
       for (const embedId of ["9999", "abc", "-1", "0"]) {
         const result = await invoke(chain, {
@@ -242,17 +252,6 @@ describe("fremdes_widget (AK-3)", () => {
         expect(result.statusCode).toBe(403);
       }
     }
-  });
-
-  test("unbekannter Chat: 403, nichts gelöscht", async () => {
-    for (const chatId of ["9999", "abc", "-1"]) {
-      const result = await invoke(ROUTE.deleteChat, {
-        params: { chatId },
-        token: kunde.token,
-      });
-      expect(result.statusCode).toBe(403);
-    }
-    expect(chatIds()).toEqual([chatA.id, chatB.id]);
   });
 
   test("Chats leeren: auch das eigene Widget und der Gesamtbestand bleiben admin/manager vorbehalten", async () => {
@@ -286,7 +285,7 @@ describe("fremdes_widget (AK-3)", () => {
       const result = await invoke(chain, {
         params: {
           embedId: String(embedB.id),
-          chatId: String(chatB.id),
+          conversationId: chatB.session_id,
           sessionId: chatB.session_id,
         },
         body: { workspace_id: workspaceB.id },
@@ -584,13 +583,16 @@ describe("eigenes_widget (AK-4)", () => {
     expect(result.body.stats.total_chats).toBe(1);
   });
 
-  test("eigenen Chat löschen und eigenes Widget löschen wie zuvor", async () => {
-    const chat = await invoke(ROUTE.deleteChat, {
-      params: { chatId: String(chatA.id) },
+  test("Konversation des eigenen Widgets löschen (KIE-538) und eigenes Widget löschen wie zuvor", async () => {
+    const chat = await invoke(ROUTE.deleteConversation, {
+      params: {
+        embedId: String(embedA.id),
+        conversationId: chatA.session_id,
+      },
       token: kunde.token,
     });
     expect(chat.statusCode).toBe(200);
-    expect(chat.body).toEqual({ success: true, error: null });
+    expect(chat.body).toEqual({ success: true, deletedCount: 1 });
     expect(chatIds()).toEqual([chatB.id]);
 
     const widget = await invoke(ROUTE.remove, {
@@ -867,8 +869,11 @@ describe("ohne_mehrbenutzer (NAK-2)", () => {
     expect(overview.statusCode).toBe(200);
     expect(overview.body.stats.total_chats).toBe(1);
 
-    const chat = await invoke(ROUTE.deleteChat, {
-      params: { chatId: String(chatA.id) },
+    const chat = await invoke(ROUTE.deleteConversation, {
+      params: {
+        embedId: String(embedA.id),
+        conversationId: chatA.session_id,
+      },
     });
     expect(chat.statusCode).toBe(200);
     expect(chatIds()).toEqual([chatB.id]);
@@ -956,8 +961,11 @@ describe("admin_manager (NAK-3)", () => {
       expect(overview.statusCode).toBe(200);
       expect(overview.body.stats.total_chats).toBe(1);
 
-      const chat = await invoke(ROUTE.deleteChat, {
-        params: { chatId: String(chatA.id) },
+      const chat = await invoke(ROUTE.deleteConversation, {
+        params: {
+          embedId: String(embedA.id),
+          conversationId: chatA.session_id,
+        },
         token: user.token,
       });
       expect(chat.statusCode).toBe(200);

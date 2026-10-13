@@ -300,31 +300,9 @@ function embedManagementEndpoints(app) {
     }
   );
 
-  app.delete(
-    "/embed/chats/:chatId",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
-    async (request, response) => {
-      try {
-        const user = await userFromSession(request, response);
-        const { chatId } = request.params;
-
-        // KIE-533: Default-User löschen nur Chats von Widgets ihrer Workspaces.
-        if (user?.role === ROLES.default) {
-          const chat = await EmbedChats.get({ id: Number(chatId) });
-          if (!chat || !(await userCanAccessEmbed(user, chat.embed_id))) {
-            response.sendStatus(403).end();
-            return;
-          }
-        }
-
-        await EmbedChats.delete({ id: Number(chatId) });
-        response.status(200).json({ success: true, error: null });
-      } catch (e) {
-        console.error(e);
-        response.sendStatus(500).end();
-      }
-    }
-  );
+  // KIE-538: DELETE /embed/chats/:chatId (einzelne Nachricht löschen) ist mit
+  // der Nachrichtentabelle entfallen. Gelöscht wird die ganze Konversation:
+  // DELETE /embed/:embedId/conversation/:conversationId (weiter unten).
 
   // Get conversations (global view, grouped by conversation_id)
   app.post(
