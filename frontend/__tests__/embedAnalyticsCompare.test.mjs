@@ -13,6 +13,7 @@ import {
   hasFrontendDeps,
 } from "./helpers/renderSettingsPage.mjs";
 import { click, elements, movePointer, pressKey } from "./helpers/testDom.mjs";
+import { fixClock } from "./helpers/fixedClock.mjs";
 import {
   DEFAULT_RANGE_DAYS,
   addDays,
@@ -92,6 +93,9 @@ const changesOf = (container) =>
 const compareLineOf = (container) =>
   withAttribute(container, "data-compare-line")[0]?.firstChild.textContent ??
   null;
+/** Hinweis an dieser Zeile, dass der Zeitraum noch läuft; null ohne. */
+const runningHintOf = (container) =>
+  withAttribute(container, "data-compare-running")[0]?.textContent ?? null;
 /** Die Kennzahl-Felder ohne die Zeile der Veränderung. */
 const kpiTextOf = (container) =>
   withAttribute(container, "data-kpi").map((field) => {
@@ -507,6 +511,131 @@ test(
     await act(() => click(switchOf(container)));
     assert.equal(noteOf(container), null);
     assert.deepEqual(changesOf(container), []);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Laufender Zeitraum
+// ---------------------------------------------------------------------------
+
+const RUNNING =
+  "Der gewählte Zeitraum läuft noch – die Veränderung ist vorläufig.";
+// Welcher Tag „heute" im Browser ist, hängt an der Zeitzone des Prozesses.
+const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+test(
+  "Laufender Zeitraum (12:00 Uhr in Berlin): „Letzte 30 Tage“ und „Heute“ enthalten den heutigen Tag – die Zeile unter dem Streifen sagt es; „Gestern“ und „Letzter Monat“ sind abgeschlossen",
+  { skip },
+  async (t) => {
+    // 13.10.2026, 10:00 Uhr UTC: in Berlin 12:00, in New York 06:00 Uhr –
+    // überall der 13.10.
+    fixClock(t, "2026-10-13T10:00:00Z");
+    const server = await analyticsServer(t);
+    const view = await mountView(t);
+    const { container, act, days } = view;
+    assert.deepEqual(days, { fromDay: "2026-09-14", toDay: "2026-10-13" });
+
+    // aus: keine Zeile, kein Hinweis
+    assert.equal(compareLineOf(container), null);
+    assert.equal(runningHintOf(container), null);
+
+    await act(() => click(switchOf(container)));
+    assert.equal(
+      compareLineOf(container),
+      "Veränderung gegenüber dem Vorzeitraum 15.08.2026–13.09.2026."
+    );
+    assert.equal(runningHintOf(container), RUNNING);
+    // Hinweis in derselben Zeile, hinter den Tagen
+    const [line] = withAttribute(container, "data-compare-line");
+    assert.equal(
+      line.textContent,
+      `Veränderung gegenüber dem Vorzeitraum 15.08.2026–13.09.2026. ${RUNNING}`
+    );
+
+    await choosePreset(view, "Gestern");
+    assert.deepEqual(
+      server.summaries().at(-1).body,
+      summaryBody("2026-10-12", "2026-10-12", { compare: true })
+    );
+    assert.equal(
+      compareLineOf(container),
+      "Veränderung gegenüber dem Vorzeitraum 11.10.2026."
+    );
+    assert.equal(runningHintOf(container), null);
+
+    await choosePreset(view, "Heute");
+    assert.deepEqual(
+      server.summaries().at(-1).body,
+      summaryBody("2026-10-13", "2026-10-13", { compare: true })
+    );
+    assert.equal(
+      compareLineOf(container),
+      "Veränderung gegenüber dem Vorzeitraum 12.10.2026."
+    );
+    assert.equal(runningHintOf(container), RUNNING);
+
+    await choosePreset(view, "Letzter Monat");
+    assert.equal(server.summaries().at(-1).body.toDay, "2026-09-30");
+    assert.ok(compareLineOf(container));
+    assert.equal(runningHintOf(container), null);
+
+    // ausgeschaltet verschwindet der Hinweis mit der Zeile
+    await choosePreset(view, "Heute");
+    assert.equal(runningHintOf(container), RUNNING);
+    await act(() => click(switchOf(container)));
+    assert.equal(compareLineOf(container), null);
+    assert.equal(runningHintOf(container), null);
+  }
+);
+
+test(
+  "Laufender Zeitraum (00:30 Uhr in Berlin): „Heute“ wählt den Tag des Browsers, „läuft noch“ entscheidet der Berliner Tag – in UTC und New York ist der gewählte 13.10. schon abgeschlossen, in Berlin läuft der 14.10.",
+  { skip },
+  async (t) => {
+    // 13.10.2026, 22:30 Uhr UTC: in Berlin 00:30 Uhr am 14.10., in New York
+    // 18:30 Uhr am 13.10.
+    fixClock(t, "2026-10-13T22:30:00Z");
+    const server = await analyticsServer(t);
+    const view = await mountView(t);
+    const { container, act } = view;
+    const today = toDayString(new Date());
+    const EXPECTED = {
+      UTC: "2026-10-13",
+      "Europe/Berlin": "2026-10-14",
+      "America/New_York": "2026-10-13",
+    };
+    if (ZONE in EXPECTED) assert.equal(today, EXPECTED[ZONE], ZONE);
+    const berlinToday = "2026-10-14";
+
+    await act(() => click(switchOf(container)));
+    // „Letzte 30 Tage" bis zum Tag des Browsers
+    assert.equal(view.days.toDay, today);
+    assert.ok(compareLineOf(container));
+    assert.equal(
+      runningHintOf(container),
+      today === berlinToday ? RUNNING : null,
+      ZONE
+    );
+
+    await choosePreset(view, "Heute");
+    assert.deepEqual(
+      server.summaries().at(-1).body,
+      summaryBody(today, today, { compare: true })
+    );
+    assert.equal(
+      compareLineOf(container),
+      `Veränderung gegenüber dem Vorzeitraum ${formatDate(addDays(today, -1))}.`
+    );
+    assert.equal(
+      runningHintOf(container),
+      today === berlinToday ? RUNNING : null,
+      ZONE
+    );
+
+    // Der Tag davor ist überall abgeschlossen.
+    await choosePreset(view, "Gestern");
+    assert.equal(server.summaries().at(-1).body.toDay, addDays(today, -1));
+    assert.equal(runningHintOf(container), null);
   }
 );
 

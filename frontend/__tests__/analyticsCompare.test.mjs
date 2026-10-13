@@ -19,6 +19,7 @@ import {
   comparisonOf,
   formatDayRange,
   formatPercentChange,
+  isRunningRange,
   linePath,
   linePoints,
   percentChange,
@@ -449,6 +450,104 @@ test("Kein Vergleich: Eine Antwort, deren Linie nicht zu den Säulen passt, wird
       available: false,
       since: "2026-01-01",
     });
+});
+
+// ---------------------------------------------------------------------------
+// Laufender Zeitraum
+// ---------------------------------------------------------------------------
+
+test("Laufender Zeitraum: Enthält der Zeitraum den heutigen Tag, läuft er noch – ein abgeschlossener und ein noch nicht begonnener nicht", () => {
+  // 13.10.2026, 12:00 Uhr in Berlin
+  const noon = new Date("2026-10-13T10:00:00Z");
+  const running = (fromDay, toDay) => isRunningRange(fromDay, toDay, noon);
+
+  // „Heute", „Letzte 30 Tage", laufender Monat, bis heute, ab heute
+  assert.equal(running("2026-10-13", "2026-10-13"), true);
+  assert.equal(running("2026-09-14", "2026-10-13"), true);
+  assert.equal(running("2026-10-01", "2026-10-31"), true);
+  assert.equal(running("2025-10-14", "2026-10-13"), true);
+  assert.equal(running("2026-10-13", "2026-10-20"), true);
+  // „Gestern", „Letzter Monat", bis gestern
+  assert.equal(running("2026-10-12", "2026-10-12"), false);
+  assert.equal(running("2026-09-01", "2026-09-30"), false);
+  assert.equal(running("2026-09-13", "2026-10-12"), false);
+  // noch nicht begonnen
+  assert.equal(running("2026-10-14", "2026-10-14"), false);
+  assert.equal(running("2026-10-14", "2026-11-12"), false);
+  // ohne Zeitraum, ohne gültige Uhr
+  assert.equal(running(null, "2026-10-13"), false);
+  assert.equal(running("2026-10-13", undefined), false);
+  assert.equal(running("", ""), false);
+  assert.equal(
+    isRunningRange("2026-10-13", "2026-10-13", new Date(NaN)),
+    false
+  );
+  // Ohne Uhr gilt die jetzige: Ein Zeitraum um heute läuft, ein alter nicht.
+  assert.equal(isRunningRange("2000-01-01", "2999-12-31"), true);
+  assert.equal(isRunningRange("2000-01-01", "2000-12-31"), false);
+});
+
+test("Laufender Zeitraum: „heute“ ist der Berliner Kalendertag, nicht der des Browsers – um Mitternacht, in Sommer- und Winterzeit, mit TZ=UTC, Europe/Berlin und America/New_York", () => {
+  // Mittag des 13.10. in der Zeitzone des Prozesses – zeigt, dass sie gilt.
+  const LOCAL_NOON = {
+    UTC: "2026-10-13T12:00:00.000Z",
+    "Europe/Berlin": "2026-10-13T10:00:00.000Z",
+    "America/New_York": "2026-10-13T16:00:00.000Z",
+  };
+  // [Zeitpunkt, Berliner Tag]
+  const INSTANTS = [
+    // Sommerzeit (UTC+2): letzte Millisekunde des 13.10. und Mitternacht
+    ["2026-10-13T21:59:59.999Z", "2026-10-13"],
+    ["2026-10-13T22:00:00.000Z", "2026-10-14"],
+    // 00:30 Uhr in Berlin: UTC und New York stehen noch im 13.10.
+    ["2026-10-13T22:30:00.000Z", "2026-10-14"],
+    // 23:30 Uhr in New York am 13.10.: in Berlin 05:30 Uhr am 14.10.
+    ["2026-10-14T03:30:00.000Z", "2026-10-14"],
+    // Winterzeit (UTC+1)
+    ["2026-01-31T22:59:59.999Z", "2026-01-31"],
+    ["2026-01-31T23:00:00.000Z", "2026-02-01"],
+    // Ende der Sommerzeit am 25.10.2026 (der Tag hat 25 Stunden)
+    ["2026-10-24T22:00:00.000Z", "2026-10-25"],
+    ["2026-10-25T22:59:59.999Z", "2026-10-25"],
+    ["2026-10-25T23:00:00.000Z", "2026-10-26"],
+    // Jahreswechsel
+    ["2026-12-31T22:59:59.999Z", "2026-12-31"],
+    ["2026-12-31T23:00:00.000Z", "2027-01-01"],
+  ];
+
+  const original = process.env.TZ;
+  try {
+    for (const [zone, noon] of Object.entries(LOCAL_NOON)) {
+      process.env.TZ = zone;
+      assert.equal(new Date(2026, 9, 13, 12).toISOString(), noon, zone);
+
+      for (const [iso, berlinDay] of INSTANTS) {
+        const now = new Date(iso);
+        const where = `TZ=${zone}, ${iso}`;
+        const before = addDays(berlinDay, -1);
+        const after = addDays(berlinDay, 1);
+        // genau der Berliner Tag läuft – der davor ist abgeschlossen, der
+        // danach hat nicht begonnen
+        assert.equal(isRunningRange(berlinDay, berlinDay, now), true, where);
+        assert.equal(isRunningRange(before, before, now), false, where);
+        assert.equal(isRunningRange(after, after, now), false, where);
+        // „Letzte 30 Tage" bis zum Berliner Tag bzw. bis zum Tag davor
+        assert.equal(
+          isRunningRange(addDays(berlinDay, -29), berlinDay, now),
+          true,
+          where
+        );
+        assert.equal(
+          isRunningRange(addDays(before, -29), before, now),
+          false,
+          where
+        );
+      }
+    }
+  } finally {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  }
 });
 
 // ---------------------------------------------------------------------------

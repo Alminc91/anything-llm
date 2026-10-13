@@ -1557,6 +1557,7 @@ const TRANSLATIONS = {
       "previous-bucket": null,
       "previous-range": null,
       "change-range": null,
+      running: null,
       unavailable: null,
       "unavailable-since": null,
       "unavailable-no-counts": null,

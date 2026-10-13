@@ -9,6 +9,7 @@ import {
   createRenderer,
   hasFrontendDeps,
 } from "./helpers/renderSettingsPage.mjs";
+import { fixClock } from "./helpers/fixedClock.mjs";
 import { PREVIOUS_LINE, addDays } from "../src/utils/analyticsTimeline.js";
 
 const DIR = "/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics";
@@ -1082,6 +1083,114 @@ test(
     });
     assert.match(compareLineOf(loading), /class="[^"]*\bopacity-50\b/);
     assert.doesNotMatch(line, /opacity-50/);
+  }
+);
+
+const RUNNING =
+  "Der gewählte Zeitraum läuft noch – die Veränderung ist vorläufig.";
+/** Kennzahlen eines Zeitraums von days Tagen ab from, mit Vorzeitraum. */
+const kpiOf = (from, days, overrides = {}) =>
+  render(KPI, {
+    loading: false,
+    compare: true,
+    summary: daySummary({
+      from,
+      days,
+      value: CURRENT,
+      previous: PREVIOUS,
+      ...overrides,
+    }),
+  });
+
+test(
+  "Laufender Zeitraum: Enthält der Zeitraum den heutigen Tag, sagt es die Zeile unter dem Streifen – „Heute“ und „Letzte 30 Tage“ ja, „Gestern“ und ein abgeschlossener Zeitraum nicht",
+  { skip },
+  async (t) => {
+    // 13.10.2026, 12:00 Uhr in Berlin
+    fixClock(t, "2026-10-13T10:00:00Z");
+
+    // „Letzte 30 Tage": 14.09.–13.10.
+    const month = await kpiOf("2026-09-14", 30);
+    assert.equal(
+      textOf(compareLineOf(month)),
+      `Veränderung gegenüber dem Vorzeitraum 15.08.2026–13.09.2026. ${RUNNING}`
+    );
+    assert.equal(count(month, /data-compare-running/g), 1);
+    assert.match(
+      compareLineOf(month),
+      new RegExp(`<span data-compare-running="">${RUNNING}</span></p>$`)
+    );
+    // „Heute": ein laufender Tag gegen den ganzen Vortag
+    const today = await kpiOf("2026-10-13", 1, {
+      totals: { messages: 5, conversations: 4 },
+    });
+    assert.equal(
+      textOf(compareLineOf(today)),
+      `Veränderung gegenüber dem Vorzeitraum 12.10.2026. ${RUNNING}`
+    );
+    // Der Hinweis steht einmal, an der Zeile – nicht in den Feldern.
+    assert.equal(count(today, /läuft noch/g), 1);
+    assert.deepEqual(
+      changesOf(today).map(([, text]) => text),
+      [
+        "±0 % ggü. Vorzeitraum (5)",
+        "−50 % ggü. Vorzeitraum (4)",
+        "+50 % ggü. Vorzeitraum (6)",
+        "−25 % ggü. Vorzeitraum (4)",
+      ]
+    );
+
+    // „Gestern" und die 30 Tage bis gestern: abgeschlossen
+    for (const [from, days, range] of [
+      ["2026-10-12", 1, "11.10.2026"],
+      ["2026-09-13", 30, "14.08.2026–12.09.2026"],
+    ]) {
+      const html = await kpiOf(from, days);
+      assert.equal(
+        textOf(compareLineOf(html)),
+        `Veränderung gegenüber dem Vorzeitraum ${range}.`
+      );
+      assert.doesNotMatch(html, /data-compare-running|läuft noch/);
+    }
+    // Ohne Vergleich gibt es nichts, was vorläufig wäre.
+    const off = await render(KPI, {
+      loading: false,
+      compare: false,
+      summary: daySummary({
+        from: "2026-10-13",
+        days: 1,
+        value: CURRENT,
+        previous: PREVIOUS,
+      }),
+    });
+    assert.doesNotMatch(off, /data-compare|läuft noch/);
+  }
+);
+
+test(
+  "Laufender Zeitraum: „heute“ ist der Berliner Kalendertag – um 00:30 Uhr in Berlin ist der 13.10. abgeschlossen und der 14.10. läuft, in welcher Zeitzone der Browser auch steht",
+  { skip },
+  async (t) => {
+    // 14.10.2026, 00:30 Uhr in Berlin: in UTC 22:30 Uhr, in New York
+    // 18:30 Uhr am 13.10.
+    fixClock(t, "2026-10-13T22:30:00Z");
+
+    for (const [from, days] of [
+      ["2026-10-13", 1],
+      ["2026-09-14", 30],
+    ]) {
+      const html = await kpiOf(from, days);
+      assert.ok(compareLineOf(html));
+      assert.doesNotMatch(html, /data-compare-running|läuft noch/);
+    }
+    for (const [from, days] of [
+      ["2026-10-14", 1],
+      ["2026-09-15", 30],
+    ]) {
+      const html = await kpiOf(from, days);
+      assert.equal(count(html, /data-compare-running/g), 1);
+      assert.ok(textOf(compareLineOf(html)).endsWith(`. ${RUNNING}`));
+    }
   }
 );
 

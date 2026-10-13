@@ -9,6 +9,7 @@ import {
   formatDate,
   formatDayRange,
   formatNumber,
+  isRunningRange,
   kpiValues,
 } from "@/utils/analyticsTimeline";
 
@@ -22,7 +23,9 @@ import {
 // unmittelbar davor) oder „Kein Vergleich verfügbar". Die großen Zahlen und
 // die übrigen Nebenwerte bleiben, wie sie sind. Mit welchen Tagen verglichen
 // wird, steht einmal sichtbar in einer Zeile direkt unter dem Streifen – ein
-// Tooltip allein wäre mit Finger und Tastatur nicht zu erreichen.
+// Tooltip allein wäre mit Finger und Tastatur nicht zu erreichen. Enthält der
+// Zeitraum den heutigen Tag, sagt die Zeile auch das: Verglichen wird dann
+// ein laufender Zeitraum mit einem abgeschlossenen.
 
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 const NO_VALUE = "–";
@@ -62,6 +65,11 @@ export default function StatisticsGrid({
   const comparedDays = comparison?.available
     ? formatDayRange(comparison.fromDay, comparison.toDay, t)
     : null;
+  // Der Zeitraum läuft noch („Heute", „Letzte 30 Tage"): Er ist unvollständig,
+  // der Vorzeitraum vollständig – „−100 % ggü. Vorzeitraum" am Vormittag ist
+  // kein Einbruch. Heute = der Berliner Kalendertag des Zählerbuchs.
+  const running =
+    !!comparedDays && isRunningRange(summary.fromDay, summary.toDay);
   const change = (current, key) => {
     if (!comparison) return null;
     if (!comparison.available)
@@ -229,6 +237,14 @@ export default function StatisticsGrid({
           className={`mt-2 text-xs ${MUTED} transition-opacity ${loading ? "opacity-50" : ""}`}
         >
           {t("embed-analytics.compare.change-range", { range: comparedDays })}
+          {running && (
+            <>
+              {" "}
+              <span data-compare-running="">
+                {t("embed-analytics.compare.running")}
+              </span>
+            </>
+          )}
         </p>
       )}
 

@@ -1629,6 +1629,8 @@ const TRANSLATIONS = {
       "previous-bucket": "Previous period: {{period}} — {{value}}",
       "previous-range": "Previous period: {{range}}",
       "change-range": "Change compared with the previous period {{range}}.",
+      running:
+        "The selected period is still running – the change is preliminary.",
       unavailable: "No comparison available",
       "unavailable-since":
         "No comparison available: the previous period begins before {{date}}, the first day with counts.",

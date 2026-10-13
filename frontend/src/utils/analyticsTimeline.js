@@ -12,6 +12,8 @@
 // Angabe „Monat Jahr" folgen der Sprache der Oberfläche – immer im
 // gregorianischen Kalender und mit denselben Ziffern wie die Datumsangaben.
 
+import { formatDateForInput } from "./billingDate.js";
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NUMBER_LOCALE = "de-DE";
 
@@ -698,6 +700,25 @@ export function comparisonOf(summary, compare) {
     totals: previous.totals,
     buckets,
   };
+}
+
+/**
+ * Läuft der Zeitraum noch? Ja, wenn er den heutigen Kalendertag enthält: Dann
+ * ist er unvollständig, der Vorzeitraum aber vollständig – die Veränderung
+ * ist vorläufig („Heute" am Vormittag: −100 %).
+ * „Heute" ist der Berliner Kalendertag, in dem das Zählerbuch zählt – nicht
+ * der Tag in der Zeitzone des Browsers: Kurz nach Mitternacht in Berlin ist
+ * der Tag davor abgeschlossen, auch wenn der Browser (UTC, New York) noch in
+ * ihm steht.
+ * @param {string|null|undefined} fromDay - "YYYY-MM-DD"
+ * @param {string|null|undefined} toDay - "YYYY-MM-DD"
+ * @param {Date} [now]
+ * @returns {boolean}
+ */
+export function isRunningRange(fromDay, toDay, now = new Date()) {
+  if (!fromDay || !toDay) return false;
+  const today = formatDateForInput(now);
+  return today !== "" && fromDay <= today && today <= toDay;
 }
 
 /**
