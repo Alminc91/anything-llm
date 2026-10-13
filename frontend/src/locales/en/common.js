@@ -157,10 +157,6 @@ const TRANSLATIONS = {
       granted: "Device access granted",
       denied: "Device access denied",
     },
-    "embed-chats": {
-      "export-success": "Embed chats exported successfully as {{name}}.",
-      "export-error": "Failed to export embed chats.",
-    },
     "text-splitter": {
       "save-success": "Text chunking strategy settings saved.",
       "save-error": "Failed to save text chunking strategy settings.",
@@ -276,7 +272,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
     "chatbot-conversations": "Conversations",
-    "chatbot-messages": "Message table",
     "embed-chats": "Chat Embed History",
     security: "Security",
     "event-logs": "Event Logs",
@@ -1060,40 +1055,8 @@ const TRANSLATIONS = {
     "script-info":
       "After creating an embed, you will receive a link that you can publish on your website with a simple &lt;script&gt; tag.",
   },
-
   "chat-row": {
-    delete: "Delete",
-    "confirm-delete":
-      "Are you sure you want to delete this chat?\n\nThis action cannot be undone.",
-    "view-text": "View Text",
-    "session-id": "Session ID:",
-    username: "Username:",
-    "client-ip": "Client IP Address:",
-    "client-host": "Client Host URL:",
     "view-thoughts": "View Thoughts",
-  },
-
-  "embed-chats": {
-    title: "Embed Chat History",
-    export: "Export",
-    "clear-all": "Clear All Chats",
-    "clear-all-confirm":
-      "Are you sure you want to clear ALL embed chats?\n\nThis action cannot be undone.",
-    "clear-all-success": "{{count}} embed chats successfully cleared.",
-    "clear-all-error": "Failed to clear embed chats.",
-    description:
-      "These are all the recorded conversations from any embed that you have published, grouped by conversation.",
-    "no-conversations": "No conversations found.",
-    "no-chats": "No chats found.",
-    "retention-header": "GDPR data deletion active",
-    "cutoff-date": "Retention {{days}} days — today's chats expire on {{date}}",
-    table: {
-      embed: "Embed",
-      sender: "Sender",
-      message: "Message",
-      response: "Response",
-      at: "Sent At",
-    },
   },
 
   security: {

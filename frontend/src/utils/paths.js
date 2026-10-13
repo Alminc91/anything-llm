@@ -166,9 +166,6 @@ export default {
       conversations: () => {
         return `/settings/chatbot/conversations`;
       },
-      messages: () => {
-        return `/settings/chatbot/messages`;
-      },
     },
     browserExtension: () => {
       return `/settings/browser-extension`;

@@ -64,29 +64,6 @@ const Embed = {
         return { success: true, error: e.message };
       });
   },
-  chats: async (offset = 0) => {
-    return await fetch(`${API_BASE}/embed/chats`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ offset }),
-    })
-      .then((res) => res.json())
-      .catch((e) => {
-        console.error(e);
-        return [];
-      });
-  },
-  deleteChat: async (chatId) => {
-    return await fetch(`${API_BASE}/embed/chats/${chatId}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .catch((e) => {
-        console.error(e);
-        return { success: false, error: e.message };
-      });
-  },
   // DSGVO: Clear all embed chats (globally)
   clearAllChats: async () => {
     return await fetch(`${API_BASE}/embed-chats/clear/-1`, {

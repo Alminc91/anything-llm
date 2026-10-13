@@ -96,7 +96,6 @@ const TRANSLATIONS = {
     chatbot: "چت‌بات",
     "chatbot-widgets": "ویجت‌ها",
     "chatbot-conversations": "گفتگوها",
-    "chatbot-messages": "جدول پیام‌ها",
     "embed-chats": "تاریخچه گفتگوهای جاسازی شده",
     security: "امنیت",
     "event-logs": "گزارش رویدادها",
@@ -446,27 +445,6 @@ const TRANSLATIONS = {
       active: "دامنه‌های فعال",
       created: "ایجاد شده",
     },
-  },
-  "embed-chats": {
-    title: "گفتگوهای جاسازی شده",
-    export: "خروجی‌گیری",
-    description:
-      "این لیست تمام گفتگوها و پیام‌های ثبت شده از هر جاسازی که منتشر کرده‌اید را نشان می‌دهد.",
-    table: {
-      embed: "جاسازی",
-      sender: "فرستنده",
-      message: "پیام",
-      response: "پاسخ",
-      at: "زمان ارسال",
-    },
-    "clear-all": null,
-    "clear-all-confirm": null,
-    "clear-all-success": null,
-    "clear-all-error": null,
-    "no-conversations": null,
-    "no-chats": null,
-    "retention-header": null,
-    "cutoff-date": null,
   },
   event: {
     title: "گزارش رویدادها",
@@ -1185,10 +1163,6 @@ const TRANSLATIONS = {
       granted: null,
       denied: null,
     },
-    "embed-chats": {
-      "export-success": null,
-      "export-error": null,
-    },
     "text-splitter": {
       "save-success": null,
       "save-error": null,
@@ -1445,13 +1419,6 @@ const TRANSLATIONS = {
     "script-info": null,
   },
   "chat-row": {
-    delete: null,
-    "confirm-delete": null,
-    "view-text": null,
-    "session-id": null,
-    username: null,
-    "client-ip": null,
-    "client-host": null,
     "view-thoughts": null,
   },
   "embed-analytics": {

@@ -95,7 +95,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widget",
     "chatbot-conversations": "Conversazioni",
-    "chatbot-messages": "Tabella dei messaggi",
     "embed-chats": "Storico chat incorporata",
     security: "Sicurezza",
     "event-logs": "Log degli eventi",
@@ -452,27 +451,6 @@ const TRANSLATIONS = {
       active: "Domini attivi",
       created: "Creato",
     },
-  },
-  "embed-chats": {
-    title: "Chat incorporate",
-    export: "Esporta",
-    description:
-      "Queste sono tutte le chat e i messaggi registrati da qualsiasi embedding che hai pubblicato.",
-    table: {
-      embed: "Incorpora",
-      sender: "Mittente",
-      message: "Messaggio",
-      response: "Risposta",
-      at: "Inviato a",
-    },
-    "clear-all": null,
-    "clear-all-confirm": null,
-    "clear-all-success": null,
-    "clear-all-error": null,
-    "no-conversations": null,
-    "no-chats": null,
-    "retention-header": null,
-    "cutoff-date": null,
   },
   event: {
     title: "Registro eventi",
@@ -1218,10 +1196,6 @@ const TRANSLATIONS = {
       granted: null,
       denied: null,
     },
-    "embed-chats": {
-      "export-success": null,
-      "export-error": null,
-    },
     "text-splitter": {
       "save-success": null,
       "save-error": null,
@@ -1478,13 +1452,6 @@ const TRANSLATIONS = {
     "script-info": null,
   },
   "chat-row": {
-    delete: null,
-    "confirm-delete": null,
-    "view-text": null,
-    "session-id": null,
-    username: null,
-    "client-ip": null,
-    "client-host": null,
     "view-thoughts": null,
   },
   "embed-analytics": {

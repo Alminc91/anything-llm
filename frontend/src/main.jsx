@@ -209,14 +209,12 @@ const router = createBrowserRouter([
           };
         },
       },
+      // Die Nachrichtentabelle ist entfallen (KIE-538): Ihre Adresse leitet auf
+      // „Konversationen" um – und von dort, bei abgeschaltetem Chat-Verlauf,
+      // weiter auf die Widget-Liste.
       {
         path: "/settings/chatbot/messages",
-        lazy: async () => {
-          const { ChatbotMessages } = await import(
-            "@/pages/GeneralSettings/ChatEmbedWidgets"
-          );
-          return { element: <PrivateRoute Component={ChatbotMessages} /> };
-        },
+        element: <Navigate to="/settings/chatbot/conversations" replace />,
       },
       // Alte Adresse (Lesezeichen, Doku) leitet auf die Widget-Liste um
       {

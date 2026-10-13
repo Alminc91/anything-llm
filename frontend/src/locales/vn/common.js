@@ -95,7 +95,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widget",
     "chatbot-conversations": "Hội thoại",
-    "chatbot-messages": "Bảng tin nhắn",
     "embed-chats": "Lịch sử Nhúng hội thoại",
     security: "Bảo mật",
     "event-logs": "Nhật ký sự kiện",
@@ -445,27 +444,6 @@ const TRANSLATIONS = {
       active: "Tên miền Hoạt động",
       created: "Ngày tạo",
     },
-  },
-  "embed-chats": {
-    title: "Lịch sử Nhúng Trò chuyện",
-    export: "Xuất",
-    description:
-      "Đây là tất cả các cuộc trò chuyện và tin nhắn đã được ghi lại từ bất kỳ nhúng nào mà bạn đã xuất bản.",
-    table: {
-      embed: "Nhúng",
-      sender: "Người gửi",
-      message: "Tin nhắn",
-      response: "Phản hồi",
-      at: "Gửi lúc",
-    },
-    "clear-all": null,
-    "clear-all-confirm": null,
-    "clear-all-success": null,
-    "clear-all-error": null,
-    "no-conversations": null,
-    "no-chats": null,
-    "retention-header": null,
-    "cutoff-date": null,
   },
   event: {
     title: "Nhật ký sự kiện",
@@ -1183,10 +1161,6 @@ const TRANSLATIONS = {
       granted: null,
       denied: null,
     },
-    "embed-chats": {
-      "export-success": null,
-      "export-error": null,
-    },
     "text-splitter": {
       "save-success": null,
       "save-error": null,
@@ -1443,13 +1417,6 @@ const TRANSLATIONS = {
     "script-info": null,
   },
   "chat-row": {
-    delete: null,
-    "confirm-delete": null,
-    "view-text": null,
-    "session-id": null,
-    username: null,
-    "client-ip": null,
-    "client-host": null,
     "view-thoughts": null,
   },
   "embed-analytics": {

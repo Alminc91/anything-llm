@@ -14,7 +14,7 @@ import Embed from "@/models/embed";
 import { formatNumber } from "@/utils/analyticsTimeline";
 import { formatDateTimeDE } from "@/utils/directories";
 import showToast from "@/utils/toast";
-import MarkdownRenderer from "../EmbedChats/MarkdownRenderer";
+import MarkdownRenderer from "./MarkdownRenderer";
 import Pagination from "@/components/Pagination";
 import DeleteConversation from "./DeleteConversation";
 import ExportMenu from "./ExportMenu";

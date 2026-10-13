@@ -94,7 +94,6 @@ const TRANSLATIONS = {
     chatbot: "チャットボット",
     "chatbot-widgets": "ウィジェット",
     "chatbot-conversations": "会話",
-    "chatbot-messages": "メッセージ一覧",
     "embed-chats": "チャット埋め込み履歴",
     security: "セキュリティ",
     "event-logs": "イベントログ",
@@ -442,27 +441,6 @@ const TRANSLATIONS = {
       active: "有効なドメイン",
       created: "作成",
     },
-  },
-  "embed-chats": {
-    title: "埋め込みチャット履歴",
-    export: "エクスポート",
-    description:
-      "これは、公開された埋め込みウィジェットから送信された全てのチャットとメッセージの記録です。",
-    table: {
-      embed: "埋め込み",
-      sender: "送信者",
-      message: "メッセージ",
-      response: "応答",
-      at: "送信日時",
-    },
-    "clear-all": null,
-    "clear-all-confirm": null,
-    "clear-all-success": null,
-    "clear-all-error": null,
-    "no-conversations": null,
-    "no-chats": null,
-    "retention-header": null,
-    "cutoff-date": null,
   },
   event: {
     title: "イベントログ",
@@ -1189,10 +1167,6 @@ const TRANSLATIONS = {
       granted: null,
       denied: null,
     },
-    "embed-chats": {
-      "export-success": null,
-      "export-error": null,
-    },
     "text-splitter": {
       "save-success": null,
       "save-error": null,
@@ -1449,13 +1423,6 @@ const TRANSLATIONS = {
     "script-info": null,
   },
   "chat-row": {
-    delete: null,
-    "confirm-delete": null,
-    "view-text": null,
-    "session-id": null,
-    username: null,
-    "client-ip": null,
-    "client-host": null,
     "view-thoughts": null,
   },
   "embed-analytics": {

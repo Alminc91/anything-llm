@@ -97,7 +97,6 @@ const TRANSLATIONS = {
     chatbot: "Tērzēšanas robots",
     "chatbot-widgets": "Logrīki",
     "chatbot-conversations": "Sarunas",
-    "chatbot-messages": "Ziņojumu tabula",
     "embed-chats": "Sarunas ietveres vēsture",
     security: "Drošība",
     "event-logs": "Notikumu žurnāli",
@@ -641,27 +640,6 @@ const TRANSLATIONS = {
       created: "Izveidotais",
     },
   },
-  "embed-chats": {
-    title: "Iegulto čatu saraksts",
-    export: "Eksportēt",
-    description:
-      "Šie ir visi ierakstītie čati un ziņojumi no jebkura iegultā logrīka, ko esat publicējis.",
-    table: {
-      embed: "Iegultais",
-      sender: "Sūtītājs",
-      message: "Ziņojums",
-      response: "Atbilde",
-      at: "Nosūtīts",
-    },
-    "clear-all": null,
-    "clear-all-confirm": null,
-    "clear-all-success": null,
-    "clear-all-error": null,
-    "no-conversations": null,
-    "no-chats": null,
-    "retention-header": null,
-    "cutoff-date": null,
-  },
   event: {
     title: "Notikumu žurnāli",
     description:
@@ -1189,10 +1167,6 @@ const TRANSLATIONS = {
       granted: null,
       denied: null,
     },
-    "embed-chats": {
-      "export-success": null,
-      "export-error": null,
-    },
     "text-splitter": {
       "save-success": null,
       "save-error": null,
@@ -1449,13 +1423,6 @@ const TRANSLATIONS = {
     "script-info": null,
   },
   "chat-row": {
-    delete: null,
-    "confirm-delete": null,
-    "view-text": null,
-    "session-id": null,
-    username: null,
-    "client-ip": null,
-    "client-host": null,
     "view-thoughts": null,
   },
   "embed-analytics": {

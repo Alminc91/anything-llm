@@ -169,10 +169,6 @@ const TRANSLATIONS = {
       granted: "Gerätezugriff gewährt",
       denied: "Gerätezugriff verweigert",
     },
-    "embed-chats": {
-      "export-success": "Embed-Chats erfolgreich als {{name}} exportiert.",
-      "export-error": "Fehler beim Exportieren der Embed-Chats.",
-    },
     "text-splitter": {
       "save-success":
         "Einstellungen für die Text-Chunking-Strategie gespeichert.",
@@ -292,7 +288,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
     "chatbot-conversations": "Konversationen",
-    "chatbot-messages": "Nachrichtentabelle",
     "embed-chats": "Chat-Widget-Verlauf",
     security: "Sicherheit",
     "event-logs": "Ereignisprotokolle",
@@ -1286,38 +1281,7 @@ const TRANSLATIONS = {
     },
   },
   "chat-row": {
-    delete: "Löschen",
-    "confirm-delete":
-      "Möchten Sie diesen Chat wirklich löschen?\n\nDiese Aktion kann nicht rückgängig gemacht werden.",
-    "view-text": "Text anzeigen",
-    "session-id": "Sitzungs-ID:",
-    username: "Benutzername:",
-    "client-ip": "Client-IP-Adresse:",
-    "client-host": "Client-Host-URL:",
     "view-thoughts": "Gedanken anzeigen",
-  },
-  "embed-chats": {
-    title: "Eingebettete Chats",
-    export: "Exportieren",
-    "clear-all": "Alle Chats löschen",
-    "clear-all-confirm":
-      "Möchten Sie wirklich ALLE Embed-Chats löschen?\n\nDiese Aktion kann nicht rückgängig gemacht werden.",
-    "clear-all-success": "{{count}} Embed-Chats erfolgreich gelöscht.",
-    "clear-all-error": "Fehler beim Löschen der Embed-Chats.",
-    description:
-      "Dies sind alle aufgezeichneten Chat-Nachrichten von jeder Einbettung, die Sie veröffentlicht haben.",
-    "no-conversations": "Keine Konversationen gefunden.",
-    "no-chats": "Keine Chats gefunden.",
-    "retention-header": "ℹ️ DSGVO-Datenlöschung aktiv",
-    "cutoff-date":
-      "Aufbewahrung {{days}} Tage — heutige Chats verfallen am {{date}}",
-    table: {
-      embed: "Einbettung",
-      sender: "Absender",
-      message: "Nachricht",
-      response: "Antwort",
-      at: "Gesendet am",
-    },
   },
   event: {
     title: "Ereignisprotokolle",

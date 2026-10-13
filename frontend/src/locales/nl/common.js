@@ -95,7 +95,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
     "chatbot-conversations": "Gesprekken",
-    "chatbot-messages": "Berichtentabel",
     "embed-chats": "Ingebedde Chat Geschiedenis",
     security: "Veiligheid",
     "event-logs": "Gebeurtenislogboeken",
@@ -448,27 +447,6 @@ const TRANSLATIONS = {
       active: "Actieve Domeinen",
       created: "Aangemaakt",
     },
-  },
-  "embed-chats": {
-    title: "Inbedding Chats",
-    export: "Exporteren",
-    description:
-      "Dit zijn alle opgenomen chats en berichten van elke inbedding die je hebt gepubliceerd.",
-    table: {
-      embed: "Inbedding",
-      sender: "Afzender",
-      message: "Bericht",
-      response: "Reactie",
-      at: "Verzonden Om",
-    },
-    "clear-all": null,
-    "clear-all-confirm": null,
-    "clear-all-success": null,
-    "clear-all-error": null,
-    "no-conversations": null,
-    "no-chats": null,
-    "retention-header": null,
-    "cutoff-date": null,
   },
   event: {
     title: "Gebeurtenislogboeken",
@@ -1191,10 +1169,6 @@ const TRANSLATIONS = {
       granted: null,
       denied: null,
     },
-    "embed-chats": {
-      "export-success": null,
-      "export-error": null,
-    },
     "text-splitter": {
       "save-success": null,
       "save-error": null,
@@ -1451,13 +1425,6 @@ const TRANSLATIONS = {
     "script-info": null,
   },
   "chat-row": {
-    delete: null,
-    "confirm-delete": null,
-    "view-text": null,
-    "session-id": null,
-    username: null,
-    "client-ip": null,
-    "client-host": null,
     "view-thoughts": null,
   },
   "embed-analytics": {

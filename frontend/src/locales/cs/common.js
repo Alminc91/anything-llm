@@ -105,7 +105,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgety",
     "chatbot-conversations": "Konverzace",
-    "chatbot-messages": "Tabulka zpráv",
     "embed-chats": "Historie vložených chatů",
     security: "Zabezpečení",
     "event-logs": "Protokoly událostí",
@@ -649,27 +648,6 @@ const TRANSLATIONS = {
       created: "Vytvořeno",
     },
   },
-  "embed-chats": {
-    title: "Historie vložených chatů",
-    export: "Exportovat",
-    description:
-      "Toto jsou všechny zaznamenané chaty a zprávy z jakéhokoli vložení, které jste zveřejnili.",
-    table: {
-      embed: "Vložení",
-      sender: "Odesílatel",
-      message: "Zpráva",
-      response: "Odpověď",
-      at: "Odesláno v",
-    },
-    "clear-all": null,
-    "clear-all-confirm": null,
-    "clear-all-success": null,
-    "clear-all-error": null,
-    "no-conversations": null,
-    "no-chats": null,
-    "retention-header": null,
-    "cutoff-date": null,
-  },
   security: {
     title: "Zabezpečení",
     multiuser: {
@@ -1184,10 +1162,6 @@ const TRANSLATIONS = {
       granted: null,
       denied: null,
     },
-    "embed-chats": {
-      "export-success": null,
-      "export-error": null,
-    },
     "text-splitter": {
       "save-success": null,
       "save-error": null,
@@ -1444,13 +1418,6 @@ const TRANSLATIONS = {
     "script-info": null,
   },
   "chat-row": {
-    delete: null,
-    "confirm-delete": null,
-    "view-text": null,
-    "session-id": null,
-    username: null,
-    "client-ip": null,
-    "client-host": null,
     "view-thoughts": null,
   },
   "embed-analytics": {

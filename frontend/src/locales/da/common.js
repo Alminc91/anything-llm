@@ -95,7 +95,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
     "chatbot-conversations": "Samtaler",
-    "chatbot-messages": "Beskedtabel",
     "embed-chats": "Historik for chat-indlejringer",
     security: "Sikkerhed",
     "event-logs": "Hændelseslog",
@@ -449,27 +448,6 @@ const TRANSLATIONS = {
       active: "Aktive domæner",
       created: "Oprettet",
     },
-  },
-  "embed-chats": {
-    title: "Indlejrede chats",
-    export: "Eksporter",
-    description:
-      "Dette er alle de optagede chats og beskeder fra enhver indlejring, du har offentliggjort.",
-    table: {
-      embed: "Indlejring",
-      sender: "Afsender",
-      message: "Besked",
-      response: "Svar",
-      at: "Sendt kl.",
-    },
-    "clear-all": null,
-    "clear-all-confirm": null,
-    "clear-all-success": null,
-    "clear-all-error": null,
-    "no-conversations": null,
-    "no-chats": null,
-    "retention-header": null,
-    "cutoff-date": null,
   },
   event: {
     title: "Hændelseslog",
@@ -1192,10 +1170,6 @@ const TRANSLATIONS = {
       granted: null,
       denied: null,
     },
-    "embed-chats": {
-      "export-success": null,
-      "export-error": null,
-    },
     "text-splitter": {
       "save-success": null,
       "save-error": null,
@@ -1452,13 +1426,6 @@ const TRANSLATIONS = {
     "script-info": null,
   },
   "chat-row": {
-    delete: null,
-    "confirm-delete": null,
-    "view-text": null,
-    "session-id": null,
-    username: null,
-    "client-ip": null,
-    "client-host": null,
     "view-thoughts": null,
   },
   "embed-analytics": {

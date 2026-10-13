@@ -95,7 +95,6 @@ const TRANSLATIONS = {
     chatbot: "Sohbet botu",
     "chatbot-widgets": "Widget'lar",
     "chatbot-conversations": "Konuşmalar",
-    "chatbot-messages": "Mesaj tablosu",
     "embed-chats": "Gömme Sohbet Geçmişi",
     security: "Güvenlik",
     "event-logs": "Olay Kayıtları",
@@ -447,27 +446,6 @@ const TRANSLATIONS = {
       active: "Aktif Alan Adları",
       created: "Oluşturulma Tarihi",
     },
-  },
-  "embed-chats": {
-    title: "Gömme Sohbetler",
-    export: "Dışa Aktar",
-    description:
-      "Yayımladığınız herhangi bir gömme sohbetten gelen tüm kayıtlı sohbetler ve mesajlar burada bulunur.",
-    table: {
-      embed: "Gömme",
-      sender: "Gönderen",
-      message: "Mesaj",
-      response: "Yanıt",
-      at: "Gönderilme Zamanı",
-    },
-    "clear-all": null,
-    "clear-all-confirm": null,
-    "clear-all-success": null,
-    "clear-all-error": null,
-    "no-conversations": null,
-    "no-chats": null,
-    "retention-header": null,
-    "cutoff-date": null,
   },
   event: {
     title: "Olay Kayıtları",
@@ -1183,10 +1161,6 @@ const TRANSLATIONS = {
       granted: null,
       denied: null,
     },
-    "embed-chats": {
-      "export-success": null,
-      "export-error": null,
-    },
     "text-splitter": {
       "save-success": null,
       "save-error": null,
@@ -1443,13 +1417,6 @@ const TRANSLATIONS = {
     "script-info": null,
   },
   "chat-row": {
-    delete: null,
-    "confirm-delete": null,
-    "view-text": null,
-    "session-id": null,
-    username: null,
-    "client-ip": null,
-    "client-host": null,
     "view-thoughts": null,
   },
   "embed-analytics": {
