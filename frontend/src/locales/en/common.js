@@ -1745,6 +1745,8 @@ const TRANSLATIONS = {
       running: "Exporting …",
       success: "Export saved: {{filename}}",
       error: "The export failed. Please try again.",
+      "too-many":
+        "Too many matches to export – at most {{max}} conversations. Please narrow the search, filter or period.",
     },
     delete: {
       conversation: "Delete conversation",

@@ -347,7 +347,12 @@ function embedManagementEndpoints(app) {
   // der Nachrichtentabelle entfallen. Gelöscht wird die ganze Konversation:
   // DELETE /embed/:embedId/conversation (weiter unten).
 
-  // Get conversations (global view, grouped by conversation_id)
+  // Konversationen aller Widgets (globale Sicht), gruppiert wie die Liste
+  // eines Widgets. Ein Default-User sieht nur die Widgets seiner Workspaces -
+  // in der Seite UND in der Zählung (Fixliste 3, C8): Gefiltert wird in der
+  // Abfrage, nicht danach (sonst fehlten Zeilen auf der Seite, und
+  // totalCount/hasMore zählten fremde Widgets mit). Ein Datenbankfehler ist
+  // keine leere Liste: 500 wie analytics/conversations (Fixliste 3, C7).
   app.post(
     "/embed/chats/conversations",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
@@ -355,7 +360,6 @@ function embedManagementEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const body = reqBody(request) ?? {};
-        const { startDate, endDate } = body;
         // Dieselbe Prüfung wie die Liste eines Widgets (Fixliste 2, R10):
         // ganze Zahlen, limit 1–100 - sonst 400 statt LIMIT -1 (alle
         // Konversationen aller Widgets) oder "5" + 20 = "520".
@@ -364,66 +368,49 @@ function embedManagementEndpoints(app) {
           response.status(400).json({ success: false, error: pagingError });
           return;
         }
-
-        // Get all conversations (global view)
-        const conversations = await EmbedChats.getConversations(
-          null,  // NULL = global across all embeds
-          offset,
-          limit,
-          startDate ? new Date(startDate) : null,
-          endDate ? new Date(endDate) : null
-        );
-
-        // Filter by workspace permissions for default users
-        let filteredConversations = conversations;
-        if (user?.role === ROLES.default) {
-          const userWorkspaces = await WorkspaceUser.where({ user_id: user.id });
-          const workspaceIds = userWorkspaces.map(ws => ws.workspace_id);
-
-          // Get embed configs for user's workspaces
-          const allowedEmbeds = await EmbedConfig.where({
-            workspace_id: { in: workspaceIds }
+        const startDate = body.startDate ? new Date(body.startDate) : null;
+        const endDate = body.endDate ? new Date(body.endDate) : null;
+        if (
+          (startDate && isNaN(startDate.getTime())) ||
+          (endDate && isNaN(endDate.getTime()))
+        ) {
+          response.status(400).json({
+            success: false,
+            error: "startDate and endDate must be valid timestamps.",
           });
-          const allowedEmbedIds = allowedEmbeds.map(e => e.id);
-
-          // Filter conversations
-          filteredConversations = conversations.filter(conv =>
-            allowedEmbedIds.includes(conv.embed_id)
-          );
+          return;
         }
 
-        // Count total conversations for pagination
-        const { Prisma } = require("@prisma/client");
-        const prisma = require("../utils/prisma");
-
-        const dateConditions = [];
-        if (startDate) {
-          dateConditions.push(Prisma.sql`AND createdAt >= ${new Date(startDate)}`);
+        // null = alle Widgets; für einen Default-User die seiner Workspaces
+        // (keine Mitgliedschaft: keine Widgets, leere Liste)
+        let embedIds = null;
+        if (user?.role === ROLES.default) {
+          const memberships = await WorkspaceUser.where({ user_id: user.id });
+          const allowed = await EmbedConfig.where({
+            workspace_id: { in: memberships.map((ws) => ws.workspace_id) },
+          });
+          embedIds = allowed.map((embed) => embed.id);
         }
-        if (endDate) {
-          dateConditions.push(Prisma.sql`AND createdAt <= ${new Date(endDate)}`);
-        }
 
-        const totalCount = await prisma.$queryRaw`
-          SELECT COUNT(DISTINCT COALESCE(conversation_id, session_id)) as count
-          FROM embed_chats
-          WHERE 1=1
-            ${dateConditions.length > 0 ? Prisma.join(dateConditions, " ") : Prisma.empty}
-            AND include = 1
-        `;
-
-        const hasMore = (offset + limit) < Number(totalCount[0]?.count || 0);
-        const total = Number(totalCount[0]?.count || 0);
-
+        const { conversations, totalCount } =
+          await EmbedChats.conversationPage(embedIds, {
+            offset,
+            limit,
+            startDate,
+            endDate,
+          });
         response.status(200).json({
           success: true,
-          conversations: filteredConversations,
-          hasMore,
-          totalCount: total,
+          conversations,
+          hasMore: offset + limit < totalCount,
+          totalCount,
         });
       } catch (e) {
-        console.error(e);
-        response.sendStatus(500).end();
+        console.error("chats/conversations error:", loggableError(e));
+        response.status(500).json({
+          success: false,
+          error: "Konversationen konnten nicht geladen werden.",
+        });
       }
     }
   );
@@ -753,6 +740,17 @@ function embedManagementEndpoints(app) {
         }
         response.end();
       } catch (e) {
+        // Zu viele Treffer für den Export mit Suche (Fixliste 3, C10): Die
+        // Grenze steht fest, die Ansicht nennt sie - bevor eine Datei beginnt.
+        if (!streaming && e?.code === "EXPORT_TOO_MANY_HITS") {
+          response.status(413).json({
+            success: false,
+            reason: "too-many-hits",
+            max: e.max,
+            error: `Zu viele Treffer für den Export (mehr als ${e.max} Konversationen). Bitte Suche, Filter oder Zeitraum eingrenzen.`,
+          });
+          return;
+        }
         // Ohne Meldungstext: Er könnte die Suchmuster enthalten.
         console.error("analytics/export error:", loggableError(e));
         // Hat die Antwort schon begonnen, lässt sich kein Fehlerstatus mehr

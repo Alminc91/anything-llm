@@ -1364,7 +1364,7 @@ describe("leistung (Fixliste 6–8)", () => {
     );
   });
 
-  test("Export mit Suche: die Treffer-Konversationen werden EINMAL bestimmt, nicht je Seite – Kennungen und Inhalte seitenweise (Fixliste 2, R11); Inhalt wie die Liste", async () => {
+  test("Export mit Suche: die Treffer-Konversationen werden EINMAL bestimmt, nicht je Seite – Inhalte seitenweise (Fixliste 2, R11); Inhalt wie die Liste", async () => {
     const embed = await createEmbed(
       db.client,
       await createWorkspace(db.client)
@@ -1395,14 +1395,16 @@ describe("leistung (Fixliste 6–8)", () => {
     expect(hits).toHaveBeenCalledTimes(1);
     expect(hits.mock.calls[0][0]).toMatchObject({ search: "kurs" });
     const found = await hits.mock.results[0].value;
+    // Kennung und Sitzung aus der Treffermenge selbst (Fixliste 3, C2)
     expect(Object.keys(found).sort()).toEqual([
-      "firstChatIds",
+      "conversationIds",
       "messageCounts",
       "numbers",
+      "sessionIds",
     ]);
-    expect(found.firstChatIds).toHaveLength(PAGE + 2);
+    expect(found.conversationIds).toHaveLength(PAGE + 2);
     expect(hitPages).toHaveBeenCalledTimes(2);
-    expect(hitPages.mock.calls.map((call) => [call[2], call[3]])).toEqual([
+    expect(hitPages.mock.calls.map((call) => [call[1], call[2]])).toEqual([
       [0, PAGE],
       [PAGE, 2 * PAGE],
     ]);
@@ -1669,5 +1671,308 @@ describe("mehrzeilige antworten (Fixliste 2, R6)", () => {
     expect(await found(embed, "C:\\neu")).toEqual(["zitat"]);
     expect(await found(embed, "eins")).toEqual(["zitat"]);
     expect(await found(embed, "nDer")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 3 (Kontroll-Review 2): Zeilennummern außerhalb INT4, globale
+// Liste, Antwortanfang auf \", Export mit Suche
+// ---------------------------------------------------------------------------
+
+describe("zeilennummer außerhalb INT4 (Fixliste 3, C3)", () => {
+  test("Verlauf, Lösch-Vorschau und Löschen: eine Zahl > 2^31−1 bezeichnet keine Konversation – „nicht gefunden“, keine 500", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const chat = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage",
+      conversation: "k",
+    });
+    const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+    for (const chatId of [
+      "2147483648",
+      "99999999999",
+      "9007199254740993",
+      "999999999999999999999",
+    ]) {
+      const opened = await details(embed, chatId);
+      expect([chatId, opened.statusCode, opened.body]).toEqual([
+        chatId,
+        200,
+        { success: true, messages: [] },
+      ]);
+      const request = (route) =>
+        invoke(routes[`${route.method} ${route.path}`], {
+          params: { embedId: String(embed.id) },
+          body: { chatId: Number(chatId) },
+          token: admin.token,
+        });
+      // Vorschau wie bei jeder unbekannten Zeile: nichts zu löschen
+      const preview = await request(ROUTES.deletionPreview);
+      expect([chatId, preview.statusCode, preview.body]).toEqual([
+        chatId,
+        200,
+        expect.objectContaining({ success: true, messageCount: 0 }),
+      ]);
+      const deleted = await request(ROUTES.deleteConversation);
+      expect([chatId, deleted.statusCode]).toEqual([chatId, 404]);
+    }
+    // ein Widget > INT4 (admin darf jedes Widget ansehen): ebenso leer
+    expect((await details("2147483648", chat.id)).body).toEqual({
+      success: true,
+      messages: [],
+    });
+    expect(
+      await EmbedChats._conversationScope(embed.id, 2147483647)
+    ).toBeNull();
+    expect(errors).not.toHaveBeenCalled();
+    // die echte Zeile weiter erreichbar
+    expect((await details(embed, chat.id)).body.messages).toHaveLength(1);
+  });
+});
+
+describe("globale liste (Fixliste 3, C7/C8)", () => {
+  const GLOBAL = () => routes["POST /embed/chats/conversations"];
+  const global = (body, user = admin) =>
+    invoke(GLOBAL(), { body, token: user.token });
+  let workspaceA, widgetA, widgetB;
+  beforeEach(async () => {
+    workspaceA = await createWorkspace(db.client);
+    widgetA = await createEmbed(db.client, workspaceA);
+    widgetB = await createEmbed(db.client, await createWorkspace(db.client));
+    for (let i = 0; i < 2; i++)
+      await addChat(widgetA, {
+        at: berlinInstant("2026-10-05", 9, i),
+        prompt: `Frage A${i}`,
+        conversation: `a-${i}`,
+      });
+    for (let i = 0; i < 3; i++)
+      await addChat(widgetB, {
+        at: berlinInstant("2026-10-05", 10, i),
+        prompt: `FREMD B${i}`,
+        conversation: `b-${i}`,
+      });
+  });
+
+  test("Default-User: Seite UND Zählung nur über die Widgets seiner Workspaces – hasMore stimmt, nichts Fremdes", async () => {
+    const kunde = await createUser("default", [workspaceA.id]);
+    const all = await global({}, kunde);
+    expect(all.statusCode).toBe(200);
+    expect(all.body).toMatchObject({ totalCount: 2, hasMore: false });
+    expect(all.body.conversations.map((c) => c.conversation_id)).toEqual([
+      "a-1",
+      "a-0",
+    ]);
+    expect(JSON.stringify(all.body)).not.toMatch(/FREMD/);
+    // Blättern: die Seite ist voll (nicht nachträglich ausgedünnt)
+    const first = await global({ limit: 1 }, kunde);
+    expect(first.body).toMatchObject({ totalCount: 2, hasMore: true });
+    expect(first.body.conversations.map((c) => c.conversation_id)).toEqual([
+      "a-1",
+    ]);
+    const second = await global({ offset: 1, limit: 1 }, kunde);
+    expect(second.body).toMatchObject({ totalCount: 2, hasMore: false });
+    expect(second.body.conversations.map((c) => c.conversation_id)).toEqual([
+      "a-0",
+    ]);
+    // ohne Workspace: nichts, auch keine Zahl fremder Widgets
+    const ohneWorkspace = await createUser("default", []);
+    expect((await global({}, ohneWorkspace)).body).toEqual({
+      success: true,
+      conversations: [],
+      hasMore: false,
+      totalCount: 0,
+    });
+    // admin und manager sehen alle Widgets
+    for (const user of [admin, await createUser("manager")]) {
+      const result = await global({}, user);
+      expect(result.body.totalCount).toBe(5);
+      expect(result.body.conversations).toHaveLength(5);
+    }
+  });
+
+  test("Datenbankfehler: 500 { success: false } statt einer leeren Liste; ungültiger Zeitpunkt: 400", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    jest
+      .spyOn(EmbedChats, "_conversationList")
+      .mockRejectedValue(Object.assign(new Error("boom"), { code: "P2010" }));
+    const failed = await global({});
+    expect(failed.statusCode).toBe(500);
+    expect(failed.body).toEqual({ success: false, error: expect.any(String) });
+    jest.restoreAllMocks();
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const invalid = await global({ startDate: "kein Datum" });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.body).toEqual({
+      success: false,
+      error: expect.any(String),
+    });
+  });
+});
+
+describe('antwortanfang endet auf \\" (Fixliste 3, C9)', () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    // Der Text endet auf Anführungszeichen und Komma: Im JSON steht \",
+    // vor dem schließenden ", – die erste Folge "," beginnt schon beim
+    // maskierten Anführungszeichen.
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Was gibt es?",
+      answer: 'Wir empfehlen "Yoga am Abend",',
+      conversation: "zitat-komma",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Und mehrzeilig?",
+      answer: 'Zeile eins\nDer Kurs "Spanisch",',
+      conversation: "mehrzeilig",
+    });
+    // Ein Text, der wirklich auf einen Rückstrich endet
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 11, 0),
+      prompt: "Pfad?",
+      answer: "Liegt unter C:\\Kurse\\",
+      conversation: "rueckstrich",
+    });
+    // gewöhnliches Textende: Die beiden Zeichen ", hinter dem Text im
+    // Anfang treffen nicht
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 12, 0),
+      prompt: "Sonst?",
+      answer: "Nur Yoga",
+      conversation: "normal",
+    });
+  });
+
+  test('answer_head enthält immer den ganzen Text – mit den beiden Zeichen ", dahinter', async () => {
+    const { Prisma } = require("@prisma/client");
+    const rows = await db.client.$queryRaw`
+      SELECT answer_head FROM ${EmbedChats._searchRowsSql(
+        Prisma.sql`WHERE embed_id = ${embed.id}`
+      )} ORDER BY id`;
+    // Die erste Folge "," beginnt beim maskierten Anführungszeichen (\",")
+    // bzw. am Textende – der Anfang reicht zwei Zeichen weiter.
+    expect(rows.map((row) => row.answer_head)).toEqual([
+      'Wir empfehlen \\"Yoga am Abend\\",',
+      'Zeile eins\\nDer Kurs \\"Spanisch\\",',
+      'Liegt unter C:\\\\Kurse\\\\",',
+      'Nur Yoga",',
+    ]);
+  });
+
+  test.each([
+    ['Abend"', ["zitat-komma"]],
+    ['abend",', ["zitat-komma"]],
+    ['"Yoga am Abend",', ["zitat-komma"]],
+    ['kurs "spanisch"', ["mehrzeilig"]],
+    ['Spanisch",', ["mehrzeilig"]],
+    ["eins", ["mehrzeilig"]],
+    ["Kurse\\", ["rueckstrich"]],
+    ["C:\\Kurse\\", ["rueckstrich"]],
+    // die Maskierung gehört nicht zum Text
+    ['Abend\\"', []],
+    ["nDer", []],
+    ["nur yoga", ["normal"]],
+    ['nur yoga"', []],
+    ['Nur Yoga",', []],
+    ["Yoga,", []],
+  ])("„%s“", async (search, expected) => {
+    expect((await found(embed, search)).sort()).toEqual(expected);
+  });
+});
+
+describe("export mit suche (Fixliste 3, C2/C10)", () => {
+  const MAX_HITS = EmbedChats.EXPORT_SEARCH_MAX_HITS;
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+  });
+  afterEach(() => {
+    EmbedChats.EXPORT_SEARCH_MAX_HITS = MAX_HITS;
+  });
+
+  test("C2: Wird die erste Zeile einer Treffer-Konversation während des Exports gelöscht, bleibt die Konversation mit ihren übrigen Zeilen in der Datei", async () => {
+    const first = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Gibt es einen Kurs?",
+      conversation: "k",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "Und abends ein Kurs?",
+      conversation: "k",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Nur Kurs",
+      conversation: "j",
+    });
+    const original = EmbedChats._exportHits;
+    jest
+      .spyOn(EmbedChats, "_exportHits")
+      .mockImplementation(async (selection) => {
+        const hits = await original.call(EmbedChats, selection);
+        // Aufbewahrungsfrist: Die älteste Zeile verschwindet jetzt.
+        await db.client.embed_chats.delete({ where: { id: first.id } });
+        return hits;
+      });
+    const result = await exportFile(embed, "json", {
+      ...OCTOBER,
+      search: "kurs",
+    });
+    expect(result.statusCode).toBe(200);
+    const exported = JSON.parse(result.body);
+    expect(exported.map((c) => c.conversationId)).toEqual(["j", "k"]);
+    expect(exported[1].messages.map((m) => m.prompt)).toEqual([
+      "Und abends ein Kurs?",
+    ]);
+  });
+
+  test("C10: harte Obergrenze der Treffermenge – darüber 413 mit der Zahl, ohne Datei; gelesen werden höchstens Grenze + 1 Zeilen", async () => {
+    for (let i = 0; i < 3; i++)
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, i),
+        prompt: `Kurs ${i}`,
+        conversation: `k-${i}`,
+      });
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    EmbedChats.EXPORT_SEARCH_MAX_HITS = 2;
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    const tooMany = await exportFile(embed, "csv", {
+      ...OCTOBER,
+      search: "kurs",
+    });
+    expect(tooMany.statusCode).toBe(413);
+    expect(tooMany.body).toEqual({
+      success: false,
+      reason: "too-many-hits",
+      max: 2,
+      error: expect.stringContaining("2"),
+    });
+    expect(tooMany.chunks).toEqual([]);
+    const hitQuery = queries.mock.calls
+      .map(([strings, ...values]) => ({ sql: strings.join("?"), values }))
+      .find(({ sql }) => /conversation_number\s+FROM/.test(sql));
+    expect(hitQuery.values.at(-1)).toBe(3);
+    // keine Protokollzeile für einen Export, der nicht stattfand
+    expect(await eventsOf(db.client, "embed_conversations_exported")).toEqual(
+      []
+    );
+    // genau an der Grenze: Export wie gewohnt
+    EmbedChats.EXPORT_SEARCH_MAX_HITS = 3;
+    const fits = await exportFile(embed, "json", {
+      ...OCTOBER,
+      search: "kurs",
+    });
+    expect(fits.statusCode).toBe(200);
+    expect(JSON.parse(fits.body)).toHaveLength(3);
+    // ohne Suche gilt die Grenze nicht (seitenweise über den Schlüssel)
+    EmbedChats.EXPORT_SEARCH_MAX_HITS = 1;
+    const plain = await exportFile(embed, "json", OCTOBER);
+    expect(JSON.parse(plain.body)).toHaveLength(3);
   });
 });

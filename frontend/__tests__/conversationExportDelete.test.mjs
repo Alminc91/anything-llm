@@ -152,6 +152,8 @@ async function listServer(t, state) {
     }
     if (is(ROUTES.export, exportUrl)) {
       if (state.exportStatus) return json(null, state.exportStatus);
+      if (state.exportAnswer)
+        return json(state.exportAnswer.body, state.exportAnswer.status);
       return {
         ok: true,
         status: 200,
@@ -682,6 +684,57 @@ test(
     assert.equal(server.exports().length, 1);
     assert.deepEqual(saved, []);
     assert.equal(buttonsOf(menu)[0].hasAttribute("disabled"), false);
+  }
+);
+
+test(
+  "Exportieren (Fixliste 3, C10): Zu viele Treffer (413) – die Meldung nennt die Grenze und was zu tun ist; nichts wird gespeichert",
+  { skip },
+  async (t) => {
+    const state = {
+      conversations: [conversation("k-1")],
+      exportAnswer: {
+        status: 413,
+        body: {
+          success: false,
+          reason: "too-many-hits",
+          max: 100000,
+          error: "Zu viele Treffer",
+        },
+      },
+    };
+    const server = await listServer(t, state);
+    const shown = await toasts(t);
+    const mounted = await mountList(t);
+    const [menu] = withAttribute(mounted.container, "data-export-menu");
+    saved.length = 0;
+    await mounted.act(() => click(buttonsOf(menu)[0]));
+    await mounted.act(() =>
+      click(withAttribute(mounted.container, "data-export-format")[0])
+    );
+    await mounted.act();
+    assert.equal(server.exports().length, 1);
+    assert.deepEqual(saved, []);
+    assert.deepEqual(shown, [
+      [
+        "error",
+        "Zu viele Treffer für den Export – höchstens 100.000 Konversationen. Bitte grenzen Sie Suche, Filter oder Zeitraum ein.",
+      ],
+    ]);
+
+    // ein anderer Fehlschlag: die allgemeine Meldung
+    quiet(t);
+    state.exportAnswer = null;
+    state.exportStatus = 500;
+    shown.length = 0;
+    await mounted.act(() => click(buttonsOf(menu)[0]));
+    await mounted.act(() =>
+      click(withAttribute(mounted.container, "data-export-format")[0])
+    );
+    await mounted.act();
+    assert.deepEqual(shown, [
+      ["error", "Der Export ist fehlgeschlagen. Bitte versuchen Sie es erneut."],
+    ]);
   }
 );
 

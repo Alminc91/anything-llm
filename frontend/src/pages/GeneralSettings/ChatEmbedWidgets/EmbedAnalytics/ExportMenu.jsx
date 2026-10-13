@@ -3,6 +3,7 @@ import { CaretDown, DownloadSimple } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { saveAs } from "file-saver";
 import Embed from "@/models/embed";
+import { formatNumber } from "@/utils/analyticsTimeline";
 import showToast from "@/utils/toast";
 
 // KIE-538: „Exportieren" in der Kopfzeile der Konversationsliste. Exportiert
@@ -73,10 +74,8 @@ export default function ExportMenu({
   const runExport = async (format) => {
     setOpen(false);
     setRunning(true);
-    const { success, blob, filename } = await Embed.exportConversations(
-      embedId,
-      format,
-      {
+    const { success, blob, filename, reason, max } =
+      await Embed.exportConversations(embedId, format, {
         startDate,
         endDate,
         feedbackFilter,
@@ -84,12 +83,18 @@ export default function ExportMenu({
           ? { fromDay: bucket.start, toDay: bucket.end }
           : null,
         search,
-      }
-    );
+      });
     setRunning(false);
 
     if (!success) {
-      showToast(t("embed-analytics.export.error"), "error");
+      // Mit Suche ist die Treffermenge begrenzt (Fixliste 3, C10): Die
+      // Meldung nennt die Grenze und was zu tun ist.
+      showToast(
+        reason === "too-many-hits" && max !== null
+          ? t("embed-analytics.export.too-many", { max: formatNumber(max) })
+          : t("embed-analytics.export.error"),
+        "error"
+      );
       return;
     }
     saveAs(blob, filename);

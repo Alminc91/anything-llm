@@ -44,14 +44,26 @@ const FEEDBACK_MAX_TRACKED_SESSIONS = 5_000;
 // Konversationen (Seite), und die Nachrichten von höchstens so vielen
 // Konversationen bzw. so vielen Nachrichten (nach der Zählung der Liste) auf
 // einmal. Im Speicher liegen damit nie mehr als eine Seite Konversationen
-// (ohne Inhalte) und die Nachrichten eines Pakets. Mit Suche kommen drei
-// Zahlen je Treffer-Konversation dazu (erste Zeile, Zahl der Nachrichten,
-// laufende Nummer - bei 100.000 Treffern wenige MB): Die Suche läuft einmal
-// über alle Zeilen, Kennungen und Inhalte werden danach seitenweise gelesen
-// (EmbedChats._exportHits, Fixliste 2 R11).
+// (ohne Inhalte) und die Nachrichten eines Pakets.
+//
+// Mit Suche wird die Treffermenge EINMAL bestimmt (die Suche läuft einmal
+// über alle Zeilen, nicht je Seite, Fixliste Punkt 8) und liegt danach im
+// Speicher: Kennung, Sitzung und drei Zahlen je Treffer-Konversation, rund
+// 200 Byte. Sie ist hart begrenzt (Fixliste 3, C10): Mehr als
+// EXPORT_SEARCH_MAX_HITS Treffer lehnt der Export ab (Fehler mit code
+// EXPORT_TOO_MANY_HITS, die Route antwortet 413 mit dieser Zahl) - höchstens
+// rund 20 MB je laufendem Export. Gelesen werden dafür höchstens
+// EXPORT_SEARCH_MAX_HITS + 1 Zeilen. (Messbestand mit 100.000 Chat-Zeilen:
+// „kurs" trifft 42.858 Konversationen, siehe
+// __tests__/benchmarks/conversationSearch.manual.js.)
 const EXPORT_CONVERSATION_PAGE = 500;
 const EXPORT_MESSAGE_BATCH = 500;
 const EXPORT_BATCH_CONVERSATIONS = 100;
+const EXPORT_SEARCH_MAX_HITS = 100_000;
+
+// Größter Wert einer INT4-Spalte (id, embed_id): Prisma lehnt größere Zahlen
+// in einer Abfrage ab, statt nichts zu finden.
+const INT4_MAX = 2147483647;
 
 // Widget|Sitzung → { startedAt, count } des laufenden Zeitfensters
 const feedbackWindows = new Map();
@@ -84,6 +96,7 @@ const EmbedChats = {
   EXPORT_CONVERSATION_PAGE,
   EXPORT_MESSAGE_BATCH,
   EXPORT_BATCH_CONVERSATIONS,
+  EXPORT_SEARCH_MAX_HITS,
 
   /**
    * Legt eine Widget-Chat-Zeile an und zählt sie im Zählerbuch (KIE-532): +1
@@ -740,10 +753,19 @@ const EmbedChats = {
    *
    * Die Antwort: Die Antworten des Widgets beginnen mit dem Text
    * ({"text":"…","type":…, "sources":…}); in einem JSON-Text steht jedes
-   * Anführungszeichen maskiert (\"), die Folge "," (Anführungszeichen,
-   * Komma, Anführungszeichen) beendet ihn deshalb sicher. Diesen Anfang
-   * liefert die Spalte answer_head ({@link EmbedChats._searchRowsSql}), NULL
-   * bei jeder anderen Antwort. Die Vorprüfung sucht dort den Begriff in
+   * Anführungszeichen maskiert (\"). Die erste Folge "," (Anführungszeichen,
+   * Komma, Anführungszeichen) steht deshalb am Ende des Texts - genau dort
+   * oder, wenn der Text selbst auf Anführungszeichen und Komma endet (\","),
+   * zwei Zeichen davor. Der Anfang (Spalte answer_head,
+   * {@link EmbedChats._searchRowsSql}; NULL bei jeder anderen Antwort)
+   * reicht deshalb bis einschließlich der beiden Zeichen ", dahinter: So
+   * enthält er immer den ganzen Text (Fixliste 3, C9 - vorher fehlten im
+   * zweiten Fall die letzten beiden Zeichen, und die Vorprüfung schloss
+   * echte Treffer aus). Die zwei Zeichen zu viel (", ohne Rückstrich davor)
+   * treffen nie: Ein Begriff mit Anführungszeichen besteht die Vorprüfung
+   * nur mit \" (dann gibt es einen Rückstrich, und die Zeile wird aus dem
+   * JSON gelesen), einer ohne kann das Anführungszeichen nicht enthalten.
+   * Die Vorprüfung sucht dort den Begriff in
    * seiner JSON-Schreibweise (" als \", \ als \\) - Quellen und Metadaten
    * treffen sie so nicht. Steht im Anfang kein Rückstrich, ist er der Text
    * selbst. Fast jede echte Antwort ist mehrzeiliges Markdown (\n): Diese
@@ -810,7 +832,8 @@ const EmbedChats = {
     // Der Anfang mit aufgelöstem \n (SQL-Literal: '\n' sind die beiden
     // Zeichen Rückstrich und n). Nur diese eine Maskierung: Ein zweites
     // replace (\") kostete je Zeile mehr, als es spart (Messung Fixliste 2,
-    // R6: „kurs" 891 statt 1049 ms für das Prädikat über 100.000 Zeilen).
+    // R6: „kurs" 891 statt 1049 ms für das Prädikat allein über 100.000
+    // Zeilen; Zeiten der ganzen Route: benchmarks/conversationSearch.manual.js).
     const answerPlain = Prisma.raw(`replace(answer_head, '\\n', char(10))`);
     return Prisma.sql`(${matches(Prisma.raw("prompt"))}
       OR ${matches(Prisma.raw("feedbackReason"))}
@@ -841,7 +864,7 @@ const EmbedChats = {
         prompt, feedbackReason, feedbackText,
         CASE
           WHEN substr(response, 1, 9) = '{"text":"' AND instr(response, '","') > 0
-          THEN substr(response, 10, instr(response, '","') - 10)
+          THEN substr(response, 10, instr(response, '","') - 8)
         END as answer_head
       FROM embed_chats AS ${Prisma.raw(alias)}
       ${where}
@@ -861,7 +884,8 @@ const EmbedChats = {
    * DSGVO (KIE-533): Nur Zeilen mit include = 1 - per markHistoryInvalid
    * zurückgesetzte Chats erscheinen nicht in der Liste.
    *
-   * @param {number|null} embedId - NULL = alle Embeds (globale Sicht)
+   * @param {number|number[]|null} embedId - NULL = alle Embeds (globale
+   *   Sicht), eine Liste = diese Widgets ({@link EmbedChats._rowConditions})
    * @param {Date|null} startDate
    * @param {Date|null} endDate
    * @param {{maxId?: number|null, search?: string|null}} [options] - maxId
@@ -923,8 +947,10 @@ const EmbedChats = {
 
   /**
    * Die Zeilen, die die Liste zählt: include = 1 (DSGVO), Widget, Zeitraum,
-   * Stand des Exports - als WHERE-Teile über embed_chats.
-   * @param {{embedId: number|null, startDate: Date|null, endDate: Date|null, maxId: number|null}} params
+   * Stand des Exports - als WHERE-Teile über embed_chats. embedId: ein
+   * Widget, eine Liste von Widgets (globale Sicht eines Default-Users -
+   * leer: keine Zeile) oder null (alle).
+   * @param {{embedId: number|number[]|null, startDate: Date|null, endDate: Date|null, maxId: number|null}} params
    * @param {string|null} [alias] - Tabellenname vor den Spalten (EXISTS)
    * @returns {import("@prisma/client").Prisma.Sql[]}
    */
@@ -935,7 +961,13 @@ const EmbedChats = {
     const { Prisma } = require("@prisma/client");
     const column = (name) => Prisma.raw(alias ? `${alias}.${name}` : name);
     const where = [Prisma.sql`WHERE ${column("include")} = 1`];
-    if (embedId !== null)
+    if (Array.isArray(embedId))
+      where.push(
+        embedId.length > 0
+          ? Prisma.sql`AND ${column("embed_id")} IN (${Prisma.join(embedId)})`
+          : Prisma.sql`AND 0`
+      );
+    else if (embedId !== null)
       where.push(Prisma.sql`AND ${column("embed_id")} = ${embedId}`);
     if (startDate)
       where.push(Prisma.sql`AND ${column("createdAt")} >= ${startDate}`);
@@ -1136,7 +1168,8 @@ const EmbedChats = {
    * und hinter dem Anfang geblättert wurde, zählt
    * {@link EmbedChats.countConversations} noch einmal.
    * Parameter und Ergebnisform der Einträge wie {@link EmbedChats.getConversations}.
-   * @param {number} embedId
+   * @param {number|number[]|null} embedId - ein Widget; null bzw. eine Liste
+   *   für die globale Sicht ({@link EmbedChats._rowConditions})
    * @param {Object} options
    * @param {number} [options.offset]
    * @param {number} [options.limit]
@@ -1518,8 +1551,12 @@ const EmbedChats = {
       typeof chatId === "string" && /^[1-9]\d*$/.test(chatId)
         ? Number(chatId)
         : chatId;
-    if (!Number.isInteger(id) || id <= 0) return null;
-    if (!Number.isSafeInteger(rowId) || rowId <= 0) return null;
+    // Die Spalten sind INT4: Eine größere Zahl bezeichnet keine Zeile - und
+    // Prisma lehnte sie mit einem Validierungsfehler ab (500 statt „nicht
+    // gefunden", Fixliste 3, C3).
+    if (!Number.isInteger(id) || id <= 0 || id > INT4_MAX) return null;
+    if (!Number.isSafeInteger(rowId) || rowId <= 0 || rowId > INT4_MAX)
+      return null;
 
     const row = await prisma.embed_chats.findFirst({
       where: { id: rowId, embed_id: id },
@@ -1711,14 +1748,19 @@ const EmbedChats = {
   },
 
   /**
-   * Export mit Suche (Fixliste Punkt 8, Fixliste 2 R11): die
-   * Treffer-Konversationen der Auswahl, EINMAL bestimmt - die Suche läuft
-   * einmal über die Zeilen statt je Seite. Zurück kommen nur drei Zahlen je
-   * Konversation, in der Reihenfolge des Exports (laufende Nummer); Kennungen
-   * und Inhalte liest {@link EmbedChats._exportHitPage} seitenweise.
+   * Export mit Suche (Fixliste Punkt 8, Fixliste 2 R11, Fixliste 3 C2/C10):
+   * die Treffer-Konversationen der Auswahl, EINMAL bestimmt - die Suche läuft
+   * einmal über die Zeilen statt je Seite. Je Konversation kommen Kennung,
+   * Browser-Sitzung und drei Zahlen zurück, in der Reihenfolge des Exports
+   * (laufende Nummer). Kennung und Sitzung stammen aus der Treffermenge
+   * selbst, nicht aus ihrer ersten Zeile: Wird diese während des Exports
+   * gelöscht (Aufbewahrungsfrist), bleiben die übrigen Zeilen der
+   * Konversation im Export.
    * @param {Object} selection - wie {@link EmbedChats._exportConversationPage}, ohne after/limit
    * @param {string} selection.search - Suchbegriff wie in der Liste
-   * @returns {Promise<{firstChatIds: number[], messageCounts: number[], numbers: number[]}>}
+   * @returns {Promise<{conversationIds: string[], sessionIds: string[], messageCounts: number[], numbers: number[]}>}
+   * @throws {Error} code EXPORT_TOO_MANY_HITS (mit max), wenn es mehr als
+   *   EXPORT_SEARCH_MAX_HITS Treffer gibt - und bei einem Datenbankfehler
    */
   _exportHits: async function ({
     embedId,
@@ -1738,15 +1780,29 @@ const EmbedChats = {
       startedBetween,
       search,
     });
+    // über das Objekt gelesen: Tests setzen eine kleinere Grenze
+    const max = EmbedChats.EXPORT_SEARCH_MAX_HITS;
     const rows = await prisma.$queryRaw`
-      SELECT first_chat_id, message_count, conversation_number
+      SELECT conversation_id, session_id, message_count, conversation_number
       FROM ${source}
       ${where}
       ORDER BY started_at DESC, first_chat_id DESC
+      LIMIT ${max + 1}
     `;
-    const hits = { firstChatIds: [], messageCounts: [], numbers: [] };
+    if (rows.length > max)
+      throw Object.assign(
+        new Error(`Export mit Suche: mehr als ${max} Treffer-Konversationen`),
+        { code: "EXPORT_TOO_MANY_HITS", max }
+      );
+    const hits = {
+      conversationIds: [],
+      sessionIds: [],
+      messageCounts: [],
+      numbers: [],
+    };
     for (const row of rows) {
-      hits.firstChatIds.push(Number(row.first_chat_id));
+      hits.conversationIds.push(row.conversation_id);
+      hits.sessionIds.push(row.session_id);
       hits.messageCounts.push(Number(row.message_count));
       hits.numbers.push(Number(row.conversation_number));
     }
@@ -1755,40 +1811,26 @@ const EmbedChats = {
 
   /**
    * Eine Seite der Treffer-Konversationen ({@link EmbedChats._exportHits}) in
-   * der Form von {@link EmbedChats._exportConversationPage}: Kennung und
-   * Browser-Sitzung kommen aus der ersten Zeile jeder Konversation (über den
-   * Primärschlüssel, ohne die Suche zu wiederholen).
-   * @param {number} embedId
-   * @param {{firstChatIds: number[], messageCounts: number[], numbers: number[]}} hits
+   * der Form von {@link EmbedChats._exportConversationPage} - ohne weitere
+   * Abfrage: Alles Nötige steht in der Treffermenge.
+   * @param {{conversationIds: string[], sessionIds: string[], messageCounts: number[], numbers: number[]}} hits
    * @param {number} from - erster Index der Seite
    * @param {number} to - Index hinter der Seite
-   * @returns {Promise<Array<{conversation_id: string, session_id: string, first_chat_id: number, message_count: number, conversation_number: number}>>}
+   * @returns {Array<{conversation_id: string, session_id: string, message_count: number, conversation_number: number}>}
    */
-  _exportHitPage: async function (embedId, hits, from, to) {
-    const ids = hits.firstChatIds.slice(from, to);
-    if (ids.length === 0) return [];
-    const rows = await prisma.embed_chats.findMany({
-      where: { embed_id: embedId, id: { in: ids } },
-      select: { id: true, conversation_id: true, session_id: true },
-    });
-    const byId = new Map(rows.map((row) => [row.id, row]));
+  _exportHitPage: function (hits, from, to) {
     const page = [];
     for (
       let index = from;
-      index < to && index < hits.firstChatIds.length;
+      index < to && index < hits.conversationIds.length;
       index++
-    ) {
-      const row = byId.get(hits.firstChatIds[index]);
-      // Inzwischen gelöscht: Die Konversation fehlt dann auch im Export.
-      if (!row) continue;
+    )
       page.push({
-        conversation_id: row.conversation_id ?? row.session_id,
-        session_id: row.session_id,
-        first_chat_id: row.id,
+        conversation_id: hits.conversationIds[index],
+        session_id: hits.sessionIds[index],
         message_count: hits.messageCounts[index],
         conversation_number: hits.numbers[index],
       });
-    }
     return page;
   },
 
@@ -1908,8 +1950,9 @@ const EmbedChats = {
    *
    * Gelesen wird in Paketen (siehe EXPORT_* oben), Konversationen über einen
    * Schlüssel statt über OFFSET - mit Suche die Treffer-Konversationen in
-   * einer Abfrage (drei Zahlen je Konversation), Kennungen und Nachrichten
-   * weiter seitenweise. Zu Beginn wird die höchste id des Widgets
+   * einer Abfrage (Kennung, Sitzung und drei Zahlen je Konversation, hart
+   * begrenzt auf EXPORT_SEARCH_MAX_HITS), die Nachrichten weiter
+   * seitenweise. Zu Beginn wird die höchste id des Widgets
    * festgehalten: Nachrichten, die während des Exports entstehen, verschieben
    * weder Nummern noch Seiten. Datenbankfehler werden nicht geschluckt - eine
    * abgeschnittene Datei darf nicht wie eine vollständige aussehen.
@@ -1952,9 +1995,11 @@ const EmbedChats = {
       maxId: newest.id,
     };
 
-    // Mit Suche werden die Treffer-Konversationen EINMAL bestimmt (drei
-    // Zahlen je Konversation) und danach seitenweise gelesen: Jede weitere
-    // Seite würde die Suche über alle Zeilen wiederholen (Fixliste Punkt 8).
+    // Mit Suche werden die Treffer-Konversationen EINMAL bestimmt (Kennung,
+    // Sitzung, drei Zahlen je Konversation; höchstens
+    // EXPORT_SEARCH_MAX_HITS) und ihre Nachrichten danach seitenweise
+    // gelesen: Jede weitere Seite würde die Suche über alle Zeilen
+    // wiederholen (Fixliste Punkt 8).
     // Ohne Suche wird wie bisher über einen Schlüssel geblättert.
     if (search) {
       const hits = await EmbedChats._exportHits({
@@ -1964,11 +2009,10 @@ const EmbedChats = {
       });
       for (
         let from = 0;
-        from < hits.firstChatIds.length;
+        from < hits.conversationIds.length;
         from += EXPORT_CONVERSATION_PAGE
       ) {
-        const page = await EmbedChats._exportHitPage(
-          id,
+        const page = EmbedChats._exportHitPage(
           hits,
           from,
           from + EXPORT_CONVERSATION_PAGE

@@ -177,7 +177,8 @@ const Embed = {
   // Dieselben Felder wie eine Seite der Liste (getConversations) ohne das
   // Blättern – auch der Suchbegriff –, dazu format ("csv" | "json"). Die Antwort ist die Datei;
   // Ergebnis { success, blob, filename, error } – der Dateiname kommt vom
-  // Server (konversationen_<widget>_<von>_<bis>.<endung>).
+  // Server (konversationen_<widget>_<von>_<bis>.<endung>). Mit Suche und zu
+  // vielen Treffern (413) zusätzlich reason "too-many-hits" und max.
   exportConversations: async (
     embedId,
     format,
@@ -207,6 +208,17 @@ const Embed = {
       }),
     })
       .then(async (res) => {
+        if (res.status === 413) {
+          const body = await res.json().catch(() => ({}));
+          return {
+            success: false,
+            blob: null,
+            filename: null,
+            error: body.error ?? `HTTP ${res.status}`,
+            reason: body.reason ?? null,
+            max: Number.isSafeInteger(body.max) ? body.max : null,
+          };
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         // Bricht die Verbindung mitten im Export ab, scheitert blob() – eine
         // abgeschnittene Datei wird nicht gespeichert.
@@ -333,6 +345,17 @@ const Embed = {
       { method: "GET", headers: baseHeaders() }
     )
       .then(async (res) => {
+        if (res.status === 413) {
+          const body = await res.json().catch(() => ({}));
+          return {
+            success: false,
+            blob: null,
+            filename: null,
+            error: body.error ?? `HTTP ${res.status}`,
+            reason: body.reason ?? null,
+            max: Number.isSafeInteger(body.max) ? body.max : null,
+          };
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const body = await res.json();
         const defaults = body?.defaults;

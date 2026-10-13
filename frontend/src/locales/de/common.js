@@ -1212,6 +1212,8 @@ const TRANSLATIONS = {
       running: "Export läuft …",
       success: "Export gespeichert: {{filename}}",
       error: "Der Export ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+      "too-many":
+        "Zu viele Treffer für den Export – höchstens {{max}} Konversationen. Bitte grenzen Sie Suche, Filter oder Zeitraum ein.",
     },
     delete: {
       conversation: "Konversation löschen",
