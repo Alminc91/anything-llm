@@ -25,37 +25,43 @@
 // Fettdruck, Kurslinks) - im JSON also mit \n und teils \" (Fixliste 2, R6).
 // Gemessen werden auch Säulenklicks (Abschnitt) mit und ohne Suche.
 //
-// Messwerte (Fixliste 3, C11) - Stand 13.10.2026, Branch
-// feat/konversationen-ansicht nach Fixliste 3 (Antwortanfang bis
-// einschließlich ", - C9). Intel Xeon Gold 6354 (4 Kerne der VM), Node 18.19,
-// Prisma 6.14, SQLite; 100.000 Zeilen (623 MB), Aufruf mit --runs 5: je Fall
-// ein Aufwärmlauf und 5 Messläufe, Median in ms. Route
-// analytics/conversations (Liste + Zähler, limit 20).
+// Messwerte - Stand 13.10.2026, Branch feat/konversationen-ansicht nach
+// Fixliste 5 (S1: der genaue Vergleich kürzt den Antwortanfang um ", nur
+// für Begriffe mit " oder ,). Intel Xeon Gold 6354 (4 Kerne der VM), Node
+// 18.19, Prisma 6.14, SQLite; 100.000 Zeilen (623 MB), Aufruf mit --runs 5:
+// je Fall ein Aufwärmlauf und 5 Messläufe, Median in ms. Route
+// analytics/conversations (Liste + Zähler, limit 20). „vorher“: dieselbe
+// DB-Datei unmittelbar davor mit dem Stand nach Fixliste 4 (Anfang für jeden
+// Begriff gekürzt, Fixliste 4 C1).
 //
-//   Fall                                Treffer  Median  Läufe
-//   ohne Suche, Gesamt                    42858     332  330 332 337 332 337
-//   q="kurs", Gesamt                      42858    1134  1136 1134 1109 1126 1142
-//   q="spanisch", Gesamt                    796     801  801 798 803 790 803
-//   q="für", Gesamt                       28723     950  950 949 953 949 960
-//   q="üb", Gesamt                        24283    1281  1281 1308 1273 1281 1297
-//   q="äa", Gesamt                            0    1177  1177 1289 1174 1185 1176
-//   q="Übung", Gesamt                     24283     981  949 981 960 1114 1011
-//   q="курс", Gesamt                       1025    1089  1099 1096 1089 1080 1085
-//   q="äöü", Gesamt                           0    1162  1160 1175 1159 1162 1205
-//   q="\"", Gesamt                        16211     861  861 850 893 841 883
-//   q="\\", Gesamt                         2697     729  730 758 726 719 729
-//   q="xyzkeintreffer", Gesamt                0     714  714 703 723 804 698
-//   q="zehntausend", Gesamt               10000     765  765 760 762 771 802
-//   q="spanisch" + negativ, Gesamt          512     356  353 352 356 360 356
-//   Säule (Woche), ohne Suche              3334     313  313 318 335 312 311
-//   q="kurs" + Säule (Woche)               3334     353  353 353 355 351 355
-//   q="für" + Säule (Woche)                2231     368  368 365 369 371 368
-//   q="Übung" + Säule (Woche)              1906     368  368 369 369 364 365
-//   q="xyzkeintreffer" + Säule (Woche)        0     355  348 361 361 355 351
+//   Fall                                Treffer  Median  vorher  Läufe
+//   ohne Suche, Gesamt                    42858     342     342  348 338 342 341 350
+//   q="kurs", Gesamt                      42858    1143    1243  1136 1133 1143 1175 1161
+//   q="spanisch", Gesamt                    796     807     813  806 807 807 823 818
+//   q="für", Gesamt                       28723     984    1020  959 995 963 991 984
+//   q="üb", Gesamt                        24283    1303    1313  1311 1303 1282 1292 1371
+//   q="äa", Gesamt                            0    1185    1190  1295 1185 1178 1185 1186
+//   q="Übung", Gesamt                     24283     964    1000  992 989 961 954 964
+//   q="курс", Gesamt                       1025    1122    1084  1122 1127 1089 1087 1127
+//   q="äöü", Gesamt                           0    1165    1164  1164 1169 1158 1165 1170
+//   q="\"", Gesamt                        16211     861     850  883 848 873 861 858
+//   q="\\", Gesamt                         2697     734     731  731 730 734 735 738
+//   q="xyzkeintreffer", Gesamt                0     719     707  720 719 704 702 738
+//   q="zehntausend", Gesamt               10000     776     777  786 771 770 776 787
+//   q="spanisch" + negativ, Gesamt          512     366     359  373 374 362 366 363
+//   Säule (Woche), ohne Suche              3334     324     310  324 315 338 341 315
+//   q="kurs" + Säule (Woche)               3334     363     363  359 371 363 362 363
+//   q="für" + Säule (Woche)                2231     374     370  365 371 374 374 381
+//   q="Übung" + Säule (Woche)              1906     377     374  380 377 370 371 378
+//   q="xyzkeintreffer" + Säule (Woche)        0     366     360  366 370 365 369 360
 //
-//   Export CSV (ein Lauf): q=zehntausend 212.463 Zeilen 2,0 s; q=kurs
-//   814.586 Zeilen 5,4 s; ohne Suche 814.586 Zeilen 30,8 s.
-//   Langsamster Fall 1281 ms - Grenze NAK-7 (1500 ms) eingehalten.
+//   Export CSV (ein Lauf): q=zehntausend 212.463 Zeilen 2,1 s; q=kurs
+//   814.586 Zeilen 5,2 s; ohne Suche 814.586 Zeilen 31,6 s.
+//   Langsamster Fall 1303 ms - Grenze NAK-7 (1500 ms) eingehalten (Reserve
+//   197 ms; vorher 1313 ms). Begriffe ohne " und , mit vielen
+//   Vorprüfungs-Treffern gewinnen am meisten („kurs" -8 %, „für" und
+//   „Übung" -4 %); die übrigen Abweichungen (bis ±4 %) liegen im Rauschen der VM
+//   (IO-Last des Hosts während der Messung).
 //
 //   Verworfene Variante für C9 (Anfang, der auf einen Rückstrich endet, aus
 //   dem JSON lesen: substr(answer_head, -1) je Zeile): rund 13 % langsamer

@@ -1957,6 +1957,38 @@ describe('begriff endet auf " (Fixliste 4, C1)', () => {
   ])("„%s“", async (search, expected) => {
     expect((await found(embed, search)).sort()).toEqual(expected.sort());
   });
+
+  // Fixliste 5, S1: Gekürzt (ohne die beiden Zeichen ",) wird der Anfang nur
+  // für Begriffe mit " oder , – sonst kann kein Treffer über das Textende
+  // reichen, und die Suche spart das Kürzen je Zeile.
+  test.each([
+    ["kurs", false],
+    ["Übung", false],
+    ["курс", false],
+    ['Kurs für"', true],
+    ["für, Kurs", true],
+    ['"', true],
+  ])(
+    "S1: „%s“ – gekürzter Anfang im genauen Vergleich: %s",
+    (search, trimmed) => {
+      const { sql } = EmbedChats._searchMatchSql(search);
+      expect(sql.includes("length(answer_head) - 2")).toBe(trimmed);
+    }
+  );
+
+  test("S1: Begriffe mit Komma treffen das Textende nicht, echte Treffer mit Komma bleiben", async () => {
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 13, 0),
+      prompt: "Welche?",
+      answer: "Yoga, Pilates\nund mehr",
+      conversation: "komma",
+    });
+    expect(await found(embed, "Kurs für,")).toEqual([]);
+    expect(await found(embed, "Ä,")).toEqual([]);
+    expect(await found(embed, "Yoga, Pilates")).toEqual(["komma"]);
+    expect(await found(embed, "Pilates")).toEqual(["komma"]);
+    expect(await found(embed, "und mehr")).toEqual(["komma"]);
+  });
 });
 
 describe("export mit suche (Fixliste 3, C2/C10)", () => {

@@ -841,15 +841,25 @@ const EmbedChats = {
     // beiden schnellen Zweigen ist der Anfang der Text plus ",: Endet der
     // Text selbst auf \", bleibt immer ein Rückstrich, und die Zeile wird
     // aus dem JSON gelesen.
-    const headText = Prisma.raw(
-      "substr(answer_head, 1, length(answer_head) - 2)"
-    );
+    //
+    // Das Kürzen kostet je Zeile (substr/length, bei mehrzeiligen Antworten
+    // zusätzlich im replace) und lohnt nur, wenn ein Begriff die beiden
+    // Zeichen überhaupt treffen kann: Ein Treffer, der über das Textende
+    // hinausreicht, enthält immer das " – oder er ist das , allein. Ohne "
+    // und , in allen Formen des Begriffs vergleicht die Suche deshalb gegen
+    // den ganzen Anfang (Fixliste 5, S1; einmal je Anfrage entschieden).
+    const tailSafe = forms.every((text) => !/[",]/.test(text));
+    const headText = tailSafe
+      ? head
+      : Prisma.raw("substr(answer_head, 1, length(answer_head) - 2)");
     // Die Bedingung darf den ganzen Anfang lesen (", enthält keinen
     // Rückstrich), der Vergleich nur den Text.
     const answerPlain = Prisma.raw(`replace(answer_head, '\\n', char(10))`);
-    const answerPlainText = Prisma.raw(
-      `replace(substr(answer_head, 1, length(answer_head) - 2), '\\n', char(10))`
-    );
+    const answerPlainText = tailSafe
+      ? answerPlain
+      : Prisma.raw(
+          `replace(substr(answer_head, 1, length(answer_head) - 2), '\\n', char(10))`
+        );
     return Prisma.sql`(${matches(Prisma.raw("prompt"))}
       OR ${matches(Prisma.raw("feedbackReason"))}
       OR ${matches(Prisma.raw("feedbackText"))}
