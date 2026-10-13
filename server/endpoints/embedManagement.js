@@ -705,6 +705,146 @@ function embedManagementEndpoints(app) {
     }
   );
 
+  // Konversation löschen: Vorschau (KIE-538)
+  // Was das Löschen entfernen würde - nur Zahlen: die Zeilen dieser
+  // Konversation und, für „Alle Konversationen dieses Besuchers löschen",
+  // Konversationen und Zeilen ihrer Browser-Sitzung in diesem Widget. Keine
+  // Inhalte, keine Sitzungs-Kennung. Prüfungen wie beim Einsehen.
+  app.get(
+    "/embed/:embedId/conversation/:conversationId/deletion-preview",
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+      validEmbedAccess,
+      validEmbedConfigId,
+    ],
+    async (request, response) => {
+      try {
+        const { embedId, conversationId } = request.params;
+        const preview = await EmbedChats.conversationDeletionPreview(
+          Number(embedId),
+          conversationId
+        );
+        if (!preview) {
+          response.sendStatus(500).end();
+          return;
+        }
+        response.status(200).json({ success: true, ...preview });
+      } catch (e) {
+        console.error(e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // Konversation löschen (KIE-538)
+  // Löschen darf, wer die Konversationen des Widgets einsehen darf: admin und
+  // manager für jedes Widget, default für die Widgets seiner Workspaces -
+  // dieselben Prüfungen wie beim Einsehen (chatHistoryViewable,
+  // validEmbedAccess). Gelöscht werden alle Zeilen der Konversation in diesem
+  // Widget (EmbedChats.deleteConversation); eine conversationId eines anderen
+  // Widgets trifft keine Zeile (404). Das Zählerbuch bleibt unberührt.
+  // event_logs: wer, welches Widget, wie viele Zeilen - keine Inhalte, keine
+  // Sitzungs-Kennung.
+  app.delete(
+    "/embed/:embedId/conversation/:conversationId",
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+      validEmbedAccess,
+      validEmbedConfigId,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const embedId = Number(request.params.embedId);
+        const deletedCount = await EmbedChats.deleteConversation(
+          embedId,
+          request.params.conversationId
+        );
+        if (deletedCount === null) {
+          response.sendStatus(500).end();
+          return;
+        }
+        if (deletedCount === 0) {
+          response
+            .status(404)
+            .json({ success: false, error: "Conversation not found." });
+          return;
+        }
+
+        await EventLogs.logEvent(
+          "embed_conversation_deleted",
+          { embedId, deletedCount },
+          user?.id
+        );
+        response.status(200).json({ success: true, deletedCount });
+      } catch (e) {
+        console.error(e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // Alle Konversationen eines Besuchers löschen (KIE-538, AK-12)
+  // Löscht in diesem Widget alle Konversationen der Browser-Sitzung, zu der
+  // die genannte Konversation gehört; die Sitzung bestimmt der Server, sie
+  // steht weder in der Anfrage noch in der Antwort oder im Protokoll.
+  // Prüfungen und Protokoll wie beim Löschen einer Konversation. 409, wenn
+  // die Konversation keiner einzelnen Sitzung zuzuordnen ist.
+  app.delete(
+    "/embed/:embedId/conversation/:conversationId/visitor",
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+      validEmbedAccess,
+      validEmbedConfigId,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const embedId = Number(request.params.embedId);
+        const result = await EmbedChats.deleteVisitorConversations(
+          embedId,
+          request.params.conversationId
+        );
+        if (!result) {
+          response.sendStatus(500).end();
+          return;
+        }
+        if (result.ambiguous) {
+          response.status(409).json({
+            success: false,
+            error: "Conversation does not belong to a single session.",
+          });
+          return;
+        }
+        const { deletedCount, conversationCount } = result;
+        if (deletedCount === 0) {
+          response
+            .status(404)
+            .json({ success: false, error: "Conversation not found." });
+          return;
+        }
+
+        await EventLogs.logEvent(
+          "embed_visitor_conversations_deleted",
+          { embedId, conversationCount, deletedCount },
+          user?.id
+        );
+        response
+          .status(200)
+          .json({ success: true, deletedCount, conversationCount });
+      } catch (e) {
+        console.error(e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
   // Upload logo for an embed widget
   app.post(
     "/embed/:embedId/upload-logo",

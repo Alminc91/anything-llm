@@ -1021,6 +1021,175 @@ const EmbedChats = {
   },
 
   /**
+   * KIE-538: Die Zeilen EINER Konversation eines Widgets - derselbe Begriff
+   * wie in der Liste ({@link EmbedChats._conversationGroupsSql}):
+   * COALESCE(conversation_id, session_id) = conversationId innerhalb des
+   * Widgets. Zeilen mit eigener conversation_id gehören nur über diese dazu;
+   * Alt-Zeilen ohne conversation_id über ihre session_id. Andere
+   * Konversationen derselben Browser-Sitzung gehören nicht dazu.
+   * Ohne include-Filter: Gemeint sind alle Zeilen, auch die vom Besucher
+   * geleerten.
+   * @param {number|string} embedId
+   * @param {string} conversationId
+   * @returns {{id: number, key: string, where: object}|null} - null, wenn die
+   *   Angaben kein Widget und keine Konversation bezeichnen
+   */
+  _conversationScope: function (embedId, conversationId) {
+    const id = Number(embedId);
+    const key = typeof conversationId === "string" ? conversationId : "";
+    if (!Number.isInteger(id) || id <= 0 || key === "") return null;
+    return {
+      id,
+      key,
+      where: {
+        embed_id: id,
+        OR: [
+          { conversation_id: key },
+          { conversation_id: null, session_id: key },
+        ],
+      },
+    };
+  },
+
+  /**
+   * KIE-538: Löscht eine Konversation eines Widgets - alle ihre Zeilen, auch
+   * die mit include = 0: Wer die Löschung einer Konversation verlangt, meint
+   * auch das, was der Besucher im Widget bereits geleert hat.
+   * Eine einzige Löschanweisung, gebunden an embed_id UND Konversation; eine
+   * conversationId eines anderen Widgets trifft keine Zeile. Das Zählerbuch
+   * (message_ledger) wird nicht angefasst - Kennzahlen, Diagramm und
+   * Kontingent bleiben, wie sie sind (KIE-532).
+   * @param {number|string} embedId
+   * @param {string} conversationId - wie in der Liste (conversation_id, für Alt-Zeilen die session_id)
+   * @returns {Promise<number|null>} - Zahl der gelöschten Zeilen; null bei einem Datenbankfehler
+   */
+  deleteConversation: async function (embedId, conversationId) {
+    const scope = EmbedChats._conversationScope(embedId, conversationId);
+    if (!scope) return 0;
+    try {
+      const { count } = await prisma.embed_chats.deleteMany({
+        where: scope.where,
+      });
+      return count;
+    } catch (error) {
+      console.error("deleteConversation error:", error.message);
+      return null;
+    }
+  },
+
+  /**
+   * KIE-538: Zahl der Zeilen einer Konversation und die Browser-Sitzung, zu
+   * der sie gehört. Die Sitzung ist nur dann bestimmt, wenn alle Zeilen der
+   * Konversation aus derselben Sitzung stammen.
+   * @param {{id: number, key: string}} scope - aus {@link EmbedChats._conversationScope}
+   * @returns {Promise<{messageCount: number, sessionId: string|null}>}
+   */
+  _conversationSession: async function ({ id, key }) {
+    const [row] = await prisma.$queryRaw`
+      SELECT
+        COUNT(*) as messages,
+        COUNT(DISTINCT session_id) as sessions,
+        MIN(session_id) as session_id
+      FROM embed_chats
+      WHERE embed_id = ${id}
+        AND (
+          conversation_id = ${key}
+          OR (conversation_id IS NULL AND session_id = ${key})
+        )
+    `;
+    return {
+      messageCount: Number(row?.messages || 0),
+      sessionId: Number(row?.sessions || 0) === 1 ? row.session_id : null,
+    };
+  },
+
+  /**
+   * KIE-538: Konversationen und Zeilen einer Browser-Sitzung in einem Widget
+   * (alle Zeilen, auch include = 0).
+   * @returns {Promise<{conversationCount: number, messageCount: number}>}
+   */
+  _sessionTotals: async function (id, sessionId) {
+    const [row] = await prisma.$queryRaw`
+      SELECT
+        COUNT(*) as messages,
+        COUNT(DISTINCT COALESCE(conversation_id, session_id)) as conversations
+      FROM embed_chats
+      WHERE embed_id = ${id} AND session_id = ${sessionId}
+    `;
+    return {
+      conversationCount: Number(row?.conversations || 0),
+      messageCount: Number(row?.messages || 0),
+    };
+  },
+
+  /**
+   * KIE-538: Was das Löschen einer Konversation entfernen würde - nur Zahlen,
+   * keine Inhalte und keine Sitzungs-Kennung. `visitor` nennt, was die
+   * Browser-Sitzung dieser Konversation im selben Widget insgesamt hat
+   * (einschließlich dieser Konversation); null, wenn die Konversation keiner
+   * einzelnen Sitzung zuzuordnen ist.
+   * @param {number|string} embedId
+   * @param {string} conversationId
+   * @returns {Promise<{messageCount: number, visitor: {conversationCount: number, messageCount: number}|null}|null>}
+   *   null bei einem Datenbankfehler
+   */
+  conversationDeletionPreview: async function (embedId, conversationId) {
+    const scope = EmbedChats._conversationScope(embedId, conversationId);
+    if (!scope) return { messageCount: 0, visitor: null };
+    try {
+      const { messageCount, sessionId } =
+        await EmbedChats._conversationSession(scope);
+      return {
+        messageCount,
+        visitor:
+          sessionId === null
+            ? null
+            : await EmbedChats._sessionTotals(scope.id, sessionId),
+      };
+    } catch (error) {
+      console.error("conversationDeletionPreview error:", error.message);
+      return null;
+    }
+  },
+
+  /**
+   * KIE-538 (AK-12): Löscht alle Konversationen der Browser-Sitzung, zu der
+   * diese Konversation gehört - in diesem Widget, alle Zeilen (auch
+   * include = 0). Konversationen anderer Sitzungen und anderer Widgets
+   * bleiben. Die Sitzung wird auf dem Server aus der Konversation bestimmt;
+   * stammen deren Zeilen aus mehr als einer Sitzung, wird nichts gelöscht.
+   * Eine einzige Löschanweisung, gebunden an embed_id UND session_id; das
+   * Zählerbuch wird nicht angefasst.
+   * @param {number|string} embedId
+   * @param {string} conversationId
+   * @returns {Promise<{deletedCount: number, conversationCount: number, ambiguous: boolean}|null>}
+   *   null bei einem Datenbankfehler
+   */
+  deleteVisitorConversations: async function (embedId, conversationId) {
+    const nothing = { deletedCount: 0, conversationCount: 0, ambiguous: false };
+    const scope = EmbedChats._conversationScope(embedId, conversationId);
+    if (!scope) return nothing;
+    try {
+      const { messageCount, sessionId } =
+        await EmbedChats._conversationSession(scope);
+      if (messageCount === 0) return nothing;
+      if (sessionId === null) return { ...nothing, ambiguous: true };
+
+      const { conversationCount } = await EmbedChats._sessionTotals(
+        scope.id,
+        sessionId
+      );
+      const { count } = await prisma.embed_chats.deleteMany({
+        where: { embed_id: scope.id, session_id: sessionId },
+      });
+      return { deletedCount: count, conversationCount, ambiguous: false };
+    } catch (error) {
+      console.error("deleteVisitorConversations error:", error.message);
+      return null;
+    }
+  },
+
+  /**
    * KIE-538: Eine Seite der Konversationen für den Export - dieselbe
    * Gruppierung, dieselbe Nummer und dieselben Filter wie die Liste
    * ({@link EmbedChats.getConversations}), aber geblättert über einen

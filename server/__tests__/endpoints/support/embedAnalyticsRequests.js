@@ -7,8 +7,10 @@
 //     Routen verstehen genau das.
 // Benennt eine Seite ein Feld um, wird der Test der anderen rot.
 //
-// KIE-538: Export der Auswahl -
+// KIE-538: Export der Auswahl und „Konversation löschen" -
+//   frontend/__tests__/conversationExportDelete.test.mjs
 //   server/__tests__/endpoints/embedConversationExport.test.js
+//   server/__tests__/models/embedChatsDeleteConversation.test.js
 
 const ROUTES = {
   summary: { method: "POST", path: "/embed/:embedId/analytics/summary" },
@@ -17,6 +19,18 @@ const ROUTES = {
     path: "/embed/:embedId/analytics/conversations",
   },
   export: { method: "POST", path: "/embed/:embedId/analytics/export" },
+  deletionPreview: {
+    method: "GET",
+    path: "/embed/:embedId/conversation/:conversationId/deletion-preview",
+  },
+  deleteConversation: {
+    method: "DELETE",
+    path: "/embed/:embedId/conversation/:conversationId",
+  },
+  deleteVisitor: {
+    method: "DELETE",
+    path: "/embed/:embedId/conversation/:conversationId/visitor",
+  },
 };
 
 /**
