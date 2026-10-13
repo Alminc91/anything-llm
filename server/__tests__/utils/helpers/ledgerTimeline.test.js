@@ -13,6 +13,7 @@ const {
   timelineLayout,
   nextDay,
   previousLayout,
+  weekdayOf,
 } = require("../../../utils/helpers/ledgerTimeline");
 
 /** Kalendertag + n Tage, unabhängig vom geprüften Code gerechnet. */
@@ -764,5 +765,47 @@ describe("previousLayout (KIE-537)", () => {
     expect(() => previousLayout("2026-02-30", "2026-03-05")).toThrow();
     expect(() => previousLayout("2019-02-28", "2026-10-12")).toThrow();
     expect(() => previousLayout(undefined, undefined)).toThrow();
+  });
+});
+
+// KIE-539 — Wochentag eines Kalendertags für das Raster Wochentag × Stunde.
+describe("weekdayOf", () => {
+  test("0 = Montag … 6 = Sonntag", () => {
+    expect(
+      daysOf("2026-10-05", "2026-10-11").map((day) => weekdayOf(day))
+    ).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    // 1970-01-01 war ein Donnerstag; Feiertage sind Wochentage wie alle anderen.
+    expect(weekdayOf("1970-01-01")).toBe(3);
+    expect(weekdayOf("2026-05-01")).toBe(4);
+    expect(weekdayOf("2026-12-25")).toBe(4);
+    // Tage der Zeitumstellung 2026: beides Sonntage
+    expect(weekdayOf("2026-03-29")).toBe(6);
+    expect(weekdayOf("2026-10-25")).toBe(6);
+  });
+
+  test("jeder Tag aus acht Jahren - auch vor 1970, über Schalttage und Jahreswechsel", () => {
+    for (const [from, to] of [
+      ["2019-01-01", "2026-12-31"],
+      ["1968-12-01", "1970-02-01"],
+      ["0001-01-01", "0001-03-01"],
+    ])
+      for (const day of daysOf(from, to))
+        expect([day, weekdayOf(day)]).toEqual([day, weekday(day) - 1]);
+  });
+
+  test("kein Kalendertag: null", () => {
+    for (const value of [
+      "2026-02-30",
+      "2026-13-01",
+      "06.10.2026",
+      "2026-10-6",
+      "2026-10-06T10:00:00Z",
+      "",
+      null,
+      undefined,
+      20261006,
+      {},
+    ])
+      expect(weekdayOf(value)).toBeNull();
   });
 });

@@ -778,6 +778,622 @@ describe("stunden (AK-9)", () => {
 });
 
 // ============================================================================
+// KIE-539 — Karte „Wann schreiben Ihre Besucher?": weekdayHour, 7 × 24 Felder
+// (Montag bis Sonntag, Berliner Stunde 0-23) in derselben Antwort.
+// Die Bestände stehen in support/weekdayHourScenarios.js - das Frontend prüft
+// seine Aussagen, Stufen und Tooltips gegen dieselben Raster.
+// ============================================================================
+describe("Raster Wochentag × Stunde (KIE-539)", () => {
+  const {
+    PERIOD,
+    DISTRIBUTION,
+    CORE_TIME_WEEK,
+    DST,
+    gridOf,
+    totalOf,
+  } = require("./support/weekdayHourScenarios");
+  const { tableChecksum } = require("../helpers/sqliteTestDatabase");
+
+  const MONDAY = 0;
+  const FRIDAY = 4;
+  const SUNDAY = 6;
+  const emptyGrid = () => gridOf([]);
+  const gridSum = (grid) =>
+    grid.flat().reduce((total, value) => total + value, 0);
+
+  /**
+   * Legt die Nachrichten eines Bestands an: je Feld eine echte Widget-Nachricht
+   * zur Berliner Wanduhrzeit (minute, sonst :30) über den Schreibpfad, den
+   * Rest als Zählwerte - der Stand, nachdem die Inhalte gelöscht sind.
+   */
+  async function seed(embed, cells) {
+    for (const [i, cell] of cells.entries()) {
+      await chatAt(
+        embed,
+        berlinInstant(cell.day, cell.hour, cell.minute ?? 30),
+        {
+          session_id: `s-${i}`,
+        }
+      );
+      if (cell.messages > 1)
+        await countsOnly(embed, [
+          { day: cell.day, hour: cell.hour, messages: cell.messages - 1 },
+        ]);
+    }
+  }
+
+  // ==========================================================================
+  // AK-1 — Raster zeigt die Verteilung
+  // ==========================================================================
+  describe("wochentag_stunde (AK-1)", () => {
+    test("wochentag_stunde: 30 Tage - 7 Zeilen (Montag bis Sonntag) mit je 24 Stunden, jedes Feld nennt die Nachrichten seines Wochentags und seiner Stunde", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await countsOnly(embed, DISTRIBUTION.cells);
+      const expected = gridOf(DISTRIBUTION.cells);
+
+      const result = await summary(
+        embed,
+        summaryBody(DISTRIBUTION.fromDay, DISTRIBUTION.toDay)
+      );
+
+      expect(result.statusCode).toBe(200);
+      const grid = result.body.weekdayHour;
+      expect(grid).toHaveLength(7);
+      for (const row of grid) expect(row).toHaveLength(24);
+      expect(grid).toEqual(expected);
+
+      // Der Höchstwert liegt dienstags zwischen 10 und 11 Uhr (AK-3) …
+      const { peak } = DISTRIBUTION;
+      expect(grid[peak.weekday][peak.hour]).toBe(peak.messages);
+      expect(
+        grid.flat().filter((value) => value >= peak.messages)
+      ).toHaveLength(1);
+      // … nachts schreibt niemand: Diese Felder sind 0 und bleiben im Raster.
+      for (const row of grid)
+        for (const hour of [0, 1, 2, 3, 4, 5, 6, 7, 20, 21, 22, 23])
+          expect(row[hour]).toBe(0);
+      expect(grid.flat().filter((value) => value === 0)).toHaveLength(84);
+      expect(result.body.totals.messages).toBe(DISTRIBUTION.total);
+    });
+
+    test("wochentag_stunde: Der Wochentag kommt vom Berliner Kalendertag - 23:30 am Sonntag ist Sonntag, 00:30 danach Montag", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      // Sommerzeit (Berlin = UTC + 2): 21:30 UTC ist 23:30, 22:30 UTC ist 00:30.
+      await chatAt(embed, new Date("2026-10-04T21:30:00Z")); // So 23:30
+      await chatAt(embed, new Date("2026-10-04T22:30:00Z")); // Mo 00:30
+      // Winterzeit (Berlin = UTC + 1) und Jahreswechsel
+      await chatAt(embed, new Date("2026-12-31T22:30:00Z")); // Do 23:30
+      await chatAt(embed, new Date("2026-12-31T23:30:00Z")); // Fr 00:30, 01.01.2027
+
+      const autumn = await summary(
+        embed,
+        summaryBody("2026-10-01", "2026-10-31")
+      );
+      const expected = emptyGrid();
+      expected[SUNDAY][23] = 1;
+      expected[MONDAY][0] = 1;
+      expect(autumn.body.weekdayHour).toEqual(expected);
+
+      const newYear = await summary(
+        embed,
+        summaryBody("2026-12-01", "2027-01-31")
+      );
+      const turn = emptyGrid();
+      turn[3][23] = 1;
+      turn[FRIDAY][0] = 1;
+      expect(newYear.body.weekdayHour).toEqual(turn);
+    });
+
+    test("wochentag_stunde: nur die Tage des Zeitraums und nur dieses Widget - keine Workspace-Chats, kein zweites Widget", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      const other = await createEmbed(db.client, workspace);
+      await countsOnly(embed, [
+        { day: "2026-09-12", hour: 10, messages: 50 }, // Tag davor
+        { day: "2026-09-13", hour: 10, messages: 2 }, // erster Tag (So)
+        { day: "2026-10-12", hour: 10, messages: 3 }, // letzter Tag (Mo)
+        { day: "2026-10-13", hour: 10, messages: 70 }, // Tag danach
+      ]);
+      await countsOnly(other, [{ day: "2026-10-06", hour: 10, messages: 100 }]);
+      await MessageLedger.transaction({ source: "test" }, (tx) =>
+        MessageLedger.addCells(tx, [
+          {
+            workspaceId: workspace.id,
+            embedId: 0,
+            day: "2026-10-06",
+            hour: 10,
+            messages: 1000,
+          },
+        ])
+      );
+
+      const result = await summary(
+        embed,
+        summaryBody(PERIOD.fromDay, PERIOD.toDay)
+      );
+
+      const expected = emptyGrid();
+      expected[SUNDAY][10] = 2;
+      expected[MONDAY][10] = 3;
+      expect(result.body.weekdayHour).toEqual(expected);
+      expect(result.body.totals.messages).toBe(5);
+    });
+
+    test("wochentag_stunde: Ein umgehängtes Widget behält seine Felder aus dem früheren Workspace - gleiche Stunde, ein Feld", async () => {
+      const workspaceA = await createWorkspace(db.client);
+      const workspaceB = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspaceA);
+      await chatAt(embed, berlinInstant("2026-10-06", 10, 5), {
+        session_id: "a",
+      });
+      expect(
+        (await EmbedConfig.update(embed.id, { workspace_id: workspaceB.id }))
+          .success
+      ).toBe(true);
+      await chatAt(embed, berlinInstant("2026-10-06", 10, 40), {
+        session_id: "b",
+      });
+      // zwei Zeilen im Zählerbuch für denselben Tag und dieselbe Stunde
+      expect(await db.client.message_ledger.count()).toBe(2);
+
+      const result = await summary(
+        embed,
+        summaryBody(PERIOD.fromDay, PERIOD.toDay)
+      );
+
+      const expected = emptyGrid();
+      expected[1][10] = 2;
+      expect(result.body.weekdayHour).toEqual(expected);
+    });
+
+    test("wochentag_stunde: ohne Zählwerte 7 × 24 Nullen - auch für einen einzelnen Tag", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+
+      for (const body of [
+        summaryBody(PERIOD.fromDay, PERIOD.toDay),
+        summaryBody("2026-10-06", "2026-10-06"),
+      ]) {
+        const result = await summary(embed, body);
+        expect(result.statusCode).toBe(200);
+        expect(result.body.weekdayHour).toEqual(emptyGrid());
+      }
+    });
+
+    test("wochentag_stunde: nur Zählwerte - 168 ganze Zahlen, keine Inhalte; die übrigen Felder der Antwort bleiben, wie sie sind", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      const chat = await chatAt(embed, berlinInstant("2026-10-06", 10), {
+        prompt: "GEHEIME-FRAGE",
+        response: JSON.stringify({ text: "GEHEIME-ANTWORT" }),
+        session_id: "GEHEIME-SITZUNG",
+      });
+      await EmbedChats.updateFeedbackScore(
+        embed.id,
+        "GEHEIME-SITZUNG",
+        chat.id,
+        true
+      );
+      const timeline = await MessageLedger.timelineForEmbed(
+        embed.id,
+        PERIOD.fromDay,
+        PERIOD.toDay
+      );
+
+      const result = await summary(
+        embed,
+        summaryBody(PERIOD.fromDay, PERIOD.toDay)
+      );
+
+      const { weekdayHour, ...rest } = result.body;
+      expect(rest).toEqual({
+        success: true,
+        fromDay: PERIOD.fromDay,
+        toDay: PERIOD.toDay,
+        granularity: timeline.granularity,
+        totals: timeline.totals,
+        buckets: timeline.buckets,
+        firstLedgerDay: "2026-10-06",
+      });
+      expect(weekdayHour.flat()).toHaveLength(168);
+      for (const value of weekdayHour.flat())
+        expect(Number.isInteger(value) && value >= 0).toBe(true);
+      // Bewertungen sind keine Nachrichten: Das Feld bleibt bei 1.
+      expect(gridSum(weekdayHour)).toBe(1);
+      expect(JSON.stringify(weekdayHour)).not.toMatch(/GEHEIM/);
+    });
+  });
+
+  // ==========================================================================
+  // AK-2 — Summe stimmt
+  // ==========================================================================
+  describe("raster_summe (AK-2)", () => {
+    // Zählwerte über gut drei Jahre; in jeder Körnung liegt ein Teil davon
+    // außerhalb des abgefragten Zeitraums.
+    const FIRST = "2023-06-01";
+    const LAST = "2026-10-20";
+
+    test.each([
+      ["ein einzelner Tag", "2026-10-07", "2026-10-07"],
+      ["27 Tage", "2026-09-16", "2026-10-12"],
+      ["30 Tage", "2026-09-13", "2026-10-12"],
+      ["12 Monate mit beiden Zeitumstellungen", "2025-10-13", "2026-10-12"],
+      ["gut drei Jahre", "2023-10-09", "2026-10-12"],
+    ])(
+      "raster_summe: %s (%s bis %s) - die 168 Felder ergeben zusammen die Kennzahl „Nachrichten“",
+      async (_name, fromDay, toDay) => {
+        const workspace = await createWorkspace(db.client);
+        const embed = await createEmbed(db.client, workspace);
+        const other = await createEmbed(db.client, workspace);
+
+        const cells = [];
+        for (const [i, day] of daysOf(FIRST, LAST).entries()) {
+          if (i % 5 === 3) continue; // Lücken
+          for (const hour of [0, 2, 9 + (i % 7), 23]) {
+            if ((i + hour) % 4 === 0) continue;
+            cells.push({
+              workspaceId: workspace.id,
+              embedId: embed.id,
+              day,
+              hour,
+              messages: 1 + ((i * 7 + hour) % 9),
+              conversationsStarted: (i + hour) % 3,
+            });
+          }
+          cells.push({
+            workspaceId: workspace.id,
+            embedId: other.id,
+            day,
+            hour: 10,
+            messages: 100,
+          });
+        }
+        await MessageLedger.transaction({ source: "test" }, (tx) =>
+          MessageLedger.addCells(tx, cells)
+        );
+        // Tage der Zeitumstellung: Im Frühjahr gibt es die Berliner Stunde 2
+        // nicht, im Herbst zweimal - beide Durchläufe zählen in Stunde 2.
+        for (const instant of [
+          "2025-10-26T00:30:00Z", // 02:30 Sommerzeit
+          "2025-10-26T01:30:00Z", // 02:30 Winterzeit
+          "2026-03-29T00:30:00Z", // 01:30
+          "2026-03-29T01:30:00Z", // 03:30
+        ])
+          await chatAt(embed, new Date(instant), { session_id: instant });
+
+        const result = await summary(embed, summaryBody(fromDay, toDay));
+
+        expect(result.statusCode).toBe(200);
+        const grid = result.body.weekdayHour;
+        expect(grid.flat()).toHaveLength(168);
+        expect(result.body.totals.messages).toBeGreaterThan(0);
+        expect(gridSum(grid)).toBe(result.body.totals.messages);
+        expect(gridSum(grid)).toBe(sum(result.body.buckets, "messages"));
+
+        // Jedes Feld nennt genau die Werte seines Wochentags und seiner Stunde.
+        const own = (await db.client.message_ledger.findMany()).filter(
+          (row) =>
+            row.embed_id === embed.id && row.day >= fromDay && row.day <= toDay
+        );
+        expect(grid).toEqual(gridOf(own));
+        expect(gridSum(grid)).toBe(totalOf(own));
+      }
+    );
+
+    test("raster_summe: Tage der Zeitumstellung - im Frühjahr fehlt die Stunde 2, im Herbst zählt sie doppelt; die Summe bleibt die Kennzahl", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      for (const { instants } of [DST.spring, DST.autumn])
+        for (const instant of instants) await chatAt(embed, new Date(instant));
+
+      for (const [fromDay, toDay, messages] of [
+        [DST.spring.day, DST.spring.day, 2],
+        [DST.autumn.day, DST.autumn.day, 2],
+        ["2026-03-01", "2026-10-31", 4],
+      ]) {
+        const result = await summary(embed, summaryBody(fromDay, toDay));
+        expect(result.body.totals.messages).toBe(messages);
+        expect(gridSum(result.body.weekdayHour)).toBe(messages);
+      }
+    });
+  });
+
+  // ==========================================================================
+  // AK-4 — Anteil außerhalb der Kernzeit (Montag-Freitag, 8-17 Uhr)
+  // ==========================================================================
+  describe("anteil_ausserhalb (AK-4)", () => {
+    /** Nachrichten Montag bis Freitag in den Stunden 8 bis 16 (8:00-16:59 Uhr). */
+    const insideCore = (grid) =>
+      gridSum(grid.slice(MONDAY, FRIDAY + 1).map((row) => row.slice(8, 17)));
+
+    test("anteil_ausserhalb: 100 Nachrichten, davon 60 Montag bis Freitag zwischen 8:00 und 16:59 Uhr - 40 liegen in den Feldern außerhalb", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await seed(embed, CORE_TIME_WEEK.cells);
+
+      const result = await summary(
+        embed,
+        summaryBody(CORE_TIME_WEEK.fromDay, CORE_TIME_WEEK.toDay)
+      );
+
+      const grid = result.body.weekdayHour;
+      expect(grid).toEqual(gridOf(CORE_TIME_WEEK.cells));
+      expect(result.body.totals.messages).toBe(CORE_TIME_WEEK.total);
+      expect(gridSum(grid)).toBe(100);
+      expect(insideCore(grid)).toBe(CORE_TIME_WEEK.insideCore);
+      expect(
+        Math.round(((gridSum(grid) - insideCore(grid)) / gridSum(grid)) * 100)
+      ).toBe(CORE_TIME_WEEK.outsidePercent);
+
+      // Die Grenzen auf die Minute: 07:59 und 17:00 Uhr liegen außerhalb,
+      // 08:00 und 16:59 Uhr innerhalb.
+      expect(grid[MONDAY][7]).toBe(5);
+      expect(grid[MONDAY][8]).toBe(10);
+      expect(grid[FRIDAY][16]).toBe(12);
+      expect(grid[FRIDAY][17]).toBe(4);
+      // Samstag und Sonntag liegen ganz außerhalb, auch mitten am Tag.
+      expect(grid[5][10]).toBe(10);
+      expect(grid[SUNDAY][12]).toBe(8);
+    });
+
+    test("anteil_ausserhalb: Feiertage zählen als normale Wochentage - der 01.05.2026 ist ein Freitag, der 25.12.2026 auch", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await chatAt(embed, berlinInstant("2026-05-01", 10, 15)); // Tag der Arbeit
+      await chatAt(embed, berlinInstant("2026-12-25", 10, 45)); // 1. Weihnachtstag
+
+      const result = await summary(
+        embed,
+        summaryBody("2026-05-01", "2026-12-31")
+      );
+
+      const expected = emptyGrid();
+      expected[FRIDAY][10] = 2;
+      expect(result.body.weekdayHour).toEqual(expected);
+      expect(insideCore(result.body.weekdayHour)).toBe(2);
+    });
+  });
+
+  // ==========================================================================
+  // AK-6 — Sommerzeit
+  // ==========================================================================
+  describe("raster_sommerzeit (AK-6)", () => {
+    test("raster_sommerzeit: 29.03.2026 um 01:30 und 03:30 Berliner Zeit - Zeile Sonntag, Spalten 1 und 3; die Spalte 2 bleibt leer", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      for (const instant of DST.spring.instants)
+        await chatAt(embed, new Date(instant));
+      // Dieselben Zeitpunkte als Berliner Wanduhrzeit
+      expect(DST.spring.instants.map((instant) => berlinCell(instant))).toEqual(
+        [
+          { day: "2026-03-29", hour: 1 },
+          { day: "2026-03-29", hour: 3 },
+        ]
+      );
+
+      for (const body of [
+        summaryBody("2026-03-29", "2026-03-29"),
+        summaryBody("2026-03-01", "2026-03-31"),
+      ]) {
+        const grid = (await summary(embed, body)).body.weekdayHour;
+        const expected = emptyGrid();
+        expected[SUNDAY][1] = 1;
+        expected[SUNDAY][3] = 1;
+        expect(grid).toEqual(expected);
+        expect(grid[SUNDAY][2]).toBe(0);
+      }
+    });
+
+    test("raster_sommerzeit: 25.10.2026 - die Stunde 2 gibt es zweimal, beide Durchläufe stehen in Spalte 2 der Zeile Sonntag", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      for (const instant of DST.autumn.instants)
+        await chatAt(embed, new Date(instant));
+
+      const grid = (
+        await summary(embed, summaryBody("2026-10-01", "2026-10-31"))
+      ).body.weekdayHour;
+
+      const expected = emptyGrid();
+      expected[DST.autumn.weekday][2] = 2;
+      expect(grid).toEqual(expected);
+    });
+  });
+
+  // ==========================================================================
+  // NAK-1 — Keine fremden Zahlen: dieselben Prüfungen wie für die Kennzahlen
+  // ==========================================================================
+  describe("fremdes_widget (NAK-1, erweitert)", () => {
+    let workspaceA, workspaceB, embedA, embedB, weekdayHourSpy;
+    const body = summaryBody(PERIOD.fromDay, PERIOD.toDay);
+
+    beforeEach(async () => {
+      await setMultiUserMode(true);
+      workspaceA = await createWorkspace(db.client);
+      workspaceB = await createWorkspace(db.client);
+      embedA = await createEmbed(db.client, workspaceA);
+      embedB = await createEmbed(db.client, workspaceB);
+      await countsOnly(embedA, [{ day: "2026-10-06", hour: 10, messages: 3 }]);
+      await countsOnly(embedB, [{ day: "2026-10-06", hour: 15, messages: 40 }]);
+      weekdayHourSpy = jest.spyOn(MessageLedger, "weekdayHourForEmbed");
+    });
+
+    test("fremdes_widget: default aus Workspace A erhält für ein Widget aus Workspace B 403 - kein Raster, das Zählerbuch wird nicht gelesen", async () => {
+      const kunde = await createUser("default", [workspaceA.id]);
+      const findMany = jest.spyOn(db.client.message_ledger, "findMany");
+
+      const result = await summary(embedB, body, kunde);
+
+      expect(result.statusCode).toBe(403);
+      expect(result.body).toBeUndefined();
+      expect(weekdayHourSpy).not.toHaveBeenCalled();
+      expect(findMany).not.toHaveBeenCalled();
+    });
+
+    test("fremdes_widget: das eigene Widget liefert nur dessen Raster", async () => {
+      const kunde = await createUser("default", [workspaceA.id]);
+
+      const result = await summary(embedA, body, kunde);
+
+      expect(result.statusCode).toBe(200);
+      const expected = emptyGrid();
+      expected[1][10] = 3;
+      expect(result.body.weekdayHour).toEqual(expected);
+      expect(JSON.stringify(result.body)).not.toContain("40");
+    });
+
+    test("fremdes_widget: Nach dem Umhängen entscheidet der heutige Workspace des Widgets", async () => {
+      const kunde = await createUser("default", [workspaceA.id]);
+      await EmbedConfig.update(embedB.id, { workspace_id: workspaceA.id });
+      expect((await summary(embedB, body, kunde)).body.weekdayHour[1][15]).toBe(
+        40
+      );
+
+      await EmbedConfig.update(embedA.id, { workspace_id: workspaceB.id });
+      const moved = await summary(embedA, body, kunde);
+      expect(moved.statusCode).toBe(403);
+      expect(moved.body).toBeUndefined();
+    });
+
+    test("fremdes_widget: kein Raster ohne Anmeldung (401), bei abgeschaltetem Chat-Verlauf (422), für ein unbekanntes Widget oder embed_id 0 (404) und bei ungültigem Zeitraum (400)", async () => {
+      const admin = await createUser("admin");
+      const cases = [
+        [401, embedA, body, null],
+        [401, embedA, body, { token: "kein-gueltiges-token" }],
+        [404, 99999, body, admin],
+        [404, 0, body, admin],
+        [400, embedA, summaryBody("2026-10-07", "2026-10-06"), admin],
+        [400, embedA, summaryBody("2019-02-28", "2026-10-12"), admin],
+      ];
+      for (const [status, embed, request, user] of cases) {
+        const result = await summary(embed, request, user);
+        expect([status, result.statusCode]).toEqual([status, status]);
+        expect(result.body?.weekdayHour).toBeUndefined();
+      }
+
+      process.env.DISABLE_VIEW_CHAT_HISTORY = "1";
+      const disabled = await summary(embedA, body, admin);
+      expect(disabled.statusCode).toBe(422);
+      expect(disabled.body?.weekdayHour).toBeUndefined();
+
+      expect(weekdayHourSpy).not.toHaveBeenCalled();
+    });
+
+    test("fremdes_widget: admin und manager sind nicht eingeschränkt", async () => {
+      for (const role of ["admin", "manager"]) {
+        const result = await summary(embedB, body, await createUser(role));
+        expect(result.statusCode).toBe(200);
+        expect(result.body.weekdayHour[1][15]).toBe(40);
+      }
+    });
+  });
+
+  // ==========================================================================
+  // Lesefunktion des Zählerbuchs
+  // ==========================================================================
+  describe("Lesefunktion (MessageLedger.weekdayHourForEmbed)", () => {
+    test("liest nur: Das Zählerbuch ist nach den Abfragen Byte für Byte dasselbe", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await seed(embed, CORE_TIME_WEEK.cells);
+      const before = await tableChecksum(db.client, "message_ledger");
+      expect(before.rows).toBe(CORE_TIME_WEEK.cells.length);
+
+      for (const [fromDay, toDay] of [
+        ["2026-10-06", "2026-10-06"],
+        [PERIOD.fromDay, PERIOD.toDay],
+        ["2019-03-01", "2026-10-12"],
+      ]) {
+        const grid = await MessageLedger.weekdayHourForEmbed(
+          embed.id,
+          fromDay,
+          toDay
+        );
+        expect(grid.flat()).toHaveLength(168);
+      }
+
+      expect(await tableChecksum(db.client, "message_ledger")).toEqual(before);
+    });
+
+    test("embed_id 0 (Workspace-Chats) und Unsinn als Kennung werfen, statt fremde Zähler zu liefern", async () => {
+      const workspace = await createWorkspace(db.client);
+      await MessageLedger.transaction({ source: "test" }, (tx) =>
+        MessageLedger.addCells(tx, [
+          {
+            workspaceId: workspace.id,
+            embedId: 0,
+            day: "2026-10-06",
+            hour: 9,
+            messages: 777,
+          },
+        ])
+      );
+      const findMany = jest.spyOn(db.client.message_ledger, "findMany");
+      for (const embedId of [0, -1, 1.5, "abc", null, undefined, NaN])
+        await expect(
+          MessageLedger.weekdayHourForEmbed(embedId, "2026-10-01", "2026-10-12")
+        ).rejects.toThrow(/invalid embedId/);
+      expect(findMany).not.toHaveBeenCalled();
+    });
+
+    test("ein ungültiger Zeitraum wirft vor der Abfrage", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      const findMany = jest.spyOn(db.client.message_ledger, "findMany");
+      for (const [fromDay, toDay] of [
+        ["2026-10-07", "2026-10-06"],
+        ["2026-02-30", "2026-03-05"],
+        ["2019-02-28", "2026-10-12"],
+        [undefined, undefined],
+      ])
+        await expect(
+          MessageLedger.weekdayHourForEmbed(embed.id, fromDay, toDay)
+        ).rejects.toThrow(/weekdayHourForEmbed/);
+      expect(findMany).not.toHaveBeenCalled();
+    });
+
+    test("eine Zeile mit einer Stunde außerhalb 0-23 wirft, statt die Summe zu verfälschen", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await db.client.message_ledger.create({
+        data: {
+          workspace_id: workspace.id,
+          embed_id: embed.id,
+          day: "2026-10-06",
+          hour: 24,
+          messages: 1,
+        },
+      });
+
+      await expect(
+        MessageLedger.weekdayHourForEmbed(embed.id, "2026-10-01", "2026-10-12")
+      ).rejects.toThrow(/no weekday-hour cell/);
+    });
+
+    test("ein Datenbankfehler wird weitergereicht; der Endpunkt antwortet mit 500 ohne Zahlen", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await countsOnly(embed, [{ day: "2026-10-06", messages: 3 }]);
+      jest
+        .spyOn(db.client.message_ledger, "findMany")
+        .mockRejectedValue(new Error("database is locked"));
+
+      await expect(
+        MessageLedger.weekdayHourForEmbed(embed.id, "2026-10-01", "2026-10-12")
+      ).rejects.toThrow("database is locked");
+      const result = await summary(
+        embed,
+        summaryBody("2026-10-01", "2026-10-12")
+      );
+      expect(result.statusCode).toBe(500);
+      expect(result.body).toBeUndefined();
+    });
+  });
+});
+
+// ============================================================================
 // AK-14 — Beginn der Zählung
 // ============================================================================
 describe("beginn_der_zaehlung (AK-14)", () => {
@@ -2273,6 +2889,7 @@ describe("nur_zahlen (NAK-3)", () => {
         "success",
         "toDay",
         "totals",
+        "weekdayHour",
       ]);
       for (const bucket of result.body.buckets) {
         const { start, end, partial, messages, conversations, hour, ...rest } =

@@ -418,6 +418,14 @@ function embedManagementEndpoints(app) {
                 firstLedgerDay
               )
             : null;
+        // KIE-539: Nachrichten nach Wochentag und Stunde, 7 × 24 Felder
+        // (Montag bis Sonntag, Berliner Stunde 0-23) für die Karte „Wann
+        // schreiben Ihre Besucher?". Ebenfalls nur Zählwerte.
+        const weekdayHour = await MessageLedger.weekdayHourForEmbed(
+          embedId,
+          fromDay,
+          toDay
+        );
 
         response.status(200).json({
           success: true,
@@ -427,6 +435,7 @@ function embedManagementEndpoints(app) {
           totals: timeline.totals,
           buckets: timeline.buckets,
           firstLedgerDay,
+          weekdayHour,
           ...(previous ? { previous } : {}),
         });
       } catch (e) {

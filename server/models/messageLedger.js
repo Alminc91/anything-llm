@@ -9,6 +9,8 @@ const {
 const {
   timelineLayout,
   previousLayout,
+  validateDayRange,
+  weekdayOf,
 } = require("../utils/helpers/ledgerTimeline");
 
 /**
@@ -43,6 +45,10 @@ const {
  * eines Widgets hier (timelineForEmbed, firstDayForEmbed). Sie liest nur.
  * Dasselbe gilt für den Vergleich mit dem Vorzeitraum (KIE-537,
  * previousTimelineForEmbed).
+ *
+ * Die Karte „Wann schreiben Ihre Besucher?" (KIE-539) liest die Nachrichten
+ * eines Widgets nach Wochentag und Stunde (weekdayHourForEmbed). Auch sie
+ * liest nur.
  */
 
 /**
@@ -883,6 +889,66 @@ const MessageLedger = {
       select: { day: true },
     });
     return first?.day ?? null;
+  },
+
+  /**
+   * Nachrichten eines Widgets nach Wochentag und Stunde (KIE-539) über die
+   * Berliner Kalendertage [fromDay, toDay], beide einschließlich: 7 Zeilen
+   * (Montag bis Sonntag) mit je 24 Feldern (Berliner Stunde 0-23).
+   *
+   * Der Wochentag ergibt sich aus dem Kalendertag der Zeile (weekdayOf):
+   * reine Kalenderrechnung, ohne Zeitpunkt und ohne die Zeitzone des
+   * Prozesses. Die Stunde ist die der Zeile - am Tag der Umstellung auf
+   * Sommerzeit bleibt die Stunde 2 leer, am Tag der Rückstellung stehen beide
+   * Durchläufe in der Stunde 2 (berlinCell). Feiertage sind Wochentage wie
+   * alle anderen.
+   *
+   * Gelesen werden dieselben Zeilen wie in timelineForEmbed (alle Zeilen der
+   * embed_id, unter welchem Workspace sie auch stehen; embed_id 0 ist nie
+   * gemeint). Jede Zeile geht in genau ein Feld: Die Summe der 168 Felder ist
+   * die Kennzahl „Nachrichten" des Zeitraums. Wirft bei einem ungültigen
+   * Zeitraum (validateDayRange) und bei Datenbankfehlern.
+   *
+   * @param {number} embedId
+   * @param {string} fromDay - "YYYY-MM-DD", einschließlich
+   * @param {string} toDay - "YYYY-MM-DD", einschließlich
+   * @param {import("@prisma/client").PrismaClient} [client]
+   * @returns {Promise<number[][]>} - [Wochentag 0 = Montag … 6 = Sonntag][Stunde 0-23]
+   */
+  weekdayHourForEmbed: async function (
+    embedId,
+    fromDay,
+    toDay,
+    client = prisma
+  ) {
+    const id = Number(embedId);
+    if (!Number.isInteger(id) || id <= 0)
+      throw new Error(`MessageLedger: invalid embedId ${embedId}`);
+    const range = validateDayRange(fromDay, toDay);
+    if (!range.valid)
+      throw new Error(`MessageLedger: weekdayHourForEmbed: ${range.error}`);
+
+    // Je Tag und Stunde eine Zeile (nach dem Umhängen des Widgets eine je
+    // Workspace) - der Wochentag ist keine Spalte, summiert wird deshalb hier.
+    const cells = await client.message_ledger.findMany({
+      where: {
+        embed_id: id,
+        day: { gte: fromDay, lte: toDay },
+        messages: { gt: 0 },
+      },
+      select: { day: true, hour: true, messages: true },
+    });
+
+    const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+    for (const { day, hour, messages } of cells) {
+      const row = grid[weekdayOf(day)];
+      if (!row || !Number.isInteger(hour) || hour < 0 || hour > 23)
+        throw new Error(
+          `MessageLedger: no weekday-hour cell for ${day} ${hour}`
+        );
+      row[hour] += messages;
+    }
+    return grid;
   },
 
   /**
