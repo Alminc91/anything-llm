@@ -434,11 +434,17 @@ function Columns({
                   if (!byMouse) showFocus(i);
                 }}
                 onBlur={(event) => {
-                  // Der Platz bleibt das aktive Element: Nicht er, das Fenster
-                  // hat den Fokus verloren.
+                  // Nicht der Platz, das Fenster hat den Fokus verloren: Der
+                  // Platz bleibt das aktive Element, und das Dokument hat
+                  // keinen Fokus mehr. Beides muss gelten – behält das
+                  // Dokument den Fokus, ist der Platz ihn los (Tab, Klick
+                  // daneben), was auch immer im Ereignis noch als aktives
+                  // Element gilt.
+                  const place = event.currentTarget;
+                  const owner = place.ownerDocument;
                   windowLeft.current =
-                    event.currentTarget.ownerDocument?.activeElement ===
-                    event.currentTarget;
+                    owner?.activeElement === place &&
+                    owner.hasFocus?.() !== true;
                   if (windowLeft.current) return;
                   setFocused((current) => (current === i ? null : current));
                 }}

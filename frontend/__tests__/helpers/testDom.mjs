@@ -179,6 +179,9 @@ export function createDocument() {
     document.createElement("body")
   );
   document.activeElement = document.body;
+  // Hat das Fenster den Fokus? (leaveWindow, returnToWindow)
+  document.windowFocused = true;
+  document.hasFocus = () => document.windowFocused;
   // Element unter dem Mauszeiger (movePointer)
   document.hoveredElement = null;
   return document;
@@ -270,17 +273,20 @@ export function tap(element) {
 
 /**
  * Das Fenster verliert den Fokus (anderes Fenster, anderer Tab): Das aktive
- * Element bleibt es und bekommt blur – bei der Rückkehr wieder focus.
+ * Element bleibt es und bekommt blur, document.hasFocus() ist dabei schon
+ * false – bei der Rückkehr bekommt es wieder focus.
  * @param {object} document
  */
 export function leaveWindow(document) {
   const element = document.activeElement;
+  document.windowFocused = false;
   handlersOf(element).onBlur?.(eventOn(element));
 }
 
 /** @param {object} document */
 export function returnToWindow(document) {
   const element = document.activeElement;
+  document.windowFocused = true;
   handlersOf(element).onFocus?.(eventOn(element));
 }
 

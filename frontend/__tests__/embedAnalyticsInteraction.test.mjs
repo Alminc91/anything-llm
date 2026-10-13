@@ -14,6 +14,7 @@ import {
 import {
   click,
   elements,
+  handlersOf,
   leaveWindow,
   movePointer,
   pressKey,
@@ -413,6 +414,62 @@ test(
     await act(() => columns[OCT_07].blur());
     assert.equal(tooltipOf(container), null);
     assert.deepEqual(ringsOf(container), []);
+  }
+);
+
+test(
+  "Tooltip: Als Fensterwechsel gilt ein blur nur, wenn das Dokument den Fokus verloren hat (document.hasFocus) – nennt das Ereignis den Platz noch als aktives Element, während das Fenster den Fokus behält, ist der Fokus fort",
+  { skip },
+  async (t) => {
+    const { container, document, act } = await mount(t, CHART, {
+      summary: THIRTY_DAYS,
+      loading: false,
+    });
+    const columns = columnsOf(container);
+
+    await act(() => columns[OCT_06].focus());
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.deepEqual(ringsOf(container), [OCT_06]);
+
+    // Der Fokus geht an ein anderes Element der Seite. Das blur-Ereignis
+    // kommt, bevor das Dokument sein aktives Element umstellt – das Fenster
+    // behält den Fokus.
+    assert.equal(document.hasFocus(), true);
+    await act(() => {
+      const place = columns[OCT_06];
+      handlersOf(place).onBlur({ target: place, currentTarget: place });
+      document.activeElement = document.body;
+    });
+    assert.equal(tooltipOf(container), null);
+    assert.deepEqual(ringsOf(container), []);
+
+    // Der nächste Fokus ist eine Eingabe, keine Rückkehr ins Fenster – auch
+    // nach einem Mausklick, der selbst keinen Rahmen zeigt.
+    await act(() => click(columns[OCT_07]));
+    await act(() => movePointer(document, null));
+    assert.equal(tooltipOf(container), null);
+    await act(() => {
+      const place = columns[OCT_07];
+      handlersOf(place).onBlur({ target: place, currentTarget: place });
+      document.activeElement = document.body;
+    });
+    await act(() => columns[OCT_07].focus());
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.deepEqual(ringsOf(container), [OCT_07]);
+
+    // Ohne document.hasFocus entscheidet das aktive Element allein.
+    const { hasFocus } = document;
+    delete document.hasFocus;
+    t.after(() => {
+      document.hasFocus = hasFocus;
+      document.windowFocused = true;
+    });
+    await act(() => leaveWindow(document));
+    await act(() => returnToWindow(document));
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.deepEqual(ringsOf(container), [OCT_07]);
+    await act(() => columns[OCT_07].blur());
+    assert.equal(tooltipOf(container), null);
   }
 );
 
