@@ -9,6 +9,7 @@ import {
 } from "@/utils/analyticsTimeline";
 import {
   AXIS_HEIGHT,
+  EMPTY_OUTLINE_WIDTH,
   HOURS,
   HOUR_TICK_STEP,
   MIN_MESSAGES,
@@ -18,6 +19,7 @@ import {
   cellBox,
   cellTooltipPlacement,
   columnTotals,
+  emptyOutlineBox,
   gridLayout,
   gridTotal,
   heatLegend,
@@ -40,7 +42,10 @@ import {
 // Spalten, Berliner Stunde).
 //
 // Eine Farbe in fünf Stufen, dazu eine eigene, neutrale Fläche für 0
-// (--theme-analytics-heat-0 … -5). Die Farbe ist nie der einzige Träger: Jedes
+// (--theme-analytics-heat-0 … -5). Die Fläche für 0 hebt sich von der Karte
+// kaum ab; eine dünne Kontur (--theme-analytics-empty-outline, im Raster und
+// in der Legende) hält das Raster als 7 × 24 Felder lesbar. Die Farbe ist nie
+// der einzige Träger: Jedes
 // Feld nennt Wochentag, Stunde und Anzahl im Tooltip (Maus, Tastatur, Touch –
 // wie im Säulendiagramm entscheidet die letzte Eingabe), die Legende nennt die
 // Wertebereiche der Stufen, und „Als Tabelle" zeigt alle 168 Werte mit
@@ -55,6 +60,11 @@ const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 const WEEKDAY_INDEXES = Array.from({ length: WEEKDAYS }, (_, i) => i);
 const HOUR_INDEXES = Array.from({ length: HOURS }, (_, i) => i);
 const heatColor = (level) => `var(--theme-analytics-heat-${level})`;
+const EMPTY_OUTLINE = "var(--theme-analytics-empty-outline)";
+// Dieselbe Kontur am Legenden-Kästchen der Null-Stufe (der Rahmen zählt zur
+// Größe des Kästchens, liegt also innen).
+const EMPTY_SWATCH =
+  "border border-[color:var(--theme-analytics-empty-outline)]";
 
 /**
  * @param {Object} props
@@ -272,7 +282,7 @@ function Legend({ max, t }) {
             <span className="flex min-w-[26px] flex-col items-center gap-1">
               <span
                 aria-hidden="true"
-                className="block h-[14px] w-full rounded-[3px]"
+                className={`block h-[14px] w-full rounded-[3px]${step.level === 0 ? ` ${EMPTY_SWATCH}` : ""}`}
                 style={{ backgroundColor: heatColor(step.level) }}
               />
               <span className="tabular-nums whitespace-nowrap">
@@ -462,6 +472,12 @@ function Grid({ grid, peak, summary, context }) {
                 const index = indexOf({ weekday, hour });
                 const box = cellBox(layout, { weekday, hour });
                 const level = heatLevel(grid[weekday][hour], max);
+                // Rahmen der Eingabe (Tooltip-Feld, Tastaturfokus)
+                const framed = active === index || focused === index;
+                // Ein Feld ohne Nachricht hat eine Kontur; der Rahmen der
+                // Eingabe ersetzt sie.
+                const outline =
+                  level === 0 && !framed ? emptyOutlineBox(box.tile) : null;
                 return (
                   <g
                     key={index}
@@ -528,14 +544,24 @@ function Grid({ grid, peak, summary, context }) {
                       height={box.tile.height}
                       rx={3}
                       fill={heatColor(level)}
-                      stroke={
-                        active === index || focused === index
-                          ? "var(--theme-text-primary)"
-                          : "none"
-                      }
+                      stroke={framed ? "var(--theme-text-primary)" : "none"}
                       strokeWidth={focused === index ? 2 : 1.5}
                       strokeOpacity={focused === index ? 1 : 0.6}
                     />
+                    {outline && (
+                      <rect
+                        data-heat-outline=""
+                        x={outline.x}
+                        y={outline.y}
+                        width={outline.width}
+                        height={outline.height}
+                        rx={3 - EMPTY_OUTLINE_WIDTH / 2}
+                        fill="none"
+                        stroke={EMPTY_OUTLINE}
+                        strokeWidth={EMPTY_OUTLINE_WIDTH}
+                        pointerEvents="none"
+                      />
+                    )}
                   </g>
                 );
               })

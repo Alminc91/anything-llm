@@ -55,7 +55,13 @@ const cellsOf = (html) =>
     tabindex: Number(tabindex),
     fill: /<rect data-heat-tile=""[^>]* fill="([^"]+)"/.exec(inner)?.[1],
     stroke: /<rect data-heat-tile=""[^>]* stroke="([^"]+)"/.exec(inner)?.[1],
+    tile: /<rect data-heat-tile=""([^>]*)>/.exec(inner)?.[1] ?? null,
+    // Kontur der Felder ohne Nachricht: Attribute des Elements oder null
+    outline: /<rect data-heat-outline=""([^>]*)>/.exec(inner)?.[1] ?? null,
   }));
+/** Zahlenwert eines Attributs aus dem Text eines Elements. */
+const numberOf = (attributes, name) =>
+  Number(new RegExp(` ${name}="([^"]+)"`).exec(attributes)?.[1] ?? NaN);
 /** Text eines Elements mit diesem Attribut. */
 const blockOf = (html, attribute) =>
   textOf(
@@ -407,6 +413,75 @@ test(
       html,
       /aria-pressed="false"[^>]*>(<svg.*?<\/svg>)?Als Tabelle</
     );
+  }
+);
+
+test(
+  "Null-Stufe: Jedes Feld ohne Nachricht hat eine dünne Kontur innen an seiner Fläche – und nur diese Felder; das Legenden-Kästchen der Null-Stufe hat dieselbe",
+  { skip },
+  async () => {
+    const html = await card(DATA);
+    const cells = cellsOf(html);
+    const OUTLINE = "var(--theme-analytics-empty-outline)";
+
+    for (const cell of cells)
+      assert.equal(cell.outline !== null, cell.level === 0, cell.label);
+    const empty = cells.filter((cell) => cell.level === 0);
+    assert.equal(empty.length, 84);
+    assert.equal(count(html, /<rect data-heat-outline=""/g), 84);
+
+    for (const cell of empty) {
+      // ein Strich von 1 px in der Linienfarbe des Themes, ohne Füllung
+      assert.match(cell.outline, / fill="none"/, cell.label);
+      assert.ok(cell.outline.includes(` stroke="${OUTLINE}"`), cell.label);
+      assert.match(cell.outline, / stroke-width="1"/, cell.label);
+      // Sie nimmt keine Eingabe an: Das Feld bleibt die Trefferfläche.
+      assert.match(cell.outline, / pointer-events="none"/, cell.label);
+      // innen: Der Strich bleibt auf der Fläche des Feldes.
+      const [x, y, width, height] = ["x", "y", "width", "height"].map((name) =>
+        numberOf(cell.outline, name)
+      );
+      const tile = ["x", "y", "width", "height"].map((name) =>
+        numberOf(cell.tile, name)
+      );
+      assert.ok(x - 0.5 >= tile[0] && y - 0.5 >= tile[1], cell.label);
+      assert.ok(x + width + 0.5 <= tile[0] + tile[2] + 1e-9, cell.label);
+      assert.ok(y + height + 0.5 <= tile[1] + tile[3] + 1e-9, cell.label);
+      // Die Fläche der Null-Stufe ist geblieben, ohne Rahmen der Eingabe.
+      assert.equal(cell.fill, "var(--theme-analytics-heat-0)");
+      assert.equal(cell.stroke, "none");
+    }
+    // Die fünf Datenstufen sind unverändert: Fläche, sonst nichts.
+    for (const cell of cells.filter((cell) => cell.level > 0)) {
+      assert.equal(cell.fill, `var(--theme-analytics-heat-${cell.level})`);
+      assert.equal(cell.stroke, "none");
+    }
+
+    // Legende: nur das Kästchen der Null-Stufe hat die Kontur – innen, 1 px.
+    const swatches = [
+      ...html.matchAll(
+        /<li data-heat-step="(\d)"[^>]*>.*?<span aria-hidden="true" class="([^"]*)" style="background-color:var\(--theme-analytics-heat-\d\)"><\/span>/g
+      ),
+    ].map(([, level, classes]) => [Number(level), classes.split(" ")]);
+    assert.deepEqual(
+      swatches.map(([level]) => level),
+      [0, 1, 2, 3, 4, 5]
+    );
+    const BORDER = "border-[color:var(--theme-analytics-empty-outline)]";
+    for (const [level, classes] of swatches) {
+      assert.equal(classes.includes(BORDER), level === 0, `Stufe ${level}`);
+      assert.equal(classes.includes("border"), level === 0, `Stufe ${level}`);
+    }
+    // Die Kontur kommt nur an diesen Stellen vor – und aus dem Theme.
+    assert.equal(count(html, /theme-analytics-empty-outline/g), 84 + 1);
+    assert.doesNotMatch(html, /#[0-9a-f]{6}\b/i);
+
+    // Ein Raster ohne leeres Feld hat keine Kontur; das Legenden-Kästchen der
+    // Null-Stufe behält sie – es zeigt, wie ein Feld ohne Nachricht aussähe.
+    const full = gridOf([]).map((row) => row.map(() => 3));
+    const dense = await card(summaryOf([], { weekdayHour: full }));
+    assert.equal(count(dense, /<rect data-heat-outline=""/g), 0);
+    assert.equal(count(dense, /theme-analytics-empty-outline/g), 1);
   }
 );
 

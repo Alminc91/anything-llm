@@ -37,7 +37,8 @@ export const CORE_TIME = {
 };
 
 // Fünf Stufen einer Farbe, dazu die Stufe 0 als eigene, neutrale Fläche
-// (--theme-analytics-heat-0 … -5 in index.css).
+// (--theme-analytics-heat-0 … -5 in index.css). Die Fläche der Stufe 0 hebt
+// sich von der Karte kaum ab; sie hat deshalb eine Kontur (emptyOutlineBox).
 export const HEAT_LEVELS = 5;
 
 // Geometrie des Rasters (px): Zeilenhöhe und kleinste Feldbreite jeweils samt
@@ -47,6 +48,9 @@ export const MIN_CELL_WIDTH = 24;
 export const CELL_GAP = 2;
 export const AXIS_HEIGHT = 22;
 export const HOUR_TICK_STEP = 3;
+// Kontur der Felder ohne Nachricht (--theme-analytics-empty-outline): ein
+// Strich innen an der Fläche des Feldes.
+export const EMPTY_OUTLINE_WIDTH = 1;
 // Mittlere Zeichenbreite der Wochentage am Rand (12 px Schrift)
 const LABEL_CHAR_WIDTH = 7;
 const LABEL_MIN_WIDTH = 28;
@@ -409,6 +413,30 @@ export function cellBox(layout, { weekday, hour }) {
       width: layout.slot - CELL_GAP,
       height: ROW_HEIGHT - CELL_GAP,
     },
+  };
+}
+
+/**
+ * Lage der Kontur eines Feldes ohne Nachricht: ein Strich von
+ * EMPTY_OUTLINE_WIDTH innen an der Fläche des Feldes (tile aus cellBox) – nie
+ * in der Lücke zum Nachbarn. Die Fläche liegt selten auf ganzen Pixeln (die
+ * Breite der Karte teilt sich nicht glatt durch 24); der Strich schon, damit
+ * er als eine scharfe Linie zu sehen ist statt blass über zwei Pixel. Er
+ * rückt dafür um weniger als einen Pixel nach innen.
+ * @param {{x: number, y: number, width: number, height: number}} tile
+ * @returns {{x: number, y: number, width: number, height: number}} - Mittellinie des Strichs
+ */
+export function emptyOutlineBox(tile) {
+  const half = EMPTY_OUTLINE_WIDTH / 2;
+  const left = Math.ceil(tile.x);
+  const top = Math.ceil(tile.y);
+  const right = Math.floor(tile.x + tile.width);
+  const bottom = Math.floor(tile.y + tile.height);
+  return {
+    x: left + half,
+    y: top + half,
+    width: right - left - EMPTY_OUTLINE_WIDTH,
+    height: bottom - top - EMPTY_OUTLINE_WIDTH,
   };
 }
 

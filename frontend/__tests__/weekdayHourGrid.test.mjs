@@ -18,6 +18,7 @@ import {
   AXIS_HEIGHT,
   CELL_GAP,
   CORE_TIME,
+  EMPTY_OUTLINE_WIDTH,
   HEAT_LEVELS,
   HOURS,
   MIN_CELL_WIDTH,
@@ -28,6 +29,7 @@ import {
   cellBox,
   cellTooltipPlacement,
   columnTotals,
+  emptyOutlineBox,
   gridLayout,
   gridTotal,
   heatLegend,
@@ -743,6 +745,113 @@ test("Null-Stufe: eine eigene, neutrale Fläche – kein Blau, von der Karte und
       `${theme}: ${contrast(first, zero)}`
     );
   }
+});
+
+const EMPTY_OUTLINE = "--theme-analytics-empty-outline";
+
+test("Null-Stufe: Eine dünne, neutrale Kontur hält das Raster als 7 × 24 Felder lesbar – gegen die Fläche der Karte in beiden Themes mindestens 3:1; die sechs Flächen bleiben, wie sie sind", () => {
+  const { dark, light } = themes();
+  const css = readFileSync(
+    new URL("../src/index.css", import.meta.url),
+    "utf8"
+  );
+  // Beide Themes definieren die Kontur selbst.
+  assert.equal(css.split(`${EMPTY_OUTLINE}:`).length - 1, 2);
+  assert.notEqual(light[EMPTY_OUTLINE], dark[EMPTY_OUTLINE]);
+
+  const measured = {};
+  for (const [theme, tokens] of [
+    ["hell", light],
+    ["dunkel", dark],
+  ]) {
+    assert.match(tokens[EMPTY_OUTLINE] ?? "", /^#[0-9a-f]{6}$/, theme);
+    const outline = colorOf(tokens[EMPTY_OUTLINE]).slice(0, 3);
+    // neutral wie die Fläche der Null-Stufe: kein Blau, keine siebte Stufe
+    assert.ok(
+      Math.max(...outline) - Math.min(...outline) <= 8,
+      `${theme}: ${tokens[EMPTY_OUTLINE]}`
+    );
+    assert.ok(!HEAT.some((name) => tokens[name] === tokens[EMPTY_OUTLINE]));
+
+    const card = colorOf(tokens["--theme-bg-primary"]).slice(0, 3);
+    const onCard = contrast(outline, card);
+    measured[theme] = Math.round(onCard * 100) / 100;
+    // als Linie zu erkennen (wie für Bedienelemente und Grafiken: 3:1) …
+    assert.ok(onCard >= 3, `${theme}: ${onCard.toFixed(2)}:1`);
+    // … aber zurückhaltend: schwächer als jede Beschriftung der Karte
+    const muted = contrast(
+      over(
+        tokens["--theme-analytics-text-muted"],
+        tokens["--theme-bg-primary"]
+      ),
+      card
+    );
+    assert.ok(onCard < 4 && onCard < muted, `${theme}: ${onCard}`);
+    // Das bisherige Gitter der Ansicht reicht dafür nicht.
+    assert.ok(
+      contrast(
+        over(tokens["--theme-analytics-grid"], tokens["--theme-bg-primary"]),
+        card
+      ) < 1.5
+    );
+    // Auch auf der eigenen Fläche des Feldes ist sie zu sehen.
+    assert.ok(contrast(outline, colorOf(tokens[HEAT[0]]).slice(0, 3)) >= 2.5);
+  }
+  // rechnerisch belegt (WCAG 2.x): Kontur gegen die Fläche der Karte
+  assert.deepEqual(measured, { hell: 3.42, dunkel: 3.37 });
+
+  // Die Flächen selbst sind unverändert – die Null-Stufe und die fünf Stufen.
+  assert.deepEqual(
+    HEAT.map((name) => light[name]),
+    ["#e9ecef", "#5fbdf2", "#2e9fe0", "#0284c7", "#0a659b", "#0c4a70"]
+  );
+  assert.deepEqual(
+    HEAT.map((name) => dark[name]),
+    ["#26282a", "#15608f", "#0b7ab3", "#1a9bdc", "#5cbcf0", "#a5dcfa"]
+  );
+});
+
+test("Null-Stufe: Die Kontur liegt 1 px breit innen an der Fläche des Feldes, auf ganzen Pixeln – in jeder Breite der Karte, die Lücke zum Nachbarn bleibt frei", () => {
+  assert.equal(EMPTY_OUTLINE_WIDTH, 1);
+  const half = EMPTY_OUTLINE_WIDTH / 2;
+  for (const width of [282, 306, 640, 961, 1000, 1037, 1294, 1440]) {
+    const layout = gridLayout({ width, labelWidth: rowLabelWidth(LABELS) });
+    for (let weekday = 0; weekday < WEEKDAYS; weekday++)
+      for (let hour = 0; hour < HOURS; hour++) {
+        const { tile } = cellBox(layout, { weekday, hour });
+        const box = emptyOutlineBox(tile);
+        // Der Strich reicht je eine halbe Breite über seine Mittellinie.
+        const band = {
+          left: box.x - half,
+          top: box.y - half,
+          right: box.x + box.width + half,
+          bottom: box.y + box.height + half,
+        };
+        const where = `${width} px, Feld ${weekday}/${hour}`;
+        // innen: nie über die Fläche des Feldes hinaus …
+        assert.ok(band.left >= tile.x - 1e-9, where);
+        assert.ok(band.top >= tile.y - 1e-9, where);
+        assert.ok(band.right <= tile.x + tile.width + 1e-9, where);
+        assert.ok(band.bottom <= tile.y + tile.height + 1e-9, where);
+        // … und höchstens einen Pixel von ihrem Rand entfernt
+        assert.ok(band.left - tile.x < 1, where);
+        assert.ok(tile.x + tile.width - band.right < 1, where);
+        assert.ok(band.top - tile.y < 1, where);
+        assert.ok(tile.y + tile.height - band.bottom < 1, where);
+        // auf ganzen Pixeln: scharf, nicht über zwei Pixel verschmiert
+        for (const edge of Object.values(band))
+          assert.equal(edge, Math.round(edge), where);
+        assert.ok(box.width >= MIN_CELL_WIDTH - CELL_GAP - 3, where);
+        assert.ok(box.height >= ROW_HEIGHT - CELL_GAP - 3, where);
+      }
+  }
+  // Teilt sich die Breite glatt, liegt die Kontur genau am Rand der Fläche.
+  const even = gridLayout({ width: 24 * 30 + 28, labelWidth: 28 });
+  assert.equal(even.slot, 30);
+  assert.deepEqual(
+    emptyOutlineBox(cellBox(even, { weekday: 2, hour: 5 }).tile),
+    { x: 151.5, y: 57.5, width: 27, height: 25 }
+  );
 });
 
 test("Kontrast (AK-10): Beschriftungen des Rasters, der Legende und der Aussagen erreichen in beiden Themes mindestens 4,5:1", () => {

@@ -243,6 +243,70 @@ test(
 );
 
 test(
+  "Null-Stufe: Die Kontur eines leeren Feldes weicht dem Rahmen der Eingabe – unter dem Mauszeiger und mit Tastaturfokus – und steht danach wieder",
+  { skip },
+  async (t) => {
+    const { container, document, act } = await mount(t, CARD, {
+      summary: DATA,
+      loading: false,
+    });
+    /** Felder mit Kontur als [Wochentag, Stunde]. */
+    const contoured = () =>
+      cellsOf(container)
+        .map((cell, index) => [cell, index])
+        .filter(
+          ([cell]) =>
+            elements(cell, (element) =>
+              element.hasAttribute("data-heat-outline")
+            ).length === 1
+        )
+        .map(([, index]) => [Math.floor(index / 24), index % 24]);
+    const has = (list, weekday, hour) =>
+      list.some(([w, h]) => w === weekday && h === hour);
+    const empties = [];
+    GRID.forEach((row, weekday) =>
+      row.forEach((value, hour) => {
+        if (value === 0) empties.push([weekday, hour]);
+      })
+    );
+    assert.equal(empties.length, 84);
+    assert.equal(GRID[0][3], 0);
+    assert.equal(GRID[0][4], 0);
+    assert.deepEqual(contoured(), empties);
+    // Die Fläche bleibt das zweite Element des Feldes, die Kontur liegt darüber.
+    assert.ok(tileOf(cellAt(container, 0, 3)).hasAttribute("data-heat-tile"));
+    assert.ok(
+      cellAt(container, 0, 3).childNodes[2].hasAttribute("data-heat-outline")
+    );
+    assert.equal(cellAt(container, TUESDAY, 10).childNodes.length, 2);
+
+    // Mauszeiger: Der Rahmen des Feldes ersetzt die Kontur.
+    await act(() => movePointer(document, cellAt(container, 0, 3)));
+    assert.equal(tooltipOf(container), "Montag, 3–4 Uhr: 0 Nachrichten");
+    assert.deepEqual(outlinedOf(container), [[0, 3]]);
+    assert.equal(has(contoured(), 0, 3), false);
+    assert.equal(contoured().length, 83);
+    await act(() => movePointer(document, cellAt(container, 0, 4)));
+    assert.equal(has(contoured(), 0, 3), true);
+    assert.equal(has(contoured(), 0, 4), false);
+    await act(() => movePointer(document, null));
+    assert.deepEqual(contoured(), empties);
+
+    // Tastaturfokus: ebenso – der Fokusrahmen steht allein am Feld.
+    await act(() => cellAt(container, 0, 3).focus());
+    assert.deepEqual(ringsOf(container), [[0, 3]]);
+    assert.equal(has(contoured(), 0, 3), false);
+    await act(() => pressKey(document, "ArrowRight"));
+    assert.deepEqual(ringsOf(container), [[0, 4]]);
+    assert.equal(has(contoured(), 0, 3), true);
+    assert.equal(has(contoured(), 0, 4), false);
+    // Ein Feld mit Nachrichten bekommt nie eine Kontur.
+    await act(() => movePointer(document, cellAt(container, TUESDAY, 10)));
+    assert.equal(cellAt(container, TUESDAY, 10).childNodes.length, 2);
+  }
+);
+
+test(
   "Tooltip: Die letzte Eingabe entscheidet – der Mauszeiger löst den Fokus ab, eine Pfeiltaste den Mauszeiger; fällt eines weg, gilt das andere",
   { skip },
   async (t) => {
@@ -788,6 +852,9 @@ test(
       "sm:grid-cols-2",
       "text-[color:var(--theme-analytics-text-muted)]",
       "opacity-50",
+      // Kontur am Legenden-Kästchen der Null-Stufe
+      "border",
+      "border-[color:var(--theme-analytics-empty-outline)]",
     ])
       assert.ok(used.has(expected), expected);
 
