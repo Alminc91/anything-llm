@@ -34,6 +34,7 @@ const {
   writeChunks,
   exportFileName,
 } = require("../utils/helpers/chat/embedConversationExport");
+const { parseSearch } = require("../utils/helpers/chat/conversationSearch");
 
 /**
  * KIE-533: Darf der Nutzer auf diesen Workspace zugreifen?
@@ -84,12 +85,15 @@ async function validEmbedAccess(request, response, next) {
 
 /**
  * KIE-538: Die Auswahl der Konversationsliste aus dem Rumpf einer Anfrage -
- * Zeitraum, Feedback-Filter und Abschnitts-Filter. Die Liste
- * (analytics/conversations) und der Export (analytics/export) lesen sie über
- * diese eine Stelle: Dieselben Parameter ergeben dieselben Konversationen.
+ * Zeitraum, Feedback-Filter, Abschnitts-Filter und Suchbegriff (`q`). Die
+ * Liste (analytics/conversations) und der Export (analytics/export) lesen sie
+ * über diese eine Stelle: Dieselben Parameter ergeben dieselben
+ * Konversationen.
  * @param {object} body
- * @returns {{filter: "all"|"negative"|"positive", start: Date|null, end: Date|null, startedBetween: {start: Date, endExclusive: Date}|null, error: string|null}}
- *   error: der Abschnitt besteht nicht aus gültigen Kalendertagen (→ 400)
+ * @returns {{filter: "all"|"negative"|"positive", start: Date|null, end: Date|null, startedBetween: {start: Date, endExclusive: Date}|null, search: string|null, error: string|null}}
+ *   error: der Abschnitt besteht nicht aus gültigen Kalendertagen oder `q`
+ *   ist kein Text bzw. zu lang (→ 400); search: getrimmter Suchbegriff, null
+ *   ohne Suche (fehlt, leer oder nur Leerraum)
  */
 function conversationSelection(body) {
   const {
@@ -99,6 +103,7 @@ function conversationSelection(body) {
     feedbackFilter, // KIE-527: "all" | "negative" | "positive"
     startedFromDay, // KIE-536
     startedToDay, // KIE-536
+    q, // Suche in Frage, Antworttext, Grund und Kommentar
   } = body ?? {};
 
   // Neuer Parameter gewinnt (auch bei "" oder ungültigem Wert → "all");
@@ -108,6 +113,16 @@ function conversationSelection(body) {
   );
   const start = startDate ? new Date(startDate) : null;
   const end = endDate ? new Date(endDate) : null;
+  const { search, error: searchError } = parseSearch(q);
+  if (searchError)
+    return {
+      filter,
+      start,
+      end,
+      startedBetween: null,
+      search,
+      error: searchError,
+    };
 
   // KIE-536: Der Abschnitt kommt als Kalendertage und wird hier zu den
   // Berliner Grenzen [00:00 des ersten Tages, 00:00 nach dem letzten).
@@ -116,13 +131,13 @@ function conversationSelection(body) {
   if (startedFromDay != null || startedToDay != null) {
     const range = validateDayRange(startedFromDay, startedToDay);
     if (!range.valid)
-      return { filter, start, end, startedBetween, error: range.error };
+      return { filter, start, end, startedBetween, search, error: range.error };
     startedBetween = {
       start: berlinMidnight(startedFromDay),
       endExclusive: berlinMidnight(nextDay(startedToDay)),
     };
   }
-  return { filter, start, end, startedBetween, error: null };
+  return { filter, start, end, startedBetween, search, error: null };
 }
 
 function embedManagementEndpoints(app) {
@@ -482,6 +497,10 @@ function embedManagementEndpoints(app) {
   // KIE-536: optional startedFromDay/startedToDay (Kalendertage, beide
   // einschließlich, Berliner Zeit) - nur Konversationen, deren erste
   // vorhandene Nachricht in diesem Abschnitt liegt (Klick auf eine Säule).
+  // Optional q: Suchbegriff - nur Konversationen mit Treffer in Frage,
+  // angezeigtem Antworttext, Grund oder Kommentar (Groß/klein egal, auch bei
+  // Umlauten; Platzhalterzeichen gelten wörtlich). Die Rechteprüfung ist
+  // dieselbe wie ohne q.
   app.post(
     "/embed/:embedId/analytics/conversations",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
@@ -510,6 +529,7 @@ function embedManagementEndpoints(app) {
           start,
           end,
           startedBetween,
+          search,
           error: selectionError,
         } = conversationSelection(body);
         if (selectionError) {
@@ -517,12 +537,19 @@ function embedManagementEndpoints(app) {
           return;
         }
 
-        // Liste und Zähler benutzen dieselbe Gruppierung + denselben Filter
-        // (EmbedChats._conversationGroupsSql / conversationFilterCondition).
-        const [conversations, total] = await Promise.all([
-          EmbedChats.getConversations(embedId, offset, limit, start, end, filter, startedBetween),
-          EmbedChats.countConversations(embedId, start, end, filter, startedBetween),
-        ]);
+        // Liste und Zähler: dieselbe Gruppierung + derselbe Filter
+        // (EmbedChats._conversationGroupsSql / conversationFilterCondition),
+        // in einer Abfrage (conversationPage).
+        const { conversations, totalCount: total } =
+          await EmbedChats.conversationPage(embedId, {
+            offset,
+            limit,
+            startDate: start,
+            endDate: end,
+            feedbackFilter: filter,
+            startedBetween,
+            search,
+          });
         const hasMore = offset + limit < total;
 
         response.status(200).json({
@@ -540,7 +567,7 @@ function embedManagementEndpoints(app) {
 
   // Analytics: Export der Konversationen einer Auswahl (KIE-538)
   // Dieselben Parameter wie analytics/conversations (Zeitraum,
-  // Feedback-Filter, Abschnitt) plus format ("csv" | "json"); geliefert
+  // Feedback-Filter, Abschnitt, Suchbegriff q) plus format ("csv" | "json"); geliefert
   // werden genau die Konversationen, die die Liste über alle Seiten zeigt.
   // Dieselben Prüfungen wie beim Einsehen: chatHistoryViewable, Default-User
   // nur für Widgets ihrer Workspaces (403 ohne Daten).
@@ -582,7 +609,7 @@ function embedManagementEndpoints(app) {
           response.status(400).json({ success: false, error: selection.error });
           return;
         }
-        const { filter, start, end, startedBetween } = selection;
+        const { filter, start, end, startedBetween, search } = selection;
         // Anders als die Liste (leeres Ergebnis) lehnt der Export einen
         // unlesbaren Zeitpunkt ab - eine leere Datei sähe aus wie „keine
         // Konversationen".
@@ -621,6 +648,7 @@ function embedManagementEndpoints(app) {
               endDate: end,
               feedbackFilter: filter,
               startedBetween,
+              search,
             })
           )
         );

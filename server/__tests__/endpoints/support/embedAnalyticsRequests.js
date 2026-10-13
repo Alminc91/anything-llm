@@ -35,6 +35,12 @@ const ROUTES = {
     method: "DELETE",
     path: "/embed/:embedId/conversation/visitor",
   },
+  // Gesprächsverlauf einer Konversation (Seitenpanel, Öffnen per Link): die
+  // id einer ihrer Zeilen als einziges Pfadsegment, ohne Zeitraum.
+  details: {
+    method: "GET",
+    path: "/embed/:embedId/conversation/:chatId",
+  },
 };
 
 /**
@@ -61,6 +67,8 @@ function summaryBody(fromDay, toDay, { compare = false } = {}) {
  * @param {string|null} [request.endDate]
  * @param {"all"|"negative"|"positive"} [request.feedbackFilter]
  * @param {{start: string, end: string}|null} [request.bucket]
+ * @param {string|null} [request.search] - Suchbegriff; als `q` gesendet,
+ *   ohne Suche fehlt das Feld
  */
 function conversationsBody({
   offset = 0,
@@ -69,6 +77,7 @@ function conversationsBody({
   endDate = null,
   feedbackFilter = "all",
   bucket = null,
+  search = null,
 } = {}) {
   return {
     offset,
@@ -79,6 +88,7 @@ function conversationsBody({
     ...(bucket
       ? { startedFromDay: bucket.start, startedToDay: bucket.end }
       : {}),
+    ...(search ? { q: search } : {}),
   };
 }
 
@@ -86,7 +96,7 @@ function conversationsBody({
  * Export der Auswahl: dieselben Felder wie eine Seite der Liste, ohne das
  * Blättern, dazu das Format.
  * @param {"csv"|"json"} format
- * @param {Object} [request] - startDate, endDate, feedbackFilter, bucket wie conversationsBody
+ * @param {Object} [request] - startDate, endDate, feedbackFilter, bucket, search wie conversationsBody
  */
 function exportBody(format, request = {}) {
   const {
