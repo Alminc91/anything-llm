@@ -44,7 +44,11 @@ const FEEDBACK_MAX_TRACKED_SESSIONS = 5_000;
 // Konversationen (Seite), und die Nachrichten von höchstens so vielen
 // Konversationen bzw. so vielen Nachrichten (nach der Zählung der Liste) auf
 // einmal. Im Speicher liegen damit nie mehr als eine Seite Konversationen
-// (ohne Inhalte) und die Nachrichten eines Pakets.
+// (ohne Inhalte) und die Nachrichten eines Pakets. Mit Suche kommen drei
+// Zahlen je Treffer-Konversation dazu (erste Zeile, Zahl der Nachrichten,
+// laufende Nummer - bei 100.000 Treffern wenige MB): Die Suche läuft einmal
+// über alle Zeilen, Kennungen und Inhalte werden danach seitenweise gelesen
+// (EmbedChats._exportHits, Fixliste 2 R11).
 const EXPORT_CONVERSATION_PAGE = 500;
 const EXPORT_MESSAGE_BATCH = 500;
 const EXPORT_BATCH_CONVERSATIONS = 100;
@@ -742,12 +746,16 @@ const EmbedChats = {
    * bei jeder anderen Antwort. Die Vorprüfung sucht dort den Begriff in
    * seiner JSON-Schreibweise (" als \", \ als \\) - Quellen und Metadaten
    * treffen sie so nicht. Steht im Anfang kein Rückstrich, ist er der Text
-   * selbst; sonst (maskierte Zeichen, Zeilenumbrüche) wird der Text nur für
-   * diese Zeile aus dem JSON gelesen. Die ganze Antwort (response, mehrere
-   * KB mit Quellen) wird nicht durch die Unterabfrage gereicht: Das kostete
-   * je Durchlauf rund eine halbe Sekunde auf 100.000 Zeilen (Fixliste
-   * Punkt 6); gelesen wird sie nur für die wenigen Zeilen, die es brauchen,
-   * über ihre id.
+   * selbst. Fast jede echte Antwort ist mehrzeiliges Markdown (\n): Diese
+   * Maskierung wird im Anfang direkt aufgelöst (answerPlain) - bleibt danach
+   * kein Rückstrich übrig, ist das der Text (Fixliste 2, R6). Ein falsch
+   * aufgelöstes Paar (etwa \\n, ein maskierter Rückstrich vor „n") lässt
+   * immer einen Rückstrich stehen und fällt deshalb in den letzten Fall. Nur
+   * sonst (\", \u…, \\, \t …) wird der Text für diese Zeile aus dem JSON
+   * gelesen. Die ganze Antwort (response, mehrere KB mit Quellen) wird nicht
+   * durch die Unterabfrage gereicht: Das kostete je Durchlauf rund eine
+   * halbe Sekunde auf 100.000 Zeilen (Fixliste Punkt 6); gelesen wird sie
+   * nur für die Zeilen, die es brauchen, über ihre id.
    * @param {string} search - getrimmter Suchbegriff (parseSearch)
    * @param {string} rows - Name der Unterabfrage mit den Spalten id, prompt,
    *   feedbackReason, feedbackText und answer_head
@@ -799,6 +807,11 @@ const EmbedChats = {
     END)`;
     const fromRow = (test) =>
       Prisma.sql`(SELECT ${test} FROM embed_chats AS search_source WHERE search_source.id = ${Prisma.raw(rows)}.id)`;
+    // Der Anfang mit aufgelöstem \n (SQL-Literal: '\n' sind die beiden
+    // Zeichen Rückstrich und n). Nur diese eine Maskierung: Ein zweites
+    // replace (\") kostete je Zeile mehr, als es spart (Messung Fixliste 2,
+    // R6: „kurs" 891 statt 1049 ms für das Prädikat über 100.000 Zeilen).
+    const answerPlain = Prisma.raw(`replace(answer_head, '\\n', char(10))`);
     return Prisma.sql`(${matches(Prisma.raw("prompt"))}
       OR ${matches(Prisma.raw("feedbackReason"))}
       OR ${matches(Prisma.raw("feedbackText"))}
@@ -806,6 +819,7 @@ const EmbedChats = {
         WHEN answer_head IS NULL THEN ${fromRow(matches(visibleAnswer))}
         WHEN NOT (${headProbe}) THEN 0
         WHEN instr(answer_head, '\\') = 0 THEN ${anyExact(head)}
+        WHEN instr(${answerPlain}, '\\') = 0 THEN ${anyExact(answerPlain)}
         ELSE ${fromRow(anyExact(visibleAnswer))}
       END))`;
   },
@@ -1644,8 +1658,7 @@ const EmbedChats = {
    * @param {{start: Date, endExclusive: Date}|null} page.startedBetween - bereits normalisiert
    * @param {number} page.maxId
    * @param {{startedAt: number, firstChatId: number}|null} page.after - letzte Konversation der vorigen Seite
-   * @param {number|null} page.limit - null: alle Konversationen der Auswahl
-   * @param {string|null} [page.search] - Suchbegriff wie in der Liste
+   * @param {number} page.limit
    * @returns {Promise<Array<{conversation_id: string, session_id: string, first_chat_id: number, started_at: number, message_count: number, conversation_number: number}>>}
    */
   _exportConversationPage: async function ({
@@ -1657,7 +1670,6 @@ const EmbedChats = {
     maxId,
     after,
     limit,
-    search = null,
   }) {
     const { Prisma } = require("@prisma/client");
     const { source, where: filter } = EmbedChats._conversationSelection({
@@ -1667,7 +1679,6 @@ const EmbedChats = {
       maxId,
       feedbackFilter,
       startedBetween,
-      search,
     });
     const where = after
       ? EmbedChats._whereAnd(
@@ -1675,8 +1686,6 @@ const EmbedChats = {
           Prisma.sql`(started_at < ${after.startedAt} OR (started_at = ${after.startedAt} AND first_chat_id < ${after.firstChatId}))`
         )
       : filter;
-    // limit null: alle auf einmal (Export mit Suche, siehe conversationsForExport)
-    const page = limit === null ? Prisma.empty : Prisma.sql`LIMIT ${limit}`;
 
     const rows = await prisma.$queryRaw`
       SELECT
@@ -1689,7 +1698,7 @@ const EmbedChats = {
       FROM ${source}
       ${where}
       ORDER BY started_at DESC, first_chat_id DESC
-      ${page}
+      LIMIT ${limit}
     `;
     return rows.map((row) => ({
       conversation_id: row.conversation_id,
@@ -1699,6 +1708,88 @@ const EmbedChats = {
       message_count: Number(row.message_count),
       conversation_number: Number(row.conversation_number),
     }));
+  },
+
+  /**
+   * Export mit Suche (Fixliste Punkt 8, Fixliste 2 R11): die
+   * Treffer-Konversationen der Auswahl, EINMAL bestimmt - die Suche läuft
+   * einmal über die Zeilen statt je Seite. Zurück kommen nur drei Zahlen je
+   * Konversation, in der Reihenfolge des Exports (laufende Nummer); Kennungen
+   * und Inhalte liest {@link EmbedChats._exportHitPage} seitenweise.
+   * @param {Object} selection - wie {@link EmbedChats._exportConversationPage}, ohne after/limit
+   * @param {string} selection.search - Suchbegriff wie in der Liste
+   * @returns {Promise<{firstChatIds: number[], messageCounts: number[], numbers: number[]}>}
+   */
+  _exportHits: async function ({
+    embedId,
+    startDate,
+    endDate,
+    feedbackFilter,
+    startedBetween,
+    maxId,
+    search,
+  }) {
+    const { source, where } = EmbedChats._conversationSelection({
+      embedId,
+      startDate,
+      endDate,
+      maxId,
+      feedbackFilter,
+      startedBetween,
+      search,
+    });
+    const rows = await prisma.$queryRaw`
+      SELECT first_chat_id, message_count, conversation_number
+      FROM ${source}
+      ${where}
+      ORDER BY started_at DESC, first_chat_id DESC
+    `;
+    const hits = { firstChatIds: [], messageCounts: [], numbers: [] };
+    for (const row of rows) {
+      hits.firstChatIds.push(Number(row.first_chat_id));
+      hits.messageCounts.push(Number(row.message_count));
+      hits.numbers.push(Number(row.conversation_number));
+    }
+    return hits;
+  },
+
+  /**
+   * Eine Seite der Treffer-Konversationen ({@link EmbedChats._exportHits}) in
+   * der Form von {@link EmbedChats._exportConversationPage}: Kennung und
+   * Browser-Sitzung kommen aus der ersten Zeile jeder Konversation (über den
+   * Primärschlüssel, ohne die Suche zu wiederholen).
+   * @param {number} embedId
+   * @param {{firstChatIds: number[], messageCounts: number[], numbers: number[]}} hits
+   * @param {number} from - erster Index der Seite
+   * @param {number} to - Index hinter der Seite
+   * @returns {Promise<Array<{conversation_id: string, session_id: string, first_chat_id: number, message_count: number, conversation_number: number}>>}
+   */
+  _exportHitPage: async function (embedId, hits, from, to) {
+    const ids = hits.firstChatIds.slice(from, to);
+    if (ids.length === 0) return [];
+    const rows = await prisma.embed_chats.findMany({
+      where: { embed_id: embedId, id: { in: ids } },
+      select: { id: true, conversation_id: true, session_id: true },
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const page = [];
+    for (
+      let index = from;
+      index < to && index < hits.firstChatIds.length;
+      index++
+    ) {
+      const row = byId.get(hits.firstChatIds[index]);
+      // Inzwischen gelöscht: Die Konversation fehlt dann auch im Export.
+      if (!row) continue;
+      page.push({
+        conversation_id: row.conversation_id ?? row.session_id,
+        session_id: row.session_id,
+        first_chat_id: row.id,
+        message_count: hits.messageCounts[index],
+        conversation_number: hits.numbers[index],
+      });
+    }
+    return page;
   },
 
   /**
@@ -1816,8 +1907,9 @@ const EmbedChats = {
    * Die Kennung der Browser-Sitzung gehört nicht in den Export.
    *
    * Gelesen wird in Paketen (siehe EXPORT_* oben), Konversationen über einen
-   * Schlüssel statt über OFFSET - mit Suche alle Treffer-Konversationen in
-   * einer Abfrage, die Nachrichten weiter in Paketen. Zu Beginn wird die höchste id des Widgets
+   * Schlüssel statt über OFFSET - mit Suche die Treffer-Konversationen in
+   * einer Abfrage (drei Zahlen je Konversation), Kennungen und Nachrichten
+   * weiter seitenweise. Zu Beginn wird die höchste id des Widgets
    * festgehalten: Nachrichten, die während des Exports entstehen, verschieben
    * weder Nummern noch Seiten. Datenbankfehler werden nicht geschluckt - eine
    * abgeschnittene Datei darf nicht wie eine vollständige aussehen.
@@ -1860,58 +1952,88 @@ const EmbedChats = {
       maxId: newest.id,
     };
 
-    // Mit Suche werden die Treffer-Konversationen EINMAL bestimmt - alle auf
-    // einer „Seite" (nur ihre Kennzahlen, keine Inhalte): Jede weitere Seite
-    // würde die Suche über alle Zeilen wiederholen (Fixliste Punkt 8). Ohne
-    // Suche wird wie bisher über einen Schlüssel geblättert.
+    // Mit Suche werden die Treffer-Konversationen EINMAL bestimmt (drei
+    // Zahlen je Konversation) und danach seitenweise gelesen: Jede weitere
+    // Seite würde die Suche über alle Zeilen wiederholen (Fixliste Punkt 8).
+    // Ohne Suche wird wie bisher über einen Schlüssel geblättert.
+    if (search) {
+      const hits = await EmbedChats._exportHits({
+        ...selection,
+        feedbackFilter,
+        search,
+      });
+      for (
+        let from = 0;
+        from < hits.firstChatIds.length;
+        from += EXPORT_CONVERSATION_PAGE
+      ) {
+        const page = await EmbedChats._exportHitPage(
+          id,
+          hits,
+          from,
+          from + EXPORT_CONVERSATION_PAGE
+        );
+        yield* EmbedChats._exportBatches(selection, page);
+      }
+      return;
+    }
+
     let after = null;
     for (;;) {
       const page = await EmbedChats._exportConversationPage({
         ...selection,
         feedbackFilter,
-        search,
         after,
-        limit: search ? null : EXPORT_CONVERSATION_PAGE,
+        limit: EXPORT_CONVERSATION_PAGE,
       });
-
-      for (let from = 0; from < page.length; ) {
-        // Paket: so viele Konversationen, bis ihre Nachrichten (nach der
-        // Zählung der Liste) das Paket füllen - mindestens eine.
-        let to = from;
-        let messages = 0;
-        do {
-          messages += page[to].message_count;
-          to += 1;
-        } while (
-          to < page.length &&
-          to - from < EXPORT_BATCH_CONVERSATIONS &&
-          messages + page[to].message_count <= EXPORT_MESSAGE_BATCH
-        );
-        const groups = page.slice(from, to);
-        from = to;
-
-        const byGroup = await EmbedChats._exportMessages({
-          ...selection,
-          groups,
-        });
-        for (const group of groups) {
-          const rows = byGroup.get(EmbedChats._exportGroupKey(group));
-          // Inzwischen gelöscht (Aufbewahrungsfrist, Löschung): keine Zeile.
-          if (!rows || rows.length === 0) continue;
-          yield {
-            number: group.conversation_number,
-            conversationId:
-              group.conversation_id === group.session_id
-                ? null
-                : group.conversation_id,
-            messages: rows,
-          };
-        }
-      }
-
-      if (search || page.length < EXPORT_CONVERSATION_PAGE) return;
+      yield* EmbedChats._exportBatches(selection, page);
+      if (page.length < EXPORT_CONVERSATION_PAGE) return;
       const last = page[page.length - 1];
       after = { startedAt: last.started_at, firstChatId: last.first_chat_id };
+    }
+  },
+
+  /**
+   * Die Konversationen einer Seite des Exports samt ihren Nachrichten - in
+   * Paketen ({@link EmbedChats._exportMessages}): so viele Konversationen,
+   * bis ihre Nachrichten (nach der Zählung der Liste) das Paket füllen,
+   * mindestens eine.
+   * @param {{embedId: number, startDate: Date|null, endDate: Date|null, startedBetween: object|null, maxId: number}} selection
+   * @param {Array<{conversation_id: string, session_id: string, message_count: number, conversation_number: number}>} page
+   * @returns {AsyncGenerator<import("../utils/helpers/chat/embedConversationExport").ExportConversation>}
+   */
+  _exportBatches: async function* (selection, page) {
+    for (let from = 0; from < page.length; ) {
+      let to = from;
+      let messages = 0;
+      do {
+        messages += page[to].message_count;
+        to += 1;
+      } while (
+        to < page.length &&
+        to - from < EXPORT_BATCH_CONVERSATIONS &&
+        messages + page[to].message_count <= EXPORT_MESSAGE_BATCH
+      );
+      const groups = page.slice(from, to);
+      from = to;
+
+      const byGroup = await EmbedChats._exportMessages({
+        ...selection,
+        groups,
+      });
+      for (const group of groups) {
+        const rows = byGroup.get(EmbedChats._exportGroupKey(group));
+        // Inzwischen gelöscht (Aufbewahrungsfrist, Löschung): keine Zeile.
+        if (!rows || rows.length === 0) continue;
+        yield {
+          number: group.conversation_number,
+          conversationId:
+            group.conversation_id === group.session_id
+              ? null
+              : group.conversation_id,
+          messages: rows,
+        };
+      }
     }
   },
 

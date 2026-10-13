@@ -77,6 +77,12 @@ function parseSearch(value) {
  * Die Formen, in denen der Begriff gesucht wird: NFC (wie parseSearch ihn
  * liefert) und, falls verschieden, NFD – gespeicherte Texte können zerlegte
  * Umlaute enthalten.
+ *
+ * Bewusst so belassen (Kontroll-Review, Low): In einem NFD-Text trifft auch
+ * der Basisbuchstabe allein – „mu" findet „Müller" (zerlegt „Mu" + Trema),
+ * und die Hervorhebung im Panel trennt dann das Trema ab. Das kommt nur bei
+ * zerlegt gespeicherten Texten vor und liefert höchstens einen Treffer zu
+ * viel, nie einen zu wenig.
  * @param {string} search - Ergebnis von parseSearch
  * @returns {string[]}
  */

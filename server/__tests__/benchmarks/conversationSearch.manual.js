@@ -21,6 +21,9 @@
 // NAK-7: 1,5 s je Begriff über den ganzen Bestand. Die Zeilen sind
 // realistisch groß (Antwort-JSON mit Text, drei Quellen und Metadaten,
 // ~5 KB), mit Umlauten, etwas Kyrillisch, Anführungszeichen und Rückstrichen.
+// Die Antworttexte sind wie im Widget mehrzeiliges Markdown (Absätze, Liste,
+// Fettdruck, Kurslinks) - im JSON also mit \n und teils \" (Fixliste 2, R6).
+// Gemessen werden auch Säulenklicks (Abschnitt) mit und ohne Suche.
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -139,10 +142,14 @@ async function fill(client) {
                 WHEN n.i % 89 = 0 THEN ' Kurs "Yoga" im Raum C:\\Kurse?'
                 ELSE ' – geht das?' END,
       json_object(
-        'text', 'Gern helfe ich Ihnen weiter. ' ||
-          (SELECT group_concat(word, ' ') FROM w WHERE i IN (n.i % 31, (n.i * 3) % 31, (n.i * 5) % 31, (n.i * 11) % 31)) ||
-          ' ' || substr(${quoted(source)}, 1 + (n.i % 400), 700) ||
-          CASE WHEN n.i % 333 = 0 THEN ' Wir bieten auch SPANISCH an.' ELSE '' END ||
+        'text', 'Gern helfe ich Ihnen weiter.' || char(10) || char(10) ||
+          '**' || (SELECT group_concat(word, ' ') FROM w WHERE i IN (n.i % 31, (n.i * 3) % 31, (n.i * 5) % 31, (n.i * 11) % 31)) || '**' ||
+          char(10) || char(10) ||
+          '- [' || (SELECT word FROM w WHERE i = (n.i * 29) % 32) || ' ' || (n.i % 90) || '](https://vhs.example/kurse/' || (n.i % 5000) || '-' || lower((SELECT word FROM w WHERE i = (n.i * 29) % 32)) || ')' || char(10) ||
+          '- ' || (SELECT group_concat(word, ' ') FROM w WHERE i IN ((n.i * 7) % 31, (n.i * 13) % 31)) || ' am Abend' || char(10) || char(10) ||
+          substr(${quoted(source)}, 1 + (n.i % 400), 700) ||
+          CASE WHEN n.i % 7 = 0 THEN char(10) || 'Der Kurs "' || (SELECT word FROM w WHERE i = n.i % 32) || '" ist beliebt.' ELSE '' END ||
+          CASE WHEN n.i % 333 = 0 THEN char(10) || 'Wir bieten auch SPANISCH an.' ELSE '' END ||
           CASE WHEN n.i % 10 = 0 THEN ' Zehntausend Plätze.' ELSE '' END ||
           CASE WHEN n.i % 61 = 0 THEN ' Siehe [Programm](https://vhs.example/kurs?a="b") und \\ Pfad.' ELSE '' END,
         'type', 'chat',
@@ -252,10 +259,15 @@ async function main() {
     q: "spanisch",
     feedbackFilter: "negative",
   });
+  // Säulenklick: eine Woche aus der Mitte des Bestands (Fixliste 2, R6)
+  const BUCKET = { startedFromDay: "2026-09-01", startedToDay: "2026-09-07" };
+  await measure("Säule (Woche), ohne Suche", BUCKET);
+  for (const q of ["kurs", "für", "Übung", "xyzkeintreffer"])
+    await measure(`q=${JSON.stringify(q)} + Säule (Woche)`, { q, ...BUCKET });
 
   let exported = null;
   if (EXPORT) {
-    for (const q of ["zehntausend", null]) {
+    for (const q of ["zehntausend", "kurs", null]) {
       const started = process.hrtime.bigint();
       const result = await invoke(EXPORT_ROUTE, {
         params: { embedId: "1" },

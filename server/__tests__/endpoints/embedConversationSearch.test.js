@@ -1364,12 +1364,14 @@ describe("leistung (Fixliste 6–8)", () => {
     );
   });
 
-  test("Export mit Suche: die Treffer-Konversationen werden EINMAL bestimmt, nicht je Seite – Inhalt wie die Liste", async () => {
+  test("Export mit Suche: die Treffer-Konversationen werden EINMAL bestimmt, nicht je Seite – Kennungen und Inhalte seitenweise (Fixliste 2, R11); Inhalt wie die Liste", async () => {
     const embed = await createEmbed(
       db.client,
       await createWorkspace(db.client)
     );
-    const total = EmbedChats.EXPORT_CONVERSATION_PAGE + 3;
+    const PAGE = EmbedChats.EXPORT_CONVERSATION_PAGE;
+    // 2 · PAGE + 3 Konversationen, jede zweite mit Treffer: PAGE + 2 Treffer
+    const total = 2 * PAGE + 3;
     await db.client.embed_chats.createMany({
       data: Array.from({ length: total }, (_, i) => ({
         embed_id: embed.id,
@@ -1380,6 +1382,8 @@ describe("leistung (Fixliste 6–8)", () => {
         createdAt: new Date(berlinInstant("2026-10-05", 9, 0).getTime() + i),
       })),
     });
+    const hits = jest.spyOn(EmbedChats, "_exportHits");
+    const hitPages = jest.spyOn(EmbedChats, "_exportHitPage");
     const pages = jest.spyOn(EmbedChats, "_exportConversationPage");
     const result = await exportFile(embed, "json", {
       ...OCTOBER,
@@ -1387,19 +1391,38 @@ describe("leistung (Fixliste 6–8)", () => {
     });
     expect(result.statusCode).toBe(200);
     const exported = JSON.parse(result.body).map((c) => c.conversationId);
-    expect(pages).toHaveBeenCalledTimes(1);
-    expect(pages.mock.calls[0][0]).toMatchObject({
-      search: "kurs",
-      limit: null,
-    });
-    expect(exported).toHaveLength(Math.ceil(total / 2));
-    // ohne Suche weiter seitenweise
+    // die Suche einmal, danach nur Seiten über den Primärschlüssel
+    expect(hits).toHaveBeenCalledTimes(1);
+    expect(hits.mock.calls[0][0]).toMatchObject({ search: "kurs" });
+    const found = await hits.mock.results[0].value;
+    expect(Object.keys(found).sort()).toEqual([
+      "firstChatIds",
+      "messageCounts",
+      "numbers",
+    ]);
+    expect(found.firstChatIds).toHaveLength(PAGE + 2);
+    expect(hitPages).toHaveBeenCalledTimes(2);
+    expect(hitPages.mock.calls.map((call) => [call[2], call[3]])).toEqual([
+      [0, PAGE],
+      [PAGE, 2 * PAGE],
+    ]);
+    expect(pages).not.toHaveBeenCalled();
+    // Inhalt und Reihenfolge wie die Liste (jüngster Beginn zuerst)
+    const expected = Array.from({ length: total }, (_, i) => i)
+      .filter((i) => i % 2 === 0)
+      .reverse()
+      .map((i) => `k-${i}`);
+    expect(exported).toEqual(expected);
+    const numbers = JSON.parse(result.body).map((c) => c.conversation);
+    expect(numbers[0]).toBe(1);
+    expect(numbers[1]).toBe(3);
+    // ohne Suche weiter seitenweise über den Schlüssel
+    hits.mockClear();
     pages.mockClear();
     await exportFile(embed, "json", OCTOBER);
-    expect(pages).toHaveBeenCalledTimes(2);
-    expect(pages.mock.calls[0][0].limit).toBe(
-      EmbedChats.EXPORT_CONVERSATION_PAGE
-    );
+    expect(hits).not.toHaveBeenCalled();
+    expect(pages).toHaveBeenCalledTimes(3);
+    expect(pages.mock.calls[0][0].limit).toBe(PAGE);
   });
 });
 
@@ -1536,7 +1559,8 @@ describe("sichtbarer text (Fixliste 11, 24)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Fixliste 2: Fehler melden statt verschlucken
+// Fixliste 2: Fehler melden statt verschlucken, Vorprüfung bei mehrzeiligen
+// Antworten, Export mit Suche seitenweise
 // ---------------------------------------------------------------------------
 
 describe("fehler im verlauf (Fixliste 2, R1)", () => {
@@ -1573,5 +1597,77 @@ describe("fehler im verlauf (Fixliste 2, R1)", () => {
       success: true,
       messages: [],
     });
+  });
+});
+
+describe("mehrzeilige antworten (Fixliste 2, R6)", () => {
+  // So speichert das Widget Antworten: Markdown mit Absätzen, Listen,
+  // Kurslinks und Anführungszeichen – im JSON als \n und \".
+  const ANSWER = [
+    "Gern! Wir haben folgende **Kurse am Abend**:",
+    "",
+    '- [Spanisch A1](https://vhs.example/kurs/123?ort="Süd")',
+    '- Yoga "sanft" im Raum 2',
+    "",
+    "Unterlagen liegen unter C:\\Kurse\\neu bereit.",
+  ].join("\n");
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Was gibt es abends?",
+      answer: ANSWER,
+      conversation: "markdown",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Und sonst?",
+      answer: "Nichts\nWeiteres",
+      conversation: "andere",
+    });
+  });
+
+  test.each([
+    ["Kurse am Abend", ["markdown"]],
+    ['Yoga "sanft"', ["markdown"]],
+    ['sanft" im', ["markdown"]],
+    ["SPANISCH a1", ["markdown"]],
+    ["C:\\Kurse\\neu", ["markdown"]],
+    ["\\neu", ["markdown"]],
+    ["Nichts", ["andere"]],
+    ["Weiteres", ["andere"]],
+    // das „n“ der Maskierung \n gehört nicht zum Text
+    ["nWeiteres", []],
+    ["n- Yoga", []],
+    // Quelle und Metadaten treffen weiter nicht
+    [SOURCE_WORD, []],
+  ])("„%s“", async (search, expected) => {
+    expect((await found(embed, search)).sort()).toEqual(expected);
+  });
+
+  test("Der Antwortanfang mit \\n wird direkt geprüft (aufgelöst) – nur mit weiteren Maskierungen wird der Text der Zeile aus dem JSON gelesen", async () => {
+    const { sql } = EmbedChats._searchMatchSql("kurs");
+    // Reihenfolge: ohne Rückstrich direkt, mit aufgelöstem \n direkt, sonst JSON
+    const plain = sql.indexOf("instr(answer_head, '\\') = 0");
+    const decoded = sql.indexOf(
+      "instr(replace(answer_head, '\\n', char(10)), '\\') = 0"
+    );
+    const json = sql.lastIndexOf("json_extract(response, '$.text')");
+    expect(plain).toBeGreaterThan(0);
+    expect(decoded).toBeGreaterThan(plain);
+    expect(json).toBeGreaterThan(decoded);
+    // Zitat (\") und Rückstrich (\\) gehen über das JSON – und treffen
+    expect(await found(embed, 'Kurs "Yoga"')).toEqual([]);
+    await addChat(embed, {
+      at: berlinInstant("2026-10-06", 9, 0),
+      prompt: "Zitat?",
+      answer: 'Zeile eins\nDer Kurs "Yoga" am Abend\nPfad C:\\neu',
+      conversation: "zitat",
+    });
+    expect(await found(embed, 'Kurs "Yoga"')).toEqual(["zitat"]);
+    expect(await found(embed, "C:\\neu")).toEqual(["zitat"]);
+    expect(await found(embed, "eins")).toEqual(["zitat"]);
+    expect(await found(embed, "nDer")).toEqual([]);
   });
 });
