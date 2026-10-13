@@ -1,0 +1,908 @@
+// KIE-537: Vergleich mit dem Vorzeitraum – die Logik ohne React
+// (src/utils/analyticsTimeline.js): Veränderung in Prozent, die Zeile im
+// Kennzahl-Feld, was vom Vorzeitraum zu zeigen ist, Geometrie der Linie und
+// der Tooltip über ihr. Geprüft mit den deutschen Texten der Sprachdatei.
+//
+// Was die Komponenten daraus zeichnen, prüft embedAnalyticsCompareView.test.mjs,
+// Schalter und Anfragen embedAnalyticsCompare.test.mjs.
+import test from "node:test";
+import assert from "node:assert/strict";
+import de from "../src/locales/de/common.js";
+import en from "../src/locales/en/common.js";
+import {
+  PREVIOUS_LINE,
+  TOOLTIP_GAP,
+  addDays,
+  bucketLabel,
+  changeLabel,
+  columnLayout,
+  comparisonOf,
+  formatDayRange,
+  formatPercentChange,
+  isRunningRange,
+  linePath,
+  linePoints,
+  percentChange,
+  previousBucketLabel,
+  previousValueLabel,
+  tooltipPlacement,
+  valueLabel,
+  valueScale,
+} from "../src/utils/analyticsTimeline.js";
+
+/** t() über einer Sprachdatei: Punktpfade, {{Platzhalter}}, _one/_other. */
+function translator(resources) {
+  const lookup = (key) =>
+    key.split(".").reduce((node, part) => node?.[part], resources);
+  return (key, params = {}) => {
+    let text = lookup(key);
+    if (text === undefined && "count" in params)
+      text = lookup(`${key}_${params.count === 1 ? "one" : "other"}`);
+    assert.equal(typeof text, "string", `Text fehlt: ${key}`);
+    return text.replace(/{{(\w+)}}/g, (_match, name) => String(params[name]));
+  };
+}
+const t = translator(de);
+const context = { t, locale: "de" };
+
+// ---------------------------------------------------------------------------
+// Texte (Hard Constraint 8)
+// ---------------------------------------------------------------------------
+
+/** Punktpfade aller Texte unter einem Knoten, mit ihrem Wert. */
+function leaves(node, prefix = "") {
+  return Object.entries(node).flatMap(([key, value]) =>
+    value !== null && typeof value === "object"
+      ? leaves(value, `${prefix}${key}.`)
+      : [[`${prefix}${key}`, value]]
+  );
+}
+
+test("Texte (Hard Constraint 8): Deutsch und Englisch sind ausformuliert, jede Sprachdatei führt dieselben Schlüssel", async () => {
+  const { resources } = await import("../src/locales/resources.js");
+  const keys = leaves(de["embed-analytics"].compare).map(([key]) => key);
+  assert.ok(keys.includes("toggle"));
+  assert.ok(keys.includes("legend.previous"));
+  assert.ok(keys.length >= 14);
+
+  for (const [lang, { common }] of Object.entries(resources)) {
+    const block = common["embed-analytics"]?.compare;
+    assert.ok(block, `${lang}: embed-analytics.compare fehlt`);
+    assert.deepEqual(
+      leaves(block).map(([key]) => key),
+      keys,
+      lang
+    );
+    for (const [key, value] of leaves(block))
+      if (lang === "de" || lang === "en")
+        assert.ok(
+          typeof value === "string" && value.trim() !== "",
+          `${lang}: ${key}`
+        );
+      else assert.ok(value === null || typeof value === "string", lang);
+  }
+  assert.equal(de["embed-analytics"].compare.toggle, "Vorzeitraum vergleichen");
+  assert.equal(
+    de["embed-analytics"].compare.legend.current,
+    "Gewählter Zeitraum"
+  );
+  assert.equal(de["embed-analytics"].compare.legend.previous, "Vorzeitraum");
+  assert.equal(
+    de["embed-analytics"].compare.unavailable,
+    "Kein Vergleich verfügbar"
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Veränderung in den Kennzahlen (AK-4)
+// ---------------------------------------------------------------------------
+
+test("Veränderung (AK-4): 421 gegenüber 266 sind +58 % – ganze Prozent, kaufmännisch gerundet", () => {
+  assert.equal(percentChange(421, 266), 58); // 58,27
+  assert.equal(percentChange(266, 421), -37); // −36,82
+  assert.equal(percentChange(150, 100), 50);
+  assert.equal(percentChange(50, 100), -50);
+  assert.equal(percentChange(200, 100), 100);
+  assert.equal(percentChange(5000, 2), 249900);
+  // Grenze x,5: weg von der Null, in beide Richtungen gleich
+  assert.equal(percentChange(201, 200), 1); // +0,5
+  assert.equal(percentChange(199, 200), -1); // −0,5
+  assert.equal(percentChange(1005, 1000), 1); // +0,5
+  assert.equal(percentChange(1004, 1000), 0); // +0,4
+  assert.equal(percentChange(996, 1000), 0); // −0,4
+  assert.equal(percentChange(329, 200), 65); // +64,5
+  assert.equal(percentChange(71, 200), -65); // −64,5
+});
+
+test("Veränderung: gleiche Werte sind 0 (nie −0), ein Rückgang auf 0 ist −100", () => {
+  assert.ok(Object.is(percentChange(266, 266), 0));
+  assert.ok(Object.is(percentChange(996, 1000), 0));
+  assert.ok(Object.is(percentChange(1004, 1000), 0));
+  assert.equal(percentChange(0, 266), -100);
+  assert.equal(percentChange(0, 1), -100);
+});
+
+test("Veränderung (AK-4): Bei einem Vorzeitraumwert von 0 gibt es keine Prozentzahl – auch nicht, wenn beide 0 sind", () => {
+  assert.equal(percentChange(421, 0), null);
+  assert.equal(percentChange(0, 0), null);
+  assert.equal(percentChange(1, 0), null);
+  // Unsinn als Vorzeitraumwert ist kein Vergleich
+  for (const previous of [undefined, null, NaN, -5])
+    assert.equal(percentChange(421, previous), null, String(previous));
+  // Ein fehlender Wert im Zeitraum zählt als 0.
+  assert.equal(percentChange(undefined, 50), -100);
+});
+
+test("Veränderung: Vorzeichen und Zahl in deutscher Schreibweise – Plus, Minuszeichen, ±0, Tausenderpunkt", () => {
+  assert.equal(formatPercentChange(58), "+58");
+  assert.equal(formatPercentChange(-37), "−37");
+  assert.equal(formatPercentChange(-100), "−100");
+  assert.equal(formatPercentChange(0), "±0");
+  assert.equal(formatPercentChange(1150), "+1.150");
+  assert.equal(formatPercentChange(249900), "+249.900");
+  // ein Minuszeichen (U+2212), kein Bindestrich
+  assert.equal(formatPercentChange(-1).codePointAt(0), 0x2212);
+});
+
+test("Zeile im Kennzahl-Feld (AK-4): „+58 % ggü. Vorzeitraum (266)“; bei 0 im Vorzeitraum „Vorzeitraum: 0“ ohne Prozentzahl", () => {
+  assert.equal(changeLabel(421, 266, t), "+58 % ggü. Vorzeitraum (266)");
+  assert.equal(changeLabel(266, 421, t), "−37 % ggü. Vorzeitraum (421)");
+  assert.equal(changeLabel(0, 12, t), "−100 % ggü. Vorzeitraum (12)");
+  assert.equal(changeLabel(266, 266, t), "±0 % ggü. Vorzeitraum (266)");
+  assert.equal(changeLabel(13000, 1234, t), "+953 % ggü. Vorzeitraum (1.234)");
+  assert.equal(changeLabel(30000, 2, t), "+1.499.900 % ggü. Vorzeitraum (2)");
+
+  assert.equal(changeLabel(421, 0, t), "Vorzeitraum: 0");
+  assert.equal(changeLabel(0, 0, t), "Vorzeitraum: 0");
+  assert.doesNotMatch(changeLabel(421, 0, t), /%/);
+  assert.doesNotMatch(changeLabel(0, 0, t), /%/);
+});
+
+test("Zeile im Kennzahl-Feld und Tooltip, englische Oberfläche: Zahlen bleiben in deutscher Schreibweise", () => {
+  const tEn = translator(en);
+  assert.equal(
+    changeLabel(13000, 1234, tEn),
+    "+953 % vs. previous period (1.234)"
+  );
+  assert.equal(changeLabel(421, 0, tEn), "Previous period: 0");
+  assert.equal(previousValueLabel(1234, tEn), "Previous period: 1.234");
+});
+
+test("Wert des Vorzeitraums ohne Abschnitt: „Vorzeitraum: N“ – so steht er im Kennzahl-Feld, wenn es keine Prozentzahl gibt", () => {
+  assert.equal(previousValueLabel(31, t), "Vorzeitraum: 31");
+  assert.equal(previousValueLabel(0, t), "Vorzeitraum: 0");
+  assert.equal(previousValueLabel(1234, t), "Vorzeitraum: 1.234");
+});
+
+/** Ein Abschnitt, wie analytics/summary ihn im Vorzeitraum nennt. */
+const section = (start, end, fields = {}) => ({
+  start,
+  end,
+  partial: false,
+  messages: 12,
+  conversations: 1,
+  ...fields,
+});
+// Je Körnung ein Abschnitt des Zeitraums und der Abschnitt des Vorzeitraums
+// an derselben Stelle.
+const SECTIONS = [
+  [
+    "Tag",
+    "day",
+    section("2026-10-13", "2026-10-13"),
+    section("2026-10-09", "2026-10-09"),
+    "Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten",
+  ],
+  [
+    "Stunde",
+    "hour",
+    section("2026-10-12", "2026-10-12", { hour: 10 }),
+    section("2026-10-11", "2026-10-11", { hour: 10 }),
+    "Vorzeitraum: So., 11.10.2026, 10–11 Uhr — 12 Nachrichten",
+  ],
+  [
+    "Woche",
+    "week",
+    section("2026-10-05", "2026-10-11"),
+    section("2026-09-07", "2026-09-13"),
+    "Vorzeitraum: KW 37 (07.09.–13.09.2026) — 12 Nachrichten",
+  ],
+  [
+    "Monat",
+    "month",
+    section("2026-10-01", "2026-10-31"),
+    section("2026-09-01", "2026-09-30"),
+    "Vorzeitraum: September 2026 — 12 Nachrichten",
+  ],
+];
+
+test("Tooltip (AK-5): Die zweite Zeile nennt den Abschnitt des Vorzeitraums, zu dem der Wert gehört – Tag, Stunde, Kalenderwoche, Monat, in der Schreibweise der ersten Zeile", () => {
+  for (const [name, granularity, , previous, expected] of SECTIONS) {
+    const label = previousBucketLabel(
+      previous,
+      "messages",
+      granularity,
+      context
+    );
+    assert.equal(label, expected, name);
+    // dieselbe Schreibweise wie die erste Zeile: Abschnitt — Wert
+    assert.equal(
+      label,
+      `Vorzeitraum: ${t("embed-analytics.chart.tooltip", {
+        period: bucketLabel(previous, granularity, context),
+        value: valueLabel(12, "messages", t),
+      })}`,
+      name
+    );
+  }
+  // Der Fall aus der Abnahme: Am Platz des 13.10. zeigt die Linie den 09.10.
+  const [, , , oct09] = SECTIONS[0];
+  assert.equal(
+    previousBucketLabel(oct09, "messages", "day", context),
+    "Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten"
+  );
+  // die gewählte Größe, Einzahl, Tausenderpunkt, kein Wert
+  assert.equal(
+    previousBucketLabel(oct09, "conversations", "day", context),
+    "Vorzeitraum: Fr., 09.10.2026 — 1 Konversation"
+  );
+  assert.equal(
+    previousBucketLabel(
+      { ...oct09, messages: 1234 },
+      "messages",
+      "day",
+      context
+    ),
+    "Vorzeitraum: Fr., 09.10.2026 — 1.234 Nachrichten"
+  );
+  assert.equal(
+    previousBucketLabel(
+      { ...oct09, messages: undefined },
+      "messages",
+      "day",
+      context
+    ),
+    "Vorzeitraum: Fr., 09.10.2026 — 0 Nachrichten"
+  );
+  // über den Jahreswechsel: Woche und Jahr des Abschnitts, nicht des Platzes
+  assert.equal(
+    previousBucketLabel(
+      section("2025-12-29", "2026-01-04"),
+      "messages",
+      "week",
+      context
+    ),
+    "Vorzeitraum: KW 1 (29.12.–04.01.2026) — 12 Nachrichten"
+  );
+  assert.equal(
+    previousBucketLabel(
+      section("2025-12-01", "2025-12-31"),
+      "messages",
+      "month",
+      context
+    ),
+    "Vorzeitraum: Dezember 2025 — 12 Nachrichten"
+  );
+  // englische Oberfläche
+  assert.equal(
+    previousBucketLabel(oct09, "messages", "day", {
+      t: translator(en),
+      locale: "en",
+    }),
+    "Previous period: Fri, 09.10.2026 — 12 messages"
+  );
+});
+
+test("Bereich des Vorzeitraums: zwei Tage mit Halbgeviertstrich, ein einzelner Tag allein", () => {
+  assert.equal(
+    formatDayRange("2026-08-14", "2026-09-12", t),
+    "14.08.2026–12.09.2026"
+  );
+  assert.equal(
+    formatDayRange("2025-12-30", "2026-01-02", t),
+    "30.12.2025–02.01.2026"
+  );
+  assert.equal(formatDayRange("2026-10-11", "2026-10-11", t), "11.10.2026");
+});
+
+// ---------------------------------------------------------------------------
+// Was vom Vorzeitraum zu zeigen ist (Hard Constraints 5 und 6, AK-6, AK-8)
+// ---------------------------------------------------------------------------
+
+const FROM = "2026-09-13";
+const TOTALS = {
+  messages: 421,
+  conversations: 60,
+  feedbackPositive: 9,
+  feedbackNegative: 3,
+};
+const dayBuckets = (from, days, value) =>
+  Array.from({ length: days }, (_, i) => ({
+    start: addDays(from, i),
+    end: addDays(from, i),
+    partial: false,
+    messages: value(i),
+    conversations: 1,
+  }));
+/** Antwort von analytics/summary für 30 Tage, mit Vorzeitraum nach Wunsch. */
+function summaryWith(previous) {
+  return {
+    success: true,
+    granularity: "day",
+    fromDay: FROM,
+    toDay: addDays(FROM, 29),
+    firstLedgerDay: "2026-01-01",
+    totals: TOTALS,
+    buckets: dayBuckets(FROM, 30, (i) => 14 + i),
+    ...(previous === undefined ? {} : { previous }),
+  };
+}
+const PREVIOUS = {
+  available: true,
+  fromDay: "2026-08-14",
+  toDay: "2026-09-12",
+  totals: {
+    messages: 266,
+    conversations: 0,
+    feedbackPositive: 6,
+    feedbackNegative: 0,
+  },
+  buckets: dayBuckets("2026-08-14", 30, (i) => 3 + (i % 5)),
+};
+
+test("Schalter aus (AK-8): kein Vergleich – auch wenn die Antwort noch einen Vorzeitraum nennt", () => {
+  assert.equal(comparisonOf(summaryWith(PREVIOUS), false), null);
+  assert.equal(comparisonOf(summaryWith(undefined), false), null);
+  assert.equal(comparisonOf(null, false), null);
+});
+
+test("Schalter an, die Antwort ist noch ohne Vergleich geladen: nichts zu zeigen, statt „kein Vergleich“", () => {
+  assert.equal(comparisonOf(summaryWith(undefined), true), null);
+  assert.equal(comparisonOf(summaryWith(null), true), null);
+  assert.equal(comparisonOf(null, true), null);
+});
+
+test("Schalter an: Kennzahlen des Vorzeitraums und die Linie – je Säule ein Abschnitt, mit ihren eigenen Tagen", () => {
+  const comparison = comparisonOf(summaryWith(PREVIOUS), true);
+  assert.equal(comparison.available, true);
+  assert.equal(comparison.fromDay, "2026-08-14");
+  assert.equal(comparison.toDay, "2026-09-12");
+  assert.deepEqual(comparison.totals, PREVIOUS.totals);
+  assert.equal(comparison.buckets, PREVIOUS.buckets);
+  assert.equal(comparison.buckets.length, 30);
+  assert.equal(comparison.lineFromDay, "2026-08-14");
+  assert.equal(comparison.lineToDay, "2026-09-12");
+
+  // Wochen: Die Linie zeigt ganze Kalenderwochen, die Kennzahlen andere Tage.
+  const weeks = {
+    ...summaryWith(undefined),
+    granularity: "week",
+    buckets: [
+      { start: "2026-09-30", end: "2026-10-04", partial: true },
+      { start: "2026-10-05", end: "2026-10-11", partial: false },
+    ],
+    previous: {
+      available: true,
+      fromDay: "2026-09-18",
+      toDay: "2026-09-29",
+      totals: PREVIOUS.totals,
+      buckets: [
+        { start: "2026-09-14", end: "2026-09-20", partial: false },
+        { start: "2026-09-21", end: "2026-09-27", partial: false },
+      ],
+    },
+  };
+  const weekly = comparisonOf(weeks, true);
+  assert.equal(weekly.fromDay, "2026-09-18");
+  assert.equal(weekly.toDay, "2026-09-29");
+  assert.equal(weekly.lineFromDay, "2026-09-14");
+  assert.equal(weekly.lineToDay, "2026-09-27");
+});
+
+test("Kein Vergleich (AK-6): available false – mit dem ersten Tag der Zählwerte, keine Werte des Vorzeitraums", () => {
+  const unavailable = comparisonOf(
+    {
+      ...summaryWith({ ...PREVIOUS, available: false }),
+      firstLedgerDay: "2026-09-01",
+    },
+    true
+  );
+  assert.deepEqual(unavailable, { available: false, since: "2026-09-01" });
+
+  // Vor dem 01.01.0001 nennt der Server weder Tage noch Werte.
+  assert.deepEqual(
+    comparisonOf(
+      summaryWith({
+        available: false,
+        fromDay: null,
+        toDay: null,
+        totals: null,
+        buckets: [],
+      }),
+      true
+    ),
+    { available: false, since: "2026-01-01" }
+  );
+  // Ein Widget ohne jeden Zählwert
+  assert.deepEqual(
+    comparisonOf(
+      {
+        ...summaryWith({ ...PREVIOUS, available: false }),
+        firstLedgerDay: null,
+      },
+      true
+    ),
+    { available: false, since: null }
+  );
+});
+
+test("Kein Vergleich: Eine Antwort, deren Linie nicht zu den Säulen passt, wird nicht gezeichnet", () => {
+  for (const previous of [
+    { ...PREVIOUS, buckets: PREVIOUS.buckets.slice(1) },
+    { ...PREVIOUS, buckets: [] },
+    { ...PREVIOUS, buckets: undefined },
+    { ...PREVIOUS, totals: null },
+    { ...PREVIOUS, fromDay: null },
+    { ...PREVIOUS, available: "true" },
+    { ...PREVIOUS, available: undefined },
+  ])
+    assert.deepEqual(comparisonOf(summaryWith(previous), true), {
+      available: false,
+      since: "2026-01-01",
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Laufender Zeitraum
+// ---------------------------------------------------------------------------
+
+test("Laufender Zeitraum: Enthält der Zeitraum den heutigen Tag, läuft er noch – ein abgeschlossener und ein noch nicht begonnener nicht", () => {
+  // 13.10.2026, 12:00 Uhr in Berlin
+  const noon = new Date("2026-10-13T10:00:00Z");
+  const running = (fromDay, toDay) => isRunningRange(fromDay, toDay, noon);
+
+  // „Heute", „Letzte 30 Tage", laufender Monat, bis heute, ab heute
+  assert.equal(running("2026-10-13", "2026-10-13"), true);
+  assert.equal(running("2026-09-14", "2026-10-13"), true);
+  assert.equal(running("2026-10-01", "2026-10-31"), true);
+  assert.equal(running("2025-10-14", "2026-10-13"), true);
+  assert.equal(running("2026-10-13", "2026-10-20"), true);
+  // „Gestern", „Letzter Monat", bis gestern
+  assert.equal(running("2026-10-12", "2026-10-12"), false);
+  assert.equal(running("2026-09-01", "2026-09-30"), false);
+  assert.equal(running("2026-09-13", "2026-10-12"), false);
+  // noch nicht begonnen
+  assert.equal(running("2026-10-14", "2026-10-14"), false);
+  assert.equal(running("2026-10-14", "2026-11-12"), false);
+  // ohne Zeitraum, ohne gültige Uhr
+  assert.equal(running(null, "2026-10-13"), false);
+  assert.equal(running("2026-10-13", undefined), false);
+  assert.equal(running("", ""), false);
+  assert.equal(
+    isRunningRange("2026-10-13", "2026-10-13", new Date(NaN)),
+    false
+  );
+  // Ohne Uhr gilt die jetzige: Ein Zeitraum um heute läuft, ein alter nicht.
+  assert.equal(isRunningRange("2000-01-01", "2999-12-31"), true);
+  assert.equal(isRunningRange("2000-01-01", "2000-12-31"), false);
+});
+
+test("Laufender Zeitraum: „heute“ ist der Berliner Kalendertag, nicht der des Browsers – um Mitternacht, in Sommer- und Winterzeit, mit TZ=UTC, Europe/Berlin und America/New_York", () => {
+  // Mittag des 13.10. in der Zeitzone des Prozesses – zeigt, dass sie gilt.
+  const LOCAL_NOON = {
+    UTC: "2026-10-13T12:00:00.000Z",
+    "Europe/Berlin": "2026-10-13T10:00:00.000Z",
+    "America/New_York": "2026-10-13T16:00:00.000Z",
+  };
+  // [Zeitpunkt, Berliner Tag]
+  const INSTANTS = [
+    // Sommerzeit (UTC+2): letzte Millisekunde des 13.10. und Mitternacht
+    ["2026-10-13T21:59:59.999Z", "2026-10-13"],
+    ["2026-10-13T22:00:00.000Z", "2026-10-14"],
+    // 00:30 Uhr in Berlin: UTC und New York stehen noch im 13.10.
+    ["2026-10-13T22:30:00.000Z", "2026-10-14"],
+    // 23:30 Uhr in New York am 13.10.: in Berlin 05:30 Uhr am 14.10.
+    ["2026-10-14T03:30:00.000Z", "2026-10-14"],
+    // Winterzeit (UTC+1)
+    ["2026-01-31T22:59:59.999Z", "2026-01-31"],
+    ["2026-01-31T23:00:00.000Z", "2026-02-01"],
+    // Ende der Sommerzeit am 25.10.2026 (der Tag hat 25 Stunden)
+    ["2026-10-24T22:00:00.000Z", "2026-10-25"],
+    ["2026-10-25T22:59:59.999Z", "2026-10-25"],
+    ["2026-10-25T23:00:00.000Z", "2026-10-26"],
+    // Jahreswechsel
+    ["2026-12-31T22:59:59.999Z", "2026-12-31"],
+    ["2026-12-31T23:00:00.000Z", "2027-01-01"],
+  ];
+
+  const original = process.env.TZ;
+  try {
+    for (const [zone, noon] of Object.entries(LOCAL_NOON)) {
+      process.env.TZ = zone;
+      assert.equal(new Date(2026, 9, 13, 12).toISOString(), noon, zone);
+
+      for (const [iso, berlinDay] of INSTANTS) {
+        const now = new Date(iso);
+        const where = `TZ=${zone}, ${iso}`;
+        const before = addDays(berlinDay, -1);
+        const after = addDays(berlinDay, 1);
+        // genau der Berliner Tag läuft – der davor ist abgeschlossen, der
+        // danach hat nicht begonnen
+        assert.equal(isRunningRange(berlinDay, berlinDay, now), true, where);
+        assert.equal(isRunningRange(before, before, now), false, where);
+        assert.equal(isRunningRange(after, after, now), false, where);
+        // „Letzte 30 Tage" bis zum Berliner Tag bzw. bis zum Tag davor
+        assert.equal(
+          isRunningRange(addDays(berlinDay, -29), berlinDay, now),
+          true,
+          where
+        );
+        assert.equal(
+          isRunningRange(addDays(before, -29), before, now),
+          false,
+          where
+        );
+      }
+    }
+  } finally {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Linie (Hard Constraint 4, AK-3, NAK-1)
+// ---------------------------------------------------------------------------
+
+const PLOT = { width: 900, height: 200 };
+function plotOf(values, previousValues) {
+  const scale = valueScale(Math.max(...values, ...previousValues, 0));
+  const columns = columnLayout({ values, ...PLOT, max: scale.max });
+  const line = linePoints({
+    values: previousValues,
+    columns,
+    height: PLOT.height,
+    max: scale.max,
+  });
+  return { scale, columns, line };
+}
+
+test("Linie (AK-3): je Säulenplatz ein Punkt über dessen Mitte, in der Höhe des Werts", () => {
+  const { scale, columns, line } = plotOf([10, 20, 0, 40], [0, 20, 40, 10]);
+  assert.equal(scale.max, 40);
+  assert.equal(line.length, 4);
+  assert.deepEqual(
+    line.map((point) => point.x),
+    columns.map((column) => column.center)
+  );
+  assert.deepEqual(
+    line.map((point) => point.y),
+    [200, 100, 0, 150]
+  );
+  // Gleicher Wert, gleiche Höhe: Der Punkt liegt auf der Oberkante der Säule.
+  assert.equal(line[1].y, columns[1].bar.y);
+});
+
+test("Achse (AK-3): reicht bis zum höheren der beiden Höchstwerte – auch wenn der Vorzeitraum ihn hat", () => {
+  const { scale, line } = plotOf([10, 20, 5], [70, 3, 0]);
+  assert.equal(scale.max, 80);
+  assert.ok(scale.ticks.at(-1) >= 70);
+  // Kein Punkt über der Zeichenfläche, keiner unter der Grundlinie.
+  for (const point of line) assert.ok(point.y >= 0 && point.y <= PLOT.height);
+  assert.equal(line[0].y, PLOT.height - (70 / 80) * PLOT.height);
+  // Ohne den Vorzeitraum reichte die Achse nur bis 20.
+  assert.equal(valueScale(20).max, 20);
+});
+
+test("Linie (Hard Constraint 4): nie unter 0 und nie über der Zeichenfläche – auch bei Unsinn als Wert", () => {
+  const values = [5, 5, 5, 5, 5, 5];
+  const columns = columnLayout({ values, ...PLOT, max: 10 });
+  const line = linePoints({
+    values: [-3, 0, undefined, NaN, 25, 10],
+    columns,
+    height: PLOT.height,
+    max: 10,
+  });
+  assert.deepEqual(
+    line.map((point) => point.y),
+    [200, 200, 200, 200, 0, 0]
+  );
+});
+
+test("Linie (NAK-1): gerade Stücke von Wert zu Wert, keine Kurve – zwischen Null und Höchstwert schwingt nichts über oder unter", () => {
+  // eine Null neben dem Höchstwert, beidseitig
+  const { line } = plotOf([10, 10, 10, 10, 10], [0, 34, 0, 34, 34]);
+  const path = linePath(line);
+
+  // Nur M (Anfang) und L (gerade weiter): keine Kurven-, Bogen- oder
+  // Glättungsbefehle.
+  assert.match(path, /^M[\d.]+,[\d.]+( L[\d.]+,[\d.]+)+$/);
+  assert.doesNotMatch(path, /[CSQTAcsqtahvHV]/);
+  const commands = path.split(" ");
+  assert.equal(commands.length, line.length);
+  assert.ok(commands[0].startsWith("M"));
+  assert.ok(commands.slice(1).every((command) => command.startsWith("L")));
+
+  // Die Ecken des Pfads sind genau die Werte, in ihrer Reihenfolge.
+  const corners = commands.map((command) =>
+    command.slice(1).split(",").map(Number)
+  );
+  assert.deepEqual(
+    corners,
+    line.map((point) => [
+      Math.round(point.x * 100) / 100,
+      Math.round(point.y * 100) / 100,
+    ])
+  );
+  // Zwischen zwei Ecken liegt eine Gerade: nie über dem höheren, nie unter
+  // dem niedrigeren der beiden Werte – und damit nie unter der Grundlinie.
+  const top = Math.min(...line.map((point) => point.y));
+  for (const [, y] of corners) assert.ok(y >= top && y <= PLOT.height);
+});
+
+test("Linie: gepunktet, schmaler als die Säulen und mit Punktmarken – nicht nur über die Farbe zu erkennen (NAK-4)", () => {
+  const [dash, gap] = PREVIOUS_LINE.dash.split(" ").map(Number);
+  // Punkte: Strichlänge nahe 0 mit runden Enden, die Lücke größer als der Punkt
+  assert.ok(dash < 1);
+  assert.ok(gap > PREVIOUS_LINE.width);
+  assert.ok(PREVIOUS_LINE.width <= 2);
+  assert.ok(PREVIOUS_LINE.markerRadius * 2 > PREVIOUS_LINE.width);
+  // Marken berühren einander nicht, solange es sie gibt.
+  assert.ok(PREVIOUS_LINE.markerMinSlot >= PREVIOUS_LINE.markerRadius * 4);
+});
+
+// ---------------------------------------------------------------------------
+// Tooltip mit zweiter Zeile (AK-5)
+// ---------------------------------------------------------------------------
+
+const MARGIN_LEFT = 44;
+const MARGIN_RIGHT = 8;
+
+/** Diagramm wie in TimelineChart.jsx: Säulen, Linie, Tooltip an jedem Platz. */
+function chartOf(width, values, previousValues) {
+  const plotWidth = Math.max(40, width - MARGIN_LEFT - MARGIN_RIGHT);
+  const plotHeight = (width < 520 ? 200 : 240) - 12 - 26;
+  const scale = valueScale(Math.max(...values, ...previousValues, 0));
+  const columns = columnLayout({
+    values,
+    width: plotWidth,
+    height: plotHeight,
+    max: scale.max,
+  });
+  const line = linePoints({
+    values: previousValues,
+    columns,
+    height: plotHeight,
+    max: scale.max,
+  });
+  const place = (active, text, withLine = true) =>
+    tooltipPlacement({
+      columns,
+      active,
+      text,
+      width,
+      plotLeft: MARGIN_LEFT,
+      plotHeight,
+      ...(withLine ? { line } : {}),
+    });
+  return { columns, line, plotHeight, place };
+}
+
+test("Tooltip: Ohne Linie steht er, wo er vor KIE-537 stand", () => {
+  const values = Array.from({ length: 30 }, (_, i) =>
+    i % 3 === 2 ? 0 : 5 + i
+  );
+  const previousValues = values.map(() => 0);
+  const { columns, plotHeight, place } = chartOf(960, values, previousValues);
+  const text = "Di., 06.10.2026 — 37 Nachrichten";
+  for (let active = 0; active < values.length; active++) {
+    const without = tooltipPlacement({
+      columns,
+      active,
+      text,
+      width: 960,
+      plotLeft: MARGIN_LEFT,
+      plotHeight,
+    });
+    assert.deepEqual(place(active, text, false), without);
+    assert.deepEqual(
+      tooltipPlacement({
+        columns,
+        active,
+        text,
+        width: 960,
+        plotLeft: MARGIN_LEFT,
+        plotHeight,
+        line: null,
+      }),
+      without
+    );
+  }
+});
+
+/**
+ * Wo der Tooltip im Browser höchstens liegen kann: Er ist an x verankert
+ * (TimelineChart, tooltipStyle) und wird nie breiter als maxWidth.
+ */
+function tooltipBox({ align, x, maxWidth }, width) {
+  if (align === "start") return { left: x, right: x + maxWidth };
+  if (align === "end") return { left: width - x - maxWidth, right: width - x };
+  return { left: x - maxWidth / 2, right: x + maxWidth / 2 };
+}
+
+// Beide Zeilen des Tooltips je Körnung, mit vierstelligem Wert: Mit dem
+// Abschnitt des Vorzeitraums ist die zweite Zeile die längere.
+const TOOLTIP_LINES = SECTIONS.map(([name, granularity, current, previous]) => [
+  name,
+  t("embed-analytics.chart.tooltip", {
+    period: bucketLabel(current, granularity, context),
+    value: valueLabel(1234, "conversations", t),
+  }),
+  previousBucketLabel(
+    { ...previous, conversations: 1234 },
+    "conversations",
+    granularity,
+    context
+  ),
+]);
+
+test("Tooltip (AK-5): Mit dem Abschnitt des Vorzeitraums ist die zweite Zeile die längere – sie bestimmt die geschätzte Breite", () => {
+  assert.deepEqual(
+    TOOLTIP_LINES.map(([name, first, second]) => [
+      name,
+      first.length,
+      second.length,
+    ]),
+    [
+      ["Tag", 38, 51],
+      ["Stunde", 49, 62],
+      ["Woche", 48, 61],
+      ["Monat", 35, 50],
+    ]
+  );
+  assert.equal(
+    TOOLTIP_LINES[2][2],
+    "Vorzeitraum: KW 37 (07.09.–13.09.2026) — 1.234 Konversationen"
+  );
+});
+
+test("Tooltip (AK-5): bleibt mit dem Abschnitt des Vorzeitraums im Diagramm und verdeckt weder eine Säule noch die Linie oder eine Punktmarke – für Tag, Stunde, Woche und Monat, bei 24 bis 92 Plätzen, von 240 bis 1130 px", () => {
+  let wrapped = 0;
+  let clamped = 0;
+  for (const count of [24, 30, 53, 92])
+    for (const width of [1130, 960, 390, 340, 308, 240]) {
+      // Säulen und Linie mit Spitzen an verschiedenen Stellen
+      const values = Array.from({ length: count }, (_, i) =>
+        i % 9 === 4 ? 0 : 3 + ((i * 7) % 40)
+      );
+      const previousValues = Array.from({ length: count }, (_, i) =>
+        i % 11 === 3 ? 95 : i % 5 === 0 ? 0 : 2 + ((i * 13) % 30)
+      );
+      const { columns, line, place } = chartOf(width, values, previousValues);
+      const slot = columns[0].width;
+
+      for (const [name, first, second] of TOOLTIP_LINES) {
+        // wie TimelineChart: Die längere der beiden Zeilen bestimmt die Breite.
+        const text = first.length > second.length ? first : second;
+        assert.equal(text, second, name);
+        const estimated = text.length * 6.5 + 22;
+
+        for (let active = 0; active < count; active++) {
+          const placement = place(active, text);
+          const where = `${name}, ${count} Plätze, ${width} px, Platz ${active}`;
+          // geschätzte Ausdehnung: im Diagramm, so breit wie die längere Zeile
+          assert.ok(placement.from >= 0, where);
+          assert.ok(placement.to <= width, where);
+          assert.equal(
+            Math.round((placement.to - placement.from) * 100),
+            Math.round(Math.min(estimated, width) * 100),
+            where
+          );
+          // Der Browser hält ihn dort: verankert an x, höchstens maxWidth
+          // breit – auch wenn der Text breiter ausfällt als geschätzt.
+          const box = tooltipBox(placement, width);
+          assert.ok(box.left >= 0 && box.right <= width, where);
+          assert.ok(
+            box.left <= placement.from && placement.to <= box.right,
+            where
+          );
+          // Breiter als das Diagramm: Er nimmt dessen Breite ein und bricht um.
+          if (estimated > width) {
+            wrapped++;
+            assert.deepEqual(
+              [placement.from, placement.to, placement.maxWidth],
+              [0, width, width],
+              where
+            );
+          } else if (placement.from === 0 || placement.to === width) clamped++;
+          // über dem angesteuerten Platz
+          const center = MARGIN_LEFT + columns[active].center;
+          assert.ok(placement.from <= center && center <= placement.to, where);
+
+          // Unterkante des Tooltips: über jeder Säule, die er überspannt …
+          for (const { bar } of columns) {
+            if (!bar) continue;
+            const left = MARGIN_LEFT + bar.x;
+            if (left < placement.to && left + bar.width > placement.from)
+              assert.ok(placement.y <= bar.y - TOOLTIP_GAP, where);
+          }
+          // … über jeder Punktmarke …
+          const radius = PREVIOUS_LINE.markerRadius;
+          for (const point of line) {
+            const x = MARGIN_LEFT + point.x;
+            if (x + radius > placement.from && x - radius < placement.to)
+              assert.ok(placement.y <= point.y - radius - TOOLTIP_GAP, where);
+          }
+          // … und über der Linie an jeder Stelle seiner Breite.
+          for (let x = placement.from; x <= placement.to; x += 1) {
+            const at = x - MARGIN_LEFT;
+            const i = Math.floor((at - slot / 2) / slot);
+            if (i < 0 || i >= count - 1) continue;
+            const [a, b] = [line[i], line[i + 1]];
+            assert.ok(a.x <= at + 1e-9 && at <= b.x + 1e-9, where);
+            const y = a.y + ((b.y - a.y) * (at - a.x)) / (b.x - a.x);
+            assert.ok(placement.y <= y - TOOLTIP_GAP + 0.001, where);
+          }
+        }
+      }
+    }
+  // Schmal bricht die lange Zeile um oder rückt an den Rand; beides kommt vor.
+  assert.ok(wrapped > 0 && clamped > 0, `${wrapped} / ${clamped}`);
+});
+
+test("Tooltip auf dem Handy (Diagramm 308 px): Die Zeile des Vorzeitraums ist für jede Körnung breiter geschätzt als das Diagramm – der Tooltip nimmt dessen Breite ein und steht über allen Säulen und der ganzen Linie", () => {
+  const width = 308;
+  const values = Array.from({ length: 24 }, (_, i) => (i === 11 ? 3 : 0));
+  const previousValues = Array.from({ length: 24 }, (_, i) =>
+    i === 17 ? 4 : 0
+  );
+  const { columns, line, place } = chartOf(width, values, previousValues);
+  const highest = Math.min(
+    columns[11].bar.y,
+    ...line.map((point) => point.y - PREVIOUS_LINE.markerRadius)
+  );
+
+  // „Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten“: geschätzt 314,5 px
+  const day = SECTIONS[0][4];
+  assert.equal(day.length * 6.5 + 22, 314.5);
+  for (const text of [day, ...TOOLTIP_LINES.map(([, , second]) => second)])
+    for (let active = 0; active < 24; active++) {
+      const placement = place(active, text);
+      assert.deepEqual(
+        [placement.x, placement.from, placement.to, placement.maxWidth],
+        [0, 0, width, width],
+        `${text}, Platz ${active}`
+      );
+      assert.notEqual(placement.align, "center");
+      assert.equal(placement.y, highest - TOOLTIP_GAP);
+    }
+});
+
+test("Tooltip: Liegt die Linie über den Säulen, rückt er über die Linie; liegt sie darunter, bleibt er über den Säulen", () => {
+  const values = Array.from({ length: 30 }, () => 20);
+  const low = chartOf(
+    960,
+    values,
+    values.map(() => 5)
+  );
+  const high = chartOf(
+    960,
+    [...values.slice(1), 80],
+    values.map(() => 60)
+  );
+  const text = "Di., 06.10.2026 — 20 Nachrichten";
+
+  // Linie unter den Säulen: dieselbe Lage wie ohne Linie
+  assert.deepEqual(low.place(15, text), low.place(15, text, false));
+  // Linie über den Säulen: Der Tooltip steht höher – über der Punktmarke.
+  const lifted = high.place(15, text);
+  assert.ok(lifted.y < high.place(15, text, false).y);
+  assert.equal(
+    lifted.y,
+    high.line[15].y - PREVIOUS_LINE.markerRadius - TOOLTIP_GAP
+  );
+  // Waagerecht ändert die Linie nichts.
+  const { y: _y, ...horizontal } = lifted;
+  const { y: _plainY, ...plain } = high.place(15, text, false);
+  assert.deepEqual(horizontal, plain);
+});

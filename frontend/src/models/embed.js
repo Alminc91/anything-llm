@@ -118,11 +118,22 @@ const Embed = {
   // fromDay/toDay sind Kalendertage ("YYYY-MM-DD", beide einschließlich) –
   // die Tage, die der Nutzer gewählt hat; der Server rechnet in Berliner Zeit.
   // Antwort: { success, granularity, totals, buckets, firstLedgerDay }.
-  getAnalyticsSummary: async (embedId, fromDay, toDay) => {
+  // KIE-537: Mit compare zusätzlich { previous } – die Zählwerte des
+  // Vorzeitraums. Ausgeschaltet wird compare nicht gesendet.
+  getAnalyticsSummary: async (
+    embedId,
+    fromDay,
+    toDay,
+    { compare = false } = {}
+  ) => {
     return await fetch(`${API_BASE}/embed/${embedId}/analytics/summary`, {
       method: "POST",
       headers: baseHeaders(),
-      body: JSON.stringify({ fromDay, toDay }),
+      body: JSON.stringify({
+        fromDay,
+        toDay,
+        ...(compare ? { compare: true } : {}),
+      }),
     })
       .then((res) => res.json())
       .catch((e) => {

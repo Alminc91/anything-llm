@@ -88,6 +88,10 @@ function WidgetAnalytics({ embeds }) {
   const [feedbackFilter, setFeedbackFilter] = useState("all");
   // Abschnitt aus dem Diagramm, auf den die Liste gefiltert ist
   const [bucketFilter, setBucketFilter] = useState({ scope: "", bucket: null });
+  // KIE-537: Schalter „Vorzeitraum vergleichen" – standardmäßig aus. Er gilt
+  // für die Ansicht, nicht für ein Widget oder einen Zeitraum: Beim Wechsel
+  // bleibt er stehen. Nur eingeschaltet fragt die Ansicht den Vorzeitraum an.
+  const [compare, setCompare] = useState(false);
   const listRef = useRef(null);
 
   // Date range as Date objects (null = "all time"). Standard: letzte 30 Tage.
@@ -140,7 +144,8 @@ function WidgetAnalytics({ embeds }) {
         ? await Embed.getAnalyticsSummary(
             selectedEmbed,
             days.fromDay,
-            days.toDay
+            days.toDay,
+            { compare }
           )
         : null;
       if (ignore) return;
@@ -167,7 +172,7 @@ function WidgetAnalytics({ embeds }) {
     return () => {
       ignore = true;
     };
-  }, [selectedEmbed, fromDay, toDay, t]);
+  }, [selectedEmbed, fromDay, toDay, compare, t]);
 
   const handleDateChange = useCallback(
     ({ startDate: newStart, endDate: newEnd }) => {
@@ -217,6 +222,7 @@ function WidgetAnalytics({ embeds }) {
         <StatisticsGrid
           summary={summaryData}
           loading={summary.loading}
+          compare={compare}
           onShowNegative={showNegative}
           embedId={selectedEmbed}
           startDate={startDateISO}
@@ -231,6 +237,8 @@ function WidgetAnalytics({ embeds }) {
           failed={summary.failed}
           selectedBucket={bucket}
           onSelectBucket={selectBucket}
+          compare={compare}
+          onCompareChange={setCompare}
         />
       </div>
 

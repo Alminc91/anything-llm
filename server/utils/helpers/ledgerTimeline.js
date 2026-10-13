@@ -233,10 +233,137 @@ function nextDay(day) {
   return dayOf(serial + 1);
 }
 
+/** Der früheste Kalendertag, den parseCalendarDay annimmt: 01.01.0001. */
+const FIRST_DAY = serialOf(1, 1, 1);
+
+/**
+ * @typedef {Object} PreviousLayout
+ * @property {"hour"|"day"|"week"|"month"} granularity - die des Zeitraums
+ * @property {string} fromDay - erster Tag des Vorzeitraums der Kennzahlen
+ * @property {string} toDay - letzter Tag: der Tag vor dem Zeitraum
+ * @property {string} readFromDay - frühester Tag, den Kennzahlen oder Linie brauchen
+ * @property {TimelineBucket[]} buckets - Abschnitte der Linie, so viele wie der Zeitraum hat; nie angeschnitten
+ * @property {(cell: {day?: string, hour?: number}) => number} indexOf - Abschnitt der Linie zu einer Zählerbuch-Zeile, -1 außerhalb
+ * @property {(cell: {day?: string, hour?: number}) => boolean} inTotals - zählt die Zeile zu den Kennzahlen des Vorzeitraums?
+ */
+
+/**
+ * Der Vorzeitraum eines Zeitraums (KIE-537) - zwei Bereiche, die beide am
+ * Tag vor dem Zeitraum oder davor enden:
+ *
+ * - Kennzahlen: gleich viele Kalendertage unmittelbar vor fromDay
+ *   (13.09.-12.10. → 14.08.-12.09.).
+ * - Linie: je Säule der Abschnitt, der im Vorzeitraum an derselben Stelle
+ *   steht. Bei Stunden und Tagen sind das die Tage der Kennzahlen. Bei
+ *   Kalenderwochen und Monaten sind es die N ganzen Kalenderwochen bzw.
+ *   Monate unmittelbar vor der ersten Säule (N = Zahl der Säulen) - auch
+ *   wenn die erste Säule angeschnitten ist: Sie gehört zu ihrer Kalenderwoche
+ *   bzw. ihrem Monat. Die beiden Bereiche sind dann nicht deckungsgleich.
+ *
+ * Körnung und Zahl der Abschnitte kommen vom Zeitraum (timelineLayout), nie
+ * aus dem Vorzeitraum selbst: Er hat immer genauso viele Abschnitte und ist
+ * damit so begrenzt wie der Zeitraum. Die Prüfung auf MAX_BUCKETS
+ * Kalendermonate gilt für ihn nicht - Linie und Kennzahlen zusammen können
+ * einen Kalendermonat mehr berühren als der Zeitraum.
+ *
+ * @param {string} fromDay - "YYYY-MM-DD", einschließlich
+ * @param {string} toDay - "YYYY-MM-DD", einschließlich
+ * @returns {PreviousLayout|null} - null, wenn der Vorzeitraum vor dem
+ *   01.01.0001 begänne: Davor gibt es keinen Kalendertag "YYYY-MM-DD".
+ * @throws {Error} - bei einem ungültigen Zeitraum (siehe validateDayRange)
+ */
+function previousLayout(fromDay, toDay) {
+  const { granularity, buckets: current } = timelineLayout(fromDay, toDay);
+  const from = parseCalendarDay(fromDay);
+  const count = current.length;
+  const totalsFrom = from - (parseCalendarDay(toDay) - from + 1);
+  const totalsTo = from - 1;
+  const firstMonth = monthIndexOf(from) - count;
+  const monthStart = (index) =>
+    serialOf(
+      Math.floor(index / 12),
+      index - Math.floor(index / 12) * 12 + 1,
+      1
+    );
+
+  // Erster Tag der Linie
+  const lineFrom =
+    granularity === "week"
+      ? weekStartOf(from) - count * 7
+      : granularity === "month"
+        ? monthStart(firstMonth)
+        : totalsFrom;
+  if (Math.min(lineFrom, totalsFrom) < FIRST_DAY) return null;
+
+  const common = {
+    granularity,
+    fromDay: dayOf(totalsFrom),
+    toDay: dayOf(totalsTo),
+    readFromDay: dayOf(Math.min(lineFrom, totalsFrom)),
+  };
+
+  if (granularity === "hour") {
+    // Nach Stunden gelesen wird nur der eine Tag: Die Zeile nennt die Stunde,
+    // nicht den Tag, und jede Stunde zählt zu den Kennzahlen.
+    const day = dayOf(totalsTo);
+    const indexOf = (cell) =>
+      Number.isInteger(cell.hour) && cell.hour >= 0 && cell.hour <= 23
+        ? cell.hour
+        : -1;
+    return {
+      ...common,
+      buckets: Array.from({ length: 24 }, (_, hour) => ({
+        start: day,
+        end: day,
+        partial: false,
+        hour,
+      })),
+      indexOf,
+      inTotals: (cell) => indexOf(cell) >= 0,
+    };
+  }
+
+  // Abschnitt i der Linie: erster und letzter Tag
+  const span =
+    granularity === "day"
+      ? (i) => [lineFrom + i, lineFrom + i]
+      : granularity === "week"
+        ? (i) => [lineFrom + i * 7, lineFrom + i * 7 + 6]
+        : (i) => [
+            monthStart(firstMonth + i),
+            monthStart(firstMonth + i + 1) - 1,
+          ];
+  const lineTo = span(count - 1)[1];
+  const position =
+    granularity === "day"
+      ? (serial) => serial - lineFrom
+      : granularity === "week"
+        ? (serial) => (weekStartOf(serial) - lineFrom) / 7
+        : (serial) => monthIndexOf(serial) - firstMonth;
+  return {
+    ...common,
+    buckets: Array.from({ length: count }, (_, i) => {
+      const [start, end] = span(i);
+      return { start: dayOf(start), end: dayOf(end), partial: false };
+    }),
+    indexOf: (cell) => {
+      const serial = parseCalendarDay(cell.day);
+      return serial === null || serial < lineFrom || serial > lineTo
+        ? -1
+        : position(serial);
+    },
+    inTotals: (cell) => {
+      const serial = parseCalendarDay(cell.day);
+      return serial !== null && serial >= totalsFrom && serial <= totalsTo;
+    },
+  };
+}
+
 module.exports = {
   MAX_BUCKETS,
   parseCalendarDay,
   validateDayRange,
   timelineLayout,
   nextDay,
+  previousLayout,
 };
