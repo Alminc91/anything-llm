@@ -529,11 +529,55 @@ test(
       ["messages", "Nachrichten 25 Ø 12,5 pro Woche"],
       ["conversations", "Konversationen 0 –"],
       ["positive", "Positiv bewertete Antworten 0 Keine Bewertungen"],
-      [
-        "negative",
-        "Negativ bewertete Antworten 0 Betroffene Konversationen anzeigen",
-      ],
+      ["negative", "Negativ bewertete Antworten 0 Keine Bewertungen"],
     ]);
+    assert.doesNotMatch(html, /Betroffene Konversationen anzeigen/);
+  }
+);
+
+test(
+  "Kennzahlen-Streifen: „Betroffene Konversationen anzeigen“ nur, wenn es negativ bewertete Antworten gibt – bei 0 der Nebentext",
+  { skip },
+  async () => {
+    const withRatings = async (feedbackPositive, feedbackNegative) => {
+      const html = await render(KPI, {
+        loading: false,
+        embedId: 1,
+        summary: {
+          ...THIRTY_DAYS,
+          totals: { ...THIRTY_DAYS.totals, feedbackPositive, feedbackNegative },
+        },
+      });
+      const negative = Object.fromEntries(kpiFields(html)).negative;
+      return {
+        negative,
+        link: /<button type="button"[^>]*>Betroffene Konversationen anzeigen<\/button>/.test(
+          html
+        ),
+      };
+    };
+
+    // nur positive Bewertungen: Es gibt Bewertungen, aber keine negative.
+    assert.deepEqual(await withRatings(5, 0), {
+      negative: "Negativ bewertete Antworten 0 Keine negativen Bewertungen",
+      link: false,
+    });
+    // gar keine Bewertung: derselbe Nebentext wie im Feld „positiv“
+    assert.deepEqual(await withRatings(0, 0), {
+      negative: "Negativ bewertete Antworten 0 Keine Bewertungen",
+      link: false,
+    });
+    // ab der ersten negativen Bewertung der Verweis, kein Nebentext
+    assert.deepEqual(await withRatings(5, 1), {
+      negative:
+        "Negativ bewertete Antworten 1 Betroffene Konversationen anzeigen",
+      link: true,
+    });
+    assert.deepEqual(await withRatings(0, 2), {
+      negative:
+        "Negativ bewertete Antworten 2 Betroffene Konversationen anzeigen",
+      link: true,
+    });
   }
 );
 
@@ -552,9 +596,10 @@ test(
         ["messages", "–"],
         ["conversations", "–"],
         ["positive", "–"],
-        ["negative", "anzeigen"],
+        ["negative", "–"],
       ]
     );
+    assert.doesNotMatch(html, /Betroffene Konversationen anzeigen/);
     assert.doesNotMatch(textOf(html), /\b0\b/);
   }
 );

@@ -1038,6 +1038,7 @@ const TRANSLATIONS = {
       "avg-per-conversation": "Ø {{value}} Nachrichten je Konversation",
       "positive-share": "{{value}} % der bewerteten Antworten",
       "no-ratings": "Keine Bewertungen",
+      "no-negative": "Keine negativen Bewertungen",
       "show-negative": "Betroffene Konversationen anzeigen",
       "conversations-hint":
         "Im Zeitraum begonnene Konversationen. Die Liste unten zeigt nur Konversationen, deren Inhalte noch vorhanden sind – die Zahlen können sich unterscheiden.",

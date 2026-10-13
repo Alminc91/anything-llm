@@ -77,10 +77,22 @@ export default function StatisticsGrid({
       key: "negative",
       label: t("embed-analytics.kpi.negative"),
       value: value(kpi.negative),
-      action: {
-        label: t("embed-analytics.kpi.show-negative"),
-        onClick: onShowNegative,
-      },
+      // Der Verweis filtert die Liste auf negativ bewertete Konversationen –
+      // ohne eine solche Bewertung steht dort der Nebentext.
+      ...(kpi.negative > 0
+        ? {
+            action: {
+              label: t("embed-analytics.kpi.show-negative"),
+              onClick: onShowNegative,
+            },
+          }
+        : {
+            detail: !summary
+              ? NO_VALUE
+              : kpi.positive > 0
+                ? t("embed-analytics.kpi.no-negative")
+                : t("embed-analytics.kpi.no-ratings"),
+          }),
     },
   ];
 

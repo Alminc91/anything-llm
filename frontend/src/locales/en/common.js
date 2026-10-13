@@ -1611,6 +1611,7 @@ const TRANSLATIONS = {
       "avg-per-conversation": "Avg. {{value}} messages per conversation",
       "positive-share": "{{value}} % of rated responses",
       "no-ratings": "No ratings",
+      "no-negative": "No negative ratings",
       "show-negative": "Show affected conversations",
       "conversations-hint":
         "Conversations started in the period. The list below only shows conversations whose contents still exist – the numbers may differ.",

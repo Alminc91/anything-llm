@@ -1523,6 +1523,7 @@ const TRANSLATIONS = {
       "avg-per-conversation": null,
       "positive-share": null,
       "no-ratings": null,
+      "no-negative": null,
       "show-negative": null,
       "conversations-hint": null,
     },
