@@ -10,6 +10,7 @@
 
 import { formatDateForInput } from "./billingDate.js";
 import { addDays, formatDate, formatterOf } from "./analyticsTimeline.js";
+import { formatDateTimeDE } from "./dateTimeDE.js";
 
 /** Zeitzone aller Tage und Uhrzeiten der Ansicht (auch in Tooltips). */
 export const BERLIN = "Europe/Berlin";
@@ -157,6 +158,12 @@ const USER_INPUT_EVENTS = [
 ];
 /** So lange hält holdScrollTarget höchstens, auch ohne Eingabe. */
 export const HOLD_SCROLL_MAX_MS = 10000;
+/**
+ * Ruhezeit des Layouts: Verschiebt ein Scrollen das Ziel, obwohl sich seit
+ * so vielen Millisekunden nichts mehr über ihm verändert hat und die Seite
+ * fertig geladen ist, gilt es als Absicht des Nutzers (Fixliste 5, S2).
+ */
+export const HOLD_SCROLL_QUIET_MS = 1500;
 
 /**
  * Hält ein Sprungziel an seiner Stelle, bis der Nutzer selbst etwas tut
@@ -166,17 +173,31 @@ export const HOLD_SCROLL_MAX_MS = 10000;
  * Browser die Scrollposition selbst (Wiederherstellen nach dem Neuladen,
  * Scroll-Anker), stünde das Ziel woanders – beim Öffnen per Link bliebe
  * die Seite scheinbar ungescrollt. Deshalb: springen, dann bei jeder
- * Größenänderung eines Vorfahren (ResizeObserver) und bei jedem fremden
- * Scrollen, das das Ziel verschiebt, erneut springen – bis zur ersten
- * Eingabe (Rad, Tippen, Zeiger, Taste) oder nach HOLD_SCROLL_MAX_MS.
+ * Größenänderung eines Vorfahren (ResizeObserver) erneut springen, ebenso
+ * bei fremdem Scrollen, das das Ziel verschiebt – bis zur ersten Eingabe
+ * (Rad, Tippen, Zeiger, Taste) oder nach HOLD_SCROLL_MAX_MS.
+ *
+ * Fremd ist ein Scrollen nur, solange das Layout unruhig ist (Fixliste 5,
+ * S2): bis die Seite fertig geladen ist (readyState „complete“) und
+ * höchstens HOLD_SCROLL_QUIET_MS nach dem Start, der letzten
+ * Größenänderung eines Vorfahren oder dem Ende des Ladens – dann setzt der
+ * Browser die Scrollposition (Wiederherstellen, Scroll-Anker). Danach gilt
+ * ein Scrollen, das das Ziel verschiebt, als Absicht des Nutzers und
+ * beendet das Halten, auch ohne vorheriges Ereignis wie wheel oder
+ * pointerdown: Ziehen am Scrollbalken, Bildlauf durch Screenreader oder
+ * Sprachsteuerung, „Im Seitentext suchen“.
+ * Bekannte Grenze: Innerhalb dieser Ruhezeit nach einer Layoutänderung
+ * springt ein solches Scrollen noch einmal zurück.
  * @param {Element|null} target
  * @param {() => void} jump - der Sprung (etwa scrollIntoView)
- * @param {{maxMs?: number, setTimer?: Function, clearTimer?: Function}} [options]
+ * @param {{maxMs?: number, quietMs?: number, now?: () => number, setTimer?: Function, clearTimer?: Function}} [options]
  * @returns {() => void} - beendet das Halten
  */
 export function holdScrollTarget(target, jump, options = {}) {
   const {
     maxMs = HOLD_SCROLL_MAX_MS,
+    quietMs = HOLD_SCROLL_QUIET_MS,
+    now = () => Date.now(),
     setTimer = setTimeout,
     clearTimer = clearTimeout,
   } = options;
@@ -193,9 +214,19 @@ export function holdScrollTarget(target, jump, options = {}) {
   let stopped = false;
   let observer = null;
   let timer = null;
+  // Zuletzt unruhig: Start, Größenänderung eines Vorfahren, Ende des Ladens
+  let lastLayout = now();
+  const settling = () =>
+    (doc?.readyState !== undefined && doc.readyState !== "complete") ||
+    now() - lastLayout <= quietMs;
   const onScroll = () => {
     const top = topOf();
-    if (!stopped && Number.isFinite(top) && Math.abs(top - held) > 1) align();
+    if (stopped || !Number.isFinite(top) || Math.abs(top - held) <= 1) return;
+    if (settling()) align();
+    else stop();
+  };
+  const onReady = () => {
+    lastLayout = now();
   };
   const stop = () => {
     if (stopped) return;
@@ -203,16 +234,20 @@ export function holdScrollTarget(target, jump, options = {}) {
     observer?.disconnect?.();
     clearTimer(timer);
     doc?.removeEventListener?.("scroll", onScroll, true);
+    doc?.removeEventListener?.("readystatechange", onReady);
     for (const type of USER_INPUT_EVENTS)
       doc?.removeEventListener?.(type, stop, true);
   };
   if (typeof ResizeObserver !== "undefined") {
     observer = new ResizeObserver(() => {
-      if (!stopped) align();
+      if (stopped) return;
+      lastLayout = now();
+      align();
     });
     for (const element of ancestorsOf(target)) observer.observe(element);
   }
   doc?.addEventListener?.("scroll", onScroll, true);
+  doc?.addEventListener?.("readystatechange", onReady);
   for (const type of USER_INPUT_EVENTS)
     doc?.addEventListener?.(type, stop, { capture: true, passive: true });
   timer = setTimer(stop, maxMs);
@@ -245,30 +280,17 @@ export function berlinTime(instant) {
   return isNaN(date.getTime()) ? "" : timeFormatter.format(date);
 }
 
-const dateTimeFormatter = new Intl.DateTimeFormat(GERMAN, {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  timeZone: BERLIN,
-});
-
 /**
  * Zeitpunkt mit Datum in Berliner Zeit, „12.10.2026, 12:05:00 Uhr“ – für
  * Tooltips der Liste und des Panels, wie die sichtbaren Uhrzeiten (Fixliste
- * 2, S1). Dasselbe Format wie formatDateTimeDE (utils/directories.js) mit
- * fester Zeitzone; hier ohne dessen Abhängigkeiten (moment), damit diese
- * Datei ohne Frontend-Pakete läuft (Fixliste 4, S2). "-" ohne gültigen
- * Zeitpunkt.
+ * 2, S1). Die zentrale formatDateTimeDE (utils/dateTimeDE.js, ohne moment)
+ * mit fester Zeitzone – keine zweite Formatierung (Fixliste 5, S3). "-"
+ * ohne gültigen Zeitpunkt.
  * @param {number|string|Date} instant
  * @returns {string}
  */
 export function berlinDateTime(instant) {
-  if (!instant) return "-";
-  const date = new Date(instant);
-  return isNaN(date.getTime()) ? "-" : `${dateTimeFormatter.format(date)} Uhr`;
+  return formatDateTimeDE(instant, { timeZone: BERLIN });
 }
 
 /** Mitternacht (UTC) eines Kalendertags – formatterOf rechnet in UTC. */

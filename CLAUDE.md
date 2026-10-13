@@ -11,7 +11,7 @@ AnythingLLM (Kufer Fork) - Eine erweiterte Version von AnythingLLM mit zusätzli
 ### Datumsformatierung
 Alle Zeitstempel müssen im deutschen Format angezeigt werden:
 - **Format**: `DD.MM.YYYY, HH:MM:SS Uhr` (z.B. "23.04.2025, 12:30:57 Uhr")
-- **Zentrale Funktion**: `formatDateTimeDE()` in `frontend/src/utils/directories.js`
+- **Zentrale Funktion**: `formatDateTimeDE()` in `frontend/src/utils/dateTimeDE.js` (ohne Abhängigkeiten), weiter exportiert aus `frontend/src/utils/directories.js` – keine eigene Formatierung daneben
 - **Verwendung**:
   ```javascript
   import { formatDateTimeDE } from "@/utils/directories";

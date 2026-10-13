@@ -11,6 +11,7 @@ import de from "../src/locales/de/common.js";
 import en from "../src/locales/en/common.js";
 import {
   HOLD_SCROLL_MAX_MS,
+  HOLD_SCROLL_QUIET_MS,
   PANEL_MIN_BODY,
   PANEL_MIN_HEIGHT,
   SEARCH_MAX_LENGTH,
@@ -42,6 +43,7 @@ import {
   visibleAnswerText,
 } from "../src/utils/conversationView.js";
 import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
+import { formatDateTimeDE } from "../src/utils/dateTimeDE.js";
 import serverSearch from "../../server/utils/helpers/chat/conversationSearch.js";
 import { createDocument, elements } from "./helpers/testDom.mjs";
 
@@ -692,9 +694,87 @@ test("Fixliste 4, V7: holdScrollTarget – springt, hält das Ziel bei jeder Gr�
   // ohne Ziel: nichts
   assert.equal(typeof holdScrollTarget(null, () => assert.fail()), "function");
 });
+
 // ---------------------------------------------------------------------------
 // Fixliste 5 (Browser-Nachprüfung rc17, Kontroll-Review 4)
 // ---------------------------------------------------------------------------
+
+test("Fixliste 5, S2: holdScrollTarget – fremdes Scrollen springt nur zurück, solange das Layout unruhig ist; danach gilt es als Absicht des Nutzers und beendet das Halten", () => {
+  const doc = createDocument();
+  const parent = doc.body.appendChild(doc.createElement("div"));
+  const target = parent.appendChild(doc.createElement("div"));
+  let top = 640;
+  target.getBoundingClientRect = () => ({ top });
+  let jumps = 0;
+  const jump = () => {
+    jumps += 1;
+    top = 96;
+  };
+  const listeners = new Map();
+  doc.addEventListener = (type, listener) => listeners.set(type, listener);
+  doc.removeEventListener = (type) => listeners.delete(type);
+  const fire = (type) => listeners.get(type)?.({ type });
+  const observers = [];
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.disconnected = false;
+      observers.push(this);
+    }
+    observe() {}
+    disconnect() {
+      this.disconnected = true;
+    }
+  };
+  let clock = 1000;
+  const options = {
+    now: () => clock,
+    setTimer: () => 1,
+    clearTimer: () => {},
+  };
+  try {
+    // Die Seite lädt noch: Jedes fremde Scrollen springt zurück, auch nach
+    // der Ruhezeit (Wiederherstellen der Scrollposition beim Laden)
+    doc.readyState = "interactive";
+    holdScrollTarget(target, jump, options);
+    assert.equal(jumps, 1);
+    clock += HOLD_SCROLL_QUIET_MS + 500;
+    top = 0;
+    fire("scroll");
+    assert.equal(jumps, 2);
+    // fertig geladen: Das Ende des Ladens zählt als Unruhe
+    doc.readyState = "complete";
+    fire("readystatechange");
+    clock += 200;
+    top = 300;
+    fire("scroll");
+    assert.equal(jumps, 3);
+    // Größenänderung über dem Ziel: springen, die Ruhezeit beginnt neu
+    clock += HOLD_SCROLL_QUIET_MS + 100;
+    top = 700;
+    observers[0].callback([]);
+    assert.equal(jumps, 4);
+    clock += HOLD_SCROLL_QUIET_MS - 100;
+    top = 50;
+    fire("scroll");
+    assert.equal(jumps, 5);
+
+    // Ruhe: Ein Scrollen ohne Rad, Zeiger oder Taste (Scrollbalken,
+    // Screenreader, „Im Seitentext suchen“) beendet das Halten – kein Sprung
+    clock += HOLD_SCROLL_QUIET_MS + 1;
+    top = 1500;
+    fire("scroll");
+    assert.equal(jumps, 5);
+    assert.equal(observers[0].disconnected, true);
+    assert.equal(listeners.size, 0);
+    // danach nichts mehr
+    observers[0].callback([]);
+    assert.equal(jumps, 5);
+  } finally {
+    globalThis.ResizeObserver = original;
+  }
+});
 
 test("Fixliste 5, S5: panelFit – nie niedriger als Kopf und Fußzeile mit einem Rest Verlauf; die Fußzeile bleibt im Panelrahmen", () => {
   // Kopf 196 px (schmales Panel, Frage über zwei Zeilen), Fußzeile 49 px
@@ -713,3 +793,22 @@ test("Fixliste 5, S5: panelFit – nie niedriger als Kopf und Fußzeile mit eine
   assert.equal(panelFit(700, 900, undefined, NaN).maxHeight, PANEL_MIN_HEIGHT);
 });
 
+test("Fixliste 5, S3: berlinDateTime ist formatDateTimeDE (utils/dateTimeDE.js) mit Berliner Zeit – keine zweite Formatierung", () => {
+  for (const instant of [
+    berlin("2026-10-13", "07:48"),
+    "2026-12-31T23:30:05.000Z",
+    new Date("2026-03-29T01:30:00Z"),
+    null,
+    0,
+    "kein Datum",
+  ])
+    assert.equal(
+      berlinDateTime(instant),
+      formatDateTimeDE(instant, { timeZone: "Europe/Berlin" }),
+      String(instant)
+    );
+  assert.equal(
+    berlinDateTime("2026-12-31T23:30:05.000Z"),
+    "01.01.2027, 00:30:05 Uhr"
+  );
+});
