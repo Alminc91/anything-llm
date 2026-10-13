@@ -183,6 +183,10 @@ function WidgetAnalytics({ embeds }) {
 
   // Der Abschnitts-Filter gilt für genau ein Widget und einen Zeitraum.
   const scope = [selectedEmbed, startDateISO, endDateISO].join("|");
+  // Mit einem Wechsel verfällt er – sonst käme er zurück, sobald das frühere
+  // Widget oder der frühere Zeitraum wieder gewählt ist.
+  if (bucketFilter.bucket && bucketFilter.scope !== scope)
+    setBucketFilter({ scope, bucket: null });
   const bucket = bucketFilter.scope === scope ? bucketFilter.bucket : null;
   const selectBucket = (next) => setBucketFilter({ scope, bucket: next });
 

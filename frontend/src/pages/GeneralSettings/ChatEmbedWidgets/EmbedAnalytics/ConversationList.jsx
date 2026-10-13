@@ -137,6 +137,9 @@ export default function ConversationList({
     bucketEnd,
   ].join("|");
   const [page, setPage] = useState({ scope, offset: 0 });
+  // Mit dem Zuschnitt verfällt die gemerkte Seite – sonst käme sie zurück,
+  // sobald der frühere Zuschnitt wieder gilt (Filter an und wieder aus).
+  if (page.scope !== scope) setPage({ scope, offset: 0 });
   const offset = page.scope === scope ? page.offset : 0;
 
   useEffect(() => {

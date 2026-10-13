@@ -256,20 +256,26 @@ function stubFetch(t, respond) {
 /**
  * Der Server der Ansicht: analytics/summary antwortet mit den übergebenen
  * Abschnitten (sonst je Tag des angefragten Zeitraums einer), die
- * Konversationsliste ist leer.
+ * Konversationsliste ist leer – oder antwortet mit dem, was list liefert.
+ * Beide Routen antworten für jedes Widget.
  */
-async function analyticsServer(t, { granularity = "day", buckets } = {}) {
+async function analyticsServer(t, { granularity = "day", buckets, list } = {}) {
   const summaryUrl = await urlOf(ROUTES.summary);
   const listUrl = await urlOf(ROUTES.conversations);
-  const calls = stubFetch(t, ({ url, body }) => {
-    if (url === listUrl)
-      return {
-        success: true,
-        conversations: [],
-        hasMore: false,
-        totalCount: 0,
-      };
-    if (url !== summaryUrl) return { success: false, error: "unbekannt" };
+  const isSummary = (url) => url.endsWith("/analytics/summary");
+  const isList = (url) => url.endsWith("/analytics/conversations");
+  const calls = stubFetch(t, (call) => {
+    const { url, body } = call;
+    if (isList(url))
+      return (
+        list?.(call) ?? {
+          success: true,
+          conversations: [],
+          hasMore: false,
+          totalCount: 0,
+        }
+      );
+    if (!isSummary(url)) return { success: false, error: "unbekannt" };
     const days = [];
     for (let day = body.fromDay; day <= body.toDay; day = addDays(day, 1))
       days.push(day);
@@ -291,23 +297,25 @@ async function analyticsServer(t, { granularity = "day", buckets } = {}) {
         })),
     };
   });
-  const to = (url) => calls.filter((call) => call.url === url);
   return {
     calls,
-    summaries: () => to(summaryUrl),
-    lists: () => to(listUrl),
+    summaries: () => calls.filter((call) => isSummary(call.url)),
+    lists: () => calls.filter((call) => isList(call.url)),
     summaryUrl,
     listUrl,
   };
 }
 
-/** Die Ansicht mit einem Widget, im Standard-Zeitraum (letzte 30 Tage). */
-async function mountView(t, server) {
+/**
+ * Die Ansicht im Standard-Zeitraum (letzte 30 Tage) – mit einem Widget, wenn
+ * embeds nichts anderes nennt.
+ */
+async function mountView(t, server, embeds = [EMBED]) {
   const { startDate, endDate } = lastDaysRange(DEFAULT_RANGE_DAYS);
   const mounted = await mount(
     t,
     VIEW,
-    { embedsLoaded: true, embeds: [EMBED] },
+    { embedsLoaded: true, embeds },
     { exportName: "AnalyticsScreen" }
   );
   return {
@@ -590,5 +598,218 @@ test(
     assert.equal(server.lists().length, 1);
     assert.equal(bucketMarkOf(container), null);
     assert.equal(server.summaries().length, 1);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Blättern (NAK-5): Jeder Wechsel des Zuschnitts führt auf Seite 1
+// ---------------------------------------------------------------------------
+
+const SECOND_EMBED = {
+  id: 7,
+  chat_retention_days: null,
+  workspace: { name: "VHS Beispielstadt" },
+};
+const PAGE_SIZE = 20;
+
+/** Die Liste hat 45 einsehbare Konversationen – drei Seiten. */
+function pagedList({ body }) {
+  const total = 45;
+  const count = Math.max(0, Math.min(body.limit, total - body.offset));
+  return {
+    success: true,
+    totalCount: total,
+    hasMore: body.offset + count < total,
+    conversations: Array.from({ length: count }, (_, i) => ({
+      conversation_id: `konversation-${body.offset + i + 1}`,
+      conversation_number: body.offset + i + 1,
+      preview: "Gibt es Sportkurse?",
+      started_at: Date.UTC(2026, 9, 6, 10),
+      last_message_at: Date.UTC(2026, 9, 6, 11),
+      message_count: 2,
+      positive_count: 0,
+      negative_count: 0,
+    })),
+  };
+}
+
+/** Schaltfläche mit genau dieser Beschriftung. */
+function buttonOf(container, label) {
+  const [button, ...more] = elements(
+    container,
+    (element) => element.tagName === "BUTTON" && element.textContent === label
+  );
+  assert.ok(button, `keine Schaltfläche „${label}“`);
+  assert.equal(more.length, 0, `mehrere Schaltflächen „${label}“`);
+  return button;
+}
+
+/** Blättert auf Seite 2 und prüft, dass die Liste sie anfragt. */
+async function openSecondPage({ container, act }, server) {
+  await act(() => click(buttonOf(container, "2")));
+  assert.equal(server.lists().at(-1).body.offset, PAGE_SIZE);
+}
+
+/** Wählt in der Datumsauswahl eine Vorauswahl, z. B. „Letzter Monat". */
+async function choosePreset({ container, act }, label) {
+  const buttons = () =>
+    elements(container, (element) => element.tagName === "BUTTON");
+  const trigger = buttons().find((button) =>
+    /^(\d{2}\.\d{2}\.\d{4} - \d{2}\.\d{2}\.\d{4}|Gesamt)$/.test(
+      button.textContent
+    )
+  );
+  await act(() => click(trigger));
+  // erste Schaltfläche des Popovers: das Menü der Vorauswahlen
+  await act(() => click(buttons()[buttons().indexOf(trigger) + 1]));
+  await act(() => click(buttonOf(container, label)));
+}
+
+/** Wählt in der Kopfzeile ein anderes Widget. */
+async function chooseWidget({ container, act }, embed) {
+  const [dropdown] = elements(
+    container,
+    (element) => element.getAttribute("aria-haspopup") === "listbox"
+  );
+  await act(() => click(dropdown));
+  const [option] = elements(
+    container,
+    (element) =>
+      element.getAttribute("role") === "option" &&
+      element.textContent.startsWith(`Embed #${embed.id} `)
+  );
+  await act(() => click(option));
+}
+
+test(
+  "Blättern (NAK-5): Bewertungsfilter an und wieder aus führt auf Seite 1 – die frühere Seite 2 kommt nicht zurück",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: pagedList });
+    const view = await mountView(t, server);
+    const { container, act, listRequest } = view;
+
+    for (const [label, feedbackFilter] of [
+      ["Nur mit 👍", "positive"],
+      ["Nur mit 👎", "negative"],
+    ]) {
+      await openSecondPage(view, server);
+      const before = server.lists().length;
+
+      await act(() => click(buttonOf(container, label)));
+      assert.deepEqual(server.lists().at(-1), listRequest({ feedbackFilter }));
+
+      await act(() => click(buttonOf(container, label)));
+      assert.deepEqual(server.lists().at(-1), listRequest());
+      assert.equal(server.lists().at(-1).body.offset, 0);
+      // je Wechsel genau eine Anfrage
+      assert.equal(server.lists().length, before + 2);
+      // Die Liste zeigt die Einträge 1–20.
+      assert.match(container.textContent, /Konversation #1"/);
+      assert.doesNotMatch(container.textContent, /Konversation #21"/);
+    }
+  }
+);
+
+test(
+  "Blättern (NAK-5): Abschnitts-Filter an und wieder aus (zweiter Klick, Schließen) führt auf Seite 1",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: pagedList });
+    const view = await mountView(t, server);
+    const { container, act, days, listRequest } = view;
+    const day = addDays(days.fromDay, 23);
+    const bucket = { start: day, end: day };
+
+    // an: Klick auf die Säule – aus: zweiter Klick
+    await openSecondPage(view, server);
+    await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(server.lists().at(-1), listRequest({ bucket }));
+    await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(server.lists().at(-1), listRequest());
+
+    // an – im Abschnitt auf Seite 2 – aus über die Schließen-Schaltfläche
+    await openSecondPage(view, server);
+    await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(server.lists().at(-1), listRequest({ bucket }));
+    await openSecondPage(view, server);
+    const [close] = elements(bucketMarkOf(container), (element) =>
+      (element.getAttribute("aria-label") ?? "").startsWith("Filter „")
+    );
+    await act(() => click(close));
+    assert.deepEqual(server.lists().at(-1), listRequest());
+
+    // Derselbe Abschnitt noch einmal: Seite 1, nicht die frühere Seite 2.
+    await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(server.lists().at(-1), listRequest({ bucket }));
+  }
+);
+
+test(
+  "Blättern (NAK-5): Zeitraum gewechselt und zurück führt auf Seite 1",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: pagedList });
+    const view = await mountView(t, server);
+    await openSecondPage(view, server);
+
+    await choosePreset(view, "Letzter Monat");
+    const other = server.lists().at(-1).body;
+    assert.equal(other.offset, 0);
+    assert.notEqual(other.startDate, view.period.startDate);
+
+    await choosePreset(view, "Letzte 30 Tage");
+    assert.deepEqual(server.lists().at(-1), view.listRequest());
+  }
+);
+
+test(
+  "Blättern (NAK-5): Widget gewechselt und zurück führt auf Seite 1",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: pagedList });
+    const view = await mountView(t, server, [EMBED, SECOND_EMBED]);
+    await openSecondPage(view, server);
+
+    await chooseWidget(view, SECOND_EMBED);
+    assert.deepEqual(server.lists().at(-1), {
+      ...view.listRequest(),
+      url: await urlOf(ROUTES.conversations, SECOND_EMBED.id),
+    });
+
+    await chooseWidget(view, EMBED);
+    assert.deepEqual(server.lists().at(-1), view.listRequest());
+  }
+);
+
+test(
+  "Abschnitts-Filter: Nach einem Wechsel von Zeitraum oder Widget kommt er nicht zurück, wenn der frühere Stand wieder gilt",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: pagedList });
+    const view = await mountView(t, server, [EMBED, SECOND_EMBED]);
+    const { container, act } = view;
+
+    await act(() => click(columnsOf(container)[23]));
+    assert.ok(bucketMarkOf(container));
+    await choosePreset(view, "Letzter Monat");
+    assert.equal(bucketMarkOf(container)?.textContent, undefined);
+    await choosePreset(view, "Letzte 30 Tage");
+    assert.equal(bucketMarkOf(container)?.textContent, undefined);
+    assert.deepEqual(server.lists().at(-1), view.listRequest());
+
+    await act(() => click(columnsOf(container)[23]));
+    assert.ok(bucketMarkOf(container));
+    await chooseWidget(view, SECOND_EMBED);
+    assert.equal(bucketMarkOf(container)?.textContent, undefined);
+    await chooseWidget(view, EMBED);
+    assert.equal(bucketMarkOf(container)?.textContent, undefined);
+    assert.deepEqual(server.lists().at(-1), view.listRequest());
+    assert.deepEqual(
+      columnsOf(container).filter(
+        (column) => column.getAttribute("aria-pressed") === "true"
+      ),
+      []
+    );
   }
 );
