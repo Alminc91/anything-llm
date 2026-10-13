@@ -983,7 +983,7 @@ test(
     assert.equal(kpis.length, 4);
     // wie „N negativ“ und der Verweis in der Kopfzeile: zum Bereich der Liste
     const [listArea] = elements(container, (element) =>
-      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-4")
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-20")
     );
     const scrolls = [];
     listArea.scrollIntoView = (options) => scrolls.push(options);
@@ -1311,13 +1311,22 @@ test(
       [positive(), "Positiv", "Positiv bewertet"],
       [negative(), "Negativ", "Negativ bewertet"],
     ]) {
+      // bis xl der kurze Text, ab xl der lange (Fixliste 3, V7)
       assert.deepEqual(
         elements(button, (element) => element.tagName === "SPAN").map(
-          (span) => [span.getAttribute("class"), span.textContent]
+          (span) => [
+            (span.getAttribute("class") ?? "")
+              .split(" ")
+              .filter((name) =>
+                /^(hidden|xl:hidden|xl:inline-flex)$/.test(name)
+              )
+              .join(" "),
+            span.textContent,
+          ]
         ),
         [
-          ["sm:hidden", short],
-          ["hidden sm:inline", long],
+          ["xl:hidden", short],
+          ["hidden xl:inline-flex", long],
         ]
       );
       assert.doesNotMatch(button.textContent, emoji);
@@ -1388,7 +1397,7 @@ test(
 
     // Der Bereich der Liste merkt sich, dass zu ihm gesprungen wird.
     const [listArea] = elements(container, (element) =>
-      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-4")
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-20")
     );
     const scrolls = [];
     listArea.scrollIntoView = (options) => scrolls.push(options);
@@ -1428,7 +1437,7 @@ test(
       (element) => element.getAttribute("data-kpi") === "ratings"
     );
     const [listArea] = elements(container, (element) =>
-      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-4")
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-20")
     );
     const scrolls = [];
     listArea.scrollIntoView = (options) => scrolls.push(options);
@@ -1479,7 +1488,7 @@ test(
     assert.equal(jump.parentNode.firstChild.textContent, "Konversationen");
 
     const [listArea] = elements(container, (element) =>
-      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-4")
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-20")
     );
     const scrolls = [];
     listArea.scrollIntoView = (options) => scrolls.push(options);

@@ -161,6 +161,8 @@ async function panelServer(t, state) {
     if (call.method === "GET" && detail) {
       const answer = state.details?.[detail[1]];
       if (!answer) return json({ success: true, messages: [] });
+      // answer.hold: Die Antwort wartet auf dieses Versprechen
+      if (answer.hold) await answer.hold;
       if (answer.network) throw new TypeError("Failed to fetch");
       if (answer.status && answer.status >= 400)
         return {
@@ -1991,7 +1993,7 @@ const hasClasses = (element, names) =>
   names.every((name) => classesOf(element).includes(name));
 
 test(
-  "Fixliste 2, B1/B6/B7: Kopfzeile – Werkzeugleiste fest neben der Überschrift, Zählung und Markierungen in eigener Zeile darunter; mobil Export als Symbol neben der Überschrift, Suche und Filter je volle Breite",
+  "Fixliste 2 B1/B6/B7, Fixliste 3 V1/V7: Kopfzeile – „N einsehbar“ bzw. „X von Y einsehbar“ neben der Überschrift, Werkzeugleiste fest daneben (schmaler: darunter); eine Zeile für Markierungen nur mit Filter; mobil Export als Symbol neben der Überschrift, Suche und Filter je volle Breite",
   { skip },
   async (t) => {
     await panelServer(t, {
@@ -2000,44 +2002,77 @@ test(
     const plain = await mountList(t);
     const shape = (container) => {
       const header = one(container, "data-list-header");
-      const [toolbarRow, statusRow] = header.childNodes;
+      const [toolbarRow] = header.childNodes;
       const tools = one(container, "data-list-tools");
       return {
         toolbarRow: [
-          toolbarRow.childNodes.map((c) => c.tagName),
+          toolbarRow.childNodes.map((c) =>
+            ["data-list-title", "data-list-tools"].find((name) =>
+              c.hasAttribute(name)
+            )
+          ),
           classesOf(toolbarRow),
         ],
-        toolsParent: tools.parentNode === toolbarRow,
+        title: classesOf(one(container, "data-list-title")),
         tools: classesOf(tools),
         toolsChildren: tools.childNodes.map((c) => classesOf(c).join(" ")),
-        statusIsSecondRow: statusRow.hasAttribute("data-list-status"),
       };
     };
     const before = shape(plain.container);
+    // ohne Filter: keine eigene Zeile für Markierungen (AK-1: Dichte), die
+    // Zahl steht neben der Überschrift
+    assert.equal(one(plain.container, "data-list-header").childNodes.length, 1);
+    assert.equal(withAttribute(plain.container, "data-list-status").length, 0);
+    assert.deepEqual(
+      one(plain.container, "data-list-title").childNodes.map((c) =>
+        ["data-list-heading", "data-viewable-count"].find((name) =>
+          c.hasAttribute(name)
+        )
+      ),
+      ["data-list-heading", "data-viewable-count"]
+    );
+    assert.equal(
+      one(plain.container, "data-viewable-count").textContent,
+      "2 einsehbar"
+    );
     await plain.unmount();
 
-    // mit Suche und Bewertungsfilter: Markierungen und „X von Y“ unter der
-    // Überschrift – die Leiste steht unverändert (B7)
+    // mit Suche und Bewertungsfilter: „X von Y“ weiter neben der Überschrift,
+    // die Markierungen in einer Zeile darunter – die Leiste steht unverändert
+    // (B7); ob sie neben die Überschrift passt, hängt nicht an der Zahl
+    // (basis-40)
     const filtered = await mountList(t, {
       query: "?q=spanisch",
       props: { feedbackFilter: "negative" },
     });
     const { container } = filtered;
+    await filtered.act();
     assert.deepEqual(shape(container), before);
+    assert.ok(
+      hasClasses(one(container, "data-list-title"), ["flex-1", "basis-40"])
+    );
+    assert.match(
+      one(one(container, "data-list-title"), "data-viewable-count").textContent,
+      /^1 von \d+ einsehbar$/
+    );
     const status = one(container, "data-list-status");
+    assert.equal(status.parentNode, one(container, "data-list-header"));
     assert.deepEqual(
       status.childNodes.map((c) =>
-        [
-          "data-viewable-count",
-          "data-feedback-filter-mark",
-          "data-search-filter-mark",
-        ].find((name) => c.hasAttribute(name))
+        ["data-feedback-filter-mark", "data-search-filter-mark"].find((name) =>
+          c.hasAttribute(name)
+        )
       ),
-      [
-        "data-viewable-count",
-        "data-feedback-filter-mark",
-        "data-search-filter-mark",
-      ]
+      ["data-feedback-filter-mark", "data-search-filter-mark"]
+    );
+    // S1: Die 44-px-Flächen der ✕ ragen je 9 px über die Markierung – 18 px
+    // Zeilenabstand, damit sie sich bei umbrochenen Markierungen nicht
+    // überlappen
+    assert.ok(hasClasses(status, ["flex-wrap", "gap-y-[18px]"]));
+    assert.ok(
+      withAttribute(status, "data-filter-clear").every((button) =>
+        hasClasses(button, ["-my-[9px]", "h-11", "w-11"])
+      )
     );
     assert.equal(
       elements(one(container, "data-list-tools"), (e) =>
@@ -2048,31 +2083,56 @@ test(
 
     // mobil (unter sm): Überschrift und Export in Zeile 1 (order-1/order-2),
     // Suche und Filtergruppe je volle Breite darunter (B1)
-    assert.ok(hasClasses(one(container, "data-list-heading"), ["order-1"]));
+    assert.ok(hasClasses(one(container, "data-list-title"), ["order-1"]));
     const tools = one(container, "data-list-tools");
-    assert.ok(hasClasses(tools, ["contents", "sm:flex", "sm:order-2"]));
+    assert.ok(
+      hasClasses(tools, [
+        "contents",
+        "sm:flex",
+        "sm:order-2",
+        // V7: von sm bis xl eine eigene Zeile, ab xl neben der Überschrift
+        "sm:basis-full",
+        "xl:basis-auto",
+      ])
+    );
     const field = one(container, "data-search-field");
     assert.ok(
       hasClasses(field, [
         "order-3",
         "basis-full",
         "sm:order-none",
-        "sm:w-72",
         "w-full",
+        // V7: von sm bis xl so breit wie möglich (mindestens 240 px), ab xl
+        // fest 288 px
+        "sm:flex-1",
+        "sm:min-w-[240px]",
+        "xl:w-72",
+        "xl:flex-none",
       ])
     );
+    // V7: Filter und Export brechen nur gemeinsam um; mobil ordnen sie sich
+    // einzeln ein (contents)
+    const actions = one(container, "data-list-actions");
+    assert.ok(hasClasses(actions, ["contents", "sm:flex"]));
     const filters = one(container, "data-feedback-filters");
+    assert.equal(filters.parentNode, actions);
     assert.ok(hasClasses(filters, ["order-4", "basis-full", "sm:order-none"]));
     const exportMenu = one(container, "data-export-menu");
+    assert.equal(exportMenu.parentNode, actions);
     assert.ok(hasClasses(exportMenu, ["order-2", "sm:order-none"]));
     const [exportButton] = elements(exportMenu, (e) => e.tagName === "BUTTON");
     assert.ok(
       hasClasses(exportButton, ["h-11", "w-11", "sm:w-auto", "sm:h-10"])
     );
-    // der Name „Exportieren“ bleibt für Screenreader, sichtbar erst ab sm
+    // der Name „Exportieren“ bleibt für Screenreader, sichtbar erst ab sm;
+    // der Pfeil erst ab xl (kompakt, V7)
     const [label] = elements(exportButton, (e) => e.tagName === "SPAN");
     assert.equal(label.textContent, "Exportieren");
     assert.ok(hasClasses(label, ["sr-only", "sm:not-sr-only"]));
+    const [caret] = elements(exportButton, (e) => e.tagName === "svg").slice(
+      -1
+    );
+    assert.ok(hasClasses(caret, ["hidden", "xl:block"]));
 
     // B6: voller Platzhalter, Name des Felds ausführlich
     const input = one(container, "data-search-input");
@@ -2181,7 +2241,7 @@ test(
 );
 
 test(
-  "Fixliste 2, B9: Zeile unter der Frage als Teile mit Abstand – der Trenner „·“ hängt am Ende eines Teils (CSS), nie am Anfang einer Zeile",
+  "Fixliste 2 B9 / Fixliste 3 V5: Zeile unter der Frage als Teile – der Trenner „·“ steht vor jedem Teil (CSS) und wird am Zeilenanfang abgeschnitten: keine Zeile beginnt oder endet mit „·“",
   { skip },
   async (t) => {
     await panelServer(t, {
@@ -2202,14 +2262,24 @@ test(
     assert.ok(items.length >= 4);
     for (const item of items) {
       assert.doesNotMatch(item.textContent, /^\s*·|·\s*$/);
-      assert.ok(classesOf(item).includes("whitespace-nowrap"));
+      // der Trenner als 16 px breites Kästchen VOR dem Teil – kein Trenner
+      // dahinter, der am Zeilenende stehen bliebe
       assert.ok(
-        classesOf(item).includes("[&:not(:last-child)]:after:content-['·']")
+        hasClasses(item, [
+          "whitespace-nowrap",
+          "before:inline-block",
+          "before:w-4",
+          "before:content-['·']",
+        ])
       );
+      assert.ok(!classesOf(item).some((name) => name.includes("after:")));
     }
-    assert.ok(
-      hasClasses(one(container, "data-panel-meta"), ["flex", "flex-wrap"])
-    );
+    // die Zeile um genau dieses Kästchen nach links verschoben, der Rahmen
+    // schneidet ab: Am Anfang jeder (auch umbrochenen) Zeile ist der Trenner
+    // nicht zu sehen
+    const meta = one(container, "data-panel-meta");
+    assert.ok(hasClasses(meta, ["flex", "flex-wrap", "-ml-4"]));
+    assert.ok(hasClasses(meta.parentNode, ["overflow-hidden"]));
   }
 );
 
@@ -2370,7 +2440,7 @@ test(
     assert.equal(dialogs().length, 1);
     assert.equal(
       one(dialogs()[0], "data-confirm-count").textContent,
-      "Laden..."
+      "Laden …"
     );
     assert.equal(
       one(dialogs()[0], "data-confirm-delete").hasAttribute("disabled"),
@@ -2587,7 +2657,7 @@ test(
     const scrolled = [];
     const original = prototype.scrollIntoView;
     prototype.scrollIntoView = function (options) {
-      scrolled.push([classesOf(this).includes("scroll-mt-4"), options]);
+      scrolled.push([classesOf(this).includes("scroll-mt-20"), options]);
     };
     t.after(() => {
       prototype.scrollIntoView = original;
@@ -2739,5 +2809,226 @@ test(
       })
     );
     assert.equal(document.activeElement, one(container, "data-menu-copy-link"));
+  }
+);
+
+/**
+ * Maße für das Panel (Fixliste 3, V3/V8): Oberkante im Fenster und
+ * Fensterhöhe; scrollIntoView des Panels wird gemerkt.
+ */
+function panelGeometry(t, document, { top, viewportHeight = 900 }) {
+  // die Klasse, die getBoundingClientRect und scrollIntoView liefert
+  let proto = Object.getPrototypeOf(document.body);
+  while (!Object.prototype.hasOwnProperty.call(proto, "getBoundingClientRect"))
+    proto = Object.getPrototypeOf(proto);
+  const original = {
+    rect: proto.getBoundingClientRect,
+    scroll: proto.scrollIntoView,
+    height: globalThis.window.innerHeight,
+  };
+  const scrolled = [];
+  proto.getBoundingClientRect = function () {
+    return this.hasAttribute?.("data-conversation-panel")
+      ? { x: 0, y: top, top, left: 0, width: 520, height: 600 }
+      : original.rect.call(this);
+  };
+  proto.scrollIntoView = function (options) {
+    if (this.hasAttribute?.("data-conversation-panel")) scrolled.push(options);
+    return original.scroll.call(this, options);
+  };
+  globalThis.window.innerHeight = viewportHeight;
+  t.after(() => {
+    proto.getBoundingClientRect = original.rect;
+    proto.scrollIntoView = original.scroll;
+    globalThis.window.innerHeight = original.height;
+  });
+  return scrolled;
+}
+
+test(
+  "Fixliste 3, V3/V8: ab lg endet das Panel über dem unteren Fensterrand; steht es beim Öffnen so tief, dass kaum etwas zu sehen ist, wird es weich nach oben geholt – sonst bleibt die Seite stehen; per Link nicht (die Seite springt zur Liste)",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const details = {
+      1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+    };
+    for (const [top, maxHeight, reveal] of [
+      [700, "240px", true],
+      [300, "568px", false],
+      [124, "744px", false],
+    ]) {
+      await panelServer(t, { rows: [row(1), row(2)], details });
+      const view = await mountList(t);
+      const scrolled = panelGeometry(t, view.document, { top });
+      await view.act(() => click(rowsOf(view.container)[0]));
+      await view.act();
+      const panel = panelOf(view.container);
+      assert.equal(panel.style.maxHeight, maxHeight, String(top));
+      assert.deepEqual(
+        scrolled,
+        reveal ? [{ block: "start", behavior: "smooth" }] : [],
+        String(top)
+      );
+      await view.unmount();
+    }
+    // die Klasse dazu: scroll-mt-16 – scrollIntoView bringt das Panel an
+    // seine Klebekante unter dem Benutzermenü
+    await panelServer(t, { rows: [row(1)], details });
+    // Maße schon vor dem Einhängen: Das Panel öffnet mit der Seite
+    const scrolled = panelGeometry(t, globalThis.document, { top: 700 });
+    const linked = await mountList(t, { query: "?widget=3&conversation=1" });
+    await linked.act();
+    assert.equal(panelOf(linked.container).style.maxHeight, "240px");
+    assert.ok(
+      hasClasses(panelOf(linked.container), ["lg:scroll-mt-16", "lg:sticky"])
+    );
+    // per Link geöffnet: kein Holen (die Ansicht springt zur Liste)
+    assert.deepEqual(scrolled, []);
+    // die Liste ist ab lg mindestens so hoch wie das Panel werden kann –
+    // die Seite lässt sich immer weit genug scrollen
+    assert.ok(
+      hasClasses(panelOf(linked.container).parentNode, [
+        "lg:min-h-[calc(100vh-112px)]",
+      ])
+    );
+  }
+);
+
+test(
+  "Fixliste 3, V3: unter lg (Vollbild) keine angepasste Höhe",
+  { skip },
+  async (t) => {
+    stubWidth(t, false);
+    await panelServer(t, {
+      rows: [row(1)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const view = await mountList(t);
+    const scrolled = panelGeometry(t, view.document, { top: 700 });
+    await view.act(() => click(rowsOf(view.container)[0]));
+    await view.act();
+    assert.equal(panelOf(view.container).style.maxHeight, undefined);
+    assert.deepEqual(scrolled, []);
+  }
+);
+
+test(
+  "Fixliste 3, V9/V11: ✕ im Suchfeld – der Fokus bleibt im Feld (das ✕ nimmt ihn beim Drücken nicht); ✕ einer Markierung gibt ihn ins Suchfeld bzw. auf „Alle“; ein Klick auf die Lupe fokussiert das Feld",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [
+        row(1, { preview: "Spanisch", negative_count: 1 }),
+        row(2, { preview: "Yoga" }),
+      ],
+    });
+    const view = await mountList(t);
+    const { container, document, act } = view;
+    const input = one(container, "data-search-input");
+
+    // V11: Lupe bzw. Rand des Rahmens
+    const field = one(container, "data-search-field");
+    const [icon] = elements(field, (e) => e.tagName === "svg");
+    await act(() => handlersOf(field).onClick({ target: icon }));
+    assert.equal(document.activeElement, input);
+    input.blur();
+    await act(() => handlersOf(field).onClick({ target: field }));
+    assert.equal(document.activeElement, input);
+
+    // V9: das ✕ des Felds
+    await type(view, "spanisch");
+    await act(() => wait(350));
+    await act();
+    const clear = one(container, "data-search-clear");
+    let prevented = false;
+    handlersOf(clear).onMouseDown({
+      preventDefault() {
+        prevented = true;
+      },
+    });
+    assert.equal(prevented, true);
+    await act(() => click(clear));
+    await act();
+    assert.equal(document.activeElement, input);
+    assert.equal(withAttribute(container, "data-search-clear").length, 0);
+
+    // V9: das ✕ der Markierung „Suche: …“ verschwindet mit der Suche
+    await type(view, "spanisch");
+    await act(() => wait(350));
+    await act();
+    const markClear = one(
+      one(container, "data-search-filter-mark"),
+      "data-filter-clear"
+    );
+    await act(() => click(markClear));
+    await act();
+    assert.equal(withAttribute(container, "data-search-filter-mark").length, 0);
+    assert.equal(document.activeElement, input);
+    await view.unmount();
+
+    // ✕ der Markierung „Filter: Negativ bewertet“ → „Alle“
+    await panelServer(t, { rows: [row(1, { negative_count: 1 })] });
+    let filter = "negative";
+    const filtered = await mountList(t, {
+      props: {
+        feedbackFilter: "negative",
+        onFeedbackFilterChange: (next) => {
+          filter = next;
+        },
+      },
+    });
+    await filtered.act(() =>
+      click(
+        one(
+          one(filtered.container, "data-feedback-filter-mark"),
+          "data-filter-clear"
+        )
+      )
+    );
+    assert.equal(filter, "all");
+    const [all] = elements(
+      one(filtered.container, "data-feedback-filters"),
+      (e) => e.tagName === "BUTTON"
+    );
+    assert.equal(filtered.document.activeElement, all);
+  }
+);
+
+test(
+  "Fixliste 3, V10: Lädt der Verlauf noch, ist weder „⋯“ noch „Konversation löschen“ bedienbar – Escape schließt das Panel (keine Rückfrage, kein Menü offen)",
+  { skip },
+  async (t) => {
+    let release;
+    await panelServer(t, {
+      rows: [row(1)],
+      details: {
+        1: {
+          hold: new Promise((resolve) => {
+            release = resolve;
+          }),
+          messages: [message(1, "konv-1", { session_id: "sitzung-1" })],
+        },
+      },
+    });
+    const view = await mountList(t);
+    const { container, document, act } = view;
+    const escape = captureKeys(t, document);
+    await act(() => click(rowsOf(container)[0]));
+    const panel = panelOf(container);
+    assert.ok(panel);
+    assert.match(panel.textContent, /Laden …/);
+    assert.equal(
+      one(panel, "data-panel-menu-button").hasAttribute("disabled"),
+      true
+    );
+    assert.equal(withAttribute(panel, "data-delete-conversation").length, 0);
+    await escape(act);
+    assert.equal(panelOf(container), null);
+    await act(() => release());
+    await act();
+    assert.equal(panelOf(container), null);
   }
 );

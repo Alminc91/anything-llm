@@ -845,9 +845,20 @@ function feedbackFilters(html) {
     className,
     content,
     icons: content.match(/<svg[^>]*>.*?<\/svg>/g) ?? [],
-    spans: [...content.matchAll(/<span class="([^"]*)">([^<]*)<\/span>/g)].map(
-      ([, spanClass, text]) => [spanClass, text]
-    ),
+    // Beschriftungen (StableLabel, Fixliste 3 V4): nur die Klassen, die
+    // über die Sichtbarkeit je Breite entscheiden
+    spans: [
+      ...content.matchAll(
+        /<span(?: data-stable-label="([^"]*)")? class="([^"]*)">([^<]*)<\/span>/g
+      ),
+    ].map(([, stable, spanClass, text]) => [
+      spanClass
+        .split(" ")
+        .filter((name) => /^(hidden|xl:hidden|xl:inline-flex)$/.test(name))
+        .join(" "),
+      text,
+      stable === text,
+    ]),
   }));
 }
 
@@ -886,14 +897,15 @@ test(
         },
       ]
     );
-    // Der ausgeschriebene Text ab 640 px, darunter der kurze – nie beide.
+    // Der ausgeschriebene Text ab 1280 px (xl), darunter der kurze – nie
+    // beide (Fixliste 3, V7); je mit Platzhalter für die fette Schrift (V4).
     assert.deepEqual(positive.spans, [
-      ["sm:hidden", "Positiv"],
-      ["hidden sm:inline", "Positiv bewertet"],
+      ["xl:hidden", "Positiv", true],
+      ["hidden xl:inline-flex", "Positiv bewertet", true],
     ]);
     assert.deepEqual(negative.spans, [
-      ["sm:hidden", "Negativ"],
-      ["hidden sm:inline", "Negativ bewertet"],
+      ["xl:hidden", "Negativ", true],
+      ["hidden xl:inline-flex", "Negativ bewertet", true],
     ]);
 
     for (const filter of [positive, negative]) {

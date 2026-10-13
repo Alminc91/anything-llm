@@ -23,8 +23,10 @@ import {
   hasVisibleHit,
   highlightParts,
   highlightTextNodes,
+  isWide,
   longDateLabel,
   outsidePeriod,
+  panelFit,
   searchLinkIssue,
   searchPattern,
   shortDayLabel,
@@ -500,4 +502,41 @@ test("Sprung zum Treffer: Nur der Verlauf scrollt – die Position steht mittig,
   assert.equal(firstElementWith(root, "data-search-hit"), mark);
   assert.equal(firstElementWith(root, "data-nichts"), null);
   assert.equal(firstElementWith(null, "data-search-hit"), null);
+});
+
+test("Fixliste 3, V3/V8: Höhe des Seitenpanels – es endet über dem unteren Fensterrand, wo immer es steht; steht es zu tief, wird es beim Öffnen geholt", () => {
+  // oben klebend (80 px): wie bisher 100vh - 112 px
+  assert.deepEqual(panelFit(80, 900), { maxHeight: 788, reveal: false });
+  // nach dem Sprung zur Liste tiefer (B5: 124 px) – die Fußzeile bleibt im
+  // Fenster (vorher 788 px, Unterkante bei 912)
+  assert.deepEqual(panelFit(124, 900), { maxHeight: 744, reveal: false });
+  assert.ok(124 + panelFit(124, 900).maxHeight <= 900 - 32);
+  // höher als die Klebekante gibt es nicht (beim Scrollen): wie oben
+  assert.deepEqual(panelFit(10, 900), { maxHeight: 788, reveal: false });
+  // weit unten (wenige Treffer): nie niedriger als 240 px, und beim Öffnen
+  // sind weniger als 320 px zu sehen – holen
+  assert.deepEqual(panelFit(700, 900), { maxHeight: 240, reveal: true });
+  assert.equal(panelFit(580, 900).reveal, false);
+  assert.equal(panelFit(581, 900).reveal, true);
+  // ohne Maße (kein Layout): nichts
+  assert.equal(panelFit(undefined, 900), null);
+  assert.equal(panelFit(100, undefined), null);
+});
+
+test("Fixliste 3, S4: isWide – eine Stelle für die Breitenprüfung, auch ohne matchMedia", () => {
+  const original = globalThis.window;
+  try {
+    globalThis.window = undefined;
+    assert.equal(isWide(), false);
+    globalThis.window = {};
+    assert.equal(isWide(), false);
+    globalThis.window = {
+      matchMedia: (query) => ({ matches: query === "(min-width: 1024px)" }),
+    };
+    assert.equal(isWide(), true);
+    globalThis.window = { matchMedia: () => ({ matches: false }) };
+    assert.equal(isWide(), false);
+  } finally {
+    globalThis.window = original;
+  }
 });

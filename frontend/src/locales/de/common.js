@@ -962,6 +962,7 @@ const TRANSLATIONS = {
   "embed-analytics": {
     title: "Konversationen",
     "load-error": "Fehler beim Laden der Konversationsdaten.",
+    loading: "Laden …",
     "all-time": "Gesamt",
     "statistics-title": "STATISTIKEN",
     stats: {

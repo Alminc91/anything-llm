@@ -5,6 +5,7 @@ import ModalWrapper from "@/components/ModalWrapper";
 import Embed from "@/models/embed";
 import { formatNumber } from "@/utils/analyticsTimeline";
 import showToast from "@/utils/toast";
+import { MUTED } from "@/utils/conversationView";
 
 // KIE-538: „Konversation löschen" – etwa bei der Löschanfrage eines
 // Besuchers. Gelöscht wird die ganze Konversation, nach einer Rückfrage mit
@@ -18,9 +19,6 @@ import showToast from "@/utils/toast";
 // (useConversationDeletion).
 
 const QUESTION_MAX_LENGTH = 80;
-// Gedämpfte Schrift: im hellen Theme #5f6368 (6,1:1 auf Weiß) statt
-// --theme-text-secondary (4,2:1) – Fixliste 2, B2; dunkel gleich.
-const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 
 /** Erste Frage für die Rückfrage, auf eine Zeile gekürzt. */
 function shortQuestion(text) {
@@ -168,7 +166,7 @@ export function useConversationDeletion({
         <Question text={conversation.preview} />
         <p data-confirm-count="">
           {!previewLoaded
-            ? t("common.loading")
+            ? t("embed-analytics.loading")
             : messageCount === null
               ? t("embed-analytics.delete.confirm-unknown")
               : t("embed-analytics.delete.confirm-count", {

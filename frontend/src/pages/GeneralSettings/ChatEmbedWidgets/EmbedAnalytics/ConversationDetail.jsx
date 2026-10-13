@@ -19,7 +19,9 @@ import { formatDateForInput } from "@/utils/billingDate";
 import { formatDateTimeDE } from "@/utils/directories";
 import showToast from "@/utils/toast";
 import {
+  AVATAR_CLEARANCE,
   BERLIN,
+  MUTED,
   WIDE_QUERY,
   answerText,
   berlinTime,
@@ -31,6 +33,7 @@ import {
   highlightParts,
   longDateLabel,
   outsidePeriod,
+  panelFit,
   shortId,
 } from "@/utils/conversationView";
 import MarkdownRenderer from "./MarkdownRenderer";
@@ -44,17 +47,25 @@ import { useConversationDeletion } from "./DeleteConversation";
 // Verlauf. Fragen als Sprechblase, Antworten über den MarkdownRenderer wie
 // bisher, die Bewertung direkt unter der bewerteten Antwort.
 
-// Gedämpfte Schrift: dunkel wie --theme-text-secondary, hell #5f6368 – auf
-// Weiß 6,1:1 statt 4,2:1 (Fixliste 2, B2).
-const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 // Schaltflächen im Kopf: mobil 44 px hoch, ab lg kompakter.
 const ICON_BUTTON = `grid h-11 w-11 shrink-0 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent light:hover:bg-black/5 lg:h-9 lg:w-9`;
-// Trenner „·“ in der Zeile unter der Frage: am Ende jedes Teils außer dem
-// letzten – so beginnt keine umbrochene Zeile mit einem Punkt (B9).
+// Trenner „·“ in der Zeile unter der Frage: VOR jedem Teil, in einem 16 px
+// breiten Kästchen. Die Zeile ist um diese 16 px nach links verschoben und
+// wird am Rand abgeschnitten (META_LINE) – so verschwindet der Trenner am
+// Anfang jeder Zeile, und keine Zeile endet auf „·“ (Fixliste 2 B9,
+// Fixliste 3 V5).
+const META_LINE = "-ml-4 flex flex-wrap gap-y-0.5";
 const META_ITEM =
-  "whitespace-nowrap [&:not(:last-child)]:after:ml-1.5 [&:not(:last-child)]:after:content-['·']";
-// Tooltips in Berliner Zeit wie die sichtbaren Uhrzeiten (S1)
-const fullTime = (instant) => formatDateTimeDE(instant, { timeZone: BERLIN });
+  "whitespace-nowrap before:inline-block before:w-4 before:text-center before:text-[color:var(--theme-analytics-text-muted)] before:content-['·']";
+
+/**
+ * Zeitpunkt mit Datum in Berliner Zeit – für Tooltips, wie die sichtbaren
+ * Uhrzeiten (Fixliste 2, S1); auch in der Liste.
+ * @param {number|string|Date} instant
+ * @returns {string}
+ */
+export const berlinDateTime = (instant) =>
+  formatDateTimeDE(instant, { timeZone: BERLIN });
 
 /**
  * Text mit hervorgehobenen Treffern der Suche – als Text, nie als HTML.
@@ -163,6 +174,53 @@ function useInertOutside(ref, active) {
 }
 
 /**
+ * Ab lg: Das Panel endet über dem unteren Fensterrand, wo immer es steht
+ * (panelFit) – auch direkt nach dem Sprung zur Liste, wenn es noch nicht oben
+ * klebt (Fixliste 3, V3). Angepasst beim Öffnen, beim Scrollen der Seite (nicht
+ * des Verlaufs im Panel) und bei Größenänderungen, höchstens einmal je Bild.
+ * @param {{current: HTMLElement|null}} ref
+ * @param {boolean} active
+ * @param {*} content - Wechselt er (andere Konversation), wird neu angepasst
+ */
+function usePanelFit(ref, active, content) {
+  useEffect(() => {
+    const panel = ref.current;
+    if (!active || !panel || typeof window === "undefined") return;
+    const frame =
+      typeof window.requestAnimationFrame === "function"
+        ? (callback) => window.requestAnimationFrame(callback)
+        : (callback) => setTimeout(callback, 16);
+    const cancel =
+      typeof window.cancelAnimationFrame === "function"
+        ? (id) => window.cancelAnimationFrame(id)
+        : (id) => clearTimeout(id);
+    let pending = null;
+    const fit = () => {
+      pending = null;
+      const result = panelFit(
+        panel.getBoundingClientRect?.().top,
+        window.innerHeight
+      );
+      if (result) panel.style.maxHeight = `${result.maxHeight}px`;
+    };
+    const schedule = (event) => {
+      if (event?.target && panel.contains?.(event.target)) return;
+      if (pending === null) pending = frame(fit);
+    };
+    fit();
+    const doc = panel.ownerDocument;
+    doc?.addEventListener?.("scroll", schedule, true);
+    window.addEventListener?.("resize", schedule);
+    return () => {
+      if (pending !== null) cancel(pending);
+      doc?.removeEventListener?.("scroll", schedule, true);
+      window.removeEventListener?.("resize", schedule);
+      panel.style.maxHeight = "";
+    };
+  }, [ref, active, content]);
+}
+
+/**
  * @param {Object} props
  * @param {number} props.embedId
  * @param {number} props.chatId - id einer Zeile der Konversation (Adresse)
@@ -185,6 +243,9 @@ function useInertOutside(ref, active) {
  *   die geladene Konversation (Schlüssel für die Markierung in der Liste;
  *   outside: keine Nachricht im Zeitraum, sie kann dort nicht stehen)
  * @param {(chatId: number) => string} props.linkOf - Adresse der Konversation
+ * @param {boolean} [props.reveal] - Beim Öffnen ab lg nach oben holen, wenn
+ *   zu wenig davon zu sehen ist (nicht beim Öffnen per Link: Dann springt
+ *   die Seite ohnehin zur Liste)
  */
 export default function ConversationDetail({
   embedId,
@@ -202,6 +263,7 @@ export default function ConversationDetail({
   onDeleted = () => {},
   onLoaded = () => {},
   linkOf = () => "",
+  reveal = true,
 }) {
   const { t } = useTranslation();
   // { chatId, reload, messages, status } – zu genau einer Konversation;
@@ -341,6 +403,22 @@ export default function ConversationDetail({
     if (!wide) backRef.current?.focus?.();
   }, [wide]);
   useInertOutside(panelRef, !wide);
+  usePanelFit(panelRef, wide, chatId);
+
+  // Ab lg: Steht das Panel beim Öffnen so tief, dass kaum etwas davon zu
+  // sehen ist (wenige Treffer, die Liste endet unten im Fenster), wird es
+  // weich nach oben geholt – sonst bleibt die Seite stehen (AK-4,
+  // Fixliste 3 V8).
+  useEffect(() => {
+    if (!wide || !reveal || typeof window === "undefined") return;
+    const panel = panelRef.current;
+    const fit = panelFit(
+      panel?.getBoundingClientRect?.().top,
+      window.innerHeight
+    );
+    if (fit?.reveal)
+      panel.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }, [chatId, wide, reveal]);
 
   // Menü „⋯": Klick außerhalb oder Escape schließt (Escape gibt den Fokus an
   // die Schaltfläche zurück); beim Öffnen steht der Fokus auf dem ersten
@@ -497,8 +575,9 @@ export default function ConversationDetail({
       role={wide ? undefined : "dialog"}
       // Ab lg klebt das Panel 64 px unter dem oberen Rand des Bereichs – sein
       // Kopf (↑ ↓ ⋯ ✕) liegt so unter dem schwebenden Benutzermenü oben
-      // rechts („KI", bis 72 px), nicht darunter (Fixliste 2, B4).
-      className="fixed inset-0 z-50 flex flex-col bg-theme-bg-secondary lg:sticky lg:inset-auto lg:top-16 lg:z-auto lg:max-h-[calc(100vh-112px)] lg:w-[min(520px,48%)] lg:shrink-0 lg:overflow-hidden lg:rounded-xl lg:border lg:border-white/10 lg:bg-theme-bg-primary"
+      // rechts („KI", bis 72 px), nicht darunter (Fixliste 2, B4). Die Höhe
+      // passt usePanelFit an, wo immer es steht (Fixliste 3, V3).
+      className={`fixed inset-0 z-50 flex flex-col bg-theme-bg-secondary lg:inset-auto lg:z-auto ${AVATAR_CLEARANCE.panel} lg:w-[min(520px,48%)] lg:shrink-0 lg:overflow-hidden lg:rounded-xl lg:border lg:border-white/10 lg:bg-theme-bg-primary`}
     >
       {/* Kopf – bleibt beim Scrollen stehen */}
       <header
@@ -596,51 +675,54 @@ export default function ConversationDetail({
             >
               <HighlightedText text={head.firstQuestion} term={search} />
             </h3>
-            {/* Teile als Liste mit Abstand; der Trenner hängt am Ende des
-                vorigen Teils (META_ITEM) – keine Zeile beginnt mit „·“ (B9). */}
-            <p
-              data-panel-meta=""
-              className={`flex flex-wrap gap-x-1.5 gap-y-0.5 text-[13px] ${MUTED}`}
-            >
-              <span data-meta-item="" className={`${META_ITEM} lg:hidden`}>
-                {longDateLabel(headDay)}
-              </span>
-              <span
-                data-meta-item=""
-                className={META_ITEM}
-                title={`${fullTime(head.startedAt)} – ${fullTime(head.lastAt)}`}
+            {/* Teile mit dem Trenner davor (META_ITEM); der Rahmen schneidet
+                ihn am Zeilenanfang ab – keine Zeile beginnt oder endet mit
+                „·“ (B9, V5). */}
+            <div className="overflow-hidden">
+              <p
+                data-panel-meta=""
+                className={`${META_LINE} text-[13px] ${MUTED}`}
               >
-                {t("embed-analytics.rows.questions", {
-                  count: head.questions,
-                  formatted: formatNumber(head.questions),
-                })}
-              </span>
-              <span data-meta-item="" className={META_ITEM}>
-                {timeSpan(head.startedAt, head.lastAt, t)}
-              </span>
-              {head.negative > 0 && (
+                <span data-meta-item="" className={`${META_ITEM} lg:hidden`}>
+                  {longDateLabel(headDay)}
+                </span>
                 <span
                   data-meta-item=""
-                  className={`${META_ITEM} text-orange-300 light:text-orange-700`}
+                  className={META_ITEM}
+                  title={`${berlinDateTime(head.startedAt)} – ${berlinDateTime(head.lastAt)}`}
                 >
-                  {t("embed-analytics.panel.negative-count", {
-                    count: head.negative,
-                    formatted: formatNumber(head.negative),
+                  {t("embed-analytics.rows.questions", {
+                    count: head.questions,
+                    formatted: formatNumber(head.questions),
                   })}
                 </span>
-              )}
-              {head.positive > 0 && (
-                <span
-                  data-meta-item=""
-                  className={`${META_ITEM} text-sky-300 light:text-sky-700`}
-                >
-                  {t("embed-analytics.panel.positive-count", {
-                    count: head.positive,
-                    formatted: formatNumber(head.positive),
-                  })}
+                <span data-meta-item="" className={META_ITEM}>
+                  {timeSpan(head.startedAt, head.lastAt, t)}
                 </span>
-              )}
-            </p>
+                {head.negative > 0 && (
+                  <span
+                    data-meta-item=""
+                    className={`${META_ITEM} text-orange-300 light:text-orange-700`}
+                  >
+                    {t("embed-analytics.panel.negative-count", {
+                      count: head.negative,
+                      formatted: formatNumber(head.negative),
+                    })}
+                  </span>
+                )}
+                {head.positive > 0 && (
+                  <span
+                    data-meta-item=""
+                    className={`${META_ITEM} text-sky-300 light:text-sky-700`}
+                  >
+                    {t("embed-analytics.panel.positive-count", {
+                      count: head.positive,
+                      formatted: formatNumber(head.positive),
+                    })}
+                  </span>
+                )}
+              </p>
+            </div>
             {outside && (
               <p
                 data-panel-outside=""
@@ -677,7 +759,7 @@ export default function ConversationDetail({
       >
         {!loaded ? (
           <p className={`py-4 text-center text-sm ${MUTED}`}>
-            {t("common.loading")}
+            {t("embed-analytics.loading")}
           </p>
         ) : failed ? (
           <div
@@ -792,7 +874,7 @@ const Message = memo(function Message({ message, search }) {
       <div className="flex flex-col items-end gap-1">
         <span
           className={`text-xs ${MUTED}`}
-          title={fullTime(message.createdAt)}
+          title={berlinDateTime(message.createdAt)}
         >
           {t("embed-analytics.panel.visitor", {
             time: berlinTime(message.createdAt),

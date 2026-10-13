@@ -1388,6 +1388,7 @@ const TRANSLATIONS = {
   "embed-analytics": {
     title: null,
     "load-error": null,
+    loading: null,
     "all-time": null,
     "statistics-title": null,
     stats: {

@@ -10,22 +10,21 @@ import { useTranslation } from "react-i18next";
 import Embed from "@/models/embed";
 import { formatNumber } from "@/utils/analyticsTimeline";
 import { formatDateForInput } from "@/utils/billingDate";
-import { formatDateTimeDE } from "@/utils/directories";
 import showToast from "@/utils/toast";
 import {
-  BERLIN,
+  MUTED,
   SEARCH_MAX_LENGTH,
-  WIDE_QUERY,
   berlinTime,
   conversationKey,
   dayGroupLabel,
   effectiveSearch,
   groupByLastMessageDay,
+  isWide,
   searchLinkIssue,
   shortDayLabel,
   startedOnOtherDay,
 } from "@/utils/conversationView";
-import ConversationDetail from "./ConversationDetail";
+import ConversationDetail, { berlinDateTime } from "./ConversationDetail";
 import ExportMenu from "./ExportMenu";
 import useConversationLocation from "./useConversationLocation";
 
@@ -71,8 +70,6 @@ const EMPTY_STATE_KEYS = {
   positive: "embed-analytics.conversations.no-positive",
 };
 
-const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
-
 // Umschalter „Alle / Positiv bewertet / Negativ bewertet"
 const SEGMENT_CLASS =
   "flex h-11 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm transition-colors sm:h-9";
@@ -85,11 +82,13 @@ const SEGMENT_INACTIVE = `${MUTED} hover:text-theme-text-primary`;
 
 /**
  * Markierung eines gesetzten Filters unter der Überschrift der Liste („Nur
- * …", „Filter: …", „Suche: …") – ✕ hebt ihn auf.
- * @param {{label: string, clearLabel: string, onClear: () => void}} props
+ * …", „Filter: …", „Suche: …") – ✕ hebt ihn auf. Mit dem Filter verschwindet
+ * die Markierung samt ✕; der Fokus geht dann an focusAfter (etwa ins
+ * Suchfeld), nicht ins Leere (Fixliste 3, V9).
+ * @param {{label: string, clearLabel: string, onClear: () => void, focusAfter?: () => void}} props
  *   (übrige Props, z. B. data-*, gehen an die Markierung)
  */
-function FilterMark({ label, clearLabel, onClear, ...rest }) {
+function FilterMark({ label, clearLabel, onClear, focusAfter, ...rest }) {
   return (
     <span
       {...rest}
@@ -102,7 +101,10 @@ function FilterMark({ label, clearLabel, onClear, ...rest }) {
           machen. Sichtbar ist nur der Kreis um das ✕. */}
       <button
         type="button"
-        onClick={onClear}
+        onClick={() => {
+          onClear();
+          focusAfter?.();
+        }}
         aria-label={clearLabel}
         title={clearLabel}
         data-filter-clear=""
@@ -112,6 +114,24 @@ function FilterMark({ label, clearLabel, onClear, ...rest }) {
           <X size={12} weight="bold" aria-hidden="true" />
         </span>
       </button>
+    </span>
+  );
+}
+
+/**
+ * Beschriftung einer Umschalt-Schaltfläche, deren Breite nicht von der
+ * Schriftstärke abhängt: Ein unsichtbarer Doppelgänger in der Stärke der
+ * aktiven Schaltfläche (font-medium, ::after mit demselben Text) hält die
+ * Breite – wird ein Filter aktiv, wächst die Gruppe nicht (Fixliste 3, V4).
+ * @param {{text: string, className?: string}} props
+ */
+function StableLabel({ text, className = "" }) {
+  return (
+    <span
+      data-stable-label={text}
+      className={`inline-flex flex-col items-center after:invisible after:h-0 after:overflow-hidden after:font-medium after:content-[attr(data-stable-label)] ${className}`}
+    >
+      {text}
     </span>
   );
 }
@@ -499,7 +519,6 @@ export default function ConversationList({
     }
   };
 
-
   // Per Link (Adresse beim Öffnen der Seite) geöffnet und (noch) nicht unter
   // den geladenen Konversationen: nachladen, bis sie gefunden ist – bis zu
   // LINK_SEARCH_ROWS Zeilen. Nur im Zuschnitt, mit dem die Seite geöffnet
@@ -591,9 +610,7 @@ export default function ConversationList({
   useEffect(() => {
     if (!currentKey || !followCurrent.current) return;
     followCurrent.current = false;
-    const wide =
-      typeof window !== "undefined" && window.matchMedia?.(WIDE_QUERY)?.matches;
-    if (wide)
+    if (isWide())
       rowRefs.current.get(currentKey)?.scrollIntoView?.({ block: "nearest" });
   }, [currentKey]);
 
@@ -633,6 +650,9 @@ export default function ConversationList({
   };
 
   const clearSearch = () => setPlaceSearch("");
+  // Ziele des Fokus, wenn eine Filtermarkierung verschwindet (V9)
+  const searchInputRef = useRef(null);
+  const allFilterRef = useRef(null);
 
   // ---------------------------------------------------------------------------
   // Kopfzeile
@@ -675,153 +695,196 @@ export default function ConversationList({
 
   return (
     <div>
-      {/* Kopfzeile – immer sichtbar, auch im Lade- und Leer-Zustand. Die
-          Werkzeugleiste steht fest neben (schmaler: unter) der Überschrift;
-          Zählung und Filtermarkierungen haben eine eigene Zeile darunter und
-          verschieben sie nicht (Fixliste 2, B7). Unter sm: „Exportieren“ als
-          Symbol neben der Überschrift, Suche und Bewertungsfilter je in
-          voller Breite darunter – nichts überlappt (B1). */}
+      {/* Kopfzeile – immer sichtbar, auch im Lade- und Leer-Zustand.
+          Überschrift mit „N einsehbar“ bzw. „X von Y einsehbar“ daneben
+          (Fixliste 3, V1); reicht der Platz nicht, bricht die Zahl unter
+          die Überschrift, nicht die Werkzeugleiste um. Die Werkzeugleiste
+          steht fest neben (schmaler: unter) der Überschrift; ob sie dorthin
+          passt, hängt nicht an der Zahl (basis-40) – sie springt nicht, wenn
+          ein Filter die Zahl verlängert (Fixliste 2, B7). Darunter eine
+          Zeile mit den Filtermarkierungen, nur wenn ein Filter gesetzt ist.
+          Unter sm: „Exportieren“ als Symbol neben der Überschrift, Suche und
+          Bewertungsfilter je in voller Breite darunter – nichts überlappt
+          (B1). */}
       <div data-list-header="" className="mb-3 flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-          <h3
-            ref={headingRef}
-            tabIndex={-1}
-            data-list-heading=""
-            className="order-1 text-base font-semibold text-theme-text-primary"
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+          <div
+            data-list-title=""
+            className="order-1 flex min-h-11 min-w-0 flex-1 basis-40 flex-wrap items-center gap-x-3 gap-y-0.5 sm:min-h-10"
           >
-            {t("embed-analytics.list.title")}
-          </h3>
-          {/* unter sm „contents“: Die Teile ordnen sich in die Kopfzeile ein */}
+            <h3
+              ref={headingRef}
+              tabIndex={-1}
+              data-list-heading=""
+              className="text-base font-semibold text-theme-text-primary"
+            >
+              {t("embed-analytics.list.title")}
+            </h3>
+            {!loading && !failed && (
+              <span
+                data-viewable-count=""
+                title={t("embed-analytics.list.viewable-hint")}
+                className={`whitespace-nowrap text-sm ${MUTED}`}
+              >
+                {outOf === null
+                  ? t("embed-analytics.list.viewable", {
+                      count: totalCount,
+                      formatted: formatNumber(totalCount),
+                    })
+                  : t("embed-analytics.list.viewable-of", {
+                      count: totalCount,
+                      formatted: formatNumber(totalCount),
+                      total: formatNumber(outOf),
+                    })}
+              </span>
+            )}
+          </div>
+          {/* unter sm „contents“: Die Teile ordnen sich in die Kopfzeile ein.
+              Von sm bis xl steht die Leiste in einer eigenen Zeile: Suche so
+              breit wie möglich, Bewertungsfilter mit kurzen Namen und Export
+              ohne Pfeil daneben; Filter und Export brechen nur gemeinsam um
+              – „Exportieren“ steht nie allein in einer Zeile (Fixliste 3,
+              V7). */}
           <div
             data-list-tools=""
-            className="contents sm:order-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:gap-2"
+            className="contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 xl:basis-auto"
           >
             <SearchField
               value={place.search}
               onSearch={setPlaceSearch}
-              className="order-3 basis-full sm:order-none sm:basis-auto"
+              inputRef={searchInputRef}
+              className="order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 sm:basis-auto xl:w-72 xl:flex-none"
             />
             <div
-              role="group"
-              data-feedback-filters=""
-              aria-label={t("embed-analytics.rows.filter-group")}
-              className="order-4 flex min-w-0 basis-full gap-0.5 rounded-lg border border-white/10 bg-theme-settings-input-bg p-0.5 sm:order-none sm:basis-auto light:border-gray-200"
+              data-list-actions=""
+              className="contents sm:flex sm:items-center sm:gap-2"
             >
-              <button
-                type="button"
-                aria-pressed={feedbackFilter === "all"}
-                aria-label={t("embed-analytics.rows.all-hint")}
-                title={t("embed-analytics.rows.all-hint")}
-                onClick={() => onFeedbackFilterChange("all")}
-                className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${feedbackFilter === "all" ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+              <div
+                role="group"
+                data-feedback-filters=""
+                aria-label={t("embed-analytics.rows.filter-group")}
+                className="order-4 flex min-w-0 basis-full gap-0.5 rounded-lg border border-white/10 bg-theme-settings-input-bg p-0.5 sm:order-none sm:basis-auto light:border-gray-200"
               >
-                {t("embed-analytics.rows.all")}
-              </button>
-              {FEEDBACK_FILTERS.map(({ mode, Icon, labelKey }) => {
-                const active = feedbackFilter === mode;
-                return (
-                  <button
-                    key={mode}
-                    type="button"
-                    aria-pressed={active}
-                    // Texte neben labelKey: …-hint (Tooltip, Name für
-                    // Screenreader) und …-short (schmale Fenster).
-                    aria-label={t(`${labelKey}-hint`)}
-                    title={t(`${labelKey}-hint`)}
-                    onClick={() => toggleFilter(mode)}
-                    className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${active ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
-                  >
-                    {/* Ein Daumen je Schaltfläche, in der Textfarbe; gefüllt,
-                        wenn der Filter gesetzt ist – wie in der
-                        Chat-Oberfläche. */}
-                    <Icon
-                      size={15}
-                      weight={active ? "fill" : "regular"}
-                      aria-hidden="true"
-                    />
-                    {/* Schmale Fenster: der kurze Text, damit alle
-                        Schaltflächen in eine Zeile passen. */}
-                    <span className="sm:hidden">{t(`${labelKey}-short`)}</span>
-                    <span className="hidden sm:inline">{t(labelKey)}</span>
-                  </button>
-                );
-              })}
+                <button
+                  type="button"
+                  ref={allFilterRef}
+                  aria-pressed={feedbackFilter === "all"}
+                  aria-label={t("embed-analytics.rows.all-hint")}
+                  title={t("embed-analytics.rows.all-hint")}
+                  onClick={() => onFeedbackFilterChange("all")}
+                  className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${feedbackFilter === "all" ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+                >
+                  <StableLabel text={t("embed-analytics.rows.all")} />
+                </button>
+                {FEEDBACK_FILTERS.map(({ mode, Icon, labelKey }) => {
+                  const active = feedbackFilter === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={active}
+                      // Texte neben labelKey: …-hint (Tooltip, Name für
+                      // Screenreader) und …-short (schmale Fenster).
+                      aria-label={t(`${labelKey}-hint`)}
+                      title={t(`${labelKey}-hint`)}
+                      onClick={() => toggleFilter(mode)}
+                      className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${active ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+                    >
+                      {/* Ein Daumen je Schaltfläche, in der Textfarbe; gefüllt,
+                          wenn der Filter gesetzt ist – wie in der
+                          Chat-Oberfläche. */}
+                      <Icon
+                        size={15}
+                        weight={active ? "fill" : "regular"}
+                        aria-hidden="true"
+                      />
+                      {/* Bis xl der kurze Text, damit Suche, Filter und
+                          Export in eine Zeile passen (V7). */}
+                      <StableLabel
+                        text={t(`${labelKey}-short`)}
+                        className="xl:hidden"
+                      />
+                      <StableLabel
+                        text={t(labelKey)}
+                        className="hidden xl:inline-flex"
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+              {/* KIE-538: Export der Auswahl, die die Liste gerade zeigt */}
+              <ExportMenu
+                embedId={embedId}
+                startDate={startDate}
+                endDate={endDate}
+                feedbackFilter={feedbackFilter}
+                bucket={bucket}
+                search={search}
+                disabled={loading || failed || totalCount === 0}
+                wrapperClassName="order-2 sm:order-none"
+                className="flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-3 xl:px-3.5 light:border-gray-200"
+              />
             </div>
-            {/* KIE-538: Export der Auswahl, die die Liste gerade zeigt */}
-            <ExportMenu
-              embedId={embedId}
-              startDate={startDate}
-              endDate={endDate}
-              feedbackFilter={feedbackFilter}
-              bucket={bucket}
-              search={search}
-              disabled={loading || failed || totalCount === 0}
-              wrapperClassName="order-2 sm:order-none"
-              className="flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-3.5 light:border-gray-200"
-            />
           </div>
         </div>
-        <div
-          data-list-status=""
-          className="flex min-h-[26px] flex-wrap items-center gap-x-3 gap-y-3"
-        >
-          {!loading && !failed && (
-            <span
-              data-viewable-count=""
-              title={t("embed-analytics.list.viewable-hint")}
-              className={`text-sm ${MUTED}`}
-            >
-              {outOf === null
-                ? t("embed-analytics.list.viewable", {
-                    count: totalCount,
-                    formatted: formatNumber(totalCount),
-                  })
-                : t("embed-analytics.list.viewable-of", {
-                    count: totalCount,
-                    formatted: formatNumber(totalCount),
-                    total: formatNumber(outOf),
-                  })}
-            </span>
-          )}
-          {feedbackActive && (
-            <FilterMark
-              data-feedback-filter-mark={feedbackFilter}
-              label={t("embed-analytics.list.only-feedback", {
-                filter: feedbackLabel,
-              })}
-              clearLabel={t("embed-analytics.list.clear-feedback", {
-                filter: feedbackLabel,
-              })}
-              onClear={() => onFeedbackFilterChange("all")}
-            />
-          )}
-          {bucket && (
-            <FilterMark
-              data-bucket-filter=""
-              label={t("embed-analytics.list.only-bucket", {
-                period: bucket.label,
-              })}
-              clearLabel={t("embed-analytics.list.clear-bucket", {
-                period: bucket.label,
-              })}
-              onClear={onClearBucket}
-            />
-          )}
-          {search && (
-            <FilterMark
-              data-search-filter-mark=""
-              label={t("embed-analytics.search.mark", { term: search })}
-              clearLabel={t("embed-analytics.search.clear", { term: search })}
-              onClear={clearSearch}
-            />
-          )}
-        </div>
+        {/* Filtermarkierungen – eine eigene Zeile nur, wenn ein Filter
+            gesetzt ist. gap-y 18 px: Die 44-px-Trefferflächen der ✕ ragen je
+            9 px über ihre Markierung hinaus und überlappen sich so auch bei
+            umbrochenen Markierungen nicht (Fixliste 3, S1). */}
+        {(feedbackActive || bucket || search) && (
+          <div
+            data-list-status=""
+            className="flex flex-wrap items-center gap-x-3 gap-y-[18px]"
+          >
+            {feedbackActive && (
+              <FilterMark
+                data-feedback-filter-mark={feedbackFilter}
+                label={t("embed-analytics.list.only-feedback", {
+                  filter: feedbackLabel,
+                })}
+                clearLabel={t("embed-analytics.list.clear-feedback", {
+                  filter: feedbackLabel,
+                })}
+                onClear={() => onFeedbackFilterChange("all")}
+                focusAfter={() => allFilterRef.current?.focus?.()}
+              />
+            )}
+            {bucket && (
+              <FilterMark
+                data-bucket-filter=""
+                label={t("embed-analytics.list.only-bucket", {
+                  period: bucket.label,
+                })}
+                clearLabel={t("embed-analytics.list.clear-bucket", {
+                  period: bucket.label,
+                })}
+                onClear={onClearBucket}
+                focusAfter={() =>
+                  headingRef?.current?.focus?.({ preventScroll: true })
+                }
+              />
+            )}
+            {search && (
+              <FilterMark
+                data-search-filter-mark=""
+                label={t("embed-analytics.search.mark", { term: search })}
+                clearLabel={t("embed-analytics.search.clear", { term: search })}
+                onClear={clearSearch}
+                focusAfter={() => searchInputRef.current?.focus?.()}
+              />
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="flex items-start gap-4">
+      {/* Ab lg mindestens so hoch wie das Panel werden kann: So lässt sich
+          die Seite immer so weit scrollen, dass das Panel ganz zu sehen ist –
+          auch bei wenigen Treffern (Fixliste 3, V8) –, und die Seite
+          schrumpft nicht, wenn eine Suche die Liste verkürzt. */}
+      <div className="flex items-start gap-4 lg:min-h-[calc(100vh-112px)]">
         <div className="min-w-0 flex-1">
           {loading ? (
-            <div className="text-white">{t("common.loading")}</div>
+            <div className="text-white">{t("embed-analytics.loading")}</div>
           ) : failed ? (
             <div
               data-list-load-error=""
@@ -947,6 +1010,7 @@ export default function ConversationList({
             onDeleted={handleDeleted}
             onLoaded={handleLoaded}
             linkOf={(id) => place.conversationUrl(id, embedId)}
+            reveal={!fromLink}
           />
         )}
       </div>
@@ -960,12 +1024,15 @@ export default function ConversationList({
  * Zurück-Knopf, Link), folgt das Feld – nicht nach der eigenen
  * Aktualisierung: Sonst ginge ein Zeichen verloren, das zwischen Verzögerung
  * und Antwort der Adresse getippt wurde (Fixliste Punkt 21).
- * @param {{value: string, onSearch: (term: string) => void}} props - value:
- *   Suchbegriff der Adresse (roh)
+ * @param {{value: string, onSearch: (term: string) => void, inputRef?: {current: object|null}, className?: string}} props -
+ *   value: Suchbegriff der Adresse (roh); inputRef: das Eingabefeld (für die
+ *   Liste, die den Fokus nach ✕ einer Markierung hierher gibt)
  */
-function SearchField({ value, onSearch, className = "" }) {
+function SearchField({ value, onSearch, inputRef: outerRef, className = "" }) {
   const { t } = useTranslation();
-  const inputRef = useRef(null);
+  const ownRef = useRef(null);
+  const inputRef = outerRef ?? ownRef;
+  const clearRef = useRef(null);
   const [draft, setDraft] = useState(value);
   // Der Begriff, den das Feld zuletzt selbst in die Adresse geschrieben hat
   const [own, setOwn] = useState(value);
@@ -991,20 +1058,31 @@ function SearchField({ value, onSearch, className = "" }) {
     return () => clearTimeout(timer);
   }, [draft, value, submit]);
   // Eigenes ✕ statt des blauen des Browsers (Fixliste 2, B8): leert das Feld
-  // und die Suche sofort; der Fokus bleibt im Feld.
+  // und die Suche sofort; der Fokus bleibt im Feld (Fixliste 3, V9). Der
+  // Fokus geht schon beim Drücken nicht auf das ✕ (preventDefault): Es
+  // verschwindet mit dem leeren Feld – der Fokus bliebe sonst im Leeren.
   const clear = () => {
     setDraft("");
     submit("");
     inputRef.current?.focus?.();
   };
+  // Klick auf die Lupe oder den Rand des Rahmens: ins Feld (Fixliste 3, V11)
+  const focusField = (event) => {
+    if (event.target === inputRef.current) return;
+    if (clearRef.current?.contains?.(event.target)) return;
+    inputRef.current?.focus?.();
+  };
 
   // Kein <label> um Feld und ✕: Eine Schaltfläche darf darin nicht stehen.
-  // Den Namen trägt das Feld (aria-label). Platzhalter in voller Länge: Das
-  // Feld ist ab sm 288 px breit, darunter volle Breite (B6).
+  // Den Namen trägt das Feld (aria-label); ein Klick in den Rahmen fokussiert
+  // es wie ein <label>. Platzhalter in voller Länge: Das Feld ist ab xl
+  // 288 px breit, von sm bis xl mindestens 240 px und sonst so breit wie
+  // möglich, darunter volle Breite (B6, Fixliste 3 V7).
   return (
     <div
       data-search-field=""
-      className={`flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-white/10 bg-theme-settings-input-bg pl-3 ${MUTED} sm:h-10 sm:w-72 light:border-gray-200 ${className}`}
+      onClick={focusField}
+      className={`flex h-11 w-full min-w-0 cursor-text items-center gap-2 rounded-lg border border-white/10 bg-theme-settings-input-bg pl-3 ${MUTED} sm:h-10 light:border-gray-200 ${className}`}
     >
       <MagnifyingGlass size={16} aria-hidden="true" className="shrink-0" />
       <input
@@ -1026,7 +1104,9 @@ function SearchField({ value, onSearch, className = "" }) {
       {draft !== "" ? (
         <button
           type="button"
+          ref={clearRef}
           data-search-clear=""
+          onMouseDown={(event) => event.preventDefault()}
           onClick={clear}
           aria-label={t("embed-analytics.search.clear-input")}
           title={t("embed-analytics.search.clear-input")}
@@ -1057,9 +1137,7 @@ function ConversationRow({
   const time = berlinTime(conversation.last_message_at);
   // Uhrzeit wie im Entwurf (AK-1), der volle Zeitpunkt im Tooltip – in
   // Berliner Zeit wie Uhrzeit und Tagesgruppe (Fixliste 2, S1)
-  const fullTime = formatDateTimeDE(conversation.last_message_at, {
-    timeZone: BERLIN,
-  });
+  const fullTime = berlinDateTime(conversation.last_message_at);
   const startedDay = startedOnOtherDay(conversation);
   const reason =
     conversation.negative_count > 0 && conversation.first_negative_reason

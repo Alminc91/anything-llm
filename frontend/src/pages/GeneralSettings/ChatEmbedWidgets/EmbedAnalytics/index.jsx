@@ -21,7 +21,12 @@ import {
   viewState,
 } from "@/utils/analyticsTimeline";
 import { embedLabels, sortEmbedsByLabel } from "@/utils/embedLabel";
-import { WIDE_QUERY, effectiveSearch } from "@/utils/conversationView";
+import {
+  AVATAR_CLEARANCE,
+  MUTED,
+  effectiveSearch,
+  isWide,
+} from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
 
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
@@ -39,8 +44,6 @@ import useConversationLocation from "./useConversationLocation";
 // (Zählerbuch) und stimmen deshalb überein; sie bleiben vollständig, wenn
 // Konversationsinhalte gelöscht sind. Die Liste liest weiterhin embed_chats
 // und arbeitet mit den Zeitstempeln des Browsers.
-
-const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 
 /**
  * Convert Date|null to ISO string|null for stable useEffect deps.
@@ -249,7 +252,7 @@ function WidgetAnalytics({ embeds }) {
     setBucketFilter({ scope, bucket: next });
     if (next) scrollToList();
   };
-  const clearBucket = () => setBucketFilter({ scope, bucket: null });
+  const clearBucket = () => selectBucket(null);
 
   const showRated = (mode) => {
     setFeedbackFilter(mode);
@@ -265,17 +268,17 @@ function WidgetAnalytics({ embeds }) {
   // Per Link oder nach dem Neuladen mit geöffneter Konversation: einmal zur
   // Liste springen, sobald Kennzahlen und Liste stehen – sonst läge das
   // Panel unter dem sichtbaren Bereich (Fixliste 2, B5). Nur ab lg: darunter
-  // öffnet die Konversation ohnehin als Vollbild.
-  const [openedByLink] = useState(() => place.chatId !== null);
-  const [linkJumped, setLinkJumped] = useState(false);
+  // öffnet die Konversation ohnehin als Vollbild. Ein Merker: true, solange
+  // der Sprung aussteht (Fixliste 3, S4).
+  const [linkJumpPending, setLinkJumpPending] = useState(
+    () => place.chatId !== null
+  );
   const listReady = viewableCount !== null && !summary.loading;
   useEffect(() => {
-    if (!openedByLink || linkJumped || !listReady) return;
-    setLinkJumped(true);
-    const wide =
-      typeof window !== "undefined" && window.matchMedia?.(WIDE_QUERY)?.matches;
-    if (wide) listRef.current?.scrollIntoView?.({ block: "start" });
-  }, [openedByLink, linkJumped, listReady]);
+    if (!linkJumpPending || !listReady) return;
+    setLinkJumpPending(false);
+    if (isWide()) listRef.current?.scrollIntoView?.({ block: "start" });
+  }, [linkJumpPending, listReady]);
 
   return (
     <div className="flex w-full min-w-0 flex-col p-2 md:p-6">
@@ -332,7 +335,9 @@ function WidgetAnalytics({ embeds }) {
         failed={summary.failed}
       />
 
-      <div ref={listRef} className="scroll-mt-4">
+      {/* Sprungziel: Überschrift und Werkzeugleiste landen unter dem
+          Benutzermenü oben rechts (Fixliste 3, V2) */}
+      <div ref={listRef} className={AVATAR_CLEARANCE.jumpTarget}>
         <ConversationList
           embedId={unknownLink ? null : selectedEmbed}
           startDate={startDateISO}
@@ -454,7 +459,9 @@ function Header({
       {/* md:pr-12: Widget-Auswahl und Zeitraum enden links vom schwebenden
           Benutzermenü oben rechts („KI") – es läge sonst auf ihrem Rand
           (Fixliste 2, B4). */}
-      <div className="flex flex-wrap gap-3 items-center md:pr-12">
+      <div
+        className={`flex flex-wrap gap-3 items-center ${AVATAR_CLEARANCE.headerEnd}`}
+      >
         {/* Widget-Auswahl – bei genau einem Widget gibt es nichts zu wählen. */}
         {embeds.length > 1 && (
           <div className="relative" ref={embedDropdownRef}>

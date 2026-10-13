@@ -5,6 +5,7 @@ import { saveAs } from "file-saver";
 import Embed from "@/models/embed";
 import { formatNumber } from "@/utils/analyticsTimeline";
 import showToast from "@/utils/toast";
+import { MUTED } from "@/utils/conversationView";
 
 // KIE-538: „Exportieren" in der Kopfzeile der Konversationsliste. Exportiert
 // wird, was die Liste gerade zeigt – Widget, Zeitraum, Feedback-Filter, der
@@ -28,7 +29,8 @@ const FORMATS = [
  * @param {string} [props.wrapperClassName] - Platz in der Kopfzeile (order …)
  *
  * Unter sm zeigt die Schaltfläche nur das Symbol; ihr Name „Exportieren"
- * bleibt für Screenreader (Fixliste 2, B1).
+ * bleibt für Screenreader (Fixliste 2, B1). Der Pfeil erst ab xl – bis dahin
+ * steht sie kompakt neben Suche und Filtern (Fixliste 3, V7).
  */
 export default function ExportMenu({
   embedId,
@@ -125,7 +127,7 @@ export default function ExportMenu({
         <CaretDown
           size={12}
           aria-hidden="true"
-          className={`hidden transition-transform sm:block ${open ? "rotate-180" : ""}`}
+          className={`hidden transition-transform xl:block ${open ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -143,7 +145,7 @@ export default function ExportMenu({
               data-export-format={format}
               onClick={() => runExport(format)}
               // gedämpft wie die übrigen Menüs: hell #5f6368, 6,1:1 (B2)
-              className="block min-h-[44px] w-full whitespace-nowrap px-3 py-2 text-left text-sm text-[color:var(--theme-analytics-text-muted)] transition-colors hover:bg-white/5 hover:text-theme-text-primary sm:min-h-0 light:hover:bg-black/5"
+              className={`block min-h-[44px] w-full whitespace-nowrap px-3 py-2 text-left text-sm ${MUTED} transition-colors hover:bg-white/5 hover:text-theme-text-primary sm:min-h-0 light:hover:bg-black/5`}
             >
               {t(labelKey)}
             </button>

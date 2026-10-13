@@ -542,7 +542,11 @@ test(
     // „Exportieren" (Bewertungsfilter mit kurzem und ausgeschriebenem Text,
     // je nach Breite ist einer sichtbar)
     const [menu] = withAttribute(container, "data-export-menu");
-    const headerRight = menu.parentNode;
+    // Bewertungsfilter und Export stehen zusammen (brechen nur gemeinsam
+    // um, Fixliste 3 V7), daneben das Suchfeld
+    const actions = menu.parentNode;
+    const headerRight = actions.parentNode;
+    assert.equal(actions.hasAttribute("data-list-actions"), true);
     assert.deepEqual(
       buttonsOf(headerRight).map((button) => button.textContent),
       [
@@ -556,21 +560,26 @@ test(
     // Dokument; unter sm ordnet CSS (order) Export neben die Überschrift
     // (Fixliste 2, B1)
     assert.equal(headerRight.hasAttribute("data-list-tools"), true);
-    assert.deepEqual(
-      headerRight.childNodes.map((child) => [
+    const parts = (element) =>
+      element.childNodes.map((child) => [
         child.tagName,
-        ["data-search-field", "data-feedback-filters", "data-export-menu"].find(
-          (name) => child.hasAttribute(name)
-        ),
-      ]),
-      [
-        ["DIV", "data-search-field"],
-        ["DIV", "data-feedback-filters"],
-        ["DIV", "data-export-menu"],
-      ]
-    );
+        [
+          "data-search-field",
+          "data-list-actions",
+          "data-feedback-filters",
+          "data-export-menu",
+        ].find((name) => child.hasAttribute(name)),
+      ]);
+    assert.deepEqual(parts(headerRight), [
+      ["DIV", "data-search-field"],
+      ["DIV", "data-list-actions"],
+    ]);
+    assert.deepEqual(parts(actions), [
+      ["DIV", "data-feedback-filters"],
+      ["DIV", "data-export-menu"],
+    ]);
     assert.equal(withAttribute(headerRight, "data-search-input").length, 1);
-    assert.equal(headerRight.lastChild, menu);
+    assert.equal(actions.lastChild, menu);
 
     const [button] = buttonsOf(menu);
     assert.equal(button.getAttribute("aria-haspopup"), "menu");

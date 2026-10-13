@@ -20,6 +20,74 @@ const GERMAN = "de-DE";
  */
 export const WIDE_QUERY = "(min-width: 1024px)";
 
+/**
+ * Breiter Bildschirm (Panel neben der Liste)? false ohne Fenster oder ohne
+ * matchMedia.
+ * @returns {boolean}
+ */
+export function isWide() {
+  return (
+    typeof window !== "undefined" && !!window.matchMedia?.(WIDE_QUERY)?.matches
+  );
+}
+
+/**
+ * Gedämpfte Schrift der Ansicht: dunkel wie --theme-text-secondary, hell
+ * #5f6368 (Fixliste 2, B2) – eine Stelle statt einer Konstante je Datei.
+ */
+export const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
+
+// Abstand zum schwebenden Benutzermenü oben rechts („KI“, bis 72 px unter
+// dem oberen Fensterrand) – an einer Stelle (Fixliste 3, S4). Der Bereich der
+// Einstellungsseiten beginnt ab md 16 px unter dem Fensterrand und endet
+// 16 px über dem unteren; das Panel klebt ab lg 64 px unter seinem oberen
+// Rand (Fixliste 2, B4).
+export const AVATAR_CLEARANCE = {
+  // Seitenpanel ab lg: klebt unter dem Benutzermenü; scroll-mt: so weit
+  // bringt scrollIntoView es nach oben (V8)
+  panel: "lg:sticky lg:top-16 lg:scroll-mt-16 lg:max-h-[calc(100vh-112px)]",
+  // Sprungziel „Liste“ (Säule, Verweis, Link): Überschrift und Werkzeugleiste
+  // landen unter dem Benutzermenü, der Export-Knopf bleibt frei (Fixliste 3,
+  // V2)
+  jumpTarget: "scroll-mt-20",
+  // rechter Rand der Kopfzeile ab md: Widget-Auswahl und Zeitraum enden links
+  // vom Benutzermenü
+  headerEnd: "md:pr-12",
+};
+/** Oberkante des klebenden Panels im Fenster (16 px Rand + lg:top-16). */
+export const PANEL_STUCK_TOP = 80;
+/** Abstand der Unterkante des Panels zum Fensterrand (16 + 16 px). */
+export const PANEL_BOTTOM_GAP = 32;
+/** So niedrig wird das Panel nie, auch wenn es weit unten steht. */
+export const PANEL_MIN_HEIGHT = 240;
+/**
+ * Sichtbar müssen beim Öffnen mindestens so viele Pixel des Panels sein –
+ * sonst holt die Ansicht es nach oben (Fixliste 3, V8).
+ */
+export const PANEL_MIN_VISIBLE = 320;
+
+/**
+ * Höhe des Seitenpanels ab lg (Fixliste 3, V3/V8): Es endet über dem unteren
+ * Fensterrand, wo immer es gerade steht – oben klebend (PANEL_STUCK_TOP) oder
+ * tiefer, solange die Seite noch nicht so weit gescrollt ist (etwa direkt
+ * nach dem Sprung zur Liste). reveal: Beim Öffnen ist zu wenig davon zu
+ * sehen.
+ * @param {number} top - Oberkante des Panels im Fenster (px)
+ * @param {number} viewportHeight - Höhe des Fensters (px)
+ * @returns {{maxHeight: number, reveal: boolean}|null} - null ohne gültige Maße
+ */
+export function panelFit(top, viewportHeight) {
+  if (!Number.isFinite(top) || !Number.isFinite(viewportHeight)) return null;
+  const visibleTop = Math.max(top, PANEL_STUCK_TOP);
+  return {
+    maxHeight: Math.max(
+      PANEL_MIN_HEIGHT,
+      Math.round(viewportHeight - PANEL_BOTTOM_GAP - visibleTop)
+    ),
+    reveal: viewportHeight - top < PANEL_MIN_VISIBLE,
+  };
+}
+
 /** Kürzester Suchbegriff, ab dem gesucht wird. */
 export const SEARCH_MIN_LENGTH = 2;
 /**

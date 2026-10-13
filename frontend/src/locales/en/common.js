@@ -1503,6 +1503,7 @@ const TRANSLATIONS = {
   "embed-analytics": {
     title: "Analytics Dashboard",
     "load-error": "Error loading analytics data.",
+    loading: "Loading …",
     "all-time": "All Time",
     "statistics-title": "STATISTICS",
     stats: {
