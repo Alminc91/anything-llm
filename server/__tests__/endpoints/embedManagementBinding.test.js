@@ -48,6 +48,9 @@ const { handleEmbedLogoUpload } = require("../../utils/files/multer");
 const { deleteOldEmbedLogo } = require("../../utils/files/embedLogo");
 const { embedManagementEndpoints } = require("../../endpoints/embedManagement");
 const {
+  chatHistoryViewable,
+} = require("../../utils/middleware/chatHistoryViewable");
+const {
   collectRoutes,
   invoke,
   setMultiUserMode,
@@ -64,6 +67,9 @@ const ROUTE = {
   // Konversation steht im Rumpf. Ausführlich geprüft in
   // models/embedChatsDeleteConversation.test.js.
   deleteConversation: routes["DELETE /embed/:embedId/conversation"],
+  // Flache Nachrichtenliste der entfallenen Nachrichtentabelle: bleibt
+  // bestehen (siehe „nachrichtentabelle_entfallen").
+  chats: routes["POST /embed/chats"],
   clearChats: routes["DELETE /embed-chats/clear/:embedId"],
   uploadLogo: routes["POST /embed/:embedId/upload-logo"],
   removeLogo: routes["DELETE /embed/:embedId/remove-logo"],
@@ -147,6 +153,93 @@ test("alle geprüften Routen sind registriert", () => {
     expect(Array.isArray(chain)).toBe(true);
     expect(chain.length).toBeGreaterThan(1);
   }
+});
+
+// ============================================================================
+// KIE-538 — Die Nachrichtentabelle ist entfallen
+// ============================================================================
+describe("nachrichtentabelle_entfallen (KIE-538)", () => {
+  const registered = (method) =>
+    Object.keys(routes)
+      .filter((key) => key.startsWith(`${method} `))
+      .sort();
+
+  test("DELETE /embed/chats/:chatId (einzelne Nachricht) gibt es nicht mehr - gelöscht wird nur über genau diese Routen", () => {
+    expect(routes["DELETE /embed/chats/:chatId"]).toBeUndefined();
+    // Positivliste: Eine weitere Lösch-Route (etwa nach einer
+    // Konfliktauflösung) fällt hier auf.
+    expect(registered("DELETE")).toEqual([
+      "DELETE /embed-chats/clear/:embedId",
+      "DELETE /embed/:embedId",
+      "DELETE /embed/:embedId/conversation",
+      "DELETE /embed/:embedId/conversation/visitor",
+      "DELETE /embed/:embedId/remove-logo",
+    ]);
+  });
+
+  test("Keine Lösch-Route trägt eine vom Besucher vergebene Kennung in der Adresse - der einzige Platzhalter ist :embedId", () => {
+    // "." und ".." löst der Browser als Pfadsegmente auf: Aus
+    // DELETE /embed/5/conversation/.. würde DELETE /embed/5/, das Widget.
+    for (const key of registered("DELETE"))
+      expect([key, key.match(/:\w+/g)]).toEqual([key, [":embedId"]]);
+    expect(
+      Object.keys(routes).filter((key) => key.includes(":conversationId"))
+    ).toEqual([]);
+  });
+
+  test("Konversationen löschen nur mit Einsichtsrecht: chatHistoryViewable steht an erster Stelle (NAK-5)", () => {
+    for (const key of [
+      "DELETE /embed/:embedId/conversation",
+      "DELETE /embed/:embedId/conversation/visitor",
+      "POST /embed/:embedId/conversation/deletion-preview",
+    ])
+      expect([key, routes[key][0]]).toEqual([key, chatHistoryViewable]);
+  });
+
+  describe("POST /embed/chats bleibt (ohne Aufrufer in der Oberfläche)", () => {
+    const list = (token = null, body = {}) =>
+      invoke(ROUTE.chats, { body, token });
+
+    test("default: nur Nachrichten der Widgets seiner Workspaces", async () => {
+      const kunde = createUser(prisma, "default", [workspaceA.id]);
+      const result = await list(kunde.token);
+      expect(result.statusCode).toBe(200);
+      expect(result.body.chats.map((chat) => chat.id)).toEqual([chatA.id]);
+      expect(result.body.totalChats).toBe(1);
+      expect(result.body.hasPages).toBe(false);
+
+      const ohne = createUser(prisma, "default", []);
+      expect((await list(ohne.token)).body).toEqual({
+        chats: [],
+        hasPages: false,
+        totalChats: 0,
+      });
+    });
+
+    test("admin und manager: alle Widgets; ohne Mehrbenutzermodus keine Prüfung", async () => {
+      for (const role of ["admin", "manager"]) {
+        const result = await list(createUser(prisma, role).token);
+        expect(result.statusCode).toBe(200);
+        expect(result.body.chats.map((chat) => chat.id)).toEqual([
+          chatB.id,
+          chatA.id,
+        ]);
+        expect(result.body.totalChats).toBe(2);
+      }
+      setMultiUserMode(prisma, false);
+      expect((await list()).body.totalChats).toBe(2);
+    });
+
+    test("Chat-Verlauf abgeschaltet (DISABLE_VIEW_CHAT_HISTORY): 422 für jede Rolle, ohne Inhalte", async () => {
+      process.env.DISABLE_VIEW_CHAT_HISTORY = "1";
+      for (const role of ["admin", "manager", "default"]) {
+        const user = createUser(prisma, role, [workspaceA.id]);
+        const result = await list(user.token);
+        expect([role, result.statusCode]).toEqual([role, 422]);
+        expect(JSON.stringify(result.body)).not.toMatch(/Wann beginnt/);
+      }
+    });
+  });
 });
 
 // ============================================================================

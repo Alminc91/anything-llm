@@ -903,6 +903,75 @@ test(
 );
 
 test(
+  "Konversation löschen (AK-6): Wird die letzte Konversation einer hinteren Seite gelöscht, zeigt die Liste die letzte vorhandene Seite – nicht „keine Konversationen“",
+  { skip },
+  async (t) => {
+    const ids = (from, to) =>
+      Array.from({ length: to - from + 1 }, (_, i) => `k-${from + i}`);
+    // drei Seiten: 20 + 20 + 1
+    const state = { conversations: ids(1, 41).map((id) => conversation(id)) };
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    const offsets = () => server.lists().map((call) => call.body.offset);
+    const pageButton = (number) =>
+      buttonsOf(container).find(
+        (button) => button.textContent === String(number)
+      );
+
+    assert.deepEqual(cardIdsOf(container), ids(1, 20));
+    await act(() => click(pageButton(3)));
+    await act();
+    assert.deepEqual(offsets(), [0, 40]);
+    assert.deepEqual(cardIdsOf(container), ["k-41"]);
+
+    await expand(mounted, 0);
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    await act();
+    await act();
+
+    assert.deepEqual(
+      server.deletes().map((call) => call.body),
+      [conversationBody("k-41")]
+    );
+    // neu geladen: Seite 3 ist leer → Seite 2, die letzte vorhandene
+    assert.deepEqual(offsets(), [0, 40, 40, 20]);
+    assert.deepEqual(cardIdsOf(container), ids(21, 40));
+    // nicht im Ladezustand, nicht leer
+    const [count] = withAttribute(container, "data-viewable-count");
+    assert.equal(count.textContent, "40 einsehbar");
+    assert.doesNotMatch(container.textContent, /Keine Konversationen/);
+    assert.equal(pageButton(3), undefined);
+    assert.ok(pageButton(2));
+
+    // Die letzte Konversation überhaupt: leerer Zustand, kein weiteres Laden.
+    state.conversations = [conversation("k-1")];
+    const single = await mountList(t);
+    server.calls.length = 0;
+    await expand(single, 0);
+    await single.act(() =>
+      click(withAttribute(single.container, "data-delete-conversation")[0])
+    );
+    await single.act(() =>
+      click(withAttribute(dialogOf(single.document), "data-confirm-delete")[0])
+    );
+    await single.act();
+    await single.act();
+    assert.deepEqual(offsets(), [0]);
+    assert.deepEqual(cardIdsOf(single.container), []);
+    assert.equal(
+      withAttribute(single.container, "data-viewable-count")[0].textContent,
+      "0 einsehbar"
+    );
+  }
+);
+
+test(
   "Alle Konversationen dieses Besuchers löschen (AK-12): nur angeboten, wenn derselbe Browser weitere Konversationen hat; die Rückfrage nennt die Anzahl",
   { skip },
   async (t) => {

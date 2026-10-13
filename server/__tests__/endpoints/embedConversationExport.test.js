@@ -640,6 +640,83 @@ describe("entspricht_auswahl (AK-1)", () => {
     ).toEqual(["nach Mitternacht"]);
   });
 
+  test("entspricht_auswahl: Die Grenzen des Zeitraums gehören dazu - eine Nachricht genau am Anfang und genau am Ende (…:59.999) steht im Export, eine Millisekunde davor bzw. danach nicht; je Konversation so viele Zeilen, wie die Liste zählt", async () => {
+    const start = new Date(SEPTEMBER.startDate).getTime();
+    const end = new Date(SEPTEMBER.endDate).getTime();
+    // wie der Browser sie sendet: 00:00:00.000 und 23:59:59.999 Berliner Zeit
+    expect(SEPTEMBER.endDate).toMatch(/59\.999Z$/);
+    expect(new Date(OCTOBER.startDate).getTime()).toBe(end + 1);
+
+    for (const [instant, prompt] of [
+      [start - 1, "eine Millisekunde vor dem Anfang"],
+      [start, "genau am Anfang"],
+      [end, "genau am Ende"],
+      [end + 1, "eine Millisekunde nach dem Ende"],
+    ])
+      await addChat(widgetA, {
+        at: new Date(instant),
+        prompt,
+        conversation: "rand",
+      });
+    // Konversationen, die nur aus einer Grenz-Nachricht bestehen
+    await addChat(widgetA, {
+      at: new Date(end),
+      prompt: "nur am Ende",
+      conversation: "nur-ende",
+    });
+    await addChat(widgetA, {
+      at: new Date(end + 1),
+      prompt: "nur danach",
+      conversation: "nur-danach",
+    });
+    await addChat(widgetA, {
+      at: new Date(start - 1),
+      prompt: "nur davor",
+      conversation: "nur-davor",
+    });
+
+    const listed = await listAll(widgetA, SEPTEMBER);
+    const rows = table(await exportFile(widgetA, "csv", SEPTEMBER));
+    const byId = (id) => rows.filter((row) => row["Konversations-ID"] === id);
+
+    expect(byId("rand").map((row) => row.Frage)).toEqual([
+      "genau am Anfang",
+      "genau am Ende",
+    ]);
+    expect(byId("nur-ende").map((row) => row.Frage)).toEqual(["nur am Ende"]);
+    expect(byId("nur-danach")).toEqual([]);
+    expect(byId("nur-davor")).toEqual([]);
+    // 12 + „rand" + „nur-ende"
+    expect(listed).toHaveLength(14);
+    expect(new Set(rows.map((row) => row["Konversations-ID"])).size).toBe(14);
+    // Zeilen je Konversation = message_count der Liste
+    for (const conversation of listed)
+      expect([
+        conversation.conversation_id,
+        byId(conversation.conversation_id).length,
+      ]).toEqual([conversation.conversation_id, conversation.message_count]);
+
+    // JSON: dieselben Grenzen
+    const json = JSON.parse(
+      (await exportFile(widgetA, "json", SEPTEMBER)).body
+    );
+    expect(
+      json
+        .find((c) => c.conversationId === "rand")
+        .messages.map((m) => m.prompt)
+    ).toEqual(["genau am Anfang", "genau am Ende"]);
+    expect(json.map((c) => c.conversationId)).not.toContain("nur-danach");
+
+    // Die Millisekunde nach dem Ende ist der Anfang des Oktobers.
+    const october = table(await exportFile(widgetA, "csv", OCTOBER));
+    expect(
+      october
+        .filter((row) => /^(rand|nur-)/.test(row["Konversations-ID"]))
+        .map((row) => row.Frage)
+        .sort()
+    ).toEqual(["eine Millisekunde nach dem Ende", "nur danach"]);
+  });
+
   test("entspricht_auswahl: Alt-Zeilen ohne conversation_id bilden je Browser-Sitzung eine Konversation - wie in der Liste, nur ohne die Sitzungs-Kennung als ID", async () => {
     for (const minute of [0, 2, 4])
       await addChat(widgetA, {
@@ -1244,30 +1321,62 @@ describe("spalten (AK-4)", () => {
           response: "[]",
           createdAt: new Date(at + 6000),
         },
+        // Gegenprobe: An einer negativen Bewertung stehen Grund und Kommentar.
+        {
+          ...base,
+          prompt: "p8",
+          response: JSON.stringify({ text: "a8" }),
+          createdAt: new Date(at + 7000),
+          feedbackScore: false,
+          feedbackReason: "GRUND",
+          feedbackText: "KOMMENTAR",
+        },
       ],
     });
 
     const result = await exportFile(embed, "csv");
     const rows = table(result);
-    expect(rows.map((row) => [row.Frage, row.Antwort, row.Bewertung])).toEqual([
-      ["p1", "a1", "positiv"],
-      ["p2", "a2", ""],
-      ["p3", "", ""],
-      ["p4", "", ""],
-      ["p5", "", ""],
-      ["p6", "", ""],
-      ["p7", "", ""],
+    expect(
+      rows.map((row) => [
+        row.Frage,
+        row.Antwort,
+        row.Bewertung,
+        row["Grund der negativen Bewertung"],
+        row["Kommentar zur negativen Bewertung"],
+      ])
+    ).toEqual([
+      ["p1", "a1", "positiv", "", ""],
+      ["p2", "a2", "", "", ""],
+      ["p3", "", "", "", ""],
+      ["p4", "", "", "", ""],
+      ["p5", "", "", "", ""],
+      ["p6", "", "", "", ""],
+      ["p7", "", "", "", ""],
+      ["p8", "a8", "negativ", "GRUND", "KOMMENTAR"],
     ]);
     expect(result.body).not.toMatch(/REST|QUELLENTEXT|kein JSON/);
-    const json = JSON.parse((await exportFile(embed, "json")).body);
-    expect(json[0].messages.map((m) => m.response)).toEqual([
-      "a1",
-      "a2",
-      "",
-      "",
-      "",
-      "",
-      "",
+
+    // JSON: dieselben Felder, dieselbe Regel (AK-5)
+    const file = await exportFile(embed, "json");
+    expect(file.body).not.toMatch(/REST|QUELLENTEXT|kein JSON/);
+    const json = JSON.parse(file.body);
+    expect(
+      json[0].messages.map((m) => [
+        m.prompt,
+        m.response,
+        m.rating,
+        m.ratingReason,
+        m.ratingComment,
+      ])
+    ).toEqual([
+      ["p1", "a1", "positive", null, null],
+      ["p2", "a2", null, null, null],
+      ["p3", "", null, null, null],
+      ["p4", "", null, null, null],
+      ["p5", "", null, null, null],
+      ["p6", "", null, null, null],
+      ["p7", "", null, null, null],
+      ["p8", "a8", "negative", "GRUND", "KOMMENTAR"],
     ]);
   });
 });
@@ -1894,6 +2003,134 @@ describe("gross (AK-11)", () => {
       Array.from({ length: count }, (_, i) => String(i + 1))
     );
     expect(rows[count].Frage).toBe("davor");
+  });
+
+  test("gross: Beginnen Konversationen im selben Augenblick - auch genau über eine Seitengrenze hinweg -, steht jede genau einmal in der Datei, mit der Nummer der Liste; bei gleichem Zeitpunkt entscheidet die Zeile (id)", async () => {
+    const workspace = await createWorkspace(db.client);
+    embed = await createEmbed(db.client, workspace);
+    const PAGE = EmbedChats.EXPORT_CONVERSATION_PAGE;
+    const T = berlinInstant("2026-09-15", 12, 0).getTime();
+    const row = (conversation, at, prompt = `${conversation}: Frage`) => ({
+      embed_id: embed.id,
+      prompt,
+      response: JSON.stringify({ text: "Antwort" }),
+      session_id: `sitzung-${conversation}`,
+      conversation_id: conversation,
+      createdAt: new Date(at),
+    });
+    await db.client.embed_chats.createMany({
+      data: [
+        // Drei Konversationen beginnen im selben Augenblick T; „gleich-b" hat
+        // dazu drei Nachrichten mit demselben Zeitpunkt.
+        row("gleich-a", T),
+        row("gleich-b", T, "gleich-b: 1"),
+        row("gleich-c", T),
+        row("gleich-b", T, "gleich-b: 2"),
+        row("gleich-b", T, "gleich-b: 3"),
+        // Jünger als T: so viele, dass die Seitengrenze in die drei fällt
+        // (Seite 1 endet nach zwei von ihnen).
+        ...Array.from({ length: PAGE - 2 }, (_, i) =>
+          row(`jung-${i}`, T + (i + 1) * 60_000)
+        ),
+        // Älter als T, darunter ein Paar mit gleichem Beginn mitten in Seite 2
+        ...Array.from({ length: 9 }, (_, i) =>
+          row(`alt-${i}`, T - (i === 4 ? 4 : i + 1) * 60_000)
+        ),
+      ],
+    });
+    const total = PAGE - 2 + 3 + 9;
+
+    // Erwartung aus dem Bestand, unabhängig vom geprüften Code: Beginn
+    // absteigend, bei gleichem Beginn die spätere erste Zeile zuerst.
+    const groups = new Map();
+    for (const chat of await db.client.embed_chats.findMany({
+      orderBy: { id: "asc" },
+    })) {
+      const group = groups.get(chat.conversation_id) ?? {
+        id: chat.conversation_id,
+        startedAt: Infinity,
+        firstId: chat.id,
+        prompts: [],
+      };
+      group.startedAt = Math.min(group.startedAt, chat.createdAt.getTime());
+      group.prompts.push(chat.prompt);
+      groups.set(chat.conversation_id, group);
+    }
+    const expected = [...groups.values()].sort(
+      (a, b) => b.startedAt - a.startedAt || b.firstId - a.firstId
+    );
+    expect(expected).toHaveLength(total);
+    expect(expected.slice(PAGE - 2, PAGE + 1).map((group) => group.id)).toEqual(
+      ["gleich-c", "gleich-b", "gleich-a"]
+    );
+    expect(expected.slice(-6, -4).map((group) => group.id)).toEqual([
+      "alt-4",
+      "alt-3",
+    ]);
+
+    const pages = jest.spyOn(EmbedChats, "_exportConversationPage");
+    const rows = table(await exportFile(embed, "csv", SEPTEMBER));
+
+    // jede Konversation genau einmal, in der Reihenfolge der Nummern
+    expect(
+      rows.map(
+        (row) => `${row.Konversation}|${row["Konversations-ID"]}|${row.Frage}`
+      )
+    ).toEqual(
+      expected.flatMap((group, index) =>
+        group.prompts.map((prompt) => `${index + 1}|${group.id}|${prompt}`)
+      )
+    );
+    expect(rows).toHaveLength(total + 2);
+    // gleicher Zeitpunkt innerhalb einer Konversation: nach id
+    expect(
+      rows
+        .filter((row) => row["Konversations-ID"] === "gleich-b")
+        .map((row) => [row.Nachricht, row.Frage])
+    ).toEqual([
+      ["1", "gleich-b: 1"],
+      ["2", "gleich-b: 2"],
+      ["3", "gleich-b: 3"],
+    ]);
+
+    // Die Seitengrenze liegt zwischen „gleich-b" und „gleich-a": Die zweite
+    // Seite beginnt hinter demselben Beginn, bei der kleineren ersten Zeile.
+    const pageIds = await Promise.all(
+      pages.mock.results.map(async (call) =>
+        (await call.value).map((group) => group.conversation_id)
+      )
+    );
+    expect(pageIds.map((ids) => ids.length)).toEqual([PAGE, total - PAGE]);
+    expect(pageIds[0].slice(-2)).toEqual(["gleich-c", "gleich-b"]);
+    expect(pageIds[1][0]).toBe("gleich-a");
+    expect(pages.mock.calls[1][0].after).toEqual({
+      startedAt: T,
+      firstChatId: groups.get("gleich-b").firstId,
+    });
+
+    // dieselben Nummern wie die Liste
+    const list = await invoke(CONVERSATIONS, {
+      params: { embedId: String(embed.id) },
+      body: conversationsBody({ ...SEPTEMBER, limit: 2 * PAGE }),
+      token: admin.token,
+    });
+    expect(list.body.totalCount).toBe(total);
+    expect(
+      list.body.conversations
+        .map((c) => [c.conversation_number, c.conversation_id])
+        .sort((a, b) => a[0] - b[0])
+    ).toEqual(expected.map((group, index) => [index + 1, group.id]));
+
+    // JSON: dieselbe Reihenfolge
+    const json = JSON.parse((await exportFile(embed, "json", SEPTEMBER)).body);
+    expect(json.map((c) => [c.conversation, c.conversationId])).toEqual(
+      expected.map((group, index) => [index + 1, group.id])
+    );
+    expect(
+      json
+        .find((c) => c.conversationId === "gleich-b")
+        .messages.map((m) => m.prompt)
+    ).toEqual(["gleich-b: 1", "gleich-b: 2", "gleich-b: 3"]);
   });
 
   test("gross: Ein Fehler vor der ersten Zeile ergibt 500 ohne Datei; ein Fehler mitten im Export bricht die Verbindung ab, statt eine abgeschnittene Datei als vollständig zu liefern", async () => {

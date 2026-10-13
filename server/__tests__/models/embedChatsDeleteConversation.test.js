@@ -840,6 +840,42 @@ describe("ganze_sitzung (AK-12)", () => {
     );
   });
 
+  test("ganze_sitzung: Die session_id einer Sitzung ohne Alt-Zeilen bezeichnet keine Konversation - die Vorschau nennt nichts, gelöscht wird nichts", async () => {
+    // Zwei Konversationen mit eigener Kennung, keine Zeile ohne.
+    await converse(embed, {
+      conversation: "n-1",
+      session: "neuer-besucher",
+      n: 2,
+      at: T0(),
+    });
+    await converse(embed, {
+      conversation: "n-2",
+      session: "neuer-besucher",
+      n: 3,
+      at: new Date(T0().getTime() + DAY),
+    });
+    const before = await chatIds();
+    expect(await listed(embed, kunde)).not.toContain("neuer-besucher");
+
+    expect((await preview(embed, "neuer-besucher", kunde)).body).toEqual({
+      success: true,
+      messageCount: 0,
+      visitor: null,
+    });
+    const result = await deleteVisitor(embed, "neuer-besucher", kunde);
+    expect(result.statusCode).toBe(404);
+    expect(result.body).toEqual({ success: false, error: expect.any(String) });
+    expect(await chatIds()).toEqual(before);
+    expect(await db.client.event_logs.count()).toBe(0);
+
+    // Über eine ihrer Konversationen ist die Sitzung dagegen bestimmt.
+    expect((await preview(embed, "n-1", kunde)).body).toEqual({
+      success: true,
+      messageCount: 2,
+      visitor: { conversationCount: 2, messageCount: 5 },
+    });
+  });
+
   test("ganze_sitzung: Eine Sitzung mit nur dieser einen Konversation - die Vorschau nennt 1 (kein Angebot), das Löschen entfernt nur sie", async () => {
     expect((await preview(embed, "a-1", kunde)).body.visitor).toEqual({
       conversationCount: 1,

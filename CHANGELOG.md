@@ -20,7 +20,7 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 - **Protokoll (`event_logs`):** `embed_conversations_exported` (Nutzer, Widget, Format, Zeitraum, Zahl der Konversationen und Zeilen, `completed`), `embed_conversation_deleted` und `embed_visitor_conversations_deleted` (Nutzer, Widget, Zahl der Zeilen) – ohne Inhalte, ohne Konversations- oder Sitzungs-Kennung.
 - **Die Nachrichtentabelle entfällt.** „Chatbot" hat die Unterpunkte „Widgets" und „Konversationen"; `/settings/chatbot/messages` leitet auf „Konversationen" um. **Damit entfallen in der Oberfläche:**
   - die Sicht über alle Widgets zugleich und der Sammelhinweis zu den Aufbewahrungsfristen (in „Konversationen" wird das Widget gewählt; die Frist steht dort je Widget),
-  - das Löschen einer einzelnen Nachricht – gelöscht wird die ganze Konversation; **`DELETE /embed/chats/:chatId` gibt es nicht mehr**,
+  - das Löschen einer einzelnen Nachricht – gelöscht wird die ganze Konversation; **`DELETE /embed/chats/:chatId` gibt es nicht mehr** (`POST /embed/chats`, die flache Nachrichtenliste, bleibt mit unveränderten Prüfungen bestehen, hat in der Oberfläche aber keinen Aufrufer mehr),
   - die Anzeige von IP-Adresse, Host und Benutzername der Sitzung,
   - der Export der Widget-Chats als JSONL und Alpaca (für `admin` weiter über `GET /system/export-chats?chatType=embed`, unverändert seit KIE-533).
 - Der Export der Workspace-Chats (Administrator → Workspace-Chats) ist unverändert. „Alle Chats löschen" je Widget bleibt im Bearbeiten-Dialog des Widgets.
