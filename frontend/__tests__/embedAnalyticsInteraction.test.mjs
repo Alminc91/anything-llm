@@ -972,7 +972,7 @@ test(
 );
 
 test(
-  "Klick auf eine Säule (AK-7): Die Liste wird mit dem Abschnitt neu geladen und markiert; zweiter Klick oder Schließen hebt den Filter auf; die Kennzahlen bleiben",
+  "Klick auf eine Säule (AK-7, AK-17): Die Liste wird mit dem Abschnitt neu geladen und markiert, die Seite springt weich zu ihr (Fixliste 2, B3); zweiter Klick oder Schließen hebt den Filter auf, ohne zu springen; die Kennzahlen bleiben",
   { skip },
   async (t) => {
     const server = await analyticsServer(t);
@@ -981,8 +981,15 @@ test(
     const bucket = { start: day, end: day };
     const kpis = kpiTextOf(container);
     assert.equal(kpis.length, 4);
+    // wie „N negativ“ und der Verweis in der Kopfzeile: zum Bereich der Liste
+    const [listArea] = elements(container, (element) =>
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-4")
+    );
+    const scrolls = [];
+    listArea.scrollIntoView = (options) => scrolls.push(options);
 
     await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(scrolls, [{ behavior: "smooth", block: "start" }]);
     assert.deepEqual(server.lists(), [listRequest(), listRequest({ bucket })]);
     assert.equal(server.lists().at(-1).body.startedFromDay, day);
     assert.equal(server.lists().at(-1).body.startedToDay, day);
@@ -991,11 +998,12 @@ test(
     assert.ok(mark.textContent.endsWith(formatDate(day)), mark.textContent);
     assert.equal(columnsOf(container)[23].getAttribute("aria-pressed"), "true");
 
-    // zweiter Klick auf dieselbe Säule
+    // zweiter Klick auf dieselbe Säule: Filter weg, kein Sprung
     await act(() => click(columnsOf(container)[23]));
     assert.deepEqual(server.lists().at(-1), listRequest());
     assert.equal(server.lists().length, 3);
     assert.equal(bucketMarkOf(container), null);
+    assert.equal(scrolls.length, 1);
 
     // andere Säule, dann die Schließen-Schaltfläche der Markierung
     const other = addDays(days.fromDay, 5);
@@ -1007,10 +1015,12 @@ test(
     const [close] = elements(bucketMarkOf(container), (element) =>
       (element.getAttribute("aria-label") ?? "").startsWith("Filter „")
     );
+    assert.equal(scrolls.length, 2);
     await act(() => click(close));
     assert.deepEqual(server.lists().at(-1), listRequest());
     assert.equal(server.lists().length, 5);
     assert.equal(bucketMarkOf(container), null);
+    assert.equal(scrolls.length, 2);
 
     // Die Kennzahlen wurden nicht neu abgefragt und stehen unverändert da.
     assert.equal(server.summaries().length, 1);

@@ -24,6 +24,10 @@ const FORMATS = [
  * @param {string} [props.search] - Suchbegriff der Liste ("" = keine Suche)
  * @param {boolean} [props.disabled] - nichts zu exportieren (Liste leer oder lädt)
  * @param {string} [props.className] - Aussehen der Schaltfläche (wie die Filter daneben)
+ * @param {string} [props.wrapperClassName] - Platz in der Kopfzeile (order …)
+ *
+ * Unter sm zeigt die Schaltfläche nur das Symbol; ihr Name „Exportieren"
+ * bleibt für Screenreader (Fixliste 2, B1).
  */
 export default function ExportMenu({
   embedId,
@@ -34,11 +38,15 @@ export default function ExportMenu({
   search = "",
   disabled = false,
   className = "",
+  wrapperClassName = "",
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const containerRef = useRef(null);
+  // Wird die Schaltfläche gesperrt (Liste lädt neu, scheitert, ist leer),
+  // schließt die offene Auswahl – sie bliebe sonst bedienbar (Fixliste 2, R9).
+  if (open && disabled) setOpen(false);
 
   // Klick außerhalb oder Escape schließt die Auswahl.
   useEffect(() => {
@@ -89,7 +97,11 @@ export default function ExportMenu({
   };
 
   return (
-    <div className="relative" ref={containerRef} data-export-menu="">
+    <div
+      className={`relative ${wrapperClassName}`}
+      ref={containerRef}
+      data-export-menu=""
+    >
       <button
         type="button"
         aria-haspopup="menu"
@@ -99,18 +111,20 @@ export default function ExportMenu({
         onClick={() => setOpen(!open)}
         className={`${className} disabled:cursor-not-allowed disabled:opacity-50`}
       >
-        <DownloadSimple size={15} aria-hidden="true" />
-        {running
-          ? t("embed-analytics.export.running")
-          : t("embed-analytics.export.button")}
+        <DownloadSimple size={16} aria-hidden="true" className="shrink-0" />
+        <span className="sr-only sm:not-sr-only">
+          {running
+            ? t("embed-analytics.export.running")
+            : t("embed-analytics.export.button")}
+        </span>
         <CaretDown
           size={12}
           aria-hidden="true"
-          className={`transition-transform ${open ? "rotate-180" : ""}`}
+          className={`hidden transition-transform sm:block ${open ? "rotate-180" : ""}`}
         />
       </button>
 
-      {open && (
+      {open && !disabled && (
         <div
           role="menu"
           aria-label={t("embed-analytics.export.menu-label")}
@@ -123,7 +137,8 @@ export default function ExportMenu({
               role="menuitem"
               data-export-format={format}
               onClick={() => runExport(format)}
-              className="block w-full whitespace-nowrap px-3 py-2 text-left text-sm text-theme-text-secondary transition-colors hover:bg-white/5 hover:text-theme-text-primary light:hover:bg-black/5"
+              // gedämpft wie die übrigen Menüs: hell #5f6368, 6,1:1 (B2)
+              className="block min-h-[44px] w-full whitespace-nowrap px-3 py-2 text-left text-sm text-[color:var(--theme-analytics-text-muted)] transition-colors hover:bg-white/5 hover:text-theme-text-primary sm:min-h-0 light:hover:bg-black/5"
             >
               {t(labelKey)}
             </button>

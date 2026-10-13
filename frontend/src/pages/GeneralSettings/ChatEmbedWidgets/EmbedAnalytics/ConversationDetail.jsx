@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CaretDown,
   CaretLeft,
@@ -19,6 +19,8 @@ import { formatDateForInput } from "@/utils/billingDate";
 import { formatDateTimeDE } from "@/utils/directories";
 import showToast from "@/utils/toast";
 import {
+  BERLIN,
+  WIDE_QUERY,
   answerText,
   berlinTime,
   centeredScrollTop,
@@ -42,12 +44,17 @@ import { useConversationDeletion } from "./DeleteConversation";
 // Verlauf. Fragen als Sprechblase, Antworten über den MarkdownRenderer wie
 // bisher, die Bewertung direkt unter der bewerteten Antwort.
 
+// Gedämpfte Schrift: dunkel wie --theme-text-secondary, hell #5f6368 – auf
+// Weiß 6,1:1 statt 4,2:1 (Fixliste 2, B2).
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 // Schaltflächen im Kopf: mobil 44 px hoch, ab lg kompakter.
-const ICON_BUTTON =
-  "grid h-11 w-11 shrink-0 place-items-center rounded-lg text-theme-text-secondary transition-colors hover:bg-white/10 hover:text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent light:hover:bg-black/5 lg:h-9 lg:w-9";
-// Ab dieser Breite steht das Panel neben der Liste (Tailwind lg).
-const WIDE = "(min-width: 1024px)";
+const ICON_BUTTON = `grid h-11 w-11 shrink-0 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent light:hover:bg-black/5 lg:h-9 lg:w-9`;
+// Trenner „·“ in der Zeile unter der Frage: am Ende jedes Teils außer dem
+// letzten – so beginnt keine umbrochene Zeile mit einem Punkt (B9).
+const META_ITEM =
+  "whitespace-nowrap [&:not(:last-child)]:after:ml-1.5 [&:not(:last-child)]:after:content-['·']";
+// Tooltips in Berliner Zeit wie die sichtbaren Uhrzeiten (S1)
+const fullTime = (instant) => formatDateTimeDE(instant, { timeZone: BERLIN });
 
 /**
  * Text mit hervorgehobenen Treffern der Suche – als Text, nie als HTML.
@@ -84,15 +91,18 @@ function timeSpan(startedAt, lastAt, t) {
   });
 }
 
+/** Die Medienabfrage „breit" (WIDE_QUERY); null ohne matchMedia. */
+function wideQuery() {
+  return typeof window !== "undefined" && window.matchMedia
+    ? window.matchMedia(WIDE_QUERY)
+    : null;
+}
+
 /** Breiter Bildschirm (Panel neben der Liste)? Folgt Größenänderungen. */
 function useWide() {
-  const query = () =>
-    typeof window !== "undefined" && window.matchMedia
-      ? window.matchMedia(WIDE)
-      : null;
-  const [wide, setWide] = useState(() => query()?.matches ?? true);
+  const [wide, setWide] = useState(() => wideQuery()?.matches ?? true);
   useEffect(() => {
-    const media = query();
+    const media = wideQuery();
     if (!media?.addEventListener) return;
     const update = () => setWide(media.matches);
     media.addEventListener("change", update);
@@ -102,9 +112,24 @@ function useWide() {
 }
 
 /**
+ * Bleibt bedienbar, auch wenn das Vollbild den Rest inert macht: Meldungen
+ * (ToastContainer, .Toastify) und Dialoge in Portalen (aria-modal, etwa die
+ * Lösch-Rückfrage) – Fixliste 2, S3.
+ * @param {Element} element
+ * @returns {boolean}
+ */
+function keepsInteractive(element) {
+  const classes = String(element.getAttribute?.("class") ?? "").split(/\s+/);
+  if (classes.includes("Toastify")) return true;
+  if (element.getAttribute?.("aria-modal") === "true") return true;
+  return elementsWith(element, "aria-modal", "true").length > 0;
+}
+
+/**
  * Vollbild (unter lg): Alles außer dem Panel ist inert und für Screenreader
- * verborgen – die Geschwister jedes Vorfahren. Beim Schließen wird der
- * vorige Zustand wiederhergestellt.
+ * verborgen – die Geschwister jedes Vorfahren, außer Meldungen und Dialogen
+ * (keepsInteractive). Beim Schließen wird der vorige Zustand
+ * wiederhergestellt.
  * @param {{current: Element|null}} ref
  * @param {boolean} active
  */
@@ -120,7 +145,8 @@ function useInertOutside(ref, active) {
     ) {
       for (const sibling of node.parentNode.childNodes) {
         if (sibling === node || sibling.nodeType !== 1) continue;
-        if (sibling.hasAttribute("inert")) continue;
+        if (sibling.hasAttribute("inert") || keepsInteractive(sibling))
+          continue;
         changed.push([sibling, sibling.getAttribute("aria-hidden")]);
         sibling.setAttribute("inert", "");
         sibling.setAttribute("aria-hidden", "true");
@@ -145,6 +171,9 @@ function useInertOutside(ref, active) {
  * @param {string} props.search - aktiver Suchbegriff (hervorgehoben)
  * @param {string|null} props.startDate - Zeitraum der Liste (ISO)
  * @param {string|null} props.endDate
+ * @param {boolean} [props.searchWholeConversation] - Die Suche der Liste
+ *   prüft die ganze Konversation (Abschnitt aus dem Diagramm), nicht nur die
+ *   Nachrichten im Zeitraum
  * @param {boolean} props.canPrevious
  * @param {boolean} props.canNext
  * @param {string|null} [props.navigationHint] - warum vorherige/nächste
@@ -164,6 +193,7 @@ export default function ConversationDetail({
   search = "",
   startDate = null,
   endDate = null,
+  searchWholeConversation = false,
   canPrevious = false,
   canNext = false,
   navigationHint = null,
@@ -267,6 +297,11 @@ export default function ConversationDetail({
         }
       : null;
 
+  // Bei einem Ladefehler bleibt „⋯" bedienbar: Link (und, steht die
+  // Konversation in der Liste, Kennung) lassen sich kopieren – Löschen nicht
+  // (Fixliste 2, S4).
+  const menuAvailable = !!deletable || failed;
+
   const deletion = useConversationDeletion({
     embedId,
     conversation: deletable,
@@ -317,10 +352,13 @@ export default function ConversationDetail({
     },
     [setMenuOpen]
   );
-  const menuItemsOf = () => elementsWith(menuRef.current, "role", "menuitem");
+  const menuItemsOf = useCallback(
+    () => elementsWith(menuRef.current, "role", "menuitem"),
+    []
+  );
   useEffect(() => {
     if (!menuOpen) return;
-    elementsWith(menuRef.current, "role", "menuitem")[0]?.focus?.();
+    menuItemsOf()[0]?.focus?.();
     function handleMouseDown(event) {
       if (menuRef.current && !menuRef.current.contains(event.target))
         closeMenu();
@@ -336,7 +374,7 @@ export default function ConversationDetail({
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [menuOpen, closeMenu]);
+  }, [menuOpen, closeMenu, menuItemsOf]);
   const handleMenuKeyDown = (event) => {
     const items = menuItemsOf();
     const index = items.indexOf(event.target);
@@ -386,11 +424,28 @@ export default function ConversationDetail({
 
   // Der Begriff trifft nur Unsichtbares (Link-Adresse, HTML, <think>) –
   // die Suche des Servers liest den Antworttext, wie er gespeichert ist.
-  const hiddenHit =
-    ready && !!search && !!row && !hasVisibleHit(messages, search);
+  // Geprüft werden die Nachrichten, die auch der Server durchsucht hat (im
+  // Zeitraum bzw. mit Abschnitt die ganze Konversation); memoisiert – das
+  // Lesen der Antworten (JSON) läuft nicht bei jedem Rendern (S7).
+  const hiddenHit = useMemo(
+    () =>
+      ready &&
+      !!search &&
+      !!row &&
+      !hasVisibleHit(
+        messages,
+        search,
+        searchWholeConversation ? {} : { startDate, endDate }
+      ),
+    [ready, search, row, messages, searchWholeConversation, startDate, endDate]
+  );
 
+  // Feste Reihenfolge (Fixliste 2, R8): „Konversation löschen" immer vor
+  // „Alle Konversationen dieses Besuchers löschen". Der zweite Eintrag steht
+  // gesperrt da, bis die Vorschau sagt, ob es weitere Konversationen gibt –
+  // nichts schiebt sich nachträglich vor einen anderen Eintrag.
   const menuItems = [
-    {
+    conversationId && {
       id: "data-menu-copy-id",
       Icon: Copy,
       onClick: copyId,
@@ -402,20 +457,22 @@ export default function ConversationDetail({
       onClick: copyLink,
       label: t("embed-analytics.panel.copy-link"),
     },
-    deletion.offerVisitor && {
-      id: "data-delete-visitor",
-      Icon: Trash,
-      danger: true,
-      onClick: () => openDelete("visitor"),
-      label: t("embed-analytics.delete.visitor"),
-    },
-    {
+    deletable && {
       id: "data-menu-delete",
       Icon: Trash,
       danger: true,
       onClick: () => openDelete("conversation"),
       label: t("embed-analytics.delete.conversation"),
     },
+    deletable &&
+      (deletion.offerVisitor || !deletion.previewLoaded) && {
+        id: "data-delete-visitor",
+        Icon: Trash,
+        danger: true,
+        pending: !deletion.offerVisitor,
+        onClick: () => openDelete("visitor"),
+        label: t("embed-analytics.delete.visitor"),
+      },
   ].filter(Boolean);
 
   const headDay = head ? formatDateForInput(head.startedAt) : "";
@@ -427,7 +484,10 @@ export default function ConversationDetail({
       aria-label={t("embed-analytics.panel.label")}
       aria-modal={wide ? undefined : "true"}
       role={wide ? undefined : "dialog"}
-      className="fixed inset-0 z-50 flex flex-col bg-theme-bg-secondary lg:sticky lg:inset-auto lg:top-4 lg:z-auto lg:max-h-[calc(100vh-64px)] lg:w-[min(520px,48%)] lg:shrink-0 lg:overflow-hidden lg:rounded-xl lg:border lg:border-white/10 lg:bg-theme-bg-primary"
+      // Ab lg klebt das Panel 64 px unter dem oberen Rand des Bereichs – sein
+      // Kopf (↑ ↓ ⋯ ✕) liegt so unter dem schwebenden Benutzermenü oben
+      // rechts („KI", bis 72 px), nicht darunter (Fixliste 2, B4).
+      className="fixed inset-0 z-50 flex flex-col bg-theme-bg-secondary lg:sticky lg:inset-auto lg:top-16 lg:z-auto lg:max-h-[calc(100vh-112px)] lg:w-[min(520px,48%)] lg:shrink-0 lg:overflow-hidden lg:rounded-xl lg:border lg:border-white/10 lg:bg-theme-bg-primary"
     >
       {/* Kopf – bleibt beim Scrollen stehen */}
       <header
@@ -484,13 +544,13 @@ export default function ConversationDetail({
                 aria-expanded={menuOpen}
                 aria-label={t("embed-analytics.panel.more")}
                 title={t("embed-analytics.panel.more")}
-                disabled={!deletable}
+                disabled={!menuAvailable}
                 onClick={toggleMenu}
                 className={ICON_BUTTON}
               >
                 <DotsThree size={20} weight="bold" aria-hidden="true" />
               </button>
-              {menuOpen && deletable && (
+              {menuOpen && menuAvailable && (
                 <div
                   role="menu"
                   data-panel-menu=""
@@ -525,23 +585,33 @@ export default function ConversationDetail({
             >
               <HighlightedText text={head.firstQuestion} term={search} />
             </h3>
+            {/* Teile als Liste mit Abstand; der Trenner hängt am Ende des
+                vorigen Teils (META_ITEM) – keine Zeile beginnt mit „·“ (B9). */}
             <p
               data-panel-meta=""
-              className={`flex flex-wrap gap-x-1.5 text-[13px] ${MUTED}`}
+              className={`flex flex-wrap gap-x-1.5 gap-y-0.5 text-[13px] ${MUTED}`}
             >
-              <span className="lg:hidden">{longDateLabel(headDay)} ·</span>
+              <span data-meta-item="" className={`${META_ITEM} lg:hidden`}>
+                {longDateLabel(headDay)}
+              </span>
               <span
-                title={`${formatDateTimeDE(head.startedAt)} – ${formatDateTimeDE(head.lastAt)}`}
+                data-meta-item=""
+                className={META_ITEM}
+                title={`${fullTime(head.startedAt)} – ${fullTime(head.lastAt)}`}
               >
                 {t("embed-analytics.rows.questions", {
                   count: head.questions,
                   formatted: formatNumber(head.questions),
-                })}{" "}
-                · {timeSpan(head.startedAt, head.lastAt, t)}
+                })}
+              </span>
+              <span data-meta-item="" className={META_ITEM}>
+                {timeSpan(head.startedAt, head.lastAt, t)}
               </span>
               {head.negative > 0 && (
-                <span className="text-orange-300 light:text-orange-700">
-                  ·{" "}
+                <span
+                  data-meta-item=""
+                  className={`${META_ITEM} text-orange-300 light:text-orange-700`}
+                >
                   {t("embed-analytics.panel.negative-count", {
                     count: head.negative,
                     formatted: formatNumber(head.negative),
@@ -549,8 +619,10 @@ export default function ConversationDetail({
                 </span>
               )}
               {head.positive > 0 && (
-                <span className="text-sky-300 light:text-sky-700">
-                  ·{" "}
+                <span
+                  data-meta-item=""
+                  className={`${META_ITEM} text-sky-300 light:text-sky-700`}
+                >
                   {t("embed-analytics.panel.positive-count", {
                     count: head.positive,
                     formatted: formatNumber(head.positive),
@@ -651,7 +723,7 @@ export default function ConversationDetail({
             type="button"
             data-delete-conversation=""
             onClick={() => openDelete("conversation")}
-            className="flex h-11 items-center gap-1.5 rounded-md px-2 text-[13px] text-theme-text-secondary transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text lg:h-8"
+            className={`flex h-11 items-center gap-1.5 rounded-md px-2 text-[13px] ${MUTED} transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text lg:h-8`}
           >
             <Trash size={14} aria-hidden="true" />
             {t("embed-analytics.delete.conversation")}
@@ -663,17 +735,31 @@ export default function ConversationDetail({
   );
 }
 
-function MenuItem({ Icon, label, onClick, danger = false, ...rest }) {
+/**
+ * Eintrag im Menü „⋯". pending: noch nicht verfügbar (Vorschau lädt) –
+ * gesperrt per aria-disabled, damit er mit den Pfeiltasten erreichbar bleibt.
+ */
+function MenuItem({
+  Icon,
+  label,
+  onClick,
+  danger = false,
+  pending = false,
+  ...rest
+}) {
   return (
     <button
       type="button"
       role="menuitem"
       {...rest}
-      onClick={onClick}
-      className={`flex min-h-[44px] w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5 lg:min-h-0 ${
-        danger
-          ? "text-theme-text-secondary hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text"
-          : "text-theme-text-secondary hover:bg-white/5 hover:text-theme-text-primary light:hover:bg-black/5"
+      aria-disabled={pending ? "true" : undefined}
+      onClick={pending ? undefined : onClick}
+      className={`flex min-h-[44px] w-full items-center gap-2 px-3 py-2 text-left text-sm ${MUTED} transition-colors focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5 lg:min-h-0 ${
+        pending
+          ? "cursor-wait opacity-60"
+          : danger
+            ? "hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text"
+            : "hover:bg-white/5 hover:text-theme-text-primary light:hover:bg-black/5"
       }`}
     >
       <Icon size={15} aria-hidden="true" className="shrink-0" />
@@ -695,7 +781,7 @@ const Message = memo(function Message({ message, search }) {
       <div className="flex flex-col items-end gap-1">
         <span
           className={`text-xs ${MUTED}`}
-          title={formatDateTimeDE(message.createdAt)}
+          title={fullTime(message.createdAt)}
         >
           {t("embed-analytics.panel.visitor", {
             time: berlinTime(message.createdAt),
@@ -711,7 +797,7 @@ const Message = memo(function Message({ message, search }) {
       <div className="flex items-start gap-2.5">
         <span
           aria-hidden="true"
-          className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white/10 text-theme-text-secondary light:bg-black/5"
+          className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white/10 ${MUTED} light:bg-black/5`}
         >
           <Robot size={15} />
         </span>

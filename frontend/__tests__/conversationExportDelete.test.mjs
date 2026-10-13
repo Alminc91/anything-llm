@@ -539,9 +539,22 @@ test(
         "Exportieren",
       ]
     );
+    // Suchfeld, Bewertungsfilter, Export – in dieser Reihenfolge im
+    // Dokument; unter sm ordnet CSS (order) Export neben die Überschrift
+    // (Fixliste 2, B1)
+    assert.equal(headerRight.hasAttribute("data-list-tools"), true);
     assert.deepEqual(
-      headerRight.childNodes.map((child) => child.tagName),
-      ["LABEL", "DIV", "DIV"]
+      headerRight.childNodes.map((child) => [
+        child.tagName,
+        ["data-search-field", "data-feedback-filters", "data-export-menu"].find(
+          (name) => child.hasAttribute(name)
+        ),
+      ]),
+      [
+        ["DIV", "data-search-field"],
+        ["DIV", "data-feedback-filters"],
+        ["DIV", "data-export-menu"],
+      ]
     );
     assert.equal(withAttribute(headerRight, "data-search-input").length, 1);
     assert.equal(headerRight.lastChild, menu);
@@ -1148,6 +1161,55 @@ test(
       withAttribute(single.container, "data-viewable-count")[0].textContent,
       "0 einsehbar"
     );
+  }
+);
+
+test(
+  "Konversation löschen (Fixliste 2, S6): Waren mehr als 100 Zeilen geladen, lädt die Liste nach dem Löschen wieder so viele – erst 100, dann den Rest in 100er-Schritten",
+  { skip },
+  async (t) => {
+    const ids = (from, to) =>
+      Array.from({ length: to - from + 1 }, (_, i) => `k-${from + i}`);
+    const state = { conversations: ids(1, 260).map((id) => conversation(id)) };
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    const pages = () =>
+      server.lists().map((call) => [call.body.offset, call.body.limit]);
+    // 20 + 11 × 20 = 240 Zeilen geladen
+    for (let i = 0; i < 11; i++) {
+      await act(() => click(withAttribute(container, "data-load-more")[0]));
+      await act();
+    }
+    assert.equal(cardIdsOf(container).length, 240);
+    const before = server.lists().length;
+
+    await expand(mounted, 5);
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    await act();
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    for (let i = 0; i < 6; i++) await act();
+
+    assert.deepEqual(pages().slice(before), [
+      [0, 100],
+      [100, 100],
+      [200, 40],
+    ]);
+    // k-6 ist gelöscht; die Liste zeigt wieder 240 Zeilen ab vorn
+    assert.equal(cardIdsOf(container).length, 240);
+    assert.ok(!cardIdsOf(container).includes("k-6"));
+    assert.deepEqual(cardIdsOf(container).slice(0, 6), [
+      "k-1",
+      "k-2",
+      "k-3",
+      "k-4",
+      "k-5",
+      "k-7",
+    ]);
   }
 );
 

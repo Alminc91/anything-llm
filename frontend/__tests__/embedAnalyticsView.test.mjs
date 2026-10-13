@@ -906,7 +906,14 @@ test(
       assert.doesNotMatch(filter.label, EMOJI);
       // Der Text der Schaltfläche bricht nicht um.
       assert.match(filter.className, /\bwhitespace-nowrap\b/);
-      assert.match(filter.className, /\btext-theme-text-secondary\b/);
+      // gedämpft über --theme-analytics-text-muted: hell 5,4:1 auf dem Grund
+      // der Gruppe (Fixliste 2, B2), dunkel wie --theme-text-secondary
+      assert.ok(
+        filter.className.includes(
+          "text-[color:var(--theme-analytics-text-muted)]"
+        ),
+        filter.className
+      );
     }
     assert.doesNotMatch(html, EMOJI);
     assert.doesNotMatch(textOf(html), /Nur mit/);

@@ -21,7 +21,7 @@ import {
   viewState,
 } from "@/utils/analyticsTimeline";
 import { embedLabels, sortEmbedsByLabel } from "@/utils/embedLabel";
-import { effectiveSearch } from "@/utils/conversationView";
+import { WIDE_QUERY, effectiveSearch } from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
 
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
@@ -240,18 +240,42 @@ function WidgetAnalytics({ embeds }) {
   if (bucketFilter.bucket && bucketFilter.scope !== scope)
     setBucketFilter({ scope, bucket: null });
   const bucket = bucketFilter.scope === scope ? bucketFilter.bucket : null;
-  const selectBucket = (next) => setBucketFilter({ scope, bucket: next });
+  const scrollToList = () =>
+    listRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  // Klick auf eine Säule filtert die Liste und springt zu ihr – wie „N
+  // negativ" und der Verweis in der Kopfzeile (AK-17, Fixliste 2 B3). Der
+  // zweite Klick (Filter aufheben) springt nicht.
+  const selectBucket = (next) => {
+    setBucketFilter({ scope, bucket: next });
+    if (next) scrollToList();
+  };
+  const clearBucket = () => setBucketFilter({ scope, bucket: null });
 
   const showRated = (mode) => {
     setFeedbackFilter(mode);
-    listRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    scrollToList();
   };
   // Verweis in der Kopfzeile: weich zur Liste, der Fokus auf ihre Überschrift
   // (ohne zweites, hartes Scrollen).
   const jumpToList = () => {
-    listRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    scrollToList();
     listHeadingRef.current?.focus?.({ preventScroll: true });
   };
+
+  // Per Link oder nach dem Neuladen mit geöffneter Konversation: einmal zur
+  // Liste springen, sobald Kennzahlen und Liste stehen – sonst läge das
+  // Panel unter dem sichtbaren Bereich (Fixliste 2, B5). Nur ab lg: darunter
+  // öffnet die Konversation ohnehin als Vollbild.
+  const [openedByLink] = useState(() => place.chatId !== null);
+  const [linkJumped, setLinkJumped] = useState(false);
+  const listReady = viewableCount !== null && !summary.loading;
+  useEffect(() => {
+    if (!openedByLink || linkJumped || !listReady) return;
+    setLinkJumped(true);
+    const wide =
+      typeof window !== "undefined" && window.matchMedia?.(WIDE_QUERY)?.matches;
+    if (wide) listRef.current?.scrollIntoView?.({ block: "start" });
+  }, [openedByLink, linkJumped, listReady]);
 
   return (
     <div className="flex w-full min-w-0 flex-col p-2 md:p-6">
@@ -316,7 +340,7 @@ function WidgetAnalytics({ embeds }) {
           feedbackFilter={feedbackFilter}
           onFeedbackFilterChange={setFeedbackFilter}
           bucket={bucket}
-          onClearBucket={() => selectBucket(null)}
+          onClearBucket={clearBucket}
           onViewableCountChange={setViewableCount}
           headingRef={listHeadingRef}
           showDeletedHint={showsDeletedHint({
@@ -427,7 +451,10 @@ function Header({
         )}
       </div>
 
-      <div className="flex flex-wrap gap-3 items-center">
+      {/* md:pr-12: Widget-Auswahl und Zeitraum enden links vom schwebenden
+          Benutzermenü oben rechts („KI") – es läge sonst auf ihrem Rand
+          (Fixliste 2, B4). */}
+      <div className="flex flex-wrap gap-3 items-center md:pr-12">
         {/* Widget-Auswahl – bei genau einem Widget gibt es nichts zu wählen. */}
         {embeds.length > 1 && (
           <div className="relative" ref={embedDropdownRef}>

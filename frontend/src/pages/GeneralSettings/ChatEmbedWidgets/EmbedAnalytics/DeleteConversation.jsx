@@ -18,6 +18,9 @@ import showToast from "@/utils/toast";
 // (useConversationDeletion).
 
 const QUESTION_MAX_LENGTH = 80;
+// Gedämpfte Schrift: im hellen Theme #5f6368 (6,1:1 auf Weiß) statt
+// --theme-text-secondary (4,2:1) – Fixliste 2, B2; dunkel gleich.
+const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 
 /** Erste Frage für die Rückfrage, auf eine Zeile gekürzt. */
 function shortQuestion(text) {
@@ -44,7 +47,7 @@ function shortQuestion(text) {
  *   geladen ist
  * @param {() => void} props.onDeleted - nach dem Löschen (auch nach einem
  *   Fehlschlag: Die Liste lädt dann den tatsächlichen Stand)
- * @returns {{offerVisitor: boolean, loadPreview: () => void, openDialog: (kind: "conversation"|"visitor") => void, dialog: React.ReactNode}}
+ * @returns {{offerVisitor: boolean, previewLoaded: boolean, loadPreview: () => void, openDialog: (kind: "conversation"|"visitor") => void, dialog: React.ReactNode}}
  */
 export function useConversationDeletion({
   embedId,
@@ -80,8 +83,11 @@ export function useConversationDeletion({
   const previewLoaded = chatId !== null && preview.chatId === chatId;
   const current = previewLoaded ? preview.data : null;
   // Die Liste zählt nur einsehbare Nachrichten im Zeitraum; gelöscht wird die
-  // ganze Konversation – die Rückfrage nennt die Zahl vom Server.
-  const messageCount = current?.messageCount ?? conversation?.message_count;
+  // ganze Konversation – die Rückfrage nennt die Zahl vom Server. Scheiterte
+  // die Vorschau, nennt sie keine Zahl statt einer falschen (Fixliste 2, R7).
+  const messageCount = Number.isInteger(current?.messageCount)
+    ? current.messageCount
+    : null;
   const visitor = current?.visitor ?? null;
   const offerVisitor = (visitor?.conversationCount ?? 0) > 1;
 
@@ -144,9 +150,10 @@ export function useConversationDeletion({
   // Die Rückfrage gilt der Konversation, für die sie geöffnet wurde – zeigt
   // das Panel inzwischen eine andere (Zurück-Knopf), ist sie hinfällig.
   if (dialog && dialog.chatId !== chatId && !deleting) setDialog(null);
-  // Sie erscheint, sobald die Vorschau da ist (oder scheiterte).
-  const kind =
-    dialog && dialog.chatId === chatId && previewLoaded ? dialog.kind : null;
+  // Sie erscheint sofort – solange die Vorschau lädt, mit Ladehinweis und
+  // gesperrtem „Löschen"; Escape schließt dann nur sie, nicht das Panel
+  // (Fixliste 2, S5).
+  const kind = dialog && dialog.chatId === chatId ? dialog.kind : null;
 
   let element = null;
   if (kind === "conversation" && conversation)
@@ -154,15 +161,20 @@ export function useConversationDeletion({
       <ConfirmDialog
         title={t("embed-analytics.delete.confirm-title")}
         deleting={deleting}
+        loading={!previewLoaded}
         onConfirm={handleDelete}
         onCancel={close}
       >
         <Question text={conversation.preview} />
-        <p>
-          {t("embed-analytics.delete.confirm-count", {
-            count: messageCount,
-            formatted: formatNumber(messageCount),
-          })}
+        <p data-confirm-count="">
+          {!previewLoaded
+            ? t("common.loading")
+            : messageCount === null
+              ? t("embed-analytics.delete.confirm-unknown")
+              : t("embed-analytics.delete.confirm-count", {
+                  count: messageCount,
+                  formatted: formatNumber(messageCount),
+                })}
         </p>
       </ConfirmDialog>
     );
@@ -185,7 +197,13 @@ export function useConversationDeletion({
       </ConfirmDialog>
     );
 
-  return { offerVisitor, loadPreview, openDialog, dialog: element };
+  return {
+    offerVisitor,
+    previewLoaded,
+    loadPreview,
+    openDialog,
+    dialog: element,
+  };
 }
 
 /** Die erste Frage der Konversation, damit die richtige gelöscht wird. */
@@ -210,9 +228,16 @@ function Question({ text }) {
 
 /**
  * Rückfrage vor dem Löschen. Abbrechen ist die Vorgabe (Fokus); Escape
- * schließt nur sie.
+ * schließt nur sie. loading: Die Angaben laden noch – „Löschen" ist gesperrt.
  */
-function ConfirmDialog({ title, children, deleting, onConfirm, onCancel }) {
+function ConfirmDialog({
+  title,
+  children,
+  deleting,
+  loading = false,
+  onConfirm,
+  onCancel,
+}) {
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -253,13 +278,16 @@ function ConfirmDialog({ title, children, deleting, onConfirm, onCancel }) {
               type="button"
               onClick={onCancel}
               aria-label={t("embed-analytics.delete.cancel")}
-              className="shrink-0 rounded p-1 text-theme-text-secondary transition-colors hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/10"
+              className={`shrink-0 rounded p-1 ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/10`}
             >
               <X size={20} aria-hidden="true" />
             </button>
           </div>
 
-          <div className="space-y-3 p-5 text-sm leading-relaxed text-theme-text-secondary">
+          <div
+            className={`space-y-3 p-5 text-sm leading-relaxed ${MUTED}`}
+            aria-busy={loading ? "true" : undefined}
+          >
             {children}
             <p>{t("embed-analytics.delete.confirm-note")}</p>
           </div>
@@ -271,7 +299,7 @@ function ConfirmDialog({ title, children, deleting, onConfirm, onCancel }) {
               data-confirm-cancel=""
               onClick={onCancel}
               disabled={deleting}
-              className="rounded-lg px-4 py-2 text-sm text-theme-text-secondary transition-colors hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/10"
+              className={`rounded-lg px-4 py-2 text-sm ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/10`}
             >
               {t("embed-analytics.delete.cancel")}
             </button>
@@ -279,7 +307,7 @@ function ConfirmDialog({ title, children, deleting, onConfirm, onCancel }) {
               type="button"
               data-confirm-delete=""
               onClick={onConfirm}
-              disabled={deleting}
+              disabled={deleting || loading}
               // Im hellen Theme wird text-white zur dunklen Textfarbe:
               // Die Schrift auf Rot bleibt in beiden Themes weiß.
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-[#ffffff] transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"

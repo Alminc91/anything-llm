@@ -1224,6 +1224,7 @@ const TRANSLATIONS = {
         "Die Konversation mit {{formatted}} Nachrichten wird endgültig gelöscht.",
       "confirm-note":
         "Das lässt sich nicht rückgängig machen. Kennzahlen, Diagramm und Kontingent bleiben unverändert.",
+      "confirm-unknown": "Die Konversation wird endgültig gelöscht.",
       "visitor-title": "Alle Konversationen dieses Besuchers löschen?",
       "visitor-count_one":
         "Aus demselben Browser stammt in diesem Widget {{conversations}} Konversation mit {{messages}} Nachrichten. Sie wird endgültig gelöscht.",
@@ -1264,8 +1265,6 @@ const TRANSLATIONS = {
     rows: {
       today: "Heute · {{date}}",
       yesterday: "Gestern · {{date}}",
-      "group-count_one": "{{formatted}} Konversation",
-      "group-count_other": "{{formatted}} Konversationen",
       questions_one: "{{formatted}} Frage",
       questions_other: "{{formatted}} Fragen",
       started: "begonnen am {{date}}",
@@ -1291,6 +1290,7 @@ const TRANSLATIONS = {
       quoted: "„{{text}}“",
       "empty-filtered":
         "Keine Konversationen mit „{{term}}“ und Filter {{filters}} im gewählten Zeitraum",
+      "clear-input": "Suchfeld leeren",
     },
     panel: {
       label: "Ausgewählte Konversation",
@@ -1323,6 +1323,8 @@ const TRANSLATIONS = {
         "„{{term}}“ steht in dieser Konversation nur in Link-Adressen, im Quelltext oder in ausgeblendeten Gedanken einer Antwort.",
       "not-in-list":
         "Diese Konversation steht nicht in der geladenen Liste – vorherige und nächste sind nicht verfügbar.",
+      "not-loaded":
+        "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar.",
       "quote-open": "„",
       "quote-close": "“",
     },

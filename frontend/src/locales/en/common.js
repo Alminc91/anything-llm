@@ -1757,6 +1757,7 @@ const TRANSLATIONS = {
         "The conversation with {{formatted}} messages will be deleted permanently.",
       "confirm-note":
         "This cannot be undone. Key figures, chart and quota remain unchanged.",
+      "confirm-unknown": "The conversation will be deleted permanently.",
       "visitor-title": "Delete all conversations of this visitor?",
       "visitor-count_one":
         "The same browser has {{conversations}} conversation with {{messages}} messages in this widget. It will be deleted permanently.",
@@ -1796,8 +1797,6 @@ const TRANSLATIONS = {
     rows: {
       today: "Today · {{date}}",
       yesterday: "Yesterday · {{date}}",
-      "group-count_one": "{{formatted}} conversation",
-      "group-count_other": "{{formatted}} conversations",
       questions_one: "{{formatted}} question",
       questions_other: "{{formatted}} questions",
       started: "started on {{date}}",
@@ -1823,6 +1822,7 @@ const TRANSLATIONS = {
       quoted: "“{{text}}”",
       "empty-filtered":
         "No conversations with “{{term}}” and filter {{filters}} in the selected period",
+      "clear-input": "Clear search field",
     },
     panel: {
       label: "Selected conversation",
@@ -1855,6 +1855,8 @@ const TRANSLATIONS = {
         "“{{term}}” appears in this conversation only in link addresses, markup or hidden thoughts of a response.",
       "not-in-list":
         "This conversation is not in the loaded list – previous and next are not available.",
+      "not-loaded":
+        "The list could not be loaded further – previous and next are not available.",
       "quote-open": "“",
       "quote-close": "”",
     },

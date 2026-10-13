@@ -11,8 +11,14 @@
 import { formatDateForInput } from "./billingDate.js";
 import { addDays, formatDate, formatterOf } from "./analyticsTimeline.js";
 
-const BERLIN = "Europe/Berlin";
+/** Zeitzone aller Tage und Uhrzeiten der Ansicht (auch in Tooltips). */
+export const BERLIN = "Europe/Berlin";
 const GERMAN = "de-DE";
+/**
+ * Ab dieser Breite steht das Panel neben der Liste (Tailwind lg), darunter
+ * ist es ein Vollbild.
+ */
+export const WIDE_QUERY = "(min-width: 1024px)";
 
 /** Kürzester Suchbegriff, ab dem gesucht wird. */
 export const SEARCH_MIN_LENGTH = 2;
@@ -211,10 +217,16 @@ export function answerText(response) {
   return response;
 }
 
+// Markdown-Autolinks: <https://…>, <mailto:…>, <info@vhs.de> – der
+// MarkdownRenderer zeigt die Adresse als Linktext (Fixliste 2, S2).
+const AUTOLINK =
+  /<((?:[a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s<>]*)|(?:[^\s<>@]+@[^\s<>@]+))>/g;
+
 /**
  * Was von einem Antworttext sichtbar ist (ungefähr wie der MarkdownRenderer
  * ihn zeigt): ohne <think>-Blöcke (eingeklappt), ohne Ziele von Links und
  * Bildern ("[Text](https://…)" → "Text"), ohne HTML-Tags und Attribute.
+ * Autolinks (<https://…>, <info@…>) bleiben als ihr sichtbarer Text.
  * @param {string} text
  * @returns {string}
  */
@@ -222,6 +234,7 @@ export function visibleAnswerText(text) {
   return String(text ?? "")
     .replace(/<think>[^]*?<\/think>/g, " ")
     .replace(/\]\([^)]*\)/g, "]")
+    .replace(AUTOLINK, " $1 ")
     .replace(/<\/?[a-zA-Z][^>]*>/g, " ");
 }
 
@@ -275,7 +288,9 @@ const escapeRegExp = (text) => text.replace(REGEXP_SPECIAL, "\\$&");
 /**
  * Regulärer Ausdruck für den Suchbegriff: wörtlich, Groß/klein egal (auch
  * bei Umlauten), in NFC und NFD – ein zerlegtes „ü" im Text trifft wie ein
- * zusammengesetztes. null ohne Begriff.
+ * zusammengesetztes. null ohne Begriff. Bewusst belassen: In zerlegtem Text
+ * trifft auch der Basisbuchstabe allein („mu" in „Müller"), wie auf dem
+ * Server (searchForms in server/utils/helpers/chat/conversationSearch.js).
  * @param {string} term
  * @returns {RegExp|null}
  */
@@ -315,24 +330,40 @@ export function highlightParts(text, term) {
  * Frage, im sichtbaren Antworttext, in Grund oder Kommentar? Die Suche des
  * Servers liest auch Link-Adressen, HTML und <think>-Blöcke der Antwort; nur
  * dort getroffen, weist das Panel darauf hin (Fixliste Punkt 11).
- * @param {Array<{prompt: string, response: string, feedbackReason?: string|null, feedbackText?: string|null}>} messages
+ *
+ * Geprüft werden nur die Nachrichten, die auch der Server durchsucht hat:
+ * die im Zeitraum (Fixliste 2, S7) – mit Abschnitt (Säulenklick) die ganze
+ * Konversation, dann ohne Zeitraum. Grund und Kommentar zeigt das Panel nur
+ * bei negativer Bewertung.
+ * @param {Array<{prompt: string, response: string, createdAt?: string, feedbackScore?: boolean|null, feedbackReason?: string|null, feedbackText?: string|null}>} messages
  * @param {string} term
+ * @param {{startDate?: string|null, endDate?: string|null}} [period] -
+ *   ISO-Zeitstempel; ohne Angabe alle Nachrichten
  * @returns {boolean} - true auch ohne Suche
  */
-export function hasVisibleHit(messages, term) {
+export function hasVisibleHit(messages, term, period = {}) {
   const pattern = searchPattern(term);
   if (!pattern) return true;
   const hit = (text) => {
     pattern.lastIndex = 0;
     return pattern.test(String(text ?? ""));
   };
-  return (messages ?? []).some(
-    (message) =>
-      hit(message.prompt) ||
-      hit(message.feedbackReason) ||
-      hit(message.feedbackText) ||
-      hit(visibleAnswerText(answerText(message.response)))
-  );
+  const from = period.startDate ? Date.parse(period.startDate) : -Infinity;
+  const to = period.endDate ? Date.parse(period.endDate) : Infinity;
+  const searched = (message) => {
+    if (from === -Infinity && to === Infinity) return true;
+    const at = Date.parse(message.createdAt);
+    return at >= from && at <= to;
+  };
+  return (messages ?? [])
+    .filter(searched)
+    .some(
+      (message) =>
+        hit(message.prompt) ||
+        (message.feedbackScore === false &&
+          (hit(message.feedbackReason) || hit(message.feedbackText))) ||
+        hit(visibleAnswerText(answerText(message.response)))
+    );
 }
 
 const TEXT_NODE = 3;

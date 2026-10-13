@@ -185,8 +185,14 @@ async function panelServer(t, state) {
         },
         blob: async () => new Blob(["Konversation;…"]),
       };
-    if (url.endsWith("/conversation/deletion-preview"))
-      return json({ success: true, messageCount: 1, visitor: null });
+    if (url.endsWith("/conversation/deletion-preview")) {
+      // state.holdPreview: Die Vorschau wartet auf dieses Versprechen;
+      // state.preview: ihre Antwort (sonst eine Nachricht, kein Besucher)
+      if (state.holdPreview) await state.holdPreview;
+      return json(
+        state.preview ?? { success: true, messageCount: 1, visitor: null }
+      );
+    }
     return json({ success: false, error: "unbekannt" }, 404);
   };
   t.after(() => {
@@ -255,6 +261,11 @@ const currentRows = (container) =>
     .filter((r) => r.getAttribute("aria-current") === "true")
     .map((r) => Number(r.getAttribute("data-conversation-row")));
 const wait = (ms) => delay(ms);
+/** Teile der Zeile unter der Frage im Panel (Trenner „·“ per CSS). */
+const metaItems = (root) =>
+  withAttribute(one(root, "data-panel-meta"), "data-meta-item").map(
+    (item) => item.textContent
+  );
 /** Tippt in das Suchfeld (Handler des Elements). */
 async function type({ container, act }, value) {
   const input = one(container, "data-search-input");
@@ -322,7 +333,7 @@ test(
 );
 
 test(
-  "AK-2: Gruppen nach dem Tag der letzten Nachricht – K1 (begonnen 9. Okt.) unter „Heute“ über K2; je Gruppe die Zahl, außer die Gruppe geht auf der nächsten Seite weiter",
+  "AK-2: Gruppen nach dem Tag der letzten Nachricht – K1 (begonnen 9. Okt.) unter „Heute“ über K2; Tagesüberschriften ohne Anzahl (Fixliste 2, B10)",
   { skip },
   async (t) => {
     fixClock(t, TODAY);
@@ -345,19 +356,26 @@ test(
     const groups = withAttribute(container, "data-day-group").map((group) => [
       group.getAttribute("data-day-group"),
       one(group, "data-day-label").textContent,
-      one(group, "data-day-count").textContent,
+      elements(group, (e) => e.tagName === "H4")[0].textContent,
       rowsOf(group).map((r) => Number(r.getAttribute("data-conversation-row"))),
     ]);
+    // die Überschrift ist nur der Tag – keine Zahl der Konversationen
     assert.deepEqual(groups, [
-      ["2026-10-13", "Heute · Dienstag, 13. Oktober", "1 Konversation", [1]],
+      [
+        "2026-10-13",
+        "Heute · Dienstag, 13. Oktober",
+        "Heute · Dienstag, 13. Oktober",
+        [1],
+      ],
       [
         "2026-10-12",
         "Gestern · Montag, 12. Oktober",
-        "2 Konversationen",
+        "Gestern · Montag, 12. Oktober",
         [2, 3],
       ],
-      ["2026-10-11", "Sonntag, 11. Oktober", "1 Konversation", [4]],
+      ["2026-10-11", "Sonntag, 11. Oktober", "Sonntag, 11. Oktober", [4]],
     ]);
+    assert.equal(withAttribute(container, "data-day-count").length, 0);
     assert.equal(
       one(rowsOf(container)[0], "data-row-meta").textContent,
       "07:47 · 4 Fragen · begonnen am 9. Okt."
@@ -370,7 +388,7 @@ test(
 );
 
 test(
-  "AK-1: Die letzte Gruppe einer unvollständigen Liste nennt keine Zahl; „Weitere Konversationen laden“ hängt an",
+  "AK-1: Auch eine nur teilweise geladene Gruppe nennt keine Zahl – einheitlich ohne Anzahl (Fixliste 2, B10); „Weitere Konversationen laden“ hängt an",
   { skip },
   async (t) => {
     fixClock(t, TODAY);
@@ -392,10 +410,7 @@ test(
       ]
     );
     assert.equal(rowsOf(container).length, 25);
-    assert.equal(
-      one(container, "data-day-count").textContent,
-      "25 Konversationen"
-    );
+    assert.equal(withAttribute(container, "data-day-count").length, 0);
     assert.equal(withAttribute(container, "data-load-more").length, 0);
   }
 );
@@ -468,10 +483,13 @@ test(
       one(head, "data-panel-date").textContent,
       "Dienstag, 13.10.2026"
     );
-    assert.match(
-      one(head, "data-panel-meta").textContent,
-      /3 Fragen · 07:47–07:48 Uhr.*· 1 Antwort negativ bewertet.*· 1 Antwort positiv bewertet/
-    );
+    assert.deepEqual(metaItems(head), [
+      "Dienstag, 13.10.2026",
+      "3 Fragen",
+      "07:47–07:48 Uhr",
+      "1 Antwort negativ bewertet",
+      "1 Antwort positiv bewertet",
+    ]);
     for (const name of [
       "data-panel-previous",
       "data-panel-next",
@@ -1424,7 +1442,7 @@ test(
 );
 
 test(
-  "Fixliste 16: Ladefehler im Verlauf (500, Netzfehler) – Meldung mit „Erneut versuchen“, keine Aktionen; 403 bleibt „nicht gefunden“",
+  "Fixliste 16: Ladefehler im Verlauf (500, Netzfehler) – Meldung mit „Erneut versuchen“, kein Löschen, aber Link und Kennung kopierbar (Fixliste 2, S4); 403 bleibt „nicht gefunden“",
   { skip },
   async (t) => {
     const state = {
@@ -1452,10 +1470,18 @@ test(
       );
       assert.equal(withAttribute(panel, "data-panel-not-found").length, 0);
       assert.equal(withAttribute(panel, "data-conversation-actions").length, 0);
-      assert.equal(
-        one(panel, "data-panel-menu-button").hasAttribute("disabled"),
-        true
+      // „⋯" bleibt bedienbar: kopieren ja, löschen nein
+      const menuButton = one(panel, "data-panel-menu-button");
+      assert.equal(menuButton.hasAttribute("disabled"), false);
+      await act(() => click(menuButton));
+      const menu = one(panel, "data-panel-menu");
+      assert.deepEqual(
+        elements(menu, (e) => e.getAttribute("role") === "menuitem").map(
+          (e) => e.textContent
+        ),
+        ["Kennung kopieren", "Link kopieren"]
       );
+      await act(() => click(menuButton));
     }
     // erneut versuchen: diesmal klappt es
     state.details[2] = {
@@ -1838,11 +1864,20 @@ test(
       assert.ok(classes(segment).includes("h-11"));
       assert.ok(classes(segment).includes("sm:h-9"));
     }
+    // Fixliste 2, B11: die Schaltfläche selbst misst 44 × 44 px (kein
+    // Pseudo-Element) – negativer Rand oben/unten statt höherer Markierung
     const clears = withAttribute(container, "data-filter-clear");
     assert.equal(clears.length, 2);
-    for (const clear of clears)
-      for (const name of ["before:h-11", "before:w-11", "relative"])
+    for (const clear of clears) {
+      assert.equal(clear.tagName, "BUTTON");
+      for (const name of ["h-11", "w-11", "-my-[9px]", "shrink-0"])
         assert.ok(classes(clear).includes(name), name);
+      assert.ok(
+        !classes(clear).some((name) => name.startsWith("before:")),
+        "kein Pseudo-Element"
+      );
+      assert.ok(!classes(clear).some((name) => /^sm:[hw]-/.test(name)));
+    }
   }
 );
 
@@ -1920,11 +1955,661 @@ test(
       one(panel, "data-panel-question").textContent,
       "Erste Frage im Zeitraum"
     );
-    assert.equal(
-      one(panel, "data-panel-meta").textContent,
-      "Montag, 12.10.2026 ·2 Fragen · 12:00–12:05 Uhr· 1 Antwort negativ bewertet"
-    );
+    assert.deepEqual(metaItems(panel), [
+      "Montag, 12.10.2026",
+      "2 Fragen",
+      "12:00–12:05 Uhr",
+      "1 Antwort negativ bewertet",
+    ]);
     // angezeigt werden alle einsehbaren Nachrichten
     assert.equal(withAttribute(panel, "data-message").length, 3);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 2 (Browser-Abnahme rc14 und Kontroll-Review)
+// ---------------------------------------------------------------------------
+
+const classesOf = (element) =>
+  (element.getAttribute("class") ?? "").split(/\s+/).filter(Boolean);
+const hasClasses = (element, names) =>
+  names.every((name) => classesOf(element).includes(name));
+
+test(
+  "Fixliste 2, B1/B6/B7: Kopfzeile – Werkzeugleiste fest neben der Überschrift, Zählung und Markierungen in eigener Zeile darunter; mobil Export als Symbol neben der Überschrift, Suche und Filter je volle Breite",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [row(1, { preview: "Spanisch", negative_count: 1 }), row(2)],
+    });
+    const plain = await mountList(t);
+    const shape = (container) => {
+      const header = one(container, "data-list-header");
+      const [toolbarRow, statusRow] = header.childNodes;
+      const tools = one(container, "data-list-tools");
+      return {
+        toolbarRow: [
+          toolbarRow.childNodes.map((c) => c.tagName),
+          classesOf(toolbarRow),
+        ],
+        toolsParent: tools.parentNode === toolbarRow,
+        tools: classesOf(tools),
+        toolsChildren: tools.childNodes.map((c) => classesOf(c).join(" ")),
+        statusIsSecondRow: statusRow.hasAttribute("data-list-status"),
+      };
+    };
+    const before = shape(plain.container);
+    await plain.unmount();
+
+    // mit Suche und Bewertungsfilter: Markierungen und „X von Y“ unter der
+    // Überschrift – die Leiste steht unverändert (B7)
+    const filtered = await mountList(t, {
+      query: "?q=spanisch",
+      props: { feedbackFilter: "negative" },
+    });
+    const { container } = filtered;
+    assert.deepEqual(shape(container), before);
+    const status = one(container, "data-list-status");
+    assert.deepEqual(
+      status.childNodes.map((c) =>
+        [
+          "data-viewable-count",
+          "data-feedback-filter-mark",
+          "data-search-filter-mark",
+        ].find((name) => c.hasAttribute(name))
+      ),
+      [
+        "data-viewable-count",
+        "data-feedback-filter-mark",
+        "data-search-filter-mark",
+      ]
+    );
+    assert.equal(
+      elements(one(container, "data-list-tools"), (e) =>
+        e.hasAttribute("data-search-filter-mark")
+      ).length,
+      0
+    );
+
+    // mobil (unter sm): Überschrift und Export in Zeile 1 (order-1/order-2),
+    // Suche und Filtergruppe je volle Breite darunter (B1)
+    assert.ok(hasClasses(one(container, "data-list-heading"), ["order-1"]));
+    const tools = one(container, "data-list-tools");
+    assert.ok(hasClasses(tools, ["contents", "sm:flex", "sm:order-2"]));
+    const field = one(container, "data-search-field");
+    assert.ok(
+      hasClasses(field, [
+        "order-3",
+        "basis-full",
+        "sm:order-none",
+        "sm:w-72",
+        "w-full",
+      ])
+    );
+    const filters = one(container, "data-feedback-filters");
+    assert.ok(hasClasses(filters, ["order-4", "basis-full", "sm:order-none"]));
+    const exportMenu = one(container, "data-export-menu");
+    assert.ok(hasClasses(exportMenu, ["order-2", "sm:order-none"]));
+    const [exportButton] = elements(exportMenu, (e) => e.tagName === "BUTTON");
+    assert.ok(
+      hasClasses(exportButton, ["h-11", "w-11", "sm:w-auto", "sm:h-10"])
+    );
+    // der Name „Exportieren“ bleibt für Screenreader, sichtbar erst ab sm
+    const [label] = elements(exportButton, (e) => e.tagName === "SPAN");
+    assert.equal(label.textContent, "Exportieren");
+    assert.ok(hasClasses(label, ["sr-only", "sm:not-sr-only"]));
+
+    // B6: voller Platzhalter, Name des Felds ausführlich
+    const input = one(container, "data-search-input");
+    assert.equal(
+      input.getAttribute("placeholder"),
+      "In Fragen und Antworten suchen"
+    );
+    assert.equal(
+      input.getAttribute("aria-label"),
+      "In Fragen, Antworten und Bewertungen suchen"
+    );
+  }
+);
+
+test(
+  "Fixliste 2, B2: im hellen Theme gedämpfte Schrift #5f6368 (Variable --theme-analytics-text-muted) für inaktive Filter, Platzhalter, Menüeinträge und „Konversation löschen“",
+  { skip },
+  async (t) => {
+    const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
+    await panelServer(t, {
+      rows: [row(1)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const { container, act } = await mountList(t);
+    const segments = elements(
+      one(container, "data-feedback-filters"),
+      (e) => e.tagName === "BUTTON"
+    );
+    for (const segment of segments.filter(
+      (s) => s.getAttribute("aria-pressed") === "false"
+    )) {
+      assert.ok(classesOf(segment).includes(MUTED), segment.textContent);
+      assert.ok(!classesOf(segment).includes("text-theme-text-secondary"));
+    }
+    assert.ok(
+      classesOf(one(container, "data-search-input")).includes(
+        "light:placeholder:text-[color:var(--theme-analytics-text-muted)]"
+      )
+    );
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    await act(() => click(one(container, "data-panel-menu-button")));
+    for (const item of elements(
+      one(container, "data-panel-menu"),
+      (e) => e.getAttribute("role") === "menuitem"
+    )) {
+      assert.ok(classesOf(item).includes(MUTED), item.textContent);
+      assert.ok(!classesOf(item).includes("text-theme-text-secondary"));
+    }
+    const footerDelete = one(container, "data-delete-conversation");
+    assert.ok(classesOf(footerDelete).includes(MUTED));
+    assert.ok(!classesOf(footerDelete).includes("text-theme-text-secondary"));
+  }
+);
+
+test(
+  "Fixliste 2, B4: Das Panel klebt ab lg 64 px unter dem oberen Rand – sein Kopf liegt unter dem Benutzermenü oben rechts",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [row(1)] });
+    const { container, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[0]));
+    const panel = panelOf(container);
+    assert.ok(
+      hasClasses(panel, [
+        "lg:sticky",
+        "lg:top-16",
+        "lg:max-h-[calc(100vh-112px)]",
+      ])
+    );
+    assert.ok(!classesOf(panel).includes("lg:top-4"));
+  }
+);
+
+test(
+  "Fixliste 2, B8: eigenes ✕ im Suchfeld (≥ 44 px mobil, mit Namen) statt des blauen des Browsers – leert Feld und Suche",
+  { skip },
+  async (t) => {
+    const server = await panelServer(t, {
+      rows: [row(1, { preview: "Spanisch" }), row(2, { preview: "Yoga" })],
+    });
+    const view = await mountList(t);
+    const { container, act } = view;
+    const input = one(container, "data-search-input");
+    assert.ok(
+      classesOf(input).includes("[&::-webkit-search-cancel-button]:hidden")
+    );
+    assert.equal(withAttribute(container, "data-search-clear").length, 0);
+    await type(view, "spanisch");
+    await act(() => wait(350));
+    await act();
+    assert.equal(rowsOf(container).length, 1);
+    const clear = one(container, "data-search-clear");
+    assert.equal(clear.tagName, "BUTTON");
+    assert.equal(clear.getAttribute("aria-label"), "Suchfeld leeren");
+    assert.ok(hasClasses(clear, ["h-11", "w-11"]));
+    await act(() => click(clear));
+    await act();
+    assert.equal(input.value ?? input.getAttribute("value"), "");
+    assert.equal(rowsOf(container).length, 2);
+    assert.equal(server.lists().at(-1).body.q, undefined);
+    assert.equal(withAttribute(container, "data-search-clear").length, 0);
+  }
+);
+
+test(
+  "Fixliste 2, B9: Zeile unter der Frage als Teile mit Abstand – der Trenner „·“ hängt am Ende eines Teils (CSS), nie am Anfang einer Zeile",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [
+        row(1, {
+          message_count: 3,
+          negative_count: 1,
+          positive_count: 1,
+        }),
+      ],
+    });
+    const { container, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[0]));
+    const items = withAttribute(
+      one(container, "data-panel-meta"),
+      "data-meta-item"
+    );
+    assert.ok(items.length >= 4);
+    for (const item of items) {
+      assert.doesNotMatch(item.textContent, /^\s*·|·\s*$/);
+      assert.ok(classesOf(item).includes("whitespace-nowrap"));
+      assert.ok(
+        classesOf(item).includes("[&:not(:last-child)]:after:content-['·']")
+      );
+    }
+    assert.ok(
+      hasClasses(one(container, "data-panel-meta"), ["flex", "flex-wrap"])
+    );
+  }
+);
+
+test(
+  "Fixliste 2, R3: „Nächste“ am Seitenende, dann Escape – wird dieselbe Zeile später wieder geöffnet, springt das Panel nicht weiter",
+  { skip },
+  async (t) => {
+    let release;
+    const rows = Array.from({ length: 25 }, (_, i) =>
+      row(500 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    const state = {
+      rows,
+      holdMore: new Promise((resolve) => {
+        release = resolve;
+      }),
+    };
+    const server = await panelServer(t, state);
+    const view = await mountList(t);
+    const { container, document, act } = view;
+    const escape = captureKeys(t, document);
+    await act(() => click(rowsOf(container)[19]));
+    await act();
+    await act(() => click(one(container, "data-panel-next")));
+    assert.equal(server.lists().at(-1).body.offset, 20);
+    await escape(act);
+    assert.equal(panelOf(container), null);
+    await act(() => release());
+    await act();
+    await act();
+    assert.equal(rowsOf(container).length, 25);
+    // dieselbe Zeile wieder öffnen
+    await act(() => click(rowsOf(container)[19]));
+    await act();
+    await act();
+    assert.deepEqual(currentRows(container), [519]);
+    assert.equal(server.details().at(-1), 519);
+  }
+);
+
+test(
+  "Fixliste 2, R4: Per Link geöffnet, das Nachladen scheitert – die Suche bricht ab: eine Meldung, keine weiteren Anfragen, Hinweis „konnte nicht weiter geladen werden“",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const rows = Array.from({ length: 60 }, (_, i) =>
+      row(700 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    const server = await panelServer(t, {
+      rows,
+      failList: (body) => body.offset > 0,
+      details: {
+        745: {
+          messages: [message(745, "konv-745", { session_id: "sitzung-745" })],
+        },
+      },
+    });
+    const { container, act } = await mountList(t, {
+      query: "?widget=3&conversation=745",
+    });
+    for (let i = 0; i < 12; i++) await act();
+    assert.deepEqual(
+      server.lists().map((call) => call.body.offset),
+      [0, 20]
+    );
+    assert.deepEqual(
+      shown.filter(([kind]) => kind === "error"),
+      [["error", "Fehler beim Laden der Konversationsdaten."]]
+    );
+    const panel = panelOf(container);
+    assert.equal(
+      one(panel, "data-panel-navigation-hint").textContent,
+      "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar."
+    );
+    assert.equal(
+      one(panel, "data-panel-previous").hasAttribute("disabled"),
+      true
+    );
+    assert.equal(one(panel, "data-panel-next").hasAttribute("disabled"), true);
+    // der bisherige Stand der Liste bleibt
+    assert.equal(rowsOf(container).length, 20);
+  }
+);
+
+test(
+  "Fixliste 2, R5: Aus der Liste geöffnet, dann eine Suche, die die Zeile ausschließt – kein Nachladen von bis zu 10 Seiten, gleich der Hinweis",
+  { skip },
+  async (t) => {
+    const rows = [
+      row(700, { preview: "Yoga am Morgen" }),
+      ...Array.from({ length: 59 }, (_, i) =>
+        row(701 + i, {
+          preview: `Frage ${701 + i}`,
+          last_message_at: berlin("2026-10-12", "12:00") - (i + 1) * 60000,
+        })
+      ),
+    ];
+    const server = await panelServer(t, {
+      rows,
+      details: {
+        700: {
+          messages: [message(700, "konv-700", { session_id: "sitzung-700" })],
+        },
+      },
+    });
+    const view = await mountList(t);
+    const { container, act } = view;
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    assert.deepEqual(currentRows(container), [700]);
+    await type(view, "frage");
+    await act(() => wait(350));
+    for (let i = 0; i < 6; i++) await act();
+    const searched = server.lists().filter((call) => call.body.q === "frage");
+    assert.deepEqual(
+      searched.map((call) => call.body.offset),
+      [0]
+    );
+    assert.equal(rowsOf(container).length, 20);
+    const panel = panelOf(container);
+    assert.ok(panel, "Panel bleibt offen");
+    assert.equal(
+      one(panel, "data-panel-navigation-hint").textContent,
+      "Diese Konversation steht nicht in der geladenen Liste – vorherige und nächste sind nicht verfügbar."
+    );
+  }
+);
+
+test(
+  "Fixliste 2, R7/S5: Die Lösch-Rückfrage erscheint sofort (Ladehinweis, „Löschen“ gesperrt, Escape schließt nur sie); scheitert die Vorschau, nennt sie keine Zahl",
+  { skip },
+  async (t) => {
+    let release;
+    const state = {
+      rows: [row(1, { message_count: 3 })],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+      holdPreview: new Promise((resolve) => {
+        release = resolve;
+      }),
+      preview: { success: false, error: "kaputt" },
+    };
+    await panelServer(t, state);
+    const view = await mountList(t);
+    const { container, document, act } = view;
+    const escape = captureKeys(t, document);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const dialogs = () => withAttribute(document.body, "data-confirm-dialog");
+
+    // Vorschau lädt noch: Rückfrage mit Ladehinweis, „Löschen“ gesperrt
+    await act(() => click(one(container, "data-delete-conversation")));
+    assert.equal(dialogs().length, 1);
+    assert.equal(
+      one(dialogs()[0], "data-confirm-count").textContent,
+      "Laden..."
+    );
+    assert.equal(
+      one(dialogs()[0], "data-confirm-delete").hasAttribute("disabled"),
+      true
+    );
+    // Escape während des Ladens: nur die Rückfrage schließt
+    await escape(act);
+    assert.equal(dialogs().length, 0);
+    assert.ok(panelOf(container), "Panel bleibt offen");
+
+    // Vorschau gescheitert: keine (falsche) Zahl
+    await act(() => release());
+    await act();
+    await act(() => click(one(container, "data-delete-conversation")));
+    await act();
+    const [dialog] = dialogs();
+    assert.equal(
+      one(dialog, "data-confirm-count").textContent,
+      "Die Konversation wird endgültig gelöscht."
+    );
+    assert.doesNotMatch(dialog.textContent, /\d+ Nachricht/);
+    assert.equal(
+      one(dialog, "data-confirm-delete").hasAttribute("disabled"),
+      false
+    );
+  }
+);
+
+test(
+  "Fixliste 2, R8: Menü „⋯“ – „Konversation löschen“ steht immer vor „Alle Konversationen dieses Besuchers löschen“; dieser Eintrag ist gesperrt, bis die Vorschau da ist, und schiebt sich nicht davor",
+  { skip },
+  async (t) => {
+    const menuState = (container) =>
+      elements(
+        one(container, "data-panel-menu"),
+        (e) => e.getAttribute("role") === "menuitem"
+      ).map((e) => [e.textContent, e.getAttribute("aria-disabled") ?? ""]);
+    for (const visitor of [{ conversationCount: 3, messageCount: 7 }, null]) {
+      let release;
+      await panelServer(t, {
+        rows: [row(1)],
+        details: {
+          1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+        },
+        holdPreview: new Promise((resolve) => {
+          release = resolve;
+        }),
+        preview: { success: true, messageCount: 2, visitor },
+      });
+      const view = await mountList(t);
+      const { container, document, act } = view;
+      await act(() => click(rowsOf(container)[0]));
+      await act();
+      await act(() => click(one(container, "data-panel-menu-button")));
+      assert.deepEqual(menuState(container), [
+        ["Kennung kopieren", ""],
+        ["Link kopieren", ""],
+        ["Konversation löschen", ""],
+        ["Alle Konversationen dieses Besuchers löschen", "true"],
+      ]);
+      // gesperrt: Klick öffnet nichts
+      await act(() => click(one(container, "data-delete-visitor")));
+      assert.equal(
+        withAttribute(document.body, "data-confirm-dialog").length,
+        0
+      );
+
+      await act(() => release());
+      await act();
+      if (!withAttribute(container, "data-panel-menu").length)
+        await act(() => click(one(container, "data-panel-menu-button")));
+      assert.deepEqual(
+        menuState(container),
+        visitor
+          ? [
+              ["Kennung kopieren", ""],
+              ["Link kopieren", ""],
+              ["Konversation löschen", ""],
+              ["Alle Konversationen dieses Besuchers löschen", ""],
+            ]
+          : [
+              ["Kennung kopieren", ""],
+              ["Link kopieren", ""],
+              ["Konversation löschen", ""],
+            ]
+      );
+      await view.unmount();
+    }
+  }
+);
+
+test(
+  "Fixliste 2, R9: Wird „Exportieren“ gesperrt (Suche ohne Treffer), schließt die offene Auswahl",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [row(1, { preview: "Spanisch" })] });
+    const view = await mountList(t);
+    const { container, act } = view;
+    const exportButton = elements(
+      one(container, "data-export-menu"),
+      (e) => e.tagName === "BUTTON"
+    )[0];
+    await act(() => click(exportButton));
+    assert.equal(withAttribute(container, "data-export-format").length, 2);
+    await type(view, "xyzkeintreffer");
+    await act(() => wait(350));
+    await act();
+    await act();
+    assert.equal(exportButton.hasAttribute("disabled"), true);
+    assert.equal(withAttribute(container, "data-export-format").length, 0);
+    assert.equal(exportButton.getAttribute("aria-expanded"), "false");
+  }
+);
+
+test(
+  "Fixliste 2, S1: Tooltips mit dem vollen Zeitpunkt in Berliner Zeit – wie Uhrzeit und Tagesgruppe, unabhängig von der Zeitzone des Browsers",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    await panelServer(t, {
+      rows: [
+        row(1, {
+          started_at: berlin("2026-10-13", "07:47"),
+          last_message_at: berlin("2026-10-13", "07:48"),
+        }),
+      ],
+      details: {
+        1: {
+          messages: [
+            message(1, "konv-1", {
+              session_id: "sitzung-1",
+              createdAt: new Date(berlin("2026-10-13", "07:47")).toISOString(),
+            }),
+          ],
+        },
+      },
+    });
+    const { container, act } = await mountList(t);
+    assert.equal(
+      one(rowsOf(container)[0], "data-row-time").getAttribute("title"),
+      "13.10.2026, 07:48:00 Uhr"
+    );
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const [, span] = withAttribute(
+      one(container, "data-panel-meta"),
+      "data-meta-item"
+    );
+    assert.equal(
+      span.getAttribute("title"),
+      "13.10.2026, 07:47:00 Uhr – 13.10.2026, 07:48:00 Uhr"
+    );
+    const [visitor] = elements(
+      one(container, "data-panel-body"),
+      (e) => /^Besucher/.test(e.textContent) && e.tagName === "SPAN"
+    );
+    assert.equal(visitor.getAttribute("title"), "13.10.2026, 07:47:00 Uhr");
+  }
+);
+
+test(
+  "Fixliste 2, S3: Vollbild unter lg – Meldungen (Toastify) und Dialog-Portale bleiben bedienbar, der übrige Hintergrund ist inert",
+  { skip },
+  async (t) => {
+    stubWidth(t, false);
+    await panelServer(t, {
+      rows: [row(1)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const { container, document, act } = await mountList(t);
+    const add = (attributes) => {
+      const element = document.createElement("div");
+      for (const [name, value] of Object.entries(attributes))
+        element.setAttribute(name, value);
+      document.body.appendChild(element);
+      return element;
+    };
+    const toastify = add({ class: "Toastify" });
+    const portal = add({ class: "fixed" });
+    const dialog = document.createElement("div");
+    dialog.setAttribute("aria-modal", "true");
+    portal.appendChild(dialog);
+    const other = add({ "data-anderes": "" });
+    t.after(() => {
+      for (const element of [toastify, portal, other])
+        element.parentNode?.removeChild(element);
+    });
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    assert.equal(toastify.hasAttribute("inert"), false);
+    assert.equal(toastify.hasAttribute("aria-hidden"), false);
+    assert.equal(portal.hasAttribute("inert"), false);
+    assert.equal(other.hasAttribute("inert"), true);
+    assert.equal(other.getAttribute("aria-hidden"), "true");
+  }
+);
+
+test(
+  "Fixliste 2, B5: Per Link oder nach dem Neuladen geöffnet – die Seite springt einmal zur Liste (ab lg), sobald Kennzahlen und Liste stehen; mobil und ohne Konversation nicht",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [row(1), row(5)],
+      details: {
+        5: { messages: [message(5, "konv-5", { session_id: "sitzung-5" })] },
+      },
+    });
+    // Prototyp der Elemente, um scrollIntoView vor dem Einhängen zu belauschen
+    const probe = await mountList(t);
+    const prototype = Object.getPrototypeOf(rowsOf(probe.container)[0]);
+    await probe.unmount();
+    const scrolled = [];
+    const original = prototype.scrollIntoView;
+    prototype.scrollIntoView = function (options) {
+      scrolled.push([classesOf(this).includes("scroll-mt-4"), options]);
+    };
+    t.after(() => {
+      prototype.scrollIntoView = original;
+    });
+    const mountView = async (query, wide) => {
+      const restore = globalThis.window.matchMedia;
+      globalThis.window.matchMedia = (q) => ({
+        matches: q.includes("1024") ? wide : false,
+        addEventListener() {},
+        removeEventListener() {},
+      });
+      const mounted = await renderer.mount(VIEW, {
+        location: `${LOCATION}${query}`,
+        route: LOCATION,
+        exportName: "AnalyticsScreen",
+        props: {
+          embedsLoaded: true,
+          embeds: [
+            {
+              id: EMBED_ID,
+              chat_retention_days: null,
+              workspace: { name: "VHS" },
+            },
+          ],
+        },
+      });
+      for (let i = 0; i < 4; i++) await mounted.act();
+      await mounted.unmount();
+      globalThis.window.matchMedia = restore;
+    };
+
+    await mountView("?widget=3&conversation=5", true);
+    assert.deepEqual(scrolled, [[true, { block: "start" }]]);
+    scrolled.length = 0;
+    await mountView("?widget=3&conversation=5", false);
+    assert.deepEqual(scrolled, []);
+    await mountView("?widget=3", true);
+    assert.deepEqual(scrolled, []);
   }
 );

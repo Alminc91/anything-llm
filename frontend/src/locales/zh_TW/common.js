@@ -1587,6 +1587,7 @@ const TRANSLATIONS = {
       "confirm-count_one": null,
       "confirm-count_other": null,
       "confirm-note": null,
+      "confirm-unknown": null,
       "visitor-title": null,
       "visitor-count_one": null,
       "visitor-count_other": null,
@@ -1619,8 +1620,6 @@ const TRANSLATIONS = {
     rows: {
       today: null,
       yesterday: null,
-      "group-count_one": null,
-      "group-count_other": null,
       questions_one: null,
       questions_other: null,
       started: null,
@@ -1643,6 +1642,7 @@ const TRANSLATIONS = {
       "link-invalid": null,
       quoted: null,
       "empty-filtered": null,
+      "clear-input": null,
     },
     panel: {
       label: null,
@@ -1672,6 +1672,7 @@ const TRANSLATIONS = {
       retry: null,
       "hidden-hit": null,
       "not-in-list": null,
+      "not-loaded": null,
       "quote-open": null,
       "quote-close": null,
     },

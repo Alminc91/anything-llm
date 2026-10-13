@@ -403,13 +403,81 @@ test("Sichtbarer Treffer: Link-Adressen, HTML und <think> zählen nicht; Frage, 
   assert.equal(hasVisibleHit([message()], "melde ich"), true);
   assert.equal(
     hasVisibleHit(
-      [message({ feedbackText: "vhs-lingen ist toll" })],
+      [message({ feedbackScore: false, feedbackText: "vhs-lingen ist toll" })],
       "vhs-lingen"
     ),
     true
   );
+  // Grund und Kommentar zeigt das Panel nur bei negativer Bewertung
+  assert.equal(
+    hasVisibleHit(
+      [message({ feedbackScore: null, feedbackText: "vhs-lingen ist toll" })],
+      "vhs-lingen"
+    ),
+    false
+  );
   // ohne Suche: kein Hinweis
   assert.equal(hasVisibleHit([message()], ""), true);
+});
+
+test("Sichtbarer Treffer: Autolinks <https://…> und <info@…> zeigt die Antwort als Text – sie zählen (Fixliste 2, S2)", () => {
+  const answer = (text) => JSON.stringify({ text, sources: [] });
+  assert.equal(
+    visibleAnswerText(
+      "Siehe <https://kurs.example/a1> oder <info@vhs.example>."
+    ),
+    "Siehe  https://kurs.example/a1  oder  info@vhs.example ."
+  );
+  for (const term of ["kurs.example", "info@vhs", "https://kurs"])
+    assert.equal(
+      hasVisibleHit(
+        [
+          {
+            prompt: "Frage",
+            response: answer(
+              "Siehe <https://kurs.example/a1> oder <info@vhs.example>."
+            ),
+          },
+        ],
+        term
+      ),
+      true,
+      term
+    );
+  // echte Tags und ihre Attribute weiter nicht
+  assert.equal(
+    visibleAnswerText('<a href="https://kurs.example">Link</a>'),
+    " Link "
+  );
+});
+
+test("Sichtbarer Treffer: nur in den Nachrichten, die der Server durchsucht hat – im Zeitraum, mit Abschnitt die ganze Konversation (Fixliste 2, S7)", () => {
+  const messages = [
+    {
+      prompt: "Spanisch im Juli",
+      response: "{}",
+      createdAt: "2026-07-01T10:00:00.000Z",
+    },
+    {
+      prompt: "Nur im Link",
+      response: JSON.stringify({ text: "[hier](https://spanisch.example)" }),
+      createdAt: "2026-10-05T10:00:00.000Z",
+    },
+  ];
+  const october = {
+    startDate: "2026-09-30T22:00:00.000Z",
+    endDate: "2026-10-31T22:59:59.999Z",
+  };
+  // Im Oktober trifft „spanisch" nur die Link-Adresse – die sichtbare Frage
+  // aus dem Juli hat der Server nicht durchsucht: Hinweis.
+  assert.equal(hasVisibleHit(messages, "spanisch", october), false);
+  // ganze Konversation (Abschnitt) oder ohne Zeitraum: sichtbar
+  assert.equal(hasVisibleHit(messages, "spanisch", {}), true);
+  assert.equal(hasVisibleHit(messages, "spanisch"), true);
+  assert.equal(
+    hasVisibleHit(messages, "spanisch", { startDate: null, endDate: null }),
+    true
+  );
 });
 
 test("Sprung zum Treffer: Nur der Verlauf scrollt – die Position steht mittig, nie negativ (Fixliste Punkt 13)", () => {
