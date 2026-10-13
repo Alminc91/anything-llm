@@ -8,6 +8,7 @@
 // steht und die Seite nicht waagerecht scrollt, zeigt der Browser-Test.
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   createRenderer,
   hasFrontendDeps,
@@ -291,5 +292,187 @@ test(
     assert.equal(view.listeners(), 1);
     await picker.unmount();
     assert.equal(view.listeners(), 0);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Klassen und Farben
+// ---------------------------------------------------------------------------
+//
+// Eine Klasse, für die Tailwind kein CSS erzeugt, bleibt im Browser ohne
+// Wirkung – so stand „Anwenden" ohne Fläche da (bg-theme-button-primary gibt
+// es in tailwind.config.js nicht): schwarze Schrift auf dem Popover, im
+// dunklen Theme 1,22:1. Geprüft wird deshalb gegen das CSS, das Tailwind mit
+// der Konfiguration des Projekts erzeugt, und gegen die Farbwerte der Themes
+// in index.css.
+
+const INDEX_CSS = new URL("../src/index.css", import.meta.url);
+const escapeClass = (name) => name.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+
+/** Das CSS, das Tailwind für diese Klassen erzeugt (PostCSS-Baum). */
+async function tailwindCss(classes) {
+  const { default: postcss } = await import("postcss");
+  const { default: tailwind } = await import("tailwindcss");
+  const { default: config } = await import("../tailwind.config.js");
+  const { root } = await postcss([
+    tailwind({
+      ...config,
+      content: [{ raw: classes.join(" ") }],
+      safelist: [],
+    }),
+  ]).process("@tailwind utilities;", { from: undefined });
+  return root;
+}
+
+/** Deklarationen der Regel einer Klasse, z. B. { color: "…" }; leer = kein CSS. */
+function declarationsOf(root, className) {
+  const selector = `.${escapeClass(className)}`;
+  // die Klasse selbst, nicht eine, die nur so beginnt (.flex / .flex-col)
+  const names = (rule) =>
+    rule.selectors.some((candidate) => {
+      const at = candidate.indexOf(selector);
+      return at >= 0 && !/[\w\\-]/.test(candidate[at + selector.length] ?? "");
+    });
+  const found = {};
+  root.walkRules((rule) => {
+    if (!names(rule)) return;
+    rule.walkDecls((decl) => {
+      found[decl.prop] = decl.value;
+    });
+  });
+  return found;
+}
+
+/** index.css als PostCSS-Baum und die Farbwerte beider Themes. */
+async function themes() {
+  const { default: postcss } = await import("postcss");
+  const root = postcss.parse(readFileSync(INDEX_CSS, "utf8"));
+  const dark = {};
+  const light = {};
+  root.walkRules((rule) => {
+    const tokens =
+      rule.selector === ":root"
+        ? dark
+        : rule.selector === '[data-theme="light"]'
+          ? light
+          : null;
+    if (!tokens) return;
+    rule.walkDecls(/^--/, (decl) => {
+      tokens[decl.prop] = decl.value;
+    });
+  });
+  return { root, dark, light: { ...dark, ...light } };
+}
+
+/** "#46c8ff" oder Tailwinds "rgb(0 0 0 / var(--tw-text-opacity))" als [r, g, b]. */
+function rgbOf(value) {
+  const hex = value.match(/^#([0-9a-f]{6})$/i);
+  if (hex) return [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16));
+  const rgb = value.match(
+    /^rgb\((\d+) (\d+) (\d+) \/ var\(--tw-[a-z]+-opacity\)\)$/
+  );
+  assert.ok(rgb, `Farbe nicht lesbar: ${value}`);
+  return rgb.slice(1).map(Number);
+}
+
+/** Kontrastverhältnis nach WCAG 2.x */
+function contrast(a, b) {
+  const luminance = (rgb) => {
+    const [r, g, b] = rgb
+      .map((channel) => channel / 255)
+      .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (high + 0.05) / (low + 0.05);
+}
+
+test(
+  "Jede Klasse der Datumsauswahl gibt es: Tailwind erzeugt mit der Konfiguration des Projekts CSS dafür – breit und schmal, Vorauswahlen aufgeklappt",
+  { skip },
+  async (t) => {
+    const used = new Set();
+    for (const width of [1440, 390]) {
+      const view = windowOf(t, width);
+      const picker = await mountPicker(t, { anchorLeft: 25, view });
+      await picker.act(() => click(picker.trigger()));
+      await picker.act(() => click(picker.buttons()[1]));
+      assert.equal(picker.buttons().at(-1).textContent, "Anwenden");
+
+      // Der Kalender selbst bringt sein Stylesheet mit (react-day-picker).
+      const calendar = new Set(elements(picker.calendar()));
+      for (const element of elements(picker.container))
+        if (!calendar.has(element))
+          for (const name of picker.classOf(element).split(/\s+/))
+            if (name) used.add(name);
+      await picker.unmount();
+    }
+    for (const expected of ["min-w-[580px]", "max-w-[calc(100vw-16px)]"])
+      assert.ok(used.has(expected), expected);
+
+    // Der Rahmen um den Kalender steht in index.css, alles andere ist Tailwind.
+    assert.ok(used.delete("rdp-theme-wrapper"));
+    assert.match(readFileSync(INDEX_CSS, "utf8"), /\.rdp-theme-wrapper /);
+    const css = await tailwindCss([...used]);
+    const missing = [...used].filter(
+      (name) => Object.keys(declarationsOf(css, name)).length === 0
+    );
+    assert.deepEqual(missing, [], "Klassen ohne CSS");
+  }
+);
+
+test(
+  "„Anwenden“ ist eine primäre Schaltfläche: Fläche in --theme-button-primary, Schrift darauf mit mindestens 4,5:1 – im dunklen und im hellen Theme",
+  { skip },
+  async (t) => {
+    const picker = await mountPicker(t, { view: windowOf(t, 1440) });
+    await picker.act(() => click(picker.trigger()));
+    const apply = picker.buttons().at(-1);
+    assert.equal(apply.textContent, "Anwenden");
+
+    // Grundzustand: Klassen ohne Variante (hover:, disabled:)
+    const classes = picker
+      .classOf(apply)
+      .split(/\s+/)
+      .filter((name) => name && !name.includes(":"));
+    const css = await tailwindCss(classes);
+    const style = Object.assign(
+      {},
+      ...classes.map((name) => declarationsOf(css, name))
+    );
+    // wie die übrigen primären Schaltflächen (bg-primary-button)
+    assert.equal(style["background-color"], "var(--theme-button-primary)");
+    assert.ok(style.color, "keine Schriftfarbe");
+
+    const { root, dark, light } = await themes();
+    // Kein Theme färbt Schrift oder Fläche dieser Klassen in index.css um
+    // (wie es für .text-white im hellen Theme geschieht).
+    const colouring = classes.filter((name) => {
+      const declarations = declarationsOf(css, name);
+      return "color" in declarations || "background-color" in declarations;
+    });
+    root.walkRules((rule) => {
+      for (const name of colouring)
+        assert.ok(
+          !rule.selector.split(/[\s,>+~]+/).includes(`.${escapeClass(name)}`),
+          `${rule.selector} überschreibt .${name}`
+        );
+    });
+    assert.deepEqual(colouring, ["bg-primary-button", "text-black"]);
+
+    // Dunkel: Schwarz auf #46c8ff = 10,97:1; hell: Schwarz auf #0ba5ec = 7,61:1
+    // (Weiß erreichte nur 1,91:1 bzw. 2,76:1).
+    const text = rgbOf(style.color);
+    for (const [theme, tokens] of [
+      ["dunkel", dark],
+      ["hell", light],
+    ]) {
+      const surface = rgbOf(tokens["--theme-button-primary"]);
+      const ratio = contrast(text, surface);
+      assert.ok(
+        ratio >= 4.5,
+        `${theme}: ${ratio.toFixed(2)}:1 auf ${tokens["--theme-button-primary"]}`
+      );
+    }
   }
 );

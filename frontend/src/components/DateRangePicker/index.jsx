@@ -412,13 +412,16 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
             />
           </div>
 
-          {/* Apply Button */}
+          {/* Apply Button – primäre Schaltfläche (bg-primary-button =
+              --theme-button-primary). Schwarze Schrift in beiden Themes:
+              10,97:1 auf #46c8ff (dunkel), 7,61:1 auf #0ba5ec (hell); Weiß
+              erreichte dort nur 1,91:1 bzw. 2,76:1. */}
           <div className="flex justify-end mt-3 pt-3 border-t border-white/10">
             <button
               onClick={handleApply}
               disabled={!calendarRange.from}
               className="px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer
-                bg-theme-button-primary text-black hover:opacity-90
+                bg-primary-button text-black hover:opacity-90
                 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {t("date-picker.apply")}
