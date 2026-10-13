@@ -24,6 +24,43 @@
 // Die Antworttexte sind wie im Widget mehrzeiliges Markdown (Absätze, Liste,
 // Fettdruck, Kurslinks) - im JSON also mit \n und teils \" (Fixliste 2, R6).
 // Gemessen werden auch Säulenklicks (Abschnitt) mit und ohne Suche.
+//
+// Messwerte (Fixliste 3, C11) - Stand 13.10.2026, Branch
+// feat/konversationen-ansicht nach Fixliste 3 (Antwortanfang bis
+// einschließlich ", - C9). Intel Xeon Gold 6354 (4 Kerne der VM), Node 18.19,
+// Prisma 6.14, SQLite; 100.000 Zeilen (623 MB), Aufruf mit --runs 5: je Fall
+// ein Aufwärmlauf und 5 Messläufe, Median in ms. Route
+// analytics/conversations (Liste + Zähler, limit 20).
+//
+//   Fall                                Treffer  Median  Läufe
+//   ohne Suche, Gesamt                    42858     332  330 332 337 332 337
+//   q="kurs", Gesamt                      42858    1134  1136 1134 1109 1126 1142
+//   q="spanisch", Gesamt                    796     801  801 798 803 790 803
+//   q="für", Gesamt                       28723     950  950 949 953 949 960
+//   q="üb", Gesamt                        24283    1281  1281 1308 1273 1281 1297
+//   q="äa", Gesamt                            0    1177  1177 1289 1174 1185 1176
+//   q="Übung", Gesamt                     24283     981  949 981 960 1114 1011
+//   q="курс", Gesamt                       1025    1089  1099 1096 1089 1080 1085
+//   q="äöü", Gesamt                           0    1162  1160 1175 1159 1162 1205
+//   q="\"", Gesamt                        16211     861  861 850 893 841 883
+//   q="\\", Gesamt                         2697     729  730 758 726 719 729
+//   q="xyzkeintreffer", Gesamt                0     714  714 703 723 804 698
+//   q="zehntausend", Gesamt               10000     765  765 760 762 771 802
+//   q="spanisch" + negativ, Gesamt          512     356  353 352 356 360 356
+//   Säule (Woche), ohne Suche              3334     313  313 318 335 312 311
+//   q="kurs" + Säule (Woche)               3334     353  353 353 355 351 355
+//   q="für" + Säule (Woche)                2231     368  368 365 369 371 368
+//   q="Übung" + Säule (Woche)              1906     368  368 369 369 364 365
+//   q="xyzkeintreffer" + Säule (Woche)        0     355  348 361 361 355 351
+//
+//   Export CSV (ein Lauf): q=zehntausend 212.463 Zeilen 2,0 s; q=kurs
+//   814.586 Zeilen 5,4 s; ohne Suche 814.586 Zeilen 30,8 s.
+//   Langsamster Fall 1281 ms - Grenze NAK-7 (1500 ms) eingehalten.
+//
+//   Verworfene Variante für C9 (Anfang, der auf einen Rückstrich endet, aus
+//   dem JSON lesen: substr(answer_head, -1) je Zeile): rund 13 % langsamer
+//   (q="üb" 1401 statt 1291 ms, q="kurs" 1358 statt 1193 ms im selben
+//   Bestand); der Anfang bis einschließlich ", kostet nichts messbar.
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
