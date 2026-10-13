@@ -12,6 +12,8 @@
 // Angabe „Monat Jahr" folgen der Sprache der Oberfläche – immer im
 // gregorianischen Kalender und mit denselben Ziffern wie die Datumsangaben.
 
+import { formatDateForInput } from "./billingDate.js";
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NUMBER_LOCALE = "de-DE";
 
@@ -29,10 +31,20 @@ const TICK_CHAR_WIDTH = 6;
 export const TOOLTIP_GAP = 8;
 const TOOLTIP_CHAR_WIDTH = 6.5;
 const TOOLTIP_PADDING = 22;
+// Linie des Vorzeitraums (KIE-537): gepunktet (runde Punkte im Abstand von
+// 5 px), mit einer Punktmarke je Wert über 0 – solange die Säulenplätze breit
+// genug sind, dass die Marken einander nicht berühren.
+export const PREVIOUS_LINE = {
+  width: 2,
+  dash: "0.1 5",
+  markerRadius: 3,
+  markerMinSlot: 12,
+};
 
 /** @typedef {"hour"|"day"|"week"|"month"} Granularity */
 /** @typedef {{start: string, end: string, partial: boolean, hour?: number, messages: number, conversations: number}} Bucket */
-/** @typedef {{granularity: Granularity, buckets: Bucket[], totals: {messages: number, conversations: number, feedbackPositive: number, feedbackNegative: number}, firstLedgerDay: string|null, fromDay: string, toDay: string}} Summary */
+/** @typedef {{granularity: Granularity, buckets: Bucket[], totals: {messages: number, conversations: number, feedbackPositive: number, feedbackNegative: number}, firstLedgerDay: string|null, fromDay: string, toDay: string, weekdayHour: number[][], previous?: Previous}} Summary - weekdayHour (KIE-539): Nachrichten des Zeitraums als [Wochentag 0 = Montag … 6 = Sonntag][Stunde 0–23] */
+/** @typedef {{available: boolean, fromDay: string|null, toDay: string|null, totals: Summary["totals"]|null, buckets: Bucket[]}} Previous - Vorzeitraum (KIE-537), nur mit eingeschaltetem Vergleich; ohne weekdayHour */
 
 // ---------------------------------------------------------------------------
 // Kalendertage
@@ -541,13 +553,17 @@ export function barPath({ x, y, width, height }) {
  * überspannt – so verdeckt er weder die angesteuerte Säule noch ihre Nachbarn
  * (eine niedrige Säule neben einer hohen), auch nicht mit zwei Zeilen: Er
  * wächst nach oben. Seine Breite ist dafür nach der Zeichenzahl geschätzt.
+ * Mit der Linie des Vorzeitraums (KIE-537) gilt dasselbe für sie: Der
+ * Tooltip steht auch über jedem Stück der Linie und jeder Punktmarke, die er
+ * überspannt.
  * @param {Object} params
  * @param {ReturnType<typeof columnLayout>} params.columns
  * @param {number} params.active - Index des angesteuerten Platzes
- * @param {string} params.text - Text des Tooltips
+ * @param {string} params.text - Text des Tooltips; bei mehreren Zeilen die längste
  * @param {number} params.width - Breite des Diagramms in px
  * @param {number} params.plotLeft - linker Rand der Zeichenfläche im Diagramm
  * @param {number} params.plotHeight - Höhe der Zeichenfläche
+ * @param {Array<{x: number, y: number}>|null} [params.line] - Punkte der Linie des Vorzeitraums (linePoints)
  * @returns {{align: "start"|"center"|"end", x: number, y: number, from: number, to: number, maxWidth: number}} -
  *   x: Abstand vom linken Rand (start), Mitte (center) oder Abstand vom
  *   rechten Rand (end); y: Unterkante des Tooltips, ab der Oberkante der
@@ -562,6 +578,7 @@ export function tooltipPlacement({
   width,
   plotLeft,
   plotHeight,
+  line = null,
 }) {
   const center = plotLeft + columns[active].center;
   const size = Math.min(
@@ -605,5 +622,224 @@ export function tooltipPlacement({
     const left = plotLeft + bar.x;
     if (left < to && left + bar.width > from) top = Math.min(top, bar.y);
   }
+  if (line?.length > 0)
+    top = Math.min(top, lineTop(line, from - plotLeft, to - plotLeft));
   return { align, x, y: top - TOOLTIP_GAP, from, to, maxWidth };
+}
+
+/**
+ * Höchste Stelle (kleinstes y) der Linie des Vorzeitraums zwischen left und
+ * right: Punktmarken, die in den Bereich ragen, und die geraden Stücke der
+ * Linie, soweit sie durch ihn laufen.
+ * @param {Array<{x: number, y: number}>} points
+ * @param {number} left
+ * @param {number} right
+ * @returns {number} - Infinity, wenn dort nichts von der Linie liegt
+ */
+function lineTop(points, left, right) {
+  const { markerRadius, width } = PREVIOUS_LINE;
+  let top = Infinity;
+  for (const [i, point] of points.entries()) {
+    if (point.x + markerRadius > left && point.x - markerRadius < right)
+      top = Math.min(top, point.y - markerRadius);
+    const next = points[i + 1];
+    if (!next || next.x <= left || point.x >= right) continue;
+    // Das Stück bis zum nächsten Punkt, auf den Bereich beschnitten: Eine
+    // Gerade ist an einem der beiden Enden am höchsten.
+    const yAt = (x) =>
+      point.y + ((next.y - point.y) * (x - point.x)) / (next.x - point.x);
+    top = Math.min(
+      top,
+      yAt(Math.max(point.x, left)) - width / 2,
+      yAt(Math.min(next.x, right)) - width / 2
+    );
+  }
+  return top;
+}
+
+// ---------------------------------------------------------------------------
+// Vergleich mit dem Vorzeitraum (KIE-537)
+// ---------------------------------------------------------------------------
+
+/**
+ * Was vom Vorzeitraum zu zeigen ist.
+ *   null:             Der Vergleich ist aus – oder die Antwort nennt (noch)
+ *                     keinen Vorzeitraum, weil sie ohne Vergleich geladen ist.
+ *   available false:  Es gibt keinen Vergleich: keine Linie, keine
+ *                     Prozentzahl. since ist der erste Tag mit Zählwerten
+ *                     (null ohne Zählwerte).
+ *   available true:   totals und fromDay/toDay für die Kennzahlen; buckets
+ *                     für die Linie – je Säule ein Abschnitt, von lineFromDay
+ *                     bis lineToDay (bei Wochen und Monaten andere Tage als
+ *                     die der Kennzahlen).
+ * Als nicht verfügbar gilt auch eine Antwort, deren Linie nicht zu den Säulen
+ * passt: Gezeichnet wird nur, was an derselben Stelle steht.
+ * @param {Summary|null} summary
+ * @param {boolean} compare - Schalter „Vorzeitraum vergleichen"
+ * @returns {null|{available: false, since: string|null}|{available: true, fromDay: string, toDay: string, lineFromDay: string, lineToDay: string, totals: Summary["totals"], buckets: Bucket[]}}
+ */
+export function comparisonOf(summary, compare) {
+  const previous = compare ? summary?.previous : null;
+  if (!previous) return null;
+  const buckets = Array.isArray(previous.buckets) ? previous.buckets : [];
+  const usable =
+    previous.available === true &&
+    !!previous.totals &&
+    !!previous.fromDay &&
+    !!previous.toDay &&
+    buckets.length > 0 &&
+    buckets.length === summary.buckets?.length;
+  if (!usable)
+    return { available: false, since: summary.firstLedgerDay ?? null };
+  return {
+    available: true,
+    fromDay: previous.fromDay,
+    toDay: previous.toDay,
+    lineFromDay: buckets[0].start,
+    lineToDay: buckets[buckets.length - 1].end,
+    totals: previous.totals,
+    buckets,
+  };
+}
+
+/**
+ * Läuft der Zeitraum noch? Ja, wenn er den heutigen Kalendertag enthält: Dann
+ * ist er unvollständig, der Vorzeitraum aber vollständig – die Veränderung
+ * ist vorläufig („Heute" am Vormittag: −100 %).
+ * „Heute" ist der Berliner Kalendertag, in dem das Zählerbuch zählt – nicht
+ * der Tag in der Zeitzone des Browsers: Kurz nach Mitternacht in Berlin ist
+ * der Tag davor abgeschlossen, auch wenn der Browser (UTC, New York) noch in
+ * ihm steht.
+ * @param {string|null|undefined} fromDay - "YYYY-MM-DD"
+ * @param {string|null|undefined} toDay - "YYYY-MM-DD"
+ * @param {Date} [now]
+ * @returns {boolean}
+ */
+export function isRunningRange(fromDay, toDay, now = new Date()) {
+  if (!fromDay || !toDay) return false;
+  const today = formatDateForInput(now);
+  return today !== "" && fromDay <= today && today <= toDay;
+}
+
+/**
+ * Veränderung gegenüber dem Vorzeitraum in ganzen Prozent, kaufmännisch
+ * gerundet (421 gegenüber 266: +58). Ohne Wert im Vorzeitraum gibt es keine
+ * Prozentzahl – auch nicht, wenn beide Werte 0 sind.
+ * @param {number} current
+ * @param {number} previous
+ * @returns {number|null} - z. B. 58, -100, 0; null bei einem Vorzeitraumwert von 0
+ */
+export function percentChange(current, previous) {
+  if (!(previous > 0)) return null;
+  const change = (((current || 0) - previous) * 100) / previous;
+  // || 0: nie -0
+  return Math.sign(change) * Math.round(Math.abs(change)) || 0;
+}
+
+/**
+ * Prozentzahl mit Vorzeichen in deutscher Schreibweise: "+58", "−12" (mit
+ * Minuszeichen, nicht Bindestrich), "±0", "+1.150".
+ * @param {number} percent
+ * @returns {string}
+ */
+export function formatPercentChange(percent) {
+  const sign = percent > 0 ? "+" : percent < 0 ? "−" : "±";
+  return `${sign}${formatNumber(Math.abs(percent))}`;
+}
+
+/**
+ * Zeile der Veränderung in einem Kennzahl-Feld:
+ * "+58 % ggü. Vorzeitraum (266)"; bei einem Vorzeitraumwert von 0
+ * "Vorzeitraum: 0" ohne Prozentzahl.
+ * @param {number} current
+ * @param {number} previous
+ * @param {Function} t
+ * @returns {string}
+ */
+export function changeLabel(current, previous, t) {
+  const percent = percentChange(current, previous);
+  if (percent === null) return previousValueLabel(previous, t);
+  return t("embed-analytics.compare.change", {
+    change: formatPercentChange(percent),
+    previous: formatNumber(previous),
+  });
+}
+
+/**
+ * Wert des Vorzeitraums ohne Abschnitt, wie er im Kennzahl-Feld steht, wenn
+ * es keine Prozentzahl gibt: "Vorzeitraum: 0".
+ * @param {number} value
+ * @param {Function} t
+ * @returns {string}
+ */
+export function previousValueLabel(value, t) {
+  return t("embed-analytics.compare.previous-value", {
+    value: formatNumber(value),
+  });
+}
+
+/**
+ * Zweite Zeile im Tooltip des Diagramms: der Abschnitt des Vorzeitraums, der
+ * an der Stelle der Säule steht, und sein Wert – der Abschnitt in derselben
+ * Schreibweise wie in der ersten Zeile (bucketLabel), damit zu lesen ist,
+ * wozu die Zahl gehört:
+ *   Tag:    "Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten"
+ *   Stunde: "Vorzeitraum: So., 11.10.2026, 10–11 Uhr — 3 Nachrichten"
+ *   Woche:  "Vorzeitraum: KW 37 (07.09.–13.09.2026) — 12 Nachrichten"
+ *   Monat:  "Vorzeitraum: September 2026 — 12 Nachrichten"
+ * @param {Bucket} bucket - Abschnitt des Vorzeitraums
+ * @param {"messages"|"conversations"} metric
+ * @param {Granularity} granularity
+ * @param {{t: Function, locale: string}} context
+ * @returns {string}
+ */
+export function previousBucketLabel(bucket, metric, granularity, context) {
+  return context.t("embed-analytics.compare.previous-bucket", {
+    period: bucketLabel(bucket, granularity, context),
+    value: valueLabel(bucket[metric] ?? 0, metric, context.t),
+  });
+}
+
+/**
+ * Bereich aus zwei Kalendertagen: "14.08.2026–12.09.2026", ein einzelner Tag
+ * "11.10.2026".
+ * @param {string} fromDay
+ * @param {string} toDay
+ * @param {Function} t
+ * @returns {string}
+ */
+export function formatDayRange(fromDay, toDay, t) {
+  if (fromDay === toDay) return formatDate(fromDay);
+  return t("embed-analytics.compare.range", {
+    from: formatDate(fromDay),
+    to: formatDate(toDay),
+  });
+}
+
+/**
+ * Punkte der Linie des Vorzeitraums: je Säulenplatz ein Punkt über dessen
+ * Mitte, in der Höhe des Werts – nie unter der Grundlinie und nie über der
+ * Zeichenfläche. Zwischen den Punkten verläuft die Linie gerade (linePath).
+ * @param {{values: number[], columns: ReturnType<typeof columnLayout>, height: number, max: number}} params
+ * @returns {Array<{x: number, y: number}>}
+ */
+export function linePoints({ values, columns, height, max }) {
+  return columns.map((column, i) => {
+    const value = Math.min(max, Math.max(0, values[i] || 0));
+    return { x: column.center, y: height - (value / max) * height };
+  });
+}
+
+/**
+ * Pfad der Linie: gerade Stücke von Punkt zu Punkt (M … L …), keine Kurven –
+ * zwischen zwei Werten liegt die Linie nie über dem höheren und nie unter dem
+ * niedrigeren.
+ * @param {Array<{x: number, y: number}>} points
+ * @returns {string}
+ */
+export function linePath(points) {
+  const n = (value) => Math.round(value * 100) / 100;
+  return points
+    .map(({ x, y }, i) => `${i === 0 ? "M" : "L"}${n(x)},${n(y)}`)
+    .join(" ");
 }

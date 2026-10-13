@@ -411,6 +411,11 @@ function embedManagementEndpoints(app) {
   // Die Antwort enthält nur Zählwerte und Kalendertage - keine Inhalte, keine
   // Sitzungs- oder Verbindungsdaten. Ein ungültiger Zeitraum endet mit 400,
   // bevor das Zählerbuch gelesen wird.
+  // KIE-537: Mit compare: true (genau dieser Wert) kommt previous dazu - die
+  // Zählwerte des Vorzeitraums desselben Widgets (totals, buckets, fromDay,
+  // toDay) und available: Gibt es den Vergleich? Ohne compare bleibt die
+  // Antwort, wie sie war.
+  // KIE-539: weekdayHour steht in jeder Antwort, mit und ohne compare.
   app.post(
     "/embed/:embedId/analytics/summary",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess, validEmbedConfigId],
@@ -424,17 +429,34 @@ function embedManagementEndpoints(app) {
           return;
         }
 
-        const { fromDay, toDay } = reqBody(request) ?? {};
+        const { fromDay, toDay, compare } = reqBody(request) ?? {};
         const range = validateDayRange(fromDay, toDay);
         if (!range.valid) {
           response.status(400).json({ success: false, error: range.error });
           return;
         }
 
+        // KIE-539: summaryForEmbed liest mit Kennzahlen und Zeitreihe auch
+        // weekdayHour - Nachrichten nach Wochentag und Stunde, 7 × 24 Felder
+        // (Montag bis Sonntag, Berliner Stunde 0-23) für die Karte „Wann
+        // schreiben Ihre Besucher?". Eine Anweisung, ein Lesestand: Die Summe
+        // der Felder ist die Kennzahl „Nachrichten". Ebenfalls nur Zählwerte.
         const [timeline, firstLedgerDay] = await Promise.all([
-          MessageLedger.timelineForEmbed(embedId, fromDay, toDay),
+          MessageLedger.summaryForEmbed(embedId, fromDay, toDay),
           MessageLedger.firstDayForEmbed(embedId),
         ]);
+        // KIE-537: Der Vorzeitraum beginnt vor firstLedgerDay → available false.
+        // Er wird nur mit compare gelesen, mit einer eigenen Abfrage, und hat
+        // kein Raster: weekdayHour gilt allein für den gewählten Zeitraum.
+        const previous =
+          compare === true
+            ? await MessageLedger.previousTimelineForEmbed(
+                embedId,
+                fromDay,
+                toDay,
+                firstLedgerDay
+              )
+            : null;
 
         response.status(200).json({
           success: true,
@@ -444,6 +466,8 @@ function embedManagementEndpoints(app) {
           totals: timeline.totals,
           buckets: timeline.buckets,
           firstLedgerDay,
+          weekdayHour: timeline.weekdayHour,
+          ...(previous ? { previous } : {}),
         });
       } catch (e) {
         console.error(e);

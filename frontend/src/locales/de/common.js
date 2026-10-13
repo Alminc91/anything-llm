@@ -1038,6 +1038,34 @@ const TRANSLATIONS = {
       "conversations-hint":
         "Im Zeitraum begonnene Konversationen. Die Liste unten zeigt nur Konversationen, deren Inhalte noch vorhanden sind – die Zahlen können sich unterscheiden.",
     },
+    compare: {
+      toggle: "Vorzeitraum vergleichen",
+      legend: {
+        label: "Legende",
+        current: "Gewählter Zeitraum",
+        previous: "Vorzeitraum",
+      },
+      range: "{{from}}–{{to}}",
+      change: "{{change}} % ggü. Vorzeitraum ({{previous}})",
+      "previous-value": "Vorzeitraum: {{value}}",
+      "previous-bucket": "Vorzeitraum: {{period}} — {{value}}",
+      "previous-range": "Vorzeitraum: {{range}}",
+      "change-range": "Veränderung gegenüber dem Vorzeitraum {{range}}.",
+      running:
+        "Der gewählte Zeitraum läuft noch – die Veränderung ist vorläufig.",
+      unavailable: "Kein Vergleich verfügbar",
+      "unavailable-since":
+        "Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem {{date}}, dem ersten Tag mit Zählwerten.",
+      "unavailable-no-counts":
+        "Kein Vergleich verfügbar: Für den Vorzeitraum liegen keine Zählwerte vor.",
+      summary:
+        "Vorzeitraum {{range}} als gepunktete Linie: Summe {{total}}, höchster Wert {{max}}.",
+      table: {
+        messages: "Nachrichten (Vorzeitraum)",
+        conversations: "Konversationen (Vorzeitraum)",
+        period: "Abschnitt im Vorzeitraum",
+      },
+    },
     chart: {
       metric: {
         messages: "Nachrichten",
@@ -1089,6 +1117,49 @@ const TRANSLATIONS = {
         period: "Zeitabschnitt",
         messages: "Nachrichten",
         conversations: "Konversationen",
+        total: "Summe",
+      },
+    },
+    "weekday-hour": {
+      title: "Wann schreiben Ihre Besucher?",
+      subtitle: "Nachrichten nach Wochentag und Uhrzeit, {{from}}–{{to}}",
+      summary:
+        "Raster mit 7 Wochentagen und 24 Stunden: Nachrichten nach Wochentag und Uhrzeit, {{from}} bis {{to}}. Summe {{total}}, höchster Wert {{max}} ({{peak}}).",
+      "keyboard-hint": "Mit den Pfeiltasten wechseln Sie zwischen den Feldern.",
+      hours: "{{from}}–{{to}} Uhr",
+      "hour-tick": "{{hour}} Uhr",
+      slot: "{{weekday}}, {{hours}}",
+      tooltip: "{{slot}}: {{value}}",
+      peak: {
+        label: "Stärkster Zeitabschnitt",
+        "tie-slot": "{{value}} · gleichauf mit {{slot}}",
+        "tie-count_one":
+          "{{value}} · gleichauf mit {{count}} weiteren Zeitabschnitt",
+        "tie-count_other":
+          "{{value}} · gleichauf mit {{count}} weiteren Zeitabschnitten",
+      },
+      outside: {
+        label: "Außerhalb von {{from}}–{{to}}, {{hours}}",
+        value: "{{percent}} % der Nachrichten",
+        note: "Feiertage zählen als normale Wochentage.",
+      },
+      legend: {
+        label: "Legende: Nachrichten je Feld",
+        less: "weniger",
+        more: "mehr",
+        range: "{{from}}–{{to}}",
+        unused: "–",
+      },
+      hint: {
+        "short-range":
+          "Für diese Ansicht bitte mindestens {{days}} Tage wählen",
+        "few-messages":
+          "Zu wenige Nachrichten für ein verlässliches Muster (mindestens {{messages}})",
+      },
+      table: {
+        caption: "Nachrichten nach Wochentag und Uhrzeit",
+        weekday: "Wochentag",
+        hours: "Stunde ab … Uhr",
         total: "Summe",
       },
     },

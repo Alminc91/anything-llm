@@ -1579,6 +1579,34 @@ const TRANSLATIONS = {
       "conversations-hint":
         "Conversations started in the period. The list below only shows conversations whose contents still exist – the numbers may differ.",
     },
+    compare: {
+      toggle: "Compare with previous period",
+      legend: {
+        label: "Legend",
+        current: "Selected period",
+        previous: "Previous period",
+      },
+      range: "{{from}}–{{to}}",
+      change: "{{change}} % vs. previous period ({{previous}})",
+      "previous-value": "Previous period: {{value}}",
+      "previous-bucket": "Previous period: {{period}} — {{value}}",
+      "previous-range": "Previous period: {{range}}",
+      "change-range": "Change compared with the previous period {{range}}.",
+      running:
+        "The selected period is still running – the change is preliminary.",
+      unavailable: "No comparison available",
+      "unavailable-since":
+        "No comparison available: the previous period begins before {{date}}, the first day with counts.",
+      "unavailable-no-counts":
+        "No comparison available: there are no counts for the previous period.",
+      summary:
+        "Previous period {{range}} as a dotted line: total {{total}}, highest value {{max}}.",
+      table: {
+        messages: "Messages (previous period)",
+        conversations: "Conversations (previous period)",
+        period: "Section in the previous period",
+      },
+    },
     chart: {
       metric: {
         messages: "Messages",
@@ -1629,6 +1657,46 @@ const TRANSLATIONS = {
         period: "Period",
         messages: "Messages",
         conversations: "Conversations",
+        total: "Total",
+      },
+    },
+    "weekday-hour": {
+      title: "When do your visitors write?",
+      subtitle: "Messages by weekday and time of day, {{from}}–{{to}}",
+      summary:
+        "Grid with 7 weekdays and 24 hours: messages by weekday and time of day, {{from}} to {{to}}. Total {{total}}, highest value {{max}} ({{peak}}).",
+      "keyboard-hint": "Use the arrow keys to move between the cells.",
+      hours: "{{from}}:00–{{to}}:00",
+      "hour-tick": "{{hour}}:00",
+      slot: "{{weekday}}, {{hours}}",
+      tooltip: "{{slot}}: {{value}}",
+      peak: {
+        label: "Busiest time slot",
+        "tie-slot": "{{value}} · tied with {{slot}}",
+        "tie-count_one": "{{value}} · tied with {{count}} other time slot",
+        "tie-count_other": "{{value}} · tied with {{count}} other time slots",
+      },
+      outside: {
+        label: "Outside {{from}}–{{to}}, {{hours}}",
+        value: "{{percent}}% of messages",
+        note: "Public holidays count as normal weekdays.",
+      },
+      legend: {
+        label: "Legend: messages per cell",
+        less: "fewer",
+        more: "more",
+        range: "{{from}}–{{to}}",
+        unused: "–",
+      },
+      hint: {
+        "short-range": "Please select at least {{days}} days for this view",
+        "few-messages":
+          "Too few messages for a reliable pattern (at least {{messages}})",
+      },
+      table: {
+        caption: "Messages by weekday and time of day",
+        weekday: "Weekday",
+        hours: "Hour starting at …:00",
         total: "Total",
       },
     },

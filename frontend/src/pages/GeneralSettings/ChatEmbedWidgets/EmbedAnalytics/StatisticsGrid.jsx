@@ -3,12 +3,37 @@ import { useTranslation } from "react-i18next";
 import { CaretDown, CaretUp, Info } from "@phosphor-icons/react";
 import Embed from "@/models/embed";
 import useUser from "@/hooks/useUser";
-import { formatNumber, kpiValues } from "@/utils/analyticsTimeline";
+import {
+  changeLabel,
+  comparisonOf,
+  formatDate,
+  formatDayRange,
+  formatNumber,
+  isRunningRange,
+  kpiValues,
+} from "@/utils/analyticsTimeline";
 
 // KIE-536 – Kennzahlen-Streifen: vier Felder aus dem Zählerbuch
 // (analytics/summary), dieselbe Quelle wie das Diagramm. Die einklappbaren
 // technischen Details für Admins lesen weiterhin analytics/overview, also die
 // noch vorhandenen Konversationsinhalte – deshalb steht dort, was sie zählen.
+//
+// KIE-537 – Mit eingeschaltetem Vergleich hat jedes Feld eine weitere Zeile:
+// die Veränderung gegenüber dem Vorzeitraum (gleich viele Kalendertage
+// unmittelbar davor). Die großen Zahlen und die übrigen Nebenwerte bleiben,
+// wie sie sind. Mit welchen Tagen verglichen wird, steht einmal sichtbar in
+// einer Zeile direkt unter dem Streifen – ein Tooltip allein wäre mit Finger
+// und Tastatur nicht zu erreichen. Enthält der Zeitraum den heutigen Tag,
+// sagt die Zeile auch das: Verglichen wird dann ein laufender Zeitraum mit
+// einem abgeschlossenen.
+//
+// Gibt es keinen Vergleich (der Vorzeitraum beginnt vor dem ersten Zählwert),
+// steht an derselben Stelle einmal, warum – mit dem Tag, ab dem Zählwerte
+// vorliegen. Die Zeile gehört zum Streifen und steht direkt über dem
+// Diagramm mit dem Schalter: eine Angabe für beide, statt derselben Worte in
+// allen vier Feldern und noch einmal am Diagramm. Die Felder selbst bekommen
+// dann keine sichtbare Zeile (ihre Höhe ist dieselbe wie ohne Vergleich);
+// für Screenreader nennt jedes Feld „Kein Vergleich verfügbar".
 
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 const NO_VALUE = "–";
@@ -17,6 +42,7 @@ const NO_VALUE = "–";
  * @param {Object} props
  * @param {import("@/utils/analyticsTimeline").Summary|null} props.summary
  * @param {boolean} props.loading
+ * @param {boolean} [props.compare] - Schalter „Vorzeitraum vergleichen" (KIE-537)
  * @param {() => void} props.onShowNegative - setzt den Listenfilter „negativ"
  * @param {number|null} props.embedId
  * @param {string|null} props.startDate - ISO-Zeitstempel (für die technischen Details)
@@ -25,6 +51,7 @@ const NO_VALUE = "–";
 export default function StatisticsGrid({
   summary,
   loading,
+  compare = false,
   onShowNegative,
   embedId,
   startDate,
@@ -36,11 +63,53 @@ export default function StatisticsGrid({
   const value = (number) => (summary ? formatNumber(number) : NO_VALUE);
   const granularity = summary?.granularity ?? "day";
 
+  // KIE-537: Zeile der Veränderung je Feld – null, solange der Vergleich aus
+  // ist oder die Antwort noch keinen Vorzeitraum nennt. Der Tooltip nennt die
+  // Tage, mit denen verglichen wird.
+  const comparison = comparisonOf(summary, compare);
+  // Kein Vergleich: warum – mit dem ersten Tag der Zählwerte, wenn es einen
+  // gibt. Steht einmal, in der Zeile unter dem Streifen.
+  const unavailableReason =
+    comparison && !comparison.available
+      ? comparison.since
+        ? t("embed-analytics.compare.unavailable-since", {
+            date: formatDate(comparison.since),
+          })
+        : t("embed-analytics.compare.unavailable-no-counts")
+      : null;
+  // Die Tage des Vorzeitraums der Kennzahlen (gleich viele Kalendertage
+  // unmittelbar davor). Bei Wochen und Monaten sind das andere Tage als die
+  // der Linie, die die Legende am Diagramm nennt.
+  const comparedDays = comparison?.available
+    ? formatDayRange(comparison.fromDay, comparison.toDay, t)
+    : null;
+  // Der Zeitraum läuft noch („Heute", „Letzte 30 Tage"): Er ist unvollständig,
+  // der Vorzeitraum vollständig – „−100 % ggü. Vorzeitraum" am Vormittag ist
+  // kein Einbruch. Heute = der Berliner Kalendertag des Zählerbuchs.
+  const running =
+    !!comparedDays && isRunningRange(summary.fromDay, summary.toDay);
+  const change = (current, key) => {
+    if (!comparison) return null;
+    if (!comparison.available)
+      return {
+        available: false,
+        text: t("embed-analytics.compare.unavailable"),
+      };
+    return {
+      available: true,
+      text: changeLabel(current, comparison.totals[key] ?? 0, t),
+      title: t("embed-analytics.compare.previous-range", {
+        range: comparedDays,
+      }),
+    };
+  };
+
   const fields = [
     {
       key: "messages",
       label: t("embed-analytics.kpi.messages"),
       value: value(kpi.messages),
+      change: change(kpi.messages, "messages"),
       detail:
         summary && kpi.averagePerBucket !== null
           ? t(`embed-analytics.kpi.avg-per.${granularity}`, {
@@ -53,6 +122,7 @@ export default function StatisticsGrid({
       label: t("embed-analytics.kpi.conversations"),
       hint: t("embed-analytics.kpi.conversations-hint"),
       value: value(kpi.conversations),
+      change: change(kpi.conversations, "conversations"),
       detail:
         kpi.averagePerConversation !== null
           ? t("embed-analytics.kpi.avg-per-conversation", {
@@ -64,6 +134,7 @@ export default function StatisticsGrid({
       key: "positive",
       label: t("embed-analytics.kpi.positive"),
       value: value(kpi.positive),
+      change: change(kpi.positive, "feedbackPositive"),
       detail:
         kpi.positiveShare !== null
           ? t("embed-analytics.kpi.positive-share", {
@@ -77,6 +148,7 @@ export default function StatisticsGrid({
       key: "negative",
       label: t("embed-analytics.kpi.negative"),
       value: value(kpi.negative),
+      change: change(kpi.negative, "feedbackNegative"),
       // Der Verweis filtert die Liste auf negativ bewertete Konversationen –
       // ohne eine solche Bewertung steht dort der Nebentext.
       ...(kpi.negative > 0
@@ -150,10 +222,58 @@ export default function StatisticsGrid({
                   {field.action.label}
                 </button>
               )}
+              {field.change?.available && (
+                <span
+                  data-kpi-change=""
+                  title={field.change.title}
+                  className="mt-1 block text-xs text-theme-text-primary"
+                >
+                  {field.change.text}
+                  {/* Der Tooltip ist nur mit der Maus erreichbar: Die Tage
+                      des Vergleichs stehen deshalb auch im Text. */}
+                  <span className="sr-only">{` (${field.change.title})`}</span>
+                </span>
+              )}
+              {/* Kein Vergleich: sichtbar steht es einmal unter dem Streifen.
+                  Das Feld bekommt keine Zeile – nur den Text für
+                  Screenreader, der keinen Platz einnimmt. */}
+              {field.change && !field.change.available && (
+                <span data-kpi-change="" className="sr-only">
+                  {field.change.text}
+                </span>
+              )}
             </dd>
           </div>
         ))}
       </dl>
+
+      {/* KIE-537 – womit die Felder vergleichen: eine Zeile für alle vier,
+          sichtbar und im Lesefluss direkt nach dem Streifen. */}
+      {comparedDays && (
+        <p
+          data-compare-line=""
+          className={`mt-2 text-xs ${MUTED} transition-opacity ${loading ? "opacity-50" : ""}`}
+        >
+          {t("embed-analytics.compare.change-range", { range: comparedDays })}
+          {running && (
+            <>
+              {" "}
+              <span data-compare-running="">
+                {t("embed-analytics.compare.running")}
+              </span>
+            </>
+          )}
+        </p>
+      )}
+
+      {unavailableReason && (
+        <p
+          data-compare-note=""
+          className={`mt-2 text-xs ${MUTED} transition-opacity ${loading ? "opacity-50" : ""}`}
+        >
+          {unavailableReason}
+        </p>
+      )}
 
       {user?.role === "admin" && (
         <TechnicalDetails
