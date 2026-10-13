@@ -1565,7 +1565,8 @@ test(
     await messagesOnly.unmount();
 
     // Ohne Vergleich, ohne verfügbaren Vergleich und mit einem Vorzeitraum
-    // ohne Werte: der Leerzustand von KIE-536 – auch als Tabelle.
+    // ohne Werte: der Leerzustand von KIE-536. Die schmale Zeile bietet „Als
+    // Tabelle" gar nicht an – die Tabelle hätte nichts zu zeigen.
     for (const props of [
       { summary: NO_MESSAGES, compare: false },
       {
@@ -1592,22 +1593,25 @@ test(
       },
     ]) {
       const other = await mount(t, CHART, { ...props, loading: false });
-      for (const asTable of [false, true]) {
-        if (asTable)
-          await other.act(() =>
-            click(buttonOf(other.container, "Als Tabelle"))
-          );
-        assert.equal(
-          frameOf(other.container),
-          "Keine Nachrichten im gewählten Zeitraum"
-        );
-        assert.equal(tableOf(other.container), null);
-        assert.equal(tableRangeOf(other.container), null);
-        assert.equal(columnsOf(other.container).length, 0);
-        assert.equal(lineOf(other.container), null);
-        assert.equal(legendOf(other.container), null);
-        assert.equal(chartNoteOf(other.container), null);
-      }
+      assert.equal(
+        elements(
+          other.container,
+          (element) =>
+            element.tagName === "BUTTON" &&
+            element.textContent === "Als Tabelle"
+        ).length,
+        0
+      );
+      assert.equal(
+        frameOf(other.container),
+        "Keine Nachrichten im gewählten Zeitraum"
+      );
+      assert.equal(tableOf(other.container), null);
+      assert.equal(tableRangeOf(other.container), null);
+      assert.equal(columnsOf(other.container).length, 0);
+      assert.equal(lineOf(other.container), null);
+      assert.equal(legendOf(other.container), null);
+      assert.equal(chartNoteOf(other.container), null);
       await other.unmount();
     }
   }

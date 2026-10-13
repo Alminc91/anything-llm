@@ -111,6 +111,60 @@ const OCT_06 = 23;
 const OCT_07 = 24;
 
 // ---------------------------------------------------------------------------
+// Schmale Zeile ohne Konversation (Feinschliff nach KIE-539)
+// ---------------------------------------------------------------------------
+
+test(
+  "Größe „Konversationen“ ohne begonnene Konversation: eine schmale Zeile mit dem Schalter, der weiterhilft – zurück zu „Nachrichten“ wieder die Säulen",
+  { skip },
+  async (t) => {
+    const summary = {
+      ...THIRTY_DAYS,
+      totals: { ...THIRTY_DAYS.totals, conversations: 0 },
+      buckets: THIRTY_DAYS.buckets.map((bucket) => ({
+        ...bucket,
+        conversations: 0,
+      })),
+    };
+    const { container, act } = await mount(t, CHART, {
+      summary,
+      loading: false,
+    });
+    const section = () =>
+      elements(container, (element) => element.tagName === "SECTION")[0];
+    const labels = () =>
+      elements(container, (element) => element.tagName === "BUTTON").map(
+        (button) => button.textContent
+      );
+    assert.equal(section().getAttribute("data-chart-compact"), null);
+    assert.equal(columnsOf(container).length, 30);
+
+    await act(() => click(buttonOf(container, "Konversationen")));
+    assert.equal(section().getAttribute("data-chart-compact"), "conversations");
+    assert.match(section().getAttribute("class"), /\bpy-3\b/);
+    assert.equal(
+      elements(section(), (element) => element.tagName === "P")[0].textContent,
+      "Konversationen pro Tag – Im gewählten Zeitraum wurde keine Konversation begonnen"
+    );
+    assert.equal(columnsOf(container).length, 0);
+    assert.equal(
+      elements(container, (element) => element.tagName === "svg").length,
+      0
+    );
+    // Vergleich und Größe ändern die Lage, „Als Tabelle“ nicht.
+    assert.deepEqual(labels(), [
+      "Vorzeitraum vergleichen",
+      "Nachrichten",
+      "Konversationen",
+    ]);
+
+    await act(() => click(buttonOf(container, "Nachrichten")));
+    assert.equal(section().getAttribute("data-chart-compact"), null);
+    assert.equal(columnsOf(container).length, 30);
+  }
+);
+
+// ---------------------------------------------------------------------------
 // Tooltip (AK-6)
 // ---------------------------------------------------------------------------
 

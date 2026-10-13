@@ -48,6 +48,12 @@ import {
 // zeigen („Heute" vor der ersten Nachricht), der Vorzeitraum aber schon,
 // bleibt es nicht beim Leerzustand: Die Linie liegt über Plätzen ohne Säulen,
 // der Hinweis des Leerzustands steht als Zeile darüber.
+//
+// Hat die Karte nichts zu zeichnen (keine Nachrichten im Zeitraum, Widget
+// ohne Zählwerte, keine begonnene Konversation ohne Linie des Vorzeitraums,
+// Ladefehler), ist sie eine einzige schmale Zeile „<Titel> – <Hinweis>" –
+// ohne reservierten Diagrammraum. Daneben stehen nur die Schalter, die an der
+// Lage etwas ändern können. Während des Ladens bleibt die bisherige Höhe.
 
 const METRICS = ["messages", "conversations"];
 const DEFAULT_WIDTH = 960;
@@ -108,11 +114,126 @@ export default function TimelineChart({
   // Legende.
   const showsLine = !!previous && (state === "data" || lineOnly) && !showTable;
 
+  // Nichts zu zeichnen: eine Zeile statt des Rahmens. Laden ohne Antwort
+  // behält den Rahmen (die Höhe springt nicht, solange offen ist, was kommt).
+  const compactHint = !summary
+    ? failed
+      ? "error"
+      : null
+    : state === "no-data"
+      ? "widget"
+      : emptyRange
+        ? "range"
+        : state === "empty-metric" && !lineOnly && !showTable
+          ? "conversations"
+          : null;
+
   const toggleBase =
     "px-3 py-1.5 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[color:var(--theme-text-primary)]";
   const toggleOn =
     "bg-theme-settings-input-bg text-theme-text-primary font-medium";
   const toggleOff = `${MUTED} hover:text-theme-text-primary`;
+
+  const compareSwitch = (
+    <CompareSwitch
+      checked={compare}
+      onChange={onCompareChange}
+      label={t("embed-analytics.compare.toggle")}
+    />
+  );
+  const metricSwitch = (
+    <div
+      role="group"
+      aria-label={t("embed-analytics.chart.metric-switch")}
+      className="inline-flex overflow-hidden rounded-lg border border-white/10"
+    >
+      {METRICS.map((key) => (
+        <button
+          key={key}
+          type="button"
+          aria-pressed={metric === key}
+          onClick={() => setMetric(key)}
+          className={`${toggleBase} ${metric === key ? toggleOn : toggleOff}`}
+        >
+          {t(`embed-analytics.chart.metric.${key}`)}
+        </button>
+      ))}
+    </div>
+  );
+
+  const tableToggle = (
+    <button
+      type="button"
+      aria-pressed={showTable}
+      onClick={() => setShowTable((current) => !current)}
+      className={`inline-flex items-center gap-1.5 rounded-lg border border-white/10 ${toggleBase} ${showTable ? toggleOn : toggleOff}`}
+    >
+      <Table size={15} aria-hidden="true" />
+      {t("embed-analytics.chart.as-table")}
+    </button>
+  );
+  // In der schmalen Zeile nur die Schalter, die an der Lage etwas ändern:
+  // der Vergleich (der Vorzeitraum kann Werte haben); die andere Größe, wenn
+  // sie etwas zu zeigen hat (Konversationen → Nachrichten, oder die Linie des
+  // Vorzeitraums); „Als Tabelle", wenn der Vorzeitraum Werte hat.
+  const compactSwitches =
+    compactHint === "range" || compactHint === "conversations"
+      ? {
+          metric:
+            compactHint === "conversations" ||
+            METRICS.some((key) => key !== metric && previousHas(key)),
+          table: !showTable && METRICS.some(previousHas),
+        }
+      : null;
+
+  if (compactHint)
+    return (
+      <section
+        aria-labelledby={titleId}
+        aria-busy={loading}
+        data-chart-compact={compactHint}
+        className={`rounded-xl border border-white/10 bg-theme-bg-primary px-4 py-3 md:px-5 transition-opacity ${loading && summary ? "opacity-50" : ""}`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <p className={`min-w-0 text-sm ${MUTED}`}>
+            <span id={titleId} className="font-medium">
+              {t(`embed-analytics.chart.metric.${metric}`)}{" "}
+              {t(`embed-analytics.chart.per.${granularity}`)}
+            </span>
+            {" – "}
+            <span data-chart-frame="empty">
+              {t(`embed-analytics.chart.empty.${compactHint}`)}
+              {compactHint === "widget" && (
+                <>
+                  {" "}
+                  <Link
+                    to={paths.settings.chatbot.widgets()}
+                    className="text-theme-text-primary underline underline-offset-2"
+                  >
+                    {t("embed-analytics.chart.empty.widget-link")}
+                  </Link>
+                </>
+              )}
+            </span>
+            {since && (
+              <span data-chart-since="">
+                {" "}
+                {t("embed-analytics.chart.counts-since", {
+                  date: formatDate(since),
+                })}
+              </span>
+            )}
+          </p>
+          {compactSwitches && (
+            <div className="flex flex-wrap items-center gap-2">
+              {compareSwitch}
+              {compactSwitches.metric && metricSwitch}
+              {compactSwitches.table && tableToggle}
+            </div>
+          )}
+        </div>
+      </section>
+    );
 
   return (
     <section
@@ -140,37 +261,9 @@ export default function TimelineChart({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <CompareSwitch
-            checked={compare}
-            onChange={onCompareChange}
-            label={t("embed-analytics.compare.toggle")}
-          />
-          <div
-            role="group"
-            aria-label={t("embed-analytics.chart.metric-switch")}
-            className="inline-flex overflow-hidden rounded-lg border border-white/10"
-          >
-            {METRICS.map((key) => (
-              <button
-                key={key}
-                type="button"
-                aria-pressed={metric === key}
-                onClick={() => setMetric(key)}
-                className={`${toggleBase} ${metric === key ? toggleOn : toggleOff}`}
-              >
-                {t(`embed-analytics.chart.metric.${key}`)}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            aria-pressed={showTable}
-            onClick={() => setShowTable((current) => !current)}
-            className={`inline-flex items-center gap-1.5 rounded-lg border border-white/10 ${toggleBase} ${showTable ? toggleOn : toggleOff}`}
-          >
-            <Table size={15} aria-hidden="true" />
-            {t("embed-analytics.chart.as-table")}
-          </button>
+          {compareSwitch}
+          {metricSwitch}
+          {tableToggle}
         </div>
       </div>
 
@@ -191,30 +284,9 @@ export default function TimelineChart({
         )}
         {showsLine && <Legend previous={previous} t={t} />}
         {!summary ? (
+          // Laden: der Rahmen in der Höhe des Diagramms
           <Frame>
-            <p className={`text-sm ${MUTED}`}>
-              {failed
-                ? t("embed-analytics.chart.empty.error")
-                : t("common.loading")}
-            </p>
-          </Frame>
-        ) : state === "no-data" ? (
-          <Frame>
-            <p className="text-sm text-theme-text-primary max-w-md">
-              {t("embed-analytics.chart.empty.widget")}
-            </p>
-            <Link
-              to={paths.settings.chatbot.widgets()}
-              className="mt-2 text-sm text-theme-text-primary underline underline-offset-2"
-            >
-              {t("embed-analytics.chart.empty.widget-link")}
-            </Link>
-          </Frame>
-        ) : emptyRange ? (
-          <Frame>
-            <p className="text-sm text-theme-text-primary">
-              {t("embed-analytics.chart.empty.range")}
-            </p>
+            <p className={`text-sm ${MUTED}`}>{t("common.loading")}</p>
           </Frame>
         ) : showTable ? (
           <BucketTable
@@ -223,12 +295,6 @@ export default function TimelineChart({
             context={context}
             previous={previous}
           />
-        ) : state === "empty-metric" && !lineOnly ? (
-          <Frame>
-            <p className="text-sm text-theme-text-primary">
-              {t("embed-analytics.chart.empty.conversations")}
-            </p>
-          </Frame>
         ) : (
           <Columns
             summary={summary}
@@ -324,7 +390,7 @@ function Legend({ previous, t }) {
   );
 }
 
-/** Rahmen in der Höhe des Diagramms für Lade- und Leerzustände – ohne Säulenplätze. */
+/** Rahmen in der Höhe des Diagramms für den Ladezustand – ohne Säulenplätze. */
 function Frame({ children }) {
   return (
     <div

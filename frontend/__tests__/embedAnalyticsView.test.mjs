@@ -353,8 +353,10 @@ test(
     assert.equal(columns(html), 0);
     assert.equal(bars(html), 0);
     assert.doesNotMatch(html, /<svg[^>]* role="group"/);
-    assert.match(html, /data-chart-frame="empty"/);
-    assert.match(textOf(html), /Keine Nachrichten im gewählten Zeitraum$/);
+    assert.match(
+      html,
+      /<span data-chart-frame="empty">Keine Nachrichten im gewählten Zeitraum<\/span>/
+    );
     assert.doesNotMatch(html, new RegExp(`href="${WIDGETS}"`));
   }
 );
@@ -966,3 +968,80 @@ test("Texte der Ansicht „Konversationen“: Deutsch und Englisch ohne Emoji", 
     "Show only conversations with a negatively rated response",
   ]);
 });
+
+// ---------------------------------------------------------------------------
+// Leerzustände als schmale Zeile (Feinschliff nach KIE-539)
+// ---------------------------------------------------------------------------
+
+/** Die Karte des Diagramms: öffnendes Tag der section. */
+const sectionTag = (html) => html.match(/^<section [^>]*>/)?.[0] ?? "";
+
+test(
+  "Leerzustände des Diagramms: eine schmale Zeile „<Titel> – <Hinweis>“ – kein Diagrammraum, keine Achsen, kein svg",
+  { skip },
+  async () => {
+    const cases = [
+      {
+        kind: "range",
+        props: {
+          summary: daySummary({ value: () => 0, totals: EMPTY_TOTALS }),
+        },
+        text: "Nachrichten pro Tag – Keine Nachrichten im gewählten Zeitraum",
+        switches: ["Vorzeitraum vergleichen"],
+      },
+      {
+        kind: "widget",
+        props: {
+          summary: daySummary({
+            value: () => 0,
+            totals: EMPTY_TOTALS,
+            firstLedgerDay: null,
+          }),
+        },
+        text: "Nachrichten pro Tag – Für dieses Widget wurden noch keine Nachrichten gezählt. Ob es eingebunden und aktiv ist, sehen Sie unter „Widgets“. Zu den Widgets",
+        switches: [],
+      },
+      {
+        kind: "error",
+        props: { summary: null, failed: true },
+        text: "Nachrichten pro Tag – Die Zählwerte konnten nicht geladen werden.",
+        switches: [],
+      },
+    ];
+    for (const { kind, props, text, switches } of cases) {
+      const html = await render(CHART, { loading: false, ...props });
+      const tag = sectionTag(html);
+      assert.match(tag, new RegExp(`data-chart-compact="${kind}"`), kind);
+      // Höhe: Rand + py-3 + eine Textzeile – kein p-4/p-5 der vollen Karte,
+      // kein Rahmen in Diagrammhöhe.
+      assert.match(tag, /class="rounded-xl border [^"]*\bpx-4 py-3 md:px-5\b/);
+      assert.doesNotMatch(tag, /\bp-4\b|md:p-5/);
+      assert.doesNotMatch(html, /h-\[240px\]|<svg|<h3|data-column|Als Tabelle/);
+      assert.equal(count(html, /<p /g), 1, kind);
+      // Der Hinweis steht in der Zeile, die Schalter danach.
+      assert.equal(textOf(html), [text, ...switches].join(" "), kind);
+    }
+  }
+);
+
+test(
+  "Leerzustand beim Laden: Vor der ersten Antwort bleibt der Rahmen in Diagrammhöhe; lädt eine leere Ansicht neu, bleibt die schmale Zeile gedämpft stehen",
+  { skip },
+  async () => {
+    const loading = await render(CHART, { summary: null, loading: true });
+    assert.match(
+      loading,
+      /data-chart-frame="empty"[^>]*class="[^"]*h-\[240px\]/
+    );
+    assert.doesNotMatch(loading, /data-chart-compact/);
+
+    const reloading = await render(CHART, {
+      summary: daySummary({ value: () => 0, totals: EMPTY_TOTALS }),
+      loading: true,
+    });
+    const tag = sectionTag(reloading);
+    assert.match(tag, /data-chart-compact="range"/);
+    assert.match(tag, /aria-busy="true"/);
+    assert.match(tag, /\bopacity-50\b/);
+  }
+);
