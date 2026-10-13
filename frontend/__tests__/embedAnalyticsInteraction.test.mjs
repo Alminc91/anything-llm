@@ -304,6 +304,39 @@ test(
 );
 
 test(
+  "Tooltip: Ein Klick mit dem Stift zählt wie ein Mausklick – kein Fokusrahmen, und verlässt der Stift das Diagramm, verschwinden Tooltip und Hervorhebung",
+  { skip },
+  async (t) => {
+    const selected = [];
+    const { container, document, act } = await mount(t, CHART, {
+      summary: THIRTY_DAYS,
+      loading: false,
+      onSelectBucket: (bucket) => selected.push(bucket),
+    });
+    const columns = columnsOf(container);
+
+    // Der Stift schwebt über dem Platz und tippt ihn an.
+    await act(() => movePointer(document, columns[OCT_06]));
+    await act(() => click(columns[OCT_06], "pen"));
+    assert.equal(selected.length, 1);
+    assert.equal(document.activeElement, columns[OCT_06]);
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.deepEqual(highlightsOf(container), [OCT_06]);
+    assert.deepEqual(ringsOf(container), []);
+
+    await act(() => movePointer(document, null));
+    assert.equal(tooltipOf(container), null);
+    assert.deepEqual(highlightsOf(container), []);
+    assert.deepEqual(ringsOf(container), []);
+
+    // Die Tastatur setzt dort fort, mit Rahmen.
+    await act(() => pressKey(document, "ArrowRight"));
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.deepEqual(ringsOf(container), [OCT_07]);
+  }
+);
+
+test(
   "Tooltip: Nach einem Mausklick übernimmt die Tastatur – Pfeiltasten und Eingabetaste zeigen Rahmen und Tooltip wieder",
   { skip },
   async (t) => {

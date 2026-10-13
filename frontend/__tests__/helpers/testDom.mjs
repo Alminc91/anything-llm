@@ -236,11 +236,13 @@ const isFocusable = (element) =>
 /**
  * Mausklick: Der Zeiger steht auf dem Element; ein fokussierbares Element
  * (tabindex, Schaltfläche) bekommt beim Drücken der Taste den Fokus, nach dem
- * Loslassen folgt click.
+ * Loslassen folgt click. Ein Stift, der über dem Bildschirm schwebt, löst
+ * dieselbe Folge aus (pointerType "pen").
  * @param {object} element
+ * @param {"mouse"|"pen"} [pointerType]
  */
-export function click(element) {
-  const pointer = eventOn(element, { pointerType: "mouse" });
+export function click(element, pointerType = "mouse") {
+  const pointer = eventOn(element, { pointerType });
   movePointer(element.ownerDocument, element);
   handlersOf(element).onPointerDown?.(pointer);
   if (isFocusable(element)) element.focus();

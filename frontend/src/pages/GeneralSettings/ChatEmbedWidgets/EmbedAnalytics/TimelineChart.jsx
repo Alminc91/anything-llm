@@ -211,8 +211,10 @@ function Columns({
   const [focused, setFocused] = useState(null);
   const [lead, setLead] = useState("pointer");
   // Die Maustaste ist auf einem Platz gedrückt: Der Fokus, der jetzt folgt,
-  // kommt vom Klick. Ein Tippen (Touch) zählt wie die Tastatur – ohne
-  // Mauszeiger zeigt nur der Fokus den Tooltip.
+  // kommt vom Klick. Ein Stift zählt wie die Maus – auch er hat einen Zeiger,
+  // der über den Plätzen schwebt und das Diagramm verlässt. Ein Tippen
+  // (Touch) zählt wie die Tastatur – ohne Zeiger zeigt nur der Fokus den
+  // Tooltip.
   const mouseDown = useRef(false);
   // Das Fenster hat den Fokus verloren; kehrt es zurück, bekommt der Platz
   // erneut ein focus-Ereignis – das ist keine neue Eingabe.
@@ -414,7 +416,7 @@ function Columns({
                 onPointerEnter={() => pointAt(i)}
                 onPointerMove={() => pointAt(i)}
                 onPointerDown={(event) => {
-                  mouseDown.current = event.pointerType === "mouse";
+                  mouseDown.current = event.pointerType !== "touch";
                 }}
                 onPointerUp={releaseMouse}
                 onPointerCancel={releaseMouse}
