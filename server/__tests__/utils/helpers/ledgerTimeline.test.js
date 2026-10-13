@@ -12,6 +12,7 @@ const {
   validateDayRange,
   timelineLayout,
   nextDay,
+  previousLayout,
 } = require("../../../utils/helpers/ledgerTimeline");
 
 /** Kalendertag + n Tage, unabhängig vom geprüften Code gerechnet. */
@@ -427,5 +428,300 @@ describe("nextDay", () => {
     expect(nextDay("9998-12-31")).toBe("9999-01-01");
     expect(() => nextDay("2026-02-30")).toThrow();
     expect(() => nextDay("9999-12-31")).toThrow();
+  });
+});
+
+// ============================================================================
+// KIE-537 — Vorzeitraum: gleich viele Kalendertage vor fromDay (Kennzahlen),
+// je Säule der Abschnitt an derselben Stelle davor (Linie)
+// ============================================================================
+describe("previousLayout (KIE-537)", () => {
+  /** Tage eines Zeitraums, beide Grenzen einschließlich. */
+  const dayCount = (from, to) => daysOf(from, to).length;
+
+  test("Tage: 13.09.-12.10.2026 → 14.08.-12.09.2026, 30 Tagesabschnitte in zeitlicher Reihenfolge", () => {
+    const previous = previousLayout("2026-09-13", "2026-10-12");
+    expect(previous.granularity).toBe("day");
+    expect(previous.fromDay).toBe("2026-08-14");
+    expect(previous.toDay).toBe("2026-09-12");
+    expect(previous.readFromDay).toBe("2026-08-14");
+    expect(previous.buckets).toEqual(
+      daysOf("2026-08-14", "2026-09-12").map((day) => ({
+        start: day,
+        end: day,
+        partial: false,
+      }))
+    );
+    expect(previous.buckets).toHaveLength(30);
+
+    // Säule i des Zeitraums und Abschnitt i der Linie liegen 30 Tage auseinander.
+    const current = timelineLayout("2026-09-13", "2026-10-12");
+    for (const [i, bucket] of current.buckets.entries())
+      expect(previous.buckets[i].start).toBe(addDays(bucket.start, -30));
+    expect(previous.indexOf({ day: "2026-08-14" })).toBe(0);
+    expect(previous.indexOf({ day: "2026-09-12" })).toBe(29);
+    expect(previous.indexOf({ day: "2026-08-13" })).toBe(-1);
+    expect(previous.indexOf({ day: "2026-09-13" })).toBe(-1);
+    expect(previous.inTotals({ day: "2026-08-14" })).toBe(true);
+    expect(previous.inTotals({ day: "2026-09-12" })).toBe(true);
+    expect(previous.inTotals({ day: "2026-08-13" })).toBe(false);
+    expect(previous.inTotals({ day: "2026-09-13" })).toBe(false);
+  });
+
+  test("Tage über Monats-, Jahres- und Schalttagsgrenzen: immer gleich viele Tage, lückenlos bis zum Tag davor", () => {
+    for (const [from, to] of [
+      ["2026-03-01", "2026-03-31"], // davor liegt der Februar mit 28 Tagen
+      ["2024-03-01", "2024-03-31"], // Schaltjahr
+      ["2026-01-01", "2026-01-02"],
+      ["2026-01-01", "2026-04-02"], // 92 Tage
+      ["2026-10-25", "2026-10-26"], // Zeitumstellung
+    ]) {
+      const previous = previousLayout(from, to);
+      expect(previous.granularity).toBe("day");
+      expect(previous.toDay).toBe(addDays(from, -1));
+      expect(dayCount(previous.fromDay, previous.toDay)).toBe(
+        dayCount(from, to)
+      );
+      expect(previous.buckets.map((bucket) => bucket.start)).toEqual(
+        daysOf(previous.fromDay, previous.toDay)
+      );
+    }
+    expect(previousLayout("2026-03-01", "2026-03-31").fromDay).toBe(
+      "2026-01-29"
+    );
+    expect(previousLayout("2024-03-01", "2024-03-31").fromDay).toBe(
+      "2024-01-30"
+    );
+  });
+
+  test("Stunden: ein einzelner Tag → die 24 Stunden des Vortags", () => {
+    const previous = previousLayout("2026-10-12", "2026-10-12");
+    expect(previous.granularity).toBe("hour");
+    expect(previous.fromDay).toBe("2026-10-11");
+    expect(previous.toDay).toBe("2026-10-11");
+    expect(previous.readFromDay).toBe("2026-10-11");
+    expect(previous.buckets).toEqual(
+      Array.from({ length: 24 }, (_, hour) => ({
+        start: "2026-10-11",
+        end: "2026-10-11",
+        partial: false,
+        hour,
+      }))
+    );
+    for (const hour of [0, 13, 23]) {
+      expect(previous.indexOf({ hour })).toBe(hour);
+      expect(previous.inTotals({ hour })).toBe(true);
+    }
+    for (const hour of [-1, 24, 1.5, "7", undefined]) {
+      expect(previous.indexOf({ hour })).toBe(-1);
+      expect(previous.inTotals({ hour })).toBe(false);
+    }
+    // über den Jahreswechsel
+    expect(previousLayout("2026-01-01", "2026-01-01").fromDay).toBe(
+      "2025-12-31"
+    );
+  });
+
+  test("Wochen: 52 ganze Kalenderwochen → die 52 Kalenderwochen unmittelbar davor; Linie und Kennzahlen decken sich", () => {
+    // Montag 13.10.2025 bis Sonntag 11.10.2026
+    const current = timelineLayout("2025-10-13", "2026-10-11");
+    expect(current.granularity).toBe("week");
+    expect(current.buckets).toHaveLength(52);
+
+    const previous = previousLayout("2025-10-13", "2026-10-11");
+    expect(previous.granularity).toBe("week");
+    expect(previous.buckets).toHaveLength(52);
+    expect(previous.buckets[0]).toEqual({
+      start: "2024-10-14",
+      end: "2024-10-20",
+      partial: false,
+    });
+    expect(previous.buckets.at(-1)).toEqual({
+      start: "2025-10-06",
+      end: "2025-10-12",
+      partial: false,
+    });
+    expect(previous.fromDay).toBe("2024-10-14");
+    expect(previous.toDay).toBe("2025-10-12");
+    expect(previous.readFromDay).toBe("2024-10-14");
+  });
+
+  test("Wochen, erste Säule angeschnitten: ganze Kalenderwochen vor der Woche der ersten Säule - die Kennzahlen zählen andere Tage", () => {
+    // Mittwoch 15.10.2025 bis Montag 12.10.2026: 363 Tage, 53 berührte Wochen
+    const current = timelineLayout("2025-10-15", "2026-10-12");
+    expect(current.granularity).toBe("week");
+    expect(current.buckets).toHaveLength(53);
+    expect(current.buckets[0]).toEqual({
+      start: "2025-10-15",
+      end: "2025-10-19",
+      partial: true,
+    });
+
+    const previous = previousLayout("2025-10-15", "2026-10-12");
+    expect(previous.buckets).toHaveLength(53);
+    for (const bucket of previous.buckets) {
+      expect(weekday(bucket.start)).toBe(1);
+      expect(bucket.end).toBe(addDays(bucket.start, 6));
+      expect(bucket.partial).toBe(false);
+    }
+    // Die Linie endet am Sonntag vor der Kalenderwoche der ersten Säule …
+    expect(previous.buckets.at(-1).end).toBe("2025-10-12");
+    expect(previous.buckets[0].start).toBe("2024-10-07");
+    // … die Kennzahlen am Tag vor dem Zeitraum, 363 Tage lang.
+    expect(previous.toDay).toBe("2025-10-14");
+    expect(previous.fromDay).toBe("2024-10-17");
+    expect(dayCount(previous.fromDay, previous.toDay)).toBe(363);
+    expect(previous.readFromDay).toBe("2024-10-07");
+
+    // Montag und Dienstag vor dem Zeitraum: Kennzahlen ja, Linie nein.
+    expect(previous.inTotals({ day: "2025-10-13" })).toBe(true);
+    expect(previous.indexOf({ day: "2025-10-13" })).toBe(-1);
+    // Die ersten Tage der Linie: Linie ja, Kennzahlen nein.
+    expect(previous.indexOf({ day: "2024-10-07" })).toBe(0);
+    expect(previous.inTotals({ day: "2024-10-16" })).toBe(false);
+    expect(previous.indexOf({ day: "2024-10-16" })).toBe(1);
+    expect(previous.inTotals({ day: "2024-10-17" })).toBe(true);
+  });
+
+  test("Monate: 24 Monatssäulen → die 24 ganzen Monate unmittelbar davor; die Kennzahlen zählen gleich viele Tage", () => {
+    const current = timelineLayout("2024-11-01", "2026-10-31");
+    expect(current.granularity).toBe("month");
+    expect(current.buckets).toHaveLength(24);
+
+    const previous = previousLayout("2024-11-01", "2026-10-31");
+    expect(previous.granularity).toBe("month");
+    expect(previous.buckets).toHaveLength(24);
+    expect(previous.buckets[0]).toEqual({
+      start: "2022-11-01",
+      end: "2022-11-30",
+      partial: false,
+    });
+    expect(previous.buckets).toContainEqual({
+      start: "2024-02-01",
+      end: "2024-02-29",
+      partial: false,
+    });
+    expect(previous.buckets.at(-1)).toEqual({
+      start: "2024-10-01",
+      end: "2024-10-31",
+      partial: false,
+    });
+    // 730 Tage im Zeitraum, 731 in den 24 Monaten davor (29.02.2024).
+    expect(dayCount("2024-11-01", "2026-10-31")).toBe(730);
+    expect(previous.fromDay).toBe("2022-11-02");
+    expect(previous.toDay).toBe("2024-10-31");
+    expect(previous.readFromDay).toBe("2022-11-01");
+    expect(previous.indexOf({ day: "2022-11-01" })).toBe(0);
+    expect(previous.inTotals({ day: "2022-11-01" })).toBe(false);
+  });
+
+  test("Monate, erste Säule angeschnitten: ganze Monate vor dem Monat der ersten Säule", () => {
+    const current = timelineLayout("2023-10-09", "2026-10-12");
+    expect(current.buckets).toHaveLength(37);
+    const previous = previousLayout("2023-10-09", "2026-10-12");
+    expect(previous.buckets).toHaveLength(37);
+    expect(previous.buckets[0]).toEqual({
+      start: "2020-09-01",
+      end: "2020-09-30",
+      partial: false,
+    });
+    expect(previous.buckets.at(-1)).toEqual({
+      start: "2023-09-01",
+      end: "2023-09-30",
+      partial: false,
+    });
+    expect(previous.toDay).toBe("2023-10-08");
+    expect(dayCount(previous.fromDay, previous.toDay)).toBe(
+      dayCount("2023-10-09", "2026-10-12")
+    );
+    // Die Tage 01.10.-08.10.2023 zählen zu den Kennzahlen, nicht zur Linie.
+    expect(previous.inTotals({ day: "2023-10-01" })).toBe(true);
+    expect(previous.indexOf({ day: "2023-10-01" })).toBe(-1);
+  });
+
+  test("Jede Körnung: so viele Abschnitte wie der Zeitraum, lückenlos, bis unmittelbar vor die erste Säule - jeder Tag in dem Abschnitt, den indexOf nennt", () => {
+    for (const [from, to] of [
+      ["2026-09-13", "2026-10-12"], // Tage
+      ["2026-07-01", "2026-10-12"], // Wochen
+      ["2025-12-20", "2026-12-31"], // Wochen über den Jahreswechsel
+      ["2025-01-01", "2026-10-04"], // 92 Wochen
+      ["2023-10-09", "2026-10-12"], // Monate
+      ["2024-03-31", "2026-03-01"], // Monate, beide Ränder angeschnitten
+    ]) {
+      const current = timelineLayout(from, to);
+      const previous = previousLayout(from, to);
+      expect(previous.granularity).toBe(current.granularity);
+      expect(previous.buckets).toHaveLength(current.buckets.length);
+      expect(previous.buckets.length).toBeLessThanOrEqual(MAX_BUCKETS);
+
+      const first = previous.buckets[0].start;
+      const last = previous.buckets.at(-1).end;
+      expect(
+        previous.buckets.flatMap((bucket) => daysOf(bucket.start, bucket.end))
+      ).toEqual(daysOf(first, last));
+      for (const day of daysOf(first, last)) {
+        const bucket = previous.buckets[previous.indexOf({ day })];
+        expect(bucket.start <= day && day <= bucket.end).toBe(true);
+      }
+      expect(previous.indexOf({ day: addDays(first, -1) })).toBe(-1);
+      expect(previous.indexOf({ day: addDays(last, 1) })).toBe(-1);
+      // Die Linie endet vor dem Zeitraum; gelesen wird nie ein Tag des Zeitraums.
+      expect(last < from).toBe(true);
+      expect(previous.toDay).toBe(addDays(from, -1));
+      expect(previous.readFromDay).toBe(
+        first < previous.fromDay ? first : previous.fromDay
+      );
+      // Kennzahlen: genau die Tage fromDay bis toDay.
+      for (const day of daysOf(previous.readFromDay, addDays(from, 3)))
+        expect([day, previous.inTotals({ day })]).toEqual([
+          day,
+          previous.fromDay <= day && day <= previous.toDay,
+        ]);
+    }
+  });
+
+  test("Der längste Zeitraum (92 Kalendermonate): 92 Monate davor - für den Vorzeitraum gilt die Prüfung des Zeitraums nicht", () => {
+    const previous = previousLayout("2019-03-01", "2026-10-12");
+    expect(previous.granularity).toBe("month");
+    expect(previous.buckets).toHaveLength(MAX_BUCKETS);
+    expect(previous.buckets[0].start).toBe("2011-07-01");
+    expect(previous.buckets.at(-1).end).toBe("2019-02-28");
+    expect(previous.toDay).toBe("2019-02-28");
+    expect(dayCount(previous.fromDay, previous.toDay)).toBe(
+      dayCount("2019-03-01", "2026-10-12")
+    );
+    // Beide Bereiche zusammen berühren mehr als 92 Kalendermonate.
+    expect(validateDayRange(previous.readFromDay, previous.toDay).valid).toBe(
+      true
+    );
+    expect(validateDayRange("2011-07-01", "2019-03-14").valid).toBe(false);
+    const cut = previousLayout("2019-03-15", "2026-10-12");
+    expect(cut.buckets).toHaveLength(MAX_BUCKETS);
+    expect(cut.buckets[0].start).toBe("2011-07-01");
+    expect(cut.toDay).toBe("2019-03-14");
+  });
+
+  test("Vor dem 01.01.0001 gibt es keinen Kalendertag: kein Vorzeitraum (null) statt eines erfundenen Tages", () => {
+    expect(previousLayout("0001-01-01", "0001-01-01")).toBeNull();
+    expect(previousLayout("0001-01-05", "0001-02-01")).toBeNull();
+    expect(previousLayout("0001-06-01", "0002-06-01")).toBeNull();
+    expect(previousLayout("0003-01-01", "0008-01-01")).toBeNull();
+    // Der früheste Vorzeitraum beginnt am 01.01.0001.
+    const earliest = previousLayout("0001-01-02", "0001-01-02");
+    expect(earliest.fromDay).toBe("0001-01-01");
+    expect(earliest.buckets).toHaveLength(24);
+    const days = previousLayout("0001-01-11", "0001-01-20");
+    expect(days.fromDay).toBe("0001-01-01");
+    expect(days.buckets[0].start).toBe("0001-01-01");
+    expect(previousLayout("0001-01-10", "0001-01-19")).toBeNull();
+  });
+
+  test("ungültiger Zeitraum wirft wie timelineLayout", () => {
+    expect(() => previousLayout("2026-10-07", "2026-10-06")).toThrow(
+      /timelineLayout/
+    );
+    expect(() => previousLayout("2026-02-30", "2026-03-05")).toThrow();
+    expect(() => previousLayout("2019-02-28", "2026-10-12")).toThrow();
+    expect(() => previousLayout(undefined, undefined)).toThrow();
   });
 });

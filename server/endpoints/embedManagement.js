@@ -380,6 +380,10 @@ function embedManagementEndpoints(app) {
   // Die Antwort enthält nur Zählwerte und Kalendertage - keine Inhalte, keine
   // Sitzungs- oder Verbindungsdaten. Ein ungültiger Zeitraum endet mit 400,
   // bevor das Zählerbuch gelesen wird.
+  // KIE-537: Mit compare: true (genau dieser Wert) kommt previous dazu - die
+  // Zählwerte des Vorzeitraums desselben Widgets (totals, buckets, fromDay,
+  // toDay) und available: Gibt es den Vergleich? Ohne compare bleibt die
+  // Antwort, wie sie war.
   app.post(
     "/embed/:embedId/analytics/summary",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess, validEmbedConfigId],
@@ -393,7 +397,7 @@ function embedManagementEndpoints(app) {
           return;
         }
 
-        const { fromDay, toDay } = reqBody(request) ?? {};
+        const { fromDay, toDay, compare } = reqBody(request) ?? {};
         const range = validateDayRange(fromDay, toDay);
         if (!range.valid) {
           response.status(400).json({ success: false, error: range.error });
@@ -404,6 +408,16 @@ function embedManagementEndpoints(app) {
           MessageLedger.timelineForEmbed(embedId, fromDay, toDay),
           MessageLedger.firstDayForEmbed(embedId),
         ]);
+        // KIE-537: Der Vorzeitraum beginnt vor firstLedgerDay → available false.
+        const previous =
+          compare === true
+            ? await MessageLedger.previousTimelineForEmbed(
+                embedId,
+                fromDay,
+                toDay,
+                firstLedgerDay
+              )
+            : null;
 
         response.status(200).json({
           success: true,
@@ -413,6 +427,7 @@ function embedManagementEndpoints(app) {
           totals: timeline.totals,
           buckets: timeline.buckets,
           firstLedgerDay,
+          ...(previous ? { previous } : {}),
         });
       } catch (e) {
         console.error(e);

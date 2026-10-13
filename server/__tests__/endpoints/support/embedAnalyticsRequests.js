@@ -17,12 +17,14 @@ const ROUTES = {
 
 /**
  * Kennzahlen und Zeitreihe: die Kalendertage, die der Nutzer gewählt hat
- * ("YYYY-MM-DD", beide einschließlich).
+ * ("YYYY-MM-DD", beide einschließlich). Mit eingeschaltetem Vergleich
+ * (KIE-537) zusätzlich compare: true - ausgeschaltet fehlt das Feld.
  * @param {string} fromDay
  * @param {string} toDay
+ * @param {{compare?: boolean}} [options]
  */
-function summaryBody(fromDay, toDay) {
-  return { fromDay, toDay };
+function summaryBody(fromDay, toDay, { compare = false } = {}) {
+  return { fromDay, toDay, ...(compare ? { compare: true } : {}) };
 }
 
 /**

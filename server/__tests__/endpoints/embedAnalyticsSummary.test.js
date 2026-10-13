@@ -882,6 +882,998 @@ describe("beginn_der_zaehlung (AK-14)", () => {
 });
 
 // ============================================================================
+// KIE-537 — Vergleich mit dem Vorzeitraum (compare: true → previous)
+// ============================================================================
+describe("Vorzeitraum (KIE-537)", () => {
+  const { tableChecksum } = require("../helpers/sqliteTestDatabase");
+  let previousSpy;
+  beforeEach(() => {
+    previousSpy = jest.spyOn(MessageLedger, "previousTimelineForEmbed");
+  });
+
+  /** Anfrage mit eingeschaltetem Vergleich, wie der Browser sie sendet. */
+  const compared = (embed, fromDay, toDay, user = null) =>
+    summary(embed, summaryBody(fromDay, toDay, { compare: true }), user);
+
+  /**
+   * Zählwerte für jeden Tag von first bis last (mit Lücken), fest aus dem Tag
+   * abgeleitet - dazu ein zweites Widget und Workspace-Chats, die nie
+   * mitzählen. Liefert die Zellen des Widgets.
+   */
+  async function seedDays(workspace, embed, first, last) {
+    const other = await createEmbed(db.client, workspace);
+    const own = [];
+    const foreign = [];
+    for (const [i, day] of daysOf(first, last).entries()) {
+      if (i % 7 === 4) continue; // Lücken
+      own.push({
+        workspaceId: workspace.id,
+        embedId: embed.id,
+        day,
+        hour: 8 + (i % 11),
+        messages: 1 + ((i * 5) % 13),
+        conversationsStarted: i % 4,
+        feedbackPositive: i % 3 === 0 ? 1 : 0,
+        feedbackNegative: i % 10 === 0 ? 1 : 0,
+      });
+      foreign.push(
+        {
+          workspaceId: workspace.id,
+          embedId: other.id,
+          day,
+          hour: 10,
+          messages: 100,
+          conversationsStarted: 50,
+          feedbackPositive: 5,
+          feedbackNegative: 5,
+        },
+        {
+          workspaceId: workspace.id,
+          embedId: 0,
+          day,
+          hour: 10,
+          messages: 1000,
+        }
+      );
+    }
+    await MessageLedger.transaction({ source: "test" }, (tx) =>
+      MessageLedger.addCells(tx, [...own, ...foreign])
+    );
+    return own;
+  }
+
+  /** Summen der Tage from bis to, unabhängig vom Server gerechnet. */
+  function totalsOf(cells, from, to) {
+    const totals = {
+      messages: 0,
+      conversations: 0,
+      feedbackPositive: 0,
+      feedbackNegative: 0,
+    };
+    for (const cell of cells) {
+      if (cell.day < from || cell.day > to) continue;
+      totals.messages += cell.messages;
+      totals.conversations += cell.conversationsStarted;
+      totals.feedbackPositive += cell.feedbackPositive;
+      totals.feedbackNegative += cell.feedbackNegative;
+    }
+    return totals;
+  }
+
+  /** Jeder Abschnitt nennt genau die Werte seiner Tage. */
+  function expectBucketsOf(buckets, cells) {
+    for (const bucket of buckets) {
+      const own = totalsOf(cells, bucket.start, bucket.end);
+      expect([bucket.start, bucket.messages, bucket.conversations]).toEqual([
+        bucket.start,
+        own.messages,
+        own.conversations,
+      ]);
+      expect(bucket.partial).toBe(false);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // AK-1 — Vorzeitraum bei Tageskörnung
+  // --------------------------------------------------------------------------
+  describe("vorzeitraum_tage (AK-1)", () => {
+    test("vorzeitraum_tage: 13.09.-12.10.2026 → previous 14.08.-12.09., 30 Tagesabschnitte in zeitlicher Reihenfolge", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      const cells = await seedDays(
+        workspace,
+        embed,
+        "2026-07-02",
+        "2026-10-20"
+      );
+      // Zählwerte auch an den Tagen unmittelbar vor und nach dem Vorzeitraum
+      for (const day of [
+        "2026-08-13",
+        "2026-08-14",
+        "2026-09-12",
+        "2026-09-13",
+      ])
+        expect(totalsOf(cells, day, day).messages).toBeGreaterThan(0);
+
+      const result = await compared(embed, "2026-09-13", "2026-10-12");
+
+      expect(result.statusCode).toBe(200);
+      const { previous } = result.body;
+      expect(previous.fromDay).toBe("2026-08-14");
+      expect(previous.toDay).toBe("2026-09-12");
+      expect(previous.available).toBe(true);
+      expect(previous.buckets).toHaveLength(30);
+      expect(previous.buckets).toHaveLength(result.body.buckets.length);
+      expect(previous.buckets.map((bucket) => bucket.start)).toEqual(
+        daysOf("2026-08-14", "2026-09-12")
+      );
+      for (const bucket of previous.buckets)
+        expect(bucket.end).toBe(bucket.start);
+      expectBucketsOf(previous.buckets, cells);
+
+      // Kennzahlen: dieselben 30 Tage - die Summe der Linie ist die Kennzahl.
+      const expected = totalsOf(cells, "2026-08-14", "2026-09-12");
+      expect(expected.messages).toBeGreaterThan(0);
+      expect(expected.feedbackPositive).toBeGreaterThan(0);
+      expect(previous.totals).toEqual(expected);
+      expect(sum(previous.buckets, "messages")).toBe(expected.messages);
+      expect(sum(previous.buckets, "conversations")).toBe(
+        expected.conversations
+      );
+      // Der Tag davor und der erste Tag des Zeitraums zählen nicht mit.
+      expect(previous.totals).not.toEqual(
+        totalsOf(cells, "2026-08-13", "2026-09-12")
+      );
+      expect(previous.totals).not.toEqual(
+        totalsOf(cells, "2026-08-14", "2026-09-13")
+      );
+    });
+
+    test("vorzeitraum_tage: Der gewählte Zeitraum bleibt mit Vergleich, wie er ohne ist (NAK-2)", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await seedDays(workspace, embed, "2026-07-01", "2026-10-20");
+
+      const plain = await summary(
+        embed,
+        summaryBody("2026-09-13", "2026-10-12")
+      );
+      const result = await compared(embed, "2026-09-13", "2026-10-12");
+
+      expect(plain.body.totals.messages).toBeGreaterThan(0);
+      const { previous, ...rest } = result.body;
+      expect(rest).toEqual(plain.body);
+      expect(previous).toBeDefined();
+      expect("previous" in plain.body).toBe(false);
+    });
+
+    test("vorzeitraum_tage: über Monats- und Jahresgrenzen, Zählwerte bleiben nach dem Löschen der Inhalte", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      // Inhalte im Vorzeitraum, danach gelöscht - gezählt bleiben sie.
+      await chatAt(embed, berlinInstant("2025-12-31", 23, 30));
+      await chatAt(embed, berlinInstant("2025-12-30", 0, 30));
+      await chatAt(embed, berlinInstant("2025-12-29", 23, 30)); // davor
+      await chatAt(embed, berlinInstant("2026-01-01", 0, 30)); // im Zeitraum
+      await db.client.embed_chats.deleteMany({});
+
+      const result = await compared(embed, "2026-01-01", "2026-01-02");
+
+      expect(result.body.previous).toEqual({
+        available: true,
+        fromDay: "2025-12-30",
+        toDay: "2025-12-31",
+        totals: {
+          messages: 2,
+          conversations: 1,
+          feedbackPositive: 0,
+          feedbackNegative: 0,
+        },
+        buckets: [
+          {
+            start: "2025-12-30",
+            end: "2025-12-30",
+            partial: false,
+            messages: 1,
+            conversations: 0,
+          },
+          {
+            start: "2025-12-31",
+            end: "2025-12-31",
+            partial: false,
+            messages: 1,
+            conversations: 1,
+          },
+        ],
+      });
+      expect(result.body.totals.messages).toBe(1);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // AK-2 — Vorzeitraum bei Wochen- und Monatskörnung
+  // --------------------------------------------------------------------------
+  describe("vorzeitraum_wochen_monate (AK-2)", () => {
+    const FIRST = "2020-06-01";
+    const LAST = "2026-10-20";
+
+    test.each([
+      // Körnung, Zeitraum, Säulen, Linie von-bis, Kennzahlen von-bis
+      [
+        "week",
+        ["2025-10-13", "2026-10-11"],
+        52,
+        ["2024-10-14", "2025-10-12"],
+        ["2024-10-14", "2025-10-12"],
+      ],
+      [
+        // erste Säule angeschnitten (Mittwoch), 363 Tage
+        "week",
+        ["2025-10-15", "2026-10-12"],
+        53,
+        ["2024-10-07", "2025-10-12"],
+        ["2024-10-17", "2025-10-14"],
+      ],
+      [
+        // 730 Tage; die 24 Monate davor haben 731 (29.02.2024)
+        "month",
+        ["2024-11-01", "2026-10-31"],
+        24,
+        ["2022-11-01", "2024-10-31"],
+        ["2022-11-02", "2024-10-31"],
+      ],
+      [
+        // beide Randsäulen angeschnitten, 1100 Tage
+        "month",
+        ["2023-10-09", "2026-10-12"],
+        37,
+        ["2020-09-01", "2023-09-30"],
+        ["2020-10-04", "2023-10-08"],
+      ],
+    ])(
+      "vorzeitraum_wochen_monate: %s %j - %i ganze Abschnitte unmittelbar vor der ersten Säule, Kennzahlen über gleich viele Tage vor fromDay",
+      async (granularity, [fromDay, toDay], count, line, range) => {
+        const workspace = await createWorkspace(db.client);
+        const embed = await createEmbed(db.client, workspace);
+        const cells = await seedDays(workspace, embed, FIRST, LAST);
+
+        const result = await compared(embed, fromDay, toDay);
+
+        expect(result.statusCode).toBe(200);
+        expect(result.body.granularity).toBe(granularity);
+        expect(result.body.buckets).toHaveLength(count);
+        const { previous } = result.body;
+        expect(previous.available).toBe(true);
+        expect(previous.buckets).toHaveLength(count);
+
+        // Linie: ganze Kalenderwochen bzw. Monate, lückenlos, in zeitlicher
+        // Reihenfolge, bis unmittelbar vor die erste Säule.
+        expect(previous.buckets[0].start).toBe(line[0]);
+        expect(previous.buckets.at(-1).end).toBe(line[1]);
+        expect(
+          previous.buckets.flatMap((bucket) => daysOf(bucket.start, bucket.end))
+        ).toEqual(daysOf(line[0], line[1]));
+        for (const bucket of previous.buckets) {
+          if (granularity === "week") {
+            expect(new Date(`${bucket.start}T12:00:00Z`).getUTCDay()).toBe(1);
+            expect(bucket.end).toBe(addDays(bucket.start, 6));
+          } else {
+            expect(bucket.start.slice(8)).toBe("01");
+            expect(addDays(bucket.end, 1).slice(8)).toBe("01");
+            expect(bucket.end.slice(0, 7)).toBe(bucket.start.slice(0, 7));
+          }
+        }
+        // … vor der Kalenderwoche bzw. dem Monat der ersten Säule
+        const firstBar = result.body.buckets[0].start;
+        expect(line[1] < firstBar).toBe(true);
+        expect(daysOf(line[1], firstBar).length).toBeLessThanOrEqual(
+          granularity === "week" ? 8 : 32
+        );
+        expectBucketsOf(previous.buckets, cells);
+
+        // Kennzahlen: gleich viele Kalendertage unmittelbar vor fromDay
+        expect(previous.fromDay).toBe(range[0]);
+        expect(previous.toDay).toBe(range[1]);
+        expect(previous.toDay).toBe(addDays(fromDay, -1));
+        expect(daysOf(range[0], range[1])).toHaveLength(
+          daysOf(fromDay, toDay).length
+        );
+        const expected = totalsOf(cells, range[0], range[1]);
+        expect(expected.messages).toBeGreaterThan(0);
+        expect(previous.totals).toEqual(expected);
+        // Decken sich die Bereiche nicht, ist die Summe der Linie eine andere.
+        if (line[0] !== range[0] || line[1] !== range[1])
+          expect(sum(previous.buckets, "messages")).not.toBe(
+            previous.totals.messages
+          );
+        else
+          expect(sum(previous.buckets, "messages")).toBe(
+            previous.totals.messages
+          );
+      }
+    );
+  });
+
+  // --------------------------------------------------------------------------
+  // AK-7 — Einzelner Tag
+  // --------------------------------------------------------------------------
+  describe("vorzeitraum_stunden (AK-7)", () => {
+    test("vorzeitraum_stunden: ein einzelner Tag → die 24 Stundenwerte des Vortags in Berliner Zeit", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      const yesterday = "2026-10-11";
+      const perHour = { 0: 1, 9: 3, 17: 2, 23: 1 };
+      for (const [hour, count] of Object.entries(perHour))
+        for (let i = 0; i < count; i++)
+          await chatAt(embed, berlinInstant(yesterday, Number(hour), 30 + i), {
+            session_id: `s-${hour}`,
+          });
+      // Vorgestern 23:30 und heute 00:30 gehören nicht zu gestern.
+      await chatAt(embed, berlinInstant("2026-10-10", 23, 30));
+      await chatAt(embed, berlinInstant("2026-10-12", 0, 30));
+
+      const result = await compared(embed, "2026-10-12", "2026-10-12");
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body.granularity).toBe("hour");
+      const { previous } = result.body;
+      expect(previous.fromDay).toBe(yesterday);
+      expect(previous.toDay).toBe(yesterday);
+      expect(previous.available).toBe(true);
+      expect(previous.buckets).toHaveLength(24);
+      expect(previous.buckets.map((bucket) => bucket.hour)).toEqual(
+        Array.from({ length: 24 }, (_, hour) => hour)
+      );
+      for (const bucket of previous.buckets) {
+        expect(bucket.start).toBe(yesterday);
+        expect(bucket.end).toBe(yesterday);
+        expect(bucket.partial).toBe(false);
+        expect([bucket.hour, bucket.messages]).toEqual([
+          bucket.hour,
+          perHour[bucket.hour] ?? 0,
+        ]);
+        expect(bucket.conversations).toBe(perHour[bucket.hour] ? 1 : 0);
+      }
+      expect(previous.totals).toEqual({
+        messages: 7,
+        conversations: 4,
+        feedbackPositive: 0,
+        feedbackNegative: 0,
+      });
+      // Heute: nur die Nachricht um 00:30.
+      expect(result.body.totals.messages).toBe(1);
+      expect(result.body.buckets[0].messages).toBe(1);
+    });
+
+    test("vorzeitraum_stunden: Der Vortag ist ein Tag der Zeitumstellung - 24 Abschnitte, keine Nachricht geht verloren", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await countsOnly(embed, [{ day: "2026-01-01", messages: 1 }]);
+      await chatAt(embed, new Date("2026-03-29T00:30:00Z")); // 01:30 Berlin
+      await chatAt(embed, new Date("2026-03-29T01:30:00Z")); // 03:30 Berlin
+      await chatAt(embed, new Date("2026-10-25T00:30:00Z")); // 02:30 Berlin (Sommerzeit)
+      await chatAt(embed, new Date("2026-10-25T01:30:00Z")); // 02:30 Berlin (Winterzeit)
+
+      const spring = await compared(embed, "2026-03-30", "2026-03-30");
+      expect(spring.body.previous.fromDay).toBe("2026-03-29");
+      expect(spring.body.previous.buckets).toHaveLength(24);
+      expect(
+        spring.body.previous.buckets
+          .filter((bucket) => bucket.messages > 0)
+          .map((bucket) => bucket.hour)
+      ).toEqual([1, 3]);
+      expect(spring.body.previous.totals.messages).toBe(2);
+
+      const autumn = await compared(embed, "2026-10-26", "2026-10-26");
+      expect(autumn.body.previous.fromDay).toBe("2026-10-25");
+      expect(autumn.body.previous.buckets).toHaveLength(24);
+      expect(autumn.body.previous.buckets[2].messages).toBe(2);
+      expect(autumn.body.previous.totals.messages).toBe(2);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // AK-6 — Kein Vergleich ohne Daten
+  // --------------------------------------------------------------------------
+  describe("vergleich_ohne_daten (AK-6)", () => {
+    test("vergleich_ohne_daten: Der Vorzeitraum beginnt vor firstLedgerDay → available false, kein Fehler; der Zeitraum selbst bleibt vollständig", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      // Das Zählerbuch beginnt am 01.09.; der Vorzeitraum am 14.08.
+      await countsOnly(embed, [
+        { day: "2026-09-01", messages: 4, conversationsStarted: 2 },
+        { day: "2026-09-20", messages: 6, conversationsStarted: 1 },
+      ]);
+
+      const result = await compared(embed, "2026-09-13", "2026-10-12");
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body.firstLedgerDay).toBe("2026-09-01");
+      expect(result.body.totals.messages).toBe(6);
+      const { previous } = result.body;
+      expect(previous.available).toBe(false);
+      expect(previous.fromDay).toBe("2026-08-14");
+      expect(previous.toDay).toBe("2026-09-12");
+      // Die Form bleibt; die Werte sind, was das Zählerbuch führt.
+      expect(previous.buckets).toHaveLength(30);
+      expect(previous.totals.messages).toBe(4);
+    });
+
+    test.each([
+      ["am ersten Tag des Vorzeitraums", "2026-08-14", true],
+      ["davor", "2026-08-01", true],
+      ["einen Tag nach dessen Beginn", "2026-08-15", false],
+      ["am letzten Tag des Vorzeitraums", "2026-09-12", false],
+      ["erst im gewählten Zeitraum", "2026-09-13", false],
+    ])(
+      "vergleich_ohne_daten: Tage - die Zählung beginnt %s (%s) → available %p",
+      async (_name, firstDay, available) => {
+        const workspace = await createWorkspace(db.client);
+        const embed = await createEmbed(db.client, workspace);
+        await countsOnly(embed, [
+          { day: firstDay, messages: 2 },
+          { day: "2026-10-01", messages: 5 },
+        ]);
+
+        const result = await compared(embed, "2026-09-13", "2026-10-12");
+
+        expect(result.statusCode).toBe(200);
+        expect(result.body.firstLedgerDay).toBe(firstDay);
+        expect(result.body.previous.available).toBe(available);
+      }
+    );
+
+    test("vergleich_ohne_daten: ein Widget ohne jeden Zählwert → available false", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      // Ein anderes Widget zählt seit Jahren - das ändert nichts.
+      const other = await createEmbed(db.client, workspace);
+      await countsOnly(other, [{ day: "2020-01-01", messages: 9 }]);
+
+      const result = await compared(embed, "2026-09-13", "2026-10-12");
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body.firstLedgerDay).toBeNull();
+      expect(result.body.previous.available).toBe(false);
+      expect(sum(result.body.previous.buckets, "messages")).toBe(0);
+    });
+
+    test.each([
+      // Wochen, erste Säule angeschnitten: Die Linie beginnt am 07.10.2024,
+      // die Kennzahlen am 17.10.2024.
+      ["2025-10-15", "2026-10-12", "2024-10-07", true],
+      ["2025-10-15", "2026-10-12", "2024-10-08", false],
+      ["2025-10-15", "2026-10-12", "2024-10-17", false],
+      // Monate: Die Kennzahlen beginnen am 02.11.2022, die Linie am 01.11.
+      ["2024-11-01", "2026-10-31", "2022-11-01", true],
+      ["2024-11-01", "2026-10-31", "2022-11-02", false],
+      // Monate, erste Säule angeschnitten: Linie ab 01.09.2020, Kennzahlen
+      // ab 04.10.2020.
+      ["2023-10-09", "2026-10-12", "2020-09-01", true],
+      ["2023-10-09", "2026-10-12", "2020-09-02", false],
+    ])(
+      "vergleich_ohne_daten: Wochen und Monate - %s bis %s, Zählung ab %s → available %p (der frühere der beiden Bereiche entscheidet)",
+      async (fromDay, toDay, firstDay, available) => {
+        const workspace = await createWorkspace(db.client);
+        const embed = await createEmbed(db.client, workspace);
+        await countsOnly(embed, [{ day: firstDay, messages: 2 }]);
+
+        const result = await compared(embed, fromDay, toDay);
+
+        expect(result.statusCode).toBe(200);
+        expect(result.body.previous.available).toBe(available);
+      }
+    );
+
+    test("vergleich_ohne_daten: Der längste Zeitraum (92 Kalendermonate) mit Vergleich ist kein Fehler - der Vorzeitraum liegt vor der Zählung", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await countsOnly(embed, [
+        { day: "2019-03-01", messages: 3 },
+        { day: "2026-10-06", messages: 5 },
+      ]);
+      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+
+      const result = await compared(embed, "2019-03-01", "2026-10-12");
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body.granularity).toBe("month");
+      expect(result.body.buckets).toHaveLength(92);
+      expect(result.body.totals.messages).toBe(8);
+      expect(result.body.previous.available).toBe(false);
+      expect(result.body.previous.buckets).toHaveLength(92);
+      expect(result.body.previous.buckets[0].start).toBe("2011-07-01");
+      expect(result.body.previous.toDay).toBe("2019-02-28");
+      expect(sum(result.body.previous.buckets, "messages")).toBe(0);
+
+      // Keine unbegrenzte Abfrage: Der Vorzeitraum hat feste Grenzen, so
+      // viele Abschnitte wie der Zeitraum - und endet vor ihm.
+      expect(groupBy).toHaveBeenCalledTimes(2);
+      expect(groupBy.mock.calls[1][0].where).toEqual({
+        embed_id: embed.id,
+        day: { gte: "2011-07-01", lte: "2019-02-28" },
+      });
+    });
+
+    test("vergleich_ohne_daten: Vor dem 01.01.0001 gibt es keinen Vorzeitraum - available false ohne Tage und ohne Abfrage", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await countsOnly(embed, [{ day: "2026-10-06", messages: 5 }]);
+      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+
+      const result = await compared(embed, "0001-01-05", "0001-02-01");
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body.buckets).toHaveLength(28);
+      expect(result.body.previous).toEqual({
+        available: false,
+        fromDay: null,
+        toDay: null,
+        totals: null,
+        buckets: [],
+      });
+      expect(groupBy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // AK-8 — Schalter aus
+  // --------------------------------------------------------------------------
+  describe("schalter_aus (AK-8)", () => {
+    test.each([
+      ["ohne compare", {}],
+      ["compare: false", { compare: false }],
+      ["compare: null", { compare: null }],
+      ['compare: "true" (Text)', { compare: "true" }],
+      ["compare: 1", { compare: 1 }],
+      ["compare: {}", { compare: {} }],
+      ["compare: [true]", { compare: [true] }],
+    ])(
+      "schalter_aus: %s - die Antwort hat kein previous, der Vorzeitraum wird nicht gelesen",
+      async (_name, extra) => {
+        const workspace = await createWorkspace(db.client);
+        const embed = await createEmbed(db.client, workspace);
+        await countsOnly(embed, [
+          { day: "2026-08-20", messages: 7 },
+          { day: "2026-10-06", messages: 3 },
+        ]);
+        const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+
+        const result = await summary(embed, {
+          ...summaryBody("2026-09-13", "2026-10-12"),
+          ...extra,
+        });
+
+        expect(result.statusCode).toBe(200);
+        expect(Object.keys(result.body).sort()).toEqual([
+          "buckets",
+          "firstLedgerDay",
+          "fromDay",
+          "granularity",
+          "success",
+          "toDay",
+          "totals",
+        ]);
+        expect(result.body.totals.messages).toBe(3);
+        expect(previousSpy).not.toHaveBeenCalled();
+        expect(groupBy).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    test("schalter_aus: Die Anfrage des Browsers nennt compare nur eingeschaltet", () => {
+      expect(summaryBody("2026-09-13", "2026-10-12")).toEqual({
+        fromDay: "2026-09-13",
+        toDay: "2026-10-12",
+      });
+      expect(
+        summaryBody("2026-09-13", "2026-10-12", { compare: false })
+      ).toEqual({ fromDay: "2026-09-13", toDay: "2026-10-12" });
+      expect(
+        summaryBody("2026-09-13", "2026-10-12", { compare: true })
+      ).toEqual({ fromDay: "2026-09-13", toDay: "2026-10-12", compare: true });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // NAK-3 — Keine fremden Zahlen
+  // --------------------------------------------------------------------------
+  describe("fremdes_widget (NAK-3)", () => {
+    let workspaceA, workspaceB, embedA, embedB;
+    const FROM = "2026-09-13";
+    const TO = "2026-10-12";
+
+    beforeEach(async () => {
+      await setMultiUserMode(true);
+      workspaceA = await createWorkspace(db.client);
+      workspaceB = await createWorkspace(db.client);
+      embedA = await createEmbed(db.client, workspaceA);
+      embedB = await createEmbed(db.client, workspaceB);
+      // Beide Widgets zählen im Zeitraum und im Vorzeitraum.
+      await countsOnly(embedA, [
+        { day: "2026-08-01", messages: 1 },
+        { day: "2026-08-20", messages: 2 },
+        { day: "2026-10-06", messages: 3 },
+      ]);
+      await countsOnly(embedB, [
+        { day: "2026-08-01", messages: 1 },
+        { day: "2026-08-20", messages: 40, conversationsStarted: 12 },
+        { day: "2026-10-06", messages: 50, conversationsStarted: 9 },
+      ]);
+    });
+
+    test("fremdes_widget: default aus Workspace A erhält den Vergleich für ein Widget aus Workspace B nicht - 403 und keine Zahlen", async () => {
+      const kunde = await createUser("default", [workspaceA.id]);
+      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+      const findFirst = jest.spyOn(db.client.message_ledger, "findFirst");
+
+      const result = await compared(embedB, FROM, TO, kunde);
+
+      expect(result.statusCode).toBe(403);
+      expect(result.body).toBeUndefined();
+      expect(timelineSpy).not.toHaveBeenCalled();
+      expect(firstDaySpy).not.toHaveBeenCalled();
+      expect(previousSpy).not.toHaveBeenCalled();
+      expect(groupBy).not.toHaveBeenCalled();
+      expect(findFirst).not.toHaveBeenCalled();
+    });
+
+    test("fremdes_widget: mit Vergleich ist ein unbekanntes Widget für default von einem fremden nicht zu unterscheiden (403), ohne Mitgliedschaft ebenso", async () => {
+      const kunde = await createUser("default", [workspaceA.id]);
+      for (const embedId of [9999, 0, -1, "abc", "1 OR 1=1"]) {
+        const result = await compared(embedId, FROM, TO, kunde);
+        expect([embedId, result.statusCode]).toEqual([embedId, 403]);
+        expect(result.body).toBeUndefined();
+      }
+      const fremd = await createUser("default", []);
+      for (const embed of [embedA, embedB])
+        expect((await compared(embed, FROM, TO, fremd)).statusCode).toBe(403);
+      expect(previousSpy).not.toHaveBeenCalled();
+    });
+
+    test("fremdes_widget: Das eigene Widget liefert im Vorzeitraum nur dessen Zahlen", async () => {
+      const kunde = await createUser("default", [workspaceA.id]);
+
+      const result = await compared(embedA, FROM, TO, kunde);
+
+      expect(result.statusCode).toBe(200);
+      expect(result.body.totals.messages).toBe(3);
+      expect(result.body.previous.available).toBe(true);
+      expect(result.body.previous.totals).toEqual({
+        messages: 2,
+        conversations: 0,
+        feedbackPositive: 0,
+        feedbackNegative: 0,
+      });
+      expect(sum(result.body.previous.buckets, "messages")).toBe(2);
+      expect(sum(result.body.previous.buckets, "conversations")).toBe(0);
+      expect(sum(result.body.buckets, "messages")).toBe(3);
+    });
+
+    test("fremdes_widget: Nach dem Umhängen entscheidet der heutige Workspace - die früheren Zählwerte des Widgets gehören zu seinem Vorzeitraum", async () => {
+      const kundeA = await createUser("default", [workspaceA.id]);
+      const kundeB = await createUser("default", [workspaceB.id]);
+      await EmbedConfig.update(embedB.id, { workspace_id: workspaceA.id });
+
+      expect((await compared(embedB, FROM, TO, kundeB)).statusCode).toBe(403);
+      const result = await compared(embedB, FROM, TO, kundeA);
+      expect(result.statusCode).toBe(200);
+      expect(result.body.previous.totals.messages).toBe(40);
+    });
+
+    test("fremdes_widget: admin und manager sind nicht eingeschränkt; ohne Anmeldung 401", async () => {
+      for (const role of ["admin", "manager"]) {
+        const user = await createUser(role);
+        const result = await compared(embedB, FROM, TO, user);
+        expect([role, result.statusCode]).toEqual([role, 200]);
+        expect(result.body.previous.totals.messages).toBe(40);
+      }
+      previousSpy.mockClear();
+      expect((await compared(embedA, FROM, TO)).statusCode).toBe(401);
+      expect(previousSpy).not.toHaveBeenCalled();
+    });
+
+    test("fremdes_widget: unbekanntes Widget, embed_id 0 und Unsinn als Kennung mit Vergleich: 404 für admin - nie die Zähler der Workspace-Chats", async () => {
+      const admin = await createUser("admin");
+      await MessageLedger.transaction({ source: "test" }, (tx) =>
+        MessageLedger.addCells(tx, [
+          {
+            workspaceId: workspaceA.id,
+            embedId: 0,
+            day: "2026-08-20",
+            hour: 9,
+            messages: 777,
+          },
+        ])
+      );
+      for (const embedId of [9999, 0, -1, "abc", "1.5"]) {
+        const result = await compared(embedId, FROM, TO, admin);
+        expect([embedId, result.statusCode]).toEqual([embedId, 404]);
+        expect(result.body).toBeUndefined();
+      }
+      expect(previousSpy).not.toHaveBeenCalled();
+    });
+
+    test("fremdes_widget: DISABLE_VIEW_CHAT_HISTORY - auch der Vergleich endet mit 422 ohne Daten", async () => {
+      const users = [
+        await createUser("admin"),
+        await createUser("default", [workspaceA.id]),
+      ];
+      process.env.DISABLE_VIEW_CHAT_HISTORY = "1";
+      for (const user of users) {
+        const result = await compared(embedA, FROM, TO, user);
+        expect([user.role, result.statusCode]).toEqual([user.role, 422]);
+        expect(String(result.body)).not.toMatch(/\d/);
+      }
+      expect(previousSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Nur Zahlen, Eingaben, Lesefunktion
+  // --------------------------------------------------------------------------
+  test("nur_zahlen: previous enthält nur Zählwerte und Kalendertage - keine Texte, keine Sitzungs- oder Verbindungsdaten", async () => {
+    const workspace = await createWorkspace(db.client, {
+      name: "Geheimer-Workspace",
+    });
+    const embed = await createEmbed(db.client, workspace);
+    const secrets = {
+      prompt: "GEHEIME-FRAGE Wann ist mein Arzttermin?",
+      response: JSON.stringify({ text: "GEHEIME-ANTWORT Am Dienstag." }),
+      session_id: "GEHEIME-SITZUNG-4711",
+      conversation_id: "GEHEIME-KONVERSATION-0815",
+      connection_information: JSON.stringify({
+        host: "https://geheim.example",
+        ip: "203.0.113.77",
+      }),
+      feedbackText: "GEHEIMER-KOMMENTAR",
+      feedbackReason: "GEHEIMER-GRUND",
+    };
+    await countsOnly(embed, [{ day: "2011-07-01", messages: 1 }]);
+    const chat = await chatAt(embed, berlinInstant("2026-10-05", 10), secrets);
+    await EmbedChats.updateFeedbackScore(
+      embed.id,
+      secrets.session_id,
+      chat.id,
+      false
+    );
+
+    for (const [fromDay, toDay] of [
+      ["2026-10-06", "2026-10-06"],
+      ["2026-10-06", "2026-10-12"],
+      ["2026-10-06", "2027-10-05"],
+      ["2026-10-06", "2029-10-05"],
+    ]) {
+      const result = await compared(embed, fromDay, toDay);
+      expect(result.statusCode).toBe(200);
+      expect(Object.keys(result.body).sort()).toEqual([
+        "buckets",
+        "firstLedgerDay",
+        "fromDay",
+        "granularity",
+        "previous",
+        "success",
+        "toDay",
+        "totals",
+      ]);
+      const { previous } = result.body;
+      expect(Object.keys(previous).sort()).toEqual([
+        "available",
+        "buckets",
+        "fromDay",
+        "toDay",
+        "totals",
+      ]);
+      expect(previous.available).toBe(true);
+      expect(previous.fromDay).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(previous.toDay).toBe("2026-10-05");
+      expect(previous.totals).toEqual({
+        messages: 1,
+        conversations: 1,
+        feedbackPositive: 0,
+        feedbackNegative: 1,
+      });
+      expect(previous.buckets).toHaveLength(result.body.buckets.length);
+      for (const bucket of previous.buckets) {
+        const { start, end, partial, messages, conversations, hour, ...rest } =
+          bucket;
+        expect(rest).toEqual({});
+        expect(start).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(end).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(partial).toBe(false);
+        expect(Number.isInteger(messages)).toBe(true);
+        expect(Number.isInteger(conversations)).toBe(true);
+        if (hour !== undefined) expect(Number.isInteger(hour)).toBe(true);
+      }
+
+      const text = JSON.stringify(result.body);
+      expect(text).not.toMatch(/GEHEIM/i);
+      expect(text).not.toContain("203.0.113.77");
+      expect(text).not.toContain("Arzttermin");
+      expect(text).not.toMatch(/session|conversation_id|prompt|response|ip"/i);
+    }
+  });
+
+  test("eingaben: Ein ungültiger Zeitraum endet auch mit Vergleich mit 400, bevor das Zählerbuch gelesen wird", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    await countsOnly(embed, [{ day: "2026-10-06", messages: 3 }]);
+    const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+    const findFirst = jest.spyOn(db.client.message_ledger, "findFirst");
+
+    for (const [fromDay, toDay] of [
+      ["2026-10-07", "2026-10-06"],
+      ["2026-02-30", "2026-03-05"],
+      ["2019-02-28", "2026-10-12"], // 93 Kalendermonate
+      ["06.10.2026", "12.10.2026"],
+      [undefined, undefined],
+    ]) {
+      const result = await compared(embed, fromDay, toDay);
+      expect([fromDay, result.statusCode]).toEqual([fromDay, 400]);
+      expect(result.body).toEqual({
+        success: false,
+        error: expect.any(String),
+      });
+    }
+    expect(previousSpy).not.toHaveBeenCalled();
+    expect(groupBy).not.toHaveBeenCalled();
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  describe("Lesefunktion (MessageLedger.previousTimelineForEmbed)", () => {
+    test("liest nur: Das Zählerbuch ist nach den Abfragen mit Vergleich Byte für Byte dasselbe", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await chatAt(embed, berlinInstant("2026-10-05", 10));
+      await countsOnly(embed, [
+        { day: "2026-09-01", messages: 5, conversationsStarted: 2 },
+        { day: "2019-01-15", messages: 1 },
+      ]);
+      const before = await tableChecksum(db.client, "message_ledger");
+      expect(before.rows).toBe(3);
+
+      for (const [fromDay, toDay] of [
+        ["2026-10-06", "2026-10-06"],
+        ["2026-09-13", "2026-10-12"],
+        ["2025-10-13", "2026-10-12"],
+        ["2023-10-09", "2026-10-12"],
+        ["2019-03-01", "2026-10-12"],
+      ])
+        expect((await compared(embed, fromDay, toDay)).statusCode).toBe(200);
+
+      expect(previousSpy).toHaveBeenCalledTimes(5);
+      expect(await tableChecksum(db.client, "message_ledger")).toEqual(before);
+    });
+
+    test("eine Abfrage mit festen Grenzen: von der früheren der beiden Untergrenzen bis zum Tag vor dem Zeitraum", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+      const findFirst = jest.spyOn(db.client.message_ledger, "findFirst");
+
+      for (const [fromDay, toDay, by, gte, lte] of [
+        ["2026-10-12", "2026-10-12", "hour", "2026-10-11", "2026-10-11"],
+        ["2026-09-13", "2026-10-12", "day", "2026-08-14", "2026-09-12"],
+        // Wochen: Die Linie beginnt früher als die Kennzahlen.
+        ["2025-10-15", "2026-10-12", "day", "2024-10-07", "2025-10-14"],
+        // Monate: Die Kennzahlen beginnen früher als die Linie.
+        ["2024-11-01", "2026-10-31", "day", "2022-11-01", "2024-10-31"],
+      ]) {
+        groupBy.mockClear();
+        findFirst.mockClear();
+        await MessageLedger.previousTimelineForEmbed(
+          embed.id,
+          fromDay,
+          toDay,
+          null
+        );
+        expect(groupBy).toHaveBeenCalledTimes(1);
+        expect(groupBy.mock.calls[0][0].by).toEqual([by]);
+        expect(groupBy.mock.calls[0][0].where).toEqual({
+          embed_id: embed.id,
+          day: { gte, lte },
+        });
+        // firstLedgerDay wird übergeben, nicht noch einmal gelesen.
+        expect(findFirst).not.toHaveBeenCalled();
+      }
+    });
+
+    test("available: nur mit einem Kalendertag als Beginn der Zählung, der nicht nach dem Beginn des Vorzeitraums liegt", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      const available = async (firstLedgerDay) =>
+        (
+          await MessageLedger.previousTimelineForEmbed(
+            embed.id,
+            "2026-09-13",
+            "2026-10-12",
+            firstLedgerDay
+          )
+        ).available;
+
+      expect(await available("2026-08-14")).toBe(true);
+      expect(await available("2020-01-01")).toBe(true);
+      expect(await available("2026-08-15")).toBe(false);
+      expect(await available(null)).toBe(false);
+      expect(await available(undefined)).toBe(false);
+    });
+
+    test("embed_id 0 (Workspace-Chats) und Unsinn als Kennung werfen, statt fremde Zähler zu liefern", async () => {
+      const workspace = await createWorkspace(db.client);
+      await MessageLedger.transaction({ source: "test" }, (tx) =>
+        MessageLedger.addCells(tx, [
+          {
+            workspaceId: workspace.id,
+            embedId: 0,
+            day: "2026-08-20",
+            hour: 9,
+            messages: 777,
+          },
+        ])
+      );
+      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+      for (const embedId of [0, -1, 1.5, "abc", null, undefined, NaN])
+        await expect(
+          MessageLedger.previousTimelineForEmbed(
+            embedId,
+            "2026-09-13",
+            "2026-10-12",
+            "2026-01-01"
+          )
+        ).rejects.toThrow(/invalid embedId/);
+      expect(groupBy).not.toHaveBeenCalled();
+    });
+
+    test("ein ungültiger Zeitraum wirft vor der Abfrage", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      const groupBy = jest.spyOn(db.client.message_ledger, "groupBy");
+      for (const [fromDay, toDay] of [
+        ["2026-10-07", "2026-10-06"],
+        ["2026-02-30", "2026-03-05"],
+        ["2019-02-28", "2026-10-12"],
+        [undefined, undefined],
+      ])
+        await expect(
+          MessageLedger.previousTimelineForEmbed(embed.id, fromDay, toDay, null)
+        ).rejects.toThrow(/timelineLayout/);
+      expect(groupBy).not.toHaveBeenCalled();
+    });
+
+    test("ein Datenbankfehler im Vorzeitraum wird weitergereicht; der Endpunkt antwortet mit 500 ohne Zahlen - auch nicht die des Zeitraums", async () => {
+      const workspace = await createWorkspace(db.client);
+      const embed = await createEmbed(db.client, workspace);
+      await countsOnly(embed, [
+        { day: "2026-08-20", messages: 7 },
+        { day: "2026-10-06", messages: 3 },
+      ]);
+      // Die Abfrage des Zeitraums gelingt, die des Vorzeitraums scheitert.
+      const groupBy = db.client.message_ledger.groupBy.bind(
+        db.client.message_ledger
+      );
+      jest
+        .spyOn(db.client.message_ledger, "groupBy")
+        .mockImplementationOnce((args) => groupBy(args))
+        .mockRejectedValue(new Error("database is locked"));
+
+      const result = await compared(embed, "2026-09-13", "2026-10-12");
+
+      expect(timelineSpy).toHaveBeenCalledTimes(1);
+      expect(previousSpy).toHaveBeenCalledTimes(1);
+      expect(result.statusCode).toBe(500);
+      expect(result.body).toBeUndefined();
+      await expect(
+        MessageLedger.previousTimelineForEmbed(
+          embed.id,
+          "2026-09-13",
+          "2026-10-12",
+          "2026-08-01"
+        )
+      ).rejects.toThrow("database is locked");
+    });
+  });
+});
+
+// ============================================================================
 // Lesefunktionen des Zählerbuchs
 // ============================================================================
 describe("Lesefunktionen (MessageLedger.timelineForEmbed, firstDayForEmbed)", () => {

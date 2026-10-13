@@ -6,7 +6,10 @@ const {
   berlinMidnight,
   dayToMarker,
 } = require("../utils/helpers/billingWindow");
-const { timelineLayout } = require("../utils/helpers/ledgerTimeline");
+const {
+  timelineLayout,
+  previousLayout,
+} = require("../utils/helpers/ledgerTimeline");
 
 /**
  * Zählerbuch (KIE-532) - die eine Quelle für Kontingent und Statistik.
@@ -38,6 +41,8 @@ const { timelineLayout } = require("../utils/helpers/ledgerTimeline");
  *
  * Die Auswertung „Konversationen" (KIE-536) liest Kennzahlen und Zeitreihe
  * eines Widgets hier (timelineForEmbed, firstDayForEmbed). Sie liest nur.
+ * Dasselbe gilt für den Vergleich mit dem Vorzeitraum (KIE-537,
+ * previousTimelineForEmbed).
  */
 
 /**
@@ -742,6 +747,112 @@ const MessageLedger = {
     }
 
     return { granularity: layout.granularity, totals, buckets };
+  },
+
+  /**
+   * Kennzahlen und Linie des Vorzeitraums eines Widgets (KIE-537) - der
+   * Vergleich zu timelineForEmbed für denselben Zeitraum [fromDay, toDay].
+   * Welche Tage das sind, bestimmt previousLayout
+   * (utils/helpers/ledgerTimeline.js): totals zählt gleich viele Kalendertage
+   * unmittelbar vor fromDay, buckets hat je Abschnitt des Zeitraums den
+   * Abschnitt an derselben Stelle davor - bei Kalenderwochen und Monaten
+   * ganze Wochen bzw. Monate, also nicht dieselben Tage wie totals.
+   *
+   * Eine Abfrage über beide Bereiche; sie umfasst nie mehr Abschnitte als der
+   * Zeitraum selbst. Gezählt wird wie in timelineForEmbed: alle Zeilen mit der
+   * embed_id, nie embed_id 0. Wirft bei Datenbankfehlern.
+   *
+   * available sagt, ob es den Vergleich gibt: nur wenn der Vorzeitraum (der
+   * frühere der beiden Bereiche) nicht vor firstLedgerDay beginnt. Sonst
+   * fehlen ihm Zählwerte; totals und buckets nennen dann nur, was das
+   * Zählerbuch führt, und sind nicht als Vergleich zu zeigen.
+   *
+   * @param {number} embedId
+   * @param {string} fromDay - "YYYY-MM-DD", einschließlich (des Zeitraums)
+   * @param {string} toDay - "YYYY-MM-DD", einschließlich (des Zeitraums)
+   * @param {string|null} firstLedgerDay - siehe firstDayForEmbed
+   * @param {import("@prisma/client").PrismaClient} [client]
+   * @returns {Promise<{available: boolean, fromDay: string|null, toDay: string|null, totals: EmbedCounts|null, buckets: Array<import("../utils/helpers/ledgerTimeline").TimelineBucket & {messages: number, conversations: number}>}>} -
+   *   fromDay/toDay: Tage der Kennzahlen. Läge der Vorzeitraum vor dem
+   *   01.01.0001, gibt es ihn nicht: available false, keine Tage, keine Werte.
+   */
+  previousTimelineForEmbed: async function (
+    embedId,
+    fromDay,
+    toDay,
+    firstLedgerDay,
+    client = prisma
+  ) {
+    const id = Number(embedId);
+    if (!Number.isInteger(id) || id <= 0)
+      throw new Error(`MessageLedger: invalid embedId ${embedId}`);
+
+    const layout = previousLayout(fromDay, toDay);
+    if (!layout)
+      return {
+        available: false,
+        fromDay: null,
+        toDay: null,
+        totals: null,
+        buckets: [],
+      };
+
+    const groups = await client.message_ledger.groupBy({
+      by: [layout.granularity === "hour" ? "hour" : "day"],
+      where: {
+        embed_id: id,
+        day: { gte: layout.readFromDay, lte: layout.toDay },
+      },
+      _sum: {
+        messages: true,
+        conversations_started: true,
+        feedback_positive: true,
+        feedback_negative: true,
+      },
+    });
+
+    const totals = {
+      messages: 0,
+      conversations: 0,
+      feedbackPositive: 0,
+      feedbackNegative: 0,
+    };
+    const buckets = layout.buckets.map((bucket) => ({
+      ...bucket,
+      messages: 0,
+      conversations: 0,
+    }));
+    for (const group of groups) {
+      // Eine Zeile zählt zur Linie, zu den Kennzahlen oder zu beidem.
+      const bucket = buckets[layout.indexOf(group)];
+      const counted = layout.inTotals(group);
+      if (!bucket && !counted)
+        throw new Error(
+          `MessageLedger: no previous bucket for ${group.day ?? group.hour}`
+        );
+      const messages = group._sum.messages ?? 0;
+      const conversations = group._sum.conversations_started ?? 0;
+      if (bucket) {
+        bucket.messages += messages;
+        bucket.conversations += conversations;
+      }
+      if (counted) {
+        totals.messages += messages;
+        totals.conversations += conversations;
+        totals.feedbackPositive += group._sum.feedback_positive ?? 0;
+        totals.feedbackNegative += group._sum.feedback_negative ?? 0;
+      }
+    }
+
+    return {
+      available:
+        typeof firstLedgerDay === "string" &&
+        firstLedgerDay <= layout.readFromDay,
+      fromDay: layout.fromDay,
+      toDay: layout.toDay,
+      totals,
+      buckets,
+    };
   },
 
   /**
