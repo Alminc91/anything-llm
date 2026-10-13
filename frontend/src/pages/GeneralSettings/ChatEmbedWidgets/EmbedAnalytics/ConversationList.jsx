@@ -306,7 +306,9 @@ export default function ConversationList({
           <div className="space-y-4">
             {conversations.map((conv) => (
               <ConversationCard
-                key={conv.conversation_id}
+                // KIE-538: Die Kennung vergibt der Besucher, zwei Sitzungen
+                // können dieselbe tragen – eindeutig ist die erste Zeile.
+                key={conv.first_chat_id}
                 conversation={conv}
                 embedId={embedId}
                 onDeleted={() => setReloadCount((count) => count + 1)}
@@ -354,13 +356,13 @@ function ConversationCard({ conversation, embedId, onDeleted }) {
   const handleToggle = async () => {
     if (!expanded && !messages) {
       setLoading(true);
-      // KIE-507-Fix: nach conversation_id laden (nicht session_id) — sonst
-      // matcht der Detail-Abruf ALLE Nachrichten der Session statt nur dieser
-      // einen Konversation. Für Alt-Chats ist conversation_id == session_id
-      // (COALESCE aus getConversations), daher rückwärtskompatibel.
+      // KIE-538: über die erste Zeile der Karte laden (first_chat_id), nicht
+      // über conversation_id oder session_id — der Detail-Abruf liefert so
+      // genau die Nachrichten dieser einen Konversation, auch wenn eine
+      // andere Sitzung dieselbe Kennung trägt.
       const { success, messages: data } = await Embed.getConversationDetails(
         embedId,
-        conversation.conversation_id
+        conversation.first_chat_id
       );
 
       if (success) {

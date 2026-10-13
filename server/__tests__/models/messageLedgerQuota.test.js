@@ -278,12 +278,21 @@ describe("loeschpfade_halten_stand (AK-3)", () => {
       expect(await usage(workspace)).toBe(120);
     };
 
+    // Die Konversation bezeichnet eine ihrer Zeilen (first_chat_id der Liste).
+    const chatOf = async (embed, sessionId) =>
+      (
+        await db.client.embed_chats.findFirst({
+          where: { embed_id: embed.id, session_id: sessionId },
+          orderBy: { id: "asc" },
+        })
+      ).id;
+
     // 1. eine ganze Konversation (KIE-538; das Löschen einer einzelnen
     // Nachricht ist entfallen): die 20 Bestandszeilen des ersten Widgets
     // (Alt-Zeilen der Sitzung "sitzung")
     await call(embedRoutes, "DELETE /embed/:embedId/conversation", {
       params: { embedId: String(first.id) },
-      body: { conversationId: "sitzung" },
+      body: { chatId: await chatOf(first, "sitzung") },
     });
     expect(
       await db.client.embed_chats.count({
@@ -295,7 +304,7 @@ describe("loeschpfade_halten_stand (AK-3)", () => {
     // gezählten Zeilen der Sitzung "s" im zweiten Widget
     await call(embedRoutes, "DELETE /embed/:embedId/conversation/visitor", {
       params: { embedId: String(second.id) },
-      body: { conversationId: "s" },
+      body: { chatId: await chatOf(second, "s") },
     });
     expect(
       await db.client.embed_chats.count({
@@ -393,27 +402,29 @@ describe("loeschpfade_halten_stand (AK-3)", () => {
     await WorkspaceChats.markHistoryInvalid(workspace.id, null);
     expect(await usage(workspace)).toBe(8);
     // KIE-538: eine Konversation bzw. alle Konversationen eines Besuchers
-    await EmbedChats.new({
+    const { chat: own } = await EmbedChats.new({
       embedId: embed.id,
       prompt: "a",
       sessionId: "t",
       conversationId: "konversation",
     });
-    await EmbedChats.new({ embedId: embed.id, prompt: "a", sessionId: "t" });
+    const { chat: legacy } = await EmbedChats.new({
+      embedId: embed.id,
+      prompt: "a",
+      sessionId: "t",
+    });
     expect(await usage(workspace)).toBe(10);
-    expect(await EmbedChats.deleteConversation(embed.id, "konversation")).toBe(
-      1
-    );
-    expect(await EmbedChats.deleteVisitorConversations(embed.id, "t")).toEqual({
-      deletedCount: 1,
-      conversationCount: 1,
-      ambiguous: false,
+    const earlier = await db.client.embed_chats.findFirst({
+      where: { embed_id: embed.id, session_id: "s" },
     });
-    expect(await EmbedChats.deleteVisitorConversations(embed.id, "s")).toEqual({
-      deletedCount: 4,
-      conversationCount: 1,
-      ambiguous: false,
-    });
+    // bezeichnet über eine Zeile der Konversation (first_chat_id der Liste)
+    expect(await EmbedChats.deleteConversation(embed.id, own.id)).toBe(1);
+    expect(
+      await EmbedChats.deleteVisitorConversations(embed.id, legacy.id)
+    ).toEqual({ deletedCount: 1, conversationCount: 1 });
+    expect(
+      await EmbedChats.deleteVisitorConversations(embed.id, earlier.id)
+    ).toEqual({ deletedCount: 4, conversationCount: 1 });
     expect(await db.client.embed_chats.count()).toBe(0);
     expect(await usage(workspace)).toBe(10);
     await EmbedChats.delete({ embed_id: embed.id });

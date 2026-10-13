@@ -207,17 +207,19 @@ const Embed = {
   // messageCount } | null }; visitor nennt, was derselbe Browser in diesem
   // Widget insgesamt hat.
   //
-  // Die Kennung der Konversation steht hier und in den beiden Lösch-Aufrufen
-  // im Rumpf, nie in der Adresse: Sie stammt vom Besucher, und der Browser
-  // löst "." und ".." in einer Adresse als Pfadsegmente auf (auch kodiert) –
-  // „Konversation .. löschen" träfe sonst DELETE /embed/:embedId, das Widget.
-  getConversationDeletionPreview: async (embedId, conversationId) => {
+  // Hier und in den beiden Lösch-Aufrufen bezeichnet chatId die Konversation:
+  // first_chat_id aus der Liste, die id ihrer ersten Zeile – nicht ihre
+  // Kennung. Die conversation_id vergibt der Besucher: Eine zweite Sitzung
+  // kann dieselbe senden (zwei Karten in der Liste), und als Pfadabschnitt
+  // löst der Browser "." und ".." auf (auch kodiert) – „Konversation ..
+  // löschen" träfe sonst DELETE /embed/:embedId, das Widget.
+  getConversationDeletionPreview: async (embedId, chatId) => {
     return await fetch(
       `${API_BASE}/embed/${embedId}/conversation/deletion-preview`,
       {
         method: "POST",
         headers: baseHeaders(),
-        body: JSON.stringify({ conversationId }),
+        body: JSON.stringify({ chatId }),
       }
     )
       .then((res) => res.json())
@@ -227,13 +229,13 @@ const Embed = {
       });
   },
 
-  // Konversation löschen (KIE-538). conversationId wie in der Liste.
+  // Konversation löschen (KIE-538). chatId: first_chat_id aus der Liste.
   // Antwort: { success, deletedCount } bzw. { success: false, error }.
-  deleteConversation: async (embedId, conversationId) => {
+  deleteConversation: async (embedId, chatId) => {
     return await fetch(`${API_BASE}/embed/${embedId}/conversation`, {
       method: "DELETE",
       headers: baseHeaders(),
-      body: JSON.stringify({ conversationId }),
+      body: JSON.stringify({ chatId }),
     })
       .then((res) => res.json())
       .catch((e) => {
@@ -244,11 +246,11 @@ const Embed = {
 
   // Alle Konversationen des Besuchers (derselbe Browser) in diesem Widget
   // löschen (KIE-538). Antwort: { success, deletedCount, conversationCount }.
-  deleteVisitorConversations: async (embedId, conversationId) => {
+  deleteVisitorConversations: async (embedId, chatId) => {
     return await fetch(`${API_BASE}/embed/${embedId}/conversation/visitor`, {
       method: "DELETE",
       headers: baseHeaders(),
-      body: JSON.stringify({ conversationId }),
+      body: JSON.stringify({ chatId }),
     })
       .then((res) => res.json())
       .catch((e) => {
@@ -258,11 +260,12 @@ const Embed = {
   },
 
   // Analytics: Get conversation details
-  // KIE-538: Die Kennung ist kodiert – „/", „?" und „#" aus einer vom
-  // Besucher vergebenen Kennung bleiben Teil des einen Pfadsegments.
-  getConversationDetails: async (embedId, sessionId) => {
+  // KIE-538: chatId ist first_chat_id aus der Liste (siehe Vorschau) – eine
+  // Zahl des Servers, keine Kennung des Besuchers. Kodiert, damit der
+  // Abschnitt in jedem Fall ein einziges Pfadsegment bleibt.
+  getConversationDetails: async (embedId, chatId) => {
     return await fetch(
-      `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(sessionId)}`,
+      `${API_BASE}/embed/${embedId}/conversation/${encodeURIComponent(chatId)}`,
       {
         method: "GET",
         headers: baseHeaders(),

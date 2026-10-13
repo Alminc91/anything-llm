@@ -51,12 +51,20 @@ const CSV = new Blob(["\uFEFFKonversation;…\r\n"], {
 });
 const FILE_NAME = "konversationen_vhs-musterstadt-3_2026-09-01_2026-09-30.csv";
 
+// first_chat_id: die id der ersten Zeile einer Konversation – je Karte eine
+// andere, wie auf dem Server. Über sie nennt die Ansicht die Konversation.
+const firstChatIds = new Map();
+function chatIdOf(id) {
+  if (!firstChatIds.has(id)) firstChatIds.set(id, 101 + firstChatIds.size);
+  return firstChatIds.get(id);
+}
+
 function conversation(id, extra = {}) {
   return {
     conversation_id: id,
     session_id: `sitzung-${id}`,
     embed_id: EMBED_ID,
-    first_chat_id: 1,
+    first_chat_id: chatIdOf(id),
     started_at: Date.parse("2026-09-10T08:00:00Z"),
     last_message_at: Date.parse("2026-09-10T08:05:00Z"),
     message_count: 4,
@@ -83,7 +91,9 @@ const sentPath = (url) => new URL(url, "https://kunde.example.org").pathname;
 
 /**
  * Der Server der Liste. `state.conversations` ist der Bestand; Löschen
- * entfernt daraus. Jede Anfrage wird mit Methode, Adresse und Rumpf gemerkt.
+ * entfernt daraus – die Karte, deren first_chat_id der Rumpf nennt. Jede
+ * Anfrage wird mit Methode, Adresse und Rumpf gemerkt. `state.preview` hält
+ * Antworten der Vorschau je first_chat_id oder je Kennung der Konversation.
  * Die Liste blättert wie der echte Server (offset, limit, hasMore), und die
  * Anfragen werden der Route zugeordnet, bei der sie nach dem Auflösen der
  * Adresse ankommen – darunter DELETE /embed/:embedId, das Löschen des Widgets
@@ -160,16 +170,20 @@ async function listServer(t, state) {
       return json({ success: true, error: null });
     }
 
-    const id = call.body?.conversationId;
+    const chatId = call.body?.chatId;
+    const target = state.conversations.find((c) => c.first_chat_id === chatId);
     if (is(ROUTES.deletionPreview, previewUrl))
       return json(
-        state.preview?.[id] ?? { success: true, messageCount: 4, visitor: null }
+        state.preview?.[chatId] ??
+          state.preview?.[target?.conversation_id] ?? {
+            success: true,
+            messageCount: 4,
+            visitor: null,
+          }
       );
     if (is(ROUTES.deleteVisitor, visitorUrl)) {
       if (state.deleteAnswer) return json(state.deleteAnswer);
-      const session = state.conversations.find(
-        (c) => c.conversation_id === id
-      )?.session_id;
+      const session = target?.session_id;
       const gone = state.conversations.filter((c) => c.session_id === session);
       state.conversations = state.conversations.filter(
         (c) => c.session_id !== session
@@ -184,12 +198,10 @@ async function listServer(t, state) {
       if (state.deleteAnswer) return json(state.deleteAnswer);
       if (state.deleteFails)
         return json({ success: false, error: "Conversation not found." }, 404);
-      state.conversations = state.conversations.filter(
-        (c) => c.conversation_id !== id
-      );
+      state.conversations = state.conversations.filter((c) => c !== target);
       return json({ success: true, deletedCount: 4 });
     }
-    // Einzelansicht: GET /embed/:embedId/conversation/:sessionId. Ohne
+    // Einzelansicht: GET /embed/:embedId/conversation/:chatId. Ohne
     // Nachrichten: Deren Darstellung (MarkdownRenderer) braucht DOMPurify und
     // damit einen Browser.
     if (
@@ -213,8 +225,8 @@ async function listServer(t, state) {
     deletes: () => calls.filter((call) => call.method === "DELETE"),
     listUrl,
     exportUrl,
-    detailUrl: (id) =>
-      `${API_BASE}/embed/${EMBED_ID}/conversation/${encodeURIComponent(id)}`,
+    detailUrl: (chatId) =>
+      `${API_BASE}/embed/${EMBED_ID}/conversation/${encodeURIComponent(chatId)}`,
   };
 }
 
@@ -422,14 +434,14 @@ test(
 );
 
 test(
-  "Anfrage (AK-6, AK-12): Vorschau, Löschen einer Konversation und aller Konversationen eines Besuchers – die Kennung steht im Rumpf, die Adresse enthält nichts vom Besucher",
+  "Anfrage (AK-6, AK-12): Vorschau, Löschen einer Konversation und aller Konversationen eines Besuchers – der Rumpf nennt die id der ersten Zeile, die Adresse enthält nichts vom Besucher",
   { skip },
   async (t) => {
     const server = await listServer(t, { conversations: [] });
     const { default: Embed } = await renderer.load("/src/models/embed.js");
     const { API_BASE } = await renderer.load("/src/utils/constants.js");
 
-    for (const id of ["konv/1 ä?#%", "..", ".", "%2e%2e", "../../system/x"]) {
+    for (const id of [17, 4711]) {
       server.calls.length = 0;
       await Embed.getConversationDeletionPreview(EMBED_ID, id);
       await Embed.deleteConversation(EMBED_ID, id);
@@ -449,9 +461,11 @@ test(
         id
       );
       // Was der Browser daraus sendet, ist dieselbe Adresse: Es gibt kein
-      // Segment, das er auflösen könnte.
-      for (const call of server.calls)
+      // Segment, das er auflösen könnte. Der Rumpf nennt nur die Zeile.
+      for (const call of server.calls) {
         assert.equal(sentPath(call.url), call.url, id);
+        assert.deepEqual(call.body, { chatId: id });
+      }
     }
     assert.deepEqual(
       server.calls.map((call) => [call.method, call.url]),
@@ -465,29 +479,34 @@ test(
 );
 
 test(
-  "Anfrage: Die Einzelansicht einer Konversation kodiert die Kennung – „/“, „?“ und „#“ bleiben ein Pfadsegment",
+  "Anfrage: Die Einzelansicht nennt die Konversation über die id ihrer ersten Zeile – ein einziges Pfadsegment, was immer übergeben wird",
   { skip },
   async (t) => {
     const server = await listServer(t, { conversations: [] });
     const { default: Embed } = await renderer.load("/src/models/embed.js");
 
-    const answer = await Embed.getConversationDetails(EMBED_ID, "a/b?c#d ä");
+    const answer = await Embed.getConversationDetails(EMBED_ID, 4711);
     assert.deepEqual(answer, { success: true, messages: [] });
     assert.deepEqual(server.calls, [
       {
         method: "GET",
-        url: "/api/embed/3/conversation/a%2Fb%3Fc%23d%20%C3%A4",
+        url: "/api/embed/3/conversation/4711",
         body: undefined,
       },
     ]);
-    assert.equal(server.calls[0].url, server.detailUrl("a/b?c#d ä"));
+    assert.equal(server.calls[0].url, server.detailUrl(4711));
     assert.equal(sentPath(server.calls[0].url), server.calls[0].url);
 
-    // Eine Kennung, die aus der Einzelansicht herausführen soll, bleibt darin.
+    // Auch ein Wert, der aus der Einzelansicht herausführen soll, bleibt
+    // darin: „/", „?" und „#" sind kodiert.
+    await Embed.getConversationDetails(EMBED_ID, "a/b?c#d ä");
     await Embed.getConversationDetails(EMBED_ID, "../../system/logs");
-    assert.equal(
-      sentPath(server.calls[1].url),
-      "/api/embed/3/conversation/..%2F..%2Fsystem%2Flogs"
+    assert.deepEqual(
+      server.calls.slice(1).map((call) => sentPath(call.url)),
+      [
+        "/api/embed/3/conversation/a%2Fb%3Fc%23d%20%C3%A4",
+        "/api/embed/3/conversation/..%2F..%2Fsystem%2Flogs",
+      ]
     );
   }
 );
@@ -665,11 +684,15 @@ test(
     );
     await expand(mounted, 0);
     assert.deepEqual(server.calls.slice(1), [
-      { method: "GET", url: server.detailUrl("k-1"), body: undefined },
+      {
+        method: "GET",
+        url: server.detailUrl(chatIdOf("k-1")),
+        body: undefined,
+      },
       {
         method: ROUTES.deletionPreview.method,
         url: await urlOf(ROUTES.deletionPreview),
-        body: conversationBody("k-1"),
+        body: conversationBody(chatIdOf("k-1")),
       },
     ]);
 
@@ -735,7 +758,7 @@ test(
       {
         method: ROUTES.deleteConversation.method,
         url: await urlOf(ROUTES.deleteConversation),
-        body: conversationBody("k-2"),
+        body: conversationBody(chatIdOf("k-2")),
       },
     ]);
     assert.equal(dialogOf(document), null);
@@ -793,10 +816,27 @@ test(
       const mounted = await mountList(t);
       const { container, document, act } = mounted;
 
-      // Auch wenn sich die Konversation nicht aufklappen lässt (ihre
-      // Einzelansicht führt bei „.." und „." zu keiner Route), steht
-      // „Konversation löschen" bereit.
+      // Aufklappen und Vorschau nennen die Zeile, nicht die Kennung: Keine
+      // Adresse enthält etwas, das der Browser auflösen könnte.
       await expand(mounted, 1);
+      assert.deepEqual(
+        server.calls.slice(1),
+        [
+          {
+            method: "GET",
+            url: server.detailUrl(chatIdOf(id)),
+            body: undefined,
+          },
+          {
+            method: ROUTES.deletionPreview.method,
+            url: await urlOf(ROUTES.deletionPreview),
+            body: conversationBody(chatIdOf(id)),
+          },
+        ],
+        id
+      );
+      for (const call of server.calls)
+        assert.equal(sentPath(call.url), call.url, id);
       const [remove] = withAttribute(container, "data-delete-conversation");
       await act(() => click(remove));
       assert.match(
@@ -815,7 +855,7 @@ test(
           {
             method: ROUTES.deleteConversation.method,
             url: await urlOf(ROUTES.deleteConversation),
-            body: conversationBody(id),
+            body: conversationBody(chatIdOf(id)),
           },
         ],
         id
@@ -831,6 +871,114 @@ test(
       );
       await mounted.unmount();
     }
+  }
+);
+
+test(
+  "Konversation löschen: Zwei Karten mit derselben Kennung (zwei Browser-Sitzungen) – Einzelansicht, Vorschau und Löschen nennen die Zeile der aufgeklappten Karte, die andere bleibt",
+  { skip },
+  async (t) => {
+    // Die conversation_id vergibt der Besucher: Eine zweite Sitzung hat die
+    // Kennung der ersten gesendet.
+    const first = conversation("k-1", {
+      session_id: "besucher",
+      first_chat_id: 11,
+      message_count: 3,
+      preview: "Wann beginnt der Kurs?",
+    });
+    const second = conversation("k-1", {
+      session_id: "zweiter-besucher",
+      first_chat_id: 12,
+      message_count: 1,
+      preview: "Bitte löschen Sie meine Daten (DSGVO)",
+    });
+    const state = {
+      conversations: [first, second, conversation("k-2")],
+      preview: {
+        11: {
+          success: true,
+          messageCount: 3,
+          visitor: { conversationCount: 2, messageCount: 7 },
+        },
+        12: {
+          success: true,
+          messageCount: 1,
+          visitor: { conversationCount: 1, messageCount: 1 },
+        },
+      },
+    };
+    const server = await listServer(t, state);
+    // React meldet doppelte Schlüssel der Karten über console.error.
+    const errors = [];
+    const original = console.error;
+    console.error = (...args) => errors.push(args.map(String).join(" "));
+    t.after(() => {
+      console.error = original;
+    });
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+
+    assert.deepEqual(cardIdsOf(container), ["k-1", "k-1", "k-2"]);
+    await expand(mounted, 1);
+    assert.deepEqual(server.calls.slice(1), [
+      { method: "GET", url: server.detailUrl(12), body: undefined },
+      {
+        method: ROUTES.deletionPreview.method,
+        url: await urlOf(ROUTES.deletionPreview),
+        body: conversationBody(12),
+      },
+    ]);
+    // nur die zweite Karte ist aufgeklappt, ihr Besucher hat nur diese eine
+    assert.equal(
+      withAttribute(container, "data-delete-conversation").length,
+      1
+    );
+    assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
+
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    const dialog = dialogOf(document);
+    assert.match(
+      withAttribute(dialog, "data-confirm-question")[0].textContent,
+      /Bitte löschen Sie meine Daten/
+    );
+    assert.match(dialog.textContent, /Die Konversation mit 1 Nachricht wird/);
+    await act(() => click(withAttribute(dialog, "data-confirm-delete")[0]));
+    await act();
+
+    assert.deepEqual(server.deletes(), [
+      {
+        method: ROUTES.deleteConversation.method,
+        url: await urlOf(ROUTES.deleteConversation),
+        body: conversationBody(12),
+      },
+    ]);
+    // Die Karte der ersten Sitzung steht noch da – zugeklappt, mit ihrer Frage.
+    assert.equal(state.conversations.includes(first), true);
+    assert.equal(state.conversations.includes(second), false);
+    assert.deepEqual(cardIdsOf(container), ["k-1", "k-2"]);
+    assert.match(container.textContent, /Wann beginnt der Kurs\?/);
+    assert.doesNotMatch(container.textContent, /Bitte löschen Sie meine Daten/);
+    assert.equal(
+      withAttribute(container, "data-delete-conversation").length,
+      0
+    );
+
+    // Für sie bleibt „alle Konversationen dieses Besuchers" im Angebot.
+    await expand(mounted, 0);
+    await act(() => click(withAttribute(container, "data-delete-visitor")[0]));
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    await act();
+    assert.deepEqual(server.deletes()[1], {
+      method: ROUTES.deleteVisitor.method,
+      url: await urlOf(ROUTES.deleteVisitor),
+      body: conversationBody(11),
+    });
+    assert.deepEqual(cardIdsOf(container), ["k-2"]);
+    assert.deepEqual(errors, []);
   }
 );
 
@@ -939,7 +1087,7 @@ test(
 
     assert.deepEqual(
       server.deletes().map((call) => call.body),
-      [conversationBody("k-41")]
+      [conversationBody(chatIdOf("k-41"))]
     );
     // neu geladen: Seite 3 ist leer → Seite 2, die letzte vorhandene
     assert.deepEqual(offsets(), [0, 40, 40, 20]);
@@ -1094,7 +1242,7 @@ test(
       {
         method: ROUTES.deleteVisitor.method,
         url: await urlOf(ROUTES.deleteVisitor),
-        body: conversationBody("k-1"),
+        body: conversationBody(chatIdOf("k-1")),
       },
     ]);
     assert.equal(dialogOf(document), null);

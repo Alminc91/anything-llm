@@ -4,7 +4,8 @@
 //   DELETE /embed/:embedId/conversation
 //   DELETE /embed/:embedId/conversation/visitor
 //   POST   /embed/:embedId/conversation/deletion-preview
-// Die Kennung der Konversation steht jeweils im Rumpf ({ conversationId }).
+// Die Konversation bezeichnet jeweils der Rumpf: { chatId }, die id ihrer
+// ersten Zeile, wie die Liste sie nennt (first_chat_id).
 //
 // Geprüft wird gegen die echten Routen mit ihrer ganzen Middleware-Kette
 // (endpoints/support/routeHarness.js: Anmeldung, Rollenprüfung, Bindung an
@@ -75,7 +76,7 @@ const DELETE_VISITOR = route(ROUTES.deleteVisitor);
 const PREVIEW = route(ROUTES.deletionPreview);
 const CONVERSATIONS = route(ROUTES.conversations);
 const SUMMARY = route(ROUTES.summary);
-const DETAIL = routes["GET /embed/:embedId/conversation/:sessionId"];
+const DETAIL = routes["GET /embed/:embedId/conversation/:chatId"];
 const OVERVIEW = routes["POST /embed/:embedId/analytics/overview"];
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -191,39 +192,88 @@ async function converse(embed, { conversation, session, n, at, ...data }) {
   return chats;
 }
 
-const call = (chain, embed, conversationId, user = null) =>
+// Eine id, die keine Zeile trägt: Die Karte gibt es nicht (mehr).
+const NO_CHAT = 999_999;
+
+/**
+ * Die Karte einer Konversation in der Liste des Widgets: die id ihrer ersten
+ * Zeile (first_chat_id). `conversation` ist die Kennung, die die Karte zeigt
+ * (conversation_id, für Alt-Zeilen die session_id); `session` unterscheidet
+ * zwei Karten mit derselben Kennung. Gibt es im Widget keine solche Zeile:
+ * NO_CHAT.
+ */
+async function card(embed, conversation, session = null) {
+  const embedId = Number(embed?.id ?? embed);
+  if (!Number.isInteger(embedId)) return NO_CHAT;
+  const first = await db.client.embed_chats.findFirst({
+    where: {
+      embed_id: embedId,
+      ...(session ? { session_id: session } : {}),
+      OR: [
+        { conversation_id: conversation },
+        { conversation_id: null, session_id: conversation },
+      ],
+    },
+    orderBy: { id: "asc" },
+    select: { id: true },
+  });
+  return first?.id ?? NO_CHAT;
+}
+
+/** Die Anfrage mit genau diesem Wert als chatId im Rumpf. */
+const raw = (chain, embed, chatId, user = null) =>
   invoke(chain, {
     params: { embedId: String(embed?.id ?? embed) },
-    body: conversationBody(conversationId),
+    body: conversationBody(chatId),
     token: user?.token ?? null,
   });
-const deleteConversation = (embed, conversationId, user) =>
-  call(DELETE_CONVERSATION, embed, conversationId, user);
-const deleteVisitor = (embed, conversationId, user) =>
-  call(DELETE_VISITOR, embed, conversationId, user);
-const preview = (embed, conversationId, user) =>
-  call(PREVIEW, embed, conversationId, user);
+/**
+ * `target` bezeichnet die Konversation: als Zahl die id einer Zeile, als
+ * Text die Kennung, die ihre Karte in der Liste dieses Widgets zeigt.
+ */
+const call = async (chain, embed, target, user = null) =>
+  raw(
+    chain,
+    embed,
+    typeof target === "string" ? await card(embed, target) : target,
+    user
+  );
+const deleteConversation = (embed, target, user) =>
+  call(DELETE_CONVERSATION, embed, target, user);
+const deleteVisitor = (embed, target, user) =>
+  call(DELETE_VISITOR, embed, target, user);
+const preview = (embed, target, user) => call(PREVIEW, embed, target, user);
 
 /** Die aufgeklappte Konversation: ihre Nachrichten, wie die Karte sie lädt. */
-async function shown(embed, conversationId, user) {
+async function shown(embed, target, user) {
+  const chatId =
+    typeof target === "string" ? await card(embed, target) : target;
   const result = await invoke(DETAIL, {
-    params: { embedId: String(embed.id), sessionId: conversationId },
+    params: { embedId: String(embed.id), chatId: String(chatId) },
     token: user?.token ?? null,
   });
   expect(result.statusCode).toBe(200);
   return result.body.messages;
 }
 
-/** IDs der Konversationen, die die Liste des Widgets zeigt. */
-async function listed(embed, user) {
+/** Die Konversationen, die die Liste des Widgets zeigt, nach ihrer ID. */
+async function cards(embed, user) {
   const result = await invoke(CONVERSATIONS, {
     params: { embedId: String(embed.id) },
     body: conversationsBody({ limit: 100 }),
     token: user?.token ?? null,
   });
   expect(result.statusCode).toBe(200);
-  return result.body.conversations.map((c) => c.conversation_id).sort();
+  return result.body.conversations.sort(
+    (a, b) =>
+      a.conversation_id.localeCompare(b.conversation_id) ||
+      a.first_chat_id - b.first_chat_id
+  );
 }
+
+/** IDs der Konversationen, die die Liste des Widgets zeigt. */
+const listed = async (embed, user) =>
+  (await cards(embed, user)).map((c) => c.conversation_id).sort();
 
 const chatIds = async (where = {}) =>
   (
@@ -316,7 +366,7 @@ describe("loescht_genau_diese (AK-6)", () => {
     ).toBe(0);
     // Die aufgeklappte Ansicht findet nichts mehr.
     const detail = await invoke(DETAIL, {
-      params: { embedId: String(embed.id), sessionId: "ziel" },
+      params: { embedId: String(embed.id), chatId: String(target[0].id) },
       token: kunde.token,
     });
     expect(detail.body).toEqual({ success: true, messages: [] });
@@ -350,15 +400,21 @@ describe("loescht_genau_diese (AK-6)", () => {
       body: conversationsBody({ limit: 100 }),
       token: kunde.token,
     });
-    expect(
-      list.body.conversations.find((c) => c.conversation_id === "ziel")
-        .message_count
-    ).toBe(1);
-    // … die Vorschau nennt, was wirklich gelöscht wird.
-    const before = await preview(embed, "ziel", kunde);
+    const shownCard = list.body.conversations.find(
+      (c) => c.conversation_id === "ziel"
+    );
+    expect(shownCard.message_count).toBe(1);
+    // … und nennt als erste Zeile die eine, die noch einsehbar ist.
+    expect(shownCard.first_chat_id).toBe(target[3].id);
+    // Die Vorschau nennt, was wirklich gelöscht wird.
+    const before = await preview(embed, shownCard.first_chat_id, kunde);
     expect(before.body.messageCount).toBe(4);
 
-    const result = await deleteConversation(embed, "ziel", kunde);
+    const result = await deleteConversation(
+      embed,
+      shownCard.first_chat_id,
+      kunde
+    );
     expect(result.body).toEqual({ success: true, deletedCount: 4 });
     expect(
       await db.client.embed_chats.count({
@@ -411,17 +467,24 @@ describe("loescht_genau_diese (AK-6)", () => {
       data: { include: false },
     });
 
-    const ids = await listed(embed, kunde);
-    expect(ids).toEqual(["besucher-1", "fremd", "nachbar", "ziel"]);
-    for (const id of ids) {
-      const visible = (await shown(embed, id, kunde))
+    // Jede Karte der Liste, über die Zeile, die die Liste nennt.
+    const list = await cards(embed, kunde);
+    expect(list.map((c) => c.conversation_id)).toEqual([
+      "besucher-1",
+      "fremd",
+      "nachbar",
+      "ziel",
+    ]);
+    expect(list.at(-1).first_chat_id).toBe(target[1].id);
+    for (const { conversation_id: id, first_chat_id: chatId } of list) {
+      const visible = (await shown(embed, chatId, kunde))
         .map((m) => m.id)
         .sort((a, b) => a - b);
-      const look = await preview(embed, id, kunde);
+      const look = await preview(embed, chatId, kunde);
       expect([id, look.body.messageCount]).toEqual([id, visible.length]);
 
       const before = await chatIds();
-      const result = await deleteConversation(embed, id, kunde);
+      const result = await deleteConversation(embed, chatId, kunde);
       expect([id, result.body]).toEqual([
         id,
         { success: true, deletedCount: visible.length },
@@ -431,7 +494,7 @@ describe("loescht_genau_diese (AK-6)", () => {
         id,
         visible,
       ]);
-      expect(await shown(embed, id, kunde)).toEqual([]);
+      expect(await shown(embed, chatId, kunde)).toEqual([]);
     }
     // Übrig ist nur das andere Widget.
     expect(
@@ -440,20 +503,135 @@ describe("loescht_genau_diese (AK-6)", () => {
     expect(await db.client.embed_chats.count()).toBe(2);
   });
 
-  test("loescht_genau_diese: Die session_id einer Sitzung ohne Alt-Zeilen bezeichnet keine Konversation - nichts wird gelöscht", async () => {
-    const before = await chatIds();
-    const result = await deleteConversation(embed, "besucher-2", kunde);
-    expect(result.statusCode).toBe(404);
-    expect(result.body).toEqual({ success: false, error: expect.any(String) });
-    expect(await chatIds()).toEqual(before);
-    expect(await db.client.event_logs.count()).toBe(0);
+  // Die conversation_id vergibt der Besucher: Der öffentliche Chat-Endpunkt
+  // speichert jede gesendete Kennung. Wer die Chat-ID eines anderen kennt,
+  // kann sie aus seiner eigenen Sitzung senden.
+  test("loescht_genau_diese: Dieselbe Kennung aus einer zweiten Browser-Sitzung ist eine zweite Konversation - Liste, Einzelansicht, Vorschau und Löschen meinen die eine Karte, die andere bleibt", async () => {
+    const [intruder] = await converse(embed, {
+      conversation: "ziel",
+      session: "besucher-3",
+      n: 1,
+      at: new Date(T0().getTime() + 2 * DAY),
+    });
+    const list = (await cards(embed, kunde)).filter(
+      (c) => c.conversation_id === "ziel"
+    );
+    expect(
+      list.map((c) => [c.session_id, c.first_chat_id, c.message_count])
+    ).toEqual([
+      ["besucher-1", target[0].id, 4],
+      ["besucher-3", intruder.id, 1],
+    ]);
+    const [own, foreign] = list.map((c) => c.first_chat_id);
+
+    // Die Karte der zweiten Sitzung: eine Nachricht, nicht fünf.
+    expect((await shown(embed, foreign, kunde)).map((m) => m.id)).toEqual([
+      intruder.id,
+    ]);
+    expect((await preview(embed, foreign, kunde)).body).toEqual({
+      success: true,
+      messageCount: 1,
+      visitor: { conversationCount: 1, messageCount: 1 },
+    });
+    expect((await shown(embed, own, kunde)).map((m) => m.id)).toEqual(
+      target.map((chat) => chat.id)
+    );
+    expect((await preview(embed, own, kunde)).body).toEqual({
+      success: true,
+      messageCount: 4,
+      visitor: { conversationCount: 3, messageCount: 8 },
+    });
+
+    const result = await deleteConversation(embed, foreign, kunde);
+    expect(result.body).toEqual({ success: true, deletedCount: 1 });
+    expect(await chatIds()).toEqual(
+      [...target, ...others].map((chat) => chat.id).sort((a, b) => a - b)
+    );
+    expect(await listed(embed, kunde)).toEqual([
+      "besucher-1",
+      "fremd",
+      "nachbar",
+      "ziel",
+    ]);
+
+    // … und umgekehrt: Die Karte der ersten Sitzung lässt die zweite stehen.
+    const [again] = await converse(embed, {
+      conversation: "ziel",
+      session: "besucher-3",
+      n: 1,
+      at: new Date(T0().getTime() + 2 * DAY),
+    });
+    expect((await deleteConversation(embed, own, kunde)).body).toEqual({
+      success: true,
+      deletedCount: 4,
+    });
+    expect(await chatIds()).toEqual(
+      [...others, again].map((chat) => chat.id).sort((a, b) => a - b)
+    );
+  });
+
+  test("loescht_genau_diese: Auch die session_id eines anderen als Kennung trifft dessen Alt-Konversation nicht - und dessen „alle Konversationen dieses Besuchers“ bleibt möglich", async () => {
+    // Für die erste Konversation eines Widgets ist die Kennung die session_id.
+    const [intruder] = await converse(embed, {
+      conversation: "besucher-1",
+      session: "besucher-3",
+      n: 1,
+      at: new Date(T0().getTime() + 2 * DAY),
+    });
+    const list = (await cards(embed, kunde)).filter(
+      (c) => c.conversation_id === "besucher-1"
+    );
+    expect(list.map((c) => [c.session_id, c.message_count])).toEqual([
+      ["besucher-1", 2],
+      ["besucher-3", 1],
+    ]);
+    const [own, foreign] = list.map((c) => c.first_chat_id);
+
+    expect((await preview(embed, own, kunde)).body).toEqual({
+      success: true,
+      messageCount: 2,
+      visitor: { conversationCount: 3, messageCount: 8 },
+    });
+    const result = await deleteConversation(embed, foreign, kunde);
+    expect(result.body).toEqual({ success: true, deletedCount: 1 });
+    expect(await chatIds()).toEqual(
+      [...target, ...others].map((chat) => chat.id).sort((a, b) => a - b)
+    );
+
+    // Mit der zweiten Sitzung im Bestand: alle acht Zeilen der ersten, nur die.
+    const [again] = await converse(embed, {
+      conversation: "besucher-1",
+      session: "besucher-3",
+      n: 1,
+      at: new Date(T0().getTime() + 2 * DAY),
+    });
+    const all = await deleteVisitor(embed, own, kunde);
+    expect(all.statusCode).toBe(200);
+    expect(all.body).toEqual({
+      success: true,
+      deletedCount: 8,
+      conversationCount: 3,
+    });
+    expect(
+      await db.client.embed_chats.findMany({
+        where: { embed_id: embed.id },
+        orderBy: { id: "asc" },
+        select: { id: true, session_id: true },
+      })
+    ).toEqual([
+      ...others
+        .filter((chat) => chat.session_id === "besucher-2")
+        .map((chat) => ({ id: chat.id, session_id: "besucher-2" })),
+      { id: again.id, session_id: "besucher-3" },
+    ]);
   });
 
   test("loescht_genau_diese: ein zweites Löschen findet nichts mehr - 404, kein weiteres Ereignis", async () => {
-    expect((await deleteConversation(embed, "ziel", kunde)).statusCode).toBe(
+    const chatId = await card(embed, "ziel");
+    expect((await deleteConversation(embed, chatId, kunde)).statusCode).toBe(
       200
     );
-    const again = await deleteConversation(embed, "ziel", kunde);
+    const again = await deleteConversation(embed, chatId, kunde);
     expect(again.statusCode).toBe(404);
     expect(again.body.success).toBe(false);
     expect(
@@ -518,13 +696,19 @@ describe("loescht_genau_diese (AK-6)", () => {
     expect(await db.client.event_logs.count()).toBe(0);
   });
 
-  test("loescht_genau_diese: eine einzige Löschanweisung, gebunden an Widget und Konversation - das Modell meldet die Zahl der Zeilen, bei einem Datenbankfehler null", async () => {
+  test("loescht_genau_diese: eine einzige Löschanweisung, gebunden an Widget, Sitzung und Kennung - das Modell meldet die Zahl der Zeilen, bei einem Datenbankfehler null", async () => {
     const deleteMany = jest.spyOn(db.client.embed_chats, "deleteMany");
-    expect(await EmbedChats.deleteConversation(embed.id, "ziel")).toBe(4);
+    const findFirst = jest.spyOn(db.client.embed_chats, "findFirst");
+    // jede Zeile der Konversation bezeichnet sie, nicht nur die erste
+    expect(await EmbedChats.deleteConversation(embed.id, target[2].id)).toBe(4);
+    expect(findFirst.mock.calls.map(([args]) => args.where)).toEqual([
+      { id: target[2].id, embed_id: embed.id },
+    ]);
     expect(deleteMany).toHaveBeenCalledTimes(1);
     expect(deleteMany.mock.calls[0][0]).toEqual({
       where: {
         embed_id: embed.id,
+        session_id: "besucher-1",
         OR: [
           { conversation_id: "ziel" },
           { conversation_id: null, session_id: "ziel" },
@@ -533,30 +717,57 @@ describe("loescht_genau_diese (AK-6)", () => {
     });
 
     // Unbrauchbare Angaben: kein Datenbankzugriff, 0 Zeilen
+    const nachbar = await card(embed, "nachbar");
     deleteMany.mockClear();
-    for (const [embedId, conversationId] of [
+    findFirst.mockClear();
+    for (const [embedId, chatId] of [
       [embed.id, ""],
       [embed.id, null],
       [embed.id, undefined],
-      [embed.id, { conversation_id: "nachbar" }],
-      [embed.id, ["nachbar"]],
-      [0, "nachbar"],
-      [-1, "nachbar"],
-      [NaN, "nachbar"],
-      ["abc", "nachbar"],
-      [null, "nachbar"],
+      [embed.id, { id: nachbar }],
+      [embed.id, [nachbar]],
+      [embed.id, true],
+      [embed.id, 0],
+      [embed.id, -nachbar],
+      [embed.id, nachbar + 0.5],
+      [embed.id, NaN],
+      [embed.id, Infinity],
+      [embed.id, 2 ** 53],
+      [embed.id, "nachbar"],
+      [embed.id, `${nachbar} `],
+      [embed.id, `0${nachbar}`],
+      [embed.id, `${nachbar}.0`],
+      [embed.id, `${nachbar}e0`],
+      [embed.id, `0x${nachbar.toString(16)}`],
+      [0, nachbar],
+      [-1, nachbar],
+      [NaN, nachbar],
+      ["abc", nachbar],
+      [null, nachbar],
     ])
-      expect(await EmbedChats.deleteConversation(embedId, conversationId)).toBe(
-        0
-      );
+      expect([
+        String(chatId),
+        await EmbedChats.deleteConversation(embedId, chatId),
+      ]).toEqual([String(chatId), 0]);
+    expect(findFirst).not.toHaveBeenCalled();
+    // Eine Zeile, die es nicht gibt, und die Zeile eines anderen Widgets:
+    // nachgesehen, nichts gelöscht.
+    expect(await EmbedChats.deleteConversation(embed.id, NO_CHAT)).toBe(0);
+    expect(await EmbedChats.deleteConversation(otherEmbed.id, nachbar)).toBe(0);
+    expect(findFirst).toHaveBeenCalledTimes(2);
     expect(deleteMany).not.toHaveBeenCalled();
     expect(await db.client.embed_chats.count()).toBe(9);
+    // Die Ziffernfolge aus einem Pfadabschnitt gilt wie die Zahl.
+    expect(await shown(embed, nachbar, kunde)).toHaveLength(2);
 
     deleteMany.mockRejectedValueOnce(new Error("database is locked"));
-    expect(await EmbedChats.deleteConversation(embed.id, "nachbar")).toBeNull();
+    expect(await EmbedChats.deleteConversation(embed.id, nachbar)).toBeNull();
+    findFirst.mockRejectedValueOnce(new Error("database is locked"));
+    expect(await EmbedChats.deleteConversation(embed.id, nachbar)).toBeNull();
     deleteMany.mockRejectedValueOnce(new Error("database is locked"));
-    const failed = await deleteConversation(embed, "nachbar", kunde);
+    const failed = await deleteConversation(embed, nachbar, kunde);
     expect(failed.statusCode).toBe(500);
+    expect(await db.client.embed_chats.count()).toBe(9);
     expect(await db.client.event_logs.count()).toBe(0);
   });
 });
@@ -840,9 +1051,8 @@ describe("ganze_sitzung (AK-12)", () => {
     );
   });
 
-  test("ganze_sitzung: Die session_id einer Sitzung ohne Alt-Zeilen bezeichnet keine Konversation - die Vorschau nennt nichts, gelöscht wird nichts", async () => {
-    // Zwei Konversationen mit eigener Kennung, keine Zeile ohne.
-    await converse(embed, {
+  test("ganze_sitzung: Eine Karte, deren Zeilen inzwischen gelöscht sind, bezeichnet keine Sitzung mehr - die Vorschau nennt nichts, gelöscht wird nichts", async () => {
+    const [first] = await converse(embed, {
       conversation: "n-1",
       session: "neuer-besucher",
       n: 2,
@@ -854,25 +1064,34 @@ describe("ganze_sitzung (AK-12)", () => {
       n: 3,
       at: new Date(T0().getTime() + DAY),
     });
+    expect((await preview(embed, first.id, kunde)).body).toEqual({
+      success: true,
+      messageCount: 2,
+      visitor: { conversationCount: 2, messageCount: 5 },
+    });
+    // Die Konversation verschwindet (Aufbewahrungsfrist, ein anderer Nutzer),
+    // die Karte steht noch im Browser.
+    await db.client.embed_chats.deleteMany({
+      where: { conversation_id: "n-1" },
+    });
     const before = await chatIds();
-    expect(await listed(embed, kunde)).not.toContain("neuer-besucher");
 
-    expect((await preview(embed, "neuer-besucher", kunde)).body).toEqual({
+    expect((await preview(embed, first.id, kunde)).body).toEqual({
       success: true,
       messageCount: 0,
       visitor: null,
     });
-    const result = await deleteVisitor(embed, "neuer-besucher", kunde);
+    const result = await deleteVisitor(embed, first.id, kunde);
     expect(result.statusCode).toBe(404);
     expect(result.body).toEqual({ success: false, error: expect.any(String) });
     expect(await chatIds()).toEqual(before);
     expect(await db.client.event_logs.count()).toBe(0);
 
-    // Über eine ihrer Konversationen ist die Sitzung dagegen bestimmt.
-    expect((await preview(embed, "n-1", kunde)).body).toEqual({
+    // Über ihre andere Konversation ist die Sitzung weiter bestimmt.
+    expect((await preview(embed, "n-2", kunde)).body).toEqual({
       success: true,
-      messageCount: 2,
-      visitor: { conversationCount: 2, messageCount: 5 },
+      messageCount: 3,
+      visitor: { conversationCount: 1, messageCount: 3 },
     });
   });
 
@@ -892,36 +1111,48 @@ describe("ganze_sitzung (AK-12)", () => {
     ).toBe(12);
   });
 
-  test("ganze_sitzung: Gehören die Zeilen einer Konversation zu mehr als einer Sitzung, wird nichts gelöscht (409) und nichts angeboten", async () => {
+  test("ganze_sitzung: Dieselbe Kennung aus einer zweiten Sitzung nimmt das Angebot nicht weg (kein 409) - gelöscht wird die Sitzung der Karte, die andere bleibt", async () => {
     // Dieselbe conversation_id, von einer zweiten Sitzung gesendet
-    await converse(embed, {
+    const [intruder] = await converse(embed, {
       conversation: "k-1",
       session: "anderer",
       n: 1,
       at: T0(),
     });
-    const before = await chatIds();
+    const own = await card(embed, "k-1", "besucher");
 
-    expect((await preview(embed, "k-1", kunde)).body).toEqual({
+    expect((await preview(embed, own, kunde)).body).toEqual({
       success: true,
-      messageCount: 5,
-      visitor: null,
+      messageCount: 4,
+      visitor: { conversationCount: 4, messageCount: 11 },
     });
-    const result = await deleteVisitor(embed, "k-1", kunde);
-    expect(result.statusCode).toBe(409);
-    expect(result.body).toEqual({ success: false, error: expect.any(String) });
-    expect(await chatIds()).toEqual(before);
-    expect(await db.client.event_logs.count()).toBe(0);
+    // Die Karte der zweiten Sitzung nennt deren Bestand: a-1 und k-1.
+    expect((await preview(embed, intruder.id, kunde)).body).toEqual({
+      success: true,
+      messageCount: 1,
+      visitor: { conversationCount: 2, messageCount: 3 },
+    });
+
+    const result = await deleteVisitor(embed, own, kunde);
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toEqual({
+      success: true,
+      deletedCount: 11,
+      conversationCount: 4,
+    });
+    expect(await chatIds()).toEqual(
+      [...survivors, intruder].map((chat) => chat.id).sort((a, b) => a - b)
+    );
   });
 
-  test("ganze_sitzung: unbekannte Konversation und Konversation eines anderen Widgets - 404, nichts gelöscht", async () => {
+  test("ganze_sitzung: unbekannte Zeile, Zeile eines anderen Widgets und unbrauchbare Angabe - 404, nichts gelöscht", async () => {
     const before = await chatIds();
-    for (const conversationId of ["gibt-es-nicht", "k-9", "%", "' OR 1=1 --"]) {
-      const result = await deleteVisitor(embed, conversationId, kunde);
-      expect([conversationId, result.statusCode]).toEqual([
-        conversationId,
-        404,
-      ]);
+    // k-9: dieselbe Sitzungs-Kennung, aber im anderen Widget
+    const elsewhere = await card(otherEmbed, "k-9");
+    expect(elsewhere).not.toBe(NO_CHAT);
+    for (const chatId of [NO_CHAT, elsewhere, "k-1", "%", "' OR 1=1 --"]) {
+      const result = await raw(DELETE_VISITOR, embed, chatId, kunde);
+      expect([chatId, result.statusCode]).toEqual([chatId, 404]);
     }
     expect(await chatIds()).toEqual(before);
     expect(await db.client.event_logs.count()).toBe(0);
@@ -947,40 +1178,46 @@ describe("ganze_sitzung (AK-12)", () => {
 
   test("ganze_sitzung: eine einzige Löschanweisung, gebunden an Widget und Sitzung", async () => {
     const deleteMany = jest.spyOn(db.client.embed_chats, "deleteMany");
+    const other = await card(embed, "a-1");
     expect(
-      await EmbedChats.deleteVisitorConversations(embed.id, "k-2")
-    ).toEqual({
-      deletedCount: 11,
-      conversationCount: 4,
-      ambiguous: false,
-    });
+      await EmbedChats.deleteVisitorConversations(
+        embed.id,
+        await card(embed, "k-2")
+      )
+    ).toEqual({ deletedCount: 11, conversationCount: 4 });
     expect(deleteMany).toHaveBeenCalledTimes(1);
     expect(deleteMany.mock.calls[0][0]).toEqual({
       where: { embed_id: embed.id, session_id: "besucher" },
     });
 
     deleteMany.mockClear();
-    for (const [embedId, conversationId] of [
+    for (const [embedId, chatId] of [
       [embed.id, ""],
       [embed.id, null],
       [embed.id, { session_id: "anderer" }],
-      [0, "a-1"],
-      ["abc", "a-1"],
+      [embed.id, "a-1"],
+      [embed.id, "anderer"],
+      [embed.id, NO_CHAT],
+      [otherEmbed.id, other],
+      [0, other],
+      ["abc", other],
     ])
       expect(
-        await EmbedChats.deleteVisitorConversations(embedId, conversationId)
-      ).toEqual({ deletedCount: 0, conversationCount: 0, ambiguous: false });
+        await EmbedChats.deleteVisitorConversations(embedId, chatId)
+      ).toEqual({ deletedCount: 0, conversationCount: 0 });
     expect(deleteMany).not.toHaveBeenCalled();
   });
 });
 
 // ============================================================================
-// Die Kennung der Konversation steht im Rumpf, nie in der Adresse
+// Die Konversation bezeichnet der Rumpf, nie die Adresse - und nicht über
+// ihre Kennung
 // ============================================================================
 // Die conversation_id vergibt der Besucher (der öffentliche Chat-Endpunkt
 // speichert sie ungeprüft). Als Teil der Adresse würde ein Browser "." und
 // ".." als Pfadsegmente auflösen - aus „Konversation .. löschen" würde
-// DELETE /embed/:embedId, das Löschen des ganzen Widgets.
+// DELETE /embed/:embedId, das Löschen des ganzen Widgets. Im Rumpf steht die
+// id der ersten Zeile, wie die Liste sie nennt.
 describe("kennung_im_rumpf", () => {
   const express = require("express");
   const TRICKY = ["..", ".", "%2e%2e", "../..", "a/../../b", "x?y#z", "ä ö"];
@@ -1011,7 +1248,8 @@ describe("kennung_im_rumpf", () => {
    * ordnet sie einer Route zu. Der Rumpf ist Text, wie das Frontend ihn
    * sendet (JSON ohne Content-Type: bodyParser.text).
    */
-  function send(route, conversationId, user) {
+  async function send(route, conversationId, user) {
+    const chatId = await card(embed, conversationId);
     const address = `/api${route.path.replace(":embedId", embed.id)}`;
     const { pathname } = new URL(
       address,
@@ -1057,7 +1295,7 @@ describe("kennung_im_rumpf", () => {
         header: (name) => headers[String(name).toLowerCase()],
         params: {},
         query: {},
-        body: JSON.stringify(conversationBody(conversationId)),
+        body: JSON.stringify(conversationBody(chatId)),
       };
       router.handle(request, response, (error) =>
         error ? reject(error) : resolve({ ...result, statusCode: 404 })
@@ -1132,8 +1370,9 @@ describe("kennung_im_rumpf", () => {
     expect(await eventsOf(db.client, "embed_deleted")).toEqual([]);
   });
 
-  test("kennung_im_rumpf: ohne Kennung im Rumpf trifft die Anfrage keine Zeile - 404, nichts gelöscht; eine Kennung in der Adresse zählt nicht", async () => {
+  test("kennung_im_rumpf: ohne chatId im Rumpf trifft die Anfrage keine Zeile - 404, nichts gelöscht; die Kennung der Konversation und eine Angabe in der Adresse zählen nicht", async () => {
     const before = await tableChecksum(db.client, "embed_chats");
+    const chatId = rest[0].id;
     for (const body of [
       undefined,
       {},
@@ -1141,17 +1380,26 @@ describe("kennung_im_rumpf", () => {
       "null",
       "{}",
       '".."',
-      { conversationId: null },
-      { conversationId: "" },
-      { conversationId: ["bleibt"] },
-      { conversationId: { equals: "bleibt" } },
+      String(chatId),
+      { chatId: null },
+      { chatId: "" },
+      { chatId: [chatId] },
+      { chatId: { equals: chatId } },
+      { chatId: "bleibt" },
+      { chat_id: chatId },
+      { id: chatId },
+      { conversationId: "bleibt" },
       { conversation_id: "bleibt" },
       { sessionId: "anderer" },
     ])
       for (const chain of [DELETE_CONVERSATION, DELETE_VISITOR]) {
         const result = await invoke(chain, {
-          // wie früher in der Adresse: wird nicht gelesen
-          params: { embedId: String(embed.id), conversationId: "bleibt" },
+          // in der Adresse: wird nicht gelesen
+          params: {
+            embedId: String(embed.id),
+            chatId: String(chatId),
+            conversationId: "bleibt",
+          },
           body,
           token: kunde.token,
         });
@@ -1163,7 +1411,7 @@ describe("kennung_im_rumpf", () => {
     expect(
       (
         await invoke(PREVIEW, {
-          params: { embedId: String(embed.id), conversationId: "bleibt" },
+          params: { embedId: String(embed.id), chatId: String(chatId) },
           body: {},
           token: kunde.token,
         })
@@ -1175,7 +1423,7 @@ describe("kennung_im_rumpf", () => {
     // Der Rumpf als Text, wie das Frontend ihn sendet
     const result = await invoke(DELETE_CONVERSATION, {
       params: { embedId: String(embed.id) },
-      body: JSON.stringify(conversationBody("bleibt")),
+      body: JSON.stringify(conversationBody(chatId)),
       token: kunde.token,
     });
     expect(result.body).toEqual({ success: true, deletedCount: 3 });
@@ -1230,25 +1478,26 @@ describe("fremde_konversation (NAK-2)", () => {
     });
   });
 
-  test("fremde_konversation: conversationId eines anderen Workspaces über das eigene Widget - keine Zeile wird gelöscht", async () => {
+  test("fremde_konversation: Zeile einer Konversation eines anderen Workspaces über das eigene Widget - keine Zeile wird gelöscht, nichts wird gezeigt", async () => {
     const before = await tableChecksum(db.client, "embed_chats");
-    for (const conversationId of ["b-fremd", "s-b-alt", "s-b"]) {
+    // jede Zeile des fremden Widgets: b-fremd, Alt-Zeilen, doppelt
+    const foreign = await chatIds({ embed_id: widgetB.id });
+    expect(foreign).toHaveLength(9);
+    for (const chatId of foreign) {
       for (const chain of [DELETE_CONVERSATION, DELETE_VISITOR]) {
-        const result = await call(chain, widgetA, conversationId, kunde);
-        expect([conversationId, result.statusCode]).toEqual([
-          conversationId,
-          404,
-        ]);
+        const result = await raw(chain, widgetA, chatId, kunde);
+        expect([chatId, result.statusCode]).toEqual([chatId, 404]);
         expect(result.body).toEqual({
           success: false,
           error: expect.any(String),
         });
       }
-      expect((await preview(widgetA, conversationId, kunde)).body).toEqual({
+      expect((await preview(widgetA, chatId, kunde)).body).toEqual({
         success: true,
         messageCount: 0,
         visitor: null,
       });
+      expect(await shown(widgetA, chatId, kunde)).toEqual([]);
     }
     expect(await tableChecksum(db.client, "embed_chats")).toEqual(before);
     expect(await db.client.event_logs.count()).toBe(0);
@@ -1279,17 +1528,18 @@ describe("fremde_konversation (NAK-2)", () => {
     expect(await db.client.event_logs.count()).toBe(0);
   });
 
-  test("fremde_konversation: conversationId eines anderen Widgets desselben Workspaces - keine Zeile wird gelöscht", async () => {
+  test("fremde_konversation: Zeile einer Konversation eines anderen Widgets desselben Workspaces - keine Zeile wird gelöscht", async () => {
     const before = await tableChecksum(db.client, "embed_chats");
-    expect(
-      (await deleteConversation(widgetA, "a2-eigen", kunde)).statusCode
-    ).toBe(404);
-    expect(
-      (await deleteConversation(widgetA2, "a-eigen", kunde)).statusCode
-    ).toBe(404);
-    expect((await deleteVisitor(widgetA, "a2-eigen", kunde)).statusCode).toBe(
+    const inA = await card(widgetA, "a-eigen");
+    const inA2 = await card(widgetA2, "a2-eigen");
+    expect([inA, inA2]).not.toContain(NO_CHAT);
+    expect((await deleteConversation(widgetA, inA2, kunde)).statusCode).toBe(
       404
     );
+    expect((await deleteConversation(widgetA2, inA, kunde)).statusCode).toBe(
+      404
+    );
+    expect((await deleteVisitor(widgetA, inA2, kunde)).statusCode).toBe(404);
     expect(await tableChecksum(db.client, "embed_chats")).toEqual(before);
   });
 
@@ -1306,28 +1556,31 @@ describe("fremde_konversation (NAK-2)", () => {
     ).toBe(9);
   });
 
-  test("fremde_konversation: Platzhalter, SQL-Bruchstücke und Sonderzeichen als Kennung treffen keine Zeile", async () => {
+  test("fremde_konversation: Platzhalter, SQL-Bruchstücke, Sonderzeichen und die Kennung selbst als chatId treffen keine Zeile", async () => {
     const before = await tableChecksum(db.client, "embed_chats");
-    for (const conversationId of [
+    const own = await card(widgetA, "a-eigen");
+    for (const chatId of [
       "%",
       "_",
-      "a-%",
       "*",
       "' OR '1'='1",
-      "a-eigen' --",
-      'a-eigen" OR ""="',
-      "a-eigen\u0000",
-      " a-eigen",
+      `${own}' --`,
+      `${own} OR 1=1`,
+      `${own}" OR ""="`,
+      `${own}\u0000`,
+      ` ${own}`,
+      `+${own}`,
+      `-${own}`,
+      `${own}.0`,
+      "a-eigen",
       "A-EIGEN",
+      "s-a",
       "null",
       "undefined",
     ])
       for (const chain of [DELETE_CONVERSATION, DELETE_VISITOR]) {
-        const result = await call(chain, widgetA, conversationId, kunde);
-        expect([conversationId, result.statusCode]).toEqual([
-          conversationId,
-          404,
-        ]);
+        const result = await raw(chain, widgetA, chatId, kunde);
+        expect([chatId, result.statusCode]).toEqual([chatId, 404]);
       }
     expect(await tableChecksum(db.client, "embed_chats")).toEqual(before);
     expect(await db.client.event_logs.count()).toBe(0);

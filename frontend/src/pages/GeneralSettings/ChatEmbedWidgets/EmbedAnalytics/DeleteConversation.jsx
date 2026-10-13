@@ -31,7 +31,7 @@ const ACTION_CLASS =
 /**
  * @param {Object} props
  * @param {number} props.embedId
- * @param {{conversation_id: string, preview?: string, message_count: number}} props.conversation - Eintrag der Liste
+ * @param {{first_chat_id: number, preview?: string, message_count: number}} props.conversation - Eintrag der Liste
  * @param {() => void} props.onDeleted - nach dem Löschen (auch nach einem Fehlschlag: Die Liste lädt dann den tatsächlichen Stand)
  */
 export default function DeleteConversation({
@@ -45,22 +45,21 @@ export default function DeleteConversation({
   // offene Rückfrage: null | "conversation" | "visitor"
   const [dialog, setDialog] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const conversationId = conversation.conversation_id;
+  // Die Karte der Liste: ihre erste Zeile. Die conversation_id vergibt der
+  // Besucher, eine zweite Sitzung kann dieselbe tragen.
+  const chatId = conversation.first_chat_id;
 
   useEffect(() => {
     let ignore = false;
     async function loadPreview() {
-      const data = await Embed.getConversationDeletionPreview(
-        embedId,
-        conversationId
-      );
+      const data = await Embed.getConversationDeletionPreview(embedId, chatId);
       if (!ignore && data?.success) setPreview(data);
     }
     loadPreview();
     return () => {
       ignore = true;
     };
-  }, [embedId, conversationId]);
+  }, [embedId, chatId]);
 
   // Die Liste zählt nur einsehbare Nachrichten im Zeitraum; gelöscht wird die
   // ganze Konversation – die Rückfrage nennt die Zahl vom Server.
@@ -76,8 +75,8 @@ export default function DeleteConversation({
     setDeleting(true);
     const wholeVisitor = dialog === "visitor";
     const result = wholeVisitor
-      ? await Embed.deleteVisitorConversations(embedId, conversationId)
-      : await Embed.deleteConversation(embedId, conversationId);
+      ? await Embed.deleteVisitorConversations(embedId, chatId)
+      : await Embed.deleteConversation(embedId, chatId);
     setDeleting(false);
     setDialog(null);
 

@@ -989,17 +989,17 @@ const EmbedChats = {
    * Analytics: Get all messages for a specific conversation
    * KIE-538: derselbe Begriff von „Konversation" wie Liste, Export und
    * Löschen ({@link EmbedChats._conversationScope}) - die aufgeklappte
-   * Konversation zeigt genau die Zeilen, die „Konversation löschen" entfernt.
-   * Die session_id bezeichnet nur noch die Alt-Zeilen ohne conversation_id,
-   * nicht mehr alle Konversationen der Browser-Sitzung.
-   * @param {string} conversationId - The conversation ID (or session ID for backwards compatibility)
+   * Konversation zeigt genau die Zeilen, die „Konversation löschen" entfernt:
+   * die der Karte, nicht alle Konversationen der Browser-Sitzung und nicht
+   * die Zeilen einer anderen Sitzung mit derselben Kennung.
+   * @param {number|string} chatId - id einer Zeile der Konversation; die Liste nennt die erste (first_chat_id)
    * @param {number} embedId - The embed config ID
    * @returns {Promise<Array>} Array of chat messages
    */
-  getConversationDetails: async function (conversationId, embedId) {
-    const scope = EmbedChats._conversationScope(embedId, conversationId);
-    if (!scope) return [];
+  getConversationDetails: async function (chatId, embedId) {
     try {
+      const scope = await EmbedChats._conversationScope(embedId, chatId);
+      if (!scope) return [];
       return await prisma.embed_chats.findMany({
         where: scope.where,
         orderBy: { createdAt: "asc" },
@@ -1023,27 +1023,45 @@ const EmbedChats = {
 
   /**
    * KIE-538: Die Zeilen EINER Konversation eines Widgets - derselbe Begriff
-   * wie in der Liste ({@link EmbedChats._conversationGroupsSql}):
-   * COALESCE(conversation_id, session_id) = conversationId innerhalb des
-   * Widgets. Zeilen mit eigener conversation_id gehören nur über diese dazu;
-   * Alt-Zeilen ohne conversation_id über ihre session_id. Andere
-   * Konversationen derselben Browser-Sitzung gehören nicht dazu.
+   * wie in der Liste ({@link EmbedChats._conversationGroupsSql}): dieselbe
+   * Browser-Sitzung UND dieselbe Kennung COALESCE(conversation_id,
+   * session_id). Andere Konversationen derselben Sitzung gehören nicht dazu.
+   *
+   * Bezeichnet wird die Konversation über die id einer ihrer Zeilen (die
+   * Liste nennt die erste, first_chat_id), nicht über ihre Kennung: Die
+   * conversation_id vergibt der Besucher (der öffentliche Chat-Endpunkt
+   * speichert sie ungeprüft). Sendet eine zweite Sitzung dieselbe Kennung,
+   * sind das in der Liste zwei Konversationen - und hier auch; über die
+   * Kennung allein würde mit der einen die andere gelöscht.
+   *
    * Ohne include-Filter: Gemeint sind alle Zeilen, auch die vom Besucher
    * geleerten.
    * @param {number|string} embedId
-   * @param {string} conversationId
-   * @returns {{id: number, key: string, where: object}|null} - null, wenn die
-   *   Angaben kein Widget und keine Konversation bezeichnen
+   * @param {number|string} chatId - Zahl oder Ziffernfolge (Pfadabschnitt)
+   * @returns {Promise<{id: number, sessionId: string, where: object}|null>} -
+   *   null, wenn die Angaben kein Widget und keine seiner Zeilen bezeichnen
    */
-  _conversationScope: function (embedId, conversationId) {
+  _conversationScope: async function (embedId, chatId) {
     const id = Number(embedId);
-    const key = typeof conversationId === "string" ? conversationId : "";
-    if (!Number.isInteger(id) || id <= 0 || key === "") return null;
+    const rowId =
+      typeof chatId === "string" && /^[1-9]\d*$/.test(chatId)
+        ? Number(chatId)
+        : chatId;
+    if (!Number.isInteger(id) || id <= 0) return null;
+    if (!Number.isSafeInteger(rowId) || rowId <= 0) return null;
+
+    const row = await prisma.embed_chats.findFirst({
+      where: { id: rowId, embed_id: id },
+      select: { conversation_id: true, session_id: true },
+    });
+    if (!row) return null;
+    const key = row.conversation_id ?? row.session_id;
     return {
       id,
-      key,
+      sessionId: row.session_id,
       where: {
         embed_id: id,
+        session_id: row.session_id,
         OR: [
           { conversation_id: key },
           { conversation_id: null, session_id: key },
@@ -1056,18 +1074,19 @@ const EmbedChats = {
    * KIE-538: Löscht eine Konversation eines Widgets - alle ihre Zeilen, auch
    * die mit include = 0: Wer die Löschung einer Konversation verlangt, meint
    * auch das, was der Besucher im Widget bereits geleert hat.
-   * Eine einzige Löschanweisung, gebunden an embed_id UND Konversation; eine
-   * conversationId eines anderen Widgets trifft keine Zeile. Das Zählerbuch
-   * (message_ledger) wird nicht angefasst - Kennzahlen, Diagramm und
-   * Kontingent bleiben, wie sie sind (KIE-532).
+   * Eine einzige Löschanweisung, gebunden an embed_id, Sitzung UND Kennung
+   * ({@link EmbedChats._conversationScope}); die Zeile eines anderen Widgets
+   * bezeichnet hier keine Konversation. Das Zählerbuch (message_ledger) wird
+   * nicht angefasst - Kennzahlen, Diagramm und Kontingent bleiben, wie sie
+   * sind (KIE-532).
    * @param {number|string} embedId
-   * @param {string} conversationId - wie in der Liste (conversation_id, für Alt-Zeilen die session_id)
+   * @param {number|string} chatId - id einer Zeile der Konversation (first_chat_id der Liste)
    * @returns {Promise<number|null>} - Zahl der gelöschten Zeilen; null bei einem Datenbankfehler
    */
-  deleteConversation: async function (embedId, conversationId) {
-    const scope = EmbedChats._conversationScope(embedId, conversationId);
-    if (!scope) return 0;
+  deleteConversation: async function (embedId, chatId) {
     try {
+      const scope = await EmbedChats._conversationScope(embedId, chatId);
+      if (!scope) return 0;
       const { count } = await prisma.embed_chats.deleteMany({
         where: scope.where,
       });
@@ -1076,32 +1095,6 @@ const EmbedChats = {
       console.error("deleteConversation error:", error.message);
       return null;
     }
-  },
-
-  /**
-   * KIE-538: Zahl der Zeilen einer Konversation und die Browser-Sitzung, zu
-   * der sie gehört. Die Sitzung ist nur dann bestimmt, wenn alle Zeilen der
-   * Konversation aus derselben Sitzung stammen.
-   * @param {{id: number, key: string}} scope - aus {@link EmbedChats._conversationScope}
-   * @returns {Promise<{messageCount: number, sessionId: string|null}>}
-   */
-  _conversationSession: async function ({ id, key }) {
-    const [row] = await prisma.$queryRaw`
-      SELECT
-        COUNT(*) as messages,
-        COUNT(DISTINCT session_id) as sessions,
-        MIN(session_id) as session_id
-      FROM embed_chats
-      WHERE embed_id = ${id}
-        AND (
-          conversation_id = ${key}
-          OR (conversation_id IS NULL AND session_id = ${key})
-        )
-    `;
-    return {
-      messageCount: Number(row?.messages || 0),
-      sessionId: Number(row?.sessions || 0) === 1 ? row.session_id : null,
-    };
   },
 
   /**
@@ -1127,25 +1120,20 @@ const EmbedChats = {
    * KIE-538: Was das Löschen einer Konversation entfernen würde - nur Zahlen,
    * keine Inhalte und keine Sitzungs-Kennung. `visitor` nennt, was die
    * Browser-Sitzung dieser Konversation im selben Widget insgesamt hat
-   * (einschließlich dieser Konversation); null, wenn die Konversation keiner
-   * einzelnen Sitzung zuzuordnen ist.
+   * (einschließlich dieser Konversation); null, wenn es die Konversation
+   * nicht (mehr) gibt.
    * @param {number|string} embedId
-   * @param {string} conversationId
+   * @param {number|string} chatId - id einer Zeile der Konversation (first_chat_id der Liste)
    * @returns {Promise<{messageCount: number, visitor: {conversationCount: number, messageCount: number}|null}|null>}
    *   null bei einem Datenbankfehler
    */
-  conversationDeletionPreview: async function (embedId, conversationId) {
-    const scope = EmbedChats._conversationScope(embedId, conversationId);
-    if (!scope) return { messageCount: 0, visitor: null };
+  conversationDeletionPreview: async function (embedId, chatId) {
     try {
-      const { messageCount, sessionId } =
-        await EmbedChats._conversationSession(scope);
+      const scope = await EmbedChats._conversationScope(embedId, chatId);
+      if (!scope) return { messageCount: 0, visitor: null };
       return {
-        messageCount,
-        visitor:
-          sessionId === null
-            ? null
-            : await EmbedChats._sessionTotals(scope.id, sessionId),
+        messageCount: await prisma.embed_chats.count({ where: scope.where }),
+        visitor: await EmbedChats._sessionTotals(scope.id, scope.sessionId),
       };
     } catch (error) {
       console.error("conversationDeletionPreview error:", error.message);
@@ -1157,33 +1145,28 @@ const EmbedChats = {
    * KIE-538 (AK-12): Löscht alle Konversationen der Browser-Sitzung, zu der
    * diese Konversation gehört - in diesem Widget, alle Zeilen (auch
    * include = 0). Konversationen anderer Sitzungen und anderer Widgets
-   * bleiben. Die Sitzung wird auf dem Server aus der Konversation bestimmt;
-   * stammen deren Zeilen aus mehr als einer Sitzung, wird nichts gelöscht.
+   * bleiben, auch wenn sie dieselbe Kennung tragen. Die Sitzung bestimmt der
+   * Server aus der Zeile ({@link EmbedChats._conversationScope}).
    * Eine einzige Löschanweisung, gebunden an embed_id UND session_id; das
    * Zählerbuch wird nicht angefasst.
    * @param {number|string} embedId
-   * @param {string} conversationId
-   * @returns {Promise<{deletedCount: number, conversationCount: number, ambiguous: boolean}|null>}
+   * @param {number|string} chatId - id einer Zeile der Konversation (first_chat_id der Liste)
+   * @returns {Promise<{deletedCount: number, conversationCount: number}|null>}
    *   null bei einem Datenbankfehler
    */
-  deleteVisitorConversations: async function (embedId, conversationId) {
-    const nothing = { deletedCount: 0, conversationCount: 0, ambiguous: false };
-    const scope = EmbedChats._conversationScope(embedId, conversationId);
-    if (!scope) return nothing;
+  deleteVisitorConversations: async function (embedId, chatId) {
     try {
-      const { messageCount, sessionId } =
-        await EmbedChats._conversationSession(scope);
-      if (messageCount === 0) return nothing;
-      if (sessionId === null) return { ...nothing, ambiguous: true };
+      const scope = await EmbedChats._conversationScope(embedId, chatId);
+      if (!scope) return { deletedCount: 0, conversationCount: 0 };
 
       const { conversationCount } = await EmbedChats._sessionTotals(
         scope.id,
-        sessionId
+        scope.sessionId
       );
       const { count } = await prisma.embed_chats.deleteMany({
-        where: { embed_id: scope.id, session_id: sessionId },
+        where: { embed_id: scope.id, session_id: scope.sessionId },
       });
-      return { deletedCount: count, conversationCount, ambiguous: false };
+      return { deletedCount: count, conversationCount };
     } catch (error) {
       console.error("deleteVisitorConversations error:", error.message);
       return null;
