@@ -14,6 +14,7 @@
 //   --keep   Datei behalten und beim nächsten Lauf wiederverwenden
 //   --runs   Messläufe je Fall (nach einem Aufwärmlauf)     Vorgabe 5
 //   --no-export  Export nicht messen
+//   --no-visible Nachfilter im sichtbaren Text (Fixliste 7, F13) nicht messen
 //
 // Gemessen wird die echte Route POST /embed/:embedId/analytics/conversations
 // (Liste + Zähler in einer Antwort, wie der Server sie beantwortet) über die
@@ -25,43 +26,53 @@
 // Fettdruck, Kurslinks) - im JSON also mit \n und teils \" (Fixliste 2, R6).
 // Gemessen werden auch Säulenklicks (Abschnitt) mit und ohne Suche.
 //
-// Messwerte - Stand 13.10.2026, Branch feat/konversationen-ansicht nach
-// Fixliste 5 (S1: der genaue Vergleich kürzt den Antwortanfang um ", nur
-// für Begriffe mit " oder ,). Intel Xeon Gold 6354 (4 Kerne der VM), Node
-// 18.19, Prisma 6.14, SQLite; 100.000 Zeilen (623 MB), Aufruf mit --runs 5:
-// je Fall ein Aufwärmlauf und 5 Messläufe, Median in ms. Route
-// analytics/conversations (Liste + Zähler, limit 20). „vorher“: dieselbe
-// DB-Datei unmittelbar davor mit dem Stand nach Fixliste 4 (Anfang für jeden
-// Begriff gekürzt, Fixliste 4 C1).
+// Messwerte - Stand 14.10.2026, Branch feat/konversationen-ansicht nach
+// Fixliste 7. Intel Xeon Gold 6354 (4 Kerne der VM), Node 18.19, Prisma
+// 6.14, SQLite; 100.000 Zeilen (623 MB), --runs 5: je Fall ein Aufwärmlauf
+// und 5 Messläufe, Median in ms. Route analytics/conversations (Liste +
+// Zähler, limit 20). „vorher": derselbe Bestand, unmittelbar davor mit dem
+// Stand vor Fixliste 7 (9d6a1ddda) gemessen - die erste Seite ist dieselbe
+// Abfrage, die Abweichungen (±4 %) sind Rauschen der VM.
 //
 //   Fall                                Treffer  Median  vorher  Läufe
-//   ohne Suche, Gesamt                    42858     342     342  348 338 342 341 350
-//   q="kurs", Gesamt                      42858    1143    1243  1136 1133 1143 1175 1161
-//   q="spanisch", Gesamt                    796     807     813  806 807 807 823 818
-//   q="für", Gesamt                       28723     984    1020  959 995 963 991 984
-//   q="üb", Gesamt                        24283    1303    1313  1311 1303 1282 1292 1371
-//   q="äa", Gesamt                            0    1185    1190  1295 1185 1178 1185 1186
-//   q="Übung", Gesamt                     24283     964    1000  992 989 961 954 964
-//   q="курс", Gesamt                       1025    1122    1084  1122 1127 1089 1087 1127
-//   q="äöü", Gesamt                           0    1165    1164  1164 1169 1158 1165 1170
-//   q="\"", Gesamt                        16211     861     850  883 848 873 861 858
-//   q="\\", Gesamt                         2697     734     731  731 730 734 735 738
-//   q="xyzkeintreffer", Gesamt                0     719     707  720 719 704 702 738
-//   q="zehntausend", Gesamt               10000     776     777  786 771 770 776 787
-//   q="spanisch" + negativ, Gesamt          512     366     359  373 374 362 366 363
-//   Säule (Woche), ohne Suche              3334     324     310  324 315 338 341 315
-//   q="kurs" + Säule (Woche)               3334     363     363  359 371 363 362 363
-//   q="für" + Säule (Woche)                2231     374     370  365 371 374 374 381
-//   q="Übung" + Säule (Woche)              1906     377     374  380 377 370 371 378
-//   q="xyzkeintreffer" + Säule (Woche)        0     366     360  366 370 365 369 360
+//   ohne Suche, Gesamt                    42858     366     366  366 366 369 369 357
+//   q="kurs", Gesamt                      42858    1198    1237  1212 1244 1171 1198 1197
+//   q="spanisch", Gesamt                    796     892     890  894 892 867 898 878
+//   q="für", Gesamt                       28723    1025    1060  1020 1119 1075 1025 1004
+//   q="üb", Gesamt                        24283    1343    1387  1331 1334 1343 1345 1364
+//   q="äa", Gesamt                            0    1238    1256  1289 1240 1215 1220 1238
+//   q="Übung", Gesamt                     24283    1021    1012  1007 997 1022 1028 1021
+//   q="курс", Gesamt                       1025    1155    1156  1154 1155 1143 1157 1161
+//   q="äöü", Gesamt                           0    1240    1219  1242 1240 1233 1234 1241
+//   q="\"", Gesamt                        16211     921     895  907 937 929 921 918
+//   q="\\", Gesamt                         2697     808     791  799 813 824 807 808
+//   q="xyzkeintreffer", Gesamt                0     755     741  753 755 737 787 823
+//   q="zehntausend", Gesamt               10000     851     830  868 876 851 842 823
+//   q="spanisch" + negativ, Gesamt          512     396     393  401 396 392 398 395
+//   Säule (Woche), ohne Suche              3334     356     335  332 356 363 366 347
+//   q="kurs" + Säule (Woche)               3334     385     390  386 385 385 385 396
+//   q="für" + Säule (Woche)                2231     399     398  399 393 394 399 400
+//   q="Übung" + Säule (Woche)              1906     394     406  394 394 399 392 396
+//   q="xyzkeintreffer" + Säule (Woche)        0     384     386  384 382 382 390 389
 //
-//   Export CSV (ein Lauf): q=zehntausend 212.463 Zeilen 2,1 s; q=kurs
-//   814.586 Zeilen 5,2 s; ohne Suche 814.586 Zeilen 31,6 s.
-//   Langsamster Fall 1303 ms - Grenze NAK-7 (1500 ms) eingehalten (Reserve
-//   197 ms; vorher 1313 ms). Begriffe ohne " und , mit vielen
-//   Vorprüfungs-Treffern gewinnen am meisten („kurs" -8 %, „für" und
-//   „Übung" -4 %); die übrigen Abweichungen (bis ±4 %) liegen im Rauschen der VM
-//   (IO-Last des Hosts während der Messung).
+//   Langsamster Fall 1343 ms - Grenze NAK-7 (1500 ms) eingehalten.
+//
+//   Export CSV (ein Lauf, Fixliste 7 F01): ohne Suche 814.586 Zeilen
+//   5,1 s (vorher 34,4 s: je Seite zu 500 Konversationen die ganze
+//   Gruppierung neu); q=kurs 814.586 Zeilen 6,2 s (vorher 5,5 s);
+//   q=zehntausend 212.463 Zeilen 2,3 s (vorher 2,1 s).
+//
+//   Blättern (Fixliste 7, F14), Seite 21 (Zeilen 401-420): über den
+//   Schlüssel der Zeile 400 ohne Suche 423 ms (offset 400: 395 ms), mit
+//   q=kurs 1325 ms (offset: 1307 ms) - der Schlüssel kostet ein zweites
+//   Fenster (rund 2 %), nur auf den Seiten hinter der ersten.
+//
+//   Nachfilter im sichtbaren Text (Fixliste 7, F13): alle Treffer-Zeilen
+//   samt Antworttext lesen und in JS prüfen (die Voraussetzung für eine
+//   richtige Zählung ohne Treffer in Link-Zielen, HTML und <think>):
+//   q=kurs 3,2 s (42.858 Treffer, sichtbar 42.858), q=vhs.example 3,1 s
+//   (42.858 SQL-Treffer, sichtbar 0), q=spanisch 0,8 s - mehr als das
+//   Doppelte von NAK-7. Deshalb bleibt es beim Hinweis im Panel.
 //
 //   Verworfene Variante für C9 (Anfang, der auf einen Rückstrich endet, aus
 //   dem JSON lesen: substr(answer_head, -1) je Zeile): rund 13 % langsamer
@@ -81,6 +92,7 @@ const ROWS = Number(option("--rows", 100000)) || 100000;
 const RUNS = Number(option("--runs", 5)) || 5;
 const KEEP = args.includes("--keep");
 const EXPORT = !args.includes("--no-export");
+const VISIBLE = !args.includes("--no-visible");
 const DB_FILE = path.resolve(
   option("--db", path.join(os.tmpdir(), `conversation-search-${ROWS}.db`))
 );
@@ -307,6 +319,112 @@ async function main() {
   await measure("Säule (Woche), ohne Suche", BUCKET);
   for (const q of ["kurs", "für", "Übung", "xyzkeintreffer"])
     await measure(`q=${JSON.stringify(q)} + Säule (Woche)`, { q, ...BUCKET });
+
+  // Fixliste 7, F14: „Weitere laden“ tief in der Liste – Seite 21 (Zeilen
+  // 401–420) über offset und über den Schlüssel der Zeile 400.
+  const page = async (body) => {
+    const result = await invoke(LIST, {
+      params: { embedId: "1" },
+      body: { feedbackFilter: "all", ...body },
+    });
+    if (result.statusCode !== 200)
+      throw new Error(`Seite: Status ${result.statusCode}`);
+    return result.body;
+  };
+  for (const q of [null, "kurs"]) {
+    const search = q ? { q } : {};
+    const before = await page({ offset: 380, limit: 20, ...search });
+    const last = before.conversations.at(-1);
+    const after = {
+      lastMessageAt: last.last_message_at,
+      firstChatId: last.first_chat_id,
+    };
+    for (const [label, body] of [
+      ["offset 400", { offset: 400, limit: 20, ...search }],
+      ["Schlüssel nach Zeile 400", { offset: 0, limit: 20, after, ...search }],
+    ]) {
+      const runs = [];
+      for (let run = 0; run <= RUNS; run++) {
+        const started = process.hrtime.bigint();
+        await page(body);
+        const ms = Number(process.hrtime.bigint() - started) / 1e6;
+        if (run > 0) runs.push(ms);
+      }
+      console.log(
+        `Seite 21 ${q ? `q=${q}` : "ohne Suche"}, ${label}`.padEnd(48) +
+          `Median ${median(runs).toFixed(0).padStart(5)} ms  (${runs
+            .map((r) => r.toFixed(0))
+            .join(", ")})`
+      );
+    }
+  }
+
+  // Fixliste 7, F13: Was kostete es, Treffer, die nur in Link-Zielen, HTML
+  // oder <think> stehen, nach der SQL-Vorauswahl in JS auszusortieren? Für
+  // eine richtige Zählung („N von M einsehbar“) und richtiges Blättern
+  // müsste jede Treffer-Zeile des Zeitraums gelesen und ihr sichtbarer Text
+  // geprüft werden - gemessen wird genau das: die Treffer-Zeilen samt
+  // Antworttext lesen (dieselbe Bedingung wie die Liste) und in JS prüfen
+  // (dieselbe Regel wie visibleAnswerText im Frontend).
+  if (VISIBLE) {
+    const { Prisma } = require(
+      path.join(SERVER, "node_modules/@prisma/client")
+    );
+    const { EmbedChats } = require(path.join(SERVER, "models/embedChats"));
+    const AUTOLINK =
+      /<((?:[a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s<>]*)|(?:[^\s<>@]+@[^\s<>@]+))>/g;
+    const visibleAnswerText = (text) =>
+      String(text ?? "")
+        .replace(/<think>[^]*?<\/think>/g, " ")
+        .replace(/\]\([^)]*\)/g, "]")
+        .replace(AUTOLINK, " $1 ")
+        .replace(/<\/?[a-zA-Z][^>]*>/g, " ");
+    for (const q of ["kurs", "vhs.example", "spanisch"]) {
+      const runs = [];
+      let visible = 0;
+      let sqlHits = 0;
+      for (let run = 0; run <= RUNS; run++) {
+        const started = process.hrtime.bigint();
+        const where = Prisma.sql`WHERE include = 1 AND embed_id = 1`;
+        const rows = await client.$queryRaw`
+          SELECT session_id, COALESCE(conversation_id, session_id) AS conversation,
+            prompt, feedbackReason, feedbackText, feedbackScore,
+            (SELECT CASE WHEN json_valid(response) AND json_type(response) = 'object'
+               THEN json_extract(response, '$.text') ELSE response END
+             FROM embed_chats AS source WHERE source.id = search_rows.id) AS answer
+          FROM ${EmbedChats._searchRowsSql(where)}
+          WHERE ${EmbedChats._searchMatchSql(q)}`;
+        const pattern = new RegExp(
+          q.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&"),
+          "iu"
+        );
+        const all = new Set();
+        const seen = new Set();
+        for (const row of rows) {
+          const key = `${row.conversation}\u0000${row.session_id}`;
+          all.add(key);
+          if (
+            pattern.test(row.prompt ?? "") ||
+            (Number(row.feedbackScore) === 0 &&
+              (pattern.test(row.feedbackReason ?? "") ||
+                pattern.test(row.feedbackText ?? ""))) ||
+            pattern.test(visibleAnswerText(row.answer))
+          )
+            seen.add(key);
+        }
+        visible = seen.size;
+        sqlHits = all.size;
+        const ms = Number(process.hrtime.bigint() - started) / 1e6;
+        if (run > 0) runs.push(ms);
+      }
+      console.log(
+        `F13 Nachfilter q=${q}`.padEnd(30) +
+          `SQL-Treffer ${String(sqlHits).padStart(6)}  sichtbar ${String(
+            visible
+          ).padStart(6)}  Median ${median(runs).toFixed(0).padStart(5)} ms`
+      );
+    }
+  }
 
   let exported = null;
   if (EXPORT) {
