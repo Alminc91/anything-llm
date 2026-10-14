@@ -75,6 +75,7 @@ const CONVERSATIONS = route(ROUTES.conversations);
 const EXPORT = route(ROUTES.export);
 const DETAILS = route(ROUTES.details);
 const SUMMARY = route(ROUTES.summary);
+const LAST_ACTIVITY = route(ROUTES.lastActivity);
 
 // Der erste Test jeder Datei erzeugt die Vorlage mit `prisma migrate deploy`.
 jest.setTimeout(60000);
@@ -2182,5 +2183,100 @@ describe("gezählt und einsehbar (Fixliste 6, N1)", () => {
       where: { embed_id: embed.id, session_id: "s-B" },
     });
     expect(await counts(embed, first)).toEqual({ counted: 2, viewable: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 6, N2: letzte Nachricht je Widget (Vorauswahl der Ansicht)
+// ---------------------------------------------------------------------------
+
+describe("letzte aktivität (Fixliste 6, N2)", () => {
+  const lastActivity = (user = admin) =>
+    invoke(LAST_ACTIVITY, { token: user?.token ?? null });
+
+  test("je sichtbarem Widget der Zeitpunkt der letzten Nachricht (auch geleert), ohne Nachricht null; Default-User nur seine Widgets", async () => {
+    const workspaceA = await createWorkspace(db.client);
+    const workspaceB = await createWorkspace(db.client);
+    const older = await createEmbed(db.client, workspaceA);
+    const newer = await createEmbed(db.client, workspaceA);
+    const silent = await createEmbed(db.client, workspaceA);
+    const foreign = await createEmbed(db.client, workspaceB);
+    await addChat(older, {
+      at: berlinInstant("2026-10-01", 9),
+      conversation: "k-1",
+    });
+    await addChat(older, {
+      at: berlinInstant("2026-10-12", 18),
+      conversation: "k-1",
+      // vom Besucher geleert: zählt als Aktivität
+      include: false,
+    });
+    await addChat(newer, {
+      at: berlinInstant("2026-10-05", 10),
+      conversation: "k-2",
+    });
+    await addChat(foreign, {
+      at: berlinInstant("2026-10-13", 7),
+      conversation: "k-3",
+    });
+
+    const all = await lastActivity();
+    expect(all.statusCode).toBe(200);
+    expect(all.body).toEqual({
+      success: true,
+      lastActivity: [
+        {
+          embedId: older.id,
+          lastMessageAt: berlinInstant("2026-10-12", 18).getTime(),
+        },
+        {
+          embedId: newer.id,
+          lastMessageAt: berlinInstant("2026-10-05", 10).getTime(),
+        },
+        { embedId: silent.id, lastMessageAt: null },
+        {
+          embedId: foreign.id,
+          lastMessageAt: berlinInstant("2026-10-13", 7).getTime(),
+        },
+      ],
+    });
+    // nur Zeitpunkte, keine Inhalte
+    expect(JSON.stringify(all.body)).not.toMatch(/Frage|Antwort|k-1/);
+
+    const kunde = await createUser("default", [workspaceA.id]);
+    const own = await lastActivity(kunde);
+    expect(own.statusCode).toBe(200);
+    expect(own.body.lastActivity.map((entry) => entry.embedId)).toEqual([
+      older.id,
+      newer.id,
+      silent.id,
+    ]);
+    const ohne = await createUser("default");
+    expect((await lastActivity(ohne)).body).toEqual({
+      success: true,
+      lastActivity: [],
+    });
+  });
+
+  test("Rechte wie die Konversationslisten: ohne Anmeldung 401, Chat-Verlauf abgeschaltet 422, Datenbankfehler 500", async () => {
+    expect((await lastActivity(null)).statusCode).toBe(401);
+    process.env.DISABLE_VIEW_CHAT_HISTORY = "1";
+    expect((await lastActivity()).statusCode).toBe(422);
+    delete process.env.DISABLE_VIEW_CHAT_HISTORY;
+    jest
+      .spyOn(EmbedChats, "lastMessageAtByEmbed")
+      .mockRejectedValueOnce(new Error("kaputt"));
+    const failed = await lastActivity();
+    expect(failed.statusCode).toBe(500);
+    expect(failed.body.success).toBe(false);
+  });
+
+  test("je Widget eine Suche im Index (embed_id, createdAt), kein Durchlauf über die Zeilen", async () => {
+    const plan = await db.client.$queryRawUnsafe(
+      "EXPLAIN QUERY PLAN SELECT e.id, (SELECT MAX(c.createdAt) FROM embed_chats c WHERE c.embed_id = e.id) FROM embed_configs e"
+    );
+    const details = plan.map((row) => row.detail).join("\n");
+    expect(details).toMatch(/embed_chats_embed_id_createdAt_idx/);
+    expect(details).not.toMatch(/SCAN c\b(?! USING)/);
   });
 });

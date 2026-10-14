@@ -6,7 +6,11 @@
 // Die Funktionen sind rein; die Tests brauchen weder Vite noch React.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { embedLabels, sortEmbedsByLabel } from "../src/utils/embedLabel.js";
+import {
+  embedLabels,
+  mostRecentlyActiveEmbedId,
+  sortEmbedsByLabel,
+} from "../src/utils/embedLabel.js";
 import de from "../src/locales/de/common.js";
 import en from "../src/locales/en/common.js";
 
@@ -371,4 +375,48 @@ test("Deutsche Oberfläche: Im Bereich „Chatbot“ enthält kein sichtbarer Te
     const actual = textOf(de, key);
     if (actual !== undefined) assert.equal(actual, text, key);
   }
+});
+
+test("Fixliste 6, N2: Vorauswahl – das Widget mit der jüngsten Nachricht; ohne Nachricht zuletzt, Gleichstand und fehlende Angaben in der Reihenfolge des Servers", () => {
+  // Reihenfolge des Servers: das zuletzt angelegte zuerst
+  const embeds = [widget(9, "Neu"), widget(7, "Mitte"), widget(3, "Alt")];
+  const at = (day) => Date.parse(`${day}T10:00:00Z`);
+
+  assert.equal(
+    mostRecentlyActiveEmbedId(embeds, [
+      { embedId: 9, lastMessageAt: at("2026-10-01") },
+      { embedId: 7, lastMessageAt: at("2026-10-13") },
+      { embedId: 3, lastMessageAt: at("2026-10-12") },
+    ]),
+    7
+  );
+  // Widgets ohne Nachricht zuletzt – auch vor ihnen in der Reihenfolge
+  assert.equal(
+    mostRecentlyActiveEmbedId(embeds, [
+      { embedId: 9, lastMessageAt: null },
+      { embedId: 7, lastMessageAt: null },
+      { embedId: 3, lastMessageAt: at("2026-01-01") },
+    ]),
+    3
+  );
+  // Gleichstand: das frühere in der Reihenfolge des Servers
+  assert.equal(
+    mostRecentlyActiveEmbedId(embeds, [
+      { embedId: 3, lastMessageAt: at("2026-10-13") },
+      { embedId: 7, lastMessageAt: at("2026-10-13") },
+    ]),
+    7
+  );
+  // keine Nachrichten, keine Angabe (Fehler), fremde oder kaputte Einträge
+  for (const activity of [
+    [],
+    null,
+    undefined,
+    [{ embedId: 99, lastMessageAt: at("2026-10-13") }],
+    [{ embedId: 7, lastMessageAt: "gestern" }],
+    [null],
+  ])
+    assert.equal(mostRecentlyActiveEmbedId(embeds, activity), 9);
+  assert.equal(mostRecentlyActiveEmbedId([], []), null);
+  assert.equal(mostRecentlyActiveEmbedId(null, null), null);
 });

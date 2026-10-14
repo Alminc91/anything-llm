@@ -26,6 +26,26 @@ const Embed = {
         return [];
       });
   },
+  // Fixliste 6, N2: letzte Nachricht je sichtbarem Widget – für die
+  // Vorauswahl der Ansicht „Konversationen“. Ergebnis: Liste
+  // [{ embedId, lastMessageAt }] oder null (Fehler, kein Recht) – dann gilt
+  // die Reihenfolge der Widget-Liste.
+  lastActivity: async () => {
+    return await fetch(`${API_BASE}/embeds/last-activity`, {
+      method: "GET",
+      headers: baseHeaders(),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((res) =>
+        res?.success && Array.isArray(res.lastActivity)
+          ? res.lastActivity
+          : null
+      )
+      .catch((e) => {
+        console.error(e);
+        return null;
+      });
+  },
   newEmbed: async (data) => {
     return await fetch(`${API_BASE}/embeds/new`, {
       method: "POST",

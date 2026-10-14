@@ -97,3 +97,30 @@ export function sortEmbedsByLabel(embeds, labels, locale) {
     (a, b) => collator.compare(nameOf(a), nameOf(b)) || a.id - b.id
   );
 }
+
+/**
+ * Vorauswahl der Ansicht „Konversationen“ ohne widget= in der Adresse
+ * (Fixliste 6, N2): das Widget, dessen letzte Nachricht am jüngsten ist.
+ * Widgets ohne Nachricht (oder ohne Angabe) kommen zuletzt; bei Gleichstand
+ * und ohne Angaben gilt die Reihenfolge des Servers (das zuletzt angelegte
+ * zuerst).
+ * @param {Array<{id: number}>|null} embeds - Reihenfolge des Servers
+ * @param {Array<{embedId: number, lastMessageAt: number|null}>|null} lastActivity -
+ *   aus GET /embeds/last-activity; null, wenn sie fehlt
+ * @returns {number|null} - null ohne Widget
+ */
+export function mostRecentlyActiveEmbedId(embeds, lastActivity) {
+  const list = Array.isArray(embeds) ? embeds : [];
+  if (list.length === 0) return null;
+  const latest = new Map(
+    (Array.isArray(lastActivity) ? lastActivity : [])
+      .filter((entry) => Number.isFinite(entry?.lastMessageAt))
+      .map((entry) => [entry.embedId, entry.lastMessageAt])
+  );
+  let best = list[0];
+  for (const embed of list) {
+    const at = latest.get(embed.id) ?? -Infinity;
+    if (at > (latest.get(best.id) ?? -Infinity)) best = embed;
+  }
+  return best.id;
+}

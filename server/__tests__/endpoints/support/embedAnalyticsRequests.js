@@ -13,6 +13,8 @@
 //   server/__tests__/models/embedChatsDeleteConversation.test.js
 
 const ROUTES = {
+  // Fixliste 6, N2: letzte Nachricht je sichtbarem Widget (Vorauswahl)
+  lastActivity: { method: "GET", path: "/embeds/last-activity" },
   summary: { method: "POST", path: "/embed/:embedId/analytics/summary" },
   conversations: {
     method: "POST",

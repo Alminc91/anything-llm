@@ -2107,6 +2107,49 @@ const EmbedChats = {
   },
 
   /**
+   * Fixliste 6, N2: Zeitpunkt der letzten Nachricht je Widget - für die
+   * Vorauswahl der Ansicht „Konversationen“ (das Widget mit der jüngsten
+   * Aktivität). Je Widget eine Suche im Index (embed_id, createdAt), kein
+   * Durchlauf über die Zeilen. Gezählt wird jede gespeicherte Nachricht, auch
+   * vom Besucher geleerte (include = 0) - es geht um Aktivität, nicht um
+   * Inhalte. Nur Zeitpunkte, keine Inhalte.
+   * @param {number[]|null} embedIds - diese Widgets; null = alle
+   * @returns {Promise<Array<{embedId: number, lastMessageAt: number|null}>>} -
+   *   lastMessageAt in Millisekunden, null ohne Nachricht
+   * @throws bei einem Datenbankfehler (kein leeres Ergebnis)
+   */
+  lastMessageAtByEmbed: async function (embedIds = null) {
+    const { Prisma } = require("@prisma/client");
+    if (Array.isArray(embedIds) && embedIds.length === 0) return [];
+    const where = Array.isArray(embedIds)
+      ? Prisma.sql`WHERE e.id IN (${Prisma.join(embedIds.map(Number))})`
+      : Prisma.empty;
+    const rows = await prisma.$queryRaw`
+      SELECT
+        e.id AS embed_id,
+        (SELECT MAX(c.createdAt) FROM embed_chats c WHERE c.embed_id = e.id)
+          AS last_message_at
+      FROM embed_configs e
+      ${where}
+      ORDER BY e.id`;
+    return rows.map((row) => {
+      const value = row.last_message_at;
+      const at =
+        typeof value === "number" || typeof value === "bigint"
+          ? Number(value)
+          : value instanceof Date
+            ? value.getTime()
+            : typeof value === "string"
+              ? Date.parse(value)
+              : NaN;
+      return {
+        embedId: Number(row.embed_id),
+        lastMessageAt: Number.isFinite(at) ? at : null,
+      };
+    });
+  },
+
+  /**
    * Analytics: Get basic statistics for an embed
    * KIE-533: Zählt wie die Konversationsliste nur Zeilen mit include = 1
    * (ohne die per markHistoryInvalid zurückgesetzten).

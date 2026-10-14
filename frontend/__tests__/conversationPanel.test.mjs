@@ -140,6 +140,15 @@ async function panelServer(t, state) {
         totalCount: rows.length,
       });
     }
+    // Widget-Liste und letzte Nachricht je Widget (Fixliste 6, N2):
+    // state.embeds, state.lastActivity ("fail" = 500)
+    if (url === `${API_BASE}/embeds`)
+      return json({ embeds: state.embeds ?? [] });
+    if (url === `${API_BASE}${ROUTES.lastActivity.path}`) {
+      if (state.lastActivity === "fail")
+        return json({ success: false, error: "kaputt" }, 500);
+      return json({ success: true, lastActivity: state.lastActivity ?? [] });
+    }
     if (url.endsWith("/analytics/summary")) {
       state.summaries = (state.summaries ?? 0) + 1;
       return json({
@@ -3956,5 +3965,76 @@ test(
     await act(() => click(negative));
     for (let i = 0; i < 4; i++) await act();
     assert.deepEqual(gaps(), []);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 6, N2: Vorauswahl = Widget mit der jüngsten Aktivität
+// ---------------------------------------------------------------------------
+
+test(
+  "Fixliste 6, N2: ohne widget= wählt die Ansicht das Widget mit der jüngsten Nachricht; widget= hat Vorrang; ohne Angabe das erste Widget",
+  { skip },
+  async (t) => {
+    const embeds = [
+      { id: 9, chat_retention_days: null, workspace: { name: "Neu" } },
+      { id: 7, chat_retention_days: null, workspace: { name: "Mitte" } },
+      { id: EMBED_ID, chat_retention_days: null, workspace: { name: "Alt" } },
+    ];
+    const state = {
+      rows: [row(1)],
+      embeds,
+      lastActivity: [
+        { embedId: 9, lastMessageAt: null },
+        { embedId: 7, lastMessageAt: berlin("2026-10-01", "09:00") },
+        { embedId: EMBED_ID, lastMessageAt: berlin("2026-10-13", "07:48") },
+      ],
+    };
+    const server = await panelServer(t, state);
+    // Die Seite wie im Browser: Widgets und letzte Aktivität vom Server
+    const mountPage = async (query = "") => {
+      server.calls.length = 0;
+      const mounted = await renderer.mount(VIEW, {
+        location: `${LOCATION}${query}`,
+        route: LOCATION,
+      });
+      t.after(() => mounted.unmount());
+      for (let i = 0; i < 4; i++) await mounted.act();
+      return mounted;
+    };
+    const widgetsOfLists = () => [
+      ...new Set(
+        server
+          .lists()
+          .map((call) => Number(call.url.match(/embed\/(\d+)\//)[1]))
+      ),
+    ];
+
+    const page = await mountPage();
+    // eine leichte Abfrage, GET ohne Rumpf
+    const activityCalls = server.calls.filter((call) =>
+      call.url.endsWith(ROUTES.lastActivity.path)
+    );
+    assert.equal(activityCalls.length, 1);
+    assert.equal(activityCalls[0].method, ROUTES.lastActivity.method);
+    // Kennzahlen und Liste nur für das jüngste Widget – kein Umweg über das
+    // erste
+    assert.deepEqual(widgetsOfLists(), [EMBED_ID]);
+    assert.ok(
+      server.calls
+        .filter((call) => call.url.endsWith("/analytics/summary"))
+        .every((call) => call.url.includes(`/embed/${EMBED_ID}/`))
+    );
+    assert.match(page.container.textContent, /Alt/);
+    await page.unmount();
+
+    // widget= in der Adresse hat Vorrang
+    await mountPage("?widget=7");
+    assert.deepEqual(widgetsOfLists(), [7]);
+
+    // Abfrage scheitert: wie bisher das erste Widget des Servers
+    state.lastActivity = "fail";
+    await mountPage();
+    assert.deepEqual(widgetsOfLists(), [9]);
   }
 );

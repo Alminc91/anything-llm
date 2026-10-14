@@ -76,6 +76,31 @@ async function userCanAccessEmbed(user, embedId) {
   return await userCanAccessWorkspace(user, embed.workspace_id);
 }
 
+/**
+ * Die Widgets, deren Konversationen der Nutzer sehen darf: null = alle
+ * (admin, manager, ohne Mehrbenutzermodus); ein Default-User nur die Widgets
+ * seiner Workspaces (keine Mitgliedschaft: keine). Direkt über Prisma:
+ * WorkspaceUser.where/EmbedConfig.where fangen Fehler ab und liefern [] -
+ * ein Datenbankfehler sähe dann wie „keine Konversationen“ aus statt 500
+ * (Fixliste 4, C2).
+ * @param {{id: number, role: string}|null} user
+ * @returns {Promise<number[]|null>}
+ */
+async function visibleEmbedIds(user) {
+  if (user?.role !== ROLES.default) return null;
+  const memberships = await prisma.workspace_users.findMany({
+    where: { user_id: user.id },
+    select: { workspace_id: true },
+  });
+  const allowed = await prisma.embed_configs.findMany({
+    where: {
+      workspace_id: { in: memberships.map((ws) => ws.workspace_id) },
+    },
+    select: { id: true },
+  });
+  return allowed.map((embed) => embed.id);
+}
+
 // Middleware für /:embedId-Routen: 403, wenn der Nutzer das Widget nicht
 // verwalten darf. Steht vor validEmbedConfigId und vor jedem Upload.
 async function validEmbedAccess(request, response, next) {
@@ -383,24 +408,8 @@ function embedManagementEndpoints(app) {
         }
 
         // null = alle Widgets; für einen Default-User die seiner Workspaces
-        // (keine Mitgliedschaft: keine Widgets, leere Liste). Direkt über
-        // Prisma: WorkspaceUser.where/EmbedConfig.where fangen Fehler ab und
-        // liefern [] - ein Datenbankfehler sähe dann wie „keine
-        // Konversationen“ aus statt 500 (Fixliste 4, C2).
-        let embedIds = null;
-        if (user?.role === ROLES.default) {
-          const memberships = await prisma.workspace_users.findMany({
-            where: { user_id: user.id },
-            select: { workspace_id: true },
-          });
-          const allowed = await prisma.embed_configs.findMany({
-            where: {
-              workspace_id: { in: memberships.map((ws) => ws.workspace_id) },
-            },
-            select: { id: true },
-          });
-          embedIds = allowed.map((embed) => embed.id);
-        }
+        // (keine Mitgliedschaft: keine Widgets, leere Liste).
+        const embedIds = await visibleEmbedIds(user);
 
         const { conversations, totalCount } =
           await EmbedChats.conversationPage(embedIds, {
@@ -420,6 +429,32 @@ function embedManagementEndpoints(app) {
         response.status(500).json({
           success: false,
           error: "Konversationen konnten nicht geladen werden.",
+        });
+      }
+    }
+  );
+
+  // Fixliste 6, N2: letzte Nachricht je Widget - die Ansicht „Konversationen“
+  // wählt ohne widget= in der Adresse das Widget mit der jüngsten Aktivität
+  // vor. Dieselben Rechte wie die Konversationslisten: chatHistoryViewable,
+  // ein Default-User nur die Widgets seiner Workspaces. Nur Zeitpunkte
+  // (Millisekunden), keine Inhalte. Ein Datenbankfehler ist 500 - die
+  // Ansicht wählt dann wie bisher das erste Widget.
+  app.get(
+    "/embeds/last-activity",
+    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const lastActivity = await EmbedChats.lastMessageAtByEmbed(
+          await visibleEmbedIds(user)
+        );
+        response.status(200).json({ success: true, lastActivity });
+      } catch (e) {
+        console.error("embeds/last-activity error:", loggableError(e));
+        response.status(500).json({
+          success: false,
+          error: "Letzte Aktivität konnte nicht geladen werden.",
         });
       }
     }

@@ -20,7 +20,11 @@ import {
   toDayString,
   viewState,
 } from "@/utils/analyticsTimeline";
-import { embedLabels, sortEmbedsByLabel } from "@/utils/embedLabel";
+import {
+  embedLabels,
+  mostRecentlyActiveEmbedId,
+  sortEmbedsByLabel,
+} from "@/utils/embedLabel";
 import {
   AVATAR_CLEARANCE,
   MUTED,
@@ -59,14 +63,21 @@ const periodOf = (fromDay, toDay) => `${fromDay}|${toDay}`;
 
 export default function EmbedAnalyticsView() {
   const [embeds, setEmbeds] = useState([]);
+  const [lastActivity, setLastActivity] = useState(null);
   const [embedsLoaded, setEmbedsLoaded] = useState(false);
 
   useEffect(() => {
     let ignore = false;
     async function loadEmbeds() {
-      const embedsData = (await Embed.embeds()) || [];
+      // Widgets und ihre letzte Nachricht nebeneinander (Fixliste 6, N2):
+      // Die Vorauswahl steht fest, bevor die Ansicht etwas lädt.
+      const [embedsData, activity] = await Promise.all([
+        Embed.embeds(),
+        Embed.lastActivity(),
+      ]);
       if (ignore) return;
-      setEmbeds(embedsData);
+      setEmbeds(embedsData || []);
+      setLastActivity(activity);
       // Auch ohne Widget ist das Laden beendet – sonst bliebe „Laden…" stehen.
       setEmbedsLoaded(true);
     }
@@ -76,35 +87,49 @@ export default function EmbedAnalyticsView() {
     };
   }, []);
 
-  return <AnalyticsScreen embedsLoaded={embedsLoaded} embeds={embeds} />;
+  return (
+    <AnalyticsScreen
+      embedsLoaded={embedsLoaded}
+      embeds={embeds}
+      lastActivity={lastActivity}
+    />
+  );
 }
 
 /**
  * Die Ansicht zu einem Stand der Widget-Liste: „Laden…", der Leerzustand ohne
  * Widget oder die Auswertung.
- * @param {{embedsLoaded: boolean, embeds: Array<object>}} props
+ * @param {{embedsLoaded: boolean, embeds: Array<object>, lastActivity?: Array<{embedId: number, lastMessageAt: number|null}>|null}} props
+ *   lastActivity: letzte Nachricht je Widget (Vorauswahl); null ohne Angabe
  */
-export function AnalyticsScreen({ embedsLoaded, embeds }) {
+export function AnalyticsScreen({ embedsLoaded, embeds, lastActivity = null }) {
   const { t } = useTranslation();
   const state = viewState({ embedsLoaded, embeds });
   if (state === "loading")
     return <div className="p-6 text-white">{t("common.loading")}</div>;
   if (state === "no-widget") return <NoWidget />;
-  return <WidgetAnalytics embeds={embeds} />;
+  return <WidgetAnalytics embeds={embeds} lastActivity={lastActivity} />;
 }
 
-function WidgetAnalytics({ embeds }) {
+function WidgetAnalytics({ embeds, lastActivity }) {
   const { t } = useTranslation();
   const place = useConversationLocation();
   // Das Widget aus der Adresse – nur eines, das der Nutzer sehen darf (die
   // Liste der Widgets kommt vom Server, gefiltert nach seinen Rechten).
-  // Vorauswahl: das erste Widget in der Reihenfolge des Servers (das zuletzt
-  // angelegte) – unabhängig davon, wie die Auswahl ihre Einträge ordnet.
+  // Vorauswahl ohne widget= (Fixliste 6, N2): das Widget mit der jüngsten
+  // Nachricht; ohne Nachrichten bzw. ohne Angabe das erste in der
+  // Reihenfolge des Servers (das zuletzt angelegte) – unabhängig davon, wie
+  // die Auswahl ihre Einträge ordnet.
+  const preferredEmbed = useMemo(
+    () => mostRecentlyActiveEmbedId(embeds, lastActivity),
+    [embeds, lastActivity]
+  );
   const linkedEmbed = embeds.find((embed) => embed.id === place.widgetId);
-  const selectedEmbed = linkedEmbed ? linkedEmbed.id : embeds[0].id;
+  const selectedEmbed = linkedEmbed ? linkedEmbed.id : preferredEmbed;
   const setSelectedEmbed = place.setWidget;
   // Ein Link auf ein Widget, das es für diesen Nutzer nicht gibt (fremd,
-  // gelöscht): Hinweis, die Ansicht zeigt das erste Widget ohne Konversation.
+  // gelöscht): Hinweis, die Ansicht zeigt das vorausgewählte Widget ohne
+  // Konversation.
   const unknownLink = place.widgetId !== null && !linkedEmbed;
   const clearLink = place.clearLink;
   useEffect(() => {
