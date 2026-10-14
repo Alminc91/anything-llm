@@ -188,10 +188,15 @@ export const HOLD_SCROLL_QUIET_MS = 1500;
  * Sprachsteuerung, „Im Seitentext suchen“.
  * Bekannte Grenze: Innerhalb dieser Ruhezeit nach einer Layoutänderung
  * springt ein solches Scrollen noch einmal zurück.
+ *
+ * realign() am Rückgabewert springt noch einmal, solange das Halten läuft –
+ * für Änderungen, die das Ziel selbst nicht verschieben (die per Link
+ * geöffnete Zeile ist nachgeladen, Fixliste 6, K5). Nach dem Ende tut es
+ * nichts: Der Nutzer hat dann selbst gescrollt oder etwas getan.
  * @param {Element|null} target
  * @param {() => void} jump - der Sprung (etwa scrollIntoView)
  * @param {{maxMs?: number, quietMs?: number, now?: () => number, setTimer?: Function, clearTimer?: Function}} [options]
- * @returns {() => void} - beendet das Halten
+ * @returns {(() => void) & {realign: () => void}} - beendet das Halten
  */
 export function holdScrollTarget(target, jump, options = {}) {
   const {
@@ -201,7 +206,7 @@ export function holdScrollTarget(target, jump, options = {}) {
     setTimer = setTimeout,
     clearTimer = clearTimeout,
   } = options;
-  if (!target) return () => {};
+  if (!target) return Object.assign(() => {}, { realign: () => {} });
   const topOf = () => target.getBoundingClientRect?.().top;
   let held = topOf();
   const align = () => {
@@ -251,7 +256,41 @@ export function holdScrollTarget(target, jump, options = {}) {
   for (const type of USER_INPUT_EVENTS)
     doc?.addEventListener?.(type, stop, { capture: true, passive: true });
   timer = setTimer(stop, maxMs);
-  return stop;
+  return Object.assign(stop, {
+    realign: () => {
+      if (!stopped) align();
+    },
+  });
+}
+
+/**
+ * Per Link geöffnete Zeile in Sicht (Fixliste 6, K5): Liegt die markierte
+ * Zeile der Liste (aria-current) nach dem Sprung zur Überschrift außerhalb
+ * des freien Bereichs – unter dem Fensterrand (abzüglich PANEL_BOTTOM_GAP)
+ * oder über PANEL_STUCK_TOP –, scrollt die Seite gerade so weit, dass sie
+ * sichtbar ist (block „nearest“; Abstand über scroll-margin der Zeile). Die
+ * Liste hat keinen eigenen Scrollbereich, das Panel klebt ab lg oben
+ * (lg:sticky) und bleibt so ganz zu sehen; nur die Überschrift wandert aus
+ * dem Fenster. Steht die Zeile schon im Bild, bleibt alles, wie es ist.
+ * @param {Element|null} root - Bereich der Liste
+ * @param {number} [viewportHeight] - Höhe des Fensters (px)
+ * @returns {boolean} - true, wenn gescrollt wurde
+ */
+export function revealMarkedRow(root, viewportHeight) {
+  const height =
+    viewportHeight ??
+    (typeof window !== "undefined" ? window.innerHeight : undefined);
+  if (!root || !Number.isFinite(height)) return false;
+  const row = elementsWith(root, "aria-current", "true").find((element) =>
+    element.hasAttribute?.("data-conversation-row")
+  );
+  const rect = row?.getBoundingClientRect?.();
+  if (!rect || !Number.isFinite(rect.top) || !Number.isFinite(rect.bottom))
+    return false;
+  if (rect.top >= PANEL_STUCK_TOP && rect.bottom <= height - PANEL_BOTTOM_GAP)
+    return false;
+  row.scrollIntoView?.({ block: "nearest" });
+  return true;
 }
 
 /** Kürzester Suchbegriff, ab dem gesucht wird. */

@@ -36,6 +36,7 @@ import {
   outsidePeriod,
   panelChromeHeight,
   panelFit,
+  revealMarkedRow,
   sameBerlinDays,
   searchLinkIssue,
   searchPattern,
@@ -984,4 +985,79 @@ test("Fixliste 6, N1: hasContentGap – nur „einsehbar < gezählt“ ist eine 
     [NaN, 0],
   ])
     assert.equal(hasContentGap(counted, viewable), false);
+});
+
+test("Fixliste 6, K5: revealMarkedRow – die markierte Zeile unter dem Fensterrand (Zeile 45) kommt mit „nearest“ in Sicht; im Bild bleibt alles stehen", () => {
+  const doc = createDocument();
+  const root = doc.body.appendChild(doc.createElement("div"));
+  const makeRow = (id, top, current = false) => {
+    const row = root.appendChild(doc.createElement("button"));
+    row.setAttribute("data-conversation-row", String(id));
+    if (current) row.setAttribute("aria-current", "true");
+    row.getBoundingClientRect = () => ({ top, bottom: top + 54 });
+    row.scrolls = [];
+    row.scrollIntoView = (options) => row.scrolls.push(options);
+    return row;
+  };
+  // Ein anderes Element mit aria-current zählt nicht.
+  const other = root.appendChild(doc.createElement("a"));
+  other.setAttribute("aria-current", "true");
+  other.getBoundingClientRect = () => ({ top: 5000, bottom: 5020 });
+  other.scrollIntoView = () => assert.fail("kein Sprung zu anderen Elementen");
+
+  makeRow(1, 300);
+  const deep = makeRow(45, 2941, true);
+  assert.equal(revealMarkedRow(root, 900), true);
+  assert.deepEqual(deep.scrolls, [{ block: "nearest" }]);
+
+  // im freien Bereich: nichts (Zeile 3 nach dem Sprung zur Überschrift)
+  deep.removeAttribute("aria-current");
+  const near = makeRow(3, 387, true);
+  assert.equal(revealMarkedRow(root, 900), false);
+  assert.deepEqual(near.scrolls, []);
+  // knapp unter der Grenze (Fenster − 32 px) bzw. über PANEL_STUCK_TOP (80)
+  near.getBoundingClientRect = () => ({ top: 820, bottom: 874 });
+  assert.equal(revealMarkedRow(root, 900), true);
+  near.getBoundingClientRect = () => ({ top: 60, bottom: 114 });
+  assert.equal(revealMarkedRow(root, 900), true);
+  assert.equal(near.scrolls.length, 2);
+
+  // ohne markierte Zeile, ohne Bereich, ohne Fensterhöhe: nichts
+  near.removeAttribute("aria-current");
+  assert.equal(revealMarkedRow(root, 900), false);
+  assert.equal(revealMarkedRow(null, 900), false);
+  assert.equal(revealMarkedRow(root, NaN), false);
+});
+
+test("Fixliste 6, K5: holdScrollTarget().realign – springt erneut, solange das Halten läuft; danach nicht mehr", () => {
+  const doc = createDocument();
+  const target = doc.body
+    .appendChild(doc.createElement("div"))
+    .appendChild(doc.createElement("div"));
+  target.getBoundingClientRect = () => ({ top: 96 });
+  doc.addEventListener = () => {};
+  doc.removeEventListener = () => {};
+  let jumps = 0;
+  const timers = [];
+  const hold = holdScrollTarget(target, () => (jumps += 1), {
+    setTimer: (callback) => timers.push(callback),
+    clearTimer: () => {},
+  });
+  assert.equal(jumps, 1);
+  hold.realign();
+  assert.equal(jumps, 2);
+  hold();
+  hold.realign();
+  assert.equal(jumps, 2);
+  // auch nach Ablauf der Zeit nicht
+  const timed = holdScrollTarget(target, () => (jumps += 1), {
+    setTimer: (callback) => timers.push(callback),
+    clearTimer: () => {},
+  });
+  assert.equal(jumps, 3);
+  timers.at(-1)();
+  timed.realign();
+  assert.equal(jumps, 3);
+  // ohne Ziel: vorhanden, tut nichts
+  holdScrollTarget(null, () => assert.fail()).realign();
 });

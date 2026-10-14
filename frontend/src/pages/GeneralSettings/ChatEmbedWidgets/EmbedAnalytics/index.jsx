@@ -31,6 +31,7 @@ import {
   effectiveSearch,
   holdScrollTarget,
   isWide,
+  revealMarkedRow,
   sameBerlinDays,
 } from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
@@ -322,11 +323,21 @@ function WidgetAnalytics({ embeds, lastActivity }) {
     if (!linkJumpPending || !listReady) return;
     setLinkJumpPending(false);
     if (!isWide()) return;
-    releaseLinkJump.current = holdScrollTarget(listRef.current, () =>
-      listRef.current?.scrollIntoView?.({ block: "start" })
-    );
+    // Zur Überschrift der Liste; steht die geöffnete Zeile dann unter dem
+    // Fensterrand (Zeile 45), weiter bis zu ihr – das Panel klebt oben und
+    // bleibt sichtbar (Fixliste 6, K5).
+    releaseLinkJump.current = holdScrollTarget(listRef.current, () => {
+      listRef.current?.scrollIntoView?.({ block: "start" });
+      revealMarkedRow(listRef.current);
+    });
   }, [linkJumpPending, listReady]);
   useEffect(() => () => releaseLinkJump.current?.(), []);
+  // Die per Link geöffnete Zeile ist (nach)geladen und markiert: noch einmal
+  // ausrichten, solange der Sprung hält.
+  const revealLinkedRow = useCallback(
+    () => releaseLinkJump.current?.realign?.(),
+    []
+  );
 
   return (
     <div className="flex w-full min-w-0 flex-col p-2 md:p-6">
@@ -396,6 +407,7 @@ function WidgetAnalytics({ embeds, lastActivity }) {
           onClearBucket={clearBucket}
           onViewableCountChange={setViewableCount}
           countedConversations={countedConversations}
+          onLinkedRowShown={revealLinkedRow}
           headingRef={listHeadingRef}
           showDeletedHint={showsDeletedHint({
             retentionDays,

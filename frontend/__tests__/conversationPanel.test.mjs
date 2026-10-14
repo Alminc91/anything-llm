@@ -1913,6 +1913,10 @@ test(
         "kein Pseudo-Element"
       );
       assert.ok(!classes(clear).some((name) => /^sm:[hw]-/.test(name)));
+      // Fixliste 6, S1: eckige Trefferfläche (rund nur der Fokusrahmen) –
+      // der Browser prüft Treffer innerhalb der Rundung
+      assert.ok(!classes(clear).includes("rounded-full"));
+      assert.ok(classes(clear).includes("focus-visible:rounded-full"));
     }
   }
 );
@@ -3508,8 +3512,13 @@ test(
     assert.equal(desktopReason.length, 1);
     assert.ok(hasClasses(desktopReason[0], ["hidden", "sm:inline"]));
     assert.equal(desktopReason[0].textContent, " · Grund: Unvollständig");
-    // ohne Grund keine eigene Zeile
+    // Fixliste 6, S2: gekürzt (1024 px mit Panel) – der Tooltip nennt den
+    // Grund ganz
+    assert.equal(meta.getAttribute("title"), "3 Fragen · Grund: Unvollständig");
+    assert.equal(reason.getAttribute("title"), "Grund: Unvollständig");
+    // ohne Grund keine eigene Zeile und kein Tooltip
     assert.equal(withAttribute(second, "data-row-reason").length, 0);
+    assert.equal(one(second, "data-row-meta").hasAttribute("title"), false);
 
     // Marken: mobil nur Daumen und Zahl (keine Pille, kein Innenabstand),
     // ab sm die Pille wie bisher
@@ -4036,5 +4045,191 @@ test(
     state.lastActivity = "fail";
     await mountPage();
     assert.deepEqual(widgetsOfLists(), [9]);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 6, K5: Tieflink auf eine Zeile weit unten
+// ---------------------------------------------------------------------------
+
+test(
+  "Fixliste 6, K5: per Link geöffnet, Zeile 46 erst nachgeladen – die Liste meldet die markierte Zeile (die Ansicht bringt sie in Sicht); nicht beim Klick auf eine Zeile",
+  { skip },
+  async (t) => {
+    const rows = Array.from({ length: 60 }, (_, i) =>
+      row(700 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    // Das Nachladen (offset > 0) wartet, bis release() kommt.
+    let release;
+    const holdMore = new Promise((resolve) => (release = resolve));
+    await panelServer(t, {
+      rows,
+      holdMore,
+      details: Object.fromEntries(
+        [745, 746, 702].map((id) => [
+          id,
+          {
+            messages: [
+              message(id, `konv-${id}`, { session_id: `sitzung-${id}` }),
+            ],
+          },
+        ])
+      ),
+    });
+    let shown = 0;
+    const { container, act } = await mountList(t, {
+      query: "?widget=3&conversation=745",
+      props: { onLinkedRowShown: () => (shown += 1) },
+    });
+    await act();
+    // erste Seite (20 Zeilen): Zeile 46 fehlt noch, nichts gemeldet
+    assert.equal(rowsOf(container).length, 20);
+    assert.deepEqual(currentRows(container), []);
+    assert.equal(shown, 0);
+    // nachgeladen: markiert und einmal gemeldet
+    await act(() => release());
+    await act();
+    await act();
+    assert.deepEqual(currentRows(container), [745]);
+    assert.equal(shown, 1);
+    const panel = panelOf(container);
+    assert.ok(panel);
+
+    // Blättern und Klicks in der Liste melden nichts (kein Link)
+    await act(() => click(one(panel, "data-panel-next")));
+    await act();
+    await act(() => click(rowsOf(container)[2]));
+    await act();
+    assert.deepEqual(currentRows(container), [702]);
+    assert.equal(shown, 1);
+
+    // Ohne Link: nie
+    const plain = [];
+    const other = await mountList(t, {
+      props: { onLinkedRowShown: () => plain.push(1) },
+    });
+    await other.act(() => click(rowsOf(other.container)[0]));
+    await other.act();
+    assert.deepEqual(plain, []);
+  }
+);
+
+test(
+  "Fixliste 6, K5: die Zeilen tragen Scroll-Abstände – „nearest“ lässt ab lg oben das Benutzermenü (80 px) und unten 32 px frei",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [row(1)] });
+    const { container } = await mountList(t);
+    const classes = rowsOf(container)[0].getAttribute("class").split(/\s+/);
+    // nur ab lg (Panel neben der Liste) – und nicht „scroll-mt-20“ selbst:
+    // Das trägt allein das Sprungziel der Liste
+    assert.ok(classes.includes("lg:scroll-mt-20"));
+    assert.ok(classes.includes("lg:scroll-mb-8"));
+    assert.ok(!classes.includes("scroll-mt-20"));
+  }
+);
+
+test(
+  "Fixliste 6, K5: Ansicht – Sprung zur Liste, dann bis zur markierten Zeile, wenn sie unter dem Fensterrand steht; steht sie im Bild, bleibt es beim Sprung zur Überschrift",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [row(1), row(5)],
+      details: {
+        5: { messages: [message(5, "konv-5", { session_id: "sitzung-5" })] },
+      },
+    });
+    const observers = stubResizeObserver(t);
+    const probe = await mountList(t);
+    const prototype = Object.getPrototypeOf(rowsOf(probe.container)[0]);
+    const document = probe.document;
+    await probe.unmount();
+    captureDocumentListeners(t, document);
+    const originalHeight = globalThis.window.innerHeight;
+    globalThis.window.innerHeight = 900;
+    t.after(() => {
+      globalThis.window.innerHeight = originalHeight;
+    });
+    // Liste (Sprungziel scroll-mt-20) und Zeile 5: Lage im Fenster
+    const jumps = [];
+    const rowJumps = [];
+    let listTop = 900;
+    let rowTop = 2941;
+    const original = {
+      scroll: prototype.scrollIntoView,
+      rect: prototype.getBoundingClientRect,
+    };
+    const isTarget = (element) => classesOf(element).includes("scroll-mt-20");
+    const isRow = (element) =>
+      element.getAttribute?.("data-conversation-row") === "5";
+    prototype.scrollIntoView = function (options) {
+      if (isTarget(this)) {
+        jumps.push(options);
+        listTop = 96;
+      } else if (isRow(this)) {
+        rowJumps.push(options);
+        // „nearest“ mit scroll-mb-8: Unterkante 32 px über dem Fensterrand
+        rowTop = 900 - 32 - 54;
+      }
+    };
+    prototype.getBoundingClientRect = function () {
+      if (isTarget(this))
+        return { top: listTop, bottom: listTop + 3000, height: 3000 };
+      if (isRow(this)) return { top: rowTop, bottom: rowTop + 54, height: 54 };
+      return original.rect.call(this);
+    };
+    t.after(() => {
+      prototype.scrollIntoView = original.scroll;
+      prototype.getBoundingClientRect = original.rect;
+    });
+    stubWidth(t, true);
+    const mountView = async () => {
+      const mounted = await renderer.mount(VIEW, {
+        location: `${LOCATION}?widget=3&conversation=5`,
+        route: LOCATION,
+        exportName: "AnalyticsScreen",
+        props: {
+          embedsLoaded: true,
+          embeds: [
+            {
+              id: EMBED_ID,
+              chat_retention_days: null,
+              workspace: { name: "VHS" },
+            },
+          ],
+        },
+      });
+      t.after(() => mounted.unmount());
+      for (let i = 0; i < 4; i++) await mounted.act();
+      return mounted;
+    };
+
+    // Zeile weit unten: zur Überschrift, dann bis zur Zeile
+    const deep = await mountView();
+    assert.deepEqual(jumps, [{ block: "start" }]);
+    assert.deepEqual(rowJumps, [{ block: "nearest" }]);
+    assert.deepEqual(currentRows(deep.container), [5]);
+    assert.ok(panelOf(deep.container), "Panel bleibt offen");
+    // Layoutänderung danach: Der Sprung hält wie bisher; die Zeile steht
+    // jetzt im Bild – kein weiterer Sprung zu ihr
+    const hold = observers.find((o) =>
+      (o.observed[0]?.childNodes ?? []).some((child) => isTarget(child))
+    );
+    listTop = 140;
+    await deep.act(() => hold.callback([]));
+    assert.equal(jumps.length, 2);
+    assert.equal(rowJumps.length, 1);
+    await deep.unmount();
+
+    // Zeile im Bild (Zeile 3 bei 1440×900): nur der Sprung zur Überschrift
+    jumps.length = 0;
+    rowJumps.length = 0;
+    listTop = 900;
+    rowTop = 387;
+    await mountView();
+    assert.deepEqual(jumps, [{ block: "start" }]);
+    assert.deepEqual(rowJumps, []);
   }
 );

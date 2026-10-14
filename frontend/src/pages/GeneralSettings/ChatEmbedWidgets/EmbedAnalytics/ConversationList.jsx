@@ -104,7 +104,10 @@ function FilterMark({ label, clearLabel, onClear, focusAfter, ...rest }) {
       {/* Die Schaltfläche selbst misst 44 × 44 px (Fixliste 2, B11 – im
           Browser über getBoundingClientRect messbar); oben und unten ragt sie
           über die Markierung hinaus (negativer Rand), statt sie höher zu
-          machen. Sichtbar ist nur der Kreis um das ✕. */}
+          machen. Sichtbar ist nur der Kreis um das ✕. Eckig: Der Browser
+          prüft Treffer innerhalb der Rundung – mit rounded-full gingen
+          Tipper in die Ecken der 44 px daneben (Fixliste 6, S1). Rund nur
+          der Fokusrahmen. */}
       <button
         type="button"
         onClick={() => {
@@ -114,7 +117,7 @@ function FilterMark({ label, clearLabel, onClear, focusAfter, ...rest }) {
         aria-label={clearLabel}
         title={clearLabel}
         data-filter-clear=""
-        className="group -my-[9px] -ml-1.5 grid h-11 w-11 shrink-0 place-items-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-[color:var(--theme-text-primary)]"
+        className="group -my-[9px] -ml-1.5 grid h-11 w-11 shrink-0 place-items-center focus-visible:rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-[color:var(--theme-text-primary)]"
       >
         <span className="grid h-5 w-5 place-items-center rounded-full group-hover:bg-white/10 light:group-hover:bg-black/10">
           <X size={12} weight="bold" aria-hidden="true" />
@@ -172,6 +175,8 @@ function appendUnique(items, more) {
  * @param {(count: number|null) => void} [props.onViewableCountChange] - Zahl
  *   der einsehbaren Konversationen für die Kopfzeile der Ansicht; null,
  *   solange die Liste lädt
+ * @param {() => void} [props.onLinkedRowShown] - die per Link geöffnete
+ *   Konversation steht jetzt markiert in der Liste (Fixliste 6, K5)
  * @param {{current: object|null}} [props.headingRef] - Überschrift der Liste
  *   (Ziel des Verweises „Konversationen ansehen" in der Kopfzeile)
  */
@@ -186,6 +191,7 @@ export default function ConversationList({
   showDeletedHint = false,
   countedConversations = null,
   onViewableCountChange = () => {},
+  onLinkedRowShown = () => {},
   headingRef = null,
 }) {
   const { t } = useTranslation();
@@ -649,6 +655,14 @@ export default function ConversationList({
     if (isWide())
       rowRefs.current.get(currentKey)?.scrollIntoView?.({ block: "nearest" });
   }, [currentKey]);
+
+  // Per Link geöffnet: Sobald die Zeile in der Liste markiert ist – auch
+  // erst nach dem Nachladen der Link-Suche –, sagt die Liste es der Ansicht.
+  // Die bringt sie in Sicht, solange ihr Sprung zur Liste hält (Fixliste 6,
+  // K5).
+  useEffect(() => {
+    if (fromLink && currentKey) onLinkedRowShown();
+  }, [fromLink, currentKey, onLinkedRowShown]);
 
   // Schließt das Panel, kehrt der Fokus auf die Zeile zurück (statt im
   // Nichts zu stehen) – ohne die Liste zu verschieben.
@@ -1269,6 +1283,9 @@ function ConversationRow({
       }),
   ].filter(Boolean);
   const reasonText = reason && t("embed-analytics.rows.reason", { reason });
+  // Der Grund wird in schmaler Liste (1024 px mit Panel) gekürzt – der
+  // Tooltip nennt ihn ganz (Fixliste 6, S2).
+  const metaTitle = reasonText ? [...meta, reasonText].join(" · ") : undefined;
 
   return (
     <button
@@ -1279,7 +1296,7 @@ function ConversationRow({
       aria-current={selected ? "true" : undefined}
       onClick={onOpen}
       onKeyDown={onKeyDown}
-      className={`grid w-full grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
+      className={`grid w-full grid-cols-[minmax(0,1fr)_auto_16px] lg:scroll-mb-8 lg:scroll-mt-20 items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
         selected
           ? "bg-sky-500/15 light:bg-sky-50"
           : "hover:bg-white/5 light:hover:bg-black/[0.03]"
@@ -1305,6 +1322,7 @@ function ConversationRow({
             blieb davon bei 360 px nichts lesbar (Fixliste 5, V2). */}
         <span
           data-row-meta=""
+          title={metaTitle}
           className={`truncate text-[13px] leading-[18px] ${MUTED}`}
         >
           <span className="sm:hidden">{time} · </span>
@@ -1316,6 +1334,7 @@ function ConversationRow({
         {reasonText && (
           <span
             data-row-reason=""
+            title={reasonText}
             className={`truncate text-[13px] leading-[18px] ${MUTED} sm:hidden`}
           >
             {reasonText}
