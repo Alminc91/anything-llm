@@ -439,6 +439,21 @@ describe("Folgefragen im Embed-Stream", () => {
       }
   });
 
+  test("FF2: Pille gleich der gestellten Frage (normalisiert) und Dubletten verworfen — Chunk und gespeichert", async () => {
+    // run() stellt die Frage "gibt es sportkurse?"
+    for (const streaming of [true, false]) {
+      jest.clearAllMocks();
+      const { log, stored, text } = await run({
+        reply: `${FU_BODY}\n[[FRAGEN: Gibt es Sportkurse? | Auch am Abend? | auch am  abend]]\n*KI*`,
+        embed: makeEmbed(JSON.stringify({ followUps: "pills" })),
+        streaming,
+      });
+      expect(text).toBe(`${FU_BODY}\n*KI*`);
+      expect(checkOrder(log).followUps).toEqual(["Auch am Abend?"]);
+      expect(stored.followUps).toEqual(["Auch am Abend?"]);
+    }
+  });
+
   test("ohne Endzeile: kein followUps-Chunk, Feld fehlt, Text wie bisher", async () => {
     const { log, stored, text } = await run({ reply: REPLY_BODY });
     expect(text).toBe(REPLY_BODY);

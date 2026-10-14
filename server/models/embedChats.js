@@ -3,7 +3,10 @@ const {
   sanitizeCourseSources,
   sanitizeCourseTeasers,
 } = require("../utils/chats/embedCourseSources");
-const { storedFollowUps } = require("../utils/chats/embedCardsMarker");
+const {
+  storedFollowUps,
+  stripProtocolMarkers,
+} = require("../utils/chats/embedCardsMarker");
 const prisma = require("../utils/prisma");
 const { MessageLedger } = require("./messageLedger");
 
@@ -152,7 +155,10 @@ const EmbedChats = {
    * wird aber nochmals auf die Whitelist reduziert. Kurskarten v3:
    * `courseTeasers` (URL -> Teaser) nur für URLs dieser Karten, Text bereinigt;
    * `courseTeaserLines` (LLM-Verlauf) nie ans Widget. Folgefragen:
-   * `followUps` nur bereinigt (storedFollowUps).
+   * `followUps` nur bereinigt (storedFollowUps, ohne Pillen gleich der
+   * Nutzerfrage). FF1: Protokoll-Marker ("[[FRAGEN: …]]", "[[KARTEN: …]]")
+   * im Text entfernt — auch in alten Datensätzen, in denen die Zeile vor
+   * dem KI-Hinweis stand (Verlauf nach Neuladen ohne Marker).
    * @param {EmbedChat[]} chats
    * @returns {EmbedChat[]} Returns a new array of chats with the sources filtered out of responses
    */
@@ -173,8 +179,12 @@ const EmbedChats = {
         followUps,
         ...responseRest
       } = parsed && typeof parsed === "object" ? parsed : {};
-      const safeFollowUps = storedFollowUps(followUps);
+      const safeFollowUps = storedFollowUps(followUps, {
+        userMessage: rest.prompt,
+      });
       if (safeFollowUps.length > 0) responseRest.followUps = safeFollowUps;
+      if (typeof responseRest.text === "string")
+        responseRest.text = stripProtocolMarkers(responseRest.text);
       const safeCourseSources = sanitizeCourseSources(courseSources);
       if (safeCourseSources.length > 0) {
         responseRest.courseSources = safeCourseSources;
