@@ -27,6 +27,7 @@ import {
   firstElementWith,
   groupByLastMessageDay,
   hasContentGap,
+  focusLost,
   hasVisibleHit,
   highlightParts,
   highlightTextNodes,
@@ -37,9 +38,9 @@ import {
   panelChromeHeight,
   panelFit,
   revealMarkedRow,
-  sameBerlinDays,
   searchLinkIssue,
   searchPattern,
+  searchVariants,
   shortDayLabel,
   shortId,
   startedOnOtherDay,
@@ -49,6 +50,7 @@ import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
 import { formatDateTimeDE } from "../src/utils/dateTimeDE.js";
 import serverSearch from "../../server/utils/helpers/chat/conversationSearch.js";
 import { createDocument, elements } from "./helpers/testDom.mjs";
+import { readFileSync } from "node:fs";
 
 /** Minimales t() über eine Sprachdatei: Interpolation und _one/_other. */
 function translator(resources) {
@@ -340,19 +342,31 @@ test("Kopf des Panels aus den Nachrichten; Alt-Chats ohne conversation_id heiße
   assert.equal(conversationSummary([]), null);
 });
 
-test("Außerhalb des Zeitraums: keine Nachricht darin (Grenzen eingeschlossen); „Gesamt“ nie", () => {
+test("Außerhalb des Zeitraums: keine Nachricht in den Berliner Kalendertagen (Grenzen eingeschlossen, Fixliste 7 F06); „Gesamt“ nie", () => {
   const messages = [{ createdAt: "2026-08-01T10:00:00.000Z" }];
-  const period = ["2026-09-01T00:00:00.000Z", "2026-09-30T23:59:59.999Z"];
-  assert.equal(outsidePeriod(messages, ...period), true);
+  const september = { fromDay: "2026-09-01", toDay: "2026-09-30" };
+  assert.equal(outsidePeriod(messages, september), true);
+  // 30.09., 23:59:59,999 Uhr Berliner Zeit: noch drin
   assert.equal(
     outsidePeriod(
-      [...messages, { createdAt: "2026-09-30T23:59:59.999Z" }],
-      ...period
+      [...messages, { createdAt: "2026-09-30T21:59:59.999Z" }],
+      september
     ),
     false
   );
-  assert.equal(outsidePeriod(messages, null, null), false);
-  assert.equal(outsidePeriod([], ...period), false);
+  // 01.10., 00:15 Uhr Berliner Zeit (UTC noch der 30.09.): nicht mehr
+  assert.equal(
+    outsidePeriod([{ createdAt: "2026-09-30T22:15:00.000Z" }], september),
+    true
+  );
+  // 01.09., 00:30 Uhr Berliner Zeit (UTC noch der 31.08.): drin
+  assert.equal(
+    outsidePeriod([{ createdAt: "2026-08-31T22:30:00.000Z" }], september),
+    false
+  );
+  assert.equal(outsidePeriod(messages, {}), false);
+  assert.equal(outsidePeriod(messages, { fromDay: null, toDay: null }), false);
+  assert.equal(outsidePeriod([], september), false);
 });
 
 test("Antworttext: bei JSON das Feld text (nicht Quellen), sonst wörtlich; Kennung gekürzt", () => {
@@ -478,10 +492,7 @@ test("Sichtbarer Treffer: nur in den Nachrichten, die der Server durchsucht hat 
       createdAt: "2026-10-05T10:00:00.000Z",
     },
   ];
-  const october = {
-    startDate: "2026-09-30T22:00:00.000Z",
-    endDate: "2026-10-31T22:59:59.999Z",
-  };
+  const october = { fromDay: "2026-10-01", toDay: "2026-10-31" };
   // Im Oktober trifft „spanisch" nur die Link-Adresse – die sichtbare Frage
   // aus dem Juli hat der Server nicht durchsucht: Hinweis.
   assert.equal(hasVisibleHit(messages, "spanisch", october), false);
@@ -489,7 +500,7 @@ test("Sichtbarer Treffer: nur in den Nachrichten, die der Server durchsucht hat 
   assert.equal(hasVisibleHit(messages, "spanisch", {}), true);
   assert.equal(hasVisibleHit(messages, "spanisch"), true);
   assert.equal(
-    hasVisibleHit(messages, "spanisch", { startDate: null, endDate: null }),
+    hasVisibleHit(messages, "spanisch", { fromDay: null, toDay: null }),
     true
   );
 });
@@ -640,9 +651,10 @@ test("Fixliste 4, V7: holdScrollTarget – springt, hält das Ziel bei jeder Gr�
     });
     assert.equal(jumps, 1);
     assert.deepEqual(observers[0].observed, [middle, outer]);
+    // Höchstdauer und Ruhezeit (Fixliste 7, F15)
     assert.deepEqual(
       timers.map((timer) => timer.ms),
-      [HOLD_SCROLL_MAX_MS]
+      [HOLD_SCROLL_MAX_MS, HOLD_SCROLL_QUIET_MS]
     );
     // Eingaben des Nutzers lauschen passiv (kein preventDefault)
     for (const type of [
@@ -900,77 +912,6 @@ test("Fixliste 6, K1: zwei Hinweise zum Blättern – Link-Fall ohne Aufforderun
   }
 });
 
-test("Fixliste 6, N1: sameBerlinDays – Liste und Zählerbuch decken dieselben Berliner Tage nur bei Berliner Tagesgrenzen; „Gesamt“ immer", () => {
-  // Browser in Berlin: 00:00 bis 23:59:59,999 Uhr Berliner Zeit
-  assert.equal(
-    sameBerlinDays(
-      "2026-09-12T22:00:00.000Z",
-      "2026-10-13T21:59:59.999Z",
-      "2026-09-13",
-      "2026-10-13"
-    ),
-    true
-  );
-  // über die Zeitumstellung (29.03.2026: Beginn UTC+1, Ende UTC+2)
-  assert.equal(
-    sameBerlinDays(
-      "2026-03-27T23:00:00.000Z",
-      "2026-03-29T21:59:59.999Z",
-      "2026-03-28",
-      "2026-03-29"
-    ),
-    true
-  );
-  // Browser in UTC bzw. New York: Grenzen um Stunden verschoben
-  assert.equal(
-    sameBerlinDays(
-      "2026-09-13T00:00:00.000Z",
-      "2026-10-13T23:59:59.999Z",
-      "2026-09-13",
-      "2026-10-13"
-    ),
-    false
-  );
-  assert.equal(
-    sameBerlinDays(
-      "2026-09-13T04:00:00.000Z",
-      "2026-10-14T03:59:59.999Z",
-      "2026-09-13",
-      "2026-10-13"
-    ),
-    false
-  );
-  // andere Tage, fehlende Millisekunden, halbe Angaben
-  assert.equal(
-    sameBerlinDays(
-      "2026-09-12T22:00:00.000Z",
-      "2026-10-13T21:59:59.999Z",
-      "2026-09-14",
-      "2026-10-13"
-    ),
-    false
-  );
-  assert.equal(
-    sameBerlinDays(
-      "2026-09-12T22:00:00.000Z",
-      "2026-10-13T21:59:59.000Z",
-      "2026-09-13",
-      "2026-10-13"
-    ),
-    false
-  );
-  assert.equal(
-    sameBerlinDays("2026-09-12T22:00:00.000Z", null, "2026-09-13", null),
-    false
-  );
-  assert.equal(
-    sameBerlinDays("kein Datum", "2026-10-13T21:59:59.999Z", "a", "b"),
-    false
-  );
-  // „Gesamt“: Die Liste hat keine Grenzen, reicht also mindestens so weit
-  assert.equal(sameBerlinDays(null, null, null, null), true);
-});
-
 test("Fixliste 6, N1: hasContentGap – nur „einsehbar < gezählt“ ist eine Lücke; gleich oder mehr nicht", () => {
   assert.equal(hasContentGap(916, 0), true);
   assert.equal(hasContentGap(10, 9), true);
@@ -1060,4 +1001,244 @@ test("Fixliste 6, K5: holdScrollTarget().realign – springt erneut, solange das
   assert.equal(jumps, 3);
   // ohne Ziel: vorhanden, tut nichts
   holdScrollTarget(null, () => assert.fail()).realign();
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7 (volles Review, Abnahme entwicklung)
+// ---------------------------------------------------------------------------
+
+test("Fixliste 7, F05: Hervorhebung nach derselben Regel wie die Suche des Servers – türkisches ı/I/İ/i, ß/ẞ, Kelvin und langes s", () => {
+  // Dieselben Schreibweisen je Zeichen wie variantsOf des Servers (dort
+  // als Zeichenklasse im GLOB-Muster)
+  const serverClass = (char) => {
+    const pattern = serverSearch.searchGlobPattern(char).slice(1, -1);
+    return pattern.startsWith("[") ? [...pattern.slice(1, -1)] : [char];
+  };
+  for (const char of [
+    "ı",
+    "I",
+    "İ",
+    "i",
+    "ß",
+    "ẞ",
+    "ü",
+    "Ü",
+    "K",
+    "k",
+    "\u212A", // Kelvin
+    "ſ", // langes s
+    "s",
+    "Σ",
+    "ς",
+    "σ",
+    "ǅ",
+    "1",
+    "-",
+  ])
+    assert.deepEqual(
+      [char, searchVariants(char).sort()],
+      [char, serverClass(char).sort()]
+    );
+
+  const hits = (text, term) =>
+    highlightParts(text, term)
+      .filter((part) => part.hit)
+      .map((part) => part.text);
+  // Der Server findet „KISA“ mit „kısa“ ([ıI]) – das Panel hebt es hervor.
+  assert.deepEqual(hits("KISA ve kısa", "kısa"), ["KISA", "kısa"]);
+  // „KISA“ (ASCII) sucht wie LIKE: K/k, I/i … – kein ı
+  assert.deepEqual(hits("KISA kisa kısa", "KISA"), ["KISA", "kisa"]);
+  // „i“ trifft I und i, nicht İ und nicht ı – wie der Server
+  assert.deepEqual(hits("İstanbul Istanbul istanbul ıstanbul", "istanbul"), [
+    "Istanbul",
+    "istanbul",
+  ]);
+  // İ hat keine einfache Kleinschreibung: nur sich selbst
+  assert.deepEqual(hits("İstanbul istanbul", "İstanbul"), ["İstanbul"]);
+  // ß und ẞ gelten gleich, „SS“ nicht (dokumentiert, AK-11)
+  assert.deepEqual(hits("GRÖẞE größe GRÖSSE", "größe"), ["GRÖẞE", "größe"]);
+  // kein Faltungs-Sonderweg des u-Flags: Kelvin-Zeichen und langes s nur,
+  // wenn auch der Server sie findet
+  assert.deepEqual(hits("\u212Aurs kurſ Kurs", "kurs"), ["Kurs"]);
+  // Sonderzeichen wörtlich
+  assert.deepEqual(hits("vhs-lingen.de und vhsXlingen", "vhs-lingen.de"), [
+    "vhs-lingen.de",
+  ]);
+  assert.deepEqual(hits("a.b*c", "a.b*c"), ["a.b*c"]);
+  // sichtbarer Treffer derselben Regel: kein falscher Hinweis
+  // „steht nur in Link-Adressen …“
+  assert.equal(
+    hasVisibleHit(
+      [{ prompt: "?", response: JSON.stringify({ text: "KISA" }) }],
+      "kısa"
+    ),
+    true
+  );
+});
+
+test("Fixliste 7, F15: holdScrollTarget endet von selbst, sobald die Seite geladen ist und das Layout HOLD_SCROLL_QUIET_MS ruhig war – jede Unruhe und realign beginnen die Ruhezeit neu", () => {
+  const doc = createDocument();
+  const target = doc.body
+    .appendChild(doc.createElement("div"))
+    .appendChild(doc.createElement("div"));
+  let top = 640;
+  target.getBoundingClientRect = () => ({ top });
+  let jumps = 0;
+  const jump = () => {
+    jumps += 1;
+    top = 96;
+  };
+  const listeners = new Map();
+  doc.addEventListener = (type, listener) => listeners.set(type, listener);
+  doc.removeEventListener = (type) => listeners.delete(type);
+  const fire = (type) => listeners.get(type)?.({ type });
+  const observers = [];
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.disconnected = false;
+      observers.push(this);
+    }
+    observe() {}
+    disconnect() {
+      this.disconnected = true;
+    }
+  };
+  // Zeitgeber von Hand: id → { callback, ms }
+  let nextId = 0;
+  const timers = new Map();
+  const options = {
+    setTimer: (callback, ms) => {
+      timers.set(++nextId, { callback, ms });
+      return nextId;
+    },
+    clearTimer: (id) => timers.delete(id),
+  };
+  const quiet = () =>
+    [...timers.values()].filter((t) => t.ms === HOLD_SCROLL_QUIET_MS);
+  try {
+    doc.readyState = "loading";
+    const hold = holdScrollTarget(target, jump, options);
+    assert.equal(jumps, 1);
+    assert.equal(quiet().length, 1);
+    // Ruhezeit um, die Seite lädt aber noch: hält weiter
+    quiet()[0].callback();
+    assert.equal(observers[0].disconnected, false);
+    // Ende des Ladens: neue Ruhezeit
+    doc.readyState = "complete";
+    fire("readystatechange");
+    assert.equal(quiet().length, 1);
+    // eine Größenänderung darüber: springen, Ruhezeit neu (nur eine)
+    top = 700;
+    observers[0].callback([]);
+    assert.equal(jumps, 2);
+    assert.equal(quiet().length, 1);
+    // realign (die Zeile ist nachgeladen): springen, Ruhezeit neu
+    hold.realign();
+    assert.equal(jumps, 3);
+    assert.equal(quiet().length, 1);
+    // Ruhe: Schluss – ohne Eingabe, keine Lauscher, kein Beobachter mehr
+    quiet()[0].callback();
+    assert.equal(observers[0].disconnected, true);
+    assert.equal(listeners.size, 0);
+    assert.equal(timers.size, 0);
+    top = 1500;
+    observers[0].callback([]);
+    hold.realign();
+    assert.equal(jumps, 3);
+  } finally {
+    globalThis.ResizeObserver = original;
+  }
+});
+
+test("Fixliste 7, F24: focusLost – verloren, wenn der Fokus auf <body> steht oder sein Element nicht mehr im Dokument ist; nicht, solange jemand in einem Feld steht", () => {
+  const doc = createDocument();
+  const input = doc.body.appendChild(doc.createElement("input"));
+  doc.activeElement = doc.body;
+  assert.equal(focusLost(doc), true);
+  doc.activeElement = null;
+  assert.equal(focusLost(doc), true);
+  doc.activeElement = input;
+  assert.equal(focusLost(doc), false);
+  doc.body.removeChild(input);
+  assert.equal(focusLost(doc), true);
+  assert.equal(focusLost(undefined), false);
+});
+
+test("Fixliste 7, B3: Such-Markierung – im dunklen Theme ruhiger als das kräftige Gelb, in beiden Themes Kontrast ≥ 4,5:1", () => {
+  const css = readFileSync(
+    new URL("../src/index.css", import.meta.url),
+    "utf8"
+  );
+  const block = (selector) => {
+    const start = css.indexOf(`${selector} {\n  --konversationen-hit-bg`);
+    assert.ok(start >= 0, `kein Block ${selector}`);
+    return css.slice(start, css.indexOf("}", start));
+  };
+  const value = (text, name) =>
+    new RegExp(`--konversationen-hit-${name}:\\s*(#[0-9a-f]{6})`, "i").exec(
+      text
+    )[1];
+  const luminance = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a, b) => {
+    const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (high + 0.05) / (low + 0.05);
+  };
+  const dark = block(":root");
+  const light = block('[data-theme="light"]');
+  for (const theme of [dark, light])
+    assert.ok(contrast(value(theme, "bg"), value(theme, "text")) >= 4.5);
+  // dunkel nicht mehr das grelle Gelb des hellen Themes
+  assert.notEqual(value(dark, "bg").toLowerCase(), "#fde047");
+  assert.ok(luminance(value(dark, "bg")) < 0.2);
+  // die Regel nutzt die Variablen
+  assert.match(
+    css,
+    /mark\[data-search-hit\] \{\s*background-color: var\(--konversationen-hit-bg\);\s*color: var\(--konversationen-hit-text\) !important;/
+  );
+});
+
+test("Fixliste 7, B1: Absätze und Blöcke einer Antwort im Panel haben Abstand zueinander (wie im Widget)", () => {
+  const css = readFileSync(
+    new URL("../src/index.css", import.meta.url),
+    "utf8"
+  );
+  const rule =
+    /\.analytics-bot-response\s*:where\(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6, hr\)\s*\+ :where\(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6, hr\) \{\s*margin-top: 0\.75em;/;
+  assert.match(css, rule);
+});
+
+test("Fixliste 7, F23/F24: eine Stelle für „breit?“, „außerhalb/Escape schließen“ und „Fokus verloren?“ – keine Kopien in Liste, Panel, Exportmenü und Kopfzeile", () => {
+  const source = (file) =>
+    readFileSync(
+      new URL(
+        `../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/${file}`,
+        import.meta.url
+      ),
+      "utf8"
+    );
+  const files = [
+    "ConversationList.jsx",
+    "ConversationDetail.jsx",
+    "ExportMenu.jsx",
+    "index.jsx",
+  ];
+  for (const file of files) {
+    const text = source(file);
+    assert.doesNotMatch(text, /addEventListener\("mousedown"/, file);
+    assert.doesNotMatch(text, /function useWide|matchMedia\(/, file);
+    assert.doesNotMatch(text, /document\.activeElement/, file);
+  }
+  for (const file of ["ConversationDetail.jsx", "ExportMenu.jsx", "index.jsx"])
+    assert.match(source(file), /useDismiss\(/, file);
+  assert.match(source("ConversationDetail.jsx"), /useWide\(\)/);
+  // useWide beginnt mit isWide() – derselbe Wert ohne matchMedia (false)
+  assert.match(source("viewHooks.js"), /useState\(isWide\)/);
 });

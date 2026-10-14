@@ -1162,13 +1162,23 @@ does not extend the close button beyond the viewport. */
   animation: fadein 0.3s linear forwards;
 }
 
-/* Konversationen-Ansicht: Treffer der Suche im Gesprächsverlauf. Gelb mit
-   dunkler Schrift in beiden Themes (Kontrast > 10:1), auch in der
-   Sprechblase der Frage und in Antworten (.analytics-bot-response setzt die
-   Textfarbe sonst mit !important). */
+/* Konversationen-Ansicht: Treffer der Suche im Gesprächsverlauf, auch in
+   der Sprechblase der Frage und in Antworten (.analytics-bot-response setzt
+   die Textfarbe sonst mit !important). Hell: Gelb mit dunkler Schrift
+   (#fde047 / #1c1917, 13,3:1). Dunkel ruhiger (Fixliste 7, B3): gedämpftes
+   Bernstein mit heller Schrift (#854d0e / #fef9c3, 6,4:1) statt des
+   kräftigen Gelbs - Kontrast weiter über 4,5:1. */
+:root {
+  --konversationen-hit-bg: #854d0e;
+  --konversationen-hit-text: #fef9c3;
+}
+[data-theme="light"] {
+  --konversationen-hit-bg: #fde047;
+  --konversationen-hit-text: #1c1917;
+}
 mark[data-search-hit] {
-  background-color: #fde047;
-  color: #1c1917 !important;
+  background-color: var(--konversationen-hit-bg);
+  color: var(--konversationen-hit-text) !important;
   border-radius: 2px;
   padding: 0 1px;
 }
@@ -1186,6 +1196,15 @@ mark[data-search-hit] {
 .analytics-bot-response strong,
 .analytics-bot-response em {
   color: var(--theme-text-primary) !important;
+}
+
+/* Konversationen-Ansicht: Absätze und Blöcke einer Antwort mit Abstand wie
+   im Widget (dort steht zwischen zwei Absätzen eine Leerzeile) - ohne ihn
+   wirkten lange Antworten im Panel dicht (Fixliste 7, B1). */
+.analytics-bot-response
+  :where(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6, hr)
+  + :where(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6, hr) {
+  margin-top: 0.75em;
 }
 
 /* ===== react-day-picker Theme Overrides ===== */

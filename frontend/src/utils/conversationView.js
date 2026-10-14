@@ -33,6 +33,23 @@ export function isWide() {
 }
 
 /**
+ * Ist der Fokus verloren gegangen – steht er auf <body> oder auf einem
+ * Element, das nicht mehr im Dokument ist (etwa weil das Panel oder ein
+ * Menüeintrag verschwunden ist)? Dann darf die Ansicht ihn neu setzen, ohne
+ * jemandem das Feld wegzuziehen, in dem er gerade tippt (Fixliste 7, F24:
+ * eine Stelle für Liste und Panel).
+ * @param {Document|undefined} [doc]
+ * @returns {boolean}
+ */
+export function focusLost(
+  doc = typeof document === "undefined" ? undefined : document
+) {
+  if (!doc) return false;
+  const active = doc.activeElement;
+  return !active || active === doc.body || !doc.body.contains(active);
+}
+
+/**
  * Gedämpfte Schrift der Ansicht: dunkel wie --theme-text-secondary, hell
  * #5f6368 (Fixliste 2, B2) – eine Stelle statt einer Konstante je Datei.
  */
@@ -159,40 +176,45 @@ const USER_INPUT_EVENTS = [
 /** So lange hält holdScrollTarget höchstens, auch ohne Eingabe. */
 export const HOLD_SCROLL_MAX_MS = 10000;
 /**
- * Ruhezeit des Layouts: Verschiebt ein Scrollen das Ziel, obwohl sich seit
- * so vielen Millisekunden nichts mehr über ihm verändert hat und die Seite
- * fertig geladen ist, gilt es als Absicht des Nutzers (Fixliste 5, S2).
+ * Ruhezeit des Layouts: So lange nach der letzten Größenänderung über dem
+ * Ziel (bzw. dem Ende des Ladens) hält holdScrollTarget noch – danach ist
+ * der Sprung erledigt (Fixliste 7, F15). Verschiebt in dieser Zeit ein
+ * Scrollen das Ziel, gilt es nur bis zum Ende des Ladens als fremd.
  */
 export const HOLD_SCROLL_QUIET_MS = 1500;
 
 /**
- * Hält ein Sprungziel an seiner Stelle, bis der Nutzer selbst etwas tut
- * (Fixliste 4, V7). Ein einmaliger Sprung (scrollIntoView) gilt nur für das
- * Layout dieses Augenblicks: Wird danach etwas über dem Ziel höher oder
- * niedriger (nachgeladene Inhalte, Schriften, Diagramme) oder setzt der
- * Browser die Scrollposition selbst (Wiederherstellen nach dem Neuladen,
- * Scroll-Anker), stünde das Ziel woanders – beim Öffnen per Link bliebe
- * die Seite scheinbar ungescrollt. Deshalb: springen, dann bei jeder
+ * Hält ein Sprungziel an seiner Stelle, solange das Layout darüber noch
+ * unruhig ist (Fixliste 4, V7). Ein einmaliger Sprung (scrollIntoView) gilt
+ * nur für das Layout dieses Augenblicks: Wird danach etwas über dem Ziel
+ * höher oder niedriger (nachgeladene Inhalte, Schriften, Diagramme) oder
+ * setzt der Browser die Scrollposition selbst (Scroll-Anker, Wiederherstellen
+ * beim Laden), stünde das Ziel woanders – beim Öffnen per Link bliebe die
+ * Seite scheinbar ungescrollt. Deshalb: springen, dann bei jeder
  * Größenänderung eines Vorfahren (ResizeObserver) erneut springen, ebenso
- * bei fremdem Scrollen, das das Ziel verschiebt – bis zur ersten Eingabe
- * (Rad, Tippen, Zeiger, Taste) oder nach HOLD_SCROLL_MAX_MS.
+ * bei fremdem Scrollen, das das Ziel verschiebt.
  *
- * Fremd ist ein Scrollen nur, solange das Layout unruhig ist (Fixliste 5,
- * S2): bis die Seite fertig geladen ist (readyState „complete“) und
- * höchstens HOLD_SCROLL_QUIET_MS nach dem Start, der letzten
- * Größenänderung eines Vorfahren oder dem Ende des Ladens – dann setzt der
- * Browser die Scrollposition (Wiederherstellen, Scroll-Anker). Danach gilt
- * ein Scrollen, das das Ziel verschiebt, als Absicht des Nutzers und
- * beendet das Halten, auch ohne vorheriges Ereignis wie wheel oder
- * pointerdown: Ziehen am Scrollbalken, Bildlauf durch Screenreader oder
- * Sprachsteuerung, „Im Seitentext suchen“.
- * Bekannte Grenze: Innerhalb dieser Ruhezeit nach einer Layoutänderung
- * springt ein solches Scrollen noch einmal zurück.
+ * Nur so lange wie nötig (Fixliste 7, F15): Das Halten endet von selbst,
+ * sobald die Seite fertig geladen ist (readyState „complete“) und das Layout
+ * über dem Ziel HOLD_SCROLL_QUIET_MS ruhig war – spätestens nach
+ * HOLD_SCROLL_MAX_MS, und sofort bei der ersten Eingabe (Rad, Tippen,
+ * Zeiger, Taste). Die Ursachen sind dafür an der Quelle behoben: Die Ansicht
+ * stellt die Scrollposition selbst ein (history.scrollRestoration „manual“
+ * auf der Seite), und der Sprung kommt erst, wenn Kennzahlen, Diagramm,
+ * Uhrzeit-Karte und Liste geladen sind. Was dann noch bleibt (Schriften,
+ * Messung der Diagrammbreite), fällt in die kurze Ruhezeit.
+ *
+ * Ein Scrollen, das das Ziel verschiebt, ohne dass vorher eine Eingabe kam
+ * (Scrollbalken ziehen, Screenreader, Sprachsteuerung, „Im Seitentext
+ * suchen“), gilt nach dem Ende des Ladens und außerhalb der Ruhezeit als
+ * Absicht des Nutzers und beendet das Halten (Fixliste 5, S2). Bekannte,
+ * jetzt kurze Grenze: Kommt ein solches Scrollen innerhalb der Ruhezeit nach
+ * einer Layoutänderung, springt die Seite einmal zurück.
  *
  * realign() am Rückgabewert springt noch einmal, solange das Halten läuft –
  * für Änderungen, die das Ziel selbst nicht verschieben (die per Link
- * geöffnete Zeile ist nachgeladen, Fixliste 6, K5). Nach dem Ende tut es
- * nichts: Der Nutzer hat dann selbst gescrollt oder etwas getan.
+ * geöffnete Zeile ist nachgeladen, Fixliste 6, K5); die Ruhezeit beginnt
+ * dann neu. Nach dem Ende tut es nichts.
  * @param {Element|null} target
  * @param {() => void} jump - der Sprung (etwa scrollIntoView)
  * @param {{maxMs?: number, quietMs?: number, now?: () => number, setTimer?: Function, clearTimer?: Function}} [options]
@@ -219,11 +241,22 @@ export function holdScrollTarget(target, jump, options = {}) {
   let stopped = false;
   let observer = null;
   let timer = null;
+  let quietTimer = null;
+  const loading = () =>
+    doc?.readyState !== undefined && doc.readyState !== "complete";
   // Zuletzt unruhig: Start, Größenänderung eines Vorfahren, Ende des Ladens
   let lastLayout = now();
-  const settling = () =>
-    (doc?.readyState !== undefined && doc.readyState !== "complete") ||
-    now() - lastLayout <= quietMs;
+  const settling = () => loading() || now() - lastLayout <= quietMs;
+  // Unruhe: die Ruhezeit beginnt neu; ist sie um und die Seite geladen,
+  // endet das Halten (Lädt die Seite noch, beginnt sie mit dem Ende des
+  // Ladens neu.)
+  const unrest = () => {
+    lastLayout = now();
+    clearTimer(quietTimer);
+    quietTimer = setTimer(() => {
+      if (!loading()) stop();
+    }, quietMs);
+  };
   const onScroll = () => {
     const top = topOf();
     if (stopped || !Number.isFinite(top) || Math.abs(top - held) <= 1) return;
@@ -231,13 +264,14 @@ export function holdScrollTarget(target, jump, options = {}) {
     else stop();
   };
   const onReady = () => {
-    lastLayout = now();
+    if (!stopped) unrest();
   };
   const stop = () => {
     if (stopped) return;
     stopped = true;
     observer?.disconnect?.();
     clearTimer(timer);
+    clearTimer(quietTimer);
     doc?.removeEventListener?.("scroll", onScroll, true);
     doc?.removeEventListener?.("readystatechange", onReady);
     for (const type of USER_INPUT_EVENTS)
@@ -246,7 +280,7 @@ export function holdScrollTarget(target, jump, options = {}) {
   if (typeof ResizeObserver !== "undefined") {
     observer = new ResizeObserver(() => {
       if (stopped) return;
-      lastLayout = now();
+      unrest();
       align();
     });
     for (const element of ancestorsOf(target)) observer.observe(element);
@@ -256,9 +290,12 @@ export function holdScrollTarget(target, jump, options = {}) {
   for (const type of USER_INPUT_EVENTS)
     doc?.addEventListener?.(type, stop, { capture: true, passive: true });
   timer = setTimer(stop, maxMs);
+  unrest();
   return Object.assign(stop, {
     realign: () => {
-      if (!stopped) align();
+      if (stopped) return;
+      unrest();
+      align();
     },
   });
 }
@@ -333,35 +370,6 @@ export function berlinDateTime(instant) {
 }
 
 /**
- * Deckt der Zeitraum der Liste (Zeitstempel des Browsers) genau die
- * Kalendertage des Zählerbuchs (Berliner Tage)? Ja, wenn er um 00:00:00,000
- * Uhr Berliner Zeit an fromDay beginnt und um 23:59:59,999 Uhr an toDay
- * endet – in einem Browser mit Berliner Zeit (oder gleichen Regeln) immer.
- * „Gesamt“ (keine Grenzen): ja – die Liste reicht dann sogar weiter zurück
- * als das Zählerbuch. In einer anderen Zeitzone verschieben sich die
- * Grenzen um Stunden: Konversationen am Rand zählt dann nur eine Seite
- * (Fixliste 6, N1).
- * @param {string|Date|null} startDate
- * @param {string|Date|null} endDate
- * @param {string|null} fromDay - "YYYY-MM-DD"
- * @param {string|null} toDay
- * @returns {boolean}
- */
-export function sameBerlinDays(startDate, endDate, fromDay, toDay) {
-  if (!startDate && !endDate) return true;
-  if (!startDate || !endDate || !fromDay || !toDay) return false;
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
-  return (
-    start.getUTCMilliseconds() === 0 &&
-    end.getUTCMilliseconds() === 999 &&
-    berlinDateTime(start) === `${formatDate(fromDay)}, 00:00:00 Uhr` &&
-    berlinDateTime(end) === `${formatDate(toDay)}, 23:59:59 Uhr`
-  );
-}
-
-/**
  * Fehlen Inhalte gezählter Konversationen (Fixliste 6, N1)? Die Kennzahl
  * „Konversationen“ (Zählerbuch) zählt je Widget die Zeilen, für deren
  * Schlüssel COALESCE(conversation_id, session_id) es noch keine frühere
@@ -375,7 +383,9 @@ export function sameBerlinDays(startDate, endDate, fromDay, toDay) {
  * Inhalte fehlen (Aufbewahrungsfrist, vom Besucher geleert, gelöscht).
  * Umgekehrt kann eine Lücke unerkannt bleiben, wenn weitergeführte
  * Konversationen sie auffüllen – der Hinweis erscheint nie zu Unrecht.
- * Voraussetzung: dieselben Tage (sameBerlinDays), kein Filter.
+ * Voraussetzung: dieselben Tage (die Liste begrenzt den Zeitraum seit
+ * Fixliste 7, F06 in denselben Berliner Kalendertagen wie das Zählerbuch –
+ * in jeder Zeitzone des Browsers), kein Filter.
  * @param {number|null} counted - Kennzahl „Konversationen“ des Zeitraums
  * @param {number|null} viewable - Konversationen der Liste ohne Filter
  * @returns {boolean}
@@ -604,30 +614,72 @@ export function conversationSummary(messages) {
 }
 
 /**
+ * Liegt eine Nachricht im gewählten Zeitraum – in den Berliner
+ * Kalendertagen fromDay … toDay (beide einschließlich), wie die Liste sie
+ * dem Server sendet (Fixliste 7, F06)? Ohne Tage („Gesamt“) immer.
+ * @param {{createdAt: string}} message
+ * @param {{fromDay?: string|null, toDay?: string|null}} [period]
+ * @returns {boolean}
+ */
+export function inPeriod(message, { fromDay = null, toDay = null } = {}) {
+  if (!fromDay && !toDay) return true;
+  const day = formatDateForInput(message?.createdAt);
+  if (!day) return false;
+  return (!fromDay || day >= fromDay) && (!toDay || day <= toDay);
+}
+
+/**
  * Liegt keine Nachricht im gewählten Zeitraum? Dann zeigt die Liste die
  * Konversation nicht (geöffnet per Link).
  * @param {Array<{createdAt: string}>} messages
- * @param {string|null} startDate - ISO-Zeitstempel (null = „Gesamt")
- * @param {string|null} endDate
+ * @param {{fromDay?: string|null, toDay?: string|null}} [period] -
+ *   Kalendertage der Liste (null = „Gesamt")
  * @returns {boolean}
  */
-export function outsidePeriod(messages, startDate, endDate) {
+export function outsidePeriod(messages, period = {}) {
   if (!Array.isArray(messages) || messages.length === 0) return false;
-  if (!startDate && !endDate) return false;
-  const from = startDate ? Date.parse(startDate) : -Infinity;
-  const to = endDate ? Date.parse(endDate) : Infinity;
-  return !messages.some((m) => {
-    const at = Date.parse(m.createdAt);
-    return at >= from && at <= to;
-  });
+  if (!period.fromDay && !period.toDay) return false;
+  return !messages.some((message) => inPeriod(message, period));
 }
 
 const REGEXP_SPECIAL = /[.*+?^${}()|[\]\\/]/g;
 const escapeRegExp = (text) => text.replace(REGEXP_SPECIAL, "\\$&");
 
 /**
- * Regulärer Ausdruck für den Suchbegriff: wörtlich, Groß/klein egal (auch
- * bei Umlauten), in NFC und NFD – ein zerlegtes „ü" im Text trifft wie ein
+ * Die Schreibweisen eines Zeichens, die die Suche als dasselbe Zeichen
+ * ansieht: es selbst, klein und groß – nur wenn diese wieder genau ein
+ * Zeichen sind („ß" wird groß zu „SS"; dafür gehört das große „ẞ" dazu).
+ * Dieselbe Regel wie variantsOf des Servers
+ * (server/utils/helpers/chat/conversationSearch.js; ein Test vergleicht
+ * beide): So hebt das Panel genau hervor, was der Server gefunden hat
+ * (Fixliste 7, F05) – auch beim türkischen ı (groß I) und İ (klein i +
+ * Punkt, zwei Zeichen), für die das u-Flag von JavaScript anders faltet.
+ * @param {string} char - ein Zeichen (Codepoint)
+ * @returns {string[]}
+ */
+export function searchVariants(char) {
+  const variants = new Set([char]);
+  for (const other of [char.toLowerCase(), char.toUpperCase()])
+    if ([...other].length === 1) variants.add(other);
+  if (char === "ß" || char === "ẞ") {
+    variants.add("ß");
+    variants.add("ẞ");
+  }
+  return [...variants];
+}
+
+/** Ein Zeichen als Teil des Musters: eine Klasse seiner Schreibweisen. */
+function charPattern(char) {
+  const variants = searchVariants(char);
+  return variants.length > 1
+    ? `[${variants.map(escapeRegExp).join("")}]`
+    : escapeRegExp(char);
+}
+
+/**
+ * Regulärer Ausdruck für den Suchbegriff: wörtlich, Groß/klein egal nach
+ * derselben Regel wie der Server (searchVariants – keine Faltung des
+ * i-Flags), in NFC und NFD – ein zerlegtes „ü" im Text trifft wie ein
  * zusammengesetztes. null ohne Begriff. Bewusst belassen: In zerlegtem Text
  * trifft auch der Basisbuchstabe allein („mu" in „Müller"), wie auf dem
  * Server (searchForms in server/utils/helpers/chat/conversationSearch.js).
@@ -638,7 +690,10 @@ export function searchPattern(term) {
   const search = effectiveSearch(term);
   if (!search) return null;
   const forms = [...new Set([search, search.normalize("NFD")])];
-  return new RegExp(forms.map(escapeRegExp).join("|"), "giu");
+  return new RegExp(
+    forms.map((form) => [...form].map(charPattern).join("")).join("|"),
+    "gu"
+  );
 }
 
 /**
@@ -669,7 +724,8 @@ export function highlightParts(text, term) {
  * Steht der Suchbegriff irgendwo SICHTBAR in der Konversation – in einer
  * Frage, im sichtbaren Antworttext, in Grund oder Kommentar? Die Suche des
  * Servers liest auch Link-Adressen, HTML und <think>-Blöcke der Antwort; nur
- * dort getroffen, weist das Panel darauf hin (Fixliste Punkt 11).
+ * dort getroffen, weist das Panel darauf hin (Fixliste Punkt 11; bewusst so
+ * belassen, Fixliste 7 F13: siehe benchmarks/conversationSearch.manual.js).
  *
  * Geprüft werden nur die Nachrichten, die auch der Server durchsucht hat:
  * die im Zeitraum (Fixliste 2, S7) – mit Abschnitt (Säulenklick) die ganze
@@ -677,8 +733,8 @@ export function highlightParts(text, term) {
  * bei negativer Bewertung.
  * @param {Array<{prompt: string, response: string, createdAt?: string, feedbackScore?: boolean|null, feedbackReason?: string|null, feedbackText?: string|null}>} messages
  * @param {string} term
- * @param {{startDate?: string|null, endDate?: string|null}} [period] -
- *   ISO-Zeitstempel; ohne Angabe alle Nachrichten
+ * @param {{fromDay?: string|null, toDay?: string|null}} [period] -
+ *   Kalendertage der Liste; ohne Angabe alle Nachrichten
  * @returns {boolean} - true auch ohne Suche
  */
 export function hasVisibleHit(messages, term, period = {}) {
@@ -688,15 +744,8 @@ export function hasVisibleHit(messages, term, period = {}) {
     pattern.lastIndex = 0;
     return pattern.test(String(text ?? ""));
   };
-  const from = period.startDate ? Date.parse(period.startDate) : -Infinity;
-  const to = period.endDate ? Date.parse(period.endDate) : Infinity;
-  const searched = (message) => {
-    if (from === -Infinity && to === Infinity) return true;
-    const at = Date.parse(message.createdAt);
-    return at >= from && at <= to;
-  };
   return (messages ?? [])
-    .filter(searched)
+    .filter((message) => inPeriod(message, period))
     .some(
       (message) =>
         hit(message.prompt) ||

@@ -100,10 +100,32 @@ export function useConversationDeletion({
   const handleDelete = async () => {
     setDeleting(true);
     const wholeVisitor = dialog?.kind === "visitor";
+    // Gelöscht wird nur der Stand, den die Rückfrage nennt (Fixliste 7,
+    // F10): Hat der Besucher inzwischen weiter geschrieben, löscht der
+    // Server nichts und nennt den neuen Stand.
     const result = wholeVisitor
-      ? await Embed.deleteVisitorConversations(embedId, chatId)
+      ? await Embed.deleteVisitorConversations(embedId, chatId, {
+          conversationCount: visitor.conversationCount,
+          messageCount: visitor.messageCount,
+        })
       : await Embed.deleteConversation(embedId, chatId);
     setDeleting(false);
+
+    if (
+      wholeVisitor &&
+      result?.reason === "changed" &&
+      Number.isInteger(result.visitor?.conversationCount) &&
+      Number.isInteger(result.visitor?.messageCount)
+    ) {
+      // Die Rückfrage bleibt offen und nennt die neuen Zahlen; ein erneutes
+      // Bestätigen löscht genau diesen Stand.
+      setPreview({
+        chatId,
+        data: { ...(preview.data ?? {}), visitor: result.visitor },
+      });
+      setDialog({ kind: "visitor", chatId, changed: true });
+      return;
+    }
     setDialog(null);
 
     // Gelöscht ist nur, was der Server mit Zahlen belegt – ein bloßes
@@ -184,7 +206,16 @@ export function useConversationDeletion({
         onConfirm={handleDelete}
         onCancel={close}
       >
-        <p>
+        {dialog.changed && (
+          <p
+            data-confirm-changed=""
+            role="status"
+            className="text-theme-text-primary"
+          >
+            {t("embed-analytics.delete.visitor-changed")}
+          </p>
+        )}
+        <p data-confirm-visitor-count="">
           {t("embed-analytics.delete.visitor-count", {
             count: visitor.conversationCount,
             conversations: formatNumber(visitor.conversationCount),
@@ -211,7 +242,9 @@ function Question({ text }) {
   if (!question) return null;
   return (
     <p>
-      <span className="block text-xs uppercase tracking-wide">
+      {/* normale Schreibung wie im Rest der Ansicht – keine Versalien
+          (Fixliste 7, B4) */}
+      <span data-confirm-question-label="" className="block text-xs">
         {t("embed-analytics.delete.first-question")}
       </span>
       <span
@@ -272,11 +305,14 @@ function ConfirmDialog({
                 {title}
               </h3>
             </div>
+            {/* mobil mindestens 44 × 44 px wie alle Bedienelemente der
+                Ansicht (AK-9, Fixliste 7 F08), ab sm kompakter */}
             <button
               type="button"
+              data-confirm-close=""
               onClick={onCancel}
               aria-label={t("embed-analytics.delete.cancel")}
-              className={`shrink-0 rounded p-1 ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/10`}
+              className={`-m-2 grid h-11 w-11 shrink-0 place-items-center rounded ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary sm:m-0 sm:h-auto sm:w-auto sm:p-1 light:hover:bg-black/10`}
             >
               <X size={20} aria-hidden="true" />
             </button>
@@ -297,7 +333,7 @@ function ConfirmDialog({
               data-confirm-cancel=""
               onClick={onCancel}
               disabled={deleting}
-              className={`rounded-lg px-4 py-2 text-sm ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/10`}
+              className={`min-h-11 rounded-lg px-4 py-2 text-sm ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary sm:min-h-0 light:hover:bg-black/10`}
             >
               {t("embed-analytics.delete.cancel")}
             </button>
@@ -308,7 +344,7 @@ function ConfirmDialog({
               disabled={deleting || loading}
               // Im hellen Theme wird text-white zur dunklen Textfarbe:
               // Die Schrift auf Rot bleibt in beiden Themes weiß.
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-[#ffffff] transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-[#ffffff] transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0"
             >
               {deleting
                 ? t("embed-analytics.delete.deleting")

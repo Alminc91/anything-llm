@@ -44,10 +44,8 @@ after(async () => {
 });
 
 const EMBED_ID = 3;
-const PERIOD = {
-  startDate: "2026-08-31T22:00:00.000Z",
-  endDate: "2026-09-30T21:59:59.999Z",
-};
+// Zeitraum der Liste: Kalendertage (Fixliste 7, F06)
+const PERIOD = { fromDay: "2026-09-01", toDay: "2026-09-30" };
 const CSV = new Blob(["\uFEFFKonversation;…\r\n"], {
   type: "text/csv; charset=utf-8",
 });
@@ -96,7 +94,8 @@ const sentPath = (url) => new URL(url, "https://kunde.example.org").pathname;
  * entfernt daraus – die Karte, deren first_chat_id der Rumpf nennt. Jede
  * Anfrage wird mit Methode, Adresse und Rumpf gemerkt. `state.preview` hält
  * Antworten der Vorschau je first_chat_id oder je Kennung der Konversation.
- * Die Liste blättert wie der echte Server (offset, limit, hasMore), und die
+ * Die Liste blättert wie der echte Server (offset bzw. after, limit,
+ * hasMore; call.start: Zeilen vor der Seite), und die
  * Anfragen werden der Route zugeordnet, bei der sie nach dem Auflösen der
  * Adresse ankommen – darunter DELETE /embed/:embedId, das Löschen des Widgets
  * (`state.widgetDeleted`). `state.totalCount` ersetzt den Zähler: Der echte
@@ -141,23 +140,39 @@ async function listServer(t, state) {
       call.method === route.method && path === address;
 
     if (is(ROUTES.conversations, listUrl)) {
-      const { offset = 0, limit = 20 } = call.body ?? {};
+      const { offset = 0, limit = 20, after = null } = call.body ?? {};
+      const appended = offset > 0 || !!after;
+      // Blättern über den Schlüssel (Fixliste 7, F14): alles hinter der
+      // genannten Zeile, in der Reihenfolge des Bestands (die Karten hier
+      // haben dieselbe letzte Nachricht; maßgeblich ist ihr Platz)
+      const restOf = () => {
+        if (!after) return state.conversations;
+        const index = state.conversations.findIndex(
+          (c) => c.first_chat_id === after.firstChatId
+        );
+        return index < 0 ? [] : state.conversations.slice(index + 1);
+      };
+      // nicht aufzählbar: Prüfungen vergleichen die Anfragen als Ganzes
+      Object.defineProperty(call, "start", {
+        value: state.conversations.length - restOf().length + offset,
+      });
+      // state.holdMore: Nachladen wartet auf dieses Versprechen
+      if (appended && state.holdMore) await state.holdMore;
       const total = state.conversations.length;
-      // state.holdMore: Nachladen (offset > 0) wartet auf dieses Versprechen
-      if (offset > 0 && state.holdMore) await state.holdMore;
       // state.repeatFirstPage: Nachladen liefert wieder die erste Seite (nur
       // Doppelte, etwa nach Verschiebungen) und meldet weiter hasMore
-      if (offset > 0 && state.repeatFirstPage)
+      if (appended && state.repeatFirstPage)
         return json({
           success: true,
           conversations: state.conversations.slice(0, limit),
           hasMore: true,
           totalCount: total,
         });
+      const rest = restOf();
       return json({
         success: true,
-        conversations: state.conversations.slice(offset, offset + limit),
-        hasMore: offset + limit < total,
+        conversations: rest.slice(offset, offset + limit),
+        hasMore: offset + limit < rest.length,
         totalCount: state.totalCount ?? total,
       });
     }
@@ -198,6 +213,9 @@ async function listServer(t, state) {
       );
     if (is(ROUTES.deleteVisitor, visitorUrl)) {
       if (state.deleteAnswer) return json(state.deleteAnswer);
+      // state.visitorAnswers: Antworten der Reihe nach ({ status, body })
+      const next = state.visitorAnswers?.shift();
+      if (next) return json(next.body, next.status);
       const session = target?.session_id;
       const gone = state.conversations.filter((c) => c.session_id === session);
       state.conversations = state.conversations.filter(
@@ -349,11 +367,16 @@ test(
         url: server.exportUrl,
         body: exportBody("json", PERIOD),
       },
-      // „Gesamt": kein Zeitraum (undefined geht nicht über die Leitung)
+      // „Gesamt": keine Kalendertage
       {
         method: ROUTES.export.method,
         url: server.exportUrl,
-        body: { format: "csv", feedbackFilter: "all" },
+        body: {
+          format: "csv",
+          fromDay: null,
+          toDay: null,
+          feedbackFilter: "all",
+        },
       },
     ]);
     // dieselbe Auswahl wie die Liste: alle ihre Felder außer offset und limit
@@ -621,12 +644,13 @@ test(
     saved.length = 0;
 
     // Die Liste selbst hat mit genau dieser Auswahl geladen – daneben einmal
-    // die Zählabfrage ohne Bewertungsfilter für „N von M einsehbar".
+    // die Zählabfrage ohne jeden Filter (auch ohne Säule, Fixliste 7 B7) für
+    // „N von M einsehbar".
     assert.deepEqual(server.lists(), [
       {
         method: ROUTES.conversations.method,
         url: server.listUrl,
-        body: conversationsBody({ ...PERIOD, limit: 1, bucket }),
+        body: conversationsBody({ ...PERIOD, limit: 1 }),
       },
       {
         method: ROUTES.conversations.method,
@@ -1086,10 +1110,12 @@ test(
       click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
     );
     await act();
+    // mit den Zahlen der Rückfrage: gelöscht wird nur dieser Stand
+    // (Fixliste 7, F10)
     assert.deepEqual(server.deletes()[1], {
       method: ROUTES.deleteVisitor.method,
       url: await urlOf(ROUTES.deleteVisitor),
-      body: conversationBody(11),
+      body: conversationBody(11, { conversationCount: 2, messageCount: 7 }),
     });
     assert.deepEqual(cardIdsOf(container), ["k-2"]);
     assert.deepEqual(errors, []);
@@ -1179,7 +1205,7 @@ test(
     const mounted = await mountList(t);
     const { container, document, act } = mounted;
     const pages = () =>
-      server.lists().map((call) => [call.body.offset, call.body.limit]);
+      server.lists().map((call) => [call.start, call.body.limit]);
     const loadMore = async () => {
       await act(() => click(withAttribute(container, "data-load-more")[0]));
       await act();
@@ -1251,7 +1277,7 @@ test(
     const mounted = await mountList(t);
     const { container, document, act } = mounted;
     const pages = () =>
-      server.lists().map((call) => [call.body.offset, call.body.limit]);
+      server.lists().map((call) => [call.start, call.body.limit]);
     // 20 + 11 × 20 = 240 Zeilen geladen
     for (let i = 0; i < 11; i++) {
       await act(() => click(withAttribute(container, "data-load-more")[0]));
@@ -1300,7 +1326,7 @@ test(
     const mounted = await mountList(t);
     const { container, document, act } = mounted;
     const pages = () =>
-      server.lists().map((call) => [call.body.offset, call.body.limit]);
+      server.lists().map((call) => [call.start, call.body.limit]);
     for (let i = 0; i < 11; i++) {
       await act(() => click(withAttribute(container, "data-load-more")[0]));
       await act();
@@ -1343,7 +1369,7 @@ test(
     const pages = () =>
       server
         .lists()
-        .map((call) => [call.body.offset, call.body.limit, call.body.q ?? ""]);
+        .map((call) => [call.start, call.body.limit, call.body.q ?? ""]);
     for (let i = 0; i < 11; i++) {
       await act(() => click(withAttribute(container, "data-load-more")[0]));
       await act();
@@ -1402,7 +1428,7 @@ test(
       const server = await listServer(t, state);
       const mounted = await mountList(t);
       const { container, document, act } = mounted;
-      const offsets = () => server.lists().map((call) => call.body.offset);
+      const offsets = () => server.lists().map((call) => call.start);
 
       await act(() => click(withAttribute(container, "data-load-more")[0]));
       await act();
@@ -1509,7 +1535,10 @@ test(
       {
         method: ROUTES.deleteVisitor.method,
         url: await urlOf(ROUTES.deleteVisitor),
-        body: conversationBody(chatIdOf("k-1")),
+        body: conversationBody(chatIdOf("k-1"), {
+          conversationCount: 4,
+          messageCount: 11,
+        }),
       },
     ]);
     assert.equal(dialogOf(document), null);
@@ -1536,5 +1565,121 @@ test(
       );
       assert.doesNotMatch(source, /\b(confirm|alert|prompt)\s*\(/, file);
     }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 7
+// ---------------------------------------------------------------------------
+
+test(
+  "Fixliste 7, F10: Alle Konversationen des Besuchers – die Rückfrage sendet ihre Zahlen mit; hat der Besucher inzwischen weiter geschrieben (409), bleibt sie offen und nennt den neuen Stand, das erneute Bestätigen sendet ihn",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const state = {
+      conversations: [
+        conversation("k-1", { session_id: "besucher" }),
+        conversation("k-2", { session_id: "besucher" }),
+      ],
+      preview: {
+        "k-1": {
+          success: true,
+          messageCount: 4,
+          visitor: { conversationCount: 2, messageCount: 7 },
+        },
+      },
+      visitorAnswers: [
+        {
+          status: 409,
+          body: {
+            success: false,
+            reason: "changed",
+            visitor: { conversationCount: 3, messageCount: 9 },
+            error: "The visitor's conversations have changed.",
+          },
+        },
+      ],
+    };
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    await expand(mounted, 0);
+    await openMenu(mounted);
+    await act(() => click(withAttribute(container, "data-delete-visitor")[0]));
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    await act();
+
+    // nichts gelöscht: die Rückfrage bleibt, mit Hinweis und neuen Zahlen
+    const dialog = dialogOf(document);
+    assert.ok(dialog);
+    assert.equal(
+      withAttribute(dialog, "data-confirm-changed")[0].textContent,
+      "Der Besucher hat inzwischen weiter geschrieben – es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut."
+    );
+    assert.match(
+      withAttribute(dialog, "data-confirm-visitor-count")[0].textContent,
+      /3 Konversationen mit zusammen 9 Nachrichten/
+    );
+    assert.deepEqual(cardIdsOf(container), ["k-1", "k-2"]);
+    assert.deepEqual(shown, []);
+
+    // erneut bestätigt: mit dem neuen Stand
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    await act();
+    assert.deepEqual(
+      server.deletes().map((call) => call.body),
+      [
+        conversationBody(chatIdOf("k-1"), {
+          conversationCount: 2,
+          messageCount: 7,
+        }),
+        conversationBody(chatIdOf("k-1"), {
+          conversationCount: 3,
+          messageCount: 9,
+        }),
+      ]
+    );
+    assert.equal(dialogOf(document), null);
+    assert.deepEqual(cardIdsOf(container), []);
+  }
+);
+
+test(
+  "Fixliste 7, F08/B4: Lösch-Rückfrage – mobil sind Abbrechen, Löschen und ✕ mindestens 44 px hoch (ab sm kompakter); „Erste Frage“ steht in normaler Schreibung, nicht in Versalien",
+  { skip },
+  async (t) => {
+    await listServer(t, {
+      conversations: [conversation("k-1")],
+      preview: {
+        "k-1": { success: true, messageCount: 4, visitor: null },
+      },
+    });
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    await expand(mounted, 0);
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    await act();
+    const dialog = dialogOf(document);
+    const classesOf = (attribute) =>
+      withAttribute(dialog, attribute)[0].getAttribute("class").split(/\s+/);
+    for (const attribute of ["data-confirm-cancel", "data-confirm-delete"]) {
+      const classes = classesOf(attribute);
+      assert.ok(classes.includes("min-h-11"), attribute);
+      assert.ok(classes.includes("sm:min-h-0"), attribute);
+    }
+    const close = classesOf("data-confirm-close");
+    assert.ok(close.includes("h-11") && close.includes("w-11"));
+    assert.ok(close.includes("sm:h-auto") && close.includes("sm:w-auto"));
+    // „Erste Frage“: keine Versalien mehr
+    const label = withAttribute(dialog, "data-confirm-question-label")[0];
+    assert.equal(label.textContent, "Erste Frage");
+    assert.ok(!label.getAttribute("class").split(/\s+/).includes("uppercase"));
   }
 );

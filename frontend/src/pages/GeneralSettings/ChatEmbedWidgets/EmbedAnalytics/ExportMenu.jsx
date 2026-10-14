@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { CaretDown, DownloadSimple } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { saveAs } from "file-saver";
@@ -6,6 +6,7 @@ import Embed from "@/models/embed";
 import { formatNumber } from "@/utils/analyticsTimeline";
 import showToast from "@/utils/toast";
 import { MUTED } from "@/utils/conversationView";
+import { useDismiss } from "./viewHooks";
 
 // KIE-538: „Exportieren" in der Kopfzeile der Konversationsliste. Exportiert
 // wird, was die Liste gerade zeigt – Widget, Zeitraum, Feedback-Filter, der
@@ -19,11 +20,9 @@ const FORMATS = [
 /**
  * @param {Object} props
  * @param {number} props.embedId
- * @param {string|null} props.startDate - ISO-Zeitstempel des Browsers
- * @param {string|null} props.endDate
- * @param {"all"|"negative"|"positive"} props.feedbackFilter
- * @param {{start: string, end: string}|null} [props.bucket] - Abschnitt aus dem Diagramm
- * @param {string} [props.search] - Suchbegriff der Liste ("" = keine Suche)
+ * @param {Object} props.selection - die Auswahl der Liste, wie sie auch eine
+ *   Seite der Liste lädt (conversationSelectionBody in models/embed.js):
+ *   { fromDay, toDay, feedbackFilter, startedBetween, search }
  * @param {boolean} [props.disabled] - nichts zu exportieren (Liste leer oder lädt)
  * @param {string} [props.className] - Aussehen der Schaltfläche (wie die Filter daneben)
  * @param {string} [props.wrapperClassName] - Platz in der Kopfzeile (order …)
@@ -34,11 +33,7 @@ const FORMATS = [
  */
 export default function ExportMenu({
   embedId,
-  startDate,
-  endDate,
-  feedbackFilter = "all",
-  bucket = null,
-  search = "",
+  selection,
   disabled = false,
   className = "",
   wrapperClassName = "",
@@ -47,45 +42,21 @@ export default function ExportMenu({
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const containerRef = useRef(null);
+  const buttonRef = useRef(null);
   // Wird die Schaltfläche gesperrt (Liste lädt neu, scheitert, ist leer),
   // schließt die offene Auswahl – sie bliebe sonst bedienbar (Fixliste 2, R9).
   if (open && disabled) setOpen(false);
 
-  // Klick außerhalb oder Escape schließt die Auswahl.
-  useEffect(() => {
-    if (!open) return;
-    function handleMouseDown(e) {
-      if (containerRef.current && !containerRef.current.contains(e.target))
-        setOpen(false);
-    }
-    function handleKeyDown(e) {
-      if (e.key !== "Escape") return;
-      // Escape schließt nur die Auswahl, nicht auch das Seitenpanel
-      // (ConversationDetail achtet auf defaultPrevented).
-      e.preventDefault();
-      setOpen(false);
-    }
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
+  // Klick außerhalb oder Escape schließt die Auswahl – Escape nur sie, nicht
+  // auch das Seitenpanel (useDismiss).
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(containerRef, open, close, { focusRef: buttonRef });
 
   const runExport = async (format) => {
     setOpen(false);
     setRunning(true);
     const { success, blob, filename, reason, max } =
-      await Embed.exportConversations(embedId, format, {
-        startDate,
-        endDate,
-        feedbackFilter,
-        startedBetween: bucket
-          ? { fromDay: bucket.start, toDay: bucket.end }
-          : null,
-        search,
-      });
+      await Embed.exportConversations(embedId, format, selection);
     setRunning(false);
 
     if (!success) {
@@ -111,6 +82,7 @@ export default function ExportMenu({
     >
       <button
         type="button"
+        ref={buttonRef}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled || running}

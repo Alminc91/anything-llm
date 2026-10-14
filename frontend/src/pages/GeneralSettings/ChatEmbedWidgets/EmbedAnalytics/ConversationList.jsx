@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   CaretRight,
   MagnifyingGlass,
@@ -20,6 +28,7 @@ import {
   conversationKey,
   dayGroupLabel,
   effectiveSearch,
+  focusLost,
   groupByLastMessageDay,
   hasContentGap,
   isWide,
@@ -152,6 +161,23 @@ function appendUnique(items, more) {
 }
 
 /**
+ * Schlüssel der nächsten Seite: die letzte geladene Zeile (Fixliste 7, F14).
+ * Verschwindet zwischen zwei Seiten eine Konversation (Löschen eines anderen
+ * Nutzers, Aufbewahrungsfrist, vom Besucher geleert), beginnt die nächste
+ * Seite trotzdem genau hinter dieser Zeile – mit offset fehlte still eine.
+ * null ohne brauchbare Zeile (dann blättert die Liste über offset).
+ * @param {{last_message_at: number, first_chat_id: number}|undefined} row
+ * @returns {{lastMessageAt: number, firstChatId: number}|null}
+ */
+function cursorAfter(row) {
+  return row &&
+    Number.isSafeInteger(row.last_message_at) &&
+    Number.isSafeInteger(row.first_chat_id)
+    ? { lastMessageAt: row.last_message_at, firstChatId: row.first_chat_id }
+    : null;
+}
+
+/**
  * Konversationsliste der Auswertung. Sie liest embed_chats – also nur
  * Konversationen, deren Inhalte noch vorhanden und nicht vom Besucher geleert
  * sind („einsehbar"). Die Kennzahl „Konversationen" kommt dagegen aus dem
@@ -159,8 +185,10 @@ function appendUnique(items, more) {
  *
  * @param {Object} props
  * @param {number} props.embedId
- * @param {string|null} props.startDate - ISO-Zeitstempel des Browsers
- * @param {string|null} props.endDate
+ * @param {string|null} props.fromDay - erster Kalendertag des Zeitraums
+ *   ("YYYY-MM-DD"; null = „Gesamt") – dieselben Tage wie Kennzahlen und
+ *   Diagramm; der Server begrenzt sie in Berliner Zeit (Fixliste 7, F06)
+ * @param {string|null} props.toDay - letzter Kalendertag (einschließlich)
  * @param {"all"|"negative"|"positive"} props.feedbackFilter - KIE-508/527
  * @param {(filter: "all"|"negative"|"positive") => void} props.onFeedbackFilterChange
  * @param {{start: string, end: string, label: string}|null} [props.bucket] -
@@ -182,8 +210,8 @@ function appendUnique(items, more) {
  */
 export default function ConversationList({
   embedId,
-  startDate,
-  endDate,
+  fromDay = null,
+  toDay = null,
   feedbackFilter = "all",
   onFeedbackFilterChange = () => {},
   bucket = null,
@@ -201,6 +229,19 @@ export default function ConversationList({
 
   const bucketStart = bucket?.start ?? null;
   const bucketEnd = bucket?.end ?? null;
+  // Die Auswahl der Liste – eine Seite und der Export lesen dieselbe
+  // (conversationSelectionBody, Fixliste 7, F25).
+  const startedBetween = useMemo(
+    () =>
+      bucketStart && bucketEnd
+        ? { fromDay: bucketStart, toDay: bucketEnd }
+        : null,
+    [bucketStart, bucketEnd]
+  );
+  const selection = useMemo(
+    () => ({ fromDay, toDay, feedbackFilter, startedBetween, search }),
+    [fromDay, toDay, feedbackFilter, startedBetween, search]
+  );
 
   // Ein Suchbegriff aus einem Link, den der Server ablehnen würde (zu lang,
   // Steuerzeichen): gekürzt bzw. verworfen, mit Hinweis – die Adresse folgt.
@@ -222,19 +263,21 @@ export default function ConversationList({
   // im selben Render wieder vorn → genau ein Request.
   const scope = [
     embedId,
-    startDate,
-    endDate,
+    fromDay,
+    toDay,
     feedbackFilter,
     bucketStart,
     bucketEnd,
     search,
   ].join("|");
-  // Anfrage: erste Seite eines Zuschnitts, nachladen (append) oder nach dem
-  // Löschen neu laden (dieselbe Menge ab vorn).
+  // Anfrage: erste Seite eines Zuschnitts, nachladen (append: hinter der
+  // letzten geladenen Zeile, after) oder nach dem Löschen neu laden
+  // (dieselbe Menge ab vorn).
   const [request, setRequest] = useState({
     id: 1,
     scope,
     offset: 0,
+    after: null,
     limit: PAGE_SIZE,
     append: false,
   });
@@ -243,6 +286,7 @@ export default function ConversationList({
       id: request.id + 1,
       scope,
       offset: 0,
+      after: null,
       limit: PAGE_SIZE,
       append: false,
     });
@@ -264,26 +308,22 @@ export default function ConversationList({
     added: null,
   });
 
-  // Einsehbare Konversationen ohne Bewertungsfilter und ohne Suche im selben
-  // Zeitraum und Abschnitt – für „18 von 214 einsehbar". Jede ungefilterte
-  // Antwort bringt die Zahl mit; nur wenn ein Filter gilt und sie für diesen
-  // Zuschnitt fehlt, fragt die Liste sie einmal zusätzlich an.
+  // Einsehbare Konversationen des Zeitraums ohne jeden Filter (Bewertung,
+  // Säule, Suche) – für „18 von 214 einsehbar". Jede ungefilterte Antwort
+  // bringt die Zahl mit; nur wenn ein Filter gilt und sie für diesen
+  // Zeitraum fehlt, fragt die Liste sie einmal zusätzlich an. Mit jedem
+  // Filter steht so „X von Y“ – auch mit einer Säule allein und auch, wenn
+  // sie alle Zeilen umfasst („11 von 11“, Fixliste 7, B7).
   // KIE-538: Nach dem Löschen einer Konversation lädt die Liste neu.
   const [reloadCount, setReloadCount] = useState(0);
-  const unfilteredScope = [
-    embedId,
-    startDate,
-    endDate,
-    bucketStart,
-    bucketEnd,
-  ].join("|");
+  const unfilteredScope = [embedId, fromDay, toDay].join("|");
   const [unfiltered, setUnfiltered] = useState({
     scope: null,
     total: 0,
     reload: 0,
   });
   const unfilteredRef = useRef(unfiltered);
-  const filtered = feedbackFilter !== "all" || search !== "";
+  const filtered = feedbackFilter !== "all" || search !== "" || !!bucket;
 
   useEffect(() => {
     if (!embedId || request.scope !== scope) return;
@@ -292,39 +332,28 @@ export default function ConversationList({
     let ignore = false;
 
     async function loadConversations() {
-      const startedBetween =
-        bucketStart && bucketEnd
-          ? { fromDay: bucketStart, toDay: bucketEnd }
-          : null;
       const needsUnfiltered =
         filtered &&
         !request.append &&
         (unfilteredRef.current.scope !== unfilteredScope ||
           unfilteredRef.current.reload !== reloadCount);
-      // Die Zählabfrage (eine Konversation, ohne Bewertungsfilter und ohne
-      // Suche) startet neben der Liste, nicht danach.
+      // Die Zählabfrage (eine Konversation des Zeitraums, ohne Filter)
+      // startet neben der Liste, nicht danach.
       const [unfilteredAnswer, answer] = await Promise.all([
         needsUnfiltered
-          ? Embed.getConversations(
-              embedId,
-              0,
-              1,
-              startDate,
-              endDate,
-              "all",
-              startedBetween
-            )
+          ? Embed.getConversations(embedId, {
+              offset: 0,
+              limit: 1,
+              fromDay,
+              toDay,
+            })
           : null,
-        Embed.getConversations(
-          embedId,
-          request.offset,
-          request.limit,
-          startDate,
-          endDate,
-          feedbackFilter,
-          startedBetween,
-          search
-        ),
+        Embed.getConversations(embedId, {
+          offset: request.offset,
+          after: request.after,
+          limit: request.limit,
+          ...selection,
+        }),
       ]);
       if (ignore) return;
 
@@ -396,12 +425,9 @@ export default function ConversationList({
     };
   }, [
     embedId,
-    startDate,
-    endDate,
-    feedbackFilter,
-    bucketStart,
-    bucketEnd,
-    search,
+    fromDay,
+    toDay,
+    selection,
     filtered,
     scope,
     request,
@@ -417,18 +443,24 @@ export default function ConversationList({
   const moreFailed = !loading && list.moreFailed;
   const totalCount = loading ? 0 : list.total;
 
-  /** Weitere Konversationen anhängen (höchstens PAGE_MAX je Anfrage). */
+  /**
+   * Weitere Konversationen anhängen (höchstens PAGE_MAX je Anfrage) – hinter
+   * der letzten geladenen Zeile (Fixliste 7, F14).
+   */
+  const lastItem = list.items.at(-1);
   const loadMore = useCallback(
     (limit = PAGE_SIZE) => {
+      const after = cursorAfter(lastItem);
       setRequest((current) => ({
         id: current.id + 1,
         scope: current.scope,
-        offset: list.items.length,
+        offset: after ? 0 : list.items.length,
+        after,
         limit,
         append: true,
       }));
     },
-    [list.items.length]
+    [lastItem, list.items.length]
   );
 
   // Nach dem Löschen: dieselbe Auswahl ab vorn, so viele Zeilen wie geladen
@@ -445,6 +477,7 @@ export default function ConversationList({
       id: current.id + 1,
       scope: current.scope,
       offset: 0,
+      after: null,
       limit: Math.min(PAGE_MAX, Math.max(PAGE_SIZE, list.items.length)),
       append: false,
     }));
@@ -456,6 +489,7 @@ export default function ConversationList({
       id: current.id + 1,
       scope: current.scope,
       offset: 0,
+      after: null,
       limit: PAGE_SIZE,
       append: false,
     }));
@@ -677,22 +711,37 @@ export default function ConversationList({
     if (!key || typeof document === "undefined") return;
     // Nur, wenn der Fokus mit dem Panel verschwunden ist – nicht aus einem
     // Feld wegziehen, in dem gerade jemand tippt.
-    const active = document.activeElement;
-    const lost =
-      !active || active === document.body || !document.body.contains(active);
-    if (!lost) return;
+    if (!focusLost(document)) return;
     rowRefs.current.get(key)?.focus?.({ preventScroll: true });
   }, [chatId]);
 
   // AK-18: ↑/↓ in der Liste – nur, wenn der Fokus auf einer Zeile steht.
-  const handleRowKeyDown = (event, index) => {
+  const handleRowKeyDown = (event, row) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const index = positions.get(row.first_chat_id) ?? -1;
     const target = index + (event.key === "ArrowDown" ? 1 : -1);
-    if (target < 0 || target >= items.length) return;
+    if (index < 0 || target < 0 || target >= items.length) return;
     event.preventDefault();
     rowRefs.current.get(conversationKey(items[target]))?.focus?.();
     if (chatId !== null) openRow(items[target]);
   };
+  // Stabile Handler für die Zeilen (Fixliste 7, F32): ConversationRow ist
+  // memoisiert – Öffnen, Blättern und Nachladen rendern nur die Zeilen neu,
+  // deren Angaben sich ändern, nicht alle geladenen. Die Handler lesen den
+  // aktuellen Stand über eine Referenz (gesetzt nach jedem Rendern).
+  const rowHandlers = useRef({ open: openRow, keyDown: handleRowKeyDown });
+  useLayoutEffect(() => {
+    rowHandlers.current = { open: openRow, keyDown: handleRowKeyDown };
+  });
+  const onRowOpen = useCallback((row) => rowHandlers.current.open(row), []);
+  const onRowKeyDown = useCallback(
+    (event, row) => rowHandlers.current.keyDown(event, row),
+    []
+  );
+  const setRowRef = useCallback((key, element) => {
+    if (element) rowRefs.current.set(key, element);
+    else rowRefs.current.delete(key);
+  }, []);
 
   const handleDeleted = ({ deleted }) => {
     if (deleted) place.closeConversation();
@@ -901,11 +950,7 @@ export default function ConversationList({
               {/* KIE-538: Export der Auswahl, die die Liste gerade zeigt */}
               <ExportMenu
                 embedId={embedId}
-                startDate={startDate}
-                endDate={endDate}
-                feedbackFilter={feedbackFilter}
-                bucket={bucket}
-                search={search}
+                selection={selection}
                 disabled={loading || failed || totalCount === 0}
                 wrapperClassName="order-2 sm:order-none"
                 className="flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-2.5 xl:px-3.5 light:border-gray-200"
@@ -996,9 +1041,12 @@ export default function ConversationList({
                 {emptySearchText}
               </p>
             ) : contentGap ? (
+              // Höchstens rund 70 Zeichen je Zeile: Über die volle Breite
+              // (1.080 px) bliebe in der zweiten Zeile nur ein Rest stehen
+              // (Fixliste 7, B2).
               <p
                 data-content-gap=""
-                className={`px-4 py-8 text-center text-sm ${MUTED}`}
+                className={`mx-auto max-w-[70ch] px-4 py-8 text-center text-sm ${MUTED}`}
               >
                 {contentGapText}
               </p>
@@ -1028,27 +1076,21 @@ export default function ConversationList({
                       <span data-day-label="">{label}</span>
                     </h4>
                     <ul>
-                      {group.conversations.map((conversation) => {
-                        const index = positions.get(conversation.first_chat_id);
-                        const key = conversationKey(conversation);
-                        return (
-                          <li key={conversation.first_chat_id}>
-                            <ConversationRow
-                              conversation={conversation}
-                              today={today}
-                              selected={index === currentIndex}
-                              onOpen={() => openRow(conversation)}
-                              onKeyDown={(event) =>
-                                handleRowKeyDown(event, index)
-                              }
-                              buttonRef={(element) => {
-                                if (element) rowRefs.current.set(key, element);
-                                else rowRefs.current.delete(key);
-                              }}
-                            />
-                          </li>
-                        );
-                      })}
+                      {group.conversations.map((conversation) => (
+                        <li key={conversation.first_chat_id}>
+                          <ConversationRow
+                            conversation={conversation}
+                            today={today}
+                            selected={
+                              positions.get(conversation.first_chat_id) ===
+                              currentIndex
+                            }
+                            onOpen={onRowOpen}
+                            onKeyDown={onRowKeyDown}
+                            setRowRef={setRowRef}
+                          />
+                        </li>
+                      ))}
                     </ul>
                   </section>
                 );
@@ -1090,7 +1132,7 @@ export default function ConversationList({
           {contentGap && items.length > 0 && (
             <p
               data-content-gap=""
-              className={`mt-4 text-center text-xs ${MUTED}`}
+              className={`mx-auto mt-4 max-w-[70ch] text-center text-xs ${MUTED}`}
             >
               {contentGapText}
             </p>
@@ -1117,8 +1159,8 @@ export default function ConversationList({
             chatId={chatId}
             row={currentRow}
             search={search}
-            startDate={startDate}
-            endDate={endDate}
+            fromDay={fromDay}
+            toDay={toDay}
             // Die Suche prüft die Zeilen im Zeitraum – mit Abschnitt
             // (Säulenklick) die ganze Konversation (Fixliste 2, S7).
             searchWholeConversation={!!bucket}
@@ -1221,7 +1263,13 @@ function SearchField({ value, onSearch, inputRef: outerRef, className = "" }) {
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter") submit(effectiveSearch(draft));
+          if (event.key !== "Enter") return;
+          // Enter bestätigt bei japanischer, chinesischer oder koreanischer
+          // Eingabe erst die Umwandlung – gesucht wird dann noch nicht,
+          // sonst ginge der unfertige Entwurf (Kana, Pinyin) an den Server
+          // (Fixliste 7, F18).
+          if (event.nativeEvent?.isComposing || event.keyCode === 229) return;
+          submit(effectiveSearch(draft));
         }}
         maxLength={SEARCH_MAX_LENGTH}
         placeholder={t("embed-analytics.search.placeholder")}
@@ -1253,16 +1301,24 @@ function SearchField({ value, onSearch, inputRef: outerRef, className = "" }) {
 /**
  * Eine Zeile der Liste: Uhrzeit der letzten Nachricht, erste Frage, darunter
  * „N Fragen" (mit „begonnen am …", „Grund: …") und Marken der Bewertungen.
+ * memo (Fixliste 7, F32): Die Handler sind stabil und bekommen die Zeile
+ * mit; neu gerendert wird nur, was sich ändert (etwa die Markierung).
+ * @param {{conversation: object, today: string, selected: boolean, onOpen: (row: object) => void, onKeyDown: (event: object, row: object) => void, setRowRef: (key: string, element: HTMLElement|null) => void}} props
  */
-function ConversationRow({
+const ConversationRow = memo(function ConversationRow({
   conversation,
   today,
   selected,
   onOpen,
   onKeyDown,
-  buttonRef,
+  setRowRef,
 }) {
   const { t } = useTranslation();
+  const key = conversationKey(conversation);
+  const buttonRef = useCallback(
+    (element) => setRowRef(key, element),
+    [setRowRef, key]
+  );
   const time = berlinTime(conversation.last_message_at);
   // Uhrzeit wie im Entwurf (AK-1), der volle Zeitpunkt im Tooltip – in
   // Berliner Zeit wie Uhrzeit und Tagesgruppe (Fixliste 2, S1)
@@ -1294,8 +1350,8 @@ function ConversationRow({
       data-conversation-row={conversation.first_chat_id}
       data-conversation-id={conversation.conversation_id}
       aria-current={selected ? "true" : undefined}
-      onClick={onOpen}
-      onKeyDown={onKeyDown}
+      onClick={() => onOpen(conversation)}
+      onKeyDown={(event) => onKeyDown(event, conversation)}
       className={`grid w-full grid-cols-[minmax(0,1fr)_auto_16px] lg:scroll-mb-8 lg:scroll-mt-20 items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
         selected
           ? "bg-sky-500/15 light:bg-sky-50"
@@ -1358,7 +1414,7 @@ function ConversationRow({
       <CaretRight size={16} aria-hidden="true" className={MUTED} />
     </button>
   );
-}
+});
 
 // KIE-508/527: Marke „👍 n" / „👎 n" je Konversation – als Umriss-Daumen.
 // Unter sm kompakt – nur Daumen und Zahl in der Farbe der Marke, ohne Pille

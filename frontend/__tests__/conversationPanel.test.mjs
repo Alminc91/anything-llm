@@ -43,10 +43,9 @@ after(async () => {
 });
 
 const EMBED_ID = 3;
-const PERIOD = {
-  startDate: "2026-09-12T22:00:00.000Z",
-  endDate: "2026-10-13T21:59:59.999Z",
-};
+// Zeitraum der Liste: die Kalendertage, die der Nutzer gewählt hat – der
+// Server begrenzt sie in Berliner Zeit (Fixliste 7, F06)
+const PERIOD = { fromDay: "2026-09-13", toDay: "2026-10-13" };
 const TODAY = "2026-10-13T10:00:00Z";
 
 /** Zeitpunkt zu einer Berliner Wanduhrzeit (Oktober 2026: UTC+2). */
@@ -118,25 +117,48 @@ async function panelServer(t, state) {
     };
     calls.push(call);
     if (isList(url)) {
-      const { offset = 0, limit = 20, q, feedbackFilter } = call.body;
-      // state.holdMore: Nachladen (offset > 0) wartet auf dieses Versprechen
-      if (offset > 0 && state.holdMore) await state.holdMore;
+      const { offset = 0, limit = 20, after, q, feedbackFilter } = call.body;
+      // Die Auswahl bestimmt der Stand beim Eingang der Anfrage.
+      const select = () => {
+        let rows = state.rows;
+        // state.searchAll: jede Suche trifft alle Zeilen (Treffer, die das
+        // Panel nicht sieht – Link-Adressen, Quelltext)
+        if (q && !state.searchAll)
+          rows = rows.filter((r) =>
+            r.preview.toLowerCase().includes(q.toLowerCase())
+          );
+        if (feedbackFilter === "negative")
+          rows = rows.filter((r) => r.negative_count > 0);
+        // Blättern über den Schlüssel (Fixliste 7, F14): alles hinter der
+        // genannten Zeile (letzte Nachricht absteigend, dann first_chat_id)
+        const rest = after
+          ? rows.filter(
+              (r) =>
+                r.last_message_at < after.lastMessageAt ||
+                (r.last_message_at === after.lastMessageAt &&
+                  r.first_chat_id < after.firstChatId)
+            )
+          : rows;
+        return { rows, rest };
+      };
+      // Zeilen vor dieser Seite – für die Prüfungen gleich, ob die Liste
+      // über offset oder über den Schlüssel blättert
+      const before = select();
+      // nicht aufzählbar: Prüfungen vergleichen die Anfragen als Ganzes
+      Object.defineProperty(call, "start", {
+        value: before.rows.length - before.rest.length + offset,
+      });
+      // state.holdMore: Nachladen (offset > 0 oder after) wartet auf dieses
+      // Versprechen
+      if ((offset > 0 || after) && state.holdMore) await state.holdMore;
       // state.failList(body): diese Anfrage scheitert (500)
       if (state.failList?.(call.body))
         return json({ success: false, error: "kaputt" }, 500);
-      let rows = state.rows;
-      // state.searchAll: jede Suche trifft alle Zeilen (Treffer, die das
-      // Panel nicht sieht – Link-Adressen, Quelltext)
-      if (q && !state.searchAll)
-        rows = rows.filter((r) =>
-          r.preview.toLowerCase().includes(q.toLowerCase())
-        );
-      if (feedbackFilter === "negative")
-        rows = rows.filter((r) => r.negative_count > 0);
+      const { rows, rest } = select();
       return json({
         success: true,
-        conversations: rows.slice(offset, offset + limit),
-        hasMore: offset + limit < rows.length,
+        conversations: rest.slice(offset, offset + limit),
+        hasMore: offset + limit < rest.length,
         totalCount: rows.length,
       });
     }
@@ -221,6 +243,9 @@ async function panelServer(t, state) {
         .map((call) => Number(call.url.match(/(\d+)$/)[1])),
   };
 }
+
+/** Eine weitere Seite (Nachladen): über den Schlüssel oder offset. */
+const appended = (body) => !!body.after || body.offset > 0;
 
 /** Meldungen (react-toastify) abfangen. */
 async function toasts(t) {
@@ -414,7 +439,7 @@ test(
     assert.equal(withAttribute(container, "data-day-count").length, 0);
     await act(() => click(one(container, "data-load-more")));
     assert.deepEqual(
-      server.lists().map((call) => [call.body.offset, call.body.limit]),
+      server.lists().map((call) => [call.start, call.body.limit]),
       [
         [0, 20],
         [20, 20],
@@ -633,7 +658,7 @@ test(
     await act(() => click(next));
     await act();
     await act();
-    assert.deepEqual(server.lists().at(-1).body.offset, 20);
+    assert.deepEqual(server.lists().at(-1).start, 20);
     assert.equal(rowsOf(container).length, 22);
     assert.deepEqual(currentRows(container), [420]);
     assert.deepEqual(server.details().at(-1), 420);
@@ -644,6 +669,10 @@ test(
   "AK-18: ↑/↓ auf einer Zeile wechseln den Fokus; bei offenem Panel folgt es – ohne Panel öffnet nichts",
   { skip },
   async (t) => {
+    // Panel neben der Liste (ab lg): Der Fokus bleibt in der Liste. Ohne
+    // matchMedia gilt die Ansicht wie überall als schmal (useWide, Fixliste
+    // 7 F23) – dort öffnet das Vollbild und nimmt den Fokus.
+    stubWidth(t, true);
     const server = await panelServer(t, { rows: [row(1), row(2), row(3)] });
     const { container, document, act } = await mountList(t);
     const rows = () => rowsOf(container);
@@ -1438,7 +1467,7 @@ test(
     await act(() => click(rowsOf(container)[19]));
     await act();
     await act(() => click(one(container, "data-panel-next")));
-    assert.equal(server.lists().at(-1).body.offset, 20);
+    assert.equal(server.lists().at(-1).start, 20);
     // noch beim Laden: eine andere Zeile öffnen
     await act(() => click(rowsOf(container)[4]));
     await act();
@@ -1535,7 +1564,7 @@ test(
     assert.equal(exportButton().hasAttribute("disabled"), false);
 
     // Nachladen scheitert: Zeilen, Zählung und „Weitere laden" bleiben
-    fail = (body) => body.offset > 0;
+    fail = (body) => appended(body);
     await act(() => click(one(container, "data-load-more")));
     await act();
     assert.equal(rowsOf(container).length, 20);
@@ -1653,7 +1682,7 @@ test(
     await act();
     // nachgeladen in großen Seiten (Fixliste 3, S2): eine Anfrage statt zwei
     assert.deepEqual(
-      server.lists().map((call) => [call.body.offset, call.body.limit]),
+      server.lists().map((call) => [call.start, call.body.limit]),
       [
         [0, 20],
         [20, 100],
@@ -1690,7 +1719,7 @@ test(
     });
     for (let i = 0; i < 12; i++) await act();
     assert.deepEqual(
-      server.lists().map((call) => [call.body.offset, call.body.limit]),
+      server.lists().map((call) => [call.start, call.body.limit]),
       [
         [0, 20],
         [20, 100],
@@ -2381,7 +2410,7 @@ test(
     await act(() => click(rowsOf(container)[19]));
     await act();
     await act(() => click(one(container, "data-panel-next")));
-    assert.equal(server.lists().at(-1).body.offset, 20);
+    assert.equal(server.lists().at(-1).start, 20);
     await escape(act);
     assert.equal(panelOf(container), null);
     await act(() => release());
@@ -2409,7 +2438,7 @@ test(
     );
     const server = await panelServer(t, {
       rows,
-      failList: (body) => body.offset > 0,
+      failList: (body) => appended(body),
       details: {
         745: {
           messages: [message(745, "konv-745", { session_id: "sitzung-745" })],
@@ -2421,7 +2450,7 @@ test(
     });
     for (let i = 0; i < 12; i++) await act();
     assert.deepEqual(
-      server.lists().map((call) => call.body.offset),
+      server.lists().map((call) => call.start),
       [0, 20]
     );
     // eine Meldung – seit Fixliste 4, V6 am Knopf „Weitere Konversationen
@@ -2474,7 +2503,7 @@ test(
     for (let i = 0; i < 6; i++) await act();
     const searched = server.lists().filter((call) => call.body.q === "frage");
     assert.deepEqual(
-      searched.map((call) => call.body.offset),
+      searched.map((call) => call.start),
       [0]
     );
     assert.equal(rowsOf(container).length, 20);
@@ -2792,7 +2821,7 @@ test(
     const server = await panelServer(t, {
       rows,
       // genau das erste Nachladen scheitert
-      failList: (body) => body.offset > 0 && failures-- > 0,
+      failList: (body) => appended(body) && failures-- > 0,
       details: {
         845: {
           messages: [message(845, "konv-845", { session_id: "sitzung-845" })],
@@ -2804,7 +2833,7 @@ test(
     });
     for (let i = 0; i < 6; i++) await act();
     assert.deepEqual(
-      server.lists().map((call) => [call.body.offset, call.body.limit]),
+      server.lists().map((call) => [call.start, call.body.limit]),
       [
         [0, 20],
         [20, 100],
@@ -2825,7 +2854,7 @@ test(
     await act(() => click(one(container, "data-load-more")));
     for (let i = 0; i < 6; i++) await act();
     assert.deepEqual(
-      server.lists().map((call) => [call.body.offset, call.body.limit]),
+      server.lists().map((call) => [call.start, call.body.limit]),
       [
         [0, 20],
         [20, 100],
@@ -3614,7 +3643,7 @@ test(
     let failing = true;
     const server = await panelServer(t, {
       rows,
-      failList: (body) => failing && body.offset > 0,
+      failList: (body) => failing && appended(body),
       details: Object.fromEntries(
         [319, 320].map((id) => [
           id,
@@ -3641,7 +3670,7 @@ test(
     await act(() => click(one(panel(), "data-panel-next")));
     for (let i = 0; i < 4; i++) await act();
     assert.deepEqual(
-      server.lists().map((call) => call.body.offset),
+      server.lists().map((call) => call.start),
       [0, 20]
     );
     assert.deepEqual(currentRows(container), [319]);
@@ -3666,7 +3695,7 @@ test(
     await act(() => click(one(panel(), "data-panel-next")));
     for (let i = 0; i < 6; i++) await act();
     assert.deepEqual(
-      server.lists().map((call) => call.body.offset),
+      server.lists().map((call) => call.start),
       [0, 20, 20]
     );
     assert.deepEqual(currentRows(container), [320]);
@@ -3688,7 +3717,7 @@ test(
     let failing = true;
     await panelServer(t, {
       rows,
-      failList: (body) => failing && body.offset > 0,
+      failList: (body) => failing && appended(body),
       details: Object.fromEntries(
         [418, 419].map((id) => [
           id,
@@ -3928,11 +3957,11 @@ test(
 );
 
 test(
-  "Fixliste 6, N1: Ansicht – die Kennzahl „Konversationen“ des Zeitraums geht an die Liste; nur bei Berliner Tagesgrenzen des Browsers, nicht mit Bewertungsfilter",
+  "Fixliste 6, N1 / Fixliste 7, F06: Ansicht – die Kennzahl „Konversationen“ des Zeitraums geht an die Liste, in jeder Zeitzone des Browsers (Liste und Zählerbuch zählen dieselben Berliner Kalendertage); nicht mit Bewertungsfilter",
   { skip },
   async (t) => {
     // Zählerbuch (panelServer): 60 Konversationen gezählt; Liste: 2
-    await panelServer(t, { rows: [row(1), row(2)] });
+    const server = await panelServer(t, { rows: [row(1), row(2)] });
     const mounted = await renderer.mount(VIEW, {
       location: LOCATION,
       exportName: "AnalyticsScreen",
@@ -3947,20 +3976,21 @@ test(
     const { container, act } = mounted;
     for (let i = 0; i < 4; i++) await act();
     assert.equal(rowsOf(container).length, 2);
-    // Der Browser rechnet in Berliner Zeit, wenn seine Tagesgrenzen die
-    // Berliner sind (Winter UTC+1, Sommer UTC+2) – sonst zählen Liste und
-    // Zählerbuch verschiedene Stunden, und der Hinweis entfällt.
-    const berlinBrowser =
-      new Date(2026, 0, 15).getTimezoneOffset() === -60 &&
-      new Date(2026, 6, 15).getTimezoneOffset() === -120;
+    // Liste und Kennzahlen fragen mit denselben Kalendertagen; der Server
+    // begrenzt beide in Berliner Zeit – der Hinweis gilt in jeder Zeitzone
+    // (vorher entfiel er außerhalb Berliner Tagesgrenzen, Fixliste 7, F06).
+    const summary = server.calls.find((call) =>
+      call.url.endsWith("/analytics/summary")
+    );
+    const list = server.lists()[0];
+    assert.equal(list.body.fromDay, summary.body.fromDay);
+    assert.equal(list.body.toDay, summary.body.toDay);
+    assert.equal(list.body.startDate, undefined);
     const gaps = () =>
       withAttribute(container, "data-content-gap").map((e) => e.textContent);
-    assert.deepEqual(
-      gaps(),
-      berlinBrowser
-        ? [`60 Konversationen gezählt, 2 davon einsehbar. ${GAP_TAIL}`]
-        : []
-    );
+    assert.deepEqual(gaps(), [
+      `60 Konversationen gezählt, 2 davon einsehbar. ${GAP_TAIL}`,
+    ]);
     // nie zusammen mit dem Hinweis auf die Aufbewahrungsfrist
     assert.ok(
       gaps().length + withAttribute(container, "data-deleted-hint").length <= 1
@@ -4231,5 +4261,377 @@ test(
     await mountView();
     assert.deepEqual(jumps, [{ block: "start" }]);
     assert.deepEqual(rowJumps, []);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 7 (volles Review, Abnahme entwicklung)
+// ---------------------------------------------------------------------------
+
+test(
+  "Fixliste 7, F14: „Weitere laden“ beginnt hinter der letzten geladenen Zeile (after) – verschwindet dazwischen eine Konversation der ersten Seite, fehlt keine",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    const rows = Array.from({ length: 25 }, (_, i) =>
+      row(300 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    const state = { rows };
+    const server = await panelServer(t, state);
+    const { container, act } = await mountList(t);
+    assert.equal(rowsOf(container).length, 20);
+    // Ein anderer Admin löscht die zweite Zeile der ersten Seite.
+    state.rows = rows.filter((r) => r.first_chat_id !== 301);
+    await act(() => click(one(container, "data-load-more")));
+    const { body } = server.lists().at(-1);
+    assert.deepEqual(body.after, {
+      lastMessageAt: rows[19].last_message_at,
+      firstChatId: rows[19].first_chat_id,
+    });
+    assert.equal(body.offset, 0);
+    // die Zeilen 21–25 vollständig (mit offset 20 fehlte die bisherige 21.)
+    assert.deepEqual(rowIds(container).slice(20), [320, 321, 322, 323, 324]);
+  }
+);
+
+test(
+  "Fixliste 7, F04: Zwei Teile der Ansicht schreiben im selben Durchlauf in die Adresse (fremdes Widget entfernt, zu langes q gekürzt) – keine Änderung hebt die andere auf: ein Hinweis je Fall, nie das ungekürzte q",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const server = await panelServer(t, {
+      rows: [row(1, { preview: "x".repeat(300) })],
+    });
+    const embeds = [
+      { id: EMBED_ID, chat_retention_days: null, workspace: { name: "VHS" } },
+    ];
+    const long = "x".repeat(250);
+    const mounted = await renderer.mount(VIEW, {
+      location: `${LOCATION}?widget=999&conversation=5&q=${long}`,
+      route: LOCATION,
+      exportName: "AnalyticsScreen",
+      props: { embedsLoaded: true, embeds },
+    });
+    t.after(() => mounted.unmount());
+    for (let i = 0; i < 6; i++) await mounted.act();
+    // je ein Hinweis: fremdes Widget, gekürzter Begriff – nicht doppelt
+    assert.deepEqual(shown, [
+      [
+        "info",
+        "Der Suchbegriff aus dem Link war länger als 200 Zeichen und wurde gekürzt.",
+      ],
+      [
+        "error",
+        "Diese Konversation wurde nicht gefunden, oder Sie haben keinen Zugriff darauf.",
+      ],
+    ]);
+    // Die Adresse trägt den gekürzten Begriff (das Feld folgt ihr) …
+    assert.equal(
+      handlersOf(one(mounted.container, "data-search-input")).value,
+      "x".repeat(200)
+    );
+    // … und keine Anfrage ging mit dem ungekürzten hinaus.
+    for (const call of server.lists())
+      assert.ok(!call.body.q || [...call.body.q].length <= 200);
+    assert.deepEqual(server.details(), []);
+  }
+);
+
+test(
+  "Fixliste 7, F18: Enter während einer IME-Eingabe (japanisch, chinesisch, koreanisch) sucht nicht mit dem unfertigen Entwurf – erst das bestätigte Wort",
+  { skip },
+  async (t) => {
+    const server = await panelServer(t, { rows: [row(1), row(2)] });
+    const view = await mountList(t);
+    const { container, act } = view;
+    const input = () => one(container, "data-search-input");
+    await type(view, "かな");
+    const before = server.lists().length;
+    // Umwandlung bestätigen: kein Suchen
+    await act(() =>
+      handlersOf(input()).onKeyDown({
+        key: "Enter",
+        keyCode: 229,
+        nativeEvent: { isComposing: true },
+      })
+    );
+    await act(() =>
+      handlersOf(input()).onKeyDown({
+        key: "Enter",
+        keyCode: 229,
+        nativeEvent: { isComposing: false },
+      })
+    );
+    assert.equal(server.lists().length, before);
+    // das fertige Wort mit Enter: sofort
+    await type(view, "仮名");
+    await act(() =>
+      handlersOf(input()).onKeyDown({
+        key: "Enter",
+        keyCode: 13,
+        nativeEvent: { isComposing: false },
+      })
+    );
+    assert.equal(server.lists().at(-1).body.q, "仮名");
+    assert.ok(server.lists().every((call) => call.body.q !== "かな"));
+  }
+);
+
+test(
+  "Fixliste 7, B7: Auch der Säulenfilter allein ist ein Filter – „X von Y einsehbar“ über den ganzen Zeitraum, auch wenn die Säule alle Zeilen umfasst („2 von 2“); die Zählabfrage läuft ohne Säule",
+  { skip },
+  async (t) => {
+    const server = await panelServer(t, { rows: [row(1), row(2)] });
+    const bucket = {
+      start: "2026-10-12",
+      end: "2026-10-12",
+      label: "Mo., 12.10.2026",
+    };
+    const { container } = await mountList(t, { props: { bucket } });
+    assert.equal(
+      one(container, "data-viewable-count").textContent,
+      "2 von 2 einsehbar"
+    );
+    const [count, list] = server.lists();
+    assert.equal(count.body.limit, 1);
+    assert.ok(!("startedFromDay" in count.body));
+    assert.equal(list.body.startedFromDay, "2026-10-12");
+  }
+);
+
+test(
+  "Fixliste 7, F32: Zeilen sind memoisiert – das Öffnen einer Konversation rendert die anderen Zeilen nicht neu (ihre Handler bleiben dieselben)",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [row(1), row(2), row(3), row(4)],
+      details: { 1: { messages: [message(1, "konv-1")] } },
+    });
+    const { container, act } = await mountList(t);
+    const handlersBefore = rowsOf(container).map((r) => handlersOf(r).onClick);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const handlersAfter = rowsOf(container).map((r) => handlersOf(r).onClick);
+    // Zeile 1 ist jetzt markiert (neu gerendert), 2–4 nicht
+    assert.notEqual(handlersAfter[0], handlersBefore[0]);
+    for (const index of [1, 2, 3])
+      assert.equal(
+        handlersAfter[index],
+        handlersBefore[index],
+        `Zeile ${index}`
+      );
+    assert.deepEqual(currentRows(container), [1]);
+  }
+);
+
+test(
+  "Fixliste 7, AK-1 (Dichte): Die Klassen von Zeile, Tagesüberschrift und Kopf ergeben bei 1440×900 mindestens 12 ganz sichtbare Zeilen – Browser-Beleg (ENT-FINAL): 13",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    await panelServer(t, {
+      rows: Array.from({ length: 20 }, (_, i) => row(100 + i)),
+    });
+    const { container } = await mountList(t);
+    const classesOf = (element) =>
+      new Set(element.getAttribute("class").split(/\s+/));
+    // Pixel je Klasse (Tailwind-Standard, 1 rem = 16 px)
+    const px = (element, table) => {
+      const classes = classesOf(element);
+      const found = Object.entries(table).filter(([name]) => classes.has(name));
+      assert.equal(found.length, 1, [...classes].join(" "));
+      return found[0][1];
+    };
+    const [first] = rowsOf(container);
+    const padding = px(first, {
+      "py-2": 16,
+      "py-1.5": 12,
+      "py-2.5": 20,
+      "py-3": 24,
+    });
+    const border = classesOf(first).has("border-t") ? 1 : 0;
+    const question = px(one(first, "data-row-question"), {
+      "leading-5": 20,
+      "leading-6": 24,
+    });
+    const meta = px(one(first, "data-row-meta"), {
+      "leading-[18px]": 18,
+      "leading-5": 20,
+    });
+    const gap = px(one(first, "data-row-question").parentNode, {
+      "gap-0.5": 2,
+      "gap-1": 4,
+    });
+    const rowHeight = padding + border + question + gap + meta;
+    assert.equal(rowHeight, 57);
+
+    // Kopf: Überschrift (ab sm 40 px) + Abstand zur Liste; Tagesüberschrift;
+    // Rahmen der Liste. Die Überschrift steht nach dem Sprung zur Liste bei
+    // y = 97 (Fixliste 5, S3).
+    const heading = px(one(container, "data-list-heading"), {
+      "sm:min-h-10": 40,
+      "sm:min-h-11": 44,
+    });
+    const headerGap = px(one(container, "data-list-header"), {
+      "mb-3": 12,
+      "mb-4": 16,
+    });
+    const groupHeading = elements(
+      one(container, "data-day-group"),
+      (e) => e.tagName === "H4"
+    )[0];
+    assert.ok(classesOf(groupHeading).has("pt-3"));
+    assert.ok(classesOf(groupHeading).has("pb-1"));
+    assert.ok(classesOf(groupHeading).has("text-xs"));
+    const dayHeading = 12 + 4 + 16;
+    const listBorder = 2;
+    const top = 97;
+    const visible = Math.floor(
+      (900 - top - heading - headerGap - dayHeading - listBorder) / rowHeight
+    );
+    assert.ok(visible >= 12, `nur ${visible} Zeilen`);
+  }
+);
+
+/**
+ * Lauscher am Dokument mitschneiden (keydown, mousedown) – die Ansicht
+ * schließt Menüs und Auswahlen über sie. fire(type, event) ruft sie auf.
+ */
+function documentListeners(t, document) {
+  const lists = {};
+  const original = {
+    add: Object.getOwnPropertyDescriptor(document, "addEventListener"),
+    remove: Object.getOwnPropertyDescriptor(document, "removeEventListener"),
+  };
+  document.addEventListener = (type, listener) =>
+    (lists[type] ??= []).push(listener);
+  document.removeEventListener = (type, listener) => {
+    const list = lists[type] ?? [];
+    const index = list.indexOf(listener);
+    if (index >= 0) list.splice(index, 1);
+  };
+  t.after(() => {
+    for (const [key, descriptor] of [
+      ["addEventListener", original.add],
+      ["removeEventListener", original.remove],
+    ])
+      if (descriptor) Object.defineProperty(document, key, descriptor);
+      else delete document[key];
+  });
+  return (type, event) => {
+    for (const listener of [...(lists[type] ?? [])]) listener(event);
+    return lists[type]?.length ?? 0;
+  };
+}
+
+test(
+  "Fixliste 7, B5: Die Widget-Auswahl schließt mit Escape (Fokus zurück auf die Schaltfläche, Escape verbraucht) und mit einem Klick außerhalb – wie Exportmenü und Menü „⋯“",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [row(1)] });
+    const embeds = [
+      { id: EMBED_ID, chat_retention_days: null, workspace: { name: "VHS" } },
+      {
+        id: 7,
+        chat_retention_days: null,
+        workspace: { name: "VHS Beispielstadt" },
+      },
+    ];
+    const mounted = await renderer.mount(VIEW, {
+      location: `${LOCATION}?widget=${EMBED_ID}`,
+      route: LOCATION,
+      exportName: "AnalyticsScreen",
+      props: { embedsLoaded: true, embeds },
+    });
+    t.after(() => mounted.unmount());
+    const { container, document, act } = mounted;
+    await act();
+    const fire = documentListeners(t, document);
+    const [select] = elements(
+      container,
+      (e) => e.getAttribute("aria-haspopup") === "listbox"
+    );
+    const listbox = () =>
+      elements(container, (e) => e.getAttribute("role") === "listbox")[0] ??
+      null;
+
+    await act(() => click(select));
+    assert.ok(listbox());
+    assert.equal(select.getAttribute("aria-expanded"), "true");
+    const escape = {
+      key: "Escape",
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+    };
+    await act(() => fire("keydown", escape));
+    assert.equal(listbox(), null);
+    assert.equal(escape.defaultPrevented, true);
+    assert.equal(document.activeElement, select);
+
+    // Klick außerhalb
+    await act(() => click(select));
+    assert.ok(listbox());
+    await act(() => fire("mousedown", { target: document.body }));
+    assert.equal(listbox(), null);
+    // ein Klick in die Auswahl selbst schließt nicht über diesen Weg
+    await act(() => click(select));
+    await act(() => fire("mousedown", { target: listbox() }));
+    assert.ok(listbox());
+  }
+);
+
+test(
+  "Fixliste 7, F15: Die Ansicht stellt ihre Scrollposition selbst ein – history.scrollRestoration ist „manual“, solange sie offen ist, danach wieder wie vorher",
+  { skip },
+  async (t) => {
+    const originalHistory = Object.getOwnPropertyDescriptor(
+      globalThis.window,
+      "history"
+    );
+    globalThis.window.history = { scrollRestoration: "auto", length: 1 };
+    t.after(() => {
+      if (originalHistory)
+        Object.defineProperty(globalThis.window, "history", originalHistory);
+      else delete globalThis.window.history;
+    });
+    await panelServer(t, { rows: [row(1)] });
+    const mounted = await renderer.mount(VIEW, {
+      location: LOCATION,
+      route: LOCATION,
+      exportName: "AnalyticsScreen",
+      props: {
+        embedsLoaded: true,
+        embeds: [
+          {
+            id: EMBED_ID,
+            chat_retention_days: null,
+            workspace: { name: "VHS" },
+          },
+        ],
+      },
+    });
+    await mounted.act();
+    assert.equal(globalThis.window.history.scrollRestoration, "manual");
+    await mounted.unmount();
+    assert.equal(globalThis.window.history.scrollRestoration, "auto");
+  }
+);
+
+test(
+  "Fixliste 7, B2: Der Hinweis auf fehlende Inhalte bricht ruhig um – höchstens rund 70 Zeichen je Zeile, im Leerzustand wie unter der Liste",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [] });
+    const { container } = await mountList(t, {
+      props: { countedConversations: 916 },
+    });
+    const [gap] = withAttribute(container, "data-content-gap");
+    const classes = gap.getAttribute("class").split(/\s+/);
+    assert.ok(classes.includes("max-w-[70ch]"));
+    assert.ok(classes.includes("mx-auto"));
   }
 );

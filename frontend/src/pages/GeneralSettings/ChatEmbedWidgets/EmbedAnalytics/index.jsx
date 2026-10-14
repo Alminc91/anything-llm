@@ -32,9 +32,9 @@ import {
   holdScrollTarget,
   isWide,
   revealMarkedRow,
-  sameBerlinDays,
 } from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
+import { useDismiss } from "./viewHooks";
 
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
 // Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
@@ -50,7 +50,8 @@ import useConversationLocation from "./useConversationLocation";
 // Kennzahlen und Diagramm kommen aus einem Aufruf von analytics/summary
 // (Zählerbuch) und stimmen deshalb überein; sie bleiben vollständig, wenn
 // Konversationsinhalte gelöscht sind. Die Liste liest weiterhin embed_chats
-// und arbeitet mit den Zeitstempeln des Browsers.
+// – für dieselben Kalendertage, die der Server wie das Zählerbuch in
+// Berliner Zeit begrenzt (Fixliste 7, F06).
 
 /**
  * Convert Date|null to ISO string|null for stable useEffect deps.
@@ -266,13 +267,12 @@ function WidgetAnalytics({ embeds, lastActivity }) {
 
   // Kennzahl „Konversationen“ für den Hinweis der Liste auf fehlende
   // Inhalte (Fixliste 6, N1) – nur, wenn sie zu genau diesem Widget und
-  // Zeitraum gehört und die Liste dieselben Berliner Tage zeigt; sonst null
-  // (kein Hinweis). Beim Neuladen desselben Zeitraums (Vergleich an/aus)
-  // bleibt sie stehen.
+  // Zeitraum gehört; sonst null (kein Hinweis). Liste und Kennzahl zählen
+  // dieselben Berliner Kalendertage, in jeder Zeitzone des Browsers
+  // (Fixliste 7, F06) – der Hinweis gilt deshalb überall. Beim Neuladen
+  // desselben Zeitraums (Vergleich an/aus) bleibt sie stehen.
   const countedConversations =
-    summaryData &&
-    summary.period === periodOf(fromDay, toDay) &&
-    sameBerlinDays(startDateISO, endDateISO, fromDay, toDay)
+    summaryData && summary.period === periodOf(fromDay, toDay)
       ? (summaryData.totals?.conversations ?? null)
       : null;
 
@@ -317,6 +317,20 @@ function WidgetAnalytics({ embeds, lastActivity }) {
   const [linkJumpPending, setLinkJumpPending] = useState(
     () => place.chatId !== null
   );
+  // Die Ansicht stellt ihre Scrollposition selbst ein (Sprung zur Liste,
+  // Panel): Der Browser stellt beim Neuladen und bei Zurück/Vor keine
+  // gemerkte Position wieder her, die den Sprung überschriebe (Fixliste 7,
+  // F15 – eine Ursache, die holdScrollTarget bisher abfing). Beim Verlassen
+  // der Seite gilt wieder die vorige Einstellung.
+  useEffect(() => {
+    const history = typeof window !== "undefined" ? window.history : null;
+    if (!history || !("scrollRestoration" in history)) return;
+    const previous = history.scrollRestoration;
+    history.scrollRestoration = "manual";
+    return () => {
+      history.scrollRestoration = previous;
+    };
+  }, []);
   const listReady = viewableCount !== null && !summary.loading;
   const releaseLinkJump = useRef(null);
   useEffect(() => {
@@ -399,8 +413,8 @@ function WidgetAnalytics({ embeds, lastActivity }) {
       <div ref={listRef} className={AVATAR_CLEARANCE.jumpTarget}>
         <ConversationList
           embedId={unknownLink ? null : selectedEmbed}
-          startDate={startDateISO}
-          endDate={endDateISO}
+          fromDay={fromDay}
+          toDay={toDay}
           feedbackFilter={feedbackFilter}
           onFeedbackFilterChange={setFeedbackFilter}
           bucket={bucket}
@@ -469,21 +483,15 @@ function Header({
   const { t, i18n } = useTranslation();
   const [embedDropdownOpen, setEmbedDropdownOpen] = useState(false);
   const embedDropdownRef = useRef(null);
+  const embedButtonRef = useRef(null);
 
-  // Close embed dropdown on outside click
-  useEffect(() => {
-    if (!embedDropdownOpen) return;
-    function handleMouseDown(e) {
-      if (
-        embedDropdownRef.current &&
-        !embedDropdownRef.current.contains(e.target)
-      ) {
-        setEmbedDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, [embedDropdownOpen]);
+  // Klick außerhalb oder Escape schließt die Widget-Auswahl, der Fokus geht
+  // auf die Schaltfläche zurück – wie Exportmenü und Menü „⋯“ (Fixliste 7,
+  // B5).
+  const closeEmbedDropdown = useCallback(() => setEmbedDropdownOpen(false), []);
+  useDismiss(embedDropdownRef, embedDropdownOpen, closeEmbedDropdown, {
+    focusRef: embedButtonRef,
+  });
 
   // Ein Widget heißt wie sein Workspace; die Widget-Nummer kommt nur dazu, wo
   // die Bezeichnung in dieser Liste mehrfach vorkommt (utils/embedLabel).
@@ -528,6 +536,7 @@ function Header({
           <div className="relative" ref={embedDropdownRef}>
             <button
               type="button"
+              ref={embedButtonRef}
               aria-haspopup="listbox"
               aria-expanded={embedDropdownOpen}
               aria-label={t("embed-analytics.widget-label")}

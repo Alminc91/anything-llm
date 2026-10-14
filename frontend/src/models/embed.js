@@ -13,6 +13,46 @@ export function filenameFromDisposition(header) {
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name) ? name : null;
 }
 
+/**
+ * Die Auswahl der Konversationsliste als Rumpf – dieselbe für eine Seite der
+ * Liste und für den Export (Fixliste 7, F25; der Server liest sie ebenso an
+ * einer Stelle, conversationSelection).
+ *
+ * Der Zeitraum geht als die Kalendertage, die der Nutzer gewählt hat
+ * (fromDay/toDay, beide einschließlich; null = „Gesamt“) – dieselben Tage
+ * wie für Kennzahlen und Diagramm. Der Server begrenzt sie in Berliner Zeit,
+ * unabhängig von der Zeitzone des Browsers (Fixliste 7, F06).
+ * @param {Object} [selection]
+ * @param {string|null} [selection.fromDay] - "YYYY-MM-DD"
+ * @param {string|null} [selection.toDay]
+ * @param {"all"|"negative"|"positive"} [selection.feedbackFilter] - KIE-508/527
+ * @param {{fromDay: string, toDay: string}|null} [selection.startedBetween] -
+ *   KIE-536: nur Konversationen, deren erste vorhandene Nachricht in diesem
+ *   Abschnitt liegt (Klick auf eine Säule)
+ * @param {string} [selection.search] - Suchbegriff (q); ohne Suche fehlt das Feld
+ * @returns {object}
+ */
+export function conversationSelectionBody({
+  fromDay = null,
+  toDay = null,
+  feedbackFilter = "all",
+  startedBetween = null,
+  search = "",
+} = {}) {
+  return {
+    fromDay,
+    toDay,
+    feedbackFilter,
+    ...(startedBetween
+      ? {
+          startedFromDay: startedBetween.fromDay,
+          startedToDay: startedBetween.toDay,
+        }
+      : {}),
+    ...(search ? { q: search } : {}),
+  };
+}
+
 const Embed = {
   embeds: async () => {
     return await fetch(`${API_BASE}/embeds`, {
@@ -153,20 +193,15 @@ const Embed = {
       });
   },
 
-  // Analytics: Get conversations list
+  // Analytics: eine Seite der Konversationsliste. selection wie
+  // conversationSelectionBody. Blättern: die erste Seite mit offset 0, jede
+  // weitere mit after – der letzten geladenen Zeile { lastMessageAt,
+  // firstChatId }: Verschwindet dazwischen eine Konversation, fehlt so keine
+  // andere (Fixliste 7, F14). Ergebnis { success, conversations, hasMore,
+  // totalCount } bzw. { success: false, error }.
   getConversations: async (
     embedId,
-    offset = 0,
-    limit = 20,
-    startDate,
-    endDate,
-    feedbackFilter = "all", // KIE-508/527: "all" | "negative" (👎) | "positive" (👍)
-    // KIE-536: { fromDay, toDay } – nur Konversationen, deren erste
-    // vorhandene Nachricht in diesem Abschnitt liegt (Klick auf eine Säule).
-    startedBetween = null,
-    // Suchbegriff (q) – nur Konversationen mit Treffer in Frage, Antworttext,
-    // Grund oder Kommentar. Ohne Suche fehlt das Feld.
-    search = ""
+    { offset = 0, limit = 20, after = null, ...selection } = {}
   ) => {
     return await fetch(`${API_BASE}/embed/${embedId}/analytics/conversations`, {
       method: "POST",
@@ -174,16 +209,8 @@ const Embed = {
       body: JSON.stringify({
         offset,
         limit,
-        startDate,
-        endDate,
-        feedbackFilter,
-        ...(startedBetween
-          ? {
-              startedFromDay: startedBetween.fromDay,
-              startedToDay: startedBetween.toDay,
-            }
-          : {}),
-        ...(search ? { q: search } : {}),
+        ...(after ? { after } : {}),
+        ...conversationSelectionBody(selection),
       }),
     })
       .then((res) => res.json())
@@ -193,38 +220,19 @@ const Embed = {
       });
   },
 
-  // Analytics (KIE-538): Export der Konversationen der aktuellen Auswahl.
-  // Dieselben Felder wie eine Seite der Liste (getConversations) ohne das
-  // Blättern – auch der Suchbegriff –, dazu format ("csv" | "json"). Die Antwort ist die Datei;
+  // Analytics (KIE-538): Export der Konversationen der aktuellen Auswahl –
+  // dieselbe Auswahl wie die Liste (conversationSelectionBody, auch der
+  // Suchbegriff), dazu format ("csv" | "json"). Die Antwort ist die Datei;
   // Ergebnis { success, blob, filename, error } – der Dateiname kommt vom
   // Server (konversationen_<widget>_<von>_<bis>.<endung>). Mit Suche und zu
   // vielen Treffern (413) zusätzlich reason "too-many-hits" und max.
-  exportConversations: async (
-    embedId,
-    format,
-    {
-      startDate,
-      endDate,
-      feedbackFilter = "all",
-      startedBetween = null,
-      search = "",
-    } = {}
-  ) => {
+  exportConversations: async (embedId, format, selection = {}) => {
     return await fetch(`${API_BASE}/embed/${embedId}/analytics/export`, {
       method: "POST",
       headers: baseHeaders(),
       body: JSON.stringify({
         format,
-        startDate,
-        endDate,
-        feedbackFilter,
-        ...(startedBetween
-          ? {
-              startedFromDay: startedBetween.fromDay,
-              startedToDay: startedBetween.toDay,
-            }
-          : {}),
-        ...(search ? { q: search } : {}),
+        ...conversationSelectionBody(selection),
       }),
     })
       .then(async (res) => {
@@ -301,12 +309,16 @@ const Embed = {
   },
 
   // Alle Konversationen des Besuchers (derselbe Browser) in diesem Widget
-  // löschen (KIE-538). Antwort: { success, deletedCount, conversationCount }.
-  deleteVisitorConversations: async (embedId, chatId) => {
+  // löschen (KIE-538). expected: die Zahlen, die die Rückfrage genannt hat
+  // (visitor der Vorschau) – gelöscht wird nur dieser Stand (Fixliste 7,
+  // F10). Antwort: { success, deletedCount, conversationCount }; hat sich
+  // der Stand inzwischen geändert (409): { success: false, reason:
+  // "changed", visitor } mit den neuen Zahlen.
+  deleteVisitorConversations: async (embedId, chatId, expected = null) => {
     return await fetch(`${API_BASE}/embed/${embedId}/conversation/visitor`, {
       method: "DELETE",
       headers: baseHeaders(),
-      body: JSON.stringify({ chatId }),
+      body: JSON.stringify({ chatId, ...(expected ? { expected } : {}) }),
     })
       .then((res) => res.json())
       .catch((e) => {
@@ -417,25 +429,6 @@ const Embed = {
     return await fetch(`${API_BASE}/embed/${embedId}/remove-logo`, {
       method: "DELETE",
       headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .catch((e) => {
-        console.error(e);
-        return { success: false, error: e.message };
-      });
-  },
-
-  // Get conversations (global view, grouped by conversation_id)
-  getConversationsGlobal: async (
-    offset = 0,
-    limit = 20,
-    startDate,
-    endDate
-  ) => {
-    return await fetch(`${API_BASE}/embed/chats/conversations`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ offset, limit, startDate, endDate }),
     })
       .then((res) => res.json())
       .catch((e) => {

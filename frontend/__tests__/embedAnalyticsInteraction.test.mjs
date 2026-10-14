@@ -829,20 +829,19 @@ async function mountView(t, server, embeds = [EMBED]) {
     { embedsLoaded: true, embeds },
     { exportName: "AnalyticsScreen" }
   );
+  const days = rangeFromDates(startDate, endDate);
   return {
     ...mounted,
-    days: rangeFromDates(startDate, endDate),
-    // Die Liste bekommt denselben Zeitraum als Zeitstempel des Browsers.
-    period: {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-    },
+    days,
+    // Die Liste bekommt dieselben Kalendertage wie Kennzahlen und Diagramm
+    // (Fixliste 7, F06: früher Zeitstempel des Browsers).
+    period: { fromDay: days.fromDay, toDay: days.toDay },
     listRequest: (request = {}) => ({
       method: ROUTES.conversations.method,
       url: server.listUrl,
       body: conversationsBody({
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
+        fromDay: days.fromDay,
+        toDay: days.toDay,
         ...request,
       }),
     }),
@@ -888,35 +887,29 @@ test(
 );
 
 test(
-  "Anfrage (AK-7): getConversations sendet den Abschnitt als startedFromDay/startedToDay – ohne Abschnitt keines der beiden Felder",
+  "Anfrage (AK-7, Fixliste 7 F06/F14): getConversations sendet Zeitraum als Kalendertage, den Abschnitt als startedFromDay/startedToDay – ohne Abschnitt keines der beiden Felder; weitere Seiten mit after",
   { skip },
   async (t) => {
     const calls = stubFetch(t, () => ({ success: true, conversations: [] }));
     const { default: Embed } = await renderer.load("/src/models/embed.js");
-    const period = {
-      startDate: "2026-09-12T22:00:00.000Z",
-      endDate: "2026-10-12T21:59:59.999Z",
-    };
+    const period = { fromDay: "2026-09-13", toDay: "2026-10-12" };
+    const after = { lastMessageAt: 1760000000000, firstChatId: 42 };
 
-    await Embed.getConversations(
-      3,
-      20,
-      20,
-      period.startDate,
-      period.endDate,
-      "negative",
-      { fromDay: "2026-10-05", toDay: "2026-10-11" }
-    );
-    await Embed.getConversations(
-      3,
-      0,
-      20,
-      period.startDate,
-      period.endDate,
-      "all",
-      null
-    );
-    await Embed.getConversations(3, 0, 20, null, null);
+    await Embed.getConversations(3, {
+      after,
+      limit: 20,
+      ...period,
+      feedbackFilter: "negative",
+      startedBetween: { fromDay: "2026-10-05", toDay: "2026-10-11" },
+    });
+    await Embed.getConversations(3, {
+      offset: 0,
+      limit: 20,
+      ...period,
+      feedbackFilter: "all",
+      startedBetween: null,
+    });
+    await Embed.getConversations(3, { fromDay: null, toDay: null });
 
     const url = await urlOf(ROUTES.conversations, 3);
     assert.deepEqual(calls, [
@@ -925,7 +918,7 @@ test(
         url,
         body: conversationsBody({
           ...period,
-          offset: 20,
+          after,
           feedbackFilter: "negative",
           bucket: { start: "2026-10-05", end: "2026-10-11" },
         }),
@@ -935,20 +928,30 @@ test(
         url,
         body: conversationsBody(period),
       },
-      { method: ROUTES.conversations.method, url, body: conversationsBody() },
+      {
+        method: ROUTES.conversations.method,
+        url,
+        body: conversationsBody({ fromDay: null, toDay: null }),
+      },
     ]);
     assert.equal(calls[0].body.startedFromDay, "2026-10-05");
     assert.equal(calls[0].body.startedToDay, "2026-10-11");
+    assert.deepEqual(calls[0].body.after, after);
+    assert.equal(calls[0].body.offset, 0);
     for (const { body } of calls.slice(1)) {
       assert.ok(!("startedFromDay" in body));
       assert.ok(!("startedToDay" in body));
+      assert.ok(!("after" in body));
+      // kein Zeitstempel des Browsers mehr
+      assert.ok(!("startDate" in body));
+      assert.ok(!("endDate" in body));
     }
     assert.match(url, /\/embed\/3\/analytics\/conversations$/);
   }
 );
 
 test(
-  "Laden (Hard Constraint 5): Die Ansicht fragt Zählwerte mit den Kalendertagen des Zeitraums ab, die Liste mit den Zeitstempeln des Browsers",
+  "Laden (Hard Constraint 5, Fixliste 7 F06): Die Ansicht fragt Zählwerte und Liste mit denselben Kalendertagen des Zeitraums ab",
   { skip },
   async (t) => {
     const server = await analyticsServer(t);
@@ -1134,19 +1137,28 @@ const SECOND_EMBED = {
 };
 const PAGE_SIZE = 20;
 
+/**
+ * Zeilen vor der Seite einer Anfrage: offset, oder hinter der Zeile, die
+ * after nennt (Fixliste 7, F14) – die Zeilen hier zählen first_chat_id ab
+ * 1000 hoch.
+ */
+const startOf = (body) =>
+  body.after ? body.after.firstChatId - 1000 + 1 : body.offset;
+
 /** Die Liste hat 45 einsehbare Konversationen – drei Seiten. */
 function pagedList({ body }) {
   const total = 45;
-  const count = Math.max(0, Math.min(body.limit, total - body.offset));
+  const start = startOf(body);
+  const count = Math.max(0, Math.min(body.limit, total - start));
   return {
     success: true,
     totalCount: total,
-    hasMore: body.offset + count < total,
+    hasMore: start + count < total,
     conversations: Array.from({ length: count }, (_, i) => ({
-      conversation_id: `konversation-${body.offset + i + 1}`,
+      conversation_id: `konversation-${start + i + 1}`,
       // Schlüssel der Karte (KIE-538): die id der ersten Zeile
-      first_chat_id: 1000 + body.offset + i,
-      conversation_number: body.offset + i + 1,
+      first_chat_id: 1000 + start + i,
+      conversation_number: start + i + 1,
       preview: "Gibt es Sportkurse?",
       started_at: Date.UTC(2026, 9, 6, 10),
       last_message_at: Date.UTC(2026, 9, 6, 11),
@@ -1200,7 +1212,13 @@ async function openSecondPage({ container, act }, server) {
   assert.ok(more, "keine Schaltfläche „Weitere Konversationen laden“");
   assert.equal(more.textContent, "Weitere Konversationen laden");
   await act(() => click(more));
-  assert.equal(server.lists().at(-1).body.offset, PAGE_SIZE);
+  // hinter der letzten Zeile der ersten Seite (Fixliste 7, F14)
+  const { body } = server.lists().at(-1);
+  assert.equal(startOf(body), PAGE_SIZE);
+  assert.deepEqual(body.after, {
+    lastMessageAt: Date.UTC(2026, 9, 6, 11),
+    firstChatId: 1000 + PAGE_SIZE - 1,
+  });
 }
 
 /** Die Zeilen der Liste: id ihrer ersten Zeile (first_chat_id). */
@@ -1549,11 +1567,11 @@ function ratedList({ body }) {
     ? { all: 6, negative: 2, positive: 3 }
     : { all: 214, negative: 18, positive: 25 };
   const total = totals[body.feedbackFilter];
-  const count = Math.max(0, Math.min(body.limit, total - body.offset));
+  const count = Math.max(0, Math.min(body.limit, total - startOf(body)));
   return {
     ...pagedList({ body }),
     totalCount: total,
-    hasMore: body.offset + count < total,
+    hasMore: startOf(body) + count < total,
     conversations: pagedList({ body }).conversations.slice(0, count),
   };
 }
@@ -1719,7 +1737,7 @@ test(
 );
 
 test(
-  "Gesetzte Filter: Fehlt die Zahl ohne Bewertungsfilter für den Zuschnitt, fragt die Liste sie einmal parallel an (eine Konversation, ohne Filter) – ohne Bewertungsfilter nie",
+  "Gesetzte Filter: Fehlt die Zahl ohne Filter für den Zeitraum, fragt die Liste sie einmal parallel an (eine Konversation, ohne jeden Filter) – ohne Filter nie; die Säule ist ein Filter wie die anderen („X von Y“ über den ganzen Zeitraum, Fixliste 7 B7)",
   { skip },
   async (t) => {
     const server = await analyticsServer(t, { list: ratedList });
@@ -1743,15 +1761,15 @@ test(
       ]
     );
 
-    // Filter an (Zahl bekannt), dann ein Abschnitt, für den sie fehlt
+    // Filter an, dann ein Abschnitt: Die Zahl ohne Filter gilt für den
+    // ganzen Zeitraum und ist bekannt – keine Zählabfrage
     await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
     let before = server.lists().length;
     await act(() => click(columnsOf(container)[23]));
     assert.deepEqual(server.lists().slice(before), [
-      listRequest({ limit: 1, bucket }),
       listRequest({ feedbackFilter: "negative", bucket }),
     ]);
-    assert.equal(viewableOf(container), "2 von 6 einsehbar");
+    assert.equal(viewableOf(container), "2 von 214 einsehbar");
 
     // Wechsel zu positiv und zurück im selben Abschnitt: bekannt
     before = server.lists().length;
@@ -1762,11 +1780,10 @@ test(
       listRequest({ feedbackFilter: "negative", bucket }),
     ]);
 
-    // Abschnitt aus: wieder ein anderer Zuschnitt – einmal die Zählabfrage
+    // Abschnitt aus: derselbe Zeitraum – keine Zählabfrage
     before = server.lists().length;
     await act(() => click(columnsOf(container)[23]));
     assert.deepEqual(server.lists().slice(before), [
-      listRequest({ limit: 1 }),
       listRequest({ feedbackFilter: "negative" }),
     ]);
     assert.equal(viewableOf(container), "18 von 214 einsehbar");
@@ -1776,14 +1793,14 @@ test(
     await choosePreset(view, "Letzter Monat");
     const added = server.lists().slice(before);
     assert.deepEqual(
-      added.map(({ body }) => [body.offset, body.limit, body.feedbackFilter]),
+      added.map(({ body }) => [startOf(body), body.limit, body.feedbackFilter]),
       [
         [0, 1, "all"],
         [0, 20, "negative"],
       ]
     );
-    assert.equal(added[0].body.startDate, added[1].body.startDate);
-    assert.equal(added[0].body.endDate, added[1].body.endDate);
+    assert.equal(added[0].body.fromDay, added[1].body.fromDay);
+    assert.equal(added[0].body.toDay, added[1].body.toDay);
     assert.equal(viewableOf(container), "18 von 214 einsehbar");
   }
 );
@@ -1834,7 +1851,8 @@ test(
     await choosePreset(view, "Letzter Monat");
     const other = server.lists().at(-1).body;
     assert.equal(other.offset, 0);
-    assert.notEqual(other.endDate, view.period.endDate);
+    assert.equal(other.after, undefined);
+    assert.notEqual(other.toDay, view.period.toDay);
 
     await choosePreset(view, "Letzte 30 Tage");
     assert.deepEqual(server.lists().at(-1), view.listRequest());

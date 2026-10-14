@@ -20,7 +20,6 @@ import showToast from "@/utils/toast";
 import {
   AVATAR_CLEARANCE,
   MUTED,
-  WIDE_QUERY,
   ancestorsOf,
   answerText,
   berlinDateTime,
@@ -29,6 +28,7 @@ import {
   conversationSummary,
   elementsWith,
   firstElementWith,
+  focusLost,
   hasVisibleHit,
   highlightParts,
   longDateLabel,
@@ -39,6 +39,7 @@ import {
 } from "@/utils/conversationView";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { useConversationDeletion } from "./DeleteConversation";
+import { useDismiss, useWide } from "./viewHooks";
 
 // Konversationen-Ansicht: der Gesprächsverlauf einer Konversation – auf
 // breiten Bildschirmen (ab lg) als Seitenpanel rechts neben der Liste, darunter
@@ -92,26 +93,6 @@ function timeSpan(startedAt, lastAt, t) {
     from: `${formatDateShort(fromDay)} ${from}`,
     to: `${formatDateShort(toDay)} ${to}`,
   });
-}
-
-/** Die Medienabfrage „breit" (WIDE_QUERY); null ohne matchMedia. */
-function wideQuery() {
-  return typeof window !== "undefined" && window.matchMedia
-    ? window.matchMedia(WIDE_QUERY)
-    : null;
-}
-
-/** Breiter Bildschirm (Panel neben der Liste)? Folgt Größenänderungen. */
-function useWide() {
-  const [wide, setWide] = useState(() => wideQuery()?.matches ?? true);
-  useEffect(() => {
-    const media = wideQuery();
-    if (!media?.addEventListener) return;
-    const update = () => setWide(media.matches);
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-  return wide;
 }
 
 /**
@@ -269,8 +250,9 @@ function usePanelFit(ref, active, content) {
  * @param {object|null} props.row - Eintrag der Liste, falls die Konversation
  *   dort steht
  * @param {string} props.search - aktiver Suchbegriff (hervorgehoben)
- * @param {string|null} props.startDate - Zeitraum der Liste (ISO)
- * @param {string|null} props.endDate
+ * @param {string|null} props.fromDay - Zeitraum der Liste: Kalendertage
+ *   (null = „Gesamt“), wie die Liste sie dem Server sendet
+ * @param {string|null} props.toDay
  * @param {boolean} [props.searchWholeConversation] - Die Suche der Liste
  *   prüft die ganze Konversation (Abschnitt aus dem Diagramm), nicht nur die
  *   Nachrichten im Zeitraum
@@ -296,8 +278,8 @@ export default function ConversationDetail({
   chatId,
   row = null,
   search = "",
-  startDate = null,
-  endDate = null,
+  fromDay = null,
+  toDay = null,
   searchWholeConversation = false,
   canPrevious = false,
   canNext = false,
@@ -368,7 +350,7 @@ export default function ConversationDetail({
     (detail.status === "not-found" ||
       (detail.status === "ok" && !summary && !row));
   const ready = loaded && detail.status === "ok" && !notFound;
-  const outside = ready && outsidePeriod(messages, startDate, endDate);
+  const outside = ready && outsidePeriod(messages, { fromDay, toDay });
 
   const summaryKey = summary?.key ?? null;
   useEffect(() => {
@@ -453,6 +435,15 @@ export default function ConversationDetail({
   // sehen ist (wenige Treffer, die Liste endet unten im Fenster), wird es
   // weich nach oben geholt – sonst bleibt die Seite stehen (AK-4,
   // Fixliste 3 V8).
+  // Bewusst ein Sprung der Seite (Fixliste 7, F07, als Ausnahme in AK-4
+  // festgehalten): Das Panel steht neben der Liste in derselben Zeile, ab
+  // dem Anfang der Liste. Klebend (sticky) kann es nicht über den Anfang
+  // seines Bereichs steigen; es über Kennzahlen und Diagramm zu legen
+  // (fixed) verdeckte die rechte Hälfte der Seite. Der Sprung kommt nur, wenn
+  // weniger als PANEL_MIN_VISIBLE px zu sehen sind – also nur, wenn die
+  // Liste unten im Fenster beginnt –, und nur beim Öffnen. Die angeklickte
+  // Zeile bleibt dabei im Bild: Sie steht nie über dem Anfang des Panels und
+  // wandert um dieselbe Strecke nach oben (bis unter das Benutzermenü).
   useEffect(() => {
     if (!wide || !reveal || typeof window === "undefined") return;
     const panel = panelRef.current;
@@ -465,38 +456,18 @@ export default function ConversationDetail({
   }, [chatId, wide, reveal]);
 
   // Menü „⋯": Klick außerhalb oder Escape schließt (Escape gibt den Fokus an
-  // die Schaltfläche zurück); beim Öffnen steht der Fokus auf dem ersten
-  // Eintrag, ↑/↓, Pos1/Ende wechseln (Fixliste Punkt 26).
-  const closeMenu = useCallback(
-    (refocus = false) => {
-      setMenuOpen(false);
-      if (refocus) menuButtonRef.current?.focus?.();
-    },
-    [setMenuOpen]
-  );
+  // die Schaltfläche zurück – useDismiss, wie Exportmenü und
+  // Widget-Auswahl); beim Öffnen steht der Fokus auf dem ersten Eintrag,
+  // ↑/↓, Pos1/Ende wechseln (Fixliste Punkt 26).
+  const closeMenu = useCallback(() => setMenuOpen(false), [setMenuOpen]);
   const menuItemsOf = useCallback(
     () => elementsWith(menuRef.current, "role", "menuitem"),
     []
   );
+  useDismiss(menuRef, menuOpen, closeMenu, { focusRef: menuButtonRef });
   useEffect(() => {
-    if (!menuOpen) return;
-    menuItemsOf()[0]?.focus?.();
-    function handleMouseDown(event) {
-      if (menuRef.current && !menuRef.current.contains(event.target))
-        closeMenu();
-    }
-    function handleKeyDown(event) {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeMenu(true);
-    }
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [menuOpen, closeMenu, menuItemsOf]);
+    if (menuOpen) menuItemsOf()[0]?.focus?.();
+  }, [menuOpen, menuItemsOf]);
   const handleMenuKeyDown = (event) => {
     const items = menuItemsOf();
     const index = items.indexOf(event.target);
@@ -557,9 +528,9 @@ export default function ConversationDetail({
       !hasVisibleHit(
         messages,
         search,
-        searchWholeConversation ? {} : { startDate, endDate }
+        searchWholeConversation ? {} : { fromDay, toDay }
       ),
-    [ready, search, row, messages, searchWholeConversation, startDate, endDate]
+    [ready, search, row, messages, searchWholeConversation, fromDay, toDay]
   );
 
   // Feste Reihenfolge (Fixliste 2, R8): „Konversation löschen" immer vor
@@ -572,11 +543,8 @@ export default function ConversationDetail({
   // Vorschau kennt keine weitere Konversation), geht der Fokus auf den
   // letzten verbliebenen Eintrag – nicht ins Leere (Fixliste 3, C6).
   useEffect(() => {
-    if (!menuOpen || visitorEntry || typeof document === "undefined") return;
-    const active = document.activeElement;
-    const lost =
-      !active || active === document.body || !document.body.contains(active);
-    if (lost) menuItemsOf().at(-1)?.focus?.();
+    if (!menuOpen || visitorEntry) return;
+    if (focusLost()) menuItemsOf().at(-1)?.focus?.();
   }, [menuOpen, visitorEntry, menuItemsOf]);
   const menuItems = [
     conversationId && {

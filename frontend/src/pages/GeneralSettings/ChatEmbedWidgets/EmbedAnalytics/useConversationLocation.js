@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 // Zustand der Ansicht „Konversationen" in der Adresse – eine Quelle der
@@ -19,6 +19,20 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 export const PARAM_WIDGET = "widget";
 export const PARAM_CONVERSATION = "conversation";
 export const PARAM_SEARCH = "q";
+
+/**
+ * Die zuletzt geschriebene, noch nicht angekommene Adresse (Fixliste 7,
+ * F04). setSearchParams berechnet eine Änderung gegen die Parameter des
+ * Renders, in dem sie aufgerufen wird – auch in der Form mit Funktion (react-
+ * router-dom 6.25). Schreiben zwei Teile der Ansicht im selben Durchlauf
+ * (die Liste kürzt q, die Kopfzeile entfernt ein fremdes Widget), hob die
+ * zweite Änderung die erste auf. Deshalb baut jede Änderung auf der
+ * Adresse auf, die zuletzt geschrieben wurde – solange die Navigation noch
+ * nicht gerendert ist (gleicher Verlaufseintrag, gleiche Adresse). Eine
+ * Stelle für alle Teile der Ansicht: auf Modulebene, je Fenster ein Router.
+ * @type {{key: string, from: string, to: string}|null}
+ */
+let pendingSearch = null;
 
 /**
  * Positive ganze Zahl aus einem Parameter, sonst null.
@@ -54,17 +68,38 @@ export default function useConversationLocation() {
   const search = params.get(PARAM_SEARCH) ?? "";
   const state = location.state;
 
+  // Ist eine geschriebene Adresse angekommen (anderer Verlaufseintrag),
+  // gilt sie nicht mehr als ausstehend – auch nicht, wenn der Zurück-Knopf
+  // später auf den Eintrag zurückführt, in dem sie geschrieben wurde.
+  useEffect(() => {
+    if (pendingSearch && pendingSearch.key !== location.key)
+      pendingSearch = null;
+  }, [location.key]);
+  useEffect(
+    () => () => {
+      pendingSearch = null;
+    },
+    []
+  );
+
   const update = useCallback(
-    (change, { push = false, nextState = state } = {}) =>
-      setParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          change(next);
-          return next;
-        },
-        { replace: !push, state: nextState }
-      ),
-    [setParams, state]
+    (change, { push = false, nextState = state } = {}) => {
+      const base =
+        pendingSearch &&
+        pendingSearch.key === location.key &&
+        pendingSearch.from === location.search
+          ? pendingSearch.to
+          : location.search;
+      const next = new URLSearchParams(base);
+      change(next);
+      pendingSearch = {
+        key: location.key,
+        from: location.search,
+        to: `?${next.toString()}`,
+      };
+      setParams(next, { replace: !push, state: nextState });
+    },
+    [setParams, state, location.key, location.search]
   );
 
   const openConversation = useCallback(

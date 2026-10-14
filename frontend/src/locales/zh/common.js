@@ -1592,6 +1592,7 @@ const TRANSLATIONS = {
       "visitor-title": null,
       "visitor-count_one": null,
       "visitor-count_other": null,
+      "visitor-changed": null,
       "visitor-note": null,
       confirm: null,
       cancel: null,
