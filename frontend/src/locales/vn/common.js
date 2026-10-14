@@ -1741,6 +1741,7 @@ const TRANSLATIONS = {
       "hidden-hit": null,
       "not-in-list": null,
       "not-loaded": null,
+      "next-not-loaded": null,
       "quote-open": null,
       "quote-close": null,
     },

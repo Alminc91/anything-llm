@@ -1329,7 +1329,9 @@ const TRANSLATIONS = {
       "not-in-list":
         "Diese Konversation steht nicht in der geladenen Liste – vorherige und nächste sind nicht verfügbar.",
       "not-loaded":
-        "Die Liste konnte nicht weiter geladen werden – bitte erneut versuchen.",
+        "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar.",
+      "next-not-loaded":
+        "Die nächste Konversation konnte nicht geladen werden – bitte erneut versuchen.",
       "quote-open": "„",
       "quote-close": "“",
     },

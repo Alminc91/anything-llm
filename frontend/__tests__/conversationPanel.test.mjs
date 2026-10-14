@@ -2418,7 +2418,7 @@ test(
     const panel = panelOf(container);
     assert.equal(
       one(panel, "data-panel-navigation-hint").textContent,
-      "Die Liste konnte nicht weiter geladen werden – bitte erneut versuchen."
+      "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar."
     );
     assert.equal(
       one(panel, "data-panel-previous").hasAttribute("disabled"),
@@ -2805,7 +2805,7 @@ test(
         (element) => element.textContent
       );
     assert.deepEqual(hint(), [
-      "Die Liste konnte nicht weiter geladen werden – bitte erneut versuchen.",
+      "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar.",
     ]);
 
     // „Weitere laden“ gelingt: Der Hinweis ist fort, die Suche läuft weiter
@@ -3628,8 +3628,14 @@ test(
     );
     assert.deepEqual(currentRows(container), [319]);
     assert.deepEqual(hint(), [
-      "Die Liste konnte nicht weiter geladen werden – bitte erneut versuchen.",
+      "Die nächste Konversation konnte nicht geladen werden – bitte erneut versuchen.",
     ]);
+    // Fixliste 6, K1: eigener Text für „Nächste“ (der Link-Fall sagt, dass
+    // vorherige/nächste fehlen); als Statusmeldung angesagt
+    assert.equal(
+      one(panel(), "data-panel-navigation-hint").getAttribute("role"),
+      "status"
+    );
     assert.deepEqual(shown, []);
     // „Nächste“ bleibt bedienbar – er versucht es erneut
     assert.equal(

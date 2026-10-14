@@ -276,8 +276,10 @@ function usePanelFit(ref, active, content) {
  *   Nachrichten im Zeitraum
  * @param {boolean} props.canPrevious
  * @param {boolean} props.canNext
- * @param {string|null} [props.navigationHint] - warum vorherige/nächste
- *   fehlen (per Link geöffnet, nicht in der geladenen Liste)
+ * @param {string|null} [props.navigationHint] - Hinweis zum Blättern:
+ *   warum vorherige/nächste fehlen (per Link geöffnet, nicht in der
+ *   geladenen Liste) oder dass „Nächste“ am Ende der Liste nicht nachladen
+ *   konnte (der Knopf versucht es erneut)
  * @param {(direction: -1|1) => void} props.onNavigate
  * @param {() => void} props.onClose
  * @param {(result: {deleted: boolean}) => void} props.onDeleted
@@ -784,6 +786,7 @@ export default function ConversationDetail({
             {navigationHint && !outside && (
               <p
                 data-panel-navigation-hint=""
+                role="status"
                 className={`text-[13px] ${MUTED}`}
               >
                 {navigationHint}

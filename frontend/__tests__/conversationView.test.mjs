@@ -812,3 +812,87 @@ test("Fixliste 5, S3: berlinDateTime ist formatDateTimeDE (utils/dateTimeDE.js) 
     "01.01.2027, 00:30:05 Uhr"
   );
 });
+
+test("Fixliste 6, K2: formatDateTimeDE legt je Zeitzone einen Formatierer einmal an – Ausgabe wie bisher (toLocaleDateString)", () => {
+  const options = {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  };
+  const instants = [
+    berlin("2026-10-13", "07:48"),
+    "2026-12-31T23:30:05.000Z",
+    new Date("2026-03-29T01:30:00Z"),
+    "2025-04-23T12:30:57.634Z",
+  ];
+  for (const instant of instants) {
+    const date = new Date(instant);
+    assert.equal(
+      formatDateTimeDE(instant, { timeZone: "Europe/Berlin" }),
+      date.toLocaleDateString("de-DE", {
+        ...options,
+        timeZone: "Europe/Berlin",
+      }) + " Uhr"
+    );
+    assert.equal(
+      formatDateTimeDE(instant),
+      date.toLocaleDateString("de-DE", options) + " Uhr"
+    );
+  }
+  // Danach entsteht kein neuer Formatierer mehr – weder mit noch ohne Zone –,
+  // formatiert wird über die angelegten (format statt toLocaleDateString).
+  const original = Intl.DateTimeFormat;
+  const formatGetter = Object.getOwnPropertyDescriptor(
+    original.prototype,
+    "format"
+  );
+  let created = 0;
+  let formatted = 0;
+  Intl.DateTimeFormat = function (...args) {
+    created += 1;
+    return new original(...args);
+  };
+  Object.defineProperty(original.prototype, "format", {
+    ...formatGetter,
+    get() {
+      formatted += 1;
+      return formatGetter.get.call(this);
+    },
+  });
+  try {
+    for (let i = 0; i < 100; i += 1) {
+      formatDateTimeDE(instants[i % instants.length], {
+        timeZone: "Europe/Berlin",
+      });
+      formatDateTimeDE(instants[i % instants.length]);
+    }
+  } finally {
+    Intl.DateTimeFormat = original;
+    Object.defineProperty(original.prototype, "format", formatGetter);
+  }
+  assert.equal(created, 0);
+  assert.equal(formatted, 200);
+  assert.equal(formatDateTimeDE(null), "-");
+  assert.equal(formatDateTimeDE("kein Datum"), "-");
+});
+
+test("Fixliste 6, K1: zwei Hinweise zum Blättern – Link-Fall ohne Aufforderung, „Nächste“-Fall mit „erneut versuchen“ (de + en)", () => {
+  for (const [locale, retry] of [
+    [de, /erneut versuchen/],
+    [en, /try again/],
+  ]) {
+    const panel = locale["embed-analytics"].panel;
+    assert.ok(panel["not-loaded"] && panel["next-not-loaded"]);
+    assert.notEqual(panel["not-loaded"], panel["next-not-loaded"]);
+    // Link-Fall: vorherige/nächste gesperrt, kein „erneut versuchen“
+    assert.doesNotMatch(panel["not-loaded"], retry);
+    assert.match(
+      panel["not-loaded"],
+      /vorherige und nächste|previous and next/
+    );
+    assert.match(panel["next-not-loaded"], retry);
+  }
+});

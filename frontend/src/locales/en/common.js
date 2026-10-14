@@ -1859,7 +1859,10 @@ const TRANSLATIONS = {
         "“{{term}}” appears in this conversation only in link addresses, markup or hidden thoughts of a response.",
       "not-in-list":
         "This conversation is not in the loaded list – previous and next are not available.",
-      "not-loaded": "The list could not be loaded further – please try again.",
+      "not-loaded":
+        "The list could not be loaded further – previous and next are not available.",
+      "next-not-loaded":
+        "The next conversation could not be loaded – please try again.",
       "quote-open": "“",
       "quote-close": "”",
     },

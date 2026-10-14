@@ -617,6 +617,10 @@ export default function ConversationList({
       setAdvanceFailed({ chatId: advanceAfter.chatId, scope });
   }, [advanceSettled, advanceAfter, items, openFollowing, moreFailed, scope]);
 
+  // Zwei Lagen, zwei Texte (Fixliste 6, K1): Per Link geöffnet und nicht in
+  // der Liste sind vorherige/nächste gesperrt – der Hinweis erklärt das und
+  // fordert zu nichts auf, was das Panel nicht anbietet. Nach „Nächste“ am
+  // Ende bleibt der Knopf bedienbar: „bitte erneut versuchen“.
   const searchingLink = linkRows > 0 && !stuck;
   const navigationHint =
     notListed && !searchingLink && !loadingMore
@@ -626,7 +630,7 @@ export default function ConversationList({
             : "embed-analytics.panel.not-in-list"
         )
       : advanceFailed && !loadingMore
-        ? t("embed-analytics.panel.not-loaded")
+        ? t("embed-analytics.panel.next-not-loaded")
         : null;
 
   // Die markierte Zeile bleibt im Blick, wenn das Panel blättert (nur, wenn
