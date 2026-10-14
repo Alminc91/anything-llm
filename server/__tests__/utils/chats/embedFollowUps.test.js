@@ -721,3 +721,43 @@ describe("L4: Altdatensätze mit Marker beim Lesen", () => {
     expect(cleanStoredResponse(arr)).toBe(arr);
   });
 });
+
+// Cleanup C1: scanInlineMarker nutzt scanBracketLine — Fenstergrenze, Groß-/
+// Kleinschreibung und kaputte Zeile mitten im Text wie zuvor, im Stream in
+// jeder Aufteilung gleich.
+describe("C1: Marker mitten im Text über den gemeinsamen Scanner", () => {
+  const FOOTER = "*KI-Hinweis*";
+  const line = (len) => {
+    const head = "[[fragen: Gibt es B1? | Abends?";
+    return `${head}${" ".repeat(len - head.length - 2)}]]`;
+  };
+  function run(reply) {
+    const whole = parseCardsReply(reply);
+    for (const cut of [1, 9, reply.length - 3]) {
+      const filter = new CardsMarkerFilter();
+      const a = filter.push(reply.slice(0, cut));
+      const b = filter.push(reply.slice(cut));
+      const c = filter.push("", { final: true });
+      expect(a.text + b.text + c.text).toBe(whole.text);
+      expect(c.followUps ?? []).toEqual(whole.followUps);
+    }
+    return whole;
+  }
+
+  test("Zeile genau im Fenster: entfernt; ein Zeichen zu lang: bleibt Text", () => {
+    const ok = run(`${BODY}\n${line(FOLLOW_UPS_LINE_MAX)}\n${FOOTER}`);
+    expect(ok.text).toBe(`${BODY}\n${FOOTER}`);
+    expect(ok.followUps).toEqual(["Gibt es B1?", "Abends?"]);
+    const long = line(FOLLOW_UPS_LINE_MAX + 1);
+    const tooLong = run(`${BODY}\n${long}\n${FOOTER}`);
+    expect(tooLong.text).toBe(`${BODY}\n${long}\n${FOOTER}`);
+    expect(tooLong.followUps).toEqual([]);
+  });
+
+  test("kaputte Zeile (Zeilenende vor ]]) bleibt Text, Karten-Marker mitten im Text entfernt", () => {
+    const broken = run(`${BODY}\n[[FRAGEN: a? | b?\n${FOOTER}`);
+    expect(broken.text).toBe(`${BODY}\n[[FRAGEN: a? | b?\n${FOOTER}`);
+    const cards = run(`${BODY} [[Karten: 2]] ${FOOTER}`);
+    expect(cards.text).toBe(`${BODY} ${FOOTER}`);
+  });
+});

@@ -366,13 +366,16 @@ const WS_RUN_RX = /\s+/y;
 const TEXT_RUN_RX = /[^\s[]+/y;
 
 /**
- * Protokoll-Marker ab Position i (dort steht "[") erkennen.
+ * Protokoll-Marker ab Position i (dort steht "[") erkennen — mit dem
+ * gemeinsamen Scanner scanBracketLine (dieselbe Fenster-, Schluss- und
+ * Zeilenende-Entscheidung wie Karten-Marker und Teaserzeilen) auf dem
+ * Fenster der def.max Zeichen ab i.
  *   - "marker": "[[FRAGEN:"/"[[KARTEN:" mit dem ersten "]]" in derselben
- *     Zeile, vollständig im Fenster (def.max Zeichen ab i); end = hinter
- *     "]]", content = Inhalt zwischen Tag und "]]".
+ *     Zeile, vollständig im Fenster; end = hinter "]]", content = Inhalt
+ *     zwischen Tag und "]]".
  *   - "pending": könnte noch einer werden (Anfang eines Tags, oder Tag ohne
  *     "]]", ohne Zeilenende, Fenster noch nicht voll) — nur ohne final.
- *   - "none": sonst; die Zeichen sind Text.
+ *   - "none": sonst (auch kaputte Zeile); die Zeichen sind Text.
  * @param {string} s
  * @param {number} i
  * @param {boolean} final - Antwort ist vollständig
@@ -381,24 +384,20 @@ const TEXT_RUN_RX = /[^\s[]+/y;
 function scanInlineMarker(s, i, final) {
   let pending = false;
   for (const def of INLINE_MARKERS) {
-    const win = s.slice(i, i + def.max);
-    const head = win.slice(0, def.tag.length).toUpperCase();
-    if (!def.tag.startsWith(head)) continue;
-    if (head.length < def.tag.length) {
-      if (!final) pending = true;
-      continue;
-    }
-    const newline = win.indexOf("\n");
-    const line = newline === -1 ? win : win.slice(0, newline);
-    const close = line.indexOf("]]", def.tag.length);
-    if (close !== -1)
+    const line = scanBracketLine(
+      s.slice(i, i + def.max),
+      def.tag,
+      def.max,
+      final
+    );
+    if (line.state === "closed")
       return {
         state: "marker",
         def,
-        end: i + close + 2,
-        content: line.slice(def.tag.length, close),
+        end: i + line.end,
+        content: s.slice(i + def.tag.length, i + line.close),
       };
-    if (newline === -1 && win.length < def.max && !final) pending = true;
+    if (line.state === "pending") pending = true;
   }
   return pending ? PENDING : NONE;
 }
@@ -823,9 +822,6 @@ function teaserLinesText(lines) {
   );
 }
 
-// Eintrag ohne Inhalt: nur Satzzeichen/Striche/Aufzählungszeichen
-// ("-", "–", "—", "•", "·", "*", ".", "…") und Leerraum
-const FOLLOW_UP_EMPTY_RX = /^[\p{P}\s]*$/u;
 const NOT_LETTER_OR_DIGIT_RX = /[^\p{L}\p{N}]+/gu;
 
 /**
@@ -868,8 +864,9 @@ function storedFollowUps(value, { userMessage } = {}) {
   for (const item of value) {
     if (out.length >= FOLLOW_UPS_MAX) break;
     const text = cleanTeaserText(item);
-    if (!text || FOLLOW_UP_EMPTY_RX.test(text)) continue;
-    if (text.length > FOLLOW_UP_MAX_LEN) continue;
+    if (!text || text.length > FOLLOW_UP_MAX_LEN) continue;
+    // Schlüssel "" = ohne Inhalt: nur Satzzeichen/Striche/Aufzählungszeichen
+    // ("-", "–", "—", "•", "·", "*", ".", "…") und Leerraum
     const key = followUpKey(text);
     if (!key || key === asked || keys.includes(key)) continue;
     keys.push(key);
