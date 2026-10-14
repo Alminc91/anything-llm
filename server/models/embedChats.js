@@ -5,7 +5,7 @@ const {
 } = require("../utils/chats/embedCourseSources");
 const {
   storedFollowUps,
-  stripProtocolMarkers,
+  cleanStoredResponse,
 } = require("../utils/chats/embedCardsMarker");
 const prisma = require("../utils/prisma");
 const { MessageLedger } = require("./messageLedger");
@@ -148,6 +148,25 @@ const EmbedChats = {
   },
 
   /**
+   * L4 (FF1): die eine Bereinigung beim Lesen gespeicherter Antworten -
+   * Protokoll-Marker ("[[FRAGEN: …]]", "[[KARTEN: …]]"), die Altdatensätze
+   * vor FF1 noch im Text tragen, kommen bei keinem Leser an: LLM- und
+   * Widget-Verlauf (forEmbedByUser), Admin-Konversation
+   * (getConversationDetails), Admin-Chatliste (whereWithEmbedAndWorkspace).
+   * Nur response wird ersetzt (cleanStoredResponse), Zeilen ohne Marker
+   * bleiben dieselben Objekte; die Zeilen selbst werden nie verändert.
+   * @param {object[]} chats - embed_chats-Zeilen (response = JSON-String)
+   * @returns {object[]}
+   */
+  withoutProtocolMarkers: function (chats) {
+    if (!Array.isArray(chats)) return [];
+    return chats.map((chat) => {
+      const response = cleanStoredResponse(chat?.response);
+      return response === chat?.response ? chat : { ...chat, response };
+    });
+  },
+
+  /**
    * Loops through each chat and filters out the sources from the response object.
    * We do this when returning /history of an embed to the frontend to prevent inadvertent leaking
    * of private sources the user may not have intended to share with users.
@@ -156,9 +175,9 @@ const EmbedChats = {
    * `courseTeasers` (URL -> Teaser) nur für URLs dieser Karten, Text bereinigt;
    * `courseTeaserLines` (LLM-Verlauf) nie ans Widget. Folgefragen:
    * `followUps` nur bereinigt (storedFollowUps, ohne Pillen gleich der
-   * Nutzerfrage). FF1: Protokoll-Marker ("[[FRAGEN: …]]", "[[KARTEN: …]]")
-   * im Text entfernt — auch in alten Datensätzen, in denen die Zeile vor
-   * dem KI-Hinweis stand (Verlauf nach Neuladen ohne Marker).
+   * Nutzerfrage). FF1: Protokoll-Marker im Text entfernt schon
+   * forEmbedByUser (withoutProtocolMarkers) — auch in alten Datensätzen,
+   * in denen die Zeile vor dem KI-Hinweis stand.
    * @param {EmbedChat[]} chats
    * @returns {EmbedChat[]} Returns a new array of chats with the sources filtered out of responses
    */
@@ -183,8 +202,6 @@ const EmbedChats = {
         userMessage: rest.prompt,
       });
       if (safeFollowUps.length > 0) responseRest.followUps = safeFollowUps;
-      if (typeof responseRest.text === "string")
-        responseRest.text = stripProtocolMarkers(responseRest.text);
       const safeCourseSources = sanitizeCourseSources(courseSources);
       if (safeCourseSources.length > 0) {
         responseRest.courseSources = safeCourseSources;
@@ -267,7 +284,8 @@ const EmbedChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return filterSources ? this.filterSources(chats) : chats;
+      const readable = this.withoutProtocolMarkers(chats);
+      return filterSources ? this.filterSources(readable) : readable;
     } catch (error) {
       console.error(error.message);
       return [];
@@ -571,7 +589,7 @@ const EmbedChats = {
         ...(offset !== null ? { skip: offset } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return chats;
+      return EmbedChats.withoutProtocolMarkers(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -984,7 +1002,7 @@ const EmbedChats = {
    */
   getConversationDetails: async function (conversationId, embedId) {
     try {
-      return await prisma.embed_chats.findMany({
+      const messages = await prisma.embed_chats.findMany({
         where: {
           OR: [
             { conversation_id: String(conversationId) },
@@ -1005,6 +1023,7 @@ const EmbedChats = {
           feedbackReason: true, // KIE-507: 1-Klick-Grund bei 👎
         },
       });
+      return EmbedChats.withoutProtocolMarkers(messages);
     } catch (error) {
       console.error("getConversationDetails error:", error.message);
       return [];

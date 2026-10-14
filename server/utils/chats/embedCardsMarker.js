@@ -529,8 +529,8 @@ function parseFollowUps(text, { userMessage } = {}) {
 
 /**
  * Protokoll-Marker ("[[FRAGEN: …]]", "[[KARTEN: …]]") aus einem gespeicher-
- * ten Antworttext entfernen — für /history an das Widget (auch alte
- * Datensätze, in denen die Zeile vor dem Fix vor dem KI-Hinweis stand).
+ * ten Antworttext entfernen — für jeden Leser des gespeicherten Texts (auch
+ * alte Datensätze, in denen die Zeile vor dem Fix vor dem KI-Hinweis stand).
  * Kein String -> unverändert.
  * @param {any} text
  * @returns {any}
@@ -538,6 +538,30 @@ function parseFollowUps(text, { userMessage } = {}) {
 function stripProtocolMarkers(text) {
   if (typeof text !== "string" || !text.includes("[[")) return text;
   return parseFollowUps(text).text;
+}
+
+/**
+ * L4: Gespeicherte Antwort (Spalte embed_chats.response) ohne Protokoll-
+ * Marker im Text — die eine Bereinigung beim Lesen (EmbedChats.
+ * withoutProtocolMarkers). Antwort-JSON (Objekt mit text): nur text
+ * bereinigt, alle anderen Felder bleiben; Klartext (Zeilen ohne JSON):
+ * bereinigt. Ohne Marker, kein String oder JSON ohne text (anderes Objekt,
+ * Liste): dieselbe Zeichenkette.
+ * @param {any} response
+ * @returns {any}
+ */
+function cleanStoredResponse(response) {
+  if (typeof response !== "string" || !response.includes("[[")) return response;
+  let data;
+  try {
+    data = JSON.parse(response);
+  } catch {
+    return stripProtocolMarkers(response);
+  }
+  if (!data || typeof data !== "object" || typeof data.text !== "string")
+    return response;
+  const text = stripProtocolMarkers(data.text);
+  return text === data.text ? response : JSON.stringify({ ...data, text });
 }
 
 /**
@@ -872,9 +896,10 @@ function followUpsLine(followUps) {
  * einen Marker zeigt. Kurskarten v3: gespeicherte Teaserzeilen
  * (courseTeaserLines) folgen direkt nach dem Marker. Folgefragen: gespei-
  * cherte Vorschläge (followUps) stehen wieder als letzte Zeile
- * "[[FRAGEN: … | …]]" (auch ohne Marker). Die Datensätze werden
- * kopiert, nie verändert; ohne gespeicherten Marker (Feld fehlt/null)
- * unverändert.
+ * "[[FRAGEN: … | …]]" (auch ohne Marker). Protokoll-Marker, die noch im
+ * gespeicherten Text stehen (Altdatensätze vor FF1), werden entfernt (L4).
+ * Die Datensätze werden kopiert, nie verändert; ohne gespeicherten Marker
+ * (Feld fehlt/null) und ohne Marker im Text unverändert.
  * Nie für /history an das Widget verwenden.
  * @param {object[]} rawHistory - embed_chats-Zeilen (response = JSON-String)
  * @returns {object[]}
@@ -891,8 +916,11 @@ function restoreCardsMarkers(rawHistory = []) {
       : [];
     // Folgefragen: gespeicherte Vorschläge wieder als letzte Zeile
     const suffix = followUpsLine(data.followUps);
-    if (prefix.length === 0 && !suffix) return record;
-    let text = data.text;
+    // L4: Altdatensätze (vor FF1) tragen Marker noch im Text — nie als
+    // Vorbild ans Modell; wieder eingesetzt wird nur, was gespeichert ist.
+    const body = stripProtocolMarkers(data.text);
+    if (prefix.length === 0 && !suffix && body === data.text) return record;
+    let text = body;
     if (prefix.length > 0) text = `${prefix.join("\n")}\n${text}`;
     if (suffix) text = `${text}\n${suffix}`;
     return {
@@ -913,6 +941,7 @@ module.exports = {
   parseFollowUps,
   storedFollowUps,
   stripProtocolMarkers,
+  cleanStoredResponse,
   addressesUser,
   restoreCardsMarkers,
   // nur für Tests

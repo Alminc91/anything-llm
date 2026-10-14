@@ -9,6 +9,7 @@ const {
   parseCardsReply,
   storedFollowUps,
   restoreCardsMarkers,
+  cleanStoredResponse,
   __test__: {
     CardsMarkerFilter,
     FOLLOW_UPS_LINE_MAX,
@@ -651,5 +652,72 @@ describe("FF2: Pillen-Sicherheitsnetz", () => {
     expect(
       parseFollowUpItems("Welches Niveau haben Sie? | Would you like more?")
     ).toEqual([]);
+  });
+});
+
+// L4 (Kontroll-Review rc20): Altdatensätze aus der Zeit vor FF1 – die Zeile
+// stand vor dem KI-Hinweis, wurde nicht erkannt und blieb im gespeicherten
+// Text; followUps fehlt. Jeder Leser des gespeicherten Texts bereinigt ihn.
+describe("L4: Altdatensätze mit Marker beim Lesen", () => {
+  const FOOTER = "*Ich bin eine KI und kann Fehler machen.*";
+  const OLD_TEXT = `${BODY}\n\n${LINE}\n\n${FOOTER}`;
+  const CLEAN_TEXT = `${BODY}\n\n${FOOTER}`;
+
+  test("restoreCardsMarkers (LLM-Verlauf): Marker mitten im Text weg, nicht als Vorbild", () => {
+    const rows = [
+      // Altdatensatz ohne followUps/courseCardsMarker
+      { id: 1, response: JSON.stringify({ text: OLD_TEXT }) },
+      // Altdatensatz mit gespeicherten Pillen: Zeile nur einmal, am Ende
+      {
+        id: 2,
+        response: JSON.stringify({ text: OLD_TEXT, followUps: ["Mehr?"] }),
+      },
+      // Altdatensatz mit Karten-Marker im Text und gespeichertem Marker
+      {
+        id: 3,
+        response: JSON.stringify({
+          text: `${BODY}\n[[KARTEN: 1]]`,
+          courseCardsMarker: [1],
+        }),
+      },
+    ];
+    const before = JSON.stringify(rows);
+    const out = restoreCardsMarkers(rows);
+    expect(JSON.parse(out[0].response).text).toBe(CLEAN_TEXT);
+    expect(JSON.parse(out[1].response).text).toBe(
+      `${CLEAN_TEXT}\n[[FRAGEN: Mehr?]]`
+    );
+    expect(JSON.parse(out[2].response).text).toBe(`[[KARTEN: 1]]\n${BODY}`);
+    // Datensätze unverändert, andere Felder bleiben
+    expect(JSON.stringify(rows)).toBe(before);
+    expect(JSON.parse(out[1].response).followUps).toEqual(["Mehr?"]);
+  });
+
+  test("cleanStoredResponse: Antwort-JSON und Klartext ohne Marker, sonst unverändert", () => {
+    const old = JSON.stringify({
+      text: OLD_TEXT,
+      sources: [{ title: "a" }],
+      followUps: ["Mehr?"],
+    });
+    const cleaned = JSON.parse(cleanStoredResponse(old));
+    expect(cleaned).toEqual({
+      text: CLEAN_TEXT,
+      sources: [{ title: "a" }],
+      followUps: ["Mehr?"],
+    });
+    // Klartext-Antwort (sehr alte Zeilen ohne JSON)
+    expect(cleanStoredResponse(OLD_TEXT)).toBe(CLEAN_TEXT);
+    // ohne Marker: dieselbe Zeichenkette (kein Umbau des JSON)
+    const plain = JSON.stringify({ text: BODY, sources: [] });
+    expect(cleanStoredResponse(plain)).toBe(plain);
+    const link = JSON.stringify({ text: "Siehe [[Link]] und [x]" });
+    expect(cleanStoredResponse(link)).toBe(link);
+    // kein String / kein Objekt mit Text: unverändert
+    expect(cleanStoredResponse(null)).toBe(null);
+    expect(cleanStoredResponse(undefined)).toBe(undefined);
+    const noText = JSON.stringify({ sources: [], note: "[[FRAGEN: a?]]" });
+    expect(cleanStoredResponse(noText)).toBe(noText);
+    const arr = JSON.stringify(["[[FRAGEN: a?]]"]);
+    expect(cleanStoredResponse(arr)).toBe(arr);
   });
 });
