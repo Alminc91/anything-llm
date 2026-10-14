@@ -87,13 +87,16 @@ function windowOf(t, initialWidth) {
  * nur was in ihm liegt, ist zu sehen (wie neben der Einstellungs-Sidebar).
  * anchor und frame lassen sich danach ändern (mit dem Fenster wandern sie).
  */
-async function mountPicker(t, { anchorLeft = 0, view = null, frame } = {}) {
+async function mountPicker(
+  t,
+  { anchorLeft = 0, view = null, frame, startDate = START, endDate = END } = {}
+) {
   const changes = [];
   const mounted = await renderer.mount(PICKER, {
     location: "/settings/chatbot/conversations",
     props: {
-      startDate: START,
-      endDate: END,
+      startDate,
+      endDate,
       onChange: (range) => changes.push(range),
     },
   });
@@ -657,5 +660,34 @@ test(
         `${theme}: ${ratio.toFixed(2)}:1 auf ${tokens["--theme-button-primary"]}`
       );
     }
+  }
+);
+
+test(
+  "Fixliste 7, B6: Beim Öffnen steht rechts der Monat, in dem der Zeitraum endet – „Letzte 30 Tage“ bis zum 14.10. zeigt September/Oktober (vorher August/September); schmal der Monat des Endes",
+  { skip },
+  async (t) => {
+    const startDate = new Date(2026, 8, 15);
+    const endDate = new Date(2026, 9, 14, 23, 59, 59, 999);
+    const wide = windowOf(t, 1440);
+    const picker = await mountPicker(t, {
+      anchorLeft: 1160,
+      view: wide,
+      startDate,
+      endDate,
+    });
+    await picker.act(() => click(picker.trigger()));
+    assert.deepEqual(picker.captions(), ["September 2026", "Oktober 2026"]);
+    await picker.unmount();
+
+    const narrow = windowOf(t, 390);
+    const small = await mountPicker(t, {
+      anchorLeft: 200,
+      view: narrow,
+      startDate,
+      endDate,
+    });
+    await small.act(() => click(small.trigger()));
+    assert.deepEqual(small.captions(), ["Oktober 2026"]);
   }
 );
