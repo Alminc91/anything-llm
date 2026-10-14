@@ -380,11 +380,11 @@ describe("Folgefragen im Embed-Stream", () => {
     }
   });
 
-  test("NAK-1: offene/zu lange Zeile oder zwei Gruppen gehen als Text durch, kein Chunk, nichts gespeichert", async () => {
+  test("NAK-1: offene/zu lange Zeile geht als Text durch, kein Chunk, nichts gespeichert", async () => {
     for (const line of [
       `[[FRAGEN: ${"Frage ".repeat(60)}]]`,
       "[[FRAGEN: Gibt es B1-Kurse? | Auch online?",
-      "[[FRAGEN: a? | b?]] [[FRAGEN: c?]]",
+      "[[FRAGEN: Gibt es B1-Kurse? | Auch online?\nWeiter]]",
     ]) {
       jest.clearAllMocks();
       const reply = `${FU_BODY}\n${line}`;
@@ -399,12 +399,44 @@ describe("Folgefragen im Embed-Stream", () => {
     }
   });
 
-  test("NAK-1: Zeile mitten im Text bleibt Text", async () => {
-    const reply = `${FU_BODY}\n${FU_LINE}\nNoch ein Satz.`;
-    const { log, stored, text } = await run({ reply });
-    expect(text).toBe(reply);
-    expect(stored.text).toBe(reply);
-    expect(log.find((c) => c.type === "followUps")).toBeUndefined();
+  test("FF1: Zeile vor dem KI-Hinweis / mitten im Text / doppelt — nie im Text (Stream, Nicht-Stream, gespeichert), Pillen aus der letzten Zeile", async () => {
+    const FOOTER = "*Ich bin eine KI und kann Fehler machen.*";
+    const cases = [
+      // Fall der Abnahme ENT-FOLGEFRAGEN (rc19): Zeile vor dem KI-Hinweis
+      [`${FU_BODY}\n\n${FU_LINE}\n\n${FOOTER}`, `${FU_BODY}\n\n${FOOTER}`, FU],
+      [
+        `${FU_BODY}\n${FU_LINE}\nNoch ein Satz.`,
+        `${FU_BODY}\nNoch ein Satz.`,
+        FU,
+      ],
+      [`${FU_BODY} ${FU_LINE} Weiter.`, `${FU_BODY} Weiter.`, FU],
+      [
+        `${FU_BODY}\n[[FRAGEN: Alt? | Älter?]]\n${FOOTER}\n${FU_LINE}`,
+        `${FU_BODY}\n${FOOTER}`,
+        FU,
+      ],
+      [
+        `${FU_BODY}\n[[FRAGEN: a? | b?]] [[FRAGEN: Gibt es B1-Kurse?]]`,
+        FU_BODY,
+        ["Gibt es B1-Kurse?"],
+      ],
+    ];
+    for (const streaming of [true, false])
+      for (const [reply, expectedText, expected] of cases) {
+        jest.clearAllMocks();
+        const { log, stored, text } = await run({
+          reply,
+          embed: makeEmbed(JSON.stringify({ followUps: "pills" })),
+          streaming,
+        });
+        expect(text).toBe(expectedText);
+        expect(stored.text).toBe(expectedText);
+        expect(
+          JSON.stringify(log.filter((c) => c.type !== "followUps"))
+        ).not.toMatch(/FRAGEN|\[\[/);
+        expect(checkOrder(log).followUps).toEqual(expected);
+        expect(stored.followUps).toEqual(expected);
+      }
   });
 
   test("ohne Endzeile: kein followUps-Chunk, Feld fehlt, Text wie bisher", async () => {
