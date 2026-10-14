@@ -243,6 +243,84 @@ describe("nachrichtentabelle_entfallen (KIE-538)", () => {
         expect(JSON.stringify(result.body)).not.toMatch(/Wann beginnt/);
       }
     });
+
+    // Fixliste 7, F02: Die Route bleibt für den Upstream-Merge, liefert aber
+    // nur noch, was die Tabelle zeigte.
+    test("gehärtet (Fixliste 7, F02): keine Verbindungsdaten, nur der Text der Antwort, keine vom Besucher geleerten Zeilen", async () => {
+      prisma.__reset();
+      setMultiUserMode(prisma, true);
+      workspaceA = seedWorkspace("A");
+      embedA = seedEmbed(workspaceA);
+      const shown = seedChat(embedA, {
+        response: JSON.stringify({
+          text: "Am Montag.",
+          sources: [{ title: "kursprogramm.pdf", text: "QUELLENTEXT" }],
+          metrics: { model: "gemma" },
+        }),
+        connection_information: JSON.stringify({
+          ip: "203.0.113.7",
+          host: "kunde.example.org",
+          username: "max",
+        }),
+      });
+      const plain = seedChat(embedA, { response: "kein JSON" });
+      seedChat(embedA, {
+        prompt: "geleerte Frage",
+        include: false,
+        connection_information: JSON.stringify({ ip: "203.0.113.8" }),
+      });
+
+      const result = await list(createUser(prisma, "admin").token);
+      expect(result.statusCode).toBe(200);
+      expect(result.body.totalChats).toBe(2);
+      expect(result.body.chats.map((chat) => chat.id)).toEqual([
+        plain.id,
+        shown.id,
+      ]);
+      const [, chat] = result.body.chats;
+      expect(Object.keys(chat).sort()).toEqual([
+        "createdAt",
+        "embed_config",
+        "embed_id",
+        "id",
+        "prompt",
+        "response",
+        "session_id",
+      ]);
+      expect(JSON.parse(chat.response)).toEqual({ text: "Am Montag." });
+      expect(JSON.parse(result.body.chats[0].response)).toEqual({
+        text: "kein JSON",
+      });
+      expect(chat.embed_config).toEqual({ workspace: { name: "A" } });
+      const body = JSON.stringify(result.body);
+      expect(body).not.toMatch(
+        /203\.0\.113|kunde\.example|connection_information|QUELLENTEXT|gemma|geleerte Frage/
+      );
+    });
+
+    test("gehärtet (Fixliste 7, F02): offset und limit wie die Konversationsliste geprüft – ganze Zahlen, limit 1–100, sonst 400; offset zählt Seiten", async () => {
+      const admin = createUser(prisma, "admin");
+      for (const body of [
+        { limit: 0 },
+        { limit: 101 },
+        { limit: 100000 },
+        { limit: "5" },
+        { offset: -1 },
+        { offset: "1" },
+        { offset: 1.5 },
+        { offset: Number.MAX_SAFE_INTEGER, limit: 100 },
+      ]) {
+        const result = await list(admin.token, body);
+        expect([body, result.statusCode]).toEqual([body, 400]);
+        expect(JSON.stringify(result.body)).not.toMatch(/Wann beginnt/);
+      }
+      const first = await list(admin.token, { offset: 0, limit: 1 });
+      expect(first.body.chats.map((chat) => chat.id)).toEqual([chatB.id]);
+      expect(first.body.hasPages).toBe(true);
+      const second = await list(admin.token, { offset: 1, limit: 1 });
+      expect(second.body.chats.map((chat) => chat.id)).toEqual([chatA.id]);
+      expect(second.body.hasPages).toBe(false);
+    });
   });
 });
 

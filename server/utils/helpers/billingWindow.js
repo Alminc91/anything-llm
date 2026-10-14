@@ -296,6 +296,10 @@ function dayToMarker(day, offsetDays = 0) {
 
 module.exports = {
   BILLING_TIME_ZONE,
+  // Wanduhr in Berliner Zeit und UTC-Millisekunden eines Kalendertags - auch
+  // für den Export der Konversationen (Fixliste 7, F22)
+  berlinFields,
+  utcMs,
   getBillingWindow,
   berlinDayOf,
   berlinMidnight,

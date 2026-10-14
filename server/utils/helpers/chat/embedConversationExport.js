@@ -16,7 +16,7 @@
 // Berliner Zeit. Textzellen stehen immer in Anführungszeichen (RFC 4180:
 // " wird verdoppelt; Semikolon und Zeilenumbrüche bleiben in der Zelle),
 // Zahlen und leere Zellen stehen ohne.
-const { BILLING_TIME_ZONE } = require("../billingWindow");
+const { berlinFields, utcMs } = require("../billingWindow");
 
 const CSV_BOM = "\uFEFF";
 const CSV_DELIMITER = ";";
@@ -38,41 +38,28 @@ const EXPORT_FORMATS = {
   json: { contentType: "application/json; charset=utf-8", extension: "json" },
 };
 
-// Einmal anlegen: Der Aufbau eines Intl-Formatters ist teuer, benutzt wird er
-// je Nachricht.
-const berlinFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: BILLING_TIME_ZONE,
-  hourCycle: "h23",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-});
-
 /**
  * Wanduhr-Felder eines Zeitpunkts in Berliner Zeit, zweistellig (Jahr
- * vierstellig), dazu der Versatz zu UTC in Minuten.
+ * vierstellig), dazu der Versatz zu UTC in Minuten - über dieselben Helfer
+ * wie das Abrechnungsfenster (billingWindow: ein Formatter, Jahre 0-99
+ * richtig; Fixliste 7, F22).
  * @param {Date} instant
  */
 function berlinParts(instant) {
-  const parts = {};
-  for (const { type, value } of berlinFormatter.formatToParts(instant))
-    parts[type] = value;
-  parts.year = parts.year.padStart(4, "0");
-  const wallClock = Date.UTC(
-    Number(parts.year),
-    Number(parts.month) - 1,
-    Number(parts.day),
-    Number(parts.hour),
-    Number(parts.minute),
-    Number(parts.second)
-  );
-  parts.offsetMinutes = Math.round(
-    (wallClock - Math.floor(instant.getTime() / 1000) * 1000) / 60000
-  );
-  return parts;
+  const f = berlinFields(instant);
+  const pad = (value) => String(value).padStart(2, "0");
+  const wallClock = utcMs(f.year, f.month, f.day, f.hour, f.minute, f.second);
+  return {
+    year: String(f.year).padStart(4, "0"),
+    month: pad(f.month),
+    day: pad(f.day),
+    hour: pad(f.hour),
+    minute: pad(f.minute),
+    second: pad(f.second),
+    offsetMinutes: Math.round(
+      (wallClock - Math.floor(instant.getTime() / 1000) * 1000) / 60000
+    ),
+  };
 }
 
 /**
@@ -224,48 +211,73 @@ function jsonConversation(conversation) {
  */
 
 /**
- * Die Datei als Folge von Textstücken. CSV: Kopfzeile, dann je Nachricht
- * eine Zeile. JSON: eine Liste von Konversationen, je Konversation ein Stück.
- * `stats` zählt mit, was bereits erzeugt wurde.
+ * Die Datei als Folge von Textstücken. CSV: Kopfzeile, dann je Konversation
+ * ein Stück mit ihren Zeilen (Fixliste 7, F29: nicht je Nachricht ein
+ * eigenes write). JSON: eine Liste von Konversationen, je Konversation ein
+ * Stück.
+ *
+ * `stats` zählt, was geschrieben ist - in beiden Formaten gleich
+ * (Fixliste 7, F16): Ein Stück zählt erst, wenn `written()` nach seinem
+ * write aufgerufen wird ({@link writeChunks}). Bricht der Empfänger ab,
+ * nennt das Protokoll so genau die ausgelieferten Konversationen und
+ * Zeilen - weder das zuletzt erzeugte, aber nicht mehr geschriebene Stück
+ * noch eines zu wenig.
  * @param {"csv"|"json"} format
  * @param {AsyncIterable<ExportConversation>} conversations
- * @returns {{contentType: string, extension: string, stats: {conversations: number, rows: number}, chunks: AsyncGenerator<string>}}
+ * @returns {{contentType: string, extension: string, stats: {conversations: number, rows: number}, chunks: AsyncGenerator<string>, written: () => void}}
  */
 function conversationExport(format, conversations) {
   if (!Object.prototype.hasOwnProperty.call(EXPORT_FORMATS, format))
     throw new Error(`Invalid export format: ${format}`);
   const stats = { conversations: 0, rows: 0 };
+  // Was das zuletzt erzeugte Stück enthält - gezählt erst nach dem write.
+  let pending = null;
+  const chunk = (text, conversation = null) => {
+    pending = conversation
+      ? { conversations: 1, rows: conversation.messages.length }
+      : null;
+    return text;
+  };
 
   async function* csvChunks() {
-    yield CSV_BOM + csvRow(CSV_HEADERS);
+    yield chunk(CSV_BOM + csvRow(CSV_HEADERS));
     for await (const conversation of conversations) {
-      stats.conversations += 1;
-      for (const [index, message] of conversation.messages.entries()) {
-        stats.rows += 1;
-        yield csvRow(csvCells(conversation, message, index));
-      }
+      const rows = conversation.messages.map((message, index) =>
+        csvRow(csvCells(conversation, message, index))
+      );
+      yield chunk(rows.join(""), conversation);
     }
   }
 
   async function* jsonChunks() {
-    yield "[";
+    yield chunk("[");
+    let produced = 0;
     for await (const conversation of conversations) {
       const text = JSON.stringify(jsonConversation(conversation), null, 2);
       // Eingerückt wird nur nach "\n": Ein roher Zeilenvorschub kommt in
       // einer JSON-Zeichenkette nicht vor, das Einrücken verändert also
       // keinen Wert. U+2028 und U+2029 gibt JSON.stringify dagegen
       // unmaskiert aus - für /^/m wären auch sie ein Zeilenanfang.
-      yield `${stats.conversations === 0 ? "\n" : ",\n"}  ${text.replace(/\n/g, "\n  ")}`;
-      stats.conversations += 1;
-      stats.rows += conversation.messages.length;
+      yield chunk(
+        `${produced === 0 ? "\n" : ",\n"}  ${text.replace(/\n/g, "\n  ")}`,
+        conversation
+      );
+      produced += 1;
     }
-    yield stats.conversations === 0 ? "]\n" : "\n]\n";
+    yield chunk(produced === 0 ? "]\n" : "\n]\n");
   }
 
   return {
     ...EXPORT_FORMATS[format],
     stats,
     chunks: format === "csv" ? csvChunks() : jsonChunks(),
+    written: () => {
+      if (pending) {
+        stats.conversations += pending.conversations;
+        stats.rows += pending.rows;
+      }
+      pending = null;
+    },
   };
 }
 
@@ -319,9 +331,11 @@ function drained(response) {
  * als die Verbindung gerade abnimmt.
  * @param {import("http").ServerResponse} response
  * @param {AsyncIterable<string>} chunks
+ * @param {() => void} [onWritten] - nach jedem geschriebenen Stück (Zählung
+ *   des Exports, `written` aus {@link conversationExport})
  * @returns {Promise<boolean>} - true, wenn alles geschrieben wurde; false, wenn der Empfänger die Verbindung vorher beendet hat
  */
-async function writeChunks(response, chunks) {
+async function writeChunks(response, chunks, onWritten = () => {}) {
   const closed = () => response.destroyed || response.writableEnded;
   const iterator = chunks[Symbol.asyncIterator]();
   try {
@@ -334,8 +348,11 @@ async function writeChunks(response, chunks) {
       // geendet haben, auf „drain" würde dann vergeblich gewartet.
       if (closed()) return false;
       if (step.done) return true;
-      if (response.write(step.value) === false && !(await drained(response)))
-        return false;
+      const accepted = response.write(step.value);
+      // Übergeben ist übergeben: Auch wenn der Puffer voll ist, liefert die
+      // Verbindung das Stück noch aus.
+      onWritten();
+      if (accepted === false && !(await drained(response))) return false;
     }
   } finally {
     await iterator.return?.();

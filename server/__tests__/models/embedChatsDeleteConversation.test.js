@@ -1180,8 +1180,41 @@ describe("ganze_sitzung (AK-12)", () => {
     expect(await db.client.event_logs.count()).toBe(0);
   });
 
-  test("ganze_sitzung: eine einzige Löschanweisung, gebunden an Widget und Sitzung", async () => {
-    const deleteMany = jest.spyOn(db.client.embed_chats, "deleteMany");
+  test("ganze_sitzung: eine einzige Löschanweisung, gebunden an Widget und Sitzung - in einer Transaktion mit der Zählung (Fixliste 7, F10)", async () => {
+    // Die Löschung läuft in einer Transaktion: deren Löschanweisungen
+    // mitschreiben (tx ist ein eigener Client).
+    const deleteMany = jest.fn();
+    const original = db.client.$transaction.bind(db.client);
+    jest.spyOn(db.client, "$transaction").mockImplementation((work, ...rest) =>
+      original(
+        (tx) =>
+          work(
+            new Proxy(tx, {
+              get(target, property) {
+                const value = target[property];
+                if (property !== "embed_chats")
+                  return typeof value === "function"
+                    ? value.bind(target)
+                    : value;
+                return new Proxy(value, {
+                  get(model, name) {
+                    if (name === "deleteMany")
+                      return (args) => {
+                        deleteMany(args);
+                        return model.deleteMany(args);
+                      };
+                    const member = model[name];
+                    return typeof member === "function"
+                      ? member.bind(model)
+                      : member;
+                  },
+                });
+              },
+            })
+          ),
+        ...rest
+      )
+    );
     const other = await card(embed, "a-1");
     expect(
       await EmbedChats.deleteVisitorConversations(
@@ -1210,6 +1243,106 @@ describe("ganze_sitzung (AK-12)", () => {
         await EmbedChats.deleteVisitorConversations(embedId, chatId)
       ).toEqual({ deletedCount: 0, conversationCount: 0 });
     expect(deleteMany).not.toHaveBeenCalled();
+  });
+
+  test("ganze_sitzung (Fixliste 7, F10): Gelöscht wird nur, was die Rückfrage genannt hat – schreibt der Besucher dazwischen weiter, 409 mit dem neuen Stand, nichts gelöscht; mit den neuen Zahlen klappt es", async () => {
+    const { visitor } = (await preview(embed, "k-1", kunde)).body;
+    expect(visitor).toEqual({ conversationCount: 4, messageCount: 11 });
+
+    // Nach der Rückfrage beginnt der Besucher eine fünfte Konversation.
+    await converse(embed, {
+      conversation: "k-neu",
+      session: "besucher",
+      n: 1,
+      at: new Date(T0().getTime() + 3 * DAY),
+    });
+    const changed = await invoke(DELETE_VISITOR, {
+      params: { embedId: String(embed.id) },
+      body: conversationBody(await card(embed, "k-1"), visitor),
+      token: kunde.token,
+    });
+    expect(changed.statusCode).toBe(409);
+    expect(changed.body).toEqual({
+      success: false,
+      reason: "changed",
+      visitor: { conversationCount: 5, messageCount: 12 },
+      error: expect.any(String),
+    });
+    expect(
+      await db.client.embed_chats.count({
+        where: { embed_id: embed.id, session_id: "besucher" },
+      })
+    ).toBe(12);
+    expect(
+      await eventsOf(db.client, "embed_visitor_conversations_deleted")
+    ).toEqual([]);
+
+    // Eine weitere Nachricht in einer bestehenden Konversation ändert nur
+    // die Zahl der Nachrichten - auch das ist ein anderer Stand.
+    const current = changed.body.visitor;
+    await converse(embed, {
+      conversation: "k-2",
+      session: "besucher",
+      n: 1,
+      at: new Date(T0().getTime() + 4 * DAY),
+    });
+    const again = await invoke(DELETE_VISITOR, {
+      params: { embedId: String(embed.id) },
+      body: conversationBody(await card(embed, "k-1"), current),
+      token: kunde.token,
+    });
+    expect(again.statusCode).toBe(409);
+    expect(again.body.visitor).toEqual({
+      conversationCount: 5,
+      messageCount: 13,
+    });
+
+    // Mit dem Stand, den die Rückfrage jetzt nennt: gelöscht, Antwort und
+    // Protokoll nennen dieselben Zahlen.
+    const done = await invoke(DELETE_VISITOR, {
+      params: { embedId: String(embed.id) },
+      body: conversationBody(await card(embed, "k-1"), again.body.visitor),
+      token: kunde.token,
+    });
+    expect(done.statusCode).toBe(200);
+    expect(done.body).toEqual({
+      success: true,
+      deletedCount: 13,
+      conversationCount: 5,
+    });
+    const [event] = await eventsOf(
+      db.client,
+      "embed_visitor_conversations_deleted"
+    );
+    expect(event.metadata).toEqual({
+      embedId: embed.id,
+      conversationCount: 5,
+      deletedCount: 13,
+    });
+  });
+
+  test("ganze_sitzung (Fixliste 7, F10): unbrauchbare erwartete Zahlen → 400, nichts gelöscht", async () => {
+    const chatId = await card(embed, "k-1");
+    for (const expected of [
+      "4",
+      [4, 11],
+      { conversationCount: 4 },
+      { conversationCount: "4", messageCount: 11 },
+      { conversationCount: -1, messageCount: 11 },
+      { conversationCount: 4, messageCount: 1.5 },
+    ]) {
+      const result = await invoke(DELETE_VISITOR, {
+        params: { embedId: String(embed.id) },
+        body: { chatId, expected },
+        token: kunde.token,
+      });
+      expect([expected, result.statusCode]).toEqual([expected, 400]);
+    }
+    expect(
+      await db.client.embed_chats.count({
+        where: { embed_id: embed.id, session_id: "besucher" },
+      })
+    ).toBe(11);
   });
 });
 

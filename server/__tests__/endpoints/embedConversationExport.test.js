@@ -1264,7 +1264,7 @@ describe("spalten (AK-4)", () => {
     expect(formatBerlinIso(new Date(NaN))).toBeNull();
   });
 
-  test("spalten: Grund und Kommentar erscheinen nur bei einer negativen Bewertung; eine Antwort ohne lesbaren Text bleibt leer", async () => {
+  test("spalten: Grund und Kommentar erscheinen nur bei einer negativen Bewertung; eine JSON-Antwort ohne lesbaren Text bleibt leer, eine Antwort, die kein JSON-Objekt ist, steht wörtlich darin – wie in Liste und Panel (Fixliste 7, F17)", async () => {
     const workspace = await createWorkspace(db.client);
     const embed = await createEmbed(db.client, workspace);
     const at = berlinInstant("2026-09-02", 9, 0).getTime();
@@ -1290,7 +1290,8 @@ describe("spalten (AK-4)", () => {
           feedbackReason: "REST",
           feedbackText: "REST",
         },
-        // kein JSON, JSON ohne text, text ist kein Text
+        // kein JSON (wörtlich), JSON ohne text, text ist kein Text, eine
+        // JSON-Liste (kein Objekt: wörtlich)
         {
           ...base,
           prompt: "p3",
@@ -1347,18 +1348,18 @@ describe("spalten (AK-4)", () => {
     ).toEqual([
       ["p1", "a1", "positiv", "", ""],
       ["p2", "a2", "", "", ""],
-      ["p3", "", "", "", ""],
+      ["p3", "kein JSON {", "", "", ""],
       ["p4", "", "", "", ""],
       ["p5", "", "", "", ""],
       ["p6", "", "", "", ""],
-      ["p7", "", "", "", ""],
+      ["p7", "[]", "", "", ""],
       ["p8", "a8", "negativ", "GRUND", "KOMMENTAR"],
     ]);
-    expect(result.body).not.toMatch(/REST|QUELLENTEXT|kein JSON/);
+    expect(result.body).not.toMatch(/REST|QUELLENTEXT/);
 
     // JSON: dieselben Felder, dieselbe Regel (AK-5)
     const file = await exportFile(embed, "json");
-    expect(file.body).not.toMatch(/REST|QUELLENTEXT|kein JSON/);
+    expect(file.body).not.toMatch(/REST|QUELLENTEXT/);
     const json = JSON.parse(file.body);
     expect(
       json[0].messages.map((m) => [
@@ -1371,11 +1372,11 @@ describe("spalten (AK-4)", () => {
     ).toEqual([
       ["p1", "a1", "positive", null, null],
       ["p2", "a2", null, null, null],
-      ["p3", "", null, null, null],
+      ["p3", "kein JSON {", null, null, null],
       ["p4", "", null, null, null],
       ["p5", "", null, null, null],
       ["p6", "", null, null, null],
-      ["p7", "", null, null, null],
+      ["p7", "[]", null, null, null],
       ["p8", "a8", "negative", "GRUND", "KOMMENTAR"],
     ]);
   });
@@ -1803,9 +1804,10 @@ describe("gross (AK-11)", () => {
     expect(await db.client.embed_chats.count()).toBe(20000);
   }
 
-  test("gross: 20.000 Nachrichten kommen vollständig an - zeilenweise geschrieben, die Datenbank in Paketen gelesen", async () => {
+  test("gross: 20.000 Nachrichten kommen vollständig an - je Konversation ein Stück geschrieben, die Konversationen EINMAL bestimmt, die Nachrichten in Paketen gelesen", async () => {
     await seedLarge();
-    const pages = jest.spyOn(EmbedChats, "_exportConversationPage");
+    const selections = jest.spyOn(EmbedChats, "_exportConversations");
+    const groupings = jest.spyOn(EmbedChats, "_conversationSelection");
     const batches = jest.spyOn(EmbedChats, "_exportMessages");
 
     const result = await exportFile(embed, "csv", SEPTEMBER);
@@ -1831,26 +1833,18 @@ describe("gross (AK-11)", () => {
       );
     }
 
-    // zeilenweise: Kopfzeile + je Nachricht ein Stück, nie die ganze Datei
-    expect(result.chunks).toHaveLength(20001);
+    // Kopfzeile + je Konversation ein Stück (Fixliste 7, F29), nie die
+    // ganze Datei
+    expect(result.chunks).toHaveLength(1 + CONVERSATIONS_TOTAL);
     expect(
       Math.max(...result.chunks.map((chunk) => chunk.length))
-    ).toBeLessThan(200);
+    ).toBeLessThan(1000);
 
-    // in Paketen: 8 volle Seiten Konversationen und eine leere zum Schluss
-    expect(EmbedChats.EXPORT_CONVERSATION_PAGE).toBe(500);
-    expect(pages).toHaveBeenCalledTimes(9);
-    const pageSizes = await Promise.all(
-      pages.mock.results.map(async (call) => (await call.value).length)
-    );
-    expect(pageSizes).toEqual([500, 500, 500, 500, 500, 500, 500, 500, 0]);
-    // Schlüssel-Paginierung: jede Seite beginnt hinter der letzten Konversation der vorigen
-    expect(pages.mock.calls[0][0].after).toBeNull();
-    for (const [args] of pages.mock.calls.slice(1))
-      expect(args.after).toEqual({
-        startedAt: expect.any(Number),
-        firstChatId: expect.any(Number),
-      });
+    // Die Konversationen: eine Abfrage, eine Gruppierung für den ganzen
+    // Export (Fixliste 7, F01 - vorher je Seite zu 500 eine neue)
+    expect(selections).toHaveBeenCalledTimes(1);
+    expect(groupings).toHaveBeenCalledTimes(1);
+    expect(await selections.mock.results[0].value).toHaveLength(4000);
     // Nachrichten: je Abfrage höchstens ein Paket
     expect(batches).toHaveBeenCalledTimes(40);
     for (const call of batches.mock.results) {
@@ -1878,13 +1872,13 @@ describe("gross (AK-11)", () => {
   test("gross: Lesen und Schreiben wechseln sich ab - geschrieben wird, bevor die nächsten Pakete gelesen sind", async () => {
     await seedLarge();
     const trace = [];
-    const originalPage = EmbedChats._exportConversationPage;
+    const originalSelection = EmbedChats._exportConversations;
     const originalBatch = EmbedChats._exportMessages;
     jest
-      .spyOn(EmbedChats, "_exportConversationPage")
+      .spyOn(EmbedChats, "_exportConversations")
       .mockImplementation(async (args) => {
-        trace.push("seite");
-        return await originalPage(args);
+        trace.push("auswahl");
+        return await originalSelection(args);
       });
     jest
       .spyOn(EmbedChats, "_exportMessages")
@@ -1905,25 +1899,30 @@ describe("gross (AK-11)", () => {
     let run = 0;
     for await (const chunk of exported.chunks) {
       expect(chunk.endsWith("\r\n")).toBe(true);
-      if (trace[trace.length - 1] !== "zeile") run = 0;
-      trace.push("zeile");
+      // wie writeChunks: gezählt wird erst das geschriebene Stück
+      exported.written();
+      if (trace[trace.length - 1] !== "stück") run = 0;
+      trace.push("stück");
       written += 1;
       run += 1;
       longestRun = Math.max(longestRun, run);
     }
-    expect(written).toBe(20001);
+    expect(written).toBe(1 + CONVERSATIONS_TOTAL);
     expect(exported.stats).toEqual({ conversations: 4000, rows: 20000 });
 
-    // Zwischen zwei Lesezugriffen entstehen höchstens die Zeilen eines Pakets …
-    expect(longestRun).toBeLessThanOrEqual(EmbedChats.EXPORT_MESSAGE_BATCH + 1);
-    // … und nach dem ersten Paket sind erst dessen Zeilen geschrieben, bevor
-    // das zweite gelesen wird.
+    // Zwischen zwei Lesezugriffen entstehen höchstens die Konversationen
+    // eines Pakets …
+    expect(longestRun).toBeLessThanOrEqual(
+      EmbedChats.EXPORT_BATCH_CONVERSATIONS + 1
+    );
+    // … und nach dem ersten Paket sind erst dessen Konversationen
+    // geschrieben, bevor das zweite gelesen wird.
     const secondBatch = trace.indexOf("paket", trace.indexOf("paket") + 1);
     expect(
-      trace.slice(0, secondBatch).filter((step) => step === "zeile")
-    ).toHaveLength(1 + EmbedChats.EXPORT_MESSAGE_BATCH);
+      trace.slice(0, secondBatch).filter((step) => step === "stück")
+    ).toHaveLength(1 + EmbedChats.EXPORT_MESSAGE_BATCH / PER_CONVERSATION);
     expect(trace.filter((step) => step === "paket")).toHaveLength(40);
-    expect(trace.filter((step) => step === "seite")).toHaveLength(9);
+    expect(trace.filter((step) => step === "auswahl")).toHaveLength(1);
   });
 
   test("gross: JSON mit 20.000 Nachrichten ist gültig und vollständig, je Konversation ein Stück", async () => {
@@ -1944,29 +1943,27 @@ describe("gross (AK-11)", () => {
     expect(result.chunks).toHaveLength(4002);
   });
 
-  test("gross: Nachrichten, die während des Exports entstehen, verschieben weder Nummern noch Seiten", async () => {
+  test("gross: Nachrichten, die während des Exports entstehen, verschieben weder Nummern noch Konversationen", async () => {
     await seedLarge();
-    const originalPage = EmbedChats._exportConversationPage;
-    let pagesRead = 0;
+    const original = EmbedChats._exportConversations;
     jest
-      .spyOn(EmbedChats, "_exportConversationPage")
+      .spyOn(EmbedChats, "_exportConversations")
       .mockImplementation(async (args) => {
-        // Nach der ersten Seite: eine neue Konversation (jünger als alle) und
+        const conversations = await original(args);
+        // Nach der Auswahl: eine neue Konversation (jünger als alle) und
         // eine weitere Nachricht in einer noch nicht gelesenen.
-        if (pagesRead++ === 1) {
-          await addChat(embed, {
-            at: berlinInstant("2026-09-30", 23, 0),
-            prompt: "NEU während des Exports",
-            conversation: "neu",
-          });
-          await addChat(embed, {
-            at: berlinInstant("2026-09-01", 0, 9),
-            prompt: "NACHTRAG während des Exports",
-            conversation: "konv-0",
-            session: "sitzung-0",
-          });
-        }
-        return await originalPage(args);
+        await addChat(embed, {
+          at: berlinInstant("2026-09-30", 23, 0),
+          prompt: "NEU während des Exports",
+          conversation: "neu",
+        });
+        await addChat(embed, {
+          at: berlinInstant("2026-09-01", 0, 9),
+          prompt: "NACHTRAG während des Exports",
+          conversation: "konv-0",
+          session: "sitzung-0",
+        });
+        return conversations;
       });
 
     const rows = table(await exportFile(embed, "csv", SEPTEMBER));
@@ -1976,6 +1973,55 @@ describe("gross (AK-11)", () => {
     const numbers = [...new Set(rows.map((row) => Number(row.Konversation)))];
     expect(numbers).toEqual(Array.from({ length: 4000 }, (_, i) => i + 1));
     expect(new Set(rows.map((row) => row["Konversations-ID"])).size).toBe(4000);
+  });
+
+  test("gross (Fixliste 7, F09): Leert ein Besucher während des Exports seinen Verlauf oder löscht die Aufbewahrungsfrist die ersten Zeilen einer noch nicht geschriebenen Konversation, bleiben Nummern und Menge, wie sie zu Beginn waren – keine Nummer doppelt, keine Konversation fehlt", async () => {
+    await seedLarge();
+    const original = EmbedChats._exportConversations;
+    jest
+      .spyOn(EmbedChats, "_exportConversations")
+      .mockImplementation(async (args) => {
+        const conversations = await original(args);
+        // (a) Die jüngste Konversation wird vom Besucher geleert (include
+        //     1 → 0): Vorher rückten dadurch alle älteren um eins auf.
+        await db.client.embed_chats.updateMany({
+          where: { conversation_id: "konv-3999" },
+          data: { include: false },
+        });
+        // (b) Die Aufbewahrungsfrist löscht die ersten beiden Zeilen einer
+        //     älteren Konversation: Ihr Beginn stieg vorher über den
+        //     Schlüssel der Seite, sie fehlte in der Datei.
+        const doomed = await db.client.embed_chats.findMany({
+          where: { conversation_id: "konv-10" },
+          orderBy: { id: "asc" },
+          take: 2,
+        });
+        await db.client.embed_chats.deleteMany({
+          where: { id: { in: doomed.map((row) => row.id) } },
+        });
+        return conversations;
+      });
+
+    const rows = table(await exportFile(embed, "csv", SEPTEMBER));
+    const numbers = [...new Set(rows.map((row) => Number(row.Konversation)))];
+    // (a) geleert: nicht in der Datei, die übrigen behalten ihre Nummern
+    expect(rows.some((row) => row["Konversations-ID"] === "konv-3999")).toBe(
+      false
+    );
+    expect(numbers).toEqual(Array.from({ length: 3999 }, (_, i) => i + 2));
+    // (b) mit den übrigen drei Zeilen und ihrer Nummer
+    const shortened = rows.filter(
+      (row) => row["Konversations-ID"] === "konv-10"
+    );
+    expect(shortened.map((row) => row.Frage)).toEqual([
+      "Frage 10/2",
+      "Frage 10/3",
+      "Frage 10/4",
+    ]);
+    expect(new Set(shortened.map((row) => row.Konversation))).toEqual(
+      new Set([String(CONVERSATIONS_TOTAL - 10)])
+    );
+    expect(new Set(rows.map((row) => row["Konversations-ID"])).size).toBe(3999);
   });
 
   test("gross: eine einzelne Konversation, größer als ein Paket, kommt vollständig und in Reihenfolge an", async () => {
@@ -2007,10 +2053,12 @@ describe("gross (AK-11)", () => {
     expect(rows[count].Frage).toBe("davor");
   });
 
-  test("gross: Beginnen Konversationen im selben Augenblick - auch genau über eine Seitengrenze hinweg -, steht jede genau einmal in der Datei, mit der Nummer der Liste; bei gleichem Zeitpunkt entscheidet die Zeile (id)", async () => {
+  test("gross: Beginnen Konversationen im selben Augenblick, steht jede genau einmal in der Datei, mit der Nummer der Liste; bei gleichem Zeitpunkt entscheidet die Zeile (id)", async () => {
     const workspace = await createWorkspace(db.client);
     embed = await createEmbed(db.client, workspace);
-    const PAGE = EmbedChats.EXPORT_CONVERSATION_PAGE;
+    // So viele jüngere, dass die drei gleichzeitigen mitten in einem
+    // größeren Bestand stehen (früher genau über einer Seitengrenze zu 500).
+    const YOUNGER = 498;
     const T = berlinInstant("2026-09-15", 12, 0).getTime();
     const row = (conversation, at, prompt = `${conversation}: Frage`) => ({
       embed_id: embed.id,
@@ -2029,18 +2077,16 @@ describe("gross (AK-11)", () => {
         row("gleich-c", T),
         row("gleich-b", T, "gleich-b: 2"),
         row("gleich-b", T, "gleich-b: 3"),
-        // Jünger als T: so viele, dass die Seitengrenze in die drei fällt
-        // (Seite 1 endet nach zwei von ihnen).
-        ...Array.from({ length: PAGE - 2 }, (_, i) =>
+        ...Array.from({ length: YOUNGER }, (_, i) =>
           row(`jung-${i}`, T + (i + 1) * 60_000)
         ),
-        // Älter als T, darunter ein Paar mit gleichem Beginn mitten in Seite 2
+        // Älter als T, darunter ein Paar mit gleichem Beginn
         ...Array.from({ length: 9 }, (_, i) =>
           row(`alt-${i}`, T - (i === 4 ? 4 : i + 1) * 60_000)
         ),
       ],
     });
-    const total = PAGE - 2 + 3 + 9;
+    const total = YOUNGER + 3 + 9;
 
     // Erwartung aus dem Bestand, unabhängig vom geprüften Code: Beginn
     // absteigend, bei gleichem Beginn die spätere erste Zeile zuerst.
@@ -2062,15 +2108,14 @@ describe("gross (AK-11)", () => {
       (a, b) => b.startedAt - a.startedAt || b.firstId - a.firstId
     );
     expect(expected).toHaveLength(total);
-    expect(expected.slice(PAGE - 2, PAGE + 1).map((group) => group.id)).toEqual(
-      ["gleich-c", "gleich-b", "gleich-a"]
-    );
+    expect(
+      expected.slice(YOUNGER, YOUNGER + 3).map((group) => group.id)
+    ).toEqual(["gleich-c", "gleich-b", "gleich-a"]);
     expect(expected.slice(-6, -4).map((group) => group.id)).toEqual([
       "alt-4",
       "alt-3",
     ]);
 
-    const pages = jest.spyOn(EmbedChats, "_exportConversationPage");
     const rows = table(await exportFile(embed, "csv", SEPTEMBER));
 
     // jede Konversation genau einmal, in der Reihenfolge der Nummern
@@ -2094,21 +2139,6 @@ describe("gross (AK-11)", () => {
       ["2", "gleich-b: 2"],
       ["3", "gleich-b: 3"],
     ]);
-
-    // Die Seitengrenze liegt zwischen „gleich-b" und „gleich-a": Die zweite
-    // Seite beginnt hinter demselben Beginn, bei der kleineren ersten Zeile.
-    const pageIds = await Promise.all(
-      pages.mock.results.map(async (call) =>
-        (await call.value).map((group) => group.conversation_id)
-      )
-    );
-    expect(pageIds.map((ids) => ids.length)).toEqual([PAGE, total - PAGE]);
-    expect(pageIds[0].slice(-2)).toEqual(["gleich-c", "gleich-b"]);
-    expect(pageIds[1][0]).toBe("gleich-a");
-    expect(pages.mock.calls[1][0].after).toEqual({
-      startedAt: T,
-      firstChatId: groups.get("gleich-b").firstId,
-    });
 
     // dieselben Nummern wie die Liste (Seiten zu höchstens 100)
     const listed = [];
@@ -2143,7 +2173,7 @@ describe("gross (AK-11)", () => {
     await seedLarge();
 
     const failing = jest
-      .spyOn(EmbedChats, "_exportConversationPage")
+      .spyOn(EmbedChats, "_exportConversations")
       .mockRejectedValueOnce(new Error("database is locked"));
     const early = await exportFile(embed, "csv", SEPTEMBER);
     expect(early.statusCode).toBe(500);
@@ -2168,59 +2198,113 @@ describe("gross (AK-11)", () => {
     expect(late.destroyed.message).toBe("database is locked");
     // Die Antwort wurde nicht regulär beendet.
     expect(late.body).toBeUndefined();
-    // Kopfzeile + zwei Pakete sind bereits draußen - und protokolliert.
-    expect(late.chunks).toHaveLength(1 + 2 * EmbedChats.EXPORT_MESSAGE_BATCH);
+    // Kopfzeile + die Konversationen zweier Pakete sind bereits draußen -
+    // und protokolliert.
+    const perBatch = EmbedChats.EXPORT_MESSAGE_BATCH / PER_CONVERSATION;
+    expect(late.chunks).toHaveLength(1 + 2 * perBatch);
     const [event] = await eventsOf(db.client, "embed_conversations_exported");
     expect(event.metadata).toEqual(
-      expect.objectContaining({ rowCount: 1000, completed: false })
-    );
-  });
-
-  test("gross: Beendet der Empfänger die Verbindung mitten im Export, wird nicht weiter gelesen - das Protokoll nennt completed: false und die bis dahin geschriebenen Zeilen", async () => {
-    await seedLarge();
-    const pages = jest.spyOn(EmbedChats, "_exportConversationPage");
-    const batches = jest.spyOn(EmbedChats, "_exportMessages");
-    // Kopfzeile + 700 Zeilen: mitten im zweiten Paket
-    const WRITTEN = 700;
-
-    const result = await exportFile(
-      embed,
-      "csv",
-      SEPTEMBER,
-      admin,
-      (response, outcome) => {
-        const write = response.write;
-        // Der Empfänger nimmt jedes Stück an (kein Warten auf „drain") und
-        // ist nach dem 701. weg.
-        response.destroyed = false;
-        response.write = (chunk) => {
-          write(chunk);
-          if (outcome.chunks.length === 1 + WRITTEN) response.destroyed = true;
-          return true;
-        };
-      }
-    );
-
-    expect(result.statusCode).toBe(200);
-    expect(result.chunks).toHaveLength(1 + WRITTEN);
-    // Die Antwort hat der Empfänger beendet, nicht der Server (kein Fehler).
-    expect(result.destroyed).toBeNull();
-    // Gelesen sind eine Seite Konversationen und zwei Pakete Nachrichten -
-    // nicht die 40 der ganzen Auswahl.
-    expect(pages).toHaveBeenCalledTimes(1);
-    expect(batches).toHaveBeenCalledTimes(2);
-
-    const events = await eventsOf(db.client, "embed_conversations_exported");
-    expect(events).toHaveLength(1);
-    expect(events[0].metadata).toEqual(
       expect.objectContaining({
-        embedId: embed.id,
-        format: "csv",
-        conversationCount: WRITTEN / PER_CONVERSATION,
-        rowCount: WRITTEN,
+        conversationCount: 2 * perBatch,
+        rowCount: 1000,
         completed: false,
       })
     );
+  });
+
+  test("gross: Beendet der Empfänger die Verbindung mitten im Export, wird nicht weiter gelesen - das Protokoll nennt completed: false und genau die geschriebenen Konversationen und Zeilen, in CSV und JSON gleich (Fixliste 7, F16)", async () => {
+    await seedLarge();
+    const batches = jest.spyOn(EmbedChats, "_exportMessages");
+    // 140 Konversationen (700 Zeilen): mitten im zweiten Paket
+    const WRITTEN = 140;
+
+    for (const format of ["csv", "json"]) {
+      batches.mockClear();
+      const result = await exportFile(
+        embed,
+        format,
+        SEPTEMBER,
+        admin,
+        (response, outcome) => {
+          const write = response.write;
+          // Der Empfänger nimmt jedes Stück an (kein Warten auf „drain")
+          // und ist nach dem ersten Stück (Kopfzeile bzw. „[") und 140
+          // Konversationen weg.
+          response.destroyed = false;
+          response.write = (chunk) => {
+            write(chunk);
+            if (outcome.chunks.length === 1 + WRITTEN)
+              response.destroyed = true;
+            return true;
+          };
+        }
+      );
+
+      expect(result.statusCode).toBe(200);
+      expect(result.chunks).toHaveLength(1 + WRITTEN);
+      // Die Antwort hat der Empfänger beendet, nicht der Server (kein Fehler).
+      expect(result.destroyed).toBeNull();
+      // Gelesen sind zwei Pakete Nachrichten - nicht die 40 der ganzen
+      // Auswahl.
+      expect(batches).toHaveBeenCalledTimes(2);
+    }
+
+    const events = await eventsOf(db.client, "embed_conversations_exported");
+    expect(events.map((event) => event.metadata)).toEqual(
+      ["csv", "json"].map((format) =>
+        expect.objectContaining({
+          embedId: embed.id,
+          format,
+          conversationCount: WRITTEN,
+          rowCount: WRITTEN * PER_CONVERSATION,
+          completed: false,
+        })
+      )
+    );
+  });
+
+  test("Fixliste 7, F16: Gezählt wird ein Stück erst nach seinem write – in CSV und JSON gleich; ein erzeugtes, aber nicht mehr geschriebenes Stück zählt nicht", async () => {
+    const conversation = (number) => ({
+      number,
+      conversationId: `k-${number}`,
+      messages: [1, 2].map((m) => ({
+        createdAt: new Date("2026-09-01T08:00:00Z"),
+        prompt: `Frage ${number}/${m}`,
+        answer: "Antwort",
+        feedbackScore: null,
+        feedbackReason: null,
+        feedbackText: null,
+      })),
+    });
+    for (const format of ["csv", "json"]) {
+      const exported = conversationExport(
+        format,
+        (async function* () {
+          for (let n = 1; n <= 5; n++) yield conversation(n);
+        })()
+      );
+      // Der Empfänger nimmt Kopf und drei Konversationen an; während das
+      // fünfte Stück entsteht, ist er weg.
+      const response = { destroyed: false, writableEnded: false, taken: [] };
+      response.write = (chunk) => {
+        response.taken.push(chunk);
+        return true;
+      };
+      let produced = 0;
+      const chunks = (async function* () {
+        for await (const chunk of exported.chunks) {
+          produced += 1;
+          if (produced === 5) response.destroyed = true;
+          yield chunk;
+        }
+      })();
+      expect(await writeChunks(response, chunks, exported.written)).toBe(false);
+      expect(response.taken).toHaveLength(4);
+      expect([format, exported.stats]).toEqual([
+        format,
+        { conversations: 3, rows: 6 },
+      ]);
+    }
   });
 
   test("gross: writeChunks erzeugt nach dem Ende der Verbindung kein weiteres Stück und schreibt keines mehr - auch wenn der Empfänger bis dahin jedes angenommen hat", async () => {

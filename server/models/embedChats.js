@@ -11,7 +11,6 @@ const {
   searchLikePattern,
   needsGlobCheck,
   searchProbe,
-  loggableError,
 } = require("../utils/helpers/chat/conversationSearch");
 const prisma = require("../utils/prisma");
 const { MessageLedger } = require("./messageLedger");
@@ -40,23 +39,21 @@ const FEEDBACK_MAX_PER_WINDOW = 30;
 const FEEDBACK_MAX_PENDING = 32;
 const FEEDBACK_MAX_TRACKED_SESSIONS = 5_000;
 
-// Export (KIE-538): gelesen wird in Paketen - je Abfrage höchstens so viele
-// Konversationen (Seite), und die Nachrichten von höchstens so vielen
-// Konversationen bzw. so vielen Nachrichten (nach der Zählung der Liste) auf
-// einmal. Im Speicher liegen damit nie mehr als eine Seite Konversationen
-// (ohne Inhalte) und die Nachrichten eines Pakets.
+// Export (KIE-538): Die Konversationen der Auswahl werden EINMAL bestimmt -
+// Kennung, Sitzung und zwei Zahlen je Konversation, rund 200 Byte im
+// Speicher (Fixliste 7, F01/F09: vorher baute der Export ohne Suche je Seite
+// zu 500 Konversationen die ganze Gruppierung neu, die Laufzeit wuchs
+// quadratisch). Die Nachrichten werden danach in Paketen gelesen: die von
+// höchstens EXPORT_BATCH_CONVERSATIONS Konversationen bzw.
+// EXPORT_MESSAGE_BATCH Nachrichten (nach der Zählung der Liste) auf einmal.
 //
-// Mit Suche wird die Treffermenge EINMAL bestimmt (die Suche läuft einmal
-// über alle Zeilen, nicht je Seite, Fixliste Punkt 8) und liegt danach im
-// Speicher: Kennung, Sitzung und drei Zahlen je Treffer-Konversation, rund
-// 200 Byte. Sie ist hart begrenzt (Fixliste 3, C10): Mehr als
+// Mit Suche ist die Menge hart begrenzt (Fixliste 3, C10): Mehr als
 // EXPORT_SEARCH_MAX_HITS Treffer lehnt der Export ab (Fehler mit code
 // EXPORT_TOO_MANY_HITS, die Route antwortet 413 mit dieser Zahl) - höchstens
-// rund 20 MB je laufendem Export. Gelesen werden dafür höchstens
-// EXPORT_SEARCH_MAX_HITS + 1 Zeilen. (Messbestand mit 100.000 Chat-Zeilen:
-// „kurs" trifft 42.858 Konversationen, siehe
-// __tests__/benchmarks/conversationSearch.manual.js.)
-const EXPORT_CONVERSATION_PAGE = 500;
+// rund 20 MB je laufendem Export. Ohne Suche gibt es keine Grenze, wie
+// bisher: Der ganze Bestand eines Widgets lässt sich immer exportieren
+// (100.000 Chat-Zeilen ergeben im Messbestand 42.858 Konversationen, rund
+// 9 MB; siehe __tests__/benchmarks/conversationSearch.manual.js).
 const EXPORT_MESSAGE_BATCH = 500;
 const EXPORT_BATCH_CONVERSATIONS = 100;
 const EXPORT_SEARCH_MAX_HITS = 100_000;
@@ -64,6 +61,44 @@ const EXPORT_SEARCH_MAX_HITS = 100_000;
 // Größter Wert einer INT4-Spalte (id, embed_id): Prisma lehnt größere Zahlen
 // in einer Abfrage ab, statt nichts zu finden.
 const INT4_MAX = 2147483647;
+
+/**
+ * Ein Zeitpunkt aus einer Rohabfrage ($queryRaw, SQLite) in Millisekunden -
+ * eine Stelle für alle Rohwerte (Fixliste 7, F26). Prisma speichert DateTime
+ * als Millisekunden (INTEGER; über $queryRaw als Zahl bzw. BigInt), MIN/MAX
+ * darüber ebenso; je nach Treiber kann ein Date kommen, aus älteren oder
+ * fremden Zeilen ein Text (Ziffern oder ISO).
+ * @param {unknown} value
+ * @returns {number|null} - Millisekunden; null ohne gültigen Zeitpunkt
+ */
+function rawInstant(value) {
+  let ms = NaN;
+  if (typeof value === "number" || typeof value === "bigint")
+    ms = Number(value);
+  else if (value instanceof Date) ms = value.getTime();
+  else if (typeof value === "string")
+    ms = /^-?\d+$/.test(value.trim()) ? Number(value) : Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Der angezeigte Text einer gespeicherten Antwort: bei einem JSON-Objekt das
+ * Feld text (ohne Quellen, Kurskarten und Metadaten), sonst die Antwort
+ * wörtlich - wie Liste, Suche, Panel und Export.
+ * @param {unknown} response
+ * @returns {string}
+ */
+function answerTextOf(response) {
+  if (typeof response !== "string") return "";
+  try {
+    const parsed = JSON.parse(response);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      return typeof parsed.text === "string" ? parsed.text : "";
+  } catch {
+    // keine JSON-Antwort: wörtlich
+  }
+  return response;
+}
 
 // Widget|Sitzung → { startedAt, count } des laufenden Zeitfensters
 const feedbackWindows = new Map();
@@ -93,7 +128,6 @@ function takeFeedbackSlot(embedId, sessionId) {
 const EmbedChats = {
   FEEDBACK_MAX_PER_WINDOW,
   FEEDBACK_MAX_PENDING,
-  EXPORT_CONVERSATION_PAGE,
   EXPORT_MESSAGE_BATCH,
   EXPORT_BATCH_CONVERSATIONS,
   EXPORT_SEARCH_MAX_HITS,
@@ -776,6 +810,17 @@ const EmbedChats = {
    * durch die Unterabfrage gereicht: Das kostete je Durchlauf rund eine
    * halbe Sekunde auf 100.000 Zeilen (Fixliste Punkt 6); gelesen wird sie
    * nur für die Zeilen, die es brauchen, über ihre id.
+   *
+   * Link-Ziele, HTML-Attribute und <think>-Blöcke im Antworttext durchsucht
+   * die Abfrage mit (SQLite kennt keine regulären Ausdrücke). Bewusst so
+   * belassen (Fixliste 7, F13, Variante b): Sie nachträglich in JS
+   * auszusortieren hieße für eine richtige Zählung („N von M einsehbar“) und
+   * ein lückenloses Blättern, JEDE Treffer-Zeile samt Antworttext zu lesen -
+   * gemessen 3,1-3,2 s bei 100.000 Zeilen für „kurs“ bzw. „vhs.example“
+   * (benchmarks/conversationSearch.manual.js), mehr als das Doppelte der
+   * Grenze von NAK-7 (1,5 s). Die Suche liefert so nie zu wenige Treffer,
+   * höchstens zu viele; das Panel sagt es dann („steht nur in
+   * Link-Adressen, HTML oder <think>“, hasVisibleHit im Frontend).
    * @param {string} search - getrimmter Suchbegriff (parseSearch)
    * @param {string} rows - Name der Unterabfrage mit den Spalten id, prompt,
    *   feedbackReason, feedbackText und answer_head
@@ -900,17 +945,16 @@ const EmbedChats = {
   /**
    * Gruppierung der Konversationsliste (KIE-508/527): eine Zeile je
    * Konversation, mit Zählern für Feedback-Filter UND Badges.
-   * Kanonische Quelle für getConversations und countConversations — beide
-   * MÜSSEN dieselbe Gruppierung verwenden, sonst driften Pagination-Zähler und
-   * Liste auseinander. Filter (Feedback, Abschnitt, Suche) greifen danach
+   * Kanonische Quelle für Liste (conversationPage), Zähler
+   * (countConversations) und Export - alle MÜSSEN dieselbe Gruppierung
+   * verwenden, sonst driften Pagination-Zähler und Liste auseinander. Filter (Feedback, Abschnitt, Suche) greifen danach
    * ({@link EmbedChats._conversationSelection}), damit conversation_number
    * über die ungefilterte Menge vergeben bleibt.
    *
    * DSGVO (KIE-533): Nur Zeilen mit include = 1 - per markHistoryInvalid
    * zurückgesetzte Chats erscheinen nicht in der Liste.
    *
-   * @param {number|number[]|null} embedId - NULL = alle Embeds (globale
-   *   Sicht), eine Liste = diese Widgets ({@link EmbedChats._rowConditions})
+   * @param {number|null} embedId - NULL = alle Widgets ({@link EmbedChats._rowConditions})
    * @param {Date|null} startDate
    * @param {Date|null} endDate
    * @param {{maxId?: number|null, search?: string|null}} [options] - maxId
@@ -972,10 +1016,11 @@ const EmbedChats = {
 
   /**
    * Die Zeilen, die die Liste zählt: include = 1 (DSGVO), Widget, Zeitraum,
-   * Stand des Exports - als WHERE-Teile über embed_chats. embedId: ein
-   * Widget, eine Liste von Widgets (globale Sicht eines Default-Users -
-   * leer: keine Zeile) oder null (alle).
-   * @param {{embedId: number|number[]|null, startDate: Date|null, endDate: Date|null, maxId: number|null}} params
+   * Stand des Exports - als WHERE-Teile über embed_chats. Die eine
+   * Definition für Liste, Zähler und Export (auch _exportMessages,
+   * Fixliste 7, F21). embedId null: alle Widgets (nur intern, etwa in
+   * Tests; jede Route nennt ein Widget).
+   * @param {{embedId: number|null, startDate: Date|null, endDate: Date|null, maxId: number|null}} params
    * @param {string|null} [alias] - Tabellenname vor den Spalten (EXISTS)
    * @returns {import("@prisma/client").Prisma.Sql[]}
    */
@@ -986,13 +1031,7 @@ const EmbedChats = {
     const { Prisma } = require("@prisma/client");
     const column = (name) => Prisma.raw(alias ? `${alias}.${name}` : name);
     const where = [Prisma.sql`WHERE ${column("include")} = 1`];
-    if (Array.isArray(embedId))
-      where.push(
-        embedId.length > 0
-          ? Prisma.sql`AND ${column("embed_id")} IN (${Prisma.join(embedId)})`
-          : Prisma.sql`AND 0`
-      );
-    else if (embedId !== null)
+    if (embedId !== null)
       where.push(Prisma.sql`AND ${column("embed_id")} = ${embedId}`);
     if (startDate)
       where.push(Prisma.sql`AND ${column("createdAt")} >= ${startDate}`);
@@ -1051,25 +1090,20 @@ const EmbedChats = {
       feedbackFilter,
       between
     );
-    if (!search)
-      return {
-        source: Prisma.sql`(${EmbedChats._conversationGroupsSql(
-          rows.embedId,
-          rows.startDate,
-          rows.endDate,
-          { maxId }
-        )})`,
-        where: filter,
-      };
+    // Die Gruppierung dieser Zeilen (Fixliste 7, F27: eine Stelle statt
+    // dreier Aufrufe mit kleinen Abweichungen)
+    const groups = (extra = {}) =>
+      EmbedChats._conversationGroupsSql(
+        rows.embedId,
+        rows.startDate,
+        rows.endDate,
+        { maxId, ...extra }
+      );
+    if (!search) return { source: Prisma.sql`(${groups()})`, where: filter };
 
     if (filter === Prisma.empty)
       return {
-        source: Prisma.sql`(${EmbedChats._conversationGroupsSql(
-          rows.embedId,
-          rows.startDate,
-          rows.endDate,
-          { maxId, search }
-        )})`,
+        source: Prisma.sql`(${groups({ search })})`,
         where: Prisma.sql`WHERE search_hit = 1`,
       };
 
@@ -1079,12 +1113,7 @@ const EmbedChats = {
       AND c.session_id = conversation_groups.session_id
       AND COALESCE(c.conversation_id, c.session_id) = conversation_groups.conversation_id`;
     return {
-      source: Prisma.sql`(${EmbedChats._conversationGroupsSql(
-        rows.embedId,
-        rows.startDate,
-        rows.endDate,
-        { maxId }
-      )}) AS conversation_groups`,
+      source: Prisma.sql`(${groups()}) AS conversation_groups`,
       where: EmbedChats._whereAnd(
         filter,
         Prisma.sql`EXISTS (
@@ -1097,13 +1126,13 @@ const EmbedChats = {
 
   /**
    * Analytics: Anzahl Konversationen (für Pagination) — exakt dieselbe
-   * Gruppierung und derselbe Feedback-Filter wie {@link EmbedChats.getConversations}.
+   * Auswahl wie {@link EmbedChats.conversationPage}.
    * @param {number|null} embedId - NULL = alle Embeds
    * @param {Date|null} startDate
    * @param {Date|null} endDate
    * @param {"all"|"negative"|"positive"|boolean} feedbackFilter
-   * @param {{start: Date, endExclusive: Date}|null} [startedBetween] - KIE-536, siehe getConversations
-   * @param {string|null} [search] - Suchbegriff, siehe getConversations
+   * @param {{start: Date, endExclusive: Date}|null} [startedBetween] - KIE-536, siehe conversationPage
+   * @param {string|null} [search] - Suchbegriff, siehe conversationPage
    * @returns {Promise<number>}
    * @throws bei einem Datenbankfehler - eine 0 sähe aus wie „keine
    *   Konversationen" (Fixliste 2, R2); einziger Aufrufer ist
@@ -1133,77 +1162,41 @@ const EmbedChats = {
   },
 
   /**
-   * Analytics: Get conversations list for an embed (grouped by conversation_id)
-   * Uses raw SQL to properly GROUP BY in the database (not JavaScript)
-   * DSGVO: include = 1 Filter (KIE-533) - invalidierte Chats erscheinen nicht.
-   * @param {number|null} embedId - The embed config ID (null = global view across all embeds)
-   * @param {number} offset - Pagination offset
-   * @param {number} limit - Max conversations to return
-   * @param {Date|null} startDate - Optional start date filter
-   * @param {Date|null} endDate - Optional end date filter
-   * @param {"all"|"negative"|"positive"|boolean} feedbackFilter - KIE-508/527:
-   *   "negative" = nur Konversationen mit ≥1 👎, "positive" = nur mit ≥1 👍,
-   *   sonst ungefiltert. Legacy-Boolean onlyNegative=true wird als "negative"
-   *   behandelt.
-   * @param {{start: Date, endExclusive: Date}|null} [startedBetween] - KIE-536:
-   *   nur Konversationen, deren erste vorhandene Nachricht (started_at =
-   *   MIN(createdAt) der Gruppe) im halboffenen Intervall liegt. Die Gruppierung
-   *   läuft dann OHNE Datumsfilter - started_at ist die erste vorhandene
-   *   Nachricht der Konversation, nicht die erste im Zeitraum -, startDate und
-   *   endDate bleiben unbeachtet; die Bedingung greift nach der Gruppierung.
-   * @param {string|null} [search] - Suchbegriff (getrimmt, parseSearch): nur
-   *   Konversationen, von deren gezählten Zeilen mindestens eine ihn in
-   *   Frage, angezeigtem Antworttext, Grund oder Kommentar enthält
-   *   ({@link EmbedChats._searchMatchSql}); null = keine Suche.
-   * @returns {Promise<Array>} Array of conversation summaries
-   */
-  getConversations: async function (
-    embedId = null,
-    offset = 0,
-    limit = 20,
-    startDate = null,
-    endDate = null,
-    feedbackFilter = "all",
-    startedBetween = null,
-    search = null
-  ) {
-    try {
-      const { conversations } = await EmbedChats._conversationList({
-        embedId,
-        offset,
-        limit,
-        startDate,
-        endDate,
-        feedbackFilter,
-        startedBetween,
-        search,
-      });
-      return conversations;
-    } catch (error) {
-      console.error("getConversations error:", loggableError(error));
-      return [];
-    }
-  },
-
-  /**
    * Eine Seite der Konversationsliste samt Gesamtzahl - für
    * analytics/conversations. Liste und Zahl kommen aus EINER Abfrage
    * (COUNT(*) OVER () über die gefilterte Menge): Mit Suche ist jeder
    * Durchlauf über die Zeilen teuer (NAK-7). Nur wenn die Seite leer ist
    * und hinter dem Anfang geblättert wurde, zählt
    * {@link EmbedChats.countConversations} noch einmal.
-   * Parameter und Ergebnisform der Einträge wie {@link EmbedChats.getConversations}.
-   * @param {number|number[]|null} embedId - ein Widget; null bzw. eine Liste
-   *   für die globale Sicht ({@link EmbedChats._rowConditions})
+   *
+   * DSGVO: nur Zeilen mit include = 1 (KIE-533) - vom Besucher geleerte
+   * Chats erscheinen nicht.
+   * @param {number} embedId
    * @param {Object} options
    * @param {number} [options.offset]
    * @param {number} [options.limit]
+   * @param {{lastMessageAt: number, firstChatId: number}|null} [options.after] -
+   *   Blättern über einen Schlüssel (Fixliste 7, F14): die Konversationen
+   *   NACH dieser Zeile der Liste (letzte Nachricht absteigend, bei
+   *   Gleichstand first_chat_id absteigend). Verschwindet zwischen zwei
+   *   Seiten eine Konversation (Löschen, Aufbewahrungsfrist, vom Besucher
+   *   geleert), rückt so keine andere über die Seitengrenze und fehlt.
+   *   Nur zusammen mit offset 0.
    * @param {Date|null} [options.startDate]
    * @param {Date|null} [options.endDate]
-   * @param {"all"|"negative"|"positive"|boolean} [options.feedbackFilter]
-   * @param {{start: Date, endExclusive: Date}|null} [options.startedBetween]
-   * @param {string|null} [options.search]
-   * @returns {Promise<{conversations: Array, totalCount: number}>}
+   * @param {"all"|"negative"|"positive"|boolean} [options.feedbackFilter] -
+   *   KIE-508/527: "negative" = nur Konversationen mit ≥1 👎, "positive" =
+   *   nur mit ≥1 👍, sonst ungefiltert (Legacy true = "negative")
+   * @param {{start: Date, endExclusive: Date}|null} [options.startedBetween] -
+   *   KIE-536: nur Konversationen, deren erste vorhandene Nachricht
+   *   (started_at) im halboffenen Intervall liegt; startDate und endDate
+   *   bleiben dann unbeachtet ({@link EmbedChats._conversationSelection})
+   * @param {string|null} [options.search] - Suchbegriff (getrimmt,
+   *   parseSearch): nur Konversationen, von deren gezählten Zeilen
+   *   mindestens eine ihn in Frage, angezeigtem Antworttext, Grund oder
+   *   Kommentar enthält ({@link EmbedChats._searchMatchSql}); null = keine
+   *   Suche
+   * @returns {Promise<{conversations: Array, totalCount: number, hasMore: boolean}>}
    * @throws bei einem Datenbankfehler: Die Route antwortet 500, die Liste
    *   zeigt „Fehler beim Laden" mit „Erneut versuchen" statt einer leeren
    *   Liste (Fixliste 2, R2). Protokolliert wird in der Route, ohne
@@ -1214,6 +1207,7 @@ const EmbedChats = {
     {
       offset = 0,
       limit = 20,
+      after = null,
       startDate = null,
       endDate = null,
       feedbackFilter = "all",
@@ -1221,10 +1215,11 @@ const EmbedChats = {
       search = null,
     } = {}
   ) {
-    const { conversations, total } = await EmbedChats._conversationList({
+    const { conversations, total, rest } = await EmbedChats._conversationList({
       embedId,
       offset,
       limit,
+      after,
       startDate,
       endDate,
       feedbackFilter,
@@ -1234,7 +1229,7 @@ const EmbedChats = {
     // Leere Seite: am Anfang gibt es nichts, dahinter muss gezählt werden.
     const totalCount =
       total ??
-      (offset > 0
+      (offset > 0 || after
         ? await EmbedChats.countConversations(
             embedId,
             startDate,
@@ -1244,29 +1239,36 @@ const EmbedChats = {
             search
           )
         : 0);
-    return { conversations, totalCount };
+    return { conversations, totalCount, hasMore: rest > conversations.length };
   },
 
   /**
-   * Gemeinsamer Kern von getConversations und conversationPage: eine Seite
-   * der gruppierten Konversationen, sortiert nach letzter Nachricht (bei
-   * Gleichstand die jüngere erste Zeile zuerst - feste Reihenfolge fürs
-   * Blättern), mit Vorschau (erste Frage), Workspace und dem ersten Grund
-   * einer negativen Bewertung. Wirft bei Datenbankfehlern.
-   * @param {Object} params - siehe getConversations
-   * @returns {Promise<{conversations: Array, total: number|null}>} - total:
-   *   Zahl der Konversationen über alle Seiten; null, wenn die Seite leer ist
+   * Kern von {@link EmbedChats.conversationPage}: eine Seite der gruppierten
+   * Konversationen, sortiert nach letzter Nachricht (bei Gleichstand die
+   * jüngere erste Zeile zuerst - feste Reihenfolge fürs Blättern), mit
+   * Vorschau (erste Frage), Workspace und dem ersten Grund einer negativen
+   * Bewertung. Wirft bei Datenbankfehlern.
+   *
+   * Die Zähler kommen aus derselben Abfrage: total (COUNT(*) OVER () vor
+   * dem Schlüssel - alle Konversationen der Auswahl) und rest (nach dem
+   * Schlüssel, ab dem Anfang dieser Seite - gibt es mehr als diese Seite?).
+   * @param {Object} params - siehe conversationPage
+   * @returns {Promise<{conversations: Array, total: number|null, rest: number}>} -
+   *   total: Zahl der Konversationen über alle Seiten; null, wenn die Seite
+   *   leer ist
    */
   _conversationList: async function ({
     embedId = null,
     offset = 0,
     limit = 20,
+    after = null,
     startDate = null,
     endDate = null,
     feedbackFilter = "all",
     startedBetween = null,
     search = null,
   }) {
+    const { Prisma } = require("@prisma/client");
     const between = EmbedChats.normalizeStartedBetween(startedBetween);
     // KIE-508/527: Gruppierung, Filter und Suche kommen aus der gemeinsamen
     // Auswahl (auch von countConversations und dem Export benutzt) - so
@@ -1280,9 +1282,7 @@ const EmbedChats = {
       startedBetween: between,
       search,
     });
-    const conversations = await prisma.$queryRaw`
-      SELECT
-        conversation_id,
+    const columns = Prisma.sql`conversation_id,
         session_id,
         embed_id,
         first_chat_id,
@@ -1291,14 +1291,34 @@ const EmbedChats = {
         message_count,
         negative_count,
         positive_count,
-        conversation_number,
-        COUNT(*) OVER () as total_count
-      FROM ${source}
-      ${where}
-      ORDER BY last_message_at DESC, first_chat_id DESC
-      LIMIT ${limit}
-      OFFSET ${offset}
-    `;
+        conversation_number`;
+    // Ohne Schlüssel (erste Seite, Nachladen nach dem Löschen) ist rest die
+    // ganze Auswahl ab offset - ein Fenster genügt. Mit Schlüssel greift er
+    // außen: total zählt die ganze Auswahl, rest nur, was danach kommt
+    // (Fixliste 7, F14; das zweite Fenster kostet rund 2 %, deshalb nur
+    // hier).
+    const conversations = after
+      ? await prisma.$queryRaw`
+          SELECT ${columns}, total_count, COUNT(*) OVER () as rest_count
+          FROM (
+            SELECT ${columns}, COUNT(*) OVER () as total_count
+            FROM ${source}
+            ${where}
+          ) AS listed
+          WHERE last_message_at < ${after.lastMessageAt}
+            OR (last_message_at = ${after.lastMessageAt} AND first_chat_id < ${after.firstChatId})
+          ORDER BY last_message_at DESC, first_chat_id DESC
+          LIMIT ${limit}
+          OFFSET ${offset}
+        `
+      : await prisma.$queryRaw`
+          SELECT ${columns}, COUNT(*) OVER () as total_count
+          FROM ${source}
+          ${where}
+          ORDER BY last_message_at DESC, first_chat_id DESC
+          LIMIT ${limit}
+          OFFSET ${offset}
+        `;
 
     // Convert BigInt to Number for JSON serialization
     const conversationsNormalized = conversations.map((conv) => ({
@@ -1306,8 +1326,8 @@ const EmbedChats = {
       session_id: conv.session_id,
       embed_id: Number(conv.embed_id),
       first_chat_id: Number(conv.first_chat_id),
-      started_at: Number(conv.started_at),
-      last_message_at: Number(conv.last_message_at),
+      started_at: rawInstant(conv.started_at),
+      last_message_at: rawInstant(conv.last_message_at),
       message_count: Number(conv.message_count),
       negative_count: Number(conv.negative_count) || 0, // KIE-508
       positive_count: Number(conv.positive_count) || 0, // KIE-527
@@ -1315,26 +1335,41 @@ const EmbedChats = {
     }));
     const total =
       conversations.length > 0 ? Number(conversations[0].total_count) : null;
+    // Was ab dem Anfang dieser Seite noch kommt (OFFSET liegt darin)
+    const rest =
+      conversations.length > 0
+        ? Number(conversations[0].rest_count ?? conversations[0].total_count) -
+          offset
+        : 0;
 
     // Get preview texts and embed info for all conversations in one query (performance optimization)
     if (conversationsNormalized.length > 0) {
       const firstChatIds = conversationsNormalized.map((c) => c.first_chat_id);
-      const firstChats = await prisma.embed_chats.findMany({
-        where: { id: { in: firstChatIds } },
-        select: {
-          id: true,
-          prompt: true,
-          embed_config: {
-            select: {
-              workspace: {
-                select: {
-                  name: true,
+      // Vorschau/Workspace und der erste Grund hängen nur von der Seite ab:
+      // nebeneinander (Fixliste 7, F30).
+      const [firstChats, reasons] = await Promise.all([
+        prisma.embed_chats.findMany({
+          where: { id: { in: firstChatIds } },
+          select: {
+            id: true,
+            prompt: true,
+            embed_config: {
+              select: {
+                workspace: {
+                  select: {
+                    name: true,
+                  },
                 },
               },
             },
           },
-        },
-      });
+        }),
+        EmbedChats._firstNegativeReasons(
+          conversationsNormalized,
+          between ? null : startDate,
+          between ? null : endDate
+        ),
+      ]);
 
       // Map previews and embed info to conversations
       const dataMap = new Map(
@@ -1353,19 +1388,12 @@ const EmbedChats = {
         const data = dataMap.get(conv.first_chat_id);
         conv.preview = data?.preview || "";
         conv.workspace = data?.workspace || null;
-      }
-
-      const reasons = await EmbedChats._firstNegativeReasons(
-        conversationsNormalized,
-        between ? null : startDate,
-        between ? null : endDate
-      );
-      for (const conv of conversationsNormalized)
         conv.first_negative_reason =
           reasons.get(EmbedChats._widgetGroupKey(conv)) ?? null;
+      }
     }
 
-    return { conversations: conversationsNormalized, total };
+    return { conversations: conversationsNormalized, total, rest };
   },
 
   /**
@@ -1477,8 +1505,8 @@ const EmbedChats = {
       const conversations = rows.map((row) => ({
         conversationId: row.conversation_id,
         first_chat_id: Number(row.first_chat_id),
-        startedAt: Number(row.started_at),
-        lastMessageAt: Number(row.last_message_at),
+        startedAt: rawInstant(row.started_at),
+        lastMessageAt: rawInstant(row.last_message_at),
         messageCount: Number(row.message_count),
       }));
       if (conversations.length === 0) return [];
@@ -1567,10 +1595,11 @@ const EmbedChats = {
    * geleerten.
    * @param {number|string} embedId
    * @param {number|string} chatId - Zahl oder Ziffernfolge (Pfadabschnitt)
+   * @param {object} [client] - prisma oder eine Transaktion
    * @returns {Promise<{id: number, sessionId: string, where: object}|null>} -
    *   null, wenn die Angaben kein Widget und keine seiner Zeilen bezeichnen
    */
-  _conversationScope: async function (embedId, chatId) {
+  _conversationScope: async function (embedId, chatId, client = prisma) {
     const id = Number(embedId);
     const rowId =
       typeof chatId === "string" && /^[1-9]\d*$/.test(chatId)
@@ -1583,7 +1612,7 @@ const EmbedChats = {
     if (!Number.isSafeInteger(rowId) || rowId <= 0 || rowId > INT4_MAX)
       return null;
 
-    const row = await prisma.embed_chats.findFirst({
+    const row = await client.embed_chats.findFirst({
       where: { id: rowId, embed_id: id },
       select: { conversation_id: true, session_id: true },
     });
@@ -1632,11 +1661,14 @@ const EmbedChats = {
 
   /**
    * KIE-538: Konversationen und Zeilen einer Browser-Sitzung in einem Widget
-   * (alle Zeilen, auch include = 0).
+   * (alle Zeilen, auch include = 0) - in einer Abfrage.
+   * @param {number} id - Widget
+   * @param {string} sessionId
+   * @param {object} [client] - prisma oder eine Transaktion
    * @returns {Promise<{conversationCount: number, messageCount: number}>}
    */
-  _sessionTotals: async function (id, sessionId) {
-    const [row] = await prisma.$queryRaw`
+  _sessionTotals: async function (id, sessionId, client = prisma) {
+    const [row] = await client.$queryRaw`
       SELECT
         COUNT(*) as messages,
         COUNT(DISTINCT COALESCE(conversation_id, session_id)) as conversations
@@ -1654,7 +1686,8 @@ const EmbedChats = {
    * keine Inhalte und keine Sitzungs-Kennung. `visitor` nennt, was die
    * Browser-Sitzung dieser Konversation im selben Widget insgesamt hat
    * (einschließlich dieser Konversation); null, wenn es die Konversation
-   * nicht (mehr) gibt.
+   * nicht (mehr) gibt. Beide Zählungen hängen nur von der Konversation ab
+   * und laufen nebeneinander (Fixliste 7, F31).
    * @param {number|string} embedId
    * @param {number|string} chatId - id einer Zeile der Konversation (first_chat_id der Liste)
    * @returns {Promise<{messageCount: number, visitor: {conversationCount: number, messageCount: number}|null}|null>}
@@ -1664,10 +1697,11 @@ const EmbedChats = {
     try {
       const scope = await EmbedChats._conversationScope(embedId, chatId);
       if (!scope) return { messageCount: 0, visitor: null };
-      return {
-        messageCount: await prisma.embed_chats.count({ where: scope.where }),
-        visitor: await EmbedChats._sessionTotals(scope.id, scope.sessionId),
-      };
+      const [messageCount, visitor] = await Promise.all([
+        prisma.embed_chats.count({ where: scope.where }),
+        EmbedChats._sessionTotals(scope.id, scope.sessionId),
+      ]);
+      return { messageCount, visitor };
     } catch (error) {
       console.error("conversationDeletionPreview error:", error.message);
       return null;
@@ -1679,27 +1713,53 @@ const EmbedChats = {
    * diese Konversation gehört - in diesem Widget, alle Zeilen (auch
    * include = 0). Konversationen anderer Sitzungen und anderer Widgets
    * bleiben, auch wenn sie dieselbe Kennung tragen. Die Sitzung bestimmt der
-   * Server aus der Zeile ({@link EmbedChats._conversationScope}).
-   * Eine einzige Löschanweisung, gebunden an embed_id UND session_id; das
+   * Server aus der Zeile ({@link EmbedChats._conversationScope}); das
    * Zählerbuch wird nicht angefasst.
+   *
+   * Gelöscht wird nur, was die Rückfrage bestätigt hat (Fixliste 7, F10):
+   * Nennt `expected` die Zahlen der Vorschau, prüft eine Transaktion -
+   * zählen und löschen gemeinsam oder gar nicht -, ob die Sitzung noch genau
+   * so viele Konversationen und Nachrichten hat. Hat der Besucher
+   * inzwischen weiter geschrieben (eine neue Konversation, eine weitere
+   * Nachricht) oder ist etwas weggefallen, wird nichts gelöscht: Ergebnis
+   * `changed` mit dem neuen Stand, die Ansicht fragt mit diesen Zahlen neu.
+   * Ohne `expected` (API) löscht die Transaktion den Stand, den sie zählt -
+   * Antwort und Protokoll nennen dieselben Zahlen wie die Löschung.
    * @param {number|string} embedId
    * @param {number|string} chatId - id einer Zeile der Konversation (first_chat_id der Liste)
-   * @returns {Promise<{deletedCount: number, conversationCount: number}|null>}
+   * @param {{conversationCount: number, messageCount: number}|null} [expected] -
+   *   was die Rückfrage genannt hat (visitor der Vorschau)
+   * @returns {Promise<{deletedCount: number, conversationCount: number, changed?: {conversationCount: number, messageCount: number}}|null>}
    *   null bei einem Datenbankfehler
    */
-  deleteVisitorConversations: async function (embedId, chatId) {
+  deleteVisitorConversations: async function (
+    embedId,
+    chatId,
+    expected = null
+  ) {
     try {
-      const scope = await EmbedChats._conversationScope(embedId, chatId);
-      if (!scope) return { deletedCount: 0, conversationCount: 0 };
-
-      const { conversationCount } = await EmbedChats._sessionTotals(
-        scope.id,
-        scope.sessionId
-      );
-      const { count } = await prisma.embed_chats.deleteMany({
-        where: { embed_id: scope.id, session_id: scope.sessionId },
+      return await prisma.$transaction(async (tx) => {
+        const scope = await EmbedChats._conversationScope(embedId, chatId, tx);
+        if (!scope) return { deletedCount: 0, conversationCount: 0 };
+        const totals = await EmbedChats._sessionTotals(
+          scope.id,
+          scope.sessionId,
+          tx
+        );
+        if (
+          expected &&
+          (expected.conversationCount !== totals.conversationCount ||
+            expected.messageCount !== totals.messageCount)
+        )
+          return { deletedCount: 0, conversationCount: 0, changed: totals };
+        const { count } = await tx.embed_chats.deleteMany({
+          where: { embed_id: scope.id, session_id: scope.sessionId },
+        });
+        return {
+          deletedCount: count,
+          conversationCount: totals.conversationCount,
+        };
       });
-      return { deletedCount: count, conversationCount };
     } catch (error) {
       console.error("deleteVisitorConversations error:", error.message);
       return null;
@@ -1707,95 +1767,44 @@ const EmbedChats = {
   },
 
   /**
-   * KIE-538: Eine Seite der Konversationen für den Export - dieselbe
-   * Gruppierung, dieselbe Nummer und dieselben Filter wie die Liste
-   * ({@link EmbedChats.getConversations}), aber geblättert über einen
-   * Schlüssel statt über OFFSET: Reihenfolge ist started_at absteigend, dann
-   * first_chat_id absteigend - das ist die Reihenfolge der laufenden Nummer.
-   * @param {Object} page
-   * @param {number} page.embedId
-   * @param {Date|null} page.startDate
-   * @param {Date|null} page.endDate
-   * @param {"all"|"negative"|"positive"|boolean} page.feedbackFilter
-   * @param {{start: Date, endExclusive: Date}|null} page.startedBetween - bereits normalisiert
-   * @param {number} page.maxId
-   * @param {{startedAt: number, firstChatId: number}|null} page.after - letzte Konversation der vorigen Seite
-   * @param {number} page.limit
-   * @returns {Promise<Array<{conversation_id: string, session_id: string, first_chat_id: number, started_at: number, message_count: number, conversation_number: number}>>}
+   * KIE-538: Die Konversationen einer Auswahl für den Export, EINMAL
+   * bestimmt - mit und ohne Suche (Fixliste 7, F01/F09; vorher blätterte der
+   * Export ohne Suche über einen Schlüssel und baute dafür je Seite die ganze
+   * Gruppierung neu: quadratisch in der Größe des Widgets, und Nummern
+   * konnten sich zwischen den Seiten verschieben). Dieselbe Gruppierung,
+   * dieselbe Nummer und dieselben Filter wie die Liste
+   * ({@link EmbedChats._conversationSelection}), in der Reihenfolge der
+   * laufenden Nummer (Beginn absteigend, bei Gleichstand first_chat_id
+   * absteigend).
+   *
+   * Je Konversation nur Kennung, Sitzung und zwei Zahlen (rund 200 Byte im
+   * Speicher). Kennung und Sitzung stammen aus der Gruppierung selbst, nicht
+   * aus ihrer ersten Zeile: Wird diese während des Exports gelöscht
+   * (Aufbewahrungsfrist), bleiben die übrigen Zeilen im Export (Fixliste 3,
+   * C2). Mit Suche ist die Menge hart begrenzt (Fixliste 3, C10).
+   * @param {Object} selection
+   * @param {number} selection.embedId
+   * @param {Date|null} selection.startDate
+   * @param {Date|null} selection.endDate
+   * @param {"all"|"negative"|"positive"|boolean} selection.feedbackFilter
+   * @param {{start: Date, endExclusive: Date}|null} selection.startedBetween - bereits normalisiert
+   * @param {number} selection.maxId
+   * @param {string|null} [selection.search]
+   * @returns {Promise<Array<{conversation_id: string, session_id: string, message_count: number, conversation_number: number}>>}
+   * @throws {Error} code EXPORT_TOO_MANY_HITS (mit max), wenn es mit Suche
+   *   mehr als EXPORT_SEARCH_MAX_HITS Treffer gibt - und bei einem
+   *   Datenbankfehler
    */
-  _exportConversationPage: async function ({
+  _exportConversations: async function ({
     embedId,
     startDate,
     endDate,
     feedbackFilter,
     startedBetween,
     maxId,
-    after,
-    limit,
+    search = null,
   }) {
     const { Prisma } = require("@prisma/client");
-    const { source, where: filter } = EmbedChats._conversationSelection({
-      embedId,
-      startDate,
-      endDate,
-      maxId,
-      feedbackFilter,
-      startedBetween,
-    });
-    const where = after
-      ? EmbedChats._whereAnd(
-          filter,
-          Prisma.sql`(started_at < ${after.startedAt} OR (started_at = ${after.startedAt} AND first_chat_id < ${after.firstChatId}))`
-        )
-      : filter;
-
-    const rows = await prisma.$queryRaw`
-      SELECT
-        conversation_id,
-        session_id,
-        first_chat_id,
-        started_at,
-        message_count,
-        conversation_number
-      FROM ${source}
-      ${where}
-      ORDER BY started_at DESC, first_chat_id DESC
-      LIMIT ${limit}
-    `;
-    return rows.map((row) => ({
-      conversation_id: row.conversation_id,
-      session_id: row.session_id,
-      first_chat_id: Number(row.first_chat_id),
-      started_at: Number(row.started_at),
-      message_count: Number(row.message_count),
-      conversation_number: Number(row.conversation_number),
-    }));
-  },
-
-  /**
-   * Export mit Suche (Fixliste Punkt 8, Fixliste 2 R11, Fixliste 3 C2/C10):
-   * die Treffer-Konversationen der Auswahl, EINMAL bestimmt - die Suche läuft
-   * einmal über die Zeilen statt je Seite. Je Konversation kommen Kennung,
-   * Browser-Sitzung und drei Zahlen zurück, in der Reihenfolge des Exports
-   * (laufende Nummer). Kennung und Sitzung stammen aus der Treffermenge
-   * selbst, nicht aus ihrer ersten Zeile: Wird diese während des Exports
-   * gelöscht (Aufbewahrungsfrist), bleiben die übrigen Zeilen der
-   * Konversation im Export.
-   * @param {Object} selection - wie {@link EmbedChats._exportConversationPage}, ohne after/limit
-   * @param {string} selection.search - Suchbegriff wie in der Liste
-   * @returns {Promise<{conversationIds: string[], sessionIds: string[], messageCounts: number[], numbers: number[]}>}
-   * @throws {Error} code EXPORT_TOO_MANY_HITS (mit max), wenn es mehr als
-   *   EXPORT_SEARCH_MAX_HITS Treffer gibt - und bei einem Datenbankfehler
-   */
-  _exportHits: async function ({
-    embedId,
-    startDate,
-    endDate,
-    feedbackFilter,
-    startedBetween,
-    maxId,
-    search,
-  }) {
     const { source, where } = EmbedChats._conversationSelection({
       embedId,
       startDate,
@@ -1812,60 +1821,35 @@ const EmbedChats = {
       FROM ${source}
       ${where}
       ORDER BY started_at DESC, first_chat_id DESC
-      LIMIT ${max + 1}
+      ${search ? Prisma.sql`LIMIT ${max + 1}` : Prisma.empty}
     `;
-    if (rows.length > max)
+    if (search && rows.length > max)
       throw Object.assign(
         new Error(`Export mit Suche: mehr als ${max} Treffer-Konversationen`),
         { code: "EXPORT_TOO_MANY_HITS", max }
       );
-    const hits = {
-      conversationIds: [],
-      sessionIds: [],
-      messageCounts: [],
-      numbers: [],
-    };
-    for (const row of rows) {
-      hits.conversationIds.push(row.conversation_id);
-      hits.sessionIds.push(row.session_id);
-      hits.messageCounts.push(Number(row.message_count));
-      hits.numbers.push(Number(row.conversation_number));
-    }
-    return hits;
-  },
-
-  /**
-   * Eine Seite der Treffer-Konversationen ({@link EmbedChats._exportHits}) in
-   * der Form von {@link EmbedChats._exportConversationPage} - ohne weitere
-   * Abfrage: Alles Nötige steht in der Treffermenge.
-   * @param {{conversationIds: string[], sessionIds: string[], messageCounts: number[], numbers: number[]}} hits
-   * @param {number} from - erster Index der Seite
-   * @param {number} to - Index hinter der Seite
-   * @returns {Array<{conversation_id: string, session_id: string, message_count: number, conversation_number: number}>}
-   */
-  _exportHitPage: function (hits, from, to) {
-    const page = [];
-    for (
-      let index = from;
-      index < to && index < hits.conversationIds.length;
-      index++
-    )
-      page.push({
-        conversation_id: hits.conversationIds[index],
-        session_id: hits.sessionIds[index],
-        message_count: hits.messageCounts[index],
-        conversation_number: hits.numbers[index],
-      });
-    return page;
+    return rows.map((row) => ({
+      conversation_id: row.conversation_id,
+      session_id: row.session_id,
+      message_count: Number(row.message_count),
+      conversation_number: Number(row.conversation_number),
+    }));
   },
 
   /**
    * KIE-538: Die Nachrichten eines Pakets von Konversationen - genau die
-   * Zeilen, die die Liste für diese Konversationen zählt (include = 1, im
-   * Zeitraum). Von der Antwort wird nur der Text gelesen
-   * (json_extract(response, '$.text')): Quellen-Texte, Kurskarten und alles
-   * Übrige aus `response` verlassen die Datenbank nicht; ebenso wenig
+   * Zeilen, die die Liste für diese Konversationen zählt (dieselben
+   * Bedingungen: {@link EmbedChats._rowConditions}, Fixliste 7, F21). Von der
+   * Antwort wird nur der angezeigte Text gelesen: bei einem JSON-Objekt das
+   * Feld text, sonst die Antwort wörtlich - wie Liste, Suche und Panel
+   * (Fixliste 7, F17). Quellen-Texte, Kurskarten und alles Übrige aus
+   * `response` verlassen die Datenbank nicht; ebenso wenig
    * connection_information.
+   *
+   * Gelesen werden nur die Zeilen der Paare (Kennung, Sitzung) des Pakets
+   * (Fixliste 7, F11): Dieselbe, vom Besucher gewählte Kennung in anderen
+   * Sitzungen kommt nicht aus der Datenbank - die Paketgrenze gilt so auch
+   * für die gelesene Menge.
    * @param {Object} batch
    * @param {number} batch.embedId
    * @param {Array<{conversation_id: string, session_id: string}>} batch.groups
@@ -1885,15 +1869,21 @@ const EmbedChats = {
     maxId,
   }) {
     const { Prisma } = require("@prisma/client");
-    const keys = [...new Set(groups.map((group) => group.conversation_id))];
-    const where = [
-      Prisma.sql`WHERE embed_id = ${embedId} AND include = 1 AND id <= ${maxId}`,
-    ];
     // Wie in der Liste: Mit Abschnitts-Filter zählt die ganze Konversation.
-    if (!startedBetween && startDate)
-      where.push(Prisma.sql`AND createdAt >= ${startDate}`);
-    if (!startedBetween && endDate)
-      where.push(Prisma.sql`AND createdAt <= ${endDate}`);
+    const where = EmbedChats._rowConditions({
+      embedId,
+      startDate: startedBetween ? null : startDate,
+      endDate: startedBetween ? null : endDate,
+      maxId,
+    });
+    const sessions = [...new Set(groups.map((group) => group.session_id))];
+    // session_id IN (…) nutzt den Index (embed_id, session_id); das Paar
+    // bindet jede Zeile an genau eine Konversation des Pakets.
+    const pairs = Prisma.join(
+      groups.map(
+        (group) => Prisma.sql`(${group.conversation_id}, ${group.session_id})`
+      )
+    );
 
     const rows = await prisma.$queryRaw`
       SELECT
@@ -1903,41 +1893,30 @@ const EmbedChats = {
         createdAt,
         prompt,
         CASE
-          WHEN json_valid(response) AND json_type(response, '$.text') = 'text'
-          THEN json_extract(response, '$.text')
+          WHEN json_valid(response) AND json_type(response) = 'object'
+          THEN CASE WHEN json_type(response, '$.text') = 'text' THEN json_extract(response, '$.text') END
+          ELSE response
         END as answer,
         feedbackScore,
         feedbackText,
         feedbackReason
       FROM embed_chats
       ${Prisma.join(where, " ")}
-        AND (
-          conversation_id IN (${Prisma.join(keys)})
-          OR (conversation_id IS NULL AND session_id IN (${Prisma.join(keys)}))
-        )
+        AND session_id IN (${Prisma.join(sessions)})
+        AND (COALESCE(conversation_id, session_id), session_id) IN (VALUES ${pairs})
       ORDER BY createdAt ASC, id ASC
     `;
 
-    const wanted = new Set(groups.map(EmbedChats._exportGroupKey));
     const byGroup = new Map();
     for (const row of rows) {
       const key = EmbedChats._exportGroupKey({
         conversation_id: row.conversation_id ?? row.session_id,
         session_id: row.session_id,
       });
-      // Dieselbe conversation_id in einer anderen Sitzung ist in der Liste
-      // eine eigene Konversation und kommt mit ihrem eigenen Paket.
-      if (!wanted.has(key)) continue;
       if (!byGroup.has(key)) byGroup.set(key, []);
+      const at = rawInstant(row.createdAt);
       byGroup.get(key).push({
-        createdAt:
-          row.createdAt instanceof Date
-            ? row.createdAt
-            : new Date(
-                typeof row.createdAt === "bigint"
-                  ? Number(row.createdAt)
-                  : row.createdAt
-              ),
+        createdAt: new Date(at ?? NaN),
         prompt: row.prompt,
         answer: typeof row.answer === "string" ? row.answer : null,
         // SQLite kennt nur 0/1; je nach Treiber kommt die Spalte als Zahl
@@ -1961,10 +1940,10 @@ const EmbedChats = {
   /**
    * KIE-538: Die Konversationen einer Auswahl samt ihren Nachrichten, für den
    * Export. Dieselben Parameter und dieselbe Menge wie die Liste
-   * ({@link EmbedChats.getConversations} über alle Seiten): Gruppierung,
-   * Zeitraum, Feedback-Filter, Abschnitts-Filter, include = 1 - was die Liste
-   * nicht zeigt, kommt hier nicht vor. Je Konversation die Zeilen, die die
-   * Liste zählt (message_count), nach Zeitpunkt.
+   * ({@link EmbedChats.conversationPage} über alle Seiten): Gruppierung,
+   * Zeitraum, Feedback-Filter, Abschnitts-Filter, Suche, include = 1 - was
+   * die Liste nicht zeigt, kommt hier nicht vor. Je Konversation die Zeilen,
+   * die die Liste zählt (message_count), nach Zeitpunkt.
    *
    * Reihenfolge: nach der laufenden Nummer der Liste (jüngster Beginn
    * zuerst), darin nach Zeitpunkt.
@@ -1973,14 +1952,15 @@ const EmbedChats = {
    * eigene (Alt-Zeilen; die Liste zeigt dann die session_id), ist sie null:
    * Die Kennung der Browser-Sitzung gehört nicht in den Export.
    *
-   * Gelesen wird in Paketen (siehe EXPORT_* oben), Konversationen über einen
-   * Schlüssel statt über OFFSET - mit Suche die Treffer-Konversationen in
-   * einer Abfrage (Kennung, Sitzung und drei Zahlen je Konversation, hart
-   * begrenzt auf EXPORT_SEARCH_MAX_HITS), die Nachrichten weiter
-   * seitenweise. Zu Beginn wird die höchste id des Widgets
-   * festgehalten: Nachrichten, die während des Exports entstehen, verschieben
-   * weder Nummern noch Seiten. Datenbankfehler werden nicht geschluckt - eine
-   * abgeschnittene Datei darf nicht wie eine vollständige aussehen.
+   * Die Konversationen (ohne Inhalte) werden EINMAL bestimmt
+   * ({@link EmbedChats._exportConversations}) - Menge, Reihenfolge und
+   * Nummern stehen damit für den ganzen Export fest, auch wenn währenddessen
+   * Zeilen gelöscht oder vom Besucher geleert werden (Fixliste 7, F09). Die
+   * Nachrichten werden danach paketweise gelesen (siehe EXPORT_* oben).
+   * Zu Beginn wird die höchste id des Widgets festgehalten: Nachrichten, die
+   * während des Exports entstehen, kommen nicht hinein. Datenbankfehler
+   * werden nicht geschluckt - eine abgeschnittene Datei darf nicht wie eine
+   * vollständige aussehen.
    *
    * @param {number} embedId
    * @param {Object} [selection]
@@ -2020,70 +2000,36 @@ const EmbedChats = {
       maxId: newest.id,
     };
 
-    // Mit Suche werden die Treffer-Konversationen EINMAL bestimmt (Kennung,
-    // Sitzung, drei Zahlen je Konversation; höchstens
-    // EXPORT_SEARCH_MAX_HITS) und ihre Nachrichten danach seitenweise
-    // gelesen: Jede weitere Seite würde die Suche über alle Zeilen
-    // wiederholen (Fixliste Punkt 8).
-    // Ohne Suche wird wie bisher über einen Schlüssel geblättert.
-    if (search) {
-      const hits = await EmbedChats._exportHits({
-        ...selection,
-        feedbackFilter,
-        search,
-      });
-      for (
-        let from = 0;
-        from < hits.conversationIds.length;
-        from += EXPORT_CONVERSATION_PAGE
-      ) {
-        const page = EmbedChats._exportHitPage(
-          hits,
-          from,
-          from + EXPORT_CONVERSATION_PAGE
-        );
-        yield* EmbedChats._exportBatches(selection, page);
-      }
-      return;
-    }
-
-    let after = null;
-    for (;;) {
-      const page = await EmbedChats._exportConversationPage({
-        ...selection,
-        feedbackFilter,
-        after,
-        limit: EXPORT_CONVERSATION_PAGE,
-      });
-      yield* EmbedChats._exportBatches(selection, page);
-      if (page.length < EXPORT_CONVERSATION_PAGE) return;
-      const last = page[page.length - 1];
-      after = { startedAt: last.started_at, firstChatId: last.first_chat_id };
-    }
+    const conversations = await EmbedChats._exportConversations({
+      ...selection,
+      feedbackFilter,
+      search,
+    });
+    yield* EmbedChats._exportBatches(selection, conversations);
   },
 
   /**
-   * Die Konversationen einer Seite des Exports samt ihren Nachrichten - in
-   * Paketen ({@link EmbedChats._exportMessages}): so viele Konversationen,
-   * bis ihre Nachrichten (nach der Zählung der Liste) das Paket füllen,
-   * mindestens eine.
+   * Die Konversationen des Exports samt ihren Nachrichten - in Paketen
+   * ({@link EmbedChats._exportMessages}): so viele Konversationen, bis ihre
+   * Nachrichten (nach der Zählung der Liste) das Paket füllen, mindestens
+   * eine.
    * @param {{embedId: number, startDate: Date|null, endDate: Date|null, startedBetween: object|null, maxId: number}} selection
-   * @param {Array<{conversation_id: string, session_id: string, message_count: number, conversation_number: number}>} page
+   * @param {Array<{conversation_id: string, session_id: string, message_count: number, conversation_number: number}>} conversations
    * @returns {AsyncGenerator<import("../utils/helpers/chat/embedConversationExport").ExportConversation>}
    */
-  _exportBatches: async function* (selection, page) {
-    for (let from = 0; from < page.length; ) {
+  _exportBatches: async function* (selection, conversations) {
+    for (let from = 0; from < conversations.length; ) {
       let to = from;
       let messages = 0;
       do {
-        messages += page[to].message_count;
+        messages += conversations[to].message_count;
         to += 1;
       } while (
-        to < page.length &&
+        to < conversations.length &&
         to - from < EXPORT_BATCH_CONVERSATIONS &&
-        messages + page[to].message_count <= EXPORT_MESSAGE_BATCH
+        messages + conversations[to].message_count <= EXPORT_MESSAGE_BATCH
       );
-      const groups = page.slice(from, to);
+      const groups = conversations.slice(from, to);
       from = to;
 
       const byGroup = await EmbedChats._exportMessages({
@@ -2109,10 +2055,13 @@ const EmbedChats = {
   /**
    * Fixliste 6, N2: Zeitpunkt der letzten Nachricht je Widget - für die
    * Vorauswahl der Ansicht „Konversationen“ (das Widget mit der jüngsten
-   * Aktivität). Je Widget eine Suche im Index (embed_id, createdAt), kein
-   * Durchlauf über die Zeilen. Gezählt wird jede gespeicherte Nachricht, auch
-   * vom Besucher geleerte (include = 0) - es geht um Aktivität, nicht um
-   * Inhalte. Nur Zeitpunkte, keine Inhalte.
+   * Aktivität). Je Widget ein Gang rückwärts durch den Index (embed_id,
+   * createdAt) bis zur ersten einsehbaren Zeile - kein Durchlauf über alle
+   * Zeilen (MAX() mit der Bedingung include = 1 läse jede Zeile des
+   * Widgets). Gezählt werden wie überall in der Ansicht nur
+   * einsehbare Nachrichten (include = 1, DSGVO-Regel des Repos; Fixliste 7,
+   * F12): Hat ein Besucher seinen Verlauf geleert, macht ihn das nicht zum
+   * jüngsten Widget. Nur Zeitpunkte, keine Inhalte.
    * @param {number[]|null} embedIds - diese Widgets; null = alle
    * @returns {Promise<Array<{embedId: number, lastMessageAt: number|null}>>} -
    *   lastMessageAt in Millisekunden, null ohne Nachricht
@@ -2127,26 +2076,62 @@ const EmbedChats = {
     const rows = await prisma.$queryRaw`
       SELECT
         e.id AS embed_id,
-        (SELECT MAX(c.createdAt) FROM embed_chats c WHERE c.embed_id = e.id)
+        (SELECT c.createdAt FROM embed_chats c
+          WHERE c.embed_id = e.id AND c.include = 1
+          ORDER BY c.createdAt DESC LIMIT 1)
           AS last_message_at
       FROM embed_configs e
       ${where}
       ORDER BY e.id`;
-    return rows.map((row) => {
-      const value = row.last_message_at;
-      const at =
-        typeof value === "number" || typeof value === "bigint"
-          ? Number(value)
-          : value instanceof Date
-            ? value.getTime()
-            : typeof value === "string"
-              ? Date.parse(value)
-              : NaN;
-      return {
-        embedId: Number(row.embed_id),
-        lastMessageAt: Number.isFinite(at) ? at : null,
-      };
-    });
+    return rows.map((row) => ({
+      embedId: Number(row.embed_id),
+      lastMessageAt: rawInstant(row.last_message_at),
+    }));
+  },
+
+  /**
+   * Upstream-Route POST /embed/chats (frühere Nachrichtentabelle, Fixliste 7,
+   * F02): eine Seite einzelner Nachrichten, neueste zuerst - nur einsehbare
+   * Zeilen (include = 1) und nur die Felder der Tabelle. Die Antwort enthält
+   * nur ihren Text (als {"text": …} wie gespeichert, ohne Quellen, Kurskarten
+   * und Metadaten), keine Verbindungsdaten.
+   * @param {{embedIds: number[]|null, skip: number, limit: number}} page -
+   *   embedIds: diese Widgets; null = alle
+   * @returns {Promise<{chats: Array<object>, totalChats: number}>}
+   * @throws bei einem Datenbankfehler
+   */
+  chatTablePage: async function ({ embedIds = null, skip = 0, limit = 20 }) {
+    const where = {
+      include: true,
+      ...(Array.isArray(embedIds) ? { embed_id: { in: embedIds } } : {}),
+    };
+    const [rows, totalChats] = await Promise.all([
+      prisma.embed_chats.findMany({
+        where,
+        orderBy: { id: "desc" },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          embed_id: true,
+          session_id: true,
+          prompt: true,
+          response: true,
+          createdAt: true,
+          embed_config: {
+            select: { workspace: { select: { name: true } } },
+          },
+        },
+      }),
+      prisma.embed_chats.count({ where }),
+    ]);
+    return {
+      chats: rows.map((row) => ({
+        ...row,
+        response: JSON.stringify({ text: answerTextOf(row.response) }),
+      })),
+      totalChats,
+    };
   },
 
   /**
