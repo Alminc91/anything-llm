@@ -27,6 +27,7 @@ import {
   effectiveSearch,
   holdScrollTarget,
   isWide,
+  sameBerlinDays,
 } from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
 
@@ -237,6 +238,18 @@ function WidgetAnalytics({ embeds }) {
     summary.loading &&
     !(summaryData && summary.period === periodOf(fromDay, toDay));
 
+  // Kennzahl „Konversationen“ für den Hinweis der Liste auf fehlende
+  // Inhalte (Fixliste 6, N1) – nur, wenn sie zu genau diesem Widget und
+  // Zeitraum gehört und die Liste dieselben Berliner Tage zeigt; sonst null
+  // (kein Hinweis). Beim Neuladen desselben Zeitraums (Vergleich an/aus)
+  // bleibt sie stehen.
+  const countedConversations =
+    summaryData &&
+    summary.period === periodOf(fromDay, toDay) &&
+    sameBerlinDays(startDateISO, endDateISO, fromDay, toDay)
+      ? (summaryData.totals?.conversations ?? null)
+      : null;
+
   // Der Abschnitts-Filter gilt für genau ein Widget und einen Zeitraum.
   const scope = [selectedEmbed, startDateISO, endDateISO].join("|");
   // Mit einem Wechsel verfällt er – sonst käme er zurück, sobald das frühere
@@ -357,6 +370,7 @@ function WidgetAnalytics({ embeds }) {
           bucket={bucket}
           onClearBucket={clearBucket}
           onViewableCountChange={setViewableCount}
+          countedConversations={countedConversations}
           headingRef={listHeadingRef}
           showDeletedHint={showsDeletedHint({
             retentionDays,

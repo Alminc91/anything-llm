@@ -293,6 +293,60 @@ export function berlinDateTime(instant) {
   return formatDateTimeDE(instant, { timeZone: BERLIN });
 }
 
+/**
+ * Deckt der Zeitraum der Liste (Zeitstempel des Browsers) genau die
+ * Kalendertage des Zählerbuchs (Berliner Tage)? Ja, wenn er um 00:00:00,000
+ * Uhr Berliner Zeit an fromDay beginnt und um 23:59:59,999 Uhr an toDay
+ * endet – in einem Browser mit Berliner Zeit (oder gleichen Regeln) immer.
+ * „Gesamt“ (keine Grenzen): ja – die Liste reicht dann sogar weiter zurück
+ * als das Zählerbuch. In einer anderen Zeitzone verschieben sich die
+ * Grenzen um Stunden: Konversationen am Rand zählt dann nur eine Seite
+ * (Fixliste 6, N1).
+ * @param {string|Date|null} startDate
+ * @param {string|Date|null} endDate
+ * @param {string|null} fromDay - "YYYY-MM-DD"
+ * @param {string|null} toDay
+ * @returns {boolean}
+ */
+export function sameBerlinDays(startDate, endDate, fromDay, toDay) {
+  if (!startDate && !endDate) return true;
+  if (!startDate || !endDate || !fromDay || !toDay) return false;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
+  return (
+    start.getUTCMilliseconds() === 0 &&
+    end.getUTCMilliseconds() === 999 &&
+    berlinDateTime(start) === `${formatDate(fromDay)}, 00:00:00 Uhr` &&
+    berlinDateTime(end) === `${formatDate(toDay)}, 23:59:59 Uhr`
+  );
+}
+
+/**
+ * Fehlen Inhalte gezählter Konversationen (Fixliste 6, N1)? Die Kennzahl
+ * „Konversationen“ (Zählerbuch) zählt je Widget die Zeilen, für deren
+ * Schlüssel COALESCE(conversation_id, session_id) es noch keine frühere
+ * Zeile gab (EmbedChats._startsConversation). Die Liste zeigt je
+ * (Schlüssel, session_id) eine Zeile, sobald eine vorhandene Nachricht
+ * (include = 1) im Zeitraum liegt. Jede gezählte Konversation hat ihre
+ * erste Nachricht im Zeitraum, und zwei gezählte fallen nie in dieselbe
+ * Zeile der Liste – ist alles vorhanden, zeigt die Liste also mindestens so
+ * viele (mehr bei weitergeführten älteren Konversationen und bei einer
+ * Kennung aus zwei Sitzungen). Weniger einsehbar als gezählt heißt deshalb:
+ * Inhalte fehlen (Aufbewahrungsfrist, vom Besucher geleert, gelöscht).
+ * Umgekehrt kann eine Lücke unerkannt bleiben, wenn weitergeführte
+ * Konversationen sie auffüllen – der Hinweis erscheint nie zu Unrecht.
+ * Voraussetzung: dieselben Tage (sameBerlinDays), kein Filter.
+ * @param {number|null} counted - Kennzahl „Konversationen“ des Zeitraums
+ * @param {number|null} viewable - Konversationen der Liste ohne Filter
+ * @returns {boolean}
+ */
+export function hasContentGap(counted, viewable) {
+  return (
+    Number.isFinite(counted) && Number.isFinite(viewable) && viewable < counted
+  );
+}
+
 /** Mitternacht (UTC) eines Kalendertags – formatterOf rechnet in UTC. */
 const instantOf = (day) => new Date(`${day}T00:00:00Z`);
 

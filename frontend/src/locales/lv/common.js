@@ -1639,6 +1639,8 @@ const TRANSLATIONS = {
       "only-feedback": null,
       "clear-feedback": null,
       "deleted-hint": null,
+      "content-gap_one": null,
+      "content-gap_other": null,
     },
     // KIE-538
     export: {

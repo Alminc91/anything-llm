@@ -21,6 +21,7 @@ import {
   dayGroupLabel,
   effectiveSearch,
   groupByLastMessageDay,
+  hasContentGap,
   isWide,
   searchLinkIssue,
   shortDayLabel,
@@ -164,6 +165,10 @@ function appendUnique(items, more) {
  *   Konversationen, deren erste vorhandene Nachricht darin liegt.
  * @param {() => void} [props.onClearBucket]
  * @param {boolean} [props.showDeletedHint] - Hinweis auf gelöschte Inhalte
+ * @param {number|null} [props.countedConversations] - Kennzahl
+ *   „Konversationen“ (Zählerbuch) für Widget und Zeitraum der Liste; null,
+ *   solange sie nicht zu ihnen passt. Zeigt die Liste ohne Filter weniger,
+ *   sagt sie es (Fixliste 6, N1).
  * @param {(count: number|null) => void} [props.onViewableCountChange] - Zahl
  *   der einsehbaren Konversationen für die Kopfzeile der Ansicht; null,
  *   solange die Liste lädt
@@ -179,6 +184,7 @@ export default function ConversationList({
   bucket = null,
   onClearBucket = () => {},
   showDeletedHint = false,
+  countedConversations = null,
   onViewableCountChange = () => {},
   headingRef = null,
 }) {
@@ -708,6 +714,24 @@ export default function ConversationList({
     onViewableCountChange(viewableCount);
   }, [viewableCount, onViewableCountChange]);
 
+  // Fixliste 6, N1: weniger einsehbar als gezählt – nur ohne Bewertungs-,
+  // Säulen- und Suchfilter (dort gilt „X von Y einsehbar“). Bei leerer Liste
+  // statt „Keine Konversationen vorhanden.“, sonst als Zeile unter der Liste;
+  // der Hinweis auf die Aufbewahrungsfrist (KIE-536) geht darin auf.
+  const contentGap =
+    !loading &&
+    !failed &&
+    !filtered &&
+    !bucket &&
+    hasContentGap(countedConversations, totalCount);
+  const contentGapText = contentGap
+    ? t("embed-analytics.list.content-gap", {
+        count: countedConversations,
+        counted: formatNumber(countedConversations),
+        viewable: formatNumber(totalCount),
+      })
+    : null;
+
   const today = formatDateForInput(new Date());
   const groups = useMemo(() => groupByLastMessageDay(items), [items]);
 
@@ -957,6 +981,13 @@ export default function ConversationList({
               >
                 {emptySearchText}
               </p>
+            ) : contentGap ? (
+              <p
+                data-content-gap=""
+                className={`px-4 py-8 text-center text-sm ${MUTED}`}
+              >
+                {contentGapText}
+              </p>
             ) : (
               <div className="text-white/60 text-center py-8">
                 {t(EMPTY_STATE_KEYS[feedbackFilter])}
@@ -1039,15 +1070,31 @@ export default function ConversationList({
             </div>
           )}
 
-          {/* KIE-536: Das Diagramm zählt weiter, die Inhalte sind gelöscht. */}
-          {showDeletedHint && !loading && !failed && !hasMore && (
+          {/* Fixliste 6, N1: Ein Teil der gezählten Konversationen ist
+              nicht einsehbar – eine Zeile unter der Liste (bei leerer Liste
+              steht der Text oben statt des Leerzustands). */}
+          {contentGap && items.length > 0 && (
             <p
-              data-deleted-hint=""
+              data-content-gap=""
               className={`mt-4 text-center text-xs ${MUTED}`}
             >
-              {t("embed-analytics.list.deleted-hint")}
+              {contentGapText}
             </p>
           )}
+          {/* KIE-536: Das Diagramm zählt weiter, die Inhalte sind gelöscht.
+              Steht der Hinweis auf die Lücke da, nennt er das schon. */}
+          {showDeletedHint &&
+            !contentGap &&
+            !loading &&
+            !failed &&
+            !hasMore && (
+              <p
+                data-deleted-hint=""
+                className={`mt-4 text-center text-xs ${MUTED}`}
+              >
+                {t("embed-analytics.list.deleted-hint")}
+              </p>
+            )}
         </div>
 
         {chatId !== null && embedId && (

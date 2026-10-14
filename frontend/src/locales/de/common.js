@@ -1202,6 +1202,12 @@ const TRANSLATIONS = {
       "clear-feedback": "Filter „{{filter}}“ aufheben",
       "deleted-hint":
         "Ältere Inhalte wurden gemäß Aufbewahrungsfrist gelöscht.",
+      // Fixliste 6, N1: gezählt (Zählerbuch) vs. einsehbar (gespeicherte
+      // Inhalte), nur ohne Filter
+      "content-gap_one":
+        "{{counted}} Konversation gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht) – die Kennzahlen zählen weiter.",
+      "content-gap_other":
+        "{{counted}} Konversationen gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht) – die Kennzahlen zählen weiter.",
     },
     // KIE-538
     export: {

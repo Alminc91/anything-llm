@@ -26,6 +26,7 @@ import {
   effectiveSearch,
   firstElementWith,
   groupByLastMessageDay,
+  hasContentGap,
   hasVisibleHit,
   highlightParts,
   highlightTextNodes,
@@ -35,6 +36,7 @@ import {
   outsidePeriod,
   panelChromeHeight,
   panelFit,
+  sameBerlinDays,
   searchLinkIssue,
   searchPattern,
   shortDayLabel,
@@ -895,4 +897,91 @@ test("Fixliste 6, K1: zwei Hinweise zum Blättern – Link-Fall ohne Aufforderun
     );
     assert.match(panel["next-not-loaded"], retry);
   }
+});
+
+test("Fixliste 6, N1: sameBerlinDays – Liste und Zählerbuch decken dieselben Berliner Tage nur bei Berliner Tagesgrenzen; „Gesamt“ immer", () => {
+  // Browser in Berlin: 00:00 bis 23:59:59,999 Uhr Berliner Zeit
+  assert.equal(
+    sameBerlinDays(
+      "2026-09-12T22:00:00.000Z",
+      "2026-10-13T21:59:59.999Z",
+      "2026-09-13",
+      "2026-10-13"
+    ),
+    true
+  );
+  // über die Zeitumstellung (29.03.2026: Beginn UTC+1, Ende UTC+2)
+  assert.equal(
+    sameBerlinDays(
+      "2026-03-27T23:00:00.000Z",
+      "2026-03-29T21:59:59.999Z",
+      "2026-03-28",
+      "2026-03-29"
+    ),
+    true
+  );
+  // Browser in UTC bzw. New York: Grenzen um Stunden verschoben
+  assert.equal(
+    sameBerlinDays(
+      "2026-09-13T00:00:00.000Z",
+      "2026-10-13T23:59:59.999Z",
+      "2026-09-13",
+      "2026-10-13"
+    ),
+    false
+  );
+  assert.equal(
+    sameBerlinDays(
+      "2026-09-13T04:00:00.000Z",
+      "2026-10-14T03:59:59.999Z",
+      "2026-09-13",
+      "2026-10-13"
+    ),
+    false
+  );
+  // andere Tage, fehlende Millisekunden, halbe Angaben
+  assert.equal(
+    sameBerlinDays(
+      "2026-09-12T22:00:00.000Z",
+      "2026-10-13T21:59:59.999Z",
+      "2026-09-14",
+      "2026-10-13"
+    ),
+    false
+  );
+  assert.equal(
+    sameBerlinDays(
+      "2026-09-12T22:00:00.000Z",
+      "2026-10-13T21:59:59.000Z",
+      "2026-09-13",
+      "2026-10-13"
+    ),
+    false
+  );
+  assert.equal(
+    sameBerlinDays("2026-09-12T22:00:00.000Z", null, "2026-09-13", null),
+    false
+  );
+  assert.equal(
+    sameBerlinDays("kein Datum", "2026-10-13T21:59:59.999Z", "a", "b"),
+    false
+  );
+  // „Gesamt“: Die Liste hat keine Grenzen, reicht also mindestens so weit
+  assert.equal(sameBerlinDays(null, null, null, null), true);
+});
+
+test("Fixliste 6, N1: hasContentGap – nur „einsehbar < gezählt“ ist eine Lücke; gleich oder mehr nicht", () => {
+  assert.equal(hasContentGap(916, 0), true);
+  assert.equal(hasContentGap(10, 9), true);
+  assert.equal(hasContentGap(10, 10), false);
+  // weitergeführte ältere Konversationen, eine Kennung aus zwei Sitzungen
+  assert.equal(hasContentGap(10, 12), false);
+  assert.equal(hasContentGap(0, 0), false);
+  for (const [counted, viewable] of [
+    [null, 0],
+    [5, null],
+    [undefined, 0],
+    [NaN, 0],
+  ])
+    assert.equal(hasContentGap(counted, viewable), false);
 });

@@ -3772,3 +3772,189 @@ test(
     assert.equal(panel.style.maxHeight, `${196 + 49 + 64 + 2}px`);
   }
 );
+
+// ---------------------------------------------------------------------------
+// Fixliste 6, N1: gezählt (Zählerbuch) vs. einsehbar (Liste)
+// ---------------------------------------------------------------------------
+
+const GAP_TAIL =
+  "Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht) – die Kennzahlen zählen weiter.";
+
+test(
+  "Fixliste 6, N1: leere Liste, aber Konversationen gezählt – der Hinweis ersetzt „Keine Konversationen vorhanden.“, ohne zweiten Hinweis auf die Aufbewahrungsfrist",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [] });
+    const { container } = await mountList(t, {
+      props: { countedConversations: 916, showDeletedHint: true },
+    });
+    assert.equal(
+      one(container, "data-content-gap").textContent,
+      `916 Konversationen gezählt, 0 davon einsehbar. ${GAP_TAIL}`
+    );
+    assert.doesNotMatch(
+      container.textContent,
+      /Keine Konversationen vorhanden/
+    );
+    assert.equal(withAttribute(container, "data-deleted-hint").length, 0);
+    // die Zahl neben der Überschrift heißt weiter „0 einsehbar“
+    assert.equal(
+      one(container, "data-viewable-count").textContent,
+      "0 einsehbar"
+    );
+    // Einzahl
+    const single = await mountList(t, { props: { countedConversations: 1 } });
+    assert.equal(
+      one(single.container, "data-content-gap").textContent,
+      `1 Konversation gezählt, 0 davon einsehbar. ${GAP_TAIL}`
+    );
+  }
+);
+
+test(
+  "Fixliste 6, N1: teilweise Lücke – eine Zeile unter der Liste, Zahlen deutsch formatiert; der Aufbewahrungs-Hinweis geht darin auf",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [row(1), row(2), row(3)] });
+    const { container } = await mountList(t, {
+      props: { countedConversations: 1234, showDeletedHint: true },
+    });
+    assert.equal(rowsOf(container).length, 3);
+    const [gap] = withAttribute(container, "data-content-gap");
+    assert.equal(
+      gap.textContent,
+      `1.234 Konversationen gezählt, 3 davon einsehbar. ${GAP_TAIL}`
+    );
+    // dezent wie bisher der Hinweis auf die Aufbewahrungsfrist
+    assert.match(gap.getAttribute("class"), /\btext-xs\b/);
+    // unter der Liste, nicht darin
+    const list = one(container, "data-conversation-list");
+    assert.equal(withAttribute(list, "data-content-gap").length, 0);
+    const order = elements(container, () => true);
+    assert.ok(
+      order.indexOf(gap) > order.indexOf(list),
+      "Hinweis steht nach der Liste"
+    );
+    assert.equal(withAttribute(container, "data-deleted-hint").length, 0);
+    assert.equal(withAttribute(container, "data-content-gap").length, 1);
+  }
+);
+
+test(
+  "Fixliste 6, N1: kein Hinweis bei vollständigem Bestand (einsehbar ≥ gezählt), ohne passende Kennzahl, bei Filter, Suche oder Säule",
+  { skip },
+  async (t) => {
+    const state = {
+      rows: [
+        row(1, { negative_count: 1 }),
+        row(2, { preview: "Spanisch?" }),
+        row(3),
+      ],
+    };
+    await panelServer(t, state);
+    const gaps = (container) =>
+      withAttribute(container, "data-content-gap").length;
+
+    // gleich viele und mehr einsehbar als gezählt (weitergeführte ältere
+    // Konversationen): kein Hinweis, der Aufbewahrungs-Hinweis wie bisher
+    for (const countedConversations of [3, 2, 0, null]) {
+      const { container } = await mountList(t, {
+        props: { countedConversations, showDeletedHint: true },
+      });
+      assert.equal(gaps(container), 0, String(countedConversations));
+      assert.equal(
+        withAttribute(container, "data-deleted-hint").length,
+        1,
+        String(countedConversations)
+      );
+    }
+
+    // Bewertungsfilter, Suche, Säule: dort gilt „X von Y einsehbar“
+    const negative = await mountList(t, {
+      props: { countedConversations: 50, feedbackFilter: "negative" },
+    });
+    assert.equal(gaps(negative.container), 0);
+    const searched = await mountList(t, {
+      query: "?q=spanisch",
+      props: { countedConversations: 50 },
+    });
+    assert.equal(rowsOf(searched.container).length, 1);
+    assert.equal(gaps(searched.container), 0);
+    const bucketed = await mountList(t, {
+      props: {
+        countedConversations: 50,
+        bucket: {
+          start: "2026-10-12",
+          end: "2026-10-12",
+          label: "Mo., 12.10.2026",
+        },
+      },
+    });
+    assert.equal(gaps(bucketed.container), 0);
+
+    // leere Liste mit Filter: der Leerzustand des Filters, kein Hinweis
+    state.rows = [];
+    const emptyNegative = await mountList(t, {
+      props: { countedConversations: 50, feedbackFilter: "negative" },
+    });
+    assert.equal(gaps(emptyNegative.container), 0);
+    assert.match(
+      emptyNegative.container.textContent,
+      /Keine Konversationen mit negativer Bewertung\./
+    );
+    // ohne Kennzahl der leere Zustand wie bisher
+    const plain = await mountList(t, { props: { countedConversations: 0 } });
+    assert.equal(gaps(plain.container), 0);
+    assert.match(plain.container.textContent, /Keine Konversationen vorhanden/);
+  }
+);
+
+test(
+  "Fixliste 6, N1: Ansicht – die Kennzahl „Konversationen“ des Zeitraums geht an die Liste; nur bei Berliner Tagesgrenzen des Browsers, nicht mit Bewertungsfilter",
+  { skip },
+  async (t) => {
+    // Zählerbuch (panelServer): 60 Konversationen gezählt; Liste: 2
+    await panelServer(t, { rows: [row(1), row(2)] });
+    const mounted = await renderer.mount(VIEW, {
+      location: LOCATION,
+      exportName: "AnalyticsScreen",
+      props: {
+        embedsLoaded: true,
+        embeds: [
+          { id: EMBED_ID, chat_retention_days: 30, workspace: { name: "VHS" } },
+        ],
+      },
+    });
+    t.after(() => mounted.unmount());
+    const { container, act } = mounted;
+    for (let i = 0; i < 4; i++) await act();
+    assert.equal(rowsOf(container).length, 2);
+    // Der Browser rechnet in Berliner Zeit, wenn seine Tagesgrenzen die
+    // Berliner sind (Winter UTC+1, Sommer UTC+2) – sonst zählen Liste und
+    // Zählerbuch verschiedene Stunden, und der Hinweis entfällt.
+    const berlinBrowser =
+      new Date(2026, 0, 15).getTimezoneOffset() === -60 &&
+      new Date(2026, 6, 15).getTimezoneOffset() === -120;
+    const gaps = () =>
+      withAttribute(container, "data-content-gap").map((e) => e.textContent);
+    assert.deepEqual(
+      gaps(),
+      berlinBrowser
+        ? [`60 Konversationen gezählt, 2 davon einsehbar. ${GAP_TAIL}`]
+        : []
+    );
+    // nie zusammen mit dem Hinweis auf die Aufbewahrungsfrist
+    assert.ok(
+      gaps().length + withAttribute(container, "data-deleted-hint").length <= 1
+    );
+
+    // Bewertungsfilter: kein Hinweis (dort „X von Y einsehbar“)
+    const [negative] = elements(
+      one(container, "data-feedback-filters"),
+      (e) => e.tagName === "BUTTON" && /Negativ/.test(e.textContent)
+    );
+    await act(() => click(negative));
+    for (let i = 0; i < 4; i++) await act();
+    assert.deepEqual(gaps(), []);
+  }
+);

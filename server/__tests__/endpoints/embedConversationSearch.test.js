@@ -45,6 +45,7 @@ const {
   ROUTES,
   conversationsBody,
   exportBody,
+  summaryBody,
 } = require("./support/embedAnalyticsRequests");
 const {
   createTestDatabase,
@@ -66,12 +67,14 @@ const {
   SEARCH_MAX_LENGTH,
 } = require("../../utils/helpers/chat/conversationSearch");
 const { EmbedChats } = require("../../models/embedChats");
+const { berlinDayOf } = require("../../utils/helpers/billingWindow");
 
 const routes = collectRoutes(embedManagementEndpoints);
 const route = ({ method, path }) => routes[`${method} ${path}`];
 const CONVERSATIONS = route(ROUTES.conversations);
 const EXPORT = route(ROUTES.export);
 const DETAILS = route(ROUTES.details);
+const SUMMARY = route(ROUTES.summary);
 
 // Der erste Test jeder Datei erzeugt die Vorlage mit `prisma migrate deploy`.
 jest.setTimeout(60000);
@@ -2080,5 +2083,104 @@ describe("export mit suche (Fixliste 3, C2/C10)", () => {
     EmbedChats.EXPORT_SEARCH_MAX_HITS = 1;
     const plain = await exportFile(embed, "json", OCTOBER);
     expect(JSON.parse(plain.body)).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 6, N1: Die Liste zeigt bei vollständigem Bestand mindestens so
+// viele Konversationen, wie die Kennzahl „Konversationen“ (Zählerbuch) für
+// dieselben Berliner Tage zählt – weniger nur, wenn Inhalte fehlen. Darauf
+// stützt sich der Hinweis der Liste (frontend utils/conversationView.js,
+// hasContentGap: „einsehbar < gezählt“).
+// ---------------------------------------------------------------------------
+
+describe("gezählt und einsehbar (Fixliste 6, N1)", () => {
+  /** Eine Nachricht wie im Widget: Zeile und Zählerbuch (EmbedChats.new). */
+  async function chat(embed, sessionId, conversationId = null) {
+    const { chat: created, message } = await EmbedChats.new({
+      embedId: embed.id,
+      prompt: "Frage",
+      response: { text: "Antwort" },
+      sessionId,
+      conversationId,
+    });
+    expect(message).toBeNull();
+    return created;
+  }
+
+  /**
+   * Kennzahl und Liste ohne Filter für dieselben Berliner Tage: vom Tag der
+   * ersten Widget-Nachricht bis heute (bei einem Lauf über Mitternacht zwei
+   * Tage).
+   */
+  async function counts(embed, first) {
+    const fromDay = berlinDayOf(first.createdAt);
+    const toDay = berlinDayOf(new Date());
+    const summary = await invoke(SUMMARY, {
+      params: { embedId: String(embed.id) },
+      body: summaryBody(fromDay, toDay),
+      token: admin.token,
+    });
+    expect(summary.statusCode).toBe(200);
+    const list = await listPage(embed, period(fromDay, toDay));
+    expect(list.statusCode).toBe(200);
+    return {
+      counted: summary.body.totals.conversations,
+      viewable: list.body.totalCount,
+    };
+  }
+
+  test("vollständiger Bestand: einsehbar ≥ gezählt – auch mit weitergeführter älterer Konversation, einer Kennung aus zwei Sitzungen und Sitzung = Kennung", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const first = await chat(embed, "s-A", "k-A");
+    await chat(embed, "s-A", "k-A");
+    await chat(embed, "s-A", "k-A");
+    await chat(embed, "s-B");
+    await chat(embed, "s-B");
+    // eine Kennung aus zwei Sitzungen: gezählt 1, in der Liste 2 Zeilen
+    await chat(embed, "s-C1", "k-C");
+    await chat(embed, "s-C2", "k-C");
+    // vor dem Zeitraum begonnen (ohne Zählerbuch), heute weitergeführt:
+    // gezählt 0, in der Liste 1
+    await addChat(embed, {
+      at: new Date(Date.now() - 3 * 86400000),
+      conversation: "k-D",
+      session: "s-D",
+    });
+    await chat(embed, "s-D", "k-D");
+    // Sitzung „X“ ohne Kennung, dann Kennung „X“ aus einer anderen Sitzung:
+    // gezählt 1, in der Liste 2
+    await chat(embed, "X");
+    await chat(embed, "s-E", "X");
+
+    expect(await counts(embed, first)).toEqual({ counted: 4, viewable: 7 });
+  });
+
+  test("Inhalte fehlen (vom Besucher geleert, gelöscht): einsehbar < gezählt", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const first = await chat(embed, "s-A", "k-A");
+    await chat(embed, "s-A", "k-A");
+    await chat(embed, "s-B");
+    expect(await counts(embed, first)).toEqual({ counted: 2, viewable: 2 });
+
+    // vom Besucher geleert (include = 0)
+    await EmbedChats.markHistoryInvalid(
+      embed.id,
+      "k-A",
+      "conversation_id",
+      "s-A"
+    );
+    expect(await counts(embed, first)).toEqual({ counted: 2, viewable: 1 });
+    // gelöscht
+    await db.client.embed_chats.deleteMany({
+      where: { embed_id: embed.id, session_id: "s-B" },
+    });
+    expect(await counts(embed, first)).toEqual({ counted: 2, viewable: 0 });
   });
 });
