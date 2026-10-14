@@ -14,8 +14,10 @@ import Embed from "@/models/embed";
 import { formatNumber } from "@/utils/analyticsTimeline";
 import { formatDateTimeDE } from "@/utils/directories";
 import showToast from "@/utils/toast";
-import MarkdownRenderer from "../EmbedChats/MarkdownRenderer";
+import MarkdownRenderer from "./MarkdownRenderer";
 import Pagination from "@/components/Pagination";
+import DeleteConversation from "./DeleteConversation";
+import ExportMenu from "./ExportMenu";
 
 function timeAgo(timestamp, t) {
   const now = Date.now();
@@ -141,6 +143,8 @@ export default function ConversationList({
   // sobald der frühere Zuschnitt wieder gilt (Filter an und wieder aus).
   if (page.scope !== scope) setPage({ scope, offset: 0 });
   const offset = page.scope === scope ? page.offset : 0;
+  // KIE-538: Nach dem Löschen einer Konversation lädt die Liste neu.
+  const [reloadCount, setReloadCount] = useState(0);
 
   useEffect(() => {
     if (!embedId) return;
@@ -169,6 +173,17 @@ export default function ConversationList({
       if (ignore) return;
 
       if (success) {
+        // KIE-538: Die Seite gibt es nicht mehr (ihre letzten Konversationen
+        // wurden gelöscht) → zur letzten vorhandenen Seite. Nur, wenn die
+        // weiter vorn liegt: Liste und Zähler sind auf dem Server zwei
+        // Abfragen. Nennt der Zähler zu einer leeren Seite dieselbe Seite,
+        // lädt nichts mehr nach – die Liste bliebe bei „Laden…" stehen.
+        const lastOffset =
+          (Math.ceil(total / ITEMS_PER_PAGE) - 1) * ITEMS_PER_PAGE;
+        if ((data || []).length === 0 && total > 0 && lastOffset < offset) {
+          setPage({ scope, offset: lastOffset });
+          return;
+        }
         setConversations(data || []);
         setHasMore(more);
         setTotalCount(total || 0);
@@ -190,6 +205,8 @@ export default function ConversationList({
     feedbackFilter,
     bucketStart,
     bucketEnd,
+    scope,
+    reloadCount,
     t,
   ]);
 
@@ -265,6 +282,16 @@ export default function ConversationList({
               </button>
             );
           })}
+          {/* KIE-538: Export der Auswahl, die die Liste gerade zeigt */}
+          <ExportMenu
+            embedId={embedId}
+            startDate={startDate}
+            endDate={endDate}
+            feedbackFilter={feedbackFilter}
+            bucket={bucket}
+            disabled={loading || totalCount === 0}
+            className={`${toggleBaseClass} ${toggleInactiveClass}`}
+          />
         </div>
       </div>
 
@@ -279,9 +306,12 @@ export default function ConversationList({
           <div className="space-y-4">
             {conversations.map((conv) => (
               <ConversationCard
-                key={conv.conversation_id}
+                // KIE-538: Die Kennung vergibt der Besucher, zwei Sitzungen
+                // können dieselbe tragen – eindeutig ist die erste Zeile.
+                key={conv.first_chat_id}
                 conversation={conv}
                 embedId={embedId}
+                onDeleted={() => setReloadCount((count) => count + 1)}
               />
             ))}
           </div>
@@ -314,7 +344,7 @@ export default function ConversationList({
   );
 }
 
-function ConversationCard({ conversation, embedId }) {
+function ConversationCard({ conversation, embedId, onDeleted }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState(null);
@@ -326,13 +356,13 @@ function ConversationCard({ conversation, embedId }) {
   const handleToggle = async () => {
     if (!expanded && !messages) {
       setLoading(true);
-      // KIE-507-Fix: nach conversation_id laden (nicht session_id) — sonst
-      // matcht der Detail-Abruf ALLE Nachrichten der Session statt nur dieser
-      // einen Konversation. Für Alt-Chats ist conversation_id == session_id
-      // (COALESCE aus getConversations), daher rückwärtskompatibel.
+      // KIE-538: über die erste Zeile der Karte laden (first_chat_id), nicht
+      // über conversation_id oder session_id — der Detail-Abruf liefert so
+      // genau die Nachrichten dieser einen Konversation, auch wenn eine
+      // andere Sitzung dieselbe Kennung trägt.
       const { success, messages: data } = await Embed.getConversationDetails(
         embedId,
-        conversation.conversation_id
+        conversation.first_chat_id
       );
 
       if (success) {
@@ -568,6 +598,14 @@ function ConversationCard({ conversation, embedId }) {
             <div className="text-center py-4 text-theme-text-secondary text-sm">
               {t("embed-analytics.conversations.no-messages")}
             </div>
+          )}
+          {/* KIE-538: „Konversation löschen" am Fuß der aufgeklappten Konversation */}
+          {!loading && (
+            <DeleteConversation
+              embedId={embedId}
+              conversation={conversation}
+              onDeleted={onDeleted}
+            />
           )}
         </div>
       )}

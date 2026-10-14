@@ -48,6 +48,9 @@ const { handleEmbedLogoUpload } = require("../../utils/files/multer");
 const { deleteOldEmbedLogo } = require("../../utils/files/embedLogo");
 const { embedManagementEndpoints } = require("../../endpoints/embedManagement");
 const {
+  chatHistoryViewable,
+} = require("../../utils/middleware/chatHistoryViewable");
+const {
   collectRoutes,
   invoke,
   setMultiUserMode,
@@ -59,12 +62,19 @@ const ROUTE = {
   create: routes["POST /embeds/new"],
   update: routes["POST /embed/update/:embedId"],
   remove: routes["DELETE /embed/:embedId"],
-  deleteChat: routes["DELETE /embed/chats/:chatId"],
+  // KIE-538: tritt an die Stelle von DELETE /embed/chats/:chatId (einzelne
+  // Nachricht), das mit der Nachrichtentabelle entfallen ist. Die Konversation
+  // bezeichnet der Rumpf über die id ihrer ersten Zeile ({ chatId }).
+  // Ausführlich geprüft in models/embedChatsDeleteConversation.test.js.
+  deleteConversation: routes["DELETE /embed/:embedId/conversation"],
+  // Flache Nachrichtenliste der entfallenen Nachrichtentabelle: bleibt
+  // bestehen (siehe „nachrichtentabelle_entfallen").
+  chats: routes["POST /embed/chats"],
   clearChats: routes["DELETE /embed-chats/clear/:embedId"],
   uploadLogo: routes["POST /embed/:embedId/upload-logo"],
   removeLogo: routes["DELETE /embed/:embedId/remove-logo"],
   overview: routes["POST /embed/:embedId/analytics/overview"],
-  conversation: routes["GET /embed/:embedId/conversation/:sessionId"],
+  conversation: routes["GET /embed/:embedId/conversation/:chatId"],
 };
 // Vergleichsroute für AK-13 (KIE-527): dieselbe Ablehnung bei abgeschaltetem
 // Chat-Verlauf.
@@ -146,6 +156,97 @@ test("alle geprüften Routen sind registriert", () => {
 });
 
 // ============================================================================
+// KIE-538 — Die Nachrichtentabelle ist entfallen
+// ============================================================================
+describe("nachrichtentabelle_entfallen (KIE-538)", () => {
+  const registered = (method) =>
+    Object.keys(routes)
+      .filter((key) => key.startsWith(`${method} `))
+      .sort();
+
+  test("DELETE /embed/chats/:chatId (einzelne Nachricht) gibt es nicht mehr - gelöscht wird nur über genau diese Routen", () => {
+    expect(routes["DELETE /embed/chats/:chatId"]).toBeUndefined();
+    // Positivliste: Eine weitere Lösch-Route (etwa nach einer
+    // Konfliktauflösung) fällt hier auf.
+    expect(registered("DELETE")).toEqual([
+      "DELETE /embed-chats/clear/:embedId",
+      "DELETE /embed/:embedId",
+      "DELETE /embed/:embedId/conversation",
+      "DELETE /embed/:embedId/conversation/visitor",
+      "DELETE /embed/:embedId/remove-logo",
+    ]);
+  });
+
+  test("Keine Lösch-Route trägt eine vom Besucher vergebene Kennung in der Adresse - der einzige Platzhalter ist :embedId", () => {
+    // "." und ".." löst der Browser als Pfadsegmente auf: Aus
+    // DELETE /embed/5/conversation/.. würde DELETE /embed/5/, das Widget.
+    for (const key of registered("DELETE"))
+      expect([key, key.match(/:\w+/g)]).toEqual([key, [":embedId"]]);
+    // Auch die Einzelansicht nennt die Konversation nicht mehr über eine
+    // Kennung des Besuchers, sondern über die id einer Zeile.
+    expect(
+      Object.keys(routes).filter((key) =>
+        /:(conversationId|sessionId)\b/.test(key)
+      )
+    ).toEqual([]);
+  });
+
+  test("Konversationen löschen nur mit Einsichtsrecht: chatHistoryViewable steht an erster Stelle (NAK-5)", () => {
+    for (const key of [
+      "DELETE /embed/:embedId/conversation",
+      "DELETE /embed/:embedId/conversation/visitor",
+      "POST /embed/:embedId/conversation/deletion-preview",
+    ])
+      expect([key, routes[key][0]]).toEqual([key, chatHistoryViewable]);
+  });
+
+  describe("POST /embed/chats bleibt (ohne Aufrufer in der Oberfläche)", () => {
+    const list = (token = null, body = {}) =>
+      invoke(ROUTE.chats, { body, token });
+
+    test("default: nur Nachrichten der Widgets seiner Workspaces", async () => {
+      const kunde = createUser(prisma, "default", [workspaceA.id]);
+      const result = await list(kunde.token);
+      expect(result.statusCode).toBe(200);
+      expect(result.body.chats.map((chat) => chat.id)).toEqual([chatA.id]);
+      expect(result.body.totalChats).toBe(1);
+      expect(result.body.hasPages).toBe(false);
+
+      const ohne = createUser(prisma, "default", []);
+      expect((await list(ohne.token)).body).toEqual({
+        chats: [],
+        hasPages: false,
+        totalChats: 0,
+      });
+    });
+
+    test("admin und manager: alle Widgets; ohne Mehrbenutzermodus keine Prüfung", async () => {
+      for (const role of ["admin", "manager"]) {
+        const result = await list(createUser(prisma, role).token);
+        expect(result.statusCode).toBe(200);
+        expect(result.body.chats.map((chat) => chat.id)).toEqual([
+          chatB.id,
+          chatA.id,
+        ]);
+        expect(result.body.totalChats).toBe(2);
+      }
+      setMultiUserMode(prisma, false);
+      expect((await list()).body.totalChats).toBe(2);
+    });
+
+    test("Chat-Verlauf abgeschaltet (DISABLE_VIEW_CHAT_HISTORY): 422 für jede Rolle, ohne Inhalte", async () => {
+      process.env.DISABLE_VIEW_CHAT_HISTORY = "1";
+      for (const role of ["admin", "manager", "default"]) {
+        const user = createUser(prisma, role, [workspaceA.id]);
+        const result = await list(user.token);
+        expect([role, result.statusCode]).toEqual([role, 422]);
+        expect(JSON.stringify(result.body)).not.toMatch(/Wann beginnt/);
+      }
+    });
+  });
+});
+
+// ============================================================================
 // AK-3 — Fremdes Widget
 // ============================================================================
 describe("fremdes_widget (AK-3)", () => {
@@ -164,9 +265,12 @@ describe("fremdes_widget (AK-3)", () => {
       ROUTE.remove,
       { params: { embedId: String(embedB.id) } },
     ],
-    "Chat löschen": [
-      ROUTE.deleteChat,
-      { params: { chatId: String(chatB.id) } },
+    "Konversation löschen": [
+      ROUTE.deleteConversation,
+      {
+        params: { embedId: String(embedB.id) },
+        body: { chatId: chatB.id },
+      },
     ],
     "Chats leeren": [
       ROUTE.clearChats,
@@ -189,7 +293,7 @@ describe("fremdes_widget (AK-3)", () => {
   test.each([
     "Widget ändern",
     "Widget löschen",
-    "Chat löschen",
+    "Konversation löschen",
     "Chats leeren",
     "Logo hochladen",
     "Logo entfernen",
@@ -232,6 +336,7 @@ describe("fremdes_widget (AK-3)", () => {
       ROUTE.uploadLogo,
       ROUTE.removeLogo,
       ROUTE.overview,
+      ROUTE.deleteConversation,
     ]) {
       for (const embedId of ["9999", "abc", "-1", "0"]) {
         const result = await invoke(chain, {
@@ -242,17 +347,6 @@ describe("fremdes_widget (AK-3)", () => {
         expect(result.statusCode).toBe(403);
       }
     }
-  });
-
-  test("unbekannter Chat: 403, nichts gelöscht", async () => {
-    for (const chatId of ["9999", "abc", "-1"]) {
-      const result = await invoke(ROUTE.deleteChat, {
-        params: { chatId },
-        token: kunde.token,
-      });
-      expect(result.statusCode).toBe(403);
-    }
-    expect(chatIds()).toEqual([chatA.id, chatB.id]);
   });
 
   test("Chats leeren: auch das eigene Widget und der Gesamtbestand bleiben admin/manager vorbehalten", async () => {
@@ -287,9 +381,11 @@ describe("fremdes_widget (AK-3)", () => {
         params: {
           embedId: String(embedB.id),
           chatId: String(chatB.id),
-          sessionId: chatB.session_id,
         },
-        body: { workspace_id: workspaceB.id },
+        body: {
+          workspace_id: workspaceB.id,
+          chatId: chatB.id,
+        },
       });
       expect([name, result.statusCode]).toEqual([name, 401]);
     }
@@ -308,7 +404,11 @@ describe("konversation_detail (AK-13)", () => {
   beforeEach(() => {
     // Zugriff auf A und C, nicht auf B
     kunde = createUser(prisma, "default", [workspaceA.id, workspaceC.id]);
-    // Je Widget eine Konversation mit zwei Nachrichten
+    // Je Widget eine zweite Konversation in derselben Browser-Sitzung, mit
+    // eigener Kennung. KIE-538: Die Einzelansicht zeigt eine Konversation wie
+    // Liste, Export und Löschen sie verstehen - bezeichnet über die id einer
+    // ihrer Zeilen: die Alt-Zeilen ohne conversation_id (chatA/chatB) oder
+    // die Konversation mit eigener Kennung, nicht die ganze Sitzung.
     followUpA = seedChat(embedA, {
       prompt: "Und wo findet er statt?",
       response: JSON.stringify({ text: "Im Haus der Bildung." }),
@@ -326,13 +426,13 @@ describe("konversation_detail (AK-13)", () => {
     detailSpy.mockRestore();
   });
 
-  const detail = (embedId, sessionId, token = null) =>
+  const detail = (embedId, chatId, token = null) =>
     invoke(ROUTE.conversation, {
-      params: { embedId: String(embedId), sessionId },
+      params: { embedId: String(embedId), chatId: String(chatId) },
       token,
     });
 
-  // Antwort wie vor der Änderung: genau die Felder aus getConversationDetails.
+  // Felder wie vor KIE-533: genau die aus getConversationDetails.
   const message = (chat) => ({
     id: chat.id,
     prompt: chat.prompt,
@@ -347,12 +447,12 @@ describe("konversation_detail (AK-13)", () => {
 
   describe("Rolle default", () => {
     test.each([
-      ["über die session_id", () => chatB.session_id],
-      ["über die conversation_id", () => followUpB.conversation_id],
+      ["Alt-Konversation", () => chatB.id],
+      ["Konversation mit eigener Kennung", () => followUpB.id],
     ])(
-      "fremdes Widget %s: 403 ohne Inhalte, nichts abgefragt",
-      async (_name, sessionId) => {
-        const result = await detail(embedB.id, sessionId(), kunde.token);
+      "fremdes Widget, %s: 403 ohne Inhalte, nichts abgefragt",
+      async (_name, chatId) => {
+        const result = await detail(embedB.id, chatId(), kunde.token);
 
         expect(result.statusCode).toBe(403);
         expect(result.body).toBeUndefined();
@@ -362,7 +462,7 @@ describe("konversation_detail (AK-13)", () => {
 
     test("unbekanntes Widget ist von einem fremden nicht zu unterscheiden (403)", async () => {
       for (const embedId of ["9999", "abc", "-1", "0"]) {
-        const result = await detail(embedId, chatB.session_id, kunde.token);
+        const result = await detail(embedId, chatB.id, kunde.token);
         expect([embedId, result.statusCode]).toEqual([embedId, 403]);
         expect(result.body).toBeUndefined();
       }
@@ -375,33 +475,25 @@ describe("konversation_detail (AK-13)", () => {
         [embedA, chatA],
         [embedB, chatB],
       ]) {
-        const result = await detail(
-          embed.id,
-          chat.session_id,
-          ohneWorkspace.token
-        );
+        const result = await detail(embed.id, chat.id, ohneWorkspace.token);
         expect(result.statusCode).toBe(403);
         expect(result.body).toBeUndefined();
       }
       expect(detailSpy).not.toHaveBeenCalled();
     });
 
-    test("eigenes Widget: Antwort unverändert", async () => {
-      const result = await detail(embedA.id, chatA.session_id, kunde.token);
+    test("eigenes Widget, Alt-Konversation: die Alt-Zeilen der Sitzung, nicht ihre übrigen Konversationen", async () => {
+      const result = await detail(embedA.id, chatA.id, kunde.token);
 
       expect(result.statusCode).toBe(200);
       expect(result.body).toEqual({
         success: true,
-        messages: [message(chatA), message(followUpA)],
+        messages: [message(chatA)],
       });
     });
 
-    test("eigenes Widget über die conversation_id", async () => {
-      const result = await detail(
-        embedA.id,
-        followUpA.conversation_id,
-        kunde.token
-      );
+    test("eigenes Widget, Konversation mit eigener Kennung", async () => {
+      const result = await detail(embedA.id, followUpA.id, kunde.token);
 
       expect(result.statusCode).toBe(200);
       expect(result.body).toEqual({
@@ -411,8 +503,23 @@ describe("konversation_detail (AK-13)", () => {
     });
 
     test("fremde Konversation über das eigene Widget: keine Inhalte", async () => {
-      for (const sessionId of [chatB.session_id, followUpB.conversation_id]) {
-        const result = await detail(embedA.id, sessionId, kunde.token);
+      // die Zeilen des fremden Widgets - und dessen Kennungen, die seit
+      // KIE-538 nichts mehr bezeichnen
+      for (const chatId of [
+        chatB.id,
+        followUpB.id,
+        chatB.session_id,
+        followUpB.conversation_id,
+      ]) {
+        const result = await detail(embedA.id, chatId, kunde.token);
+        expect(result.statusCode).toBe(200);
+        expect(result.body).toEqual({ success: true, messages: [] });
+      }
+    });
+
+    test("Kennungen des eigenen Widgets bezeichnen keine Konversation mehr: keine Inhalte", async () => {
+      for (const key of [chatA.session_id, followUpA.conversation_id]) {
+        const result = await detail(embedA.id, key, kunde.token);
         expect(result.statusCode).toBe(200);
         expect(result.body).toEqual({ success: true, messages: [] });
       }
@@ -431,17 +538,19 @@ describe("konversation_detail (AK-13)", () => {
         [embedA, chatA, followUpA],
         [embedB, chatB, followUpB],
       ]) {
-        const result = await detail(embed.id, chat.session_id, user.token);
-        expect(result.statusCode).toBe(200);
-        expect(result.body).toEqual({
-          success: true,
-          messages: [message(chat), message(followUp)],
-        });
+        for (const row of [chat, followUp]) {
+          const result = await detail(embed.id, row.id, user.token);
+          expect(result.statusCode).toBe(200);
+          expect(result.body).toEqual({
+            success: true,
+            messages: [message(row)],
+          });
+        }
       }
     });
 
     test("unbekanntes Widget: leere Liste wie zuvor", async () => {
-      const result = await detail("9999", chatB.session_id, user.token);
+      const result = await detail("9999", chatB.id, user.token);
       expect(result.statusCode).toBe(200);
       expect(result.body).toEqual({ success: true, messages: [] });
     });
@@ -453,12 +562,14 @@ describe("konversation_detail (AK-13)", () => {
       [embedA, chatA, followUpA],
       [embedB, chatB, followUpB],
     ]) {
-      const result = await detail(embed.id, chat.session_id);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toEqual({
-        success: true,
-        messages: [message(chat), message(followUp)],
-      });
+      for (const row of [chat, followUp]) {
+        const result = await detail(embed.id, row.id);
+        expect(result.statusCode).toBe(200);
+        expect(result.body).toEqual({
+          success: true,
+          messages: [message(row)],
+        });
+      }
     }
   });
 
@@ -483,7 +594,7 @@ describe("konversation_detail (AK-13)", () => {
             body: {},
             token: user.token,
           });
-          const result = await detail(embed.id, chat.session_id, user.token);
+          const result = await detail(embed.id, chat.id, user.token);
 
           expect(list.statusCode).toBe(422);
           expect([user.role, result.statusCode]).toEqual([user.role, 422]);
@@ -500,7 +611,7 @@ describe("konversation_detail (AK-13)", () => {
         params: { embedId: String(embedB.id) },
         body: {},
       });
-      const result = await detail(embedB.id, chatB.session_id);
+      const result = await detail(embedB.id, chatB.id);
 
       expect(result.statusCode).toBe(422);
       expect(result.body).toBe(list.body);
@@ -584,13 +695,14 @@ describe("eigenes_widget (AK-4)", () => {
     expect(result.body.stats.total_chats).toBe(1);
   });
 
-  test("eigenen Chat löschen und eigenes Widget löschen wie zuvor", async () => {
-    const chat = await invoke(ROUTE.deleteChat, {
-      params: { chatId: String(chatA.id) },
+  test("Konversation des eigenen Widgets löschen (KIE-538) und eigenes Widget löschen wie zuvor", async () => {
+    const chat = await invoke(ROUTE.deleteConversation, {
+      params: { embedId: String(embedA.id) },
+      body: { chatId: chatA.id },
       token: kunde.token,
     });
     expect(chat.statusCode).toBe(200);
-    expect(chat.body).toEqual({ success: true, error: null });
+    expect(chat.body).toEqual({ success: true, deletedCount: 1 });
     expect(chatIds()).toEqual([chatB.id]);
 
     const widget = await invoke(ROUTE.remove, {
@@ -867,8 +979,9 @@ describe("ohne_mehrbenutzer (NAK-2)", () => {
     expect(overview.statusCode).toBe(200);
     expect(overview.body.stats.total_chats).toBe(1);
 
-    const chat = await invoke(ROUTE.deleteChat, {
-      params: { chatId: String(chatA.id) },
+    const chat = await invoke(ROUTE.deleteConversation, {
+      params: { embedId: String(embedA.id) },
+      body: { chatId: chatA.id },
     });
     expect(chat.statusCode).toBe(200);
     expect(chatIds()).toEqual([chatB.id]);
@@ -956,8 +1069,9 @@ describe("admin_manager (NAK-3)", () => {
       expect(overview.statusCode).toBe(200);
       expect(overview.body.stats.total_chats).toBe(1);
 
-      const chat = await invoke(ROUTE.deleteChat, {
-        params: { chatId: String(chatA.id) },
+      const chat = await invoke(ROUTE.deleteConversation, {
+        params: { embedId: String(embedA.id) },
+        body: { chatId: chatA.id },
         token: user.token,
       });
       expect(chat.statusCode).toBe(200);

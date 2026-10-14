@@ -19,11 +19,21 @@ const {
   embedDefaultsLanguage,
   embedDefaultTexts,
 } = require("../utils/chats/embedDefaults");
-const { berlinMidnight } = require("../utils/helpers/billingWindow");
+const {
+  berlinMidnight,
+  berlinDayOf,
+} = require("../utils/helpers/billingWindow");
 const {
   validateDayRange,
   nextDay,
 } = require("../utils/helpers/ledgerTimeline");
+const {
+  EXPORT_FORMATS,
+  conversationExport,
+  primed,
+  writeChunks,
+  exportFileName,
+} = require("../utils/helpers/chat/embedConversationExport");
 
 /**
  * KIE-533: Darf der Nutzer auf diesen Workspace zugreifen?
@@ -70,6 +80,49 @@ async function validEmbedAccess(request, response, next) {
     return;
   }
   next();
+}
+
+/**
+ * KIE-538: Die Auswahl der Konversationsliste aus dem Rumpf einer Anfrage -
+ * Zeitraum, Feedback-Filter und Abschnitts-Filter. Die Liste
+ * (analytics/conversations) und der Export (analytics/export) lesen sie über
+ * diese eine Stelle: Dieselben Parameter ergeben dieselben Konversationen.
+ * @param {object} body
+ * @returns {{filter: "all"|"negative"|"positive", start: Date|null, end: Date|null, startedBetween: {start: Date, endExclusive: Date}|null, error: string|null}}
+ *   error: der Abschnitt besteht nicht aus gültigen Kalendertagen (→ 400)
+ */
+function conversationSelection(body) {
+  const {
+    startDate,
+    endDate,
+    onlyNegative = false, // KIE-508 (Legacy-Boolean, bleibt gültig)
+    feedbackFilter, // KIE-527: "all" | "negative" | "positive"
+    startedFromDay, // KIE-536
+    startedToDay, // KIE-536
+  } = body ?? {};
+
+  // Neuer Parameter gewinnt (auch bei "" oder ungültigem Wert → "all");
+  // nur wenn er fehlt (undefined/null), greift der Legacy-Boolean.
+  const filter = EmbedChats.normalizeFeedbackFilter(
+    feedbackFilter ?? !!onlyNegative
+  );
+  const start = startDate ? new Date(startDate) : null;
+  const end = endDate ? new Date(endDate) : null;
+
+  // KIE-536: Der Abschnitt kommt als Kalendertage und wird hier zu den
+  // Berliner Grenzen [00:00 des ersten Tages, 00:00 nach dem letzten).
+  // Fehlt er (undefined/null), bleibt alles wie bisher.
+  let startedBetween = null;
+  if (startedFromDay != null || startedToDay != null) {
+    const range = validateDayRange(startedFromDay, startedToDay);
+    if (!range.valid)
+      return { filter, start, end, startedBetween, error: range.error };
+    startedBetween = {
+      start: berlinMidnight(startedFromDay),
+      endExclusive: berlinMidnight(nextDay(startedToDay)),
+    };
+  }
+  return { filter, start, end, startedBetween, error: null };
 }
 
 function embedManagementEndpoints(app) {
@@ -247,31 +300,9 @@ function embedManagementEndpoints(app) {
     }
   );
 
-  app.delete(
-    "/embed/chats/:chatId",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
-    async (request, response) => {
-      try {
-        const user = await userFromSession(request, response);
-        const { chatId } = request.params;
-
-        // KIE-533: Default-User löschen nur Chats von Widgets ihrer Workspaces.
-        if (user?.role === ROLES.default) {
-          const chat = await EmbedChats.get({ id: Number(chatId) });
-          if (!chat || !(await userCanAccessEmbed(user, chat.embed_id))) {
-            response.sendStatus(403).end();
-            return;
-          }
-        }
-
-        await EmbedChats.delete({ id: Number(chatId) });
-        response.status(200).json({ success: true, error: null });
-      } catch (e) {
-        console.error(e);
-        response.sendStatus(500).end();
-      }
-    }
-  );
+  // KIE-538: DELETE /embed/chats/:chatId (einzelne Nachricht löschen) ist mit
+  // der Nachrichtentabelle entfallen. Gelöscht wird die ganze Konversation:
+  // DELETE /embed/:embedId/conversation (weiter unten).
 
   // Get conversations (global view, grouped by conversation_id)
   app.post(
@@ -458,16 +489,8 @@ function embedManagementEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const embedId = Number(request.params.embedId);
-        const {
-          offset = 0,
-          limit = 20,
-          startDate,
-          endDate,
-          onlyNegative = false, // KIE-508 (Legacy-Boolean, bleibt gültig)
-          feedbackFilter, // KIE-527: "all" | "negative" | "positive"
-          startedFromDay, // KIE-536
-          startedToDay, // KIE-536
-        } = reqBody(request);
+        const body = reqBody(request);
+        const { offset = 0, limit = 20 } = body;
 
         if (user?.role === ROLES.default) {
           const embed = await EmbedConfig.get({ id: embedId });
@@ -480,28 +503,18 @@ function embedManagementEndpoints(app) {
           if (!membership) return response.sendStatus(403).end();
         }
 
-        // Neuer Parameter gewinnt (auch bei "" oder ungültigem Wert → "all");
-        // nur wenn er fehlt (undefined/null), greift der Legacy-Boolean.
-        const filter = EmbedChats.normalizeFeedbackFilter(
-          feedbackFilter ?? !!onlyNegative
-        );
-        const start = startDate ? new Date(startDate) : null;
-        const end = endDate ? new Date(endDate) : null;
-
-        // KIE-536: Der Abschnitt kommt als Kalendertage und wird hier zu den
-        // Berliner Grenzen [00:00 des ersten Tages, 00:00 nach dem letzten).
-        // Fehlt er (undefined/null), bleibt alles wie bisher.
-        let startedBetween = null;
-        if (startedFromDay != null || startedToDay != null) {
-          const range = validateDayRange(startedFromDay, startedToDay);
-          if (!range.valid) {
-            response.status(400).json({ success: false, error: range.error });
-            return;
-          }
-          startedBetween = {
-            start: berlinMidnight(startedFromDay),
-            endExclusive: berlinMidnight(nextDay(startedToDay)),
-          };
+        // Zeitraum, Feedback-Filter und Abschnitt (KIE-508/527/536) - über
+        // dieselbe Stelle wie der Export (KIE-538).
+        const {
+          filter,
+          start,
+          end,
+          startedBetween,
+          error: selectionError,
+        } = conversationSelection(body);
+        if (selectionError) {
+          response.status(400).json({ success: false, error: selectionError });
+          return;
         }
 
         // Liste und Zähler benutzen dieselbe Gruppierung + denselben Filter
@@ -525,22 +538,320 @@ function embedManagementEndpoints(app) {
     }
   );
 
+  // Analytics: Export der Konversationen einer Auswahl (KIE-538)
+  // Dieselben Parameter wie analytics/conversations (Zeitraum,
+  // Feedback-Filter, Abschnitt) plus format ("csv" | "json"); geliefert
+  // werden genau die Konversationen, die die Liste über alle Seiten zeigt.
+  // Dieselben Prüfungen wie beim Einsehen: chatHistoryViewable, Default-User
+  // nur für Widgets ihrer Workspaces (403 ohne Daten).
+  // Die Datei enthält keine IP-Adresse, keinen Host, keine Kennung der
+  // Browser-Sitzung und keine Quellen-Texte (siehe embedConversationExport).
+  // Sie wird Zeile für Zeile geschrieben, die Datenbank in Paketen gelesen.
+  // Jeder Export steht in event_logs: wer, welches Widget, Format, Zeitraum,
+  // Zahl der Konversationen und Zeilen - keine Inhalte.
+  app.post(
+    "/embed/:embedId/analytics/export",
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+      validEmbedAccess,
+      validEmbedConfigId,
+    ],
+    async (request, response) => {
+      let streaming = false;
+      try {
+        const user = await userFromSession(request, response);
+        const embedId = Number(request.params.embedId);
+        const body = reqBody(request) ?? {};
+        const { format } = body;
+
+        if (
+          typeof format !== "string" ||
+          !Object.prototype.hasOwnProperty.call(EXPORT_FORMATS, format)
+        ) {
+          response.status(400).json({
+            success: false,
+            error: "format must be one of: csv, json.",
+          });
+          return;
+        }
+
+        const selection = conversationSelection(body);
+        if (selection.error) {
+          response.status(400).json({ success: false, error: selection.error });
+          return;
+        }
+        const { filter, start, end, startedBetween } = selection;
+        // Anders als die Liste (leeres Ergebnis) lehnt der Export einen
+        // unlesbaren Zeitpunkt ab - eine leere Datei sähe aus wie „keine
+        // Konversationen".
+        if (
+          (start && isNaN(start.getTime())) ||
+          (end && isNaN(end.getTime()))
+        ) {
+          response.status(400).json({
+            success: false,
+            error: "startDate and endDate must be valid timestamps.",
+          });
+          return;
+        }
+
+        const embed = await EmbedConfig.getWithWorkspace({ id: embedId });
+        // Exportiert wird der Abschnitt, wenn einer gewählt ist, sonst der
+        // Zeitraum - als Berliner Kalendertage, wie die Zeitpunkte der Datei.
+        const fromDay = startedBetween
+          ? body.startedFromDay
+          : start
+            ? berlinDayOf(start)
+            : null;
+        const toDay = startedBetween
+          ? body.startedToDay
+          : end
+            ? berlinDayOf(end)
+            : null;
+
+        const exported = conversationExport(
+          format,
+          // Die erste Abfrage läuft, bevor die Antwort beginnt: Scheitert
+          // sie, gibt es eine 500 statt einer leeren Datei.
+          await primed(
+            EmbedChats.conversationsForExport(embedId, {
+              startDate: start,
+              endDate: end,
+              feedbackFilter: filter,
+              startedBetween,
+            })
+          )
+        );
+        const filename = exportFileName({
+          embedId,
+          workspaceName: embed?.workspace?.name,
+          fromDay,
+          toDay,
+          extension: exported.extension,
+        });
+        const logExport = (completed) =>
+          EventLogs.logEvent(
+            "embed_conversations_exported",
+            {
+              embedId,
+              format,
+              fromDay,
+              toDay,
+              startDate: start ? start.toISOString() : null,
+              endDate: end ? end.toISOString() : null,
+              feedbackFilter: filter,
+              startedFromDay: startedBetween ? body.startedFromDay : null,
+              startedToDay: startedBetween ? body.startedToDay : null,
+              conversationCount: exported.stats.conversations,
+              rowCount: exported.stats.rows,
+              completed,
+            },
+            user?.id
+          );
+
+        response.setHeader("Content-Type", exported.contentType);
+        response.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${filename}"`
+        );
+        // Der Browser liest den Dateinamen aus der Antwort (fetch).
+        response.setHeader(
+          "Access-Control-Expose-Headers",
+          "Content-Disposition"
+        );
+        response.setHeader("Cache-Control", "no-store");
+        response.status(200);
+        streaming = true;
+
+        let completed = false;
+        try {
+          completed = await writeChunks(response, exported.chunks);
+        } finally {
+          // Auch ein abgebrochener Export hat Daten ausgeliefert.
+          await logExport(completed);
+        }
+        response.end();
+      } catch (e) {
+        console.error(e);
+        // Hat die Antwort schon begonnen, lässt sich kein Fehlerstatus mehr
+        // senden: Die Verbindung wird abgebrochen, damit der Download als
+        // fehlgeschlagen gilt und nicht als vollständige Datei.
+        if (streaming) response.destroy(e);
+        else response.sendStatus(500).end();
+      }
+    }
+  );
+
   // Analytics: Get conversation details
   // KIE-533 (AK-13): wie die Konversationsliste darüber - chatHistoryViewable,
   // Default-User nur für Widgets ihrer Workspaces (sonst 403 ohne Inhalte).
+  // KIE-538: :chatId ist die id einer Zeile der Konversation - die Liste
+  // nennt die erste (first_chat_id). Gezeigt werden genau die Zeilen, die
+  // „Konversation löschen" entfernt (EmbedChats._conversationScope).
   app.get(
-    "/embed/:embedId/conversation/:sessionId",
+    "/embed/:embedId/conversation/:chatId",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]), validEmbedAccess],
     async (request, response) => {
       try {
-        const { embedId, sessionId } = request.params;
+        const { embedId, chatId } = request.params;
 
         const messages = await EmbedChats.getConversationDetails(
-          sessionId,
+          chatId,
           Number(embedId)
         );
 
         response.status(200).json({ success: true, messages });
+      } catch (e) {
+        console.error(e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // Konversation löschen: Vorschau (KIE-538)
+  // Was das Löschen entfernen würde - nur Zahlen: die Zeilen dieser
+  // Konversation und, für „Alle Konversationen dieses Besuchers löschen",
+  // Konversationen und Zeilen ihrer Browser-Sitzung in diesem Widget. Keine
+  // Inhalte, keine Sitzungs-Kennung. Prüfungen wie beim Einsehen.
+  //
+  // Hier und in den beiden Lösch-Routen darunter bezeichnet der Rumpf die
+  // Konversation: { chatId } - die id einer ihrer Zeilen, wie die Liste sie
+  // nennt (first_chat_id). Nicht ihre Kennung: Die conversation_id vergibt
+  // der Besucher (der öffentliche Chat-Endpunkt speichert sie ungeprüft).
+  // Eine zweite Sitzung kann dieselbe Kennung senden - gelöscht würde dann
+  // mit der einen Konversation die andere. Und in einer Adresse löst ein
+  // Browser "." und ".." als Pfadsegmente auf, auch kodiert (%2e%2e): Aus
+  // „Konversation .. löschen" würde DELETE /embed/:embedId, das Löschen des
+  // ganzen Widgets. Keine Lösch-Route trägt deshalb mehr als :embedId.
+  app.post(
+    "/embed/:embedId/conversation/deletion-preview",
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+      validEmbedAccess,
+      validEmbedConfigId,
+    ],
+    async (request, response) => {
+      try {
+        const { embedId } = request.params;
+        const { chatId } = reqBody(request) ?? {};
+        const preview = await EmbedChats.conversationDeletionPreview(
+          Number(embedId),
+          chatId
+        );
+        if (!preview) {
+          response.sendStatus(500).end();
+          return;
+        }
+        response.status(200).json({ success: true, ...preview });
+      } catch (e) {
+        console.error(e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // Konversation löschen (KIE-538)
+  // Löschen darf, wer die Konversationen des Widgets einsehen darf: admin und
+  // manager für jedes Widget, default für die Widgets seiner Workspaces -
+  // dieselben Prüfungen wie beim Einsehen (chatHistoryViewable,
+  // validEmbedAccess). Gelöscht werden alle Zeilen der Konversation in diesem
+  // Widget (EmbedChats.deleteConversation) - die der einen Karte der Liste,
+  // nicht die einer anderen Sitzung mit derselben Kennung. Die Zeile eines
+  // anderen Widgets bezeichnet hier keine Konversation (404). Das Zählerbuch
+  // bleibt unberührt.
+  // event_logs: wer, welches Widget, wie viele Zeilen - keine Inhalte, keine
+  // Sitzungs-Kennung. { chatId } steht im Rumpf (siehe Vorschau); fehlt die
+  // Angabe, trifft die Anfrage keine Zeile (404).
+  app.delete(
+    "/embed/:embedId/conversation",
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+      validEmbedAccess,
+      validEmbedConfigId,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const embedId = Number(request.params.embedId);
+        const { chatId } = reqBody(request) ?? {};
+        const deletedCount = await EmbedChats.deleteConversation(
+          embedId,
+          chatId
+        );
+        if (deletedCount === null) {
+          response.sendStatus(500).end();
+          return;
+        }
+        if (deletedCount === 0) {
+          response
+            .status(404)
+            .json({ success: false, error: "Conversation not found." });
+          return;
+        }
+
+        await EventLogs.logEvent(
+          "embed_conversation_deleted",
+          { embedId, deletedCount },
+          user?.id
+        );
+        response.status(200).json({ success: true, deletedCount });
+      } catch (e) {
+        console.error(e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // Alle Konversationen eines Besuchers löschen (KIE-538, AK-12)
+  // Löscht in diesem Widget alle Konversationen der Browser-Sitzung, zu der
+  // die genannte Konversation gehört; die Sitzung bestimmt der Server aus
+  // der Zeile, sie steht weder in der Anfrage noch in der Antwort oder im
+  // Protokoll. Prüfungen und Protokoll wie beim Löschen einer Konversation.
+  // { chatId } steht im Rumpf (siehe Vorschau).
+  app.delete(
+    "/embed/:embedId/conversation/visitor",
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+      validEmbedAccess,
+      validEmbedConfigId,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const embedId = Number(request.params.embedId);
+        const { chatId } = reqBody(request) ?? {};
+        const result = await EmbedChats.deleteVisitorConversations(
+          embedId,
+          chatId
+        );
+        if (!result) {
+          response.sendStatus(500).end();
+          return;
+        }
+        const { deletedCount, conversationCount } = result;
+        if (deletedCount === 0) {
+          response
+            .status(404)
+            .json({ success: false, error: "Conversation not found." });
+          return;
+        }
+
+        await EventLogs.logEvent(
+          "embed_visitor_conversations_deleted",
+          { embedId, conversationCount, deletedCount },
+          user?.id
+        );
+        response
+          .status(200)
+          .json({ success: true, deletedCount, conversationCount });
       } catch (e) {
         console.error(e);
         response.sendStatus(500).end();

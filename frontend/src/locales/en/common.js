@@ -157,10 +157,6 @@ const TRANSLATIONS = {
       granted: "Device access granted",
       denied: "Device access denied",
     },
-    "embed-chats": {
-      "export-success": "Embed chats exported successfully as {{name}}.",
-      "export-error": "Failed to export embed chats.",
-    },
     "text-splitter": {
       "save-success": "Text chunking strategy settings saved.",
       "save-error": "Failed to save text chunking strategy settings.",
@@ -276,7 +272,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
     "chatbot-conversations": "Conversations",
-    "chatbot-messages": "Message table",
     "embed-chats": "Chat Embed History",
     security: "Security",
     "event-logs": "Event Logs",
@@ -1060,40 +1055,8 @@ const TRANSLATIONS = {
     "script-info":
       "After creating an embed, you will receive a link that you can publish on your website with a simple &lt;script&gt; tag.",
   },
-
   "chat-row": {
-    delete: "Delete",
-    "confirm-delete":
-      "Are you sure you want to delete this chat?\n\nThis action cannot be undone.",
-    "view-text": "View Text",
-    "session-id": "Session ID:",
-    username: "Username:",
-    "client-ip": "Client IP Address:",
-    "client-host": "Client Host URL:",
     "view-thoughts": "View Thoughts",
-  },
-
-  "embed-chats": {
-    title: "Embed Chat History",
-    export: "Export",
-    "clear-all": "Clear All Chats",
-    "clear-all-confirm":
-      "Are you sure you want to clear ALL embed chats?\n\nThis action cannot be undone.",
-    "clear-all-success": "{{count}} embed chats successfully cleared.",
-    "clear-all-error": "Failed to clear embed chats.",
-    description:
-      "These are all the recorded conversations from any embed that you have published, grouped by conversation.",
-    "no-conversations": "No conversations found.",
-    "no-chats": "No chats found.",
-    "retention-header": "GDPR data deletion active",
-    "cutoff-date": "Retention {{days}} days — today's chats expire on {{date}}",
-    table: {
-      embed: "Embed",
-      sender: "Sender",
-      message: "Message",
-      response: "Response",
-      at: "Sent At",
-    },
   },
 
   security: {
@@ -1747,6 +1710,46 @@ const TRANSLATIONS = {
       "clear-bucket": "Remove filter “{{period}}”",
       "deleted-hint":
         "Older contents were deleted according to the retention period.",
+    },
+    // KIE-538
+    export: {
+      button: "Export",
+      "menu-label": "Export format",
+      csv: "CSV (for Excel)",
+      json: "JSON",
+      hint: "Exports the conversations of the current selection – widget, period and filter.",
+      running: "Exporting …",
+      success: "Export saved: {{filename}}",
+      error: "The export failed. Please try again.",
+    },
+    delete: {
+      conversation: "Delete conversation",
+      visitor: "Delete all conversations of this visitor",
+      "first-question": "First question",
+      "confirm-title": "Delete conversation?",
+      "confirm-count_one":
+        "The conversation with {{formatted}} message will be deleted permanently.",
+      "confirm-count_other":
+        "The conversation with {{formatted}} messages will be deleted permanently.",
+      "confirm-note":
+        "This cannot be undone. Key figures, chart and quota remain unchanged.",
+      "visitor-title": "Delete all conversations of this visitor?",
+      "visitor-count_one":
+        "The same browser has {{conversations}} conversation with {{messages}} messages in this widget. It will be deleted permanently.",
+      "visitor-count_other":
+        "The same browser has {{conversations}} conversations with {{messages}} messages in total in this widget. All of them will be deleted permanently.",
+      "visitor-note":
+        "This includes conversations the visitor has cleared in the widget, which no longer appear in this list. Conversations from other browsers are kept.",
+      confirm: "Delete permanently",
+      cancel: "Cancel",
+      deleting: "Deleting …",
+      success_one: "Conversation deleted ({{formatted}} message).",
+      success_other: "Conversation deleted ({{formatted}} messages).",
+      "visitor-success_one":
+        "{{conversations}} conversation deleted ({{messages}} messages).",
+      "visitor-success_other":
+        "{{conversations}} conversations deleted ({{messages}} messages).",
+      error: "The conversation could not be deleted.",
     },
     conversations: {
       "seconds-ago": "a few seconds ago",

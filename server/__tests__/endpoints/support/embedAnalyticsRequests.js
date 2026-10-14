@@ -6,12 +6,34 @@
 //   server/__tests__/endpoints/embedAnalyticsSummary.test.js: Die echten
 //     Routen verstehen genau das.
 // Benennt eine Seite ein Feld um, wird der Test der anderen rot.
+//
+// KIE-538: Export der Auswahl und „Konversation löschen" -
+//   frontend/__tests__/conversationExportDelete.test.mjs
+//   server/__tests__/endpoints/embedConversationExport.test.js
+//   server/__tests__/models/embedChatsDeleteConversation.test.js
 
 const ROUTES = {
   summary: { method: "POST", path: "/embed/:embedId/analytics/summary" },
   conversations: {
     method: "POST",
     path: "/embed/:embedId/analytics/conversations",
+  },
+  export: { method: "POST", path: "/embed/:embedId/analytics/export" },
+  // Die Konversation bezeichnet der Rumpf (conversationBody) über die id
+  // ihrer ersten Zeile, nicht die Adresse über ihre Kennung: Die vergibt der
+  // Besucher - zwei Sitzungen können dieselbe tragen, und "." bzw. ".." löst
+  // der Browser als Pfadsegmente auf.
+  deletionPreview: {
+    method: "POST",
+    path: "/embed/:embedId/conversation/deletion-preview",
+  },
+  deleteConversation: {
+    method: "DELETE",
+    path: "/embed/:embedId/conversation",
+  },
+  deleteVisitor: {
+    method: "DELETE",
+    path: "/embed/:embedId/conversation/visitor",
   },
 };
 
@@ -60,4 +82,35 @@ function conversationsBody({
   };
 }
 
-module.exports = { ROUTES, summaryBody, conversationsBody };
+/**
+ * Export der Auswahl: dieselben Felder wie eine Seite der Liste, ohne das
+ * Blättern, dazu das Format.
+ * @param {"csv"|"json"} format
+ * @param {Object} [request] - startDate, endDate, feedbackFilter, bucket wie conversationsBody
+ */
+function exportBody(format, request = {}) {
+  const {
+    offset: _offset,
+    limit: _limit,
+    ...selection
+  } = conversationsBody(request);
+  return { format, ...selection };
+}
+
+/**
+ * Vorschau und Löschen einer Konversation bzw. aller Konversationen ihres
+ * Besuchers: die id ihrer ersten Zeile, wie die Liste sie nennt
+ * (first_chat_id).
+ * @param {number} chatId
+ */
+function conversationBody(chatId) {
+  return { chatId };
+}
+
+module.exports = {
+  ROUTES,
+  summaryBody,
+  conversationsBody,
+  exportBody,
+  conversationBody,
+};
