@@ -1,0 +1,2852 @@
+/* eslint-env jest, node */
+// Konversationen: Suche, Reihenfolge und Öffnen per Link (Konversationen-
+// Ansicht mit Seitenpanel).
+//
+// Geprüft wird gegen die echten Routen mit ihrer ganzen Middleware-Kette
+// (support/routeHarness.js: Anmeldung, Rollenprüfung, Bindung an den
+// Workspace) und gegen eine echte SQLite-Datei aus den Migrationen
+// (helpers/sqliteTestDatabase.js) - die Suche ist SQL (GLOB, json_extract),
+// eine Attrappe könnte sie nicht prüfen.
+//
+//   POST /embed/:embedId/analytics/conversations  mit q   (AK-3, AK-10–12, NAK-2–4, NAK-8)
+//   POST /embed/:embedId/analytics/export         mit q   (AK-12)
+//   GET  /embed/:embedId/conversation/:chatId              (AK-7, NAK-1, NAK-8)
+//
+// Die Zeitzone des Prozesses wird nicht gesetzt; alle Zeitpunkte sind
+// Berliner Wanduhrzeiten (berlinInstant). Die Erwartungen gelten für TZ=UTC,
+// TZ=Europe/Berlin und TZ=America/New_York (extras/scripts/testTimezones.mjs).
+jest.mock(
+  "../../utils/prisma",
+  () => require("../helpers/sqliteTestDatabase").testPrisma
+);
+jest.mock("../../models/telemetry", () => ({
+  Telemetry: { sendTelemetry: jest.fn() },
+}));
+jest.mock("../../utils/AiProviders/modelMap", () => ({
+  MODEL_MAP: { get: () => null },
+}));
+jest.mock("../../utils/EncryptionManager", () => ({
+  EncryptionManager: class {
+    decrypt() {
+      return null;
+    }
+  },
+}));
+jest.mock("../../utils/files/multer", () => ({
+  handleEmbedLogoUpload: jest.fn((_request, _response, next) => next()),
+}));
+jest.mock("../../utils/files/embedLogo", () => ({
+  deleteOldEmbedLogo: jest.fn(),
+}));
+
+// Setzt JWT_SECRET, bevor utils/http geladen wird.
+const { collectRoutes, invoke } = require("./support/routeHarness");
+const {
+  ROUTES,
+  conversationsBody,
+  exportBody,
+  summaryBody,
+} = require("./support/embedAnalyticsRequests");
+const {
+  createTestDatabase,
+  removeTestDatabases,
+  createWorkspace,
+  createEmbed,
+  berlinInstant,
+  eventsOf,
+} = require("../helpers/sqliteTestDatabase");
+const { makeJWT } = require("../../utils/http");
+const { MessageLedger } = require("../../models/messageLedger");
+const { embedManagementEndpoints } = require("../../endpoints/embedManagement");
+const {
+  parseSearch,
+  searchForms,
+  searchGlobPattern,
+  searchProbe,
+  loggableError,
+  SEARCH_MAX_LENGTH,
+} = require("../../utils/helpers/chat/conversationSearch");
+const { EmbedChats } = require("../../models/embedChats");
+const { berlinDayOf } = require("../../utils/helpers/billingWindow");
+
+const routes = collectRoutes(embedManagementEndpoints);
+const route = ({ method, path }) => routes[`${method} ${path}`];
+const CONVERSATIONS = route(ROUTES.conversations);
+const EXPORT = route(ROUTES.export);
+const DETAILS = route(ROUTES.details);
+const SUMMARY = route(ROUTES.summary);
+const LAST_ACTIVITY = route(ROUTES.lastActivity);
+
+// Der erste Test jeder Datei erzeugt die Vorlage mit `prisma migrate deploy`.
+jest.setTimeout(60000);
+
+let db;
+let userCounter = 0;
+let admin;
+
+beforeEach(async () => {
+  MessageLedger._resetCache();
+  delete process.env.DISABLE_VIEW_CHAT_HISTORY;
+  db = await createTestDatabase();
+  jest.spyOn(console, "error").mockImplementation(() => {});
+  jest.spyOn(console, "log").mockImplementation(() => {});
+  await db.client.system_settings.upsert({
+    where: { label: "multi_user_mode" },
+    update: { value: "true" },
+    create: { label: "multi_user_mode", value: "true" },
+  });
+  admin = await createUser("admin");
+});
+afterEach(async () => {
+  jest.restoreAllMocks();
+  await db.close();
+});
+afterAll(() => {
+  MessageLedger._resetCache();
+  removeTestDatabases();
+});
+
+// ---------------------------------------------------------------------------
+// Bestand
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {"admin"|"manager"|"default"} role
+ * @param {number[]} [workspaceIds] - Mitgliedschaften
+ */
+async function createUser(role, workspaceIds = []) {
+  const user = await db.client.users.create({
+    data: { username: `${role}-${++userCounter}`, password: "x", role },
+  });
+  for (const workspaceId of workspaceIds)
+    await db.client.workspace_users.create({
+      data: { user_id: user.id, workspace_id: workspaceId },
+    });
+  return {
+    id: user.id,
+    role,
+    token: makeJWT({ id: user.id, username: user.username }),
+  };
+}
+
+// Was eine gespeicherte Antwort außer dem Text enthält: Quellen und Metadaten.
+const SOURCE_WORD = "Quellenwortnurhier";
+const META_WORD = "Metawortnurhier";
+
+/**
+ * Eine Widget-Nachricht, wie der Chat sie speichert: Antwort als JSON mit
+ * Text, Quellen und Metadaten. `rawResponse` speichert die Antwort wörtlich
+ * (Alt-Zeilen ohne JSON).
+ */
+async function addChat(
+  embed,
+  {
+    at,
+    prompt = "Frage",
+    answer = "Antwort",
+    rawResponse,
+    conversation,
+    session,
+    ...data
+  }
+) {
+  return await db.client.embed_chats.create({
+    data: {
+      embed_id: embed.id,
+      prompt,
+      response:
+        rawResponse ??
+        JSON.stringify({
+          text: answer,
+          type: "chat",
+          sources: [{ title: "kursprogramm.pdf", text: SOURCE_WORD }],
+          metrics: { note: META_WORD },
+        }),
+      session_id: session ?? `sitzung-${conversation}`,
+      conversation_id: conversation === undefined ? null : conversation,
+      createdAt: at,
+      ...data,
+    },
+  });
+}
+
+/** Zeitraum der Ansicht, wie ein Browser in Berlin ihn sendet: ganze Tage. */
+function period(fromDay, toDay) {
+  const next = new Date(`${toDay}T12:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return {
+    startDate: berlinInstant(fromDay, 0, 0).toISOString(),
+    endDate: new Date(
+      berlinInstant(next.toISOString().slice(0, 10), 0, 0).getTime() - 1
+    ).toISOString(),
+  };
+}
+const OCTOBER = period("2026-10-01", "2026-10-31");
+
+/** Eine Seite der Liste (Antwort der echten Route). */
+function listPage(embed, request = {}, user = admin) {
+  return invoke(CONVERSATIONS, {
+    params: { embedId: String(embed?.id ?? embed) },
+    body: conversationsBody({ ...OCTOBER, limit: 100, ...request }),
+    token: user?.token ?? null,
+  });
+}
+
+/** Kennungen der Konversationen einer Suche, in der Reihenfolge der Liste. */
+async function found(embed, search, request = {}) {
+  const result = await listPage(embed, { search, ...request });
+  expect(result.statusCode).toBe(200);
+  expect(result.body.success).toBe(true);
+  expect(result.body.totalCount).toBe(result.body.conversations.length);
+  return result.body.conversations.map((c) => c.conversation_id);
+}
+
+function details(embed, chatId, user = admin) {
+  return invoke(DETAILS, {
+    params: {
+      embedId: String(embed?.id ?? embed),
+      chatId: String(chatId),
+    },
+    token: user?.token ?? null,
+  });
+}
+
+function exportFile(embed, format, request = {}, user = admin) {
+  return invoke(EXPORT, {
+    params: { embedId: String(embed?.id ?? embed) },
+    body: exportBody(format, request),
+    token: user?.token ?? null,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Suchmuster (Hilfsfunktionen)
+// ---------------------------------------------------------------------------
+
+describe("suchmuster", () => {
+  test("parseSearch: getrimmt, leer = keine Suche, kein Text oder zu lang = Fehler", () => {
+    expect(parseSearch(undefined)).toEqual({ search: null, error: null });
+    expect(parseSearch(null)).toEqual({ search: null, error: null });
+    expect(parseSearch("   ")).toEqual({ search: null, error: null });
+    expect(parseSearch("  Spanisch ")).toEqual({
+      search: "Spanisch",
+      error: null,
+    });
+    // NFD (u + Trema) wird zu NFC (ü)
+    expect(parseSearch("u\u0308bung").search).toBe("übung");
+    for (const value of [3, true, ["a"], { q: "a" }])
+      expect(parseSearch(value).error).toMatch(/string/);
+    expect(parseSearch("x".repeat(SEARCH_MAX_LENGTH)).error).toBeNull();
+    expect(parseSearch("x".repeat(SEARCH_MAX_LENGTH + 1)).error).toMatch(
+      /longer/
+    );
+  });
+
+  test("searchGlobPattern: Buchstaben als Klasse ihrer Schreibweisen, Platzhalter wörtlich", () => {
+    expect(searchGlobPattern("übung")).toBe("*[üÜ][bB][uU][nN][gG]*");
+    expect(searchGlobPattern("größe")).toBe("*[gG][rR][öÖ][ßẞ][eE]*");
+    expect(searchGlobPattern("a*b?c[d]")).toBe("*[aA][*][bB][?][cC][[][dD]]*");
+    expect(searchGlobPattern("100 %_x")).toBe("*100 %_[xX]*");
+    expect(searchGlobPattern("^-]")).toBe("*^-]*");
+  });
+
+  test("parseSearch: Rohlänge, Steuerzeichen und allein stehende Ersatzhälften → Fehler (Fixliste 1–3)", () => {
+    // Rohwert zu lang: abgelehnt, bevor er normalisiert oder zerlegt wird
+    const huge = " ".repeat(5_000_000) + "x";
+    const normalize = jest.spyOn(String.prototype, "normalize");
+    expect(parseSearch(huge).error).toMatch(/longer/);
+    expect(normalize).not.toHaveBeenCalled();
+    normalize.mockRestore();
+    expect(
+      parseSearch(" ".repeat(SEARCH_MAX_LENGTH * 4 - 1) + "x").search
+    ).toBe("x");
+    // NUL und andere Steuerzeichen
+    for (const value of [
+      "\u0000",
+      "\u0000zzz",
+      "ab\u0000xy",
+      "a\tb",
+      "x\u007f",
+    ])
+      expect([value, parseSearch(value).error]).toEqual([
+        value,
+        expect.stringMatching(/control/),
+      ]);
+    // nur Leerraum (auch Tabulator/Umbruch) bleibt „keine Suche"
+    expect(parseSearch("\n\t ")).toEqual({ search: null, error: null });
+    // Ersatzhälften allein: kein gültiges Unicode; ein Paar ist ein Zeichen
+    for (const value of ["\ud800", "a\udc00b", "\ud83d"])
+      expect(parseSearch(value).error).toMatch(/well-formed/);
+    expect(parseSearch("Kurs 😀")).toEqual({ search: "Kurs 😀", error: null });
+  });
+
+  test("searchForms: NFC und – falls verschieden – NFD", () => {
+    expect(searchForms("Übung")).toEqual(["Übung", "U\u0308bung"]);
+    expect(searchForms("kurs")).toEqual(["kurs"]);
+    expect(searchForms("größe")).toEqual(["größe", "gro\u0308ße"]);
+  });
+
+  test("searchProbe: billige Vorprüfung, wählerisch auch bei Umlauten und Kyrillisch (Fixliste 6)", () => {
+    // ohne Buchstaben außerhalb von ASCII: ein LIKE, schon genau
+    expect(searchProbe("kurs")).toEqual({
+      op: "like",
+      values: ["%kurs%"],
+      exact: true,
+    });
+    expect(searchProbe("10 %_\\")).toEqual({
+      op: "like",
+      values: ["%10 \\%\\_\\\\%"],
+      exact: true,
+    });
+    // längster Abschnitt ohne Umlaut (ab drei Buchstaben)
+    expect(searchProbe("Übung")).toEqual({
+      op: "like",
+      values: ["%bung%"],
+      exact: false,
+    });
+    // kurzer Begriff: Schreibweisen ausgeschrieben; ASCII-Buchstaben → LIKE
+    expect(searchProbe("für")).toEqual({
+      op: "like",
+      values: ["%für%", "%fÜr%"],
+      exact: false,
+    });
+    expect(searchProbe("äa").values).toEqual(["%äa%", "%Äa%"]);
+    // ohne ASCII-Buchstaben: instr, höchstens vier Schreibweisen
+    expect(searchProbe("курс")).toEqual({
+      op: "instr",
+      values: ["ку", "кУ", "Ку", "КУ"],
+      exact: false,
+    });
+    expect(searchProbe("äöü").values).toEqual(["äö", "äÖ", "Äö", "ÄÖ"]);
+    // ß hat zwei Schreibweisen (ß, ẞ)
+    expect(searchProbe("ßü").values).toHaveLength(4);
+    // Kein Zeichen „_" für einen Umlaut: Die Vorprüfung ließe sonst fast
+    // jede Zeile durch.
+    for (const term of ["üb", "äa", "äöü", "курс", "für"])
+      expect(searchProbe(term).values.join("")).not.toMatch(/_/);
+  });
+
+  test("loggableError: Name und Codes, nie der Meldungstext (Fixliste 3)", () => {
+    const error = Object.assign(
+      new Error("Raw query failed … LIKE '%geheim%' …"),
+      { code: "P2010", meta: { code: "1" } }
+    );
+    expect(loggableError(error)).toEqual({
+      name: "Error",
+      code: "P2010",
+      dbCode: "1",
+    });
+    expect(JSON.stringify(loggableError(error))).not.toMatch(/geheim/);
+    expect(loggableError(undefined)).toEqual({
+      name: null,
+      code: null,
+      dbCode: null,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AK-10: Suche über Frage, Antworttext, Grund und Kommentar
+// ---------------------------------------------------------------------------
+
+describe("suche (AK-10)", () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Welche Sprachkurse gibt es?",
+      answer: "Wir bieten **Spanisch** und Englisch an.",
+      conversation: "antwort",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-06", 9, 0),
+      prompt: "Ich suche einen spanischkurs am Abend",
+      conversation: "frage",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-07", 9, 0),
+      prompt: "Gibt es Yoga?",
+      feedbackScore: false,
+      feedbackReason: "Nicht SPANISCH genug",
+      conversation: "grund",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-08", 9, 0),
+      prompt: "Gibt es Pilates?",
+      feedbackScore: false,
+      feedbackText: "Ich wollte eigentlich Spanischunterricht",
+      conversation: "kommentar",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-09", 9, 0),
+      prompt: "Wann beginnt Französisch?",
+      answer: "Am Montag.",
+      conversation: "kein-treffer",
+    });
+    // zweite Zeile einer Konversation trifft - die ganze Konversation zählt
+    await addChat(embed, {
+      at: berlinInstant("2026-10-10", 9, 0),
+      prompt: "Gibt es Kochkurse?",
+      conversation: "zweite-zeile",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-10", 9, 5),
+      prompt: "Und spanische Küche?",
+      conversation: "zweite-zeile",
+    });
+  });
+
+  test("„spanisch“ findet genau die Konversationen mit Treffer in Frage, Antworttext, Grund oder Kommentar", async () => {
+    expect((await found(embed, "spanisch")).sort()).toEqual(
+      ["antwort", "frage", "grund", "kommentar", "zweite-zeile"].sort()
+    );
+    // Die Treffer-Konversation kommt vollständig: beide Zeilen gezählt
+    const result = await listPage(embed, { search: "spanische" });
+    expect(result.body.conversations).toEqual([
+      expect.objectContaining({
+        conversation_id: "zweite-zeile",
+        message_count: 2,
+        preview: "Gibt es Kochkurse?",
+      }),
+    ]);
+  });
+
+  test("ohne Treffer: leere Liste, Zähler 0, Status 200", async () => {
+    const result = await listPage(embed, { search: "Klingonisch" });
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toEqual({
+      success: true,
+      conversations: [],
+      hasMore: false,
+      totalCount: 0,
+      maxId: expect.any(Number),
+    });
+  });
+
+  test("leerer oder nur aus Leerraum bestehender Begriff = keine Suche", async () => {
+    const all = await found(embed, null);
+    expect(all).toHaveLength(6);
+    for (const q of ["", "   ", "\n\t"]) {
+      const result = await invoke(CONVERSATIONS, {
+        params: { embedId: String(embed.id) },
+        body: { ...conversationsBody({ ...OCTOBER, limit: 100 }), q },
+        token: admin.token,
+      });
+      expect(result.body.conversations.map((c) => c.conversation_id)).toEqual(
+        all
+      );
+    }
+  });
+
+  test("ungültiger Begriff: 400 ohne Daten (kein Text, länger als 200 Zeichen)", async () => {
+    for (const q of [42, ["spanisch"], { $gt: "" }, "x".repeat(201)]) {
+      const result = await invoke(CONVERSATIONS, {
+        params: { embedId: String(embed.id) },
+        body: { ...conversationsBody(OCTOBER), q },
+        token: admin.token,
+      });
+      expect(result.statusCode).toBe(400);
+      expect(result.body.success).toBe(false);
+      expect(JSON.stringify(result.body)).not.toMatch(/Sprach|Yoga/);
+    }
+  });
+
+  test("Blättern: Seiten der Suche ergeben zusammen die ganze Treffermenge, ohne Doppelte", async () => {
+    const pages = [];
+    for (let offset = 0; ; offset += 2) {
+      const result = await listPage(embed, {
+        search: "spanisch",
+        offset,
+        limit: 2,
+      });
+      expect(result.body.totalCount).toBe(5);
+      pages.push(...result.body.conversations.map((c) => c.conversation_id));
+      if (!result.body.hasMore) break;
+    }
+    expect(pages).toEqual(await found(embed, "spanisch"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AK-11: Groß/klein egal, auch bei Umlauten
+// ---------------------------------------------------------------------------
+
+describe("umlaute (AK-11)", () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    const texts = {
+      uebung: "Gibt es eine Übung für den Rücken?",
+      grosse: "Welche GRÖßE haben die Räume?",
+      gross_ss: "Welche GRÖSSE haben die Räume?",
+      aerger: "ÄRGER mit der Anmeldung",
+      ascii: "Kurs fuer Anfaenger",
+    };
+    let minute = 0;
+    for (const [conversation, prompt] of Object.entries(texts))
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 10, minute++),
+        prompt,
+        conversation,
+      });
+  });
+
+  test("„übung“ findet „Übung“, „ÜBUNG“ ebenso", async () => {
+    expect(await found(embed, "übung")).toEqual(["uebung"]);
+    expect(await found(embed, "ÜBUNG")).toEqual(["uebung"]);
+    expect(await found(embed, "Rücken")).toEqual(["uebung"]);
+  });
+
+  test("„größe“ findet „GRÖßE“ – und umgekehrt", async () => {
+    expect(await found(embed, "größe")).toEqual(["grosse"]);
+    expect(await found(embed, "GRÖßE")).toEqual(["grosse"]);
+    expect(await found(embed, "GRÖẞE")).toEqual(["grosse"]);
+  });
+
+  test("dokumentiertes Verhalten: ß und SS gelten nicht als gleich, ü nicht als ue", async () => {
+    expect(await found(embed, "größe")).not.toContain("gross_ss");
+    expect(await found(embed, "GRÖSSE")).toEqual(["gross_ss"]);
+    expect(await found(embed, "Anfänger")).toEqual([]);
+    expect(await found(embed, "ärger")).toEqual(["aerger"]);
+  });
+
+  test("ein zerlegtes „ü“ (u + Trema, NFD) im Begriff findet das gespeicherte „ü“", async () => {
+    expect(await found(embed, "u\u0308bung")).toEqual(["uebung"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NAK-3: Platzhalter und Sonderzeichen gelten wörtlich
+// ---------------------------------------------------------------------------
+
+describe("sonderzeichen (NAK-3)", () => {
+  const TEXTS = {
+    prozent: "Gibt es 10 % Rabatt?",
+    unterstrich: "Datei kurs_liste.pdf",
+    stern: "Bewertung: 5*",
+    frage: "Wirklich?",
+    klammer: "Kurs [A1] voll",
+    apostroph: "Peter's Kurs",
+    rueckstrich: "Pfad C:\\Kurse",
+    anfuehrung: 'Der Kurs "Yoga"',
+    ohne: "Gibt es Zumba",
+  };
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    let minute = 0;
+    for (const [conversation, prompt] of Object.entries(TEXTS))
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 11, minute++),
+        prompt,
+        // dieselben Zeichen auch im Antworttext (JSON maskiert " und \)
+        answer: `Antwort zu: ${prompt}`,
+        conversation,
+      });
+  });
+
+  test.each([
+    ["%", ["prozent"]],
+    ["_", ["unterstrich"]],
+    ["*", ["stern"]],
+    ["?", ["prozent", "frage"]],
+    ["[", ["klammer"]],
+    ["[A1]", ["klammer"]],
+    ["'", ["apostroph"]],
+    ["\\", ["rueckstrich"]],
+    ['"', ["anfuehrung"]],
+    ['"Yoga"', ["anfuehrung"]],
+    ["C:\\Kurse", ["rueckstrich"]],
+    ["%_", []],
+    ["*?", []],
+  ])(
+    "„%s“ trifft nur wörtlich – Status 200, kein Treffer auf alles",
+    async (search, expected) => {
+      const result = await listPage(embed, { search });
+      expect(result.statusCode).toBe(200);
+      expect(result.body.success).toBe(true);
+      expect(
+        result.body.conversations.map((c) => c.conversation_id).sort()
+      ).toEqual([...expected].sort());
+      expect(result.body.totalCount).toBe(expected.length);
+    }
+  );
+
+  test("SQL im Begriff ist nur Text", async () => {
+    for (const search of [
+      "' OR 1=1 --",
+      "%' OR '1'='1",
+      '"); DROP TABLE embed_chats; --',
+    ]) {
+      const result = await listPage(embed, { search });
+      expect(result.statusCode).toBe(200);
+      expect(result.body.conversations).toEqual([]);
+    }
+    expect(await db.client.embed_chats.count()).toBe(Object.keys(TEXTS).length);
+  });
+
+  test("Treffer nur im Antworttext, mit Zeichen, die JSON maskiert", async () => {
+    await addChat(embed, {
+      at: berlinInstant("2026-10-06", 11, 0),
+      prompt: "Wo?",
+      answer: 'Raum "Süd"\\Nord',
+      conversation: "json-maskiert",
+    });
+    expect(await found(embed, '"süd"\\nord')).toEqual(["json-maskiert"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NAK-4: Keine Treffer aus Quellen oder Metadaten
+// ---------------------------------------------------------------------------
+
+describe("unsichtbar (NAK-4)", () => {
+  test("ein Wort nur in Quellen oder Metadaten einer JSON-Antwort trifft nicht; im Text schon; eine Antwort ohne JSON zählt wörtlich", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Gibt es Kurse?",
+      conversation: "nur-quellen",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "Und sonst?",
+      answer: `Im Text steht ${SOURCE_WORD}.`,
+      conversation: "im-text",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 2),
+      prompt: "Alt",
+      rawResponse: `Alte Antwort ohne JSON mit ${META_WORD}`,
+      conversation: "alt-ohne-json",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 3),
+      prompt: "Kaputt",
+      rawResponse: `{"text": "abgebrochen ${META_WORD}`,
+      conversation: "kaputtes-json",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 4),
+      prompt: "Ohne Text",
+      rawResponse: JSON.stringify({ sources: [{ text: META_WORD }] }),
+      conversation: "json-ohne-text",
+    });
+
+    expect(await found(embed, SOURCE_WORD)).toEqual(["im-text"]);
+    expect(await found(embed, "kursprogramm.pdf")).toEqual([]);
+    expect((await found(embed, META_WORD)).sort()).toEqual(
+      ["alt-ohne-json", "kaputtes-json"].sort()
+    );
+    expect(await found(embed, "sources")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NAK-2 / NAK-1: Rechte wie ohne Suche, auch beim Öffnen per Link
+// ---------------------------------------------------------------------------
+
+describe("rechte (NAK-1, NAK-2)", () => {
+  let workspaceA, workspaceB, widgetA, widgetB, kunde, chatB;
+  beforeEach(async () => {
+    workspaceA = await createWorkspace(db.client);
+    workspaceB = await createWorkspace(db.client);
+    widgetA = await createEmbed(db.client, workspaceA);
+    widgetB = await createEmbed(db.client, workspaceB);
+    await addChat(widgetA, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage in A zu Spanisch",
+      conversation: "a-1",
+    });
+    chatB = await addChat(widgetB, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "FREMDE Frage in B zu Spanisch",
+      conversation: "b-1",
+    });
+    kunde = await createUser("default", [workspaceA.id]);
+  });
+
+  test("NAK-2: q mit fremdem Widget – 403 wie ohne q, keine Zählung, kein Treffer", async () => {
+    const withoutSearch = await listPage(widgetB, {}, kunde);
+    const withSearch = await listPage(widgetB, { search: "spanisch" }, kunde);
+    for (const result of [withoutSearch, withSearch]) {
+      expect(result.statusCode).toBe(403);
+      expect(result.body).toBeUndefined();
+    }
+    // auch ein unbekanntes Widget und ein Nutzer ohne Workspace
+    const ohneWorkspace = await createUser("default", []);
+    for (const [embed, user] of [
+      ["9999", kunde],
+      [widgetA, ohneWorkspace],
+      [widgetB, ohneWorkspace],
+    ]) {
+      const result = await listPage(embed, { search: "Frage" }, user);
+      expect(result.statusCode).toBe(403);
+      expect(JSON.stringify(result.body ?? "")).not.toMatch(/Frage/);
+    }
+    // eigenes Widget: nur die eigene Konversation
+    expect(
+      (
+        await listPage(widgetA, { search: "spanisch" }, kunde)
+      ).body.conversations.map((c) => c.conversation_id)
+    ).toEqual(["a-1"]);
+  });
+
+  test("NAK-2: Export mit q für ein fremdes Widget – 403, keine Datei", async () => {
+    const result = await exportFile(
+      widgetB,
+      "csv",
+      { ...OCTOBER, search: "spanisch" },
+      kunde
+    );
+    expect(result.statusCode).toBe(403);
+    expect(result.chunks).toEqual([]);
+  });
+
+  test("NAK-1: Öffnen per Link – ohne Recht auf das Widget 403 ohne Nachricht; über das eigene Widget ist die fremde Zeile keine Konversation", async () => {
+    const foreign = await details(widgetB, chatB.id, kunde);
+    expect(foreign.statusCode).toBe(403);
+    expect(JSON.stringify(foreign.body ?? "")).not.toMatch(/FREMDE/);
+
+    const ohneWorkspace = await createUser("default", []);
+    expect((await details(widgetB, chatB.id, ohneWorkspace)).statusCode).toBe(
+      403
+    );
+
+    // Die Zeile aus B über das Widget A angefragt: keine Nachricht.
+    const viaOwn = await details(widgetA, chatB.id, kunde);
+    expect(viaOwn.statusCode).toBe(200);
+    expect(viaOwn.body).toEqual({ success: true, messages: [] });
+
+    // ohne Anmeldung
+    expect((await details(widgetB, chatB.id, null)).statusCode).toBe(401);
+  });
+
+  test("AK-7: Öffnen per Link – Mitglied, manager und admin sehen die Konversation, auch außerhalb des Zeitraums der Liste", async () => {
+    const old = await addChat(widgetA, {
+      at: berlinInstant("2025-01-15", 9, 0),
+      prompt: "Alte Frage aus dem Januar 2025",
+      conversation: "a-alt",
+    });
+    // nicht in der Liste des Standard-Zeitraums
+    expect(
+      (await listPage(widgetA, {}, kunde)).body.conversations.map(
+        (c) => c.conversation_id
+      )
+    ).not.toContain("a-alt");
+
+    const manager = await createUser("manager");
+    for (const user of [kunde, manager, admin]) {
+      const result = await details(widgetA, old.id, user);
+      expect(result.statusCode).toBe(200);
+      expect(result.body.messages.map((m) => m.prompt)).toEqual([
+        "Alte Frage aus dem Januar 2025",
+      ]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AK-12: Suche zusammen mit Filtern, Zeitraum und Export
+// ---------------------------------------------------------------------------
+
+describe("kombiniert (AK-12)", () => {
+  let embed, workspace;
+  beforeEach(async () => {
+    workspace = await createWorkspace(db.client, { name: "VHS Musterstadt" });
+    embed = await createEmbed(db.client, workspace);
+    const rows = [
+      // [Kennung, Tag, Frage, negativ bewertet]
+      ["kurs-neg", "2026-10-05", "Welcher Kurs passt?", true],
+      ["kurs-ohne", "2026-10-06", "Gibt es einen Kurs?", false],
+      ["anderes-neg", "2026-10-07", "Wo parke ich?", true],
+      ["kurs-neg-september", "2026-09-20", "Kurs im September?", true],
+    ];
+    for (const [conversation, day, prompt, negative] of rows)
+      await addChat(embed, {
+        at: berlinInstant(day, 9, 0),
+        prompt,
+        feedbackScore: negative ? false : null,
+        conversation,
+      });
+  });
+
+  test("Liste und Export enthalten genau die Schnittmenge aus Suche, Bewertungsfilter und Zeitraum; der Dateiname bleibt", async () => {
+    const request = { ...OCTOBER, feedbackFilter: "negative", search: "kurs" };
+    expect(await found(embed, "kurs", { feedbackFilter: "negative" })).toEqual([
+      "kurs-neg",
+    ]);
+
+    const json = await exportFile(embed, "json", request);
+    expect(json.statusCode).toBe(200);
+    const file = JSON.parse(json.body);
+    expect(file.map((c) => c.conversationId)).toEqual(["kurs-neg"]);
+    expect(json.headers["Content-Disposition"]).toBe(
+      'attachment; filename="konversationen_vhs-musterstadt-' +
+        `${embed.id}_2026-10-01_2026-10-31.json"`
+    );
+
+    const withoutSearch = await exportFile(embed, "json", {
+      ...OCTOBER,
+      feedbackFilter: "negative",
+    });
+    expect(
+      JSON.parse(withoutSearch.body)
+        .map((c) => c.conversationId)
+        .sort()
+    ).toEqual(["anderes-neg", "kurs-neg"]);
+    // Dateiname mit und ohne Suche gleich
+    expect(withoutSearch.headers["Content-Disposition"]).toBe(
+      json.headers["Content-Disposition"]
+    );
+  });
+
+  test("Export: Format und Nummer unverändert – die Spalte „Konversation“ trägt die Nummer der ungefilterten Liste", async () => {
+    const all = await listPage(embed, {});
+    const numberOf = Object.fromEntries(
+      all.body.conversations.map((c) => [
+        c.conversation_id,
+        c.conversation_number,
+      ])
+    );
+    const csv = await exportFile(embed, "csv", { ...OCTOBER, search: "kurs" });
+    expect(csv.statusCode).toBe(200);
+    // Die Zellen dieses Bestands enthalten weder Semikolon noch Umbruch.
+    const cells = (line) =>
+      line.split(";").map((cell) => cell.replace(/^"|"$/g, ""));
+    const lines = csv.body.slice(1).split("\r\n").filter(Boolean);
+    expect(cells(lines[0])).toEqual([
+      "Konversation",
+      "Konversations-ID",
+      "Nachricht",
+      "Zeitpunkt",
+      "Frage",
+      "Antwort",
+      "Bewertung",
+      "Grund der negativen Bewertung",
+      "Kommentar zur negativen Bewertung",
+    ]);
+    expect(lines.slice(1).map((line) => cells(line).slice(0, 2))).toEqual([
+      [String(numberOf["kurs-ohne"]), "kurs-ohne"],
+      [String(numberOf["kurs-neg"]), "kurs-neg"],
+    ]);
+  });
+
+  test("Export mit ungültigem q: 400 ohne Datei", async () => {
+    const result = await invoke(EXPORT, {
+      params: { embedId: String(embed.id) },
+      body: { ...exportBody("csv", OCTOBER), q: 7 },
+      token: admin.token,
+    });
+    expect(result.statusCode).toBe(400);
+    expect(result.chunks).toEqual([]);
+  });
+
+  test("Abschnitts-Filter (Diagramm) und Suche zusammen", async () => {
+    expect(
+      await found(embed, "kurs", {
+        bucket: { start: "2026-10-06", end: "2026-10-06" },
+      })
+    ).toEqual(["kurs-ohne"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AK-3: Reihenfolge nach letzter Nachricht
+// ---------------------------------------------------------------------------
+
+describe("reihenfolge (AK-3)", () => {
+  test("eine weitergeführte alte Konversation steht ganz oben; mit Suche ebenso", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-10-02", 9, 0),
+      prompt: "Alte Frage zum Kurs",
+      conversation: "alt",
+    });
+    for (let day = 3; day <= 12; day++)
+      await addChat(embed, {
+        at: berlinInstant(`2026-10-${String(day).padStart(2, "0")}`, 9, 0),
+        prompt: `Kurs am ${day}.`,
+        conversation: `k-${day}`,
+      });
+    expect((await found(embed, null)).at(-1)).toBe("alt");
+
+    // Der Besucher schreibt in der alten Konversation weiter.
+    await addChat(embed, {
+      at: berlinInstant("2026-10-13", 7, 47),
+      prompt: "Noch eine Frage",
+      conversation: "alt",
+    });
+    const list = await listPage(embed, {});
+    expect(list.body.conversations[0]).toEqual(
+      expect.objectContaining({
+        conversation_id: "alt",
+        message_count: 2,
+        started_at: berlinInstant("2026-10-02", 9, 0).getTime(),
+        last_message_at: berlinInstant("2026-10-13", 7, 47).getTime(),
+      })
+    );
+    expect((await found(embed, "kurs"))[0]).toBe("alt");
+  });
+
+  test("gleiche letzte Nachricht: feste Reihenfolge (jüngere Zeile zuerst) – Blättern ohne Doppelte", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const at = berlinInstant("2026-10-05", 9, 0);
+    for (let i = 0; i < 7; i++)
+      await addChat(embed, {
+        at,
+        prompt: `Gleichzeitig ${i}`,
+        conversation: `g-${i}`,
+      });
+    const seen = [];
+    for (let offset = 0; offset < 7; offset += 3) {
+      const page = await listPage(embed, { offset, limit: 3 });
+      seen.push(...page.body.conversations.map((c) => c.conversation_id));
+    }
+    expect(seen).toEqual(["g-6", "g-5", "g-4", "g-3", "g-2", "g-1", "g-0"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NAK-8: Alt-Chats ohne conversation_id
+// ---------------------------------------------------------------------------
+
+describe("alt_chats (NAK-8)", () => {
+  test("Alt-Zeilen ohne conversation_id: gefunden, nicht mit der neuen Konversation derselben Sitzung vermischt, per Link geöffnet genau ihre Zeilen", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const firstOld = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Alte Frage zum Töpfern",
+      conversation: null,
+      session: "sitzung-x",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "Alte zweite Frage",
+      conversation: null,
+      session: "sitzung-x",
+    });
+    const newer = await addChat(embed, {
+      at: berlinInstant("2026-10-06", 9, 0),
+      prompt: "Neue Frage zum Töpfern",
+      conversation: "neu-1",
+      session: "sitzung-x",
+    });
+    // andere Sitzung, ebenfalls ohne conversation_id
+    await addChat(embed, {
+      at: berlinInstant("2026-10-07", 9, 0),
+      prompt: "Fremde alte Frage zum Töpfern",
+      conversation: null,
+      session: "sitzung-y",
+    });
+
+    const list = await listPage(embed, { search: "töpfern" });
+    expect(
+      list.body.conversations.map((c) => [c.conversation_id, c.message_count])
+    ).toEqual([
+      ["sitzung-y", 1],
+      ["neu-1", 1],
+      ["sitzung-x", 2],
+    ]);
+    // Suche nur in der zweiten Alt-Zeile trifft die Alt-Konversation
+    expect(await found(embed, "zweite Frage")).toEqual(["sitzung-x"]);
+
+    // Öffnen per Link (first_chat_id bzw. irgendeine Zeile): nur die Alt-Zeilen
+    const legacy = list.body.conversations.find(
+      (c) => c.conversation_id === "sitzung-x"
+    );
+    expect(legacy.first_chat_id).toBe(firstOld.id);
+    const opened = await details(embed, legacy.first_chat_id);
+    expect(opened.body.messages.map((m) => m.prompt)).toEqual([
+      "Alte Frage zum Töpfern",
+      "Alte zweite Frage",
+    ]);
+    const openedNew = await details(embed, newer.id);
+    expect(openedNew.body.messages.map((m) => m.prompt)).toEqual([
+      "Neue Frage zum Töpfern",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AK-1: Angaben je Zeile; Liste und Zähler aus einer Abfrage
+// ---------------------------------------------------------------------------
+
+describe("zeile (AK-1)", () => {
+  test("first_negative_reason: der erste Grund einer negativen Bewertung im Zeitraum; ohne Grund null", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-09-30", 9, 0),
+      prompt: "Vor dem Zeitraum",
+      feedbackScore: false,
+      feedbackReason: "Grund aus September",
+      conversation: "mit-grund",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Erste Frage",
+      feedbackScore: false,
+      feedbackReason: "Unvollständig",
+      conversation: "mit-grund",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "Zweite Frage",
+      feedbackScore: false,
+      feedbackReason: "Falsch",
+      conversation: "mit-grund",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Ohne Grund",
+      feedbackScore: false,
+      feedbackText: "nur Kommentar",
+      conversation: "ohne-grund",
+    });
+    // dieselbe Kennung in einer anderen Sitzung: eigene Konversation
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 11, 0),
+      prompt: "Andere Sitzung",
+      feedbackScore: false,
+      feedbackReason: "Grund der anderen Sitzung",
+      conversation: "mit-grund",
+      session: "andere-sitzung",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 12, 0),
+      prompt: "Positiv",
+      feedbackScore: true,
+      conversation: "positiv",
+    });
+
+    const result = await listPage(embed, {});
+    expect(
+      result.body.conversations.map((c) => [
+        c.conversation_id,
+        c.session_id,
+        c.first_negative_reason,
+      ])
+    ).toEqual([
+      ["positiv", "sitzung-positiv", null],
+      ["mit-grund", "andere-sitzung", "Grund der anderen Sitzung"],
+      ["ohne-grund", "sitzung-ohne-grund", null],
+      ["mit-grund", "sitzung-mit-grund", "Unvollständig"],
+    ]);
+  });
+
+  test("totalCount aus derselben Abfrage wie die Seite; hinter dem Ende geblättert stimmt er weiterhin", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    for (let i = 0; i < 5; i++)
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, i),
+        prompt: `Kurs ${i}`,
+        conversation: `k-${i}`,
+      });
+    const page = await listPage(embed, { search: "kurs", offset: 2, limit: 2 });
+    expect(page.body).toMatchObject({ totalCount: 5, hasMore: true });
+    expect(page.body.conversations).toHaveLength(2);
+    const behind = await listPage(embed, {
+      search: "kurs",
+      offset: 10,
+      limit: 2,
+    });
+    expect(behind.body).toEqual({
+      success: true,
+      conversations: [],
+      hasMore: false,
+      totalCount: 5,
+      maxId: expect.any(Number),
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste nach den Reviews (13.10.2026) – Server
+// ---------------------------------------------------------------------------
+
+describe("eingaben (Fixliste 1–4)", () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    for (let i = 0; i < 5; i++)
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, i),
+        prompt: `Hallo Kurs ${i}`,
+        conversation: `k-${i}`,
+      });
+  });
+
+  const rawList = (body) =>
+    invoke(CONVERSATIONS, {
+      params: { embedId: String(embed.id) },
+      body: { ...conversationsBody({ ...OCTOBER }), ...body },
+      token: admin.token,
+    });
+
+  test("NUL und Steuerzeichen im Begriff: 400 – kein Treffer auf alles (NAK-3)", async () => {
+    for (const q of ["\u0000", "\u0000zzz", "ab\u0000xy", "x\u0001", "a\tb"]) {
+      const result = await rawList({ q });
+      expect([q, result.statusCode]).toEqual([q, 400]);
+      expect(result.body).toEqual({
+        success: false,
+        error: expect.any(String),
+      });
+      const exported = await invoke(EXPORT, {
+        params: { embedId: String(embed.id) },
+        body: { ...exportBody("csv", OCTOBER), q },
+        token: admin.token,
+      });
+      expect([q, exported.statusCode]).toEqual([q, 400]);
+      expect(exported.chunks).toEqual([]);
+    }
+  });
+
+  test("allein stehende Ersatzhälfte: 400; riesiges q: 400, bevor es verarbeitet wird", async () => {
+    expect((await rawList({ q: "\ud800" })).statusCode).toBe(400);
+    expect((await rawList({ q: "Kurs\udfff" })).statusCode).toBe(400);
+    const normalize = jest.spyOn(String.prototype, "normalize");
+    const huge = await rawList({ q: "x".repeat(2_000_000) });
+    expect(huge.statusCode).toBe(400);
+    expect(normalize).not.toHaveBeenCalled();
+  });
+
+  test("limit und offset: ganze Zahlen, limit 1–100, offset ab 0 – sonst 400; ohne Angabe 0 und 20; hasMore stimmt", async () => {
+    for (const body of [
+      { limit: -1 },
+      { limit: 0 },
+      { limit: 101 },
+      { limit: 1.5 },
+      { limit: "5" },
+      { limit: "1; DROP TABLE embed_chats" },
+      { limit: [1] },
+      { limit: 1e12 },
+      { offset: -5 },
+      { offset: "1" },
+      { offset: 2.5 },
+      { offset: { $gt: 0 } },
+    ]) {
+      const result = await rawList(body);
+      expect([body, result.statusCode]).toEqual([body, 400]);
+      expect(result.body).toEqual({
+        success: false,
+        error: expect.any(String),
+      });
+    }
+    // ohne Angabe: Vorgaben
+    const defaults = await invoke(CONVERSATIONS, {
+      params: { embedId: String(embed.id) },
+      body: { startDate: OCTOBER.startDate, endDate: OCTOBER.endDate },
+      token: admin.token,
+    });
+    expect(defaults.statusCode).toBe(200);
+    expect(defaults.body).toMatchObject({ totalCount: 5, hasMore: false });
+    expect(defaults.body.conversations).toHaveLength(5);
+    // Grenzen und hasMore
+    for (const [offset, limit, length, hasMore] of [
+      [0, 1, 1, true],
+      [0, 100, 5, false],
+      [3, 2, 2, false],
+      [2, 2, 2, true],
+      [5, 2, 0, false],
+    ]) {
+      const result = await rawList({ offset, limit, q: "kurs" });
+      expect(result.statusCode).toBe(200);
+      expect([offset, limit, result.body.conversations.length]).toEqual([
+        offset,
+        limit,
+        length,
+      ]);
+      expect(result.body.hasMore).toBe(hasMore);
+      expect(result.body.totalCount).toBe(5);
+    }
+    expect(await db.client.embed_chats.count()).toBe(5);
+  });
+
+  test("Datenbankfehler (Fixliste 2, R2): 500 { success: false } statt einer leeren Liste – das Protokoll nennt weder Begriff noch Suchmuster", async () => {
+    const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+    const original = db.client.$queryRaw;
+    jest.spyOn(EmbedChats, "_conversationList").mockImplementation(() => {
+      throw Object.assign(
+        new Error("Raw query failed: … LIKE '%geheimname%' ESCAPE …"),
+        { code: "P2010" }
+      );
+    });
+    const result = await rawList({ q: "geheimname" });
+    expect(result.statusCode).toBe(500);
+    expect(result.body).toEqual({ success: false, error: expect.any(String) });
+    expect(JSON.stringify(result.body)).not.toMatch(/geheimname|P2010/);
+    expect(db.client.$queryRaw).toBe(original);
+    const logged = JSON.stringify(errors.mock.calls);
+    expect(logged).toMatch(/P2010/);
+    expect(logged).not.toMatch(/geheimname/);
+  });
+
+  test("Datenbankfehler in der Zählung hinter der letzten Seite (Fixliste 2, R2): 500 – keine 0, die wie „keine Konversationen“ aussähe", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const count = jest
+      .spyOn(EmbedChats, "countConversations")
+      .mockRejectedValue(Object.assign(new Error("boom"), { code: "P2010" }));
+    // Seite hinter dem Ende: leer, die Zahl kommt aus countConversations
+    const result = await rawList({ offset: 50, limit: 20 });
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(result.statusCode).toBe(500);
+    expect(result.body).toEqual({ success: false, error: expect.any(String) });
+    // Modell: beide melden den Fehler, statt ihn zu schlucken
+    count.mockRestore();
+    jest.spyOn(db.client, "$queryRaw").mockRejectedValue(new Error("kaputt"));
+    await expect(EmbedChats.countConversations(embed.id)).rejects.toThrow(
+      "kaputt"
+    );
+    await expect(
+      EmbedChats.conversationPage(embed.id, { search: "kurs" })
+    ).rejects.toThrow("kaputt");
+  });
+
+  test("Fixliste 7, F20: Die globale Liste /embed/chats/conversations (alle Widgets zugleich, ohne Aufrufer) gibt es nicht mehr", () => {
+    expect(routes["POST /embed/chats/conversations"]).toBeUndefined();
+  });
+
+  test("Fixliste 8, L3: POST /embed/chats liest nur den Text der Antwort (SQL), nicht das volle JSON – Text, wörtliche Alt-Antwort, kein Text ohne Textfeld; keine Quellen, keine geleerten Zeilen", async () => {
+    const workspace = await createWorkspace(db.client);
+    const other = await createEmbed(db.client, workspace);
+    const json = await addChat(other, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage mit JSON",
+      answer: "Am Montag.",
+      conversation: "j",
+    });
+    const plain = await addChat(other, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "Alt-Frage",
+      rawResponse: "kein JSON",
+      conversation: "p",
+    });
+    const noText = await addChat(other, {
+      at: berlinInstant("2026-10-05", 9, 2),
+      prompt: "ohne Text",
+      rawResponse: JSON.stringify({ text: 42, sources: [SOURCE_WORD] }),
+      conversation: "n",
+    });
+    await addChat(other, {
+      at: berlinInstant("2026-10-05", 9, 3),
+      prompt: "GELEERT",
+      conversation: "g",
+      include: false,
+    });
+    const findMany = jest.spyOn(db.client.embed_chats, "findMany");
+    const result = await invoke(routes["POST /embed/chats"], {
+      body: { offset: 0, limit: 20 },
+      token: admin.token,
+    });
+    expect(result.statusCode).toBe(200);
+    // auch Zeilen anderer Widgets dieser Datei (embed aus beforeEach)
+    const mine = result.body.chats.filter((chat) => chat.embed_id === other.id);
+    expect(mine.map((chat) => [chat.id, JSON.parse(chat.response)])).toEqual([
+      [noText.id, { text: "" }],
+      [plain.id, { text: "kein JSON" }],
+      [json.id, { text: "Am Montag." }],
+    ]);
+    expect(mine[2].embed_config).toEqual({
+      workspace: { name: workspace.name },
+    });
+    expect(new Date(mine[2].createdAt).getTime()).toBe(
+      berlinInstant("2026-10-05", 9, 0).getTime()
+    );
+    const body = JSON.stringify(result.body);
+    expect(body).not.toMatch(
+      new RegExp(`${SOURCE_WORD}|${META_WORD}|GELEERT|connection_information`)
+    );
+    // Die Seite selbst liest die Spalte response nicht
+    expect(findMany).toHaveBeenCalledTimes(1);
+    expect(findMany.mock.calls[0][0].select.response).toBeUndefined();
+  });
+});
+
+describe("panel (Fixliste 5)", () => {
+  test("Der Gesprächsverlauf zeigt keine vom Besucher geleerten Zeilen (include = 0); Löschen und Lösch-Vorschau meinen weiter alle", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    const visible = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "sichtbare Frage",
+      conversation: "k",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "GELEERT geheim",
+      conversation: "k",
+      include: false,
+    });
+    const cleared = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "ganz GELEERT",
+      conversation: "z",
+      include: false,
+    });
+
+    const opened = await details(embed, visible.id);
+    expect(opened.body.messages.map((m) => m.prompt)).toEqual([
+      "sichtbare Frage",
+    ]);
+    // über die geleerte Zeile angefragt: dieselbe Konversation, ohne sie
+    const viaCleared = await details(embed, visible.id + 1);
+    expect(viaCleared.body.messages.map((m) => m.prompt)).toEqual([
+      "sichtbare Frage",
+    ]);
+    // ganz geleert: nichts zu zeigen
+    const empty = await details(embed, cleared.id);
+    expect(empty.body).toEqual({ success: true, messages: [] });
+    expect(JSON.stringify(empty.body)).not.toMatch(/GELEERT/);
+    // Liste und Suche wie bisher ohne die geleerten Zeilen
+    expect(await found(embed, "geheim")).toEqual([]);
+    expect(
+      (await listPage(embed, {})).body.conversations.map((c) => [
+        c.conversation_id,
+        c.message_count,
+      ])
+    ).toEqual([["k", 1]]);
+    // Lösch-Vorschau (KIE-538) zählt alle Zeilen der Konversation
+    expect(
+      await EmbedChats.conversationDeletionPreview(embed.id, visible.id)
+    ).toMatchObject({ messageCount: 2 });
+  });
+});
+
+describe("leistung (Fixliste 6–8)", () => {
+  test("Säulenklick + Suche: Der Begriff wird nur in den Konversationen des Abschnitts gesucht (EXISTS nach den Filtern), nicht in der ganzen Historie", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-10-06", 9, 0),
+      prompt: "Gibt es Yoga?",
+      conversation: "im-abschnitt",
+    });
+    // Treffer erst in einer späteren Zeile derselben Konversation
+    await addChat(embed, {
+      at: berlinInstant("2026-10-20", 9, 0),
+      prompt: "Und Spanisch?",
+      conversation: "im-abschnitt",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-02", 9, 0),
+      prompt: "Spanisch am Abend",
+      conversation: "davor",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-06", 10, 0),
+      prompt: "Kein Treffer hier",
+      conversation: "im-abschnitt-ohne",
+    });
+    const bucket = { start: "2026-10-06", end: "2026-10-06" };
+    expect(await found(embed, "spanisch", { bucket })).toEqual([
+      "im-abschnitt",
+    ]);
+    expect((await found(embed, "spanisch")).sort()).toEqual([
+      "davor",
+      "im-abschnitt",
+    ]);
+    // Bewertungsfilter: ebenso erst filtern, dann suchen
+    await addChat(embed, {
+      at: berlinInstant("2026-10-07", 9, 0),
+      prompt: "Spanisch negativ",
+      feedbackScore: false,
+      conversation: "negativ",
+    });
+    expect(
+      await found(embed, "spanisch", { feedbackFilter: "negative" })
+    ).toEqual(["negativ"]);
+
+    // Form der Abfrage: Gruppen ohne Suche, die Suche als EXISTS danach
+    const { Prisma } = require("@prisma/client");
+    const between = {
+      start: berlinInstant("2026-10-06", 0, 0),
+      endExclusive: berlinInstant("2026-10-07", 0, 0),
+    };
+    const { source, where } = EmbedChats._conversationSelection({
+      embedId: embed.id,
+      startedBetween: between,
+      search: "spanisch",
+    });
+    const text = Prisma.sql`${source} ${where}`.sql;
+    expect(text).not.toMatch(/row_search_hit/);
+    expect(text).toMatch(/started_at >= \? AND started_at < \? AND EXISTS/);
+    const plain = EmbedChats._conversationSelection({
+      embedId: embed.id,
+      search: "spanisch",
+    });
+    expect(Prisma.sql`${plain.source} ${plain.where}`.sql).toMatch(
+      /MAX\(row_search_hit\)[\s\S]*WHERE search_hit = 1$/
+    );
+  });
+
+  test("Export mit und ohne Suche: die Konversationen werden EINMAL bestimmt, nicht je Seite – Inhalte paketweise (Fixliste 2 R11, Fixliste 7 F01); Inhalt wie die Liste", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    // 1.003 Konversationen (früher zwei volle Seiten zu 500 und ein Rest),
+    // jede zweite mit Treffer
+    const total = 1003;
+    await db.client.embed_chats.createMany({
+      data: Array.from({ length: total }, (_, i) => ({
+        embed_id: embed.id,
+        prompt: i % 2 === 0 ? `Frage ${i} zum Kurs` : `Frage ${i}`,
+        response: JSON.stringify({ text: "Antwort", type: "chat" }),
+        session_id: `s-${i}`,
+        conversation_id: `k-${i}`,
+        createdAt: new Date(berlinInstant("2026-10-05", 9, 0).getTime() + i),
+      })),
+    });
+    const selections = jest.spyOn(EmbedChats, "_exportConversations");
+    const groupings = jest.spyOn(EmbedChats, "_conversationSelection");
+    const result = await exportFile(embed, "json", {
+      ...OCTOBER,
+      search: "kurs",
+    });
+    expect(result.statusCode).toBe(200);
+    const exported = JSON.parse(result.body).map((c) => c.conversationId);
+    // die Suche einmal, danach nur die Nachrichten paketweise
+    expect(selections).toHaveBeenCalledTimes(1);
+    expect(selections.mock.calls[0][0]).toMatchObject({ search: "kurs" });
+    expect(groupings).toHaveBeenCalledTimes(1);
+    const found = await selections.mock.results[0].value;
+    // Kennung und Sitzung aus der Gruppierung selbst (Fixliste 3, C2)
+    expect(Object.keys(found[0]).sort()).toEqual([
+      "conversation_id",
+      "conversation_number",
+      "message_count",
+      "session_id",
+    ]);
+    expect(found).toHaveLength(502);
+    // Inhalt und Reihenfolge wie die Liste (jüngster Beginn zuerst)
+    const expected = Array.from({ length: total }, (_, i) => i)
+      .filter((i) => i % 2 === 0)
+      .reverse()
+      .map((i) => `k-${i}`);
+    expect(exported).toEqual(expected);
+    const numbers = JSON.parse(result.body).map((c) => c.conversation);
+    expect(numbers[0]).toBe(1);
+    expect(numbers[1]).toBe(3);
+    // ohne Suche ebenso: eine Gruppierung für den ganzen Export
+    selections.mockClear();
+    groupings.mockClear();
+    const all = await exportFile(embed, "json", OCTOBER);
+    expect(JSON.parse(all.body)).toHaveLength(total);
+    expect(selections).toHaveBeenCalledTimes(1);
+    expect(selections.mock.calls[0][0]).toMatchObject({ search: null });
+    expect(groupings).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("protokoll (Fixliste 9)", () => {
+  test("Der Export vermerkt, ob gesucht wurde – den Begriff nicht", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage von max.mustermann@example.org",
+      conversation: "k",
+    });
+    await exportFile(embed, "csv", {
+      ...OCTOBER,
+      search: "max.mustermann@example.org",
+    });
+    await exportFile(embed, "csv", OCTOBER);
+    const events = await eventsOf(db.client, "embed_conversations_exported");
+    expect(events.map((event) => event.metadata.searched)).toEqual([
+      true,
+      false,
+    ]);
+    expect(events[0].metadata.conversationCount).toBe(1);
+    const raw = await db.client.event_logs.findMany();
+    expect(JSON.stringify(raw)).not.toMatch(/mustermann/);
+  });
+});
+
+describe("gründe je widget (Fixliste 10)", () => {
+  test("first_negative_reason: gleiche Kennung und Sitzung in zwei Widgets – jeder Grund bleibt bei seinem Widget", async () => {
+    const workspace = await createWorkspace(db.client);
+    const widgetA = await createEmbed(db.client, workspace);
+    const widgetB = await createEmbed(db.client, workspace);
+    await addChat(widgetA, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage in A",
+      feedbackScore: false,
+      feedbackReason: "Grund aus A",
+      conversation: "gleich",
+      session: "gleiche-sitzung",
+    });
+    await addChat(widgetB, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Frage in B",
+      feedbackScore: false,
+      feedbackReason: "Grund aus B",
+      conversation: "gleich",
+      session: "gleiche-sitzung",
+    });
+    // Die Liste nennt je Widget seinen eigenen Grund - der Schlüssel des
+    // Grundes trägt das Widget (die globale Sicht ist entfallen, Fixliste 7,
+    // F20; die Abfrage der Gründe liest trotzdem über mehrere Widgets).
+    for (const [widget, reason] of [
+      [widgetA, "Grund aus A"],
+      [widgetB, "Grund aus B"],
+    ]) {
+      const { conversations } = await EmbedChats.conversationPage(widget.id);
+      expect(
+        conversations.map((c) => [c.embed_id, c.first_negative_reason])
+      ).toEqual([[widget.id, reason]]);
+    }
+    const reasons = await EmbedChats._firstNegativeReasons(
+      [widgetA, widgetB].map((widget) => ({
+        embed_id: widget.id,
+        conversation_id: "gleich",
+        session_id: "gleiche-sitzung",
+        negative_count: 1,
+      })),
+      null,
+      null
+    );
+    expect([...reasons.values()].sort()).toEqual([
+      "Grund aus A",
+      "Grund aus B",
+    ]);
+  });
+});
+
+describe("sichtbarer text (Fixliste 11, 24)", () => {
+  test("NFD: zerlegte Umlaute im gespeicherten Text werden mit NFC gefunden – in Frage, Antwort, Grund und Kommentar", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const nfd = (text) => text.normalize("NFD");
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: nfd("Gibt es eine Übung?"),
+      conversation: "frage",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "Wo?",
+      answer: nfd('Im GRÖßEREN Raum, mit "Übung" am Abend'),
+      conversation: "antwort",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 2),
+      prompt: "Ok",
+      feedbackScore: false,
+      feedbackReason: nfd("Unvollständig"),
+      feedbackText: nfd("Übung fehlt"),
+      conversation: "bewertung",
+    });
+    expect((await found(embed, "übung")).sort()).toEqual([
+      "antwort",
+      "bewertung",
+      "frage",
+    ]);
+    expect(await found(embed, "größeren")).toEqual(["antwort"]);
+    expect(await found(embed, "unvollständig")).toEqual(["bewertung"]);
+    // NFD im Begriff findet NFD wie NFC
+    expect((await found(embed, nfd("ÜBUNG"))).sort()).toEqual([
+      "antwort",
+      "bewertung",
+      "frage",
+    ]);
+  });
+
+  test("Antwort mit maskierten Zeichen: Treffer über den Text, nicht über die Maskierung im JSON", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Kurse?",
+      answer: "Kurs\nYoga am Abend",
+      conversation: "umbruch",
+    });
+    // „\nYoga" steht im JSON als \n – das „n" davor gehört nicht zum Text
+    expect(await found(embed, "nyoga")).toEqual([]);
+    expect(await found(embed, "Yoga am")).toEqual(["umbruch"]);
+    expect(await found(embed, "kurs")).toEqual(["umbruch"]);
+  });
+
+  test("dokumentiert (Entscheidung Punkt 11): Ein Begriff nur in einer Link-Adresse der Antwort trifft – die Ansicht weist dann darauf hin (Frontend)", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Wo melde ich mich an?",
+      answer: "Hier: [Anmeldung](https://vhs-lingen.example/anmeldung)",
+      conversation: "link",
+    });
+    expect(await found(embed, "vhs-lingen")).toEqual(["link"]);
+    expect(await found(embed, "Anmeldung")).toEqual(["link"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 2: Fehler melden statt verschlucken, Vorprüfung bei mehrzeiligen
+// Antworten, Export mit Suche seitenweise
+// ---------------------------------------------------------------------------
+
+describe("fehler im verlauf (Fixliste 2, R1)", () => {
+  test("Datenbankfehler beim Öffnen: 500 { success: false } – nicht „nicht gefunden“ und kein leerer Verlauf", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const chat = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage",
+      conversation: "k",
+    });
+    const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+    const findMany = jest
+      .spyOn(db.client.embed_chats, "findMany")
+      .mockRejectedValue(
+        Object.assign(new Error("SQLITE_BUSY"), { code: "P1008" })
+      );
+    const result = await details(embed, chat.id);
+    expect(result.statusCode).toBe(500);
+    expect(result.body).toEqual({ success: false, error: expect.any(String) });
+    expect(JSON.stringify(errors.mock.calls)).toMatch(/P1008/);
+    await expect(
+      EmbedChats.getConversationDetails(chat.id, embed.id)
+    ).rejects.toThrow("SQLITE_BUSY");
+    // wieder erreichbar: dieselbe Konversation lädt
+    findMany.mockRestore();
+    const again = await details(embed, chat.id);
+    expect(again.statusCode).toBe(200);
+    expect(again.body.messages.map((m) => m.prompt)).toEqual(["Frage"]);
+    // unbekannte Zeile bleibt „nicht gefunden“ (leer, 200 – wie bisher)
+    expect((await details(embed, chat.id + 99)).body).toEqual({
+      success: true,
+      messages: [],
+    });
+  });
+});
+
+describe("mehrzeilige antworten (Fixliste 2, R6)", () => {
+  // So speichert das Widget Antworten: Markdown mit Absätzen, Listen,
+  // Kurslinks und Anführungszeichen – im JSON als \n und \".
+  const ANSWER = [
+    "Gern! Wir haben folgende **Kurse am Abend**:",
+    "",
+    '- [Spanisch A1](https://vhs.example/kurs/123?ort="Süd")',
+    '- Yoga "sanft" im Raum 2',
+    "",
+    "Unterlagen liegen unter C:\\Kurse\\neu bereit.",
+  ].join("\n");
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Was gibt es abends?",
+      answer: ANSWER,
+      conversation: "markdown",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Und sonst?",
+      answer: "Nichts\nWeiteres",
+      conversation: "andere",
+    });
+  });
+
+  test.each([
+    ["Kurse am Abend", ["markdown"]],
+    ['Yoga "sanft"', ["markdown"]],
+    ['sanft" im', ["markdown"]],
+    ["SPANISCH a1", ["markdown"]],
+    ["C:\\Kurse\\neu", ["markdown"]],
+    ["\\neu", ["markdown"]],
+    ["Nichts", ["andere"]],
+    ["Weiteres", ["andere"]],
+    // das „n“ der Maskierung \n gehört nicht zum Text
+    ["nWeiteres", []],
+    ["n- Yoga", []],
+    // Quelle und Metadaten treffen weiter nicht
+    [SOURCE_WORD, []],
+  ])("„%s“", async (search, expected) => {
+    expect((await found(embed, search)).sort()).toEqual(expected);
+  });
+
+  test("Der Antwortanfang mit \\n wird direkt geprüft (aufgelöst) – nur mit weiteren Maskierungen wird der Text der Zeile aus dem JSON gelesen", async () => {
+    const { sql } = EmbedChats._searchMatchSql("kurs");
+    // Reihenfolge: ohne Rückstrich direkt, mit aufgelöstem \n direkt, sonst JSON
+    const plain = sql.indexOf("instr(answer_head, '\\') = 0");
+    const decoded = sql.indexOf(
+      "instr(replace(answer_head, '\\n', char(10)), '\\') = 0"
+    );
+    const json = sql.lastIndexOf("json_extract(response, '$.text')");
+    expect(plain).toBeGreaterThan(0);
+    expect(decoded).toBeGreaterThan(plain);
+    expect(json).toBeGreaterThan(decoded);
+    // Zitat (\") und Rückstrich (\\) gehen über das JSON – und treffen
+    expect(await found(embed, 'Kurs "Yoga"')).toEqual([]);
+    await addChat(embed, {
+      at: berlinInstant("2026-10-06", 9, 0),
+      prompt: "Zitat?",
+      answer: 'Zeile eins\nDer Kurs "Yoga" am Abend\nPfad C:\\neu',
+      conversation: "zitat",
+    });
+    expect(await found(embed, 'Kurs "Yoga"')).toEqual(["zitat"]);
+    expect(await found(embed, "C:\\neu")).toEqual(["zitat"]);
+    expect(await found(embed, "eins")).toEqual(["zitat"]);
+    expect(await found(embed, "nDer")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 3 (Kontroll-Review 2): Zeilennummern außerhalb INT4, globale
+// Liste, Antwortanfang auf \", Export mit Suche
+// ---------------------------------------------------------------------------
+
+describe("zeilennummer außerhalb INT4 (Fixliste 3, C3)", () => {
+  test("Verlauf, Lösch-Vorschau und Löschen: eine Zahl > 2^31−1 bezeichnet keine Konversation – „nicht gefunden“, keine 500", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const chat = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage",
+      conversation: "k",
+    });
+    const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+    for (const chatId of [
+      "2147483648",
+      "99999999999",
+      "9007199254740993",
+      "999999999999999999999",
+    ]) {
+      const opened = await details(embed, chatId);
+      expect([chatId, opened.statusCode, opened.body]).toEqual([
+        chatId,
+        200,
+        { success: true, messages: [] },
+      ]);
+      const request = (route) =>
+        invoke(routes[`${route.method} ${route.path}`], {
+          params: { embedId: String(embed.id) },
+          body: { chatId: Number(chatId) },
+          token: admin.token,
+        });
+      // Vorschau wie bei jeder unbekannten Zeile: nichts zu löschen
+      const preview = await request(ROUTES.deletionPreview);
+      expect([chatId, preview.statusCode, preview.body]).toEqual([
+        chatId,
+        200,
+        expect.objectContaining({ success: true, messageCount: 0 }),
+      ]);
+      const deleted = await request(ROUTES.deleteConversation);
+      expect([chatId, deleted.statusCode]).toEqual([chatId, 404]);
+    }
+    // ein Widget > INT4 (admin darf jedes Widget ansehen): ebenso leer
+    expect((await details("2147483648", chat.id)).body).toEqual({
+      success: true,
+      messages: [],
+    });
+    expect(
+      await EmbedChats._conversationScope(embed.id, 2147483647)
+    ).toBeNull();
+    expect(errors).not.toHaveBeenCalled();
+    // die echte Zeile weiter erreichbar
+    expect((await details(embed, chat.id)).body.messages).toHaveLength(1);
+  });
+});
+
+describe('antwortanfang endet auf \\" (Fixliste 3, C9)', () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    // Der Text endet auf Anführungszeichen und Komma: Im JSON steht \",
+    // vor dem schließenden ", – die erste Folge "," beginnt schon beim
+    // maskierten Anführungszeichen.
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Was gibt es?",
+      answer: 'Wir empfehlen "Yoga am Abend",',
+      conversation: "zitat-komma",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Und mehrzeilig?",
+      answer: 'Zeile eins\nDer Kurs "Spanisch",',
+      conversation: "mehrzeilig",
+    });
+    // Ein Text, der wirklich auf einen Rückstrich endet
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 11, 0),
+      prompt: "Pfad?",
+      answer: "Liegt unter C:\\Kurse\\",
+      conversation: "rueckstrich",
+    });
+    // gewöhnliches Textende: Die beiden Zeichen ", hinter dem Text im
+    // Anfang treffen nicht
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 12, 0),
+      prompt: "Sonst?",
+      answer: "Nur Yoga",
+      conversation: "normal",
+    });
+  });
+
+  test('answer_head enthält immer den ganzen Text – mit den beiden Zeichen ", dahinter', async () => {
+    const { Prisma } = require("@prisma/client");
+    const rows = await db.client.$queryRaw`
+      SELECT answer_head FROM ${EmbedChats._searchRowsSql(
+        Prisma.sql`WHERE embed_id = ${embed.id}`
+      )} ORDER BY id`;
+    // Die erste Folge "," beginnt beim maskierten Anführungszeichen (\",")
+    // bzw. am Textende – der Anfang reicht zwei Zeichen weiter.
+    expect(rows.map((row) => row.answer_head)).toEqual([
+      'Wir empfehlen \\"Yoga am Abend\\",',
+      'Zeile eins\\nDer Kurs \\"Spanisch\\",',
+      'Liegt unter C:\\\\Kurse\\\\",',
+      'Nur Yoga",',
+    ]);
+  });
+
+  test.each([
+    ['Abend"', ["zitat-komma"]],
+    ['abend",', ["zitat-komma"]],
+    ['"Yoga am Abend",', ["zitat-komma"]],
+    ['kurs "spanisch"', ["mehrzeilig"]],
+    ['Spanisch",', ["mehrzeilig"]],
+    ["eins", ["mehrzeilig"]],
+    ["Kurse\\", ["rueckstrich"]],
+    ["C:\\Kurse\\", ["rueckstrich"]],
+    // die Maskierung gehört nicht zum Text
+    ['Abend\\"', []],
+    ["nDer", []],
+    ["nur yoga", ["normal"]],
+    ['nur yoga"', []],
+    ['Nur Yoga",', []],
+    ["Yoga,", []],
+  ])("„%s“", async (search, expected) => {
+    expect((await found(embed, search)).sort()).toEqual(expected);
+  });
+});
+
+describe('begriff endet auf " (Fixliste 4, C1)', () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    // gewöhnliches Textende ohne Anführungszeichen, mit Umlaut im Begriff:
+    // Die Vorprüfung prüft dann nur einen ASCII-Abschnitt („Kurs“, „Yoga“)
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Was gibt es?",
+      answer: "Wir haben einen Kurs für",
+      conversation: "kurs-fuer",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Wann?",
+      answer: "Heute Yoga am Ä",
+      conversation: "yoga-ae",
+    });
+    // mehrzeilig (\n wird im Anfang aufgelöst), ebenfalls ohne " am Ende
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 11, 0),
+      prompt: "Mehrzeilig?",
+      answer: "Zeile eins\nKurs für",
+      conversation: "mehrzeilig-fuer",
+    });
+    // Text, der wirklich auf " endet – mit und ohne Umlaut
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 12, 0),
+      prompt: "Zitat?",
+      answer: 'Der Kurs heißt "Yoga für Ältere"',
+      conversation: "zitat-ende",
+    });
+  });
+
+  test.each([
+    // Die beiden Zeichen ", hinter dem Text im Anfang treffen nicht mehr –
+    // auch nicht im mehrzeiligen Text (Zweig mit aufgelöstem \n)
+    ['Kurs für"', []],
+    ['Yoga am Ä"', []],
+    ['kurs für",', []],
+    // echte Treffer bleiben – auch mit " am Ende
+    ["Kurs für", ["kurs-fuer", "mehrzeilig-fuer"]],
+    ["Yoga am Ä", ["yoga-ae"]],
+    ['für Ältere"', ["zitat-ende"]],
+    ['"Yoga für Ältere"', ["zitat-ende"]],
+  ])("„%s“", async (search, expected) => {
+    expect((await found(embed, search)).sort()).toEqual(expected.sort());
+  });
+
+  // Fixliste 5, S1: Gekürzt (ohne die beiden Zeichen ",) wird der Anfang nur
+  // für Begriffe mit " oder , – sonst kann kein Treffer über das Textende
+  // reichen, und die Suche spart das Kürzen je Zeile.
+  test.each([
+    ["kurs", false],
+    ["Übung", false],
+    ["курс", false],
+    ['Kurs für"', true],
+    ["für, Kurs", true],
+    ['"', true],
+  ])(
+    "S1: „%s“ – gekürzter Anfang im genauen Vergleich: %s",
+    (search, trimmed) => {
+      const { sql } = EmbedChats._searchMatchSql(search);
+      expect(sql.includes("length(answer_head) - 2")).toBe(trimmed);
+    }
+  );
+
+  test("S1: Begriffe mit Komma treffen das Textende nicht, echte Treffer mit Komma bleiben", async () => {
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 13, 0),
+      prompt: "Welche?",
+      answer: "Yoga, Pilates\nund mehr",
+      conversation: "komma",
+    });
+    expect(await found(embed, "Kurs für,")).toEqual([]);
+    expect(await found(embed, "Ä,")).toEqual([]);
+    expect(await found(embed, "Yoga, Pilates")).toEqual(["komma"]);
+    expect(await found(embed, "Pilates")).toEqual(["komma"]);
+    expect(await found(embed, "und mehr")).toEqual(["komma"]);
+  });
+});
+
+describe("export mit suche (Fixliste 3, C2/C10)", () => {
+  const MAX_HITS = EmbedChats.EXPORT_SEARCH_MAX_HITS;
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+  });
+  afterEach(() => {
+    EmbedChats.EXPORT_SEARCH_MAX_HITS = MAX_HITS;
+  });
+
+  test("C2: Wird die erste Zeile einer Treffer-Konversation während des Exports gelöscht, bleibt die Konversation mit ihren übrigen Zeilen in der Datei", async () => {
+    const first = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Gibt es einen Kurs?",
+      conversation: "k",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "Und abends ein Kurs?",
+      conversation: "k",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Nur Kurs",
+      conversation: "j",
+    });
+    const original = EmbedChats._exportConversations;
+    jest
+      .spyOn(EmbedChats, "_exportConversations")
+      .mockImplementation(async (selection) => {
+        const hits = await original.call(EmbedChats, selection);
+        // Aufbewahrungsfrist: Die älteste Zeile verschwindet jetzt.
+        await db.client.embed_chats.delete({ where: { id: first.id } });
+        return hits;
+      });
+    const result = await exportFile(embed, "json", {
+      ...OCTOBER,
+      search: "kurs",
+    });
+    expect(result.statusCode).toBe(200);
+    const exported = JSON.parse(result.body);
+    expect(exported.map((c) => c.conversationId)).toEqual(["j", "k"]);
+    expect(exported[1].messages.map((m) => m.prompt)).toEqual([
+      "Und abends ein Kurs?",
+    ]);
+  });
+
+  test("C10: harte Obergrenze der Treffermenge – darüber 413 mit der Zahl, ohne Datei; gelesen werden höchstens Grenze + 1 Zeilen", async () => {
+    for (let i = 0; i < 3; i++)
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, i),
+        prompt: `Kurs ${i}`,
+        conversation: `k-${i}`,
+      });
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    EmbedChats.EXPORT_SEARCH_MAX_HITS = 2;
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    const tooMany = await exportFile(embed, "csv", {
+      ...OCTOBER,
+      search: "kurs",
+    });
+    expect(tooMany.statusCode).toBe(413);
+    expect(tooMany.body).toEqual({
+      success: false,
+      reason: "too-many-hits",
+      max: 2,
+      error: expect.stringContaining("2"),
+    });
+    expect(tooMany.chunks).toEqual([]);
+    // gebundene Werte samt denen in eingesetzten Prisma.sql-Teilen
+    const bound = (values) =>
+      values.flatMap((value) =>
+        value && Array.isArray(value.strings) ? bound(value.values) : [value]
+      );
+    const hitQuery = queries.mock.calls
+      .map(([strings, ...values]) => ({
+        sql: strings.join("?"),
+        values: bound(values),
+      }))
+      .find(({ sql }) => /conversation_number\s+FROM/.test(sql));
+    expect(hitQuery.values.at(-1)).toBe(3);
+    // keine Protokollzeile für einen Export, der nicht stattfand
+    expect(await eventsOf(db.client, "embed_conversations_exported")).toEqual(
+      []
+    );
+    // genau an der Grenze: Export wie gewohnt
+    EmbedChats.EXPORT_SEARCH_MAX_HITS = 3;
+    const fits = await exportFile(embed, "json", {
+      ...OCTOBER,
+      search: "kurs",
+    });
+    expect(fits.statusCode).toBe(200);
+    expect(JSON.parse(fits.body)).toHaveLength(3);
+    // ohne Suche gilt die Grenze nicht (der ganze Bestand bleibt exportierbar)
+    EmbedChats.EXPORT_SEARCH_MAX_HITS = 1;
+    const plain = await exportFile(embed, "json", OCTOBER);
+    expect(JSON.parse(plain.body)).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 6, N1: Die Liste zeigt bei vollständigem Bestand mindestens so
+// viele Konversationen, wie die Kennzahl „Konversationen“ (Zählerbuch) für
+// dieselben Berliner Tage zählt – weniger nur, wenn Inhalte fehlen. Darauf
+// stützt sich der Hinweis der Liste (frontend utils/conversationView.js,
+// hasContentGap: „einsehbar < gezählt“).
+// ---------------------------------------------------------------------------
+
+describe("gezählt und einsehbar (Fixliste 6, N1)", () => {
+  /** Eine Nachricht wie im Widget: Zeile und Zählerbuch (EmbedChats.new). */
+  async function chat(embed, sessionId, conversationId = null) {
+    const { chat: created, message } = await EmbedChats.new({
+      embedId: embed.id,
+      prompt: "Frage",
+      response: { text: "Antwort" },
+      sessionId,
+      conversationId,
+    });
+    expect(message).toBeNull();
+    return created;
+  }
+
+  /**
+   * Kennzahl und Liste ohne Filter für dieselben Berliner Tage: vom Tag der
+   * ersten Widget-Nachricht bis heute (bei einem Lauf über Mitternacht zwei
+   * Tage).
+   */
+  async function counts(embed, first) {
+    const fromDay = berlinDayOf(first.createdAt);
+    const toDay = berlinDayOf(new Date());
+    const summary = await invoke(SUMMARY, {
+      params: { embedId: String(embed.id) },
+      body: summaryBody(fromDay, toDay),
+      token: admin.token,
+    });
+    expect(summary.statusCode).toBe(200);
+    // dieselben Kalendertage wie die Kennzahl – wie die Ansicht sie sendet
+    // (Fixliste 7, F06)
+    const list = await listPage(embed, { fromDay, toDay });
+    expect(list.statusCode).toBe(200);
+    return {
+      counted: summary.body.totals.conversations,
+      viewable: list.body.totalCount,
+    };
+  }
+
+  test("vollständiger Bestand: einsehbar ≥ gezählt – auch mit weitergeführter älterer Konversation, einer Kennung aus zwei Sitzungen und Sitzung = Kennung", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const first = await chat(embed, "s-A", "k-A");
+    await chat(embed, "s-A", "k-A");
+    await chat(embed, "s-A", "k-A");
+    await chat(embed, "s-B");
+    await chat(embed, "s-B");
+    // eine Kennung aus zwei Sitzungen: gezählt 1, in der Liste 2 Zeilen
+    await chat(embed, "s-C1", "k-C");
+    await chat(embed, "s-C2", "k-C");
+    // vor dem Zeitraum begonnen (ohne Zählerbuch), heute weitergeführt:
+    // gezählt 0, in der Liste 1
+    await addChat(embed, {
+      at: new Date(Date.now() - 3 * 86400000),
+      conversation: "k-D",
+      session: "s-D",
+    });
+    await chat(embed, "s-D", "k-D");
+    // Sitzung „X“ ohne Kennung, dann Kennung „X“ aus einer anderen Sitzung:
+    // gezählt 1, in der Liste 2
+    await chat(embed, "X");
+    await chat(embed, "s-E", "X");
+
+    expect(await counts(embed, first)).toEqual({ counted: 4, viewable: 7 });
+  });
+
+  test("Inhalte fehlen (vom Besucher geleert, gelöscht): einsehbar < gezählt", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const first = await chat(embed, "s-A", "k-A");
+    await chat(embed, "s-A", "k-A");
+    await chat(embed, "s-B");
+    expect(await counts(embed, first)).toEqual({ counted: 2, viewable: 2 });
+
+    // vom Besucher geleert (include = 0)
+    await EmbedChats.markHistoryInvalid(
+      embed.id,
+      "k-A",
+      "conversation_id",
+      "s-A"
+    );
+    expect(await counts(embed, first)).toEqual({ counted: 2, viewable: 1 });
+    // gelöscht
+    await db.client.embed_chats.deleteMany({
+      where: { embed_id: embed.id, session_id: "s-B" },
+    });
+    expect(await counts(embed, first)).toEqual({ counted: 2, viewable: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 6, N2: letzte Nachricht je Widget (Vorauswahl der Ansicht)
+// ---------------------------------------------------------------------------
+
+describe("letzte aktivität (Fixliste 6, N2)", () => {
+  const lastActivity = (user = admin) =>
+    invoke(LAST_ACTIVITY, { token: user?.token ?? null });
+
+  test("je sichtbarem Widget der Zeitpunkt der letzten einsehbaren Nachricht (vom Besucher geleerte zählen nicht, Fixliste 7 F12), ohne Nachricht null; Default-User nur seine Widgets", async () => {
+    const workspaceA = await createWorkspace(db.client);
+    const workspaceB = await createWorkspace(db.client);
+    const older = await createEmbed(db.client, workspaceA);
+    const newer = await createEmbed(db.client, workspaceA);
+    const silent = await createEmbed(db.client, workspaceA);
+    const foreign = await createEmbed(db.client, workspaceB);
+    await addChat(older, {
+      at: berlinInstant("2026-10-01", 9),
+      conversation: "k-1",
+    });
+    await addChat(older, {
+      at: berlinInstant("2026-10-12", 18),
+      conversation: "k-1",
+      // vom Besucher geleert: zählt nicht (include = 1 wie überall in der
+      // Ansicht, DSGVO-Regel des Repos)
+      include: false,
+    });
+    await addChat(newer, {
+      at: berlinInstant("2026-10-05", 10),
+      conversation: "k-2",
+    });
+    await addChat(foreign, {
+      at: berlinInstant("2026-10-13", 7),
+      conversation: "k-3",
+    });
+
+    const all = await lastActivity();
+    expect(all.statusCode).toBe(200);
+    expect(all.body).toEqual({
+      success: true,
+      lastActivity: [
+        {
+          embedId: older.id,
+          lastMessageAt: berlinInstant("2026-10-01", 9).getTime(),
+        },
+        {
+          embedId: newer.id,
+          lastMessageAt: berlinInstant("2026-10-05", 10).getTime(),
+        },
+        { embedId: silent.id, lastMessageAt: null },
+        {
+          embedId: foreign.id,
+          lastMessageAt: berlinInstant("2026-10-13", 7).getTime(),
+        },
+      ],
+    });
+    // nur Zeitpunkte, keine Inhalte
+    expect(JSON.stringify(all.body)).not.toMatch(/Frage|Antwort|k-1/);
+
+    const kunde = await createUser("default", [workspaceA.id]);
+    const own = await lastActivity(kunde);
+    expect(own.statusCode).toBe(200);
+    expect(own.body.lastActivity.map((entry) => entry.embedId)).toEqual([
+      older.id,
+      newer.id,
+      silent.id,
+    ]);
+    const ohne = await createUser("default");
+    expect((await lastActivity(ohne)).body).toEqual({
+      success: true,
+      lastActivity: [],
+    });
+  });
+
+  test("Rechte wie die Konversationslisten: ohne Anmeldung 401, Chat-Verlauf abgeschaltet 422, Datenbankfehler 500", async () => {
+    expect((await lastActivity(null)).statusCode).toBe(401);
+    process.env.DISABLE_VIEW_CHAT_HISTORY = "1";
+    expect((await lastActivity()).statusCode).toBe(422);
+    delete process.env.DISABLE_VIEW_CHAT_HISTORY;
+    jest
+      .spyOn(EmbedChats, "lastMessageAtByEmbed")
+      .mockRejectedValueOnce(new Error("kaputt"));
+    const failed = await lastActivity();
+    expect(failed.statusCode).toBe(500);
+    expect(failed.body.success).toBe(false);
+  });
+
+  test("je Widget ein Gang durch den Index (embed_id, createdAt) bis zur ersten einsehbaren Zeile, kein Durchlauf und keine Sortierung", async () => {
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    await EmbedChats.lastMessageAtByEmbed();
+    const [strings] = queries.mock.calls.at(-1);
+    const sql = strings.join("");
+    const plan = await db.client.$queryRawUnsafe(`EXPLAIN QUERY PLAN ${sql}`);
+    const details = plan.map((row) => row.detail).join("\n");
+    expect(details).toMatch(/embed_chats_embed_id_createdAt_idx/);
+    expect(details).not.toMatch(/SCAN c\b(?! USING)/);
+    expect(details).not.toMatch(/TEMP B-TREE FOR ORDER BY/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7: Zeitraum als Berliner Kalendertage (F03, F06), Blättern über
+// einen Schlüssel (F14), Nachrichten des Exports je Paar (F11, F21)
+// ---------------------------------------------------------------------------
+
+describe("zeitraum (Fixliste 7, F03/F06)", () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+  });
+
+  test("F03: ungültiger Zeitraum – Liste und Export antworten 400 (früher 500 bzw. eine eigene Kopie der Prüfung), ohne Abfrage der Konversationen", async () => {
+    const page = jest.spyOn(EmbedChats, "conversationPage");
+    const exported = jest.spyOn(EmbedChats, "conversationsForExport");
+    for (const request of [
+      { startDate: "abc" },
+      { endDate: "kein Datum" },
+      { fromDay: "2026-09-31", toDay: "2026-10-01" },
+      { fromDay: "2026-10-02", toDay: "2026-10-01" },
+      { fromDay: "2026-10-01", toDay: null },
+      { fromDay: null, toDay: "2026-10-01" },
+      { fromDay: "1.10.2026", toDay: "2026-10-01" },
+      { fromDay: 20261001, toDay: 20261001 },
+    ]) {
+      const body = { offset: 0, limit: 20, ...request };
+      const list = await invoke(CONVERSATIONS, {
+        params: { embedId: String(embed.id) },
+        body,
+        token: admin.token,
+      });
+      expect([request, list.statusCode]).toEqual([request, 400]);
+      expect(list.body).toEqual({ success: false, error: expect.any(String) });
+      const file = await invoke(EXPORT, {
+        params: { embedId: String(embed.id) },
+        body: { format: "csv", ...request },
+        token: admin.token,
+      });
+      expect([request, file.statusCode]).toEqual([request, 400]);
+    }
+    expect(page).not.toHaveBeenCalled();
+    expect(exported).not.toHaveBeenCalled();
+  });
+
+  test("F06: Die Tage gelten als Berliner Kalendertage – Liste, Export und Dateiname, unabhängig von der Zeitzone des Prozesses (yarn test:tz)", async () => {
+    // Ränder des Septembers in Berliner Zeit
+    await addChat(embed, {
+      at: berlinInstant("2026-09-01", 0, 30),
+      prompt: "erste Minute im September",
+      conversation: "anfang",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-08-31", 23, 59),
+      prompt: "noch August",
+      conversation: "august",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-09-30", 23, 30),
+      prompt: "letzte Stunde im September",
+      conversation: "ende",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-01", 0, 15),
+      prompt: "schon Oktober",
+      conversation: "oktober",
+    });
+    const september = { fromDay: "2026-09-01", toDay: "2026-09-30" };
+
+    const list = await listPage(embed, september);
+    expect(list.statusCode).toBe(200);
+    expect(list.body.conversations.map((c) => c.conversation_id)).toEqual([
+      "ende",
+      "anfang",
+    ]);
+    expect(list.body.totalCount).toBe(2);
+
+    const file = await exportFile(embed, "json", september);
+    expect(file.statusCode).toBe(200);
+    expect(JSON.parse(file.body).map((c) => c.conversationId)).toEqual([
+      "ende",
+      "anfang",
+    ]);
+    // derselbe Zeitraum im Dateinamen - der letzte Tag, nicht der folgende
+    expect(file.headers["Content-Disposition"]).toMatch(
+      /_2026-09-01_2026-09-30\.json"$/
+    );
+    const [event] = await eventsOf(db.client, "embed_conversations_exported");
+    expect(event.metadata).toEqual(
+      expect.objectContaining({ fromDay: "2026-09-01", toDay: "2026-09-30" })
+    );
+
+    // Ein Tag allein: nur dieser Berliner Tag
+    const lastDay = await listPage(embed, {
+      fromDay: "2026-09-30",
+      toDay: "2026-09-30",
+    });
+    expect(lastDay.body.conversations.map((c) => c.conversation_id)).toEqual([
+      "ende",
+    ]);
+    // „Gesamt“: ohne Tage
+    const all = await listPage(embed, { fromDay: null, toDay: null });
+    expect(all.body.totalCount).toBe(4);
+  });
+});
+
+describe("blättern über einen schlüssel (Fixliste 7, F14)", () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    // k-1 (älteste letzte Nachricht) … k-5 (jüngste)
+    for (let i = 1; i <= 5; i++)
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, i),
+        prompt: `Frage ${i}`,
+        conversation: `k-${i}`,
+      });
+  });
+  const ids = (result) =>
+    result.body.conversations.map((c) => c.conversation_id);
+  // Schlüssel wie die Ansicht ihn sendet: letzte geladene Zeile und der
+  // Stand der ersten Seite (maxId, Fixliste 8, L2)
+  const cursorOf = (conversation, maxId = null) => ({
+    lastMessageAt: conversation.last_message_at,
+    firstChatId: conversation.first_chat_id,
+    ...(maxId === null ? {} : { maxId }),
+  });
+
+  test("Verschwindet zwischen zwei Seiten eine Konversation, fehlt mit dem Schlüssel keine – mit offset fehlte die bisherige Zeile 3", async () => {
+    const first = await listPage(embed, { limit: 2 });
+    expect(ids(first)).toEqual(["k-5", "k-4"]);
+    expect(first.body).toMatchObject({ totalCount: 5, hasMore: true });
+
+    // Ein zweiter Admin löscht k-5 (oder die Aufbewahrungsfrist, oder der
+    // Besucher leert sie).
+    await db.client.embed_chats.deleteMany({
+      where: { conversation_id: "k-5" },
+    });
+
+    const byOffset = await listPage(embed, { offset: 2, limit: 2 });
+    expect(ids(byOffset)).toEqual(["k-2", "k-1"]); // k-3 fehlt still
+
+    const { maxId } = first.body;
+    const next = await listPage(embed, {
+      limit: 2,
+      after: cursorOf(first.body.conversations.at(-1), maxId),
+    });
+    expect(next.statusCode).toBe(200);
+    expect(ids(next)).toEqual(["k-3", "k-2"]);
+    expect(next.body).toMatchObject({ totalCount: 4, hasMore: true, maxId });
+    const last = await listPage(embed, {
+      limit: 2,
+      after: cursorOf(next.body.conversations.at(-1), maxId),
+    });
+    expect(ids(last)).toEqual(["k-1"]);
+    expect(last.body).toMatchObject({ totalCount: 4, hasMore: false });
+    // hinter dem Ende: leer, die Zahl stimmt trotzdem
+    const behind = await listPage(embed, {
+      limit: 2,
+      after: cursorOf(last.body.conversations.at(-1), maxId),
+    });
+    expect(behind.body).toMatchObject({
+      conversations: [],
+      totalCount: 4,
+      hasMore: false,
+    });
+  });
+
+  test("Fixliste 8, L2: Schreibt ein Besucher zwischen zwei Seiten weiter, fehlt seine Konversation nicht – die Seiten lesen den Stand der ersten (maxId); ohne Stand rutschte sie still über den Schlüssel", async () => {
+    const first = await listPage(embed, { limit: 2 });
+    expect(ids(first)).toEqual(["k-5", "k-4"]);
+    const newest = await db.client.embed_chats.findFirst({
+      orderBy: { id: "desc" },
+    });
+    expect(first.body.maxId).toBe(newest.id);
+    expect(first.body.totalCount).toBe(5);
+
+    // Der Besucher von k-2 schreibt weiter, ein neuer beginnt k-6: Beide
+    // hätten jetzt eine jüngere letzte Nachricht als die Zeilen der Seite 1.
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "noch eine Frage",
+      conversation: "k-2",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 1),
+      prompt: "ganz neu",
+      conversation: "k-6",
+    });
+
+    // Mit dem Stand der ersten Seite: k-2 an seiner Stelle, mit dem Stand
+    // (eine Nachricht), Zahlen wie auf Seite 1
+    const seen = [...ids(first)];
+    let page = first;
+    while (page.body.hasMore) {
+      page = await listPage(embed, {
+        limit: 2,
+        after: cursorOf(page.body.conversations.at(-1), first.body.maxId),
+      });
+      expect(page.statusCode).toBe(200);
+      expect(page.body).toMatchObject({
+        totalCount: 5,
+        maxId: first.body.maxId,
+      });
+      seen.push(...ids(page));
+      const k2 = page.body.conversations.find(
+        (c) => c.conversation_id === "k-2"
+      );
+      if (k2) expect(k2.message_count).toBe(1);
+    }
+    expect(seen).toEqual(["k-5", "k-4", "k-3", "k-2", "k-1"]);
+
+    // Gegenprobe ohne Stand (Aufrufer vor Fixliste 8): k-2 fehlt still
+    const old = await listPage(embed, {
+      limit: 10,
+      after: cursorOf(first.body.conversations.at(-1)),
+    });
+    expect(ids(old)).toEqual(["k-3", "k-1"]);
+    // Neu geladen: der neue Stand, k-6 und k-2 oben
+    const reloaded = await listPage(embed, { limit: 3 });
+    expect(ids(reloaded)).toEqual(["k-6", "k-2", "k-5"]);
+    expect(reloaded.body.maxId).toBeGreaterThan(first.body.maxId);
+  });
+
+  test("Gleiche letzte Nachricht: Der Schlüssel entscheidet nach first_chat_id – jede Konversation genau einmal; mit Suche und Filter ebenso", async () => {
+    const T = berlinInstant("2026-10-06", 12, 0);
+    for (const name of ["g-a", "g-b", "g-c"])
+      await addChat(embed, {
+        at: T,
+        prompt: `Kurs ${name}`,
+        conversation: name,
+      });
+    const seen = [];
+    let after = null;
+    for (let round = 0; round < 10; round++) {
+      const page = await listPage(embed, { limit: 1, after, search: "kurs" });
+      expect(page.statusCode).toBe(200);
+      seen.push(...ids(page));
+      if (!page.body.hasMore) break;
+      after = cursorOf(page.body.conversations.at(-1));
+    }
+    expect(seen).toEqual(["g-c", "g-b", "g-a"]);
+  });
+
+  test("Eingaben: after nur als { lastMessageAt, firstChatId, maxId? } aus ganzen Zahlen und nicht zusammen mit offset – sonst 400", async () => {
+    for (const request of [
+      { after: { lastMessageAt: "1", firstChatId: 2 } },
+      { after: { lastMessageAt: 1 } },
+      { after: { lastMessageAt: 1, firstChatId: 0 } },
+      { after: [1, 2] },
+      { after: "1|2" },
+      { after: { lastMessageAt: 1, firstChatId: 2 }, offset: 20 },
+      // maxId (Fixliste 8, L2): wenn genannt, eine ganze Zahl ≥ 0
+      { after: { lastMessageAt: 1, firstChatId: 2, maxId: "5" } },
+      { after: { lastMessageAt: 1, firstChatId: 2, maxId: -1 } },
+      { after: { lastMessageAt: 1, firstChatId: 2, maxId: 1.5 } },
+    ]) {
+      const result = await invoke(CONVERSATIONS, {
+        params: { embedId: String(embed.id) },
+        body: { limit: 20, ...request },
+        token: admin.token,
+      });
+      expect([request, result.statusCode]).toEqual([request, 400]);
+    }
+  });
+});
+
+// Das SQL eines aufgezeichneten $queryRaw-Aufrufs samt verschachtelter
+// Fragmente (etwa des Index-Hinweises, Fixliste 9, A1).
+function composedSql(call) {
+  const { Prisma } = require("@prisma/client");
+  return Prisma.sql(...call).sql;
+}
+
+describe("nachrichten des exports je paar (Fixliste 7, F11/F21)", () => {
+  test("Dieselbe Kennung in vielen Sitzungen: gelesen werden nur die Zeilen der Paare (Kennung, Sitzung) des Pakets – mit denselben Bedingungen wie die Liste", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    // 30 Sitzungen senden dieselbe Kennung „gleich", je drei Nachrichten;
+    // nur eine Konversation ist negativ bewertet.
+    for (let session = 0; session < 30; session++)
+      for (let m = 0; m < 3; m++)
+        await addChat(embed, {
+          at: berlinInstant("2026-10-05", 9, session),
+          prompt: `Frage ${session}/${m}`,
+          conversation: "gleich",
+          session: `sitzung-${session}`,
+          feedbackScore: session === 7 && m === 1 ? false : null,
+        });
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    const conditions = jest.spyOn(EmbedChats, "_rowConditions");
+
+    const file = await exportFile(embed, "json", {
+      ...OCTOBER,
+      feedbackFilter: "negative",
+    });
+    expect(file.statusCode).toBe(200);
+    const exported = JSON.parse(file.body);
+    expect(exported).toHaveLength(1);
+    expect(exported[0].messages.map((m) => m.prompt)).toEqual([
+      "Frage 7/0",
+      "Frage 7/1",
+      "Frage 7/2",
+    ]);
+
+    // Die Abfrage der Nachrichten liefert nur die drei Zeilen dieser
+    // Konversation, nicht die 90 aller Sitzungen mit derselben Kennung.
+    const messageQuery = queries.mock.calls.findIndex((call) =>
+      /INDEXED BY embed_chats_embed_id_session_id_idx/.test(composedSql(call))
+    );
+    expect(messageQuery).toBeGreaterThanOrEqual(0);
+    expect(await queries.mock.results[messageQuery].value).toHaveLength(3);
+    // dieselben Zeilenbedingungen wie die Liste (eine Definition)
+    expect(conditions).toHaveBeenCalledWith(
+      expect.objectContaining({ embedId: embed.id, maxId: expect.any(Number) })
+    );
+  });
+
+  test("Fixliste 8, M2: Die Nachrichten-Abfrage des Exports nimmt auch ohne Statistiken (kein ANALYZE, wie in Produktion) den Index (embed_id, session_id) – nicht (embed_id, createdAt), mit und ohne Zeitraum", async () => {
+    const { Prisma } = require("@prisma/client");
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    for (let session = 0; session < 5; session++)
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, session),
+        prompt: `Frage ${session}`,
+        conversation: `k-${session}`,
+        session: `sitzung-${session}`,
+      });
+    // Produktionszustand: keine Statistiken
+    expect(
+      await db.client.$queryRawUnsafe(
+        "SELECT name FROM sqlite_master WHERE name = 'sqlite_stat1'"
+      )
+    ).toEqual([]);
+    for (const request of [OCTOBER, { fromDay: null, toDay: null }]) {
+      const queries = jest.spyOn(db.client, "$queryRaw");
+      const file = await exportFile(embed, "json", request);
+      expect(file.statusCode).toBe(200);
+      expect(JSON.parse(file.body)).toHaveLength(5);
+      const call = queries.mock.calls.find((call) =>
+        /INDEXED BY embed_chats_embed_id_session_id_idx/.test(composedSql(call))
+      );
+      expect(call).toBeDefined();
+      queries.mockRestore();
+      const query = Prisma.sql(...call);
+      const plan = (
+        await db.client.$queryRawUnsafe(
+          `EXPLAIN QUERY PLAN ${query.sql}`,
+          ...query.values
+        )
+      )
+        .map((row) => row.detail)
+        .join("\n");
+      expect(plan).toMatch(
+        /SEARCH embed_chats USING INDEX embed_chats_embed_id_session_id_idx \(embed_id=\? AND session_id=\?/
+      );
+      expect(plan).not.toMatch(/embed_chats_embed_id_createdAt_idx/);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 9: Stand je Widget (A2), Index-Hinweis nur mit Index (A1), Panel
+// und Gründe negativer Bewertungen über den Sitzungs-Index (A3)
+// ---------------------------------------------------------------------------
+
+const SESSION_INDEX = "embed_chats_embed_id_session_id_idx";
+const hinted = (call) =>
+  composedSql(call).includes(`INDEXED BY ${SESSION_INDEX}`);
+
+/** Plan einer aufgezeichneten Abfrage (ohne Statistiken). */
+async function planOf(call, { withoutHint = false } = {}) {
+  const { Prisma } = require("@prisma/client");
+  const query = Prisma.sql(...call);
+  const sql = withoutHint
+    ? query.sql.replace(`INDEXED BY ${SESSION_INDEX}`, "")
+    : query.sql;
+  return (
+    await db.client.$queryRawUnsafe(
+      `EXPLAIN QUERY PLAN ${sql}`,
+      ...query.values
+    )
+  )
+    .map((row) => row.detail)
+    .join("\n");
+}
+
+describe("stand der liste je widget (Fixliste 9, A2)", () => {
+  test("maxId ist die höchste id des Widgets – Zeilen anderer Widgets (fremder Workspaces) ändern ihn nicht; der Export liest denselben Stand", async () => {
+    const workspaceA = await createWorkspace(db.client);
+    const workspaceB = await createWorkspace(db.client);
+    const own = await createEmbed(db.client, workspaceA);
+    const foreign = await createEmbed(db.client, workspaceB);
+    const kunde = await createUser("default", [workspaceA.id]);
+    const ownRows = [];
+    for (let i = 1; i <= 3; i++)
+      ownRows.push(
+        await addChat(own, {
+          at: berlinInstant("2026-10-05", 9, i),
+          prompt: `Eigene Frage ${i}`,
+          conversation: `eigen-${i}`,
+        })
+      );
+    const foreignRow = await addChat(foreign, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Fremde Frage",
+      conversation: "fremd",
+    });
+    expect(foreignRow.id).toBeGreaterThan(ownRows.at(-1).id);
+
+    const first = await listPage(own, {}, kunde);
+    expect(first.statusCode).toBe(200);
+    expect(first.body.maxId).toBe(ownRows.at(-1).id);
+
+    // In fremden Widgets entstehen weitere Zeilen: der Stand bleibt.
+    for (let i = 0; i < 5; i++)
+      await addChat(foreign, {
+        at: berlinInstant("2026-10-05", 11, i),
+        prompt: `Fremd ${i}`,
+        conversation: `fremd-${i}`,
+      });
+    expect((await listPage(own, {}, kunde)).body.maxId).toBe(ownRows.at(-1).id);
+
+    // Eine neue Zeile im eigenen Widget: der neue Stand
+    const next = await addChat(own, {
+      at: berlinInstant("2026-10-05", 12, 0),
+      prompt: "Neue eigene Frage",
+      conversation: "eigen-4",
+    });
+    const reloaded = await listPage(own, {}, kunde);
+    expect(reloaded.body.maxId).toBe(next.id);
+    expect(reloaded.body.totalCount).toBe(4);
+
+    // Ein Widget ohne Zeile: Stand 0
+    const empty = await createEmbed(db.client, workspaceA);
+    expect((await listPage(empty, {}, kunde)).body.maxId).toBe(0);
+
+    // Export: derselbe Stand je Widget, alle eigenen Konversationen
+    const file = await exportFile(own, "json", OCTOBER, kunde);
+    expect(file.statusCode).toBe(200);
+    expect(JSON.parse(file.body).map((c) => c.messages[0].prompt)).toEqual([
+      "Neue eigene Frage",
+      "Eigene Frage 3",
+      "Eigene Frage 2",
+      "Eigene Frage 1",
+    ]);
+  });
+});
+
+describe("index-hinweis nur mit index (Fixliste 9, A1)", () => {
+  let embed;
+  let firstIds;
+  beforeEach(async () => {
+    EmbedChats._forgetIndexes();
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    firstIds = [];
+    for (let i = 1; i <= 3; i++) {
+      const first = await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, i),
+        prompt: `Frage ${i}`,
+        conversation: `k-${i}`,
+      });
+      firstIds.push(first.id);
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, 30 + i),
+        prompt: `Nachfrage ${i}`,
+        conversation: `k-${i}`,
+        feedbackScore: false,
+        feedbackReason: `Grund ${i}`,
+      });
+    }
+  });
+  afterEach(() => EmbedChats._forgetIndexes());
+
+  // Liste (mit Gründen), Panel und Export - mit dem erwarteten Inhalt
+  async function allViews() {
+    const list = await listPage(embed, { feedbackFilter: "negative" });
+    expect(list.statusCode).toBe(200);
+    expect(
+      list.body.conversations.map((c) => [
+        c.conversation_id,
+        c.first_negative_reason,
+      ])
+    ).toEqual([
+      ["k-3", "Grund 3"],
+      ["k-2", "Grund 2"],
+      ["k-1", "Grund 1"],
+    ]);
+    const panel = await details(embed, firstIds[1]);
+    expect(panel.statusCode).toBe(200);
+    expect(panel.body.messages.map((m) => m.prompt)).toEqual([
+      "Frage 2",
+      "Nachfrage 2",
+    ]);
+    const file = await exportFile(embed, "json", OCTOBER);
+    expect(file.statusCode).toBe(200);
+    expect(
+      JSON.parse(file.body).map((c) => c.messages.map((m) => m.prompt))
+    ).toEqual([
+      ["Frage 3", "Nachfrage 3"],
+      ["Frage 2", "Nachfrage 2"],
+      ["Frage 1", "Nachfrage 1"],
+    ]);
+  }
+
+  test("Die Migration 20260722014551 legt den Index an; fehlt er (Fallback des Entrypoints markiert eine fehlgeschlagene Migration als angewendet), fragen Liste, Panel und Export ohne Hinweis – nie 500 mit „no such index“", async () => {
+    const indexOf = () =>
+      db.client.$queryRawUnsafe(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?",
+        SESSION_INDEX
+      );
+    expect((await indexOf())[0].sql).toMatch(/\("embed_id", "session_id"\)/);
+    await db.client.$executeRawUnsafe(`DROP INDEX "${SESSION_INDEX}"`);
+    expect(await indexOf()).toEqual([]);
+
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    await allViews();
+    expect(queries.mock.calls.filter(hinted)).toEqual([]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  test("Verschwindet der Index nach dem Nachsehen, wiederholt jede Abfrage einmal ohne Hinweis; danach fragt sie gleich ohne", async () => {
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    await allViews();
+    // mit Index: Panel, Gründe und Export mit Hinweis
+    expect(queries.mock.calls.filter(hinted).length).toBe(3);
+
+    await db.client.$executeRawUnsafe(`DROP INDEX "${SESSION_INDEX}"`);
+    queries.mockClear();
+    await allViews();
+    // nur der erste Versuch nach dem Verschwinden trägt den Hinweis
+    expect(queries.mock.calls.filter(hinted).length).toBe(1);
+    queries.mockClear();
+    await allViews();
+    expect(queries.mock.calls.filter(hinted)).toEqual([]);
+  });
+
+  test("Andere Datenbankfehler bleiben Fehler (500), ohne zweiten Versuch", async () => {
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    queries.mockImplementation(async (...call) => {
+      if (hinted(call)) throw new Error("database is locked");
+      return [];
+    });
+    const panel = await details(embed, firstIds[0]);
+    expect(panel.statusCode).toBe(500);
+    expect(queries.mock.calls.filter(hinted).length).toBe(1);
+    expect(
+      queries.mock.calls.filter((call) =>
+        /ORDER BY createdAt ASC, id ASC/.test(composedSql(call))
+      ).length
+    ).toBe(1);
+  });
+});
+
+describe("panel und gründe über den sitzungs-index (Fixliste 9, A3)", () => {
+  test("Ohne Statistiken (wie in Produktion) nehmen das Öffnen einer Konversation und die Gründe negativer Bewertungen den Index (embed_id, session_id) – ohne Hinweis wählte SQLite (embed_id, createdAt) und las alle Zeilen des Widgets", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    let firstId = null;
+    for (let session = 0; session < 5; session++)
+      for (let m = 0; m < 2; m++) {
+        const row = await addChat(embed, {
+          at: berlinInstant("2026-10-05", 9, session * 2 + m),
+          prompt: `Frage ${session}/${m}`,
+          conversation: `k-${session}`,
+          session: `sitzung-${session}`,
+          feedbackScore: m === 1 ? false : null,
+          feedbackReason: m === 1 ? "Unvollständig" : null,
+        });
+        firstId ??= row.id;
+      }
+    expect(
+      await db.client.$queryRawUnsafe(
+        "SELECT name FROM sqlite_master WHERE name = 'sqlite_stat1'"
+      )
+    ).toEqual([]);
+
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    const panel = await details(embed, firstId);
+    expect(panel.body.messages.map((m) => m.prompt)).toEqual([
+      "Frage 0/0",
+      "Frage 0/1",
+    ]);
+    // Gründe mit Zeitraum und über den ganzen Bestand („Gesamt“)
+    for (const request of [{}, { startDate: null, endDate: null }]) {
+      const list = await listPage(embed, request);
+      expect(
+        list.body.conversations.map((c) => c.first_negative_reason)
+      ).toEqual(Array(5).fill("Unvollständig"));
+    }
+    const calls = queries.mock.calls.filter(hinted);
+    queries.mockRestore();
+    // Panel, Gründe mit Zeitraum, Gründe ohne Zeitraum
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
+      const plan = await planOf(call);
+      expect(plan).toMatch(
+        /SEARCH embed_chats USING INDEX embed_chats_embed_id_session_id_idx \(embed_id=\? AND session_id=\?/
+      );
+      expect(plan).not.toMatch(/embed_chats_embed_id_createdAt_idx/);
+      // Gegenprobe: dieselbe Abfrage ohne Hinweis - der falsche Index
+      expect(await planOf(call, { withoutHint: true })).toMatch(
+        /embed_chats_embed_id_createdAt_idx/
+      );
+    }
+  });
+});

@@ -53,7 +53,9 @@ import {
 // Datenfarbe.
 //
 // Raster und Aussagen erscheinen erst ab 28 Tagen und 200 Nachrichten
-// (heatmapState); darunter steht, was fehlt.
+// (heatmapState); darunter ist die Karte eine einzige schmale Zeile
+// „Wann schreiben Ihre Besucher? – <Hinweis>" – ebenso ohne Nachrichten und
+// nach einem Ladefehler. Während des Ladens bleibt die bisherige Höhe.
 
 const DEFAULT_WIDTH = 960;
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
@@ -92,6 +94,41 @@ export default function WeekdayHourCard({ summary, loading, failed = false }) {
   const toggleOn =
     "bg-theme-settings-input-bg text-theme-text-primary font-medium";
   const toggleOff = `${MUTED} hover:text-theme-text-primary`;
+
+  // Kein Raster: eine Zeile statt des Rahmens.
+  const hint = !summary
+    ? failed
+      ? t("embed-analytics.chart.empty.error")
+      : null
+    : state === "empty"
+      ? t("embed-analytics.chart.empty.range")
+      : state === "short-range"
+        ? t("embed-analytics.weekday-hour.hint.short-range", {
+            days: MIN_PERIOD_DAYS,
+          })
+        : state === "few-messages"
+          ? t("embed-analytics.weekday-hour.hint.few-messages", {
+              messages: formatNumber(MIN_MESSAGES),
+            })
+          : null;
+  if (hint)
+    return (
+      <section
+        aria-labelledby={titleId}
+        aria-busy={loading}
+        data-weekday-hour-card={state}
+        data-heat-compact=""
+        className={`mb-6 rounded-xl border border-white/10 bg-theme-bg-primary px-4 py-3 md:px-5 transition-opacity ${loading && summary ? "opacity-50" : ""}`}
+      >
+        <p className={`text-sm ${MUTED}`}>
+          <span id={titleId} className="font-medium">
+            {t("embed-analytics.weekday-hour.title")}
+          </span>
+          {" – "}
+          <span data-heat-frame="">{hint}</span>
+        </p>
+      </section>
+    );
 
   return (
     <section
@@ -145,34 +182,9 @@ export default function WeekdayHourCard({ summary, loading, failed = false }) {
         aria-busy={loading}
       >
         {!summary ? (
+          // Laden: der Rahmen in gewohnter Höhe
           <Frame>
-            <p className={`text-sm ${MUTED}`}>
-              {failed
-                ? t("embed-analytics.chart.empty.error")
-                : t("common.loading")}
-            </p>
-          </Frame>
-        ) : state === "empty" ? (
-          <Frame>
-            <p className="text-sm text-theme-text-primary">
-              {t("embed-analytics.chart.empty.range")}
-            </p>
-          </Frame>
-        ) : state === "short-range" ? (
-          <Frame>
-            <p className="text-sm text-theme-text-primary">
-              {t("embed-analytics.weekday-hour.hint.short-range", {
-                days: MIN_PERIOD_DAYS,
-              })}
-            </p>
-          </Frame>
-        ) : state === "few-messages" ? (
-          <Frame>
-            <p className="text-sm text-theme-text-primary">
-              {t("embed-analytics.weekday-hour.hint.few-messages", {
-                messages: formatNumber(MIN_MESSAGES),
-              })}
-            </p>
+            <p className={`text-sm ${MUTED}`}>{t("common.loading")}</p>
           </Frame>
         ) : (
           <>
@@ -194,7 +206,7 @@ export default function WeekdayHourCard({ summary, loading, failed = false }) {
   );
 }
 
-/** Rahmen für Lade-, Leer- und Hinweiszustände – ohne Felder. */
+/** Rahmen für den Ladezustand – ohne Felder. */
 function Frame({ children }) {
   return (
     <div

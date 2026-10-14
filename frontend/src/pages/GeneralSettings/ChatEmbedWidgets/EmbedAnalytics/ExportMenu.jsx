@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { CaretDown, DownloadSimple } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { saveAs } from "file-saver";
 import Embed from "@/models/embed";
+import { formatNumber } from "@/utils/analyticsTimeline";
 import showToast from "@/utils/toast";
+import { MUTED } from "@/utils/conversationView";
+import { useDismiss } from "./viewHooks";
 
 // KIE-538: „Exportieren" in der Kopfzeile der Konversationsliste. Exportiert
-// wird, was die Liste gerade zeigt – Widget, Zeitraum, Feedback-Filter und
-// der Abschnitt aus dem Diagramm –, über alle Seiten.
+// wird, was die Liste gerade zeigt – Widget, Zeitraum, Feedback-Filter, der
+// Abschnitt aus dem Diagramm und der Suchbegriff –, über alle Seiten.
 
 const FORMATS = [
   { format: "csv", labelKey: "embed-analytics.export.csv" },
@@ -17,64 +20,54 @@ const FORMATS = [
 /**
  * @param {Object} props
  * @param {number} props.embedId
- * @param {string|null} props.startDate - ISO-Zeitstempel des Browsers
- * @param {string|null} props.endDate
- * @param {"all"|"negative"|"positive"} props.feedbackFilter
- * @param {{start: string, end: string}|null} [props.bucket] - Abschnitt aus dem Diagramm
+ * @param {Object} props.selection - die Auswahl der Liste, wie sie auch eine
+ *   Seite der Liste lädt (conversationSelectionBody in models/embed.js):
+ *   { fromDay, toDay, feedbackFilter, startedBetween, search }
  * @param {boolean} [props.disabled] - nichts zu exportieren (Liste leer oder lädt)
  * @param {string} [props.className] - Aussehen der Schaltfläche (wie die Filter daneben)
+ * @param {string} [props.wrapperClassName] - Platz in der Kopfzeile (order …)
+ *
+ * Unter sm zeigt die Schaltfläche nur das Symbol; ihr Name „Exportieren"
+ * bleibt für Screenreader (Fixliste 2, B1). Der Pfeil erst ab xl – bis dahin
+ * steht sie kompakt neben Suche und Filtern (Fixliste 3, V7).
  */
 export default function ExportMenu({
   embedId,
-  startDate,
-  endDate,
-  feedbackFilter = "all",
-  bucket = null,
+  selection,
   disabled = false,
   className = "",
+  wrapperClassName = "",
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const containerRef = useRef(null);
+  const buttonRef = useRef(null);
+  // Wird die Schaltfläche gesperrt (Liste lädt neu, scheitert, ist leer),
+  // schließt die offene Auswahl – sie bliebe sonst bedienbar (Fixliste 2, R9).
+  if (open && disabled) setOpen(false);
 
-  // Klick außerhalb oder Escape schließt die Auswahl.
-  useEffect(() => {
-    if (!open) return;
-    function handleMouseDown(e) {
-      if (containerRef.current && !containerRef.current.contains(e.target))
-        setOpen(false);
-    }
-    function handleKeyDown(e) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
+  // Klick außerhalb oder Escape schließt die Auswahl – Escape nur sie, nicht
+  // auch das Seitenpanel (useDismiss).
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(containerRef, open, close, { focusRef: buttonRef });
 
   const runExport = async (format) => {
     setOpen(false);
     setRunning(true);
-    const { success, blob, filename } = await Embed.exportConversations(
-      embedId,
-      format,
-      {
-        startDate,
-        endDate,
-        feedbackFilter,
-        startedBetween: bucket
-          ? { fromDay: bucket.start, toDay: bucket.end }
-          : null,
-      }
-    );
+    const { success, blob, filename, reason, max } =
+      await Embed.exportConversations(embedId, format, selection);
     setRunning(false);
 
     if (!success) {
-      showToast(t("embed-analytics.export.error"), "error");
+      // Mit Suche ist die Treffermenge begrenzt (Fixliste 3, C10): Die
+      // Meldung nennt die Grenze und was zu tun ist.
+      showToast(
+        reason === "too-many-hits" && max !== null
+          ? t("embed-analytics.export.too-many", { max: formatNumber(max) })
+          : t("embed-analytics.export.error"),
+        "error"
+      );
       return;
     }
     saveAs(blob, filename);
@@ -82,9 +75,14 @@ export default function ExportMenu({
   };
 
   return (
-    <div className="relative" ref={containerRef} data-export-menu="">
+    <div
+      className={`relative ${wrapperClassName}`}
+      ref={containerRef}
+      data-export-menu=""
+    >
       <button
         type="button"
+        ref={buttonRef}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled || running}
@@ -92,18 +90,20 @@ export default function ExportMenu({
         onClick={() => setOpen(!open)}
         className={`${className} disabled:cursor-not-allowed disabled:opacity-50`}
       >
-        <DownloadSimple size={15} aria-hidden="true" />
-        {running
-          ? t("embed-analytics.export.running")
-          : t("embed-analytics.export.button")}
+        <DownloadSimple size={16} aria-hidden="true" className="shrink-0" />
+        <span className="sr-only sm:not-sr-only">
+          {running
+            ? t("embed-analytics.export.running")
+            : t("embed-analytics.export.button")}
+        </span>
         <CaretDown
           size={12}
           aria-hidden="true"
-          className={`transition-transform ${open ? "rotate-180" : ""}`}
+          className={`hidden transition-transform xl:block ${open ? "rotate-180" : ""}`}
         />
       </button>
 
-      {open && (
+      {open && !disabled && (
         <div
           role="menu"
           aria-label={t("embed-analytics.export.menu-label")}
@@ -116,7 +116,8 @@ export default function ExportMenu({
               role="menuitem"
               data-export-format={format}
               onClick={() => runExport(format)}
-              className="block w-full whitespace-nowrap px-3 py-2 text-left text-sm text-theme-text-secondary transition-colors hover:bg-white/5 hover:text-theme-text-primary light:hover:bg-black/5"
+              // gedämpft wie die übrigen Menüs: hell #5f6368, 6,1:1 (B2)
+              className={`block min-h-[44px] w-full whitespace-nowrap px-3 py-2 text-left text-sm ${MUTED} transition-colors hover:bg-white/5 hover:text-theme-text-primary sm:min-h-0 light:hover:bg-black/5`}
             >
               {t(labelKey)}
             </button>

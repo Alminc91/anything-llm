@@ -657,7 +657,7 @@ test(
       html.indexOf("Dargestellte Größe"),
       sections[1],
       html.indexOf("Wann schreiben Ihre Besucher?"),
-      html.indexOf("Nur mit 👍"),
+      html.indexOf(">Positiv bewertet</span>"),
     ];
     assert.ok(
       order.every((index) => index >= 0),
@@ -668,5 +668,54 @@ test(
       [...order].sort((a, b) => a - b)
     );
     assert.match(html, /<section [^>]*data-weekday-hour-card="pending"/);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Hinweise als schmale Zeile (Feinschliff nach KIE-539)
+// ---------------------------------------------------------------------------
+
+test(
+  "Ohne Raster ist die Karte eine schmale Zeile „Wann schreiben Ihre Besucher? – <Hinweis>“ – ohne Legende, ohne „Als Tabelle“, ohne Rahmen",
+  { skip },
+  async () => {
+    const short = summaryOf(
+      [{ day: PERIOD.fromDay, hour: 10, messages: 300 }],
+      {
+        fromDay: addDays(PERIOD.toDay, -6),
+      }
+    );
+    const few = summaryOf([{ day: PERIOD.fromDay, hour: 10, messages: 12 }]);
+    const cases = [
+      [summaryOf([]), "Keine Nachrichten im gewählten Zeitraum"],
+      [short, "Für diese Ansicht bitte mindestens 28 Tage wählen"],
+      [
+        few,
+        "Zu wenige Nachrichten für ein verlässliches Muster (mindestens 200)",
+      ],
+      [null, "Die Zählwerte konnten nicht geladen werden.", { failed: true }],
+    ];
+    for (const [summary, hint, props] of cases) {
+      const html = await card(summary, props);
+      const tag = html.match(/^<section [^>]*>/)?.[0] ?? "";
+      assert.match(tag, /data-heat-compact=""/, hint);
+      assert.match(
+        tag,
+        /class="mb-6 rounded-xl border [^"]*\bpx-4 py-3 md:px-5\b/
+      );
+      assert.doesNotMatch(tag, /\bp-4\b|md:p-5/);
+      assert.equal(textOf(html), `Wann schreiben Ihre Besucher? – ${hint}`);
+      assert.equal(blockOf(html, 'data-heat-frame=""'), hint);
+      assert.doesNotMatch(
+        html,
+        /h-\[160px\]|<svg|<h3|data-heat-legend|Als Tabelle/
+      );
+      assert.equal(count(html, /<p /g), 1);
+    }
+
+    // Beim Laden bleibt der Rahmen in gewohnter Höhe.
+    const loading = await card(null, { loading: true });
+    assert.match(loading, /data-heat-frame=""[^>]*class="[^"]*h-\[160px\]/);
+    assert.doesNotMatch(loading, /data-heat-compact/);
   }
 );

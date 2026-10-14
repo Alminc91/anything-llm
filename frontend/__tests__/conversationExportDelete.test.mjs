@@ -1,5 +1,7 @@
 // KIE-538: Ansicht „Konversationen" – „Exportieren" in der Kopfzeile der
-// Liste, „Konversation löschen" am Fuß einer aufgeklappten Konversation.
+// Liste, „Konversation löschen" in der Fußzeile der geöffneten Konversation
+// (Seitenpanel, seit der Konversationen-Ansicht; „Alle Konversationen dieses
+// Besuchers löschen" im Menü „⋯" des Panels).
 // Die Liste ist mit React DOM in ein Dokument ohne Browser eingehängt
 // (helpers/renderSettingsPage.mjs, mount): Effekte laufen, Eingaben werden
 // über die Handler der Elemente nachgestellt (helpers/testDom.mjs).
@@ -42,10 +44,8 @@ after(async () => {
 });
 
 const EMBED_ID = 3;
-const PERIOD = {
-  startDate: "2026-08-31T22:00:00.000Z",
-  endDate: "2026-09-30T21:59:59.999Z",
-};
+// Zeitraum der Liste: Kalendertage (Fixliste 7, F06)
+const PERIOD = { fromDay: "2026-09-01", toDay: "2026-09-30" };
 const CSV = new Blob(["\uFEFFKonversation;…\r\n"], {
   type: "text/csv; charset=utf-8",
 });
@@ -94,7 +94,8 @@ const sentPath = (url) => new URL(url, "https://kunde.example.org").pathname;
  * entfernt daraus – die Karte, deren first_chat_id der Rumpf nennt. Jede
  * Anfrage wird mit Methode, Adresse und Rumpf gemerkt. `state.preview` hält
  * Antworten der Vorschau je first_chat_id oder je Kennung der Konversation.
- * Die Liste blättert wie der echte Server (offset, limit, hasMore), und die
+ * Die Liste blättert wie der echte Server (offset bzw. after, limit,
+ * hasMore; call.start: Zeilen vor der Seite), und die
  * Anfragen werden der Route zugeordnet, bei der sie nach dem Auflösen der
  * Adresse ankommen – darunter DELETE /embed/:embedId, das Löschen des Widgets
  * (`state.widgetDeleted`). `state.totalCount` ersetzt den Zähler: Der echte
@@ -139,17 +140,46 @@ async function listServer(t, state) {
       call.method === route.method && path === address;
 
     if (is(ROUTES.conversations, listUrl)) {
-      const { offset = 0, limit = 20 } = call.body ?? {};
+      const { offset = 0, limit = 20, after = null } = call.body ?? {};
+      const appended = offset > 0 || !!after;
+      // Blättern über den Schlüssel (Fixliste 7, F14): alles hinter der
+      // genannten Zeile, in der Reihenfolge des Bestands (die Karten hier
+      // haben dieselbe letzte Nachricht; maßgeblich ist ihr Platz)
+      const restOf = () => {
+        if (!after) return state.conversations;
+        const index = state.conversations.findIndex(
+          (c) => c.first_chat_id === after.firstChatId
+        );
+        return index < 0 ? [] : state.conversations.slice(index + 1);
+      };
+      // nicht aufzählbar: Prüfungen vergleichen die Anfragen als Ganzes
+      Object.defineProperty(call, "start", {
+        value: state.conversations.length - restOf().length + offset,
+      });
+      // state.holdMore: Nachladen wartet auf dieses Versprechen
+      if (appended && state.holdMore) await state.holdMore;
       const total = state.conversations.length;
+      // state.repeatFirstPage: Nachladen liefert wieder die erste Seite (nur
+      // Doppelte, etwa nach Verschiebungen) und meldet weiter hasMore
+      if (appended && state.repeatFirstPage)
+        return json({
+          success: true,
+          conversations: state.conversations.slice(0, limit),
+          hasMore: true,
+          totalCount: total,
+        });
+      const rest = restOf();
       return json({
         success: true,
-        conversations: state.conversations.slice(offset, offset + limit),
-        hasMore: offset + limit < total,
+        conversations: rest.slice(offset, offset + limit),
+        hasMore: offset + limit < rest.length,
         totalCount: state.totalCount ?? total,
       });
     }
     if (is(ROUTES.export, exportUrl)) {
       if (state.exportStatus) return json(null, state.exportStatus);
+      if (state.exportAnswer)
+        return json(state.exportAnswer.body, state.exportAnswer.status);
       return {
         ok: true,
         status: 200,
@@ -183,6 +213,9 @@ async function listServer(t, state) {
       );
     if (is(ROUTES.deleteVisitor, visitorUrl)) {
       if (state.deleteAnswer) return json(state.deleteAnswer);
+      // state.visitorAnswers: Antworten der Reihe nach ({ status, body })
+      const next = state.visitorAnswers?.shift();
+      if (next) return json(next.body, next.status);
       const session = target?.session_id;
       const gone = state.conversations.filter((c) => c.session_id === session);
       state.conversations = state.conversations.filter(
@@ -273,22 +306,22 @@ const withAttribute = (root, name) =>
   elements(root, (element) => element.hasAttribute(name));
 const buttonsOf = (root) =>
   elements(root, (element) => element.tagName === "BUTTON");
+/** Kennungen der Zeilen der Liste, in ihrer Reihenfolge. */
 const cardIdsOf = (container) =>
-  elements(container, (element) =>
-    (element.getAttribute("class") ?? "").includes("font-mono")
-  ).map((element) => element.textContent);
-/** Klappt die Konversation auf (Klick auf ihre Kopfzeile). */
-async function expand(mounted, index = 0) {
-  const headers = elements(
-    mounted.container,
-    (element) =>
-      element.tagName === "DIV" &&
-      (element.getAttribute("class") ?? "")
-        .split(" ")
-        .includes("cursor-pointer")
+  withAttribute(container, "data-conversation-row").map((element) =>
+    element.getAttribute("data-conversation-id")
   );
-  await mounted.act(() => click(headers[index]));
+/** Öffnet die Konversation im Seitenpanel (Klick auf ihre Zeile). */
+async function expand(mounted, index = 0) {
+  const rows = withAttribute(mounted.container, "data-conversation-row");
+  await mounted.act(() => click(rows[index]));
   await mounted.act();
+}
+/** Öffnet das Menü „⋯" des Seitenpanels. */
+async function openMenu(mounted) {
+  const [button] = withAttribute(mounted.container, "data-panel-menu-button");
+  if (button.getAttribute("aria-expanded") !== "true")
+    await mounted.act(() => click(button));
 }
 const dialogOf = (document) =>
   withAttribute(document.body, "data-confirm-dialog")[0] ?? null;
@@ -334,11 +367,16 @@ test(
         url: server.exportUrl,
         body: exportBody("json", PERIOD),
       },
-      // „Gesamt": kein Zeitraum (undefined geht nicht über die Leitung)
+      // „Gesamt": keine Kalendertage
       {
         method: ROUTES.export.method,
         url: server.exportUrl,
-        body: { format: "csv", feedbackFilter: "all" },
+        body: {
+          format: "csv",
+          fromDay: null,
+          toDay: null,
+          feedbackFilter: "all",
+        },
       },
     ]);
     // dieselbe Auswahl wie die Liste: alle ihre Felder außer offset und limit
@@ -523,18 +561,48 @@ test(
     const mounted = await mountList(t);
     const { container, act } = mounted;
 
-    // Kopfzeile: erst die beiden Bewertungsfilter, dann „Exportieren"
+    // Kopfzeile: Suchfeld, Umschalter „Alle / Positiv / Negativ", dann
+    // „Exportieren" (Bewertungsfilter mit kurzem und ausgeschriebenem Text,
+    // je nach Breite ist einer sichtbar)
     const [menu] = withAttribute(container, "data-export-menu");
-    const headerRight = menu.parentNode;
+    // Bewertungsfilter und Export stehen zusammen (brechen nur gemeinsam
+    // um, Fixliste 3 V7), daneben das Suchfeld
+    const actions = menu.parentNode;
+    const headerRight = actions.parentNode;
+    assert.equal(actions.hasAttribute("data-list-actions"), true);
     assert.deepEqual(
       buttonsOf(headerRight).map((button) => button.textContent),
-      ["Nur mit 👍", "Nur mit 👎", "Exportieren"]
+      [
+        "Alle",
+        "PositivPositiv bewertet",
+        "NegativNegativ bewertet",
+        "Exportieren",
+      ]
     );
-    assert.deepEqual(
-      headerRight.childNodes.map((child) => child.tagName),
-      ["BUTTON", "BUTTON", "DIV"]
-    );
-    assert.equal(headerRight.lastChild, menu);
+    // Suchfeld, Bewertungsfilter, Export – in dieser Reihenfolge im
+    // Dokument; unter sm ordnet CSS (order) Export neben die Überschrift
+    // (Fixliste 2, B1)
+    assert.equal(headerRight.hasAttribute("data-list-tools"), true);
+    const parts = (element) =>
+      element.childNodes.map((child) => [
+        child.tagName,
+        [
+          "data-search-field",
+          "data-list-actions",
+          "data-feedback-filters",
+          "data-export-menu",
+        ].find((name) => child.hasAttribute(name)),
+      ]);
+    assert.deepEqual(parts(headerRight), [
+      ["DIV", "data-search-field"],
+      ["DIV", "data-list-actions"],
+    ]);
+    assert.deepEqual(parts(actions), [
+      ["DIV", "data-feedback-filters"],
+      ["DIV", "data-export-menu"],
+    ]);
+    assert.equal(withAttribute(headerRight, "data-search-input").length, 1);
+    assert.equal(actions.lastChild, menu);
 
     const [button] = buttonsOf(menu);
     assert.equal(button.getAttribute("aria-haspopup"), "menu");
@@ -575,8 +643,15 @@ test(
     const { container, act } = mounted;
     saved.length = 0;
 
-    // Die Liste selbst hat mit genau dieser Auswahl geladen.
+    // Die Liste selbst hat mit genau dieser Auswahl geladen – daneben einmal
+    // die Zählabfrage ohne jeden Filter (auch ohne Säule, Fixliste 7 B7) für
+    // „N von M einsehbar".
     assert.deepEqual(server.lists(), [
+      {
+        method: ROUTES.conversations.method,
+        url: server.listUrl,
+        body: conversationsBody({ ...PERIOD, limit: 1 }),
+      },
       {
         method: ROUTES.conversations.method,
         url: server.listUrl,
@@ -619,7 +694,7 @@ test(
       exportBody("json", { ...PERIOD, feedbackFilter: "negative", bucket })
     );
     // Der Export lädt die Liste nicht neu.
-    assert.equal(server.lists().length, 1);
+    assert.equal(server.lists().length, 2);
   }
 );
 
@@ -656,12 +731,66 @@ test(
   }
 );
 
+test(
+  "Exportieren (Fixliste 3, C10): Zu viele Treffer (413) – die Meldung nennt die Grenze und was zu tun ist; nichts wird gespeichert",
+  { skip },
+  async (t) => {
+    const state = {
+      conversations: [conversation("k-1")],
+      exportAnswer: {
+        status: 413,
+        body: {
+          success: false,
+          reason: "too-many-hits",
+          max: 100000,
+          error: "Zu viele Treffer",
+        },
+      },
+    };
+    const server = await listServer(t, state);
+    const shown = await toasts(t);
+    const mounted = await mountList(t);
+    const [menu] = withAttribute(mounted.container, "data-export-menu");
+    saved.length = 0;
+    await mounted.act(() => click(buttonsOf(menu)[0]));
+    await mounted.act(() =>
+      click(withAttribute(mounted.container, "data-export-format")[0])
+    );
+    await mounted.act();
+    assert.equal(server.exports().length, 1);
+    assert.deepEqual(saved, []);
+    assert.deepEqual(shown, [
+      [
+        "error",
+        "Zu viele Treffer für den Export – höchstens 100.000 Konversationen. Bitte grenzen Sie Suche, Filter oder Zeitraum ein.",
+      ],
+    ]);
+
+    // ein anderer Fehlschlag: die allgemeine Meldung
+    quiet(t);
+    state.exportAnswer = null;
+    state.exportStatus = 500;
+    shown.length = 0;
+    await mounted.act(() => click(buttonsOf(menu)[0]));
+    await mounted.act(() =>
+      click(withAttribute(mounted.container, "data-export-format")[0])
+    );
+    await mounted.act();
+    assert.deepEqual(shown, [
+      [
+        "error",
+        "Der Export ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+      ],
+    ]);
+  }
+);
+
 // ---------------------------------------------------------------------------
-// „Konversation löschen" am Fuß der aufgeklappten Konversation
+// „Konversation löschen" in der Fußzeile der geöffneten Konversation
 // ---------------------------------------------------------------------------
 
 test(
-  "Konversation löschen (AK-6): erst aufgeklappt zu sehen; die Rückfrage nennt die erste Frage (gekürzt) und die Zahl der Nachrichten; Abbrechen löscht nichts",
+  "Konversation löschen (AK-6): erst in der geöffneten Konversation zu sehen; die Rückfrage nennt die erste Frage (gekürzt) und die Zahl der Nachrichten; Abbrechen löscht nichts",
   { skip },
   async (t) => {
     const long =
@@ -683,25 +812,31 @@ test(
       0
     );
     await expand(mounted, 0);
+    // Die Lösch-Vorschau lädt erst, wenn sie gebraucht wird (Menü „⋯" oder
+    // Rückfrage) – Öffnen und Blättern fragen sie nicht an.
     assert.deepEqual(server.calls.slice(1), [
       {
         method: "GET",
         url: server.detailUrl(chatIdOf("k-1")),
         body: undefined,
       },
+    ]);
+
+    const [remove] = withAttribute(container, "data-delete-conversation");
+    assert.equal(remove.textContent, "Konversation löschen");
+    // in der Fußzeile: nach den Nachrichten der Konversation
+    const actions = withAttribute(container, "data-conversation-actions")[0];
+    assert.equal(actions.parentNode.lastChild, actions);
+    // nur eine Konversation dieses Besuchers: kein zweites Angebot
+    await openMenu(mounted);
+    assert.deepEqual(server.calls.slice(2), [
       {
         method: ROUTES.deletionPreview.method,
         url: await urlOf(ROUTES.deletionPreview),
         body: conversationBody(chatIdOf("k-1")),
       },
     ]);
-
-    const [remove] = withAttribute(container, "data-delete-conversation");
-    assert.equal(remove.textContent, "Konversation löschen");
-    // am Fuß: nach den Nachrichten der Konversation
-    const actions = withAttribute(container, "data-conversation-actions")[0];
-    assert.equal(actions.parentNode.lastChild, actions);
-    // nur eine Konversation dieses Besuchers: kein zweites Angebot
+    assert.equal(withAttribute(container, "data-menu-delete").length, 1);
     assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
     assert.equal(dialogOf(document), null);
 
@@ -819,6 +954,8 @@ test(
       // Aufklappen und Vorschau nennen die Zeile, nicht die Kennung: Keine
       // Adresse enthält etwas, das der Browser auflösen könnte.
       await expand(mounted, 1);
+      const [remove] = withAttribute(container, "data-delete-conversation");
+      await act(() => click(remove));
       assert.deepEqual(
         server.calls.slice(1),
         [
@@ -837,8 +974,6 @@ test(
       );
       for (const call of server.calls)
         assert.equal(sentPath(call.url), call.url, id);
-      const [remove] = withAttribute(container, "data-delete-conversation");
-      await act(() => click(remove));
       assert.match(
         withAttribute(dialogOf(document), "data-confirm-question")[0]
           .textContent,
@@ -920,6 +1055,12 @@ test(
 
     assert.deepEqual(cardIdsOf(container), ["k-1", "k-1", "k-2"]);
     await expand(mounted, 1);
+    // nur die zweite Konversation ist geöffnet, ihr Besucher hat nur diese
+    assert.equal(
+      withAttribute(container, "data-delete-conversation").length,
+      1
+    );
+    await openMenu(mounted);
     assert.deepEqual(server.calls.slice(1), [
       { method: "GET", url: server.detailUrl(12), body: undefined },
       {
@@ -928,11 +1069,6 @@ test(
         body: conversationBody(12),
       },
     ]);
-    // nur die zweite Karte ist aufgeklappt, ihr Besucher hat nur diese eine
-    assert.equal(
-      withAttribute(container, "data-delete-conversation").length,
-      1
-    );
     assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
 
     await act(() =>
@@ -954,7 +1090,8 @@ test(
         body: conversationBody(12),
       },
     ]);
-    // Die Karte der ersten Sitzung steht noch da – zugeklappt, mit ihrer Frage.
+    // Die Zeile der ersten Sitzung steht noch da, mit ihrer Frage; das Panel
+    // ist zu.
     assert.equal(state.conversations.includes(first), true);
     assert.equal(state.conversations.includes(second), false);
     assert.deepEqual(cardIdsOf(container), ["k-1", "k-2"]);
@@ -967,15 +1104,18 @@ test(
 
     // Für sie bleibt „alle Konversationen dieses Besuchers" im Angebot.
     await expand(mounted, 0);
+    await openMenu(mounted);
     await act(() => click(withAttribute(container, "data-delete-visitor")[0]));
     await act(() =>
       click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
     );
     await act();
+    // mit den Zahlen der Rückfrage: gelöscht wird nur dieser Stand
+    // (Fixliste 7, F10)
     assert.deepEqual(server.deletes()[1], {
       method: ROUTES.deleteVisitor.method,
       url: await urlOf(ROUTES.deleteVisitor),
-      body: conversationBody(11),
+      body: conversationBody(11, { conversationCount: 2, messageCount: 7 }),
     });
     assert.deepEqual(cardIdsOf(container), ["k-2"]);
     assert.deepEqual(errors, []);
@@ -1004,6 +1144,7 @@ test(
     const { container, document, act } = mounted;
     const confirm = async (attribute) => {
       await expand(mounted, 0);
+      if (attribute === "data-delete-visitor") await openMenu(mounted);
       await act(() => click(withAttribute(container, attribute)[0]));
       await act(() =>
         click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
@@ -1053,29 +1194,35 @@ test(
 );
 
 test(
-  "Konversation löschen (AK-6): Wird die letzte Konversation einer hinteren Seite gelöscht, zeigt die Liste die letzte vorhandene Seite – nicht „keine Konversationen“",
+  "Konversation löschen (AK-6): Wird eine nachgeladene Konversation gelöscht, lädt die Liste dieselbe Menge ab vorn neu – das Panel schließt, die Zeile ist fort",
   { skip },
   async (t) => {
     const ids = (from, to) =>
       Array.from({ length: to - from + 1 }, (_, i) => `k-${from + i}`);
-    // drei Seiten: 20 + 20 + 1
+    // 20 + 20 + 1
     const state = { conversations: ids(1, 41).map((id) => conversation(id)) };
     const server = await listServer(t, state);
     const mounted = await mountList(t);
     const { container, document, act } = mounted;
-    const offsets = () => server.lists().map((call) => call.body.offset);
-    const pageButton = (number) =>
-      buttonsOf(container).find(
-        (button) => button.textContent === String(number)
-      );
+    const pages = () =>
+      server.lists().map((call) => [call.start, call.body.limit]);
+    const loadMore = async () => {
+      await act(() => click(withAttribute(container, "data-load-more")[0]));
+      await act();
+    };
 
     assert.deepEqual(cardIdsOf(container), ids(1, 20));
-    await act(() => click(pageButton(3)));
-    await act();
-    assert.deepEqual(offsets(), [0, 40]);
-    assert.deepEqual(cardIdsOf(container), ["k-41"]);
+    await loadMore();
+    await loadMore();
+    assert.deepEqual(pages(), [
+      [0, 20],
+      [20, 20],
+      [40, 20],
+    ]);
+    assert.deepEqual(cardIdsOf(container), ids(1, 41));
+    assert.equal(withAttribute(container, "data-load-more").length, 0);
 
-    await expand(mounted, 0);
+    await expand(mounted, 40);
     await act(() =>
       click(withAttribute(container, "data-delete-conversation")[0])
     );
@@ -1089,15 +1236,13 @@ test(
       server.deletes().map((call) => call.body),
       [conversationBody(chatIdOf("k-41"))]
     );
-    // neu geladen: Seite 3 ist leer → Seite 2, die letzte vorhandene
-    assert.deepEqual(offsets(), [0, 40, 40, 20]);
-    assert.deepEqual(cardIdsOf(container), ids(21, 40));
-    // nicht im Ladezustand, nicht leer
+    // neu geladen: so viele wie geladen waren, ab vorn
+    assert.deepEqual(pages().at(-1), [0, 41]);
+    assert.deepEqual(cardIdsOf(container), ids(1, 40));
+    assert.equal(withAttribute(container, "data-conversation-panel").length, 0);
     const [count] = withAttribute(container, "data-viewable-count");
     assert.equal(count.textContent, "40 einsehbar");
     assert.doesNotMatch(container.textContent, /Keine Konversationen/);
-    assert.equal(pageButton(3), undefined);
-    assert.ok(pageButton(2));
 
     // Die letzte Konversation überhaupt: leerer Zustand, kein weiteres Laden.
     state.conversations = [conversation("k-1")];
@@ -1112,7 +1257,7 @@ test(
     );
     await single.act();
     await single.act();
-    assert.deepEqual(offsets(), [0]);
+    assert.deepEqual(pages(), [[0, 20]]);
     assert.deepEqual(cardIdsOf(single.container), []);
     assert.equal(
       withAttribute(single.container, "data-viewable-count")[0].textContent,
@@ -1122,31 +1267,178 @@ test(
 );
 
 test(
-  "Konversation löschen: Nennt der Zähler zu einer leeren Seite keine frühere Seite (Liste und Zähler sind zwei Abfragen), endet das Laden im leeren Zustand – kein „Laden…“ auf Dauer, keine weitere Anfrage",
+  "Konversation löschen (Fixliste 2, S6): Waren mehr als 100 Zeilen geladen, lädt die Liste nach dem Löschen wieder so viele – erst 100, dann den Rest in 100er-Schritten",
   { skip },
   async (t) => {
     const ids = (from, to) =>
       Array.from({ length: to - from + 1 }, (_, i) => `k-${from + i}`);
-    // 21 und 61: Der Zähler nennt die leere Seite selbst bzw. eine dahinter.
+    const state = { conversations: ids(1, 260).map((id) => conversation(id)) };
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    const pages = () =>
+      server.lists().map((call) => [call.start, call.body.limit]);
+    // 20 + 11 × 20 = 240 Zeilen geladen
+    for (let i = 0; i < 11; i++) {
+      await act(() => click(withAttribute(container, "data-load-more")[0]));
+      await act();
+    }
+    assert.equal(cardIdsOf(container).length, 240);
+    const before = server.lists().length;
+
+    await expand(mounted, 5);
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    await act();
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    for (let i = 0; i < 6; i++) await act();
+
+    assert.deepEqual(pages().slice(before), [
+      [0, 100],
+      [100, 100],
+      [200, 40],
+    ]);
+    // k-6 ist gelöscht; die Liste zeigt wieder 240 Zeilen ab vorn
+    assert.equal(cardIdsOf(container).length, 240);
+    assert.ok(!cardIdsOf(container).includes("k-6"));
+    assert.deepEqual(cardIdsOf(container).slice(0, 6), [
+      "k-1",
+      "k-2",
+      "k-3",
+      "k-4",
+      "k-5",
+      "k-7",
+    ]);
+  }
+);
+
+test(
+  "Konversation löschen (Fixliste 3, C1): Bringt eine nachgeladene Seite nur Doppelte, hört das Auffüllen auf – keine Endlosschleife",
+  { skip },
+  async (t) => {
+    const ids = (from, to) =>
+      Array.from({ length: to - from + 1 }, (_, i) => `k-${from + i}`);
+    const state = { conversations: ids(1, 260).map((id) => conversation(id)) };
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    const pages = () =>
+      server.lists().map((call) => [call.start, call.body.limit]);
+    for (let i = 0; i < 11; i++) {
+      await act(() => click(withAttribute(container, "data-load-more")[0]));
+      await act();
+    }
+    assert.equal(cardIdsOf(container).length, 240);
+    const before = server.lists().length;
+
+    state.repeatFirstPage = true;
+    await expand(mounted, 5);
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    await act();
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    for (let i = 0; i < 20; i++) await act();
+
+    // die erste Seite, ein Nachladen ohne neue Zeile – dann Schluss
+    assert.deepEqual(pages().slice(before), [
+      [0, 100],
+      [100, 100],
+    ]);
+    assert.equal(cardIdsOf(container).length, 100);
+    // „Weitere laden“ bleibt für den Nutzer da
+    assert.equal(withAttribute(container, "data-load-more").length, 1);
+  }
+);
+
+test(
+  "Konversation löschen (Fixliste 3, C5): Wechselt der Zuschnitt, während die Liste auffüllt, verfällt das Auffüllen – auch wenn der Zuschnitt zurückkehrt",
+  { skip },
+  async (t) => {
+    const ids = (from, to) =>
+      Array.from({ length: to - from + 1 }, (_, i) => `k-${from + i}`);
+    const state = { conversations: ids(1, 260).map((id) => conversation(id)) };
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    const pages = () =>
+      server
+        .lists()
+        .map((call) => [call.start, call.body.limit, call.body.q ?? ""]);
+    for (let i = 0; i < 11; i++) {
+      await act(() => click(withAttribute(container, "data-load-more")[0]));
+      await act();
+    }
+    const before = server.lists().length;
+
+    let release;
+    state.holdMore = new Promise((resolve) => {
+      release = resolve;
+    });
+    await expand(mounted, 5);
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    await act();
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    for (let i = 0; i < 4; i++) await act();
+    assert.deepEqual(pages().slice(before), [
+      [0, 100, ""],
+      [100, 100, ""],
+    ]);
+
+    // Suche: ein anderer Zuschnitt, während das Nachladen noch wartet
+    const input = withAttribute(container, "data-search-input")[0];
+    const { handlersOf } = await import("./helpers/testDom.mjs");
+    await act(() => handlersOf(input).onChange({ target: { value: "kurs" } }));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 350)));
+    await act();
+    state.holdMore = null;
+    await act(() => release());
+    await act();
+    // zurück zum alten Zuschnitt (✕ im Suchfeld)
+    await act(() => click(withAttribute(container, "data-search-clear")[0]));
+    for (let i = 0; i < 8; i++) await act();
+
+    assert.deepEqual(pages().slice(before), [
+      [0, 100, ""],
+      [100, 100, ""],
+      [0, 20, "kurs"],
+      [0, 20, ""],
+    ]);
+    assert.equal(cardIdsOf(container).length, 20);
+  }
+);
+
+test(
+  "Konversation löschen: Weicht der Zähler von der Liste ab (zwei Abfragen auf dem Server), lädt die Liste genau einmal neu – kein „Laden…“ auf Dauer",
+  { skip },
+  async (t) => {
+    const ids = (from, to) =>
+      Array.from({ length: to - from + 1 }, (_, i) => `k-${from + i}`);
     for (const counted of [21, 61]) {
-      // zwei Seiten: 20 + 1
       const state = { conversations: ids(1, 21).map((id) => conversation(id)) };
       const server = await listServer(t, state);
       const mounted = await mountList(t);
       const { container, document, act } = mounted;
-      const offsets = () => server.lists().map((call) => call.body.offset);
+      const offsets = () => server.lists().map((call) => call.start);
 
-      await act(() =>
-        click(buttonsOf(container).find((button) => button.textContent === "2"))
-      );
+      await act(() => click(withAttribute(container, "data-load-more")[0]));
       await act();
       assert.deepEqual(offsets(), [0, 20], String(counted));
-      assert.deepEqual(cardIdsOf(container), ["k-21"]);
+      assert.deepEqual(cardIdsOf(container), ids(1, 21));
 
       // Zwischen den beiden Abfragen des Servers beginnt eine Konversation:
       // Die Liste hat sie noch nicht, der Zähler schon.
       state.totalCount = counted;
-      await expand(mounted, 0);
+      await expand(mounted, 20);
       await act(() =>
         click(withAttribute(container, "data-delete-conversation")[0])
       );
@@ -1155,16 +1447,14 @@ test(
       );
       for (let i = 0; i < 5; i++) await act();
 
-      // neu geladen: Seite 2 ist leer – und dabei bleibt es
-      assert.deepEqual(offsets(), [0, 20, 20], String(counted));
+      assert.deepEqual(offsets(), [0, 20, 0], String(counted));
       assert.doesNotMatch(container.textContent, /Laden/, String(counted));
-      assert.match(container.textContent, /Keine Konversationen vorhanden\./);
-      assert.deepEqual(cardIdsOf(container), []);
+      assert.deepEqual(cardIdsOf(container), ids(1, 20));
       assert.equal(
         withAttribute(container, "data-viewable-count")[0].textContent,
         `${counted} einsehbar`
       );
-      // „Exportieren" ist nicht länger gesperrt.
+      // „Exportieren" ist nicht gesperrt.
       const [menu] = withAttribute(container, "data-export-menu");
       assert.equal(buttonsOf(menu)[0].hasAttribute("disabled"), false);
       await mounted.unmount();
@@ -1205,18 +1495,21 @@ test(
       withAttribute(container, "data-delete-conversation").length,
       1
     );
+    await openMenu(mounted);
     assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
 
-    // k-1: drei weitere Konversationen desselben Browsers
+    // k-1: drei weitere Konversationen desselben Browsers – im Menü „⋯"
     await expand(mounted, 0);
+    await openMenu(mounted);
     const [all] = withAttribute(container, "data-delete-visitor");
     assert.equal(
       all.textContent,
       "Alle Konversationen dieses Besuchers löschen"
     );
+    assert.equal(all.getAttribute("role"), "menuitem");
     assert.equal(
       withAttribute(container, "data-delete-conversation").length,
-      2
+      1
     );
 
     await act(() => click(all));
@@ -1242,7 +1535,10 @@ test(
       {
         method: ROUTES.deleteVisitor.method,
         url: await urlOf(ROUTES.deleteVisitor),
-        body: conversationBody(chatIdOf("k-1")),
+        body: conversationBody(chatIdOf("k-1"), {
+          conversationCount: 4,
+          messageCount: 11,
+        }),
       },
     ]);
     assert.equal(dialogOf(document), null);
@@ -1258,6 +1554,7 @@ test(
       "ExportMenu.jsx",
       "DeleteConversation.jsx",
       "ConversationList.jsx",
+      "ConversationDetail.jsx",
     ]) {
       const source = readFileSync(
         new URL(
@@ -1268,5 +1565,123 @@ test(
       );
       assert.doesNotMatch(source, /\b(confirm|alert|prompt)\s*\(/, file);
     }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 7
+// ---------------------------------------------------------------------------
+
+test(
+  "Fixliste 7, F10 / Fixliste 8, L1+L5: Alle Konversationen des Besuchers – die Rückfrage sendet ihre Zahlen und ihre jüngste Zeile (maxId) mit; hat sich der Stand geändert (409), bleibt sie offen, sagt es neutral und nennt den neuen Stand, das erneute Bestätigen sendet ihn",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const state = {
+      conversations: [
+        conversation("k-1", { session_id: "besucher" }),
+        conversation("k-2", { session_id: "besucher" }),
+      ],
+      preview: {
+        "k-1": {
+          success: true,
+          messageCount: 4,
+          visitor: { conversationCount: 2, messageCount: 7, maxId: 40 },
+        },
+      },
+      visitorAnswers: [
+        {
+          status: 409,
+          body: {
+            success: false,
+            reason: "changed",
+            visitor: { conversationCount: 3, messageCount: 9, maxId: 52 },
+            error: "The visitor's conversations have changed.",
+          },
+        },
+      ],
+    };
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    await expand(mounted, 0);
+    await openMenu(mounted);
+    await act(() => click(withAttribute(container, "data-delete-visitor")[0]));
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    await act();
+
+    // nichts gelöscht: die Rückfrage bleibt, mit Hinweis und neuen Zahlen
+    const dialog = dialogOf(document);
+    assert.ok(dialog);
+    assert.equal(
+      withAttribute(dialog, "data-confirm-changed")[0].textContent,
+      "Der Stand hat sich inzwischen geändert – es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut."
+    );
+    assert.match(
+      withAttribute(dialog, "data-confirm-visitor-count")[0].textContent,
+      /3 Konversationen mit zusammen 9 Nachrichten/
+    );
+    assert.deepEqual(cardIdsOf(container), ["k-1", "k-2"]);
+    assert.deepEqual(shown, []);
+
+    // erneut bestätigt: mit dem neuen Stand
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    await act();
+    assert.deepEqual(
+      server.deletes().map((call) => call.body),
+      [
+        conversationBody(chatIdOf("k-1"), {
+          conversationCount: 2,
+          messageCount: 7,
+          maxId: 40,
+        }),
+        conversationBody(chatIdOf("k-1"), {
+          conversationCount: 3,
+          messageCount: 9,
+          maxId: 52,
+        }),
+      ]
+    );
+    assert.equal(dialogOf(document), null);
+    assert.deepEqual(cardIdsOf(container), []);
+  }
+);
+
+test(
+  "Fixliste 7, F08/B4: Lösch-Rückfrage – mobil sind Abbrechen, Löschen und ✕ mindestens 44 px hoch (ab sm kompakter); „Erste Frage“ steht in normaler Schreibung, nicht in Versalien",
+  { skip },
+  async (t) => {
+    await listServer(t, {
+      conversations: [conversation("k-1")],
+      preview: {
+        "k-1": { success: true, messageCount: 4, visitor: null },
+      },
+    });
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    await expand(mounted, 0);
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    await act();
+    const dialog = dialogOf(document);
+    const classesOf = (attribute) =>
+      withAttribute(dialog, attribute)[0].getAttribute("class").split(/\s+/);
+    for (const attribute of ["data-confirm-cancel", "data-confirm-delete"]) {
+      const classes = classesOf(attribute);
+      assert.ok(classes.includes("min-h-11"), attribute);
+      assert.ok(classes.includes("sm:min-h-0"), attribute);
+    }
+    const close = classesOf("data-confirm-close");
+    assert.ok(close.includes("h-11") && close.includes("w-11"));
+    assert.ok(close.includes("sm:h-auto") && close.includes("sm:w-auto"));
+    // „Erste Frage“: keine Versalien mehr
+    const label = withAttribute(dialog, "data-confirm-question-label")[0];
+    assert.equal(label.textContent, "Erste Frage");
+    assert.ok(!label.getAttribute("class").split(/\s+/).includes("uppercase"));
   }
 );

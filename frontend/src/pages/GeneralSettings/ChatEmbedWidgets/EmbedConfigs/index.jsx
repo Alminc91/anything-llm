@@ -10,6 +10,7 @@ import ModalWrapper from "@/components/ModalWrapper";
 import Embed from "@/models/embed";
 import CTAButton from "@/components/lib/CTAButton";
 import useUser from "@/hooks/useUser";
+import { embedLabels } from "@/utils/embedLabel";
 
 export default function EmbedConfigsView() {
   const { isOpen, openModal, closeModal } = useModal();
@@ -42,6 +43,10 @@ export default function EmbedConfigsView() {
       />
     );
   }
+
+  // Dieselben Bezeichnungen wie in der Auswahl der Ansicht „Konversationen":
+  // Der Zusatz „· Widget <Nummer>" steht nur an mehrdeutigen Einträgen.
+  const labels = embedLabels(embeds, t);
 
   return (
     <div className="flex flex-col w-full p-4">
@@ -90,7 +95,12 @@ export default function EmbedConfigsView() {
           </thead>
           <tbody>
             {embeds.map((embed) => (
-              <EmbedRow key={embed.id} embed={embed} isReadOnly={isReadOnly} />
+              <EmbedRow
+                key={embed.id}
+                embed={embed}
+                label={labels.get(embed.id)}
+                isReadOnly={isReadOnly}
+              />
             ))}
           </tbody>
         </table>

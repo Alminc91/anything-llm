@@ -127,8 +127,17 @@ class Element extends Node {
 
   scrollIntoView() {}
 
-  /** Wie im Browser: Das bisher fokussierte Element verliert den Fokus zuerst. */
-  focus() {
+  /** Einträge eines <select>: React DOM setzt darüber den gewählten Wert. */
+  get options() {
+    return elements(this, (element) => element.tagName === "OPTION");
+  }
+
+  /**
+   * Wie im Browser: Das bisher fokussierte Element verliert den Fokus zuerst.
+   * lastFocusOptions: die Optionen des letzten Aufrufs (etwa focusVisible).
+   */
+  focus(options) {
+    this.lastFocusOptions = options ?? null;
     const document = this.ownerDocument;
     const previous = document.activeElement;
     if (previous === this) return;
@@ -155,7 +164,7 @@ function eventOn(node, fields = {}) {
   };
 }
 
-/** @returns {object} - leeres Dokument mit <html><body> */
+/** @returns {object} - leeres Dokument mit <html><head><body> */
 export function createDocument() {
   const document = new Node(DOCUMENT, "#document", null);
   document.createElement = (tagName) =>
@@ -174,6 +183,11 @@ export function createDocument() {
   };
   document.documentElement = document.appendChild(
     document.createElement("html")
+  );
+  // Manche Pakete legen beim Laden ihre Stile im <head> ab
+  // (react-tag-input-component in den Dialogen der Widget-Liste).
+  document.head = document.documentElement.appendChild(
+    document.createElement("head")
   );
   document.body = document.documentElement.appendChild(
     document.createElement("body")

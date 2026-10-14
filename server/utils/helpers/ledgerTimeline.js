@@ -107,11 +107,16 @@ function monthIndexOf(serial) {
  * berühren 92 Monate und gelten, 28.02.2019-12.10.2026 berühren 93). Der
  * längste Zeitraum hat damit 7 Jahre und 8 Monate; mehr als 10 Jahre sind
  * immer ungültig.
+ *
+ * maxMonths: null prüft nur Tage und Reihenfolge, ohne Monatsgrenze - für
+ * einen Zeitraum ohne Diagramm, etwa die Konversationsliste (Fixliste 8,
+ * C3: eine Prüfung statt einer Kopie daneben).
  * @param {*} fromDay
  * @param {*} toDay
+ * @param {{maxMonths?: number|null}} [options] - Vorgabe MAX_BUCKETS
  * @returns {{valid: true, from: number, to: number}|{valid: false, error: string}}
  */
-function validateDayRange(fromDay, toDay) {
+function validateDayRange(fromDay, toDay, { maxMonths = MAX_BUCKETS } = {}) {
   const from = parseCalendarDay(fromDay);
   const to = parseCalendarDay(toDay);
   if (from === null || to === null)
@@ -122,10 +127,13 @@ function validateDayRange(fromDay, toDay) {
   if (from > to)
     return { valid: false, error: "fromDay must not be after toDay." };
 
-  if (monthIndexOf(to) - monthIndexOf(from) + 1 > MAX_BUCKETS)
+  if (
+    maxMonths !== null &&
+    monthIndexOf(to) - monthIndexOf(from) + 1 > maxMonths
+  )
     return {
       valid: false,
-      error: `The period must not span more than ${MAX_BUCKETS} calendar months.`,
+      error: `The period must not span more than ${maxMonths} calendar months.`,
     };
   return { valid: true, from, to };
 }

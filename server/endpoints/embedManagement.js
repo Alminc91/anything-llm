@@ -3,6 +3,7 @@ const { EmbedConfig } = require("../models/embedConfig");
 const { EventLogs } = require("../models/eventLogs");
 const { MessageLedger } = require("../models/messageLedger");
 const { WorkspaceUser } = require("../models/workspaceUsers");
+const prisma = require("../utils/prisma");
 const { reqBody, userFromSession } = require("../utils/http");
 const { validEmbedConfigId } = require("../utils/middleware/embedMiddleware");
 const {
@@ -34,6 +35,10 @@ const {
   writeChunks,
   exportFileName,
 } = require("../utils/helpers/chat/embedConversationExport");
+const {
+  parseSearch,
+  loggableError,
+} = require("../utils/helpers/chat/conversationSearch");
 
 /**
  * KIE-533: Darf der Nutzer auf diesen Workspace zugreifen?
@@ -71,6 +76,31 @@ async function userCanAccessEmbed(user, embedId) {
   return await userCanAccessWorkspace(user, embed.workspace_id);
 }
 
+/**
+ * Die Widgets, deren Konversationen der Nutzer sehen darf: null = alle
+ * (admin, manager, ohne Mehrbenutzermodus); ein Default-User nur die Widgets
+ * seiner Workspaces (keine Mitgliedschaft: keine). Direkt über Prisma:
+ * WorkspaceUser.where/EmbedConfig.where fangen Fehler ab und liefern [] -
+ * ein Datenbankfehler sähe dann wie „keine Konversationen“ aus statt 500
+ * (Fixliste 4, C2).
+ * @param {{id: number, role: string}|null} user
+ * @returns {Promise<number[]|null>}
+ */
+async function visibleEmbedIds(user) {
+  if (user?.role !== ROLES.default) return null;
+  const memberships = await prisma.workspace_users.findMany({
+    where: { user_id: user.id },
+    select: { workspace_id: true },
+  });
+  const allowed = await prisma.embed_configs.findMany({
+    where: {
+      workspace_id: { in: memberships.map((ws) => ws.workspace_id) },
+    },
+    select: { id: true },
+  });
+  return allowed.map((embed) => embed.id);
+}
+
 // Middleware für /:embedId-Routen: 403, wenn der Nutzer das Widget nicht
 // verwalten darf. Steht vor validEmbedConfigId und vor jedem Upload.
 async function validEmbedAccess(request, response, next) {
@@ -83,22 +113,93 @@ async function validEmbedAccess(request, response, next) {
 }
 
 /**
- * KIE-538: Die Auswahl der Konversationsliste aus dem Rumpf einer Anfrage -
- * Zeitraum, Feedback-Filter und Abschnitts-Filter. Die Liste
- * (analytics/conversations) und der Export (analytics/export) lesen sie über
- * diese eine Stelle: Dieselben Parameter ergeben dieselben Konversationen.
+ * Berliner Grenzen ganzer Kalendertage: [00:00 Berliner Zeit am ersten Tag,
+ * 00:00 nach dem letzten) - für Zeitraum und Abschnitt der Liste (eine
+ * Umrechnung, Fixliste 8, C3).
+ * @param {string} fromDay - "YYYY-MM-DD", geprüft
+ * @param {string} toDay - "YYYY-MM-DD", geprüft, einschließlich
+ * @returns {{start: Date, endExclusive: Date}}
+ */
+function berlinDayBounds(fromDay, toDay) {
+  return {
+    start: berlinMidnight(fromDay),
+    endExclusive: berlinMidnight(nextDay(toDay)),
+  };
+}
+
+/**
+ * Der Zeitraum der Konversationsliste aus dem Rumpf - an EINER Stelle
+ * geprüft (Fixliste 7, F03).
+ *
+ * Die Ansicht sendet die Kalendertage, die der Nutzer gewählt hat (fromDay,
+ * toDay: "YYYY-MM-DD", beide einschließlich) - dieselben Tage wie für
+ * Kennzahlen und Diagramm (analytics/summary). Sie gelten als Berliner
+ * Kalendertage: [00:00 Berliner Zeit am ersten Tag, 00:00 nach dem letzten),
+ * unabhängig von der Zeitzone des Browsers und des Servers (Fixliste 7,
+ * F06). Liste, Kennzahlen, Tagesgruppen und die Zeitpunkte der Exportdatei
+ * rechnen damit in denselben Tagen.
+ *
+ * Ohne Tage gelten wie bisher startDate/endDate (Zeitpunkte, für
+ * API-Clients); ohne beides der ganze Bestand.
  * @param {object} body
- * @returns {{filter: "all"|"negative"|"positive", start: Date|null, end: Date|null, startedBetween: {start: Date, endExclusive: Date}|null, error: string|null}}
- *   error: der Abschnitt besteht nicht aus gültigen Kalendertagen (→ 400)
+ * @returns {{start: Date|null, end: Date|null, fromDay: string|null, toDay: string|null, error: string|null}}
+ *   end: der letzte Zeitpunkt (einschließlich, wie `createdAt <= end`);
+ *   fromDay/toDay: die Kalendertage des Zeitraums (aus den Zeitpunkten in
+ *   Berliner Zeit abgeleitet, falls Zeitpunkte gesendet wurden)
+ */
+function conversationPeriod(body) {
+  const { startDate, endDate, fromDay, toDay } = body ?? {};
+  const none = { start: null, end: null, fromDay: null, toDay: null };
+  if (fromDay != null || toDay != null) {
+    // Dieselbe Prüfung wie Kennzahlen und Abschnitt - ohne Monatsgrenze:
+    // Die Liste hat kein Diagramm (Fixliste 8, C3).
+    const range = validateDayRange(fromDay, toDay, { maxMonths: null });
+    if (!range.valid) return { ...none, error: range.error };
+    const { start, endExclusive } = berlinDayBounds(fromDay, toDay);
+    return {
+      start,
+      end: new Date(endExclusive.getTime() - 1),
+      fromDay,
+      toDay,
+      error: null,
+    };
+  }
+  const start = startDate ? new Date(startDate) : null;
+  const end = endDate ? new Date(endDate) : null;
+  if ((start && isNaN(start.getTime())) || (end && isNaN(end.getTime())))
+    return {
+      ...none,
+      error: "startDate and endDate must be valid timestamps.",
+    };
+  return {
+    start,
+    end,
+    fromDay: start ? berlinDayOf(start) : null,
+    toDay: end ? berlinDayOf(end) : null,
+    error: null,
+  };
+}
+
+/**
+ * KIE-538: Die Auswahl der Konversationsliste aus dem Rumpf einer Anfrage -
+ * Zeitraum ({@link conversationPeriod}), Feedback-Filter, Abschnitts-Filter
+ * und Suchbegriff (`q`). Die Liste (analytics/conversations) und der Export
+ * (analytics/export) lesen sie über diese eine Stelle: Dieselben Parameter
+ * ergeben dieselben Konversationen, und eine ungültige Angabe ist überall
+ * ein 400.
+ * @param {object} body
+ * @returns {{filter: "all"|"negative"|"positive", start: Date|null, end: Date|null, fromDay: string|null, toDay: string|null, startedBetween: {start: Date, endExclusive: Date}|null, search: string|null, error: string|null}}
+ *   error: Zeitraum oder Abschnitt ungültig, oder `q` ist kein Text bzw. zu
+ *   lang (→ 400); search: getrimmter Suchbegriff, null ohne Suche (fehlt,
+ *   leer oder nur Leerraum)
  */
 function conversationSelection(body) {
   const {
-    startDate,
-    endDate,
     onlyNegative = false, // KIE-508 (Legacy-Boolean, bleibt gültig)
     feedbackFilter, // KIE-527: "all" | "negative" | "positive"
     startedFromDay, // KIE-536
     startedToDay, // KIE-536
+    q, // Suche in Frage, Antworttext, Grund und Kommentar
   } = body ?? {};
 
   // Neuer Parameter gewinnt (auch bei "" oder ungültigem Wert → "all");
@@ -106,8 +207,20 @@ function conversationSelection(body) {
   const filter = EmbedChats.normalizeFeedbackFilter(
     feedbackFilter ?? !!onlyNegative
   );
-  const start = startDate ? new Date(startDate) : null;
-  const end = endDate ? new Date(endDate) : null;
+  const invalid = (error) => ({
+    filter,
+    start: null,
+    end: null,
+    fromDay: null,
+    toDay: null,
+    startedBetween: null,
+    search: null,
+    error,
+  });
+  const { error: periodError, ...period } = conversationPeriod(body);
+  if (periodError) return invalid(periodError);
+  const { search, error: searchError } = parseSearch(q);
+  if (searchError) return invalid(searchError);
 
   // KIE-536: Der Abschnitt kommt als Kalendertage und wird hier zu den
   // Berliner Grenzen [00:00 des ersten Tages, 00:00 nach dem letzten).
@@ -115,14 +228,72 @@ function conversationSelection(body) {
   let startedBetween = null;
   if (startedFromDay != null || startedToDay != null) {
     const range = validateDayRange(startedFromDay, startedToDay);
-    if (!range.valid)
-      return { filter, start, end, startedBetween, error: range.error };
-    startedBetween = {
-      start: berlinMidnight(startedFromDay),
-      endExclusive: berlinMidnight(nextDay(startedToDay)),
-    };
+    if (!range.valid) return invalid(range.error);
+    startedBetween = berlinDayBounds(startedFromDay, startedToDay);
   }
-  return { filter, start, end, startedBetween, error: null };
+  return { filter, ...period, startedBetween, search, error: null };
+}
+
+/** Größte Seite der Konversationsliste (analytics/conversations). */
+const CONVERSATION_PAGE_MAX = 100;
+
+/**
+ * Blättern in der Konversationsliste: offset und limit aus dem Rumpf. Fehlen
+ * sie, gelten 0 und 20 wie bisher; sonst müssen es ganze Zahlen sein -
+ * offset ab 0, limit 1 bis CONVERSATION_PAGE_MAX (Fixliste Punkt 4).
+ * @param {object} body
+ * @returns {{offset: number, limit: number, error: string|null}}
+ */
+function conversationPaging(body) {
+  const { offset = 0, limit = 20 } = body ?? {};
+  const valid = (value, min, max) =>
+    Number.isSafeInteger(value) && value >= min && value <= max;
+  if (!valid(offset ?? 0, 0, Number.MAX_SAFE_INTEGER))
+    return { offset: 0, limit: 20, error: "offset must be an integer ≥ 0." };
+  if (!valid(limit ?? 20, 1, CONVERSATION_PAGE_MAX))
+    return {
+      offset: 0,
+      limit: 20,
+      error: `limit must be an integer between 1 and ${CONVERSATION_PAGE_MAX}.`,
+    };
+  return { offset: offset ?? 0, limit: limit ?? 20, error: null };
+}
+
+/**
+ * Blättern über einen Schlüssel (Fixliste 7, F14): `after` nennt die letzte
+ * geladene Zeile der Liste - { lastMessageAt (Millisekunden), firstChatId,
+ * maxId }. Die nächste Seite beginnt dahinter, auch wenn zwischen den Seiten
+ * Konversationen verschwunden sind (mit offset fehlte dann still eine).
+ * maxId ist der Stand der ersten Seite (Antwortfeld maxId, Fixliste 8, L2):
+ * Alle Seiten lesen nur Zeilen bis dahin - schreibt ein Besucher zwischen
+ * zwei Seiten weiter, steht seine Konversation weiter an ihrer Stelle,
+ * statt still über den Schlüssel zu rutschen. Ohne maxId (Aufrufer vor
+ * Fixliste 8) gilt der aktuelle Bestand. Nur mit offset 0.
+ * @param {object} body
+ * @param {number} offset - aus {@link conversationPaging}
+ * @returns {{after: {lastMessageAt: number, firstChatId: number, maxId: number|null}|null, error: string|null}}
+ */
+function conversationCursor(body, offset) {
+  const { after = null } = body ?? {};
+  if (after === null) return { after: null, error: null };
+  const {
+    lastMessageAt,
+    firstChatId,
+    maxId = null,
+  } = after && typeof after === "object" && !Array.isArray(after) ? after : {};
+  if (
+    !Number.isSafeInteger(lastMessageAt) ||
+    !Number.isSafeInteger(firstChatId) ||
+    firstChatId <= 0 ||
+    (maxId !== null && (!Number.isSafeInteger(maxId) || maxId < 0))
+  )
+    return {
+      after: null,
+      error: "after must be { lastMessageAt, firstChatId, maxId? } (integers).",
+    };
+  if (offset !== 0)
+    return { after: null, error: "after and offset must not be combined." };
+  return { after: { lastMessageAt, firstChatId, maxId }, error: null };
 }
 
 function embedManagementEndpoints(app) {
@@ -257,44 +428,55 @@ function embedManagementEndpoints(app) {
     }
   );
 
+  // Upstream-Route (AnythingLLM): die Daten der früheren Nachrichtentabelle.
+  // Seit KIE-538 ruft die Oberfläche sie nicht mehr auf. Sie bleibt für den
+  // Upstream-Merge (P-KIE-35) bestehen, ist aber gehärtet (Fixliste 7, F02):
+  // - nur, was die Tabelle zeigte: Frage, Text der Antwort (ohne Quellen,
+  //   Kurskarten und Metadaten), Sitzung, Zeitpunkt, Workspace - keine
+  //   Verbindungsdaten (connection_information: IP, Host, Benutzername);
+  // - nur einsehbare Zeilen (include = 1): Vom Besucher geleerte Chats
+  //   erscheinen nirgends mehr (DSGVO, wie Liste, Detail und Export);
+  // - offset und limit wie die Konversationsliste geprüft
+  //   (conversationPaging: ganze Zahlen, limit 1–100, sonst 400). offset
+  //   zählt wie upstream Seiten: übersprungen werden offset × limit Zeilen.
+  // Rechte wie bisher: chatHistoryViewable, ein Default-User sieht nur die
+  // Widgets seiner Workspaces (gefiltert in der Abfrage).
   app.post(
     "/embed/chats",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
-        const { offset = 0, limit = 20 } = reqBody(request);
-        let embedChats;
-        let totalChats;
-
-        // Default users only see chats for embeds in their assigned workspaces
-        if (user?.role === ROLES.default) {
-          const userWorkspaces = await WorkspaceUser.where({ user_id: user.id });
-          const workspaceIds = userWorkspaces.map(ws => ws.workspace_id);
-          if (workspaceIds.length === 0) {
-            return response.status(200).json({ chats: [], hasPages: false, totalChats: 0 });
-          }
-          embedChats = await EmbedChats.whereWithEmbedAndWorkspace(
-            { embed_config: { workspace_id: { in: workspaceIds } } },
-            limit,
-            { id: "desc" },
-            offset * limit
-          );
-          totalChats = await EmbedChats.count({ embed_config: { workspace_id: { in: workspaceIds } } });
-        } else {
-          embedChats = await EmbedChats.whereWithEmbedAndWorkspace(
-            {},
-            limit,
-            { id: "desc" },
-            offset * limit
-          );
-          totalChats = await EmbedChats.count();
+        const { offset, limit, error } = conversationPaging(
+          reqBody(request) ?? {}
+        );
+        const skip = offset * limit;
+        if (error || !Number.isSafeInteger(skip)) {
+          response.status(400).json({
+            success: false,
+            error: error ?? "offset is too large.",
+          });
+          return;
         }
-
-        const hasPages = totalChats > (offset + 1) * limit;
-        response.status(200).json({ chats: embedChats, hasPages, totalChats });
+        const embedIds = await visibleEmbedIds(user);
+        if (embedIds !== null && embedIds.length === 0) {
+          response
+            .status(200)
+            .json({ chats: [], hasPages: false, totalChats: 0 });
+          return;
+        }
+        const { chats, totalChats } = await EmbedChats.chatTablePage({
+          embedIds,
+          skip,
+          limit,
+        });
+        response.status(200).json({
+          chats,
+          hasPages: totalChats > skip + limit,
+          totalChats,
+        });
       } catch (e) {
-        console.error(e);
+        console.error("embed/chats error:", loggableError(e));
         response.sendStatus(500).end();
       }
     }
@@ -303,75 +485,36 @@ function embedManagementEndpoints(app) {
   // KIE-538: DELETE /embed/chats/:chatId (einzelne Nachricht löschen) ist mit
   // der Nachrichtentabelle entfallen. Gelöscht wird die ganze Konversation:
   // DELETE /embed/:embedId/conversation (weiter unten).
+  // Ebenso entfallen ist POST /embed/chats/conversations, die Konversationen
+  // aller Widgets zugleich: Die Ansicht zeigt immer ein Widget (KIE-538 §7),
+  // die Route hatte keinen Aufrufer mehr (Fixliste 7, F20).
 
-  // Get conversations (global view, grouped by conversation_id)
-  app.post(
-    "/embed/chats/conversations",
-    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
+  // Fixliste 6, N2: letzte Nachricht je Widget - die Ansicht „Konversationen“
+  // wählt ohne widget= in der Adresse das Widget mit der jüngsten Aktivität
+  // vor. Dieselben Rechte wie die Konversationslisten: chatHistoryViewable,
+  // ein Default-User nur die Widgets seiner Workspaces. Nur Zeitpunkte
+  // (Millisekunden), keine Inhalte. Ein Datenbankfehler ist 500 - die
+  // Ansicht wählt dann wie bisher das erste Widget.
+  app.get(
+    "/embeds/last-activity",
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+    ],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
-        const { offset = 0, limit = 20, startDate, endDate } = reqBody(request);
-
-        // Get all conversations (global view)
-        const conversations = await EmbedChats.getConversations(
-          null,  // NULL = global across all embeds
-          offset,
-          limit,
-          startDate ? new Date(startDate) : null,
-          endDate ? new Date(endDate) : null
+        const lastActivity = await EmbedChats.lastMessageAtByEmbed(
+          await visibleEmbedIds(user)
         );
-
-        // Filter by workspace permissions for default users
-        let filteredConversations = conversations;
-        if (user?.role === ROLES.default) {
-          const userWorkspaces = await WorkspaceUser.where({ user_id: user.id });
-          const workspaceIds = userWorkspaces.map(ws => ws.workspace_id);
-
-          // Get embed configs for user's workspaces
-          const allowedEmbeds = await EmbedConfig.where({
-            workspace_id: { in: workspaceIds }
-          });
-          const allowedEmbedIds = allowedEmbeds.map(e => e.id);
-
-          // Filter conversations
-          filteredConversations = conversations.filter(conv =>
-            allowedEmbedIds.includes(conv.embed_id)
-          );
-        }
-
-        // Count total conversations for pagination
-        const { Prisma } = require("@prisma/client");
-        const prisma = require("../utils/prisma");
-
-        const dateConditions = [];
-        if (startDate) {
-          dateConditions.push(Prisma.sql`AND createdAt >= ${new Date(startDate)}`);
-        }
-        if (endDate) {
-          dateConditions.push(Prisma.sql`AND createdAt <= ${new Date(endDate)}`);
-        }
-
-        const totalCount = await prisma.$queryRaw`
-          SELECT COUNT(DISTINCT COALESCE(conversation_id, session_id)) as count
-          FROM embed_chats
-          WHERE 1=1
-            ${dateConditions.length > 0 ? Prisma.join(dateConditions, " ") : Prisma.empty}
-            AND include = 1
-        `;
-
-        const hasMore = (offset + limit) < Number(totalCount[0]?.count || 0);
-        const total = Number(totalCount[0]?.count || 0);
-
-        response.status(200).json({
-          success: true,
-          conversations: filteredConversations,
-          hasMore,
-          totalCount: total,
-        });
+        response.status(200).json({ success: true, lastActivity });
       } catch (e) {
-        console.error(e);
-        response.sendStatus(500).end();
+        console.error("embeds/last-activity error:", loggableError(e));
+        response.status(500).json({
+          success: false,
+          error: "Letzte Aktivität konnte nicht geladen werden.",
+        });
       }
     }
   );
@@ -482,6 +625,11 @@ function embedManagementEndpoints(app) {
   // KIE-536: optional startedFromDay/startedToDay (Kalendertage, beide
   // einschließlich, Berliner Zeit) - nur Konversationen, deren erste
   // vorhandene Nachricht in diesem Abschnitt liegt (Klick auf eine Säule).
+  // Optional q: Suchbegriff - nur Konversationen mit Treffer in Frage,
+  // angezeigtem Antworttext, Grund oder Kommentar (Groß/klein egal, auch bei
+  // Umlauten; Platzhalterzeichen gelten wörtlich). Die Rechteprüfung ist
+  // dieselbe wie ohne q. offset (ab 0) und limit (1–100) sind ganze Zahlen,
+  // sonst 400; ohne Angabe 0 und 20.
   app.post(
     "/embed/:embedId/analytics/conversations",
     [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
@@ -489,8 +637,15 @@ function embedManagementEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const embedId = Number(request.params.embedId);
-        const body = reqBody(request);
-        const { offset = 0, limit = 20 } = body;
+        const body = reqBody(request) ?? {};
+        const { offset, limit, error: pagingError } = conversationPaging(body);
+        const { after, error: cursorError } = conversationCursor(body, offset);
+        if (pagingError || cursorError) {
+          response
+            .status(400)
+            .json({ success: false, error: pagingError ?? cursorError });
+          return;
+        }
 
         if (user?.role === ROLES.default) {
           const embed = await EmbedConfig.get({ id: embedId });
@@ -510,6 +665,7 @@ function embedManagementEndpoints(app) {
           start,
           end,
           startedBetween,
+          search,
           error: selectionError,
         } = conversationSelection(body);
         if (selectionError) {
@@ -517,30 +673,49 @@ function embedManagementEndpoints(app) {
           return;
         }
 
-        // Liste und Zähler benutzen dieselbe Gruppierung + denselben Filter
-        // (EmbedChats._conversationGroupsSql / conversationFilterCondition).
-        const [conversations, total] = await Promise.all([
-          EmbedChats.getConversations(embedId, offset, limit, start, end, filter, startedBetween),
-          EmbedChats.countConversations(embedId, start, end, filter, startedBetween),
-        ]);
-        const hasMore = offset + limit < total;
+        // Liste und Zähler: dieselbe Auswahl (EmbedChats._conversationSelection:
+        // Gruppierung, Filter, Suche), in einer Abfrage (conversationPage).
+        const {
+          conversations,
+          totalCount: total,
+          hasMore,
+          maxId,
+        } = await EmbedChats.conversationPage(embedId, {
+          offset,
+          limit,
+          after,
+          startDate: start,
+          endDate: end,
+          feedbackFilter: filter,
+          startedBetween,
+          search,
+        });
 
+        // maxId: Stand der Liste - weitere Seiten nennen ihn in after
+        // (Fixliste 8, L2)
         response.status(200).json({
           success: true,
           conversations,
           hasMore,
           totalCount: total,
+          maxId,
         });
       } catch (e) {
-        console.error(e);
-        response.sendStatus(500).end();
+        // Ohne Meldungstext: Er könnte die Suchmuster enthalten. Ein
+        // Datenbankfehler ist keine leere Liste (Fixliste 2, R2): 500, die
+        // Liste zeigt „Fehler beim Laden" mit „Erneut versuchen".
+        console.error("analytics/conversations error:", loggableError(e));
+        response.status(500).json({
+          success: false,
+          error: "Konversationen konnten nicht geladen werden.",
+        });
       }
     }
   );
 
   // Analytics: Export der Konversationen einer Auswahl (KIE-538)
   // Dieselben Parameter wie analytics/conversations (Zeitraum,
-  // Feedback-Filter, Abschnitt) plus format ("csv" | "json"); geliefert
+  // Feedback-Filter, Abschnitt, Suchbegriff q) plus format ("csv" | "json"); geliefert
   // werden genau die Konversationen, die die Liste über alle Seiten zeigt.
   // Dieselben Prüfungen wie beim Einsehen: chatHistoryViewable, Default-User
   // nur für Widgets ihrer Workspaces (403 ohne Daten).
@@ -548,7 +723,8 @@ function embedManagementEndpoints(app) {
   // Browser-Sitzung und keine Quellen-Texte (siehe embedConversationExport).
   // Sie wird Zeile für Zeile geschrieben, die Datenbank in Paketen gelesen.
   // Jeder Export steht in event_logs: wer, welches Widget, Format, Zeitraum,
-  // Zahl der Konversationen und Zeilen - keine Inhalte.
+  // ob gesucht wurde, Zahl der Konversationen und Zeilen - keine Inhalte,
+  // nicht der Suchbegriff.
   app.post(
     "/embed/:embedId/analytics/export",
     [
@@ -582,34 +758,16 @@ function embedManagementEndpoints(app) {
           response.status(400).json({ success: false, error: selection.error });
           return;
         }
-        const { filter, start, end, startedBetween } = selection;
-        // Anders als die Liste (leeres Ergebnis) lehnt der Export einen
-        // unlesbaren Zeitpunkt ab - eine leere Datei sähe aus wie „keine
-        // Konversationen".
-        if (
-          (start && isNaN(start.getTime())) ||
-          (end && isNaN(end.getTime()))
-        ) {
-          response.status(400).json({
-            success: false,
-            error: "startDate and endDate must be valid timestamps.",
-          });
-          return;
-        }
+        const { filter, start, end, startedBetween, search } = selection;
 
         const embed = await EmbedConfig.getWithWorkspace({ id: embedId });
-        // Exportiert wird der Abschnitt, wenn einer gewählt ist, sonst der
-        // Zeitraum - als Berliner Kalendertage, wie die Zeitpunkte der Datei.
+        // Der Dateiname nennt den Abschnitt, wenn einer gewählt ist, sonst
+        // den Zeitraum - die Berliner Kalendertage der Auswahl, wie die
+        // Zeitpunkte der Datei (conversationPeriod).
         const fromDay = startedBetween
           ? body.startedFromDay
-          : start
-            ? berlinDayOf(start)
-            : null;
-        const toDay = startedBetween
-          ? body.startedToDay
-          : end
-            ? berlinDayOf(end)
-            : null;
+          : selection.fromDay;
+        const toDay = startedBetween ? body.startedToDay : selection.toDay;
 
         const exported = conversationExport(
           format,
@@ -621,6 +779,7 @@ function embedManagementEndpoints(app) {
               endDate: end,
               feedbackFilter: filter,
               startedBetween,
+              search,
             })
           )
         );
@@ -644,6 +803,9 @@ function embedManagementEndpoints(app) {
               feedbackFilter: filter,
               startedFromDay: startedBetween ? body.startedFromDay : null,
               startedToDay: startedBetween ? body.startedToDay : null,
+              // Nur ob gesucht wurde - der Begriff (oft ein Name oder eine
+              // E-Mail-Adresse) gehört nicht ins Protokoll.
+              searched: search !== null,
               conversationCount: exported.stats.conversations,
               rowCount: exported.stats.rows,
               completed,
@@ -667,14 +829,30 @@ function embedManagementEndpoints(app) {
 
         let completed = false;
         try {
-          completed = await writeChunks(response, exported.chunks);
+          completed = await writeChunks(
+            response,
+            exported.chunks,
+            exported.written
+          );
         } finally {
           // Auch ein abgebrochener Export hat Daten ausgeliefert.
           await logExport(completed);
         }
         response.end();
       } catch (e) {
-        console.error(e);
+        // Zu viele Treffer für den Export mit Suche (Fixliste 3, C10): Die
+        // Grenze steht fest, die Ansicht nennt sie - bevor eine Datei beginnt.
+        if (!streaming && e?.code === "EXPORT_TOO_MANY_HITS") {
+          response.status(413).json({
+            success: false,
+            reason: "too-many-hits",
+            max: e.max,
+            error: `Zu viele Treffer für den Export (mehr als ${e.max} Konversationen). Bitte Suche, Filter oder Zeitraum eingrenzen.`,
+          });
+          return;
+        }
+        // Ohne Meldungstext: Er könnte die Suchmuster enthalten.
+        console.error("analytics/export error:", loggableError(e));
         // Hat die Antwort schon begonnen, lässt sich kein Fehlerstatus mehr
         // senden: Die Verbindung wird abgebrochen, damit der Download als
         // fehlgeschlagen gilt und nicht als vollständige Datei.
@@ -704,8 +882,14 @@ function embedManagementEndpoints(app) {
 
         response.status(200).json({ success: true, messages });
       } catch (e) {
-        console.error(e);
-        response.sendStatus(500).end();
+        // Ein Datenbankfehler ist nicht „nicht gefunden" (Fixliste 2, R1):
+        // 500, das Panel zeigt „konnte nicht geladen werden" mit „Erneut
+        // versuchen".
+        console.error("conversation details error:", loggableError(e));
+        response.status(500).json({
+          success: false,
+          error: "Konversation konnte nicht geladen werden.",
+        });
       }
     }
   );
@@ -827,13 +1011,55 @@ function embedManagementEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const embedId = Number(request.params.embedId);
-        const { chatId } = reqBody(request) ?? {};
+        const { chatId, expected = null } = reqBody(request) ?? {};
+        // Fixliste 7, F10: die Zahlen, die die Rückfrage genannt hat
+        // (visitor der Vorschau) - gelöscht wird nur dieser Stand; mit maxId
+        // (Fixliste 8, L1) genau diese Zeilen.
+        const count = (value) => Number.isSafeInteger(value) && value >= 0;
+        if (
+          expected !== null &&
+          !(
+            expected &&
+            typeof expected === "object" &&
+            count(expected.conversationCount) &&
+            count(expected.messageCount) &&
+            (expected.maxId === undefined || count(expected.maxId))
+          )
+        ) {
+          response.status(400).json({
+            success: false,
+            error:
+              "expected must be { conversationCount, messageCount, maxId? } (integers ≥ 0).",
+          });
+          return;
+        }
         const result = await EmbedChats.deleteVisitorConversations(
           embedId,
-          chatId
+          chatId,
+          expected
+            ? {
+                conversationCount: expected.conversationCount,
+                messageCount: expected.messageCount,
+                ...(expected.maxId === undefined
+                  ? {}
+                  : { maxId: expected.maxId }),
+              }
+            : null
         );
         if (!result) {
           response.sendStatus(500).end();
+          return;
+        }
+        // Der Stand hat sich geändert (der Besucher hat weiter geschrieben
+        // oder etwas ist weggefallen): nichts gelöscht, die Ansicht fragt mit
+        // dem neuen Stand noch einmal.
+        if (result.changed) {
+          response.status(409).json({
+            success: false,
+            reason: "changed",
+            visitor: result.changed,
+            error: "The visitor's conversations have changed.",
+          });
           return;
         }
         const { deletedCount, conversationCount } = result;
