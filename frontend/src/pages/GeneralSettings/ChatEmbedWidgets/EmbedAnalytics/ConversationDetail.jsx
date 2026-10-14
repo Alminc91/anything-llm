@@ -19,7 +19,10 @@ import { formatDateForInput } from "@/utils/billingDate";
 import showToast from "@/utils/toast";
 import {
   AVATAR_CLEARANCE,
+  FOCUS_RING,
   MUTED,
+  RATING_FLASH,
+  RATING_TINT,
   ancestorsOf,
   answerText,
   berlinDateTime,
@@ -28,7 +31,6 @@ import {
   conversationSummary,
   elementsWith,
   firstElementWith,
-  focusLost,
   hasVisibleHit,
   highlightParts,
   longDateLabel,
@@ -36,6 +38,7 @@ import {
   panelChromeHeight,
   panelFit,
   shortId,
+  startScrollTop,
 } from "@/utils/conversationView";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { useConversationDeletion } from "./DeleteConversation";
@@ -50,13 +53,29 @@ import { useDismiss, useWide } from "./viewHooks";
 // bisher, die Bewertung direkt unter der bewerteten Antwort.
 
 // Schaltflächen im Kopf: mobil 44 px hoch, ab lg kompakter.
-const ICON_BUTTON = `grid h-11 w-11 shrink-0 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent light:hover:bg-black/5 lg:h-9 lg:w-9`;
+// Bei Tastaturbedienung der Fokusring der Seite statt des Browser-Rings
+// (Nachtrag N3) – für ‹ ›, ⋯, ✕ und „‹ Konversationen“ gleich.
+const ICON_BUTTON = `grid h-11 w-11 shrink-0 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent light:hover:bg-black/5 lg:h-9 lg:w-9 ${FOCUS_RING}`;
+// Wie lange eine angesprungene Antwort hervorgehoben bleibt (N2 a)
+const RATING_FLASH_MS = 1500;
+
+/**
+ * Ton einer Bewertung: "positive" (👍), "negative" (👎) oder null.
+ * @param {{feedbackScore?: boolean|null}} message
+ */
+function ratingOf(message) {
+  if (message.feedbackScore === true) return "positive";
+  if (message.feedbackScore === false) return "negative";
+  return null;
+}
 // Trenner „·“ in der Zeile unter der Frage: VOR jedem Teil, in einem 16 px
 // breiten Kästchen. Die Zeile ist um diese 16 px nach links verschoben und
 // wird am Rand abgeschnitten (META_LINE) – so verschwindet der Trenner am
 // Anfang jeder Zeile, und keine Zeile endet auf „·“ (Fixliste 2 B9,
 // Fixliste 3 V5).
-const META_LINE = "-ml-4 flex flex-wrap gap-y-0.5";
+// items-baseline: Die Sprung-Schaltflächen (N2 a) sind mobil 44 px hoch –
+// die übrigen Teile der Zeile stehen auf derselben Grundlinie.
+const META_LINE = "-ml-4 flex flex-wrap items-baseline gap-y-0.5";
 const META_ITEM =
   "whitespace-nowrap before:inline-block before:w-4 before:text-center before:text-[color:var(--theme-analytics-text-muted)] before:content-['·']";
 
@@ -272,6 +291,9 @@ function usePanelFit(ref, active, content) {
  * @param {boolean} [props.reveal] - Beim Öffnen ab lg nach oben holen, wenn
  *   zu wenig davon zu sehen ist (nicht beim Öffnen per Link: Dann springt
  *   die Seite ohnehin zur Liste)
+ * @param {boolean} [props.openedByLink] - per Link geöffnet, seither keine
+ *   andere Konversation: Das Vollbild setzt den Fokus dann ohne sichtbaren
+ *   Ring (Fixliste 9 A4, Nachtrag N3)
  */
 export default function ConversationDetail({
   embedId,
@@ -290,6 +312,7 @@ export default function ConversationDetail({
   onLoaded = () => {},
   linkOf = () => "",
   reveal = true,
+  openedByLink = false,
 }) {
   const { t } = useTranslation();
   // { chatId, reload, messages, status } – zu genau einer Konversation;
@@ -314,6 +337,15 @@ export default function ConversationDetail({
   const menuButtonRef = useRef(null);
   const backRef = useRef(null);
   const wide = useWide();
+  // „‹ Konversationen“ ohne Fokusring, solange der Fokus nach dem Öffnen
+  // per Link noch dort steht (N3) – danach der Ring der Seite.
+  const [quietBack, setQuietBack] = useState(openedByLink);
+  // Für den Fokus beim Wechsel ins Vollbild (unten): der aktuelle Stand,
+  // ohne dass ein Wechsel ihn neu setzt. Vor jenem Effekt aktualisiert.
+  const openedByLinkRef = useRef(openedByLink);
+  useEffect(() => {
+    openedByLinkRef.current = openedByLink;
+  }, [openedByLink]);
 
   useEffect(() => {
     let ignore = false;
@@ -392,6 +424,8 @@ export default function ConversationDetail({
 
   const deletion = useConversationDeletion({
     embedId,
+    // Vorschau im Hintergrund, schon während der Verlauf lädt (N1)
+    previewChatId: chatId,
     conversation: deletable,
     onDeleted: (result) => {
       if (!result.deleted) setReload((count) => count + 1);
@@ -409,6 +443,38 @@ export default function ConversationDetail({
     body.scrollTop = hit ? centeredScrollTop(body, hit) : 0;
   }, [loaded, chatId, search]);
 
+  // Sprung zur nächsten bewerteten Antwort (Nachtrag N2 a): Die Schaltflächen
+  // „N Antworten negativ/positiv bewertet“ im Kopf scrollen den Verlauf
+  // nacheinander zu jeder Antwort dieses Tons (nach der letzten wieder zur
+  // ersten), setzen den Fokus darauf (ohne zweites Scrollen) und heben sie
+  // kurz hervor. Nur der Verlauf scrollt, nicht die Seite (AK-4).
+  const jumps = useRef({ chatId: null, negative: -1, positive: -1 });
+  const [flash, setFlash] = useState(null); // { chatId, id } | null
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(null), RATING_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [flash]);
+  const jumpTo = (kind) => {
+    const body = bodyRef.current;
+    const targets = elementsWith(body, "data-rated", kind);
+    if (!body || targets.length === 0) return;
+    if (jumps.current.chatId !== chatId)
+      jumps.current = { chatId, negative: -1, positive: -1 };
+    const index = (jumps.current[kind] + 1) % targets.length;
+    jumps.current[kind] = index;
+    const target = targets[index];
+    body.scrollTop = startScrollTop(body, target);
+    firstElementWith(target, "data-answer-row")?.focus?.({
+      preventScroll: true,
+    });
+    setFlash({
+      chatId,
+      id: Number(target.getAttribute("data-message-id")),
+    });
+  };
+  const flashId = flash?.chatId === chatId ? flash.id : null;
+
   // Escape schließt das Panel – nicht, wenn ein Menü oder eine Rückfrage es
   // schon für sich genommen hat (defaultPrevented: Sie lauschen am Dokument,
   // das Panel am Fenster, also danach) oder in einem Eingabefeld getippt wird.
@@ -425,13 +491,18 @@ export default function ConversationDetail({
 
   // Vollbild (unter lg): Fokus in den Kopf, der Hintergrund ist inert. Den
   // Fokus zurück auf die Zeile setzt die Liste.
-  // Ohne sichtbaren Ring (Fixliste 9, A4): Per Link geöffnet gab es noch
-  // keine Eingabe – der Browser zählte den Fokus als Tastaturfokus
-  // (:focus-visible) und zeichnete seinen orangen Ring um „‹ Konversationen".
-  // Browser ohne focusVisible-Option zeigen statt des Rings den eigenen,
-  // dezenten Fokusstil des Knopfs (wie Hover).
+  // Ohne sichtbaren Ring nur beim Öffnen per Link (Fixliste 9 A4, finale
+  // Kontrolle L1, Nachtrag N3): Dann gab es noch keine Eingabe – der Browser
+  // zählte den Fokus als Tastaturfokus (:focus-visible) und zeichnete seinen
+  // orangen Ring um „‹ Konversationen". Browser ohne focusVisible-Option
+  // zeigen dann die dezente Tönung des Knopfs (quietBack). Aus der Liste
+  // geöffnet (Klick, Enter) bleibt der Fokus so sichtbar, wie der Browser
+  // ihn zeigt – bei Tastaturbedienung mit dem Fokusring der Seite.
   useEffect(() => {
-    if (!wide) backRef.current?.focus?.({ focusVisible: false });
+    if (wide) return;
+    if (openedByLinkRef.current)
+      backRef.current?.focus?.({ focusVisible: false });
+    else backRef.current?.focus?.();
   }, [wide]);
   useInertOutside(panelRef, !wide);
   usePanelFit(panelRef, wide, chatId);
@@ -486,10 +557,7 @@ export default function ConversationDetail({
     else if (event.key === "End") focus(items.length - 1);
     else if (event.key === "Tab") closeMenu();
   };
-  const toggleMenu = () => {
-    if (!menuOpen) deletion.loadPreview();
-    setMenuOpen(!menuOpen);
-  };
+  const toggleMenu = () => setMenuOpen(!menuOpen);
 
   const conversationId = head?.conversationId ?? null;
   const copy = useCallback(
@@ -540,17 +608,13 @@ export default function ConversationDetail({
 
   // Feste Reihenfolge (Fixliste 2, R8): „Konversation löschen" immer vor
   // „Alle Konversationen dieses Besuchers löschen". Der zweite Eintrag steht
-  // gesperrt da, bis die Vorschau sagt, ob es weitere Konversationen gibt –
-  // nichts schiebt sich nachträglich vor einen anderen Eintrag.
-  const visitorEntry =
-    !!deletable && (deletion.offerVisitor || !deletion.previewLoaded);
-  // Verschwindet der gesperrte Eintrag, während er den Fokus hat (die
-  // Vorschau kennt keine weitere Konversation), geht der Fokus auf den
-  // letzten verbliebenen Eintrag – nicht ins Leere (Fixliste 3, C6).
-  useEffect(() => {
-    if (!menuOpen || visitorEntry) return;
-    if (focusLost()) menuItemsOf().at(-1)?.focus?.();
-  }, [menuOpen, visitorEntry, menuItemsOf]);
+  // nur da, wenn die Vorschau weitere Konversationen kennt (Nachtrag N1):
+  // Sie lädt beim Öffnen des Panels, das Menü erscheint so gleich im
+  // Endzustand. Lädt sie beim Öffnen des Menüs noch, kommt der Eintrag
+  // danach als letzter hinzu – kein Platzhalter, der kurz aufblitzt und
+  // wieder verschwindet; nichts schiebt sich vor einen anderen Eintrag, der
+  // Fokus bleibt, wo er ist.
+  const visitorEntry = !!deletable && deletion.offerVisitor;
   const menuItems = [
     conversationId && {
       id: "data-menu-copy-id",
@@ -575,7 +639,6 @@ export default function ConversationDetail({
       id: "data-delete-visitor",
       Icon: Trash,
       danger: true,
-      pending: !deletion.offerVisitor,
       onClick: () => openDelete("visitor"),
       label: t("embed-analytics.delete.visitor"),
     },
@@ -608,7 +671,12 @@ export default function ConversationDetail({
             ref={backRef}
             data-panel-back=""
             onClick={onClose}
-            className="flex h-11 items-center gap-1 rounded-lg px-2 text-[15px] text-theme-text-primary outline-none hover:bg-white/10 focus-visible:bg-white/10 light:hover:bg-black/5 light:focus-visible:bg-black/5 lg:hidden"
+            onBlur={() => setQuietBack(false)}
+            className={`flex h-11 items-center gap-1 rounded-lg px-2 text-[15px] text-theme-text-primary hover:bg-white/10 light:hover:bg-black/5 lg:hidden ${
+              quietBack
+                ? "focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5"
+                : FOCUS_RING
+            }`}
           >
             <CaretLeft size={20} aria-hidden="true" />
             {t("embed-analytics.panel.back")}
@@ -727,15 +795,24 @@ export default function ConversationDetail({
                 <span data-meta-item="" className={META_ITEM}>
                   {timeSpan(head.startedAt, head.lastAt, t)}
                 </span>
+                {/* Schaltflächen: zur nächsten so bewerteten Antwort
+                    (Nachtrag N2 a); im Ton und mit dem Hintergrund der
+                    bewerteten Antworten. Mobil 44 px hoch (AK-9). */}
                 {head.negative > 0 && (
                   <span
                     data-meta-item=""
                     className={`${META_ITEM} text-orange-300 light:text-orange-700`}
                   >
-                    {t("embed-analytics.panel.negative-count", {
-                      count: head.negative,
-                      formatted: formatNumber(head.negative),
-                    })}
+                    <RatingJump
+                      kind="negative"
+                      onJump={jumpTo}
+                      title={t("embed-analytics.panel.jump-negative")}
+                    >
+                      {t("embed-analytics.panel.negative-count", {
+                        count: head.negative,
+                        formatted: formatNumber(head.negative),
+                      })}
+                    </RatingJump>
                   </span>
                 )}
                 {head.positive > 0 && (
@@ -743,10 +820,16 @@ export default function ConversationDetail({
                     data-meta-item=""
                     className={`${META_ITEM} text-sky-300 light:text-sky-700`}
                   >
-                    {t("embed-analytics.panel.positive-count", {
-                      count: head.positive,
-                      formatted: formatNumber(head.positive),
-                    })}
+                    <RatingJump
+                      kind="positive"
+                      onJump={jumpTo}
+                      title={t("embed-analytics.panel.jump-positive")}
+                    >
+                      {t("embed-analytics.panel.positive-count", {
+                        count: head.positive,
+                        formatted: formatNumber(head.positive),
+                      })}
+                    </RatingJump>
                   </span>
                 )}
               </p>
@@ -817,7 +900,12 @@ export default function ConversationDetail({
         ) : (
           <ol className="flex flex-col gap-5">
             {messages.map((message) => (
-              <Message key={message.id} message={message} search={search} />
+              <Message
+                key={message.id}
+                message={message}
+                search={search}
+                flash={flashId === message.id}
+              />
             ))}
           </ol>
         )}
@@ -860,31 +948,18 @@ export default function ConversationDetail({
   );
 }
 
-/**
- * Eintrag im Menü „⋯". pending: noch nicht verfügbar (Vorschau lädt) –
- * gesperrt per aria-disabled, damit er mit den Pfeiltasten erreichbar bleibt.
- */
-function MenuItem({
-  Icon,
-  label,
-  onClick,
-  danger = false,
-  pending = false,
-  ...rest
-}) {
+/** Eintrag im Menü „⋯". */
+function MenuItem({ Icon, label, onClick, danger = false, ...rest }) {
   return (
     <button
       type="button"
       role="menuitem"
       {...rest}
-      aria-disabled={pending ? "true" : undefined}
-      onClick={pending ? undefined : onClick}
+      onClick={onClick}
       className={`flex min-h-[44px] w-full items-center gap-2 px-3 py-2 text-left text-sm ${MUTED} transition-colors focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5 lg:min-h-0 ${
-        pending
-          ? "cursor-wait opacity-60"
-          : danger
-            ? "hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text"
-            : "hover:bg-white/5 hover:text-theme-text-primary light:hover:bg-black/5"
+        danger
+          ? "hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text"
+          : "hover:bg-white/5 hover:text-theme-text-primary light:hover:bg-black/5"
       }`}
     >
       <Icon size={15} aria-hidden="true" className="shrink-0" />
@@ -898,11 +973,17 @@ function MenuItem({
  * memo: Tippen im Suchfeld rendert den Verlauf nicht neu, solange der
  * (verzögerte) Suchbegriff gleich bleibt.
  */
-const Message = memo(function Message({ message, search }) {
+const Message = memo(function Message({ message, search, flash = false }) {
   const { t } = useTranslation();
   const answer = answerText(message.response);
+  const rating = ratingOf(message);
   return (
-    <li data-message="" className="flex flex-col gap-2.5">
+    <li
+      data-message=""
+      data-message-id={message.id}
+      data-rated={rating ?? undefined}
+      className="flex flex-col gap-2.5"
+    >
       <div className="flex flex-col items-end gap-1">
         <span
           className={`text-xs ${MUTED}`}
@@ -919,7 +1000,19 @@ const Message = memo(function Message({ message, search }) {
           <HighlightedText text={message.prompt} term={search} />
         </div>
       </div>
-      <div className="flex items-start gap-2.5">
+      {/* Antwort mit Bewertung: Bewertete Antworten tragen einen hauchzarten
+          Hintergrund im Ton der Bewertung (Nachtrag N2 b). Er ragt über den
+          Text hinaus (negativer Rand + Innenabstand, bei allen Antworten
+          gleich) – der Verlauf verschiebt sich nicht. Ziel des Sprungs aus
+          dem Kopf (tabIndex -1: per Programm fokussierbar, nicht per Tab). */}
+      <div
+        data-answer-row=""
+        tabIndex={rating ? -1 : undefined}
+        data-rating-flash={flash ? "" : undefined}
+        className={`-mx-2 -my-1.5 flex items-start gap-2.5 rounded-xl px-2 py-1.5 ${
+          rating ? `${RATING_TINT[rating]} ${FOCUS_RING}` : ""
+        } ${flash ? RATING_FLASH[rating] : ""}`}
+      >
         <span
           aria-hidden="true"
           className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white/10 ${MUTED} light:bg-black/5`}
@@ -939,6 +1032,31 @@ const Message = memo(function Message({ message, search }) {
     </li>
   );
 });
+
+/**
+ * Schaltfläche im Kopf: „N Antworten negativ/positiv bewertet“ – springt zur
+ * nächsten so bewerteten Antwort (Nachtrag N2 a). Der Text bleibt der Name
+ * der Schaltfläche, title beschreibt den Sprung. Mobil 44 px hoch (AK-9),
+ * ab lg so hoch wie die Zeile; der Ton kommt vom Teil der Zeile, der
+ * Hintergrund ist der der bewerteten Antworten.
+ */
+function RatingJump({ kind, onJump, title, children }) {
+  return (
+    <button
+      type="button"
+      data-rating-jump={kind}
+      title={title}
+      onClick={() => onJump(kind)}
+      className={`inline-flex min-h-11 items-center rounded-md lg:min-h-0 ${FOCUS_RING}`}
+    >
+      <span
+        className={`rounded-md px-1.5 py-0.5 underline decoration-dotted underline-offset-2 transition-colors hover:decoration-solid ${RATING_TINT[kind]}`}
+      >
+        {children}
+      </span>
+    </button>
+  );
+}
 
 /** Bewertung direkt unter der bewerteten Antwort (KIE-504/507). */
 function Rating({ message, search }) {

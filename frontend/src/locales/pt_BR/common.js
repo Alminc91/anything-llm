@@ -1722,6 +1722,8 @@ const TRANSLATIONS = {
       "next-not-loaded": null,
       "quote-open": null,
       "quote-close": null,
+      "jump-negative": null,
+      "jump-positive": null,
     },
   },
   "date-picker": {

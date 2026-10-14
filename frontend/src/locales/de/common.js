@@ -1342,6 +1342,8 @@ const TRANSLATIONS = {
         "Die nächste Konversation konnte nicht geladen werden – bitte erneut versuchen.",
       "quote-open": "„",
       "quote-close": "“",
+      "jump-negative": "Zur nächsten negativ bewerteten Antwort springen",
+      "jump-positive": "Zur nächsten positiv bewerteten Antwort springen",
     },
   },
   "embed-row": {

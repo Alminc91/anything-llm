@@ -15,6 +15,8 @@ import {
   HOLD_SCROLL_QUIET_MS,
   PANEL_MIN_BODY,
   PANEL_MIN_HEIGHT,
+  RATING_FLASH,
+  RATING_TINT,
   SEARCH_MAX_LENGTH,
   ancestorsOf,
   answerText,
@@ -44,6 +46,7 @@ import {
   searchVariants,
   shortDayLabel,
   shortId,
+  startScrollTop,
   startedOnOtherDay,
   visibleAnswerText,
 } from "../src/utils/conversationView.js";
@@ -1338,4 +1341,162 @@ test("Fixliste 8, M1: holdScrollTarget mit busy – solange das Ziel nicht ferti
   run(HOLD_SCROLL_MAX_MS);
   assert.equal(listeners.size, 0);
   assert.ok(HOLD_SCROLL_BUSY_MAX_MS > HOLD_SCROLL_MAX_MS);
+});
+
+// ---------------------------------------------------------------------------
+// Nachtrag N2 (7.21.1): Sprung zur bewerteten Antwort, dezente Kennzeichnung
+// ---------------------------------------------------------------------------
+
+test("Nachtrag N2: startScrollTop – der Anfang des Elements steht mit Abstand oben im Bereich; nie unter 0", () => {
+  const container = {
+    scrollTop: 200,
+    clientHeight: 400,
+    getBoundingClientRect: () => ({ top: 100, height: 400 }),
+  };
+  const at = (top) => ({ getBoundingClientRect: () => ({ top, height: 50 }) });
+  // 300 px unter dem Anfang des sichtbaren Bereichs, 200 px gescrollt
+  assert.equal(startScrollTop(container, at(400)), 200 + 300 - 16);
+  assert.equal(startScrollTop(container, at(400), 0), 500);
+  // schon über dem Anfang: zurück, aber nicht unter 0
+  assert.equal(startScrollTop(container, at(50)), 200 - 50 - 16);
+  assert.equal(startScrollTop({ ...container, scrollTop: 0 }, at(100)), 0);
+  assert.equal(
+    startScrollTop(container, { getBoundingClientRect: () => ({}) }),
+    0
+  );
+});
+
+// Kontrast (WCAG 2.x): relative Leuchtdichte und Verhältnis
+const channel = (value) => {
+  const c = value / 255;
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+};
+const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const luminance = ([r, g, b]) =>
+  0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+const contrast = (a, b) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+/** Farbe mit Deckkraft über einem Grund. */
+const over = (rgb, alpha, base) =>
+  rgb.map((value, i) => value * alpha + base[i] * (1 - alpha));
+
+/**
+ * Tailwind-Farbe aus einer Klasse wie „bg-orange-500/[0.08]“ oder
+ * „light:bg-sky-50“: { rgb, alpha }.
+ */
+function tailwindColor(className, palette) {
+  const match = className.match(
+    /^(?:light:)?(?:bg|text|outline)-([a-z]+)-(\d+)(?:\/(?:\[([\d.]+)\]|(\d+)))?$/
+  );
+  assert.ok(match, className);
+  const [, name, shade, arbitrary, percent] = match;
+  const hex = palette[name]?.[shade];
+  assert.ok(hex, className);
+  const alpha = arbitrary
+    ? Number(arbitrary)
+    : percent
+      ? Number(percent) / 100
+      : 1;
+  return { rgb: hexRgb(hex), alpha };
+}
+
+test("Nachtrag N2 (b): Der Hintergrund bewerteter Antworten ist hauchzart; Text darauf hält in hell und dunkel mindestens 4,5:1, die kurze Hervorhebung nach dem Sprung mindestens 3:1", async () => {
+  const { createRequire } = await import("node:module");
+  const palette = createRequire(import.meta.url)("tailwindcss/colors");
+  const css = readFileSync(
+    new URL("../src/index.css", import.meta.url),
+    "utf8"
+  );
+  const variable = (block, name) => {
+    const start = css.indexOf(block);
+    const match = css
+      .slice(start)
+      .match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`));
+    return hexRgb(match[1]);
+  };
+  const dark = {
+    // mobil (Vollbild) und ab lg (Seitenpanel)
+    grounds: [
+      variable(":root {", "theme-bg-secondary"),
+      variable(":root {", "theme-bg-primary"),
+    ],
+    text: variable(":root {", "theme-text-primary"),
+  };
+  const light = {
+    grounds: [
+      variable('[data-theme="light"] {', "theme-bg-secondary"),
+      variable('[data-theme="light"] {', "theme-bg-primary"),
+    ],
+    text: variable('[data-theme="light"] {', "theme-text-primary"),
+  };
+  const color = (name) => tailwindColor(name, palette);
+  // Text auf der Antwort: Antworttext (Textfarbe des Themes), Marke
+  // „Positiv bewertet“ / „Negativ bewertet“ (Rating), Kopf-Schaltfläche;
+  // die negative Bewertung steht zusätzlich in ihrem Kasten
+  // (bg-orange-500/10 bzw. hell bg-orange-50).
+  const tones = {
+    negative: {
+      dark: ["text-orange-300"],
+      light: ["text-orange-800", "text-orange-700"],
+      box: { dark: "bg-orange-500/10", light: "light:bg-orange-50" },
+    },
+    positive: {
+      dark: ["text-sky-300"],
+      light: ["text-sky-700"],
+      box: null,
+    },
+  };
+  const report = [];
+  for (const kind of ["negative", "positive"]) {
+    const classes = RATING_TINT[kind].split(/\s+/);
+    const darkTint = color(classes.find((c) => c.startsWith("bg-")));
+    const lightTint = color(classes.find((c) => c.startsWith("light:bg-")));
+    // hauchzart: dunkel höchstens 10 % Deckkraft, hell eine 50er-Stufe
+    assert.ok(darkTint.alpha <= 0.1, `${kind}: ${darkTint.alpha}`);
+    assert.match(
+      classes.find((c) => c.startsWith("light:bg-")),
+      /-50$/
+    );
+    for (const [theme, tint, setup, labels] of [
+      ["dunkel", darkTint, dark, tones[kind].dark],
+      ["hell", lightTint, light, tones[kind].light],
+    ])
+      for (const ground of setup.grounds) {
+        const tinted = over(tint.rgb, tint.alpha, ground);
+        const grounds = [tinted];
+        const box = tones[kind].box?.[theme === "dunkel" ? "dark" : "light"];
+        if (box) {
+          const boxColor = color(box);
+          grounds.push(over(boxColor.rgb, boxColor.alpha, tinted));
+        }
+        for (const bg of grounds) {
+          const ratios = [
+            ["Text", contrast(setup.text, bg)],
+            ...labels.map((label) => {
+              const { rgb } = color(label);
+              return [label, contrast(rgb, bg)];
+            }),
+          ];
+          for (const [what, ratio] of ratios) {
+            report.push(`${kind} ${theme} ${what}: ${ratio.toFixed(2)}`);
+            assert.ok(ratio >= 4.5, `${kind} ${theme} ${what}: ${ratio}`);
+          }
+        }
+        // Hervorhebung nach dem Sprung: Umriss außen, gegen den Grund
+        const flash = RATING_FLASH[kind].split(/\s+/);
+        const outline = color(
+          flash.find((c) =>
+            theme === "dunkel"
+              ? /^outline-[a-z]+-\d+$/.test(c)
+              : /^light:outline-[a-z]+-\d+$/.test(c)
+          )
+        );
+        const ratio = contrast(outline.rgb, ground);
+        report.push(`${kind} ${theme} Hervorhebung: ${ratio.toFixed(2)}`);
+        assert.ok(ratio >= 3, `${kind} ${theme} Hervorhebung: ${ratio}`);
+      }
+  }
+  assert.ok(report.length > 0);
 });

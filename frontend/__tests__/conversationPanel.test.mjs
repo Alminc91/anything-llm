@@ -1284,6 +1284,14 @@ function captureKeys(t, document) {
 }
 
 /** window.matchMedia für eine Breite (lg = ab 1024 px). */
+// Fokusring der Seite (Listenzeilen, Diagramm-Schalter): 2 px in der
+// Textfarbe, nur bei Tastaturbedienung (Nachtrag N3)
+const FOCUS_RING = [
+  "focus-visible:outline",
+  "focus-visible:outline-2",
+  "focus-visible:outline-[color:var(--theme-text-primary)]",
+];
+
 function stubWidth(t, wide) {
   const original = globalThis.window.matchMedia;
   globalThis.window.matchMedia = (query) => ({
@@ -2576,7 +2584,7 @@ test(
 );
 
 test(
-  "Fixliste 2, R8: Menü „⋯“ – „Konversation löschen“ steht immer vor „Alle Konversationen dieses Besuchers löschen“; dieser Eintrag ist gesperrt, bis die Vorschau da ist, und schiebt sich nicht davor",
+  "Fixliste 2, R8 / Nachtrag N1: Menü „⋯“ – „Konversation löschen“ steht immer vor „Alle Konversationen dieses Besuchers löschen“; lädt die Vorschau beim Öffnen des Menüs noch, fehlt der Eintrag und kommt erst danach unten hinzu – nie gesperrt sichtbar, nie angezeigt und wieder entfernt",
   { skip },
   async (t) => {
     const menuState = (container) =>
@@ -2601,40 +2609,81 @@ test(
       await act(() => click(rowsOf(container)[0]));
       await act();
       await act(() => click(one(container, "data-panel-menu-button")));
-      assert.deepEqual(menuState(container), [
+      const fixed = [
         ["Kennung kopieren", ""],
         ["Link kopieren", ""],
         ["Konversation löschen", ""],
-        ["Alle Konversationen dieses Besuchers löschen", "true"],
-      ]);
-      // gesperrt: Klick öffnet nichts
-      await act(() => click(one(container, "data-delete-visitor")));
-      assert.equal(
-        withAttribute(document.body, "data-confirm-dialog").length,
-        0
-      );
+      ];
+      // Vorschau lädt noch: nur die festen Einträge, keiner gesperrt
+      assert.deepEqual(menuState(container), fixed);
+      assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
+      const focused = document.activeElement;
+      assert.equal(focused, one(container, "data-menu-copy-id"));
 
       await act(() => release());
       await act();
-      if (!withAttribute(container, "data-panel-menu").length)
-        await act(() => click(one(container, "data-panel-menu-button")));
+      // Das Menü bleibt offen; der Eintrag kommt unten hinzu (oder nie)
       assert.deepEqual(
         menuState(container),
         visitor
-          ? [
-              ["Kennung kopieren", ""],
-              ["Link kopieren", ""],
-              ["Konversation löschen", ""],
-              ["Alle Konversationen dieses Besuchers löschen", ""],
-            ]
-          : [
-              ["Kennung kopieren", ""],
-              ["Link kopieren", ""],
-              ["Konversation löschen", ""],
-            ]
+          ? [...fixed, ["Alle Konversationen dieses Besuchers löschen", ""]]
+          : fixed
       );
+      assert.equal(document.activeElement, focused, "Fokus bleibt");
       await view.unmount();
     }
+  }
+);
+
+test(
+  "Nachtrag N1: Die Lösch-Vorschau lädt beim Öffnen des Panels im Hintergrund – das Menü „⋯“ erscheint gleich im Endzustand; Blättern lädt die Vorschau der nächsten Konversation",
+  { skip },
+  async (t) => {
+    const state = {
+      rows: [row(2), row(1)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+        2: { messages: [message(2, "konv-2", { session_id: "sitzung-2" })] },
+      },
+      preview: {
+        success: true,
+        messageCount: 1,
+        visitor: { conversationCount: 2, messageCount: 4 },
+      },
+    };
+    const server = await panelServer(t, state);
+    const { container, act } = await mountList(t);
+    const previews = () =>
+      server.calls
+        .filter((call) => call.url.endsWith("/conversation/deletion-preview"))
+        .map((call) => call.body.chatId);
+
+    assert.deepEqual(previews(), []);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    // ohne das Menü zu öffnen
+    assert.deepEqual(previews(), [2]);
+    await act(() => click(one(container, "data-panel-menu-button")));
+    const entries = elements(
+      one(container, "data-panel-menu"),
+      (e) => e.getAttribute("role") === "menuitem"
+    );
+    assert.deepEqual(
+      entries.map((e) => [e.textContent, e.getAttribute("aria-disabled")]),
+      [
+        ["Kennung kopieren", null],
+        ["Link kopieren", null],
+        ["Konversation löschen", null],
+        ["Alle Konversationen dieses Besuchers löschen", null],
+      ]
+    );
+    // Öffnen des Menüs fragt nicht noch einmal an
+    assert.deepEqual(previews(), [2]);
+
+    await act(() => click(one(container, "data-panel-menu-button")));
+    await act(() => click(one(panelOf(container), "data-panel-next")));
+    await act();
+    assert.deepEqual(previews(), [2, 1]);
   }
 );
 
@@ -2876,7 +2925,7 @@ test(
 );
 
 test(
-  "Fixliste 3, C6: Hat der gesperrte Eintrag „Alle Konversationen dieses Besuchers löschen“ den Fokus und verschwindet (kein weiterer Besuch), geht der Fokus auf den letzten verbliebenen Eintrag",
+  "Fixliste 3, C6 / Nachtrag N1: Steht der Fokus beim Laden der Vorschau auf dem letzten Eintrag, bleibt er dort – „Alle Konversationen dieses Besuchers löschen“ kommt darunter hinzu und ist mit den Pfeiltasten erreichbar",
   { skip },
   async (t) => {
     let release;
@@ -2888,36 +2937,36 @@ test(
       holdPreview: new Promise((resolve) => {
         release = resolve;
       }),
-      preview: { success: true, messageCount: 1, visitor: null },
+      preview: {
+        success: true,
+        messageCount: 1,
+        visitor: { conversationCount: 2, messageCount: 3 },
+      },
     });
     const { container, document, act } = await mountList(t);
     await act(() => click(rowsOf(container)[0]));
     await act();
     await act(() => click(one(container, "data-panel-menu-button")));
-    const menu = one(container, "data-panel-menu");
-    // Ende: der gesperrte Eintrag (mit den Pfeiltasten erreichbar)
-    await act(() =>
-      handlersOf(menu).onKeyDown({
-        key: "End",
-        target: document.activeElement,
-        preventDefault() {},
-      })
-    );
-    assert.equal(document.activeElement, one(container, "data-delete-visitor"));
+    const keyDown = (key) =>
+      act(() =>
+        handlersOf(one(container, "data-panel-menu")).onKeyDown({
+          key,
+          target: document.activeElement,
+          preventDefault() {},
+        })
+      );
+    // Ende: der letzte feste Eintrag
+    await keyDown("End");
+    assert.equal(document.activeElement, one(container, "data-menu-delete"));
 
     await act(() => release());
     await act();
-    assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
+    assert.equal(withAttribute(container, "data-delete-visitor").length, 1);
     assert.equal(document.activeElement, one(container, "data-menu-delete"));
-    // die Pfeiltasten gehen von dort aus weiter
-    await act(() =>
-      handlersOf(one(container, "data-panel-menu")).onKeyDown({
-        key: "ArrowUp",
-        target: document.activeElement,
-        preventDefault() {},
-      })
-    );
-    assert.equal(document.activeElement, one(container, "data-menu-copy-link"));
+    await keyDown("ArrowDown");
+    assert.equal(document.activeElement, one(container, "data-delete-visitor"));
+    await keyDown("ArrowDown");
+    assert.equal(document.activeElement, one(container, "data-menu-copy-id"));
   }
 );
 
@@ -4842,7 +4891,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "Fixliste 9, A4: Vollbild per Link geöffnet – Fokus auf „‹ Konversationen“ ohne sichtbaren Ring (focusVisible: false); ohne diese Option ein eigener, dezenter Fokusstil statt des Browser-Rings",
+  "Fixliste 9, A4 / Nachtrag N3: Vollbild per Link geöffnet – Fokus auf „‹ Konversationen“ ohne sichtbaren Ring (focusVisible: false, sonst nur die dezente Tönung); verlässt der Fokus den Knopf, zeigt er bei Tastaturbedienung wieder den Fokusring der Seite",
   { skip },
   async (t) => {
     stubWidth(t, false);
@@ -4852,17 +4901,73 @@ test(
         2: { messages: [message(2, "konv-2", { session_id: "sitzung-2" })] },
       },
     });
-    const { container, document } = await mountList(t, {
+    const { container, document, act } = await mountList(t, {
       query: "?widget=3&conversation=2",
     });
     const panel = panelOf(container);
     const back = one(panel, "data-panel-back");
     assert.ok(document.activeElement === back, "Fokus im Kopf des Vollbilds");
     assert.deepEqual(back.lastFocusOptions, { focusVisible: false });
-    const classes = back.getAttribute("class").split(/\s+/);
-    assert.ok(classes.includes("outline-none"), "kein Browser-Ring");
-    assert.ok(classes.includes("focus-visible:bg-white/10"));
-    assert.ok(classes.includes("light:focus-visible:bg-black/5"));
+    const classes = () => back.getAttribute("class").split(/\s+/);
+    assert.ok(classes().includes("focus-visible:outline-none"), "kein Ring");
+    assert.ok(classes().includes("focus-visible:bg-white/10"));
+    assert.ok(classes().includes("light:focus-visible:bg-black/5"));
+    assert.ok(!classes().includes("outline-none"), "nur bei :focus-visible");
+
+    // Tab weiter: ab jetzt der Fokusring der Seite
+    await act(() => one(panel, "data-panel-next").focus());
+    for (const name of FOCUS_RING) assert.ok(classes().includes(name), name);
+    assert.ok(!classes().includes("focus-visible:outline-none"));
+    assert.ok(!classes().includes("outline-none"));
+  }
+);
+
+test(
+  "Nachtrag N3: Per Klick oder Tastatur aus der Liste geöffnet (auch dieselbe Konversation nach dem Öffnen per Link) – Fokus auf „‹ Konversationen“ ohne Option, mit sichtbarem Fokusring; ‹ ›-Pfeile, ⋯ und ✕ tragen denselben Ring",
+  { skip },
+  async (t) => {
+    stubWidth(t, false);
+    await panelServer(t, {
+      rows: [row(1), row(2)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+        2: { messages: [message(2, "konv-2", { session_id: "sitzung-2" })] },
+      },
+    });
+    const view = await mountList(t, { query: "?widget=3&conversation=2" });
+    const { container, document, act } = view;
+    // per Link geöffnet, dann zurück zur Liste
+    await act(() => click(one(panelOf(container), "data-panel-back")));
+    await act();
+    assert.equal(panelOf(container), null);
+
+    for (const index of [1, 0]) {
+      // dieselbe (2) und eine andere Konversation (1), per Tastatur/Klick
+      await act(() => click(rowsOf(container)[index]));
+      await act();
+      const panel = panelOf(container);
+      const back = one(panel, "data-panel-back");
+      assert.ok(document.activeElement === back, String(index));
+      assert.equal(back.lastFocusOptions, null, String(index));
+      const classes = back.getAttribute("class").split(/\s+/);
+      for (const name of FOCUS_RING) assert.ok(classes.includes(name), name);
+      assert.ok(!classes.includes("outline-none"));
+      assert.ok(!classes.includes("focus-visible:outline-none"));
+      for (const attribute of [
+        "data-panel-previous",
+        "data-panel-next",
+        "data-panel-menu-button",
+        "data-panel-close",
+      ]) {
+        const buttonClasses = one(panel, attribute)
+          .getAttribute("class")
+          .split(/\s+/);
+        for (const name of FOCUS_RING)
+          assert.ok(buttonClasses.includes(name), `${attribute}: ${name}`);
+      }
+      await act(() => click(back));
+      await act();
+    }
   }
 );
 
@@ -4890,5 +4995,184 @@ test(
     assert.ok(
       question.getAttribute("class").split(/\s+/).includes("line-clamp-3")
     );
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Nachtrag N2 (7.21.1): Bewertungen im Verlauf schneller finden
+// ---------------------------------------------------------------------------
+
+/**
+ * Lage der Nachrichten im Verlauf: Nachricht i (0, 1, …) beginnt
+ * MESSAGE_HEIGHT · i px unter dem Anfang des Verlaufs, der um scrollTop
+ * gescrollt ist; der Verlauf ist 400 px hoch.
+ */
+const MESSAGE_HEIGHT = 300;
+function messageGeometry(t, document) {
+  let proto = Object.getPrototypeOf(document.body);
+  while (!Object.prototype.hasOwnProperty.call(proto, "getBoundingClientRect"))
+    proto = Object.getPrototypeOf(proto);
+  const original = proto.getBoundingClientRect;
+  const bodyOf = (node) => {
+    for (let n = node; n; n = n.parentNode)
+      if (n.hasAttribute?.("data-panel-body")) return n;
+    return null;
+  };
+  proto.getBoundingClientRect = function () {
+    if (this.hasAttribute?.("data-panel-body"))
+      return { x: 0, y: 0, top: 0, left: 0, width: 500, height: 400 };
+    if (this.hasAttribute?.("data-message")) {
+      const index = this.parentNode.childNodes.indexOf(this);
+      const top = index * MESSAGE_HEIGHT - (bodyOf(this)?.scrollTop ?? 0);
+      return { x: 0, y: top, top, left: 0, width: 500, height: 280 };
+    }
+    return original.call(this);
+  };
+  t.after(() => {
+    proto.getBoundingClientRect = original;
+  });
+}
+
+test(
+  "Nachtrag N2 (a): „N Antworten negativ/positiv bewertet“ im Kopf sind Schaltflächen – sie scrollen den Verlauf zur nächsten bewerteten Antwort (nacheinander, danach wieder zur ersten), setzen den Fokus darauf und heben sie kurz hervor",
+  { skip },
+  async (t) => {
+    const ratings = [false, null, true, false];
+    await panelServer(t, {
+      rows: [
+        row(1, { message_count: 4, negative_count: 2, positive_count: 1 }),
+      ],
+      details: {
+        1: {
+          messages: ratings.map((feedbackScore, i) =>
+            message(i + 1, "konv-1", {
+              session_id: "sitzung-1",
+              feedbackScore,
+            })
+          ),
+        },
+      },
+    });
+    const { container, document, act } = await mountList(t);
+    messageGeometry(t, document);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const panel = panelOf(container);
+    const body = one(panel, "data-panel-body");
+    const [negative] = withAttribute(panel, "data-rating-jump").filter(
+      (b) => b.getAttribute("data-rating-jump") === "negative"
+    );
+    const [positive] = withAttribute(panel, "data-rating-jump").filter(
+      (b) => b.getAttribute("data-rating-jump") === "positive"
+    );
+    assert.equal(negative.tagName, "BUTTON");
+    assert.equal(negative.getAttribute("type"), "button");
+    assert.equal(negative.textContent, "2 Antworten negativ bewertet");
+    assert.equal(
+      negative.getAttribute("title"),
+      "Zur nächsten negativ bewerteten Antwort springen"
+    );
+    assert.equal(positive.textContent, "1 Antwort positiv bewertet");
+    assert.equal(
+      positive.getAttribute("title"),
+      "Zur nächsten positiv bewerteten Antwort springen"
+    );
+    // dieselben Teile der Zeile unter der Frage wie bisher
+    assert.deepEqual(metaItems(panel).slice(-2), [
+      "2 Antworten negativ bewertet",
+      "1 Antwort positiv bewertet",
+    ]);
+
+    const messages = withAttribute(panel, "data-message");
+    const answerOf = (index) => one(messages[index], "data-answer-row");
+    const flashed = () =>
+      withAttribute(panel, "data-rating-flash").map((e) =>
+        messages.indexOf(e.parentNode)
+      );
+    const jump = async (button) => {
+      await act(() => click(button));
+      await act();
+    };
+
+    // erste negative Antwort (Nachricht 1): Anfang des Verlaufs
+    body.scrollTop = 500;
+    await jump(negative);
+    assert.equal(body.scrollTop, 0);
+    assert.equal(document.activeElement, answerOf(0));
+    assert.deepEqual(answerOf(0).lastFocusOptions, { preventScroll: true });
+    assert.deepEqual(flashed(), [0]);
+    // nächste negative (Nachricht 4): ihr Anfang oben im Verlauf
+    await jump(negative);
+    assert.equal(body.scrollTop, 3 * MESSAGE_HEIGHT - 16);
+    assert.equal(document.activeElement, answerOf(3));
+    assert.deepEqual(flashed(), [3]);
+    // danach wieder die erste
+    await jump(negative);
+    assert.equal(document.activeElement, answerOf(0));
+    assert.equal(body.scrollTop, 0);
+    // positiv: Nachricht 3
+    await jump(positive);
+    assert.equal(body.scrollTop, 2 * MESSAGE_HEIGHT - 16);
+    assert.equal(document.activeElement, answerOf(2));
+    assert.deepEqual(flashed(), [2]);
+    // Die Hervorhebung vergeht von selbst.
+    await act(() => wait(RATING_FLASH_WAIT_MS));
+    await act();
+    assert.deepEqual(flashed(), []);
+    // Die Antworten sind per Programm fokussierbar, nicht per Tab
+    assert.equal(answerOf(2).getAttribute("tabindex"), "-1");
+    assert.equal(withAttribute(messages[1], "data-answer-row").length, 1);
+  }
+);
+
+// Hervorhebung nach dem Sprung (RATING_FLASH_MS) plus Rest
+const RATING_FLASH_WAIT_MS = 1800;
+
+test(
+  "Nachtrag N2 (b): Bewertete Antworten tragen einen hauchzarten Hintergrund im Ton ihrer Bewertung (negativ orange, positiv sky; hell und dunkel), unbewertete keinen – ohne die Lage des Verlaufs zu ändern",
+  { skip },
+  async (t) => {
+    const { RATING_TINT } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    await panelServer(t, {
+      rows: [
+        row(1, { message_count: 3, negative_count: 1, positive_count: 1 }),
+      ],
+      details: {
+        1: {
+          messages: [false, null, true].map((feedbackScore, i) =>
+            message(i + 1, "konv-1", {
+              session_id: "sitzung-1",
+              feedbackScore,
+            })
+          ),
+        },
+      },
+    });
+    const { container, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const messages = withAttribute(panelOf(container), "data-message");
+    const rows = messages.map((m) => one(m, "data-answer-row"));
+    const classes = (element) => element.getAttribute("class").split(/\s+/);
+    assert.deepEqual(
+      messages.map((m) => m.getAttribute("data-rated")),
+      ["negative", null, "positive"]
+    );
+    for (const name of RATING_TINT.negative.split(/\s+/))
+      assert.ok(classes(rows[0]).includes(name), name);
+    for (const name of RATING_TINT.positive.split(/\s+/))
+      assert.ok(classes(rows[2]).includes(name), name);
+    for (const name of [
+      ...RATING_TINT.negative.split(/\s+/),
+      ...RATING_TINT.positive.split(/\s+/),
+    ])
+      assert.ok(!classes(rows[1]).includes(name), name);
+    // Ausgleich: Der Hintergrund ragt über den Text hinaus, ohne ihn zu
+    // verschieben – alle Antworten gleich (auch die unbewertete)
+    for (const row of rows)
+      for (const name of ["-mx-2", "px-2", "-my-1.5", "py-1.5", "rounded-xl"])
+        assert.ok(classes(row).includes(name), name);
   }
 );

@@ -1871,6 +1871,8 @@ const TRANSLATIONS = {
         "The next conversation could not be loaded – please try again.",
       "quote-open": "“",
       "quote-close": "”",
+      "jump-negative": "Jump to the next response rated negative",
+      "jump-positive": "Jump to the next response rated positive",
     },
   },
   "date-picker": {

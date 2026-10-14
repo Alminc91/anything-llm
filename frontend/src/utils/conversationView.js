@@ -55,6 +55,34 @@ export function focusLost(
  */
 export const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
 
+/**
+ * Fokusring der Seite (wie Listenzeilen und Diagramm-Schalter): 2 px in der
+ * Textfarbe, nach innen versetzt, nur bei Tastaturbedienung – statt des
+ * Browser-Rings (Nachtrag N3).
+ */
+export const FOCUS_RING =
+  "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)]";
+
+/**
+ * Hauchzarter Hintergrund einer bewerteten Antwort (Nachtrag N2 b): in den
+ * Tönen der Bewertungsmarken (negativ orange, positiv sky), dunkel 8 %
+ * Deckkraft, hell die 50er-Stufe. Text darauf hält mindestens 4,5:1
+ * (conversationView.test.mjs rechnet nach).
+ */
+export const RATING_TINT = {
+  negative: "bg-orange-500/[0.08] light:bg-orange-50",
+  positive: "bg-sky-500/[0.08] light:bg-sky-50",
+};
+
+/**
+ * Kurze Hervorhebung nach dem Sprung zu einer bewerteten Antwort (N2 a):
+ * ein Umriss im Ton der Bewertung, mindestens 3:1 zum Grund.
+ */
+export const RATING_FLASH = {
+  negative: "outline outline-2 outline-orange-400 light:outline-orange-600",
+  positive: "outline outline-2 outline-sky-400 light:outline-sky-600",
+};
+
 // Abstand zum schwebenden Benutzermenü oben rechts („KI“, bis 72 px unter
 // dem oberen Fensterrand) – an einer Stelle (Fixliste 3, S4). Der Bereich der
 // Einstellungsseiten beginnt ab md 16 px unter dem Fensterrand und endet
@@ -867,6 +895,22 @@ export function elementsWith(root, attribute, value, found = []) {
     elementsWith(child, attribute, value, found);
   }
   return found;
+}
+
+/**
+ * Scrollposition eines Bereichs, bei der der Anfang eines Elements darin
+ * oben steht, mit etwas Abstand – nur der Bereich scrollt, nicht die Seite
+ * (Sprung zur bewerteten Antwort, Nachtrag N2).
+ * @param {{scrollTop: number, getBoundingClientRect: Function}} container
+ * @param {{getBoundingClientRect: Function}} element
+ * @param {number} [margin]
+ * @returns {number}
+ */
+export function startScrollTop(container, element, margin = 16) {
+  const box = container.getBoundingClientRect();
+  const target = element.getBoundingClientRect();
+  const offset = target.top - box.top + (container.scrollTop || 0) - margin;
+  return Number.isFinite(offset) ? Math.max(0, Math.round(offset)) : 0;
 }
 
 /**

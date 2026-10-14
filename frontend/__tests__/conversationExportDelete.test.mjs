@@ -812,13 +812,19 @@ test(
       0
     );
     await expand(mounted, 0);
-    // Die Lösch-Vorschau lädt erst, wenn sie gebraucht wird (Menü „⋯" oder
-    // Rückfrage) – Öffnen und Blättern fragen sie nicht an.
+    // Die Lösch-Vorschau lädt im Hintergrund, sobald das Panel die
+    // Konversation zeigt (Nachtrag N1) – das Menü „⋯" erscheint dann gleich
+    // im Endzustand.
     assert.deepEqual(server.calls.slice(1), [
       {
         method: "GET",
         url: server.detailUrl(chatIdOf("k-1")),
         body: undefined,
+      },
+      {
+        method: ROUTES.deletionPreview.method,
+        url: await urlOf(ROUTES.deletionPreview),
+        body: conversationBody(chatIdOf("k-1")),
       },
     ]);
 
@@ -827,15 +833,10 @@ test(
     // in der Fußzeile: nach den Nachrichten der Konversation
     const actions = withAttribute(container, "data-conversation-actions")[0];
     assert.equal(actions.parentNode.lastChild, actions);
-    // nur eine Konversation dieses Besuchers: kein zweites Angebot
+    // nur eine Konversation dieses Besuchers: kein zweites Angebot; das
+    // Menü fragt nicht noch einmal an
     await openMenu(mounted);
-    assert.deepEqual(server.calls.slice(2), [
-      {
-        method: ROUTES.deletionPreview.method,
-        url: await urlOf(ROUTES.deletionPreview),
-        body: conversationBody(chatIdOf("k-1")),
-      },
-    ]);
+    assert.equal(server.calls.length, 3);
     assert.equal(withAttribute(container, "data-menu-delete").length, 1);
     assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
     assert.equal(dialogOf(document), null);
