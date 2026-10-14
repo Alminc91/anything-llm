@@ -1736,9 +1736,9 @@ const TRANSLATIONS = {
       "deleted-hint":
         "Older contents were deleted according to the retention period.",
       "content-gap_one":
-        "{{counted}} conversation counted, {{viewable}} of them viewable. Contents may have been deleted (retention period, cleared by the visitor or deleted here) – the key figures keep counting.",
+        "{{counted}} conversation counted, {{viewable}} of them viewable. Contents may have been deleted (retention period, cleared by the visitor or deleted here)\u00a0– the key figures keep counting.",
       "content-gap_other":
-        "{{counted}} conversations counted, {{viewable}} of them viewable. Contents may have been deleted (retention period, cleared by the visitor or deleted here) – the key figures keep counting.",
+        "{{counted}} conversations counted, {{viewable}} of them viewable. Contents may have been deleted (retention period, cleared by the visitor or deleted here)\u00a0– the key figures keep counting.",
     },
     // KIE-538
     export: {

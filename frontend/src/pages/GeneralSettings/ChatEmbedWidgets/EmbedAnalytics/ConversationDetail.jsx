@@ -425,8 +425,13 @@ export default function ConversationDetail({
 
   // Vollbild (unter lg): Fokus in den Kopf, der Hintergrund ist inert. Den
   // Fokus zurück auf die Zeile setzt die Liste.
+  // Ohne sichtbaren Ring (Fixliste 9, A4): Per Link geöffnet gab es noch
+  // keine Eingabe – der Browser zählte den Fokus als Tastaturfokus
+  // (:focus-visible) und zeichnete seinen orangen Ring um „‹ Konversationen".
+  // Browser ohne focusVisible-Option zeigen statt des Rings den eigenen,
+  // dezenten Fokusstil des Knopfs (wie Hover).
   useEffect(() => {
-    if (!wide) backRef.current?.focus?.();
+    if (!wide) backRef.current?.focus?.({ focusVisible: false });
   }, [wide]);
   useInertOutside(panelRef, !wide);
   usePanelFit(panelRef, wide, chatId);
@@ -603,7 +608,7 @@ export default function ConversationDetail({
             ref={backRef}
             data-panel-back=""
             onClick={onClose}
-            className="flex h-11 items-center gap-1 rounded-lg px-2 text-[15px] text-theme-text-primary hover:bg-white/10 light:hover:bg-black/5 lg:hidden"
+            className="flex h-11 items-center gap-1 rounded-lg px-2 text-[15px] text-theme-text-primary outline-none hover:bg-white/10 focus-visible:bg-white/10 light:hover:bg-black/5 light:focus-visible:bg-black/5 lg:hidden"
           >
             <CaretLeft size={20} aria-hidden="true" />
             {t("embed-analytics.panel.back")}
@@ -685,9 +690,12 @@ export default function ConversationDetail({
 
         {head && (
           <div className="flex flex-col gap-1.5 px-2 lg:px-0">
+            {/* Höchstens drei Zeilen (Fixliste 9, A5): Die erste Frage steht
+                darunter ohnehin ganz in der Sprechblase; voll als title. */}
             <h3
               data-panel-question=""
-              className="break-words text-[17px] font-semibold leading-snug text-theme-text-primary lg:text-lg"
+              title={head.firstQuestion}
+              className="line-clamp-3 break-words text-[17px] font-semibold leading-snug text-theme-text-primary lg:text-lg"
             >
               <HighlightedText text={head.firstQuestion} term={search} />
             </h3>

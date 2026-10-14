@@ -132,8 +132,12 @@ class Element extends Node {
     return elements(this, (element) => element.tagName === "OPTION");
   }
 
-  /** Wie im Browser: Das bisher fokussierte Element verliert den Fokus zuerst. */
-  focus() {
+  /**
+   * Wie im Browser: Das bisher fokussierte Element verliert den Fokus zuerst.
+   * lastFocusOptions: die Optionen des letzten Aufrufs (etwa focusVisible).
+   */
+  focus(options) {
+    this.lastFocusOptions = options ?? null;
     const document = this.ownerDocument;
     const previous = document.activeElement;
     if (previous === this) return;

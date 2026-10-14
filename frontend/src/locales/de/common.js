@@ -1205,9 +1205,9 @@ const TRANSLATIONS = {
       // Fixliste 6, N1: gezählt (Zählerbuch) vs. einsehbar (gespeicherte
       // Inhalte), nur ohne Filter
       "content-gap_one":
-        "{{counted}} Konversation gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht) – die Kennzahlen zählen weiter.",
+        "{{counted}} Konversation gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht)\u00a0– die Kennzahlen zählen weiter.",
       "content-gap_other":
-        "{{counted}} Konversationen gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht) – die Kennzahlen zählen weiter.",
+        "{{counted}} Konversationen gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht)\u00a0– die Kennzahlen zählen weiter.",
     },
     // KIE-538
     export: {

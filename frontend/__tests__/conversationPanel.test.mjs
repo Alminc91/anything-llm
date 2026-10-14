@@ -3826,8 +3826,10 @@ test(
 // Fixliste 6, N1: gezählt (Zählerbuch) vs. einsehbar (Liste)
 // ---------------------------------------------------------------------------
 
+// Vor dem Gedankenstrich ein geschütztes Leerzeichen (Fixliste 9, A5): Keine
+// Zeile beginnt mit „–“.
 const GAP_TAIL =
-  "Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht) – die Kennzahlen zählen weiter.";
+  "Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht)\u00a0– die Kennzahlen zählen weiter.";
 
 test(
   "Fixliste 6, N1: leere Liste, aber Konversationen gezählt – der Hinweis ersetzt „Keine Konversationen vorhanden.“, ohne zweiten Hinweis auf die Aufbewahrungsfrist",
@@ -4831,5 +4833,62 @@ test(
     const classes = gap.getAttribute("class").split(/\s+/);
     assert.ok(classes.includes("text-balance"));
     assert.ok(classes.includes("max-w-[70ch]"));
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 9: Fokus ohne Ring nach dem Öffnen (A4), Panel-Titel und
+// Lückenhinweis (A5)
+// ---------------------------------------------------------------------------
+
+test(
+  "Fixliste 9, A4: Vollbild per Link geöffnet – Fokus auf „‹ Konversationen“ ohne sichtbaren Ring (focusVisible: false); ohne diese Option ein eigener, dezenter Fokusstil statt des Browser-Rings",
+  { skip },
+  async (t) => {
+    stubWidth(t, false);
+    await panelServer(t, {
+      rows: [row(1), row(2)],
+      details: {
+        2: { messages: [message(2, "konv-2", { session_id: "sitzung-2" })] },
+      },
+    });
+    const { container, document } = await mountList(t, {
+      query: "?widget=3&conversation=2",
+    });
+    const panel = panelOf(container);
+    const back = one(panel, "data-panel-back");
+    assert.ok(document.activeElement === back, "Fokus im Kopf des Vollbilds");
+    assert.deepEqual(back.lastFocusOptions, { focusVisible: false });
+    const classes = back.getAttribute("class").split(/\s+/);
+    assert.ok(classes.includes("outline-none"), "kein Browser-Ring");
+    assert.ok(classes.includes("focus-visible:bg-white/10"));
+    assert.ok(classes.includes("light:focus-visible:bg-black/5"));
+  }
+);
+
+test(
+  "Fixliste 9, A5: Der Panel-Titel (erste Frage) zeigt höchstens drei Zeilen, der volle Text steht im title",
+  { skip },
+  async (t) => {
+    const long = `Ich ${"suche einen Kurs für Anfänger am Abend ".repeat(12)}?`;
+    await panelServer(t, {
+      rows: [row(1)],
+      details: {
+        1: {
+          messages: [
+            message(1, "konv-1", { prompt: long, session_id: "sitzung-1" }),
+          ],
+        },
+      },
+    });
+    const { container } = await mountList(t, {
+      query: "?widget=3&conversation=1",
+    });
+    const question = one(panelOf(container), "data-panel-question");
+    assert.equal(question.textContent, long);
+    assert.equal(question.getAttribute("title"), long);
+    assert.ok(
+      question.getAttribute("class").split(/\s+/).includes("line-clamp-3")
+    );
   }
 );
