@@ -432,7 +432,7 @@ describe("Folgefragen im Embed-Stream", () => {
     }
   });
 
-  test("prompt-note-user-voice: Nutzerstimme, Verbot Rückfragen, Rückfrage -> Antworten; letzter Abschnitt hinter Karten und Disclaimer", async () => {
+  test("prompt-note-user-voice: echte Fragen in Nutzerstimme mit Fragezeichen, Verbot Rückfragen, Rückfrage -> Antworten als Fragen; letzter Abschnitt hinter Karten und Disclaimer", async () => {
     const {
       DISCLAIMER_PROMPT_NOTE,
       FOLLOW_UPS_PROMPT_NOTE,
@@ -441,27 +441,55 @@ describe("Folgefragen im Embed-Stream", () => {
       courseCardsPromptNote,
     } = require("../../../utils/chats/embedDefaults");
     const note = FOLLOW_UPS_PROMPT_NOTE;
-    // Richtung: Worte des Nutzers an den Berater, mit Beispiel
-    expect(note).toContain("in the user's own words to you, the advisor");
-    expect(note).toContain("\u201eGibt es auch Kurse am Wochenende?\u201c");
+    // Form: vollständige Fragen des Nutzers an den Berater, mit Fragezeichen
+    // (auch das der Nutzersprache), keine Stichworte
+    expect(note).toContain("[[FRAGEN: q1? | q2?]]");
+    expect(note).toContain(
+      "two short QUESTIONS the user could ask you, the advisor, next"
+    );
+    expect(note).toContain(
+      "in the user's own voice, each a complete question ending with \u201e?\u201c"
+    );
+    expect(note).toContain("or the question mark of the user's language");
+    expect(note).toContain("Never bare keywords");
+    expect(note).toContain("\u201eGibt es auch Termine im Juni?\u201c");
     // Verbot von Fragen an den Nutzer mit Beispielen
     expect(note).toContain("NEVER questions to the user");
     expect(note).toContain("\u201eSuchen Sie \u2026?\u201c");
     expect(note).toContain("\u201eM\u00f6chten Sie \u2026?\u201c");
-    // Rückfrage -> wahrscheinliche Antworten als Vorschläge
+    // Rückfrage -> wahrscheinliche Antworten, als Fragen des Nutzers
     expect(note).toContain(
-      "Instead of a clarifying question, offer its likely answers as suggestions"
+      "Instead of a clarifying question, turn its likely answers into the user's questions"
     );
     expect(note).toContain(
-      "[[FRAGEN: Kurse f\u00fcr Babys | Kurse f\u00fcr Schulkinder]]"
+      "[[FRAGEN: Gibt es Kurse f\u00fcr Babys? | Welche Kurse gibt es f\u00fcr Schulkinder?]]"
     );
+    // kein Stichwort-Beispiel mehr: jeder Eintrag jeder Beispielzeile ist "-"
+    // oder endet mit "?"
+    const examples = [...note.matchAll(/\[\[FRAGEN:([^\]]*)\]\]/g)];
+    expect(examples.length).toBeGreaterThanOrEqual(3);
+    for (const [, content] of examples)
+      for (const item of content.split("|").map((s) => s.trim()))
+        expect(item === "-" || item.endsWith("?")).toBe(true);
+    expect(note).not.toContain("Kurse f\u00fcr Babys |");
+    // auch kein Stichwort als Gegenbeispiel: jedes zitierte Beispiel
+    // (\u201e\u2026\u201c bzw. \u201c\u2026\u201d) endet mit einem Fragezeichen
+    const quoted = [
+      ...note.matchAll(/\u201e([^\u201c]*)\u201c|\u201c([^\u201d]*)\u201d/g),
+    ].map((m) => m[1] ?? m[2]);
+    expect(quoted.length).toBeGreaterThanOrEqual(5);
+    for (const q of quoted) expect(q).toMatch(/[?\u061f]$/);
+    expect(note).not.toContain("\u201eTermine im Juni\u201c");
     // bestehende Regeln bleiben
-    expect(note).toContain("[[FRAGEN: q1 | q2]]");
+    expect(note).toContain("\u2264 60 characters");
+    expect(note).toContain("in the user's language, nothing already answered");
     expect(note).toContain("[[FRAGEN: -]]");
     expect(note).toContain("Do NOT ask a question in the answer text itself.");
-    // englisch, ≤ 120 Wörter (ohne Überschrift)
+    // englisch, ≤ 145 Wörter (ohne Überschrift; Frageform-Regel mit
+    // Fragezeichen der Nutzersprache und „Never bare keywords“-Satz kosten
+    // ≈ 30 Wörter mehr als die Fassung vom 06.10.)
     const body = note.split("\n").slice(3).join(" ").trim();
-    expect(body.split(/\s+/).length).toBeLessThanOrEqual(120);
+    expect(body.split(/\s+/).length).toBeLessThanOrEqual(145);
     // Reihenfolge: Karten-Abschnitt -> Disclaimer-Hinweis -> Folgefragen-Hinweis
     const { connector } = await run({
       reply: `${FU_BODY}\n${FU_LINE}`,

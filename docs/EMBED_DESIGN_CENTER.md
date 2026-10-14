@@ -47,13 +47,19 @@ höchstens zwei Zeilen. Die Beispiel-Teaser im Abschnitt liegen im Bereich.
 Bei `followUps = "pills"` hängt der Server den Hinweis
 „### Follow-up Suggestions (ACTIVE)“ als **letzten** Abschnitt an
 (`FOLLOW_UPS_PROMPT_NOTE` in `server/utils/chats/embedCourseSources.js`). Er
-verlangt als letzte Zeile `[[FRAGEN: q1 | q2]]` mit zwei Vorschlägen **in den
-Worten des Nutzers an den Berater** („Gibt es auch Kurse am Wochenende?“), nie
+verlangt als letzte Zeile `[[FRAGEN: q1? | q2?]]` mit zwei **echten Fragen in
+der Stimme des Nutzers an den Berater**, jede vollständig und mit Fragezeichen
+(bzw. dem Fragezeichen der Nutzersprache, z. B. „؟“) — keine Stichworte,
+immer die ganze Frage („Gibt es auch Termine im Juni?“; der Hinweis nennt
+bewusst nur Frage-Beispiele, kein Stichwort als Gegenbeispiel), nie
 Fragen an den Nutzer („Suchen Sie …?“, „Möchten Sie …?“). Statt einer
-Rückfrage (Basis-Prompt, „Intelligent Follow-up Questions“) bietet das Modell
-deren wahrscheinliche Antworten als Vorschläge an
-(`[[FRAGEN: Kurse für Babys | Kurse für Schulkinder]]`). Rückfragen im
-Antworttext bleiben verboten.
+Rückfrage (Basis-Prompt, „Intelligent Follow-up Questions“) formuliert das
+Modell deren wahrscheinliche Antworten als Fragen des Nutzers
+(`[[FRAGEN: Gibt es Kurse für Babys? | Welche Kurse gibt es für Schulkinder?]]`).
+Rückfragen im Antworttext bleiben verboten. Einträge ohne Fragezeichen lässt
+der Server unverändert (kein angehängtes „?“, kein Verwerfen); die Quote misst
+`Kundendaten/Chatbot/demo_site/prompt/folgefragen_frageform_*.json`
+(Pipelines-Repo).
 
 Sicherheitsnetz im Server: `parseFollowUpItems` verwirft vor den übrigen
 Regeln (`storedFollowUps`: ≤ 60 Zeichen, höchstens 3, ohne Dubletten) jeden

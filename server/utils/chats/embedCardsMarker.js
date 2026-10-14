@@ -323,6 +323,13 @@ function addressesUser(text) {
  * -> [] (keine Vorschläge); kaputte Einträge werden verworfen, nie die Zeile.
  * Einträge, die den Nutzer adressieren (addressesUser), werden vorher
  * verworfen (nicht verändert) — sie zählen nicht gegen FOLLOW_UPS_MAX.
+ * Frageform (Prompt: jede Pille eine Frage mit „?“): Einträge ohne
+ * Fragezeichen bleiben bewusst unverändert — kein angehängtes „?“ (aus
+ * „Kurse für Babys“ würde keine Frage, nur ein falsches Satzzeichen; das
+ * Fragezeichen der Nutzersprache ist nicht immer „?“) und kein Verwerfen
+ * (ein Stichwort ist als Pille noch brauchbar, ein Ausfall des Hinweises
+ * ließe sonst alle Pillen verschwinden). Die Quote misst das Messskript
+ * (demo_site/prompt/folgefragen_frageform_*.json).
  * @param {string} content
  * @returns {string[]}
  */
