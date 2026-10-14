@@ -24,6 +24,17 @@ jest.mock(
   "../../utils/prisma",
   () => require("../helpers/sqliteTestDatabase").testPrisma
 );
+// Der Logger des Servers (im Betrieb winston mit "[backend] warn:"): Hier
+// gibt er an die Konsole weiter und merkt sich die Warnungen.
+const mockLoggerWarn = jest.fn();
+jest.mock("../../utils/logger", () => () => ({
+  info: (...args) => console.info(...args),
+  error: (...args) => console.error(...args),
+  warn: (...args) => {
+    mockLoggerWarn(...args);
+    console.warn(...args);
+  },
+}));
 
 const { Prisma } = require("@prisma/client");
 const {
@@ -53,13 +64,14 @@ beforeEach(() => {
   MessageLedger._resetCache();
   EmbedChats._resetFeedbackLimits();
   locks = [];
+  mockLoggerWarn.mockClear();
   spies = ["error", "warn", "log", "info"].map((method) =>
     jest.spyOn(console, method).mockImplementation(() => {})
   );
 });
 afterEach(async () => {
   for (const lock of locks) await lock.release().catch(() => {});
-  await MessageLedger._settleRetryEvents();
+  await MessageLedger._settleEvents();
   for (const spy of spies) spy.mockRestore();
   jest.restoreAllMocks();
   if (db) await db.close();
@@ -78,7 +90,7 @@ async function open(busyTimeoutSeconds = 1, options = {}) {
 
 /** Metadaten der Ereignisse "nach Wiederholung gespeichert". */
 async function savedAfterRetry() {
-  await MessageLedger._settleRetryEvents();
+  await MessageLedger._settleEvents();
   return (await eventsOf(db.client, SAVED_EVENT)).map(
     ({ metadata }) => metadata
   );
@@ -392,17 +404,18 @@ describe("Sperre bleibt (AK-3)", () => {
       message: expect.stringMatching(/Socket timeout/),
     });
     expect(transactions).toHaveBeenCalledTimes(3);
-    // Drei Versuche à 1 s Busy-Timeout und 300 + 900 ms Pause; dazu der
-    // Versuch, das Ereignis zu schreiben (ebenfalls 1 s Busy-Timeout). Die
-    // obere Grenze lässt Luft für eine ausgelastete Maschine.
+    // Drei Versuche à 1 s Busy-Timeout und 300 + 900 ms Pause; das Ereignis
+    // wird nicht abgewartet. Die obere Grenze lässt Luft für eine
+    // ausgelastete Maschine.
     expect(elapsed).toBeGreaterThanOrEqual(3 * 1000 + 1200 - 50);
-    expect(elapsed).toBeLessThan(3 * 1000 + 1200 + 1000 + 5000);
+    expect(elapsed).toBeLessThan(3 * 1000 + 1200 + 5000);
 
     await lock.release();
     expect(await db.client.embed_chats.count()).toBe(0);
     expect(await db.client.message_ledger.count()).toBe(0);
     // Das Ereignis ließ sich unter derselben Sperre nicht schreiben; es wird
     // nachgereicht - genau eines, mit der Zahl der Versuche.
+    await MessageLedger._settleEvents();
     await MessageLedger._flushWriteFailures();
     const events = await eventsOf(db.client, EVENT);
     expect(events.map(({ metadata }) => metadata)).toEqual([
@@ -442,6 +455,7 @@ describe("Sperre bleibt (AK-3)", () => {
     await lock.release();
     expect(await db.client.workspace_chats.count()).toBe(0);
     expect(await db.client.message_ledger.count()).toBe(0);
+    await MessageLedger._settleEvents();
     await MessageLedger._flushWriteFailures();
     expect(
       (await eventsOf(db.client, EVENT)).map(({ metadata }) => metadata)
@@ -476,6 +490,7 @@ describe("Sperre bleibt (AK-3)", () => {
     // übernommenen Ergebnisse ist geblieben.
     expect(await db.client.embed_chats.count()).toBe(0);
     expect(await db.client.message_ledger.count()).toBe(0);
+    await MessageLedger._settleEvents();
     await MessageLedger._flushWriteFailures();
     expect(
       (await eventsOf(db.client, EVENT)).map(({ metadata }) => metadata)
@@ -506,6 +521,7 @@ describe("Sperre bleibt (AK-3)", () => {
         .feedbackScore
     ).toBeNull();
     expect(await ledgerSum()).toEqual(before);
+    await MessageLedger._settleEvents();
     await MessageLedger._flushWriteFailures();
     expect(
       (await eventsOf(db.client, EVENT)).map(({ metadata }) => metadata)
@@ -532,10 +548,10 @@ describe("Sperre bleibt (AK-3)", () => {
     expect(result.chat).toBeNull();
     // Die zweite Wiederholung begänne erst nach ≈ 10,3 s + 900 ms > 8 s.
     expect(transactions).toHaveBeenCalledTimes(2);
-    // 2 x 5 s + 300 ms, dazu das Ereignis (unter derselben Sperre bis zu
-    // 5 s); vorher bis zu 3 x 5 s + 1,2 s + 5 s.
+    // 2 x 5 s + 300 ms. Das Ereignis (unter derselben Sperre bis zu 5 s)
+    // wartet der Aufrufer nicht ab; vorher bis zu 3 x 5 s + 1,2 s + 5 s.
     expect(elapsed).toBeGreaterThanOrEqual(2 * 5000 + 300 - 50);
-    expect(elapsed).toBeLessThan(2 * 5000 + 300 + 5000 + 1500);
+    expect(elapsed).toBeLessThan(2 * 5000 + 300 + 1500);
     expect(consoleText()).toMatch(/nach 2 Versuchen/);
   }, 40000);
 
@@ -575,6 +591,7 @@ describe("andere Fehler (AK-4)", () => {
     expect(result.chat).toBeNull();
     expect(result.message).toMatch(/Foreign key constraint/);
     expect(transactions).toHaveBeenCalledTimes(1);
+    await MessageLedger._settleEvents();
     const events = await eventsOf(db.client, EVENT);
     expect(events).toHaveLength(1);
     expect(events[0].metadata.attempts).toBeUndefined();
@@ -776,6 +793,7 @@ describe("Nachbesserung nach dem Review", () => {
     expect(result.message).toMatch(/database is locked/);
     expect(transactions).toHaveBeenCalledTimes(1);
     expect(consoleText()).not.toMatch(/Speichern gesperrt/);
+    await MessageLedger._settleEvents();
     const events = await eventsOf(db.client, EVENT);
     expect(events).toHaveLength(1);
     expect(events[0].metadata.attempts).toBeUndefined();
@@ -1000,5 +1018,263 @@ describe("Nachbesserung nach dem Review", () => {
       { method: "findMany", where: { id: { in: [chat.id] } } },
     ]);
     expect(await db.client.workspace_chats.count()).toBe(1);
+  });
+});
+
+describe("Nachbesserung nach der Kontrolle (rc2)", () => {
+  /**
+   * Wie timeoutAfterFirstCommit, dazu zwischen den Versuchen ein Eingriff von
+   * außerhalb der Reihe (etwa "Neuer Chat" in der Pause vor der Wiederholung).
+   */
+  function timeoutAfterFirstCommitThen(meanwhile) {
+    const original = db.client.$transaction.bind(db.client);
+    let calls = 0;
+    return jest
+      .spyOn(db.client, "$transaction")
+      .mockImplementation(async (...args) => {
+        const result = await original(...args);
+        if (++calls === 1) {
+          await meanwhile();
+          throw new Prisma.PrismaClientKnownRequestError(
+            "Socket timeout (the database failed to respond to a query within the configured timeout).",
+            { code: "P1008", clientVersion: Prisma.prismaVersion.client }
+          );
+        }
+        return result;
+      });
+  }
+
+  test("F07: Widget-Chat - Historie in der Pause zurückgesetzt (include = false): keine Doppelzeile, keine Doppelzählung, der Reset bleibt", async () => {
+    await open();
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    const transactions = timeoutAfterFirstCommitThen(() =>
+      EmbedChats.markHistoryInvalid(embed.id, "s1")
+    );
+
+    const { chat, message } = await EmbedChats.new({
+      embedId: embed.id,
+      prompt: SECRET,
+      sessionId: "s1",
+    });
+
+    expect(message).toBeNull();
+    expect(transactions).toHaveBeenCalledTimes(2);
+    const rows = await db.client.embed_chats.findMany();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].include).toBe(false);
+    expect(chat.id).toBe(rows[0].id);
+    expect(await ledgerSum()).toEqual(
+      expect.objectContaining({ messages: 1, conversations_started: 1 })
+    );
+    expect(await savedAfterRetry()).toEqual([
+      expect.objectContaining({ attempts: 2, alreadySaved: true }),
+    ]);
+  });
+
+  test("F07: Workspace-Chat - Historie in der Pause zurückgesetzt und bewertet: keine Doppelzeile, keine Doppelzählung", async () => {
+    await open();
+    const workspace = await createWorkspace(db.client);
+    timeoutAfterFirstCommitThen(async () => {
+      await WorkspaceChats.markThreadHistoryInvalidV2({
+        workspaceId: workspace.id,
+      });
+      const [row] = await db.client.workspace_chats.findMany();
+      await WorkspaceChats.updateFeedbackScore(row.id, 1);
+    });
+
+    const { chat, message } = await WorkspaceChats.new({
+      workspaceId: workspace.id,
+      prompt: SECRET,
+      threadId: 4,
+    });
+
+    expect(message).toBeNull();
+    const rows = await db.client.workspace_chats.findMany();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual(
+      expect.objectContaining({ include: false, feedbackScore: true })
+    );
+    expect(chat.id).toBe(rows[0].id);
+    expect(await ledgerSum()).toEqual(expect.objectContaining({ messages: 1 }));
+  });
+
+  test("F07: Thread-Verzweigung - Kopien in der Pause zurückgesetzt: keine doppelten Kopien", async () => {
+    await open();
+    const workspace = await createWorkspace(db.client);
+    timeoutAfterFirstCommitThen(() =>
+      WorkspaceChats.markThreadHistoryInvalidV2({ thread_id: 11 })
+    );
+
+    const { chats } = await WorkspaceChats.bulkCreate(
+      ["a", "b"].map((prompt) => ({
+        workspaceId: workspace.id,
+        prompt,
+        response: "{}",
+        thread_id: 11,
+      }))
+    );
+
+    expect(chats.map((chat) => chat.prompt)).toEqual(["a", "b"]);
+    expect(await db.client.workspace_chats.count()).toBe(2);
+    expect(await ledgerSum()).toEqual(expect.objectContaining({ copied: 2 }));
+  });
+
+  test("F08: Der Aufrufer wartet das Ereignis message_ledger_write_failed nicht ab; es steht trotzdem im Protokoll", async () => {
+    await open();
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    const logged = jest.spyOn(MessageLedger, "_logWriteFailed");
+    const lock = await lockFor("write");
+
+    const result = await EmbedChats.new({
+      embedId: embed.id,
+      prompt: SECRET,
+      sessionId: "s1",
+    });
+
+    expect(result.chat).toBeNull();
+    expect(logged).toHaveBeenCalledTimes(1);
+    // Das Ereignis hängt noch unter der Sperre, der Aufrufer hat sein
+    // Ergebnis schon; die Konsolenzeile steht sofort da.
+    let settled = false;
+    const settling = MessageLedger._settleEvents().then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    expect(consoleText()).toMatch(/nicht geschrieben.*nach 3 Versuchen/);
+
+    await lock.release();
+    await settling;
+    await MessageLedger._flushWriteFailures();
+    expect(
+      (await eventsOf(db.client, EVENT)).map(({ metadata }) => metadata)
+    ).toEqual([expect.objectContaining({ source: "embed_chat", attempts: 3 })]);
+    expect(consoleText()).not.toContain(SECRET);
+  });
+
+  test("F21 (NAK-1): Validierungsfehler mit Chat-Inhalt - die Aufrufer schreiben den Inhalt nicht ins Log", async () => {
+    await open();
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+
+    // Ein Objekt statt Text: Prisma gibt in der Meldung die Argumente wieder.
+    const embedChat = await EmbedChats.new({
+      embedId: embed.id,
+      prompt: { text: SECRET },
+      sessionId: "s1",
+    });
+    const workspaceChat = await WorkspaceChats.new({
+      workspaceId: workspace.id,
+      prompt: { text: SECRET },
+    });
+    const fork = await WorkspaceChats.bulkCreate([
+      { workspaceId: workspace.id, prompt: { text: SECRET }, response: "{}" },
+    ]);
+    await MessageLedger._settleEvents();
+
+    expect(embedChat.chat).toBeNull();
+    expect(workspaceChat.chat).toBeNull();
+    expect(fork.chats).toBeNull();
+    // Die Rückgabe an den Aufrufer bleibt wie bisher (volle Meldung).
+    expect(embedChat.message).toContain(SECRET);
+    expect(consoleText()).toMatch(/\[EmbedChats\.new\].*Validation/);
+    expect(consoleText()).toMatch(/\[WorkspaceChats\.new\].*Validation/);
+    expect(consoleText()).toMatch(/\[WorkspaceChats\.bulkCreate\].*Validation/);
+    expect(consoleText()).not.toContain(SECRET);
+    expect(JSON.stringify(await eventsOf(db.client, EVENT))).not.toContain(
+      SECRET
+    );
+  });
+
+  test("Vertrag createdRows: Meldet work keine angelegte Zeile, wird gewarnt (ohne Inhalte) und nicht wiederholt", async () => {
+    await open();
+    const workspace = await createWorkspace(db.client);
+    const transactions = timeoutAfterFirstCommit();
+
+    await expect(
+      MessageLedger.transaction(
+        { source: "test", workspaceId: workspace.id },
+        async (tx) => {
+          const chat = await tx.workspace_chats.create({
+            data: { workspaceId: workspace.id, prompt: SECRET, response: "{}" },
+          });
+          await MessageLedger.record(tx, {
+            workspaceId: workspace.id,
+            at: chat.createdAt,
+            messages: 1,
+          });
+        },
+        { retry: { createdRows: true } }
+      )
+    ).rejects.toThrow(/Socket timeout/);
+
+    expect(transactions).toHaveBeenCalledTimes(1);
+    // Der erste Versuch hat wirklich geschrieben; ohne Wiederholung bleibt es
+    // bei einer Zeile und einer Zählung.
+    expect(await db.client.workspace_chats.count()).toBe(1);
+    expect(await ledgerSum()).toEqual(expect.objectContaining({ messages: 1 }));
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringMatching(/keine angelegte Zeile gemeldet.*Workspace/)
+    );
+    expect(consoleText()).not.toMatch(/Speichern gesperrt/);
+    expect(consoleText()).not.toContain(SECRET);
+  });
+
+  test("F19: Das Budget misst unabhängig von der Systemuhr (steht die Uhr still, gibt es trotzdem keinen dritten Versuch)", async () => {
+    await open();
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    const transactions = countTransactions();
+    await lockFor("write");
+    const budget = MessageLedger.RETRY_BUDGET_MS;
+    MessageLedger.RETRY_BUDGET_MS = 1500;
+    // Die Wanduhr (Date) steht still, alles andere läuft weiter.
+    jest.useFakeTimers({
+      now: new Date("2026-10-14T10:00:00.000Z"),
+      doNotFake: [
+        "hrtime",
+        "nextTick",
+        "performance",
+        "queueMicrotask",
+        "setImmediate",
+        "clearImmediate",
+        "setInterval",
+        "clearInterval",
+        "setTimeout",
+        "clearTimeout",
+      ],
+    });
+    try {
+      const result = await EmbedChats.new({
+        embedId: embed.id,
+        prompt: "Frage",
+        sessionId: "s1",
+      });
+      expect(result.chat).toBeNull();
+    } finally {
+      jest.useRealTimers();
+      MessageLedger.RETRY_BUDGET_MS = budget;
+    }
+    // 1 s + 300 ms < 1,5 s: zweiter Versuch; 2,3 s + 900 ms > 1,5 s: kein dritter
+    expect(transactions).toHaveBeenCalledTimes(2);
+  });
+
+  test("Der Hinweis 'Speichern gesperrt' geht über den Logger des Servers (im Betrieb mit '[backend] warn:')", async () => {
+    await open();
+    const workspace = await createWorkspace(db.client);
+    await lockFor("write", 1500);
+
+    const { chat } = await WorkspaceChats.new({
+      workspaceId: workspace.id,
+      prompt: SECRET,
+    });
+
+    expect(chat).not.toBeNull();
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringMatching(/Speichern gesperrt.*workspace_chat.*Versuch 1\/3/)
+    );
+    expect(mockLoggerWarn.mock.calls.flat().join("\n")).not.toContain(SECRET);
   });
 });

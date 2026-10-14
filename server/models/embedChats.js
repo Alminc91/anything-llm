@@ -274,7 +274,9 @@ const EmbedChats = {
       );
       return { chat, message: null };
     } catch (error) {
-      console.error(error.message);
+      // NAK-1: nur die Kurzform; die volle Meldung von Prisma kann Inhalte
+      // der Nachricht wiedergeben (etwa bei einem Validierungsfehler).
+      console.error(`[EmbedChats.new] ${MessageLedger.errorSummary(error)}`);
       return { chat: null, message: error.message };
     }
   },
@@ -675,7 +677,11 @@ const EmbedChats = {
         pendingFeedback -= 1;
       }
     } catch (error) {
-      console.error("updateFeedbackScore error:", error.message);
+      // NAK-1: nur die Kurzform (die volle Meldung kann den Kommentar enthalten)
+      console.error(
+        "updateFeedbackScore error:",
+        MessageLedger.errorSummary(error)
+      );
       return "error";
     }
   },

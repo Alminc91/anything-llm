@@ -52,7 +52,11 @@ const WorkspaceChats = {
       );
       return { chat, message: null };
     } catch (error) {
-      console.error(error.message);
+      // NAK-1: nur die Kurzform; die volle Meldung von Prisma kann Inhalte
+      // der Nachricht wiedergeben (etwa bei einem Validierungsfehler).
+      console.error(
+        `[WorkspaceChats.new] ${MessageLedger.errorSummary(error)}`
+      );
       return { chat: null, message: error.message };
     }
   },
@@ -383,7 +387,11 @@ const WorkspaceChats = {
       );
       return { chats: createdChats, message: null };
     } catch (error) {
-      console.error(error.message);
+      // NAK-1: nur die Kurzform; die volle Meldung von Prisma kann Inhalte
+      // der Nachrichten wiedergeben (etwa bei einem Validierungsfehler).
+      console.error(
+        `[WorkspaceChats.bulkCreate] ${MessageLedger.errorSummary(error)}`
+      );
       return { chats: null, message: error.message };
     }
   },
