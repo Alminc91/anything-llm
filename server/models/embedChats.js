@@ -88,6 +88,18 @@ function rawInstant(value) {
  * Antwort wörtlich. Eine Regel für Suche, Export und POST /embed/chats
  * (Fixliste 8, C2/L3) - wie answerText im Panel (frontend
  * utils/conversationView.js).
+ *
+ * Protokoll-Marker alter Antworten („[[FRAGEN: …]]", „[[KARTEN: …]]") bleiben
+ * hier stehen, bewusst (Fixliste 9, A6): Entfernt der Lesepfad sie (Branch
+ * fix/folgefragen-frageform, withoutProtocolMarkers), findet die Suche einen
+ * Begriff, der nur im Marker eines Altdatensatzes steht, noch - die Liste
+ * zeigt dann eine Konversation zu viel, das Panel den Hinweis auf
+ * unsichtbare Treffer (F13). Nie zu wenig. Eine Bereinigung in SQL wäre
+ * nicht trivial: Die Marker-Regeln (Zeilenlage, Längengrenzen, mehrere
+ * Gruppen) kennt nur der Parser in JS; ein grobes Abschneiden ab dem
+ * ersten „[[" kürzte auch Antworten, in denen „[[" Text ist (Treffer
+ * fehlten), und kostete je Zeile im Suchpfad von NAK-7. Betroffen sind nur
+ * Antworten von vor FF1, und nur, wenn der Begriff allein im Marker steht.
  * @returns {import("@prisma/client").Prisma.Sql}
  */
 function visibleAnswerSql() {
@@ -97,6 +109,67 @@ function visibleAnswerSql() {
       THEN CASE WHEN json_type(response, '$.text') = 'text' THEN json_extract(response, '$.text') END
       ELSE response
     END)`;
+}
+
+// Index (embed_id, session_id) aus der Migration
+// 20260722014551_add_embed_session_index_to_embed_chats (KIE-503).
+const SESSION_INDEX = "embed_chats_embed_id_session_id_idx";
+// Name → Promise<boolean>: gibt es den Index in dieser Datenbank?
+const knownIndexes = new Map();
+
+/**
+ * Gibt es den Index auf embed_chats? Einmal je Prozess nachgesehen
+ * (sqlite_master); ein Fehler beim Nachsehen gilt als „nein" und wird beim
+ * nächsten Aufruf wiederholt.
+ * @param {string} name
+ * @returns {Promise<boolean>}
+ */
+function indexExists(name) {
+  if (!knownIndexes.has(name)) {
+    const check = Promise.resolve()
+      .then(() =>
+        prisma.$queryRawUnsafe(
+          "SELECT 1 AS present FROM sqlite_master WHERE type = 'index' AND tbl_name = 'embed_chats' AND name = ?",
+          name
+        )
+      )
+      .then((rows) => Array.isArray(rows) && rows.length > 0)
+      .catch(() => {
+        knownIndexes.delete(name);
+        return false;
+      });
+    knownIndexes.set(name, check);
+  }
+  return knownIndexes.get(name);
+}
+
+/**
+ * Führt eine Abfrage mit dem Hinweis `INDEXED BY <name>` aus - nur, wenn es
+ * den Index gibt (Fixliste 9, A1/A3). Ohne Statistiken (sqlite_stat1; in
+ * Produktion läuft weder ANALYZE noch PRAGMA optimize) nimmt SQLite bei
+ * ORDER BY createdAt den Index (embed_id, createdAt) und liest alle Zeilen
+ * des Widgets statt der einer Sitzung. Garantiert ist der Index nicht: Die
+ * Migration legt ihn ohne IF NOT EXISTS an, und schlägt sie fehl, markiert
+ * docker/docker-entrypoint.sh sie als angewendet, ohne ihre Anweisung
+ * auszuführen. Fehlt er, läuft die Abfrage ohne Hinweis - langsamer, aber
+ * nie mit „no such index" (500). Verschwindet er während des Betriebs,
+ * wiederholt die Abfrage einmal ohne Hinweis.
+ * @template T
+ * @param {string} name - Name des Index
+ * @param {(hint: import("@prisma/client").Prisma.Sql) => Promise<T>} run -
+ *   baut die Abfrage mit `FROM embed_chats ${hint}`
+ * @returns {Promise<T>}
+ */
+async function withIndexHint(name, run) {
+  const { Prisma } = require("@prisma/client");
+  if (!(await indexExists(name))) return await run(Prisma.empty);
+  try {
+    return await run(Prisma.raw(`INDEXED BY ${name}`));
+  } catch (error) {
+    if (!/no such index/i.test(String(error?.message ?? ""))) throw error;
+    knownIndexes.set(name, Promise.resolve(false));
+    return await run(Prisma.empty);
+  }
 }
 
 // Widget|Sitzung → { startedAt, count } des laufenden Zeitfensters
@@ -125,6 +198,14 @@ function takeFeedbackSlot(embedId, sessionId) {
 }
 
 const EmbedChats = {
+  /**
+   * Nur für Tests: vergisst, welche Indizes es gibt (withIndexHint) - die
+   * nächste Abfrage sieht wieder in sqlite_master nach.
+   */
+  _forgetIndexes: function () {
+    knownIndexes.clear();
+  },
+
   FEEDBACK_MAX_PER_WINDOW,
   FEEDBACK_MAX_PENDING,
   EXPORT_MESSAGE_BATCH,
@@ -1173,7 +1254,7 @@ const EmbedChats = {
    * @param {Object} options
    * @param {number} [options.offset]
    * @param {number} [options.limit]
-   * @param {{lastMessageAt: number, firstChatId: number}|null} [options.after] -
+   * @param {{lastMessageAt: number, firstChatId: number, maxId?: number|null}|null} [options.after] -
    *   Blättern über einen Schlüssel (Fixliste 7, F14): die Konversationen
    *   NACH dieser Zeile der Liste (letzte Nachricht absteigend, bei
    *   Gleichstand first_chat_id absteigend). Verschwindet zwischen zwei
@@ -1201,8 +1282,9 @@ const EmbedChats = {
    *   Kommentar enthält ({@link EmbedChats._searchMatchSql}); null = keine
    *   Suche
    * @returns {Promise<{conversations: Array, totalCount: number, hasMore: boolean, maxId: number|null}>}
-   *   maxId: der Stand dieser Liste (höchste id der Tabelle beim Laden der
-   *   ersten Seite); weitere Seiten nennen ihn in after.maxId
+   *   maxId: der Stand dieser Liste (höchste id des Widgets beim Laden der
+   *   ersten Seite, Fixliste 9, A2); weitere Seiten nennen ihn in
+   *   after.maxId
    * @throws bei einem Datenbankfehler: Die Route antwortet 500, die Liste
    *   zeigt „Fehler beim Laden" mit „Erneut versuchen" statt einer leeren
    *   Liste (Fixliste 2, R2). Protokolliert wird in der Route, ohne
@@ -1222,14 +1304,10 @@ const EmbedChats = {
     } = {}
   ) {
     // Stand der Liste (Fixliste 8, L2): weitere Seiten bringen ihn mit, die
-    // erste hält ihn fest - die höchste id der Tabelle (Primärschlüssel,
-    // ohne Durchlauf).
-    const maxId =
-      after && after.maxId !== null && after.maxId !== undefined
-        ? after.maxId
-        : after
-          ? null
-          : await EmbedChats._currentMaxId();
+    // erste hält ihn fest - die höchste id des Widgets (Fixliste 9, A2).
+    const maxId = after
+      ? after.maxId ?? null
+      : await EmbedChats._currentMaxId(embedId);
     const { conversations, total, rest } = await EmbedChats._conversationList({
       embedId,
       offset,
@@ -1265,15 +1343,22 @@ const EmbedChats = {
   },
 
   /**
-   * Höchste id der Tabelle embed_chats (0, wenn leer) - der Stand einer
-   * Konversationsliste (Fixliste 8, L2). Über den Primärschlüssel, ohne
-   * Durchlauf.
+   * Höchste id der Zeilen eines Widgets (0 ohne Zeile) - der Stand einer
+   * Konversationsliste (Fixliste 8, L2) und des Exports. Je Widget, nicht
+   * über die ganze Instanz (Fixliste 9, A2): Sonst läse ein Default-User an
+   * der Liste seines Widgets ab, wie viele Chat-Zeilen in fremden Workspaces
+   * entstehen. Ein Gang durch den Index des Widgets (embed_id, …; die id
+   * steht in jedem Index), ohne Sortierung.
+   * @param {number|null} [embedId] - null: alle Widgets (nur intern, wie
+   *   {@link EmbedChats._rowConditions})
    * @returns {Promise<number|null>} - null, wenn die Datenbank keine Zahl
    *   liefert
    */
-  _currentMaxId: async function () {
+  _currentMaxId: async function (embedId = null) {
+    const { Prisma } = require("@prisma/client");
     const [row] = await prisma.$queryRaw`
       SELECT MAX(id) AS max_id FROM embed_chats
+      ${embedId === null ? Prisma.empty : Prisma.sql`WHERE embed_id = ${embedId}`}
     `;
     const value = Number(row?.max_id ?? 0);
     return Number.isSafeInteger(value) ? value : null;
@@ -1464,33 +1549,32 @@ const EmbedChats = {
     const reasons = new Map();
     if (rated.length === 0) return reasons;
     const wanted = new Set(rated.map(EmbedChats._widgetGroupKey));
-    const rows = await prisma.embed_chats.findMany({
-      where: {
-        embed_id: { in: [...new Set(rated.map((conv) => conv.embed_id))] },
-        session_id: { in: [...new Set(rated.map((conv) => conv.session_id))] },
-        include: true,
-        feedbackScore: false,
-        feedbackReason: { not: null },
-        ...(startDate || endDate
-          ? {
-              createdAt: {
-                ...(startDate ? { gte: startDate } : {}),
-                ...(endDate ? { lte: endDate } : {}),
-              },
-            }
-          : {}),
-      },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      select: {
-        embed_id: true,
-        session_id: true,
-        conversation_id: true,
-        feedbackReason: true,
-      },
-    });
+    const { Prisma } = require("@prisma/client");
+    const embedIds = [...new Set(rated.map((conv) => Number(conv.embed_id)))];
+    const sessions = [...new Set(rated.map((conv) => conv.session_id))];
+    // Die Zeilen der Liste (include = 1, im Zeitraum; _rowConditions) der
+    // Sitzungen dieser Seite - über den Index (embed_id, session_id),
+    // erzwungen, sofern es ihn gibt (withIndexHint, Fixliste 9, A3): Ohne
+    // Statistiken nahm SQLite für ORDER BY createdAt bzw. den Zeitraum den
+    // Index (embed_id, createdAt) und las je Listenseite alle Zeilen des
+    // Widgets im Zeitraum. Sortiert werden danach nur die negativ
+    // bewerteten Zeilen dieser Sitzungen.
+    const rows = await withIndexHint(
+      SESSION_INDEX,
+      (hint) => prisma.$queryRaw`
+        SELECT embed_id, session_id, conversation_id, feedbackReason
+        FROM embed_chats ${hint}
+        ${Prisma.join(EmbedChats._rowConditions({ startDate, endDate }), " ")}
+          AND embed_id IN (${Prisma.join(embedIds)})
+          AND session_id IN (${Prisma.join(sessions)})
+          AND feedbackScore = 0
+          AND feedbackReason IS NOT NULL
+        ORDER BY createdAt ASC, id ASC
+      `
+    );
     for (const row of rows) {
       const key = EmbedChats._widgetGroupKey({
-        embed_id: row.embed_id,
+        embed_id: Number(row.embed_id),
         conversation_id: row.conversation_id ?? row.session_id,
         session_id: row.session_id,
       });
@@ -1600,9 +1684,12 @@ const EmbedChats = {
     // Angezeigt wird nur, was die Liste zählt: Vom Besucher geleerte Zeilen
     // (include = 0, markHistoryInvalid) bleiben verborgen. Löschen und
     // Lösch-Vorschau meinen dagegen alle Zeilen (_conversationScope).
-    return await prisma.embed_chats.findMany({
-      where: { ...scope.where, include: true },
-      orderBy: { createdAt: "asc" },
+    // Erst die ids in ihrer Reihenfolge (_conversationRowIds), dann die
+    // Zeilen selbst über den Primärschlüssel.
+    const ids = await EmbedChats._conversationRowIds(scope);
+    if (ids.length === 0) return [];
+    const rows = await prisma.embed_chats.findMany({
+      where: { id: { in: ids }, embed_id: scope.id },
       select: {
         id: true,
         prompt: true,
@@ -1615,6 +1702,31 @@ const EmbedChats = {
         feedbackReason: true, // KIE-507: 1-Klick-Grund bei 👎
       },
     });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return ids.map((id) => byId.get(id)).filter(Boolean);
+  },
+
+  /**
+   * Die ids der angezeigten Zeilen (include = 1) einer Konversation, nach
+   * Zeitpunkt - über den Index (embed_id, session_id), erzwungen, sofern es
+   * ihn gibt (withIndexHint, Fixliste 9, A3): Ohne Statistiken nahm SQLite
+   * für ORDER BY createdAt den Index (embed_id, createdAt) und las bei
+   * jedem Öffnen alle Zeilen des Widgets (100.000 Zeilen: 189 ms statt
+   * 2 ms).
+   * @param {{sql: import("@prisma/client").Prisma.Sql}} scope - aus
+   *   {@link EmbedChats._conversationScope}
+   * @returns {Promise<number[]>}
+   */
+  _conversationRowIds: async function (scope) {
+    const rows = await withIndexHint(
+      SESSION_INDEX,
+      (hint) => prisma.$queryRaw`
+        SELECT id FROM embed_chats ${hint}
+        WHERE ${scope.sql} AND include = 1
+        ORDER BY createdAt ASC, id ASC
+      `
+    );
+    return rows.map((row) => Number(row.id));
   },
 
   /**
@@ -1635,8 +1747,10 @@ const EmbedChats = {
    * @param {number|string} embedId
    * @param {number|string} chatId - Zahl oder Ziffernfolge (Pfadabschnitt)
    * @param {object} [client] - prisma oder eine Transaktion
-   * @returns {Promise<{id: number, sessionId: string, where: object}|null>} -
-   *   null, wenn die Angaben kein Widget und keine seiner Zeilen bezeichnen
+   * @returns {Promise<{id: number, sessionId: string, where: object, sql: import("@prisma/client").Prisma.Sql}|null>} -
+   *   where für Prisma, sql dieselben Bedingungen für eine Raw-Abfrage über
+   *   embed_chats (ohne WHERE); null, wenn die Angaben kein Widget und keine
+   *   seiner Zeilen bezeichnen
    */
   _conversationScope: async function (embedId, chatId, client = prisma) {
     const id = Number(embedId);
@@ -1657,6 +1771,7 @@ const EmbedChats = {
     });
     if (!row) return null;
     const key = row.conversation_id ?? row.session_id;
+    const { Prisma } = require("@prisma/client");
     return {
       id,
       sessionId: row.session_id,
@@ -1668,6 +1783,8 @@ const EmbedChats = {
           { conversation_id: null, session_id: key },
         ],
       },
+      sql: Prisma.sql`embed_id = ${id} AND session_id = ${row.session_id}
+        AND (conversation_id = ${key} OR (conversation_id IS NULL AND session_id = ${key}))`,
     };
   },
 
@@ -1933,20 +2050,23 @@ const EmbedChats = {
     const sessions = [...new Set(groups.map((group) => group.session_id))];
     // session_id IN (…) über den Index (embed_id, session_id); das Paar
     // bindet jede Zeile an genau eine Konversation des Pakets. Der Index ist
-    // erzwungen (INDEXED BY, Fixliste 8, M2): Ohne Statistiken
-    // (sqlite_stat1 - in Produktion läuft weder ANALYZE noch PRAGMA
-    // optimize) wählte SQLite wegen ORDER BY createdAt bzw. des Zeitraums
-    // den Index (embed_id, createdAt) und las je Paket alle Zeilen des
-    // Widgets im Zeitraum - der Export wuchs quadratisch (100.000 Zeilen:
-    // 121 s statt rund 5 s). Sortiert werden danach höchstens die Zeilen
-    // von EXPORT_BATCH_CONVERSATIONS Konversationen.
+    // erzwungen (INDEXED BY, Fixliste 8, M2), sofern es ihn gibt
+    // (withIndexHint, Fixliste 9, A1): Ohne Statistiken (sqlite_stat1 - in
+    // Produktion läuft weder ANALYZE noch PRAGMA optimize) wählte SQLite
+    // wegen ORDER BY createdAt bzw. des Zeitraums den Index (embed_id,
+    // createdAt) und las je Paket alle Zeilen des Widgets im Zeitraum - der
+    // Export wuchs quadratisch (100.000 Zeilen: 121 s statt rund 5 s).
+    // Sortiert werden danach höchstens die Zeilen von
+    // EXPORT_BATCH_CONVERSATIONS Konversationen.
     const pairs = Prisma.join(
       groups.map(
         (group) => Prisma.sql`(${group.conversation_id}, ${group.session_id})`
       )
     );
 
-    const rows = await prisma.$queryRaw`
+    const rows = await withIndexHint(
+      SESSION_INDEX,
+      (hint) => prisma.$queryRaw`
       SELECT
         id,
         session_id,
@@ -1957,12 +2077,13 @@ const EmbedChats = {
         feedbackScore,
         feedbackText,
         feedbackReason
-      FROM embed_chats INDEXED BY embed_chats_embed_id_session_id_idx
+      FROM embed_chats ${hint}
       ${Prisma.join(where, " ")}
         AND session_id IN (${Prisma.join(sessions)})
         AND (COALESCE(conversation_id, session_id), session_id) IN (VALUES ${pairs})
       ORDER BY createdAt ASC, id ASC
-    `;
+    `
+    );
 
     const byGroup = new Map();
     for (const row of rows) {
@@ -2043,18 +2164,15 @@ const EmbedChats = {
     if (!Number.isInteger(id) || id <= 0) return;
     const between = EmbedChats.normalizeStartedBetween(startedBetween);
 
-    const newest = await prisma.embed_chats.findFirst({
-      where: { embed_id: id },
-      orderBy: { id: "desc" },
-      select: { id: true },
-    });
-    if (!newest) return;
+    // Stand des Exports: derselbe wie der einer Liste (Fixliste 9, A2).
+    const maxId = await EmbedChats._currentMaxId(id);
+    if (!maxId) return;
     const selection = {
       embedId: id,
       startDate,
       endDate,
       startedBetween: between,
-      maxId: newest.id,
+      maxId,
     };
 
     const conversations = await EmbedChats._exportConversations({

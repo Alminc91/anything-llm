@@ -31,65 +31,78 @@
 // Gemessen werden auch Säulenklicks (Abschnitt) mit und ohne Suche.
 //
 // Messwerte - Stand 14.10.2026, Branch feat/konversationen-ansicht nach
-// Fixliste 8. Intel Xeon Gold 6354 (4 Kerne der VM), Node 18.19, Prisma
+// Fixliste 9. Intel Xeon Gold 6354 (4 Kerne der VM), Node 18.19, Prisma
 // 6.14 (SQLite der Engine); 100.000 Zeilen (623 MB), --runs 5: je Fall ein
 // Aufwärmlauf und 5 Messläufe, Median in ms. Route
 // analytics/conversations (Liste + Zähler, limit 20).
 //
 // OHNE ANALYZE gemessen (Fixliste 8, M2): wie in Produktion, wo weder
-// ANALYZE noch PRAGMA optimize läuft. Die Werte bis Fixliste 7 waren mit
-// ANALYZE gemessen (Spalte „mit ANALYZE") und verdeckten so den falschen
-// Index im Export. Achtung beim Vergleich: Der Messbestand hat nur EIN
-// Widget - mit Statistiken liest SQLite dann die ganze Tabelle der Reihe
-// nach (SCAN), ohne Statistiken über den Index (embed_id, createdAt) Zeile
-// für Zeile. In Produktion (viele Widgets) nimmt SQLite auch mit
-// Statistiken den Index; „ohne ANALYZE" entspricht dort einem Widget mit
-// 100.000 Zeilen.
+// ANALYZE noch PRAGMA optimize läuft. Achtung beim Vergleich: Der
+// Messbestand hat nur EIN Widget - mit Statistiken liest SQLite dann die
+// ganze Tabelle der Reihe nach (SCAN), ohne Statistiken über den Index
+// (embed_id, createdAt) Zeile für Zeile. In Produktion (viele Widgets)
+// nimmt SQLite auch mit Statistiken den Index; „ohne ANALYZE" entspricht
+// dort einem Widget mit 100.000 Zeilen.
 //
-//   Fall                                Treffer  Median  mit ANALYZE  Läufe
-//   ohne Suche, Gesamt                    42858     382          366  382 392 381 378 395
-//   q="kurs", Gesamt                      42858    1213         1198  1384 1211 1213 1208 1228
-//   q="spanisch", Gesamt                    796    1081          892  1131 1081 1079 1082 1061
-//   q="für", Gesamt                       28723    1021         1025  1028 1010 1021 1038 1013
-//   q="üb", Gesamt                        24283    1554         1343  1554 1554 1531 1538 1598
-//   q="äa", Gesamt                            0    1249         1238  1272 1267 1249 1244 1242
-//   q="Übung", Gesamt                     24283    1219         1021  1240 1204 1219 1250 1203
-//   q="курс", Gesamt                       1025    1172         1155  1172 1266 1249 1156 1167
-//   q="äöü", Gesamt                           0    1279         1240  1279 1255 1272 1289 1324
-//   q="\"", Gesamt                        16211    1159          921  1158 1210 1159 1175 1154
-//   q="\\", Gesamt                         2697    1103          808  1103 1076 1002 1223 1311
-//   q="xyzkeintreffer", Gesamt                0     945          755  945 842 962 1023 920
-//   q="zehntausend", Gesamt               10000    1087          851  1167 1151 1056 1087 1073
-//   q="spanisch" + negativ, Gesamt          512     659          396  673 659 695 645 624
-//   Säule (Woche), ohne Suche              3334     570          356  569 557 572 570 573
-//   q="kurs" + Säule (Woche)               3334     634          385  634 638 801 630 626
-//   q="für" + Säule (Woche)                2231     637          399  624 642 644 637 628
-//   q="Übung" + Säule (Woche)              1906     628          394  670 616 617 628 642
-//   q="xyzkeintreffer" + Säule (Woche)        0     421          384  421 417 418 428 429
+// Spalte „vorher": derselbe Bestand direkt danach mit dem Modell vor
+// Fixliste 9 (Stand f39622e9b). Der Unterschied kommt von A3: Die Gründe
+// negativer Bewertungen einer Seite (_firstNegativeReasons) lasen ohne
+// Statistiken über den Index (embed_id, createdAt) alle Zeilen des Widgets
+// (rund 200 ms je Seite mit bewerteten Konversationen); jetzt über den
+// Index (embed_id, session_id), unter 1 ms.
 //
-//   Langsamster Fall 1554 ms (q="üb") - Grenze NAK-7 (1500 ms) ohne
-//   Statistiken um rund 4 % ÜBERSCHRITTEN (mit ANALYZE 1343 ms). Nicht neu:
-//   Der Stand vor Fixliste 8 liegt gleich auf (A/B im selben Bestand,
-//   erste Seite mit und ohne Stand maxId: 1569 / 1572 ms).
+//   Fall                                Treffer  Median  vorher  Läufe
+//   ohne Suche, Gesamt                   42858     374     385  372 377 368 383 374
+//   q="kurs", Gesamt                     42858    1199    1171  1257 1164 1176 1199 1220
+//   q="spanisch", Gesamt                   796     848    1062  835 848 852 845 865
+//   q="für", Gesamt                      28723     990    1003  988 991 990 984 1060
+//   q="üb", Gesamt                       24283    1347    1514  1364 1327 1347 1345 1354
+//   q="äa", Gesamt                           0    1235    1242  1232 1221 1240 1235 1235
+//   q="Übung", Gesamt                    24283    1002    1183  996 1002 1021 1000 1035
+//   q="курс", Gesamt                      1025    1139    1129  1160 1139 1140 1139 1133
+//   q="äöü", Gesamt                          0    1294    1263  1347 1353 1280 1292 1294
+//   q="\"", Gesamt                       16211     909    1139  932 890 909 911 902
+//   q="\\", Gesamt                        2697     812    1024  812 821 815 802 799
+//   q="xyzkeintreffer", Gesamt               0     786     778  871 772 786 784 859
+//   q="zehntausend", Gesamt              10000     854    1030  880 854 881 850 853
+//   q="spanisch" + negativ, Gesamt         512     419     622  415 416 419 451 432
+//   Säule (Woche), ohne Suche             3334     349     549  346 349 353 364 349
+//   q="kurs" + Säule (Woche)              3334     410     605  437 410 413 406 404
+//   q="für" + Säule (Woche)               2231     405     612  405 402 402 406 418
+//   q="Übung" + Säule (Woche)             1906     412     622  412 412 420 428 412
+//   q="xyzkeintreffer" + Säule (Woche)       0     404     406  394 394 404 407 414
 //
-//   Export CSV (ein Lauf), ohne ANALYZE: ohne Suche 814.586 Zeilen 5,5 s,
-//   q=kurs 814.586 Zeilen 6,0 s, q=zehntausend 212.463 Zeilen 2,2 s.
+//   Langsamster Fall 1347 ms (q="üb") - Grenze NAK-7 (1500 ms) eingehalten
+//   (vorher 1514 ms, mit Fixliste 8 gemessen 1554 ms). Der Abstand ist
+//   klein; die Entscheidung aus Fixliste 9 bleibt: Such-Index (FTS) als
+//   Folge-Issue.
+//
+//   Fixliste 9, A3 (eigene Messung, Median aus 5 Läufen): Konversation
+//   öffnen (Route GET /embed/:embedId/conversation/:chatId, Konversation
+//   aus der Mitte) 2,2 ms - vorher (Prisma-Abfrage ohne Hinweis, über
+//   (embed_id, createdAt)) 189 ms; Gründe der ersten Seite „negativ“
+//   (20 Konversationen) 0,6 ms - vorher 204 ms; Liste „negativ“, Gesamt
+//   365 ms - vorher 549 ms. A2: Stand je Widget (MAX(id) des Widgets) 5,8 ms
+//   statt 0,4 ms für die ganze Tabelle.
+//
+//   Export CSV (ein Lauf), ohne ANALYZE: ohne Suche 814.586 Zeilen 5,0 s,
+//   q=kurs 814.586 Zeilen 5,5 s, q=zehntausend 212.463 Zeilen 2,2 s.
 //   Vor Fixliste 8 (Nachrichten-Abfrage ohne INDEXED BY, M2) im selben
 //   Bestand: 120,8 s, 112,5 s und 29,1 s - ohne Statistiken las jedes Paket
 //   über den Index (embed_id, createdAt) alle Zeilen des Widgets im
 //   Zeitraum. (Mit ANALYZE bis Fixliste 7: 5,1 s, 6,2 s, 2,3 s.)
 //
 //   Blättern (Fixliste 7, F14; mit Stand maxId, Fixliste 8, L2), Seite 21
-//   (Zeilen 401-420): über den Schlüssel der Zeile 400 ohne Suche 639 ms
-//   (offset 400: 589 ms), mit q=kurs 1486 ms (offset: 1455 ms) - der
-//   Schlüssel kostet ein zweites Fenster, nur auf den Seiten hinter der
-//   ersten.
+//   (Zeilen 401-420): über den Schlüssel der Zeile 400 ohne Suche 416 ms
+//   (offset 400: 403 ms), mit q=kurs 1297 ms (offset: 1239 ms); vorher
+//   608/590 ms und 1458/1455 ms - der Schlüssel kostet ein zweites
+//   Fenster, nur auf den Seiten hinter der ersten.
 //
 //   Nachfilter im sichtbaren Text (Fixliste 7, F13): alle Treffer-Zeilen
 //   samt Antworttext lesen und in JS prüfen (die Voraussetzung für eine
 //   richtige Zählung ohne Treffer in Link-Zielen, HTML und <think>):
-//   q=kurs 3,1 s (42.858 Treffer, sichtbar 42.858), q=vhs.example 3,0 s
-//   (42.858 SQL-Treffer, sichtbar 0), q=spanisch 0,7 s (ohne ANALYZE;
+//   q=kurs 3,4 s (42.858 Treffer, sichtbar 42.858), q=vhs.example 3,1 s
+//   (42.858 SQL-Treffer, sichtbar 0), q=spanisch 0,8 s (ohne ANALYZE;
 //   mit: 3,2 / 3,1 / 0,8 s) - mehr als das Doppelte von NAK-7. Deshalb
 //   bleibt es beim Hinweis im Panel.
 //
@@ -450,6 +463,95 @@ async function main() {
           ).padStart(6)}  Median ${median(runs).toFixed(0).padStart(5)} ms`
       );
     }
+  }
+
+  // Fixliste 9, A3: Öffnen einer Konversation (Panel) und die Gründe
+  // negativer Bewertungen einer Listenseite - jetzt über den Index
+  // (embed_id, session_id), daneben im selben Bestand die Abfrage von vorher
+  // (Prisma, ohne Hinweis: ohne Statistiken über (embed_id, createdAt)).
+  // Dazu der Stand der Liste je Widget (A2) gegen den der ganzen Tabelle.
+  {
+    const { EmbedChats } = require(path.join(SERVER, "models/embedChats"));
+    const DETAILS = routes["GET /embed/:embedId/conversation/:chatId"];
+    const time = async (label, run) => {
+      const runs = [];
+      let size = null;
+      for (let r = 0; r <= RUNS; r++) {
+        const started = process.hrtime.bigint();
+        size = await run();
+        const ms = Number(process.hrtime.bigint() - started) / 1e6;
+        if (r > 0) runs.push(ms);
+      }
+      console.log(
+        `${label.padEnd(52)} ${String(size).padStart(6)}  Median ${median(runs)
+          .toFixed(1)
+          .padStart(7)} ms  (${runs.map((r) => r.toFixed(1)).join(", ")})`
+      );
+    };
+    // eine Konversation aus der Mitte des Bestands
+    const [{ id: chatId }] = await client.$queryRawUnsafe(
+      `SELECT id FROM embed_chats WHERE embed_id = 1 ORDER BY id LIMIT 1 OFFSET ${Math.floor(
+        ROWS / 2
+      )}`
+    );
+    await time("A3 Panel öffnen (Route), jetzt", async () => {
+      const result = await invoke(DETAILS, {
+        params: { embedId: "1", chatId: String(chatId) },
+      });
+      if (result.statusCode !== 200)
+        throw new Error(`Panel: Status ${result.statusCode}`);
+      return result.body.messages.length;
+    });
+    await time("A3 Panel öffnen (Abfrage), vorher", async () => {
+      const scope = await EmbedChats._conversationScope(1, chatId);
+      const rows = await client.embed_chats.findMany({
+        where: { ...scope.where, include: true },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, prompt: true, response: true, createdAt: true },
+      });
+      return rows.length;
+    });
+    // Gründe der ersten Seite „negativ“ (20 Konversationen), Gesamt
+    const negative = await invoke(LIST, {
+      params: { embedId: "1" },
+      body: { offset: 0, limit: 20, feedbackFilter: "negative" },
+    });
+    const page = negative.body.conversations;
+    await time("A3 Gründe einer Seite (20), jetzt", async () => {
+      const reasons = await EmbedChats._firstNegativeReasons(page, null, null);
+      return reasons.size;
+    });
+    await time("A3 Gründe einer Seite (20), vorher", async () => {
+      const rows = await client.embed_chats.findMany({
+        where: {
+          embed_id: { in: [1] },
+          session_id: { in: [...new Set(page.map((c) => c.session_id))] },
+          include: true,
+          feedbackScore: false,
+          feedbackReason: { not: null },
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: {
+          session_id: true,
+          conversation_id: true,
+          feedbackReason: true,
+        },
+      });
+      return rows.length;
+    });
+    await time("A3 Liste negativ, Gesamt (Route)", async () => {
+      const result = await invoke(LIST, {
+        params: { embedId: "1" },
+        body: { offset: 0, limit: 20, feedbackFilter: "negative" },
+      });
+      return result.body.totalCount;
+    });
+    await time("A2 Stand je Widget (MAX(id) des Widgets)", () =>
+      EmbedChats._currentMaxId(1)
+    );
+    await time("A2 Stand der Tabelle (vorher)", () =>
+      EmbedChats._currentMaxId(null)
+    );
   }
 
   let exported = null;

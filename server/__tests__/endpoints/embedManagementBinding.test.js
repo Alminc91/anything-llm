@@ -486,6 +486,7 @@ describe("fremdes_widget (AK-3)", () => {
 describe("konversation_detail (AK-13)", () => {
   let kunde;
   let detailSpy;
+  let rowIdsSpy;
   let followUpA, followUpB;
 
   beforeEach(() => {
@@ -507,10 +508,24 @@ describe("konversation_detail (AK-13)", () => {
       conversation_id: "konversation-b",
     });
     detailSpy = jest.spyOn(EmbedChats, "getConversationDetails");
+    // Die ids der Konversation liest eine Raw-Abfrage mit Index-Hinweis
+    // (Fixliste 9, A3); der Ersatz im Speicher kennt kein SQL - dieselben
+    // Bedingungen (scope.where, include) über seine findMany.
+    rowIdsSpy = jest
+      .spyOn(EmbedChats, "_conversationRowIds")
+      .mockImplementation(async (scope) =>
+        (
+          await prisma.embed_chats.findMany({
+            where: { ...scope.where, include: true },
+            orderBy: { createdAt: "asc" },
+          })
+        ).map((row) => row.id)
+      );
   });
 
   afterEach(() => {
     detailSpy.mockRestore();
+    rowIdsSpy.mockRestore();
   });
 
   const detail = (embedId, chatId, token = null) =>

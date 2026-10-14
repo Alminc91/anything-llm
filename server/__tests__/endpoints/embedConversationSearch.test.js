@@ -2503,6 +2503,13 @@ describe("blättern über einen schlüssel (Fixliste 7, F14)", () => {
   });
 });
 
+// Das SQL eines aufgezeichneten $queryRaw-Aufrufs samt verschachtelter
+// Fragmente (etwa des Index-Hinweises, Fixliste 9, A1).
+function composedSql(call) {
+  const { Prisma } = require("@prisma/client");
+  return Prisma.sql(...call).sql;
+}
+
 describe("nachrichten des exports je paar (Fixliste 7, F11/F21)", () => {
   test("Dieselbe Kennung in vielen Sitzungen: gelesen werden nur die Zeilen der Paare (Kennung, Sitzung) des Pakets – mit denselben Bedingungen wie die Liste", async () => {
     const embed = await createEmbed(
@@ -2538,8 +2545,8 @@ describe("nachrichten des exports je paar (Fixliste 7, F11/F21)", () => {
 
     // Die Abfrage der Nachrichten liefert nur die drei Zeilen dieser
     // Konversation, nicht die 90 aller Sitzungen mit derselben Kennung.
-    const messageQuery = queries.mock.calls.findIndex(([strings]) =>
-      /INDEXED BY embed_chats_embed_id_session_id_idx/.test(strings.join("?"))
+    const messageQuery = queries.mock.calls.findIndex((call) =>
+      /INDEXED BY embed_chats_embed_id_session_id_idx/.test(composedSql(call))
     );
     expect(messageQuery).toBeGreaterThanOrEqual(0);
     expect(await queries.mock.results[messageQuery].value).toHaveLength(3);
@@ -2573,8 +2580,8 @@ describe("nachrichten des exports je paar (Fixliste 7, F11/F21)", () => {
       const file = await exportFile(embed, "json", request);
       expect(file.statusCode).toBe(200);
       expect(JSON.parse(file.body)).toHaveLength(5);
-      const call = queries.mock.calls.find(([strings]) =>
-        /INDEXED BY embed_chats_embed_id_session_id_idx/.test(strings.join("?"))
+      const call = queries.mock.calls.find((call) =>
+        /INDEXED BY embed_chats_embed_id_session_id_idx/.test(composedSql(call))
       );
       expect(call).toBeDefined();
       queries.mockRestore();
@@ -2591,6 +2598,255 @@ describe("nachrichten des exports je paar (Fixliste 7, F11/F21)", () => {
         /SEARCH embed_chats USING INDEX embed_chats_embed_id_session_id_idx \(embed_id=\? AND session_id=\?/
       );
       expect(plan).not.toMatch(/embed_chats_embed_id_createdAt_idx/);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 9: Stand je Widget (A2), Index-Hinweis nur mit Index (A1), Panel
+// und Gründe negativer Bewertungen über den Sitzungs-Index (A3)
+// ---------------------------------------------------------------------------
+
+const SESSION_INDEX = "embed_chats_embed_id_session_id_idx";
+const hinted = (call) =>
+  composedSql(call).includes(`INDEXED BY ${SESSION_INDEX}`);
+
+/** Plan einer aufgezeichneten Abfrage (ohne Statistiken). */
+async function planOf(call, { withoutHint = false } = {}) {
+  const { Prisma } = require("@prisma/client");
+  const query = Prisma.sql(...call);
+  const sql = withoutHint
+    ? query.sql.replace(`INDEXED BY ${SESSION_INDEX}`, "")
+    : query.sql;
+  return (
+    await db.client.$queryRawUnsafe(
+      `EXPLAIN QUERY PLAN ${sql}`,
+      ...query.values
+    )
+  )
+    .map((row) => row.detail)
+    .join("\n");
+}
+
+describe("stand der liste je widget (Fixliste 9, A2)", () => {
+  test("maxId ist die höchste id des Widgets – Zeilen anderer Widgets (fremder Workspaces) ändern ihn nicht; der Export liest denselben Stand", async () => {
+    const workspaceA = await createWorkspace(db.client);
+    const workspaceB = await createWorkspace(db.client);
+    const own = await createEmbed(db.client, workspaceA);
+    const foreign = await createEmbed(db.client, workspaceB);
+    const kunde = await createUser("default", [workspaceA.id]);
+    const ownRows = [];
+    for (let i = 1; i <= 3; i++)
+      ownRows.push(
+        await addChat(own, {
+          at: berlinInstant("2026-10-05", 9, i),
+          prompt: `Eigene Frage ${i}`,
+          conversation: `eigen-${i}`,
+        })
+      );
+    const foreignRow = await addChat(foreign, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "Fremde Frage",
+      conversation: "fremd",
+    });
+    expect(foreignRow.id).toBeGreaterThan(ownRows.at(-1).id);
+
+    const first = await listPage(own, {}, kunde);
+    expect(first.statusCode).toBe(200);
+    expect(first.body.maxId).toBe(ownRows.at(-1).id);
+
+    // In fremden Widgets entstehen weitere Zeilen: der Stand bleibt.
+    for (let i = 0; i < 5; i++)
+      await addChat(foreign, {
+        at: berlinInstant("2026-10-05", 11, i),
+        prompt: `Fremd ${i}`,
+        conversation: `fremd-${i}`,
+      });
+    expect((await listPage(own, {}, kunde)).body.maxId).toBe(ownRows.at(-1).id);
+
+    // Eine neue Zeile im eigenen Widget: der neue Stand
+    const next = await addChat(own, {
+      at: berlinInstant("2026-10-05", 12, 0),
+      prompt: "Neue eigene Frage",
+      conversation: "eigen-4",
+    });
+    const reloaded = await listPage(own, {}, kunde);
+    expect(reloaded.body.maxId).toBe(next.id);
+    expect(reloaded.body.totalCount).toBe(4);
+
+    // Ein Widget ohne Zeile: Stand 0
+    const empty = await createEmbed(db.client, workspaceA);
+    expect((await listPage(empty, {}, kunde)).body.maxId).toBe(0);
+
+    // Export: derselbe Stand je Widget, alle eigenen Konversationen
+    const file = await exportFile(own, "json", OCTOBER, kunde);
+    expect(file.statusCode).toBe(200);
+    expect(JSON.parse(file.body).map((c) => c.messages[0].prompt)).toEqual([
+      "Neue eigene Frage",
+      "Eigene Frage 3",
+      "Eigene Frage 2",
+      "Eigene Frage 1",
+    ]);
+  });
+});
+
+describe("index-hinweis nur mit index (Fixliste 9, A1)", () => {
+  let embed;
+  let firstIds;
+  beforeEach(async () => {
+    EmbedChats._forgetIndexes();
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    firstIds = [];
+    for (let i = 1; i <= 3; i++) {
+      const first = await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, i),
+        prompt: `Frage ${i}`,
+        conversation: `k-${i}`,
+      });
+      firstIds.push(first.id);
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, 30 + i),
+        prompt: `Nachfrage ${i}`,
+        conversation: `k-${i}`,
+        feedbackScore: false,
+        feedbackReason: `Grund ${i}`,
+      });
+    }
+  });
+  afterEach(() => EmbedChats._forgetIndexes());
+
+  // Liste (mit Gründen), Panel und Export - mit dem erwarteten Inhalt
+  async function allViews() {
+    const list = await listPage(embed, { feedbackFilter: "negative" });
+    expect(list.statusCode).toBe(200);
+    expect(
+      list.body.conversations.map((c) => [
+        c.conversation_id,
+        c.first_negative_reason,
+      ])
+    ).toEqual([
+      ["k-3", "Grund 3"],
+      ["k-2", "Grund 2"],
+      ["k-1", "Grund 1"],
+    ]);
+    const panel = await details(embed, firstIds[1]);
+    expect(panel.statusCode).toBe(200);
+    expect(panel.body.messages.map((m) => m.prompt)).toEqual([
+      "Frage 2",
+      "Nachfrage 2",
+    ]);
+    const file = await exportFile(embed, "json", OCTOBER);
+    expect(file.statusCode).toBe(200);
+    expect(
+      JSON.parse(file.body).map((c) => c.messages.map((m) => m.prompt))
+    ).toEqual([
+      ["Frage 3", "Nachfrage 3"],
+      ["Frage 2", "Nachfrage 2"],
+      ["Frage 1", "Nachfrage 1"],
+    ]);
+  }
+
+  test("Die Migration 20260722014551 legt den Index an; fehlt er (Fallback des Entrypoints markiert eine fehlgeschlagene Migration als angewendet), fragen Liste, Panel und Export ohne Hinweis – nie 500 mit „no such index“", async () => {
+    const indexOf = () =>
+      db.client.$queryRawUnsafe(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?",
+        SESSION_INDEX
+      );
+    expect((await indexOf())[0].sql).toMatch(/\("embed_id", "session_id"\)/);
+    await db.client.$executeRawUnsafe(`DROP INDEX "${SESSION_INDEX}"`);
+    expect(await indexOf()).toEqual([]);
+
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    await allViews();
+    expect(queries.mock.calls.filter(hinted)).toEqual([]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  test("Verschwindet der Index nach dem Nachsehen, wiederholt jede Abfrage einmal ohne Hinweis; danach fragt sie gleich ohne", async () => {
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    await allViews();
+    // mit Index: Panel, Gründe und Export mit Hinweis
+    expect(queries.mock.calls.filter(hinted).length).toBe(3);
+
+    await db.client.$executeRawUnsafe(`DROP INDEX "${SESSION_INDEX}"`);
+    queries.mockClear();
+    await allViews();
+    // nur der erste Versuch nach dem Verschwinden trägt den Hinweis
+    expect(queries.mock.calls.filter(hinted).length).toBe(1);
+    queries.mockClear();
+    await allViews();
+    expect(queries.mock.calls.filter(hinted)).toEqual([]);
+  });
+
+  test("Andere Datenbankfehler bleiben Fehler (500), ohne zweiten Versuch", async () => {
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    queries.mockImplementation(async (...call) => {
+      if (hinted(call)) throw new Error("database is locked");
+      return [];
+    });
+    const panel = await details(embed, firstIds[0]);
+    expect(panel.statusCode).toBe(500);
+    expect(queries.mock.calls.filter(hinted).length).toBe(1);
+    expect(
+      queries.mock.calls.filter((call) =>
+        /ORDER BY createdAt ASC, id ASC/.test(composedSql(call))
+      ).length
+    ).toBe(1);
+  });
+});
+
+describe("panel und gründe über den sitzungs-index (Fixliste 9, A3)", () => {
+  test("Ohne Statistiken (wie in Produktion) nehmen das Öffnen einer Konversation und die Gründe negativer Bewertungen den Index (embed_id, session_id) – ohne Hinweis wählte SQLite (embed_id, createdAt) und las alle Zeilen des Widgets", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    let firstId = null;
+    for (let session = 0; session < 5; session++)
+      for (let m = 0; m < 2; m++) {
+        const row = await addChat(embed, {
+          at: berlinInstant("2026-10-05", 9, session * 2 + m),
+          prompt: `Frage ${session}/${m}`,
+          conversation: `k-${session}`,
+          session: `sitzung-${session}`,
+          feedbackScore: m === 1 ? false : null,
+          feedbackReason: m === 1 ? "Unvollständig" : null,
+        });
+        firstId ??= row.id;
+      }
+    expect(
+      await db.client.$queryRawUnsafe(
+        "SELECT name FROM sqlite_master WHERE name = 'sqlite_stat1'"
+      )
+    ).toEqual([]);
+
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    const panel = await details(embed, firstId);
+    expect(panel.body.messages.map((m) => m.prompt)).toEqual([
+      "Frage 0/0",
+      "Frage 0/1",
+    ]);
+    // Gründe mit Zeitraum und über den ganzen Bestand („Gesamt“)
+    for (const request of [{}, { startDate: null, endDate: null }]) {
+      const list = await listPage(embed, request);
+      expect(
+        list.body.conversations.map((c) => c.first_negative_reason)
+      ).toEqual(Array(5).fill("Unvollständig"));
+    }
+    const calls = queries.mock.calls.filter(hinted);
+    queries.mockRestore();
+    // Panel, Gründe mit Zeitraum, Gründe ohne Zeitraum
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
+      const plan = await planOf(call);
+      expect(plan).toMatch(
+        /SEARCH embed_chats USING INDEX embed_chats_embed_id_session_id_idx \(embed_id=\? AND session_id=\?/
+      );
+      expect(plan).not.toMatch(/embed_chats_embed_id_createdAt_idx/);
+      // Gegenprobe: dieselbe Abfrage ohne Hinweis - der falsche Index
+      expect(await planOf(call, { withoutHint: true })).toMatch(
+        /embed_chats_embed_id_createdAt_idx/
+      );
     }
   });
 });

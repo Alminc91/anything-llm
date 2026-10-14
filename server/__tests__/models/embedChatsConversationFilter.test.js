@@ -139,6 +139,9 @@ beforeEach(() => {
   prisma.$queryRaw.mockResolvedValue(RAW_ROWS);
   prisma.embed_chats.findMany.mockResolvedValue(FIRST_CHATS);
   jest.spyOn(EmbedChats, "_currentMaxId").mockResolvedValue(MAX_ID);
+  // Die Gründe negativer Bewertungen lädt eine eigene Abfrage nach der Liste
+  // (seit Fixliste 9, A3 ebenfalls $queryRaw) - hier geht es um die Liste.
+  jest.spyOn(EmbedChats, "_firstNegativeReasons").mockResolvedValue(new Map());
 });
 
 describe("normalizeFeedbackFilter", () => {
