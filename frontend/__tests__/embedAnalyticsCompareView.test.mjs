@@ -1025,8 +1025,9 @@ test(
     assert.deepEqual(changesOf(html), [
       ["messages", "+58 % ggü. Vorzeitraum (266)", range],
       ["conversations", "Vorzeitraum: 0", range],
-      ["positive", "+50 % ggü. Vorzeitraum (6)", range],
-      ["negative", "−25 % ggü. Vorzeitraum (4)", range],
+      // 12 Bewertungen gegenüber 10; Zufriedenheit 75 % gegenüber 60 %
+      ["ratings", "+20 % ggü. Vorzeitraum (10)", range],
+      ["satisfaction", "+15 Punkte ggü. Vorzeitraum (60 %)", range],
     ]);
     // Die Tage des Vergleichs stehen auch im Text für Screenreader.
     assert.equal(
@@ -1157,8 +1158,8 @@ test(
       [
         "±0 % ggü. Vorzeitraum (5)",
         "−50 % ggü. Vorzeitraum (4)",
-        "+50 % ggü. Vorzeitraum (6)",
-        "−25 % ggü. Vorzeitraum (4)",
+        "+20 % ggü. Vorzeitraum (10)",
+        "+15 Punkte ggü. Vorzeitraum (60 %)",
       ]
     );
 
@@ -1258,8 +1259,11 @@ test(
       [
         ["messages", "−100 % ggü. Vorzeitraum (266)"],
         ["conversations", "Vorzeitraum: 0"],
-        ["positive", "±0 % ggü. Vorzeitraum (6)"],
-        ["negative", "−100 % ggü. Vorzeitraum (4)"],
+        // 6 Bewertungen gegenüber 10
+        ["ratings", "−40 % ggü. Vorzeitraum (10)"],
+        // 6 Bewertungen sind zu wenige für eine Zufriedenheit – also auch
+        // keine Veränderung in Punkten
+        ["satisfaction", null],
       ]
     );
   }
@@ -1315,7 +1319,7 @@ test(
     // wie mit ausgeschaltetem Vergleich – ihre Höhe springt nicht.
     assert.deepEqual(
       changesOf(html),
-      ["messages", "conversations", "positive", "negative"].map((key) => [
+      ["messages", "conversations", "ratings", "satisfaction"].map((key) => [
         key,
         null,
         null,

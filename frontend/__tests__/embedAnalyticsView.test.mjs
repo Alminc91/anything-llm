@@ -17,6 +17,8 @@ import {
   lastDaysRange,
   toDayString,
 } from "../src/utils/analyticsTimeline.js";
+import de from "../src/locales/de/common.js";
+import en from "../src/locales/en/common.js";
 
 const DIR = "/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics";
 const CHART = `${DIR}/TimelineChart.jsx`;
@@ -351,8 +353,10 @@ test(
     assert.equal(columns(html), 0);
     assert.equal(bars(html), 0);
     assert.doesNotMatch(html, /<svg[^>]* role="group"/);
-    assert.match(html, /data-chart-frame="empty"/);
-    assert.match(textOf(html), /Keine Nachrichten im gewählten Zeitraum$/);
+    assert.match(
+      html,
+      /<span data-chart-frame="empty">Keine Nachrichten im gewählten Zeitraum<\/span>/
+    );
     assert.doesNotMatch(html, new RegExp(`href="${WIDGETS}"`));
   }
 );
@@ -451,19 +455,24 @@ test(
     assert.deepEqual(kpiFields(html), [
       ["messages", "Nachrichten 1.284 Ø 42,8 pro Tag"],
       ["conversations", "Konversationen 321 Ø 4,0 Nachrichten je Konversation"],
+      // 12 bewertete Antworten bei 1.284 Nachrichten: 0,93 % → 1 %
+      // (das Leerzeichen vor dem Komma ist das Ende des Verweises „9 positiv“)
       [
-        "positive",
-        "Positiv bewertete Antworten 9 75 % der bewerteten Antworten",
+        "ratings",
+        "Bewertungen 12 1 % der Antworten bewertet · 9 positiv , 3 negativ",
       ],
-      [
-        "negative",
-        "Negativ bewertete Antworten 3 Betroffene Konversationen anzeigen",
-      ],
+      ["satisfaction", "Zufriedenheit 75 % 9 von 12 Bewertungen positiv"],
     ]);
-    // Der Verweis ist eine Schaltfläche (setzt den Listenfilter „negativ“).
+    // „9 positiv“ und „3 negativ“ sind Verweise – Schaltflächen, die den
+    // Listenfilter „Positiv bewertet“ bzw. „Negativ bewertet“ setzen; ihr
+    // Name nennt, was sie tun.
     assert.match(
       html,
-      /<button type="button"[^>]*>Betroffene Konversationen anzeigen<\/button>/
+      /<button type="button" aria-label="9 positiv – Betroffene Konversationen anzeigen" title="Betroffene Konversationen anzeigen"[^>]*>9 positiv<\/button>/
+    );
+    assert.match(
+      html,
+      /<button type="button" aria-label="3 negativ – Betroffene Konversationen anzeigen" title="Betroffene Konversationen anzeigen"[^>]*>3 negativ<\/button>/
     );
     // Erklärung an der Kennzahl „Konversationen“
     assert.match(html, /title="Im Zeitraum begonnene Konversationen\./);
@@ -528,15 +537,18 @@ test(
     assert.deepEqual(kpiFields(html), [
       ["messages", "Nachrichten 25 Ø 12,5 pro Woche"],
       ["conversations", "Konversationen 0 –"],
-      ["positive", "Positiv bewertete Antworten 0 Keine Bewertungen"],
-      ["negative", "Negativ bewertete Antworten 0 Keine Bewertungen"],
+      ["ratings", "Bewertungen 0 Keine Bewertungen"],
+      ["satisfaction", "Zufriedenheit – Keine Bewertungen"],
     ]);
-    assert.doesNotMatch(html, /Betroffene Konversationen anzeigen/);
+    assert.doesNotMatch(
+      html,
+      /Betroffene Konversationen anzeigen|negativ<\/button>/
+    );
   }
 );
 
 test(
-  "Kennzahlen-Streifen: „Betroffene Konversationen anzeigen“ nur, wenn es negativ bewertete Antworten gibt – bei 0 der Nebentext",
+  "Kennzahlen-Streifen: „N positiv“ und „M negativ“ sind nur Verweise, wenn es so bewertete Antworten gibt – bei 0 Text",
   { skip },
   async () => {
     const withRatings = async (feedbackPositive, feedbackNegative) => {
@@ -548,34 +560,45 @@ test(
           totals: { ...THIRTY_DAYS.totals, feedbackPositive, feedbackNegative },
         },
       });
-      const negative = Object.fromEntries(kpiFields(html)).negative;
+      const ratings = Object.fromEntries(kpiFields(html)).ratings;
       return {
-        negative,
-        link: /<button type="button"[^>]*>Betroffene Konversationen anzeigen<\/button>/.test(
+        // ohne die Bewertungsquote am Anfang und ohne das Leerzeichen, das
+        // das Ende des Verweises „N positiv“ vor dem Komma hinterlässt
+        ratings: ratings
+          .replace(/^Bewertungen \d+ \d+ % der Antworten bewertet · /, "")
+          .replace(" ,", ","),
+        positiveLink:
+          /<button type="button" aria-label="\d+ positiv – Betroffene Konversationen anzeigen"[^>]*>\d+ positiv<\/button>/.test(
+            html
+          ),
+        link: /<button type="button" aria-label="\d+ negativ – Betroffene Konversationen anzeigen"[^>]*>\d+ negativ<\/button>/.test(
           html
         ),
       };
     };
 
-    // nur positive Bewertungen: Es gibt Bewertungen, aber keine negative.
+    // nur positive Bewertungen: „0 negativ“ ist Text, kein Verweis.
     assert.deepEqual(await withRatings(5, 0), {
-      negative: "Negativ bewertete Antworten 0 Keine negativen Bewertungen",
+      ratings: "5 positiv, 0 negativ",
+      positiveLink: true,
       link: false,
     });
-    // gar keine Bewertung: derselbe Nebentext wie im Feld „positiv“
+    // gar keine Bewertung
     assert.deepEqual(await withRatings(0, 0), {
-      negative: "Negativ bewertete Antworten 0 Keine Bewertungen",
+      ratings: "Bewertungen 0 Keine Bewertungen",
+      positiveLink: false,
       link: false,
     });
-    // ab der ersten negativen Bewertung der Verweis, kein Nebentext
+    // ab der ersten negativen Bewertung der Verweis
     assert.deepEqual(await withRatings(5, 1), {
-      negative:
-        "Negativ bewertete Antworten 1 Betroffene Konversationen anzeigen",
+      ratings: "5 positiv, 1 negativ",
+      positiveLink: true,
       link: true,
     });
+    // nur negative Bewertungen: „0 positiv“ ist Text, kein Verweis.
     assert.deepEqual(await withRatings(0, 2), {
-      negative:
-        "Negativ bewertete Antworten 2 Betroffene Konversationen anzeigen",
+      ratings: "0 positiv, 2 negativ",
+      positiveLink: false,
       link: true,
     });
   }
@@ -595,8 +618,8 @@ test(
       [
         ["messages", "–"],
         ["conversations", "–"],
-        ["positive", "–"],
-        ["negative", "–"],
+        ["ratings", "–"],
+        ["satisfaction", "–"],
       ]
     );
     assert.doesNotMatch(html, /Betroffene Konversationen anzeigen/);
@@ -677,7 +700,7 @@ test(
       html.indexOf('data-retention-line=""'),
       html.indexOf('data-kpi="messages"'),
       html.indexOf("<section"),
-      html.indexOf("Nur mit 👍"),
+      html.indexOf(">Positiv bewertet</span>"),
     ];
     assert.deepEqual(
       order,
@@ -741,7 +764,7 @@ test(
       { exportName: "AnalyticsScreen" }
     );
     assert.doesNotMatch(one, /aria-haspopup="listbox"/);
-    assert.doesNotMatch(textOf(one), /Embed #3/);
+    assert.doesNotMatch(textOf(one), /VHS Musterstadt/);
 
     const two = await render(
       VIEW,
@@ -755,7 +778,7 @@ test(
       two,
       /<button type="button" aria-haspopup="listbox"[^>]*aria-label="Widget"/
     );
-    assert.match(textOf(two), /Embed #3 \(VHS Musterstadt\)/);
+    assert.match(textOf(two), /VHS Musterstadt/);
     // Das erste Widget ist gewählt: Seine Aufbewahrungsfrist steht da.
     assert.match(two, /data-retention-line=""/);
   }
@@ -790,12 +813,309 @@ test(
     assert.match(textOf(filtered), /^Konversationen /);
     assert.match(
       filtered,
-      /<button type="button" aria-pressed="false"[^>]*>.*?Nur mit 👍<\/button><button type="button" aria-pressed="true"[^>]*>.*?Nur mit 👎<\/button>/
+      /<button type="button" aria-pressed="false"[^>]*>.*?Positiv bewertet<\/span><\/button><button type="button" aria-pressed="true"[^>]*>.*?Negativ bewertet<\/span><\/button>/
     );
 
     const plain = await render(LIST, props);
     assert.doesNotMatch(plain, /data-bucket-filter/);
     // Während des Ladens weder Anzahl noch Hinweis auf gelöschte Inhalte.
     assert.doesNotMatch(plain, /data-viewable-count|data-deleted-hint/);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Bewertungsfilter der Liste: ein Umriss-Daumen und Text – keine Emojis
+// ---------------------------------------------------------------------------
+
+// Bildzeichen: alles, was Unicode als Piktogramm führt (👍 U+1F44D, 👎 U+1F44E,
+// ℹ, ✅ …), dazu die Blöcke der Symbole und der Umschalter „als Emoji zeigen".
+const EMOJI =
+  /\p{Extended_Pictographic}|[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+
+/** Die beiden Filter-Schaltflächen der Liste: Attribute und Inhalt. */
+function feedbackFilters(html) {
+  return [
+    ...html.matchAll(
+      /<button type="button" aria-pressed="(true|false)" aria-label="(Nur Konversationen[^"]*)" title="([^"]*)" class="([^"]*)">(.*?)<\/button>/g
+    ),
+  ].map(([, pressed, label, title, className, content]) => ({
+    pressed: pressed === "true",
+    label,
+    title,
+    className,
+    content,
+    icons: content.match(/<svg[^>]*>.*?<\/svg>/g) ?? [],
+    // Beschriftungen (StableLabel, Fixliste 3 V4): nur die Klassen, die
+    // über die Sichtbarkeit je Breite entscheiden
+    spans: [
+      ...content.matchAll(
+        /<span(?: data-stable-label="([^"]*)")? class="([^"]*)">([^<]*)<\/span>/g
+      ),
+    ].map(([, stable, spanClass, text]) => [
+      spanClass
+        .split(" ")
+        .filter((name) => /^(hidden|xl:hidden|xl:inline-flex)$/.test(name))
+        .join(" "),
+      text,
+      stable === text,
+    ]),
+  }));
+}
+
+/** Zeichnet das Symbol eine Fläche (gefüllter Daumen) oder nur den Umriss? */
+const iconPath = (icon) => icon.match(/ d="([^"]*)"/)?.[1];
+
+test(
+  "Bewertungsfilter: je Schaltfläche genau ein Umriss-Daumen und der Text „Positiv bewertet“ / „Negativ bewertet“ – kein Emoji",
+  { skip },
+  async () => {
+    const props = {
+      embedId: 3,
+      startDate: "2026-09-12T22:00:00.000Z",
+      endDate: "2026-10-12T21:59:59.999Z",
+    };
+    const html = await render(LIST, props);
+    const [positive, negative, ...more] = feedbackFilters(html);
+    assert.equal(more.length, 0);
+
+    assert.deepEqual(
+      [positive, negative].map(({ pressed, label, title }) => ({
+        pressed,
+        label,
+        title,
+      })),
+      [
+        {
+          pressed: false,
+          label: "Nur Konversationen mit positiv bewerteter Antwort anzeigen",
+          title: "Nur Konversationen mit positiv bewerteter Antwort anzeigen",
+        },
+        {
+          pressed: false,
+          label: "Nur Konversationen mit negativ bewerteter Antwort anzeigen",
+          title: "Nur Konversationen mit negativ bewerteter Antwort anzeigen",
+        },
+      ]
+    );
+    // Der ausgeschriebene Text ab 1280 px (xl), darunter der kurze – nie
+    // beide (Fixliste 3, V7); je mit Platzhalter für die fette Schrift (V4).
+    assert.deepEqual(positive.spans, [
+      ["xl:hidden", "Positiv", true],
+      ["hidden xl:inline-flex", "Positiv bewertet", true],
+    ]);
+    assert.deepEqual(negative.spans, [
+      ["xl:hidden", "Negativ", true],
+      ["hidden xl:inline-flex", "Negativ bewertet", true],
+    ]);
+
+    for (const filter of [positive, negative]) {
+      assert.equal(filter.icons.length, 1, "genau ein Symbol");
+      // Das Symbol nimmt die Textfarbe der Schaltfläche, keine eigene.
+      assert.match(filter.icons[0], / fill="currentColor"/);
+      assert.match(filter.icons[0], / aria-hidden="true"/);
+      assert.doesNotMatch(filter.icons[0], /(emerald|red|green|yellow)-\d/);
+      assert.doesNotMatch(filter.content, EMOJI);
+      assert.doesNotMatch(filter.label, EMOJI);
+      // Der Text der Schaltfläche bricht nicht um.
+      assert.match(filter.className, /\bwhitespace-nowrap\b/);
+      // gedämpft über --theme-analytics-text-muted: hell 5,4:1 auf dem Grund
+      // der Gruppe (Fixliste 2, B2), dunkel wie --theme-text-secondary
+      assert.ok(
+        filter.className.includes(
+          "text-[color:var(--theme-analytics-text-muted)]"
+        ),
+        filter.className
+      );
+    }
+    assert.doesNotMatch(html, EMOJI);
+    assert.doesNotMatch(textOf(html), /Nur mit/);
+
+    // Gesetzter Filter: aria-pressed und ein gefüllter Daumen – nicht nur
+    // eine andere Farbe.
+    const filtered = feedbackFilters(
+      await render(LIST, { ...props, feedbackFilter: "positive" })
+    );
+    assert.deepEqual(
+      filtered.map(({ pressed }) => pressed),
+      [true, false]
+    );
+    assert.ok(iconPath(positive.icons[0]) && iconPath(negative.icons[0]));
+    assert.notEqual(
+      iconPath(filtered[0].icons[0]),
+      iconPath(positive.icons[0])
+    );
+    assert.equal(iconPath(filtered[1].icons[0]), iconPath(negative.icons[0]));
+    assert.notEqual(filtered[0].className, positive.className);
+    assert.equal(filtered[1].className, negative.className);
+    assert.deepEqual(filtered[0].spans, positive.spans);
+  }
+);
+
+/** Alle Texte unter einem Knoten der Sprachdatei, mit ihrem Schlüssel. */
+function textsUnder(node, path, found = []) {
+  if (typeof node === "string") found.push([path, node]);
+  else if (node && typeof node === "object")
+    for (const [key, value] of Object.entries(node))
+      textsUnder(value, `${path}.${key}`, found);
+  return found;
+}
+
+test("Texte der Ansicht „Konversationen“: Deutsch und Englisch ohne Emoji", () => {
+  assert.match("Nur mit 👍", EMOJI);
+  assert.match("👎 Negativ", EMOJI);
+  assert.match("ℹ️ DSGVO-Datenlöschung aktiv", EMOJI);
+  assert.match("✅", EMOJI);
+  // Satzzeichen und Sonderzeichen der Texte sind keine Emojis.
+  assert.doesNotMatch("Ø 12,5 · KW 41 – „05.10.–11.10.“ → 3 % #1 •", EMOJI);
+
+  for (const [language, resources] of Object.entries({ de, en })) {
+    const texts = textsUnder(resources["embed-analytics"], "embed-analytics");
+    assert.ok(texts.length > 150, `${language}: nur ${texts.length} Texte`);
+    assert.deepEqual(
+      texts.filter(([, text]) => EMOJI.test(text)),
+      [],
+      language
+    );
+  }
+
+  const filters = (resources) => {
+    const texts = resources["embed-analytics"].conversations;
+    return [
+      texts["only-positive"],
+      texts["only-positive-short"],
+      texts["only-positive-hint"],
+      texts["only-negative"],
+      texts["only-negative-short"],
+      texts["only-negative-hint"],
+    ];
+  };
+  assert.deepEqual(filters(de), [
+    "Positiv bewertet",
+    "Positiv",
+    "Nur Konversationen mit positiv bewerteter Antwort anzeigen",
+    "Negativ bewertet",
+    "Negativ",
+    "Nur Konversationen mit negativ bewerteter Antwort anzeigen",
+  ]);
+  assert.deepEqual(filters(en), [
+    "Rated positive",
+    "Positive",
+    "Show only conversations with a positively rated response",
+    "Rated negative",
+    "Negative",
+    "Show only conversations with a negatively rated response",
+  ]);
+});
+
+// ---------------------------------------------------------------------------
+// Leerzustände als schmale Zeile (Feinschliff nach KIE-539)
+// ---------------------------------------------------------------------------
+
+/** Die Karte des Diagramms: öffnendes Tag der section. */
+const sectionTag = (html) => html.match(/^<section [^>]*>/)?.[0] ?? "";
+
+test(
+  "Leerzustände des Diagramms: eine schmale Zeile „<Titel> – <Hinweis>“ – kein Diagrammraum, keine Achsen, kein svg",
+  { skip },
+  async () => {
+    const cases = [
+      {
+        kind: "range",
+        props: {
+          summary: daySummary({ value: () => 0, totals: EMPTY_TOTALS }),
+        },
+        text: "Nachrichten pro Tag – Keine Nachrichten im gewählten Zeitraum",
+        switches: ["Vorzeitraum vergleichen"],
+      },
+      {
+        kind: "widget",
+        props: {
+          summary: daySummary({
+            value: () => 0,
+            totals: EMPTY_TOTALS,
+            firstLedgerDay: null,
+          }),
+        },
+        text: "Nachrichten pro Tag – Für dieses Widget wurden noch keine Nachrichten gezählt. Ob es eingebunden und aktiv ist, sehen Sie unter „Widgets“. Zu den Widgets",
+        switches: [],
+      },
+      {
+        kind: "error",
+        props: { summary: null, failed: true },
+        text: "Nachrichten pro Tag – Die Zählwerte konnten nicht geladen werden.",
+        switches: [],
+      },
+    ];
+    for (const { kind, props, text, switches } of cases) {
+      const html = await render(CHART, { loading: false, ...props });
+      const tag = sectionTag(html);
+      assert.match(tag, new RegExp(`data-chart-compact="${kind}"`), kind);
+      // Höhe: Rand + py-3 + eine Textzeile – kein p-4/p-5 der vollen Karte,
+      // kein Rahmen in Diagrammhöhe.
+      assert.match(tag, /class="rounded-xl border [^"]*\bpx-4 py-3 md:px-5\b/);
+      assert.doesNotMatch(tag, /\bp-4\b|md:p-5/);
+      assert.doesNotMatch(html, /h-\[240px\]|<svg|<h3|data-column|Als Tabelle/);
+      assert.equal(count(html, /<p /g), 1, kind);
+      // Der Hinweis steht in der Zeile, die Schalter danach.
+      assert.equal(textOf(html), [text, ...switches].join(" "), kind);
+    }
+  }
+);
+
+test(
+  "Leerzustand beim Laden: Vor der ersten Antwort bleibt der Rahmen in Diagrammhöhe; lädt eine leere Ansicht neu, bleibt die schmale Zeile gedämpft stehen",
+  { skip },
+  async () => {
+    const loading = await render(CHART, { summary: null, loading: true });
+    assert.match(
+      loading,
+      /data-chart-frame="empty"[^>]*class="[^"]*h-\[240px\]/
+    );
+    assert.doesNotMatch(loading, /data-chart-compact/);
+
+    const reloading = await render(CHART, {
+      summary: daySummary({ value: () => 0, totals: EMPTY_TOTALS }),
+      loading: true,
+    });
+    const tag = sectionTag(reloading);
+    assert.match(tag, /data-chart-compact="range"/);
+    assert.match(tag, /aria-busy="true"/);
+    assert.match(tag, /\bopacity-50\b/);
+  }
+);
+
+test(
+  "Sprung zur Liste: Solange die Liste die Zahl nicht kennt, „Konversationen ansehen ↓“ ohne Zahl – in der Kopfzeile bei der Überschrift",
+  { skip },
+  async () => {
+    const html = await render(
+      VIEW,
+      { embedsLoaded: true, embeds: [EMBED] },
+      { exportName: "AnalyticsScreen" }
+    );
+    assert.match(
+      html,
+      /<h2 [^>]*>Konversationen<\/h2><button type="button" data-jump-to-list=""[^>]*>Konversationen ansehen<span aria-hidden="true"> ↓<\/span><\/button>/
+    );
+    // Reihenfolge der Seite (D): Kopfzeile, Aufbewahrung, Kennzahlen,
+    // Diagramm, Uhrzeit-Karte, Liste – keine Reiter.
+    const order = [
+      html.indexOf("data-jump-to-list"),
+      html.indexOf('data-retention-line=""'),
+      html.indexOf('data-kpi="messages"'),
+      html.indexOf('data-kpi="satisfaction"'),
+      html.indexOf("<section"),
+      html.indexOf("data-weekday-hour-card"),
+      html.indexOf("data-list-heading"),
+    ];
+    assert.ok(
+      order.every((index) => index >= 0),
+      `Reihenfolge: ${order}`
+    );
+    assert.deepEqual(
+      order,
+      [...order].sort((a, b) => a - b)
+    );
+    assert.doesNotMatch(html, /role="tab"/);
   }
 );

@@ -13,9 +13,19 @@ import Embed from "@/models/embed";
 import showToast from "@/utils/toast";
 import { safeJsonParse } from "@/utils/request";
 import { useTranslation } from "react-i18next";
+import { embedLabels } from "@/utils/embedLabel";
 
-export default function EditEmbedModal({ embed, closeModal }) {
+/**
+ * Dialog „Einbettung aktualisieren".
+ * @param {object} props
+ * @param {object} props.embed - das Widget
+ * @param {string} [props.label] - Bezeichnung des Widgets wie in der Liste
+ *   (utils/embedLabel); ohne Angabe der Name des Workspaces.
+ * @param {() => void} props.closeModal
+ */
+export default function EditEmbedModal({ embed, label = null, closeModal }) {
   const { t } = useTranslation();
+  const widgetLabel = label ?? embedLabels([embed], t).get(embed.id).label;
   const [error, setError] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -65,7 +75,7 @@ export default function EditEmbedModal({ embed, closeModal }) {
         <div className="relative p-6 border-b rounded-t border-theme-modal-border flex-shrink-0">
           <div className="w-full flex gap-x-2 items-center">
             <h3 className="text-xl font-semibold text-white overflow-hidden overflow-ellipsis whitespace-nowrap">
-              {t("embed-modal.update-title")} #{embed.id}
+              {t("embed-modal.update-title")} – {widgetLabel}
             </h3>
           </div>
           <button

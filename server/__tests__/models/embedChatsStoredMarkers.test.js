@@ -94,7 +94,17 @@ describe("L4: gespeicherte Antworten ohne Protokoll-Marker lesen", () => {
   });
 
   test("getConversationDetails (Admin-Konversation) liefert den Text ohne Marker", async () => {
-    const messages = await EmbedChats.getConversationDetails("c1", 7);
+    // Seit der Konversationsansicht (KIE-560) bestimmen _conversationScope
+    // und _conversationRowIds die Zeilen über eine Zeilen-id; hier ohne SQL.
+    const scope = jest
+      .spyOn(EmbedChats, "_conversationScope")
+      .mockResolvedValue({ id: 7, sessionId: "s1", where: { embed_id: 7 } });
+    const rowIds = jest
+      .spyOn(EmbedChats, "_conversationRowIds")
+      .mockResolvedValue([1, 2]);
+    const messages = await EmbedChats.getConversationDetails(1, 7);
+    scope.mockRestore();
+    rowIds.mockRestore();
     expect(messages.map(textOf)).toEqual([CLEAN_TEXT, BODY]);
   });
 

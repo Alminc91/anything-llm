@@ -169,10 +169,6 @@ const TRANSLATIONS = {
       granted: "Gerätezugriff gewährt",
       denied: "Gerätezugriff verweigert",
     },
-    "embed-chats": {
-      "export-success": "Embed-Chats erfolgreich als {{name}} exportiert.",
-      "export-error": "Fehler beim Exportieren der Embed-Chats.",
-    },
     "text-splitter": {
       "save-success":
         "Einstellungen für die Text-Chunking-Strategie gespeichert.",
@@ -292,7 +288,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
     "chatbot-conversations": "Konversationen",
-    "chatbot-messages": "Nachrichtentabelle",
     "embed-chats": "Chat-Widget-Verlauf",
     security: "Sicherheit",
     "event-logs": "Ereignisprotokolle",
@@ -967,6 +962,7 @@ const TRANSLATIONS = {
   "embed-analytics": {
     title: "Konversationen",
     "load-error": "Fehler beim Laden der Konversationsdaten.",
+    loading: "Laden …",
     "all-time": "Gesamt",
     "statistics-title": "STATISTIKEN",
     stats: {
@@ -989,29 +985,26 @@ const TRANSLATIONS = {
       "show-technical": "Technische Details anzeigen",
       "technical-note":
         "Berechnet aus den noch vorhandenen Konversationsinhalten im gewählten Zeitraum – ohne gelöschte und vom Besucher geleerte Nachrichten. Die Kennzahlen oben zählen dagegen jede Nachricht.",
-      "feedback-positive-label": "👍 Positiv",
+      "feedback-positive-label": "Positiv",
       "feedback-positive-desc": "Positiv bewertete Antworten",
-      "feedback-negative-label": "👎 Negativ",
+      "feedback-negative-label": "Negativ",
       "feedback-negative-desc": "Negativ bewertete Antworten",
       "feedback-satisfaction-label": "Zufriedenheit",
       "feedback-satisfaction-desc": "Anteil positiver Bewertungen",
       "feedback-none": "Keine Bewertungen vorhanden",
     },
-    feedback: {
-      positive: "Positiv bewertet",
-      negative: "Negativ bewertet",
-    },
     "conversations-title": "KONVERSATIONEN",
     "conversation-number": "Konversation #{{id}}",
     messages: "Nachrichten",
-    request: "Anfrage",
-    response: "Antwort",
     "no-conversations": "Keine Konversationen vorhanden.",
     "session-copied": "Session ID kopiert!",
     "retention-notice":
       "DSGVO-Datenlöschung aktiv — Aufbewahrung {{days}} Tage, Chats verfallen am {{expiryDate}}",
-    "select-embed": "Embed wählen",
-    "embed-label": "Embed #{{id}} ({{workspace}})",
+    "select-embed": "Widget wählen",
+    "embed-label": {
+      unnamed: "Widget {{id}}",
+      suffix: "· Widget {{id}}",
+    },
     "retention-line_one":
       "Konversationsinhalte werden nach {{count}} Tag gelöscht. Die Zählwerte bleiben erhalten.",
     "retention-line_other":
@@ -1027,8 +1020,6 @@ const TRANSLATIONS = {
       "aria-label": "Kennzahlen im gewählten Zeitraum",
       messages: "Nachrichten",
       conversations: "Konversationen",
-      positive: "Positiv bewertete Antworten",
-      negative: "Negativ bewertete Antworten",
       "avg-per": {
         hour: "Ø {{value}} pro Stunde",
         day: "Ø {{value}} pro Tag",
@@ -1036,12 +1027,22 @@ const TRANSLATIONS = {
         month: "Ø {{value}} pro Monat",
       },
       "avg-per-conversation": "Ø {{value}} Nachrichten je Konversation",
-      "positive-share": "{{value}} % der bewerteten Antworten",
       "no-ratings": "Keine Bewertungen",
-      "no-negative": "Keine negativen Bewertungen",
       "show-negative": "Betroffene Konversationen anzeigen",
       "conversations-hint":
         "Im Zeitraum begonnene Konversationen. Die Liste unten zeigt nur Konversationen, deren Inhalte noch vorhanden sind – die Zahlen können sich unterscheiden.",
+      ratings: "Bewertungen",
+      "rated-share": "{{value}} % der Antworten bewertet",
+      "positive-count": "{{value}} positiv",
+      "negative-count": "{{value}} negativ",
+      "negative-action":
+        "{{value}} negativ – Betroffene Konversationen anzeigen",
+      "positive-action":
+        "{{value}} positiv – Betroffene Konversationen anzeigen",
+      satisfaction: "Zufriedenheit",
+      "satisfaction-value": "{{value}} %",
+      "satisfaction-of": "{{positive}} von {{total}} Bewertungen positiv",
+      "few-ratings": "Zu wenige Bewertungen ({{count}})",
     },
     compare: {
       toggle: "Vorzeitraum vergleichen",
@@ -1052,6 +1053,9 @@ const TRANSLATIONS = {
       },
       range: "{{from}}–{{to}}",
       change: "{{change}} % ggü. Vorzeitraum ({{previous}})",
+      "change-points_one": "{{change}} Punkt ggü. Vorzeitraum ({{previous}} %)",
+      "change-points_other":
+        "{{change}} Punkte ggü. Vorzeitraum ({{previous}} %)",
       "previous-value": "Vorzeitraum: {{value}}",
       "previous-bucket": "Vorzeitraum: {{period}} — {{value}}",
       "previous-range": "Vorzeitraum: {{range}}",
@@ -1170,45 +1174,174 @@ const TRANSLATIONS = {
     },
     list: {
       title: "Konversationen",
+      jump_one: "{{formatted}} Konversation ansehen",
+      jump_other: "{{formatted}} Konversationen ansehen",
+      "jump-pending": "Konversationen ansehen",
+      "jump-negative_one":
+        "{{formatted}} negativ bewertete Konversation ansehen",
+      "jump-negative_other":
+        "{{formatted}} negativ bewertete Konversationen ansehen",
+      "jump-positive_one":
+        "{{formatted}} positiv bewertete Konversation ansehen",
+      "jump-positive_other":
+        "{{formatted}} positiv bewertete Konversationen ansehen",
+      "jump-bucket_one": "{{formatted}} Konversation aus „{{period}}“ ansehen",
+      "jump-bucket_other":
+        "{{formatted}} Konversationen aus „{{period}}“ ansehen",
+      "jump-filtered_one": "{{formatted}} gefilterte Konversation ansehen",
+      "jump-filtered_other": "{{formatted}} gefilterte Konversationen ansehen",
       viewable_one: "{{formatted}} einsehbar",
       viewable_other: "{{formatted}} einsehbar",
+      "viewable-of_one": "{{formatted}} von {{total}} einsehbar",
+      "viewable-of_other": "{{formatted}} von {{total}} einsehbar",
       "viewable-hint":
         "Konversationen, deren Inhalte noch vorhanden und nicht vom Besucher geleert sind. Die Kennzahl „Konversationen“ zählt dagegen alle im Zeitraum begonnenen.",
       "only-bucket": "Nur {{period}}",
       "clear-bucket": "Filter „{{period}}“ aufheben",
+      "only-feedback": "Filter: {{filter}}",
+      "clear-feedback": "Filter „{{filter}}“ aufheben",
       "deleted-hint":
         "Ältere Inhalte wurden gemäß Aufbewahrungsfrist gelöscht.",
+      // Fixliste 6, N1: gezählt (Zählerbuch) vs. einsehbar (gespeicherte
+      // Inhalte), nur ohne Filter
+      "content-gap_one":
+        "{{counted}} Konversation gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht)\u00a0– die Kennzahlen zählen weiter.",
+      "content-gap_other":
+        "{{counted}} Konversationen gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht)\u00a0– die Kennzahlen zählen weiter.",
+    },
+    // KIE-538
+    export: {
+      button: "Exportieren",
+      "menu-label": "Exportformat",
+      csv: "CSV (für Excel)",
+      json: "JSON",
+      hint: "Exportiert die Konversationen der aktuellen Auswahl – Widget, Zeitraum und Filter.",
+      running: "Export läuft …",
+      success: "Export gespeichert: {{filename}}",
+      error: "Der Export ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+      "too-many":
+        "Zu viele Treffer für den Export – höchstens {{max}} Konversationen. Bitte grenzen Sie Suche, Filter oder Zeitraum ein.",
+    },
+    delete: {
+      conversation: "Konversation löschen",
+      visitor: "Alle Konversationen dieses Besuchers löschen",
+      "first-question": "Erste Frage",
+      "confirm-title": "Konversation löschen?",
+      "confirm-count_one":
+        "Die Konversation mit {{formatted}} Nachricht wird endgültig gelöscht.",
+      "confirm-count_other":
+        "Die Konversation mit {{formatted}} Nachrichten wird endgültig gelöscht.",
+      "confirm-note":
+        "Das lässt sich nicht rückgängig machen. Kennzahlen, Diagramm und Kontingent bleiben unverändert.",
+      "confirm-unknown": "Die Konversation wird endgültig gelöscht.",
+      "visitor-title": "Alle Konversationen dieses Besuchers löschen?",
+      "visitor-count_one":
+        "Aus demselben Browser stammt in diesem Widget {{conversations}} Konversation mit {{messages}} Nachrichten. Sie wird endgültig gelöscht.",
+      "visitor-count_other":
+        "Aus demselben Browser stammen in diesem Widget {{conversations}} Konversationen mit zusammen {{messages}} Nachrichten. Alle werden endgültig gelöscht.",
+      "visitor-changed":
+        "Der Stand hat sich inzwischen geändert – es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut.",
+      "visitor-note":
+        "Dazu gehören auch Konversationen, die der Besucher im Widget selbst geleert hat und die in dieser Liste nicht mehr erscheinen. Konversationen aus anderen Browsern bleiben erhalten.",
+      confirm: "Endgültig löschen",
+      cancel: "Abbrechen",
+      deleting: "Wird gelöscht …",
+      success_one: "Konversation gelöscht ({{formatted}} Nachricht).",
+      success_other: "Konversation gelöscht ({{formatted}} Nachrichten).",
+      "visitor-success_one":
+        "{{conversations}} Konversation gelöscht ({{messages}} Nachrichten).",
+      "visitor-success_other":
+        "{{conversations}} Konversationen gelöscht ({{messages}} Nachrichten).",
+      error: "Die Konversation konnte nicht gelöscht werden.",
     },
     conversations: {
-      "seconds-ago": "vor wenigen Sekunden",
-      "minutes-ago_one": "vor {{count}} Minute",
-      "minutes-ago_other": "vor {{count}} Minuten",
-      "hours-ago_one": "vor {{count}} Stunde",
-      "hours-ago_other": "vor {{count}} Stunden",
-      "days-ago_one": "vor {{count}} Tag",
-      "days-ago_other": "vor {{count}} Tagen",
-      "months-ago_one": "vor {{count}} Monat",
-      "months-ago_other": "vor {{count}} Monaten",
-      "years-ago_one": "vor {{count}} Jahr",
-      "years-ago_other": "vor {{count}} Jahren",
-      "conversation-number": "Konversation #{{number}}",
-      "new-badge": "NEU",
-      "only-negative": "Nur mit 👎",
+      "only-negative": "Negativ bewertet",
+      "only-negative-short": "Negativ",
+      "only-negative-hint":
+        "Nur Konversationen mit negativ bewerteter Antwort anzeigen",
       "no-negative": "Keine Konversationen mit negativer Bewertung.",
       "negative-count_one": "{{count}} negative Bewertung",
       "negative-count_other": "{{count}} negative Bewertungen",
-      "only-positive": "Nur mit 👍",
+      "only-positive": "Positiv bewertet",
+      "only-positive-short": "Positiv",
+      "only-positive-hint":
+        "Nur Konversationen mit positiv bewerteter Antwort anzeigen",
       "no-positive": "Keine Konversationen mit positiver Bewertung.",
       "positive-count_one": "{{count}} positive Bewertung",
       "positive-count_other": "{{count}} positive Bewertungen",
       "no-preview": "Keine Vorschau verfügbar",
-      created: "Erstellt:",
-      "last-message": "Letzte Nachricht:",
-      "message-count_one": "{{count}} Nachricht",
-      "message-count_other": "{{count}} Nachrichten",
       "no-messages": "Keine Nachrichten gefunden",
-      "copy-id": "Konversations-ID kopieren",
-      "id-copied": "Konversations-ID kopiert",
+    },
+    // Konversationen-Ansicht: kompakte Liste, Seitenpanel, Suche
+    rows: {
+      today: "Heute · {{date}}",
+      yesterday: "Gestern · {{date}}",
+      questions_one: "{{formatted}} Frage",
+      questions_other: "{{formatted}} Fragen",
+      started: "begonnen am {{date}}",
+      reason: "Grund: {{reason}}",
+      "load-more": "Weitere Konversationen laden",
+      "loading-more": "Wird geladen …",
+      "load-more-failed":
+        "Weitere Konversationen konnten nicht geladen werden.",
+      all: "Alle",
+      "all-hint": "Alle Konversationen anzeigen",
+      "filter-group": "Nach Bewertung filtern",
+    },
+    search: {
+      placeholder: "Fragen & Antworten suchen",
+      label: "In Fragen, Antworten und Bewertungen suchen",
+      mark: "Suche: {{term}}",
+      clear: "Suche „{{term}}“ aufheben",
+      empty: "Keine Konversationen mit „{{term}}“ im gewählten Zeitraum",
+      jump_one: "{{formatted}} Konversation mit „{{term}}“ ansehen",
+      jump_other: "{{formatted}} Konversationen mit „{{term}}“ ansehen",
+      "link-too-long":
+        "Der Suchbegriff aus dem Link war länger als {{max}} Zeichen und wurde gekürzt.",
+      "link-invalid":
+        "Der Suchbegriff aus dem Link enthielt ungültige Zeichen und wurde verworfen.",
+      quoted: "„{{text}}“",
+      "empty-filtered":
+        "Keine Konversationen mit „{{term}}“ und Filter {{filters}} im gewählten Zeitraum",
+      "clear-input": "Suchfeld leeren",
+    },
+    panel: {
+      label: "Ausgewählte Konversation",
+      back: "Konversationen",
+      previous: "Vorherige Konversation",
+      next: "Nächste Konversation",
+      more: "Weitere Aktionen",
+      close: "Konversation schließen",
+      "copy-id": "Kennung kopieren",
+      "id-copied": "Kennung kopiert",
+      "copy-link": "Link kopieren",
+      "link-copied": "Link kopiert",
+      id: "ID {{id}}",
+      visitor: "Besucher · {{time}}",
+      positive: "Positiv bewertet",
+      negative: "Negativ bewertet",
+      "positive-count_one": "{{formatted}} Antwort positiv bewertet",
+      "positive-count_other": "{{formatted}} Antworten positiv bewertet",
+      "negative-count_one": "{{formatted}} Antwort negativ bewertet",
+      "negative-count_other": "{{formatted}} Antworten negativ bewertet",
+      time: "{{time}} Uhr",
+      span: "{{from}}–{{to}} Uhr",
+      "span-days": "{{from}} – {{to}} Uhr",
+      outside: "Diese Konversation liegt außerhalb des gewählten Zeitraums",
+      "not-found":
+        "Diese Konversation wurde nicht gefunden, oder Sie haben keinen Zugriff darauf.",
+      "load-error": "Die Konversation konnte nicht geladen werden.",
+      retry: "Erneut versuchen",
+      "hidden-hit":
+        "„{{term}}“ steht in dieser Konversation nur in Link-Adressen, im Quelltext oder in ausgeblendeten Gedanken einer Antwort.",
+      "not-in-list":
+        "Diese Konversation steht nicht in der geladenen Liste – vorherige und nächste sind nicht verfügbar.",
+      "not-loaded":
+        "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar.",
+      "next-not-loaded":
+        "Die nächste Konversation konnte nicht geladen werden – bitte erneut versuchen.",
+      "quote-open": "„",
+      "quote-close": "“",
     },
   },
   "embed-row": {
@@ -1317,38 +1450,7 @@ const TRANSLATIONS = {
     },
   },
   "chat-row": {
-    delete: "Löschen",
-    "confirm-delete":
-      "Möchten Sie diesen Chat wirklich löschen?\n\nDiese Aktion kann nicht rückgängig gemacht werden.",
-    "view-text": "Text anzeigen",
-    "session-id": "Sitzungs-ID:",
-    username: "Benutzername:",
-    "client-ip": "Client-IP-Adresse:",
-    "client-host": "Client-Host-URL:",
     "view-thoughts": "Gedanken anzeigen",
-  },
-  "embed-chats": {
-    title: "Eingebettete Chats",
-    export: "Exportieren",
-    "clear-all": "Alle Chats löschen",
-    "clear-all-confirm":
-      "Möchten Sie wirklich ALLE Embed-Chats löschen?\n\nDiese Aktion kann nicht rückgängig gemacht werden.",
-    "clear-all-success": "{{count}} Embed-Chats erfolgreich gelöscht.",
-    "clear-all-error": "Fehler beim Löschen der Embed-Chats.",
-    description:
-      "Dies sind alle aufgezeichneten Chat-Nachrichten von jeder Einbettung, die Sie veröffentlicht haben.",
-    "no-conversations": "Keine Konversationen gefunden.",
-    "no-chats": "Keine Chats gefunden.",
-    "retention-header": "ℹ️ DSGVO-Datenlöschung aktiv",
-    "cutoff-date":
-      "Aufbewahrung {{days}} Tage — heutige Chats verfallen am {{date}}",
-    table: {
-      embed: "Einbettung",
-      sender: "Absender",
-      message: "Nachricht",
-      response: "Antwort",
-      at: "Gesendet am",
-    },
   },
   event: {
     title: "Ereignisprotokolle",

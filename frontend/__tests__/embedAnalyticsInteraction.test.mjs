@@ -111,6 +111,60 @@ const OCT_06 = 23;
 const OCT_07 = 24;
 
 // ---------------------------------------------------------------------------
+// Schmale Zeile ohne Konversation (Feinschliff nach KIE-539)
+// ---------------------------------------------------------------------------
+
+test(
+  "Größe „Konversationen“ ohne begonnene Konversation: eine schmale Zeile mit dem Schalter, der weiterhilft – zurück zu „Nachrichten“ wieder die Säulen",
+  { skip },
+  async (t) => {
+    const summary = {
+      ...THIRTY_DAYS,
+      totals: { ...THIRTY_DAYS.totals, conversations: 0 },
+      buckets: THIRTY_DAYS.buckets.map((bucket) => ({
+        ...bucket,
+        conversations: 0,
+      })),
+    };
+    const { container, act } = await mount(t, CHART, {
+      summary,
+      loading: false,
+    });
+    const section = () =>
+      elements(container, (element) => element.tagName === "SECTION")[0];
+    const labels = () =>
+      elements(container, (element) => element.tagName === "BUTTON").map(
+        (button) => button.textContent
+      );
+    assert.equal(section().getAttribute("data-chart-compact"), null);
+    assert.equal(columnsOf(container).length, 30);
+
+    await act(() => click(buttonOf(container, "Konversationen")));
+    assert.equal(section().getAttribute("data-chart-compact"), "conversations");
+    assert.match(section().getAttribute("class"), /\bpy-3\b/);
+    assert.equal(
+      elements(section(), (element) => element.tagName === "P")[0].textContent,
+      "Konversationen pro Tag – Im gewählten Zeitraum wurde keine Konversation begonnen"
+    );
+    assert.equal(columnsOf(container).length, 0);
+    assert.equal(
+      elements(container, (element) => element.tagName === "svg").length,
+      0
+    );
+    // Vergleich und Größe ändern die Lage, „Als Tabelle“ nicht.
+    assert.deepEqual(labels(), [
+      "Vorzeitraum vergleichen",
+      "Nachrichten",
+      "Konversationen",
+    ]);
+
+    await act(() => click(buttonOf(container, "Nachrichten")));
+    assert.equal(section().getAttribute("data-chart-compact"), null);
+    assert.equal(columnsOf(container).length, 30);
+  }
+);
+
+// ---------------------------------------------------------------------------
 // Tooltip (AK-6)
 // ---------------------------------------------------------------------------
 
@@ -728,6 +782,10 @@ async function analyticsServer(t, { granularity = "day", buckets, list } = {}) {
           totalCount: 0,
         }
       );
+    // Gesprächsverlauf (Seitenpanel): geladen, ohne Nachrichten – das Panel
+    // zeigt dann die Angaben der Zeile.
+    if (call.method === "GET" && /\/conversation\/\d+$/.test(url))
+      return { success: true, messages: [] };
     if (!isSummary(url)) return { success: false, error: "unbekannt" };
     const days = [];
     for (let day = body.fromDay; day <= body.toDay; day = addDays(day, 1))
@@ -771,20 +829,19 @@ async function mountView(t, server, embeds = [EMBED]) {
     { embedsLoaded: true, embeds },
     { exportName: "AnalyticsScreen" }
   );
+  const days = rangeFromDates(startDate, endDate);
   return {
     ...mounted,
-    days: rangeFromDates(startDate, endDate),
-    // Die Liste bekommt denselben Zeitraum als Zeitstempel des Browsers.
-    period: {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-    },
+    days,
+    // Die Liste bekommt dieselben Kalendertage wie Kennzahlen und Diagramm
+    // (Fixliste 7, F06: früher Zeitstempel des Browsers).
+    period: { fromDay: days.fromDay, toDay: days.toDay },
     listRequest: (request = {}) => ({
       method: ROUTES.conversations.method,
       url: server.listUrl,
       body: conversationsBody({
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
+        fromDay: days.fromDay,
+        toDay: days.toDay,
         ...request,
       }),
     }),
@@ -830,35 +887,29 @@ test(
 );
 
 test(
-  "Anfrage (AK-7): getConversations sendet den Abschnitt als startedFromDay/startedToDay – ohne Abschnitt keines der beiden Felder",
+  "Anfrage (AK-7, Fixliste 7 F06/F14): getConversations sendet Zeitraum als Kalendertage, den Abschnitt als startedFromDay/startedToDay – ohne Abschnitt keines der beiden Felder; weitere Seiten mit after",
   { skip },
   async (t) => {
     const calls = stubFetch(t, () => ({ success: true, conversations: [] }));
     const { default: Embed } = await renderer.load("/src/models/embed.js");
-    const period = {
-      startDate: "2026-09-12T22:00:00.000Z",
-      endDate: "2026-10-12T21:59:59.999Z",
-    };
+    const period = { fromDay: "2026-09-13", toDay: "2026-10-12" };
+    const after = { lastMessageAt: 1760000000000, firstChatId: 42 };
 
-    await Embed.getConversations(
-      3,
-      20,
-      20,
-      period.startDate,
-      period.endDate,
-      "negative",
-      { fromDay: "2026-10-05", toDay: "2026-10-11" }
-    );
-    await Embed.getConversations(
-      3,
-      0,
-      20,
-      period.startDate,
-      period.endDate,
-      "all",
-      null
-    );
-    await Embed.getConversations(3, 0, 20, null, null);
+    await Embed.getConversations(3, {
+      after,
+      limit: 20,
+      ...period,
+      feedbackFilter: "negative",
+      startedBetween: { fromDay: "2026-10-05", toDay: "2026-10-11" },
+    });
+    await Embed.getConversations(3, {
+      offset: 0,
+      limit: 20,
+      ...period,
+      feedbackFilter: "all",
+      startedBetween: null,
+    });
+    await Embed.getConversations(3, { fromDay: null, toDay: null });
 
     const url = await urlOf(ROUTES.conversations, 3);
     assert.deepEqual(calls, [
@@ -867,7 +918,7 @@ test(
         url,
         body: conversationsBody({
           ...period,
-          offset: 20,
+          after,
           feedbackFilter: "negative",
           bucket: { start: "2026-10-05", end: "2026-10-11" },
         }),
@@ -877,20 +928,30 @@ test(
         url,
         body: conversationsBody(period),
       },
-      { method: ROUTES.conversations.method, url, body: conversationsBody() },
+      {
+        method: ROUTES.conversations.method,
+        url,
+        body: conversationsBody({ fromDay: null, toDay: null }),
+      },
     ]);
     assert.equal(calls[0].body.startedFromDay, "2026-10-05");
     assert.equal(calls[0].body.startedToDay, "2026-10-11");
+    assert.deepEqual(calls[0].body.after, after);
+    assert.equal(calls[0].body.offset, 0);
     for (const { body } of calls.slice(1)) {
       assert.ok(!("startedFromDay" in body));
       assert.ok(!("startedToDay" in body));
+      assert.ok(!("after" in body));
+      // kein Zeitstempel des Browsers mehr
+      assert.ok(!("startDate" in body));
+      assert.ok(!("endDate" in body));
     }
     assert.match(url, /\/embed\/3\/analytics\/conversations$/);
   }
 );
 
 test(
-  "Laden (Hard Constraint 5): Die Ansicht fragt Zählwerte mit den Kalendertagen des Zeitraums ab, die Liste mit den Zeitstempeln des Browsers",
+  "Laden (Hard Constraint 5, Fixliste 7 F06): Die Ansicht fragt Zählwerte und Liste mit denselben Kalendertagen des Zeitraums ab",
   { skip },
   async (t) => {
     const server = await analyticsServer(t);
@@ -914,7 +975,7 @@ test(
 );
 
 test(
-  "Klick auf eine Säule (AK-7): Die Liste wird mit dem Abschnitt neu geladen und markiert; zweiter Klick oder Schließen hebt den Filter auf; die Kennzahlen bleiben",
+  "Klick auf eine Säule (AK-7, AK-17): Die Liste wird mit dem Abschnitt neu geladen und markiert, die Seite springt weich zu ihr (Fixliste 2, B3); zweiter Klick oder Schließen hebt den Filter auf, ohne zu springen; die Kennzahlen bleiben",
   { skip },
   async (t) => {
     const server = await analyticsServer(t);
@@ -923,8 +984,15 @@ test(
     const bucket = { start: day, end: day };
     const kpis = kpiTextOf(container);
     assert.equal(kpis.length, 4);
+    // wie „N negativ“ und der Verweis in der Kopfzeile: zum Bereich der Liste
+    const [listArea] = elements(container, (element) =>
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-20")
+    );
+    const scrolls = [];
+    listArea.scrollIntoView = (options) => scrolls.push(options);
 
     await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(scrolls, [{ behavior: "smooth", block: "start" }]);
     assert.deepEqual(server.lists(), [listRequest(), listRequest({ bucket })]);
     assert.equal(server.lists().at(-1).body.startedFromDay, day);
     assert.equal(server.lists().at(-1).body.startedToDay, day);
@@ -933,11 +1001,12 @@ test(
     assert.ok(mark.textContent.endsWith(formatDate(day)), mark.textContent);
     assert.equal(columnsOf(container)[23].getAttribute("aria-pressed"), "true");
 
-    // zweiter Klick auf dieselbe Säule
+    // zweiter Klick auf dieselbe Säule: Filter weg, kein Sprung
     await act(() => click(columnsOf(container)[23]));
     assert.deepEqual(server.lists().at(-1), listRequest());
     assert.equal(server.lists().length, 3);
     assert.equal(bucketMarkOf(container), null);
+    assert.equal(scrolls.length, 1);
 
     // andere Säule, dann die Schließen-Schaltfläche der Markierung
     const other = addDays(days.fromDay, 5);
@@ -949,10 +1018,12 @@ test(
     const [close] = elements(bucketMarkOf(container), (element) =>
       (element.getAttribute("aria-label") ?? "").startsWith("Filter „")
     );
+    assert.equal(scrolls.length, 2);
     await act(() => click(close));
     assert.deepEqual(server.lists().at(-1), listRequest());
     assert.equal(server.lists().length, 5);
     assert.equal(bucketMarkOf(container), null);
+    assert.equal(scrolls.length, 2);
 
     // Die Kennzahlen wurden nicht neu abgefragt und stehen unverändert da.
     assert.equal(server.summaries().length, 1);
@@ -1055,7 +1126,8 @@ test(
 );
 
 // ---------------------------------------------------------------------------
-// Blättern (NAK-5): Jeder Wechsel des Zuschnitts führt auf Seite 1
+// Blättern (NAK-5): Jeder Wechsel des Zuschnitts führt auf Seite 1 – seit
+// der Konversationen-Ansicht: Nachgeladenes verfällt, die Liste beginnt vorn
 // ---------------------------------------------------------------------------
 
 const SECOND_EMBED = {
@@ -1065,17 +1137,28 @@ const SECOND_EMBED = {
 };
 const PAGE_SIZE = 20;
 
+/**
+ * Zeilen vor der Seite einer Anfrage: offset, oder hinter der Zeile, die
+ * after nennt (Fixliste 7, F14) – die Zeilen hier zählen first_chat_id ab
+ * 1000 hoch.
+ */
+const startOf = (body) =>
+  body.after ? body.after.firstChatId - 1000 + 1 : body.offset;
+
 /** Die Liste hat 45 einsehbare Konversationen – drei Seiten. */
 function pagedList({ body }) {
   const total = 45;
-  const count = Math.max(0, Math.min(body.limit, total - body.offset));
+  const start = startOf(body);
+  const count = Math.max(0, Math.min(body.limit, total - start));
   return {
     success: true,
     totalCount: total,
-    hasMore: body.offset + count < total,
+    hasMore: start + count < total,
     conversations: Array.from({ length: count }, (_, i) => ({
-      conversation_id: `konversation-${body.offset + i + 1}`,
-      conversation_number: body.offset + i + 1,
+      conversation_id: `konversation-${start + i + 1}`,
+      // Schlüssel der Karte (KIE-538): die id der ersten Zeile
+      first_chat_id: 1000 + start + i,
+      conversation_number: start + i + 1,
       preview: "Gibt es Sportkurse?",
       started_at: Date.UTC(2026, 9, 6, 10),
       last_message_at: Date.UTC(2026, 9, 6, 11),
@@ -1097,11 +1180,52 @@ function buttonOf(container, label) {
   return button;
 }
 
-/** Blättert auf Seite 2 und prüft, dass die Liste sie anfragt. */
-async function openSecondPage({ container, act }, server) {
-  await act(() => click(buttonOf(container, "2")));
-  assert.equal(server.lists().at(-1).body.offset, PAGE_SIZE);
+/**
+ * Bewertungsfilter der Liste, benannt wie für Screenreader und im Tooltip.
+ * Sein Text steht doppelt im Dokument (kurz für schmale Fenster, sonst
+ * ausgeschrieben) – welcher zu sehen ist, entscheidet das CSS.
+ */
+function feedbackFilterOf(container, name) {
+  const [button, ...more] = elements(
+    container,
+    (element) =>
+      element.tagName === "BUTTON" &&
+      element.getAttribute("aria-label") === name
+  );
+  assert.ok(button, `kein Bewertungsfilter „${name}“`);
+  assert.equal(more.length, 0, `mehrere Bewertungsfilter „${name}“`);
+  return button;
 }
+const ONLY_POSITIVE =
+  "Nur Konversationen mit positiv bewerteter Antwort anzeigen";
+const ONLY_NEGATIVE =
+  "Nur Konversationen mit negativ bewerteter Antwort anzeigen";
+
+/**
+ * Lädt weitere Konversationen nach („Weitere Konversationen laden") und
+ * prüft, dass die Liste die zweite Seite anfragt.
+ */
+async function openSecondPage({ container, act }, server) {
+  const [more] = elements(container, (element) =>
+    element.hasAttribute("data-load-more")
+  );
+  assert.ok(more, "keine Schaltfläche „Weitere Konversationen laden“");
+  assert.equal(more.textContent, "Weitere Konversationen laden");
+  await act(() => click(more));
+  // hinter der letzten Zeile der ersten Seite (Fixliste 7, F14)
+  const { body } = server.lists().at(-1);
+  assert.equal(startOf(body), PAGE_SIZE);
+  assert.deepEqual(body.after, {
+    lastMessageAt: Date.UTC(2026, 9, 6, 11),
+    firstChatId: 1000 + PAGE_SIZE - 1,
+  });
+}
+
+/** Die Zeilen der Liste: id ihrer ersten Zeile (first_chat_id). */
+const rowIdsOf = (container) =>
+  elements(container, (element) =>
+    element.hasAttribute("data-conversation-row")
+  ).map((element) => Number(element.getAttribute("data-conversation-row")));
 
 /** Wählt in der Datumsauswahl eine Vorauswahl, z. B. „Letzter Monat". */
 async function choosePreset({ container, act }, label) {
@@ -1129,7 +1253,7 @@ async function chooseWidget({ container, act }, embed) {
     container,
     (element) =>
       element.getAttribute("role") === "option" &&
-      element.textContent.startsWith(`Embed #${embed.id} `)
+      element.textContent === embed.workspace.name
   );
   await act(() => click(option));
 }
@@ -1143,24 +1267,541 @@ test(
     const { container, act, listRequest } = view;
 
     for (const [label, feedbackFilter] of [
-      ["Nur mit 👍", "positive"],
-      ["Nur mit 👎", "negative"],
+      [ONLY_POSITIVE, "positive"],
+      [ONLY_NEGATIVE, "negative"],
     ]) {
       await openSecondPage(view, server);
       const before = server.lists().length;
 
-      await act(() => click(buttonOf(container, label)));
+      await act(() => click(feedbackFilterOf(container, label)));
       assert.deepEqual(server.lists().at(-1), listRequest({ feedbackFilter }));
 
-      await act(() => click(buttonOf(container, label)));
+      await act(() => click(feedbackFilterOf(container, label)));
       assert.deepEqual(server.lists().at(-1), listRequest());
       assert.equal(server.lists().at(-1).body.offset, 0);
       // je Wechsel genau eine Anfrage
       assert.equal(server.lists().length, before + 2);
       // Die Liste zeigt die Einträge 1–20.
-      assert.match(container.textContent, /Konversation #1"/);
-      assert.doesNotMatch(container.textContent, /Konversation #21"/);
+      // Die Liste zeigt wieder die ersten 20 – nicht die nachgeladenen.
+      assert.deepEqual(
+        rowIdsOf(container),
+        Array.from({ length: PAGE_SIZE }, (_, i) => 1000 + i)
+      );
     }
+  }
+);
+
+test(
+  "Bewertungsfilter: ein Daumen und Text je Schaltfläche, kein Emoji – der Klick setzt aria-pressed und fragt die Liste mit feedbackFilter an",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t);
+    const view = await mountView(t, server);
+    const { container, act, listRequest } = view;
+    const positive = () => feedbackFilterOf(container, ONLY_POSITIVE);
+    const negative = () => feedbackFilterOf(container, ONLY_NEGATIVE);
+    const pressed = () =>
+      [positive(), negative()].map((button) =>
+        button.getAttribute("aria-pressed")
+      );
+    /** Der Daumen einer Schaltfläche: sein Pfad (Umriss oder gefüllt). */
+    const thumbOf = (button) => {
+      const icons = elements(button, (element) => element.tagName === "svg");
+      assert.equal(icons.length, 1, "genau ein Symbol je Schaltfläche");
+      assert.equal(icons[0].getAttribute("fill"), "currentColor");
+      const [path] = elements(
+        icons[0],
+        (element) => element.tagName === "path"
+      );
+      return path.getAttribute("d");
+    };
+    const outline = {
+      positive: thumbOf(positive()),
+      negative: thumbOf(negative()),
+    };
+    assert.notEqual(outline.positive, outline.negative);
+
+    // Bildzeichen wie 👍 und 👎 – in keiner der beiden Schaltflächen.
+    const emoji =
+      /\p{Extended_Pictographic}|[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+    assert.match("Nur mit 👍", emoji);
+    for (const [button, short, long] of [
+      [positive(), "Positiv", "Positiv bewertet"],
+      [negative(), "Negativ", "Negativ bewertet"],
+    ]) {
+      // bis xl der kurze Text, ab xl der lange (Fixliste 3, V7)
+      assert.deepEqual(
+        elements(button, (element) => element.tagName === "SPAN").map(
+          (span) => [
+            (span.getAttribute("class") ?? "")
+              .split(" ")
+              .filter((name) =>
+                /^(hidden|xl:hidden|xl:inline-flex)$/.test(name)
+              )
+              .join(" "),
+            span.textContent,
+          ]
+        ),
+        [
+          ["xl:hidden", short],
+          ["hidden xl:inline-flex", long],
+        ]
+      );
+      assert.doesNotMatch(button.textContent, emoji);
+      assert.equal(
+        button.getAttribute("title"),
+        button.getAttribute("aria-label")
+      );
+    }
+    assert.deepEqual(pressed(), ["false", "false"]);
+    assert.deepEqual(server.lists().at(-1), listRequest());
+
+    // an: aria-pressed und der gefüllte Daumen – nicht nur die Farbe
+    let before = server.lists().length;
+    await act(() => click(positive()));
+    assert.deepEqual(pressed(), ["true", "false"]);
+    assert.notEqual(thumbOf(positive()), outline.positive);
+    assert.equal(thumbOf(negative()), outline.negative);
+    assert.deepEqual(
+      server.lists().at(-1),
+      listRequest({ feedbackFilter: "positive" })
+    );
+    assert.equal(server.lists().length, before + 1);
+
+    // Die beiden Filter schließen sich aus.
+    before = server.lists().length;
+    await act(() => click(negative()));
+    assert.deepEqual(pressed(), ["false", "true"]);
+    assert.equal(thumbOf(positive()), outline.positive);
+    assert.notEqual(thumbOf(negative()), outline.negative);
+    assert.deepEqual(
+      server.lists().at(-1),
+      listRequest({ feedbackFilter: "negative" })
+    );
+    assert.equal(server.lists().length, before + 1);
+
+    // Der zweite Klick hebt den Filter auf.
+    await act(() => click(negative()));
+    assert.deepEqual(pressed(), ["false", "false"]);
+    assert.equal(thumbOf(negative()), outline.negative);
+    assert.deepEqual(server.lists().at(-1), listRequest());
+  }
+);
+
+test(
+  "Feld „Bewertungen“: „3 negativ“ setzt den Listenfilter „Negativ bewertet“ und springt zur Liste",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t);
+    const view = await mountView(t, server);
+    const { container, act, listRequest } = view;
+    const [ratings] = elements(
+      container,
+      (element) => element.getAttribute("data-kpi") === "ratings"
+    );
+    assert.equal(
+      ratings.textContent,
+      // 12 von 885 Antworten bewertet: 1,36 % → 1 %
+      "Bewertungen121 % der Antworten bewertet · 9 positiv, 3 negativ"
+    );
+    const [satisfaction] = elements(
+      container,
+      (element) => element.getAttribute("data-kpi") === "satisfaction"
+    );
+    assert.equal(
+      satisfaction.textContent,
+      "Zufriedenheit75 %9 von 12 Bewertungen positiv"
+    );
+
+    // Der Bereich der Liste merkt sich, dass zu ihm gesprungen wird.
+    const [listArea] = elements(container, (element) =>
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-20")
+    );
+    const scrolls = [];
+    listArea.scrollIntoView = (options) => scrolls.push(options);
+
+    const link = buttonOf(ratings, "3 negativ");
+    assert.equal(
+      link.getAttribute("aria-label"),
+      "3 negativ – Betroffene Konversationen anzeigen"
+    );
+    await act(() => click(link));
+    assert.deepEqual(
+      server.lists().at(-1),
+      listRequest({ feedbackFilter: "negative" })
+    );
+    assert.equal(
+      feedbackFilterOf(container, ONLY_NEGATIVE).getAttribute("aria-pressed"),
+      "true"
+    );
+    assert.deepEqual(scrolls, [{ behavior: "smooth", block: "start" }]);
+    // Die Liste zeigt sofort, welcher Filter gilt.
+    const [mark] = elements(container, (element) =>
+      element.hasAttribute("data-feedback-filter-mark")
+    );
+    assert.equal(mark.textContent, "Filter: Negativ bewertet");
+  }
+);
+
+test(
+  "Feld „Bewertungen“: „9 positiv“ setzt den Listenfilter „Positiv bewertet“ und springt zur Liste – die Markierung „Filter: Positiv bewertet“ erscheint",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t);
+    const view = await mountView(t, server);
+    const { container, act, listRequest } = view;
+    const [ratings] = elements(
+      container,
+      (element) => element.getAttribute("data-kpi") === "ratings"
+    );
+    const [listArea] = elements(container, (element) =>
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-20")
+    );
+    const scrolls = [];
+    listArea.scrollIntoView = (options) => scrolls.push(options);
+
+    const link = buttonOf(ratings, "9 positiv");
+    assert.equal(
+      link.getAttribute("aria-label"),
+      "9 positiv – Betroffene Konversationen anzeigen"
+    );
+    assert.equal(
+      link.getAttribute("class"),
+      buttonOf(ratings, "3 negativ").getAttribute("class")
+    );
+    await act(() => click(link));
+    assert.deepEqual(
+      server.lists().at(-1),
+      listRequest({ feedbackFilter: "positive" })
+    );
+    assert.equal(
+      feedbackFilterOf(container, ONLY_POSITIVE).getAttribute("aria-pressed"),
+      "true"
+    );
+    assert.deepEqual(scrolls, [{ behavior: "smooth", block: "start" }]);
+    const [mark] = elements(container, (element) =>
+      element.hasAttribute("data-feedback-filter-mark")
+    );
+    assert.equal(mark.textContent, "Filter: Positiv bewertet");
+  }
+);
+
+test(
+  "Sprung zur Liste: In der Kopfzeile „45 Konversationen ansehen ↓“ – der Klick scrollt weich zur Liste und setzt den Fokus auf ihre Überschrift",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: pagedList });
+    const { container, document, act } = await mountView(t, server);
+    const jumpOf = () =>
+      elements(container, (element) =>
+        element.hasAttribute("data-jump-to-list")
+      )[0] ?? null;
+
+    const jump = jumpOf();
+    assert.ok(jump, "kein Verweis zur Liste");
+    assert.equal(jump.tagName, "BUTTON");
+    assert.equal(jump.textContent, "45 Konversationen ansehen ↓");
+    // bei der Überschrift „Konversationen“ der Ansicht, nicht beim Zeitraum
+    assert.equal(jump.parentNode.firstChild.tagName, "H2");
+    assert.equal(jump.parentNode.firstChild.textContent, "Konversationen");
+
+    const [listArea] = elements(container, (element) =>
+      (element.getAttribute("class") ?? "").split(" ").includes("scroll-mt-20")
+    );
+    const scrolls = [];
+    listArea.scrollIntoView = (options) => scrolls.push(options);
+    const [heading] = elements(container, (element) =>
+      element.hasAttribute("data-list-heading")
+    );
+    assert.equal(heading.getAttribute("tabindex"), "-1");
+    assert.notEqual(document.activeElement, heading);
+
+    const before = server.lists().length;
+    await act(() => click(jump));
+    assert.deepEqual(scrolls, [{ behavior: "smooth", block: "start" }]);
+    assert.equal(document.activeElement, heading);
+    // Der Sprung lädt nichts neu.
+    assert.equal(server.lists().length, before);
+  }
+);
+
+test(
+  "Sprung zur Liste: Die Zahl folgt der Liste – „1 Konversation ansehen ↓“; ohne einsehbare Konversation entfällt der Verweis",
+  { skip },
+  async (t) => {
+    const listOf =
+      (totalCount) =>
+      ({ body }) => ({
+        ...pagedList({ body }),
+        totalCount,
+        hasMore: false,
+        conversations: pagedList({ body }).conversations.slice(0, totalCount),
+      });
+    const jumpText = async (totalCount) => {
+      const server = await analyticsServer(t, { list: listOf(totalCount) });
+      const view = await mountView(t, server);
+      const [jump] = elements(view.container, (element) =>
+        element.hasAttribute("data-jump-to-list")
+      );
+      await view.unmount();
+      return jump?.textContent ?? null;
+    };
+    assert.equal(await jumpText(1), "1 Konversation ansehen ↓");
+    assert.equal(await jumpText(1234), "1.234 Konversationen ansehen ↓");
+    assert.equal(await jumpText(0), null);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Gesetzte Filter sichtbar: Verweis, „N von M einsehbar", Markierung
+// ---------------------------------------------------------------------------
+
+/**
+ * Liste, deren Zahl vom Filter abhängt: im Zeitraum 214 einsehbare
+ * Konversationen, davon 18 negativ und 25 positiv bewertet (zwei Seiten);
+ * im gewählten
+ * Abschnitt 6, davon 2 negativ und 3 positiv.
+ */
+function ratedList({ body }) {
+  const totals = body.startedFromDay
+    ? { all: 6, negative: 2, positive: 3 }
+    : { all: 214, negative: 18, positive: 25 };
+  const total = totals[body.feedbackFilter];
+  const count = Math.max(0, Math.min(body.limit, total - startOf(body)));
+  return {
+    ...pagedList({ body }),
+    totalCount: total,
+    hasMore: startOf(body) + count < total,
+    conversations: pagedList({ body }).conversations.slice(0, count),
+  };
+}
+
+/** Verweis zur Liste in der Kopfzeile (Text); null, wenn er fehlt. */
+const jumpTextOf = (container) =>
+  elements(container, (element) => element.hasAttribute("data-jump-to-list"))[0]
+    ?.textContent ?? null;
+/** „N einsehbar" bzw. „N von M einsehbar" in der Kopfzeile der Liste. */
+const viewableOf = (container) =>
+  elements(container, (element) =>
+    element.hasAttribute("data-viewable-count")
+  )[0]?.textContent ?? null;
+/** Markierung „Filter: …" der Liste; null ohne Bewertungsfilter. */
+const feedbackMarkOf = (container) =>
+  elements(container, (element) =>
+    element.hasAttribute("data-feedback-filter-mark")
+  )[0] ?? null;
+
+test(
+  "Gesetzte Filter: Der Verweis in der Kopfzeile nennt Bewertungsfilter und Abschnitt – ohne Filter wie bisher",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: ratedList });
+    const view = await mountView(t, server);
+    const { container, act } = view;
+    assert.equal(jumpTextOf(container), "214 Konversationen ansehen ↓");
+
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    assert.equal(
+      jumpTextOf(container),
+      "18 negativ bewertete Konversationen ansehen ↓"
+    );
+    await act(() => click(feedbackFilterOf(container, ONLY_POSITIVE)));
+    assert.equal(
+      jumpTextOf(container),
+      "25 positiv bewertete Konversationen ansehen ↓"
+    );
+    await act(() => click(feedbackFilterOf(container, ONLY_POSITIVE)));
+    assert.equal(jumpTextOf(container), "214 Konversationen ansehen ↓");
+
+    // Abschnitt: so benannt wie in der Markierung „Nur …“
+    await act(() => click(columnsOf(container)[23]));
+    const period = bucketMarkOf(container).textContent.replace(/^Nur /, "");
+    assert.match(period, /^\S+, \d{2}\.\d{2}\.\d{4}$/);
+    assert.equal(
+      jumpTextOf(container),
+      `6 Konversationen aus „${period}“ ansehen ↓`
+    );
+
+    // beides: die Kurzform – die Liste zeigt beide Markierungen
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    assert.equal(
+      jumpTextOf(container),
+      "2 gefilterte Konversationen ansehen ↓"
+    );
+    assert.ok(bucketMarkOf(container));
+    assert.ok(feedbackMarkOf(container));
+
+    // Einzahl
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    await act(() => click(columnsOf(container)[23]));
+    assert.equal(bucketMarkOf(container), null);
+    const single = await analyticsServer(t, {
+      list: ({ body }) => ({
+        ...ratedList({ body }),
+        totalCount: 1,
+        hasMore: false,
+        conversations: ratedList({ body }).conversations.slice(0, 1),
+      }),
+    });
+    await view.unmount();
+    const one = await mountView(t, single);
+    await one.act(() => click(feedbackFilterOf(one.container, ONLY_NEGATIVE)));
+    assert.equal(
+      jumpTextOf(one.container),
+      "1 negativ bewertete Konversation ansehen ↓"
+    );
+    assert.equal(viewableOf(one.container), "1 von 1 einsehbar");
+  }
+);
+
+test(
+  "Gesetzte Filter: Mit Bewertungsfilter „18 von 214 einsehbar“ und die Markierung „Filter: Negativ bewertet“ – ihr ✕ hebt ihn auf (ungefiltert, Seite 1)",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: ratedList });
+    const view = await mountView(t, server);
+    const { container, act, listRequest } = view;
+    assert.equal(viewableOf(container), "214 einsehbar");
+    assert.equal(feedbackMarkOf(container), null);
+
+    const before = server.lists().length;
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    // Die Zahl ohne Filter kam schon mit der ungefilterten Liste: keine
+    // zusätzliche Anfrage.
+    assert.deepEqual(server.lists().slice(before), [
+      listRequest({ feedbackFilter: "negative" }),
+    ]);
+    assert.equal(viewableOf(container), "18 von 214 einsehbar");
+    const mark = feedbackMarkOf(container);
+    assert.equal(mark.getAttribute("data-feedback-filter-mark"), "negative");
+    assert.equal(mark.textContent, "Filter: Negativ bewertet");
+    // gleiche Gestaltung wie die Markierung „Nur …“
+    await act(() => click(columnsOf(container)[23]));
+    assert.equal(
+      mark.getAttribute("class"),
+      bucketMarkOf(container).getAttribute("class")
+    );
+    await act(() => click(columnsOf(container)[23]));
+    assert.equal(bucketMarkOf(container), null);
+
+    // ✕ hebt den Filter auf
+    const closeOf = () =>
+      elements(
+        feedbackMarkOf(container),
+        (element) => element.tagName === "BUTTON"
+      )[0];
+    assert.equal(
+      closeOf().getAttribute("aria-label"),
+      "Filter „Negativ bewertet“ aufheben"
+    );
+    assert.equal(
+      closeOf().getAttribute("title"),
+      closeOf().getAttribute("aria-label")
+    );
+    await act(() => click(closeOf()));
+    assert.deepEqual(server.lists().at(-1), listRequest());
+    assert.equal(feedbackMarkOf(container), null);
+    assert.equal(viewableOf(container), "214 einsehbar");
+    assert.equal(
+      feedbackFilterOf(container, ONLY_NEGATIVE).getAttribute("aria-pressed"),
+      "false"
+    );
+    assert.equal(jumpTextOf(container), "214 Konversationen ansehen ↓");
+
+    // positiv ebenso – auf Seite 2 geblättert führt ✕ auf Seite 1
+    await act(() => click(feedbackFilterOf(container, ONLY_POSITIVE)));
+    assert.equal(viewableOf(container), "25 von 214 einsehbar");
+    assert.equal(
+      feedbackMarkOf(container).textContent,
+      "Filter: Positiv bewertet"
+    );
+    await openSecondPage(view, server);
+    assert.equal(server.lists().at(-1).body.feedbackFilter, "positive");
+    assert.equal(
+      closeOf().getAttribute("aria-label"),
+      "Filter „Positiv bewertet“ aufheben"
+    );
+    await act(() => click(closeOf()));
+    assert.deepEqual(server.lists().at(-1), listRequest());
+    assert.equal(server.lists().at(-1).body.offset, 0);
+    assert.equal(feedbackMarkOf(container), null);
+    assert.equal(
+      feedbackFilterOf(container, ONLY_POSITIVE).getAttribute("aria-pressed"),
+      "false"
+    );
+    assert.deepEqual(
+      rowIdsOf(container),
+      Array.from({ length: PAGE_SIZE }, (_, i) => 1000 + i)
+    );
+  }
+);
+
+test(
+  "Gesetzte Filter: Fehlt die Zahl ohne Filter für den Zeitraum, fragt die Liste sie einmal parallel an (eine Konversation, ohne jeden Filter) – ohne Filter nie; die Säule ist ein Filter wie die anderen („X von Y“ über den ganzen Zeitraum, Fixliste 7 B7)",
+  { skip },
+  async (t) => {
+    const server = await analyticsServer(t, { list: ratedList });
+    const view = await mountView(t, server);
+    const { container, act, days, listRequest } = view;
+    const day = addDays(days.fromDay, 23);
+    const bucket = { start: day, end: day };
+
+    // ohne Bewertungsfilter: Laden, Abschnitt an und aus, Blättern – jede
+    // Anfrage ist eine Seite der Liste
+    await act(() => click(columnsOf(container)[23]));
+    await act(() => click(columnsOf(container)[23]));
+    await openSecondPage(view, server);
+    assert.deepEqual(
+      server.lists().map(({ body }) => [body.limit, body.feedbackFilter]),
+      [
+        [20, "all"],
+        [20, "all"],
+        [20, "all"],
+        [20, "all"],
+      ]
+    );
+
+    // Filter an, dann ein Abschnitt: Die Zahl ohne Filter gilt für den
+    // ganzen Zeitraum und ist bekannt – keine Zählabfrage
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    let before = server.lists().length;
+    await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(server.lists().slice(before), [
+      listRequest({ feedbackFilter: "negative", bucket }),
+    ]);
+    assert.equal(viewableOf(container), "2 von 214 einsehbar");
+
+    // Wechsel zu positiv und zurück im selben Abschnitt: bekannt
+    before = server.lists().length;
+    await act(() => click(feedbackFilterOf(container, ONLY_POSITIVE)));
+    await act(() => click(feedbackFilterOf(container, ONLY_NEGATIVE)));
+    assert.deepEqual(server.lists().slice(before), [
+      listRequest({ feedbackFilter: "positive", bucket }),
+      listRequest({ feedbackFilter: "negative", bucket }),
+    ]);
+
+    // Abschnitt aus: derselbe Zeitraum – keine Zählabfrage
+    before = server.lists().length;
+    await act(() => click(columnsOf(container)[23]));
+    assert.deepEqual(server.lists().slice(before), [
+      listRequest({ feedbackFilter: "negative" }),
+    ]);
+    assert.equal(viewableOf(container), "18 von 214 einsehbar");
+
+    // anderer Zeitraum mit gesetztem Filter: einmal die Zählabfrage
+    before = server.lists().length;
+    await choosePreset(view, "Letzter Monat");
+    const added = server.lists().slice(before);
+    assert.deepEqual(
+      added.map(({ body }) => [startOf(body), body.limit, body.feedbackFilter]),
+      [
+        [0, 1, "all"],
+        [0, 20, "negative"],
+      ]
+    );
+    assert.equal(added[0].body.fromDay, added[1].body.fromDay);
+    assert.equal(added[0].body.toDay, added[1].body.toDay);
+    assert.equal(viewableOf(container), "18 von 214 einsehbar");
   }
 );
 
@@ -1210,7 +1851,8 @@ test(
     await choosePreset(view, "Letzter Monat");
     const other = server.lists().at(-1).body;
     assert.equal(other.offset, 0);
-    assert.notEqual(other.endDate, view.period.endDate);
+    assert.equal(other.after, undefined);
+    assert.notEqual(other.toDay, view.period.toDay);
 
     await choosePreset(view, "Letzte 30 Tage");
     assert.deepEqual(server.lists().at(-1), view.listRequest());
@@ -1464,7 +2106,7 @@ for (const [name, late] of [
 }
 
 // ---------------------------------------------------------------------------
-// Konversations-ID kopieren
+// Kennung kopieren – in der Fußzeile des Seitenpanels (AK-15)
 // ---------------------------------------------------------------------------
 
 /** Ersetzt navigator für die Dauer eines Tests. */
@@ -1484,7 +2126,7 @@ for (const [name, clipboard, expected] of [
   [
     "Der Browser kopiert: Erfolgsmeldung",
     { writeText: async () => {} },
-    { type: "success", message: "Konversations-ID kopiert" },
+    { type: "success", message: "Kennung kopiert" },
   ],
   [
     "Der Browser lehnt das Kopieren ab: Fehlermeldung statt Erfolgsmeldung",
@@ -1507,7 +2149,7 @@ for (const [name, clipboard, expected] of [
     },
   ],
 ]) {
-  test(`Konversations-ID kopieren – ${name}`, { skip }, async (t) => {
+  test(`Kennung kopieren – ${name}`, { skip }, async (t) => {
     const written = [];
     stubNavigator(t, {
       clipboard: clipboard && {
@@ -1520,17 +2162,31 @@ for (const [name, clipboard, expected] of [
     const toasts = await watchToasts(t);
     const server = await analyticsServer(t, { list: pagedList });
     const { container, act } = await mountView(t, server);
+    // Die Zeile zeigt keine Kennung (AK-1) – erst das geöffnete Panel.
+    assert.equal(
+      elements(
+        container,
+        (element) => element.getAttribute("title") === "Kennung kopieren"
+      ).length,
+      0
+    );
+    assert.doesNotMatch(container.textContent, /konversation-1/);
+    const [row] = elements(container, (element) =>
+      element.hasAttribute("data-conversation-row")
+    );
+    await act(() => click(row));
     const [copy] = elements(
       container,
-      (element) => element.getAttribute("title") === "Konversations-ID kopieren"
+      (element) =>
+        element.hasAttribute("data-panel-id") &&
+        element.getAttribute("title") === "Kennung kopieren"
     );
-    assert.equal(copy.textContent, "ID:konversation-1");
+    // gekürzt: die ersten 8 Zeichen
+    assert.equal(copy.textContent, "ID konversa…");
 
     await act(() => click(copy));
 
     assert.deepEqual(toasts, [expected]);
     assert.deepEqual(written, clipboard ? ["konversation-1"] : []);
-    // Die Karte klappt dabei nicht auf.
-    assert.equal(server.calls.length, 2);
   });
 }

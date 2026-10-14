@@ -335,8 +335,12 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
       ? t("date-picker.all")
       : `${formatDE(startDate)} - ${formatDE(endDate)}`;
 
-  // Default month for calendar: show the month of startDate (or current month)
-  const defaultMonth = startDate || new Date();
+  // Beim Öffnen sichtbar: der Monat, in dem der gewählte Zeitraum endet –
+  // im breiten Popover rechts, davor der Vormonat; ohne Zeitraum („Gesamt")
+  // der laufende Monat. Vorher war es der Monat des Beginns rechts: „Letzte
+  // 30 Tage" bis zum 14.10. zeigte August/September statt September/Oktober
+  // (Fixliste 7, B6).
+  const defaultMonth = endDate || startDate || new Date();
   // For dual calendar, show previous month + default month
   const calendarMonth = new Date(
     defaultMonth.getFullYear(),

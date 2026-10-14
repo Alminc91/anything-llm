@@ -13,9 +13,28 @@ import moment from "moment";
 import "moment/locale/de";
 import { safeJsonParse } from "@/utils/request";
 import { useTranslation } from "react-i18next";
+import { embedLabels } from "@/utils/embedLabel";
 
-export default function EmbedRow({ embed, isReadOnly = false, userRole = null }) {
+/**
+ * Eine Zeile der Widget-Liste.
+ * @param {object} props
+ * @param {object} props.embed - das Widget
+ * @param {import("@/utils/embedLabel").EmbedLabel} [props.label] - Bezeichnung
+ *   des Widgets in der Liste, in der es steht (utils/embedLabel); ohne Angabe
+ *   der Name des Workspaces.
+ */
+export default function EmbedRow({
+  embed,
+  label = null,
+  isReadOnly = false,
+  userRole = null,
+}) {
   const { t, i18n } = useTranslation();
+  const {
+    name,
+    suffix,
+    label: fullLabel,
+  } = label ?? embedLabels([embed], t).get(embed.id);
   const navigate = useNavigate();
 
   // Set moment locale based on i18n language
@@ -75,8 +94,18 @@ export default function EmbedRow({ embed, isReadOnly = false, userRole = null })
             rel="noreferrer"
             className="text-white flex items-center hover:underline"
           >
-            {embed.workspace.name}
+            {name}
           </a>
+          {/* Nur bei mehrdeutiger Bezeichnung: die Widget-Nummer, unter der
+              der Eintrag auch in der Auswahl „Konversationen" steht. */}
+          {suffix && (
+            <span
+              data-widget-suffix=""
+              className="flex items-center text-theme-text-secondary !font-normal"
+            >
+              {suffix}
+            </span>
+          )}
         </th>
         <th scope="row" className="px-6 whitespace-nowrap">
           {nFormatter(embed._count.embed_chats)}
@@ -135,7 +164,11 @@ export default function EmbedRow({ embed, isReadOnly = false, userRole = null })
         </td>
       </tr>
       <ModalWrapper isOpen={isSettingsOpen}>
-        <EditEmbedModal embed={embed} closeModal={closeSettingsModal} />
+        <EditEmbedModal
+          embed={embed}
+          label={fullLabel}
+          closeModal={closeSettingsModal}
+        />
       </ModalWrapper>
       <ModalWrapper isOpen={isSnippetOpen}>
         <CodeSnippetModal embed={embed} closeModal={closeSnippetModal} />

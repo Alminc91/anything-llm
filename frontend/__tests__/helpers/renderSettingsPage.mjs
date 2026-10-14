@@ -134,6 +134,8 @@ export async function createRenderer() {
    * @param {Object<string,string>} [options.stored] - Inhalt des Browser-Speichers.
    * @param {string} [options.exportName] - Benannter Export statt des Default-Exports.
    * @param {object} [options.props] - Eigenschaften der Komponente.
+   * @param {Array<{path: string, element: object}>} [options.otherRoutes] - Weitere Routen
+   *   neben der Seite, z. B. das Ziel einer Umleitung.
    * @returns {Promise<object>} React-Element.
    */
   async function treeOf(
@@ -146,6 +148,7 @@ export async function createRenderer() {
       stored = {},
       exportName = "default",
       props = {},
+      otherRoutes = [],
     }
   ) {
     const { [exportName]: Page } = await server.ssrLoadModule(modulePath);
@@ -164,7 +167,14 @@ export async function createRenderer() {
         h(
           MemoryRouter,
           { initialEntries: [location] },
-          h(Routes, null, h(Route, { path: route, element: h(Page, props) }))
+          h(
+            Routes,
+            null,
+            h(Route, { path: route, element: h(Page, props) }),
+            ...otherRoutes.map(({ path, element }) =>
+              h(Route, { key: path, path, element })
+            )
+          )
         )
       )
     );

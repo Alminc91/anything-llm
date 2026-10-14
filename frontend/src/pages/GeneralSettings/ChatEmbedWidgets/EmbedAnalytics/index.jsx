@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { CaretDown, Check } from "@phosphor-icons/react";
@@ -13,24 +13,45 @@ import paths from "@/utils/paths";
 import {
   DEFAULT_RANGE_DAYS,
   allTimeRange,
+  formatNumber,
   lastDaysRange,
   rangeFromDates,
   showsDeletedHint,
   toDayString,
   viewState,
 } from "@/utils/analyticsTimeline";
+import {
+  embedLabels,
+  mostRecentlyActiveEmbedId,
+  sortEmbedsByLabel,
+} from "@/utils/embedLabel";
+import {
+  AVATAR_CLEARANCE,
+  MUTED,
+  effectiveSearch,
+  holdScrollTarget,
+  isWide,
+  revealMarkedRow,
+} from "@/utils/conversationView";
+import useConversationLocation from "./useConversationLocation";
+import { useDismiss } from "./viewHooks";
 
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
 // Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
 // Säulendiagramm, Karte „Wann schreiben Ihre Besucher?" (KIE-539),
-// Konversationsliste.
+// Konversationsliste mit Seitenpanel.
+//
+// Widget, geöffnete Konversation und Suche stehen in der Adresse
+// (useConversationLocation): Ein Link auf eine Konversation lässt sich
+// teilen, der Zurück-Knopf schließt sie wieder. Kennzahlen, Diagramm und
+// Uhrzeit-Karte hängen nur von Widget und Zeitraum ab – Suche und geöffnete
+// Konversation ändern sie nicht.
 //
 // Kennzahlen und Diagramm kommen aus einem Aufruf von analytics/summary
 // (Zählerbuch) und stimmen deshalb überein; sie bleiben vollständig, wenn
 // Konversationsinhalte gelöscht sind. Die Liste liest weiterhin embed_chats
-// und arbeitet mit den Zeitstempeln des Browsers.
-
-const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
+// – für dieselben Kalendertage, die der Server wie das Zählerbuch in
+// Berliner Zeit begrenzt (Fixliste 7, F06).
 
 /**
  * Convert Date|null to ISO string|null for stable useEffect deps.
@@ -44,14 +65,21 @@ const periodOf = (fromDay, toDay) => `${fromDay}|${toDay}`;
 
 export default function EmbedAnalyticsView() {
   const [embeds, setEmbeds] = useState([]);
+  const [lastActivity, setLastActivity] = useState(null);
   const [embedsLoaded, setEmbedsLoaded] = useState(false);
 
   useEffect(() => {
     let ignore = false;
     async function loadEmbeds() {
-      const embedsData = (await Embed.embeds()) || [];
+      // Widgets und ihre letzte Nachricht nebeneinander (Fixliste 6, N2):
+      // Die Vorauswahl steht fest, bevor die Ansicht etwas lädt.
+      const [embedsData, activity] = await Promise.all([
+        Embed.embeds(),
+        Embed.lastActivity(),
+      ]);
       if (ignore) return;
-      setEmbeds(embedsData);
+      setEmbeds(embedsData || []);
+      setLastActivity(activity);
       // Auch ohne Widget ist das Laden beendet – sonst bliebe „Laden…" stehen.
       setEmbedsLoaded(true);
     }
@@ -61,26 +89,56 @@ export default function EmbedAnalyticsView() {
     };
   }, []);
 
-  return <AnalyticsScreen embedsLoaded={embedsLoaded} embeds={embeds} />;
+  return (
+    <AnalyticsScreen
+      embedsLoaded={embedsLoaded}
+      embeds={embeds}
+      lastActivity={lastActivity}
+    />
+  );
 }
 
 /**
  * Die Ansicht zu einem Stand der Widget-Liste: „Laden…", der Leerzustand ohne
  * Widget oder die Auswertung.
- * @param {{embedsLoaded: boolean, embeds: Array<object>}} props
+ * @param {{embedsLoaded: boolean, embeds: Array<object>, lastActivity?: Array<{embedId: number, lastMessageAt: number|null}>|null}} props
+ *   lastActivity: letzte Nachricht je Widget (Vorauswahl); null ohne Angabe
  */
-export function AnalyticsScreen({ embedsLoaded, embeds }) {
+export function AnalyticsScreen({ embedsLoaded, embeds, lastActivity = null }) {
   const { t } = useTranslation();
   const state = viewState({ embedsLoaded, embeds });
   if (state === "loading")
     return <div className="p-6 text-white">{t("common.loading")}</div>;
   if (state === "no-widget") return <NoWidget />;
-  return <WidgetAnalytics embeds={embeds} />;
+  return <WidgetAnalytics embeds={embeds} lastActivity={lastActivity} />;
 }
 
-function WidgetAnalytics({ embeds }) {
+function WidgetAnalytics({ embeds, lastActivity }) {
   const { t } = useTranslation();
-  const [selectedEmbed, setSelectedEmbed] = useState(embeds[0].id);
+  const place = useConversationLocation();
+  // Das Widget aus der Adresse – nur eines, das der Nutzer sehen darf (die
+  // Liste der Widgets kommt vom Server, gefiltert nach seinen Rechten).
+  // Vorauswahl ohne widget= (Fixliste 6, N2): das Widget mit der jüngsten
+  // Nachricht; ohne Nachrichten bzw. ohne Angabe das erste in der
+  // Reihenfolge des Servers (das zuletzt angelegte) – unabhängig davon, wie
+  // die Auswahl ihre Einträge ordnet.
+  const preferredEmbed = useMemo(
+    () => mostRecentlyActiveEmbedId(embeds, lastActivity),
+    [embeds, lastActivity]
+  );
+  const linkedEmbed = embeds.find((embed) => embed.id === place.widgetId);
+  const selectedEmbed = linkedEmbed ? linkedEmbed.id : preferredEmbed;
+  const setSelectedEmbed = place.setWidget;
+  // Ein Link auf ein Widget, das es für diesen Nutzer nicht gibt (fremd,
+  // gelöscht): Hinweis, die Ansicht zeigt das vorausgewählte Widget ohne
+  // Konversation.
+  const unknownLink = place.widgetId !== null && !linkedEmbed;
+  const clearLink = place.clearLink;
+  useEffect(() => {
+    if (!unknownLink) return;
+    showToast(t("embed-analytics.panel.not-found"), "error");
+    clearLink();
+  }, [unknownLink, clearLink, t]);
   // Zählwerte des Zeitraums: { embedId, data, loading, failed, period } –
   // period ist der gewählte Zeitraum, zu dem data gehört.
   const [summary, setSummary] = useState({
@@ -91,7 +149,7 @@ function WidgetAnalytics({ embeds }) {
     period: null,
   });
   // KIE-508/527: Feedback-Filter der Liste – hier geführt, weil auch die
-  // Kennzahl „negativ bewertet" ihn setzt.
+  // Verweise „N positiv"/„N negativ" im Feld „Bewertungen" ihn setzen.
   const [feedbackFilter, setFeedbackFilter] = useState("all");
   // Abschnitt aus dem Diagramm, auf den die Liste gefiltert ist
   const [bucketFilter, setBucketFilter] = useState({ scope: "", bucket: null });
@@ -100,6 +158,10 @@ function WidgetAnalytics({ embeds }) {
   // bleibt er stehen. Nur eingeschaltet fragt die Ansicht den Vorzeitraum an.
   const [compare, setCompare] = useState(false);
   const listRef = useRef(null);
+  const listHeadingRef = useRef(null);
+  // Einsehbare Konversationen der Liste (null, solange sie lädt) – für den
+  // Verweis in der Kopfzeile.
+  const [viewableCount, setViewableCount] = useState(null);
 
   // Date range as Date objects (null = "all time"). Standard: letzte 30 Tage.
   const [startDate, setStartDate] = useState(
@@ -203,6 +265,17 @@ function WidgetAnalytics({ embeds }) {
     summary.loading &&
     !(summaryData && summary.period === periodOf(fromDay, toDay));
 
+  // Kennzahl „Konversationen“ für den Hinweis der Liste auf fehlende
+  // Inhalte (Fixliste 6, N1) – nur, wenn sie zu genau diesem Widget und
+  // Zeitraum gehört; sonst null (kein Hinweis). Liste und Kennzahl zählen
+  // dieselben Berliner Kalendertage, in jeder Zeitzone des Browsers
+  // (Fixliste 7, F06) – der Hinweis gilt deshalb überall. Beim Neuladen
+  // desselben Zeitraums (Vergleich an/aus) bleibt sie stehen.
+  const countedConversations =
+    summaryData && summary.period === periodOf(fromDay, toDay)
+      ? (summaryData.totals?.conversations ?? null)
+      : null;
+
   // Der Abschnitts-Filter gilt für genau ein Widget und einen Zeitraum.
   const scope = [selectedEmbed, startDateISO, endDateISO].join("|");
   // Mit einem Wechsel verfällt er – sonst käme er zurück, sobald das frühere
@@ -210,12 +283,89 @@ function WidgetAnalytics({ embeds }) {
   if (bucketFilter.bucket && bucketFilter.scope !== scope)
     setBucketFilter({ scope, bucket: null });
   const bucket = bucketFilter.scope === scope ? bucketFilter.bucket : null;
-  const selectBucket = (next) => setBucketFilter({ scope, bucket: next });
-
-  const showNegative = () => {
-    setFeedbackFilter("negative");
+  const scrollToList = () =>
     listRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  // Klick auf eine Säule filtert die Liste und springt zu ihr – wie „N
+  // negativ" und der Verweis in der Kopfzeile (AK-17, Fixliste 2 B3). Der
+  // zweite Klick (Filter aufheben) springt nicht.
+  const selectBucket = (next) => {
+    setBucketFilter({ scope, bucket: next });
+    if (next) scrollToList();
   };
+  const clearBucket = () => selectBucket(null);
+
+  const showRated = (mode) => {
+    setFeedbackFilter(mode);
+    scrollToList();
+  };
+  // Verweis in der Kopfzeile: weich zur Liste, der Fokus auf ihre Überschrift
+  // (ohne zweites, hartes Scrollen).
+  const jumpToList = () => {
+    scrollToList();
+    listHeadingRef.current?.focus?.({ preventScroll: true });
+  };
+
+  // Per Link oder nach dem Neuladen mit geöffneter Konversation: einmal zur
+  // Liste springen, sobald Kennzahlen und Liste stehen – sonst läge das
+  // Panel unter dem sichtbaren Bereich (Fixliste 2, B5). Nur ab lg: darunter
+  // öffnet die Konversation ohnehin als Vollbild. Ein Merker: true, solange
+  // der Sprung aussteht (Fixliste 3, S4).
+  // Der Sprung hält eine Weile (holdScrollTarget): Ändert sich das Layout
+  // über der Liste oder setzt der Browser die Scrollposition, springt die
+  // Ansicht erneut – ein einmaliger Sprung ließ die Seite manchmal
+  // ungescrollt (Fixliste 4, V7). Er endet sofort bei einer Eingabe, sonst
+  // nach dem Laden und HOLD_SCROLL_QUIET_MS Ruhe (Fixliste 7, F15) – aber
+  // nicht, solange die Liste die per Link geöffnete Zeile noch sucht
+  // (Fixliste 8, M1), dann spätestens nach HOLD_SCROLL_BUSY_MAX_MS.
+  const [linkJumpPending, setLinkJumpPending] = useState(
+    () => place.chatId !== null
+  );
+  // Die Ansicht stellt ihre Scrollposition selbst ein (Sprung zur Liste,
+  // Panel): Der Browser stellt beim Neuladen und bei Zurück/Vor keine
+  // gemerkte Position wieder her, die den Sprung überschriebe (Fixliste 7,
+  // F15 – eine Ursache, die holdScrollTarget bisher abfing). Beim Verlassen
+  // der Seite gilt wieder die vorige Einstellung.
+  useEffect(() => {
+    const history = typeof window !== "undefined" ? window.history : null;
+    if (!history || !("scrollRestoration" in history)) return;
+    const previous = history.scrollRestoration;
+    history.scrollRestoration = "manual";
+    return () => {
+      history.scrollRestoration = previous;
+    };
+  }, []);
+  const listReady = viewableCount !== null && !summary.loading;
+  const releaseLinkJump = useRef(null);
+  // Sucht die Liste die per Link geöffnete Zeile noch? (Bis sie es meldet:
+  // ja, wenn eine Konversation in der Adresse steht.)
+  const linkSearching = useRef(place.chatId !== null);
+  const handleLinkSearchChange = useCallback((pending) => {
+    linkSearching.current = pending;
+  }, []);
+  useEffect(() => {
+    if (!linkJumpPending || !listReady) return;
+    setLinkJumpPending(false);
+    if (!isWide()) return;
+    // Zur Überschrift der Liste; steht die geöffnete Zeile dann unter dem
+    // Fensterrand (Zeile 45), weiter bis zu ihr – das Panel klebt oben und
+    // bleibt sichtbar (Fixliste 6, K5).
+    releaseLinkJump.current = holdScrollTarget(
+      listRef.current,
+      () => {
+        listRef.current?.scrollIntoView?.({ block: "start" });
+        revealMarkedRow(listRef.current);
+      },
+      { busy: () => linkSearching.current }
+    );
+  }, [linkJumpPending, listReady]);
+  useEffect(() => () => releaseLinkJump.current?.(), []);
+  // Die per Link geöffnete Zeile ist (nach)geladen und markiert: noch einmal
+  // ausrichten, solange der Sprung hält – er hält bis dahin (Fixliste 8,
+  // M1), außer der Nutzer hat inzwischen selbst gescrollt oder etwas getan.
+  const revealLinkedRow = useCallback(
+    () => releaseLinkJump.current?.realign?.(),
+    []
+  );
 
   return (
     <div className="flex w-full min-w-0 flex-col p-2 md:p-6">
@@ -223,6 +373,11 @@ function WidgetAnalytics({ embeds }) {
         embeds={embeds}
         selectedEmbed={selectedEmbed}
         onSelectEmbed={setSelectedEmbed}
+        viewableCount={viewableCount}
+        feedbackFilter={feedbackFilter}
+        bucket={bucket}
+        search={effectiveSearch(place.search)}
+        onJumpToList={jumpToList}
         startDate={startDate}
         endDate={endDate}
         onDateChange={handleDateChange}
@@ -240,7 +395,7 @@ function WidgetAnalytics({ embeds }) {
           summary={summaryData}
           loading={summary.loading}
           compare={compare}
-          onShowNegative={showNegative}
+          onShowRated={showRated}
           embedId={selectedEmbed}
           startDate={startDateISO}
           endDate={endDateISO}
@@ -267,15 +422,22 @@ function WidgetAnalytics({ embeds }) {
         failed={summary.failed}
       />
 
-      <div ref={listRef} className="scroll-mt-4">
+      {/* Sprungziel: Überschrift und Werkzeugleiste landen unter dem
+          Benutzermenü oben rechts (Fixliste 3, V2) */}
+      <div ref={listRef} className={AVATAR_CLEARANCE.jumpTarget}>
         <ConversationList
-          embedId={selectedEmbed}
-          startDate={startDateISO}
-          endDate={endDateISO}
+          embedId={unknownLink ? null : selectedEmbed}
+          fromDay={fromDay}
+          toDay={toDay}
           feedbackFilter={feedbackFilter}
           onFeedbackFilterChange={setFeedbackFilter}
           bucket={bucket}
-          onClearBucket={() => selectBucket(null)}
+          onClearBucket={clearBucket}
+          onViewableCountChange={setViewableCount}
+          countedConversations={countedConversations}
+          onLinkedRowShown={revealLinkedRow}
+          onLinkSearchChange={handleLinkSearchChange}
+          headingRef={listHeadingRef}
           showDeletedHint={showsDeletedHint({
             retentionDays,
             startDay: bucket?.start ?? summaryData?.fromDay ?? fromDay,
@@ -287,53 +449,109 @@ function WidgetAnalytics({ embeds }) {
   );
 }
 
-/** Kopfzeile: Titel, Widget-Auswahl (nur bei mehreren Widgets) und Zeitraum. */
+/**
+ * Text des Verweises zur Liste. Er nennt die Zahl der Liste und, was sie
+ * filtert: „18 negativ bewertete Konversationen ansehen", „4 Konversationen
+ * aus „Di., 06.10.2026" ansehen"; mit Bewertungsfilter und Abschnitt kurz
+ * „3 gefilterte Konversationen ansehen" – die Liste zeigt beide Markierungen.
+ * @param {Function} t
+ * @param {number|null} count - null, solange die Liste lädt
+ * @param {"all"|"negative"|"positive"} feedbackFilter
+ * @param {{label: string}|null} bucket
+ * @param {string} [search] - Suchbegriff der Liste: allein „3 Konversationen
+ *   mit „spanisch" ansehen", mit weiteren Filtern „gefilterte"
+ */
+function jumpText(t, count, feedbackFilter, bucket, search = "") {
+  if (count === null) return t("embed-analytics.list.jump-pending");
+  const values = { count, formatted: formatNumber(count) };
+  const rated = feedbackFilter === "negative" || feedbackFilter === "positive";
+  if (search && !rated && !bucket)
+    return t("embed-analytics.search.jump", { ...values, term: search });
+  if ((rated && bucket) || search)
+    return t("embed-analytics.list.jump-filtered", values);
+  if (rated) return t(`embed-analytics.list.jump-${feedbackFilter}`, values);
+  if (bucket)
+    return t("embed-analytics.list.jump-bucket", {
+      ...values,
+      period: bucket.label,
+    });
+  return t("embed-analytics.list.jump", values);
+}
+
+/**
+ * Kopfzeile: Titel mit dem Verweis zur Liste, Widget-Auswahl (nur bei
+ * mehreren Widgets) und Zeitraum.
+ */
 function Header({
   embeds,
   selectedEmbed,
   onSelectEmbed,
+  viewableCount,
+  feedbackFilter,
+  bucket,
+  search,
+  onJumpToList,
   startDate,
   endDate,
   onDateChange,
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [embedDropdownOpen, setEmbedDropdownOpen] = useState(false);
   const embedDropdownRef = useRef(null);
+  const embedButtonRef = useRef(null);
 
-  // Close embed dropdown on outside click
-  useEffect(() => {
-    if (!embedDropdownOpen) return;
-    function handleMouseDown(e) {
-      if (
-        embedDropdownRef.current &&
-        !embedDropdownRef.current.contains(e.target)
-      ) {
-        setEmbedDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, [embedDropdownOpen]);
+  // Klick außerhalb oder Escape schließt die Widget-Auswahl, der Fokus geht
+  // auf die Schaltfläche zurück – wie Exportmenü und Menü „⋯“ (Fixliste 7,
+  // B5).
+  const closeEmbedDropdown = useCallback(() => setEmbedDropdownOpen(false), []);
+  useDismiss(embedDropdownRef, embedDropdownOpen, closeEmbedDropdown, {
+    focusRef: embedButtonRef,
+  });
 
-  const embedLabel = (embed) =>
-    t("embed-analytics.embed-label", {
-      id: embed.id,
-      workspace: embed.workspace?.name,
-    });
+  // Ein Widget heißt wie sein Workspace; die Widget-Nummer kommt nur dazu, wo
+  // die Bezeichnung in dieser Liste mehrfach vorkommt (utils/embedLabel).
+  const labels = useMemo(() => embedLabels(embeds, t), [embeds, t]);
+  const options = useMemo(
+    () => sortEmbedsByLabel(embeds, labels, i18n.language),
+    [embeds, labels, i18n.language]
+  );
+  const embedLabel = (embed) => labels.get(embed.id)?.label;
   const current = embeds.find((e) => e.id === selectedEmbed);
 
   return (
     <div className="flex flex-wrap gap-3 justify-between items-center mb-6">
-      <h2 className="text-white text-2xl font-bold">
-        {t("embed-analytics.title")}
-      </h2>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-white text-2xl font-bold">
+          {t("embed-analytics.title")}
+        </h2>
+        {/* Sprung zur Liste. Ohne einsehbare Konversation entfällt er: Die
+            Liste sagt es selbst, und „keine Konversationen“ stünde neben der
+            Kennzahl „Konversationen“ aus dem Zählerbuch, die mehr zählt. */}
+        {viewableCount !== 0 && (
+          <button
+            type="button"
+            data-jump-to-list=""
+            onClick={onJumpToList}
+            className={`text-sm ${MUTED} underline underline-offset-2 hover:text-theme-text-primary`}
+          >
+            {jumpText(t, viewableCount, feedbackFilter, bucket, search)}
+            <span aria-hidden="true"> ↓</span>
+          </button>
+        )}
+      </div>
 
-      <div className="flex flex-wrap gap-3 items-center">
+      {/* md:pr-12: Widget-Auswahl und Zeitraum enden links vom schwebenden
+          Benutzermenü oben rechts („KI") – es läge sonst auf ihrem Rand
+          (Fixliste 2, B4). */}
+      <div
+        className={`flex flex-wrap gap-3 items-center ${AVATAR_CLEARANCE.headerEnd}`}
+      >
         {/* Widget-Auswahl – bei genau einem Widget gibt es nichts zu wählen. */}
         {embeds.length > 1 && (
           <div className="relative" ref={embedDropdownRef}>
             <button
               type="button"
+              ref={embedButtonRef}
               aria-haspopup="listbox"
               aria-expanded={embedDropdownOpen}
               aria-label={t("embed-analytics.widget-label")}
@@ -351,13 +569,16 @@ function Header({
               />
             </button>
 
+            {/* Nicht gewählte Optionen gedämpft wie die übrige Ansicht
+                (MUTED: hell #5f6368, 6:1 auf Weiß statt 4,15:1 mit
+                --theme-text-secondary – Fixliste 8, Opus Low 2). */}
             {embedDropdownOpen && (
               <div
                 role="listbox"
                 aria-label={t("embed-analytics.widget-label")}
                 className="absolute left-0 top-full mt-1 w-full bg-theme-bg-secondary border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden"
               >
-                {embeds.map((embed) => (
+                {options.map((embed) => (
                   <button
                     key={embed.id}
                     type="button"
@@ -368,7 +589,7 @@ function Header({
                       setEmbedDropdownOpen(false);
                     }}
                     className={`flex items-center justify-between w-full px-3 py-2 text-sm text-left transition-all cursor-pointer
-                      ${selectedEmbed === embed.id ? "bg-white/10 text-theme-text-primary font-medium" : "text-theme-text-secondary hover:bg-white/5 hover:text-theme-text-primary"}`}
+                      ${selectedEmbed === embed.id ? "bg-white/10 text-theme-text-primary font-medium" : `${MUTED} hover:bg-white/5 hover:text-theme-text-primary`}`}
                   >
                     <span>{embedLabel(embed)}</span>
                     {selectedEmbed === embed.id && (

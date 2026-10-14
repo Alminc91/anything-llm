@@ -5,7 +5,6 @@ import { FullScreenLoader } from "@/components/Preloader";
 import { useCanViewChatHistory } from "@/components/CanViewChatHistory";
 import paths from "@/utils/paths";
 import EmbedConfigsView from "./EmbedConfigs";
-import EmbedChatsView from "./EmbedChats";
 import EmbedAnalyticsView from "./EmbedAnalytics";
 
 // Bereich „Chatbot" (KIE-535): Jede Ansicht hat eine eigene Adresse unter
@@ -33,21 +32,12 @@ export function ChatbotConversations() {
   );
 }
 
-/** /settings/chatbot/messages */
-export function ChatbotMessages() {
-  return (
-    <RequiresChatHistory>
-      <ChatbotLayout>
-        <EmbedChatsView />
-      </ChatbotLayout>
-    </RequiresChatHistory>
-  );
-}
-
 /**
- * „Konversationen" und „Nachrichtentabelle" bleiben an den einsehbaren
- * Chat-Verlauf gebunden. Ist er abgeschaltet, wird die Ansicht gar nicht erst
- * eingehängt (keine Abfragen) und auf die Widget-Liste umgeleitet.
+ * „Konversationen" bleibt an den einsehbaren Chat-Verlauf gebunden. Ist er
+ * abgeschaltet, wird die Ansicht gar nicht erst eingehängt (keine Abfragen)
+ * und auf die Widget-Liste umgeleitet. Das gilt auch für die frühere Adresse
+ * der Nachrichtentabelle (/settings/chatbot/messages, KIE-538), die auf
+ * „Konversationen" umleitet.
  * @param {{children: React.ReactNode}} props
  */
 function RequiresChatHistory({ children }) {

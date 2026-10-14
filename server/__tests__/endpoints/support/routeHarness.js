@@ -370,12 +370,14 @@ function collectRoutes(register) {
  * Durchläuft die Kette einer Route wie Express: Jede Middleware entscheidet
  * mit next(), ob es weitergeht.
  * @param {Function[]} chain
- * @param {{params?: object, query?: object, body?: any, token?: string|null}} request
- * @returns {Promise<{statusCode: number, body: any, headers: object, sent: number}>}
+ * @param {{params?: object, query?: object, body?: any, token?: string|null, prepare?: (response: object, result: object) => void}} request
+ *   prepare: richtet die Antwort vor dem Durchlauf ein - etwa einen
+ *   Empfänger, der die Verbindung mitten in einer gestreamten Antwort beendet
+ * @returns {Promise<{statusCode: number, body: any, headers: object, sent: number, chunks: string[], destroyed: any}>}
  */
 async function invoke(
   chain,
-  { params = {}, query = {}, body = {}, token = null } = {}
+  { params = {}, query = {}, body = {}, token = null, prepare = null } = {}
 ) {
   if (!Array.isArray(chain)) throw new Error("Route ist nicht registriert");
   const headers = token ? { authorization: `Bearer ${token}` } : {};
@@ -387,7 +389,17 @@ async function invoke(
     header: (name) => headers[String(name).toLowerCase()],
   };
 
-  const result = { statusCode: 200, body: undefined, headers: {}, sent: 0 };
+  const result = {
+    statusCode: 200,
+    body: undefined,
+    headers: {},
+    sent: 0,
+    // Gestreamte Antwort (KIE-538): jedes write() ein Stück, in der
+    // Reihenfolge des Schreibens; body ist danach der ganze Text.
+    chunks: [],
+    // Mit destroy() abgebrochene Verbindung: der Grund, sonst null.
+    destroyed: null,
+  };
   const response = {
     locals: {},
     status: (code) => {
@@ -413,9 +425,24 @@ async function invoke(
     setHeader: (name, value) => {
       result.headers[name] = value;
     },
-    end: () => response,
+    write: (chunk) => {
+      result.chunks.push(String(chunk));
+      return true;
+    },
+    end: () => {
+      if (result.chunks.length > 0 && result.body === undefined) {
+        result.body = result.chunks.join("");
+        result.sent += 1;
+      }
+      return response;
+    },
+    destroy: (error) => {
+      result.destroyed = error ?? true;
+      return response;
+    },
   };
 
+  prepare?.(response, result);
   for (const handler of chain) {
     let proceed = false;
     await handler(request, response, () => {

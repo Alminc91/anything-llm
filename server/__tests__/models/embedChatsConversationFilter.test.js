@@ -1,6 +1,6 @@
 /* eslint-env jest, node */
 // KIE-508 / KIE-527 — Embed-Analytics: Konversationsliste nach 👎 bzw. 👍
-// filtern. getConversations/countConversations müssen (a) ohne Filter KEINE
+// filtern. Liste (conversationPage)/countConversations müssen (a) ohne Filter KEINE
 // Filterbedingung senden, (b) für "negative" auf negative_count und für
 // "positive" auf positive_count filtern — und zwar NACH der Gruppierung, damit
 // conversation_number stabil bleibt, (c) den Legacy-Boolean onlyNegative=true
@@ -27,6 +27,32 @@ jest.mock("../../utils/http", () => ({
 }));
 
 const { EmbedChats } = require("../../models/embedChats");
+
+// Die Liste einer Seite in der früheren Form getConversations(embedId,
+// offset, limit, startDate, endDate, feedbackFilter, startedBetween) - über
+// conversationPage, den einzigen Weg der Route (Fixliste 7, F19:
+// getConversations ist entfallen).
+async function listOf(
+  model,
+  embedId,
+  offset,
+  limit,
+  startDate = null,
+  endDate = null,
+  feedbackFilter = "all",
+  startedBetween = null
+) {
+  const { conversations } = await model.conversationPage(embedId, {
+    offset,
+    limit,
+    startDate,
+    endDate,
+    feedbackFilter,
+    startedBetween,
+  });
+  return conversations;
+}
+const getConversations = (...args) => listOf(EmbedChats, ...args);
 
 const EMBED_ID = 3;
 
@@ -103,10 +129,19 @@ function lastBoundValues() {
   return collect(prisma.$queryRaw.mock.calls.at(-1).slice(1));
 }
 
+// Stand der Liste (Fixliste 8, L2): Die erste Seite liest nur Zeilen bis zur
+// höchsten id beim Laden - hier fest.
+const MAX_ID = 500;
+
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.restoreAllMocks();
   prisma.$queryRaw.mockResolvedValue(RAW_ROWS);
   prisma.embed_chats.findMany.mockResolvedValue(FIRST_CHATS);
+  jest.spyOn(EmbedChats, "_currentMaxId").mockResolvedValue(MAX_ID);
+  // Die Gründe negativer Bewertungen lädt eine eigene Abfrage nach der Liste
+  // (seit Fixliste 9, A3 ebenfalls $queryRaw) - hier geht es um die Liste.
+  jest.spyOn(EmbedChats, "_firstNegativeReasons").mockResolvedValue(new Map());
 });
 
 describe("normalizeFeedbackFilter", () => {
@@ -157,7 +192,7 @@ describe("feedbackFilterCondition", () => {
 
 describe("getConversations — SQL-Form", () => {
   test("Default (kein Filter): keine Filterbedingung, beide Zähler, include = 1 (NAK-2)", async () => {
-    await EmbedChats.getConversations(EMBED_ID, 0, 20);
+    await getConversations(EMBED_ID, 0, 20);
     const sql = lastSql();
     expect(sql).not.toMatch(/negative_count > 0|positive_count > 0/);
     expect(sql).not.toMatch(/HAVING/i);
@@ -173,21 +208,21 @@ describe("getConversations — SQL-Form", () => {
   });
 
   test("'negative' → Bedingung auf negative_count NACH der Gruppierung (KIE-508)", async () => {
-    await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, "negative");
+    await getConversations(EMBED_ID, 0, 20, null, null, "negative");
     const sql = lastSql();
     expect(sql).toMatch(/GROUP BY .*\) WHERE negative_count > 0 ORDER BY/);
     expect(sql).not.toMatch(/positive_count > 0/);
   });
 
   test("'positive' → Bedingung auf positive_count NACH der Gruppierung (KIE-527, AK-1)", async () => {
-    await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, "positive");
+    await getConversations(EMBED_ID, 0, 20, null, null, "positive");
     const sql = lastSql();
     expect(sql).toMatch(/GROUP BY .*\) WHERE positive_count > 0 ORDER BY/);
     expect(sql).not.toMatch(/negative_count > 0/);
   });
 
   test("conversation_number wird VOR dem Filter vergeben (stabil je Filterzustand)", async () => {
-    await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, "positive");
+    await getConversations(EMBED_ID, 0, 20, null, null, "positive");
     const sql = lastSql();
     const rowNumberIdx = sql.indexOf("ROW_NUMBER() OVER");
     const filterIdx = sql.indexOf("WHERE positive_count > 0");
@@ -198,15 +233,15 @@ describe("getConversations — SQL-Form", () => {
   });
 
   test("Legacy onlyNegative=true verhält sich wie 'negative' (AK-4)", async () => {
-    await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, true);
+    await getConversations(EMBED_ID, 0, 20, null, null, true);
     const legacySql = lastSql();
-    await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, "negative");
+    await getConversations(EMBED_ID, 0, 20, null, null, "negative");
     expect(legacySql).toBe(lastSql());
   });
 
   test("ungültiger Filter-Wert → keine Bedingung, Wert taucht nirgends auf (NAK-1)", async () => {
     const evil = "1=1) OR (1=1";
-    await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, evil);
+    await getConversations(EMBED_ID, 0, 20, null, null, evil);
     expect(lastSql()).not.toMatch(/negative_count > 0|positive_count > 0/);
     expect(lastSql()).not.toContain(evil);
     expect(lastBoundValues()).not.toContain(evil);
@@ -215,7 +250,7 @@ describe("getConversations — SQL-Form", () => {
   test("Datumsfilter werden als gebundene Werte übergeben", async () => {
     const start = new Date("2026-01-01T00:00:00Z");
     const end = new Date("2026-02-01T00:00:00Z");
-    await EmbedChats.getConversations(EMBED_ID, 0, 20, start, end, "all");
+    await getConversations(EMBED_ID, 0, 20, start, end, "all");
     expect(lastSql()).toMatch(/AND createdAt >= \? AND createdAt <= \?/);
     expect(lastBoundValues()).toEqual(expect.arrayContaining([start, end]));
   });
@@ -241,13 +276,24 @@ describe("countConversations — gleiche Gruppierung wie die Liste", () => {
   });
 
   test("Liste und Zähler teilen exakt dasselbe Gruppierungs-Fragment", async () => {
-    await EmbedChats.countConversations(EMBED_ID, null, null, "negative");
+    await EmbedChats.countConversations(
+      EMBED_ID,
+      null,
+      null,
+      "negative",
+      null,
+      null,
+      MAX_ID
+    );
     const countSql = lastSql();
     prisma.$queryRaw.mockResolvedValue(RAW_ROWS);
-    await EmbedChats.getConversations(EMBED_ID, 0, 20, null, null, "negative");
+    await getConversations(EMBED_ID, 0, 20, null, null, "negative");
     const listSql = lastSql();
     const groupFragment = (sql) =>
-      sql.slice(sql.indexOf("( SELECT"), sql.indexOf("WHERE negative_count"));
+      sql.slice(
+        sql.indexOf("( SELECT COALESCE"),
+        sql.indexOf("WHERE negative_count")
+      );
     expect(groupFragment(countSql)).toBe(groupFragment(listSql));
   });
 
@@ -257,17 +303,17 @@ describe("countConversations — gleiche Gruppierung wie die Liste", () => {
     expect(lastSql()).not.toMatch(/_count > 0/);
   });
 
-  test("DB-Fehler → 0 statt Exception", async () => {
+  test("DB-Fehler → Exception statt 0 (Fixliste 2, R2: eine 0 sähe aus wie „keine Konversationen“; die Route antwortet 500)", async () => {
     prisma.$queryRaw.mockRejectedValue(new Error("boom"));
-    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    expect(await EmbedChats.countConversations(EMBED_ID)).toBe(0);
-    spy.mockRestore();
+    await expect(EmbedChats.countConversations(EMBED_ID)).rejects.toThrow(
+      "boom"
+    );
   });
 });
 
 describe("getConversations — Ergebnisform", () => {
   test("negative_count und positive_count sind Number; NULL → 0", async () => {
-    const result = await EmbedChats.getConversations(EMBED_ID, 0, 20);
+    const result = await getConversations(EMBED_ID, 0, 20);
     expect(result[0].negative_count).toBe(1);
     expect(result[0].positive_count).toBe(2);
     expect(typeof result[0].positive_count).toBe("number");
@@ -288,15 +334,7 @@ describe("beginn_im_abschnitt — SQL-Form (KIE-536, AK-7)", () => {
   };
 
   test("Bedingung auf started_at NACH der Gruppierung, halboffen, als gebundene Werte", async () => {
-    await EmbedChats.getConversations(
-      EMBED_ID,
-      0,
-      20,
-      null,
-      null,
-      "all",
-      BETWEEN
-    );
+    await getConversations(EMBED_ID, 0, 20, null, null, "all", BETWEEN);
     const sql = lastSql();
     expect(sql).toMatch(
       /GROUP BY .*\) WHERE started_at >= \? AND started_at < \? ORDER BY/
@@ -311,17 +349,11 @@ describe("beginn_im_abschnitt — SQL-Form (KIE-536, AK-7)", () => {
   test("Gruppierung ohne Datumsfilter: startDate/endDate bleiben mit Abschnitts-Filter unbeachtet", async () => {
     const start = new Date("2026-09-13T00:00:00Z");
     const end = new Date("2026-10-12T23:59:59Z");
-    await EmbedChats.getConversations(
-      EMBED_ID,
-      0,
-      20,
-      start,
-      end,
-      "all",
-      BETWEEN
-    );
+    await getConversations(EMBED_ID, 0, 20, start, end, "all", BETWEEN);
     expect(lastSql()).not.toMatch(/createdAt >=|createdAt <=/);
-    expect(lastSql()).toMatch(/WHERE include = 1 AND embed_id = \? GROUP BY/);
+    expect(lastSql()).toMatch(
+      /WHERE include = 1 AND embed_id = \? AND id <= \? GROUP BY/
+    );
     expect(lastBoundValues()).not.toContain(start);
     expect(lastBoundValues()).not.toContain(end);
 
@@ -331,27 +363,11 @@ describe("beginn_im_abschnitt — SQL-Form (KIE-536, AK-7)", () => {
   });
 
   test("zusammen mit dem Feedback-Filter: beide Bedingungen nach der Gruppierung", async () => {
-    await EmbedChats.getConversations(
-      EMBED_ID,
-      0,
-      20,
-      null,
-      null,
-      "negative",
-      BETWEEN
-    );
+    await getConversations(EMBED_ID, 0, 20, null, null, "negative", BETWEEN);
     expect(lastSql()).toMatch(
       /GROUP BY .*\) WHERE negative_count > 0 AND started_at >= \? AND started_at < \? ORDER BY/
     );
-    await EmbedChats.getConversations(
-      EMBED_ID,
-      0,
-      20,
-      null,
-      null,
-      "positive",
-      BETWEEN
-    );
+    await getConversations(EMBED_ID, 0, 20, null, null, "positive", BETWEEN);
     expect(lastSql()).toMatch(
       /GROUP BY .*\) WHERE positive_count > 0 AND started_at >= \? AND started_at < \? ORDER BY/
     );
@@ -365,23 +381,20 @@ describe("beginn_im_abschnitt — SQL-Form (KIE-536, AK-7)", () => {
         null,
         null,
         "negative",
-        BETWEEN
+        BETWEEN,
+        null,
+        MAX_ID
       )
     ).toBe(2);
     const countSql = lastSql();
     prisma.$queryRaw.mockResolvedValue(RAW_ROWS);
-    await EmbedChats.getConversations(
-      EMBED_ID,
-      0,
-      20,
-      null,
-      null,
-      "negative",
-      BETWEEN
-    );
+    await getConversations(EMBED_ID, 0, 20, null, null, "negative", BETWEEN);
     const listSql = lastSql();
     const tail = (sql) =>
-      sql.slice(sql.indexOf("( SELECT"), sql.indexOf("started_at < ?"));
+      sql.slice(
+        sql.indexOf("( SELECT COALESCE"),
+        sql.indexOf("started_at < ?")
+      );
     expect(tail(countSql)).toBe(tail(listSql));
     expect(countSql).toMatch(/started_at >= \? AND started_at < \?/);
   });
@@ -390,18 +403,10 @@ describe("beginn_im_abschnitt — SQL-Form (KIE-536, AK-7)", () => {
     const start = new Date("2026-01-01T00:00:00Z");
     const end = new Date("2026-02-01T00:00:00Z");
     for (const filter of ["all", "negative", "positive"]) {
-      await EmbedChats.getConversations(EMBED_ID, 0, 20, start, end, filter);
+      await getConversations(EMBED_ID, 0, 20, start, end, filter);
       const without = lastSql();
       for (const none of [null, undefined]) {
-        await EmbedChats.getConversations(
-          EMBED_ID,
-          0,
-          20,
-          start,
-          end,
-          filter,
-          none
-        );
+        await getConversations(EMBED_ID, 0, 20, start, end, filter, none);
         expect(lastSql()).toBe(without);
       }
       expect(without).not.toMatch(/started_at >=|started_at </);
@@ -420,15 +425,7 @@ describe("beginn_im_abschnitt — SQL-Form (KIE-536, AK-7)", () => {
       {},
       42,
     ]) {
-      await EmbedChats.getConversations(
-        EMBED_ID,
-        0,
-        20,
-        null,
-        null,
-        "all",
-        value
-      );
+      await getConversations(EMBED_ID, 0, 20, null, null, "all", value);
       expect(lastSql()).not.toMatch(/started_at >=|started_at </);
       expect(lastSql()).not.toContain(evil);
       expect(lastBoundValues()).not.toContain(evil);
@@ -519,7 +516,7 @@ describe("beginn_im_abschnitt (KIE-536, AK-7)", () => {
 
   async function listAndCount(...args) {
     const [list, count] = await Promise.all([
-      Chats.getConversations(embed.id, 0, 20, ...args),
+      listOf(Chats, embed.id, 0, 20, ...args),
       Chats.countConversations(embed.id, ...args),
     ]);
     expect(count).toBe(list.length);
@@ -693,24 +690,8 @@ describe("beginn_im_abschnitt (KIE-536, AK-7)", () => {
     ]);
 
     // Blättern: neueste zuerst, Zähler über alle Seiten.
-    const pageOne = await Chats.getConversations(
-      embed.id,
-      0,
-      3,
-      null,
-      null,
-      "all",
-      day
-    );
-    const pageTwo = await Chats.getConversations(
-      embed.id,
-      3,
-      3,
-      null,
-      null,
-      "all",
-      day
-    );
+    const pageOne = await listOf(Chats, embed.id, 0, 3, null, null, "all", day);
+    const pageTwo = await listOf(Chats, embed.id, 3, 3, null, null, "all", day);
     expect(pageOne.map((row) => row.conversation_id)).toEqual([
       "spaeter-negativ",
       "positiv",

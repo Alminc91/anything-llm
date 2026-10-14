@@ -3766,7 +3766,9 @@ describe("eingaben (NAK-6)", () => {
   });
 
   test("eingaben: Abschnitts-Filter der Liste - ungültige Kalendertage → 400 ohne Abfrage der Konversationen", async () => {
-    const listSpy = jest.spyOn(EmbedChats, "getConversations");
+    // Die Route liest die Liste über conversationPage (Fixliste 7, F19:
+    // getConversations ist entfallen).
+    const listSpy = jest.spyOn(EmbedChats, "conversationPage");
     const countSpy = jest.spyOn(EmbedChats, "countConversations");
     for (const body of [
       { startedFromDay: "2026-10-07", startedToDay: "2026-10-06" },

@@ -9,24 +9,9 @@ export function formatDate(dateString) {
   return formattedDate;
 }
 
-/**
- * Formatiert einen ISO-Zeitstempel in ein deutsches Datumsformat mit Uhrzeit
- * @param {string} isoString - ISO-Zeitstempel (z.B. "2025-04-23T12:30:57.634Z")
- * @returns {string} Formatiertes Datum (z.B. "23.04.2025, 12:30:57 Uhr")
- */
-export function formatDateTimeDE(isoString) {
-  if (!isoString) return "-";
-  const date = new Date(isoString);
-  if (isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }) + " Uhr";
-}
+// Deutsche Zeitstempel: zentrale Funktion in utils/dateTimeDE.js (ohne
+// moment), hier weiter exportiert (Fixliste 5, S3).
+export { formatDateTimeDE } from "./dateTimeDE.js";
 
 export function formatDateTimeAsMoment(dateString, format = "LLL") {
   if (!dateString) return moment().format(format);

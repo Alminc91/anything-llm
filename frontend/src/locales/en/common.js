@@ -157,10 +157,6 @@ const TRANSLATIONS = {
       granted: "Device access granted",
       denied: "Device access denied",
     },
-    "embed-chats": {
-      "export-success": "Embed chats exported successfully as {{name}}.",
-      "export-error": "Failed to export embed chats.",
-    },
     "text-splitter": {
       "save-success": "Text chunking strategy settings saved.",
       "save-error": "Failed to save text chunking strategy settings.",
@@ -276,7 +272,6 @@ const TRANSLATIONS = {
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
     "chatbot-conversations": "Conversations",
-    "chatbot-messages": "Message table",
     "embed-chats": "Chat Embed History",
     security: "Security",
     "event-logs": "Event Logs",
@@ -1060,40 +1055,8 @@ const TRANSLATIONS = {
     "script-info":
       "After creating an embed, you will receive a link that you can publish on your website with a simple &lt;script&gt; tag.",
   },
-
   "chat-row": {
-    delete: "Delete",
-    "confirm-delete":
-      "Are you sure you want to delete this chat?\n\nThis action cannot be undone.",
-    "view-text": "View Text",
-    "session-id": "Session ID:",
-    username: "Username:",
-    "client-ip": "Client IP Address:",
-    "client-host": "Client Host URL:",
     "view-thoughts": "View Thoughts",
-  },
-
-  "embed-chats": {
-    title: "Embed Chat History",
-    export: "Export",
-    "clear-all": "Clear All Chats",
-    "clear-all-confirm":
-      "Are you sure you want to clear ALL embed chats?\n\nThis action cannot be undone.",
-    "clear-all-success": "{{count}} embed chats successfully cleared.",
-    "clear-all-error": "Failed to clear embed chats.",
-    description:
-      "These are all the recorded conversations from any embed that you have published, grouped by conversation.",
-    "no-conversations": "No conversations found.",
-    "no-chats": "No chats found.",
-    "retention-header": "GDPR data deletion active",
-    "cutoff-date": "Retention {{days}} days — today's chats expire on {{date}}",
-    table: {
-      embed: "Embed",
-      sender: "Sender",
-      message: "Message",
-      response: "Response",
-      at: "Sent At",
-    },
   },
 
   security: {
@@ -1540,6 +1503,7 @@ const TRANSLATIONS = {
   "embed-analytics": {
     title: "Analytics Dashboard",
     "load-error": "Error loading analytics data.",
+    loading: "Loading …",
     "all-time": "All Time",
     "statistics-title": "STATISTICS",
     stats: {
@@ -1562,29 +1526,26 @@ const TRANSLATIONS = {
       "show-technical": "Show technical details",
       "technical-note":
         "Calculated from the conversation contents that still exist in the selected period – without deleted messages and messages cleared by the visitor. The figures above count every message.",
-      "feedback-positive-label": "👍 Positive",
+      "feedback-positive-label": "Positive",
       "feedback-positive-desc": "Positively rated responses",
-      "feedback-negative-label": "👎 Negative",
+      "feedback-negative-label": "Negative",
       "feedback-negative-desc": "Negatively rated responses",
       "feedback-satisfaction-label": "Satisfaction",
       "feedback-satisfaction-desc": "Share of positive ratings",
       "feedback-none": "No ratings available",
     },
-    feedback: {
-      positive: "Rated positive",
-      negative: "Rated negative",
-    },
     "conversations-title": "CONVERSATIONS",
     "conversation-number": "Conversation #{{id}}",
     messages: "Messages",
-    request: "Request",
-    response: "Response",
     "no-conversations": "No conversations available.",
     "session-copied": "Session ID copied!",
     "retention-notice":
       "GDPR data deletion active — retention {{days}} days, chats expire on {{expiryDate}}",
-    "select-embed": "Select embed",
-    "embed-label": "Embed #{{id}} ({{workspace}})",
+    "select-embed": "Select widget",
+    "embed-label": {
+      unnamed: "Widget {{id}}",
+      suffix: "· Widget {{id}}",
+    },
     "retention-line_one":
       "Conversation contents are deleted after {{count}} day. The counts are kept.",
     "retention-line_other":
@@ -1600,8 +1561,6 @@ const TRANSLATIONS = {
       "aria-label": "Key figures for the selected period",
       messages: "Messages",
       conversations: "Conversations",
-      positive: "Positively rated responses",
-      negative: "Negatively rated responses",
       "avg-per": {
         hour: "Avg. {{value}} per hour",
         day: "Avg. {{value}} per day",
@@ -1609,12 +1568,20 @@ const TRANSLATIONS = {
         month: "Avg. {{value}} per month",
       },
       "avg-per-conversation": "Avg. {{value}} messages per conversation",
-      "positive-share": "{{value}} % of rated responses",
       "no-ratings": "No ratings",
-      "no-negative": "No negative ratings",
       "show-negative": "Show affected conversations",
       "conversations-hint":
         "Conversations started in the period. The list below only shows conversations whose contents still exist – the numbers may differ.",
+      ratings: "Ratings",
+      "rated-share": "{{value}} % of responses rated",
+      "positive-count": "{{value}} positive",
+      "negative-count": "{{value}} negative",
+      "negative-action": "{{value}} negative – Show affected conversations",
+      "positive-action": "{{value}} positive – Show affected conversations",
+      satisfaction: "Satisfaction",
+      "satisfaction-value": "{{value}} %",
+      "satisfaction-of": "{{positive}} of {{total}} ratings positive",
+      "few-ratings": "Too few ratings ({{count}})",
     },
     compare: {
       toggle: "Compare with previous period",
@@ -1625,6 +1592,10 @@ const TRANSLATIONS = {
       },
       range: "{{from}}–{{to}}",
       change: "{{change}} % vs. previous period ({{previous}})",
+      "change-points_one":
+        "{{change}} point vs. previous period ({{previous}} %)",
+      "change-points_other":
+        "{{change}} points vs. previous period ({{previous}} %)",
       "previous-value": "Previous period: {{value}}",
       "previous-bucket": "Previous period: {{period}} — {{value}}",
       "previous-range": "Previous period: {{range}}",
@@ -1739,45 +1710,167 @@ const TRANSLATIONS = {
     },
     list: {
       title: "Conversations",
+      jump_one: "View {{formatted}} conversation",
+      jump_other: "View {{formatted}} conversations",
+      "jump-pending": "View conversations",
+      "jump-negative_one": "View {{formatted}} negatively rated conversation",
+      "jump-negative_other":
+        "View {{formatted}} negatively rated conversations",
+      "jump-positive_one": "View {{formatted}} positively rated conversation",
+      "jump-positive_other":
+        "View {{formatted}} positively rated conversations",
+      "jump-bucket_one": "View {{formatted}} conversation from “{{period}}”",
+      "jump-bucket_other": "View {{formatted}} conversations from “{{period}}”",
+      "jump-filtered_one": "View {{formatted}} filtered conversation",
+      "jump-filtered_other": "View {{formatted}} filtered conversations",
       viewable_one: "{{formatted}} viewable",
       viewable_other: "{{formatted}} viewable",
+      "viewable-of_one": "{{formatted}} of {{total}} viewable",
+      "viewable-of_other": "{{formatted}} of {{total}} viewable",
       "viewable-hint":
         "Conversations whose contents still exist and have not been cleared by the visitor. The key figure “Conversations” counts all conversations started in the period.",
       "only-bucket": "Only {{period}}",
       "clear-bucket": "Remove filter “{{period}}”",
+      "only-feedback": "Filter: {{filter}}",
+      "clear-feedback": "Remove filter “{{filter}}”",
       "deleted-hint":
         "Older contents were deleted according to the retention period.",
+      "content-gap_one":
+        "{{counted}} conversation counted, {{viewable}} of them viewable. Contents may have been deleted (retention period, cleared by the visitor or deleted here)\u00a0– the key figures keep counting.",
+      "content-gap_other":
+        "{{counted}} conversations counted, {{viewable}} of them viewable. Contents may have been deleted (retention period, cleared by the visitor or deleted here)\u00a0– the key figures keep counting.",
+    },
+    // KIE-538
+    export: {
+      button: "Export",
+      "menu-label": "Export format",
+      csv: "CSV (for Excel)",
+      json: "JSON",
+      hint: "Exports the conversations of the current selection – widget, period and filter.",
+      running: "Exporting …",
+      success: "Export saved: {{filename}}",
+      error: "The export failed. Please try again.",
+      "too-many":
+        "Too many matches to export – at most {{max}} conversations. Please narrow the search, filter or period.",
+    },
+    delete: {
+      conversation: "Delete conversation",
+      visitor: "Delete all conversations of this visitor",
+      "first-question": "First question",
+      "confirm-title": "Delete conversation?",
+      "confirm-count_one":
+        "The conversation with {{formatted}} message will be deleted permanently.",
+      "confirm-count_other":
+        "The conversation with {{formatted}} messages will be deleted permanently.",
+      "confirm-note":
+        "This cannot be undone. Key figures, chart and quota remain unchanged.",
+      "confirm-unknown": "The conversation will be deleted permanently.",
+      "visitor-title": "Delete all conversations of this visitor?",
+      "visitor-count_one":
+        "The same browser has {{conversations}} conversation with {{messages}} messages in this widget. It will be deleted permanently.",
+      "visitor-count_other":
+        "The same browser has {{conversations}} conversations with {{messages}} messages in total in this widget. All of them will be deleted permanently.",
+      "visitor-changed":
+        "The conversations have changed in the meantime – nothing was deleted. Please check the new numbers and confirm again.",
+      "visitor-note":
+        "This includes conversations the visitor has cleared in the widget, which no longer appear in this list. Conversations from other browsers are kept.",
+      confirm: "Delete permanently",
+      cancel: "Cancel",
+      deleting: "Deleting …",
+      success_one: "Conversation deleted ({{formatted}} message).",
+      success_other: "Conversation deleted ({{formatted}} messages).",
+      "visitor-success_one":
+        "{{conversations}} conversation deleted ({{messages}} messages).",
+      "visitor-success_other":
+        "{{conversations}} conversations deleted ({{messages}} messages).",
+      error: "The conversation could not be deleted.",
     },
     conversations: {
-      "seconds-ago": "a few seconds ago",
-      "minutes-ago_one": "{{count}} minute ago",
-      "minutes-ago_other": "{{count}} minutes ago",
-      "hours-ago_one": "{{count}} hour ago",
-      "hours-ago_other": "{{count}} hours ago",
-      "days-ago_one": "{{count}} day ago",
-      "days-ago_other": "{{count}} days ago",
-      "months-ago_one": "{{count}} month ago",
-      "months-ago_other": "{{count}} months ago",
-      "years-ago_one": "{{count}} year ago",
-      "years-ago_other": "{{count}} years ago",
-      "conversation-number": "Conversation #{{number}}",
-      "new-badge": "NEW",
-      "only-negative": "Only with 👎",
+      "only-negative": "Rated negative",
+      "only-negative-short": "Negative",
+      "only-negative-hint":
+        "Show only conversations with a negatively rated response",
       "no-negative": "No conversations with negative feedback.",
       "negative-count_one": "{{count}} negative rating",
       "negative-count_other": "{{count}} negative ratings",
-      "only-positive": "Only with 👍",
+      "only-positive": "Rated positive",
+      "only-positive-short": "Positive",
+      "only-positive-hint":
+        "Show only conversations with a positively rated response",
       "no-positive": "No conversations with positive feedback.",
       "positive-count_one": "{{count}} positive rating",
       "positive-count_other": "{{count}} positive ratings",
       "no-preview": "No preview available",
-      created: "Created:",
-      "last-message": "Last message:",
-      "message-count_one": "{{count}} message",
-      "message-count_other": "{{count}} messages",
       "no-messages": "No messages found",
-      "copy-id": "Copy conversation ID",
-      "id-copied": "Conversation ID copied",
+    },
+    rows: {
+      today: "Today · {{date}}",
+      yesterday: "Yesterday · {{date}}",
+      questions_one: "{{formatted}} question",
+      questions_other: "{{formatted}} questions",
+      started: "started on {{date}}",
+      reason: "Reason: {{reason}}",
+      "load-more": "Load more conversations",
+      "loading-more": "Loading …",
+      "load-more-failed": "More conversations could not be loaded.",
+      all: "All",
+      "all-hint": "Show all conversations",
+      "filter-group": "Filter by rating",
+    },
+    search: {
+      placeholder: "Search questions & answers",
+      label: "Search questions, answers and ratings",
+      mark: "Search: {{term}}",
+      clear: "Clear search “{{term}}”",
+      empty: "No conversations with “{{term}}” in the selected period",
+      jump_one: "View {{formatted}} conversation with “{{term}}”",
+      jump_other: "View {{formatted}} conversations with “{{term}}”",
+      "link-too-long":
+        "The search term from the link was longer than {{max}} characters and has been shortened.",
+      "link-invalid":
+        "The search term from the link contained invalid characters and was discarded.",
+      quoted: "“{{text}}”",
+      "empty-filtered":
+        "No conversations with “{{term}}” and filter {{filters}} in the selected period",
+      "clear-input": "Clear search field",
+    },
+    panel: {
+      label: "Selected conversation",
+      back: "Conversations",
+      previous: "Previous conversation",
+      next: "Next conversation",
+      more: "More actions",
+      close: "Close conversation",
+      "copy-id": "Copy ID",
+      "id-copied": "ID copied",
+      "copy-link": "Copy link",
+      "link-copied": "Link copied",
+      id: "ID {{id}}",
+      visitor: "Visitor · {{time}}",
+      positive: "Rated positive",
+      negative: "Rated negative",
+      "positive-count_one": "{{formatted}} response rated positive",
+      "positive-count_other": "{{formatted}} responses rated positive",
+      "negative-count_one": "{{formatted}} response rated negative",
+      "negative-count_other": "{{formatted}} responses rated negative",
+      time: "{{time}}",
+      span: "{{from}}–{{to}}",
+      "span-days": "{{from}} – {{to}}",
+      outside: "This conversation is outside the selected period",
+      "not-found":
+        "This conversation was not found, or you do not have access to it.",
+      "load-error": "The conversation could not be loaded.",
+      retry: "Try again",
+      "hidden-hit":
+        "“{{term}}” appears in this conversation only in link addresses, markup or hidden thoughts of a response.",
+      "not-in-list":
+        "This conversation is not in the loaded list – previous and next are not available.",
+      "not-loaded":
+        "The list could not be loaded further – previous and next are not available.",
+      "next-not-loaded":
+        "The next conversation could not be loaded – please try again.",
+      "quote-open": "“",
+      "quote-close": "”",
     },
   },
   "date-picker": {
