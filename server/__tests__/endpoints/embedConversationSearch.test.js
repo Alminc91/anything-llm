@@ -412,7 +412,7 @@ describe("suche (AK-10)", () => {
     ]);
   });
 
-  test("ohne Treffer: leere Liste, Zähler 0, Status 200", async () => {
+  test("ohne Treffer: leere Liste, Zähler 0, Status 200 – ohne Stand (keine Seite dahinter)", async () => {
     const result = await listPage(embed, { search: "Klingonisch" });
     expect(result.statusCode).toBe(200);
     expect(result.body).toEqual({
@@ -420,7 +420,7 @@ describe("suche (AK-10)", () => {
       conversations: [],
       hasMore: false,
       totalCount: 0,
-      maxId: expect.any(Number),
+      maxId: null,
     });
   });
 
@@ -1074,7 +1074,7 @@ describe("zeile (AK-1)", () => {
       conversations: [],
       hasMore: false,
       totalCount: 5,
-      maxId: expect.any(Number),
+      maxId: null,
     });
   });
 });
@@ -2674,9 +2674,9 @@ describe("stand der liste je widget (Fixliste 9, A2)", () => {
     expect(reloaded.body.maxId).toBe(next.id);
     expect(reloaded.body.totalCount).toBe(4);
 
-    // Ein Widget ohne Zeile: Stand 0
+    // Ein Widget ohne Zeile: kein Stand (leere erste Seite, Review 7.21.1)
     const empty = await createEmbed(db.client, workspaceA);
-    expect((await listPage(empty, {}, kunde)).body.maxId).toBe(0);
+    expect((await listPage(empty, {}, kunde)).body.maxId).toBeNull();
 
     // Export: derselbe Stand je Widget, alle eigenen Konversationen
     const file = await exportFile(own, "json", OCTOBER, kunde);
@@ -2899,7 +2899,7 @@ describe("nachträge 7.21.1: stand der liste aus derselben abfrage (L3)", () => 
   const maxIdQuery = (call) =>
     /SELECT MAX\(id\) AS max_id FROM embed_chats/.test(composedSql(call));
 
-  test("Die erste Seite liest ihren Stand mit ihren Zeilen – keine eigene Abfrage MAX(id) je Widget; der Stand ist die höchste id der Zeilen im Zeitraum, vor Feedback-Filter und Suche", async () => {
+  test("Die erste Seite liest ihren Stand mit ihren Zeilen – keine eigene Abfrage MAX(id) je Widget, auch nicht bei leerer Seite; der Stand ist die höchste id der Zeilen im Zeitraum, vor Feedback-Filter und Suche", async () => {
     const workspace = await createWorkspace(db.client);
     const embed = await createEmbed(db.client, workspace);
     const foreign = await createEmbed(db.client, workspace);
@@ -2938,11 +2938,19 @@ describe("nachträge 7.21.1: stand der liste aus derselben abfrage (L3)", () => 
       expect(queries.mock.calls.filter(maxIdQuery)).toEqual([]);
     }
 
-    // Leere erste Seite (nichts im Zeitraum): Stand des Widgets
-    queries.mockClear();
-    const empty = await listPage(embed, period("2026-09-01", "2026-09-30"));
-    expect(empty.body).toMatchObject({ conversations: [], maxId: newest.id });
-    expect(queries.mock.calls.filter(maxIdQuery)).toHaveLength(1);
+    // Leere erste Seite (nichts im Zeitraum, Suche ohne Treffer): kein
+    // Stand und keine eigene Abfrage MAX(id) - hinter ihr gibt es keine
+    // Seite (Review 7.21.1)
+    for (const request of [
+      period("2026-09-01", "2026-09-30"),
+      { search: "Klingonisch" },
+    ]) {
+      queries.mockClear();
+      const empty = await listPage(embed, request);
+      expect(empty.statusCode).toBe(200);
+      expect(empty.body).toMatchObject({ conversations: [], maxId: null });
+      expect(queries.mock.calls.filter(maxIdQuery)).toEqual([]);
+    }
   });
 
   test("Zeitraum in der Vergangenheit: Der Stand ist die höchste id darin; spätere Seiten zeigen dieselben Konversationen wie mit dem Stand des Widgets, neue Zeilen kommen nicht hinzu", async () => {
@@ -3103,5 +3111,50 @@ describe("nachträge 7.21.1: „index fehlt“ mit ablauf und im log (L5, L6)", 
     queries.mockClear();
     await openPanel();
     expect(queries.mock.calls.filter(hinted)).toHaveLength(1);
+  });
+  test("Review 7.21.1 (L6): Findet die erneute Prüfung den Index wieder, steht das im Log – fällt er danach im selben Prozess wieder weg, steht auch das wieder im Log", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const log = jest.spyOn(console, "log").mockImplementation(() => {});
+    const clock = laterClock();
+    const warnings = () =>
+      warn.mock.calls
+        .map((call) => String(call[0]))
+        .filter((text) => text.includes(SESSION_INDEX));
+    const recovered = () =>
+      log.mock.calls
+        .map((call) => String(call[0]))
+        .filter((text) => text.includes(SESSION_INDEX));
+
+    // fehlt beim Start
+    await db.client.$executeRawUnsafe(`DROP INDEX "${SESSION_INDEX}"`);
+    await openPanel();
+    expect(warnings()).toEqual([expect.stringMatching(/fehlt/)]);
+    expect(recovered()).toEqual([]);
+
+    // Reparatur-SQL, erneute Prüfung nach Ablauf
+    await createIndex();
+    clock.advance(EmbedChats.INDEX_MISSING_RECHECK_MS + 60 * 1000);
+    await openPanel();
+    expect(recovered()).toEqual([expect.stringMatching(/wieder da/)]);
+
+    // fällt im Betrieb erneut weg: wieder im Log (einmal)
+    await db.client.$executeRawUnsafe(`DROP INDEX "${SESSION_INDEX}"`);
+    await openPanel();
+    await openPanel();
+    expect(warnings()).toEqual([
+      expect.stringMatching(/fehlt/),
+      expect.stringMatching(/verschwunden/),
+    ]);
+
+    // und nach erneuter Reparatur wieder „wieder da“; ein Index, der nie
+    // fehlte, meldet sich nicht
+    await createIndex();
+    clock.advance(3 * EmbedChats.INDEX_MISSING_RECHECK_MS);
+    await openPanel();
+    expect(recovered()).toHaveLength(2);
+    EmbedChats._forgetIndexes();
+    await openPanel();
+    expect(recovered()).toHaveLength(2);
+    expect(console.error).not.toHaveBeenCalled();
   });
 });

@@ -692,7 +692,7 @@ function embedManagementEndpoints(app) {
         });
 
         // maxId: Stand der Liste - weitere Seiten nennen ihn in after
-        // (Fixliste 8, L2)
+        // (Fixliste 8, L2); null bei leerer erster Seite (Review 7.21.1)
         response.status(200).json({
           success: true,
           conversations,

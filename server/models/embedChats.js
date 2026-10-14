@@ -128,11 +128,13 @@ const INDEX_MISSING_RECHECK_MS = 10 * 60 * 1000;
 // in dieser Datenbank? recheckAt: ab wann erneut nachgesehen wird
 // (Infinity, solange er da ist).
 const knownIndexes = new Map();
-// Indizes, deren Fehlen schon im Log steht - einmal je Prozess (L6).
+// Indizes, deren Fehlen im Log steht - einmal je Ausfall (L6): Findet die
+// erneute Prüfung den Index wieder, fällt er heraus, und ein erneutes
+// Fehlen steht wieder im Log (Review 7.21.1).
 const reportedMissingIndexes = new Set();
 
 /**
- * Meldet einmal je Prozess und Index, dass Abfragen ohne Index-Hinweis
+ * Meldet einmal je Ausfall eines Index, dass Abfragen ohne Index-Hinweis
  * laufen - langsamer, aber richtig (finale Kontrolle L6: sonst fände der
  * Betrieb die Ursache nicht).
  * @param {string} name
@@ -147,14 +149,34 @@ function reportMissingIndex(name, reason) {
 }
 
 /**
- * Merkt sich „Index fehlt" bis INDEX_MISSING_RECHECK_MS (L5).
+ * Merkt sich „Index fehlt" bis INDEX_MISSING_RECHECK_MS (L5) und meldet es
+ * (L6) - eine Stelle für das Nachsehen (indexExists) und den Fehler „no
+ * such index" (withIndexHint).
+ * @param {string} name
+ * @param {string} reason - für das Log („fehlt", „ist verschwunden")
+ * @param {object} [entry] - nur ersetzen, solange dieser Eintrag gilt (das
+ *   Nachsehen, das ihn angelegt hat; nicht nach _forgetIndexes oder einem
+ *   neueren Nachsehen)
+ */
+function markIndexMissing(name, reason, entry = null) {
+  if (entry === null || knownIndexes.get(name) === entry)
+    knownIndexes.set(name, {
+      present: Promise.resolve(false),
+      recheckAt: Date.now() + INDEX_MISSING_RECHECK_MS,
+    });
+  reportMissingIndex(name, reason);
+}
+
+/**
+ * Der Index ist (wieder) da: Ein früheres Fehlen gilt als behoben - steht
+ * im Log, und ein erneutes Fehlen wird wieder gemeldet.
  * @param {string} name
  */
-function markIndexMissing(name) {
-  knownIndexes.set(name, {
-    present: Promise.resolve(false),
-    recheckAt: Date.now() + INDEX_MISSING_RECHECK_MS,
-  });
+function markIndexPresent(name) {
+  if (!reportedMissingIndexes.delete(name)) return;
+  console.log(
+    `[EmbedChats] Index ${name} ist wieder da - Abfragen nutzen ihn wieder.`
+  );
 }
 
 /**
@@ -178,10 +200,8 @@ function indexExists(name) {
     )
     .then((rows) => {
       const present = Array.isArray(rows) && rows.length > 0;
-      if (!present) {
-        entry.recheckAt = Date.now() + INDEX_MISSING_RECHECK_MS;
-        reportMissingIndex(name, "fehlt");
-      }
+      if (present) markIndexPresent(name);
+      else markIndexMissing(name, "fehlt", entry);
       return present;
     })
     .catch((error) => {
@@ -207,7 +227,7 @@ function indexExists(name) {
  * auszuführen. Fehlt er, läuft die Abfrage ohne Hinweis - langsamer, aber
  * nie mit „no such index" (500). Verschwindet er während des Betriebs,
  * wiederholt die Abfrage einmal ohne Hinweis. Das Fehlen steht einmal je
- * Prozess im Log (L6) und wird nach INDEX_MISSING_RECHECK_MS erneut
+ * Ausfall im Log (L6) und wird nach INDEX_MISSING_RECHECK_MS erneut
  * geprüft (L5).
  * @template T
  * @param {string} name - Name des Index
@@ -222,8 +242,7 @@ async function withIndexHint(name, run) {
     return await run(Prisma.raw(`INDEXED BY ${name}`));
   } catch (error) {
     if (!/no such index/i.test(String(error?.message ?? ""))) throw error;
-    markIndexMissing(name);
-    reportMissingIndex(name, "ist verschwunden");
+    markIndexMissing(name, "ist verschwunden");
     return await run(Prisma.empty);
   }
 }
@@ -1382,8 +1401,8 @@ const EmbedChats = {
    * @returns {Promise<{conversations: Array, totalCount: number, hasMore: boolean, maxId: number|null}>}
    *   maxId: der Stand dieser Liste (höchste id der Zeilen des Widgets im
    *   Zeitraum beim Laden der ersten Seite, Fixliste 9, A2; aus derselben
-   *   Abfrage wie die Seite, finale Kontrolle L3 - ist die Seite leer, die
-   *   höchste id des Widgets); weitere Seiten nennen ihn in after.maxId
+   *   Abfrage wie die Seite, finale Kontrolle L3 - null, wenn die erste
+   *   Seite leer ist); weitere Seiten nennen ihn in after.maxId
    * @throws bei einem Datenbankfehler: Die Route antwortet 500, die Liste
    *   zeigt „Fehler beim Laden" mit „Erneut versuchen" statt einer leeren
    *   Liste (Fixliste 2, R2). Protokolliert wird in der Route, ohne
@@ -1406,13 +1425,14 @@ const EmbedChats = {
     // erste hält ihn fest. Die erste liest ihn in derselben Abfrage wie ihre
     // Zeilen (list_max_id, finale Kontrolle L3) - eine eigene Abfrage
     // MAX(id) je Widget läse alle Indexeinträge des Widgets ein zweites Mal.
+    const keptMaxId = after?.maxId ?? null;
     const { conversations, total, rest, listMaxId } =
       await EmbedChats._conversationList({
         embedId,
         offset,
         limit,
         after,
-        maxId: after ? after.maxId ?? null : null,
+        maxId: keptMaxId,
         withMaxId: !after,
         startDate,
         endDate,
@@ -1420,10 +1440,11 @@ const EmbedChats = {
         startedBetween,
         search,
       });
-    // Leere erste Seite: der Stand des Widgets (0 ohne Zeile)
-    const maxId = after
-      ? after.maxId ?? null
-      : listMaxId ?? (await EmbedChats._currentMaxId(embedId));
+    // Leere erste Seite: kein Stand (null) - hinter ihr gibt es keine Seite,
+    // die ihn bräuchte; eine eigene Abfrage MAX(id) läse sonst bei jeder
+    // Suche ohne Treffer alle Indexeinträge des Widgets (Review 7.21.1, L3).
+    // Der Zähler dahinter (offset > 0) zählt dann ohne Grenze.
+    const maxId = after ? keptMaxId : listMaxId;
     // Leere Seite: am Anfang gibt es nichts, dahinter muss gezählt werden.
     const totalCount =
       total ??
@@ -1448,8 +1469,8 @@ const EmbedChats = {
 
   /**
    * Höchste id der Zeilen eines Widgets (0 ohne Zeile) - der Stand des
-   * Exports und einer Konversationsliste, deren erste Seite leer ist
-   * (Fixliste 8, L2; sonst liest die Liste ihn mit ihren Zeilen, L3). Je
+   * Exports (Fixliste 8, L2; die Liste liest ihn mit ihren Zeilen, L3):
+   * einmal je Export, der die Zeilen des Widgets danach ohnehin liest. Je
    * Widget, nicht über die ganze Instanz (Fixliste 9, A2): Das verringert,
    * was ein Default-User an der Liste seines Widgets über fremde Workspaces
    * ablesen kann - der passive Blick auf den Zähler der Instanz entfällt.
@@ -1513,6 +1534,9 @@ const EmbedChats = {
     // Auswahl (auch von countConversations und dem Export benutzt) - so
     // bleiben Liste, Pagination und conversation_number konsistent.
     // include = 1 (DSGVO) ist Teil der Gruppierung.
+    // Den Stand liest nur die erste Seite (ohne Schlüssel) - eine Stelle für
+    // Gruppen-SQL, Spalte und Auswertung.
+    const readMaxId = withMaxId && !after;
     const { source, where } = EmbedChats._conversationSelection({
       embedId,
       startDate,
@@ -1521,7 +1545,7 @@ const EmbedChats = {
       feedbackFilter,
       startedBetween: between,
       search,
-      withMaxId: withMaxId && !after,
+      withMaxId: readMaxId,
     });
     const columns = Prisma.sql`conversation_id,
         session_id,
@@ -1554,7 +1578,7 @@ const EmbedChats = {
         `
       : await prisma.$queryRaw`
           SELECT ${columns}, COUNT(*) OVER () as total_count${
-            withMaxId ? Prisma.sql`, list_max_id` : Prisma.empty
+            readMaxId ? Prisma.sql`, list_max_id` : Prisma.empty
           }
           FROM ${source}
           ${where}
@@ -1585,7 +1609,7 @@ const EmbedChats = {
           offset
         : 0;
     const highest =
-      withMaxId && !after && conversations.length > 0
+      readMaxId && conversations.length > 0
         ? Number(conversations[0].list_max_id)
         : null;
     const listMaxId = Number.isSafeInteger(highest) ? highest : null;
