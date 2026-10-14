@@ -380,11 +380,11 @@ describe("Folgefragen im Embed-Stream", () => {
     }
   });
 
-  test("NAK-1: offene/zu lange Zeile oder zwei Gruppen gehen als Text durch, kein Chunk, nichts gespeichert", async () => {
+  test("NAK-1: offene/zu lange Zeile geht als Text durch, kein Chunk, nichts gespeichert", async () => {
     for (const line of [
       `[[FRAGEN: ${"Frage ".repeat(60)}]]`,
       "[[FRAGEN: Gibt es B1-Kurse? | Auch online?",
-      "[[FRAGEN: a? | b?]] [[FRAGEN: c?]]",
+      "[[FRAGEN: Gibt es B1-Kurse? | Auch online?\nWeiter]]",
     ]) {
       jest.clearAllMocks();
       const reply = `${FU_BODY}\n${line}`;
@@ -399,12 +399,59 @@ describe("Folgefragen im Embed-Stream", () => {
     }
   });
 
-  test("NAK-1: Zeile mitten im Text bleibt Text", async () => {
-    const reply = `${FU_BODY}\n${FU_LINE}\nNoch ein Satz.`;
-    const { log, stored, text } = await run({ reply });
-    expect(text).toBe(reply);
-    expect(stored.text).toBe(reply);
-    expect(log.find((c) => c.type === "followUps")).toBeUndefined();
+  test("FF1: Zeile vor dem KI-Hinweis / mitten im Text / doppelt — nie im Text (Stream, Nicht-Stream, gespeichert), Pillen aus der letzten Zeile", async () => {
+    const FOOTER = "*Ich bin eine KI und kann Fehler machen.*";
+    const cases = [
+      // Fall der Abnahme ENT-FOLGEFRAGEN (rc19): Zeile vor dem KI-Hinweis
+      [`${FU_BODY}\n\n${FU_LINE}\n\n${FOOTER}`, `${FU_BODY}\n\n${FOOTER}`, FU],
+      [
+        `${FU_BODY}\n${FU_LINE}\nNoch ein Satz.`,
+        `${FU_BODY}\nNoch ein Satz.`,
+        FU,
+      ],
+      [`${FU_BODY} ${FU_LINE} Weiter.`, `${FU_BODY} Weiter.`, FU],
+      [
+        `${FU_BODY}\n[[FRAGEN: Alt? | Älter?]]\n${FOOTER}\n${FU_LINE}`,
+        `${FU_BODY}\n${FOOTER}`,
+        FU,
+      ],
+      [
+        `${FU_BODY}\n[[FRAGEN: a? | b?]] [[FRAGEN: Gibt es B1-Kurse?]]`,
+        FU_BODY,
+        ["Gibt es B1-Kurse?"],
+      ],
+    ];
+    for (const streaming of [true, false])
+      for (const [reply, expectedText, expected] of cases) {
+        jest.clearAllMocks();
+        const { log, stored, text } = await run({
+          reply,
+          embed: makeEmbed(JSON.stringify({ followUps: "pills" })),
+          streaming,
+        });
+        expect(text).toBe(expectedText);
+        expect(stored.text).toBe(expectedText);
+        expect(
+          JSON.stringify(log.filter((c) => c.type !== "followUps"))
+        ).not.toMatch(/FRAGEN|\[\[/);
+        expect(checkOrder(log).followUps).toEqual(expected);
+        expect(stored.followUps).toEqual(expected);
+      }
+  });
+
+  test("FF2: Pille gleich der gestellten Frage (normalisiert) und Dubletten verworfen — Chunk und gespeichert", async () => {
+    // run() stellt die Frage "gibt es sportkurse?"
+    for (const streaming of [true, false]) {
+      jest.clearAllMocks();
+      const { log, stored, text } = await run({
+        reply: `${FU_BODY}\n[[FRAGEN: Gibt es Sportkurse? | Auch am Abend? | auch am  abend]]\n*KI*`,
+        embed: makeEmbed(JSON.stringify({ followUps: "pills" })),
+        streaming,
+      });
+      expect(text).toBe(`${FU_BODY}\n*KI*`);
+      expect(checkOrder(log).followUps).toEqual(["Auch am Abend?"]);
+      expect(stored.followUps).toEqual(["Auch am Abend?"]);
+    }
   });
 
   test("ohne Endzeile: kein followUps-Chunk, Feld fehlt, Text wie bisher", async () => {
@@ -432,7 +479,7 @@ describe("Folgefragen im Embed-Stream", () => {
     }
   });
 
-  test("prompt-note-user-voice: Nutzerstimme, Verbot Rückfragen, Rückfrage -> Antworten; letzter Abschnitt hinter Karten und Disclaimer", async () => {
+  test("prompt-note-user-voice: echte Fragen in Nutzerstimme mit Fragezeichen, Verbot Rückfragen, Rückfrage -> Antworten als Fragen; letzter Abschnitt hinter Karten und Disclaimer", async () => {
     const {
       DISCLAIMER_PROMPT_NOTE,
       FOLLOW_UPS_PROMPT_NOTE,
@@ -441,27 +488,55 @@ describe("Folgefragen im Embed-Stream", () => {
       courseCardsPromptNote,
     } = require("../../../utils/chats/embedDefaults");
     const note = FOLLOW_UPS_PROMPT_NOTE;
-    // Richtung: Worte des Nutzers an den Berater, mit Beispiel
-    expect(note).toContain("in the user's own words to you, the advisor");
-    expect(note).toContain("\u201eGibt es auch Kurse am Wochenende?\u201c");
+    // Form: vollständige Fragen des Nutzers an den Berater, mit Fragezeichen
+    // (auch das der Nutzersprache), keine Stichworte
+    expect(note).toContain("[[FRAGEN: q1? | q2?]]");
+    expect(note).toContain(
+      "two short QUESTIONS the user could ask you, the advisor, next"
+    );
+    expect(note).toContain(
+      "in the user's own voice, each a complete question ending with \u201e?\u201c"
+    );
+    expect(note).toContain("or the question mark of the user's language");
+    expect(note).toContain("Never bare keywords");
+    expect(note).toContain("\u201eGibt es auch Termine im Juni?\u201c");
     // Verbot von Fragen an den Nutzer mit Beispielen
     expect(note).toContain("NEVER questions to the user");
     expect(note).toContain("\u201eSuchen Sie \u2026?\u201c");
     expect(note).toContain("\u201eM\u00f6chten Sie \u2026?\u201c");
-    // Rückfrage -> wahrscheinliche Antworten als Vorschläge
+    // Rückfrage -> wahrscheinliche Antworten, als Fragen des Nutzers
     expect(note).toContain(
-      "Instead of a clarifying question, offer its likely answers as suggestions"
+      "Instead of a clarifying question, turn its likely answers into the user's questions"
     );
     expect(note).toContain(
-      "[[FRAGEN: Kurse f\u00fcr Babys | Kurse f\u00fcr Schulkinder]]"
+      "[[FRAGEN: Gibt es Kurse f\u00fcr Babys? | Welche Kurse gibt es f\u00fcr Schulkinder?]]"
     );
+    // kein Stichwort-Beispiel mehr: jeder Eintrag jeder Beispielzeile ist "-"
+    // oder endet mit "?"
+    const examples = [...note.matchAll(/\[\[FRAGEN:([^\]]*)\]\]/g)];
+    expect(examples.length).toBeGreaterThanOrEqual(3);
+    for (const [, content] of examples)
+      for (const item of content.split("|").map((s) => s.trim()))
+        expect(item === "-" || item.endsWith("?")).toBe(true);
+    expect(note).not.toContain("Kurse f\u00fcr Babys |");
+    // auch kein Stichwort als Gegenbeispiel: jedes zitierte Beispiel
+    // (\u201e\u2026\u201c bzw. \u201c\u2026\u201d) endet mit einem Fragezeichen
+    const quoted = [
+      ...note.matchAll(/\u201e([^\u201c]*)\u201c|\u201c([^\u201d]*)\u201d/g),
+    ].map((m) => m[1] ?? m[2]);
+    expect(quoted.length).toBeGreaterThanOrEqual(5);
+    for (const q of quoted) expect(q).toMatch(/[?\u061f]$/);
+    expect(note).not.toContain("\u201eTermine im Juni\u201c");
     // bestehende Regeln bleiben
-    expect(note).toContain("[[FRAGEN: q1 | q2]]");
+    expect(note).toContain("\u2264 60 characters");
+    expect(note).toContain("in the user's language, nothing already answered");
     expect(note).toContain("[[FRAGEN: -]]");
     expect(note).toContain("Do NOT ask a question in the answer text itself.");
-    // englisch, ≤ 120 Wörter (ohne Überschrift)
+    // englisch, ≤ 145 Wörter (ohne Überschrift; Frageform-Regel mit
+    // Fragezeichen der Nutzersprache und „Never bare keywords“-Satz kosten
+    // ≈ 30 Wörter mehr als die Fassung vom 06.10.)
     const body = note.split("\n").slice(3).join(" ").trim();
-    expect(body.split(/\s+/).length).toBeLessThanOrEqual(120);
+    expect(body.split(/\s+/).length).toBeLessThanOrEqual(145);
     // Reihenfolge: Karten-Abschnitt -> Disclaimer-Hinweis -> Folgefragen-Hinweis
     const { connector } = await run({
       reply: `${FU_BODY}\n${FU_LINE}`,

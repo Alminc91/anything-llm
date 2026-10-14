@@ -364,4 +364,38 @@ describe("GET /embed/:embedId/:sessionId — Historie für das Widget", () => {
     expect(plain).not.toHaveProperty("followUps");
     expect(JSON.stringify(res.body)).not.toMatch(/FRAGEN|xxxxx|Viertens/);
   });
+
+  test("FF1: Verlauf nach Neuladen ohne Marker — auch Altdaten mit der Zeile vor dem KI-Hinweis; FF2: Pille gleich der Frage verworfen", async () => {
+    prisma.embed_chats.findMany.mockResolvedValue([
+      {
+        ...ROWS[0],
+        response: JSON.stringify({
+          // Altbestand (rc19): Zeile vor dem KI-Hinweis wurde gespeichert
+          text: "Ja, abends gibt es Yoga.\n\n[[FRAGEN: Gibt es Pilates? | Wie melde ich mich an?]]\n\n*KI-Hinweis*",
+          type: "chat",
+          sources: [],
+        }),
+      },
+      {
+        ...ROWS[1],
+        response: JSON.stringify({
+          text: "Über die Kursseite.\n[[KARTEN: 1]]",
+          type: "chat",
+          sources: [],
+          followUps: ["Wie melde ich mich an", "Gibt es Termine im Juni?"],
+        }),
+      },
+    ]);
+    const res = mockResponse();
+    await handler(
+      { params: { embedId: "embed-uuid", sessionId: "sess-1" }, query: {} },
+      res
+    );
+    expect(res.statusCode).toBe(200);
+    const [, first, , second] = res.body.history;
+    expect(first.content).toBe("Ja, abends gibt es Yoga.\n\n*KI-Hinweis*");
+    expect(second.content).toBe("Über die Kursseite.");
+    expect(second.followUps).toEqual(["Gibt es Termine im Juni?"]);
+    expect(JSON.stringify(res.body)).not.toMatch(/FRAGEN|KARTEN|\[\[/);
+  });
 });

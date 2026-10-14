@@ -1,21 +1,24 @@
 /* eslint-env jest, node */
-// Folgefragen: Endzeile "[[FRAGEN: Frage eins? | Frage zwei?]]" — Erkennen
-// am Antwortende (parseFollowUps), Stream-Filter (CardsMarkerFilter)
-// entscheidet wie die ganze Antwort, gespeicherte Vorschläge (storedFollowUps)
-// und Wiederherstellung im LLM-Verlauf (restoreCardsMarkers).
+// Folgefragen: Zeile "[[FRAGEN: Frage eins? | Frage zwei?]]" — Erkennen
+// überall im Text (FF1, parseFollowUps), Stream-Filter (CardsMarkerFilter)
+// entscheidet wie die ganze Antwort, Sicherheitsnetz für Pillen (FF2,
+// storedFollowUps) und Wiederherstellung im LLM-Verlauf (restoreCardsMarkers).
 
 const {
   parseFollowUps,
   parseCardsReply,
   storedFollowUps,
   restoreCardsMarkers,
+  cleanStoredResponse,
   __test__: {
     CardsMarkerFilter,
     FOLLOW_UPS_LINE_MAX,
     FOLLOW_UP_MAX_LEN,
     parseFollowUpItems,
+    followUpKey,
     followUpsLine,
   },
+  stripProtocolMarkers,
 } = require("../../../utils/chats/embedCardsMarker");
 
 const BODY = "Ja, es gibt passende Englischkurse für Sie.";
@@ -111,16 +114,14 @@ describe("parseFollowUps (vollständige Antwort)", () => {
     }
   });
 
-  test("NAK-1: offen/zu lang/nicht am Ende -> Text unverändert, nichts gesammelt", () => {
+  test('NAK-1: kein Marker (offen/zu lang/Zeilenende ohne "]]"/falsches Tag) -> Text unverändert, nichts gesammelt', () => {
     const cases = [
       `${BODY}\n[[FRAGEN: ${"Frage ".repeat(60)}]]`, // "]]" hinter 300 Zeichen
       `${BODY}\n[[FRAGEN: a? | b?`, // ohne "]]"
       `${BODY}\n[[FRAGEN: a? | b?\n`, // Zeilenende ohne "]]"
-      `${BODY}\n[[FRAGEN: a? | b?]] und noch Text`, // Text hinter "]]"
-      `${BODY}\n[[FRAGEN: a [x]] b? | c?]]`, // erstes "]]" schließt
-      `${BODY}\n${LINE}\nNoch ein Satz.`, // nicht am Ende
-      `${BODY} ${LINE}`, // kein Zeilenanfang
+      `${BODY}\n[[FRAGEN: a? | b?\nWeiter.]]`, // "]]" erst in der nächsten Zeile
       `${BODY}\n[[FRAGE: a? | b?]]`, // falsches Tag
+      `${BODY}\n[[ FRAGEN: a?]]`, // kein Tag (Leerzeichen)
     ];
     for (const text of cases) {
       const r = parseFollowUps(text, { final: true });
@@ -130,18 +131,17 @@ describe("parseFollowUps (vollständige Antwort)", () => {
     }
   });
 
-  test('Befund 4: zwei Gruppen in einer Zeile — erstes "]]" schließt, Rest ist kein Leerraum -> ganze Zeile Text, keine verschluckte Gruppe', () => {
-    const text = `${BODY}\n[[FRAGEN: a? | b?]] [[FRAGEN: c?]]`;
-    const r = parseFollowUps(text, { final: true });
-    expect(r.state).toBe("none");
-    expect(r.text).toBe(text);
-    expect(r.followUps).toBeUndefined();
-    // die zweite Gruppe allein in der nächsten Zeile ist die Endzeile
-    const r2 = parseFollowUps(`${BODY}\n[[FRAGEN: a? | b?]]\n[[FRAGEN: c?]]`, {
-      final: true,
-    });
-    expect(r2.followUps).toEqual(["c?"]);
-    expect(r2.text).toBe(`${BODY}\n[[FRAGEN: a? | b?]]`);
+  test('FF1/Befund 4: zwei Gruppen in einer Zeile oder in zwei Zeilen — erstes "]]" schließt, beide entfernt, Pillen aus der letzten', () => {
+    for (const text of [
+      `${BODY}\n[[FRAGEN: a? | b?]] [[FRAGEN: c?]]`,
+      `${BODY}\n[[FRAGEN: a? | b?]]\n[[FRAGEN: c?]]`,
+      `${BODY}\n[[FRAGEN: a? | b?]][[FRAGEN: c?]]\n`,
+    ]) {
+      const r = parseFollowUps(text, { final: true });
+      expect(r.state).toBe("followUps");
+      expect(r.followUps).toEqual(["c?"]);
+      expect(r.text).toBe(BODY);
+    }
   });
 
   test("Grenze: Zeile mit genau 300 Zeichen gilt, 301 nicht", () => {
@@ -257,6 +257,20 @@ describe("CardsMarkerFilter: Stream entscheidet wie die ganze Antwort", () => {
     `${BODY}\n[[FRAGEN: a]] foo\n`,
     `${BODY}\n[[FRAGEN: a? | b?\nWeiter.`,
     `${BODY}\n[[FRAGEN: ${"Frage ".repeat(47)}]]`,
+    // FF1: Marker vor dem KI-Hinweis, mitten im Text, doppelt, inline
+    `${BODY}\n\n${LINE}\n\n*KI-Hinweis: Ich bin eine KI und kann Fehler machen.*`,
+    `${BODY}\n${LINE}\n\n---\n_KI-Hinweis_\n`,
+    `Absatz eins.\n\n${LINE}\n\nAbsatz zwei.\n\n[[FRAGEN: Zweite? | Letzte?]]\n\nFuß.`,
+    `${BODY} ${LINE} Weiter im Satz.`,
+    `[[FRAGEN: Vorn? | Auch?]]\n\n${BODY}`,
+    `  \n[[FRAGEN: Vorn?]]  [[KARTEN: 3]]\n${BODY}`,
+    `${BODY}\n[[KARTEN: 2, 3]]\nNach Karten.\n${LINE}`,
+    `[[KARTEN: 1]]\n[[TEASER 1: Kurz.]]\n${BODY}\n${LINE}\n[[KARTEN: 1]]\n*Hinweis*`,
+    `${BODY}\n- Punkt\n  [[FRAGEN: Eingerückt?]]\n  - Unterpunkt`,
+    `${BODY}\n[[FRAGEN: a?]]\n[[FRAGEN: -]]\nEnde.`,
+    `${BODY} [[FRA nein]] und [[KARTE]] und [ [FRAGEN: a?]] [x]`,
+    `${BODY}\n[[FRAGEN: offen ${"y".repeat(320)}\nRest.`,
+    `${BODY}\n[[KARTEN: ${"9, ".repeat(50)}]]\nRest.`,
   ];
 
   function streamThrough(reply, size) {
@@ -299,36 +313,37 @@ describe("CardsMarkerFilter: Stream entscheidet wie die ganze Antwort", () => {
     expect(end.followUps).toEqual(["a?", "b?"]);
   });
 
-  test("Befund 7: terminierte Zeile, die nie Endzeile wird, geht sofort als Text raus (Pause nach Zeilenende)", () => {
-    // "]]" mit Text dahinter, Token endet mit Zeilenende, danach Pause
+  test("FF1/Befund 7: Text hinter einem Marker geht sofort raus, der Marker nie", () => {
+    // "]]" mit Text dahinter: Marker entfernt, Text sofort (Leerraum am
+    // Ende bleibt gehalten)
     let filter = new CardsMarkerFilter();
     expect(filter.push(`${BODY}\n[[FRAGEN: a]] foo\n`).text).toBe(
-      `${BODY}\n[[FRAGEN: a]] foo`
+      `${BODY}\nfoo`
     );
-    // schon ohne Zeilenende entschieden, sobald Text hinter "]]" steht
     filter = new CardsMarkerFilter();
-    expect(filter.push(`${BODY}\n[[FRAGEN: a]] f`).text).toBe(
-      `${BODY}\n[[FRAGEN: a]] f`
-    );
-    // Zeilenende ohne "]]": kaputt, sofort Text
+    expect(filter.push(`${BODY}\n[[FRAGEN: a]] f`).text).toBe(`${BODY}\nf`);
+    // Zeilenende ohne "]]": kein Marker, sofort Text
     filter = new CardsMarkerFilter();
     expect(filter.push(`${BODY}\n[[FRAGEN: a? | b?\n`).text).toBe(
       `${BODY}\n[[FRAGEN: a? | b?`
     );
-    // ohne Zeilenende bleibt die offene Zeile gehalten (könnte noch "]]" bekommen)
+    // ohne Zeilenende bleibt der offene Marker gehalten (könnte noch "]]" bekommen)
     filter = new CardsMarkerFilter();
     expect(filter.push(`${BODY}\n[[FRAGEN: a? | b?`).text).toBe(BODY);
-    // eine geschlossene Endzeile mit Zeilenende bleibt gehalten (Leerraum am Ende ist erlaubt)
+    // ein geschlossener Marker mit Zeilenende: nichts davon geht raus
     filter = new CardsMarkerFilter();
     expect(filter.push(`${BODY}\n${LINE}\n`).text).toBe(BODY);
   });
 
-  test("Zeile mitten im Text: sobald weiterer Text folgt, geht sie als Text raus", () => {
+  test("FF1: Marker vor dem KI-Hinweis — weiterer Text folgt, der Marker bleibt weg, Pillen beim Antwortende", () => {
     const filter = new CardsMarkerFilter();
-    let text = filter.push(`${BODY}\n${LINE}\n`).text;
+    let text = filter.push(`${BODY}\n\n${LINE}\n\n`).text;
     expect(text).toBe(BODY);
-    text += filter.push("Weiter.").text;
-    expect(text).toBe(`${BODY}\n${LINE}\nWeiter.`);
+    text += filter.push("*KI-Hinweis*").text;
+    expect(text).toBe(`${BODY}\n\n*KI-Hinweis*`);
+    const end = filter.push("", { final: true });
+    expect(end.text).toBe("");
+    expect(end.followUps).toEqual(["Gibt es B1-Kurse?", "Auch online?"]);
   });
 });
 
@@ -418,5 +433,331 @@ describe("gespeicherte Folgefragen", () => {
     const again = parseCardsReply(JSON.parse(out[1].response).text);
     expect(again.text).toBe(BODY);
     expect(again.followUps).toEqual(["Mehr?"]);
+  });
+});
+
+// FF1 (Abnahme ENT-FOLGEFRAGEN, rc19): Die Zeile stand vor dem KI-Hinweis
+// und war im Widget sichtbar, Pillen fehlten. Marker werden überall erkannt.
+describe("FF1: Protokoll-Marker überall im Text", () => {
+  const FOOTER = "*Ich bin eine KI und kann Fehler machen.*";
+  const FU = ["Gibt es B1-Kurse?", "Auch online?"];
+
+  // ganze Antwort (parseCardsReply) und Stream in allen Aufteilungen
+  function streamed(reply, cuts) {
+    const filter = new CardsMarkerFilter();
+    let text = "";
+    let from = 0;
+    for (const cut of [...cuts, reply.length]) {
+      const out = filter.push(reply.slice(from, cut));
+      expect(out.followUps).toBeUndefined();
+      text += out.text;
+      from = cut;
+    }
+    const last = filter.push("", { final: true });
+    return { text: text + last.text, followUps: last.followUps ?? [] };
+  }
+
+  function expectEverywhere(reply, text, followUps) {
+    const whole = parseCardsReply(reply);
+    expect(whole.text).toBe(text);
+    expect(whole.followUps).toEqual(followUps);
+    // jede Aufteilung in zwei Token
+    for (let a = 0; a <= reply.length; a++)
+      expect(streamed(reply, [a])).toEqual({ text, followUps });
+  }
+
+  test("Marker vor dem Footer (Fall der Abnahme): entfernt, Footer bleibt, Pillen da", () => {
+    expectEverywhere(
+      `${BODY}\n\n${LINE}\n\n${FOOTER}`,
+      `${BODY}\n\n${FOOTER}`,
+      FU
+    );
+    expectEverywhere(`${BODY}\n${LINE}\n${FOOTER}`, `${BODY}\n${FOOTER}`, FU);
+    // Footer mit Trennlinie und Zeilenende am Schluss
+    expectEverywhere(
+      `${BODY}\n\n${LINE}\n\n---\n${FOOTER}\n`,
+      `${BODY}\n\n---\n${FOOTER}\n`,
+      FU
+    );
+  });
+
+  test("Marker mitten im Text (eigene Zeile oder im Satz): entfernt, Text davor/danach normal", () => {
+    expectEverywhere(
+      `Absatz eins.\n\n${LINE}\n\nAbsatz zwei.`,
+      "Absatz eins.\n\nAbsatz zwei.",
+      FU
+    );
+    expectEverywhere(
+      `Satz eins. ${LINE} Satz zwei.`,
+      "Satz eins. Satz zwei.",
+      FU
+    );
+    expectEverywhere(`${BODY} ${LINE}`, BODY, FU);
+    expectEverywhere(`${LINE}\n\n${BODY}`, BODY, FU);
+    // Einrückung der nächsten Zeile bleibt (Liste)
+    expectEverywhere(
+      "Liste:\n- eins\n\n[[FRAGEN: a?]]\n  - zwei",
+      "Liste:\n- eins\n\n  - zwei",
+      ["a?"]
+    );
+  });
+
+  test("zwei Marker: beide entfernt, Pillen aus der LETZTEN Zeile (auch wenn sie leer ist)", () => {
+    expectEverywhere(
+      `Eins.\n[[FRAGEN: Erste? | Alte?]]\nZwei.\n\n[[FRAGEN: Neue? | Letzte?]]\n\n${FOOTER}`,
+      `Eins.\nZwei.\n\n${FOOTER}`,
+      ["Neue?", "Letzte?"]
+    );
+    expectEverywhere(`${BODY}\n${LINE}\n[[FRAGEN: -]]`, BODY, []);
+    expectEverywhere(
+      `${BODY}\n[[FRAGEN: -]]\n${FOOTER}\n${LINE}`,
+      `${BODY}\n${FOOTER}`,
+      FU
+    );
+  });
+
+  test("späte [[KARTEN: …]]-Zeile wird analog entfernt (keine Karten, kein Text)", () => {
+    expectEverywhere(
+      `${BODY}\n[[KARTEN: 1, 2]]\n${FOOTER}`,
+      `${BODY}\n${FOOTER}`,
+      []
+    );
+    expectEverywhere(
+      `[[KARTEN: 0]]\n${BODY}\n\n[[KARTEN: -]]\n\n${LINE}\n\n${FOOTER}`,
+      `${BODY}\n\n${FOOTER}`,
+      FU
+    );
+    const r = parseCardsReply(`[[KARTEN: 0]]\n${BODY}\n[[KARTEN: 5]]`);
+    expect(r.marker.indices).toEqual([0]);
+    expect(r.text).toBe(BODY);
+  });
+
+  test("Marker über Chunk-Grenzen: jede Aufteilung in drei Token ergibt dasselbe", () => {
+    const reply = `Ja.\n\n[[FRAGEN: Gibt es B1? | Abends?]]\n\n${FOOTER}`;
+    const text = `Ja.\n\n${FOOTER}`;
+    for (let a = 0; a <= reply.length; a++)
+      for (let b = a; b <= reply.length; b += 3)
+        expect(streamed(reply, [a, b])).toEqual({
+          text,
+          followUps: ["Gibt es B1?", "Abends?"],
+        });
+  });
+
+  test("unvollständiger Marker hängt nicht: Zeilenende oder Fenstergrenze geben ihn frei", () => {
+    // Zeilenende ohne "]]" -> sofort Text
+    let filter = new CardsMarkerFilter();
+    expect(filter.push(`${BODY}\n[[FRAGEN: a? | b?`).text).toBe(BODY);
+    expect(filter.push("\nWeiter").text).toBe("\n[[FRAGEN: a? | b?\nWeiter");
+    // ohne Zeilenende: spätestens nach FOLLOW_UPS_LINE_MAX Zeichen frei
+    filter = new CardsMarkerFilter();
+    expect(filter.push(`${BODY}\n`).text).toBe(BODY);
+    const open = `[[FRAGEN: ${"y".repeat(FOLLOW_UPS_LINE_MAX)}`;
+    let out = "";
+    let releasedAt = -1;
+    for (let i = 0; i < open.length; i++) {
+      out += filter.push(open[i]).text;
+      if (releasedAt === -1 && out.length > 0) releasedAt = i;
+    }
+    expect(releasedAt).toBe(FOLLOW_UPS_LINE_MAX - 1);
+    expect(out).toBe(`\n${open}`);
+    // Tag-Anfang, der keiner wird -> sofort Text
+    filter = new CardsMarkerFilter();
+    expect(filter.push(`${BODY} [[FRA`).text).toBe(BODY);
+    expect(filter.push("X").text).toBe(" [[FRAX");
+    // Antwortende mit offenem Marker -> Text, keine Pillen
+    filter = new CardsMarkerFilter();
+    expect(filter.push(`${BODY}\n[[FRAGEN: a?`).text).toBe(BODY);
+    const end = filter.push("", { final: true });
+    expect(end.text).toBe("\n[[FRAGEN: a?");
+    expect(end.followUps).toBeUndefined();
+  });
+
+  test("stripProtocolMarkers (Verlauf): Marker weg, sonst unverändert", () => {
+    expect(stripProtocolMarkers(`${BODY}\n\n${LINE}\n\n${FOOTER}`)).toBe(
+      `${BODY}\n\n${FOOTER}`
+    );
+    expect(stripProtocolMarkers(`${BODY}\n[[KARTEN: 1]]`)).toBe(BODY);
+    expect(stripProtocolMarkers(`${BODY}  \n`)).toBe(`${BODY}  \n`);
+    expect(stripProtocolMarkers("[[Link]] und [x]")).toBe("[[Link]] und [x]");
+    expect(stripProtocolMarkers(null)).toBe(null);
+  });
+});
+
+describe("FF2: Pillen-Sicherheitsnetz", () => {
+  test("Dubletten normalisiert (Groß/klein, Leerraum, Satzzeichen, Unicode) -> die erste bleibt", () => {
+    expect(
+      parseFollowUpItems(
+        "Gibt es B1-Kurse? | gibt es  b1 kurse ? | GIBT ES B1-KURSE | Gibt es B1‑Kurse? | Auch online?"
+      )
+    ).toEqual(["Gibt es B1-Kurse?", "Auch online?"]);
+    expect(followUpKey(" Gibt es  Yoga am Abend ?! ")).toBe(
+      "gibt es yoga am abend"
+    );
+    expect(followUpKey("ﬁt?")).toBe("fit");
+  });
+
+  test("Pille gleich der gerade gestellten Nutzerfrage (normalisiert) wird verworfen", () => {
+    const userMessage = "gibt es yogakurse am abend";
+    expect(
+      parseFollowUpItems("Gibt es Yogakurse am Abend? | Gibt es Pilates?", {
+        userMessage,
+      })
+    ).toEqual(["Gibt es Pilates?"]);
+    // ganze Antwort und Stream gleich
+    const reply = `${BODY}\n[[FRAGEN: Gibt es Yogakurse am Abend? | Auch samstags?]]\n*KI*`;
+    const whole = parseCardsReply(reply, { userMessage });
+    expect(whole.followUps).toEqual(["Auch samstags?"]);
+    expect(whole.text).toBe(`${BODY}\n*KI*`);
+    const filter = new CardsMarkerFilter({ userMessage });
+    let text = "";
+    for (const t of reply.match(/[\s\S]{1,4}/g)) text += filter.push(t).text;
+    const end = filter.push("", { final: true });
+    expect(text + end.text).toBe(whole.text);
+    expect(end.followUps).toEqual(whole.followUps);
+    // ähnliche, aber andere Frage bleibt; ohne Nutzerfrage bleibt alles
+    expect(
+      parseFollowUpItems("Gibt es Yogakurse am Morgen?", { userMessage })
+    ).toEqual(["Gibt es Yogakurse am Morgen?"]);
+    expect(parseFollowUpItems("Gibt es Yogakurse am Abend?")).toEqual([
+      "Gibt es Yogakurse am Abend?",
+    ]);
+    expect(
+      storedFollowUps(["Gibt es Yogakurse am Abend?", "Weiter?"], {
+        userMessage: "Gibt es Yogakurse am Abend?",
+      })
+    ).toEqual(["Weiter?"]);
+  });
+
+  test("leere Pillen (nichts, Leerraum, nur Satzzeichen/Symbole) werden verworfen", () => {
+    expect(
+      parseFollowUpItems(" | ? | ?! | … | € | 👍 | ** | <b></b> | Echt?")
+    ).toEqual(["Echt?"]);
+  });
+
+  test("zu lange Pillen: > 80 Zeichen immer verworfen; Grenze bleibt 60 (Prompt und Widget)", () => {
+    const of = (n) => `${"a".repeat(n - 1)}?`;
+    expect(FOLLOW_UP_MAX_LEN).toBe(60);
+    expect(parseFollowUpItems(`${of(81)} | ${of(120)} | Kurz?`)).toEqual([
+      "Kurz?",
+    ]);
+    expect(parseFollowUpItems(`${of(61)} | ${of(80)}`)).toEqual([]);
+    expect(parseFollowUpItems(of(60))).toEqual([of(60)]);
+  });
+
+  test("Sie-Form-Filter bleibt — auch bei einem Marker mitten im Text", () => {
+    const reply = `${BODY}\n[[FRAGEN: Suchen Sie einen Anfängerkurs? | Möchten Sie online lernen? | Gibt es Yoga am Abend?]]\n*KI*`;
+    const r = parseCardsReply(reply);
+    expect(r.followUps).toEqual(["Gibt es Yoga am Abend?"]);
+    expect(r.text).toBe(`${BODY}\n*KI*`);
+    expect(
+      parseFollowUpItems("Welches Niveau haben Sie? | Would you like more?")
+    ).toEqual([]);
+  });
+});
+
+// L4 (Kontroll-Review rc20): Altdatensätze aus der Zeit vor FF1 – die Zeile
+// stand vor dem KI-Hinweis, wurde nicht erkannt und blieb im gespeicherten
+// Text; followUps fehlt. Jeder Leser des gespeicherten Texts bereinigt ihn.
+describe("L4: Altdatensätze mit Marker beim Lesen", () => {
+  const FOOTER = "*Ich bin eine KI und kann Fehler machen.*";
+  const OLD_TEXT = `${BODY}\n\n${LINE}\n\n${FOOTER}`;
+  const CLEAN_TEXT = `${BODY}\n\n${FOOTER}`;
+
+  test("restoreCardsMarkers (LLM-Verlauf): Marker mitten im Text weg, nicht als Vorbild", () => {
+    const rows = [
+      // Altdatensatz ohne followUps/courseCardsMarker
+      { id: 1, response: JSON.stringify({ text: OLD_TEXT }) },
+      // Altdatensatz mit gespeicherten Pillen: Zeile nur einmal, am Ende
+      {
+        id: 2,
+        response: JSON.stringify({ text: OLD_TEXT, followUps: ["Mehr?"] }),
+      },
+      // Altdatensatz mit Karten-Marker im Text und gespeichertem Marker
+      {
+        id: 3,
+        response: JSON.stringify({
+          text: `${BODY}\n[[KARTEN: 1]]`,
+          courseCardsMarker: [1],
+        }),
+      },
+    ];
+    const before = JSON.stringify(rows);
+    const out = restoreCardsMarkers(rows);
+    expect(JSON.parse(out[0].response).text).toBe(CLEAN_TEXT);
+    expect(JSON.parse(out[1].response).text).toBe(
+      `${CLEAN_TEXT}\n[[FRAGEN: Mehr?]]`
+    );
+    expect(JSON.parse(out[2].response).text).toBe(`[[KARTEN: 1]]\n${BODY}`);
+    // Datensätze unverändert, andere Felder bleiben
+    expect(JSON.stringify(rows)).toBe(before);
+    expect(JSON.parse(out[1].response).followUps).toEqual(["Mehr?"]);
+  });
+
+  test("cleanStoredResponse: Antwort-JSON und Klartext ohne Marker, sonst unverändert", () => {
+    const old = JSON.stringify({
+      text: OLD_TEXT,
+      sources: [{ title: "a" }],
+      followUps: ["Mehr?"],
+    });
+    const cleaned = JSON.parse(cleanStoredResponse(old));
+    expect(cleaned).toEqual({
+      text: CLEAN_TEXT,
+      sources: [{ title: "a" }],
+      followUps: ["Mehr?"],
+    });
+    // Klartext-Antwort (sehr alte Zeilen ohne JSON)
+    expect(cleanStoredResponse(OLD_TEXT)).toBe(CLEAN_TEXT);
+    // ohne Marker: dieselbe Zeichenkette (kein Umbau des JSON)
+    const plain = JSON.stringify({ text: BODY, sources: [] });
+    expect(cleanStoredResponse(plain)).toBe(plain);
+    const link = JSON.stringify({ text: "Siehe [[Link]] und [x]" });
+    expect(cleanStoredResponse(link)).toBe(link);
+    // kein String / kein Objekt mit Text: unverändert
+    expect(cleanStoredResponse(null)).toBe(null);
+    expect(cleanStoredResponse(undefined)).toBe(undefined);
+    const noText = JSON.stringify({ sources: [], note: "[[FRAGEN: a?]]" });
+    expect(cleanStoredResponse(noText)).toBe(noText);
+    const arr = JSON.stringify(["[[FRAGEN: a?]]"]);
+    expect(cleanStoredResponse(arr)).toBe(arr);
+  });
+});
+
+// Cleanup C1: scanInlineMarker nutzt scanBracketLine — Fenstergrenze, Groß-/
+// Kleinschreibung und kaputte Zeile mitten im Text wie zuvor, im Stream in
+// jeder Aufteilung gleich.
+describe("C1: Marker mitten im Text über den gemeinsamen Scanner", () => {
+  const FOOTER = "*KI-Hinweis*";
+  const line = (len) => {
+    const head = "[[fragen: Gibt es B1? | Abends?";
+    return `${head}${" ".repeat(len - head.length - 2)}]]`;
+  };
+  function run(reply) {
+    const whole = parseCardsReply(reply);
+    for (const cut of [1, 9, reply.length - 3]) {
+      const filter = new CardsMarkerFilter();
+      const a = filter.push(reply.slice(0, cut));
+      const b = filter.push(reply.slice(cut));
+      const c = filter.push("", { final: true });
+      expect(a.text + b.text + c.text).toBe(whole.text);
+      expect(c.followUps ?? []).toEqual(whole.followUps);
+    }
+    return whole;
+  }
+
+  test("Zeile genau im Fenster: entfernt; ein Zeichen zu lang: bleibt Text", () => {
+    const ok = run(`${BODY}\n${line(FOLLOW_UPS_LINE_MAX)}\n${FOOTER}`);
+    expect(ok.text).toBe(`${BODY}\n${FOOTER}`);
+    expect(ok.followUps).toEqual(["Gibt es B1?", "Abends?"]);
+    const long = line(FOLLOW_UPS_LINE_MAX + 1);
+    const tooLong = run(`${BODY}\n${long}\n${FOOTER}`);
+    expect(tooLong.text).toBe(`${BODY}\n${long}\n${FOOTER}`);
+    expect(tooLong.followUps).toEqual([]);
+  });
+
+  test("kaputte Zeile (Zeilenende vor ]]) bleibt Text, Karten-Marker mitten im Text entfernt", () => {
+    const broken = run(`${BODY}\n[[FRAGEN: a? | b?\n${FOOTER}`);
+    expect(broken.text).toBe(`${BODY}\n[[FRAGEN: a? | b?\n${FOOTER}`);
+    const cards = run(`${BODY} [[Karten: 2]] ${FOOTER}`);
+    expect(cards.text).toBe(`${BODY} ${FOOTER}`);
   });
 });

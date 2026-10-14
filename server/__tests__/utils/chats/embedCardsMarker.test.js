@@ -957,6 +957,31 @@ describe("Folgefragen-Richtung: Fragen an den Nutzer werden verworfen (addresses
     expect(storedFollowUps(["Suchen Sie Yoga?"])).toEqual(["Suchen Sie Yoga?"]);
   });
 
+  test("Frageform: Einträge ohne Fragezeichen bleiben unverändert (kein angehängtes „?“, kein Verwerfen)", () => {
+    expect(parseFollowUpItems("Kurse für Babys | Termine im Juni")).toEqual([
+      "Kurse für Babys",
+      "Termine im Juni",
+    ]);
+    expect(
+      parseFollowUpItems(
+        "Gibt es Kurse für Babys? | Welche Kurse gibt es für Schulkinder?"
+      )
+    ).toEqual([
+      "Gibt es Kurse für Babys?",
+      "Welche Kurse gibt es für Schulkinder?",
+    ]);
+    // Fragezeichen anderer Sprachen bleiben wie geliefert
+    expect(
+      parseFollowUpItems("هل توجد دورات مسائية؟ | 有周末的课程吗？")
+    ).toEqual(["هل توجد دورات مسائية؟", "有周末的课程吗？"]);
+    // gemischt: Frage bleibt, Stichwort bleibt, Rückfrage fällt weg
+    expect(
+      parseFollowUpItems(
+        "Gibt es auch Termine im Juni? | Yoga am Abend | Suchen Sie Yoga?"
+      )
+    ).toEqual(["Gibt es auch Termine im Juni?", "Yoga am Abend"]);
+  });
+
   test("NAK-3: kein ReDoS (< 50 ms), Längenregeln unverändert", () => {
     const inputs = [
       "Sie ".repeat(75), // 300 Zeichen

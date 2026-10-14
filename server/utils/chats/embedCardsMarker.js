@@ -19,9 +19,12 @@
 //   - Zeilenende vor "]]" -> kaputte Markerzeile, wird entfernt.
 //   - Marker muss innerhalb der ersten CARDS_MARKER_BUFFER_MAX Zeichen
 //     (nach Leerraum) schließen bzw. die Zeile enden; sonst zu lang, gilt als
-//     kein Marker; Text bleibt unverändert (nichts geht verloren, das Widget
-//     entfernt einen späteren Marker zusätzlich). Dieselbe Grenze gilt für
-//     Stream-Filter und stripCardsMarker — beide entscheiden immer gleich.
+//     kein Marker; Text bleibt unverändert (nichts geht verloren). Dieselbe
+//     Grenze gilt für Stream-Filter und stripCardsMarker — beide entscheiden
+//     immer gleich.
+//   - Ein späterer "[[KARTEN: …]]" (nicht am Antwortanfang) bringt keine
+//     Karten, wird aber wie die Folgefragen-Zeile überall entfernt (FF1,
+//     ProtocolMarkerFilter, gleiche Fenstergrenze).
 //
 // Damit Folgefragen den Marker im Verlauf sehen (kleine Modelle lassen ihn
 // sonst weg), wird die angekündigte Nummernliste als courseCardsMarker in der
@@ -48,27 +51,31 @@
 // unverändert als Text durch. Gespeichert werden die gesammelten Zeilen als
 // courseTeaserLines (nur LLM-Verlauf).
 //
-// Folgefragen: Die LETZTE Zeile der Antwort darf "[[FRAGEN: Frage eins? |
-// Frage zwei?]]" sein (Vorschläge für die nächste Nutzerfrage). Erkannt wird
-// sie nur am Antwortende (davor Zeilenanfang): Zeile beginnt mit
-// "[[FRAGEN:", Schluss ist das ERSTE "]]" innerhalb FOLLOW_UPS_LINE_MAX
-// Zeichen, danach nur noch Leerraum. Eine so erkannte Zeile ist Protokoll
-// und wird IMMER entfernt (nachsichtig, auch wenn ihr Inhalt kaputt ist);
-// gesammelt werden bis zu FOLLOW_UPS_MAX gültige Einträge nach den Regeln
-// von storedFollowUps (durch "|" getrennt, bereinigt, zu lange und leere
-// bzw. nur aus Satzzeichen/Strichen bestehende Einträge verworfen, nicht
-// gekürzt; "[[FRAGEN: -]]" = keine Vorschläge). Text bleibt die Zeile nur,
-// wenn kein "]]" kommt (Zeilenende bzw. Antwortende ohne "]]"), "]]" erst
-// hinter der Fenstergrenze steht oder hinter "]]" noch etwas anderes als
-// Leerraum folgt — auch eine zweite Gruppe: "[[FRAGEN: a? | b?]]
-// [[FRAGEN: c?]]" geht ganz als Text durch, nichts gesammelt. Im Stream hält
-// der Filter dazu den Leerraum am Ende und eine mögliche Endzeile zurück
-// (höchstens eine Zeile ≤ FOLLOW_UPS_LINE_MAX Zeichen) und entscheidet mit
-// dem Antwortende — gleiche Regeln wie parseFollowUps über die ganze
-// Antwort; eine Zeile, die so nicht mehr Endzeile werden kann ("]]" mit
-// Text dahinter, Zeilenende ohne "]]"), geht sofort als Text durch.
-// Gespeichert als followUps (Widget-Verlauf), im LLM-Verlauf wieder als
-// letzte Zeile.
+// Folgefragen: Die Antwort darf eine Zeile "[[FRAGEN: Frage eins? |
+// Frage zwei?]]" enthalten (Vorschläge für die nächste Nutzerfrage). Der
+// Prompt verlangt sie als letzte Zeile, Modelle schreiben sie aber auch vor
+// den KI-Hinweis, mitten in den Text oder doppelt. Darum gilt (FF1): Ein
+// Protokoll-Marker "[[FRAGEN: …]]" — und ebenso ein späteres
+// "[[KARTEN: …]]" (der Karten-Marker der ersten Zeile läuft oben) — wird
+// ÜBERALL im Text erkannt und entfernt (ProtocolMarkerFilter): Beginn
+// "[[FRAGEN:" bzw. "[[KARTEN:" (Groß-/Kleinschreibung egal), Schluss das
+// ERSTE "]]" in derselben Zeile innerhalb des Fensters (FOLLOW_UPS_LINE_MAX
+// bzw. CARDS_MARKER_BUFFER_MAX Zeichen ab "[["). Kein "]]" bis zum
+// Zeilenende, zur Fenstergrenze oder zum Antwortende -> kein Marker, die
+// Zeichen bleiben Text (nichts geht verloren, nichts hängt). Text hinter
+// dem Marker (z. B. der KI-Hinweis) bleibt normal Text. Der Leerraum um
+// einen entfernten Marker wird zusammengelegt (die meisten Zeilenumbrüche
+// gewinnen, ganz am Anfang/Ende entfällt er), so entsteht keine Lücke.
+// Pillen kommen aus der LETZTEN "[[FRAGEN: …]]"-Zeile (auch wenn sie leer
+// ist bzw. alle Einträge verworfen werden): bis zu FOLLOW_UPS_MAX gültige
+// Einträge nach den Regeln von storedFollowUps (durch "|" getrennt,
+// bereinigt; leere, zu lange, doppelte und der gerade gestellten
+// Nutzerfrage gleiche Einträge verworfen, nicht gekürzt; Rückfragen an den
+// Nutzer verworfen; "[[FRAGEN: -]]" = keine Vorschläge). Im Stream hält der
+// Filter nur Leerraum am Ende und einen begonnenen möglichen Marker ab "["
+// zurück, bis entschieden ist (höchstens ein Fenster) — der Stream ergibt
+// dasselbe wie die ganze Antwort (parseCardsReply). Gespeichert als
+// followUps (Widget-Verlauf), im LLM-Verlauf wieder als letzte Zeile.
 
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { safeJsonParse } = require("../http");
@@ -91,7 +98,7 @@ const TEASER_LINES_MAX = COURSE_SOURCES_MAX;
 const TEASER_LINE_RX =
   /^\[\[TEASER[ \t]*(\d{1,3})[ \t]*:[ \t]*([^\n]*?)[ \t]*\]\]$/i;
 
-// Folgefragen: Endzeile "[[FRAGEN: … | …]]"
+// Folgefragen: Zeile "[[FRAGEN: … | …]]" (Prompt: letzte Zeile; erkannt überall)
 const FOLLOW_UPS_TAG = "[[FRAGEN:";
 // Obergrenze der Zeile (Zeichen ab "[[FRAGEN:" bis einschließlich "]]")
 const FOLLOW_UPS_LINE_MAX = 300;
@@ -323,77 +330,249 @@ function addressesUser(text) {
  * -> [] (keine Vorschläge); kaputte Einträge werden verworfen, nie die Zeile.
  * Einträge, die den Nutzer adressieren (addressesUser), werden vorher
  * verworfen (nicht verändert) — sie zählen nicht gegen FOLLOW_UPS_MAX.
+ * Einträge gleich der gerade gestellten Nutzerfrage (userMessage,
+ * normalisiert verglichen, followUpKey) und Dubletten werden verworfen.
+ * Frageform (Prompt: jede Pille eine Frage mit „?“): Einträge ohne
+ * Fragezeichen bleiben bewusst unverändert — kein angehängtes „?“ (aus
+ * „Kurse für Babys“ würde keine Frage, nur ein falsches Satzzeichen; das
+ * Fragezeichen der Nutzersprache ist nicht immer „?“) und kein Verwerfen
+ * (ein Stichwort ist als Pille noch brauchbar, ein Ausfall des Hinweises
+ * ließe sonst alle Pillen verschwinden). Die Quote misst das Messskript
+ * (demo_site/prompt/folgefragen_frageform_*.json).
  * @param {string} content
+ * @param {{userMessage?: string}} [options] - userMessage: gerade gestellte
+ *   Frage des Nutzers
  * @returns {string[]}
  */
-function parseFollowUpItems(content) {
+function parseFollowUpItems(content, { userMessage } = {}) {
   const raw = String(content ?? "").trim();
   if (raw === "") return [];
-  return storedFollowUps(raw.split("|").filter((item) => !addressesUser(item)));
+  return storedFollowUps(
+    raw.split("|").filter((item) => !addressesUser(item)),
+    { userMessage }
+  );
 }
 
+// Protokoll-Marker im Fließtext (FF1): Folgefragen und späte Karten-Marker
+const FOLLOW_UPS_MARKER = Object.freeze({
+  tag: FOLLOW_UPS_TAG,
+  max: FOLLOW_UPS_LINE_MAX,
+});
+const INLINE_MARKERS = Object.freeze([
+  FOLLOW_UPS_MARKER,
+  Object.freeze({ tag: CARDS_MARKER_TAG, max: CARDS_MARKER_BUFFER_MAX }),
+]);
+const WS_RUN_RX = /\s+/y;
+const TEXT_RUN_RX = /[^\s[]+/y;
+
 /**
- * Folgefragen-Zeile am Ende eines Texts erkennen. Betrachtet wird die letzte
- * Zeile vor dem abschließenden Leerraum (scanBracketLine, Schluss = erstes
- * "]]", Fenster FOLLOW_UPS_LINE_MAX); Endzeile, wenn hinter "]]" nur
- * Leerraum folgt. Ihre Einträge liefert parseFollowUpItems (auch []).
- * Folgt der Zeile im Text schon ein Zeilenende, bekommt der Scanner es mit
- * (eine Zeile ohne "]]" ist dann sofort kaputt statt offen).
- *   - final: "followUps" (text = alles vor der Zeile, ohne den Leerraum
- *     davor; followUps evtl. []) oder "none" (text unverändert).
- *   - sonst (Stream): hold = ab hier zurückhalten — vor einer möglichen
- *     Endzeile (inkl. Leerraum davor; "pending") bzw. den Leerraum am Ende
- *     ("none"). Was davor liegt, ist endgültig Text.
- * @param {string} text
- * @param {{final?: boolean, atLineStart?: boolean}} [options] - atLineStart:
- *   Textanfang ist ein Zeilenanfang (im Stream nur, solange noch nichts
- *   gesendet wurde)
- * @returns {{state: "pending"|"none"|"followUps", hold: number, text?: string, followUps?: string[]}}
+ * Protokoll-Marker ab Position i (dort steht "[") erkennen — mit dem
+ * gemeinsamen Scanner scanBracketLine (dieselbe Fenster-, Schluss- und
+ * Zeilenende-Entscheidung wie Karten-Marker und Teaserzeilen) auf dem
+ * Fenster der def.max Zeichen ab i.
+ *   - "marker": "[[FRAGEN:"/"[[KARTEN:" mit dem ersten "]]" in derselben
+ *     Zeile, vollständig im Fenster; end = hinter "]]", content = Inhalt
+ *     zwischen Tag und "]]".
+ *   - "pending": könnte noch einer werden (Anfang eines Tags, oder Tag ohne
+ *     "]]", ohne Zeilenende, Fenster noch nicht voll) — nur ohne final.
+ *   - "none": sonst (auch kaputte Zeile); die Zeichen sind Text.
+ * @param {string} s
+ * @param {number} i
+ * @param {boolean} final - Antwort ist vollständig
+ * @returns {{state: "pending"|"none"|"marker", def?: object, end?: number, content?: string}}
  */
-function parseFollowUps(text, { final = false, atLineStart = true } = {}) {
-  const s = typeof text === "string" ? text : "";
-  const content = s.trimEnd();
-  const newline = content.lastIndexOf("\n");
-  const lineStart = newline + 1;
-  const line = newline === -1 && !atLineStart ? "" : content.slice(lineStart);
-  const holdFrom = s.slice(0, lineStart).trimEnd().length;
-  // Zeilenende hinter der Zeile schon im Text -> dem Scanner mitgeben
-  const lineEnded = s.slice(content.length).includes("\n");
-  const scan =
-    line.length > 0
-      ? scanBracketLine(
-          lineEnded ? `${line}\n` : line,
-          FOLLOW_UPS_TAG,
-          FOLLOW_UPS_LINE_MAX,
-          final
-        )
-      : { state: "none" };
-  const atEnd =
-    scan.state === "closed" && line.slice(scan.end).trim().length === 0;
-  if (!final) {
-    if (scan.state === "pending" || atEnd)
-      return { state: "pending", hold: holdFrom };
-    return { state: "none", hold: content.length };
+function scanInlineMarker(s, i, final) {
+  let pending = false;
+  for (const def of INLINE_MARKERS) {
+    const line = scanBracketLine(
+      s.slice(i, i + def.max),
+      def.tag,
+      def.max,
+      final
+    );
+    if (line.state === "closed")
+      return {
+        state: "marker",
+        def,
+        end: i + line.end,
+        content: s.slice(i + def.tag.length, i + line.close),
+      };
+    if (line.state === "pending") pending = true;
   }
-  if (!atEnd) return { state: "none", hold: s.length, text: s };
-  return {
-    state: "followUps",
-    hold: holdFrom,
-    text: s.slice(0, holdFrom),
-    followUps: parseFollowUpItems(
-      line.slice(scan.start + FOLLOW_UPS_TAG.length, scan.close)
-    ),
-  };
+  return pending ? PENDING : NONE;
 }
 
 /**
- * Vollständige Antwort zerlegen: Marker, Teaserzeilen, Folgefragen-Endzeile,
- * Rest-Text (ohne alles drei). Ohne Marker bleibt der Text bis auf eine
- * gültige Folgefragen-Endzeile unverändert (auch "[[TEASER"-Zeilen).
+ * Leerraum um entfernte Marker zusammenlegen: gaps = Leerraum-Abschnitte
+ * (vor, zwischen, hinter den Markern). Die meisten Zeilenumbrüche gewinnen
+ * (Absatz bleibt Absatz), Einrückung der nächsten Zeile aus dem letzten
+ * Abschnitt; ohne Zeilenumbruch ein Leerzeichen (bzw. nichts, wenn gar kein
+ * Leerraum da war).
+ * @param {string[]} gaps
+ * @returns {string}
+ */
+function mergeGaps(gaps) {
+  const newlines = Math.max(...gaps.map((g) => g.split("\n").length - 1));
+  if (newlines === 0) return gaps.some((g) => g.length > 0) ? " " : "";
+  const last = gaps[gaps.length - 1];
+  const indent = last.includes("\n")
+    ? last.slice(last.lastIndexOf("\n") + 1)
+    : "";
+  return "\n".repeat(newlines) + indent;
+}
+
+/**
+ * FF1: Zustandsbehafteter Filter, der Protokoll-Marker "[[FRAGEN: …]]" und
+ * "[[KARTEN: …]]" überall im Text entfernt (Stream und ganze Antwort
+ * teilen ihn — gleiche Entscheidung bei jeder Aufteilung in Token).
+ * Zurückgehalten werden nur Leerraum am Ende (bis sichtbarer Text folgt;
+ * so kann er um einen Marker zusammengelegt werden) und ein möglicher
+ * Marker ab "[" bis zur Entscheidung (Zeilenende, "]]", Fenstergrenze oder
+ * Antwortende — nie länger). Ohne Marker bleibt der Text unverändert.
+ * this.followUps = Einträge der LETZTEN Folgefragen-Zeile (null = keine).
+ */
+class ProtocolMarkerFilter {
+  /**
+   * @param {{userMessage?: string}} [options] - gerade gestellte Nutzerfrage
+   */
+  constructor({ userMessage } = {}) {
+    this.userMessage = userMessage;
+    this.rest = ""; // unentschiedener Rest ab einem möglichen Marker ("[")
+    this.gaps = [""]; // gehaltener Leerraum; je entferntem Marker ein Abschnitt
+    this.textSent = false; // schon sichtbarer Text ausgegeben
+    this.followUps = null;
+  }
+
+  // Leerraum vor dem nächsten sichtbaren Text
+  #takeGap() {
+    const gaps = this.gaps;
+    const sent = this.textSent;
+    this.gaps = [""];
+    this.textSent = true;
+    if (gaps.length === 1) return gaps[0];
+    // Marker ganz am Anfang: Leerraum entfällt
+    return sent ? mergeGaps(gaps) : "";
+  }
+
+  /**
+   * @param {string} piece
+   * @param {{final?: boolean}} [options]
+   * @returns {string} jetzt auszugebender Text
+   */
+  push(piece, { final = false } = {}) {
+    const s = this.rest + (typeof piece === "string" ? piece : "");
+    this.rest = "";
+    let out = "";
+    let i = 0;
+    while (i < s.length) {
+      WS_RUN_RX.lastIndex = i;
+      const ws = WS_RUN_RX.exec(s);
+      if (ws) {
+        this.gaps[this.gaps.length - 1] += ws[0];
+        i += ws[0].length;
+        continue;
+      }
+      if (s[i] === "[") {
+        const found = scanInlineMarker(s, i, final);
+        if (found.state === "pending") {
+          this.rest = s.slice(i);
+          break;
+        }
+        if (found.state === "marker") {
+          if (found.def === FOLLOW_UPS_MARKER)
+            this.followUps = parseFollowUpItems(found.content, {
+              userMessage: this.userMessage,
+            });
+          this.gaps.push("");
+          i = found.end;
+          continue;
+        }
+        out += this.#takeGap() + "[";
+        i += 1;
+        continue;
+      }
+      TEXT_RUN_RX.lastIndex = i;
+      const run = TEXT_RUN_RX.exec(s)[0];
+      out += this.#takeGap() + run;
+      i += run.length;
+    }
+    if (final) {
+      // Marker ganz am Ende: Leerraum davor/dahinter entfällt
+      if (this.gaps.length === 1) out += this.gaps[0];
+      this.gaps = [""];
+    }
+    return out;
+  }
+}
+
+/**
+ * Protokoll-Marker einer vollständigen Antwort (bzw. des Texts hinter Karten-
+ * Marker und Teasern) entfernen und die Folgefragen der letzten
+ * "[[FRAGEN: …]]"-Zeile lesen (ProtocolMarkerFilter in einem Durchgang).
+ *   - "followUps": mindestens eine Folgefragen-Zeile (followUps evtl. [])
+ *   - "none": keine; followUps fehlt
+ * text ist in beiden Fällen ohne Marker (ohne Marker unverändert).
  * @param {string} text
+ * @param {{userMessage?: string}} [options]
+ * @returns {{state: "none"|"followUps", text: string, followUps?: string[]}}
+ */
+function parseFollowUps(text, { userMessage } = {}) {
+  const filter = new ProtocolMarkerFilter({ userMessage });
+  const out = filter.push(typeof text === "string" ? text : "", {
+    final: true,
+  });
+  return filter.followUps
+    ? { state: "followUps", text: out, followUps: filter.followUps }
+    : { state: "none", text: out };
+}
+
+/**
+ * Protokoll-Marker ("[[FRAGEN: …]]", "[[KARTEN: …]]") aus einem gespeicher-
+ * ten Antworttext entfernen — für jeden Leser des gespeicherten Texts (auch
+ * alte Datensätze, in denen die Zeile vor dem Fix vor dem KI-Hinweis stand).
+ * Kein String -> unverändert.
+ * @param {any} text
+ * @returns {any}
+ */
+function stripProtocolMarkers(text) {
+  if (typeof text !== "string" || !text.includes("[[")) return text;
+  return parseFollowUps(text).text;
+}
+
+/**
+ * L4: Gespeicherte Antwort (Spalte embed_chats.response) ohne Protokoll-
+ * Marker im Text — die eine Bereinigung beim Lesen (EmbedChats.
+ * withoutProtocolMarkers). Antwort-JSON (Objekt mit text): nur text
+ * bereinigt, alle anderen Felder bleiben; Klartext (Zeilen ohne JSON):
+ * bereinigt. Ohne Marker, kein String oder JSON ohne text (anderes Objekt,
+ * Liste): dieselbe Zeichenkette.
+ * @param {any} response
+ * @returns {any}
+ */
+function cleanStoredResponse(response) {
+  if (typeof response !== "string" || !response.includes("[[")) return response;
+  let data;
+  try {
+    data = JSON.parse(response);
+  } catch {
+    return stripProtocolMarkers(response);
+  }
+  if (!data || typeof data !== "object" || typeof data.text !== "string")
+    return response;
+  const text = stripProtocolMarkers(data.text);
+  return text === data.text ? response : JSON.stringify({ ...data, text });
+}
+
+/**
+ * Vollständige Antwort zerlegen: Marker, Teaserzeilen, Folgefragen, Rest-
+ * Text (ohne Marker, Teaserzeilen und Protokoll-Marker). Ohne Marker bleibt
+ * der Text bis auf Protokoll-Marker unverändert (auch "[[TEASER"-Zeilen).
+ * @param {string} text
+ * @param {{userMessage?: string}} [options] - gerade gestellte Nutzerfrage
+ *   (Pillen gleich dieser Frage werden verworfen)
  * @returns {{marker: object, teasers: {index: number, text: string}[], followUps: string[], text: string}}
  */
-function parseCardsReply(text) {
+function parseCardsReply(text, { userMessage } = {}) {
   const marker = parseCardsMarker(text, { final: true });
   if (typeof text !== "string")
     return { marker, teasers: [], followUps: [], text };
@@ -408,7 +587,7 @@ function parseCardsReply(text) {
     teasers = parsed.lines;
     body = afterMarker.slice(parsed.end);
   }
-  const followUps = parseFollowUps(body, { final: true });
+  const followUps = parseFollowUps(body, { userMessage });
   return {
     marker,
     teasers,
@@ -437,40 +616,22 @@ function stripCardsMarker(text) {
  * Phasen: "marker" -> "teasers" (nur nach einem Marker) -> "text".
  * In der Teaser-Phase hält der Puffer nur den noch unentschiedenen Rest;
  * fertige Teaserzeilen werden sofort verworfen bzw. gesammelt (this.teasers).
- * Folgefragen: Der Text aller Phasen läuft zusätzlich durch einen Endpuffer
- * (this.tail), der Leerraum am Ende und eine mögliche "[[FRAGEN: …]]"-Zeile
- * bis zum Antwortende zurückhält (parseFollowUps); gefunden -> this.followUps.
+ * Folgefragen (FF1): Der Text aller Phasen läuft zusätzlich durch den
+ * ProtocolMarkerFilter, der "[[FRAGEN: …]]"/"[[KARTEN: …]]" überall entfernt
+ * (Leerraum am Ende und ein begonnener Marker werden bis zur Entscheidung
+ * gehalten); Folgefragen der letzten Zeile -> beim Antwortende.
  */
 class CardsMarkerFilter {
-  constructor() {
+  /**
+   * @param {{userMessage?: string}} [options] - gerade gestellte Nutzerfrage
+   */
+  constructor({ userMessage } = {}) {
     this.buffer = "";
     this.phase = "marker";
     this.marker = null; // { indices: number[], valid: boolean }
     this.teasers = []; // gesammelte Teaserzeilen ({index, text})
     this.teasersReported = false;
-    this.tail = ""; // zurückgehaltenes Textende (Folgefragen)
-    this.textSent = false; // schon Text gesendet (Zeilenanfang-Regel)
-    this.followUps = null; // gültige Folgefragen (erst beim Antwortende)
-  }
-
-  // Text nach Marker/Teasern: Endzeile "[[FRAGEN: …]]" zurückhalten
-  #followUpsStep(text, final) {
-    this.tail += text;
-    const result = parseFollowUps(this.tail, {
-      final,
-      atLineStart: !this.textSent,
-    });
-    let out;
-    if (final) {
-      out = result.text;
-      this.tail = "";
-      if (result.state === "followUps") this.followUps = result.followUps;
-    } else {
-      out = this.tail.slice(0, result.hold);
-      this.tail = this.tail.slice(result.hold);
-    }
-    if (out.length > 0) this.textSent = true;
-    return out;
+    this.protocol = new ProtocolMarkerFilter({ userMessage });
   }
 
   #teaserStep(final) {
@@ -506,12 +667,14 @@ class CardsMarkerFilter {
    * @returns {{text: string, marker?: {indices: number[], valid: boolean}, teasers?: {index: number, text: string}[], followUps?: string[]}}
    *   text = jetzt an das Widget zu sendender Text ("" = noch puffern);
    *   teasers = einmalig, sobald die Teaserzeilen vollständig sind;
-   *   followUps = nur beim Antwortende (final), wenn die Endzeile gültig ist
+   *   followUps = nur beim Antwortende (final), wenn eine Folgefragen-Zeile
+   *   kam (Einträge der letzten, evtl. [])
    */
   push(token, { final = false } = {}) {
     const out = this.#cardsStep(token, final);
-    out.text = this.#followUpsStep(out.text, final);
-    if (final && this.followUps) out.followUps = this.followUps.slice();
+    out.text = this.protocol.push(out.text, { final });
+    if (final && this.protocol.followUps)
+      out.followUps = this.protocol.followUps.slice();
     return out;
   }
 
@@ -553,11 +716,16 @@ function parseSseChunk(raw) {
  * Kurskarten v3: onTeasers bekommt die Teaserzeilen einmalig, eingereiht
  * HINTER onMarker (Karten zuerst) und VOR dem Text dahinter.
  * @param {import("express").Response} response
- * @param {{onMarker: (marker: {indices: number[], valid: boolean}) => (void|Promise<void>), onTeasers?: (lines: {index: number, text: string}[]) => (void|Promise<void>)}} options
+ * userMessage: gerade gestellte Nutzerfrage (Folgefragen-Regeln wie
+ * parseCardsReply).
+ * @param {{onMarker: (marker: {indices: number[], valid: boolean}) => (void|Promise<void>), onTeasers?: (lines: {index: number, text: string}[]) => (void|Promise<void>), userMessage?: string}} options
  * @returns {{response: import("express").Response, done: () => Promise<void>, filter: CardsMarkerFilter}}
  */
-function createCardsMarkerResponse(response, { onMarker, onTeasers } = {}) {
-  const filter = new CardsMarkerFilter();
+function createCardsMarkerResponse(
+  response,
+  { onMarker, onTeasers, userMessage } = {}
+) {
+  const filter = new CardsMarkerFilter({ userMessage });
   let queue = Promise.resolve();
   const later = (fn) => {
     queue = queue.then(fn).catch((e) => {
@@ -654,29 +822,54 @@ function teaserLinesText(lines) {
   );
 }
 
-// Eintrag ohne Inhalt: nur Satzzeichen/Striche/Aufzählungszeichen
-// ("-", "–", "—", "•", "·", "*", ".", "…") und Leerraum
-const FOLLOW_UP_EMPTY_RX = /^[\p{P}\s]*$/u;
+const NOT_LETTER_OR_DIGIT_RX = /[^\p{L}\p{N}]+/gu;
+
+/**
+ * Vergleichsschlüssel einer Pille (FF2): Unicode-normalisiert (NFKC),
+ * klein, nur Buchstaben/Ziffern, Wörter durch ein Leerzeichen getrennt —
+ * „Gibt es Yoga am Abend?“, „gibt es yoga  am abend“ und „Gibt es Yoga am
+ * Abend ?“ sind gleich. "" = kein Inhalt.
+ * @param {any} text
+ * @returns {string}
+ */
+function followUpKey(text) {
+  if (typeof text !== "string") return "";
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(NOT_LETTER_OR_DIGIT_RX, " ")
+    .trim();
+}
 
 /**
  * Folgefragen: gespeicherte Vorschläge (followUps) einer Antwort-JSON prüfen
  * (Widget-Verlauf /history und LLM-Verlauf) — dieselben Regeln gelten beim
- * Erkennen der Endzeile (parseFollowUpItems): nur Strings, bereinigt,
- * leere bzw. nur aus Satzzeichen/Strichen bestehende verworfen, höchstens
- * FOLLOW_UP_MAX_LEN Zeichen (längere verworfen, nicht gekürzt), ohne
- * Dubletten (Groß-/Kleinschreibung egal), die ersten FOLLOW_UPS_MAX.
+ * Erkennen der Folgefragen-Zeile (parseFollowUpItems) — Sicherheitsnetz
+ * (FF2): nur Strings, bereinigt; leere bzw. nur aus Satzzeichen/Strichen/
+ * Symbolen bestehende verworfen; höchstens FOLLOW_UP_MAX_LEN Zeichen
+ * (längere verworfen, nicht gekürzt — der Prompt verlangt ≤ 60, das Widget
+ * verwirft ebenfalls ab 61, damit erst recht alles > 80); ohne Dubletten
+ * und ohne Einträge gleich der gerade gestellten Nutzerfrage (userMessage)
+ * — beides normalisiert verglichen (followUpKey); die ersten
+ * FOLLOW_UPS_MAX.
  * @param {any} value
+ * @param {{userMessage?: string}} [options] - gerade gestellte Nutzerfrage
  * @returns {string[]}
  */
-function storedFollowUps(value) {
+function storedFollowUps(value, { userMessage } = {}) {
   if (!Array.isArray(value)) return [];
+  const asked = followUpKey(userMessage);
   const out = [];
+  const keys = [];
   for (const item of value) {
     if (out.length >= FOLLOW_UPS_MAX) break;
     const text = cleanTeaserText(item);
-    if (!text || FOLLOW_UP_EMPTY_RX.test(text)) continue;
-    if (text.length > FOLLOW_UP_MAX_LEN) continue;
-    if (out.some((t) => t.toLowerCase() === text.toLowerCase())) continue;
+    if (!text || text.length > FOLLOW_UP_MAX_LEN) continue;
+    // Schlüssel "" = ohne Inhalt: nur Satzzeichen/Striche/Aufzählungszeichen
+    // ("-", "–", "—", "•", "·", "*", ".", "…") und Leerraum
+    const key = followUpKey(text);
+    if (!key || key === asked || keys.includes(key)) continue;
+    keys.push(key);
     out.push(text);
   }
   return out;
@@ -700,9 +893,10 @@ function followUpsLine(followUps) {
  * einen Marker zeigt. Kurskarten v3: gespeicherte Teaserzeilen
  * (courseTeaserLines) folgen direkt nach dem Marker. Folgefragen: gespei-
  * cherte Vorschläge (followUps) stehen wieder als letzte Zeile
- * "[[FRAGEN: … | …]]" (auch ohne Marker). Die Datensätze werden
- * kopiert, nie verändert; ohne gespeicherten Marker (Feld fehlt/null)
- * unverändert.
+ * "[[FRAGEN: … | …]]" (auch ohne Marker). Protokoll-Marker, die noch im
+ * gespeicherten Text stehen (Altdatensätze vor FF1), werden entfernt (L4).
+ * Die Datensätze werden kopiert, nie verändert; ohne gespeicherten Marker
+ * (Feld fehlt/null) und ohne Marker im Text unverändert.
  * Nie für /history an das Widget verwenden.
  * @param {object[]} rawHistory - embed_chats-Zeilen (response = JSON-String)
  * @returns {object[]}
@@ -719,8 +913,11 @@ function restoreCardsMarkers(rawHistory = []) {
       : [];
     // Folgefragen: gespeicherte Vorschläge wieder als letzte Zeile
     const suffix = followUpsLine(data.followUps);
-    if (prefix.length === 0 && !suffix) return record;
-    let text = data.text;
+    // L4: Altdatensätze (vor FF1) tragen Marker noch im Text — nie als
+    // Vorbild ans Modell; wieder eingesetzt wird nur, was gespeichert ist.
+    const body = stripProtocolMarkers(data.text);
+    if (prefix.length === 0 && !suffix && body === data.text) return record;
+    let text = body;
     if (prefix.length > 0) text = `${prefix.join("\n")}\n${text}`;
     if (suffix) text = `${text}\n${suffix}`;
     return {
@@ -740,6 +937,8 @@ module.exports = {
   storedTeaserLines,
   parseFollowUps,
   storedFollowUps,
+  stripProtocolMarkers,
+  cleanStoredResponse,
   addressesUser,
   restoreCardsMarkers,
   // nur für Tests
@@ -749,7 +948,9 @@ module.exports = {
     FOLLOW_UPS_MAX,
     FOLLOW_UP_MAX_LEN,
     parseFollowUpItems,
+    followUpKey,
     followUpsLine,
+    ProtocolMarkerFilter,
     CARDS_MARKER_TAG,
     CARDS_MARKER_BUFFER_MAX,
     scanBracketLine,

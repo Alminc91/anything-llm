@@ -319,7 +319,7 @@ async function streamChatWithForEmbed(
       });
     completeText = textResponse;
     metrics = performanceMetrics;
-    parsedReply = parseCardsReply(completeText);
+    parsedReply = parseCardsReply(completeText, { userMessage: message });
     if (parsedReply.marker.state === "marker") {
       await announceCourses({ indices: parsedReply.marker.indices ?? [] });
       sendCourseTeasers(parsedReply.teasers);
@@ -339,6 +339,7 @@ async function streamChatWithForEmbed(
     const markerStream = createCardsMarkerResponse(response, {
       onMarker: announceCourses,
       onTeasers: sendCourseTeasers,
+      userMessage: message,
     });
     completeText = await LLMConnector.handleStream(
       markerStream.response,
@@ -359,7 +360,7 @@ async function streamChatWithForEmbed(
   // (Feld fehlt). Kurskarten v3: Teaserzeilen zu Marker-Nummern (nur die
   // sammelt parseCardsReply) ebenso als courseTeaserLines (LLM-Verlauf), den
   // Karten zugeordnet als courseTeasers (Widget-Verlauf).
-  parsedReply ??= parseCardsReply(completeText);
+  parsedReply ??= parseCardsReply(completeText, { userMessage: message });
   const replyMarker = parsedReply.marker;
   const courseCardsMarker =
     replyMarker.state === "marker" && replyMarker.valid
@@ -372,10 +373,11 @@ async function streamChatWithForEmbed(
       : {};
   completeText = parsedReply.text;
 
-  // Folgefragen: Endzeile "[[FRAGEN: … | …]]" (siehe embedCardsMarker.js) —
-  // Erkennen, Entfernen und Speichern (followUps) laufen IMMER (wie der
-  // Marker). Nur mit visual_config.followUps = "pills" eigener Chunk nach
-  // dem letzten Textchunk (die Zeile steht am Ende, der Text ist jetzt
+  // Folgefragen: Zeile "[[FRAGEN: … | …]]" (siehe embedCardsMarker.js; FF1:
+  // überall im Text, Pillen aus der letzten Zeile, ohne Pillen gleich der
+  // Nutzerfrage) — Erkennen, Entfernen und Speichern (followUps) laufen
+  // IMMER (wie der Marker). Nur mit visual_config.followUps = "pills"
+  // eigener Chunk nach dem letzten Textchunk (der Text ist jetzt
   // vollständig) und vor finalizeResponseStream.
   const followUps = parsedReply.followUps;
   if (followUpsOn && followUps.length > 0)

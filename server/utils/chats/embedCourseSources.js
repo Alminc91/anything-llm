@@ -278,14 +278,19 @@ function followUpsEnabled(embed = {}) {
 // Rückfragen an den Nutzer (der Basis-Prompt v3.3 verlangt im Abschnitt
 // „Intelligent Follow-up Questions“ solche Rückfragen — als Pille geklickt
 // kämen sie als Nutzer-Nachricht zurück). Statt einer Rückfrage bietet das
-// Modell deren wahrscheinliche Antworten an. Sicherheitsnetz im Server:
-// addressesUser() in embedCardsMarker.js verwirft übrig gebliebene
-// Rückfragen.
+// Modell deren wahrscheinliche Antworten an — als Fragen des Nutzers.
+// Form: jede Pille ist eine vollständige, kurze FRAGE mit Fragezeichen
+// („Gibt es Kurse für Babys?“), keine Stichworte („Kurse für Babys“);
+// darum stehen auch alle Beispiele als Fragen da (das Modell übernimmt die
+// Form der Beispiele). Sicherheitsnetz im Server: addressesUser() in
+// embedCardsMarker.js verwirft übrig gebliebene Rückfragen; Einträge ohne
+// Fragezeichen bleiben unverändert (siehe parseFollowUpItems).
 const FOLLOW_UPS_PROMPT_NOTE =
   "\n\n### Follow-up Suggestions (ACTIVE)\n" +
-  "End EVERY answer with one final line of exactly this form (no code formatting, no backticks): [[FRAGEN: q1 | q2]] \u2014 two short, self-contained suggestions for the user's NEXT message, in the user's own words to you, the advisor (e.g. \u201eGibt es auch Kurse am Wochenende?\u201c), \u2264 60 characters each, in the user's language, nothing already answered. " +
+  "End EVERY answer with one final line of exactly this form (no code formatting, no backticks): [[FRAGEN: q1? | q2?]] \u2014 two short QUESTIONS the user could ask you, the advisor, next: in the user's own voice, each a complete question ending with \u201e?\u201c (or the question mark of the user's language, e.g. \u201e\u061f\u201c), \u2264 60 characters, in the user's language, nothing already answered. " +
+  "Never bare keywords or topics, always the full question (e.g. \u201eGibt es auch Termine im Juni?\u201c). " +
   "NEVER questions to the user (\u201eSuchen Sie \u2026?\u201c, \u201eM\u00f6chten Sie \u2026?\u201c, \u201cAre you looking for \u2026?\u201d). " +
-  "Instead of a clarifying question, offer its likely answers as suggestions (e.g. [[FRAGEN: Kurse f\u00fcr Babys | Kurse f\u00fcr Schulkinder]]). " +
+  "Instead of a clarifying question, turn its likely answers into the user's questions (e.g. [[FRAGEN: Gibt es Kurse f\u00fcr Babys? | Welche Kurse gibt es f\u00fcr Schulkinder?]]). " +
   "Write [[FRAGEN: -]] if none fit. Do NOT ask a question in the answer text itself. Never mention this line.";
 
 function headerLine(text, rx) {

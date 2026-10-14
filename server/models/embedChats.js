@@ -3,7 +3,11 @@ const {
   sanitizeCourseSources,
   sanitizeCourseTeasers,
 } = require("../utils/chats/embedCourseSources");
-const { storedFollowUps } = require("../utils/chats/embedCardsMarker");
+const {
+  storedFollowUps,
+  cleanStoredResponse,
+  stripProtocolMarkers,
+} = require("../utils/chats/embedCardsMarker");
 const {
   searchForms,
   jsonEscaped,
@@ -297,6 +301,27 @@ const EmbedChats = {
   },
 
   /**
+   * L4 (FF1): die eine Bereinigung beim Lesen gespeicherter Antworten -
+   * Protokoll-Marker ("[[FRAGEN: …]]", "[[KARTEN: …]]"), die Altdatensätze
+   * vor FF1 noch im Text tragen, kommen bei keinem Leser an: LLM- und
+   * Widget-Verlauf (forEmbedByUser), Admin-Konversation
+   * (getConversationDetails), Admin-Chatliste (whereWithEmbedAndWorkspace,
+   * chatTablePage), Export (_exportMessages) und
+   * Entwickler-API GET /v1/embed/:embedUuid/chats[/:sessionUuid] (where).
+   * Nur response wird ersetzt (cleanStoredResponse), Zeilen ohne Marker
+   * bleiben dieselben Objekte; die Zeilen selbst werden nie verändert.
+   * @param {object[]} chats - embed_chats-Zeilen (response = JSON-String)
+   * @returns {object[]}
+   */
+  withoutProtocolMarkers: function (chats) {
+    if (!Array.isArray(chats)) return [];
+    return chats.map((chat) => {
+      const response = cleanStoredResponse(chat?.response);
+      return response === chat?.response ? chat : { ...chat, response };
+    });
+  },
+
+  /**
    * Loops through each chat and filters out the sources from the response object.
    * We do this when returning /history of an embed to the frontend to prevent inadvertent leaking
    * of private sources the user may not have intended to share with users.
@@ -325,7 +350,9 @@ const EmbedChats = {
         followUps,
         ...responseRest
       } = parsed && typeof parsed === "object" ? parsed : {};
-      const safeFollowUps = storedFollowUps(followUps);
+      const safeFollowUps = storedFollowUps(followUps, {
+        userMessage: rest.prompt,
+      });
       if (safeFollowUps.length > 0) responseRest.followUps = safeFollowUps;
       const safeCourseSources = sanitizeCourseSources(courseSources);
       if (safeCourseSources.length > 0) {
@@ -362,16 +389,16 @@ const EmbedChats = {
     identifierId = null,
     limit = null,
     orderBy = null,
-    identifierType = 'session_id',
+    identifierType = "session_id",
     boundSessionId = null
   ) {
     if (!embedId || !identifierId) return [];
 
     // Legacy support: If identifierType is boolean, it's the old filterSources parameter
     let filterSources = false;
-    if (typeof identifierType === 'boolean') {
+    if (typeof identifierType === "boolean") {
       filterSources = identifierType;
-      identifierType = 'session_id';
+      identifierType = "session_id";
     }
 
     try {
@@ -381,7 +408,7 @@ const EmbedChats = {
         include: true,
       };
 
-      if (identifierType === 'conversation_id') {
+      if (identifierType === "conversation_id") {
         if (boundSessionId && String(identifierId) === String(boundSessionId)) {
           // KIE-503: Legacy-Zeilen (vor KIE-502) haben conversation_id NULL und
           // werden in Konversations-Listen via COALESCE unter der session_id
@@ -409,7 +436,8 @@ const EmbedChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return filterSources ? this.filterSources(chats) : chats;
+      const readable = this.withoutProtocolMarkers(chats);
+      return filterSources ? this.filterSources(readable) : readable;
     } catch (error) {
       console.error(error.message);
       return [];
@@ -419,7 +447,7 @@ const EmbedChats = {
   markHistoryInvalid: async function (
     embedId = null,
     identifierId = null,
-    identifierType = 'session_id',
+    identifierType = "session_id",
     boundSessionId = null
   ) {
     if (!embedId || !identifierId) return [];
@@ -430,7 +458,7 @@ const EmbedChats = {
         embed_id: Number(embedId),
       };
 
-      if (identifierType === 'conversation_id') {
+      if (identifierType === "conversation_id") {
         if (boundSessionId && String(identifierId) === String(boundSessionId)) {
           // KIE-503: Spiegel des Legacy-NULL-Zweigs aus forEmbedByUser — Lesen
           // und Invalidieren müssen denselben Session-Bucket meinen, sonst
@@ -682,7 +710,7 @@ const EmbedChats = {
         ...(offset !== null ? { skip: offset } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return chats;
+      return EmbedChats.withoutProtocolMarkers(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -713,7 +741,7 @@ const EmbedChats = {
         ...(offset !== null ? { skip: offset } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return chats;
+      return EmbedChats.withoutProtocolMarkers(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -1703,7 +1731,9 @@ const EmbedChats = {
       },
     });
     const byId = new Map(rows.map((row) => [row.id, row]));
-    return ids.map((id) => byId.get(id)).filter(Boolean);
+    return EmbedChats.withoutProtocolMarkers(
+      ids.map((id) => byId.get(id)).filter(Boolean)
+    );
   },
 
   /**
@@ -2096,7 +2126,10 @@ const EmbedChats = {
       byGroup.get(key).push({
         createdAt: new Date(at ?? NaN),
         prompt: row.prompt,
-        answer: typeof row.answer === "string" ? row.answer : null,
+        answer:
+          typeof row.answer === "string"
+            ? stripProtocolMarkers(row.answer)
+            : null,
         // SQLite kennt nur 0/1; je nach Treiber kommt die Spalte als Zahl
         // oder als Wahrheitswert zurück.
         feedbackScore:
@@ -2311,7 +2344,7 @@ const EmbedChats = {
         WHERE id IN (${Prisma.join(rows.map((row) => row.id))})`;
       for (const answer of answers)
         if (typeof answer.answer === "string")
-          texts.set(Number(answer.id), answer.answer);
+          texts.set(Number(answer.id), stripProtocolMarkers(answer.answer));
     }
     return {
       chats: rows.map((row) => ({
@@ -2331,11 +2364,7 @@ const EmbedChats = {
    * @param {Date|null} endDate - Optional end date filter
    * @returns {Promise<Object>} Statistics object
    */
-  getBasicStats: async function (
-    embedId,
-    startDate = null,
-    endDate = null
-  ) {
+  getBasicStats: async function (embedId, startDate = null, endDate = null) {
     try {
       const { Prisma } = require("@prisma/client");
 
