@@ -4,7 +4,8 @@
 // dem KI-Hinweis und wurde nicht erkannt). Jeder Leser der gespeicherten
 // Antwort bekommt sie über EmbedChats.withoutProtocolMarkers ohne Marker:
 // Widget-Verlauf, LLM-Verlauf (forEmbedByUser), Admin-Konversation
-// (getConversationDetails) und Admin-Chatliste (whereWithEmbedAndWorkspace).
+// (getConversationDetails), Admin-Chatliste (whereWithEmbedAndWorkspace) und
+// Entwickler-API (where, Routen in apiEmbedChatsStoredMarkers.test.js).
 
 jest.mock("../../utils/prisma", () => ({
   embed_chats: { findMany: jest.fn() },

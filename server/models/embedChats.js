@@ -152,7 +152,8 @@ const EmbedChats = {
    * Protokoll-Marker ("[[FRAGEN: …]]", "[[KARTEN: …]]"), die Altdatensätze
    * vor FF1 noch im Text tragen, kommen bei keinem Leser an: LLM- und
    * Widget-Verlauf (forEmbedByUser), Admin-Konversation
-   * (getConversationDetails), Admin-Chatliste (whereWithEmbedAndWorkspace).
+   * (getConversationDetails), Admin-Chatliste (whereWithEmbedAndWorkspace),
+   * Entwickler-API GET /v1/embed/:embedUuid/chats[/:sessionUuid] (where).
    * Nur response wird ersetzt (cleanStoredResponse), Zeilen ohne Marker
    * bleiben dieselben Objekte; die Zeilen selbst werden nie verändert.
    * @param {object[]} chats - embed_chats-Zeilen (response = JSON-String)
@@ -558,7 +559,7 @@ const EmbedChats = {
         ...(offset !== null ? { skip: offset } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return chats;
+      return EmbedChats.withoutProtocolMarkers(chats);
     } catch (error) {
       console.error(error.message);
       return [];
