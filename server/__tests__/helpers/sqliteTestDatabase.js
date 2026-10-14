@@ -195,19 +195,25 @@ function openClient(file, params = {}) {
  * @param {boolean} [options.activate] - als Datenbank des Servers setzen (Standard: ja)
  * @param {number} [options.busyTimeoutSeconds] - Busy-Timeout der Verbindungen
  *   in Sekunden (Standard der Engine: 5)
+ * @param {number} [options.connectionLimit] - Verbindungen im Pool
  */
 async function createTestDatabase({
   withoutLedger = false,
   activate = true,
   busyTimeoutSeconds = null,
+  connectionLimit = null,
 } = {}) {
   const migrations = allMigrations().filter(
     (name) => !withoutLedger || name !== LEDGER_MIGRATION
   );
   const file = path.join(root(), `test-${++state.counter}.db`);
   fs.copyFileSync(templateFor(migrations), file);
-  const params =
-    busyTimeoutSeconds === null ? {} : { socket_timeout: busyTimeoutSeconds };
+  const params = {
+    ...(busyTimeoutSeconds === null
+      ? {}
+      : { socket_timeout: busyTimeoutSeconds }),
+    ...(connectionLimit === null ? {} : { connection_limit: connectionLimit }),
+  };
 
   const db = {
     file,
@@ -246,9 +252,11 @@ async function createTestDatabase({
  * - "read": BEGIN und ein Lesezugriff (Lesesperre SHARED). Die Transaktion des
  *   Servers schreibt, ihr COMMIT wartet aber auf die Sperre - die Engine meldet
  *   dann "transaction failed to commit".
+ * Über client schreibt die Verbindung innerhalb ihrer Transaktion (wird mit
+ * release() gespeichert), etwa als fremder Schreiber während der Sperre.
  * @param {string} file
  * @param {"write"|"read"} kind
- * @returns {Promise<{release: () => Promise<void>}>}
+ * @returns {Promise<{client: import("@prisma/client").PrismaClient, release: () => Promise<void>}>}
  */
 async function holdLock(file, kind) {
   const client = openClient(file, { connection_limit: 1 });
@@ -260,6 +268,7 @@ async function holdLock(file, kind) {
   }
   let released = null;
   return {
+    client,
     release() {
       released ??= client
         .$executeRawUnsafe("COMMIT")

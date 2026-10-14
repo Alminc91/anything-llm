@@ -403,7 +403,7 @@ async function streamChatWithWorkspace(
       messages_limit: currentLimit,
       close: true,
       error: false,
-      chatId: chat.id,
+      chatId: chat?.id ?? null,
       metrics,
     });
     return;

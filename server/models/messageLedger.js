@@ -97,6 +97,8 @@ const BACKFILL_TABLES = ["workspace_chats", "embed_chats"];
 const EVENT_WRITE_FAILED = "message_ledger_write_failed";
 const EVENT_MISMATCH = "message_ledger_mismatch";
 const EVENT_MARKER_RECOVERED = "message_ledger_marker_recovered";
+// KIE-542: gespeichert erst nach einer Wiederholung
+const EVENT_SAVED_AFTER_RETRY = "message_ledger_saved_after_retry";
 const MS_PER_HOUR = 60 * 60 * 1000;
 // Ließ sich message_ledger_write_failed nicht schreiben: nächster Versuch
 const WRITE_FAILED_RETRY_MS = 60 * 1000;
@@ -105,12 +107,23 @@ const CELLS_PER_STATEMENT = 100;
 // KIE-542: Pausen vor der zweiten und dritten Speicherung nach einem
 // Sperrfehler. Jeder Versuch wartet zusätzlich bis zum Busy-Timeout (5 s).
 const RETRY_DELAYS_MS = Object.freeze([300, 900]);
+// Eine Wiederholung beginnt nur, solange seit dem ersten Versuch samt Pause
+// höchstens so viel Zeit vergangen ist. Bei einer anhaltenden Sperre und 5 s
+// Busy-Timeout endet das Speichern so nach etwa 2 x 5 s + 300 ms statt nach
+// 3 x 5 s + 1,2 s: Bis dahin warten die letzte Nachricht des Streams (chatId,
+// Kontingent) bzw. die Antwort der API ohne Stream.
+const RETRY_BUDGET_MS = 8_000;
 // Prisma-Fehlercodes, die auf Sperre bzw. Zeitüberschreitung hindeuten:
 // P1008 Zeitüberschreitung (bei SQLite: SQLITE_BUSY, auch beim COMMIT),
 // P2034 Schreibkonflikt/Deadlock, P2024 keine Verbindung aus dem Pool.
 const LOCK_ERROR_CODES = new Set(["P1008", "P2034", "P2024"]);
 const LOCK_ERROR_PATTERN =
   /SQLITE_BUSY|database is locked|socket timeout|transaction failed to commit/i;
+// P2028 nur, wenn die Transaktion nicht beginnen konnte (maxWait abgelaufen,
+// etwa weil alle Verbindungen des Pools im Busy-Timeout hängen): Dann ist
+// nichts geschrieben. Andere P2028 ("Transaction already closed" usw.) nicht.
+const TRANSACTION_START_TIMEOUT_PATTERN =
+  /Unable to start a transaction in the given time/i;
 
 const berlinHourFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: BILLING_TIME_ZONE,
@@ -161,16 +174,80 @@ function exclusive(task) {
 // Wiederholen bei Sperre (KIE-542)
 // ---------------------------------------------------------------------------
 
-// Zähler seit dem Start des Prozesses, siehe MessageLedger.retryStats
-const retryStats = {
-  retried: 0,
-  savedAfterRetry: 0,
-  alreadySaved: 0,
-  failedAfterRetries: 0,
-};
+// Noch laufende Ereignisse message_ledger_saved_after_retry (für Tests)
+const pendingRetryEvents = new Set();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Letzte nicht leere Zeile einer Meldung: bei Prisma die Ursache. */
+function lastLine(message) {
+  const lines = String(message ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines[lines.length - 1] ?? "";
+}
+
+/** Gleiche Werte, Zeitpunkte nach ihrer Zeit verglichen. */
+function sameValue(a, b) {
+  if (a instanceof Date || b instanceof Date)
+    return (
+      a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
+    );
+  return a === b;
+}
+
+/**
+ * Stehen alle Zeilen, die ein früherer Versuch angelegt hat, unverändert in
+ * der Datenbank? Gesucht wird über den Primärschlüssel; verglichen werden alle
+ * Felder, die die Engine damals zurückgegeben hat.
+ * @param {import("@prisma/client").Prisma.TransactionClient} tx
+ * @param {Array<{model: string, row: Object}>} created
+ */
+async function createdRowsSaved(tx, created) {
+  const byModel = new Map();
+  for (const { model, row } of created) {
+    if (!byModel.has(model)) byModel.set(model, []);
+    byModel.get(model).push(row);
+  }
+  for (const [model, rows] of byModel) {
+    // Höchstens 999 Platzhalter je Anweisung (ältere SQLite-Grenze)
+    for (let start = 0; start < rows.length; start += 500) {
+      const chunk = rows.slice(start, start + 500);
+      const found = await tx[model].findMany({
+        where: { id: { in: chunk.map((row) => row.id) } },
+      });
+      const foundById = new Map(found.map((row) => [row.id, row]));
+      for (const row of chunk) {
+        const saved = foundById.get(row.id);
+        if (
+          !saved ||
+          !Object.keys(row).every((key) => sameValue(row[key], saved[key]))
+        )
+          return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Ereignis message_ledger_saved_after_retry, ohne Inhalte. Es wird nicht
+ * abgewartet: Die Antwort an den Nutzer soll nicht noch einmal warten.
+ */
+function logSavedAfterRetry(context, attempts, alreadySaved) {
+  const pending = EventLogs.logEvent(EVENT_SAVED_AFTER_RETRY, {
+    source: context?.source ?? null,
+    workspaceId: context?.workspaceId ?? null,
+    embedId: context?.embedId ?? null,
+    attempts,
+    ...(alreadySaved ? { alreadySaved: true } : {}),
+  })
+    .catch(() => {})
+    .finally(() => pendingRetryEvents.delete(pending));
+  pendingRetryEvents.add(pending);
 }
 
 /** Kontext eines Speichervorgangs für das Log, ohne Inhalte. */
@@ -326,6 +403,8 @@ const MessageLedger = {
   // von SQLite), danach höchstens 10 s für die wenigen Anweisungen.
   TRANSACTION_OPTIONS: { maxWait: 5_000, timeout: 10_000 },
   RETRY_DELAYS_MS,
+  RETRY_BUDGET_MS,
+  EVENT_SAVED_AFTER_RETRY,
 
   berlinDayHour,
   exclusive,
@@ -340,25 +419,26 @@ const MessageLedger = {
    * der Transaktion, bei einer Lesesperre beim COMMIT (dazu im Log "transaction
    * failed to commit"). In beiden Fällen ist nichts geschrieben: SQLite
    * übernimmt eine Transaktion, deren COMMIT mit SQLITE_BUSY endet, nicht, und
-   * die Engine rollt sie zurück.
+   * die Engine rollt sie zurück. Hängen alle Verbindungen des Pools im
+   * Busy-Timeout, beginnt die Transaktion nicht innerhalb von maxWait (P2028
+   * "Unable to start a transaction in the given time"); auch dann ist nichts
+   * geschrieben.
+   *
+   * Der Text wird nur in der letzten Zeile der Meldung gesucht, der Ursache:
+   * Davor kann Prisma den Aufruf samt Argumenten wiedergeben, also auch
+   * Nachrichten, in denen "database is locked" stehen kann. Validierungsfehler
+   * (sie geben die Argumente wieder) sind nie eine Sperre.
    * @param {Error|*} error
    * @returns {boolean}
    */
   isLockError: function (error) {
     if (!error || typeof error !== "object") return false;
+    if (error.name === "PrismaClientValidationError") return false;
     if (LOCK_ERROR_CODES.has(error.code)) return true;
-    return LOCK_ERROR_PATTERN.test(String(error.message ?? ""));
-  },
-
-  /**
-   * Zähler der Wiederholungen seit dem Start des Prozesses (KIE-542):
-   * retried - wiederholte Versuche, savedAfterRetry - nach einer Wiederholung
-   * gespeichert, alreadySaved - ein früherer Versuch hatte trotz Fehlermeldung
-   * gespeichert, failedAfterRetries - auch nach Wiederholungen gescheitert.
-   * @returns {{retried: number, savedAfterRetry: number, alreadySaved: number, failedAfterRetries: number}}
-   */
-  retryStats: function () {
-    return { ...retryStats };
+    const cause = lastLine(error.message);
+    if (error.code === "P2028")
+      return TRANSACTION_START_TIMEOUT_PATTERN.test(cause);
+    return LOCK_ERROR_PATTERN.test(cause);
   },
 
   /**
@@ -370,18 +450,29 @@ const MessageLedger = {
    *
    * Wiederholen bei Sperre (KIE-542): Mit options.retry wird eine an einer
    * Sperre oder Zeitüberschreitung gescheiterte Transaktion (isLockError) nach
-   * RETRY_DELAYS_MS noch bis zu zweimal versucht; andere Fehler nie. Jede
-   * Wiederholung steht im Log, das Ereignis erst nach dem letzten Versuch (mit
-   * attempts). Zwischen den Versuchen ist die Reihe frei.
+   * RETRY_DELAYS_MS noch bis zu zweimal versucht; andere Fehler nie. Eine
+   * Wiederholung beginnt nur, solange RETRY_BUDGET_MS seit dem ersten Versuch
+   * nicht überschritten wird. Jede Wiederholung steht im Log; gelingt eine,
+   * folgt das Ereignis message_ledger_saved_after_retry, scheitert auch der
+   * letzte Versuch, message_ledger_write_failed (mit attempts).
+   *
+   * Die Wiederholungen behalten den Platz in der Reihe (exclusive): Keine
+   * andere Speicherung dieses Prozesses kommt dazwischen. So entstehen Zeilen
+   * in der Reihenfolge der Aufrufe (id und createdAt passen zusammen), und
+   * eine Wiederholung findet keine fremde Zeile, die inzwischen entstanden ist.
+   *
    * Eine Wiederholung darf nichts doppelt schreiben. Nach der Messung (siehe
    * isLockError) hat ein Sperrfehler nichts geschrieben; für den Fall, dass die
    * Engine doch geschrieben und erst danach die Zeitüberschreitung gemeldet
    * hat, nennt der Aufrufer, wie eine Wiederholung sicher bleibt:
-   * - retry.findExisting(tx): sucht vor jeder Wiederholung - in deren
-   *   Transaktion - das Ergebnis eines früheren Versuchs (etwa die Chat-Zeile
-   *   über einen beim ersten Versuch festgelegten Zeitpunkt). Findet sie es,
-   *   wird es zurückgegeben, ohne work erneut auszuführen: Chat-Zeile und
-   *   Zähler entstehen gemeinsam, eine gefundene Zeile ist also gezählt.
+   * - retry.createdRows: true: work meldet jede angelegte Zeile über
+   *   attempt.created(model, row). Geschrieben haben kann nur ein Versuch,
+   *   dessen work durchlief (sonst rollt Prisma zurück) - und dann kennt er
+   *   die ids seiner Zeilen. Vor jeder Wiederholung wird in deren Transaktion
+   *   über den Primärschlüssel nachgesehen, ob die Zeilen eines solchen
+   *   Versuchs unverändert gespeichert sind. Dann kommt dessen Ergebnis
+   *   zurück, ohne work erneut auszuführen: Zeilen und Zähler entstehen
+   *   gemeinsam, gefundene Zeilen sind also gezählt.
    * - retry.idempotent: true: work bucht selbst nur Übergänge und ist damit
    *   ohne Weiteres wiederholbar.
    * Ohne options.retry wird nicht wiederholt.
@@ -394,74 +485,96 @@ const MessageLedger = {
    * weitere MessageLedger.transaction öffnen (sie würde auf sich selbst warten).
    *
    * @template T
-   * @param {{source: string, workspaceId?: number|null, embedId?: number|null}} context - für Log und Fehler-Ereignis, keine Inhalte
-   * @param {(tx: import("@prisma/client").Prisma.TransactionClient) => Promise<T>} work - nur über tx arbeiten
-   * @param {{timeout?: number, retry?: {findExisting?: (tx: import("@prisma/client").Prisma.TransactionClient) => Promise<T|null>, idempotent?: boolean}}} [options]
+   * @param {{source: string, workspaceId?: number|null, embedId?: number|null}} context - für Log und Ereignisse, keine Inhalte
+   * @param {(tx: import("@prisma/client").Prisma.TransactionClient, attempt: {created: (model: string, row: Object) => Object}) => Promise<T>} work - nur über tx arbeiten
+   * @param {{timeout?: number, maxWait?: number, retry?: {createdRows?: boolean, idempotent?: boolean}}} [options]
    * @returns {Promise<T>}
    */
   transaction: async function (context, work, options = {}) {
     const { retry = null, ...transactionOptions } = options;
-    const findExisting =
-      typeof retry?.findExisting === "function" ? retry.findExisting : null;
+    const createdRows = retry?.createdRows === true;
     const maxAttempts =
-      findExisting || retry?.idempotent === true
+      createdRows || retry?.idempotent === true
         ? RETRY_DELAYS_MS.length + 1
         : 1;
+    // Versuche, deren work durchlief und Zeilen anlegte: Ihr COMMIT kann
+    // trotz Fehlermeldung gelungen sein.
+    const finished = [];
+    let attempts = 0;
 
-    for (let attempt = 1; ; attempt++) {
-      try {
-        const { result, existing } = await exclusive(async () => {
+    const outcome = await exclusive(async () => {
+      const startedAt = Date.now();
+      for (let attempt = 1; ; attempt++) {
+        attempts = attempt;
+        try {
           let captured = false;
-          const outcome = await prisma.$transaction(
+          const saved = await prisma.$transaction(
             async (tx) => {
-              if (attempt > 1 && findExisting) {
-                const found = await findExisting(tx);
-                if (found !== null && found !== undefined)
-                  return { result: found, existing: true };
-              }
+              if (createdRows)
+                for (const earlier of finished)
+                  if (await createdRowsSaved(tx, earlier.created))
+                    return { result: earlier.result, existing: true };
               if (!watermarkCaptured) {
                 await MessageLedger.ensureWatermark(tx);
                 captured = true;
               }
-              return { result: await work(tx), existing: false };
+              const current = { created: [], result: undefined };
+              current.result = await work(tx, {
+                created: (model, row) => {
+                  current.created.push({ model, row });
+                  return row;
+                },
+              });
+              if (current.created.length > 0) finished.push(current);
+              return { result: current.result, existing: false };
             },
             { ...MessageLedger.TRANSACTION_OPTIONS, ...transactionOptions }
           );
           if (captured) watermarkCaptured = true;
-          return outcome;
-        });
-        if (attempt > 1) {
-          if (existing) retryStats.alreadySaved += 1;
-          else retryStats.savedAfterRetry += 1;
-          console.log(
-            `\x1b[32m[MessageLedger]\x1b[0m ${
-              existing
-                ? "schon beim früheren Versuch gespeichert, nicht erneut geschrieben"
-                : "nach Wiederholung gespeichert"
-            } (${describeContext(context)}), Versuch ${attempt}/${maxAttempts}`
-          );
-        }
-        return result;
-      } catch (error) {
-        if (attempt < maxAttempts && MessageLedger.isLockError(error)) {
+          return { ok: true, ...saved };
+        } catch (error) {
           const delay = RETRY_DELAYS_MS[attempt - 1];
-          retryStats.retried += 1;
-          console.warn(
-            `\x1b[33m[MessageLedger]\x1b[0m Speichern gesperrt (${describeContext(context)}), Versuch ${attempt}/${maxAttempts}: ${MessageLedger.errorSummary(error)} - neuer Versuch in ${delay} ms`
-          );
-          await sleep(delay);
-          continue;
+          if (
+            attempt < maxAttempts &&
+            MessageLedger.isLockError(error) &&
+            Date.now() - startedAt + delay <= MessageLedger.RETRY_BUDGET_MS
+          ) {
+            console.warn(
+              `\x1b[33m[MessageLedger]\x1b[0m Speichern gesperrt (${describeContext(context)}), Versuch ${attempt}/${maxAttempts}: ${MessageLedger.errorSummary(error)} - neuer Versuch in ${delay} ms`
+            );
+            await sleep(delay);
+            continue;
+          }
+          return { ok: false, error };
         }
-        if (attempt > 1) retryStats.failedAfterRetries += 1;
-        // Das Protokollieren darf den eigentlichen Fehler nicht verdecken.
-        try {
-          await MessageLedger._logWriteFailed(context, error, attempt);
-        } catch (logError) {
-          console.error(logError.message);
-        }
-        throw error;
       }
+    });
+
+    if (outcome.ok) {
+      if (attempts > 1) {
+        console.log(
+          `\x1b[32m[MessageLedger]\x1b[0m ${
+            outcome.existing
+              ? "schon beim früheren Versuch gespeichert, nicht erneut geschrieben"
+              : "nach Wiederholung gespeichert"
+          } (${describeContext(context)}), Versuch ${attempts}/${maxAttempts}`
+        );
+        logSavedAfterRetry(context, attempts, outcome.existing);
+      }
+      return outcome.result;
     }
+    // Das Protokollieren darf den eigentlichen Fehler nicht verdecken.
+    try {
+      await MessageLedger._logWriteFailed(context, outcome.error, attempts);
+    } catch (logError) {
+      console.error(logError.message);
+    }
+    throw outcome.error;
+  },
+
+  /** Tests: wartet auf noch laufende Ereignisse message_ledger_saved_after_retry. */
+  _settleRetryEvents: async function () {
+    await Promise.all([...pendingRetryEvents]);
   },
 
   /**
@@ -548,11 +661,7 @@ const MessageLedger = {
    * @returns {string}
    */
   errorSummary: function (error) {
-    const lines = String(error?.message ?? error)
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const cause = lines[lines.length - 1] ?? "";
+    const cause = lastLine(error?.message ?? error);
     const kind = [error?.name, error?.code].filter(Boolean).join(" ");
     return `${kind ? `${kind}: ` : ""}${cause}`.slice(0, 300);
   },
@@ -1375,7 +1484,7 @@ const MessageLedger = {
     reportedMismatches.clear();
     writeFailures.clear();
     cancelWriteFailureFlush();
-    for (const key of Object.keys(retryStats)) retryStats[key] = 0;
+    pendingRetryEvents.clear();
   },
 };
 

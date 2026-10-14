@@ -73,12 +73,13 @@ jest.mock("../../../utils/prisma", () => {
 });
 // KIE-532: WorkspaceChats.new legt die Chat-Zeile in der Transaktion des
 // Zählerbuchs an. Die Prisma-Attrappe kennt keine Transaktionen und kein
-// Zählerbuch; die Zeile entsteht hier direkt, gezählt wird live.
+// Zählerbuch; die Zeile entsteht hier direkt, gezählt wird live. work meldet
+// angelegte Zeilen über attempt.created (KIE-542).
 jest.mock("../../../models/messageLedger", () => ({
   MessageLedger: {
     isBackfillComplete: jest.fn(async () => false),
     transaction: jest.fn(async (_context, work) =>
-      work(require("../../../utils/prisma"))
+      work(require("../../../utils/prisma"), { created: (_model, row) => row })
     ),
     record: jest.fn(async () => {}),
   },
