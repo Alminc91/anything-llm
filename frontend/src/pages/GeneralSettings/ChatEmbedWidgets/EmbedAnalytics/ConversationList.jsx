@@ -205,6 +205,10 @@ function cursorAfter(row) {
  *   solange die Liste lädt
  * @param {() => void} [props.onLinkedRowShown] - die per Link geöffnete
  *   Konversation steht jetzt markiert in der Liste (Fixliste 6, K5)
+ * @param {(pending: boolean) => void} [props.onLinkSearchChange] - true,
+ *   solange die per Link geöffnete Konversation noch gesucht wird (nicht
+ *   markiert, Suche nicht am Ende); false, sobald sie markiert ist oder
+ *   sich nicht finden lässt (Fixliste 8, M1)
  * @param {{current: object|null}} [props.headingRef] - Überschrift der Liste
  *   (Ziel des Verweises „Konversationen ansehen" in der Kopfzeile)
  */
@@ -220,6 +224,7 @@ export default function ConversationList({
   countedConversations = null,
   onViewableCountChange = () => {},
   onLinkedRowShown = () => {},
+  onLinkSearchChange = () => {},
   headingRef = null,
 }) {
   const { t } = useTranslation();
@@ -697,6 +702,19 @@ export default function ConversationList({
   useEffect(() => {
     if (fromLink && currentKey) onLinkedRowShown();
   }, [fromLink, currentKey, onLinkedRowShown]);
+  // Solange die per Link geöffnete Konversation noch gesucht wird – die
+  // Liste oder das Panel lädt, die Link-Suche lädt Folgeseiten –, hält die
+  // Ansicht ihren Sprung, auch wenn eine Seite lange braucht (Fixliste 8,
+  // M1). Vorbei, sobald sie markiert ist oder feststeht, dass sie nicht in
+  // der Liste steht (außerhalb des Zeitraums, nicht ladbar, Suche am Ende).
+  const linkUnfindable =
+    failed ||
+    (loadedKey.chatId === chatId && (!loadedKey.key || loadedKey.outside)) ||
+    (notListed && !searchingLink && !loadingMore);
+  const linkPending = fromLink && !currentKey && !linkUnfindable;
+  useEffect(() => {
+    onLinkSearchChange(linkPending);
+  }, [linkPending, onLinkSearchChange]);
 
   // Schließt das Panel, kehrt der Fokus auf die Zeile zurück (statt im
   // Nichts zu stehen) – ohne die Liste zu verschieben.

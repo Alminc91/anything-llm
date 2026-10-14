@@ -310,10 +310,13 @@ function WidgetAnalytics({ embeds, lastActivity }) {
   // Panel unter dem sichtbaren Bereich (Fixliste 2, B5). Nur ab lg: darunter
   // öffnet die Konversation ohnehin als Vollbild. Ein Merker: true, solange
   // der Sprung aussteht (Fixliste 3, S4).
-  // Der Sprung hält, bis der Nutzer selbst scrollt oder etwas tut: Ändert
-  // sich danach das Layout über der Liste oder setzt der Browser die
-  // Scrollposition, springt die Ansicht erneut (holdScrollTarget) – ein
-  // einmaliger Sprung ließ die Seite manchmal ungescrollt (Fixliste 4, V7).
+  // Der Sprung hält eine Weile (holdScrollTarget): Ändert sich das Layout
+  // über der Liste oder setzt der Browser die Scrollposition, springt die
+  // Ansicht erneut – ein einmaliger Sprung ließ die Seite manchmal
+  // ungescrollt (Fixliste 4, V7). Er endet sofort bei einer Eingabe, sonst
+  // nach dem Laden und HOLD_SCROLL_QUIET_MS Ruhe (Fixliste 7, F15) – aber
+  // nicht, solange die Liste die per Link geöffnete Zeile noch sucht
+  // (Fixliste 8, M1), dann spätestens nach HOLD_SCROLL_BUSY_MAX_MS.
   const [linkJumpPending, setLinkJumpPending] = useState(
     () => place.chatId !== null
   );
@@ -333,6 +336,12 @@ function WidgetAnalytics({ embeds, lastActivity }) {
   }, []);
   const listReady = viewableCount !== null && !summary.loading;
   const releaseLinkJump = useRef(null);
+  // Sucht die Liste die per Link geöffnete Zeile noch? (Bis sie es meldet:
+  // ja, wenn eine Konversation in der Adresse steht.)
+  const linkSearching = useRef(place.chatId !== null);
+  const handleLinkSearchChange = useCallback((pending) => {
+    linkSearching.current = pending;
+  }, []);
   useEffect(() => {
     if (!linkJumpPending || !listReady) return;
     setLinkJumpPending(false);
@@ -340,14 +349,19 @@ function WidgetAnalytics({ embeds, lastActivity }) {
     // Zur Überschrift der Liste; steht die geöffnete Zeile dann unter dem
     // Fensterrand (Zeile 45), weiter bis zu ihr – das Panel klebt oben und
     // bleibt sichtbar (Fixliste 6, K5).
-    releaseLinkJump.current = holdScrollTarget(listRef.current, () => {
-      listRef.current?.scrollIntoView?.({ block: "start" });
-      revealMarkedRow(listRef.current);
-    });
+    releaseLinkJump.current = holdScrollTarget(
+      listRef.current,
+      () => {
+        listRef.current?.scrollIntoView?.({ block: "start" });
+        revealMarkedRow(listRef.current);
+      },
+      { busy: () => linkSearching.current }
+    );
   }, [linkJumpPending, listReady]);
   useEffect(() => () => releaseLinkJump.current?.(), []);
   // Die per Link geöffnete Zeile ist (nach)geladen und markiert: noch einmal
-  // ausrichten, solange der Sprung hält.
+  // ausrichten, solange der Sprung hält – er hält bis dahin (Fixliste 8,
+  // M1), außer der Nutzer hat inzwischen selbst gescrollt oder etwas getan.
   const revealLinkedRow = useCallback(
     () => releaseLinkJump.current?.realign?.(),
     []
@@ -422,6 +436,7 @@ function WidgetAnalytics({ embeds, lastActivity }) {
           onViewableCountChange={setViewableCount}
           countedConversations={countedConversations}
           onLinkedRowShown={revealLinkedRow}
+          onLinkSearchChange={handleLinkSearchChange}
           headingRef={listHeadingRef}
           showDeletedHint={showsDeletedHint({
             retentionDays,

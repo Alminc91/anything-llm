@@ -182,6 +182,12 @@ export const HOLD_SCROLL_MAX_MS = 10000;
  * Scrollen das Ziel, gilt es nur bis zum Ende des Ladens als fremd.
  */
 export const HOLD_SCROLL_QUIET_MS = 1500;
+/**
+ * Harte Obergrenze, solange das Ziel noch nicht fertig ist (Option busy von
+ * holdScrollTarget – etwa die Link-Suche lädt noch Seiten nach, Fixliste 8,
+ * M1): länger hält der Sprung nie, auch wenn die Suche weiterläuft.
+ */
+export const HOLD_SCROLL_BUSY_MAX_MS = 30000;
 
 /**
  * Hält ein Sprungziel an seiner Stelle, solange das Layout darüber noch
@@ -215,15 +221,25 @@ export const HOLD_SCROLL_QUIET_MS = 1500;
  * für Änderungen, die das Ziel selbst nicht verschieben (die per Link
  * geöffnete Zeile ist nachgeladen, Fixliste 6, K5); die Ruhezeit beginnt
  * dann neu. Nach dem Ende tut es nichts.
+ *
+ * Ist das Ziel noch nicht fertig (busy() liefert true – die Link-Suche lädt
+ * Folgeseiten, die gesuchte Zeile steht noch nicht in der Liste), endet das
+ * Halten nicht durch Ruhe: Eine langsame Folgeseite ändert am Layout über
+ * dem Ziel nichts, und ohne Halten bliebe die später gefundene Zeile unter
+ * dem Fensterrand (Fixliste 8, M1). Es endet dann erst, wenn busy() false
+ * ist und danach die Ruhezeit verstrichen ist (realign beginnt sie neu),
+ * spätestens nach busyMaxMs – eine Eingabe beendet es weiterhin sofort.
  * @param {Element|null} target
  * @param {() => void} jump - der Sprung (etwa scrollIntoView)
- * @param {{maxMs?: number, quietMs?: number, now?: () => number, setTimer?: Function, clearTimer?: Function}} [options]
+ * @param {{maxMs?: number, quietMs?: number, busy?: () => boolean, busyMaxMs?: number, now?: () => number, setTimer?: Function, clearTimer?: Function}} [options]
  * @returns {(() => void) & {realign: () => void}} - beendet das Halten
  */
 export function holdScrollTarget(target, jump, options = {}) {
   const {
     maxMs = HOLD_SCROLL_MAX_MS,
     quietMs = HOLD_SCROLL_QUIET_MS,
+    busy = () => false,
+    busyMaxMs = HOLD_SCROLL_BUSY_MAX_MS,
     now = () => Date.now(),
     setTimer = setTimeout,
     clearTimer = clearTimeout,
@@ -245,17 +261,30 @@ export function holdScrollTarget(target, jump, options = {}) {
   const loading = () =>
     doc?.readyState !== undefined && doc.readyState !== "complete";
   // Zuletzt unruhig: Start, Größenänderung eines Vorfahren, Ende des Ladens
-  let lastLayout = now();
+  const started = now();
+  let lastLayout = started;
   const settling = () => loading() || now() - lastLayout <= quietMs;
-  // Unruhe: die Ruhezeit beginnt neu; ist sie um und die Seite geladen,
-  // endet das Halten (Lädt die Seite noch, beginnt sie mit dem Ende des
-  // Ladens neu.)
+  // Ruhezeit um: Ist die Seite geladen und das Ziel fertig, endet das
+  // Halten. Lädt die Seite noch, beginnt sie mit dem Ende des Ladens neu;
+  // ist das Ziel noch nicht fertig (busy), wird nach einer weiteren
+  // Ruhezeit erneut geprüft (Fixliste 8, M1).
+  const quietOver = () => {
+    if (loading()) return;
+    if (busy()) quietTimer = setTimer(quietOver, quietMs);
+    else stop();
+  };
+  // Unruhe: die Ruhezeit beginnt neu
   const unrest = () => {
     lastLayout = now();
     clearTimer(quietTimer);
-    quietTimer = setTimer(() => {
-      if (!loading()) stop();
-    }, quietMs);
+    quietTimer = setTimer(quietOver, quietMs);
+  };
+  // Höchstdauer um: Schluss – außer das Ziel ist noch nicht fertig, dann
+  // bis zur harten Obergrenze busyMaxMs (gerechnet ab dem Start)
+  const maxOver = () => {
+    const left = busyMaxMs - (now() - started);
+    if (busy() && left > 0) timer = setTimer(stop, left);
+    else stop();
   };
   const onScroll = () => {
     const top = topOf();
@@ -289,7 +318,7 @@ export function holdScrollTarget(target, jump, options = {}) {
   doc?.addEventListener?.("readystatechange", onReady);
   for (const type of USER_INPUT_EVENTS)
     doc?.addEventListener?.(type, stop, { capture: true, passive: true });
-  timer = setTimer(stop, maxMs);
+  timer = setTimer(maxOver, maxMs);
   unrest();
   return Object.assign(stop, {
     realign: () => {

@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import de from "../src/locales/de/common.js";
 import en from "../src/locales/en/common.js";
 import {
+  HOLD_SCROLL_BUSY_MAX_MS,
   HOLD_SCROLL_MAX_MS,
   HOLD_SCROLL_QUIET_MS,
   PANEL_MIN_BODY,
@@ -1241,4 +1242,94 @@ test("Fixliste 7, F23/F24: eine Stelle für „breit?“, „außerhalb/Escape s
   assert.match(source("ConversationDetail.jsx"), /useWide\(\)/);
   // useWide beginnt mit isWide() – derselbe Wert ohne matchMedia (false)
   assert.match(source("viewHooks.js"), /useState\(isWide\)/);
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 8 (Kontrolle rc20)
+// ---------------------------------------------------------------------------
+
+test("Fixliste 8, M1: holdScrollTarget mit busy – solange das Ziel nicht fertig ist (Link-Suche lädt), endet das Halten nicht durch Ruhe; danach nach der Ruhezeit, spätestens nach HOLD_SCROLL_BUSY_MAX_MS; eine Eingabe beendet es sofort", () => {
+  const doc = createDocument();
+  const target = doc.body
+    .appendChild(doc.createElement("div"))
+    .appendChild(doc.createElement("div"));
+  let top = 640;
+  target.getBoundingClientRect = () => ({ top });
+  let jumps = 0;
+  const jump = () => {
+    jumps += 1;
+    top = 96;
+  };
+  const listeners = new Map();
+  doc.addEventListener = (type, listener) => listeners.set(type, listener);
+  doc.removeEventListener = (type) => listeners.delete(type);
+  const fire = (type) => listeners.get(type)?.({ type });
+  doc.readyState = "complete";
+  // Zeitgeber von Hand: id → { callback, ms }; Uhr von Hand
+  let clock = 0;
+  let nextId = 0;
+  const timers = new Map();
+  let busy = true;
+  const options = {
+    busy: () => busy,
+    now: () => clock,
+    setTimer: (callback, ms) => {
+      timers.set(++nextId, { callback, ms });
+      return nextId;
+    },
+    clearTimer: (id) => timers.delete(id),
+  };
+  // den ältesten Zeitgeber mit dieser Dauer ablaufen lassen
+  const run = (ms) => {
+    const entry = [...timers.entries()].find(([, t]) => t.ms === ms);
+    assert.ok(entry, `kein Zeitgeber mit ${ms} ms`);
+    timers.delete(entry[0]);
+    clock += ms;
+    entry[1].callback();
+  };
+
+  // 1. Langsame Folgeseite: Ruhezeit um, Ziel nicht fertig → hält weiter,
+  //    mehrmals hintereinander
+  const hold = holdScrollTarget(target, jump, options);
+  assert.equal(jumps, 1);
+  run(HOLD_SCROLL_QUIET_MS);
+  run(HOLD_SCROLL_QUIET_MS);
+  assert.ok(listeners.size > 0, "hält, solange die Suche läuft");
+  // Die Zeile ist da: realign springt noch
+  busy = false;
+  hold.realign();
+  assert.equal(jumps, 2);
+  // danach Ruhe: Schluss
+  run(HOLD_SCROLL_QUIET_MS);
+  assert.equal(listeners.size, 0);
+  assert.equal(timers.size, 0);
+  hold.realign();
+  assert.equal(jumps, 2);
+
+  // 2. Höchstdauer um, Ziel nicht fertig: weiter bis zur harten Grenze
+  busy = true;
+  clock = 0;
+  holdScrollTarget(target, jump, options);
+  run(HOLD_SCROLL_MAX_MS);
+  assert.ok(listeners.size > 0, "hält über HOLD_SCROLL_MAX_MS hinaus");
+  const hard = [...timers.values()].find(
+    (t) => t.ms === HOLD_SCROLL_BUSY_MAX_MS - HOLD_SCROLL_MAX_MS
+  );
+  assert.ok(hard, "harte Obergrenze ab dem Start gerechnet");
+  hard.callback();
+  assert.equal(listeners.size, 0, "spätestens nach HOLD_SCROLL_BUSY_MAX_MS");
+  for (const id of [...timers.keys()]) timers.delete(id);
+
+  // 3. Eine Eingabe beendet es sofort, auch während der Suche
+  holdScrollTarget(target, jump, options);
+  fire("wheel");
+  assert.equal(listeners.size, 0);
+  for (const id of [...timers.keys()]) timers.delete(id);
+
+  // 4. Ohne busy wie bisher: Höchstdauer um → Schluss
+  busy = false;
+  holdScrollTarget(target, jump, options);
+  run(HOLD_SCROLL_MAX_MS);
+  assert.equal(listeners.size, 0);
+  assert.ok(HOLD_SCROLL_BUSY_MAX_MS > HOLD_SCROLL_MAX_MS);
 });

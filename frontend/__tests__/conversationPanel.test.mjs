@@ -4264,6 +4264,116 @@ test(
   }
 );
 
+test(
+  "Fixliste 8, M1: per Link geöffnet, die Zeile kommt erst mit einer langsamen Folgeseite (länger als die Ruhezeit) – der Sprung hält, bis sie gefunden ist, und bringt sie dann in Sicht",
+  { skip },
+  async (t) => {
+    const { HOLD_SCROLL_QUIET_MS } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    const rows = Array.from({ length: 60 }, (_, i) =>
+      row(700 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    // Die Folgeseite wartet, bis release() kommt.
+    let release;
+    const holdMore = new Promise((resolve) => (release = resolve));
+    await panelServer(t, {
+      rows,
+      holdMore,
+      details: {
+        745: {
+          messages: [message(745, "konv-745", { session_id: "sitzung-745" })],
+        },
+      },
+    });
+    const observers = stubResizeObserver(t);
+    const probe = await mountList(t);
+    const prototype = Object.getPrototypeOf(rowsOf(probe.container)[0]);
+    const document = probe.document;
+    await probe.unmount();
+    const events = captureDocumentListeners(t, document);
+    const originalHeight = globalThis.window.innerHeight;
+    globalThis.window.innerHeight = 900;
+    t.after(() => {
+      globalThis.window.innerHeight = originalHeight;
+    });
+    const jumps = [];
+    const rowJumps = [];
+    let listTop = 900;
+    let rowTop = 2941;
+    const original = {
+      scroll: prototype.scrollIntoView,
+      rect: prototype.getBoundingClientRect,
+    };
+    const isTarget = (element) => classesOf(element).includes("scroll-mt-20");
+    const isRow = (element) =>
+      element.getAttribute?.("data-conversation-row") === "745";
+    prototype.scrollIntoView = function (options) {
+      if (isTarget(this)) {
+        jumps.push(options);
+        listTop = 96;
+      } else if (isRow(this)) {
+        rowJumps.push(options);
+        rowTop = 900 - 32 - 54;
+      }
+    };
+    prototype.getBoundingClientRect = function () {
+      if (isTarget(this))
+        return { top: listTop, bottom: listTop + 3000, height: 3000 };
+      if (isRow(this)) return { top: rowTop, bottom: rowTop + 54, height: 54 };
+      return original.rect.call(this);
+    };
+    t.after(() => {
+      prototype.scrollIntoView = original.scroll;
+      prototype.getBoundingClientRect = original.rect;
+    });
+    stubWidth(t, true);
+    const mounted = await renderer.mount(VIEW, {
+      location: `${LOCATION}?widget=3&conversation=745`,
+      route: LOCATION,
+      exportName: "AnalyticsScreen",
+      props: {
+        embedsLoaded: true,
+        embeds: [
+          {
+            id: EMBED_ID,
+            chat_retention_days: null,
+            workspace: { name: "VHS" },
+          },
+        ],
+      },
+    });
+    t.after(() => mounted.unmount());
+    for (let i = 0; i < 4; i++) await mounted.act();
+    // erste Seite: Sprung zur Überschrift, Zeile 46 fehlt noch
+    assert.deepEqual(jumps, [{ block: "start" }]);
+    assert.deepEqual(rowJumps, []);
+    assert.deepEqual(currentRows(mounted.container), []);
+    const hold = observers.find((o) =>
+      (o.observed[0]?.childNodes ?? []).some((child) => isTarget(child))
+    );
+    assert.ok(hold, "kein ResizeObserver auf den Vorfahren der Liste");
+
+    // Die Folgeseite braucht länger als die Ruhezeit: Das Halten läuft
+    // weiter, solange die Link-Suche sucht
+    await delay(HOLD_SCROLL_QUIET_MS + 300);
+    assert.equal(hold.disconnected, false);
+    // Sie kommt an: Zeile markiert und in Sicht
+    await mounted.act(() => release());
+    for (let i = 0; i < 3; i++) await mounted.act();
+    assert.deepEqual(currentRows(mounted.container), [745]);
+    assert.deepEqual(rowJumps, [{ block: "nearest" }]);
+
+    // Danach endet das Halten wie gewohnt nach der Ruhezeit
+    await delay(HOLD_SCROLL_QUIET_MS + 300);
+    assert.equal(hold.disconnected, true);
+    // und eine Eingabe hätte es sofort beendet (siehe Fixliste 4, V7)
+    events.fire("wheel");
+  }
+);
+
 // ---------------------------------------------------------------------------
 // Fixliste 7 (volles Review, Abnahme entwicklung)
 // ---------------------------------------------------------------------------
