@@ -30,8 +30,11 @@ export default function EmbedRow({
   userRole = null,
 }) {
   const { t, i18n } = useTranslation();
-  const { name, suffix, label: fullLabel } =
-    label ?? embedLabels([embed], t).get(embed.id);
+  const {
+    name,
+    suffix,
+    label: fullLabel,
+  } = label ?? embedLabels([embed], t).get(embed.id);
   const navigate = useNavigate();
 
   // Set moment locale based on i18n language

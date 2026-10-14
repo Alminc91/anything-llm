@@ -290,8 +290,7 @@ export default function EmbedAppearance() {
     async function load() {
       // Dieselbe Anfrage wie Embed.getEmbed() – die Liste wird hier behalten.
       const allEmbeds = (await Embed.embeds()) || [];
-      const embedData =
-        allEmbeds.find((e) => e.id === Number(embedId)) || null;
+      const embedData = allEmbeds.find((e) => e.id === Number(embedId)) || null;
       if (!embedData) {
         showToast("Einbettung nicht gefunden.", "error");
         navigate(paths.settings.chatbot.widgets());

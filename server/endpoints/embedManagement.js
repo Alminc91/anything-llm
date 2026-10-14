@@ -381,7 +381,11 @@ function embedManagementEndpoints(app) {
   // keine leere Liste: 500 wie analytics/conversations (Fixliste 3, C7).
   app.post(
     "/embed/chats/conversations",
-    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+    ],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
@@ -411,13 +415,15 @@ function embedManagementEndpoints(app) {
         // (keine Mitgliedschaft: keine Widgets, leere Liste).
         const embedIds = await visibleEmbedIds(user);
 
-        const { conversations, totalCount } =
-          await EmbedChats.conversationPage(embedIds, {
+        const { conversations, totalCount } = await EmbedChats.conversationPage(
+          embedIds,
+          {
             offset,
             limit,
             startDate,
             endDate,
-          });
+          }
+        );
         response.status(200).json({
           success: true,
           conversations,
@@ -442,7 +448,11 @@ function embedManagementEndpoints(app) {
   // Ansicht wählt dann wie bisher das erste Widget.
   app.get(
     "/embeds/last-activity",
-    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
+    [
+      chatHistoryViewable,
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+    ],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
