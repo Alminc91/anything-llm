@@ -118,33 +118,82 @@ function visibleAnswerSql() {
 // Index (embed_id, session_id) aus der Migration
 // 20260722014551_add_embed_session_index_to_embed_chats (KIE-503).
 const SESSION_INDEX = "embed_chats_embed_id_session_id_idx";
-// Name → Promise<boolean>: gibt es den Index in dieser Datenbank?
+// Wie lange „Index fehlt" gilt, bevor erneut nachgesehen wird (finale
+// Kontrolle L5): Legt jemand den Index am laufenden Container an (etwa per
+// Reparatur-SQL nach einer als angewendet markierten Migration), nehmen
+// Liste, Panel und Export ihn spätestens nach dieser Zeit - nicht erst nach
+// einem Neustart.
+const INDEX_MISSING_RECHECK_MS = 10 * 60 * 1000;
+// Name → { present: Promise<boolean>, recheckAt: number }: gibt es den Index
+// in dieser Datenbank? recheckAt: ab wann erneut nachgesehen wird
+// (Infinity, solange er da ist).
 const knownIndexes = new Map();
+// Indizes, deren Fehlen schon im Log steht - einmal je Prozess (L6).
+const reportedMissingIndexes = new Set();
 
 /**
- * Gibt es den Index auf embed_chats? Einmal je Prozess nachgesehen
- * (sqlite_master); ein Fehler beim Nachsehen gilt als „nein" und wird beim
- * nächsten Aufruf wiederholt.
+ * Meldet einmal je Prozess und Index, dass Abfragen ohne Index-Hinweis
+ * laufen - langsamer, aber richtig (finale Kontrolle L6: sonst fände der
+ * Betrieb die Ursache nicht).
+ * @param {string} name
+ * @param {string} reason
+ */
+function reportMissingIndex(name, reason) {
+  if (reportedMissingIndexes.has(name)) return;
+  reportedMissingIndexes.add(name);
+  console.warn(
+    `[EmbedChats] Index ${name} ${reason} - Abfragen laufen ohne Index-Hinweis (langsamer). Erneute Prüfung spätestens nach ${INDEX_MISSING_RECHECK_MS / 60000} min.`
+  );
+}
+
+/**
+ * Merkt sich „Index fehlt" bis INDEX_MISSING_RECHECK_MS (L5).
+ * @param {string} name
+ */
+function markIndexMissing(name) {
+  knownIndexes.set(name, {
+    present: Promise.resolve(false),
+    recheckAt: Date.now() + INDEX_MISSING_RECHECK_MS,
+  });
+}
+
+/**
+ * Gibt es den Index auf embed_chats? Nachgesehen wird in sqlite_master:
+ * einmal, solange er da ist; fehlt er, erneut nach
+ * INDEX_MISSING_RECHECK_MS (L5). Ein Fehler beim Nachsehen gilt als „nein",
+ * steht im Log und wird beim nächsten Aufruf wiederholt.
  * @param {string} name
  * @returns {Promise<boolean>}
  */
 function indexExists(name) {
-  if (!knownIndexes.has(name)) {
-    const check = Promise.resolve()
-      .then(() =>
-        prisma.$queryRawUnsafe(
-          "SELECT 1 AS present FROM sqlite_master WHERE type = 'index' AND tbl_name = 'embed_chats' AND name = ?",
-          name
-        )
+  const known = knownIndexes.get(name);
+  if (known && Date.now() < known.recheckAt) return known.present;
+  const entry = { present: null, recheckAt: Infinity };
+  entry.present = Promise.resolve()
+    .then(() =>
+      prisma.$queryRawUnsafe(
+        "SELECT 1 AS present FROM sqlite_master WHERE type = 'index' AND tbl_name = 'embed_chats' AND name = ?",
+        name
       )
-      .then((rows) => Array.isArray(rows) && rows.length > 0)
-      .catch(() => {
-        knownIndexes.delete(name);
-        return false;
-      });
-    knownIndexes.set(name, check);
-  }
-  return knownIndexes.get(name);
+    )
+    .then((rows) => {
+      const present = Array.isArray(rows) && rows.length > 0;
+      if (!present) {
+        entry.recheckAt = Date.now() + INDEX_MISSING_RECHECK_MS;
+        reportMissingIndex(name, "fehlt");
+      }
+      return present;
+    })
+    .catch((error) => {
+      if (knownIndexes.get(name) === entry) knownIndexes.delete(name);
+      console.error(
+        `[EmbedChats] Prüfung auf Index ${name} fehlgeschlagen - Abfrage läuft ohne Index-Hinweis:`,
+        error?.message ?? error
+      );
+      return false;
+    });
+  knownIndexes.set(name, entry);
+  return entry.present;
 }
 
 /**
@@ -157,7 +206,9 @@ function indexExists(name) {
  * docker/docker-entrypoint.sh sie als angewendet, ohne ihre Anweisung
  * auszuführen. Fehlt er, läuft die Abfrage ohne Hinweis - langsamer, aber
  * nie mit „no such index" (500). Verschwindet er während des Betriebs,
- * wiederholt die Abfrage einmal ohne Hinweis.
+ * wiederholt die Abfrage einmal ohne Hinweis. Das Fehlen steht einmal je
+ * Prozess im Log (L6) und wird nach INDEX_MISSING_RECHECK_MS erneut
+ * geprüft (L5).
  * @template T
  * @param {string} name - Name des Index
  * @param {(hint: import("@prisma/client").Prisma.Sql) => Promise<T>} run -
@@ -171,7 +222,8 @@ async function withIndexHint(name, run) {
     return await run(Prisma.raw(`INDEXED BY ${name}`));
   } catch (error) {
     if (!/no such index/i.test(String(error?.message ?? ""))) throw error;
-    knownIndexes.set(name, Promise.resolve(false));
+    markIndexMissing(name);
+    reportMissingIndex(name, "ist verschwunden");
     return await run(Prisma.empty);
   }
 }
@@ -208,7 +260,11 @@ const EmbedChats = {
    */
   _forgetIndexes: function () {
     knownIndexes.clear();
+    reportedMissingIndexes.clear();
   },
+
+  /** Nur für Tests: wie lange „Index fehlt" gilt (withIndexHint, L5). */
+  INDEX_MISSING_RECHECK_MS,
 
   FEEDBACK_MAX_PER_WINDOW,
   FEEDBACK_MAX_PENDING,
@@ -1061,9 +1117,12 @@ const EmbedChats = {
    * @param {number|null} embedId - NULL = alle Widgets ({@link EmbedChats._rowConditions})
    * @param {Date|null} startDate
    * @param {Date|null} endDate
-   * @param {{maxId?: number|null, search?: string|null}} [options] - maxId
+   * @param {{maxId?: number|null, search?: string|null, withMaxId?: boolean}} [options] - maxId
    *   (KIE-538): nur Zeilen bis zu dieser id (der Export hält damit seinen
-   *   Stand fest, während er läuft); search: Suchbegriff - die Gruppe trägt
+   *   Stand fest, während er läuft); withMaxId: jede Gruppe trägt
+   *   list_max_id, die höchste id aller gruppierten Zeilen (vor Feedback-,
+   *   Abschnitts- und Suchfilter) - der Stand der ersten Listenseite aus
+   *   derselben Abfrage (finale Kontrolle L3); search: Suchbegriff - die Gruppe trägt
    *   dann search_hit (1, wenn eine ihrer Zeilen trifft, siehe
    *   {@link EmbedChats._searchMatchSql}). Der Begriff wird so für jede Zeile
    *   geprüft - nur ohne Feedback- und Abschnitts-Filter sinnvoll, siehe
@@ -1074,7 +1133,7 @@ const EmbedChats = {
     embedId = null,
     startDate = null,
     endDate = null,
-    { maxId = null, search = null } = {}
+    { maxId = null, search = null, withMaxId = false } = {}
   ) {
     const { Prisma } = require("@prisma/client");
     const where = Prisma.join(
@@ -1100,6 +1159,13 @@ const EmbedChats = {
       ? Prisma.sql`,
         MAX(row_search_hit) as search_hit`
       : Prisma.empty;
+    // Stand der Liste (L3): über alle Gruppen, bevor außen gefiltert wird.
+    // Eine Zeile außerhalb dieser Zeilen (anderer Zeitraum) zählt auch auf
+    // späteren Seiten nicht; jede neue Zeile hat eine höhere id.
+    const listMaxId = withMaxId
+      ? Prisma.sql`,
+        MAX(MAX(id)) OVER () as list_max_id`
+      : Prisma.empty;
 
     return Prisma.sql`
       SELECT
@@ -1114,6 +1180,7 @@ const EmbedChats = {
         SUM(CASE WHEN feedbackScore = 1 THEN 1 ELSE 0 END) as positive_count,
         ROW_NUMBER() OVER (ORDER BY MIN(createdAt) DESC, MIN(id) DESC) as conversation_number
         ${searchHit}
+        ${listMaxId}
       FROM ${rows}
       GROUP BY COALESCE(conversation_id, session_id), session_id, embed_id`;
   },
@@ -1170,6 +1237,8 @@ const EmbedChats = {
    * @param {"all"|"negative"|"positive"|boolean} [params.feedbackFilter]
    * @param {{start: Date, endExclusive: Date}|null} [params.startedBetween]
    * @param {string|null} [params.search]
+   * @param {boolean} [params.withMaxId] - die Gruppen tragen list_max_id
+   *   ({@link EmbedChats._conversationGroupsSql})
    * @returns {{source: import("@prisma/client").Prisma.Sql, where: import("@prisma/client").Prisma.Sql}}
    */
   _conversationSelection: function ({
@@ -1180,6 +1249,7 @@ const EmbedChats = {
     feedbackFilter = "all",
     startedBetween = null,
     search = null,
+    withMaxId = false,
   }) {
     const { Prisma } = require("@prisma/client");
     const between = EmbedChats.normalizeStartedBetween(startedBetween);
@@ -1201,7 +1271,7 @@ const EmbedChats = {
         rows.embedId,
         rows.startDate,
         rows.endDate,
-        { maxId, ...extra }
+        { maxId, withMaxId, ...extra }
       );
     if (!search) return { source: Prisma.sql`(${groups()})`, where: filter };
 
@@ -1310,9 +1380,10 @@ const EmbedChats = {
    *   Kommentar enthält ({@link EmbedChats._searchMatchSql}); null = keine
    *   Suche
    * @returns {Promise<{conversations: Array, totalCount: number, hasMore: boolean, maxId: number|null}>}
-   *   maxId: der Stand dieser Liste (höchste id des Widgets beim Laden der
-   *   ersten Seite, Fixliste 9, A2); weitere Seiten nennen ihn in
-   *   after.maxId
+   *   maxId: der Stand dieser Liste (höchste id der Zeilen des Widgets im
+   *   Zeitraum beim Laden der ersten Seite, Fixliste 9, A2; aus derselben
+   *   Abfrage wie die Seite, finale Kontrolle L3 - ist die Seite leer, die
+   *   höchste id des Widgets); weitere Seiten nennen ihn in after.maxId
    * @throws bei einem Datenbankfehler: Die Route antwortet 500, die Liste
    *   zeigt „Fehler beim Laden" mit „Erneut versuchen" statt einer leeren
    *   Liste (Fixliste 2, R2). Protokolliert wird in der Route, ohne
@@ -1332,22 +1403,27 @@ const EmbedChats = {
     } = {}
   ) {
     // Stand der Liste (Fixliste 8, L2): weitere Seiten bringen ihn mit, die
-    // erste hält ihn fest - die höchste id des Widgets (Fixliste 9, A2).
+    // erste hält ihn fest. Die erste liest ihn in derselben Abfrage wie ihre
+    // Zeilen (list_max_id, finale Kontrolle L3) - eine eigene Abfrage
+    // MAX(id) je Widget läse alle Indexeinträge des Widgets ein zweites Mal.
+    const { conversations, total, rest, listMaxId } =
+      await EmbedChats._conversationList({
+        embedId,
+        offset,
+        limit,
+        after,
+        maxId: after ? after.maxId ?? null : null,
+        withMaxId: !after,
+        startDate,
+        endDate,
+        feedbackFilter,
+        startedBetween,
+        search,
+      });
+    // Leere erste Seite: der Stand des Widgets (0 ohne Zeile)
     const maxId = after
       ? after.maxId ?? null
-      : await EmbedChats._currentMaxId(embedId);
-    const { conversations, total, rest } = await EmbedChats._conversationList({
-      embedId,
-      offset,
-      limit,
-      after,
-      maxId,
-      startDate,
-      endDate,
-      feedbackFilter,
-      startedBetween,
-      search,
-    });
+      : listMaxId ?? (await EmbedChats._currentMaxId(embedId));
     // Leere Seite: am Anfang gibt es nichts, dahinter muss gezählt werden.
     const totalCount =
       total ??
@@ -1371,12 +1447,21 @@ const EmbedChats = {
   },
 
   /**
-   * Höchste id der Zeilen eines Widgets (0 ohne Zeile) - der Stand einer
-   * Konversationsliste (Fixliste 8, L2) und des Exports. Je Widget, nicht
-   * über die ganze Instanz (Fixliste 9, A2): Sonst läse ein Default-User an
-   * der Liste seines Widgets ab, wie viele Chat-Zeilen in fremden Workspaces
-   * entstehen. Ein Gang durch den Index des Widgets (embed_id, …; die id
-   * steht in jedem Index), ohne Sortierung.
+   * Höchste id der Zeilen eines Widgets (0 ohne Zeile) - der Stand des
+   * Exports und einer Konversationsliste, deren erste Seite leer ist
+   * (Fixliste 8, L2; sonst liest die Liste ihn mit ihren Zeilen, L3). Je
+   * Widget, nicht über die ganze Instanz (Fixliste 9, A2): Das verringert,
+   * was ein Default-User an der Liste seines Widgets über fremde Workspaces
+   * ablesen kann - der passive Blick auf den Zähler der Instanz entfällt.
+   * Geschlossen ist dieser Seitenkanal nicht (finale Kontrolle L4,
+   * Restrisiko bekannt): embed_chats.id ist ein instanzweiter
+   * Autoincrement. Schreibt er selbst zweimal über das Widget, verrät der
+   * Abstand der beiden ids (wie die Lücken zwischen den ids eigener
+   * Konversationen), wie viele Zeilen dazwischen in fremden Widgets
+   * entstanden sind - nur eine Zahl, keine Inhalte. Ganz schließen ließe er
+   * sich nur mit widgetlokalen oder undurchsichtigen ids. Ein Gang durch
+   * den Index des Widgets (embed_id, …; die id steht in jedem Index), ohne
+   * Sortierung.
    * @param {number|null} [embedId] - null: alle Widgets (nur intern, wie
    *   {@link EmbedChats._rowConditions})
    * @returns {Promise<number|null>} - null, wenn die Datenbank keine Zahl
@@ -1402,10 +1487,12 @@ const EmbedChats = {
    * Die Zähler kommen aus derselben Abfrage: total (COUNT(*) OVER () vor
    * dem Schlüssel - alle Konversationen der Auswahl) und rest (nach dem
    * Schlüssel, ab dem Anfang dieser Seite - gibt es mehr als diese Seite?).
-   * @param {Object} params - siehe conversationPage
-   * @returns {Promise<{conversations: Array, total: number|null, rest: number}>} -
+   * @param {Object} params - siehe conversationPage; withMaxId: auch den
+   *   Stand der Liste lesen (nur ohne after)
+   * @returns {Promise<{conversations: Array, total: number|null, rest: number, listMaxId: number|null}>} -
    *   total: Zahl der Konversationen über alle Seiten; null, wenn die Seite
-   *   leer ist
+   *   leer ist. listMaxId: höchste id der gruppierten Zeilen (withMaxId);
+   *   null, wenn die Seite leer ist oder nicht danach gefragt wurde
    */
   _conversationList: async function ({
     embedId = null,
@@ -1418,6 +1505,7 @@ const EmbedChats = {
     feedbackFilter = "all",
     startedBetween = null,
     search = null,
+    withMaxId = false,
   }) {
     const { Prisma } = require("@prisma/client");
     const between = EmbedChats.normalizeStartedBetween(startedBetween);
@@ -1433,6 +1521,7 @@ const EmbedChats = {
       feedbackFilter,
       startedBetween: between,
       search,
+      withMaxId: withMaxId && !after,
     });
     const columns = Prisma.sql`conversation_id,
         session_id,
@@ -1464,7 +1553,9 @@ const EmbedChats = {
           OFFSET ${offset}
         `
       : await prisma.$queryRaw`
-          SELECT ${columns}, COUNT(*) OVER () as total_count
+          SELECT ${columns}, COUNT(*) OVER () as total_count${
+            withMaxId ? Prisma.sql`, list_max_id` : Prisma.empty
+          }
           FROM ${source}
           ${where}
           ORDER BY last_message_at DESC, first_chat_id DESC
@@ -1493,6 +1584,11 @@ const EmbedChats = {
         ? Number(conversations[0].rest_count ?? conversations[0].total_count) -
           offset
         : 0;
+    const highest =
+      withMaxId && !after && conversations.length > 0
+        ? Number(conversations[0].list_max_id)
+        : null;
+    const listMaxId = Number.isSafeInteger(highest) ? highest : null;
 
     // Get preview texts and embed info for all conversations in one query (performance optimization)
     if (conversationsNormalized.length > 0) {
@@ -1545,7 +1641,12 @@ const EmbedChats = {
       }
     }
 
-    return { conversations: conversationsNormalized, total, rest };
+    return {
+      conversations: conversationsNormalized,
+      total,
+      rest,
+      listMaxId,
+    };
   },
 
   /**
@@ -1713,11 +1814,13 @@ const EmbedChats = {
     // (include = 0, markHistoryInvalid) bleiben verborgen. Löschen und
     // Lösch-Vorschau meinen dagegen alle Zeilen (_conversationScope).
     // Erst die ids in ihrer Reihenfolge (_conversationRowIds), dann die
-    // Zeilen selbst über den Primärschlüssel.
+    // Zeilen selbst über den Primärschlüssel - auch dort nur mit include = 1
+    // (DSGVO, finale Kontrolle L2): Leert der Besucher seinen Verlauf
+    // zwischen beiden Abfragen, zeigt das Panel die geleerten Zeilen nicht.
     const ids = await EmbedChats._conversationRowIds(scope);
     if (ids.length === 0) return [];
     const rows = await prisma.embed_chats.findMany({
-      where: { id: { in: ids }, embed_id: scope.id },
+      where: { id: { in: ids }, embed_id: scope.id, include: true },
       select: {
         id: true,
         prompt: true,

@@ -2850,3 +2850,258 @@ describe("panel und gründe über den sitzungs-index (Fixliste 9, A3)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// KIE-560 Nachträge 7.21.1 (finale Kontrolle L2, L3, L5, L6)
+// ---------------------------------------------------------------------------
+
+describe("nachträge 7.21.1: panel nur mit include = 1 (N4, L2)", () => {
+  test("Leert der Besucher seinen Verlauf zwischen den beiden Abfragen des Panels, zeigt es die geleerte Zeile nicht – auch die zweite Abfrage verlangt include = 1", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const first = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Erste Frage",
+      conversation: "k-1",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "Zweite Frage",
+      conversation: "k-1",
+    });
+    const original = EmbedChats._conversationRowIds;
+    jest
+      .spyOn(EmbedChats, "_conversationRowIds")
+      .mockImplementation(async (scope) => {
+        const ids = await original.call(EmbedChats, scope);
+        // markHistoryInvalid des Besuchers – genau zwischen den Abfragen
+        await db.client.embed_chats.updateMany({
+          where: { id: ids[1] },
+          data: { include: false },
+        });
+        return ids;
+      });
+    const findMany = jest.spyOn(db.client.embed_chats, "findMany");
+
+    const panel = await details(embed, first.id);
+    expect(panel.statusCode).toBe(200);
+    expect(panel.body.messages.map((m) => m.prompt)).toEqual(["Erste Frage"]);
+    const rowQuery = findMany.mock.calls
+      .map(([query]) => query)
+      .find((query) => query?.where?.id?.in);
+    expect(rowQuery.where).toMatchObject({ include: true, embed_id: embed.id });
+  });
+});
+
+describe("nachträge 7.21.1: stand der liste aus derselben abfrage (L3)", () => {
+  const maxIdQuery = (call) =>
+    /SELECT MAX\(id\) AS max_id FROM embed_chats/.test(composedSql(call));
+
+  test("Die erste Seite liest ihren Stand mit ihren Zeilen – keine eigene Abfrage MAX(id) je Widget; der Stand ist die höchste id der Zeilen im Zeitraum, vor Feedback-Filter und Suche", async () => {
+    const workspace = await createWorkspace(db.client);
+    const embed = await createEmbed(db.client, workspace);
+    const foreign = await createEmbed(db.client, workspace);
+    const rated = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Spanisch am Abend?",
+      conversation: "k-1",
+      feedbackScore: false,
+    });
+    const newest = await addChat(embed, {
+      at: berlinInstant("2026-10-06", 9, 0),
+      prompt: "Yoga?",
+      conversation: "k-2",
+    });
+    await addChat(foreign, {
+      at: berlinInstant("2026-10-07", 9, 0),
+      prompt: "Fremd",
+      conversation: "f-1",
+    });
+    expect(newest.id).toBeGreaterThan(rated.id);
+
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    for (const request of [
+      {},
+      { feedbackFilter: "negative" },
+      { search: "Spanisch" },
+      { search: "Spanisch", feedbackFilter: "negative" },
+      { bucket: { start: "2026-10-05", end: "2026-10-06" } },
+    ]) {
+      queries.mockClear();
+      const page = await listPage(embed, request);
+      expect(page.statusCode).toBe(200);
+      expect(page.body.conversations.length).toBeGreaterThan(0);
+      // Stand über alle Zeilen des Zeitraums – nicht nur die gefilterten
+      expect(page.body.maxId).toBe(newest.id);
+      expect(queries.mock.calls.filter(maxIdQuery)).toEqual([]);
+    }
+
+    // Leere erste Seite (nichts im Zeitraum): Stand des Widgets
+    queries.mockClear();
+    const empty = await listPage(embed, period("2026-09-01", "2026-09-30"));
+    expect(empty.body).toMatchObject({ conversations: [], maxId: newest.id });
+    expect(queries.mock.calls.filter(maxIdQuery)).toHaveLength(1);
+  });
+
+  test("Zeitraum in der Vergangenheit: Der Stand ist die höchste id darin; spätere Seiten zeigen dieselben Konversationen wie mit dem Stand des Widgets, neue Zeilen kommen nicht hinzu", async () => {
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    const september = [];
+    for (let i = 1; i <= 5; i++)
+      september.push(
+        await addChat(embed, {
+          at: berlinInstant("2026-09-10", 9, i),
+          prompt: `September ${i}`,
+          conversation: `s-${i}`,
+        })
+      );
+    const october = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Oktober",
+      conversation: "o-1",
+    });
+    const SEPTEMBER = period("2026-09-01", "2026-09-30");
+    const first = await listPage(embed, { ...SEPTEMBER, limit: 2 });
+    expect(first.body.maxId).toBe(september.at(-1).id);
+    expect(first.body.maxId).toBeLessThan(october.id);
+
+    // Eine Zeile, die nach der ersten Seite mit einem Zeitpunkt im Zeitraum
+    // gespeichert wird (neue id), bleibt draußen – wie mit dem Stand des
+    // Widgets: s-1 behält seine letzte Nachricht.
+    await addChat(embed, {
+      at: berlinInstant("2026-09-10", 9, 30),
+      prompt: "Nachzügler",
+      conversation: "s-1",
+    });
+    const seen = first.body.conversations.map((c) => c.conversation_id);
+    let page = first;
+    while (page.body.hasMore) {
+      const last = page.body.conversations.at(-1);
+      page = await listPage(embed, {
+        ...SEPTEMBER,
+        limit: 2,
+        after: {
+          lastMessageAt: last.last_message_at,
+          firstChatId: last.first_chat_id,
+          maxId: first.body.maxId,
+        },
+      });
+      expect(page.statusCode).toBe(200);
+      seen.push(...page.body.conversations.map((c) => c.conversation_id));
+    }
+    expect(seen).toEqual(["s-5", "s-4", "s-3", "s-2", "s-1"]);
+  });
+});
+
+describe("nachträge 7.21.1: „index fehlt“ mit ablauf und im log (L5, L6)", () => {
+  let embed;
+  let firstId;
+  beforeEach(async () => {
+    EmbedChats._forgetIndexes();
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    const row = await addChat(embed, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage",
+      conversation: "k-1",
+    });
+    firstId = row.id;
+  });
+  afterEach(() => EmbedChats._forgetIndexes());
+
+  async function openPanel() {
+    const panel = await details(embed, firstId);
+    expect(panel.statusCode).toBe(200);
+    expect(panel.body.messages.map((m) => m.prompt)).toEqual(["Frage"]);
+  }
+  /**
+   * Die Uhr läuft weiter, um `advance` ms vorgestellt (nicht angehalten:
+   * Wartezeiten der Datenbank bleiben echt).
+   */
+  function laterClock() {
+    const realNow = Date.now.bind(Date);
+    let offset = 0;
+    jest.spyOn(Date, "now").mockImplementation(() => realNow() + offset);
+    return {
+      advance(ms) {
+        offset = ms;
+      },
+    };
+  }
+  const createIndex = () =>
+    db.client.$executeRawUnsafe(
+      `CREATE INDEX "${SESSION_INDEX}" ON "embed_chats"("embed_id", "session_id")`
+    );
+
+  test("Fehlt der Index beim Nachsehen, wird nach INDEX_MISSING_RECHECK_MS erneut nachgesehen: Ein am laufenden Container angelegter Index wirkt ohne Neustart; das Fehlen steht einmal im Log", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    await db.client.$executeRawUnsafe(`DROP INDEX "${SESSION_INDEX}"`);
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    const clock = laterClock();
+
+    await openPanel();
+    await openPanel();
+    expect(queries.mock.calls.filter(hinted)).toEqual([]);
+    const logged = warn.mock.calls.filter((call) =>
+      String(call[0]).includes(SESSION_INDEX)
+    );
+    expect(logged).toHaveLength(1);
+    expect(String(logged[0][0])).toMatch(/fehlt/);
+    expect(console.error).not.toHaveBeenCalled();
+
+    // Reparatur-SQL am laufenden Container
+    await createIndex();
+    clock.advance(EmbedChats.INDEX_MISSING_RECHECK_MS - 60 * 1000);
+    await openPanel();
+    expect(queries.mock.calls.filter(hinted)).toEqual([]);
+    clock.advance(EmbedChats.INDEX_MISSING_RECHECK_MS + 60 * 1000);
+    await openPanel();
+    expect(queries.mock.calls.filter(hinted)).toHaveLength(1);
+  });
+
+  test("Verschwindet der Index im Betrieb, steht das im Log (einmal) und er wird nach Ablauf erneut geprüft; scheitert das Nachsehen selbst, steht der Fehler im Log", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const queries = jest.spyOn(db.client, "$queryRaw");
+    const clock = laterClock();
+    await openPanel();
+    expect(queries.mock.calls.filter(hinted)).toHaveLength(1);
+
+    await db.client.$executeRawUnsafe(`DROP INDEX "${SESSION_INDEX}"`);
+    queries.mockClear();
+    await openPanel();
+    await openPanel();
+    expect(queries.mock.calls.filter(hinted)).toHaveLength(1);
+    const logged = warn.mock.calls.filter((call) =>
+      String(call[0]).includes(SESSION_INDEX)
+    );
+    expect(logged).toHaveLength(1);
+    expect(String(logged[0][0])).toMatch(/verschwunden/);
+
+    await createIndex();
+    clock.advance(EmbedChats.INDEX_MISSING_RECHECK_MS + 60 * 1000);
+    queries.mockClear();
+    await openPanel();
+    expect(queries.mock.calls.filter(hinted)).toHaveLength(1);
+
+    // Das Nachsehen in sqlite_master scheitert (etwa gesperrte Datenbank)
+    EmbedChats._forgetIndexes();
+    const unsafe = jest
+      .spyOn(db.client, "$queryRawUnsafe")
+      .mockRejectedValueOnce(new Error("database is locked"));
+    queries.mockClear();
+    await openPanel();
+    expect(queries.mock.calls.filter(hinted)).toEqual([]);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining(SESSION_INDEX),
+      "database is locked"
+    );
+    // beim nächsten Mal wird wieder nachgesehen
+    unsafe.mockRestore();
+    queries.mockClear();
+    await openPanel();
+    expect(queries.mock.calls.filter(hinted)).toHaveLength(1);
+  });
+});

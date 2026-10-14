@@ -132,6 +132,16 @@ function lastBoundValues() {
 // Stand der Liste (Fixliste 8, L2): Die erste Seite liest nur Zeilen bis zur
 // höchsten id beim Laden - hier fest.
 const MAX_ID = 500;
+// Stand der ersten Listenseite aus derselben Abfrage (finale Kontrolle L3)
+const LIST_MAX_ID = ", MAX(MAX(id)) OVER () as list_max_id";
+/**
+ * Gruppierung und Bedingung bis `end` – ohne die Spalte list_max_id, die nur
+ * die erste Listenseite liest.
+ */
+const groupFragment = (sql, end) =>
+  sql
+    .slice(sql.indexOf("( SELECT COALESCE"), sql.indexOf(end))
+    .replace(` ${LIST_MAX_ID}`, "");
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -276,25 +286,18 @@ describe("countConversations — gleiche Gruppierung wie die Liste", () => {
   });
 
   test("Liste und Zähler teilen exakt dasselbe Gruppierungs-Fragment", async () => {
-    await EmbedChats.countConversations(
-      EMBED_ID,
-      null,
-      null,
-      "negative",
-      null,
-      null,
-      MAX_ID
-    );
+    // Die erste Seite liest ihren Stand in derselben Abfrage (list_max_id,
+    // finale Kontrolle L3) und begrenzt die Zeilen deshalb nicht – wie der
+    // Zähler ohne Stand. Sonst ist die Gruppierung dieselbe.
+    await EmbedChats.countConversations(EMBED_ID, null, null, "negative");
     const countSql = lastSql();
     prisma.$queryRaw.mockResolvedValue(RAW_ROWS);
     await getConversations(EMBED_ID, 0, 20, null, null, "negative");
     const listSql = lastSql();
-    const groupFragment = (sql) =>
-      sql.slice(
-        sql.indexOf("( SELECT COALESCE"),
-        sql.indexOf("WHERE negative_count")
-      );
-    expect(groupFragment(countSql)).toBe(groupFragment(listSql));
+    expect(listSql).toContain(LIST_MAX_ID);
+    expect(groupFragment(countSql, "WHERE negative_count")).toBe(
+      groupFragment(listSql, "WHERE negative_count")
+    );
   });
 
   test("ohne Filter keine Bedingung; Ergebnis ist Number", async () => {
@@ -351,9 +354,9 @@ describe("beginn_im_abschnitt — SQL-Form (KIE-536, AK-7)", () => {
     const end = new Date("2026-10-12T23:59:59Z");
     await getConversations(EMBED_ID, 0, 20, start, end, "all", BETWEEN);
     expect(lastSql()).not.toMatch(/createdAt >=|createdAt <=/);
-    expect(lastSql()).toMatch(
-      /WHERE include = 1 AND embed_id = \? AND id <= \? GROUP BY/
-    );
+    // erste Seite: keine Grenze über die id – ihr Stand kommt aus derselben
+    // Abfrage (L3)
+    expect(lastSql()).toMatch(/WHERE include = 1 AND embed_id = \? GROUP BY/);
     expect(lastBoundValues()).not.toContain(start);
     expect(lastBoundValues()).not.toContain(end);
 
@@ -381,21 +384,16 @@ describe("beginn_im_abschnitt — SQL-Form (KIE-536, AK-7)", () => {
         null,
         null,
         "negative",
-        BETWEEN,
-        null,
-        MAX_ID
+        BETWEEN
       )
     ).toBe(2);
     const countSql = lastSql();
     prisma.$queryRaw.mockResolvedValue(RAW_ROWS);
     await getConversations(EMBED_ID, 0, 20, null, null, "negative", BETWEEN);
     const listSql = lastSql();
-    const tail = (sql) =>
-      sql.slice(
-        sql.indexOf("( SELECT COALESCE"),
-        sql.indexOf("started_at < ?")
-      );
-    expect(tail(countSql)).toBe(tail(listSql));
+    expect(groupFragment(countSql, "started_at < ?")).toBe(
+      groupFragment(listSql, "started_at < ?")
+    );
     expect(countSql).toMatch(/started_at >= \? AND started_at < \?/);
   });
 
