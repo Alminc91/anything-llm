@@ -1645,6 +1645,9 @@ const TRANSLATIONS = {
       "visitor-success_one": null,
       "visitor-success_other": null,
       error: null,
+      gone: null,
+      busy: null,
+      timeout: null,
     },
     conversations: {
       "only-negative": null,

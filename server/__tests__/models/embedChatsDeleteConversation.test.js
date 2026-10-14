@@ -286,6 +286,51 @@ const chatIds = async (where = {}) =>
 
 const T0 = () => berlinInstant("2026-10-06", 9, 0);
 
+/**
+ * Hält die Schreibsperre der Datenbankdatei über einen zweiten Client (wie
+ * ein anderer Prozess, etwa die Lastprobe zu KIE-542): eine
+ * Schreibtransaktion, die nichts ändert und am Ende zurückgerollt wird.
+ * Spätestens nach `ms` gibt sie die Sperre frei.
+ * @param {string} file
+ * @param {number} ms
+ * @returns {Promise<{release: () => Promise<void>}>} - erfüllt, sobald die Sperre steht
+ */
+async function holdWriteLock(file, ms) {
+  const { PrismaClient } = require("@prisma/client");
+  const other = new PrismaClient({
+    datasources: { db: { url: `file:${file}` } },
+  });
+  let release;
+  const released = new Promise((resolve) => {
+    release = resolve;
+  });
+  const timer = setTimeout(release, ms);
+  let locked;
+  const isLocked = new Promise((resolve) => {
+    locked = resolve;
+  });
+  const holder = other
+    .$transaction(
+      async (tx) => {
+        await tx.$executeRaw`UPDATE system_settings SET value = value WHERE 0`;
+        locked();
+        await released;
+        throw new Error("zurückrollen");
+      },
+      { maxWait: 5_000, timeout: ms + 10_000 }
+    )
+    .catch(() => {});
+  await isLocked;
+  return {
+    release: async () => {
+      clearTimeout(timer);
+      release();
+      await holder;
+      await other.$disconnect();
+    },
+  };
+}
+
 // ============================================================================
 // AK-6 — Konversation löschen
 // ============================================================================
@@ -784,13 +829,22 @@ describe("loescht_genau_diese (AK-6)", () => {
     // Die Ziffernfolge aus einem Pfadabschnitt gilt wie die Zahl.
     expect(await shown(embed, nachbar, kunde)).toHaveLength(2);
 
-    deleteMany.mockRejectedValueOnce(new Error("database is locked"));
+    deleteMany.mockRejectedValueOnce(new Error("disk I/O error"));
     expect(await EmbedChats.deleteConversation(embed.id, nachbar)).toBeNull();
-    findFirst.mockRejectedValueOnce(new Error("database is locked"));
+    findFirst.mockRejectedValueOnce(new Error("disk I/O error"));
     expect(await EmbedChats.deleteConversation(embed.id, nachbar)).toBeNull();
-    deleteMany.mockRejectedValueOnce(new Error("database is locked"));
+    deleteMany.mockRejectedValueOnce(new Error("disk I/O error"));
     const failed = await deleteConversation(embed, nachbar, kunde);
     expect(failed.statusCode).toBe(500);
+    // Eine gesperrte Datenbank ist kein Fehler des Löschens: { busy } bzw.
+    // 503, ein erneuter Versuch ist sinnvoll (Nachtrag rc3)
+    deleteMany.mockRejectedValueOnce(new Error("database is locked"));
+    expect(await EmbedChats.deleteConversation(embed.id, nachbar)).toEqual({
+      busy: true,
+    });
+    deleteMany.mockRejectedValueOnce(new Error("database is locked"));
+    const busy = await deleteConversation(embed, nachbar, kunde);
+    expect(busy.statusCode).toBe(503);
     expect(await db.client.embed_chats.count()).toBe(9);
     expect(await db.client.event_logs.count()).toBe(0);
   });
@@ -1511,6 +1565,105 @@ describe("ganze_sitzung (AK-12)", () => {
         where: { embed_id: embed.id, session_id: "besucher" },
       })
     ).toBe(11);
+  });
+
+  // Nachtrag rc3 (N-Hänger): Die Besucher-Rückfrage stand in der
+  // Browser-Abnahme einmal über 30 s auf „Wird gelöscht …“, während eine
+  // Lastprobe die Datenbank 15 s lang gesperrt hielt (Schreibtransaktion
+  // eines anderen Prozesses, danach zurückgerollt).
+  test("ganze_sitzung (Nachtrag rc3): Hält ein anderer Prozess die Schreibsperre länger als das Busy-Timeout, antwortet die Route nach rund 5 s mit 503 „busy“ – nichts gelöscht, kein Protokoll; nach der Freigabe löscht dieselbe Anfrage", async () => {
+    const { visitor } = (await preview(embed, "k-1", kunde)).body;
+    const chatId = await card(embed, "k-1");
+    const before = await chatIds();
+    const HOLD_MS = 9_000;
+    const lock = await holdWriteLock(db.file, HOLD_MS);
+
+    const startedAt = Date.now();
+    const busy = await invoke(DELETE_VISITOR, {
+      params: { embedId: String(embed.id) },
+      body: conversationBody(chatId, visitor),
+      token: kunde.token,
+    });
+    const tookMs = Date.now() - startedAt;
+    expect(busy.statusCode).toBe(503);
+    expect(busy.body).toEqual({
+      success: false,
+      reason: "busy",
+      error: expect.any(String),
+    });
+    expect(busy.headers["Retry-After"]).toBe("5");
+    // Begrenzt durch das Busy-Timeout, nicht durch die Dauer der Sperre
+    expect(tookMs).toBeLessThan(HOLD_MS - 1_000);
+    // Das Protokoll nennt nur die Art des Fehlers, keine Abfrage
+    expect(
+      errorSpy.mock.calls.some(
+        ([label, detail]) =>
+          label === "deleteVisitorConversations error:" &&
+          !String(detail).includes("\n")
+      )
+    ).toBe(true);
+
+    await lock.release();
+    expect(await chatIds()).toEqual(before);
+    expect(
+      await eventsOf(db.client, "embed_visitor_conversations_deleted")
+    ).toEqual([]);
+
+    const done = await invoke(DELETE_VISITOR, {
+      params: { embedId: String(embed.id) },
+      body: conversationBody(chatId, visitor),
+      token: kunde.token,
+    });
+    expect(done.statusCode).toBe(200);
+    expect(done.body).toEqual({
+      success: true,
+      deletedCount: 11,
+      conversationCount: 4,
+    });
+  });
+
+  test("Konversation löschen (Nachtrag rc3): unter einer gehaltenen Schreibsperre ebenfalls 503 „busy“ statt 500, nichts gelöscht", async () => {
+    const before = await chatIds();
+    const lock = await holdWriteLock(db.file, 8_000);
+    const busy = await deleteConversation(embed, "k-1", kunde);
+    await lock.release();
+    expect(busy.statusCode).toBe(503);
+    expect(busy.body.reason).toBe("busy");
+    expect(await chatIds()).toEqual(before);
+    expect(await db.client.event_logs.count()).toBe(0);
+  });
+
+  test("ganze_sitzung (Nachtrag rc3): Sperr- und Zeitfehler von Prisma (P1008, P2024, P2028, P2034, „database is locked“) → 503 „busy“; jeder andere Fehler bleibt 500", async () => {
+    const chatId = await card(embed, "k-1");
+    const before = await chatIds();
+    const failWith = (error) =>
+      jest.spyOn(db.client, "$transaction").mockRejectedValueOnce(error);
+    const prismaError = (code, message) =>
+      Object.assign(new Error(message), { code });
+    for (const error of [
+      prismaError("P1008", "Socket timeout"),
+      prismaError("P2024", "Timed out fetching a new connection"),
+      prismaError("P2028", "Transaction API error: Unable to start"),
+      prismaError("P2034", "Transaction failed due to a write conflict"),
+      new Error("SqliteFailure: database is locked"),
+    ]) {
+      failWith(error);
+      const result = await raw(DELETE_VISITOR, embed, chatId, kunde);
+      expect([error.message, result.statusCode, result.body?.reason]).toEqual([
+        error.message,
+        503,
+        "busy",
+      ]);
+    }
+    for (const error of [
+      prismaError("P2002", "Unique constraint failed"),
+      new Error("kaputt"),
+    ]) {
+      failWith(error);
+      const result = await raw(DELETE_VISITOR, embed, chatId, kunde);
+      expect([error.message, result.statusCode]).toEqual([error.message, 500]);
+    }
+    expect(await chatIds()).toEqual(before);
   });
 });
 

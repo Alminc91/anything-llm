@@ -296,6 +296,24 @@ function conversationCursor(body, offset) {
   return { after: { lastMessageAt, firstChatId, maxId }, error: null };
 }
 
+// Sekunden bis zum sinnvollen erneuten Versuch, wenn die Datenbank gesperrt war
+const BUSY_RETRY_AFTER_SECONDS = 5;
+
+/**
+ * Antwort der Lösch-Routen, wenn die Datenbank gesperrt war (Nachtrag rc3):
+ * 503 mit reason "busy" - nichts gelöscht, ein erneuter Versuch ist
+ * sinnvoll. Die Ansicht nennt das in der Rückfrage und gibt sie wieder frei.
+ * @param {import("express").Response} response
+ */
+function respondBusy(response) {
+  response.setHeader("Retry-After", String(BUSY_RETRY_AFTER_SECONDS));
+  response.status(503).json({
+    success: false,
+    reason: "busy",
+    error: "The database is busy. Nothing was deleted, please try again.",
+  });
+}
+
 function embedManagementEndpoints(app) {
   if (!app) return;
 
@@ -968,6 +986,10 @@ function embedManagementEndpoints(app) {
           embedId,
           chatId
         );
+        if (deletedCount?.busy) {
+          respondBusy(response);
+          return;
+        }
         if (deletedCount === null) {
           response.sendStatus(500).end();
           return;
@@ -1048,6 +1070,10 @@ function embedManagementEndpoints(app) {
         );
         if (!result) {
           response.sendStatus(500).end();
+          return;
+        }
+        if (result.busy) {
+          respondBusy(response);
           return;
         }
         // Der Stand hat sich geändert (der Besucher hat weiter geschrieben

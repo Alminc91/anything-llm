@@ -101,6 +101,13 @@ const sentPath = (url) => new URL(url, "https://kunde.example.org").pathname;
  * (`state.widgetDeleted`). `state.totalCount` ersetzt den Zähler: Der echte
  * Server ermittelt ihn mit einer zweiten Abfrage, er kann von der Liste
  * abweichen.
+ *
+ * Nachtrag rc3: `state.holdPreview` – die Vorschau antwortet mit dem Stand
+ * beim Eingang der Anfrage, aber erst nach diesem Versprechen;
+ * `state.holdDelete` – beide Lösch-Routen warten darauf; `state.hangDelete`
+ * – sie antworten nie (nur ein Abbruch über das signal beendet die
+ * Anfrage); `state.conversationAnswers` – Antworten des Löschens einer
+ * Konversation der Reihe nach ({ status, body }).
  */
 async function listServer(t, state) {
   const { API_BASE } = await renderer.load("/src/utils/constants.js");
@@ -202,15 +209,30 @@ async function listServer(t, state) {
 
     const chatId = call.body?.chatId;
     const target = state.conversations.find((c) => c.first_chat_id === chatId);
-    if (is(ROUTES.deletionPreview, previewUrl))
-      return json(
-        state.preview?.[chatId] ??
-          state.preview?.[target?.conversation_id] ?? {
-            success: true,
-            messageCount: 4,
-            visitor: null,
-          }
-      );
+    if (is(ROUTES.deletionPreview, previewUrl)) {
+      const answer = state.preview?.[chatId] ??
+        state.preview?.[target?.conversation_id] ?? {
+          success: true,
+          messageCount: 4,
+          visitor: null,
+        };
+      if (state.holdPreview) await state.holdPreview;
+      return json(answer);
+    }
+    if (
+      is(ROUTES.deleteVisitor, visitorUrl) ||
+      is(ROUTES.deleteConversation, deleteUrl)
+    ) {
+      if (state.hangDelete)
+        await new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(
+              new DOMException("The user aborted a request.", "AbortError")
+            )
+          );
+        });
+      if (state.holdDelete) await state.holdDelete;
+    }
     if (is(ROUTES.deleteVisitor, visitorUrl)) {
       if (state.deleteAnswer) return json(state.deleteAnswer);
       // state.visitorAnswers: Antworten der Reihe nach ({ status, body })
@@ -229,6 +251,8 @@ async function listServer(t, state) {
     }
     if (is(ROUTES.deleteConversation, deleteUrl)) {
       if (state.deleteAnswer) return json(state.deleteAnswer);
+      const next = state.conversationAnswers?.shift();
+      if (next) return json(next.body, next.status);
       if (state.deleteFails)
         return json({ success: false, error: "Conversation not found." }, 404);
       state.conversations = state.conversations.filter((c) => c !== target);
@@ -1693,5 +1717,342 @@ test(
     const label = withAttribute(dialog, "data-confirm-question-label")[0];
     assert.equal(label.textContent, "Erste Frage");
     assert.ok(!label.getAttribute("class").split(/\s+/).includes("uppercase"));
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Nachtrag rc3 (Kontrolle rc2: F01, F03, F04, Hänger)
+// ---------------------------------------------------------------------------
+
+/** Ein Versprechen und die Funktion, die es erfüllt. */
+function gate() {
+  let release;
+  const promise = new Promise((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+const VISITOR_ENTRY = "Alle Konversationen dieses Besuchers löschen";
+const GONE =
+  "Diese Konversation gibt es nicht mehr – sie wurde inzwischen gelöscht. Die Liste zeigt jetzt den aktuellen Stand.";
+
+/** Zwei Konversationen desselben Besuchers, die erste mit Vorschau. */
+function visitorState(visitor = { conversationCount: 2, messageCount: 7 }) {
+  return {
+    conversations: [
+      conversation("k-1", { session_id: "besucher" }),
+      conversation("k-2", { session_id: "besucher" }),
+    ],
+    preview: {
+      "k-1": { success: true, messageCount: 4, visitor },
+    },
+  };
+}
+
+test(
+  "rc3 F01: Ist die Konversation inzwischen weg (die aufgefrischte Vorschau nennt keinen Besucher mehr), meldet der stehengebliebene Menüeintrag das sichtbar – keine Rückfrage, Liste und Panel laden den aktuellen Stand",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const state = visitorState();
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    await expand(mounted, 0);
+    const details = () =>
+      server.calls.filter(
+        (call) =>
+          call.method === "GET" &&
+          call.url === server.detailUrl(chatIdOf("k-1"))
+      ).length;
+    const detailsBefore = details();
+    const listsBefore = server.lists().length;
+
+    // Ein zweiter Admin löscht die Konversation, während das Menü offen ist:
+    // Das Auffrischen beim Öffnen kennt keinen Besucher mehr, der Eintrag
+    // bleibt stehen (N1).
+    state.preview["k-1"] = { success: true, messageCount: 0, visitor: null };
+    await openMenu(mounted);
+    await act();
+    const [entry] = withAttribute(container, "data-delete-visitor");
+    assert.equal(entry.textContent, VISITOR_ENTRY);
+    await act(() => click(entry));
+    await act();
+
+    assert.equal(dialogOf(document), null);
+    assert.deepEqual(shown, [["error", GONE]]);
+    assert.deepEqual(server.deletes(), []);
+    assert.ok(server.lists().length > listsBefore, "Liste lädt neu");
+    assert.ok(details() > detailsBefore, "Panel lädt neu");
+  }
+);
+
+test(
+  "rc3 F01: Verliert die offene Besucher-Rückfrage beim Auffrischen ihren Besucher, schließt sie mit derselben Meldung statt still zu verschwinden",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const state = visitorState();
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    await expand(mounted, 0);
+    await openMenu(mounted);
+    await act();
+    const listsBefore = server.lists().length;
+
+    const hold = gate();
+    state.holdPreview = hold.promise;
+    state.preview["k-1"] = { success: true, messageCount: 0, visitor: null };
+    await act(() => click(withAttribute(container, "data-delete-visitor")[0]));
+    assert.ok(dialogOf(document), "Rückfrage offen");
+    await act(() => hold.release());
+    await act();
+    state.holdPreview = null;
+
+    assert.equal(dialogOf(document), null);
+    assert.deepEqual(shown, [["error", GONE]]);
+    assert.deepEqual(server.deletes(), []);
+    assert.ok(server.lists().length > listsBefore, "Liste lädt neu");
+  }
+);
+
+test(
+  "rc3 F03/F04: Der „changed“-Stand des Löschens gilt – eine spätere Antwort des älteren Auffrischens überschreibt ihn nicht; frischere Angaben (Nachrichten der Konversation), die während des Löschens kamen, bleiben erhalten",
+  { skip },
+  async (t) => {
+    const state = visitorState({
+      conversationCount: 2,
+      messageCount: 7,
+      maxId: 40,
+    });
+    state.visitorAnswers = [
+      {
+        status: 409,
+        body: {
+          success: false,
+          reason: "changed",
+          visitor: { conversationCount: 3, messageCount: 12, maxId: 60 },
+          error: "The visitor's conversations have changed.",
+        },
+      },
+    ];
+    await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    await expand(mounted, 0);
+    await openMenu(mounted);
+    await act();
+
+    // F04: Die Rückfrage frischt auf (der Besucher schrieb weiter: 6
+    // Nachrichten in dieser Konversation); die Antwort kommt erst, während
+    // das Löschen läuft.
+    const preview = gate();
+    const deletion = gate();
+    state.holdPreview = preview.promise;
+    state.holdDelete = deletion.promise;
+    state.preview["k-1"] = {
+      success: true,
+      messageCount: 6,
+      visitor: { conversationCount: 2, messageCount: 9, maxId: 45 },
+    };
+    await act(() => click(withAttribute(container, "data-delete-visitor")[0]));
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    await act(() => preview.release());
+    await act();
+    state.holdPreview = null;
+    await act(() => deletion.release());
+    await act();
+    state.holdDelete = null;
+    let dialog = dialogOf(document);
+    assert.match(
+      withAttribute(dialog, "data-confirm-visitor-count")[0].textContent,
+      /3 Konversationen mit zusammen 12 Nachrichten/
+    );
+
+    // F03: Ein Auffrischen, das vor der „changed“-Antwort losging, kennt
+    // einen älteren Stand – kommt es danach an, wird es verworfen.
+    await act(() => click(withAttribute(dialog, "data-confirm-cancel")[0]));
+    const late = gate();
+    state.holdPreview = late.promise;
+    state.holdDelete = null;
+    state.visitorAnswers = [
+      {
+        status: 409,
+        body: {
+          success: false,
+          reason: "changed",
+          visitor: { conversationCount: 4, messageCount: 15, maxId: 70 },
+          error: "The visitor's conversations have changed.",
+        },
+      },
+    ];
+    // Stand beim Eingang dieses Auffrischens: der von vorhin
+    state.preview["k-1"] = {
+      success: true,
+      messageCount: 6,
+      visitor: { conversationCount: 3, messageCount: 12, maxId: 60 },
+    };
+    await openMenu(mounted);
+    await act(() => click(withAttribute(container, "data-delete-visitor")[0]));
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    await act();
+    dialog = dialogOf(document);
+    assert.match(
+      withAttribute(dialog, "data-confirm-visitor-count")[0].textContent,
+      /4 Konversationen mit zusammen 15 Nachrichten/
+    );
+    await act(() => late.release());
+    await act();
+    state.holdPreview = null;
+    dialog = dialogOf(document);
+    assert.ok(withAttribute(dialog, "data-confirm-changed").length === 1);
+    assert.match(
+      withAttribute(dialog, "data-confirm-visitor-count")[0].textContent,
+      /4 Konversationen mit zusammen 15 Nachrichten/,
+      "die späte Antwort überschreibt den „changed“-Stand nicht"
+    );
+
+    // F04: „Konversation löschen“ nennt die frischere Zahl (6), nicht die
+    // vom Klick (4) – sie erscheint sofort mit dem bekannten Stand.
+    await act(() => click(withAttribute(dialog, "data-confirm-cancel")[0]));
+    const never = gate();
+    state.holdPreview = never.promise;
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    assert.equal(
+      withAttribute(dialogOf(document), "data-confirm-count")[0].textContent,
+      "Die Konversation mit 6 Nachrichten wird endgültig gelöscht."
+    );
+    await act(() => never.release());
+    await act();
+    state.holdPreview = null;
+  }
+);
+
+test(
+  "rc3 (Hänger): Datenbank gesperrt (503 „busy“) – nichts gelöscht, die Rückfrage bleibt offen mit verständlichem Hinweis, Abbrechen und Löschen sind wieder frei; erneutes Bestätigen löscht",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const busy = {
+      status: 503,
+      body: {
+        success: false,
+        reason: "busy",
+        error: "The database is busy. Nothing was deleted, please try again.",
+      },
+    };
+    const state = visitorState();
+    state.visitorAnswers = [busy];
+    state.conversationAnswers = [busy];
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    await expand(mounted, 0);
+    const BUSY =
+      "Die Datenbank war gerade ausgelastet – es wurde nichts gelöscht. Bitte bestätigen Sie in einigen Sekunden erneut.";
+    const expectBusy = () => {
+      const dialog = dialogOf(document);
+      assert.ok(dialog, "Rückfrage bleibt offen");
+      const [notice] = withAttribute(dialog, "data-confirm-busy");
+      assert.equal(notice.textContent, BUSY);
+      assert.equal(notice.getAttribute("role"), "status");
+      const [confirm] = withAttribute(dialog, "data-confirm-delete");
+      const [cancel] = withAttribute(dialog, "data-confirm-cancel");
+      assert.equal(confirm.hasAttribute("disabled"), false);
+      assert.equal(confirm.textContent, "Endgültig löschen");
+      assert.equal(cancel.hasAttribute("disabled"), false);
+      return confirm;
+    };
+
+    // eine Konversation
+    await act(() =>
+      click(withAttribute(container, "data-delete-conversation")[0])
+    );
+    await act();
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    await act();
+    expectBusy();
+    assert.deepEqual(shown, []);
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-cancel")[0])
+    );
+    assert.equal(dialogOf(document), null);
+
+    // alle des Besuchers: erneut bestätigen löscht
+    await openMenu(mounted);
+    await act();
+    await act(() => click(withAttribute(container, "data-delete-visitor")[0]));
+    await act();
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    await act();
+    const confirm = expectBusy();
+    assert.deepEqual(cardIdsOf(container), ["k-1", "k-2"]);
+    await act(() => click(confirm));
+    await act();
+    assert.equal(dialogOf(document), null);
+    assert.deepEqual(cardIdsOf(container), []);
+    assert.equal(server.deletes().length, 3);
+    assert.deepEqual(
+      shown.map(([kind]) => kind),
+      ["success"]
+    );
+  }
+);
+
+test(
+  "rc3 (Hänger): Antwortet der Server nicht, steht „Wird gelöscht …“ höchstens DELETE_LIMITS.timeoutMs – dann bricht die Anfrage ab, die Rückfrage schließt mit einer Meldung, und Liste und Panel laden den aktuellen Stand",
+  { skip },
+  async (t) => {
+    const { DELETE_LIMITS } = await renderer.load(
+      "/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/DeleteConversation.jsx"
+    );
+    const limit = DELETE_LIMITS.timeoutMs;
+    assert.equal(limit, 20_000);
+    DELETE_LIMITS.timeoutMs = 60;
+    t.after(() => {
+      DELETE_LIMITS.timeoutMs = limit;
+    });
+    const shown = await toasts(t);
+    const state = visitorState();
+    state.hangDelete = true;
+    const server = await listServer(t, state);
+    const mounted = await mountList(t);
+    const { container, document, act } = mounted;
+    await expand(mounted, 0);
+    await openMenu(mounted);
+    await act();
+    await act(() => click(withAttribute(container, "data-delete-visitor")[0]));
+    await act();
+    const listsBefore = server.lists().length;
+    await act(() =>
+      click(withAttribute(dialogOf(document), "data-confirm-delete")[0])
+    );
+    const [confirm] = withAttribute(dialogOf(document), "data-confirm-delete");
+    assert.equal(confirm.textContent, "Wird gelöscht …");
+    assert.equal(confirm.hasAttribute("disabled"), true);
+
+    await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
+    await act();
+    assert.equal(dialogOf(document), null);
+    assert.deepEqual(shown, [
+      [
+        "error",
+        "Der Server hat nicht rechtzeitig geantwortet. Bitte prüfen Sie in einigen Sekunden in der Liste, ob die Konversation noch da ist, und löschen Sie sie bei Bedarf erneut.",
+      ],
+    ]);
+    assert.ok(server.lists().length > listsBefore, "Liste lädt neu");
+    assert.deepEqual(cardIdsOf(container), ["k-1", "k-2"]);
   }
 );

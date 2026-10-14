@@ -53,6 +53,22 @@ export function conversationSelectionBody({
   };
 }
 
+/**
+ * Ergebnis einer gescheiterten Lösch-Anfrage (Netzfehler, keine JSON-Antwort,
+ * Abbruch). Hat die Ansicht die Anfrage nach ihrer Höchstdauer abgebrochen
+ * (signal), lautet es reason "timeout": Ob der Server noch löscht, ist dann
+ * offen (Nachtrag rc3).
+ * @param {Error} error
+ * @param {AbortSignal} [signal]
+ * @returns {{success: false, error: string, reason?: "timeout"}}
+ */
+function deleteFailure(error, signal) {
+  if (signal?.aborted)
+    return { success: false, reason: "timeout", error: "timeout" };
+  console.error(error);
+  return { success: false, error: error?.message };
+}
+
 const Embed = {
   embeds: async () => {
     return await fetch(`${API_BASE}/embeds`, {
@@ -294,18 +310,19 @@ const Embed = {
   },
 
   // Konversation löschen (KIE-538). chatId: first_chat_id aus der Liste.
-  // Antwort: { success, deletedCount } bzw. { success: false, error }.
-  deleteConversation: async (embedId, chatId) => {
+  // Antwort: { success, deletedCount } bzw. { success: false, error }; war
+  // die Datenbank gesperrt (503): { success: false, reason: "busy" } –
+  // nichts gelöscht. signal: Abbruch durch die Ansicht nach ihrer
+  // Höchstdauer, dann { success: false, reason: "timeout" } (Nachtrag rc3).
+  deleteConversation: async (embedId, chatId, { signal } = {}) => {
     return await fetch(`${API_BASE}/embed/${embedId}/conversation`, {
       method: "DELETE",
       headers: baseHeaders(),
       body: JSON.stringify({ chatId }),
+      signal,
     })
       .then((res) => res.json())
-      .catch((e) => {
-        console.error(e);
-        return { success: false, error: e.message };
-      });
+      .catch((e) => deleteFailure(e, signal));
   },
 
   // Alle Konversationen des Besuchers (derselbe Browser) in diesem Widget
@@ -313,18 +330,22 @@ const Embed = {
   // (visitor der Vorschau) – gelöscht wird nur dieser Stand (Fixliste 7,
   // F10). Antwort: { success, deletedCount, conversationCount }; hat sich
   // der Stand inzwischen geändert (409): { success: false, reason:
-  // "changed", visitor } mit den neuen Zahlen.
-  deleteVisitorConversations: async (embedId, chatId, expected = null) => {
+  // "changed", visitor } mit den neuen Zahlen. Gesperrte Datenbank (503)
+  // und Abbruch über signal wie bei deleteConversation.
+  deleteVisitorConversations: async (
+    embedId,
+    chatId,
+    expected = null,
+    { signal } = {}
+  ) => {
     return await fetch(`${API_BASE}/embed/${embedId}/conversation/visitor`, {
       method: "DELETE",
       headers: baseHeaders(),
       body: JSON.stringify({ chatId, ...(expected ? { expected } : {}) }),
+      signal,
     })
       .then((res) => res.json())
-      .catch((e) => {
-        console.error(e);
-        return { success: false, error: e.message };
-      });
+      .catch((e) => deleteFailure(e, signal));
   },
 
   // Analytics: Get conversation details

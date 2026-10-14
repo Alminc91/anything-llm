@@ -66,11 +66,18 @@ const RATING_FLASH_MS = 1500;
 // wird am Rand abgeschnitten (META_LINE) – so verschwindet der Trenner am
 // Anfang jeder Zeile, und keine Zeile endet auf „·“ (Fixliste 2 B9,
 // Fixliste 3 V5).
-// items-baseline: Die Sprung-Schaltflächen (N2 a) sind mobil 44 px hoch –
-// die übrigen Teile der Zeile stehen auf derselben Grundlinie.
+// items-baseline: Teile unterschiedlicher Höhe stehen auf derselben
+// Grundlinie. Die Sprung-Schaltflächen (N2 a) stehen seit rc3 in einer
+// eigenen Zeile darunter (RATING_ROW).
 const META_LINE = "-ml-4 flex flex-wrap items-baseline gap-y-0.5";
 const META_ITEM =
   "whitespace-nowrap before:inline-block before:w-4 before:text-center before:text-[color:var(--theme-analytics-text-muted)] before:content-['·']";
+// Die Sprung-Schaltflächen zu den Bewertungen (N2 a) in einer gemeinsamen
+// eigenen Zeile unter der Meta-Zeile (rc3, Opus Low 2): Sie brechen nur
+// gemeinsam um – nie bleibt eine Pille allein in einer Folgezeile –, und
+// mit kurzem Text samt Daumen passen beide auch mobil (390 px) in eine
+// 44 px hohe Zeile.
+const RATING_ROW = "flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]";
 
 /**
  * Text mit hervorgehobenen Treffern der Suche – als Text, nie als HTML.
@@ -441,23 +448,31 @@ export default function ConversationDetail({
   }, [loaded, chatId, search]);
 
   // Sprung zur nächsten bewerteten Antwort (Nachtrag N2 a): Die Schaltflächen
-  // „N Antworten negativ/positiv bewertet“ im Kopf scrollen den Verlauf
-  // nacheinander zu jeder Antwort dieses Tons (nach der letzten wieder zur
-  // ersten), setzen den Fokus darauf (ohne zweites Scrollen) und heben sie
-  // kurz hervor. Nur der Verlauf scrollt, nicht die Seite (AK-4).
-  // Ziele sind die Antworten, die der Kopf zählt: Steht die Konversation in
-  // der Liste, nur die im Zeitraum (wie ihre Zeile) – der Verlauf zeigt die
-  // ganze Konversation (Review 7.21.1). Kennt der geladene Verlauf keine
-  // (Bewertung nach dem Laden der Liste zurückgenommen), ist die
-  // Schaltfläche gesperrt – während er lädt nicht (kein Umspringen).
-  const listed = !!row;
+  // „N negativ/positiv bewertet“ im Kopf scrollen den Verlauf nacheinander
+  // zu jeder Antwort dieses Tons (nach der letzten wieder zur ersten), setzen
+  // den Fokus darauf (ohne zweites Scrollen) und heben sie kurz hervor. Nur
+  // der Verlauf scrollt, nicht die Seite (AK-4).
+  // Ziele sind die Antworten, die auch die Liste zählt: Steht die
+  // Konversation in der Liste, nur die im Zeitraum – der Verlauf zeigt die
+  // ganze Konversation (Review 7.21.1). Mit gewählter Säule zählt der Server
+  // die ganze Konversation (startedBetween), dann alle (rc3 F02) – wie die
+  // Suche (hiddenHit).
+  const periodOnly = !!row && !searchWholeConversation;
   const jumpIds = useMemo(() => {
-    const period = listed ? { fromDay, toDay } : {};
+    const period = periodOnly ? { fromDay, toDay } : {};
     return {
       negative: ratingJumpIds(messages, "negative", period),
       positive: ratingJumpIds(messages, "positive", period),
     };
-  }, [messages, listed, fromDay, toDay]);
+  }, [messages, periodOnly, fromDay, toDay]);
+  // Zahl und Sichtbarkeit der Schaltflächen aus EINER Quelle (rc3 F06):
+  // Sobald der Verlauf geladen ist, aus den Sprungzielen – so springt jeder
+  // Klick zu einer der gezählten Antworten, auch wenn sich Bewertungen seit
+  // dem Laden der Liste geändert haben. Vorher die Zahl aus der Listenzeile
+  // (bzw. dem Kopf), damit nichts umspringt, solange der Verlauf lädt.
+  const ratingCounts = ready
+    ? { negative: jumpIds.negative.length, positive: jumpIds.positive.length }
+    : { negative: head?.negative ?? 0, positive: head?.positive ?? 0 };
   const jumps = useRef({ chatId: null, negative: -1, positive: -1 });
   const [flash, setFlash] = useState(null); // { chatId, id } | null
   useEffect(() => {
@@ -822,47 +837,40 @@ export default function ConversationDetail({
                 <span data-meta-item="" className={META_ITEM}>
                   {timeSpan(head.startedAt, head.lastAt, t)}
                 </span>
-                {/* Schaltflächen: zur nächsten so bewerteten Antwort
-                    (Nachtrag N2 a); im Ton und mit dem Hintergrund der
-                    bewerteten Antworten. Mobil 44 px hoch (AK-9). */}
-                {head.negative > 0 && (
-                  <span
-                    data-meta-item=""
-                    className={`${META_ITEM} text-orange-300 light:text-orange-700`}
-                  >
-                    <RatingJump
-                      kind="negative"
-                      onJump={jumpTo}
-                      disabled={ready && jumpIds.negative.length === 0}
-                      title={t("embed-analytics.panel.jump-negative")}
-                    >
-                      {t("embed-analytics.panel.negative-count", {
-                        count: head.negative,
-                        formatted: formatNumber(head.negative),
-                      })}
-                    </RatingJump>
-                  </span>
-                )}
-                {head.positive > 0 && (
-                  <span
-                    data-meta-item=""
-                    className={`${META_ITEM} text-sky-300 light:text-sky-700`}
-                  >
-                    <RatingJump
-                      kind="positive"
-                      onJump={jumpTo}
-                      disabled={ready && jumpIds.positive.length === 0}
-                      title={t("embed-analytics.panel.jump-positive")}
-                    >
-                      {t("embed-analytics.panel.positive-count", {
-                        count: head.positive,
-                        formatted: formatNumber(head.positive),
-                      })}
-                    </RatingJump>
-                  </span>
-                )}
               </p>
             </div>
+            {/* Schaltflächen: zur nächsten so bewerteten Antwort (Nachtrag
+                N2 a) – gemeinsam in einer eigenen Zeile (RATING_ROW, rc3);
+                im Ton und mit dem Hintergrund der bewerteten Antworten.
+                Mobil 44 px hoch (AK-9). */}
+            {(ratingCounts.negative > 0 || ratingCounts.positive > 0) && (
+              <div data-panel-ratings="" className={RATING_ROW}>
+                {ratingCounts.negative > 0 && (
+                  <RatingJump
+                    kind="negative"
+                    onJump={jumpTo}
+                    title={t("embed-analytics.panel.jump-negative")}
+                  >
+                    {t("embed-analytics.panel.negative-count", {
+                      count: ratingCounts.negative,
+                      formatted: formatNumber(ratingCounts.negative),
+                    })}
+                  </RatingJump>
+                )}
+                {ratingCounts.positive > 0 && (
+                  <RatingJump
+                    kind="positive"
+                    onJump={jumpTo}
+                    title={t("embed-analytics.panel.jump-positive")}
+                  >
+                    {t("embed-analytics.panel.positive-count", {
+                      count: ratingCounts.positive,
+                      formatted: formatNumber(ratingCounts.positive),
+                    })}
+                  </RatingJump>
+                )}
+              </div>
+            )}
             {outside && (
               <p
                 data-panel-outside=""
@@ -893,10 +901,12 @@ export default function ConversationDetail({
       </header>
 
       {/* Verlauf – scrollt */}
+      {/* Der Browser macht den scrollbaren Verlauf per Tab erreichbar:
+          derselbe Fokusring wie im Kopf statt des Browser-Rings (rc3). */}
       <div
         ref={bodyRef}
         data-panel-body=""
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 lg:px-5"
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 lg:px-5 ${FOCUS_RING}`}
       >
         {!loaded ? (
           <p className={`py-4 text-center text-sm ${MUTED}`}>
@@ -954,7 +964,7 @@ export default function ConversationDetail({
             data-panel-id=""
             onClick={copyId}
             title={t("embed-analytics.panel.copy-id")}
-            className={`flex h-11 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs ${MUTED} hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 lg:h-8`}
+            className={`flex h-11 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs ${MUTED} hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 lg:h-8 ${FOCUS_RING}`}
           >
             <Copy size={13} aria-hidden="true" className="shrink-0" />
             <span className="truncate font-mono">
@@ -965,7 +975,7 @@ export default function ConversationDetail({
             type="button"
             data-delete-conversation=""
             onClick={() => openDelete("conversation")}
-            className={`flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[13px] ${MUTED} transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text lg:h-8`}
+            className={`flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[13px] ${MUTED} transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text lg:h-8 ${FOCUS_RING}`}
           >
             <Trash size={14} aria-hidden="true" />
             {t("embed-analytics.delete.conversation")}
@@ -1067,32 +1077,36 @@ const Message = memo(function Message({ message, search, flash = false }) {
   );
 });
 
+// Ton der Sprung-Schaltflächen: wie die Bewertung unter der Antwort
+const RATING_TEXT = {
+  negative: "text-orange-300 light:text-orange-700",
+  positive: "text-sky-300 light:text-sky-700",
+};
+
 /**
- * Schaltfläche im Kopf: „N Antworten negativ/positiv bewertet“ – springt zur
- * nächsten so bewerteten Antwort (Nachtrag N2 a). Der Text bleibt der Name
- * der Schaltfläche, title beschreibt den Sprung. Mobil 44 px hoch (AK-9),
- * ab lg so hoch wie die Zeile; der Ton kommt vom Teil der Zeile, der
- * Hintergrund ist der der bewerteten Antworten. Gesperrt (ohne Ziel im
- * Verlauf) bleibt die Zahl stehen, ohne Unterstreichung und ohne Sprung.
+ * Schaltfläche im Kopf: „N negativ/positiv bewertet“ mit Daumen – springt
+ * zur nächsten so bewerteten Antwort (Nachtrag N2 a). Der Text bleibt der
+ * Name der Schaltfläche, title beschreibt den Sprung. Mobil 44 px hoch
+ * (AK-9), ab lg kompakt; Ton und Hintergrund wie die bewerteten Antworten.
+ * Zu sehen nur mit mindestens einem Ziel (rc3 F06) – deshalb nie gesperrt.
  */
-function RatingJump({ kind, onJump, title, disabled = false, children }) {
+function RatingJump({ kind, onJump, title, children }) {
+  const Icon = kind === "negative" ? ThumbsDown : ThumbsUp;
   return (
     <button
       type="button"
       data-rating-jump={kind}
-      title={disabled ? undefined : title}
-      disabled={disabled}
+      title={title}
       onClick={() => onJump(kind)}
-      className={`inline-flex min-h-11 items-center rounded-md disabled:cursor-default lg:min-h-0 ${FOCUS_RING}`}
+      className={`group inline-flex min-h-11 items-center whitespace-nowrap rounded-md lg:min-h-0 ${RATING_TEXT[kind]} ${FOCUS_RING}`}
     >
       <span
-        className={`rounded-md px-1.5 py-0.5 ${
-          disabled
-            ? ""
-            : "underline decoration-dotted underline-offset-2 transition-colors hover:decoration-solid"
-        } ${RATING_TINT[kind]}`}
+        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 ${RATING_TINT[kind]}`}
       >
-        {children}
+        <Icon size={13} aria-hidden="true" className="shrink-0" />
+        <span className="underline decoration-dotted underline-offset-2 transition-colors group-hover:decoration-solid">
+          {children}
+        </span>
       </span>
     </button>
   );

@@ -66,6 +66,26 @@ const EXPORT_SEARCH_MAX_HITS = 100_000;
 // in einer Abfrage ab, statt nichts zu finden.
 const INT4_MAX = 2147483647;
 
+// Prisma-Codes, mit denen eine Anfrage an einer Sperre der Datenbank oder an
+// einer Zeitgrenze scheitert: P1008 Busy-Timeout von SQLite („Socket
+// timeout“, 5 s), P2024 keine freie Verbindung im Pool, P2028 Transaktion
+// nicht rechtzeitig begonnen oder abgelaufen, P2034 Schreibkonflikt.
+const BUSY_ERROR_CODES = new Set(["P1008", "P2024", "P2028", "P2034"]);
+
+/**
+ * Scheiterte eine Abfrage nur daran, dass die Datenbank gerade gesperrt bzw.
+ * ausgelastet war (Löschen, Nachtrag rc3)? Dann ist ein erneuter Versuch
+ * sinnvoll; eine Transaktion ist in diesem Fall zurückgerollt.
+ * @param {Error|*} error
+ * @returns {boolean}
+ */
+function isDatabaseBusy(error) {
+  if (BUSY_ERROR_CODES.has(error?.code)) return true;
+  return /database (table )?is locked|SQLITE_BUSY|Socket timeout/i.test(
+    String(error?.message ?? "")
+  );
+}
+
 /**
  * Ein Zeitpunkt aus einer Rohabfrage ($queryRaw, SQLite) in Millisekunden -
  * eine Stelle für alle Rohwerte (Fixliste 7, F26). Prisma speichert DateTime
@@ -1956,7 +1976,10 @@ const EmbedChats = {
    * sind (KIE-532).
    * @param {number|string} embedId
    * @param {number|string} chatId - id einer Zeile der Konversation (first_chat_id der Liste)
-   * @returns {Promise<number|null>} - Zahl der gelöschten Zeilen; null bei einem Datenbankfehler
+   * @returns {Promise<number|{busy: true}|null>} - Zahl der gelöschten
+   *   Zeilen; { busy: true }, wenn die Datenbank gesperrt war (die eine
+   *   Anweisung scheitert als Ganzes, nichts ist gelöscht - Nachtrag rc3);
+   *   null bei einem anderen Datenbankfehler
    */
   deleteConversation: async function (embedId, chatId) {
     try {
@@ -1967,8 +1990,11 @@ const EmbedChats = {
       });
       return count;
     } catch (error) {
-      console.error("deleteConversation error:", error.message);
-      return null;
+      console.error(
+        "deleteConversation error:",
+        MessageLedger.errorSummary(error)
+      );
+      return isDatabaseBusy(error) ? { busy: true } : null;
     }
   },
 
@@ -2047,13 +2073,22 @@ const EmbedChats = {
    * die nach dem Zählen hinzukam.
    * Ohne `expected` (API) löscht die Transaktion den Stand, den sie zählt -
    * Antwort und Protokoll nennen dieselben Zahlen wie die Löschung.
+   * Sperre (Nachtrag rc3): Hält eine andere Schreibtransaktion die Datenbank
+   * länger als das Busy-Timeout von SQLite (5 s), scheitert das Löschen in
+   * der Transaktion und sie wird zurückgerollt - nie halb gelöscht. Ergebnis
+   * dann { busy: true }, die Route antwortet 503 und die Ansicht bietet das
+   * erneute Bestätigen an. Die Wartezeit begrenzen die Vorgaben von Prisma
+   * für interaktive Transaktionen (höchstens 2 s auf eine Verbindung, 5 s
+   * Laufzeit) und das Busy-Timeout: gemessen rund 5 s, ob die Sperre 9 s
+   * oder 15 s hält (embedChatsDeleteConversation.test.js).
    * @param {number|string} embedId
    * @param {number|string} chatId - id einer Zeile der Konversation (first_chat_id der Liste)
    * @param {{conversationCount: number, messageCount: number, maxId?: number}|null} [expected] -
    *   was die Rückfrage genannt hat (visitor der Vorschau); maxId fehlt nur
    *   bei Aufrufern vor Fixliste 8
-   * @returns {Promise<{deletedCount: number, conversationCount: number, changed?: {conversationCount: number, messageCount: number, maxId: number}}|null>}
-   *   null bei einem Datenbankfehler
+   * @returns {Promise<{deletedCount: number, conversationCount: number, changed?: {conversationCount: number, messageCount: number, maxId: number}, busy?: true}|null>}
+   *   busy: Die Datenbank war gesperrt, nichts gelöscht; null bei einem
+   *   anderen Datenbankfehler
    */
   deleteVisitorConversations: async function (
     embedId,
@@ -2089,8 +2124,13 @@ const EmbedChats = {
         };
       });
     } catch (error) {
-      console.error("deleteVisitorConversations error:", error.message);
-      return null;
+      console.error(
+        "deleteVisitorConversations error:",
+        MessageLedger.errorSummary(error)
+      );
+      return isDatabaseBusy(error)
+        ? { deletedCount: 0, conversationCount: 0, busy: true }
+        : null;
     }
   },
 

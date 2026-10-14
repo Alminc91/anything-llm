@@ -304,6 +304,15 @@ const metaItems = (root) =>
   withAttribute(one(root, "data-panel-meta"), "data-meta-item").map(
     (item) => item.textContent
   );
+/**
+ * Die Sprung-Schaltflächen zu den Bewertungen (N2 a): seit rc3 gemeinsam in
+ * einer eigenen Zeile unter der Meta-Zeile – [Ton, Text].
+ */
+const ratingJumps = (root) =>
+  withAttribute(root, "data-rating-jump").map((button) => [
+    button.getAttribute("data-rating-jump"),
+    button.textContent,
+  ]);
 /** Tippt in das Suchfeld (Handler des Elements). */
 async function type({ container, act }, value) {
   const input = one(container, "data-search-input");
@@ -525,8 +534,10 @@ test(
       "Dienstag, 13.10.2026",
       "3 Fragen",
       "07:47–07:48 Uhr",
-      "1 Antwort negativ bewertet",
-      "1 Antwort positiv bewertet",
+    ]);
+    assert.deepEqual(ratingJumps(one(head, "data-panel-ratings")), [
+      ["negative", "1 negativ bewertet"],
+      ["positive", "1 positiv bewertet"],
     ]);
     for (const name of [
       "data-panel-previous",
@@ -2038,8 +2049,8 @@ test(
       "Montag, 12.10.2026",
       "2 Fragen",
       "12:00–12:05 Uhr",
-      "1 Antwort negativ bewertet",
     ]);
+    assert.deepEqual(ratingJumps(panel), [["negative", "1 negativ bewertet"]]);
     // angezeigt werden alle einsehbaren Nachrichten
     assert.equal(withAttribute(panel, "data-message").length, 3);
   }
@@ -2373,7 +2384,9 @@ test(
       one(container, "data-panel-meta"),
       "data-meta-item"
     );
-    assert.ok(items.length >= 4);
+    // Datum, Fragen, Zeitspanne – die Bewertungen stehen seit rc3 in einer
+    // eigenen Zeile (data-panel-ratings)
+    assert.equal(items.length, 3);
     for (const item of items) {
       assert.doesNotMatch(item.textContent, /^\s*·|·\s*$/);
       // der Trenner als 16 px breites Kästchen VOR dem Teil – kein Trenner
@@ -5069,20 +5082,20 @@ test(
     );
     assert.equal(negative.tagName, "BUTTON");
     assert.equal(negative.getAttribute("type"), "button");
-    assert.equal(negative.textContent, "2 Antworten negativ bewertet");
+    assert.equal(negative.textContent, "2 negativ bewertet");
     assert.equal(
       negative.getAttribute("title"),
       "Zur nächsten negativ bewerteten Antwort springen"
     );
-    assert.equal(positive.textContent, "1 Antwort positiv bewertet");
+    assert.equal(positive.textContent, "1 positiv bewertet");
     assert.equal(
       positive.getAttribute("title"),
       "Zur nächsten positiv bewerteten Antwort springen"
     );
-    // dieselben Teile der Zeile unter der Frage wie bisher
-    assert.deepEqual(metaItems(panel).slice(-2), [
-      "2 Antworten negativ bewertet",
-      "1 Antwort positiv bewertet",
+    // gemeinsam in der eigenen Zeile unter der Meta-Zeile (rc3)
+    assert.deepEqual(ratingJumps(one(panel, "data-panel-ratings")), [
+      ["negative", "2 negativ bewertet"],
+      ["positive", "1 positiv bewertet"],
     ]);
 
     const messages = withAttribute(panel, "data-message");
@@ -5186,7 +5199,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "Review 7.21.1 (N2 a): Steht die Konversation in der Liste, springen die Schaltflächen nur zu den Antworten, die der Kopf zählt (im Zeitraum) – getönt bleiben alle bewerteten; kennt der Verlauf keine solche Antwort, ist die Schaltfläche gesperrt",
+  "Review 7.21.1 (N2 a) / rc3 F06: Steht die Konversation in der Liste, springen die Schaltflächen nur zu den Antworten, die der Kopf zählt (im Zeitraum) – getönt bleiben alle bewerteten; kennt der Verlauf keine solche Antwort, fehlt die Schaltfläche (keine gesperrte Zahl)",
   { skip },
   async (t) => {
     const before = (day) => new Date(berlin(day, "09:00")).toISOString();
@@ -5225,7 +5238,7 @@ test(
     await act();
     let panel = panelOf(container);
     const button = one(panel, "data-rating-jump");
-    assert.equal(button.textContent, "1 Antwort negativ bewertet");
+    assert.equal(button.textContent, "1 negativ bewertet");
     const messages = withAttribute(panel, "data-message");
     assert.deepEqual(
       messages.map((m) => m.getAttribute("data-rated")),
@@ -5244,9 +5257,124 @@ test(
     await act(() => click(rowsOf(container)[1]));
     await act();
     panel = panelOf(container);
-    const stale = one(panel, "data-rating-jump");
-    assert.equal(stale.textContent, "1 Antwort negativ bewertet");
-    assert.equal(stale.hasAttribute("disabled"), true);
+    assert.deepEqual(ratingJumps(panel), []);
+    assert.equal(withAttribute(panel, "data-panel-ratings").length, 0);
+  }
+);
+
+test(
+  "rc3 F06: Kopfzahl und Sprungziele aus einer Quelle – solange der Verlauf lädt, die Zahl der Listenzeile; danach aus den Zielen im Verlauf: neu dazugekommene 👎 erscheinen (Zeile 0 → 1), eine dritte Bewertung zählt mit (Zeile 2 → 3), jeder Klick trifft eine gezählte Antwort",
+  { skip },
+  async (t) => {
+    let release;
+    const hold = new Promise((resolve) => {
+      release = resolve;
+    });
+    const rated = (id, conversation, feedbackScore) =>
+      message(id, conversation, {
+        session_id: `sitzung-${conversation.slice(5)}`,
+        feedbackScore,
+      });
+    await panelServer(t, {
+      rows: [
+        // die Liste kennt noch keine Bewertung
+        row(1, { message_count: 1 }),
+        // die Liste kennt zwei 👎, inzwischen sind es drei
+        row(2, { message_count: 3, negative_count: 2 }),
+      ],
+      details: {
+        1: { messages: [rated(1, "konv-1", false)] },
+        2: {
+          hold,
+          messages: [
+            rated(21, "konv-2", false),
+            rated(22, "konv-2", false),
+            rated(23, "konv-2", false),
+          ],
+        },
+      },
+    });
+    const { container, document, act } = await mountList(t);
+    messageGeometry(t, document);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    let panel = panelOf(container);
+    assert.deepEqual(ratingJumps(panel), [["negative", "1 negativ bewertet"]]);
+    await act(() => click(one(panel, "data-rating-jump")));
+    await act();
+    assert.equal(
+      document.activeElement,
+      one(withAttribute(panel, "data-message")[0], "data-answer-row")
+    );
+
+    // Während der Verlauf lädt: die Zahl der Zeile, nichts springt um
+    await act(() => click(rowsOf(container)[1]));
+    await act();
+    panel = panelOf(container);
+    assert.deepEqual(ratingJumps(panel), [["negative", "2 negativ bewertet"]]);
+    await act(() => release());
+    await act();
+    panel = panelOf(container);
+    assert.deepEqual(ratingJumps(panel), [["negative", "3 negativ bewertet"]]);
+    const answers = withAttribute(panel, "data-message").map((m) =>
+      one(m, "data-answer-row")
+    );
+    const reached = [];
+    for (let i = 0; i < 3; i += 1) {
+      await act(() => click(one(panel, "data-rating-jump")));
+      await act();
+      reached.push(answers.indexOf(document.activeElement));
+    }
+    assert.deepEqual(reached, [0, 1, 2]);
+  }
+);
+
+test(
+  "rc3 F02: Mit gewählter Säule (startedBetween) zählt der Server die Bewertungen der ganzen Konversation – die Schaltfläche springt auch zu einer 👎 außerhalb des Zeitraums, statt gesperrt zu sein",
+  { skip },
+  async (t) => {
+    const at = (day) => new Date(berlin(day, "09:00")).toISOString();
+    await panelServer(t, {
+      rows: [
+        row(1, {
+          message_count: 2,
+          negative_count: 1,
+          started_at: berlin("2026-10-12", "12:00"),
+          last_message_at: berlin("2026-10-14", "09:00"),
+        }),
+      ],
+      details: {
+        // die 👎 am 14.10. liegt nach dem Zeitraum der Liste (bis 13.10.)
+        1: {
+          messages: [
+            message(1, "konv-1", { session_id: "sitzung-1" }),
+            message(2, "konv-1", {
+              session_id: "sitzung-1",
+              feedbackScore: false,
+              createdAt: at("2026-10-14"),
+            }),
+          ],
+        },
+      },
+    });
+    const { container, document, act } = await mountList(t, {
+      props: {
+        bucket: { start: "2026-10-12", end: "2026-10-12", label: "12.10." },
+      },
+    });
+    messageGeometry(t, document);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const panel = panelOf(container);
+    const button = one(panel, "data-rating-jump");
+    assert.equal(button.textContent, "1 negativ bewertet");
+    assert.equal(button.hasAttribute("disabled"), false);
+    await act(() => click(button));
+    await act();
+    assert.equal(
+      document.activeElement,
+      one(withAttribute(panel, "data-message")[1], "data-answer-row")
+    );
   }
 );
 
@@ -5437,5 +5565,79 @@ test(
     assert.deepEqual(entries(), fixed);
     await act();
     assert.deepEqual(entries(), fixed);
+  }
+);
+
+test(
+  "rc3 (Opus Low 1): Der scrollbare Verlauf (vom Browser per Tab erreichbar) und die Fußleisten-Knöpfe „ID …“ und „Konversation löschen“ tragen den Fokusring der Seite (2 px in Textfarbe, nur bei Tastatur) – nicht den Browser-Ring",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [row(1)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const { container, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const panel = panelOf(container);
+    for (const attribute of [
+      "data-panel-body",
+      "data-panel-id",
+      "data-delete-conversation",
+    ]) {
+      const classes = one(panel, attribute).getAttribute("class").split(/\s+/);
+      for (const name of FOCUS_RING)
+        assert.ok(classes.includes(name), `${attribute}: ${name}`);
+      // kein Ring nach Mausklick: nur :focus-visible, nie :focus
+      assert.ok(
+        !classes.some((name) => name.startsWith("focus:")),
+        `${attribute}: focus:`
+      );
+      assert.ok(!classes.includes("focus-visible:outline-none"), attribute);
+    }
+  }
+);
+
+test(
+  "rc3 (Opus Low 2): Die Bewertungs-Schaltflächen stehen gemeinsam in einer eigenen Zeile unter „Datum · Fragen · Uhrzeit“ (nie eine Pille allein in einer Folgezeile) – kurzer Text mit Daumen, je ohne Umbruch; mobil 44 px hoch, ab lg kompakt",
+  { skip },
+  async (t) => {
+    await panelServer(t, {
+      rows: [
+        row(1, { message_count: 3, negative_count: 2, positive_count: 1 }),
+      ],
+      details: {
+        1: {
+          messages: [false, true, false].map((feedbackScore, i) =>
+            message(i + 1, "konv-1", { session_id: "sitzung-1", feedbackScore })
+          ),
+        },
+      },
+    });
+    const { container, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const panel = panelOf(container);
+    const meta = one(panel, "data-panel-meta");
+    assert.equal(withAttribute(meta, "data-rating-jump").length, 0);
+    const ratings = one(panel, "data-panel-ratings");
+    assert.ok(hasClasses(ratings, ["flex", "flex-wrap", "items-center"]));
+    // direkt unter der Meta-Zeile, im selben Block des Kopfs
+    assert.equal(ratings.parentNode, meta.parentNode.parentNode);
+    assert.deepEqual(ratingJumps(ratings), [
+      ["negative", "2 negativ bewertet"],
+      ["positive", "1 positiv bewertet"],
+    ]);
+    for (const button of withAttribute(ratings, "data-rating-jump")) {
+      assert.ok(
+        hasClasses(button, ["min-h-11", "lg:min-h-0", "whitespace-nowrap"])
+      );
+      const icons = elements(button, (e) => e.tagName === "svg");
+      assert.equal(icons.length, 1);
+      assert.equal(icons[0].getAttribute("aria-hidden"), "true");
+      assert.equal(button.hasAttribute("disabled"), false);
+    }
   }
 );
