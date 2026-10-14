@@ -223,6 +223,11 @@ const EmbedChats = {
    * conversations_started steigt, wenn es für COALESCE(conversation_id,
    * session_id) in diesem Widget noch keine Zeile gab. Zeile und Zähler
    * entstehen in einer Transaktion - gemeinsam oder gar nicht.
+   *
+   * Scheitert die Transaktion an einer Sperre, wird sie wiederholt (KIE-542).
+   * createdAt wird dafür vor dem ersten Versuch festgelegt: Eine Wiederholung
+   * erkennt daran eine Zeile, die ein früherer Versuch trotz Fehlermeldung
+   * geschrieben hat, und legt sie nicht noch einmal an.
    */
   new: async function ({
     embedId,
@@ -233,19 +238,19 @@ const EmbedChats = {
     conversationId = null,
   }) {
     try {
+      const data = {
+        prompt,
+        embed_id: Number(embedId),
+        response: JSON.stringify(response),
+        connection_information: JSON.stringify(connection_information),
+        session_id: String(sessionId),
+        conversation_id: conversationId ? String(conversationId) : null,
+        createdAt: new Date(),
+      };
       const chat = await MessageLedger.transaction(
-        { source: "embed_chat", embedId: Number(embedId) },
+        { source: "embed_chat", embedId: data.embed_id },
         async (tx) => {
-          const created = await tx.embed_chats.create({
-            data: {
-              prompt,
-              embed_id: Number(embedId),
-              response: JSON.stringify(response),
-              connection_information: JSON.stringify(connection_information),
-              session_id: String(sessionId),
-              conversation_id: conversationId ? String(conversationId) : null,
-            },
-          });
+          const created = await tx.embed_chats.create({ data });
           const embed = await tx.embed_configs.findUnique({
             where: { id: created.embed_id },
             select: { workspace_id: true },
@@ -261,6 +266,23 @@ const EmbedChats = {
             ),
           });
           return created;
+        },
+        {
+          retry: {
+            // Index (embed_id, session_id); Zeitpunkt und Inhalt machen die
+            // Zeile eindeutig.
+            findExisting: (tx) =>
+              tx.embed_chats.findFirst({
+                where: {
+                  embed_id: data.embed_id,
+                  session_id: data.session_id,
+                  conversation_id: data.conversation_id,
+                  createdAt: data.createdAt,
+                  prompt: data.prompt,
+                  response: data.response,
+                },
+              }),
+          },
         }
       );
       return { chat, message: null };
@@ -654,7 +676,12 @@ const EmbedChats = {
                 to: resolvedScore,
               });
             return true;
-          }
+          },
+          // KIE-542: wiederholbar. Gebucht wird nur der Übergang von der
+          // gelesenen zur neuen Bewertung. Hat ein früherer Versuch trotz
+          // Fehlermeldung geschrieben, liest die Wiederholung schon die neue
+          // Bewertung und bucht nichts mehr.
+          { retry: { idempotent: true } }
         );
         return updated ? "updated" : "not_found";
       } finally {

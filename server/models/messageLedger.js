@@ -102,6 +102,15 @@ const MS_PER_HOUR = 60 * 60 * 1000;
 const WRITE_FAILED_RETRY_MS = 60 * 1000;
 // Höchstens 999 Platzhalter je Anweisung (ältere SQLite-Grenze), 9 je Zeile.
 const CELLS_PER_STATEMENT = 100;
+// KIE-542: Pausen vor der zweiten und dritten Speicherung nach einem
+// Sperrfehler. Jeder Versuch wartet zusätzlich bis zum Busy-Timeout (5 s).
+const RETRY_DELAYS_MS = Object.freeze([300, 900]);
+// Prisma-Fehlercodes, die auf Sperre bzw. Zeitüberschreitung hindeuten:
+// P1008 Zeitüberschreitung (bei SQLite: SQLITE_BUSY, auch beim COMMIT),
+// P2034 Schreibkonflikt/Deadlock, P2024 keine Verbindung aus dem Pool.
+const LOCK_ERROR_CODES = new Set(["P1008", "P2034", "P2024"]);
+const LOCK_ERROR_PATTERN =
+  /SQLITE_BUSY|database is locked|socket timeout|transaction failed to commit/i;
 
 const berlinHourFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: BILLING_TIME_ZONE,
@@ -146,6 +155,31 @@ function exclusive(task) {
     () => {}
   );
   return run;
+}
+
+// ---------------------------------------------------------------------------
+// Wiederholen bei Sperre (KIE-542)
+// ---------------------------------------------------------------------------
+
+// Zähler seit dem Start des Prozesses, siehe MessageLedger.retryStats
+const retryStats = {
+  retried: 0,
+  savedAfterRetry: 0,
+  alreadySaved: 0,
+  failedAfterRetries: 0,
+};
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Kontext eines Speichervorgangs für das Log, ohne Inhalte. */
+function describeContext(context) {
+  const parts = [context?.source ?? "unbekannt"];
+  if (context?.workspaceId != null)
+    parts.push(`Workspace ${context.workspaceId}`);
+  if (context?.embedId != null) parts.push(`Widget ${context.embedId}`);
+  return parts.join(", ");
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +255,7 @@ async function reportWriteFailures(entry, deferred) {
       workspaceId: entry.workspaceId,
       embedId: entry.embedId,
       error: entry.lastError,
+      ...(entry.lastAttempts > 1 ? { attempts: entry.lastAttempts } : {}),
       ...(count > 1 ? { suppressed: count - 1 } : {}),
       ...(deferred
         ? {
@@ -290,9 +325,41 @@ const MessageLedger = {
   // Ausdrücklich gesetzt: höchstens 5 s auf den Beginn warten (Busy-Timeout
   // von SQLite), danach höchstens 10 s für die wenigen Anweisungen.
   TRANSACTION_OPTIONS: { maxWait: 5_000, timeout: 10_000 },
+  RETRY_DELAYS_MS,
 
   berlinDayHour,
   exclusive,
+
+  /**
+   * Deutet der Fehler auf eine Sperre oder Zeitüberschreitung der Datenbank
+   * hin (KIE-542)? Nur solche Fehler werden wiederholt.
+   *
+   * Gemessen (Prisma 6.14, SQLite im Journal-Modus delete, 14.10.2026): Hält
+   * eine andere Verbindung die Datei länger als das Busy-Timeout, meldet die
+   * Engine P1008 "Socket timeout" - bei einer Schreibsperre schon beim Beginn
+   * der Transaktion, bei einer Lesesperre beim COMMIT (dazu im Log "transaction
+   * failed to commit"). In beiden Fällen ist nichts geschrieben: SQLite
+   * übernimmt eine Transaktion, deren COMMIT mit SQLITE_BUSY endet, nicht, und
+   * die Engine rollt sie zurück.
+   * @param {Error|*} error
+   * @returns {boolean}
+   */
+  isLockError: function (error) {
+    if (!error || typeof error !== "object") return false;
+    if (LOCK_ERROR_CODES.has(error.code)) return true;
+    return LOCK_ERROR_PATTERN.test(String(error.message ?? ""));
+  },
+
+  /**
+   * Zähler der Wiederholungen seit dem Start des Prozesses (KIE-542):
+   * retried - wiederholte Versuche, savedAfterRetry - nach einer Wiederholung
+   * gespeichert, alreadySaved - ein früherer Versuch hatte trotz Fehlermeldung
+   * gespeichert, failedAfterRetries - auch nach Wiederholungen gescheitert.
+   * @returns {{retried: number, savedAfterRetry: number, alreadySaved: number, failedAfterRetries: number}}
+   */
+  retryStats: function () {
+    return { ...retryStats };
+  },
 
   /**
    * Führt work in einer interaktiven Transaktion aus, in der Chat-Zeile und
@@ -300,6 +367,24 @@ const MessageLedger = {
    * ein Ereignis message_ledger_write_failed wird geschrieben (höchstens
    * einmal je Quelle, Workspace bzw. Widget und Stunde; lässt es sich nicht
    * schreiben, wird es nachgereicht) und der Fehler weitergereicht.
+   *
+   * Wiederholen bei Sperre (KIE-542): Mit options.retry wird eine an einer
+   * Sperre oder Zeitüberschreitung gescheiterte Transaktion (isLockError) nach
+   * RETRY_DELAYS_MS noch bis zu zweimal versucht; andere Fehler nie. Jede
+   * Wiederholung steht im Log, das Ereignis erst nach dem letzten Versuch (mit
+   * attempts). Zwischen den Versuchen ist die Reihe frei.
+   * Eine Wiederholung darf nichts doppelt schreiben. Nach der Messung (siehe
+   * isLockError) hat ein Sperrfehler nichts geschrieben; für den Fall, dass die
+   * Engine doch geschrieben und erst danach die Zeitüberschreitung gemeldet
+   * hat, nennt der Aufrufer, wie eine Wiederholung sicher bleibt:
+   * - retry.findExisting(tx): sucht vor jeder Wiederholung - in deren
+   *   Transaktion - das Ergebnis eines früheren Versuchs (etwa die Chat-Zeile
+   *   über einen beim ersten Versuch festgelegten Zeitpunkt). Findet sie es,
+   *   wird es zurückgegeben, ohne work erneut auszuführen: Chat-Zeile und
+   *   Zähler entstehen gemeinsam, eine gefundene Zeile ist also gezählt.
+   * - retry.idempotent: true: work bucht selbst nur Übergänge und ist damit
+   *   ohne Weiteres wiederholbar.
+   * Ohne options.retry wird nicht wiederholt.
    *
    * Vor der ersten Transaktion wird der Wasserstand des Nachtrags
    * festgehalten, falls das beim Start nicht gelungen ist: Sonst würde ein
@@ -309,36 +394,73 @@ const MessageLedger = {
    * weitere MessageLedger.transaction öffnen (sie würde auf sich selbst warten).
    *
    * @template T
-   * @param {{source: string, workspaceId?: number|null, embedId?: number|null}} context - für das Fehler-Ereignis, keine Inhalte
+   * @param {{source: string, workspaceId?: number|null, embedId?: number|null}} context - für Log und Fehler-Ereignis, keine Inhalte
    * @param {(tx: import("@prisma/client").Prisma.TransactionClient) => Promise<T>} work - nur über tx arbeiten
-   * @param {{timeout?: number}} [options]
+   * @param {{timeout?: number, retry?: {findExisting?: (tx: import("@prisma/client").Prisma.TransactionClient) => Promise<T|null>, idempotent?: boolean}}} [options]
    * @returns {Promise<T>}
    */
   transaction: async function (context, work, options = {}) {
-    try {
-      return await exclusive(async () => {
-        let captured = false;
-        const result = await prisma.$transaction(
-          async (tx) => {
-            if (!watermarkCaptured) {
-              await MessageLedger.ensureWatermark(tx);
-              captured = true;
-            }
-            return await work(tx);
-          },
-          { ...MessageLedger.TRANSACTION_OPTIONS, ...options }
-        );
-        if (captured) watermarkCaptured = true;
-        return result;
-      });
-    } catch (error) {
-      // Das Protokollieren darf den eigentlichen Fehler nicht verdecken.
+    const { retry = null, ...transactionOptions } = options;
+    const findExisting =
+      typeof retry?.findExisting === "function" ? retry.findExisting : null;
+    const maxAttempts =
+      findExisting || retry?.idempotent === true
+        ? RETRY_DELAYS_MS.length + 1
+        : 1;
+
+    for (let attempt = 1; ; attempt++) {
       try {
-        await MessageLedger._logWriteFailed(context, error);
-      } catch (logError) {
-        console.error(logError.message);
+        const { result, existing } = await exclusive(async () => {
+          let captured = false;
+          const outcome = await prisma.$transaction(
+            async (tx) => {
+              if (attempt > 1 && findExisting) {
+                const found = await findExisting(tx);
+                if (found !== null && found !== undefined)
+                  return { result: found, existing: true };
+              }
+              if (!watermarkCaptured) {
+                await MessageLedger.ensureWatermark(tx);
+                captured = true;
+              }
+              return { result: await work(tx), existing: false };
+            },
+            { ...MessageLedger.TRANSACTION_OPTIONS, ...transactionOptions }
+          );
+          if (captured) watermarkCaptured = true;
+          return outcome;
+        });
+        if (attempt > 1) {
+          if (existing) retryStats.alreadySaved += 1;
+          else retryStats.savedAfterRetry += 1;
+          console.log(
+            `\x1b[32m[MessageLedger]\x1b[0m ${
+              existing
+                ? "schon beim früheren Versuch gespeichert, nicht erneut geschrieben"
+                : "nach Wiederholung gespeichert"
+            } (${describeContext(context)}), Versuch ${attempt}/${maxAttempts}`
+          );
+        }
+        return result;
+      } catch (error) {
+        if (attempt < maxAttempts && MessageLedger.isLockError(error)) {
+          const delay = RETRY_DELAYS_MS[attempt - 1];
+          retryStats.retried += 1;
+          console.warn(
+            `\x1b[33m[MessageLedger]\x1b[0m Speichern gesperrt (${describeContext(context)}), Versuch ${attempt}/${maxAttempts}: ${MessageLedger.errorSummary(error)} - neuer Versuch in ${delay} ms`
+          );
+          await sleep(delay);
+          continue;
+        }
+        if (attempt > 1) retryStats.failedAfterRetries += 1;
+        // Das Protokollieren darf den eigentlichen Fehler nicht verdecken.
+        try {
+          await MessageLedger._logWriteFailed(context, error, attempt);
+        } catch (logError) {
+          console.error(logError.message);
+        }
+        throw error;
       }
-      throw error;
     }
   },
 
@@ -356,10 +478,17 @@ const MessageLedger = {
    * WRITE_FAILED_RETRY_MS. Was in einer Stunde nach dem Ereignis noch
    * scheitert, wird spätestens mit dem Stundenwechsel nachgereicht. Offene
    * Fehler stehen nur im Speicher des Prozesses; ein Neustart verliert sie.
+   *
+   * Konsole und Ereignis nennen den Fehler nur in Kurzform (errorSummary):
+   * Die volle Meldung von Prisma kann Inhalte der Nachricht enthalten.
+   *
+   * @param {{source?: string, workspaceId?: number|null, embedId?: number|null}} context
+   * @param {Error|*} error
+   * @param {number} [attempts] - Zahl der Versuche (KIE-542); ab 2 im Ereignis als attempts
    */
-  _logWriteFailed: async function (context = {}, error) {
+  _logWriteFailed: async function (context = {}, error, attempts = 1) {
     console.error(
-      `\x1b[31m[MessageLedger]\x1b[0m Chat-Zeile und Zähler nicht geschrieben (${context?.source ?? "unbekannt"}): ${error?.message}`
+      `\x1b[31m[MessageLedger]\x1b[0m Chat-Zeile und Zähler nicht geschrieben (${describeContext(context)}${attempts > 1 ? `, nach ${attempts} Versuchen` : ""}): ${MessageLedger.errorSummary(error)}`
     );
     const source = context?.source ?? null;
     const workspaceId = context?.workspaceId ?? null;
@@ -375,6 +504,7 @@ const MessageLedger = {
         reportedHour: null,
         unreported: 0,
         lastError: null,
+        lastAttempts: 1,
         lastFailureAt: null,
         writing: false,
       };
@@ -382,6 +512,7 @@ const MessageLedger = {
     }
     entry.unreported += 1;
     entry.lastError = MessageLedger.errorSummary(error);
+    entry.lastAttempts = attempts;
     entry.lastFailureAt = Date.now();
 
     try {
@@ -1244,6 +1375,7 @@ const MessageLedger = {
     reportedMismatches.clear();
     writeFailures.clear();
     cancelWriteFailureFlush();
+    for (const key of Object.keys(retryStats)) retryStats[key] = 0;
   },
 };
 
