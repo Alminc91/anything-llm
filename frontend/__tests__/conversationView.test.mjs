@@ -15,8 +15,11 @@ import {
   HOLD_SCROLL_QUIET_MS,
   PANEL_MIN_BODY,
   PANEL_MIN_HEIGHT,
+  RATING_BOX,
   RATING_FLASH,
   RATING_TINT,
+  ratingJumpIds,
+  ratingOf,
   SEARCH_MAX_LENGTH,
   ancestorsOf,
   answerText,
@@ -1434,13 +1437,16 @@ test("Nachtrag N2 (b): Der Hintergrund bewerteter Antworten ist hauchzart; Text 
   const color = (name) => tailwindColor(name, palette);
   // Text auf der Antwort: Antworttext (Textfarbe des Themes), Marke
   // „Positiv bewertet“ / „Negativ bewertet“ (Rating), Kopf-Schaltfläche;
-  // die negative Bewertung steht zusätzlich in ihrem Kasten
-  // (bg-orange-500/10 bzw. hell bg-orange-50).
+  // die negative Bewertung steht zusätzlich in ihrem Kasten (RATING_BOX).
+  const boxClasses = RATING_BOX.split(/\s+/);
   const tones = {
     negative: {
       dark: ["text-orange-300"],
       light: ["text-orange-800", "text-orange-700"],
-      box: { dark: "bg-orange-500/10", light: "light:bg-orange-50" },
+      box: {
+        dark: boxClasses.find((c) => c.startsWith("bg-")),
+        light: boxClasses.find((c) => c.startsWith("light:bg-")),
+      },
     },
     positive: {
       dark: ["text-sky-300"],
@@ -1469,7 +1475,13 @@ test("Nachtrag N2 (b): Der Hintergrund bewerteter Antworten ist hauchzart; Text 
         const box = tones[kind].box?.[theme === "dunkel" ? "dark" : "light"];
         if (box) {
           const boxColor = color(box);
-          grounds.push(over(boxColor.rgb, boxColor.alpha, tinted));
+          const boxed = over(boxColor.rgb, boxColor.alpha, tinted);
+          grounds.push(boxed);
+          // Der Kasten hebt sich von der getönten Antwort ab (Review
+          // 7.21.1: hell lag er in derselben Farbe darauf und verschwand)
+          const apart = contrast(boxed, tinted);
+          report.push(`${kind} ${theme} Kasten/Tönung: ${apart.toFixed(3)}`);
+          assert.ok(apart >= 1.04, `${kind} ${theme} Kasten/Tönung: ${apart}`);
         }
         for (const bg of grounds) {
           const ratios = [
@@ -1499,4 +1511,28 @@ test("Nachtrag N2 (b): Der Hintergrund bewerteter Antworten ist hauchzart; Text 
       }
   }
   assert.ok(report.length > 0);
+});
+
+test("Review 7.21.1 (N2 a): ratingJumpIds – die so bewerteten Antworten im Zeitraum (ohne Zeitraum alle); ratingOf liest feedbackScore", () => {
+  const at = (day) => new Date(`${day}T10:00:00Z`).toISOString();
+  const messages = [
+    { id: 1, feedbackScore: false, createdAt: at("2026-09-10") },
+    { id: 2, feedbackScore: false, createdAt: at("2026-10-01") },
+    { id: 3, feedbackScore: true, createdAt: at("2026-10-02") },
+    { id: 4, feedbackScore: null, createdAt: at("2026-10-03") },
+    { id: 5, createdAt: at("2026-10-04") },
+  ];
+  const period = { fromDay: "2026-09-13", toDay: "2026-10-13" };
+  assert.deepEqual(ratingJumpIds(messages, "negative", period), [2]);
+  assert.deepEqual(ratingJumpIds(messages, "negative"), [1, 2]);
+  assert.deepEqual(ratingJumpIds(messages, "positive", period), [3]);
+  assert.deepEqual(ratingJumpIds([], "positive", period), []);
+  assert.deepEqual(ratingJumpIds(null, "positive"), []);
+  assert.deepEqual(messages.map(ratingOf), [
+    "negative",
+    "negative",
+    "positive",
+    null,
+    null,
+  ]);
 });

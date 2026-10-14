@@ -83,6 +83,43 @@ export const RATING_FLASH = {
   positive: "outline outline-2 outline-sky-400 light:outline-sky-600",
 };
 
+/**
+ * Kasten der negativen Bewertung (Grund und Kommentar) unter der Antwort.
+ * Er liegt auf der Tönung der Antwort (RATING_TINT.negative) und hebt sich
+ * davon ab: hell eine Stufe kräftiger (100 auf 50), sonst verschwände seine
+ * Füllung in der gleichfarbigen Tönung (Review 7.21.1).
+ */
+export const RATING_BOX =
+  "border border-orange-400/30 bg-orange-500/10 light:border-orange-200 light:bg-orange-100";
+
+/**
+ * Ton einer Bewertung: "positive" (👍), "negative" (👎) oder null.
+ * @param {{feedbackScore?: boolean|null}} message
+ * @returns {"positive"|"negative"|null}
+ */
+export function ratingOf(message) {
+  if (message?.feedbackScore === true) return "positive";
+  if (message?.feedbackScore === false) return "negative";
+  return null;
+}
+
+/**
+ * Ziele der Sprung-Schaltflächen im Kopf (Nachtrag N2 a): die ids der so
+ * bewerteten Antworten, die der Kopf zählt. Steht die Konversation in der
+ * Liste, zählt er nur Nachrichten im Zeitraum (period) – der Verlauf zeigt
+ * aber die ganze Konversation; ohne Zeitraum alle (Review 7.21.1).
+ * @param {Array<{id: number, feedbackScore?: boolean|null, createdAt: string}>} messages
+ * @param {"positive"|"negative"} kind
+ * @param {{fromDay?: string|null, toDay?: string|null}} [period]
+ * @returns {number[]}
+ */
+export function ratingJumpIds(messages, kind, period = {}) {
+  return (messages ?? [])
+    .filter((message) => ratingOf(message) === kind)
+    .filter((message) => inPeriod(message, period))
+    .map((message) => message.id);
+}
+
 // Abstand zum schwebenden Benutzermenü oben rechts („KI“, bis 72 px unter
 // dem oberen Fensterrand) – an einer Stelle (Fixliste 3, S4). Der Bereich der
 // Einstellungsseiten beginnt ab md 16 px unter dem Fensterrand und endet
@@ -898,6 +935,27 @@ export function elementsWith(root, attribute, value, found = []) {
 }
 
 /**
+ * Lage eines Elements im Inhalt eines scrollenden Bereichs: Abstand seines
+ * Anfangs zum Anfang des Inhalts (nicht des sichtbaren Ausschnitts) und
+ * seine Höhe.
+ * @param {{scrollTop: number, getBoundingClientRect: Function}} container
+ * @param {{getBoundingClientRect: Function}} element
+ * @returns {{offset: number, height: number}}
+ */
+function offsetInScroller(container, element) {
+  const box = container.getBoundingClientRect();
+  const target = element.getBoundingClientRect();
+  return {
+    offset: target.top - box.top + (container.scrollTop || 0),
+    height: target.height,
+  };
+}
+
+/** Scrollposition: gerundet, nie unter 0, 0 ohne messbare Lage. */
+const scrollPosition = (value) =>
+  Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+
+/**
  * Scrollposition eines Bereichs, bei der der Anfang eines Elements darin
  * oben steht, mit etwas Abstand – nur der Bereich scrollt, nicht die Seite
  * (Sprung zur bewerteten Antwort, Nachtrag N2).
@@ -907,10 +965,7 @@ export function elementsWith(root, attribute, value, found = []) {
  * @returns {number}
  */
 export function startScrollTop(container, element, margin = 16) {
-  const box = container.getBoundingClientRect();
-  const target = element.getBoundingClientRect();
-  const offset = target.top - box.top + (container.scrollTop || 0) - margin;
-  return Number.isFinite(offset) ? Math.max(0, Math.round(offset)) : 0;
+  return scrollPosition(offsetInScroller(container, element).offset - margin);
 }
 
 /**
@@ -921,9 +976,6 @@ export function startScrollTop(container, element, margin = 16) {
  * @returns {number}
  */
 export function centeredScrollTop(container, element) {
-  const box = container.getBoundingClientRect();
-  const target = element.getBoundingClientRect();
-  const offset = target.top - box.top + (container.scrollTop || 0);
-  const centered = offset - ((container.clientHeight || 0) - target.height) / 2;
-  return Number.isFinite(centered) ? Math.max(0, Math.round(centered)) : 0;
+  const { offset, height } = offsetInScroller(container, element);
+  return scrollPosition(offset - ((container.clientHeight || 0) - height) / 2);
 }

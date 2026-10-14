@@ -21,6 +21,7 @@ import {
   AVATAR_CLEARANCE,
   FOCUS_RING,
   MUTED,
+  RATING_BOX,
   RATING_FLASH,
   RATING_TINT,
   ancestorsOf,
@@ -37,6 +38,8 @@ import {
   outsidePeriod,
   panelChromeHeight,
   panelFit,
+  ratingJumpIds,
+  ratingOf,
   shortId,
   startScrollTop,
 } from "@/utils/conversationView";
@@ -58,16 +61,6 @@ import { useDismiss, useWide } from "./viewHooks";
 const ICON_BUTTON = `grid h-11 w-11 shrink-0 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent light:hover:bg-black/5 lg:h-9 lg:w-9 ${FOCUS_RING}`;
 // Wie lange eine angesprungene Antwort hervorgehoben bleibt (N2 a)
 const RATING_FLASH_MS = 1500;
-
-/**
- * Ton einer Bewertung: "positive" (👍), "negative" (👎) oder null.
- * @param {{feedbackScore?: boolean|null}} message
- */
-function ratingOf(message) {
-  if (message.feedbackScore === true) return "positive";
-  if (message.feedbackScore === false) return "negative";
-  return null;
-}
 // Trenner „·“ in der Zeile unter der Frage: VOR jedem Teil, in einem 16 px
 // breiten Kästchen. Die Zeile ist um diese 16 px nach links verschoben und
 // wird am Rand abgeschnitten (META_LINE) – so verschwindet der Trenner am
@@ -337,15 +330,19 @@ export default function ConversationDetail({
   const menuButtonRef = useRef(null);
   const backRef = useRef(null);
   const wide = useWide();
-  // „‹ Konversationen“ ohne Fokusring, solange der Fokus nach dem Öffnen
-  // per Link noch dort steht (N3) – danach der Ring der Seite.
-  const [quietBack, setQuietBack] = useState(openedByLink);
+  // „‹ Konversationen“ ohne Fokusring nur, solange die per Link geöffnete
+  // Konversation zu sehen ist und der Fokus den Knopf noch nicht verlassen
+  // hat (N3) – danach der Ring der Seite. Eine Quelle für Klasse und Fokus:
+  // Das Panel bleibt beim Blättern eingehängt, openedByLink wird dann false
+  // (Review 7.21.1).
+  const [backLeft, setBackLeft] = useState(false);
+  const quietBack = openedByLink && !backLeft;
   // Für den Fokus beim Wechsel ins Vollbild (unten): der aktuelle Stand,
   // ohne dass ein Wechsel ihn neu setzt. Vor jenem Effekt aktualisiert.
-  const openedByLinkRef = useRef(openedByLink);
+  const quietBackRef = useRef(quietBack);
   useEffect(() => {
-    openedByLinkRef.current = openedByLink;
-  }, [openedByLink]);
+    quietBackRef.current = quietBack;
+  }, [quietBack]);
 
   useEffect(() => {
     let ignore = false;
@@ -448,6 +445,19 @@ export default function ConversationDetail({
   // nacheinander zu jeder Antwort dieses Tons (nach der letzten wieder zur
   // ersten), setzen den Fokus darauf (ohne zweites Scrollen) und heben sie
   // kurz hervor. Nur der Verlauf scrollt, nicht die Seite (AK-4).
+  // Ziele sind die Antworten, die der Kopf zählt: Steht die Konversation in
+  // der Liste, nur die im Zeitraum (wie ihre Zeile) – der Verlauf zeigt die
+  // ganze Konversation (Review 7.21.1). Kennt der geladene Verlauf keine
+  // (Bewertung nach dem Laden der Liste zurückgenommen), ist die
+  // Schaltfläche gesperrt – während er lädt nicht (kein Umspringen).
+  const listed = !!row;
+  const jumpIds = useMemo(() => {
+    const period = listed ? { fromDay, toDay } : {};
+    return {
+      negative: ratingJumpIds(messages, "negative", period),
+      positive: ratingJumpIds(messages, "positive", period),
+    };
+  }, [messages, listed, fromDay, toDay]);
   const jumps = useRef({ chatId: null, negative: -1, positive: -1 });
   const [flash, setFlash] = useState(null); // { chatId, id } | null
   useEffect(() => {
@@ -457,7 +467,10 @@ export default function ConversationDetail({
   }, [flash]);
   const jumpTo = (kind) => {
     const body = bodyRef.current;
-    const targets = elementsWith(body, "data-rated", kind);
+    const ids = jumpIds[kind];
+    const targets = elementsWith(body, "data-rated", kind).filter((element) =>
+      ids.includes(Number(element.getAttribute("data-message-id")))
+    );
     if (!body || targets.length === 0) return;
     if (jumps.current.chatId !== chatId)
       jumps.current = { chatId, negative: -1, positive: -1 };
@@ -500,8 +513,7 @@ export default function ConversationDetail({
   // ihn zeigt – bei Tastaturbedienung mit dem Fokusring der Seite.
   useEffect(() => {
     if (wide) return;
-    if (openedByLinkRef.current)
-      backRef.current?.focus?.({ focusVisible: false });
+    if (quietBackRef.current) backRef.current?.focus?.({ focusVisible: false });
     else backRef.current?.focus?.();
   }, [wide]);
   useInertOutside(panelRef, !wide);
@@ -557,7 +569,14 @@ export default function ConversationDetail({
     else if (event.key === "End") focus(items.length - 1);
     else if (event.key === "Tab") closeMenu();
   };
-  const toggleMenu = () => setMenuOpen(!menuOpen);
+  // Beim Öffnen frischt das Menü die Lösch-Vorschau im Hintergrund auf
+  // (Review 7.21.1): Hat der Besucher inzwischen eine weitere Konversation
+  // begonnen, kommt „Alle Konversationen dieses Besuchers löschen“ unten
+  // hinzu (N1).
+  const toggleMenu = () => {
+    if (!menuOpen) deletion.refreshPreview();
+    setMenuOpen(!menuOpen);
+  };
 
   const conversationId = head?.conversationId ?? null;
   const copy = useCallback(
@@ -610,11 +629,19 @@ export default function ConversationDetail({
   // „Alle Konversationen dieses Besuchers löschen". Der zweite Eintrag steht
   // nur da, wenn die Vorschau weitere Konversationen kennt (Nachtrag N1):
   // Sie lädt beim Öffnen des Panels, das Menü erscheint so gleich im
-  // Endzustand. Lädt sie beim Öffnen des Menüs noch, kommt der Eintrag
-  // danach als letzter hinzu – kein Platzhalter, der kurz aufblitzt und
-  // wieder verschwindet; nichts schiebt sich vor einen anderen Eintrag, der
-  // Fokus bleibt, wo er ist.
-  const visitorEntry = !!deletable && deletion.offerVisitor;
+  // Endzustand. Lädt sie beim Öffnen des Menüs noch (oder kennt das
+  // Auffrischen eine neue Konversation), kommt der Eintrag danach als
+  // letzter hinzu – kein Platzhalter, der kurz aufblitzt; nichts schiebt
+  // sich vor einen anderen Eintrag, der Fokus bleibt, wo er ist. Einmal im
+  // offenen Menü gezeigt, bleibt er bis zum Schließen (nie angezeigt und
+  // wieder entfernt); das Löschen prüft den Stand ohnehin (Fixliste 7, F10).
+  const [visitorShownFor, setVisitorShownFor] = useState(null);
+  const visitorEntry =
+    !!deletable &&
+    (deletion.offerVisitor || (menuOpen && visitorShownFor === chatId));
+  if (menuOpen && visitorEntry && visitorShownFor !== chatId)
+    setVisitorShownFor(chatId);
+  else if (!menuOpen && visitorShownFor !== null) setVisitorShownFor(null);
   const menuItems = [
     conversationId && {
       id: "data-menu-copy-id",
@@ -671,7 +698,7 @@ export default function ConversationDetail({
             ref={backRef}
             data-panel-back=""
             onClick={onClose}
-            onBlur={() => setQuietBack(false)}
+            onBlur={() => setBackLeft(true)}
             className={`flex h-11 items-center gap-1 rounded-lg px-2 text-[15px] text-theme-text-primary hover:bg-white/10 light:hover:bg-black/5 lg:hidden ${
               quietBack
                 ? "focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5"
@@ -806,6 +833,7 @@ export default function ConversationDetail({
                     <RatingJump
                       kind="negative"
                       onJump={jumpTo}
+                      disabled={ready && jumpIds.negative.length === 0}
                       title={t("embed-analytics.panel.jump-negative")}
                     >
                       {t("embed-analytics.panel.negative-count", {
@@ -823,6 +851,7 @@ export default function ConversationDetail({
                     <RatingJump
                       kind="positive"
                       onJump={jumpTo}
+                      disabled={ready && jumpIds.positive.length === 0}
                       title={t("embed-analytics.panel.jump-positive")}
                     >
                       {t("embed-analytics.panel.positive-count", {
@@ -1004,14 +1033,19 @@ const Message = memo(function Message({ message, search, flash = false }) {
           Hintergrund im Ton der Bewertung (Nachtrag N2 b). Er ragt über den
           Text hinaus (negativer Rand + Innenabstand, bei allen Antworten
           gleich) – der Verlauf verschiebt sich nicht. Ziel des Sprungs aus
-          dem Kopf (tabIndex -1: per Programm fokussierbar, nicht per Tab). */}
+          dem Kopf (tabIndex -1: per Programm fokussierbar, nicht per Tab).
+          Während der kurzen Hervorhebung statt des Fokusrings: Beide setzen
+          die Umrissfarbe, der Ring (:focus-visible nach Tastaturbedienung)
+          überdeckte sonst den Ton der Bewertung (Review 7.21.1). */}
       <div
         data-answer-row=""
         tabIndex={rating ? -1 : undefined}
         data-rating-flash={flash ? "" : undefined}
         className={`-mx-2 -my-1.5 flex items-start gap-2.5 rounded-xl px-2 py-1.5 ${
-          rating ? `${RATING_TINT[rating]} ${FOCUS_RING}` : ""
-        } ${flash ? RATING_FLASH[rating] : ""}`}
+          rating
+            ? `${RATING_TINT[rating]} ${flash ? RATING_FLASH[rating] : FOCUS_RING}`
+            : ""
+        }`}
       >
         <span
           aria-hidden="true"
@@ -1038,19 +1072,25 @@ const Message = memo(function Message({ message, search, flash = false }) {
  * nächsten so bewerteten Antwort (Nachtrag N2 a). Der Text bleibt der Name
  * der Schaltfläche, title beschreibt den Sprung. Mobil 44 px hoch (AK-9),
  * ab lg so hoch wie die Zeile; der Ton kommt vom Teil der Zeile, der
- * Hintergrund ist der der bewerteten Antworten.
+ * Hintergrund ist der der bewerteten Antworten. Gesperrt (ohne Ziel im
+ * Verlauf) bleibt die Zahl stehen, ohne Unterstreichung und ohne Sprung.
  */
-function RatingJump({ kind, onJump, title, children }) {
+function RatingJump({ kind, onJump, title, disabled = false, children }) {
   return (
     <button
       type="button"
       data-rating-jump={kind}
-      title={title}
+      title={disabled ? undefined : title}
+      disabled={disabled}
       onClick={() => onJump(kind)}
-      className={`inline-flex min-h-11 items-center rounded-md lg:min-h-0 ${FOCUS_RING}`}
+      className={`inline-flex min-h-11 items-center rounded-md disabled:cursor-default lg:min-h-0 ${FOCUS_RING}`}
     >
       <span
-        className={`rounded-md px-1.5 py-0.5 underline decoration-dotted underline-offset-2 transition-colors hover:decoration-solid ${RATING_TINT[kind]}`}
+        className={`rounded-md px-1.5 py-0.5 ${
+          disabled
+            ? ""
+            : "underline decoration-dotted underline-offset-2 transition-colors hover:decoration-solid"
+        } ${RATING_TINT[kind]}`}
       >
         {children}
       </span>
@@ -1061,7 +1101,8 @@ function RatingJump({ kind, onJump, title, children }) {
 /** Bewertung direkt unter der bewerteten Antwort (KIE-504/507). */
 function Rating({ message, search }) {
   const { t } = useTranslation();
-  if (message.feedbackScore === true)
+  const rating = ratingOf(message);
+  if (rating === "positive")
     return (
       <span
         data-rating="positive"
@@ -1071,11 +1112,11 @@ function Rating({ message, search }) {
         {t("embed-analytics.panel.positive")}
       </span>
     );
-  if (message.feedbackScore !== false) return null;
+  if (rating !== "negative") return null;
   return (
     <div
       data-rating="negative"
-      className="flex flex-col gap-1.5 rounded-lg border border-orange-400/30 bg-orange-500/10 px-3 py-2.5 light:border-orange-200 light:bg-orange-50"
+      className={`flex flex-col gap-1.5 rounded-lg px-3 py-2.5 ${RATING_BOX}`}
     >
       <span className="flex items-center gap-1.5 text-[13px] font-semibold text-orange-300 light:text-orange-800">
         <ThumbsDown size={14} aria-hidden="true" />

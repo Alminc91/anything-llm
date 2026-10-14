@@ -2636,7 +2636,7 @@ test(
 );
 
 test(
-  "Nachtrag N1: Die Lösch-Vorschau lädt beim Öffnen des Panels im Hintergrund – das Menü „⋯“ erscheint gleich im Endzustand; Blättern lädt die Vorschau der nächsten Konversation",
+  "Nachtrag N1: Die Lösch-Vorschau lädt beim Öffnen des Panels im Hintergrund – das Menü „⋯“ erscheint gleich im Endzustand (sein Öffnen frischt sie nur auf); Blättern lädt die Vorschau der nächsten Konversation",
   { skip },
   async (t) => {
     const state = {
@@ -2677,13 +2677,15 @@ test(
         ["Alle Konversationen dieses Besuchers löschen", null],
       ]
     );
-    // Öffnen des Menüs fragt nicht noch einmal an
-    assert.deepEqual(previews(), [2]);
+    // Das Öffnen des Menüs frischt sie nur im Hintergrund auf (Review
+    // 7.21.1) – das Menü stand schon vorher im Endzustand.
+    await act();
+    assert.deepEqual(previews(), [2, 2]);
 
     await act(() => click(one(container, "data-panel-menu-button")));
     await act(() => click(one(panelOf(container), "data-panel-next")));
     await act();
-    assert.deepEqual(previews(), [2, 1]);
+    assert.deepEqual(previews(), [2, 2, 1]);
   }
 );
 
@@ -5174,5 +5176,266 @@ test(
     for (const row of rows)
       for (const name of ["-mx-2", "px-2", "-my-1.5", "py-1.5", "rounded-xl"])
         assert.ok(classes(row).includes(name), name);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Review der Nachträge 7.21.1: Sprung nur zu gezählten Antworten,
+// Hervorhebung vor dem Fokusring, Fokusring nach dem Blättern, frische
+// Lösch-Vorschau
+// ---------------------------------------------------------------------------
+
+test(
+  "Review 7.21.1 (N2 a): Steht die Konversation in der Liste, springen die Schaltflächen nur zu den Antworten, die der Kopf zählt (im Zeitraum) – getönt bleiben alle bewerteten; kennt der Verlauf keine solche Antwort, ist die Schaltfläche gesperrt",
+  { skip },
+  async (t) => {
+    const before = (day) => new Date(berlin(day, "09:00")).toISOString();
+    await panelServer(t, {
+      rows: [
+        row(1, { message_count: 1, negative_count: 1 }),
+        row(2, { message_count: 1, negative_count: 1 }),
+      ],
+      details: {
+        // zwei 👎 vor dem Zeitraum (ab 13.09.), eine darin
+        1: {
+          messages: [
+            message(11, "konv-1", {
+              session_id: "sitzung-1",
+              feedbackScore: false,
+              createdAt: before("2026-09-10"),
+            }),
+            message(12, "konv-1", {
+              session_id: "sitzung-1",
+              feedbackScore: false,
+            }),
+            message(13, "konv-1", {
+              session_id: "sitzung-1",
+              feedbackScore: false,
+              createdAt: before("2026-09-11"),
+            }),
+          ],
+        },
+        // die Bewertung wurde nach dem Laden der Liste zurückgenommen
+        2: { messages: [message(2, "konv-2", { session_id: "sitzung-2" })] },
+      },
+    });
+    const { container, document, act } = await mountList(t);
+    messageGeometry(t, document);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    let panel = panelOf(container);
+    const button = one(panel, "data-rating-jump");
+    assert.equal(button.textContent, "1 Antwort negativ bewertet");
+    const messages = withAttribute(panel, "data-message");
+    assert.deepEqual(
+      messages.map((m) => m.getAttribute("data-rated")),
+      ["negative", "negative", "negative"]
+    );
+    for (let i = 0; i < 3; i += 1) {
+      await act(() => click(button));
+      await act();
+      assert.equal(
+        document.activeElement,
+        one(messages[1], "data-answer-row"),
+        `Klick ${i + 1}`
+      );
+    }
+
+    await act(() => click(rowsOf(container)[1]));
+    await act();
+    panel = panelOf(container);
+    const stale = one(panel, "data-rating-jump");
+    assert.equal(stale.textContent, "1 Antwort negativ bewertet");
+    assert.equal(stale.hasAttribute("disabled"), true);
+  }
+);
+
+test(
+  "Review 7.21.1 (N2 a): Während der kurzen Hervorhebung trägt die angesprungene Antwort den Umriss im Ton ihrer Bewertung statt des Fokusrings – auch bei Tastaturbedienung (:focus-visible) –, danach wieder den Fokusring der Seite",
+  { skip },
+  async (t) => {
+    const { RATING_FLASH } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    await panelServer(t, {
+      rows: [row(1, { message_count: 1, negative_count: 1 })],
+      details: {
+        1: {
+          messages: [
+            message(1, "konv-1", {
+              session_id: "sitzung-1",
+              feedbackScore: false,
+            }),
+          ],
+        },
+      },
+    });
+    const { container, document, act } = await mountList(t);
+    messageGeometry(t, document);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const panel = panelOf(container);
+    const answer = one(panel, "data-answer-row");
+    const classes = () => answer.getAttribute("class").split(/\s+/);
+    for (const name of FOCUS_RING) assert.ok(classes().includes(name), name);
+    await act(() => click(one(panel, "data-rating-jump")));
+    await act();
+    assert.equal(document.activeElement, answer);
+    for (const name of RATING_FLASH.negative.split(/\s+/))
+      assert.ok(classes().includes(name), name);
+    for (const name of FOCUS_RING) assert.ok(!classes().includes(name), name);
+    await act(() => wait(RATING_FLASH_WAIT_MS));
+    await act();
+    for (const name of FOCUS_RING) assert.ok(classes().includes(name), name);
+    for (const name of RATING_FLASH.negative.split(/\s+/))
+      assert.ok(!classes().includes(name), name);
+  }
+);
+
+/**
+ * window.matchMedia mit umschaltbarer Breite: Der Rückgabewert schaltet um
+ * und meldet die Änderung (change) wie der Browser.
+ */
+function switchableWidth(t, wide) {
+  const original = globalThis.window.matchMedia;
+  const listeners = new Set();
+  let current = wide;
+  globalThis.window.matchMedia = (query) => ({
+    get matches() {
+      return query.includes("1024") ? current : false;
+    },
+    addEventListener(_type, listener) {
+      listeners.add(listener);
+    },
+    removeEventListener(_type, listener) {
+      listeners.delete(listener);
+    },
+  });
+  t.after(() => {
+    globalThis.window.matchMedia = original;
+  });
+  return (next) => {
+    current = next;
+    for (const listener of [...listeners]) listener();
+  };
+}
+
+test(
+  "Review 7.21.1 (N3): Per Link ab lg geöffnet, dann geblättert und unter lg verkleinert – „‹ Konversationen“ bekommt den Fokus mit dem Fokusring der Seite, nicht mehr nur die Tönung",
+  { skip },
+  async (t) => {
+    const setWide = switchableWidth(t, true);
+    await panelServer(t, {
+      rows: [row(1), row(2)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+        2: { messages: [message(2, "konv-2", { session_id: "sitzung-2" })] },
+      },
+    });
+    const { container, document, act } = await mountList(t, {
+      query: "?widget=3&conversation=2",
+    });
+    const back = () => one(panelOf(container), "data-panel-back");
+    await act(() => click(one(panelOf(container), "data-panel-previous")));
+    await act();
+    await act(() => setWide(false));
+    await act();
+    assert.equal(document.activeElement, back());
+    assert.equal(back().lastFocusOptions, null);
+    const classes = back().getAttribute("class").split(/\s+/);
+    for (const name of FOCUS_RING) assert.ok(classes.includes(name), name);
+    assert.ok(!classes.includes("focus-visible:outline-none"));
+  }
+);
+
+test(
+  "Review 7.21.1 (N1): Menü „⋯“ und Rückfragen frischen die Lösch-Vorschau im Hintergrund auf – eine neue Konversation des Besuchers kommt unten im offenen Menü hinzu, „Konversation löschen“ nennt die aktuelle Zahl; ein angezeigter Eintrag bleibt, solange das Menü offen ist; scheitert das Auffrischen, bleibt der bekannte Stand",
+  { skip },
+  async (t) => {
+    const state = {
+      rows: [row(1)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+      preview: { success: true, messageCount: 1, visitor: null },
+    };
+    const server = await panelServer(t, state);
+    const { container, document, act } = await mountList(t);
+    const previews = () =>
+      server.calls.filter((call) =>
+        call.url.endsWith("/conversation/deletion-preview")
+      ).length;
+    const entries = () =>
+      elements(
+        one(container, "data-panel-menu"),
+        (e) => e.getAttribute("role") === "menuitem"
+      ).map((e) => e.textContent);
+    const fixed = ["Kennung kopieren", "Link kopieren", "Konversation löschen"];
+    const visitorEntry = "Alle Konversationen dieses Besuchers löschen";
+    const menuButton = () => one(container, "data-panel-menu-button");
+    const dialog = () => withAttribute(document.body, "data-confirm-dialog");
+
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    assert.equal(previews(), 1);
+
+    // Der Besucher schreibt weiter und beginnt eine zweite Konversation.
+    state.preview = {
+      success: true,
+      messageCount: 3,
+      visitor: { conversationCount: 2, messageCount: 4 },
+    };
+    let release;
+    state.holdPreview = new Promise((resolve) => {
+      release = resolve;
+    });
+    await act(() => click(menuButton()));
+    assert.deepEqual(entries(), fixed, "beim Öffnen: der bekannte Stand");
+    assert.equal(previews(), 2);
+    const focused = document.activeElement;
+    await act(() => release());
+    await act();
+    state.holdPreview = null;
+    assert.deepEqual(entries(), [...fixed, visitorEntry]);
+    assert.equal(document.activeElement, focused, "Fokus bleibt");
+    await act(() => click(menuButton()));
+
+    // Die Rückfrage aus der Fußzeile nennt die aktuelle Zahl.
+    state.preview = { ...state.preview, messageCount: 5 };
+    await act(() => click(one(container, "data-delete-conversation")));
+    await act();
+    assert.equal(previews(), 3);
+    assert.equal(
+      one(dialog()[0], "data-confirm-count").textContent,
+      "Die Konversation mit 5 Nachrichten wird endgültig gelöscht."
+    );
+    // Scheitert das Auffrischen, bleibt der bekannte Stand (keine Lücke).
+    await act(() => click(one(dialog()[0], "data-confirm-cancel")));
+    state.preview = { success: false };
+    await act(() => click(one(container, "data-delete-conversation")));
+    await act();
+    assert.equal(
+      one(dialog()[0], "data-confirm-count").textContent,
+      "Die Konversation mit 5 Nachrichten wird endgültig gelöscht."
+    );
+    await act(() => click(one(dialog()[0], "data-confirm-cancel")));
+
+    // Die zweite Konversation ist inzwischen weg: Im offenen Menü bleibt
+    // der Eintrag stehen (nie angezeigt und wieder entfernt) …
+    state.preview = {
+      success: true,
+      messageCount: 5,
+      visitor: { conversationCount: 1, messageCount: 5 },
+    };
+    await act(() => click(menuButton()));
+    assert.deepEqual(entries(), [...fixed, visitorEntry]);
+    await act();
+    assert.deepEqual(entries(), [...fixed, visitorEntry]);
+    await act(() => click(menuButton()));
+    // … beim nächsten Öffnen fehlt er von Anfang an.
+    await act(() => click(menuButton()));
+    assert.deepEqual(entries(), fixed);
+    await act();
+    assert.deepEqual(entries(), fixed);
   }
 );

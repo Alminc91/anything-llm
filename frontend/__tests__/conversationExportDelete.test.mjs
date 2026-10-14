@@ -834,9 +834,11 @@ test(
     const actions = withAttribute(container, "data-conversation-actions")[0];
     assert.equal(actions.parentNode.lastChild, actions);
     // nur eine Konversation dieses Besuchers: kein zweites Angebot; das
-    // Menü fragt nicht noch einmal an
+    // Menü frischt die Vorschau derselben Konversation nur auf (Review
+    // 7.21.1)
     await openMenu(mounted);
-    assert.equal(server.calls.length, 3);
+    assert.equal(server.calls.length, 4);
+    assert.deepEqual(server.calls[3], server.calls[2]);
     assert.equal(withAttribute(container, "data-menu-delete").length, 1);
     assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
     assert.equal(dialogOf(document), null);
@@ -957,6 +959,13 @@ test(
       await expand(mounted, 1);
       const [remove] = withAttribute(container, "data-delete-conversation");
       await act(() => click(remove));
+      // Vorschau beim Öffnen des Panels, aufgefrischt von der Rückfrage
+      // (Review 7.21.1)
+      const preview = {
+        method: ROUTES.deletionPreview.method,
+        url: await urlOf(ROUTES.deletionPreview),
+        body: conversationBody(chatIdOf(id)),
+      };
       assert.deepEqual(
         server.calls.slice(1),
         [
@@ -965,11 +974,8 @@ test(
             url: server.detailUrl(chatIdOf(id)),
             body: undefined,
           },
-          {
-            method: ROUTES.deletionPreview.method,
-            url: await urlOf(ROUTES.deletionPreview),
-            body: conversationBody(chatIdOf(id)),
-          },
+          preview,
+          preview,
         ],
         id
       );
@@ -1062,13 +1068,16 @@ test(
       1
     );
     await openMenu(mounted);
+    // Vorschau beim Öffnen des Panels, aufgefrischt vom Menü (Review 7.21.1)
+    const preview = {
+      method: ROUTES.deletionPreview.method,
+      url: await urlOf(ROUTES.deletionPreview),
+      body: conversationBody(12),
+    };
     assert.deepEqual(server.calls.slice(1), [
       { method: "GET", url: server.detailUrl(12), body: undefined },
-      {
-        method: ROUTES.deletionPreview.method,
-        url: await urlOf(ROUTES.deletionPreview),
-        body: conversationBody(12),
-      },
+      preview,
+      preview,
     ]);
     assert.equal(withAttribute(container, "data-delete-visitor").length, 0);
 

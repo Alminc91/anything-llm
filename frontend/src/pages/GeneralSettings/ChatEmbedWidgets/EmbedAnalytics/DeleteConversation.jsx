@@ -41,9 +41,15 @@ function shortQuestion(text) {
  * dieses Besuchers löschen" erscheint nur, wenn die Vorschau weitere
  * Konversationen kennt – nie gesperrt und nie angezeigt und wieder
  * entfernt.
+ *
+ * Aufgefrischt wird sie im Hintergrund beim Öffnen des Menüs
+ * (refreshPreview) und jeder Rückfrage (Review 7.21.1): Die Rückfrage nennt
+ * so die Zahl der Nachrichten von jetzt, nicht vom Öffnen des Panels.
+ * Solange das Auffrischen läuft, bleibt der bekannte Stand stehen (kein
+ * Ladehinweis, der aufblitzt); scheitert es, bleibt er ebenfalls.
  * @param {Object} props
  * @param {number} props.embedId
- * @param {number|null} props.previewChatId - id einer Zeile der gezeigten
+ * @param {number} props.previewChatId - id einer Zeile der gezeigten
  *   Konversation (Adresse des Panels): Für sie lädt die Vorschau, schon
  *   während der Verlauf lädt. Jede Zeile der Konversation liefert dieselbe
  *   Vorschau; die Adresse bleibt, auch wenn die Konversation später in der
@@ -53,11 +59,11 @@ function shortQuestion(text) {
  *   solange sie nicht geladen ist
  * @param {() => void} props.onDeleted - nach dem Löschen (auch nach einem
  *   Fehlschlag: Die Liste lädt dann den tatsächlichen Stand)
- * @returns {{offerVisitor: boolean, previewLoaded: boolean, openDialog: (kind: "conversation"|"visitor") => void, dialog: React.ReactNode}}
+ * @returns {{offerVisitor: boolean, refreshPreview: () => void, openDialog: (kind: "conversation"|"visitor") => void, dialog: React.ReactNode}}
  */
 export function useConversationDeletion({
   embedId,
-  previewChatId = null,
+  previewChatId,
   conversation,
   onDeleted = () => {},
 }) {
@@ -65,35 +71,44 @@ export function useConversationDeletion({
   // Die Konversation: eine ihrer Zeilen. Die conversation_id vergibt der
   // Besucher, eine zweite Sitzung kann dieselbe tragen.
   const chatId = conversation?.first_chat_id ?? null;
-  // Wofür die Vorschau gilt: die Adresse des Panels, sonst die Zeile
-  const previewFor = previewChatId ?? chatId;
   // Was das Löschen entfernen würde: { messageCount, visitor } – nur Zahlen,
-  // je Konversation (previewFor) gemerkt; data null, wenn die Anfrage
-  // scheiterte.
+  // je Konversation (previewChatId) gemerkt; data null, wenn die erste
+  // Anfrage scheiterte.
   const [preview, setPreview] = useState({ chatId: null, data: null });
+  // Zähler fürs Auffrischen (Menü, Rückfrage)
+  const [refresh, setRefresh] = useState(0);
+  const refreshPreview = useCallback(() => setRefresh((n) => n + 1), []);
   // offene Rückfrage: { kind: "conversation" | "visitor", chatId } | null
   const [dialog, setDialog] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (!previewFor) return;
+    if (!previewChatId) return;
     let ignore = false;
     async function loadPreview() {
       const data = await Embed.getConversationDeletionPreview(
         embedId,
-        previewFor
+        previewChatId
       );
-      if (!ignore)
-        setPreview({ chatId: previewFor, data: data?.success ? data : null });
+      if (ignore) return;
+      // Scheitert das Auffrischen, bleibt der bekannte Stand derselben
+      // Konversation (ihn prüft das Löschen des Besuchers ohnehin).
+      setPreview((previous) => ({
+        chatId: previewChatId,
+        data: data?.success
+          ? data
+          : previous.chatId === previewChatId
+            ? previous.data
+            : null,
+      }));
     }
     loadPreview();
     return () => {
       ignore = true;
     };
-  }, [embedId, previewFor]);
+  }, [embedId, previewChatId, refresh]);
 
-  const previewLoaded =
-    chatId !== null && previewFor !== null && preview.chatId === previewFor;
+  const previewLoaded = chatId !== null && preview.chatId === previewChatId;
   const current = previewLoaded ? preview.data : null;
   // Die Liste zählt nur einsehbare Nachrichten im Zeitraum; gelöscht wird die
   // ganze Konversation – die Rückfrage nennt die Zahl vom Server. Scheiterte
@@ -134,7 +149,7 @@ export function useConversationDeletion({
       // Die Rückfrage bleibt offen und nennt die neuen Zahlen; ein erneutes
       // Bestätigen löscht genau diesen Stand.
       setPreview({
-        chatId: previewFor,
+        chatId: previewChatId,
         data: { ...(preview.data ?? {}), visitor: result.visitor },
       });
       setDialog({ kind: "visitor", chatId, changed: true });
@@ -171,13 +186,18 @@ export function useConversationDeletion({
     onDeleted({ deleted });
   };
 
+  // Die Rückfrage frischt die Vorschau auf. „Alle Konversationen dieses
+  // Besuchers“ öffnet, solange ein Besucher bekannt ist – auch wenn das
+  // Auffrischen im offenen Menü weniger Konversationen fand: Der Eintrag
+  // blieb dort stehen (N1), das Löschen prüft den genannten Stand.
   const openDialog = useCallback(
     (kind) => {
       if (!chatId) return;
-      if (kind === "visitor" && !offerVisitor) return;
+      if (kind === "visitor" && !visitor) return;
+      refreshPreview();
       setDialog({ kind, chatId });
     },
-    [chatId, offerVisitor]
+    [chatId, visitor, refreshPreview]
   );
 
   // Die Rückfrage gilt der Konversation, für die sie geöffnet wurde – zeigt
@@ -241,7 +261,7 @@ export function useConversationDeletion({
 
   return {
     offerVisitor,
-    previewLoaded,
+    refreshPreview,
     openDialog,
     dialog: element,
   };
