@@ -25,7 +25,6 @@ const {
   berlinDayOf,
 } = require("../utils/helpers/billingWindow");
 const {
-  parseCalendarDay,
   validateDayRange,
   nextDay,
 } = require("../utils/helpers/ledgerTimeline");
@@ -114,6 +113,21 @@ async function validEmbedAccess(request, response, next) {
 }
 
 /**
+ * Berliner Grenzen ganzer Kalendertage: [00:00 Berliner Zeit am ersten Tag,
+ * 00:00 nach dem letzten) - für Zeitraum und Abschnitt der Liste (eine
+ * Umrechnung, Fixliste 8, C3).
+ * @param {string} fromDay - "YYYY-MM-DD", geprüft
+ * @param {string} toDay - "YYYY-MM-DD", geprüft, einschließlich
+ * @returns {{start: Date, endExclusive: Date}}
+ */
+function berlinDayBounds(fromDay, toDay) {
+  return {
+    start: berlinMidnight(fromDay),
+    endExclusive: berlinMidnight(nextDay(toDay)),
+  };
+}
+
+/**
  * Der Zeitraum der Konversationsliste aus dem Rumpf - an EINER Stelle
  * geprüft (Fixliste 7, F03).
  *
@@ -137,18 +151,14 @@ function conversationPeriod(body) {
   const { startDate, endDate, fromDay, toDay } = body ?? {};
   const none = { start: null, end: null, fromDay: null, toDay: null };
   if (fromDay != null || toDay != null) {
-    const from = parseCalendarDay(fromDay);
-    const to = parseCalendarDay(toDay);
-    if (from === null || to === null)
-      return {
-        ...none,
-        error: "fromDay and toDay must be calendar days (YYYY-MM-DD).",
-      };
-    if (from > to)
-      return { ...none, error: "fromDay must not be after toDay." };
+    // Dieselbe Prüfung wie Kennzahlen und Abschnitt - ohne Monatsgrenze:
+    // Die Liste hat kein Diagramm (Fixliste 8, C3).
+    const range = validateDayRange(fromDay, toDay, { maxMonths: null });
+    if (!range.valid) return { ...none, error: range.error };
+    const { start, endExclusive } = berlinDayBounds(fromDay, toDay);
     return {
-      start: berlinMidnight(fromDay),
-      end: new Date(berlinMidnight(nextDay(toDay)).getTime() - 1),
+      start,
+      end: new Date(endExclusive.getTime() - 1),
       fromDay,
       toDay,
       error: null,
@@ -219,10 +229,7 @@ function conversationSelection(body) {
   if (startedFromDay != null || startedToDay != null) {
     const range = validateDayRange(startedFromDay, startedToDay);
     if (!range.valid) return invalid(range.error);
-    startedBetween = {
-      start: berlinMidnight(startedFromDay),
-      endExclusive: berlinMidnight(nextDay(startedToDay)),
-    };
+    startedBetween = berlinDayBounds(startedFromDay, startedToDay);
   }
   return { filter, ...period, startedBetween, search, error: null };
 }
@@ -254,31 +261,39 @@ function conversationPaging(body) {
 
 /**
  * Blättern über einen Schlüssel (Fixliste 7, F14): `after` nennt die letzte
- * geladene Zeile der Liste - { lastMessageAt (Millisekunden), firstChatId }.
- * Die nächste Seite beginnt dahinter, auch wenn zwischen den Seiten
+ * geladene Zeile der Liste - { lastMessageAt (Millisekunden), firstChatId,
+ * maxId }. Die nächste Seite beginnt dahinter, auch wenn zwischen den Seiten
  * Konversationen verschwunden sind (mit offset fehlte dann still eine).
- * Nur mit offset 0.
+ * maxId ist der Stand der ersten Seite (Antwortfeld maxId, Fixliste 8, L2):
+ * Alle Seiten lesen nur Zeilen bis dahin - schreibt ein Besucher zwischen
+ * zwei Seiten weiter, steht seine Konversation weiter an ihrer Stelle,
+ * statt still über den Schlüssel zu rutschen. Ohne maxId (Aufrufer vor
+ * Fixliste 8) gilt der aktuelle Bestand. Nur mit offset 0.
  * @param {object} body
  * @param {number} offset - aus {@link conversationPaging}
- * @returns {{after: {lastMessageAt: number, firstChatId: number}|null, error: string|null}}
+ * @returns {{after: {lastMessageAt: number, firstChatId: number, maxId: number|null}|null, error: string|null}}
  */
 function conversationCursor(body, offset) {
   const { after = null } = body ?? {};
   if (after === null) return { after: null, error: null };
-  const { lastMessageAt, firstChatId } =
-    after && typeof after === "object" && !Array.isArray(after) ? after : {};
+  const {
+    lastMessageAt,
+    firstChatId,
+    maxId = null,
+  } = after && typeof after === "object" && !Array.isArray(after) ? after : {};
   if (
     !Number.isSafeInteger(lastMessageAt) ||
     !Number.isSafeInteger(firstChatId) ||
-    firstChatId <= 0
+    firstChatId <= 0 ||
+    (maxId !== null && (!Number.isSafeInteger(maxId) || maxId < 0))
   )
     return {
       after: null,
-      error: "after must be { lastMessageAt, firstChatId } (integers).",
+      error: "after must be { lastMessageAt, firstChatId, maxId? } (integers).",
     };
   if (offset !== 0)
     return { after: null, error: "after and offset must not be combined." };
-  return { after: { lastMessageAt, firstChatId }, error: null };
+  return { after: { lastMessageAt, firstChatId, maxId }, error: null };
 }
 
 function embedManagementEndpoints(app) {
@@ -664,6 +679,7 @@ function embedManagementEndpoints(app) {
           conversations,
           totalCount: total,
           hasMore,
+          maxId,
         } = await EmbedChats.conversationPage(embedId, {
           offset,
           limit,
@@ -675,11 +691,14 @@ function embedManagementEndpoints(app) {
           search,
         });
 
+        // maxId: Stand der Liste - weitere Seiten nennen ihn in after
+        // (Fixliste 8, L2)
         response.status(200).json({
           success: true,
           conversations,
           hasMore,
           totalCount: total,
+          maxId,
         });
       } catch (e) {
         // Ohne Meldungstext: Er könnte die Suchmuster enthalten. Ein
@@ -994,7 +1013,8 @@ function embedManagementEndpoints(app) {
         const embedId = Number(request.params.embedId);
         const { chatId, expected = null } = reqBody(request) ?? {};
         // Fixliste 7, F10: die Zahlen, die die Rückfrage genannt hat
-        // (visitor der Vorschau) - gelöscht wird nur dieser Stand.
+        // (visitor der Vorschau) - gelöscht wird nur dieser Stand; mit maxId
+        // (Fixliste 8, L1) genau diese Zeilen.
         const count = (value) => Number.isSafeInteger(value) && value >= 0;
         if (
           expected !== null &&
@@ -1002,13 +1022,14 @@ function embedManagementEndpoints(app) {
             expected &&
             typeof expected === "object" &&
             count(expected.conversationCount) &&
-            count(expected.messageCount)
+            count(expected.messageCount) &&
+            (expected.maxId === undefined || count(expected.maxId))
           )
         ) {
           response.status(400).json({
             success: false,
             error:
-              "expected must be { conversationCount, messageCount } (integers ≥ 0).",
+              "expected must be { conversationCount, messageCount, maxId? } (integers ≥ 0).",
           });
           return;
         }
@@ -1019,6 +1040,9 @@ function embedManagementEndpoints(app) {
             ? {
                 conversationCount: expected.conversationCount,
                 messageCount: expected.messageCount,
+                ...(expected.maxId === undefined
+                  ? {}
+                  : { maxId: expected.maxId }),
               }
             : null
         );
@@ -1026,9 +1050,9 @@ function embedManagementEndpoints(app) {
           response.sendStatus(500).end();
           return;
         }
-        // Der Besucher hat inzwischen weiter geschrieben (oder etwas ist
-        // weggefallen): nichts gelöscht, die Ansicht fragt mit dem neuen
-        // Stand noch einmal.
+        // Der Stand hat sich geändert (der Besucher hat weiter geschrieben
+        // oder etwas ist weggefallen): nichts gelöscht, die Ansicht fragt mit
+        // dem neuen Stand noch einmal.
         if (result.changed) {
           response.status(409).json({
             success: false,

@@ -68,11 +68,12 @@ function summaryBody(fromDay, toDay, { compare = false } = {}) {
  * (Zeitpunkte) hinaus - so senden API-Clients, die Ansicht nicht mehr.
  *
  * Blättern: die erste Seite mit offset 0; jede weitere mit after - der
- * letzten geladenen Zeile { lastMessageAt, firstChatId } (Fixliste 7, F14).
+ * letzten geladenen Zeile { lastMessageAt, firstChatId } (Fixliste 7, F14)
+ * und dem Stand der ersten Seite, maxId (Fixliste 8, L2).
  * @param {Object} [request]
  * @param {number} [request.offset]
  * @param {number} [request.limit]
- * @param {{lastMessageAt: number, firstChatId: number}|null} [request.after]
+ * @param {{lastMessageAt: number, firstChatId: number, maxId?: number}|null} [request.after]
  * @param {string|null} [request.fromDay] - "YYYY-MM-DD" (null = „Gesamt“)
  * @param {string|null} [request.toDay]
  * @param {string|null} [request.startDate] - ISO-Zeitstempel (API)

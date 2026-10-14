@@ -420,6 +420,7 @@ describe("suche (AK-10)", () => {
       conversations: [],
       hasMore: false,
       totalCount: 0,
+      maxId: expect.any(Number),
     });
   });
 
@@ -1073,6 +1074,7 @@ describe("zeile (AK-1)", () => {
       conversations: [],
       hasMore: false,
       totalCount: 5,
+      maxId: expect.any(Number),
     });
   });
 });
@@ -1221,6 +1223,61 @@ describe("eingaben (Fixliste 1–4)", () => {
 
   test("Fixliste 7, F20: Die globale Liste /embed/chats/conversations (alle Widgets zugleich, ohne Aufrufer) gibt es nicht mehr", () => {
     expect(routes["POST /embed/chats/conversations"]).toBeUndefined();
+  });
+
+  test("Fixliste 8, L3: POST /embed/chats liest nur den Text der Antwort (SQL), nicht das volle JSON – Text, wörtliche Alt-Antwort, kein Text ohne Textfeld; keine Quellen, keine geleerten Zeilen", async () => {
+    const workspace = await createWorkspace(db.client);
+    const other = await createEmbed(db.client, workspace);
+    const json = await addChat(other, {
+      at: berlinInstant("2026-10-05", 9, 0),
+      prompt: "Frage mit JSON",
+      answer: "Am Montag.",
+      conversation: "j",
+    });
+    const plain = await addChat(other, {
+      at: berlinInstant("2026-10-05", 9, 1),
+      prompt: "Alt-Frage",
+      rawResponse: "kein JSON",
+      conversation: "p",
+    });
+    const noText = await addChat(other, {
+      at: berlinInstant("2026-10-05", 9, 2),
+      prompt: "ohne Text",
+      rawResponse: JSON.stringify({ text: 42, sources: [SOURCE_WORD] }),
+      conversation: "n",
+    });
+    await addChat(other, {
+      at: berlinInstant("2026-10-05", 9, 3),
+      prompt: "GELEERT",
+      conversation: "g",
+      include: false,
+    });
+    const findMany = jest.spyOn(db.client.embed_chats, "findMany");
+    const result = await invoke(routes["POST /embed/chats"], {
+      body: { offset: 0, limit: 20 },
+      token: admin.token,
+    });
+    expect(result.statusCode).toBe(200);
+    // auch Zeilen anderer Widgets dieser Datei (embed aus beforeEach)
+    const mine = result.body.chats.filter((chat) => chat.embed_id === other.id);
+    expect(mine.map((chat) => [chat.id, JSON.parse(chat.response)])).toEqual([
+      [noText.id, { text: "" }],
+      [plain.id, { text: "kein JSON" }],
+      [json.id, { text: "Am Montag." }],
+    ]);
+    expect(mine[2].embed_config).toEqual({
+      workspace: { name: workspace.name },
+    });
+    expect(new Date(mine[2].createdAt).getTime()).toBe(
+      berlinInstant("2026-10-05", 9, 0).getTime()
+    );
+    const body = JSON.stringify(result.body);
+    expect(body).not.toMatch(
+      new RegExp(`${SOURCE_WORD}|${META_WORD}|GELEERT|connection_information`)
+    );
+    // Die Seite selbst liest die Spalte response nicht
+    expect(findMany).toHaveBeenCalledTimes(1);
+    expect(findMany.mock.calls[0][0].select.response).toBeUndefined();
   });
 });
 
@@ -2299,9 +2356,12 @@ describe("blättern über einen schlüssel (Fixliste 7, F14)", () => {
   });
   const ids = (result) =>
     result.body.conversations.map((c) => c.conversation_id);
-  const cursorOf = (conversation) => ({
+  // Schlüssel wie die Ansicht ihn sendet: letzte geladene Zeile und der
+  // Stand der ersten Seite (maxId, Fixliste 8, L2)
+  const cursorOf = (conversation, maxId = null) => ({
     lastMessageAt: conversation.last_message_at,
     firstChatId: conversation.first_chat_id,
+    ...(maxId === null ? {} : { maxId }),
   });
 
   test("Verschwindet zwischen zwei Seiten eine Konversation, fehlt mit dem Schlüssel keine – mit offset fehlte die bisherige Zeile 3", async () => {
@@ -2318,29 +2378,86 @@ describe("blättern über einen schlüssel (Fixliste 7, F14)", () => {
     const byOffset = await listPage(embed, { offset: 2, limit: 2 });
     expect(ids(byOffset)).toEqual(["k-2", "k-1"]); // k-3 fehlt still
 
+    const { maxId } = first.body;
     const next = await listPage(embed, {
       limit: 2,
-      after: cursorOf(first.body.conversations.at(-1)),
+      after: cursorOf(first.body.conversations.at(-1), maxId),
     });
     expect(next.statusCode).toBe(200);
     expect(ids(next)).toEqual(["k-3", "k-2"]);
-    expect(next.body).toMatchObject({ totalCount: 4, hasMore: true });
+    expect(next.body).toMatchObject({ totalCount: 4, hasMore: true, maxId });
     const last = await listPage(embed, {
       limit: 2,
-      after: cursorOf(next.body.conversations.at(-1)),
+      after: cursorOf(next.body.conversations.at(-1), maxId),
     });
     expect(ids(last)).toEqual(["k-1"]);
     expect(last.body).toMatchObject({ totalCount: 4, hasMore: false });
     // hinter dem Ende: leer, die Zahl stimmt trotzdem
     const behind = await listPage(embed, {
       limit: 2,
-      after: cursorOf(last.body.conversations.at(-1)),
+      after: cursorOf(last.body.conversations.at(-1), maxId),
     });
     expect(behind.body).toMatchObject({
       conversations: [],
       totalCount: 4,
       hasMore: false,
     });
+  });
+
+  test("Fixliste 8, L2: Schreibt ein Besucher zwischen zwei Seiten weiter, fehlt seine Konversation nicht – die Seiten lesen den Stand der ersten (maxId); ohne Stand rutschte sie still über den Schlüssel", async () => {
+    const first = await listPage(embed, { limit: 2 });
+    expect(ids(first)).toEqual(["k-5", "k-4"]);
+    const newest = await db.client.embed_chats.findFirst({
+      orderBy: { id: "desc" },
+    });
+    expect(first.body.maxId).toBe(newest.id);
+    expect(first.body.totalCount).toBe(5);
+
+    // Der Besucher von k-2 schreibt weiter, ein neuer beginnt k-6: Beide
+    // hätten jetzt eine jüngere letzte Nachricht als die Zeilen der Seite 1.
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 0),
+      prompt: "noch eine Frage",
+      conversation: "k-2",
+    });
+    await addChat(embed, {
+      at: berlinInstant("2026-10-05", 10, 1),
+      prompt: "ganz neu",
+      conversation: "k-6",
+    });
+
+    // Mit dem Stand der ersten Seite: k-2 an seiner Stelle, mit dem Stand
+    // (eine Nachricht), Zahlen wie auf Seite 1
+    const seen = [...ids(first)];
+    let page = first;
+    while (page.body.hasMore) {
+      page = await listPage(embed, {
+        limit: 2,
+        after: cursorOf(page.body.conversations.at(-1), first.body.maxId),
+      });
+      expect(page.statusCode).toBe(200);
+      expect(page.body).toMatchObject({
+        totalCount: 5,
+        maxId: first.body.maxId,
+      });
+      seen.push(...ids(page));
+      const k2 = page.body.conversations.find(
+        (c) => c.conversation_id === "k-2"
+      );
+      if (k2) expect(k2.message_count).toBe(1);
+    }
+    expect(seen).toEqual(["k-5", "k-4", "k-3", "k-2", "k-1"]);
+
+    // Gegenprobe ohne Stand (Aufrufer vor Fixliste 8): k-2 fehlt still
+    const old = await listPage(embed, {
+      limit: 10,
+      after: cursorOf(first.body.conversations.at(-1)),
+    });
+    expect(ids(old)).toEqual(["k-3", "k-1"]);
+    // Neu geladen: der neue Stand, k-6 und k-2 oben
+    const reloaded = await listPage(embed, { limit: 3 });
+    expect(ids(reloaded)).toEqual(["k-6", "k-2", "k-5"]);
+    expect(reloaded.body.maxId).toBeGreaterThan(first.body.maxId);
   });
 
   test("Gleiche letzte Nachricht: Der Schlüssel entscheidet nach first_chat_id – jede Konversation genau einmal; mit Suche und Filter ebenso", async () => {
@@ -2363,7 +2480,7 @@ describe("blättern über einen schlüssel (Fixliste 7, F14)", () => {
     expect(seen).toEqual(["g-c", "g-b", "g-a"]);
   });
 
-  test("Eingaben: after nur als { lastMessageAt, firstChatId } aus ganzen Zahlen und nicht zusammen mit offset – sonst 400", async () => {
+  test("Eingaben: after nur als { lastMessageAt, firstChatId, maxId? } aus ganzen Zahlen und nicht zusammen mit offset – sonst 400", async () => {
     for (const request of [
       { after: { lastMessageAt: "1", firstChatId: 2 } },
       { after: { lastMessageAt: 1 } },
@@ -2371,6 +2488,10 @@ describe("blättern über einen schlüssel (Fixliste 7, F14)", () => {
       { after: [1, 2] },
       { after: "1|2" },
       { after: { lastMessageAt: 1, firstChatId: 2 }, offset: 20 },
+      // maxId (Fixliste 8, L2): wenn genannt, eine ganze Zahl ≥ 0
+      { after: { lastMessageAt: 1, firstChatId: 2, maxId: "5" } },
+      { after: { lastMessageAt: 1, firstChatId: 2, maxId: -1 } },
+      { after: { lastMessageAt: 1, firstChatId: 2, maxId: 1.5 } },
     ]) {
       const result = await invoke(CONVERSATIONS, {
         params: { embedId: String(embed.id) },
@@ -2418,7 +2539,7 @@ describe("nachrichten des exports je paar (Fixliste 7, F11/F21)", () => {
     // Die Abfrage der Nachrichten liefert nur die drei Zeilen dieser
     // Konversation, nicht die 90 aller Sitzungen mit derselben Kennung.
     const messageQuery = queries.mock.calls.findIndex(([strings]) =>
-      /json_extract\(response, '\$\.text'\)/.test(strings.join("?"))
+      /INDEXED BY embed_chats_embed_id_session_id_idx/.test(strings.join("?"))
     );
     expect(messageQuery).toBeGreaterThanOrEqual(0);
     expect(await queries.mock.results[messageQuery].value).toHaveLength(3);
@@ -2426,5 +2547,50 @@ describe("nachrichten des exports je paar (Fixliste 7, F11/F21)", () => {
     expect(conditions).toHaveBeenCalledWith(
       expect.objectContaining({ embedId: embed.id, maxId: expect.any(Number) })
     );
+  });
+
+  test("Fixliste 8, M2: Die Nachrichten-Abfrage des Exports nimmt auch ohne Statistiken (kein ANALYZE, wie in Produktion) den Index (embed_id, session_id) – nicht (embed_id, createdAt), mit und ohne Zeitraum", async () => {
+    const { Prisma } = require("@prisma/client");
+    const embed = await createEmbed(
+      db.client,
+      await createWorkspace(db.client)
+    );
+    for (let session = 0; session < 5; session++)
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, session),
+        prompt: `Frage ${session}`,
+        conversation: `k-${session}`,
+        session: `sitzung-${session}`,
+      });
+    // Produktionszustand: keine Statistiken
+    expect(
+      await db.client.$queryRawUnsafe(
+        "SELECT name FROM sqlite_master WHERE name = 'sqlite_stat1'"
+      )
+    ).toEqual([]);
+    for (const request of [OCTOBER, { fromDay: null, toDay: null }]) {
+      const queries = jest.spyOn(db.client, "$queryRaw");
+      const file = await exportFile(embed, "json", request);
+      expect(file.statusCode).toBe(200);
+      expect(JSON.parse(file.body)).toHaveLength(5);
+      const call = queries.mock.calls.find(([strings]) =>
+        /INDEXED BY embed_chats_embed_id_session_id_idx/.test(strings.join("?"))
+      );
+      expect(call).toBeDefined();
+      queries.mockRestore();
+      const query = Prisma.sql(...call);
+      const plan = (
+        await db.client.$queryRawUnsafe(
+          `EXPLAIN QUERY PLAN ${query.sql}`,
+          ...query.values
+        )
+      )
+        .map((row) => row.detail)
+        .join("\n");
+      expect(plan).toMatch(
+        /SEARCH embed_chats USING INDEX embed_chats_embed_id_session_id_idx \(embed_id=\? AND session_id=\?/
+      );
+      expect(plan).not.toMatch(/embed_chats_embed_id_createdAt_idx/);
+    }
   });
 });

@@ -270,6 +270,15 @@ describe("nachrichtentabelle_entfallen (KIE-538)", () => {
         connection_information: JSON.stringify({ ip: "203.0.113.8" }),
       });
 
+      // Den Text liest die Route per SQL (Fixliste 8, L3; echt geprüft in
+      // embedConversationSearch.test.js) – hier die Antwort der Datenbank
+      prisma.__onRawQuery = (sql) =>
+        /json_extract\(response, '\$\.text'\)/.test(sql)
+          ? [
+              { id: shown.id, answer: "Am Montag." },
+              { id: plain.id, answer: "kein JSON" },
+            ]
+          : [{}];
       const result = await list(createUser(prisma, "admin").token);
       expect(result.statusCode).toBe(200);
       expect(result.body.totalChats).toBe(2);

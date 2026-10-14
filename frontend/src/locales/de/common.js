@@ -1240,7 +1240,7 @@ const TRANSLATIONS = {
       "visitor-count_other":
         "Aus demselben Browser stammen in diesem Widget {{conversations}} Konversationen mit zusammen {{messages}} Nachrichten. Alle werden endgültig gelöscht.",
       "visitor-changed":
-        "Der Besucher hat inzwischen weiter geschrieben – es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut.",
+        "Der Stand hat sich inzwischen geändert – es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut.",
       "visitor-note":
         "Dazu gehören auch Konversationen, die der Besucher im Widget selbst geleert hat und die in dieser Liste nicht mehr erscheinen. Konversationen aus anderen Browsern bleiben erhalten.",
       confirm: "Endgültig löschen",

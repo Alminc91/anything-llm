@@ -82,22 +82,21 @@ function rawInstant(value) {
 }
 
 /**
- * Der angezeigte Text einer gespeicherten Antwort: bei einem JSON-Objekt das
- * Feld text (ohne Quellen, Kurskarten und Metadaten), sonst die Antwort
- * wörtlich - wie Liste, Suche, Panel und Export.
- * @param {unknown} response
- * @returns {string}
+ * Der angezeigte Text einer gespeicherten Antwort, in SQL aus der Spalte
+ * response gelesen: bei einem JSON-Objekt das Feld text (ohne Quellen,
+ * Kurskarten und Metadaten; NULL, wenn text kein Text ist), sonst die
+ * Antwort wörtlich. Eine Regel für Suche, Export und POST /embed/chats
+ * (Fixliste 8, C2/L3) - wie answerText im Panel (frontend
+ * utils/conversationView.js).
+ * @returns {import("@prisma/client").Prisma.Sql}
  */
-function answerTextOf(response) {
-  if (typeof response !== "string") return "";
-  try {
-    const parsed = JSON.parse(response);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
-      return typeof parsed.text === "string" ? parsed.text : "";
-  } catch {
-    // keine JSON-Antwort: wörtlich
-  }
-  return response;
+function visibleAnswerSql() {
+  const { Prisma } = require("@prisma/client");
+  return Prisma.sql`(CASE
+      WHEN json_valid(response) AND json_type(response) = 'object'
+      THEN CASE WHEN json_type(response, '$.text') = 'text' THEN json_extract(response, '$.text') END
+      ELSE response
+    END)`;
 }
 
 // Widget|Sitzung → { startedAt, count } des laufenden Zeitfensters
@@ -865,11 +864,7 @@ const EmbedChats = {
       " OR "
     );
     // Der angezeigte Text der Antwort, aus der Zeile selbst gelesen.
-    const visibleAnswer = Prisma.sql`(CASE
-      WHEN json_valid(response) AND json_type(response) = 'object'
-      THEN CASE WHEN json_type(response, '$.text') = 'text' THEN json_extract(response, '$.text') END
-      ELSE response
-    END)`;
+    const visibleAnswer = visibleAnswerSql();
     const fromRow = (test) =>
       Prisma.sql`(SELECT ${test} FROM embed_chats AS search_source WHERE search_source.id = ${Prisma.raw(rows)}.id)`;
     // Der Anfang mit aufgelöstem \n (SQL-Literal: '\n' sind die beiden
@@ -1133,6 +1128,7 @@ const EmbedChats = {
    * @param {"all"|"negative"|"positive"|boolean} feedbackFilter
    * @param {{start: Date, endExclusive: Date}|null} [startedBetween] - KIE-536, siehe conversationPage
    * @param {string|null} [search] - Suchbegriff, siehe conversationPage
+   * @param {number|null} [maxId] - Stand der Liste, siehe conversationPage
    * @returns {Promise<number>}
    * @throws bei einem Datenbankfehler - eine 0 sähe aus wie „keine
    *   Konversationen" (Fixliste 2, R2); einziger Aufrufer ist
@@ -1144,12 +1140,14 @@ const EmbedChats = {
     endDate = null,
     feedbackFilter = "all",
     startedBetween = null,
-    search = null
+    search = null,
+    maxId = null
   ) {
     const { source, where } = EmbedChats._conversationSelection({
       embedId,
       startDate,
       endDate,
+      maxId,
       feedbackFilter,
       startedBetween,
       search,
@@ -1181,7 +1179,13 @@ const EmbedChats = {
    *   Gleichstand first_chat_id absteigend). Verschwindet zwischen zwei
    *   Seiten eine Konversation (Löschen, Aufbewahrungsfrist, vom Besucher
    *   geleert), rückt so keine andere über die Seitengrenze und fehlt.
-   *   Nur zusammen mit offset 0.
+   *   Nur zusammen mit offset 0. after.maxId: der Stand der ersten Seite
+   *   (Fixliste 8, L2) - alle Seiten lesen nur Zeilen bis zu dieser id.
+   *   Schreibt ein Besucher zwischen zwei Seiten weiter, rückte seine
+   *   Konversation sonst (jüngere letzte Nachricht) vor den Schlüssel und
+   *   fehlte still; so steht sie an ihrer Stelle des ersten Stands. Ohne
+   *   after (erste Seite) wird der Stand jetzt festgehalten und mit der
+   *   Seite geliefert.
    * @param {Date|null} [options.startDate]
    * @param {Date|null} [options.endDate]
    * @param {"all"|"negative"|"positive"|boolean} [options.feedbackFilter] -
@@ -1196,7 +1200,9 @@ const EmbedChats = {
    *   mindestens eine ihn in Frage, angezeigtem Antworttext, Grund oder
    *   Kommentar enthält ({@link EmbedChats._searchMatchSql}); null = keine
    *   Suche
-   * @returns {Promise<{conversations: Array, totalCount: number, hasMore: boolean}>}
+   * @returns {Promise<{conversations: Array, totalCount: number, hasMore: boolean, maxId: number|null}>}
+   *   maxId: der Stand dieser Liste (höchste id der Tabelle beim Laden der
+   *   ersten Seite); weitere Seiten nennen ihn in after.maxId
    * @throws bei einem Datenbankfehler: Die Route antwortet 500, die Liste
    *   zeigt „Fehler beim Laden" mit „Erneut versuchen" statt einer leeren
    *   Liste (Fixliste 2, R2). Protokolliert wird in der Route, ohne
@@ -1215,11 +1221,21 @@ const EmbedChats = {
       search = null,
     } = {}
   ) {
+    // Stand der Liste (Fixliste 8, L2): weitere Seiten bringen ihn mit, die
+    // erste hält ihn fest - die höchste id der Tabelle (Primärschlüssel,
+    // ohne Durchlauf).
+    const maxId =
+      after && after.maxId !== null && after.maxId !== undefined
+        ? after.maxId
+        : after
+          ? null
+          : await EmbedChats._currentMaxId();
     const { conversations, total, rest } = await EmbedChats._conversationList({
       embedId,
       offset,
       limit,
       after,
+      maxId,
       startDate,
       endDate,
       feedbackFilter,
@@ -1236,10 +1252,31 @@ const EmbedChats = {
             endDate,
             feedbackFilter,
             startedBetween,
-            search
+            search,
+            maxId
           )
         : 0);
-    return { conversations, totalCount, hasMore: rest > conversations.length };
+    return {
+      conversations,
+      totalCount,
+      hasMore: rest > conversations.length,
+      maxId,
+    };
+  },
+
+  /**
+   * Höchste id der Tabelle embed_chats (0, wenn leer) - der Stand einer
+   * Konversationsliste (Fixliste 8, L2). Über den Primärschlüssel, ohne
+   * Durchlauf.
+   * @returns {Promise<number|null>} - null, wenn die Datenbank keine Zahl
+   *   liefert
+   */
+  _currentMaxId: async function () {
+    const [row] = await prisma.$queryRaw`
+      SELECT MAX(id) AS max_id FROM embed_chats
+    `;
+    const value = Number(row?.max_id ?? 0);
+    return Number.isSafeInteger(value) ? value : null;
   },
 
   /**
@@ -1262,6 +1299,7 @@ const EmbedChats = {
     offset = 0,
     limit = 20,
     after = null,
+    maxId = null,
     startDate = null,
     endDate = null,
     feedbackFilter = "all",
@@ -1278,6 +1316,7 @@ const EmbedChats = {
       embedId,
       startDate,
       endDate,
+      maxId,
       feedbackFilter,
       startedBetween: between,
       search,
@@ -1661,23 +1700,27 @@ const EmbedChats = {
 
   /**
    * KIE-538: Konversationen und Zeilen einer Browser-Sitzung in einem Widget
-   * (alle Zeilen, auch include = 0) - in einer Abfrage.
+   * (alle Zeilen, auch include = 0) - in einer Abfrage. maxId: die höchste
+   * id dieser Zeilen (0 ohne Zeile) - bindet die Rückfrage an genau diese
+   * Zeilen (Fixliste 8, L1).
    * @param {number} id - Widget
    * @param {string} sessionId
    * @param {object} [client] - prisma oder eine Transaktion
-   * @returns {Promise<{conversationCount: number, messageCount: number}>}
+   * @returns {Promise<{conversationCount: number, messageCount: number, maxId: number}>}
    */
   _sessionTotals: async function (id, sessionId, client = prisma) {
     const [row] = await client.$queryRaw`
       SELECT
         COUNT(*) as messages,
-        COUNT(DISTINCT COALESCE(conversation_id, session_id)) as conversations
+        COUNT(DISTINCT COALESCE(conversation_id, session_id)) as conversations,
+        MAX(id) as max_id
       FROM embed_chats
       WHERE embed_id = ${id} AND session_id = ${sessionId}
     `;
     return {
       conversationCount: Number(row?.conversations || 0),
       messageCount: Number(row?.messages || 0),
+      maxId: Number(row?.max_id || 0),
     };
   },
 
@@ -1690,7 +1733,7 @@ const EmbedChats = {
    * und laufen nebeneinander (Fixliste 7, F31).
    * @param {number|string} embedId
    * @param {number|string} chatId - id einer Zeile der Konversation (first_chat_id der Liste)
-   * @returns {Promise<{messageCount: number, visitor: {conversationCount: number, messageCount: number}|null}|null>}
+   * @returns {Promise<{messageCount: number, visitor: {conversationCount: number, messageCount: number, maxId: number}|null}|null>}
    *   null bei einem Datenbankfehler
    */
   conversationDeletionPreview: async function (embedId, chatId) {
@@ -1719,17 +1762,23 @@ const EmbedChats = {
    * Gelöscht wird nur, was die Rückfrage bestätigt hat (Fixliste 7, F10):
    * Nennt `expected` die Zahlen der Vorschau, prüft eine Transaktion -
    * zählen und löschen gemeinsam oder gar nicht -, ob die Sitzung noch genau
-   * so viele Konversationen und Nachrichten hat. Hat der Besucher
-   * inzwischen weiter geschrieben (eine neue Konversation, eine weitere
-   * Nachricht) oder ist etwas weggefallen, wird nichts gelöscht: Ergebnis
-   * `changed` mit dem neuen Stand, die Ansicht fragt mit diesen Zahlen neu.
+   * so viele Konversationen und Nachrichten hat und - mit `expected.maxId`
+   * - ob ihre jüngste Zeile noch dieselbe ist (Fixliste 8, L1: Fällt eine
+   * alte Zeile weg und kommt zugleich eine neue hinzu, stimmen die Zahlen
+   * wieder, die Zeilen aber nicht). Hat sich etwas geändert (der Besucher
+   * hat weiter geschrieben, die Aufbewahrungsfrist oder jemand anderes hat
+   * gelöscht), wird nichts gelöscht: Ergebnis `changed` mit dem neuen
+   * Stand, die Ansicht fragt mit diesen Zahlen neu. Gelöscht werden
+   * zusätzlich nur Zeilen bis einschließlich dieser maxId - nie eine Zeile,
+   * die nach dem Zählen hinzukam.
    * Ohne `expected` (API) löscht die Transaktion den Stand, den sie zählt -
    * Antwort und Protokoll nennen dieselben Zahlen wie die Löschung.
    * @param {number|string} embedId
    * @param {number|string} chatId - id einer Zeile der Konversation (first_chat_id der Liste)
-   * @param {{conversationCount: number, messageCount: number}|null} [expected] -
-   *   was die Rückfrage genannt hat (visitor der Vorschau)
-   * @returns {Promise<{deletedCount: number, conversationCount: number, changed?: {conversationCount: number, messageCount: number}}|null>}
+   * @param {{conversationCount: number, messageCount: number, maxId?: number}|null} [expected] -
+   *   was die Rückfrage genannt hat (visitor der Vorschau); maxId fehlt nur
+   *   bei Aufrufern vor Fixliste 8
+   * @returns {Promise<{deletedCount: number, conversationCount: number, changed?: {conversationCount: number, messageCount: number, maxId: number}}|null>}
    *   null bei einem Datenbankfehler
    */
   deleteVisitorConversations: async function (
@@ -1749,11 +1798,16 @@ const EmbedChats = {
         if (
           expected &&
           (expected.conversationCount !== totals.conversationCount ||
-            expected.messageCount !== totals.messageCount)
+            expected.messageCount !== totals.messageCount ||
+            (expected.maxId !== undefined && expected.maxId !== totals.maxId))
         )
           return { deletedCount: 0, conversationCount: 0, changed: totals };
         const { count } = await tx.embed_chats.deleteMany({
-          where: { embed_id: scope.id, session_id: scope.sessionId },
+          where: {
+            embed_id: scope.id,
+            session_id: scope.sessionId,
+            id: { lte: totals.maxId },
+          },
         });
         return {
           deletedCount: count,
@@ -1877,8 +1931,15 @@ const EmbedChats = {
       maxId,
     });
     const sessions = [...new Set(groups.map((group) => group.session_id))];
-    // session_id IN (…) nutzt den Index (embed_id, session_id); das Paar
-    // bindet jede Zeile an genau eine Konversation des Pakets.
+    // session_id IN (…) über den Index (embed_id, session_id); das Paar
+    // bindet jede Zeile an genau eine Konversation des Pakets. Der Index ist
+    // erzwungen (INDEXED BY, Fixliste 8, M2): Ohne Statistiken
+    // (sqlite_stat1 - in Produktion läuft weder ANALYZE noch PRAGMA
+    // optimize) wählte SQLite wegen ORDER BY createdAt bzw. des Zeitraums
+    // den Index (embed_id, createdAt) und las je Paket alle Zeilen des
+    // Widgets im Zeitraum - der Export wuchs quadratisch (100.000 Zeilen:
+    // 121 s statt rund 5 s). Sortiert werden danach höchstens die Zeilen
+    // von EXPORT_BATCH_CONVERSATIONS Konversationen.
     const pairs = Prisma.join(
       groups.map(
         (group) => Prisma.sql`(${group.conversation_id}, ${group.session_id})`
@@ -1892,15 +1953,11 @@ const EmbedChats = {
         conversation_id,
         createdAt,
         prompt,
-        CASE
-          WHEN json_valid(response) AND json_type(response) = 'object'
-          THEN CASE WHEN json_type(response, '$.text') = 'text' THEN json_extract(response, '$.text') END
-          ELSE response
-        END as answer,
+        ${visibleAnswerSql()} AS answer,
         feedbackScore,
         feedbackText,
         feedbackReason
-      FROM embed_chats
+      FROM embed_chats INDEXED BY embed_chats_embed_id_session_id_idx
       ${Prisma.join(where, " ")}
         AND session_id IN (${Prisma.join(sessions)})
         AND (COALESCE(conversation_id, session_id), session_id) IN (VALUES ${pairs})
@@ -2094,7 +2151,8 @@ const EmbedChats = {
    * F02): eine Seite einzelner Nachrichten, neueste zuerst - nur einsehbare
    * Zeilen (include = 1) und nur die Felder der Tabelle. Die Antwort enthält
    * nur ihren Text (als {"text": …} wie gespeichert, ohne Quellen, Kurskarten
-   * und Metadaten), keine Verbindungsdaten.
+   * und Metadaten), keine Verbindungsdaten. Gelesen wird auch nur der Text
+   * (visibleAnswerSql, Fixliste 8, L3) - nicht das volle Antwort-JSON.
    * @param {{embedIds: number[]|null, skip: number, limit: number}} page -
    *   embedIds: diese Widgets; null = alle
    * @returns {Promise<{chats: Array<object>, totalChats: number}>}
@@ -2116,7 +2174,6 @@ const EmbedChats = {
           embed_id: true,
           session_id: true,
           prompt: true,
-          response: true,
           createdAt: true,
           embed_config: {
             select: { workspace: { select: { name: true } } },
@@ -2125,10 +2182,23 @@ const EmbedChats = {
       }),
       prisma.embed_chats.count({ where }),
     ]);
+    // Der Text der Antworten dieser Seite (höchstens 100 Zeilen, über den
+    // Primärschlüssel)
+    const texts = new Map();
+    if (rows.length > 0) {
+      const { Prisma } = require("@prisma/client");
+      const answers = await prisma.$queryRaw`
+        SELECT id, ${visibleAnswerSql()} AS answer
+        FROM embed_chats
+        WHERE id IN (${Prisma.join(rows.map((row) => row.id))})`;
+      for (const answer of answers)
+        if (typeof answer.answer === "string")
+          texts.set(Number(answer.id), answer.answer);
+    }
     return {
       chats: rows.map((row) => ({
         ...row,
-        response: JSON.stringify({ text: answerTextOf(row.response) }),
+        response: JSON.stringify({ text: texts.get(row.id) ?? "" }),
       })),
       totalChats,
     };

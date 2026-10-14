@@ -101,12 +101,15 @@ export function useConversationDeletion({
     setDeleting(true);
     const wholeVisitor = dialog?.kind === "visitor";
     // Gelöscht wird nur der Stand, den die Rückfrage nennt (Fixliste 7,
-    // F10): Hat der Besucher inzwischen weiter geschrieben, löscht der
-    // Server nichts und nennt den neuen Stand.
+    // F10), samt seiner jüngsten Zeile (maxId, Fixliste 8, L1): Hat sich
+    // inzwischen etwas geändert – der Besucher hat weiter geschrieben oder
+    // etwas ist weggefallen –, löscht der Server nichts und nennt den neuen
+    // Stand.
     const result = wholeVisitor
       ? await Embed.deleteVisitorConversations(embedId, chatId, {
           conversationCount: visitor.conversationCount,
           messageCount: visitor.messageCount,
+          ...(Number.isInteger(visitor.maxId) ? { maxId: visitor.maxId } : {}),
         })
       : await Embed.deleteConversation(embedId, chatId);
     setDeleting(false);

@@ -160,6 +160,8 @@ async function panelServer(t, state) {
         conversations: rest.slice(offset, offset + limit),
         hasMore: offset + limit < rest.length,
         totalCount: rows.length,
+        // state.maxId: Stand der Liste (Fixliste 8, L2)
+        ...(state.maxId === undefined ? {} : { maxId: state.maxId }),
       });
     }
     // Widget-Liste und letzte Nachricht je Widget (Fixliste 6, N2):
@@ -4407,6 +4409,57 @@ test(
 );
 
 test(
+  "Fixliste 8, L2: Weitere Seiten nennen den Stand der ersten (maxId) – auch beim zweiten Nachladen derselbe; nach dem Wechsel des Zuschnitts gilt der neue",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    const rows = Array.from({ length: 45 }, (_, i) =>
+      row(400 + i, {
+        last_message_at: berlin("2026-10-12", "12:00") - i * 60000,
+      })
+    );
+    const state = { rows, maxId: 9000 };
+    const server = await panelServer(t, state);
+    const mounted = await mountList(t);
+    const { container, act } = mounted;
+    assert.equal(rowsOf(container).length, 20);
+    // Inzwischen sind neue Zeilen geschrieben: Der Server meldet einen
+    // höheren Stand – die Liste bleibt beim Stand ihrer ersten Seite.
+    state.maxId = 9005;
+    await act(() => click(one(container, "data-load-more")));
+    await act(() => click(one(container, "data-load-more")));
+    const afters = server
+      .lists()
+      .filter((call) => call.body.after)
+      .map((call) => call.body.after);
+    assert.deepEqual(afters, [
+      {
+        lastMessageAt: rows[19].last_message_at,
+        firstChatId: rows[19].first_chat_id,
+        maxId: 9000,
+      },
+      {
+        lastMessageAt: rows[39].last_message_at,
+        firstChatId: rows[39].first_chat_id,
+        maxId: 9000,
+      },
+    ]);
+    assert.equal(rowsOf(container).length, 45);
+
+    // Neuer Zuschnitt (Suche): neue erste Seite mit dem Stand 9005 – das
+    // Nachladen nennt ihn, nicht den späteren 9010
+    await type(mounted, "Frage 4");
+    await act(() => delay(400));
+    await act();
+    assert.equal(server.lists().at(-1).body.after, undefined);
+    assert.equal(rowsOf(container).length, 20);
+    state.maxId = 9010;
+    await act(() => click(one(container, "data-load-more")));
+    assert.equal(server.lists().at(-1).body.after.maxId, 9005);
+  }
+);
+
+test(
   "Fixliste 7, F04: Zwei Teile der Ansicht schreiben im selben Durchlauf in die Adresse (fremdes Widget entfernt, zu langes q gekürzt) – keine Änderung hebt die andere auf: ein Hinweis je Fall, nie das ungekürzte q",
   { skip },
   async (t) => {
@@ -4691,6 +4744,22 @@ test(
     await act(() => click(select));
     await act(() => fire("mousedown", { target: listbox() }));
     assert.ok(listbox());
+
+    // Fixliste 8 (Opus Low 2): nicht gewählte Optionen in der gedämpften
+    // Schrift der Ansicht (hell #5f6368, ≥ 4,5:1) statt
+    // --theme-text-secondary (hell 4,15:1); die gewählte kräftig
+    const options = elements(
+      listbox(),
+      (e) => e.getAttribute("role") === "option"
+    );
+    const classes = (option) => option.getAttribute("class").split(/\s+/);
+    const [chosen, other] = options;
+    assert.equal(chosen.getAttribute("aria-selected"), "true");
+    assert.ok(classes(chosen).includes("text-theme-text-primary"));
+    assert.ok(
+      classes(other).includes("text-[color:var(--theme-analytics-text-muted)]")
+    );
+    assert.ok(!classes(other).includes("text-theme-text-secondary"));
   }
 );
 
@@ -4743,5 +4812,24 @@ test(
     const classes = gap.getAttribute("class").split(/\s+/);
     assert.ok(classes.includes("max-w-[70ch]"));
     assert.ok(classes.includes("mx-auto"));
+    // Fixliste 8 (Opus Low 1): ausgeglichene Zeilen – mobil keine Ein-Wort-
+    // Waise („weiter.“) in der letzten Zeile
+    assert.ok(classes.includes("text-balance"));
+  }
+);
+
+test(
+  "Fixliste 8 (Opus Low 1): auch die Zeile unter der Liste bricht ausgeglichen um (text-balance) – mobil ohne Ein-Wort-Waise",
+  { skip },
+  async (t) => {
+    await panelServer(t, { rows: [row(1), row(2)] });
+    const { container } = await mountList(t, {
+      props: { countedConversations: 916 },
+    });
+    const [gap] = withAttribute(container, "data-content-gap");
+    assert.ok(gap, "Lückenhinweis unter der Liste");
+    const classes = gap.getAttribute("class").split(/\s+/);
+    assert.ok(classes.includes("text-balance"));
+    assert.ok(classes.includes("max-w-[70ch]"));
   }
 );

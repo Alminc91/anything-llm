@@ -569,6 +569,9 @@ function Header({
               />
             </button>
 
+            {/* Nicht gewählte Optionen gedämpft wie die übrige Ansicht
+                (MUTED: hell #5f6368, 6:1 auf Weiß statt 4,15:1 mit
+                --theme-text-secondary – Fixliste 8, Opus Low 2). */}
             {embedDropdownOpen && (
               <div
                 role="listbox"
@@ -586,7 +589,7 @@ function Header({
                       setEmbedDropdownOpen(false);
                     }}
                     className={`flex items-center justify-between w-full px-3 py-2 text-sm text-left transition-all cursor-pointer
-                      ${selectedEmbed === embed.id ? "bg-white/10 text-theme-text-primary font-medium" : "text-theme-text-secondary hover:bg-white/5 hover:text-theme-text-primary"}`}
+                      ${selectedEmbed === embed.id ? "bg-white/10 text-theme-text-primary font-medium" : `${MUTED} hover:bg-white/5 hover:text-theme-text-primary`}`}
                   >
                     <span>{embedLabel(embed)}</span>
                     {selectedEmbed === embed.id && (

@@ -30,7 +30,10 @@ export const PARAM_SEARCH = "q";
  * Adresse auf, die zuletzt geschrieben wurde – solange die Navigation noch
  * nicht gerendert ist (gleicher Verlaufseintrag, gleiche Adresse). Eine
  * Stelle für alle Teile der Ansicht: auf Modulebene, je Fenster ein Router.
- * @type {{key: string, from: string, to: string}|null}
+ * Der Verlaufseintrag (location.key) genügt als Merkmal: Der Router vergibt
+ * bei jeder Navigation einen neuen, auch beim Ersetzen – gleicher Schlüssel
+ * heißt gleiche Adresse (Fixliste 8, C5).
+ * @type {{key: string, to: string}|null}
  */
 let pendingSearch = null;
 
@@ -85,18 +88,12 @@ export default function useConversationLocation() {
   const update = useCallback(
     (change, { push = false, nextState = state } = {}) => {
       const base =
-        pendingSearch &&
-        pendingSearch.key === location.key &&
-        pendingSearch.from === location.search
+        pendingSearch && pendingSearch.key === location.key
           ? pendingSearch.to
           : location.search;
       const next = new URLSearchParams(base);
       change(next);
-      pendingSearch = {
-        key: location.key,
-        from: location.search,
-        to: `?${next.toString()}`,
-      };
+      pendingSearch = { key: location.key, to: `?${next.toString()}` };
       setParams(next, { replace: !push, state: nextState });
     },
     [setParams, state, location.key, location.search]

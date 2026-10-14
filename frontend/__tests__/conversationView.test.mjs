@@ -1214,6 +1214,12 @@ test("Fixliste 7, B1: Absätze und Blöcke einer Antwort im Panel haben Abstand 
   const rule =
     /\.analytics-bot-response\s*:where\(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6, hr\)\s*\+ :where\(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6, hr\) \{\s*margin-top: 0\.75em;/;
   assert.match(css, rule);
+  // Fixliste 8 (Hinweis Browser): mehrzeilige Listeneinträge (Kursblöcke)
+  // mit Abstand zueinander, einzeilige bleiben kompakt
+  assert.match(
+    css,
+    /\.analytics-bot-response li:where\(:has\(br, p, ul, ol\)\) \+ li,\s*\.analytics-bot-response li \+ li:where\(:has\(br, p, ul, ol\)\) \{\s*margin-top: 0\.5em;/
+  );
 });
 
 test("Fixliste 7, F23/F24: eine Stelle für „breit?“, „außerhalb/Escape schließen“ und „Fokus verloren?“ – keine Kopien in Liste, Panel, Exportmenü und Kopfzeile", () => {

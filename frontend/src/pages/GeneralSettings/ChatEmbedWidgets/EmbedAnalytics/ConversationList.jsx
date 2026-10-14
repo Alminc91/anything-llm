@@ -165,15 +165,23 @@ function appendUnique(items, more) {
  * Verschwindet zwischen zwei Seiten eine Konversation (Löschen eines anderen
  * Nutzers, Aufbewahrungsfrist, vom Besucher geleert), beginnt die nächste
  * Seite trotzdem genau hinter dieser Zeile – mit offset fehlte still eine.
+ * Dazu der Stand der ersten Seite (maxId, Fixliste 8, L2): Schreibt ein
+ * Besucher zwischen zwei Seiten weiter, bleibt seine Konversation an ihrer
+ * Stelle, statt still vor den Schlüssel zu rutschen.
  * null ohne brauchbare Zeile (dann blättert die Liste über offset).
  * @param {{last_message_at: number, first_chat_id: number}|undefined} row
- * @returns {{lastMessageAt: number, firstChatId: number}|null}
+ * @param {number|null} maxId - Stand der ersten Seite (Antwortfeld maxId)
+ * @returns {{lastMessageAt: number, firstChatId: number, maxId?: number}|null}
  */
-function cursorAfter(row) {
+function cursorAfter(row, maxId) {
   return row &&
     Number.isSafeInteger(row.last_message_at) &&
     Number.isSafeInteger(row.first_chat_id)
-    ? { lastMessageAt: row.last_message_at, firstChatId: row.first_chat_id }
+    ? {
+        lastMessageAt: row.last_message_at,
+        firstChatId: row.first_chat_id,
+        ...(Number.isSafeInteger(maxId) ? { maxId } : {}),
+      }
     : null;
 }
 
@@ -301,7 +309,8 @@ export default function ConversationList({
   // moreFailed: Das letzte Nachladen (append) scheiterte – der bisherige
   // Stand bleibt; das automatische Nachladen hält an, bis ein Nachladen
   // wieder gelingt. added: neue Zeilen des letzten Nachladens (null nach
-  // der ersten Seite) – 0 heißt, die Seite brachte nur Doppelte.
+  // der ersten Seite) – 0 heißt, die Seite brachte nur Doppelte. maxId: Stand
+  // der ersten Seite – weitere Seiten lesen ihn (Fixliste 8, L2).
   const [list, setList] = useState({
     scope: null,
     requestId: 0,
@@ -311,6 +320,7 @@ export default function ConversationList({
     failed: false,
     moreFailed: false,
     added: null,
+    maxId: null,
   });
 
   // Einsehbare Konversationen des Zeitraums ohne jeden Filter (Bewertung,
@@ -379,6 +389,7 @@ export default function ConversationList({
         conversations: data,
         hasMore,
         totalCount: total,
+        maxId,
       } = answer;
       if (success) {
         setList((previous) => {
@@ -395,6 +406,12 @@ export default function ConversationList({
             failed: false,
             moreFailed: false,
             added: append ? items.length - previous.items.length : null,
+            // Der Stand bleibt der der ersten Seite
+            maxId: append
+              ? previous.maxId
+              : Number.isSafeInteger(maxId)
+                ? maxId
+                : null,
           };
         });
         if (!filtered) rememberUnfiltered(total);
@@ -419,6 +436,7 @@ export default function ConversationList({
                 failed: true,
                 moreFailed: false,
                 added: null,
+                maxId: null,
               }
         );
       }
@@ -450,12 +468,14 @@ export default function ConversationList({
 
   /**
    * Weitere Konversationen anhängen (höchstens PAGE_MAX je Anfrage) – hinter
-   * der letzten geladenen Zeile (Fixliste 7, F14).
+   * der letzten geladenen Zeile, im Stand der ersten Seite (Fixliste 7, F14;
+   * Fixliste 8, L2).
    */
   const lastItem = list.items.at(-1);
+  const listMaxId = list.maxId;
   const loadMore = useCallback(
     (limit = PAGE_SIZE) => {
-      const after = cursorAfter(lastItem);
+      const after = cursorAfter(lastItem, listMaxId);
       setRequest((current) => ({
         id: current.id + 1,
         scope: current.scope,
@@ -465,7 +485,7 @@ export default function ConversationList({
         append: true,
       }));
     },
-    [lastItem, list.items.length]
+    [lastItem, listMaxId, list.items.length]
   );
 
   // Nach dem Löschen: dieselbe Auswahl ab vorn, so viele Zeilen wie geladen
@@ -1064,7 +1084,7 @@ export default function ConversationList({
               // (Fixliste 7, B2).
               <p
                 data-content-gap=""
-                className={`mx-auto max-w-[70ch] px-4 py-8 text-center text-sm ${MUTED}`}
+                className={`mx-auto max-w-[70ch] text-balance px-4 py-8 text-center text-sm ${MUTED}`}
               >
                 {contentGapText}
               </p>
@@ -1150,7 +1170,7 @@ export default function ConversationList({
           {contentGap && items.length > 0 && (
             <p
               data-content-gap=""
-              className={`mx-auto mt-4 max-w-[70ch] text-center text-xs ${MUTED}`}
+              className={`mx-auto mt-4 max-w-[70ch] text-balance text-center text-xs ${MUTED}`}
             >
               {contentGapText}
             </p>

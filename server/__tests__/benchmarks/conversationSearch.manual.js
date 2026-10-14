@@ -15,6 +15,10 @@
 //   --runs   Messläufe je Fall (nach einem Aufwärmlauf)     Vorgabe 5
 //   --no-export  Export nicht messen
 //   --no-visible Nachfilter im sichtbaren Text (Fixliste 7, F13) nicht messen
+//   --analyze    nach dem Füllen ANALYZE ausführen (Statistiken in
+//                sqlite_stat1). Vorgabe: ohne – wie in Produktion, wo weder
+//                ANALYZE noch PRAGMA optimize läuft und der Planer ohne
+//                Statistiken wählt (Fixliste 8, M2)
 //
 // Gemessen wird die echte Route POST /embed/:embedId/analytics/conversations
 // (Liste + Zähler in einer Antwort, wie der Server sie beantwortet) über die
@@ -27,52 +31,67 @@
 // Gemessen werden auch Säulenklicks (Abschnitt) mit und ohne Suche.
 //
 // Messwerte - Stand 14.10.2026, Branch feat/konversationen-ansicht nach
-// Fixliste 7. Intel Xeon Gold 6354 (4 Kerne der VM), Node 18.19, Prisma
-// 6.14, SQLite; 100.000 Zeilen (623 MB), --runs 5: je Fall ein Aufwärmlauf
-// und 5 Messläufe, Median in ms. Route analytics/conversations (Liste +
-// Zähler, limit 20). „vorher": derselbe Bestand, unmittelbar davor mit dem
-// Stand vor Fixliste 7 (9d6a1ddda) gemessen - die erste Seite ist dieselbe
-// Abfrage, die Abweichungen (±4 %) sind Rauschen der VM.
+// Fixliste 8. Intel Xeon Gold 6354 (4 Kerne der VM), Node 18.19, Prisma
+// 6.14 (SQLite der Engine); 100.000 Zeilen (623 MB), --runs 5: je Fall ein
+// Aufwärmlauf und 5 Messläufe, Median in ms. Route
+// analytics/conversations (Liste + Zähler, limit 20).
 //
-//   Fall                                Treffer  Median  vorher  Läufe
-//   ohne Suche, Gesamt                    42858     366     366  366 366 369 369 357
-//   q="kurs", Gesamt                      42858    1198    1237  1212 1244 1171 1198 1197
-//   q="spanisch", Gesamt                    796     892     890  894 892 867 898 878
-//   q="für", Gesamt                       28723    1025    1060  1020 1119 1075 1025 1004
-//   q="üb", Gesamt                        24283    1343    1387  1331 1334 1343 1345 1364
-//   q="äa", Gesamt                            0    1238    1256  1289 1240 1215 1220 1238
-//   q="Übung", Gesamt                     24283    1021    1012  1007 997 1022 1028 1021
-//   q="курс", Gesamt                       1025    1155    1156  1154 1155 1143 1157 1161
-//   q="äöü", Gesamt                           0    1240    1219  1242 1240 1233 1234 1241
-//   q="\"", Gesamt                        16211     921     895  907 937 929 921 918
-//   q="\\", Gesamt                         2697     808     791  799 813 824 807 808
-//   q="xyzkeintreffer", Gesamt                0     755     741  753 755 737 787 823
-//   q="zehntausend", Gesamt               10000     851     830  868 876 851 842 823
-//   q="spanisch" + negativ, Gesamt          512     396     393  401 396 392 398 395
-//   Säule (Woche), ohne Suche              3334     356     335  332 356 363 366 347
-//   q="kurs" + Säule (Woche)               3334     385     390  386 385 385 385 396
-//   q="für" + Säule (Woche)                2231     399     398  399 393 394 399 400
-//   q="Übung" + Säule (Woche)              1906     394     406  394 394 399 392 396
-//   q="xyzkeintreffer" + Säule (Woche)        0     384     386  384 382 382 390 389
+// OHNE ANALYZE gemessen (Fixliste 8, M2): wie in Produktion, wo weder
+// ANALYZE noch PRAGMA optimize läuft. Die Werte bis Fixliste 7 waren mit
+// ANALYZE gemessen (Spalte „mit ANALYZE") und verdeckten so den falschen
+// Index im Export. Achtung beim Vergleich: Der Messbestand hat nur EIN
+// Widget - mit Statistiken liest SQLite dann die ganze Tabelle der Reihe
+// nach (SCAN), ohne Statistiken über den Index (embed_id, createdAt) Zeile
+// für Zeile. In Produktion (viele Widgets) nimmt SQLite auch mit
+// Statistiken den Index; „ohne ANALYZE" entspricht dort einem Widget mit
+// 100.000 Zeilen.
 //
-//   Langsamster Fall 1343 ms - Grenze NAK-7 (1500 ms) eingehalten.
+//   Fall                                Treffer  Median  mit ANALYZE  Läufe
+//   ohne Suche, Gesamt                    42858     382          366  382 392 381 378 395
+//   q="kurs", Gesamt                      42858    1213         1198  1384 1211 1213 1208 1228
+//   q="spanisch", Gesamt                    796    1081          892  1131 1081 1079 1082 1061
+//   q="für", Gesamt                       28723    1021         1025  1028 1010 1021 1038 1013
+//   q="üb", Gesamt                        24283    1554         1343  1554 1554 1531 1538 1598
+//   q="äa", Gesamt                            0    1249         1238  1272 1267 1249 1244 1242
+//   q="Übung", Gesamt                     24283    1219         1021  1240 1204 1219 1250 1203
+//   q="курс", Gesamt                       1025    1172         1155  1172 1266 1249 1156 1167
+//   q="äöü", Gesamt                           0    1279         1240  1279 1255 1272 1289 1324
+//   q="\"", Gesamt                        16211    1159          921  1158 1210 1159 1175 1154
+//   q="\\", Gesamt                         2697    1103          808  1103 1076 1002 1223 1311
+//   q="xyzkeintreffer", Gesamt                0     945          755  945 842 962 1023 920
+//   q="zehntausend", Gesamt               10000    1087          851  1167 1151 1056 1087 1073
+//   q="spanisch" + negativ, Gesamt          512     659          396  673 659 695 645 624
+//   Säule (Woche), ohne Suche              3334     570          356  569 557 572 570 573
+//   q="kurs" + Säule (Woche)               3334     634          385  634 638 801 630 626
+//   q="für" + Säule (Woche)                2231     637          399  624 642 644 637 628
+//   q="Übung" + Säule (Woche)              1906     628          394  670 616 617 628 642
+//   q="xyzkeintreffer" + Säule (Woche)        0     421          384  421 417 418 428 429
 //
-//   Export CSV (ein Lauf, Fixliste 7 F01): ohne Suche 814.586 Zeilen
-//   5,1 s (vorher 34,4 s: je Seite zu 500 Konversationen die ganze
-//   Gruppierung neu); q=kurs 814.586 Zeilen 6,2 s (vorher 5,5 s);
-//   q=zehntausend 212.463 Zeilen 2,3 s (vorher 2,1 s).
+//   Langsamster Fall 1554 ms (q="üb") - Grenze NAK-7 (1500 ms) ohne
+//   Statistiken um rund 4 % ÜBERSCHRITTEN (mit ANALYZE 1343 ms). Nicht neu:
+//   Der Stand vor Fixliste 8 liegt gleich auf (A/B im selben Bestand,
+//   erste Seite mit und ohne Stand maxId: 1569 / 1572 ms).
 //
-//   Blättern (Fixliste 7, F14), Seite 21 (Zeilen 401-420): über den
-//   Schlüssel der Zeile 400 ohne Suche 423 ms (offset 400: 395 ms), mit
-//   q=kurs 1325 ms (offset: 1307 ms) - der Schlüssel kostet ein zweites
-//   Fenster (rund 2 %), nur auf den Seiten hinter der ersten.
+//   Export CSV (ein Lauf), ohne ANALYZE: ohne Suche 814.586 Zeilen 5,5 s,
+//   q=kurs 814.586 Zeilen 6,0 s, q=zehntausend 212.463 Zeilen 2,2 s.
+//   Vor Fixliste 8 (Nachrichten-Abfrage ohne INDEXED BY, M2) im selben
+//   Bestand: 120,8 s, 112,5 s und 29,1 s - ohne Statistiken las jedes Paket
+//   über den Index (embed_id, createdAt) alle Zeilen des Widgets im
+//   Zeitraum. (Mit ANALYZE bis Fixliste 7: 5,1 s, 6,2 s, 2,3 s.)
+//
+//   Blättern (Fixliste 7, F14; mit Stand maxId, Fixliste 8, L2), Seite 21
+//   (Zeilen 401-420): über den Schlüssel der Zeile 400 ohne Suche 639 ms
+//   (offset 400: 589 ms), mit q=kurs 1486 ms (offset: 1455 ms) - der
+//   Schlüssel kostet ein zweites Fenster, nur auf den Seiten hinter der
+//   ersten.
 //
 //   Nachfilter im sichtbaren Text (Fixliste 7, F13): alle Treffer-Zeilen
 //   samt Antworttext lesen und in JS prüfen (die Voraussetzung für eine
 //   richtige Zählung ohne Treffer in Link-Zielen, HTML und <think>):
-//   q=kurs 3,2 s (42.858 Treffer, sichtbar 42.858), q=vhs.example 3,1 s
-//   (42.858 SQL-Treffer, sichtbar 0), q=spanisch 0,8 s - mehr als das
-//   Doppelte von NAK-7. Deshalb bleibt es beim Hinweis im Panel.
+//   q=kurs 3,1 s (42.858 Treffer, sichtbar 42.858), q=vhs.example 3,0 s
+//   (42.858 SQL-Treffer, sichtbar 0), q=spanisch 0,7 s (ohne ANALYZE;
+//   mit: 3,2 / 3,1 / 0,8 s) - mehr als das Doppelte von NAK-7. Deshalb
+//   bleibt es beim Hinweis im Panel.
 //
 //   Verworfene Variante für C9 (Anfang, der auf einen Rückstrich endet, aus
 //   dem JSON lesen: substr(answer_head, -1) je Zeile): rund 13 % langsamer
@@ -93,6 +112,7 @@ const RUNS = Number(option("--runs", 5)) || 5;
 const KEEP = args.includes("--keep");
 const EXPORT = !args.includes("--no-export");
 const VISIBLE = !args.includes("--no-visible");
+const ANALYZE = args.includes("--analyze");
 const DB_FILE = path.resolve(
   option("--db", path.join(os.tmpdir(), `conversation-search-${ROWS}.db`))
 );
@@ -225,7 +245,7 @@ async function fill(client) {
       CASE WHEN n.i % 100 = 0 THEN 'Das war nicht hilfreich, Übung fehlt' ELSE NULL END
     FROM n
   `);
-  await client.$executeRawUnsafe("ANALYZE");
+  if (ANALYZE) await client.$executeRawUnsafe("ANALYZE");
 }
 
 function median(values) {
@@ -274,10 +294,16 @@ async function main() {
   const [{ count }] = await client.$queryRawUnsafe(
     "SELECT COUNT(*) AS count FROM embed_chats WHERE embed_id = 1"
   );
+  // Mit oder ohne Statistiken? (Eine wiederverwendete Datei behält ihren
+  // Stand.)
+  const [{ stats }] = await client.$queryRawUnsafe(
+    "SELECT COUNT(*) AS stats FROM sqlite_master WHERE name = 'sqlite_stat1'"
+  );
   console.log(
     `Datei ${DB_FILE}: ${(fs.statSync(DB_FILE).size / 1e6).toFixed(0)} MB, ` +
       `${Number(count)} Zeilen, Aufbau ${(built / 1000).toFixed(1)} s` +
-      (reuse ? " (wiederverwendet)" : "")
+      (reuse ? " (wiederverwendet)" : "") +
+      (Number(stats) > 0 ? ", mit ANALYZE" : ", ohne ANALYZE (wie Produktion)")
   );
 
   const results = [];

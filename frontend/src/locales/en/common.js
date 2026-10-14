@@ -1771,7 +1771,7 @@ const TRANSLATIONS = {
       "visitor-count_other":
         "The same browser has {{conversations}} conversations with {{messages}} messages in total in this widget. All of them will be deleted permanently.",
       "visitor-changed":
-        "The visitor has written more in the meantime – nothing was deleted. Please check the new numbers and confirm again.",
+        "The conversations have changed in the meantime – nothing was deleted. Please check the new numbers and confirm again.",
       "visitor-note":
         "This includes conversations the visitor has cleared in the widget, which no longer appear in this list. Conversations from other browsers are kept.",
       confirm: "Delete permanently",

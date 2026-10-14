@@ -1573,7 +1573,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "Fixliste 7, F10: Alle Konversationen des Besuchers – die Rückfrage sendet ihre Zahlen mit; hat der Besucher inzwischen weiter geschrieben (409), bleibt sie offen und nennt den neuen Stand, das erneute Bestätigen sendet ihn",
+  "Fixliste 7, F10 / Fixliste 8, L1+L5: Alle Konversationen des Besuchers – die Rückfrage sendet ihre Zahlen und ihre jüngste Zeile (maxId) mit; hat sich der Stand geändert (409), bleibt sie offen, sagt es neutral und nennt den neuen Stand, das erneute Bestätigen sendet ihn",
   { skip },
   async (t) => {
     const shown = await toasts(t);
@@ -1586,7 +1586,7 @@ test(
         "k-1": {
           success: true,
           messageCount: 4,
-          visitor: { conversationCount: 2, messageCount: 7 },
+          visitor: { conversationCount: 2, messageCount: 7, maxId: 40 },
         },
       },
       visitorAnswers: [
@@ -1595,7 +1595,7 @@ test(
           body: {
             success: false,
             reason: "changed",
-            visitor: { conversationCount: 3, messageCount: 9 },
+            visitor: { conversationCount: 3, messageCount: 9, maxId: 52 },
             error: "The visitor's conversations have changed.",
           },
         },
@@ -1617,7 +1617,7 @@ test(
     assert.ok(dialog);
     assert.equal(
       withAttribute(dialog, "data-confirm-changed")[0].textContent,
-      "Der Besucher hat inzwischen weiter geschrieben – es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut."
+      "Der Stand hat sich inzwischen geändert – es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut."
     );
     assert.match(
       withAttribute(dialog, "data-confirm-visitor-count")[0].textContent,
@@ -1637,10 +1637,12 @@ test(
         conversationBody(chatIdOf("k-1"), {
           conversationCount: 2,
           messageCount: 7,
+          maxId: 40,
         }),
         conversationBody(chatIdOf("k-1"), {
           conversationCount: 3,
           messageCount: 9,
+          maxId: 52,
         }),
       ]
     );

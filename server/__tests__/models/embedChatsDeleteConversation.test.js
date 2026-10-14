@@ -535,7 +535,11 @@ describe("loescht_genau_diese (AK-6)", () => {
     expect((await preview(embed, foreign, kunde)).body).toEqual({
       success: true,
       messageCount: 1,
-      visitor: { conversationCount: 1, messageCount: 1 },
+      visitor: {
+        conversationCount: 1,
+        messageCount: 1,
+        maxId: expect.any(Number),
+      },
     });
     expect((await shown(embed, own, kunde)).map((m) => m.id)).toEqual(
       target.map((chat) => chat.id)
@@ -543,7 +547,11 @@ describe("loescht_genau_diese (AK-6)", () => {
     expect((await preview(embed, own, kunde)).body).toEqual({
       success: true,
       messageCount: 4,
-      visitor: { conversationCount: 3, messageCount: 8 },
+      visitor: {
+        conversationCount: 3,
+        messageCount: 8,
+        maxId: expect.any(Number),
+      },
     });
 
     const result = await deleteConversation(embed, foreign, kunde);
@@ -594,7 +602,11 @@ describe("loescht_genau_diese (AK-6)", () => {
     expect((await preview(embed, own, kunde)).body).toEqual({
       success: true,
       messageCount: 2,
-      visitor: { conversationCount: 3, messageCount: 8 },
+      visitor: {
+        conversationCount: 3,
+        messageCount: 8,
+        maxId: expect.any(Number),
+      },
     });
     const result = await deleteConversation(embed, foreign, kunde);
     expect(result.body).toEqual({ success: true, deletedCount: 1 });
@@ -683,12 +695,20 @@ describe("loescht_genau_diese (AK-6)", () => {
       success: true,
       messageCount: 4,
       // besucher-1 in diesem Widget: ziel (4), nachbar (2), Alt-Zeilen (2)
-      visitor: { conversationCount: 3, messageCount: 8 },
+      visitor: {
+        conversationCount: 3,
+        messageCount: 8,
+        maxId: expect.any(Number),
+      },
     });
     expect((await preview(embed, "fremd", kunde)).body).toEqual({
       success: true,
       messageCount: 3,
-      visitor: { conversationCount: 1, messageCount: 3 },
+      visitor: {
+        conversationCount: 1,
+        messageCount: 3,
+        maxId: expect.any(Number),
+      },
     });
     expect((await preview(embed, "gibt-es-nicht", kunde)).body).toEqual({
       success: true,
@@ -998,7 +1018,11 @@ describe("ganze_sitzung (AK-12)", () => {
     expect((await preview(embed, "k-1", kunde)).body).toEqual({
       success: true,
       messageCount: 4,
-      visitor: { conversationCount: 4, messageCount: 11 },
+      visitor: {
+        conversationCount: 4,
+        messageCount: 11,
+        maxId: expect.any(Number),
+      },
     });
 
     const result = await deleteVisitor(embed, "k-1", kunde);
@@ -1043,6 +1067,7 @@ describe("ganze_sitzung (AK-12)", () => {
     expect((await preview(embed, "besucher", kunde)).body.visitor).toEqual({
       conversationCount: 4,
       messageCount: 11,
+      maxId: expect.any(Number),
     });
     const result = await deleteVisitor(embed, "besucher", kunde);
     expect(result.body).toEqual({
@@ -1071,7 +1096,11 @@ describe("ganze_sitzung (AK-12)", () => {
     expect((await preview(embed, first.id, kunde)).body).toEqual({
       success: true,
       messageCount: 2,
-      visitor: { conversationCount: 2, messageCount: 5 },
+      visitor: {
+        conversationCount: 2,
+        messageCount: 5,
+        maxId: expect.any(Number),
+      },
     });
     // Die Konversation verschwindet (Aufbewahrungsfrist, ein anderer Nutzer),
     // die Karte steht noch im Browser.
@@ -1095,7 +1124,11 @@ describe("ganze_sitzung (AK-12)", () => {
     expect((await preview(embed, "n-2", kunde)).body).toEqual({
       success: true,
       messageCount: 3,
-      visitor: { conversationCount: 1, messageCount: 3 },
+      visitor: {
+        conversationCount: 1,
+        messageCount: 3,
+        maxId: expect.any(Number),
+      },
     });
   });
 
@@ -1103,6 +1136,7 @@ describe("ganze_sitzung (AK-12)", () => {
     expect((await preview(embed, "a-1", kunde)).body.visitor).toEqual({
       conversationCount: 1,
       messageCount: 2,
+      maxId: expect.any(Number),
     });
     const result = await deleteVisitor(embed, "a-1", kunde);
     expect(result.body).toEqual({
@@ -1128,13 +1162,21 @@ describe("ganze_sitzung (AK-12)", () => {
     expect((await preview(embed, own, kunde)).body).toEqual({
       success: true,
       messageCount: 4,
-      visitor: { conversationCount: 4, messageCount: 11 },
+      visitor: {
+        conversationCount: 4,
+        messageCount: 11,
+        maxId: expect.any(Number),
+      },
     });
     // Die Karte der zweiten Sitzung nennt deren Bestand: a-1 und k-1.
     expect((await preview(embed, intruder.id, kunde)).body).toEqual({
       success: true,
       messageCount: 1,
-      visitor: { conversationCount: 2, messageCount: 3 },
+      visitor: {
+        conversationCount: 2,
+        messageCount: 3,
+        maxId: expect.any(Number),
+      },
     });
 
     const result = await deleteVisitor(embed, own, kunde);
@@ -1216,6 +1258,7 @@ describe("ganze_sitzung (AK-12)", () => {
       )
     );
     const other = await card(embed, "a-1");
+    const before = await EmbedChats._sessionTotals(embed.id, "besucher");
     expect(
       await EmbedChats.deleteVisitorConversations(
         embed.id,
@@ -1223,8 +1266,14 @@ describe("ganze_sitzung (AK-12)", () => {
       )
     ).toEqual({ deletedCount: 11, conversationCount: 4 });
     expect(deleteMany).toHaveBeenCalledTimes(1);
+    // nur Zeilen bis zur jüngsten gezählten (Fixliste 8, L1)
+    expect(before.maxId).toBeGreaterThan(0);
     expect(deleteMany.mock.calls[0][0]).toEqual({
-      where: { embed_id: embed.id, session_id: "besucher" },
+      where: {
+        embed_id: embed.id,
+        session_id: "besucher",
+        id: { lte: before.maxId },
+      },
     });
 
     deleteMany.mockClear();
@@ -1247,7 +1296,16 @@ describe("ganze_sitzung (AK-12)", () => {
 
   test("ganze_sitzung (Fixliste 7, F10): Gelöscht wird nur, was die Rückfrage genannt hat – schreibt der Besucher dazwischen weiter, 409 mit dem neuen Stand, nichts gelöscht; mit den neuen Zahlen klappt es", async () => {
     const { visitor } = (await preview(embed, "k-1", kunde)).body;
-    expect(visitor).toEqual({ conversationCount: 4, messageCount: 11 });
+    // maxId: die jüngste Zeile der Sitzung (Fixliste 8, L1)
+    const newest = await db.client.embed_chats.findFirst({
+      where: { embed_id: embed.id, session_id: "besucher" },
+      orderBy: { id: "desc" },
+    });
+    expect(visitor).toEqual({
+      conversationCount: 4,
+      messageCount: 11,
+      maxId: newest.id,
+    });
 
     // Nach der Rückfrage beginnt der Besucher eine fünfte Konversation.
     await converse(embed, {
@@ -1265,7 +1323,11 @@ describe("ganze_sitzung (AK-12)", () => {
     expect(changed.body).toEqual({
       success: false,
       reason: "changed",
-      visitor: { conversationCount: 5, messageCount: 12 },
+      visitor: {
+        conversationCount: 5,
+        messageCount: 12,
+        maxId: expect.any(Number),
+      },
       error: expect.any(String),
     });
     expect(
@@ -1295,7 +1357,9 @@ describe("ganze_sitzung (AK-12)", () => {
     expect(again.body.visitor).toEqual({
       conversationCount: 5,
       messageCount: 13,
+      maxId: expect.any(Number),
     });
+    expect(again.body.visitor.maxId).toBeGreaterThan(current.maxId);
 
     // Mit dem Stand, den die Rückfrage jetzt nennt: gelöscht, Antwort und
     // Protokoll nennen dieselben Zahlen.
@@ -1321,6 +1385,105 @@ describe("ganze_sitzung (AK-12)", () => {
     });
   });
 
+  test("ganze_sitzung (Fixliste 8, L1): Fällt eine alte Zeile weg und schreibt der Besucher zugleich eine neue, stimmen die Zahlen wieder – die jüngste Zeile (maxId) nicht: 409, nichts gelöscht, auch die neue Zeile bleibt", async () => {
+    const { visitor } = (await preview(embed, "k-1", kunde)).body;
+    expect(visitor).toMatchObject({ conversationCount: 4, messageCount: 11 });
+
+    // Die Aufbewahrungsfrist (oder ein zweiter Admin) entfernt eine alte
+    // Nachricht der Sitzung …
+    const oldest = await db.client.embed_chats.findFirst({
+      where: {
+        embed_id: embed.id,
+        session_id: "besucher",
+        conversation_id: "k-1",
+      },
+      orderBy: { id: "asc" },
+    });
+    await db.client.embed_chats.delete({ where: { id: oldest.id } });
+    // … und der Besucher schreibt eine neue: wieder 4 / 11
+    const [fresh] = await converse(embed, {
+      conversation: "k-2",
+      session: "besucher",
+      n: 1,
+      at: new Date(T0().getTime() + 5 * DAY),
+    });
+    const totals = await EmbedChats._sessionTotals(embed.id, "besucher");
+    expect(totals).toEqual({
+      conversationCount: 4,
+      messageCount: 11,
+      maxId: fresh.id,
+    });
+
+    const changed = await invoke(DELETE_VISITOR, {
+      params: { embedId: String(embed.id) },
+      body: conversationBody(await card(embed, "k-1"), visitor),
+      token: kunde.token,
+    });
+    expect(changed.statusCode).toBe(409);
+    expect(changed.body.visitor).toEqual(totals);
+    expect(
+      await db.client.embed_chats.findUnique({ where: { id: fresh.id } })
+    ).not.toBeNull();
+    expect(
+      await eventsOf(db.client, "embed_visitor_conversations_deleted")
+    ).toEqual([]);
+
+    // Bestätigt mit dem neuen Stand: alles gelöscht, auch die neue Zeile
+    const done = await invoke(DELETE_VISITOR, {
+      params: { embedId: String(embed.id) },
+      body: conversationBody(await card(embed, "k-1"), changed.body.visitor),
+      token: kunde.token,
+    });
+    expect(done.statusCode).toBe(200);
+    expect(done.body).toEqual({
+      success: true,
+      deletedCount: 11,
+      conversationCount: 4,
+    });
+  });
+
+  test("ganze_sitzung (Fixliste 8, L1): Gelöscht werden nur Zeilen bis zur gezählten jüngsten – eine Zeile, die nach dem Zählen hinzukommt, bleibt", async () => {
+    const before = await EmbedChats._sessionTotals(embed.id, "besucher");
+    // Die Transaktion zählt; unmittelbar danach (vor dem Löschen) schreibt
+    // der Besucher eine weitere Zeile.
+    let late = null;
+    const totals = EmbedChats._sessionTotals;
+    jest
+      .spyOn(EmbedChats, "_sessionTotals")
+      .mockImplementation(async (...args) => {
+        const result = await totals.apply(EmbedChats, args);
+        // über die Transaktion selbst (args[2]): eine zweite Verbindung
+        // wartete in SQLite auf deren Ende
+        late = await args[2].embed_chats.create({
+          data: {
+            embed_id: embed.id,
+            session_id: "besucher",
+            conversation_id: "k-spät",
+            prompt: "spät",
+            response: "{}",
+          },
+        });
+        return result;
+      });
+    const result = await EmbedChats.deleteVisitorConversations(
+      embed.id,
+      await card(embed, "k-1"),
+      before
+    );
+    expect(result).toEqual({
+      deletedCount: before.messageCount,
+      conversationCount: before.conversationCount,
+    });
+    expect(late.id).toBeGreaterThan(before.maxId);
+    expect(
+      (
+        await db.client.embed_chats.findMany({
+          where: { embed_id: embed.id, session_id: "besucher" },
+        })
+      ).map((row) => row.id)
+    ).toEqual([late.id]);
+  });
+
   test("ganze_sitzung (Fixliste 7, F10): unbrauchbare erwartete Zahlen → 400, nichts gelöscht", async () => {
     const chatId = await card(embed, "k-1");
     for (const expected of [
@@ -1330,6 +1493,11 @@ describe("ganze_sitzung (AK-12)", () => {
       { conversationCount: "4", messageCount: 11 },
       { conversationCount: -1, messageCount: 11 },
       { conversationCount: 4, messageCount: 1.5 },
+      // maxId (Fixliste 8, L1): wenn genannt, eine ganze Zahl ≥ 0
+      { conversationCount: 4, messageCount: 11, maxId: "9" },
+      { conversationCount: 4, messageCount: 11, maxId: -1 },
+      { conversationCount: 4, messageCount: 11, maxId: 2.5 },
+      { conversationCount: 4, messageCount: 11, maxId: null },
     ]) {
       const result = await invoke(DELETE_VISITOR, {
         params: { embedId: String(embed.id) },
@@ -1447,7 +1615,11 @@ describe("kennung_im_rumpf", () => {
       expect((await preview(embed, id, kunde)).body).toEqual({
         success: true,
         messageCount: 2,
-        visitor: { conversationCount: 1, messageCount: 2 },
+        visitor: {
+          conversationCount: 1,
+          messageCount: 2,
+          maxId: expect.any(Number),
+        },
       });
       const result = await deleteConversation(embed, id, kunde);
       expect([id, result.statusCode, result.body]).toEqual([
@@ -1478,7 +1650,11 @@ describe("kennung_im_rumpf", () => {
         {
           success: true,
           messageCount: 2,
-          visitor: { conversationCount: 1, messageCount: 2 },
+          visitor: {
+            conversationCount: 1,
+            messageCount: 2,
+            maxId: expect.any(Number),
+          },
         },
       ]);
     }

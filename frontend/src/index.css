@@ -1207,6 +1207,15 @@ mark[data-search-hit] {
   margin-top: 0.75em;
 }
 
+/* Kurslisten: Listeneinträge mit mehreren Zeilen (fetter Kurstitel, darunter
+   Termin, Ort ... per Zeilenumbruch) bekommen etwas Abstand zueinander, damit
+   die Kursblöcke sich trennen; einzeilige Aufzählungen bleiben kompakt
+   (Fixliste 8, Hinweis der Browser-Abnahme). */
+.analytics-bot-response li:where(:has(br, p, ul, ol)) + li,
+.analytics-bot-response li + li:where(:has(br, p, ul, ol)) {
+  margin-top: 0.5em;
+}
+
 /* ===== react-day-picker Theme Overrides ===== */
 .rdp-theme-wrapper .rdp-root {
   --rdp-accent-color: var(--theme-button-primary);

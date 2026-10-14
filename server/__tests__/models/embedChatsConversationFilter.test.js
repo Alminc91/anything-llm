@@ -129,10 +129,16 @@ function lastBoundValues() {
   return collect(prisma.$queryRaw.mock.calls.at(-1).slice(1));
 }
 
+// Stand der Liste (Fixliste 8, L2): Die erste Seite liest nur Zeilen bis zur
+// höchsten id beim Laden - hier fest.
+const MAX_ID = 500;
+
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.restoreAllMocks();
   prisma.$queryRaw.mockResolvedValue(RAW_ROWS);
   prisma.embed_chats.findMany.mockResolvedValue(FIRST_CHATS);
+  jest.spyOn(EmbedChats, "_currentMaxId").mockResolvedValue(MAX_ID);
 });
 
 describe("normalizeFeedbackFilter", () => {
@@ -267,7 +273,15 @@ describe("countConversations — gleiche Gruppierung wie die Liste", () => {
   });
 
   test("Liste und Zähler teilen exakt dasselbe Gruppierungs-Fragment", async () => {
-    await EmbedChats.countConversations(EMBED_ID, null, null, "negative");
+    await EmbedChats.countConversations(
+      EMBED_ID,
+      null,
+      null,
+      "negative",
+      null,
+      null,
+      MAX_ID
+    );
     const countSql = lastSql();
     prisma.$queryRaw.mockResolvedValue(RAW_ROWS);
     await getConversations(EMBED_ID, 0, 20, null, null, "negative");
@@ -334,7 +348,9 @@ describe("beginn_im_abschnitt — SQL-Form (KIE-536, AK-7)", () => {
     const end = new Date("2026-10-12T23:59:59Z");
     await getConversations(EMBED_ID, 0, 20, start, end, "all", BETWEEN);
     expect(lastSql()).not.toMatch(/createdAt >=|createdAt <=/);
-    expect(lastSql()).toMatch(/WHERE include = 1 AND embed_id = \? GROUP BY/);
+    expect(lastSql()).toMatch(
+      /WHERE include = 1 AND embed_id = \? AND id <= \? GROUP BY/
+    );
     expect(lastBoundValues()).not.toContain(start);
     expect(lastBoundValues()).not.toContain(end);
 
@@ -362,7 +378,9 @@ describe("beginn_im_abschnitt — SQL-Form (KIE-536, AK-7)", () => {
         null,
         null,
         "negative",
-        BETWEEN
+        BETWEEN,
+        null,
+        MAX_ID
       )
     ).toBe(2);
     const countSql = lastSql();
