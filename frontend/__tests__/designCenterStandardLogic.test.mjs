@@ -6,6 +6,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import * as keys from "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAppearance/widgetKeys.js";
 
 const require = createRequire(import.meta.url);
@@ -444,27 +446,106 @@ test("F09: Hinweis „ohne Zeichen“ nach derselben Regel wie der Parser (NBSP 
   assert.equal(keys.privacyWithoutMarks(5), false);
 });
 
-test("F07: Begrüßungsblase wie im Server (über 300 Zeichen auf ein Wortende gekürzt)", () => {
-  const cases = [
-    "Hallo!",
-    "y".repeat(300),
-    "x".repeat(400),
-    Array(80).fill("Wort").join(" "),
-    `${"a".repeat(250)}, ${"b".repeat(60)}`,
-    `${"c".repeat(298)}\u{1F600}${"d".repeat(10)}`,
-  ];
-  for (const value of cases)
-    assert.equal(
-      keys.bubbleGreetingText(value),
-      server.greetingBubbleText(value),
-      value.slice(0, 20)
-    );
-  const long = Array(80).fill("Wort").join(" ");
+// Gekürzte Begrüßungsblase (Review 7.22-rc6 F07/F08): seit F08 kürzt allein
+// das Widget (shortenGreeting), das Design Center zeigt dieselbe Kürzung in
+// der Vorschau. Feste Erwartungen hier, die Gegenprobe gegen den Widget-Code
+// mit KUFER_EMBED_DIR unten.
+const GREETING_CASES = [
+  "Hallo!",
+  "y".repeat(300),
+  "x".repeat(400),
+  Array(80).fill("Wort").join(" "),
+  `${"a".repeat(250)}, ${"b".repeat(60)}`,
+  `${"c".repeat(298)}\u{1F600}${"d".repeat(10)}`,
+];
+
+test("F07: Begrüßungsblase über 300 Zeichen auf ein Wortende gekürzt", () => {
+  assert.equal(keys.bubbleGreetingText("Hallo!"), "Hallo!");
+  assert.equal(keys.bubbleGreetingText("y".repeat(300)), "y".repeat(300));
+  assert.equal(keys.bubbleGreetingText("x".repeat(400)), `${"x".repeat(299)}…`);
+  const words = Array(80).fill("Wort").join(" ");
+  const short = keys.bubbleGreetingText(words);
+  assert.ok(short.length <= 300);
+  assert.match(short, / Wort…$/);
+  assert.ok(words.startsWith(short.slice(0, -1)));
   assert.equal(
-    keys.previewGreeting({ greeting: long }, "greeting", DEFAULTS),
-    server.greetingBubbleText(long)
+    keys.bubbleGreetingText(`${"a".repeat(250)}, ${"b".repeat(60)}`),
+    `${"a".repeat(250)}…`
   );
+  assert.equal(
+    keys.bubbleGreetingText(`${"c".repeat(298)}\u{1F600}${"d".repeat(10)}`),
+    `${"c".repeat(298)}…`
+  );
+  assert.equal(
+    keys.previewGreeting({ greeting: words }, "greeting", DEFAULTS),
+    short
+  );
+  // F08: der Server kürzt nicht mehr und schickt keinen eigenen Blasentext
+  assert.equal(server.greetingBubbleText, undefined);
+  const out = server.applyEmbedStandards({}, { greeting: words });
+  assert.equal(out.greeting, words);
+  assert.ok(!("greetingBubbleText" in out));
 });
+
+// Gegenprobe gegen den Widget-Code (Checkout von anythingllm-embed in
+// KUFER_EMBED_DIR): Kürzung der Begrüßung (shortenGreeting) und frühere
+// Vorbelegungen (LEGACY_DEFAULT_GREETINGS) gleich wie im Design Center
+// (Review 7.22-rc6 F08 und C1)
+const WIDGET_LAYOUT =
+  process.env.KUFER_EMBED_DIR &&
+  path.join(process.env.KUFER_EMBED_DIR, "src/utils/layout.js");
+const widgetSkip =
+  WIDGET_LAYOUT && existsSync(WIDGET_LAYOUT)
+    ? false
+    : "KUFER_EMBED_DIR nicht gesetzt";
+
+// Quelltext ab `start` bis zur passenden schließenden Klammer
+function balanced(source, start, open, close) {
+  let depth = 0;
+  for (let i = source.indexOf(open, start); i < source.length; i++) {
+    if (source[i] === open) depth++;
+    else if (source[i] === close && --depth === 0)
+      return source.slice(start, i + 1);
+  }
+  throw new Error(`keine schließende Klammer ab ${start}`);
+}
+function widgetConst(source, name) {
+  const m = new RegExp(`const ${name} = (\\d+);`).exec(source);
+  assert.ok(m, name);
+  return Number(m[1]);
+}
+
+test(
+  "F08/C1: Kürzung und frühere Vorbelegungen wortgleich mit dem Widget",
+  { skip: widgetSkip },
+  () => {
+    const source = readFileSync(WIDGET_LAYOUT, "utf8");
+    const fnStart = source.indexOf("function shortenGreeting(");
+    assert.ok(fnStart >= 0, "shortenGreeting im Widget");
+    const fn = balanced(source, fnStart, "{", "}");
+    const shortenGreeting = new Function(
+      "GREETING_BUBBLE_TEXT_MAX_LEN",
+      "GREETING_WORD_CUT_MIN",
+      `${fn}; return shortenGreeting;`
+    )(
+      widgetConst(source, "GREETING_BUBBLE_TEXT_MAX_LEN"),
+      widgetConst(source, "GREETING_WORD_CUT_MIN")
+    );
+    for (const value of GREETING_CASES)
+      assert.equal(
+        keys.bubbleGreetingText(value),
+        shortenGreeting(value),
+        value.slice(0, 20)
+      );
+    const listStart = source.indexOf("const LEGACY_DEFAULT_GREETINGS = [");
+    assert.ok(listStart >= 0, "LEGACY_DEFAULT_GREETINGS im Widget");
+    const list = balanced(source, source.indexOf("[", listStart), "[", "]");
+    assert.deepEqual(
+      new Function(`return ${list};`)(),
+      keys.LEGACY_DEFAULT_GREETINGS
+    );
+  }
+);
 
 test("D2/F04: Inline-Leiste mit Demo-Texten, nur ein früher gespeicherter Leistentext gilt", () => {
   for (const config of [

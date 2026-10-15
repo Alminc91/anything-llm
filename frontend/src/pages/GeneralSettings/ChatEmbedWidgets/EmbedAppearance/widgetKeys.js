@@ -450,7 +450,10 @@ export function greetingFieldValue(config, key, defaults) {
 /**
  * Text in der Begrüßungsblase des Widgets: eine Begrüßung über 300 Zeichen
  * (alter Wert ohne Grenze) erscheint auf ein Wortende gekürzt mit „…“.
- * Wörtlich wie greetingBubbleText() im Server (embedStandards.js).
+ * Wörtlich wie shortenGreeting() im Widget (anythingllm-embed
+ * src/utils/layout.js): Seit Review 7.22-rc6 F08 kürzt allein das Widget,
+ * der Server liefert die Begrüßung ungekürzt. Gegenprobe mit
+ * KUFER_EMBED_DIR im Test designCenterStandardLogic.
  * @param {string} text getrimmter Text
  * @returns {string}
  */

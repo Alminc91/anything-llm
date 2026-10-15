@@ -415,10 +415,10 @@ describe("GET /embed/:embedId/config: Schrift auf der Kundenfarbe (E1)", () => {
 });
 
 describe("GET /embed/:embedId/config — Begrüßung (Begrüßungsblase)", () => {
-  test("eigene Begrüßung geht als greeting und (für ältere Widget-Stände) als greetingBubbleText", async () => {
+  test("eigene Begrüßung geht nur als greeting (F08: das Widget macht die Blase daraus)", async () => {
     const res = await fetchConfig({ greeting: "  Willkommen bei der VHS!  " });
     expect(res.body.greeting).toBe("Willkommen bei der VHS!");
-    expect(res.body.greetingBubbleText).toBe("Willkommen bei der VHS!");
+    expect(res.body).not.toHaveProperty("greetingBubbleText");
   });
 
   test("gespeicherter Text der Begrüßungsblase hat Vorrang vor greeting, wenn er in der Blase stand", async () => {
@@ -428,7 +428,7 @@ describe("GET /embed/:embedId/config — Begrüßung (Begrüßungsblase)", () =>
       greetingStyle: "bubble",
     });
     expect(res.body.greeting).toBe("Text aus der Blase");
-    expect(res.body.greetingBubbleText).toBe("Text aus der Blase");
+    expect(res.body).not.toHaveProperty("greetingBubbleText");
     // F03: bei Stil „text“ war der Blasentext nie sichtbar
     const text = await fetchConfig({
       greeting: "Sichtbare Begrüßung",
@@ -436,7 +436,7 @@ describe("GET /embed/:embedId/config — Begrüßung (Begrüßungsblase)", () =>
       greetingStyle: "text",
     });
     expect(text.body.greeting).toBe("Sichtbare Begrüßung");
-    expect(text.body.greetingBubbleText).toBe("Sichtbare Begrüßung");
+    expect(text.body).not.toHaveProperty("greetingBubbleText");
     // leerer Blasentext: greeting gilt
     const empty = await fetchConfig({
       greeting: "Hallo!",
@@ -463,15 +463,11 @@ describe("GET /embed/:embedId/config — Begrüßung (Begrüßungsblase)", () =>
     }
   });
 
-  test("F07: lange Begrüßung (> 300 Zeichen) als greeting und gekürzt als greetingBubbleText", async () => {
+  test("F07/F08: lange Begrüßung (> 300 Zeichen) ungekürzt als greeting, gekürzt wird im Widget", async () => {
     const long = Array(80).fill("Willkommen").join(" ");
     const res = await fetchConfig({ greeting: long });
     expect(res.body.greeting).toBe(long);
-    expect(res.body.greetingBubbleText.length).toBeLessThanOrEqual(300);
-    expect(res.body.greetingBubbleText).toMatch(/ Willkommen…$/);
-    expect(long.startsWith(res.body.greetingBubbleText.slice(0, -1))).toBe(
-      true
-    );
+    expect(res.body).not.toHaveProperty("greetingBubbleText");
   });
 });
 
@@ -739,7 +735,6 @@ describe("GET /embed/:embedId/config — Speichern und Ausliefern (echte EmbedCo
       // Wahl „Nur Text mit Links“ (KIE-567) gilt, das Layout bleibt fest
       courseCards: "off",
       greeting: "Eigene Blase",
-      greetingBubbleText: "Eigene Blase",
     });
     // als JSON-String gespeichert (Design Center) — gleiche Auslieferung
     expect((await saveAndFetch(JSON.stringify(vc))).body).toEqual(res.body);

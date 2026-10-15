@@ -17,7 +17,6 @@ const {
   effectiveGreeting,
   effectivePlaceholder,
   inlineBarPlaceholder,
-  greetingBubbleText,
   normalizePrivacyText,
   privacyTitleValue,
   privacyNoticeValue,
@@ -350,24 +349,6 @@ describe("Begrüßung und Platzhalter", () => {
       inlineBarPlaceholder({ inlineInputPlaceholder: "x".repeat(121) })
     ).toBe(null);
   });
-
-  test("F07: Text der Begrüßungsblase höchstens 300 Zeichen, lange Begrüßung auf ein Wortende gekürzt", () => {
-    expect(greetingBubbleText("Hallo!")).toBe("Hallo!");
-    const exact = "y".repeat(300);
-    expect(greetingBubbleText(exact)).toBe(exact);
-    const words = Array(80).fill("Wort").join(" ");
-    const short = greetingBubbleText(words);
-    expect(short.length).toBeLessThanOrEqual(300);
-    expect(short).toMatch(/ Wort…$/);
-    expect(words.startsWith(short.slice(0, -1))).toBe(true);
-    // ein langes Wort: hart gekürzt, nie über 300
-    expect(greetingBubbleText("x".repeat(400))).toBe(`${"x".repeat(299)}…`);
-    // Satzzeichen vor dem „…“ fallen weg, kein halbes Emoji am Ende
-    const comma = `${"a".repeat(250)}, ${"b".repeat(60)}`;
-    expect(greetingBubbleText(comma)).toBe(`${"a".repeat(250)}…`);
-    const emoji = `${"c".repeat(298)}😀${"d".repeat(10)}`;
-    expect(greetingBubbleText(emoji)).toBe(`${"c".repeat(298)}…`);
-  });
 });
 
 describe("Datenschutz-Text", () => {
@@ -465,7 +446,7 @@ describe("applyEmbedStandards", () => {
     expect(vc).toEqual({ greeting: "Hallo" });
     expect(out.theme).toBe("dark");
     expect(out.greeting).toBe("Hallo");
-    expect(out.greetingBubbleText).toBe("Hallo");
+    expect(out).not.toHaveProperty("greetingBubbleText");
   });
 
   test("C01: setzt nur abgeleitete und feste Werte, was ans Widget geht bestimmt die Erlaubtliste des Endpunkts", () => {
@@ -482,12 +463,17 @@ describe("applyEmbedStandards", () => {
     });
   });
 
-  test("F07: lange Begrüßung kommt gekürzt auch als greetingBubbleText (sonst gewänne das Script-Attribut)", () => {
+  test("F08 (Review 7.22-rc6): Begrüßung nur als greeting, ungekürzt; das Widget kürzt und lässt kein Script-Attribut gewinnen", () => {
     const long = Array(80).fill("Wort").join(" ");
     const out = applyEmbedStandards({}, { greeting: long });
     expect(out.greeting).toBe(long);
-    expect(out.greetingBubbleText).toBe(greetingBubbleText(long));
-    expect(out.greetingBubbleText.length).toBeLessThanOrEqual(300);
+    expect(out).not.toHaveProperty("greetingBubbleText");
+    const bubble = applyEmbedStandards(
+      {},
+      { greetingBubbleText: "Blase", greetingStyle: "bubble" }
+    );
+    expect(bubble.greeting).toBe("Blase");
+    expect(bubble).not.toHaveProperty("greetingBubbleText");
   });
 
   test("kein Gedankenstrich in festen Werten", () => {

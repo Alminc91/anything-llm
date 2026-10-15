@@ -99,11 +99,9 @@ const LEGACY_DEFAULT_PRIVACY_TITLES = Object.freeze([
   "Privacy:",
 ]);
 
-// Höchstlängen wie im Widget (utils/layout.js)
-const GREETING_BUBBLE_TEXT_MAX_LEN = 300;
-// Gekürzte Begrüßung: bis zu diesem Zeichen wird auf ein Wortende gekürzt,
-// davor hart (sehr lange Wörter)
-const GREETING_WORD_CUT_MIN = 200;
+// Höchstlängen wie im Widget (utils/layout.js). Eine Begrüßung über 300
+// Zeichen (alter Wert ohne Grenze) kürzt allein das Widget (shortenGreeting,
+// Review 7.22-rc6 F08); der Server liefert sie ungekürzt.
 const INLINE_TEXT_MAX_LEN = 120;
 const PRIVACY_TITLE_MAX_LEN = 120;
 
@@ -248,26 +246,6 @@ function inlineBarPlaceholder(visualConfig = {}) {
 }
 
 /**
- * Text für die Begrüßungsblase (greetingBubbleText, im Widget höchstens 300
- * Zeichen): bis 300 Zeichen unverändert, länger (alte Begrüßung ohne
- * Längengrenze) auf ein Wortende gekürzt mit „…“. So gewinnt die Begrüßung
- * aus dem Design Center auch dann gegen ein data-greeting-bubble-text am
- * Skript. Wörtlich gleich previewGreetingBubble() im Design Center
- * (widgetKeys.js, ein Test vergleicht beide).
- * @param {string} text getrimmter Begrüßungstext
- * @returns {string}
- */
-function greetingBubbleText(text) {
-  if (text.length <= GREETING_BUBBLE_TEXT_MAX_LEN) return text;
-  let cut = text.slice(0, GREETING_BUBBLE_TEXT_MAX_LEN - 1);
-  const space = cut.search(/\s\S*$/);
-  if (space >= GREETING_WORD_CUT_MIN) cut = cut.slice(0, space);
-  // kein halbes Ersatzpaar (Emoji) am Ende
-  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
-  return `${cut.replace(/[\s.,;:!?]+$/u, "")}…`;
-}
-
-/**
  * Datenschutz-Text prüfen und normalisieren wie privacyTextValue() im
  * Widget: Rohtext getrimmt, höchstens PRIVACY_TEXT_MAX_LEN Zeichen; Zeilen
  * getrimmt, leere verworfen; Altformat (keine Zeile mit „•“/„-“/„–“) auch
@@ -356,13 +334,13 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
     visualConfig && typeof visualConfig === "object" ? visualConfig : {};
   const out = { ...mapped };
 
+  // Begrüßung nur als greeting (Review 7.22-rc6 F08): Das Widget behandelt
+  // greeting und greetingBubbleText als eine Gruppe des Servers (ein
+  // Serverwert verdrängt beide Script-Attribute) und kürzt eine zu lange
+  // Begrüßung selbst. Ein eigener greetingBubbleText geht nicht mehr ans
+  // Widget; welcher gespeicherte Text gilt, entscheidet effectiveGreeting.
   const greeting = effectiveGreeting(vc);
-  if (greeting) {
-    out.greeting = greeting;
-    // Das Widget liest die Blase zuerst aus greetingBubbleText (höchstens
-    // 300 Zeichen); ohne diesen Wert gewänne ein data-greeting-bubble-text.
-    out.greetingBubbleText = greetingBubbleText(greeting);
-  }
+  if (greeting) out.greeting = greeting;
   const placeholder = effectivePlaceholder(vc);
   if (placeholder) out.sendMessageText = placeholder;
   const barPlaceholder = inlineBarPlaceholder(vc);
@@ -402,7 +380,6 @@ module.exports = {
   effectiveGreeting,
   effectivePlaceholder,
   inlineBarPlaceholder,
-  greetingBubbleText,
   normalizePrivacyText,
   privacyTitleValue,
   privacyNoticeValue,
