@@ -115,12 +115,18 @@ test(
       "Begrüßung als Blase",
       "Startvorschläge als Knöpfe",
       "Folgefragen als Knöpfe",
-      "Datenschutz als zweite Blase",
       "KI-Hinweis unter der Eingabe",
       "Fenstergröße und Randabstand",
       "Kein Online-Punkt",
     ])
       assert.ok(t.includes(label), label);
+    // KIE-565 Nachtrag: Datenschutz-Hinweis ist abschaltbar, nicht fest
+    assert.ok(!t.includes("Datenschutz als zweite Blase"));
+    assert.ok(
+      t.includes(
+        "Den Datenschutz-Hinweis schalten Sie im Reiter „Inhalt“ ein oder aus."
+      )
+    );
     assert.match(html, /data-testid="fixed-standards"/);
     // Lineal-Reihenfolge: der Kasten steht unter den Feldern
     assert.ok(t.indexOf("Chat-Icon") < t.indexOf("Fest eingebaut"));
@@ -150,6 +156,7 @@ test(
       "Keine Auswahl nötig: Position, Chat-Icon, Fenstergröße und Effekte entfallen bei Inline.",
     ])
       assert.ok(t.includes(label), label);
+    assert.ok(!t.includes("Datenschutz als zweite Blase"));
   }
 );
 

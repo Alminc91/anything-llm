@@ -19,7 +19,8 @@ import {
 // Feste Standards je Darstellung (wie server/utils/chats/embedStandards.js).
 // Kurskarten seit 7.22-rc3 in beiden Darstellungen (BUBBLE_COURSE_CARDS
 // "auto", Entscheidung D1); bei einer Änderung dort auch diesen Text
-// anpassen.
+// anpassen. Der Datenschutz-Hinweis ist nicht fest (Schalter im Reiter
+// Inhalt, KIE-565 Nachtrag) und steht deshalb nicht in diesem Kasten.
 export const FIXED_STANDARDS = {
   bubble: {
     title: "Fest eingebaut, für alle Chatbots gleich",
@@ -28,12 +29,11 @@ export const FIXED_STANDARDS = {
       "Startvorschläge als Knöpfe",
       "Folgefragen als Knöpfe",
       "Kurskarten zuerst, dann die kurze Antwort",
-      "Datenschutz als zweite Blase",
       "KI-Hinweis unter der Eingabe",
       "Fenstergröße und Randabstand",
       "Kein Online-Punkt",
     ],
-    note: null,
+    note: "Den Datenschutz-Hinweis schalten Sie im Reiter „Inhalt“ ein oder aus.",
   },
   inline: {
     title: "Fest eingebaut wie in unserer Demo",
@@ -44,10 +44,9 @@ export const FIXED_STANDARDS = {
       "Breite und Höhe der Box",
       "Kurskarten als Zeilen, zuerst die Karten, dann die kurze Antwort",
       "Folgefragen als Knöpfe",
-      "Datenschutz als zweite Blase",
       "KI-Hinweis unter der Eingabe",
     ],
-    note: "Keine Auswahl nötig: Position, Chat-Icon, Fenstergröße und Effekte entfallen bei Inline.",
+    note: "Keine Auswahl nötig: Position, Chat-Icon, Fenstergröße und Effekte entfallen bei Inline. Den Datenschutz-Hinweis schalten Sie im Reiter „Inhalt“ ein oder aus.",
   },
 };
 

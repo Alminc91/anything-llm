@@ -257,6 +257,44 @@ export function privacyTitleFieldValue(config, defaults) {
 }
 
 // ---------------------------------------------------------------------------
+// Datenschutz-Hinweis an/aus (KIE-565 Nachtrag, Nutzer 15.10.2026): Schalter
+// „Datenschutz-Hinweis anzeigen“, gespeichert im vorhandenen Schlüssel
+// privacyNotice. Aus = "none"; an = "bubble" bzw. jeder andere oder kein
+// Wert (wie privacyNoticeValue() im Server, auch das frühere "modal"). Ein
+// leerer Text bedeutet weiter „Standardtext“, nicht „aus“.
+// ---------------------------------------------------------------------------
+
+// Felder des Hinweises; bei ausgeschaltetem Hinweis bleiben sie gespeichert,
+// wie sie sind
+export const PRIVACY_FIELD_KEYS = ["privacyTitle", "privacyText", "privacyUrl"];
+
+/** @returns {boolean} Datenschutz-Hinweis wird angezeigt */
+export function privacyNoticeOn(config = {}) {
+  const v = config?.privacyNotice;
+  return !(typeof v === "string" && v.trim().toLowerCase() === "none");
+}
+
+/**
+ * Bearbeitungsstand nach dem Schalter: aus -> "none". An -> der gespeicherte
+ * Stand, wenn der Hinweis dort an war (auch ohne Schlüssel oder mit einem
+ * Altwert wie "modal"; so entsteht kein ungefragter Schreibvorgang, Regel
+ * D6), sonst "bubble".
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {boolean} on
+ * @returns {Object}
+ */
+export function withPrivacyNotice(config, initial = {}, on = true) {
+  const next = { ...config };
+  if (!on) next.privacyNotice = "none";
+  else if (!privacyNoticeOn(initial)) next.privacyNotice = "bubble";
+  else if ("privacyNotice" in initial)
+    next.privacyNotice = initial.privacyNotice;
+  else delete next.privacyNotice;
+  return next;
+}
+
+// ---------------------------------------------------------------------------
 // Datenschutz-Text, freies Format, genau wie im Widget (utils/layout.js
 // parsePrivacyText) und im Server (normalizePrivacyText): Zeilen mit „•“,
 // „-“ oder „–“ am Anfang sind Aufzählungspunkte, andere Zeilen Absätze.
@@ -448,6 +486,9 @@ export function validateConfig(config, initial, gKey) {
     textValue(config.sendMessageText).trim().length > PLACEHOLDER_MAX_LEN
   )
     errors.sendMessageText = `Maximal ${PLACEHOLDER_MAX_LEN} Zeichen.`;
+  // Hinweis aus: die ausgegrauten Felder werden nicht gespeichert und
+  // deshalb auch nicht geprüft
+  if (!privacyNoticeOn(config)) return errors;
   if (textValue(config.privacyTitle).trim().length > PRIVACY_TITLE_MAX_LEN)
     errors.privacyTitle = `Maximal ${PRIVACY_TITLE_MAX_LEN} Zeichen.`;
   if (changed(config, initial, "privacyText")) {
@@ -473,6 +514,9 @@ export function validateConfig(config, initial, gKey) {
  *   keine Überschrift), sonst getrimmt.
  * - Datenschutz-Text: unverändert bleibt er, wie er ist; geändert: leer oder
  *   Standard -> entfernen, sonst Normalform.
+ * - Datenschutz-Hinweis aus (privacyNotice "none"): Überschrift, Text und
+ *   Link bleiben genau wie gespeichert (Eingaben in den ausgegrauten Feldern
+ *   werden nicht geschrieben).
  * @param {Object} config
  * @param {{initial: Object, defaults: Object|null, greetingKey: string}} opts
  * @returns {Object}
@@ -510,6 +554,14 @@ export function cleanConfig(
     const v = textValue(out.assistantSubtitle).trim();
     if (!v) drop("assistantSubtitle");
     else out.assistantSubtitle = v;
+  }
+
+  if (!privacyNoticeOn(out)) {
+    for (const key of PRIVACY_FIELD_KEYS) {
+      if (key in initial) out[key] = initial[key];
+      else drop(key);
+    }
+    return out;
   }
 
   if (typeof out.privacyTitle === "string") {

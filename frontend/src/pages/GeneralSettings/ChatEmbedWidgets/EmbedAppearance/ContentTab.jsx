@@ -1,11 +1,13 @@
 // Design Center › Inhalt: Kopf (Name, Untertitel), Begrüßungstext,
 // Startvorschläge, nur bei Chatblase die Willkommensblasen, Datenschutz-
-// Hinweis (Überschrift, Link, Text), Platzhalter und Support-E-Mail.
+// Hinweis (Schalter „anzeigen“, Überschrift, Link, Text), Platzhalter und
+// Support-E-Mail.
 // Texte mit Kufer-Standard zeigen ihn als Wert; „Standardtext“ setzt ihn
 // wieder ein (gespeichert wird nur eine Abweichung). Vorschläge
 // (Startvorschläge, Willkommensblasen, Untertitel) stehen nur sichtbar da
 // und werden erst mit „übernehmen“ Teil des Bearbeitungsstands (D6).
 import { ArrowCounterClockwise, Plus, Trash } from "@phosphor-icons/react";
+import Toggle from "@/components/lib/Toggle";
 import { SettingsSection, GroupHeading, inputClass } from "./controls";
 import {
   DEFAULT_SUGGESTIONS,
@@ -20,6 +22,7 @@ import {
   placeholderFieldValue,
   previewInlineBar,
   privacyFieldText,
+  privacyNoticeOn,
   privacyTitleFieldValue,
   privacyWithoutMarks,
   sameAsDefault,
@@ -166,6 +169,7 @@ export default function ContentTab({
   updateField,
   updateOptionalField,
   resetKeys,
+  setPrivacyNotice,
   applySuggestion,
   addListItem,
   updateListItem,
@@ -189,6 +193,7 @@ export default function ContentTab({
   const inlineBar = previewInlineBar(config, defaults);
   const storedBarText = storedInlineBarPlaceholder(config);
 
+  const privacyOn = privacyNoticeOn(config);
   const privacyTitle = privacyTitleFieldValue(config, defaults);
 
   // Gespeicherter Text im Altformat (ein Punkt je Zeile ohne Zeichen) wird
@@ -284,7 +289,9 @@ export default function ContentTab({
               ? "Leer: es gilt der Standardtext."
               : greetingTooLongStored
                 ? `Der gespeicherte Text ist länger als ${GREETING_MAX_LEN} Zeichen. Im Chat erscheint er gekürzt (wie in der Vorschau).`
-                : `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen. Der Datenschutz-Hinweis folgt als eigene, zweite Blase.`}
+                : privacyOn
+                  ? `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen. Der Datenschutz-Hinweis folgt als eigene, zweite Blase.`
+                  : `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen.`}
           </p>
         )}
       </div>
@@ -356,70 +363,101 @@ export default function ContentTab({
 
       <GroupHeading
         title="Datenschutz-Hinweis"
-        hint="Immer sichtbar, Text frei anpassbar."
+        hint="Zweite Blase unter der Begrüßung, Text frei anpassbar."
       />
-      <div>
-        <FieldTitle title="Überschrift" optional />
-        <p className="text-theme-text-secondary text-xs mb-2.5 leading-relaxed">
-          Leer = keine Überschrift.
+      <div data-privacy-switch="">
+        <Toggle
+          size="md"
+          variant="horizontal"
+          label="Datenschutz-Hinweis anzeigen"
+          enabled={privacyOn}
+          onChange={(checked) => setPrivacyNotice(checked)}
+        />
+        <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
+          Wir empfehlen, den Hinweis anzuzeigen. Er informiert Besucher, wie mit
+          ihren Anfragen umgegangen wird.
         </p>
-        <input
-          type="text"
-          value={privacyTitle}
-          maxLength={PRIVACY_TITLE_MAX_LEN}
-          onChange={(e) => updateField("privacyTitle", e.target.value)}
-          className={inputClass(errors.privacyTitle)}
-          aria-label="Überschrift des Datenschutz-Hinweises"
-        />
-        {errors.privacyTitle && (
-          <p className="text-red-400 text-xs mt-1.5">{errors.privacyTitle}</p>
-        )}
       </div>
-      <SettingsSection
-        title="Link zur Datenschutzerklärung"
-        hint="https://… oder ein Pfad Ihrer Seite wie /datenschutz. Leer = kein Link."
-        error={errors.privacyUrl}
+      {/* Hinweis aus: Felder ausgegraut und gesperrt, die gespeicherten
+          Werte bleiben erhalten (cleanConfig schreibt sie unverändert) */}
+      <fieldset
+        disabled={!privacyOn}
+        data-privacy-fields={privacyOn ? "on" : "off"}
+        className={
+          privacyOn
+            ? "space-y-5 min-w-0"
+            : "space-y-5 min-w-0 opacity-40 pointer-events-none select-none"
+        }
       >
-        <input
-          type="text"
-          value={textValue(config.privacyUrl)}
-          maxLength={URL_MAX_LEN}
-          onChange={(e) => updateOptionalField("privacyUrl", e.target.value)}
-          placeholder="https://www.ihre-seite.de/datenschutz"
-          className={inputClass(errors.privacyUrl)}
-        />
-      </SettingsSection>
-      <div>
-        <FieldTitle
-          title="Text"
-          action={
-            <StandardTextButton
-              isStandard={privacyIsStandard}
-              defaultsError={defaultsError}
-              onReset={() => resetKeys(["privacyText"])}
-            />
-          }
-        />
-        <textarea
-          rows={6}
-          value={privacyText}
-          onChange={(e) => updateField("privacyText", e.target.value)}
-          placeholder={textValue(defaults?.privacyText)}
-          className={`${inputClass(errors.privacyText)} resize-y`}
-          aria-label="Text des Datenschutz-Hinweises"
-        />
-        {errors.privacyText ? (
-          <p className="text-red-400 text-xs mt-1.5">{errors.privacyText}</p>
-        ) : (
-          <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
-            {privacyText.trim() === ""
-              ? "Leer: es gilt der Standardtext."
-              : legacyPoints
-                ? `${PRIVACY_RULE} Ohne eine Zeile mit „•“ oder „-“ werden mehrere Zeilen als Punkte gezeigt (wie bisher) und so gespeichert.`
-                : PRIVACY_RULE}
+        {!privacyOn && (
+          <p className="text-theme-text-secondary text-xs leading-relaxed">
+            Der Hinweis ist ausgeschaltet. Überschrift, Link und Text bleiben
+            gespeichert und gelten wieder, sobald Sie ihn einschalten.
           </p>
         )}
-      </div>
+        <div>
+          <FieldTitle title="Überschrift" optional />
+          <p className="text-theme-text-secondary text-xs mb-2.5 leading-relaxed">
+            Leer = keine Überschrift.
+          </p>
+          <input
+            type="text"
+            value={privacyTitle}
+            maxLength={PRIVACY_TITLE_MAX_LEN}
+            onChange={(e) => updateField("privacyTitle", e.target.value)}
+            className={inputClass(errors.privacyTitle)}
+            aria-label="Überschrift des Datenschutz-Hinweises"
+          />
+          {errors.privacyTitle && (
+            <p className="text-red-400 text-xs mt-1.5">{errors.privacyTitle}</p>
+          )}
+        </div>
+        <SettingsSection
+          title="Link zur Datenschutzerklärung"
+          hint="https://… oder ein Pfad Ihrer Seite wie /datenschutz. Leer = kein Link."
+          error={errors.privacyUrl}
+        >
+          <input
+            type="text"
+            value={textValue(config.privacyUrl)}
+            maxLength={URL_MAX_LEN}
+            onChange={(e) => updateOptionalField("privacyUrl", e.target.value)}
+            placeholder="https://www.ihre-seite.de/datenschutz"
+            className={inputClass(errors.privacyUrl)}
+          />
+        </SettingsSection>
+        <div>
+          <FieldTitle
+            title="Text"
+            action={
+              <StandardTextButton
+                isStandard={privacyIsStandard}
+                defaultsError={defaultsError}
+                onReset={() => resetKeys(["privacyText"])}
+              />
+            }
+          />
+          <textarea
+            rows={6}
+            value={privacyText}
+            onChange={(e) => updateField("privacyText", e.target.value)}
+            placeholder={textValue(defaults?.privacyText)}
+            className={`${inputClass(errors.privacyText)} resize-y`}
+            aria-label="Text des Datenschutz-Hinweises"
+          />
+          {errors.privacyText ? (
+            <p className="text-red-400 text-xs mt-1.5">{errors.privacyText}</p>
+          ) : (
+            <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
+              {privacyText.trim() === ""
+                ? "Leer: es gilt der Standardtext."
+                : legacyPoints
+                  ? `${PRIVACY_RULE} Ohne eine Zeile mit „•“ oder „-“ werden mehrere Zeilen als Punkte gezeigt (wie bisher) und so gespeichert.`
+                  : PRIVACY_RULE}
+            </p>
+          )}
+        </div>
+      </fieldset>
 
       <GroupHeading title="Eingabe" />
       <SettingsSection

@@ -122,10 +122,12 @@ const {
 } = require("../../utils/chats/embedStandards");
 
 // Antwort ohne eigene Werte: nur die festen Standards (Karten seit 7.22-rc3
-// in beiden Darstellungen an, Entscheidung D1)
+// in beiden Darstellungen an, Entscheidung D1; Datenschutz-Hinweis ohne
+// gespeicherten Wert an, KIE-565 Nachtrag)
 const STANDARD = {
   ...EMBED_FIXED_STANDARDS,
   ...INLINE_FIXED_STANDARDS,
+  privacyNotice: "bubble",
   courseCards: "auto",
 };
 
@@ -438,6 +440,51 @@ describe("GET /embed/:embedId/config — Platzhalter", () => {
     const res = await fetchConfig({ sendMessageText: "p".repeat(121) });
     expect(res.body.sendMessageText).toHaveLength(121);
     expect(res.body).not.toHaveProperty("inlineInputPlaceholder");
+  });
+});
+
+// KIE-565 Nachtrag (Nutzer 15.10.2026): Datenschutz-Hinweis im Design
+// Center abschaltbar. Nur "none" schaltet ab; fehlend, "bubble", das
+// frühere "modal" und alles andere ergeben die Blase.
+describe("GET /embed/:embedId/config: Datenschutz-Hinweis an/aus", () => {
+  test("privacyNotice none bleibt none, sonst alles unverändert", async () => {
+    const res = await fetchConfig({ privacyNotice: "none" });
+    expect(res.body).toEqual({ ...STANDARD, privacyNotice: "none" });
+    expect(
+      (await fetchConfig({ privacyNotice: " NONE " })).body.privacyNotice
+    ).toBe("none");
+  });
+
+  test("ohne Wert, bubble, Altwert modal und ungültige Werte -> bubble", async () => {
+    for (const privacyNotice of [
+      undefined,
+      "bubble",
+      "modal",
+      "",
+      "off",
+      false,
+      0,
+      null,
+      ["none"],
+    ])
+      expect((await fetchConfig({ privacyNotice })).body.privacyNotice).toBe(
+        "bubble"
+      );
+  });
+
+  test("aus: gespeicherte Datenschutz-Texte bleiben unverändert ausgeliefert", async () => {
+    const res = await fetchConfig({
+      privacyNotice: "none",
+      privacyTitle: "Hinweis",
+      privacyText: "• Eins",
+      privacyUrl: "/datenschutz",
+    });
+    expect(res.body).toMatchObject({
+      privacyNotice: "none",
+      privacyTitle: "Hinweis",
+      privacyText: "• Eins",
+      privacyUrl: "/datenschutz",
+    });
   });
 });
 

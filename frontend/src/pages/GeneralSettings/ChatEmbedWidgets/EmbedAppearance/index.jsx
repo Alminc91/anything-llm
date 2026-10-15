@@ -17,6 +17,7 @@ import {
   cleanConfig,
   greetingKey as storedGreetingKey,
   validateConfig,
+  withPrivacyNotice,
 } from "./widgetKeys";
 
 // Design Center (vereinfacht, 15./16.10.2026): Kunden stellen nur noch
@@ -163,6 +164,13 @@ export default function EmbedAppearance() {
       return next;
     });
   }, []);
+
+  // Schalter „Datenschutz-Hinweis anzeigen“: aus = "none", wieder an = der
+  // gespeicherte Stand bzw. "bubble" (widgetKeys.js withPrivacyNotice)
+  const setPrivacyNotice = useCallback(
+    (on) => setConfig((prev) => withPrivacyNotice(prev, initialConfig, on)),
+    [initialConfig]
+  );
 
   // Vorschlag übernehmen (Startvorschläge, Willkommensblasen, Untertitel):
   // erst damit wird er Teil des Bearbeitungsstands und beim Speichern
@@ -351,6 +359,7 @@ export default function EmbedAppearance() {
                 updateField={updateField}
                 updateOptionalField={updateOptionalField}
                 resetKeys={resetKeys}
+                setPrivacyNotice={setPrivacyNotice}
                 applySuggestion={applySuggestion}
                 addListItem={addListItem}
                 updateListItem={updateListItem}

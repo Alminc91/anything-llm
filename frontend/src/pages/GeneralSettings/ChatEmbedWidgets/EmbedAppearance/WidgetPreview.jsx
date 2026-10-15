@@ -1,6 +1,7 @@
 // Live-Vorschau des Design Centers (Mock, angelehnt an das Widget): zeigt den
 // festen Standard mit den Inhalten des Kunden. Begrüßung als erste Blase,
-// Datenschutz-Hinweis als eigene zweite Blase, Startvorschläge als Pillen,
+// Datenschutz-Hinweis als eigene zweite Blase (ausgeschaltet: nur die
+// Begrüßungsblase, KIE-565 Nachtrag), Startvorschläge als Pillen,
 // KI-Hinweis fest unter der Eingabe, kein Online-Punkt. Hell/Dunkel in
 // beiden Darstellungen.
 import { useState } from "react";
@@ -19,6 +20,7 @@ import {
   displayMode,
   lookValue,
   privacyBlocks,
+  privacyNoticeOn,
   privacyTitleFieldValue,
   previewGreeting,
   previewInlineBar,
@@ -168,10 +170,13 @@ function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
   );
 }
 
-// Startzustand des Chats: Begrüßungsblase, Datenschutz-Blase, Pillen
+// Startzustand des Chats: Begrüßungsblase, Datenschutz-Blase (falls an),
+// Pillen
 export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
   const accentColor = lookValue(config, "accentColor");
   const greeting = previewGreeting(config, greetingKey, defaults);
+  // Schalter „Datenschutz-Hinweis anzeigen“ aus: nur die Begrüßungsblase
+  const showPrivacy = privacyNoticeOn(config);
   const title = privacyTitleFieldValue(config, defaults).trim();
   const privacyText = textValue(config.privacyText).trim()
     ? config.privacyText
@@ -192,30 +197,32 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
       >
         {greeting}
       </div>
-      <div
-        className="text-[11.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] space-y-1"
-        style={bubble}
-        data-preview="privacy-bubble"
-      >
-        {title && <p className="font-semibold">{title}</p>}
-        {blocks.map((block, i) =>
-          block.type === "bullet" ? (
-            <p key={i} className="flex gap-1.5">
-              <span aria-hidden="true">•</span>
-              <span>{block.text}</span>
+      {showPrivacy && (
+        <div
+          className="text-[11.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] space-y-1"
+          style={bubble}
+          data-preview="privacy-bubble"
+        >
+          {title && <p className="font-semibold">{title}</p>}
+          {blocks.map((block, i) =>
+            block.type === "bullet" ? (
+              <p key={i} className="flex gap-1.5">
+                <span aria-hidden="true">•</span>
+                <span>{block.text}</span>
+              </p>
+            ) : (
+              <p key={i}>{block.text}</p>
+            )
+          )}
+          {url && (
+            <p>
+              <span className="underline" style={{ color: accentColor }}>
+                Datenschutzerklärung
+              </span>
             </p>
-          ) : (
-            <p key={i}>{block.text}</p>
-          )
-        )}
-        {url && (
-          <p>
-            <span className="underline" style={{ color: accentColor }}>
-              Datenschutzerklärung
-            </span>
-          </p>
-        )}
-      </div>
+          )}
+        </div>
+      )}
       {pills.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pt-1" data-preview="pills">
           {pills.map((msg, i) => (

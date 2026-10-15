@@ -15,6 +15,7 @@ const {
   greetingBubbleText,
   normalizePrivacyText,
   privacyTitleValue,
+  privacyNoticeValue,
   applyEmbedStandards,
 } = require("../../../utils/chats/embedStandards");
 const { embedDefaultTexts } = require("../../../utils/chats/embedDefaults");
@@ -62,6 +63,41 @@ describe("Darstellung und Kurskarten", () => {
   test("Standards unveränderlich", () => {
     expect(Object.isFrozen(EMBED_FIXED_STANDARDS)).toBe(true);
     expect(Object.isFrozen(INLINE_FIXED_STANDARDS)).toBe(true);
+  });
+});
+
+// KIE-565 Nachtrag (Nutzer 15.10.2026): Datenschutz-Hinweis abschaltbar
+describe("Datenschutz-Hinweis an/aus (privacyNotice)", () => {
+  test("nicht mehr unter den festen Standards", () => {
+    expect("privacyNotice" in EMBED_FIXED_STANDARDS).toBe(false);
+  });
+
+  test.each([
+    ["none", "none"],
+    [" None ", "none"],
+    ["bubble", "bubble"],
+    ["modal", "bubble"],
+    [undefined, "bubble"],
+    [null, "bubble"],
+    ["", "bubble"],
+    ["aus", "bubble"],
+    [false, "bubble"],
+  ])("privacyNoticeValue(%p) -> %p", (input, expected) => {
+    expect(privacyNoticeValue(input)).toBe(expected);
+  });
+
+  test("applyEmbedStandards: none bleibt none, Altwert modal wird bubble, fehlend bubble", () => {
+    expect(
+      applyEmbedStandards({}, { privacyNotice: "none" }).privacyNotice
+    ).toBe("none");
+    expect(
+      applyEmbedStandards({}, { privacyNotice: "modal" }).privacyNotice
+    ).toBe("bubble");
+    expect(applyEmbedStandards({}, {}).privacyNotice).toBe("bubble");
+    // ein durchgereichter Wert aus mapped kann den gespeicherten nicht schlagen
+    expect(
+      applyEmbedStandards({ privacyNotice: "none" }, {}).privacyNotice
+    ).toBe("bubble");
   });
 });
 
@@ -226,6 +262,7 @@ describe("applyEmbedStandards", () => {
       buttonColor: "#123456",
       ...EMBED_FIXED_STANDARDS,
       ...INLINE_FIXED_STANDARDS,
+      privacyNotice: "bubble",
       courseCards: "auto",
     });
   });

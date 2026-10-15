@@ -30,11 +30,12 @@ const BUBBLE_COURSE_CARDS = "auto";
 
 // Feste Standards für beide Darstellungen. Karten wie Demo-Variante 4
 // („Suche“, chatbot-v4): Karten zuerst, danach der kurze Chatbot-Text.
+// Der Datenschutz-Hinweis ist nicht mehr fest (KIE-565 Nachtrag, Nutzer
+// 15.10.2026): privacyNoticeValue() unten.
 const EMBED_FIXED_STANDARDS = Object.freeze({
   greetingStyle: "bubble",
   suggestionStyle: "pills",
   followUps: "pills",
-  privacyNotice: "bubble",
   disclaimer: "footer",
   onlineDot: false,
   courseCardsAnswerStyle: "short",
@@ -251,9 +252,27 @@ function privacyTitleValue(value) {
 }
 
 /**
+ * Datenschutz-Hinweis (privacyNotice), im Design Center abschaltbar (Schalter
+ * „Datenschutz-Hinweis anzeigen“, KIE-565 Nachtrag, Nutzer 15.10.2026): nur
+ * ein gespeichertes "none" (Groß-/Kleinschreibung und Leerraum egal) schaltet
+ * die zweite Blase ab. Jeder andere Wert und ein fehlender Wert ergeben
+ * "bubble", auch das frühere "modal" (Einmal-Hinweis entfällt). Der Prompt
+ * pro Embed hängt nicht davon ab (embed.js embedSystemPrompt kennt keinen
+ * Datenschutz-Abschnitt).
+ * @param {*} value gespeicherter visual_config.privacyNotice
+ * @returns {"none"|"bubble"}
+ */
+function privacyNoticeValue(value) {
+  return typeof value === "string" && value.trim().toLowerCase() === "none"
+    ? "none"
+    : "bubble";
+}
+
+/**
  * Feste Standards auf die (bereits validierte) Konfiguration für das Widget
  * anwenden: Begrüßung, Platzhalter, Leistentext und Datenschutz aus den
- * gespeicherten Texten setzen, feste Werte erzwingen. Was sonst ans Widget
+ * gespeicherten Texten setzen, Datenschutz-Hinweis an oder aus
+ * (privacyNoticeValue), feste Werte erzwingen. Was sonst ans Widget
  * geht, legt allein die Erlaubtliste des Endpunkts fest (`mapped`).
  * Verändert `mapped` nicht, gibt ein neues Objekt zurück.
  * @param {Object} mapped Antwort von /config vor den Standards
@@ -282,6 +301,7 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
   if (privacyText !== null) out.privacyText = privacyText;
 
   Object.assign(out, EMBED_FIXED_STANDARDS, INLINE_FIXED_STANDARDS, {
+    privacyNotice: privacyNoticeValue(vc.privacyNotice),
     courseCards: courseCardsForDisplayMode(vc.displayMode),
   });
   return out;
@@ -305,5 +325,6 @@ module.exports = {
   greetingBubbleText,
   normalizePrivacyText,
   privacyTitleValue,
+  privacyNoticeValue,
   applyEmbedStandards,
 };
