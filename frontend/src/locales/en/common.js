@@ -1784,6 +1784,10 @@ const TRANSLATIONS = {
       "visitor-success_other":
         "{{conversations}} conversations deleted ({{messages}} messages).",
       error: "The conversation could not be deleted.",
+      gone: "This conversation no longer exists – it has been deleted in the meantime. The list now shows the current state.",
+      busy: "The database was busy – nothing was deleted. Please confirm again in a few seconds.",
+      timeout:
+        "The server did not respond in time. Please check the list in a few seconds to see whether the conversation is still there, and delete it again if needed.",
     },
     conversations: {
       "only-negative": "Rated negative",
@@ -1849,10 +1853,10 @@ const TRANSLATIONS = {
       visitor: "Visitor · {{time}}",
       positive: "Rated positive",
       negative: "Rated negative",
-      "positive-count_one": "{{formatted}} response rated positive",
-      "positive-count_other": "{{formatted}} responses rated positive",
-      "negative-count_one": "{{formatted}} response rated negative",
-      "negative-count_other": "{{formatted}} responses rated negative",
+      "positive-count_one": "{{formatted}} rated positive",
+      "positive-count_other": "{{formatted}} rated positive",
+      "negative-count_one": "{{formatted}} rated negative",
+      "negative-count_other": "{{formatted}} rated negative",
       time: "{{time}}",
       span: "{{from}}–{{to}}",
       "span-days": "{{from}} – {{to}}",
@@ -1871,6 +1875,8 @@ const TRANSLATIONS = {
         "The next conversation could not be loaded – please try again.",
       "quote-open": "“",
       "quote-close": "”",
+      "jump-negative": "Jump to the next response rated negative",
+      "jump-positive": "Jump to the next response rated positive",
     },
   },
   "date-picker": {

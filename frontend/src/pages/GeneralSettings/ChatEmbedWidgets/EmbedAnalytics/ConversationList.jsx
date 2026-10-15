@@ -614,6 +614,13 @@ export default function ConversationList({
     linkScope !== null &&
     linkScope.chatId === chatId &&
     linkScope.scope === scope;
+  // Noch die per Link geöffnete Konversation, ohne Wechsel dazwischen
+  // (Nachtrag N3): Nur dann setzt das Vollbild den Fokus ohne sichtbaren
+  // Ring. Schließen oder Blättern beendet das – öffnet der Nutzer dieselbe
+  // Konversation danach per Klick oder Tastatur, gilt sie nicht mehr als
+  // per Link geöffnet.
+  const [linkOpening, setLinkOpening] = useState(chatId !== null);
+  if (linkOpening && chatId !== linkScope?.chatId) setLinkOpening(false);
   const notListed =
     chatId !== null &&
     currentIndex < 0 &&
@@ -1213,6 +1220,7 @@ export default function ConversationList({
             onLoaded={handleLoaded}
             linkOf={(id) => place.conversationUrl(id, embedId)}
             reveal={!fromLink}
+            openedByLink={linkOpening}
           />
         )}
       </div>

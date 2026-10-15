@@ -1253,6 +1253,10 @@ const TRANSLATIONS = {
       "visitor-success_other":
         "{{conversations}} Konversationen gelöscht ({{messages}} Nachrichten).",
       error: "Die Konversation konnte nicht gelöscht werden.",
+      gone: "Diese Konversation gibt es nicht mehr – sie wurde inzwischen gelöscht. Die Liste zeigt jetzt den aktuellen Stand.",
+      busy: "Die Datenbank war gerade ausgelastet – es wurde nichts gelöscht. Bitte bestätigen Sie in einigen Sekunden erneut.",
+      timeout:
+        "Der Server hat nicht rechtzeitig geantwortet. Bitte prüfen Sie in einigen Sekunden in der Liste, ob die Konversation noch da ist, und löschen Sie sie bei Bedarf erneut.",
     },
     conversations: {
       "only-negative": "Negativ bewertet",
@@ -1320,10 +1324,10 @@ const TRANSLATIONS = {
       visitor: "Besucher · {{time}}",
       positive: "Positiv bewertet",
       negative: "Negativ bewertet",
-      "positive-count_one": "{{formatted}} Antwort positiv bewertet",
-      "positive-count_other": "{{formatted}} Antworten positiv bewertet",
-      "negative-count_one": "{{formatted}} Antwort negativ bewertet",
-      "negative-count_other": "{{formatted}} Antworten negativ bewertet",
+      "positive-count_one": "{{formatted}} positiv bewertet",
+      "positive-count_other": "{{formatted}} positiv bewertet",
+      "negative-count_one": "{{formatted}} negativ bewertet",
+      "negative-count_other": "{{formatted}} negativ bewertet",
       time: "{{time}} Uhr",
       span: "{{from}}–{{to}} Uhr",
       "span-days": "{{from}} – {{to}} Uhr",
@@ -1342,6 +1346,8 @@ const TRANSLATIONS = {
         "Die nächste Konversation konnte nicht geladen werden – bitte erneut versuchen.",
       "quote-open": "„",
       "quote-close": "“",
+      "jump-negative": "Zur nächsten negativ bewerteten Antwort springen",
+      "jump-positive": "Zur nächsten positiv bewerteten Antwort springen",
     },
   },
   "embed-row": {
