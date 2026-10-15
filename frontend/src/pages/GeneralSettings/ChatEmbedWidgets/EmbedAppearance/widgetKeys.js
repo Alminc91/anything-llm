@@ -340,7 +340,9 @@ const INLINE_SEND_TEXT = "Chatten";
 // Frühere Vorbelegungen (wie LEGACY_DEFAULT_GREETINGS/-PLACEHOLDERS im
 // Server): so gespeicherte Texte gelten als „kein eigener Text“, das Feld
 // zeigt den neuen Standard. Der alte Wert bleibt gespeichert, bis der Kunde
-// das Feld ändert.
+// das Feld ändert. Name „Ihr Online-Berater“ und die alten Willkommensblasen
+// („Hallo! Ich bin Ihr Online-Berater!“ …) gehören bewusst nicht dazu: Sie
+// bleiben eigene Kundenwerte (Entscheidung E2, Fixliste 7.22-rc7).
 export const LEGACY_DEFAULT_GREETINGS = [
   "Dieser Chatbot nutzt künstliche Intelligenz (KI). Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung von uns eingesehen werden. Bitte geben Sie keine sensiblen personenbezogenen Daten ein.",
   "Hallo und herzlich willkommen! Ich helfe Ihnen gerne weiter und beantworte Ihre Fragen mit intelligenten, KI-gestützten Antworten.",

@@ -481,3 +481,41 @@ describe("applyEmbedStandards", () => {
     expect(JSON.stringify(out)).not.toMatch(/[–—]/);
   });
 });
+
+// Review 7.22-rc6 F12 (AK-7): Migrationstabelle „alter Wert -> neues
+// Verhalten“ für den Flotten-Rollout. Jeder feste oder wählbare Schlüssel
+// steht darin, damit ein neuer fester Standard nicht ohne Eintrag bleibt.
+describe("Migrationstabelle docs/design-center-2-migration.md", () => {
+  test("nennt jeden festen und wählbaren Schlüssel", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const doc = fs.readFileSync(
+      path.join(__dirname, "../../../../docs/design-center-2-migration.md"),
+      "utf8"
+    );
+    for (const key of [
+      ...Object.keys(EMBED_FIXED_STANDARDS),
+      ...Object.keys(INLINE_FIXED_STANDARDS),
+      "privacyNotice",
+      "privacyText",
+      "privacyTitle",
+      "courseCards",
+      "courseCardsPosition",
+      "welcomeBubblesDesktop",
+      "welcomeBubblesMobile",
+      "userTextColor",
+      "greetingBubbleText",
+      "inlineTheme",
+      "inlineSendText",
+      "inlineCollapsedText",
+      "disclaimerText",
+      "windowWidth",
+      "offsetX",
+      "inlineMaxWidth",
+      "data-bubble-persistence",
+      "chatbotBubblesMessages",
+    ])
+      expect(doc).toContain(`\`${key}\``);
+    expect(doc).not.toMatch(/\s[–—]\s/);
+  });
+});

@@ -12,6 +12,8 @@
 //
 // Eine Quelle für beide Wege: applyEmbedStandards (Konfiguration ans
 // Widget) und courseCardsValue (Karten an/aus, Prompt-Abschnitt).
+// Was sich je Altwert sichtbar ändert (Flotten-Rollout KIE-573, AK-7):
+// docs/design-center-2-migration.md.
 // Was überhaupt ans Widget geht, bestimmt allein die Erlaubtliste im
 // Endpunkt (endpoints/embed/index.js); applyEmbedStandards setzt nur die
 // abgeleiteten Texte und die festen Werte dazu.
@@ -82,6 +84,13 @@ const INLINE_FIXED_STANDARDS = Object.freeze({
 //   des Widgets (de/en, „einfach“ wirkte zu locker).
 // - Platzhalter: DEFAULT_CONFIG.sendMessageText bis 7.21; er wiederholte die
 //   Frage der neuen Begrüßung („Wie kann ich Ihnen helfen?“).
+// Bewusst NICHT in diesen Listen (Entscheidung E2, Fixliste 7.22-rc7): die
+// übrigen Vorbelegungen aus DEFAULT_CONFIG bis 7.21, Name „Ihr
+// Online-Berater“ und die Willkommensblasen „Hallo! Ich bin Ihr
+// Online-Berater!“ / „Möchten Sie mehr über unser Angebot erfahren? …“.
+// Sie bleiben eigene Kundenwerte; der Nutzer will vorerst überall
+// „Online-Berater“. Ebenso userTextColor "#FFFFFF" (war auch die wählbare
+// Option „Weiß“).
 const LEGACY_DEFAULT_GREETINGS = Object.freeze([
   // früherer Widget-Standard von greeting (Datenschutzsatz, steht jetzt in
   // der eigenen Datenschutz-Blase)
