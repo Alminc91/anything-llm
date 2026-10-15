@@ -205,41 +205,84 @@ test(
   }
 );
 
+// D6 (Fixliste 7.22-rc3): Vorbelegungen nie ungefragt speichern (Review F05,
+// Browser B-03). Gespeichert wird nur, was der Kunde ändert oder als
+// Vorschlag übernimmt.
+const inputByPlaceholder = (container, placeholder) =>
+  elements(
+    container,
+    (el) =>
+      el.tagName === "INPUT" && el.getAttribute("placeholder") === placeholder
+  )[0];
+
 test(
-  "Neues Widget: Vorbelegung (Name, Untertitel, Startvorschläge) als ungespeicherte Änderung, keine Darstellungs-Schlüssel",
+  "D6: neues Widget ist beim Öffnen nicht ungespeichert; eine Farbänderung speichert nur die Farbe",
   { skip },
   async (t) => {
     const { container, act, calls } = await open(t, [widget(9, null)], 9);
+    assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
+    const color = elements(
+      container,
+      (el) => el.getAttribute("aria-label") === "Kundenfarbe als Farbcode"
+    )[0];
+    // ohne gespeicherte Farbe: Feld leer, Standard des Widgets grau
+    assert.equal(color.getAttribute("placeholder"), "#01A5A9");
+    await act(() =>
+      handlersOf(color).onChange({ target: { value: "#123456" } })
+    );
     assert.ok(container.textContent.includes("Ungespeicherte Änderungen"));
     await act(() => click(buttons(container, "Speichern")[0]));
-    const body = savedBody(calls);
-    assert.equal(body.name, "KI-Berater");
-    assert.equal(
-      body.assistantSubtitle,
-      "Online-Berater mit künstlicher Intelligenz"
+    assert.deepEqual(savedBody(calls), { accentColor: "#123456" });
+  }
+);
+
+test(
+  "D6/B-03: Bestandskunde ohne Startvorschläge und Willkommensblasen: Speichern schreibt keine dazu",
+  { skip },
+  async (t) => {
+    const stored = { accentColor: "#FFA102", name: "VHS" };
+    const { container, act, calls } = await open(t, [widget(5, stored)], 5);
+    assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
+    await act(() => click(buttons(container, "Inhalt")[0]));
+    // Vorschläge sichtbar, aber nicht im Bearbeitungsstand
+    assert.ok(container.textContent.includes("Welche Sprachkurse gibt es?"));
+    assert.ok(container.textContent.includes("Hallo! Ich bin Ihr KI-Berater."));
+    assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
+    await act(() =>
+      handlersOf(inputByPlaceholder(container, "KI-Berater")).onChange({
+        target: { value: "VHS Rhein" },
+      })
     );
-    assert.deepEqual(body.defaultMessages, [
-      "Welche Sprachkurse gibt es?",
-      "Wie melde ich mich an?",
-      "Kurse am Wochenende",
-    ]);
-    for (const key of [
-      "greeting",
-      "greetingBubbleText",
-      "sendMessageText",
-      "privacyText",
-      "privacyTitle",
-      "displayMode",
-      "theme",
-      "suggestionStyle",
-      "greetingStyle",
-      "followUps",
-      "privacyNotice",
-      "disclaimer",
-      "onlineDot",
-      "courseCards",
-    ])
-      assert.ok(!(key in body), key);
+    await act(() => click(buttons(container, "Speichern")[0]));
+    assert.deepEqual(savedBody(calls), { ...stored, name: "VHS Rhein" });
+  }
+);
+
+test(
+  "D6: „Vorschläge übernehmen“ und „Vorschlag übernehmen“ schreiben erst nach Bestätigung",
+  { skip },
+  async (t) => {
+    const { container, act, calls } = await open(t, [widget(9, null)], 9);
+    await act(() => click(buttons(container, "Inhalt")[0]));
+    const apply = buttons(container, "Vorschläge übernehmen");
+    // Willkommensblasen (Chatblase) und Startvorschläge
+    assert.equal(apply.length, 2);
+    for (const button of apply) await act(() => click(button));
+    await act(() => click(buttons(container, "Vorschlag übernehmen")[0]));
+    assert.ok(container.textContent.includes("Ungespeicherte Änderungen"));
+    await act(() => click(buttons(container, "Speichern")[0]));
+    assert.deepEqual(savedBody(calls), {
+      chatbotBubblesMessages: [
+        "Hallo! Ich bin Ihr KI-Berater.",
+        "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",
+      ],
+      defaultMessages: [
+        "Welche Sprachkurse gibt es?",
+        "Wie melde ich mich an?",
+        "Kurse am Wochenende",
+      ],
+      assistantSubtitle: "Online-Berater mit künstlicher Intelligenz",
+    });
   }
 );
 

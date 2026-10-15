@@ -293,7 +293,8 @@ describe("Folgefragen im Embed-Stream", () => {
       /^\n\n### Follow-up Suggestions \(ACTIVE\)\n/
     );
     expect(FOLLOW_UPS_PROMPT_NOTE).toContain("[[FRAGEN: -]]");
-    // Chatblase (ohne Karten): Disclaimer -> Folgefragen, Altwerte egal
+    // Chatblase bzw. ohne Darstellung (Karten seit 7.22-rc3 an): Karten ->
+    // Disclaimer -> Folgefragen, Altwerte egal
     for (const vc of [
       null,
       JSON.stringify({ followUps: "pills" }),
@@ -301,7 +302,7 @@ describe("Folgefragen im Embed-Stream", () => {
       "{nicht json",
     ])
       expect(await promptFor(vc)).toBe(
-        `System${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
+        `System${courseCardsPromptNote({ style: "short", footer: true })}${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
       );
     // Inline: Karten-Abschnitt davor
     expect(

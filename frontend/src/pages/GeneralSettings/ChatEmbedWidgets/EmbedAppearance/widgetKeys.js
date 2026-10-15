@@ -26,12 +26,49 @@ export const USER_TEXT_COLOR_OPTIONS = [
   { value: "#222628", label: "Schwarz" },
 ];
 
-// Vorbelegung der Startvorschläge für Widgets ohne gespeicherte Liste
+// Vorschläge für Widgets ohne gespeicherte Liste (Entscheidung D6): nur
+// sichtbar als Vorschlag mit „Vorschläge übernehmen“, nie ungefragt
+// gespeichert (sonst schrieb schon eine Farbänderung VHS-Fragen in jedes
+// Widget, auch bei Nicht-VHS-Kunden, und der Server-Wert schlug die
+// Startvorschläge aus dem Skript).
 export const DEFAULT_SUGGESTIONS = [
   "Welche Sprachkurse gibt es?",
   "Wie melde ich mich an?",
   "Kurse am Wochenende",
 ];
+export const DEFAULT_WELCOME_BUBBLES = [
+  "Hallo! Ich bin Ihr KI-Berater.",
+  "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",
+];
+
+// Aussehen ohne gespeicherten Wert: genau die Standards des Widgets
+// (anythingllm-embed, hooks/useScriptAttributes.js DEFAULT_SETTINGS:
+// buttonColor, userTextColor, chatIcon, position). Das Design Center zeigt
+// sie an, speichert sie aber nur, wenn der Kunde etwas wählt.
+export const LOOK_DEFAULTS = {
+  accentColor: "#01A5A9",
+  userTextColor: "#FFFFFF",
+  chatIcon: "chatBubble",
+  position: "bottom-left",
+};
+export const DEFAULT_ACCENT_COLOR = LOOK_DEFAULTS.accentColor;
+
+/**
+ * Wert fürs Aussehen: gespeicherter Text bzw. Standard des Widgets.
+ * @param {Object} config
+ * @param {"accentColor"|"userTextColor"|"chatIcon"|"position"} key
+ * @returns {string}
+ */
+export function lookValue(config, key) {
+  const v = config?.[key];
+  return typeof v === "string" && v.trim() ? v : LOOK_DEFAULTS[key];
+}
+
+// Eingeklappte Inline-Leiste (Entscheidung D2): Demo-Texte des Widgets
+// (PANEL_TEXTS.de inlineBarPlaceholder/inlineSendText), nicht der Platzhalter
+// des Chat-Eingabefelds. Ohne geladene Standardtexte diese deutschen Werte.
+const INLINE_BAR_PLACEHOLDER = "Stellen Sie hier Ihre Frage …";
+const INLINE_SEND_TEXT = "Chatten";
 
 // Frühere Vorbelegungen (wie LEGACY_DEFAULT_GREETINGS/-PLACEHOLDERS im
 // Server): so gespeicherte Texte gelten als „kein eigener Text“, das Feld
@@ -47,6 +84,8 @@ export const LEGACY_DEFAULT_PLACEHOLDERS = ["Wie kann ich Ihnen helfen?"];
 export const LEGACY_DEFAULT_PRIVACY_TITLES = ["Datenschutz:", "Privacy:"];
 
 export const GREETING_MAX_LEN = 300;
+// Gekürzte Begrüßung: bis zu diesem Zeichen auf ein Wortende, davor hart
+const GREETING_WORD_CUT_MIN = 200;
 export const SUBTITLE_MAX_LEN = 60;
 export const PLACEHOLDER_MAX_LEN = 120;
 export const PRIVACY_TITLE_MAX_LEN = 120;
@@ -130,15 +169,34 @@ export function greetingFieldValue(config, key, defaults) {
   return textValue(defaults?.greeting);
 }
 
+/**
+ * Text in der Begrüßungsblase des Widgets: eine Begrüßung über 300 Zeichen
+ * (alter Wert ohne Grenze) erscheint auf ein Wortende gekürzt mit „…“.
+ * Wörtlich wie greetingBubbleText() im Server (embedStandards.js).
+ * @param {string} text getrimmter Text
+ * @returns {string}
+ */
+export function bubbleGreetingText(text) {
+  if (text.length <= GREETING_MAX_LEN) return text;
+  let cut = text.slice(0, GREETING_MAX_LEN - 1);
+  const space = cut.search(/\s\S*$/);
+  if (space >= GREETING_WORD_CUT_MIN) cut = cut.slice(0, space);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return `${cut.replace(/[\s.,;:!?]+$/u, "")}…`;
+}
+
 /** Text der Begrüßungsblase in der Vorschau (leer = Standardtext). */
 export function previewGreeting(config, key, defaults) {
-  return (
+  return bubbleGreetingText(
     greetingFieldValue(config, key, defaults).trim() ||
-    textValue(defaults?.greeting)
+      textValue(defaults?.greeting)
   );
 }
 
-/** Wert im Feld „Platzhalter“: eigener Text, sonst "" (Standard grau). */
+/**
+ * Wert im Feld „Platzhalter“ (Chat-Eingabefeld, Entscheidung D2): eigener
+ * Text, sonst "" (Standard grau).
+ */
 export function placeholderFieldValue(config = {}) {
   const v = config.sendMessageText;
   return typeof v === "string" &&
@@ -154,6 +212,33 @@ export function previewPlaceholder(config, defaults) {
     textValue(defaults?.sendMessageText) ||
     "Ihre Frage eingeben"
   );
+}
+
+/**
+ * Früher im alten Design Center eigens gespeicherter Text der Inline-
+ * Leiste (inlineInputPlaceholder, höchstens 120 Zeichen): bleibt wirksam
+ * (Review F04), sonst null. Wie inlineBarPlaceholder() im Server.
+ * @param {Object} config
+ * @returns {string|null}
+ */
+export function storedInlineBarPlaceholder(config = {}) {
+  const text = ownText(config.inlineInputPlaceholder);
+  return text && text.length <= PLACEHOLDER_MAX_LEN ? text : null;
+}
+
+/**
+ * Platzhalter und Knopf der eingeklappten Inline-Leiste in der Vorschau:
+ * gespeicherter Leistentext bzw. die Demo-Texte (Entscheidung D2).
+ * @returns {{placeholder: string, sendText: string}}
+ */
+export function previewInlineBar(config, defaults) {
+  return {
+    placeholder:
+      storedInlineBarPlaceholder(config) ||
+      textValue(defaults?.inlineInputPlaceholder) ||
+      INLINE_BAR_PLACEHOLDER,
+    sendText: textValue(defaults?.inlineSendText) || INLINE_SEND_TEXT,
+  };
 }
 
 /**
@@ -173,11 +258,12 @@ export function privacyTitleFieldValue(config, defaults) {
 
 // ---------------------------------------------------------------------------
 // Datenschutz-Text, freies Format, genau wie im Widget (utils/layout.js
-// privacyTextValue, parsePrivacyText) und im Server (normalizePrivacyText):
-// Zeilen mit „•“, „-“ oder „–“ am Anfang sind Aufzählungspunkte, andere
-// Zeilen Absätze. Altformat (keine Zeile mit Zeichen, so bis 7.21
-// gespeichert): Zeilen bzw. „|“-Teile, mehrere als Punkte, eine einzelne
-// als Absatz.
+// parsePrivacyText) und im Server (normalizePrivacyText): Zeilen mit „•“,
+// „-“ oder „–“ am Anfang sind Aufzählungspunkte, andere Zeilen Absätze.
+// Altformat (keine Zeile mit Zeichen, so bis 7.21 gespeichert): Zeilen bzw.
+// „|“-Teile, mehrere als Punkte, eine einzelne als Absatz. Gespeichert wird
+// immer im neuen Format (Review F10): Altformat mit mehreren Teilen als
+// „• “-Zeilen, damit die Bedeutung beim nächsten Lesen gleich bleibt (F08).
 // ---------------------------------------------------------------------------
 
 function cleanLines(parts) {
@@ -189,6 +275,20 @@ function privacyLines(text) {
   if (lines.some((l) => PRIVACY_MARK_RE.test(l)))
     return { marked: true, lines };
   return { marked: false, lines: cleanLines(text.split(/\r?\n|\|/)) };
+}
+
+/**
+ * Altformat mit mehreren Teilen (keine Zeile mit „•“, „-“ oder „–“, aber
+ * mehrere Zeilen bzw. „|“-Teile): Das Widget zeigt alle als Punkte. Dieselbe
+ * Regel wie der Parser (getrimmte Zeilen, auch NBSP vor dem Zeichen; Review
+ * F09).
+ * @param {*} value
+ * @returns {boolean}
+ */
+export function privacyWithoutMarks(value) {
+  if (typeof value !== "string") return false;
+  const { marked, lines } = privacyLines(value);
+  return !marked && lines.length > 1;
 }
 
 /**
@@ -206,23 +306,26 @@ export function privacyFieldText(value) {
 }
 
 /**
- * Normalform wie privacyTextValue() im Widget: getrimmte Zeilen, leere weg,
- * Altformat auch an „|“ getrennt; 1 bis 12 Zeilen mit je höchstens 500
- * Zeichen, Rohtext höchstens 1000. Ungültig -> null.
+ * Normalform wie normalizePrivacyText() im Server: getrimmte Zeilen, leere
+ * weg, Altformat auch an „|“ getrennt und bei mehreren Teilen als „• “-
+ * Zeilen; 1 bis 12 Zeilen mit je höchstens 500 Zeichen, Rohtext höchstens
+ * 1000. Ungültig -> null.
  * @param {*} value
  * @returns {string|null}
  */
 export function normalizePrivacyText(value) {
   const text = textValue(value).trim();
   if (!text || text.length > PRIVACY_TEXT_MAX_LEN) return null;
-  const { lines } = privacyLines(text);
+  const { marked, lines } = privacyLines(text);
   if (
     lines.length === 0 ||
     lines.length > PRIVACY_LINES_MAX ||
     lines.some((l) => l.length > PRIVACY_LINE_MAX_LEN)
   )
     return null;
-  return lines.join("\n");
+  return (
+    !marked && lines.length > 1 ? lines.map((l) => `• ${l}`) : lines
+  ).join("\n");
 }
 
 /**

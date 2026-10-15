@@ -30,10 +30,11 @@ const FORBIDDEN = [
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
 // Seit dem vereinfachten Design Center (15.10.2026) hängen die Kurskarten an
-// der Darstellung (embedStandards.js): Inline an, Chatblase aus; ein
-// gespeichertes courseCards wird nicht mehr gelesen.
-describe("courseCardsEnabled (fest nach Darstellung)", () => {
-  test("Inline schaltet ein (String aus der DB und Objekt), auch mit courseCards off", () => {
+// der Darstellung (embedStandards.js); seit 7.22-rc3 (Entscheidung D1) sind
+// sie in beiden Darstellungen an. Ein gespeichertes courseCards wird nicht
+// mehr gelesen.
+describe("courseCardsEnabled (D1: in beiden Darstellungen an)", () => {
+  test("Inline an (String aus der DB und Objekt), auch mit courseCards off", () => {
     expect(
       courseCardsEnabled({ visual_config: '{"displayMode":"inline"}' })
     ).toBe(true);
@@ -47,25 +48,33 @@ describe("courseCardsEnabled (fest nach Darstellung)", () => {
     ).toBe(true);
   });
 
+  // F01: Inline nur per Script-Attribut (kein gespeichertes displayMode),
+  // F02: gespeichert Inline, aber Rückfall auf die Chatblase. Der Server
+  // kennt die tatsächliche Darstellung nicht, die Karten sind deshalb immer
+  // an.
   test.each([
     [undefined],
     [null],
     [""],
     ["{}"],
     ['{"courseCards":"auto"}'],
-    ['{"displayMode":"bubble","courseCards":"auto"}'],
+    ['{"courseCards":"off"}'],
+    ['{"displayMode":"bubble","courseCards":"off"}'],
     ['{"displayMode":"inlinex"}'],
     ['{"displayMode":true}'],
     ["kein json"],
-  ])("aus (Chatblase) bei visual_config=%p", (visual_config) => {
-    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    expect(courseCardsEnabled({ visual_config })).toBe(false);
-    spy.mockRestore();
-  });
+  ])(
+    "auch an bei visual_config=%p (Chatblase bzw. ohne Darstellung)",
+    (visual_config) => {
+      const spy = jest.spyOn(console, "error").mockImplementation(() => {});
+      expect(courseCardsEnabled({ visual_config })).toBe(true);
+      spy.mockRestore();
+    }
+  );
 
   test("unlesbares visual_config wird mit Präfix geloggt", () => {
     const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    expect(courseCardsEnabled({ visual_config: "{kaputt" })).toBe(false);
+    expect(courseCardsEnabled({ visual_config: "{kaputt" })).toBe(true);
     expect(spy).toHaveBeenCalledWith(
       "[courseCardsEnabled] visual_config unparsable",
       expect.any(String)
@@ -73,9 +82,9 @@ describe("courseCardsEnabled (fest nach Darstellung)", () => {
     spy.mockRestore();
   });
 
-  test("ohne Embed-Objekt aus", () => {
-    expect(courseCardsEnabled(undefined)).toBe(false);
-    expect(courseCardsEnabled(null)).toBe(false);
+  test("ohne Embed-Objekt an", () => {
+    expect(courseCardsEnabled(undefined)).toBe(true);
+    expect(courseCardsEnabled(null)).toBe(true);
   });
 });
 
@@ -667,12 +676,10 @@ describe("Kurskarten v3: sessions/venue aus 'Dauer:'/'Kursort:'", () => {
   });
 });
 
-describe("visualConfigValue / disclaimerFooterEnabled", () => {
+describe("visualConfigValue", () => {
   const {
     visualConfigValue,
-    disclaimerFooterEnabled,
     courseCardsEnabled,
-    followUpsEnabled,
   } = require("../../../utils/chats/embedCourseSources");
 
   test("liest JSON-String und Objekt, normalisiert Strings", () => {
@@ -691,24 +698,11 @@ describe("visualConfigValue / disclaimerFooterEnabled", () => {
     expect(visualConfigValue({}, "disclaimer")).toBe(null);
   });
 
-  test("feste Standards: KI-Hinweis im Fuß, Folgefragen an, Stil kurz, auch bei Altwerten", () => {
-    const {
-      courseCardsAnswerStyle,
-    } = require("../../../utils/chats/embedCourseSources");
-    for (const embed of [
-      { visual_config: '{"disclaimer":"footer","followUps":"pills"}' },
-      {
-        visual_config:
-          '{"disclaimer":"none","followUps":"none","courseCardsAnswerStyle":"long"}',
-      },
-      { visual_config: "{kaputt" },
-      {},
-      undefined,
-    ]) {
-      expect(disclaimerFooterEnabled(embed)).toBe(true);
-      expect(followUpsEnabled(embed)).toBe(true);
-      expect(courseCardsAnswerStyle(embed)).toBe("short");
-    }
+  test("C02: keine Schalter mehr für feste Standards (KI-Hinweis, Folgefragen, Antwortstil)", () => {
+    const mod = require("../../../utils/chats/embedCourseSources");
+    expect(mod).not.toHaveProperty("disclaimerFooterEnabled");
+    expect(mod).not.toHaveProperty("followUpsEnabled");
+    expect(mod).not.toHaveProperty("courseCardsAnswerStyle");
     expect(
       courseCardsEnabled({ visual_config: '{"displayMode":"INLINE"}' })
     ).toBe(true);

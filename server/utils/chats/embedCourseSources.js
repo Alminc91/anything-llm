@@ -31,10 +31,7 @@
 // (Collector + Pipeline) würden das Lesen der Kopfzeilen und die
 // web://…website-Rückübersetzung überflüssig machen.
 
-const {
-  courseCardsForDisplayMode,
-  EMBED_FIXED_STANDARDS,
-} = require("./embedStandards");
+const { courseCardsForDisplayMode } = require("./embedStandards");
 const path = require("path");
 const {
   ISO_DATE_RX,
@@ -229,10 +226,11 @@ function visualConfigValue(embed = {}, key, tag = "visualConfigValue") {
 
 /**
  * Kurskarten für dieses Embed an? Seit dem vereinfachten Design Center
- * (15.10.2026) fest nach Darstellung (embedStandards.js): Inline an, Chat-
- * blase nach BUBBLE_COURSE_CARDS. Ein gespeichertes courseCards wird nicht
- * mehr gelesen. visual_config ist in der DB ein JSON-String
- * (embed_configs.visual_config).
+ * (15.10.2026) fest nach Darstellung (embedStandards.js
+ * courseCardsForDisplayMode): Inline an, Chatblase nach BUBBLE_COURSE_CARDS
+ * (seit 7.22-rc3 ebenfalls an, also immer an). Ein gespeichertes
+ * courseCards wird nicht mehr gelesen. visual_config ist in der DB ein
+ * JSON-String (embed_configs.visual_config).
  * @param {{visual_config?: string|object|null}} embed
  * @returns {boolean}
  */
@@ -244,43 +242,21 @@ function courseCardsEnabled(embed = {}) {
   );
 }
 
-/**
- * Antwortstil im Karten-Modus: fest "short" (Suche, kurze Antwort ohne
- * Links, Karten zuerst; Demo-Variante 4). Ein gespeichertes
- * courseCardsAnswerStyle wird nicht mehr gelesen.
- * @returns {"short"}
- */
-function courseCardsAnswerStyle() {
-  return EMBED_FIXED_STANDARDS.courseCardsAnswerStyle;
-}
-
-/**
- * Fester KI-Hinweis im Widget (disclaimer "footer"): immer an. Das Widget
- * zeigt die Zeile selbst unter dem Eingabefeld, das Modell soll den Prompt-
- * Pflicht-Footer nicht mehr erzeugen (spart Tokens, keine Dopplung,
- * Sprachausgabe liest ihn nicht vor).
- * @returns {true}
- */
-function disclaimerFooterEnabled() {
-  return EMBED_FIXED_STANDARDS.disclaimer === "footer";
-}
+// KI-Hinweis (disclaimer "footer"), Folgefragen (followUps "pills") und der
+// kurze Antwortstil im Karten-Modus (courseCardsAnswerStyle "short") sind
+// feste Standards (embedStandards.js EMBED_FIXED_STANDARDS): Der Prompt pro
+// Embed hängt die Hinweise unten immer an (utils/chats/embed.js
+// embedSystemPrompt); gespeicherte Altwerte werden nicht mehr gelesen.
 
 // Wird ans ENDE des System-Prompts gehängt (hinter der Zeitzeile), damit der
 // gecachte Prompt-Präfix der Flotte unverändert bleibt.
 const DISCLAIMER_PROMPT_NOTE =
   "\n\n### Footer Override (ACTIVE)\nThe chat widget displays the AI disclaimer itself below the input field. Do NOT write the Mandatory Footer sentence (\u201eIch bin eine KI und kann Fehler machen \u2026\u201c or its translation) at the end of your answers. Everything else about the footer section is disabled.";
 
-/**
- * Folgefragen-Vorschläge im Widget: immer an (followUps "pills"). Der
- * Server sendet den Chunk { type: "followUps" } und bittet das Modell um die
- * Endzeile "[[FRAGEN: …]]". Erkennen/Entfernen/Speichern der Zeile laufen
- * unabhängig davon immer (embedCardsMarker.js).
- * @returns {true}
- */
-function followUpsEnabled() {
-  return EMBED_FIXED_STANDARDS.followUps === "pills";
-}
-
+// Folgefragen-Vorschläge im Widget sind immer an (followUps "pills"): Der
+// Server sendet den Chunk { type: "followUps" } und bittet das Modell um die
+// Endzeile "[[FRAGEN: …]]". Erkennen/Entfernen/Speichern der Zeile laufen
+// ohnehin immer (embedCardsMarker.js).
 // Wird wie DISCLAIMER_PROMPT_NOTE ans ENDE des System-Prompts gehängt
 // (hinter den Disclaimer-Hinweis), der gecachte Präfix bleibt unverändert.
 // Richtung: Vorschläge sind Nachrichten des Nutzers an den Berater, nie
@@ -1270,12 +1246,9 @@ function sanitizeCourseTeasers(teasers, courseSources = []) {
 
 module.exports = {
   visualConfigValue,
-  disclaimerFooterEnabled,
   DISCLAIMER_PROMPT_NOTE,
-  followUpsEnabled,
   FOLLOW_UPS_PROMPT_NOTE,
   courseCardsEnabled,
-  courseCardsAnswerStyle,
   buildCourseSources,
   mergeCourseSources,
   completeCourseSourcesFromReply,

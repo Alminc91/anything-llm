@@ -17,12 +17,12 @@ import {
 } from "@phosphor-icons/react";
 import {
   displayMode,
+  lookValue,
   privacyBlocks,
   privacyTitleFieldValue,
   previewGreeting,
+  previewInlineBar,
   previewPlaceholder,
-  ownText,
-  LEGACY_DEFAULT_PLACEHOLDERS,
   textItems,
   textValue,
   themeChoice,
@@ -67,18 +67,12 @@ const PALETTES = {
   },
 };
 
-// Inline-Leiste: Knopftext (fest, nicht einstellbar) und Platzhalter ohne
-// eigenen Text, wie im Widget (DEFAULT_INLINE_SEND_TEXT,
-// DEFAULT_INLINE_INPUT_PLACEHOLDER in utils/layout.js; Demo-Werte)
-const INLINE_SEND_TEXT = "Chatten";
-const INLINE_DEFAULT_PLACEHOLDER = "Stellen Sie hier Ihre Frage …";
-
 function paletteOf(config) {
   return PALETTES[themeChoice(config) === "dark" ? "dark" : "light"];
 }
 
 function ChatIcon({ config, size, color = "#ffffff" }) {
-  const match = CHAT_ICONS.find((i) => i.id === config.chatIcon);
+  const match = CHAT_ICONS.find((i) => i.id === lookValue(config, "chatIcon"));
   const Icon = match ? match.Icon : ChatCircleDots;
   return <Icon size={size} weight="fill" color={color} />;
 }
@@ -110,24 +104,29 @@ export default function WidgetPreview({
           ? "Vorschau: Inline in Ihrer Seite"
           : "Vorschau: so sieht es auf Ihrer Website aus"}
       </p>
-      <div className="flex-1 min-h-0 flex items-center justify-center p-6">
-        {inline ? (
-          <InlinePreview
-            config={config}
-            logoPreview={logoPreview}
-            defaults={defaults}
-            greetingKey={greetingKey}
-            palette={palette}
-          />
-        ) : (
-          <BubblePreview
-            config={config}
-            logoPreview={logoPreview}
-            defaults={defaults}
-            greetingKey={greetingKey}
-            palette={palette}
-          />
-        )}
+      {/* Scrollt, statt etwas abzuschneiden (Browser-Abnahme B-06: die
+          Datenschutz-Blase im aufgeklappten Inline-Panel); m-auto zentriert,
+          solange alles hineinpasst. */}
+      <div className="flex-1 min-h-0 overflow-y-auto flex p-6">
+        <div className="m-auto w-full flex justify-center">
+          {inline ? (
+            <InlinePreview
+              config={config}
+              logoPreview={logoPreview}
+              defaults={defaults}
+              greetingKey={greetingKey}
+              palette={palette}
+            />
+          ) : (
+            <BubblePreview
+              config={config}
+              logoPreview={logoPreview}
+              defaults={defaults}
+              greetingKey={greetingKey}
+              palette={palette}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -171,7 +170,7 @@ function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
 
 // Startzustand des Chats: Begrüßungsblase, Datenschutz-Blase, Pillen
 export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
-  const accentColor = textValue(config.accentColor) || "#607D8B";
+  const accentColor = lookValue(config, "accentColor");
   const greeting = previewGreeting(config, greetingKey, defaults);
   const title = privacyTitleFieldValue(config, defaults).trim();
   const privacyText = textValue(config.privacyText).trim()
@@ -279,8 +278,8 @@ function BubblePreview({
   palette,
 }) {
   const [open, setOpen] = useState(true);
-  const accentColor = textValue(config.accentColor) || "#607D8B";
-  const isLeft = textValue(config.position).includes("left");
+  const accentColor = lookValue(config, "accentColor");
+  const isLeft = lookValue(config, "position").includes("left");
   const bubbles = textItems(config.chatbotBubblesMessages);
   return (
     <div className="w-[370px] max-w-full flex flex-col items-stretch">
@@ -387,10 +386,10 @@ function InlinePreview({
   palette,
 }) {
   const [expanded, setExpanded] = useState(false);
-  const accentColor = textValue(config.accentColor) || "#607D8B";
-  const placeholder =
-    ownText(config.sendMessageText, LEGACY_DEFAULT_PLACEHOLDERS) ||
-    INLINE_DEFAULT_PLACEHOLDER;
+  const accentColor = lookValue(config, "accentColor");
+  // Eingeklappte Leiste: Demo-Texte bzw. früher gespeicherter Leistentext,
+  // nicht der Platzhalter des Chat-Eingabefelds (Entscheidung D2)
+  const { placeholder, sendText } = previewInlineBar(config, defaults);
   const chips = textItems(config.defaultMessages).slice(0, 6);
   return (
     <div
@@ -398,7 +397,6 @@ function InlinePreview({
       style={{
         backgroundColor: palette.pageBg,
         border: `1px solid ${palette.line}`,
-        maxHeight: "calc(100vh - 200px)",
       }}
     >
       <div
@@ -428,8 +426,9 @@ function InlinePreview({
             className="w-full rounded-[40px] flex flex-col overflow-hidden"
             style={{
               backgroundColor: palette.panelBg,
-              height: "380px",
-              maxHeight: "calc(100vh - 360px)",
+              // wächst mit dem Inhalt (nichts abgeschnitten); die Vorschau
+              // scrollt, wenn das Fenster zu niedrig ist
+              minHeight: "380px",
               boxShadow: "0 30px 70px -30px rgba(64,36,8,.45)",
             }}
             data-preview="inline-panel"
@@ -452,7 +451,7 @@ function InlinePreview({
                 }
               />
             </div>
-            <div className="flex-1 overflow-y-auto no-scroll px-6 py-4">
+            <div className="flex-1 px-6 py-4" data-preview="inline-messages">
               <PreviewWelcome
                 config={config}
                 defaults={defaults}
@@ -490,10 +489,10 @@ function InlinePreview({
                 className="rounded-full px-4 py-2 text-[13px] font-semibold flex-shrink-0"
                 style={{
                   backgroundColor: accentColor,
-                  color: textValue(config.userTextColor) || "#FFFFFF",
+                  color: lookValue(config, "userTextColor"),
                 }}
               >
-                {INLINE_SEND_TEXT}
+                {sendText}
               </span>
             </button>
             {chips.length > 0 && (

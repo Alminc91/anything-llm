@@ -22,6 +22,10 @@ test("frühere Vorbelegungen wie im Server", () => {
   assert.deepEqual(keys.LEGACY_DEFAULT_PLACEHOLDERS, [
     ...server.LEGACY_DEFAULT_PLACEHOLDERS,
   ]);
+  // F11: auch die früheren Datenschutz-Überschriften
+  assert.deepEqual(keys.LEGACY_DEFAULT_PRIVACY_TITLES, [
+    ...server.LEGACY_DEFAULT_PRIVACY_TITLES,
+  ]);
   assert.equal(keys.PRIVACY_TEXT_MAX_LEN, server.PRIVACY_TEXT_MAX_LEN);
   assert.equal(keys.PRIVACY_LINES_MAX, server.PRIVACY_LINES_MAX);
   assert.equal(keys.PRIVACY_LINE_MAX_LEN, server.PRIVACY_LINE_MAX_LEN);
@@ -333,4 +337,106 @@ test("Darstellung und Farbschema", () => {
     keys.DISPLAY_MODE_OPTIONS.map((o) => o.label),
     ["Chatblase", "Inline in der Seite"]
   );
+});
+
+test("F08/F10: Altformat mit mehreren Teilen wird als „• “-Zeilen gespeichert, zweimal normalisiert bleibt gleich", () => {
+  assert.equal(
+    keys.normalizePrivacyText("Kosten | -10 % Rabatt"),
+    "• Kosten\n• -10 % Rabatt"
+  );
+  for (const value of [
+    "Kosten | -10 % Rabatt",
+    "a\nb",
+    "Fragen: datenschutz@vhs.de | Tel. 0591 123",
+    "Ein Satz.",
+    "Absatz\n- Punkt",
+  ]) {
+    const once = keys.normalizePrivacyText(value);
+    assert.equal(keys.normalizePrivacyText(once), once, JSON.stringify(value));
+    // gleiche Darstellung vor und nach dem Speichern
+    assert.deepEqual(keys.privacyBlocks(once), keys.privacyBlocks(value));
+  }
+  // gespeichert: aus „-10 % Rabatt“ wird kein Absatz plus Punkt ohne Minus
+  assert.deepEqual(
+    keys.privacyBlocks(keys.normalizePrivacyText("Kosten | -10 % Rabatt")),
+    [
+      { type: "bullet", text: "Kosten" },
+      { type: "bullet", text: "-10 % Rabatt" },
+    ]
+  );
+});
+
+test("F09: Hinweis „ohne Zeichen“ nach derselben Regel wie der Parser (NBSP vor „•“ zählt als Zeichen)", () => {
+  assert.equal(keys.privacyWithoutMarks("\u00a0• Punkt\nAbsatz"), false);
+  assert.equal(keys.privacyWithoutMarks("\u2003- Punkt\nAbsatz"), false);
+  assert.equal(keys.privacyWithoutMarks("a\nb"), true);
+  assert.equal(keys.privacyWithoutMarks("a | b"), true);
+  assert.equal(keys.privacyWithoutMarks("Ein Satz."), false);
+  assert.equal(keys.privacyWithoutMarks(5), false);
+});
+
+test("F07: Begrüßungsblase wie im Server (über 300 Zeichen auf ein Wortende gekürzt)", () => {
+  const cases = [
+    "Hallo!",
+    "y".repeat(300),
+    "x".repeat(400),
+    Array(80).fill("Wort").join(" "),
+    `${"a".repeat(250)}, ${"b".repeat(60)}`,
+    `${"c".repeat(298)}\u{1F600}${"d".repeat(10)}`,
+  ];
+  for (const value of cases)
+    assert.equal(
+      keys.bubbleGreetingText(value),
+      server.greetingBubbleText(value),
+      value.slice(0, 20)
+    );
+  const long = Array(80).fill("Wort").join(" ");
+  assert.equal(
+    keys.previewGreeting({ greeting: long }, "greeting", DEFAULTS),
+    server.greetingBubbleText(long)
+  );
+});
+
+test("D2/F04: Inline-Leiste mit Demo-Texten, nur ein früher gespeicherter Leistentext gilt", () => {
+  for (const config of [
+    {},
+    { sendMessageText: "Ihre Frage an uns" },
+    { inlineInputPlaceholder: "  " },
+    { inlineInputPlaceholder: "q".repeat(121) },
+  ]) {
+    assert.deepEqual(keys.previewInlineBar(config, DEFAULTS), {
+      placeholder: "Stellen Sie hier Ihre Frage …",
+      sendText: "Chatten",
+    });
+    assert.equal(
+      keys.storedInlineBarPlaceholder(config),
+      server.inlineBarPlaceholder(config)
+    );
+  }
+  const own = { inlineInputPlaceholder: " Was suchen Sie? " };
+  assert.equal(
+    keys.previewInlineBar(own, DEFAULTS).placeholder,
+    "Was suchen Sie?"
+  );
+  assert.equal(
+    keys.storedInlineBarPlaceholder(own),
+    server.inlineBarPlaceholder(own)
+  );
+  // ohne geladene Standardtexte dieselben Demo-Texte
+  assert.deepEqual(keys.previewInlineBar({}, null), {
+    placeholder: DEFAULTS.inlineInputPlaceholder,
+    sendText: DEFAULTS.inlineSendText,
+  });
+});
+
+test("B-06: Aussehen ohne gespeicherten Wert zeigt die Standards des Widgets (Kundenfarbe Türkis wie live)", () => {
+  assert.equal(keys.lookValue({}, "accentColor").toLowerCase(), "#01a5a9");
+  assert.equal(keys.lookValue({ accentColor: "" }, "accentColor"), "#01A5A9");
+  assert.equal(
+    keys.lookValue({ accentColor: "#FFA102" }, "accentColor"),
+    "#FFA102"
+  );
+  assert.equal(keys.lookValue({}, "userTextColor"), "#FFFFFF");
+  assert.equal(keys.lookValue({}, "chatIcon"), "chatBubble");
+  assert.equal(keys.lookValue({}, "position"), "bottom-left");
 });

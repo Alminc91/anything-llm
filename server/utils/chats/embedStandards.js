@@ -10,16 +10,23 @@
 //
 // Eine Quelle für beide Wege: applyEmbedStandards (Konfiguration ans
 // Widget) und courseCardsForDisplayMode (Karten an/aus, Prompt-Abschnitt).
+// Was überhaupt ans Widget geht, bestimmt allein die Erlaubtliste im
+// Endpunkt (endpoints/embed/index.js); applyEmbedStandards setzt nur die
+// abgeleiteten Texte und die festen Werte dazu.
 
-// Kurskarten in der Chatblase: aus. Begründung (Umsetzung 15./16.10.2026):
-// im Browser noch nicht geprüft (Nutzerentscheidung 14.10.: „Chatblase:
-// Karten derzeit nicht getestet → aus, bis eigens geprüft“). Das Chatfenster
-// ist am Desktop höchstens 25 % (ab 1280 px) bzw. 40 % breit; das
-// Standardlayout „Zeilen“ braucht 480 px Kartenbreite (ROW_CARD_MIN_PX im
-// Widget) und fiele dort immer auf zwei schmale Rasterkarten zurück. Ohne
-// Karten antwortet der Chatbot klassisch mit Kurs-Links. Nach bestandener
-// Browser-Abnahme genügt hier "auto".
-const BUBBLE_COURSE_CARDS = "off";
+// Kurskarten in der Chatblase: an (Entscheidung D1, Fixliste 7.22-rc3,
+// 15.10.2026). Beleg aus der Browser-Abnahme 7.22-rc2 (Opus K-1, Sonnet A9
+// und B-B4): Inline-Widget ohne Platzhalter, also Rückfall auf die
+// Chatblase; 4 bzw. 2 Karten am Desktop und 2 mobil, einspaltig (266 bzw.
+// 296 px), ohne Überlauf, hell und dunkel gut lesbar, danach kurzer Text und
+// Folgefragen. Mit "off" hatte die Antwort in der Chatblase weder Karten
+// noch Links (Sonnet A4-links). Damit sind die Karten unabhängig von der
+// gespeicherten Darstellung an: Ein Inline-Einbau nur per Script-Attribut
+// (ohne gespeichertes displayMode) und ein Inline-Widget, das auf einer
+// Seite ohne Platzhalter als Chatblase erscheint, bekommen dieselben Karten
+// und denselben Prompt (Review F01, F02). Wer hier wieder "off" setzt, muss
+// das Widget seine tatsächliche Darstellung an stream-chat melden lassen.
+const BUBBLE_COURSE_CARDS = "auto";
 
 // Feste Standards für beide Darstellungen. Karten wie Demo-Variante 4
 // („Suche“, chatbot-v4): Karten zuerst, danach der kurze Chatbot-Text.
@@ -53,27 +60,6 @@ const INLINE_FIXED_STANDARDS = Object.freeze({
   inheritFont: true,
 });
 
-// Entfallene Schlüssel: nie mehr ausliefern (das Widget nutzt seine festen
-// Werte). Fenster: Breite/Höhe/Randabstände der Chatblase. Inline: Max.
-// Breite, Leisten-Stil (die Leiste folgt dem Farbschema „theme“), Leistentext
-// und Knopftext. Texte: fester KI-Hinweis (nicht änderbar), Knopf der
-// entfallenen Datenschutz-Karte. greetingBubbleText und
-// inlineInputPlaceholder werden aus Begrüßung bzw. Platzhalter neu gesetzt.
-const EMBED_IGNORED_KEYS = Object.freeze([
-  "windowWidth",
-  "windowHeight",
-  "offsetX",
-  "offsetY",
-  "inlineMaxWidth",
-  "inlineTheme",
-  "inlineCollapsedText",
-  "inlineSendText",
-  "inlineInputPlaceholder",
-  "greetingBubbleText",
-  "disclaimerText",
-  "privacyButtonText",
-]);
-
 // Frühere Vorbelegungen des Design Centers bzw. frühere Widget-Standards:
 // ein so gespeicherter Text gilt als „kein eigener Text“, damit diese
 // Widgets den neuen Standard zeigen (der alte Text bleibt gespeichert).
@@ -101,18 +87,22 @@ const LEGACY_DEFAULT_PRIVACY_TITLES = Object.freeze([
 
 // Höchstlängen wie im Widget (utils/layout.js)
 const GREETING_BUBBLE_TEXT_MAX_LEN = 300;
+// Gekürzte Begrüßung: bis zu diesem Zeichen wird auf ein Wortende gekürzt,
+// davor hart (sehr lange Wörter)
+const GREETING_WORD_CUT_MIN = 200;
 const INLINE_TEXT_MAX_LEN = 120;
 const PRIVACY_TITLE_MAX_LEN = 120;
 
-// Datenschutz-Text (privacyText), freies Format, genau wie privacyTextValue()
-// im Widget (utils/layout.js): Zeilen mit „•“, „-“ oder „–“ am Anfang sind
+// Datenschutz-Text (privacyText), freies Format wie parsePrivacyText() im
+// Widget (utils/layout.js): Zeilen mit „•“, „-“ oder „–“ am Anfang sind
 // Aufzählungspunkte, andere Zeilen Absätze. Altformat (keine Zeile mit
-// Zeichen, so bisher gespeichert): Zeilen bzw. „|“-Teile; mehrere werden im
-// Widget wie bisher Punkte, eine einzelne ein Absatz.
+// Zeichen, so bisher gespeichert): Zeilen bzw. „|“-Teile; mehrere sind wie
+// bisher Punkte, eine einzelne ein Absatz.
 const PRIVACY_TEXT_MAX_LEN = 1000;
 const PRIVACY_LINES_MAX = 12;
 const PRIVACY_LINE_MAX_LEN = 500;
 const PRIVACY_MARK_RE = /^[•\-–]\s*/;
+const PRIVACY_BULLET_PREFIX = "• ";
 
 /**
  * Wirksame Darstellung eines Embeds: "inline" nur bei gespeichertem
@@ -165,8 +155,10 @@ function effectiveGreeting(visualConfig = {}) {
 }
 
 /**
- * Platzhalter im Eingabefeld (Chatblase und Inline-Leiste): sendMessageText,
- * sonst null (Standard des Widgets). Frühere Vorbelegung zählt nicht.
+ * Platzhalter im Eingabefeld des Chats (Chatblase und aufgeklappte Inline-
+ * Box; Feld „Platzhalter“ im Design Center): sendMessageText, sonst null
+ * (Standard des Widgets). Frühere Vorbelegung zählt nicht. Die eingeklappte
+ * Inline-Leiste hat eigene Texte (inlineBarPlaceholder).
  * @param {Object} visualConfig
  * @returns {string|null}
  */
@@ -175,13 +167,51 @@ function effectivePlaceholder(visualConfig = {}) {
 }
 
 /**
+ * Platzhalter der eingeklappten Inline-Leiste (Entscheidung D2): Standard
+ * ist der Demo-Text des Widgets („Stellen Sie hier Ihre Frage …“, je nach
+ * Sprache), nicht der Platzhalter des Chat-Eingabefelds. Nur ein früher im
+ * alten Design Center eigens gespeicherter Leistentext (inlineInputPlaceholder,
+ * höchstens 120 Zeichen wie im Widget) bleibt wirksam; sonst null.
+ * @param {Object} visualConfig
+ * @returns {string|null}
+ */
+function inlineBarPlaceholder(visualConfig = {}) {
+  const text = ownText(visualConfig?.inlineInputPlaceholder);
+  return text && text.length <= INLINE_TEXT_MAX_LEN ? text : null;
+}
+
+/**
+ * Text für die Begrüßungsblase (greetingBubbleText, im Widget höchstens 300
+ * Zeichen): bis 300 Zeichen unverändert, länger (alte Begrüßung ohne
+ * Längengrenze) auf ein Wortende gekürzt mit „…“. So gewinnt die Begrüßung
+ * aus dem Design Center auch dann gegen ein data-greeting-bubble-text am
+ * Skript. Wörtlich gleich previewGreetingBubble() im Design Center
+ * (widgetKeys.js, ein Test vergleicht beide).
+ * @param {string} text getrimmter Begrüßungstext
+ * @returns {string}
+ */
+function greetingBubbleText(text) {
+  if (text.length <= GREETING_BUBBLE_TEXT_MAX_LEN) return text;
+  let cut = text.slice(0, GREETING_BUBBLE_TEXT_MAX_LEN - 1);
+  const space = cut.search(/\s\S*$/);
+  if (space >= GREETING_WORD_CUT_MIN) cut = cut.slice(0, space);
+  // kein halbes Ersatzpaar (Emoji) am Ende
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return `${cut.replace(/[\s.,;:!?]+$/u, "")}…`;
+}
+
+/**
  * Datenschutz-Text prüfen und normalisieren wie privacyTextValue() im
  * Widget: Rohtext getrimmt, höchstens PRIVACY_TEXT_MAX_LEN Zeichen; Zeilen
  * getrimmt, leere verworfen; Altformat (keine Zeile mit „•“/„-“/„–“) auch
  * an „|“ getrennt; 1 bis PRIVACY_LINES_MAX Zeilen mit je höchstens
  * PRIVACY_LINE_MAX_LEN Zeichen. Rückgabe: Zeilen mit "\n" (Zeichen bleiben
- * stehen, das Widget macht daraus Punkte). Verletzt -> null (weglassen,
- * nicht kürzen; das Widget zeigt dann den Standardtext).
+ * stehen, das Widget macht daraus Punkte). Altformat mit mehreren Teilen
+ * kommt als „• “-Zeilen zurück (Review F08): sonst würde ein Teil, der mit
+ * „-“ beginnt („-10 % Rabatt“), beim nächsten Lesen zum einzigen Zeichen
+ * und alle übrigen Teile zu Absätzen. Eine Normalform bleibt so beim
+ * wiederholten Normalisieren gleich. Verletzt -> null (weglassen, nicht
+ * kürzen; das Widget zeigt dann den Standardtext).
  * @param {*} value
  * @returns {string|null}
  */
@@ -192,14 +222,16 @@ function normalizePrivacyText(value) {
   const clean = (parts) =>
     parts.map((l) => l.trim()).filter((l) => l.length > 0);
   let lines = clean(raw.split(/\r?\n/));
-  if (!lines.some((l) => PRIVACY_MARK_RE.test(l)))
-    lines = clean(raw.split(/\r?\n|\|/));
+  const marked = lines.some((l) => PRIVACY_MARK_RE.test(l));
+  if (!marked) lines = clean(raw.split(/\r?\n|\|/));
   if (
     lines.length === 0 ||
     lines.length > PRIVACY_LINES_MAX ||
     lines.some((l) => l.length > PRIVACY_LINE_MAX_LEN)
   )
     return null;
+  if (!marked && lines.length > 1)
+    lines = lines.map((l) => PRIVACY_BULLET_PREFIX + l);
   return lines.join("\n");
 }
 
@@ -220,8 +252,9 @@ function privacyTitleValue(value) {
 
 /**
  * Feste Standards auf die (bereits validierte) Konfiguration für das Widget
- * anwenden: entfallene Schlüssel entfernen, Begrüßung/Platzhalter/
- * Datenschutz aus den gespeicherten Texten setzen, feste Werte erzwingen.
+ * anwenden: Begrüßung, Platzhalter, Leistentext und Datenschutz aus den
+ * gespeicherten Texten setzen, feste Werte erzwingen. Was sonst ans Widget
+ * geht, legt allein die Erlaubtliste des Endpunkts fest (`mapped`).
  * Verändert `mapped` nicht, gibt ein neues Objekt zurück.
  * @param {Object} mapped Antwort von /config vor den Standards
  * @param {Object} visualConfig gespeicherte visual_config (Rohwerte)
@@ -231,25 +264,18 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
   const vc =
     visualConfig && typeof visualConfig === "object" ? visualConfig : {};
   const out = { ...mapped };
-  for (const key of EMBED_IGNORED_KEYS) delete out[key];
-  delete out.greeting;
-  delete out.sendMessageText;
-  delete out.privacyTitle;
-  delete out.privacyText;
 
   const greeting = effectiveGreeting(vc);
   if (greeting) {
     out.greeting = greeting;
-    // ältere Widget-Stände lesen die Blase aus greetingBubbleText
-    if (greeting.length <= GREETING_BUBBLE_TEXT_MAX_LEN)
-      out.greetingBubbleText = greeting;
+    // Das Widget liest die Blase zuerst aus greetingBubbleText (höchstens
+    // 300 Zeichen); ohne diesen Wert gewänne ein data-greeting-bubble-text.
+    out.greetingBubbleText = greetingBubbleText(greeting);
   }
   const placeholder = effectivePlaceholder(vc);
-  if (placeholder) {
-    out.sendMessageText = placeholder;
-    if (placeholder.length <= INLINE_TEXT_MAX_LEN)
-      out.inlineInputPlaceholder = placeholder;
-  }
+  if (placeholder) out.sendMessageText = placeholder;
+  const barPlaceholder = inlineBarPlaceholder(vc);
+  if (barPlaceholder) out.inlineInputPlaceholder = barPlaceholder;
   const privacyTitle = privacyTitleValue(vc.privacyTitle);
   if (privacyTitle !== undefined) out.privacyTitle = privacyTitle;
   const privacyText = normalizePrivacyText(vc.privacyText);
@@ -265,7 +291,6 @@ module.exports = {
   BUBBLE_COURSE_CARDS,
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
-  EMBED_IGNORED_KEYS,
   LEGACY_DEFAULT_GREETINGS,
   LEGACY_DEFAULT_PLACEHOLDERS,
   LEGACY_DEFAULT_PRIVACY_TITLES,
@@ -276,6 +301,8 @@ module.exports = {
   courseCardsForDisplayMode,
   effectiveGreeting,
   effectivePlaceholder,
+  inlineBarPlaceholder,
+  greetingBubbleText,
   normalizePrivacyText,
   privacyTitleValue,
   applyEmbedStandards,

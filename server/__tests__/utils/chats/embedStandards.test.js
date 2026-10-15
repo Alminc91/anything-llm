@@ -7,11 +7,12 @@ const {
   BUBBLE_COURSE_CARDS,
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
-  EMBED_IGNORED_KEYS,
   embedDisplayMode,
   courseCardsForDisplayMode,
   effectiveGreeting,
   effectivePlaceholder,
+  inlineBarPlaceholder,
+  greetingBubbleText,
   normalizePrivacyText,
   privacyTitleValue,
   applyEmbedStandards,
@@ -32,11 +33,10 @@ describe("Darstellung und Kurskarten", () => {
     expect(embedDisplayMode(input)).toBe(expected);
   });
 
-  test("Inline Karten an; Chatblase aus, bis die Browser-Abnahme sie freigibt", () => {
-    expect(BUBBLE_COURSE_CARDS).toBe("off");
-    expect(courseCardsForDisplayMode("inline")).toBe("auto");
-    expect(courseCardsForDisplayMode("bubble")).toBe("off");
-    expect(courseCardsForDisplayMode(undefined)).toBe("off");
+  test("D1: Karten in beiden Darstellungen an, auch ohne gespeicherte Darstellung (Browser-Abnahme rc2)", () => {
+    expect(BUBBLE_COURSE_CARDS).toBe("auto");
+    for (const mode of ["inline", "bubble", undefined, null, "", "kaputt"])
+      expect(courseCardsForDisplayMode(mode)).toBe("auto");
   });
 
   test("Karten wie Demo-Variante 4: zuerst die Karten, dann der kurze Text, Zeilenlayout", () => {
@@ -62,7 +62,6 @@ describe("Darstellung und Kurskarten", () => {
   test("Standards unveränderlich", () => {
     expect(Object.isFrozen(EMBED_FIXED_STANDARDS)).toBe(true);
     expect(Object.isFrozen(INLINE_FIXED_STANDARDS)).toBe(true);
-    expect(Object.isFrozen(EMBED_IGNORED_KEYS)).toBe(true);
   });
 });
 
@@ -100,6 +99,45 @@ describe("Begrüßung und Platzhalter", () => {
     ).toBe(null);
     expect(effectivePlaceholder({ sendMessageText: "" })).toBe(null);
   });
+
+  test("D2: Platzhalter des Chat-Eingabefelds gilt nicht für die Inline-Leiste", () => {
+    expect(inlineBarPlaceholder({ sendMessageText: "Ihre Frage an uns" })).toBe(
+      null
+    );
+    expect(inlineBarPlaceholder({})).toBe(null);
+  });
+
+  test("F04: früher eigens gespeicherter Leistentext bleibt wirksam (getrimmt, höchstens 120 Zeichen)", () => {
+    expect(
+      inlineBarPlaceholder({ inlineInputPlaceholder: " Was suchen Sie? " })
+    ).toBe("Was suchen Sie?");
+    expect(inlineBarPlaceholder({ inlineInputPlaceholder: "  " })).toBe(null);
+    expect(inlineBarPlaceholder({ inlineInputPlaceholder: 5 })).toBe(null);
+    expect(
+      inlineBarPlaceholder({ inlineInputPlaceholder: "x".repeat(120) })
+    ).toHaveLength(120);
+    expect(
+      inlineBarPlaceholder({ inlineInputPlaceholder: "x".repeat(121) })
+    ).toBe(null);
+  });
+
+  test("F07: Text der Begrüßungsblase höchstens 300 Zeichen, lange Begrüßung auf ein Wortende gekürzt", () => {
+    expect(greetingBubbleText("Hallo!")).toBe("Hallo!");
+    const exact = "y".repeat(300);
+    expect(greetingBubbleText(exact)).toBe(exact);
+    const words = Array(80).fill("Wort").join(" ");
+    const short = greetingBubbleText(words);
+    expect(short.length).toBeLessThanOrEqual(300);
+    expect(short).toMatch(/ Wort…$/);
+    expect(words.startsWith(short.slice(0, -1))).toBe(true);
+    // ein langes Wort: hart gekürzt, nie über 300
+    expect(greetingBubbleText("x".repeat(400))).toBe(`${"x".repeat(299)}…`);
+    // Satzzeichen vor dem „…“ fallen weg, kein halbes Emoji am Ende
+    const comma = `${"a".repeat(250)}, ${"b".repeat(60)}`;
+    expect(greetingBubbleText(comma)).toBe(`${"a".repeat(250)}…`);
+    const emoji = `${"c".repeat(298)}😀${"d".repeat(10)}`;
+    expect(greetingBubbleText(emoji)).toBe(`${"c".repeat(298)}…`);
+  });
 });
 
 describe("Datenschutz-Text", () => {
@@ -110,15 +148,30 @@ describe("Datenschutz-Text", () => {
     }
   });
 
-  test("Altformat bleibt Altformat (Zeilen bzw. „|“), das Widget zeigt mehrere Zeilen als Punkte", () => {
+  test("Altformat mit mehreren Teilen (Zeilen bzw. „|“) kommt als „• “-Zeilen, ein einzelner Satz bleibt Absatz", () => {
     const { privacyText } = embedDefaultTexts("de");
     const legacy = privacyText.replace(/^• /gm, "");
     expect(legacy).not.toMatch(/•/);
-    expect(normalizePrivacyText(legacy)).toBe(legacy);
-    expect(normalizePrivacyText(" a | b \n\n c ")).toBe("a\nb\nc");
+    expect(normalizePrivacyText(legacy)).toBe(privacyText);
+    expect(normalizePrivacyText(" a | b \n\n c ")).toBe("• a\n• b\n• c");
     expect(normalizePrivacyText("Ein einzelner Satz.")).toBe(
       "Ein einzelner Satz."
     );
+  });
+
+  test("F08: zweimal normalisiert bleibt gleich, ein Teil mit „-“ behält Zeichen und Bedeutung", () => {
+    const once = normalizePrivacyText("Kosten | -10 % Rabatt");
+    expect(once).toBe("• Kosten\n• -10 % Rabatt");
+    expect(normalizePrivacyText(once)).toBe(once);
+    for (const v of [
+      "a\nb",
+      "Fragen: datenschutz@vhs.de | Tel. 0591 123",
+      "• a\nAbsatz",
+      "Ein Satz",
+    ]) {
+      const first = normalizePrivacyText(v);
+      expect(normalizePrivacyText(first)).toBe(first);
+    }
   });
 
   test("freies Format: Zeichen bleiben stehen, „|“ trennt nicht, leere Zeilen fallen weg", () => {
@@ -135,7 +188,9 @@ describe("Datenschutz-Text", () => {
     expect(normalizePrivacyText(`${twelve}\nc`)).toBe(null);
     expect(normalizePrivacyText(`• ${"x".repeat(498)}`)).toHaveLength(500);
     expect(normalizePrivacyText(`• ${"x".repeat(499)}`)).toBe(null);
-    expect(normalizePrivacyText("1|2|3|4|5|6")).toBe("1\n2\n3\n4\n5\n6");
+    expect(normalizePrivacyText("1|2|3|4|5|6")).toBe(
+      "• 1\n• 2\n• 3\n• 4\n• 5\n• 6"
+    );
   });
 
   test("ungültig -> null (weglassen, nicht kürzen)", () => {
@@ -155,20 +210,32 @@ describe("Datenschutz-Text", () => {
 
 describe("applyEmbedStandards", () => {
   test("verändert die Eingabe nicht", () => {
-    const mapped = { windowWidth: "420px", theme: "dark" };
+    const mapped = { theme: "dark" };
     const vc = { greeting: "Hallo" };
     const out = applyEmbedStandards(mapped, vc);
-    expect(mapped).toEqual({ windowWidth: "420px", theme: "dark" });
+    expect(mapped).toEqual({ theme: "dark" });
     expect(vc).toEqual({ greeting: "Hallo" });
-    expect(out).not.toHaveProperty("windowWidth");
     expect(out.theme).toBe("dark");
     expect(out.greeting).toBe("Hallo");
+    expect(out.greetingBubbleText).toBe("Hallo");
   });
 
-  test("entfallene Schlüssel fehlen immer, auch wenn sie im Eingang stehen", () => {
-    const mapped = Object.fromEntries(EMBED_IGNORED_KEYS.map((k) => [k, "x"]));
-    const out = applyEmbedStandards(mapped, {});
-    for (const key of EMBED_IGNORED_KEYS) expect(out).not.toHaveProperty(key);
+  test("C01: setzt nur abgeleitete und feste Werte, was ans Widget geht bestimmt die Erlaubtliste des Endpunkts", () => {
+    const out = applyEmbedStandards({ buttonColor: "#123456" }, {});
+    expect(out).toEqual({
+      buttonColor: "#123456",
+      ...EMBED_FIXED_STANDARDS,
+      ...INLINE_FIXED_STANDARDS,
+      courseCards: "auto",
+    });
+  });
+
+  test("F07: lange Begrüßung kommt gekürzt auch als greetingBubbleText (sonst gewänne das Script-Attribut)", () => {
+    const long = Array(80).fill("Wort").join(" ");
+    const out = applyEmbedStandards({}, { greeting: long });
+    expect(out.greeting).toBe(long);
+    expect(out.greetingBubbleText).toBe(greetingBubbleText(long));
+    expect(out.greetingBubbleText.length).toBeLessThanOrEqual(300);
   });
 
   test("kein Gedankenstrich in festen Werten", () => {

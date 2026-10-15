@@ -66,8 +66,11 @@ function CopyBlock({ snippet, copiedToast, label }) {
     showToast(copiedToast, "success", { clear: true });
   };
   return (
-    <div className="rounded-lg border border-white/10 bg-black/30 overflow-hidden">
-      <pre className="text-xs text-white font-mono p-3.5 overflow-x-auto whitespace-pre">
+    <div className="rounded-lg border border-white/10 bg-theme-settings-input-bg overflow-hidden">
+      {/* Lange Zeilen (src mit Adresse) brechen um, statt waagerecht zu
+          scrollen (Browser-Abnahme B-07); Kopieren liefert den Text
+          unverändert. */}
+      <pre className="text-xs text-white font-mono p-3.5 whitespace-pre-wrap break-all">
         {snippet}
       </pre>
       <div className="flex justify-end px-3 pb-3">
@@ -112,7 +115,7 @@ function Step({ number, title, note = null, children }) {
 function PageSketch({ inline }) {
   return (
     <div
-      className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-2 text-[11px] text-theme-text-secondary"
+      className="rounded-lg border border-white/10 bg-theme-bg-secondary p-3 space-y-2 text-[11px] text-theme-text-secondary"
       aria-hidden="true"
     >
       <div className="flex gap-3 border-b border-white/10 pb-2">
@@ -129,8 +132,8 @@ function PageSketch({ inline }) {
           <span className="flex-1">Platzhalter: hier erscheint die Leiste</span>
         </div>
       )}
-      <div className="h-2 rounded bg-white/10 w-10/12" />
-      <div className="h-2 rounded bg-white/10 w-7/12" />
+      <div className="h-2 rounded bg-theme-sidebar-border w-10/12" />
+      <div className="h-2 rounded bg-theme-sidebar-border w-7/12" />
       <div className="flex items-center gap-2 border-t border-white/10 pt-2">
         <span className="font-semibold">Footer</span>
         <span className="w-5 h-5 rounded-full bg-primary-button text-white text-[10px] font-semibold flex items-center justify-center">
@@ -148,8 +151,10 @@ export default function EmbedTab({ config, embed }) {
     <>
       <p className="text-theme-text-secondary text-xs leading-relaxed">
         Bei der Chatblase genügt das Skript, bei Inline kommt der Platzhalter
-        dazu. Alle Einstellungen kommen automatisch aus dem Design Center. Nach
-        dem Speichern muss auf der Website nichts geändert werden.
+        dazu. Alle Einstellungen kommen automatisch aus dem Design Center und
+        gelten auch dann, wenn am Skript noch ältere Angaben stehen (z. B.
+        data-theme). Nach dem Speichern muss auf der Website nichts geändert
+        werden.
       </p>
 
       <Step

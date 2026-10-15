@@ -8,6 +8,7 @@ import {
   createRenderer,
   hasFrontendDeps,
 } from "./helpers/renderSettingsPage.mjs";
+import { click, elements } from "./helpers/testDom.mjs";
 
 const DIR = "/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAppearance";
 const APPEARANCE = `${DIR}/AppearanceTab.jsx`;
@@ -58,6 +59,7 @@ const contentProps = (config) => ({
   updateField: noop,
   updateOptionalField: noop,
   resetKeys: noop,
+  applySuggestion: noop,
   addListItem: noop,
   updateListItem: noop,
   removeListItem: noop,
@@ -318,5 +320,229 @@ test(
     assert.match(dark, /data-preview="inline-bar"/);
     assert.ok(text(dark).includes("Stellen Sie hier Ihre Frage …"));
     assert.ok(text(dark).includes("Chatten"));
+  }
+);
+
+test(
+  "D1: Kasten „Fest eingebaut“ der Chatblase nennt Kurskarten (nicht mehr „nur bei Inline“)",
+  { skip },
+  async () => {
+    const t = text(
+      await show(APPEARANCE, {
+        config: {},
+        updateField: noop,
+        logoPreview: null,
+      })
+    );
+    assert.ok(t.includes("Kurskarten zuerst, dann die kurze Antwort"));
+    assert.ok(!t.includes("nur bei Inline"));
+    assert.ok(!t.includes("Antworten mit Kurs-Links"));
+  }
+);
+
+test(
+  "B-07/C04/27: Einbau bricht lange Zeilen um, Theme-Farben statt fester Farben, Hinweis auf ältere Angaben am Skript",
+  { skip },
+  async () => {
+    for (const config of [{}, { displayMode: "inline" }]) {
+      const html = await show(EMBED, { config, embed: { uuid: "abc-123" } });
+      const pres = html.match(/<pre class="[^"]*"/g);
+      assert.ok(pres.length >= 1);
+      for (const pre of pres) {
+        assert.match(pre, /whitespace-pre-wrap/);
+        assert.match(pre, /break-all/);
+        assert.doesNotMatch(pre, /overflow-x-auto|whitespace-pre[ "]/);
+      }
+      assert.doesNotMatch(html, /bg-black\/30|bg-white\/5|bg-white\/10/);
+      assert.ok(
+        text(html).includes(
+          "Alle Einstellungen kommen automatisch aus dem Design Center und gelten auch dann, wenn am Skript noch ältere Angaben stehen (z. B. data-theme)."
+        )
+      );
+    }
+    const look = await show(APPEARANCE, {
+      config: {},
+      updateField: noop,
+      logoPreview: null,
+    });
+    assert.doesNotMatch(look, /bg-black\/30|bg-white\/5|bg-white\/10/);
+  }
+);
+
+test(
+  "B-06: ohne gespeicherte Kundenfarbe zeigen Aussehen und Vorschau das Türkis des Widgets",
+  { skip },
+  async () => {
+    const look = await show(APPEARANCE, {
+      config: {},
+      updateField: noop,
+      logoPreview: null,
+    });
+    assert.match(look, /type="color"[^>]*value="#01A5A9"/i);
+    assert.ok(!look.includes("#607D8B"));
+    const preview = await show(PREVIEW, {
+      config: {},
+      logoPreview: null,
+      defaults: DEFAULTS,
+      greetingKey: "greeting",
+    });
+    assert.match(preview, /background-color:#01A5A9/i);
+    assert.ok(!preview.includes("#607D8B"));
+  }
+);
+
+test(
+  "D2: Inline-Leiste der Vorschau mit Demo-Text, auch mit eigenem Platzhalter des Chat-Felds; früherer Leistentext gilt",
+  { skip },
+  async () => {
+    const own = text(
+      await show(PREVIEW, {
+        config: { displayMode: "inline", sendMessageText: "Ihre Frage an uns" },
+        logoPreview: null,
+        defaults: DEFAULTS,
+        greetingKey: "greeting",
+      })
+    );
+    assert.ok(own.includes("Stellen Sie hier Ihre Frage …"));
+    assert.ok(!own.includes("Ihre Frage an uns"));
+    const legacy = text(
+      await show(PREVIEW, {
+        config: {
+          displayMode: "inline",
+          inlineInputPlaceholder: "Was suchen Sie?",
+        },
+        logoPreview: null,
+        defaults: DEFAULTS,
+        greetingKey: "greeting",
+      })
+    );
+    assert.ok(legacy.includes("Was suchen Sie?"));
+    // Hinweis beim Feld „Platzhalter“
+    const bubbleHint = text(await show(CONTENT, contentProps({})));
+    assert.ok(
+      bubbleHint.includes(
+        "Grauer Text im Eingabefeld des Chats. Leer = Standard."
+      )
+    );
+    assert.ok(!bubbleHint.includes("in der Inline-Leiste"));
+    const inlineHint = text(
+      await show(CONTENT, contentProps({ displayMode: "inline" }))
+    );
+    assert.ok(
+      inlineHint.includes(
+        "Die eingeklappte Leiste zeigt fest „Stellen Sie hier Ihre Frage …“."
+      )
+    );
+    const legacyHint = text(
+      await show(
+        CONTENT,
+        contentProps({
+          displayMode: "inline",
+          inlineInputPlaceholder: "Was suchen Sie?",
+        })
+      )
+    );
+    assert.ok(
+      legacyHint.includes(
+        "Die eingeklappte Leiste zeigt Ihren früher gespeicherten Text „Was suchen Sie?“."
+      )
+    );
+  }
+);
+
+test(
+  "B-06: aufgeklapptes Inline-Panel der Vorschau schneidet nichts ab (keine feste Höhe, kein verstecktes Scrollen)",
+  { skip },
+  async (t) => {
+    const mounted = await renderer.mount(PREVIEW, {
+      location: "/",
+      props: {
+        config: { displayMode: "inline" },
+        logoPreview: null,
+        defaults: DEFAULTS,
+        greetingKey: "greeting",
+      },
+    });
+    t.after(() => mounted.unmount());
+    const { container, act } = mounted;
+    const bar = elements(
+      container,
+      (el) => el.getAttribute("data-preview") === "inline-bar"
+    )[0];
+    await act(() => click(elements(bar, (el) => el.tagName === "BUTTON")[0]));
+    const panel = elements(
+      container,
+      (el) => el.getAttribute("data-preview") === "inline-panel"
+    )[0];
+    assert.ok(panel, "Panel aufgeklappt");
+    const style = panel.getAttribute("style") || "";
+    assert.doesNotMatch(style, /(^|;)\s*height:/);
+    assert.doesNotMatch(style, /max-height/);
+    const messages = elements(
+      panel,
+      (el) => el.getAttribute("data-preview") === "inline-messages"
+    )[0];
+    assert.doesNotMatch(messages.getAttribute("class"), /overflow|no-scroll/);
+    assert.ok(
+      elements(
+        panel,
+        (el) => el.getAttribute("data-preview") === "privacy-bubble"
+      ).length === 1
+    );
+  }
+);
+
+test(
+  "F09/F07: Hinweise beim Datenschutz-Text und bei einer langen alten Begrüßung",
+  { skip },
+  async () => {
+    const nbsp = text(
+      await show(CONTENT, {
+        ...contentProps({ privacyText: "\u00a0• Punkt\nAbsatz" }),
+        initialConfig: {},
+      })
+    );
+    assert.ok(!nbsp.includes("Ohne eine Zeile mit"));
+    const legacy = text(
+      await show(CONTENT, {
+        // gerade eingetippt (nicht der gespeicherte Stand)
+        ...contentProps({ privacyText: "a\nb" }),
+        initialConfig: {},
+      })
+    );
+    assert.ok(legacy.includes("Ohne eine Zeile mit „•“ oder „-“"));
+    const long = Array(80).fill("Willkommen").join(" ");
+    const greeting = text(
+      await show(CONTENT, contentProps({ greeting: long }))
+    );
+    assert.ok(
+      greeting.includes(
+        "Der gespeicherte Text ist länger als 300 Zeichen. Im Chat erscheint er gekürzt (wie in der Vorschau)."
+      )
+    );
+  }
+);
+
+test(
+  "D6: leere Listen zeigen den Vorschlag mit „Vorschläge übernehmen“, gefüllte nicht",
+  { skip },
+  async () => {
+    const empty = text(await show(CONTENT, contentProps({})));
+    assert.ok(empty.includes("Noch keine gespeichert. Vorschlag:"));
+    assert.ok(empty.includes("Welche Sprachkurse gibt es?"));
+    assert.ok(empty.includes("Möchten Sie mehr über unser Angebot erfahren?"));
+    assert.ok(empty.includes("Vorschlag übernehmen"));
+    const filled = text(
+      await show(
+        CONTENT,
+        contentProps({
+          defaultMessages: ["A?"],
+          chatbotBubblesMessages: ["Hallo!"],
+          assistantSubtitle: "Online",
+        })
+      )
+    );
+    assert.ok(!filled.includes("Noch keine gespeichert"));
+    assert.ok(!filled.includes("Vorschlag übernehmen"));
   }
 );

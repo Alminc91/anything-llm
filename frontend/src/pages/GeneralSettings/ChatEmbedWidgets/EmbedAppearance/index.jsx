@@ -13,11 +13,9 @@ import ContentTab from "./ContentTab";
 import EmbedTab from "./EmbedTab";
 import WidgetPreview from "./WidgetPreview";
 import {
-  DEFAULT_SUGGESTIONS,
   FIELD_TAB,
   cleanConfig,
   greetingKey as storedGreetingKey,
-  isBlank,
   validateConfig,
 } from "./widgetKeys";
 
@@ -26,23 +24,13 @@ import {
 // eingebaut (Server: utils/chats/embedStandards.js). Gespeicherte Werte
 // entfallener Optionen bleiben beim Speichern unverändert stehen.
 
-// Werte für fehlende Schlüssel (nur Aussehen und die Willkommensblasen der
-// Chatblase). Name, Begrüßung, Platzhalter und Datenschutz kommen aus den
-// Kufer-Standardtexten (GET /embed/defaults), damit keine Vorbelegung als
-// eigener Text gespeichert wird.
-const DEFAULT_CONFIG = {
-  accentColor: "#607D8B",
-  userTextColor: "#FFFFFF",
-  chatIcon: "chatBubble",
-  position: "bottom-left",
-  supportEmail: "",
-  chatbotBubblesMessages: [
-    "Hallo! Ich bin Ihr KI-Berater.",
-    "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",
-  ],
-  logoFilename: null,
-  logoUrl: null,
-};
+// Bearbeitet wird genau die gespeicherte visual_config (Entscheidung D6):
+// Fehlende Schlüssel zeigen die Reiter mit dem Standard des Widgets
+// (widgetKeys.js LOOK_DEFAULTS, Kufer-Standardtexte aus GET /embed/defaults)
+// bzw. als Vorschlag (Startvorschläge, Willkommensblasen, Untertitel), ohne
+// sie in den Bearbeitungsstand zu schreiben. Gespeichert wird so nur, was
+// der Kunde ändert oder als Vorschlag übernimmt; ein neues Widget ist beim
+// Öffnen nicht „ungespeichert“.
 
 const TABS = [
   { id: "aussehen", label: "Aussehen" },
@@ -73,15 +61,13 @@ export default function EmbedAppearance() {
   // Alle Widgets, die der Nutzer sieht – nur für die Bezeichnung in der
   // Kopfzeile: Ob sie die Widget-Nummer braucht, hängt von den übrigen ab.
   const [embeds, setEmbeds] = useState([]);
-  const [config, setConfig] = useState({ ...DEFAULT_CONFIG });
-  const [initialConfig, setInitialConfig] = useState({ ...DEFAULT_CONFIG });
+  const [config, setConfig] = useState({});
+  const [initialConfig, setInitialConfig] = useState({});
   const [activeTab, setActiveTab] = useState("aussehen");
   const [logoPreview, setLogoPreview] = useState(null);
   // Schlüssel des Begrüßungstexts (früherer Blasentext hat Vorrang), aus
   // dem gespeicherten Stand bestimmt
   const [greetingKey, setGreetingKey] = useState("greeting");
-  // Vorbelegung für neue bzw. leere Felder, sobald die Standardtexte da sind
-  const [prefill, setPrefill] = useState(null);
   // Kufer-Standardtexte (GET /embed/defaults); null = nicht (oder noch
   // nicht) geladen. defaultsError: Laden fehlgeschlagen -> nichts gilt als
   // Standard, „Standardtext“ ist deaktiviert.
@@ -111,7 +97,7 @@ export default function EmbedAppearance() {
             visualConfig = parsed;
         } catch {}
       }
-      const loadedConfig = { ...DEFAULT_CONFIG, ...visualConfig };
+      const loadedConfig = { ...visualConfig };
       // Migrate legacy pure black to the softer charcoal that pairs better
       // with warm accent colors and matches the assistant text color in the live widget.
       if (loadedConfig.userTextColor === "#000000") {
@@ -119,17 +105,7 @@ export default function EmbedAppearance() {
       }
       setGreetingKey(storedGreetingKey(visualConfig));
       setInitialConfig(loadedConfig);
-      // Vorbelegung neuer bzw. leerer Felder: als ungespeicherte Änderung,
-      // damit sie mit dem ersten Speichern auf die Website kommt
-      setConfig(
-        Array.isArray(visualConfig.defaultMessages)
-          ? loadedConfig
-          : { ...loadedConfig, defaultMessages: [...DEFAULT_SUGGESTIONS] }
-      );
-      setPrefill({
-        name: isBlank(visualConfig.name),
-        subtitle: !embedData.visual_config,
-      });
+      setConfig(loadedConfig);
 
       if (visualConfig.logoFilename) {
         setLogoPreview(
@@ -164,24 +140,6 @@ export default function EmbedAppearance() {
     };
   }, []);
 
-  // Name (leer) und Untertitel (neues Widget) mit dem Vorschlag vorbelegen
-  useEffect(() => {
-    if (!prefill || !defaults) return;
-    setConfig((prev) => {
-      const next = { ...prev };
-      if (prefill.name && isBlank(next.name) && defaults.name)
-        next.name = defaults.name;
-      if (
-        prefill.subtitle &&
-        !("assistantSubtitle" in next) &&
-        defaults.assistantSubtitle
-      )
-        next.assistantSubtitle = defaults.assistantSubtitle;
-      return next;
-    });
-    setPrefill(null);
-  }, [prefill, defaults]);
-
   const updateField = useCallback((field, value) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
   }, []);
@@ -205,6 +163,16 @@ export default function EmbedAppearance() {
       return next;
     });
   }, []);
+
+  // Vorschlag übernehmen (Startvorschläge, Willkommensblasen, Untertitel):
+  // erst damit wird er Teil des Bearbeitungsstands und beim Speichern
+  // geschrieben
+  const applySuggestion = (field, value) => {
+    setConfig((prev) => ({
+      ...prev,
+      [field]: Array.isArray(value) ? [...value] : value,
+    }));
+  };
 
   const addListItem = (field) => {
     setConfig((prev) => ({
@@ -383,6 +351,7 @@ export default function EmbedAppearance() {
                 updateField={updateField}
                 updateOptionalField={updateOptionalField}
                 resetKeys={resetKeys}
+                applySuggestion={applySuggestion}
                 addListItem={addListItem}
                 updateListItem={updateListItem}
                 removeListItem={removeListItem}

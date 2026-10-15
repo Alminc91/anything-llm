@@ -9,14 +9,17 @@ import {
   POSITION_OPTIONS,
   THEME_OPTIONS,
   USER_TEXT_COLOR_OPTIONS,
+  DEFAULT_ACCENT_COLOR,
   displayMode,
+  lookValue,
   themeChoice,
   textValue,
 } from "./widgetKeys";
 
 // Feste Standards je Darstellung (wie server/utils/chats/embedStandards.js).
-// Chatblase: Kurskarten aus (BUBBLE_COURSE_CARDS "off"), bis sie im Browser
-// geprüft sind; bei einer Änderung dort auch diesen Text anpassen.
+// Kurskarten seit 7.22-rc3 in beiden Darstellungen (BUBBLE_COURSE_CARDS
+// "auto", Entscheidung D1); bei einer Änderung dort auch diesen Text
+// anpassen.
 export const FIXED_STANDARDS = {
   bubble: {
     title: "Fest eingebaut, für alle Chatbots gleich",
@@ -24,7 +27,7 @@ export const FIXED_STANDARDS = {
       "Begrüßung als Blase",
       "Startvorschläge als Knöpfe",
       "Folgefragen als Knöpfe",
-      "Antworten mit Kurs-Links (Kurskarten nur bei Inline)",
+      "Kurskarten zuerst, dann die kurze Antwort",
       "Datenschutz als zweite Blase",
       "KI-Hinweis unter der Eingabe",
       "Fenstergröße und Randabstand",
@@ -52,7 +55,7 @@ export function FixedStandardsBox({ mode }) {
   const { title, items, note } = FIXED_STANDARDS[mode];
   return (
     <div
-      className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3"
+      className="rounded-lg border border-white/10 bg-theme-bg-secondary p-4 space-y-3"
       data-testid="fixed-standards"
     >
       <p className="flex items-center gap-2 text-white text-sm font-semibold">
@@ -92,7 +95,11 @@ export default function AppearanceTab({
   onLogoRemove,
 }) {
   const mode = displayMode(config);
-  const accentColor = textValue(config.accentColor) || "#607D8B";
+  // ohne gespeicherte Farbe der Standard des Widgets (wie live)
+  const accentColor = lookValue(config, "accentColor");
+  const userTextColor = lookValue(config, "userTextColor");
+  const position = lookValue(config, "position");
+  const chatIcon = lookValue(config, "chatIcon");
   const theme = themeChoice(config);
   return (
     <>
@@ -150,7 +157,7 @@ export default function AppearanceTab({
             value={textValue(config.accentColor)}
             onChange={(e) => updateField("accentColor", e.target.value)}
             className="bg-transparent text-white text-sm px-2.5 py-2.5 w-full font-mono outline-none"
-            placeholder="#607D8B"
+            placeholder={DEFAULT_ACCENT_COLOR}
             aria-label="Kundenfarbe als Farbcode"
           />
         </div>
@@ -167,7 +174,7 @@ export default function AppearanceTab({
               type="button"
               onClick={() => updateField("userTextColor", opt.value)}
               className={`flex items-center gap-2 px-5 py-2 text-sm font-medium transition-all ${
-                (config.userTextColor || "#FFFFFF") === opt.value
+                userTextColor === opt.value
                   ? "bg-primary-button text-white"
                   : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"
               }`}
@@ -191,7 +198,7 @@ export default function AppearanceTab({
             <img
               src={logoPreview || DEFAULT_LOGO}
               alt="Logo"
-              className="h-12 w-12 rounded-lg object-contain bg-white/5 border border-white/10"
+              className="h-12 w-12 rounded-lg object-contain bg-theme-settings-input-bg border border-white/10"
             />
             {logoPreview && (
               <button
@@ -224,7 +231,7 @@ export default function AppearanceTab({
           >
             <Segmented
               options={POSITION_OPTIONS}
-              value={config.position}
+              value={position}
               onChange={(v) => updateField("position", v)}
             />
           </SettingsSection>
@@ -235,7 +242,7 @@ export default function AppearanceTab({
           >
             <div className="flex gap-2.5 flex-wrap">
               {CHAT_ICONS.map(({ id, label, Icon }) => {
-                const isSelected = config.chatIcon === id;
+                const isSelected = chatIcon === id;
                 return (
                   <button
                     key={id}

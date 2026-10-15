@@ -2,10 +2,14 @@
 // Startvorschläge, nur bei Chatblase die Willkommensblasen, Datenschutz-
 // Hinweis (Überschrift, Link, Text), Platzhalter und Support-E-Mail.
 // Texte mit Kufer-Standard zeigen ihn als Wert; „Standardtext“ setzt ihn
-// wieder ein (gespeichert wird nur eine Abweichung).
+// wieder ein (gespeichert wird nur eine Abweichung). Vorschläge
+// (Startvorschläge, Willkommensblasen, Untertitel) stehen nur sichtbar da
+// und werden erst mit „übernehmen“ Teil des Bearbeitungsstands (D6).
 import { ArrowCounterClockwise, Plus, Trash } from "@phosphor-icons/react";
 import { SettingsSection, GroupHeading, inputClass } from "./controls";
 import {
+  DEFAULT_SUGGESTIONS,
+  DEFAULT_WELCOME_BUBBLES,
   GREETING_MAX_LEN,
   PLACEHOLDER_MAX_LEN,
   PRIVACY_TITLE_MAX_LEN,
@@ -14,9 +18,12 @@ import {
   displayMode,
   greetingFieldValue,
   placeholderFieldValue,
+  previewInlineBar,
   privacyFieldText,
   privacyTitleFieldValue,
+  privacyWithoutMarks,
   sameAsDefault,
+  storedInlineBarPlaceholder,
   textValue,
 } from "./widgetKeys";
 
@@ -48,6 +55,46 @@ function StandardTextButton({ isStandard, defaultsError, onReset }) {
       <ArrowCounterClockwise size={13} weight="bold" />
       Standardtext
     </button>
+  );
+}
+
+// Kleiner Knopf neben einem Feld bzw. unter einem Vorschlag
+function SuggestionButton({ label, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 text-xs text-theme-text-secondary hover:text-white transition-colors"
+    >
+      <Plus size={13} weight="bold" />
+      {label}
+    </button>
+  );
+}
+
+// Vorschlag für eine leere Liste: grau sichtbar, gespeichert wird er erst
+// nach „übernehmen“ (Entscheidung D6)
+function ListSuggestion({ items, onApply, label }) {
+  return (
+    <div
+      className="rounded-lg border border-dashed border-white/20 px-3 py-2.5 space-y-1.5"
+      data-suggestion=""
+    >
+      <p className="text-xs text-theme-text-secondary">
+        Noch keine gespeichert. Vorschlag:
+      </p>
+      <ul className="space-y-0.5">
+        {items.map((item) => (
+          <li
+            key={item}
+            className="text-xs text-theme-text-secondary opacity-80"
+          >
+            {item}
+          </li>
+        ))}
+      </ul>
+      <SuggestionButton label={label} onClick={onApply} />
+    </div>
   );
 }
 
@@ -119,6 +166,7 @@ export default function ContentTab({
   updateField,
   updateOptionalField,
   resetKeys,
+  applySuggestion,
   addListItem,
   updateListItem,
   removeListItem,
@@ -128,6 +176,18 @@ export default function ContentTab({
   const greeting = greetingFieldValue(config, greetingKey, defaults);
   const greetingIsStandard =
     !defaults || sameAsDefault("greeting", greeting, defaults);
+  // Begrüßung von früher ohne Längengrenze: unverändert erlaubt, im Chat
+  // aber gekürzt (Review F07)
+  const greetingTooLongStored =
+    greeting.trim().length > GREETING_MAX_LEN &&
+    config[greetingKey] === initialConfig[greetingKey];
+  // Vorschlag nur, solange die Liste keine Einträge (auch keine leeren
+  // Eingabefelder) hat
+  const listLength = (key) =>
+    Array.isArray(config[key]) ? config[key].length : 0;
+  const subtitleSuggestion = textValue(defaults?.assistantSubtitle);
+  const inlineBar = previewInlineBar(config, defaults);
+  const storedBarText = storedInlineBarPlaceholder(config);
 
   const privacyTitle = privacyTitleFieldValue(config, defaults);
 
@@ -142,9 +202,7 @@ export default function ContentTab({
   const privacyIsStandard =
     !defaults || sameAsDefault("privacyText", privacyText, defaults);
   // Altformat mit mehreren Zeilen (ohne „•“/„-“): das Widget zeigt Punkte
-  const privacyWithoutMarks =
-    !/^[ \t]*[•\-–]/m.test(privacyText) &&
-    privacyText.split(/\r?\n|\|/).filter((l) => l.trim()).length > 1;
+  const legacyPoints = privacyWithoutMarks(privacyText);
 
   return (
     <>
@@ -159,9 +217,24 @@ export default function ContentTab({
         />
       </SettingsSection>
       <div>
-        <FieldTitle title="Untertitel" optional />
+        <FieldTitle
+          title="Untertitel"
+          optional
+          action={
+            subtitleSuggestion &&
+            !textValue(config.assistantSubtitle).trim() && (
+              <SuggestionButton
+                label="Vorschlag übernehmen"
+                onClick={() =>
+                  applySuggestion("assistantSubtitle", subtitleSuggestion)
+                }
+              />
+            )
+          }
+        />
         <p className="text-theme-text-secondary text-xs mb-2.5 leading-relaxed">
-          Kleine Zeile unter dem Namen. Leer = kein Untertitel.
+          Kleine Zeile unter dem Namen. Leer = kein Untertitel, der Vorschlag
+          steht grau im Feld.
         </p>
         <input
           type="text"
@@ -209,7 +282,9 @@ export default function ContentTab({
           <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
             {greeting.trim() === ""
               ? "Leer: es gilt der Standardtext."
-              : `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen. Der Datenschutz-Hinweis folgt als eigene, zweite Blase.`}
+              : greetingTooLongStored
+                ? `Der gespeicherte Text ist länger als ${GREETING_MAX_LEN} Zeichen. Im Chat erscheint er gekürzt (wie in der Vorschau).`
+                : `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen. Der Datenschutz-Hinweis folgt als eigene, zweite Blase.`}
           </p>
         )}
       </div>
@@ -219,18 +294,34 @@ export default function ContentTab({
           title="Willkommensblasen"
           hint="Kleine Sprechblasen neben dem geschlossenen Chat-Knopf. Bleiben wie bisher."
         >
-          <MessageList
-            items={
-              Array.isArray(config.chatbotBubblesMessages)
-                ? config.chatbotBubblesMessages
-                : []
-            }
-            onAdd={() => addListItem("chatbotBubblesMessages")}
-            onUpdate={(i, v) => updateListItem("chatbotBubblesMessages", i, v)}
-            onRemove={(i) => removeListItem("chatbotBubblesMessages", i)}
-            placeholder="z. B. Hallo! Kann ich Ihnen helfen?"
-            addLabel="Blase hinzufügen"
-          />
+          <div className="space-y-2">
+            {listLength("chatbotBubblesMessages") === 0 && (
+              <ListSuggestion
+                items={DEFAULT_WELCOME_BUBBLES}
+                label="Vorschläge übernehmen"
+                onApply={() =>
+                  applySuggestion(
+                    "chatbotBubblesMessages",
+                    DEFAULT_WELCOME_BUBBLES
+                  )
+                }
+              />
+            )}
+            <MessageList
+              items={
+                Array.isArray(config.chatbotBubblesMessages)
+                  ? config.chatbotBubblesMessages
+                  : []
+              }
+              onAdd={() => addListItem("chatbotBubblesMessages")}
+              onUpdate={(i, v) =>
+                updateListItem("chatbotBubblesMessages", i, v)
+              }
+              onRemove={(i) => removeListItem("chatbotBubblesMessages", i)}
+              placeholder="z. B. Hallo! Kann ich Ihnen helfen?"
+              addLabel="Blase hinzufügen"
+            />
+          </div>
         </SettingsSection>
       )}
 
@@ -238,16 +329,29 @@ export default function ContentTab({
         title="Startvorschläge"
         hint="Knöpfe mit Fragen, die Besucher mit einem Klick stellen können."
       >
-        <MessageList
-          items={
-            Array.isArray(config.defaultMessages) ? config.defaultMessages : []
-          }
-          onAdd={() => addListItem("defaultMessages")}
-          onUpdate={(i, v) => updateListItem("defaultMessages", i, v)}
-          onRemove={(i) => removeListItem("defaultMessages", i)}
-          placeholder="z. B. Wie melde ich mich an?"
-          addLabel="Vorschlag hinzufügen"
-        />
+        <div className="space-y-2">
+          {listLength("defaultMessages") === 0 && (
+            <ListSuggestion
+              items={DEFAULT_SUGGESTIONS}
+              label="Vorschläge übernehmen"
+              onApply={() =>
+                applySuggestion("defaultMessages", DEFAULT_SUGGESTIONS)
+              }
+            />
+          )}
+          <MessageList
+            items={
+              Array.isArray(config.defaultMessages)
+                ? config.defaultMessages
+                : []
+            }
+            onAdd={() => addListItem("defaultMessages")}
+            onUpdate={(i, v) => updateListItem("defaultMessages", i, v)}
+            onRemove={(i) => removeListItem("defaultMessages", i)}
+            placeholder="z. B. Wie melde ich mich an?"
+            addLabel="Vorschlag hinzufügen"
+          />
+        </div>
       </SettingsSection>
 
       <GroupHeading
@@ -310,8 +414,8 @@ export default function ContentTab({
           <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
             {privacyText.trim() === ""
               ? "Leer: es gilt der Standardtext."
-              : privacyWithoutMarks
-                ? `${PRIVACY_RULE} Ohne eine Zeile mit „•“ oder „-“ werden mehrere Zeilen als Punkte gezeigt (wie bisher).`
+              : legacyPoints
+                ? `${PRIVACY_RULE} Ohne eine Zeile mit „•“ oder „-“ werden mehrere Zeilen als Punkte gezeigt (wie bisher) und so gespeichert.`
                 : PRIVACY_RULE}
           </p>
         )}
@@ -320,7 +424,13 @@ export default function ContentTab({
       <GroupHeading title="Eingabe" />
       <SettingsSection
         title="Platzhalter im Eingabefeld"
-        hint="Grauer Text im Eingabefeld, in der Chatblase und in der Inline-Leiste. Leer = Standard."
+        hint={
+          bubble
+            ? "Grauer Text im Eingabefeld des Chats. Leer = Standard."
+            : storedBarText
+              ? `Grauer Text im Eingabefeld des Chats. Leer = Standard. Die eingeklappte Leiste zeigt Ihren früher gespeicherten Text „${storedBarText}“.`
+              : `Grauer Text im Eingabefeld des Chats. Leer = Standard. Die eingeklappte Leiste zeigt fest „${inlineBar.placeholder}“.`
+        }
         error={errors.sendMessageText}
       >
         <input

@@ -121,11 +121,12 @@ const {
   INLINE_FIXED_STANDARDS,
 } = require("../../utils/chats/embedStandards");
 
-// Antwort ohne eigene Werte: nur die festen Standards (Chatblase: Karten aus)
+// Antwort ohne eigene Werte: nur die festen Standards (Karten seit 7.22-rc3
+// in beiden Darstellungen an, Entscheidung D1)
 const STANDARD = {
   ...EMBED_FIXED_STANDARDS,
   ...INLINE_FIXED_STANDARDS,
-  courseCards: "off",
+  courseCards: "auto",
 };
 
 describe("GET /embed/:embedId/config — feste Standards", () => {
@@ -139,7 +140,7 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       privacyNotice: "bubble",
       disclaimer: "footer",
       onlineDot: false,
-      courseCards: "off",
+      courseCards: "auto",
       courseCardsAnswerStyle: "short",
       courseCardsLayout: "rows",
       courseCardsPosition: "above",
@@ -153,7 +154,7 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
     });
   });
 
-  test("Kurskarten: Inline an, Chatblase (auch ohne Darstellung) aus", async () => {
+  test("D1/F01/F02: Kurskarten in beiden Darstellungen an, auch ohne gespeicherte Darstellung", async () => {
     expect((await fetchConfig({ displayMode: "inline" })).body).toEqual({
       ...STANDARD,
       displayMode: "inline",
@@ -164,13 +165,17 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       displayMode: "inline",
       courseCards: "auto",
     });
+    // F01: Inline nur per Script-Attribut, gespeichert ist nichts bzw. nur
+    // das alte courseCards "auto"; Chatblase und ungültige Werte ebenso an
     for (const vc of [
+      {},
       { displayMode: "bubble" },
       { courseCards: "auto" },
-      { displayMode: "bubble", courseCards: "auto" },
+      { courseCards: "off" },
+      { displayMode: "bubble", courseCards: "off" },
       { displayMode: "seite" },
     ])
-      expect((await fetchConfig(vc)).body.courseCards).toBe("off");
+      expect((await fetchConfig(vc)).body.courseCards).toBe("auto");
   });
 
   test("AK-1/AK-4: gespeicherte Altwerte entfallener Optionen werden ignoriert", async () => {
@@ -232,6 +237,59 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual(STANDARD);
     expect(console.error).toHaveBeenCalledWith("[Embed Config]", "DB weg");
+    // F06: Fehlerantwort nicht zwischenspeichern
+    expect(res.headers["Cache-Control"]).toBe("no-store");
+  });
+
+  test("normale Antwort: 5 Minuten zwischenspeicherbar", async () => {
+    const res = await fetchConfig({ name: "VHS" });
+    expect(res.headers["Cache-Control"]).toBe("public, max-age=300");
+  });
+
+  // F06: Die Middleware hat die Zeile schon geladen. Ihr visual_config gilt
+  // (keine zweite Datenbankabfrage, die Fehler verschluckt und dann 5
+  // Minuten lang die Standards einer leeren Konfiguration liefert).
+  async function fetchWithRow(embedRow) {
+    EmbedConfig.getVisualConfig.mockClear();
+    const res = mockResponse();
+    res.locals.embedConfig = { id: 1, uuid: "embed-uuid", ...embedRow };
+    await configRoute(
+      {
+        params: { embedId: "embed-uuid" },
+        protocol: "https",
+        get: () => "example.org",
+      },
+      res
+    );
+    return res;
+  }
+
+  test("F06: gespeicherte Zeile aus der Middleware wird gelesen, ohne zweite Abfrage", async () => {
+    const res = await fetchWithRow({
+      visual_config: JSON.stringify({ displayMode: "inline", theme: "dark" }),
+    });
+    expect(EmbedConfig.getVisualConfig).not.toHaveBeenCalled();
+    expect(res.body).toEqual({
+      ...STANDARD,
+      displayMode: "inline",
+      theme: "dark",
+    });
+    expect(res.headers["Cache-Control"]).toBe("public, max-age=300");
+    for (const visual_config of [null, ""]) {
+      const empty = await fetchWithRow({ visual_config });
+      expect(empty.body).toEqual(STANDARD);
+      expect(empty.headers["Cache-Control"]).toBe("public, max-age=300");
+    }
+  });
+
+  test("F06: unlesbares visual_config -> Standards, nicht zwischengespeichert", async () => {
+    for (const visual_config of ["{kaputt", "[1,2]", "7"]) {
+      const res = await fetchWithRow({ visual_config });
+      expect(EmbedConfig.getVisualConfig).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toEqual(STANDARD);
+      expect(res.headers["Cache-Control"]).toBe("no-store");
+    }
   });
 });
 
@@ -327,36 +385,56 @@ describe("GET /embed/:embedId/config — Begrüßung (Begrüßungsblase)", () =>
     }
   });
 
-  test("lange Begrüßung (> 300 Zeichen) nur als greeting", async () => {
-    const long = "x".repeat(301);
+  test("F07: lange Begrüßung (> 300 Zeichen) als greeting und gekürzt als greetingBubbleText", async () => {
+    const long = Array(80).fill("Willkommen").join(" ");
     const res = await fetchConfig({ greeting: long });
     expect(res.body.greeting).toBe(long);
-    expect(res.body).not.toHaveProperty("greetingBubbleText");
+    expect(res.body.greetingBubbleText.length).toBeLessThanOrEqual(300);
+    expect(res.body.greetingBubbleText).toMatch(/ Willkommen…$/);
+    expect(long.startsWith(res.body.greetingBubbleText.slice(0, -1))).toBe(
+      true
+    );
   });
 });
 
 describe("GET /embed/:embedId/config — Platzhalter", () => {
-  test("ein Platzhalter für Chatblase und Inline-Leiste", async () => {
+  // D2: Das Feld „Platzhalter“ gilt für das Eingabefeld des Chats; die
+  // eingeklappte Inline-Leiste behält die Demo-Texte des Widgets.
+  test("D2: Platzhalter nur für das Chat-Eingabefeld, nicht für die Inline-Leiste", async () => {
+    const res = await fetchConfig({ sendMessageText: " Ihre Frage an uns " });
+    expect(res.body.sendMessageText).toBe("Ihre Frage an uns");
+    expect(res.body).not.toHaveProperty("inlineInputPlaceholder");
+  });
+
+  test("F04: früher gespeicherter eigener Leistentext bleibt wirksam", async () => {
     const res = await fetchConfig({
-      sendMessageText: " Ihre Frage an uns ",
-      inlineInputPlaceholder: "Alter Leisten-Platzhalter",
+      sendMessageText: "Ihre Frage an uns",
+      inlineInputPlaceholder: " Alter Leisten-Platzhalter ",
     });
     expect(res.body.sendMessageText).toBe("Ihre Frage an uns");
-    expect(res.body.inlineInputPlaceholder).toBe("Ihre Frage an uns");
+    expect(res.body.inlineInputPlaceholder).toBe("Alter Leisten-Platzhalter");
+    // auch ohne eigenen Platzhalter fürs Chatfenster
+    const alone = await fetchConfig({
+      sendMessageText: "Wie kann ich Ihnen helfen?",
+      inlineInputPlaceholder: "Alter Leisten-Platzhalter",
+    });
+    expect(alone.body).not.toHaveProperty("sendMessageText");
+    expect(alone.body.inlineInputPlaceholder).toBe("Alter Leisten-Platzhalter");
+    for (const inlineInputPlaceholder of ["  ", "q".repeat(121), 7])
+      expect(
+        (await fetchConfig({ inlineInputPlaceholder })).body
+      ).not.toHaveProperty("inlineInputPlaceholder");
   });
 
   test("frühere Vorbelegung „Wie kann ich Ihnen helfen?“ und leer -> Widget-Standard", async () => {
     for (const sendMessageText of ["Wie kann ich Ihnen helfen?", " ", 3]) {
-      const res = await fetchConfig({
-        sendMessageText,
-        inlineInputPlaceholder: "Alter Leisten-Platzhalter",
-      });
+      const res = await fetchConfig({ sendMessageText });
       expect(res.body).not.toHaveProperty("sendMessageText");
       expect(res.body).not.toHaveProperty("inlineInputPlaceholder");
     }
   });
 
-  test("über 120 Zeichen nur für die Chatblase", async () => {
+  test("über 120 Zeichen für das Chat-Eingabefeld", async () => {
     const res = await fetchConfig({ sendMessageText: "p".repeat(121) });
     expect(res.body.sendMessageText).toHaveLength(121);
     expect(res.body).not.toHaveProperty("inlineInputPlaceholder");
@@ -399,18 +477,18 @@ describe("GET /embed/:embedId/config — Untertitel und Datenschutz", () => {
     expect((await fetchConfig({})).body).not.toHaveProperty("privacyTitle");
   });
 
-  test("privacyText Altformat (ein Punkt je Zeile bzw. „|“): wie bisher normalisiert, das Widget zeigt Punkte", async () => {
+  test("privacyText Altformat (ein Punkt je Zeile bzw. „|“): als „• “-Zeilen, das Widget zeigt Punkte wie bisher", async () => {
     expect(
       (await fetchConfig({ privacyText: "a | b | c" })).body.privacyText
-    ).toBe("a\nb\nc");
+    ).toBe("• a\n• b\n• c");
     expect(
       (await fetchConfig({ privacyText: " a\r\n\n | b \n" })).body.privacyText
-    ).toBe("a\nb");
+    ).toBe("• a\n• b");
     // früher höchstens 5 Punkte mit je 160 Zeichen: jetzt 12 mit je 500
     // (wie das Widget), damit eigene Texte nicht verworfen werden
     expect(
       (await fetchConfig({ privacyText: "1|2|3|4|5|6" })).body.privacyText
-    ).toBe("1\n2\n3\n4\n5\n6");
+    ).toBe("• 1\n• 2\n• 3\n• 4\n• 5\n• 6");
     for (const bad of [
       Array(13).fill("p").join("|"), // 13 Zeilen
       `ok|${"x".repeat(501)}`, // eine Zeile mit 501 Zeichen
@@ -549,31 +627,13 @@ describe("GET /embed/:embedId/config — Speichern und Ausliefern (echte EmbedCo
     const res = await fetchConfig({ courseCardsLayout: evil });
     expect(res.body).toEqual(STANDARD);
     expect(JSON.stringify(res.body)).not.toMatch(/ignore|script/);
-    // System-Prompt: der Schlüssel wird nie gelesen (gleicher Prompt mit/ohne)
+    // System-Prompt: hängt nur an cardsOn, die visual_config (und damit
+    // courseCardsLayout) bekommt er gar nicht (C02)
     const { embedSystemPrompt } = jest.requireActual("../../utils/chats/embed");
-    for (const switches of [
-      { cardsOn: true, followUpsOn: true },
-      { cardsOn: false, followUpsOn: false },
-    ]) {
-      const base = embedSystemPrompt(
-        "System",
-        { visual_config: JSON.stringify({ displayMode: "inline" }) },
-        switches
-      );
-      for (const layout of [evil, "rows", "grid"]) {
-        const prompt = embedSystemPrompt(
-          "System",
-          {
-            visual_config: JSON.stringify({
-              displayMode: "inline",
-              courseCardsLayout: layout,
-            }),
-          },
-          switches
-        );
-        expect(prompt).toBe(base);
-        expect(prompt).not.toMatch(/ignore all previous|<script>/);
-      }
+    expect(embedSystemPrompt.length).toBe(2);
+    for (const cardsOn of [true, false]) {
+      const prompt = embedSystemPrompt("System", { cardsOn });
+      expect(prompt).not.toMatch(/ignore all previous|<script>/);
     }
   });
 });

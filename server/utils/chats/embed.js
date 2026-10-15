@@ -12,18 +12,16 @@ const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
 const { startMetadataFilterResolution } = require("./metadataFilterResolver");
 const {
   courseCardsEnabled,
-  courseCardsAnswerStyle,
   buildCourseSources,
   mergeCourseSources,
   completeCourseSourcesFromReply,
   resolveMarkerCourses,
   courseTeasersFromLines,
   createCourseLookup,
-  disclaimerFooterEnabled,
   DISCLAIMER_PROMPT_NOTE,
-  followUpsEnabled,
   FOLLOW_UPS_PROMPT_NOTE,
 } = require("./embedCourseSources");
+const { EMBED_FIXED_STANDARDS } = require("./embedStandards");
 const {
   courseCardsPromptNote,
   removeCourseCardsSections,
@@ -230,11 +228,10 @@ async function streamChatWithForEmbed(
     return;
   }
 
-  // Folgefragen (fester Standard, immer an): Prompt-Hinweis am Ende (nach
-  // dem Disclaimer-Hinweis) und Chunk an das Widget.
-  const followUpsOn = followUpsEnabled(embed);
-  // Kurskarten (fest nach Darstellung: Inline an, Chatblase siehe
-  // BUBBLE_COURSE_CARDS in embedStandards.js)
+  // Folgefragen sind fester Standard (immer an): Prompt-Hinweis am Ende
+  // (embedSystemPrompt) und Chunk an das Widget. Kurskarten fest nach
+  // Darstellung (Inline an, Chatblase siehe BUBBLE_COURSE_CARDS in
+  // embedStandards.js, seit 7.22-rc3 ebenfalls an).
   const cardsOn = courseCardsEnabled(embed);
 
   // Compress message to ensure prompt passes token limit with room for response
@@ -243,8 +240,7 @@ async function streamChatWithForEmbed(
     {
       systemPrompt: embedSystemPrompt(
         await chatPrompt(embed.workspace, username),
-        embed,
-        { cardsOn, followUpsOn }
+        { cardsOn }
       ),
       userPrompt: message,
       contextTexts,
@@ -377,11 +373,11 @@ async function streamChatWithForEmbed(
   // Folgefragen: Zeile "[[FRAGEN: … | …]]" (siehe embedCardsMarker.js; FF1:
   // überall im Text, Pillen aus der letzten Zeile, ohne Pillen gleich der
   // Nutzerfrage) — Erkennen, Entfernen und Speichern (followUps) laufen
-  // IMMER (wie der Marker). Mit Folgefragen an (fester Standard)
-  // eigener Chunk nach dem letzten Textchunk (der Text ist jetzt
-  // vollständig) und vor finalizeResponseStream.
+  // IMMER (wie der Marker). Folgefragen sind fester Standard: eigener
+  // Chunk nach dem letzten Textchunk (der Text ist jetzt vollständig) und
+  // vor finalizeResponseStream.
   const followUps = parsedReply.followUps;
-  if (followUpsOn && followUps.length > 0)
+  if (followUps.length > 0)
     writeResponseChunk(response, {
       uuid,
       type: "followUps",
@@ -468,28 +464,29 @@ async function streamChatWithForEmbed(
  *     KI-Hinweis-Zeile, weil der KI-Hinweis fest im Widget steht),
  *  2. Disclaimer-Hinweis (KI-Hinweis fest unter der Eingabe),
  *  3. Folgefragen-Hinweis.
- * Hinweis 2 und 3 und der Stil folgen den festen Standards des vereinfachten
- * Design Centers (embedStandards.js, embedCourseSources.js); Karten an/aus
- * kommt als Schalter (Inline an, Chatblase nach BUBBLE_COURSE_CARDS).
+ * Hinweis 2 und 3 und der Stil sind feste Standards des vereinfachten
+ * Design Centers (embedStandards.js EMBED_FIXED_STANDARDS) und hängen immer
+ * an; variabel ist nur, ob Karten an sind (cardsOn).
  * Der Server besitzt den Karten-Abschnitt: Steht im Workspace-Prompt schon
  * ein Abschnitt "### Course Cards Mode…" (Prompt-Rollout/Demo), wird er
  * immer entfernt; mit Karten hängt der Server genau einen aktuellen am Ende
  * an, ohne Karten keinen (sonst antwortete das Modell kurz ohne Links, aber
  * es erschienen keine Karten).
  * @param {string} basePrompt
- * @param {Object} embed
- * @param {{cardsOn: boolean, followUpsOn: boolean}} switches
+ * @param {{cardsOn: boolean}} switches
  * @returns {string}
  */
-function embedSystemPrompt(basePrompt, embed, { cardsOn, followUpsOn }) {
-  const footer = disclaimerFooterEnabled(embed);
+function embedSystemPrompt(basePrompt, { cardsOn }) {
   return (
     removeCourseCardsSections(basePrompt) +
     (cardsOn
-      ? courseCardsPromptNote({ style: courseCardsAnswerStyle(embed), footer })
+      ? courseCardsPromptNote({
+          style: EMBED_FIXED_STANDARDS.courseCardsAnswerStyle,
+          footer: true,
+        })
       : "") +
-    (footer ? DISCLAIMER_PROMPT_NOTE : "") +
-    (followUpsOn ? FOLLOW_UPS_PROMPT_NOTE : "")
+    DISCLAIMER_PROMPT_NOTE +
+    FOLLOW_UPS_PROMPT_NOTE
   );
 }
 

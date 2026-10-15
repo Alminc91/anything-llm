@@ -116,6 +116,39 @@ function mapLayoutConfig(visualConfig = {}) {
   return out;
 }
 
+/**
+ * Gespeicherte visual_config für GET /embed/:id/config. Die Middleware hat
+ * die Zeile schon geladen (response.locals.embedConfig); ihr Wert wird
+ * gelesen, statt die Datenbank ein zweites Mal zu fragen. Nur wenn die Zeile
+ * keinen visual_config-Eintrag mitbringt, fragt EmbedConfig.getVisualConfig.
+ * ok false: gespeicherter Wert nicht lesbar (kein JSON-Objekt); die Antwort
+ * enthält dann nur die Standards und darf nicht zwischengespeichert werden
+ * (Review F06: sonst gälte ein vorübergehender Fehler 5 Minuten lang).
+ * @param {{uuid: string, visual_config?: string|object|null}} embed
+ * @returns {Promise<{config: Object, ok: boolean}>}
+ */
+async function storedVisualConfig(embed) {
+  if (!embed || !("visual_config" in embed))
+    return {
+      config: (await EmbedConfig.getVisualConfig(embed?.uuid)) || {},
+      ok: true,
+    };
+  let value = embed.visual_config;
+  if (value === null || value === undefined || value === "")
+    return { config: {}, ok: true };
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch (e) {
+      console.error("[Embed Config] visual_config unparsable", e.message);
+      return { config: {}, ok: false };
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return { config: {}, ok: false };
+  return { config: value, ok: true };
+}
+
 function embeddedEndpoints(app) {
   if (!app) return;
 
@@ -126,8 +159,7 @@ function embeddedEndpoints(app) {
     async (request, response) => {
       try {
         const embed = response.locals.embedConfig;
-        const visualConfig =
-          (await EmbedConfig.getVisualConfig(embed.uuid)) || {};
+        const { config: visualConfig, ok } = await storedVisualConfig(embed);
 
         // Map simplified fields to widget data-attributes
         const mapped = {};
@@ -192,12 +224,17 @@ function embeddedEndpoints(app) {
         // Feste Standards (Design Center vereinfacht): Altwerte entfallener
         // Optionen ignorieren, Begrüßung/Platzhalter/Datenschutz-Text aus den
         // gespeicherten Texten, feste Werte erzwingen.
-        response.setHeader("Cache-Control", "public, max-age=300");
+        response.setHeader(
+          "Cache-Control",
+          ok ? "public, max-age=300" : "no-store"
+        );
         response.status(200).json(applyEmbedStandards(mapped, visualConfig));
       } catch (e) {
         console.error("[Embed Config]", e.message);
         // auch im Fehlerfall die festen Standards (kein Widget ohne
-        // KI-Hinweis, keine alten Optionen)
+        // KI-Hinweis, keine alten Optionen), aber nicht zwischenspeichern:
+        // Der nächste Aufruf soll wieder die gespeicherten Werte liefern.
+        response.setHeader("Cache-Control", "no-store");
         response.status(200).json(applyEmbedStandards({}, {}));
       }
     }

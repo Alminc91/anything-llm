@@ -34,6 +34,19 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
       privacyTitle: widget.privacyTitle,
       privacyText: widget.privacyPoints.map((p) => `• ${p}`).join("\n"),
       disclaimerText: widget.aiDisclaimer,
+      inlineInputPlaceholder: widget.inlineBarPlaceholder,
+      inlineSendText: widget.inlineSendText,
+    });
+  });
+
+  test("D2: eingeklappte Inline-Leiste mit den Demo-Texten, je Sprache", () => {
+    expect(embedDefaultTexts("de")).toMatchObject({
+      inlineInputPlaceholder: "Stellen Sie hier Ihre Frage …",
+      inlineSendText: "Chatten",
+    });
+    expect(embedDefaultTexts("en")).toMatchObject({
+      inlineInputPlaceholder: "Ask your question here …",
+      inlineSendText: "Chat",
     });
   });
 

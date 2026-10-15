@@ -130,24 +130,26 @@ test("Inline: courseSources im Abschluss-Chunk und in der gespeicherten Antwort"
   expect(stored.courseSources).toEqual(finalChunk.courseSources);
 });
 
+// D1 (7.22-rc3): Kurskarten auch in der Chatblase und ohne gespeicherte
+// Darstellung (F01: Inline nur per Script-Attribut; F02: Rückfall auf die
+// Chatblase ohne Platzhalter)
 test.each([
   ["ohne visual_config", null],
   ["Chatblase", JSON.stringify({ displayMode: "bubble" })],
-  // gespeichertes courseCards "auto" gilt in der Chatblase nicht mehr
-  ["Chatblase mit Altwert auto", JSON.stringify({ courseCards: "auto" })],
+  ["Altwert off", JSON.stringify({ courseCards: "off" })],
   ["andere Schlüssel", JSON.stringify({ theme: "dark" })],
-])("%s: kein courseSources-Feld (Chatblase ohne Karten)", async (_l, vc) => {
-  const { finalChunk, stored } = await run(makeEmbed(vc));
-  expect(finalChunk).toEqual({
-    uuid: expect.any(String),
-    type: "finalizeResponseStream",
-    close: true,
-    error: false,
-    chatId: 42,
-  });
-  expect(stored).not.toHaveProperty("courseSources");
-  expect(stored.sources).toHaveLength(8);
-});
+])(
+  "%s: courseSources wie bei Inline (Karten in beiden Darstellungen)",
+  async (_l, vc) => {
+    const { finalChunk, stored } = await run(makeEmbed(vc));
+    expect(finalChunk.courseSources.map((c) => c.title)).toEqual([
+      "Yoga (Aufbaukurs)",
+      "Yoga",
+    ]);
+    expect(stored.courseSources).toEqual(finalChunk.courseSources);
+    expect(stored.sources).toHaveLength(8);
+  }
+);
 
 test("Inline, aber nur Info-Seiten: kein courseSources-Feld", async () => {
   helpers.getVectorDbClass.mockReturnValue({

@@ -314,13 +314,18 @@ test("ohne Streaming: courseSources-Chunk vor dem Text, Marker entfernt", async 
   expect(stored.courseCardsAnnounced).toBe(1);
 });
 
-test("NAK-2: Chatblase (Karten aus) -> Marker trotzdem entfernt, 0 Zugriffe, kein courseSources", async () => {
+// D1 (Fixliste 7.22-rc3): Kurskarten auch in der Chatblase. Das deckt F01
+// (Inline nur per Script-Attribut, kein gespeichertes displayMode) und F02
+// (gespeichert Inline, Seite ohne Platzhalter: Rückfall auf die Chatblase)
+// ab: Der Server kennt die tatsächliche Darstellung nicht und schickt
+// deshalb immer Karten.
+test("D1/F01/F02: Chatblase und ohne gespeicherte Darstellung -> Karten an, Marker entfernt, angekündigte Kurse als Chunk", async () => {
   for (const streaming of [true, false])
     for (const vc of [
       null,
       JSON.stringify({ displayMode: "bubble" }),
-      // gespeichertes courseCards "auto" gilt in der Chatblase nicht mehr
       JSON.stringify({ courseCards: "auto" }),
+      JSON.stringify({ courseCards: "off" }),
     ]) {
       jest.clearAllMocks();
       const reply = `[[KARTEN: 1]]\n${REPLY_BODY}`;
@@ -329,20 +334,14 @@ test("NAK-2: Chatblase (Karten aus) -> Marker trotzdem entfernt, 0 Zugriffe, kei
         embed: makeEmbed(vc),
         streaming,
       });
-      // Prompt kann den Marker flottenweit verlangen: nie im Stream/DB-Text
       expect(text).toBe(REPLY_BODY);
       expect(JSON.stringify(log)).not.toMatch(/KARTEN/);
       expect(stored.text).toBe(REPLY_BODY);
-      // Nummern nur für den LLM-Verlauf
       expect(stored.courseCardsMarker).toEqual([1]);
-      expect(stored).not.toHaveProperty("courseSources");
-      expect(stored).not.toHaveProperty("courseCardsAnnounced");
-      expect(log.find((c) => c.type === "courseSources")).toBeUndefined();
-      expect(
-        log.find((c) => c.type === "finalizeResponseStream")
-      ).not.toHaveProperty("courseSources");
-      expect(Document.where).not.toHaveBeenCalled();
-      expect(readSpy).not.toHaveBeenCalled();
+      const announced = log.find((c) => c.type === "courseSources");
+      expect(announced.courseSources.length).toBeGreaterThan(0);
+      expect(stored.courseSources.length).toBeGreaterThan(0);
+      expect(stored.courseCardsAnnounced).toBe(1);
     }
 });
 
@@ -604,10 +603,10 @@ describe("Kurskarten v3: Teaser im Embed-Stream", () => {
     ]);
   });
 
-  test("NAK-4: Chatblase (Karten aus) -> Marker und Teaser entfernt, keine Chunks", async () => {
+  test("D1: Chatblase und ohne Darstellung -> Marker und Teaser entfernt, Karten und Teaser als Chunks", async () => {
     for (const vc of [
       null,
-      JSON.stringify({ displayMode: "bubble", courseCards: "auto" }),
+      JSON.stringify({ displayMode: "bubble", courseCards: "off" }),
     ]) {
       jest.clearAllMocks();
       const { chunks, stored, text } = await runLogged({
@@ -616,11 +615,9 @@ describe("Kurskarten v3: Teaser im Embed-Stream", () => {
       });
       expect(text).toBe(BODY);
       expect(JSON.stringify(chunks)).not.toMatch(/TEASER|KARTEN/);
-      expect(chunks.find((c) => c.type === "courseSources")).toBeUndefined();
-      expect(chunks.find((c) => c.type === "courseTeasers")).toBeUndefined();
+      expect(chunks.find((c) => c.type === "courseSources")).toBeDefined();
+      expect(chunks.find((c) => c.type === "courseTeasers")).toBeDefined();
       expect(stored.text).toBe(BODY);
-      expect(stored).not.toHaveProperty("courseTeasers");
-      // nur für den LLM-Verlauf
       expect(stored.courseTeaserLines).toHaveLength(2);
     }
   });
@@ -684,7 +681,7 @@ describe("KI-Hinweis fest: Prompt-Footer wird immer unterdrückt", () => {
       JSON.stringify({ displayMode: "inline", disclaimer: "none" }),
       JSON.stringify({ disclaimer: "none" }),
       null,
-      // kaputte Konfiguration: Standards gelten trotzdem (Chatblase)
+      // kaputte Konfiguration: Standards gelten trotzdem
       "{nicht json",
     ]) {
       jest.clearAllMocks();
@@ -704,13 +701,13 @@ describe("KI-Hinweis fest: Prompt-Footer wird immer unterdrückt", () => {
   });
 });
 
-// Design Center: Karten-Modus serverseitig, fest nach Darstellung. Inline
-// hängt der Server den Karten-Abschnitt (Stil „kurz“, Beispiel ohne KI-
-// Hinweis-Zeile) ans Ende des System-Prompts (nach der Zeitzeile des
-// Workspace-Prompts), vor Disclaimer- und Folgefragen-Hinweis; die Chatblase
-// bekommt keinen. Gespeicherte Altwerte (courseCards, courseCardsAnswerStyle,
-// disclaimer, followUps) ändern daran nichts mehr.
-describe("Karten-Abschnitt am Prompt-Ende (fest: Inline an, Chatblase aus)", () => {
+// Design Center: Karten-Modus serverseitig, seit 7.22-rc3 (D1) in beiden
+// Darstellungen. Der Server hängt den Karten-Abschnitt (Stil „kurz“,
+// Beispiel ohne KI-Hinweis-Zeile) ans Ende des System-Prompts (nach der
+// Zeitzeile des Workspace-Prompts), vor Disclaimer- und Folgefragen-Hinweis.
+// Gespeicherte Altwerte (courseCards, courseCardsAnswerStyle, disclaimer,
+// followUps, displayMode) ändern daran nichts.
+describe("Karten-Abschnitt am Prompt-Ende (fest: in beiden Darstellungen)", () => {
   const {
     DISCLAIMER_PROMPT_NOTE,
     FOLLOW_UPS_PROMPT_NOTE,
@@ -750,16 +747,18 @@ describe("Karten-Abschnitt am Prompt-Ende (fest: Inline an, Chatblase aus)", () 
       );
   });
 
-  test("Chatblase: kein Karten-Abschnitt, Disclaimer und Folgefragen immer", async () => {
+  test("D1: Chatblase und ohne Darstellung bekommen denselben Karten-Abschnitt wie Inline", async () => {
     for (const vc of [
       null,
       {},
       { displayMode: "bubble" },
-      { courseCards: "auto" },
+      { courseCards: "off" },
       { courseCards: "auto", courseCardsAnswerStyle: "long" },
       { displayMode: "bubble", disclaimer: "none", followUps: "none" },
     ])
-      expect(await promptFor(vc)).toBe(`${WORKSPACE_PROMPT}${NOTES}`);
+      expect(await promptFor(vc)).toBe(
+        `${WORKSPACE_PROMPT}${SHORT_FOOTER}${NOTES}`
+      );
   });
 
   test("AK-4: Präfix bleibt unverändert (Anhang nur am Ende, nach der Zeitzeile)", async () => {
@@ -783,12 +782,12 @@ describe("Karten-Abschnitt am Prompt-Ende (fest: Inline an, Chatblase aus)", () 
     }
   });
 
-  test("Bestandskunde ohne Darstellung: Prompt = Workspace-Prompt + feste Hinweise (Snapshot)", async () => {
+  test("Bestandskunde ohne Darstellung: Prompt = Workspace-Prompt + Karten + feste Hinweise (Snapshot)", async () => {
     const prompt = await promptFor({
       accentColor: "#FFA102",
       name: "Ihr Online-Berater",
     });
-    expect(prompt).toBe(`${WORKSPACE_PROMPT}${NOTES}`);
+    expect(prompt).toBe(`${WORKSPACE_PROMPT}${SHORT_FOOTER}${NOTES}`);
     expect(prompt.slice(0, WORKSPACE_PROMPT.length)).toMatchInlineSnapshot(`
 "### Security Rules
 …
@@ -823,11 +822,12 @@ Heute ist Dienstag, 06.10.2026."
     expect(prompt.split("### Course Cards Mode")).toHaveLength(2);
   });
 
-  test("Chatblase: Workspace-Abschnitt wird entfernt (sonst kurze Antwort ohne Links und ohne Karten)", async () => {
+  test("Chatblase: Workspace-Abschnitt wird ersetzt (genau ein aktueller Abschnitt am Ende)", async () => {
     for (const section of SECTIONS) {
       const prompt = await promptFor({}, withSection(section));
-      expect(prompt).toBe(`${WITHOUT}${NOTES}`);
-      expect(prompt).not.toMatch(/course\s+cards\s+mode|Alte Regel/i);
+      expect(prompt).toBe(`${WITHOUT}${SHORT_FOOTER}${NOTES}`);
+      expect(prompt.match(/###\s*course\s+cards\s+mode/gi)).toHaveLength(1);
+      expect(prompt).not.toMatch(/Alte Regel/);
     }
   });
 

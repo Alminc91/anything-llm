@@ -27,6 +27,9 @@ const EMBED_DEFAULT_TEXTS = {
     ],
     disclaimerText:
       "KI kann Fehler machen. Bitte überprüfen Sie die Antworten.",
+    // eingeklappte Inline-Leiste (Demo-Texte; Entscheidung D2, 7.22-rc3)
+    inlineBarPlaceholder: "Stellen Sie hier Ihre Frage …",
+    inlineSendText: "Chatten",
   },
   en: {
     assistantName: "AI Advisor",
@@ -40,6 +43,8 @@ const EMBED_DEFAULT_TEXTS = {
       "Please only share information that is necessary for your request.",
     ],
     disclaimerText: "AI can make mistakes. Please double-check the answers.",
+    inlineBarPlaceholder: "Ask your question here …",
+    inlineSendText: "Chat",
   },
 };
 
@@ -61,13 +66,15 @@ function embedDefaultsLanguage(value) {
 /**
  * Standardtexte einer Sprache unter den visual_config-Schlüsseln, die das
  * Design Center bearbeitet bzw. anzeigt: name/assistantSubtitle/
- * sendMessageText nur als Vorbelegung, greeting und privacyText als
+ * sendMessageText nur als Vorschlag, greeting und privacyText als
  * Standardtext (privacyText im freien Format, ein „• “-Punkt je Zeile),
- * disclaimerText nur zur Anzeige (fest, nicht änderbar).
+ * disclaimerText sowie Platzhalter und Knopf der eingeklappten Inline-Leiste
+ * (inlineInputPlaceholder, inlineSendText) nur zur Anzeige (fest).
  * @param {string} [lang]
  * @returns {{name: string, assistantSubtitle: string, greeting: string,
  *   sendMessageText: string, privacyTitle: string, privacyText: string,
- *   disclaimerText: string}}
+ *   disclaimerText: string, inlineInputPlaceholder: string,
+ *   inlineSendText: string}}
  */
 function embedDefaultTexts(lang = "de") {
   const t = EMBED_DEFAULT_TEXTS[embedDefaultsLanguage(lang)];
@@ -79,6 +86,8 @@ function embedDefaultTexts(lang = "de") {
     privacyTitle: t.privacyTitle,
     privacyText: t.privacyPoints.map((p) => PRIVACY_BULLET + p).join("\n"),
     disclaimerText: t.disclaimerText,
+    inlineInputPlaceholder: t.inlineBarPlaceholder,
+    inlineSendText: t.inlineSendText,
   };
 }
 
