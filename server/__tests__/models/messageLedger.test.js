@@ -53,6 +53,8 @@ beforeEach(async () => {
   logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
 });
 afterEach(async () => {
+  // Ereignisse, die transaction() nicht abwartet, vor dem Schließen beenden
+  await MessageLedger._settleEvents();
   errorSpy.mockRestore();
   logSpy.mockRestore();
   await db.close();
@@ -858,20 +860,27 @@ describe("atomar (NAK-3)", () => {
     expect(await db.client.embed_chats.count()).toBe(0);
     expect(await db.client.message_ledger.count()).toBe(0);
 
+    // Das Ereignis wartet transaction() nicht ab (KIE-542); die Reihenfolge
+    // der Ereignisse ist deshalb offen.
+    await MessageLedger._settleEvents();
     const events = await eventsOf(db.client, "message_ledger_write_failed");
-    expect(events.map((event) => event.metadata.source)).toEqual([
-      "workspace_chat",
+    const bySource = Object.fromEntries(
+      events.map(({ metadata }) => [metadata.source, metadata])
+    );
+    expect(events).toHaveLength(3);
+    expect(Object.keys(bySource).sort()).toEqual([
       "embed_chat",
       "thread_fork",
+      "workspace_chat",
     ]);
-    expect(events[0].metadata).toEqual(
+    expect(bySource.workspace_chat).toEqual(
       expect.objectContaining({ workspaceId: workspace.id, embedId: null })
     );
-    expect(events[1].metadata).toEqual(
+    expect(bySource.embed_chat).toEqual(
       expect.objectContaining({ embedId: embed.id })
     );
     // Das Ereignis nennt den Fehler, aber keine Inhalte der Nachricht.
-    expect(events[0].metadata.error).toMatch(/künstlicher Fehler/);
+    expect(bySource.workspace_chat.error).toMatch(/künstlicher Fehler/);
     expect(JSON.stringify(events)).not.toContain("Hallo");
   });
 
@@ -884,6 +893,7 @@ describe("atomar (NAK-3)", () => {
     expect(copies.chats).toBeNull();
     expect(copies.message).toContain("STRENG GEHEIMER INHALT");
 
+    await MessageLedger._settleEvents();
     const events = await eventsOf(db.client, "message_ledger_write_failed");
     expect(events).toHaveLength(1);
     expect(events[0].metadata).toEqual({
@@ -910,6 +920,7 @@ describe("atomar (NAK-3)", () => {
       recordSpy.mockRestore();
     }
     expect(await db.client.workspace_chats.count()).toBe(0);
+    await MessageLedger._settleEvents();
     expect(
       await eventsOf(db.client, "message_ledger_write_failed")
     ).toHaveLength(1);
@@ -924,12 +935,17 @@ describe("atomar (NAK-3)", () => {
     // fällt so nie in diesen Test.
     const startedAt = Math.floor(Date.now() / 3600000) * 3600000 + 1800000;
     const nowSpy = jest.spyOn(Date, "now").mockReturnValue(startedAt);
-    const fail = async (workspaceId) =>
+    // Das Ereignis wartet transaction() nicht ab (KIE-542): Jeder Fehler
+    // wartet hier auf sein Ereignis, damit die Stunde der Uhr gilt.
+    const fail = async (workspaceId) => {
       expect(
         (await WorkspaceChats.new({ workspaceId, prompt: "Hallo" })).chat
       ).toBeNull();
-    const reported = async () =>
-      (await eventsOf(db.client, "message_ledger_write_failed")).map(
+      await MessageLedger._settleEvents();
+    };
+    const reported = async () => {
+      await MessageLedger._settleEvents();
+      return (await eventsOf(db.client, "message_ledger_write_failed")).map(
         ({ metadata }) => [
           metadata.source,
           metadata.workspaceId,
@@ -937,6 +953,7 @@ describe("atomar (NAK-3)", () => {
           metadata.suppressed,
         ]
       );
+    };
 
     // Ein anhaltender Fehler: vier gescheiterte Speicherungen, ein Ereignis.
     for (let i = 0; i < 4; i++) await fail(workspace.id);
@@ -957,8 +974,11 @@ describe("atomar (NAK-3)", () => {
     await WorkspaceChats.bulkCreate([
       { workspaceId: workspace.id, prompt: "a", response: "{}" },
     ]);
-    for (let i = 0; i < 2; i++)
+    await MessageLedger._settleEvents();
+    for (let i = 0; i < 2; i++) {
       await EmbedChats.new({ embedId: embed.id, prompt: "a", sessionId: "s" });
+      await MessageLedger._settleEvents();
+    }
     expect(await reported()).toEqual([
       ["workspace_chat", workspace.id, null, undefined],
       ["workspace_chat", other.id, null, undefined],
@@ -990,7 +1010,8 @@ describe("atomar (NAK-3)", () => {
   test("atomar: lässt sich das Ereignis nicht schreiben, gilt der Fehler nicht als gemeldet - der nächste Fehler versucht es erneut und nennt, was ausblieb", async () => {
     const workspace = await createWorkspace(db.client);
     await breakLedger();
-    const fail = async () =>
+    // Das Ereignis wartet transaction() nicht ab (KIE-542).
+    const fail = async () => {
       expect(
         (
           await WorkspaceChats.new({
@@ -999,6 +1020,8 @@ describe("atomar (NAK-3)", () => {
           })
         ).chat
       ).toBeNull();
+      await MessageLedger._settleEvents();
+    };
     const reported = async () =>
       (await eventsOf(db.client, "message_ledger_write_failed")).map(
         ({ metadata }) => metadata

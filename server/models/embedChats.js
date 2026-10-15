@@ -223,6 +223,11 @@ const EmbedChats = {
    * conversations_started steigt, wenn es für COALESCE(conversation_id,
    * session_id) in diesem Widget noch keine Zeile gab. Zeile und Zähler
    * entstehen in einer Transaktion - gemeinsam oder gar nicht.
+   *
+   * Scheitert die Transaktion an einer Sperre, wird sie wiederholt (KIE-542).
+   * Die angelegte Zeile ist dafür gemeldet (attempt.created): Hat ein früherer
+   * Versuch sie trotz Fehlermeldung gespeichert, legt die Wiederholung sie
+   * nicht noch einmal an.
    */
   new: async function ({
     embedId,
@@ -235,17 +240,20 @@ const EmbedChats = {
     try {
       const chat = await MessageLedger.transaction(
         { source: "embed_chat", embedId: Number(embedId) },
-        async (tx) => {
-          const created = await tx.embed_chats.create({
-            data: {
-              prompt,
-              embed_id: Number(embedId),
-              response: JSON.stringify(response),
-              connection_information: JSON.stringify(connection_information),
-              session_id: String(sessionId),
-              conversation_id: conversationId ? String(conversationId) : null,
-            },
-          });
+        async (tx, attempt) => {
+          const created = attempt.created(
+            "embed_chats",
+            await tx.embed_chats.create({
+              data: {
+                prompt,
+                embed_id: Number(embedId),
+                response: JSON.stringify(response),
+                connection_information: JSON.stringify(connection_information),
+                session_id: String(sessionId),
+                conversation_id: conversationId ? String(conversationId) : null,
+              },
+            })
+          );
           const embed = await tx.embed_configs.findUnique({
             where: { id: created.embed_id },
             select: { workspace_id: true },
@@ -261,11 +269,14 @@ const EmbedChats = {
             ),
           });
           return created;
-        }
+        },
+        { retry: { createdRows: true } }
       );
       return { chat, message: null };
     } catch (error) {
-      console.error(error.message);
+      // NAK-1: nur die Kurzform; die volle Meldung von Prisma kann Inhalte
+      // der Nachricht wiedergeben (etwa bei einem Validierungsfehler).
+      console.error(`[EmbedChats.new] ${MessageLedger.errorSummary(error)}`);
       return { chat: null, message: error.message };
     }
   },
@@ -654,14 +665,23 @@ const EmbedChats = {
                 to: resolvedScore,
               });
             return true;
-          }
+          },
+          // KIE-542: wiederholbar. Gebucht wird nur der Übergang von der
+          // gelesenen zur neuen Bewertung. Hat ein früherer Versuch trotz
+          // Fehlermeldung geschrieben, liest die Wiederholung schon die neue
+          // Bewertung und bucht nichts mehr.
+          { retry: { idempotent: true } }
         );
         return updated ? "updated" : "not_found";
       } finally {
         pendingFeedback -= 1;
       }
     } catch (error) {
-      console.error("updateFeedbackScore error:", error.message);
+      // NAK-1: nur die Kurzform (die volle Meldung kann den Kommentar enthalten)
+      console.error(
+        "updateFeedbackScore error:",
+        MessageLedger.errorSummary(error)
+      );
       return "error";
     }
   },

@@ -44,6 +44,7 @@ const {
   createTestDatabase,
   removeTestDatabases,
   createWorkspace,
+  holdLock,
 } = require("../../helpers/sqliteTestDatabase");
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -262,6 +263,42 @@ describe("OpenAICompatibleChat", () => {
         expect.objectContaining({ contingent: "3/5", messages_limit: 5 })
       );
     });
+
+    // KIE-542 (AK-3): Scheitert das Speichern auch nach den Wiederholungen,
+    // bekommt der Aufrufer trotzdem seine Antwort (vorher TypeError bei
+    // chat.id, also HTTP 500).
+    test("Speichern scheitert an einer anhaltenden Sperre: die Antwort kommt trotzdem", async () => {
+      const before = await limitBefore();
+      const lock = await holdLock(db.file, "write");
+      const silenced = jest.spyOn(console, "warn").mockImplementation(() => {});
+      let result;
+      try {
+        result = await OpenAICompatibleChat.chatSync({
+          ...before,
+          workspace: mockWorkspace,
+          prompt: "Hello world",
+          systemPrompt: "You are a helpful assistant",
+          history: [],
+          temperature: 0.7,
+        });
+      } finally {
+        await lock.release();
+        silenced.mockRestore();
+      }
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          object: "chat.completion",
+          choices: [
+            expect.objectContaining({
+              message: expect.objectContaining({ content: "Mock response" }),
+            }),
+          ],
+        })
+      );
+      // Nicht gespeichert, nicht gezählt
+      expect(await db.client.workspace_chats.count()).toBe(2);
+    }, 40000);
   });
 
   describe("streamChat", () => {

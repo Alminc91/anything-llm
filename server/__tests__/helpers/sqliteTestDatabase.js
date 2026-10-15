@@ -173,10 +173,19 @@ function templateFor(migrations) {
   return state.templates.get(key);
 }
 
-function openClient(file) {
+/**
+ * @param {string} file
+ * @param {Object} [params] - Parameter der Verbindungs-URL, z. B.
+ *   socket_timeout (Sekunden; bei SQLite das Busy-Timeout, Standard 5) oder
+ *   connection_limit
+ */
+function openClient(file, params = {}) {
   require("../../utils/prisma/engineThreads").ensureEngineThreads();
   const { PrismaClient } = require("@prisma/client");
-  return new PrismaClient({ datasources: { db: { url: `file:${file}` } } });
+  const query = new URLSearchParams(params).toString();
+  return new PrismaClient({
+    datasources: { db: { url: `file:${file}${query ? `?${query}` : ""}` } },
+  });
 }
 
 /**
@@ -184,20 +193,31 @@ function openClient(file) {
  * @param {Object} [options]
  * @param {boolean} [options.withoutLedger] - Stand vor KIE-532: ohne die Migration des Zählerbuchs (nachholen mit db.migrate())
  * @param {boolean} [options.activate] - als Datenbank des Servers setzen (Standard: ja)
+ * @param {number} [options.busyTimeoutSeconds] - Busy-Timeout der Verbindungen
+ *   in Sekunden (Standard der Engine: 5)
+ * @param {number} [options.connectionLimit] - Verbindungen im Pool
  */
 async function createTestDatabase({
   withoutLedger = false,
   activate = true,
+  busyTimeoutSeconds = null,
+  connectionLimit = null,
 } = {}) {
   const migrations = allMigrations().filter(
     (name) => !withoutLedger || name !== LEDGER_MIGRATION
   );
   const file = path.join(root(), `test-${++state.counter}.db`);
   fs.copyFileSync(templateFor(migrations), file);
+  const params = {
+    ...(busyTimeoutSeconds === null
+      ? {}
+      : { socket_timeout: busyTimeoutSeconds }),
+    ...(connectionLimit === null ? {} : { connection_limit: connectionLimit }),
+  };
 
   const db = {
     file,
-    client: openClient(file),
+    client: openClient(file, params),
     /** Leitet utils/prisma (testPrisma) auf diese Datenbank. */
     activate() {
       state.current = db.client;
@@ -208,7 +228,7 @@ async function createTestDatabase({
       const wasActive = state.current === db.client;
       await db.client.$disconnect();
       const output = migrateDeploy(file, allMigrations());
-      db.client = openClient(file);
+      db.client = openClient(file, params);
       if (wasActive) state.current = db.client;
       return output;
     },
@@ -221,6 +241,41 @@ async function createTestDatabase({
   };
   if (activate) db.activate();
   return db;
+}
+
+/**
+ * Hält über eine zweite Verbindung eine Sperre auf der Datei, bis release()
+ * gerufen wird (KIE-542). Die Verbindung ist eine eigene Prisma-Instanz mit
+ * genau einer Verbindung, damit BEGIN und COMMIT auf derselben laufen.
+ * - "write": BEGIN IMMEDIATE (Schreibsperre RESERVED). Eine Transaktion des
+ *   Servers kommt nicht über ihren Beginn hinaus.
+ * - "read": BEGIN und ein Lesezugriff (Lesesperre SHARED). Die Transaktion des
+ *   Servers schreibt, ihr COMMIT wartet aber auf die Sperre - die Engine meldet
+ *   dann "transaction failed to commit".
+ * Über client schreibt die Verbindung innerhalb ihrer Transaktion (wird mit
+ * release() gespeichert), etwa als fremder Schreiber während der Sperre.
+ * @param {string} file
+ * @param {"write"|"read"} kind
+ * @returns {Promise<{client: import("@prisma/client").PrismaClient, release: () => Promise<void>}>}
+ */
+async function holdLock(file, kind) {
+  const client = openClient(file, { connection_limit: 1 });
+  await client.$connect();
+  if (kind === "write") await client.$executeRawUnsafe("BEGIN IMMEDIATE");
+  else {
+    await client.$executeRawUnsafe("BEGIN");
+    await client.$queryRawUnsafe("SELECT count(*) AS n FROM workspaces");
+  }
+  let released = null;
+  return {
+    client,
+    release() {
+      released ??= client
+        .$executeRawUnsafe("COMMIT")
+        .finally(() => client.$disconnect());
+      return released;
+    },
+  };
 }
 
 /**
@@ -447,6 +502,7 @@ module.exports = {
   testPrisma,
   createTestDatabase,
   removeTestDatabases,
+  holdLock,
   migrateDeploy,
   schemaDrift,
   allMigrations,

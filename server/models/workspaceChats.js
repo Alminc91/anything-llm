@@ -8,6 +8,11 @@ const WorkspaceChats = {
    * in der Zeile des Workspaces (embed_id 0) für den Berliner Tag und die
    * Berliner Stunde, auch bei include = false. Zeile und Zähler entstehen in
    * einer Transaktion - gemeinsam oder gar nicht.
+   *
+   * Scheitert die Transaktion an einer Sperre, wird sie wiederholt (KIE-542).
+   * Die angelegte Zeile ist dafür gemeldet (attempt.created): Hat ein früherer
+   * Versuch sie trotz Fehlermeldung gespeichert, legt die Wiederholung sie
+   * nicht noch einmal an.
    */
   new: async function ({
     workspaceId,
@@ -21,29 +26,37 @@ const WorkspaceChats = {
     try {
       const chat = await MessageLedger.transaction(
         { source: "workspace_chat", workspaceId },
-        async (tx) => {
-          const created = await tx.workspace_chats.create({
-            data: {
-              workspaceId,
-              prompt,
-              response: safeJSONStringify(response),
-              user_id: user?.id || null,
-              thread_id: threadId,
-              api_session_id: apiSessionId,
-              include,
-            },
-          });
+        async (tx, attempt) => {
+          const created = attempt.created(
+            "workspace_chats",
+            await tx.workspace_chats.create({
+              data: {
+                workspaceId,
+                prompt,
+                response: safeJSONStringify(response),
+                user_id: user?.id || null,
+                thread_id: threadId,
+                api_session_id: apiSessionId,
+                include,
+              },
+            })
+          );
           await MessageLedger.record(tx, {
             workspaceId: created.workspaceId,
             at: created.createdAt,
             messages: 1,
           });
           return created;
-        }
+        },
+        { retry: { createdRows: true } }
       );
       return { chat, message: null };
     } catch (error) {
-      console.error(error.message);
+      // NAK-1: nur die Kurzform; die volle Meldung von Prisma kann Inhalte
+      // der Nachricht wiedergeben (etwa bei einem Validierungsfehler).
+      console.error(
+        `[WorkspaceChats.new] ${MessageLedger.errorSummary(error)}`
+      );
       return { chat: null, message: error.message };
     }
   },
@@ -336,14 +349,15 @@ const WorkspaceChats = {
       if (chatsData.length === 0) return { chats: [], message: null };
       const createdChats = await MessageLedger.transaction(
         { source: "thread_fork", workspaceId: chatsData[0]?.workspaceId },
-        async (tx) => {
+        async (tx, attempt) => {
           const chats = [];
           // Kopien je Workspace und Berliner Stunde zusammengefasst buchen
           const copies = new Map();
           for (const chatData of chatsData) {
-            const chat = await tx.workspace_chats.create({
-              data: chatData,
-            });
+            const chat = attempt.created(
+              "workspace_chats",
+              await tx.workspace_chats.create({ data: chatData })
+            );
             chats.push(chat);
 
             const { day, hour } = MessageLedger.berlinDayHour(chat.createdAt);
@@ -365,11 +379,19 @@ const WorkspaceChats = {
         {
           timeout:
             MessageLedger.TRANSACTION_OPTIONS.timeout + 20 * chatsData.length,
+          // KIE-542: Alle Kopien sind gemeldet (attempt.created). Hat ein
+          // früherer Versuch sie trotz Fehlermeldung gespeichert, legt die
+          // Wiederholung sie nicht noch einmal an.
+          retry: { createdRows: true },
         }
       );
       return { chats: createdChats, message: null };
     } catch (error) {
-      console.error(error.message);
+      // NAK-1: nur die Kurzform; die volle Meldung von Prisma kann Inhalte
+      // der Nachrichten wiedergeben (etwa bei einem Validierungsfehler).
+      console.error(
+        `[WorkspaceChats.bulkCreate] ${MessageLedger.errorSummary(error)}`
+      );
       return { chats: null, message: error.message };
     }
   },

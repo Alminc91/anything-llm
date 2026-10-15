@@ -232,7 +232,7 @@ async function chatSync({
         close: true,
         error: null,
         textResponse,
-        chatId: chat.id,
+        chatId: chat?.id ?? null,
       },
       {
         model: workspace.slug,
@@ -312,7 +312,7 @@ async function chatSync({
       type: "textResponse",
       close: true,
       error: null,
-      chatId: chat.id,
+      chatId: chat?.id ?? null,
       textResponse,
       sources,
     },
@@ -657,7 +657,7 @@ async function streamChat({
           type: "finalizeResponseStream",
           close: true,
           error: false,
-          chatId: chat.id,
+          chatId: chat?.id ?? null,
           textResponse: "",
         },
         {
