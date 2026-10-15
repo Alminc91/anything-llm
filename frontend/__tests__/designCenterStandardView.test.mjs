@@ -36,6 +36,8 @@ after(async () => {
 const noop = () => {};
 const text = (html) =>
   html
+    // Umbruchstellen im Skript-Schnipsel (EmbedTab snippetWithBreaks)
+    .replace(/<wbr\/?>/g, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/&quot;/g, '"')
     .replace(/&lt;/g, "<")
@@ -153,7 +155,8 @@ test(
       "Effekt „Verwandeln“",
       "Breite und Höhe der Box",
       "Kurskarten als Zeilen mit kurzer Antwort",
-      "Keine Auswahl nötig: Position, Chat-Icon, Fenstergröße und Effekte entfallen bei Inline.",
+      "Startet als schmale Eingabeleiste",
+      "Position und Chat-Icon gelten nur für die Chatblase. Sie erscheint, wenn der Platzhalter auf einer Seite fehlt.",
     ])
       assert.ok(t.includes(label), label);
     assert.ok(!t.includes("Datenschutz als zweite Blase"));
@@ -361,7 +364,9 @@ test(
       assert.ok(pres.length >= 1);
       for (const pre of pres) {
         assert.match(pre, /whitespace-pre-wrap/);
-        assert.match(pre, /break-all/);
+        // Browser 7.22-rc6 B-11: nicht mitten im Wort (statt break-all)
+        assert.match(pre, /\[overflow-wrap:anywhere\]/);
+        assert.doesNotMatch(pre, /break-all/);
         assert.doesNotMatch(pre, /overflow-x-auto|whitespace-pre[ "]/);
       }
       assert.doesNotMatch(html, /bg-black\/30|bg-white\/5|bg-white\/10/);

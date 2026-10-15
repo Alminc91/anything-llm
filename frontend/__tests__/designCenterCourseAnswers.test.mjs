@@ -61,7 +61,7 @@ const text = (html) =>
 const activeLabels = (html) =>
   [
     ...html.matchAll(
-      /<button[^>]*class="[^"]*bg-primary-button text-white[^"]*"[^>]*>([^<]*)<\/button>/g
+      /<button[^>]*class="[^"]*bg-primary-button text-black[^"]*"[^>]*>([^<]*)<\/button>/g
     ),
   ].map((m) => m[1]);
 

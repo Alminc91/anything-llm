@@ -246,6 +246,36 @@ export function withUserTextColor(config, initial = {}, value) {
   return { ...config, userTextColor: value };
 }
 
+/**
+ * Fehlermeldung zum Farbcode der Kundenfarbe oder null (Review 7.22-rc6
+ * F06). Leer ist kein Fehler (es gilt der Standard). Empfehlung und Warnung
+ * rechnen mit einer deckenden Farbe; eine durchscheinende (#rrggbbaa,
+ * rgba() mit Alpha unter 1) würde auf der Seite heller erscheinen, als
+ * gerechnet. Deshalb nur deckende Farbcodes.
+ * @param {*} value
+ * @returns {string|null}
+ */
+export function accentColorError(value) {
+  const text = textValue(value).trim();
+  if (!text) return null;
+  if (parseColor(text) === null)
+    return "Bitte einen Farbcode wie #01A5A9 angeben.";
+  if (colorAlpha(text) < 1)
+    return "Bitte eine deckende Farbe ohne Transparenz angeben.";
+  return null;
+}
+
+// Alphawert eines (gültigen) Farbcodes, 0 … 1; ohne Angabe 1
+function colorAlpha(color) {
+  const hex = /^#[0-9a-f]{6}([0-9a-f]{2})$/i.exec(color);
+  if (hex) return parseInt(hex[1], 16) / 255;
+  const fn = /[,/]\s*([\d.]+)(%?)\s*\)$/.exec(color);
+  if (!fn) return 1;
+  const value = Number(fn[1]);
+  if (!Number.isFinite(value)) return 0;
+  return fn[2] ? value / 100 : value;
+}
+
 /** Kontrast für Texte: eine Nachkommastelle, abgerundet, z. B. "4,4:1" */
 export function contrastLabel(ratio) {
   const value = Math.floor(ratio * 10) / 10;
@@ -706,6 +736,7 @@ function changed(config, initial, key) {
 
 // Reiter, in dem ein Feld steht (für „Fehler korrigieren“ beim Speichern)
 export const FIELD_TAB = {
+  accentColor: "aussehen",
   assistantSubtitle: "inhalt",
   greeting: "inhalt",
   greetingBubbleText: "inhalt",
@@ -726,6 +757,12 @@ export const FIELD_TAB = {
  */
 export function validateConfig(config, initial, gKey) {
   const errors = {};
+  // Kundenfarbe: nur ein geänderter Wert wird geprüft (ein früher
+  // gespeicherter Farbname bleibt speicherbar)
+  if (changed(config, initial, "accentColor")) {
+    const error = accentColorError(config.accentColor);
+    if (error) errors.accentColor = error;
+  }
   if (textValue(config.assistantSubtitle).trim().length > SUBTITLE_MAX_LEN)
     errors.assistantSubtitle = `Maximal ${SUBTITLE_MAX_LEN} Zeichen.`;
   if (
@@ -840,6 +877,16 @@ export function cleanConfig(
     else drop("privacyUrl");
   }
   return out;
+}
+
+// Pillen der Vorschau: über 60 Zeichen auf 59 gekürzt mit „…“, ohne ein
+// Emoji (Ersatzpaar) zu zerschneiden (Review 7.22-rc6 F07)
+export const PILL_MAX_LEN = 60;
+export function pillLabel(text) {
+  if (text.length <= PILL_MAX_LEN) return text;
+  let cut = text.slice(0, PILL_MAX_LEN - 1);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return `${cut.trimEnd()}…`;
 }
 
 // Listen (Startvorschläge, Willkommensblasen) für die Vorschau: nur

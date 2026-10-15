@@ -8,11 +8,11 @@
 // (Startvorschläge, Willkommensblasen, Untertitel) stehen nur sichtbar da
 // und werden erst mit „übernehmen“ Teil des Bearbeitungsstands (D6).
 import { ArrowCounterClockwise, Plus, Trash } from "@phosphor-icons/react";
-import Toggle from "@/components/lib/Toggle";
 import {
   SettingsSection,
   GroupHeading,
   Segmented,
+  Switch,
   inputClass,
 } from "./controls";
 import {
@@ -134,11 +134,12 @@ export function WelcomeBubblesDisplay({ config, setChoice }) {
             <span className="text-theme-text-secondary text-xs font-medium w-16">
               {label}
             </span>
+            {/* gleiche Größe wie die übrigen Auswahlgruppen (Browser
+                7.22-rc6 B-02) */}
             <Segmented
               options={WELCOME_BUBBLES_OPTIONS}
               value={choiceValue(config, key)}
               onChange={(v) => setChoice(key, v)}
-              compact
             />
           </div>
         ))}
@@ -419,11 +420,9 @@ export default function ContentTab({
         hint="Zweite Blase unter der Begrüßung, Text frei anpassbar."
       />
       <div data-privacy-switch="">
-        <Toggle
-          size="md"
-          variant="horizontal"
+        <Switch
           label="Datenschutz-Hinweis anzeigen"
-          enabled={privacyOn}
+          checked={privacyOn}
           onChange={(checked) => setPrivacyNotice(checked)}
         />
         <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">

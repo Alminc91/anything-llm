@@ -361,6 +361,7 @@ export default function EmbedAppearance() {
             {activeTab === "aussehen" && (
               <AppearanceTab
                 config={config}
+                errors={errors}
                 updateField={updateField}
                 setChoice={setChoice}
                 setUserTextColor={setUserTextColor}

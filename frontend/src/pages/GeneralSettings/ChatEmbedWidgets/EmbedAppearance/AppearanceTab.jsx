@@ -3,7 +3,12 @@
 // beide Darstellungen „Antworten mit Kursen“ (KIE-567). Darunter der Kasten
 // „Fest eingebaut“ mit den festen Standards.
 import { Check, LockSimple, Warning, X } from "@phosphor-icons/react";
-import { GroupHeading, SettingsSection, Segmented } from "./controls";
+import {
+  GroupHeading,
+  SELECTED_CLASS,
+  SettingsSection,
+  Segmented,
+} from "./controls";
 import { CHAT_ICONS, DEFAULT_LOGO } from "./WidgetPreview";
 import {
   COURSE_CARDS_OPTIONS,
@@ -34,8 +39,10 @@ function UserTextColorAdvice({ advice }) {
           : `Empfohlen: ${advice.recommendedLabel}. Solange Sie nichts wählen, gilt automatisch die Empfehlung.`}
       </p>
       {advice.warning && (
+        // Bernstein im Dunkelmodus, dunkler Bernstein auf hellem Grund
+        // (Browser 7.22-rc6 B-02: text-amber-400 auf Weiß kaum lesbar)
         <p
-          className="flex items-start gap-1.5 text-amber-400 text-xs leading-relaxed"
+          className="flex items-start gap-1.5 text-amber-400 light:text-amber-700 text-xs leading-relaxed"
           role="alert"
           data-testid="user-text-warning"
         >
@@ -55,10 +62,12 @@ function UserTextColorAdvice({ advice }) {
 // Feste Standards je Darstellung (wie server/utils/chats/embedStandards.js).
 // Kurskarten an/aus und ihre Reihenfolge sind wählbar („Antworten mit
 // Kursen“, KIE-567) und stehen deshalb nicht in diesem Kasten; fest sind
-// nur Zeilenlayout und kurze Antwort. Der Datenschutz-Hinweis ist nicht fest
-// (Schalter im Reiter Inhalt, KIE-565 Nachtrag).
+// nur Zeilenlayout und kurze Antwort, genannt nur, solange Kurskarten
+// gewählt sind (Browser 7.22-rc6 B-03). Der Datenschutz-Hinweis ist nicht
+// fest (Schalter im Reiter Inhalt, KIE-565 Nachtrag).
 const NOTE_CHOICES =
   "Kurskarten und ihre Reihenfolge wählen Sie oben unter „Antworten mit Kursen“. Den Datenschutz-Hinweis schalten Sie im Reiter „Inhalt“ ein oder aus.";
+export const COURSE_CARDS_ITEM = "Kurskarten als Zeilen mit kurzer Antwort";
 export const FIXED_STANDARDS = {
   bubble: {
     title: "Fest eingebaut, für alle Chatbots gleich",
@@ -66,7 +75,7 @@ export const FIXED_STANDARDS = {
       "Begrüßung als Blase",
       "Startvorschläge als Buttons",
       "Folgefragen als Buttons",
-      "Kurskarten als Zeilen mit kurzer Antwort",
+      COURSE_CARDS_ITEM,
       "KI-Hinweis unter der Eingabe",
       "Fenstergröße und Randabstand",
       "Kein Online-Punkt",
@@ -78,13 +87,15 @@ export const FIXED_STANDARDS = {
     items: [
       "Öffnet beim Klick ins Feld",
       "Effekt „Verwandeln“",
-      "Leisten-Stil und Startzustand",
+      "Startet als schmale Eingabeleiste",
       "Breite und Höhe der Box",
-      "Kurskarten als Zeilen mit kurzer Antwort",
+      COURSE_CARDS_ITEM,
       "Folgefragen als Buttons",
       "KI-Hinweis unter der Eingabe",
     ],
-    note: `Keine Auswahl nötig: Position, Chat-Icon, Fenstergröße und Effekte entfallen bei Inline. ${NOTE_CHOICES}`,
+    // Review 7.22-rc6 F10: Position und Chat-Icon gelten weiter für die
+    // Chatblase, die ohne Platzhalter erscheint; der Effekt ist fest
+    note: `Position und Chat-Icon gelten nur für die Chatblase. Sie erscheint, wenn der Platzhalter auf einer Seite fehlt. ${NOTE_CHOICES}`,
   },
 };
 
@@ -125,8 +136,10 @@ export function CourseAnswersSection({ config, setChoice }) {
   );
 }
 
-export function FixedStandardsBox({ mode }) {
-  const { title, items, note } = FIXED_STANDARDS[mode];
+export function FixedStandardsBox({ mode, cards = "auto" }) {
+  const { title, items: all, note } = FIXED_STANDARDS[mode];
+  const items =
+    cards === "auto" ? all : all.filter((item) => item !== COURSE_CARDS_ITEM);
   return (
     <div
       className="rounded-lg border border-white/10 bg-theme-bg-secondary p-4 space-y-3"
@@ -164,6 +177,7 @@ export function FixedStandardsBox({ mode }) {
 export default function AppearanceTab({
   config,
   updateField,
+  errors = {},
   setChoice = () => {},
   setUserTextColor = (value) => updateField("userTextColor", value),
   logoPreview,
@@ -216,8 +230,15 @@ export default function AppearanceTab({
       <SettingsSection
         title="Kundenfarbe"
         hint="Buttons, Nutzer-Nachrichten, Links."
+        error={errors.accentColor}
       >
-        <div className="relative flex items-center bg-theme-settings-input-bg rounded-lg border border-white/10 hover:border-white/25 transition-colors w-44 cursor-pointer">
+        <div
+          className={`relative flex items-center bg-theme-settings-input-bg rounded-lg border transition-colors w-44 cursor-pointer ${
+            errors.accentColor
+              ? "border-red-400/70"
+              : "border-white/10 hover:border-white/25"
+          }`}
+        >
           <div className="relative flex-shrink-0 ml-1.5">
             <div
               className="w-8 h-8 rounded-md"
@@ -257,7 +278,7 @@ export default function AppearanceTab({
                 aria-pressed={active}
                 className={`flex items-center gap-2 px-5 py-2 text-sm font-medium transition-all ${
                   active
-                    ? "bg-primary-button text-white"
+                    ? SELECTED_CLASS
                     : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"
                 }`}
               >
@@ -367,7 +388,10 @@ export default function AppearanceTab({
 
       <CourseAnswersSection config={config} setChoice={setChoice} />
 
-      <FixedStandardsBox mode={mode} />
+      <FixedStandardsBox
+        mode={mode}
+        cards={choiceValue(config, "courseCards")}
+      />
     </>
   );
 }

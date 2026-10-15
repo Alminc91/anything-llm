@@ -834,3 +834,30 @@ test(
     assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
   }
 );
+
+test(
+  "F06 (Review 7.22-rc6): durchscheinende Kundenfarbe zeigt einen Fehler und wird nicht gespeichert",
+  { skip },
+  async (t) => {
+    const { container, act, calls } = await open(t, [widget(6, null)], 6);
+    const color = elements(
+      container,
+      (el) => el.getAttribute("aria-label") === "Kundenfarbe als Farbcode"
+    )[0];
+    await act(() =>
+      handlersOf(color).onChange({ target: { value: "rgba(0,0,0,0.15)" } })
+    );
+    assert.ok(
+      container.textContent.includes(
+        "Bitte eine deckende Farbe ohne Transparenz angeben."
+      )
+    );
+    await act(() => click(buttons(container, "Speichern")[0]));
+    assert.equal(savedBody(calls), null);
+    await act(() =>
+      handlersOf(color).onChange({ target: { value: "#808080" } })
+    );
+    await act(() => click(buttons(container, "Speichern")[0]));
+    assert.deepEqual(savedBody(calls), { accentColor: "#808080" });
+  }
+);

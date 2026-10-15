@@ -32,6 +32,8 @@ import {
   previewInlineBar,
   previewPlaceholder,
   textItems,
+  PILL_MAX_LEN,
+  pillLabel,
   pillTextColor,
   textValue,
   themeChoice,
@@ -207,10 +209,10 @@ export function SuggestionPill({ config, palette, text, kind = "pill" }) {
         "--pill-accent": accent,
         "--pill-on-accent": userTextColor(config),
       }}
-      title={text.length > 60 ? text : undefined}
+      title={text.length > PILL_MAX_LEN ? text : undefined}
       data-preview={kind}
     >
-      {text.length > 60 ? `${text.slice(0, 59).trimEnd()}…` : text}
+      {pillLabel(text)}
     </span>
   );
 }

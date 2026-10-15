@@ -52,6 +52,19 @@ const SYSTEM_GUIDES = [
   },
 ];
 
+/**
+ * Schnipsel für die Anzeige mit Umbruchstellen nach „/“, „.“, „-“ und „=“:
+ * lange Adressen brechen dort um statt mitten im Wort (Browser 7.22-rc6
+ * B-11, „…chat-widge / t.min.js“). Kopiert wird der Text unverändert.
+ * @param {string} snippet
+ * @returns {Array<string|JSX.Element>}
+ */
+export function snippetWithBreaks(snippet) {
+  return snippet
+    .split(/(?<=[/.=-])/)
+    .flatMap((part, i) => (i === 0 ? [part] : [<wbr key={i} />, part]));
+}
+
 function CopyBlock({ snippet, copiedToast, label }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -68,10 +81,11 @@ function CopyBlock({ snippet, copiedToast, label }) {
   return (
     <div className="rounded-lg border border-white/10 bg-theme-settings-input-bg overflow-hidden">
       {/* Lange Zeilen (src mit Adresse) brechen um, statt waagerecht zu
-          scrollen (Browser-Abnahme B-07); Kopieren liefert den Text
-          unverändert. */}
-      <pre className="text-xs text-white font-mono p-3.5 whitespace-pre-wrap break-all">
-        {snippet}
+          scrollen (Browser-Abnahme B-07), bevorzugt nach „/“ oder „.“
+          (snippetWithBreaks); nur ein Teil ohne solche Stelle bricht
+          notfalls im Wort. Kopieren liefert den Text unverändert. */}
+      <pre className="text-xs text-white font-mono p-3.5 whitespace-pre-wrap [overflow-wrap:anywhere]">
+        {snippetWithBreaks(snippet)}
       </pre>
       <div className="flex justify-end px-3 pb-3">
         <button
@@ -95,7 +109,7 @@ function CopyBlock({ snippet, copiedToast, label }) {
 function Step({ number, title, note = null, children }) {
   return (
     <div className="flex gap-3">
-      <span className="flex-shrink-0 w-7 h-7 rounded-full bg-primary-button text-white text-sm font-semibold flex items-center justify-center">
+      <span className="flex-shrink-0 w-7 h-7 rounded-full bg-primary-button text-black text-sm font-semibold flex items-center justify-center">
         {number}
       </span>
       <div className="flex-1 min-w-0 space-y-2">
@@ -126,7 +140,7 @@ function PageSketch({ inline }) {
       </div>
       {inline && (
         <div className="flex items-center gap-2 rounded-full border border-primary-button/60 px-3 py-1.5">
-          <span className="w-5 h-5 rounded-full bg-primary-button text-white text-[10px] font-semibold flex items-center justify-center">
+          <span className="w-5 h-5 rounded-full bg-primary-button text-black text-[10px] font-semibold flex items-center justify-center">
             2
           </span>
           <span className="flex-1">Platzhalter: hier erscheint die Leiste</span>
@@ -136,7 +150,7 @@ function PageSketch({ inline }) {
       <div className="h-2 rounded bg-theme-sidebar-border w-7/12" />
       <div className="flex items-center gap-2 border-t border-white/10 pt-2">
         <span className="font-semibold">Footer</span>
-        <span className="w-5 h-5 rounded-full bg-primary-button text-white text-[10px] font-semibold flex items-center justify-center">
+        <span className="w-5 h-5 rounded-full bg-primary-button text-black text-[10px] font-semibold flex items-center justify-center">
           1
         </span>
         <span>Skript</span>
