@@ -20,10 +20,7 @@ const {
 const { getTTSProvider, isTTSConfigured } = require("../../utils/TextToSpeech");
 const { getSTTProvider, isSTTConfigured } = require("../../utils/SpeechToText");
 const multer = require("multer");
-const {
-  COURSE_CARDS_ANSWER_STYLES,
-  COURSE_CARDS_LAYOUTS,
-} = require("../../utils/chats/embedDefaults");
+const { applyEmbedStandards } = require("../../utils/chats/embedStandards");
 
 // Configure multer for audio file uploads (store in memory)
 const upload = multer({
@@ -59,104 +56,28 @@ const upload = multer({
   },
 });
 
-// Kufer Inline-Modus / Fenstergröße: Whitelist-Validierung der visual_config-
-// Felder, bevor sie ans (öffentliche) Widget gehen. Die Werte landen dort in
-// style/CSS — daher nur Zahl + erlaubte Einheit, Enums, Integer-Range, kurzer
-// Text. Ungültig -> Feld weglassen (Widget nutzt dann seinen Default). Das
-// Widget validiert zusätzlich selbst (utils/layout.js).
+// Kufer Design Center: Whitelist-Validierung der visual_config-Felder, die
+// noch frei wählbar sind, bevor sie ans (öffentliche) Widget gehen. Die Werte
+// landen dort in style/CSS bzw. als Text — daher nur Enums, kurzer Text und
+// geprüfter Link. Ungültig -> Feld weglassen (Widget nutzt dann seinen
+// Default). Alle übrigen Darstellungs-Schlüssel sind seit dem vereinfachten
+// Design Center (15.10.2026) fest: applyEmbedStandards
+// (utils/chats/embedStandards.js) entfernt Altwerte und setzt die Standards.
 const LAYOUT_ENUMS = {
   displayMode: ["bubble", "inline"],
-  inlineStartState: ["collapsed", "expanded"],
-  inlineTheme: ["light", "dark"],
-  // Fenster-Theme (Embed-Issue CSS-Variablen/Theme)
+  // Farbschema des Fensters und der Inline-Leiste (Hell/Dunkel; "auto" aus
+  // älteren Konfigurationen bleibt gültig)
   theme: ["light", "dark", "auto"],
-  // Kurskarten v2: Karten über oder unter der Antwort
-  courseCardsPosition: ["below", "above"],
-  // Antwortstil im Karten-Modus: kurz (Standard, Such-Abschnitt ohne Links),
-  // ausführlich (Liste mit Links) oder klassisch (kein Abschnitt, Karten nur
-  // aus Links/Marker) — wählt den Prompt-Abschnitt, den der Server bei
-  // courseCards = "auto" anhängt (utils/chats/embedDefaults.js)
-  courseCardsAnswerStyle: COURSE_CARDS_ANSWER_STYLES,
-  // Kartenlayout: Raster (zwei nebeneinander, Widget-Standard) oder Zeilen
-  // (eine Karte je Zeile, Zeit links, Status rechts) — nur Darstellung
-  courseCardsLayout: COURSE_CARDS_LAYOUTS,
-  // Leisten-Variante: Öffnen bei Klick (wie INLINE_OPEN_ON_VALUES im Widget)
-  inlineOpenOn: ["submit", "focus"],
-  // Panel-Optik (Mockup „Wunschfragen im Panel“): Vorschläge als Balken oder
-  // Pillen, Begrüßung als Text oder Blase; Datenschutz-Hinweis in der
-  // Begrüßungsblase oder einmalig als Karte; fester KI-Hinweis im Fuß
-  suggestionStyle: ["bars", "pills"],
-  greetingStyle: ["text", "bubble"],
-  privacyNotice: ["none", "bubble", "modal"],
-  // disclaimer "footer": das Widget zeigt den KI-Hinweis fest unter dem
-  // Eingabefeld. Der vom Modell erzeugte Prompt-Footer entfällt damit NICHT
-  // automatisch – das regelt separat server/utils/chats/embed.js (Folge-
-  // änderung nach dem Merge von Kurskarten v3: bei disclaimer === "footer"
-  // eine Systemprompt-Zeile anhängen, die den Modell-Footer unterdrückt).
-  // Bis dahin kann der Hinweis doppelt erscheinen.
-  disclaimer: ["none", "footer"],
-  // Folgefragen: Vorschläge des Modells als Pillen unter der letzten Antwort
-  // (der Server entfernt die Zeile "[[FRAGEN: …]]" unabhängig davon immer)
-  followUps: ["none", "pills"],
 };
 
-// Text-Schlüssel des Widgets mit Höchstlänge wie im Widget (utils/layout.js:
-// shortText mit INLINE_TEXT_MAX_LEN = 120, INLINE_SEND_TEXT_MAX_LEN = 40).
-// Wert wird getrimmt; leer oder zu lang -> weglassen (nicht kürzen).
-// courseCards/inlineLayout/inlineEffect gehen als kurzer Text durch, die
-// Enum-Prüfung macht das Widget, damit neue Werte keine Fork-Änderung brauchen.
+// Text-Schlüssel mit Höchstlänge wie im Widget (utils/layout.js). Wert wird
+// getrimmt; leer oder zu lang -> weglassen (nicht kürzen). Begrüßung,
+// Platzhalter und Datenschutz-Texte prüft applyEmbedStandards.
 const WIDGET_TEXT_MAX = {
-  inlineCollapsedText: 120,
-  inlineInputPlaceholder: 120,
-  inlineSendText: 40,
-  courseCards: 40,
-  inlineLayout: 40,
-  inlineEffect: 40,
-  // Panel-Optik/Datenschutz-/KI-Hinweis (Höchstlängen wie im Widget,
-  // utils/layout.js). privacyText und privacyUrl haben eigene Prüfungen
-  // (validPrivacyText, validUrl).
-  greetingBubbleText: 300,
   assistantSubtitle: 60,
-  privacyTitle: 120,
-  privacyButtonText: 40,
-  disclaimerText: 160,
 };
-// privacyText wie privacyTextValue() im Widget: Stichpunkte je Zeile bzw. "|"
-const PRIVACY_POINTS_MAX = 5;
-const PRIVACY_POINT_MAX_LEN = 160;
-const PRIVACY_TEXT_MAX_LEN = 1000;
 // privacyUrl wie safeUrl() im Widget
 const URL_MAX_LEN = 512;
-// Boolean-Schlüssel: echte Booleans oder "true"/"false"/"on"/"off"/"1"/"0"/
-// "yes"/"no" (wie bool() im Widget); alles andere -> weglassen.
-const WIDGET_BOOLEAN_KEYS = ["inlineInput", "onlineDot"];
-const LAYOUT_LENGTHS = {
-  windowWidth: ["px", "%", "vw", "vh"],
-  windowHeight: ["px", "%", "vw", "vh"],
-  inlineHeight: ["px", "vh"],
-  inlineMaxWidth: ["px"],
-};
-
-function validCssLength(value, units) {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0)
-    value = String(value);
-  if (typeof value !== "string") return null;
-  const m = /^(\d{1,4}(?:\.\d{1,2})?)(px|%|vw|vh)?$/.exec(
-    value.trim().toLowerCase()
-  );
-  if (!m || Number(m[1]) <= 0) return null;
-  const unit = m[2] || "px";
-  return units.includes(unit) ? `${m[1]}${unit}` : null;
-}
-
-function validBoolean(value) {
-  if (typeof value === "boolean") return value;
-  if (typeof value !== "string") return null;
-  const v = value.trim().toLowerCase();
-  if (["true", "on", "1", "yes"].includes(v)) return true;
-  if (["false", "off", "0", "no"].includes(v)) return false;
-  return null;
-}
 
 // Link (Datenschutz) wie safeUrl() im Widget: absolute https-URL oder Pfad
 // der eigenen Seite ("/…", nicht "//…"), ohne Leer-/Steuerzeichen, höchstens
@@ -176,38 +97,6 @@ function validUrl(value) {
   }
 }
 
-// Datenschutz-Stichpunkte wie privacyTextValue() im Widget: Rohtext (getrimmt)
-// höchstens PRIVACY_TEXT_MAX_LEN Zeichen, Punkte per Zeilenumbruch oder "|"
-// getrennt, getrimmt, leere verworfen; 1–5 Punkte mit je höchstens 160
-// Zeichen. Verletzt -> null (weglassen, nicht kürzen). Rückgabe normalisiert:
-// ein Punkt je Zeile.
-function validPrivacyText(value) {
-  if (typeof value !== "string") return null;
-  const v = value.trim();
-  if (v.length === 0 || v.length > PRIVACY_TEXT_MAX_LEN) return null;
-  const points = v
-    .split(/\r?\n|\|/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
-  if (
-    points.length === 0 ||
-    points.length > PRIVACY_POINTS_MAX ||
-    points.some((p) => p.length > PRIVACY_POINT_MAX_LEN)
-  )
-    return null;
-  return points.join("\n");
-}
-
-// Ganzzahl 0–200, als Zahl oder String (optional mit "px", wie im Widget)
-function validOffset(value) {
-  let n = value;
-  if (typeof value === "string") {
-    const m = /^\s*(\d{1,3})\s*(px)?\s*$/i.exec(value);
-    n = m ? Number(m[1]) : null;
-  }
-  return Number.isInteger(n) && n >= 0 && n <= 200 ? n : null;
-}
-
 function mapLayoutConfig(visualConfig = {}) {
   const out = {};
   for (const [key, allowed] of Object.entries(LAYOUT_ENUMS)) {
@@ -216,30 +105,14 @@ function mapLayoutConfig(visualConfig = {}) {
     const normalized = v.trim().toLowerCase(); // wie Widget: case-insensitiv
     if (allowed.includes(normalized)) out[key] = normalized;
   }
-  for (const [key, units] of Object.entries(LAYOUT_LENGTHS)) {
-    const v = validCssLength(visualConfig[key], units);
-    if (v) out[key] = v;
-  }
-  for (const key of ["offsetX", "offsetY"]) {
-    const v = validOffset(visualConfig[key]);
-    if (v !== null) out[key] = v;
-  }
-  if (typeof visualConfig.inheritFont === "boolean")
-    out.inheritFont = visualConfig.inheritFont;
   for (const [key, maxLen] of Object.entries(WIDGET_TEXT_MAX)) {
     const v = visualConfig[key];
     if (typeof v !== "string") continue;
     const text = v.trim();
     if (text.length > 0 && text.length <= maxLen) out[key] = text;
   }
-  const privacyText = validPrivacyText(visualConfig.privacyText);
-  if (privacyText !== null) out.privacyText = privacyText;
   const privacyUrl = validUrl(visualConfig.privacyUrl);
   if (privacyUrl !== null) out.privacyUrl = privacyUrl;
-  for (const key of WIDGET_BOOLEAN_KEYS) {
-    const v = validBoolean(visualConfig[key]);
-    if (v !== null) out[key] = v;
-  }
   return out;
 }
 
@@ -253,7 +126,8 @@ function embeddedEndpoints(app) {
     async (request, response) => {
       try {
         const embed = response.locals.embedConfig;
-        const visualConfig = await EmbedConfig.getVisualConfig(embed.uuid);
+        const visualConfig =
+          (await EmbedConfig.getVisualConfig(embed.uuid)) || {};
 
         // Map simplified fields to widget data-attributes
         const mapped = {};
@@ -276,9 +150,8 @@ function embeddedEndpoints(app) {
         }
         if (visualConfig.chatIcon) mapped.chatIcon = visualConfig.chatIcon;
         if (visualConfig.position) mapped.position = visualConfig.position;
-        if (visualConfig.greeting) mapped.greeting = visualConfig.greeting;
-        if (visualConfig.sendMessageText)
-          mapped.sendMessageText = visualConfig.sendMessageText;
+        // greeting/sendMessageText: applyEmbedStandards (Begrüßung und
+        // Platzhalter ohne frühere Vorbelegungen)
         if (visualConfig.supportEmail)
           mapped.supportEmail = visualConfig.supportEmail;
         // KIE-503: "Frühere Chats" pro Embed abschaltbar (Widget-Einstellungen,
@@ -300,9 +173,8 @@ function embeddedEndpoints(app) {
             mapped.chatbotBubblesMessages = cleaned.join(",");
         }
 
-        // Darstellung (Blase/Inline), Fenstergröße/Randabstand, Theme und
-        // Inline-/Kurskarten-Schlüssel — nur validierte Werte ausliefern,
-        // ungültige Felder weglassen.
+        // Darstellung (Blase/Inline), Farbschema, Untertitel, Datenschutz-
+        // Link — nur validierte Werte ausliefern, ungültige Felder weglassen.
         Object.assign(mapped, mapLayoutConfig(visualConfig));
 
         // Logo: serve from upload endpoint or use URL
@@ -317,11 +189,16 @@ function embeddedEndpoints(app) {
           mapped.assistantIcon = visualConfig.logoUrl;
         }
 
+        // Feste Standards (Design Center vereinfacht): Altwerte entfallener
+        // Optionen ignorieren, Begrüßung/Platzhalter/Datenschutz-Text aus den
+        // gespeicherten Texten, feste Werte erzwingen.
         response.setHeader("Cache-Control", "public, max-age=300");
-        response.status(200).json(mapped);
+        response.status(200).json(applyEmbedStandards(mapped, visualConfig));
       } catch (e) {
         console.error("[Embed Config]", e.message);
-        response.status(200).json({});
+        // auch im Fehlerfall die festen Standards (kein Widget ohne
+        // KI-Hinweis, keine alten Optionen)
+        response.status(200).json(applyEmbedStandards({}, {}));
       }
     }
   );

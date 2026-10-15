@@ -20,57 +20,73 @@ const {
   DISCLAIMER_PROMPT_NOTE,
   FOLLOW_UPS_PROMPT_NOTE,
 } = require("../../../utils/chats/embedCourseSources");
+const { normalizePrivacyText } = require("../../../utils/chats/embedStandards");
 const PANEL_TEXTS = require("./fixtures/embedPanelTexts.json");
 
 describe("Standardtexte = Widget-PANEL_TEXTS", () => {
   test.each(["de", "en"])("%s wörtlich wie im Widget", (lang) => {
     const widget = PANEL_TEXTS[lang];
     expect(embedDefaultTexts(lang)).toEqual({
-      greetingBubbleText: widget.greetingBubble,
+      name: widget.assistantName,
+      assistantSubtitle: widget.assistantSubtitle,
+      greeting: widget.greetingBubble,
+      sendMessageText: widget.inputPlaceholder,
       privacyTitle: widget.privacyTitle,
-      privacyText: widget.privacyPoints.join("\n"),
-      privacyButtonText: widget.privacyButton,
+      privacyText: widget.privacyPoints.map((p) => `• ${p}`).join("\n"),
       disclaimerText: widget.aiDisclaimer,
     });
   });
 
-  test("Hard Constraint 4: deutsche Texte wörtlich", () => {
+  test("Auftrag B: deutsche Texte wörtlich (Design Center vereinfacht, 15.10.2026)", () => {
     const de = embedDefaultTexts("de");
-    expect(de.greetingBubbleText).toBe(
-      "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen."
+    expect(de.greeting).toBe(
+      "Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?"
     );
-    expect(embedDefaultTexts("en").greetingBubbleText).toBe(
-      "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for."
+    expect(de.name).toBe("KI-Berater");
+    expect(de.assistantSubtitle).toBe(
+      "Online-Berater mit künstlicher Intelligenz"
     );
+    expect(de.sendMessageText).toBe("Ihre Frage eingeben");
+    expect(de.privacyTitle).toBe("Datenschutz");
     expect(de.privacyText.split("\n")).toEqual([
-      "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
-      "Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
-      "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
+      "• Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
+      "• Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
+      "• Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ]);
-    expect(de.privacyButtonText).toBe("Start");
     expect(de.disclaimerText).toBe(
-      "Ich bin eine KI und kann Fehler machen. Bitte überprüfen Sie meine Antworten."
+      "KI kann Fehler machen. Bitte überprüfen Sie die Antworten."
     );
+    expect(embedDefaultTexts("en").disclaimerText).toBe(
+      "AI can make mistakes. Please double-check the answers."
+    );
+    // entfallen: Knopf der Datenschutz-Karte, eigener Text der Begrüßungsblase
+    expect(de).not.toHaveProperty("privacyButtonText");
+    expect(de).not.toHaveProperty("greetingBubbleText");
   });
 
-  test("Standardtexte passen in die Server-Grenzen (mapLayoutConfig)", () => {
+  test("keine Gedankenstriche (– oder —) in sichtbaren Standardtexten", () => {
+    for (const lang of Object.keys(EMBED_DEFAULT_TEXTS))
+      for (const text of Object.values(embedDefaultTexts(lang)))
+        expect(text).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  test("Standardtexte passen in die Grenzen von Server und Widget", () => {
     for (const lang of Object.keys(EMBED_DEFAULT_TEXTS)) {
       const t = embedDefaultTexts(lang);
-      expect(t.greetingBubbleText.length).toBeLessThanOrEqual(300);
+      expect(t.greeting.length).toBeLessThanOrEqual(300);
+      expect(t.assistantSubtitle.length).toBeLessThanOrEqual(60);
+      expect(t.sendMessageText.length).toBeLessThanOrEqual(120);
       expect(t.privacyTitle.length).toBeLessThanOrEqual(120);
-      expect(t.privacyButtonText.length).toBeLessThanOrEqual(40);
       expect(t.disclaimerText.length).toBeLessThanOrEqual(160);
-      expect(t.privacyText.length).toBeLessThanOrEqual(1000);
-      const points = t.privacyText.split("\n");
-      expect(points.length).toBeLessThanOrEqual(5);
-      for (const p of points) expect(p.length).toBeLessThanOrEqual(160);
+      // freier Datenschutz-Text: unverändert gültig (normalizePrivacyText)
+      expect(normalizePrivacyText(t.privacyText)).toBe(t.privacyText);
     }
   });
 
   test("Rückgabe ist eine Kopie (Aufrufer kann nichts verändern)", () => {
     const a = embedDefaultTexts("de");
     a.privacyTitle = "x";
-    expect(embedDefaultTexts("de").privacyTitle).toBe("Datenschutz:");
+    expect(embedDefaultTexts("de").privacyTitle).toBe("Datenschutz");
   });
 });
 

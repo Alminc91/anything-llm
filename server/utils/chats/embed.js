@@ -230,10 +230,11 @@ async function streamChatWithForEmbed(
     return;
   }
 
-  // Folgefragen (visual_config.followUps = "pills"): Prompt-Hinweis am Ende
-  // (nach dem Disclaimer-Hinweis) und Chunk an das Widget nur dann.
+  // Folgefragen (fester Standard, immer an): Prompt-Hinweis am Ende (nach
+  // dem Disclaimer-Hinweis) und Chunk an das Widget.
   const followUpsOn = followUpsEnabled(embed);
-  // Kurskarten (opt-in, visual_config.courseCards = "auto")
+  // Kurskarten (fest nach Darstellung: Inline an, Chatblase siehe
+  // BUBBLE_COURSE_CARDS in embedStandards.js)
   const cardsOn = courseCardsEnabled(embed);
 
   // Compress message to ensure prompt passes token limit with room for response
@@ -256,7 +257,7 @@ async function streamChatWithForEmbed(
   // 2]]", siehe embedCardsMarker.js). Erkennen und Entfernen laufen IMMER
   // (der Prompt kann den Marker flottenweit verlangen, auch wenn die Karten
   // für dieses Embed aus sind) — der Marker erreicht nie Widget oder DB-Text.
-  // Nur mit Karten an (opt-in, visual_config.courseCards = "auto"): ange-
+  // Nur mit Karten an (cardsOn, fest nach Darstellung): ange-
   // kündigte Kurse sofort als eigener Chunk + Nachschläge (Marker-Folge-
   // Chunks + Antwort-Links teilen Cache und Limit).
   const courseLookup = cardsOn
@@ -376,7 +377,7 @@ async function streamChatWithForEmbed(
   // Folgefragen: Zeile "[[FRAGEN: … | …]]" (siehe embedCardsMarker.js; FF1:
   // überall im Text, Pillen aus der letzten Zeile, ohne Pillen gleich der
   // Nutzerfrage) — Erkennen, Entfernen und Speichern (followUps) laufen
-  // IMMER (wie der Marker). Nur mit visual_config.followUps = "pills"
+  // IMMER (wie der Marker). Mit Folgefragen an (fester Standard)
   // eigener Chunk nach dem letzten Textchunk (der Text ist jetzt
   // vollständig) und vor finalizeResponseStream.
   const followUps = parsedReply.followUps;
@@ -389,7 +390,7 @@ async function streamChatWithForEmbed(
       error: false,
     });
 
-  // Kurskarten (opt-in, visual_config.courseCards = "auto"): nur Kurs-
+  // Kurskarten (cardsOn, fest nach Darstellung): nur Kurs-
   // Metadaten der Whitelist, nie text — sources selbst bleiben serverseitig.
   // Reihenfolge: angekündigte Kurse (Marker), Kurse der Treffer, dann
   // verlinkte Kurse ohne Treffer-Dokument (Nachschlag per Dateiname).
@@ -463,18 +464,18 @@ async function streamChatWithForEmbed(
  * System-Prompt des Embeds: Workspace-Prompt (inkl. Zeitzeile) plus Hinweise
  * nur am ENDE (der gecachte Präfix der Flotte bleibt unverändert), in dieser
  * Reihenfolge:
- *  1. Karten-Abschnitt (courseCards = "auto"; Stil nach
- *     courseCardsAnswerStyle, Beispiel ohne KI-Hinweis-Zeile bei
- *     disclaimer = "footer"),
- *  2. Disclaimer-Hinweis (disclaimer = "footer"),
- *  3. Folgefragen-Hinweis (followUps = "pills").
+ *  1. Karten-Abschnitt (nur mit Karten: fester Stil „kurz“, Beispiel ohne
+ *     KI-Hinweis-Zeile, weil der KI-Hinweis fest im Widget steht),
+ *  2. Disclaimer-Hinweis (KI-Hinweis fest unter der Eingabe),
+ *  3. Folgefragen-Hinweis.
+ * Hinweis 2 und 3 und der Stil folgen den festen Standards des vereinfachten
+ * Design Centers (embedStandards.js, embedCourseSources.js); Karten an/aus
+ * kommt als Schalter (Inline an, Chatblase nach BUBBLE_COURSE_CARDS).
  * Der Server besitzt den Karten-Abschnitt: Steht im Workspace-Prompt schon
- * ein Abschnitt "### Course Cards Mode…" (Prompt-Rollout/Demo), wird er bei
- * short/long dort entfernt und der serverseitige am Ende angehängt (genau
- * einer, immer aktuell). Bei "classic" bleibt der Workspace-Prompt
- * unangetastet — auch ein vorhandener Abschnitt —, damit Bestands-Prompts
- * mit eigenem Abschnitt weiter funktionieren; angehängt wird dann nichts.
- * Ohne courseCards = "auto" bleibt der Workspace-Prompt ebenfalls unverändert.
+ * ein Abschnitt "### Course Cards Mode…" (Prompt-Rollout/Demo), wird er
+ * immer entfernt; mit Karten hängt der Server genau einen aktuellen am Ende
+ * an, ohne Karten keinen (sonst antwortete das Modell kurz ohne Links, aber
+ * es erschienen keine Karten).
  * @param {string} basePrompt
  * @param {Object} embed
  * @param {{cardsOn: boolean, followUpsOn: boolean}} switches
@@ -482,11 +483,11 @@ async function streamChatWithForEmbed(
  */
 function embedSystemPrompt(basePrompt, embed, { cardsOn, followUpsOn }) {
   const footer = disclaimerFooterEnabled(embed);
-  const style = cardsOn ? courseCardsAnswerStyle(embed) : "classic";
-  const ownsSection = style !== "classic";
   return (
-    (ownsSection ? removeCourseCardsSections(basePrompt) : basePrompt) +
-    (ownsSection ? courseCardsPromptNote({ style, footer }) : "") +
+    removeCourseCardsSections(basePrompt) +
+    (cardsOn
+      ? courseCardsPromptNote({ style: courseCardsAnswerStyle(embed), footer })
+      : "") +
     (footer ? DISCLAIMER_PROMPT_NOTE : "") +
     (followUpsOn ? FOLLOW_UPS_PROMPT_NOTE : "")
   );

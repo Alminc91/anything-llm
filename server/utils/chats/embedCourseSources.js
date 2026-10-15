@@ -1,4 +1,5 @@
-// Kurskarten im Embed-Widget (opt-in über visual_config.courseCards = "auto").
+// Kurskarten im Embed-Widget (fest nach Darstellung: Inline an, siehe
+// embedStandards.js; früher opt-in über visual_config.courseCards = "auto").
 //
 // Das Widget bekommt die Quellen einer Antwort bewusst NICHT (sources: [] im
 // Stream, Historie ohne sources) — Kontext-Schnipsel dürfen Endnutzer nie
@@ -30,7 +31,10 @@
 // (Collector + Pipeline) würden das Lesen der Kopfzeilen und die
 // web://…website-Rückübersetzung überflüssig machen.
 
-const { COURSE_CARDS_ANSWER_STYLES } = require("./embedDefaults");
+const {
+  courseCardsForDisplayMode,
+  EMBED_FIXED_STANDARDS,
+} = require("./embedStandards");
 const path = require("path");
 const {
   ISO_DATE_RX,
@@ -205,12 +209,6 @@ function cleanTeaserText(value) {
   return cleanShortText(v, TEASER_MAX_LEN);
 }
 
-/**
- * Ist die Kurskarten-Option für dieses Embed eingeschaltet?
- * visual_config ist in der DB ein JSON-String (embed_configs.visual_config).
- * @param {{visual_config?: string|object|null}} embed
- * @returns {boolean}
- */
 // visual_config eines Embeds (JSON-String oder Objekt) → Wert eines
 // Schlüssels, normalisiert (String getrimmt + Kleinschreibung); null, wenn
 // nicht gesetzt oder nicht parsbar.
@@ -229,34 +227,42 @@ function visualConfigValue(embed = {}, key, tag = "visualConfigValue") {
   return value ?? null;
 }
 
+/**
+ * Kurskarten für dieses Embed an? Seit dem vereinfachten Design Center
+ * (15.10.2026) fest nach Darstellung (embedStandards.js): Inline an, Chat-
+ * blase nach BUBBLE_COURSE_CARDS. Ein gespeichertes courseCards wird nicht
+ * mehr gelesen. visual_config ist in der DB ein JSON-String
+ * (embed_configs.visual_config).
+ * @param {{visual_config?: string|object|null}} embed
+ * @returns {boolean}
+ */
 function courseCardsEnabled(embed = {}) {
   return (
-    visualConfigValue(embed, "courseCards", "courseCardsEnabled") === "auto"
+    courseCardsForDisplayMode(
+      visualConfigValue(embed, "displayMode", "courseCardsEnabled")
+    ) === "auto"
   );
 }
 
-// Antwortstil im Karten-Modus (visual_config.courseCardsAnswerStyle):
-// "long" = ausführlich (Liste mit Links), "classic" = kein Prompt-Abschnitt
-// (Karten nur aus Links/Marker), sonst "short" (Standard: Suche, kurze
-// Antwort ohne Links) — wählt den Prompt-Abschnitt in embedDefaults.js.
-function courseCardsAnswerStyle(embed = {}) {
-  const style = visualConfigValue(
-    embed,
-    "courseCardsAnswerStyle",
-    "courseCardsAnswerStyle"
-  );
-  return COURSE_CARDS_ANSWER_STYLES.includes(style) ? style : "short";
+/**
+ * Antwortstil im Karten-Modus: fest "short" (Suche, kurze Antwort ohne
+ * Links, Karten zuerst; Demo-Variante 4). Ein gespeichertes
+ * courseCardsAnswerStyle wird nicht mehr gelesen.
+ * @returns {"short"}
+ */
+function courseCardsAnswerStyle() {
+  return EMBED_FIXED_STANDARDS.courseCardsAnswerStyle;
 }
 
-// Fester KI-Hinweis im Widget (visual_config.disclaimer = "footer"): das
-// Widget zeigt die Zeile selbst unter dem Eingabefeld, das Modell soll den
-// Prompt-Pflicht-Footer dann nicht mehr erzeugen (spart Tokens, keine
-// Dopplung, Sprachausgabe liest ihn nicht vor).
-function disclaimerFooterEnabled(embed = {}) {
-  return (
-    visualConfigValue(embed, "disclaimer", "disclaimerFooterEnabled") ===
-    "footer"
-  );
+/**
+ * Fester KI-Hinweis im Widget (disclaimer "footer"): immer an. Das Widget
+ * zeigt die Zeile selbst unter dem Eingabefeld, das Modell soll den Prompt-
+ * Pflicht-Footer nicht mehr erzeugen (spart Tokens, keine Dopplung,
+ * Sprachausgabe liest ihn nicht vor).
+ * @returns {true}
+ */
+function disclaimerFooterEnabled() {
+  return EMBED_FIXED_STANDARDS.disclaimer === "footer";
 }
 
 // Wird ans ENDE des System-Prompts gehängt (hinter der Zeitzeile), damit der
@@ -264,12 +270,15 @@ function disclaimerFooterEnabled(embed = {}) {
 const DISCLAIMER_PROMPT_NOTE =
   "\n\n### Footer Override (ACTIVE)\nThe chat widget displays the AI disclaimer itself below the input field. Do NOT write the Mandatory Footer sentence (\u201eIch bin eine KI und kann Fehler machen \u2026\u201c or its translation) at the end of your answers. Everything else about the footer section is disabled.";
 
-// Folgefragen-Vorschläge im Widget (visual_config.followUps = "pills"): nur
-// dann sendet der Server den Chunk { type: "followUps" } und bittet das
-// Modell um die Endzeile "[[FRAGEN: …]]". Erkennen/Entfernen/Speichern der
-// Zeile laufen unabhängig davon immer (embedCardsMarker.js).
-function followUpsEnabled(embed = {}) {
-  return visualConfigValue(embed, "followUps", "followUpsEnabled") === "pills";
+/**
+ * Folgefragen-Vorschläge im Widget: immer an (followUps "pills"). Der
+ * Server sendet den Chunk { type: "followUps" } und bittet das Modell um die
+ * Endzeile "[[FRAGEN: …]]". Erkennen/Entfernen/Speichern der Zeile laufen
+ * unabhängig davon immer (embedCardsMarker.js).
+ * @returns {true}
+ */
+function followUpsEnabled() {
+  return EMBED_FIXED_STANDARDS.followUps === "pills";
 }
 
 // Wird wie DISCLAIMER_PROMPT_NOTE ans ENDE des System-Prompts gehängt

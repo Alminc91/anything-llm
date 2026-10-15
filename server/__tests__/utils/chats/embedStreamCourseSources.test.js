@@ -1,6 +1,7 @@
 /* eslint-env jest, node */
-// streamChatWithForEmbed: courseSources reisen nur bei
-// visual_config.courseCards = "auto" im Abschluss-Chunk (finalizeResponseStream,
+// streamChatWithForEmbed: courseSources reisen nur mit Kurskarten (seit dem
+// vereinfachten Design Center fest: Inline an, Chatblase aus) im
+// Abschluss-Chunk (finalizeResponseStream,
 // close: true) und in der gespeicherten Antwort mit. Der Stream selbst bekommt
 // weiterhin sources: [], die DB weiterhin die vollen sources.
 
@@ -106,9 +107,9 @@ async function run(embed) {
   return { finalChunk, stored };
 }
 
-test("auto: courseSources im Abschluss-Chunk und in der gespeicherten Antwort", async () => {
+test("Inline: courseSources im Abschluss-Chunk und in der gespeicherten Antwort", async () => {
   const { finalChunk, stored } = await run(
-    makeEmbed(JSON.stringify({ courseCards: "auto" }))
+    makeEmbed(JSON.stringify({ displayMode: "inline" }))
   );
   expect(finalChunk).toMatchObject({ close: true, chatId: 42 });
   expect(finalChunk.courseSources.map((c) => c.title)).toEqual([
@@ -131,9 +132,11 @@ test("auto: courseSources im Abschluss-Chunk und in der gespeicherten Antwort", 
 
 test.each([
   ["ohne visual_config", null],
-  ["courseCards off", JSON.stringify({ courseCards: "off" })],
+  ["Chatblase", JSON.stringify({ displayMode: "bubble" })],
+  // gespeichertes courseCards "auto" gilt in der Chatblase nicht mehr
+  ["Chatblase mit Altwert auto", JSON.stringify({ courseCards: "auto" })],
   ["andere Schlüssel", JSON.stringify({ theme: "dark" })],
-])("%s: kein courseSources-Feld, Verhalten wie bisher", async (_l, vc) => {
+])("%s: kein courseSources-Feld (Chatblase ohne Karten)", async (_l, vc) => {
   const { finalChunk, stored } = await run(makeEmbed(vc));
   expect(finalChunk).toEqual({
     uuid: expect.any(String),
@@ -146,7 +149,7 @@ test.each([
   expect(stored.sources).toHaveLength(8);
 });
 
-test("auto, aber nur Info-Seiten: kein courseSources-Feld", async () => {
+test("Inline, aber nur Info-Seiten: kein courseSources-Feld", async () => {
   helpers.getVectorDbClass.mockReturnValue({
     hasNamespace: jest.fn().mockResolvedValue(true),
     namespaceCount: jest.fn().mockResolvedValue(10),
@@ -157,17 +160,17 @@ test("auto, aber nur Info-Seiten: kein courseSources-Feld", async () => {
     }),
   });
   const { finalChunk, stored } = await run(
-    makeEmbed(JSON.stringify({ courseCards: "auto" }))
+    makeEmbed(JSON.stringify({ displayMode: "inline" }))
   );
   expect(finalChunk).not.toHaveProperty("courseSources");
   expect(stored).not.toHaveProperty("courseSources");
 });
 
-test("auto ohne Streaming-Connector: courseSources ebenfalls im Abschluss-Chunk", async () => {
+test("Inline ohne Streaming-Connector: courseSources ebenfalls im Abschluss-Chunk", async () => {
   connector = makeConnector({ streaming: false });
   helpers.getLLMProvider.mockReturnValue(connector);
   const { finalChunk } = await run(
-    makeEmbed(JSON.stringify({ courseCards: "auto" }))
+    makeEmbed(JSON.stringify({ displayMode: "inline" }))
   );
   expect(finalChunk.courseSources).toHaveLength(2);
   const textChunk = writeResponseChunk.mock.calls

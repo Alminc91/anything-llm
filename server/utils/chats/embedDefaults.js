@@ -1,42 +1,51 @@
-// Kufer Design Center: Standardtexte des Embed-Widgets (Panel-Optik,
-// Datenschutz- und KI-Hinweis) und die Prompt-Abschnitte des Karten-Modus.
+// Kufer Design Center: Standardtexte des Embed-Widgets (Kopf, Begrüßung,
+// Eingabe, Datenschutz- und KI-Hinweis) und die Prompt-Abschnitte des
+// Karten-Modus.
 //
 // Standardtexte: wörtliche Kopie von PANEL_TEXTS im Embed-Repo
 // (anythingllm-embed, src/utils/layout.js) — das Widget hat sie selbst, der
 // öffentliche Endpunkt /embed/:id/config liefert sie NICHT aus. Nur das
 // Design Center lädt sie (GET /embed/defaults?lang=de|en), um sie als Wert
-// ins Feld zu setzen und „Auf Standardtext zurücksetzen“ anzubieten.
+// bzw. Vorbelegung ins Feld zu setzen und „Standardtext“ anzubieten.
 // Bei Änderungen im Widget hier nachziehen; der Jest-Test
 // (__tests__/utils/chats/embedDefaults.test.js) vergleicht mit einer Kopie
 // der Widget-Werte (fixtures/embedPanelTexts.json).
+// Design Center vereinfacht (15.10.2026): keine Gedankenstriche in diesen
+// Texten; der KI-Hinweis ist fest (nicht änderbar), Name, Untertitel und
+// Platzhalter sind nur Vorbelegung für neue bzw. leere Felder.
 const EMBED_DEFAULT_TEXTS = {
   de: {
-    greetingBubbleText:
-      "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
-    privacyTitle: "Datenschutz:",
+    assistantName: "KI-Berater",
+    assistantSubtitle: "Online-Berater mit künstlicher Intelligenz",
+    greeting: "Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?",
+    inputPlaceholder: "Ihre Frage eingeben",
+    privacyTitle: "Datenschutz",
     privacyPoints: [
       "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
       "Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ],
-    privacyButtonText: "Start",
     disclaimerText:
-      "Ich bin eine KI und kann Fehler machen. Bitte überprüfen Sie meine Antworten.",
+      "KI kann Fehler machen. Bitte überprüfen Sie die Antworten.",
   },
   en: {
-    greetingBubbleText:
-      "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for.",
-    privacyTitle: "Privacy:",
+    assistantName: "AI Advisor",
+    assistantSubtitle: "Online advisor powered by artificial intelligence",
+    greeting: "Hello! I am your AI advisor. How can I help you?",
+    inputPlaceholder: "Enter your question",
+    privacyTitle: "Privacy",
     privacyPoints: [
       "Your requests stay on servers in Germany and are not passed on to third parties.",
       "Staff of the institution may view conversations for quality assurance.",
       "Please only share information that is necessary for your request.",
     ],
-    privacyButtonText: "Start",
-    disclaimerText:
-      "I am an AI and can make mistakes. Please double-check my answers.",
+    disclaimerText: "AI can make mistakes. Please double-check the answers.",
   },
 };
+
+// Aufzählungszeichen der Standard-Datenschutzpunkte im freien Text
+// (privacyText): Zeilen mit „•“ oder „-“ am Anfang sind Punkte.
+const PRIVACY_BULLET = "• ";
 
 // Sprache wie panelLanguage() im Widget: Sprachcode (2 Buchstaben, optional
 // Region wie "en-GB"/"en_US"), nur Sprachen mit eigenen Texten; sonst "de".
@@ -49,15 +58,26 @@ function embedDefaultsLanguage(value) {
     : "de";
 }
 
-// Standardtexte einer Sprache unter den visual_config-Schlüsseln, die das
-// Design Center bearbeitet; privacyText wie gespeichert: ein Punkt je Zeile.
+/**
+ * Standardtexte einer Sprache unter den visual_config-Schlüsseln, die das
+ * Design Center bearbeitet bzw. anzeigt: name/assistantSubtitle/
+ * sendMessageText nur als Vorbelegung, greeting und privacyText als
+ * Standardtext (privacyText im freien Format, ein „• “-Punkt je Zeile),
+ * disclaimerText nur zur Anzeige (fest, nicht änderbar).
+ * @param {string} [lang]
+ * @returns {{name: string, assistantSubtitle: string, greeting: string,
+ *   sendMessageText: string, privacyTitle: string, privacyText: string,
+ *   disclaimerText: string}}
+ */
 function embedDefaultTexts(lang = "de") {
   const t = EMBED_DEFAULT_TEXTS[embedDefaultsLanguage(lang)];
   return {
-    greetingBubbleText: t.greetingBubbleText,
+    name: t.assistantName,
+    assistantSubtitle: t.assistantSubtitle,
+    greeting: t.greeting,
+    sendMessageText: t.inputPlaceholder,
     privacyTitle: t.privacyTitle,
-    privacyText: t.privacyPoints.join("\n"),
-    privacyButtonText: t.privacyButtonText,
+    privacyText: t.privacyPoints.map((p) => PRIVACY_BULLET + p).join("\n"),
     disclaimerText: t.disclaimerText,
   };
 }
@@ -166,15 +186,16 @@ const COURSE_CARDS_SECTION_RE =
 // Ende eines Abschnitts: Trennzeile ▪▪▪ oder die nächste ###-Überschrift
 const SECTION_END_RE = /^[ \t]*(?:▪▪▪[ \t]*$|###[ \t])/;
 
-// Antwortstile (Enum visual_config.courseCardsAnswerStyle; Quelle auch für
-// LAYOUT_ENUMS in endpoints/embed). Standard ohne/ungültigen Wert: "short".
+// Antwortstile des Karten-Abschnitts (früher wählbar über
+// visual_config.courseCardsAnswerStyle). Seit dem vereinfachten Design
+// Center (15.10.2026) fest "short" (embedStandards.js); "long" und
+// "classic" bleiben nur als Abschnitte für spätere Varianten/Tests.
 const COURSE_CARDS_ANSWER_STYLES = ["short", "long", "classic"];
 
-// Kartenlayout im Widget (Enum visual_config.courseCardsLayout, ebenfalls
-// Quelle für LAYOUT_ENUMS in endpoints/embed): "grid" zwei Karten
-// nebeneinander (Widget-Standard, auch ohne/ungültigen Wert), "rows" eine
-// Karte je Zeile (Zeit links, Status rechts). Reine Darstellung — kommt nie
-// in den System-Prompt.
+// Kartenlayouts im Widget: "grid" zwei Karten nebeneinander, "rows" eine
+// Karte je Zeile (Zeit links, Status rechts). Seit dem vereinfachten Design
+// Center fest "rows" (embedStandards.js). Reine Darstellung — kommt nie in
+// den System-Prompt.
 const COURSE_CARDS_LAYOUTS = ["grid", "rows"];
 
 /**
@@ -231,6 +252,7 @@ function removeCourseCardsSections(prompt) {
 
 module.exports = {
   EMBED_DEFAULT_TEXTS,
+  PRIVACY_BULLET,
   embedDefaultsLanguage,
   embedDefaultTexts,
   COURSE_CARDS_PROMPT_NOTE,

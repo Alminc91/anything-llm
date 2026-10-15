@@ -29,13 +29,21 @@ const FORBIDDEN = [
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
-describe("courseCardsEnabled (Gate visual_config.courseCards)", () => {
-  test("nur 'auto' schaltet ein (String aus der DB und Objekt)", () => {
+// Seit dem vereinfachten Design Center (15.10.2026) hängen die Kurskarten an
+// der Darstellung (embedStandards.js): Inline an, Chatblase aus; ein
+// gespeichertes courseCards wird nicht mehr gelesen.
+describe("courseCardsEnabled (fest nach Darstellung)", () => {
+  test("Inline schaltet ein (String aus der DB und Objekt), auch mit courseCards off", () => {
     expect(
-      courseCardsEnabled({ visual_config: '{"courseCards":"auto"}' })
+      courseCardsEnabled({ visual_config: '{"displayMode":"inline"}' })
     ).toBe(true);
     expect(
-      courseCardsEnabled({ visual_config: { courseCards: " Auto " } })
+      courseCardsEnabled({ visual_config: { displayMode: " Inline " } })
+    ).toBe(true);
+    expect(
+      courseCardsEnabled({
+        visual_config: '{"displayMode":"inline","courseCards":"off"}',
+      })
     ).toBe(true);
   });
 
@@ -44,11 +52,12 @@ describe("courseCardsEnabled (Gate visual_config.courseCards)", () => {
     [null],
     [""],
     ["{}"],
-    ['{"courseCards":"off"}'],
-    ['{"courseCards":true}'],
-    ['{"courseCards":"on"}'],
+    ['{"courseCards":"auto"}'],
+    ['{"displayMode":"bubble","courseCards":"auto"}'],
+    ['{"displayMode":"inlinex"}'],
+    ['{"displayMode":true}'],
     ["kein json"],
-  ])("aus bei visual_config=%p", (visual_config) => {
+  ])("aus (Chatblase) bei visual_config=%p", (visual_config) => {
     const spy = jest.spyOn(console, "error").mockImplementation(() => {});
     expect(courseCardsEnabled({ visual_config })).toBe(false);
     spy.mockRestore();
@@ -682,31 +691,26 @@ describe("visualConfigValue / disclaimerFooterEnabled", () => {
     expect(visualConfigValue({}, "disclaimer")).toBe(null);
   });
 
-  test("disclaimerFooterEnabled nur bei footer; courseCardsEnabled unverändert", () => {
+  test("feste Standards: KI-Hinweis im Fuß, Folgefragen an, Stil kurz, auch bei Altwerten", () => {
+    const {
+      courseCardsAnswerStyle,
+    } = require("../../../utils/chats/embedCourseSources");
+    for (const embed of [
+      { visual_config: '{"disclaimer":"footer","followUps":"pills"}' },
+      {
+        visual_config:
+          '{"disclaimer":"none","followUps":"none","courseCardsAnswerStyle":"long"}',
+      },
+      { visual_config: "{kaputt" },
+      {},
+      undefined,
+    ]) {
+      expect(disclaimerFooterEnabled(embed)).toBe(true);
+      expect(followUpsEnabled(embed)).toBe(true);
+      expect(courseCardsAnswerStyle(embed)).toBe("short");
+    }
     expect(
-      disclaimerFooterEnabled({ visual_config: '{"disclaimer":"footer"}' })
+      courseCardsEnabled({ visual_config: '{"displayMode":"INLINE"}' })
     ).toBe(true);
-    expect(
-      disclaimerFooterEnabled({ visual_config: '{"disclaimer":"none"}' })
-    ).toBe(false);
-    expect(disclaimerFooterEnabled({})).toBe(false);
-    expect(
-      courseCardsEnabled({ visual_config: '{"courseCards":"AUTO"}' })
-    ).toBe(true);
-  });
-
-  test("followUpsEnabled nur bei pills", () => {
-    expect(followUpsEnabled({ visual_config: '{"followUps":"pills"}' })).toBe(
-      true
-    );
-    expect(followUpsEnabled({ visual_config: { followUps: " Pills " } })).toBe(
-      true
-    );
-    expect(followUpsEnabled({ visual_config: '{"followUps":"none"}' })).toBe(
-      false
-    );
-    expect(followUpsEnabled({ visual_config: "{kaputt" })).toBe(false);
-    expect(followUpsEnabled({})).toBe(false);
-    expect(followUpsEnabled()).toBe(false);
   });
 });

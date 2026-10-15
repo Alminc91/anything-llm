@@ -156,14 +156,14 @@ describe("GET /embed/defaults — Auth wie die übrigen Embed-Verwaltungsendpunk
     );
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ lang: "de", defaults: embedDefaultTexts("de") });
-    expect(res.body.defaults.privacyTitle).toBe("Datenschutz:");
+    expect(res.body.defaults.privacyTitle).toBe("Datenschutz");
     expect(res.body.defaults.privacyText.split("\n")).toHaveLength(3);
   });
 
   test("AK-2: lang=en -> englisch; fehlend/unbekannt -> deutsch", async () => {
     let res = await runChain(chain, request({ token: "gueltig", lang: "en" }));
     expect(res.body.lang).toBe("en");
-    expect(res.body.defaults.privacyTitle).toBe("Privacy:");
+    expect(res.body.defaults.privacyTitle).toBe("Privacy");
     for (const lang of [undefined, "fr", "<x>", ["en"]]) {
       res = await runChain(chain, request({ token: "gueltig", lang }));
       expect(res.statusCode).toBe(200);

@@ -138,7 +138,9 @@ function tokensOf(text) {
   return text.match(/[\s\S]{1,7}/g);
 }
 
-function makeEmbed(visual_config = JSON.stringify({ courseCards: "auto" })) {
+// Kurskarten hängen seit dem vereinfachten Design Center (15.10.2026) an der
+// Darstellung (Inline an), Folgefragen sind immer an (embedStandards.js).
+function makeEmbed(visual_config = JSON.stringify({ displayMode: "inline" })) {
   return {
     id: 3,
     chat_mode: "chat",
@@ -246,12 +248,13 @@ describe("Folgefragen im Embed-Stream", () => {
       }
   });
 
-  test("Befund 3: ohne pills (none/fehlend/kaputt) kein Chunk — Zeile trotzdem entfernt und gespeichert", async () => {
+  test("fester Standard: Chunk auch ohne/mit none/kaputt gespeichertem followUps (Altwerte ignoriert)", async () => {
     for (const streaming of [true, false])
       for (const vc of [
         null,
-        JSON.stringify({ courseCards: "auto" }),
-        JSON.stringify({ courseCards: "auto", followUps: "none" }),
+        JSON.stringify({ displayMode: "inline" }),
+        JSON.stringify({ displayMode: "inline", followUps: "none" }),
+        JSON.stringify({ followUps: "none" }),
         "{nicht json",
       ]) {
         jest.clearAllMocks();
@@ -261,18 +264,23 @@ describe("Folgefragen im Embed-Stream", () => {
           streaming,
         });
         expect(text).toBe(FU_BODY);
-        expect(JSON.stringify(log)).not.toMatch(/FRAGEN|B1-Kurse/);
-        expect(log.find((c) => c.type === "followUps")).toBeUndefined();
+        expect(
+          JSON.stringify(log.filter((c) => c.type !== "followUps"))
+        ).not.toMatch(/FRAGEN|B1-Kurse/);
+        expect(checkOrder(log).followUps).toEqual(FU);
         expect(stored.text).toBe(FU_BODY);
         expect(stored.followUps).toEqual(FU);
       }
   });
 
-  test("Befund 3: Prompt-Hinweis nur bei pills, am Ende nach dem Disclaimer-Hinweis", async () => {
+  test("fester Standard: Prompt-Hinweis immer, am Ende nach dem Disclaimer-Hinweis", async () => {
     const {
       DISCLAIMER_PROMPT_NOTE,
       FOLLOW_UPS_PROMPT_NOTE,
     } = require("../../../utils/chats/embedCourseSources");
+    const {
+      courseCardsPromptNote,
+    } = require("../../../utils/chats/embedDefaults");
     const promptFor = async (vc) => {
       jest.clearAllMocks();
       const { connector } = await run({
@@ -285,32 +293,24 @@ describe("Folgefragen im Embed-Stream", () => {
       /^\n\n### Follow-up Suggestions \(ACTIVE\)\n/
     );
     expect(FOLLOW_UPS_PROMPT_NOTE).toContain("[[FRAGEN: -]]");
-    expect(await promptFor(JSON.stringify({ followUps: "pills" }))).toBe(
-      `System${FOLLOW_UPS_PROMPT_NOTE}`
-    );
-    expect(
-      await promptFor(
-        JSON.stringify({ followUps: "pills", disclaimer: "footer" })
-      )
-    ).toBe(`System${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`);
+    // Chatblase (ohne Karten): Disclaimer -> Folgefragen, Altwerte egal
     for (const vc of [
       null,
-      JSON.stringify({ followUps: "none" }),
+      JSON.stringify({ followUps: "pills" }),
+      JSON.stringify({ followUps: "none", disclaimer: "none" }),
       "{nicht json",
     ])
-      expect(await promptFor(vc)).toBe("System");
-    // Karten an: Karten-Abschnitt davor (Design Center), kein Folgefragen-Hinweis
-    const {
-      COURSE_CARDS_PROMPT_NOTE,
-    } = require("../../../utils/chats/embedDefaults");
-    expect(await promptFor(JSON.stringify({ courseCards: "auto" }))).toBe(
-      `System${COURSE_CARDS_PROMPT_NOTE}`
-    );
+      expect(await promptFor(vc)).toBe(
+        `System${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
+      );
+    // Inline: Karten-Abschnitt davor
     expect(
       await promptFor(
-        JSON.stringify({ followUps: "none", disclaimer: "footer" })
+        JSON.stringify({ displayMode: "inline", followUps: "none" })
       )
-    ).toBe(`System${DISCLAIMER_PROMPT_NOTE}`);
+    ).toBe(
+      `System${courseCardsPromptNote({ style: "short", footer: true })}${DISCLAIMER_PROMPT_NOTE}${FOLLOW_UPS_PROMPT_NOTE}`
+    );
   });
 
   test("Reihenfolge mit Karten und Teasern: courseSources -> courseTeasers -> Text -> followUps -> finalize", async () => {
@@ -324,9 +324,7 @@ describe("Folgefragen im Embed-Stream", () => {
     ].join("\n");
     const { log, stored, text } = await run({
       reply,
-      embed: makeEmbed(
-        JSON.stringify({ courseCards: "auto", followUps: "pills" })
-      ),
+      embed: makeEmbed(JSON.stringify({ displayMode: "inline" })),
     });
     const types = log.map((c) => c.type);
     const order = [
@@ -540,13 +538,7 @@ describe("Folgefragen im Embed-Stream", () => {
     // Reihenfolge: Karten-Abschnitt -> Disclaimer-Hinweis -> Folgefragen-Hinweis
     const { connector } = await run({
       reply: `${FU_BODY}\n${FU_LINE}`,
-      embed: makeEmbed(
-        JSON.stringify({
-          courseCards: "auto",
-          disclaimer: "footer",
-          followUps: "pills",
-        })
-      ),
+      embed: makeEmbed(JSON.stringify({ displayMode: "inline" })),
     });
     const prompt = connector.compressMessages.mock.calls[0][0].systemPrompt;
     expect(prompt).toBe(

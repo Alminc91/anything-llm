@@ -1,25 +1,29 @@
 {
-  "_comment": "Soll-Stand von PANEL_TEXTS (Auszug) für das Embed-Repo anythingllm-embed, src/utils/layout.js: greetingBubble de/en übernommen aus dem Issue server-folgefragen-nutzerstimme-teaser-laenge-kartenlayout §1.4 (06.10.2026, Widget-Issue „Zeilenkarten“, embed-zeilenkarten-tasten-morph-datenschutz, Feedbackrunde 2); der passende Embed-Commit folgt parallel. Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
+  "_comment": "Soll-Stand von PANEL_TEXTS (Auszug) für das Embed-Repo anythingllm-embed, src/utils/layout.js: Texte aus dem Umsetzungsauftrag „Design Center vereinfacht“ (issues/design-center-umsetzung-nacht-15-10.md, Abschnitt B, Nutzerentscheidungen 15.10.2026; keine Gedankenstriche). privacyPoints stehen im freien Datenschutz-Text (privacyText) als „• “-Zeilen. assistantName, assistantSubtitle und inputPlaceholder sind nur Vorbelegung im Design Center. Der passende Embed-Commit (Branch feat/design-center-standard) folgt parallel. Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
   "de": {
-    "greetingBubble": "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
-    "privacyTitle": "Datenschutz:",
+    "assistantName": "KI-Berater",
+    "assistantSubtitle": "Online-Berater mit künstlicher Intelligenz",
+    "greetingBubble": "Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?",
+    "inputPlaceholder": "Ihre Frage eingeben",
+    "privacyTitle": "Datenschutz",
     "privacyPoints": [
       "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
       "Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind."
     ],
-    "privacyButton": "Start",
-    "aiDisclaimer": "Ich bin eine KI und kann Fehler machen. Bitte überprüfen Sie meine Antworten."
+    "aiDisclaimer": "KI kann Fehler machen. Bitte überprüfen Sie die Antworten."
   },
   "en": {
-    "greetingBubble": "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for.",
-    "privacyTitle": "Privacy:",
+    "assistantName": "AI Advisor",
+    "assistantSubtitle": "Online advisor powered by artificial intelligence",
+    "greetingBubble": "Hello! I am your AI advisor. How can I help you?",
+    "inputPlaceholder": "Enter your question",
+    "privacyTitle": "Privacy",
     "privacyPoints": [
       "Your requests stay on servers in Germany and are not passed on to third parties.",
       "Staff of the institution may view conversations for quality assurance.",
       "Please only share information that is necessary for your request."
     ],
-    "privacyButton": "Start",
-    "aiDisclaimer": "I am an AI and can make mistakes. Please double-check my answers."
+    "aiDisclaimer": "AI can make mistakes. Please double-check the answers."
   }
 }
