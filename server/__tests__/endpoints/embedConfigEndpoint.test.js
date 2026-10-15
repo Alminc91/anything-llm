@@ -122,14 +122,17 @@ const {
 } = require("../../utils/chats/embedStandards");
 
 // Antwort ohne eigene Werte: nur die festen Standards (Karten ohne
-// gespeicherten Wert an und zuerst, KIE-567; Datenschutz-Hinweis ohne
-// gespeicherten Wert an, KIE-565 Nachtrag)
+// gespeicherten Wert an und zuerst, KIE-567; Willkommensblasen beim ersten
+// Besuch, KIE-568; Datenschutz-Hinweis ohne gespeicherten Wert an, KIE-565
+// Nachtrag)
 const STANDARD = {
   ...EMBED_FIXED_STANDARDS,
   ...INLINE_FIXED_STANDARDS,
   privacyNotice: "bubble",
   courseCards: "auto",
   courseCardsPosition: "above",
+  welcomeBubblesDesktop: "first",
+  welcomeBubblesMobile: "first",
 };
 
 describe("GET /embed/:embedId/config — feste Standards", () => {
@@ -147,6 +150,8 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       courseCardsAnswerStyle: "short",
       courseCardsLayout: "rows",
       courseCardsPosition: "above",
+      welcomeBubblesDesktop: "first",
+      welcomeBubblesMobile: "first",
       inlineInput: true,
       inlineOpenOn: "focus",
       inlineEffect: "morph",
@@ -196,6 +201,35 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
     const { body } = await fetchConfig({ courseCardsPosition: " BELOW " });
     expect(body.courseCards).toBe("auto");
     expect(body.courseCardsPosition).toBe("below");
+  });
+
+  test("KIE-568 AK-10: Willkommensblasen je Gerät, fehlend oder ungültig beim ersten Besuch", async () => {
+    expect(
+      (
+        await fetchConfig({
+          welcomeBubblesDesktop: "off",
+          welcomeBubblesMobile: "every",
+        })
+      ).body
+    ).toEqual({
+      ...STANDARD,
+      welcomeBubblesDesktop: "off",
+      welcomeBubblesMobile: "every",
+    });
+    const { body } = await fetchConfig({
+      welcomeBubblesDesktop: "immer",
+      welcomeBubblesMobile: { evil: true },
+    });
+    expect(body.welcomeBubblesDesktop).toBe("first");
+    expect(body.welcomeBubblesMobile).toBe("first");
+    // Texte der Blasen unverändert, auch wenn die Blasen aus sind
+    const off = await fetchConfig({
+      chatbotBubblesMessages: ["Hallo!"],
+      welcomeBubblesDesktop: "off",
+      welcomeBubblesMobile: "off",
+    });
+    expect(off.body.chatbotBubblesMessages).toBe("Hallo!");
+    expect(off.body.welcomeBubblesDesktop).toBe("off");
   });
 
   test("AK-1/AK-4: gespeicherte Altwerte entfallener Optionen werden ignoriert", async () => {

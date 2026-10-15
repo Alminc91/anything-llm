@@ -6,7 +6,8 @@
 // Kundenfarbe sichtbar), darauf eine Beispiel-Antwort mit Kursen nach der
 // Wahl „Antworten mit Kursen“ (Karten zuerst, Text zuerst oder Nur Text mit
 // Links, KIE-567), KI-Hinweis fest unter der Eingabe, kein Online-Punkt.
-// Hell/Dunkel in beiden Darstellungen.
+// Willkommensblasen am geschlossenen Chat-Button wie am Desktop (bei „Aus“
+// keine, KIE-568). Hell/Dunkel in beiden Darstellungen.
 import { useState } from "react";
 import {
   ChatCircleDots,
@@ -20,6 +21,7 @@ import {
   CaretUp,
 } from "@phosphor-icons/react";
 import {
+  DEFAULT_WELCOME_BUBBLES,
   choiceValue,
   displayMode,
   lookValue,
@@ -481,7 +483,18 @@ function BubblePreview({
   const [open, setOpen] = useState(true);
   const accentColor = lookValue(config, "accentColor");
   const isLeft = lookValue(config, "position").includes("left");
-  const bubbles = textItems(config.chatbotBubblesMessages);
+  // Willkommensblasen wie am Desktop (KIE-568): „Aus“ = keine; ohne eigene
+  // Texte die Standardblasen wie im Widget
+  const desktopBubbles = choiceValue(config, "welcomeBubblesDesktop");
+  const ownBubbles = textItems(config.chatbotBubblesMessages);
+  const bubbles =
+    desktopBubbles === "off"
+      ? []
+      : ownBubbles.length > 0
+        ? ownBubbles
+        : DEFAULT_WELCOME_BUBBLES;
+  const devicesDiffer =
+    desktopBubbles !== choiceValue(config, "welcomeBubblesMobile");
   return (
     <div className="w-[370px] max-w-full flex flex-col items-stretch">
       <div
@@ -537,6 +550,7 @@ function BubblePreview({
               {bubbles.map((msg, i) => (
                 <div
                   key={i}
+                  data-preview="welcome-bubble"
                   className="rounded-2xl px-4 py-2.5 text-[13px] w-full"
                   style={{
                     backgroundColor: palette.panelBg,
@@ -575,6 +589,15 @@ function BubblePreview({
           Klicken zum {open ? "Schließen" : "Öffnen"}
         </span>
       </div>
+      {!open && devicesDiffer && (
+        <p
+          className={`text-[11px] mt-2 ${isLeft ? "self-start" : "self-end"}`}
+          style={{ color: palette.muted }}
+          data-preview="welcome-bubbles-note"
+        >
+          Willkommensblasen in der Vorschau wie am Desktop.
+        </p>
+      )}
     </div>
   );
 }

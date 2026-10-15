@@ -47,6 +47,18 @@ export const COURSE_CARDS_POSITION_OPTIONS = [
   { value: "above", label: "Karten zuerst" },
   { value: "below", label: "Text zuerst" },
 ];
+// Willkommensblasen je Gerät (KIE-568, Reiter Inhalt, nur Chatblase), Werte
+// wie der Server (WELCOME_BUBBLES_VALUES), Standard "first"
+export const WELCOME_BUBBLES_OPTIONS = [
+  { value: "off", label: "Aus" },
+  { value: "first", label: "Beim ersten Besuch" },
+  { value: "every", label: "Bei jedem Besuch" },
+];
+export const WELCOME_BUBBLES_DEVICES = [
+  { key: "welcomeBubblesDesktop", label: "Desktop" },
+  { key: "welcomeBubblesMobile", label: "Handy" },
+];
+
 // Auswahl-Schlüssel mit Standard (für choiceValue/withChoice)
 export const CHOICE_DEFAULTS = {
   courseCards: { options: COURSE_CARDS_OPTIONS, fallback: "auto" },
@@ -54,11 +66,16 @@ export const CHOICE_DEFAULTS = {
     options: COURSE_CARDS_POSITION_OPTIONS,
     fallback: "above",
   },
+  welcomeBubblesDesktop: {
+    options: WELCOME_BUBBLES_OPTIONS,
+    fallback: "first",
+  },
+  welcomeBubblesMobile: { options: WELCOME_BUBBLES_OPTIONS, fallback: "first" },
 };
 
 /**
  * Wirksamer Wert eines Auswahl-Schlüssels wie im Server (courseCardsValue,
- * courseCardsPositionValue): String, getrimmt und klein
+ * courseCardsPositionValue, welcomeBubblesValue): String, getrimmt und klein
  * geschrieben einer der Werte, sonst der Standard.
  * @param {Object} config
  * @param {keyof CHOICE_DEFAULTS} key

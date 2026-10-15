@@ -6,11 +6,13 @@
 const {
   COURSE_CARDS_VALUES,
   COURSE_CARDS_POSITIONS,
+  WELCOME_BUBBLES_VALUES,
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
   embedDisplayMode,
   courseCardsValue,
   courseCardsPositionValue,
+  welcomeBubblesValue,
   effectiveGreeting,
   effectivePlaceholder,
   inlineBarPlaceholder,
@@ -138,6 +140,75 @@ describe("Kurskarten an/aus und Reihenfolge (KIE-567)", () => {
     );
     expect(out.courseCards).toBe("auto");
     expect(out.courseCardsPosition).toBe("above");
+  });
+});
+
+// KIE-568 (Nutzer 15.10.2026): Willkommensblasen je Gerät. Fehlend oder
+// ungültig -> "first" (beim ersten Besuch, wie bisher).
+describe("Willkommensblasen je Gerät (KIE-568)", () => {
+  test("erlaubte Werte wörtlich wie im Vertrag", () => {
+    expect(WELCOME_BUBBLES_VALUES).toEqual(["off", "first", "every"]);
+    expect(Object.isFrozen(WELCOME_BUBBLES_VALUES)).toBe(true);
+  });
+
+  test.each([
+    ["off", "off"],
+    ["first", "first"],
+    ["every", "every"],
+    [" EVERY ", "every"],
+    ["Off", "off"],
+    [undefined, "first"],
+    [null, "first"],
+    ["", "first"],
+    ["always", "first"],
+    ["aus", "first"],
+    [false, "first"],
+    [1, "first"],
+  ])("welcomeBubblesValue(%p) -> %p", (input, expected) => {
+    expect(welcomeBubblesValue(input)).toBe(expected);
+  });
+
+  test("applyEmbedStandards: beide Schlüssel immer mit gültigem Wert, Geräte unabhängig", () => {
+    expect(applyEmbedStandards({}, {})).toMatchObject({
+      welcomeBubblesDesktop: "first",
+      welcomeBubblesMobile: "first",
+    });
+    expect(
+      applyEmbedStandards(
+        {},
+        { welcomeBubblesDesktop: "off", welcomeBubblesMobile: "every" }
+      )
+    ).toMatchObject({
+      welcomeBubblesDesktop: "off",
+      welcomeBubblesMobile: "every",
+    });
+    expect(
+      applyEmbedStandards(
+        {},
+        { welcomeBubblesDesktop: "every", welcomeBubblesMobile: "nie" }
+      )
+    ).toMatchObject({
+      welcomeBubblesDesktop: "every",
+      welcomeBubblesMobile: "first",
+    });
+  });
+
+  test("Inline: Schlüssel gehen trotzdem mit (Rückfall auf die Chatblase ohne Platzhalter)", () => {
+    expect(
+      applyEmbedStandards(
+        {},
+        { displayMode: "inline", welcomeBubblesDesktop: "off" }
+      ).welcomeBubblesDesktop
+    ).toBe("off");
+  });
+
+  test("Server gewinnt gegen Werte aus mapped", () => {
+    const out = applyEmbedStandards(
+      { welcomeBubblesDesktop: "every", welcomeBubblesMobile: "off" },
+      {}
+    );
+    expect(out.welcomeBubblesDesktop).toBe("first");
+    expect(out.welcomeBubblesMobile).toBe("first");
   });
 });
 
@@ -340,6 +411,8 @@ describe("applyEmbedStandards", () => {
       privacyNotice: "bubble",
       courseCards: "auto",
       courseCardsPosition: "above",
+      welcomeBubblesDesktop: "first",
+      welcomeBubblesMobile: "first",
     });
   });
 

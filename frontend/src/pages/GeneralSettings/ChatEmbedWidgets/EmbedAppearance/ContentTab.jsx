@@ -1,5 +1,6 @@
 // Design Center › Inhalt: Kopf (Name, Untertitel), Begrüßungstext,
-// Startvorschläge, nur bei Chatblase die Willkommensblasen, Datenschutz-
+// Startvorschläge, nur bei Chatblase die Willkommensblasen und wann sie
+// erscheinen (je Gerät, KIE-568), Datenschutz-
 // Hinweis (Schalter „anzeigen“, Überschrift, Link, Text), Platzhalter und
 // Support-E-Mail.
 // Texte mit Kufer-Standard zeigen ihn als Wert; „Standardtext“ setzt ihn
@@ -8,7 +9,12 @@
 // und werden erst mit „übernehmen“ Teil des Bearbeitungsstands (D6).
 import { ArrowCounterClockwise, Plus, Trash } from "@phosphor-icons/react";
 import Toggle from "@/components/lib/Toggle";
-import { SettingsSection, GroupHeading, inputClass } from "./controls";
+import {
+  SettingsSection,
+  GroupHeading,
+  Segmented,
+  inputClass,
+} from "./controls";
 import {
   DEFAULT_SUGGESTIONS,
   DEFAULT_WELCOME_BUBBLES,
@@ -17,6 +23,9 @@ import {
   PRIVACY_TITLE_MAX_LEN,
   SUBTITLE_MAX_LEN,
   URL_MAX_LEN,
+  WELCOME_BUBBLES_DEVICES,
+  WELCOME_BUBBLES_OPTIONS,
+  choiceValue,
   displayMode,
   greetingFieldValue,
   placeholderFieldValue,
@@ -101,6 +110,46 @@ function ListSuggestion({ items, onApply, label }) {
   );
 }
 
+// Hinweis unter „Willkommensblasen anzeigen“ (Mockup Ansicht 6; „Bei jedem
+// Besuch“ nach der Entscheidung des Nutzers: einmal je Browser-Tab)
+export const WELCOME_BUBBLES_HINT =
+  "„Beim ersten Besuch“: Die Blasen erscheinen einmal; nach dem Schließen oder Öffnen des Chats nicht mehr (wie bisher). „Bei jedem Besuch“: bei jedem neuen Besuch wieder, also in jedem neuen Browser-Tab; beim Wechsel auf eine andere Seite im selben Tab nicht erneut. „Aus“: keine Blasen, nur der Chat-Button.";
+
+// „Willkommensblasen anzeigen“ (KIE-568, nur Chatblase): je Gerät Aus /
+// Beim ersten Besuch (Standard) / Bei jedem Besuch. Gespeichert wird nur
+// eine Abweichung (setChoice, Regel D6).
+export function WelcomeBubblesDisplay({ config, setChoice }) {
+  return (
+    <div data-section="welcome-bubbles-display">
+      <span className="block text-white text-sm font-medium mb-2.5">
+        Willkommensblasen anzeigen
+      </span>
+      <div className="space-y-2.5">
+        {WELCOME_BUBBLES_DEVICES.map(({ key, label }) => (
+          <div
+            key={key}
+            className="flex flex-wrap items-center gap-x-4 gap-y-1.5"
+            data-device={key}
+          >
+            <span className="text-theme-text-secondary text-xs font-medium w-16">
+              {label}
+            </span>
+            <Segmented
+              options={WELCOME_BUBBLES_OPTIONS}
+              value={choiceValue(config, key)}
+              onChange={(v) => setChoice(key, v)}
+              compact
+            />
+          </div>
+        ))}
+      </div>
+      <p className="text-theme-text-secondary text-xs mt-2.5 leading-relaxed">
+        {WELCOME_BUBBLES_HINT}
+      </p>
+    </div>
+  );
+}
+
 function FieldTitle({ title, optional = false, action = null }) {
   return (
     <div className="flex items-center justify-between gap-3 mb-0.5">
@@ -170,6 +219,7 @@ export default function ContentTab({
   updateOptionalField,
   resetKeys,
   setPrivacyNotice,
+  setChoice = () => {},
   applySuggestion,
   addListItem,
   updateListItem,
@@ -330,6 +380,9 @@ export default function ContentTab({
             />
           </div>
         </SettingsSection>
+      )}
+      {bubble && (
+        <WelcomeBubblesDisplay config={config} setChoice={setChoice} />
       )}
 
       <SettingsSection

@@ -3,7 +3,8 @@
 // Vorschläge als Balken, Folgefragen aus, Datenschutz als Karte, KI-Hinweis
 // vom Modell, Online-Punkt, Kartenstil/-layout, Inline-Optionen,
 // Fenstergröße und Randabstände) entfallen. Wieder wählbar sind Kurskarten
-// an/aus und ihre Reihenfolge (KIE-567). Gespeicherte Altwerte bleiben in
+// an/aus und ihre Reihenfolge (KIE-567) sowie die Willkommensblasen je
+// Gerät (KIE-568). Gespeicherte Altwerte bleiben in
 // visual_config stehen, werden aber beim Ausliefern (GET /embed/:id/config)
 // und beim Prompt pro Embed (utils/chats/embed.js) ignoriert bzw. durch den
 // Standard ersetzt. Das Widget erzwingt dieselben Werte zusätzlich selbst
@@ -29,6 +30,15 @@ const COURSE_CARDS_VALUES = Object.freeze(["auto", "off"]);
 const DEFAULT_COURSE_CARDS = "auto";
 const COURSE_CARDS_POSITIONS = Object.freeze(["above", "below"]);
 const DEFAULT_COURSE_CARDS_POSITION = "above";
+
+// Willkommensblasen neben dem geschlossenen Chat-Button (KIE-568, Nutzer
+// 15.10.2026, Reiter Inhalt, nur Chatblase), je Gerät (Desktop/Handy wie im
+// Widget, innerWidth < 768 = Handy): "off" keine Blasen, nur der Chat-
+// Button; "first" beim ersten Besuch (localStorage, wie bisher, Standard);
+// "every" bei jedem Besuch (sessionStorage: je Browser-Tab einmal,
+// Unterseiten im selben Tab nicht erneut).
+const WELCOME_BUBBLES_VALUES = Object.freeze(["off", "first", "every"]);
+const DEFAULT_WELCOME_BUBBLES = "first";
 
 // Feste Standards für beide Darstellungen. Karten wie Demo-Variante 4
 // („Suche“, chatbot-v4): kurzer Chatbot-Text, Karten als Zeilen. Ob Karten
@@ -150,6 +160,17 @@ function courseCardsValue(value) {
  */
 function courseCardsPositionValue(value) {
   return oneOf(value, COURSE_CARDS_POSITIONS, DEFAULT_COURSE_CARDS_POSITION);
+}
+
+/**
+ * Willkommensblasen je Gerät aus visual_config.welcomeBubblesDesktop bzw.
+ * welcomeBubblesMobile (KIE-568): "off", "first" (Standard) oder "every".
+ * Fehlend oder ungültig -> "first" (Verhalten wie bisher).
+ * @param {*} value
+ * @returns {"off"|"first"|"every"}
+ */
+function welcomeBubblesValue(value) {
+  return oneOf(value, WELCOME_BUBBLES_VALUES, DEFAULT_WELCOME_BUBBLES);
 }
 
 // Eigener Text: String, getrimmt nicht leer und keine frühere Vorbelegung
@@ -293,8 +314,9 @@ function privacyNoticeValue(value) {
  * Feste Standards auf die (bereits validierte) Konfiguration für das Widget
  * anwenden: Begrüßung, Platzhalter, Leistentext und Datenschutz aus den
  * gespeicherten Texten setzen, Datenschutz-Hinweis an oder aus
- * (privacyNoticeValue), Kurskarten und Reihenfolge (KIE-567) immer mit
- * gültigem Wert, feste Werte erzwingen. Was sonst ans Widget
+ * (privacyNoticeValue), Kurskarten und Reihenfolge (KIE-567) sowie
+ * Willkommensblasen je Gerät (KIE-568) immer mit gültigem Wert, feste Werte
+ * erzwingen. Was sonst ans Widget
  * geht, legt allein die Erlaubtliste des Endpunkts fest (`mapped`).
  * Verändert `mapped` nicht, gibt ein neues Objekt zurück.
  * @param {Object} mapped Antwort von /config vor den Standards
@@ -326,6 +348,8 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
     privacyNotice: privacyNoticeValue(vc.privacyNotice),
     courseCards: courseCardsValue(vc.courseCards),
     courseCardsPosition: courseCardsPositionValue(vc.courseCardsPosition),
+    welcomeBubblesDesktop: welcomeBubblesValue(vc.welcomeBubblesDesktop),
+    welcomeBubblesMobile: welcomeBubblesValue(vc.welcomeBubblesMobile),
   });
   return out;
 }
@@ -333,6 +357,7 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
 module.exports = {
   COURSE_CARDS_VALUES,
   COURSE_CARDS_POSITIONS,
+  WELCOME_BUBBLES_VALUES,
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
   LEGACY_DEFAULT_GREETINGS,
@@ -344,6 +369,7 @@ module.exports = {
   embedDisplayMode,
   courseCardsValue,
   courseCardsPositionValue,
+  welcomeBubblesValue,
   effectiveGreeting,
   effectivePlaceholder,
   inlineBarPlaceholder,
