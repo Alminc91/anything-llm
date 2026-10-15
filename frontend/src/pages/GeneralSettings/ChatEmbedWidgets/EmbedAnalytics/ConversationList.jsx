@@ -22,6 +22,7 @@ import showToast from "@/utils/toast";
 import {
   AVATAR_CLEARANCE,
   MUTED,
+  RATING_COLUMN,
   SEARCH_MAX_LENGTH,
   berlinDateTime,
   berlinTime,
@@ -31,6 +32,7 @@ import {
   focusLost,
   groupByLastMessageDay,
   hasContentGap,
+  isNewConversation,
   isWide,
   searchLinkIssue,
   shortDayLabel,
@@ -842,6 +844,15 @@ export default function ConversationList({
 
   const today = formatDateForInput(new Date());
   const groups = useMemo(() => groupByLastMessageDay(items), [items]);
+  // K2 (Nachtrag KIE-560): Trägt eine geladene Zeile Bewertungsmarken, ist
+  // deren Spalte in allen Zeilen gleich breit (RATING_COLUMN) – die Fragen
+  // enden dann überall an derselben Stelle. Ohne jede Bewertung bleibt die
+  // Spalte leer, und die Fragen nutzen die Breite.
+  const ratingColumn = useMemo(
+    () =>
+      items.some((item) => item.positive_count > 0 || item.negative_count > 0),
+    [items]
+  );
 
   // Leerzustand mit Suche: nennt auch die übrigen Filter (Bewertung, Säule).
   const otherFilters = [feedbackLabel, bucket?.label]
@@ -1126,6 +1137,7 @@ export default function ConversationList({
                           <ConversationRow
                             conversation={conversation}
                             today={today}
+                            ratingColumn={ratingColumn}
                             selected={
                               positions.get(conversation.first_chat_id) ===
                               currentIndex
@@ -1346,14 +1358,18 @@ function SearchField({ value, onSearch, inputRef: outerRef, className = "" }) {
 
 /**
  * Eine Zeile der Liste: Uhrzeit der letzten Nachricht, erste Frage, darunter
- * „N Fragen" (mit „begonnen am …", „Grund: …") und Marken der Bewertungen.
+ * „N Fragen" (mit „begonnen am …", „Grund: …") und Marken der Bewertungen;
+ * „Neu“ vorn in der Zeile darunter, solange die letzte Nachricht jünger als
+ * vier Stunden ist (Nachtrag KIE-560, K3).
  * memo (Fixliste 7, F32): Die Handler sind stabil und bekommen die Zeile
  * mit; neu gerendert wird nur, was sich ändert (etwa die Markierung).
- * @param {{conversation: object, today: string, selected: boolean, onOpen: (row: object) => void, onKeyDown: (event: object, row: object) => void, setRowRef: (key: string, element: HTMLElement|null) => void}} props
+ * @param {{conversation: object, today: string, ratingColumn: boolean, selected: boolean, onOpen: (row: object) => void, onKeyDown: (event: object, row: object) => void, setRowRef: (key: string, element: HTMLElement|null) => void}} props
+ *   ratingColumn: Spalte der Bewertungsmarken in fester Mindestbreite (K2)
  */
 const ConversationRow = memo(function ConversationRow({
   conversation,
   today,
+  ratingColumn,
   selected,
   onOpen,
   onKeyDown,
@@ -1370,6 +1386,7 @@ const ConversationRow = memo(function ConversationRow({
   // Berliner Zeit wie Uhrzeit und Tagesgruppe (Fixliste 2, S1)
   const fullTime = berlinDateTime(conversation.last_message_at);
   const startedDay = startedOnOtherDay(conversation);
+  const isNew = isNewConversation(conversation);
   const reason =
     conversation.negative_count > 0 && conversation.first_negative_reason
       ? conversation.first_negative_reason
@@ -1398,10 +1415,12 @@ const ConversationRow = memo(function ConversationRow({
       aria-current={selected ? "true" : undefined}
       onClick={() => onOpen(conversation)}
       onKeyDown={(event) => onKeyDown(event, conversation)}
-      className={`grid w-full grid-cols-[minmax(0,1fr)_auto_16px] lg:scroll-mb-8 lg:scroll-mt-20 items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
+      // K4 (Nachtrag KIE-560): deutlicher Hover in beiden Themes, Pfeil in
+      // Textfarbe, Hand als Zeiger – nur Farben, kein Layoutsprung.
+      className={`group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_16px] lg:scroll-mb-8 lg:scroll-mt-20 items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
         selected
           ? "bg-sky-500/15 light:bg-sky-50"
-          : "hover:bg-white/5 light:hover:bg-black/[0.03]"
+          : "hover:bg-white/[0.07] light:hover:bg-black/[0.04]"
       }`}
     >
       <span
@@ -1422,16 +1441,21 @@ const ConversationRow = memo(function ConversationRow({
         {/* Ab sm steht „Grund: …“ am Ende dieser Zeile (AK-1). Unter sm
             hat er eine eigene Zeile: Neben Uhrzeit, „N Fragen“ und Marken
             blieb davon bei 360 px nichts lesbar (Fixliste 5, V2). */}
-        <span
-          data-row-meta=""
-          title={metaTitle}
-          className={`truncate text-[13px] leading-[18px] ${MUTED}`}
-        >
-          <span className="sm:hidden">{time} · </span>
-          {meta.join(" · ")}
-          {reasonText && (
-            <span className="hidden sm:inline"> · {reasonText}</span>
-          )}
+        {/* „Neu“ steht vor der Zeile, nicht in ihr: Es wird nie
+            abgeschnitten, und die Zeile bleibt 18 px hoch (Marke 16 px). */}
+        <span className="flex min-w-0 items-center gap-1.5">
+          {isNew && <NewBadge />}
+          <span
+            data-row-meta=""
+            title={metaTitle}
+            className={`min-w-0 truncate text-[13px] leading-[18px] ${MUTED}`}
+          >
+            <span className="sm:hidden">{time} · </span>
+            {meta.join(" · ")}
+            {reasonText && (
+              <span className="hidden sm:inline"> · {reasonText}</span>
+            )}
+          </span>
         </span>
         {reasonText && (
           <span
@@ -1443,7 +1467,12 @@ const ConversationRow = memo(function ConversationRow({
           </span>
         )}
       </span>
-      <span className="flex items-center gap-2 sm:gap-1.5">
+      <span
+        data-row-ratings=""
+        className={`flex items-center justify-end gap-2 sm:gap-1.5 ${
+          ratingColumn ? RATING_COLUMN : ""
+        }`}
+      >
         <RatingBadge
           count={conversation.positive_count}
           Icon={ThumbsUp}
@@ -1457,10 +1486,35 @@ const ConversationRow = memo(function ConversationRow({
           labelKey="embed-analytics.conversations.negative-count"
         />
       </span>
-      <CaretRight size={16} aria-hidden="true" className={MUTED} />
+      <CaretRight
+        size={16}
+        aria-hidden="true"
+        data-row-arrow=""
+        className={`${MUTED} transition-colors group-hover:text-theme-text-primary group-focus-visible:text-theme-text-primary`}
+      />
     </button>
   );
 });
+
+/**
+ * Marke „Neu“ (Nachtrag KIE-560, K3): klein wie die Bewertungsmarken, in
+ * Sky. Kontrast der Schrift auf der Marke: dunkel sky-300 auf sky-500/15
+ * 9,5:1 (auf gewählter Zeile 7,4:1), hell sky-700 auf sky-100 5,2:1 – auch
+ * auf der gewählten Zeile (sky-50) bleibt die Marke sichtbar.
+ */
+function NewBadge() {
+  const { t } = useTranslation();
+  const hint = t("embed-analytics.rows.new-hint");
+  return (
+    <span
+      data-row-new=""
+      title={hint}
+      className="inline-flex h-4 shrink-0 items-center rounded px-1.5 text-[11px] font-semibold leading-4 bg-sky-500/15 text-sky-300 light:bg-sky-100 light:text-sky-700"
+    >
+      {t("embed-analytics.rows.new")}
+    </span>
+  );
+}
 
 // KIE-508/527: Marke „👍 n" / „👎 n" je Konversation – als Umriss-Daumen.
 // Unter sm kompakt – nur Daumen und Zahl in der Farbe der Marke, ohne Pille

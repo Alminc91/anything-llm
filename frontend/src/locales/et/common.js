@@ -1661,6 +1661,8 @@ const TRANSLATIONS = {
       all: null,
       "all-hint": null,
       "filter-group": null,
+      new: null,
+      "new-hint": null,
     },
     search: {
       placeholder: null,

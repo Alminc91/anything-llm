@@ -38,8 +38,11 @@ import {
   highlightParts,
   highlightTextNodes,
   holdScrollTarget,
+  isNewConversation,
   isWide,
   longDateLabel,
+  NEW_CONVERSATION_MS,
+  RATING_COLUMN,
   outsidePeriod,
   panelChromeHeight,
   panelFit,
@@ -80,6 +83,47 @@ const berlin = (day, time) => Date.parse(`${day}T${time}:00+02:00`);
 // ---------------------------------------------------------------------------
 // AK-2: Tagesgruppen nach der letzten Nachricht, Berliner Zeit
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Nachtrag KIE-560, K2/K3: „Neu“ nach der letzten Nachricht, Spalte der Marken
+// ---------------------------------------------------------------------------
+
+test("K3: „Neu“ gilt, solange die letzte Nachricht jünger als 4 Stunden ist – genau 4 Stunden: nicht mehr; reine Dauer über Tages- und Zeitzonengrenzen", () => {
+  assert.equal(NEW_CONVERSATION_MS, 4 * 60 * 60 * 1000);
+  const now = Date.parse("2026-10-13T10:00:00Z");
+  const at = (offsetMs) => ({ last_message_at: now - offsetMs });
+  assert.equal(isNewConversation(at(0), now), true);
+  assert.equal(isNewConversation(at(NEW_CONVERSATION_MS - 1), now), true);
+  assert.equal(isNewConversation(at(NEW_CONVERSATION_MS), now), false);
+  assert.equal(isNewConversation(at(NEW_CONVERSATION_MS + 1), now), false);
+  // Uhr des Besuchers vorgestellt: Zeitpunkt in der Zukunft gilt als neu
+  assert.equal(isNewConversation(at(-60_000), now), true);
+  // über Mitternacht in Berlin hinweg (23:30 → 01:00): Dauer 1,5 h
+  const afterMidnight = berlin("2026-10-14", "01:00");
+  assert.equal(
+    isNewConversation(
+      { last_message_at: berlin("2026-10-13", "23:30") },
+      afterMidnight
+    ),
+    true
+  );
+  // nach dem Beginn zählt nichts: früh begonnen, gerade weitergeführt
+  assert.equal(
+    isNewConversation(
+      { started_at: now - 5 * 86_400_000, last_message_at: now - 60_000 },
+      now
+    ),
+    true
+  );
+  // ohne gültigen Zeitpunkt nie neu
+  for (const last of [undefined, null, NaN, "2026-10-13", Infinity])
+    assert.equal(isNewConversation({ last_message_at: last }, now), false);
+  assert.equal(isNewConversation(null, now), false);
+});
+
+test("K2: Spalte der Bewertungsmarken mit fester Mindestbreite – unter sm 72 px, ab sm 106 px (zwei Marken mit zweistelliger Zahl)", () => {
+  assert.equal(RATING_COLUMN, "min-w-[72px] sm:min-w-[106px]");
+});
 
 test("AK-2: K1 (Beginn 09.10., letzte Nachricht 13.10.) steht unter „Heute · Dienstag, 13. Oktober“ über K2 (12.10.) – mit „begonnen am 9. Okt.“", () => {
   const today = "2026-10-13";

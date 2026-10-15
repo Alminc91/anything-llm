@@ -1820,6 +1820,8 @@ const TRANSLATIONS = {
       all: "All",
       "all-hint": "Show all conversations",
       "filter-group": "Filter by rating",
+      new: "New",
+      "new-hint": "Last message less than 4 hours ago",
     },
     search: {
       placeholder: "Search questions & answers",

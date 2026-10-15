@@ -566,6 +566,43 @@ export function groupByLastMessageDay(conversations) {
 }
 
 /**
+ * Wie lange eine Konversation nach ihrer letzten Nachricht als „Neu" gilt
+ * (Nachtrag KIE-560, K3): eine reine Dauer, unabhängig von Zeitzone und
+ * Tagesgrenze.
+ */
+export const NEW_CONVERSATION_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * „Neu“: Die letzte Nachricht ist jünger als NEW_CONVERSATION_MS (genau
+ * vier Stunden alt: nicht mehr neu). Ohne gültigen Zeitpunkt nie neu.
+ * @param {{last_message_at: number}} conversation
+ * @param {number} [now] - jetzt (ms seit 1970)
+ * @returns {boolean}
+ */
+export function isNewConversation(conversation, now = Date.now()) {
+  const last = conversation?.last_message_at;
+  return (
+    typeof last === "number" &&
+    Number.isFinite(last) &&
+    now - last < NEW_CONVERSATION_MS
+  );
+}
+
+/**
+ * Mindestbreite der Spalte mit den Bewertungsmarken (Nachtrag KIE-560, K2):
+ * so breit wie beide Marken mit zweistelliger Zahl, damit die Frage in allen
+ * Zeilen an derselben Stelle endet (vorher war die Spalte je Zeile so breit
+ * wie ihre Marken). Gerechnet mit Plus Jakarta Sans 12 px, Stärke 600: die
+ * breiteste zweistellige Zahl („40“) misst 16,34 px.
+ * - ab sm (Pille): 8 + Daumen 13 + 4 + 16,34 + 8 = 49,34 px je Marke, zwei
+ *   Marken mit 6 px Abstand 104,7 px → 106 px
+ * - unter sm (ohne Pille): 13 + 2 + 16,34 = 31,34 px je Marke, zwei Marken
+ *   mit 8 px Abstand 70,7 px → 72 px
+ * Dreistellige Zahlen dürfen die Spalte ihrer Zeile verbreitern.
+ */
+export const RATING_COLUMN = "min-w-[72px] sm:min-w-[106px]";
+
+/**
  * Beginn an einem anderen Tag als die letzte Nachricht? Dann der Tag des
  * Beginns, sonst null.
  * @param {{started_at: number, last_message_at: number}} conversation

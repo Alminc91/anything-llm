@@ -327,6 +327,83 @@ describe("getConversations — Ergebnisform", () => {
 });
 
 // ============================================================================
+// Nachtrag KIE-560, K1: Vorschau der ersten Frage. Der Server liefert bis zu
+// 300 Zeichen (Wortgrenze, „…" nur wenn gekürzt, eine Zeile); sichtbar kürzt
+// die Liste per CSS an der vollen Breite.
+// ============================================================================
+describe("Vorschau der ersten Frage (Nachtrag KIE-560, K1)", () => {
+  const preview = EmbedChats.listPreview;
+  const words = (count) =>
+    Array.from({ length: count }, (_, i) => `wort${i}`).join(" ");
+
+  test("kurze Frage unverändert, ohne „…“", () => {
+    expect(preview("Wann beginnt der Yoga-Kurs?")).toBe(
+      "Wann beginnt der Yoga-Kurs?"
+    );
+    expect(preview("")).toBe("");
+    expect(preview(null)).toBe("");
+  });
+
+  test("bis 300 Zeichen ganz; 150 Zeichen werden nicht mehr nach 100 gekürzt", () => {
+    const q150 = "a".repeat(150);
+    expect(preview(q150)).toBe(q150);
+    const q300 = `${"b".repeat(149)} ${"c".repeat(150)}`;
+    expect(q300).toHaveLength(300);
+    expect(preview(q300)).toBe(q300);
+  });
+
+  test("länger als 300: an der letzten Wortgrenze gekürzt, mit „…“ (kein „...“)", () => {
+    const text = words(80); // > 300 Zeichen
+    expect(text.length).toBeGreaterThan(300);
+    const result = preview(text);
+    expect(result.endsWith("…")).toBe(true);
+    expect(result).not.toMatch(/\.\.\.$/);
+    const body = result.slice(0, -1);
+    expect(body.length).toBeLessThanOrEqual(300);
+    // endet an einem ganzen Wort, das im Original von einem Leerzeichen
+    // gefolgt wird
+    expect(text.startsWith(`${body} `)).toBe(true);
+    expect(body.length).toBeGreaterThan(290);
+  });
+
+  test("Zeilenumbrüche, Tabulatoren und Steuerzeichen werden zu einem Leerzeichen", () => {
+    expect(
+      preview("  Hallo,\r\n\nich suche\teinen\u0000Kurs \u2028 bitte  ")
+    ).toBe("Hallo, ich suche einen Kurs bitte");
+  });
+
+  test("ein Wort ohne Leerzeichen (Link) wird hart gekürzt – nie mitten in einem Ersatzpaar", () => {
+    const link = `https://example.org/${"x".repeat(400)}`;
+    expect(preview(link)).toBe(`${link.slice(0, 300)}…`);
+    // Emoji (zwei UTF-16-Einheiten) genau über der Grenze
+    const emoji = `${"y".repeat(299)}😀${"z".repeat(50)}`;
+    const cut = preview(emoji);
+    expect(cut).toBe(`${"y".repeat(299)}…`);
+    expect(() => encodeURIComponent(cut)).not.toThrow();
+  });
+
+  test("sehr lange Frage: liest nur den Anfang, Ergebnis wie bei kurzer", () => {
+    const huge = `${words(80)} ${"q".repeat(100_000)}`;
+    const result = preview(huge);
+    expect(result).toBe(preview(words(80)));
+    // nur Leerraum nach dem Anfang: gekürzt, also mit „…“
+    expect(preview(`kurz${" ".repeat(5_000)}rest`)).toBe("kurz…");
+  });
+
+  test("die Liste liefert die Vorschau über listPreview", async () => {
+    const long = words(80);
+    prisma.embed_chats.findMany.mockResolvedValue([
+      { ...FIRST_CHATS[0], prompt: `Zeile eins\nZeile zwei` },
+      { ...FIRST_CHATS[1], prompt: long },
+    ]);
+    const result = await getConversations(EMBED_ID, 0, 20);
+    expect(result[0].preview).toBe("Zeile eins Zeile zwei");
+    expect(result[1].preview).toBe(preview(long));
+    expect(result[1].preview.length).toBeGreaterThan(200);
+  });
+});
+
+// ============================================================================
 // KIE-536 — Abschnitts-Filter der Konversationsliste (Klick auf eine Säule):
 // nur Konversationen, deren erste vorhandene Nachricht im Abschnitt liegt.
 // ============================================================================

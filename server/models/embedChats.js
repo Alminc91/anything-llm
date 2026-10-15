@@ -292,11 +292,52 @@ function takeFeedbackSlot(embedId, sessionId) {
   return true;
 }
 
+// Vorschau der Konversationsliste (erste Frage): so lang, dass die Liste sie
+// auch auf breiten Bildschirmen an der vollen Breite kürzen kann (CSS
+// truncate) - mit 100 Zeichen endete jede Zeile an einer anderen Stelle,
+// deutlich vor dem Pfeil. Gekürzt an einer Wortgrenze, „…" nur dann.
+const PREVIEW_MAX_LENGTH = 300;
+// Gelesen werden höchstens so viele Zeichen der Frage: Mehr braucht die
+// Vorschau nicht, auch wenn Leerraum zusammenfällt (lange Fragen etwa des
+// KI-Helfers).
+const PREVIEW_SCAN_LENGTH = PREVIEW_MAX_LENGTH * 8;
+// Steuerzeichen (auch C1) und Zeilen-/Absatztrenner werden zu Leerzeichen.
+// eslint-disable-next-line no-control-regex
+const PREVIEW_BREAKS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
+
 const EmbedChats = {
   /**
    * Nur für Tests: vergisst, welche Indizes es gibt (withIndexHint) - die
    * nächste Abfrage sieht wieder in sqlite_master nach.
    */
+  /**
+   * Vorschau einer Frage für die Konversationsliste: eine Zeile (Steuerzeichen
+   * und Zeilenumbrüche als Leerzeichen, Leerraum zusammengefasst), höchstens
+   * PREVIEW_MAX_LENGTH Zeichen, an einer Wortgrenze gekürzt und dann mit „…".
+   * Ein Wort, das länger ist als die halbe Vorschau (Link, Zeichenkette ohne
+   * Leerzeichen), wird hart gekürzt - nie mitten in einem Ersatzpaar.
+   * @param {string|null|undefined} prompt
+   * @returns {string}
+   */
+  listPreview: function (prompt) {
+    const raw = String(prompt ?? "");
+    const clipped = raw.length > PREVIEW_SCAN_LENGTH;
+    const line = raw
+      .slice(0, PREVIEW_SCAN_LENGTH)
+      .replace(PREVIEW_BREAKS, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (line.length <= PREVIEW_MAX_LENGTH)
+      return clipped && line ? `${line}…` : line;
+    let cut = line.lastIndexOf(" ", PREVIEW_MAX_LENGTH);
+    if (cut < PREVIEW_MAX_LENGTH / 2) {
+      cut = PREVIEW_MAX_LENGTH;
+      const code = line.charCodeAt(cut - 1);
+      if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
+    }
+    return `${line.slice(0, cut).trimEnd()}…`;
+  },
+
   _forgetIndexes: function () {
     knownIndexes.clear();
     reportedMissingIndexes.clear();
@@ -1688,9 +1729,7 @@ const EmbedChats = {
         firstChats.map((chat) => [
           chat.id,
           {
-            preview:
-              chat.prompt.substring(0, 100) +
-              (chat.prompt.length > 100 ? "..." : ""),
+            preview: EmbedChats.listPreview(chat.prompt),
             workspace: chat.embed_config?.workspace?.name || null,
           },
         ])

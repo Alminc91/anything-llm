@@ -463,6 +463,147 @@ test(
 );
 
 // ---------------------------------------------------------------------------
+// Nachtrag KIE-560: „Neu“ (K3), Spalte der Marken (K2), Hover (K4)
+// ---------------------------------------------------------------------------
+
+test(
+  "K3: „Neu“ vorn in der Zeile unter der Frage, solange die letzte Nachricht jünger als 4 Stunden ist (Uhr fest) – mit Tooltip; weitergeführte Konversation zusätzlich „begonnen am …“",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY); // 12:00 Berliner Zeit
+    const now = Date.parse(TODAY);
+    const HOUR = 3_600_000;
+    await panelServer(t, {
+      rows: [
+        // vor 3 h 59 min, begonnen vor vier Tagen
+        row(301, {
+          started_at: berlin("2026-10-09", "08:00"),
+          last_message_at: now - 4 * HOUR + 60_000,
+          message_count: 5,
+        }),
+        // genau vor 4 h: nicht mehr neu
+        row(302, {
+          started_at: now - 4 * HOUR - 60_000,
+          last_message_at: now - 4 * HOUR,
+        }),
+        // gestern
+        row(303),
+      ],
+    });
+    const { container } = await mountList(t);
+    const [fresh, boundary, old] = rowsOf(container);
+
+    const badge = one(fresh, "data-row-new");
+    assert.equal(badge.textContent, "Neu");
+    assert.equal(
+      badge.getAttribute("title"),
+      "Letzte Nachricht vor weniger als 4 Stunden"
+    );
+    // Die Marke steht vor der Meta-Zeile, nicht in ihr: Diese bleibt
+    // unverändert (und wird allein gekürzt).
+    const meta = one(fresh, "data-row-meta");
+    assert.equal(meta.textContent, "08:01 · 5 Fragen · begonnen am 9. Okt.");
+    assert.equal(badge.parentNode, meta.parentNode);
+    assert.equal(badge.nextSibling, meta);
+    // klein wie die übrigen Marken, Sky in beiden Themes, nie gekürzt
+    const badgeClass = badge.getAttribute("class");
+    for (const name of [
+      "shrink-0",
+      "text-[11px]",
+      "h-4",
+      "text-sky-300",
+      "bg-sky-500/15",
+      "light:text-sky-700",
+      "light:bg-sky-100",
+    ])
+      assert.ok(badgeClass.split(" ").includes(name), name);
+
+    assert.equal(withAttribute(boundary, "data-row-new").length, 0);
+    assert.equal(withAttribute(old, "data-row-new").length, 0);
+    assert.doesNotMatch(container.textContent, /–|—/);
+  }
+);
+
+test(
+  "K2: Trägt eine Zeile Marken, hat die Spalte der Marken in ALLEN Zeilen dieselbe Mindestbreite – ohne jede Bewertung keine",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    const state = {
+      rows: [
+        row(401, { positive_count: 12, negative_count: 3 }),
+        row(402),
+        row(403, { negative_count: 1 }),
+      ],
+    };
+    await panelServer(t, state);
+    const { container } = await mountList(t);
+    const columns = rowsOf(container).map((r) =>
+      one(r, "data-row-ratings").getAttribute("class").split(" ")
+    );
+    assert.equal(columns.length, 3);
+    for (const classes of columns) {
+      assert.ok(classes.includes("min-w-[72px]"), classes.join(" "));
+      assert.ok(classes.includes("sm:min-w-[106px]"), classes.join(" "));
+      assert.ok(classes.includes("justify-end"), classes.join(" "));
+    }
+    // dieselbe Spalte des Rasters in jeder Zeile (Frage 1fr, Marken, Pfeil)
+    assert.equal(
+      new Set(rowsOf(container).map((r) => r.getAttribute("class"))).size,
+      1
+    );
+  }
+);
+
+test(
+  "K2: Ohne jede Bewertung in der Liste reserviert die Spalte keinen Platz – die Fragen nutzen die volle Breite",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    await panelServer(t, { rows: [row(411), row(412)] });
+    const { container } = await mountList(t);
+    for (const r of rowsOf(container)) {
+      const classes = one(r, "data-row-ratings").getAttribute("class");
+      assert.doesNotMatch(classes, /min-w-/);
+    }
+  }
+);
+
+test(
+  "K4: Hover deutlich in beiden Themes, Pfeil beim Hover in Textfarbe, Hand als Zeiger; die gewählte Zeile behält ihre Farbe",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    await panelServer(t, { rows: [row(421)] });
+    const { container } = await mountList(t);
+    const [line] = rowsOf(container);
+    const classes = line.getAttribute("class").split(/\s+/);
+    for (const name of [
+      "group",
+      "cursor-pointer",
+      "hover:bg-white/[0.07]",
+      "light:hover:bg-black/[0.04]",
+      "transition-colors",
+    ])
+      assert.ok(classes.includes(name), name);
+    assert.ok(!classes.includes("hover:bg-white/5"));
+    const arrow = one(line, "data-row-arrow");
+    const arrowClasses = arrow.getAttribute("class").split(/\s+/);
+    assert.ok(arrowClasses.includes("group-hover:text-theme-text-primary"));
+    assert.ok(
+      arrowClasses.includes("group-focus-visible:text-theme-text-primary")
+    );
+    // nur Farben: keine Größe, kein Rand, kein Abstand je Zustand
+    for (const name of [...classes, ...arrowClasses])
+      assert.doesNotMatch(
+        name,
+        /^(group-)?(hover|focus-visible):(p|m|w|h|border|text-\[?\d)/,
+        name
+      );
+  }
+);
+
+// ---------------------------------------------------------------------------
 // AK-4 / AK-5: Seitenpanel mit Gesprächsverlauf
 // ---------------------------------------------------------------------------
 

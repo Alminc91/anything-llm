@@ -1291,6 +1291,8 @@ const TRANSLATIONS = {
       all: "Alle",
       "all-hint": "Alle Konversationen anzeigen",
       "filter-group": "Nach Bewertung filtern",
+      new: "Neu",
+      "new-hint": "Letzte Nachricht vor weniger als 4 Stunden",
     },
     search: {
       placeholder: "Fragen & Antworten suchen",
