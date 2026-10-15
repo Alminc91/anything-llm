@@ -595,7 +595,10 @@ export function isNewConversation(conversation, now = Date.now()) {
  * Wann endet das nächste „Neu“ der Liste? Der früheste Zeitpunkt, an dem eine
  * jetzt neue Konversation vier Stunden alt wird; null, wenn keine neu ist.
  * Die Liste rechnet „Neu“ dann erneut aus, auch wenn die Seite offen bleibt
- * (Review 7.22-rc2, K01).
+ * (Review 7.22-rc2, K01). Höchstens vier Stunden nach now: Ein Zeitpunkt in
+ * der Zukunft (Uhr des Rechners geht nach) ergäbe sonst eine Wartezeit über
+ * dem Höchstwert von setTimeout (etwa 24,8 Tage), der Zeitgeber feuerte sofort
+ * und die Liste rechnete ohne Pause neu (Review 7.22-rc6, K03).
  * @param {Array<{last_message_at: number}>} conversations
  * @param {number} now - jetzt (ms seit 1970)
  * @returns {number|null} - Zeitpunkt (ms seit 1970)
@@ -604,7 +607,10 @@ export function nextNewExpiry(conversations, now) {
   let next = null;
   for (const conversation of conversations ?? []) {
     if (!isNewConversation(conversation, now)) continue;
-    const ends = conversation.last_message_at + NEW_CONVERSATION_MS;
+    const ends = Math.min(
+      conversation.last_message_at + NEW_CONVERSATION_MS,
+      now + NEW_CONVERSATION_MS
+    );
     if (next === null || ends < next) next = ends;
   }
   return next;

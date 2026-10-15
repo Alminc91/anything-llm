@@ -137,6 +137,26 @@ test("Review 7.22-rc2, K01: nextNewExpiry nennt, wann das erste „Neu“ der Li
   assert.equal(nextNewExpiry(undefined, now), null);
 });
 
+test("Review 7.22-rc6, K03: nextNewExpiry liegt höchstens 4 Stunden nach jetzt, auch bei Zeitpunkten in der Zukunft (Uhr geht nach)", () => {
+  const now = Date.parse("2026-10-13T10:00:00Z");
+  const DAY = 86_400_000;
+  // 30 Tage in der Zukunft: ohne Deckel über dem Höchstwert von setTimeout
+  // (2^31-1 ms), der Zeitgeber feuerte sofort und immer wieder
+  const future = [{ last_message_at: now + 30 * DAY }];
+  assert.equal(isNewConversation(future[0], now), true);
+  const next = nextNewExpiry(future, now);
+  assert.equal(next, now + NEW_CONVERSATION_MS);
+  assert.ok(next - now + 200 <= 2 ** 31 - 1);
+  // eine echte frühere Ablaufzeit gewinnt weiter
+  const mixed = [...future, { last_message_at: now - 3_600_000 }];
+  assert.equal(nextNewExpiry(mixed, now), now + 3 * 3_600_000);
+  // knapp in der Zukunft: ebenfalls gedeckelt, nie später als 4 Stunden
+  assert.equal(
+    nextNewExpiry([{ last_message_at: now + 60_000 }], now),
+    now + NEW_CONVERSATION_MS
+  );
+});
+
 test("K2: Spalte der Bewertungsmarken mit fester Mindestbreite – unter sm 72 px, ab sm 106 px (zwei Marken mit zweistelliger Zahl)", () => {
   assert.equal(RATING_COLUMN, "min-w-[72px] sm:min-w-[106px]");
 });

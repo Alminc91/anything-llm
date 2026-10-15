@@ -308,6 +308,12 @@ const PREVIEW_BREAKS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 function isPreviewBlank(char) {
   return char === undefined || /\s/.test(char.replace(PREVIEW_BREAKS, " "));
 }
+// Ein Zeichen, das in der Vorschau sichtbar bliebe, bzw. eines, das zu
+// Leerraum wird (wie isPreviewBlank, für die Suche im ungelesenen Rest).
+// eslint-disable-next-line no-control-regex
+const PREVIEW_VISIBLE_CHAR = /[^\s\u0000-\u001f\u007f-\u009f]/;
+// eslint-disable-next-line no-control-regex
+const PREVIEW_BLANK_CHAR = /[\s\u0000-\u001f\u007f-\u009f]/;
 
 const EmbedChats = {
   /**
@@ -318,13 +324,24 @@ const EmbedChats = {
    * halbe Vorschau (Link, Zeichenkette ohne Leerzeichen), wird hart an der
    * Grenze gekürzt, nie mitten in einem Ersatzpaar. Dieselbe Regel gilt,
    * wenn schon das Lesen (PREVIEW_SCAN_LENGTH) mitten in einem Wort endete
-   * (Review 7.22-rc2, K02/K03).
+   * (Review 7.22-rc2, K02/K03). Folgt hinter dem Gelesenen nur Leerraum, ist
+   * nichts gekürzt; endet das Lesen mitten in einem Wort, zählt das ganze
+   * Wort, auch sein Teil hinter dem Gelesenen (Review 7.22-rc6, K01/K02).
    * @param {string|null|undefined} prompt
    * @returns {string}
    */
   listPreview: function (prompt) {
     const raw = String(prompt ?? "");
-    const clipped = raw.length > PREVIEW_SCAN_LENGTH;
+    // Geht die Frage hinter dem Gelesenen weiter? Nur Leerraum zählt nicht
+    // (K01). Die Suche endet am ersten sichtbaren Zeichen.
+    const clipped =
+      raw.length > PREVIEW_SCAN_LENGTH &&
+      PREVIEW_VISIBLE_CHAR.test(raw.slice(PREVIEW_SCAN_LENGTH));
+    // Endet das Lesen mitten in einem Wort?
+    const scanSplitsWord =
+      clipped &&
+      !isPreviewBlank(raw[PREVIEW_SCAN_LENGTH - 1]) &&
+      !isPreviewBlank(raw[PREVIEW_SCAN_LENGTH]);
     const line = raw
       .slice(0, PREVIEW_SCAN_LENGTH)
       .replace(PREVIEW_BREAKS, " ")
@@ -336,14 +353,22 @@ const EmbedChats = {
     // Liegt die Grenze mitten in einem Wort? Hinter dem Gelesenen ist das so,
     // wenn das Lesen weder vor noch nach einem Leerraum endete.
     const brokenWord =
-      limit < line.length
-        ? line[limit] !== " "
-        : !isPreviewBlank(raw[PREVIEW_SCAN_LENGTH - 1]) &&
-          !isPreviewBlank(raw[PREVIEW_SCAN_LENGTH]);
+      limit < line.length ? line[limit] !== " " : scanSplitsWord;
     if (!brokenWord) return `${line.slice(0, limit).trimEnd()}…`;
     const wordStart = line.lastIndexOf(" ", limit - 1) + 1;
     const nextSpace = line.indexOf(" ", limit);
-    const wordEnd = nextSpace < 0 ? line.length : nextSpace;
+    let wordEnd = nextSpace < 0 ? line.length : nextSpace;
+    // Läuft das Wort über das Gelesene hinaus, zählt auch sein Rest dahinter
+    // (gemessen bis zur Länge der Vorschau, das reicht für „lang“): Ein Link,
+    // den das Lesen anschneidet, ist sonst scheinbar kurz (K02).
+    if (nextSpace < 0 && scanSplitsWord) {
+      const rest = raw.slice(
+        PREVIEW_SCAN_LENGTH,
+        PREVIEW_SCAN_LENGTH + PREVIEW_MAX_LENGTH
+      );
+      const restEnd = rest.search(PREVIEW_BLANK_CHAR);
+      wordEnd += restEnd < 0 ? rest.length : restEnd;
+    }
     // Kurzes Wort: davor kürzen. Langes Wort: hart an der Grenze, damit die
     // Zeile nicht schon weit vor der vollen Breite endet (K03).
     let cut = wordStart;

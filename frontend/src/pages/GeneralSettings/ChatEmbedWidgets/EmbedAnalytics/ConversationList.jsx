@@ -66,6 +66,10 @@ const SEARCH_DELAY_MS = 300;
 // So lange nach dem Ablauf des ersten „Neu“ rechnet die Liste neu: Ein
 // Zeitgeber feuert nie vor seiner Zeit, die Spanne fängt Ungenauigkeit ab.
 const NEW_TICK_MS = 200;
+// Leere Liste während des Ladens: immer dasselbe Array, damit Effekte mit
+// items als Abhängigkeit nicht bei jedem Rendern neu laufen (Review
+// 7.22-rc6, C3).
+const NO_ITEMS = [];
 
 // KIE-508/527: die beiden exklusiven Feedback-Filter (ein Zustand:
 // "all" | "negative" | "positive"), als Config statt Copy-Paste-Buttons.
@@ -475,7 +479,7 @@ export default function ConversationList({
   const loading = list.scope !== scope;
   const failed = !loading && list.failed;
   const loadingMore = !loading && list.requestId !== request.id;
-  const items = loading ? [] : list.items;
+  const items = loading ? NO_ITEMS : list.items;
   const hasMore = !loading && list.hasMore;
   const moreFailed = !loading && list.moreFailed;
   const totalCount = loading ? 0 : list.total;

@@ -422,6 +422,35 @@ describe("Vorschau der ersten Frage (Nachtrag KIE-560, K1)", () => {
     expect(preview(short)).toBe(`${"a".repeat(140)} ${"b".repeat(155)}…`);
   });
 
+  // Review 7.22-rc6, K01: Folgt hinter dem Gelesenen nur Leerraum, ist nichts
+  // gekürzt, also kein „…“.
+  test("K01: nur Leerraum hinter dem Gelesenen: kein „…“", () => {
+    expect(preview(`Frage${" ".repeat(3_000)}`)).toBe("Frage");
+    expect(preview(`Frage${"\n".repeat(3_000)}`)).toBe("Frage");
+    expect(preview(`Frage${"\r\n\t\u0000\u0085\u2028".repeat(600)}`)).toBe(
+      "Frage"
+    );
+    // ein sichtbares Zeichen danach: gekürzt
+    expect(preview(`Frage${" ".repeat(3_000)}x`)).toBe("Frage…");
+    // lange Frage, danach nur Leerraum: wie ohne den Leerraum
+    expect(preview(`${words(80)}${" ".repeat(3_000)}`)).toBe(
+      preview(words(80))
+    );
+  });
+
+  // Review 7.22-rc6, K02: Schneidet das Lesen einen langen Link an, zählt
+  // seine volle Länge: hart bei 300 gekürzt, nicht vor dem Link.
+  test("K02: Lesen schneidet einen langen Link an: hart bei 300 gekürzt", () => {
+    const head = "t".repeat(261);
+    const link = `https://example.org/${"x".repeat(495)}`; // 515 Zeichen
+    const text = `${head}${" ".repeat(2_050)}${link}`;
+    const line = `${head} ${link}`;
+    expect(preview(text)).toBe(`${line.slice(0, 300)}…`);
+    // ein kurzes Wort, das das Lesen anschneidet, fällt dagegen ganz weg
+    const short = `${head}${" ".repeat(2_050)}${"k".repeat(95)} rest`;
+    expect(preview(short)).toBe(`${head}…`);
+  });
+
   test("die Liste liefert die Vorschau über listPreview", async () => {
     const long = words(80);
     prisma.embed_chats.findMany.mockResolvedValue([
