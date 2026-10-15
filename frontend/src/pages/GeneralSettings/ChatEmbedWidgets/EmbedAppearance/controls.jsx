@@ -39,7 +39,7 @@ export function inputClass(hasError) {
   } focus:outline-none transition-colors`;
 }
 
-// Button-Gruppe im Stil der Positions-Auswahl; compact = kleinere Knöpfe
+// Button-Gruppe im Stil der Positions-Auswahl; compact = kleinere Buttons
 // (für Gruppen mit vielen Optionen, bricht bei Bedarf um). placeholder: vorn
 // ein nicht wählbares, markiertes Feld (z. B. „bitte wählen“ bei einem
 // ungültigen gespeicherten Wert, dann ist keine Option aktiv).

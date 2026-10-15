@@ -9,6 +9,15 @@
 // embedStandards.js): Hier nur zusätzlich, damit ungültige Werte gar nicht
 // erst gespeichert werden.
 
+import {
+  BLACK,
+  MIN_TEXT_CONTRAST,
+  accessibleTextColor,
+  contrastRatio,
+  parseColor,
+  recommendedTextColor,
+} from "./contrast.js";
+
 export const DISPLAY_MODE_OPTIONS = [
   { value: "bubble", label: "Chatblase" },
   { value: "inline", label: "Inline in der Seite" },
@@ -43,25 +52,143 @@ export const DEFAULT_WELCOME_BUBBLES = [
 
 // Aussehen ohne gespeicherten Wert: genau die Standards des Widgets
 // (anythingllm-embed, hooks/useScriptAttributes.js DEFAULT_SETTINGS:
-// buttonColor, userTextColor, chatIcon, position). Das Design Center zeigt
-// sie an, speichert sie aber nur, wenn der Kunde etwas wählt.
+// buttonColor, chatIcon, position). Das Design Center zeigt sie an,
+// speichert sie aber nur, wenn der Kunde etwas wählt. Die Schrift auf der
+// Kundenfarbe hat keinen festen Standard: ohne gespeicherten Wert gilt die
+// Empfehlung nach Kontrast (userTextColor, KIE-565 Nachtrag).
 export const LOOK_DEFAULTS = {
   accentColor: "#01A5A9",
-  userTextColor: "#FFFFFF",
   chatIcon: "chatBubble",
   position: "bottom-left",
 };
 export const DEFAULT_ACCENT_COLOR = LOOK_DEFAULTS.accentColor;
 
 /**
- * Wert fürs Aussehen: gespeicherter Text bzw. Standard des Widgets.
+ * Wert fürs Aussehen: gespeicherter Text bzw. Standard des Widgets; bei
+ * "userTextColor" ohne gespeicherten Wert die Empfehlung zur Kundenfarbe.
  * @param {Object} config
  * @param {"accentColor"|"userTextColor"|"chatIcon"|"position"} key
  * @returns {string}
  */
 export function lookValue(config, key) {
+  if (key === "userTextColor") return userTextColor(config);
   const v = config?.[key];
   return typeof v === "string" && v.trim() ? v : LOOK_DEFAULTS[key];
+}
+
+// ---------------------------------------------------------------------------
+// Schrift auf der Kundenfarbe (KIE-565 Nachtrag, Nutzer 15.10.2026): Weiß
+// oder Schwarz für Nutzer-Nachrichten und alle Flächen in Kundenfarbe
+// (Senden-Button, Chat-Button, gefüllte Pillen beim Darüberfahren). Die
+// Empfehlung rechnet wie das Widget (contrast.js, wortgleich mit
+// anythingllm-embed src/utils/contrast.js): WCAG-2.x-Kontrast der
+// Kundenfarbe zu #FFFFFF und #000000, der höhere gewinnt, Gleichstand Weiß.
+// Gespeichert wird nur, was der Kunde wählt (Regel D6); ohne gespeicherten
+// Wert gilt die Empfehlung, in der Vorschau wie im Widget (Schwarz dann
+// #000000; die Option „Schwarz“ speichert #222628).
+// ---------------------------------------------------------------------------
+
+export { MIN_TEXT_CONTRAST };
+
+/**
+ * Gespeicherte Schrift auf der Kundenfarbe (Groß/klein vereinheitlicht bei
+ * den beiden Optionen) oder null, wenn keine gespeichert ist.
+ * @param {Object} config
+ * @returns {string|null}
+ */
+export function storedUserTextColor(config = {}) {
+  const v = config?.userTextColor;
+  if (typeof v !== "string" || !v.trim()) return null;
+  const option = USER_TEXT_COLOR_OPTIONS.find(
+    (o) => o.value.toLowerCase() === v.trim().toLowerCase()
+  );
+  return option ? option.value : v;
+}
+
+/**
+ * Wirksame Schrift auf der Kundenfarbe: gespeicherter Wert bzw. die
+ * Empfehlung zur (wirksamen) Kundenfarbe, wie im Widget.
+ * @param {Object} config
+ * @returns {string}
+ */
+export function userTextColor(config = {}) {
+  return (
+    storedUserTextColor(config) ||
+    recommendedTextColor(lookValue(config, "accentColor"))
+  );
+}
+
+// Option (Weiß/Schwarz) zu einer Empfehlung
+function optionFor(recommended) {
+  return recommended === BLACK
+    ? USER_TEXT_COLOR_OPTIONS[1]
+    : USER_TEXT_COLOR_OPTIONS[0];
+}
+
+/**
+ * Markierte Option im Feld: die gespeicherte bzw. die empfohlene.
+ * @param {Object} config
+ * @returns {string|null} Wert der Option; null bei einem gespeicherten
+ *   Wert, der keine der beiden Optionen ist (keine markiert)
+ */
+export function userTextColorChoice(config = {}) {
+  const stored = storedUserTextColor(config);
+  if (stored)
+    return USER_TEXT_COLOR_OPTIONS.some((o) => o.value === stored)
+      ? stored
+      : null;
+  return optionFor(recommendedTextColor(lookValue(config, "accentColor")))
+    .value;
+}
+
+/** Kontrast für Texte: eine Nachkommastelle, abgerundet, z. B. "4,4:1" */
+export function contrastLabel(ratio) {
+  const value = Math.floor(ratio * 10) / 10;
+  return `${value.toLocaleString("de-DE", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}:1`;
+}
+
+/**
+ * Empfehlung und Warnung unter dem Feld „Schrift auf der Kundenfarbe“.
+ * @param {Object} config
+ * @returns {{recommendedLabel: string|null, stored: boolean,
+ *   ratio: number|null, warning: string|null}}
+ *   recommendedLabel null: Kundenfarbe ist kein gültiger Farbcode
+ */
+export function userTextColorAdvice(config = {}) {
+  const accent = lookValue(config, "accentColor");
+  const stored = storedUserTextColor(config) !== null;
+  if (parseColor(accent) === null)
+    return { recommendedLabel: null, stored, ratio: null, warning: null };
+  // Weiß oder Schwarz erreicht auf jeder Farbe mindestens 4,5:1; die
+  // Warnung betrifft deshalb nur eine gewählte (gespeicherte) Schrift
+  const ratio = contrastRatio(accent, userTextColor(config));
+  const warning =
+    ratio !== null && ratio < MIN_TEXT_CONTRAST
+      ? `Kontrast nur ${contrastLabel(ratio)}: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar.`
+      : null;
+  return {
+    recommendedLabel: optionFor(recommendedTextColor(accent)).label,
+    stored,
+    ratio,
+    warning,
+  };
+}
+
+/**
+ * Schrift der Pillen (Startvorschläge in der Vorschau, wie die Folgefragen
+ * im Widget, theme.js pillTextColor): die Kundenfarbe, wenn sie auf allen
+ * Flächen mindestens 4,5:1 erreicht, sonst abgedunkelt (helle Fläche) bzw.
+ * aufgehellt (dunkle Fläche). Nicht auswertbare Kundenfarbe: fallback.
+ * @param {string} accent Kundenfarbe
+ * @param {string[]} backgrounds Flächen
+ * @param {string} fallback
+ * @returns {string}
+ */
+export function pillTextColor(accent, backgrounds, fallback = accent) {
+  return accessibleTextColor(accent, backgrounds) || fallback;
 }
 
 // Eingeklappte Inline-Leiste (Entscheidung D2): Demo-Texte des Widgets
@@ -227,7 +354,7 @@ export function storedInlineBarPlaceholder(config = {}) {
 }
 
 /**
- * Platzhalter und Knopf der eingeklappten Inline-Leiste in der Vorschau:
+ * Platzhalter und Button der eingeklappten Inline-Leiste in der Vorschau:
  * gespeicherter Leistentext bzw. die Demo-Texte (Entscheidung D2).
  * @returns {{placeholder: string, sendText: string}}
  */

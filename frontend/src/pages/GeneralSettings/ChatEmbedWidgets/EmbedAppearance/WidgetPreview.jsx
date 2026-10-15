@@ -1,9 +1,10 @@
 // Live-Vorschau des Design Centers (Mock, angelehnt an das Widget): zeigt den
 // festen Standard mit den Inhalten des Kunden. Begrüßung als erste Blase,
 // Datenschutz-Hinweis als eigene zweite Blase (ausgeschaltet: nur die
-// Begrüßungsblase, KIE-565 Nachtrag), Startvorschläge als Pillen,
-// KI-Hinweis fest unter der Eingabe, kein Online-Punkt. Hell/Dunkel in
-// beiden Darstellungen.
+// Begrüßungsblase, KIE-565 Nachtrag), Startvorschläge als Pillen wie die
+// Folgefragen, eine Beispiel-Nutzernachricht in Kundenfarbe (Schrift auf der
+// Kundenfarbe sichtbar), KI-Hinweis fest unter der Eingabe, kein
+// Online-Punkt. Hell/Dunkel in beiden Darstellungen.
 import { useState } from "react";
 import {
   ChatCircleDots,
@@ -26,8 +27,10 @@ import {
   previewInlineBar,
   previewPlaceholder,
   textItems,
+  pillTextColor,
   textValue,
   themeChoice,
+  userTextColor,
   validPrivacyUrl,
 } from "./widgetKeys";
 
@@ -55,6 +58,9 @@ const PALETTES = {
     line: "#e7e5e4",
     bubbleBg: "#f5f5f4",
     inputBg: "#ffffff",
+    // Flächen, auf denen die Schrift der Pillen 4,5:1 erreichen muss (wie
+    // im Widget, theme.js pillTextColor)
+    pillTextBgs: ["#ffffff"],
   },
   dark: {
     pageBg: "#2b2b31",
@@ -66,6 +72,8 @@ const PALETTES = {
     line: "rgba(255,255,255,.12)",
     bubbleBg: "#2a2a30",
     inputBg: "#141417",
+    // Panel der Vorschau und Flächen des dunklen Widgets (DARK.bg, surface)
+    pillTextBgs: ["#1d1d21", "#131316"],
   },
 };
 
@@ -73,7 +81,7 @@ function paletteOf(config) {
   return PALETTES[themeChoice(config) === "dark" ? "dark" : "light"];
 }
 
-function ChatIcon({ config, size, color = "#ffffff" }) {
+function ChatIcon({ config, size, color }) {
   const match = CHAT_ICONS.find((i) => i.id === lookValue(config, "chatIcon"));
   const Icon = match ? match.Icon : ChatCircleDots;
   return <Icon size={size} weight="fill" color={color} />;
@@ -170,8 +178,64 @@ function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
   );
 }
 
+// Text der Beispiel-Nutzernachricht in der Vorschau
+export const SAMPLE_USER_MESSAGE = "Gibt es Kurse am Wochenende?";
+
+// Startvorschlag als Pille, aussehend und reagierend wie die Folgefragen
+// im Widget (KIE-565 Nachtrag): Rand in Kundenfarbe, Schrift in Kundenfarbe
+// mit mindestens 4,5:1 auf der Fläche (sonst abgedunkelt bzw. aufgehellt),
+// Darüberfahren füllt die Pille in Kundenfarbe, die Schrift wird dann zur
+// Schrift auf der Kundenfarbe (im Widget auch beim Tastaturfokus; die
+// Vorschau ist nicht bedienbar und deshalb ohne Tab-Halt). Eine Komponente
+// für die Chatblase und für Inline (Panel und Leiste).
+export function SuggestionPill({ config, palette, text }) {
+  const accent = lookValue(config, "accentColor");
+  return (
+    <span
+      className="rounded-full px-3 py-1 text-[11px] font-medium border cursor-default transition-colors bg-[color:var(--pill-bg)] text-[color:var(--pill-text)] hover:bg-[color:var(--pill-accent)] hover:text-[color:var(--pill-on-accent)]"
+      style={{
+        borderColor: accent,
+        "--pill-bg": palette.panelBg,
+        "--pill-text": pillTextColor(accent, palette.pillTextBgs, palette.text),
+        "--pill-accent": accent,
+        "--pill-on-accent": userTextColor(config),
+      }}
+      title={text.length > 60 ? text : undefined}
+      data-preview="pill"
+    >
+      {text.length > 60 ? `${text.slice(0, 59).trimEnd()}…` : text}
+    </span>
+  );
+}
+
+// Beispiel einer Nutzer-Nachricht: Kundenfarbe mit der Schrift auf der
+// Kundenfarbe, darunter die Beschriftung
+function PreviewUserMessage({ config, palette }) {
+  return (
+    <div className="flex flex-col items-end gap-1 pt-1">
+      <div
+        className="text-[12.5px] leading-relaxed rounded-[18px] rounded-tr-[4px] px-3.5 py-2.5 max-w-[80%]"
+        style={{
+          backgroundColor: lookValue(config, "accentColor"),
+          color: userTextColor(config),
+        }}
+        data-preview="user-message"
+      >
+        {SAMPLE_USER_MESSAGE}
+      </div>
+      <span
+        className="text-[10px] leading-snug"
+        style={{ color: palette.muted }}
+        data-preview="user-message-caption"
+      >
+        Beispiel-Nutzernachricht
+      </span>
+    </div>
+  );
+}
+
 // Startzustand des Chats: Begrüßungsblase, Datenschutz-Blase (falls an),
-// Pillen
+// Pillen, Beispiel-Nutzernachricht
 export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
   const accentColor = lookValue(config, "accentColor");
   const greeting = previewGreeting(config, greetingKey, defaults);
@@ -226,16 +290,16 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
       {pills.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pt-1" data-preview="pills">
           {pills.map((msg, i) => (
-            <span
+            <SuggestionPill
               key={i}
-              className="rounded-full px-3 py-1 text-[11px] font-medium border"
-              style={{ borderColor: accentColor, color: accentColor }}
-            >
-              {msg.length > 60 ? `${msg.slice(0, 59).trimEnd()}…` : msg}
-            </span>
+              config={config}
+              palette={palette}
+              text={msg}
+            />
           ))}
         </div>
       )}
+      <PreviewUserMessage config={config} palette={palette} />
     </div>
   );
 }
@@ -372,7 +436,7 @@ function BubblePreview({
           onClick={() => setOpen(!open)}
           aria-label={open ? "Chat schließen" : "Chat öffnen"}
         >
-          <ChatIcon config={config} size={24} />
+          <ChatIcon config={config} size={24} color={userTextColor(config)} />
         </button>
         <span
           className="text-xs select-none whitespace-nowrap"
@@ -496,7 +560,7 @@ function InlinePreview({
                 className="rounded-full px-4 py-2 text-[13px] font-semibold flex-shrink-0"
                 style={{
                   backgroundColor: accentColor,
-                  color: lookValue(config, "userTextColor"),
+                  color: userTextColor(config),
                 }}
               >
                 {sendText}
@@ -505,17 +569,12 @@ function InlinePreview({
             {chips.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {chips.map((msg, i) => (
-                  <span
+                  <SuggestionPill
                     key={i}
-                    className="rounded-full px-3 py-1 text-[11px] font-medium border"
-                    style={{
-                      borderColor: palette.line,
-                      color: palette.text,
-                      backgroundColor: palette.panelBg,
-                    }}
-                  >
-                    {msg}
-                  </span>
+                    config={config}
+                    palette={palette}
+                    text={msg}
+                  />
                 ))}
               </div>
             )}

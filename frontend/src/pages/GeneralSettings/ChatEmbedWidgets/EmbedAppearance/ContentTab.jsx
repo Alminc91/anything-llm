@@ -34,7 +34,7 @@ const DEFAULTS_LOAD_ERROR = "Standardtexte konnten nicht geladen werden";
 const PRIVACY_RULE =
   "Freier Text. Zeilen mit „•“ oder „-“ am Anfang werden zu Aufzählungspunkten, andere Zeilen bleiben Absätze.";
 
-// Knopf „Standardtext“ neben einem Feld mit Kufer-Standard
+// Button „Standardtext“ neben einem Feld mit Kufer-Standard
 function StandardTextButton({ isStandard, defaultsError, onReset }) {
   if (defaultsError)
     return (
@@ -61,7 +61,7 @@ function StandardTextButton({ isStandard, defaultsError, onReset }) {
   );
 }
 
-// Kleiner Knopf neben einem Feld bzw. unter einem Vorschlag
+// Kleiner Button neben einem Feld bzw. unter einem Vorschlag
 function SuggestionButton({ label, onClick }) {
   return (
     <button
@@ -299,7 +299,7 @@ export default function ContentTab({
       {bubble && (
         <SettingsSection
           title="Willkommensblasen"
-          hint="Kleine Sprechblasen neben dem geschlossenen Chat-Knopf. Solange keine eigenen gespeichert sind, erscheinen die Standardblasen aus dem Vorschlag."
+          hint="Kleine Sprechblasen neben dem geschlossenen Chat-Button. Solange keine eigenen gespeichert sind, erscheinen die Standardblasen aus dem Vorschlag."
         >
           <div className="space-y-2">
             {listLength("chatbotBubblesMessages") === 0 && (
@@ -334,7 +334,7 @@ export default function ContentTab({
 
       <SettingsSection
         title="Startvorschläge"
-        hint="Knöpfe mit Fragen, die Besucher mit einem Klick stellen können."
+        hint="Buttons mit Fragen, die Besucher mit einem Klick stellen können."
       >
         <div className="space-y-2">
           {listLength("defaultMessages") === 0 && (

@@ -436,7 +436,9 @@ test("B-06: Aussehen ohne gespeicherten Wert zeigt die Standards des Widgets (Ku
     keys.lookValue({ accentColor: "#FFA102" }, "accentColor"),
     "#FFA102"
   );
-  assert.equal(keys.lookValue({}, "userTextColor"), "#FFFFFF");
+  // Schrift auf der Kundenfarbe: ohne gespeicherten Wert die Empfehlung
+  // nach Kontrast wie im Widget (KIE-565 Nachtrag), auf Türkis Schwarz
+  assert.equal(keys.lookValue({}, "userTextColor"), "#000000");
   assert.equal(keys.lookValue({}, "chatIcon"), "chatBubble");
   assert.equal(keys.lookValue({}, "position"), "bottom-left");
 });

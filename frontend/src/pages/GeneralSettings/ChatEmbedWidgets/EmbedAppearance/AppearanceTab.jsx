@@ -1,7 +1,7 @@
-// Design Center › Aussehen: Darstellung, Farbschema, Kundenfarbe, Schrift in
-// Nutzer-Nachrichten, Logo; nur bei Chatblase Position und Chat-Icon.
+// Design Center › Aussehen: Darstellung, Farbschema, Kundenfarbe, Schrift auf
+// der Kundenfarbe, Logo; nur bei Chatblase Position und Chat-Icon.
 // Darunter der Kasten „Fest eingebaut“ mit den festen Standards.
-import { Check, LockSimple, X } from "@phosphor-icons/react";
+import { Check, LockSimple, Warning, X } from "@phosphor-icons/react";
 import { SettingsSection, Segmented } from "./controls";
 import { CHAT_ICONS, DEFAULT_LOGO } from "./WidgetPreview";
 import {
@@ -14,7 +14,39 @@ import {
   lookValue,
   themeChoice,
   textValue,
+  userTextColorAdvice,
+  userTextColorChoice,
 } from "./widgetKeys";
+
+// Unter „Schrift auf der Kundenfarbe“: Empfehlung nach Kontrast, Hinweis
+// ohne gespeicherten Wert, Warnung unter 4,5:1
+function UserTextColorAdvice({ advice }) {
+  if (!advice.recommendedLabel) return null;
+  return (
+    <div className="mt-1.5 space-y-1" data-testid="user-text-advice">
+      <p className="text-theme-text-secondary text-xs leading-relaxed">
+        {advice.stored
+          ? `Empfohlen: ${advice.recommendedLabel}`
+          : `Empfohlen: ${advice.recommendedLabel}. Solange Sie nichts wählen, gilt automatisch die Empfehlung.`}
+      </p>
+      {advice.warning && (
+        <p
+          className="flex items-start gap-1.5 text-amber-400 text-xs leading-relaxed"
+          role="alert"
+          data-testid="user-text-warning"
+        >
+          <Warning
+            size={14}
+            weight="bold"
+            className="flex-shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
+          {advice.warning}
+        </p>
+      )}
+    </div>
+  );
+}
 
 // Feste Standards je Darstellung (wie server/utils/chats/embedStandards.js).
 // Kurskarten seit 7.22-rc3 in beiden Darstellungen (BUBBLE_COURSE_CARDS
@@ -26,8 +58,8 @@ export const FIXED_STANDARDS = {
     title: "Fest eingebaut, für alle Chatbots gleich",
     items: [
       "Begrüßung als Blase",
-      "Startvorschläge als Knöpfe",
-      "Folgefragen als Knöpfe",
+      "Startvorschläge als Buttons",
+      "Folgefragen als Buttons",
       "Kurskarten zuerst, dann die kurze Antwort",
       "KI-Hinweis unter der Eingabe",
       "Fenstergröße und Randabstand",
@@ -43,7 +75,7 @@ export const FIXED_STANDARDS = {
       "Leisten-Stil und Startzustand",
       "Breite und Höhe der Box",
       "Kurskarten als Zeilen, zuerst die Karten, dann die kurze Antwort",
-      "Folgefragen als Knöpfe",
+      "Folgefragen als Buttons",
       "KI-Hinweis unter der Eingabe",
     ],
     note: "Keine Auswahl nötig: Position, Chat-Icon, Fenstergröße und Effekte entfallen bei Inline. Den Datenschutz-Hinweis schalten Sie im Reiter „Inhalt“ ein oder aus.",
@@ -96,7 +128,10 @@ export default function AppearanceTab({
   const mode = displayMode(config);
   // ohne gespeicherte Farbe der Standard des Widgets (wie live)
   const accentColor = lookValue(config, "accentColor");
+  // ohne gespeicherten Wert die Empfehlung (Regel D6: nur angezeigt)
   const userTextColor = lookValue(config, "userTextColor");
+  const textChoice = userTextColorChoice(config);
+  const textAdvice = userTextColorAdvice(config);
   const position = lookValue(config, "position");
   const chatIcon = lookValue(config, "chatIcon");
   const theme = themeChoice(config);
@@ -107,7 +142,7 @@ export default function AppearanceTab({
         hint={
           mode === "inline"
             ? "Die Eingabeleiste steht dort, wo Sie den Platzhalter einbauen (Reiter „Einbau“). Auf dem Handy öffnet der Chat im Vollbild."
-            : "Chatblase: Knopf unten in der Ecke, öffnet ein Chatfenster. Inline: Eingabeleiste direkt im Seiteninhalt."
+            : "Chatblase: Button unten in der Ecke, öffnet ein Chatfenster. Inline: Eingabeleiste direkt im Seiteninhalt."
         }
       >
         <Segmented
@@ -135,7 +170,7 @@ export default function AppearanceTab({
 
       <SettingsSection
         title="Kundenfarbe"
-        hint="Knöpfe, Nutzer-Nachrichten, Links."
+        hint="Buttons, Nutzer-Nachrichten, Links."
       >
         <div className="relative flex items-center bg-theme-settings-input-bg rounded-lg border border-white/10 hover:border-white/25 transition-colors w-44 cursor-pointer">
           <div className="relative flex-shrink-0 ml-1.5">
@@ -163,29 +198,34 @@ export default function AppearanceTab({
       </SettingsSection>
 
       <SettingsSection
-        title="Schrift in Nutzer-Nachrichten"
-        hint="Lesbar auf der Kundenfarbe."
+        title="Schrift auf der Kundenfarbe"
+        hint="Für Nutzer-Nachrichten, den Senden-Button und Buttons in Kundenfarbe."
       >
         <div className="flex rounded-lg overflow-hidden border border-white/10 w-fit">
-          {USER_TEXT_COLOR_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => updateField("userTextColor", opt.value)}
-              className={`flex items-center gap-2 px-5 py-2 text-sm font-medium transition-all ${
-                userTextColor === opt.value
-                  ? "bg-primary-button text-white"
-                  : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"
-              }`}
-            >
-              <span
-                className="w-3.5 h-3.5 rounded-full border border-white/20"
-                style={{ backgroundColor: opt.value }}
-              />
-              {opt.label}
-            </button>
-          ))}
+          {USER_TEXT_COLOR_OPTIONS.map((opt) => {
+            const active = textChoice === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => updateField("userTextColor", opt.value)}
+                aria-pressed={active}
+                className={`flex items-center gap-2 px-5 py-2 text-sm font-medium transition-all ${
+                  active
+                    ? "bg-primary-button text-white"
+                    : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"
+                }`}
+              >
+                <span
+                  className="w-3.5 h-3.5 rounded-full border border-white/20"
+                  style={{ backgroundColor: opt.value }}
+                />
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
+        <UserTextColorAdvice advice={textAdvice} />
       </SettingsSection>
 
       <SettingsSection
@@ -237,7 +277,7 @@ export default function AppearanceTab({
 
           <SettingsSection
             title="Chat-Icon"
-            hint="Das Icon auf dem Chat-Knopf."
+            hint="Das Icon auf dem Chat-Button."
           >
             <div className="flex gap-2.5 flex-wrap">
               {CHAT_ICONS.map(({ id, label, Icon }) => {
@@ -247,23 +287,27 @@ export default function AppearanceTab({
                     key={id}
                     type="button"
                     onClick={() => updateField("chatIcon", id)}
-                    className="flex flex-col items-center gap-1.5 p-1.5 rounded-lg transition-all"
+                    // gewähltes Icon deutlich: Rahmen in der Akzentfarbe des
+                    // Design Centers und getönte Fläche (KIE-565 Nachtrag)
+                    className={`flex flex-col items-center gap-1.5 px-2 py-1.5 rounded-lg border-2 transition-all ${
+                      isSelected
+                        ? "border-primary-button bg-primary-button/15"
+                        : "border-transparent hover:border-white/20"
+                    }`}
                     title={label}
                     aria-pressed={isSelected}
                   >
                     <div
-                      className={`relative w-11 h-11 rounded-full flex items-center justify-center text-white shadow-md transition-all hover:scale-110 ${
-                        isSelected
-                          ? "ring-2 ring-white ring-offset-2 ring-offset-theme-bg-container"
-                          : ""
-                      }`}
+                      className="relative w-11 h-11 rounded-full flex items-center justify-center shadow-md transition-all hover:scale-110"
                       style={{ backgroundColor: accentColor }}
                     >
-                      <Icon size={22} weight="fill" color="#ffffff" />
+                      <Icon size={22} weight="fill" color={userTextColor} />
                     </div>
                     <span
                       className={`text-[10px] transition-colors ${
-                        isSelected ? "text-white" : "text-theme-text-secondary"
+                        isSelected
+                          ? "text-white font-semibold"
+                          : "text-theme-text-secondary"
                       }`}
                     >
                       {label}
