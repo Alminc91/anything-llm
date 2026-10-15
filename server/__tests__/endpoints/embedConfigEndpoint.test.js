@@ -421,13 +421,22 @@ describe("GET /embed/:embedId/config — Begrüßung (Begrüßungsblase)", () =>
     expect(res.body.greetingBubbleText).toBe("Willkommen bei der VHS!");
   });
 
-  test("gespeicherter Text der Begrüßungsblase hat Vorrang vor greeting", async () => {
+  test("gespeicherter Text der Begrüßungsblase hat Vorrang vor greeting, wenn er in der Blase stand", async () => {
     const res = await fetchConfig({
       greeting: "Kleine Zeile von früher",
       greetingBubbleText: "Text aus der Blase",
+      greetingStyle: "bubble",
     });
     expect(res.body.greeting).toBe("Text aus der Blase");
     expect(res.body.greetingBubbleText).toBe("Text aus der Blase");
+    // F03: bei Stil „text“ war der Blasentext nie sichtbar
+    const text = await fetchConfig({
+      greeting: "Sichtbare Begrüßung",
+      greetingBubbleText: "Nie gezeigt",
+      greetingStyle: "text",
+    });
+    expect(text.body.greeting).toBe("Sichtbare Begrüßung");
+    expect(text.body.greetingBubbleText).toBe("Sichtbare Begrüßung");
     // leerer Blasentext: greeting gilt
     const empty = await fetchConfig({
       greeting: "Hallo!",

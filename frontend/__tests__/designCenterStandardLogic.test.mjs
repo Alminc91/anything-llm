@@ -127,8 +127,21 @@ test("Datenschutz-Blöcke wie im Widget: Altformat mehrere Zeilen = Punkte, eine
 test("Begrüßung: früherer Blasentext hat Vorrang (Schlüssel), Vorbelegungen zeigen den Standard", () => {
   assert.equal(keys.greetingKey({}), "greeting");
   assert.equal(
-    keys.greetingKey({ greetingBubbleText: "Eigene Blase", greeting: "x" }),
+    keys.greetingKey({
+      greetingBubbleText: "Eigene Blase",
+      greeting: "x",
+      greetingStyle: "bubble",
+    }),
     "greetingBubbleText"
+  );
+  assert.equal(
+    keys.greetingKey({ greetingBubbleText: "Eigene Blase" }),
+    "greetingBubbleText"
+  );
+  // F03: bei Stil „text“ war der Blasentext nie sichtbar
+  assert.equal(
+    keys.greetingKey({ greetingBubbleText: "Eigene Blase", greeting: "x" }),
+    "greeting"
   );
   assert.equal(
     keys.greetingKey({
@@ -159,6 +172,15 @@ test("Begrüßung: früherer Blasentext hat Vorrang (Schlüssel), Vorbelegungen 
   // gleiche Regel wie der Server
   for (const vc of [
     { greetingBubbleText: "B", greeting: "G" },
+    { greetingBubbleText: "B", greeting: "G", greetingStyle: "Bubble" },
+    { greetingBubbleText: "B", greeting: "G", privacyNotice: "bubble" },
+    { greetingBubbleText: "B", greeting: "G", privacyNotice: "modal" },
+    {
+      greetingBubbleText: "B",
+      greeting: server.LEGACY_DEFAULT_GREETINGS[1],
+      greetingStyle: "text",
+    },
+    { greetingBubbleText: "B" },
     { greeting: "G" },
     { greeting: server.LEGACY_DEFAULT_GREETINGS[0] },
   ])
@@ -221,6 +243,32 @@ test("Speichern: entfallene Schlüssel bleiben unverändert, es kommen keine neu
   });
   assert.deepEqual(cleaned, config);
   assert.deepEqual(Object.keys(cleaned).sort(), Object.keys(config).sort());
+});
+
+test("F03: Begrüßung auf Standard bei Stil „text“ entfernt auch den nie sichtbaren Blasentext", () => {
+  const stored = { greeting: "Sichtbar", greetingBubbleText: "Unsichtbar" };
+  const gKey = keys.greetingKey(stored);
+  assert.equal(gKey, "greeting");
+  const opts = { initial: stored, defaults: DEFAULTS, greetingKey: gKey };
+  // Feld geleert bzw. Standardtext: sonst würde der Blasentext sichtbar
+  for (const greeting of ["", DEFAULTS.greeting]) {
+    const cleaned = keys.cleanConfig({ ...stored, greeting }, opts);
+    assert.deepEqual(cleaned, {});
+    assert.equal(server.effectiveGreeting(cleaned), null);
+  }
+  // eigener neuer Text: Blasentext bleibt gespeichert, die Begrüßung gilt
+  const own = keys.cleanConfig({ ...stored, greeting: " Neu " }, opts);
+  assert.deepEqual(own, { greeting: "Neu", greetingBubbleText: "Unsichtbar" });
+  assert.equal(server.effectiveGreeting(own), "Neu");
+  // frühere Vorbelegung als Blasentext bleibt unberührt
+  const legacy = {
+    greeting: "Sichtbar",
+    greetingBubbleText: server.LEGACY_DEFAULT_GREETINGS[2],
+  };
+  assert.deepEqual(
+    keys.cleanConfig({ ...legacy, greeting: "" }, { ...opts, initial: legacy }),
+    { greetingBubbleText: server.LEGACY_DEFAULT_GREETINGS[2] }
+  );
 });
 
 test("Speichern: Begrüßung leer oder Standard entfernt den Schlüssel; frühere Vorbelegung bleibt unberührt", () => {

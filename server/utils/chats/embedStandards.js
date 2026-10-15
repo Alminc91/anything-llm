@@ -182,19 +182,43 @@ function ownText(value, legacy = []) {
 }
 
 /**
+ * Stand der frühere „Text der Begrüßungsblase“ sichtbar in einer Blase? Das
+ * alte Widget zeigte greetingBubbleText nur bei greetingStyle "bubble" bzw.
+ * mit dem Datenschutz-Hinweis in der Blase (privacyNotice "bubble"); beim
+ * früheren Standard „text“ war er unsichtbar (Review 7.22-rc6 F03).
+ * Groß-/Kleinschreibung und Leerraum egal.
+ * @param {Object} visualConfig
+ * @returns {boolean}
+ */
+function greetingBubbleTextShown(visualConfig = {}) {
+  const isBubble = (v) =>
+    typeof v === "string" && v.trim().toLowerCase() === "bubble";
+  return (
+    isBubble(visualConfig?.greetingStyle) ||
+    isBubble(visualConfig?.privacyNotice)
+  );
+}
+
+/**
  * Begrüßungstext (Begrüßungsblase). Der frühere „Text der Begrüßungsblase“
- * (greetingBubbleText) hat Vorrang vor greeting: Er stand bei Widgets mit
- * neuer Optik in der Blase, greeting nur als kleine Zeile darunter bzw. gar
- * nicht (Datenschutz in der Blase). So bleibt der Text, den Besucher bisher
- * in der Blase sahen. Frühere Vorbelegungen zählen nicht (-> null = Standard).
+ * (greetingBubbleText) hat Vorrang vor greeting, wenn er bisher sichtbar in
+ * der Blase stand (greetingBubbleTextShown; greeting war dann nur die
+ * kleine Zeile darunter bzw. gar nicht zu sehen) oder wenn es keine eigene
+ * Begrüßung gibt. Beim früheren Stil „text“ gilt greeting: Das ist der Text,
+ * den Besucher bisher sahen. Frühere Vorbelegungen zählen nicht (-> null =
+ * Standard). Gleiche Regel im Design Center (widgetKeys.js greetingKey).
  * @param {Object} visualConfig
  * @returns {string|null}
  */
 function effectiveGreeting(visualConfig = {}) {
-  return (
-    ownText(visualConfig?.greetingBubbleText, LEGACY_DEFAULT_GREETINGS) ??
-    ownText(visualConfig?.greeting, LEGACY_DEFAULT_GREETINGS)
+  const bubble = ownText(
+    visualConfig?.greetingBubbleText,
+    LEGACY_DEFAULT_GREETINGS
   );
+  const greeting = ownText(visualConfig?.greeting, LEGACY_DEFAULT_GREETINGS);
+  if (bubble && (!greeting || greetingBubbleTextShown(visualConfig)))
+    return bubble;
+  return greeting;
 }
 
 /**
@@ -370,6 +394,7 @@ module.exports = {
   courseCardsValue,
   courseCardsPositionValue,
   welcomeBubblesValue,
+  greetingBubbleTextShown,
   effectiveGreeting,
   effectivePlaceholder,
   inlineBarPlaceholder,

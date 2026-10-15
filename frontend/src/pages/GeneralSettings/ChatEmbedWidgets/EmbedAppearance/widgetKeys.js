@@ -379,10 +379,19 @@ export function themeChoice(config = {}) {
 // ---------------------------------------------------------------------------
 // Begrüßung: ein Feld „Begrüßungstext“ (die Begrüßung ist immer die Blase).
 // Früher gab es zusätzlich den „Text der Begrüßungsblase“
-// (greetingBubbleText). Wie im Server hat ein gespeicherter Blasentext
-// Vorrang: Er stand bisher in der Blase. Bearbeitet wird deshalb der
+// (greetingBubbleText). Wie im Server (embedStandards.js effectiveGreeting)
+// hat ein gespeicherter Blasentext Vorrang, wenn er bisher sichtbar in der
+// Blase stand (greetingStyle oder privacyNotice "bubble") oder es keine
+// eigene Begrüßung gibt (Review 7.22-rc6 F03). Bearbeitet wird der
 // Schlüssel, der gerade gilt (aus dem gespeicherten Stand bestimmt).
 // ---------------------------------------------------------------------------
+
+// Wie greetingBubbleTextShown() im Server
+function greetingBubbleTextShown(stored = {}) {
+  const isBubble = (v) =>
+    typeof v === "string" && v.trim().toLowerCase() === "bubble";
+  return isBubble(stored.greetingStyle) || isBubble(stored.privacyNotice);
+}
 
 /**
  * Schlüssel, in den das Feld „Begrüßungstext“ schreibt.
@@ -390,7 +399,9 @@ export function themeChoice(config = {}) {
  * @returns {"greetingBubbleText"|"greeting"}
  */
 export function greetingKey(stored = {}) {
-  return ownText(stored.greetingBubbleText, LEGACY_DEFAULT_GREETINGS)
+  const bubble = ownText(stored.greetingBubbleText, LEGACY_DEFAULT_GREETINGS);
+  const greeting = ownText(stored.greeting, LEGACY_DEFAULT_GREETINGS);
+  return bubble && (!greeting || greetingBubbleTextShown(stored))
     ? "greetingBubbleText"
     : "greeting";
 }
@@ -742,9 +753,9 @@ export function validateConfig(config, initial, gKey) {
  * Vor dem Speichern: nur die bearbeitbaren Felder bereinigen. Schlüssel
  * entfallener Optionen bleiben, wie sie gespeichert sind; es werden keine
  * neuen Darstellungs-Schlüssel geschrieben.
- * - Begrüßung: leer oder Standardtext -> Schlüssel entfernen (beim früheren
- *   Blasentext auch eine eigene greeting, sonst würde sie sichtbar);
- *   unveränderte frühere Vorbelegung bleibt stehen.
+ * - Begrüßung: leer oder Standardtext -> Schlüssel entfernen, dazu den
+ *   anderen eigenen Text (greeting bzw. greetingBubbleText), sonst würde
+ *   er sichtbar; unveränderte frühere Vorbelegung bleibt stehen.
  * - Platzhalter: leer -> entfernen (Standard), frühere Vorbelegung bleibt.
  * - Untertitel, Link: leer -> entfernen; Untertitel getrimmt.
  * - Datenschutz-Überschrift: Standard -> entfernen, leer -> "" (bewusst
@@ -769,12 +780,13 @@ export function cleanConfig(
     const v = out[gKey].trim();
     if (!LEGACY_DEFAULT_GREETINGS.includes(v)) {
       if (!v || sameAsDefault("greeting", v, defaults)) {
+        // Standard: auch den anderen eigenen Text entfernen, sonst würde er
+        // sichtbar (früherer Blasentext bei Stil „text“ bzw. eine eigene
+        // greeting hinter dem Blasentext)
+        const other =
+          gKey === "greetingBubbleText" ? "greeting" : "greetingBubbleText";
         drop(gKey);
-        if (
-          gKey === "greetingBubbleText" &&
-          ownText(out.greeting, LEGACY_DEFAULT_GREETINGS)
-        )
-          drop("greeting");
+        if (ownText(out[other], LEGACY_DEFAULT_GREETINGS)) drop(other);
       } else out[gKey] = v;
     }
   }

@@ -9,6 +9,7 @@ const {
   WELCOME_BUBBLES_VALUES,
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
+  LEGACY_DEFAULT_GREETINGS,
   embedDisplayMode,
   courseCardsValue,
   courseCardsPositionValue,
@@ -248,10 +249,15 @@ describe("Datenschutz-Hinweis an/aus (privacyNotice)", () => {
 });
 
 describe("Begrüßung und Platzhalter", () => {
-  test("greetingBubbleText vor greeting, getrimmt; frühere Vorbelegungen = kein Text", () => {
+  test("greetingBubbleText vor greeting, wenn er in der Blase stand, getrimmt; frühere Vorbelegungen = kein Text", () => {
     expect(
-      effectiveGreeting({ greeting: " A ", greetingBubbleText: " B " })
+      effectiveGreeting({
+        greeting: " A ",
+        greetingBubbleText: " B ",
+        greetingStyle: "bubble",
+      })
     ).toBe("B");
+    expect(effectiveGreeting({ greetingBubbleText: " B " })).toBe("B");
     expect(effectiveGreeting({ greeting: "A", greetingBubbleText: "" })).toBe(
       "A"
     );
@@ -264,6 +270,48 @@ describe("Begrüßung und Platzhalter", () => {
     expect(effectiveGreeting({})).toBe(null);
     expect(effectiveGreeting(undefined)).toBe(null);
     expect(effectiveGreeting({ greeting: ["A"] })).toBe(null);
+  });
+
+  test("F03 (Review 7.22-rc6): Blasentext nur, wenn er bisher sichtbar war oder keine Begrüßung gesetzt ist", () => {
+    // früherer Standard „text“: der nie sichtbare Blasentext verdrängt die
+    // sichtbare Begrüßung nicht
+    for (const vc of [
+      { greeting: "Sichtbar", greetingBubbleText: "Unsichtbar" },
+      {
+        greeting: "Sichtbar",
+        greetingBubbleText: "Unsichtbar",
+        greetingStyle: "text",
+      },
+      {
+        greeting: "Sichtbar",
+        greetingBubbleText: "Unsichtbar",
+        privacyNotice: "modal",
+      },
+    ])
+      expect(effectiveGreeting(vc)).toBe("Sichtbar");
+    // Blase (Stil oder Datenschutz in der Blase, Schreibweise egal)
+    for (const extra of [
+      { greetingStyle: " Bubble " },
+      { privacyNotice: "bubble" },
+      { greetingStyle: "text", privacyNotice: "BUBBLE" },
+    ])
+      expect(
+        effectiveGreeting({ greeting: "G", greetingBubbleText: "B", ...extra })
+      ).toBe("B");
+    // keine eigene Begrüßung (leer oder frühere Vorbelegung): Blasentext
+    expect(
+      effectiveGreeting({
+        greeting: LEGACY_DEFAULT_GREETINGS[1],
+        greetingBubbleText: "B",
+        greetingStyle: "text",
+      })
+    ).toBe("B");
+    expect(
+      applyEmbedStandards(
+        {},
+        { greeting: "Sichtbar", greetingBubbleText: "Unsichtbar" }
+      ).greeting
+    ).toBe("Sichtbar");
   });
 
   test("der neue Standardtext ist ein eigener Text (wird nicht als Vorbelegung verworfen)", () => {
