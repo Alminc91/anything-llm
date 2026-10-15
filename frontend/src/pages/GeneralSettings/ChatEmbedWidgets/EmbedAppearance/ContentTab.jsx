@@ -292,7 +292,7 @@ export default function ContentTab({
       {bubble && (
         <SettingsSection
           title="Willkommensblasen"
-          hint="Kleine Sprechblasen neben dem geschlossenen Chat-Knopf. Bleiben wie bisher."
+          hint="Kleine Sprechblasen neben dem geschlossenen Chat-Knopf. Solange keine eigenen gespeichert sind, erscheinen die Standardblasen aus dem Vorschlag."
         >
           <div className="space-y-2">
             {listLength("chatbotBubblesMessages") === 0 && (
