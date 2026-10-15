@@ -10,7 +10,7 @@
 // erst gespeichert werden.
 
 import {
-  DARK_TEXT,
+  SHOWN_BLACK,
   MIN_TEXT_CONTRAST,
   accessibleTextColor,
   contrastRatio,
@@ -32,7 +32,7 @@ export const POSITION_OPTIONS = [
 ];
 export const USER_TEXT_COLOR_OPTIONS = [
   { value: "#FFFFFF", label: "Weiß" },
-  { value: DARK_TEXT, label: "Schwarz" },
+  { value: SHOWN_BLACK, label: "Schwarz" },
 ];
 
 // Antworten mit Kursen (KIE-567, Reiter Aussehen, beide Darstellungen).
@@ -171,7 +171,7 @@ export { MIN_TEXT_CONTRAST };
 
 // Früher gespeicherte Werte und die Farbe, die das Widget dafür zeigt (wie
 // der Server, endpoints/embed/index.js shownUserTextColor)
-const LEGACY_USER_TEXT_COLORS = { "#000000": DARK_TEXT };
+const LEGACY_USER_TEXT_COLORS = { "#000000": SHOWN_BLACK };
 
 /**
  * Gespeicherte Schrift auf der Kundenfarbe als gezeigte Farbe (die beiden
@@ -205,7 +205,7 @@ export function userTextColor(config = {}) {
 
 // Option (Weiß/Schwarz) zu einer Empfehlung
 function optionFor(recommended) {
-  return recommended === DARK_TEXT
+  return recommended === SHOWN_BLACK
     ? USER_TEXT_COLOR_OPTIONS[1]
     : USER_TEXT_COLOR_OPTIONS[0];
 }

@@ -102,10 +102,10 @@ function validUrl(value) {
 // gespeichertes reines Schwarz (#000000) liefert der Server ebenfalls als
 // #222628 aus, passend zur Schrift der Antworten; gespeichert bleibt es
 // unverändert. Empfehlung und Warnung im Design Center und im Widget rechnen
-// mit dieser gezeigten Farbe (contrast.js DARK_TEXT, widgetKeys.js
+// mit dieser gezeigten Farbe (contrast.js SHOWN_BLACK, widgetKeys.js
 // LEGACY_USER_TEXT_COLORS).
-const DARK_TEXT = "#222628";
-const LEGACY_USER_TEXT_COLORS = Object.freeze({ "#000000": DARK_TEXT });
+const SHOWN_BLACK = "#222628";
+const LEGACY_USER_TEXT_COLORS = Object.freeze({ "#000000": SHOWN_BLACK });
 function shownUserTextColor(value) {
   if (typeof value !== "string") return value;
   return LEGACY_USER_TEXT_COLORS[value.trim().toLowerCase()] || value;

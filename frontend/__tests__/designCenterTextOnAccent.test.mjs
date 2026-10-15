@@ -712,7 +712,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test("E1: Empfehlung mit der gezeigten Farbe #222628 gerechnet, Warnung passt zur Empfehlung", () => {
-  assert.equal(contrast.DARK_TEXT, BLACK);
+  assert.equal(contrast.SHOWN_BLACK, BLACK);
   // Beispiele aus dem Review: Mit #000000 gerechnet wäre jeweils Schwarz
   // empfohlen worden, gezeigt hätte es nur 3,8:1 bzw. 3,3:1 erreicht
   for (const accent of ["#808080", "#767676", "#E91E63"])
@@ -733,9 +733,13 @@ test("E1: Empfehlung mit der gezeigten Farbe #222628 gerechnet, Warnung passt zu
   const medium = keys.userTextColorAdvice({ accentColor: "#767676" });
   assert.equal(medium.recommendedLabel, "Weiß");
   assert.equal(medium.warning, null);
-  // Pillen mischen weiter Richtung reinem Schwarz (unverändert)
-  assert.equal(contrast.extremeTextColor("#ffffff"), PURE_BLACK);
-  assert.equal(contrast.extremeTextColor("#1d1d21"), WHITE);
+  // Pillen mischen weiter Richtung reinem Schwarz bzw. Weiß (Farben wie
+  // in rc6 gemessen: Türkis auf Weiß #018487)
+  assert.equal(contrast.accessibleTextColor("#01A5A9", [WHITE]), "#018487");
+  assert.equal(
+    contrast.accessibleTextColor("#01A5A9", ["#1d1d21", "#131316"]),
+    "#01A5A9"
+  );
 });
 
 test("E1: früher gespeichertes #000000 gilt als Schwarz (#222628) und bleibt gespeichert", () => {
