@@ -412,6 +412,24 @@ describe("Datenschutz-Text", () => {
     expect(normalizePrivacyText("-\n•")).toBe("-\n•");
   });
 
+  test("F05 (Review 7.22-rc6): 1000 Zeichen gelten auch nach dem Voranstellen von „• “", () => {
+    // Altformat: 10 Zeilen, Rohtext 999 Zeichen, mit „• “ 1019 -> ungültig
+    const lines = Array(10).fill("x".repeat(99));
+    const raw = lines.join("\n");
+    expect(raw).toHaveLength(999);
+    expect(normalizePrivacyText(raw)).toBe(null);
+    expect(applyEmbedStandards({}, { privacyText: raw })).not.toHaveProperty(
+      "privacyText"
+    );
+    // genau 1000 nach der Umwandlung: gültig
+    const fits = [...Array(9).fill("x".repeat(97)), "x".repeat(98)].join("\n");
+    expect(normalizePrivacyText(fits)).toHaveLength(1000);
+    // mit Zeichen (keine Umwandlung): 999 bleiben gültig
+    const marked = ["• a", ...Array(9).fill("x".repeat(99))].join("\n");
+    expect(marked.length).toBeLessThanOrEqual(1000);
+    expect(normalizePrivacyText(marked)).toBe(marked);
+  });
+
   test("Grenzen wie im Widget: 12 Zeilen mit je 500 Zeichen, 1000 Zeichen gesamt", () => {
     const twelve = ["• a", ...Array(11).fill("b")].join("\n");
     expect(normalizePrivacyText(twelve)).toBe(twelve);

@@ -99,6 +99,27 @@ test("Fehlermeldungen zum Datenschutz-Text ohne Gedankenstrich (Grenzen wie im W
     assert.equal(keys.privacyTextError(value), null, JSON.stringify(value));
 });
 
+test("F05: 1000 Zeichen gelten auch nach dem Voranstellen von „• “ (wie der Server)", () => {
+  const raw = Array(10).fill("x".repeat(99)).join("\n");
+  assert.equal(raw.length, 999);
+  assert.equal(
+    keys.privacyTextError(raw),
+    "Maximal 1000 Zeichen insgesamt, mit den Zeichen „• “ am Zeilenanfang."
+  );
+  assert.equal(keys.normalizePrivacyText(raw), null);
+  assert.equal(server.normalizePrivacyText(raw), null);
+  // geänderter Text blockiert das Speichern
+  const errors = keys.validateConfig({ privacyText: raw }, {}, "greeting");
+  assert.ok(errors.privacyText);
+  const fits = [...Array(9).fill("x".repeat(97)), "x".repeat(98)].join("\n");
+  assert.equal(keys.privacyTextError(fits), null);
+  assert.equal(
+    keys.normalizePrivacyText(fits),
+    server.normalizePrivacyText(fits)
+  );
+  assert.equal(keys.normalizePrivacyText(fits).length, 1000);
+});
+
 test("Datenschutz-Blöcke wie im Widget: Altformat mehrere Zeilen = Punkte, eine Zeile = Absatz, „–“ zählt als Zeichen", () => {
   assert.deepEqual(keys.privacyBlocks("Ein Satz."), [
     { type: "paragraph", text: "Ein Satz." },

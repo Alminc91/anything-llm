@@ -278,7 +278,8 @@ function greetingBubbleText(text) {
  * „-“ beginnt („-10 % Rabatt“), beim nächsten Lesen zum einzigen Zeichen
  * und alle übrigen Teile zu Absätzen. Eine Normalform bleibt so beim
  * wiederholten Normalisieren gleich. Verletzt -> null (weglassen, nicht
- * kürzen; das Widget zeigt dann den Standardtext).
+ * kürzen; das Widget zeigt dann den Standardtext). Die Grenze von
+ * PRIVACY_TEXT_MAX_LEN gilt für den Rohtext und für die Normalform.
  * @param {*} value
  * @returns {string|null}
  */
@@ -299,7 +300,10 @@ function normalizePrivacyText(value) {
     return null;
   if (!marked && lines.length > 1)
     lines = lines.map((l) => PRIVACY_BULLET_PREFIX + l);
-  return lines.join("\n");
+  // Grenze auch nach dem Voranstellen der „• “ (Review 7.22-rc6 F05): das
+  // Widget verwirft einen längeren Text still und zeigt den Standardtext
+  const text = lines.join("\n");
+  return text.length <= PRIVACY_TEXT_MAX_LEN ? text : null;
 }
 
 /**

@@ -594,8 +594,8 @@ export function privacyFieldText(value) {
 /**
  * Normalform wie normalizePrivacyText() im Server: getrimmte Zeilen, leere
  * weg, Altformat auch an „|“ getrennt und bei mehreren Teilen als „• “-
- * Zeilen; 1 bis 12 Zeilen mit je höchstens 500 Zeichen, Rohtext höchstens
- * 1000. Ungültig -> null.
+ * Zeilen; 1 bis 12 Zeilen mit je höchstens 500 Zeichen, Rohtext und
+ * Normalform höchstens 1000 (Review 7.22-rc6 F05). Ungültig -> null.
  * @param {*} value
  * @returns {string|null}
  */
@@ -609,9 +609,10 @@ export function normalizePrivacyText(value) {
     lines.some((l) => l.length > PRIVACY_LINE_MAX_LEN)
   )
     return null;
-  return (
+  const normalized = (
     !marked && lines.length > 1 ? lines.map((l) => `• ${l}`) : lines
   ).join("\n");
+  return normalized.length <= PRIVACY_TEXT_MAX_LEN ? normalized : null;
 }
 
 /**
@@ -631,6 +632,9 @@ export function privacyTextError(value) {
   const tooLong = lines.findIndex((l) => l.length > PRIVACY_LINE_MAX_LEN);
   if (tooLong >= 0)
     return `Zeile ${tooLong + 1} ist zu lang (maximal ${PRIVACY_LINE_MAX_LEN} Zeichen je Zeile).`;
+  // gespeichert wird mit „• “ vor jeder Zeile (Altformat), auch das zählt
+  if (normalizePrivacyText(text) === null)
+    return `Maximal ${PRIVACY_TEXT_MAX_LEN} Zeichen insgesamt, mit den Zeichen „• “ am Zeilenanfang.`;
   return null;
 }
 
