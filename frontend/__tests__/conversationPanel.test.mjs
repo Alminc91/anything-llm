@@ -16,7 +16,7 @@ import {
   hasFrontendDeps,
 } from "./helpers/renderSettingsPage.mjs";
 import { click, elements, handlersOf, pressKey } from "./helpers/testDom.mjs";
-import { fixClock } from "./helpers/fixedClock.mjs";
+import { fixClock, movableClock } from "./helpers/fixedClock.mjs";
 import requests from "../../server/__tests__/endpoints/support/embedAnalyticsRequests.js";
 
 const { ROUTES, conversationsBody, exportBody } = requests;
@@ -162,6 +162,18 @@ async function panelServer(t, state) {
         totalCount: rows.length,
         // state.maxId: Stand der Liste (Fixliste 8, L2)
         ...(state.maxId === undefined ? {} : { maxId: state.maxId }),
+        // state.reportsRatings: Der Server meldet, ob eine Konversation der
+        // ganzen Auswahl bewertet ist (Review 7.22-rc2, K04); leere Seite null
+        ...(state.reportsRatings
+          ? {
+              hasRatings:
+                rest.length > offset
+                  ? rows.some(
+                      (r) => r.positive_count > 0 || r.negative_count > 0
+                    )
+                  : null,
+            }
+          : {}),
       });
     }
     // Widget-Liste und letzte Nachricht je Widget (Fixliste 6, N2):
@@ -581,12 +593,18 @@ test(
     for (const name of [
       "group",
       "cursor-pointer",
-      "hover:bg-white/[0.07]",
-      "light:hover:bg-black/[0.04]",
+      "hover:bg-white/10",
+      "light:hover:bg-black/[0.06]",
       "transition-colors",
     ])
       assert.ok(classes.includes(name), name);
-    assert.ok(!classes.includes("hover:bg-white/5"));
+    // Review 7.22-rc2, B-11: kräftiger als zuvor (7 % bzw. 4 %)
+    for (const weak of [
+      "hover:bg-white/5",
+      "hover:bg-white/[0.07]",
+      "light:hover:bg-black/[0.04]",
+    ])
+      assert.ok(!classes.includes(weak), weak);
     const arrow = one(line, "data-row-arrow");
     const arrowClasses = arrow.getAttribute("class").split(/\s+/);
     assert.ok(arrowClasses.includes("group-hover:text-theme-text-primary"));
@@ -600,6 +618,69 @@ test(
         /^(group-)?(hover|focus-visible):(p|m|w|h|border|text-\[?\d)/,
         name
       );
+  }
+);
+
+test(
+  "Review 7.22-rc2, K01: Bleibt die Seite offen, verschwindet „Neu“, sobald die letzte Nachricht 4 Stunden alt ist; jüngere behalten die Marke",
+  { skip },
+  async (t) => {
+    const clock = movableClock(t, TODAY);
+    const now = Date.parse(TODAY);
+    const HOUR = 3_600_000;
+    await panelServer(t, {
+      rows: [
+        // läuft in 50 ms ab
+        row(311, {
+          started_at: now - 4 * HOUR,
+          last_message_at: now - 4 * HOUR + 50,
+        }),
+        // noch eine Stunde neu
+        row(312, {
+          started_at: now - 3 * HOUR - 60_000,
+          last_message_at: now - 3 * HOUR,
+        }),
+      ],
+    });
+    const { container, act } = await mountList(t);
+    const [expiring, fresh] = rowsOf(container);
+    assert.equal(withAttribute(expiring, "data-row-new").length, 1);
+    assert.equal(withAttribute(fresh, "data-row-new").length, 1);
+
+    // eine Minute später, ohne Neuladen und ohne Klick
+    clock.set(now + 60_000);
+    await act(() => wait(500));
+    assert.equal(withAttribute(expiring, "data-row-new").length, 0);
+    assert.equal(withAttribute(fresh, "data-row-new").length, 1);
+  }
+);
+
+test(
+  "Review 7.22-rc2, K04: Steht die erste bewertete Konversation erst auf Seite 2, reserviert die Liste die Spalte der Marken schon auf Seite 1 (Angabe des Servers); beim Nachladen springt sie nicht",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    // 21 Zeilen, nur die älteste (Seite 2) bewertet
+    const rows = Array.from({ length: 21 }, (_, i) =>
+      row(620 - i, {
+        last_message_at: berlin("2026-10-12", "12:05") - i * 60_000,
+        ...(i === 20 ? { positive_count: 1 } : {}),
+      })
+    );
+    await panelServer(t, { rows, reportsRatings: true });
+    const { container, act } = await mountList(t);
+    const columnOf = (r) => one(r, "data-row-ratings").getAttribute("class");
+    const firstPage = rowsOf(container);
+    assert.equal(firstPage.length, 20);
+    for (const r of firstPage)
+      assert.ok(columnOf(r).split(" ").includes("sm:min-w-[106px]"));
+    const before = firstPage.map(columnOf);
+
+    await act(() => click(one(container, "data-load-more")));
+    const all = rowsOf(container);
+    assert.equal(all.length, 21);
+    assert.deepEqual(all.slice(0, 20).map(columnOf), before);
+    assert.equal(new Set(all.map(columnOf)).size, 1);
   }
 );
 

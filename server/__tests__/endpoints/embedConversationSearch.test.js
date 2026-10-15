@@ -421,6 +421,8 @@ describe("suche (AK-10)", () => {
       hasMore: false,
       totalCount: 0,
       maxId: null,
+      // leere Seite: keine Angabe zu Bewertungen (Review 7.22-rc2, K04)
+      hasRatings: null,
     });
   });
 
@@ -1075,6 +1077,8 @@ describe("zeile (AK-1)", () => {
       hasMore: false,
       totalCount: 5,
       maxId: null,
+      // leere Seite: keine Angabe zu Bewertungen (Review 7.22-rc2, K04)
+      hasRatings: null,
     });
   });
 });
@@ -2500,6 +2504,63 @@ describe("blättern über einen schlüssel (Fixliste 7, F14)", () => {
       });
       expect([request, result.statusCode]).toEqual([request, 400]);
     }
+  });
+});
+
+// Review 7.22-rc2, K04: Ob eine Konversation der Auswahl bewertet ist, sagt
+// der Server für die ganze Auswahl (alle Seiten). Die Liste reserviert die
+// Spalte der Marken dann von der ersten Seite an, statt beim Nachladen der
+// ersten bewerteten Zeile zu springen.
+describe("hasRatings: Bewertung irgendwo in der Auswahl (Review 7.22-rc2, K04)", () => {
+  let embed;
+  beforeEach(async () => {
+    embed = await createEmbed(db.client, await createWorkspace(db.client));
+    // r-1 (älteste letzte Nachricht, bewertet) … r-4 (jüngste)
+    for (let i = 1; i <= 4; i++)
+      await addChat(embed, {
+        at: berlinInstant("2026-10-05", 9, i),
+        prompt: i === 1 ? "Frage zum Töpferkurs" : `Frage ${i}`,
+        conversation: `r-${i}`,
+        feedbackScore: i === 1 ? true : null,
+      });
+  });
+  const cursorOf = (conversation, maxId) => ({
+    lastMessageAt: conversation.last_message_at,
+    firstChatId: conversation.first_chat_id,
+    maxId,
+  });
+
+  test("die bewertete Konversation steht erst auf Seite 2: schon Seite 1 meldet hasRatings, Seite 2 ebenso", async () => {
+    const first = await listPage(embed, { limit: 2 });
+    expect(first.statusCode).toBe(200);
+    expect(
+      first.body.conversations.map((c) => c.positive_count + c.negative_count)
+    ).toEqual([0, 0]);
+    expect(first.body.hasRatings).toBe(true);
+
+    const next = await listPage(embed, {
+      limit: 2,
+      after: cursorOf(first.body.conversations.at(-1), first.body.maxId),
+    });
+    expect(next.body.conversations.at(-1).positive_count).toBe(1);
+    expect(next.body.hasRatings).toBe(true);
+  });
+
+  test("ohne Bewertung in der Auswahl (Suche ohne die bewertete) false, leere Seite null", async () => {
+    const searched = await listPage(embed, { search: "Frage 3" });
+    expect(searched.body.conversations).toHaveLength(1);
+    expect(searched.body.hasRatings).toBe(false);
+
+    await db.client.embed_chats.updateMany({
+      where: { embed_id: embed.id },
+      data: { feedbackScore: null },
+    });
+    const unrated = await listPage(embed, { limit: 2 });
+    expect(unrated.body.hasRatings).toBe(false);
+
+    const none = await listPage(embed, { search: "gibtesnicht" });
+    expect(none.body.conversations).toEqual([]);
+    expect(none.body.hasRatings).toBeNull();
   });
 });
 

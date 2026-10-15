@@ -698,6 +698,7 @@ function embedManagementEndpoints(app) {
           totalCount: total,
           hasMore,
           maxId,
+          hasRatings,
         } = await EmbedChats.conversationPage(embedId, {
           offset,
           limit,
@@ -710,13 +711,17 @@ function embedManagementEndpoints(app) {
         });
 
         // maxId: Stand der Liste - weitere Seiten nennen ihn in after
-        // (Fixliste 8, L2); null bei leerer erster Seite (Review 7.21.1)
+        // (Fixliste 8, L2); null bei leerer erster Seite (Review 7.21.1).
+        // hasRatings: eine Konversation der Auswahl ist bewertet - die Liste
+        // reserviert die Spalte der Marken von Anfang an (Review 7.22-rc2,
+        // K04); null bei leerer Seite.
         response.status(200).json({
           success: true,
           conversations,
           hasMore,
           totalCount: total,
           maxId,
+          hasRatings,
         });
       } catch (e) {
         // Ohne Meldungstext: Er könnte die Suchmuster enthalten. Ein

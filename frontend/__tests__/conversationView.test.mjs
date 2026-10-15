@@ -42,6 +42,7 @@ import {
   isWide,
   longDateLabel,
   NEW_CONVERSATION_MS,
+  nextNewExpiry,
   RATING_COLUMN,
   outsidePeriod,
   panelChromeHeight,
@@ -119,6 +120,21 @@ test("K3: „Neu“ gilt, solange die letzte Nachricht jünger als 4 Stunden ist
   for (const last of [undefined, null, NaN, "2026-10-13", Infinity])
     assert.equal(isNewConversation({ last_message_at: last }, now), false);
   assert.equal(isNewConversation(null, now), false);
+});
+
+test("Review 7.22-rc2, K01: nextNewExpiry nennt, wann das erste „Neu“ der Liste abläuft; ohne neue Konversation null", () => {
+  const now = Date.parse("2026-10-13T10:00:00Z");
+  const HOUR = 3_600_000;
+  const rows = [
+    { last_message_at: now - 1 * HOUR },
+    { last_message_at: now - 3 * HOUR }, // läuft zuerst ab
+    { last_message_at: now - 5 * HOUR }, // schon alt
+    { last_message_at: null },
+  ];
+  assert.equal(nextNewExpiry(rows, now), now + 1 * HOUR);
+  assert.equal(nextNewExpiry([rows[2], rows[3]], now), null);
+  assert.equal(nextNewExpiry([], now), null);
+  assert.equal(nextNewExpiry(undefined, now), null);
 });
 
 test("K2: Spalte der Bewertungsmarken mit fester Mindestbreite – unter sm 72 px, ab sm 106 px (zwei Marken mit zweistelliger Zahl)", () => {

@@ -390,6 +390,38 @@ describe("Vorschau der ersten Frage (Nachtrag KIE-560, K1)", () => {
     expect(preview(`kurz${" ".repeat(5_000)}rest`)).toBe("kurz…");
   });
 
+  // Review 7.22-rc2, K02: Endet schon das Lesen (2.400 Zeichen) mitten in
+  // einem Wort, gilt dieselbe Kürzung wie an der Grenze von 300 Zeichen.
+  test("K02: Lesen endet mitten im Wort: an der Wortgrenze davor gekürzt", () => {
+    const text = `Frage${" ".repeat(2_385)}Donaudampfschifffahrt`;
+    expect(text.length).toBeGreaterThan(2_400);
+    expect(preview(text)).toBe("Frage…");
+    // Endet das Lesen genau vor einem Leerzeichen, bleibt das Wort ganz.
+    const whole = `Frage${" ".repeat(2_385)}Donaudampf ${"x".repeat(50)}`;
+    expect(whole.slice(2_390, 2_400)).toBe("Donaudampf");
+    expect(preview(whole)).toBe("Frage Donaudampf…");
+  });
+
+  test("K02: Lesen endet mitten in einem Emoji eines langen Worts: hart gekürzt, ohne halbes Ersatzpaar", () => {
+    const text = `${" ".repeat(2_400 - 201)}${"😀".repeat(150)}`;
+    const result = preview(text);
+    expect(result).toBe(`${"😀".repeat(100)}…`);
+    expect(() => encodeURIComponent(result)).not.toThrow();
+  });
+
+  // Review 7.22-rc2, K03: Beginnt ein langes Wort (Link) zwischen Zeichen 150
+  // und 300, endet die Vorschau nicht schon davor, sondern an der Grenze.
+  test("K03: langes Wort ab Zeichen 180 wird hart bei 300 gekürzt, nicht vor dem Wort", () => {
+    const head = "Siehe hier: ".repeat(15); // 180 Zeichen
+    const link = `https://example.org/${"x".repeat(250)}`;
+    const text = `${head}${link} und mehr`;
+    const result = preview(text);
+    expect(result).toBe(`${text.slice(0, 300)}…`);
+    // ein kurzes Wort an der Grenze fällt dagegen ganz weg
+    const short = `${"a".repeat(140)} ${"b".repeat(155)} kurzeswortamende rest`;
+    expect(preview(short)).toBe(`${"a".repeat(140)} ${"b".repeat(155)}…`);
+  });
+
   test("die Liste liefert die Vorschau über listPreview", async () => {
     const long = words(80);
     prisma.embed_chats.findMany.mockResolvedValue([

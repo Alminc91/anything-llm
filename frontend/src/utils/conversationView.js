@@ -575,6 +575,9 @@ export const NEW_CONVERSATION_MS = 4 * 60 * 60 * 1000;
 /**
  * „Neu“: Die letzte Nachricht ist jünger als NEW_CONVERSATION_MS (genau
  * vier Stunden alt: nicht mehr neu). Ohne gültigen Zeitpunkt nie neu.
+ * Maßgeblich ist last_message_at der Liste, also die letzte Nachricht in der
+ * Auswahl (Zeitraum, Stand der ersten Seite), nicht eine spätere außerhalb
+ * davon (Review 7.22-rc2, N06).
  * @param {{last_message_at: number}} conversation
  * @param {number} [now] - jetzt (ms seit 1970)
  * @returns {boolean}
@@ -586,6 +589,25 @@ export function isNewConversation(conversation, now = Date.now()) {
     Number.isFinite(last) &&
     now - last < NEW_CONVERSATION_MS
   );
+}
+
+/**
+ * Wann endet das nächste „Neu“ der Liste? Der früheste Zeitpunkt, an dem eine
+ * jetzt neue Konversation vier Stunden alt wird; null, wenn keine neu ist.
+ * Die Liste rechnet „Neu“ dann erneut aus, auch wenn die Seite offen bleibt
+ * (Review 7.22-rc2, K01).
+ * @param {Array<{last_message_at: number}>} conversations
+ * @param {number} now - jetzt (ms seit 1970)
+ * @returns {number|null} - Zeitpunkt (ms seit 1970)
+ */
+export function nextNewExpiry(conversations, now) {
+  let next = null;
+  for (const conversation of conversations ?? []) {
+    if (!isNewConversation(conversation, now)) continue;
+    const ends = conversation.last_message_at + NEW_CONVERSATION_MS;
+    if (next === null || ends < next) next = ends;
+  }
+  return next;
 }
 
 /**

@@ -304,18 +304,21 @@ const PREVIEW_SCAN_LENGTH = PREVIEW_MAX_LENGTH * 8;
 // Steuerzeichen (auch C1) und Zeilen-/Absatztrenner werden zu Leerzeichen.
 // eslint-disable-next-line no-control-regex
 const PREVIEW_BREAKS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
+/** Wird das Zeichen in der Vorschau zu Leerraum? (undefined: Ende) */
+function isPreviewBlank(char) {
+  return char === undefined || /\s/.test(char.replace(PREVIEW_BREAKS, " "));
+}
 
 const EmbedChats = {
-  /**
-   * Nur für Tests: vergisst, welche Indizes es gibt (withIndexHint) - die
-   * nächste Abfrage sieht wieder in sqlite_master nach.
-   */
   /**
    * Vorschau einer Frage für die Konversationsliste: eine Zeile (Steuerzeichen
    * und Zeilenumbrüche als Leerzeichen, Leerraum zusammengefasst), höchstens
    * PREVIEW_MAX_LENGTH Zeichen, an einer Wortgrenze gekürzt und dann mit „…".
-   * Ein Wort, das länger ist als die halbe Vorschau (Link, Zeichenkette ohne
-   * Leerzeichen), wird hart gekürzt - nie mitten in einem Ersatzpaar.
+   * Ein Wort, das an der Grenze abgeschnitten würde und länger ist als die
+   * halbe Vorschau (Link, Zeichenkette ohne Leerzeichen), wird hart an der
+   * Grenze gekürzt, nie mitten in einem Ersatzpaar. Dieselbe Regel gilt,
+   * wenn schon das Lesen (PREVIEW_SCAN_LENGTH) mitten in einem Wort endete
+   * (Review 7.22-rc2, K02/K03).
    * @param {string|null|undefined} prompt
    * @returns {string}
    */
@@ -327,17 +330,35 @@ const EmbedChats = {
       .replace(PREVIEW_BREAKS, " ")
       .replace(/\s+/g, " ")
       .trim();
-    if (line.length <= PREVIEW_MAX_LENGTH)
-      return clipped && line ? `${line}…` : line;
-    let cut = line.lastIndexOf(" ", PREVIEW_MAX_LENGTH);
-    if (cut < PREVIEW_MAX_LENGTH / 2) {
-      cut = PREVIEW_MAX_LENGTH;
+    if (!line || (!clipped && line.length <= PREVIEW_MAX_LENGTH)) return line;
+    // Grenze der Vorschau; dahinter geht die Frage weiter.
+    const limit = Math.min(PREVIEW_MAX_LENGTH, line.length);
+    // Liegt die Grenze mitten in einem Wort? Hinter dem Gelesenen ist das so,
+    // wenn das Lesen weder vor noch nach einem Leerraum endete.
+    const brokenWord =
+      limit < line.length
+        ? line[limit] !== " "
+        : !isPreviewBlank(raw[PREVIEW_SCAN_LENGTH - 1]) &&
+          !isPreviewBlank(raw[PREVIEW_SCAN_LENGTH]);
+    if (!brokenWord) return `${line.slice(0, limit).trimEnd()}…`;
+    const wordStart = line.lastIndexOf(" ", limit - 1) + 1;
+    const nextSpace = line.indexOf(" ", limit);
+    const wordEnd = nextSpace < 0 ? line.length : nextSpace;
+    // Kurzes Wort: davor kürzen. Langes Wort: hart an der Grenze, damit die
+    // Zeile nicht schon weit vor der vollen Breite endet (K03).
+    let cut = wordStart;
+    if (wordStart === 0 || wordEnd - wordStart > PREVIEW_MAX_LENGTH / 2) {
+      cut = limit;
       const code = line.charCodeAt(cut - 1);
       if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
     }
     return `${line.slice(0, cut).trimEnd()}…`;
   },
 
+  /**
+   * Nur für Tests: vergisst, welche Indizes es gibt (withIndexHint) - die
+   * nächste Abfrage sieht wieder in sqlite_master nach.
+   */
   _forgetIndexes: function () {
     knownIndexes.clear();
     reportedMissingIndexes.clear();
@@ -1479,7 +1500,10 @@ const EmbedChats = {
    *   mindestens eine ihn in Frage, angezeigtem Antworttext, Grund oder
    *   Kommentar enthält ({@link EmbedChats._searchMatchSql}); null = keine
    *   Suche
-   * @returns {Promise<{conversations: Array, totalCount: number, hasMore: boolean, maxId: number|null}>}
+   * @returns {Promise<{conversations: Array, totalCount: number, hasMore: boolean, maxId: number|null, hasRatings: boolean|null}>}
+   *   hasRatings: Trägt eine Konversation der ganzen Auswahl (alle Seiten)
+   *   eine Bewertung? Die Liste reserviert dann die Spalte der Marken von
+   *   Anfang an (Review 7.22-rc2, K04); null bei leerer Seite.
    *   maxId: der Stand dieser Liste (höchste id der Zeilen des Widgets im
    *   Zeitraum beim Laden der ersten Seite, Fixliste 9, A2; aus derselben
    *   Abfrage wie die Seite, finale Kontrolle L3 - null, wenn die erste
@@ -1507,7 +1531,7 @@ const EmbedChats = {
     // Zeilen (list_max_id, finale Kontrolle L3) - eine eigene Abfrage
     // MAX(id) je Widget läse alle Indexeinträge des Widgets ein zweites Mal.
     const keptMaxId = after?.maxId ?? null;
-    const { conversations, total, rest, listMaxId } =
+    const { conversations, total, rest, listMaxId, hasRatings } =
       await EmbedChats._conversationList({
         embedId,
         offset,
@@ -1545,6 +1569,8 @@ const EmbedChats = {
       totalCount,
       hasMore: rest > conversations.length,
       maxId,
+      // Leere Seite: keine Angabe
+      hasRatings,
     };
   },
 
@@ -1591,10 +1617,12 @@ const EmbedChats = {
    * Schlüssel, ab dem Anfang dieser Seite - gibt es mehr als diese Seite?).
    * @param {Object} params - siehe conversationPage; withMaxId: auch den
    *   Stand der Liste lesen (nur ohne after)
-   * @returns {Promise<{conversations: Array, total: number|null, rest: number, listMaxId: number|null}>} -
+   * @returns {Promise<{conversations: Array, total: number|null, rest: number, listMaxId: number|null, hasRatings: boolean|null}>} -
    *   total: Zahl der Konversationen über alle Seiten; null, wenn die Seite
-   *   leer ist. listMaxId: höchste id der gruppierten Zeilen (withMaxId);
-   *   null, wenn die Seite leer ist oder nicht danach gefragt wurde
+   *   leer ist. hasRatings: Trägt eine Konversation der ganzen Auswahl eine
+   *   Bewertung? null, wenn die Seite leer ist. listMaxId: höchste id der
+   *   gruppierten Zeilen (withMaxId); null, wenn die Seite leer ist oder
+   *   nicht danach gefragt wurde
    */
   _conversationList: async function ({
     embedId = null,
@@ -1638,6 +1666,12 @@ const EmbedChats = {
         negative_count,
         positive_count,
         conversation_number`;
+    // Trägt irgendeine Konversation der Auswahl eine Bewertung (über alle
+    // Seiten, vor dem Schlüssel)? Dann reserviert die Liste die Spalte der
+    // Marken von der ersten Seite an, und sie springt beim Nachladen nicht
+    // (Review 7.22-rc2, K04). Im selben Fenster wie total_count: die größte
+    // Zahl an Bewertungen einer Konversation, über 0 heißt ja.
+    const mostRatings = Prisma.sql`MAX(negative_count + positive_count) OVER () as most_ratings`;
     // Ohne Schlüssel (erste Seite, Nachladen nach dem Löschen) ist rest die
     // ganze Auswahl ab offset - ein Fenster genügt. Mit Schlüssel greift er
     // außen: total zählt die ganze Auswahl, rest nur, was danach kommt
@@ -1645,9 +1679,9 @@ const EmbedChats = {
     // hier).
     const conversations = after
       ? await prisma.$queryRaw`
-          SELECT ${columns}, total_count, COUNT(*) OVER () as rest_count
+          SELECT ${columns}, total_count, most_ratings, COUNT(*) OVER () as rest_count
           FROM (
-            SELECT ${columns}, COUNT(*) OVER () as total_count
+            SELECT ${columns}, COUNT(*) OVER () as total_count, ${mostRatings}
             FROM ${source}
             ${where}
           ) AS listed
@@ -1658,7 +1692,7 @@ const EmbedChats = {
           OFFSET ${offset}
         `
       : await prisma.$queryRaw`
-          SELECT ${columns}, COUNT(*) OVER () as total_count${
+          SELECT ${columns}, COUNT(*) OVER () as total_count, ${mostRatings}${
             readMaxId ? Prisma.sql`, list_max_id` : Prisma.empty
           }
           FROM ${source}
@@ -1694,6 +1728,10 @@ const EmbedChats = {
         ? Number(conversations[0].list_max_id)
         : null;
     const listMaxId = Number.isSafeInteger(highest) ? highest : null;
+    const hasRatings =
+      conversations.length > 0
+        ? Number(conversations[0].most_ratings) > 0
+        : null;
 
     // Get preview texts and embed info for all conversations in one query (performance optimization)
     if (conversationsNormalized.length > 0) {
@@ -1749,6 +1787,7 @@ const EmbedChats = {
       total,
       rest,
       listMaxId,
+      hasRatings,
     };
   },
 

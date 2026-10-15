@@ -34,6 +34,7 @@ import {
   hasContentGap,
   isNewConversation,
   isWide,
+  nextNewExpiry,
   searchLinkIssue,
   shortDayLabel,
   startedOnOtherDay,
@@ -62,6 +63,9 @@ const LINK_SEARCH_ROWS = 500;
 const AUTO_LOAD_ROUNDS = 30;
 // Verzögerung der Suche nach der letzten Eingabe
 const SEARCH_DELAY_MS = 300;
+// So lange nach dem Ablauf des ersten „Neu“ rechnet die Liste neu: Ein
+// Zeitgeber feuert nie vor seiner Zeit, die Spanne fängt Ungenauigkeit ab.
+const NEW_TICK_MS = 200;
 
 // KIE-508/527: die beiden exklusiven Feedback-Filter (ein Zustand:
 // "all" | "negative" | "positive"), als Config statt Copy-Paste-Buttons.
@@ -313,6 +317,8 @@ export default function ConversationList({
   // wieder gelingt. added: neue Zeilen des letzten Nachladens (null nach
   // der ersten Seite) – 0 heißt, die Seite brachte nur Doppelte. maxId: Stand
   // der ersten Seite – weitere Seiten lesen ihn (Fixliste 8, L2).
+  // hasRatings: Laut Server trägt eine Konversation der ganzen Auswahl eine
+  // Bewertung (Review 7.22-rc2, K04); einmal wahr, bleibt es beim Nachladen.
   const [list, setList] = useState({
     scope: null,
     requestId: 0,
@@ -323,6 +329,7 @@ export default function ConversationList({
     moreFailed: false,
     added: null,
     maxId: null,
+    hasRatings: false,
   });
 
   // Einsehbare Konversationen des Zeitraums ohne jeden Filter (Bewertung,
@@ -392,8 +399,11 @@ export default function ConversationList({
         hasMore,
         totalCount: total,
         maxId,
+        hasRatings,
       } = answer;
       if (success) {
+        // „Neu“ der frischen Zeilen nach der Uhr von jetzt (K01)
+        setNow(Date.now());
         setList((previous) => {
           const append = request.append && previous.scope === scope;
           const items = append
@@ -414,6 +424,7 @@ export default function ConversationList({
               : Number.isSafeInteger(maxId)
                 ? maxId
                 : null,
+            hasRatings: hasRatings === true || (append && previous.hasRatings),
           };
         });
         if (!filtered) rememberUnfiltered(total);
@@ -439,6 +450,7 @@ export default function ConversationList({
                 moreFailed: false,
                 added: null,
                 maxId: null,
+                hasRatings: false,
               }
         );
       }
@@ -467,6 +479,28 @@ export default function ConversationList({
   const hasMore = !loading && list.hasMore;
   const moreFailed = !loading && list.moreFailed;
   const totalCount = loading ? 0 : list.total;
+
+  // „Neu“ (K3) hängt an der Uhr: Läuft das erste „Neu“ ab, rechnet die Liste
+  // neu, auch wenn die Seite offen bleibt; ebenso bei der Rückkehr in den Tab
+  // (Zeitgeber ruhen im Hintergrund und im Ruhezustand). Neu gerendert
+  // werden nur die Zeilen, deren „Neu“ sich ändert (Review 7.22-rc2, K01).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const refresh = () => setNow(Date.now());
+    const next = nextNewExpiry(items, now);
+    const timer =
+      next === null
+        ? null
+        : setTimeout(refresh, Math.max(0, next - Date.now()) + NEW_TICK_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [items, now]);
 
   /**
    * Weitere Konversationen anhängen (höchstens PAGE_MAX je Anfrage) – hinter
@@ -848,10 +882,15 @@ export default function ConversationList({
   // deren Spalte in allen Zeilen gleich breit (RATING_COLUMN) – die Fragen
   // enden dann überall an derselben Stelle. Ohne jede Bewertung bleibt die
   // Spalte leer, und die Fragen nutzen die Breite.
+  // Der Server sagt das für die ganze Auswahl (hasRatings): So steht die
+  // Spalte schon auf der ersten Seite und springt beim Nachladen nicht
+  // (Review 7.22-rc2, K04). Die geladenen Zeilen gelten zusätzlich.
+  const listHasRatings = !loading && list.hasRatings;
   const ratingColumn = useMemo(
     () =>
+      listHasRatings ||
       items.some((item) => item.positive_count > 0 || item.negative_count > 0),
-    [items]
+    [listHasRatings, items]
   );
 
   // Leerzustand mit Suche: nennt auch die übrigen Filter (Bewertung, Säule).
@@ -1137,6 +1176,7 @@ export default function ConversationList({
                           <ConversationRow
                             conversation={conversation}
                             today={today}
+                            isNew={isNewConversation(conversation, now)}
                             ratingColumn={ratingColumn}
                             selected={
                               positions.get(conversation.first_chat_id) ===
@@ -1363,12 +1403,14 @@ function SearchField({ value, onSearch, inputRef: outerRef, className = "" }) {
  * vier Stunden ist (Nachtrag KIE-560, K3).
  * memo (Fixliste 7, F32): Die Handler sind stabil und bekommen die Zeile
  * mit; neu gerendert wird nur, was sich ändert (etwa die Markierung).
- * @param {{conversation: object, today: string, ratingColumn: boolean, selected: boolean, onOpen: (row: object) => void, onKeyDown: (event: object, row: object) => void, setRowRef: (key: string, element: HTMLElement|null) => void}} props
+ * @param {{conversation: object, today: string, isNew: boolean, ratingColumn: boolean, selected: boolean, onOpen: (row: object) => void, onKeyDown: (event: object, row: object) => void, setRowRef: (key: string, element: HTMLElement|null) => void}} props
+ *   isNew: Marke „Neu“ (K3), von der Liste mit ihrer Uhr gerechnet (K01)
  *   ratingColumn: Spalte der Bewertungsmarken in fester Mindestbreite (K2)
  */
 const ConversationRow = memo(function ConversationRow({
   conversation,
   today,
+  isNew,
   ratingColumn,
   selected,
   onOpen,
@@ -1386,7 +1428,6 @@ const ConversationRow = memo(function ConversationRow({
   // Berliner Zeit wie Uhrzeit und Tagesgruppe (Fixliste 2, S1)
   const fullTime = berlinDateTime(conversation.last_message_at);
   const startedDay = startedOnOtherDay(conversation);
-  const isNew = isNewConversation(conversation);
   const reason =
     conversation.negative_count > 0 && conversation.first_negative_reason
       ? conversation.first_negative_reason
@@ -1416,11 +1457,12 @@ const ConversationRow = memo(function ConversationRow({
       onClick={() => onOpen(conversation)}
       onKeyDown={(event) => onKeyDown(event, conversation)}
       // K4 (Nachtrag KIE-560): deutlicher Hover in beiden Themes, Pfeil in
-      // Textfarbe, Hand als Zeiger – nur Farben, kein Layoutsprung.
+      // Textfarbe, Hand als Zeiger; nur Farben, kein Layoutsprung. Seit
+      // Review 7.22-rc2 (B-11) kräftiger: dunkel 10 %, hell 6 %.
       className={`group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_16px] lg:scroll-mb-8 lg:scroll-mt-20 items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
         selected
           ? "bg-sky-500/15 light:bg-sky-50"
-          : "hover:bg-white/[0.07] light:hover:bg-black/[0.04]"
+          : "hover:bg-white/10 light:hover:bg-black/[0.06]"
       }`}
     >
       <span
@@ -1497,10 +1539,13 @@ const ConversationRow = memo(function ConversationRow({
 });
 
 /**
- * Marke „Neu“ (Nachtrag KIE-560, K3): klein wie die Bewertungsmarken, in
- * Sky. Kontrast der Schrift auf der Marke: dunkel sky-300 auf sky-500/15
- * 9,5:1 (auf gewählter Zeile 7,4:1), hell sky-700 auf sky-100 5,2:1 – auch
- * auf der gewählten Zeile (sky-50) bleibt die Marke sichtbar.
+ * Marke „Neu“ (Nachtrag KIE-560, K3): klein, in Sky. Bewusst flacher und
+ * eckiger als die Bewertungsmarken (16 px hoch, 11 px Schrift statt Pille mit
+ * 24 px und 12 px): Sie steht in der Meta-Zeile, die 18 px hoch bleibt
+ * (Review 7.22-rc2, N05). Kontrast der Schrift auf der Marke: dunkel
+ * sky-300 auf sky-500/15 9,5:1 (auf gewählter Zeile 7,4:1), hell sky-700 auf
+ * sky-100 5,2:1 – auch auf der gewählten Zeile (sky-50) bleibt die Marke
+ * sichtbar.
  */
 function NewBadge() {
   const { t } = useTranslation();
