@@ -10,7 +10,7 @@
 // erst gespeichert werden.
 
 import {
-  BLACK,
+  DARK_TEXT,
   MIN_TEXT_CONTRAST,
   accessibleTextColor,
   contrastRatio,
@@ -32,7 +32,7 @@ export const POSITION_OPTIONS = [
 ];
 export const USER_TEXT_COLOR_OPTIONS = [
   { value: "#FFFFFF", label: "Weiß" },
-  { value: "#222628", label: "Schwarz" },
+  { value: DARK_TEXT, label: "Schwarz" },
 ];
 
 // Antworten mit Kursen (KIE-567, Reiter Aussehen, beide Darstellungen).
@@ -157,27 +157,37 @@ export function lookValue(config, key) {
 // (Senden-Button, Chat-Button, gefüllte Pillen beim Darüberfahren). Die
 // Empfehlung rechnet wie das Widget (contrast.js, wortgleich mit
 // anythingllm-embed src/utils/contrast.js): WCAG-2.x-Kontrast der
-// Kundenfarbe zu #FFFFFF und #000000, der höhere gewinnt, Gleichstand Weiß.
-// Gespeichert wird nur, was der Kunde wählt (Regel D6); ohne gespeicherten
-// Wert gilt die Empfehlung, in der Vorschau wie im Widget (Schwarz dann
-// #000000; die Option „Schwarz“ speichert #222628).
+// Kundenfarbe zu den gezeigten Schriften #FFFFFF und #222628, der höhere
+// gewinnt, Gleichstand Weiß (Entscheidung E1, Fixliste 7.22-rc7).
+// Empfehlung, Markierung und Warnung rechnen alle mit der Farbe, die das
+// Widget zeigt: „Schwarz“ ist #222628, auch ein früher gespeichertes
+// #000000 (der Server liefert es als #222628 aus). Gespeichert wird nur,
+// was der Kunde wählt (Regel D6); ein gespeicherter Altwert #000000 bleibt
+// beim Speichern unverändert stehen, und ein Klick auf die schon wirksame
+// Option ändert nichts (withUserTextColor).
 // ---------------------------------------------------------------------------
 
 export { MIN_TEXT_CONTRAST };
 
+// Früher gespeicherte Werte und die Farbe, die das Widget dafür zeigt (wie
+// der Server, endpoints/embed/index.js shownUserTextColor)
+const LEGACY_USER_TEXT_COLORS = { "#000000": DARK_TEXT };
+
 /**
- * Gespeicherte Schrift auf der Kundenfarbe (Groß/klein vereinheitlicht bei
- * den beiden Optionen) oder null, wenn keine gespeichert ist.
+ * Gespeicherte Schrift auf der Kundenfarbe als gezeigte Farbe (die beiden
+ * Optionen mit einheitlicher Schreibweise, früheres #000000 als #222628)
+ * oder null, wenn keine gespeichert ist.
  * @param {Object} config
  * @returns {string|null}
  */
 export function storedUserTextColor(config = {}) {
   const v = config?.userTextColor;
   if (typeof v !== "string" || !v.trim()) return null;
+  const key = v.trim().toLowerCase();
   const option = USER_TEXT_COLOR_OPTIONS.find(
-    (o) => o.value.toLowerCase() === v.trim().toLowerCase()
+    (o) => o.value.toLowerCase() === key
   );
-  return option ? option.value : v;
+  return option ? option.value : LEGACY_USER_TEXT_COLORS[key] || v;
 }
 
 /**
@@ -195,7 +205,7 @@ export function userTextColor(config = {}) {
 
 // Option (Weiß/Schwarz) zu einer Empfehlung
 function optionFor(recommended) {
-  return recommended === BLACK
+  return recommended === DARK_TEXT
     ? USER_TEXT_COLOR_OPTIONS[1]
     : USER_TEXT_COLOR_OPTIONS[0];
 }
@@ -214,6 +224,26 @@ export function userTextColorChoice(config = {}) {
       : null;
   return optionFor(recommendedTextColor(lookValue(config, "accentColor")))
     .value;
+}
+
+/**
+ * Bearbeitungsstand nach einem Klick auf Weiß oder Schwarz (E1, Regel D6):
+ * Zeigt der gespeicherte Wert (bzw. ohne gespeicherten Wert die Empfehlung
+ * zur aktuellen Kundenfarbe) schon die gewählte Option, gilt wieder der
+ * gespeicherte Stand (fehlt der Schlüssel dort, bleibt er weg; ein
+ * gespeichertes #000000 bleibt #000000). Sonst wird die Option gesetzt.
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {string} value Wert der Option
+ * @returns {Object}
+ */
+export function withUserTextColor(config, initial = {}, value) {
+  const restored = { ...config };
+  if ("userTextColor" in initial)
+    restored.userTextColor = initial.userTextColor;
+  else delete restored.userTextColor;
+  if (userTextColorChoice(restored) === value) return restored;
+  return { ...config, userTextColor: value };
 }
 
 /** Kontrast für Texte: eine Nachkommastelle, abgerundet, z. B. "4,4:1" */
@@ -237,15 +267,20 @@ export function userTextColorAdvice(config = {}) {
   const stored = storedUserTextColor(config) !== null;
   if (parseColor(accent) === null)
     return { recommendedLabel: null, stored, ratio: null, warning: null };
-  // Weiß oder Schwarz erreicht auf jeder Farbe mindestens 4,5:1; die
-  // Warnung betrifft deshalb nur eine gewählte (gespeicherte) Schrift
-  const ratio = contrastRatio(accent, userTextColor(config));
-  const warning =
-    ratio !== null && ratio < MIN_TEXT_CONTRAST
-      ? `Kontrast nur ${contrastLabel(ratio)}: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar.`
-      : null;
+  // Gerechnet mit der gezeigten Schrift (#FFFFFF bzw. #222628, E1). Auf
+  // mittleren Kundenfarben erreicht auch die Empfehlung 4,5:1 nicht; dann
+  // hilft nur eine hellere oder dunklere Kundenfarbe.
+  const shown = userTextColor(config);
+  const recommended = recommendedTextColor(accent);
+  const ratio = contrastRatio(accent, shown);
+  let warning = null;
+  if (ratio !== null && ratio < MIN_TEXT_CONTRAST)
+    warning =
+      shown === recommended
+        ? `Kontrast nur ${contrastLabel(ratio)}: Weder Weiß noch Schwarz erreicht auf dieser Kundenfarbe 4,5:1. Eine hellere oder dunklere Kundenfarbe ist besser lesbar.`
+        : `Kontrast nur ${contrastLabel(ratio)}: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar.`;
   return {
-    recommendedLabel: optionFor(recommendedTextColor(accent)).label,
+    recommendedLabel: optionFor(recommended).label,
     stored,
     ratio,
     warning,

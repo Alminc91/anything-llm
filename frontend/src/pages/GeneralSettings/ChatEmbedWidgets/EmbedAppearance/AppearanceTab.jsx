@@ -165,6 +165,7 @@ export default function AppearanceTab({
   config,
   updateField,
   setChoice = () => {},
+  setUserTextColor = (value) => updateField("userTextColor", value),
   logoPreview,
   onLogoUpload,
   onLogoRemove,
@@ -252,7 +253,7 @@ export default function AppearanceTab({
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => updateField("userTextColor", opt.value)}
+                onClick={() => setUserTextColor(opt.value)}
                 aria-pressed={active}
                 className={`flex items-center gap-2 px-5 py-2 text-sm font-medium transition-all ${
                   active

@@ -19,6 +19,7 @@ import {
   validateConfig,
   withChoice,
   withPrivacyNotice,
+  withUserTextColor,
 } from "./widgetKeys";
 
 // Design Center (vereinfacht, 15./16.10.2026): Kunden stellen nur noch
@@ -99,12 +100,11 @@ export default function EmbedAppearance() {
             visualConfig = parsed;
         } catch {}
       }
+      // Gespeicherte Werte bleiben, wie sie sind; auch ein früheres #000000
+      // als Schrift auf der Kundenfarbe wird nicht umgeschrieben (E1,
+      // Fixliste 7.22-rc7). Es gilt als „Schwarz“ (#222628, wie der Server
+      // es ausliefert), siehe widgetKeys.js storedUserTextColor.
       const loadedConfig = { ...visualConfig };
-      // Migrate legacy pure black to the softer charcoal that pairs better
-      // with warm accent colors and matches the assistant text color in the live widget.
-      if (loadedConfig.userTextColor === "#000000") {
-        loadedConfig.userTextColor = "#222628";
-      }
       setGreetingKey(storedGreetingKey(visualConfig));
       setInitialConfig(loadedConfig);
       setConfig(loadedConfig);
@@ -179,6 +179,15 @@ export default function EmbedAppearance() {
   const setChoice = useCallback(
     (key, value) =>
       setConfig((prev) => withChoice(prev, initialConfig, key, value)),
+    [initialConfig]
+  );
+
+  // Schrift auf der Kundenfarbe: ein Klick auf die schon wirksame Option
+  // (gespeichert oder empfohlen) ändert nichts (E1, widgetKeys.js
+  // withUserTextColor)
+  const setUserTextColor = useCallback(
+    (value) =>
+      setConfig((prev) => withUserTextColor(prev, initialConfig, value)),
     [initialConfig]
   );
 
@@ -354,6 +363,7 @@ export default function EmbedAppearance() {
                 config={config}
                 updateField={updateField}
                 setChoice={setChoice}
+                setUserTextColor={setUserTextColor}
                 logoPreview={logoPreview}
                 onLogoUpload={handleLogoUpload}
                 onLogoRemove={handleLogoRemove}

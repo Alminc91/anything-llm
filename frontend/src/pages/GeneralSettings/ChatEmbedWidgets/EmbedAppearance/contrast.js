@@ -15,13 +15,24 @@
 //   c <= 0,04045 ? c / 12,92 : ((c + 0,055) / 1,055) ^ 2,4,
 //   L = 0,2126 R + 0,7152 G + 0,0722 B
 // - Kontrast (L1 + 0,05) / (L2 + 0,05), L1 die hellere Farbe
-// - Empfehlung: Kontrast der Kundenfarbe zu #FFFFFF und zu #000000, der
-//   höhere gewinnt, bei Gleichstand Weiß. Ungültige Farbe: Weiß (bisheriger
-//   Standard).
+// - Empfehlung (Schrift auf der Kundenfarbe): Kontrast der Kundenfarbe zu
+//   den beiden Schriften, die das Widget wirklich zeigt, Weiß #FFFFFF und
+//   „Schwarz“ #222628 (DARK_TEXT; Entscheidung E1 der Fixliste 7.22-rc7: so
+//   speichert das Design Center „Schwarz“, und der Server liefert auch ein
+//   früher gespeichertes #000000 als #222628 aus). Der höhere gewinnt, bei
+//   Gleichstand Weiß. Ungültige Farbe: Weiß (bisheriger Standard). Auf
+//   mittleren Kundenfarben (relative Luminanz etwa 0,18 bis 0,26) erreicht
+//   keine der beiden 4,5:1; das Design Center warnt dann auch bei der
+//   Empfehlung.
+// - Pillen (accessibleTextColor) mischen weiter Richtung reinem Schwarz bzw.
+//   Weiß (extremeTextColor).
 // Farben: #rgb, #rrggbb, #rrggbbaa (Alpha wird ignoriert), rgb()/rgba().
 
 export const WHITE = "#FFFFFF";
 export const BLACK = "#000000";
+// „Schwarz“ als Schrift auf der Kundenfarbe (Option im Design Center, Wert
+// im Widget), Entscheidung E1
+export const DARK_TEXT = "#222628";
 export const MIN_TEXT_CONTRAST = 4.5;
 
 // "#01a5a9" -> [1, 165, 169]; ungültig -> null
@@ -71,13 +82,24 @@ export function contrastRatio(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-// Schrift auf der Kundenfarbe: "#FFFFFF" oder "#000000", der höhere
-// Kontrast gewinnt, bei Gleichstand Weiß; ungültige Farbe -> Weiß.
-export function recommendedTextColor(background) {
+// Der höhere Kontrast von Weiß und dark auf background, bei Gleichstand
+// Weiß; ungültige Farbe -> Weiß
+function lighterOrDark(background, dark) {
   const white = contrastRatio(background, WHITE);
-  const black = contrastRatio(background, BLACK);
-  if (white === null || black === null) return WHITE;
-  return white >= black ? WHITE : BLACK;
+  const other = contrastRatio(background, dark);
+  if (white === null || other === null) return WHITE;
+  return white >= other ? WHITE : dark;
+}
+
+// Schrift auf der Kundenfarbe: "#FFFFFF" oder "#222628" (DARK_TEXT), mit
+// den gezeigten Farben gerechnet (E1)
+export function recommendedTextColor(background) {
+  return lighterOrDark(background, DARK_TEXT);
+}
+
+// Richtung für lesbare Schrift auf einer Fläche: "#FFFFFF" oder "#000000"
+export function extremeTextColor(background) {
+  return lighterOrDark(background, BLACK);
 }
 
 // Kundenfarbe als Schrift auf einer oder mehreren Flächen (Pillen: Rand und
@@ -95,7 +117,7 @@ export function accessibleTextColor(
   if (!rgb || list.length === 0 || list.some((bg) => !parseColor(bg)))
     return null;
   // helle Fläche -> Richtung Schwarz, dunkle -> Richtung Weiß
-  const target = parseColor(recommendedTextColor(list[0]));
+  const target = parseColor(extremeTextColor(list[0]));
   for (let step = 0; step <= 100; step++) {
     const t = step / 100;
     const hex = toHex(rgb.map((v, i) => v * (1 - t) + target[i] * t));

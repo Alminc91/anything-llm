@@ -97,6 +97,20 @@ function validUrl(value) {
   }
 }
 
+// Schrift auf der Kundenfarbe (Entscheidung E1, Fixliste 7.22-rc7):
+// „Schwarz“ wird als #222628 gespeichert und ausgeliefert. Ein früher
+// gespeichertes reines Schwarz (#000000) liefert der Server ebenfalls als
+// #222628 aus, passend zur Schrift der Antworten; gespeichert bleibt es
+// unverändert. Empfehlung und Warnung im Design Center und im Widget rechnen
+// mit dieser gezeigten Farbe (contrast.js DARK_TEXT, widgetKeys.js
+// LEGACY_USER_TEXT_COLORS).
+const DARK_TEXT = "#222628";
+const LEGACY_USER_TEXT_COLORS = Object.freeze({ "#000000": DARK_TEXT });
+function shownUserTextColor(value) {
+  if (typeof value !== "string") return value;
+  return LEGACY_USER_TEXT_COLORS[value.trim().toLowerCase()] || value;
+}
+
 function mapLayoutConfig(visualConfig = {}) {
   const out = {};
   for (const [key, allowed] of Object.entries(LAYOUT_ENUMS)) {
@@ -168,14 +182,8 @@ function embeddedEndpoints(app) {
           mapped.userBgColor = visualConfig.accentColor;
           mapped.linkColor = visualConfig.accentColor;
         }
-        if (visualConfig.userTextColor) {
-          // Soften legacy pure black so it matches the assistant text color
-          // in the live widget and looks less harsh on warm accent colors.
-          mapped.userTextColor =
-            visualConfig.userTextColor === "#000000"
-              ? "#222628"
-              : visualConfig.userTextColor;
-        }
+        if (visualConfig.userTextColor)
+          mapped.userTextColor = shownUserTextColor(visualConfig.userTextColor);
         if (visualConfig.name) {
           mapped.brandText = visualConfig.name;
           mapped.assistantName = visualConfig.name;

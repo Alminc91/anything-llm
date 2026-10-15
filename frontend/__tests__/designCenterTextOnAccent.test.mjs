@@ -41,9 +41,10 @@ const {
 const DEFAULTS = embedDefaultTexts("de");
 
 const WHITE = "#FFFFFF";
-// Option „Schwarz“ (gespeicherter Wert)
+// Option „Schwarz“: gespeicherter, ausgelieferter und für Empfehlung und
+// Warnung gerechneter Wert (Entscheidung E1, Fixliste 7.22-rc7)
 const BLACK = "#222628";
-// Empfehlung „Schwarz“ wie im Widget (contrast.js)
+// früher gespeichertes reines Schwarz (Server liefert es als #222628 aus)
 const PURE_BLACK = "#000000";
 
 let renderer;
@@ -113,12 +114,13 @@ test("Kontrast nach WCAG 2.x: Grenzwerte und bekannte Paare", () => {
 });
 
 test("Empfehlung wie im Widget: höherer Kontrast zu Weiß bzw. Schwarz gewinnt, Gleichstand und ungültiger Code Weiß", () => {
-  assert.equal(contrast.recommendedTextColor("#01A5A9"), PURE_BLACK);
-  assert.equal(contrast.recommendedTextColor("#FFA102"), PURE_BLACK);
-  assert.equal(contrast.recommendedTextColor("#FFD700"), PURE_BLACK);
+  assert.equal(contrast.recommendedTextColor("#01A5A9"), BLACK);
+  assert.equal(contrast.recommendedTextColor("#FFA102"), BLACK);
+  assert.equal(contrast.recommendedTextColor("#FFD700"), BLACK);
   assert.equal(contrast.recommendedTextColor("#003366"), WHITE);
   assert.equal(contrast.recommendedTextColor("#E30613"), WHITE);
-  assert.equal(contrast.recommendedTextColor("#777777"), PURE_BLACK);
+  // E1: gerechnet mit #222628 statt #000000, mittleres Grau jetzt Weiß
+  assert.equal(contrast.recommendedTextColor("#777777"), WHITE);
   assert.equal(contrast.recommendedTextColor("#666666"), WHITE);
   assert.equal(contrast.recommendedTextColor(""), WHITE);
   assert.equal(contrast.recommendedTextColor("nichts"), WHITE);
@@ -127,9 +129,9 @@ test("Empfehlung wie im Widget: höherer Kontrast zu Weiß bzw. Schwarz gewinnt,
   for (let v = 0; v < 256; v++) {
     const gray = `#${v.toString(16).padStart(2, "0").repeat(3)}`;
     const chosen = contrast.recommendedTextColor(gray);
-    const other = chosen === WHITE ? PURE_BLACK : WHITE;
+    const other = chosen === WHITE ? BLACK : WHITE;
     assert.ok(ratio(gray, chosen) >= ratio(gray, other), gray);
-    if (ratio(gray, WHITE) === ratio(gray, PURE_BLACK))
+    if (ratio(gray, WHITE) === ratio(gray, BLACK))
       assert.equal(chosen, WHITE, gray);
   }
 });
@@ -169,9 +171,9 @@ test(
 );
 
 test("D6: ohne gespeicherten Wert gilt die Empfehlung, gespeicherte Werte bleiben", () => {
-  // neues Widget mit Türkis: Schwarz empfohlen (wie im Widget #000000)
-  assert.equal(keys.userTextColor({}), PURE_BLACK);
-  assert.equal(keys.lookValue({}, "userTextColor"), PURE_BLACK);
+  // neues Widget mit Türkis: Schwarz empfohlen, gezeigt als #222628 (E1)
+  assert.equal(keys.userTextColor({}), BLACK);
+  assert.equal(keys.lookValue({}, "userTextColor"), BLACK);
   assert.equal(keys.userTextColorChoice({}), BLACK);
   assert.equal(keys.userTextColor({ accentColor: "#003366" }), WHITE);
   assert.equal(keys.userTextColorChoice({ accentColor: "#003366" }), WHITE);
@@ -213,27 +215,31 @@ test("Empfehlung und Warnung unter dem Feld", () => {
     "Kontrast nur 3,0:1: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar."
   );
 
-  // mittleres Grau: Empfehlung Schwarz ohne Warnung (Weiß oder Schwarz
-  // erreicht immer mindestens 4,5:1), gewähltes Weiß knapp darunter
+  // mittleres Grau (E1, gerechnet mit #222628): Empfehlung Weiß, auch sie
+  // bleibt knapp unter 4,5:1; die Warnung sagt dann, dass keine Option
+  // reicht. Gewähltes Schwarz: die übliche Warnung.
   const gray = keys.userTextColorAdvice({ accentColor: "#777777" });
-  assert.equal(gray.recommendedLabel, "Schwarz");
-  assert.equal(gray.warning, null);
+  assert.equal(gray.recommendedLabel, "Weiß");
   assert.equal(
-    keys.userTextColorAdvice({ accentColor: "#777777", userTextColor: WHITE })
-      .warning,
-    "Kontrast nur 4,4:1: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar."
+    gray.warning,
+    "Kontrast nur 4,4:1: Weder Weiß noch Schwarz erreicht auf dieser Kundenfarbe 4,5:1. Eine hellere oder dunklere Kundenfarbe ist besser lesbar."
   );
-  // die Empfehlung erreicht für jede Farbe 4,5:1
+  assert.equal(
+    keys.userTextColorAdvice({ accentColor: "#777777", userTextColor: BLACK })
+      .warning,
+    "Kontrast nur 3,4:1: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar."
+  );
+  // Warnung genau dann, wenn die gezeigte Schrift unter 4,5:1 bleibt
   for (let v = 0; v < 256; v += 5)
     for (const hex of [
       `#${v.toString(16).padStart(2, "0").repeat(3)}`,
       `#ff${v.toString(16).padStart(2, "0")}00`,
       `#00${v.toString(16).padStart(2, "0")}ff`,
-    ])
-      assert.equal(
-        keys.userTextColorAdvice({ accentColor: hex }).warning,
-        null
-      );
+    ]) {
+      const best = Math.max(ratio(hex, WHITE), ratio(hex, BLACK));
+      const advice = keys.userTextColorAdvice({ accentColor: hex });
+      assert.equal(advice.warning !== null, best < 4.5, hex);
+    }
 
   // ab 4,5:1 keine Warnung
   assert.equal(
@@ -400,7 +406,7 @@ test(
     );
     const tag = fresh.match(/<div[^>]*data-preview="user-message"[^>]*>/)[0];
     assert.match(tag, /background-color:#01A5A9/i);
-    assert.match(tag, /(^|[;"])color:#000000/i);
+    assert.match(tag, /(^|[;"])color:#222628/i);
     const t = text(fresh);
     assert.ok(t.includes("Beispiel-Nutzernachricht"));
     assert.ok(
@@ -418,7 +424,7 @@ test(
     assert.match(storedTag, /background-color:#FFA102/i);
     assert.match(storedTag, /(^|[;"])color:#FFFFFF/i);
     // Chat-Button der Vorschau: Icon in der Schrift auf der Kundenfarbe
-    assert.match(fresh, /<svg[^>]*fill="#000000"/);
+    assert.match(fresh, /<svg[^>]*fill="#222628"/);
   }
 );
 
@@ -427,7 +433,7 @@ test(
   { skip },
   async () => {
     const html = await preview({ displayMode: "inline" });
-    assert.match(html, /background-color:#01A5A9;color:#000000[^>]*>Chatten</i);
+    assert.match(html, /background-color:#01A5A9;color:#222628[^>]*>Chatten</i);
   }
 );
 
@@ -658,7 +664,8 @@ test(
     )[0];
     assert.equal(icon.getAttribute("aria-pressed"), "true");
     assert.match(icon.getAttribute("class"), /border-primary-button/);
-    // früheres reines Schwarz wird beim Laden zu #222628: Schwarz ist aktiv
+    // früheres reines Schwarz gilt als Schwarz (#222628, E1), ohne
+    // ungespeicherte Änderung
     assert.equal(pressed(container, "Schwarz"), "true");
     assert.equal(pressed(container, "Weiß"), "false");
   }
@@ -694,5 +701,136 @@ test(
       accentColor: "#003366",
       userTextColor: BLACK,
     });
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Entscheidung E1 (Fixliste 7.22-rc7, Review 7.22-rc6 F01, Browser B-01):
+// „Schwarz“ bleibt #222628; Empfehlung, Markierung und Warnung rechnen mit
+// der gezeigten Farbe; ein gespeichertes #000000 wird nicht umgeschrieben;
+// ein Klick auf die schon wirksame Option erzeugt keine Änderung.
+// ---------------------------------------------------------------------------
+
+test("E1: Empfehlung mit der gezeigten Farbe #222628 gerechnet, Warnung passt zur Empfehlung", () => {
+  assert.equal(contrast.DARK_TEXT, BLACK);
+  // Beispiele aus dem Review: Mit #000000 gerechnet wäre jeweils Schwarz
+  // empfohlen worden, gezeigt hätte es nur 3,8:1 bzw. 3,3:1 erreicht
+  for (const accent of ["#808080", "#767676", "#E91E63"])
+    assert.equal(contrast.recommendedTextColor(accent), WHITE, accent);
+  assert.equal(contrast.recommendedTextColor("#3A9D23"), BLACK);
+  // die Empfehlung hat nie weniger Kontrast als die andere gezeigte Option
+  for (let v = 0; v < 256; v += 3)
+    for (const hex of [
+      `#${v.toString(16).padStart(2, "0").repeat(3)}`,
+      `#${v.toString(16).padStart(2, "0")}9d23`,
+      `#e9${v.toString(16).padStart(2, "0")}63`,
+    ]) {
+      const chosen = contrast.recommendedTextColor(hex);
+      const other = chosen === WHITE ? BLACK : WHITE;
+      assert.ok(ratio(hex, chosen) >= ratio(hex, other), hex);
+    }
+  // #767676: Weiß erreicht 4,5:1, also keine Warnung bei der Empfehlung
+  const medium = keys.userTextColorAdvice({ accentColor: "#767676" });
+  assert.equal(medium.recommendedLabel, "Weiß");
+  assert.equal(medium.warning, null);
+  // Pillen mischen weiter Richtung reinem Schwarz (unverändert)
+  assert.equal(contrast.extremeTextColor("#ffffff"), PURE_BLACK);
+  assert.equal(contrast.extremeTextColor("#1d1d21"), WHITE);
+});
+
+test("E1: früher gespeichertes #000000 gilt als Schwarz (#222628) und bleibt gespeichert", () => {
+  const legacy = { accentColor: "#808080", userTextColor: PURE_BLACK };
+  assert.equal(keys.storedUserTextColor(legacy), BLACK);
+  assert.equal(keys.userTextColor(legacy), BLACK);
+  assert.equal(keys.userTextColorChoice(legacy), BLACK);
+  assert.equal(
+    keys.userTextColorAdvice(legacy).warning,
+    "Kontrast nur 3,8:1: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar."
+  );
+  assert.equal(keys.userTextColorChoice({ userTextColor: " #000000 " }), BLACK);
+  // Speichern lässt den Wert stehen
+  assert.deepEqual(
+    keys.cleanConfig({ ...legacy, accentColor: "#112233" }, { initial: legacy })
+      .userTextColor,
+    PURE_BLACK
+  );
+});
+
+test("E1: Klick auf die schon wirksame Option ändert den Bearbeitungsstand nicht", () => {
+  // ohne gespeicherten Wert: Empfehlung (Türkis -> Schwarz)
+  assert.deepEqual(keys.withUserTextColor({}, {}, BLACK), {});
+  assert.deepEqual(keys.withUserTextColor({}, {}, WHITE), {
+    userTextColor: WHITE,
+  });
+  // gewählt und wieder zurück auf die Empfehlung: Schlüssel entfällt
+  assert.deepEqual(
+    keys.withUserTextColor({ userTextColor: WHITE }, {}, BLACK),
+    {}
+  );
+  // Kundenfarbe geändert, die Empfehlung ist jetzt Weiß: Schwarz muss
+  // gespeichert werden, Weiß folgt der Empfehlung
+  assert.deepEqual(
+    keys.withUserTextColor({ accentColor: "#003366" }, {}, BLACK),
+    { accentColor: "#003366", userTextColor: BLACK }
+  );
+  assert.deepEqual(
+    keys.withUserTextColor({ accentColor: "#003366" }, {}, WHITE),
+    { accentColor: "#003366" }
+  );
+  // gespeichertes #000000: Schwarz ist schon wirksam, bleibt #000000
+  const legacy = { userTextColor: PURE_BLACK };
+  assert.deepEqual(keys.withUserTextColor(legacy, legacy, BLACK), legacy);
+  assert.deepEqual(
+    keys.withUserTextColor({ userTextColor: WHITE }, legacy, BLACK),
+    legacy
+  );
+  assert.deepEqual(keys.withUserTextColor(legacy, legacy, WHITE), {
+    userTextColor: WHITE,
+  });
+});
+
+test(
+  "E1 (Browser B-01): Altwidget mit #000000 speichert eine neue Kundenfarbe, ohne die Schrift umzuschreiben",
+  { skip },
+  async (t) => {
+    const { container, act, calls } = await open(
+      t,
+      [widget(4, { accentColor: "#01A5A9", userTextColor: PURE_BLACK })],
+      4
+    );
+    assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
+    assert.equal(pressed(container, "Schwarz"), "true");
+    // Klick auf das schon markierte Schwarz: keine Speicherleiste
+    await act(() => click(buttons(container, "Schwarz")[0]));
+    assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
+    const color = elements(
+      container,
+      (el) => el.getAttribute("aria-label") === "Kundenfarbe als Farbcode"
+    )[0];
+    await act(() =>
+      handlersOf(color).onChange({ target: { value: "#112233" } })
+    );
+    // Warnung mit der gezeigten Farbe (#222628 auf #112233)
+    assert.ok(container.textContent.includes("Kontrast nur 1,0:1"));
+    await act(() => click(buttons(container, "Speichern")[0]));
+    assert.deepEqual(savedBody(calls), {
+      accentColor: "#112233",
+      userTextColor: PURE_BLACK,
+    });
+  }
+);
+
+test(
+  "E1 (Opus DC-3): neues Widget, Klick auf das empfohlene Schwarz erzeugt keine ungespeicherte Änderung",
+  { skip },
+  async (t) => {
+    const { container, act } = await open(t, [widget(5, null)], 5);
+    assert.equal(pressed(container, "Schwarz"), "true");
+    await act(() => click(buttons(container, "Schwarz")[0]));
+    assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
+    await act(() => click(buttons(container, "Weiß")[0]));
+    assert.ok(container.textContent.includes("Ungespeicherte Änderungen"));
+    await act(() => click(buttons(container, "Schwarz")[0]));
+    assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
   }
 );

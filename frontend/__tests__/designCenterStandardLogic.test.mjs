@@ -437,8 +437,9 @@ test("B-06: Aussehen ohne gespeicherten Wert zeigt die Standards des Widgets (Ku
     "#FFA102"
   );
   // Schrift auf der Kundenfarbe: ohne gespeicherten Wert die Empfehlung
-  // nach Kontrast wie im Widget (KIE-565 Nachtrag), auf Türkis Schwarz
-  assert.equal(keys.lookValue({}, "userTextColor"), "#000000");
+  // nach Kontrast wie im Widget (KIE-565 Nachtrag), auf Türkis Schwarz,
+  // gezeigt als #222628 (E1, Fixliste 7.22-rc7)
+  assert.equal(keys.lookValue({}, "userTextColor"), "#222628");
   assert.equal(keys.lookValue({}, "chatIcon"), "chatBubble");
   assert.equal(keys.lookValue({}, "position"), "bottom-left");
 });

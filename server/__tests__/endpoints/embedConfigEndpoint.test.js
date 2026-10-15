@@ -397,6 +397,23 @@ describe("GET /embed/:embedId/config — Farbschema und Darstellung", () => {
   });
 });
 
+describe("GET /embed/:embedId/config: Schrift auf der Kundenfarbe (E1)", () => {
+  test("„Schwarz“ wird als #222628 ausgeliefert, auch ein früheres #000000 in beliebiger Schreibweise", async () => {
+    for (const [stored, shown] of [
+      ["#222628", "#222628"],
+      ["#000000", "#222628"],
+      [" #000000 ", "#222628"],
+      ["#FFFFFF", "#FFFFFF"],
+      ["#333333", "#333333"],
+    ]) {
+      const res = await fetchConfig({ userTextColor: stored });
+      expect(res.body.userTextColor).toBe(shown);
+    }
+    const none = await fetchConfig({ accentColor: "#808080" });
+    expect(none.body).not.toHaveProperty("userTextColor");
+  });
+});
+
 describe("GET /embed/:embedId/config — Begrüßung (Begrüßungsblase)", () => {
   test("eigene Begrüßung geht als greeting und (für ältere Widget-Stände) als greetingBubbleText", async () => {
     const res = await fetchConfig({ greeting: "  Willkommen bei der VHS!  " });
