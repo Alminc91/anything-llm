@@ -963,6 +963,7 @@ const TRANSLATIONS = {
     title: "Konversationen",
     "load-error": "Fehler beim Laden der Konversationsdaten.",
     loading: "Laden …",
+    "no-value": "k. A.",
     "all-time": "Gesamt",
     "statistics-title": "STATISTIKEN",
     stats: {

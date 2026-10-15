@@ -1381,7 +1381,7 @@ const ConversationRow = memo(function ConversationRow({
     }),
     startedDay &&
       t("embed-analytics.rows.started", {
-        date: shortDayLabel(startedDay, today),
+        date: shortDayLabel(startedDay, today, { t }),
       }),
   ].filter(Boolean);
   const reasonText = reason && t("embed-analytics.rows.reason", { reason });

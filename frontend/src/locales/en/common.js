@@ -1504,6 +1504,7 @@ const TRANSLATIONS = {
     title: "Analytics Dashboard",
     "load-error": "Error loading analytics data.",
     loading: "Loading …",
+    "no-value": "n/a",
     "all-time": "All Time",
     "statistics-title": "STATISTICS",
     stats: {
@@ -1694,7 +1695,7 @@ const TRANSLATIONS = {
         less: "fewer",
         more: "more",
         range: "{{from}}–{{to}}",
-        unused: "–",
+        unused: "n/a",
       },
       hint: {
         "short-range": "Please select at least {{days}} days for this view",

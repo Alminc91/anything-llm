@@ -44,8 +44,6 @@ import {
 // für Screenreader nennt jedes Feld „Kein Vergleich verfügbar".
 
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
-// fehlender Zahlenwert ohne Gedankenstrich (Fixliste 7.22-rc3, D8)
-const NO_VALUE = "k. A.";
 
 /**
  * @param {Object} props
@@ -70,6 +68,9 @@ export default function StatisticsGrid({
   const { t } = useTranslation();
   const { user } = useUser();
   const kpi = kpiValues(summary);
+  // fehlender Zahlenwert ohne Gedankenstrich (Fixliste 7.22-rc3, D8), je
+  // Sprache (de „k. A.“, en „n/a“; Review 7.22-rc6 F09)
+  const NO_VALUE = t("embed-analytics.no-value");
   const value = (number) => (summary ? formatNumber(number) : NO_VALUE);
   const granularity = summary?.granularity ?? "day";
 

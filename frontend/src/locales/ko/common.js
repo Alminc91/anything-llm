@@ -1404,6 +1404,7 @@ const TRANSLATIONS = {
     title: null,
     "load-error": null,
     loading: null,
+    "no-value": null,
     "all-time": null,
     "statistics-title": null,
     stats: {
@@ -1721,6 +1722,7 @@ const TRANSLATIONS = {
       time: null,
       span: null,
       "span-days": null,
+      "span-full": null,
       outside: null,
       "not-found": null,
       "load-error": null,
