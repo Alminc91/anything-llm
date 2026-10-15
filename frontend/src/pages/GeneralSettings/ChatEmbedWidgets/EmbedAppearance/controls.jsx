@@ -82,10 +82,11 @@ export function Segmented({
   );
 }
 
-// Zwischenüberschrift für eine Gruppe von Einstellungen
-export function GroupHeading({ title, hint = null }) {
+// Zwischenüberschrift für eine Gruppe von Einstellungen; first = erste
+// Gruppe des Reiters (ohne Trennlinie darüber)
+export function GroupHeading({ title, hint = null, first = false }) {
   return (
-    <div className="pt-4 border-t border-white/10">
+    <div className={first ? "" : "pt-4 border-t border-white/10"}>
       <h2 className="text-white text-base font-semibold">{title}</h2>
       {hint && (
         <p className="text-theme-text-secondary text-xs mt-0.5 leading-relaxed">
@@ -93,19 +94,5 @@ export function GroupHeading({ title, hint = null }) {
         </p>
       )}
     </div>
-  );
-}
-
-export function CheckboxRow({ checked, onChange, label }) {
-  return (
-    <label className="flex items-center gap-2.5 cursor-pointer select-none">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="w-4 h-4 accent-primary-button cursor-pointer"
-      />
-      <span className="text-white text-sm">{label}</span>
-    </label>
   );
 }
