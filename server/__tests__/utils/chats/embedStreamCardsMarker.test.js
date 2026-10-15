@@ -325,7 +325,7 @@ test("D1/F01/F02: Chatblase und ohne gespeicherte Darstellung -> Karten an, Mark
       null,
       JSON.stringify({ displayMode: "bubble" }),
       JSON.stringify({ courseCards: "auto" }),
-      JSON.stringify({ courseCards: "off" }),
+      JSON.stringify({ courseCards: "kaputt", courseCardsPosition: "below" }),
     ]) {
       jest.clearAllMocks();
       const reply = `[[KARTEN: 1]]\n${REPLY_BODY}`;
@@ -342,6 +342,34 @@ test("D1/F01/F02: Chatblase und ohne gespeicherte Darstellung -> Karten an, Mark
       expect(announced.courseSources.length).toBeGreaterThan(0);
       expect(stored.courseSources.length).toBeGreaterThan(0);
       expect(stored.courseCardsAnnounced).toBe(1);
+    }
+});
+
+// KIE-567: „Nur Text mit Links“ (courseCards "off"), in beiden
+// Darstellungen. Der Marker wird trotzdem entfernt (ein Workspace-Prompt kann
+// ihn noch verlangen), es gehen aber keine Karten ans Widget oder in die DB.
+test("KIE-567: courseCards off -> Marker entfernt, keine angekündigten Kurse, keine Karten", async () => {
+  for (const streaming of [true, false])
+    for (const vc of [
+      JSON.stringify({ courseCards: "off" }),
+      JSON.stringify({ displayMode: "inline", courseCards: " OFF " }),
+      JSON.stringify({ displayMode: "bubble", courseCards: "off" }),
+    ]) {
+      jest.clearAllMocks();
+      const { log, stored, text } = await run({
+        reply: `[[KARTEN: 1]]\n${REPLY_BODY}`,
+        embed: makeEmbed(vc),
+        streaming,
+      });
+      expect(text).toBe(REPLY_BODY);
+      expect(JSON.stringify(log)).not.toMatch(/KARTEN/);
+      expect(log.find((c) => c.type === "courseSources")).toBeUndefined();
+      expect(log.find((c) => c.type === "courseTeasers")).toBeUndefined();
+      const final = log.find((c) => c.type === "finalizeResponseStream");
+      expect(final).not.toHaveProperty("courseSources");
+      expect(stored.text).toBe(REPLY_BODY);
+      expect(stored).not.toHaveProperty("courseSources");
+      expect(stored).not.toHaveProperty("courseCardsAnnounced");
     }
 });
 
@@ -604,10 +632,7 @@ describe("Kurskarten v3: Teaser im Embed-Stream", () => {
   });
 
   test("D1: Chatblase und ohne Darstellung -> Marker und Teaser entfernt, Karten und Teaser als Chunks", async () => {
-    for (const vc of [
-      null,
-      JSON.stringify({ displayMode: "bubble", courseCards: "off" }),
-    ]) {
+    for (const vc of [null, JSON.stringify({ displayMode: "bubble" })]) {
       jest.clearAllMocks();
       const { chunks, stored, text } = await runLogged({
         reply: TEASER_REPLY,
@@ -620,6 +645,19 @@ describe("Kurskarten v3: Teaser im Embed-Stream", () => {
       expect(stored.text).toBe(BODY);
       expect(stored.courseTeaserLines).toHaveLength(2);
     }
+  });
+
+  test("KIE-567: courseCards off -> Teaser entfernt, kein Karten- und kein Teaser-Chunk", async () => {
+    const { chunks, stored, text } = await runLogged({
+      reply: TEASER_REPLY,
+      embed: makeEmbed(JSON.stringify({ courseCards: "off" })),
+    });
+    expect(text).toBe(BODY);
+    expect(JSON.stringify(chunks)).not.toMatch(/TEASER|KARTEN/);
+    expect(chunks.find((c) => c.type === "courseSources")).toBeUndefined();
+    expect(chunks.find((c) => c.type === "courseTeasers")).toBeUndefined();
+    expect(stored.text).toBe(BODY);
+    expect(stored).not.toHaveProperty("courseTeasers");
   });
 
   test("ohne Streaming: courseSources -> courseTeasers -> Text", async () => {
@@ -701,13 +739,14 @@ describe("KI-Hinweis fest: Prompt-Footer wird immer unterdrückt", () => {
   });
 });
 
-// Design Center: Karten-Modus serverseitig, seit 7.22-rc3 (D1) in beiden
+// Design Center: Karten-Modus serverseitig, Standard an in beiden
 // Darstellungen. Der Server hängt den Karten-Abschnitt (Stil „kurz“,
 // Beispiel ohne KI-Hinweis-Zeile) ans Ende des System-Prompts (nach der
 // Zeitzeile des Workspace-Prompts), vor Disclaimer- und Folgefragen-Hinweis.
-// Gespeicherte Altwerte (courseCards, courseCardsAnswerStyle, disclaimer,
-// followUps, displayMode) ändern daran nichts.
-describe("Karten-Abschnitt am Prompt-Ende (fest: in beiden Darstellungen)", () => {
+// Gespeicherte Altwerte (courseCardsAnswerStyle, disclaimer, followUps,
+// displayMode) ändern daran nichts; nur courseCards "off" (KIE-567, „Nur
+// Text mit Links“) lässt den Abschnitt weg.
+describe("Karten-Abschnitt am Prompt-Ende (Standard an, KIE-567 abschaltbar)", () => {
   const {
     DISCLAIMER_PROMPT_NOTE,
     FOLLOW_UPS_PROMPT_NOTE,
@@ -733,11 +772,11 @@ describe("Karten-Abschnitt am Prompt-Ende (fest: in beiden Darstellungen)", () =
     return connector.compressMessages.mock.calls[0][0].systemPrompt;
   }
 
-  test("Inline: Workspace-Prompt -> Karten (kurz) -> Disclaimer -> Folgefragen, Altwerte egal", async () => {
+  test("Inline: Workspace-Prompt -> Karten (kurz) -> Disclaimer -> Folgefragen, Altwerte und Reihenfolge egal", async () => {
     for (const vc of [
       { displayMode: "inline" },
       { displayMode: " INLINE " },
-      { displayMode: "inline", courseCards: "off" },
+      { displayMode: "inline", courseCardsPosition: "below" },
       { displayMode: "inline", courseCardsAnswerStyle: "long" },
       { displayMode: "inline", courseCardsAnswerStyle: "classic" },
       { displayMode: "inline", disclaimer: "none", followUps: "none" },
@@ -752,13 +791,35 @@ describe("Karten-Abschnitt am Prompt-Ende (fest: in beiden Darstellungen)", () =
       null,
       {},
       { displayMode: "bubble" },
-      { courseCards: "off" },
+      { courseCards: "kaputt" },
       { courseCards: "auto", courseCardsAnswerStyle: "long" },
       { displayMode: "bubble", disclaimer: "none", followUps: "none" },
     ])
       expect(await promptFor(vc)).toBe(
         `${WORKSPACE_PROMPT}${SHORT_FOOTER}${NOTES}`
       );
+  });
+
+  test("KIE-567: Nur Text mit Links -> kein Karten-Abschnitt, klassischer Prompt mit Disclaimer und Folgefragen", async () => {
+    for (const vc of [
+      { courseCards: "off" },
+      { courseCards: " Off ", courseCardsPosition: "below" },
+      { displayMode: "inline", courseCards: "off" },
+      { displayMode: "bubble", courseCards: "off" },
+    ]) {
+      const prompt = await promptFor(vc);
+      expect(prompt).toBe(`${WORKSPACE_PROMPT}${NOTES}`);
+      expect(prompt).not.toMatch(/Course Cards Mode|\[\[KARTEN|\[\[TEASER/);
+    }
+  });
+
+  test("KIE-567: Nur Text mit Links entfernt auch einen Karten-Abschnitt aus dem Workspace-Prompt", async () => {
+    const base =
+      "### Security Rules\n…\n▪▪▪\n\n### Course Cards Mode — Search (ACTIVE)\nAlte Regel\n▪▪▪\n\n### Time Reference\nHeute.";
+    const prompt = await promptFor({ courseCards: "off" }, base);
+    expect(prompt).toBe(
+      `### Security Rules\n…\n▪▪▪\n\n▪▪▪\n\n### Time Reference\nHeute.${NOTES}`
+    );
   });
 
   test("AK-4: Präfix bleibt unverändert (Anhang nur am Ende, nach der Zeitzeile)", async () => {

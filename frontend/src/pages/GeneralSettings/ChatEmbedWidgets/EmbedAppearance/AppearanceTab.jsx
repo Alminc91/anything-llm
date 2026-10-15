@@ -1,15 +1,19 @@
 // Design Center › Aussehen: Darstellung, Farbschema, Kundenfarbe, Schrift auf
-// der Kundenfarbe, Logo; nur bei Chatblase Position und Chat-Icon.
-// Darunter der Kasten „Fest eingebaut“ mit den festen Standards.
+// der Kundenfarbe, Logo; nur bei Chatblase Position und Chat-Icon; für
+// beide Darstellungen „Antworten mit Kursen“ (KIE-567). Darunter der Kasten
+// „Fest eingebaut“ mit den festen Standards.
 import { Check, LockSimple, Warning, X } from "@phosphor-icons/react";
-import { SettingsSection, Segmented } from "./controls";
+import { GroupHeading, SettingsSection, Segmented } from "./controls";
 import { CHAT_ICONS, DEFAULT_LOGO } from "./WidgetPreview";
 import {
+  COURSE_CARDS_OPTIONS,
+  COURSE_CARDS_POSITION_OPTIONS,
   DISPLAY_MODE_OPTIONS,
   POSITION_OPTIONS,
   THEME_OPTIONS,
   USER_TEXT_COLOR_OPTIONS,
   DEFAULT_ACCENT_COLOR,
+  choiceValue,
   displayMode,
   lookValue,
   themeChoice,
@@ -49,10 +53,12 @@ function UserTextColorAdvice({ advice }) {
 }
 
 // Feste Standards je Darstellung (wie server/utils/chats/embedStandards.js).
-// Kurskarten seit 7.22-rc3 in beiden Darstellungen (BUBBLE_COURSE_CARDS
-// "auto", Entscheidung D1); bei einer Änderung dort auch diesen Text
-// anpassen. Der Datenschutz-Hinweis ist nicht fest (Schalter im Reiter
-// Inhalt, KIE-565 Nachtrag) und steht deshalb nicht in diesem Kasten.
+// Kurskarten an/aus und ihre Reihenfolge sind wählbar („Antworten mit
+// Kursen“, KIE-567) und stehen deshalb nicht in diesem Kasten; fest sind
+// nur Zeilenlayout und kurze Antwort. Der Datenschutz-Hinweis ist nicht fest
+// (Schalter im Reiter Inhalt, KIE-565 Nachtrag).
+const NOTE_CHOICES =
+  "Kurskarten und ihre Reihenfolge wählen Sie oben unter „Antworten mit Kursen“. Den Datenschutz-Hinweis schalten Sie im Reiter „Inhalt“ ein oder aus.";
 export const FIXED_STANDARDS = {
   bubble: {
     title: "Fest eingebaut, für alle Chatbots gleich",
@@ -60,12 +66,12 @@ export const FIXED_STANDARDS = {
       "Begrüßung als Blase",
       "Startvorschläge als Buttons",
       "Folgefragen als Buttons",
-      "Kurskarten zuerst, dann die kurze Antwort",
+      "Kurskarten als Zeilen mit kurzer Antwort",
       "KI-Hinweis unter der Eingabe",
       "Fenstergröße und Randabstand",
       "Kein Online-Punkt",
     ],
-    note: "Den Datenschutz-Hinweis schalten Sie im Reiter „Inhalt“ ein oder aus.",
+    note: NOTE_CHOICES,
   },
   inline: {
     title: "Fest eingebaut wie in unserer Demo",
@@ -74,13 +80,50 @@ export const FIXED_STANDARDS = {
       "Effekt „Verwandeln“",
       "Leisten-Stil und Startzustand",
       "Breite und Höhe der Box",
-      "Kurskarten als Zeilen, zuerst die Karten, dann die kurze Antwort",
+      "Kurskarten als Zeilen mit kurzer Antwort",
       "Folgefragen als Buttons",
       "KI-Hinweis unter der Eingabe",
     ],
-    note: "Keine Auswahl nötig: Position, Chat-Icon, Fenstergröße und Effekte entfallen bei Inline. Den Datenschutz-Hinweis schalten Sie im Reiter „Inhalt“ ein oder aus.",
+    note: `Keine Auswahl nötig: Position, Chat-Icon, Fenstergröße und Effekte entfallen bei Inline. ${NOTE_CHOICES}`,
   },
 };
+
+// „Antworten mit Kursen“ (KIE-567, beide Darstellungen): Kurskarten oder
+// Nur Text mit Links; bei Kurskarten die Reihenfolge. Gespeichert wird nur
+// eine Abweichung (setChoice, Regel D6).
+export function CourseAnswersSection({ config, setChoice }) {
+  const cards = choiceValue(config, "courseCards");
+  const position = choiceValue(config, "courseCardsPosition");
+  return (
+    <>
+      <GroupHeading title="Antworten mit Kursen" />
+      <div data-section="course-answers" className="space-y-5">
+        <SettingsSection
+          title="Kurse anzeigen als"
+          hint="Kurskarten zeigen Termin, Ort und freie Plätze auf einen Blick. „Nur Text“ ist die klassische Antwort mit Kurs-Links im Text."
+        >
+          <Segmented
+            options={COURSE_CARDS_OPTIONS}
+            value={cards}
+            onChange={(v) => setChoice("courseCards", v)}
+          />
+        </SettingsSection>
+        {cards === "auto" && (
+          <SettingsSection
+            title="Reihenfolge"
+            hint="Empfohlen: Karten zuerst. Sie erscheinen sofort, während der Text noch geschrieben wird; die Folgefragen stehen dann direkt unter dem Text am Ende."
+          >
+            <Segmented
+              options={COURSE_CARDS_POSITION_OPTIONS}
+              value={position}
+              onChange={(v) => setChoice("courseCardsPosition", v)}
+            />
+          </SettingsSection>
+        )}
+      </div>
+    </>
+  );
+}
 
 export function FixedStandardsBox({ mode }) {
   const { title, items, note } = FIXED_STANDARDS[mode];
@@ -121,6 +164,7 @@ export function FixedStandardsBox({ mode }) {
 export default function AppearanceTab({
   config,
   updateField,
+  setChoice = () => {},
   logoPreview,
   onLogoUpload,
   onLogoRemove,
@@ -319,6 +363,8 @@ export default function AppearanceTab({
           </SettingsSection>
         </>
       )}
+
+      <CourseAnswersSection config={config} setChoice={setChoice} />
 
       <FixedStandardsBox mode={mode} />
     </>

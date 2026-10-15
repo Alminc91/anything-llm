@@ -1,5 +1,5 @@
-// Kurskarten im Embed-Widget (fest nach Darstellung: Inline an, siehe
-// embedStandards.js; früher opt-in über visual_config.courseCards = "auto").
+// Kurskarten im Embed-Widget (Standard an, im Design Center abschaltbar über
+// visual_config.courseCards = "off", KIE-567; siehe embedStandards.js).
 //
 // Das Widget bekommt die Quellen einer Antwort bewusst NICHT (sources: [] im
 // Stream, Historie ohne sources) — Kontext-Schnipsel dürfen Endnutzer nie
@@ -31,7 +31,7 @@
 // (Collector + Pipeline) würden das Lesen der Kopfzeilen und die
 // web://…website-Rückübersetzung überflüssig machen.
 
-const { courseCardsForDisplayMode } = require("./embedStandards");
+const { courseCardsValue } = require("./embedStandards");
 const path = require("path");
 const {
   ISO_DATE_RX,
@@ -225,19 +225,20 @@ function visualConfigValue(embed = {}, key, tag = "visualConfigValue") {
 }
 
 /**
- * Kurskarten für dieses Embed an? Seit dem vereinfachten Design Center
- * (15.10.2026) fest nach Darstellung (embedStandards.js
- * courseCardsForDisplayMode): Inline an, Chatblase nach BUBBLE_COURSE_CARDS
- * (seit 7.22-rc3 ebenfalls an, also immer an). Ein gespeichertes
- * courseCards wird nicht mehr gelesen. visual_config ist in der DB ein
- * JSON-String (embed_configs.visual_config).
+ * Kurskarten für dieses Embed an? Gespeicherte Wahl im Design Center
+ * („Antworten mit Kursen“, KIE-567): visual_config.courseCards "off" = Nur
+ * Text mit Links, sonst (auch fehlend oder ungültig) an
+ * (embedStandards.js courseCardsValue). Gilt für beide Darstellungen gleich,
+ * damit Prompt und ausgelieferte Konfiguration nie auseinanderlaufen.
+ * visual_config ist in der DB ein JSON-String (embed_configs.visual_config);
+ * nicht lesbar -> Standard (an).
  * @param {{visual_config?: string|object|null}} embed
  * @returns {boolean}
  */
 function courseCardsEnabled(embed = {}) {
   return (
-    courseCardsForDisplayMode(
-      visualConfigValue(embed, "displayMode", "courseCardsEnabled")
+    courseCardsValue(
+      visualConfigValue(embed, "courseCards", "courseCardsEnabled")
     ) === "auto"
   );
 }

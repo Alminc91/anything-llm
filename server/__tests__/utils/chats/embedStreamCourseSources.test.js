@@ -136,7 +136,8 @@ test("Inline: courseSources im Abschluss-Chunk und in der gespeicherten Antwort"
 test.each([
   ["ohne visual_config", null],
   ["Chatblase", JSON.stringify({ displayMode: "bubble" })],
-  ["Altwert off", JSON.stringify({ courseCards: "off" })],
+  ["ungültiger Wert", JSON.stringify({ courseCards: "kaputt" })],
+  ["Text zuerst", JSON.stringify({ courseCardsPosition: "below" })],
   ["andere Schlüssel", JSON.stringify({ theme: "dark" })],
 ])(
   "%s: courseSources wie bei Inline (Karten in beiden Darstellungen)",
@@ -150,6 +151,19 @@ test.each([
     expect(stored.sources).toHaveLength(8);
   }
 );
+
+// KIE-567: „Nur Text mit Links“ in beiden Darstellungen: keine Kurskarten,
+// volle sources bleiben serverseitig wie bisher
+test.each([
+  ["Chatblase", JSON.stringify({ courseCards: "off" })],
+  ["Inline", JSON.stringify({ displayMode: "inline", courseCards: "off" })],
+])("%s mit courseCards off: kein courseSources-Feld", async (_l, vc) => {
+  const { finalChunk, stored } = await run(makeEmbed(vc));
+  expect(finalChunk).toMatchObject({ close: true, chatId: 42 });
+  expect(finalChunk).not.toHaveProperty("courseSources");
+  expect(stored).not.toHaveProperty("courseSources");
+  expect(stored.sources).toHaveLength(8);
+});
 
 test("Inline, aber nur Info-Seiten: kein courseSources-Feld", async () => {
   helpers.getVectorDbClass.mockReturnValue({

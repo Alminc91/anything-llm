@@ -4,11 +4,13 @@
 // GET /embed/:id/config prüft endpoints/embedConfigEndpoint.test.js, den
 // Prompt pro Embed embedStreamCardsMarker/embedStreamFollowUps.test.js.
 const {
-  BUBBLE_COURSE_CARDS,
+  COURSE_CARDS_VALUES,
+  COURSE_CARDS_POSITIONS,
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
   embedDisplayMode,
-  courseCardsForDisplayMode,
+  courseCardsValue,
+  courseCardsPositionValue,
   effectiveGreeting,
   effectivePlaceholder,
   inlineBarPlaceholder,
@@ -34,18 +36,13 @@ describe("Darstellung und Kurskarten", () => {
     expect(embedDisplayMode(input)).toBe(expected);
   });
 
-  test("D1: Karten in beiden Darstellungen an, auch ohne gespeicherte Darstellung (Browser-Abnahme rc2)", () => {
-    expect(BUBBLE_COURSE_CARDS).toBe("auto");
-    for (const mode of ["inline", "bubble", undefined, null, "", "kaputt"])
-      expect(courseCardsForDisplayMode(mode)).toBe("auto");
-  });
-
-  test("Karten wie Demo-Variante 4: zuerst die Karten, dann der kurze Text, Zeilenlayout", () => {
+  test("Karten wie Demo-Variante 4: kurzer Text, Zeilenlayout fest; an/aus und Reihenfolge wählbar (KIE-567)", () => {
     expect(EMBED_FIXED_STANDARDS).toMatchObject({
-      courseCardsPosition: "above",
       courseCardsAnswerStyle: "short",
       courseCardsLayout: "rows",
     });
+    expect("courseCards" in EMBED_FIXED_STANDARDS).toBe(false);
+    expect("courseCardsPosition" in EMBED_FIXED_STANDARDS).toBe(false);
   });
 
   test("Inline wie die Demo-Seite (app.js loadWidgetScript)", () => {
@@ -63,6 +60,84 @@ describe("Darstellung und Kurskarten", () => {
   test("Standards unveränderlich", () => {
     expect(Object.isFrozen(EMBED_FIXED_STANDARDS)).toBe(true);
     expect(Object.isFrozen(INLINE_FIXED_STANDARDS)).toBe(true);
+  });
+});
+
+// KIE-567 (Nutzer 15.10.2026): Antworten mit Kursen, im Design Center
+// wählbar. Fehlend oder ungültig -> Standard (Karten zuerst), damit
+// bestehende Widgets ohne neue Schlüssel bleiben, wie sie sind.
+describe("Kurskarten an/aus und Reihenfolge (KIE-567)", () => {
+  test("erlaubte Werte wörtlich wie im Vertrag", () => {
+    expect(COURSE_CARDS_VALUES).toEqual(["auto", "off"]);
+    expect(COURSE_CARDS_POSITIONS).toEqual(["above", "below"]);
+    expect(Object.isFrozen(COURSE_CARDS_VALUES)).toBe(true);
+    expect(Object.isFrozen(COURSE_CARDS_POSITIONS)).toBe(true);
+  });
+
+  test.each([
+    ["auto", "auto"],
+    ["off", "off"],
+    [" OFF ", "off"],
+    ["Auto", "auto"],
+    [undefined, "auto"],
+    [null, "auto"],
+    ["", "auto"],
+    ["aus", "auto"],
+    ["none", "auto"],
+    [false, "auto"],
+    [0, "auto"],
+    [["off"], "auto"],
+  ])("courseCardsValue(%p) -> %p", (input, expected) => {
+    expect(courseCardsValue(input)).toBe(expected);
+  });
+
+  test.each([
+    ["above", "above"],
+    ["below", "below"],
+    [" Below ", "below"],
+    [undefined, "above"],
+    [null, "above"],
+    ["", "above"],
+    ["unten", "above"],
+    ["left", "above"],
+    [true, "above"],
+  ])("courseCardsPositionValue(%p) -> %p", (input, expected) => {
+    expect(courseCardsPositionValue(input)).toBe(expected);
+  });
+
+  test("applyEmbedStandards: gespeicherte Wahl kommt durch, in beiden Darstellungen", () => {
+    for (const displayMode of [undefined, "bubble", "inline"]) {
+      const out = applyEmbedStandards(
+        {},
+        { displayMode, courseCards: "off", courseCardsPosition: "below" }
+      );
+      expect(out.courseCards).toBe("off");
+      expect(out.courseCardsPosition).toBe("below");
+      // Antwortstil und Layout bleiben fest
+      expect(out.courseCardsAnswerStyle).toBe("short");
+      expect(out.courseCardsLayout).toBe("rows");
+    }
+  });
+
+  test("applyEmbedStandards: ohne bzw. mit ungültigen Werten Karten zuerst (wie vorher)", () => {
+    for (const vc of [
+      {},
+      { courseCards: "kaputt", courseCardsPosition: 5 },
+      { courseCards: "", courseCardsPosition: "" },
+    ]) {
+      const out = applyEmbedStandards({}, vc);
+      expect(out.courseCards).toBe("auto");
+      expect(out.courseCardsPosition).toBe("above");
+    }
+  });
+
+  test("Ausgelieferte Werte schlagen Werte aus mapped (Server gewinnt)", () => {
+    const out = applyEmbedStandards(
+      { courseCards: "off", courseCardsPosition: "below" },
+      {}
+    );
+    expect(out.courseCards).toBe("auto");
+    expect(out.courseCardsPosition).toBe("above");
   });
 });
 
@@ -264,6 +339,7 @@ describe("applyEmbedStandards", () => {
       ...INLINE_FIXED_STANDARDS,
       privacyNotice: "bubble",
       courseCards: "auto",
+      courseCardsPosition: "above",
     });
   });
 

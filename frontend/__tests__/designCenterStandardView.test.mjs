@@ -152,7 +152,7 @@ test(
       "Öffnet beim Klick ins Feld",
       "Effekt „Verwandeln“",
       "Breite und Höhe der Box",
-      "Kurskarten als Zeilen, zuerst die Karten, dann die kurze Antwort",
+      "Kurskarten als Zeilen mit kurzer Antwort",
       "Keine Auswahl nötig: Position, Chat-Icon, Fenstergröße und Effekte entfallen bei Inline.",
     ])
       assert.ok(t.includes(label), label);
@@ -331,19 +331,23 @@ test(
 );
 
 test(
-  "D1: Kasten „Fest eingebaut“ der Chatblase nennt Kurskarten (nicht mehr „nur bei Inline“)",
+  "KIE-567: Kasten „Fest eingebaut“ nennt nur Zeilenlayout und kurze Antwort, Reihenfolge ist wählbar",
   { skip },
   async () => {
-    const t = text(
-      await show(APPEARANCE, {
-        config: {},
-        updateField: noop,
-        logoPreview: null,
-      })
-    );
-    assert.ok(t.includes("Kurskarten zuerst, dann die kurze Antwort"));
-    assert.ok(!t.includes("nur bei Inline"));
-    assert.ok(!t.includes("Antworten mit Kurs-Links"));
+    for (const config of [{}, { displayMode: "inline" }]) {
+      const t = text(
+        await show(APPEARANCE, { config, updateField: noop, logoPreview: null })
+      );
+      assert.ok(t.includes("Kurskarten als Zeilen mit kurzer Antwort"));
+      assert.ok(!t.includes("Kurskarten zuerst, dann die kurze Antwort"));
+      assert.ok(!t.includes("zuerst die Karten, dann die kurze Antwort"));
+      assert.ok(!t.includes("nur bei Inline"));
+      assert.ok(
+        t.includes(
+          "Kurskarten und ihre Reihenfolge wählen Sie oben unter „Antworten mit Kursen“."
+        )
+      );
+    }
   }
 );
 

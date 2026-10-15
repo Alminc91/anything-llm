@@ -35,6 +35,64 @@ export const USER_TEXT_COLOR_OPTIONS = [
   { value: "#222628", label: "Schwarz" },
 ];
 
+// Antworten mit Kursen (KIE-567, Reiter Aussehen, beide Darstellungen).
+// Werte wie der Server (embedStandards.js COURSE_CARDS_VALUES,
+// COURSE_CARDS_POSITIONS): ohne bzw. mit ungültigem Wert gilt der Standard
+// (Kurskarten, Karten zuerst).
+export const COURSE_CARDS_OPTIONS = [
+  { value: "auto", label: "Kurskarten" },
+  { value: "off", label: "Nur Text mit Links" },
+];
+export const COURSE_CARDS_POSITION_OPTIONS = [
+  { value: "above", label: "Karten zuerst" },
+  { value: "below", label: "Text zuerst" },
+];
+// Auswahl-Schlüssel mit Standard (für choiceValue/withChoice)
+export const CHOICE_DEFAULTS = {
+  courseCards: { options: COURSE_CARDS_OPTIONS, fallback: "auto" },
+  courseCardsPosition: {
+    options: COURSE_CARDS_POSITION_OPTIONS,
+    fallback: "above",
+  },
+};
+
+/**
+ * Wirksamer Wert eines Auswahl-Schlüssels wie im Server (courseCardsValue,
+ * courseCardsPositionValue): String, getrimmt und klein
+ * geschrieben einer der Werte, sonst der Standard.
+ * @param {Object} config
+ * @param {keyof CHOICE_DEFAULTS} key
+ * @returns {string}
+ */
+export function choiceValue(config, key) {
+  const { options, fallback } = CHOICE_DEFAULTS[key];
+  const v = config?.[key];
+  if (typeof v !== "string") return fallback;
+  const normalized = v.trim().toLowerCase();
+  return options.some((o) => o.value === normalized) ? normalized : fallback;
+}
+
+/**
+ * Bearbeitungsstand nach einer Auswahl (Regel D6: nur geänderte Werte
+ * speichern). Entspricht die Wahl dem wirksamen gespeicherten Wert, gilt
+ * wieder der gespeicherte Stand (fehlt der Schlüssel dort, bleibt er weg;
+ * so schreibt ein Klick auf den Standard nichts). Sonst wird die Wahl
+ * gesetzt.
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {keyof CHOICE_DEFAULTS} key
+ * @param {string} value gewählte Option
+ * @returns {Object}
+ */
+export function withChoice(config, initial = {}, key, value) {
+  const next = { ...config };
+  if (choiceValue(initial, key) === value) {
+    if (key in initial) next[key] = initial[key];
+    else delete next[key];
+  } else next[key] = value;
+  return next;
+}
+
 // Vorschläge für Widgets ohne gespeicherte Liste (Entscheidung D6): nur
 // sichtbar als Vorschlag mit „Vorschläge übernehmen“, nie ungefragt
 // gespeichert (sonst schrieb schon eine Farbänderung VHS-Fragen in jedes

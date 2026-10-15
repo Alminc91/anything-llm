@@ -3,8 +3,10 @@
 // Datenschutz-Hinweis als eigene zweite Blase (ausgeschaltet: nur die
 // Begrüßungsblase, KIE-565 Nachtrag), Startvorschläge als Pillen wie die
 // Folgefragen, eine Beispiel-Nutzernachricht in Kundenfarbe (Schrift auf der
-// Kundenfarbe sichtbar), KI-Hinweis fest unter der Eingabe, kein
-// Online-Punkt. Hell/Dunkel in beiden Darstellungen.
+// Kundenfarbe sichtbar), darauf eine Beispiel-Antwort mit Kursen nach der
+// Wahl „Antworten mit Kursen“ (Karten zuerst, Text zuerst oder Nur Text mit
+// Links, KIE-567), KI-Hinweis fest unter der Eingabe, kein Online-Punkt.
+// Hell/Dunkel in beiden Darstellungen.
 import { useState } from "react";
 import {
   ChatCircleDots,
@@ -18,6 +20,7 @@ import {
   CaretUp,
 } from "@phosphor-icons/react";
 import {
+  choiceValue,
   displayMode,
   lookValue,
   privacyBlocks,
@@ -188,7 +191,9 @@ export const SAMPLE_USER_MESSAGE = "Gibt es Kurse am Wochenende?";
 // Schrift auf der Kundenfarbe (im Widget auch beim Tastaturfokus; die
 // Vorschau ist nicht bedienbar und deshalb ohne Tab-Halt). Eine Komponente
 // für die Chatblase und für Inline (Panel und Leiste).
-export function SuggestionPill({ config, palette, text }) {
+// kind: data-preview der Pille ("pill" Startvorschlag, "follow-up-pill"
+// Folgefrage der Beispiel-Antwort)
+export function SuggestionPill({ config, palette, text, kind = "pill" }) {
   const accent = lookValue(config, "accentColor");
   return (
     <span
@@ -201,7 +206,7 @@ export function SuggestionPill({ config, palette, text }) {
         "--pill-on-accent": userTextColor(config),
       }}
       title={text.length > 60 ? text : undefined}
-      data-preview="pill"
+      data-preview={kind}
     >
       {text.length > 60 ? `${text.slice(0, 59).trimEnd()}…` : text}
     </span>
@@ -229,6 +234,130 @@ function PreviewUserMessage({ config, palette }) {
         data-preview="user-message-caption"
       >
         Beispiel-Nutzernachricht
+      </span>
+    </div>
+  );
+}
+
+// Beispiel-Antwort mit Kursen (passend zur Beispiel-Nutzernachricht)
+export const SAMPLE_COURSES = [
+  { title: "Yoga am Wochenende", meta: "Sa 10:00 Uhr · Plätze frei" },
+  { title: "Aquarellmalen", meta: "So 14:00 Uhr · Wenige Plätze" },
+];
+export const SAMPLE_ANSWER_TEXT =
+  "Am Wochenende passen zwei Kurse: einer für Bewegung, einer zum Malen.";
+export const SAMPLE_TEXT_ONLY_INTRO = "Am Wochenende passen zwei Kurse:";
+export const SAMPLE_FOLLOW_UP = "Gibt es auch Online-Kurse?";
+
+// Kurskarte als Zeile (fest „rows“ wie im Widget): Titel, darunter Zeit und
+// Status
+function PreviewCourseCard({ course, palette, accent }) {
+  return (
+    <div
+      className="rounded-xl px-3 py-2 flex flex-col gap-0.5"
+      style={{
+        border: `1px solid ${palette.line}`,
+        backgroundColor: palette.panelBg,
+        borderLeft: `3px solid ${accent}`,
+      }}
+      data-preview="course-card"
+    >
+      <span
+        className="text-[12px] font-semibold leading-snug"
+        style={{ color: palette.text }}
+      >
+        {course.title}
+      </span>
+      <span className="text-[10.5px]" style={{ color: palette.muted }}>
+        {course.meta}
+      </span>
+    </div>
+  );
+}
+
+// Antwort des Chatbots auf die Beispiel-Nutzernachricht: Kurskarten zuerst
+// oder Text zuerst, bei „Nur Text mit Links“ die klassische Antwort mit
+// verlinkten Kurstiteln; darunter eine Folgefrage
+export function PreviewSampleAnswer({ config, palette }) {
+  const accent = lookValue(config, "accentColor");
+  const cardsOn = choiceValue(config, "courseCards") === "auto";
+  const position = choiceValue(config, "courseCardsPosition");
+  const textStyle = { color: palette.text };
+  const text = (
+    <p
+      className="text-[12.5px] leading-relaxed"
+      style={textStyle}
+      data-preview="answer-text"
+    >
+      {SAMPLE_ANSWER_TEXT}
+    </p>
+  );
+  const cards = (
+    <div className="space-y-1.5" data-preview="course-cards">
+      {SAMPLE_COURSES.map((course) => (
+        <PreviewCourseCard
+          key={course.title}
+          course={course}
+          palette={palette}
+          accent={accent}
+        />
+      ))}
+    </div>
+  );
+  return (
+    <div
+      className="w-full space-y-2 pt-1"
+      data-preview="sample-answer"
+      data-course-cards={cardsOn ? "auto" : "off"}
+      data-cards-position={cardsOn ? position : undefined}
+    >
+      {cardsOn ? (
+        position === "below" ? (
+          <>
+            {text}
+            {cards}
+          </>
+        ) : (
+          <>
+            {cards}
+            {text}
+          </>
+        )
+      ) : (
+        <div
+          className="text-[12.5px] leading-relaxed space-y-1"
+          style={textStyle}
+          data-preview="answer-text"
+        >
+          <p>{SAMPLE_TEXT_ONLY_INTRO}</p>
+          {SAMPLE_COURSES.map((course, i) => (
+            <p key={course.title} data-preview="course-link">
+              {i + 1}.{" "}
+              <span
+                className="underline font-semibold"
+                style={{ color: accent }}
+              >
+                {course.title}
+              </span>
+              <span style={{ color: palette.muted }}>, {course.meta}</span>
+            </p>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap gap-1.5 pt-0.5" data-preview="follow-ups">
+        <SuggestionPill
+          config={config}
+          palette={palette}
+          text={SAMPLE_FOLLOW_UP}
+          kind="follow-up-pill"
+        />
+      </div>
+      <span
+        className="block text-[10px] leading-snug"
+        style={{ color: palette.muted }}
+        data-preview="answer-caption"
+      >
+        Beispiel-Antwort
       </span>
     </div>
   );
@@ -300,6 +429,7 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
         </div>
       )}
       <PreviewUserMessage config={config} palette={palette} />
+      <PreviewSampleAnswer config={config} palette={palette} />
     </div>
   );
 }

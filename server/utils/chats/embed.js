@@ -229,9 +229,9 @@ async function streamChatWithForEmbed(
   }
 
   // Folgefragen sind fester Standard (immer an): Prompt-Hinweis am Ende
-  // (embedSystemPrompt) und Chunk an das Widget. Kurskarten fest nach
-  // Darstellung (Inline an, Chatblase siehe BUBBLE_COURSE_CARDS in
-  // embedStandards.js, seit 7.22-rc3 ebenfalls an).
+  // (embedSystemPrompt) und Chunk an das Widget. Kurskarten nach der Wahl
+  // im Design Center (KIE-567, courseCards "auto" Standard, "off" = Nur Text
+  // mit Links: klassischer Prompt ohne Karten-Abschnitt).
   const cardsOn = courseCardsEnabled(embed);
 
   // Compress message to ensure prompt passes token limit with room for response
@@ -253,7 +253,7 @@ async function streamChatWithForEmbed(
   // 2]]", siehe embedCardsMarker.js). Erkennen und Entfernen laufen IMMER
   // (der Prompt kann den Marker flottenweit verlangen, auch wenn die Karten
   // für dieses Embed aus sind) — der Marker erreicht nie Widget oder DB-Text.
-  // Nur mit Karten an (cardsOn, fest nach Darstellung): ange-
+  // Nur mit Karten an (cardsOn, Wahl im Design Center): ange-
   // kündigte Kurse sofort als eigener Chunk + Nachschläge (Marker-Folge-
   // Chunks + Antwort-Links teilen Cache und Limit).
   const courseLookup = cardsOn
@@ -386,7 +386,7 @@ async function streamChatWithForEmbed(
       error: false,
     });
 
-  // Kurskarten (cardsOn, fest nach Darstellung): nur Kurs-
+  // Kurskarten (cardsOn, Wahl im Design Center): nur Kurs-
   // Metadaten der Whitelist, nie text — sources selbst bleiben serverseitig.
   // Reihenfolge: angekündigte Kurse (Marker), Kurse der Treffer, dann
   // verlinkte Kurse ohne Treffer-Dokument (Nachschlag per Dateiname).
@@ -466,7 +466,10 @@ async function streamChatWithForEmbed(
  *  3. Folgefragen-Hinweis.
  * Hinweis 2 und 3 und der Stil sind feste Standards des vereinfachten
  * Design Centers (embedStandards.js EMBED_FIXED_STANDARDS) und hängen immer
- * an; variabel ist nur, ob Karten an sind (cardsOn).
+ * an; variabel ist nur, ob Karten an sind (cardsOn, gespeicherte Wahl
+ * „Kurse anzeigen als“, KIE-567). Die Reihenfolge Karten/Text
+ * (courseCardsPosition) ändert den Prompt nicht: In beiden Fällen kündigt
+ * der Server die Kurse über den Marker an, das Widget ordnet nur an.
  * Der Server besitzt den Karten-Abschnitt: Steht im Workspace-Prompt schon
  * ein Abschnitt "### Course Cards Mode…" (Prompt-Rollout/Demo), wird er
  * immer entfernt; mit Karten hängt der Server genau einen aktuellen am Ende

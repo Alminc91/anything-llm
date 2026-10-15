@@ -29,48 +29,39 @@ const FORBIDDEN = [
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
-// Seit dem vereinfachten Design Center (15.10.2026) hängen die Kurskarten an
-// der Darstellung (embedStandards.js); seit 7.22-rc3 (Entscheidung D1) sind
-// sie in beiden Darstellungen an. Ein gespeichertes courseCards wird nicht
-// mehr gelesen.
-describe("courseCardsEnabled (D1: in beiden Darstellungen an)", () => {
-  test("Inline an (String aus der DB und Objekt), auch mit courseCards off", () => {
-    expect(
-      courseCardsEnabled({ visual_config: '{"displayMode":"inline"}' })
-    ).toBe(true);
-    expect(
-      courseCardsEnabled({ visual_config: { displayMode: " Inline " } })
-    ).toBe(true);
-    expect(
-      courseCardsEnabled({
-        visual_config: '{"displayMode":"inline","courseCards":"off"}',
-      })
-    ).toBe(true);
+// KIE-567: Kurskarten nach der Wahl im Design Center („Kurse anzeigen
+// als“), gespeichert in visual_config.courseCards. "off" = Nur Text mit
+// Links, alles andere (auch fehlend oder ungültig) = an. Die Darstellung
+// spielt keine Rolle (F01/F02: der Server kennt die tatsächliche
+// Darstellung nicht).
+describe("courseCardsEnabled (KIE-567: gespeicherte Wahl, Standard an)", () => {
+  test.each([
+    ['{"courseCards":"off"}'],
+    ['{"courseCards":" OFF "}'],
+    ['{"displayMode":"inline","courseCards":"off"}'],
+    ['{"displayMode":"bubble","courseCards":"off"}'],
+    [{ courseCards: "off" }],
+  ])("aus bei visual_config=%p", (visual_config) => {
+    expect(courseCardsEnabled({ visual_config })).toBe(false);
   });
 
-  // F01: Inline nur per Script-Attribut (kein gespeichertes displayMode),
-  // F02: gespeichert Inline, aber Rückfall auf die Chatblase. Der Server
-  // kennt die tatsächliche Darstellung nicht, die Karten sind deshalb immer
-  // an.
   test.each([
     [undefined],
     [null],
     [""],
     ["{}"],
     ['{"courseCards":"auto"}'],
-    ['{"courseCards":"off"}'],
-    ['{"displayMode":"bubble","courseCards":"off"}'],
-    ['{"displayMode":"inlinex"}'],
-    ['{"displayMode":true}'],
+    ['{"courseCards":"kaputt"}'],
+    ['{"courseCards":false}'],
+    ['{"displayMode":"inline"}'],
+    ['{"displayMode":"bubble"}'],
+    ['{"courseCardsPosition":"below"}'],
     ["kein json"],
-  ])(
-    "auch an bei visual_config=%p (Chatblase bzw. ohne Darstellung)",
-    (visual_config) => {
-      const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-      expect(courseCardsEnabled({ visual_config })).toBe(true);
-      spy.mockRestore();
-    }
-  );
+  ])("an bei visual_config=%p", (visual_config) => {
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
+    expect(courseCardsEnabled({ visual_config })).toBe(true);
+    spy.mockRestore();
+  });
 
   test("unlesbares visual_config wird mit Präfix geloggt", () => {
     const spy = jest.spyOn(console, "error").mockImplementation(() => {});

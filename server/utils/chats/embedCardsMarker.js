@@ -1,4 +1,5 @@
-// Kurskarten v2 (opt-in, visual_config.courseCards = "auto"): Karten-Marker.
+// Kurskarten v2 (Standard an, aus mit visual_config.courseCards = "off"):
+// Karten-Marker.
 //
 // Im Prompt-Abschnitt "Course Cards Mode" kündigt der Bot die empfohlenen
 // Kurse in der ERSTEN Zeile seiner Antwort an:

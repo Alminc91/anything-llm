@@ -17,6 +17,7 @@ import {
   cleanConfig,
   greetingKey as storedGreetingKey,
   validateConfig,
+  withChoice,
   withPrivacyNotice,
 } from "./widgetKeys";
 
@@ -169,6 +170,14 @@ export default function EmbedAppearance() {
   // gespeicherte Stand bzw. "bubble" (widgetKeys.js withPrivacyNotice)
   const setPrivacyNotice = useCallback(
     (on) => setConfig((prev) => withPrivacyNotice(prev, initialConfig, on)),
+    [initialConfig]
+  );
+
+  // Auswahl „Antworten mit Kursen“ (KIE-567): gespeichert wird nur eine
+  // Abweichung vom gespeicherten Stand (Regel D6, widgetKeys.js withChoice)
+  const setChoice = useCallback(
+    (key, value) =>
+      setConfig((prev) => withChoice(prev, initialConfig, key, value)),
     [initialConfig]
   );
 
@@ -343,6 +352,7 @@ export default function EmbedAppearance() {
               <AppearanceTab
                 config={config}
                 updateField={updateField}
+                setChoice={setChoice}
                 logoPreview={logoPreview}
                 onLogoUpload={handleLogoUpload}
                 onLogoRemove={handleLogoRemove}

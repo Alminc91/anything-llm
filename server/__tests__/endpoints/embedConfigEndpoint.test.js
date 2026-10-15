@@ -121,14 +121,15 @@ const {
   INLINE_FIXED_STANDARDS,
 } = require("../../utils/chats/embedStandards");
 
-// Antwort ohne eigene Werte: nur die festen Standards (Karten seit 7.22-rc3
-// in beiden Darstellungen an, Entscheidung D1; Datenschutz-Hinweis ohne
+// Antwort ohne eigene Werte: nur die festen Standards (Karten ohne
+// gespeicherten Wert an und zuerst, KIE-567; Datenschutz-Hinweis ohne
 // gespeicherten Wert an, KIE-565 Nachtrag)
 const STANDARD = {
   ...EMBED_FIXED_STANDARDS,
   ...INLINE_FIXED_STANDARDS,
   privacyNotice: "bubble",
   courseCards: "auto",
+  courseCardsPosition: "above",
 };
 
 describe("GET /embed/:embedId/config — feste Standards", () => {
@@ -156,28 +157,45 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
     });
   });
 
-  test("D1/F01/F02: Kurskarten in beiden Darstellungen an, auch ohne gespeicherte Darstellung", async () => {
+  test("KIE-567 NAK: ohne gespeicherte Wahl Kurskarten an und zuerst, in beiden Darstellungen", async () => {
     expect((await fetchConfig({ displayMode: "inline" })).body).toEqual({
       ...STANDARD,
       displayMode: "inline",
-      courseCards: "auto",
     });
     expect((await fetchConfig({ displayMode: " INLINE " })).body).toEqual({
       ...STANDARD,
       displayMode: "inline",
-      courseCards: "auto",
     });
-    // F01: Inline nur per Script-Attribut, gespeichert ist nichts bzw. nur
-    // das alte courseCards "auto"; Chatblase und ungültige Werte ebenso an
     for (const vc of [
       {},
       { displayMode: "bubble" },
       { courseCards: "auto" },
-      { courseCards: "off" },
-      { displayMode: "bubble", courseCards: "off" },
+      { courseCards: "kaputt", courseCardsPosition: "mitte" },
+      { courseCards: 1, courseCardsPosition: null },
       { displayMode: "seite" },
-    ])
-      expect((await fetchConfig(vc)).body.courseCards).toBe("auto");
+    ]) {
+      const { body } = await fetchConfig(vc);
+      expect(body.courseCards).toBe("auto");
+      expect(body.courseCardsPosition).toBe("above");
+    }
+  });
+
+  test("KIE-567 AK-9: Nur Text mit Links und Text zuerst kommen durch, in beiden Darstellungen", async () => {
+    for (const displayMode of [undefined, "bubble", "inline"]) {
+      const { body } = await fetchConfig({
+        displayMode,
+        courseCards: "off",
+        courseCardsPosition: "below",
+      });
+      expect(body.courseCards).toBe("off");
+      expect(body.courseCardsPosition).toBe("below");
+      expect(body.courseCardsAnswerStyle).toBe("short");
+      expect(body.courseCardsLayout).toBe("rows");
+    }
+    // nur die Reihenfolge geändert: Karten bleiben an
+    const { body } = await fetchConfig({ courseCardsPosition: " BELOW " });
+    expect(body.courseCards).toBe("auto");
+    expect(body.courseCardsPosition).toBe("below");
   });
 
   test("AK-1/AK-4: gespeicherte Altwerte entfallener Optionen werden ignoriert", async () => {
@@ -188,10 +206,8 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       privacyNotice: "modal",
       disclaimer: "none",
       onlineDot: true,
-      courseCards: "off",
       courseCardsAnswerStyle: "long",
       courseCardsLayout: "grid",
-      courseCardsPosition: "below",
       inlineInput: false,
       inlineOpenOn: "submit",
       inlineEffect: "spring",
@@ -216,7 +232,7 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
     expect((await fetchConfig(legacy)).body).toEqual(STANDARD);
     expect(
       (await fetchConfig({ ...legacy, displayMode: "inline" })).body
-    ).toEqual({ ...STANDARD, displayMode: "inline", courseCards: "auto" });
+    ).toEqual({ ...STANDARD, displayMode: "inline" });
   });
 
   test("AK-4: kein Online-Punkt, auch nicht über Boolean-Strings", async () => {
@@ -660,7 +676,8 @@ describe("GET /embed/:embedId/config — Speichern und Ausliefern (echte EmbedCo
     expect(res.body).toEqual({
       ...STANDARD,
       displayMode: "inline",
-      courseCards: "auto",
+      // Wahl „Nur Text mit Links“ (KIE-567) gilt, das Layout bleibt fest
+      courseCards: "off",
       greeting: "Eigene Blase",
       greetingBubbleText: "Eigene Blase",
     });

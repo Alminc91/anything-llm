@@ -1,35 +1,39 @@
 // Kufer Design Center vereinfacht (15./16.10.2026): feste Standards des
 // Embed-Widgets. Die früheren Wahlmöglichkeiten (Begrüßung als Text,
 // Vorschläge als Balken, Folgefragen aus, Datenschutz als Karte, KI-Hinweis
-// vom Modell, Online-Punkt, Kartenstil/-position/-layout, Inline-Optionen,
-// Fenstergröße und Randabstände) entfallen. Gespeicherte Altwerte bleiben in
+// vom Modell, Online-Punkt, Kartenstil/-layout, Inline-Optionen,
+// Fenstergröße und Randabstände) entfallen. Wieder wählbar sind Kurskarten
+// an/aus und ihre Reihenfolge (KIE-567). Gespeicherte Altwerte bleiben in
 // visual_config stehen, werden aber beim Ausliefern (GET /embed/:id/config)
 // und beim Prompt pro Embed (utils/chats/embed.js) ignoriert bzw. durch den
 // Standard ersetzt. Das Widget erzwingt dieselben Werte zusätzlich selbst
 // (auch ohne Server-Wert, z. B. bei alten Script-Attributen).
 //
 // Eine Quelle für beide Wege: applyEmbedStandards (Konfiguration ans
-// Widget) und courseCardsForDisplayMode (Karten an/aus, Prompt-Abschnitt).
+// Widget) und courseCardsValue (Karten an/aus, Prompt-Abschnitt).
 // Was überhaupt ans Widget geht, bestimmt allein die Erlaubtliste im
 // Endpunkt (endpoints/embed/index.js); applyEmbedStandards setzt nur die
 // abgeleiteten Texte und die festen Werte dazu.
 
-// Kurskarten in der Chatblase: an (Entscheidung D1, Fixliste 7.22-rc3,
-// 15.10.2026). Beleg aus der Browser-Abnahme 7.22-rc2 (Opus K-1, Sonnet A9
-// und B-B4): Inline-Widget ohne Platzhalter, also Rückfall auf die
-// Chatblase; 4 bzw. 2 Karten am Desktop und 2 mobil, einspaltig (266 bzw.
-// 296 px), ohne Überlauf, hell und dunkel gut lesbar, danach kurzer Text und
-// Folgefragen. Mit "off" hatte die Antwort in der Chatblase weder Karten
-// noch Links (Sonnet A4-links). Damit sind die Karten unabhängig von der
-// gespeicherten Darstellung an: Ein Inline-Einbau nur per Script-Attribut
-// (ohne gespeichertes displayMode) und ein Inline-Widget, das auf einer
-// Seite ohne Platzhalter als Chatblase erscheint, bekommen dieselben Karten
-// und denselben Prompt (Review F01, F02). Wer hier wieder "off" setzt, muss
-// das Widget seine tatsächliche Darstellung an stream-chat melden lassen.
-const BUBBLE_COURSE_CARDS = "auto";
+// Antworten mit Kursen (KIE-567, Nutzer 15.10.2026, Design Center Reiter
+// Aussehen, beide Darstellungen): „Kurse anzeigen als“ Kurskarten ("auto",
+// Standard) oder Nur Text mit Links ("off"); „Reihenfolge“ Karten zuerst
+// ("above", Standard, empfohlen) oder Text zuerst ("below"). Ohne bzw. mit
+// ungültigem gespeichertem Wert gilt der Standard. Die Wahl gilt für beide
+// Darstellungen gleich (auch für ein Inline-Widget, das ohne Platzhalter als
+// Chatblase erscheint, und für einen Inline-Einbau nur per Script-
+// Attribut): Prompt pro Embed und ausgelieferte Konfiguration hängen so an
+// demselben gespeicherten Wert, nie an der tatsächlichen Darstellung
+// (Review F01, F02 der Runde 7.22-rc2).
+const COURSE_CARDS_VALUES = Object.freeze(["auto", "off"]);
+const DEFAULT_COURSE_CARDS = "auto";
+const COURSE_CARDS_POSITIONS = Object.freeze(["above", "below"]);
+const DEFAULT_COURSE_CARDS_POSITION = "above";
 
 // Feste Standards für beide Darstellungen. Karten wie Demo-Variante 4
-// („Suche“, chatbot-v4): Karten zuerst, danach der kurze Chatbot-Text.
+// („Suche“, chatbot-v4): kurzer Chatbot-Text, Karten als Zeilen. Ob Karten
+// erscheinen und an welcher Stelle, wählt der Kunde (courseCardsValue,
+// courseCardsPositionValue unten).
 // Der Datenschutz-Hinweis ist nicht mehr fest (KIE-565 Nachtrag, Nutzer
 // 15.10.2026): privacyNoticeValue() unten.
 const EMBED_FIXED_STANDARDS = Object.freeze({
@@ -40,7 +44,6 @@ const EMBED_FIXED_STANDARDS = Object.freeze({
   onlineDot: false,
   courseCardsAnswerStyle: "short",
   courseCardsLayout: "rows",
-  courseCardsPosition: "above",
 });
 
 // Inline fest wie die Demo-Seite (/var/docker/demo/site/app.js,
@@ -119,16 +122,34 @@ function embedDisplayMode(displayMode) {
     : "bubble";
 }
 
+// Gespeicherten Auswahlwert prüfen: String, getrimmt und klein geschrieben
+// einer der erlaubten Werte, sonst der Standard
+function oneOf(value, allowed, fallback) {
+  if (typeof value !== "string") return fallback;
+  const v = value.trim().toLowerCase();
+  return allowed.includes(v) ? v : fallback;
+}
+
 /**
- * Kurskarten für eine Darstellung: Inline immer "auto" (Demo-Standard),
- * Chatblase BUBBLE_COURSE_CARDS.
- * @param {*} displayMode gespeicherter visual_config.displayMode
+ * Kurskarten an ("auto", Standard) oder aus ("off", Nur Text mit Links)
+ * aus dem gespeicherten visual_config.courseCards (KIE-567). Fehlend oder
+ * ungültig -> "auto".
+ * @param {*} value
  * @returns {"auto"|"off"}
  */
-function courseCardsForDisplayMode(displayMode) {
-  return embedDisplayMode(displayMode) === "inline"
-    ? "auto"
-    : BUBBLE_COURSE_CARDS;
+function courseCardsValue(value) {
+  return oneOf(value, COURSE_CARDS_VALUES, DEFAULT_COURSE_CARDS);
+}
+
+/**
+ * Reihenfolge Karten/Text aus visual_config.courseCardsPosition (KIE-567):
+ * "above" Karten zuerst (Standard), "below" Text zuerst. Fehlend oder
+ * ungültig -> "above".
+ * @param {*} value
+ * @returns {"above"|"below"}
+ */
+function courseCardsPositionValue(value) {
+  return oneOf(value, COURSE_CARDS_POSITIONS, DEFAULT_COURSE_CARDS_POSITION);
 }
 
 // Eigener Text: String, getrimmt nicht leer und keine frühere Vorbelegung
@@ -272,7 +293,8 @@ function privacyNoticeValue(value) {
  * Feste Standards auf die (bereits validierte) Konfiguration für das Widget
  * anwenden: Begrüßung, Platzhalter, Leistentext und Datenschutz aus den
  * gespeicherten Texten setzen, Datenschutz-Hinweis an oder aus
- * (privacyNoticeValue), feste Werte erzwingen. Was sonst ans Widget
+ * (privacyNoticeValue), Kurskarten und Reihenfolge (KIE-567) immer mit
+ * gültigem Wert, feste Werte erzwingen. Was sonst ans Widget
  * geht, legt allein die Erlaubtliste des Endpunkts fest (`mapped`).
  * Verändert `mapped` nicht, gibt ein neues Objekt zurück.
  * @param {Object} mapped Antwort von /config vor den Standards
@@ -302,13 +324,15 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
 
   Object.assign(out, EMBED_FIXED_STANDARDS, INLINE_FIXED_STANDARDS, {
     privacyNotice: privacyNoticeValue(vc.privacyNotice),
-    courseCards: courseCardsForDisplayMode(vc.displayMode),
+    courseCards: courseCardsValue(vc.courseCards),
+    courseCardsPosition: courseCardsPositionValue(vc.courseCardsPosition),
   });
   return out;
 }
 
 module.exports = {
-  BUBBLE_COURSE_CARDS,
+  COURSE_CARDS_VALUES,
+  COURSE_CARDS_POSITIONS,
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
   LEGACY_DEFAULT_GREETINGS,
@@ -318,7 +342,8 @@ module.exports = {
   PRIVACY_LINES_MAX,
   PRIVACY_LINE_MAX_LEN,
   embedDisplayMode,
-  courseCardsForDisplayMode,
+  courseCardsValue,
+  courseCardsPositionValue,
   effectiveGreeting,
   effectivePlaceholder,
   inlineBarPlaceholder,
