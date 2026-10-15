@@ -544,6 +544,17 @@ test(
       new Function(`return ${list};`)(),
       keys.LEGACY_DEFAULT_GREETINGS
     );
+    // Standard-Willkommensblasen (deutsch) wie der Vorschlag im Design
+    // Center (E3: im Widget je Sprache, UI_TEXTS)
+    const ui = source.indexOf("UI_TEXTS = {");
+    assert.ok(ui >= 0, "UI_TEXTS im Widget");
+    const bubbles = source.indexOf("welcomeBubbles: [", ui);
+    assert.deepEqual(
+      new Function(
+        `return ${balanced(source, source.indexOf("[", bubbles), "[", "]")};`
+      )(),
+      keys.DEFAULT_WELCOME_BUBBLES
+    );
   }
 );
 
