@@ -2137,7 +2137,7 @@ for (const [name, clipboard, expected] of [
     },
     {
       type: "error",
-      message: "Kopieren nicht möglich — bitte manuell markieren.",
+      message: "Kopieren nicht möglich. Bitte manuell markieren.",
     },
   ],
   [
@@ -2145,7 +2145,7 @@ for (const [name, clipboard, expected] of [
     undefined,
     {
       type: "error",
-      message: "Kopieren nicht möglich — bitte manuell markieren.",
+      message: "Kopieren nicht möglich. Bitte manuell markieren.",
     },
   ],
 ]) {

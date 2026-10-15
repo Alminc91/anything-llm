@@ -146,14 +146,12 @@ const ScriptTag = ({ embed }) => {
       snippet={snippet}
       copiedToast={t("code-snippet-modal.copied")}
     >
-      <a
-        href="https://github.com/Mintplex-Labs/anythingllm-embed/blob/main/README.md"
-        target="_blank"
-        rel="noreferrer"
-        className="text-blue-300 light:text-blue-500 hover:underline"
-      >
-        {t("code-snippet-modal.script-tag.view-options")}
-      </a>
+      {/* Alle Einstellungen kommen aus dem Design Center (Erscheinungsbild,
+          Reiter Einbau); die Liste der data-Attribute im Upstream-README
+          wirkt größtenteils nicht mehr (Review 7.22-rc6 F11) */}
+      <p className="text-theme-text-secondary text-xs mt-1">
+        {t("code-snippet-modal.script-tag.settings-hint")}
+      </p>
     </SnippetBlock>
   );
 };

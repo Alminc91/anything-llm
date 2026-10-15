@@ -1900,7 +1900,7 @@ const TRANSLATIONS = {
     copied: "Snippet copied to clipboard!",
     "script-comment":
       "Paste this script tag into your website's <head> or <body> tag.",
-    "copy-failed": "Copying failed — please select the text manually.",
+    "copy-failed": "Copying failed. Please select the text manually.",
     "inline-tag": {
       label: "Optional: inline display",
       hint: "If “Erscheinungsbild → Aussehen → Darstellung” is set to “Inline”, paste this placeholder where the chat should appear on your page. Without the placeholder the chat bubble is shown as before. The script snippet above stays unchanged.",
@@ -1909,7 +1909,8 @@ const TRANSLATIONS = {
     "script-tag": {
       label: "HTML Script Tag Embed Code",
       hint: "Embed your chat widget as a helpdesk chat in the corner of your website.",
-      "view-options": "View all style and configuration options →",
+      "settings-hint":
+        "Appearance and texts are set under “Erscheinungsbild”. Its “Einbau” tab shows the ready-made code; no further data attributes are needed.",
     },
   },
   billing: {

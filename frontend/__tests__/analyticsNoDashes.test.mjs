@@ -69,3 +69,32 @@ test("F04: Übersetzungsprüfung (verifyTranslations) besteht", () => {
   );
   assert.equal(status, 0, `${stdout}\n${stderr}`.slice(-2000));
 });
+
+// Review 7.22-rc6 F11: Dialog „Einbettungscode kopieren“ ohne Gedankenstrich
+// (auch auf der Konversationsseite) und ohne Link auf die data-*-Optionen
+// des Upstream-README; alle Einstellungen kommen aus dem Design Center
+test("F11: Einbettungscode-Dialog ohne Gedankenstrich und ohne README-Link", () => {
+  for (const lang of [de, en]) {
+    const found = strings(lang["code-snippet-modal"], ["code-snippet-modal"])
+      .filter(([, text]) => DASH.test(text))
+      .map(([key]) => key);
+    assert.deepEqual(found, []);
+  }
+  assert.equal(
+    de["code-snippet-modal"]["copy-failed"],
+    "Kopieren nicht möglich. Bitte manuell markieren."
+  );
+  assert.match(
+    de["code-snippet-modal"]["script-tag"]["settings-hint"],
+    /Erscheinungsbild.*Einbau/
+  );
+  const modal = readFileSync(
+    new URL(
+      "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedConfigs/EmbedRow/CodeSnippetModal/index.jsx",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  assert.doesNotMatch(modal, /github\.com\/Mintplex-Labs\/anythingllm-embed/);
+  assert.doesNotMatch(modal, /view-options/);
+});

@@ -1749,7 +1749,7 @@ const TRANSLATIONS = {
     "script-tag": {
       label: null,
       hint: null,
-      "view-options": null,
+      "settings-hint": null,
     },
   },
   billing: {
