@@ -200,7 +200,8 @@ export default function TimelineChart({
               {t(`embed-analytics.chart.metric.${metric}`)}{" "}
               {t(`embed-analytics.chart.per.${granularity}`)}
             </span>
-            {" – "}
+            {/* ohne Gedankenstrich (Fixliste 7.22-rc3, D8) */}
+            {": "}
             <span data-chart-frame="empty">
               {t(`embed-analytics.chart.empty.${compactHint}`)}
               {compactHint === "widget" && (
@@ -820,7 +821,8 @@ function Columns({
           style={{ top: MARGIN.top + tooltip.y, ...tooltipStyle(tooltip) }}
         >
           {labelOf(active)}
-          {" — "}
+          {/* Trennpunkt statt Gedankenstrich (Fixliste 7.22-rc3, D8) */}
+          {" · "}
           <span className="font-semibold">
             {valueLabel(values[active], metric, t)}
           </span>

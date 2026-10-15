@@ -191,28 +191,28 @@ const SECTIONS = [
     "day",
     section("2026-10-13", "2026-10-13"),
     section("2026-10-09", "2026-10-09"),
-    "Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten",
+    "Vorzeitraum: Fr., 09.10.2026 · 12 Nachrichten",
   ],
   [
     "Stunde",
     "hour",
     section("2026-10-12", "2026-10-12", { hour: 10 }),
     section("2026-10-11", "2026-10-11", { hour: 10 }),
-    "Vorzeitraum: So., 11.10.2026, 10–11 Uhr — 12 Nachrichten",
+    "Vorzeitraum: So., 11.10.2026, 10–11 Uhr · 12 Nachrichten",
   ],
   [
     "Woche",
     "week",
     section("2026-10-05", "2026-10-11"),
     section("2026-09-07", "2026-09-13"),
-    "Vorzeitraum: KW 37 (07.09.–13.09.2026) — 12 Nachrichten",
+    "Vorzeitraum: KW 37 (07.09.–13.09.2026) · 12 Nachrichten",
   ],
   [
     "Monat",
     "month",
     section("2026-10-01", "2026-10-31"),
     section("2026-09-01", "2026-09-30"),
-    "Vorzeitraum: September 2026 — 12 Nachrichten",
+    "Vorzeitraum: September 2026 · 12 Nachrichten",
   ],
 ];
 
@@ -225,7 +225,7 @@ test("Tooltip (AK-5): Die zweite Zeile nennt den Abschnitt des Vorzeitraums, zu 
       context
     );
     assert.equal(label, expected, name);
-    // dieselbe Schreibweise wie die erste Zeile: Abschnitt — Wert
+    // dieselbe Schreibweise wie die erste Zeile: Abschnitt · Wert
     assert.equal(
       label,
       `Vorzeitraum: ${t("embed-analytics.chart.tooltip", {
@@ -239,12 +239,12 @@ test("Tooltip (AK-5): Die zweite Zeile nennt den Abschnitt des Vorzeitraums, zu 
   const [, , , oct09] = SECTIONS[0];
   assert.equal(
     previousBucketLabel(oct09, "messages", "day", context),
-    "Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten"
+    "Vorzeitraum: Fr., 09.10.2026 · 12 Nachrichten"
   );
   // die gewählte Größe, Einzahl, Tausenderpunkt, kein Wert
   assert.equal(
     previousBucketLabel(oct09, "conversations", "day", context),
-    "Vorzeitraum: Fr., 09.10.2026 — 1 Konversation"
+    "Vorzeitraum: Fr., 09.10.2026 · 1 Konversation"
   );
   assert.equal(
     previousBucketLabel(
@@ -253,7 +253,7 @@ test("Tooltip (AK-5): Die zweite Zeile nennt den Abschnitt des Vorzeitraums, zu 
       "day",
       context
     ),
-    "Vorzeitraum: Fr., 09.10.2026 — 1.234 Nachrichten"
+    "Vorzeitraum: Fr., 09.10.2026 · 1.234 Nachrichten"
   );
   assert.equal(
     previousBucketLabel(
@@ -262,7 +262,7 @@ test("Tooltip (AK-5): Die zweite Zeile nennt den Abschnitt des Vorzeitraums, zu 
       "day",
       context
     ),
-    "Vorzeitraum: Fr., 09.10.2026 — 0 Nachrichten"
+    "Vorzeitraum: Fr., 09.10.2026 · 0 Nachrichten"
   );
   // über den Jahreswechsel: Woche und Jahr des Abschnitts, nicht des Platzes
   assert.equal(
@@ -272,7 +272,7 @@ test("Tooltip (AK-5): Die zweite Zeile nennt den Abschnitt des Vorzeitraums, zu 
       "week",
       context
     ),
-    "Vorzeitraum: KW 1 (29.12.–04.01.2026) — 12 Nachrichten"
+    "Vorzeitraum: KW 1 (29.12.–04.01.2026) · 12 Nachrichten"
   );
   assert.equal(
     previousBucketLabel(
@@ -281,7 +281,7 @@ test("Tooltip (AK-5): Die zweite Zeile nennt den Abschnitt des Vorzeitraums, zu 
       "month",
       context
     ),
-    "Vorzeitraum: Dezember 2025 — 12 Nachrichten"
+    "Vorzeitraum: Dezember 2025 · 12 Nachrichten"
   );
   // englische Oberfläche
   assert.equal(
@@ -694,7 +694,7 @@ test("Tooltip: Ohne Linie steht er, wo er vor KIE-537 stand", () => {
   );
   const previousValues = values.map(() => 0);
   const { columns, plotHeight, place } = chartOf(960, values, previousValues);
-  const text = "Di., 06.10.2026 — 37 Nachrichten";
+  const text = "Di., 06.10.2026 · 37 Nachrichten";
   for (let active = 0; active < values.length; active++) {
     const without = tooltipPlacement({
       columns,
@@ -762,7 +762,7 @@ test("Tooltip (AK-5): Mit dem Abschnitt des Vorzeitraums ist die zweite Zeile di
   );
   assert.equal(
     TOOLTIP_LINES[2][2],
-    "Vorzeitraum: KW 37 (07.09.–13.09.2026) — 1.234 Konversationen"
+    "Vorzeitraum: KW 37 (07.09.–13.09.2026) · 1.234 Konversationen"
   );
 });
 
@@ -862,7 +862,7 @@ test("Tooltip auf dem Handy (Diagramm 308 px): Die Zeile des Vorzeitraums ist f�
     ...line.map((point) => point.y - PREVIOUS_LINE.markerRadius)
   );
 
-  // „Vorzeitraum: Fr., 09.10.2026 — 12 Nachrichten“: geschätzt 314,5 px
+  // „Vorzeitraum: Fr., 09.10.2026 · 12 Nachrichten“: geschätzt 314,5 px
   const day = SECTIONS[0][4];
   assert.equal(day.length * 6.5 + 22, 314.5);
   for (const text of [day, ...TOOLTIP_LINES.map(([, , second]) => second)])
@@ -890,7 +890,7 @@ test("Tooltip: Liegt die Linie über den Säulen, rückt er über die Linie; lie
     [...values.slice(1), 80],
     values.map(() => 60)
   );
-  const text = "Di., 06.10.2026 — 20 Nachrichten";
+  const text = "Di., 06.10.2026 · 20 Nachrichten";
 
   // Linie unter den Säulen: dieselbe Lage wie ohne Linie
   assert.deepEqual(low.place(15, text), low.place(15, text, false));

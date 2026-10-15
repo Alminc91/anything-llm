@@ -464,18 +464,18 @@ test(
     // der Abschnitt des Vorzeitraums steht dabei, in derselben Schreibweise.
     assert.match(
       html,
-      /aria-label="So\., 13\.09\.2026 — 5 Nachrichten\. Vorzeitraum: Fr\., 14\.08\.2026 — 4 Nachrichten\. Die Eingabetaste /
+      /aria-label="So\., 13\.09\.2026 · 5 Nachrichten\. Vorzeitraum: Fr\., 14\.08\.2026 · 4 Nachrichten\. Die Eingabetaste /
     );
     // 15.09. ohne Nachricht (keine Schaltfläche), am 16.08. davor 6
     assert.match(
       html,
-      /aria-label="Di\., 15\.09\.2026 — 0 Nachrichten\. Vorzeitraum: So\., 16\.08\.2026 — 6 Nachrichten"/
+      /aria-label="Di\., 15\.09\.2026 · 0 Nachrichten\. Vorzeitraum: So\., 16\.08\.2026 · 6 Nachrichten"/
     );
     // Jeder Platz nennt seinen Abschnitt – keiner nur die Zahl.
     assert.equal(
       count(
         html,
-        /<g data-column=""[^>]* aria-label="[^"]*\. Vorzeitraum: [A-Z][a-z]\., \d\d\.\d\d\.2026 — [\d.]+ Nachricht(en)?[."]/g
+        /<g data-column=""[^>]* aria-label="[^"]*\. Vorzeitraum: [A-Z][a-z]\., \d\d\.\d\d\.2026 · [\d.]+ Nachricht(en)?[."]/g
       ),
       30
     );
@@ -563,11 +563,11 @@ test(
     // Stunden: dieselbe Stunde des Vortags
     assert.match(
       html,
-      /aria-label="Mo\., 12\.10\.2026, 13–14 Uhr — 13 Nachrichten\. Vorzeitraum: So\., 11\.10\.2026, 13–14 Uhr — 4 Nachrichten"/
+      /aria-label="Mo\., 12\.10\.2026, 13–14 Uhr · 13 Nachrichten\. Vorzeitraum: So\., 11\.10\.2026, 13–14 Uhr · 4 Nachrichten"/
     );
     assert.match(
       html,
-      /aria-label="Mo\., 12\.10\.2026, 0–1 Uhr — 0 Nachrichten\. Vorzeitraum: So\., 11\.10\.2026, 0–1 Uhr — 0 Nachrichten"/
+      /aria-label="Mo\., 12\.10\.2026, 0–1 Uhr · 0 Nachrichten\. Vorzeitraum: So\., 11\.10\.2026, 0–1 Uhr · 0 Nachrichten"/
     );
   }
 );
@@ -631,7 +631,7 @@ test(
     // Jeder Platz nennt weiter seinen Wert – auch die ohne Marke.
     assert.match(
       html,
-      /aria-label="Mo\., 12\.10\.2026, 3–4 Uhr — 0 Nachrichten\. Vorzeitraum: So\., 11\.10\.2026, 3–4 Uhr — 0 Nachrichten"/
+      /aria-label="Mo\., 12\.10\.2026, 3–4 Uhr · 0 Nachrichten\. Vorzeitraum: So\., 11\.10\.2026, 3–4 Uhr · 0 Nachrichten"/
     );
 
     // Vorzeitraum ganz ohne Wert: die gepunktete Linie auf der Grundlinie,
@@ -707,11 +707,11 @@ test(
     // auch der angeschnittene: Im Vorzeitraum steht eine ganze Woche.
     assert.match(
       html,
-      /aria-label="KW 41 \(05\.10\.–11\.10\.2026\) — 15 Nachrichten\. Vorzeitraum: KW 38 \(14\.09\.–20\.09\.2026\) — 12 Nachrichten\./
+      /aria-label="KW 41 \(05\.10\.–11\.10\.2026\) · 15 Nachrichten\. Vorzeitraum: KW 38 \(14\.09\.–20\.09\.2026\) · 12 Nachrichten\./
     );
     assert.match(
       html,
-      /aria-label="KW 40 – ab 30\.09\. — 10 Nachrichten\. Vorzeitraum: KW 37 \(07\.09\.–13\.09\.2026\) — 7 Nachrichten\./
+      /aria-label="KW 40, ab 30\.09\. · 10 Nachrichten\. Vorzeitraum: KW 37 \(07\.09\.–13\.09\.2026\) · 7 Nachrichten\./
     );
     // Die Kennzahlen nennen ihre eigenen Tage – im Tooltip der Felder und
     // sichtbar in der Zeile unter dem Streifen: gleich viele Kalendertage
@@ -842,11 +842,11 @@ test(
     // Jeder Platz nennt beide Werte, die Zusammenfassung beide Serien.
     assert.match(
       html,
-      /aria-label="So\., 13\.09\.2026 — 0 Nachrichten\. Vorzeitraum: Fr\., 14\.08\.2026 — 4 Nachrichten"/
+      /aria-label="So\., 13\.09\.2026 · 0 Nachrichten\. Vorzeitraum: Fr\., 14\.08\.2026 · 4 Nachrichten"/
     );
     assert.match(
       html,
-      /aria-label="Fr\., 25\.09\.2026 — 0 Nachrichten\. Vorzeitraum: Mi\., 26\.08\.2026 — 70 Nachrichten"/
+      /aria-label="Fr\., 25\.09\.2026 · 0 Nachrichten\. Vorzeitraum: Mi\., 26\.08\.2026 · 70 Nachrichten"/
     );
     assert.match(
       html,
@@ -917,7 +917,7 @@ test(
     );
     assert.match(
       html,
-      /aria-label="Di\., 13\.10\.2026, 9–10 Uhr — 0 Nachrichten\. Vorzeitraum: Mo\., 12\.10\.2026, 9–10 Uhr — 9 Nachrichten"/
+      /aria-label="Di\., 13\.10\.2026, 9–10 Uhr · 0 Nachrichten\. Vorzeitraum: Mo\., 12\.10\.2026, 9–10 Uhr · 9 Nachrichten"/
     );
   }
 );
@@ -1110,7 +1110,7 @@ test(
 );
 
 const RUNNING =
-  "Der gewählte Zeitraum läuft noch – die Veränderung ist vorläufig.";
+  "Der gewählte Zeitraum läuft noch. Die Veränderung ist vorläufig.";
 /** Kennzahlen eines Zeitraums von days Tagen ab from, mit Vorzeitraum. */
 const kpiOf = (from, days, overrides = {}) =>
   render(KPI, {

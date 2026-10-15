@@ -827,7 +827,10 @@ export default function ConversationDetail({
                 <span
                   data-meta-item=""
                   className={META_ITEM}
-                  title={`${berlinDateTime(head.startedAt)} – ${berlinDateTime(head.lastAt)}`}
+                  title={t("embed-analytics.panel.span-full", {
+                    from: berlinDateTime(head.startedAt),
+                    to: berlinDateTime(head.lastAt),
+                  })}
                 >
                   {t("embed-analytics.rows.questions", {
                     count: head.questions,

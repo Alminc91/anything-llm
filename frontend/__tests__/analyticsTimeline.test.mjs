@@ -244,15 +244,15 @@ test("Tooltip am Tagesdiagramm (AK-6): Wochentag, Datum und Wert", () => {
   assert.equal(bucketLabel(bucket, "day", context), "Di., 06.10.2026");
   assert.equal(
     tooltip(bucket, "day", "messages"),
-    "Di., 06.10.2026 — 37 Nachrichten"
+    "Di., 06.10.2026 · 37 Nachrichten"
   );
   assert.equal(
     tooltip(bucket, "day", "conversations"),
-    "Di., 06.10.2026 — 1 Konversation"
+    "Di., 06.10.2026 · 1 Konversation"
   );
   assert.equal(
     tooltip({ ...bucket, messages: 0 }, "day", "messages"),
-    "Di., 06.10.2026 — 0 Nachrichten"
+    "Di., 06.10.2026 · 0 Nachrichten"
   );
 });
 
@@ -296,7 +296,7 @@ test("Wochen: ganze Kalenderwoche mit Bereich, angeschnittene mit dem tatsächli
       "week",
       context
     ),
-    "KW 42 – bis 12.10."
+    "KW 42, bis 12.10."
   );
   // Der Zeitraum beginnt am Mittwoch der KW 27.
   assert.equal(
@@ -305,7 +305,7 @@ test("Wochen: ganze Kalenderwoche mit Bereich, angeschnittene mit dem tatsächli
       "week",
       context
     ),
-    "KW 27 – ab 01.07."
+    "KW 27, ab 01.07."
   );
   // Beginn und Ende in derselben Kalenderwoche angeschnitten
   assert.equal(
@@ -314,7 +314,7 @@ test("Wochen: ganze Kalenderwoche mit Bereich, angeschnittene mit dem tatsächli
       "week",
       context
     ),
-    "KW 42 – 13.10. bis 15.10."
+    "KW 42, 13.10. bis 15.10."
   );
   // Jahreswechsel: Die Woche 29.12.2025–04.01.2026 ist die KW 1.
   assert.equal(
@@ -354,7 +354,7 @@ test("Monate: ganzer Monat mit Namen, angeschnittener mit dem tatsächlichen Ber
       "month",
       context
     ),
-    "Oktober 2026 – bis 12.10."
+    "Oktober 2026, bis 12.10."
   );
   assert.equal(
     bucketLabel(
@@ -362,7 +362,7 @@ test("Monate: ganzer Monat mit Namen, angeschnittener mit dem tatsächlichen Ber
       "month",
       context
     ),
-    "Oktober 2023 – ab 09.10."
+    "Oktober 2023, ab 09.10."
   );
   assert.equal(
     bucketTick({ start: "2026-10-01", end: "2026-10-12" }, "month", context),
@@ -427,7 +427,7 @@ test("Monate in Sprachen mit anderem Kalender (fa, ar-SA): der gregorianische Mo
         "month",
         { t, locale }
       ),
-      `${label} – bis 12.10.`
+      `${label}, bis 12.10.`
     );
   }
 });
@@ -1022,7 +1022,7 @@ const TOOLTIP_COLUMNS = columnLayout({
   height: TOOLTIP_CHART.plotHeight,
   max: valueScale(84).max,
 });
-const placeTooltip = (active, text = "Mi., 07.10.2026 — 1 Nachricht") =>
+const placeTooltip = (active, text = "Mi., 07.10.2026 · 1 Nachricht") =>
   tooltipPlacement({
     columns: TOOLTIP_COLUMNS,
     active,
@@ -1071,7 +1071,7 @@ test("Tooltip: verdeckt an keinem Platz eine Säule – bei 30, 53 und 92 Plätz
       max: valueScale(22).max,
     });
     for (let active = 0; active < count; active++) {
-      const text = "KW 41 (05.10.–11.10.2026) — 111 Nachrichten";
+      const text = "KW 41 (05.10.–11.10.2026) · 111 Nachrichten";
       const place = tooltipPlacement({ columns, active, text, ...chart });
       const where = `${count} Plätze, ${width} px, Platz ${active}`;
       // breit genug für den Text und um den Platz herum
@@ -1109,7 +1109,7 @@ test("Tooltip: mittig über dem Platz, im linken und rechten Drittel nach innen 
   assert.ok(last.to <= 960 && first.from >= 0);
 
   // Ein längerer Text überspannt mehr.
-  const long = placeTooltip(15, "KW 41 (05.10.–11.10.2026) — 111 Nachrichten");
+  const long = placeTooltip(15, "KW 41 (05.10.–11.10.2026) · 111 Nachrichten");
   assert.ok(long.to - long.from > middle.to - middle.from);
 });
 
@@ -1120,31 +1120,31 @@ const TOOLTIP_TEXTS = [
     "Tag",
     "day",
     { start: "2026-10-06", end: "2026-10-06", partial: false },
-    "Di., 06.10.2026 — 100 Konversationen",
+    "Di., 06.10.2026 · 100 Konversationen",
   ],
   [
     "Woche",
     "week",
     { start: "2026-10-05", end: "2026-10-11", partial: false },
-    "KW 41 (05.10.–11.10.2026) — 100 Konversationen",
+    "KW 41 (05.10.–11.10.2026) · 100 Konversationen",
   ],
   [
     "Woche, angeschnitten",
     "week",
     { start: "2026-10-13", end: "2026-10-15", partial: true },
-    "KW 42 – 13.10. bis 15.10. — 100 Konversationen",
+    "KW 42, 13.10. bis 15.10. · 100 Konversationen",
   ],
   [
     "Monat",
     "month",
     { start: "2026-09-01", end: "2026-09-30", partial: false },
-    "September 2026 — 100 Konversationen",
+    "September 2026 · 100 Konversationen",
   ],
   [
     "Monat, angeschnitten",
     "month",
     { start: "2026-09-14", end: "2026-09-28", partial: true },
-    "September 2026 – 14.09. bis 28.09. — 100 Konversationen",
+    "September 2026, 14.09. bis 28.09. · 100 Konversationen",
   ],
 ].map(([name, granularity, bucket, expected]) => {
   const text = tooltip(

@@ -504,7 +504,8 @@ const instantOf = (day) => new Date(`${day}T00:00:00Z`);
  * @returns {string}
  */
 export function dayGroupLabel(day, today, { t }) {
-  if (!day) return "–";
+  // unbekannter Tag: „k. A.“ statt Gedankenstrich (Fixliste 7.22-rc3, D8)
+  if (!day) return "k. A.";
   const sameYear = day.slice(0, 4) === today.slice(0, 4);
   const date = formatterOf(GERMAN, {
     weekday: "long",
@@ -526,7 +527,7 @@ export function dayGroupLabel(day, today, { t }) {
  * @returns {string}
  */
 export function shortDayLabel(day, today) {
-  if (!day) return "–";
+  if (!day) return "k. A.";
   return formatterOf(GERMAN, {
     day: "numeric",
     month: "short",

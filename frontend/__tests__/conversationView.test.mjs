@@ -200,8 +200,8 @@ test("Ungültiger Zeitpunkt (NaN): nichts wirft – leerer Tag, „–“ als Gr
     groups.map((group) => group.day),
     ["", "2026-10-12"]
   );
-  assert.equal(dayGroupLabel("", "2026-10-13", { t: tDe }), "–");
-  assert.equal(shortDayLabel("", "2026-10-13"), "–");
+  assert.equal(dayGroupLabel("", "2026-10-13", { t: tDe }), "k. A.");
+  assert.equal(shortDayLabel("", "2026-10-13"), "k. A.");
   assert.equal(longDateLabel(""), "");
   assert.equal(
     startedOnOtherDay({ started_at: NaN, last_message_at: Date.now() }),
@@ -913,7 +913,7 @@ test("Fixliste 6, K1: zwei Hinweise zum Blättern – Link-Fall ohne Aufforderun
     assert.doesNotMatch(panel["not-loaded"], retry);
     assert.match(
       panel["not-loaded"],
-      /vorherige und nächste|previous and next/
+      /[Vv]orherige und nächste|previous and next/
     );
     assert.match(panel["next-not-loaded"], retry);
   }

@@ -786,7 +786,7 @@ test(
     assert.deepEqual(shown, [
       [
         "error",
-        "Zu viele Treffer für den Export – höchstens 100.000 Konversationen. Bitte grenzen Sie Suche, Filter oder Zeitraum ein.",
+        "Zu viele Treffer für den Export: höchstens 100.000 Konversationen. Bitte grenzen Sie Suche, Filter oder Zeitraum ein.",
       ],
     ]);
 
@@ -1651,7 +1651,7 @@ test(
     assert.ok(dialog);
     assert.equal(
       withAttribute(dialog, "data-confirm-changed")[0].textContent,
-      "Der Stand hat sich inzwischen geändert – es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut."
+      "Der Stand hat sich inzwischen geändert. Es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut."
     );
     assert.match(
       withAttribute(dialog, "data-confirm-visitor-count")[0].textContent,
@@ -1735,7 +1735,7 @@ function gate() {
 
 const VISITOR_ENTRY = "Alle Konversationen dieses Besuchers löschen";
 const GONE =
-  "Diese Konversation gibt es nicht mehr – sie wurde inzwischen gelöscht. Die Liste zeigt jetzt den aktuellen Stand.";
+  "Diese Konversation gibt es nicht mehr. Sie wurde inzwischen gelöscht. Die Liste zeigt jetzt den aktuellen Stand.";
 
 /** Zwei Konversationen desselben Besuchers, die erste mit Vorschau. */
 function visitorState(visitor = { conversationCount: 2, messageCount: 7 }) {
@@ -1957,7 +1957,7 @@ test(
     const { container, document, act } = mounted;
     await expand(mounted, 0);
     const BUSY =
-      "Die Datenbank war gerade ausgelastet – es wurde nichts gelöscht. Bitte bestätigen Sie in einigen Sekunden erneut.";
+      "Die Datenbank war gerade ausgelastet. Es wurde nichts gelöscht. Bitte bestätigen Sie in einigen Sekunden erneut.";
     const expectBusy = () => {
       const dialog = dialogOf(document);
       assert.ok(dialog, "Rückfrage bleibt offen");

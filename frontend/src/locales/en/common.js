@@ -1860,6 +1860,7 @@ const TRANSLATIONS = {
       time: "{{time}}",
       span: "{{from}}–{{to}}",
       "span-days": "{{from}} – {{to}}",
+      "span-full": "{{from}} to {{to}}",
       outside: "This conversation is outside the selected period",
       "not-found":
         "This conversation was not found, or you do not have access to it.",

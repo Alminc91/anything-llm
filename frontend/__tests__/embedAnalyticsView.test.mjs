@@ -106,8 +106,8 @@ test(
     assert.equal(bars(html), 20);
     assert.match(textOf(html), /^Nachrichten pro Tag /);
     // Jeder Platz nennt Tag und Wert, auch der leere.
-    assert.match(html, /aria-label="So\., 13\.09\.2026 — 5 Nachrichten\./);
-    assert.match(html, /aria-label="Di\., 15\.09\.2026 — 0 Nachrichten"/);
+    assert.match(html, /aria-label="So\., 13\.09\.2026 · 5 Nachrichten\./);
+    assert.match(html, /aria-label="Di\., 15\.09\.2026 · 0 Nachrichten"/);
     // Umschalter Nachrichten | Konversationen und „Als Tabelle“ am Diagramm
     assert.match(
       html,
@@ -191,7 +191,7 @@ test(
     );
     assert.match(
       html,
-      /aria-pressed="true" aria-label="Mi\., 16\.09\.2026 — 8 Nachrichten\./
+      /aria-pressed="true" aria-label="Mi\., 16\.09\.2026 · 8 Nachrichten\./
     );
     assert.equal(count(html, /<path data-bar=""[^>]* fill-opacity="1"/g), 1);
     assert.equal(count(html, /<path data-bar=""[^>]* fill-opacity="0.4"/g), 19);
@@ -233,7 +233,7 @@ test(
     assert.doesNotMatch(html, /Eingabetaste/);
     assert.match(
       html,
-      /aria-label="Di\., 06\.10\.2026, 13–14 Uhr — 13 Nachrichten"/
+      /aria-label="Di\., 06\.10\.2026, 13–14 Uhr · 13 Nachrichten"/
     );
     // Auch ein gesetzter Abschnitt markiert im Stundendiagramm nichts.
     const withSelection = await render(CHART, {
@@ -291,9 +291,9 @@ test(
     assert.equal(columns(weeks), 3);
     assert.match(
       weeks,
-      /aria-label="KW 41 \(05\.10\.–11\.10\.2026\) — 15 Nachrichten\./
+      /aria-label="KW 41 \(05\.10\.–11\.10\.2026\) · 15 Nachrichten\./
     );
-    assert.match(weeks, /aria-label="KW 42 – bis 12\.10\. — 5 Nachrichten\./);
+    assert.match(weeks, /aria-label="KW 42, bis 12\.10\. · 5 Nachrichten\./);
     assert.match(weeks, />KW 41<\/text>/);
 
     const months = await render(CHART, {
@@ -335,10 +335,10 @@ test(
       },
     });
     assert.match(textOf(months), /^Nachrichten pro Monat /);
-    assert.match(months, /aria-label="September 2026 — 30 Nachrichten\./);
+    assert.match(months, /aria-label="September 2026 · 30 Nachrichten\./);
     assert.match(
       months,
-      /aria-label="Oktober 2026 – bis 12\.10\. — 10 Nachrichten\./
+      /aria-label="Oktober 2026, bis 12\.10\. · 10 Nachrichten\./
     );
   }
 );
@@ -468,11 +468,11 @@ test(
     // Name nennt, was sie tun.
     assert.match(
       html,
-      /<button type="button" aria-label="9 positiv – Betroffene Konversationen anzeigen" title="Betroffene Konversationen anzeigen"[^>]*>9 positiv<\/button>/
+      /<button type="button" aria-label="9 positiv: Betroffene Konversationen anzeigen" title="Betroffene Konversationen anzeigen"[^>]*>9 positiv<\/button>/
     );
     assert.match(
       html,
-      /<button type="button" aria-label="3 negativ – Betroffene Konversationen anzeigen" title="Betroffene Konversationen anzeigen"[^>]*>3 negativ<\/button>/
+      /<button type="button" aria-label="3 negativ: Betroffene Konversationen anzeigen" title="Betroffene Konversationen anzeigen"[^>]*>3 negativ<\/button>/
     );
     // Erklärung an der Kennzahl „Konversationen“
     assert.match(html, /title="Im Zeitraum begonnene Konversationen\./);
@@ -536,9 +536,9 @@ test(
     });
     assert.deepEqual(kpiFields(html), [
       ["messages", "Nachrichten 25 Ø 12,5 pro Woche"],
-      ["conversations", "Konversationen 0 –"],
+      ["conversations", "Konversationen 0 k. A."],
       ["ratings", "Bewertungen 0 Keine Bewertungen"],
-      ["satisfaction", "Zufriedenheit – Keine Bewertungen"],
+      ["satisfaction", "Zufriedenheit k. A. Keine Bewertungen"],
     ]);
     assert.doesNotMatch(
       html,
@@ -568,10 +568,10 @@ test(
           .replace(/^Bewertungen \d+ \d+ % der Antworten bewertet · /, "")
           .replace(" ,", ","),
         positiveLink:
-          /<button type="button" aria-label="\d+ positiv – Betroffene Konversationen anzeigen"[^>]*>\d+ positiv<\/button>/.test(
+          /<button type="button" aria-label="\d+ positiv: Betroffene Konversationen anzeigen"[^>]*>\d+ positiv<\/button>/.test(
             html
           ),
-        link: /<button type="button" aria-label="\d+ negativ – Betroffene Konversationen anzeigen"[^>]*>\d+ negativ<\/button>/.test(
+        link: /<button type="button" aria-label="\d+ negativ: Betroffene Konversationen anzeigen"[^>]*>\d+ negativ<\/button>/.test(
           html
         ),
       };
@@ -614,12 +614,15 @@ test(
       embedId: 1,
     });
     assert.deepEqual(
-      kpiFields(html).map(([key, text]) => [key, text.split(" ").slice(-1)[0]]),
+      kpiFields(html).map(([key, text]) => [
+        key,
+        text.split(" ").slice(-2).join(" "),
+      ]),
       [
-        ["messages", "–"],
-        ["conversations", "–"],
-        ["ratings", "–"],
-        ["satisfaction", "–"],
+        ["messages", "k. A."],
+        ["conversations", "k. A."],
+        ["ratings", "k. A."],
+        ["satisfaction", "k. A."],
       ]
     );
     assert.doesNotMatch(html, /Betroffene Konversationen anzeigen/);
@@ -1015,7 +1018,7 @@ test("Texte der Ansicht „Konversationen“: Deutsch und Englisch ohne Emoji", 
 const sectionTag = (html) => html.match(/^<section [^>]*>/)?.[0] ?? "";
 
 test(
-  "Leerzustände des Diagramms: eine schmale Zeile „<Titel> – <Hinweis>“ – kein Diagrammraum, keine Achsen, kein svg",
+  "Leerzustände des Diagramms: eine schmale Zeile „<Titel>: <Hinweis>“ – kein Diagrammraum, keine Achsen, kein svg",
   { skip },
   async () => {
     const cases = [
@@ -1024,7 +1027,7 @@ test(
         props: {
           summary: daySummary({ value: () => 0, totals: EMPTY_TOTALS }),
         },
-        text: "Nachrichten pro Tag – Keine Nachrichten im gewählten Zeitraum",
+        text: "Nachrichten pro Tag : Keine Nachrichten im gewählten Zeitraum",
         switches: ["Vorzeitraum vergleichen"],
       },
       {
@@ -1036,13 +1039,13 @@ test(
             firstLedgerDay: null,
           }),
         },
-        text: "Nachrichten pro Tag – Für dieses Widget wurden noch keine Nachrichten gezählt. Ob es eingebunden und aktiv ist, sehen Sie unter „Widgets“. Zu den Widgets",
+        text: "Nachrichten pro Tag : Für dieses Widget wurden noch keine Nachrichten gezählt. Ob es eingebunden und aktiv ist, sehen Sie unter „Widgets“. Zu den Widgets",
         switches: [],
       },
       {
         kind: "error",
         props: { summary: null, failed: true },
-        text: "Nachrichten pro Tag – Die Zählwerte konnten nicht geladen werden.",
+        text: "Nachrichten pro Tag : Die Zählwerte konnten nicht geladen werden.",
         switches: [],
       },
     ];

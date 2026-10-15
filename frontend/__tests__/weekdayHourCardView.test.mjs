@@ -676,7 +676,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "Ohne Raster ist die Karte eine schmale Zeile „Wann schreiben Ihre Besucher? – <Hinweis>“ – ohne Legende, ohne „Als Tabelle“, ohne Rahmen",
+  "Ohne Raster ist die Karte eine schmale Zeile „Wann schreiben Ihre Besucher? <Hinweis>“ – ohne Legende, ohne „Als Tabelle“, ohne Rahmen",
   { skip },
   async () => {
     const short = summaryOf(
@@ -704,7 +704,7 @@ test(
         /class="mb-6 rounded-xl border [^"]*\bpx-4 py-3 md:px-5\b/
       );
       assert.doesNotMatch(tag, /\bp-4\b|md:p-5/);
-      assert.equal(textOf(html), `Wann schreiben Ihre Besucher? – ${hint}`);
+      assert.equal(textOf(html), `Wann schreiben Ihre Besucher? ${hint}`);
       assert.equal(blockOf(html, 'data-heat-frame=""'), hint);
       assert.doesNotMatch(
         html,

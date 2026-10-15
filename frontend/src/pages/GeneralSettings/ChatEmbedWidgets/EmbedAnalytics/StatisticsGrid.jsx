@@ -44,7 +44,8 @@ import {
 // für Screenreader nennt jedes Feld „Kein Vergleich verfügbar".
 
 const MUTED = "text-[color:var(--theme-analytics-text-muted)]";
-const NO_VALUE = "–";
+// fehlender Zahlenwert ohne Gedankenstrich (Fixliste 7.22-rc3, D8)
+const NO_VALUE = "k. A.";
 
 /**
  * @param {Object} props

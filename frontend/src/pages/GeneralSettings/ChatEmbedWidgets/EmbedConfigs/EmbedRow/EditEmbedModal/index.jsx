@@ -75,7 +75,7 @@ export default function EditEmbedModal({ embed, label = null, closeModal }) {
         <div className="relative p-6 border-b rounded-t border-theme-modal-border flex-shrink-0">
           <div className="w-full flex gap-x-2 items-center">
             <h3 className="text-xl font-semibold text-white overflow-hidden overflow-ellipsis whitespace-nowrap">
-              {t("embed-modal.update-title")} – {widgetLabel}
+              {t("embed-modal.update-title")}: {widgetLabel}
             </h3>
           </div>
           <button
