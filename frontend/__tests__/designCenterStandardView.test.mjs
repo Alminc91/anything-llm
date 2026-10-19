@@ -336,7 +336,7 @@ test(
     // R1 (7.22-rc8): „Unsere KI“
     assert.match(
       html,
-      /data-preview="disclaimer"[^>]*>Unsere KI kann Fehler machen\. Bitte überprüfen Sie die Antworten\./
+      /data-preview="disclaimer"[^>]*>Unsere KI kann Fehler machen\. Bitte prüfen Sie die Antworten\./
     );
     assert.ok(!html.includes("bg-green-500"), "kein Online-Punkt");
     assert.match(html, /data-preview-theme="light"/);

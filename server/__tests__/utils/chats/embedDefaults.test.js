@@ -66,9 +66,11 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
       "• Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "• Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ]);
-    // R1 (Fixliste 7.22-rc8): „Unsere KI“ statt „KI“, bewusst geändert
+    // R1 (Fixliste 7.22-rc8): „Unsere KI“ statt „KI“, bewusst geändert;
+    // Kurzfassung „prüfen“ nach der Messung des Widgets (eine Zeile bis
+    // 1280 px nur so), en unverändert
     expect(de.disclaimerText).toBe(
-      "Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten."
+      "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten."
     );
     expect(embedDefaultTexts("en").disclaimerText).toBe(
       "Our AI can make mistakes. Please double-check the answers."

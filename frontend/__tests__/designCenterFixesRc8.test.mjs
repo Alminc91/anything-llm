@@ -98,7 +98,7 @@ test(
   async () => {
     assert.equal(
       DEFAULTS.disclaimerText,
-      "Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten."
+      "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten."
     );
     assert.equal(
       embedDefaultTexts("en").disclaimerText,
@@ -109,7 +109,7 @@ test(
       if (config.displayMode) continue; // Leiste eingeklappt: kein Hinweis
       assert.match(
         html,
-        /data-preview="disclaimer"[^>]*>Unsere KI kann Fehler machen\. Bitte überprüfen Sie die Antworten\.</
+        /data-preview="disclaimer"[^>]*>Unsere KI kann Fehler machen\. Bitte prüfen Sie die Antworten\.</
       );
     }
     // ohne geladene Standardtexte derselbe Text
@@ -121,7 +121,7 @@ test(
     });
     assert.ok(
       text(fallback).includes(
-        "Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten."
+        "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten."
       )
     );
   }

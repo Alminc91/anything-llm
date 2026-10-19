@@ -28,11 +28,12 @@ const EMBED_DEFAULT_TEXTS = {
       "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ],
     // KI-Hinweis unter der Eingabe (R1, Fixliste 7.22-rc8): eindeutig
-    // „Unsere KI“; eine Zeile bei 360 bis 1440 px, sonst kürzt das Widget
-    // auf „Bitte prüfen Sie“ und der Fork zieht nach (Fixture-Test mit
-    // KUFER_EMBED_DIR)
+    // „Unsere KI“. Kurzfassung „prüfen“ nach der Messung des Widgets
+    // (Chatfenster bei 1280 px: „überprüfen“ bräuchte 9,0 px Schrift, unter
+    // der Ein-Zeilen-Grenze von 10 px); wortgleich mit PANEL_TEXTS, Gegenprobe
+    // mit KUFER_EMBED_DIR im Test embedDefaults
     disclaimerText:
-      "Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten.",
+      "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten.",
     // eingeklappte Inline-Leiste (Demo-Texte; Entscheidung D2, 7.22-rc3)
     inlineBarPlaceholder: "Stellen Sie hier Ihre Frage …",
     inlineSendText: "Chatten",

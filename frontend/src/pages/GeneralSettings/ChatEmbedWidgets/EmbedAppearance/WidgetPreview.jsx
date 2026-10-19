@@ -486,7 +486,7 @@ function PreviewInput({ config, defaults, palette }) {
         data-preview="disclaimer"
       >
         {textValue(defaults?.disclaimerText) ||
-          "Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten."}
+          "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten."}
       </p>
     </div>
   );
