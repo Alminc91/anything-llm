@@ -1526,7 +1526,7 @@ const TRANSLATIONS = {
       "max-words-prompt-desc": "Longest user request (outlier indicator)",
       "show-technical": "Show technical details",
       "technical-note":
-        "Calculated from the conversation contents that still exist in the selected period – without deleted messages and messages cleared by the visitor. The figures above count every message.",
+        "Calculated from the conversation contents that still exist in the selected period, without deleted messages and messages cleared by the visitor. The figures above count every message.",
       "feedback-positive-label": "Positive",
       "feedback-positive-desc": "Positively rated responses",
       "feedback-negative-label": "Negative",
@@ -1541,7 +1541,7 @@ const TRANSLATIONS = {
     "no-conversations": "No conversations available.",
     "session-copied": "Session ID copied!",
     "retention-notice":
-      "GDPR data deletion active — retention {{days}} days, chats expire on {{expiryDate}}",
+      "GDPR data deletion active: retention {{days}} days, chats expire on {{expiryDate}}",
     "select-embed": "Select widget",
     "embed-label": {
       unnamed: "Widget {{id}}",
@@ -1572,13 +1572,13 @@ const TRANSLATIONS = {
       "no-ratings": "No ratings",
       "show-negative": "Show affected conversations",
       "conversations-hint":
-        "Conversations started in the period. The list below only shows conversations whose contents still exist – the numbers may differ.",
+        "Conversations started in the period. The list below only shows conversations whose contents still exist. The numbers may therefore differ.",
       ratings: "Ratings",
       "rated-share": "{{value}} % of responses rated",
       "positive-count": "{{value}} positive",
       "negative-count": "{{value}} negative",
-      "negative-action": "{{value}} negative – Show affected conversations",
-      "positive-action": "{{value}} positive – Show affected conversations",
+      "negative-action": "{{value}} negative: Show affected conversations",
+      "positive-action": "{{value}} positive: Show affected conversations",
       satisfaction: "Satisfaction",
       "satisfaction-value": "{{value}} %",
       "satisfaction-of": "{{positive}} of {{total}} ratings positive",
@@ -1598,11 +1598,11 @@ const TRANSLATIONS = {
       "change-points_other":
         "{{change}} points vs. previous period ({{previous}} %)",
       "previous-value": "Previous period: {{value}}",
-      "previous-bucket": "Previous period: {{period}} — {{value}}",
+      "previous-bucket": "Previous period: {{period}} · {{value}}",
       "previous-range": "Previous period: {{range}}",
       "change-range": "Change compared with the previous period {{range}}.",
       running:
-        "The selected period is still running – the change is preliminary.",
+        "The selected period is still running. The change is preliminary.",
       unavailable: "No comparison available",
       "unavailable-since":
         "No comparison available: the previous period begins before {{date}}, the first day with counts.",
@@ -1635,7 +1635,7 @@ const TRANSLATIONS = {
       "keyboard-hint": "Use the arrow keys to move between the columns.",
       "filter-hint":
         "Enter shows only the conversations of this section in the list.",
-      tooltip: "{{period}} — {{value}}",
+      tooltip: "{{period}} · {{value}}",
       value: {
         messages_one: "{{formatted}} message",
         messages_other: "{{formatted}} messages",
@@ -1646,9 +1646,9 @@ const TRANSLATIONS = {
         hour: "{{day}}, {{from}}:00–{{to}}:00",
         week: "CW {{week}}",
         "week-range": "{{period}} ({{start}}–{{end}})",
-        "partial-from": "{{period}} – from {{start}}",
-        "partial-until": "{{period}} – until {{end}}",
-        "partial-between": "{{period}} – {{start}} to {{end}}",
+        "partial-from": "{{period}}, from {{start}}",
+        "partial-until": "{{period}}, until {{end}}",
+        "partial-between": "{{period}}, {{start}} to {{end}}",
       },
       tick: {
         hour: "{{hour}}:00",
@@ -1747,12 +1747,12 @@ const TRANSLATIONS = {
       "menu-label": "Export format",
       csv: "CSV (for Excel)",
       json: "JSON",
-      hint: "Exports the conversations of the current selection – widget, period and filter.",
+      hint: "Exports the conversations of the current selection (widget, period and filter).",
       running: "Exporting …",
       success: "Export saved: {{filename}}",
       error: "The export failed. Please try again.",
       "too-many":
-        "Too many matches to export – at most {{max}} conversations. Please narrow the search, filter or period.",
+        "Too many matches to export: at most {{max}} conversations. Please narrow the search, filter or period.",
     },
     delete: {
       conversation: "Delete conversation",
@@ -1772,7 +1772,7 @@ const TRANSLATIONS = {
       "visitor-count_other":
         "The same browser has {{conversations}} conversations with {{messages}} messages in total in this widget. All of them will be deleted permanently.",
       "visitor-changed":
-        "The conversations have changed in the meantime – nothing was deleted. Please check the new numbers and confirm again.",
+        "The conversations have changed in the meantime. Nothing was deleted. Please check the new numbers and confirm again.",
       "visitor-note":
         "This includes conversations the visitor has cleared in the widget, which no longer appear in this list. Conversations from other browsers are kept.",
       confirm: "Delete permanently",
@@ -1785,8 +1785,8 @@ const TRANSLATIONS = {
       "visitor-success_other":
         "{{conversations}} conversations deleted ({{messages}} messages).",
       error: "The conversation could not be deleted.",
-      gone: "This conversation no longer exists – it has been deleted in the meantime. The list now shows the current state.",
-      busy: "The database was busy – nothing was deleted. Please confirm again in a few seconds.",
+      gone: "This conversation no longer exists. It has been deleted in the meantime. The list now shows the current state.",
+      busy: "The database was busy. Nothing was deleted. Please confirm again in a few seconds.",
       timeout:
         "The server did not respond in time. Please check the list in a few seconds to see whether the conversation is still there, and delete it again if needed.",
     },
@@ -1860,7 +1860,7 @@ const TRANSLATIONS = {
       "negative-count_other": "{{formatted}} rated negative",
       time: "{{time}}",
       span: "{{from}}–{{to}}",
-      "span-days": "{{from}} – {{to}}",
+      "span-days": "{{from}} to {{to}}",
       "span-full": "{{from}} to {{to}}",
       outside: "This conversation is outside the selected period",
       "not-found":
@@ -1870,11 +1870,11 @@ const TRANSLATIONS = {
       "hidden-hit":
         "“{{term}}” appears in this conversation only in link addresses, markup or hidden thoughts of a response.",
       "not-in-list":
-        "This conversation is not in the loaded list – previous and next are not available.",
+        "This conversation is not in the loaded list. Previous and next are not available.",
       "not-loaded":
-        "The list could not be loaded further – previous and next are not available.",
+        "The list could not be loaded further. Previous and next are not available.",
       "next-not-loaded":
-        "The next conversation could not be loaded – please try again.",
+        "The next conversation could not be loaded. Please try again.",
       "quote-open": "“",
       "quote-close": "”",
       "jump-negative": "Jump to the next response rated negative",

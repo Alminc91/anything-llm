@@ -44,3 +44,35 @@ test("Restpunkt 2: englischer Hinweis zu fehlenden Inhalten ohne Gedankenstrich"
     );
   }
 });
+
+// S4 (Fixliste 7.22-rc10): auch die englischen Texte der Statistik- und
+// Konversationsseite ohne Gedankenstrich, einschließlich der Texte, die nur
+// als title oder aria-label erscheinen (Säulen-Tooltip „{{period}} · {{value}}“,
+// „{{value}} negative: …“, Export-Hinweis). Der Bis-Strich ohne Leerraum
+// („{{from}}–{{to}}“) bleibt auch hier erlaubt.
+test("S4: englische Texte der Statistik- und Konversationsseite ohne Gedankenstrich (sichtbar, title, aria-label)", () => {
+  const found = strings(en["embed-analytics"], ["embed-analytics"]).filter(
+    ([, text]) => DASH.test(text)
+  );
+  assert.deepEqual(found, []);
+  const a = en["embed-analytics"];
+  // die drei beanstandeten Stellen wörtlich
+  assert.equal(
+    a.kpi["conversations-hint"],
+    "Conversations started in the period. The list below only shows conversations whose contents still exist. The numbers may therefore differ."
+  );
+  assert.equal(a.chart.tooltip, "{{period}} · {{value}}");
+  assert.equal(
+    a.export.hint,
+    "Exports the conversations of the current selection (widget, period and filter)."
+  );
+  // zusammengesetztes aria-label einer Säule wie in der Nachprüfung rc8
+  const aria = a.chart.tooltip
+    .replace("{{period}}", "Mon, 19.10.2026")
+    .replace(
+      "{{value}}",
+      a.chart.value.messages_other.replace("{{formatted}}", "8")
+    );
+  assert.equal(aria, "Mon, 19.10.2026 · 8 messages");
+  assert.doesNotMatch(aria, DASH);
+});
