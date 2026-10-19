@@ -122,14 +122,14 @@ const {
 } = require("../../utils/chats/embedStandards");
 
 // Antwort ohne eigene Werte: nur die festen Standards (Karten ohne
-// gespeicherten Wert an und zuerst, KIE-567; Willkommensblasen beim ersten
-// Besuch, KIE-568; Datenschutz-Hinweis ohne gespeicherten Wert an, KIE-565
-// Nachtrag)
+// gespeicherte Wahl OHNE Schlüssel, das Widget entscheidet nach seiner
+// Darstellung, R4 Fixliste 7.22-rc8; Reihenfolge Karten zuerst, KIE-567;
+// Willkommensblasen beim ersten Besuch, KIE-568; Datenschutz-Hinweis ohne
+// gespeicherten Wert an, KIE-565 Nachtrag)
 const STANDARD = {
   ...EMBED_FIXED_STANDARDS,
   ...INLINE_FIXED_STANDARDS,
   privacyNotice: "bubble",
-  courseCards: "auto",
   courseCardsPosition: "above",
   welcomeBubblesDesktop: "first",
   welcomeBubblesMobile: "first",
@@ -146,7 +146,6 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       privacyNotice: "bubble",
       disclaimer: "footer",
       onlineDot: false,
-      courseCards: "auto",
       courseCardsAnswerStyle: "short",
       courseCardsLayout: "rows",
       courseCardsPosition: "above",
@@ -162,7 +161,11 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
     });
   });
 
-  test("KIE-567 NAK: ohne gespeicherte Wahl Kurskarten an und zuerst, in beiden Darstellungen", async () => {
+  // R4 (Fixliste 7.22-rc8, bewusst geändert): ohne gespeicherte Wahl liefert
+  // /config KEIN courseCards; das Widget entscheidet nach seiner
+  // tatsächlichen Darstellung (In der Seite Kurskarten, Chatfenster Nur
+  // Text mit Links). Reihenfolge-Standard bleibt Karten zuerst.
+  test("KIE-567/R4: ohne gespeicherte Wahl kein courseCards, Reihenfolge zuerst, in beiden Darstellungen", async () => {
     expect((await fetchConfig({ displayMode: "inline" })).body).toEqual({
       ...STANDARD,
       displayMode: "inline",
@@ -174,15 +177,21 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
     for (const vc of [
       {},
       { displayMode: "bubble" },
-      { courseCards: "auto" },
       { courseCards: "kaputt", courseCardsPosition: "mitte" },
       { courseCards: 1, courseCardsPosition: null },
+      { courseCards: "" },
       { displayMode: "seite" },
     ]) {
       const { body } = await fetchConfig(vc);
-      expect(body.courseCards).toBe("auto");
+      expect(body).not.toHaveProperty("courseCards");
       expect(body.courseCardsPosition).toBe("above");
     }
+    // gespeichertes "auto" kommt durch (auch im Chatfenster)
+    for (const vc of [
+      { courseCards: "auto" },
+      { displayMode: "bubble", courseCards: " Auto " },
+    ])
+      expect((await fetchConfig(vc)).body.courseCards).toBe("auto");
   });
 
   test("KIE-567 AK-9: Nur Text mit Links und Text zuerst kommen durch, in beiden Darstellungen", async () => {
@@ -197,9 +206,9 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       expect(body.courseCardsAnswerStyle).toBe("short");
       expect(body.courseCardsLayout).toBe("rows");
     }
-    // nur die Reihenfolge geändert: Karten bleiben an
+    // nur die Reihenfolge geändert: Karten ohne Wahl (R4: kein Schlüssel)
     const { body } = await fetchConfig({ courseCardsPosition: " BELOW " });
-    expect(body.courseCards).toBe("auto");
+    expect(body).not.toHaveProperty("courseCards");
     expect(body.courseCardsPosition).toBe("below");
   });
 
@@ -561,7 +570,7 @@ describe("GET /embed/:embedId/config: Datenschutz-Hinweis an/aus", () => {
 });
 
 describe("GET /embed/:embedId/config — Untertitel und Datenschutz", () => {
-  test("assistantSubtitle: getrimmt, höchstens 60 Zeichen", async () => {
+  test("assistantSubtitle: getrimmt, höchstens 60 Zeichen; leer = bewusst kein Untertitel (R5), fehlend = Standard im Widget", async () => {
     expect(
       (await fetchConfig({ assistantSubtitle: "  KI-Assistent " })).body
         .assistantSubtitle
@@ -570,10 +579,21 @@ describe("GET /embed/:embedId/config — Untertitel und Datenschutz", () => {
       (await fetchConfig({ assistantSubtitle: "y".repeat(60) })).body
         .assistantSubtitle
     ).toHaveLength(60);
-    for (const assistantSubtitle of ["y".repeat(61), "  ", 1])
+    // R5 (Fixliste 7.22-rc8, bewusst geändert): "" geht als "" mit, wie
+    // privacyTitle (EMPTY_MEANS_NONE im Widget); fehlend -> kein Schlüssel,
+    // das Widget zeigt „Online-Berater mit künstlicher Intelligenz“
+    for (const assistantSubtitle of ["", "  "])
       expect(
-        (await fetchConfig({ assistantSubtitle })).body
-      ).not.toHaveProperty("assistantSubtitle");
+        (await fetchConfig({ assistantSubtitle })).body.assistantSubtitle
+      ).toBe("");
+    for (const vc of [
+      { assistantSubtitle: "y".repeat(61) },
+      { assistantSubtitle: 1 },
+      {},
+    ])
+      expect((await fetchConfig(vc)).body).not.toHaveProperty(
+        "assistantSubtitle"
+      );
   });
 
   test("privacyTitle: eigener Text, leer = bewusst keine Überschrift, zu lang/kein String/früherer Standard weggelassen", async () => {
@@ -670,6 +690,53 @@ describe("GET /embed/:embedId/config — Untertitel und Datenschutz", () => {
     ]) {
       expect((await fetchConfig({ privacyUrl: bad })).body).toEqual(STANDARD);
     }
+  });
+});
+
+// R4 (Fixliste 7.22-rc8): Das Widget schickt seine tatsächliche Darstellung
+// mit jeder Chat-Anfrage (Feld displayMode im JSON-Body); der Server reicht
+// sie nur validiert ("inline"|"bubble") an streamChatWithForEmbed weiter,
+// ausschließlich für den Standard von „Antworten mit Kursen“.
+describe("POST /embed/:embedId/stream-chat: Feld displayMode", () => {
+  const { streamChatWithForEmbed } = require("../../utils/chats/embed");
+  const streamRoute =
+    collectRoutes(embeddedEndpoints)["POST /embed/:embedId/stream-chat"];
+
+  async function send(body) {
+    streamChatWithForEmbed.mockClear();
+    const res = mockResponse();
+    res.flushHeaders = jest.fn();
+    res.end = jest.fn();
+    res.locals.embedConfig.workspace = { slug: "ws" };
+    await streamRoute(
+      { body: { sessionId: "sess", message: "Hallo", ...body } },
+      res
+    );
+    expect(streamChatWithForEmbed).toHaveBeenCalledTimes(1);
+    return streamChatWithForEmbed.mock.calls[0][4];
+  }
+
+  test.each([
+    ["inline", "inline"],
+    [" Inline ", "inline"],
+    ["bubble", "bubble"],
+    [undefined, "bubble"],
+    [null, "bubble"],
+    ["", "bubble"],
+    ["seite", "bubble"],
+    [{ evil: true }, "bubble"],
+    [["inline"], "bubble"],
+    [1, "bubble"],
+  ])("displayMode %p im Body -> %p an den Stream", async (sent, expected) => {
+    const options = await send(sent === undefined ? {} : { displayMode: sent });
+    expect(options.displayMode).toBe(expected);
+    expect(options.conversationId).toBe("sess");
+  });
+
+  test("der rohe Wert erreicht den Stream nie (nur die validierte Darstellung)", async () => {
+    const options = await send({ displayMode: 'inline"; drop' });
+    expect(options.displayMode).toBe("bubble");
+    expect(JSON.stringify(options)).not.toMatch(/drop/);
   });
 });
 

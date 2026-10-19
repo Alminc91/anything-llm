@@ -1,5 +1,6 @@
-// Kurskarten im Embed-Widget (Standard an, im Design Center abschaltbar über
-// visual_config.courseCards = "off", KIE-567; siehe embedStandards.js).
+// Kurskarten im Embed-Widget (im Design Center wählbar über
+// visual_config.courseCards "auto"|"off", KIE-567; ohne gespeicherte Wahl
+// nach der tatsächlichen Darstellung, R4; siehe embedStandards.js).
 //
 // Das Widget bekommt die Quellen einer Antwort bewusst NICHT (sources: [] im
 // Stream, Historie ohne sources) — Kontext-Schnipsel dürfen Endnutzer nie
@@ -226,19 +227,25 @@ function visualConfigValue(embed = {}, key, tag = "visualConfigValue") {
 
 /**
  * Kurskarten für dieses Embed an? Gespeicherte Wahl im Design Center
- * („Antworten mit Kursen“, KIE-567): visual_config.courseCards "off" = Nur
- * Text mit Links, sonst (auch fehlend oder ungültig) an
- * (embedStandards.js courseCardsValue). Gilt für beide Darstellungen gleich,
- * damit Prompt und ausgelieferte Konfiguration nie auseinanderlaufen.
- * visual_config ist in der DB ein JSON-String (embed_configs.visual_config);
- * nicht lesbar -> Standard (an).
+ * („Antworten mit Kursen“, KIE-567): visual_config.courseCards "auto" =
+ * Kurskarten, "off" = Nur Text mit Links, in beiden Darstellungen gleich.
+ * Ohne gespeicherte Wahl (fehlend, ungültig, visual_config nicht lesbar)
+ * entscheidet die tatsächliche Darstellung, die das Widget mit der Anfrage
+ * schickt (R4, Fixliste 7.22-rc8): "inline" (In der Seite) an, sonst aus
+ * (embedStandards.js courseCardsValue). Der gespeicherte displayMode zählt
+ * dafür nicht: Das Widget kann ohne Platzhalter als Chatfenster laufen oder
+ * nur per Script-Attribut in der Seite stehen.
+ * visual_config ist in der DB ein JSON-String (embed_configs.visual_config).
  * @param {{visual_config?: string|object|null}} embed
+ * @param {{displayMode?: string}} [options] tatsächliche Darstellung aus
+ *   dem Body von stream-chat ("inline"|"bubble"); fehlt -> Chatfenster
  * @returns {boolean}
  */
-function courseCardsEnabled(embed = {}) {
+function courseCardsEnabled(embed = {}, { displayMode } = {}) {
   return (
     courseCardsValue(
-      visualConfigValue(embed, "courseCards", "courseCardsEnabled")
+      visualConfigValue(embed, "courseCards", "courseCardsEnabled"),
+      displayMode
     ) === "auto"
   );
 }

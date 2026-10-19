@@ -1,5 +1,5 @@
 {
-  "_comment": "Soll-Stand von PANEL_TEXTS (Auszug) für das Embed-Repo anythingllm-embed, src/utils/layout.js: Texte aus dem Umsetzungsauftrag „Design Center vereinfacht“ (issues/design-center-umsetzung-nacht-15-10.md, Abschnitt B, Nutzerentscheidungen 15.10.2026; keine Gedankenstriche). privacyPoints stehen im freien Datenschutz-Text (privacyText) als „• “-Zeilen. assistantName, assistantSubtitle und inputPlaceholder sind nur Vorschlag im Design Center. inlineBarPlaceholder und inlineSendText sind die Texte der eingeklappten Inline-Leiste (Demo-Texte, Entscheidung D2 der Fixliste 7.22-rc3; das Design-Center-Feld „Platzhalter“ gilt nur für das Chat-Eingabefeld). Der passende Embed-Commit (Branch feat/design-center-standard) folgt parallel. Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
+  "_comment": "Soll-Stand von PANEL_TEXTS (Auszug) für das Embed-Repo anythingllm-embed, src/utils/layout.js: Texte aus dem Umsetzungsauftrag „Design Center vereinfacht“ (issues/design-center-umsetzung-nacht-15-10.md, Abschnitt B, Nutzerentscheidungen 15.10.2026; keine Gedankenstriche). privacyPoints stehen im freien Datenschutz-Text (privacyText) als „• “-Zeilen. assistantName, assistantSubtitle und inputPlaceholder sind nur Vorschlag im Design Center. inlineBarPlaceholder und inlineSendText sind die Texte der eingeklappten Inline-Leiste (Demo-Texte, Entscheidung D2 der Fixliste 7.22-rc3; das Design-Center-Feld „Platzhalter“ gilt nur für das Chat-Eingabefeld). KI-Hinweis seit R1 (Fixliste 7.22-rc8) „Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten.“ / „Our AI can make mistakes. Please double-check the answers.“; kürzt das Widget nach Messung auf „Bitte prüfen Sie“, hier und in embedDefaults.js nachziehen (Gegenprobe: Test mit KUFER_EMBED_DIR). Der passende Embed-Commit (Branch feat/design-center-standard) folgt parallel. Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
   "de": {
     "assistantName": "KI-Berater",
     "assistantSubtitle": "Online-Berater mit künstlicher Intelligenz",
@@ -11,7 +11,7 @@
       "Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind."
     ],
-    "aiDisclaimer": "KI kann Fehler machen. Bitte überprüfen Sie die Antworten.",
+    "aiDisclaimer": "Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten.",
     "inlineBarPlaceholder": "Stellen Sie hier Ihre Frage …",
     "inlineSendText": "Chatten"
   },
@@ -26,7 +26,7 @@
       "Staff of the institution may view conversations for quality assurance.",
       "Please only share information that is necessary for your request."
     ],
-    "aiDisclaimer": "AI can make mistakes. Please double-check the answers.",
+    "aiDisclaimer": "Our AI can make mistakes. Please double-check the answers.",
     "inlineBarPlaceholder": "Ask your question here …",
     "inlineSendText": "Chat"
   }

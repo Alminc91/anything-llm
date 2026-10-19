@@ -30,42 +30,75 @@ const FORBIDDEN = [
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
 // KIE-567: Kurskarten nach der Wahl im Design Center („Kurse anzeigen
-// als“), gespeichert in visual_config.courseCards. "off" = Nur Text mit
-// Links, alles andere (auch fehlend oder ungültig) = an. Die Darstellung
-// spielt keine Rolle (F01/F02: der Server kennt die tatsächliche
-// Darstellung nicht).
-describe("courseCardsEnabled (KIE-567: gespeicherte Wahl, Standard an)", () => {
+// als“), gespeichert in visual_config.courseCards: "off" = Nur Text mit
+// Links, "auto" = Kurskarten, in beiden Darstellungen. Ohne gespeicherte
+// Wahl (fehlend, ungültig, unlesbar) entscheidet die tatsächliche
+// Darstellung, die das Widget mitschickt (R4, Fixliste 7.22-rc8): inline an,
+// sonst aus; der gespeicherte displayMode zählt dafür nicht (F01/F02: der
+// Server kennt die tatsächliche Darstellung nur aus der Anfrage).
+describe("courseCardsEnabled (KIE-567, R4: gespeicherte Wahl, sonst Darstellung)", () => {
   test.each([
     ['{"courseCards":"off"}'],
     ['{"courseCards":" OFF "}'],
     ['{"displayMode":"inline","courseCards":"off"}'],
     ['{"displayMode":"bubble","courseCards":"off"}'],
     [{ courseCards: "off" }],
-  ])("aus bei visual_config=%p", (visual_config) => {
-    expect(courseCardsEnabled({ visual_config })).toBe(false);
+  ])("aus bei visual_config=%p, in beiden Darstellungen", (visual_config) => {
+    for (const displayMode of ["inline", "bubble", undefined])
+      expect(courseCardsEnabled({ visual_config }, { displayMode })).toBe(
+        false
+      );
   });
 
+  test.each([
+    ['{"courseCards":"auto"}'],
+    ['{"courseCards":" Auto "}'],
+    ['{"displayMode":"bubble","courseCards":"auto"}'],
+    [{ courseCards: "auto" }],
+  ])("an bei visual_config=%p, in beiden Darstellungen", (visual_config) => {
+    for (const displayMode of ["inline", "bubble", undefined])
+      expect(courseCardsEnabled({ visual_config }, { displayMode })).toBe(true);
+  });
+
+  // bewusst geändert (R4): ohne Wahl bisher immer an, jetzt nach Darstellung
   test.each([
     [undefined],
     [null],
     [""],
     ["{}"],
-    ['{"courseCards":"auto"}'],
     ['{"courseCards":"kaputt"}'],
     ['{"courseCards":false}'],
     ['{"displayMode":"inline"}'],
     ['{"displayMode":"bubble"}'],
     ['{"courseCardsPosition":"below"}'],
     ["kein json"],
-  ])("an bei visual_config=%p", (visual_config) => {
-    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    expect(courseCardsEnabled({ visual_config })).toBe(true);
-    spy.mockRestore();
-  });
+  ])(
+    "ohne Wahl bei visual_config=%p: In der Seite an, Chatfenster oder ohne Angabe aus",
+    (visual_config) => {
+      const spy = jest.spyOn(console, "error").mockImplementation(() => {});
+      expect(
+        courseCardsEnabled({ visual_config }, { displayMode: "inline" })
+      ).toBe(true);
+      expect(
+        courseCardsEnabled({ visual_config }, { displayMode: " Inline " })
+      ).toBe(true);
+      for (const displayMode of ["bubble", undefined, null, "", "seite", 1])
+        expect(courseCardsEnabled({ visual_config }, { displayMode })).toBe(
+          false
+        );
+      expect(courseCardsEnabled({ visual_config })).toBe(false);
+      spy.mockRestore();
+    }
+  );
 
   test("unlesbares visual_config wird mit Präfix geloggt", () => {
     const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    expect(courseCardsEnabled({ visual_config: "{kaputt" })).toBe(true);
+    expect(
+      courseCardsEnabled(
+        { visual_config: "{kaputt" },
+        { displayMode: "inline" }
+      )
+    ).toBe(true);
     expect(spy).toHaveBeenCalledWith(
       "[courseCardsEnabled] visual_config unparsable",
       expect.any(String)
@@ -73,9 +106,11 @@ describe("courseCardsEnabled (KIE-567: gespeicherte Wahl, Standard an)", () => {
     spy.mockRestore();
   });
 
-  test("ohne Embed-Objekt an", () => {
-    expect(courseCardsEnabled(undefined)).toBe(true);
-    expect(courseCardsEnabled(null)).toBe(true);
+  test("ohne Embed-Objekt nach Darstellung", () => {
+    expect(courseCardsEnabled(undefined, { displayMode: "inline" })).toBe(true);
+    expect(courseCardsEnabled(null, { displayMode: "inline" })).toBe(true);
+    expect(courseCardsEnabled(undefined)).toBe(false);
+    expect(courseCardsEnabled(null)).toBe(false);
   });
 });
 
@@ -694,8 +729,16 @@ describe("visualConfigValue", () => {
     expect(mod).not.toHaveProperty("disclaimerFooterEnabled");
     expect(mod).not.toHaveProperty("followUpsEnabled");
     expect(mod).not.toHaveProperty("courseCardsAnswerStyle");
+    // R4: der gespeicherte displayMode entscheidet nicht, die gemeldete
+    // Darstellung (bewusst geändert)
     expect(
       courseCardsEnabled({ visual_config: '{"displayMode":"INLINE"}' })
+    ).toBe(false);
+    expect(
+      courseCardsEnabled(
+        { visual_config: '{"displayMode":"INLINE"}' },
+        { displayMode: "INLINE" }
+      )
     ).toBe(true);
   });
 });

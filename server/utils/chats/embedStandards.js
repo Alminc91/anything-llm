@@ -19,17 +19,23 @@
 // abgeleiteten Texte und die festen Werte dazu.
 
 // Antworten mit Kursen (KIE-567, Nutzer 15.10.2026, Design Center Reiter
-// Aussehen, beide Darstellungen): „Kurse anzeigen als“ Kurskarten ("auto",
-// Standard) oder Nur Text mit Links ("off"); „Reihenfolge“ Karten zuerst
-// ("above", Standard, empfohlen) oder Text zuerst ("below"). Ohne bzw. mit
-// ungültigem gespeichertem Wert gilt der Standard. Die Wahl gilt für beide
-// Darstellungen gleich (auch für ein Inline-Widget, das ohne Platzhalter als
-// Chatblase erscheint, und für einen Inline-Einbau nur per Script-
-// Attribut): Prompt pro Embed und ausgelieferte Konfiguration hängen so an
-// demselben gespeicherten Wert, nie an der tatsächlichen Darstellung
-// (Review F01, F02 der Runde 7.22-rc2).
+// Aussehen, beide Darstellungen): „Kurse anzeigen als“ Kurskarten ("auto")
+// oder Nur Text mit Links ("off"); „Reihenfolge“ Karten zuerst ("above",
+// Standard, empfohlen) oder Text zuerst ("below"). Eine gespeicherte Wahl
+// gilt für beide Darstellungen gleich (auch für ein Widget „In der Seite“,
+// das ohne Platzhalter als Chatfenster erscheint).
+// Ohne gespeicherte Wahl hängt der Standard an der TATSÄCHLICHEN Darstellung
+// (R4, Fixliste 7.22-rc8): Chatfenster (bubble) = Nur Text mit Links, In der
+// Seite (inline) = Kurskarten. Die kennt nur das Widget (Rückfall auf das
+// Chatfenster ohne Platzhalter, Inline nur per Script-Attribut; Review
+// 7.22-rc2 F01/F02). Deshalb liefert GET /embed/:id/config courseCards NUR,
+// wenn gespeichert (applyEmbedStandards), und das Widget schickt seine
+// Darstellung mit jeder Chat-Anfrage mit (Feld displayMode im Body von
+// stream-chat, endpoints/embed/index.js); der Prompt pro Embed nutzt es
+// ausschließlich für diesen Standard (courseCardsValue; fehlt oder ungültig
+// = bubble = off).
 const COURSE_CARDS_VALUES = Object.freeze(["auto", "off"]);
-const DEFAULT_COURSE_CARDS = "auto";
+const COURSE_CARDS_DEFAULTS = Object.freeze({ inline: "auto", bubble: "off" });
 const COURSE_CARDS_POSITIONS = Object.freeze(["above", "below"]);
 const DEFAULT_COURSE_CARDS_POSITION = "above";
 
@@ -148,14 +154,38 @@ function oneOf(value, allowed, fallback) {
 }
 
 /**
- * Kurskarten an ("auto", Standard) oder aus ("off", Nur Text mit Links)
- * aus dem gespeicherten visual_config.courseCards (KIE-567). Fehlend oder
- * ungültig -> "auto".
+ * Gespeicherte Wahl „Kurse anzeigen als“ (visual_config.courseCards,
+ * KIE-567): "auto" Kurskarten, "off" Nur Text mit Links; fehlend oder
+ * ungültig -> null (keine Wahl gespeichert).
  * @param {*} value
+ * @returns {"auto"|"off"|null}
+ */
+function storedCourseCards(value) {
+  return oneOf(value, COURSE_CARDS_VALUES, null);
+}
+
+/**
+ * Standard für „Kurse anzeigen als“ nach der tatsächlichen Darstellung (R4,
+ * Fixliste 7.22-rc8): "inline" (In der Seite) -> Kurskarten, alles andere
+ * (Chatfenster, fehlend, ungültig) -> Nur Text mit Links.
+ * @param {*} displayMode tatsächliche Darstellung ("inline"|"bubble")
  * @returns {"auto"|"off"}
  */
-function courseCardsValue(value) {
-  return oneOf(value, COURSE_CARDS_VALUES, DEFAULT_COURSE_CARDS);
+function defaultCourseCards(displayMode) {
+  return COURSE_CARDS_DEFAULTS[embedDisplayMode(displayMode)];
+}
+
+/**
+ * Wirksame Wahl: Kurskarten an ("auto") oder aus ("off"). Eine gespeicherte
+ * Wahl gewinnt immer; sonst der Standard nach der tatsächlichen Darstellung
+ * (defaultCourseCards). Ohne Angabe der Darstellung gilt das Chatfenster
+ * (-> "off").
+ * @param {*} value gespeicherter visual_config.courseCards
+ * @param {*} [displayMode] tatsächliche Darstellung ("inline"|"bubble")
+ * @returns {"auto"|"off"}
+ */
+function courseCardsValue(value, displayMode) {
+  return storedCourseCards(value) ?? defaultCourseCards(displayMode);
 }
 
 /**
@@ -329,9 +359,12 @@ function privacyNoticeValue(value) {
  * Feste Standards auf die (bereits validierte) Konfiguration für das Widget
  * anwenden: Begrüßung, Platzhalter, Leistentext und Datenschutz aus den
  * gespeicherten Texten setzen, Datenschutz-Hinweis an oder aus
- * (privacyNoticeValue), Kurskarten und Reihenfolge (KIE-567) sowie
+ * (privacyNoticeValue), Reihenfolge der Karten (KIE-567) sowie
  * Willkommensblasen je Gerät (KIE-568) immer mit gültigem Wert, feste Werte
- * erzwingen. Was sonst ans Widget
+ * erzwingen. courseCards geht NUR mit, wenn eine Wahl gespeichert ist (R4,
+ * Fixliste 7.22-rc8); sonst entscheidet das Widget nach seiner
+ * tatsächlichen Darstellung (In der Seite Kurskarten, Chatfenster Nur Text
+ * mit Links). Was sonst ans Widget
  * geht, legt allein die Erlaubtliste des Endpunkts fest (`mapped`).
  * Verändert `mapped` nicht, gibt ein neues Objekt zurück.
  * @param {Object} mapped Antwort von /config vor den Standards
@@ -361,16 +394,21 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
 
   Object.assign(out, EMBED_FIXED_STANDARDS, INLINE_FIXED_STANDARDS, {
     privacyNotice: privacyNoticeValue(vc.privacyNotice),
-    courseCards: courseCardsValue(vc.courseCards),
     courseCardsPosition: courseCardsPositionValue(vc.courseCardsPosition),
     welcomeBubblesDesktop: welcomeBubblesValue(vc.welcomeBubblesDesktop),
     welcomeBubblesMobile: welcomeBubblesValue(vc.welcomeBubblesMobile),
   });
+  // nur eine gespeicherte Wahl; ein Wert aus mapped zählt nicht (der
+  // Endpunkt reicht courseCards nicht durch, der Server bestimmt den Schlüssel)
+  const courseCards = storedCourseCards(vc.courseCards);
+  if (courseCards) out.courseCards = courseCards;
+  else delete out.courseCards;
   return out;
 }
 
 module.exports = {
   COURSE_CARDS_VALUES,
+  COURSE_CARDS_DEFAULTS,
   COURSE_CARDS_POSITIONS,
   WELCOME_BUBBLES_VALUES,
   EMBED_FIXED_STANDARDS,
@@ -382,6 +420,8 @@ module.exports = {
   PRIVACY_LINES_MAX,
   PRIVACY_LINE_MAX_LEN,
   embedDisplayMode,
+  storedCourseCards,
+  defaultCourseCards,
   courseCardsValue,
   courseCardsPositionValue,
   welcomeBubblesValue,

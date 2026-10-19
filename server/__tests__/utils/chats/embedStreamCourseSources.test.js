@@ -1,8 +1,10 @@
 /* eslint-env jest, node */
-// streamChatWithForEmbed: courseSources reisen nur mit Kurskarten (seit dem
-// vereinfachten Design Center fest: Inline an, Chatblase aus) im
-// Abschluss-Chunk (finalizeResponseStream,
-// close: true) und in der gespeicherten Antwort mit. Der Stream selbst bekommt
+// streamChatWithForEmbed: courseSources reisen nur mit Kurskarten im
+// Abschluss-Chunk (finalizeResponseStream, close: true) und in der
+// gespeicherten Antwort mit. Kurskarten: gespeicherte Wahl courseCards
+// "auto"|"off" (KIE-567) in beiden Darstellungen; ohne Wahl nach der
+// tatsächlichen Darstellung, die das Widget mit der Anfrage schickt (R4,
+// Fixliste 7.22-rc8: inline an, sonst aus). Der Stream selbst bekommt
 // weiterhin sources: [], die DB weiterhin die vollen sources.
 
 jest.mock("../../../utils/prisma", () => ({}));
@@ -95,10 +97,13 @@ beforeEach(() => {
   });
 });
 
-async function run(embed) {
+// displayMode: tatsächliche Darstellung aus dem Body von stream-chat (R4);
+// ohne Angabe wie das Chatfenster
+async function run(embed, displayMode) {
   const response = { locals: {} };
   await streamChatWithForEmbed(response, embed, "Yoga am Abend?", "sess", {
     conversationId: "conv",
+    ...(displayMode === undefined ? {} : { displayMode }),
   });
   const finalChunk = writeResponseChunk.mock.calls
     .map(([, chunk]) => chunk)
@@ -107,10 +112,8 @@ async function run(embed) {
   return { finalChunk, stored };
 }
 
-test("Inline: courseSources im Abschluss-Chunk und in der gespeicherten Antwort", async () => {
-  const { finalChunk, stored } = await run(
-    makeEmbed(JSON.stringify({ displayMode: "inline" }))
-  );
+test("In der Seite (Widget meldet inline): courseSources im Abschluss-Chunk und in der gespeicherten Antwort", async () => {
+  const { finalChunk, stored } = await run(makeEmbed(null), "inline");
   expect(finalChunk).toMatchObject({ close: true, chatId: 42 });
   expect(finalChunk.courseSources.map((c) => c.title)).toEqual([
     "Yoga (Aufbaukurs)",
@@ -130,42 +133,73 @@ test("Inline: courseSources im Abschluss-Chunk und in der gespeicherten Antwort"
   expect(stored.courseSources).toEqual(finalChunk.courseSources);
 });
 
-// D1 (7.22-rc3): Kurskarten auch in der Chatblase und ohne gespeicherte
-// Darstellung (F01: Inline nur per Script-Attribut; F02: Rückfall auf die
-// Chatblase ohne Platzhalter)
+// R4 (Fixliste 7.22-rc8, bewusst geändert gegenüber D1 aus 7.22-rc3): ohne
+// gespeicherte Wahl entscheidet die Darstellung, die das Widget meldet, nicht
+// der gespeicherte displayMode (F01: Inline nur per Script-Attribut; F02:
+// Rückfall auf das Chatfenster ohne Platzhalter)
 test.each([
   ["ohne visual_config", null],
-  ["Chatblase", JSON.stringify({ displayMode: "bubble" })],
+  ["gespeichert Chatfenster", JSON.stringify({ displayMode: "bubble" })],
+  ["gespeichert In der Seite", JSON.stringify({ displayMode: "inline" })],
   ["ungültiger Wert", JSON.stringify({ courseCards: "kaputt" })],
   ["Text zuerst", JSON.stringify({ courseCardsPosition: "below" })],
   ["andere Schlüssel", JSON.stringify({ theme: "dark" })],
 ])(
-  "%s: courseSources wie bei Inline (Karten in beiden Darstellungen)",
+  "%s ohne Wahl: Widget meldet inline -> courseSources, bubble oder nichts -> keine",
   async (_l, vc) => {
-    const { finalChunk, stored } = await run(makeEmbed(vc));
-    expect(finalChunk.courseSources.map((c) => c.title)).toEqual([
+    const inline = await run(makeEmbed(vc), "inline");
+    expect(inline.finalChunk.courseSources.map((c) => c.title)).toEqual([
       "Yoga (Aufbaukurs)",
       "Yoga",
     ]);
-    expect(stored.courseSources).toEqual(finalChunk.courseSources);
-    expect(stored.sources).toHaveLength(8);
+    expect(inline.stored.courseSources).toEqual(
+      inline.finalChunk.courseSources
+    );
+    expect(inline.stored.sources).toHaveLength(8);
+    for (const displayMode of ["bubble", undefined, "kaputt", null]) {
+      jest.clearAllMocks();
+      const { finalChunk, stored } = await run(makeEmbed(vc), displayMode);
+      expect(finalChunk).toMatchObject({ close: true, chatId: 42 });
+      expect(finalChunk).not.toHaveProperty("courseSources");
+      expect(stored).not.toHaveProperty("courseSources");
+      expect(stored.sources).toHaveLength(8);
+    }
   }
 );
 
-// KIE-567: „Nur Text mit Links“ in beiden Darstellungen: keine Kurskarten,
-// volle sources bleiben serverseitig wie bisher
+// KIE-567: gespeicherte Wahl gewinnt in beiden Darstellungen: „Nur Text mit
+// Links“ keine Kurskarten (volle sources bleiben serverseitig wie bisher),
+// „Kurskarten“ auch im Chatfenster
 test.each([
-  ["Chatblase", JSON.stringify({ courseCards: "off" })],
-  ["Inline", JSON.stringify({ displayMode: "inline", courseCards: "off" })],
-])("%s mit courseCards off: kein courseSources-Feld", async (_l, vc) => {
-  const { finalChunk, stored } = await run(makeEmbed(vc));
+  ["Chatfenster", JSON.stringify({ courseCards: "off" }), "bubble"],
+  ["In der Seite", JSON.stringify({ courseCards: "off" }), "inline"],
+  [
+    "In der Seite gespeichert",
+    JSON.stringify({ displayMode: "inline", courseCards: "off" }),
+    "inline",
+  ],
+])("%s mit courseCards off: kein courseSources-Feld", async (_l, vc, dm) => {
+  const { finalChunk, stored } = await run(makeEmbed(vc), dm);
   expect(finalChunk).toMatchObject({ close: true, chatId: 42 });
   expect(finalChunk).not.toHaveProperty("courseSources");
   expect(stored).not.toHaveProperty("courseSources");
   expect(stored.sources).toHaveLength(8);
 });
 
-test("Inline, aber nur Info-Seiten: kein courseSources-Feld", async () => {
+test.each([
+  ["Chatfenster", "bubble"],
+  ["ohne Angabe", undefined],
+  ["In der Seite", "inline"],
+])("%s mit courseCards auto: courseSources", async (_l, dm) => {
+  const { finalChunk, stored } = await run(
+    makeEmbed(JSON.stringify({ courseCards: "auto" })),
+    dm
+  );
+  expect(finalChunk.courseSources).toHaveLength(2);
+  expect(stored.courseSources).toEqual(finalChunk.courseSources);
+});
+
+test("In der Seite, aber nur Info-Seiten: kein courseSources-Feld", async () => {
   helpers.getVectorDbClass.mockReturnValue({
     hasNamespace: jest.fn().mockResolvedValue(true),
     namespaceCount: jest.fn().mockResolvedValue(10),
@@ -175,19 +209,15 @@ test("Inline, aber nur Info-Seiten: kein courseSources-Feld", async () => {
       message: null,
     }),
   });
-  const { finalChunk, stored } = await run(
-    makeEmbed(JSON.stringify({ displayMode: "inline" }))
-  );
+  const { finalChunk, stored } = await run(makeEmbed(null), "inline");
   expect(finalChunk).not.toHaveProperty("courseSources");
   expect(stored).not.toHaveProperty("courseSources");
 });
 
-test("Inline ohne Streaming-Connector: courseSources ebenfalls im Abschluss-Chunk", async () => {
+test("In der Seite ohne Streaming-Connector: courseSources ebenfalls im Abschluss-Chunk", async () => {
   connector = makeConnector({ streaming: false });
   helpers.getLLMProvider.mockReturnValue(connector);
-  const { finalChunk } = await run(
-    makeEmbed(JSON.stringify({ displayMode: "inline" }))
-  );
+  const { finalChunk } = await run(makeEmbed(null), "inline");
   expect(finalChunk.courseSources).toHaveLength(2);
   const textChunk = writeResponseChunk.mock.calls
     .map(([, c]) => c)

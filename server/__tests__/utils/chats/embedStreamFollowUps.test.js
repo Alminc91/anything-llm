@@ -138,8 +138,10 @@ function tokensOf(text) {
   return text.match(/[\s\S]{1,7}/g);
 }
 
-// Kurskarten hängen seit dem vereinfachten Design Center (15.10.2026) an der
-// Darstellung (Inline an), Folgefragen sind immer an (embedStandards.js).
+// Kurskarten: gespeicherte Wahl courseCards, ohne Wahl nach der Darstellung,
+// die das Widget mit der Anfrage schickt (R4, Fixliste 7.22-rc8: inline an;
+// die Tests melden „inline“, run unten). Folgefragen sind immer an
+// (embedStandards.js).
 function makeEmbed(visual_config = JSON.stringify({ displayMode: "inline" })) {
   return {
     id: 3,
@@ -199,6 +201,8 @@ async function run({ reply, embed = makeEmbed(), streaming = true }) {
   helpers.getLLMProvider.mockReturnValue(connector);
   await streamChatWithForEmbed(response, embed, "gibt es sportkurse?", "sess", {
     conversationId: "conv",
+    // tatsächliche Darstellung des Widgets (R4): In der Seite
+    displayMode: "inline",
   });
   const stored = EmbedChats.new.mock.calls[0][0].response;
   const text = log
@@ -293,8 +297,9 @@ describe("Folgefragen im Embed-Stream", () => {
       /^\n\n### Follow-up Suggestions \(ACTIVE\)\n/
     );
     expect(FOLLOW_UPS_PROMPT_NOTE).toContain("[[FRAGEN: -]]");
-    // Chatblase bzw. ohne Darstellung (Karten seit 7.22-rc3 an): Karten ->
-    // Disclaimer -> Folgefragen, Altwerte egal
+    // gespeichert Chatfenster bzw. ohne Darstellung, das Widget meldet
+    // „inline“ (run, R4: Karten an): Karten -> Disclaimer -> Folgefragen,
+    // Altwerte egal
     for (const vc of [
       null,
       JSON.stringify({ followUps: "pills" }),

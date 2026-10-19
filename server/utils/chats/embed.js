@@ -47,6 +47,9 @@ async function streamChatWithForEmbed(
     modelOverride,
     temperatureOverride,
     username,
+    // tatsächliche Darstellung des Widgets ("inline"|"bubble"), nur für
+    // den Standard von „Antworten mit Kursen“ (R4, Fixliste 7.22-rc8)
+    displayMode,
   }
 ) {
   const chatMode = embed.chat_mode;
@@ -230,9 +233,11 @@ async function streamChatWithForEmbed(
 
   // Folgefragen sind fester Standard (immer an): Prompt-Hinweis am Ende
   // (embedSystemPrompt) und Chunk an das Widget. Kurskarten nach der Wahl
-  // im Design Center (KIE-567, courseCards "auto" Standard, "off" = Nur Text
-  // mit Links: klassischer Prompt ohne Karten-Abschnitt).
-  const cardsOn = courseCardsEnabled(embed);
+  // im Design Center (KIE-567, courseCards "auto" = Kurskarten, "off" = Nur
+  // Text mit Links: klassischer Prompt ohne Karten-Abschnitt); ohne
+  // gespeicherte Wahl nach der Darstellung, die das Widget mitschickt (R4:
+  // In der Seite an, Chatfenster aus).
+  const cardsOn = courseCardsEnabled(embed, { displayMode });
 
   // Compress message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.

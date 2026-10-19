@@ -11,8 +11,10 @@
 // (__tests__/utils/chats/embedDefaults.test.js) vergleicht mit einer Kopie
 // der Widget-Werte (fixtures/embedPanelTexts.json).
 // Design Center vereinfacht (15.10.2026): keine Gedankenstriche in diesen
-// Texten; der KI-Hinweis ist fest (nicht änderbar), Name, Untertitel und
-// Platzhalter sind nur Vorbelegung für neue bzw. leere Felder.
+// Texten; der KI-Hinweis ist fest (nicht änderbar). Name, Untertitel und
+// Platzhalter sind die Standards, die das Widget ohne gespeicherten Wert
+// zeigt (der Untertitel seit R5, Fixliste 7.22-rc8, auch live); das Design
+// Center zeigt sie als Feldwert (Vorbelegung) und schreibt nur Abweichungen.
 const EMBED_DEFAULT_TEXTS = {
   de: {
     assistantName: "KI-Berater",
@@ -25,8 +27,12 @@ const EMBED_DEFAULT_TEXTS = {
       "Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ],
+    // KI-Hinweis unter der Eingabe (R1, Fixliste 7.22-rc8): eindeutig
+    // „Unsere KI“; eine Zeile bei 360 bis 1440 px, sonst kürzt das Widget
+    // auf „Bitte prüfen Sie“ und der Fork zieht nach (Fixture-Test mit
+    // KUFER_EMBED_DIR)
     disclaimerText:
-      "KI kann Fehler machen. Bitte überprüfen Sie die Antworten.",
+      "Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten.",
     // eingeklappte Inline-Leiste (Demo-Texte; Entscheidung D2, 7.22-rc3)
     inlineBarPlaceholder: "Stellen Sie hier Ihre Frage …",
     inlineSendText: "Chatten",
@@ -42,7 +48,8 @@ const EMBED_DEFAULT_TEXTS = {
       "Staff of the institution may view conversations for quality assurance.",
       "Please only share information that is necessary for your request.",
     ],
-    disclaimerText: "AI can make mistakes. Please double-check the answers.",
+    disclaimerText:
+      "Our AI can make mistakes. Please double-check the answers.",
     inlineBarPlaceholder: "Ask your question here …",
     inlineSendText: "Chat",
   },
@@ -66,9 +73,9 @@ function embedDefaultsLanguage(value) {
 /**
  * Standardtexte einer Sprache unter den visual_config-Schlüsseln, die das
  * Design Center bearbeitet bzw. anzeigt: name/assistantSubtitle/
- * sendMessageText nur als Vorschlag, greeting und privacyText als
- * Standardtext (privacyText im freien Format, ein „• “-Punkt je Zeile),
- * disclaimerText sowie Platzhalter und Knopf der eingeklappten Inline-Leiste
+ * sendMessageText/greeting/privacyTitle/privacyText als Standardtext und
+ * Vorbelegung (privacyText im freien Format, ein „• “-Punkt je Zeile),
+ * disclaimerText sowie Platzhalter und Button der eingeklappten Inline-Leiste
  * (inlineInputPlaceholder, inlineSendText) nur zur Anzeige (fest).
  * @param {string} [lang]
  * @returns {{name: string, assistantSubtitle: string, greeting: string,

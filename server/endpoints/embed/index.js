@@ -20,7 +20,10 @@ const {
 const { getTTSProvider, isTTSConfigured } = require("../../utils/TextToSpeech");
 const { getSTTProvider, isSTTConfigured } = require("../../utils/SpeechToText");
 const multer = require("multer");
-const { applyEmbedStandards } = require("../../utils/chats/embedStandards");
+const {
+  applyEmbedStandards,
+  embedDisplayMode,
+} = require("../../utils/chats/embedStandards");
 
 // Configure multer for audio file uploads (store in memory)
 const upload = multer({
@@ -71,8 +74,11 @@ const LAYOUT_ENUMS = {
 };
 
 // Text-Schlüssel mit Höchstlänge wie im Widget (utils/layout.js). Wert wird
-// getrimmt; leer oder zu lang -> weglassen (nicht kürzen). Begrüßung,
-// Platzhalter und Datenschutz-Texte prüft applyEmbedStandards.
+// getrimmt; zu lang -> weglassen (nicht kürzen). Leer ("") geht als leerer
+// Wert mit: Untertitel "" = bewusst kein Untertitel (R5, Fixliste 7.22-rc8,
+// wie privacyTitle), fehlender Wert = Standard des Widgets („Online-Berater
+// mit künstlicher Intelligenz“). Begrüßung, Platzhalter und Datenschutz-
+// Texte prüft applyEmbedStandards.
 const WIDGET_TEXT_MAX = {
   assistantSubtitle: 60,
 };
@@ -123,7 +129,7 @@ function mapLayoutConfig(visualConfig = {}) {
     const v = visualConfig[key];
     if (typeof v !== "string") continue;
     const text = v.trim();
-    if (text.length > 0 && text.length <= maxLen) out[key] = text;
+    if (text.length <= maxLen) out[key] = text;
   }
   const privacyUrl = validUrl(visualConfig.privacyUrl);
   if (privacyUrl !== null) out.privacyUrl = privacyUrl;
@@ -295,6 +301,11 @@ function embeddedEndpoints(app) {
           model = null,
           temperature = null,
           username = null,
+          // Tatsächliche Darstellung des Widgets ("inline"|"bubble"), vom
+          // Widget mit jeder Anfrage geschickt. Nur für den Standard von
+          // „Antworten mit Kursen“ ohne gespeicherte Wahl (R4, Fixliste
+          // 7.22-rc8); ungültig oder fehlend zählt als Chatfenster.
+          displayMode = null,
         } = reqBody(request);
 
         // Fallback: If no conversationId, use sessionId for backwards compatibility
@@ -312,6 +323,7 @@ function embeddedEndpoints(app) {
           modelOverride: model,
           temperatureOverride: temperature,
           username,
+          displayMode: embedDisplayMode(displayMode),
         });
         await Telemetry.sendTelemetry("embed_sent_chat", {
           multiUserMode: multiUserMode(response),

@@ -66,11 +66,12 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
       "• Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "• Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ]);
+    // R1 (Fixliste 7.22-rc8): „Unsere KI“ statt „KI“, bewusst geändert
     expect(de.disclaimerText).toBe(
-      "KI kann Fehler machen. Bitte überprüfen Sie die Antworten."
+      "Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten."
     );
     expect(embedDefaultTexts("en").disclaimerText).toBe(
-      "AI can make mistakes. Please double-check the answers."
+      "Our AI can make mistakes. Please double-check the answers."
     );
     // entfallen: Knopf der Datenschutz-Karte, eigener Text der Begrüßungsblase
     expect(de).not.toHaveProperty("privacyButtonText");
@@ -102,6 +103,67 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
     expect(embedDefaultTexts("de").privacyTitle).toBe("Datenschutz");
   });
 });
+
+// R1 (Fixliste 7.22-rc8): Gegenprobe gegen das Embed-Repo selbst (nicht nur
+// gegen die Fixture-Kopie). KUFER_EMBED_DIR zeigt auf den Worktree des
+// Widgets; ohne die Variable wird übersprungen. Kürzt das Widget den
+// KI-Hinweis nach der Messung (unter 10 px Schrift) auf „Bitte prüfen Sie“,
+// scheitert dieser Test, bis embedDefaults.js und die Fixture nachgezogen
+// sind.
+const embedDir = process.env.KUFER_EMBED_DIR;
+const describeWidget = embedDir ? describe : describe.skip;
+describeWidget(
+  "Standardtexte wortgleich mit PANEL_TEXTS im Embed-Repo (KUFER_EMBED_DIR)",
+  () => {
+    const fs = require("fs");
+    const path = require("path");
+    let source = "";
+    beforeAll(() => {
+      source = fs.readFileSync(
+        path.join(embedDir, "src/utils/layout.js"),
+        "utf8"
+      );
+    });
+    // PANEL_TEXTS = { de: {…}, en: {…} }: je Sprache die String-Felder
+    const block = (lang) => {
+      const start = source.indexOf(
+        `${lang}: {`,
+        source.indexOf("PANEL_TEXTS = {")
+      );
+      expect(start).toBeGreaterThan(0);
+      let depth = 0;
+      for (let i = source.indexOf("{", start); i < source.length; i++) {
+        if (source[i] === "{") depth++;
+        else if (source[i] === "}" && --depth === 0)
+          return source.slice(start, i + 1);
+      }
+      throw new Error(`PANEL_TEXTS.${lang} ohne Ende`);
+    };
+    const field = (text, name) => {
+      const m = new RegExp(`${name}:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(text);
+      expect(m).not.toBeNull();
+      return JSON.parse(`"${m[1]}"`);
+    };
+
+    test.each(["de", "en"])(
+      "%s: KI-Hinweis, Name, Untertitel, Begrüßung, Platzhalter, Überschrift",
+      (lang) => {
+        const widget = block(lang);
+        const ours = EMBED_DEFAULT_TEXTS[lang];
+        expect(field(widget, "aiDisclaimer")).toBe(ours.disclaimerText);
+        expect(field(widget, "assistantName")).toBe(ours.assistantName);
+        expect(field(widget, "assistantSubtitle")).toBe(ours.assistantSubtitle);
+        expect(field(widget, "greetingBubble")).toBe(ours.greeting);
+        expect(field(widget, "inputPlaceholder")).toBe(ours.inputPlaceholder);
+        expect(field(widget, "privacyTitle")).toBe(ours.privacyTitle);
+        // Fixture-Kopie ebenfalls auf dem Stand des Widgets
+        expect(PANEL_TEXTS[lang].aiDisclaimer).toBe(
+          field(widget, "aiDisclaimer")
+        );
+      }
+    );
+  }
+);
 
 describe("embedDefaultsLanguage wie panelLanguage() im Widget", () => {
   test.each([

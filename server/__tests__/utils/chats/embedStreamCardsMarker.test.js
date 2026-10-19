@@ -138,9 +138,11 @@ function tokensOf(text) {
   return text.match(/[\s\S]{1,7}/g);
 }
 
-// Kurskarten hängen seit dem vereinfachten Design Center (15.10.2026) an der
-// Darstellung: Inline an, Chatblase aus (embedStandards.js). Standard-Embed
-// der Tests daher Inline (früher: courseCards "auto").
+// Kurskarten: gespeicherte Wahl courseCards (KIE-567), ohne Wahl nach der
+// tatsächlichen Darstellung, die das Widget mit der Anfrage schickt (R4,
+// Fixliste 7.22-rc8: inline an, Chatfenster aus; embedStandards.js). Die
+// Tests melden deshalb „inline“ (run unten, Option displayMode); der
+// gespeicherte displayMode zählt dafür nicht.
 function makeEmbed(visual_config = JSON.stringify({ displayMode: "inline" })) {
   return {
     id: 3,
@@ -200,6 +202,8 @@ async function run({ reply, embed = makeEmbed(), streaming = true }) {
   helpers.getLLMProvider.mockReturnValue(connector);
   await streamChatWithForEmbed(response, embed, "gibt es sportkurse?", "sess", {
     conversationId: "conv",
+    // tatsächliche Darstellung des Widgets (R4): In der Seite
+    displayMode: "inline",
   });
   const stored = EmbedChats.new.mock.calls[0][0].response;
   const text = log
@@ -473,6 +477,7 @@ describe("Kurskarten v3: Teaser im Embed-Stream", () => {
       "sess",
       {
         conversationId: "conv",
+        displayMode: "inline",
       }
     );
     const stored = EmbedChats.new.mock.calls[0][0].response;

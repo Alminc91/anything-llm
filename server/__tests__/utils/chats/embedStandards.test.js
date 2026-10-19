@@ -11,6 +11,8 @@ const {
   INLINE_FIXED_STANDARDS,
   LEGACY_DEFAULT_GREETINGS,
   embedDisplayMode,
+  storedCourseCards,
+  defaultCourseCards,
   courseCardsValue,
   courseCardsPositionValue,
   welcomeBubblesValue,
@@ -66,8 +68,9 @@ describe("Darstellung und Kurskarten", () => {
 });
 
 // KIE-567 (Nutzer 15.10.2026): Antworten mit Kursen, im Design Center
-// wählbar. Fehlend oder ungültig -> Standard (Karten zuerst), damit
-// bestehende Widgets ohne neue Schlüssel bleiben, wie sie sind.
+// wählbar. Ohne gespeicherte Wahl hängt der Standard an der tatsächlichen
+// Darstellung (R4, Fixliste 7.22-rc8): Chatfenster Nur Text mit Links, In
+// der Seite Kurskarten; die Reihenfolge bleibt „Karten zuerst“.
 describe("Kurskarten an/aus und Reihenfolge (KIE-567)", () => {
   test("erlaubte Werte wörtlich wie im Vertrag", () => {
     expect(COURSE_CARDS_VALUES).toEqual(["auto", "off"]);
@@ -76,21 +79,56 @@ describe("Kurskarten an/aus und Reihenfolge (KIE-567)", () => {
     expect(Object.isFrozen(COURSE_CARDS_POSITIONS)).toBe(true);
   });
 
+  // R4: Standard je Darstellung (Vertrag Fork/Widget wörtlich)
+  test("R4: Standard nach der tatsächlichen Darstellung, ungültig oder fehlend = Chatfenster = off", () => {
+    expect(defaultCourseCards("inline")).toBe("auto");
+    expect(defaultCourseCards(" Inline ")).toBe("auto");
+    for (const displayMode of [
+      "bubble",
+      undefined,
+      null,
+      "",
+      "seite",
+      "INLINE-BOX",
+      true,
+      ["inline"],
+    ])
+      expect(defaultCourseCards(displayMode)).toBe("off");
+  });
+
   test.each([
     ["auto", "auto"],
     ["off", "off"],
     [" OFF ", "off"],
     ["Auto", "auto"],
-    [undefined, "auto"],
-    [null, "auto"],
-    ["", "auto"],
-    ["aus", "auto"],
-    ["none", "auto"],
-    [false, "auto"],
-    [0, "auto"],
-    [["off"], "auto"],
-  ])("courseCardsValue(%p) -> %p", (input, expected) => {
-    expect(courseCardsValue(input)).toBe(expected);
+    [undefined, null],
+    [null, null],
+    ["", null],
+    ["aus", null],
+    ["none", null],
+    [false, null],
+    [0, null],
+    [["off"], null],
+  ])("storedCourseCards(%p) -> %p", (input, expected) => {
+    expect(storedCourseCards(input)).toBe(expected);
+  });
+
+  // R4: gespeicherte Wahl gewinnt in beiden Darstellungen; ohne Wahl der
+  // Standard der Darstellung (bewusst geändert: bisher immer "auto")
+  test.each([
+    ["auto", "bubble", "auto"],
+    ["auto", "inline", "auto"],
+    ["off", "inline", "off"],
+    [" OFF ", "bubble", "off"],
+    [undefined, "inline", "auto"],
+    [undefined, "bubble", "off"],
+    [undefined, undefined, "off"],
+    ["kaputt", "inline", "auto"],
+    ["kaputt", "bubble", "off"],
+    ["", " INLINE ", "auto"],
+    [["off"], "kaputt", "off"],
+  ])("courseCardsValue(%p, %p) -> %p", (value, displayMode, expected) => {
+    expect(courseCardsValue(value, displayMode)).toBe(expected);
   });
 
   test.each([
@@ -121,14 +159,19 @@ describe("Kurskarten an/aus und Reihenfolge (KIE-567)", () => {
     }
   });
 
-  test("applyEmbedStandards: ohne bzw. mit ungültigen Werten Karten zuerst (wie vorher)", () => {
+  // R4 (bewusst geändert): ohne gespeicherte Wahl geht courseCards NICHT
+  // mit, das Widget entscheidet nach seiner tatsächlichen Darstellung; die
+  // Reihenfolge bleibt Karten zuerst
+  test("applyEmbedStandards: ohne bzw. mit ungültigen Werten kein courseCards, Reihenfolge Karten zuerst", () => {
     for (const vc of [
       {},
+      { displayMode: "inline" },
+      { displayMode: "bubble" },
       { courseCards: "kaputt", courseCardsPosition: 5 },
       { courseCards: "", courseCardsPosition: "" },
     ]) {
       const out = applyEmbedStandards({}, vc);
-      expect(out.courseCards).toBe("auto");
+      expect(out).not.toHaveProperty("courseCards");
       expect(out.courseCardsPosition).toBe("above");
     }
   });
@@ -138,8 +181,13 @@ describe("Kurskarten an/aus und Reihenfolge (KIE-567)", () => {
       { courseCards: "off", courseCardsPosition: "below" },
       {}
     );
-    expect(out.courseCards).toBe("auto");
+    // R4: nicht gespeichert -> auch ein Wert aus mapped geht nicht mit
+    expect(out).not.toHaveProperty("courseCards");
     expect(out.courseCardsPosition).toBe("above");
+    expect(
+      applyEmbedStandards({ courseCards: "off" }, { courseCards: "auto" })
+        .courseCards
+    ).toBe("auto");
   });
 });
 
@@ -451,12 +499,12 @@ describe("applyEmbedStandards", () => {
 
   test("C01: setzt nur abgeleitete und feste Werte, was ans Widget geht bestimmt die Erlaubtliste des Endpunkts", () => {
     const out = applyEmbedStandards({ buttonColor: "#123456" }, {});
+    // R4: courseCards nur, wenn gespeichert
     expect(out).toEqual({
       buttonColor: "#123456",
       ...EMBED_FIXED_STANDARDS,
       ...INLINE_FIXED_STANDARDS,
       privacyNotice: "bubble",
-      courseCards: "auto",
       courseCardsPosition: "above",
       welcomeBubblesDesktop: "first",
       welcomeBubblesMobile: "first",
