@@ -452,7 +452,6 @@ test(
       updateOptionalField: noop,
       resetKeys: noop,
       setPrivacyNotice: noop,
-      applySuggestion: noop,
       addListItem: noop,
       updateListItem: noop,
       removeListItem: noop,

@@ -253,7 +253,6 @@ const contentProps = (config) => ({
   resetKeys: noop,
   setPrivacyNotice: noop,
   setChoice: noop,
-  applySuggestion: noop,
   addListItem: noop,
   updateListItem: noop,
   removeListItem: noop,
