@@ -1729,6 +1729,7 @@ const TRANSLATIONS = {
       "quote-close": null,
       "jump-negative": null,
       "jump-positive": null,
+      empty: null,
     },
   },
   "date-picker": {

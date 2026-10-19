@@ -13,16 +13,21 @@ import {
   HOLD_SCROLL_BUSY_MAX_MS,
   HOLD_SCROLL_MAX_MS,
   HOLD_SCROLL_QUIET_MS,
-  PANEL_MIN_BODY,
-  PANEL_MIN_HEIGHT,
+  PANEL_PREFERENCE_KEY,
   RATING_BOX,
   RATING_FLASH,
   RATING_TINT,
+  WORKSPACE,
+  WORKSPACE_MIN_HEIGHT,
+  WORKSPACE_PANEL_MIN_WIDTH,
+  WORKSPACE_TOP_GAP,
   ratingJumpIds,
   ratingOf,
+  readPanelPreference,
   SEARCH_MAX_LENGTH,
   ancestorsOf,
   answerText,
+  arrowNavigationAllowed,
   berlinDateTime,
   berlinTime,
   centeredScrollTop,
@@ -45,9 +50,6 @@ import {
   nextNewExpiry,
   RATING_COLUMN,
   outsidePeriod,
-  panelChromeHeight,
-  panelFit,
-  revealMarkedRow,
   searchLinkIssue,
   searchPattern,
   searchVariants,
@@ -56,6 +58,7 @@ import {
   startScrollTop,
   startedOnOtherDay,
   visibleAnswerText,
+  writePanelPreference,
 } from "../src/utils/conversationView.js";
 import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
 import { formatDateTimeDE } from "../src/utils/dateTimeDE.js";
@@ -614,25 +617,6 @@ test("Sprung zum Treffer: Nur der Verlauf scrollt – die Position steht mittig,
   assert.equal(firstElementWith(null, "data-search-hit"), null);
 });
 
-test("Fixliste 3, V3/V8: Höhe des Seitenpanels – es endet über dem unteren Fensterrand, wo immer es steht; steht es zu tief, wird es beim Öffnen geholt", () => {
-  // oben klebend (80 px): wie bisher 100vh - 112 px
-  assert.deepEqual(panelFit(80, 900), { maxHeight: 788, reveal: false });
-  // nach dem Sprung zur Liste tiefer (B5: 124 px) – die Fußzeile bleibt im
-  // Fenster (vorher 788 px, Unterkante bei 912)
-  assert.deepEqual(panelFit(124, 900), { maxHeight: 744, reveal: false });
-  assert.ok(124 + panelFit(124, 900).maxHeight <= 900 - 32);
-  // höher als die Klebekante gibt es nicht (beim Scrollen): wie oben
-  assert.deepEqual(panelFit(10, 900), { maxHeight: 788, reveal: false });
-  // weit unten (wenige Treffer): nie niedriger als 240 px, und beim Öffnen
-  // sind weniger als 320 px zu sehen – holen
-  assert.deepEqual(panelFit(700, 900), { maxHeight: 240, reveal: true });
-  assert.equal(panelFit(580, 900).reveal, false);
-  assert.equal(panelFit(581, 900).reveal, true);
-  // ohne Maße (kein Layout): nichts
-  assert.equal(panelFit(undefined, 900), null);
-  assert.equal(panelFit(100, undefined), null);
-});
-
 test("Fixliste 3, S4: isWide – eine Stelle für die Breitenprüfung, auch ohne matchMedia", () => {
   const original = globalThis.window;
   try {
@@ -668,27 +652,6 @@ test("Fixliste 4, S2: berlinDateTime – voller Zeitpunkt in Berliner Zeit im Fo
   // ohne gültigen Zeitpunkt wie formatDateTimeDE: "-"
   for (const value of [null, undefined, "", "kein Datum", NaN])
     assert.equal(berlinDateTime(value), "-", String(value));
-});
-
-test("Fixliste 4, V3: panelFit – am Seitenende endet das Panel über der Unterkante seines Bereichs und bleibt so unter dem Benutzermenü", () => {
-  // Bereich reicht weit nach unten: wie bisher (32 px über dem Fensterrand)
-  assert.deepEqual(panelFit(80, 900, 2000), { maxHeight: 788, reveal: false });
-  // ganz unten gescrollt, kurze Liste: Unter dem Bereich liegen 64 px Rand –
-  // das Panel endet an seiner Unterkante (836) und steht bei 80, nicht bei
-  // 47 unter dem Benutzermenü
-  const fit = panelFit(47, 900, 836);
-  assert.deepEqual(fit, { maxHeight: 756, reveal: false });
-  assert.ok(80 + fit.maxHeight <= 836);
-  // noch nicht klebend: Die Unterkante des Fensters bleibt maßgeblich
-  assert.deepEqual(panelFit(300, 900, 1088), { maxHeight: 568, reveal: false });
-  // ohne gültige Unterkante: ohne diese Grenze
-  for (const bottom of [undefined, NaN, null])
-    assert.deepEqual(panelFit(80, 900, bottom), {
-      maxHeight: 788,
-      reveal: false,
-    });
-  // nie niedriger als 240 px
-  assert.equal(panelFit(80, 900, 200).maxHeight, 240);
 });
 
 test("Fixliste 4, V7: holdScrollTarget – springt, hält das Ziel bei jeder Größenänderung eines Vorfahren und bei fremdem Scrollen, bis zur ersten Eingabe", () => {
@@ -878,23 +841,6 @@ test("Fixliste 5, S2: holdScrollTarget – fremdes Scrollen springt nur zurück,
   }
 });
 
-test("Fixliste 5, S5: panelFit – nie niedriger als Kopf und Fußzeile mit einem Rest Verlauf; die Fußzeile bleibt im Panelrahmen", () => {
-  // Kopf 196 px (schmales Panel, Frage über zwei Zeilen), Fußzeile 49 px
-  const min = panelChromeHeight(196, 49);
-  assert.equal(min, 196 + 49 + PANEL_MIN_BODY + 2);
-  // Panel weit unten (Mindesthöhe 240 reichte nicht): so hoch wie nötig
-  assert.equal(panelFit(700, 900, undefined, min).maxHeight, min);
-  assert.ok(min > PANEL_MIN_HEIGHT);
-  // sonst wie bisher
-  assert.equal(panelFit(300, 900, undefined, min).maxHeight, 568);
-  assert.equal(panelFit(700, 900).maxHeight, PANEL_MIN_HEIGHT);
-  // ohne Fußzeile (Konversation lädt) und ohne gemessenen Kopf
-  assert.equal(panelChromeHeight(120, undefined), 120 + PANEL_MIN_BODY + 2);
-  assert.equal(panelChromeHeight(0, 49), 0);
-  assert.equal(panelChromeHeight(undefined, 49), 0);
-  assert.equal(panelFit(700, 900, undefined, NaN).maxHeight, PANEL_MIN_HEIGHT);
-});
-
 test("Fixliste 5, S3: berlinDateTime ist formatDateTimeDE (utils/dateTimeDE.js) mit Berliner Zeit – keine zweite Formatierung", () => {
   for (const instant of [
     berlin("2026-10-13", "07:48"),
@@ -1013,48 +959,6 @@ test("Fixliste 6, N1: hasContentGap – nur „einsehbar < gezählt“ ist eine 
     [NaN, 0],
   ])
     assert.equal(hasContentGap(counted, viewable), false);
-});
-
-test("Fixliste 6, K5: revealMarkedRow – die markierte Zeile unter dem Fensterrand (Zeile 45) kommt mit „nearest“ in Sicht; im Bild bleibt alles stehen", () => {
-  const doc = createDocument();
-  const root = doc.body.appendChild(doc.createElement("div"));
-  const makeRow = (id, top, current = false) => {
-    const row = root.appendChild(doc.createElement("button"));
-    row.setAttribute("data-conversation-row", String(id));
-    if (current) row.setAttribute("aria-current", "true");
-    row.getBoundingClientRect = () => ({ top, bottom: top + 54 });
-    row.scrolls = [];
-    row.scrollIntoView = (options) => row.scrolls.push(options);
-    return row;
-  };
-  // Ein anderes Element mit aria-current zählt nicht.
-  const other = root.appendChild(doc.createElement("a"));
-  other.setAttribute("aria-current", "true");
-  other.getBoundingClientRect = () => ({ top: 5000, bottom: 5020 });
-  other.scrollIntoView = () => assert.fail("kein Sprung zu anderen Elementen");
-
-  makeRow(1, 300);
-  const deep = makeRow(45, 2941, true);
-  assert.equal(revealMarkedRow(root, 900), true);
-  assert.deepEqual(deep.scrolls, [{ block: "nearest" }]);
-
-  // im freien Bereich: nichts (Zeile 3 nach dem Sprung zur Überschrift)
-  deep.removeAttribute("aria-current");
-  const near = makeRow(3, 387, true);
-  assert.equal(revealMarkedRow(root, 900), false);
-  assert.deepEqual(near.scrolls, []);
-  // knapp unter der Grenze (Fenster − 32 px) bzw. über PANEL_STUCK_TOP (80)
-  near.getBoundingClientRect = () => ({ top: 820, bottom: 874 });
-  assert.equal(revealMarkedRow(root, 900), true);
-  near.getBoundingClientRect = () => ({ top: 60, bottom: 114 });
-  assert.equal(revealMarkedRow(root, 900), true);
-  assert.equal(near.scrolls.length, 2);
-
-  // ohne markierte Zeile, ohne Bereich, ohne Fensterhöhe: nichts
-  near.removeAttribute("aria-current");
-  assert.equal(revealMarkedRow(root, 900), false);
-  assert.equal(revealMarkedRow(null, 900), false);
-  assert.equal(revealMarkedRow(root, NaN), false);
 });
 
 test("Fixliste 6, K5: holdScrollTarget().realign – springt erneut, solange das Halten läuft; danach nicht mehr", () => {
@@ -1615,4 +1519,127 @@ test("Review 7.21.1 (N2 a): ratingJumpIds – die so bewerteten Antworten im Zei
     null,
     null,
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// KIE-575: Arbeitsbereich ab lg – Konstanten, gemerkter Verlauf, Pfeiltasten
+// ---------------------------------------------------------------------------
+
+test("KIE-575, AK-2: WORKSPACE – Bereich mit fester Höhe (100vh − 88 px, mindestens 560 px), Liste scrollt selbst, Verlauf 50 % bzw. 56 % ab 2xl, ab xl mindestens 480 px; alles nur ab lg", () => {
+  assert.equal(WORKSPACE_TOP_GAP, 88);
+  assert.equal(WORKSPACE_MIN_HEIGHT, 560);
+  assert.equal(WORKSPACE_PANEL_MIN_WIDTH, 480);
+  const classes = (value) => value.split(/\s+/).filter(Boolean);
+  const has = (value, names) =>
+    names.every((name) => classes(value).includes(name));
+  assert.ok(
+    has(WORKSPACE.area, [
+      "lg:flex",
+      "lg:gap-4",
+      "lg:h-[max(560px,calc(100vh-88px))]",
+    ]),
+    WORKSPACE.area
+  );
+  assert.ok(
+    has(WORKSPACE.column, ["lg:flex", "lg:min-w-0", "lg:flex-1", "lg:flex-col"])
+  );
+  assert.ok(
+    has(WORKSPACE.scroller, ["lg:min-h-0", "lg:flex-1", "lg:overflow-y-auto"])
+  );
+  assert.ok(
+    has(WORKSPACE.panel, [
+      "lg:w-[calc(50%-8px)]",
+      "2xl:w-[calc(56%-8px)]",
+      "xl:min-w-[480px]",
+      "lg:shrink-0",
+    ]),
+    WORKSPACE.panel
+  );
+  // Von lg bis xl keine Mindestbreite (die Liste bliebe bei 1024 px zu schmal)
+  assert.ok(!classes(WORKSPACE.panel).some((name) => name.startsWith("lg:min-w")));
+  // Die Zahlen in den Klassen sind die Konstanten – wörtlich, damit Tailwind
+  // das CSS erzeugt (keine Vorlagen)
+  assert.ok(
+    WORKSPACE.area.includes(
+      `max(${WORKSPACE_MIN_HEIGHT}px,calc(100vh-${WORKSPACE_TOP_GAP}px))`
+    )
+  );
+  assert.ok(WORKSPACE.panel.includes(`min-w-[${WORKSPACE_PANEL_MIN_WIDTH}px]`));
+  const source = readFileSync(
+    new URL("../src/utils/conversationView.js", import.meta.url),
+    "utf8"
+  );
+  assert.ok(source.includes('"lg:flex lg:gap-4 lg:h-[max(560px,calc(100vh-88px))]"'));
+  assert.ok(source.includes("xl:min-w-[480px]"));
+  // Unter lg bleibt alles wie heute: nur Präfixe ab lg
+  for (const value of Object.values(WORKSPACE))
+    for (const name of classes(value))
+      assert.match(name, /^(lg|xl|2xl):/, name);
+});
+
+test("KIE-575, AK-4: readPanelPreference/writePanelPreference – Standard offen, „closed“ gemerkt, Fehler des Speichers ändern nichts", () => {
+  const store = new Map();
+  const storage = {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => store.set(key, String(value)),
+  };
+  assert.equal(PANEL_PREFERENCE_KEY, "kie.conversations.panel");
+  assert.equal(readPanelPreference(storage), true);
+  writePanelPreference(false, storage);
+  assert.equal(store.get(PANEL_PREFERENCE_KEY), "closed");
+  assert.equal(readPanelPreference(storage), false);
+  writePanelPreference(true, storage);
+  assert.equal(store.get(PANEL_PREFERENCE_KEY), "open");
+  assert.equal(readPanelPreference(storage), true);
+  // Unbekannter Wert: offen
+  store.set(PANEL_PREFERENCE_KEY, "irgendwas");
+  assert.equal(readPanelPreference(storage), true);
+  // Speicher gesperrt (privates Fenster): offen, Schreiben wirft nicht
+  const locked = {
+    getItem() {
+      throw new Error("gesperrt");
+    },
+    setItem() {
+      throw new Error("gesperrt");
+    },
+  };
+  assert.equal(readPanelPreference(locked), true);
+  assert.doesNotThrow(() => writePanelPreference(false, locked));
+  // kein Speicher
+  assert.equal(readPanelPreference(null), true);
+  assert.doesNotThrow(() => writePanelPreference(true, null));
+});
+
+test("KIE-575, AK-6: arrowNavigationAllowed – ↑/↓ blättern bei Fokus auf <body> oder im Kopf des Panels; nicht in Eingaben, auf Zeilen, im Menü „⋯“ oder im Verlauf", () => {
+  const doc = createDocument();
+  assert.equal(arrowNavigationAllowed(doc), true, "Seite gerade geöffnet");
+  const input = doc.body.appendChild(doc.createElement("input"));
+  input.focus();
+  assert.equal(arrowNavigationAllowed(doc), false, "Suchfeld");
+
+  const panel = doc.body.appendChild(doc.createElement("aside"));
+  const head = panel.appendChild(doc.createElement("header"));
+  head.setAttribute("data-panel-head", "");
+  const close = head.appendChild(doc.createElement("button"));
+  close.focus();
+  assert.equal(arrowNavigationAllowed(doc), true, "✕ im Kopf");
+  const menu = head.appendChild(doc.createElement("div"));
+  menu.setAttribute("role", "menu");
+  const item = menu.appendChild(doc.createElement("button"));
+  item.focus();
+  assert.equal(arrowNavigationAllowed(doc), false, "Menü „⋯“");
+  const body = panel.appendChild(doc.createElement("div"));
+  body.setAttribute("data-panel-body", "");
+  body.setAttribute("tabindex", "0");
+  body.focus();
+  assert.equal(arrowNavigationAllowed(doc), false, "scrollender Verlauf");
+
+  const row = doc.body.appendChild(doc.createElement("button"));
+  row.setAttribute("data-conversation-row", "1");
+  row.focus();
+  assert.equal(arrowNavigationAllowed(doc), false, "Zeile (eigener Handler)");
+  // Fokus auf einem Element, das nicht mehr im Dokument ist: wie <body>
+  doc.activeElement = doc.createElement("button");
+  assert.equal(arrowNavigationAllowed(doc), true);
+  assert.equal(arrowNavigationAllowed(undefined), false);
 });

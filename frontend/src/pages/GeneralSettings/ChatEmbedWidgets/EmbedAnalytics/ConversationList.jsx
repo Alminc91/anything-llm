@@ -21,9 +21,12 @@ import { formatDateForInput } from "@/utils/billingDate";
 import showToast from "@/utils/toast";
 import {
   AVATAR_CLEARANCE,
+  FOCUS_RING,
   MUTED,
   RATING_COLUMN,
   SEARCH_MAX_LENGTH,
+  WORKSPACE,
+  arrowNavigationAllowed,
   berlinDateTime,
   berlinTime,
   conversationKey,
@@ -33,22 +36,27 @@ import {
   groupByLastMessageDay,
   hasContentGap,
   isNewConversation,
-  isWide,
   nextNewExpiry,
+  readPanelPreference,
   searchLinkIssue,
   shortDayLabel,
   startedOnOtherDay,
+  writePanelPreference,
 } from "@/utils/conversationView";
 import ConversationDetail from "./ConversationDetail";
 import ExportMenu from "./ExportMenu";
 import useConversationLocation from "./useConversationLocation";
+import { useWide } from "./viewHooks";
 
 // Konversationsliste der Ansicht „Konversationen": kompakte Zeilen, nach dem
 // Tag der LETZTEN Nachricht gruppiert (Berliner Zeit) und danach sortiert –
 // eine weitergeführte alte Konversation steht wieder oben. Ein Klick öffnet
-// den Gesprächsverlauf: ab lg als Seitenpanel rechts (die Liste bleibt, wo
-// sie ist), darunter als Vollbild. Geöffnete Konversation und Suche stehen in
-// der Adresse (useConversationLocation).
+// den Gesprächsverlauf: ab lg als rechte Spalte eines Arbeitsbereichs mit
+// fester Höhe (KIE-575: Liste links, Verlauf rechts, je eigene
+// Bildlaufleiste; der Verlauf ist von sich aus offen, die neueste Zeile
+// vorgewählt, ✕ schließt ihn und merkt sich das), darunter als Vollbild.
+// Geöffnete Konversation und Suche stehen in der Adresse
+// (useConversationLocation); die automatische Vorwahl nicht.
 
 const PAGE_SIZE = 20;
 // Größte Seite, die der Server liefert (analytics/conversations)
@@ -248,7 +256,17 @@ export default function ConversationList({
   const { t } = useTranslation();
   const place = useConversationLocation();
   const search = effectiveSearch(place.search);
-  const chatId = place.chatId;
+  // Die Konversation aus der Adresse (Link, Klick, Blättern). Ab lg kommt
+  // unten die automatische Vorwahl der ersten Zeile dazu (chatId).
+  const linkedChatId = place.chatId;
+  const wide = useWide();
+  // KIE-575: Verlauf offen oder zu – gemerkt im Browser, Standard offen.
+  // Gilt nur ab lg (darunter öffnet eine Zeile das Vollbild wie bisher).
+  const [panelOpen, setPanelOpen] = useState(() => readPanelPreference());
+  const rememberPanel = useCallback((open) => {
+    setPanelOpen(open);
+    writePanelPreference(open);
+  }, []);
 
   const bucketStart = bucket?.start ?? null;
   const bucketEnd = bucket?.end ?? null;
@@ -484,6 +502,17 @@ export default function ConversationList({
   const moreFailed = !loading && list.moreFailed;
   const totalCount = loading ? 0 : list.total;
 
+  // KIE-575, ab lg: Ohne Konversation in der Adresse ist die erste (neueste)
+  // geladene Zeile vorgewählt, solange der Verlauf offen ist – ohne die
+  // Adresse oder den Verlauf des Browsers zu ändern (AK-3). Lädt die Liste
+  // (Wechsel von Zeitraum, Filter, Suche), ist vorerst nichts gewählt; der
+  // Platzhalter des Verlaufs hält derweil die Spalte (kein Layoutsprung).
+  const autoChatId =
+    wide && panelOpen && linkedChatId === null && items.length > 0
+      ? items[0].first_chat_id
+      : null;
+  const chatId = linkedChatId ?? autoChatId;
+
   // „Neu“ (K3) hängt an der Uhr: Läuft das erste „Neu“ ab, rechnet die Liste
   // neu, auch wenn die Seite offen bleibt; ebenso bei der Rückkehr in den Tab
   // (Zeitgeber ruhen im Hintergrund und im Ruhezustand). Neu gerendert
@@ -594,9 +623,27 @@ export default function ConversationList({
   const currentRow = currentIndex >= 0 ? items[currentIndex] : null;
 
   const openRow = useCallback(
-    (row) => place.openConversation(row.first_chat_id, { widgetId: embedId }),
-    [place, embedId]
+    (row) => {
+      // Ab lg ersetzt der Klick den Eintrag im Verlauf des Browsers: Der
+      // Verlauf ist dort ein Arbeitsbereich, den Zurück nicht schließt
+      // (KIE-575). Unter lg wie bisher (neuer Eintrag aus der Liste).
+      place.openConversation(row.first_chat_id, {
+        widgetId: embedId,
+        replace: wide,
+      });
+      // Ein Klick auf eine Zeile öffnet den geschlossenen Verlauf wieder und
+      // merkt sich „offen“ (AK-4).
+      if (wide && !panelOpen) rememberPanel(true);
+    },
+    [place, embedId, wide, panelOpen, rememberPanel]
   );
+  // ✕ (ab lg) bzw. „‹ Konversationen“ (unter lg): Ab lg wird „geschlossen“
+  // gemerkt – die Liste nimmt die volle Breite ein, bis eine Zeile geklickt
+  // wird; eine Konversation aus der Adresse verschwindet daraus wie bisher.
+  const closePanel = useCallback(() => {
+    if (wide) rememberPanel(false);
+    if (linkedChatId !== null) place.closeConversation();
+  }, [wide, rememberPanel, linkedChatId, place]);
 
   // Blättert das Panel (vorherige/nächste), folgt die Liste der markierten
   // Zeile; ein Klick in die Liste verschiebt sie nicht (AK-4). Gesetzt nur,
@@ -637,6 +684,28 @@ export default function ConversationList({
       if (!loading && !loadingMore) loadMore();
     }
   };
+  // KIE-575, AK-6: ↑/↓ blättern ab lg auch ohne vorherigen Klick – direkt
+  // nach dem Öffnen der Seite steht der Fokus auf <body>, und niemand nimmt
+  // die Pfeiltasten (arrowNavigationAllowed: auch im Kopf des Panels, nicht
+  // auf Zeilen, in Eingaben, im Menü oder im scrollenden Verlauf). Der
+  // Fokus bleibt, wo er ist (kein Fokusdiebstahl); die gewählte Zeile kommt
+  // über openFollowing in der Spalte in Sicht.
+  const navigateRef = useRef(navigate);
+  useLayoutEffect(() => {
+    navigateRef.current = navigate;
+  });
+  useEffect(() => {
+    if (!wide || chatId === null || typeof window === "undefined") return;
+    function handleKeyDown(event) {
+      if (event.defaultPrevented) return;
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      if (!arrowNavigationAllowed(document)) return;
+      event.preventDefault();
+      navigateRef.current(event.key === "ArrowDown" ? 1 : -1);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [wide, chatId]);
 
   // Per Link (Adresse beim Öffnen der Seite) geöffnet und (noch) nicht unter
   // den geladenen Konversationen: nachladen, bis sie gefunden ist – bis zu
@@ -648,7 +717,7 @@ export default function ConversationList({
   // ein Nachladen, hält sie an und der Hinweis sagt es; gelingt später ein
   // Nachladen (etwa „Weitere laden“), verschwindet er wieder.
   const [linkScope] = useState(() =>
-    chatId !== null ? { chatId, scope } : null
+    linkedChatId !== null ? { chatId: linkedChatId, scope } : null
   );
   const fromLink =
     linkScope !== null &&
@@ -659,7 +728,7 @@ export default function ConversationList({
   // Ring. Schließen oder Blättern beendet das – öffnet der Nutzer dieselbe
   // Konversation danach per Klick oder Tastatur, gilt sie nicht mehr als
   // per Link geöffnet.
-  const [linkOpening, setLinkOpening] = useState(chatId !== null);
+  const [linkOpening, setLinkOpening] = useState(linkedChatId !== null);
   if (linkOpening && chatId !== linkScope?.chatId) setLinkOpening(false);
   const notListed =
     chatId !== null &&
@@ -680,10 +749,16 @@ export default function ConversationList({
   // überschreibt die eines anderen. Es hält an, wenn eine Seite keine neue
   // Zeile bringt (nur Doppelte, etwa nach Verschiebungen), ein Nachladen
   // scheitert oder AUTO_LOAD_ROUNDS Anfragen gestellt sind (Fixliste 3, C1).
+  // KIE-575, AK-5: Kommt ab lg das Ende der Spalte in Sicht, wünscht sich die
+  // Liste die nächste Seite (IntersectionObserver unten) – als Wunsch wie die
+  // anderen, über dasselbe Nachladen.
+  const [endWish, setEndWish] = useState(null);
+  if (endWish && endWish.scope !== scope) setEndWish(null);
   const wantedRows = Math.max(
     refill?.rows ?? 0,
     advanceAfter?.rows ?? 0,
-    linkRows
+    linkRows,
+    endWish?.rows ?? 0
   );
   const [autoRounds, setAutoRounds] = useState({ scope: null, count: 0 });
   const rounds = autoRounds.scope === scope ? autoRounds.count : 0;
@@ -709,6 +784,48 @@ export default function ConversationList({
   const settled = (wish) =>
     !!wish && idle && (items.length >= wish.rows || stuck);
   if (settled(refill)) setRefill(null);
+  if (settled(endWish)) setEndWish(null);
+
+  // Automatisches Nachladen am Ende der Spalte (ab lg, KIE-575): Ein
+  // Beobachter am letzten Element der geladenen Zeilen (data-list-end), mit
+  // der Spalte als Rahmen. Kommt es in Sicht, kommt eine Seite dazu; der
+  // Beobachter wird mit jeder Seite neu angelegt und meldet den Stand
+  // (noch in Sicht: die nächste). Höchstens AUTO_LOAD_ROUNDS Seiten
+  // hintereinander – eine eigene Zählung, weil das gemeinsame Nachladen
+  // seine Zählung nach jedem erfüllten Wunsch zurücksetzt. Danach, nach
+  // einem Fehler und nach einer Seite ohne neue Zeile (stuck) bleibt der
+  // Knopf „Weitere laden“ als Rückfall; ein Klick darauf beginnt die Zählung
+  // von vorn.
+  const columnRef = useRef(null);
+  const endRef = useRef(null);
+  const [endRounds, setEndRounds] = useState({ scope: null, count: 0 });
+  const endCount = endRounds.scope === scope ? endRounds.count : 0;
+  const watchEnd =
+    wide && hasMore && idle && !stuck && endCount < AUTO_LOAD_ROUNDS;
+  useEffect(() => {
+    if (!watchEnd || typeof IntersectionObserver === "undefined") return;
+    const sentinel = endRef.current;
+    const root = columnRef.current;
+    if (!sentinel || !root) return;
+    const rows = items.length + PAGE_SIZE;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setEndWish({ scope, rows });
+        setEndRounds((current) => ({
+          scope,
+          count: (current.scope === scope ? current.count : 0) + 1,
+        }));
+      },
+      { root }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [watchEnd, scope, items.length]);
+  const loadMoreByHand = () => {
+    setEndRounds({ scope, count: 0 });
+    loadMore();
+  };
   // „Nächste“ am Ende, und das Nachladen scheiterte: Das Panel sagt es
   // (Fixliste 5, C2) – die Meldung am Knopf „Weitere Konversationen laden“
   // liegt nach dem Blättern oft unter dem Fensterrand. Ein erneuter Klick auf
@@ -752,23 +869,28 @@ export default function ConversationList({
         : null;
 
   // Die markierte Zeile bleibt im Blick, wenn das Panel blättert (nur, wenn
-  // sie neben dem Panel steht: ab lg).
+  // sie neben dem Panel steht: ab lg). Die Zeilen liegen in der scrollenden
+  // Spalte – „nearest“ bewegt die Spalte, und die Seite nur, wenn der
+  // Bereich nicht ganz im Fenster steht.
   const rowRefs = useRef(new Map());
   const currentKey = currentRow ? conversationKey(currentRow) : null;
   useEffect(() => {
     if (!currentKey || !followCurrent.current) return;
     followCurrent.current = false;
-    if (isWide())
+    if (wide)
       rowRefs.current.get(currentKey)?.scrollIntoView?.({ block: "nearest" });
-  }, [currentKey]);
+  }, [currentKey, wide]);
 
   // Per Link geöffnet: Sobald die Zeile in der Liste markiert ist – auch
-  // erst nach dem Nachladen der Link-Suche –, sagt die Liste es der Ansicht.
-  // Die bringt sie in Sicht, solange ihr Sprung zur Liste hält (Fixliste 6,
-  // K5).
+  // erst nach dem Nachladen der Link-Suche –, kommt sie ab lg in der Spalte
+  // in Sicht (KIE-575: die Spalte scrollt selbst), und die Liste sagt es der
+  // Ansicht. Die hält ihren Sprung zur Liste (Fixliste 6, K5).
   useEffect(() => {
-    if (fromLink && currentKey) onLinkedRowShown();
-  }, [fromLink, currentKey, onLinkedRowShown]);
+    if (!fromLink || !currentKey) return;
+    if (wide)
+      rowRefs.current.get(currentKey)?.scrollIntoView?.({ block: "nearest" });
+    onLinkedRowShown();
+  }, [fromLink, currentKey, onLinkedRowShown, wide]);
   // Solange die per Link geöffnete Konversation noch gesucht wird – die
   // Liste oder das Panel lädt, die Link-Suche lädt Folgeseiten –, hält die
   // Ansicht ihren Sprung, auch wenn eine Seite lange braucht (Fixliste 8,
@@ -782,6 +904,27 @@ export default function ConversationList({
   useEffect(() => {
     onLinkSearchChange(linkPending);
   }, [linkPending, onLinkSearchChange]);
+
+  // KIE-575, ab lg: Wechsel von Zeitraum, Filter oder Suche bei offenem
+  // Verlauf – steht die Konversation aus der Adresse nicht mehr in der
+  // geladenen Liste (geladen: ihr Verlauf ist da, sie liegt woanders oder
+  // außerhalb des Zeitraums), fällt sie aus der Adresse (ersetzt, kein
+  // Eintrag im Verlauf des Browsers); die erste Zeile der neuen Liste ist
+  // dann vorgewählt. Nicht beim Öffnen per Link (fromLink): Ein Link öffnet
+  // immer, auch außerhalb des Zeitraums – und nicht unter lg.
+  const staleLink =
+    wide &&
+    linkedChatId !== null &&
+    !fromLink &&
+    !loading &&
+    !failed &&
+    currentIndex < 0 &&
+    loadedKey.chatId === linkedChatId &&
+    (!!loadedKey.key || loadedKey.outside);
+  const unlinkConversation = place.unlinkConversation;
+  useEffect(() => {
+    if (staleLink) unlinkConversation();
+  }, [staleLink, unlinkConversation]);
 
   // Schließt das Panel, kehrt der Fokus auf die Zeile zurück (statt im
   // Nichts zu stehen) – ohne die Liste zu verschieben.
@@ -910,8 +1053,13 @@ export default function ConversationList({
       : t("embed-analytics.search.empty", { term: search });
 
   return (
-    <div>
-      {/* Kopfzeile – immer sichtbar, auch im Lade- und Leer-Zustand.
+    // Ab lg ein Arbeitsbereich mit fester Höhe (KIE-575, WORKSPACE): links
+    // die Spalte der Liste (Kopf fest, Zeilen scrollen), rechts der Verlauf
+    // (Panel) bzw. sein Platzhalter, beide so hoch wie der Bereich. Unter lg
+    // wie bisher: Kopf, Liste, die Seite scrollt; das Panel ist ein Vollbild.
+    <div data-conversation-area="" className={WORKSPACE.area}>
+      <div data-list-column="" className={WORKSPACE.column}>
+        {/* Kopfzeile – immer sichtbar, auch im Lade- und Leer-Zustand.
           Überschrift mit „N einsehbar“ bzw. „X von Y einsehbar“ daneben
           (Fixliste 3, V1); reicht der Platz nicht, bricht die Zahl unter
           die Überschrift, nicht die Werkzeugleiste um. Die Werkzeugleiste
@@ -925,46 +1073,49 @@ export default function ConversationList({
           Filter gesetzt ist. Unter sm: „Exportieren“ als Symbol neben der
           Überschrift, Suche und Bewertungsfilter je in voller Breite
           darunter – nichts überlappt (B1). */}
-      <div data-list-header="" className="mb-3 flex flex-col gap-3">
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-          {/* Ab xl teilen sich Titelblock und Leiste den freien Platz einer
+        <div
+          data-list-header=""
+          className="mb-3 flex flex-col gap-3 lg:shrink-0"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+            {/* Ab xl teilen sich Titelblock und Leiste den freien Platz einer
               gemeinsamen Zeile fast ganz zugunsten des Titels (grow 999 zu 1):
               Die Suche bleibt dort 240 px, „N einsehbar“ neben der
               Überschrift. Bricht die Leiste unter die Überschrift (1280 px),
               ist sie allein in ihrer Zeile und füllt sie – wie von sm bis xl
               (Fixliste 5, S4). */}
-          <div
-            data-list-title=""
-            className="order-1 flex min-w-0 flex-1 basis-40 flex-wrap content-start items-center gap-x-3 gap-y-0.5 xl:grow-[999]"
-          >
-            <h3
-              ref={headingRef}
-              tabIndex={-1}
-              data-list-heading=""
-              className="flex min-h-11 items-center text-base font-semibold text-theme-text-primary sm:min-h-10"
+            <div
+              data-list-title=""
+              className="order-1 flex min-w-0 flex-1 basis-40 flex-wrap content-start items-center gap-x-3 gap-y-0.5 xl:grow-[999]"
             >
-              {t("embed-analytics.list.title")}
-            </h3>
-            {!loading && !failed && (
-              <span
-                data-viewable-count=""
-                title={t("embed-analytics.list.viewable-hint")}
-                className={`whitespace-nowrap text-sm ${MUTED}`}
+              <h3
+                ref={headingRef}
+                tabIndex={-1}
+                data-list-heading=""
+                className="flex min-h-11 items-center text-base font-semibold text-theme-text-primary sm:min-h-10"
               >
-                {outOf === null
-                  ? t("embed-analytics.list.viewable", {
-                      count: totalCount,
-                      formatted: formatNumber(totalCount),
-                    })
-                  : t("embed-analytics.list.viewable-of", {
-                      count: totalCount,
-                      formatted: formatNumber(totalCount),
-                      total: formatNumber(outOf),
-                    })}
-              </span>
-            )}
-          </div>
-          {/* unter sm „contents“: Die Teile ordnen sich in die Kopfzeile ein.
+                {t("embed-analytics.list.title")}
+              </h3>
+              {!loading && !failed && (
+                <span
+                  data-viewable-count=""
+                  title={t("embed-analytics.list.viewable-hint")}
+                  className={`whitespace-nowrap text-sm ${MUTED}`}
+                >
+                  {outOf === null
+                    ? t("embed-analytics.list.viewable", {
+                        count: totalCount,
+                        formatted: formatNumber(totalCount),
+                      })
+                    : t("embed-analytics.list.viewable-of", {
+                        count: totalCount,
+                        formatted: formatNumber(totalCount),
+                        total: formatNumber(outOf),
+                      })}
+                </span>
+              )}
+            </div>
+            {/* unter sm „contents“: Die Teile ordnen sich in die Kopfzeile ein.
               Von sm bis xl steht die Leiste in einer eigenen Zeile: Suche so
               breit wie möglich (mindestens 240 px, Basis 0 – nicht die volle
               Zeile, Fixliste 4 V5), Bewertungsfilter mit kurzen Namen und
@@ -979,140 +1130,139 @@ export default function ConversationList({
               keinen nennenswerten Zuwachs (Titel grow 999); bricht sie um,
               füllt sie ihre Zeile (xl:grow), und die Suche wächst – links
               bündig wie von sm bis xl (Fixliste 5, S4). */}
-          <div
-            data-list-tools=""
-            className={`contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 xl:grow xl:basis-auto ${AVATAR_CLEARANCE.toolbarEnd}`}
-          >
-            <SearchField
-              value={place.search}
-              onSearch={setPlaceSearch}
-              inputRef={searchInputRef}
-              className="order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 xl:w-60 xl:flex-auto"
-            />
             <div
-              data-list-actions=""
-              className="contents sm:flex sm:items-center sm:gap-2"
+              data-list-tools=""
+              className={`contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 xl:grow xl:basis-auto ${AVATAR_CLEARANCE.toolbarEnd}`}
             >
+              <SearchField
+                value={place.search}
+                onSearch={setPlaceSearch}
+                inputRef={searchInputRef}
+                className="order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 xl:w-60 xl:flex-auto"
+              />
               <div
-                role="group"
-                data-feedback-filters=""
-                aria-label={t("embed-analytics.rows.filter-group")}
-                className="order-4 flex min-w-0 basis-full gap-0.5 rounded-lg border border-white/10 bg-theme-settings-input-bg p-0.5 sm:order-none sm:basis-auto light:border-gray-200"
+                data-list-actions=""
+                className="contents sm:flex sm:items-center sm:gap-2"
               >
-                <button
-                  type="button"
-                  ref={allFilterRef}
-                  aria-pressed={feedbackFilter === "all"}
-                  aria-label={t("embed-analytics.rows.all-hint")}
-                  title={t("embed-analytics.rows.all-hint")}
-                  onClick={() => onFeedbackFilterChange("all")}
-                  className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${feedbackFilter === "all" ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+                <div
+                  role="group"
+                  data-feedback-filters=""
+                  aria-label={t("embed-analytics.rows.filter-group")}
+                  className="order-4 flex min-w-0 basis-full gap-0.5 rounded-lg border border-white/10 bg-theme-settings-input-bg p-0.5 sm:order-none sm:basis-auto light:border-gray-200"
                 >
-                  <StableLabel text={t("embed-analytics.rows.all")} />
-                </button>
-                {FEEDBACK_FILTERS.map(({ mode, Icon, labelKey }) => {
-                  const active = feedbackFilter === mode;
-                  return (
-                    <button
-                      key={mode}
-                      type="button"
-                      aria-pressed={active}
-                      // Texte neben labelKey: …-hint (Tooltip, Name für
-                      // Screenreader) und …-short (schmale Fenster).
-                      aria-label={t(`${labelKey}-hint`)}
-                      title={t(`${labelKey}-hint`)}
-                      onClick={() => toggleFilter(mode)}
-                      className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${active ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
-                    >
-                      {/* Ein Daumen je Schaltfläche, in der Textfarbe; gefüllt,
+                  <button
+                    type="button"
+                    ref={allFilterRef}
+                    aria-pressed={feedbackFilter === "all"}
+                    aria-label={t("embed-analytics.rows.all-hint")}
+                    title={t("embed-analytics.rows.all-hint")}
+                    onClick={() => onFeedbackFilterChange("all")}
+                    className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${feedbackFilter === "all" ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+                  >
+                    <StableLabel text={t("embed-analytics.rows.all")} />
+                  </button>
+                  {FEEDBACK_FILTERS.map(({ mode, Icon, labelKey }) => {
+                    const active = feedbackFilter === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={active}
+                        // Texte neben labelKey: …-hint (Tooltip, Name für
+                        // Screenreader) und …-short (schmale Fenster).
+                        aria-label={t(`${labelKey}-hint`)}
+                        title={t(`${labelKey}-hint`)}
+                        onClick={() => toggleFilter(mode)}
+                        className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${active ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+                      >
+                        {/* Ein Daumen je Schaltfläche, in der Textfarbe; gefüllt,
                           wenn der Filter gesetzt ist – wie in der
                           Chat-Oberfläche. */}
-                      <Icon
-                        size={15}
-                        weight={active ? "fill" : "regular"}
-                        aria-hidden="true"
-                      />
-                      {/* Bis xl der kurze Text, damit Suche, Filter und
+                        <Icon
+                          size={15}
+                          weight={active ? "fill" : "regular"}
+                          aria-hidden="true"
+                        />
+                        {/* Bis xl der kurze Text, damit Suche, Filter und
                           Export in eine Zeile passen (V7). */}
-                      <StableLabel
-                        text={t(`${labelKey}-short`)}
-                        className="xl:hidden"
-                      />
-                      <StableLabel
-                        text={t(labelKey)}
-                        className="hidden xl:inline-flex"
-                      />
-                    </button>
-                  );
-                })}
+                        <StableLabel
+                          text={t(`${labelKey}-short`)}
+                          className="xl:hidden"
+                        />
+                        <StableLabel
+                          text={t(labelKey)}
+                          className="hidden xl:inline-flex"
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* KIE-538: Export der Auswahl, die die Liste gerade zeigt */}
+                <ExportMenu
+                  embedId={embedId}
+                  selection={selection}
+                  disabled={loading || failed || totalCount === 0}
+                  wrapperClassName="order-2 sm:order-none"
+                  className="flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-2.5 xl:px-3.5 light:border-gray-200"
+                />
               </div>
-              {/* KIE-538: Export der Auswahl, die die Liste gerade zeigt */}
-              <ExportMenu
-                embedId={embedId}
-                selection={selection}
-                disabled={loading || failed || totalCount === 0}
-                wrapperClassName="order-2 sm:order-none"
-                className="flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-2.5 xl:px-3.5 light:border-gray-200"
-              />
             </div>
           </div>
-        </div>
-        {/* Filtermarkierungen – eine eigene Zeile nur, wenn ein Filter
+          {/* Filtermarkierungen – eine eigene Zeile nur, wenn ein Filter
             gesetzt ist. gap-y 18 px: Die 44-px-Trefferflächen der ✕ ragen je
             9 px über ihre Markierung hinaus und überlappen sich so auch bei
             umbrochenen Markierungen nicht (Fixliste 3, S1). */}
-        {(feedbackActive || bucket || search) && (
-          <div
-            data-list-status=""
-            className="flex flex-wrap items-center gap-x-3 gap-y-[18px]"
-          >
-            {feedbackActive && (
-              <FilterMark
-                data-feedback-filter-mark={feedbackFilter}
-                label={t("embed-analytics.list.only-feedback", {
-                  filter: feedbackLabel,
-                })}
-                clearLabel={t("embed-analytics.list.clear-feedback", {
-                  filter: feedbackLabel,
-                })}
-                onClear={() => onFeedbackFilterChange("all")}
-                focusAfter={() => allFilterRef.current?.focus?.()}
-              />
-            )}
-            {bucket && (
-              <FilterMark
-                data-bucket-filter=""
-                label={t("embed-analytics.list.only-bucket", {
-                  period: bucket.label,
-                })}
-                clearLabel={t("embed-analytics.list.clear-bucket", {
-                  period: bucket.label,
-                })}
-                onClear={onClearBucket}
-                focusAfter={() =>
-                  headingRef?.current?.focus?.({ preventScroll: true })
-                }
-              />
-            )}
-            {search && (
-              <FilterMark
-                data-search-filter-mark=""
-                label={t("embed-analytics.search.mark", { term: search })}
-                clearLabel={t("embed-analytics.search.clear", { term: search })}
-                onClear={clearSearch}
-                focusAfter={() => searchInputRef.current?.focus?.()}
-              />
-            )}
-          </div>
-        )}
-      </div>
+          {(feedbackActive || bucket || search) && (
+            <div
+              data-list-status=""
+              className="flex flex-wrap items-center gap-x-3 gap-y-[18px]"
+            >
+              {feedbackActive && (
+                <FilterMark
+                  data-feedback-filter-mark={feedbackFilter}
+                  label={t("embed-analytics.list.only-feedback", {
+                    filter: feedbackLabel,
+                  })}
+                  clearLabel={t("embed-analytics.list.clear-feedback", {
+                    filter: feedbackLabel,
+                  })}
+                  onClear={() => onFeedbackFilterChange("all")}
+                  focusAfter={() => allFilterRef.current?.focus?.()}
+                />
+              )}
+              {bucket && (
+                <FilterMark
+                  data-bucket-filter=""
+                  label={t("embed-analytics.list.only-bucket", {
+                    period: bucket.label,
+                  })}
+                  clearLabel={t("embed-analytics.list.clear-bucket", {
+                    period: bucket.label,
+                  })}
+                  onClear={onClearBucket}
+                  focusAfter={() =>
+                    headingRef?.current?.focus?.({ preventScroll: true })
+                  }
+                />
+              )}
+              {search && (
+                <FilterMark
+                  data-search-filter-mark=""
+                  label={t("embed-analytics.search.mark", { term: search })}
+                  clearLabel={t("embed-analytics.search.clear", {
+                    term: search,
+                  })}
+                  onClear={clearSearch}
+                  focusAfter={() => searchInputRef.current?.focus?.()}
+                />
+              )}
+            </div>
+          )}
+        </div>
 
-      {/* Ab lg mindestens so hoch wie das Panel werden kann: So lässt sich
-          die Seite immer so weit scrollen, dass das Panel ganz zu sehen ist –
-          auch bei wenigen Treffern (Fixliste 3, V8) –, und die Seite
-          schrumpft nicht, wenn eine Suche die Liste verkürzt. */}
-      <div className="flex items-start gap-4 lg:min-h-[calc(100vh-112px)]">
-        <div className="min-w-0 flex-1">
+        {/* Der scrollende Teil der Spalte (ab lg): Zeilen, „Weitere laden“,
+          Hinweise. Rahmen des Beobachters für das Nachladen am Ende. */}
+        <div ref={columnRef} data-list-scroll="" className={WORKSPACE.scroller}>
           {loading ? (
             <div className="text-white">{t("embed-analytics.loading")}</div>
           ) : failed ? (
@@ -1198,6 +1348,14 @@ export default function ConversationList({
               })}
               {hasMore && (
                 <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border-t border-white/5 px-4 py-3 light:border-gray-100">
+                  {/* Ende der geladenen Zeilen: Kommt es ab lg in der Spalte
+                      in Sicht, lädt die Liste von selbst nach (AK-5). */}
+                  <div
+                    ref={endRef}
+                    data-list-end=""
+                    aria-hidden="true"
+                    className="basis-full"
+                  />
                   {/* Nachladen gescheitert: die Meldung hier am Knopf, der
                       Knopf versucht es erneut (Fixliste 4, V6) */}
                   {moreFailed && !loadingMore && (
@@ -1212,7 +1370,7 @@ export default function ConversationList({
                   <button
                     type="button"
                     data-load-more=""
-                    onClick={() => loadMore()}
+                    onClick={loadMoreByHand}
                     disabled={loadingMore}
                     className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 disabled:opacity-60 sm:h-9 light:border-gray-200 light:hover:bg-black/5"
                   >
@@ -1253,33 +1411,57 @@ export default function ConversationList({
               </p>
             )}
         </div>
-
-        {chatId !== null && embedId && (
-          <ConversationDetail
-            embedId={embedId}
-            chatId={chatId}
-            row={currentRow}
-            search={search}
-            fromDay={fromDay}
-            toDay={toDay}
-            // Die Suche prüft die Zeilen im Zeitraum – mit Abschnitt
-            // (Säulenklick) die ganze Konversation (Fixliste 2, S7).
-            searchWholeConversation={!!bucket}
-            canPrevious={currentIndex > 0}
-            canNext={
-              currentIndex >= 0 && (currentIndex < items.length - 1 || hasMore)
-            }
-            navigationHint={navigationHint}
-            onNavigate={navigate}
-            onClose={place.closeConversation}
-            onDeleted={handleDeleted}
-            onLoaded={handleLoaded}
-            linkOf={(id) => place.conversationUrl(id, embedId)}
-            reveal={!fromLink}
-            openedByLink={linkOpening}
-          />
-        )}
       </div>
+
+      {/* Verlauf offen, aber nichts gewählt (Liste lädt oder ist leer): Der
+          Platzhalter hält die rechte Spalte, damit die Liste nicht springt
+          (NAK-1); ✕ schließt den Verlauf wie im Panel. Nur ab lg. */}
+      {wide && panelOpen && chatId === null && !!embedId && (
+        <aside
+          data-conversation-panel-empty=""
+          aria-label={t("embed-analytics.panel.label")}
+          className={`relative hidden items-center justify-center rounded-xl border border-white/10 bg-theme-bg-primary lg:flex ${WORKSPACE.panel}`}
+        >
+          <button
+            type="button"
+            data-empty-panel-close=""
+            aria-label={t("embed-analytics.panel.close")}
+            title={t("embed-analytics.panel.close")}
+            onClick={closePanel}
+            className={`absolute right-5 top-4 grid h-9 w-9 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 ${FOCUS_RING}`}
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+          <p className={`px-6 text-center text-sm ${MUTED}`}>
+            {t("embed-analytics.panel.empty")}
+          </p>
+        </aside>
+      )}
+
+      {chatId !== null && embedId && (
+        <ConversationDetail
+          embedId={embedId}
+          chatId={chatId}
+          row={currentRow}
+          search={search}
+          fromDay={fromDay}
+          toDay={toDay}
+          // Die Suche prüft die Zeilen im Zeitraum – mit Abschnitt
+          // (Säulenklick) die ganze Konversation (Fixliste 2, S7).
+          searchWholeConversation={!!bucket}
+          canPrevious={currentIndex > 0}
+          canNext={
+            currentIndex >= 0 && (currentIndex < items.length - 1 || hasMore)
+          }
+          navigationHint={navigationHint}
+          onNavigate={navigate}
+          onClose={closePanel}
+          onDeleted={handleDeleted}
+          onLoaded={handleLoaded}
+          linkOf={(id) => place.conversationUrl(id, embedId)}
+          openedByLink={linkOpening}
+        />
+      )}
     </div>
   );
 }
@@ -1463,7 +1645,10 @@ const ConversationRow = memo(function ConversationRow({
       // K4 (Nachtrag KIE-560): deutlicher Hover in beiden Themes, Pfeil in
       // Textfarbe, Hand als Zeiger; nur Farben, kein Layoutsprung. Seit
       // Review 7.22-rc2 (B-11) kräftiger: dunkel 10 %, hell 6 %.
-      className={`group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_16px] lg:scroll-mb-8 lg:scroll-mt-20 items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
+      // Scroll-Abstände ab lg für „nearest“ in der scrollenden Spalte
+      // (KIE-575): oben so viel wie die Überschrift einer Tagesgruppe, damit
+      // sie beim Blättern nach oben mitkommt; unten ein kleiner Rand.
+      className={`group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_16px] lg:scroll-mb-2 lg:scroll-mt-8 items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
         selected
           ? "bg-sky-500/15 light:bg-sky-50"
           : "hover:bg-white/10 light:hover:bg-black/[0.06]"

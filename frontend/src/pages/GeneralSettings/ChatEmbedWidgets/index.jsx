@@ -21,11 +21,15 @@ export function ChatbotWidgets() {
   );
 }
 
-/** /settings/chatbot/conversations */
+/**
+ * /settings/chatbot/conversations – über die volle Breite (KIE-575): Der
+ * Arbeitsbereich aus Liste und Verlauf braucht sie; Kennzahlen und
+ * Diagramme sind responsiv.
+ */
 export function ChatbotConversations() {
   return (
     <RequiresChatHistory>
-      <ChatbotLayout>
+      <ChatbotLayout fullWidth>
         <EmbedAnalyticsView />
       </ChatbotLayout>
     </RequiresChatHistory>
@@ -48,7 +52,12 @@ function RequiresChatHistory({ children }) {
   return <>{children}</>;
 }
 
-function ChatbotLayout({ children }) {
+/**
+ * @param {{children: React.ReactNode, fullWidth?: boolean}} props -
+ *   fullWidth: ohne die Obergrenze von 1180 px (Konversationen, KIE-575);
+ *   die Widget-Liste behält sie.
+ */
+function ChatbotLayout({ children, fullWidth = false }) {
   return (
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
       <Sidebar />
@@ -56,10 +65,14 @@ function ChatbotLayout({ children }) {
         style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
         className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full min-w-0 h-full overflow-y-scroll p-4 md:p-0"
       >
-        {/* Inhalt linksbündig über die volle Breite, höchstens 1180 px. Der
+        {/* Inhalt linksbündig über die volle Breite, höchstens 1180 px –
+            außer die Ansicht braucht die ganze Breite (fullWidth). Der
             Abstand oben hält die Kopfzeilen der Ansichten unter dem
             Benutzermenü (oben rechts) bzw. mobil unter der Kopfleiste. */}
-        <div className="w-full max-w-[1180px] text-white py-16 md:pt-12 md:pb-6">
+        <div
+          data-chatbot-content={fullWidth ? "full" : "capped"}
+          className={`w-full ${fullWidth ? "" : "max-w-[1180px] "}text-white py-16 md:pt-12 md:pb-6`}
+        >
           {children}
         </div>
       </div>

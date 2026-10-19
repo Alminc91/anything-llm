@@ -123,12 +123,8 @@ export function ratingJumpIds(messages, kind, period = {}) {
 // Abstand zum schwebenden Benutzermenü oben rechts („KI“, bis 72 px unter
 // dem oberen Fensterrand) – an einer Stelle (Fixliste 3, S4). Der Bereich der
 // Einstellungsseiten beginnt ab md 16 px unter dem Fensterrand und endet
-// 16 px über dem unteren; das Panel klebt ab lg 64 px unter seinem oberen
-// Rand (Fixliste 2, B4).
+// 16 px über dem unteren.
 export const AVATAR_CLEARANCE = {
-  // Seitenpanel ab lg: klebt unter dem Benutzermenü; scroll-mt: so weit
-  // bringt scrollIntoView es nach oben (V8)
-  panel: "lg:sticky lg:top-16 lg:scroll-mt-16 lg:max-h-[calc(100vh-112px)]",
   // Sprungziel „Liste“ (Säule, Verweis, Link): Überschrift und Werkzeugleiste
   // landen unter dem Benutzermenü, der Export-Knopf bleibt frei (Fixliste 3,
   // V2)
@@ -144,77 +140,115 @@ export const AVATAR_CLEARANCE = {
   // und Export auch bei 768 px Fensterbreite in einer Zeile (V5).
   toolbarEnd: "sm:pr-11",
 };
-/** Oberkante des klebenden Panels im Fenster (16 px Rand + lg:top-16). */
-export const PANEL_STUCK_TOP = 80;
-/** Abstand der Unterkante des Panels zum Fensterrand (16 + 16 px). */
-export const PANEL_BOTTOM_GAP = 32;
-/** So niedrig wird das Panel nie, auch wenn es weit unten steht. */
-export const PANEL_MIN_HEIGHT = 240;
-/**
- * Sichtbar müssen beim Öffnen mindestens so viele Pixel des Panels sein –
- * sonst holt die Ansicht es nach oben (Fixliste 3, V8).
- */
-export const PANEL_MIN_VISIBLE = 320;
-/**
- * So viel Verlauf bleibt mindestens zwischen Kopf und Fußzeile sichtbar,
- * auch wenn das Panel dafür über die Mindesthöhe wächst (Fixliste 5, S5).
- */
-export const PANEL_MIN_BODY = 64;
+
+// ---------------------------------------------------------------------------
+// Arbeitsbereich „Konversationen“ ab lg (KIE-575)
+// ---------------------------------------------------------------------------
 
 /**
- * Mindesthöhe des Panels aus Kopf und Fußzeile: Kopf + Fußzeile +
- * PANEL_MIN_BODY + Rahmen (2 px). Die Fußzeile bleibt so in jeder Höhe
- * innerhalb des Panelrahmens – nur der Verlauf dazwischen scrollt
- * (Fixliste 5, S5). 0 ohne gemessenen Kopf.
- * @param {number} [headHeight] - Höhe des Kopfs (px)
- * @param {number} [footerHeight] - Höhe der Fußzeile (px; fehlt sie, 0)
- * @returns {number}
+ * Abstand der Oberkante des Bereichs zum oberen Fensterrand, wenn die Seite
+ * zu Ende gescrollt ist (px). Unter dem Bereich liegen 48 px (Innenabstand
+ * der Ansicht 24 + Abstand des Seitenrahmens 24) und der Rahmen der
+ * Einstellungsseiten endet 16 px über dem unteren Fensterrand: Mit
+ * 100vh − 88 px liegt der Bereich dann 24 px unter dem oberen Fensterrand,
+ * 8 px unter der Oberkante des Rahmens.
  */
-export function panelChromeHeight(headHeight, footerHeight) {
-  if (!Number.isFinite(headHeight) || headHeight <= 0) return 0;
-  const footer = Number.isFinite(footerHeight) ? footerHeight : 0;
-  return Math.ceil(headHeight + footer + PANEL_MIN_BODY + 2);
+export const WORKSPACE_TOP_GAP = 88;
+/** So niedrig wird der Bereich nie (px); darunter scrollt die Seite weiter. */
+export const WORKSPACE_MIN_HEIGHT = 560;
+/** Ab dieser Breite (Tailwind xl) ist der Verlauf mindestens 480 px breit. */
+export const WORKSPACE_PANEL_MIN_WIDTH = 480;
+
+/**
+ * Klassen des Arbeitsbereichs ab lg: Liste links und Verlauf rechts, beide
+ * so hoch wie der Bereich, je mit eigener Bildlaufleiste. Unter lg wirkt
+ * keine davon (Vollbild-Panel, Seite scrollt).
+ * - area: feste Höhe = Fensterhöhe − WORKSPACE_TOP_GAP, mindestens
+ *   WORKSPACE_MIN_HEIGHT; Spalten mit 16 px Abstand
+ * - column: linke Spalte – Kopf (Suche, Filter) oben fest, darunter der
+ *   scrollende Teil
+ * - scroller: der scrollende Teil der linken Spalte (Zeilen, „Weitere
+ *   laden“, Hinweise). Positioniert (relative): Die nur für Screenreader
+ *   bestimmten Texte der Bewertungsmarken (sr-only: position absolute)
+ *   gehören so zur Spalte und verlängern nicht die Seite – ohne
+ *   positionierten Vorfahren zählten die der unteren Zeilen zur Seite,
+ *   die dann über den Bereich hinaus scrollte.
+ * - panel: rechte Spalte – 50 % von lg bis 2xl, ab 2xl 56 % (je abzüglich
+ *   des halben Spaltenabstands); ab xl mindestens WORKSPACE_PANEL_MIN_WIDTH.
+ *   Von lg bis xl gilt die Mindestbreite bewusst nicht: Bei 1.024 px ist der
+ *   Inhalt rund 650 px breit, der Liste blieben neben 480 px Verlauf
+ *   rund 150 px.
+ * Die Klassen stehen wörtlich (keine Vorlagen mit den Konstanten): Tailwind
+ * erzeugt nur CSS für Klassen, die es im Quelltext liest. Ein Test prüft,
+ * dass die Zahlen darin zu den Konstanten passen.
+ */
+export const WORKSPACE = {
+  area: "lg:flex lg:gap-4 lg:h-[max(560px,calc(100vh-88px))]",
+  column: "lg:flex lg:min-w-0 lg:flex-1 lg:flex-col",
+  scroller:
+    "lg:relative lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain",
+  panel:
+    "lg:w-[calc(50%-8px)] 2xl:w-[calc(56%-8px)] xl:min-w-[480px] lg:shrink-0",
+};
+
+/** Schlüssel im Browser-Speicher: Verlauf offen ("open") oder zu ("closed"). */
+export const PANEL_PREFERENCE_KEY = "kie.conversations.panel";
+
+/**
+ * Gemerkter Zustand des Verlaufs ab lg: true (offen), solange nicht
+ * "closed" gespeichert ist – auch ohne Speicher oder wenn er nicht lesbar
+ * ist (privates Fenster, gesperrte Website-Daten).
+ * @param {{getItem: Function}} [storage]
+ * @returns {boolean}
+ */
+export function readPanelPreference(
+  storage = typeof localStorage === "undefined" ? null : localStorage
+) {
+  try {
+    return storage?.getItem?.(PANEL_PREFERENCE_KEY) !== "closed";
+  } catch {
+    return true;
+  }
 }
 
 /**
- * Höhe des Seitenpanels ab lg (Fixliste 3, V3/V8): Es endet über dem unteren
- * Fensterrand, wo immer es gerade steht – oben klebend (PANEL_STUCK_TOP) oder
- * tiefer, solange die Seite noch nicht so weit gescrollt ist (etwa direkt
- * nach dem Sprung zur Liste). reveal: Beim Öffnen ist zu wenig davon zu
- * sehen.
- *
- * containerBottom: Unterkante des Bereichs, in dem das Panel klebt (Liste
- * und Panel). Ein klebendes Element verlässt ihn nie – reicht er nicht bis
- * PANEL_STUCK_TOP + Höhe, schiebt der Browser das Panel nach oben unter das
- * Benutzermenü. Das geschieht am Seitenende: Unter dem Bereich liegen dann
- * noch 64 px Rand (24 + 24 + 16), nicht 32. Das Panel endet deshalb auch
- * über dieser Kante und bleibt bei PANEL_STUCK_TOP (Fixliste 4, V3).
- *
- * minHeight: Kopf und Fußzeile mit einem Rest Verlauf (panelChromeHeight) –
- * darunter wird das Panel nie, auch nicht an der Mindesthöhe; sonst läge die
- * Fußzeile außerhalb des Panelrahmens (Fixliste 5, S5).
- * @param {number} top - Oberkante des Panels im Fenster (px)
- * @param {number} viewportHeight - Höhe des Fensters (px)
- * @param {number} [containerBottom] - Unterkante des Bereichs im Fenster
- *   (px); ohne gültigen Wert ohne diese Grenze
- * @param {number} [minHeight] - Mindesthöhe aus Kopf und Fußzeile (px)
- * @returns {{maxHeight: number, reveal: boolean}|null} - null ohne gültige Maße
+ * Merkt sich, ob der Verlauf offen oder zu ist. Ein nicht schreibbarer
+ * Speicher ändert nichts an der Ansicht.
+ * @param {boolean} open
+ * @param {{setItem: Function}} [storage]
  */
-export function panelFit(top, viewportHeight, containerBottom, minHeight = 0) {
-  if (!Number.isFinite(top) || !Number.isFinite(viewportHeight)) return null;
-  const visibleTop = Math.max(top, PANEL_STUCK_TOP);
-  const bottom = Math.min(
-    viewportHeight - PANEL_BOTTOM_GAP,
-    Number.isFinite(containerBottom) ? containerBottom : Infinity
-  );
-  return {
-    maxHeight: Math.max(
-      PANEL_MIN_HEIGHT,
-      Number.isFinite(minHeight) ? minHeight : 0,
-      Math.round(bottom - visibleTop)
-    ),
-    reveal: viewportHeight - top < PANEL_MIN_VISIBLE,
-  };
+export function writePanelPreference(
+  open,
+  storage = typeof localStorage === "undefined" ? null : localStorage
+) {
+  try {
+    storage?.setItem?.(PANEL_PREFERENCE_KEY, open ? "open" : "closed");
+  } catch {
+    // kein Speicher: der Zustand gilt für diese Seite
+  }
+}
+
+/**
+ * Dürfen ↑/↓ am Fenster die Liste blättern (AK-6)? Ja, wenn der Fokus
+ * niemandem gehört (auf <body>, Seite gerade geöffnet) oder im Kopf des
+ * Panels steht (‹ › ⋯ ✕, Sprung-Schaltflächen) – dort tun die Pfeiltasten
+ * sonst nichts. Nicht im Menü „⋯“ (eigene Pfeiltasten), nicht in Eingaben,
+ * auf Listenzeilen (eigener Handler) oder im scrollenden Verlauf.
+ * @param {Document|undefined} [doc]
+ * @returns {boolean}
+ */
+export function arrowNavigationAllowed(
+  doc = typeof document === "undefined" ? undefined : document
+) {
+  if (!doc) return false;
+  if (focusLost(doc)) return true;
+  let inHead = false;
+  for (let node = doc.activeElement; node && node !== doc.body; ) {
+    if (node.getAttribute?.("role") === "menu") return false;
+    if (node.hasAttribute?.("data-panel-head")) inHead = true;
+    node = node.parentNode;
+  }
+  return inHead;
 }
 
 /** Elternelemente eines Knotens bis unter <body> (nur Elemente). */
@@ -392,36 +426,6 @@ export function holdScrollTarget(target, jump, options = {}) {
       align();
     },
   });
-}
-
-/**
- * Per Link geöffnete Zeile in Sicht (Fixliste 6, K5): Liegt die markierte
- * Zeile der Liste (aria-current) nach dem Sprung zur Überschrift außerhalb
- * des freien Bereichs – unter dem Fensterrand (abzüglich PANEL_BOTTOM_GAP)
- * oder über PANEL_STUCK_TOP –, scrollt die Seite gerade so weit, dass sie
- * sichtbar ist (block „nearest“; Abstand über scroll-margin der Zeile). Die
- * Liste hat keinen eigenen Scrollbereich, das Panel klebt ab lg oben
- * (lg:sticky) und bleibt so ganz zu sehen; nur die Überschrift wandert aus
- * dem Fenster. Steht die Zeile schon im Bild, bleibt alles, wie es ist.
- * @param {Element|null} root - Bereich der Liste
- * @param {number} [viewportHeight] - Höhe des Fensters (px)
- * @returns {boolean} - true, wenn gescrollt wurde
- */
-export function revealMarkedRow(root, viewportHeight) {
-  const height =
-    viewportHeight ??
-    (typeof window !== "undefined" ? window.innerHeight : undefined);
-  if (!root || !Number.isFinite(height)) return false;
-  const row = elementsWith(root, "aria-current", "true").find((element) =>
-    element.hasAttribute?.("data-conversation-row")
-  );
-  const rect = row?.getBoundingClientRect?.();
-  if (!rect || !Number.isFinite(rect.top) || !Number.isFinite(rect.bottom))
-    return false;
-  if (rect.top >= PANEL_STUCK_TOP && rect.bottom <= height - PANEL_BOTTOM_GAP)
-    return false;
-  row.scrollIntoView?.({ block: "nearest" });
-  return true;
 }
 
 /** Kürzester Suchbegriff, ab dem gesucht wird. */

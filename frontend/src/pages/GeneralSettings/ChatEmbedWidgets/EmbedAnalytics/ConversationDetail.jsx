@@ -18,13 +18,12 @@ import { formatDateShort, formatNumber } from "@/utils/analyticsTimeline";
 import { formatDateForInput } from "@/utils/billingDate";
 import showToast from "@/utils/toast";
 import {
-  AVATAR_CLEARANCE,
   FOCUS_RING,
   MUTED,
   RATING_BOX,
   RATING_FLASH,
   RATING_TINT,
-  ancestorsOf,
+  WORKSPACE,
   answerText,
   berlinDateTime,
   berlinTime,
@@ -36,8 +35,6 @@ import {
   highlightParts,
   longDateLabel,
   outsidePeriod,
-  panelChromeHeight,
-  panelFit,
   ratingJumpIds,
   ratingOf,
   shortId,
@@ -48,12 +45,14 @@ import { useConversationDeletion } from "./DeleteConversation";
 import { useDismiss, useWide } from "./viewHooks";
 
 // Konversationen-Ansicht: der Gesprächsverlauf einer Konversation – auf
-// breiten Bildschirmen (ab lg) als Seitenpanel rechts neben der Liste, darunter
-// als eigene Vollbildansicht mit „‹ Konversationen". Kopf (erste Frage, Datum,
-// Zeitspanne, Zahl der Fragen, Bewertungen, vorherige/nächste, ⋯, ✕) und
-// Fußzeile (gekürzte Kennung, Löschen) bleiben stehen; dazwischen scrollt der
-// Verlauf. Fragen als Sprechblase, Antworten über den MarkdownRenderer wie
-// bisher, die Bewertung direkt unter der bewerteten Antwort.
+// breiten Bildschirmen (ab lg) als rechte Spalte des Arbeitsbereichs neben
+// der Liste (KIE-575: so hoch wie der Bereich, eigene Bildlaufleiste),
+// darunter als eigene Vollbildansicht mit „‹ Konversationen". Kopf (erste
+// Frage, Datum, Zeitspanne, Zahl der Fragen, Bewertungen, vorherige/nächste,
+// ⋯, ✕) und Fußzeile (gekürzte Kennung, Löschen) bleiben stehen; dazwischen
+// scrollt der Verlauf. Fragen als Sprechblase, Antworten über den
+// MarkdownRenderer wie bisher, die Bewertung direkt unter der bewerteten
+// Antwort.
 
 // Schaltflächen im Kopf: mobil 44 px hoch, ab lg kompakter.
 // Bei Tastaturbedienung der Fokusring der Seite statt des Browser-Rings
@@ -166,103 +165,6 @@ function useInertOutside(ref, active) {
 }
 
 /**
- * Ab lg: Das Panel endet über dem unteren Fensterrand, wo immer es steht
- * (panelFit) – auch direkt nach dem Sprung zur Liste, wenn es noch nicht oben
- * klebt (Fixliste 3, V3), und über dem Ende seines Bereichs, damit es am
- * Seitenende unter dem Benutzermenü bleibt (Fixliste 4, V3). Angepasst beim
- * Öffnen, beim Scrollen der Seite (nicht des Verlaufs im Panel), bei
- * Größenänderungen des Fensters und bei jeder Größenänderung eines Vorfahren
- * (ResizeObserver) – so auch, wenn es sich ohne Scrollen verschiebt, etwa
- * weil über der Liste die Zeile der Filtermarkierungen erscheint oder
- * verschwindet (Fixliste 4, V4). Höchstens einmal je Bild.
- *
- * Nie niedriger als Kopf und Fußzeile zusammen (plus ein Rest Verlauf,
- * PANEL_MIN_BODY): Steht das Panel weit unten (Mindesthöhe) und ist es
- * schmal (1024 px), läge die Fußzeile sonst unter dem Panelrahmen
- * (Fixliste 5, S5). Kopf und Verlauf werden dafür mit beobachtet – sie
- * ändern ihre Höhe, wenn die Konversation geladen ist bzw. die Fußzeile
- * erscheint.
- *
- * Scrollen und Größenänderungen des Fensters haben getrennte Lauscher: Beim
- * Ereignis „resize“ ist das Ziel das Fenster, kein Knoten – contains()
- * warf dort und die Höhe wurde nicht neu berechnet (Fixliste 5, C1).
- * @param {{current: HTMLElement|null}} ref
- * @param {boolean} active
- * @param {*} content - Wechselt er (andere Konversation), wird neu angepasst
- */
-function usePanelFit(ref, active, content) {
-  useEffect(() => {
-    const panel = ref.current;
-    if (!active || !panel || typeof window === "undefined") return;
-    const frame =
-      typeof window.requestAnimationFrame === "function"
-        ? (callback) => window.requestAnimationFrame(callback)
-        : (callback) => setTimeout(callback, 16);
-    const cancel =
-      typeof window.cancelAnimationFrame === "function"
-        ? (id) => window.cancelAnimationFrame(id)
-        : (id) => clearTimeout(id);
-    // Kopf, Verlauf und Fußzeile sind Kinder des Panels (nicht den ganzen
-    // Verlauf durchsuchen – fit läuft beim Scrollen)
-    const partOf = (attribute) =>
-      [...(panel.childNodes ?? [])].find(
-        (child) => child.nodeType === 1 && child.hasAttribute?.(attribute)
-      ) ?? null;
-    const heightOf = (attribute) =>
-      partOf(attribute)?.getBoundingClientRect?.().height;
-    let pending = null;
-    const fit = () => {
-      pending = null;
-      const result = panelFit(
-        panel.getBoundingClientRect?.().top,
-        window.innerHeight,
-        panel.parentNode?.getBoundingClientRect?.().bottom,
-        panelChromeHeight(
-          heightOf("data-panel-head"),
-          heightOf("data-conversation-actions")
-        )
-      );
-      if (result) panel.style.maxHeight = `${result.maxHeight}px`;
-    };
-    const schedule = () => {
-      if (pending === null) pending = frame(fit);
-    };
-    // Scrollt nur der Verlauf im Panel, bleibt die Höhe. Das Ziel eines
-    // Scroll-Ereignisses kann das Dokument sein (kein Element im Panel).
-    const onScroll = (event) => {
-      const target = event?.target;
-      if (target?.nodeType === 1 && panel.contains?.(target)) return;
-      schedule();
-    };
-    const onResize = () => schedule();
-    fit();
-    const doc = panel.ownerDocument;
-    doc?.addEventListener?.("scroll", onScroll, true);
-    window.addEventListener?.("resize", onResize);
-    // Lageänderungen ohne Scrollen: Ändert sich etwas über dem Panel, ändert
-    // sich die Größe eines Vorfahren (das Panel selbst nicht – es wird nur
-    // hier angepasst). Kopf und Verlauf: Mindesthöhe (S5).
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(() => schedule());
-    for (const element of [
-      ...ancestorsOf(panel),
-      partOf("data-panel-head"),
-      partOf("data-panel-body"),
-    ])
-      if (element) observer?.observe(element);
-    return () => {
-      if (pending !== null) cancel(pending);
-      observer?.disconnect();
-      doc?.removeEventListener?.("scroll", onScroll, true);
-      window.removeEventListener?.("resize", onResize);
-      panel.style.maxHeight = "";
-    };
-  }, [ref, active, content]);
-}
-
-/**
  * @param {Object} props
  * @param {number} props.embedId
  * @param {number} props.chatId - id einer Zeile der Konversation (Adresse)
@@ -288,9 +190,6 @@ function usePanelFit(ref, active, content) {
  *   die geladene Konversation (Schlüssel für die Markierung in der Liste;
  *   outside: keine Nachricht im Zeitraum, sie kann dort nicht stehen)
  * @param {(chatId: number) => string} props.linkOf - Adresse der Konversation
- * @param {boolean} [props.reveal] - Beim Öffnen ab lg nach oben holen, wenn
- *   zu wenig davon zu sehen ist (nicht beim Öffnen per Link: Dann springt
- *   die Seite ohnehin zur Liste)
  * @param {boolean} [props.openedByLink] - per Link geöffnet, seither keine
  *   andere Konversation: Das Vollbild setzt den Fokus dann ohne sichtbaren
  *   Ring (Fixliste 9 A4, Nachtrag N3)
@@ -311,7 +210,6 @@ export default function ConversationDetail({
   onDeleted = () => {},
   onLoaded = () => {},
   linkOf = () => "",
-  reveal = true,
   openedByLink = false,
 }) {
   const { t } = useTranslation();
@@ -503,10 +401,14 @@ export default function ConversationDetail({
   };
   const flashId = flash?.chatId === chatId ? flash.id : null;
 
-  // Escape schließt das Panel – nicht, wenn ein Menü oder eine Rückfrage es
-  // schon für sich genommen hat (defaultPrevented: Sie lauschen am Dokument,
-  // das Panel am Fenster, also danach) oder in einem Eingabefeld getippt wird.
+  // Escape schließt das Vollbild (unter lg) – nicht, wenn ein Menü oder eine
+  // Rückfrage es schon für sich genommen hat (defaultPrevented: Sie lauschen
+  // am Dokument, das Panel am Fenster, also danach) oder in einem
+  // Eingabefeld getippt wird. Ab lg ist der Verlauf eine Spalte des
+  // Arbeitsbereichs, die nur ✕ schließt (KIE-575, NAK-3): Escape tut dort
+  // nichts.
   useEffect(() => {
+    if (wide) return;
     function handleKeyDown(event) {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const tag = String(event.target?.tagName ?? "").toUpperCase();
@@ -515,7 +417,7 @@ export default function ConversationDetail({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [onClose, wide]);
 
   // Vollbild (unter lg): Fokus in den Kopf, der Hintergrund ist inert. Den
   // Fokus zurück auf die Zeile setzt die Liste.
@@ -532,31 +434,9 @@ export default function ConversationDetail({
     else backRef.current?.focus?.();
   }, [wide]);
   useInertOutside(panelRef, !wide);
-  usePanelFit(panelRef, wide, chatId);
-
-  // Ab lg: Steht das Panel beim Öffnen so tief, dass kaum etwas davon zu
-  // sehen ist (wenige Treffer, die Liste endet unten im Fenster), wird es
-  // weich nach oben geholt – sonst bleibt die Seite stehen (AK-4,
-  // Fixliste 3 V8).
-  // Bewusst ein Sprung der Seite (Fixliste 7, F07, als Ausnahme in AK-4
-  // festgehalten): Das Panel steht neben der Liste in derselben Zeile, ab
-  // dem Anfang der Liste. Klebend (sticky) kann es nicht über den Anfang
-  // seines Bereichs steigen; es über Kennzahlen und Diagramm zu legen
-  // (fixed) verdeckte die rechte Hälfte der Seite. Der Sprung kommt nur, wenn
-  // weniger als PANEL_MIN_VISIBLE px zu sehen sind – also nur, wenn die
-  // Liste unten im Fenster beginnt –, und nur beim Öffnen. Die angeklickte
-  // Zeile bleibt dabei im Bild: Sie steht nie über dem Anfang des Panels und
-  // wandert um dieselbe Strecke nach oben (bis unter das Benutzermenü).
-  useEffect(() => {
-    if (!wide || !reveal || typeof window === "undefined") return;
-    const panel = panelRef.current;
-    const fit = panelFit(
-      panel?.getBoundingClientRect?.().top,
-      window.innerHeight
-    );
-    if (fit?.reveal)
-      panel.scrollIntoView?.({ block: "start", behavior: "smooth" });
-  }, [chatId, wide, reveal]);
+  // Ab lg füllt das Panel die rechte Spalte des Arbeitsbereichs (KIE-575):
+  // keine angepasste Höhe, kein Kleben, kein Holen nach oben – die Seite
+  // bewegt sich beim Öffnen nicht (NAK-1).
 
   // Menü „⋯": Klick außerhalb oder Escape schließt (Escape gibt den Fokus an
   // die Schaltfläche zurück – useDismiss, wie Exportmenü und
@@ -695,11 +575,13 @@ export default function ConversationDetail({
       aria-label={t("embed-analytics.panel.label")}
       aria-modal={wide ? undefined : "true"}
       role={wide ? undefined : "dialog"}
-      // Ab lg klebt das Panel 64 px unter dem oberen Rand des Bereichs – sein
-      // Kopf (↑ ↓ ⋯ ✕) liegt so unter dem schwebenden Benutzermenü oben
-      // rechts („KI", bis 72 px), nicht darunter (Fixliste 2, B4). Die Höhe
-      // passt usePanelFit an, wo immer es steht (Fixliste 3, V3).
-      className={`fixed inset-0 z-50 flex flex-col bg-theme-bg-secondary lg:inset-auto lg:z-auto ${AVATAR_CLEARANCE.panel} lg:w-[min(520px,48%)] lg:shrink-0 lg:overflow-hidden lg:rounded-xl lg:border lg:border-white/10 lg:bg-theme-bg-primary`}
+      // Ab lg die rechte Spalte des Arbeitsbereichs (KIE-575): im Fluss
+      // statt klebend (relative: Bezug für absolut positionierte Teile
+      // darin, etwa das Menü „⋯“ und Screenreader-Texte, die so im Panel
+      // bleiben und die Seite nicht verlängern), so hoch wie der Bereich (der
+      // Flex-Elternteil streckt sie), Breite nach WORKSPACE.panel; nur der
+      // Verlauf darin scrollt.
+      className={`fixed inset-0 z-50 flex flex-col bg-theme-bg-secondary lg:relative lg:inset-auto lg:z-auto ${WORKSPACE.panel} lg:overflow-hidden lg:rounded-xl lg:border lg:border-white/10 lg:bg-theme-bg-primary`}
     >
       {/* Kopf – bleibt beim Scrollen stehen */}
       <header

@@ -1350,6 +1350,7 @@ const TRANSLATIONS = {
       "quote-close": "“",
       "jump-negative": "Zur nächsten negativ bewerteten Antwort springen",
       "jump-positive": "Zur nächsten positiv bewerteten Antwort springen",
+      empty: "Keine Konversation gewählt",
     },
   },
   "embed-row": {

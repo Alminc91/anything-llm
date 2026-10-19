@@ -31,7 +31,6 @@ import {
   effectiveSearch,
   holdScrollTarget,
   isWide,
-  revealMarkedRow,
 } from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
 import { useDismiss } from "./viewHooks";
@@ -39,7 +38,10 @@ import { useDismiss } from "./viewHooks";
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
 // Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
 // Säulendiagramm, Karte „Wann schreiben Ihre Besucher?" (KIE-539),
-// Konversationsliste mit Seitenpanel.
+// Konversationsliste mit Seitenpanel – ab lg ein Arbeitsbereich mit fester
+// Höhe am Seitenende (KIE-575): Kennzahlen und Diagramme scrollen darüber
+// weg; liegt der Bereich oben an, ist die Seite zu Ende. Der Seitenrahmen
+// nutzt dafür die volle Breite (ChatbotLayout fullWidth).
 //
 // Widget, geöffnete Konversation und Suche stehen in der Adresse
 // (useConversationLocation): Ein Link auf eine Konversation lässt sich
@@ -346,15 +348,12 @@ function WidgetAnalytics({ embeds, lastActivity }) {
     if (!linkJumpPending || !listReady) return;
     setLinkJumpPending(false);
     if (!isWide()) return;
-    // Zur Überschrift der Liste; steht die geöffnete Zeile dann unter dem
-    // Fensterrand (Zeile 45), weiter bis zu ihr – das Panel klebt oben und
-    // bleibt sichtbar (Fixliste 6, K5).
+    // Zur Überschrift der Liste: Der Arbeitsbereich (Liste und Verlauf)
+    // steht dann oben im Fenster. Die geöffnete Zeile bringt die Liste
+    // selbst in ihrer Spalte in Sicht (KIE-575, Fixliste 6 K5).
     releaseLinkJump.current = holdScrollTarget(
       listRef.current,
-      () => {
-        listRef.current?.scrollIntoView?.({ block: "start" });
-        revealMarkedRow(listRef.current);
-      },
+      () => listRef.current?.scrollIntoView?.({ block: "start" }),
       { busy: () => linkSearching.current }
     );
   }, [linkJumpPending, listReady]);
