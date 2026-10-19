@@ -14,6 +14,10 @@ const {
   loadYouTubeTranscript,
 } = require("../../utils/extensions/YoutubeTranscript");
 const RuntimeSettings = require("../../utils/runtimeSettings");
+const {
+  KUFER_FILTER_SELECTOR,
+  stripKuferFilter,
+} = require("../../utils/kuferFilter");
 
 /**
  * Scrape a generic URL and return the content in the specified format
@@ -202,13 +206,14 @@ async function getPageContent({ link, captureAs = "text", headers = {} }) {
         // otherwise produce a different content hash on every scrape even though
         // no real change happened. Those courses remain reachable via category
         // and course-detail pages, so this strip causes no information loss.
-        await page.evaluate(() => {
+        // KUFER_FILTER_SELECTOR: Kufer filter box, see stripKuferFilter().
+        await page.evaluate((kuferFilterSelector) => {
           document.querySelectorAll(
             'header, footer, nav, aside, [class*="cookie"], [id*="cookie"], ' +
             '[class*="consent"], [id*="consent"], [class*="banner"], ' +
-            '[class*="kw-highlight"]'
+            '[class*="kw-highlight"], ' + kuferFilterSelector
           ).forEach(el => el.remove());
-        });
+        }, KUFER_FILTER_SELECTOR);
 
         const result = await page.evaluate((captureAs) => {
           if (captureAs === "text") return document.body.innerText;
@@ -318,7 +323,7 @@ async function getPageContent({ link, captureAs = "text", headers = {} }) {
         ...validatedHeaders(headers),
       },
     }).then((res) => res.text());
-    return pageText;
+    return stripKuferFilter(pageText);
   } catch (error) {
     console.error("getPageContent failed to be fetched by any method.", error);
   }
