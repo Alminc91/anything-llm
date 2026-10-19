@@ -77,12 +77,15 @@ export function Segmented({
           onClick={() => onChange(opt.value)}
           // markierte Option auch für Screenreader (Browser 7.22-rc6 B-06)
           aria-pressed={value === opt.value}
-          className={`${size} font-medium transition-all ${
+          className={`${size} font-medium transition-all flex items-center gap-1.5 ${
             value === opt.value
               ? SELECTED_CLASS
               : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"
           }`}
         >
+          {/* optionales Symbol vor dem Text (R9: Sonne/Mond beim
+              Farbschema), nur Schmuck */}
+          {opt.Icon && <opt.Icon size={16} aria-hidden="true" />}
           {opt.label}
         </button>
       ))}
@@ -95,11 +98,18 @@ export function Segmented({
 // mit sichtbarem Rand, daneben „An“ bzw. „Aus“ (Browser 7.22-rc6 B-02: der
 // allgemeine Toggle war im Aus-Zustand kaum als Schalter zu erkennen und
 // im An-Zustand grün statt in der Akzentfarbe).
+// Der versteckte Schalter (sr-only = position: absolute) braucht einen
+// positionierten Vorfahren (R7, Fixliste 7.22-rc8): Ohne ihn lag er an
+// seiner statischen Position relativ zur Seite, also in der gescrollten
+// Spalte außerhalb des Fensters; der Klick auf die Beschriftung fokussierte
+// ihn, der Browser scrollte das ganze Dokument dorthin (Layoutsprung, weißer
+// Bereich unter der Seite). Mit `relative` am Rahmen liegt er im sichtbaren
+// Schalter.
 export function Switch({ label, checked, onChange }) {
   return (
     <label className="flex items-center justify-between gap-4 cursor-pointer">
       <span className="text-white text-sm font-medium">{label}</span>
-      <span className="flex items-center gap-2 shrink-0">
+      <span className="relative flex items-center gap-2 shrink-0">
         <span
           className="text-xs font-medium text-theme-text-secondary"
           data-switch-state=""
