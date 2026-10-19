@@ -8,7 +8,7 @@ i18next
   .use(initReactI18next) // Initialize i18n for React
   .use(LanguageDetector)
   .init({
-    fallbackLng: "en",
+    fallbackLng: "de", // Kufer: Deutsch statt Englisch, wenn die Browsersprache nicht unterstützt wird
     debug: import.meta.env.DEV,
     defaultNS,
     resources,
