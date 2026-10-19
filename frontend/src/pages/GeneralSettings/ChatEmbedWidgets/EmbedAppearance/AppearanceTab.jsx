@@ -6,7 +6,11 @@
 // Farbschema | Logo; für beide Darstellungen „Antworten mit Kursen“
 // (KIE-567, untereinander, die Auswahl ist zu breit für die halbe Spalte).
 // Am Ende eine gedämpfte Zeile mit dem, was fest vorgegeben ist (R2,
-// Fixliste 7.22-rc8).
+// Fixliste 7.22-rc8). Hinweise nur, wo sie etwas erklären (S3, Fixliste
+// 7.22-rc10, damit der Reiter bei 1440×900 ohne Scrollen passt): unter
+// Darstellung, Akzentfarbe und Chat-Icon; unter „Schrift auf der
+// Akzentfarbe“ nur die Empfehlung und ggf. die Warnung; unter „Kurse
+// anzeigen als“ eine Zeile; Logo, Farbschema, Position und Reihenfolge ohne.
 import { Moon, Sun, Warning, X } from "@phosphor-icons/react";
 import {
   FieldPair,
@@ -101,8 +105,8 @@ export function withStandardLabel(options, standard) {
   );
 }
 
-export const CARDS_HINT =
-  "Kurskarten zeigen Termin, Ort und freie Plätze auf einen Blick. „Nur Text“ ist die klassische Antwort mit Kurs-Links im Text. Standard: beim Chatfenster „Nur Text mit Links“, in der Seite „Kurskarten“.";
+// eine Zeile (S3, rc10); welcher Standard gilt, zeigt „(Standard)“ am Button
+export const CARDS_HINT = "Standard hängt von der Darstellung ab.";
 
 // „Antworten mit Kursen“ (KIE-567, beide Darstellungen): Kurskarten oder
 // Nur Text mit Links; bei Kurskarten die Reihenfolge. Beide bleiben
@@ -129,10 +133,7 @@ export function CourseAnswersSection({ config, setChoice }) {
           />
         </SettingsSection>
         {cards === "auto" && (
-          <SettingsSection
-            title="Reihenfolge"
-            hint="Empfohlen: Karten zuerst. Sie erscheinen sofort, während der Text noch geschrieben wird; die Folgefragen stehen dann direkt unter dem Text am Ende."
-          >
+          <SettingsSection title="Reihenfolge">
             <Segmented
               options={withStandardLabel(
                 COURSE_CARDS_POSITION_OPTIONS,
@@ -170,10 +171,7 @@ export default function AppearanceTab({
   const theme = themeChoice(config);
 
   const logoField = (
-    <SettingsSection
-      title="Logo"
-      hint="PNG, JPG, GIF, SVG oder WebP, max. 5 MB, idealerweise quadratisch."
-    >
+    <SettingsSection title="Logo">
       <div className="flex items-center gap-4">
         <div className="relative group">
           <img
@@ -208,7 +206,6 @@ export default function AppearanceTab({
   const themeField = (
     <SettingsSection
       title="Farbschema"
-      hint="Hell oder Dunkel, für Chatfenster und Eingabeleiste gleich."
       note={
         theme === null
           ? "Bisher: automatisch nach Gerät. Bleibt so, bis Sie Hell oder Dunkel wählen."
@@ -275,10 +272,7 @@ export default function AppearanceTab({
             </div>
           </SettingsSection>
 
-          <SettingsSection
-            title="Schrift auf der Akzentfarbe"
-            hint="Für Nutzer-Nachrichten, den Senden-Button und Buttons in Akzentfarbe."
-          >
+          <SettingsSection title="Schrift auf der Akzentfarbe">
             <div className="flex rounded-lg overflow-hidden border border-white/10 w-fit">
               {USER_TEXT_COLOR_OPTIONS.map((opt) => {
                 const active = textChoice === opt.value;
@@ -358,10 +352,7 @@ export default function AppearanceTab({
 
           <FieldPair>
             {themeField}
-            <SettingsSection
-              title="Position des Chatfensters"
-              hint="Unten links oder unten rechts auf der Seite, Button und Chatfenster."
-            >
+            <SettingsSection title="Position des Chatfensters">
               <Segmented
                 options={POSITION_OPTIONS}
                 value={position}

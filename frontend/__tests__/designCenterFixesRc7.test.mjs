@@ -306,9 +306,12 @@ test(
     const pre = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
     assert.ok(pre);
     assert.match(pre[0], /<wbr\/?>/);
-    // Restpunkt 1 (rc7, bewusst geändert): nur nach „/“ und „.“, nicht
-    // mehr nach „-“ („chat-widget“ bleibt zusammen)
-    assert.match(pre[1], /chat-widget\.<wbr\/?>min\.<wbr\/?>js/);
+    // Restpunkt 1 (rc7, bewusst geändert): nicht mehr nach „-“
+    // („chat-widget“ bleibt zusammen); S2 (rc10, bewusst geändert): auch
+    // nicht mehr nach „.“, der Dateiname bleibt ein Stück (Einzelheiten im
+    // Test designCenterFixesRc10)
+    assert.match(pre[1], /chat-widget\.min\.js/);
+    assert.doesNotMatch(pre[1], /\.<wbr/);
     assert.doesNotMatch(pre[1], /-<wbr/);
     assert.doesNotMatch(pre[1], /=<wbr/);
     assert.doesNotMatch(pre[0], /break-all/);

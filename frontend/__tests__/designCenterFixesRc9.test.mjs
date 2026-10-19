@@ -246,13 +246,8 @@ test(
       await appearance({ accentColor: "#003366" }),
       /data-testid="user-text-warning"/
     );
-    // Logo: Bild vor dem Hinweis; Farbschema: Auswahl vor dem Hinweis
-    assert.ok(
-      at(html, 'alt="Logo"') < at(html, "PNG, JPG, GIF, SVG oder WebP")
-    );
-    assert.ok(
-      at(html, ">Dunkel<") < at(html, "Hell oder Dunkel, für Chatfenster")
-    );
+    // Logo und Farbschema: Hinweise entfallen seit S3 (rc10), geprüft in
+    // designCenterFixesRc10
   }
 );
 

@@ -53,17 +53,21 @@ const SYSTEM_GUIDES = [
 ];
 
 /**
- * Schnipsel für die Anzeige mit Umbruchstellen nur nach „/“ und „.“: lange
- * Adressen brechen dort um statt mitten im Wort (Browser 7.22-rc6 B-11,
- * „…chat-widge / t.min.js“). Nach „-“ und „=“ nicht mehr (Restpunkt 1,
- * rc7: sonst brach „chat-widget“ nach dem Bindestrich). Kopiert wird der
- * Text unverändert.
+ * Schnipsel für die Anzeige: Umbruchstellen nur nach „/“ (S2, Fixliste
+ * 7.22-rc10). CopyBlock zeigt jeden Teil als eigenes, nicht umbrechendes
+ * Stück (white-space: pre), damit der Browser nicht von sich aus am
+ * Bindestrich oder Punkt bricht („anythingllm-chat-“ / „widget.min.js“,
+ * Nachprüfung rc8): ein <wbr> allein verhindert das nicht, Browser brechen
+ * an Bindestrichen immer. Früher: Umbruch auch nach „.“ (B-11, rc6) und
+ * nach „-“ (Restpunkt 1, rc7). Kopiert wird der Text unverändert (die
+ * Teile aneinandergereiht ergeben den Schnipsel). Das „/“ von „</script>“
+ * ist keine Umbruchstelle (nur „/“ in den Adressen, also nicht nach „<“).
  * @param {string} snippet
- * @returns {Array<string|JSX.Element>}
+ * @returns {Array<string|JSX.Element>} Teile (Strings) mit <wbr> dazwischen
  */
 export function snippetWithBreaks(snippet) {
   return snippet
-    .split(/(?<=[/.])/)
+    .split(/(?<=[^<]\/)/)
     .flatMap((part, i) => (i === 0 ? [part] : [<wbr key={i} />, part]));
 }
 
@@ -83,11 +87,22 @@ function CopyBlock({ snippet, copiedToast, label }) {
   return (
     <div className="rounded-lg border border-white/10 bg-theme-settings-input-bg overflow-hidden">
       {/* Lange Zeilen (src mit Adresse) brechen um, statt waagerecht zu
-          scrollen (Browser-Abnahme B-07), bevorzugt nach „/“ oder „.“
-          (snippetWithBreaks); nur ein Teil ohne solche Stelle bricht
-          notfalls im Wort. Kopieren liefert den Text unverändert. */}
+          scrollen (Browser-Abnahme B-07), und zwar nur nach „/“
+          (snippetWithBreaks): Jeder Teil ist ein nicht umbrechendes Stück
+          (whitespace-pre: Zeilenumbrüche und Einrückung des Schnipsels
+          bleiben, kein Umbruch am Bindestrich oder Punkt; S2, rc10). Die Box
+          behält overflow-wrap ohne break-all. Kopieren liefert den Text
+          unverändert. */}
       <pre className="text-xs text-white font-mono p-3.5 whitespace-pre-wrap [overflow-wrap:anywhere]">
-        {snippetWithBreaks(snippet)}
+        {snippetWithBreaks(snippet).map((part, i) =>
+          typeof part === "string" ? (
+            <span key={`p${i}`} className="whitespace-pre" data-snippet-part="">
+              {part}
+            </span>
+          ) : (
+            part
+          )
+        )}
       </pre>
       <div className="flex justify-end px-3 pb-3">
         <button

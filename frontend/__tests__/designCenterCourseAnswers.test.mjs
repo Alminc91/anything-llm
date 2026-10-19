@@ -36,8 +36,9 @@ const {
 } = require("../../server/utils/chats/embedDefaults.js");
 const DEFAULTS = embedDefaultTexts("de");
 
-const CARDS_HINT =
-  "Kurskarten zeigen Termin, Ort und freie Plätze auf einen Blick. „Nur Text“ ist die klassische Antwort mit Kurs-Links im Text.";
+// S3 (Fixliste 7.22-rc10): unter „Kurse anzeigen als“ nur noch eine Zeile,
+// unter „Reihenfolge“ kein Hinweis mehr (ORDER_HINT darf nirgends stehen)
+const CARDS_HINT = "Standard hängt von der Darstellung ab.";
 const ORDER_HINT =
   "Empfohlen: Karten zuerst. Sie erscheinen sofort, während der Text noch geschrieben wird; die Folgefragen stehen dann direkt unter dem Text am Ende.";
 
@@ -245,9 +246,11 @@ test(
       "Reihenfolge",
       "Karten zuerst (Standard)",
       "Text zuerst",
-      ORDER_HINT,
+      CARDS_HINT,
     ])
       assert.ok(t.includes(label), label);
+    // S3 (rc10): kein Hinweis unter „Reihenfolge“
+    assert.ok(!t.includes(ORDER_HINT));
     assert.ok(activeLabels(inline).includes("Kurskarten (Standard)"));
     assert.ok(activeLabels(inline).includes("Karten zuerst (Standard)"));
     assert.ok(!activeLabels(inline).includes("Nur Text mit Links"));

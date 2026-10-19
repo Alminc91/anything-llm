@@ -280,7 +280,9 @@ test(
     assert.ok(
       t.includes("Buttons, Nutzer-Nachrichten und Links in Akzentfarbe.")
     );
-    assert.ok(t.includes("Buttons in Akzentfarbe"));
+    // der Hinweis unter „Schrift auf der Akzentfarbe“ („… Buttons in
+    // Akzentfarbe.“) entfällt seit S3 (rc10): dort nur noch die Empfehlung
+    assert.ok(t.includes("Empfohlen:"));
     assert.match(html, /aria-label="Akzentfarbe wählen"/);
     assert.match(html, /aria-label="Akzentfarbe als Farbcode"/);
     assert.ok(
@@ -301,17 +303,21 @@ test(
 // Restpunkte rc7 Nr. 1, 5, 6
 // ---------------------------------------------------------------------------
 
-test("Restpunkt 1: Umbruchstellen nur nach „/“ und „.“", { skip }, async () => {
-  const embedTab = await renderer.load(EMBED);
-  const parts = embedTab.snippetWithBreaks(
-    'src="https://kunde.ki.kufer.de/embed/anythingllm-chat-widget.min.js" data-embed-id="a-b"'
-  );
-  const strings = parts.filter((p) => typeof p === "string");
-  // jeder Teil außer dem letzten endet mit „/“ oder „.“
-  for (const part of strings.slice(0, -1)) assert.match(part, /[/.]$/);
-  assert.ok(strings.some((p) => p.includes("anythingllm-chat-widget.")));
-  assert.ok(strings.some((p) => p.includes("a-b")));
-});
+test(
+  "Restpunkt 1: Umbruchstellen nur nach „/“ (seit S2 rc10 nicht mehr nach „.“)",
+  { skip },
+  async () => {
+    const embedTab = await renderer.load(EMBED);
+    const parts = embedTab.snippetWithBreaks(
+      'src="https://kunde.ki.kufer.de/embed/anythingllm-chat-widget.min.js" data-embed-id="a-b"'
+    );
+    const strings = parts.filter((p) => typeof p === "string");
+    // jeder Teil außer dem letzten endet mit „/“
+    for (const part of strings.slice(0, -1)) assert.match(part, /\/$/);
+    assert.ok(strings.some((p) => p.includes("anythingllm-chat-widget.")));
+    assert.ok(strings.some((p) => p.includes("a-b")));
+  }
+);
 
 test("Restpunkt 5: durchscheinende oder ungültige Akzentfarbe: weder Empfehlung noch Warnung (nur der Feldfehler)", () => {
   for (const accentColor of [
@@ -427,8 +433,11 @@ test(
       await appearance({ displayMode: "inline", courseCards: "off" })
     );
     assert.ok(stored.includes("Kurskarten (Standard)"));
+    // S3 (rc10, bewusst geändert): eine Zeile statt der Erklärung je
+    // Darstellung; welcher Standard gilt, zeigt „(Standard)“ am Button
+    assert.ok(bubble.includes("Standard hängt von der Darstellung ab."));
     assert.ok(
-      bubble.includes(
+      !bubble.includes(
         "Standard: beim Chatfenster „Nur Text mit Links“, in der Seite „Kurskarten“."
       )
     );
