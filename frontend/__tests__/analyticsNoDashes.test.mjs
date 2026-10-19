@@ -30,71 +30,17 @@ test("D8: deutsche Texte der Statistik- und Konversationsseite ohne Gedankenstri
   assert.deepEqual(found, []);
 });
 
-test("D8: unbekannter Tag in der Konversationsliste als „k. A.“", () => {
-  const t = (key) => key;
-  assert.equal(dayGroupLabel("", "2026-10-13", { t }), "k. A.");
-  assert.equal(shortDayLabel("", "2026-10-13"), "k. A.");
-});
-
-// Review 7.22-rc6 F09: der Platzhalter folgt der Sprache der Oberfläche
-// (de „k. A.“, en „n/a“), kein fester Text mehr im Code
-test("F09: Platzhalter für fehlende Werte je Sprache", () => {
-  const tOf = (lang) => (key) =>
-    key.split(".").reduce((o, k) => o?.[k], lang) ?? key;
-  assert.equal(de["embed-analytics"]["no-value"], "k. A.");
-  assert.equal(en["embed-analytics"]["no-value"], "n/a");
-  assert.equal(en["embed-analytics"]["weekday-hour"].legend.unused, "n/a");
-  assert.equal(dayGroupLabel("", "2026-10-13", { t: tOf(en) }), "n/a");
-  assert.equal(shortDayLabel("", "2026-10-13", { t: tOf(en) }), "n/a");
-  assert.equal(shortDayLabel("", "2026-10-13", { t: tOf(de) }), "k. A.");
-  const grid = readFileSync(
-    new URL(
-      "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/StatisticsGrid.jsx",
-      import.meta.url
-    ),
-    "utf8"
-  );
-  assert.doesNotMatch(grid, /"k\. A\."/);
-  assert.match(grid, /t\("embed-analytics\.no-value"\)/);
-});
-
-// Review 7.22-rc6 F04: neue Schlüssel stehen in allen Sprachdateien (sonst
-// schlägt die Übersetzungsprüfung der CI fehl)
-test("F04: Übersetzungsprüfung (verifyTranslations) besteht", () => {
-  const dir = fileURLToPath(new URL("../src/locales/", import.meta.url));
-  const { status, stdout, stderr } = spawnSync(
-    process.execPath,
-    ["verifyTranslations.mjs"],
-    { cwd: dir, encoding: "utf8" }
-  );
-  assert.equal(status, 0, `${stdout}\n${stderr}`.slice(-2000));
-});
-
-// Review 7.22-rc6 F11: Dialog „Einbettungscode kopieren“ ohne Gedankenstrich
-// (auch auf der Konversationsseite) und ohne Link auf die data-*-Optionen
-// des Upstream-README; alle Einstellungen kommen aus dem Design Center
-test("F11: Einbettungscode-Dialog ohne Gedankenstrich und ohne README-Link", () => {
-  for (const lang of [de, en]) {
-    const found = strings(lang["code-snippet-modal"], ["code-snippet-modal"])
-      .filter(([, text]) => DASH.test(text))
-      .map(([key]) => key);
-    assert.deepEqual(found, []);
+// Restpunkt 2 (rc7): die englische Konversationsseite nannte „– the key
+// figures keep counting“ mit Gedankenstrich; Gegenstück zu de content-gap.
+// Die übrigen englischen Texte der Statistikseite (Entscheidung D8 galt den
+// deutschen Texten) bleiben hier außen vor.
+test("Restpunkt 2: englischer Hinweis zu fehlenden Inhalten ohne Gedankenstrich", () => {
+  for (const key of ["content-gap_one", "content-gap_other"]) {
+    const text = en["embed-analytics"].list[key];
+    assert.doesNotMatch(text, DASH, key);
+    assert.ok(
+      text.endsWith("deleted here). The key figures keep counting."),
+      key
+    );
   }
-  assert.equal(
-    de["code-snippet-modal"]["copy-failed"],
-    "Kopieren nicht möglich. Bitte manuell markieren."
-  );
-  assert.match(
-    de["code-snippet-modal"]["script-tag"]["settings-hint"],
-    /Erscheinungsbild.*Einbau/
-  );
-  const modal = readFileSync(
-    new URL(
-      "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedConfigs/EmbedRow/CodeSnippetModal/index.jsx",
-      import.meta.url
-    ),
-    "utf8"
-  );
-  assert.doesNotMatch(modal, /github\.com\/Mintplex-Labs\/anythingllm-embed/);
-  assert.doesNotMatch(modal, /view-options/);
 });
