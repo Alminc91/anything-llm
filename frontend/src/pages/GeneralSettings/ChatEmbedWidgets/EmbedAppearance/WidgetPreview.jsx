@@ -2,12 +2,16 @@
 // festen Standard mit den Inhalten des Kunden. Begrüßung als erste Blase,
 // Datenschutz-Hinweis als eigene zweite Blase (ausgeschaltet: nur die
 // Begrüßungsblase, KIE-565 Nachtrag), Startvorschläge als Pillen wie die
-// Folgefragen, eine Beispiel-Nutzernachricht in Kundenfarbe (Schrift auf der
-// Kundenfarbe sichtbar), darauf eine Beispiel-Antwort mit Kursen nach der
+// Folgefragen, eine Beispiel-Nutzernachricht in Akzentfarbe (Schrift auf der
+// Akzentfarbe sichtbar), darauf eine Beispiel-Antwort mit Kursen nach der
 // Wahl „Antworten mit Kursen“ (Karten zuerst, Text zuerst oder Nur Text mit
-// Links, KIE-567), KI-Hinweis fest unter der Eingabe, kein Online-Punkt.
-// Willkommensblasen am geschlossenen Chat-Button wie am Desktop (bei „Aus“
-// keine, KIE-568). Hell/Dunkel in beiden Darstellungen.
+// Links, KIE-567; ohne Wahl der Standard der Darstellung, R4), KI-Hinweis
+// fest unter der Eingabe, kein Online-Punkt. Willkommensblasen am
+// geschlossenen Chat-Button wie am Desktop (bei „Aus“ keine, KIE-568).
+// Hell/Dunkel in beiden Darstellungen. Die Vorschau folgt den Feldern: ohne
+// gespeicherten Wert zeigt sie die Vorbelegung (R5; Untertitel, Start-
+// vorschläge, Willkommensblasen). Lange Wörter brechen um, statt über den
+// Rand zu laufen (Restpunkt 5, rc7: BREAK).
 import { useState } from "react";
 import {
   ChatCircleDots,
@@ -24,6 +28,7 @@ import {
   DEFAULT_WELCOME_BUBBLES,
   choiceValue,
   displayMode,
+  listItems,
   lookValue,
   privacyBlocks,
   privacyNoticeOn,
@@ -35,6 +40,7 @@ import {
   PILL_MAX_LEN,
   pillLabel,
   pillTextColor,
+  subtitleFieldValue,
   textValue,
   themeChoice,
   userTextColor,
@@ -42,13 +48,17 @@ import {
 } from "./widgetKeys";
 
 export const CHAT_ICONS = [
-  { id: "chatBubble", label: "Chat-Blase", Icon: ChatCircleDots },
+  { id: "chatBubble", label: "Sprechblase", Icon: ChatCircleDots },
   { id: "support", label: "Support", Icon: Headset },
   { id: "search", label: "Suche", Icon: MagnifyingGlass },
   { id: "search2", label: "Fernglas", Icon: Binoculars },
   { id: "magic", label: "Magie", Icon: MagicWand },
   { id: "plus", label: "Plus", Icon: Plus },
 ];
+
+// Umbruch langer Wörter (overflow-wrap: anywhere wirkt auch in Pillen und
+// Flex-Zeilen, wo break-words nicht reicht)
+export const BREAK = "[overflow-wrap:anywhere]";
 
 export const DEFAULT_LOGO =
   "https://www.kufer.de/typo3conf/ext/kubuslayout/Resources/Public/Icons/augenbrauen-3.png";
@@ -118,14 +128,18 @@ export default function WidgetPreview({
         style={{ color: palette.muted }}
       >
         {inline
-          ? "Vorschau: Inline in Ihrer Seite"
+          ? "Vorschau: Eingabeleiste in Ihrer Seite"
           : "Vorschau: so sieht es auf Ihrer Website aus"}
       </p>
       {/* Scrollt, statt etwas abzuschneiden (Browser-Abnahme B-06: die
-          Datenschutz-Blase im aufgeklappten Inline-Panel); m-auto zentriert,
-          solange alles hineinpasst. */}
+          Datenschutz-Blase im aufgeklappten Inline-Panel). Das Chatfenster
+          (feste Höhe) steht mittig; die Box „In der Seite“ wächst mit dem
+          Inhalt und hängt deshalb oben, damit nichts springt, wenn Inhalt
+          dazukommt oder wegfällt (R7). */}
       <div className="flex-1 min-h-0 overflow-y-auto flex p-6">
-        <div className="m-auto w-full flex justify-center">
+        <div
+          className={`w-full flex justify-center ${inline ? "mx-auto" : "m-auto"}`}
+        >
           {inline ? (
             <InlinePreview
               config={config}
@@ -153,7 +167,9 @@ export default function WidgetPreview({
 function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
   const name =
     textValue(config.name).trim() || textValue(defaults?.name) || "KI-Berater";
-  const subtitle = textValue(config.assistantSubtitle).trim();
+  // Untertitel wie das Widget (R5): ohne gespeicherten Wert der Standard,
+  // "" = kein Untertitel
+  const subtitle = subtitleFieldValue(config, defaults).trim();
   return (
     <div
       className="flex items-center gap-3 px-4 h-[60px] flex-shrink-0"
@@ -189,19 +205,19 @@ function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
 export const SAMPLE_USER_MESSAGE = "Gibt es Kurse am Wochenende?";
 
 // Startvorschlag als Pille, aussehend und reagierend wie die Folgefragen
-// im Widget (KIE-565 Nachtrag): Rand in Kundenfarbe, Schrift in Kundenfarbe
+// im Widget (KIE-565 Nachtrag): Rand in Akzentfarbe, Schrift in Akzentfarbe
 // mit mindestens 4,5:1 auf der Fläche (sonst abgedunkelt bzw. aufgehellt),
-// Darüberfahren füllt die Pille in Kundenfarbe, die Schrift wird dann zur
-// Schrift auf der Kundenfarbe (im Widget auch beim Tastaturfokus; die
+// Darüberfahren füllt die Pille in Akzentfarbe, die Schrift wird dann zur
+// Schrift auf der Akzentfarbe (im Widget auch beim Tastaturfokus; die
 // Vorschau ist nicht bedienbar und deshalb ohne Tab-Halt). Eine Komponente
-// für die Chatblase und für Inline (Panel und Leiste).
+// für das Chatfenster und für „In der Seite“ (Panel und Leiste).
 // kind: data-preview der Pille ("pill" Startvorschlag, "follow-up-pill"
 // Folgefrage der Beispiel-Antwort)
 export function SuggestionPill({ config, palette, text, kind = "pill" }) {
   const accent = lookValue(config, "accentColor");
   return (
     <span
-      className="rounded-full px-3 py-1 text-[11px] font-medium border cursor-default transition-colors bg-[color:var(--pill-bg)] text-[color:var(--pill-text)] hover:bg-[color:var(--pill-accent)] hover:text-[color:var(--pill-on-accent)]"
+      className={`rounded-full px-3 py-1 text-[11px] font-medium border cursor-default transition-colors max-w-full ${BREAK} bg-[color:var(--pill-bg)] text-[color:var(--pill-text)] hover:bg-[color:var(--pill-accent)] hover:text-[color:var(--pill-on-accent)]`}
       style={{
         borderColor: accent,
         "--pill-bg": palette.panelBg,
@@ -217,13 +233,13 @@ export function SuggestionPill({ config, palette, text, kind = "pill" }) {
   );
 }
 
-// Beispiel einer Nutzer-Nachricht: Kundenfarbe mit der Schrift auf der
-// Kundenfarbe, darunter die Beschriftung
+// Beispiel einer Nutzer-Nachricht: Akzentfarbe mit der Schrift auf der
+// Akzentfarbe, darunter die Beschriftung
 function PreviewUserMessage({ config, palette }) {
   return (
     <div className="flex flex-col items-end gap-1 pt-1">
       <div
-        className="text-[12.5px] leading-relaxed rounded-[18px] rounded-tr-[4px] px-3.5 py-2.5 max-w-[80%]"
+        className={`text-[12.5px] leading-relaxed rounded-[18px] rounded-tr-[4px] px-3.5 py-2.5 max-w-[80%] ${BREAK}`}
         style={{
           backgroundColor: lookValue(config, "accentColor"),
           color: userTextColor(config),
@@ -267,7 +283,7 @@ function PreviewCourseCard({ course, palette, accent }) {
       data-preview="course-card"
     >
       <span
-        className="text-[12px] font-semibold leading-snug"
+        className={`text-[12px] font-semibold leading-snug ${BREAK}`}
         style={{ color: palette.text }}
       >
         {course.title}
@@ -289,7 +305,7 @@ export function PreviewSampleAnswer({ config, palette }) {
   const textStyle = { color: palette.text };
   const text = (
     <p
-      className="text-[12.5px] leading-relaxed"
+      className={`text-[12.5px] leading-relaxed ${BREAK}`}
       style={textStyle}
       data-preview="answer-text"
     >
@@ -329,7 +345,7 @@ export function PreviewSampleAnswer({ config, palette }) {
         )
       ) : (
         <div
-          className="text-[12.5px] leading-relaxed space-y-1"
+          className={`text-[12.5px] leading-relaxed space-y-1 ${BREAK}`}
           style={textStyle}
           data-preview="answer-text"
         >
@@ -380,7 +396,8 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
     : textValue(defaults?.privacyText);
   const blocks = privacyBlocks(privacyText);
   const url = validPrivacyUrl(config.privacyUrl);
-  const pills = textItems(config.defaultMessages).slice(0, 6);
+  // ohne gespeicherte Liste die Vorbelegung des Design Centers (R5)
+  const pills = textItems(listItems(config, "defaultMessages")).slice(0, 6);
   const bubble = {
     backgroundColor: palette.bubbleBg,
     color: palette.text,
@@ -388,7 +405,7 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
   return (
     <div className="w-full space-y-2.5" data-preview="welcome">
       <div
-        className="text-[12.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%]"
+        className={`text-[12.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] ${BREAK}`}
         style={bubble}
         data-preview="greeting-bubble"
       >
@@ -396,7 +413,7 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
       </div>
       {showPrivacy && (
         <div
-          className="text-[11.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] space-y-1"
+          className={`text-[11.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] space-y-1 ${BREAK}`}
           style={bubble}
           data-preview="privacy-bubble"
         >
@@ -469,7 +486,7 @@ function PreviewInput({ config, defaults, palette }) {
         data-preview="disclaimer"
       >
         {textValue(defaults?.disclaimerText) ||
-          "KI kann Fehler machen. Bitte überprüfen Sie die Antworten."}
+          "Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten."}
       </p>
     </div>
   );
@@ -486,9 +503,9 @@ function BubblePreview({
   const accentColor = lookValue(config, "accentColor");
   const isLeft = lookValue(config, "position").includes("left");
   // Willkommensblasen wie am Desktop (KIE-568): „Aus“ = keine; ohne eigene
-  // Texte die Standardblasen wie im Widget
+  // Texte die Standardblasen wie im Widget (im Feld als Vorbelegung, R5)
   const desktopBubbles = choiceValue(config, "welcomeBubblesDesktop");
-  const ownBubbles = textItems(config.chatbotBubblesMessages);
+  const ownBubbles = textItems(listItems(config, "chatbotBubblesMessages"));
   const bubbles =
     desktopBubbles === "off"
       ? []
@@ -553,7 +570,7 @@ function BubblePreview({
                 <div
                   key={i}
                   data-preview="welcome-bubble"
-                  className="rounded-2xl px-4 py-2.5 text-[13px] w-full"
+                  className={`rounded-2xl px-4 py-2.5 text-[13px] w-full ${BREAK}`}
                   style={{
                     backgroundColor: palette.panelBg,
                     color: palette.text,
@@ -616,7 +633,7 @@ function InlinePreview({
   // Eingeklappte Leiste: Demo-Texte bzw. früher gespeicherter Leistentext,
   // nicht der Platzhalter des Chat-Eingabefelds (Entscheidung D2)
   const { placeholder, sendText } = previewInlineBar(config, defaults);
-  const chips = textItems(config.defaultMessages).slice(0, 6);
+  const chips = textItems(listItems(config, "defaultMessages")).slice(0, 6);
   return (
     <div
       className="w-full max-w-[640px] rounded-xl overflow-hidden flex flex-col"

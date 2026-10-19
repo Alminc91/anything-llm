@@ -183,7 +183,7 @@ const deviceBlock = (html, key) => {
 };
 
 test(
-  "Inhalt, Chatblase: „Willkommensblasen anzeigen“ unter den Willkommensblasen, Desktop und Handy, Standard erster Besuch, Hinweistext",
+  "Inhalt, Chatfenster: „Willkommensblasen anzeigen“ unter den Willkommensblasen, Desktop und Handy, Standard erster Besuch, Hinweistext",
   { skip },
   async () => {
     const html = await renderer.render(CONTENT, {
@@ -191,13 +191,16 @@ test(
       props: contentProps({ chatbotBubblesMessages: ["Hallo!"] }),
     });
     const t = text(html);
+    // Reihenfolge seit R6 (7.22-rc8): Startvorschläge vor der Gruppe
+    // „Geschlossener Chat“ mit den Willkommensblasen
     const order = [
+      "Startvorschläge",
+      "Geschlossener Chat",
       "Willkommensblasen",
       "Willkommensblasen anzeigen",
       "Desktop",
       "Handy",
       "„Beim ersten Besuch“: Die Blasen erscheinen einmal",
-      "Startvorschläge",
     ];
     let pos = -1;
     for (const label of order) {
@@ -285,7 +288,7 @@ async function closedBubbles(t, config) {
 }
 
 test(
-  "Vorschau Chatblase geschlossen: Desktop „Aus“ = keine Willkommensblasen, sonst eigene bzw. Standardblasen",
+  "Vorschau Chatfenster geschlossen: Desktop „Aus“ = keine Willkommensblasen, sonst eigene bzw. Standardblasen",
   { skip },
   async (t) => {
     assert.deepEqual(

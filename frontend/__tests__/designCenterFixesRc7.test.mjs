@@ -50,9 +50,10 @@ const appearance = (config, extra = {}) =>
 
 // <button …>Beschriftung</button> einer Auswahlgruppe
 function buttonTag(html, label) {
-  return [...html.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].find(
-    (m) => m[1] === label
-  )?.[0];
+  // Beschriftung auch hinter einem Symbol (R9: Sonne/Mond vor Hell/Dunkel)
+  return [
+    ...html.matchAll(/<button[^>]*>(?:<svg[\s\S]*?<\/svg>)?([^<]*)<\/button>/g),
+  ].find((m) => m[1] === label)?.[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -156,33 +157,24 @@ test(
 );
 
 // ---------------------------------------------------------------------------
-// F10 und B-03: Kasten „Fest eingebaut“
+// F10 und B-03: Kasten „Fest eingebaut“. Seit R2 (Fixliste 7.22-rc8) gibt es
+// den Kasten nicht mehr, nur eine Zeile „Fest vorgegeben: …“ (Test
+// designCenterFixesRc8); hier bleibt die Prüfung, dass die beanstandeten
+// Texte nicht wiederkommen.
 // ---------------------------------------------------------------------------
 
 test(
-  "F10/B-03: Inline-Kasten ohne Widerspruch und ohne Fachsprache, Kurskarten nur bei Kurskarten",
+  "F10/B-03/R2: kein Kasten mehr, keine Fachsprache, kein Widerspruch",
   { skip },
   async () => {
-    const inline = text(await appearance({ displayMode: "inline" }));
-    assert.ok(!inline.includes("Keine Auswahl nötig"));
-    assert.ok(!inline.includes("Effekte entfallen"));
-    assert.ok(!inline.includes("Leisten-Stil"));
-    assert.ok(inline.includes("Startet als schmale Eingabeleiste"));
-    assert.ok(
-      inline.includes(
-        "Position und Chat-Icon gelten nur für die Chatblase. Sie erscheint, wenn der Platzhalter auf einer Seite fehlt."
-      )
-    );
     for (const displayMode of ["bubble", "inline"]) {
-      const cards = text(await appearance({ displayMode }));
-      assert.ok(cards.includes("Kurskarten als Zeilen mit kurzer Antwort"));
-      const off = text(await appearance({ displayMode, courseCards: "off" }));
-      assert.ok(
-        !off.includes("Kurskarten als Zeilen mit kurzer Antwort"),
-        displayMode
-      );
-      // Hinweis auf die Wahl bleibt
-      assert.ok(off.includes("Antworten mit Kursen"));
+      const t = text(await appearance({ displayMode }));
+      assert.ok(!t.includes("Keine Auswahl nötig"));
+      assert.ok(!t.includes("Effekte entfallen"));
+      assert.ok(!t.includes("Leisten-Stil"));
+      assert.ok(!t.includes("Fest eingebaut"));
+      assert.ok(!t.includes("Kurskarten als Zeilen mit kurzer Antwort"));
+      assert.ok(t.includes("Antworten mit Kursen"));
     }
   }
 );
@@ -196,13 +188,15 @@ test(
   { skip },
   async () => {
     const html = await appearance({ courseCards: "auto" });
+    // Beschriftungen seit 7.22-rc8: R3 (Chatfenster / In der Seite), R4
+    // („(Standard)“ am Standard-Button, im Chatfenster Nur Text mit Links)
     for (const [label, pressed] of [
       ["Kurskarten", "true"],
-      ["Nur Text mit Links", "false"],
-      ["Karten zuerst", "true"],
+      ["Nur Text mit Links (Standard)", "false"],
+      ["Karten zuerst (Standard)", "true"],
       ["Text zuerst", "false"],
-      ["Chatblase", "true"],
-      ["Inline in der Seite", "false"],
+      ["Chatfenster", "true"],
+      ["In der Seite", "false"],
       ["Hell", "true"],
       ["Links", "true"],
       ["Rechts", "false"],
@@ -308,10 +302,11 @@ test(
     const pre = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
     assert.ok(pre);
     assert.match(pre[0], /<wbr\/?>/);
-    assert.match(
-      pre[1],
-      /chat<wbr\/?>-<wbr\/?>widget\.<wbr\/?>min\.<wbr\/?>js|chat-<wbr\/?>widget\.<wbr\/?>min\.<wbr\/?>js/
-    );
+    // Restpunkt 1 (rc7, bewusst geändert): nur nach „/“ und „.“, nicht
+    // mehr nach „-“ („chat-widget“ bleibt zusammen)
+    assert.match(pre[1], /chat-widget\.<wbr\/?>min\.<wbr\/?>js/);
+    assert.doesNotMatch(pre[1], /-<wbr/);
+    assert.doesNotMatch(pre[1], /=<wbr/);
     assert.doesNotMatch(pre[0], /break-all/);
     // der Text (und damit das Kopieren) bleibt gleich
     const embedTab = await renderer.load(EMBED);

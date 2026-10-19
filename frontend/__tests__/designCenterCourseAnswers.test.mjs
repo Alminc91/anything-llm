@@ -2,9 +2,11 @@
 // Darstellungen: „Antworten mit Kursen“ mit „Kurse anzeigen als“
 // (Kurskarten / Nur Text mit Links, Schlüssel courseCards "auto"|"off") und
 // „Reihenfolge“ (Karten zuerst / Text zuerst, courseCardsPosition
-// "above"|"below"). Ohne gespeicherten Wert gilt der Standard (Kurskarten,
-// Karten zuerst); gespeichert wird nur eine Abweichung (Regel D6). Die
-// Vorschau zeigt eine Beispiel-Antwort nach der Wahl.
+// "above"|"below"). Ohne gespeicherten Wert gilt der Standard der
+// Darstellung (R4, Fixliste 7.22-rc8: Chatfenster Nur Text mit Links, In
+// der Seite Kurskarten; Reihenfolge Karten zuerst), mit „(Standard)“ am
+// Button; gespeichert wird nur eine Abweichung (Regel D6). Die Vorschau
+// zeigt eine Beispiel-Antwort nach der Wahl.
 //
 // Logik gegen den Server-Code (embedStandards.js), Darstellung serverseitig
 // gerendert, Bedienung und Speichern mit eingehängter Seite und ersetztem
@@ -111,34 +113,63 @@ test("Optionen wörtlich wie im Server (Vertrag)", () => {
   );
 });
 
-test("wirksamer Wert wie im Server, fehlend oder ungültig = Standard", () => {
+// R4 (bewusst geändert): der Standard für courseCards hängt an der
+// Darstellung, wie im Server (courseCardsValue mit displayMode)
+test("wirksamer Wert wie im Server, fehlend oder ungültig = Standard der Darstellung", () => {
   for (const v of VALUES) {
-    assert.equal(
-      keys.choiceValue({ courseCards: v }, "courseCards"),
-      server.courseCardsValue(v),
-      `courseCards ${JSON.stringify(v)}`
-    );
+    for (const displayMode of [undefined, "bubble", "inline", " INLINE "])
+      assert.equal(
+        keys.choiceValue({ courseCards: v, displayMode }, "courseCards"),
+        server.courseCardsValue(v, displayMode),
+        `courseCards ${JSON.stringify(v)} ${displayMode}`
+      );
     assert.equal(
       keys.choiceValue({ courseCardsPosition: v }, "courseCardsPosition"),
       server.courseCardsPositionValue(v),
       `courseCardsPosition ${JSON.stringify(v)}`
     );
   }
-  assert.equal(keys.choiceValue({}, "courseCards"), "auto");
+  assert.deepEqual(keys.COURSE_CARDS_DEFAULTS, server.COURSE_CARDS_DEFAULTS);
+  assert.equal(keys.choiceValue({}, "courseCards"), "off");
+  assert.equal(keys.choiceDefault({}, "courseCards"), "off");
+  assert.equal(
+    keys.choiceValue({ displayMode: "inline" }, "courseCards"),
+    "auto"
+  );
+  assert.equal(
+    keys.choiceDefault({ displayMode: "inline" }, "courseCards"),
+    "auto"
+  );
   assert.equal(keys.choiceValue({}, "courseCardsPosition"), "above");
 });
 
 test("D6: Wahl des wirksamen gespeicherten Werts ist keine Änderung", () => {
-  // nichts gespeichert: Standard wählen schreibt nichts
+  // nichts gespeichert: den Standard der Darstellung wählen schreibt nichts
+  // (Chatfenster: Nur Text mit Links; In der Seite: Kurskarten)
+  assert.deepEqual(keys.withChoice({ name: "VHS" }, {}, "courseCards", "off"), {
+    name: "VHS",
+  });
   assert.deepEqual(
-    keys.withChoice({ name: "VHS" }, {}, "courseCards", "auto"),
-    { name: "VHS" }
+    keys.withChoice(
+      { name: "VHS", displayMode: "inline" },
+      {},
+      "courseCards",
+      "auto"
+    ),
+    { name: "VHS", displayMode: "inline" }
   );
   // Abweichung wird gesetzt, zurück zum Standard entfernt sie wieder
-  const off = keys.withChoice({ name: "VHS" }, {}, "courseCards", "off");
-  assert.deepEqual(off, { name: "VHS", courseCards: "off" });
-  assert.deepEqual(keys.withChoice(off, {}, "courseCards", "auto"), {
+  const auto = keys.withChoice({ name: "VHS" }, {}, "courseCards", "auto");
+  assert.deepEqual(auto, { name: "VHS", courseCards: "auto" });
+  assert.deepEqual(keys.withChoice(auto, {}, "courseCards", "off"), {
     name: "VHS",
+  });
+  // Darstellung ungespeichert gewechselt: der Standard folgt der gewählten
+  // Darstellung, eine Abweichung davon wird gesetzt
+  const inline = { name: "VHS", displayMode: "inline" };
+  assert.deepEqual(keys.withChoice(inline, {}, "courseCards", "off"), {
+    ...inline,
+    courseCards: "off",
   });
   // gespeicherter Wert (auch in anderer Schreibweise) bleibt wörtlich stehen
   const stored = { courseCardsPosition: " Below " };
@@ -151,9 +182,12 @@ test("D6: Wahl des wirksamen gespeicherten Werts ist keine Änderung", () => {
   // gespeichert ungültig (wirkt wie Standard): Standard wählen ändert nichts
   const invalid = { courseCards: "kaputt" };
   assert.deepEqual(
-    keys.withChoice(invalid, invalid, "courseCards", "auto"),
+    keys.withChoice(invalid, invalid, "courseCards", "off"),
     invalid
   );
+  assert.deepEqual(keys.withChoice(invalid, invalid, "courseCards", "auto"), {
+    courseCards: "auto",
+  });
 });
 
 test("Speichern: cleanConfig lässt die Wahl unverändert", () => {
@@ -178,36 +212,48 @@ const appearance = (config) =>
     props: { config, updateField: noop, setChoice: noop, logoPreview: null },
   });
 
+// R4 (bewusst geändert): im Chatfenster ist „Nur Text mit Links“ der
+// Standard (ohne Reihenfolge), in der Seite „Kurskarten“ mit „Karten
+// zuerst“; der Standard-Button trägt „(Standard)“
 test(
-  "Aussehen: „Antworten mit Kursen“ in beiden Darstellungen, Standard Kurskarten und Karten zuerst, über dem Kasten „Fest eingebaut“",
+  "Aussehen: „Antworten mit Kursen“ in beiden Darstellungen mit dem Standard der Darstellung, vor der Zeile „Fest vorgegeben“",
   { skip },
   async () => {
-    for (const config of [{}, { displayMode: "inline" }]) {
-      const html = await appearance(config);
-      const t = text(html);
-      for (const label of [
-        "Antworten mit Kursen",
-        "Kurse anzeigen als",
-        "Kurskarten",
-        "Nur Text mit Links",
-        CARDS_HINT,
-        "Reihenfolge",
-        "Karten zuerst",
-        "Text zuerst",
-        ORDER_HINT,
-      ])
-        assert.ok(t.includes(label), `${label} ${JSON.stringify(config)}`);
-      const active = activeLabels(html);
-      assert.ok(active.includes("Kurskarten"));
-      assert.ok(active.includes("Karten zuerst"));
-      assert.ok(!active.includes("Nur Text mit Links"));
-      assert.ok(!active.includes("Text zuerst"));
-      assert.ok(
-        t.indexOf("Antworten mit Kursen") < t.indexOf("Fest eingebaut")
-      );
-      assert.doesNotMatch(t, /[–—]/);
-      assert.ok(!t.includes("Knopf"));
-    }
+    const bubble = await appearance({});
+    let t = text(bubble);
+    for (const label of [
+      "Antworten mit Kursen",
+      "Kurse anzeigen als",
+      "Kurskarten",
+      "Nur Text mit Links (Standard)",
+      CARDS_HINT,
+    ])
+      assert.ok(t.includes(label), label);
+    assert.ok(activeLabels(bubble).includes("Nur Text mit Links (Standard)"));
+    assert.ok(!activeLabels(bubble).includes("Kurskarten"));
+    assert.ok(!bubble.includes(">Reihenfolge<"));
+    assert.ok(!t.includes(ORDER_HINT));
+    assert.ok(t.indexOf("Antworten mit Kursen") < t.indexOf("Fest vorgegeben"));
+    assert.doesNotMatch(t, /[–—]/);
+    assert.ok(!t.includes("Knopf"));
+
+    const inline = await appearance({ displayMode: "inline" });
+    t = text(inline);
+    for (const label of [
+      "Kurskarten (Standard)",
+      "Nur Text mit Links",
+      "Reihenfolge",
+      "Karten zuerst (Standard)",
+      "Text zuerst",
+      ORDER_HINT,
+    ])
+      assert.ok(t.includes(label), label);
+    assert.ok(activeLabels(inline).includes("Kurskarten (Standard)"));
+    assert.ok(activeLabels(inline).includes("Karten zuerst (Standard)"));
+    assert.ok(!activeLabels(inline).includes("Nur Text mit Links"));
+    assert.ok(!activeLabels(inline).includes("Text zuerst"));
+    assert.ok(t.indexOf("Antworten mit Kursen") < t.indexOf("Fest vorgegeben"));
+    assert.doesNotMatch(t, /[–—]/);
   }
 );
 
@@ -215,9 +261,13 @@ test(
   "Aussehen: gespeicherte Wahl ist markiert; bei „Nur Text mit Links“ keine Reihenfolge",
   { skip },
   async () => {
-    const below = await appearance({ courseCardsPosition: " BELOW " });
+    const below = await appearance({
+      courseCards: "auto",
+      courseCardsPosition: " BELOW ",
+    });
     assert.ok(activeLabels(below).includes("Text zuerst"));
     assert.ok(activeLabels(below).includes("Kurskarten"));
+    assert.ok(text(below).includes("Karten zuerst (Standard)"));
 
     const off = await appearance({
       displayMode: "inline",
@@ -226,12 +276,18 @@ test(
     });
     const t = text(off);
     assert.ok(activeLabels(off).includes("Nur Text mit Links"));
+    assert.ok(t.includes("Kurskarten (Standard)"));
     assert.ok(!off.includes(">Reihenfolge<"));
     assert.ok(!t.includes("Karten zuerst"));
     assert.ok(!t.includes(ORDER_HINT));
-    // ungültig gespeichert: Standard markiert
+    // ungültig gespeichert: Standard der Darstellung markiert
     const invalid = await appearance({ courseCards: "kaputt" });
-    assert.ok(activeLabels(invalid).includes("Kurskarten"));
+    assert.ok(activeLabels(invalid).includes("Nur Text mit Links (Standard)"));
+    const invalidInline = await appearance({
+      displayMode: "inline",
+      courseCards: "kaputt",
+    });
+    assert.ok(activeLabels(invalidInline).includes("Kurskarten (Standard)"));
   }
 );
 
@@ -251,22 +307,39 @@ const previewHtml = (config) =>
   });
 const at = (html, marker) => html.indexOf(`data-preview="${marker}"`);
 
+// R4 (bewusst geändert): ohne Wahl folgt die Vorschau dem Standard der
+// Darstellung (Chatfenster Nur Text mit Links, In der Seite Karten zuerst)
 test(
-  "Vorschau: Beispiel-Antwort folgt der Wahl (Karten zuerst, Text zuerst, Nur Text mit Links), Chatblase und Inline",
+  "Vorschau: Beispiel-Antwort folgt der Wahl (Karten zuerst, Text zuerst, Nur Text mit Links), Chatfenster und In der Seite",
   { skip },
   async () => {
-    // Standard: Karten zuerst
-    const std = await previewHtml({});
+    // Chatfenster ohne Wahl: Nur Text mit Links
+    const bubble = await previewHtml({});
+    assert.match(bubble, /data-course-cards="off"/);
+    assert.equal((bubble.match(/data-preview="course-link"/g) || []).length, 2);
+    // Standard der Vorbelegung ohne gespeicherte Startvorschläge (R5): die
+    // zwei Beispiele als Pillen, die Folgefrage ist kein Startvorschlag
+    assert.equal((bubble.match(/data-preview="pill"/g) || []).length, 2);
+    assert.match(bubble, /data-preview="follow-up-pill"/);
+    assert.doesNotMatch(
+      await previewHtml({ defaultMessages: [] }),
+      /data-preview="pill"/
+    );
+
+    // Kurskarten gewählt: Karten zuerst (In der Seite ohne Wahl ebenso, im
+    // aufgeklappten Panel, siehe Test unten)
+    const std = await previewHtml({ courseCards: "auto" });
     assert.match(std, /data-course-cards="auto"/);
     assert.match(std, /data-cards-position="above"/);
     assert.equal((std.match(/data-preview="course-card"/g) || []).length, 2);
     assert.ok(at(std, "course-cards") < at(std, "answer-text"));
     assert.ok(at(std, "answer-text") < at(std, "follow-ups"));
     assert.match(std, /data-preview="follow-up-pill"/);
-    // Folgefrage ist kein Startvorschlag
-    assert.doesNotMatch(std, /data-preview="pill"/);
 
-    const below = await previewHtml({ courseCardsPosition: "below" });
+    const below = await previewHtml({
+      courseCards: "auto",
+      courseCardsPosition: "below",
+    });
     assert.match(below, /data-cards-position="below"/);
     assert.ok(at(below, "answer-text") < at(below, "course-cards"));
     assert.ok(at(below, "course-cards") < at(below, "follow-ups"));
@@ -309,6 +382,8 @@ test(
       (el) => el.getAttribute("data-preview") === "sample-answer"
     )[0];
     assert.ok(answer, "Beispiel-Antwort im Panel");
+    // R4: In der Seite ohne gespeicherte Wahl Kurskarten
+    assert.equal(answer.getAttribute("data-course-cards"), "auto");
     assert.equal(answer.getAttribute("data-cards-position"), "below");
     const kinds = elements(answer, (el) =>
       ["answer-text", "course-cards"].includes(el.getAttribute("data-preview"))
@@ -316,8 +391,6 @@ test(
     assert.deepEqual(kinds, ["answer-text", "course-cards"]);
   }
 );
-
-// Chatblase der Vorschau schließen und die Willkommensblasen zählen
 
 // ---------------------------------------------------------------------------
 // Bedienung und Speichern (Seite eingehängt)
@@ -387,21 +460,35 @@ const previewAttr = (container, attr) =>
   )[0]?.getAttribute(attr);
 
 test(
-  "Aussehen bedienen: Standard anklicken ändert nichts; Text zuerst und Nur Text mit Links speichern nur courseCardsPosition bzw. courseCards; Vorschau folgt",
+  "Aussehen bedienen (Chatfenster): Standard anklicken ändert nichts; Kurskarten und Text zuerst speichern nur courseCards bzw. courseCardsPosition; Vorschau folgt",
   { skip },
   async (t) => {
     const stored = { accentColor: "#FFA102", name: "VHS" };
     const { container, act, calls } = await open(t, [widget(3, stored)], 3);
-    assert.equal(previewAttr(container, "data-cards-position"), "above");
-    await act(() => click(button(container, "Kurskarten")));
-    await act(() => click(button(container, "Karten zuerst")));
+    // R4: im Chatfenster ohne Wahl Nur Text mit Links
+    assert.equal(previewAttr(container, "data-course-cards"), "off");
+    await act(() => click(button(container, "Nur Text mit Links (Standard)")));
     assert.ok(!unsaved(container), "Standard gewählt ist keine Änderung");
 
-    await act(() => click(button(container, "Text zuerst")));
+    await act(() => click(button(container, "Kurskarten")));
     assert.ok(unsaved(container));
+    assert.equal(previewAttr(container, "data-course-cards"), "auto");
+    assert.equal(previewAttr(container, "data-cards-position"), "above");
+    await act(() => click(button(container, "Karten zuerst (Standard)")));
+    assert.equal(previewAttr(container, "data-cards-position"), "above");
+    await act(() => click(button(container, "Text zuerst")));
     assert.equal(previewAttr(container, "data-cards-position"), "below");
-    await act(() => click(button(container, "Nur Text mit Links")));
-    assert.equal(previewAttr(container, "data-course-cards"), "off");
+    await act(() => click(button(container, "Speichern")));
+    assert.deepEqual(savedBody(calls), {
+      ...stored,
+      courseCards: "auto",
+      courseCardsPosition: "below",
+    });
+    // zurück auf den Standard: gespeichert ist jetzt "auto", also wird
+    // "off" als bewusste Wahl geschrieben (D6: Abweichung vom gespeicherten
+    // Stand); die Reihenfolge verschwindet aus dem Reiter, bleibt gespeichert
+    calls.length = 0;
+    await act(() => click(button(container, "Nur Text mit Links (Standard)")));
     assert.equal(button(container, "Text zuerst"), undefined);
     await act(() => click(button(container, "Speichern")));
     assert.deepEqual(savedBody(calls), {
@@ -409,6 +496,47 @@ test(
       courseCards: "off",
       courseCardsPosition: "below",
     });
+  }
+);
+
+test(
+  "Aussehen bedienen (R4): „(Standard)“ und Vorschau wechseln mit der Darstellung, solange nichts gespeichert ist",
+  { skip },
+  async (t) => {
+    const { container, act, calls } = await open(t, [widget(7, null)], 7);
+    assert.ok(button(container, "Nur Text mit Links (Standard)"));
+    assert.equal(previewAttr(container, "data-course-cards"), "off");
+    await act(() => click(button(container, "In der Seite")));
+    assert.ok(button(container, "Kurskarten (Standard)"));
+    assert.ok(button(container, "Nur Text mit Links"));
+    // Vorschau „In der Seite“: Box aufklappen, dann die Beispiel-Antwort
+    const expand = () =>
+      elements(
+        container,
+        (el) => el.getAttribute("data-preview") === "inline-bar"
+      )[0];
+    await act(() =>
+      click(elements(expand(), (el) => el.tagName === "BUTTON")[0])
+    );
+    assert.equal(previewAttr(container, "data-course-cards"), "auto");
+    // In der Seite den Standard wählen: keine Wahl gespeichert
+    await act(() => click(button(container, "Kurskarten (Standard)")));
+    await act(() => click(button(container, "Speichern")));
+    assert.deepEqual(savedBody(calls), { displayMode: "inline" });
+    // Abweichung in der Seite: Nur Text mit Links wird gespeichert
+    calls.length = 0;
+    await act(() => click(button(container, "Nur Text mit Links")));
+    assert.equal(previewAttr(container, "data-course-cards"), "off");
+    await act(() => click(button(container, "Speichern")));
+    assert.deepEqual(savedBody(calls), {
+      displayMode: "inline",
+      courseCards: "off",
+    });
+    // gespeicherte Wahl bleibt beim Wechsel der Darstellung
+    await act(() => click(button(container, "Chatfenster")));
+    assert.ok(button(container, "Nur Text mit Links (Standard)"));
+    assert.equal(previewAttr(container, "data-course-cards"), "off");
+    assert.ok(unsaved(container), "Darstellung geändert");
   }
 );
 

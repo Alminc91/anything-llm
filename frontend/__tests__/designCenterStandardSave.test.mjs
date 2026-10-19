@@ -132,9 +132,25 @@ test(
       ["Aussehen", "Inhalt", "Einbau"]
     );
     assert.equal(tabs[0].getAttribute("aria-selected"), "true");
-    assert.ok(container.textContent.includes("Fest eingebaut"));
+    // R2 (7.22-rc8): statt des Kastens eine Zeile
+    assert.ok(container.textContent.includes("Fest vorgegeben:"));
+    assert.ok(!container.textContent.includes("Fest eingebaut"));
   }
 );
+
+// Feld über seine Beschriftung (R5: Name und Platzhalter zeigen den
+// Standard als Wert, kein Platzhalter-Attribut mehr)
+const byLabel = (container, label) =>
+  elements(container, (el) => el.getAttribute("aria-label") === label)[0];
+// Wert eines kontrollierten Feldes im Dokument ohne Browser
+const valueOf = (el) => el.getAttribute("value") ?? el.value ?? "";
+// „Standardtext“-Button zum Feld mit dieser Beschriftung (Button steht in
+// der Kopfzeile desselben Feld-Blocks)
+const standardButtonFor = (container, label) =>
+  elements(
+    byLabel(container, label).parentNode,
+    (el) => el.tagName === "BUTTON" && el.textContent.trim() === "Standardtext"
+  )[0];
 
 test(
   "Bestandskunde: Speichern ändert nur das bearbeitete Feld, Altwerte bleiben wörtlich",
@@ -153,12 +169,9 @@ test(
       greeting.textContent || greeting.value,
       "Eigene Blase von früher"
     );
-    const name = elements(
-      container,
-      (el) =>
-        el.tagName === "INPUT" &&
-        el.getAttribute("placeholder") === "KI-Berater"
-    )[0];
+    const name = byLabel(container, "Name des Chatbots");
+    // E2: der alte Name ist ein eigener Kundenwert und steht im Feld
+    assert.equal(valueOf(name), "Ihr Online-Berater");
     await act(() =>
       handlersOf(name).onChange({ target: { value: "VHS Rhein" } })
     );
@@ -188,11 +201,7 @@ test(
     });
 
     calls.length = 0;
-    const standard = elements(
-      container,
-      (el) =>
-        el.tagName === "BUTTON" && el.textContent.trim() === "Standardtext"
-    )[0];
+    const standard = standardButtonFor(container, "Begrüßungstext");
     await act(() => click(standard));
     await act(() => click(buttons(container, "Speichern")[0]));
     const body = savedBody(calls);
@@ -206,14 +215,13 @@ test(
 );
 
 // D6 (Fixliste 7.22-rc3): Vorbelegungen nie ungefragt speichern (Review F05,
-// Browser B-03). Gespeichert wird nur, was der Kunde ändert oder als
-// Vorschlag übernimmt.
-const inputByPlaceholder = (container, placeholder) =>
+// Browser B-03). Seit R5 (7.22-rc8) stehen die Vorbelegungen als echte
+// Feldwerte da; gespeichert wird weiter nur, was der Kunde ändert.
+const listInputs = (container, list) =>
   elements(
-    container,
-    (el) =>
-      el.tagName === "INPUT" && el.getAttribute("placeholder") === placeholder
-  )[0];
+    elements(container, (el) => el.getAttribute("data-list") === list)[0],
+    (el) => el.tagName === "INPUT"
+  );
 
 test(
   "D6: neues Widget ist beim Öffnen nicht ungespeichert; eine Farbänderung speichert nur die Farbe",
@@ -221,12 +229,9 @@ test(
   async (t) => {
     const { container, act, calls } = await open(t, [widget(9, null)], 9);
     assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
-    const color = elements(
-      container,
-      (el) => el.getAttribute("aria-label") === "Kundenfarbe als Farbcode"
-    )[0];
-    // ohne gespeicherte Farbe: Feld leer, Standard des Widgets grau
-    assert.equal(color.getAttribute("placeholder"), "#01A5A9");
+    const color = byLabel(container, "Akzentfarbe als Farbcode");
+    // ohne gespeicherte Farbe: der Standard des Widgets als Feldwert (R5)
+    assert.equal(valueOf(color), "#01A5A9");
     await act(() =>
       handlersOf(color).onChange({ target: { value: "#123456" } })
     );
@@ -237,19 +242,31 @@ test(
 );
 
 test(
-  "D6/B-03: Bestandskunde ohne Startvorschläge und Willkommensblasen: Speichern schreibt keine dazu",
+  "D6/B-03/R5: Bestandskunde ohne Startvorschläge und Willkommensblasen: Vorbelegung im Feld, Speichern schreibt keine dazu",
   { skip },
   async (t) => {
     const stored = { accentColor: "#FFA102", name: "VHS" };
     const { container, act, calls } = await open(t, [widget(5, stored)], 5);
     assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
     await act(() => click(buttons(container, "Inhalt")[0]));
-    // Vorschläge sichtbar, aber nicht im Bearbeitungsstand
-    assert.ok(container.textContent.includes("Welche Sprachkurse gibt es?"));
-    assert.ok(container.textContent.includes("Hallo! Ich bin Ihr KI-Berater."));
+    // Vorbelegung als Feldwerte, aber nicht im Bearbeitungsstand
+    assert.deepEqual(listInputs(container, "suggestions").map(valueOf), [
+      "Ich suche einen Deutschkurs.",
+      "Gibt es Excel-Kurse am Abend?",
+    ]);
+    assert.deepEqual(listInputs(container, "welcome-bubbles").map(valueOf), [
+      "Hallo! Ich bin Ihr KI-Berater.",
+      "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",
+    ]);
+    assert.equal(
+      valueOf(byLabel(container, "Untertitel")),
+      "Online-Berater mit künstlicher Intelligenz"
+    );
+    assert.ok(!container.textContent.includes("Vorschlag übernehmen"));
+    assert.ok(!container.textContent.includes("Vorschläge übernehmen"));
     assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
     await act(() =>
-      handlersOf(inputByPlaceholder(container, "KI-Berater")).onChange({
+      handlersOf(byLabel(container, "Name des Chatbots")).onChange({
         target: { value: "VHS Rhein" },
       })
     );
@@ -259,43 +276,52 @@ test(
 );
 
 test(
-  "D6: „Vorschläge übernehmen“ und „Vorschlag übernehmen“ schreiben erst nach Bestätigung",
+  "R5: eine geänderte Vorbelegung wird mit der ganzen Liste gespeichert; alle Startvorschläge gelöscht = []",
   { skip },
   async (t) => {
     const { container, act, calls } = await open(t, [widget(9, null)], 9);
     await act(() => click(buttons(container, "Inhalt")[0]));
-    const apply = buttons(container, "Vorschläge übernehmen");
-    // Willkommensblasen (Chatblase) und Startvorschläge
-    assert.equal(apply.length, 2);
-    for (const button of apply) await act(() => click(button));
-    await act(() => click(buttons(container, "Vorschlag übernehmen")[0]));
+    const [first] = listInputs(container, "suggestions");
+    await act(() =>
+      handlersOf(first).onChange({ target: { value: "Welche Kurse gibt es?" } })
+    );
     assert.ok(container.textContent.includes("Ungespeicherte Änderungen"));
     await act(() => click(buttons(container, "Speichern")[0]));
     assert.deepEqual(savedBody(calls), {
-      chatbotBubblesMessages: [
-        "Hallo! Ich bin Ihr KI-Berater.",
-        "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",
-      ],
       defaultMessages: [
-        "Welche Sprachkurse gibt es?",
-        "Wie melde ich mich an?",
-        "Kurse am Wochenende",
+        "Welche Kurse gibt es?",
+        "Gibt es Excel-Kurse am Abend?",
       ],
-      assistantSubtitle: "Online-Berater mit künstlicher Intelligenz",
     });
+
+    calls.length = 0;
+    const remove = () =>
+      elements(
+        elements(
+          container,
+          (el) => el.getAttribute("data-list") === "suggestions"
+        )[0],
+        (el) => el.getAttribute("aria-label") === "Eintrag entfernen"
+      )[0];
+    while (remove()) await act(() => click(remove()));
+    assert.ok(container.textContent.includes("Leer: keine Startvorschläge."));
+    await act(() => click(buttons(container, "Speichern")[0]));
+    assert.deepEqual(savedBody(calls), { defaultMessages: [] });
   }
 );
 
 test(
-  "Darstellung Inline blendet Position, Chat-Icon und Willkommensblasen aus; Einbau zeigt den Platzhalter",
+  "Darstellung „In der Seite“ blendet Position, Chat-Icon und Willkommensblasen aus; Einbau zeigt den Platzhalter",
   { skip },
   async (t) => {
     const { container, act } = await open(t, [widget(4, LEGACY)], 4);
-    assert.ok(container.textContent.includes("Position der Chatblase"));
-    await act(() => click(buttons(container, "Inline in der Seite")[0]));
-    assert.ok(!container.textContent.includes("Position der Chatblase"));
+    assert.ok(container.textContent.includes("Position des Chatfensters"));
+    await act(() => click(buttons(container, "In der Seite")[0]));
+    assert.ok(!container.textContent.includes("Position des Chatfensters"));
     assert.ok(
-      container.textContent.includes("Fest eingebaut wie in unserer Demo")
+      container.textContent.includes(
+        "Fest vorgegeben: der KI-Hinweis unter der Eingabe und die Größe der aufgeklappten Box."
+      )
     );
     await act(() => click(buttons(container, "Inhalt")[0]));
     assert.ok(!container.textContent.includes("Willkommensblasen"));

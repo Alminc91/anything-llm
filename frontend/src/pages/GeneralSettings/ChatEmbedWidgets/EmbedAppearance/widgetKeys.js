@@ -18,9 +18,12 @@ import {
   recommendedTextColor,
 } from "./contrast.js";
 
+// Begriffe (R3, Fixliste 7.22-rc8): „Chatfenster“ (der Button in der Ecke
+// öffnet ein Chatfenster) und „In der Seite“ (Eingabeleiste im
+// Seiteninhalt); die Schlüssel bubble/inline bleiben.
 export const DISPLAY_MODE_OPTIONS = [
-  { value: "bubble", label: "Chatblase" },
-  { value: "inline", label: "Inline in der Seite" },
+  { value: "bubble", label: "Chatfenster" },
+  { value: "inline", label: "In der Seite" },
 ];
 export const THEME_OPTIONS = [
   { value: "light", label: "Hell" },
@@ -37,17 +40,22 @@ export const USER_TEXT_COLOR_OPTIONS = [
 
 // Antworten mit Kursen (KIE-567, Reiter Aussehen, beide Darstellungen).
 // Werte wie der Server (embedStandards.js COURSE_CARDS_VALUES,
-// COURSE_CARDS_POSITIONS): ohne bzw. mit ungültigem Wert gilt der Standard
-// (Kurskarten, Karten zuerst).
+// COURSE_CARDS_POSITIONS). Ohne bzw. mit ungültigem Wert gilt der Standard:
+// für die Reihenfolge „Karten zuerst“, für „Kurse anzeigen als“ je nach
+// Darstellung (R4, Fixliste 7.22-rc8; embedStandards.js
+// COURSE_CARDS_DEFAULTS): Chatfenster „Nur Text mit Links“, In der Seite
+// „Kurskarten“. Das Design Center rechnet mit der gewählten Darstellung;
+// live entscheidet das Widget nach seiner tatsächlichen Darstellung.
 export const COURSE_CARDS_OPTIONS = [
   { value: "auto", label: "Kurskarten" },
   { value: "off", label: "Nur Text mit Links" },
 ];
+export const COURSE_CARDS_DEFAULTS = { inline: "auto", bubble: "off" };
 export const COURSE_CARDS_POSITION_OPTIONS = [
   { value: "above", label: "Karten zuerst" },
   { value: "below", label: "Text zuerst" },
 ];
-// Willkommensblasen je Gerät (KIE-568, Reiter Inhalt, nur Chatblase), Werte
+// Willkommensblasen je Gerät (KIE-568, Reiter Inhalt, nur Chatfenster), Werte
 // wie der Server (WELCOME_BUBBLES_VALUES), Standard "first"
 export const WELCOME_BUBBLES_OPTIONS = [
   { value: "off", label: "Aus" },
@@ -59,9 +67,14 @@ export const WELCOME_BUBBLES_DEVICES = [
   { key: "welcomeBubblesMobile", label: "Handy" },
 ];
 
-// Auswahl-Schlüssel mit Standard (für choiceValue/withChoice)
+// Auswahl-Schlüssel mit Standard (für choiceValue/withChoice); fallback als
+// Funktion des Bearbeitungsstands, wenn der Standard von anderen Feldern
+// abhängt (courseCards von der Darstellung, R4)
 export const CHOICE_DEFAULTS = {
-  courseCards: { options: COURSE_CARDS_OPTIONS, fallback: "auto" },
+  courseCards: {
+    options: COURSE_CARDS_OPTIONS,
+    fallback: (config) => COURSE_CARDS_DEFAULTS[displayMode(config)],
+  },
   courseCardsPosition: {
     options: COURSE_CARDS_POSITION_OPTIONS,
     fallback: "above",
@@ -74,27 +87,42 @@ export const CHOICE_DEFAULTS = {
 };
 
 /**
+ * Standard eines Auswahl-Schlüssels im Bearbeitungsstand (für courseCards
+ * nach der gewählten Darstellung).
+ * @param {Object} config
+ * @param {keyof CHOICE_DEFAULTS} key
+ * @returns {string}
+ */
+export function choiceDefault(config, key) {
+  const { fallback } = CHOICE_DEFAULTS[key];
+  return typeof fallback === "function" ? fallback(config) : fallback;
+}
+
+/**
  * Wirksamer Wert eines Auswahl-Schlüssels wie im Server (courseCardsValue,
  * courseCardsPositionValue, welcomeBubblesValue): String, getrimmt und klein
- * geschrieben einer der Werte, sonst der Standard.
+ * geschrieben einer der Werte, sonst der Standard (choiceDefault).
  * @param {Object} config
  * @param {keyof CHOICE_DEFAULTS} key
  * @returns {string}
  */
 export function choiceValue(config, key) {
-  const { options, fallback } = CHOICE_DEFAULTS[key];
+  const { options } = CHOICE_DEFAULTS[key];
   const v = config?.[key];
-  if (typeof v !== "string") return fallback;
+  if (typeof v !== "string") return choiceDefault(config, key);
   const normalized = v.trim().toLowerCase();
-  return options.some((o) => o.value === normalized) ? normalized : fallback;
+  return options.some((o) => o.value === normalized)
+    ? normalized
+    : choiceDefault(config, key);
 }
 
 /**
  * Bearbeitungsstand nach einer Auswahl (Regel D6: nur geänderte Werte
- * speichern). Entspricht die Wahl dem wirksamen gespeicherten Wert, gilt
- * wieder der gespeicherte Stand (fehlt der Schlüssel dort, bleibt er weg;
- * so schreibt ein Klick auf den Standard nichts). Sonst wird die Wahl
- * gesetzt.
+ * speichern). Zeigt der gespeicherte Stand (bzw. ohne gespeicherten Wert
+ * der Standard, bei courseCards nach der gerade gewählten Darstellung)
+ * schon die gewählte Option, gilt wieder der gespeicherte Stand (fehlt der
+ * Schlüssel dort, bleibt er weg; so schreibt ein Klick auf den Standard
+ * nichts). Sonst wird die Wahl gesetzt.
  * @param {Object} config Bearbeitungsstand
  * @param {Object} initial gespeicherter Stand
  * @param {keyof CHOICE_DEFAULTS} key
@@ -102,34 +130,62 @@ export function choiceValue(config, key) {
  * @returns {Object}
  */
 export function withChoice(config, initial = {}, key, value) {
-  const next = { ...config };
-  if (choiceValue(initial, key) === value) {
-    if (key in initial) next[key] = initial[key];
-    else delete next[key];
-  } else next[key] = value;
-  return next;
+  const restored = { ...config };
+  if (key in initial) restored[key] = initial[key];
+  else delete restored[key];
+  if (choiceValue(restored, key) === value) return restored;
+  return { ...config, [key]: value };
 }
 
-// Vorschläge für Widgets ohne gespeicherte Liste (Entscheidung D6): nur
-// sichtbar als Vorschlag mit „Vorschläge übernehmen“, nie ungefragt
-// gespeichert (sonst schrieb schon eine Farbänderung VHS-Fragen in jedes
-// Widget, auch bei Nicht-VHS-Kunden, und der Server-Wert schlug die
-// Startvorschläge aus dem Skript).
+// Vorbelegung der Listen (R5, Fixliste 7.22-rc8): Ohne gespeicherte Liste
+// zeigt das Design Center diese Einträge als echte, bearbeitbare Zeilen und
+// die Vorschau sie mit; geschrieben werden sie erst, wenn der Kunde die
+// Liste ändert (Regel D6: unveränderte Vorbelegung wird nicht gespeichert,
+// sonst schrieb schon eine Farbänderung diese Fragen in jedes Widget).
+// - Startvorschläge: genau zwei Beispiele, nur hier (das Widget hat keine
+//   eigenen Standard-Startvorschläge); alle gelöscht und gespeichert =
+//   keine Startvorschläge (defaultMessages: []).
+// - Willkommensblasen: der Standard des Widgets (UI_TEXTS.de.welcomeBubbles,
+//   Gegenprobe im Test designCenterStandardLogic mit KUFER_EMBED_DIR); alle
+//   gelöscht = Standardblasen (wie ohne Schlüssel).
 export const DEFAULT_SUGGESTIONS = [
-  "Welche Sprachkurse gibt es?",
-  "Wie melde ich mich an?",
-  "Kurse am Wochenende",
+  "Ich suche einen Deutschkurs.",
+  "Gibt es Excel-Kurse am Abend?",
 ];
 export const DEFAULT_WELCOME_BUBBLES = [
   "Hallo! Ich bin Ihr KI-Berater.",
   "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",
 ];
+export const LIST_DEFAULTS = {
+  defaultMessages: DEFAULT_SUGGESTIONS,
+  chatbotBubblesMessages: DEFAULT_WELCOME_BUBBLES,
+};
+
+/**
+ * Zeilen einer Liste im Feld und in der Vorschau: die gespeicherte Liste
+ * (auch leer) oder, ohne Schlüssel, die Vorbelegung (Kopie).
+ * @param {Object} config
+ * @param {keyof LIST_DEFAULTS} key
+ * @returns {Array}
+ */
+export function listItems(config = {}, key) {
+  const v = config?.[key];
+  return Array.isArray(v) ? v : [...LIST_DEFAULTS[key]];
+}
+
+// Listen bereinigt (getrimmte, nicht leere Strings) gleich?
+function sameList(a, b) {
+  return (
+    JSON.stringify(textItems(a).map((s) => s.trim())) ===
+    JSON.stringify(textItems(b).map((s) => s.trim()))
+  );
+}
 
 // Aussehen ohne gespeicherten Wert: genau die Standards des Widgets
 // (anythingllm-embed, hooks/useScriptAttributes.js DEFAULT_SETTINGS:
 // buttonColor, chatIcon, position). Das Design Center zeigt sie an,
 // speichert sie aber nur, wenn der Kunde etwas wählt. Die Schrift auf der
-// Kundenfarbe hat keinen festen Standard: ohne gespeicherten Wert gilt die
+// Akzentfarbe hat keinen festen Standard: ohne gespeicherten Wert gilt die
 // Empfehlung nach Kontrast (userTextColor, KIE-565 Nachtrag).
 export const LOOK_DEFAULTS = {
   accentColor: "#01A5A9",
@@ -140,7 +196,7 @@ export const DEFAULT_ACCENT_COLOR = LOOK_DEFAULTS.accentColor;
 
 /**
  * Wert fürs Aussehen: gespeicherter Text bzw. Standard des Widgets; bei
- * "userTextColor" ohne gespeicherten Wert die Empfehlung zur Kundenfarbe.
+ * "userTextColor" ohne gespeicherten Wert die Empfehlung zur Akzentfarbe.
  * @param {Object} config
  * @param {"accentColor"|"userTextColor"|"chatIcon"|"position"} key
  * @returns {string}
@@ -151,13 +207,25 @@ export function lookValue(config, key) {
   return typeof v === "string" && v.trim() ? v : LOOK_DEFAULTS[key];
 }
 
+/**
+ * Wert im Feld „Akzentfarbe“ (R5: der wirksame Wert als Feldwert, kein
+ * grauer Platzhalter): der gespeicherte bzw. gerade eingegebene Text, sonst
+ * der Standard des Widgets.
+ * @param {Object} config
+ * @returns {string}
+ */
+export function accentFieldValue(config = {}) {
+  const v = config?.accentColor;
+  return typeof v === "string" ? v : DEFAULT_ACCENT_COLOR;
+}
+
 // ---------------------------------------------------------------------------
-// Schrift auf der Kundenfarbe (KIE-565 Nachtrag, Nutzer 15.10.2026): Weiß
-// oder Schwarz für Nutzer-Nachrichten und alle Flächen in Kundenfarbe
+// Schrift auf der Akzentfarbe (KIE-565 Nachtrag, Nutzer 15.10.2026): Weiß
+// oder Schwarz für Nutzer-Nachrichten und alle Flächen in Akzentfarbe
 // (Senden-Button, Chat-Button, gefüllte Pillen beim Darüberfahren). Die
 // Empfehlung rechnet wie das Widget (contrast.js, wortgleich mit
 // anythingllm-embed src/utils/contrast.js): WCAG-2.x-Kontrast der
-// Kundenfarbe zu den gezeigten Schriften #FFFFFF und #222628, der höhere
+// Akzentfarbe zu den gezeigten Schriften #FFFFFF und #222628, der höhere
 // gewinnt, Gleichstand Weiß (Entscheidung E1, Fixliste 7.22-rc7).
 // Empfehlung, Markierung und Warnung rechnen alle mit der Farbe, die das
 // Widget zeigt: „Schwarz“ ist #222628, auch ein früher gespeichertes
@@ -174,7 +242,7 @@ export { MIN_TEXT_CONTRAST };
 const LEGACY_USER_TEXT_COLORS = { "#000000": SHOWN_BLACK };
 
 /**
- * Gespeicherte Schrift auf der Kundenfarbe als gezeigte Farbe (die beiden
+ * Gespeicherte Schrift auf der Akzentfarbe als gezeigte Farbe (die beiden
  * Optionen mit einheitlicher Schreibweise, früheres #000000 als #222628)
  * oder null, wenn keine gespeichert ist.
  * @param {Object} config
@@ -191,8 +259,8 @@ export function storedUserTextColor(config = {}) {
 }
 
 /**
- * Wirksame Schrift auf der Kundenfarbe: gespeicherter Wert bzw. die
- * Empfehlung zur (wirksamen) Kundenfarbe, wie im Widget.
+ * Wirksame Schrift auf der Akzentfarbe: gespeicherter Wert bzw. die
+ * Empfehlung zur (wirksamen) Akzentfarbe, wie im Widget.
  * @param {Object} config
  * @returns {string}
  */
@@ -229,7 +297,7 @@ export function userTextColorChoice(config = {}) {
 /**
  * Bearbeitungsstand nach einem Klick auf Weiß oder Schwarz (E1, Regel D6):
  * Zeigt der gespeicherte Wert (bzw. ohne gespeicherten Wert die Empfehlung
- * zur aktuellen Kundenfarbe) schon die gewählte Option, gilt wieder der
+ * zur aktuellen Akzentfarbe) schon die gewählte Option, gilt wieder der
  * gespeicherte Stand (fehlt der Schlüssel dort, bleibt er weg; ein
  * gespeichertes #000000 bleibt #000000). Sonst wird die Option gesetzt.
  * @param {Object} config Bearbeitungsstand
@@ -247,7 +315,7 @@ export function withUserTextColor(config, initial = {}, value) {
 }
 
 /**
- * Fehlermeldung zum Farbcode der Kundenfarbe oder null (Review 7.22-rc6
+ * Fehlermeldung zum Farbcode der Akzentfarbe oder null (Review 7.22-rc6
  * F06). Leer ist kein Fehler (es gilt der Standard). Empfehlung und Warnung
  * rechnen mit einer deckenden Farbe; eine durchscheinende (#rrggbbaa,
  * rgba() mit Alpha unter 1) würde auf der Seite heller erscheinen, als
@@ -265,18 +333,30 @@ export function accentColorError(value) {
   return null;
 }
 
-// Alphawert eines (gültigen) Farbcodes, 0 … 1; ohne Angabe 1
+// Alphawert eines (gültigen) Farbcodes, 0 … 1; ohne Angabe 1. Bei rgb()/
+// rgba() zählt nur ein vierter Kanal als Alpha (Restpunkt 5, rc7: „rgb(0,
+// 0, 0)“ galt mit dem dritten Kanal 0 fälschlich als durchscheinend).
 function colorAlpha(color) {
   const hex = /^#[0-9a-f]{6}([0-9a-f]{2})$/i.exec(color);
   if (hex) return parseInt(hex[1], 16) / 255;
-  const fn = /[,/]\s*([\d.]+)(%?)\s*\)$/.exec(color);
+  const fn = /^rgba?\(([^)]*)\)$/i.exec(color.trim());
   if (!fn) return 1;
-  const value = Number(fn[1]);
+  const parts = fn[1].trim().split(/\s*[,/]\s*|\s+/);
+  if (parts.length < 4) return 1;
+  const m = /^([\d.]+)(%?)$/.exec(parts[3]);
+  if (!m) return 0;
+  const value = Number(m[1]);
   if (!Number.isFinite(value)) return 0;
-  return fn[2] ? value / 100 : value;
+  return m[2] ? value / 100 : value;
 }
 
-/** Kontrast für Texte: eine Nachkommastelle, abgerundet, z. B. "4,4:1" */
+/**
+ * Kontrast für Texte: eine Nachkommastelle, abgeschnitten (nicht gerundet),
+ * z. B. 4,38 -> "4,3:1". Bewusst (Restpunkt 6, rc7): Abschneiden ist
+ * konservativ. Gerundet stünde bei 4,46 „4,5:1“ neben der Warnung „unter
+ * 4,5:1“; so zeigt der Text nie mehr Kontrast, als tatsächlich erreicht
+ * wird.
+ */
 export function contrastLabel(ratio) {
   const value = Math.floor(ratio * 10) / 10;
   return `${value.toLocaleString("de-DE", {
@@ -286,20 +366,22 @@ export function contrastLabel(ratio) {
 }
 
 /**
- * Empfehlung und Warnung unter dem Feld „Schrift auf der Kundenfarbe“.
+ * Empfehlung und Warnung unter dem Feld „Schrift auf der Akzentfarbe“.
  * @param {Object} config
  * @returns {{recommendedLabel: string|null, stored: boolean,
  *   ratio: number|null, warning: string|null}}
- *   recommendedLabel null: Kundenfarbe ist kein gültiger Farbcode
+ *   recommendedLabel null: Akzentfarbe ist kein gültiger deckender Farbcode
+ *   (dann steht die Fehlermeldung am Feld; Restpunkt 5, rc7: für eine
+ *   durchscheinende Farbe wurde sonst mit dem Rohwert gerechnet)
  */
 export function userTextColorAdvice(config = {}) {
   const accent = lookValue(config, "accentColor");
   const stored = storedUserTextColor(config) !== null;
-  if (parseColor(accent) === null)
+  if (parseColor(accent) === null || accentColorError(accent) !== null)
     return { recommendedLabel: null, stored, ratio: null, warning: null };
   // Gerechnet mit der gezeigten Schrift (#FFFFFF bzw. #222628, E1). Auf
-  // mittleren Kundenfarben erreicht auch die Empfehlung 4,5:1 nicht; dann
-  // hilft nur eine hellere oder dunklere Kundenfarbe.
+  // mittleren Akzentfarben erreicht auch die Empfehlung 4,5:1 nicht; dann
+  // hilft nur eine hellere oder dunklere Akzentfarbe.
   const shown = userTextColor(config);
   const recommended = recommendedTextColor(accent);
   const ratio = contrastRatio(accent, shown);
@@ -307,8 +389,8 @@ export function userTextColorAdvice(config = {}) {
   if (ratio !== null && ratio < MIN_TEXT_CONTRAST)
     warning =
       shown === recommended
-        ? `Kontrast nur ${contrastLabel(ratio)}: Weder Weiß noch Schwarz erreicht auf dieser Kundenfarbe 4,5:1. Eine hellere oder dunklere Kundenfarbe ist besser lesbar.`
-        : `Kontrast nur ${contrastLabel(ratio)}: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar.`;
+        ? `Kontrast nur ${contrastLabel(ratio)}: Weder Weiß noch Schwarz erreicht auf dieser Akzentfarbe 4,5:1. Eine hellere oder dunklere Akzentfarbe ist besser lesbar.`
+        : `Kontrast nur ${contrastLabel(ratio)}: Unter 4,5:1 ist die Schrift auf der Akzentfarbe schwer lesbar.`;
   return {
     recommendedLabel: optionFor(recommended).label,
     stored,
@@ -319,10 +401,10 @@ export function userTextColorAdvice(config = {}) {
 
 /**
  * Schrift der Pillen (Startvorschläge in der Vorschau, wie die Folgefragen
- * im Widget, theme.js pillTextColor): die Kundenfarbe, wenn sie auf allen
+ * im Widget, theme.js pillTextColor): die Akzentfarbe, wenn sie auf allen
  * Flächen mindestens 4,5:1 erreicht, sonst abgedunkelt (helle Fläche) bzw.
- * aufgehellt (dunkle Fläche). Nicht auswertbare Kundenfarbe: fallback.
- * @param {string} accent Kundenfarbe
+ * aufgehellt (dunkle Fläche). Nicht auswertbare Akzentfarbe: fallback.
+ * @param {string} accent Akzentfarbe
  * @param {string[]} backgrounds Flächen
  * @param {string} fallback
  * @returns {string}
@@ -478,14 +560,34 @@ export function previewGreeting(config, key, defaults) {
 
 /**
  * Wert im Feld „Platzhalter“ (Chat-Eingabefeld, Entscheidung D2): eigener
- * Text, sonst "" (Standard grau).
+ * Text bzw. "" beim Leeren; frühere Vorbelegung oder fehlender Wert zeigen
+ * den Standardtext (R5: Standard als Feldwert).
  */
-export function placeholderFieldValue(config = {}) {
+export function placeholderFieldValue(config = {}, defaults = null) {
   const v = config.sendMessageText;
   return typeof v === "string" &&
     !LEGACY_DEFAULT_PLACEHOLDERS.includes(v.trim())
     ? v
-    : "";
+    : textValue(defaults?.sendMessageText);
+}
+
+/**
+ * Wert im Feld „Name“: gespeicherter Text bzw. "" beim Leeren; fehlend der
+ * Standard „KI-Berater“ (R5). Leer gespeichert gilt als Standard.
+ */
+export function nameFieldValue(config = {}, defaults = null) {
+  const v = config.name;
+  return typeof v === "string" ? v : textValue(defaults?.name);
+}
+
+/**
+ * Wert im Feld „Untertitel“: gespeicherter Text, auch "" (bewusst kein
+ * Untertitel, R5); fehlend der Standard „Online-Berater mit künstlicher
+ * Intelligenz“, den das Widget dann auch live zeigt.
+ */
+export function subtitleFieldValue(config = {}, defaults = null) {
+  const v = config.assistantSubtitle;
+  return typeof v === "string" ? v : textValue(defaults?.assistantSubtitle);
 }
 
 /** Platzhalter in der Vorschau: eigener Text, sonst Standardtext. */
@@ -714,7 +816,7 @@ export function validPrivacyUrl(value) {
 /**
  * Entspricht der Text dem Standard? Ohne geladene Standardtexte nie (damit
  * ein eigener Text beim Speichern nicht versehentlich verloren geht).
- * @param {"greeting"|"privacyTitle"|"privacyText"} defaultKey
+ * @param {"name"|"assistantSubtitle"|"greeting"|"sendMessageText"|"privacyTitle"|"privacyText"} defaultKey
  * @param {*} value
  * @param {Object|null} defaults
  * @returns {boolean}
@@ -762,7 +864,7 @@ export const FIELD_TAB = {
  */
 export function validateConfig(config, initial, gKey) {
   const errors = {};
-  // Kundenfarbe: nur ein geänderter Wert wird geprüft (ein früher
+  // Akzentfarbe: nur ein geänderter Wert wird geprüft (ein früher
   // gespeicherter Farbname bleibt speicherbar)
   if (changed(config, initial, "accentColor")) {
     const error = accentColorError(config.accentColor);
@@ -798,12 +900,25 @@ export function validateConfig(config, initial, gKey) {
 /**
  * Vor dem Speichern: nur die bearbeitbaren Felder bereinigen. Schlüssel
  * entfallener Optionen bleiben, wie sie gespeichert sind; es werden keine
- * neuen Darstellungs-Schlüssel geschrieben.
+ * neuen Darstellungs-Schlüssel geschrieben. Ein Wert, der wieder dem
+ * Standard entspricht, entfernt den Schlüssel (R5); Ausnahmen: Untertitel
+ * "" und Startvorschläge [] sind bewusste Werte. Dieselbe Funktion bestimmt
+ * im Design Center, ob es „Ungespeicherte Änderungen“ gibt (bereinigter
+ * Bearbeitungsstand gegen bereinigten gespeicherten Stand).
+ * - Akzentfarbe: leer oder der Standard des Widgets -> entfernen.
+ * - Name: leer oder „KI-Berater“ -> entfernen, sonst getrimmt.
+ * - Untertitel: Standard -> entfernen; "" bleibt "" (kein Untertitel),
+ *   sonst getrimmt.
  * - Begrüßung: leer oder Standardtext -> Schlüssel entfernen, dazu den
  *   anderen eigenen Text (greeting bzw. greetingBubbleText), sonst würde
  *   er sichtbar; unveränderte frühere Vorbelegung bleibt stehen.
- * - Platzhalter: leer -> entfernen (Standard), frühere Vorbelegung bleibt.
- * - Untertitel, Link: leer -> entfernen; Untertitel getrimmt.
+ * - Platzhalter: leer oder Standardtext -> entfernen, frühere Vorbelegung
+ *   bleibt.
+ * - Startvorschläge: leere Zeilen weg; genau die Vorbelegung -> entfernen;
+ *   [] bleibt [] (keine Startvorschläge).
+ * - Willkommensblasen: leere Zeilen weg; Vorbelegung oder [] -> entfernen
+ *   (es gelten die Standardblasen des Widgets).
+ * - Link: leer -> entfernen.
  * - Datenschutz-Überschrift: Standard -> entfernen, leer -> "" (bewusst
  *   keine Überschrift), sonst getrimmt.
  * - Datenschutz-Text: unverändert bleibt er, wie er ist; geändert: leer oder
@@ -821,6 +936,19 @@ export function cleanConfig(
 ) {
   const out = { ...config };
   const drop = (key) => delete out[key];
+
+  if (typeof out.accentColor === "string") {
+    const v = out.accentColor.trim();
+    if (!v || v.toLowerCase() === DEFAULT_ACCENT_COLOR.toLowerCase())
+      drop("accentColor");
+    else out.accentColor = v;
+  }
+
+  if (typeof out.name === "string") {
+    const v = out.name.trim();
+    if (!v || sameAsDefault("name", v, defaults)) drop("name");
+    else out.name = v;
+  }
 
   if (typeof out[gKey] === "string") {
     const v = out[gKey].trim();
@@ -840,15 +968,30 @@ export function cleanConfig(
   if (typeof out.sendMessageText === "string") {
     const v = out.sendMessageText.trim();
     if (!LEGACY_DEFAULT_PLACEHOLDERS.includes(v)) {
-      if (!v) drop("sendMessageText");
+      if (!v || sameAsDefault("sendMessageText", v, defaults))
+        drop("sendMessageText");
       else out.sendMessageText = v;
     }
   }
 
   if ("assistantSubtitle" in out) {
     const v = textValue(out.assistantSubtitle).trim();
-    if (!v) drop("assistantSubtitle");
+    if (sameAsDefault("assistantSubtitle", v, defaults))
+      drop("assistantSubtitle");
     else out.assistantSubtitle = v;
+  }
+
+  if (Array.isArray(out.defaultMessages)) {
+    const items = textItems(out.defaultMessages).map((s) => s.trim());
+    if (sameList(items, DEFAULT_SUGGESTIONS)) drop("defaultMessages");
+    else out.defaultMessages = items;
+  }
+
+  if (Array.isArray(out.chatbotBubblesMessages)) {
+    const items = textItems(out.chatbotBubblesMessages).map((s) => s.trim());
+    if (items.length === 0 || sameList(items, DEFAULT_WELCOME_BUBBLES))
+      drop("chatbotBubblesMessages");
+    else out.chatbotBubblesMessages = items;
   }
 
   if (!privacyNoticeOn(out)) {

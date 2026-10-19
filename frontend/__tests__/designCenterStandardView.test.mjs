@@ -61,7 +61,7 @@ const contentProps = (config) => ({
   updateField: noop,
   updateOptionalField: noop,
   resetKeys: noop,
-  applySuggestion: noop,
+  setPrivacyNotice: noop,
   addListItem: noop,
   updateListItem: noop,
   removeListItem: noop,
@@ -91,8 +91,11 @@ const REMOVED = [
   "Knopftext",
 ];
 
+// Begriffe und Aufbau seit 7.22-rc8: R2 (Zeile statt Kasten), R3
+// (Chatfenster / In der Seite, Name und Untertitel), R6 (Reihenfolge im
+// Reiter Inhalt), R10 (Akzentfarbe)
 test(
-  "Aussehen, Chatblase: Darstellung, Farbschema, Farbe, Schrift, Logo, Position, Chat-Icon, Kasten „Fest eingebaut“",
+  "Aussehen, Chatfenster: Darstellung, Farbschema, Akzentfarbe, Schrift, Logo, Position, Chat-Icon, Zeile „Fest vorgegeben“",
   { skip },
   async () => {
     const html = await show(APPEARANCE, {
@@ -103,42 +106,41 @@ test(
     const t = text(html);
     for (const label of [
       "Darstellung",
-      "Chatblase",
-      "Inline in der Seite",
+      "Chatfenster",
+      "In der Seite",
+      "Chatfenster: Button unten in der Ecke, öffnet ein Chatfenster. In der Seite: Eingabeleiste direkt im Seiteninhalt, an der Stelle des Platzhalters (Reiter „Einbau“).",
       "Farbschema",
       "Hell",
       "Dunkel",
-      "Kundenfarbe",
-      "Schrift auf der Kundenfarbe",
+      "Akzentfarbe",
+      "Schrift auf der Akzentfarbe",
       "Logo",
-      "Position der Chatblase",
+      "Position des Chatfensters",
       "Chat-Icon",
-      "Fest eingebaut, für alle Chatbots gleich",
-      "Begrüßung als Blase",
-      "Startvorschläge als Buttons",
-      "Folgefragen als Buttons",
-      "KI-Hinweis unter der Eingabe",
-      "Fenstergröße und Randabstand",
-      "Kein Online-Punkt",
+      "Fest vorgegeben: der KI-Hinweis unter der Eingabe und die Größe des Chatfensters.",
     ])
       assert.ok(t.includes(label), label);
     // KIE-565 Nachtrag: Datenschutz-Hinweis ist abschaltbar, nicht fest
     assert.ok(!t.includes("Datenschutz als zweite Blase"));
-    assert.ok(
-      t.includes(
-        "Den Datenschutz-Hinweis schalten Sie im Reiter „Inhalt“ ein oder aus."
-      )
-    );
-    assert.match(html, /data-testid="fixed-standards"/);
-    // Lineal-Reihenfolge: der Kasten steht unter den Feldern
-    assert.ok(t.indexOf("Chat-Icon") < t.indexOf("Fest eingebaut"));
+    // R2: kein Kasten mehr
+    assert.doesNotMatch(html, /data-testid="fixed-standards"/);
+    assert.ok(!t.includes("Fest eingebaut"));
+    assert.match(html, /data-testid="fixed-note"/);
+    // Lineal-Reihenfolge: die Zeile steht ganz unten
+    assert.ok(t.indexOf("Chat-Icon") < t.indexOf("Fest vorgegeben"));
+    assert.ok(t.indexOf("Antworten mit Kursen") < t.indexOf("Fest vorgegeben"));
+    // R3/R10: alte Begriffe nirgends sichtbar
+    assert.ok(!t.includes("Chatblase"));
+    assert.doesNotMatch(t, /\bInline\b/);
+    assert.ok(!t.includes("Kundenfarbe"));
+    assert.ok(!t.includes("Kopf"));
     // entfallene Felder: keine Überschrift (label) mehr
     for (const label of REMOVED) assert.ok(!html.includes(`>${label}<`), label);
   }
 );
 
 test(
-  "Aussehen, Inline: ohne Position und Chat-Icon, Kasten wie in der Demo",
+  "Aussehen, In der Seite: ohne Position und Chat-Icon, Zeile für die aufgeklappte Box",
   { skip },
   async () => {
     const html = await show(APPEARANCE, {
@@ -147,24 +149,23 @@ test(
       logoPreview: null,
     });
     const t = text(html);
-    assert.ok(!html.includes(">Position der Chatblase<"));
+    assert.ok(!html.includes(">Position des Chatfensters<"));
     assert.ok(!html.includes(">Chat-Icon<"));
-    for (const label of [
-      "Fest eingebaut wie in unserer Demo",
-      "Öffnet beim Klick ins Feld",
-      "Effekt „Verwandeln“",
-      "Breite und Höhe der Box",
-      "Kurskarten als Zeilen mit kurzer Antwort",
-      "Startet als schmale Eingabeleiste",
-      "Position und Chat-Icon gelten nur für die Chatblase. Sie erscheint, wenn der Platzhalter auf einer Seite fehlt.",
-    ])
-      assert.ok(t.includes(label), label);
+    assert.ok(
+      t.includes(
+        "Fest vorgegeben: der KI-Hinweis unter der Eingabe und die Größe der aufgeklappten Box."
+      )
+    );
+    assert.ok(t.includes("Auf dem Handy öffnet der Chat im Vollbild."));
+    assert.ok(!t.includes("Fest eingebaut"));
     assert.ok(!t.includes("Datenschutz als zweite Blase"));
+    assert.ok(!t.includes("Chatblase"));
+    assert.doesNotMatch(t, /\bInline\b/);
   }
 );
 
 test(
-  "Inhalt: Felder in der Reihenfolge des Mockups, Willkommensblasen nur bei Chatblase",
+  "Inhalt: Felder in der Reihenfolge des Chats (R6), Geschlossener Chat nur beim Chatfenster",
   { skip },
   async () => {
     const bubble = text(
@@ -174,16 +175,21 @@ test(
       )
     );
     const order = [
+      "Name und Untertitel",
       "Name",
       "Untertitel (optional)",
+      "Begrüßung",
       "Begrüßungstext",
-      "Willkommensblasen",
-      "Startvorschläge",
       "Datenschutz-Hinweis",
+      "Datenschutz-Hinweis anzeigen",
       "Überschrift (optional)",
-      "Link zur Datenschutzerklärung",
       "Text",
+      "Link zur Datenschutzerklärung",
+      "Startvorschläge",
       "Platzhalter im Eingabefeld",
+      "Geschlossener Chat",
+      "Willkommensblasen",
+      "Willkommensblasen anzeigen",
       "Support-E-Mail (optional)",
     ];
     let pos = -1;
@@ -209,7 +215,18 @@ test(
       await show(CONTENT, contentProps({ displayMode: "inline" }))
     );
     assert.ok(!inline.includes("Willkommensblasen"));
+    assert.ok(!inline.includes("Geschlossener Chat"));
     assert.ok(inline.includes("Startvorschläge"));
+    // R3: „Kopf“ nur noch als „Titelleiste des Chats“, keine alten Begriffe
+    for (const page of [bubble, inline]) {
+      assert.ok(!page.includes("Kopf"));
+      assert.ok(page.includes("Titelleiste des Chats"));
+      assert.ok(!page.includes("Chatblase"));
+      assert.doesNotMatch(page, /\bInline\b/);
+      assert.ok(!page.includes("Vorschlag übernehmen"));
+      assert.ok(!page.includes("Vorschläge übernehmen"));
+      assert.ok(!page.includes("Solange keine eigenen gespeichert sind"));
+    }
   }
 );
 
@@ -229,13 +246,17 @@ test(
     assert.ok(html.includes(DEFAULTS.greeting));
     assert.ok(!html.includes("Hallo und herzlich willkommen"));
     assert.ok(html.includes("• Punkt eins\n• Punkt zwei"));
-    // Platzhalter: Feld leer, Standard grau
-    assert.match(html, /placeholder="Ihre Frage eingeben"[^>]*value=""/);
+    // Platzhalter: R5, der Standard steht als Wert im Feld (frühere
+    // Vorbelegung zählt nicht)
+    assert.match(
+      html,
+      /aria-label="Platzhalter im Eingabefeld"[^>]*value="Ihre Frage eingeben"|value="Ihre Frage eingeben"[^>]*aria-label="Platzhalter im Eingabefeld"/
+    );
   }
 );
 
 test(
-  "Einbau: Skript mit echten Werten, Platzhalter nur bei Inline",
+  "Einbau: Skript mit echten Werten, Platzhalter nur bei „In der Seite“",
   { skip },
   async () => {
     const embedTab = await renderer.load(EMBED);
@@ -281,7 +302,7 @@ test(
 );
 
 test(
-  "Vorschau: zwei Blasen, Pillen, KI-Zeile, kein Online-Punkt; Hell/Dunkel",
+  "Vorschau: zwei Blasen, Pillen, KI-Zeile (R1), kein Online-Punkt; Hell/Dunkel",
   { skip },
   async () => {
     const html = await show(PREVIEW, {
@@ -312,9 +333,10 @@ test(
     );
     assert.match(html, /data-preview="pills"/);
     assert.ok(t.includes("Welche Sprachkurse gibt es?"));
+    // R1 (7.22-rc8): „Unsere KI“
     assert.match(
       html,
-      /data-preview="disclaimer"[^>]*>KI kann Fehler machen\. Bitte überprüfen Sie die Antworten\./
+      /data-preview="disclaimer"[^>]*>Unsere KI kann Fehler machen\. Bitte überprüfen Sie die Antworten\./
     );
     assert.ok(!html.includes("bg-green-500"), "kein Online-Punkt");
     assert.match(html, /data-preview-theme="light"/);
@@ -334,22 +356,18 @@ test(
 );
 
 test(
-  "KIE-567: Kasten „Fest eingebaut“ nennt nur Zeilenlayout und kurze Antwort, Reihenfolge ist wählbar",
+  "KIE-567/R2: statt des Kastens eine Zeile; Reihenfolge wählbar, nichts Widersprüchliches",
   { skip },
   async () => {
     for (const config of [{}, { displayMode: "inline" }]) {
       const t = text(
         await show(APPEARANCE, { config, updateField: noop, logoPreview: null })
       );
-      assert.ok(t.includes("Kurskarten als Zeilen mit kurzer Antwort"));
+      assert.ok(!t.includes("Kurskarten als Zeilen mit kurzer Antwort"));
       assert.ok(!t.includes("Kurskarten zuerst, dann die kurze Antwort"));
       assert.ok(!t.includes("zuerst die Karten, dann die kurze Antwort"));
       assert.ok(!t.includes("nur bei Inline"));
-      assert.ok(
-        t.includes(
-          "Kurskarten und ihre Reihenfolge wählen Sie oben unter „Antworten mit Kursen“."
-        )
-      );
+      assert.equal((t.match(/Fest vorgegeben:/g) || []).length, 1);
     }
   }
 );
@@ -437,7 +455,7 @@ test(
     const bubbleHint = text(await show(CONTENT, contentProps({})));
     assert.ok(
       bubbleHint.includes(
-        "Grauer Text im Eingabefeld des Chats. Leer = Standard."
+        "Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext."
       )
     );
     assert.ok(!bubbleHint.includes("in der Inline-Leiste"));
@@ -539,26 +557,80 @@ test(
   }
 );
 
+// R5 (7.22-rc8, bewusst geändert): keine Vorschläge mit „übernehmen“ mehr,
+// die Vorbelegung steht als Wert in den Feldern
+// Werte der Eingabefelder einer Liste (bis zum Button „… hinzufügen“)
+const inputValues = (html, list) => {
+  const at = html.indexOf(`data-list="${list}"`);
+  assert.ok(at > 0, `${list} fehlt`);
+  const block = html.slice(at, html.indexOf("hinzufügen", at));
+  return [...block.matchAll(/<input[^>]*value="([^"]*)"/g)].map((m) => m[1]);
+};
+
 test(
-  "D6: leere Listen zeigen den Vorschlag mit „Vorschläge übernehmen“, gefüllte nicht",
+  "R5: ohne gespeicherte Werte stehen die Vorbelegungen in den Feldern, keine Vorschläge zum Übernehmen",
   { skip },
   async () => {
-    const empty = text(await show(CONTENT, contentProps({})));
-    assert.ok(empty.includes("Noch keine gespeichert. Vorschlag:"));
-    assert.ok(empty.includes("Welche Sprachkurse gibt es?"));
-    assert.ok(empty.includes("Möchten Sie mehr über unser Angebot erfahren?"));
-    assert.ok(empty.includes("Vorschlag übernehmen"));
-    const filled = text(
-      await show(
-        CONTENT,
-        contentProps({
-          defaultMessages: ["A?"],
-          chatbotBubblesMessages: ["Hallo!"],
-          assistantSubtitle: "Online",
-        })
+    const html = await show(CONTENT, contentProps({}));
+    const t = text(html);
+    assert.ok(!t.includes("Noch keine gespeichert"));
+    assert.ok(!t.includes("übernehmen"));
+    assert.deepEqual(inputValues(html, "suggestions"), [
+      "Ich suche einen Deutschkurs.",
+      "Gibt es Excel-Kurse am Abend?",
+    ]);
+    assert.deepEqual(inputValues(html, "welcome-bubbles"), [
+      "Hallo! Ich bin Ihr KI-Berater.",
+      "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",
+    ]);
+    assert.ok(!t.includes("Welche Sprachkurse gibt es?"));
+    assert.match(
+      html,
+      /aria-label="Name des Chatbots"[^>]*value="KI-Berater"|value="KI-Berater"[^>]*aria-label="Name des Chatbots"/
+    );
+    assert.match(
+      html,
+      /aria-label="Untertitel"[^>]*value="Online-Berater mit künstlicher Intelligenz"|value="Online-Berater mit künstlicher Intelligenz"[^>]*aria-label="Untertitel"/
+    );
+    assert.ok(t.includes("Leer: es gilt „KI-Berater“."));
+    assert.ok(t.includes("Leer: kein Untertitel."));
+
+    const filled = await show(
+      CONTENT,
+      contentProps({
+        defaultMessages: ["A?"],
+        chatbotBubblesMessages: ["Hallo!"],
+        assistantSubtitle: "Online",
+        name: "VHS",
+      })
+    );
+    assert.deepEqual(inputValues(filled, "suggestions"), ["A?"]);
+    assert.deepEqual(inputValues(filled, "welcome-bubbles"), ["Hallo!"]);
+    assert.match(filled, /value="Online"/);
+    assert.match(filled, /value="VHS"/);
+
+    // leer gespeichert: Startvorschläge [] = keine; Willkommensblasen [] =
+    // Standardblasen; Untertitel "" = kein Untertitel
+    const empty = await show(
+      CONTENT,
+      contentProps({
+        defaultMessages: [],
+        chatbotBubblesMessages: [],
+        assistantSubtitle: "",
+      })
+    );
+    const e = text(empty);
+    assert.deepEqual(inputValues(empty, "suggestions"), []);
+    assert.deepEqual(inputValues(empty, "welcome-bubbles"), []);
+    assert.ok(e.includes("Leer: keine Startvorschläge."));
+    assert.ok(
+      e.includes(
+        "Leer: es gelten die Standardblasen. Abschalten über „Willkommensblasen anzeigen“."
       )
     );
-    assert.ok(!filled.includes("Noch keine gespeichert"));
-    assert.ok(!filled.includes("Vorschlag übernehmen"));
+    assert.match(
+      empty,
+      /aria-label="Untertitel"[^>]*value=""|value=""[^>]*aria-label="Untertitel"/
+    );
   }
 );

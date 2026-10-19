@@ -1,8 +1,8 @@
 // Design Center › Einbau: Schritt 1 das Skript (echte Werte dieses Widgets),
-// Schritt 2 der Platzhalter nur bei Darstellung „Inline“, dazu eine kurze
-// Anleitung für WordPress, TYPO3 und andere Systeme. Alle Einstellungen
-// kommen aus dem Design Center, data-*-Attribute für die Darstellung sind
-// nicht nötig.
+// Schritt 2 der Platzhalter nur bei Darstellung „In der Seite“, dazu eine
+// kurze Anleitung für WordPress, TYPO3 und andere Systeme. Alle
+// Einstellungen kommen aus dem Design Center, data-*-Attribute für die
+// Darstellung sind nicht nötig.
 import { useState } from "react";
 import { Check, CopySimple } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
@@ -53,15 +53,17 @@ const SYSTEM_GUIDES = [
 ];
 
 /**
- * Schnipsel für die Anzeige mit Umbruchstellen nach „/“, „.“, „-“ und „=“:
- * lange Adressen brechen dort um statt mitten im Wort (Browser 7.22-rc6
- * B-11, „…chat-widge / t.min.js“). Kopiert wird der Text unverändert.
+ * Schnipsel für die Anzeige mit Umbruchstellen nur nach „/“ und „.“: lange
+ * Adressen brechen dort um statt mitten im Wort (Browser 7.22-rc6 B-11,
+ * „…chat-widge / t.min.js“). Nach „-“ und „=“ nicht mehr (Restpunkt 1,
+ * rc7: sonst brach „chat-widget“ nach dem Bindestrich). Kopiert wird der
+ * Text unverändert.
  * @param {string} snippet
  * @returns {Array<string|JSX.Element>}
  */
 export function snippetWithBreaks(snippet) {
   return snippet
-    .split(/(?<=[/.=-])/)
+    .split(/(?<=[/.])/)
     .flatMap((part, i) => (i === 0 ? [part] : [<wbr key={i} />, part]));
 }
 
@@ -106,14 +108,25 @@ function CopyBlock({ snippet, copiedToast, label }) {
   );
 }
 
-function Step({ number, title, note = null, children }) {
+// badge: kleine Marke neben dem Titel (R3: „nur bei „In der Seite““)
+function Step({ number, title, note = null, badge = null, children }) {
   return (
     <div className="flex gap-3">
       <span className="flex-shrink-0 w-7 h-7 rounded-full bg-primary-button text-black text-sm font-semibold flex items-center justify-center">
         {number}
       </span>
       <div className="flex-1 min-w-0 space-y-2">
-        <p className="text-white text-sm font-medium leading-7">{title}</p>
+        <p className="text-white text-sm font-medium leading-7 flex flex-wrap items-center gap-x-2">
+          {title}
+          {badge && (
+            <span
+              className="text-[11px] leading-5 font-medium text-theme-text-secondary border border-white/10 rounded-full px-2"
+              data-testid="step-badge"
+            >
+              {badge}
+            </span>
+          )}
+        </p>
         {children}
         {note && (
           <p className="text-theme-text-secondary text-xs leading-relaxed">
@@ -164,11 +177,11 @@ export default function EmbedTab({ config, embed }) {
   return (
     <>
       <p className="text-theme-text-secondary text-xs leading-relaxed">
-        Bei der Chatblase genügt das Skript, bei Inline kommt der Platzhalter
-        dazu. Alle Einstellungen kommen automatisch aus dem Design Center und
-        gelten auch dann, wenn am Skript noch ältere Angaben stehen (z. B.
-        data-theme). Nach dem Speichern muss auf der Website nichts geändert
-        werden.
+        Beim Chatfenster genügt das Skript, bei „In der Seite“ kommt der
+        Platzhalter dazu. Alle Einstellungen kommen automatisch aus dem Design
+        Center und gelten auch dann, wenn am Skript noch ältere Angaben stehen
+        (z. B. data-theme). Nach dem Speichern muss auf der Website nichts
+        geändert werden.
       </p>
 
       <Step
@@ -187,7 +200,8 @@ export default function EmbedTab({ config, embed }) {
         <Step
           number={2}
           title="Platzhalter dort einfügen, wo die Leiste erscheinen soll"
-          note="Fehlt der Platzhalter auf einer Seite, erscheint dort automatisch die Chatblase."
+          badge="nur bei „In der Seite“"
+          note="Fehlt der Platzhalter auf einer Seite, erscheint dort automatisch das Chatfenster."
         >
           <CopyBlock
             snippet={EMBED_INLINE_PLACEHOLDER_SNIPPET}

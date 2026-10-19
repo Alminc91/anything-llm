@@ -16,6 +16,7 @@ import {
   FIELD_TAB,
   cleanConfig,
   greetingKey as storedGreetingKey,
+  listItems,
   validateConfig,
   withChoice,
   withPrivacyNotice,
@@ -28,12 +29,14 @@ import {
 // entfallener Optionen bleiben beim Speichern unverändert stehen.
 
 // Bearbeitet wird genau die gespeicherte visual_config (Entscheidung D6):
-// Fehlende Schlüssel zeigen die Reiter mit dem Standard des Widgets
-// (widgetKeys.js LOOK_DEFAULTS, Kufer-Standardtexte aus GET /embed/defaults)
-// bzw. als Vorschlag (Startvorschläge, Willkommensblasen, Untertitel), ohne
-// sie in den Bearbeitungsstand zu schreiben. Gespeichert wird so nur, was
-// der Kunde ändert oder als Vorschlag übernimmt; ein neues Widget ist beim
-// Öffnen nicht „ungespeichert“.
+// Fehlende Schlüssel zeigen die Reiter mit dem Standard des Widgets als
+// echten Feldwert (widgetKeys.js LOOK_DEFAULTS, LIST_DEFAULTS, Kufer-
+// Standardtexte aus GET /embed/defaults; R5 Vorbelegung), ohne sie in den
+// Bearbeitungsstand zu schreiben. Ob es „Ungespeicherte Änderungen“ gibt,
+// entscheidet der bereinigte Stand (cleanConfig) gegen den bereinigten
+// gespeicherten Stand: Ein Wert, der wieder dem Standard entspricht, zählt
+// nicht als Änderung. Gespeichert wird so nur, was der Kunde ändert; ein
+// neues Widget ist beim Öffnen nicht „ungespeichert“.
 
 const TABS = [
   { id: "aussehen", label: "Aussehen" },
@@ -77,7 +80,13 @@ export default function EmbedAppearance() {
   const [defaults, setDefaults] = useState(null);
   const [defaultsError, setDefaultsError] = useState(false);
 
-  const hasChanges = stableStringify(config) !== stableStringify(initialConfig);
+  // „Ungespeicherte Änderungen“ nur bei echter Änderung (R5): bereinigt
+  // verglichen, damit eine Vorbelegung, die der Kunde wieder auf den
+  // Standard bringt, nicht als Änderung zählt
+  const cleanOptions = { initial: initialConfig, defaults, greetingKey };
+  const hasChanges =
+    stableStringify(cleanConfig(config, cleanOptions)) !==
+    stableStringify(cleanConfig(initialConfig, cleanOptions));
 
   useEffect(() => {
     async function load() {
@@ -101,7 +110,7 @@ export default function EmbedAppearance() {
         } catch {}
       }
       // Gespeicherte Werte bleiben, wie sie sind; auch ein früheres #000000
-      // als Schrift auf der Kundenfarbe wird nicht umgeschrieben (E1,
+      // als Schrift auf der Akzentfarbe wird nicht umgeschrieben (E1,
       // Fixliste 7.22-rc7). Es gilt als „Schwarz“ (#222628, wie der Server
       // es ausliefert), siehe widgetKeys.js storedUserTextColor.
       const loadedConfig = { ...visualConfig };
@@ -182,7 +191,7 @@ export default function EmbedAppearance() {
     [initialConfig]
   );
 
-  // Schrift auf der Kundenfarbe: ein Klick auf die schon wirksame Option
+  // Schrift auf der Akzentfarbe: ein Klick auf die schon wirksame Option
   // (gespeichert oder empfohlen) ändert nichts (E1, widgetKeys.js
   // withUserTextColor)
   const setUserTextColor = useCallback(
@@ -191,26 +200,20 @@ export default function EmbedAppearance() {
     [initialConfig]
   );
 
-  // Vorschlag übernehmen (Startvorschläge, Willkommensblasen, Untertitel):
-  // erst damit wird er Teil des Bearbeitungsstands und beim Speichern
-  // geschrieben
-  const applySuggestion = (field, value) => {
-    setConfig((prev) => ({
-      ...prev,
-      [field]: Array.isArray(value) ? [...value] : value,
-    }));
-  };
-
+  // Listen (Startvorschläge, Willkommensblasen): bearbeitet wird die
+  // gezeigte Liste, ohne gespeicherte Liste also die Vorbelegung (R5,
+  // widgetKeys.js listItems); erst eine Änderung bringt sie in den
+  // Bearbeitungsstand
   const addListItem = (field) => {
     setConfig((prev) => ({
       ...prev,
-      [field]: [...(Array.isArray(prev[field]) ? prev[field] : []), ""],
+      [field]: [...listItems(prev, field), ""],
     }));
   };
 
   const updateListItem = (field, index, value) => {
     setConfig((prev) => {
-      const updated = [...(Array.isArray(prev[field]) ? prev[field] : [])];
+      const updated = [...listItems(prev, field)];
       updated[index] = value;
       return { ...prev, [field]: updated };
     });
@@ -219,9 +222,7 @@ export default function EmbedAppearance() {
   const removeListItem = (field, index) => {
     setConfig((prev) => ({
       ...prev,
-      [field]: (Array.isArray(prev[field]) ? prev[field] : []).filter(
-        (_, i) => i !== index
-      ),
+      [field]: listItems(prev, field).filter((_, i) => i !== index),
     }));
   };
 
@@ -239,11 +240,7 @@ export default function EmbedAppearance() {
       setActiveTab(tab);
       return;
     }
-    const cleanedConfig = cleanConfig(savedConfig, {
-      initial: initialConfig,
-      defaults,
-      greetingKey,
-    });
+    const cleanedConfig = cleanConfig(savedConfig, cleanOptions);
     setSaving(true);
     const { success, error } = await Embed.updateVisualConfig(
       embedId,
@@ -305,7 +302,10 @@ export default function EmbedAppearance() {
   }
 
   return (
-    <div className="w-screen h-screen flex flex-col bg-theme-bg-container overflow-hidden">
+    // relative: absolut positionierte Nachfahren (z. B. versteckte
+    // Schalter, sr-only) bleiben in der Seite und können das Dokument nicht
+    // über das Fenster hinaus verlängern (R7)
+    <div className="relative w-screen h-screen flex flex-col bg-theme-bg-container overflow-hidden">
       {/* Header */}
       <div className="flex items-center px-6 pr-16 md:pr-24 pt-[2.25rem] pb-5 border-b border-white/10">
         <div className="flex items-center gap-3">
@@ -383,7 +383,6 @@ export default function EmbedAppearance() {
                 resetKeys={resetKeys}
                 setPrivacyNotice={setPrivacyNotice}
                 setChoice={setChoice}
-                applySuggestion={applySuggestion}
                 addListItem={addListItem}
                 updateListItem={updateListItem}
                 removeListItem={removeListItem}

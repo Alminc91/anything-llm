@@ -1,8 +1,9 @@
-// Design Center › Aussehen: Darstellung, Farbschema, Kundenfarbe, Schrift auf
-// der Kundenfarbe, Logo; nur bei Chatblase Position und Chat-Icon; für
-// beide Darstellungen „Antworten mit Kursen“ (KIE-567). Darunter der Kasten
-// „Fest eingebaut“ mit den festen Standards.
-import { Check, LockSimple, Warning, X } from "@phosphor-icons/react";
+// Design Center › Aussehen: Darstellung, Farbschema, Akzentfarbe, Schrift auf
+// der Akzentfarbe, Logo; nur beim Chatfenster Position und Chat-Icon; für
+// beide Darstellungen „Antworten mit Kursen“ (KIE-567). Am Ende eine
+// gedämpfte Zeile mit dem, was fest vorgegeben ist (R2, Fixliste 7.22-rc8;
+// der frühere Kasten „Fest eingebaut“ entfällt).
+import { Moon, Sun, Warning, X } from "@phosphor-icons/react";
 import {
   GroupHeading,
   SELECTED_CLASS,
@@ -17,17 +18,17 @@ import {
   POSITION_OPTIONS,
   THEME_OPTIONS,
   USER_TEXT_COLOR_OPTIONS,
-  DEFAULT_ACCENT_COLOR,
+  accentFieldValue,
+  choiceDefault,
   choiceValue,
   displayMode,
   lookValue,
   themeChoice,
-  textValue,
   userTextColorAdvice,
   userTextColorChoice,
 } from "./widgetKeys";
 
-// Unter „Schrift auf der Kundenfarbe“: Empfehlung nach Kontrast, Hinweis
+// Unter „Schrift auf der Akzentfarbe“: Empfehlung nach Kontrast, Hinweis
 // ohne gespeicherten Wert, Warnung unter 4,5:1
 function UserTextColorAdvice({ advice }) {
   if (!advice.recommendedLabel) return null;
@@ -59,49 +60,43 @@ function UserTextColorAdvice({ advice }) {
   );
 }
 
-// Feste Standards je Darstellung (wie server/utils/chats/embedStandards.js).
-// Kurskarten an/aus und ihre Reihenfolge sind wählbar („Antworten mit
-// Kursen“, KIE-567) und stehen deshalb nicht in diesem Kasten; fest sind
-// nur Zeilenlayout und kurze Antwort, genannt nur, solange Kurskarten
-// gewählt sind (Browser 7.22-rc6 B-03). Der Datenschutz-Hinweis ist nicht
-// fest (Schalter im Reiter Inhalt, KIE-565 Nachtrag).
-const NOTE_CHOICES =
-  "Kurskarten und ihre Reihenfolge wählen Sie oben unter „Antworten mit Kursen“. Den Datenschutz-Hinweis schalten Sie im Reiter „Inhalt“ ein oder aus.";
-export const COURSE_CARDS_ITEM = "Kurskarten als Zeilen mit kurzer Antwort";
-export const FIXED_STANDARDS = {
-  bubble: {
-    title: "Fest eingebaut, für alle Chatbots gleich",
-    items: [
-      "Begrüßung als Blase",
-      "Startvorschläge als Buttons",
-      "Folgefragen als Buttons",
-      COURSE_CARDS_ITEM,
-      "KI-Hinweis unter der Eingabe",
-      "Fenstergröße und Randabstand",
-      "Kein Online-Punkt",
-    ],
-    note: NOTE_CHOICES,
-  },
-  inline: {
-    title: "Fest eingebaut wie in unserer Demo",
-    items: [
-      "Öffnet beim Klick ins Feld",
-      "Effekt „Verwandeln“",
-      "Startet als schmale Eingabeleiste",
-      "Breite und Höhe der Box",
-      COURSE_CARDS_ITEM,
-      "Folgefragen als Buttons",
-      "KI-Hinweis unter der Eingabe",
-    ],
-    // Review 7.22-rc6 F10: Position und Chat-Icon gelten weiter für die
-    // Chatblase, die ohne Platzhalter erscheint; der Effekt ist fest
-    note: `Position und Chat-Icon gelten nur für die Chatblase. Sie erscheint, wenn der Platzhalter auf einer Seite fehlt. ${NOTE_CHOICES}`,
-  },
+// Hinweis unter „Darstellung“ (R3): beide Darstellungen erklärt; bei „In
+// der Seite“ dazu der Hinweis auf das Handy
+export const DISPLAY_MODE_HINT =
+  "Chatfenster: Button unten in der Ecke, öffnet ein Chatfenster. In der Seite: Eingabeleiste direkt im Seiteninhalt, an der Stelle des Platzhalters (Reiter „Einbau“).";
+export const DISPLAY_MODE_HINT_INLINE = `${DISPLAY_MODE_HINT} Auf dem Handy öffnet der Chat im Vollbild.`;
+
+// Fest vorgegeben, je Darstellung (R2): eine gedämpfte Zeile am Ende des
+// Reiters statt des Kastens
+export const FIXED_NOTE = {
+  bubble:
+    "Fest vorgegeben: der KI-Hinweis unter der Eingabe und die Größe des Chatfensters.",
+  inline:
+    "Fest vorgegeben: der KI-Hinweis unter der Eingabe und die Größe der aufgeklappten Box.",
 };
+
+// Farbschema mit Symbolen (R9): Sonne bei Hell, Mond bei Dunkel
+const THEME_ICONS = { light: Sun, dark: Moon };
+const themeOptions = THEME_OPTIONS.map((opt) => ({
+  ...opt,
+  Icon: THEME_ICONS[opt.value],
+}));
+
+// Beschriftung mit „(Standard)“ am Standard-Button (R4: hängt bei den
+// Kurskarten an der gewählten Darstellung)
+export function withStandardLabel(options, standard) {
+  return options.map((opt) =>
+    opt.value === standard ? { ...opt, label: `${opt.label} (Standard)` } : opt
+  );
+}
+
+export const CARDS_HINT =
+  "Kurskarten zeigen Termin, Ort und freie Plätze auf einen Blick. „Nur Text“ ist die klassische Antwort mit Kurs-Links im Text. Standard: beim Chatfenster „Nur Text mit Links“, in der Seite „Kurskarten“.";
 
 // „Antworten mit Kursen“ (KIE-567, beide Darstellungen): Kurskarten oder
 // Nur Text mit Links; bei Kurskarten die Reihenfolge. Gespeichert wird nur
-// eine Abweichung (setChoice, Regel D6).
+// eine Abweichung (setChoice, Regel D6). Ohne gespeicherte Wahl gilt der
+// Standard der Darstellung und wechselt mit ihr (R4).
 export function CourseAnswersSection({ config, setChoice }) {
   const cards = choiceValue(config, "courseCards");
   const position = choiceValue(config, "courseCardsPosition");
@@ -109,12 +104,12 @@ export function CourseAnswersSection({ config, setChoice }) {
     <>
       <GroupHeading title="Antworten mit Kursen" />
       <div data-section="course-answers" className="space-y-5">
-        <SettingsSection
-          title="Kurse anzeigen als"
-          hint="Kurskarten zeigen Termin, Ort und freie Plätze auf einen Blick. „Nur Text“ ist die klassische Antwort mit Kurs-Links im Text."
-        >
+        <SettingsSection title="Kurse anzeigen als" hint={CARDS_HINT}>
           <Segmented
-            options={COURSE_CARDS_OPTIONS}
+            options={withStandardLabel(
+              COURSE_CARDS_OPTIONS,
+              choiceDefault(config, "courseCards")
+            )}
             value={cards}
             onChange={(v) => setChoice("courseCards", v)}
           />
@@ -125,7 +120,10 @@ export function CourseAnswersSection({ config, setChoice }) {
             hint="Empfohlen: Karten zuerst. Sie erscheinen sofort, während der Text noch geschrieben wird; die Folgefragen stehen dann direkt unter dem Text am Ende."
           >
             <Segmented
-              options={COURSE_CARDS_POSITION_OPTIONS}
+              options={withStandardLabel(
+                COURSE_CARDS_POSITION_OPTIONS,
+                choiceDefault(config, "courseCardsPosition")
+              )}
               value={position}
               onChange={(v) => setChoice("courseCardsPosition", v)}
             />
@@ -133,44 +131,6 @@ export function CourseAnswersSection({ config, setChoice }) {
         )}
       </div>
     </>
-  );
-}
-
-export function FixedStandardsBox({ mode, cards = "auto" }) {
-  const { title, items: all, note } = FIXED_STANDARDS[mode];
-  const items =
-    cards === "auto" ? all : all.filter((item) => item !== COURSE_CARDS_ITEM);
-  return (
-    <div
-      className="rounded-lg border border-white/10 bg-theme-bg-secondary p-4 space-y-3"
-      data-testid="fixed-standards"
-    >
-      <p className="flex items-center gap-2 text-white text-sm font-semibold">
-        <LockSimple size={16} weight="bold" aria-hidden="true" />
-        {title}
-      </p>
-      <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5">
-        {items.map((item) => (
-          <li
-            key={item}
-            className="flex items-start gap-2 text-xs text-theme-text-secondary leading-snug"
-          >
-            <Check
-              size={13}
-              weight="bold"
-              className="text-primary-button flex-shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            {item}
-          </li>
-        ))}
-      </ul>
-      {note && (
-        <p className="text-theme-text-secondary text-xs leading-relaxed">
-          {note}
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -198,11 +158,7 @@ export default function AppearanceTab({
     <>
       <SettingsSection
         title="Darstellung"
-        hint={
-          mode === "inline"
-            ? "Die Eingabeleiste steht dort, wo Sie den Platzhalter einbauen (Reiter „Einbau“). Auf dem Handy öffnet der Chat im Vollbild."
-            : "Chatblase: Button unten in der Ecke, öffnet ein Chatfenster. Inline: Eingabeleiste direkt im Seiteninhalt."
-        }
+        hint={mode === "inline" ? DISPLAY_MODE_HINT_INLINE : DISPLAY_MODE_HINT}
       >
         <Segmented
           options={DISPLAY_MODE_OPTIONS}
@@ -221,19 +177,21 @@ export default function AppearanceTab({
         }
       >
         <Segmented
-          options={THEME_OPTIONS}
+          options={themeOptions}
           value={theme}
           onChange={(v) => updateField("theme", v)}
         />
       </SettingsSection>
 
       <SettingsSection
-        title="Kundenfarbe"
-        hint="Buttons, Nutzer-Nachrichten, Links."
+        title="Akzentfarbe"
+        hint="Buttons, Nutzer-Nachrichten und Links in Akzentfarbe."
         error={errors.accentColor}
       >
+        {/* breit genug für rgb()/rgba()-Eingaben (Restpunkt 5, rc7: w-44
+            schnitt lange Eingaben ab) */}
         <div
-          className={`relative flex items-center bg-theme-settings-input-bg rounded-lg border transition-colors w-44 cursor-pointer ${
+          className={`relative flex items-center bg-theme-settings-input-bg rounded-lg border transition-colors w-full max-w-xs cursor-pointer ${
             errors.accentColor
               ? "border-red-400/70"
               : "border-white/10 hover:border-white/25"
@@ -249,23 +207,22 @@ export default function AppearanceTab({
               value={accentColor}
               onChange={(e) => updateField("accentColor", e.target.value)}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              aria-label="Kundenfarbe wählen"
+              aria-label="Akzentfarbe wählen"
             />
           </div>
           <input
             type="text"
-            value={textValue(config.accentColor)}
+            value={accentFieldValue(config)}
             onChange={(e) => updateField("accentColor", e.target.value)}
             className="bg-transparent text-white text-sm px-2.5 py-2.5 w-full font-mono outline-none"
-            placeholder={DEFAULT_ACCENT_COLOR}
-            aria-label="Kundenfarbe als Farbcode"
+            aria-label="Akzentfarbe als Farbcode"
           />
         </div>
       </SettingsSection>
 
       <SettingsSection
-        title="Schrift auf der Kundenfarbe"
-        hint="Für Nutzer-Nachrichten, den Senden-Button und Buttons in Kundenfarbe."
+        title="Schrift auf der Akzentfarbe"
+        hint="Für Nutzer-Nachrichten, den Senden-Button und Buttons in Akzentfarbe."
       >
         <div className="flex rounded-lg overflow-hidden border border-white/10 w-fit">
           {USER_TEXT_COLOR_OPTIONS.map((opt) => {
@@ -331,8 +288,8 @@ export default function AppearanceTab({
       {mode === "bubble" && (
         <>
           <SettingsSection
-            title="Position der Chatblase"
-            hint="Unten links oder unten rechts auf der Seite."
+            title="Position des Chatfensters"
+            hint="Unten links oder unten rechts auf der Seite, Button und Chatfenster."
           >
             <Segmented
               options={POSITION_OPTIONS}
@@ -388,10 +345,12 @@ export default function AppearanceTab({
 
       <CourseAnswersSection config={config} setChoice={setChoice} />
 
-      <FixedStandardsBox
-        mode={mode}
-        cards={choiceValue(config, "courseCards")}
-      />
+      <p
+        className="text-theme-text-secondary text-xs leading-relaxed pt-4 border-t border-white/10"
+        data-testid="fixed-note"
+      >
+        {FIXED_NOTE[mode]}
+      </p>
     </>
   );
 }

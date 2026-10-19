@@ -2,7 +2,7 @@
 // 1 bis 4, Design Center):
 //   1. gewähltes Chat-Icon deutlich hervorgehoben (Rahmen in Akzentfarbe,
 //      aria-pressed), auch mit gespeichertem Wert
-//   2. „Schrift auf der Kundenfarbe“ Weiß/Schwarz mit Empfehlung nach
+//   2. „Schrift auf der Akzentfarbe“ Weiß/Schwarz mit Empfehlung nach
 //      WCAG-Kontrast und Warnung unter 4,5:1; ohne gespeicherten Wert gilt
 //      die Empfehlung (nur angezeigt, Regel D6); Vorschau mit
 //      Beispiel-Nutzernachricht in Chatblase und Inline
@@ -212,7 +212,7 @@ test("Empfehlung und Warnung unter dem Feld", () => {
   assert.equal(white.stored, true);
   assert.equal(
     white.warning,
-    "Kontrast nur 3,0:1: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar."
+    "Kontrast nur 3,0:1: Unter 4,5:1 ist die Schrift auf der Akzentfarbe schwer lesbar."
   );
 
   // mittleres Grau (E1, gerechnet mit #222628): Empfehlung Weiß, auch sie
@@ -222,12 +222,12 @@ test("Empfehlung und Warnung unter dem Feld", () => {
   assert.equal(gray.recommendedLabel, "Weiß");
   assert.equal(
     gray.warning,
-    "Kontrast nur 4,4:1: Weder Weiß noch Schwarz erreicht auf dieser Kundenfarbe 4,5:1. Eine hellere oder dunklere Kundenfarbe ist besser lesbar."
+    "Kontrast nur 4,4:1: Weder Weiß noch Schwarz erreicht auf dieser Akzentfarbe 4,5:1. Eine hellere oder dunklere Akzentfarbe ist besser lesbar."
   );
   assert.equal(
     keys.userTextColorAdvice({ accentColor: "#777777", userTextColor: BLACK })
       .warning,
-    "Kontrast nur 3,4:1: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar."
+    "Kontrast nur 3,4:1: Unter 4,5:1 ist die Schrift auf der Akzentfarbe schwer lesbar."
   );
   // Warnung genau dann, wenn die gezeigte Schrift unter 4,5:1 bleibt
   for (let v = 0; v < 256; v += 5)
@@ -259,7 +259,7 @@ test("Empfehlung und Warnung unter dem Feld", () => {
 // Punkt 4: Logik der Startvorschlag-Pillen
 // ---------------------------------------------------------------------------
 
-test("Schrift der Pillen: Kundenfarbe, sonst abgedunkelt bzw. aufgehellt bis 4,5:1", () => {
+test("Schrift der Pillen: Akzentfarbe, sonst abgedunkelt bzw. aufgehellt bis 4,5:1", () => {
   for (const backgrounds of [["#ffffff"], ["#1d1d21", "#131316"]])
     for (const accent of [
       "#01A5A9",
@@ -274,7 +274,7 @@ test("Schrift der Pillen: Kundenfarbe, sonst abgedunkelt bzw. aufgehellt bis 4,5
       const color = keys.pillTextColor(accent, backgrounds);
       for (const bg of backgrounds)
         assert.ok(ratio(color, bg) >= 4.5, `${accent} auf ${bg}: ${color}`);
-      // ausreichender Kontrast: die Kundenfarbe selbst
+      // ausreichender Kontrast: die Akzentfarbe selbst
       if (backgrounds.every((bg) => ratio(accent, bg) >= 4.5))
         assert.equal(color.toLowerCase(), accent.toLowerCase());
     }
@@ -289,7 +289,7 @@ test("Schrift der Pillen: Kundenfarbe, sonst abgedunkelt bzw. aufgehellt bis 4,5
   assert.ok(
     luminance(keys.pillTextColor("#003366", ["#1d1d21"])) > luminance("#003366")
   );
-  // nicht auswertbare Kundenfarbe: Ersatz
+  // nicht auswertbare Akzentfarbe: Ersatz
   assert.equal(keys.pillTextColor("abc", ["#ffffff"], "#1c1917"), "#1c1917");
 });
 
@@ -324,7 +324,7 @@ test(
     assert.match(selected, /aria-pressed="true"/);
     assert.match(selected, /border-primary-button/);
     for (const title of [
-      "Chat-Blase",
+      "Sprechblase",
       "Support",
       "Suche",
       "Fernglas",
@@ -336,18 +336,18 @@ test(
     }
     // ohne gespeicherten Wert: der Standard des Widgets
     const fresh = await appearance({});
-    assert.match(buttonTag(fresh, "Chat-Blase"), /aria-pressed="true"/);
-    assert.match(buttonTag(fresh, "Chat-Blase"), /border-primary-button/);
+    assert.match(buttonTag(fresh, "Sprechblase"), /aria-pressed="true"/);
+    assert.match(buttonTag(fresh, "Sprechblase"), /border-primary-button/);
   }
 );
 
 test(
-  "Punkt 2: Feld „Schrift auf der Kundenfarbe“ mit Empfehlung; ohne Wahl ist die Empfehlung aktiv",
+  "Punkt 2: Feld „Schrift auf der Akzentfarbe“ mit Empfehlung; ohne Wahl ist die Empfehlung aktiv",
   { skip },
   async () => {
     const html = await appearance({});
     const t = text(html);
-    assert.ok(t.includes("Schrift auf der Kundenfarbe"));
+    assert.ok(t.includes("Schrift auf der Akzentfarbe"));
     assert.ok(!t.includes("Schrift in Nutzer-Nachrichten"));
     assert.ok(
       t.includes(
@@ -383,7 +383,7 @@ test(
     assert.match(html, /data-testid="user-text-warning"/);
     assert.ok(
       t.includes(
-        "Kontrast nur 3,0:1: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar."
+        "Kontrast nur 3,0:1: Unter 4,5:1 ist die Schrift auf der Akzentfarbe schwer lesbar."
       )
     );
     assert.match(html, /aria-pressed="true"[^>]*>(?:(?!<\/button>).)*Weiß/);
@@ -394,7 +394,7 @@ test(
 );
 
 test(
-  "Punkt 2: Vorschau Chatblase zeigt eine Nutzer-Nachricht in Kundenfarbe mit der Schrift, darunter „Beispiel-Nutzernachricht“",
+  "Punkt 2: Vorschau Chatblase zeigt eine Nutzer-Nachricht in Akzentfarbe mit der Schrift, darunter „Beispiel-Nutzernachricht“",
   { skip },
   async () => {
     // ohne gespeicherten Wert: die Empfehlung wie im Widget (Schwarz auf
@@ -423,13 +423,13 @@ test(
     )[0];
     assert.match(storedTag, /background-color:#FFA102/i);
     assert.match(storedTag, /(^|[;"])color:#FFFFFF/i);
-    // Chat-Button der Vorschau: Icon in der Schrift auf der Kundenfarbe
+    // Chat-Button der Vorschau: Icon in der Schrift auf der Akzentfarbe
     assert.match(fresh, /<svg[^>]*fill="#222628"/);
   }
 );
 
 test(
-  "Punkt 2: Inline-Leiste: Senden-Button in der Schrift auf der Kundenfarbe (ohne Wert die Empfehlung)",
+  "Punkt 2: Inline-Leiste: Senden-Button in der Schrift auf der Akzentfarbe (ohne Wert die Empfehlung)",
   { skip },
   async () => {
     const html = await preview({ displayMode: "inline" });
@@ -469,11 +469,10 @@ test(
     }
     for (const page of pages) assert.doesNotMatch(page, /Knopf|Knöpf/);
     const bubble = pages[0];
-    assert.ok(bubble.includes("Startvorschläge als Buttons"));
-    assert.ok(bubble.includes("Folgefragen als Buttons"));
-    assert.ok(bubble.includes("Buttons, Nutzer-Nachrichten, Links."));
+    // R2 (7.22-rc8): der Kasten „Fest eingebaut“ mit „… als Buttons“ ist
+    // weg; die Hinweise nennen weiter Buttons
+    assert.ok(bubble.includes("Buttons, Nutzer-Nachrichten und Links"));
     assert.ok(bubble.includes("Das Icon auf dem Chat-Button."));
-    assert.ok(pages[4].includes("Folgefragen als Buttons"));
     assert.ok(
       pages[1].includes(
         "Buttons mit Fragen, die Besucher mit einem Klick stellen können."
@@ -498,7 +497,7 @@ function styleOf(tag) {
 }
 
 test(
-  "Punkt 4: Startvorschläge wie Folgefragen: Rand in Kundenfarbe, lesbare Schrift, Füllung beim Darüberfahren; Chatblase und Inline, hell und dunkel",
+  "Punkt 4: Startvorschläge wie Folgefragen: Rand in Akzentfarbe, lesbare Schrift, Füllung beim Darüberfahren; Chatblase und Inline, hell und dunkel",
   { skip },
   async () => {
     const cases = [
@@ -539,7 +538,7 @@ test(
             `${accentColor} auf ${panel}: ${style["--pill-text"]}`
           );
           // gemeinsame Klassen: Schrift und Fläche aus den Variablen,
-          // Darüberfahren füllt in Kundenfarbe
+          // Darüberfahren füllt in Akzentfarbe
           for (const cls of [
             "text-[color:var(--pill-text)]",
             "bg-[color:var(--pill-bg)]",
@@ -679,10 +678,10 @@ test(
     assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
     assert.equal(pressed(container, "Schwarz"), "true");
     assert.ok(container.textContent.includes("Empfohlen: Schwarz"));
-    // Kundenfarbe ändern: Empfehlung folgt, gespeichert wird nur die Farbe
+    // Akzentfarbe ändern: Empfehlung folgt, gespeichert wird nur die Farbe
     const color = elements(
       container,
-      (el) => el.getAttribute("aria-label") === "Kundenfarbe als Farbcode"
+      (el) => el.getAttribute("aria-label") === "Akzentfarbe als Farbcode"
     )[0];
     await act(() =>
       handlersOf(color).onChange({ target: { value: "#003366" } })
@@ -749,7 +748,7 @@ test("E1: früher gespeichertes #000000 gilt als Schwarz (#222628) und bleibt ge
   assert.equal(keys.userTextColorChoice(legacy), BLACK);
   assert.equal(
     keys.userTextColorAdvice(legacy).warning,
-    "Kontrast nur 3,8:1: Unter 4,5:1 ist die Schrift auf der Kundenfarbe schwer lesbar."
+    "Kontrast nur 3,8:1: Unter 4,5:1 ist die Schrift auf der Akzentfarbe schwer lesbar."
   );
   assert.equal(keys.userTextColorChoice({ userTextColor: " #000000 " }), BLACK);
   // Speichern lässt den Wert stehen
@@ -771,7 +770,7 @@ test("E1: Klick auf die schon wirksame Option ändert den Bearbeitungsstand nich
     keys.withUserTextColor({ userTextColor: WHITE }, {}, BLACK),
     {}
   );
-  // Kundenfarbe geändert, die Empfehlung ist jetzt Weiß: Schwarz muss
+  // Akzentfarbe geändert, die Empfehlung ist jetzt Weiß: Schwarz muss
   // gespeichert werden, Weiß folgt der Empfehlung
   assert.deepEqual(
     keys.withUserTextColor({ accentColor: "#003366" }, {}, BLACK),
@@ -794,7 +793,7 @@ test("E1: Klick auf die schon wirksame Option ändert den Bearbeitungsstand nich
 });
 
 test(
-  "E1 (Browser B-01): Altwidget mit #000000 speichert eine neue Kundenfarbe, ohne die Schrift umzuschreiben",
+  "E1 (Browser B-01): Altwidget mit #000000 speichert eine neue Akzentfarbe, ohne die Schrift umzuschreiben",
   { skip },
   async (t) => {
     const { container, act, calls } = await open(
@@ -809,7 +808,7 @@ test(
     assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
     const color = elements(
       container,
-      (el) => el.getAttribute("aria-label") === "Kundenfarbe als Farbcode"
+      (el) => el.getAttribute("aria-label") === "Akzentfarbe als Farbcode"
     )[0];
     await act(() =>
       handlersOf(color).onChange({ target: { value: "#112233" } })
@@ -840,13 +839,13 @@ test(
 );
 
 test(
-  "F06 (Review 7.22-rc6): durchscheinende Kundenfarbe zeigt einen Fehler und wird nicht gespeichert",
+  "F06 (Review 7.22-rc6): durchscheinende Akzentfarbe zeigt einen Fehler und wird nicht gespeichert",
   { skip },
   async (t) => {
     const { container, act, calls } = await open(t, [widget(6, null)], 6);
     const color = elements(
       container,
-      (el) => el.getAttribute("aria-label") === "Kundenfarbe als Farbcode"
+      (el) => el.getAttribute("aria-label") === "Akzentfarbe als Farbcode"
     )[0];
     await act(() =>
       handlersOf(color).onChange({ target: { value: "rgba(0,0,0,0.15)" } })

@@ -366,7 +366,15 @@ test("Speichern: Platzhalter, Überschrift, Text und Link", () => {
     privacyUrl: "/datenschutz",
   });
   assert.deepEqual(keys.cleanConfig({ privacyUrl: "javascript:x" }, base), {});
-  assert.deepEqual(keys.cleanConfig({ assistantSubtitle: "  " }, base), {});
+  // R5 (7.22-rc8, bewusst geändert): leerer Untertitel = bewusst kein
+  // Untertitel, bleibt als "" gespeichert; der Standard entfernt den Schlüssel
+  assert.deepEqual(keys.cleanConfig({ assistantSubtitle: "  " }, base), {
+    assistantSubtitle: "",
+  });
+  assert.deepEqual(
+    keys.cleanConfig({ assistantSubtitle: DEFAULTS.assistantSubtitle }, base),
+    {}
+  );
 });
 
 test("Prüfen: alte lange Texte blockieren erst nach einer Änderung", () => {
@@ -404,9 +412,10 @@ test("Darstellung und Farbschema", () => {
   assert.equal(keys.themeChoice({}), "light");
   assert.equal(keys.themeChoice({ theme: "dark" }), "dark");
   assert.equal(keys.themeChoice({ theme: "auto" }), null);
+  // R3 (7.22-rc8): „Chatfenster“ und „In der Seite“
   assert.deepEqual(
     keys.DISPLAY_MODE_OPTIONS.map((o) => o.label),
-    ["Chatblase", "Inline in der Seite"]
+    ["Chatfenster", "In der Seite"]
   );
 });
 
@@ -590,7 +599,7 @@ test("D2/F04: Inline-Leiste mit Demo-Texten, nur ein früher gespeicherter Leist
   });
 });
 
-test("B-06: Aussehen ohne gespeicherten Wert zeigt die Standards des Widgets (Kundenfarbe Türkis wie live)", () => {
+test("B-06: Aussehen ohne gespeicherten Wert zeigt die Standards des Widgets (Akzentfarbe Türkis wie live)", () => {
   assert.equal(keys.lookValue({}, "accentColor").toLowerCase(), "#01a5a9");
   assert.equal(keys.lookValue({ accentColor: "" }, "accentColor"), "#01A5A9");
   assert.equal(
