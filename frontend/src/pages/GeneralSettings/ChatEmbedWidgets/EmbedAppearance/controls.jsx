@@ -1,5 +1,9 @@
 // Gemeinsame Bedienelemente des Design Centers (Erscheinungsbild)
+import { useEffect, useLayoutEffect, useRef } from "react";
 
+// Ein Feld: Beschriftung, Bedienelement, darunter der Hinweis (R11, Fixliste
+// 7.22-rc9: Hinweise stehen unter dem jeweiligen Feld, wie im Mockup), dann
+// Fehler oder Anmerkung.
 export function SettingsSection({
   title,
   hint,
@@ -8,16 +12,16 @@ export function SettingsSection({
   note = null,
 }) {
   return (
-    <div>
-      <label className="block text-white text-sm font-medium mb-0.5">
+    <div data-field="">
+      <label className="block text-white text-sm font-medium mb-1.5">
         {title}
       </label>
+      {children}
       {hint && (
-        <p className="text-theme-text-secondary text-xs mb-2.5 leading-relaxed">
+        <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
           {hint}
         </p>
       )}
-      {children}
       {error ? (
         <p className="text-red-400 text-xs mt-1.5 leading-relaxed">{error}</p>
       ) : (
@@ -31,12 +35,81 @@ export function SettingsSection({
   );
 }
 
+// Zweispaltiges Raster für kurze, zusammengehörige Felder (R11): ab 1.100 px
+// Fensterbreite nebeneinander (in der 600-px-Spalte je etwa 270 px), darunter
+// untereinander. Ein einzelnes Kind nimmt die halbe Breite (schmales Feld
+// allein, z. B. die Überschrift des Datenschutz-Hinweises). Lange Inhalte
+// (Textfelder mit mehreren Zeilen, Listen, Codeblöcke) gehören nicht hinein.
+export const FIELD_PAIR_CLASS =
+  "grid grid-cols-1 min-[1100px]:grid-cols-2 gap-5 items-start";
+
+export function FieldPair({ children }) {
+  return (
+    <div className={FIELD_PAIR_CLASS} data-pair="">
+      {children}
+    </div>
+  );
+}
+
 export function inputClass(hasError) {
   return `bg-theme-settings-input-bg text-white text-sm rounded-lg px-3 py-2 w-full border ${
     hasError
       ? "border-red-400/70 focus:border-red-400"
       : "border-white/10 focus:border-white/25"
   } focus:outline-none transition-colors`;
+}
+
+/**
+ * Höhe eines Textfelds an seinen Inhalt anpassen (R11: Begrüßung und
+ * Datenschutz-Text wachsen mit dem Text, keine innere Bildlaufleiste).
+ * Gemessen wird die Inhaltshöhe (scrollHeight) plus Rahmen; ohne Maße (kein
+ * Browser) bleibt die Höhe frei und es gelten die Mindestzeilen (rows).
+ * @param {HTMLTextAreaElement|null} el
+ */
+export function fitTextareaHeight(el) {
+  if (!el || !el.style) return;
+  el.style.height = "auto";
+  const content = el.scrollHeight;
+  if (typeof content !== "number" || content <= 0) {
+    el.style.height = "";
+    return;
+  }
+  const frame =
+    typeof el.offsetHeight === "number" && typeof el.clientHeight === "number"
+      ? Math.max(0, el.offsetHeight - el.clientHeight)
+      : 0;
+  el.style.height = `${content + frame}px`;
+}
+
+// Vor dem Zeichnen messen, wo es ein Dokument gibt; beim serverseitigen
+// Rendern (Tests) läuft kein Layout-Effekt und React soll nicht warnen.
+const useBeforePaint =
+  typeof document !== "undefined" ? useLayoutEffect : useEffect;
+
+// Textfeld, das mit dem Inhalt wächst: Mindesthöhe minRows Zeilen, Höhe folgt
+// dem Text beim Tippen und bei geänderter Breite (Fenstergröße); keine
+// Bildlaufleiste im Feld, kein Ziehgriff.
+export function GrowingTextarea({ value, minRows, className = "", ...rest }) {
+  const ref = useRef(null);
+  useBeforePaint(() => {
+    fitTextareaHeight(ref.current);
+  }, [value]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.addEventListener) return;
+    const onResize = () => fitTextareaHeight(ref.current);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return (
+    <textarea
+      ref={ref}
+      rows={minRows}
+      value={value}
+      className={`${className} resize-none overflow-hidden`}
+      data-autogrow=""
+      {...rest}
+    />
+  );
 }
 
 // Markierte Option: Fläche in der Akzentfarbe der App, Schrift schwarz.
@@ -62,6 +135,7 @@ export function Segmented({
       className={`flex flex-wrap rounded-lg overflow-hidden border w-fit ${
         placeholder ? "border-red-400/70" : "border-white/10"
       }`}
+      data-segmented=""
     >
       {placeholder && (
         <span

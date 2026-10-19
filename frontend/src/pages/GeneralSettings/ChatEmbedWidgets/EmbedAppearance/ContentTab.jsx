@@ -3,15 +3,21 @@
 // Überschrift, Text, Link), Startvorschläge, Platzhalter im Eingabefeld, nur
 // beim Chatfenster die Gruppe „Geschlossener Chat“ (Willkommensblasen und
 // wann sie erscheinen, KIE-568), Support-E-Mail.
+// Kompakter seit R11 (Fixliste 7.22-rc9, Mockup Ansicht 3): Name | Untertitel
+// paarweise, die Überschrift des Datenschutz-Hinweises schmal allein;
+// Begrüßung und Datenschutz-Text wachsen mit dem Inhalt; Hinweise unter dem
+// Feld. Willkommensblasen anzeigen bleibt je Gerät eine Zeile (siehe dort).
 // Jedes Feld zeigt den wirksamen Wert; ohne gespeicherten Wert ist das der
 // Standard als echter, bearbeitbarer Feldwert (R5, Vorbelegung). Gespeichert
 // wird nur, was der Kunde ändert (Regel D6, widgetKeys.js cleanConfig);
 // „Standardtext“ setzt ein Feld auf den Standard zurück.
 import { ArrowCounterClockwise, Plus, Trash } from "@phosphor-icons/react";
 import {
-  SettingsSection,
+  FieldPair,
   GroupHeading,
+  GrowingTextarea,
   Segmented,
+  SettingsSection,
   Switch,
   inputClass,
 } from "./controls";
@@ -45,6 +51,10 @@ const DEFAULTS_LOAD_ERROR = "Standardtexte konnten nicht geladen werden";
 const PRIVACY_RULE =
   "Freier Text. Zeilen mit „•“ oder „-“ am Anfang werden zu Aufzählungspunkten, andere Zeilen bleiben Absätze.";
 
+// Mindesthöhe der wachsenden Textfelder in Zeilen (R11)
+export const GREETING_MIN_ROWS = 2;
+export const PRIVACY_TEXT_MIN_ROWS = 5;
+
 // Button „Standardtext“ neben einem Feld mit Kufer-Standard
 function StandardTextButton({ isStandard, defaultsError, onReset }) {
   if (defaultsError)
@@ -72,10 +82,11 @@ function StandardTextButton({ isStandard, defaultsError, onReset }) {
   );
 }
 
-// Hinweis unter „Willkommensblasen anzeigen“ (Mockup Ansicht 6; „Bei jedem
-// Besuch“ nach der Entscheidung des Nutzers: einmal je Browser-Tab)
+// Hinweis unter „Willkommensblasen anzeigen“ (Mockup Ansicht 6; „Jeder
+// Besuch“ nach der Entscheidung des Nutzers: einmal je Browser-Tab).
+// Beschriftungen seit R11 kurz: Aus / Erster Besuch / Jeder Besuch.
 export const WELCOME_BUBBLES_HINT =
-  "„Beim ersten Besuch“: Die Blasen erscheinen einmal; nach dem Schließen oder Öffnen des Chats nicht mehr (wie bisher). „Bei jedem Besuch“: bei jedem neuen Besuch wieder, also in jedem neuen Browser-Tab; beim Wechsel auf eine andere Seite im selben Tab nicht erneut. „Aus“: keine Blasen, nur der Chat-Button.";
+  "„Erster Besuch“: Die Blasen erscheinen einmal; nach dem Schließen oder Öffnen des Chats nicht mehr (wie bisher). „Jeder Besuch“: bei jedem neuen Besuch wieder, also in jedem neuen Browser-Tab; beim Wechsel auf eine andere Seite im selben Tab nicht erneut. „Aus“: keine Blasen, nur der Chat-Button.";
 
 // Hinweis unter leeren Listen (R5)
 export const EMPTY_SUGGESTIONS_HINT = "Leer: keine Startvorschläge.";
@@ -83,8 +94,11 @@ export const EMPTY_WELCOME_BUBBLES_HINT =
   "Leer: es gelten die Standardblasen. Abschalten über „Willkommensblasen anzeigen“.";
 
 // „Willkommensblasen anzeigen“ (KIE-568, nur Chatfenster): je Gerät Aus /
-// Beim ersten Besuch (Standard) / Bei jedem Besuch. Gespeichert wird nur
-// eine Abweichung (setChoice, Regel D6).
+// Erster Besuch (Standard) / Jeder Besuch, je Gerät eine Zeile mit der
+// Beschriftung links. Desktop und Handy nebeneinander (R11) passen nicht:
+// die Auswahl ist in der Größe der übrigen Gruppen (Browser 7.22-rc6 B-02)
+// rund 315 px breit, zwei davon brauchen mehr als die 560 px der Spalte.
+// Gespeichert wird nur eine Abweichung (setChoice, Regel D6).
 export function WelcomeBubblesDisplay({ config, setChoice }) {
   return (
     <div data-section="welcome-bubbles-display">
@@ -101,8 +115,6 @@ export function WelcomeBubblesDisplay({ config, setChoice }) {
             <span className="text-theme-text-secondary text-xs font-medium w-16">
               {label}
             </span>
-            {/* gleiche Größe wie die übrigen Auswahlgruppen (Browser
-                7.22-rc6 B-02) */}
             <Segmented
               options={WELCOME_BUBBLES_OPTIONS}
               value={choiceValue(config, key)}
@@ -120,7 +132,7 @@ export function WelcomeBubblesDisplay({ config, setChoice }) {
 
 function FieldTitle({ title, optional = false, action = null }) {
   return (
-    <div className="flex items-center justify-between gap-3 mb-0.5">
+    <div className="flex items-center justify-between gap-3 mb-1.5">
       <span className="text-white text-sm font-medium">
         {title}
         {optional && (
@@ -132,6 +144,17 @@ function FieldTitle({ title, optional = false, action = null }) {
       </span>
       {action}
     </div>
+  );
+}
+
+// Hinweis oder Fehler unter einem Feld
+function FieldNote({ error = null, hint = null }) {
+  if (error) return <p className="text-red-400 text-xs mt-1.5">{error}</p>;
+  if (!hint) return null;
+  return (
+    <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
+      {hint}
+    </p>
   );
 }
 
@@ -249,51 +272,48 @@ export default function ContentTab({
   return (
     <>
       <GroupHeading title="Name und Untertitel" first />
-      <SettingsSection
-        title="Name"
-        hint="Name des Chatbots in der Titelleiste des Chats. Leer: es gilt „KI-Berater“."
-      >
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => updateField("name", e.target.value)}
-          className={inputClass(false)}
-          aria-label="Name des Chatbots"
-        />
-      </SettingsSection>
-      <div>
-        <FieldTitle
-          title="Untertitel"
-          optional
-          action={
-            <StandardTextButton
-              isStandard={subtitleIsStandard}
-              defaultsError={defaultsError}
-              onReset={() => resetKeys(["assistantSubtitle"])}
-            />
-          }
-        />
-        <p className="text-theme-text-secondary text-xs mb-2.5 leading-relaxed">
-          Kleine Zeile unter dem Namen in der Titelleiste des Chats. Leer: kein
-          Untertitel.
-        </p>
-        <input
-          type="text"
-          value={subtitle}
-          maxLength={SUBTITLE_MAX_LEN}
-          onChange={(e) => updateField("assistantSubtitle", e.target.value)}
-          className={inputClass(errors.assistantSubtitle)}
-          aria-label="Untertitel"
-        />
-        {errors.assistantSubtitle && (
-          <p className="text-red-400 text-xs mt-1.5">
-            {errors.assistantSubtitle}
-          </p>
-        )}
-      </div>
+      <FieldPair>
+        <SettingsSection
+          title="Name"
+          hint="Name des Chatbots in der Titelleiste des Chats. Leer: es gilt „KI-Berater“."
+        >
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => updateField("name", e.target.value)}
+            className={inputClass(false)}
+            aria-label="Name des Chatbots"
+          />
+        </SettingsSection>
+        <div data-field="">
+          <FieldTitle
+            title="Untertitel"
+            optional
+            action={
+              <StandardTextButton
+                isStandard={subtitleIsStandard}
+                defaultsError={defaultsError}
+                onReset={() => resetKeys(["assistantSubtitle"])}
+              />
+            }
+          />
+          <input
+            type="text"
+            value={subtitle}
+            maxLength={SUBTITLE_MAX_LEN}
+            onChange={(e) => updateField("assistantSubtitle", e.target.value)}
+            className={inputClass(errors.assistantSubtitle)}
+            aria-label="Untertitel"
+          />
+          <FieldNote
+            error={errors.assistantSubtitle}
+            hint="Kleine Zeile unter dem Namen in der Titelleiste des Chats. Leer: kein Untertitel."
+          />
+        </div>
+      </FieldPair>
 
       <GroupHeading title="Begrüßung" />
-      <div>
+      <div data-field="">
         <FieldTitle
           title="Begrüßungstext"
           action={
@@ -304,27 +324,26 @@ export default function ContentTab({
             />
           }
         />
-        <textarea
-          rows={3}
+        <GrowingTextarea
+          minRows={GREETING_MIN_ROWS}
           value={greeting}
           onChange={(e) => updateField(greetingKey, e.target.value)}
           placeholder={textValue(defaults?.greeting)}
-          className={`${inputClass(errors[greetingKey])} resize-y`}
+          className={inputClass(errors[greetingKey])}
           aria-label="Begrüßungstext"
         />
-        {errors[greetingKey] ? (
-          <p className="text-red-400 text-xs mt-1.5">{errors[greetingKey]}</p>
-        ) : (
-          <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
-            {greeting.trim() === ""
+        <FieldNote
+          error={errors[greetingKey]}
+          hint={
+            greeting.trim() === ""
               ? "Leer: es gilt der Standardtext."
               : greetingTooLongStored
                 ? `Der gespeicherte Text ist länger als ${GREETING_MAX_LEN} Zeichen. Im Chat erscheint er gekürzt (wie in der Vorschau).`
                 : privacyOn
                   ? `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen. Der Datenschutz-Hinweis folgt als eigene, zweite Blase.`
-                  : `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen.`}
-          </p>
-        )}
+                  : `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen.`
+          }
+        />
       </div>
 
       <GroupHeading
@@ -359,34 +378,36 @@ export default function ContentTab({
             gespeichert und gelten wieder, sobald Sie ihn einschalten.
           </p>
         )}
-        <div>
-          <FieldTitle
-            title="Überschrift"
-            optional
-            action={
-              <StandardTextButton
-                isStandard={privacyTitleIsStandard}
-                defaultsError={defaultsError}
-                onReset={() => resetKeys(["privacyTitle"])}
-              />
-            }
-          />
-          <p className="text-theme-text-secondary text-xs mb-2.5 leading-relaxed">
-            Leer: keine Überschrift.
-          </p>
-          <input
-            type="text"
-            value={privacyTitle}
-            maxLength={PRIVACY_TITLE_MAX_LEN}
-            onChange={(e) => updateField("privacyTitle", e.target.value)}
-            className={inputClass(errors.privacyTitle)}
-            aria-label="Überschrift des Datenschutz-Hinweises"
-          />
-          {errors.privacyTitle && (
-            <p className="text-red-400 text-xs mt-1.5">{errors.privacyTitle}</p>
-          )}
-        </div>
-        <div>
+        {/* Überschrift schmal allein (halbe Breite), der Link darunter über
+            die volle Breite, weil Links lang werden können (R11) */}
+        <FieldPair>
+          <div data-field="">
+            <FieldTitle
+              title="Überschrift"
+              optional
+              action={
+                <StandardTextButton
+                  isStandard={privacyTitleIsStandard}
+                  defaultsError={defaultsError}
+                  onReset={() => resetKeys(["privacyTitle"])}
+                />
+              }
+            />
+            <input
+              type="text"
+              value={privacyTitle}
+              maxLength={PRIVACY_TITLE_MAX_LEN}
+              onChange={(e) => updateField("privacyTitle", e.target.value)}
+              className={inputClass(errors.privacyTitle)}
+              aria-label="Überschrift des Datenschutz-Hinweises"
+            />
+            <FieldNote
+              error={errors.privacyTitle}
+              hint="Leer: keine Überschrift."
+            />
+          </div>
+        </FieldPair>
+        <div data-field="">
           <FieldTitle
             title="Text"
             action={
@@ -397,25 +418,24 @@ export default function ContentTab({
               />
             }
           />
-          <textarea
-            rows={6}
+          <GrowingTextarea
+            minRows={PRIVACY_TEXT_MIN_ROWS}
             value={privacyText}
             onChange={(e) => updateField("privacyText", e.target.value)}
             placeholder={textValue(defaults?.privacyText)}
-            className={`${inputClass(errors.privacyText)} resize-y`}
+            className={inputClass(errors.privacyText)}
             aria-label="Text des Datenschutz-Hinweises"
           />
-          {errors.privacyText ? (
-            <p className="text-red-400 text-xs mt-1.5">{errors.privacyText}</p>
-          ) : (
-            <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
-              {privacyText.trim() === ""
+          <FieldNote
+            error={errors.privacyText}
+            hint={
+              privacyText.trim() === ""
                 ? "Leer: es gilt der Standardtext."
                 : legacyPoints
                   ? `${PRIVACY_RULE} Ohne eine Zeile mit „•“ oder „-“ werden mehrere Zeilen als Punkte gezeigt (wie bisher) und so gespeichert.`
-                  : PRIVACY_RULE}
-            </p>
-          )}
+                  : PRIVACY_RULE
+            }
+          />
         </div>
         <SettingsSection
           title="Link zur Datenschutzerklärung"
@@ -451,7 +471,7 @@ export default function ContentTab({
       </SettingsSection>
 
       <GroupHeading title="Eingabe" />
-      <div>
+      <div data-field="">
         <FieldTitle
           title="Platzhalter im Eingabefeld"
           action={
@@ -462,13 +482,6 @@ export default function ContentTab({
             />
           }
         />
-        <p className="text-theme-text-secondary text-xs mb-2.5 leading-relaxed">
-          {bubble
-            ? "Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext."
-            : storedBarText
-              ? `Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext. Die eingeklappte Leiste zeigt Ihren früher gespeicherten Text „${storedBarText}“.`
-              : `Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext. Die eingeklappte Leiste zeigt fest „${inlineBar.placeholder}“.`}
-        </p>
         <input
           type="text"
           value={placeholder}
@@ -477,11 +490,16 @@ export default function ContentTab({
           className={inputClass(errors.sendMessageText)}
           aria-label="Platzhalter im Eingabefeld"
         />
-        {errors.sendMessageText && (
-          <p className="text-red-400 text-xs mt-1.5">
-            {errors.sendMessageText}
-          </p>
-        )}
+        <FieldNote
+          error={errors.sendMessageText}
+          hint={
+            bubble
+              ? "Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext."
+              : storedBarText
+                ? `Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext. Die eingeklappte Leiste zeigt Ihren früher gespeicherten Text „${storedBarText}“.`
+                : `Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext. Die eingeklappte Leiste zeigt fest „${inlineBar.placeholder}“.`
+          }
+        />
       </div>
 
       {bubble && (
@@ -512,11 +530,8 @@ export default function ContentTab({
       )}
 
       <GroupHeading title="Support" />
-      <div>
+      <div data-field="">
         <FieldTitle title="Support-E-Mail" optional />
-        <p className="text-theme-text-secondary text-xs mb-2.5 leading-relaxed">
-          E-Mail-Adresse für den Support-Link im Chat.
-        </p>
         <input
           type="email"
           value={textValue(config.supportEmail)}
@@ -524,6 +539,7 @@ export default function ContentTab({
           placeholder="support@ihre-seite.de"
           className={inputClass(false)}
         />
+        <FieldNote hint="E-Mail-Adresse für den Support-Link im Chat." />
       </div>
     </>
   );

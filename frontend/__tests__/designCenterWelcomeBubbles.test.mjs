@@ -1,6 +1,7 @@
 // KIE-568 (Nutzer 15.10.2026, Mockup Ansicht 6): Reiter Inhalt, nur
-// Chatblase: „Willkommensblasen anzeigen“, je Desktop und Handy Aus / Beim
-// ersten Besuch / Bei jedem Besuch (welcomeBubblesDesktop,
+// Chatblase: „Willkommensblasen anzeigen“, je Desktop und Handy Aus /
+// Erster Besuch / Jeder Besuch (Beschriftungen seit R11, Fixliste 7.22-rc9;
+// bis dahin „Beim ersten Besuch“ / „Bei jedem Besuch“; welcomeBubblesDesktop,
 // welcomeBubblesMobile "off"|"first"|"every"). Ohne gespeicherten Wert gilt
 // "first" (wie bisher); gespeichert wird nur eine Abweichung (Regel D6). Die
 // Vorschau zeigt bei Desktop „Aus“ keine Willkommensblasen.
@@ -93,7 +94,7 @@ test("Optionen wörtlich wie im Server (Vertrag)", () => {
   );
   assert.deepEqual(
     keys.WELCOME_BUBBLES_OPTIONS.map((o) => o.label),
-    ["Aus", "Beim ersten Besuch", "Bei jedem Besuch"]
+    ["Aus", "Erster Besuch", "Jeder Besuch"]
   );
   assert.deepEqual(
     keys.WELCOME_BUBBLES_DEVICES.map((d) => [d.key, d.label]),
@@ -199,7 +200,7 @@ test(
       "Willkommensblasen anzeigen",
       "Desktop",
       "Handy",
-      "„Beim ersten Besuch“: Die Blasen erscheinen einmal",
+      "„Erster Besuch“: Die Blasen erscheinen einmal",
     ];
     let pos = -1;
     for (const label of order) {
@@ -209,18 +210,21 @@ test(
     }
     for (const key of ["welcomeBubblesDesktop", "welcomeBubblesMobile"]) {
       const block = deviceBlock(html, key);
-      for (const label of ["Aus", "Beim ersten Besuch", "Bei jedem Besuch"])
+      for (const label of ["Aus", "Erster Besuch", "Jeder Besuch"])
         assert.ok(block.includes(`>${label}<`), `${key} ${label}`);
-      assert.deepEqual(activeLabels(block), ["Beim ersten Besuch"]);
+      assert.deepEqual(activeLabels(block), ["Erster Besuch"]);
     }
     for (const part of [
-      "„Beim ersten Besuch“: Die Blasen erscheinen einmal; nach dem Schließen oder Öffnen des Chats nicht mehr (wie bisher).",
-      "„Bei jedem Besuch“: bei jedem neuen Besuch wieder, also in jedem neuen Browser-Tab; beim Wechsel auf eine andere Seite im selben Tab nicht erneut.",
+      "„Erster Besuch“: Die Blasen erscheinen einmal; nach dem Schließen oder Öffnen des Chats nicht mehr (wie bisher).",
+      "„Jeder Besuch“: bei jedem neuen Besuch wieder, also in jedem neuen Browser-Tab; beim Wechsel auf eine andere Seite im selben Tab nicht erneut.",
       "„Aus“: keine Blasen, nur der Chat-Button.",
     ])
       assert.ok(t.includes(part), part);
     assert.doesNotMatch(t, /[–—]/);
     assert.ok(!t.includes("Chat-Knopf"));
+    // R11: die langen Beschriftungen gibt es nicht mehr
+    assert.ok(!t.includes("Beim ersten Besuch"));
+    assert.ok(!t.includes("Bei jedem Besuch"));
   }
 );
 
@@ -239,7 +243,7 @@ test(
       "Aus",
     ]);
     assert.deepEqual(activeLabels(deviceBlock(html, "welcomeBubblesMobile")), [
-      "Bei jedem Besuch",
+      "Jeder Besuch",
     ]);
     const inline = text(
       await renderer.render(CONTENT, {
@@ -248,7 +252,7 @@ test(
       })
     );
     assert.ok(!inline.includes("Willkommensblasen anzeigen"));
-    assert.ok(!inline.includes("Beim ersten Besuch"));
+    assert.ok(!inline.includes("Erster Besuch"));
   }
 );
 
@@ -390,7 +394,7 @@ const unsaved = (container) =>
   container.textContent.includes("Ungespeicherte Änderungen");
 
 test(
-  "Inhalt bedienen: Desktop Aus und Handy Bei jedem Besuch speichern nur diese Schlüssel; Standard anklicken ändert nichts",
+  "Inhalt bedienen: Desktop Aus und Handy Jeder Besuch speichern nur diese Schlüssel; Standard anklicken ändert nichts",
   { skip },
   async (t) => {
     const { container, act, calls } = await open(
@@ -402,12 +406,12 @@ test(
     const device = (key) =>
       elements(container, (el) => el.getAttribute("data-device") === key)[0];
     await act(() =>
-      click(button(device("welcomeBubblesDesktop"), "Beim ersten Besuch"))
+      click(button(device("welcomeBubblesDesktop"), "Erster Besuch"))
     );
     assert.ok(!unsaved(container));
     await act(() => click(button(device("welcomeBubblesDesktop"), "Aus")));
     await act(() =>
-      click(button(device("welcomeBubblesMobile"), "Bei jedem Besuch"))
+      click(button(device("welcomeBubblesMobile"), "Jeder Besuch"))
     );
     assert.ok(unsaved(container));
     await act(() => click(button(container, "Speichern")));

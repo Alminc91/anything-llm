@@ -201,7 +201,12 @@ test(
       )
     );
     assert.ok(aussehen.includes("Position des Chatfensters"));
-    assert.ok(aussehen.includes("Sprechblase"));
+    // Chat-Icon-Name seit R11 (7.22-rc9) nicht mehr als Text unter dem
+    // Icon, sondern als Tooltip und aria-label
+    assert.match(
+      await appearance({ displayMode: "bubble" }),
+      /<button[^>]*title="Sprechblase"[^>]*aria-label="Sprechblase"/
+    );
     const inhalt = pages[1][2];
     assert.ok(inhalt.includes("Name und Untertitel"));
     assert.ok(!/\bKopf\b/.test(inhalt));

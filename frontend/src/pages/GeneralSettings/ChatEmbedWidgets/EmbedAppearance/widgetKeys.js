@@ -56,11 +56,12 @@ export const COURSE_CARDS_POSITION_OPTIONS = [
   { value: "below", label: "Text zuerst" },
 ];
 // Willkommensblasen je Gerät (KIE-568, Reiter Inhalt, nur Chatfenster), Werte
-// wie der Server (WELCOME_BUBBLES_VALUES), Standard "first"
+// wie der Server (WELCOME_BUBBLES_VALUES), Standard "first". Kurze
+// Beschriftungen seit R11 (Fixliste 7.22-rc9); die Schlüssel bleiben.
 export const WELCOME_BUBBLES_OPTIONS = [
   { value: "off", label: "Aus" },
-  { value: "first", label: "Beim ersten Besuch" },
-  { value: "every", label: "Bei jedem Besuch" },
+  { value: "first", label: "Erster Besuch" },
+  { value: "every", label: "Jeder Besuch" },
 ];
 export const WELCOME_BUBBLES_DEVICES = [
   { key: "welcomeBubblesDesktop", label: "Desktop" },

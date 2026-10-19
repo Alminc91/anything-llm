@@ -283,9 +283,14 @@ test(
   { skip },
   async () => {
     const html = await show(CONTENT, contentProps({}));
-    const desktop = buttonTag(html, "Beim ersten Besuch");
+    // Beschriftung seit R11 (7.22-rc9) „Erster Besuch“
+    const desktop = buttonTag(html, "Erster Besuch");
+    assert.ok(desktop, "Button fehlt");
     assert.match(desktop, /px-5 py-2 text-sm/);
     assert.doesNotMatch(desktop, /px-3 py-1\.5 text-xs/);
+    // dieselbe Größe wie eine Auswahlgruppe im Reiter Aussehen
+    const hell = buttonTag(await appearance({}), "Hell");
+    assert.match(hell, /px-5 py-2 text-sm/);
   }
 );
 

@@ -1,10 +1,15 @@
-// Design Center › Aussehen: Darstellung, Farbschema, Akzentfarbe, Schrift auf
-// der Akzentfarbe, Logo; nur beim Chatfenster Position und Chat-Icon; für
-// beide Darstellungen „Antworten mit Kursen“ (KIE-567). Am Ende eine
-// gedämpfte Zeile mit dem, was fest vorgegeben ist (R2, Fixliste 7.22-rc8;
-// der frühere Kasten „Fest eingebaut“ entfällt).
+// Design Center › Aussehen (Reihenfolge und Paarung nach R11, Fixliste
+// 7.22-rc9, Mockup Ansichten 1 und 2): Darstellung einspaltig, dann kurze
+// Felder paarweise nebeneinander: Akzentfarbe | Schrift auf der Akzentfarbe,
+// beim Chatfenster Logo | Chat-Icon (sechs Icons in einer Reihe, ohne
+// Beschriftung darunter) und Farbschema | Position, bei „In der Seite“
+// Farbschema | Logo; für beide Darstellungen „Antworten mit Kursen“
+// (KIE-567, untereinander, die Auswahl ist zu breit für die halbe Spalte).
+// Am Ende eine gedämpfte Zeile mit dem, was fest vorgegeben ist (R2,
+// Fixliste 7.22-rc8).
 import { Moon, Sun, Warning, X } from "@phosphor-icons/react";
 import {
+  FieldPair,
   GroupHeading,
   SELECTED_CLASS,
   SettingsSection,
@@ -29,7 +34,7 @@ import {
 } from "./widgetKeys";
 
 // Unter „Schrift auf der Akzentfarbe“: Empfehlung nach Kontrast, Hinweis
-// ohne gespeicherten Wert, Warnung unter 4,5:1
+// ohne gespeicherten Wert
 function UserTextColorAdvice({ advice }) {
   if (!advice.recommendedLabel) return null;
   return (
@@ -39,24 +44,30 @@ function UserTextColorAdvice({ advice }) {
           ? `Empfohlen: ${advice.recommendedLabel}`
           : `Empfohlen: ${advice.recommendedLabel}. Solange Sie nichts wählen, gilt automatisch die Empfehlung.`}
       </p>
-      {advice.warning && (
-        // Bernstein im Dunkelmodus, dunkler Bernstein auf hellem Grund
-        // (Browser 7.22-rc6 B-02: text-amber-400 auf Weiß kaum lesbar)
-        <p
-          className="flex items-start gap-1.5 text-amber-400 light:text-amber-700 text-xs leading-relaxed"
-          role="alert"
-          data-testid="user-text-warning"
-        >
-          <Warning
-            size={14}
-            weight="bold"
-            className="flex-shrink-0 mt-0.5"
-            aria-hidden="true"
-          />
-          {advice.warning}
-        </p>
-      )}
     </div>
+  );
+}
+
+// Warnung unter 4,5:1, über die volle Breite unter dem Paar Akzentfarbe |
+// Schrift (R11: in der halben Spalte wurden es vier Zeilen, so sind es
+// zwei). Bernstein im Dunkelmodus, dunkler Bernstein auf hellem Grund
+// (Browser 7.22-rc6 B-02: text-amber-400 auf Weiß kaum lesbar).
+function UserTextColorWarning({ advice }) {
+  if (!advice.warning) return null;
+  return (
+    <p
+      className="flex items-start gap-1.5 mt-2 text-amber-400 light:text-amber-700 text-xs leading-relaxed"
+      role="alert"
+      data-testid="user-text-warning"
+    >
+      <Warning
+        size={14}
+        weight="bold"
+        className="flex-shrink-0 mt-0.5"
+        aria-hidden="true"
+      />
+      {advice.warning}
+    </p>
   );
 }
 
@@ -94,9 +105,12 @@ export const CARDS_HINT =
   "Kurskarten zeigen Termin, Ort und freie Plätze auf einen Blick. „Nur Text“ ist die klassische Antwort mit Kurs-Links im Text. Standard: beim Chatfenster „Nur Text mit Links“, in der Seite „Kurskarten“.";
 
 // „Antworten mit Kursen“ (KIE-567, beide Darstellungen): Kurskarten oder
-// Nur Text mit Links; bei Kurskarten die Reihenfolge. Gespeichert wird nur
-// eine Abweichung (setChoice, Regel D6). Ohne gespeicherte Wahl gilt der
-// Standard der Darstellung und wechselt mit ihr (R4).
+// Nur Text mit Links; bei Kurskarten die Reihenfolge. Beide bleiben
+// untereinander (R11, geprüft: „Kurskarten | Nur Text mit Links (Standard)“
+// ist rund 300 px breit und bräche in der halben Spalte von 270 px um).
+// Gespeichert wird nur eine Abweichung (setChoice, Regel D6). Ohne
+// gespeicherte Wahl gilt der Standard der Darstellung und wechselt mit ihr
+// (R4).
 export function CourseAnswersSection({ config, setChoice }) {
   const cards = choiceValue(config, "courseCards");
   const position = choiceValue(config, "courseCardsPosition");
@@ -154,6 +168,61 @@ export default function AppearanceTab({
   const position = lookValue(config, "position");
   const chatIcon = lookValue(config, "chatIcon");
   const theme = themeChoice(config);
+
+  const logoField = (
+    <SettingsSection
+      title="Logo"
+      hint="PNG, JPG, GIF, SVG oder WebP, max. 5 MB, idealerweise quadratisch."
+    >
+      <div className="flex items-center gap-4">
+        <div className="relative group">
+          <img
+            src={logoPreview || DEFAULT_LOGO}
+            alt="Logo"
+            className="h-12 w-12 rounded-lg object-contain bg-theme-settings-input-bg border border-white/10"
+          />
+          {logoPreview && (
+            <button
+              type="button"
+              onClick={onLogoRemove}
+              aria-label="Logo entfernen"
+              className="absolute -top-1.5 -right-1.5 bg-theme-bg-container text-theme-text-secondary hover:text-red-400 rounded-full p-0.5 border border-white/10 transition-colors"
+            >
+              <X size={12} weight="bold" />
+            </button>
+          )}
+        </div>
+        <label className="cursor-pointer bg-theme-settings-input-bg text-white text-sm rounded-lg px-4 py-2 border border-white/10 hover:bg-theme-action-menu-item-hover transition-all">
+          {logoPreview ? "Logo ändern" : "Hochladen"}
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp"
+            onChange={onLogoUpload}
+            className="hidden"
+          />
+        </label>
+      </div>
+    </SettingsSection>
+  );
+
+  const themeField = (
+    <SettingsSection
+      title="Farbschema"
+      hint="Hell oder Dunkel, für Chatfenster und Eingabeleiste gleich."
+      note={
+        theme === null
+          ? "Bisher: automatisch nach Gerät. Bleibt so, bis Sie Hell oder Dunkel wählen."
+          : null
+      }
+    >
+      <Segmented
+        options={themeOptions}
+        value={theme}
+        onChange={(v) => updateField("theme", v)}
+      />
+    </SettingsSection>
+  );
+
   return (
     <>
       <SettingsSection
@@ -167,180 +236,145 @@ export default function AppearanceTab({
         />
       </SettingsSection>
 
-      <SettingsSection
-        title="Farbschema"
-        hint="Hell oder Dunkel, für Chatfenster und Eingabeleiste gleich."
-        note={
-          theme === null
-            ? "Bisher: automatisch nach Gerät. Bleibt so, bis Sie Hell oder Dunkel wählen."
-            : null
-        }
-      >
-        <Segmented
-          options={themeOptions}
-          value={theme}
-          onChange={(v) => updateField("theme", v)}
-        />
-      </SettingsSection>
-
-      <SettingsSection
-        title="Akzentfarbe"
-        hint="Buttons, Nutzer-Nachrichten und Links in Akzentfarbe."
-        error={errors.accentColor}
-      >
-        {/* breit genug für rgb()/rgba()-Eingaben (Restpunkt 5, rc7: w-44
-            schnitt lange Eingaben ab) */}
-        <div
-          className={`relative flex items-center bg-theme-settings-input-bg rounded-lg border transition-colors w-full max-w-xs cursor-pointer ${
-            errors.accentColor
-              ? "border-red-400/70"
-              : "border-white/10 hover:border-white/25"
-          }`}
-        >
-          <div className="relative flex-shrink-0 ml-1.5">
-            <div
-              className="w-8 h-8 rounded-md"
-              style={{ backgroundColor: accentColor }}
-            />
-            <input
-              type="color"
-              value={accentColor}
-              onChange={(e) => updateField("accentColor", e.target.value)}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              aria-label="Akzentfarbe wählen"
-            />
-          </div>
-          <input
-            type="text"
-            value={accentFieldValue(config)}
-            onChange={(e) => updateField("accentColor", e.target.value)}
-            className="bg-transparent text-white text-sm px-2.5 py-2.5 w-full font-mono outline-none"
-            aria-label="Akzentfarbe als Farbcode"
-          />
-        </div>
-      </SettingsSection>
-
-      <SettingsSection
-        title="Schrift auf der Akzentfarbe"
-        hint="Für Nutzer-Nachrichten, den Senden-Button und Buttons in Akzentfarbe."
-      >
-        <div className="flex rounded-lg overflow-hidden border border-white/10 w-fit">
-          {USER_TEXT_COLOR_OPTIONS.map((opt) => {
-            const active = textChoice === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setUserTextColor(opt.value)}
-                aria-pressed={active}
-                className={`flex items-center gap-2 px-5 py-2 text-sm font-medium transition-all ${
-                  active
-                    ? SELECTED_CLASS
-                    : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"
-                }`}
-              >
-                <span
-                  className="w-3.5 h-3.5 rounded-full border border-white/20"
-                  style={{ backgroundColor: opt.value }}
-                />
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-        <UserTextColorAdvice advice={textAdvice} />
-      </SettingsSection>
-
-      <SettingsSection
-        title="Logo"
-        hint="PNG, JPG, GIF, SVG oder WebP, max. 5 MB, idealerweise quadratisch."
-      >
-        <div className="flex items-center gap-4">
-          <div className="relative group">
-            <img
-              src={logoPreview || DEFAULT_LOGO}
-              alt="Logo"
-              className="h-12 w-12 rounded-lg object-contain bg-theme-settings-input-bg border border-white/10"
-            />
-            {logoPreview && (
-              <button
-                type="button"
-                onClick={onLogoRemove}
-                aria-label="Logo entfernen"
-                className="absolute -top-1.5 -right-1.5 bg-theme-bg-container text-theme-text-secondary hover:text-red-400 rounded-full p-0.5 border border-white/10 transition-colors"
-              >
-                <X size={12} weight="bold" />
-              </button>
-            )}
-          </div>
-          <label className="cursor-pointer bg-theme-settings-input-bg text-white text-sm rounded-lg px-4 py-2 border border-white/10 hover:bg-theme-action-menu-item-hover transition-all">
-            {logoPreview ? "Logo ändern" : "Hochladen"}
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp"
-              onChange={onLogoUpload}
-              className="hidden"
-            />
-          </label>
-        </div>
-      </SettingsSection>
-
-      {mode === "bubble" && (
-        <>
+      <div>
+        <FieldPair>
           <SettingsSection
-            title="Position des Chatfensters"
-            hint="Unten links oder unten rechts auf der Seite, Button und Chatfenster."
+            title="Akzentfarbe"
+            hint="Buttons, Nutzer-Nachrichten und Links in Akzentfarbe."
+            error={errors.accentColor}
           >
-            <Segmented
-              options={POSITION_OPTIONS}
-              value={position}
-              onChange={(v) => updateField("position", v)}
-            />
+            {/* breit genug für rgb()/rgba()-Eingaben (Restpunkt 5, rc7: w-44
+              schnitt lange Eingaben ab) */}
+            <div
+              className={`relative flex items-center bg-theme-settings-input-bg rounded-lg border transition-colors w-full max-w-xs cursor-pointer ${
+                errors.accentColor
+                  ? "border-red-400/70"
+                  : "border-white/10 hover:border-white/25"
+              }`}
+            >
+              <div className="relative flex-shrink-0 ml-1.5">
+                <div
+                  className="w-8 h-8 rounded-md"
+                  style={{ backgroundColor: accentColor }}
+                />
+                <input
+                  type="color"
+                  value={accentColor}
+                  onChange={(e) => updateField("accentColor", e.target.value)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  aria-label="Akzentfarbe wählen"
+                />
+              </div>
+              <input
+                type="text"
+                value={accentFieldValue(config)}
+                onChange={(e) => updateField("accentColor", e.target.value)}
+                className="bg-transparent text-white text-sm px-2.5 py-2.5 w-full font-mono outline-none"
+                aria-label="Akzentfarbe als Farbcode"
+              />
+            </div>
           </SettingsSection>
 
           <SettingsSection
-            title="Chat-Icon"
-            hint="Das Icon auf dem Chat-Button."
+            title="Schrift auf der Akzentfarbe"
+            hint="Für Nutzer-Nachrichten, den Senden-Button und Buttons in Akzentfarbe."
           >
-            <div className="flex gap-2.5 flex-wrap">
-              {CHAT_ICONS.map(({ id, label, Icon }) => {
-                const isSelected = chatIcon === id;
+            <div className="flex rounded-lg overflow-hidden border border-white/10 w-fit">
+              {USER_TEXT_COLOR_OPTIONS.map((opt) => {
+                const active = textChoice === opt.value;
                 return (
                   <button
-                    key={id}
+                    key={opt.value}
                     type="button"
-                    onClick={() => updateField("chatIcon", id)}
-                    // gewähltes Icon deutlich: Rahmen in der Akzentfarbe des
-                    // Design Centers und getönte Fläche (KIE-565 Nachtrag)
-                    className={`flex flex-col items-center gap-1.5 px-2 py-1.5 rounded-lg border-2 transition-all ${
-                      isSelected
-                        ? "border-primary-button bg-primary-button/15"
-                        : "border-transparent hover:border-white/20"
+                    onClick={() => setUserTextColor(opt.value)}
+                    aria-pressed={active}
+                    className={`flex items-center gap-2 px-5 py-2 text-sm font-medium transition-all ${
+                      active
+                        ? SELECTED_CLASS
+                        : "bg-theme-settings-input-bg text-theme-text-secondary hover:text-white hover:bg-theme-action-menu-item-hover"
                     }`}
-                    title={label}
-                    aria-pressed={isSelected}
                   >
-                    <div
-                      className="relative w-11 h-11 rounded-full flex items-center justify-center shadow-md transition-all hover:scale-110"
-                      style={{ backgroundColor: accentColor }}
-                    >
-                      <Icon size={22} weight="fill" color={userTextColor} />
-                    </div>
                     <span
-                      className={`text-[10px] transition-colors ${
-                        isSelected
-                          ? "text-white font-semibold"
-                          : "text-theme-text-secondary"
-                      }`}
-                    >
-                      {label}
-                    </span>
+                      className="w-3.5 h-3.5 rounded-full border border-white/20"
+                      style={{ backgroundColor: opt.value }}
+                    />
+                    {opt.label}
                   </button>
                 );
               })}
             </div>
+            <UserTextColorAdvice advice={textAdvice} />
           </SettingsSection>
+        </FieldPair>
+        <UserTextColorWarning advice={textAdvice} />
+      </div>
+
+      {mode === "bubble" ? (
+        <>
+          <FieldPair>
+            {logoField}
+            <SettingsSection
+              title="Chat-Icon"
+              hint="Das Icon auf dem Chat-Button."
+            >
+              {/* sechs Icons in einer Reihe wie im Mockup (Ansicht 1, R11):
+                  runde Buttons ohne Beschriftung darunter, der Name als
+                  Tooltip (title) und für Screenreader (aria-label). Mit
+                  Beschriftung brauchten die sechs Icons in der halben Spalte
+                  zwei Reihen (rund 75 px mehr). Die Reihe ist 6 × 40 px +
+                  5 × 4 px = 260 px breit; in einer schmaleren Spalte
+                  (Fenster unter etwa 1.130 px) bricht sie um. */}
+              <div className="flex gap-1 flex-wrap" data-chat-icons="">
+                {CHAT_ICONS.map(({ id, label, Icon }) => {
+                  const isSelected = chatIcon === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => updateField("chatIcon", id)}
+                      // gewähltes Icon deutlich: Rahmen in der Akzentfarbe des
+                      // Design Centers und getönte Fläche (KIE-565 Nachtrag)
+                      className={`flex items-center justify-center w-10 h-10 rounded-lg border-2 transition-all ${
+                        isSelected
+                          ? "border-primary-button bg-primary-button/15"
+                          : "border-transparent hover:border-white/20"
+                      }`}
+                      title={label}
+                      aria-label={label}
+                      aria-pressed={isSelected}
+                    >
+                      <span
+                        className="w-8 h-8 rounded-full flex items-center justify-center shadow-md transition-transform hover:scale-110"
+                        style={{ backgroundColor: accentColor }}
+                      >
+                        <Icon size={18} weight="fill" color={userTextColor} />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </SettingsSection>
+          </FieldPair>
+
+          <FieldPair>
+            {themeField}
+            <SettingsSection
+              title="Position des Chatfensters"
+              hint="Unten links oder unten rechts auf der Seite, Button und Chatfenster."
+            >
+              <Segmented
+                options={POSITION_OPTIONS}
+                value={position}
+                onChange={(v) => updateField("position", v)}
+              />
+            </SettingsSection>
+          </FieldPair>
         </>
+      ) : (
+        <FieldPair>
+          {themeField}
+          {logoField}
+        </FieldPair>
       )}
 
       <CourseAnswersSection config={config} setChoice={setChoice} />
