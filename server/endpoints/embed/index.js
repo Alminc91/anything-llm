@@ -24,6 +24,10 @@ const {
   applyEmbedStandards,
   embedDisplayMode,
 } = require("../../utils/chats/embedStandards");
+const {
+  embedDefaultsLanguage,
+  defaultSuggestions,
+} = require("../../utils/chats/embedDefaults");
 
 // Configure multer for audio file uploads (store in memory)
 const upload = multer({
@@ -205,11 +209,22 @@ function embeddedEndpoints(app) {
         // nur explizites false wird ans Widget gemeldet.
         if (embed.history_enabled === false) mapped.historyEnabled = false;
 
+        // Startvorschläge (S1, Fixliste 7.22-rc10): eine gespeicherte Liste
+        // bereinigt (nur leere Zeilen oder [] -> kein Schlüssel, das Widget
+        // zeigt keine Pillen); ohne gespeicherte Liste die Standard-
+        // Startvorschläge der Sprache (?language=de|en wie bei stream-chat,
+        // fehlend oder unbekannt -> de), damit Widget, Vorschau und Design
+        // Center dasselbe zeigen. Kommagetrennt wie bisher (das Widget trennt
+        // an Kommas; die Standards enthalten keine).
         if (Array.isArray(visualConfig.defaultMessages)) {
           const cleaned = visualConfig.defaultMessages
             .filter((m) => typeof m === "string" && m.trim().length > 0)
             .map((m) => m.trim());
           if (cleaned.length > 0) mapped.defaultMessages = cleaned.join(",");
+        } else {
+          mapped.defaultMessages = defaultSuggestions(
+            embedDefaultsLanguage(request.query?.language)
+          ).join(",");
         }
         if (Array.isArray(visualConfig.chatbotBubblesMessages)) {
           const cleaned = visualConfig.chatbotBubblesMessages

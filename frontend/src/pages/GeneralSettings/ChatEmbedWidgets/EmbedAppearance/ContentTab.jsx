@@ -266,7 +266,9 @@ export default function ContentTab({
   // Altformat mit mehreren Zeilen (ohne „•“/„-“): das Widget zeigt Punkte
   const legacyPoints = privacyWithoutMarks(privacyText);
 
-  const suggestions = listItems(config, "defaultMessages");
+  // ohne gespeicherte Liste die Standard-Startvorschläge des Servers (S1:
+  // dieselben, die das Widget ohne Liste zeigt)
+  const suggestions = listItems(config, "defaultMessages", defaults);
   const welcomeBubbles = listItems(config, "chatbotBubblesMessages");
 
   return (
@@ -456,7 +458,7 @@ export default function ContentTab({
       <GroupHeading title="Startvorschläge" />
       <SettingsSection
         title="Fragen zum Anklicken"
-        hint="Buttons mit Fragen, die Besucher mit einem Klick stellen können. Vorbelegt mit zwei Beispielen; alle gelöscht und gespeichert: keine Startvorschläge."
+        hint="Buttons mit Fragen, die Besucher mit einem Klick stellen können. Ohne eigene Liste gelten die zwei Beispiele, auch im Widget; alle gelöscht und gespeichert: keine Startvorschläge."
       >
         <MessageList
           items={suggestions}

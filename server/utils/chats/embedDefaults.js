@@ -7,6 +7,10 @@
 // öffentliche Endpunkt /embed/:id/config liefert sie NICHT aus. Nur das
 // Design Center lädt sie (GET /embed/defaults?lang=de|en), um sie als Wert
 // bzw. Vorbelegung ins Feld zu setzen und „Standardtext“ anzubieten.
+// Ausnahme Startvorschläge (DEFAULT_SUGGESTIONS, S1 Fixliste 7.22-rc10): das
+// Widget hat keine eigenen; /embed/:id/config liefert sie aus, wenn keine
+// Liste gespeichert ist, und /embed/defaults gibt sie dem Design Center als
+// Vorbelegung mit (defaultMessages).
 // Bei Änderungen im Widget hier nachziehen; der Jest-Test
 // (__tests__/utils/chats/embedDefaults.test.js) vergleicht mit einer Kopie
 // der Widget-Werte (fixtures/embedPanelTexts.json).
@@ -71,18 +75,48 @@ function embedDefaultsLanguage(value) {
     : "de";
 }
 
+// Standard-Startvorschläge je Sprache (S1, Fixliste 7.22-rc10): das Widget
+// hat keine eigenen. Ohne gespeicherte Liste (visual_config.defaultMessages
+// fehlt oder ist keine Liste) liefert GET /embed/:id/config diese zwei
+// Beispiele aus; ein gespeichertes [] (im Design Center alle gelöscht und
+// gespeichert) bleibt leer. Das Design Center zeigt dieselben zwei als
+// Vorbelegung (GET /embed/defaults, embedDefaultTexts().defaultMessages) und
+// schreibt sie erst, wenn der Kunde die Liste ändert (R5); Kopie als Rückfall
+// vor dem Laden: frontend widgetKeys.js DEFAULT_SUGGESTIONS. Keine Kommas:
+// /config reicht die Liste kommagetrennt weiter, das Widget trennt an Kommas.
+const DEFAULT_SUGGESTIONS = Object.freeze({
+  de: Object.freeze([
+    "Ich suche einen Deutschkurs.",
+    "Gibt es Excel-Kurse am Abend?",
+  ]),
+  en: Object.freeze([
+    "I am looking for a German course.",
+    "Are there Excel courses in the evening?",
+  ]),
+});
+
+/**
+ * Standard-Startvorschläge einer Sprache (Kopie; unbekannte Sprache -> de).
+ * @param {string} [lang]
+ * @returns {string[]}
+ */
+function defaultSuggestions(lang = "de") {
+  return [...DEFAULT_SUGGESTIONS[embedDefaultsLanguage(lang)]];
+}
+
 /**
  * Standardtexte einer Sprache unter den visual_config-Schlüsseln, die das
  * Design Center bearbeitet bzw. anzeigt: name/assistantSubtitle/
  * sendMessageText/greeting/privacyTitle/privacyText als Standardtext und
  * Vorbelegung (privacyText im freien Format, ein „• “-Punkt je Zeile),
  * disclaimerText sowie Platzhalter und Button der eingeklappten Inline-Leiste
- * (inlineInputPlaceholder, inlineSendText) nur zur Anzeige (fest).
+ * (inlineInputPlaceholder, inlineSendText) nur zur Anzeige (fest); dazu die
+ * Standard-Startvorschläge (defaultMessages, S1) als Vorbelegung der Liste.
  * @param {string} [lang]
  * @returns {{name: string, assistantSubtitle: string, greeting: string,
  *   sendMessageText: string, privacyTitle: string, privacyText: string,
  *   disclaimerText: string, inlineInputPlaceholder: string,
- *   inlineSendText: string}}
+ *   inlineSendText: string, defaultMessages: string[]}}
  */
 function embedDefaultTexts(lang = "de") {
   const t = EMBED_DEFAULT_TEXTS[embedDefaultsLanguage(lang)];
@@ -96,6 +130,7 @@ function embedDefaultTexts(lang = "de") {
     disclaimerText: t.disclaimerText,
     inlineInputPlaceholder: t.inlineBarPlaceholder,
     inlineSendText: t.inlineSendText,
+    defaultMessages: defaultSuggestions(lang),
   };
 }
 
@@ -270,8 +305,10 @@ function removeCourseCardsSections(prompt) {
 module.exports = {
   EMBED_DEFAULT_TEXTS,
   PRIVACY_BULLET,
+  DEFAULT_SUGGESTIONS,
   embedDefaultsLanguage,
   embedDefaultTexts,
+  defaultSuggestions,
   COURSE_CARDS_PROMPT_NOTE,
   COURSE_CARDS_LONG_PROMPT_NOTE,
   COURSE_CARDS_SECTION_HEADING,

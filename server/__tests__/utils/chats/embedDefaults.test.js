@@ -5,8 +5,10 @@
 // eine Kopie (fixtures/embedPanelTexts.json, mit Stand-Kommentar).
 const {
   EMBED_DEFAULT_TEXTS,
+  DEFAULT_SUGGESTIONS,
   embedDefaultsLanguage,
   embedDefaultTexts,
+  defaultSuggestions,
   COURSE_CARDS_PROMPT_NOTE,
   COURSE_CARDS_LONG_PROMPT_NOTE,
   COURSE_CARDS_SECTION_HEADING,
@@ -36,7 +38,41 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
       disclaimerText: widget.aiDisclaimer,
       inlineInputPlaceholder: widget.inlineBarPlaceholder,
       inlineSendText: widget.inlineSendText,
+      // S1 (Fixliste 7.22-rc10): Startvorschläge hat das Widget nicht, der
+      // Server liefert sie (DEFAULT_SUGGESTIONS, auch live über /config)
+      defaultMessages: [...DEFAULT_SUGGESTIONS[lang]],
     });
+  });
+
+  // S1 (Fixliste 7.22-rc10): Standard-Startvorschläge je Sprache, wörtlich
+  // wie die Vorbelegung des Design Centers; ohne Kommas, weil /config die
+  // Liste kommagetrennt ans Widget gibt
+  test("S1: Standard-Startvorschläge de/en wörtlich, Kopie, ohne Kommas", () => {
+    expect(defaultSuggestions("de")).toEqual([
+      "Ich suche einen Deutschkurs.",
+      "Gibt es Excel-Kurse am Abend?",
+    ]);
+    expect(defaultSuggestions("en")).toEqual([
+      "I am looking for a German course.",
+      "Are there Excel courses in the evening?",
+    ]);
+    for (const lang of [undefined, "fr", "", "en-GB"])
+      expect(defaultSuggestions(lang)).toEqual(
+        defaultSuggestions(lang === "en-GB" ? "en" : "de")
+      );
+    expect(embedDefaultTexts("en").defaultMessages).toEqual(
+      defaultSuggestions("en")
+    );
+    for (const lang of Object.keys(DEFAULT_SUGGESTIONS))
+      for (const text of DEFAULT_SUGGESTIONS[lang]) {
+        expect(text).not.toContain(",");
+        expect(text).not.toMatch(/[\u2013\u2014]/);
+      }
+    // Kopie: der Aufrufer kann die Standards nicht verändern
+    const list = defaultSuggestions("de");
+    list.push("x");
+    expect(defaultSuggestions("de")).toHaveLength(2);
+    expect(() => DEFAULT_SUGGESTIONS.de.push("x")).toThrow();
   });
 
   test("D2: eingeklappte Inline-Leiste mit den Demo-Texten, je Sprache", () => {
@@ -82,7 +118,7 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
 
   test("keine Gedankenstriche (– oder —) in sichtbaren Standardtexten", () => {
     for (const lang of Object.keys(EMBED_DEFAULT_TEXTS))
-      for (const text of Object.values(embedDefaultTexts(lang)))
+      for (const text of Object.values(embedDefaultTexts(lang)).flat())
         expect(text).not.toMatch(/[\u2013\u2014]/);
   });
 
@@ -102,7 +138,9 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
   test("Rückgabe ist eine Kopie (Aufrufer kann nichts verändern)", () => {
     const a = embedDefaultTexts("de");
     a.privacyTitle = "x";
+    a.defaultMessages.push("x");
     expect(embedDefaultTexts("de").privacyTitle).toBe("Datenschutz");
+    expect(embedDefaultTexts("de").defaultMessages).toHaveLength(2);
   });
 });
 

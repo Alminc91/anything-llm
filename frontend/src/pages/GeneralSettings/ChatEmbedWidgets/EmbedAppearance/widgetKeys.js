@@ -143,9 +143,13 @@ export function withChoice(config, initial = {}, key, value) {
 // die Vorschau sie mit; geschrieben werden sie erst, wenn der Kunde die
 // Liste ändert (Regel D6: unveränderte Vorbelegung wird nicht gespeichert,
 // sonst schrieb schon eine Farbänderung diese Fragen in jedes Widget).
-// - Startvorschläge: genau zwei Beispiele, nur hier (das Widget hat keine
-//   eigenen Standard-Startvorschläge); alle gelöscht und gespeichert =
-//   keine Startvorschläge (defaultMessages: []).
+// - Startvorschläge: genau zwei Beispiele; Quelle ist der Server
+//   (embedDefaults.js DEFAULT_SUGGESTIONS, über GET /embed/defaults als
+//   defaults.defaultMessages; S1 Fixliste 7.22-rc10), der sie ohne
+//   gespeicherte Liste auch live ausliefert (das Widget hat keine eigenen).
+//   DEFAULT_SUGGESTIONS hier ist die Kopie als Rückfall, solange die
+//   Standardtexte nicht geladen sind (Vertrag im Test designCenterFixesRc10);
+//   alle gelöscht und gespeichert = keine Startvorschläge (defaultMessages: []).
 // - Willkommensblasen: der Standard des Widgets (UI_TEXTS.de.welcomeBubbles,
 //   Gegenprobe im Test designCenterStandardLogic mit KUFER_EMBED_DIR); alle
 //   gelöscht = Standardblasen (wie ohne Schlüssel).
@@ -163,15 +167,29 @@ export const LIST_DEFAULTS = {
 };
 
 /**
- * Zeilen einer Liste im Feld und in der Vorschau: die gespeicherte Liste
- * (auch leer) oder, ohne Schlüssel, die Vorbelegung (Kopie).
- * @param {Object} config
+ * Vorbelegung einer Liste: bei den Startvorschlägen die Liste des Servers
+ * (defaults.defaultMessages aus GET /embed/defaults, S1), sonst bzw. solange
+ * die Standardtexte nicht geladen sind die Kopie LIST_DEFAULTS.
  * @param {keyof LIST_DEFAULTS} key
+ * @param {Object|null} [defaults] Standardtexte aus GET /embed/defaults
  * @returns {Array}
  */
-export function listItems(config = {}, key) {
+export function listDefault(key, defaults = null) {
+  const v = defaults?.[key];
+  return Array.isArray(v) ? v : LIST_DEFAULTS[key];
+}
+
+/**
+ * Zeilen einer Liste im Feld und in der Vorschau: die gespeicherte Liste
+ * (auch leer) oder, ohne Schlüssel, die Vorbelegung (Kopie, listDefault).
+ * @param {Object} config
+ * @param {keyof LIST_DEFAULTS} key
+ * @param {Object|null} [defaults] Standardtexte aus GET /embed/defaults
+ * @returns {Array}
+ */
+export function listItems(config = {}, key, defaults = null) {
   const v = config?.[key];
-  return Array.isArray(v) ? v : [...LIST_DEFAULTS[key]];
+  return Array.isArray(v) ? v : [...listDefault(key, defaults)];
 }
 
 // Listen bereinigt (getrimmte, nicht leere Strings) gleich?
@@ -984,7 +1002,8 @@ export function cleanConfig(
 
   if (Array.isArray(out.defaultMessages)) {
     const items = textItems(out.defaultMessages).map((s) => s.trim());
-    if (sameList(items, DEFAULT_SUGGESTIONS)) drop("defaultMessages");
+    if (sameList(items, listDefault("defaultMessages", defaults)))
+      drop("defaultMessages");
     else out.defaultMessages = items;
   }
 

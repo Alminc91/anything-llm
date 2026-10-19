@@ -396,8 +396,12 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
     : textValue(defaults?.privacyText);
   const blocks = privacyBlocks(privacyText);
   const url = validPrivacyUrl(config.privacyUrl);
-  // ohne gespeicherte Liste die Vorbelegung des Design Centers (R5)
-  const pills = textItems(listItems(config, "defaultMessages")).slice(0, 6);
+  // ohne gespeicherte Liste die Standard-Startvorschläge des Servers (S1,
+  // wie live im Widget; R5)
+  const pills = textItems(listItems(config, "defaultMessages", defaults)).slice(
+    0,
+    6
+  );
   const bubble = {
     backgroundColor: palette.bubbleBg,
     color: palette.text,
@@ -633,7 +637,10 @@ function InlinePreview({
   // Eingeklappte Leiste: Demo-Texte bzw. früher gespeicherter Leistentext,
   // nicht der Platzhalter des Chat-Eingabefelds (Entscheidung D2)
   const { placeholder, sendText } = previewInlineBar(config, defaults);
-  const chips = textItems(listItems(config, "defaultMessages")).slice(0, 6);
+  const chips = textItems(listItems(config, "defaultMessages", defaults)).slice(
+    0,
+    6
+  );
   return (
     <div
       className="w-full max-w-[640px] rounded-xl overflow-hidden flex flex-col"

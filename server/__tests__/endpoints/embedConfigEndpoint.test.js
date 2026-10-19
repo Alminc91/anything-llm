@@ -120,12 +120,14 @@ const {
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
 } = require("../../utils/chats/embedStandards");
+const { defaultSuggestions } = require("../../utils/chats/embedDefaults");
 
 // Antwort ohne eigene Werte: nur die festen Standards (Karten ohne
 // gespeicherte Wahl OHNE Schlüssel, das Widget entscheidet nach seiner
 // Darstellung, R4 Fixliste 7.22-rc8; Reihenfolge Karten zuerst, KIE-567;
 // Willkommensblasen beim ersten Besuch, KIE-568; Datenschutz-Hinweis ohne
-// gespeicherten Wert an, KIE-565 Nachtrag)
+// gespeicherten Wert an, KIE-565 Nachtrag; Standard-Startvorschläge der
+// Sprache ohne gespeicherte Liste, S1 Fixliste 7.22-rc10)
 const STANDARD = {
   ...EMBED_FIXED_STANDARDS,
   ...INLINE_FIXED_STANDARDS,
@@ -133,7 +135,13 @@ const STANDARD = {
   courseCardsPosition: "above",
   welcomeBubblesDesktop: "first",
   welcomeBubblesMobile: "first",
+  defaultMessages: defaultSuggestions("de").join(","),
 };
+// Fehlerfall (Ausnahme im Handler): nur die festen Standards, ohne
+// Startvorschläge
+const STANDARD_ERROR = Object.fromEntries(
+  Object.entries(STANDARD).filter(([key]) => key !== "defaultMessages")
+);
 
 describe("GET /embed/:embedId/config — feste Standards", () => {
   test("Standards wörtlich: Blase, Pillen, Folgefragen, Datenschutz-Blase, KI-Hinweis im Fuß, kein Online-Punkt, Karten wie Demo-Variante 4, Inline wie Demo", async () => {
@@ -158,6 +166,8 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       inlineStartState: "collapsed",
       inlineHeight: "520px",
       inheritFont: true,
+      defaultMessages:
+        "Ich suche einen Deutschkurs.,Gibt es Excel-Kurse am Abend?",
     });
   });
 
@@ -296,7 +306,7 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       res
     );
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual(STANDARD);
+    expect(res.body).toEqual(STANDARD_ERROR);
     expect(console.error).toHaveBeenCalledWith("[Embed Config]", "DB weg");
     // F06: Fehlerantwort nicht zwischenspeichern
     expect(res.headers["Cache-Control"]).toBe("no-store");
@@ -351,6 +361,74 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       expect(res.body).toEqual(STANDARD);
       expect(res.headers["Cache-Control"]).toBe("no-store");
     }
+  });
+});
+
+// S1 (Fixliste 7.22-rc10, bewusst geändert): Ohne gespeicherte Liste liefert
+// /config die Standard-Startvorschläge der Sprache (dieselben, die das Design
+// Center als Vorbelegung zeigt); ein gespeichertes [] bleibt leer (keine
+// Pillen). Die Sprache kommt wie bei stream-chat aus ?language=, sonst de.
+describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
+  async function fetchWithLanguage(visualConfig, language) {
+    EmbedConfig.getVisualConfig.mockResolvedValue(visualConfig);
+    const res = mockResponse();
+    await configRoute(
+      {
+        params: { embedId: "embed-uuid" },
+        query: language === undefined ? {} : { language },
+        protocol: "https",
+        get: () => "example.org",
+      },
+      res
+    );
+    return res;
+  }
+
+  test("ohne gespeicherte Liste: die zwei deutschen Standard-Startvorschläge, kommagetrennt", async () => {
+    for (const vc of [{}, { accentColor: "#FFA102" }, null]) {
+      const res = await fetchConfig(vc);
+      expect(res.body.defaultMessages).toBe(
+        "Ich suche einen Deutschkurs.,Gibt es Excel-Kurse am Abend?"
+      );
+      expect(res.headers["Cache-Control"]).toBe("public, max-age=300");
+    }
+    // kein Fehler im Standard: nicht 5 Minuten ohne Vorschläge
+    const row = await fetchConfig({});
+    expect(row.body).toEqual(STANDARD);
+  });
+
+  test("?language=en liefert die englischen, fehlend oder unbekannt die deutschen", async () => {
+    expect((await fetchWithLanguage({}, "en")).body.defaultMessages).toBe(
+      "I am looking for a German course.,Are there Excel courses in the evening?"
+    );
+    expect((await fetchWithLanguage({}, "en-GB")).body.defaultMessages).toBe(
+      defaultSuggestions("en").join(",")
+    );
+    for (const language of [undefined, "de", "fr", "<x>", ["en"]])
+      expect((await fetchWithLanguage({}, language)).body.defaultMessages).toBe(
+        defaultSuggestions("de").join(",")
+      );
+  });
+
+  test("gespeichertes [] oder nur leere Zeilen: kein Schlüssel (keine Pillen)", async () => {
+    for (const defaultMessages of [[], ["", "  "], [7, null]]) {
+      const { body } = await fetchConfig({ defaultMessages });
+      expect(body).not.toHaveProperty("defaultMessages");
+      expect(body).toEqual(STANDARD_ERROR);
+    }
+  });
+
+  test("gespeicherte Liste gewinnt, auch bei ?language=en; kein Array gilt als nicht gespeichert", async () => {
+    const own = await fetchWithLanguage(
+      { defaultMessages: [" Wie melde ich mich an? ", "Kurse?"] },
+      "en"
+    );
+    expect(own.body.defaultMessages).toBe("Wie melde ich mich an?,Kurse?");
+    // wie listItems im Design Center: kein Array = Vorbelegung
+    for (const defaultMessages of ["a,b", 7, null, { 0: "x" }])
+      expect(
+        (await fetchConfig({ defaultMessages })).body.defaultMessages
+      ).toBe(defaultSuggestions("de").join(","));
   });
 });
 
