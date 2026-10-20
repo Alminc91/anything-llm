@@ -299,15 +299,16 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "Inhalt: Name | Untertitel, Überschrift schmal allein; Begrüßung, Text, Link, Listen und Willkommensblasen einspaltig",
+  "Inhalt: Überschrift schmal allein; Name, Untertitel (untereinander, Rückmeldung 20.10.), Begrüßung, Text, Link, Listen und Willkommensblasen einspaltig",
   { skip },
   async () => {
     const html = await show(CONTENT, contentProps({}));
-    assert.deepEqual(labelsOf(html), [
-      ["Name", "Untertitel (optional)"],
-      ["Überschrift (optional)"],
-    ]);
+    // Name und Untertitel standen seit R11 paarweise; seit der Rückmeldung
+    // des Nutzers vom 20.10. untereinander über die volle Spaltenbreite
+    assert.deepEqual(labelsOf(html), [["Überschrift (optional)"]]);
     for (const label of [
+      "Name",
+      "Untertitel",
       "Begrüßungstext",
       "Text",
       "Link zur Datenschutzerklärung",
@@ -348,10 +349,7 @@ test(
     }
     // bei „In der Seite“ dieselben Paare
     const inline = await show(CONTENT, contentProps({ displayMode: "inline" }));
-    assert.deepEqual(labelsOf(inline), [
-      ["Name", "Untertitel (optional)"],
-      ["Überschrift (optional)"],
-    ]);
+    assert.deepEqual(labelsOf(inline), [["Überschrift (optional)"]]);
   }
 );
 

@@ -3,10 +3,14 @@
 // Überschrift, Text, Link), Startvorschläge, Platzhalter im Eingabefeld, nur
 // beim Chatfenster die Gruppe „Geschlossener Chat“ (Willkommensblasen und
 // wann sie erscheinen, KIE-568), Support-E-Mail.
-// Kompakter seit R11 (Fixliste 7.22-rc9, Mockup Ansicht 3): Name | Untertitel
-// paarweise, die Überschrift des Datenschutz-Hinweises schmal allein;
-// Begrüßung und Datenschutz-Text wachsen mit dem Inhalt; Hinweise unter dem
-// Feld. Willkommensblasen anzeigen bleibt je Gerät eine Zeile (siehe dort).
+// Kompakter seit R11 (Fixliste 7.22-rc9, Mockup Ansicht 3): die Überschrift
+// des Datenschutz-Hinweises schmal allein; Begrüßung und Datenschutz-Text
+// wachsen mit dem Inhalt; Hinweise unter dem Feld. Name und Untertitel
+// standen seit R11 paarweise nebeneinander; nach der Rückmeldung des Nutzers
+// vom 20.10.2026 stehen sie untereinander, jedes über die volle Breite der
+// Spalte (wie die Begrüßung), die Gruppenüberschrift „Name und Untertitel“
+// und die Hinweise unter den Feldern bleiben. Willkommensblasen anzeigen
+// bleibt je Gerät eine Zeile (siehe dort).
 // Jedes Feld zeigt den wirksamen Wert; ohne gespeicherten Wert ist das der
 // Standard als echter, bearbeitbarer Feldwert (R5, Vorbelegung). Gespeichert
 // wird nur, was der Kunde ändert (Regel D6, widgetKeys.js cleanConfig);
@@ -274,45 +278,45 @@ export default function ContentTab({
   return (
     <>
       <GroupHeading title="Name und Untertitel" first />
-      <FieldPair>
-        <SettingsSection
-          title="Name"
-          hint="Name des Chatbots in der Titelleiste des Chats. Leer: es gilt „KI-Berater“."
-        >
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => updateField("name", e.target.value)}
-            className={inputClass(false)}
-            aria-label="Name des Chatbots"
-          />
-        </SettingsSection>
-        <div data-field="">
-          <FieldTitle
-            title="Untertitel"
-            optional
-            action={
-              <StandardTextButton
-                isStandard={subtitleIsStandard}
-                defaultsError={defaultsError}
-                onReset={() => resetKeys(["assistantSubtitle"])}
-              />
-            }
-          />
-          <input
-            type="text"
-            value={subtitle}
-            maxLength={SUBTITLE_MAX_LEN}
-            onChange={(e) => updateField("assistantSubtitle", e.target.value)}
-            className={inputClass(errors.assistantSubtitle)}
-            aria-label="Untertitel"
-          />
-          <FieldNote
-            error={errors.assistantSubtitle}
-            hint="Kleine Zeile unter dem Namen in der Titelleiste des Chats. Leer: kein Untertitel."
-          />
-        </div>
-      </FieldPair>
+      {/* Untereinander über die volle Spaltenbreite (Rückmeldung 20.10.2026),
+          nicht mehr paarweise im Raster */}
+      <SettingsSection
+        title="Name"
+        hint="Name des Chatbots in der Titelleiste des Chats. Leer: es gilt „KI-Berater“."
+      >
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => updateField("name", e.target.value)}
+          className={inputClass(false)}
+          aria-label="Name des Chatbots"
+        />
+      </SettingsSection>
+      <div data-field="">
+        <FieldTitle
+          title="Untertitel"
+          optional
+          action={
+            <StandardTextButton
+              isStandard={subtitleIsStandard}
+              defaultsError={defaultsError}
+              onReset={() => resetKeys(["assistantSubtitle"])}
+            />
+          }
+        />
+        <input
+          type="text"
+          value={subtitle}
+          maxLength={SUBTITLE_MAX_LEN}
+          onChange={(e) => updateField("assistantSubtitle", e.target.value)}
+          className={inputClass(errors.assistantSubtitle)}
+          aria-label="Untertitel"
+        />
+        <FieldNote
+          error={errors.assistantSubtitle}
+          hint="Kleine Zeile unter dem Namen in der Titelleiste des Chats. Leer: kein Untertitel."
+        />
+      </div>
 
       <GroupHeading title="Begrüßung" />
       <div data-field="">
