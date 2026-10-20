@@ -10,6 +10,9 @@ import assert from "node:assert/strict";
 import de from "../src/locales/de/common.js";
 import en from "../src/locales/en/common.js";
 import {
+  AVATAR_CLEARANCE,
+  BUBBLE,
+  BUBBLE_MAX_WIDTH,
   HOLD_SCROLL_BUSY_MAX_MS,
   HOLD_SCROLL_MAX_MS,
   HOLD_SCROLL_QUIET_MS,
@@ -17,10 +20,14 @@ import {
   RATING_BOX,
   RATING_FLASH,
   RATING_TINT,
+  ROW_SCROLL_MARGIN,
   WORKSPACE,
   WORKSPACE_MIN_HEIGHT,
   WORKSPACE_PANEL_MIN_WIDTH,
   WORKSPACE_TOP_GAP,
+  focusVisible,
+  hasFocus,
+  nearestScrollTop,
   ratingJumpIds,
   ratingOf,
   readPanelPreference,
@@ -1525,9 +1532,16 @@ test("Review 7.21.1 (N2 a): ratingJumpIds – die so bewerteten Antworten im Zei
 // KIE-575: Arbeitsbereich ab lg – Konstanten, gemerkter Verlauf, Pfeiltasten
 // ---------------------------------------------------------------------------
 
-test("KIE-575, AK-2: WORKSPACE – Bereich mit fester Höhe (100vh − 88 px, mindestens 560 px), Liste scrollt selbst, Verlauf 50 % bzw. 56 % ab 2xl, ab xl mindestens 480 px; alles nur ab lg", () => {
+test("KIE-575, AK-2 / rc11 K13: WORKSPACE – Bereich mit fester Höhe (100vh − 88 px, mindestens 480 px: bei 600 px Fensterhöhe ganz im Fenster), Liste scrollt selbst, Verlauf 50 % bzw. 56 % ab 2xl, ab xl mindestens 480 px; alles nur ab lg", () => {
   assert.equal(WORKSPACE_TOP_GAP, 88);
-  assert.equal(WORKSPACE_MIN_HEIGHT, 560);
+  assert.equal(WORKSPACE_MIN_HEIGHT, 480);
+  // K13: Unter dem Bereich liegen 64 px (48 Innenabstand + 16 Rahmen). Bei
+  // 600 px Fensterhöhe (das niedrigste übliche Fenster ab lg) nimmt er
+  // 100vh − 88 = 512 px und steht 24 px unter dem oberen Rand; die
+  // Mindesthöhe greift erst unter 568 px und bleibt bis 544 px ohne
+  // Anschnitt (vorher 560: bei 600 px ragte er 24 px über den Rand).
+  assert.ok(Math.max(WORKSPACE_MIN_HEIGHT, 600 - WORKSPACE_TOP_GAP) + 64 <= 600);
+  assert.equal(WORKSPACE_MIN_HEIGHT + 64, 544);
   assert.equal(WORKSPACE_PANEL_MIN_WIDTH, 480);
   const classes = (value) => value.split(/\s+/).filter(Boolean);
   const has = (value, names) =>
@@ -1536,7 +1550,7 @@ test("KIE-575, AK-2: WORKSPACE – Bereich mit fester Höhe (100vh − 88 px, mi
     has(WORKSPACE.area, [
       "lg:flex",
       "lg:gap-4",
-      "lg:h-[max(560px,calc(100vh-88px))]",
+      "lg:h-[max(480px,calc(100vh-88px))]",
     ]),
     WORKSPACE.area
   );
@@ -1569,7 +1583,7 @@ test("KIE-575, AK-2: WORKSPACE – Bereich mit fester Höhe (100vh − 88 px, mi
     new URL("../src/utils/conversationView.js", import.meta.url),
     "utf8"
   );
-  assert.ok(source.includes('"lg:flex lg:gap-4 lg:h-[max(560px,calc(100vh-88px))]"'));
+  assert.ok(source.includes('"lg:flex lg:gap-4 lg:h-[max(480px,calc(100vh-88px))]"'));
   assert.ok(source.includes("xl:min-w-[480px]"));
   // Unter lg bleibt alles wie heute: nur Präfixe ab lg
   for (const value of Object.values(WORKSPACE))
@@ -1642,4 +1656,94 @@ test("KIE-575, AK-6: arrowNavigationAllowed – ↑/↓ blättern bei Fokus auf 
   doc.activeElement = doc.createElement("button");
   assert.equal(arrowNavigationAllowed(doc), true);
   assert.equal(arrowNavigationAllowed(undefined), false);
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc11 (Abnahme rc9): K11, K12, K14, K15
+// ---------------------------------------------------------------------------
+
+test("rc11, K11: nearestScrollTop – Scrollposition, bei der ein Element im Bereich ganz zu sehen ist, mit möglichst wenig Bewegung und nur für diesen Bereich (die Seite bleibt); ROW_SCROLL_MARGIN 32 oben (Tagesüberschrift), 8 unten", () => {
+  assert.deepEqual(ROW_SCROLL_MARGIN, { marginTop: 32, marginBottom: 8 });
+  // Bereich 300 px hoch ab y 100 mit Scrollposition scrollTop; Element bei
+  // offset (vom Anfang des Inhalts) mit Höhe height
+  const container = (scrollTop) => ({
+    scrollTop,
+    clientHeight: 300,
+    getBoundingClientRect: () => ({ top: 100 }),
+  });
+  const element = (offset, scrollTop, height = 54) => ({
+    getBoundingClientRect: () => ({ top: 100 + offset - scrollTop, height }),
+  });
+  // ganz im Bild: die Position bleibt
+  assert.equal(nearestScrollTop(container(0), element(100, 0)), 0);
+  assert.equal(nearestScrollTop(container(120), element(200, 120)), 120);
+  // genau am unteren Rand (Unterkante = Rand): bleibt
+  assert.equal(nearestScrollTop(container(0), element(246, 0)), 0);
+  // unten angeschnitten: die Unterkante an den unteren Rand, mit Rand
+  assert.equal(nearestScrollTop(container(0), element(270, 0)), 24);
+  assert.equal(
+    nearestScrollTop(container(0), element(270, 0), { marginBottom: 8 }),
+    32
+  );
+  // oben angeschnitten oder darüber: der Anfang nach oben, mit Rand
+  assert.equal(nearestScrollTop(container(200), element(150, 200)), 150);
+  assert.equal(
+    nearestScrollTop(container(200), element(150, 200), { marginTop: 32 }),
+    118
+  );
+  // höher als der Bereich: der Anfang nach oben
+  assert.equal(nearestScrollTop(container(50), element(80, 50, 400)), 80);
+  // nie unter 0; ohne Maße 0
+  assert.equal(
+    nearestScrollTop(container(10), element(0, 10), { marginTop: 32 }),
+    0
+  );
+  assert.equal(
+    nearestScrollTop(
+      { getBoundingClientRect: () => ({ top: 0 }) },
+      { getBoundingClientRect: () => ({ top: 0, height: 0 }) }
+    ),
+    0
+  );
+  // gerundet
+  assert.equal(nearestScrollTop(container(0), element(270.4, 0)), 24);
+});
+
+test("rc11, K12 / K14: AVATAR_CLEARANCE.panelHeadEnd (lg:pr-7: mit dem Innenabstand des Kopfs 48 px rechts, ✕ und ⋯ links vom Benutzermenü) und emptyPanelClose (right-12); BUBBLE: Blasen höchstens 720 px, Nutzerblasen weiter höchstens 85 %", () => {
+  assert.equal(AVATAR_CLEARANCE.panelHeadEnd, "lg:pr-7");
+  assert.equal(AVATAR_CLEARANCE.emptyPanelClose, "right-12");
+  assert.equal(BUBBLE_MAX_WIDTH, 720);
+  assert.deepEqual(BUBBLE, {
+    question: "max-w-[min(85%,720px)]",
+    answer: "max-w-[720px]",
+  });
+  for (const value of Object.values(BUBBLE))
+    assert.ok(value.includes(`${BUBBLE_MAX_WIDTH}px`), value);
+});
+
+test("rc11, K15: hasFocus – hat das Element den Fokus des Dokuments? (eine Stelle statt document.activeElement in der Liste, Fixliste 7 F24)", () => {
+  const doc = createDocument();
+  const button = doc.body.appendChild(doc.createElement("button"));
+  assert.equal(hasFocus(button, doc), false);
+  button.focus();
+  assert.equal(hasFocus(button, doc), true);
+  assert.equal(hasFocus(null, doc), false);
+  assert.equal(hasFocus(button, undefined), false);
+  button.blur();
+  assert.equal(hasFocus(button, doc), false);
+});
+
+test("rc11, K15: focusVisible – fragt :focus-visible ab (Tastaturfokus); ohne Auskunft (kein matches, unbekannte Pseudoklasse, kein Element) gilt Tastatur", () => {
+  assert.equal(focusVisible({ matches: (s) => s === ":focus-visible" }), true);
+  assert.equal(focusVisible({ matches: () => false }), false);
+  assert.equal(
+    focusVisible({
+      matches() {
+        throw new Error("unbekannte Pseudoklasse");
+      },
+    }),
+    true
+  );
+  assert.equal(focusVisible({}), true);
+  assert.equal(focusVisible(null), true);
 });

@@ -139,6 +139,19 @@ export const AVATAR_CLEARANCE = {
   // rechten 35 px des Inhalts ab; 44 px lassen 9 px Luft und halten Filter
   // und Export auch bei 768 px Fensterbreite in einer Zeile (V5).
   toolbarEnd: "sm:pr-11",
+  // rechter Rand der Schaltflächenzeile (‹ › ⋯ ✕) im Kopf des Verlaufs ab lg
+  // (Fixliste 7.22-rc11, K12): Liegt der Arbeitsbereich oben an, steht
+  // diese Zeile auf der Höhe des Menüs (Zeile 41 bis 77 px, Menü 36 bis
+  // 71 px), und der rechte Rand des Verlaufs fällt mit dem des Menüs
+  // zusammen (beide 40 px vom Fensterrand). Mit dem Innenabstand des Kopfs
+  // (lg:px-5, 20 px) und dem Rahmen (1 px) enden ✕ und ⋯ so 49 px vom Rand
+  // des Verlaufs: 14 px Luft zum 35 px breiten Menü. Nur die erste Zeile
+  // des Kopfs: Frage und Angaben darunter liegen unter dem Menü und nutzen
+  // die Breite weiter.
+  panelHeadEnd: "lg:pr-7",
+  // ✕ des Platzhalters „Keine Konversation gewählt“ (nur ab lg): derselbe
+  // Abstand, absolut vom rechten Rand des Platzhalters
+  emptyPanelClose: "right-12",
 };
 
 // ---------------------------------------------------------------------------
@@ -154,8 +167,22 @@ export const AVATAR_CLEARANCE = {
  * 8 px unter der Oberkante des Rahmens.
  */
 export const WORKSPACE_TOP_GAP = 88;
-/** So niedrig wird der Bereich nie (px); darunter scrollt die Seite weiter. */
-export const WORKSPACE_MIN_HEIGHT = 560;
+/**
+ * So niedrig wird der Bereich nie (px); darunter scrollt die Seite weiter.
+ * 480 statt 560 (Fixliste 7.22-rc11, K13): Unter dem Bereich liegen 64 px
+ * (48 + Rahmen 16). Mit 560 ragte er bei 600 px Fensterhöhe 24 px über den
+ * oberen Rand, das ✕ war angeschnitten. Mit 480 nimmt er bis 568 px
+ * Fensterhöhe die volle Höhe 100vh − 88 (bei 600 px: 512 px, Oberkante
+ * 24 px) und bleibt bis 544 px ganz im Fenster; erst darunter wird er
+ * angeschnitten. 480 px reichen für Kopf (rund 100 px) und sechs bis
+ * sieben Zeilen neben einem lesbaren Verlauf. Die Alternative, unter
+ * 640 px Fensterhöhe die Seite wieder normal scrollen zu lassen, brächte
+ * eine dritte Darstellung mit zwei Scroll-Verhalten zurück, die KIE-575
+ * abgeschafft hat, samt zweiter Weiche in Code und Tests; Fenster ab lg
+ * (1.024 px breit) sind in der Praxis mindestens 600 px hoch (768-px-
+ * Bildschirm abzüglich Browserleisten).
+ */
+export const WORKSPACE_MIN_HEIGHT = 480;
 /** Ab dieser Breite (Tailwind xl) ist der Verlauf mindestens 480 px breit. */
 export const WORKSPACE_PANEL_MIN_WIDTH = 480;
 
@@ -164,7 +191,8 @@ export const WORKSPACE_PANEL_MIN_WIDTH = 480;
  * so hoch wie der Bereich, je mit eigener Bildlaufleiste. Unter lg wirkt
  * keine davon (Vollbild-Panel, Seite scrollt).
  * - area: feste Höhe = Fensterhöhe − WORKSPACE_TOP_GAP, mindestens
- *   WORKSPACE_MIN_HEIGHT; Spalten mit 16 px Abstand
+ *   WORKSPACE_MIN_HEIGHT (480: bei 600 px Fensterhöhe ganz im Fenster,
+ *   K13); Spalten mit 16 px Abstand
  * - column: linke Spalte – Kopf (Suche, Filter) oben fest, darunter der
  *   scrollende Teil
  * - scroller: der scrollende Teil der linken Spalte (Zeilen, „Weitere
@@ -183,12 +211,38 @@ export const WORKSPACE_PANEL_MIN_WIDTH = 480;
  * dass die Zahlen darin zu den Konstanten passen.
  */
 export const WORKSPACE = {
-  area: "lg:flex lg:gap-4 lg:h-[max(560px,calc(100vh-88px))]",
+  area: "lg:flex lg:gap-4 lg:h-[max(480px,calc(100vh-88px))]",
   column: "lg:flex lg:min-w-0 lg:flex-1 lg:flex-col",
   scroller:
     "lg:relative lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain",
   panel:
     "lg:w-[calc(50%-8px)] 2xl:w-[calc(56%-8px)] xl:min-w-[480px] lg:shrink-0",
+};
+
+/**
+ * Abstände, mit denen die gewählte Zeile in der Spalte in Sicht kommt
+ * (nearestScrollTop, Fixliste 7.22-rc11 K11): oben die Höhe der Überschrift
+ * einer Tagesgruppe (pt-3 12 + Zeile 16 + pb-1 4 = 32 px), damit sie beim
+ * Blättern nach oben mitkommt; unten ein kleiner Rand.
+ */
+export const ROW_SCROLL_MARGIN = { marginTop: 32, marginBottom: 8 };
+
+/**
+ * Längste Zeile einer Nachrichtenblase im Verlauf (px, Fixliste 7.22-rc11,
+ * K14): Bei 2.560 px war der Verlauf rund 1.230 px breit und eine Antwort
+ * lief über 1.800 Zeichen je Zeile. 720 px entsprechen rund 75 bis 85
+ * Zeichen bei 14 px Schrift. Kein Deckel für Kennzahlen und Diagramm
+ * (Nutzerwunsch: volle Breite) und keiner für den Verlauf selbst.
+ */
+export const BUBBLE_MAX_WIDTH = 720;
+/**
+ * Klassen der Blasen (wörtlich, siehe WORKSPACE): die Antwortzeile (Avatar
+ * und Text, linksbündig) höchstens BUBBLE_MAX_WIDTH; die Nutzerblase rechts
+ * wie bisher höchstens 85 % und ebenfalls höchstens BUBBLE_MAX_WIDTH.
+ */
+export const BUBBLE = {
+  question: "max-w-[min(85%,720px)]",
+  answer: "max-w-[720px]",
 };
 
 /** Schlüssel im Browser-Speicher: Verlauf offen ("open") oder zu ("closed"). */
@@ -249,6 +303,39 @@ export function arrowNavigationAllowed(
     node = node.parentNode;
   }
   return inHead;
+}
+
+/**
+ * Hat das Element den Fokus des Dokuments? Eine Stelle statt
+ * document.activeElement in der Liste (Fixliste 7, F24) – für „Weitere
+ * laden“ beim Nachladen (Fixliste 7.22-rc11, K15).
+ * @param {Element|null|undefined} element
+ * @param {Document|undefined} [doc]
+ * @returns {boolean}
+ */
+export function hasFocus(
+  element,
+  doc = typeof document === "undefined" ? undefined : document
+) {
+  return !!element && !!doc && doc.activeElement === element;
+}
+
+/**
+ * Zeigt der Browser für das Element den Fokusring, weil es per Tastatur
+ * fokussiert wurde (:focus-visible)? Ohne Auskunft (kein matches, Browser
+ * ohne :focus-visible, kein Element) gilt Tastatur – dann bekommt der Fokus
+ * nach dem Nachladen die erste neue Zeile (Fixliste 7.22-rc11, K15).
+ * @param {Element|null|undefined} element
+ * @returns {boolean}
+ */
+export function focusVisible(element) {
+  try {
+    return typeof element?.matches === "function"
+      ? element.matches(":focus-visible")
+      : true;
+  } catch {
+    return true;
+  }
 }
 
 /** Elternelemente eines Knotens bis unter <body> (nur Elemente). */
@@ -1035,6 +1122,36 @@ const scrollPosition = (value) =>
  */
 export function startScrollTop(container, element, margin = 16) {
   return scrollPosition(offsetInScroller(container, element).offset - margin);
+}
+
+/**
+ * Scrollposition eines Bereichs, bei der ein Element darin ganz zu sehen
+ * ist, mit möglichst wenig Bewegung – wie scrollIntoView „nearest“, aber nur
+ * für diesen Bereich: Die Seite und andere scrollende Vorfahren bleiben
+ * stehen (Fixliste 7.22-rc11, K11: scrollIntoView scrollte beim Blättern
+ * die Seite mit, solange der Arbeitsbereich noch nicht oben anlag). Steht
+ * das Element schon ganz im Ausschnitt, bleibt die Position. Liegt es
+ * darüber (oder ist es höher als der Ausschnitt), kommt sein Anfang mit
+ * marginTop Abstand nach oben; liegt es darunter, sein Ende mit
+ * marginBottom Abstand nach unten.
+ * @param {{scrollTop: number, clientHeight: number, getBoundingClientRect: Function}} container
+ * @param {{getBoundingClientRect: Function}} element
+ * @param {{marginTop?: number, marginBottom?: number}} [margins]
+ * @returns {number}
+ */
+export function nearestScrollTop(
+  container,
+  element,
+  { marginTop = 0, marginBottom = 0 } = {}
+) {
+  const { offset, height } = offsetInScroller(container, element);
+  const current = container.scrollTop || 0;
+  const view = container.clientHeight || 0;
+  const start = offset - marginTop;
+  const end = offset + height + marginBottom;
+  if (start < current || end - start > view) return scrollPosition(start);
+  if (end > current + view) return scrollPosition(end - view);
+  return scrollPosition(current);
 }
 
 /**

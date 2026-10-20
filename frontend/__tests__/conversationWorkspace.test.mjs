@@ -94,7 +94,8 @@ function message(id, extra = {}) {
  * – mit state.byOffset über offset auf dem Bestand zum Zeitpunkt der
  * Anfrage (so entstehen Doppelte, wenn vorn eine Zeile dazukommt). Der
  * Verlauf jeder Konversation: eine Nachricht, sofern state.details nichts
- * anderes sagt.
+ * anderes sagt. state.holdMore: Folgeseiten (after) warten auf dieses
+ * Promise (Fokus während des Nachladens, K15).
  */
 async function workspaceServer(t, state) {
   const { API_BASE } = await renderer.load("/src/utils/constants.js");
@@ -147,6 +148,7 @@ async function workspaceServer(t, state) {
       Object.defineProperty(call, "start", {
         value: rows.length - rest.length + start,
       });
+      if (after && state.holdMore) await state.holdMore;
       if (state.failList?.(call.body))
         return json({ success: false, error: "kaputt" }, 500);
       return json({
@@ -532,7 +534,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "AK-6: ↑/↓ blättern direkt nach dem Öffnen der Seite (Fokus auf <body>) und im Kopf des Panels – der Fokus bleibt, die gewählte Zeile kommt in der Spalte in Sicht („nearest“); nicht im Suchfeld, nicht über den Anfang hinaus",
+  "AK-6: ↑/↓ blättern direkt nach dem Öffnen der Seite (Fokus auf <body>) und im Kopf des Panels – der Fokus bleibt, die gewählte Zeile kommt in der Spalte in Sicht (Scrollposition der Spalte gerechnet, kein scrollIntoView); nicht im Suchfeld, nicht über den Anfang hinaus",
   { skip },
   async (t) => {
     stubWidth(t, true);
@@ -554,14 +556,11 @@ test(
     assert.deepEqual(server.details(), [1, 2]);
     assert.equal(view.search(), "?widget=3&conversation=2");
     assert.equal(view.navigationType(), "REPLACE");
-    // die gewählte Zeile in der Spalte in Sicht
-    assert.deepEqual(
-      scrolled.map(([element, options]) => [
-        element.getAttribute("data-conversation-row"),
-        options,
-      ]),
-      [["2", { block: "nearest" }]]
-    );
+    // die gewählte Zeile in der Spalte in Sicht: Die Liste stellt die
+    // Scrollposition der Spalte selbst ein (rc11, K11; ohne Maße 0) – kein
+    // scrollIntoView, das scrollte die Seite mit
+    assert.deepEqual(scrolled, [], "kein scrollIntoView");
+    assert.equal(one(container, "data-list-scroll").scrollTop, 0);
     assert.equal(down?.defaultPrevented, true, "die Seite scrollt nicht");
 
     await keys.fire(act, "ArrowUp");
@@ -857,7 +856,7 @@ test(
     await act();
     const area = one(container, "data-conversation-area");
     assert.ok(hasClasses(area, WORKSPACE.area.split(" ")), WORKSPACE.area);
-    assert.ok(classesOf(area).includes("lg:h-[max(560px,calc(100vh-88px))]"));
+    assert.ok(classesOf(area).includes("lg:h-[max(480px,calc(100vh-88px))]"));
     const column = one(container, "data-list-column");
     const header = one(container, "data-list-header");
     const scroller = one(container, "data-list-scroll");
@@ -906,5 +905,278 @@ test(
       if (lang !== "de" && lang !== "en") assert.equal(text(lang), null, lang);
     // keine Gedankenstriche in den neuen Texten
     for (const lang of ["de", "en"]) assert.ok(!/[–—]/.test(text(lang)));
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc11 (Abnahme rc9): K11 Pfeiltasten, K15 Fokus am Listenende
+// ---------------------------------------------------------------------------
+
+/**
+ * Maße für die Spalte (K11): 300 px hoch ab y 100, Zeilen je 54 px, die
+ * erste bei y 100 abzüglich der Scrollposition der Spalte. Alles andere
+ * misst 0 (die Seite kennt kein Layout).
+ */
+function stubColumnLayout(t, container) {
+  const ROW = 54;
+  const VIEW = 300;
+  const TOP = 100;
+  const scroller = one(container, "data-list-scroll");
+  const prototype = Object.getPrototypeOf(scroller);
+  const original = prototype.getBoundingClientRect;
+  prototype.getBoundingClientRect = function () {
+    if (this === scroller) return { top: TOP, bottom: TOP + VIEW, height: VIEW };
+    if (this.hasAttribute("data-conversation-row")) {
+      const index = rowsOf(container).indexOf(this);
+      const top = TOP + index * ROW - (scroller.scrollTop || 0);
+      return { top, bottom: top + ROW, height: ROW };
+    }
+    return original.call(this);
+  };
+  Object.defineProperty(scroller, "clientHeight", {
+    configurable: true,
+    value: VIEW,
+  });
+  t.after(() => {
+    prototype.getBoundingClientRect = original;
+  });
+  /** Scrollposition, bei der Zeile index mit 8 px Rand unten steht */
+  const bottomOf = (index) => (index + 1) * ROW + 8 - VIEW;
+  /** Scrollposition, bei der Zeile index mit 32 px Rand oben steht */
+  const topOf = (index) => Math.max(0, index * ROW - 32);
+  return { scroller, bottomOf, topOf };
+}
+
+test(
+  "rc11, K11: ↑/↓ und die Panel-Pfeile halten die gewählte Zeile nur in der Spalte sichtbar – scrollTop der Spalte gerechnet (nearestScrollTop, 32 px Rand oben, 8 px unten), kein scrollIntoView (das scrollte die Seite mit); auch ↑/↓ auf einer Zeile: Fokus ohne Seitenscroll (preventScroll), die Spalte folgt",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const keys = captureWindowKeys(t);
+    const scrolled = captureScrolls(t);
+    const rows = Array.from({ length: 20 }, (_, i) => row(100 + i));
+    await workspaceServer(t, { rows });
+    const view = await mountList(t);
+    const { container, document, act } = view;
+    await act();
+    const { scroller, bottomOf, topOf } = stubColumnLayout(t, container);
+
+    // 5× ↓ (Fokus auf <body>): Zeile 6 (Index 5) endet bei 100 + 6 · 54 =
+    // 424, unter dem Rand 400 – die Spalte scrollt sie mit 8 px Rand nach
+    // unten (6 · 54 + 8 − 300 = 32); vorher (Zeile 5, Unterkante 370)
+    // bleibt sie stehen
+    for (let i = 0; i < 4; i++) {
+      await keys.fire(act, "ArrowDown");
+      await act();
+    }
+    assert.deepEqual(currentRows(container), [104]);
+    assert.equal(scroller.scrollTop, 0, "Zeile 5 ist im Bild: nichts bewegt");
+    await keys.fire(act, "ArrowDown");
+    await act();
+    assert.deepEqual(currentRows(container), [105]);
+    assert.equal(scroller.scrollTop, bottomOf(5));
+    assert.deepEqual(scrolled, [], "kein scrollIntoView");
+    same(document.activeElement, document.body, "Fokus bleibt");
+    // weiter ↓: die Spalte folgt Zeile für Zeile
+    await keys.fire(act, "ArrowDown");
+    await act();
+    assert.equal(scroller.scrollTop, bottomOf(6));
+    // 5× ↑ bis Zeile 2 (Index 1): Sie liegt oben aus dem Bild (Oberkante
+    // 100 + 54 − 86 = 68 < 100) – ihr Anfang kommt mit 32 px Rand nach oben
+    for (let i = 0; i < 5; i++) {
+      await keys.fire(act, "ArrowUp");
+      await act();
+    }
+    assert.deepEqual(currentRows(container), [101]);
+    assert.equal(scroller.scrollTop, topOf(1));
+    // ↑ zur ersten Zeile: nie unter 0
+    await keys.fire(act, "ArrowUp");
+    await act();
+    assert.deepEqual(currentRows(container), [100]);
+    assert.equal(scroller.scrollTop, 0);
+    assert.deepEqual(scrolled, []);
+
+    // Panel-Pfeile ▾ (Fokus im Kopf): derselbe Weg – 6× bis Zeile 7
+    for (let i = 0; i < 6; i++) {
+      await act(() => click(one(container, "data-panel-next")));
+      await act();
+    }
+    assert.deepEqual(currentRows(container), [106]);
+    assert.equal(scroller.scrollTop, bottomOf(6));
+    same(document.activeElement, one(container, "data-panel-next"));
+    // ▴ zurück bis Zeile 1: der Anfang nach oben
+    for (let i = 0; i < 6; i++) {
+      await act(() => click(one(container, "data-panel-previous")));
+      await act();
+    }
+    assert.deepEqual(currentRows(container), [100]);
+    assert.equal(scroller.scrollTop, 0);
+    assert.deepEqual(scrolled, []);
+
+    // Fokus auf einer Zeile, ↓ (Handler der Zeile): Die nächste Zeile
+    // bekommt den Fokus ohne Scrollen der Seite (preventScroll), die Spalte
+    // folgt – 7× von Zeile 1 bis Zeile 8 (Index 7)
+    rowsOf(container)[0].focus();
+    for (let i = 0; i < 7; i++) {
+      await act(() =>
+        handlersOf(document.activeElement).onKeyDown({
+          key: "ArrowDown",
+          preventDefault() {},
+        })
+      );
+      await act();
+    }
+    same(document.activeElement, rowsOf(container)[7]);
+    assert.deepEqual(rowsOf(container)[7].lastFocusOptions, {
+      preventScroll: true,
+    });
+    assert.deepEqual(currentRows(container), [107]);
+    assert.equal(scroller.scrollTop, bottomOf(7));
+    assert.deepEqual(scrolled, []);
+  }
+);
+
+test(
+  "rc11, K11: Unter lg scrollt die Spalte nicht – ↑/↓ auf einer Zeile fokussieren wie heute (ohne preventScroll, die Seite folgt dem Fokus)",
+  { skip },
+  async (t) => {
+    stubWidth(t, false);
+    const scrolled = captureScrolls(t);
+    await workspaceServer(t, { rows: [row(1), row(2)] });
+    const { container, document, act } = await mountList(t);
+    await act();
+    rowsOf(container)[0].focus();
+    await act(() =>
+      handlersOf(rowsOf(container)[0]).onKeyDown({
+        key: "ArrowDown",
+        preventDefault() {},
+      })
+    );
+    await act();
+    same(document.activeElement, rowsOf(container)[1]);
+    assert.equal(rowsOf(container)[1].lastFocusOptions, null);
+    assert.equal(one(container, "data-list-scroll").scrollTop, undefined);
+    assert.deepEqual(scrolled, []);
+  }
+);
+
+test(
+  "rc11, K15: „Weitere laden“ mit Fokus – während des Nachladens nicht gesperrt (aria-disabled statt disabled: der Fokus bleibt, ein zweiter Klick lädt nicht noch einmal); danach steht der Fokus auf der ersten neuen Zeile (ohne Seitenscroll, in der Spalte); verschwindet der Knopf mit der letzten Seite, ebenso; bringt die Seite nichts Neues oder scheitert sie, bleibt er auf dem Knopf",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const observers = stubIntersectionObserver(t);
+    const scrolled = captureScrolls(t);
+    const state = {
+      rows: Array.from({ length: 50 }, (_, i) => row(300 + i)),
+    };
+    const server = await workspaceServer(t, state);
+    const first = await mountList(t);
+    const { container, document, act } = first;
+    await act();
+    assert.equal(rowsOf(container).length, 20);
+
+    // Klick (der Knopf hat damit den Fokus); die Seite wartet
+    let release;
+    state.holdMore = new Promise((resolve) => (release = resolve));
+    const button = one(container, "data-load-more");
+    await act(() => click(button));
+    await act();
+    assert.equal(
+      button.hasAttribute("disabled"),
+      false,
+      "nicht gesperrt (disabled nähme den Fokus an <body>)"
+    );
+    assert.equal(button.getAttribute("aria-disabled"), "true");
+    same(document.activeElement, button, "Fokus bleibt während des Ladens");
+    assert.equal(rowsOf(container).length, 20);
+    assert.equal(server.lists().length, 2);
+    // ein zweiter Klick während des Ladens: keine zweite Anfrage
+    await act(() => handlersOf(button).onClick());
+    await act();
+    assert.equal(server.lists().length, 2);
+    // die Seite kommt: Fokus auf der ersten neuen Zeile (21), ohne die
+    // Seite zu scrollen, die Spalte stellt sie ein
+    await act(() => release());
+    for (let i = 0; i < 3; i++) await act();
+    assert.equal(rowsOf(container).length, 40);
+    same(document.activeElement, rowsOf(container)[20], "erste neue Zeile");
+    assert.deepEqual(rowsOf(container)[20].lastFocusOptions, {
+      preventScroll: true,
+    });
+    assert.deepEqual(scrolled, []);
+    assert.equal(
+      one(container, "data-load-more").getAttribute("aria-disabled"),
+      null
+    );
+
+    // Von selbst am Spaltenende (Tab auf den Knopf, das Ende in Sicht): die
+    // letzte Seite – der Knopf verschwindet, der Fokus geht auf die erste
+    // neue Zeile (41) statt ins Leere
+    const again = one(container, "data-load-more");
+    again.focus();
+    state.holdMore = new Promise((resolve) => (release = resolve));
+    await observers.reach(act, observers.active());
+    await act();
+    same(document.activeElement, again);
+    assert.equal(again.hasAttribute("disabled"), false);
+    await act(() => release());
+    for (let i = 0; i < 3; i++) await act();
+    assert.equal(rowsOf(container).length, 50);
+    assert.equal(withAttribute(container, "data-load-more").length, 0);
+    same(document.activeElement, rowsOf(container)[40]);
+    assert.deepEqual(scrolled, []);
+    await first.unmount();
+
+    // Nichts Neues (Bestand verschoben: nur Doppelte) – der Fokus bleibt
+    // auf dem Knopf
+    state.rows = Array.from({ length: 60 }, (_, i) => row(500 + i));
+    state.holdMore = null;
+    state.overlap = 20;
+    const second = await mountList(t);
+    await second.act();
+    assert.equal(rowsOf(second.container).length, 20);
+    const button2 = one(second.container, "data-load-more");
+    await second.act(() => click(button2));
+    for (let i = 0; i < 3; i++) await second.act();
+    assert.equal(rowsOf(second.container).length, 20);
+    same(one(second.container, "data-load-more"), button2, "Knopf bleibt");
+    same(second.document.activeElement, button2, "Fokus bleibt auf dem Knopf");
+    // Nachladen scheitert – ebenso („Erneut versuchen“ hat den Fokus)
+    state.overlap = 0;
+    state.failList = (body) => !!body.after;
+    await second.act(() => click(button2));
+    for (let i = 0; i < 3; i++) await second.act();
+    assert.equal(withAttribute(second.container, "data-load-more-error").length, 1);
+    same(second.document.activeElement, one(second.container, "data-load-more"));
+    assert.equal(one(second.container, "data-load-more").hasAttribute("disabled"), false);
+  }
+);
+
+test(
+  "rc11, K15: Ohne Fokus auf dem Knopf (Nachladen von selbst, Fokus auf <body> oder im Suchfeld) ändert das Nachladen den Fokus nicht",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const observers = stubIntersectionObserver(t);
+    await workspaceServer(t, {
+      rows: Array.from({ length: 60 }, (_, i) => row(700 + i)),
+    });
+    const { container, document, act } = await mountList(t);
+    await act();
+    same(document.activeElement, document.body);
+    await observers.reach(act, observers.active());
+    for (let i = 0; i < 3; i++) await act();
+    assert.equal(rowsOf(container).length, 40);
+    same(document.activeElement, document.body, "Fokus bleibt auf <body>");
+    const input = one(container, "data-search-input");
+    input.focus();
+    await act(() => click(one(container, "data-load-more")));
+    for (let i = 0; i < 3; i++) await act();
+    assert.equal(rowsOf(container).length, 60);
+    // click() setzt den Fokus auf den Knopf (wie der Browser) – danach
+    // steht er auf der ersten neuen Zeile; das Suchfeld war vorher nicht mehr
+    // fokussiert, nichts zieht ihn aus einem Feld
+    same(document.activeElement, rowsOf(container)[40]);
   }
 );

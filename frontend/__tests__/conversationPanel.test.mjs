@@ -1678,6 +1678,9 @@ test(
     t.after(() => {
       prototype.scrollIntoView = original;
     });
+    // Folgen heißt seit rc11 (K11): die Spalte stellt ihre Scrollposition
+    // ein, kein scrollIntoView
+    const columnScrolls = captureColumnScrolls(t, prototype);
     await act(() => click(rowsOf(container)[0]));
     await act();
     // am Anfang: nichts zu öffnen (Handler direkt, die Schaltfläche ist gesperrt)
@@ -1688,12 +1691,13 @@ test(
     await act(() => click(rowsOf(container)[2]));
     await act();
     assert.deepEqual(currentRows(container), [3]);
-    assert.deepEqual(scrolled, []);
+    assert.deepEqual(columnScrolls, []);
     // Blättern im Panel folgt weiterhin
     await act(() => click(one(container, "data-panel-previous")));
     await act();
     assert.deepEqual(currentRows(container), [2]);
-    assert.equal(scrolled.length, 1);
+    assert.equal(columnScrolls.length, 1);
+    assert.deepEqual(scrolled, [], "kein scrollIntoView");
   }
 );
 
@@ -3092,18 +3096,12 @@ test(
       globalThis.window.matchMedia = restore;
     };
 
-    // Per Link ab lg: einmal zur Liste (Sprungziel scroll-mt-20); dazu
-    // bringt die Liste die markierte Zeile in ihrer Spalte in Sicht
-    // (KIE-575, „nearest“ – kein Sprung der Seite)
+    // Per Link ab lg: einmal zur Liste (Sprungziel scroll-mt-20). Die
+    // markierte Zeile bringt die Liste in ihrer Spalte in Sicht, indem sie
+    // deren Scrollposition rechnet (KIE-575, rc11 K11) – kein scrollIntoView
+    // der Zeile, das scrollte die Seite mit
     await mountView("?widget=3&conversation=5", true);
-    assert.deepEqual(
-      scrolled.filter(([target]) => target),
-      [[true, { block: "start" }]]
-    );
-    assert.deepEqual(
-      scrolled.filter(([target]) => !target),
-      [[false, { block: "nearest" }]]
-    );
+    assert.deepEqual(scrolled, [[true, { block: "start" }]]);
     scrolled.length = 0;
     await mountView("?widget=3&conversation=5", false);
     assert.deepEqual(scrolled, []);
@@ -3377,6 +3375,30 @@ function stubResizeObserver(t) {
 }
 
 /** Lauscher am Dokument abfangen (je Ereignistyp der zuletzt angemeldete). */
+/**
+ * Scrollposition der Spalte (data-list-scroll) mitschneiden: Jede Zuweisung
+ * an scrollTop der Spalte landet in der Liste (rc11, K11 – die Liste rechnet
+ * die Position selbst statt scrollIntoView); andere Elemente behalten ihren
+ * Wert wie bisher.
+ */
+function captureColumnScrolls(t, prototype) {
+  const scrolls = [];
+  Object.defineProperty(prototype, "scrollTop", {
+    configurable: true,
+    get() {
+      return this._scrollTop ?? 0;
+    },
+    set(value) {
+      this._scrollTop = value;
+      if (this.hasAttribute?.("data-list-scroll")) scrolls.push(value);
+    },
+  });
+  t.after(() => {
+    delete prototype.scrollTop;
+  });
+  return scrolls;
+}
+
 function captureDocumentListeners(t, document) {
   const listeners = new Map();
   const original = {
@@ -4179,18 +4201,20 @@ test(
 );
 
 test(
-  "Fixliste 6, K5 / KIE-575: die Zeilen tragen Scroll-Abstände für „nearest“ in der scrollenden Spalte – oben die Überschrift der Tagesgruppe (32 px), unten ein kleiner Rand",
+  "Fixliste 6, K5 / KIE-575 / rc11 K11: Die gewählte Zeile kommt mit gerechneter Scrollposition in der Spalte in Sicht (ROW_SCROLL_MARGIN: oben die Überschrift der Tagesgruppe, 32 px, unten ein kleiner Rand) – die Zeilen tragen keine Scroll-Abstände mehr, auch nicht „scroll-mt-20“",
   { skip },
   async (t) => {
+    const { ROW_SCROLL_MARGIN } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    assert.deepEqual(ROW_SCROLL_MARGIN, { marginTop: 32, marginBottom: 8 });
     await panelServer(t, { rows: [row(1)] });
     const { container } = await mountList(t);
     const classes = rowsOf(container)[0].getAttribute("class").split(/\s+/);
-    // nur ab lg (Zeilen in der scrollenden Spalte) – und nicht
-    // „scroll-mt-20“ selbst: Das trägt allein das Sprungziel der Liste
-    assert.ok(classes.includes("lg:scroll-mt-8"));
-    assert.ok(classes.includes("lg:scroll-mb-2"));
-    assert.ok(!classes.includes("scroll-mt-20"));
-    assert.ok(!classes.includes("lg:scroll-mt-20"));
+    assert.ok(
+      !classes.some((name) => /scroll-m[tb]-/.test(name)),
+      classes.filter((name) => name.includes("scroll")).join(" ")
+    );
   }
 );
 
@@ -4217,9 +4241,12 @@ test(
     });
     // Liste (Sprungziel scroll-mt-20) und Zeile 5: Lage im Fenster
     const jumps = [];
-    const rowJumps = [];
+    // Die Spalte stellt ihre Scrollposition selbst ein (rc11, K11): jede
+    // Zuweisung an scrollTop der Spalte – ein scrollIntoView der Zeile
+    // (das scrollte die Seite mit) landet hier als Fehler
+    const columnScrolls = captureColumnScrolls(t, prototype);
     let listTop = 900;
-    let rowTop = 2941;
+    const rowTop = 2941;
     const original = {
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
@@ -4231,11 +4258,7 @@ test(
       if (isTarget(this)) {
         jumps.push(options);
         listTop = 96;
-      } else if (isRow(this)) {
-        rowJumps.push(options);
-        // „nearest“ mit scroll-mb-8: Unterkante 32 px über dem Fensterrand
-        rowTop = 900 - 32 - 54;
-      }
+      } else columnScrolls.push(["scrollIntoView", options]);
     };
     prototype.getBoundingClientRect = function () {
       if (isTarget(this))
@@ -4269,32 +4292,33 @@ test(
       return mounted;
     };
 
-    // Zur Überschrift, und die Zeile in ihrer Spalte in Sicht
+    // Zur Überschrift, und die Zeile in ihrer Spalte in Sicht: Die Spalte
+    // (ohne Maße: Anfang 0, Höhe 0) stellt den Anfang der Zeile mit dem
+    // Rand der Tagesüberschrift (32 px) nach oben – nur die Spalte, kein
+    // scrollIntoView
     const deep = await mountView();
     assert.deepEqual(jumps, [{ block: "start" }]);
-    assert.deepEqual(rowJumps, [{ block: "nearest" }]);
+    assert.deepEqual(columnScrolls, [rowTop - 32]);
     assert.deepEqual(currentRows(deep.container), [5]);
     assert.ok(panelOf(deep.container), "Panel bleibt offen");
     // Layoutänderung danach: Der Sprung hält wie bisher; die Spalte hat
-    // ihre Zeile schon – kein weiterer Sprung zu ihr
+    // ihre Zeile schon – kein weiteres Einstellen
     const hold = observers.find((o) =>
       (o.observed[0]?.childNodes ?? []).some((child) => isTarget(child))
     );
     listTop = 140;
     await deep.act(() => hold.callback([]));
     assert.equal(jumps.length, 2);
-    assert.equal(rowJumps.length, 1);
+    assert.equal(columnScrolls.length, 1);
     await deep.unmount();
 
-    // Zeile schon im Bild (Zeile 3 bei 1440×900): derselbe Weg – „nearest“
-    // lässt der Browser dann stehen; die Ansicht misst nicht selbst
+    // Zweites Öffnen: derselbe Weg, die Spalte einmal eingestellt
     jumps.length = 0;
-    rowJumps.length = 0;
+    columnScrolls.length = 0;
     listTop = 900;
-    rowTop = 387;
     await mountView();
     assert.deepEqual(jumps, [{ block: "start" }]);
-    assert.deepEqual(rowJumps, [{ block: "nearest" }]);
+    assert.deepEqual(columnScrolls, [rowTop - 32]);
   }
 );
 
@@ -4334,9 +4358,9 @@ test(
       globalThis.window.innerHeight = originalHeight;
     });
     const jumps = [];
-    const rowJumps = [];
+    const columnScrolls = captureColumnScrolls(t, prototype);
     let listTop = 900;
-    let rowTop = 2941;
+    const rowTop = 2941;
     const original = {
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
@@ -4348,10 +4372,7 @@ test(
       if (isTarget(this)) {
         jumps.push(options);
         listTop = 96;
-      } else if (isRow(this)) {
-        rowJumps.push(options);
-        rowTop = 900 - 32 - 54;
-      }
+      } else columnScrolls.push(["scrollIntoView", options]);
     };
     prototype.getBoundingClientRect = function () {
       if (isTarget(this))
@@ -4383,7 +4404,7 @@ test(
     for (let i = 0; i < 4; i++) await mounted.act();
     // erste Seite: Sprung zur Überschrift, Zeile 46 fehlt noch
     assert.deepEqual(jumps, [{ block: "start" }]);
-    assert.deepEqual(rowJumps, []);
+    assert.deepEqual(columnScrolls, []);
     assert.deepEqual(currentRows(mounted.container), []);
     const hold = observers.find((o) =>
       (o.observed[0]?.childNodes ?? []).some((child) => isTarget(child))
@@ -4398,7 +4419,7 @@ test(
     await mounted.act(() => release());
     for (let i = 0; i < 3; i++) await mounted.act();
     assert.deepEqual(currentRows(mounted.container), [745]);
-    assert.deepEqual(rowJumps, [{ block: "nearest" }]);
+    assert.deepEqual(columnScrolls, [rowTop - 32], "die Spalte stellt die Zeile ein");
 
     // Danach endet das Halten wie gewohnt nach der Ruhezeit
     await delay(HOLD_SCROLL_QUIET_MS + 300);
@@ -5605,5 +5626,76 @@ test(
       assert.equal(icons[0].getAttribute("aria-hidden"), "true");
       assert.equal(button.hasAttribute("disabled"), false);
     }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc11 (Abnahme rc9): K12 Abstand zum Benutzermenü, K14 Blasen
+// ---------------------------------------------------------------------------
+
+test(
+  "rc11, K12: Die Schaltflächenzeile im Kopf des Verlaufs (‹ › ⋯ ✕) hält rechts Abstand zum Benutzermenü (AVATAR_CLEARANCE.panelHeadEnd), ebenso das ✕ des Platzhalters (emptyPanelClose statt right-5)",
+  { skip },
+  async (t) => {
+    const { AVATAR_CLEARANCE } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    stubWidth(t, true);
+    await panelServer(t, { rows: [row(1, { preview: "Yoga" })] });
+    const view = await mountList(t);
+    const { container, act } = view;
+    await act();
+    const close = one(container, "data-panel-close");
+    // ✕ › Gruppe (‹ › ⋯ ✕) › Zeile › Kopf
+    const buttonRow = close.parentNode.parentNode;
+    assert.ok(
+      buttonRow.parentNode === one(container, "data-panel-head"),
+      "die erste Zeile des Kopfs"
+    );
+    assert.ok(
+      hasClasses(buttonRow, AVATAR_CLEARANCE.panelHeadEnd.split(" ")),
+      buttonRow.getAttribute("class")
+    );
+    // Platzhalter (Suche ohne Treffer): dasselbe für sein ✕
+    await view.unmount();
+    const empty = await mountList(t, { query: "?q=nichts" });
+    await empty.act();
+    const emptyClose = one(empty.container, "data-empty-panel-close");
+    assert.ok(
+      hasClasses(emptyClose, AVATAR_CLEARANCE.emptyPanelClose.split(" ")),
+      emptyClose.getAttribute("class")
+    );
+    assert.ok(!classesOf(emptyClose).includes("right-5"));
+  }
+);
+
+test(
+  "rc11, K14: Nachrichtenblasen im Verlauf höchstens 720 px breit (BUBBLE): Antwortzeile mit Deckel (linksbündig), Nutzerblase höchstens 85 % und 720 px; der Verlauf selbst ohne Deckel",
+  { skip },
+  async (t) => {
+    const { BUBBLE, BUBBLE_MAX_WIDTH } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    assert.equal(BUBBLE_MAX_WIDTH, 720);
+    await panelServer(t, {
+      rows: [row(1)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const { container, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const panel = panelOf(container);
+    const question = one(panel, "data-question");
+    assert.ok(hasClasses(question, [BUBBLE.question]), question.getAttribute("class"));
+    assert.ok(!classesOf(question).includes("max-w-[85%]"));
+    const answerRow = one(panel, "data-answer-row");
+    assert.ok(hasClasses(answerRow, [BUBBLE.answer]), answerRow.getAttribute("class"));
+    assert.ok(
+      !classesOf(one(panel, "data-panel-body")).some((name) =>
+        name.startsWith("max-w")
+      )
+    );
   }
 );

@@ -18,6 +18,8 @@ import { formatDateShort, formatNumber } from "@/utils/analyticsTimeline";
 import { formatDateForInput } from "@/utils/billingDate";
 import showToast from "@/utils/toast";
 import {
+  AVATAR_CLEARANCE,
+  BUBBLE,
   FOCUS_RING,
   MUTED,
   RATING_BOX,
@@ -588,7 +590,11 @@ export default function ConversationDetail({
         data-panel-head=""
         className="flex shrink-0 flex-col gap-2 border-b border-white/10 px-2 pb-3 pt-2 light:border-gray-200 lg:px-5 lg:pt-4"
       >
-        <div className="flex items-center justify-between gap-2">
+        {/* Rechts Abstand zum Benutzermenü (K12): Liegt der Bereich oben
+            an, steht diese Zeile auf dessen Höhe. */}
+        <div
+          className={`flex items-center justify-between gap-2 ${AVATAR_CLEARANCE.panelHeadEnd}`}
+        >
           {/* mobil: zurück zur Liste */}
           <button
             type="button"
@@ -914,9 +920,10 @@ const Message = memo(function Message({ message, search, flash = false }) {
             time: berlinTime(message.createdAt),
           })}
         </span>
+        {/* höchstens 85 % und BUBBLE_MAX_WIDTH (K14) */}
         <div
           data-question=""
-          className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-theme-bg-chat-input px-3.5 py-2.5 text-sm leading-relaxed text-theme-text-primary"
+          className={`${BUBBLE.question} whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-theme-bg-chat-input px-3.5 py-2.5 text-sm leading-relaxed text-theme-text-primary`}
         >
           <HighlightedText text={message.prompt} term={search} />
         </div>
@@ -928,12 +935,14 @@ const Message = memo(function Message({ message, search, flash = false }) {
           dem Kopf (tabIndex -1: per Programm fokussierbar, nicht per Tab).
           Während der kurzen Hervorhebung statt des Fokusrings: Beide setzen
           die Umrissfarbe, der Ring (:focus-visible nach Tastaturbedienung)
-          überdeckte sonst den Ton der Bewertung (Review 7.21.1). */}
+          überdeckte sonst den Ton der Bewertung (Review 7.21.1).
+          Höchstens BUBBLE_MAX_WIDTH breit, linksbündig (K14): Bei 2.560 px
+          liefen Antworten sonst über 1.800 px je Zeile. */}
       <div
         data-answer-row=""
         tabIndex={rating ? -1 : undefined}
         data-rating-flash={flash ? "" : undefined}
-        className={`-mx-2 -my-1.5 flex items-start gap-2.5 rounded-xl px-2 py-1.5 ${
+        className={`-mx-2 -my-1.5 flex items-start gap-2.5 rounded-xl px-2 py-1.5 ${BUBBLE.answer} ${
           rating
             ? `${RATING_TINT[rating]} ${flash ? RATING_FLASH[rating] : FOCUS_RING}`
             : ""

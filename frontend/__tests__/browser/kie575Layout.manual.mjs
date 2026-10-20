@@ -5,6 +5,10 @@
 // (AK-9); Vorwahl ohne Adresse und ohne Fokus (AK-3), ✕/Klick gemerkt
 // (AK-4), ↑/↓ ohne Klick (AK-6), Tab aus beiden Spalten (NAK-3); unter lg
 // (390 px) das Vollbild wie bisher (AK-8). Screenshots hell und dunkel.
+// Fixliste 7.22-rc11: ↓ und Panel-Pfeile vom frischen Stand scrollen die
+// Seite nicht (K11), ✕ und ⋯ liegen links vom Benutzermenü (K12), der
+// Bereich bleibt bei 1920×600 ganz im Fenster (K13), Blasen höchstens
+// 720 px (K14), der Fokus bleibt beim Nachladen am Listenende (K15).
 //
 // Der Server ist im Browser nachgestellt (page.route): Es läuft nur der
 // Vite-Dev-Server des Frontends – kein Container, kein Docker. Playwright
@@ -33,7 +37,8 @@ const OUT = path.resolve(
   arg("--out") ?? path.join(FRONTEND, "..", ".test-storage", "screenshots")
 );
 const PORT = Number(arg("--port") ?? 3175);
-// --only 1440: nur die Szenarien dieser Breite (Diagnose)
+// --only 1440: nur die Szenarien dieser Breite (Diagnose); --only 600 das
+// niedrige Fenster 1920×600 allein
 const ONLY = arg("--only") ? Number(arg("--only")) : null;
 const BASE = `http://127.0.0.1:${PORT}`;
 const PAGE = `${BASE}/settings/chatbot/conversations`;
@@ -72,7 +77,8 @@ const PREVIEWS = [
   "Kann ich eine Ermäßigung als Studentin bekommen?",
   "Gibt es einen Töpferkurs für Kinder in den Herbstferien?",
 ];
-const ROWS = Array.from({ length: 45 }, (_, i) => ({
+// 160 Zeilen: Für K15 muss nach mehreren Seiten noch „Weitere laden“ da sein.
+const ROWS = Array.from({ length: 160 }, (_, i) => ({
   conversation_id: `konv-${1000 + i}`,
   session_id: `sitzung-${1000 + i}`,
   embed_id: 3,
@@ -171,6 +177,10 @@ function pageFor({ offset = 0, limit = 20, after, q, feedbackFilter }) {
   };
 }
 
+// Folgeseiten (after) kommen mit Verzögerung: So ist der Fokus während des
+// Nachladens zu beobachten (K15); die erste Seite kommt sofort.
+const PAGE_DELAY_MS = 400;
+
 async function mockApi(context) {
   await context.route("**/api/**", async (route) => {
     const request = route.request();
@@ -196,6 +206,9 @@ async function mockApi(context) {
       });
     if (pathname === "/api/onboarding") return json({ onboardingComplete: true });
     if (pathname === "/api/system/check-token") return json({ valid: true });
+    // Mit Token im Speicher (Benutzermenü, K12) fragt AuthContext den Nutzer
+    // ab: Einzelnutzer-Modus, nichts zu tun (success ohne user)
+    if (pathname === "/api/system/refresh-user") return json({ success: true, user: null });
     if (pathname === "/api/embeds") return json({ embeds: [EMBED] });
     if (pathname === "/api/embeds/last-activity")
       return json({
@@ -203,7 +216,12 @@ async function mockApi(context) {
         lastActivity: [{ embedId: 3, lastMessageAt: ROWS[0].last_message_at }],
       });
     if (pathname === "/api/embed/3/analytics/summary") return json(summaryFor(body()));
-    if (pathname === "/api/embed/3/analytics/conversations") return json(pageFor(body()));
+    if (pathname === "/api/embed/3/analytics/conversations") {
+      const request = body();
+      if (request.after)
+        await new Promise((resolve) => setTimeout(resolve, PAGE_DELAY_MS));
+      return json(pageFor(request));
+    }
     const detail = pathname.match(/^\/api\/embed\/3\/conversation\/(\d+)$/);
     if (detail && request.method() === "GET")
       return json({ success: true, messages: messagesFor(Number(detail[1])) });
@@ -260,6 +278,20 @@ async function startVite() {
 // Prüfungen
 // ---------------------------------------------------------------------------
 
+/**
+ * Browser-Speicher vor dem Laden (läuft in der Seite): Theme, einsehbarer
+ * Chat-Verlauf und ein Token – mit Token zeigt die Seite das Benutzermenü
+ * oben rechts (useLoginMode: „single“), gegen das K12 misst.
+ */
+function initStorage({ theme }) {
+  localStorage.setItem("theme", theme);
+  localStorage.setItem(
+    "anythingllm_can_view_chat_history",
+    JSON.stringify({ viewable: true, lastFetched: Date.now() })
+  );
+  localStorage.setItem("anythingllm_authToken", "test-token");
+}
+
 const results = [];
 const checks = [];
 function check(scenario, name, ok, detail) {
@@ -280,6 +312,35 @@ function measure() {
   const body = q("[data-panel-body]");
   const chart = q("[data-column]")?.closest("svg") ?? null;
   const current = q("[data-conversation-row][aria-current='true']");
+  // K12: das Benutzermenü oben rechts (35 px, UserButton) gegen ✕ und ⋯
+  const avatar = q("button.w-\\[35px\\]");
+  const close = q("[data-panel-close]");
+  const menuButton = q("[data-panel-menu-button]");
+  // Was liegt in der Mitte einer Schaltfläche obenauf? "self", wenn sie
+  // selbst (oder ihr Inhalt) getroffen wird, sonst eine Beschreibung.
+  const hit = (element) => {
+    if (!element) return null;
+    const b = element.getBoundingClientRect();
+    const target = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+    if (!target) return "nichts";
+    if (element.contains(target)) return "self";
+    const button = target.closest("button");
+    return button === avatar ? "avatar" : `${target.tagName}.${(target.getAttribute("class") ?? "").slice(0, 40)}`;
+  };
+  // K14: breiteste Blase im Verlauf und ihr linker Rand
+  const widths = (selector) =>
+    [...document.querySelectorAll(selector)].map((element) => element.getBoundingClientRect().width);
+  const answers = [...document.querySelectorAll("[data-answer-row]")];
+  const bubbles = {
+    answerMax: answers.length ? Math.round(Math.max(...widths("[data-answer-row]"))) : null,
+    questionMax: document.querySelector("[data-question]") ? Math.round(Math.max(...widths("[data-question]"))) : null,
+    answerLeft: answers.length ? Math.round(Math.min(...answers.map((element) => element.getBoundingClientRect().left))) : null,
+    bodyLeft: body ? Math.round(body.getBoundingClientRect().left) : null,
+    bodyWidth: body ? Math.round(body.getBoundingClientRect().width) : null,
+  };
+  // K15: das fokussierte Element, falls eine Zeile oder „Weitere laden“
+  const active = document.activeElement;
+  const loadMore = q("[data-load-more]");
   const scrollable = (element) =>
     element
       ? {
@@ -323,6 +384,18 @@ function measure() {
     currentRow: current ? Number(current.getAttribute("data-conversation-row")) : null,
     currentRowRect: r(current),
     activeElement: document.activeElement?.tagName ?? null,
+    activeRow: active?.hasAttribute?.("data-conversation-row") ? Number(active.getAttribute("data-conversation-row")) : null,
+    activeRowRect: active?.hasAttribute?.("data-conversation-row") ? r(active) : null,
+    activeIsLoadMore: !!active?.hasAttribute?.("data-load-more"),
+    avatar: r(avatar),
+    close: r(close),
+    closeHit: hit(close),
+    menuButton: r(menuButton),
+    menuHit: hit(menuButton),
+    bubbles,
+    loadMore: r(loadMore),
+    loadMoreDisabled: loadMore ? loadMore.disabled : null,
+    loadMoreAriaDisabled: loadMore?.getAttribute("aria-disabled") ?? null,
     // Diagnose: absolut positionierte Elemente, die unter dem Bereich enden
     // (sie verlängern die Seite, wenn kein positionierter Vorfahr sie
     // einschließt – so fiel auf, dass die sr-only-Texte der Marken die
@@ -347,6 +420,116 @@ function measure() {
   };
 }
 
+/** Liegt die Zeile (rect) ganz im sichtbaren Ausschnitt der Spalte? */
+const rowInColumn = (rect, column) =>
+  !!rect && !!column && rect.top >= column.top - 1 && rect.bottom <= column.bottom + 1;
+
+/** Beobachtet das fokussierte Element eine Weile (läuft in der Seite). */
+function sampleFocus(ms) {
+  return new Promise((resolve) => {
+    const seen = [];
+    const started = Date.now();
+    const tick = () => {
+      const active = document.activeElement;
+      const label = !active
+        ? "nichts"
+        : active.hasAttribute("data-load-more")
+          ? "load-more"
+          : active.hasAttribute("data-conversation-row")
+            ? `row:${active.getAttribute("data-conversation-row")}`
+            : active.tagName;
+      if (seen.at(-1) !== label) seen.push(label);
+      if (Date.now() - started < ms) setTimeout(tick, 25);
+      else resolve(seen);
+    };
+    tick();
+  });
+}
+
+/**
+ * K12: ✕ und ⋯ des Verlaufs liegen links vom Benutzermenü und sind ganz
+ * klickbar – gemessen, wenn der Bereich oben anliegt (der Kopf des Verlaufs
+ * steht dann auf der Höhe des Menüs).
+ */
+function checkAvatarClearance(scenario, m) {
+  check(scenario, "K12 Benutzermenü oben rechts vorhanden (35 px)", !!m.avatar && m.avatar.width === 35, { avatar: m.avatar });
+  const sameHeight = !!m.avatar && !!m.close && m.avatar.bottom > m.close.top && m.avatar.top < m.close.bottom;
+  check(scenario, "K12 Messlage: Kopf des Verlaufs auf der Höhe des Benutzermenüs", sameHeight, { avatar: m.avatar, close: m.close });
+  check(scenario, "K12 ✕ endet links vom Benutzermenü (mindestens 4 px Luft)", !!m.avatar && !!m.close && m.close.right <= m.avatar.left - 4, { closeRight: m.close?.right, avatarLeft: m.avatar?.left, air: m.avatar && m.close ? m.avatar.left - m.close.right : null });
+  check(scenario, "K12 ✕ in der Mitte klickbar (kein Treffer auf das Menü)", m.closeHit === "self", { hit: m.closeHit });
+  check(scenario, "K12 ⋯ in der Mitte klickbar", m.menuHit === "self", { hit: m.menuHit });
+}
+
+/** K14: keine Blase breiter als 720 px, Antworten linksbündig im Verlauf. */
+function checkBubbles(scenario, m) {
+  const b = m.bubbles;
+  check(scenario, "K14 Antwortblasen höchstens 720 px breit", b.answerMax !== null && b.answerMax <= 721, b);
+  check(scenario, "K14 Nutzerblasen höchstens 720 px breit", b.questionMax !== null && b.questionMax <= 721, b);
+  // Die Antwortzeile beginnt am linken Rand des Verlaufs (px-5 minus -mx-2)
+  check(scenario, "K14 Antworten linksbündig (Zeile beginnt am linken Rand des Verlaufs)", b.answerLeft !== null && b.answerLeft - b.bodyLeft <= 20, b);
+}
+
+/**
+ * K15: Fokus auf „Weitere laden“ und nachladen. Per Tastatur (Tab vom
+ * Listenende, Enter) geht der Fokus danach auf die erste neu geladene
+ * Zeile, die in der Spalte zu sehen ist; per Maus bleibt er auf dem Knopf
+ * (kein Fokusring, kein Sprung). Nie landet er auf <body>: Der Knopf ist
+ * während des Ladens nicht gesperrt (aria-disabled statt disabled).
+ */
+async function checkLoadMoreFocus(scenario, page) {
+  const idle = () =>
+    page
+      .waitForFunction(
+        () => {
+          const button = document.querySelector("[data-load-more]");
+          return !!button && !button.disabled && button.getAttribute("aria-disabled") !== "true";
+        },
+        null,
+        { timeout: 10_000 }
+      )
+      .catch(() => {});
+  const rowCount = () => page.evaluate(() => document.querySelectorAll("[data-conversation-row]").length);
+
+  // 1. Tab vom Listenende auf den Knopf: Die Spalte steht oben (kein
+  // Nachladen in Gang), die letzte Zeile bekommt den Fokus ohne Scrollen;
+  // Tab geht auf den Knopf, der Browser holt ihn ins Bild, damit kommt das
+  // Spaltenende in Sicht – die Liste lädt von selbst nach
+  await page.evaluate(() => {
+    document.querySelector("[data-list-scroll]").scrollTop = 0;
+  });
+  await page.waitForTimeout(PAGE_DELAY_MS + 400);
+  await idle();
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll("[data-conversation-row]");
+    rows[rows.length - 1].focus({ preventScroll: true });
+  });
+  const rowsBefore = await rowCount();
+  await page.keyboard.press("Tab");
+  const seen = await page.evaluate(sampleFocus, PAGE_DELAY_MS + 900);
+  const after = await page.evaluate(measure);
+  check(scenario, "K15 (Tab, von selbst) Fokus auf dem Knopf, nie auf <body>", seen[0] === "load-more" && !seen.includes("BODY"), { seen });
+  check(scenario, "K15 (Tab, von selbst) danach Fokus auf der ersten neuen Zeile", after.rows > rowsBefore && after.activeRow === ROWS[rowsBefore].first_chat_id, { rowsBefore, rows: after.rows, activeRow: after.activeRow, activeElement: after.activeElement });
+  check(scenario, "K15 (Tab, von selbst) die Zeile ist in der Spalte sichtbar", rowInColumn(after.activeRowRect, after.scrollerRect), { row: after.activeRowRect, column: after.scrollerRect });
+
+  // 2. Klick mit der Maus: nicht gesperrt, der Fokus bleibt auf dem Knopf
+  await idle();
+  const rowsBeforeClick = await rowCount();
+  await page.click("[data-load-more]");
+  const duringClick = await page.evaluate(measure);
+  const seenClick = await page.evaluate(sampleFocus, PAGE_DELAY_MS + 900);
+  const afterClick = await page.evaluate(measure);
+  check(scenario, "K15 (Klick) Knopf während des Ladens nicht gesperrt (aria-disabled statt disabled), Fokus bleibt", duringClick.loadMoreDisabled === false && duringClick.loadMoreAriaDisabled === "true" && duringClick.activeIsLoadMore, { disabled: duringClick.loadMoreDisabled, ariaDisabled: duringClick.loadMoreAriaDisabled, active: duringClick.activeElement });
+  check(scenario, "K15 (Klick) nachgeladen, Fokus bleibt auf dem Knopf (Zeiger), nie auf <body>", !seenClick.includes("BODY") && afterClick.rows > rowsBeforeClick && afterClick.activeIsLoadMore, { seen: seenClick, rowsBefore: rowsBeforeClick, rows: afterClick.rows, activeElement: afterClick.activeElement });
+
+  // 3. Enter auf dem Knopf (Tastatur): danach die erste neue Zeile
+  await idle();
+  const rowsBeforeEnter = await rowCount();
+  await page.keyboard.press("Enter");
+  const seenEnter = await page.evaluate(sampleFocus, PAGE_DELAY_MS + 900);
+  const afterEnter = await page.evaluate(measure);
+  check(scenario, "K15 (Enter) nie auf <body>, danach Fokus auf der ersten neuen Zeile, in der Spalte sichtbar", !seenEnter.includes("BODY") && afterEnter.rows > rowsBeforeEnter && afterEnter.activeRow === ROWS[rowsBeforeEnter].first_chat_id && rowInColumn(afterEnter.activeRowRect, afterEnter.scrollerRect), { seen: seenEnter, rowsBefore: rowsBeforeEnter, rows: afterEnter.rows, activeRow: afterEnter.activeRow, row: afterEnter.activeRowRect, column: afterEnter.scrollerRect });
+}
+
 async function wideScenario(browser, { width, height, theme }) {
   const scenario = `${width}x${height} ${theme}`;
   const context = await browser.newContext({
@@ -354,16 +537,7 @@ async function wideScenario(browser, { width, height, theme }) {
     colorScheme: theme,
     locale: "de-DE",
   });
-  await context.addInitScript(
-    ({ theme }) => {
-      localStorage.setItem("theme", theme);
-      localStorage.setItem(
-        "anythingllm_can_view_chat_history",
-        JSON.stringify({ viewable: true, lastFetched: Date.now() })
-      );
-    },
-    { theme }
-  );
+  await context.addInitScript(initStorage, { theme });
   await mockApi(context);
   const page = await context.newPage();
   const errors = [];
@@ -383,7 +557,7 @@ async function wideScenario(browser, { width, height, theme }) {
   check(scenario, "AK-1 Seitenrahmen ohne Obergrenze (data-chatbot-content=full)", top.contentAttr === "full" && (width < 1500 || top.content.width > 1180), { contentAttr: top.contentAttr, contentWidth: top.content.width });
   // AK-2: Liste und Verlauf gleich hoch, je eigene Bildlaufleiste
   check(scenario, "AK-2 Liste und Verlauf gleich hoch", Math.abs(top.column.height - top.panel.height) <= 1, { column: top.column.height, panel: top.panel.height, area: top.area.height });
-  check(scenario, "AK-2 Bereichshöhe = max(560, 100vh − 88)", Math.abs(top.area.height - Math.max(560, height - 88)) <= 1, { area: top.area.height, expected: Math.max(560, height - 88) });
+  check(scenario, "AK-2 / K13 Bereichshöhe = max(480, 100vh − 88)", Math.abs(top.area.height - Math.max(480, height - 88)) <= 1, { area: top.area.height, expected: Math.max(480, height - 88) });
   check(scenario, "AK-2 Liste scrollt selbst (overflow-y auto, Inhalt höher als Spalte)", top.scroller.overflowY === "auto" && top.scroller.scrollHeight > top.scroller.clientHeight, top.scroller);
   check(scenario, "AK-2 Verlauf scrollt selbst (overflow-y auto, Inhalt höher)", top.panelBody.overflowY === "auto" && top.panelBody.scrollHeight > top.panelBody.clientHeight, top.panelBody);
   check(scenario, "AK-2 Verlauf im Fluss (relative), nicht sticky", top.panelPosition === "relative", { position: top.panelPosition });
@@ -402,6 +576,57 @@ async function wideScenario(browser, { width, height, theme }) {
   check(scenario, "keine Fehler der Seite", errors.length === 0, errors);
   // AK-9: Diagrammbreite (Zahl zum Beurteilen)
   results.push({ scenario, phase: "oben", ...top, rightGap });
+  // K14: Blasen im Verlauf (bei 2.560 px vorher bis 1.800 px lang)
+  checkBubbles(scenario, top);
+
+  // K11: ↓ vom frischen Stand (der Bereich liegt noch nicht oben an): Die
+  // Seite bleibt stehen, nur die Spalte folgt der gewählten Zeile – 20×,
+  // über das Ende der ersten Seite hinaus (nachgeladen). Danach die
+  // Panel-Pfeile ▾ und ▴.
+  for (let i = 0; i < 20; i++) {
+    await page.keyboard.press("ArrowDown");
+    await page.waitForTimeout(60);
+  }
+  await page
+    .waitForFunction(
+      (id) => document.querySelector("[data-conversation-row][aria-current='true']")?.getAttribute("data-conversation-row") === String(id),
+      ROWS[20].first_chat_id,
+      { timeout: 6_000 }
+    )
+    .catch(() => {});
+  await page.waitForTimeout(200);
+  const arrowed = await page.evaluate(measure);
+  check(scenario, "K11 20× ↓ von oben: Seite nicht gescrollt (scrollTop 0)", arrowed.page.scrollTop === 0, { page: arrowed.page.scrollTop, column: arrowed.scroller.scrollTop });
+  check(scenario, "K11 20× ↓: Zeile 21 gewählt, die Spalte scrollt (scrollTop > 0), Zeile in der Spalte sichtbar", arrowed.currentRow === ROWS[20].first_chat_id && arrowed.scroller.scrollTop > 0 && rowInColumn(arrowed.currentRowRect, arrowed.scrollerRect), { currentRow: arrowed.currentRow, column: arrowed.scroller.scrollTop, row: arrowed.currentRowRect, scroller: arrowed.scrollerRect });
+  check(scenario, "K11 Fokus bleibt auf <body>", arrowed.activeElement === "BODY", { activeElement: arrowed.activeElement });
+  // Panel-Pfeile: Die Seite so weit scrollen, dass der Kopf des Verlaufs zu
+  // sehen ist, der Bereich aber noch nicht oben anliegt (Oberkante bei
+  // 300 px) – ein Klick auf ▾ oder ▴ darf die Seite dann nicht bewegen
+  const partial = await page.evaluate(() => {
+    const container = document.querySelector("[data-chatbot-content]").parentElement;
+    const area = document.querySelector("[data-conversation-area]");
+    container.scrollTop = container.scrollTop + area.getBoundingClientRect().top - 300;
+    return Math.round(container.scrollTop);
+  });
+  await page.waitForTimeout(200);
+  await page.click("[data-panel-next]");
+  await page.waitForTimeout(300);
+  const nexted = await page.evaluate(measure);
+  check(scenario, "K11 Panel-Pfeil ▾: nächste Zeile, Seite nicht gescrollt, Zeile in der Spalte sichtbar", nexted.currentRow === ROWS[21].first_chat_id && nexted.page.scrollTop === partial && rowInColumn(nexted.currentRowRect, nexted.scrollerRect), { currentRow: nexted.currentRow, page: nexted.page.scrollTop, before: partial, areaTop: nexted.area.top });
+  for (let i = 0; i < 12; i++) {
+    await page.click("[data-panel-previous]");
+    await page.waitForTimeout(40);
+  }
+  await page.waitForTimeout(300);
+  const previoused = await page.evaluate(measure);
+  check(scenario, "K11 Panel-Pfeil ▴ 12×: Zeile 10, Seite nicht gescrollt, Spalte folgt nach oben", previoused.currentRow === ROWS[9].first_chat_id && previoused.page.scrollTop === partial && rowInColumn(previoused.currentRowRect, previoused.scrollerRect), { currentRow: previoused.currentRow, page: previoused.page.scrollTop, before: partial, column: previoused.scroller.scrollTop });
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k11.png`) });
+
+  // Frisch laden für die weiteren Phasen (neueste Zeile gewählt, Spalte oben)
+  await page.goto(PAGE, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
+  await page.waitForSelector("[data-column]", { timeout: 30_000 });
+  await page.waitForTimeout(400);
 
   // AK-2: Seite bis zum Bereich scrollen – dann steht sie; die Panelhöhe
   // bleibt; danach scrollt nur die Spalte unter der Maus
@@ -421,6 +646,8 @@ async function wideScenario(browser, { width, height, theme }) {
   check(scenario, "AK-2 Seite zu Ende, wenn der Bereich oben anliegt (Oberkante 24 px, 8 px unter dem Rahmen)", Math.abs(bottom.area.top - 24) <= 2 && end.scrollTop + end.clientHeight >= end.scrollHeight - 1, { areaTop: bottom.area.top, pageTop: bottom.pageTop, ...end });
   check(scenario, "AK-2 Panelhöhe beim Scrollen unverändert", bottom.panel.height === top.panel.height, { before: top.panel.height, after: bottom.panel.height });
   check(scenario, "AK-2 Spalte beim Seitenscroll nicht mitgescrollt", bottom.scroller.scrollTop === 0, { scrollTop: bottom.scroller.scrollTop });
+  // K12: der Kopf des Verlaufs steht jetzt auf der Höhe des Benutzermenüs
+  checkAvatarClearance(scenario, bottom);
   // Rad über der Liste: nur die Spalte scrollt
   await page.mouse.move(bottom.scrollerRect.left + bottom.scrollerRect.width / 2, bottom.scrollerRect.top + bottom.scrollerRect.height / 2);
   await page.mouse.wheel(0, 600);
@@ -468,6 +695,9 @@ async function wideScenario(browser, { width, height, theme }) {
     deep.currentRowRect.top >= deep.scrollerRect.top - 1 &&
     deep.currentRowRect.bottom <= deep.scrollerRect.bottom + 1;
   check(scenario, "AK-6 nach 15× ↓ bleibt die gewählte Zeile in der Spalte sichtbar", deepInColumn && deep.currentRow === ROWS[15].first_chat_id, { currentRow: deep.currentRow, scrollTop: deep.scroller.scrollTop });
+
+  // K15: Fokus auf „Weitere laden“ und nachladen
+  await checkLoadMoreFocus(scenario, page);
 
   // NAK-3: Escape schließt nicht; Tab aus dem Verlauf heraus
   await page.keyboard.press("Escape");
@@ -523,6 +753,46 @@ async function wideScenario(browser, { width, height, theme }) {
   await context.close();
 }
 
+/**
+ * K13: niedriges Fenster (1920×600). Der Bereich nimmt 100vh − 88 = 512 px
+ * (über der Mindesthöhe 480) und bleibt ganz im Fenster, wenn die Seite zu
+ * Ende gescrollt ist; ✕ und ⋯ sind sichtbar und klickbar, links vom
+ * Benutzermenü (K12).
+ */
+async function lowScenario(browser, { width, height, theme }) {
+  const scenario = `${width}x${height} ${theme}`;
+  const context = await browser.newContext({
+    viewport: { width, height },
+    colorScheme: theme,
+    locale: "de-DE",
+  });
+  await context.addInitScript(initStorage, { theme });
+  await mockApi(context);
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(String(error)));
+  await page.goto(PAGE, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
+  await page.waitForSelector("[data-column]", { timeout: 30_000 });
+  await page.waitForTimeout(400);
+  const top = await page.evaluate(measure);
+  check(scenario, "K13 Bereichshöhe = 100vh − 88 (512 px, über der Mindesthöhe 480)", top.area.height === height - 88, { area: top.area.height, expected: height - 88 });
+  await page.evaluate(() => {
+    const container = document.querySelector("[data-chatbot-content]").parentElement;
+    container.scrollTop = container.scrollHeight;
+  });
+  await page.waitForTimeout(300);
+  const bottom = await page.evaluate(measure);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}x${height}-${theme}.png`) });
+  check(scenario, "K13 Seite zu Ende: Bereich ganz im Fenster (Oberkante 24 px, Unterkante ≤ Fensterhöhe)", Math.abs(bottom.area.top - 24) <= 2 && bottom.area.bottom <= height, { area: bottom.area });
+  check(scenario, "K13 ✕ ganz sichtbar und klickbar", !!bottom.close && bottom.close.top >= 0 && bottom.close.bottom <= height && bottom.closeHit === "self", { close: bottom.close, hit: bottom.closeHit });
+  check(scenario, "K13 Liste und Verlauf scrollen weiterhin selbst", bottom.scroller.overflowY === "auto" && bottom.scroller.scrollHeight > bottom.scroller.clientHeight && bottom.panelBody.scrollHeight > bottom.panelBody.clientHeight, { scroller: bottom.scroller, body: bottom.panelBody });
+  checkAvatarClearance(scenario, bottom);
+  check(scenario, "keine Fehler der Seite", errors.length === 0, errors);
+  results.push({ scenario, phase: "niedrig", ...bottom });
+  await context.close();
+}
+
 async function narrowScenario(browser, { width, height, theme }) {
   const scenario = `${width}x${height} ${theme}`;
   // Ein Handy, wie es die Ansicht erkennt (react-device-detect liest den
@@ -533,16 +803,7 @@ async function narrowScenario(browser, { width, height, theme }) {
     colorScheme: theme,
     locale: "de-DE",
   });
-  await context.addInitScript(
-    ({ theme }) => {
-      localStorage.setItem("theme", theme);
-      localStorage.setItem(
-        "anythingllm_can_view_chat_history",
-        JSON.stringify({ viewable: true, lastFetched: Date.now() })
-      );
-    },
-    { theme }
-  );
+  await context.addInitScript(initStorage, { theme });
   await mockApi(context);
   const page = await context.newPage();
   const errors = [];
@@ -582,6 +843,7 @@ try {
     if (wanted(1440)) await wideScenario(browser, { width: 1440, height: 900, theme });
     if (wanted(1920)) await wideScenario(browser, { width: 1920, height: 1080, theme });
     if (wanted(2560)) await wideScenario(browser, { width: 2560, height: 1440, theme });
+    if (wanted(1920) || wanted(600)) await lowScenario(browser, { width: 1920, height: 600, theme });
     if (wanted(390)) await narrowScenario(browser, { width: 390, height: 844, theme });
   }
 } finally {

@@ -24,6 +24,7 @@ import {
   FOCUS_RING,
   MUTED,
   RATING_COLUMN,
+  ROW_SCROLL_MARGIN,
   SEARCH_MAX_LENGTH,
   WORKSPACE,
   arrowNavigationAllowed,
@@ -33,9 +34,12 @@ import {
   dayGroupLabel,
   effectiveSearch,
   focusLost,
+  focusVisible,
   groupByLastMessageDay,
   hasContentGap,
+  hasFocus,
   isNewConversation,
+  nearestScrollTop,
   nextNewExpiry,
   readPanelPreference,
   searchLinkIssue,
@@ -542,8 +546,22 @@ export default function ConversationList({
    */
   const lastItem = list.items.at(-1);
   const listMaxId = list.maxId;
+  // K15 (Fixliste 7.22-rc11): Hat „Weitere laden“ beim Nachladen den Fokus
+  // (Tab ans Listenende, Klick), merkt sich die Liste, wohin der Fokus
+  // danach gehört – ausgewertet, sobald die Seite da ist (Effekt unten).
+  // rows: Zahl der Zeilen vorher (die erste neue Zeile), keyboard: Fokus
+  // per Tastatur (Fokusring sichtbar).
+  const loadMoreRef = useRef(null);
+  const focusAfterLoad = useRef(null);
   const loadMore = useCallback(
     (limit = PAGE_SIZE) => {
+      const button = loadMoreRef.current;
+      if (hasFocus(button))
+        focusAfterLoad.current = {
+          scope,
+          rows: list.items.length,
+          keyboard: focusVisible(button),
+        };
       const after = cursorAfter(lastItem, listMaxId);
       setRequest((current) => ({
         id: current.id + 1,
@@ -554,7 +572,7 @@ export default function ConversationList({
         append: true,
       }));
     },
-    [lastItem, listMaxId, list.items.length]
+    [lastItem, listMaxId, list.items.length, scope]
   );
 
   // Nach dem Löschen: dieselbe Auswahl ab vorn, so viele Zeilen wie geladen
@@ -798,6 +816,18 @@ export default function ConversationList({
   // von vorn.
   const columnRef = useRef(null);
   const endRef = useRef(null);
+  // Die Zeile mit dem Schlüssel in der scrollenden Spalte in Sicht bringen
+  // (ab lg) – die Scrollposition der Spalte wird gerechnet
+  // (nearestScrollTop, ROW_SCROLL_MARGIN), nicht per scrollIntoView: Das
+  // scrollte auch die Seite, solange der Bereich noch nicht oben anlag
+  // (Fixliste 7.22-rc11, K11). Die Seite bewegt sich so nie.
+  const rowRefs = useRef(new Map());
+  const showRowInColumn = useCallback((key) => {
+    const column = columnRef.current;
+    const row = key === null ? null : rowRefs.current.get(key);
+    if (!column || !row) return;
+    column.scrollTop = nearestScrollTop(column, row, ROW_SCROLL_MARGIN);
+  }, []);
   const [endRounds, setEndRounds] = useState({ scope: null, count: 0 });
   const endCount = endRounds.scope === scope ? endRounds.count : 0;
   const watchEnd =
@@ -823,9 +853,34 @@ export default function ConversationList({
     return () => observer.disconnect();
   }, [watchEnd, scope, items.length]);
   const loadMoreByHand = () => {
+    // Nicht gesperrt während des Ladens (K15: disabled nähme den Fokus), ein
+    // zweiter Klick lädt aber nicht noch einmal
+    if (loadingMore) return;
     setEndRounds({ scope, count: 0 });
     loadMore();
   };
+  // K15: Die Seite ist da (oder gescheitert) – der Fokus, der auf „Weitere
+  // laden“ stand, geht per Tastatur auf die erste neue Zeile (in der Spalte
+  // in Sicht, ohne die Seite zu scrollen); per Zeiger bleibt er auf dem
+  // Knopf. Ist der Knopf mit der letzten Seite verschwunden, geht er in
+  // jedem Fall auf die erste neue Zeile statt ins Leere. Ohne neue Zeile
+  // (nur Doppelte, Fehler) bleibt der Knopf da und behält den Fokus.
+  useEffect(() => {
+    const wish = focusAfterLoad.current;
+    if (!wish || loading || loadingMore) return;
+    focusAfterLoad.current = null;
+    if (wish.scope !== scope) return;
+    const first = items[wish.rows];
+    if (!first) return;
+    if (hasFocus(loadMoreRef.current) && !wish.keyboard) return;
+    const key = conversationKey(first);
+    const row = rowRefs.current.get(key);
+    if (!row) return;
+    // Unter lg scrollt die Seite zur fokussierten Zeile wie bei Tab; per
+    // Zeiger (Knopf verschwunden) ohne Scrollen, damit nichts springt
+    row.focus?.(wide || !wish.keyboard ? { preventScroll: true } : undefined);
+    if (wide && wish.keyboard) showRowInColumn(key);
+  }, [loading, loadingMore, items, scope, wide, showRowInColumn]);
   // „Nächste“ am Ende, und das Nachladen scheiterte: Das Panel sagt es
   // (Fixliste 5, C2) – die Meldung am Knopf „Weitere Konversationen laden“
   // liegt nach dem Blättern oft unter dem Fensterrand. Ein erneuter Klick auf
@@ -870,16 +925,13 @@ export default function ConversationList({
 
   // Die markierte Zeile bleibt im Blick, wenn das Panel blättert (nur, wenn
   // sie neben dem Panel steht: ab lg). Die Zeilen liegen in der scrollenden
-  // Spalte – „nearest“ bewegt die Spalte, und die Seite nur, wenn der
-  // Bereich nicht ganz im Fenster steht.
-  const rowRefs = useRef(new Map());
+  // Spalte – nur die Spalte bewegt sich (showRowInColumn), die Seite nie.
   const currentKey = currentRow ? conversationKey(currentRow) : null;
   useEffect(() => {
     if (!currentKey || !followCurrent.current) return;
     followCurrent.current = false;
-    if (wide)
-      rowRefs.current.get(currentKey)?.scrollIntoView?.({ block: "nearest" });
-  }, [currentKey, wide]);
+    if (wide) showRowInColumn(currentKey);
+  }, [currentKey, wide, showRowInColumn]);
 
   // Per Link geöffnet: Sobald die Zeile in der Liste markiert ist – auch
   // erst nach dem Nachladen der Link-Suche –, kommt sie ab lg in der Spalte
@@ -887,10 +939,9 @@ export default function ConversationList({
   // Ansicht. Die hält ihren Sprung zur Liste (Fixliste 6, K5).
   useEffect(() => {
     if (!fromLink || !currentKey) return;
-    if (wide)
-      rowRefs.current.get(currentKey)?.scrollIntoView?.({ block: "nearest" });
+    if (wide) showRowInColumn(currentKey);
     onLinkedRowShown();
-  }, [fromLink, currentKey, onLinkedRowShown, wide]);
+  }, [fromLink, currentKey, onLinkedRowShown, wide, showRowInColumn]);
   // Solange die per Link geöffnete Konversation noch gesucht wird – die
   // Liste oder das Panel lädt, die Link-Suche lädt Folgeseiten –, hält die
   // Ansicht ihren Sprung, auch wenn eine Seite lange braucht (Fixliste 8,
@@ -944,13 +995,19 @@ export default function ConversationList({
   }, [chatId]);
 
   // AK-18: ↑/↓ in der Liste – nur, wenn der Fokus auf einer Zeile steht.
+  // Ab lg bekommt die Zeile den Fokus ohne Scrollen der Seite, die Spalte
+  // folgt ihr (K11); unter lg wie heute (die Seite folgt dem Fokus).
   const handleRowKeyDown = (event, row) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const index = positions.get(row.first_chat_id) ?? -1;
     const target = index + (event.key === "ArrowDown" ? 1 : -1);
     if (index < 0 || target < 0 || target >= items.length) return;
     event.preventDefault();
-    rowRefs.current.get(conversationKey(items[target]))?.focus?.();
+    const key = conversationKey(items[target]);
+    if (wide) {
+      rowRefs.current.get(key)?.focus?.({ preventScroll: true });
+      showRowInColumn(key);
+    } else rowRefs.current.get(key)?.focus?.();
     if (chatId !== null) openRow(items[target]);
   };
   // Stabile Handler für die Zeilen (Fixliste 7, F32): ConversationRow ist
@@ -1367,12 +1424,17 @@ export default function ConversationList({
                       {t("embed-analytics.rows.load-more-failed")}
                     </span>
                   )}
+                  {/* Während des Ladens nicht gesperrt (disabled), sondern
+                      aria-disabled: Ein gesperrter Knopf verlöre den Fokus an
+                      <body> (K15); der Klick ist derweil wirkungslos. */}
                   <button
                     type="button"
+                    ref={loadMoreRef}
                     data-load-more=""
                     onClick={loadMoreByHand}
-                    disabled={loadingMore}
-                    className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 disabled:opacity-60 sm:h-9 light:border-gray-200 light:hover:bg-black/5"
+                    aria-disabled={loadingMore ? "true" : undefined}
+                    aria-busy={loadingMore ? "true" : undefined}
+                    className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 aria-disabled:cursor-default aria-disabled:opacity-60 aria-disabled:hover:bg-transparent sm:h-9 light:border-gray-200 light:hover:bg-black/5"
                   >
                     {loadingMore
                       ? t("embed-analytics.rows.loading-more")
@@ -1428,7 +1490,7 @@ export default function ConversationList({
             aria-label={t("embed-analytics.panel.close")}
             title={t("embed-analytics.panel.close")}
             onClick={closePanel}
-            className={`absolute right-5 top-4 grid h-9 w-9 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 ${FOCUS_RING}`}
+            className={`absolute top-4 grid h-9 w-9 place-items-center rounded-lg ${AVATAR_CLEARANCE.emptyPanelClose} ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 ${FOCUS_RING}`}
           >
             <X size={18} aria-hidden="true" />
           </button>
@@ -1645,10 +1707,9 @@ const ConversationRow = memo(function ConversationRow({
       // K4 (Nachtrag KIE-560): deutlicher Hover in beiden Themes, Pfeil in
       // Textfarbe, Hand als Zeiger; nur Farben, kein Layoutsprung. Seit
       // Review 7.22-rc2 (B-11) kräftiger: dunkel 10 %, hell 6 %.
-      // Scroll-Abstände ab lg für „nearest“ in der scrollenden Spalte
-      // (KIE-575): oben so viel wie die Überschrift einer Tagesgruppe, damit
-      // sie beim Blättern nach oben mitkommt; unten ein kleiner Rand.
-      className={`group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_16px] lg:scroll-mb-2 lg:scroll-mt-8 items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
+      // In der scrollenden Spalte (ab lg) stellt die Liste die Zeile selbst
+      // ein (showRowInColumn, ROW_SCROLL_MARGIN) – keine Scroll-Abstände.
+      className={`group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
         selected
           ? "bg-sky-500/15 light:bg-sky-50"
           : "hover:bg-white/10 light:hover:bg-black/[0.06]"
