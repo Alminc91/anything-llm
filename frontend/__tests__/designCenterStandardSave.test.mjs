@@ -315,9 +315,9 @@ test(
   { skip },
   async (t) => {
     const { container, act } = await open(t, [widget(4, LEGACY)], 4);
-    assert.ok(container.textContent.includes("Position des Chatfensters"));
+    assert.ok(container.textContent.includes("Position des Chat-Buttons"));
     await act(() => click(buttons(container, "In der Seite")[0]));
-    assert.ok(!container.textContent.includes("Position des Chatfensters"));
+    assert.ok(!container.textContent.includes("Position des Chat-Buttons"));
     assert.ok(
       container.textContent.includes(
         "Fest vorgegeben: der KI-Hinweis unter der Eingabe und die Größe der aufgeklappten Box."

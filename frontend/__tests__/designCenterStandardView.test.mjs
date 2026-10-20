@@ -115,7 +115,7 @@ test(
       "Akzentfarbe",
       "Schrift auf der Akzentfarbe",
       "Logo",
-      "Position des Chatfensters",
+      "Position des Chat-Buttons",
       "Chat-Icon",
       "Fest vorgegeben: der KI-Hinweis unter der Eingabe und die Größe des Chatfensters.",
     ])
@@ -149,7 +149,7 @@ test(
       logoPreview: null,
     });
     const t = text(html);
-    assert.ok(!html.includes(">Position des Chatfensters<"));
+    assert.ok(!html.includes(">Position des Chat-Buttons<"));
     assert.ok(!html.includes(">Chat-Icon<"));
     assert.ok(
       t.includes(

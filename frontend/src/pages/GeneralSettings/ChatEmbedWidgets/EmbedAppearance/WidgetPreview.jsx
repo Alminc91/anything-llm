@@ -11,7 +11,9 @@
 // Hell/Dunkel in beiden Darstellungen. Die Vorschau folgt den Feldern: ohne
 // gespeicherten Wert zeigt sie die Vorbelegung (R5; Untertitel, Start-
 // vorschläge, Willkommensblasen). Lange Wörter brechen um, statt über den
-// Rand zu laufen (Restpunkt 5, rc7: BREAK).
+// Rand zu laufen (Restpunkt 5, rc7: BREAK). Chatfenster und Box „In der
+// Seite“ wachsen mit dem Inhalt und hängen oben; die Vorschau scrollt, wenn
+// das Fenster zu niedrig ist (B-06, R7, D12 rc11: nichts wird abgeschnitten).
 import { useState } from "react";
 import {
   ChatCircleDots,
@@ -132,14 +134,18 @@ export default function WidgetPreview({
           : "Vorschau: so sieht es auf Ihrer Website aus"}
       </p>
       {/* Scrollt, statt etwas abzuschneiden (Browser-Abnahme B-06: die
-          Datenschutz-Blase im aufgeklappten Inline-Panel). Das Chatfenster
-          (feste Höhe) steht mittig; die Box „In der Seite“ wächst mit dem
-          Inhalt und hängt deshalb oben, damit nichts springt, wenn Inhalt
-          dazukommt oder wegfällt (R7). */}
-      <div className="flex-1 min-h-0 overflow-y-auto flex p-6">
-        <div
-          className={`w-full flex justify-center ${inline ? "mx-auto" : "m-auto"}`}
-        >
+          Datenschutz-Blase im aufgeklappten Inline-Panel). Beide
+          Darstellungen wachsen mit dem Inhalt und hängen deshalb oben, damit
+          nichts springt, wenn Inhalt dazukommt oder wegfällt (R7; seit D12,
+          rc11, auch das Chatfenster: mit fester Höhe 540 px scrollte der
+          Nachrichtenbereich innen und schnitt die Beschriftung der
+          Beispiel-Nutzernachricht ab). Die Spalte ist bewusst kein
+          Flex-Container: als Flex-Element würde die Vorschau auf die Höhe
+          der Spalte gestaucht (align-items: stretch) und schnitte bei
+          1440×900 die Eingabe und den KI-Hinweis unten ab, statt dass die
+          Spalte scrollt. */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-6">
+        <div className="w-full flex justify-center">
           {inline ? (
             <InlinePreview
               config={config}
@@ -234,10 +240,14 @@ export function SuggestionPill({ config, palette, text, kind = "pill" }) {
 }
 
 // Beispiel einer Nutzer-Nachricht: Akzentfarbe mit der Schrift auf der
-// Akzentfarbe, darunter die Beschriftung
+// Akzentfarbe, darunter die Beschriftung, beide rechtsbündig in einem Block
+// (D12: die Beschriftung bleibt eine Zeile und wird nicht gekürzt)
 function PreviewUserMessage({ config, palette }) {
   return (
-    <div className="flex flex-col items-end gap-1 pt-1">
+    <div
+      className="flex flex-col items-end gap-1 pt-1"
+      data-preview="user-message-block"
+    >
       <div
         className={`text-[12.5px] leading-relaxed rounded-[18px] rounded-tr-[4px] px-3.5 py-2.5 max-w-[80%] ${BREAK}`}
         style={{
@@ -249,7 +259,7 @@ function PreviewUserMessage({ config, palette }) {
         {SAMPLE_USER_MESSAGE}
       </div>
       <span
-        className="text-[10px] leading-snug"
+        className="text-[10px] leading-snug whitespace-nowrap"
         style={{ color: palette.muted }}
         data-preview="user-message-caption"
       >
@@ -463,7 +473,7 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
 function PreviewInput({ config, defaults, palette }) {
   const placeholder = previewPlaceholder(config, defaults);
   return (
-    <div className="px-4 pb-2.5 pt-1 flex-shrink-0">
+    <div className="px-4 pb-2.5 pt-1 flex-shrink-0" data-preview="input">
       <div
         className="flex items-center w-full rounded-2xl"
         style={{
@@ -520,13 +530,20 @@ function BubblePreview({
     desktopBubbles !== choiceValue(config, "welcomeBubblesMobile");
   return (
     <div className="w-[370px] max-w-full flex flex-col items-stretch">
+      {/* Mindesthöhe 540 px wie das Widget; geöffnet wächst das Fenster mit
+          dem Inhalt (D12, rc11: mit fester Höhe scrollte der Nachrichten-
+          bereich innen bei versteckter Bildlaufleiste und schnitt unten die
+          Beschriftung „Beispiel-Nutzernachricht“ und die Beispiel-Antwort
+          ab). Geschlossen bleiben die Willkommensblasen unten in der
+          540-px-Fläche. */}
       <div
         className="flex flex-col justify-end"
-        style={{ height: "540px", maxHeight: "calc(100vh - 220px)" }}
+        style={{ minHeight: "540px" }}
+        data-preview="chat-window"
       >
         {open ? (
           <div
-            className="w-full h-full rounded-2xl flex flex-col overflow-hidden"
+            className="w-full grow rounded-2xl flex flex-col overflow-hidden"
             style={{
               backgroundColor: palette.panelBg,
               boxShadow:
@@ -549,7 +566,7 @@ function BubblePreview({
                 </button>
               }
             />
-            <div className="flex-1 overflow-y-auto no-scroll px-4 py-4">
+            <div className="flex-1 px-4 py-4" data-preview="chat-messages">
               <PreviewWelcome
                 config={config}
                 defaults={defaults}

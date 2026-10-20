@@ -2,7 +2,9 @@
 // 7.22-rc9, Mockup Ansichten 1 und 2): Darstellung einspaltig, dann kurze
 // Felder paarweise nebeneinander: Akzentfarbe | Schrift auf der Akzentfarbe,
 // beim Chatfenster Logo | Chat-Icon (sechs Icons in einer Reihe, ohne
-// Beschriftung darunter) und Farbschema | Position, bei „In der Seite“
+// Beschriftung darunter) und Farbschema | Position des Chat-Buttons (D11,
+// Fixliste 7.22-rc11: Wortlaut wie im Mockup, die Wahl gilt dem Button in
+// der Ecke, das Chatfenster öffnet darüber), bei „In der Seite“
 // Farbschema | Logo; für beide Darstellungen „Antworten mit Kursen“
 // (KIE-567, untereinander, die Auswahl ist zu breit für die halbe Spalte).
 // Am Ende eine gedämpfte Zeile mit dem, was fest vorgegeben ist (R2,
@@ -352,7 +354,7 @@ export default function AppearanceTab({
 
           <FieldPair>
             {themeField}
-            <SettingsSection title="Position des Chatfensters">
+            <SettingsSection title="Position des Chat-Buttons">
               <Segmented
                 options={POSITION_OPTIONS}
                 value={position}

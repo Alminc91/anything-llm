@@ -166,7 +166,7 @@ test(
     assert.deepEqual(labelsOf(html), [
       ["Akzentfarbe", "Schrift auf der Akzentfarbe"],
       ["Logo", "Chat-Icon"],
-      ["Farbschema", "Position des Chatfensters"],
+      ["Farbschema", "Position des Chat-Buttons"],
     ]);
     for (const label of ["Darstellung", "Kurse anzeigen als", "Reihenfolge"])
       assert.ok(!inPair(html, label), `${label} gehört nicht ins Raster`);
@@ -178,7 +178,7 @@ test(
       "Logo",
       "Chat-Icon",
       "Farbschema",
-      "Position des Chatfensters",
+      "Position des Chat-Buttons",
       "Antworten mit Kursen",
       "Kurse anzeigen als",
       "Reihenfolge",
@@ -204,7 +204,7 @@ test(
       ["Farbschema", "Logo"],
     ]);
     assert.ok(!html.includes(">Chat-Icon<"));
-    assert.ok(!html.includes(">Position des Chatfensters<"));
+    assert.ok(!html.includes(">Position des Chat-Buttons<"));
     const t = text(html);
     assert.ok(t.indexOf("Farbschema") < t.indexOf("Logo"));
     assert.ok(t.indexOf("Logo") < t.indexOf("Antworten mit Kursen"));

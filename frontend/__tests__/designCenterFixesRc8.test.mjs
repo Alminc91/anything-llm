@@ -200,7 +200,7 @@ test(
         "Chatfenster: Button unten in der Ecke, öffnet ein Chatfenster. In der Seite: Eingabeleiste direkt im Seiteninhalt, an der Stelle des Platzhalters (Reiter „Einbau“)."
       )
     );
-    assert.ok(aussehen.includes("Position des Chatfensters"));
+    assert.ok(aussehen.includes("Position des Chat-Buttons"));
     // Chat-Icon-Name seit R11 (7.22-rc9) nicht mehr als Text unter dem
     // Icon, sondern als Tooltip und aria-label
     assert.match(
