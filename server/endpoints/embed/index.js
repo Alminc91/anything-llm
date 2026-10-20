@@ -118,7 +118,27 @@ const SHOWN_BLACK = "#222628";
 const LEGACY_USER_TEXT_COLORS = Object.freeze({ "#000000": SHOWN_BLACK });
 function shownUserTextColor(value) {
   if (typeof value !== "string") return value;
-  return LEGACY_USER_TEXT_COLORS[value.trim().toLowerCase()] || value;
+  // nur eigene Schlüssel (C1, Fixliste 7.22-rc13): „__proto__“ oder
+  // „constructor“ als gespeicherter Wert liefern nicht Object.prototype
+  const key = value.trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(LEGACY_USER_TEXT_COLORS, key)
+    ? LEGACY_USER_TEXT_COLORS[key]
+    : value;
+}
+
+/**
+ * Gespeicherte Liste (Startvorschläge, Willkommensblasen) für /config:
+ * getrimmte, nicht leere Strings, Kommas bleiben im Eintrag (E11, Fixliste
+ * 7.22-rc13: die Listen gehen als JSON-Array ans Widget, nicht mehr
+ * kommagetrennt). Kein Array = nichts gespeichert (null).
+ * @param {*} value
+ * @returns {string[]|null}
+ */
+function savedList(value) {
+  if (!Array.isArray(value)) return null;
+  return value
+    .filter((m) => typeof m === "string" && m.trim().length > 0)
+    .map((m) => m.trim());
 }
 
 function mapLayoutConfig(visualConfig = {}) {
@@ -209,30 +229,37 @@ function embeddedEndpoints(app) {
         // nur explizites false wird ans Widget gemeldet.
         if (embed.history_enabled === false) mapped.historyEnabled = false;
 
-        // Startvorschläge (S1, Fixliste 7.22-rc10): eine gespeicherte Liste
-        // bereinigt (nur leere Zeilen oder [] -> kein Schlüssel, das Widget
-        // zeigt keine Pillen); ohne gespeicherte Liste die Standard-
-        // Startvorschläge der Sprache (?language=de|en wie bei stream-chat,
-        // fehlend oder unbekannt -> de), damit Widget, Vorschau und Design
-        // Center dasselbe zeigen. Kommagetrennt wie bisher (das Widget trennt
-        // an Kommas; die Standards enthalten keine).
-        if (Array.isArray(visualConfig.defaultMessages)) {
-          const cleaned = visualConfig.defaultMessages
-            .filter((m) => typeof m === "string" && m.trim().length > 0)
-            .map((m) => m.trim());
-          if (cleaned.length > 0) mapped.defaultMessages = cleaned.join(",");
-        } else {
+        // Startvorschläge (S1 Fixliste 7.22-rc10, Vertrag mit dem Widget
+        // nach E10 bis E12 der Fixliste 7.22-rc13), immer als JSON-Array:
+        // - gespeicherte Liste: bereinigt (savedList), Einträge mit Komma
+        //   bleiben ganz (E11);
+        // - gespeichertes [] (oder nur leere Zeilen): [] mit
+        //   defaultMessagesSaved: true, das Widget zeigt dann keine Pillen,
+        //   auch wenn am Skript data-default-messages steht (E10);
+        // - nichts gespeichert (kein Array): die Standard-Startvorschläge der
+        //   Sprache mit defaultMessagesStandard: true. Das Widget nimmt sie
+        //   nur, wenn am Skript kein data-default-messages steht (Vorrang
+        //   gespeichert vor Skript vor Standard, E10). Die Sprache schickt
+        //   das Widget als ?language= mit (seine Sprache aus data-language,
+        //   E12); fehlend oder unbekannt -> de.
+        // Fixture des Vertrags: __tests__/utils/chats/fixtures/
+        // embedConfigContract.json, Test __tests__/endpoints/
+        // embedConfigContract.test.js (Gegenprobe mit KUFER_EMBED_DIR).
+        const suggestions = savedList(visualConfig.defaultMessages);
+        if (suggestions === null) {
           mapped.defaultMessages = defaultSuggestions(
             embedDefaultsLanguage(request.query?.language)
-          ).join(",");
+          );
+          mapped.defaultMessagesStandard = true;
+        } else {
+          mapped.defaultMessages = suggestions;
+          if (suggestions.length === 0) mapped.defaultMessagesSaved = true;
         }
-        if (Array.isArray(visualConfig.chatbotBubblesMessages)) {
-          const cleaned = visualConfig.chatbotBubblesMessages
-            .filter((m) => typeof m === "string" && m.trim().length > 0)
-            .map((m) => m.trim());
-          if (cleaned.length > 0)
-            mapped.chatbotBubblesMessages = cleaned.join(",");
-        }
+        // Willkommensblasen: nur eine gespeicherte, nicht leere Liste (leer
+        // = Standardblasen des Widgets, wie im Design Center), als Array
+        const bubbles = savedList(visualConfig.chatbotBubblesMessages);
+        if (bubbles !== null && bubbles.length > 0)
+          mapped.chatbotBubblesMessages = bubbles;
 
         // Darstellung (Blase/Inline), Farbschema, Untertitel, Datenschutz-
         // Link — nur validierte Werte ausliefern, ungültige Felder weglassen.

@@ -1,0 +1,163 @@
+{
+  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true. chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang: gespeichert (auch leer) vor Skript-Attribut vor Standard. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. Bei Änderung hier UND im Fork nachziehen.",
+  "standardSuggestions": {
+    "de": ["Ich suche einen Deutschkurs.", "Gibt es Excel-Kurse am Abend?"],
+    "en": [
+      "I am looking for a German course.",
+      "Are there Excel courses in the evening?"
+    ]
+  },
+  "languageQuery": [
+    { "scriptLanguage": null, "query": "de", "standards": "de" },
+    { "scriptLanguage": "de", "query": "de", "standards": "de" },
+    { "scriptLanguage": "en", "query": "en", "standards": "en" },
+    { "scriptLanguage": "EN", "query": "en", "standards": "en" },
+    { "scriptLanguage": " en-GB ", "query": "en-gb", "standards": "en" },
+    { "scriptLanguage": "fr", "query": "fr", "standards": "de" },
+    { "scriptLanguage": "", "query": "de", "standards": "de" }
+  ],
+  "cases": [
+    {
+      "name": "nichts gespeichert, ohne Skript-Attribut: Standard deutsch",
+      "request": { "language": "de" },
+      "visualConfig": {},
+      "config": {
+        "defaultMessages": [
+          "Ich suche einen Deutschkurs.",
+          "Gibt es Excel-Kurse am Abend?"
+        ],
+        "defaultMessagesStandard": true
+      },
+      "script": {},
+      "widget": {
+        "defaultMessages": [
+          "Ich suche einen Deutschkurs.",
+          "Gibt es Excel-Kurse am Abend?"
+        ],
+        "chatbotBubblesMessages": []
+      }
+    },
+    {
+      "name": "nichts gespeichert, englisches Widget: Standard englisch",
+      "request": { "language": "en" },
+      "visualConfig": {},
+      "config": {
+        "defaultMessages": [
+          "I am looking for a German course.",
+          "Are there Excel courses in the evening?"
+        ],
+        "defaultMessagesStandard": true
+      },
+      "script": { "language": "en" },
+      "widget": {
+        "defaultMessages": [
+          "I am looking for a German course.",
+          "Are there Excel courses in the evening?"
+        ]
+      }
+    },
+    {
+      "name": "nichts gespeichert, Sprache fehlt oder unbekannt: Standard deutsch",
+      "request": { "language": "fr" },
+      "visualConfig": {},
+      "config": {
+        "defaultMessages": [
+          "Ich suche einen Deutschkurs.",
+          "Gibt es Excel-Kurse am Abend?"
+        ],
+        "defaultMessagesStandard": true
+      },
+      "script": { "language": "fr" },
+      "widget": {
+        "defaultMessages": [
+          "Ich suche einen Deutschkurs.",
+          "Gibt es Excel-Kurse am Abend?"
+        ]
+      }
+    },
+    {
+      "name": "nichts gespeichert, Skript-Attribut gesetzt: Skript-Attribut vor Standard",
+      "request": { "language": "de" },
+      "visualConfig": {},
+      "config": {
+        "defaultMessages": [
+          "Ich suche einen Deutschkurs.",
+          "Gibt es Excel-Kurse am Abend?"
+        ],
+        "defaultMessagesStandard": true
+      },
+      "script": { "defaultMessages": "Spanisch A1, Yoga" },
+      "widget": { "defaultMessages": ["Spanisch A1", "Yoga"] }
+    },
+    {
+      "name": "gespeicherte Liste: gewinnt gegen das Skript-Attribut, Einträge mit Komma bleiben ganz",
+      "request": { "language": "de" },
+      "visualConfig": {
+        "defaultMessages": [
+          " Gibt es Kurse, die abends stattfinden? ",
+          "Yoga"
+        ]
+      },
+      "config": {
+        "defaultMessages": ["Gibt es Kurse, die abends stattfinden?", "Yoga"]
+      },
+      "script": { "defaultMessages": "Spanisch A1,Töpfern" },
+      "widget": {
+        "defaultMessages": ["Gibt es Kurse, die abends stattfinden?", "Yoga"]
+      }
+    },
+    {
+      "name": "gespeichertes []: keine Startvorschläge, auch mit Skript-Attribut",
+      "request": { "language": "de" },
+      "visualConfig": { "defaultMessages": [] },
+      "config": { "defaultMessages": [], "defaultMessagesSaved": true },
+      "script": { "defaultMessages": "Spanisch A1,Yoga" },
+      "widget": { "defaultMessages": [] }
+    },
+    {
+      "name": "gespeicherte Liste nur aus leeren Zeilen: wie gespeichertes []",
+      "request": { "language": "en" },
+      "visualConfig": { "defaultMessages": ["", "   "] },
+      "config": { "defaultMessages": [], "defaultMessagesSaved": true },
+      "script": { "language": "en", "defaultMessages": "Yoga" },
+      "widget": { "defaultMessages": [] }
+    },
+    {
+      "name": "Willkommensblasen gespeichert: Array, Blase mit Komma bleibt ganz, gewinnt gegen das Skript-Attribut",
+      "request": { "language": "de" },
+      "visualConfig": {
+        "chatbotBubblesMessages": ["Hallo, schön, dass Sie da sind!", " "]
+      },
+      "config": {
+        "chatbotBubblesMessages": ["Hallo, schön, dass Sie da sind!"]
+      },
+      "script": { "chatbotBubblesMessages": "Hallo,Willkommen" },
+      "widget": {
+        "chatbotBubblesMessages": ["Hallo, schön, dass Sie da sind!"]
+      }
+    },
+    {
+      "name": "Willkommensblasen nicht gespeichert: kein Schlüssel, das Skript-Attribut gilt (kommagetrennt)",
+      "request": { "language": "de" },
+      "visualConfig": {},
+      "config": {},
+      "configAbsent": ["chatbotBubblesMessages"],
+      "script": { "chatbotBubblesMessages": "Hallo, Willkommen" },
+      "widget": { "chatbotBubblesMessages": ["Hallo", "Willkommen"] }
+    },
+    {
+      "name": "älterer Server ohne Startvorschläge: das Skript-Attribut gilt wie bisher",
+      "fork": false,
+      "config": {},
+      "script": { "defaultMessages": "Spanisch A1,Yoga" },
+      "widget": { "defaultMessages": ["Spanisch A1", "Yoga"] }
+    },
+    {
+      "name": "älterer Server mit kommagetrennter Liste: wird getrennt wie bisher",
+      "fork": false,
+      "config": { "defaultMessages": "Spanisch A1,Yoga" },
+      "script": {},
+      "widget": { "defaultMessages": ["Spanisch A1", "Yoga"] }
+    }
+  ]
+}

@@ -127,7 +127,8 @@ const { defaultSuggestions } = require("../../utils/chats/embedDefaults");
 // Darstellung, R4 Fixliste 7.22-rc8; Reihenfolge Karten zuerst, KIE-567;
 // Willkommensblasen beim ersten Besuch, KIE-568; Datenschutz-Hinweis ohne
 // gespeicherten Wert an, KIE-565 Nachtrag; Standard-Startvorschläge der
-// Sprache ohne gespeicherte Liste, S1 Fixliste 7.22-rc10)
+// Sprache ohne gespeicherte Liste, S1 Fixliste 7.22-rc10, als Array und
+// gekennzeichnet, E10/E11 Fixliste 7.22-rc13)
 const STANDARD = {
   ...EMBED_FIXED_STANDARDS,
   ...INLINE_FIXED_STANDARDS,
@@ -135,12 +136,15 @@ const STANDARD = {
   courseCardsPosition: "above",
   welcomeBubblesDesktop: "first",
   welcomeBubblesMobile: "first",
-  defaultMessages: defaultSuggestions("de").join(","),
+  defaultMessages: defaultSuggestions("de"),
+  defaultMessagesStandard: true,
 };
-// Fehlerfall (Ausnahme im Handler): nur die festen Standards, ohne
-// Startvorschläge
+// Ohne Startvorschläge: Fehlerfall (Ausnahme im Handler, nur die festen
+// Standards) und Grundlage für ein gespeichertes []
 const STANDARD_ERROR = Object.fromEntries(
-  Object.entries(STANDARD).filter(([key]) => key !== "defaultMessages")
+  Object.entries(STANDARD).filter(
+    ([key]) => key !== "defaultMessages" && key !== "defaultMessagesStandard"
+  )
 );
 
 describe("GET /embed/:embedId/config — feste Standards", () => {
@@ -166,8 +170,11 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       inlineStartState: "collapsed",
       inlineHeight: "520px",
       inheritFont: true,
-      defaultMessages:
-        "Ich suche einen Deutschkurs.,Gibt es Excel-Kurse am Abend?",
+      defaultMessages: [
+        "Ich suche einen Deutschkurs.",
+        "Gibt es Excel-Kurse am Abend?",
+      ],
+      defaultMessagesStandard: true,
     });
   });
 
@@ -247,7 +254,7 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       welcomeBubblesDesktop: "off",
       welcomeBubblesMobile: "off",
     });
-    expect(off.body.chatbotBubblesMessages).toBe("Hallo!");
+    expect(off.body.chatbotBubblesMessages).toEqual(["Hallo!"]);
     expect(off.body.welcomeBubblesDesktop).toBe("off");
   });
 
@@ -367,7 +374,11 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
 // S1 (Fixliste 7.22-rc10, bewusst geändert): Ohne gespeicherte Liste liefert
 // /config die Standard-Startvorschläge der Sprache (dieselben, die das Design
 // Center als Vorbelegung zeigt); ein gespeichertes [] bleibt leer (keine
-// Pillen). Die Sprache kommt wie bei stream-chat aus ?language=, sonst de.
+// Pillen). Seit rc13 (E10 bis E12, bewusst geändert) als JSON-Array, der
+// Standard mit defaultMessagesStandard, ein gespeichertes [] als [] mit
+// defaultMessagesSaved; die Sprache schickt das Widget als ?language= mit
+// (fehlend oder unbekannt de). Den Aufruf über HTTP wie das Widget und die
+// Fälle des Vertrags prüft embedConfigContract.test.js.
 describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
   async function fetchWithLanguage(visualConfig, language) {
     EmbedConfig.getVisualConfig.mockResolvedValue(visualConfig);
@@ -384,12 +395,15 @@ describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
     return res;
   }
 
-  test("ohne gespeicherte Liste: die zwei deutschen Standard-Startvorschläge, kommagetrennt", async () => {
+  test("ohne gespeicherte Liste: die zwei deutschen Standard-Startvorschläge als Array, gekennzeichnet", async () => {
     for (const vc of [{}, { accentColor: "#FFA102" }, null]) {
       const res = await fetchConfig(vc);
-      expect(res.body.defaultMessages).toBe(
-        "Ich suche einen Deutschkurs.,Gibt es Excel-Kurse am Abend?"
-      );
+      expect(res.body.defaultMessages).toEqual([
+        "Ich suche einen Deutschkurs.",
+        "Gibt es Excel-Kurse am Abend?",
+      ]);
+      expect(res.body.defaultMessagesStandard).toBe(true);
+      expect(res.body).not.toHaveProperty("defaultMessagesSaved");
       expect(res.headers["Cache-Control"]).toBe("public, max-age=300");
     }
     // kein Fehler im Standard: nicht 5 Minuten ohne Vorschläge
@@ -398,23 +412,27 @@ describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
   });
 
   test("?language=en liefert die englischen, fehlend oder unbekannt die deutschen", async () => {
-    expect((await fetchWithLanguage({}, "en")).body.defaultMessages).toBe(
-      "I am looking for a German course.,Are there Excel courses in the evening?"
-    );
-    expect((await fetchWithLanguage({}, "en-GB")).body.defaultMessages).toBe(
-      defaultSuggestions("en").join(",")
+    expect((await fetchWithLanguage({}, "en")).body.defaultMessages).toEqual([
+      "I am looking for a German course.",
+      "Are there Excel courses in the evening?",
+    ]);
+    expect((await fetchWithLanguage({}, "en-GB")).body.defaultMessages).toEqual(
+      defaultSuggestions("en")
     );
     for (const language of [undefined, "de", "fr", "<x>", ["en"]])
-      expect((await fetchWithLanguage({}, language)).body.defaultMessages).toBe(
-        defaultSuggestions("de").join(",")
-      );
+      expect(
+        (await fetchWithLanguage({}, language)).body.defaultMessages
+      ).toEqual(defaultSuggestions("de"));
   });
 
-  test("gespeichertes [] oder nur leere Zeilen: kein Schlüssel (keine Pillen)", async () => {
+  test("gespeichertes [] oder nur leere Zeilen: [] mit defaultMessagesSaved (keine Pillen, auch nicht aus dem Skript)", async () => {
     for (const defaultMessages of [[], ["", "  "], [7, null]]) {
       const { body } = await fetchConfig({ defaultMessages });
-      expect(body).not.toHaveProperty("defaultMessages");
-      expect(body).toEqual(STANDARD_ERROR);
+      expect(body).toEqual({
+        ...STANDARD_ERROR,
+        defaultMessages: [],
+        defaultMessagesSaved: true,
+      });
     }
   });
 
@@ -423,12 +441,32 @@ describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
       { defaultMessages: [" Wie melde ich mich an? ", "Kurse?"] },
       "en"
     );
-    expect(own.body.defaultMessages).toBe("Wie melde ich mich an?,Kurse?");
+    expect(own.body.defaultMessages).toEqual([
+      "Wie melde ich mich an?",
+      "Kurse?",
+    ]);
+    // gespeichert: ohne Kennzeichen (weder Standard noch leer)
+    expect(own.body).not.toHaveProperty("defaultMessagesStandard");
+    expect(own.body).not.toHaveProperty("defaultMessagesSaved");
     // wie listItems im Design Center: kein Array = Vorbelegung
-    for (const defaultMessages of ["a,b", 7, null, { 0: "x" }])
-      expect(
-        (await fetchConfig({ defaultMessages })).body.defaultMessages
-      ).toBe(defaultSuggestions("de").join(","));
+    for (const defaultMessages of ["a,b", 7, null, { 0: "x" }]) {
+      const { body } = await fetchConfig({ defaultMessages });
+      expect(body.defaultMessages).toEqual(defaultSuggestions("de"));
+      expect(body.defaultMessagesStandard).toBe(true);
+    }
+  });
+
+  test("F03: Einträge mit Komma bleiben ganz (Startvorschlag und Willkommensblase)", async () => {
+    const { body } = await fetchConfig({
+      defaultMessages: ["Gibt es Kurse, die abends stattfinden?"],
+      chatbotBubblesMessages: ["Hallo, schön, dass Sie da sind!"],
+    });
+    expect(body.defaultMessages).toEqual([
+      "Gibt es Kurse, die abends stattfinden?",
+    ]);
+    expect(body.chatbotBubblesMessages).toEqual([
+      "Hallo, schön, dass Sie da sind!",
+    ]);
   });
 });
 
@@ -469,8 +507,9 @@ describe("GET /embed/:embedId/config — Farbschema und Darstellung", () => {
       chatbotBubblesMessages: ["Hallo!", "  ", "Fragen?"],
       defaultMessages: ["Kurse?", ""],
     });
+    // gespeicherte Liste: ohne Kennzeichen defaultMessagesStandard
     expect(res.body).toEqual({
-      ...STANDARD,
+      ...STANDARD_ERROR,
       buttonColor: "#FFA102",
       userBgColor: "#FFA102",
       linkColor: "#FFA102",
@@ -478,8 +517,8 @@ describe("GET /embed/:embedId/config — Farbschema und Darstellung", () => {
       assistantName: "Ihr Online-Berater",
       position: "bottom-left",
       chatIcon: "support",
-      chatbotBubblesMessages: "Hallo!,Fragen?",
-      defaultMessages: "Kurse?",
+      chatbotBubblesMessages: ["Hallo!", "Fragen?"],
+      defaultMessages: ["Kurse?"],
     });
   });
 });
@@ -498,6 +537,21 @@ describe("GET /embed/:embedId/config: Schrift auf der Kundenfarbe (E1)", () => {
     }
     const none = await fetchConfig({ accentColor: "#808080" });
     expect(none.body).not.toHaveProperty("userTextColor");
+  });
+
+  // C1 (Fixliste 7.22-rc13): nur eigene Schlüssel der Umschreibtabelle;
+  // „__proto__“ lieferte Object.prototype ({}), „constructor“ die Funktion
+  // Object (Schlüssel fiel aus dem JSON)
+  test("C1: Namen von Object.prototype bleiben der gespeicherte Text", async () => {
+    for (const stored of [
+      "__proto__",
+      "constructor",
+      "toString",
+      "hasOwnProperty",
+    ]) {
+      const res = await fetchConfig({ userTextColor: stored });
+      expect(res.body.userTextColor).toBe(stored);
+    }
   });
 });
 

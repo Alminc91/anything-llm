@@ -13,7 +13,51 @@ nur, was der Kunde ändert (Regel D6).
 Bis 7.21 hat das Design Center beim ersten Speichern seine Vorbelegung
 (`DEFAULT_CONFIG`) mitgeschrieben. Davon gelten nur Begrüßung und Platzhalter
 als „nicht gesetzt“; Name, Willkommensblasen, Farbe und Schrift bleiben
-eigene Kundenwerte (Entscheidung E2, Fixliste 7.22-rc7).
+eigene Kundenwerte (Entscheidung E2, Fixliste 7.22-rc7). Die Vorbelegung
+enthielt auch `defaultMessages: []`: Jedes bis 7.21 gespeicherte Widget hat
+deshalb eine leere Liste und zeigt auch ab 7.22 keine Startvorschläge. Die
+neuen Standard-Startvorschläge erscheinen praktisch nur bei Widgets, die nie
+im Design Center gespeichert wurden.
+
+Seit 7.22 bleibt ein gespeicherter Wert, der dem Standard gleicht, beim
+Speichern eines anderen Feldes stehen (F05, Fixliste 7.22-rc13); entfernt
+wird er nur, wenn der Kunde genau dieses Feld auf den Standard bringt.
+Ebenso schreibt ein Klick auf die schon markierte Option bei Darstellung,
+Farbschema, Chat-Icon und Position nichts (F11).
+
+## Startvorschläge und Willkommensblasen in `GET /embed/:id/config` (ab 7.22-rc13)
+
+Vertrag zwischen Server und Widget (Entscheidungen E10 bis E12, Fixliste
+7.22-rc13; Fälle in
+`server/__tests__/utils/chats/fixtures/embedConfigContract.json`, Kopie im
+Widget-Repo unter `tests/fixtures/embedConfigContract.json`; Server-Test
+`server/__tests__/endpoints/embedConfigContract.test.js`, Widget-Test
+`tests/embed-config-contract.test.js`):
+
+- **Sprache (E12):** Das Widget ruft `GET /embed/:id/config?language=<Sprache
+  des Widgets>` auf (aus `data-language`); fehlend oder unbekannt heißt `de`.
+  Der Server wählt damit nur die Standard-Startvorschläge. Design Center und
+  Vorschau zeigen weiter die deutschen Standards, weil die Sprache des
+  Widgets nur im Skript steht.
+- **Listen als JSON-Array (E11):** `defaultMessages` und
+  `chatbotBubblesMessages` kommen als Array von Strings, nicht mehr
+  kommagetrennt. Einträge mit Komma („Gibt es Kurse, die abends
+  stattfinden?“) bleiben eine Pille bzw. eine Blase. Skript-Attribute
+  (`data-default-messages`, `data-chatbot-bubbles-messages`) werden weiter
+  an Kommas getrennt. Im Design Center gibt es kein Komma-Verbot.
+- **Kennzeichen:** gespeicherte Liste: das Array ohne Kennzeichen;
+  gespeichertes `[]` (oder nur leere Zeilen): `[]` mit
+  `defaultMessagesSaved: true`; nichts gespeichert: die
+  Standard-Startvorschläge der Sprache mit `defaultMessagesStandard: true`.
+  Willkommensblasen nur, wenn eine nicht leere Liste gespeichert ist.
+- **Vorrang im Widget (E10):** gespeicherte Liste (auch leer) vor
+  `data-default-messages` am Skript vor dem Standard. Ein gespeichertes `[]`
+  heißt „keine Startvorschläge“, auch wenn das Skript-Attribut gesetzt ist.
+- **Ältere Widget-Kopien:** Ein Widget vor 7.22-rc13 kann die Listen als
+  Array nicht lesen und zeigt dann keine Startvorschläge und die
+  Standard-Willkommensblasen. Seiten mit eigener Kopie des Widgets (z. B. die
+  Demo unter `/widget/anythingllm-chat-widget.min.js`) brauchen das neue
+  Widget.
 
 ## Darstellung
 
@@ -44,19 +88,23 @@ eigene Kundenwerte (Entscheidung E2, Fixliste 7.22-rc7).
 | `greeting`                              | alte Vorbelegung („Hallo und herzlich willkommen! …“) oder alter Widget-Standard | gilt als nicht gesetzt: neuer Standard „Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?“                                                                                           |
 | `greetingBubbleText`                    | eigener Text bei `greetingStyle` oder `privacyNotice` `bubble`                   | gewinnt gegen `greeting` (stand bisher in der Blase)                                                                                                                                         |
 | `greetingBubbleText`                    | eigener Text bei Stil `text`                                                     | ignoriert, solange eine eigene `greeting` gesetzt ist (war nie sichtbar)                                                                                                                     |
+| `greeting` und `greetingBubbleText`     | beide eigener Text                                                               | schaltet der Kunde den Datenschutz-Hinweis um, bleibt beim Speichern der Text aus dem Feld „Begrüßungstext“; der andere, bisher unsichtbare Text wird entfernt (F04, 7.22-rc13)               |
 | `sendMessageText`                       | „Wie kann ich Ihnen helfen?“ (alte Vorbelegung)                                  | gilt als nicht gesetzt: Standard „Ihre Frage eingeben“                                                                                                                                       |
 | `inlineInputPlaceholder`                | eigener Leistentext bis 120 Zeichen                                              | bleibt wirksam                                                                                                                                                                               |
 | `inlineSendText`, `inlineCollapsedText` | eigener Text                                                                     | nicht mehr ausgeliefert: Demo-Texte („Stellen Sie hier Ihre Frage …“, „Chatten“)                                                                                                             |
 | `name`                                  | „Ihr Online-Berater“ (alte Vorbelegung)                                          | bleibt eigener Kundenwert (E2)                                                                                                                                                               |
 | `assistantSubtitle`                     | fehlt                                                                            | Standard-Untertitel „Online-Berater mit künstlicher Intelligenz“ (en „Online advisor powered by artificial intelligence“), auch live im Widget (R5, 7.22-rc8; vorher kein Untertitel)        |
 | `assistantSubtitle`                     | `""` (im Design Center geleert)                                                  | bewusst kein Untertitel; der Server liefert `assistantSubtitle: ""`                                                                                                                          |
+| `name`, `assistantSubtitle`             | lang (mehr als eine Zeile in der Titelleiste)                                    | nie gekürzt: Name und Untertitel brechen in der Titelleiste um, der Kopf wird höher, ⋮ und ✕ bleiben frei (N3, Nutzerentscheidung 20.10.2026, ersetzt die Ellipse aus 7.22-rc10); die Vorschau im Design Center ebenso |
 | `chatbotBubblesMessages`                | „Hallo! Ich bin Ihr Online-Berater!“ … (alte Vorbelegung)                        | bleibt eigener Kundenwert (E2)                                                                                                                                                               |
 | `chatbotBubblesMessages`                | fehlt oder leer                                                                  | Standard-Willkommensblasen des Widgets in der Sprache des Widgets                                                                                                                            |
-| `defaultMessages`                       | fehlt                                                                            | Standard-Startvorschläge der Sprache, auch live im Widget (S1, 7.22-rc10): „Ich suche einen Deutschkurs.“, „Gibt es Excel-Kurse am Abend?“ (en „I am looking for a German course.“, „Are there Excel courses in the evening?“); das Design Center zeigt sie als Vorbelegung und schreibt sie erst nach einer Änderung (R5) |
-| `defaultMessages`                       | `[]` (alle gelöscht und gespeichert)                                             | bewusst keine Startvorschläge                                                                                                                                                                |
+| `chatbotBubblesMessages`                | eigene Liste                                                                     | bleibt; ausgeliefert als Array, eine Blase mit Komma bleibt eine Blase (E11)                                                                                                                 |
+| `defaultMessages`                       | fehlt                                                                            | Standard-Startvorschläge der Sprache des Widgets, auch live (S1, 7.22-rc10; Sprache per `?language=`, E12): „Ich suche einen Deutschkurs.“, „Gibt es Excel-Kurse am Abend?“ (en „I am looking for a German course.“, „Are there Excel courses in the evening?“), auch bei Doku- und Info-Bots; ein `data-default-messages` am Skript hat Vorrang (E10); das Design Center zeigt sie als Vorbelegung und schreibt sie erst nach einer Änderung (R5) |
+| `defaultMessages`                       | `[]` (alle gelöscht und gespeichert, auch die Vorbelegung bis 7.21)              | bewusst keine Startvorschläge, auch wenn am Skript `data-default-messages` steht (E10)                                                                                                       |
+| `defaultMessages`                       | eigene Liste                                                                     | bleibt; ausgeliefert als Array, Einträge mit Komma bleiben ganz (E11)                                                                                                                        |
 | `suggestionStyle`                       | `bars` u. a.                                                                     | Startvorschläge als Buttons wie die Folgefragen                                                                                                                                              |
 | `followUps`                             | `none` (alter Standard)                                                          | Folgefragen als Buttons an                                                                                                                                                                   |
-| `disclaimer`                            | `none` (alter Standard)                                                          | KI-Hinweis fest einzeilig unter der Eingabe: „Unsere KI kann Fehler machen. Bitte überprüfen Sie die Antworten.“ (R1, 7.22-rc8)                                                              |
+| `disclaimer`                            | `none` (alter Standard)                                                          | KI-Hinweis fest einzeilig unter der Eingabe: „Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten.“ (R1, 7.22-rc8, Kurzform nach der Messung des Widgets; en „Our AI can make mistakes. Please double-check the answers.“) |
 | `disclaimerText`                        | eigener Text                                                                     | ignoriert                                                                                                                                                                                    |
 
 ## Datenschutz-Hinweis
@@ -103,3 +151,6 @@ Text mit Links“ ein.
 4. Widgets mit eigenem `inlineSendText` oder `inlineCollapsedText`: Kunde informieren (Demo-Texte).
 5. Widgets mit `userTextColor` `#FFFFFF` auf heller Akzentfarbe: das Design Center warnt unter 4,5:1; ggf. „Schwarz“ wählen.
 6. Widgets ohne `assistantSubtitle`: zeigen ab 7.22 den Standard-Untertitel; wer keinen will, leert das Feld im Design Center.
+7. Widgets ohne gespeicherte `defaultMessages` (nie im Design Center gespeichert): zeigen ab 7.22 die zwei Standard-Startvorschläge, auch Doku- und Info-Bots (Bethel, Nazareth, Dokubot); passen die Beispiele nicht, im Design Center eigene eintragen oder alle löschen und speichern. Bis 7.21 gespeicherte Widgets haben `[]` und zeigen keine.
+8. Snippets mit `data-default-messages` am Skript: wirken weiter, solange im Design Center keine Liste gespeichert ist; eine gespeicherte Liste, auch eine leere, hat Vorrang (E10).
+9. Seiten mit eigener Kopie des Widgets (z. B. Demo `/widget/anythingllm-chat-widget.min.js`): auf das Widget ab 7.22-rc13 bringen, sonst fehlen die Startvorschläge (Listen als Array, E11) und ohne gespeicherte Kurskarten-Wahl auch `displayMode` im Chat (R4).

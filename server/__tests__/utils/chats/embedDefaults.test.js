@@ -45,9 +45,9 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
   });
 
   // S1 (Fixliste 7.22-rc10): Standard-Startvorschläge je Sprache, wörtlich
-  // wie die Vorbelegung des Design Centers; ohne Kommas, weil /config die
-  // Liste kommagetrennt ans Widget gibt
-  test("S1: Standard-Startvorschläge de/en wörtlich, Kopie, ohne Kommas", () => {
+  // wie die Vorbelegung des Design Centers. Kommas wären seit E11 (Fixliste
+  // 7.22-rc13, /config liefert Arrays) erlaubt; die Standards haben keine.
+  test("S1: Standard-Startvorschläge de/en wörtlich, Kopie, ohne Gedankenstriche", () => {
     expect(defaultSuggestions("de")).toEqual([
       "Ich suche einen Deutschkurs.",
       "Gibt es Excel-Kurse am Abend?",
@@ -64,10 +64,8 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
       defaultSuggestions("en")
     );
     for (const lang of Object.keys(DEFAULT_SUGGESTIONS))
-      for (const text of DEFAULT_SUGGESTIONS[lang]) {
-        expect(text).not.toContain(",");
+      for (const text of DEFAULT_SUGGESTIONS[lang])
         expect(text).not.toMatch(/[\u2013\u2014]/);
-      }
     // Kopie: der Aufrufer kann die Standards nicht verändern
     const list = defaultSuggestions("de");
     list.push("x");

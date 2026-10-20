@@ -8,9 +8,11 @@
 // Design Center lädt sie (GET /embed/defaults?lang=de|en), um sie als Wert
 // bzw. Vorbelegung ins Feld zu setzen und „Standardtext“ anzubieten.
 // Ausnahme Startvorschläge (DEFAULT_SUGGESTIONS, S1 Fixliste 7.22-rc10): das
-// Widget hat keine eigenen; /embed/:id/config liefert sie aus, wenn keine
-// Liste gespeichert ist, und /embed/defaults gibt sie dem Design Center als
-// Vorbelegung mit (defaultMessages).
+// Widget hat keine eigenen; /embed/:id/config liefert sie in der Sprache des
+// Widgets (?language=, E12 Fixliste 7.22-rc13) gekennzeichnet aus
+// (defaultMessagesStandard), wenn keine Liste gespeichert ist, und
+// /embed/defaults gibt sie dem Design Center als Vorbelegung mit
+// (defaultMessages).
 // Bei Änderungen im Widget hier nachziehen; der Jest-Test
 // (__tests__/utils/chats/embedDefaults.test.js) vergleicht mit einer Kopie
 // der Widget-Werte (fixtures/embedPanelTexts.json).
@@ -78,12 +80,14 @@ function embedDefaultsLanguage(value) {
 // Standard-Startvorschläge je Sprache (S1, Fixliste 7.22-rc10): das Widget
 // hat keine eigenen. Ohne gespeicherte Liste (visual_config.defaultMessages
 // fehlt oder ist keine Liste) liefert GET /embed/:id/config diese zwei
-// Beispiele aus; ein gespeichertes [] (im Design Center alle gelöscht und
+// Beispiele als Array mit defaultMessagesStandard: true aus; das Widget
+// nimmt sie nur ohne data-default-messages am Skript (E10, Fixliste
+// 7.22-rc13). Ein gespeichertes [] (im Design Center alle gelöscht und
 // gespeichert) bleibt leer. Das Design Center zeigt dieselben zwei als
 // Vorbelegung (GET /embed/defaults, embedDefaultTexts().defaultMessages) und
 // schreibt sie erst, wenn der Kunde die Liste ändert (R5); Kopie als Rückfall
-// vor dem Laden: frontend widgetKeys.js DEFAULT_SUGGESTIONS. Keine Kommas:
-// /config reicht die Liste kommagetrennt weiter, das Widget trennt an Kommas.
+// vor dem Laden: frontend widgetKeys.js DEFAULT_SUGGESTIONS. Kommas sind
+// erlaubt: /config liefert die Listen als JSON-Array (E11).
 const DEFAULT_SUGGESTIONS = Object.freeze({
   de: Object.freeze([
     "Ich suche einen Deutschkurs.",
