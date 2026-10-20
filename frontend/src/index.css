@@ -577,6 +577,32 @@ a {
   /* Firefox */
 }
 
+/* Design Center, Vorschau: sichtbare schmale Bildlaufleiste des Verlaufs im
+   Chatfenster und in der Box „In der Seite“ (Rückmeldung 20.10.2026). Die
+   Farbe des Griffs setzt die Vorschau je Farbschema über
+   --preview-scrollbar-thumb. */
+.preview-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--preview-scrollbar-thumb, rgba(0, 0, 0, 0.3))
+    transparent;
+}
+
+.preview-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  display: block;
+  background: transparent;
+}
+
+.preview-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--preview-scrollbar-thumb, rgba(0, 0, 0, 0.3));
+  border-radius: 4px;
+  min-height: 40px;
+}
+
+.preview-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .z-99 {
   z-index: 99;
 }

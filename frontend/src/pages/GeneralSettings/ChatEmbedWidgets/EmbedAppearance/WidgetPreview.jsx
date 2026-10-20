@@ -12,9 +12,13 @@
 // gespeicherten Wert zeigt sie die Vorbelegung (R5; Untertitel, Start-
 // vorschläge, Willkommensblasen). Lange Wörter brechen um, statt über den
 // Rand zu laufen (Restpunkt 5, rc7: BREAK). Chatfenster und Box „In der
-// Seite“ wachsen mit dem Inhalt und hängen oben; die Vorschau scrollt, wenn
-// das Fenster zu niedrig ist (B-06, R7, D12 rc11: nichts wird abgeschnitten).
-import { useState } from "react";
+// Seite“ haben eine feste Höhe wie live im Widget (Rückmeldung des Nutzers
+// vom 20.10.2026: 77 % der Vorschaufläche bzw. 520 px); der Nachrichten-
+// bereich scrollt innen mit sichtbarer Bildlaufleiste, beim Öffnen steht
+// der Verlauf unten, Begrüßung und Datenschutz-Blase sind durch Hochscrollen
+// erreichbar, nichts wird abgeschnitten (D12 rc11). Beide hängen oben; die
+// Vorschau-Spalte scrollt nur, wenn das Fenster zu niedrig ist (B-06, R7).
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   ChatCircleDots,
   Headset,
@@ -65,6 +69,49 @@ export const BREAK = "[overflow-wrap:anywhere]";
 export const DEFAULT_LOGO =
   "https://www.kufer.de/typo3conf/ext/kubuslayout/Resources/Public/Icons/augenbrauen-3.png";
 
+// Fensterhöhe des Chatfensters in der Vorschau (Rückmeldung des Nutzers vom
+// 20.10.2026): dieselbe Rechnung wie live im Widget am Desktop, bezogen auf
+// die Höhe der Vorschaufläche statt auf 100vh. Live ist das Fenster
+// allm-h-full mit md:allm-max-h-[77%] (Widget src/App.jsx responsiveClasses),
+// also 77 % der Seitenhöhe. Ein fester Wert windowHeight käme nur aus den
+// Serverstandards (Widget src/utils/layout.js bubbleWindowCss: min(max(400 px,
+// windowHeight), 100vh minus Randabstand)); der Server setzt keinen
+// (server/utils/chats/embedStandards.js), deshalb gilt die 77-%-Klasse. Nie
+// unter WINDOW_MIN_HEIGHT_PX (Widget src/utils/layout.js). Ohne Maß
+// (serverseitiges Rendern, vor der ersten Messung) die Mindesthöhe.
+export const WINDOW_MIN_HEIGHT_PX = 400;
+export const WINDOW_HEIGHT_SHARE = 0.77;
+export function previewWindowHeight(areaHeight) {
+  if (!(areaHeight > 0)) return WINDOW_MIN_HEIGHT_PX;
+  return Math.max(
+    WINDOW_MIN_HEIGHT_PX,
+    Math.round(areaHeight * WINDOW_HEIGHT_SHARE)
+  );
+}
+
+// Höhe der aufgeklappten Box „In der Seite“: fest wie live (Serverstandard
+// inlineHeight in server/utils/chats/embedStandards.js, im Widget
+// DEFAULT_INLINE_HEIGHT)
+export const INLINE_PANEL_HEIGHT_PX = 520;
+
+// Verlauf ans Ende scrollen: beim Öffnen steht er unten wie im Widget
+// (Beispiel-Nutzernachricht, Beschriftung und Eingabe sichtbar), Begrüßung
+// und Datenschutz-Blase sind durch Hochscrollen erreichbar. Ohne Maße (kein
+// Browser) passiert nichts.
+export function scrollToEnd(el) {
+  if (!el || typeof el.scrollHeight !== "number") return;
+  el.scrollTop = el.scrollHeight;
+}
+
+// Sichtbare, zum Farbschema passende Bildlaufleiste des Verlaufs
+// (index.css .preview-scrollbar; color-scheme für die Leiste des Systems)
+function scrollbarStyle(palette) {
+  return {
+    colorScheme: palette.scheme,
+    "--preview-scrollbar-thumb": palette.scrollbar,
+  };
+}
+
 // Farben der Vorschau (wie im Mockup)
 const PALETTES = {
   light: {
@@ -80,6 +127,8 @@ const PALETTES = {
     // Flächen, auf denen die Schrift der Pillen 4,5:1 erreichen muss (wie
     // im Widget, theme.js pillTextColor)
     pillTextBgs: ["#ffffff"],
+    scheme: "light",
+    scrollbar: "rgba(0,0,0,0.3)",
   },
   dark: {
     pageBg: "#2b2b31",
@@ -93,6 +142,8 @@ const PALETTES = {
     inputBg: "#141417",
     // Panel der Vorschau und Flächen des dunklen Widgets (DARK.bg, surface)
     pillTextBgs: ["#1d1d21", "#131316"],
+    scheme: "dark",
+    scrollbar: "rgba(255,255,255,0.3)",
   },
 };
 
@@ -119,6 +170,20 @@ export default function WidgetPreview({
 }) {
   const palette = paletteOf(config);
   const inline = displayMode(config) === "inline";
+  // Höhe der Vorschaufläche (die scrollende Spalte) für die Fensterhöhe des
+  // Chatfensters, nachgeführt bei Größenänderung; ohne Browser kein Maß
+  const areaRef = useRef(null);
+  const [areaHeight, setAreaHeight] = useState(null);
+  useLayoutEffect(() => {
+    const el = areaRef.current;
+    if (!el) return undefined;
+    const measure = () => setAreaHeight(el.clientHeight || null);
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   return (
     <div
       className="flex-1 overflow-hidden flex flex-col relative"
@@ -133,18 +198,21 @@ export default function WidgetPreview({
           ? "Vorschau: Eingabeleiste in Ihrer Seite"
           : "Vorschau: so sieht es auf Ihrer Website aus"}
       </p>
-      {/* Scrollt, statt etwas abzuschneiden (Browser-Abnahme B-06: die
-          Datenschutz-Blase im aufgeklappten Inline-Panel). Beide
-          Darstellungen wachsen mit dem Inhalt und hängen deshalb oben, damit
-          nichts springt, wenn Inhalt dazukommt oder wegfällt (R7; seit D12,
-          rc11, auch das Chatfenster: mit fester Höhe 540 px scrollte der
-          Nachrichtenbereich innen und schnitt die Beschriftung der
-          Beispiel-Nutzernachricht ab). Die Spalte ist bewusst kein
-          Flex-Container: als Flex-Element würde die Vorschau auf die Höhe
-          der Spalte gestaucht (align-items: stretch) und schnitte bei
-          1440×900 die Eingabe und den KI-Hinweis unten ab, statt dass die
-          Spalte scrollt. */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-6">
+      {/* Die Vorschaufläche: scrollt, statt etwas abzuschneiden, wenn
+          Fenster bzw. Box samt Chat-Button höher sind als die Spalte (B-06).
+          Beide Darstellungen hängen oben, damit nichts springt, wenn Inhalt
+          dazukommt oder wegfällt (R7). Seit der Rückmeldung vom 20.10.2026
+          haben Chatfenster und Box eine feste Höhe wie live (D12 rc11 ließ
+          sie mit dem Inhalt wachsen, die Vorschau war dadurch deutlich höher
+          als das Widget); der Verlauf scrollt innen mit sichtbarer
+          Bildlaufleiste. Die Spalte ist bewusst kein Flex-Container: als
+          Flex-Element würde die Vorschau auf die Höhe der Spalte gestaucht
+          (align-items: stretch), statt dass die Spalte scrollt. */}
+      <div
+        ref={areaRef}
+        className="flex-1 min-h-0 overflow-y-auto p-6"
+        data-preview="area"
+      >
         <div className="w-full flex justify-center">
           {inline ? (
             <InlinePreview
@@ -161,6 +229,7 @@ export default function WidgetPreview({
               defaults={defaults}
               greetingKey={greetingKey}
               palette={palette}
+              areaHeight={areaHeight}
             />
           )}
         </div>
@@ -512,8 +581,16 @@ function BubblePreview({
   defaults,
   greetingKey,
   palette,
+  areaHeight = null,
 }) {
   const [open, setOpen] = useState(true);
+  const height = previewWindowHeight(areaHeight);
+  // beim Öffnen steht der Verlauf unten wie im Widget (auch nach einer
+  // Änderung der Fensterhöhe)
+  const messagesRef = useRef(null);
+  useLayoutEffect(() => {
+    if (open) scrollToEnd(messagesRef.current);
+  }, [open, height]);
   const accentColor = lookValue(config, "accentColor");
   const isLeft = lookValue(config, "position").includes("left");
   // Willkommensblasen wie am Desktop (KIE-568): „Aus“ = keine; ohne eigene
@@ -530,20 +607,20 @@ function BubblePreview({
     desktopBubbles !== choiceValue(config, "welcomeBubblesMobile");
   return (
     <div className="w-[370px] max-w-full flex flex-col items-stretch">
-      {/* Mindesthöhe 540 px wie das Widget; geöffnet wächst das Fenster mit
-          dem Inhalt (D12, rc11: mit fester Höhe scrollte der Nachrichten-
-          bereich innen bei versteckter Bildlaufleiste und schnitt unten die
-          Beschriftung „Beispiel-Nutzernachricht“ und die Beispiel-Antwort
-          ab). Geschlossen bleiben die Willkommensblasen unten in der
-          540-px-Fläche. */}
+      {/* Feste Höhe wie live (previewWindowHeight: 77 % der Vorschaufläche,
+          mindestens 400 px); der Nachrichtenbereich scrollt innen mit
+          sichtbarer Bildlaufleiste (vor rc11 war sie versteckt und schnitt
+          die Beschriftung „Beispiel-Nutzernachricht“ ab, D12 ließ das
+          Fenster deshalb wachsen). Geschlossen bleiben die Willkommensblasen
+          unten in derselben Fläche, der Chat-Button springt nicht. */}
       <div
         className="flex flex-col justify-end"
-        style={{ minHeight: "540px" }}
+        style={{ height: `${height}px` }}
         data-preview="chat-window"
       >
         {open ? (
           <div
-            className="w-full grow rounded-2xl flex flex-col overflow-hidden"
+            className="w-full flex-1 min-h-0 rounded-2xl flex flex-col overflow-hidden"
             style={{
               backgroundColor: palette.panelBg,
               boxShadow:
@@ -566,7 +643,12 @@ function BubblePreview({
                 </button>
               }
             />
-            <div className="flex-1 px-4 py-4" data-preview="chat-messages">
+            <div
+              ref={messagesRef}
+              className="flex-1 min-h-0 overflow-y-auto preview-scrollbar px-4 py-4"
+              style={scrollbarStyle(palette)}
+              data-preview="chat-messages"
+            >
               <PreviewWelcome
                 config={config}
                 defaults={defaults}
@@ -650,6 +732,11 @@ function InlinePreview({
   palette,
 }) {
   const [expanded, setExpanded] = useState(false);
+  // aufgeklappt steht der Verlauf unten wie im Widget
+  const messagesRef = useRef(null);
+  useLayoutEffect(() => {
+    if (expanded) scrollToEnd(messagesRef.current);
+  }, [expanded]);
   const accentColor = lookValue(config, "accentColor");
   // Eingeklappte Leiste: Demo-Texte bzw. früher gespeicherter Leistentext,
   // nicht der Platzhalter des Chat-Eingabefelds (Entscheidung D2)
@@ -693,14 +780,14 @@ function InlinePreview({
             className="w-full rounded-[40px] flex flex-col overflow-hidden"
             style={{
               backgroundColor: palette.panelBg,
-              // wächst mit dem Inhalt (nichts abgeschnitten); die Vorschau
-              // scrollt, wenn das Fenster zu niedrig ist
-              minHeight: "380px",
+              // feste Höhe wie live (Serverstandard inlineHeight); der
+              // Verlauf scrollt innen mit sichtbarer Bildlaufleiste
+              height: `${INLINE_PANEL_HEIGHT_PX}px`,
               boxShadow: "0 30px 70px -30px rgba(64,36,8,.45)",
             }}
             data-preview="inline-panel"
           >
-            <div className="px-3 pt-2">
+            <div className="px-3 pt-2 flex-shrink-0">
               <PreviewHeader
                 config={config}
                 logoPreview={logoPreview}
@@ -718,7 +805,12 @@ function InlinePreview({
                 }
               />
             </div>
-            <div className="flex-1 px-6 py-4" data-preview="inline-messages">
+            <div
+              ref={messagesRef}
+              className="flex-1 min-h-0 overflow-y-auto preview-scrollbar px-6 py-4"
+              style={scrollbarStyle(palette)}
+              data-preview="inline-messages"
+            >
               <PreviewWelcome
                 config={config}
                 defaults={defaults}
@@ -726,7 +818,7 @@ function InlinePreview({
                 palette={palette}
               />
             </div>
-            <div className="px-3 pb-2">
+            <div className="px-3 pb-2 flex-shrink-0">
               <PreviewInput
                 config={config}
                 defaults={defaults}

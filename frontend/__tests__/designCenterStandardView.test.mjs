@@ -485,7 +485,7 @@ test(
 );
 
 test(
-  "B-06: aufgeklapptes Inline-Panel der Vorschau schneidet nichts ab (keine feste Höhe, kein verstecktes Scrollen)",
+  "B-06 / 20.10.: aufgeklapptes Inline-Panel der Vorschau schneidet nichts ab: feste Höhe wie live (520 px), der Verlauf scrollt innen mit sichtbarer Bildlaufleiste (kein verstecktes Scrollen), Datenschutz-Blase vorhanden",
   { skip },
   async (t) => {
     const mounted = await renderer.mount(PREVIEW, {
@@ -509,14 +509,15 @@ test(
       (el) => el.getAttribute("data-preview") === "inline-panel"
     )[0];
     assert.ok(panel, "Panel aufgeklappt");
-    const style = panel.getAttribute("style") || "";
-    assert.doesNotMatch(style, /(^|;)\s*height:/);
-    assert.doesNotMatch(style, /max-height/);
+    assert.equal(panel.style.height, "520px");
+    assert.ok(!panel.style.maxHeight && !panel.style.minHeight);
     const messages = elements(
       panel,
       (el) => el.getAttribute("data-preview") === "inline-messages"
     )[0];
-    assert.doesNotMatch(messages.getAttribute("class"), /overflow|no-scroll/);
+    assert.match(messages.getAttribute("class"), /\boverflow-y-auto\b/);
+    assert.match(messages.getAttribute("class"), /\bpreview-scrollbar\b/);
+    assert.doesNotMatch(messages.getAttribute("class"), /no-scroll/);
     assert.ok(
       elements(
         panel,
