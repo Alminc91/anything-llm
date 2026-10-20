@@ -131,11 +131,48 @@ export function choiceValue(config, key) {
  * @returns {Object}
  */
 export function withChoice(config, initial = {}, key, value) {
+  return withEffective(config, initial, key, value, (c) => choiceValue(c, key));
+}
+
+// Regel D6 für eine Auswahl: Zeigt der gespeicherte Stand (ohne
+// gespeicherten Wert der Standard) schon die gewählte Option, gilt wieder der
+// gespeicherte Stand, sonst wird die Wahl gesetzt. effective: wirksamer Wert
+// eines Bearbeitungsstands.
+function withEffective(config, initial, key, value, effective) {
   const restored = { ...config };
   if (key in initial) restored[key] = initial[key];
   else delete restored[key];
-  if (choiceValue(restored, key) === value) return restored;
+  if (effective(restored) === value) return restored;
   return { ...config, [key]: value };
+}
+
+// Auswahlen im Reiter Aussehen und ihr wirksamer Wert (wie Markierung und
+// Vorschau): Darstellung, Farbschema, Chat-Icon, Position (F11, Fixliste
+// 7.22-rc13)
+const LOOK_CHOICES = {
+  displayMode: (config) => displayMode(config),
+  theme: (config) => themeChoice(config),
+  chatIcon: (config) => lookValue(config, "chatIcon"),
+  position: (config) => lookValue(config, "position"),
+};
+
+/**
+ * Bearbeitungsstand nach einem Klick auf Darstellung, Farbschema, Chat-Icon
+ * oder Position (F11, Fixliste 7.22-rc13; Regel D6 wie withChoice): Ein
+ * Klick auf die schon markierte Option (gespeichert oder, ohne gespeicherten
+ * Wert, der Standard des Widgets) schreibt nichts. Sonst hätte ein Klick auf
+ * „Links“ bei einem neuen Widget position „bottom-left“ gespeichert, und der
+ * Serverwert schlüge danach ein data-position am Skript.
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {keyof LOOK_CHOICES} key
+ * @param {string} value gewählte Option
+ * @returns {Object}
+ */
+export function withLook(config, initial = {}, key, value) {
+  const effective = LOOK_CHOICES[key];
+  if (!effective) return { ...config, [key]: value };
+  return withEffective(config, initial, key, value, effective);
 }
 
 // Vorbelegung der Listen (R5, Fixliste 7.22-rc8): Ohne gespeicherte Liste
@@ -274,7 +311,12 @@ export function storedUserTextColor(config = {}) {
   const option = USER_TEXT_COLOR_OPTIONS.find(
     (o) => o.value.toLowerCase() === key
   );
-  return option ? option.value : LEGACY_USER_TEXT_COLORS[key] || v;
+  if (option) return option.value;
+  // nur eigene Schlüssel (C1, Fixliste 7.22-rc13): „__proto__“ oder
+  // „constructor“ liefern sonst Object.prototype bzw. die Funktion Object
+  return Object.prototype.hasOwnProperty.call(LEGACY_USER_TEXT_COLORS, key)
+    ? LEGACY_USER_TEXT_COLORS[key]
+    : v;
 }
 
 /**
@@ -460,6 +502,8 @@ export const SUBTITLE_MAX_LEN = 60;
 export const PLACEHOLDER_MAX_LEN = 120;
 export const PRIVACY_TITLE_MAX_LEN = 120;
 export const PRIVACY_TEXT_MAX_LEN = 1000;
+// in Meldungen mit Tausenderpunkt („1.000“, C2 Fixliste 7.22-rc13)
+const PRIVACY_TEXT_MAX_LABEL = PRIVACY_TEXT_MAX_LEN.toLocaleString("de-DE");
 export const PRIVACY_LINES_MAX = 12;
 export const PRIVACY_LINE_MAX_LEN = 500;
 export const URL_MAX_LEN = 512;
@@ -781,7 +825,7 @@ export function privacyTextError(value) {
   const text = textValue(value).trim();
   if (!text) return null;
   if (text.length > PRIVACY_TEXT_MAX_LEN)
-    return `Maximal ${PRIVACY_TEXT_MAX_LEN} Zeichen insgesamt.`;
+    return `Maximal ${PRIVACY_TEXT_MAX_LABEL} Zeichen insgesamt.`;
   const { lines } = privacyLines(text);
   if (lines.length > PRIVACY_LINES_MAX)
     return `Höchstens ${PRIVACY_LINES_MAX} Zeilen.`;
@@ -790,7 +834,7 @@ export function privacyTextError(value) {
     return `Zeile ${tooLong + 1} ist zu lang (maximal ${PRIVACY_LINE_MAX_LEN} Zeichen je Zeile).`;
   // gespeichert wird mit „• “ vor jeder Zeile (Altformat), auch das zählt
   if (normalizePrivacyText(text) === null)
-    return `Maximal ${PRIVACY_TEXT_MAX_LEN} Zeichen insgesamt, mit den Zeichen „• “ am Zeilenanfang.`;
+    return `Maximal ${PRIVACY_TEXT_MAX_LABEL} Zeichen insgesamt, mit den Zeichen „• “ am Zeilenanfang.`;
   return null;
 }
 
@@ -919,18 +963,25 @@ export function validateConfig(config, initial, gKey) {
 /**
  * Vor dem Speichern: nur die bearbeitbaren Felder bereinigen. Schlüssel
  * entfallener Optionen bleiben, wie sie gespeichert sind; es werden keine
- * neuen Darstellungs-Schlüssel geschrieben. Ein Wert, der wieder dem
- * Standard entspricht, entfernt den Schlüssel (R5); Ausnahmen: Untertitel
- * "" und Startvorschläge [] sind bewusste Werte. Dieselbe Funktion bestimmt
- * im Design Center, ob es „Ungespeicherte Änderungen“ gibt (bereinigter
- * Bearbeitungsstand gegen bereinigten gespeicherten Stand).
+ * neuen Darstellungs-Schlüssel geschrieben. Ein Wert, der in dieser Sitzung
+ * auf den Standard gebracht wurde, entfernt den Schlüssel (R5); ein
+ * unverändert gespeicherter Wert, der dem Standard gleicht, bleibt stehen
+ * (F05, Fixliste 7.22-rc13: sonst gälte nach dem Speichern eines anderen
+ * Feldes wieder ein altes data-* am Skript, z. B. data-button-color).
+ * Ausnahmen: Untertitel "" und Startvorschläge [] sind bewusste Werte.
+ * Dieselbe Funktion bestimmt im Design Center, ob es „Ungespeicherte
+ * Änderungen“ gibt (bereinigter Bearbeitungsstand gegen bereinigten
+ * gespeicherten Stand).
  * - Akzentfarbe: leer oder der Standard des Widgets -> entfernen.
  * - Name: leer oder „KI-Berater“ -> entfernen, sonst getrimmt.
  * - Untertitel: Standard -> entfernen; "" bleibt "" (kein Untertitel),
  *   sonst getrimmt.
  * - Begrüßung: leer oder Standardtext -> Schlüssel entfernen, dazu den
  *   anderen eigenen Text (greeting bzw. greetingBubbleText), sonst würde
- *   er sichtbar; unveränderte frühere Vorbelegung bleibt stehen.
+ *   er sichtbar; unveränderte frühere Vorbelegung bleibt stehen. Gälte nach
+ *   dem Speichern der andere eigene Text (etwa weil der Schalter
+ *   „Datenschutz-Hinweis anzeigen“ privacyNotice umstellt, F04 Fixliste
+ *   7.22-rc13), wird er entfernt: Live bleibt der Text aus dem Feld.
  * - Platzhalter: leer oder Standardtext -> entfernen, frühere Vorbelegung
  *   bleibt.
  * - Startvorschläge: leere Zeilen weg; genau die Vorbelegung -> entfernen;
@@ -955,40 +1006,66 @@ export function cleanConfig(
 ) {
   const out = { ...config };
   const drop = (key) => delete out[key];
+  // In dieser Sitzung bearbeitet? Inhaltlich verglichen (Listen sind nach
+  // einer Bearbeitung neue Arrays, auch wenn der Inhalt wieder gleich ist).
+  // Nur ein bearbeiteter Wert gleich dem Standard wird entfernt (F05).
+  const edited = (key) =>
+    JSON.stringify(config[key]) !== JSON.stringify(initial[key]);
+  // Standardwert entfernen, wenn bearbeitet; unverändert gespeichert bleibt
+  // er, wie er ist
+  const dropIfEdited = (key) => {
+    if (edited(key)) drop(key);
+  };
 
   if (typeof out.accentColor === "string") {
     const v = out.accentColor.trim();
-    if (!v || v.toLowerCase() === DEFAULT_ACCENT_COLOR.toLowerCase())
-      drop("accentColor");
+    if (!v) drop("accentColor");
+    else if (v.toLowerCase() === DEFAULT_ACCENT_COLOR.toLowerCase())
+      dropIfEdited("accentColor");
     else out.accentColor = v;
   }
 
   if (typeof out.name === "string") {
     const v = out.name.trim();
-    if (!v || sameAsDefault("name", v, defaults)) drop("name");
+    if (!v) drop("name");
+    else if (sameAsDefault("name", v, defaults)) dropIfEdited("name");
     else out.name = v;
   }
 
+  const otherGreeting =
+    gKey === "greetingBubbleText" ? "greeting" : "greetingBubbleText";
   if (typeof out[gKey] === "string") {
     const v = out[gKey].trim();
     if (!LEGACY_DEFAULT_GREETINGS.includes(v)) {
-      if (!v || sameAsDefault("greeting", v, defaults)) {
+      const standard = v && sameAsDefault("greeting", v, defaults);
+      if (!v || (standard && edited(gKey))) {
         // Standard: auch den anderen eigenen Text entfernen, sonst würde er
         // sichtbar (früherer Blasentext bei Stil „text“ bzw. eine eigene
         // greeting hinter dem Blasentext)
-        const other =
-          gKey === "greetingBubbleText" ? "greeting" : "greetingBubbleText";
         drop(gKey);
-        if (ownText(out[other], LEGACY_DEFAULT_GREETINGS)) drop(other);
-      } else out[gKey] = v;
+        if (ownText(out[otherGreeting], LEGACY_DEFAULT_GREETINGS))
+          drop(otherGreeting);
+      } else if (!standard) out[gKey] = v;
     }
   }
+  // F04 (Fixliste 7.22-rc13): Die Begrüßung bleibt der Text aus dem Feld.
+  // Gälte nach dem Speichern der andere eigene Text (greetingKey hängt an
+  // greetingStyle und privacyNotice, und der Schalter „Datenschutz-Hinweis
+  // anzeigen“ schreibt privacyNotice), wird der andere Text entfernt. Er war
+  // bis dahin nicht zu sehen (weder live noch im Design Center).
+  if (
+    ownText(out[gKey], LEGACY_DEFAULT_GREETINGS) &&
+    ownText(out[otherGreeting], LEGACY_DEFAULT_GREETINGS) &&
+    greetingKey(out) !== gKey
+  )
+    drop(otherGreeting);
 
   if (typeof out.sendMessageText === "string") {
     const v = out.sendMessageText.trim();
     if (!LEGACY_DEFAULT_PLACEHOLDERS.includes(v)) {
-      if (!v || sameAsDefault("sendMessageText", v, defaults))
-        drop("sendMessageText");
+      if (!v) drop("sendMessageText");
+      else if (sameAsDefault("sendMessageText", v, defaults))
+        dropIfEdited("sendMessageText");
       else out.sendMessageText = v;
     }
   }
@@ -996,21 +1073,21 @@ export function cleanConfig(
   if ("assistantSubtitle" in out) {
     const v = textValue(out.assistantSubtitle).trim();
     if (sameAsDefault("assistantSubtitle", v, defaults))
-      drop("assistantSubtitle");
+      dropIfEdited("assistantSubtitle");
     else out.assistantSubtitle = v;
   }
 
   if (Array.isArray(out.defaultMessages)) {
     const items = textItems(out.defaultMessages).map((s) => s.trim());
     if (sameList(items, listDefault("defaultMessages", defaults)))
-      drop("defaultMessages");
+      dropIfEdited("defaultMessages");
     else out.defaultMessages = items;
   }
 
   if (Array.isArray(out.chatbotBubblesMessages)) {
     const items = textItems(out.chatbotBubblesMessages).map((s) => s.trim());
     if (items.length === 0 || sameList(items, DEFAULT_WELCOME_BUBBLES))
-      drop("chatbotBubblesMessages");
+      dropIfEdited("chatbotBubblesMessages");
     else out.chatbotBubblesMessages = items;
   }
 
@@ -1024,7 +1101,8 @@ export function cleanConfig(
 
   if (typeof out.privacyTitle === "string") {
     const v = out.privacyTitle.trim();
-    if (sameAsDefault("privacyTitle", v, defaults)) drop("privacyTitle");
+    if (sameAsDefault("privacyTitle", v, defaults))
+      dropIfEdited("privacyTitle");
     else out.privacyTitle = v;
   }
 

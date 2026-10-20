@@ -19,6 +19,7 @@ import {
   listItems,
   validateConfig,
   withChoice,
+  withLook,
   withPrivacyNotice,
   withUserTextColor,
 } from "./widgetKeys";
@@ -191,6 +192,15 @@ export default function EmbedAppearance() {
     [initialConfig]
   );
 
+  // Darstellung, Farbschema, Chat-Icon und Position: ein Klick auf die schon
+  // markierte Option (gespeichert bzw. Standard) schreibt nichts (F11,
+  // Fixliste 7.22-rc13, widgetKeys.js withLook)
+  const setLook = useCallback(
+    (key, value) =>
+      setConfig((prev) => withLook(prev, initialConfig, key, value)),
+    [initialConfig]
+  );
+
   // Schrift auf der Akzentfarbe: ein Klick auf die schon wirksame Option
   // (gespeichert oder empfohlen) ändert nichts (E1, widgetKeys.js
   // withUserTextColor)
@@ -203,17 +213,20 @@ export default function EmbedAppearance() {
   // Listen (Startvorschläge, Willkommensblasen): bearbeitet wird die
   // gezeigte Liste, ohne gespeicherte Liste also die Vorbelegung (R5,
   // widgetKeys.js listItems); erst eine Änderung bringt sie in den
-  // Bearbeitungsstand
+  // Bearbeitungsstand. Die Vorbelegung der Startvorschläge ist die Liste des
+  // Servers (defaults, GET /embed/defaults), wie im Feld und in der
+  // Vorschau; die Kopie in widgetKeys.js nur, solange sie nicht geladen ist
+  // (F13, Fixliste 7.22-rc13).
   const addListItem = (field) => {
     setConfig((prev) => ({
       ...prev,
-      [field]: [...listItems(prev, field), ""],
+      [field]: [...listItems(prev, field, defaults), ""],
     }));
   };
 
   const updateListItem = (field, index, value) => {
     setConfig((prev) => {
-      const updated = [...listItems(prev, field)];
+      const updated = [...listItems(prev, field, defaults)];
       updated[index] = value;
       return { ...prev, [field]: updated };
     });
@@ -222,7 +235,7 @@ export default function EmbedAppearance() {
   const removeListItem = (field, index) => {
     setConfig((prev) => ({
       ...prev,
-      [field]: listItems(prev, field).filter((_, i) => i !== index),
+      [field]: listItems(prev, field, defaults).filter((_, i) => i !== index),
     }));
   };
 
@@ -364,6 +377,7 @@ export default function EmbedAppearance() {
                 errors={errors}
                 updateField={updateField}
                 setChoice={setChoice}
+                setLook={setLook}
                 setUserTextColor={setUserTextColor}
                 logoPreview={logoPreview}
                 onLogoUpload={handleLogoUpload}

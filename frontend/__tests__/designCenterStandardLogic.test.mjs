@@ -106,7 +106,8 @@ test("F05: 1000 Zeichen gelten auch nach dem Voranstellen von „• “ (wie de
   assert.equal(raw.length, 999);
   assert.equal(
     keys.privacyTextError(raw),
-    "Maximal 1000 Zeichen insgesamt, mit den Zeichen „• “ am Zeilenanfang."
+    // C2 (Fixliste 7.22-rc13): Zahl mit Tausenderpunkt
+    "Maximal 1.000 Zeichen insgesamt, mit den Zeichen „• “ am Zeilenanfang."
   );
   assert.equal(keys.normalizePrivacyText(raw), null);
   assert.equal(server.normalizePrivacyText(raw), null);

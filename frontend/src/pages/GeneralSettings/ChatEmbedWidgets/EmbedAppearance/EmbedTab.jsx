@@ -53,22 +53,68 @@ const SYSTEM_GUIDES = [
 ];
 
 /**
- * Schnipsel für die Anzeige: Umbruchstellen nur nach „/“ (S2, Fixliste
- * 7.22-rc10). CopyBlock zeigt jeden Teil als eigenes, nicht umbrechendes
- * Stück (white-space: pre), damit der Browser nicht von sich aus am
- * Bindestrich oder Punkt bricht („anythingllm-chat-“ / „widget.min.js“,
- * Nachprüfung rc8): ein <wbr> allein verhindert das nicht, Browser brechen
- * an Bindestrichen immer. Früher: Umbruch auch nach „.“ (B-11, rc6) und
- * nach „-“ (Restpunkt 1, rc7). Kopiert wird der Text unverändert (die
- * Teile aneinandergereiht ergeben den Schnipsel). Das „/“ von „</script>“
- * ist keine Umbruchstelle (nur „/“ in den Adressen, also nicht nach „<“).
+ * Text in Teile, jeweils nach einem „/“, das nicht direkt nach „<“ steht
+ * (das „/“ von „</script>“ ist keine Umbruchstelle). Ohne Lookbehind im
+ * regulären Ausdruck (F06, Fixliste 7.22-rc13): Safari kennt Lookbehind erst ab
+ * 16.4, auf älteren Geräten warf der Reiter „Einbau“ beim Zeichnen einen
+ * SyntaxError.
+ * @param {string} text
+ * @returns {string[]} Teile, aneinandergereiht wieder der Text
+ */
+export function splitAfterSlashes(text) {
+  const parts = [];
+  let start = 0;
+  for (let i = 1; i < text.length; i++) {
+    if (text[i] !== "/" || text[i - 1] === "<") continue;
+    parts.push(text.slice(start, i + 1));
+    start = i + 1;
+  }
+  if (start < text.length || parts.length === 0) parts.push(text.slice(start));
+  return parts;
+}
+
+/**
+ * Schnipsel mit Umbruchstellen nur nach „/“ (S2, Fixliste 7.22-rc10): die
+ * Teile (splitAfterSlashes) mit <wbr> dazwischen. Früher: Umbruch auch nach
+ * „.“ (B-11, rc6) und nach „-“ (Restpunkt 1, rc7). Die Teile
+ * aneinandergereiht ergeben den Schnipsel.
  * @param {string} snippet
  * @returns {Array<string|JSX.Element>} Teile (Strings) mit <wbr> dazwischen
  */
 export function snippetWithBreaks(snippet) {
-  return snippet
-    .split(/(?<=[^<]\/)/)
-    .flatMap((part, i) => (i === 0 ? [part] : [<wbr key={i} />, part]));
+  return splitAfterSlashes(snippet).flatMap((part, i) =>
+    i === 0 ? [part] : [<wbr key={i} />, part]
+  );
+}
+
+// Adressen im Schnipsel: Attributwerte in Anführungszeichen mit „/“ (src,
+// data-base-api-url), ohne Leerraum
+const SNIPPET_URL_RE = /"([^"\s]*\/[^"\s]*)"/g;
+
+/**
+ * Schnipsel in Abschnitte für die Anzeige (F07, Fixliste 7.22-rc13): Nur die
+ * Adressen sind nicht umbrechende Stücke mit Umbruchstellen nach „/“
+ * (url: true), damit der Browser dort nicht am Bindestrich oder Punkt bricht
+ * („anythingllm-chat-“ / „widget.min.js“, Nachprüfung rc8). Alle übrigen
+ * Zeilen (z. B. data-embed-id mit der UUID) brechen normal um und bei Bedarf
+ * mitten im Wort (overflow-wrap der Box), statt rechts abgeschnitten zu
+ * werden. Kopiert wird der Text unverändert.
+ * @param {string} snippet
+ * @returns {Array<{text: string, url: boolean}>} aneinandergereiht der Schnipsel
+ */
+export function snippetSegments(snippet) {
+  const segments = [];
+  let last = 0;
+  for (const match of snippet.matchAll(SNIPPET_URL_RE)) {
+    const start = match.index + 1;
+    if (start > last)
+      segments.push({ text: snippet.slice(last, start), url: false });
+    segments.push({ text: match[1], url: true });
+    last = start + match[1].length;
+  }
+  if (last < snippet.length)
+    segments.push({ text: snippet.slice(last), url: false });
+  return segments;
 }
 
 function CopyBlock({ snippet, copiedToast, label }) {
@@ -86,22 +132,31 @@ function CopyBlock({ snippet, copiedToast, label }) {
   };
   return (
     <div className="rounded-lg border border-white/10 bg-theme-settings-input-bg overflow-hidden">
-      {/* Lange Zeilen (src mit Adresse) brechen um, statt waagerecht zu
-          scrollen (Browser-Abnahme B-07), und zwar nur nach „/“
-          (snippetWithBreaks): Jeder Teil ist ein nicht umbrechendes Stück
-          (whitespace-pre: Zeilenumbrüche und Einrückung des Schnipsels
-          bleiben, kein Umbruch am Bindestrich oder Punkt; S2, rc10). Die Box
-          behält overflow-wrap ohne break-all. Kopieren liefert den Text
-          unverändert. */}
+      {/* Lange Zeilen brechen um, statt waagerecht zu scrollen
+          (Browser-Abnahme B-07). Adressen (src, data-base-api-url) nur nach
+          „/“: jeder Teil ein nicht umbrechendes Stück (whitespace-pre, kein
+          Umbruch am Bindestrich oder Punkt; S2, rc10). Die übrigen Zeilen
+          brechen mit overflow-wrap der Box um, auch die Zeile mit der UUID
+          (F07, rc13: vorher bei 768 bis 1000 px rechts abgeschnitten).
+          Zeilenumbrüche und Einrückung bleiben (whitespace-pre-wrap), ohne
+          break-all. Kopieren liefert den Text unverändert. */}
       <pre className="text-xs text-white font-mono p-3.5 whitespace-pre-wrap [overflow-wrap:anywhere]">
-        {snippetWithBreaks(snippet).map((part, i) =>
-          typeof part === "string" ? (
-            <span key={`p${i}`} className="whitespace-pre" data-snippet-part="">
-              {part}
-            </span>
-          ) : (
-            part
-          )
+        {snippetSegments(snippet).map((segment, s) =>
+          segment.url
+            ? snippetWithBreaks(segment.text).map((part, i) =>
+                typeof part === "string" ? (
+                  <span
+                    key={`u${s}-${i}`}
+                    className="whitespace-pre"
+                    data-snippet-part=""
+                  >
+                    {part}
+                  </span>
+                ) : (
+                  <wbr key={`w${s}-${i}`} />
+                )
+              )
+            : segment.text
         )}
       </pre>
       <div className="flex justify-end px-3 pb-3">

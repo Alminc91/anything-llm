@@ -35,13 +35,16 @@ export function SettingsSection({
   );
 }
 
-// Zweispaltiges Raster für kurze, zusammengehörige Felder (R11): ab 1.100 px
-// Fensterbreite nebeneinander (in der 600-px-Spalte je etwa 270 px), darunter
-// untereinander. Ein einzelnes Kind nimmt die halbe Breite (schmales Feld
-// allein, z. B. die Überschrift des Datenschutz-Hinweises). Lange Inhalte
-// (Textfelder mit mehreren Zeilen, Listen, Codeblöcke) gehören nicht hinein.
+// Zweispaltiges Raster für kurze, zusammengehörige Felder (R11): ab Desktop
+// (Tailwind xl, 1.280 px Fensterbreite) nebeneinander, auf Tablet und
+// Smartphone untereinander (E15, Fixliste 7.22-rc13: einheitliche
+// Geräteklassen Smartphone unter 768 px, Tablet 768 bis 1.279 px, Desktop ab
+// 1.280 px; vorher ab 1.100 px). Ein einzelnes Kind nimmt die halbe Breite
+// (schmales Feld allein, z. B. die Überschrift des Datenschutz-Hinweises).
+// Lange Inhalte (Textfelder mit mehreren Zeilen, Listen, Codeblöcke) gehören
+// nicht hinein.
 export const FIELD_PAIR_CLASS =
-  "grid grid-cols-1 min-[1100px]:grid-cols-2 gap-5 items-start";
+  "grid grid-cols-1 xl:grid-cols-2 gap-5 items-start";
 
 export function FieldPair({ children }) {
   return (

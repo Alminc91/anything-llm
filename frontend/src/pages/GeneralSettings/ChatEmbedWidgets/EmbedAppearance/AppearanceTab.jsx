@@ -39,16 +39,15 @@ import {
   userTextColorChoice,
 } from "./widgetKeys";
 
-// Unter „Schrift auf der Akzentfarbe“: Empfehlung nach Kontrast, Hinweis
-// ohne gespeicherten Wert
+// Unter „Schrift auf der Akzentfarbe“: nur die Empfehlung nach Kontrast (S3,
+// Fixliste 7.22-rc10; F12, Fixliste 7.22-rc13: ohne den Zusatz, dass ohne
+// Wahl die Empfehlung gilt; das zeigt die markierte Option)
 function UserTextColorAdvice({ advice }) {
   if (!advice.recommendedLabel) return null;
   return (
     <div className="mt-1.5 space-y-1" data-testid="user-text-advice">
       <p className="text-theme-text-secondary text-xs leading-relaxed">
-        {advice.stored
-          ? `Empfohlen: ${advice.recommendedLabel}`
-          : `Empfohlen: ${advice.recommendedLabel}. Solange Sie nichts wählen, gilt automatisch die Empfehlung.`}
+        {`Empfohlen: ${advice.recommendedLabel}`}
       </p>
     </div>
   );
@@ -157,6 +156,10 @@ export default function AppearanceTab({
   errors = {},
   setChoice = () => {},
   setUserTextColor = (value) => updateField("userTextColor", value),
+  // Darstellung, Farbschema, Chat-Icon, Position: ein Klick auf die schon
+  // markierte Option schreibt nichts (F11, Fixliste 7.22-rc13; index.jsx
+  // mit widgetKeys.js withLook)
+  setLook = (key, value) => updateField(key, value),
   logoPreview,
   onLogoUpload,
   onLogoRemove,
@@ -217,7 +220,7 @@ export default function AppearanceTab({
       <Segmented
         options={themeOptions}
         value={theme}
-        onChange={(v) => updateField("theme", v)}
+        onChange={(v) => setLook("theme", v)}
       />
     </SettingsSection>
   );
@@ -231,7 +234,7 @@ export default function AppearanceTab({
         <Segmented
           options={DISPLAY_MODE_OPTIONS}
           value={mode}
-          onChange={(v) => updateField("displayMode", v)}
+          onChange={(v) => setLook("displayMode", v)}
         />
       </SettingsSection>
 
@@ -327,7 +330,7 @@ export default function AppearanceTab({
                     <button
                       key={id}
                       type="button"
-                      onClick={() => updateField("chatIcon", id)}
+                      onClick={() => setLook("chatIcon", id)}
                       // gewähltes Icon deutlich: Rahmen in der Akzentfarbe des
                       // Design Centers und getönte Fläche (KIE-565 Nachtrag)
                       className={`flex items-center justify-center w-10 h-10 rounded-lg border-2 transition-all ${
@@ -358,7 +361,7 @@ export default function AppearanceTab({
               <Segmented
                 options={POSITION_OPTIONS}
                 value={position}
-                onChange={(v) => updateField("position", v)}
+                onChange={(v) => setLook("position", v)}
               />
             </SettingsSection>
           </FieldPair>

@@ -16,8 +16,10 @@
 // vom 20.10.2026: 77 % der Vorschaufläche bzw. 520 px); der Nachrichten-
 // bereich scrollt innen mit sichtbarer Bildlaufleiste, beim Öffnen steht
 // der Verlauf unten, Begrüßung und Datenschutz-Blase sind durch Hochscrollen
-// erreichbar, nichts wird abgeschnitten (D12 rc11). Beide hängen oben; die
-// Vorschau-Spalte scrollt nur, wenn das Fenster zu niedrig ist (B-06, R7).
+// erreichbar, nichts wird abgeschnitten (D12 rc11). Ändert sich Begrüßung,
+// Datenschutz-Hinweis oder Startvorschläge, scrollt der Verlauf den Block ins
+// Bild (F10, Fixliste 7.22-rc13). Beide hängen oben; die Vorschau-Spalte
+// scrollt nur, wenn das Fenster zu niedrig ist (B-06, R7).
 import { useLayoutEffect, useRef, useState } from "react";
 import {
   ChatCircleDots,
@@ -101,6 +103,81 @@ export const INLINE_PANEL_HEIGHT_PX = 520;
 export function scrollToEnd(el) {
   if (!el || typeof el.scrollHeight !== "number") return;
   el.scrollTop = el.scrollHeight;
+}
+
+// Abstand eines ins Bild gescrollten Blocks zum Rand des Verlaufs (px)
+export const REVEAL_MARGIN_PX = 8;
+
+/**
+ * Neue Bildlaufposition, damit ein Block im Verlauf zu sehen ist (F10,
+ * Fixliste 7.22-rc13): steht er oben außerhalb, so weit hoch, dass seine
+ * Oberkante mit Abstand sichtbar ist; steht er unten außerhalb, so weit
+ * runter, dass seine Unterkante sichtbar ist, aber nie so weit, dass die
+ * Oberkante oben herausfällt. Sichtbar: unverändert.
+ * @param {{scrollTop: number, viewTop: number, viewBottom: number,
+ *   top: number, bottom: number}} m Maße (getBoundingClientRect)
+ * @returns {number}
+ */
+export function revealScrollTop({
+  scrollTop,
+  viewTop,
+  viewBottom,
+  top,
+  bottom,
+}) {
+  const minTop = viewTop + REVEAL_MARGIN_PX;
+  const maxBottom = viewBottom - REVEAL_MARGIN_PX;
+  if (top < minTop) return Math.max(0, scrollTop - (minTop - top));
+  if (bottom > maxBottom)
+    return scrollTop + Math.max(0, Math.min(bottom - maxBottom, top - minTop));
+  return scrollTop;
+}
+
+// Verläufe der Vorschau, die innen scrollen
+const PREVIEW_SCROLLERS = ["chat-messages", "inline-messages"];
+
+/**
+ * Block im Verlauf der Vorschau ins Bild scrollen (nur der Verlauf scrollt,
+ * nicht die Seite). Ohne Maße (kein Browser) passiert nichts.
+ * @param {Element|null} el
+ */
+export function revealInPreview(el) {
+  if (!el || typeof el.getBoundingClientRect !== "function") return;
+  let scroller = el.parentNode;
+  while (
+    scroller &&
+    !(
+      typeof scroller.getAttribute === "function" &&
+      PREVIEW_SCROLLERS.includes(scroller.getAttribute("data-preview"))
+    )
+  )
+    scroller = scroller.parentNode;
+  if (!scroller || typeof scroller.scrollTop !== "number") return;
+  const view = scroller.getBoundingClientRect();
+  const box = el.getBoundingClientRect();
+  const next = revealScrollTop({
+    scrollTop: scroller.scrollTop,
+    viewTop: view.top,
+    viewBottom: view.bottom,
+    top: box.top,
+    bottom: box.bottom,
+  });
+  if (next !== scroller.scrollTop) scroller.scrollTop = next;
+}
+
+// Block nach einer Änderung seines Inhalts ins Bild holen. Nicht beim
+// ersten Zeichnen und nicht, wenn die Standardtexte (GET /embed/defaults)
+// erst nach dem Zeichnen ankommen: dann steht der Verlauf unten wie beim
+// Öffnen (Rückmeldung 20.10.). signature null = Standardtexte noch nicht
+// geladen.
+function useRevealOnChange(ref, signature) {
+  const last = useRef(signature);
+  useLayoutEffect(() => {
+    if (last.current === signature) return;
+    const loaded = last.current !== null;
+    last.current = signature;
+    if (loaded && signature !== null) revealInPreview(ref.current);
+  }, [signature]);
 }
 
 // Sichtbare, zum Farbschema passende Bildlaufleiste des Verlaufs
@@ -238,7 +315,11 @@ export default function WidgetPreview({
   );
 }
 
-// Kopf: Logo, Name, optionaler Untertitel; kein Online-Punkt
+// Kopf: Logo, Name, optionaler Untertitel; kein Online-Punkt. Name und
+// Untertitel werden nie gekürzt, sondern brechen um, der Kopf wird dann
+// höher (mindestens 60 px); der Button rechts bleibt frei (gap-3, 12 px),
+// wie im Widget (N3, Nutzerentscheidung 20.10.2026, Fixliste 7.22-rc13:
+// „Es muss immer ausgeschrieben sein“; ersetzt die Ellipse aus rc10 W1).
 function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
   const name =
     textValue(config.name).trim() || textValue(defaults?.name) || "KI-Berater";
@@ -247,8 +328,9 @@ function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
   const subtitle = subtitleFieldValue(config, defaults).trim();
   return (
     <div
-      className="flex items-center gap-3 px-4 h-[60px] flex-shrink-0"
+      className="flex items-center gap-3 px-4 py-2.5 min-h-[60px] flex-shrink-0"
       style={{ borderBottom: `1px solid ${palette.line}` }}
+      data-preview="header"
     >
       <img
         src={logoPreview || DEFAULT_LOGO}
@@ -257,21 +339,23 @@ function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
       />
       <span className="flex flex-col min-w-0 flex-1">
         <span
-          className="font-semibold text-sm truncate"
+          className={`font-semibold text-sm leading-snug ${BREAK}`}
           style={{ color: palette.text }}
+          data-preview="header-name"
         >
           {name}
         </span>
         {subtitle && (
           <span
-            className="text-[11px] truncate"
+            className={`text-[11px] leading-snug ${BREAK}`}
             style={{ color: palette.muted }}
+            data-preview="header-subtitle"
           >
             {subtitle}
           </span>
         )}
       </span>
-      {action}
+      <span className="flex-shrink-0 flex items-center">{action}</span>
     </div>
   );
 }
@@ -481,6 +565,19 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
     0,
     6
   );
+  // F10 (Fixliste 7.22-rc13): Wer im Reiter Inhalt Begrüßung, Datenschutz-
+  // Hinweis oder Startvorschläge ändert, sieht den Block in der Vorschau,
+  // auch wenn der Verlauf unten steht
+  const greetingRef = useRef(null);
+  const privacyRef = useRef(null);
+  const pillsRef = useRef(null);
+  const loaded = (signature) => (defaults ? signature : null);
+  useRevealOnChange(greetingRef, loaded(greeting));
+  useRevealOnChange(
+    privacyRef,
+    loaded(showPrivacy ? JSON.stringify([title, blocks, url]) : "")
+  );
+  useRevealOnChange(pillsRef, loaded(JSON.stringify(pills)));
   const bubble = {
     backgroundColor: palette.bubbleBg,
     color: palette.text,
@@ -488,6 +585,7 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
   return (
     <div className="w-full space-y-2.5" data-preview="welcome">
       <div
+        ref={greetingRef}
         className={`text-[12.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] ${BREAK}`}
         style={bubble}
         data-preview="greeting-bubble"
@@ -496,6 +594,7 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
       </div>
       {showPrivacy && (
         <div
+          ref={privacyRef}
           className={`text-[11.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] space-y-1 ${BREAK}`}
           style={bubble}
           data-preview="privacy-bubble"
@@ -521,7 +620,11 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
         </div>
       )}
       {pills.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 pt-1" data-preview="pills">
+        <div
+          ref={pillsRef}
+          className="flex flex-wrap gap-1.5 pt-1"
+          data-preview="pills"
+        >
           {pills.map((msg, i) => (
             <SuggestionPill
               key={i}

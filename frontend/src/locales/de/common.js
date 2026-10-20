@@ -1448,8 +1448,8 @@ const TRANSLATIONS = {
       "Fügen Sie dieses Script-Tag in den <head> oder <body> Ihrer Website ein.",
     "copy-failed": "Kopieren nicht möglich. Bitte manuell markieren.",
     "inline-tag": {
-      label: "Optional: Inline-Darstellung",
-      hint: "Ist unter „Erscheinungsbild → Aussehen → Darstellung“ „Inline“ gewählt, fügen Sie diesen Platzhalter an der gewünschten Stelle Ihrer Seite ein. Ohne diesen Platzhalter erscheint weiterhin die Chat-Blase. Das Script-Snippet oben bleibt unverändert.",
+      label: "Optional: Darstellung „In der Seite“",
+      hint: "Ist unter „Erscheinungsbild → Aussehen → Darstellung“ „In der Seite“ gewählt, fügen Sie diesen Platzhalter dort in Ihre Seite ein, wo die Eingabeleiste erscheinen soll. Fehlt der Platzhalter auf einer Seite, erscheint dort automatisch das Chatfenster. Das Skript oben bleibt unverändert.",
       copied: "Platzhalter kopiert.",
     },
     "script-tag": {

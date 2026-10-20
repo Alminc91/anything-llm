@@ -349,12 +349,10 @@ test(
     const t = text(html);
     assert.ok(t.includes("Schrift auf der Akzentfarbe"));
     assert.ok(!t.includes("Schrift in Nutzer-Nachrichten"));
-    assert.ok(
-      t.includes(
-        "Empfohlen: Schwarz. Solange Sie nichts wählen, gilt automatisch die Empfehlung."
-      ),
-      t
-    );
+    // F12 (Fixliste 7.22-rc13, bewusst geändert): nur die Empfehlung, ohne
+    // den Zusatz „Solange Sie nichts wählen …“ (S3, rc10)
+    assert.ok(t.includes("Empfohlen: Schwarz"), t);
+    assert.ok(!t.includes("Solange Sie nichts wählen"), t);
     assert.doesNotMatch(html, /data-testid="user-text-warning"/);
     // Schwarz ist als wirksamer Wert markiert, Weiß nicht
     const pressed = [
@@ -368,7 +366,7 @@ test(
     });
 
     const blue = text(await appearance({ accentColor: "#003366" }));
-    assert.ok(blue.includes("Empfohlen: Weiß."));
+    assert.ok(blue.includes("Empfohlen: Weiß"));
   }
 );
 

@@ -1,11 +1,12 @@
 // Korrekturrunde 7.22-rc9 (Fixliste fixliste-7.22-rc9.md), R11: Reiter
 // Aussehen und Inhalt kompakter. Kurze, zusammengehörige Felder stehen
-// paarweise in einem Zweispalten-Raster (ab 1.100 px Fensterbreite, darunter
-// einspaltig), Hinweise unter dem jeweiligen Feld; Darstellung, Begrüßung,
-// Datenschutz-Text, Link, Listen bleiben einspaltig. Begrüßung und
-// Datenschutz-Text wachsen mit dem Inhalt (Mindesthöhe 2 bzw. 5 Zeilen, keine
-// innere Bildlaufleiste). Willkommensblasen anzeigen mit kurzen
-// Beschriftungen Aus / Erster Besuch / Jeder Besuch (Schlüssel unverändert);
+// paarweise in einem Zweispalten-Raster (ab 1.100 px Fensterbreite, seit
+// rc13 E15 ab 1.280 px, darunter einspaltig), Hinweise unter dem jeweiligen
+// Feld; Darstellung, Begrüßung, Datenschutz-Text, Link, Listen bleiben
+// einspaltig. Begrüßung und Datenschutz-Text wachsen mit dem Inhalt
+// (Mindesthöhe 2 bzw. 5 Zeilen, keine innere Bildlaufleiste).
+// Willkommensblasen anzeigen mit kurzen Beschriftungen Aus / Erster Besuch /
+// Jeder Besuch (Schlüssel unverändert);
 // Desktop und Handy bleiben je eine Zeile, weil zwei Auswahlgruppen in der
 // Größe der übrigen (B-02) nicht in die Spalte passen. „Antworten mit
 // Kursen“ bleibt untereinander, die Auswahl ist zu breit für die halbe
@@ -145,14 +146,17 @@ const inPair = (html, label) => {
 // Raster
 // ---------------------------------------------------------------------------
 
+// E15 (Fixliste 7.22-rc13, bewusst geändert): zweispaltig ab Desktop
+// (Tailwind xl, 1.280 px) statt ab 1.100 px; einzeln geprüft in
+// designCenterFixesRc13.test.mjs
 test(
-  "Raster: einspaltig, ab 1.100 px Fensterbreite zweispaltig",
+  "Raster: einspaltig, ab Desktop (xl, 1.280 px Fensterbreite) zweispaltig",
   { skip },
   async () => {
     const controls = await renderer.load(CONTROLS);
     assert.match(controls.FIELD_PAIR_CLASS, /\bgrid\b/);
     assert.match(controls.FIELD_PAIR_CLASS, /\bgrid-cols-1\b/);
-    assert.match(controls.FIELD_PAIR_CLASS, /\bmin-\[1100px\]:grid-cols-2\b/);
+    assert.match(controls.FIELD_PAIR_CLASS, /(^|\s)xl:grid-cols-2\b/);
     // kein md: (768 px), sonst wären die Spalten bei 1024 px zu schmal
     assert.doesNotMatch(controls.FIELD_PAIR_CLASS, /\bmd:grid-cols/);
   }

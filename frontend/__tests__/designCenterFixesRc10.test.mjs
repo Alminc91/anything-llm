@@ -216,8 +216,12 @@ test(
 // S2 Skriptzeile im Reiter Einbau
 // ---------------------------------------------------------------------------
 
+// F07 (Fixliste 7.22-rc13, bewusst geändert): nicht umbrechend sind nur
+// noch die Adressen (src, data-base-api-url); die übrigen Zeilen, auch
+// data-embed-id mit der UUID, brechen mit overflow-wrap der Box um. Einzeln
+// geprüft in designCenterFixesRc13.test.mjs.
 test(
-  "S2: Skriptzeile bricht nur nach „/“: jeder Teil ein nicht umbrechendes Stück, kein <wbr> nach „.“ oder „-“, Box ohne break-all, Text unverändert",
+  "S2: Adressen im Skript brechen nur nach „/“: jeder Teil ein nicht umbrechendes Stück, kein <wbr> nach „.“ oder „-“, Box ohne break-all, Text unverändert",
   { skip },
   async () => {
     const html = await show(EMBED, { config: {}, embed: { uuid: "abc-123" } });
@@ -229,17 +233,28 @@ test(
       /<span class="whitespace-pre" data-snippet-part="">([\s\S]*?)<\/span>/g;
     const parts = [...pre[1].matchAll(partRe)].map((m) => m[1]);
     assert.ok(parts.length >= 5, String(parts.length));
-    // zwischen den Teilen genau ein <wbr>, sonst nichts
+    // zwischen den Teilen einer Adresse genau ein <wbr>; außerhalb der
+    // Adressen freier Text ohne <wbr>
     for (const between of pre[1]
       .split(partRe)
       .filter((s, i) => i % 2 === 0 && s))
-      assert.match(between, /^<wbr\/?>$/, JSON.stringify(between));
-    for (const part of parts.slice(0, -1)) assert.match(part, /\/$/, part);
-    // Dateiname und Attributnamen bleiben je ein Stück
+      assert.ok(
+        /^<wbr\/?>$/.test(between) || !between.includes("<wbr"),
+        JSON.stringify(between)
+      );
+    // Dateiname bleibt ein Stück, die Teile der Adressen enden mit „/“
     assert.ok(
-      parts.some((p) => p.includes("anythingllm-chat-widget.min.js&quot;&gt;"))
+      parts.includes("anythingllm-chat-widget.min.js"),
+      parts.join("|")
     );
-    assert.ok(parts.some((p) => p.includes("data-base-api-url=&quot;http:/")));
+    assert.ok(parts.includes("http:/"), parts.join("|"));
+    for (const part of parts)
+      assert.ok(
+        part.endsWith("/") || part === "embed" || part.endsWith(".js"),
+        part
+      );
+    // Attributnamen und die Zeile mit der UUID stehen außerhalb der Stücke
+    assert.ok(!parts.some((p) => p.includes("data-")), parts.join("|"));
     assert.doesNotMatch(pre[1], /\.<wbr/);
     assert.doesNotMatch(pre[1], /-<wbr/);
     assert.doesNotMatch(pre[1], /=<wbr/);
