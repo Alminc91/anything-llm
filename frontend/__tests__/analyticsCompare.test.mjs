@@ -289,7 +289,7 @@ test("Tooltip (AK-5): Die zweite Zeile nennt den Abschnitt des Vorzeitraums, zu 
       t: translator(en),
       locale: "en",
     }),
-    "Previous period: Fri, 09.10.2026 — 12 messages"
+    "Previous period: Fri, 09.10.2026 · 12 messages"
   );
 });
 

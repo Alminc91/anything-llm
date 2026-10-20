@@ -913,7 +913,7 @@ test("Fixliste 6, K1: zwei Hinweise zum Blättern – Link-Fall ohne Aufforderun
     assert.doesNotMatch(panel["not-loaded"], retry);
     assert.match(
       panel["not-loaded"],
-      /[Vv]orherige und nächste|previous and next/
+      /[Vv]orherige und nächste|[Pp]revious and next/
     );
     assert.match(panel["next-not-loaded"], retry);
   }

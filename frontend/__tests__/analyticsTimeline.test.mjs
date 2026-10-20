@@ -386,7 +386,7 @@ test("Englische Oberfläche: Namen englisch, Datumsangaben in deutscher Schreibw
       "month",
       english
     ),
-    "October 2026 – until 12.10."
+    "October 2026, until 12.10."
   );
   assert.equal(valueLabel(1, "messages", english.t), "1 message");
 });
