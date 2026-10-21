@@ -795,12 +795,18 @@ export default function ConversationDetail({
           Bereich), und ein Klick in seinen Text setzt den Fokus hierher –
           dann scrollt ↓ den Verlauf, statt die Konversation zu wechseln
           (Review 7.22-rc12, K01; arrowNavigationAllowed). Derselbe
-          Fokusring wie im Kopf statt des Browser-Rings (rc3). */}
+          Fokusring wie im Kopf statt des Browser-Rings (rc3).
+          Bildlauf am Rand (Fixliste 7.22-rc14, K20): Auf dem Desktop
+          (xl:overscroll-auto) geht das Mausrad an die Seite weiter, sobald
+          der Verlauf ganz oben (bzw. unten) steht. So kommt man über dem
+          Verlauf zurück zu Kennzahlen und Diagramm. Als Vollbild (Tablet,
+          Smartphone) hält er ihn wie bisher (overscroll-contain): Die Seite
+          dahinter bleibt stehen. */}
       <div
         ref={bodyRef}
         data-panel-body=""
         tabIndex={0}
-        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 xl:px-5 ${FOCUS_RING}`}
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 xl:overscroll-auto xl:px-5 ${FOCUS_RING}`}
       >
         {!loaded ? (
           <p className={`py-4 text-center text-sm ${MUTED}`}>

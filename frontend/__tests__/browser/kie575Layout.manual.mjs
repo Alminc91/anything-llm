@@ -19,6 +19,12 @@
 // ist die Unterkante des Bereichs sichtbar (K04, 1920×1080 und 1440×900),
 // Tab auf „Weitere laden“ lädt nach, ohne den Fokus zu ziehen (K09), HTML
 // in Antworten ohne style, Links in neuem Tab, Bilder ohne Abruf (K14, E13).
+// Fixliste 7.22-rc14: Mausrad über Liste und Verlauf (K20, 1440×900 und
+// 1920×1080): ganz oben geht es an die Seite, in der Mitte und nach unten
+// scrollt nur die Spalte, Nachladen am Spaltenende wie bisher; Button
+// „Zur Übersicht ↑“ (K21): sichtbar nur auf dem Desktop, Klick bringt die
+// Seite weich an den Anfang (bei reduzierter Bewegung ohne Animation), der
+// Fokus steht danach auf der Überschrift, Tab geht von dort weiter.
 //
 // Der Server ist im Browser nachgestellt (page.route): Es läuft nur der
 // Vite-Dev-Server des Frontends – kein Container, kein Docker. Playwright
@@ -445,6 +451,15 @@ function measure() {
     menuHit: hit(menuButton),
     bubbles,
     loadMore: r(loadMore),
+    // rc14 K21: Button „Zur Übersicht“, die Überschrift der Ansicht und der
+    // Export-Knopf daneben
+    overviewButton: r(q("[data-jump-to-overview]")),
+    overviewButtonText: q("[data-jump-to-overview]")?.textContent ?? null,
+    exportButton: r(q("[data-export-menu] button")),
+    searchInput: r(q("[data-search-input]")),
+    listHeading: r(q("[data-list-heading]")),
+    overviewHeading: r(q("[data-overview-heading]")),
+    activeIsOverviewHeading: !!active?.hasAttribute?.("data-overview-heading"),
     loadMoreDisabled: loadMore ? loadMore.disabled : null,
     loadMoreAriaDisabled: loadMore?.getAttribute("aria-disabled") ?? null,
     // Diagnose: absolut positionierte Elemente, die unter dem Bereich enden
@@ -724,6 +739,189 @@ async function checkAnswerHtml(scenario, page, trackerHits, { width, theme }) {
   check(scenario, "K14 die Mitte der Seite gehört nicht dem eingeschleusten Link", !info.centerIsInjected);
 }
 
+/** Scrollposition der Seite (des scrollenden Rahmens) setzen; "end" = ganz unten. */
+const setPageScroll = (page, value) =>
+  page.evaluate((v) => {
+    const container = document.querySelector("[data-chatbot-content]").parentElement;
+    container.scrollTop = v === "end" ? container.scrollHeight : v;
+    return Math.round(container.scrollTop);
+  }, value);
+
+/** Scrollposition einer Spalte setzen: Zahl, "middle" oder "end". */
+const setColumnScroll = (page, selector, value) =>
+  page.evaluate(
+    ([sel, v]) => {
+      const element = document.querySelector(sel);
+      const max = element.scrollHeight - element.clientHeight;
+      element.scrollTop = v === "end" ? max : v === "middle" ? Math.round(max / 2) : v;
+      return Math.round(element.scrollTop);
+    },
+    [selector, value]
+  );
+
+/**
+ * Mausrad über der Mitte eines Rechtecks. Danach Pause: die Animation des
+ * Rads läuft aus, und das nächste Rad beginnt eine neue Geste (der Browser
+ * bindet eine Geste an den Bereich, in dem sie begann).
+ */
+async function wheelOver(page, rect, deltaY) {
+  await page.mouse.move(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  await page.mouse.wheel(0, deltaY);
+  await page.waitForTimeout(700);
+}
+
+/**
+ * rc14 K20: Liste und Verlauf halten das Mausrad nur, solange sie selbst
+ * scrollen können. Seite ganz unten (Bereich liegt oben an): Spalte ganz
+ * oben, Rad hoch: die Seite scrollt hoch (vorher stand sie); Spalte in der
+ * Mitte, Rad hoch oder runter: nur die Spalte; Rad runter bis ans Ende der
+ * Liste: sie lädt nach, die Seite bleibt. Dasselbe für den Verlauf.
+ * Bewusst so: Steht die Seite noch nicht unten und der Verlauf ganz unten,
+ * rückt die Seite nach, bis der Bereich oben anliegt. Höhe des Bereichs und
+ * des Verlaufs ändern sich dabei nicht.
+ */
+async function checkWheelHandoff(scenario, page, { width, theme }) {
+  const fresh = await page.evaluate(measure);
+  const log = [];
+  const step = async (label, { pageScroll, selector, column, rectOf, deltaY }) => {
+    await setPageScroll(page, pageScroll);
+    await setColumnScroll(page, selector, column);
+    await page.waitForTimeout(250);
+    const before = await page.evaluate(measure);
+    const key = selector === "[data-list-scroll]" ? "scroller" : "panelBody";
+    await wheelOver(page, rectOf(before), deltaY);
+    const after = await page.evaluate(measure);
+    const entry = {
+      label,
+      deltaY,
+      pageBefore: before.page.scrollTop,
+      pageAfter: after.page.scrollTop,
+      pageMax: before.page.scrollHeight - before.page.clientHeight,
+      columnBefore: before[key].scrollTop,
+      columnAfter: after[key].scrollTop,
+      rowsBefore: before.rows,
+      rowsAfter: after.rows,
+      areaHeight: after.area.height,
+      panelHeight: after.panel?.height ?? null,
+    };
+    log.push(entry);
+    return entry;
+  };
+  const listRect = (m) => m.scrollerRect;
+  const bodyRect = (m) => m.panel && { ...m.panel, top: m.panel.top + 140, height: m.panel.height - 200 };
+
+  // Liste
+  let e = await step("Liste oben, Rad hoch", { pageScroll: "end", selector: "[data-list-scroll]", column: 0, rectOf: listRect, deltaY: -300 });
+  check(scenario, "K20 Seite unten, Liste ganz oben (scrollTop 0), Rad hoch: die Seite scrollt hoch, die Liste bleibt oben", e.pageAfter < e.pageBefore - 100 && e.columnAfter === 0, e);
+  e = await step("Liste Mitte, Rad hoch", { pageScroll: "end", selector: "[data-list-scroll]", column: "middle", rectOf: listRect, deltaY: -200 });
+  check(scenario, "K20 Liste in der Mitte, Rad hoch: nur die Liste scrollt, die Seite bleibt unten", e.columnAfter < e.columnBefore && e.columnBefore > 200 && e.pageAfter === e.pageBefore && e.pageBefore === e.pageMax, e);
+  e = await step("Liste Mitte, Rad runter", { pageScroll: "end", selector: "[data-list-scroll]", column: "middle", rectOf: listRect, deltaY: 200 });
+  check(scenario, "K20 Liste in der Mitte, Rad runter: nur die Liste scrollt", e.columnAfter > e.columnBefore && e.pageAfter === e.pageBefore, e);
+  // Rad runter bis ans Ende der Liste: Nachladen wie bisher
+  await setPageScroll(page, "end");
+  await setColumnScroll(page, "[data-list-scroll]", 0);
+  await waitIdle(page);
+  const startRows = (await page.evaluate(measure)).rows;
+  const startPage = (await page.evaluate(measure)).page.scrollTop;
+  for (let i = 0; i < 12; i++) {
+    const m = await page.evaluate(measure);
+    if (m.rows > startRows) break;
+    await wheelOver(page, m.scrollerRect, 600);
+  }
+  await page.waitForTimeout(PAGE_DELAY_MS + 600);
+  const loaded = await page.evaluate(measure);
+  log.push({ label: "Liste bis ans Ende, Rad runter", rowsBefore: startRows, rowsAfter: loaded.rows, pageBefore: startPage, pageAfter: loaded.page.scrollTop });
+  check(scenario, "K20 Rad runter bis ans Ende der Liste: sie lädt nach (wie bisher), die Seite bleibt unten", loaded.rows > startRows && loaded.page.scrollTop === startPage, { rowsBefore: startRows, rows: loaded.rows, pageBefore: startPage, page: loaded.page.scrollTop });
+
+  // Verlauf
+  e = await step("Verlauf oben, Rad hoch", { pageScroll: "end", selector: "[data-panel-body]", column: 0, rectOf: bodyRect, deltaY: -300 });
+  check(scenario, "K20 Seite unten, Verlauf ganz oben, Rad hoch: die Seite scrollt hoch, der Verlauf bleibt oben", e.pageAfter < e.pageBefore - 100 && e.columnAfter === 0, e);
+  e = await step("Verlauf Mitte, Rad hoch", { pageScroll: "end", selector: "[data-panel-body]", column: "middle", rectOf: bodyRect, deltaY: -200 });
+  check(scenario, "K20 Verlauf in der Mitte, Rad hoch: nur der Verlauf scrollt", e.columnAfter < e.columnBefore && e.columnBefore > 100 && e.pageAfter === e.pageBefore, e);
+  e = await step("Verlauf Mitte, Rad runter", { pageScroll: "end", selector: "[data-panel-body]", column: "middle", rectOf: bodyRect, deltaY: 200 });
+  check(scenario, "K20 Verlauf in der Mitte, Rad runter: nur der Verlauf scrollt", e.columnAfter > e.columnBefore && e.pageAfter === e.pageBefore, e);
+  // bewusst so: Seite nicht unten, Verlauf ganz unten, Rad runter – die
+  // Seite rückt nach (höchstens bis zum Ende)
+  const pageEnd = await setPageScroll(page, "end");
+  e = await step("Seite nicht unten, Verlauf unten, Rad runter", { pageScroll: Math.max(0, pageEnd - 250), selector: "[data-panel-body]", column: "end", rectOf: bodyRect, deltaY: 200 });
+  check(scenario, "K20 (bewusst) Seite noch nicht unten, Verlauf ganz unten, Rad runter: die Seite rückt nach, höchstens bis zum Ende", e.pageAfter > e.pageBefore && e.pageAfter <= e.pageMax, e);
+
+  const last = await page.evaluate(measure);
+  check(scenario, "K20 kein Layoutsprung: Höhe von Bereich und Verlauf unverändert", log.every((entry) => entry.areaHeight === undefined || entry.areaHeight === fresh.area.height) && last.area.height === fresh.area.height && last.panel.height === fresh.panel.height, { area: fresh.area.height, panel: fresh.panel.height, heights: log.map((entry) => [entry.areaHeight, entry.panelHeight]) });
+  await setPageScroll(page, "end");
+  await setColumnScroll(page, "[data-list-scroll]", 0);
+  await page.mouse.move(last.scrollerRect.left + last.scrollerRect.width / 2, last.scrollerRect.top + 40);
+  await page.mouse.wheel(0, -300);
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k20-rad-hoch.png`) });
+  results.push({ scenario, phase: "k20", wheel: log });
+}
+
+/**
+ * rc14 K21: „Zur Übersicht ↑“ im Kopf der Konversationen, rechts neben den
+ * Steuerelementen. Von ganz unten: Klick (Maus) bringt die Seite weich an
+ * den Anfang (Zeitraum, Kennzahlen; scrollTop 0), der Fokus steht danach
+ * auf der Überschrift „Konversationen“, Tab geht von dort zum Verweis
+ * „… ansehen ↓“. Bei reduzierter Bewegung (Enter, Tastatur) ohne Animation:
+ * schon nach 50 ms oben.
+ */
+async function checkOverviewJump(scenario, page, { width, theme }) {
+  await setPageScroll(page, "end");
+  await page.waitForTimeout(300);
+  const before = await page.evaluate(measure);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k21-button.png`) });
+  const b = before.overviewButton;
+  check(scenario, "K21 Button „Zur Übersicht ↑“ sichtbar im Kopf der Konversationen", !!b && b.width > 0 && b.height > 0 && before.overviewButtonText === "Zur Übersicht ↑" && b.top >= before.listHeader.top - 1 && b.bottom <= before.listHeader.bottom + 1, { button: b, header: before.listHeader, text: before.overviewButtonText });
+  // Kompakt (Verlauf daneben): rechts in der Zeile der Überschrift, über
+  // der Werkzeugleiste; der Kopf wird dadurch nicht höher
+  check(scenario, "K21 kompakt: rechts in der Zeile der Überschrift (rechter Rand der Spalte, über Suche und Filtern)", !!b && !!before.listHeading && Math.abs(b.right - before.listHeader.right) <= 1 && b.top < before.listHeading.bottom && b.bottom > before.listHeading.top && b.bottom <= before.searchInput.top, { button: b, heading: before.listHeading, search: before.searchInput, header: before.listHeader });
+  const withoutButton = await page.evaluate(() => {
+    const button = document.querySelector("[data-jump-to-overview]");
+    button.style.display = "none";
+    const height = Math.round(document.querySelector("[data-list-header]").getBoundingClientRect().height);
+    button.style.display = "";
+    return height;
+  });
+  check(scenario, "K21 kompakt: der Kopf wird durch den Button nicht höher (die Liste behält ihre Zeilen)", before.listHeader.height === withoutButton, { with: before.listHeader.height, without: withoutButton });
+  check(scenario, "K21 Kopf der Liste ragt mit dem Button nicht über die Spalte", before.headerOverflow === false, { header: before.listHeader, button: b });
+  check(scenario, "K21 Button ganz klickbar (nicht unter dem Benutzermenü)", await page.evaluate(() => {
+    const button = document.querySelector("[data-jump-to-overview]");
+    const box = button.getBoundingClientRect();
+    return [[0.2, 0.5], [0.5, 0.5], [0.9, 0.5]].every(([x, y]) => button.contains(document.elementFromPoint(box.left + box.width * x, box.top + box.height * y)));
+  }));
+
+  // Maus, weiche Bewegung
+  await page.click("[data-jump-to-overview]");
+  await page.waitForTimeout(120);
+  const early = await page.evaluate(() => Math.round(document.querySelector("[data-chatbot-content]").parentElement.scrollTop));
+  await page.waitForTimeout(1500);
+  const after = await page.evaluate(measure);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k21-oben.png`) });
+  check(scenario, "K21 Klick: die Seite steht danach ganz oben (Zeitraum, Kennzahlen; scrollTop 0)", after.page.scrollTop === 0 && after.overviewHeading.top > 0 && after.overviewHeading.bottom < after.innerHeight, { before: before.page.scrollTop, after: after.page.scrollTop, heading: after.overviewHeading });
+  check(scenario, "K21 weich: nach 120 ms unterwegs (weder unten noch oben)", early > 0 && early < before.page.scrollTop, { early, before: before.page.scrollTop });
+  check(scenario, "K21 Fokus danach auf der Überschrift der Ansicht", after.activeIsOverviewHeading, { activeElement: after.activeElement });
+  check(scenario, "K21 Konversation und Adresse bleiben", after.currentRow === before.currentRow && after.url === before.url, { currentRow: after.currentRow, url: after.url });
+  await page.keyboard.press("Tab");
+  const next = await page.evaluate(() => document.activeElement?.hasAttribute("data-jump-to-list") ?? false);
+  check(scenario, "K21 Tab von der Überschrift: weiter zum Verweis „… ansehen ↓“", next);
+
+  // reduzierte Bewegung, Tastatur (Enter)
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await setPageScroll(page, "end");
+  await page.waitForTimeout(300);
+  const bottom = await page.evaluate(measure);
+  await page.focus("[data-jump-to-overview]");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(50);
+  const instant = await page.evaluate(measure);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k21-tastatur.png`) });
+  check(scenario, "K21 reduzierte Bewegung (Enter): ohne Animation, nach 50 ms oben", instant.page.scrollTop === 0 && bottom.page.scrollTop > 0, { before: bottom.page.scrollTop, after: instant.page.scrollTop });
+  check(scenario, "K21 reduzierte Bewegung: Fokus auf der Überschrift", instant.activeIsOverviewHeading, { activeElement: instant.activeElement });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  check(scenario, "K21 Höhe des Bereichs unverändert", after.area.height === before.area.height && instant.area.height === before.area.height, { before: before.area.height, after: after.area.height });
+  results.push({ scenario, phase: "k21", before, after, early, instant: instant.page.scrollTop });
+}
+
 async function wideScenario(browser, { width, height, theme }) {
   const scenario = `${width}x${height} ${theme}`;
   const context = await browser.newContext({
@@ -786,6 +984,14 @@ async function wideScenario(browser, { width, height, theme }) {
   if ((width === 1920 && height === 1080) || (width === 1440 && height === 900)) {
     await checkJumpBottom(scenario, page, { width, theme });
     await checkHistoryArrow(scenario, page);
+    // rc14 K20 (Mausrad) und K21 (Zur Übersicht), jeweils frisch geladen
+    for (const run of [checkWheelHandoff, checkOverviewJump]) {
+      await page.goto(PAGE, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
+      await page.waitForSelector("[data-column]", { timeout: 30_000 });
+      await page.waitForTimeout(400);
+      await run(scenario, page, { width, theme });
+    }
     await page.goto(PAGE, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
     await page.waitForSelector("[data-column]", { timeout: 30_000 });
@@ -944,6 +1150,21 @@ async function wideScenario(browser, { width, height, theme }) {
   check(scenario, "AK-4 ✕ schließt: Liste über die volle Breite", closed.panel === null && closed.emptyPanel === null && Math.abs(closed.column.width - closed.area.width) <= 1, { column: closed.column?.width, area: closed.area?.width, stored: closed.stored });
   check(scenario, "AK-4 „closed“ gemerkt", closed.stored === "closed", { stored: closed.stored });
   check(scenario, "AK-4 Adresse nach ✕ ohne conversation", !/conversation=/.test(closed.url), { url: closed.url });
+  check(scenario, "K21 Verlauf zu (Kopf in voller Form): „Zur Übersicht“ sichtbar, rechts neben „Exportieren“ in derselben Zeile, nichts ragt über die Spalte", !!closed.overviewButton && closed.overviewButton.width > 0 && !!closed.exportButton && closed.overviewButton.left >= closed.exportButton.right && Math.abs(closed.overviewButton.top - closed.exportButton.top) <= 1 && closed.headerOverflow === false, { button: closed.overviewButton, export: closed.exportButton, header: closed.listHeader });
+  // K21 in voller Form, Bereich oben anliegend (der Kopf steht auf der Höhe
+  // des Benutzermenüs): der Button bleibt ganz klickbar
+  await setPageScroll(page, "end");
+  await page.waitForTimeout(300);
+  const closedTop = await page.evaluate(() => {
+    const button = document.querySelector("[data-jump-to-overview]");
+    const box = button.getBoundingClientRect();
+    return {
+      top: Math.round(box.top),
+      right: Math.round(box.right),
+      hits: [0.1, 0.5, 0.95].map((x) => button.contains(document.elementFromPoint(box.left + box.width * x, box.top + box.height / 2))),
+    };
+  });
+  check(scenario, "K21 Verlauf zu, Bereich oben: „Zur Übersicht“ ganz klickbar (nicht unter dem Benutzermenü)", closedTop.hits.every(Boolean), closedTop);
   await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-geschlossen.png`) });
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("[data-conversation-row]", { timeout: 30_000 });
@@ -1002,6 +1223,7 @@ async function tabletScenario(browser, { width, height, theme }) {
   check(scenario, "E15 Tablet: kein Arbeitsbereich (block), Liste scrollt mit der Seite", top.areaDisplay === "block" && top.scroller.overflowY === "visible", { display: top.areaDisplay, overflowY: top.scroller.overflowY });
   check(scenario, "E15 Tablet: Liste über die volle Breite (Inhalt minus 48 px)", Math.abs(top.area.width - (top.content.width - 48)) <= 2, { area: top.area.width, content: top.content.width });
   check(scenario, "E15 Tablet: Kopf der Liste ragt nicht über die Spalte", top.headerOverflow === false, { header: top.listHeader, actions: top.listActions });
+  check(scenario, "K21 Tablet: kein „Zur Übersicht“ (die Seite scrollt normal)", !top.overviewButton || top.overviewButton.width === 0, { button: top.overviewButton });
   await page.click("[data-conversation-row] >> nth=1");
   await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
   await page.waitForTimeout(400);
@@ -1050,11 +1272,24 @@ async function desktopEdgeScenario(browser, { width, height, theme }) {
   check(scenario, "E15 Desktop ab 1.280 px: Arbeitsbereich (flex), Verlauf vorgewählt", m.areaDisplay === "flex" && m.currentRow === ROWS[0].first_chat_id, { display: m.areaDisplay, currentRow: m.currentRow });
   check(scenario, "E15 Verlauf 56 % und mindestens 480 px", m.panel.width >= 480 && (Math.abs(m.panel.width - (m.area.width * 0.56 - 8)) <= 2 || m.panel.width === 480), { panel: m.panel.width, area: m.area.width, column: m.column.width });
   check(scenario, "E15 Kopf der Liste ragt nicht über die schmale Spalte", m.headerOverflow === false, { header: m.listHeader, actions: m.listActions, column: m.column });
+  check(scenario, "K21 1.280 px: „Zur Übersicht ↑“ sichtbar rechts in der Zeile der Überschrift der schmalen Spalte", !!m.overviewButton && m.overviewButton.width > 0 && Math.abs(m.overviewButton.right - m.listHeader.right) <= 1 && m.overviewButton.top < m.listHeading.bottom && m.overviewButton.bottom > m.listHeading.top, { button: m.overviewButton, heading: m.listHeading, column: m.column, header: m.listHeader });
   checkAvatarClearance(scenario, m);
+  // K21 mit Filter: „N von M einsehbar“ ist länger und bricht wie bisher
+  // unter die Überschrift um; der Button bleibt rechts oben, nichts ragt
+  // über die Spalte
+  await page.click("[data-feedback-filters] button >> nth=1");
+  await page.waitForSelector("[data-viewable-count]", { timeout: 10_000 });
+  await page.waitForTimeout(800);
+  const filtered = await page.evaluate(measure);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k21-filter.png`) });
+  check(scenario, "K21 1.280 px mit Filter: Button rechts oben in der Zeile der Überschrift, Kopf ragt nicht über die Spalte", !!filtered.overviewButton && filtered.overviewButton.width > 0 && Math.abs(filtered.overviewButton.right - filtered.listHeader.right) <= 1 && filtered.overviewButton.top < filtered.listHeading.bottom && filtered.overviewButton.bottom > filtered.listHeading.top && filtered.headerOverflow === false, { button: filtered.overviewButton, heading: filtered.listHeading, header: filtered.listHeader, search: filtered.searchInput });
+  await page.click("[data-feedback-filters] button >> nth=0");
+  await page.waitForTimeout(800);
   await page.setViewportSize({ width: width - 1, height });
   await page.waitForTimeout(500);
   const below = await page.evaluate(measure);
   check(scenario, "E15 bei 1.279 px das Tablet: kein Arbeitsbereich", below.areaDisplay === "block", { display: below.areaDisplay });
+  check(scenario, "K21 bei 1.279 px kein „Zur Übersicht“ (Tablet)", !below.overviewButton || below.overviewButton.width === 0, { button: below.overviewButton });
   check(scenario, "keine Fehler der Seite", errors.length === 0, errors);
   results.push({ scenario, phase: "desktop-untergrenze", ...m });
   await context.close();
@@ -1123,6 +1358,7 @@ async function narrowScenario(browser, { width, height, theme }) {
   check(scenario, "AK-8 kein Panel, kein Platzhalter von selbst", top.panel === null && top.emptyPanel === null, { currentRow: top.currentRow });
   check(scenario, "AK-8 Bereich ohne feste Höhe (block), Liste scrollt mit der Seite", top.areaDisplay === "block" && top.scroller.overflowY === "visible", { display: top.areaDisplay, overflowY: top.scroller.overflowY, areaHeight: top.area.height });
   check(scenario, "AK-8 kein Seitenabstand rechts über 24 px", top.innerWidth - top.content.right <= 24, { gap: top.innerWidth - top.content.right });
+  check(scenario, "K21 Smartphone: kein „Zur Übersicht“", !top.overviewButton || top.overviewButton.width === 0, { button: top.overviewButton });
   await page.click("[data-conversation-row] >> nth=0");
   await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
   await page.waitForTimeout(300);

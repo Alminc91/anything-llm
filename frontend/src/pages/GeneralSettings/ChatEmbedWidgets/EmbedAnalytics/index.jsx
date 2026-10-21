@@ -28,9 +28,11 @@ import {
 import {
   AVATAR_CLEARANCE,
   MUTED,
+  OVERVIEW_TARGET,
   effectiveSearch,
   holdScrollTarget,
   isWide,
+  scrollMotion,
 } from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
 import { useDismiss } from "./viewHooks";
@@ -162,6 +164,9 @@ function WidgetAnalytics({ embeds, lastActivity }) {
   const [compare, setCompare] = useState(false);
   const listRef = useRef(null);
   const listHeadingRef = useRef(null);
+  // Anfang der Ansicht und ihre Überschrift: Ziel von „Zur Übersicht“ (K21)
+  const overviewRef = useRef(null);
+  const overviewHeadingRef = useRef(null);
   // Einsehbare Konversationen der Liste (null, solange sie lädt) – für den
   // Verweis in der Kopfzeile.
   const [viewableCount, setViewableCount] = useState(null);
@@ -307,6 +312,18 @@ function WidgetAnalytics({ embeds, lastActivity }) {
     scrollToList();
     listHeadingRef.current?.focus?.({ preventScroll: true });
   };
+  // „Zur Übersicht ↑“ im Kopf der Konversationen (Desktop, Fixliste
+  // 7.22-rc14, K21): zurück an den Anfang der Ansicht (Zeitraum,
+  // Kennzahlen), weich bzw. bei reduzierter Bewegung ohne Animation; der
+  // Fokus auf ihre Überschrift, damit Tastaturnutzer dort weitermachen
+  // (ohne zweites, hartes Scrollen).
+  const jumpToOverview = () => {
+    overviewRef.current?.scrollIntoView?.({
+      behavior: scrollMotion(),
+      block: "start",
+    });
+    overviewHeadingRef.current?.focus?.({ preventScroll: true });
+  };
 
   // Per Link oder nach dem Neuladen mit geöffneter Konversation: einmal zur
   // Liste springen, sobald Kennzahlen und Liste stehen – sonst läge das
@@ -371,8 +388,14 @@ function WidgetAnalytics({ embeds, lastActivity }) {
   );
 
   return (
-    <div className="flex w-full min-w-0 flex-col p-2 md:p-6">
+    // Sprungziel „Zur Übersicht“ (OVERVIEW_TARGET): Die Seite steht danach
+    // ganz oben
+    <div
+      ref={overviewRef}
+      className={`flex w-full min-w-0 flex-col p-2 md:p-6 ${OVERVIEW_TARGET}`}
+    >
       <Header
+        headingRef={overviewHeadingRef}
         embeds={embeds}
         selectedEmbed={selectedEmbed}
         onSelectEmbed={setSelectedEmbed}
@@ -443,6 +466,7 @@ function WidgetAnalytics({ embeds, lastActivity }) {
           onLinkedRowShown={revealLinkedRow}
           onLinkSearchChange={handleLinkSearchChange}
           headingRef={listHeadingRef}
+          onJumpToOverview={jumpToOverview}
           showDeletedHint={showsDeletedHint({
             retentionDays,
             startDay: bucket?.start ?? summaryData?.fromDay ?? fromDay,
@@ -485,9 +509,12 @@ function jumpText(t, count, feedbackFilter, bucket, search = "") {
 
 /**
  * Kopfzeile: Titel mit dem Verweis zur Liste, Widget-Auswahl (nur bei
- * mehreren Widgets) und Zeitraum.
+ * mehreren Widgets) und Zeitraum. headingRef: die Überschrift, auf die
+ * „Zur Übersicht“ den Fokus setzt (tabIndex -1: per Programm fokussierbar,
+ * nicht per Tab).
  */
 function Header({
+  headingRef,
   embeds,
   selectedEmbed,
   onSelectEmbed,
@@ -526,7 +553,12 @@ function Header({
   return (
     <div className="flex flex-wrap gap-3 justify-between items-center mb-6">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="text-white text-2xl font-bold">
+        <h2
+          ref={headingRef}
+          tabIndex={-1}
+          data-overview-heading=""
+          className="text-white text-2xl font-bold"
+        >
           {t("embed-analytics.title")}
         </h2>
         {/* Sprung zur Liste. Ohne einsehbare Konversation entfällt er: Die

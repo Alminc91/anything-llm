@@ -1622,6 +1622,7 @@ const TRANSLATIONS = {
       jump_one: null,
       jump_other: null,
       "jump-pending": null,
+      "to-overview": null,
       "jump-negative_one": null,
       "jump-negative_other": null,
       "jump-positive_one": null,

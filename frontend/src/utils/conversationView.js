@@ -224,7 +224,13 @@ export const WORKSPACE_PANEL_MIN_WIDTH = 480;
  *   bestimmten Texte der Bewertungsmarken (sr-only: position absolute)
  *   gehören so zur Spalte und verlängern nicht die Seite – ohne
  *   positionierten Vorfahren zählten die der unteren Zeilen zur Seite,
- *   die dann über den Bereich hinaus scrollte.
+ *   die dann über den Bereich hinaus scrollte. Ohne overscroll-contain
+ *   (Fixliste 7.22-rc14, K20): Die Spalte hält das Mausrad nur, solange
+ *   sie selbst scrollen kann. Steht sie ganz oben, scrollt die Seite
+ *   weiter hoch zu Kennzahlen und Diagramm; steht sie ganz unten und die
+ *   Seite noch nicht, rückt die Seite nach, bis der Bereich oben anliegt
+ *   (dort endet sie). Vorher kam man nur über den schmalen Spalt zwischen
+ *   den Spalten wieder nach oben.
  * - panel: rechte Spalte – einheitlich 56 % (Liste 44 %, je abzüglich des
  *   halben Spaltenabstands) und mindestens WORKSPACE_PANEL_MIN_WIDTH; kein
  *   eigener Schritt mehr bei 1.536 px und keine schmalere Zone darunter
@@ -237,10 +243,35 @@ export const WORKSPACE_PANEL_MIN_WIDTH = 480;
 export const WORKSPACE = {
   area: "xl:flex xl:gap-4 xl:h-[max(480px,calc(100vh-88px))]",
   column: "xl:flex xl:min-w-0 xl:flex-1 xl:flex-col",
-  scroller:
-    "xl:relative xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain",
+  scroller: "xl:relative xl:min-h-0 xl:flex-1 xl:overflow-y-auto",
   panel: "xl:w-[calc(56%-8px)] xl:min-w-[480px] xl:shrink-0",
 };
+
+/**
+ * Sprungziel „Zur Übersicht“ (Fixliste 7.22-rc14, K21): der Anfang der
+ * Ansicht (Kopfzeile mit Zeitraum, darunter die Kennzahlen). Über der
+ * Ansicht liegt im Seitenrahmen ab md der Abstand pt-12 (48 px,
+ * ChatbotLayout); mit demselben Abstand als scroll-margin steht die Seite
+ * nach dem Sprung ganz oben, wie beim Öffnen. Nur auf dem Desktop (xl):
+ * Nur dort gibt es den Button.
+ */
+export const OVERVIEW_TARGET = "xl:scroll-mt-12";
+
+/** Abfrage „reduzierte Bewegung“ des Systems. */
+export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+/**
+ * Verhalten eines Sprungs der Seite (Fixliste 7.22-rc14, K21): weich,
+ * außer das System wünscht reduzierte Bewegung, dann ohne Animation.
+ * Ohne Fenster oder ohne matchMedia weich.
+ * @returns {"smooth"|"auto"}
+ */
+export function scrollMotion() {
+  const reduce =
+    typeof window !== "undefined" &&
+    !!window.matchMedia?.(REDUCED_MOTION_QUERY)?.matches;
+  return reduce ? "auto" : "smooth";
+}
 
 /**
  * Abstände, mit denen die gewählte Zeile in der Spalte in Sicht kommt

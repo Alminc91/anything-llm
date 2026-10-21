@@ -245,6 +245,9 @@ function cursorAfter(row, maxId) {
  *   sich nicht finden lässt (Fixliste 8, M1)
  * @param {{current: object|null}} [props.headingRef] - Überschrift der Liste
  *   (Ziel des Verweises „Konversationen ansehen" in der Kopfzeile)
+ * @param {() => void} [props.onJumpToOverview] - zurück an den Anfang der
+ *   Ansicht (Zeitraum, Kennzahlen); ohne Angabe kein Button „Zur Übersicht“
+ *   (Fixliste 7.22-rc14, K21)
  */
 export default function ConversationList({
   embedId,
@@ -260,6 +263,7 @@ export default function ConversationList({
   onLinkedRowShown = () => {},
   onLinkSearchChange = () => {},
   headingRef = null,
+  onJumpToOverview = null,
 }) {
   const { t } = useTranslation();
   const place = useConversationLocation();
@@ -1245,6 +1249,28 @@ export default function ConversationList({
   const compactHeader = wide && !!embedId && (chatId !== null || panelShown);
   const wideHeader = (className) => (compactHeader ? "" : className);
 
+  // „Zur Übersicht ↑“ (Fixliste 7.22-rc14, K21): zurück an den Anfang der
+  // Ansicht, nur auf dem Desktop (hidden xl:inline-flex; auf Tablet und
+  // Smartphone scrollt die Seite ohnehin normal). Mit dem Kopf in voller
+  // Form (Verlauf zu) rechts neben „Exportieren“. Kompakt (Verlauf daneben)
+  // füllen Suche, Filter und Export die Zeile der Werkzeugleiste schon bis
+  // rund 2.000 px Fensterbreite; der Button stünde dort in einer eigenen
+  // Zeile und nähme der Liste rund 50 px. Er steht dann rechts neben dem
+  // Titelblock in der Zeile der Überschrift (order-1 wie der Titelblock,
+  // die Leiste folgt in eigener Zeile); reicht der Platz nicht, bricht wie
+  // bisher „N einsehbar“ unter die Überschrift um, der Button bleibt oben.
+  const overviewButton = onJumpToOverview ? (
+    <button
+      type="button"
+      data-jump-to-overview=""
+      onClick={onJumpToOverview}
+      className={`hidden h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg px-3 text-sm text-theme-text-primary transition-colors hover:border-white/20 light:border-gray-200 xl:inline-flex ${compactHeader ? "order-1" : ""} ${FOCUS_RING}`}
+    >
+      {t("embed-analytics.list.to-overview")}
+      <span aria-hidden="true"> ↑</span>
+    </button>
+  ) : null;
+
   // Leerzustand mit Suche: nennt auch die übrigen Filter (Bewertung, Säule).
   const otherFilters = [feedbackLabel, bucket?.label]
     .filter(Boolean)
@@ -1321,6 +1347,7 @@ export default function ConversationList({
                 </span>
               )}
             </div>
+            {compactHeader && overviewButton}
             {/* unter sm „contents“: Die Teile ordnen sich in die Kopfzeile ein.
               Von sm bis xl steht die Leiste in einer eigenen Zeile: Suche so
               breit wie möglich (mindestens 240 px, Basis 0 – nicht die volle
@@ -1416,6 +1443,7 @@ export default function ConversationList({
                   className={`flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-2.5 ${wideHeader("xl:px-3.5")} light:border-gray-200`}
                 />
               </div>
+              {!compactHeader && overviewButton}
             </div>
           </div>
           {/* Filtermarkierungen – eine eigene Zeile nur, wenn ein Filter

@@ -1177,6 +1177,7 @@ const TRANSLATIONS = {
       jump_one: "{{formatted}} Konversation ansehen",
       jump_other: "{{formatted}} Konversationen ansehen",
       "jump-pending": "Konversationen ansehen",
+      "to-overview": "Zur Übersicht",
       "jump-negative_one":
         "{{formatted}} negativ bewertete Konversation ansehen",
       "jump-negative_other":

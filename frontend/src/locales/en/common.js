@@ -1713,6 +1713,7 @@ const TRANSLATIONS = {
       jump_one: "View {{formatted}} conversation",
       jump_other: "View {{formatted}} conversations",
       "jump-pending": "View conversations",
+      "to-overview": "To overview",
       "jump-negative_one": "View {{formatted}} negatively rated conversation",
       "jump-negative_other":
         "View {{formatted}} negatively rated conversations",

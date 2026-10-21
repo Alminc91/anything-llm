@@ -70,6 +70,8 @@ import {
 // Neu seit 7.22-rc13 (E13, E15, K01, K04): über den Namensraum, damit ein
 // fehlender Export nur die Tests trifft, die ihn brauchen
 import * as rc13 from "../src/utils/conversationView.js";
+// Neu seit 7.22-rc14 (K20, K21): ebenso über den Namensraum
+import * as rc14 from "../src/utils/conversationView.js";
 import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
 import { formatDateTimeDE } from "../src/utils/dateTimeDE.js";
 import serverSearch from "../../server/utils/helpers/chat/conversationSearch.js";
@@ -1969,4 +1971,63 @@ test("rc12, K14 / rc13 E13: Der Verlauf der Konversationen bereinigt Antworten m
     "utf8"
   );
   assert.match(shared, /ADD_ATTR: \["target", "rel"\]/);
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc14 (Nutzer 21.10.: Weg zurück nach oben)
+// ---------------------------------------------------------------------------
+
+test("rc14, K20: Die Spalte der Liste gibt den Bildlauf an ihrem Rand an die Seite weiter – kein overscroll an ihr (vorher xl:overscroll-contain: ganz oben blieb das Mausrad in der Spalte, die Seite kam nicht mehr hoch); scrollen kann sie weiterhin selbst", () => {
+  const classes = WORKSPACE.scroller.split(/\s+/).filter(Boolean);
+  assert.ok(
+    !classes.some((name) => /overscroll/.test(name)),
+    WORKSPACE.scroller
+  );
+  for (const name of ["xl:relative", "xl:min-h-0", "xl:flex-1", "xl:overflow-y-auto"])
+    assert.ok(classes.includes(name), name);
+  // auch nicht anderswo im Arbeitsbereich (Bereich, Spalte, Verlauf)
+  for (const value of Object.values(WORKSPACE))
+    assert.doesNotMatch(value, /overscroll/, value);
+});
+
+test("rc14, K21: scrollMotion – der Sprung „Zur Übersicht“ ist weich, bei „reduzierte Bewegung“ ohne Animation; ohne Fenster oder matchMedia weich", () => {
+  assert.equal(rc14.REDUCED_MOTION_QUERY, "(prefers-reduced-motion: reduce)");
+  const original = globalThis.window;
+  try {
+    for (const [reduce, expected] of [
+      [false, "smooth"],
+      [true, "auto"],
+    ]) {
+      const asked = [];
+      globalThis.window = {
+        matchMedia: (query) => {
+          asked.push(query);
+          return { matches: query === rc14.REDUCED_MOTION_QUERY && reduce };
+        },
+      };
+      assert.equal(rc14.scrollMotion(), expected, `reduce: ${reduce}`);
+      assert.deepEqual(asked, [rc14.REDUCED_MOTION_QUERY]);
+    }
+    globalThis.window = {};
+    assert.equal(rc14.scrollMotion(), "smooth", "ohne matchMedia");
+    delete globalThis.window;
+    assert.equal(rc14.scrollMotion(), "smooth", "ohne Fenster");
+  } finally {
+    globalThis.window = original;
+  }
+});
+
+test("rc14, K21: Sprungziel „Übersicht“ – auf dem Desktop landet der Anfang der Ansicht so, dass die Seite ganz oben steht (xl:scroll-mt-12 = 48 px = Abstand md:pt-12 des Seitenrahmens über der Ansicht)", () => {
+  assert.equal(rc14.OVERVIEW_TARGET, "xl:scroll-mt-12");
+  const margin = Number(rc14.OVERVIEW_TARGET.match(/xl:scroll-mt-(\d+)/)?.[1]);
+  const layout = readFileSync(
+    new URL(
+      "../src/pages/GeneralSettings/ChatEmbedWidgets/index.jsx",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  const top = Number(layout.match(/ md:pt-(\d+) /)?.[1]);
+  assert.ok(top > 0, "Abstand des Seitenrahmens gefunden");
+  assert.equal(margin, top);
 });

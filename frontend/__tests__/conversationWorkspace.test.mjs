@@ -1706,3 +1706,207 @@ test(
     same(document.activeElement, rowsOf(container)[40], "Tastatur: erste neue Zeile");
   }
 );
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc14 (Nutzer 21.10.: Weg zurück nach oben)
+// ---------------------------------------------------------------------------
+
+const ANALYTICS_VIEW = `${DIR}/index.jsx`;
+
+/**
+ * Hängt die ganze Ansicht ein (Kopfzeile, Kennzahlen, Diagramme, Liste mit
+ * Verlauf) – mit einem Widget.
+ */
+async function mountView(t, { stored = {} } = {}) {
+  const mounted = await renderer.mount(ANALYTICS_VIEW, {
+    location: LOCATION,
+    route: LOCATION,
+    exportName: "AnalyticsScreen",
+    props: {
+      embedsLoaded: true,
+      embeds: [
+        { id: EMBED_ID, chat_retention_days: null, workspace: { name: "VHS" } },
+      ],
+    },
+    stored,
+  });
+  const { document } = mounted;
+  if (!document.getElementById("root")) {
+    const root = document.createElement("div");
+    root.setAttribute("id", "root");
+    document.body.appendChild(root);
+  }
+  if (!document.body.contains(document.activeElement))
+    document.activeElement = document.body;
+  t.after(() => mounted.unmount());
+  await settle(mounted.act);
+  return mounted;
+}
+
+test(
+  "rc14, K20: Liste und Verlauf geben den Bildlauf am Rand an die Seite weiter – die Spalte der Liste ohne overscroll, der Verlauf auf dem Desktop overscroll-auto (xl:overscroll-auto); als Vollbild auf Tablet und Smartphone hält er ihn wie bisher (overscroll-contain)",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    await workspaceServer(t, { rows: [row(1), row(2)] });
+    const { container, act } = await mountList(t);
+    await act();
+    const scroller = one(container, "data-list-scroll");
+    assert.ok(
+      !classesOf(scroller).some((name) => name.includes("overscroll")),
+      scroller.getAttribute("class")
+    );
+    assert.ok(hasClasses(scroller, ["xl:overflow-y-auto"]));
+    const body = one(container, "data-panel-body");
+    assert.ok(
+      hasClasses(body, ["overflow-y-auto", "overscroll-contain", "xl:overscroll-auto"]),
+      body.getAttribute("class")
+    );
+    // nichts anderes im Arbeitsbereich hält den Bildlauf auf dem Desktop
+    for (const element of elements(one(container, "data-conversation-area")))
+      for (const name of classesOf(element))
+        assert.ok(
+          !/^xl:overscroll-(contain|none)$/.test(name),
+          `${element.tagName}: ${name}`
+        );
+  }
+);
+
+/** Das Element davor unter demselben Elternelement (oder null). */
+const previousOf = (node) => {
+  const siblings = node.parentNode?.childNodes ?? [];
+  return siblings[siblings.indexOf(node) - 1] ?? null;
+};
+
+/** Sprungziel „Übersicht“: der Anfang der Ansicht (genau ein Element). */
+function overviewTargetOf(container, className) {
+  const found = elements(container, (element) =>
+    classesOf(element).includes(className)
+  );
+  assert.equal(found.length, 1, `ein Element mit ${className}`);
+  return found[0];
+}
+
+test(
+  "rc14, K21: Button „Zur Übersicht ↑“ im Kopf der Konversationen, nur auf dem Desktop (hidden xl:inline-flex), Fokusring der Seite – kompakt (Verlauf daneben) rechts in der Zeile der Überschrift, in voller Form (Verlauf zu) rechts neben den Steuerelementen (nach „Exportieren“); der Klick springt weich an den Anfang der Ansicht (Zeitraum, Kennzahlen) und setzt den Fokus ohne zweites Scrollen auf ihre Überschrift (tabIndex −1); nichts wird neu geladen, die Konversation bleibt; die Liste allein (ohne Sprungziel) zeigt ihn nicht",
+  { skip },
+  async (t) => {
+    const { FOCUS_RING, OVERVIEW_TARGET } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    stubWidth(t, true);
+    const server = await workspaceServer(t, { rows: [row(1), row(2)] });
+    const view = await mountView(t);
+    const { container, document, act } = view;
+    assert.ok(panelOf(container), "Verlauf daneben (Vorwahl)");
+
+    const header = one(container, "data-list-header");
+    const button = one(container, "data-jump-to-overview");
+    assert.ok(header.contains(button), "im Kopf der Konversationen");
+    assert.equal(button.tagName, "BUTTON");
+    assert.equal(button.getAttribute("type"), "button");
+    assert.equal(button.textContent, "Zur Übersicht ↑");
+    const arrow = button.lastChild;
+    assert.equal(arrow.textContent.trim(), "↑");
+    assert.equal(arrow.getAttribute("aria-hidden"), "true");
+    // kompakt (Verlauf daneben): in der Zeile der Überschrift rechts neben
+    // dem Titelblock (gleiche Reihenfolge order-1), vor der Werkzeugleiste
+    // in eigener Zeile – die ist voll
+    const title = one(container, "data-list-title");
+    same(button.parentNode, title.parentNode, "in der Zeile der Überschrift");
+    same(previousOf(button), title, "rechts neben dem Titelblock");
+    same(button.nextSibling, one(container, "data-list-tools"));
+    assert.ok(hasClasses(button, ["order-1"]));
+    assert.ok(hasClasses(title, ["order-1", "flex-1"]));
+    // nur auf dem Desktop, Fokusring wie die übrigen Buttons der Ansicht
+    assert.ok(hasClasses(button, ["hidden", "xl:inline-flex"]));
+    assert.ok(hasClasses(button, FOCUS_RING.split(" ")), button.getAttribute("class"));
+
+    // Überschrift der Ansicht: per Programm fokussierbar
+    const heading = one(container, "data-overview-heading");
+    assert.equal(heading.tagName, "H2");
+    assert.equal(heading.textContent, "Konversationen");
+    assert.equal(heading.getAttribute("tabindex"), "-1");
+    const target = overviewTargetOf(container, OVERVIEW_TARGET);
+    assert.ok(target.contains(heading), "das Ziel enthält die Kopfzeile");
+    assert.ok(target.contains(header), "und die Konversationen");
+
+    const scrolls = captureScrolls(t);
+    const current = currentRows(container);
+    const before = server.calls.length;
+    await act(() => click(button));
+    await act();
+    assert.equal(scrolls.length, 1, "genau ein Sprung");
+    same(scrolls[0][0], target, "an den Anfang der Ansicht");
+    assert.deepEqual(scrolls[0][1], { behavior: "smooth", block: "start" });
+    same(document.activeElement, heading, "Fokus auf der Überschrift");
+    assert.deepEqual(heading.lastFocusOptions, { preventScroll: true });
+    assert.equal(server.calls.length, before, "nichts neu geladen");
+    assert.deepEqual(currentRows(container), current);
+    assert.ok(panelOf(container), "der Verlauf bleibt offen");
+
+    // ✕: Kopf in voller Form – rechts neben den Steuerelementen, nach Suche,
+    // Filtern und „Exportieren“
+    await act(() => click(one(container, "data-panel-close")));
+    await act();
+    assert.equal(panelOf(container), null);
+    const full = one(container, "data-jump-to-overview");
+    same(full.parentNode, one(container, "data-list-tools"));
+    same(previousOf(full), one(container, "data-list-actions"));
+    const order = elements(one(container, "data-list-header"));
+    const exportButton = one(container, "data-export-menu").firstChild;
+    assert.ok(order.indexOf(full) > order.indexOf(exportButton), "nach „Exportieren“");
+    assert.ok(hasClasses(full, ["hidden", "xl:inline-flex"]));
+    assert.ok(!classesOf(full).includes("order-1"));
+    assert.ok(hasClasses(full, FOCUS_RING.split(" ")));
+    await view.unmount();
+
+    // Die Liste allein (ohne Sprungziel der Ansicht): kein Button
+    const list = await mountList(t);
+    await list.act();
+    assert.equal(withAttribute(list.container, "data-jump-to-overview").length, 0);
+  }
+);
+
+test(
+  "rc14, K21: Bei „reduzierte Bewegung“ springt „Zur Übersicht“ ohne Animation (behavior auto)",
+  { skip },
+  async (t) => {
+    const { OVERVIEW_TARGET } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    const original = globalThis.window.matchMedia;
+    globalThis.window.matchMedia = (query) => ({
+      matches: query.includes("1280") || query.includes("reduce"),
+      addEventListener() {},
+      removeEventListener() {},
+    });
+    t.after(() => {
+      globalThis.window.matchMedia = original;
+    });
+    await workspaceServer(t, { rows: [row(1), row(2)] });
+    const { container, document, act } = await mountView(t);
+    const scrolls = captureScrolls(t);
+    await act(() => click(one(container, "data-jump-to-overview")));
+    await act();
+    assert.equal(scrolls.length, 1);
+    same(scrolls[0][0], overviewTargetOf(container, OVERVIEW_TARGET));
+    assert.deepEqual(scrolls[0][1], { behavior: "auto", block: "start" });
+    same(document.activeElement, one(container, "data-overview-heading"));
+  }
+);
+
+test(
+  "rc14, K21: Sprachdateien – „Zur Übersicht“ (de) und „To overview“ (en), in den übrigen Sprachen null; keine Gedankenstriche",
+  { skip },
+  async () => {
+    const { resources } = await renderer.load("/src/locales/resources.js");
+    const text = (lang) =>
+      resources[lang].common["embed-analytics"].list["to-overview"];
+    assert.equal(text("de"), "Zur Übersicht");
+    assert.equal(text("en"), "To overview");
+    for (const lang of Object.keys(resources))
+      if (lang !== "de" && lang !== "en") assert.equal(text(lang), null, lang);
+    for (const lang of ["de", "en"]) assert.ok(!/[–—]/.test(text(lang)));
+  }
+);
