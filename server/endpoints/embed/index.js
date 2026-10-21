@@ -230,18 +230,21 @@ function embeddedEndpoints(app) {
         if (embed.history_enabled === false) mapped.historyEnabled = false;
 
         // Startvorschläge (S1 Fixliste 7.22-rc10, Vertrag mit dem Widget
-        // nach E10 bis E12 der Fixliste 7.22-rc13), immer als JSON-Array:
+        // nach E10 bis E12 der Fixliste 7.22-rc13, Vorrang nach E10 neu und
+        // E23 der Fixliste 7.22-rc17), immer als JSON-Array:
         // - gespeicherte Liste: bereinigt (savedList), Einträge mit Komma
         //   bleiben ganz (E11);
         // - gespeichertes [] (oder nur leere Zeilen): [] mit
-        //   defaultMessagesSaved: true, das Widget zeigt dann keine Pillen,
-        //   auch wenn am Skript data-default-messages steht (E10);
+        //   defaultMessagesSaved: true, das Widget zeigt dann keine Pillen;
         // - nichts gespeichert (kein Array): die Standard-Startvorschläge der
-        //   Sprache mit defaultMessagesStandard: true. Das Widget nimmt sie
-        //   nur, wenn am Skript kein data-default-messages steht (Vorrang
-        //   gespeichert vor Skript vor Standard, E10). Die Sprache schickt
-        //   das Widget als ?language= mit (seine Sprache aus data-language,
-        //   E12); fehlend oder unbekannt -> de.
+        //   Sprache mit defaultMessagesStandard: true (Kennzeichen, damit
+        //   das Widget den Standard erkennt). Die Sprache schickt das Widget
+        //   als ?language= mit (seine Sprache aus data-language, E12);
+        //   fehlend oder unbekannt -> de.
+        // Vorrang im Widget: gespeichert (auch leer) vor Standard. Die
+        // Startvorschläge stellt das Design Center ein (Gruppe A, E23): ein
+        // data-default-messages am Skript wirkt nicht, auch wenn nichts
+        // gespeichert ist.
         // Fixture des Vertrags: __tests__/utils/chats/fixtures/
         // embedConfigContract.json, Test __tests__/endpoints/
         // embedConfigContract.test.js (Gegenprobe mit KUFER_EMBED_DIR).

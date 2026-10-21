@@ -373,7 +373,7 @@ test(
 );
 
 test(
-  "B-07/C04/27: Einbau bricht lange Zeilen um, Theme-Farben statt fester Farben, Hinweis auf ältere Angaben am Skript (seit E18 rc16 nur für gespeicherte Werte)",
+  "B-07/C04/27: Einbau bricht lange Zeilen um, Theme-Farben statt fester Farben, Hinweis auf Angaben im Einbau-Code (seit E23 rc17: wirken nicht)",
   { skip },
   async () => {
     for (const config of [{}, { displayMode: "inline" }]) {
@@ -388,11 +388,11 @@ test(
         assert.doesNotMatch(pre, /overflow-x-auto|whitespace-pre[ "]/);
       }
       assert.doesNotMatch(html, /bg-black\/30|bg-white\/5|bg-white\/10/);
-      // E18 (Fixliste 7.22-rc16, bewusst geändert): zugesagt ist nur, dass
-      // gespeicherte Werte ältere Angaben am Skript schlagen (F11)
+      // E23 (Fixliste 7.22-rc17 F50, bewusst geändert; vorher E18 aus
+      // rc16): Angaben zu Aussehen und Texten im Einbau-Code wirken nicht
       assert.ok(
         text(html).includes(
-          "Die Einstellungen kommen automatisch aus dem Design Center. Gespeicherte Einstellungen gelten auch dann, wenn am Skript noch ältere Angaben stehen (z. B. data-theme); ist eine Einstellung nicht gespeichert, wirkt eine solche Angabe weiter."
+          "Der Einbau-Code braucht nur diese Angaben. Aussehen und Texte stellen Sie hier im Design Center ein; Angaben dazu im Einbau-Code wirken nicht."
         ),
         text(html)
       );

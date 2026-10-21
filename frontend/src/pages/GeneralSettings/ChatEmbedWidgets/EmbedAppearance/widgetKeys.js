@@ -162,7 +162,8 @@ const LOOK_CHOICES = {
  * Klick auf die schon markierte Option (gespeichert oder, ohne gespeicherten
  * Wert, der Standard des Widgets) schreibt nichts. Sonst hätte ein Klick auf
  * „Links“ bei einem neuen Widget position „bottom-left“ gespeichert, und der
- * Serverwert schlüge danach ein data-position am Skript.
+ * Serverwert schlüge danach ein data-position am Skript. Seit E23 (Fixliste
+ * 7.22-rc17) wirkt ein data-position ohnehin nicht mehr; die Regel D6 bleibt.
  * @param {Object} config Bearbeitungsstand
  * @param {Object} initial gespeicherter Stand
  * @param {keyof LOOK_CHOICES} key
@@ -972,7 +973,8 @@ export function validateConfig(config, initial, gKey) {
  * auf den Standard gebracht wurde, entfernt den Schlüssel (R5); ein
  * unverändert gespeicherter Wert, der dem Standard gleicht, bleibt stehen
  * (F05, Fixliste 7.22-rc13: sonst gälte nach dem Speichern eines anderen
- * Feldes wieder ein altes data-* am Skript, z. B. data-button-color).
+ * Feldes wieder ein altes data-* am Skript, z. B. data-button-color; seit
+ * E23, Fixliste 7.22-rc17, wirken solche Angaben nicht mehr, F05 bleibt).
  * Ausnahmen: Untertitel "" und Startvorschläge [] sind bewusste Werte.
  * Dieselbe Funktion bestimmt im Design Center, ob es „Ungespeicherte
  * Änderungen“ gibt (bereinigter Bearbeitungsstand gegen bereinigten

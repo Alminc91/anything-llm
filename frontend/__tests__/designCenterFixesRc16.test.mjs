@@ -2,7 +2,8 @@
 // „F · Fork“, Funde aus review-7.22-nachreview-rc15.md), Teil Design Center
 // ohne eingehängte Seite (Logik, serverseitig gerendertes HTML, Doku):
 // F41 Einbau-Text sagt nur noch zu, dass gespeicherte Werte ältere Angaben
-//     am Skript schlagen (Entscheidung E18).
+//     am Skript schlagen (Entscheidung E18). Seit rc17 durch E23 überholt
+//     (F50, F51): bewusst geändert, Prüfung in designCenterFixesRc17.
 // F44 Prüfpunkt 8 der Migrationsdoku: bis 7.21 gespeicherte Widgets haben [].
 // W41 Prüfpunkt 9 (Fork-Teil): Demo-Kopien vergleichen /config ohne Query.
 // E20 F04 bleibt, als bewusste Ausnahme zum Negativfall „Texte bleiben“.
@@ -270,8 +271,12 @@ test(
 // F41 (E18) Einbau-Text und Migrationsdoku
 // ---------------------------------------------------------------------------
 
+// Bewusst geändert in rc17 (F50, E23 ersetzt E18): Der Einbau-Text sagt
+// jetzt, dass Angaben zu Aussehen und Texten im Einbau-Code nicht wirken
+// (designCenterFixesRc17). Hier bleibt: weder die Zusage aus der Zeit vor
+// rc16 noch die aus rc16.
 test(
-  "F41 (E18): Einbau-Text verspricht den Vorrang nur für gespeicherte Einstellungen",
+  "F41 (E18, seit rc17 E23): Einbau-Text ohne die Zusagen von vor rc16 und aus rc16",
   { skip },
   async () => {
     for (const config of [{}, { displayMode: "inline" }]) {
@@ -286,12 +291,7 @@ test(
         ),
         shown
       );
-      assert.ok(
-        shown.includes(
-          "Gespeicherte Einstellungen gelten auch dann, wenn am Skript noch ältere Angaben stehen (z. B. data-theme); ist eine Einstellung nicht gespeichert, wirkt eine solche Angabe weiter."
-        ),
-        shown
-      );
+      assert.ok(!shown.includes("wirkt eine solche Angabe weiter"), shown);
       // Textregeln: keine Gedankenstriche
       assert.doesNotMatch(shown, /[–—]/);
     }
@@ -307,19 +307,10 @@ function checkpoint(doc, n) {
   return match[1].replace(/\s+/g, " ");
 }
 
-test("F41 (E18), F44, W41, E20: Migrationsdoku", () => {
+// Bewusst geändert in rc17 (F51, E23 ersetzt E18): Prüfpunkt 10 und der
+// Absatz zu E18 sind überholt, ihre Prüfung steht in designCenterFixesRc17.
+test("F44, W41, E20: Migrationsdoku (E18 seit rc17 durch E23 ersetzt)", () => {
   const doc = fs.readFileSync(MIGRATION, "utf8");
-  // E18: Folge von F11 für ältere Darstellungs-Attribute am Skript
-  const p10 = checkpoint(doc, 10);
-  for (const attr of [
-    "data-theme",
-    "data-display-mode",
-    "data-position",
-    "data-chat-icon",
-  ])
-    assert.ok(p10.includes(`\`${attr}\``), attr);
-  assert.match(p10, /solange im Design Center dafür kein Wert gespeichert ist/);
-  assert.match(doc, /Gespeicherte Werte schlagen ältere Angaben am Skript/);
   // F44: Prüfpunkt 8 nennt das [] der bis 7.21 gespeicherten Widgets
   const p8 = checkpoint(doc, 8);
   assert.match(p8, /Bis 7\.21 gespeicherte Widgets haben `\[\]`/);

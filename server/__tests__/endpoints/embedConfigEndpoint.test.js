@@ -955,3 +955,110 @@ describe("GET /embed/:embedId/config — Speichern und Ausliefern (echte EmbedCo
     }
   });
 });
+
+// E23 und E24 (Fixliste 7.22-rc17): Die Migrationsdoku teilt die Angaben im
+// Einbau-Code in Gruppen. Gruppe A (im Design Center einstellbar) muss jedes
+// Skript-Attribut nennen, dessen Schlüssel /config aus einem Feld des Design
+// Centers liefert; feste Standards ohne Feld (Gruppe B) stehen nicht darin,
+// der KI-Hinweis steht unter E24. Die Schlüssel kommen aus der Antwort des
+// Endpunkts, nicht aus einer Liste im Test.
+describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers ab", () => {
+  const fs = require("fs");
+  const path = require("path");
+  const doc = fs.readFileSync(
+    path.join(__dirname, "../../../docs/design-center-2-migration.md"),
+    "utf8"
+  );
+  // Abschnitt einer Gruppe: vom fett gesetzten Namen bis zum nächsten Punkt
+  const bullet = (name) => {
+    const start = doc.indexOf(`- **${name}`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = doc.indexOf("\n- **", start + 1);
+    return doc.slice(start, end < 0 ? undefined : end).replace(/\s+/g, " ");
+  };
+  const attr = (key) =>
+    `data-${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
+  // Willkommensblasen je Gerät: dazu die früheren Angaben des Widgets
+  const LEGACY_ATTRS = {
+    welcomeBubblesDesktop: [
+      "data-display-chatbot-bubbles",
+      "data-bubble-persistence",
+    ],
+    welcomeBubblesMobile: [
+      "data-display-chatbot-bubbles",
+      "data-bubble-persistence",
+    ],
+  };
+  // jedes Feld des Design Centers 2.0 mit einem eigenen Wert
+  const ALL_FIELDS = {
+    displayMode: "inline",
+    theme: "dark",
+    accentColor: "#123456",
+    userTextColor: "#FFFFFF",
+    logoUrl: "https://example.org/logo.png",
+    chatIcon: "magic",
+    position: "bottom-right",
+    courseCards: "auto",
+    courseCardsPosition: "below",
+    name: "Kursberater",
+    assistantSubtitle: "Fragen Sie mich",
+    greeting: "Guten Tag!",
+    sendMessageText: "Ihre Frage",
+    defaultMessages: ["Yoga"],
+    chatbotBubblesMessages: ["Hallo"],
+    welcomeBubblesDesktop: "every",
+    welcomeBubblesMobile: "off",
+    supportEmail: "info@example.org",
+    privacyNotice: "bubble",
+    privacyTitle: "Hinweis",
+    privacyText: "Eigener Text",
+    privacyUrl: "https://example.org/datenschutz",
+  };
+  const FIXED = new Set([
+    ...Object.keys(EMBED_FIXED_STANDARDS),
+    ...Object.keys(INLINE_FIXED_STANDARDS),
+  ]);
+  const FLAGS = ["defaultMessagesSaved", "defaultMessagesStandard"];
+
+  test("jedes Skript-Attribut eines Design-Center-Felds steht in Gruppe A", async () => {
+    const { body } = await fetchConfig(ALL_FIELDS);
+    const groupA = bullet("Gruppe A");
+    const keys = Object.keys(body).filter(
+      (key) => !FIXED.has(key) && !FLAGS.includes(key)
+    );
+    // genug Schlüssel aus Feldern (Farbe, Logo, Name, Listen, Datenschutz …)
+    expect(keys.length).toBeGreaterThanOrEqual(20);
+    const missing = keys
+      .flatMap((key) => [attr(key), ...(LEGACY_ATTRS[key] ?? [])])
+      .filter((name) => !groupA.includes(`\`${name}\``));
+    expect(missing).toEqual([]);
+    // Akzentfarbe: auch die CSS-Variablen der Seite wirken nicht
+    for (const cssVar of ["--allm-accent", "--allm-on-accent"])
+      expect(groupA).toContain(`\`${cssVar}\``);
+  });
+
+  test("feste Standards (Gruppe B) nicht in Gruppe A, KI-Hinweis unter E24, Technik in Gruppe C", () => {
+    const groupA = bullet("Gruppe A");
+    for (const key of FIXED) expect(groupA).not.toContain(`\`${attr(key)}\``);
+    expect(bullet("Gruppe B")).toMatch(
+      /Einbau-Angabe schlägt den festen\s+Standard/
+    );
+    const e24 = bullet("KI-Hinweis (E24)");
+    for (const name of ["data-disclaimer", "data-disclaimer-text"])
+      expect(e24).toContain(`\`${name}\``);
+    expect(e24).toMatch(/auf keinem Weg abschaltbar oder änderbar/);
+    const groupC = bullet("Gruppe C");
+    for (const name of [
+      "data-embed-id",
+      "data-base-api-url",
+      "data-language",
+      "data-mount",
+      "data-username",
+    ])
+      expect(groupC).toContain(`\`${name}\``);
+    // E18 aus 7.22-rc16 ist überholt
+    expect(doc).not.toMatch(
+      /Gespeicherte Werte schlagen ältere Angaben am Skript/
+    );
+  });
+});

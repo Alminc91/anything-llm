@@ -81,9 +81,9 @@ function embedDefaultsLanguage(value) {
 // hat keine eigenen. Ohne gespeicherte Liste (visual_config.defaultMessages
 // fehlt oder ist keine Liste) liefert GET /embed/:id/config diese zwei
 // Beispiele als Array mit defaultMessagesStandard: true aus; das Widget
-// nimmt sie nur ohne data-default-messages am Skript (E10, Fixliste
-// 7.22-rc13). Ein gespeichertes [] (im Design Center alle gelöscht und
-// gespeichert) bleibt leer. Das Design Center zeigt dieselben zwei als
+// nimmt sie, ein data-default-messages am Skript wirkt nicht (E10 neu und
+// E23, Fixliste 7.22-rc17). Ein gespeichertes [] (im Design Center alle
+// gelöscht und gespeichert) bleibt leer. Das Design Center zeigt dieselben zwei als
 // Vorbelegung (GET /embed/defaults, embedDefaultTexts().defaultMessages) und
 // schreibt sie erst, wenn der Kunde die Liste ändert (R5); Kopie als Rückfall
 // vor dem Laden: frontend widgetKeys.js DEFAULT_SUGGESTIONS. Kommas sind

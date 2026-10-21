@@ -1,8 +1,8 @@
 // Design Center › Einbau: Schritt 1 das Skript (echte Werte dieses Widgets),
 // Schritt 2 der Platzhalter nur bei Darstellung „In der Seite“, dazu eine
 // kurze Anleitung für WordPress, TYPO3 und andere Systeme. Alle
-// Einstellungen kommen aus dem Design Center, data-*-Attribute für die
-// Darstellung sind nicht nötig.
+// Einstellungen kommen aus dem Design Center; data-*-Attribute für das, was
+// das Design Center einstellt, wirken nicht (E23, Fixliste 7.22-rc17).
 import { useState } from "react";
 import { Check, CopySimple } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
@@ -232,17 +232,16 @@ export default function EmbedTab({ config, embed }) {
   const inline = displayMode(config) === "inline";
   return (
     <>
-      {/* E18 (Fixliste 7.22-rc16): zugesagt ist nur, dass gespeicherte
-          Werte ältere Angaben am Skript schlagen; ein Klick auf die schon
-          markierte Option schreibt nichts (F11), ohne gespeicherten Wert
-          wirkt die Angabe am Skript also weiter */}
+      {/* E23 (Fixliste 7.22-rc17, ersetzt E18 aus rc16): Was das Design
+          Center einstellt (Gruppe A), gilt nur aus dem Design Center,
+          gespeichert oder als Standard; Angaben dazu im Einbau-Code (etwa
+          data-theme) wirken nicht, auch ohne gespeicherten Wert */}
       <p className="text-theme-text-secondary text-xs leading-relaxed">
         Beim Chatfenster genügt das Skript, bei „In der Seite“ kommt der
-        Platzhalter dazu. Die Einstellungen kommen automatisch aus dem Design
-        Center. Gespeicherte Einstellungen gelten auch dann, wenn am Skript noch
-        ältere Angaben stehen (z. B. data-theme); ist eine Einstellung nicht
-        gespeichert, wirkt eine solche Angabe weiter. Nach dem Speichern muss
-        auf der Website nichts geändert werden.
+        Platzhalter dazu. Der Einbau-Code braucht nur diese Angaben. Aussehen
+        und Texte stellen Sie hier im Design Center ein; Angaben dazu im
+        Einbau-Code wirken nicht. Nach dem Speichern muss auf der Website nichts
+        geändert werden.
       </p>
 
       <Step

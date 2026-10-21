@@ -1,8 +1,10 @@
 /* eslint-env jest, node */
 // Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13,
-// Entscheidungen E10 bis E12): Startvorschläge und Willkommensblasen als
-// JSON-Array, ein gespeichertes [] mit defaultMessagesSaved, der Standard der
-// Sprache mit defaultMessagesStandard, die Sprache aus ?language=. Die Fälle
+// Entscheidungen E10 bis E12; Vorrang nach E10 neu und E23, Fixliste
+// 7.22-rc17): Startvorschläge und Willkommensblasen als JSON-Array, ein
+// gespeichertes [] mit defaultMessagesSaved, der Standard der Sprache mit
+// defaultMessagesStandard, die Sprache aus ?language=. Im Widget gilt
+// gespeichert vor Standard; Skript-Attribute dazu wirken nicht. Die Fälle
 // stehen in __tests__/utils/chats/fixtures/embedConfigContract.json, einer
 // wortgleichen Kopie von tests/fixtures/embedConfigContract.json im
 // Widget-Repo (dort prüft tests/embed-config-contract.test.js die
@@ -161,6 +163,33 @@ describe("Vertrag /config (E10 bis E12): Fälle der Fixture über HTTP wie das W
         }
     }
   );
+
+  // E23 (Fixliste 7.22-rc17, E10 neu): Startvorschläge und
+  // Willkommensblasen stellt das Design Center ein (Gruppe A). In keinem Fall
+  // der Fixture ändert ein Skript-Attribut die aufgelöste Liste: Das Widget
+  // zeigt die Liste aus der Antwort des Servers (kommagetrennt nur bei einem
+  // älteren Server), ohne Liste keine Startvorschläge bzw. die
+  // Standardblasen ([]). Bis rc16 galt das Skript-Attribut vor dem Standard.
+  test("E23: kein Skript-Attribut ändert Startvorschläge oder Willkommensblasen", () => {
+    const list = (v) =>
+      Array.isArray(v)
+        ? v
+        : String(v)
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+    let withScript = 0;
+    for (const c of CONTRACT.cases)
+      for (const key of ["defaultMessages", "chatbotBubblesMessages"]) {
+        if (!(key in c.widget)) continue;
+        const fromServer = key in c.config ? list(c.config[key]) : [];
+        expect([c.name, key, c.widget[key]]).toEqual([c.name, key, fromServer]);
+        if (c.script?.[key] !== undefined) withScript++;
+      }
+    // genug Fälle mit gesetztem Skript-Attribut (gespeichert, Standard,
+    // gespeichertes [], älterer Server)
+    expect(withScript).toBeGreaterThanOrEqual(6);
+  });
 
   // Fälle, die nur den Server betreffen (das Widget sieht dieselben Antworten
   // wie in der Fixture)

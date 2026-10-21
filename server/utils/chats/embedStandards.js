@@ -7,8 +7,13 @@
 // Gerät (KIE-568). Gespeicherte Altwerte bleiben in
 // visual_config stehen, werden aber beim Ausliefern (GET /embed/:id/config)
 // und beim Prompt pro Embed (utils/chats/embed.js) ignoriert bzw. durch den
-// Standard ersetzt. Das Widget erzwingt dieselben Werte zusätzlich selbst
-// (auch ohne Server-Wert, z. B. bei alten Script-Attributen).
+// Standard ersetzt. Das Widget setzt dieselben Werte zusätzlich selbst
+// (auch ohne Server-Wert). Rangfolge im Widget nach E23 (Fixliste
+// 7.22-rc17): Was das Design Center einstellt, gilt nur aus dem Design
+// Center (Skript-Angaben und CSS-Variablen der Seite wirken nicht); die
+// festen Standards hier dürfen Entwickler per Skript-Angabe verfeinern, die
+// Skript-Angabe schlägt den gelieferten festen Standard. Ausnahme KI-Hinweis
+// (E24): auf keinem Weg abschaltbar oder änderbar.
 //
 // Eine Quelle für beide Wege: applyEmbedStandards (Konfiguration ans
 // Widget) und courseCardsValue (Karten an/aus, Prompt-Abschnitt).

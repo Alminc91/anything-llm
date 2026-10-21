@@ -1,5 +1,5 @@
 {
-  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true. chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang: gespeichert (auch leer) vor Skript-Attribut vor Standard. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. Bei Änderung hier UND im Fork nachziehen.",
+  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true. chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang (E10 neu, E23 und E24, Fixliste 7.22-rc17): gespeichert (auch leer) vor Standard; Startvorschläge und Willkommensblasen stellt das Design Center ein (Gruppe A), Skript-Attribute dazu (data-default-messages, data-chatbot-bubbles-messages) wirken nicht, auch wenn nichts gespeichert ist und auch mit älterem Server. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. Bei Änderung hier UND im Fork nachziehen.",
   "standardSuggestions": {
     "de": ["Ich suche einen Deutschkurs.", "Gibt es Excel-Kurse am Abend?"],
     "en": [
@@ -76,7 +76,7 @@
       }
     },
     {
-      "name": "nichts gespeichert, Skript-Attribut gesetzt: Skript-Attribut vor Standard",
+      "name": "nichts gespeichert, Skript-Attribut gesetzt: Standard, das Skript-Attribut wirkt nicht (E23)",
       "request": { "language": "de" },
       "visualConfig": {},
       "config": {
@@ -87,10 +87,15 @@
         "defaultMessagesStandard": true
       },
       "script": { "defaultMessages": "Spanisch A1, Yoga" },
-      "widget": { "defaultMessages": ["Spanisch A1", "Yoga"] }
+      "widget": {
+        "defaultMessages": [
+          "Ich suche einen Deutschkurs.",
+          "Gibt es Excel-Kurse am Abend?"
+        ]
+      }
     },
     {
-      "name": "gespeicherte Liste: gewinnt gegen das Skript-Attribut, Einträge mit Komma bleiben ganz",
+      "name": "gespeicherte Liste: gilt, das Skript-Attribut wirkt nicht, Einträge mit Komma bleiben ganz",
       "request": { "language": "de" },
       "visualConfig": {
         "defaultMessages": [
@@ -123,7 +128,7 @@
       "widget": { "defaultMessages": [] }
     },
     {
-      "name": "Willkommensblasen gespeichert: Array, Blase mit Komma bleibt ganz, gewinnt gegen das Skript-Attribut",
+      "name": "Willkommensblasen gespeichert: Array, Blase mit Komma bleibt ganz, das Skript-Attribut wirkt nicht",
       "request": { "language": "de" },
       "visualConfig": {
         "chatbotBubblesMessages": ["Hallo, schön, dass Sie da sind!", " "]
@@ -137,20 +142,20 @@
       }
     },
     {
-      "name": "Willkommensblasen nicht gespeichert: kein Schlüssel, das Skript-Attribut gilt (kommagetrennt)",
+      "name": "Willkommensblasen nicht gespeichert: kein Schlüssel, Standardblasen des Widgets, das Skript-Attribut wirkt nicht (E23)",
       "request": { "language": "de" },
       "visualConfig": {},
       "config": {},
       "configAbsent": ["chatbotBubblesMessages"],
       "script": { "chatbotBubblesMessages": "Hallo, Willkommen" },
-      "widget": { "chatbotBubblesMessages": ["Hallo", "Willkommen"] }
+      "widget": { "chatbotBubblesMessages": [] }
     },
     {
-      "name": "älterer Server ohne Startvorschläge: das Skript-Attribut gilt wie bisher",
+      "name": "älterer Server ohne Startvorschläge: keine, das Skript-Attribut wirkt nicht (E23)",
       "fork": false,
       "config": {},
       "script": { "defaultMessages": "Spanisch A1,Yoga" },
-      "widget": { "defaultMessages": ["Spanisch A1", "Yoga"] }
+      "widget": { "defaultMessages": [] }
     },
     {
       "name": "älterer Server mit kommagetrennter Liste: wird getrennt wie bisher",
