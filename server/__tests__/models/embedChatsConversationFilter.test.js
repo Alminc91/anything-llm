@@ -382,31 +382,43 @@ describe("Vorschau der ersten Frage (Nachtrag KIE-560, K1)", () => {
     expect(() => encodeURIComponent(cut)).not.toThrow();
   });
 
-  test("sehr lange Frage: liest nur den Anfang, Ergebnis wie bei kurzer", () => {
+  test("sehr lange Frage: Ergebnis wie bei kurzer; viel Leerraum dazwischen zählt nicht", () => {
     const huge = `${words(80)} ${"q".repeat(100_000)}`;
     const result = preview(huge);
     expect(result).toBe(preview(words(80)));
-    // nur Leerraum nach dem Anfang: gekürzt, also mit „…“
-    expect(preview(`kurz${" ".repeat(5_000)}rest`)).toBe("kurz…");
+    // Leerraum fällt zu einem Leerzeichen zusammen, wie viel es auch ist
+    expect(preview(`kurz${" ".repeat(5_000)}rest`)).toBe("kurz rest");
   });
 
-  // Review 7.22-rc2, K02: Endet schon das Lesen (2.400 Zeichen) mitten in
-  // einem Wort, gilt dieselbe Kürzung wie an der Grenze von 300 Zeichen.
-  test("K02: Lesen endet mitten im Wort: an der Wortgrenze davor gekürzt", () => {
+  // Review 7.22-rc12, C5: Die Vorschau sammelt Wörter direkt aus der Frage,
+  // bis die Zeile lang genug ist – es gibt kein Lesefenster mehr, an dessen
+  // Grenze Sonderfälle entstehen (rc2 K02, rc6 K01/K02).
+  test("C5: viel Leerraum vor dem ersten Wort – die Wörter dahinter fehlen nicht (vorher leere Vorschau)", () => {
+    expect(preview(`${" ".repeat(2_400)}Hallo Welt`)).toBe("Hallo Welt");
+    const controls = "\n".repeat(10_000) + "Hallo\u0000Welt";
+    expect(preview(controls)).toBe("Hallo Welt");
+  });
+
+  test("C5: ein Wort weit hinten zählt ganz – an der Grenze kürzt die Wortregel, nicht die Lesegrenze", () => {
     const text = `Frage${" ".repeat(2_385)}Donaudampfschifffahrt`;
-    expect(text.length).toBeGreaterThan(2_400);
-    expect(preview(text)).toBe("Frage…");
-    // Endet das Lesen genau vor einem Leerzeichen, bleibt das Wort ganz.
-    const whole = `Frage${" ".repeat(2_385)}Donaudampf ${"x".repeat(50)}`;
-    expect(whole.slice(2_390, 2_400)).toBe("Donaudampf");
-    expect(preview(whole)).toBe("Frage Donaudampf…");
+    expect(preview(text)).toBe("Frage Donaudampfschifffahrt");
+    const more = `Frage${" ".repeat(2_385)}Donaudampf ${"x".repeat(50)}`;
+    expect(preview(more)).toBe(`Frage Donaudampf ${"x".repeat(50)}`);
   });
 
-  test("K02: Lesen endet mitten in einem Emoji eines langen Worts: hart gekürzt, ohne halbes Ersatzpaar", () => {
-    const text = `${" ".repeat(2_400 - 201)}${"😀".repeat(150)}`;
+  test("C5: langes Wort aus Emoji über der Grenze: hart bei 300 gekürzt, ohne halbes Ersatzpaar; genau 300 Zeichen bleiben ganz", () => {
+    // ein Emoji: zwei UTF-16-Einheiten (Ersatzpaar)
+    const emoji = String.fromCodePoint(0x1f600);
+    const fits = " ".repeat(2_199) + emoji.repeat(150);
+    expect(preview(fits)).toBe(emoji.repeat(150));
+    const text = " ".repeat(2_199) + emoji.repeat(151);
     const result = preview(text);
-    expect(result).toBe(`${"😀".repeat(100)}…`);
+    expect(result).toBe(emoji.repeat(150) + "…");
     expect(() => encodeURIComponent(result)).not.toThrow();
+    const odd = "a" + emoji.repeat(151);
+    const cut = preview(odd);
+    expect(cut).toBe("a" + emoji.repeat(149) + "…");
+    expect(() => encodeURIComponent(cut)).not.toThrow();
   });
 
   // Review 7.22-rc2, K03: Beginnt ein langes Wort (Link) zwischen Zeichen 150
@@ -422,31 +434,45 @@ describe("Vorschau der ersten Frage (Nachtrag KIE-560, K1)", () => {
     expect(preview(short)).toBe(`${"a".repeat(140)} ${"b".repeat(155)}…`);
   });
 
-  // Review 7.22-rc6, K01: Folgt hinter dem Gelesenen nur Leerraum, ist nichts
-  // gekürzt, also kein „…“.
-  test("K01: nur Leerraum hinter dem Gelesenen: kein „…“", () => {
+  // Review 7.22-rc6, K01: Folgt nur Leerraum, ist nichts gekürzt, also kein
+  // „…“.
+  test("K01: nur Leerraum dahinter: kein „…“", () => {
     expect(preview(`Frage${" ".repeat(3_000)}`)).toBe("Frage");
     expect(preview(`Frage${"\n".repeat(3_000)}`)).toBe("Frage");
     expect(preview(`Frage${"\r\n\t\u0000\u0085\u2028".repeat(600)}`)).toBe(
       "Frage"
     );
-    // ein sichtbares Zeichen danach: gekürzt
-    expect(preview(`Frage${" ".repeat(3_000)}x`)).toBe("Frage…");
+    // ein sichtbares Zeichen danach: ein Wort mehr (C5), nicht „Frage…“
+    expect(preview(`Frage${" ".repeat(3_000)}x`)).toBe("Frage x");
     // lange Frage, danach nur Leerraum: wie ohne den Leerraum
     expect(preview(`${words(80)}${" ".repeat(3_000)}`)).toBe(
       preview(words(80))
     );
+    // genau 300 Zeichen, danach nur Leerraum: ganz, ohne „…“
+    const exact = `${"b".repeat(149)} ${"c".repeat(150)}`;
+    expect(preview(`${exact}${" ".repeat(3_000)}`)).toBe(exact);
+    // genau 300 Zeichen und noch ein Wort: an der Wortgrenze gekürzt
+    expect(preview(`${exact} d`)).toBe(`${exact}…`);
   });
 
-  // Review 7.22-rc6, K02: Schneidet das Lesen einen langen Link an, zählt
-  // seine volle Länge: hart bei 300 gekürzt, nicht vor dem Link.
-  test("K02: Lesen schneidet einen langen Link an: hart bei 300 gekürzt", () => {
-    const head = "t".repeat(261);
+  // Review 7.22-rc6, K02 / Nachreview rc12, N6: Ein langer Link hinter viel
+  // Leerraum zählt mit voller Länge – hart bei 300 gekürzt, bei jeder Länge
+  // des Kopfs. Vorher endete die Vorschau an der Lesegrenze (2.400
+  // Zeichen), wenn davor nur 90 Zeichen des Links lagen: bei Kopf 100 nach
+  // 190 Zeichen, bei Kopf 200 nach 290.
+  test("K02 / N6: langer Link hinter viel Leerraum: immer hart bei 300 gekürzt", () => {
     const link = `https://example.org/${"x".repeat(495)}`; // 515 Zeichen
-    const text = `${head}${" ".repeat(2_050)}${link}`;
-    const line = `${head} ${link}`;
-    expect(preview(text)).toBe(`${line.slice(0, 300)}…`);
-    // ein kurzes Wort, das das Lesen anschneidet, fällt dagegen ganz weg
+    for (const size of [100, 200, 261]) {
+      const head = "t".repeat(size);
+      // vom Link liegen nur 90 Zeichen vor Zeichen 2.400
+      const text = `${head}${" ".repeat(2_310 - size)}${link}`;
+      const line = `${head} ${link}`;
+      const result = preview(text);
+      expect(result).toBe(`${line.slice(0, 300)}…`);
+      expect(result).toHaveLength(301);
+    }
+    // ein kurzes Wort an der Grenze fällt dagegen ganz weg
+    const head = "t".repeat(261);
     const short = `${head}${" ".repeat(2_050)}${"k".repeat(95)} rest`;
     expect(preview(short)).toBe(`${head}…`);
   });
