@@ -36,7 +36,7 @@ after(async () => {
 const noop = () => {};
 const text = (html) =>
   html
-    // Umbruchstellen im Skript-Schnipsel (EmbedTab snippetWithBreaks)
+    // Umbruchstellen im Skript-Schnipsel (EmbedTab CopyBlock)
     .replace(/<wbr\/?>/g, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/&quot;/g, '"')
@@ -373,7 +373,7 @@ test(
 );
 
 test(
-  "B-07/C04/27: Einbau bricht lange Zeilen um, Theme-Farben statt fester Farben, Hinweis auf ältere Angaben am Skript",
+  "B-07/C04/27: Einbau bricht lange Zeilen um, Theme-Farben statt fester Farben, Hinweis auf ältere Angaben am Skript (seit E18 rc16 nur für gespeicherte Werte)",
   { skip },
   async () => {
     for (const config of [{}, { displayMode: "inline" }]) {
@@ -388,10 +388,13 @@ test(
         assert.doesNotMatch(pre, /overflow-x-auto|whitespace-pre[ "]/);
       }
       assert.doesNotMatch(html, /bg-black\/30|bg-white\/5|bg-white\/10/);
+      // E18 (Fixliste 7.22-rc16, bewusst geändert): zugesagt ist nur, dass
+      // gespeicherte Werte ältere Angaben am Skript schlagen (F11)
       assert.ok(
         text(html).includes(
-          "Alle Einstellungen kommen automatisch aus dem Design Center und gelten auch dann, wenn am Skript noch ältere Angaben stehen (z. B. data-theme)."
-        )
+          "Die Einstellungen kommen automatisch aus dem Design Center. Gespeicherte Einstellungen gelten auch dann, wenn am Skript noch ältere Angaben stehen (z. B. data-theme); ist eine Einstellung nicht gespeichert, wirkt eine solche Angabe weiter."
+        ),
+        text(html)
       );
     }
     const look = await show(APPEARANCE, {

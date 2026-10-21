@@ -205,11 +205,17 @@ test("D6: ohne gespeicherten Wert gilt die Empfehlung, gespeicherte Werte bleibe
 test("Empfehlung und Warnung unter dem Feld", () => {
   const fresh = keys.userTextColorAdvice({});
   assert.equal(fresh.recommendedLabel, "Schwarz");
-  assert.equal(fresh.stored, false);
   assert.equal(fresh.warning, null);
+  // C13 (Fixliste 7.22-rc16, bewusst geändert): kein Feld „stored“ mehr,
+  // seit F12 (rc13) liest es niemand
+  assert.deepEqual(Object.keys(fresh).sort(), [
+    "ratio",
+    "recommendedLabel",
+    "warning",
+  ]);
 
   const white = keys.userTextColorAdvice({ userTextColor: WHITE });
-  assert.equal(white.stored, true);
+  assert.ok(!("stored" in white));
   assert.equal(
     white.warning,
     "Kontrast nur 3,0:1: Unter 4,5:1 ist die Schrift auf der Akzentfarbe schwer lesbar."

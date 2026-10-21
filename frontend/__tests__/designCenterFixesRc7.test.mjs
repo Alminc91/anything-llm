@@ -321,9 +321,8 @@ test(
       { uuid: "abc-123" },
       { dev: false, origin: "https://kunde.ki.kufer.de" }
     );
-    const parts = embedTab
-      .snippetWithBreaks(snippet)
-      .filter((p) => typeof p === "string");
+    // C8 (Fixliste 7.22-rc16): Teile direkt aus splitAfterSlashes
+    const parts = embedTab.splitAfterSlashes(snippet);
     assert.equal(parts.join(""), snippet);
   }
 );

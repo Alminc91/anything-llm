@@ -169,7 +169,8 @@ export function revealInPreview(el) {
 // ersten Zeichnen und nicht, wenn die Standardtexte (GET /embed/defaults)
 // erst nach dem Zeichnen ankommen: dann steht der Verlauf unten wie beim
 // Öffnen (Rückmeldung 20.10.). signature null = Standardtexte noch nicht
-// geladen.
+// geladen (nach einem Ladefehler gilt die Signatur, F42 Fixliste
+// 7.22-rc16).
 function useRevealOnChange(ref, signature) {
   const last = useRef(signature);
   useLayoutEffect(() => {
@@ -237,12 +238,15 @@ function ChatIcon({ config, size, color }) {
 /**
  * Vorschau rechts im Design Center.
  * @param {{config: Object, logoPreview: string|null, defaults: Object|null,
- *   greetingKey: string}} props
+ *   defaultsError?: boolean, greetingKey: string}} props
+ *   defaultsError: Laden der Standardtexte fehlgeschlagen (sie kommen nicht
+ *   mehr; bearbeitete Blöcke werden trotzdem ins Bild geholt, F42)
  */
 export default function WidgetPreview({
   config,
   logoPreview,
   defaults,
+  defaultsError = false,
   greetingKey,
 }) {
   const palette = paletteOf(config);
@@ -296,6 +300,7 @@ export default function WidgetPreview({
               config={config}
               logoPreview={logoPreview}
               defaults={defaults}
+              defaultsError={defaultsError}
               greetingKey={greetingKey}
               palette={palette}
             />
@@ -304,6 +309,7 @@ export default function WidgetPreview({
               config={config}
               logoPreview={logoPreview}
               defaults={defaults}
+              defaultsError={defaultsError}
               greetingKey={greetingKey}
               palette={palette}
               areaHeight={areaHeight}
@@ -548,7 +554,13 @@ export function PreviewSampleAnswer({ config, palette }) {
 
 // Startzustand des Chats: Begrüßungsblase, Datenschutz-Blase (falls an),
 // Pillen, Beispiel-Nutzernachricht
-export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
+export function PreviewWelcome({
+  config,
+  defaults,
+  defaultsError = false,
+  greetingKey,
+  palette,
+}) {
   const accentColor = lookValue(config, "accentColor");
   const greeting = previewGreeting(config, greetingKey, defaults);
   // Schalter „Datenschutz-Hinweis anzeigen“ aus: nur die Begrüßungsblase
@@ -571,13 +583,21 @@ export function PreviewWelcome({ config, defaults, greetingKey, palette }) {
   const greetingRef = useRef(null);
   const privacyRef = useRef(null);
   const pillsRef = useRef(null);
-  const loaded = (signature) => (defaults ? signature : null);
+  // Signaturen erst, wenn die Standardtexte da sind oder nicht mehr kommen
+  // (Ladefehler, F42 Fixliste 7.22-rc16: sonst blieben sie immer null und
+  // nichts käme ins Bild)
+  const loaded = (signature) => (defaults || defaultsError ? signature : null);
   useRevealOnChange(greetingRef, loaded(greeting));
   useRevealOnChange(
     privacyRef,
     loaded(showPrivacy ? JSON.stringify([title, blocks, url]) : "")
   );
-  useRevealOnChange(pillsRef, loaded(JSON.stringify(pills)));
+  // getrimmt wie gespeichert (cleanConfig): Speichern ist keine Bearbeitung,
+  // die Vorschau springt danach nicht zu den Pillen (F43 Fixliste 7.22-rc16)
+  useRevealOnChange(
+    pillsRef,
+    loaded(JSON.stringify(pills.map((pill) => pill.trim())))
+  );
   const bubble = {
     backgroundColor: palette.bubbleBg,
     color: palette.text,
@@ -682,6 +702,7 @@ function BubblePreview({
   config,
   logoPreview,
   defaults,
+  defaultsError = false,
   greetingKey,
   palette,
   areaHeight = null,
@@ -755,6 +776,7 @@ function BubblePreview({
               <PreviewWelcome
                 config={config}
                 defaults={defaults}
+                defaultsError={defaultsError}
                 greetingKey={greetingKey}
                 palette={palette}
               />
@@ -831,6 +853,7 @@ function InlinePreview({
   config,
   logoPreview,
   defaults,
+  defaultsError = false,
   greetingKey,
   palette,
 }) {
@@ -917,6 +940,7 @@ function InlinePreview({
               <PreviewWelcome
                 config={config}
                 defaults={defaults}
+                defaultsError={defaultsError}
                 greetingKey={greetingKey}
                 palette={palette}
               />

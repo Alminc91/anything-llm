@@ -308,10 +308,11 @@ test(
   { skip },
   async () => {
     const embedTab = await renderer.load(EMBED);
-    const parts = embedTab.snippetWithBreaks(
+    // C8 (Fixliste 7.22-rc16): Teile direkt aus splitAfterSlashes
+    // (snippetWithBreaks entfällt, CopyBlock setzt die <wbr> selbst)
+    const strings = embedTab.splitAfterSlashes(
       'src="https://kunde.ki.kufer.de/embed/anythingllm-chat-widget.min.js" data-embed-id="a-b"'
     );
-    const strings = parts.filter((p) => typeof p === "string");
     // jeder Teil außer dem letzten endet mit „/“
     for (const part of strings.slice(0, -1)) assert.match(part, /\/$/);
     assert.ok(strings.some((p) => p.includes("anythingllm-chat-widget.")));

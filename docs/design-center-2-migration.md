@@ -25,6 +25,17 @@ wird er nur, wenn der Kunde genau dieses Feld auf den Standard bringt.
 Ebenso schreibt ein Klick auf die schon markierte Option bei Darstellung,
 Farbschema, Chat-Icon und Position nichts (F11).
 
+Gespeicherte Werte schlagen ältere Angaben am Skript; zugesagt ist nur das
+(E18, Fixliste 7.22-rc16). Ist für Darstellung, Farbschema, Chat-Icon oder
+Position kein Wert gespeichert, wirkt ein älteres `data-display-mode`,
+`data-theme`, `data-chat-icon` oder `data-position` am Skript weiter, auch
+wenn das Design Center den Standard markiert. Ein Klick auf die markierte
+Option ändert daran nichts (F11). Abhilfe: das Attribut am Skript entfernen
+oder einmal die andere Option speichern und danach die gewünschte (siehe
+Prüfpunkt 10). Die alte Vorbelegung bis 7.21 schrieb nie `theme` oder
+`displayMode`; Widgets mit `data-theme` oder `data-display-mode` am Skript
+trifft das also auch, wenn sie schon gespeichert wurden.
+
 ## Startvorschläge und Willkommensblasen in `GET /embed/:id/config` (ab 7.22-rc13)
 
 Vertrag zwischen Server und Widget (Entscheidungen E10 bis E12, Fixliste
@@ -88,7 +99,7 @@ Widget-Repo unter `tests/fixtures/embedConfigContract.json`; Server-Test
 | `greeting`                              | alte Vorbelegung („Hallo und herzlich willkommen! …“) oder alter Widget-Standard | gilt als nicht gesetzt: neuer Standard „Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?“                                                                                           |
 | `greetingBubbleText`                    | eigener Text bei `greetingStyle` oder `privacyNotice` `bubble`                   | gewinnt gegen `greeting` (stand bisher in der Blase)                                                                                                                                         |
 | `greetingBubbleText`                    | eigener Text bei Stil `text`                                                     | ignoriert, solange eine eigene `greeting` gesetzt ist (war nie sichtbar)                                                                                                                     |
-| `greeting` und `greetingBubbleText`     | beide eigener Text                                                               | schaltet der Kunde den Datenschutz-Hinweis um, bleibt beim Speichern der Text aus dem Feld „Begrüßungstext“; der andere, bisher unsichtbare Text wird entfernt (F04, 7.22-rc13)               |
+| `greeting` und `greetingBubbleText`     | beide eigener Text                                                               | schaltet der Kunde den Datenschutz-Hinweis um, bleibt beim Speichern der Text aus dem Feld „Begrüßungstext“; der andere, bisher unsichtbare Text wird entfernt (F04, 7.22-rc13; bewusste Ausnahme zum Negativfall „Texte bleiben“, E20, 7.22-rc16) |
 | `sendMessageText`                       | „Wie kann ich Ihnen helfen?“ (alte Vorbelegung)                                  | gilt als nicht gesetzt: Standard „Ihre Frage eingeben“                                                                                                                                       |
 | `inlineInputPlaceholder`                | eigener Leistentext bis 120 Zeichen                                              | bleibt wirksam                                                                                                                                                                               |
 | `inlineSendText`, `inlineCollapsedText` | eigener Text                                                                     | nicht mehr ausgeliefert: Demo-Texte („Stellen Sie hier Ihre Frage …“, „Chatten“)                                                                                                             |
@@ -152,5 +163,6 @@ Text mit Links“ ein.
 5. Widgets mit `userTextColor` `#FFFFFF` auf heller Akzentfarbe: das Design Center warnt unter 4,5:1; ggf. „Schwarz“ wählen.
 6. Widgets ohne `assistantSubtitle`: zeigen ab 7.22 den Standard-Untertitel; wer keinen will, leert das Feld im Design Center.
 7. Widgets ohne gespeicherte `defaultMessages` (nie im Design Center gespeichert): zeigen ab 7.22 die zwei Standard-Startvorschläge, auch Doku- und Info-Bots (Bethel, Nazareth, Dokubot); passen die Beispiele nicht, im Design Center eigene eintragen oder alle löschen und speichern. Bis 7.21 gespeicherte Widgets haben `[]` und zeigen keine.
-8. Snippets mit `data-default-messages` am Skript: wirken weiter, solange im Design Center keine Liste gespeichert ist; eine gespeicherte Liste, auch eine leere, hat Vorrang (E10).
-9. Seiten mit eigener Kopie des Widgets (z. B. Demo `/widget/anythingllm-chat-widget.min.js`): auf das Widget ab 7.22-rc13 bringen, sonst fehlen die Startvorschläge (Listen als Array, E11) und ohne gespeicherte Kurskarten-Wahl auch `displayMode` im Chat (R4).
+8. Snippets mit `data-default-messages` am Skript: wirken weiter, solange im Design Center keine Liste gespeichert ist; eine gespeicherte Liste, auch eine leere, hat Vorrang (E10). Bis 7.21 gespeicherte Widgets haben `[]` (alte Vorbelegung): Dort wirkt das Attribut ab 7.22 nicht mehr, und das Widget zeigt keine Startvorschläge; die Liste im Design Center eintragen. Vor dem Flotten-Rollout zählen, welche Kundenseiten das Attribut nutzen (F44, 7.22-rc16).
+9. Seiten mit eigener Kopie des Widgets (z. B. Demo `/widget/anythingllm-chat-widget.min.js`): auf das Widget ab 7.22-rc13 bringen, sonst fehlen die Startvorschläge (Listen als Array, E11) und ohne gespeicherte Kurskarten-Wahl auch `displayMode` im Chat (R4). Ab 7.22-rc13 ruft das Widget `/config?language=<Sprache>` auf: Eigene Demo-Kopien, die die `/config`-Antwort abfangen (z. B. die Topbar-Schalter der Demo in `app.js` und `next/app.js`), müssen die Adresse ohne Query vergleichen, sonst greifen ihre Schalter still nicht mehr (W41, 7.22-rc16). Gilt auch für `praesentation` und `demo-inline`, die das Widget direkt vom Container laden: erst die Demo anpassen, dann auf 7.22 stellen.
+10. Snippets mit `data-theme`, `data-display-mode`, `data-position` oder `data-chat-icon` am Skript: wirken weiter, solange im Design Center dafür kein Wert gespeichert ist; ein gespeicherter Wert hat Vorrang (E18). Ein Klick auf die markierte Standard-Option speichert nichts (F11). Soll das Design Center gelten: Attribut am Skript entfernen oder einmal die andere Option speichern und danach die gewünschte.

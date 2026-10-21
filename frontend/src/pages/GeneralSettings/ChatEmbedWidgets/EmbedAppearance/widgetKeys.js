@@ -429,17 +429,16 @@ export function contrastLabel(ratio) {
 /**
  * Empfehlung und Warnung unter dem Feld „Schrift auf der Akzentfarbe“.
  * @param {Object} config
- * @returns {{recommendedLabel: string|null, stored: boolean,
- *   ratio: number|null, warning: string|null}}
+ * @returns {{recommendedLabel: string|null, ratio: number|null,
+ *   warning: string|null}}
  *   recommendedLabel null: Akzentfarbe ist kein gültiger deckender Farbcode
  *   (dann steht die Fehlermeldung am Feld; Restpunkt 5, rc7: für eine
  *   durchscheinende Farbe wurde sonst mit dem Rohwert gerechnet)
  */
 export function userTextColorAdvice(config = {}) {
   const accent = lookValue(config, "accentColor");
-  const stored = storedUserTextColor(config) !== null;
   if (parseColor(accent) === null || accentColorError(accent) !== null)
-    return { recommendedLabel: null, stored, ratio: null, warning: null };
+    return { recommendedLabel: null, ratio: null, warning: null };
   // Gerechnet mit der gezeigten Schrift (#FFFFFF bzw. #222628, E1). Auf
   // mittleren Akzentfarben erreicht auch die Empfehlung 4,5:1 nicht; dann
   // hilft nur eine hellere oder dunklere Akzentfarbe.
@@ -454,7 +453,6 @@ export function userTextColorAdvice(config = {}) {
         : `Kontrast nur ${contrastLabel(ratio)}: Unter 4,5:1 ist die Schrift auf der Akzentfarbe schwer lesbar.`;
   return {
     recommendedLabel: optionFor(recommended).label,
-    stored,
     ratio,
     warning,
   };
@@ -898,10 +896,17 @@ export function sameAsDefault(defaultKey, value, defaults) {
 }
 
 /**
- * Wurde das Feld gegenüber dem gespeicherten Stand geändert?
+ * Wurde das Feld in dieser Sitzung gegenüber dem gespeicherten Stand
+ * bearbeitet? Inhaltlich verglichen (Listen sind nach einer Bearbeitung neue
+ * Arrays, auch wenn der Inhalt wieder gleich ist). Ein Begriff für
+ * validateConfig und cleanConfig (C7, Fixliste 7.22-rc16).
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {string} key
+ * @returns {boolean}
  */
-function changed(config, initial, key) {
-  return config[key] !== initial[key];
+function edited(config, initial, key) {
+  return JSON.stringify(config[key]) !== JSON.stringify(initial[key]);
 }
 
 // Reiter, in dem ein Feld steht (für „Fehler korrigieren“ beim Speichern)
@@ -929,19 +934,19 @@ export function validateConfig(config, initial, gKey) {
   const errors = {};
   // Akzentfarbe: nur ein geänderter Wert wird geprüft (ein früher
   // gespeicherter Farbname bleibt speicherbar)
-  if (changed(config, initial, "accentColor")) {
+  if (edited(config, initial, "accentColor")) {
     const error = accentColorError(config.accentColor);
     if (error) errors.accentColor = error;
   }
   if (textValue(config.assistantSubtitle).trim().length > SUBTITLE_MAX_LEN)
     errors.assistantSubtitle = `Maximal ${SUBTITLE_MAX_LEN} Zeichen.`;
   if (
-    changed(config, initial, gKey) &&
+    edited(config, initial, gKey) &&
     textValue(config[gKey]).trim().length > GREETING_MAX_LEN
   )
     errors[gKey] = `Maximal ${GREETING_MAX_LEN} Zeichen.`;
   if (
-    changed(config, initial, "sendMessageText") &&
+    edited(config, initial, "sendMessageText") &&
     textValue(config.sendMessageText).trim().length > PLACEHOLDER_MAX_LEN
   )
     errors.sendMessageText = `Maximal ${PLACEHOLDER_MAX_LEN} Zeichen.`;
@@ -950,7 +955,7 @@ export function validateConfig(config, initial, gKey) {
   if (!privacyNoticeOn(config)) return errors;
   if (textValue(config.privacyTitle).trim().length > PRIVACY_TITLE_MAX_LEN)
     errors.privacyTitle = `Maximal ${PRIVACY_TITLE_MAX_LEN} Zeichen.`;
-  if (changed(config, initial, "privacyText")) {
+  if (edited(config, initial, "privacyText")) {
     const error = privacyTextError(config.privacyText);
     if (error) errors.privacyText = error;
   }
@@ -1006,15 +1011,10 @@ export function cleanConfig(
 ) {
   const out = { ...config };
   const drop = (key) => delete out[key];
-  // In dieser Sitzung bearbeitet? Inhaltlich verglichen (Listen sind nach
-  // einer Bearbeitung neue Arrays, auch wenn der Inhalt wieder gleich ist).
-  // Nur ein bearbeiteter Wert gleich dem Standard wird entfernt (F05).
-  const edited = (key) =>
-    JSON.stringify(config[key]) !== JSON.stringify(initial[key]);
-  // Standardwert entfernen, wenn bearbeitet; unverändert gespeichert bleibt
-  // er, wie er ist
+  // Standardwert entfernen, wenn in dieser Sitzung bearbeitet (edited, wie
+  // in validateConfig); unverändert gespeichert bleibt er, wie er ist (F05)
   const dropIfEdited = (key) => {
-    if (edited(key)) drop(key);
+    if (edited(config, initial, key)) drop(key);
   };
 
   if (typeof out.accentColor === "string") {
@@ -1038,7 +1038,7 @@ export function cleanConfig(
     const v = out[gKey].trim();
     if (!LEGACY_DEFAULT_GREETINGS.includes(v)) {
       const standard = v && sameAsDefault("greeting", v, defaults);
-      if (!v || (standard && edited(gKey))) {
+      if (!v || (standard && edited(config, initial, gKey))) {
         // Standard: auch den anderen eigenen Text entfernen, sonst würde er
         // sichtbar (früherer Blasentext bei Stil „text“ bzw. eine eigene
         // greeting hinter dem Blasentext)
@@ -1052,7 +1052,10 @@ export function cleanConfig(
   // Gälte nach dem Speichern der andere eigene Text (greetingKey hängt an
   // greetingStyle und privacyNotice, und der Schalter „Datenschutz-Hinweis
   // anzeigen“ schreibt privacyNotice), wird der andere Text entfernt. Er war
-  // bis dahin nicht zu sehen (weder live noch im Design Center).
+  // bis dahin nicht zu sehen (weder live noch im Design Center). Bewusste
+  // Ausnahme zum Negativfall „keine Kundendaten verloren (Texte bleiben)“
+  // (E20, Fixliste 7.22-rc16); gelöscht wird nur, wenn der Kunde den
+  // Schalter umstellt und speichert, nie beim Update.
   if (
     ownText(out[gKey], LEGACY_DEFAULT_GREETINGS) &&
     ownText(out[otherGreeting], LEGACY_DEFAULT_GREETINGS) &&
@@ -1106,7 +1109,7 @@ export function cleanConfig(
     else out.privacyTitle = v;
   }
 
-  if ("privacyText" in out && changed(out, initial, "privacyText")) {
+  if ("privacyText" in out && edited(config, initial, "privacyText")) {
     const v = textValue(out.privacyText);
     const normalized = normalizePrivacyText(v);
     if (

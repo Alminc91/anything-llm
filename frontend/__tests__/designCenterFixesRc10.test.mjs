@@ -264,9 +264,8 @@ test(
       { uuid: "abc-123" },
       { dev: false, origin: "https://kunde.ki.kufer.de" }
     );
-    const strings = embedTab
-      .snippetWithBreaks(snippet)
-      .filter((p) => typeof p === "string");
+    // C8 (Fixliste 7.22-rc16): Teile direkt aus splitAfterSlashes
+    const strings = embedTab.splitAfterSlashes(snippet);
     assert.equal(strings.join(""), snippet);
     assert.deepEqual(strings, [
       '<script\n  data-embed-id="abc-123"\n  data-base-api-url="https:/',

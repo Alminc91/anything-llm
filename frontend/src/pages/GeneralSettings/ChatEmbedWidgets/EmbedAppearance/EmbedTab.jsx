@@ -73,20 +73,6 @@ export function splitAfterSlashes(text) {
   return parts;
 }
 
-/**
- * Schnipsel mit Umbruchstellen nur nach „/“ (S2, Fixliste 7.22-rc10): die
- * Teile (splitAfterSlashes) mit <wbr> dazwischen. Früher: Umbruch auch nach
- * „.“ (B-11, rc6) und nach „-“ (Restpunkt 1, rc7). Die Teile
- * aneinandergereiht ergeben den Schnipsel.
- * @param {string} snippet
- * @returns {Array<string|JSX.Element>} Teile (Strings) mit <wbr> dazwischen
- */
-export function snippetWithBreaks(snippet) {
-  return splitAfterSlashes(snippet).flatMap((part, i) =>
-    i === 0 ? [part] : [<wbr key={i} />, part]
-  );
-}
-
 // Adressen im Schnipsel: Attributwerte in Anführungszeichen mit „/“ (src,
 // data-base-api-url), ohne Leerraum
 const SNIPPET_URL_RE = /"([^"\s]*\/[^"\s]*)"/g;
@@ -134,17 +120,18 @@ function CopyBlock({ snippet, copiedToast, label }) {
     <div className="rounded-lg border border-white/10 bg-theme-settings-input-bg overflow-hidden">
       {/* Lange Zeilen brechen um, statt waagerecht zu scrollen
           (Browser-Abnahme B-07). Adressen (src, data-base-api-url) nur nach
-          „/“: jeder Teil ein nicht umbrechendes Stück (whitespace-pre, kein
-          Umbruch am Bindestrich oder Punkt; S2, rc10). Die übrigen Zeilen
-          brechen mit overflow-wrap der Box um, auch die Zeile mit der UUID
-          (F07, rc13: vorher bei 768 bis 1000 px rechts abgeschnitten).
+          „/“: jeder Teil (splitAfterSlashes) ein nicht umbrechendes Stück
+          (whitespace-pre, kein Umbruch am Bindestrich oder Punkt; S2, rc10),
+          dazwischen <wbr>. Die übrigen Zeilen brechen mit overflow-wrap der
+          Box um, auch die Zeile mit der UUID (F07, rc13: vorher bei 768 bis
+          1000 px rechts abgeschnitten).
           Zeilenumbrüche und Einrückung bleiben (whitespace-pre-wrap), ohne
           break-all. Kopieren liefert den Text unverändert. */}
       <pre className="text-xs text-white font-mono p-3.5 whitespace-pre-wrap [overflow-wrap:anywhere]">
         {snippetSegments(snippet).map((segment, s) =>
           segment.url
-            ? snippetWithBreaks(segment.text).map((part, i) =>
-                typeof part === "string" ? (
+            ? splitAfterSlashes(segment.text).flatMap((part, i) => {
+                const piece = (
                   <span
                     key={`u${s}-${i}`}
                     className="whitespace-pre"
@@ -152,10 +139,9 @@ function CopyBlock({ snippet, copiedToast, label }) {
                   >
                     {part}
                   </span>
-                ) : (
-                  <wbr key={`w${s}-${i}`} />
-                )
-              )
+                );
+                return i === 0 ? [piece] : [<wbr key={`w${s}-${i}`} />, piece];
+              })
             : segment.text
         )}
       </pre>
@@ -246,12 +232,17 @@ export default function EmbedTab({ config, embed }) {
   const inline = displayMode(config) === "inline";
   return (
     <>
+      {/* E18 (Fixliste 7.22-rc16): zugesagt ist nur, dass gespeicherte
+          Werte ältere Angaben am Skript schlagen; ein Klick auf die schon
+          markierte Option schreibt nichts (F11), ohne gespeicherten Wert
+          wirkt die Angabe am Skript also weiter */}
       <p className="text-theme-text-secondary text-xs leading-relaxed">
         Beim Chatfenster genügt das Skript, bei „In der Seite“ kommt der
-        Platzhalter dazu. Alle Einstellungen kommen automatisch aus dem Design
-        Center und gelten auch dann, wenn am Skript noch ältere Angaben stehen
-        (z. B. data-theme). Nach dem Speichern muss auf der Website nichts
-        geändert werden.
+        Platzhalter dazu. Die Einstellungen kommen automatisch aus dem Design
+        Center. Gespeicherte Einstellungen gelten auch dann, wenn am Skript noch
+        ältere Angaben stehen (z. B. data-theme); ist eine Einstellung nicht
+        gespeichert, wirkt eine solche Angabe weiter. Nach dem Speichern muss
+        auf der Website nichts geändert werden.
       </p>
 
       <Step

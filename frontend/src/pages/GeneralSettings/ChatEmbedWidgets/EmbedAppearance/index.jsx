@@ -440,6 +440,7 @@ export default function EmbedAppearance() {
             config={config}
             logoPreview={logoPreview}
             defaults={defaults}
+            defaultsError={defaultsError}
             greetingKey={greetingKey}
           />
         </div>
