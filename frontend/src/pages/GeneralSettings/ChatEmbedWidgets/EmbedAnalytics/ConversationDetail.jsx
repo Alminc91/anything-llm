@@ -47,7 +47,8 @@ import { useConversationDeletion } from "./DeleteConversation";
 import { useDismiss, useWide } from "./viewHooks";
 
 // Konversationen-Ansicht: der Gesprächsverlauf einer Konversation – auf dem
-// Desktop (ab xl, 1.280 px; Fixliste 7.22-rc13, E15) als rechte Spalte des
+// Desktop (ab 1.280 px, Stufe desktop:; Fixliste 7.22-rc13, E15, und
+// Review 7.22-rc15, C10) als rechte Spalte des
 // Arbeitsbereichs neben der Liste (KIE-575: so hoch wie der Bereich, eigene
 // Bildlaufleiste), auf Tablet und Smartphone als eigene Vollbildansicht mit
 // „‹ Konversationen". Kopf (erste
@@ -61,7 +62,7 @@ import { useDismiss, useWide } from "./viewHooks";
 // dem Desktop kompakter.
 // Bei Tastaturbedienung der Fokusring der Seite statt des Browser-Rings
 // (Nachtrag N3) – für ‹ ›, ⋯, ✕ und „‹ Konversationen“ gleich.
-const ICON_BUTTON = `grid h-11 w-11 shrink-0 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent light:hover:bg-black/5 xl:h-9 xl:w-9 ${FOCUS_RING}`;
+const ICON_BUTTON = `grid h-11 w-11 shrink-0 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent light:hover:bg-black/5 desktop:h-9 desktop:w-9 ${FOCUS_RING}`;
 // Wie lange eine angesprungene Antwort hervorgehoben bleibt (N2 a)
 const RATING_FLASH_MS = 1500;
 // Trenner „·“ in der Zeile unter der Frage: VOR jedem Teil, in einem 16 px
@@ -189,7 +190,7 @@ function useInertOutside(ref, active) {
  *   konnte (der Knopf versucht es erneut)
  * @param {(direction: -1|1) => void} props.onNavigate
  * @param {() => void} props.onClose
- * @param {(result: {deleted: boolean}) => void} props.onDeleted
+ * @param {(result: {deleted: boolean, visitor?: boolean}) => void} props.onDeleted
  * @param {(summary: {key: string, outside: boolean}|null) => void} [props.onLoaded] -
  *   die geladene Konversation (Schlüssel für die Markierung in der Liste;
  *   outside: keine Nachricht im Zeitraum, sie kann dort nicht stehen)
@@ -579,19 +580,19 @@ export default function ConversationDetail({
       aria-label={t("embed-analytics.panel.label")}
       aria-modal={wide ? undefined : "true"}
       role={wide ? undefined : "dialog"}
-      // Auf dem Desktop (ab xl, E15) die rechte Spalte des Arbeitsbereichs
+      // Auf dem Desktop (desktop:, E15) die rechte Spalte des Arbeitsbereichs
       // (KIE-575): im Fluss statt klebend (relative: Bezug für absolut
       // positionierte Teile darin, etwa das Menü „⋯“ und Screenreader-Texte,
       // die so im Panel bleiben und die Seite nicht verlängern), so hoch wie
       // der Bereich (der Flex-Elternteil streckt sie), Breite nach
       // WORKSPACE.panel; nur der Verlauf darin scrollt. Auf Tablet und
       // Smartphone ein Vollbild.
-      className={`fixed inset-0 z-50 flex flex-col bg-theme-bg-secondary xl:relative xl:inset-auto xl:z-auto ${WORKSPACE.panel} xl:overflow-hidden xl:rounded-xl xl:border xl:border-white/10 xl:bg-theme-bg-primary`}
+      className={`fixed inset-0 z-50 flex flex-col bg-theme-bg-secondary desktop:relative desktop:inset-auto desktop:z-auto ${WORKSPACE.panel} desktop:overflow-hidden desktop:rounded-xl desktop:border desktop:border-white/10 desktop:bg-theme-bg-primary`}
     >
       {/* Kopf – bleibt beim Scrollen stehen */}
       <header
         data-panel-head=""
-        className="flex shrink-0 flex-col gap-2 border-b border-white/10 px-2 pb-3 pt-2 light:border-gray-200 xl:px-5 xl:pt-4"
+        className="flex shrink-0 flex-col gap-2 border-b border-white/10 px-2 pb-3 pt-2 light:border-gray-200 desktop:px-5 desktop:pt-4"
       >
         {/* Rechts Abstand zum Benutzermenü (K12): Liegt der Bereich oben
             an, steht diese Zeile auf dessen Höhe. */}
@@ -605,7 +606,7 @@ export default function ConversationDetail({
             data-panel-back=""
             onClick={onClose}
             onBlur={() => setBackLeft(true)}
-            className={`flex h-11 items-center gap-1 rounded-lg px-2 text-[15px] text-theme-text-primary hover:bg-white/10 light:hover:bg-black/5 xl:hidden ${
+            className={`flex h-11 items-center gap-1 rounded-lg px-2 text-[15px] text-theme-text-primary hover:bg-white/10 light:hover:bg-black/5 desktop:hidden ${
               quietBack
                 ? "focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5"
                 : FOCUS_RING
@@ -614,12 +615,12 @@ export default function ConversationDetail({
             <CaretLeft size={20} aria-hidden="true" />
             {t("embed-analytics.panel.back")}
           </button>
-          {/* Datum neben den Schaltflächen nur auf dem Desktop (ab xl, der
+          {/* Datum neben den Schaltflächen nur auf dem Desktop (desktop:, der
               Verlauf ist dort mindestens 480 px breit); im Vollbild steht es
               einzeilig in der Zeile unter der Frage (Fixliste 5, S5). */}
           <span
             data-panel-date=""
-            className={`hidden whitespace-nowrap text-sm ${MUTED} xl:block`}
+            className={`hidden whitespace-nowrap text-sm ${MUTED} desktop:block`}
           >
             {longDateLabel(headDay)}
           </span>
@@ -681,7 +682,7 @@ export default function ConversationDetail({
               aria-label={t("embed-analytics.panel.close")}
               title={t("embed-analytics.panel.close")}
               onClick={onClose}
-              className={`${ICON_BUTTON} hidden xl:grid`}
+              className={`${ICON_BUTTON} hidden desktop:grid`}
             >
               <X size={18} aria-hidden="true" />
             </button>
@@ -689,13 +690,13 @@ export default function ConversationDetail({
         </div>
 
         {head && (
-          <div className="flex flex-col gap-1.5 px-2 xl:px-0">
+          <div className="flex flex-col gap-1.5 px-2 desktop:px-0">
             {/* Höchstens drei Zeilen (Fixliste 9, A5): Die erste Frage steht
                 darunter ohnehin ganz in der Sprechblase; voll als title. */}
             <h3
               data-panel-question=""
               title={head.firstQuestion}
-              className="line-clamp-3 break-words text-[17px] font-semibold leading-snug text-theme-text-primary xl:text-lg"
+              className="line-clamp-3 break-words text-[17px] font-semibold leading-snug text-theme-text-primary desktop:text-lg"
             >
               <HighlightedText text={head.firstQuestion} term={search} />
             </h3>
@@ -710,7 +711,7 @@ export default function ConversationDetail({
                 <span
                   data-meta-item=""
                   data-meta-date=""
-                  className={`${META_ITEM} xl:hidden`}
+                  className={`${META_ITEM} desktop:hidden`}
                 >
                   {longDateLabel(headDay)}
                 </span>
@@ -797,8 +798,8 @@ export default function ConversationDetail({
           (Review 7.22-rc12, K01; arrowNavigationAllowed). Derselbe
           Fokusring wie im Kopf statt des Browser-Rings (rc3).
           Bildlauf am Rand (Fixliste 7.22-rc14, K20): Auf dem Desktop
-          (xl:overscroll-auto) geht das Mausrad an die Seite weiter, sobald
-          der Verlauf ganz oben (bzw. unten) steht. So kommt man über dem
+          (desktop:overscroll-auto) geht das Mausrad an die Seite weiter,
+          sobald der Verlauf ganz oben (bzw. unten) steht. So kommt man über dem
           Verlauf zurück zu Kennzahlen und Diagramm. Als Vollbild (Tablet,
           Smartphone) hält er ihn wie bisher (overscroll-contain): Die Seite
           dahinter bleibt stehen. */}
@@ -806,7 +807,7 @@ export default function ConversationDetail({
         ref={bodyRef}
         data-panel-body=""
         tabIndex={0}
-        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 xl:overscroll-auto xl:px-5 ${FOCUS_RING}`}
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 desktop:overscroll-auto desktop:px-5 ${FOCUS_RING}`}
       >
         {!loaded ? (
           <p className={`py-4 text-center text-sm ${MUTED}`}>
@@ -823,7 +824,7 @@ export default function ConversationDetail({
               type="button"
               data-panel-retry=""
               onClick={() => setReload((count) => count + 1)}
-              className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 light:border-gray-200 light:hover:bg-black/5 xl:h-9"
+              className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 light:border-gray-200 light:hover:bg-black/5 desktop:h-9"
             >
               {t("embed-analytics.panel.retry")}
             </button>
@@ -851,20 +852,21 @@ export default function ConversationDetail({
       </div>
 
       {/* Fußzeile: gekürzte Kennung (kopieren) und Löschen – immer eine
-          Zeile: Reicht die Breite nicht (Panel bei 1024 px), wird die
-          Kennung weiter gekürzt, „Konversation löschen“ bleibt ganz
-          (Fixliste 5, S5). */}
+          Zeile: Reicht die Breite nicht (Vollbild auf dem Smartphone; auf
+          dem Desktop ist der Verlauf mindestens 480 px breit, bei 1.280 px
+          rund 510 px, E15), wird die Kennung weiter gekürzt, „Konversation
+          löschen“ bleibt ganz (Fixliste 5, S5; Review 7.22-rc15, C12). */}
       {deletable && (
         <footer
           data-conversation-actions=""
-          className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 px-3 py-2 light:border-gray-200 xl:px-4"
+          className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 px-3 py-2 light:border-gray-200 desktop:px-4"
         >
           <button
             type="button"
             data-panel-id=""
             onClick={copyId}
             title={t("embed-analytics.panel.copy-id")}
-            className={`flex h-11 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs ${MUTED} hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 xl:h-8 ${FOCUS_RING}`}
+            className={`flex h-11 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs ${MUTED} hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 desktop:h-8 ${FOCUS_RING}`}
           >
             <Copy size={13} aria-hidden="true" className="shrink-0" />
             <span className="truncate font-mono">
@@ -875,7 +877,7 @@ export default function ConversationDetail({
             type="button"
             data-delete-conversation=""
             onClick={() => openDelete("conversation")}
-            className={`flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[13px] ${MUTED} transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text xl:h-8 ${FOCUS_RING}`}
+            className={`flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[13px] ${MUTED} transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text desktop:h-8 ${FOCUS_RING}`}
           >
             <Trash size={14} aria-hidden="true" />
             {t("embed-analytics.delete.conversation")}
@@ -895,7 +897,7 @@ function MenuItem({ Icon, label, onClick, danger = false, ...rest }) {
       role="menuitem"
       {...rest}
       onClick={onClick}
-      className={`flex min-h-[44px] w-full items-center gap-2 px-3 py-2 text-left text-sm ${MUTED} transition-colors focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5 xl:min-h-0 ${
+      className={`flex min-h-[44px] w-full items-center gap-2 px-3 py-2 text-left text-sm ${MUTED} transition-colors focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5 desktop:min-h-0 ${
         danger
           ? "hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text"
           : "hover:bg-white/5 hover:text-theme-text-primary light:hover:bg-black/5"
@@ -1001,7 +1003,7 @@ function RatingJump({ kind, onJump, title, children }) {
       data-rating-jump={kind}
       title={title}
       onClick={() => onJump(kind)}
-      className={`group inline-flex min-h-11 items-center whitespace-nowrap rounded-md xl:min-h-0 ${RATING_TEXT[kind]} ${FOCUS_RING}`}
+      className={`group inline-flex min-h-11 items-center whitespace-nowrap rounded-md desktop:min-h-0 ${RATING_TEXT[kind]} ${FOCUS_RING}`}
     >
       <span
         className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 ${RATING_TINT[kind]}`}

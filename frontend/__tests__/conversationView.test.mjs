@@ -74,6 +74,8 @@ import * as rc13 from "../src/utils/conversationView.js";
 import * as rc14 from "../src/utils/conversationView.js";
 // Neu seit 7.22-rc15 (K31): ebenso über den Namensraum
 import * as rc15 from "../src/utils/conversationView.js";
+// Neu seit 7.22-rc16 (K40 bis K45, C10): ebenso über den Namensraum
+import * as rc16 from "../src/utils/conversationView.js";
 import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
 import { formatDateTimeDE } from "../src/utils/dateTimeDE.js";
 import serverSearch from "../../server/utils/helpers/chat/conversationSearch.js";
@@ -1555,24 +1557,24 @@ test("KIE-575, AK-2 / rc11 K13 / rc13 E15: WORKSPACE – Bereich mit fester Höh
     names.every((name) => classes(value).includes(name));
   assert.ok(
     has(WORKSPACE.area, [
-      "xl:flex",
-      "xl:gap-4",
-      "xl:h-[max(480px,calc(100vh-88px))]",
+      "desktop:flex",
+      "desktop:gap-4",
+      "desktop:h-[max(480px,calc(100vh-88px))]",
     ]),
     WORKSPACE.area
   );
   assert.ok(
-    has(WORKSPACE.column, ["xl:flex", "xl:min-w-0", "xl:flex-1", "xl:flex-col"])
+    has(WORKSPACE.column, ["desktop:flex", "desktop:min-w-0", "desktop:flex-1", "desktop:flex-col"])
   );
   assert.ok(
-    has(WORKSPACE.scroller, ["xl:min-h-0", "xl:flex-1", "xl:overflow-y-auto"])
+    has(WORKSPACE.scroller, ["desktop:min-h-0", "desktop:flex-1", "desktop:overflow-y-auto"])
   );
   // E15: einheitlich Liste 44 % und Verlauf 56 % (kein Schritt bei
   // 1.536 px), der Verlauf überall mindestens 480 px
   assert.deepEqual(classes(WORKSPACE.panel), [
-    "xl:w-[calc(56%-8px)]",
-    "xl:min-w-[480px]",
-    "xl:shrink-0",
+    "desktop:w-[calc(56%-8px)]",
+    "desktop:min-w-[480px]",
+    "desktop:shrink-0",
   ]);
   // Die Zahlen in den Klassen sind die Konstanten – wörtlich, damit Tailwind
   // das CSS erzeugt (keine Vorlagen)
@@ -1586,14 +1588,15 @@ test("KIE-575, AK-2 / rc11 K13 / rc13 E15: WORKSPACE – Bereich mit fester Höh
     new URL("../src/utils/conversationView.js", import.meta.url),
     "utf8"
   );
-  assert.ok(source.includes('"xl:flex xl:gap-4 xl:h-[max(480px,calc(100vh-88px))]"'));
-  assert.ok(source.includes("xl:min-w-[480px]"));
-  // Tablet und Smartphone wie bisher unter lg: nur Präfixe xl (Desktop)
+  assert.ok(source.includes('"desktop:flex desktop:gap-4 desktop:h-[max(480px,calc(100vh-88px))]"'));
+  assert.ok(source.includes("desktop:min-w-[480px]"));
+  // Tablet und Smartphone wie bisher unter lg: nur Präfixe desktop:
+  // (Geräteklasse, rc16 C10; vorher xl:)
   for (const value of Object.values(WORKSPACE))
-    for (const name of classes(value)) assert.match(name, /^xl:/, name);
+    for (const name of classes(value)) assert.match(name, /^desktop:/, name);
 });
 
-test("rc13, E15: Geräteklassen – der Verlauf steht ab 1.280 px (Tailwind xl, Desktop) neben der Liste; darunter (Tablet 768 bis 1.279 px, Smartphone) ist er ein Vollbild", () => {
+test("rc13, E15: Geräteklassen – der Verlauf steht ab 1.280 px (Stufe desktop:, Desktop) neben der Liste; darunter (Tablet 768 bis 1.279 px, Smartphone) ist er ein Vollbild", () => {
   assert.equal(rc13.WIDE_QUERY, "(min-width: 1280px)");
   const original = globalThis.window;
   try {
@@ -1618,14 +1621,14 @@ test("rc13, E15: Geräteklassen – der Verlauf steht ab 1.280 px (Tailwind xl, 
   }
 });
 
-test("Review 7.22-rc12, K04: Sprungziel „Liste“ – auf dem Desktop die Ruhelage des Arbeitsbereichs (Oberkante 24 px unter dem Fensterrand: 8 px unter dem Rahmen, xl:scroll-mt-2), auf Tablet und Smartphone weiter unter dem Benutzermenü (scroll-mt-20); Höhe und Sprungziel aus derselben Ruhelage", () => {
+test("Review 7.22-rc12, K04: Sprungziel „Liste“ – auf dem Desktop die Ruhelage des Arbeitsbereichs (Oberkante 24 px unter dem Fensterrand: 8 px unter dem Rahmen, desktop:scroll-mt-2), auf Tablet und Smartphone weiter unter dem Benutzermenü (scroll-mt-20); Höhe und Sprungziel aus derselben Ruhelage", () => {
   const { FRAME_TOP, WORKSPACE_REST_TOP } = rc13;
-  assert.equal(AVATAR_CLEARANCE.jumpTarget, "scroll-mt-20 xl:scroll-mt-2");
+  assert.equal(AVATAR_CLEARANCE.jumpTarget, "scroll-mt-20 desktop:scroll-mt-2");
   assert.equal(FRAME_TOP, 16);
   assert.equal(WORKSPACE_REST_TOP, 24);
-  // xl:scroll-mt-2 = 2 · 4 px = Ruhelage minus Rahmen
+  // desktop:scroll-mt-2 = 2 · 4 px = Ruhelage minus Rahmen
   const margin = Number(
-    AVATAR_CLEARANCE.jumpTarget.match(/xl:scroll-mt-(\d+)/)?.[1]
+    AVATAR_CLEARANCE.jumpTarget.match(/desktop:scroll-mt-(\d+)/)?.[1]
   );
   assert.equal(margin * 4, WORKSPACE_REST_TOP - FRAME_TOP);
   // Höhe des Bereichs: Ruhelage oben, darunter 48 px Abstand und 16 px Rahmen
@@ -1757,8 +1760,8 @@ test("rc11, K11: nearestScrollTop – Scrollposition, bei der ein Element im Ber
   assert.equal(nearestScrollTop(container(0), element(270.4, 0)), 24);
 });
 
-test("rc11, K12 / K14: AVATAR_CLEARANCE.panelHeadEnd (xl:pr-7, nur auf dem Desktop: mit dem Innenabstand des Kopfs 48 px rechts, ✕ und ⋯ links vom Benutzermenü) und emptyPanelClose (right-12); BUBBLE: Blasen höchstens 720 px bei jeder Breite (E14), Nutzerblasen weiter höchstens 85 %", () => {
-  assert.equal(AVATAR_CLEARANCE.panelHeadEnd, "xl:pr-7");
+test("rc11, K12 / K14: AVATAR_CLEARANCE.panelHeadEnd (desktop:pr-7, nur auf dem Desktop: mit dem Innenabstand des Kopfs 48 px rechts, ✕ und ⋯ links vom Benutzermenü) und emptyPanelClose (right-12); BUBBLE: Blasen höchstens 720 px bei jeder Breite (E14), Nutzerblasen weiter höchstens 85 %", () => {
+  assert.equal(AVATAR_CLEARANCE.panelHeadEnd, "desktop:pr-7");
   assert.equal(AVATAR_CLEARANCE.emptyPanelClose, "right-12");
   assert.equal(BUBBLE_MAX_WIDTH, 720);
   assert.deepEqual(BUBBLE, {
@@ -1871,7 +1874,7 @@ test("rc12, C4: readPanelPreference/writePanelPreference ohne Angabe – localSt
   }
 });
 
-test("rc12, K14 / rc13 E13: ANSWER_PURIFY_CONFIG – nur HTML, kein style (Attribut und Element), keine Formulare, Medien, Popover oder Dialoge, keine id/name/role, keine aria- und data-Attribute außer data-search-hit", () => {
+test("rc12, K14 / rc13 E13: ANSWER_PURIFY_CONFIG – nur HTML, kein style (Attribut und Element), keine Formulare, Medien, Popover oder Dialoge, keine id/name/role, keine aria- und data-Attribute (data-search-hit nur im zweiten Durchgang, rc16 K41)", () => {
   const config = rc13.ANSWER_PURIFY_CONFIG;
   assert.ok(config, "ANSWER_PURIFY_CONFIG fehlt");
   assert.deepEqual(config.USE_PROFILES, { html: true });
@@ -1881,7 +1884,13 @@ test("rc12, K14 / rc13 E13: ANSWER_PURIFY_CONFIG – nur HTML, kein style (Attri
     assert.ok(config.FORBID_ATTR.includes(attribute), attribute);
   assert.equal(config.ALLOW_ARIA_ATTR, false);
   assert.equal(config.ALLOW_DATA_ATTR, false);
-  assert.deepEqual(config.ADD_ATTR, ["data-search-hit"]);
+  // rc16, K41: im ersten Durchgang keine Ausnahme, erst nach der
+  // Hervorhebung (answerPurifyConfig({ searchHits: true }))
+  assert.equal(config.ADD_ATTR, undefined);
+  assert.deepEqual(
+    rc16.answerPurifyConfig({ searchHits: true }).ADD_ATTR,
+    ["data-search-hit"]
+  );
   // Die Hervorhebung der Suche setzt genau dieses Attribut
   const doc = createDocument();
   const p = doc.body.appendChild(doc.createElement("p"));
@@ -1964,9 +1973,12 @@ test("rc12, K14 / rc13 E13: Der Verlauf der Konversationen bereinigt Antworten m
     "utf8"
   );
   assert.ok(sanitizer.includes("createDOMPurify("));
-  assert.ok(sanitizer.includes("...ANSWER_PURIFY_CONFIG"));
+  // rc16, K41: die Einstellung je Durchgang (answerPurifyConfig)
+  assert.ok(sanitizer.includes("...answerPurifyConfig({ searchHits })"));
   assert.ok(sanitizer.includes("RETURN_DOM: true"));
-  assert.ok(sanitizer.includes("hardenAnswerHtml(body, body.ownerDocument)"));
+  assert.ok(
+    sanitizer.includes("hardenAnswerHtml(body, body.ownerDocument, { searchHits })")
+  );
   // Die gemeinsame Einstellung des Chats bleibt unverändert
   const shared = readFileSync(
     new URL("../src/utils/chat/purify.js", import.meta.url),
@@ -1985,7 +1997,7 @@ test("rc14, K20: Die Spalte der Liste gibt den Bildlauf an ihrem Rand an die Sei
     !classes.some((name) => /overscroll/.test(name)),
     WORKSPACE.scroller
   );
-  for (const name of ["xl:relative", "xl:min-h-0", "xl:flex-1", "xl:overflow-y-auto"])
+  for (const name of ["desktop:relative", "desktop:min-h-0", "desktop:flex-1", "desktop:overflow-y-auto"])
     assert.ok(classes.includes(name), name);
   // auch nicht anderswo im Arbeitsbereich (Bereich, Spalte, Verlauf)
   for (const value of Object.values(WORKSPACE))
@@ -2019,9 +2031,9 @@ test("rc14, K21: scrollMotion – der Sprung „Zur Übersicht“ ist weich, bei
   }
 });
 
-test("rc14, K21: Sprungziel „Übersicht“ – auf dem Desktop landet der Anfang der Ansicht so, dass die Seite ganz oben steht (xl:scroll-mt-12 = 48 px = Abstand md:pt-12 des Seitenrahmens über der Ansicht)", () => {
-  assert.equal(rc14.OVERVIEW_TARGET, "xl:scroll-mt-12");
-  const margin = Number(rc14.OVERVIEW_TARGET.match(/xl:scroll-mt-(\d+)/)?.[1]);
+test("rc14, K21: Sprungziel „Übersicht“ – auf dem Desktop landet der Anfang der Ansicht so, dass die Seite ganz oben steht (desktop:scroll-mt-12 = 48 px = Abstand md:pt-12 des Seitenrahmens über der Ansicht)", () => {
+  assert.equal(rc14.OVERVIEW_TARGET, "desktop:scroll-mt-12");
+  const margin = Number(rc14.OVERVIEW_TARGET.match(/desktop:scroll-mt-(\d+)/)?.[1]);
   const layout = readFileSync(
     new URL(
       "../src/pages/GeneralSettings/ChatEmbedWidgets/index.jsx",
@@ -2269,5 +2281,241 @@ test("rc15, K31: HEADING_FOCUS_RING: Ring wie bei den Buttons (2 px, Textfarbe) 
   assert.equal(
     `data-${classes[2].match(/^data-\[([\w-]+)\]/)[1]}`,
     rc15.KEYBOARD_FOCUS_ATTRIBUTE
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc16 (Nachreview rc15, Abschnitt K)
+// ---------------------------------------------------------------------------
+
+test("rc16, K40: Ein verlinktes Bild (Markdown [![Kursbild](bild)](kurs)) wird kein zweiter Link im Link – der Kurslink bleibt und trägt den Alt-Text; ohne Alt-Text seine eigene Adresse, nie leer", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const course = p.appendChild(doc.createElement("a"));
+  course.setAttribute("href", "https://vhs.example/kurs/123");
+  const image = course.appendChild(doc.createElement("img"));
+  image.setAttribute("src", "https://vhs.example/bild.jpg");
+  image.setAttribute("alt", "Kursbild");
+  const bare = p.appendChild(doc.createElement("a"));
+  bare.setAttribute("href", "https://vhs.example/kurs/456");
+  const noAlt = bare.appendChild(doc.createElement("img"));
+  noAlt.setAttribute("src", "https://vhs.example/ohne-alt.jpg");
+  // Bild mit Text daneben im Link: der Text bleibt, keine Adresse dazu
+  const mixed = p.appendChild(doc.createElement("a"));
+  mixed.setAttribute("href", "https://vhs.example/kurs/789");
+  const logo = mixed.appendChild(doc.createElement("img"));
+  logo.setAttribute("src", "https://vhs.example/logo.png");
+  mixed.appendChild(doc.createTextNode("Kurs 789"));
+
+  rc13.hardenAnswerHtml(root, doc);
+
+  const links = elements(root, (e) => e.tagName === "A");
+  assert.equal(links.length, 3, "kein neuer Link für die Bilder");
+  assert.ok(
+    !links.some((a) => elements(a, (e) => e.tagName === "A").length > 0),
+    "kein Link im Link"
+  );
+  assert.equal(elements(root, (e) => e.tagName === "IMG").length, 0);
+  assert.equal(course.getAttribute("href"), "https://vhs.example/kurs/123");
+  assert.equal(course.textContent, "Kursbild");
+  assert.equal(course.getAttribute("target"), "_blank");
+  assert.equal(course.getAttribute("rel"), "noopener noreferrer");
+  assert.equal(bare.textContent, "https://vhs.example/kurs/456", "nicht leer, nicht die Bildadresse");
+  assert.equal(mixed.textContent, "Kurs 789");
+  // außerhalb eines Links wie bisher: ein Link zum Bild
+  const outside = doc.createElement("body");
+  const lone = outside.appendChild(doc.createElement("img"));
+  lone.setAttribute("src", "https://vhs.example/bild.jpg");
+  lone.setAttribute("alt", "Kursbild");
+  rc13.hardenAnswerHtml(outside, doc);
+  const [toImage] = elements(outside, (e) => e.tagName === "A");
+  assert.equal(toImage.getAttribute("href"), "https://vhs.example/bild.jpg");
+  assert.equal(toImage.textContent, "Kursbild");
+});
+
+test("rc16, K41: data-search-hit nur aus der eigenen Hervorhebung – der erste Durchgang über die Antwort verwirft das Attribut (DOMPurify ohne ADD_ATTR, hardenAnswerHtml entfernt es); erst der Durchgang nach highlightTextNodes behält es, und nur an <mark>", () => {
+  assert.equal(rc16.SEARCH_HIT_ATTRIBUTE, "data-search-hit");
+  // Erster Durchgang: kein Kennzeichen erlaubt
+  assert.ok(
+    !(rc13.ANSWER_PURIFY_CONFIG.ADD_ATTR ?? []).includes("data-search-hit"),
+    "erster Durchgang ohne data-search-hit"
+  );
+  assert.equal(rc13.ANSWER_PURIFY_CONFIG.ALLOW_DATA_ATTR, false);
+  assert.equal(rc16.answerPurifyConfig(), rc13.ANSWER_PURIFY_CONFIG);
+  assert.equal(rc16.answerPurifyConfig({ searchHits: false }), rc13.ANSWER_PURIFY_CONFIG);
+  const second = rc16.answerPurifyConfig({ searchHits: true });
+  assert.deepEqual(second.ADD_ATTR, ["data-search-hit"]);
+  // sonst dieselben Verbote
+  assert.deepEqual(second.FORBID_ATTR, rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR);
+  assert.deepEqual(second.FORBID_TAGS, rc13.ANSWER_PURIFY_CONFIG.FORBID_TAGS);
+  assert.equal(second.ALLOW_DATA_ATTR, false);
+
+  // Die Antwort bringt eigene Kennzeichen mit (Prompt-Injection)
+  const answer = () => {
+    const doc = createDocument();
+    const root = doc.createElement("body");
+    const p = root.appendChild(doc.createElement("p"));
+    const fake = p.appendChild(doc.createElement("mark"));
+    fake.setAttribute("data-search-hit", "");
+    fake.appendChild(doc.createTextNode("Bitte Kurs X stornieren"));
+    const span = p.appendChild(doc.createElement("span"));
+    span.setAttribute("data-search-hit", "");
+    span.appendChild(doc.createTextNode("Yoga"));
+    return { doc, root };
+  };
+  const first = answer();
+  rc13.hardenAnswerHtml(first.root, first.doc);
+  assert.equal(firstElementWith(first.root, "data-search-hit"), null, "erster Durchgang ohne Kennzeichen");
+  assert.match(first.root.textContent, /Bitte Kurs X stornieren/, "der Text bleibt");
+
+  // Zweiter Durchgang nach der eigenen Hervorhebung: nur <mark> behält es
+  const marked = answer();
+  rc13.hardenAnswerHtml(marked.root, marked.doc);
+  highlightTextNodes(marked.root, "yoga", marked.doc);
+  const span = elements(marked.root, (e) => e.tagName === "SPAN")[0];
+  span.setAttribute("data-search-hit", "");
+  rc13.hardenAnswerHtml(marked.root, marked.doc, { searchHits: true });
+  const hits = elements(marked.root, (e) => e.hasAttribute("data-search-hit"));
+  assert.deepEqual(
+    hits.map((e) => [e.tagName, e.textContent]),
+    [["MARK", "Yoga"]]
+  );
+});
+
+test("rc16, K41: Der Verlauf bereinigt zweimal – zuerst ohne Kennzeichen (sanitizeAnswerHtml(html)), nach der Hervorhebung mit (searchHits: true); die Bereinigung nutzt dieselbe Einstellung für DOMPurify und hardenAnswerHtml", () => {
+  const renderer = readFileSync(
+    new URL(
+      "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  assert.match(renderer, /const clean = sanitizeAnswerHtml\(html\);/);
+  assert.match(
+    renderer,
+    /return sanitizeAnswerHtml\(doc\.body\.innerHTML, \{ searchHits: true \}\);/
+  );
+  const sanitizer = readFileSync(
+    new URL("../src/utils/chat/purifyConversation.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(sanitizer, /\.\.\.answerPurifyConfig\(\{ searchHits \}\)/);
+  assert.match(sanitizer, /hardenAnswerHtml\(body, body\.ownerDocument, \{ searchHits \}\)/);
+  assert.ok(!/ADD_ATTR/.test(sanitizer), "keine eigene Ausnahme im Aufruf");
+});
+
+test("rc16, K42: Die Antwort nimmt keinen Einfluss auf die Tastaturbedienung und versteckt nichts – tabindex, hidden und draggable stehen in FORBID_ATTR", () => {
+  for (const attribute of ["tabindex", "hidden", "draggable"])
+    assert.ok(
+      rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes(attribute),
+      attribute
+    );
+  // auch im zweiten Durchgang
+  for (const attribute of ["tabindex", "hidden", "draggable"])
+    assert.ok(
+      rc16.answerPurifyConfig({ searchHits: true }).FORBID_ATTR.includes(attribute),
+      attribute
+    );
+});
+
+test("rc16, K43: Ausrichtung der Tabellenspalten aus Markdown (|:--|:-:|--:|) als align statt style – style bleibt verboten, die Beträge stehen rechtsbündig wie im Widget", async () => {
+  const { default: MarkdownIt } = await import("markdown-it");
+  assert.equal(typeof rc16.tableAlignAttributes, "function", "Plugin fehlt");
+  const md = new MarkdownIt({ html: true }).use(rc16.tableAlignAttributes);
+  const html = md.render(
+    "| Kurs | Ort | Gebühr | Hinweis |\n|:---|:-:|---:|---|\n| Yoga | Raum 2 | 96,00 € | neu |"
+  );
+  assert.doesNotMatch(html, /style=/);
+  assert.match(html, /<th align="left">Kurs<\/th>/);
+  assert.match(html, /<th align="center">Ort<\/th>/);
+  assert.match(html, /<th align="right">Gebühr<\/th>/);
+  assert.match(html, /<th>Hinweis<\/th>/);
+  assert.match(html, /<td align="right">96,00 €<\/td>/);
+  assert.match(html, /<td>neu<\/td>/);
+  // Andere Stilangaben (rohes HTML) fasst das Plugin nicht an
+  const raw = md.render('<table><tr><td style="position:fixed">x</td></tr></table>');
+  assert.match(raw, /style="position:fixed"/, "bleibt für DOMPurify");
+  // align ist im HTML-Profil von DOMPurify erlaubt (nicht verboten)
+  assert.ok(!rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("align"));
+  assert.ok(rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("style"));
+  // Der Verlauf nutzt das Plugin
+  const renderer = readFileSync(
+    new URL(
+      "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  assert.match(renderer, /\.use\(tableAlignAttributes\)/);
+});
+
+test("rc16, C10: Eine Schwelle für den Desktop – die Tailwind-Stufe desktop: (tailwind.config.js) und WIDE_QUERY kommen aus DESKTOP_MIN_WIDTH (deviceClasses.js); die Klassen der Geräteklasse heißen desktop:, xl: bleibt nur die Breitenstufe im Kopf der Liste", async () => {
+  const devices = await import("../src/utils/deviceClasses.js");
+  assert.equal(devices.DESKTOP_MIN_WIDTH, 1280);
+  assert.equal(devices.DESKTOP_SCREEN, "1280px");
+  const { default: config } = await import("../tailwind.config.js");
+  assert.equal(config.theme.extend.screens?.desktop, devices.DESKTOP_SCREEN);
+  // keine eigene Liste der Stufen (sonst fielen sm bis 2xl weg)
+  assert.equal(config.theme.screens, undefined);
+  assert.equal(rc16.WIDE_QUERY, `(min-width: ${devices.DESKTOP_SCREEN})`);
+  const source = (file) =>
+    readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+  assert.match(
+    source("utils/conversationView.js"),
+    /WIDE_QUERY = `\(min-width: \$\{DESKTOP_MIN_WIDTH\}px\)`/,
+    "WIDE_QUERY aus der Konstante, nicht als zweite Zahl"
+  );
+  assert.match(
+    readFileSync(new URL("../tailwind.config.js", import.meta.url), "utf8"),
+    /desktop: DESKTOP_SCREEN/
+  );
+
+  // Klassen der Geräteklasse (Arbeitsbereich, Sprungziele, Abstand zum
+  // Benutzermenü im Kopf des Verlaufs): nur desktop:
+  const tokens = (text, prefix) =>
+    new Set(
+      text.match(new RegExp(`(?<![\\w\\-\\[])${prefix}:[a-z0-9\\-\\[\\]\\.]+`, "g")) ??
+        []
+    );
+  const constants = [
+    ...Object.values(rc16.WORKSPACE),
+    rc16.OVERVIEW_TARGET,
+    rc16.AVATAR_CLEARANCE.jumpTarget,
+    rc16.AVATAR_CLEARANCE.panelHeadEnd,
+  ].join(" ");
+  assert.equal(tokens(constants, "xl").size, 0, [...tokens(constants, "xl")].join(" "));
+  assert.ok(tokens(constants, "desktop").has("desktop:flex"));
+  assert.ok(tokens(constants, "desktop").has("desktop:scroll-mt-12"));
+  assert.ok(tokens(constants, "desktop").has("desktop:pr-7"));
+  // Der Verlauf: Vollbild auf Tablet und Smartphone, Spalte auf dem Desktop
+  const detail = source(
+    "pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/ConversationDetail.jsx"
+  );
+  assert.deepEqual([...tokens(detail, "xl")], [], "kein xl: im Verlauf");
+  for (const name of ["desktop:relative", "desktop:hidden", "desktop:grid", "desktop:h-9", "desktop:block"])
+    assert.ok(tokens(detail, "desktop").has(name), name);
+  // Die Liste: desktop: für Arbeitsbereich, Platzhalter und „Zur
+  // Übersicht ↑“; xl: nur noch als Breitenstufe des Kopfs (volle Form der
+  // Werkzeugleiste ohne Verlauf daneben)
+  const list = source(
+    "pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/ConversationList.jsx"
+  );
+  for (const name of ["desktop:shrink-0", "desktop:flex", "desktop:inline-flex"])
+    assert.ok(tokens(list, "desktop").has(name), name);
+  assert.deepEqual(
+    [...tokens(list, "xl")].sort(),
+    [
+      "xl:basis-auto",
+      "xl:block",
+      "xl:flex-auto",
+      "xl:grow",
+      "xl:grow-[999]",
+      "xl:hidden",
+      "xl:inline-flex",
+      "xl:px-3",
+      "xl:px-3.5",
+      "xl:w-60",
+    ]
   );
 });

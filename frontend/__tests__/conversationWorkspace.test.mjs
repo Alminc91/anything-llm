@@ -100,8 +100,13 @@ function message(id, extra = {}) {
  * anderes sagt. state.holdMore: Folgeseiten (after) warten auf dieses
  * Promise (Fokus während des Nachladens, K15); state.holdFirst ebenso die
  * ersten Seiten eines Zuschnitts (Liste lädt, rc12 K06/K10). Löschen
- * (DELETE …/conversation) nimmt die Zeile aus dem Bestand; mit
- * state.deleteFails scheitert es.
+ * (DELETE …/conversation) nimmt die Zeile aus dem Bestand – auch eine, die
+ * zur Konversation der genannten Kennung gehört (deren Verlauf in
+ * state.details, rc16 K45 b); mit state.deleteFails scheitert es, mit
+ * state.holdDelete wartet die Antwort auf dieses Promise (rc16 K45 c).
+ * state.visitors: Die Lösch-Vorschau nennt den Besucher (Zeilen mit
+ * derselben session_id), DELETE …/conversation/visitor löscht sie alle
+ * (rc16 K45 a); sonst visitor: null wie bisher.
  */
 async function workspaceServer(t, state) {
   const { API_BASE } = await renderer.load("/src/utils/constants.js");
@@ -203,15 +208,59 @@ async function workspaceServer(t, state) {
         messages: answer?.messages ?? [message(id)],
       });
     }
-    if (url.endsWith("/conversation/deletion-preview"))
-      return json({ success: true, messageCount: 1, visitor: null });
+    // Konversation einer Kennung: aus dem Verlauf (state.details) oder der
+    // Zeile mit dieser ersten Kennung
+    const conversationOf = (chatId) => {
+      const first = state.details?.[chatId]?.messages?.[0];
+      const listed = state.rows.find((r) => r.first_chat_id === chatId);
+      const source = first ?? listed;
+      return source
+        ? { conversation_id: source.conversation_id, session_id: source.session_id }
+        : null;
+    };
+    const sameConversation = (r, conversation) =>
+      !!conversation &&
+      r.conversation_id === conversation.conversation_id &&
+      r.session_id === conversation.session_id;
+    if (url.endsWith("/conversation/deletion-preview")) {
+      const conversation = state.visitors ? conversationOf(call.body.chatId) : null;
+      const visits = conversation
+        ? state.rows.filter((r) => r.session_id === conversation.session_id).length
+        : 0;
+      return json({
+        success: true,
+        messageCount: 1,
+        visitor:
+          visits > 0
+            ? { conversationCount: visits, messageCount: visits }
+            : null,
+      });
+    }
     if (call.method === "DELETE" && /\/embed\/\d+\/conversation$/.test(url)) {
+      if (state.holdDelete) await state.holdDelete;
       if (state.deleteFails)
         return json({ success: false, error: "kaputt" }, 500);
+      const conversation = conversationOf(call.body.chatId);
       state.rows = state.rows.filter(
-        (r) => r.first_chat_id !== call.body.chatId
+        (r) =>
+          r.first_chat_id !== call.body.chatId &&
+          !sameConversation(r, conversation)
       );
       return json({ success: true, deletedCount: 1 });
+    }
+    if (
+      call.method === "DELETE" &&
+      /\/embed\/\d+\/conversation\/visitor$/.test(url)
+    ) {
+      if (state.holdDelete) await state.holdDelete;
+      const session = conversationOf(call.body.chatId)?.session_id;
+      const gone = state.rows.filter((r) => r.session_id === session);
+      state.rows = state.rows.filter((r) => r.session_id !== session);
+      return json({
+        success: true,
+        deletedCount: gone.length,
+        conversationCount: gone.length,
+      });
     }
     return json({ success: false, error: "unbekannt" }, 404);
   };
@@ -669,7 +718,7 @@ test(
     same(observer.root, one(container, "data-list-scroll"), "Rahmen: die Spalte");
     assert.deepEqual(observer.observed, [one(container, "data-list-end")]);
     assert.ok(
-      hasClasses(one(container, "data-list-scroll"), ["xl:overflow-y-auto"])
+      hasClasses(one(container, "data-list-scroll"), ["desktop:overflow-y-auto"])
     );
 
     // 30 Seiten von selbst (AUTO_LOAD_ROUNDS), je eine Anfrage hinter der
@@ -873,19 +922,19 @@ test(
     await act();
     const area = one(container, "data-conversation-area");
     assert.ok(hasClasses(area, WORKSPACE.area.split(" ")), WORKSPACE.area);
-    assert.ok(classesOf(area).includes("xl:h-[max(480px,calc(100vh-88px))]"));
+    assert.ok(classesOf(area).includes("desktop:h-[max(480px,calc(100vh-88px))]"));
     const column = one(container, "data-list-column");
     const header = one(container, "data-list-header");
     const scroller = one(container, "data-list-scroll");
     same(column.parentNode, area);
     same(header.parentNode, column, "Kopf in der linken Spalte");
     same(scroller.parentNode, column);
-    assert.ok(hasClasses(header, ["xl:shrink-0"]));
+    assert.ok(hasClasses(header, ["desktop:shrink-0"]));
     assert.ok(hasClasses(scroller, WORKSPACE.scroller.split(" ")));
     assert.ok(one(container, "data-conversation-list").parentNode === scroller);
     const panel = panelOf(container);
     same(panel.parentNode, area, "Verlauf neben der Spalte");
-    assert.ok(hasClasses(panel, ["xl:relative", ...WORKSPACE.panel.split(" ")]));
+    assert.ok(hasClasses(panel, ["desktop:relative", ...WORKSPACE.panel.split(" ")]));
     // nichts klebt, nichts hat eine Mindesthöhe der Seite; Arbeitsbereich
     // und Verlauf haben keine lg:-Klassen mehr (das Tablet bekommt das
     // Vollbild, E15)
@@ -1100,11 +1149,12 @@ test(
     await act();
     assert.equal(rowsOf(container).length, 20);
 
-    // Klick (der Knopf hat damit den Fokus); die Seite wartet
+    // Enter auf dem Knopf (Fokus per Tastatur; ein Mausklick ließe ihn
+    // seit rc12 K09 auf dem Knopf, siehe „rc12, K09 / K15“); die Seite wartet
     let release;
     state.holdMore = new Promise((resolve) => (release = resolve));
     const button = one(container, "data-load-more");
-    await act(() => click(button));
+    await act(() => keyboardClick(button));
     await act();
     assert.equal(
       button.hasAttribute("disabled"),
@@ -1745,7 +1795,7 @@ async function mountView(t, { stored = {} } = {}) {
 }
 
 test(
-  "rc14, K20: Liste und Verlauf geben den Bildlauf am Rand an die Seite weiter – die Spalte der Liste ohne overscroll, der Verlauf auf dem Desktop overscroll-auto (xl:overscroll-auto); als Vollbild auf Tablet und Smartphone hält er ihn wie bisher (overscroll-contain)",
+  "rc14, K20: Liste und Verlauf geben den Bildlauf am Rand an die Seite weiter – die Spalte der Liste ohne overscroll, der Verlauf auf dem Desktop overscroll-auto (desktop:overscroll-auto); als Vollbild auf Tablet und Smartphone hält er ihn wie bisher (overscroll-contain)",
   { skip },
   async (t) => {
     stubWidth(t, true);
@@ -1757,17 +1807,17 @@ test(
       !classesOf(scroller).some((name) => name.includes("overscroll")),
       scroller.getAttribute("class")
     );
-    assert.ok(hasClasses(scroller, ["xl:overflow-y-auto"]));
+    assert.ok(hasClasses(scroller, ["desktop:overflow-y-auto"]));
     const body = one(container, "data-panel-body");
     assert.ok(
-      hasClasses(body, ["overflow-y-auto", "overscroll-contain", "xl:overscroll-auto"]),
+      hasClasses(body, ["overflow-y-auto", "overscroll-contain", "desktop:overscroll-auto"]),
       body.getAttribute("class")
     );
     // nichts anderes im Arbeitsbereich hält den Bildlauf auf dem Desktop
     for (const element of elements(one(container, "data-conversation-area")))
       for (const name of classesOf(element))
         assert.ok(
-          !/^xl:overscroll-(contain|none)$/.test(name),
+          !/^(xl|desktop):overscroll-(contain|none)$/.test(name),
           `${element.tagName}: ${name}`
         );
   }
@@ -1789,7 +1839,7 @@ function overviewTargetOf(container, className) {
 }
 
 test(
-  "rc14, K21: Button „Zur Übersicht ↑“ im Kopf der Konversationen, nur auf dem Desktop (hidden xl:inline-flex), Fokusring der Seite – kompakt (Verlauf daneben) rechts in der Zeile der Überschrift, in voller Form (Verlauf zu) rechts neben den Steuerelementen (nach „Exportieren“); der Klick springt weich an den Anfang der Ansicht (Zeitraum, Kennzahlen) und setzt den Fokus ohne zweites Scrollen auf ihre Überschrift (tabIndex −1); nichts wird neu geladen, die Konversation bleibt; die Liste allein (ohne Sprungziel) zeigt ihn nicht",
+  "rc14, K21: Button „Zur Übersicht ↑“ im Kopf der Konversationen, nur auf dem Desktop (hidden desktop:inline-flex), Fokusring der Seite – kompakt (Verlauf daneben) rechts in der Zeile der Überschrift, in voller Form (Verlauf zu) rechts neben den Steuerelementen (nach „Exportieren“); der Klick springt weich an den Anfang der Ansicht (Zeitraum, Kennzahlen) und setzt den Fokus ohne zweites Scrollen auf ihre Überschrift (tabIndex −1); nichts wird neu geladen, die Konversation bleibt; die Liste allein (ohne Sprungziel) zeigt ihn nicht",
   { skip },
   async (t) => {
     const { FOCUS_RING, OVERVIEW_TARGET } = await renderer.load(
@@ -1820,7 +1870,7 @@ test(
     assert.ok(hasClasses(button, ["order-1"]));
     assert.ok(hasClasses(title, ["order-1", "flex-1"]));
     // nur auf dem Desktop, Fokusring wie die übrigen Buttons der Ansicht
-    assert.ok(hasClasses(button, ["hidden", "xl:inline-flex"]));
+    assert.ok(hasClasses(button, ["hidden", "desktop:inline-flex"]));
     assert.ok(hasClasses(button, FOCUS_RING.split(" ")), button.getAttribute("class"));
 
     // Überschrift der Ansicht: per Programm fokussierbar
@@ -1861,7 +1911,7 @@ test(
     const order = elements(one(container, "data-list-header"));
     const exportButton = one(container, "data-export-menu").firstChild;
     assert.ok(order.indexOf(full) > order.indexOf(exportButton), "nach „Exportieren“");
-    assert.ok(hasClasses(full, ["hidden", "xl:inline-flex"]));
+    assert.ok(hasClasses(full, ["hidden", "desktop:inline-flex"]));
     assert.ok(!classesOf(full).includes("order-1"));
     assert.ok(hasClasses(full, FOCUS_RING.split(" ")));
     await view.unmount();
@@ -1979,5 +2029,291 @@ test(
     for (const lang of Object.keys(resources))
       if (lang !== "de" && lang !== "en") assert.equal(text(lang), null, lang);
     for (const lang of ["de", "en"]) assert.ok(!/[–—]/.test(text(lang)));
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc16 (Nachreview rc15, Abschnitt K)
+// ---------------------------------------------------------------------------
+
+/** Rückfrage „Löschen“ bestätigen (Knopf in der Rückfrage). */
+async function confirmDelete({ document, act }) {
+  const confirm = elements(document.body, (e) =>
+    e.hasAttribute("data-confirm-delete")
+  )[0];
+  assert.ok(confirm, "Rückfrage offen");
+  await act(() => click(confirm));
+}
+
+test(
+  "rc16, K44: Die vorgewählte Konversation bekommt nach einem Wechsel eine neue erste Kennung (Zeitraum schneidet ihren Anfang ab) – sie bleibt gewählt, ihr Verlauf wird nicht neu geladen; ob sie oben steht oder weiter unten",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const keys = captureWindowKeys(t);
+    const state = { rows: [row(1), row(2), row(3)] };
+    const server = await workspaceServer(t, state);
+    const view = await mountList(t);
+    const { container, act } = view;
+    await settle(act);
+    assert.deepEqual(currentRows(container), [1]);
+    // Konversation 1 steht jetzt unter der Kennung 5 (ihre erste Zeile im
+    // neuen Zuschnitt), weiter unten in der Liste
+    const moved = row(5, { conversation_id: "konv-1", session_id: "sitzung-1" });
+    state.rows = [row(0), moved, row(2), row(3)];
+    await type(view, "Frage");
+    await act(() => wait(350));
+    await settle(act);
+    assert.deepEqual(rowIds(container), [0, 5, 2, 3]);
+    assert.deepEqual(currentRows(container), [5], "dieselbe Konversation bleibt gewählt");
+    assert.deepEqual(server.details(), [1], "kein Neuladen des Verlaufs");
+    assert.equal(server.previews(), 1, "keine neue Lösch-Vorschau");
+    assert.equal(view.search(), "?q=Frage", "Vorwahl ohne Adresse");
+    // ↓ blättert von ihr aus weiter
+    await keys.fire(act, "ArrowDown");
+    await settle(act);
+    assert.deepEqual(currentRows(container), [2]);
+
+    // Oben in der neuen Liste: ebenso kein Neuladen
+    const view2 = await (async () => {
+      await view.unmount();
+      state.rows = [row(1), row(2), row(3)];
+      return mountList(t);
+    })();
+    await settle(view2.act);
+    const before = server.details().length;
+    state.rows = [
+      row(7, { conversation_id: "konv-1", session_id: "sitzung-1" }),
+      row(2),
+    ];
+    await type(view2, "Frage");
+    await view2.act(() => wait(350));
+    await settle(view2.act);
+    assert.deepEqual(currentRows(view2.container), [7]);
+    assert.deepEqual(server.details().slice(before), [], "kein Neuladen");
+  }
+);
+
+test(
+  "rc16, K45 (a, c): Vorgewählte Konversation mit „Alle Konversationen dieses Besuchers löschen“ gelöscht (visitor.conversationCount 2), und während das Löschen läuft, kommt eine nachgeladene Seite – bis die neue Liste da ist, wird keine Konversation des Besuchers vorgewählt, auch nicht seine zweite",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const deleting = gate();
+    const state = {
+      rows: [
+        row(1, { session_id: "besucher-a" }),
+        row(2, { session_id: "besucher-a" }),
+        ...Array.from({ length: 30 }, (_, i) => row(3 + i)),
+      ],
+      visitors: true,
+    };
+    const server = await workspaceServer(t, state);
+    const view = await mountList(t);
+    const { container, act } = view;
+    await settle(act);
+    assert.deepEqual(currentRows(container), [1]);
+    await act(() => click(one(container, "data-panel-menu-button")));
+    await settle(act);
+    const entry = withAttribute(container, "data-delete-visitor")[0];
+    assert.ok(entry, "Eintrag für den Besucher");
+    await act(() => click(entry));
+    await settle(act);
+    state.holdDelete = deleting.promise;
+    await confirmDelete(view);
+    await settle(act);
+    // Das Löschen läuft; inzwischen lädt die Liste eine Seite nach (c)
+    await act(() => click(one(container, "data-load-more")));
+    await settle(act, 3);
+    assert.equal(rowsOf(container).length, 32);
+    const hold = gate();
+    state.holdFirst = hold.promise;
+    await act(() => deleting.release());
+    await settle(act);
+    // die alte Liste steht noch (1 und 2 darin)
+    assert.deepEqual(rowIds(container).slice(0, 3), [1, 2, 3]);
+    assert.deepEqual(currentRows(container), [3], "nicht die zweite des Besuchers");
+    assert.ok(!server.details().includes(2), `${server.details()}`);
+    await act(() => hold.release());
+    await settle(act, 6);
+    assert.deepEqual(rowIds(container).slice(0, 2), [3, 4]);
+    assert.deepEqual(currentRows(container), [3]);
+  }
+);
+
+test(
+  "rc16, K45 (b): Per Link geöffnet unter einer anderen Kennung als die erste Zeile ihrer Konversation in der Liste, dann gelöscht – die Zeile wird bis zur neuen Liste nicht wieder vorgewählt",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const state = {
+      // Kennung 7 gehört zur Konversation der Zeile 8 (konv-8)
+      rows: [row(8), row(1), row(9)],
+      details: {
+        7: { messages: [message(7, { conversation_id: "konv-8", session_id: "sitzung-8" })] },
+      },
+    };
+    const server = await workspaceServer(t, state);
+    const view = await mountList(t, { query: "?widget=3&conversation=7" });
+    const { container, act } = view;
+    await settle(act);
+    assert.deepEqual(currentRows(container), [8], "über den Schlüssel markiert");
+    await act(() => click(one(container, "data-delete-conversation")));
+    await settle(act);
+    const hold = gate();
+    state.holdFirst = hold.promise;
+    await confirmDelete(view);
+    await settle(act);
+    assert.deepEqual(rowIds(container), [8, 1, 9], "alte Liste");
+    assert.deepEqual(currentRows(container), [1]);
+    assert.ok(!server.details().includes(8), `${server.details()}`);
+    assert.equal(view.search(), "?widget=3", "aus der Adresse");
+    await act(() => hold.release());
+    await settle(act);
+    assert.deepEqual(rowIds(container), [1, 9]);
+    assert.deepEqual(currentRows(container), [1]);
+  }
+);
+
+test(
+  "rc16, K46 (E19): Nach einem Wechsel sucht die Liste die Konversation aus der Adresse höchstens in 100 Zeilen – steht sie dort nicht, fällt sie aus der Adresse und die erste Zeile ist gewählt; kein Nachladen bis 500 Zeilen",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const rows = Array.from({ length: 300 }, (_, i) => row(1000 + i));
+    const server = await workspaceServer(t, { rows });
+    const view = await mountList(t);
+    const { container, act } = view;
+    await settle(act);
+    // per Link 1250 öffnen (Zeile 251) und dann die Suche wechseln
+    await view.unmount();
+    const linked = await mountList(t, { query: "?widget=3&conversation=1250" });
+    await settle(linked.act, 12);
+    assert.deepEqual(currentRows(linked.container), [1250]);
+    const listsBefore = server.lists().length;
+    await type(linked, "Frage");
+    await linked.act(() => wait(350));
+    await settle(linked.act, 12);
+    const after = server.lists().slice(listsBefore);
+    const rowsAsked = after.reduce((sum, call) => sum + (call.body.limit ?? 0), 0);
+    assert.ok(rowsOf(linked.container).length <= 100, `${rowsOf(linked.container).length} Zeilen`);
+    assert.ok(after.length <= 2, `${after.length} Abrufe: ${after.map((call) => call.body.limit)}`);
+    assert.ok(rowsAsked <= 100, `${rowsAsked} Zeilen angefragt`);
+    assert.equal(linked.search(), "?widget=3&q=Frage", "aus der Adresse");
+    assert.deepEqual(currentRows(linked.container), [1000], "erste Zeile");
+  }
+);
+
+test(
+  "rc16, K47: Mit „Zur Übersicht ↑“ in der Werkzeugleiste (Verlauf zu, Kopf in voller Form) gilt deren breite Form (lange Filternamen, Innenabstände, Pfeil an „Exportieren“) erst ab 1.680 px statt ab xl – darunter die schmale, damit der Button den Kopf zwischen 1.280 und 1.536 px nicht höher macht; der Button bleibt rechts neben „Exportieren“, Wortlaut unverändert; die Liste ohne Button wie bisher ab xl",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    await workspaceServer(t, { rows: [row(1), row(2)] });
+    const view = await mountView(t);
+    const { container, act } = view;
+    await act(() => click(one(container, "data-panel-close")));
+    await act();
+    assert.equal(panelOf(container), null, "Verlauf zu: Kopf in voller Form");
+    const button = one(container, "data-jump-to-overview");
+    assert.equal(button.textContent, "Zur Übersicht ↑", "Wortlaut bleibt");
+    same(button.parentNode, one(container, "data-list-tools"));
+    same(previousOf(button), one(container, "data-list-actions"), "rechts neben „Exportieren“");
+
+    const labelClasses = (root) =>
+      elements(one(root, "data-feedback-filters"), (e) => e.tagName === "BUTTON")
+        .slice(1)
+        .map((segment) =>
+          withAttribute(segment, "data-stable-label").map((span) => [
+            span.getAttribute("data-stable-label"),
+            classesOf(span)
+              .filter((name) => /^(hidden|(xl|min-\[1680px\]):(hidden|inline-flex))$/.test(name))
+              .join(" "),
+          ])
+        );
+    assert.deepEqual(labelClasses(container), [
+      [
+        ["Positiv", "min-[1680px]:hidden"],
+        ["Positiv bewertet", "hidden min-[1680px]:inline-flex"],
+      ],
+      [
+        ["Negativ", "min-[1680px]:hidden"],
+        ["Negativ bewertet", "hidden min-[1680px]:inline-flex"],
+      ],
+    ]);
+    for (const segment of elements(one(container, "data-feedback-filters"), (e) => e.tagName === "BUTTON")) {
+      assert.ok(hasClasses(segment, ["px-3", "sm:px-2.5", "min-[1680px]:px-3"]), segment.getAttribute("class"));
+      assert.ok(!classesOf(segment).includes("xl:px-3"));
+    }
+    const exportButton = elements(one(container, "data-export-menu"), (e) => e.tagName === "BUTTON")[0];
+    assert.ok(hasClasses(exportButton, ["sm:px-2.5", "min-[1680px]:px-3.5"]), exportButton.getAttribute("class"));
+    assert.ok(!classesOf(exportButton).includes("xl:px-3.5"));
+    const caret = elements(exportButton, (e) => e.tagName === "svg").at(-1);
+    assert.ok(hasClasses(caret, ["hidden", "min-[1680px]:block"]), caret.getAttribute("class"));
+    assert.ok(!classesOf(caret).includes("xl:block"));
+    await view.unmount();
+
+    // Die Liste allein (ohne Button): die breite Form wie bisher ab xl
+    const list = await mountList(t);
+    await list.act();
+    await list.act(() => click(one(list.container, "data-panel-close")));
+    await list.act();
+    assert.deepEqual(labelClasses(list.container), [
+      [
+        ["Positiv", "xl:hidden"],
+        ["Positiv bewertet", "hidden xl:inline-flex"],
+      ],
+      [
+        ["Negativ", "xl:hidden"],
+        ["Negativ bewertet", "hidden xl:inline-flex"],
+      ],
+    ]);
+  }
+);
+
+test(
+  "rc16, K47: Kompakter Kopf (Verlauf daneben) mit „Zur Übersicht ↑“ in der Zeile der Überschrift – reicht der Platz nicht, bricht „X von Y einsehbar“ neben der Überschrift in sich um (Titelblock ohne Umbruch, Überschrift fest, Zahl darf schrumpfen) statt als Ganzes darunter; ohne Button und in voller Form wie bisher (Umbruch unter die Überschrift, Zahl in einer Zeile)",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    await workspaceServer(t, { rows: [row(1), row(2)] });
+    const view = await mountView(t);
+    const { container, act } = view;
+    await act();
+    assert.ok(panelOf(container), "Verlauf daneben: kompakter Kopf");
+    const parts = (root) => ({
+      title: classesOf(one(root, "data-list-title")),
+      heading: classesOf(one(root, "data-list-heading")),
+      count: classesOf(one(root, "data-viewable-count")),
+    });
+    const compact = parts(container);
+    same(previousOf(one(container, "data-jump-to-overview")), one(container, "data-list-title"));
+    assert.ok(compact.title.includes("flex-nowrap"), compact.title.join(" "));
+    assert.ok(!compact.title.includes("flex-wrap"), compact.title.join(" "));
+    assert.ok(compact.heading.includes("shrink-0"), compact.heading.join(" "));
+    assert.ok(compact.count.includes("min-w-0"), compact.count.join(" "));
+    assert.ok(!compact.count.includes("whitespace-nowrap"), compact.count.join(" "));
+    // Wortlaut unverändert
+    assert.equal(one(container, "data-jump-to-overview").textContent, "Zur Übersicht ↑");
+
+    // Verlauf zu (volle Form, Button in der Werkzeugleiste): wie bisher
+    await act(() => click(one(container, "data-panel-close")));
+    await act();
+    assert.equal(panelOf(container), null);
+    const full = parts(container);
+    assert.ok(full.title.includes("flex-wrap"), full.title.join(" "));
+    assert.ok(!full.title.includes("flex-nowrap"));
+    assert.ok(!full.heading.includes("shrink-0"));
+    assert.ok(full.count.includes("whitespace-nowrap"));
+    await view.unmount();
+
+    // Die Liste allein (ohne Button), Verlauf daneben: wie bisher
+    const list = await mountList(t);
+    await list.act();
+    assert.ok(panelOf(list.container));
+    const plain = parts(list.container);
+    assert.ok(plain.title.includes("flex-wrap"), plain.title.join(" "));
+    assert.ok(!plain.heading.includes("shrink-0"));
+    assert.ok(plain.count.includes("whitespace-nowrap"));
   }
 );

@@ -1,8 +1,5 @@
 import createDOMPurify from "dompurify";
-import {
-  ANSWER_PURIFY_CONFIG,
-  hardenAnswerHtml,
-} from "@/utils/conversationView";
+import { answerPurifyConfig, hardenAnswerHtml } from "@/utils/conversationView";
 
 // Bereinigung der Antworten im Verlauf der Konversationen (Admin-Ansicht;
 // Review 7.22-rc12, K14; Fixliste 7.22-rc13, E13). Eine eigene Instanz von
@@ -16,13 +13,17 @@ let purify = null;
 
 /**
  * Bereinigtes HTML einer Antwort für den Verlauf: DOMPurify mit
- * ANSWER_PURIFY_CONFIG in einem inerten Dokument, danach hardenAnswerHtml
+ * answerPurifyConfig in einem inerten Dokument, danach hardenAnswerHtml
  * (Links in neuem Tab mit rel="noopener noreferrer", Bilder als Link statt
  * Abruf, Klassen nur aus Markdown). Erst das Ergebnis kommt in die Seite.
+ * searchHits: true nur für den Durchgang nach der eigenen Hervorhebung –
+ * dann bleibt data-search-hit an deren <mark> (Review 7.22-rc15, K41);
+ * über das HTML der Antwort läuft der erste Durchgang immer ohne.
  * @param {string} html - gerendertes Markdown
+ * @param {{searchHits?: boolean}} [options]
  * @returns {string}
  */
-export default function sanitizeAnswerHtml(html) {
+export default function sanitizeAnswerHtml(html, { searchHits = false } = {}) {
   if (!purify) {
     const created = createDOMPurify(
       typeof window === "undefined" ? undefined : window
@@ -33,9 +34,9 @@ export default function sanitizeAnswerHtml(html) {
     purify = created;
   }
   const body = purify.sanitize(String(html ?? ""), {
-    ...ANSWER_PURIFY_CONFIG,
+    ...answerPurifyConfig({ searchHits }),
     RETURN_DOM: true,
   });
-  hardenAnswerHtml(body, body.ownerDocument);
+  hardenAnswerHtml(body, body.ownerDocument, { searchHits });
   return body.innerHTML;
 }

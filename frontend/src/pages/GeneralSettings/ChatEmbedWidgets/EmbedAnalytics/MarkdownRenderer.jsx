@@ -5,8 +5,14 @@ import { CaretDown } from "@phosphor-icons/react";
 import "highlight.js/styles/github-dark.css";
 import sanitizeAnswerHtml from "@/utils/chat/purifyConversation";
 import { useTranslation } from "react-i18next";
-import { highlightTextNodes, searchPattern } from "@/utils/conversationView";
+import {
+  highlightTextNodes,
+  searchPattern,
+  tableAlignAttributes,
+} from "@/utils/conversationView";
 
+// tableAlignAttributes: Ausrichtung der Tabellenspalten als align statt
+// style (style ist im Verlauf verboten; Review 7.22-rc15, K43)
 const md = new MarkdownIt({
   html: true,
   breaks: true,
@@ -18,7 +24,7 @@ const md = new MarkdownIt({
     }
     return ""; // use external default escaping
   },
-});
+}).use(tableAlignAttributes);
 
 const ThoughtBubble = ({ thought }) => {
   const { t } = useTranslation();
@@ -79,7 +85,9 @@ function parseContent(content) {
  * Desktop von selbst. Hervorgehoben wird nach dem Bereinigen in einem
  * inaktiven Dokument (DOMParser: keine Skripte, keine Ladevorgänge) und nur
  * in Textknoten – aus Nutzertext entsteht kein HTML. Das Ergebnis wird noch
- * einmal bereinigt.
+ * einmal bereinigt. Erst dieser zweite Durchgang lässt data-search-hit an
+ * den eigenen <mark> stehen; der erste verwirft es, damit die Antwort keine
+ * eigenen „Treffer“ mitbringt (Review 7.22-rc15, K41).
  * @param {string} html - gerendertes Markdown
  * @param {string} highlight - Suchbegriff ("" = keine Hervorhebung)
  * @returns {string}
@@ -90,7 +98,7 @@ function sanitizedHtml(html, highlight) {
     return clean;
   const doc = new DOMParser().parseFromString(clean, "text/html");
   if (highlightTextNodes(doc.body, highlight, doc) === 0) return clean;
-  return sanitizeAnswerHtml(doc.body.innerHTML);
+  return sanitizeAnswerHtml(doc.body.innerHTML, { searchHits: true });
 }
 
 /**

@@ -257,8 +257,9 @@ const isFocusable = (element) =>
 /**
  * Mausklick: Der Zeiger steht auf dem Element; ein fokussierbares Element
  * (tabindex, Schaltfläche) bekommt beim Drücken der Taste den Fokus, nach dem
- * Loslassen folgt click. Ein Stift, der über dem Bildschirm schwebt, löst
- * dieselbe Folge aus (pointerType "pen").
+ * Loslassen folgt click – mit detail 1 (Zahl der Klicks; Enter und
+ * Leertaste: detail 0, keyboardClick). Ein Stift, der über dem Bildschirm
+ * schwebt, löst dieselbe Folge aus (pointerType "pen").
  * @param {object} element
  * @param {"mouse"|"pen"} [pointerType]
  */
@@ -268,13 +269,13 @@ export function click(element, pointerType = "mouse") {
   handlersOf(element).onPointerDown?.(pointer);
   if (isFocusable(element)) element.focus();
   handlersOf(element).onPointerUp?.(pointer);
-  handlersOf(element).onClick?.(eventOn(element));
+  handlersOf(element).onClick?.(eventOn(element, { detail: 1 }));
 }
 
 /**
  * Tippen (Touch): Der Zeiger entsteht mit dem Finger und endet mit ihm –
- * pointerenter, pointerdown, pointerup, pointerleave. Fokus und click folgen
- * erst danach.
+ * pointerenter, pointerdown, pointerup, pointerleave. Fokus und click (detail
+ * 1) folgen erst danach.
  * @param {object} element
  */
 export function tap(element) {
@@ -286,7 +287,7 @@ export function tap(element) {
   handlersOf(element).onPointerUp?.(pointer);
   handlersOf(element).onPointerLeave?.(pointer);
   if (isFocusable(element)) element.focus();
-  handlersOf(element).onClick?.(eventOn(element));
+  handlersOf(element).onClick?.(eventOn(element, { detail: 1 }));
 }
 
 /**

@@ -1283,13 +1283,13 @@ test(
       (element.getAttribute("class") ?? "").split(/\s+/);
     // Vollbild bis xl, auf dem Desktop die rechte Spalte des Arbeitsbereichs
     // (KIE-575, E15) – kein lg: mehr, das Tablet bekommt das Vollbild
-    for (const name of ["fixed", "inset-0", "xl:relative", "xl:inset-auto"])
+    for (const name of ["fixed", "inset-0", "desktop:relative", "desktop:inset-auto"])
       assert.ok(classes(panel).includes(name), name);
     assert.ok(!classes(panel).some((name) => name.startsWith("lg:")));
     const back = one(panel, "data-panel-back");
     assert.equal(back.textContent, "Konversationen");
     assert.ok(classes(back).includes("h-11"));
-    assert.ok(classes(back).includes("xl:hidden"));
+    assert.ok(classes(back).includes("desktop:hidden"));
     assert.ok(!classes(back).includes("lg:hidden"));
     for (const name of [
       "data-panel-previous",
@@ -1300,12 +1300,12 @@ test(
       const button = one(panel, name);
       assert.ok(classes(button).includes("h-11"), name);
       assert.ok(classes(button).includes("w-11"), name);
-      assert.ok(classes(button).includes("xl:h-9"), name);
+      assert.ok(classes(button).includes("desktop:h-9"), name);
       assert.ok(!classes(button).includes("lg:h-9"), name);
     }
     // ✕ nur auf dem Desktop
     assert.ok(classes(one(panel, "data-panel-close")).includes("hidden"));
-    assert.ok(classes(one(panel, "data-panel-close")).includes("xl:grid"));
+    assert.ok(classes(one(panel, "data-panel-close")).includes("desktop:grid"));
     // Zeilen mindestens 44 px: zwei Textzeilen (20 + 18 px) und py-2
     const [first] = rowsOf(container);
     assert.ok(classes(first).includes("py-2"));
@@ -2564,7 +2564,7 @@ test(
     const { container, act } = await mountList(t);
     await act(() => click(rowsOf(container)[0]));
     const panel = panelOf(container);
-    assert.ok(hasClasses(panel, ["xl:relative", ...WORKSPACE.panel.split(" ")]));
+    assert.ok(hasClasses(panel, ["desktop:relative", ...WORKSPACE.panel.split(" ")]));
     for (const name of [
       "lg:relative",
       "lg:sticky",
@@ -3455,7 +3455,7 @@ test(
     const document = probe.document;
     await probe.unmount();
     const events = captureDocumentListeners(t, document);
-    // Sprünge zum Ziel „Liste“ (auf dem Desktop xl:scroll-mt-2); die Liste
+    // Sprünge zum Ziel „Liste“ (auf dem Desktop desktop:scroll-mt-2); die Liste
     // steht danach in der Ruhelage des Arbeitsbereichs bei 24 (Rahmen 16 +
     // 8, Review 7.22-rc12 K04; vorher scroll-mt-20: 96)
     const jumps = [];
@@ -3464,7 +3464,7 @@ test(
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
     };
-    const isTarget = (element) => classesOf(element).includes("xl:scroll-mt-2");
+    const isTarget = (element) => classesOf(element).includes("desktop:scroll-mt-2");
     prototype.scrollIntoView = function (options) {
       if (isTarget(this)) {
         jumps.push(options);
@@ -3851,9 +3851,9 @@ test(
     // Kopf: Datum neben den Schaltflächen erst ab xl, bis dahin einzeilig
     // in der Zeile unter der Frage; die Schaltflächen rechts
     const date = one(panel, "data-panel-date");
-    assert.ok(hasClasses(date, ["hidden", "xl:block", "whitespace-nowrap"]));
+    assert.ok(hasClasses(date, ["hidden", "desktop:block", "whitespace-nowrap"]));
     const metaDate = one(panel, "data-meta-date");
-    assert.ok(hasClasses(metaDate, ["xl:hidden", "whitespace-nowrap"]));
+    assert.ok(hasClasses(metaDate, ["desktop:hidden", "whitespace-nowrap"]));
     assert.equal(metaDate.textContent, date.textContent);
     assert.ok(
       hasClasses(one(panel, "data-panel-previous").parentNode, ["ml-auto"])
@@ -4248,7 +4248,7 @@ test(
     t.after(() => {
       globalThis.window.innerHeight = originalHeight;
     });
-    // Liste (Sprungziel, auf dem Desktop xl:scroll-mt-2) und Zeile 5: Lage
+    // Liste (Sprungziel, auf dem Desktop desktop:scroll-mt-2) und Zeile 5: Lage
     // im Fenster
     const jumps = [];
     // Die Spalte stellt ihre Scrollposition selbst ein (rc11, K11): jede
@@ -4261,7 +4261,7 @@ test(
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
     };
-    const isTarget = (element) => classesOf(element).includes("xl:scroll-mt-2");
+    const isTarget = (element) => classesOf(element).includes("desktop:scroll-mt-2");
     const isRow = (element) =>
       element.getAttribute?.("data-conversation-row") === "5";
     prototype.scrollIntoView = function (options) {
@@ -4375,7 +4375,7 @@ test(
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
     };
-    const isTarget = (element) => classesOf(element).includes("xl:scroll-mt-2");
+    const isTarget = (element) => classesOf(element).includes("desktop:scroll-mt-2");
     const isRow = (element) =>
       element.getAttribute?.("data-conversation-row") === "745";
     prototype.scrollIntoView = function (options) {
@@ -5629,7 +5629,7 @@ test(
     ]);
     for (const button of withAttribute(ratings, "data-rating-jump")) {
       assert.ok(
-        hasClasses(button, ["min-h-11", "xl:min-h-0", "whitespace-nowrap"])
+        hasClasses(button, ["min-h-11", "desktop:min-h-0", "whitespace-nowrap"])
       );
       const icons = elements(button, (e) => e.tagName === "svg");
       assert.equal(icons.length, 1);

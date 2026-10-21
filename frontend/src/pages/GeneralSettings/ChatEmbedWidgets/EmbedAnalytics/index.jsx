@@ -44,7 +44,7 @@ import { useDismiss } from "./viewHooks";
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
 // Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
 // Säulendiagramm, Karte „Wann schreiben Ihre Besucher?" (KIE-539),
-// Konversationsliste mit Seitenpanel – auf dem Desktop (ab xl) ein
+// Konversationsliste mit Seitenpanel – auf dem Desktop (ab 1.280 px) ein
 // Arbeitsbereich mit fester Höhe am Seitenende (KIE-575): Kennzahlen und
 // Diagramme scrollen darüber
 // weg; liegt der Bereich oben an, ist die Seite zu Ende. Der Seitenrahmen
@@ -333,7 +333,7 @@ function WidgetAnalytics({ embeds, lastActivity }) {
   // Per Link oder nach dem Neuladen mit geöffneter Konversation: einmal zur
   // Liste springen, sobald Kennzahlen und Liste stehen – sonst läge das
   // Panel unter dem sichtbaren Bereich (Fixliste 2, B5). Nur auf dem
-  // Desktop (ab xl): sonst öffnet die Konversation ohnehin als Vollbild.
+  // Desktop (ab 1.280 px): sonst öffnet die Konversation ohnehin als Vollbild.
   // Ein Merker: true, solange
   // der Sprung aussteht (Fixliste 3, S4).
   // Der Sprung hält eine Weile (holdScrollTarget): Ändert sich das Layout

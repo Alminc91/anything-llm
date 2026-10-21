@@ -11,6 +11,7 @@
 import { formatDateForInput } from "./billingDate.js";
 import { addDays, formatDate, formatterOf } from "./analyticsTimeline.js";
 import { formatDateTimeDE } from "./dateTimeDE.js";
+import { DESKTOP_MIN_WIDTH } from "./deviceClasses.js";
 
 /** Zeitzone aller Tage und Uhrzeiten der Ansicht (auch in Tooltips). */
 export const BERLIN = "Europe/Berlin";
@@ -18,13 +19,15 @@ const GERMAN = "de-DE";
 /**
  * Geräteklassen der Ansicht (Fixliste 7.22-rc13, E15, einheitlich mit Widget
  * und Design Center): Smartphone unter 768 px (Tailwind md), Tablet 768 bis
- * 1.279 px, Desktop ab 1.280 px (Tailwind xl). Nur auf dem Desktop steht
- * der Verlauf als Arbeitsbereich neben der Liste (KIE-575); auf Tablet und
- * Smartphone ist er ein Vollbild wie bisher unter lg. Die Klassen der
- * Ansicht tragen dafür das Präfix xl: (wörtlich, siehe WORKSPACE). Rückweg:
- * diese Konstante und die xl:-Klassen der Ansicht.
+ * 1.279 px, Desktop ab 1.280 px (DESKTOP_MIN_WIDTH). Nur auf dem Desktop
+ * steht der Verlauf als Arbeitsbereich neben der Liste (KIE-575); auf Tablet
+ * und Smartphone ist er ein Vollbild wie bisher unter lg. Die Klassen der
+ * Ansicht tragen dafür das Präfix desktop: (wörtlich, siehe WORKSPACE), eine
+ * eigene Tailwind-Stufe aus derselben Zahl wie diese Abfrage (Review
+ * 7.22-rc15, C10; vorher xl:, das im Kopf der Liste zugleich eine
+ * Breitenstufe ist). Rückweg: DESKTOP_MIN_WIDTH in deviceClasses.js.
  */
-export const WIDE_QUERY = "(min-width: 1280px)";
+export const WIDE_QUERY = `(min-width: ${DESKTOP_MIN_WIDTH}px)`;
 
 /**
  * Desktop (Verlauf neben der Liste, ab 1.280 px)? false ohne Fenster oder
@@ -135,10 +138,11 @@ export const AVATAR_CLEARANCE = {
   // Export-Knopf bleibt frei (Fixliste 3, V2; 80 px). Desktop: genau die
   // Ruhelage des Arbeitsbereichs (Review 7.22-rc12, K04) – Oberkante
   // WORKSPACE_REST_TOP unter dem Fensterrand, also WORKSPACE_REST_TOP −
-  // FRAME_TOP = 8 px unter dem Rand des scrollenden Rahmens (xl:scroll-mt-2).
+  // FRAME_TOP = 8 px unter dem Rand des scrollenden Rahmens
+  // (desktop:scroll-mt-2).
   // Mit 80 px stand der Bereich 56 px tiefer, und seine unteren 24 px
   // (Fußzeile des Verlaufs, „Weitere laden“) lagen unter dem Fensterrand.
-  jumpTarget: "scroll-mt-20 xl:scroll-mt-2",
+  jumpTarget: "scroll-mt-20 desktop:scroll-mt-2",
   // rechter Rand der Kopfzeile ab md: Widget-Auswahl und Zeitraum enden links
   // vom Benutzermenü
   headerEnd: "md:pr-12",
@@ -154,19 +158,19 @@ export const AVATAR_CLEARANCE = {
   // steht diese Zeile auf der Höhe des Menüs (Zeile 41 bis 77 px, Menü 36
   // bis 71 px), und der rechte Rand des Verlaufs fällt mit dem des Menüs
   // zusammen (beide 40 px vom Fensterrand). Mit dem Innenabstand des Kopfs
-  // (xl:px-5, 20 px) und dem Rahmen (1 px) enden ✕ und ⋯ so 49 px vom Rand
+  // (desktop:px-5, 20 px) und dem Rahmen (1 px) enden ✕ und ⋯ so 49 px vom Rand
   // des Verlaufs: 14 px Luft zum 35 px breiten Menü. Nur die erste Zeile
   // des Kopfs: Frage und Angaben darunter liegen unter dem Menü und nutzen
   // die Breite weiter. Als Vollbild (Tablet, Smartphone) liegt das Panel
   // über dem Menü (z-50 über z-40).
-  panelHeadEnd: "xl:pr-7",
+  panelHeadEnd: "desktop:pr-7",
   // ✕ des Platzhalters „Keine Konversation gewählt“ (nur auf dem Desktop):
   // derselbe Abstand, absolut vom rechten Rand des Platzhalters
   emptyPanelClose: "right-12",
 };
 
 // ---------------------------------------------------------------------------
-// Arbeitsbereich „Konversationen“ auf dem Desktop (KIE-575, ab xl: E15)
+// Arbeitsbereich „Konversationen“ auf dem Desktop (KIE-575, E15)
 // ---------------------------------------------------------------------------
 
 /**
@@ -178,7 +182,7 @@ export const FRAME_TOP = 16;
  * Ruhelage des Bereichs: Oberkante unter dem Fensterrand, wenn die Seite zu
  * Ende gescrollt ist (px) – 8 px unter der Oberkante des Rahmens. Daraus
  * folgen die Höhe des Bereichs (WORKSPACE_TOP_GAP) und das Sprungziel
- * (AVATAR_CLEARANCE.jumpTarget, xl:scroll-mt-2 = 8 px).
+ * (AVATAR_CLEARANCE.jumpTarget, desktop:scroll-mt-2 = 8 px).
  */
 export const WORKSPACE_REST_TOP = 24;
 /**
@@ -210,7 +214,7 @@ export const WORKSPACE_MIN_HEIGHT = 480;
 export const WORKSPACE_PANEL_MIN_WIDTH = 480;
 
 /**
- * Klassen des Arbeitsbereichs auf dem Desktop (ab xl, E15): Liste links und
+ * Klassen des Arbeitsbereichs auf dem Desktop (desktop:, E15): Liste links und
  * Verlauf rechts, beide so hoch wie der Bereich, je mit eigener
  * Bildlaufleiste. Auf Tablet und Smartphone wirkt keine davon
  * (Vollbild-Panel, Seite scrollt).
@@ -241,10 +245,11 @@ export const WORKSPACE_PANEL_MIN_WIDTH = 480;
  * dass die Zahlen darin zu den Konstanten passen.
  */
 export const WORKSPACE = {
-  area: "xl:flex xl:gap-4 xl:h-[max(480px,calc(100vh-88px))]",
-  column: "xl:flex xl:min-w-0 xl:flex-1 xl:flex-col",
-  scroller: "xl:relative xl:min-h-0 xl:flex-1 xl:overflow-y-auto",
-  panel: "xl:w-[calc(56%-8px)] xl:min-w-[480px] xl:shrink-0",
+  area: "desktop:flex desktop:gap-4 desktop:h-[max(480px,calc(100vh-88px))]",
+  column: "desktop:flex desktop:min-w-0 desktop:flex-1 desktop:flex-col",
+  scroller:
+    "desktop:relative desktop:min-h-0 desktop:flex-1 desktop:overflow-y-auto",
+  panel: "desktop:w-[calc(56%-8px)] desktop:min-w-[480px] desktop:shrink-0",
 };
 
 /**
@@ -252,10 +257,10 @@ export const WORKSPACE = {
  * Ansicht (Kopfzeile mit Zeitraum, darunter die Kennzahlen). Über der
  * Ansicht liegt im Seitenrahmen ab md der Abstand pt-12 (48 px,
  * ChatbotLayout); mit demselben Abstand als scroll-margin steht die Seite
- * nach dem Sprung ganz oben, wie beim Öffnen. Nur auf dem Desktop (xl):
+ * nach dem Sprung ganz oben, wie beim Öffnen. Nur auf dem Desktop (desktop:):
  * Nur dort gibt es den Button.
  */
-export const OVERVIEW_TARGET = "xl:scroll-mt-12";
+export const OVERVIEW_TARGET = "desktop:scroll-mt-12";
 
 /** Abfrage „reduzierte Bewegung“ des Systems. */
 export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -951,6 +956,42 @@ export function conversationKey({ conversation_id, session_id }) {
 }
 
 /**
+ * Sitzung (Besucher) aus einem Schlüssel von conversationKey.
+ * @param {string|null|undefined} key
+ * @returns {string|null}
+ */
+export function sessionOfKey(key) {
+  if (typeof key !== "string") return null;
+  const at = key.indexOf("\u0000");
+  return at < 0 ? null : key.slice(at + 1);
+}
+
+/**
+ * Gehört eine Konversation zu dem, was eben gelöscht wurde (Review
+ * 7.22-rc15, K45)? Bis die Liste nach dem Löschen neu geladen ist, steht
+ * das Gelöschte noch in der alten und wird nicht (wieder) vorgewählt.
+ * Verglichen wird die Kennung und der Schlüssel (conversationKey): Die
+ * erste Kennung einer Konversation hängt am Zeitraum, und eine per Link
+ * geöffnete trägt oft eine andere als ihre Zeile. Beim Löschen aller
+ * Konversationen eines Besuchers (visitor) zählt jede Konversation seiner
+ * Sitzung.
+ * @param {{chatId?: number|null, key?: string|null}} conversation
+ * @param {{chatId: number|null, key: string|null, sessionId: string|null, visitor: boolean}|null} deletion
+ * @returns {boolean}
+ */
+export function matchesDeletion({ chatId = null, key = null }, deletion) {
+  if (!deletion) return false;
+  if (chatId !== null && chatId === deletion.chatId) return true;
+  if (key === null) return false;
+  if (deletion.key && key === deletion.key) return true;
+  return (
+    !!deletion.visitor &&
+    !!deletion.sessionId &&
+    sessionOfKey(key) === deletion.sessionId
+  );
+}
+
+/**
  * Die Kennung gekürzt für die Fußzeile: die ersten 8 Zeichen und „…".
  * @param {string|null|undefined} id
  * @returns {string}
@@ -1236,7 +1277,14 @@ export function highlightTextNodes(root, term, doc) {
  *   <picture>, srcset, background), keine Popover, keine Dialoge,
  * - keine id, name und role sowie keine aria- und data-Attribute aus der
  *   Antwort: Die Ansicht sucht nach eigenen Kennzeichen (aria-modal,
- *   role="menu", data-rated); nur data-search-hit der Hervorhebung bleibt.
+ *   role="menu", data-rated, data-search-hit). Auch nicht data-search-hit:
+ *   Das Kennzeichen der Hervorhebung erlaubt erst der zweite Durchgang
+ *   nach highlightTextNodes (answerPurifyConfig, Review 7.22-rc15, K41;
+ *   vorher konnte die Antwort eigene „Treffer“ mitbringen, zu denen der
+ *   Verlauf beim Öffnen sprang),
+ * - kein tabindex, hidden und draggable (K42): Die Antwort bestimmt nicht,
+ *   wohin der erste Tab-Druck der Seite springt, nimmt ihre Links nicht
+ *   aus der Tastaturbedienung und versteckt keinen Text vor dem Admin.
  * Klassen, Links und Bilder ordnet hardenAnswerHtml danach.
  */
 export const ANSWER_PURIFY_CONFIG = Object.freeze({
@@ -1267,11 +1315,57 @@ export const ANSWER_PURIFY_CONFIG = Object.freeze({
     "popover",
     "popovertarget",
     "popovertargetaction",
+    "tabindex",
+    "hidden",
+    "draggable",
   ],
   ALLOW_ARIA_ATTR: false,
   ALLOW_DATA_ATTR: false,
-  ADD_ATTR: ["data-search-hit"],
 });
+
+/** Kennzeichen eines Treffers der Suche im Verlauf (highlightTextNodes). */
+export const SEARCH_HIT_ATTRIBUTE = "data-search-hit";
+
+// Zweiter Durchgang (nach highlightTextNodes): wie der erste, dazu das
+// Kennzeichen der eigenen Hervorhebung
+const HIGHLIGHT_PURIFY_CONFIG = Object.freeze({
+  ...ANSWER_PURIFY_CONFIG,
+  ADD_ATTR: [SEARCH_HIT_ATTRIBUTE],
+});
+
+/**
+ * Einstellung von DOMPurify für einen Durchgang über eine Antwort (Review
+ * 7.22-rc15, K41): Der erste Durchgang über das HTML der Antwort verwirft
+ * jedes data-search-hit (ANSWER_PURIFY_CONFIG); erst der Durchgang nach
+ * der eigenen Hervorhebung (searchHits: true) lässt es stehen.
+ * @param {{searchHits?: boolean}} [options]
+ * @returns {object}
+ */
+export function answerPurifyConfig({ searchHits = false } = {}) {
+  return searchHits ? HIGHLIGHT_PURIFY_CONFIG : ANSWER_PURIFY_CONFIG;
+}
+
+/**
+ * markdown-it-Plugin (Review 7.22-rc15, K43): Die Ausrichtung der Spalten
+ * einer Markdown-Tabelle (|:--|:-:|--:|) steht als align statt als
+ * style="text-align:…" an th und td. style ist im Verlauf verboten (E13),
+ * align erlaubt DOMPurify im HTML-Profil; die Beträge einer Preistabelle
+ * stehen so rechtsbündig wie im Widget. Nur die Zellen, die markdown-it
+ * selbst erzeugt; rohes HTML der Antwort bleibt Sache von DOMPurify.
+ * @param {object} md - markdown-it
+ */
+export function tableAlignAttributes(md) {
+  md.core.ruler.push("table_align_attributes", (state) => {
+    for (const token of state.tokens) {
+      if (token.type !== "th_open" && token.type !== "td_open") continue;
+      const style = token.attrGet?.("style");
+      const align = /^text-align:(left|center|right)$/.exec(style ?? "")?.[1];
+      if (!align) continue;
+      token.attrs = token.attrs.filter(([name]) => name !== "style");
+      token.attrSet("align", align);
+    }
+  });
+}
 
 /** Rel jedes Links im Verlauf: kein Zugriff auf die Ansicht, kein Referrer. */
 export const ANSWER_LINK_REL = "noopener noreferrer";
@@ -1290,15 +1384,37 @@ const ANSWER_IMAGE_URL = /^https?:\/\//i;
  * - Bilder laden nicht von selbst (kein Abruf beim Öffnen des Verlaufs:
  *   Zeitpunkt, IP-Adresse und Browser des Admins blieben sonst beim
  *   Absender): Ein Bild im Netz wird ein Link mit dem Alt-Text (ohne
- *   Alt-Text der Adresse), sonst bleibt nur der Alt-Text.
+ *   Alt-Text der Adresse), sonst bleibt nur der Alt-Text. Steht das Bild
+ *   schon in einem Link (verlinktes Bild, etwa ein Kursbild zur
+ *   Kursseite), bleibt nur der Alt-Text: Ein Link im Link zerfiele beim
+ *   Einsetzen in die Seite, und der Kurslink stünde leer da (Review
+ *   7.22-rc15, K40).
+ * - Ein Link mit Adresse, aber ohne Text (etwa ein verlinktes Bild ohne
+ *   Alt-Text) zeigt seine Adresse: nie ein leerer, per Tab erreichbarer
+ *   Link ohne Namen (K40).
+ * - data-search-hit nur an den <mark> der eigenen Hervorhebung und nur im
+ *   zweiten Durchgang (searchHits: true); sonst verworfen (K41).
  * - Klassen nur aus Markdown und Syntaxhervorhebung (ANSWER_CLASS).
  * @param {Node|null} root - Wurzel des bereinigten HTML
  * @param {Document} doc - Dokument der Wurzel (für neue Knoten)
+ * @param {{searchHits?: boolean}} [options]
+ * @param {boolean} [inLink] - intern: root liegt in einem Link
  */
-export function hardenAnswerHtml(root, doc) {
+export function hardenAnswerHtml(
+  root,
+  doc,
+  { searchHits = false } = {},
+  inLink = false
+) {
   for (const node of [...(root?.childNodes ?? [])]) {
     if (node.nodeType !== ELEMENT_NODE) continue;
-    hardenAnswerHtml(node, doc);
+    const tag = String(node.tagName ?? node.nodeName).toUpperCase();
+    hardenAnswerHtml(node, doc, { searchHits }, inLink || tag === "A");
+    if (
+      node.hasAttribute?.(SEARCH_HIT_ATTRIBUTE) &&
+      !(searchHits && tag === "MARK")
+    )
+      node.removeAttribute(SEARCH_HIT_ATTRIBUTE);
     const classes = node.getAttribute?.("class");
     if (classes !== null && classes !== undefined) {
       const kept = classes
@@ -1307,11 +1423,12 @@ export function hardenAnswerHtml(root, doc) {
       if (kept.length > 0) node.setAttribute("class", kept.join(" "));
       else node.removeAttribute("class");
     }
-    const tag = String(node.tagName ?? node.nodeName).toUpperCase();
     if (tag === "A") {
       if (node.hasAttribute("href")) {
         node.setAttribute("target", "_blank");
         node.setAttribute("rel", ANSWER_LINK_REL);
+        if (!(node.textContent ?? "").trim())
+          node.appendChild(doc.createTextNode(node.getAttribute("href")));
       } else {
         node.removeAttribute("target");
         node.removeAttribute("rel");
@@ -1320,7 +1437,7 @@ export function hardenAnswerHtml(root, doc) {
       const src = (node.getAttribute("src") ?? "").trim();
       const alt = (node.getAttribute("alt") ?? "").trim();
       let replacement = null;
-      if (ANSWER_IMAGE_URL.test(src)) {
+      if (ANSWER_IMAGE_URL.test(src) && !inLink) {
         replacement = doc.createElement("a");
         replacement.setAttribute("href", src);
         replacement.setAttribute("target", "_blank");

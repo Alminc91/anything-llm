@@ -31,6 +31,12 @@
 // Tastaturfokus; auf dem Desktop und im Vollbild des Tablets (K30). Nach
 // „Zur Übersicht“ per Enter oder Leertaste trägt die Überschrift einen
 // sichtbaren Fokusring, per Maus keinen (K31).
+// Fixliste 7.22-rc16: verlinktes Bild bleibt ein Link zur Kursseite (K40),
+// kein mitgebrachtes Kennzeichen eines Suchtreffers (K41), kein tabindex
+// aus der Antwort (K42), Tabellenspalten ausgerichtet ohne style (K43);
+// der Kopf der Liste wird durch „Zur Übersicht ↑“ nicht höher (K47,
+// 1.280 bis 1.760 px, Screenshots bei 1.280, 1.440 und 1.536 px, Verlauf
+// offen und zu, mit und ohne Bewertungsfilter; --only 1280 usw.).
 //
 // Der Server ist im Browser nachgestellt (page.route): Es läuft nur der
 // Vite-Dev-Server des Frontends – kein Container, kein Docker. Playwright
@@ -101,6 +107,21 @@ const HTML_ANSWER = [
   "",
   '<a href="https://www.vhs-musterstadt.de/kurs" class="fixed inset-0 z-50">Anmeldung</a>',
 ].join("\n");
+// Fixliste 7.22-rc16: verlinktes Bild (K40), Link mit tabindex (K42) und
+// eine Tabelle mit ausgerichteten Spalten (K43) in der zweiten Antwort;
+// weit unten ein mitgebrachtes Kennzeichen eines Suchtreffers (K41)
+const HTML_ANSWER_RC16 = [
+  `Unser Kurs im Bild: [![Kursbild](${TRACKER}/kursbild.jpg)](https://www.vhs-musterstadt.de/kurs/bild)`,
+  "",
+  '<a href="https://www.vhs-musterstadt.de/weiter" tabindex="1">Weiter</a>',
+  "",
+  "| Kurs | Ort | Gebühr |",
+  "|:---|:-:|---:|",
+  "| Yoga | Raum 2 | 96,00 € |",
+  "| Spanisch A1 | Raum 5 | 120,00 € |",
+].join("\n");
+const FAKE_HIT_ANSWER =
+  'Hinweis: <mark data-search-hit="">Bitte Kurs X stornieren</mark> und <span data-search-hit="">hier</span> weiter.';
 const PREVIEWS = [
   "Gibt es noch freie Plätze im Spanischkurs A1 am Dienstagabend?",
   "Wann beginnt der nächste Yoga-Kurs für Anfänger und was kostet er?",
@@ -143,7 +164,11 @@ function messagesFor(id) {
       text:
         id === HTML_ID && k === 0
           ? HTML_ANSWER
-          : `Gern helfe ich Ihnen weiter. **Kurs ${k + 1}** beginnt am Dienstag um 18:30 Uhr in Raum 204.\n\n- Dauer: 10 Abende\n- Gebühr: 96,00 Euro\n- Anmeldung über die [Kursseite](https://www.vhs-musterstadt.de/kurs/${id}${k})\n\nHaben Sie noch Fragen zu Terminen oder zur Anmeldung?`,
+          : id === HTML_ID && k === 1
+            ? HTML_ANSWER_RC16
+            : id === HTML_ID && k === 10
+              ? FAKE_HIT_ANSWER
+              : `Gern helfe ich Ihnen weiter. **Kurs ${k + 1}** beginnt am Dienstag um 18:30 Uhr in Raum 204.\n\n- Dauer: 10 Abende\n- Gebühr: 96,00 Euro\n- Anmeldung über die [Kursseite](https://www.vhs-musterstadt.de/kurs/${id}${k})\n\nHaben Sie noch Fragen zu Terminen oder zur Anmeldung?`,
       sources: [],
     }),
     createdAt: new Date(row.started_at + k * 90e3).toISOString(),
@@ -743,6 +768,82 @@ async function checkAnswerHtml(scenario, page, trackerHits, { width, theme }) {
   check(scenario, "K14 kein style und keine Seitenklassen in der Antwort, Links im Fluss", info.styled === 0 && info.links.every((link) => link.style === null && link.cls === null && link.position === "static"), { styled: info.styled, links: info.links });
   check(scenario, "K14 Links in neuem Tab mit rel=noopener noreferrer", info.links.length >= 4 && info.links.every((link) => link.target === "_blank" && link.rel === "noopener noreferrer"), { links: info.links });
   check(scenario, "K14 die Mitte der Seite gehört nicht dem eingeschleusten Link", !info.centerIsInjected);
+}
+
+/**
+ * Fixliste 7.22-rc16 (läuft nach checkAnswerHtml, dieselbe Konversation):
+ * K40 verlinktes Bild bleibt ein Link zur Kursseite mit dem Alt-Text, kein
+ * Link im Link, kein Abruf; K41 ein von der Antwort mitgebrachtes
+ * Kennzeichen eines Treffers fällt weg, der Verlauf springt nicht dorthin,
+ * und mit Suche trägt nur die eigene Hervorhebung das Kennzeichen; K42 kein
+ * tabindex aus der Antwort; K43 Spalten der Tabelle ausgerichtet ohne style.
+ */
+async function checkAnswerHtmlRc16(scenario, page, trackerHits, { width, theme }) {
+  const read = () =>
+    page.evaluate(() => {
+      const body = document.querySelector("[data-panel-body]");
+      const answers = [...body.querySelectorAll("[data-answer]")];
+      const links = answers.flatMap((answer) =>
+        [...answer.querySelectorAll("a")].map((a) => ({
+          text: a.textContent,
+          href: a.getAttribute("href"),
+          nested: !!a.querySelector("a") || !!a.parentElement?.closest("a"),
+          tabindex: a.getAttribute("tabindex"),
+        }))
+      );
+      // align="right" an th/td ergibt in Chrome text-align -webkit-right
+      // (Präsentationsattribut); dazu die Lage des Texts in der Zelle
+      const cells = [...answers[1].querySelectorAll("th, td")].map((cell) => {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        const text = range.getBoundingClientRect();
+        const box = cell.getBoundingClientRect();
+        const pad = parseFloat(getComputedStyle(cell).paddingLeft);
+        const left = Math.round(text.left - box.left - pad);
+        const right = Math.round(box.right - pad - text.right);
+        return {
+          text: cell.textContent,
+          align: getComputedStyle(cell).textAlign.replace(/^-webkit-/, ""),
+          style: cell.getAttribute("style"),
+          left,
+          right,
+          // gemessene Lage: links bündig, rechts bündig oder mittig
+          placed: left <= 1 && right > 1 ? "left" : right <= 1 && left > 1 ? "right" : Math.abs(left - right) <= 2 ? "center" : "?",
+        };
+      });
+      return {
+        scrollTop: Math.round(body.scrollTop),
+        hits: [...body.querySelectorAll("[data-search-hit]")].map((element) => ({
+          tag: element.tagName,
+          text: element.textContent,
+        })),
+        fakeText: answers[10]?.textContent ?? null,
+        links,
+        tabindexInAnswers: answers.reduce((count, answer) => count + answer.querySelectorAll("[tabindex]").length, 0),
+        cells,
+        images: body.querySelectorAll("img").length,
+      };
+    });
+  const info = await read();
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k40-k43.png`) });
+  const course = info.links.find((link) => link.href === "https://www.vhs-musterstadt.de/kurs/bild");
+  check(scenario, "K40 verlinktes Bild: Link zur Kursseite mit dem Alt-Text, kein Link im Link, kein Link zur Bilddatei, kein Abruf", !!course && course.text === "Kursbild" && !info.links.some((link) => link.nested) && !info.links.some((link) => (link.href ?? "").endsWith("/kursbild.jpg")) && info.images === 0 && trackerHits.length === 0, { course, links: info.links.filter((link) => /kurs\/bild|kursbild/.test(link.href ?? "")), trackerHits });
+  check(scenario, "K41 ohne Suche: kein Kennzeichen eines Treffers im Verlauf, der Verlauf steht oben (kein Sprung zur mitgebrachten Markierung), deren Text bleibt", info.hits.length === 0 && info.scrollTop === 0 && /Bitte Kurs X stornieren/.test(info.fakeText ?? ""), { hits: info.hits, scrollTop: info.scrollTop, fakeText: info.fakeText });
+  check(scenario, "K42 kein tabindex aus der Antwort (Link „Weiter“ normal per Tab erreichbar)", info.tabindexInAnswers === 0 && info.links.some((link) => link.text === "Weiter" && link.tabindex === null), { tabindex: info.tabindexInAnswers });
+  const cell = (text) => info.cells.find((c) => c.text === text);
+  // Kopfzeile: Die Spalte ist so breit wie ihr längster Eintrag; geprüft
+  // werden die kürzeren Einträge (dort zeigt sich die Ausrichtung)
+  check(scenario, "K43 Tabelle: Kurs links, Ort mittig, Gebühr rechts, ohne style (Ausrichtung und gemessene Lage)", cell("Kurs")?.align === "left" && cell("Ort")?.align === "center" && cell("Gebühr")?.align === "right" && cell("96,00 €")?.align === "right" && cell("Raum 2")?.align === "center" && cell("Yoga")?.placed === "left" && cell("Ort")?.placed === "center" && cell("96,00 €")?.placed === "right" && info.cells.every((c) => c.style === null), { cells: info.cells });
+  // Mit Suche: nur die eigene Hervorhebung trägt das Kennzeichen
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}&q=Yoga`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+  const searched = await read();
+  check(scenario, "K41 mit Suche „Yoga“: Kennzeichen nur an den eigenen <mark> der Treffer", searched.hits.length > 0 && searched.hits.every((hit) => hit.tag === "MARK" && /yoga/i.test(hit.text)), { hits: searched.hits });
+  // zurück zum Stand von checkAnswerHtml (ohne Suche) für die folgenden Prüfungen
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
 }
 
 /**
@@ -1378,6 +1479,8 @@ async function wideScenario(browser, { width, height, theme }) {
 
   // rc12 K14 (E13): HTML in Antworten
   await checkAnswerHtml(scenario, page, trackerHits, { width, theme });
+  // rc16 K40 bis K43: verlinktes Bild, Kennzeichen, tabindex, Tabelle
+  await checkAnswerHtmlRc16(scenario, page, trackerHits, { width, theme });
   // rc15 K30: Links im Verlauf erkennbar (dieselbe Konversation)
   await checkLinkLook(scenario, page, { width, theme, where: "Desktop" });
   check(scenario, "keine Fehler der Seite (bis zum Ende)", errors.length === 0, errors);
@@ -1570,6 +1673,192 @@ async function narrowScenario(browser, { width, height, theme }) {
   await context.close();
 }
 
+/**
+ * Fixliste 7.22-rc16, K47 (läuft in der Seite): Höhe des Kopfs der Liste
+ * mit dem Button „Zur Übersicht ↑“ und ohne ihn bei derselben Breite, dazu
+ * die Lage der Teile des Kopfs. „Ohne ihn“ ist der Kopf, wie er ohne den
+ * Button wäre (Stand rc13): Button ausgeblendet (display: none), die
+ * breite Form der Leiste wieder ab xl (die Klassen min-[1680px]: werden für
+ * die Messung zu xl:, FULL_TOOLBAR.plain) und im kompakten Kopf der
+ * Titelblock wie ohne Button (flex-wrap, Zahl in einer Zeile; countBeside).
+ */
+function headerWithAndWithoutButton() {
+  const q = (selector) => document.querySelector(selector);
+  const r = (element) => {
+    if (!element) return null;
+    const b = element.getBoundingClientRect();
+    if (b.width === 0 && b.height === 0) return null;
+    return {
+      top: Math.round(b.top),
+      left: Math.round(b.left),
+      width: Math.round(b.width),
+      height: Math.round(b.height),
+      bottom: Math.round(b.bottom),
+      right: Math.round(b.right),
+    };
+  };
+  const header = q("[data-list-header]");
+  const button = q("[data-jump-to-overview]");
+  const overflow = () =>
+    [...header.querySelectorAll("*")]
+      .filter((element) => element.getBoundingClientRect().width > 0)
+      .some(
+        (element) =>
+          element.getBoundingClientRect().right >
+          header.getBoundingClientRect().right + 1
+      );
+  const parts = () => ({
+    header: r(header),
+    heading: r(q("[data-list-heading]")),
+    count: r(q("[data-viewable-count]")),
+    search: r(q("[data-search-input]")),
+    filters: r(q("[data-feedback-filters]")),
+    exportButton: r(q("[data-export-menu] button")),
+    button: r(button),
+    overflow: overflow(),
+  });
+  const withButton = parts();
+  const text = button?.textContent ?? null;
+  const late = [...header.querySelectorAll("*")].filter((element) =>
+    /(^|\s)min-\[1680px\]:/.test(element.getAttribute("class") ?? "")
+  );
+  const title = q("[data-list-title]");
+  const heading = q("[data-list-heading]");
+  const count = q("[data-viewable-count]");
+  const touched = [...new Set([...late, title, heading, count].filter(Boolean))];
+  const original = touched.map((element) => element.getAttribute("class"));
+  const plain = (element, value) => {
+    if (late.includes(element)) value = value.replaceAll("min-[1680px]:", "xl:");
+    if (element === title) value = value.replace(/(^|\s)flex-nowrap(?=\s|$)/, "$1flex-wrap");
+    if (element === heading) value = value.replace(/(^|\s)shrink-0(?=\s|$)/, "$1");
+    if (element === count && !/(^|\s)whitespace-nowrap(\s|$)/.test(value))
+      value = value.replace(/(^|\s)min-w-0(?=\s|$)/, "$1whitespace-nowrap");
+    return value;
+  };
+  touched.forEach((element, i) => element.setAttribute("class", plain(element, original[i])));
+  if (button) button.style.display = "none";
+  const withoutButton = parts();
+  if (button) button.style.display = "";
+  touched.forEach((element, i) => element.setAttribute("class", original[i]));
+  return {
+    lateClasses: late.length,
+    innerWidth: window.innerWidth,
+    column: r(q("[data-list-column]")),
+    text,
+    // Zahl neben der Überschrift (oben bündig mit ihr) und Zahl ihrer Zeilen
+    countBeside: !!withButton.count && !!withButton.heading && withButton.count.top < withButton.heading.bottom,
+    countLines: count ? Math.round(count.getBoundingClientRect().height / parseFloat(getComputedStyle(count).lineHeight)) : null,
+    withButton,
+    withoutButton,
+  };
+}
+
+/**
+ * K47: Zwischen 1.280 und 1.536 px wird der Kopf der Liste durch den Button
+ * „Zur Übersicht ↑“ nicht höher als ohne ihn, mit geschlossenem Verlauf
+ * (Kopf in voller Form, vorher rechts neben „Exportieren“: bei 1.440 px
+ * eine zweite Zeile, bei 1.280 px eine dritte) und mit offenem (kompakt),
+ * ohne und mit Bewertungsfilter („N von M einsehbar“ ist länger; bis rund
+ * 1.330 px bricht die Zahl neben der Überschrift in sich um, vorher als
+ * Ganzes darunter: 22 px höher). Gemessen bei 1.280, 1.440 und 1.536 px
+ * (Screenshots) und dazwischen in Schritten von 8 px bis 1.760 px; der
+ * Wortlaut bleibt, nichts ragt über die Spalte.
+ */
+async function headerHeightScenario(browser, { widths, height, theme }) {
+  const scenario = `K47 ${theme}`;
+  const context = await browser.newContext({
+    viewport: { width: widths[0], height },
+    colorScheme: theme,
+    locale: "de-DE",
+  });
+  await context.addInitScript(initStorage, { theme });
+  await mockApi(context);
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(String(error)));
+  await page.goto(PAGE, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
+  await page.waitForTimeout(500);
+  const shots = new Set([1280, 1440, 1536]);
+  const sweep = [];
+  for (let width = 1280; width <= 1760; width += 8) sweep.push(width);
+  const measureAll = async (state) => {
+    const rows = [];
+    for (const width of [...new Set([...widths, ...sweep])].sort((a, b) => a - b)) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(120);
+      // Bereich oben anliegend: der Kopf steht im Fenster (Screenshot)
+      await setPageScroll(page, "end");
+      await page.waitForTimeout(60);
+      const m = await page.evaluate(headerWithAndWithoutButton);
+      rows.push({ state, ...m });
+      if (shots.has(width) && widths.includes(width)) {
+        const box = await page.locator("[data-list-header]").boundingBox();
+        await page.screenshot({
+          path: path.join(OUT, `kie575-k47-${width}-${theme}-${state}.png`),
+          clip: { x: Math.max(0, box.x - 16), y: Math.max(0, box.y - 16), width: Math.min(width - Math.max(0, box.x - 16), box.width + 32), height: box.height + 32 },
+        });
+      }
+    }
+    return rows;
+  };
+  const evaluate = (rows) => {
+    for (const row of rows) {
+      const exact = widths.includes(row.innerWidth);
+      const w = row.withButton;
+      const o = row.withoutButton;
+      const ok =
+        !!w.button &&
+        row.text === "Zur Übersicht ↑" &&
+        w.header.height <= o.header.height &&
+        w.overflow === false &&
+        // offen: die Zahl steht neben der Überschrift (höchstens zwei Zeilen)
+        (!row.state.startsWith("offen") || (row.countBeside && row.countLines <= 2));
+      if (exact || !ok)
+        check(scenario, `K47 ${row.innerWidth} px, ${row.state}: Kopf mit „Zur Übersicht ↑“ nicht höher als ohne (Wortlaut gleich, nichts ragt über die Spalte)`, ok, {
+          withButton: w.header.height,
+          withoutButton: o.header.height,
+          text: row.text,
+          button: w.button,
+          exportButton: w.exportButton,
+          heading: w.heading,
+          search: w.search,
+          filters: w.filters,
+          column: row.column?.width,
+          overflow: w.overflow,
+          count: w.count,
+          countBeside: row.countBeside,
+          countLines: row.countLines,
+        });
+    }
+    const taller = rows.filter((row) => !(row.withButton.header.height <= row.withoutButton.header.height));
+    check(scenario, `K47 ${rows[0].state}: alle Breiten 1.280 bis 1.760 px (8-px-Schritte) ohne höheren Kopf`, taller.length === 0, { widths: rows.length, failed: taller.map((row) => `${row.innerWidth}: +${row.withButton.header.height - row.withoutButton.header.height}`), twoLineCount: rows.filter((row) => row.countLines === 2).map((row) => row.innerWidth) });
+    // Verlauf zu: der Button rechts neben „Exportieren“ in derselben Zeile (E17)
+    for (const row of rows.filter((r) => r.state.startsWith("zu") && widths.includes(r.innerWidth)))
+      check(scenario, `K47 ${row.innerWidth} px, ${row.state}: „Zur Übersicht ↑“ rechts neben „Exportieren“ in derselben Zeile (E17)`, !!row.withButton.button && !!row.withButton.exportButton && row.withButton.button.left >= row.withButton.exportButton.right && Math.abs(row.withButton.button.top - row.withButton.exportButton.top) <= 1, { button: row.withButton.button, exportButton: row.withButton.exportButton });
+  };
+  // Verlauf offen (kompakter Kopf), ohne und mit Filter
+  const open = await measureAll("offen");
+  evaluate(open);
+  await page.click("[data-feedback-filters] button >> nth=1");
+  await page.waitForSelector("[data-feedback-filter-mark]", { timeout: 10_000 });
+  await page.waitForTimeout(800);
+  const openFiltered = await measureAll("offen-filter");
+  evaluate(openFiltered);
+  // Verlauf zu (Kopf in voller Form), mit und ohne Filter
+  await page.click("[data-panel-close]");
+  await page.waitForTimeout(300);
+  const closedFiltered = await measureAll("zu-filter");
+  evaluate(closedFiltered);
+  await page.click("[data-feedback-filters] button >> nth=0");
+  await page.waitForTimeout(800);
+  const closed = await measureAll("zu");
+  evaluate(closed);
+  check(scenario, "keine Fehler der Seite", errors.length === 0, errors);
+  results.push({ scenario, phase: "k47", rows: [...open, ...openFiltered, ...closedFiltered, ...closed] });
+  await context.close();
+}
+
 // ---------------------------------------------------------------------------
 
 mkdirSync(OUT, { recursive: true });
@@ -1588,6 +1877,9 @@ try {
     if (wanted(1280)) await desktopEdgeScenario(browser, { width: 1280, height: 800, theme });
     if (wanted(1024)) await tabletScenario(browser, { width: 1024, height: 768, theme });
     if (wanted(390)) await narrowScenario(browser, { width: 390, height: 844, theme });
+    // K47 (Fixliste 7.22-rc16): Kopf der Liste mit „Zur Übersicht ↑“
+    const k47 = [1280, 1440, 1536].filter((width) => wanted(width));
+    if (k47.length > 0) await headerHeightScenario(browser, { widths: k47, height: 900, theme });
   }
 } finally {
   await browser?.close();
