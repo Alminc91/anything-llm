@@ -115,10 +115,11 @@ const EMPTY_STATE_KEYS = {
 };
 
 // Umschalter „Alle / Positiv bewertet / Negativ bewertet"
-// Von sm bis xl etwas schmaler (px-2.5): Suche (≥ 240 px), Filter und Export
-// passen so bei 1024 px neben dem Abstand zum Benutzermenü in eine Zeile
-// (Fixliste 4, V5). Kompakt (Verlauf daneben, siehe compactHeader) bleibt
-// es bei px-2.5.
+// Ab sm bis zur breiten Form der Leiste etwas schmaler (px-2.5): ohne
+// „Zur Übersicht ↑“ bis xl, mit dem Button bis 1.680 px (FULL_TOOLBAR,
+// K47). Suche (≥ 240 px), Filter und Export passen so bei 1024 px neben
+// dem Abstand zum Benutzermenü in eine Zeile (Fixliste 4, V5). Kompakt
+// (Verlauf daneben, siehe compactHeader) bleibt es bei px-2.5.
 const SEGMENT_CLASS =
   "flex h-11 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm transition-colors sm:h-9 sm:px-2.5";
 // Die breite Form der Werkzeugleiste im Kopf in voller Form (Verlauf zu):
@@ -131,8 +132,14 @@ const SEGMENT_CLASS =
 // Überschrift und Leiste vorher nebeneinander passten, tun sie es weiter),
 // und der Button steht weiter rechts neben „Exportieren“ in derselben
 // Zeile (E17). Ab 1.680 px passt die breite Form samt Button und „N von M
-// einsehbar“ in eine Zeile. Die Klassen stehen wörtlich (Tailwind liest
-// nur, was im Quelltext steht).
+// einsehbar“ in eine Zeile. In der Ansicht steht der Button immer in der
+// Leiste (index.jsx übergibt onJumpToOverview), es gilt also withOverview;
+// plain bleibt für die Liste ohne Button (Tests). Die Kurzform zwischen
+// 1.280 und 1.679 px („Positiv“, „Negativ“, „Exportieren“ ohne Pfeil) ist
+// eine Entscheidung zur Bestätigung durch den Nutzer (Fixliste 7.22-rc18,
+// E27, KIE-575 §11): Der Kopf wird durch den Button nicht höher (K47).
+// Rückweg: die Schwelle in withOverview. Die Klassen stehen wörtlich
+// (Tailwind liest nur, was im Quelltext steht).
 const FULL_TOOLBAR = {
   plain: {
     short: "xl:hidden",
@@ -871,15 +878,15 @@ export default function ConversationList({
   }, [wide, chatId]);
 
   // Per Link (Adresse beim Öffnen der Seite) geöffnet und (noch) nicht unter
-  // den geladenen Konversationen: nachladen, bis sie gefunden ist – bis zu
-  // LINK_SEARCH_ROWS Zeilen. Im Zuschnitt, mit dem die Seite geöffnet
-  // wurde, und auf dem Desktop nach einem Wechsel des Zuschnitts (siehe
-  // linkedIn unten); im Vollbild gibt es bei offenem Panel keinen Wechsel
-  // (Fixliste 2, R5). Liegt die Konversation außerhalb des Zeitraums, steht
-  // sie nie in der Liste. Der Stand der Suche folgt allein aus der Liste
-  // (Fixliste 3, C4): Scheitert ein Nachladen, hält sie an und der Hinweis
-  // sagt es; gelingt später ein Nachladen (etwa „Weitere laden“),
-  // verschwindet er wieder.
+  // den geladenen Konversationen: nachladen, bis sie gefunden ist – im
+  // Zuschnitt, mit dem die Seite geöffnet wurde, bis zu LINK_SEARCH_ROWS
+  // Zeilen; auf dem Desktop nach einem Wechsel des Zuschnitts (siehe
+  // linkedIn unten) nur bis CHANGE_SEARCH_ROWS (E19, K46). Im Vollbild gibt
+  // es bei offenem Panel keinen Wechsel (Fixliste 2, R5). Liegt die
+  // Konversation außerhalb des Zeitraums, steht sie nie in der Liste. Der
+  // Stand der Suche folgt allein aus der Liste (Fixliste 3, C4): Scheitert
+  // ein Nachladen, hält sie an und der Hinweis sagt es; gelingt später ein
+  // Nachladen (etwa „Weitere laden“), verschwindet er wieder.
   const [linkScope] = useState(() =>
     linkedChatId !== null ? { chatId: linkedChatId, scope } : null
   );
@@ -907,9 +914,10 @@ export default function ConversationList({
   // Pfeiltasten, Link beim Öffnen der Seite) oder nach einem Wechsel darin
   // gefunden (found). Nach einem echten Wechsel von Widget, Zeitraum,
   // Filter, Säule oder Suche (scopeChanged) sucht die Liste sie wie beim
-  // Link (bis LINK_SEARCH_ROWS Zeilen), statt sie schon zu verwerfen, wenn
-  // sie nicht auf der ersten Seite steht. Ohne Wechsel (etwa die Liste lädt
-  // nach dem Löschen neu) fällt sie nie aus der Adresse.
+  // Link, aber nur bis CHANGE_SEARCH_ROWS Zeilen (E19, K46), statt sie
+  // schon zu verwerfen, wenn sie nicht auf der ersten Seite steht. Ohne
+  // Wechsel (etwa die Liste lädt nach dem Löschen neu) fällt sie nie aus
+  // der Adresse.
   const [linkedIn, setLinkedIn] = useState(() => ({
     chatId: linkedChatId,
     scope,
@@ -1375,8 +1383,13 @@ export default function ConversationList({
   // bricht die Zahl in sich auf zwei Zeilen um, neben der Überschrift
   // (zwei Zeilen zu 20 px = Höhe der Überschrift, 40 px). Vorher brach sie
   // als Ganzes unter die Überschrift, und der Button machte den Kopf 22 px
-  // höher. Ohne Button und in voller Form bleibt es beim Umbruch unter die
-  // Überschrift (Fixliste 3, V1).
+  // höher. Höchstens zwei Zeilen (line-clamp-2, Review 7.22-rc17, K64):
+  // Mit fünfstelligen Zahlen und einer klassischen Scrollleiste (17 px)
+  // brauchte die Zahl bei 1.280 px drei Zeilen (gemessen, ab 1.288 px
+  // zwei); dann endet die zweite Zeile mit „…“, die Zahlen bleiben
+  // sichtbar, der volle Text steht weiter im Element (Screenreader). Ohne
+  // Button und in voller Form bleibt es beim Umbruch unter die Überschrift
+  // (Fixliste 3, V1).
   const countBeside = compactHeader && !!onJumpToOverview;
 
   // „Zur Übersicht ↑“ (Fixliste 7.22-rc14, K21): zurück an den Anfang der
@@ -1463,7 +1476,7 @@ export default function ConversationList({
                 <span
                   data-viewable-count=""
                   title={t("embed-analytics.list.viewable-hint")}
-                  className={`${countBeside ? "min-w-0" : "whitespace-nowrap"} text-sm ${MUTED}`}
+                  className={`${countBeside ? "line-clamp-2 min-w-0" : "whitespace-nowrap"} text-sm ${MUTED}`}
                 >
                   {outOf === null
                     ? t("embed-analytics.list.viewable", {

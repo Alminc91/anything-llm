@@ -37,6 +37,16 @@
 // der Kopf der Liste wird durch „Zur Übersicht ↑“ nicht höher (K47,
 // 1.280 bis 1.760 px, Screenshots bei 1.280, 1.440 und 1.536 px, Verlauf
 // offen und zu, mit und ohne Bewertungsfilter; --only 1280 usw.).
+// Fixliste 7.22-rc18 (Nachreview rc17): Link nur aus unsichtbaren Zeichen
+// zeigt seine Adresse, Link ohne Adresse wird Text (K61); ein leerer Link
+// mit dem Suchbegriff in der Adresse gilt als sichtbarer Treffer, kein
+// Hinweis „nur in Link-Adressen“ (K62); Text in <datalist>, <rp>,
+// <progress>, <meter> und <canvas> sichtbar, <template> fällt weg, keine
+// Farben aus der Antwort (color, bgcolor, size, face; K63), mit echtem
+// DOMPurify im Browser; „X von Y einsehbar“ im kompakten Kopf mit
+// fünfstelligen Zahlen und einer klassischen Scrollleiste (17 px, per CSS
+// nachgestellt) höchstens zweizeilig, 1.280 bis 1.440 px (K64; --k64
+// allein).
 //
 // Der Server ist im Browser nachgestellt (page.route): Es läuft nur der
 // Vite-Dev-Server des Frontends – kein Container, kein Docker. Playwright
@@ -68,6 +78,8 @@ const PORT = Number(arg("--port") ?? 3175);
 // --only 1440: nur die Szenarien dieser Breite (Diagnose); --only 600 das
 // niedrige Fenster 1920×600 allein
 const ONLY = arg("--only") ? Number(arg("--only")) : null;
+// --k64: nur die Messung K64 (Fixliste 7.22-rc18)
+const K64_ONLY = process.argv.includes("--k64");
 const BASE = `http://127.0.0.1:${PORT}`;
 const PAGE = `${BASE}/settings/chatbot/conversations`;
 
@@ -120,6 +132,21 @@ const HTML_ANSWER_RC16 = [
   "| Yoga | Raum 2 | 96,00 € |",
   "| Spanisch A1 | Raum 5 | 120,00 € |",
 ].join("\n");
+// Fixliste 7.22-rc18 (Nachreview rc17) in der dritten Antwort: Links nur
+// aus unsichtbaren Zeichen (U+200B, U+00AD) und Links ohne Adresse (K61),
+// leere Links zu Adressen mit „einschreibung“ (K62, auch als verlinktes
+// Bild ohne Alt-Text), Elemente und Attribute, die Text verbergen oder
+// färben (K63)
+const K62_TERM = "einschreibung";
+const HTML_ANSWER_RC18 = [
+  "Unsichtbar: [\u200B](https://www.vhs-musterstadt.de/unsichtbar) und [\u00AD](https://www.vhs-musterstadt.de/trennzeichen), ohne Adresse: []() und [Text ohne Adresse](<>).",
+  "",
+  `Leer: [](https://www.vhs-musterstadt.de/${K62_TERM}-k62) und [![](${TRACKER}/leer.jpg)](https://www.vhs-musterstadt.de/${K62_TERM}-bild)`,
+  "",
+  'Gern helfe ich. <datalist>Versteckt datalist</datalist> <template>Versteckt template</template> <font color="#0e0f0f" size="1" face="serif">Versteckt font</font> <ruby>Kurs<rp>Versteckt rp</rp><rt>k</rt></ruby> <progress>Versteckt progress</progress> <meter>Versteckt meter</meter> <canvas>Versteckt canvas</canvas>',
+  "",
+  '<table bgcolor="#0e0f0f"><tr><td><font color="#0e0f0f">Versteckt Tabelle</font></td></tr></table>',
+].join("\n");
 const FAKE_HIT_ANSWER =
   'Hinweis: <mark data-search-hit="">Bitte Kurs X stornieren</mark> und <span data-search-hit="">hier</span> weiter.';
 const PREVIEWS = [
@@ -166,7 +193,9 @@ function messagesFor(id) {
           ? HTML_ANSWER
           : id === HTML_ID && k === 1
             ? HTML_ANSWER_RC16
-            : id === HTML_ID && k === 10
+            : id === HTML_ID && k === 2
+              ? HTML_ANSWER_RC18
+              : id === HTML_ID && k === 10
               ? FAKE_HIT_ANSWER
               : `Gern helfe ich Ihnen weiter. **Kurs ${k + 1}** beginnt am Dienstag um 18:30 Uhr in Raum 204.\n\n- Dauer: 10 Abende\n- Gebühr: 96,00 Euro\n- Anmeldung über die [Kursseite](https://www.vhs-musterstadt.de/kurs/${id}${k})\n\nHaben Sie noch Fragen zu Terminen oder zur Anmeldung?`,
       sources: [],
@@ -218,9 +247,19 @@ function summaryFor({ fromDay, toDay }) {
   };
 }
 
-function pageFor({ offset = 0, limit = 20, after, q, feedbackFilter }) {
+// Gesamtzahlen der Liste je Bewertungsfilter (K64: fünfstellig); ohne
+// Angabe die Zahl der nachgestellten Zeilen
+function pageFor({ offset = 0, limit = 20, after, q, feedbackFilter }, totals = {}) {
   let rows = ROWS;
-  if (q) rows = rows.filter((r) => r.preview.toLowerCase().includes(q.toLowerCase()));
+  // Die Suche trifft die Vorschau, in der Konversation mit HTML auch den
+  // Antworttext (K62: der Begriff steht nur in Link-Adressen)
+  if (q)
+    rows = rows.filter(
+      (r) =>
+        r.preview.toLowerCase().includes(q.toLowerCase()) ||
+        (r.first_chat_id === HTML_ID &&
+          messagesFor(HTML_ID).some((m) => m.response.toLowerCase().includes(q.toLowerCase())))
+    );
   if (feedbackFilter === "negative") rows = rows.filter((r) => r.negative_count > 0);
   if (feedbackFilter === "positive") rows = rows.filter((r) => r.positive_count > 0);
   const rest = after
@@ -236,7 +275,7 @@ function pageFor({ offset = 0, limit = 20, after, q, feedbackFilter }) {
     success: true,
     conversations: rest.slice(start, start + limit),
     hasMore: start + limit < rest.length,
-    totalCount: rows.length,
+    totalCount: totals[feedbackFilter ?? "all"] ?? rows.length,
     maxId: 99999,
     hasRatings: true,
   };
@@ -246,7 +285,7 @@ function pageFor({ offset = 0, limit = 20, after, q, feedbackFilter }) {
 // Nachladens zu beobachten (K15); die erste Seite kommt sofort.
 const PAGE_DELAY_MS = 400;
 
-async function mockApi(context) {
+async function mockApi(context, { totals = {} } = {}) {
   await context.route("**/api/**", async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname.replace(/^.*?\/api\//, "/api/");
@@ -285,7 +324,7 @@ async function mockApi(context) {
       const request = body();
       if (request.after)
         await new Promise((resolve) => setTimeout(resolve, PAGE_DELAY_MS));
-      return json(pageFor(request));
+      return json(pageFor(request, totals));
     }
     const detail = pathname.match(/^\/api\/embed\/3\/conversation\/(\d+)$/);
     if (detail && request.method() === "GET")
@@ -841,6 +880,80 @@ async function checkAnswerHtmlRc16(scenario, page, trackerHits, { width, theme }
   const searched = await read();
   check(scenario, "K41 mit Suche „Yoga“: Kennzeichen nur an den eigenen <mark> der Treffer", searched.hits.length > 0 && searched.hits.every((hit) => hit.tag === "MARK" && /yoga/i.test(hit.text)), { hits: searched.hits });
   // zurück zum Stand von checkAnswerHtml (ohne Suche) für die folgenden Prüfungen
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+}
+
+/**
+ * Fixliste 7.22-rc18 (läuft nach checkAnswerHtmlRc16, dieselbe
+ * Konversation, dritte Antwort; echtes DOMPurify im Browser): K61 ein Link
+ * nur aus unsichtbaren Zeichen zeigt seine Adresse, ein Link ohne Adresse
+ * ist kein Link mehr (sein Text bleibt); K62 mit der Suche nach einem
+ * Begriff, der nur in der Adresse leerer Links steht: markiert und ohne
+ * Hinweis „nur in Link-Adressen“; K63 der Text in <datalist>, <rp>,
+ * <progress>, <meter> und <canvas> ist sichtbar, <template> fällt weg,
+ * keine Farbe, Größe oder Schrift aus der Antwort (font color/size/face,
+ * table bgcolor).
+ */
+async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }) {
+  const read = () =>
+    page.evaluate(() => {
+      const body = document.querySelector("[data-panel-body]");
+      const answer = [...body.querySelectorAll("[data-answer]")][2];
+      const shown = (word) => {
+        const walker = document.createTreeWalker(answer, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (!node.data.includes(word)) continue;
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+          const element = node.parentElement;
+          const style = getComputedStyle(element);
+          if (rects.length > 0 && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }))
+            return { shown: true, color: style.color, fontSize: style.fontSize, fontFamily: style.fontFamily };
+        }
+        return { shown: false };
+      };
+      const words = ["datalist", "rp", "progress", "meter", "canvas", "font", "Tabelle"];
+      return {
+        answerColor: getComputedStyle(answer).color,
+        answerFont: getComputedStyle(answer).fontFamily,
+        answerSize: getComputedStyle(answer).fontSize,
+        links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") })),
+        texts: Object.fromEntries(words.map((word) => [word, shown(`Versteckt ${word}`)])),
+        template: answer.querySelectorAll("template").length + (answer.innerHTML.includes("Versteckt template") ? 1 : 0),
+        hiding: [...answer.querySelectorAll("datalist, rp, progress, meter, canvas, template")].map((e) => e.tagName),
+        attributes: [...answer.querySelectorAll("[color], [bgcolor], [size], [face]")].map((e) => e.outerHTML.slice(0, 80)),
+        noAddress: answer.textContent.includes("Text ohne Adresse"),
+        hits: [...answer.querySelectorAll("mark[data-search-hit]")].map((mark) => mark.textContent),
+        hiddenHit: document.querySelector("[data-panel-hidden-hit]")?.textContent ?? null,
+        images: body.querySelectorAll("img").length,
+      };
+    });
+  const info = await read();
+  await page.locator("[data-panel-body] [data-answer] >> nth=2").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k61-k63.png`) });
+  const link = (part) => info.links.find((l) => (l.href ?? "").endsWith(part));
+  const invisible = [link("/unsichtbar"), link("/trennzeichen")];
+  check(scenario, "K61 Link nur aus unsichtbaren Zeichen (U+200B, U+00AD) zeigt seine Adresse", invisible.every((l) => !!l && l.text.includes(l.href) && l.target === "_blank"), { links: invisible });
+  check(scenario, "K61 Link ohne Adresse ([]() und [Text](<>)) ist kein Link mehr, sein Text bleibt", !info.links.some((l) => (l.href ?? "").trim() === "") && info.noAddress, { links: info.links.filter((l) => (l.href ?? "").trim() === ""), noAddress: info.noAddress });
+  const k62 = [link(`/einschreibung-k62`), link(`/einschreibung-bild`)];
+  check(scenario, "K62 leere Links zeigen ihre Adresse (auch das verlinkte Bild ohne Alt-Text), kein Abruf", k62.every((l) => !!l && l.text === l.href) && info.images === 0 && trackerHits.length === 0, { links: k62, images: info.images, trackerHits });
+  const hidden = Object.entries(info.texts).filter(([word, t]) => word !== "font" && word !== "Tabelle" && !t.shown).map(([word]) => word);
+  check(scenario, "K63 Text in <datalist>, <rp>, <progress>, <meter> und <canvas> sichtbar (Elemente aufgelöst)", hidden.length === 0 && info.hiding.length === 0, { hidden, elements: info.hiding });
+  check(scenario, "K63 <template> fällt mit seinem Inhalt weg", info.template === 0, { template: info.template });
+  const plain = (t) => t.shown && t.color === info.answerColor && t.fontSize === info.answerSize && t.fontFamily === info.answerFont;
+  check(scenario, "K63 keine Farbe, Größe oder Schrift aus der Antwort (font color/size/face, table bgcolor): Text in der Farbe und Größe der Antwort", info.attributes.length === 0 && plain(info.texts.font) && plain(info.texts.Tabelle), { attributes: info.attributes, font: info.texts.font, table: info.texts.Tabelle, answer: { color: info.answerColor, size: info.answerSize, font: info.answerFont } });
+  // K62 mit Suche: der Begriff steht nur in den Adressen der leeren Links
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}&q=${K62_TERM}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+  const searched = await read();
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k62-suche.png`) });
+  check(scenario, `K62 Suche „${K62_TERM}“: Treffer in den sichtbaren Adressen markiert, kein Hinweis „nur in Link-Adressen“`, searched.hits.length >= 2 && searched.hits.every((hit) => hit.toLowerCase() === K62_TERM) && searched.hiddenHit === null, { hits: searched.hits, hiddenHit: searched.hiddenHit });
+  // zurück zum Stand ohne Suche für die folgenden Prüfungen
   await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
   await page.waitForTimeout(800);
@@ -1481,6 +1594,9 @@ async function wideScenario(browser, { width, height, theme }) {
   await checkAnswerHtml(scenario, page, trackerHits, { width, theme });
   // rc16 K40 bis K43: verlinktes Bild, Kennzeichen, tabindex, Tabelle
   await checkAnswerHtmlRc16(scenario, page, trackerHits, { width, theme });
+  // rc18 K61 bis K63: unsichtbare Linktexte, Links ohne Adresse, leere
+  // Links in der Suche, verborgener und gefärbter Text
+  await checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme });
   // rc15 K30: Links im Verlauf erkennbar (dieselbe Konversation)
   await checkLinkLook(scenario, page, { width, theme, where: "Desktop" });
   check(scenario, "keine Fehler der Seite (bis zum Ende)", errors.length === 0, errors);
@@ -1859,14 +1975,128 @@ async function headerHeightScenario(browser, { widths, height, theme }) {
   await context.close();
 }
 
+/**
+ * Review 7.22-rc17, K64 (Fixliste 7.22-rc18): kompakter Kopf (Verlauf
+ * offen) mit „Zur Übersicht ↑“ bei fünfstelligen Zahlen und einer
+ * klassischen Scrollleiste wie unter Windows, 17 px (per CSS nachgestellt,
+ * in einem Chrome ohne --hide-scrollbars, das Playwright sonst setzt; die
+ * Seite scrollt im Rahmen mit overflow-y-scroll, die Leiste ist also immer
+ * da). Ohne Leiste: dieselbe Regel mit 0 px. „X von Y einsehbar“
+ * steht neben der Überschrift in höchstens zwei Zeilen, der Titelblock
+ * bleibt so hoch wie die Überschrift (40 px, K47), nichts ragt über die
+ * Spalte. Gemessen von 1.280 bis 1.440 px in Schritten von 8 px mit
+ * Scrollleiste, bei 1.280 px auch ohne; Screenshot bei 1.280 px.
+ */
+const NO_SCROLLBAR_CSS = "::-webkit-scrollbar { width: 0; height: 0; }";
+const CLASSIC_SCROLLBAR_CSS = `
+::-webkit-scrollbar { width: 17px; height: 17px; }
+::-webkit-scrollbar-thumb { background: #c1c1c1; }
+::-webkit-scrollbar-track { background: #f1f1f1; }
+`;
+const K64_VARIANTS = [
+  { name: "8.888 von 88.888", totals: { all: 88888, positive: 8888 }, filter: true },
+  { name: "12.345 von 88.888", totals: { all: 88888, positive: 12345 }, filter: true },
+  { name: "88.888 von 88.888", totals: { all: 88888, positive: 88888 }, filter: true },
+  { name: "1.234 von 12.345", totals: { all: 12345, positive: 1234 }, filter: true },
+  { name: "88.888", totals: { all: 88888 }, filter: false },
+];
+async function countLinesScenario(browser, { height, theme }) {
+  const scenario = `K64 ${theme}`;
+  const totals = {};
+  const context = await browser.newContext({
+    viewport: { width: 1280, height },
+    colorScheme: theme,
+    locale: "de-DE",
+  });
+  await context.addInitScript(initStorage, { theme });
+  await mockApi(context, { totals });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(String(error)));
+  const rows = [];
+  const sweep = [];
+  for (let width = 1280; width <= 1440; width += 8) sweep.push(width);
+  for (const variant of K64_VARIANTS) {
+    for (const key of Object.keys(totals)) delete totals[key];
+    Object.assign(totals, variant.totals);
+    await page.setViewportSize({ width: 1280, height });
+    await page.goto(PAGE, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
+    await page.waitForTimeout(500);
+    if (variant.filter) {
+      await page.click("[data-feedback-filters] button >> nth=1");
+      await page.waitForSelector("[data-feedback-filter-mark]", { timeout: 10_000 });
+      await page.waitForTimeout(800);
+    }
+    const style = await page.addStyleTag({ content: CLASSIC_SCROLLBAR_CSS });
+    for (const [scrollbarOn, widths] of [[true, sweep], [false, [1280]]]) {
+      if (!scrollbarOn) await style.evaluate((element, css) => (element.textContent = css), NO_SCROLLBAR_CSS);
+      for (const width of widths) {
+        await page.setViewportSize({ width, height });
+        await page.waitForTimeout(120);
+        await setPageScroll(page, "end");
+        await page.waitForTimeout(60);
+        const m = await page.evaluate(headerWithAndWithoutButton);
+        const extra = await page.evaluate(() => {
+          const scroller = document.querySelector("[data-chatbot-content]").parentElement;
+          const count = document.querySelector("[data-viewable-count]");
+          const cs = getComputedStyle(scroller);
+          return {
+            scrollbar: scroller.offsetWidth - scroller.clientWidth - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth),
+            countText: count?.textContent ?? null,
+            // sichtbar (ohne abgeschnittene Zeilen) und ganz
+            countClipped: count ? count.scrollHeight > count.clientHeight + 1 : null,
+          };
+        });
+        rows.push({ variant: variant.name, scrollbarOn, ...extra, ...m });
+        if (width === 1280 && scrollbarOn) {
+          const box = await page.locator("[data-list-header]").boundingBox();
+          await page.screenshot({
+            path: path.join(OUT, `kie575-k64-1280-${theme}-${variant.name.replaceAll(".", "").replaceAll(" ", "-")}.png`),
+            clip: { x: Math.max(0, box.x - 16), y: Math.max(0, box.y - 16), width: Math.min(width - Math.max(0, box.x - 16), box.width + 32), height: box.height + 32 },
+          });
+        }
+      }
+    }
+  }
+  const withBar = rows.filter((row) => row.scrollbarOn);
+  check(scenario, "K64 klassische Scrollleiste nachgestellt (17 px am Rahmen der Seite)", withBar.every((row) => row.scrollbar === 17) && rows.filter((row) => !row.scrollbarOn).every((row) => row.scrollbar === 0), { withBar: [...new Set(withBar.map((row) => row.scrollbar))], without: [...new Set(rows.filter((row) => !row.scrollbarOn).map((row) => row.scrollbar))] });
+  for (const variant of K64_VARIANTS) {
+    const own = rows.filter((row) => row.variant === variant.name);
+    const bad = own.filter(
+      (row) =>
+        !(
+          row.countBeside &&
+          row.countLines <= 2 &&
+          row.withButton.count.height <= row.withButton.heading.height &&
+          row.withButton.header.height <= row.withoutButton.header.height &&
+          row.withButton.overflow === false &&
+          !!row.withButton.button
+        )
+    );
+    const at1280 = own.find((row) => row.innerWidth === 1280 && row.scrollbarOn);
+    check(scenario, `K64 „${variant.name}${variant.filter ? "" : " einsehbar"}“ (Verlauf offen): neben der Überschrift höchstens zwei Zeilen, Kopf nicht höher, 1.280 bis 1.440 px mit Scrollleiste und 1.280 px ohne`, bad.length === 0, {
+      text: at1280?.countText,
+      at1280: { lines: at1280?.countLines, count: at1280?.withButton.count, heading: at1280?.withButton.heading?.height, header: at1280?.withButton.header?.height, clipped: at1280?.countClipped, column: at1280?.column?.width },
+      failed: bad.map((row) => `${row.innerWidth}${row.scrollbarOn ? "" : " ohne Leiste"}: ${row.countLines} Zeilen, Zahl ${row.withButton.count?.height} px, Kopf ${row.withButton.header.height} px`),
+      lines: Object.fromEntries(own.map((row) => [`${row.innerWidth}${row.scrollbarOn ? "" : "-ohne"}`, row.countLines])),
+    });
+  }
+  check(scenario, "keine Fehler der Seite", errors.length === 0, errors);
+  results.push({ scenario, phase: "k64", rows });
+  await context.close();
+}
+
 // ---------------------------------------------------------------------------
 
 mkdirSync(OUT, { recursive: true });
 const vite = await startVite();
 let browser;
+// K64: ein Chrome, das Scrollleisten zeigt (Playwright blendet sie sonst aus)
+let classic;
 try {
   browser = await chromium.launch({ channel: "chrome", headless: true });
-  const wanted = (width) => ONLY === null || ONLY === width;
+  const wanted = (width) => !K64_ONLY && (ONLY === null || ONLY === width);
   // E15: Smartphone 390, Tablet 1.024, Desktop 1.280 (Untergrenze), 1.440
   // und 1.920; dazu 2.560 (AK-9) und das niedrige Fenster 1920×600 (K13)
   for (const theme of ["dark", "light"]) {
@@ -1880,8 +2110,14 @@ try {
     // K47 (Fixliste 7.22-rc16): Kopf der Liste mit „Zur Übersicht ↑“
     const k47 = [1280, 1440, 1536].filter((width) => wanted(width));
     if (k47.length > 0) await headerHeightScenario(browser, { widths: k47, height: 900, theme });
+    // K64 (Fixliste 7.22-rc18): fünfstellige Zahlen, klassische Scrollleiste
+    if (K64_ONLY || wanted(1280)) {
+      classic ??= await chromium.launch({ channel: "chrome", headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] });
+      await countLinesScenario(classic, { height: 900, theme });
+    }
   }
 } finally {
+  await classic?.close();
   await browser?.close();
   vite.kill("SIGTERM");
 }

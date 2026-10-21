@@ -33,8 +33,10 @@ const FORMATS = [
  *   Leiste "min-[1680px]:block" (Fixliste 7.22-rc16, K47)
  *
  * Unter sm zeigt die Schaltfläche nur das Symbol; ihr Name „Exportieren"
- * bleibt für Screenreader (Fixliste 2, B1). Der Pfeil erst ab xl – bis dahin
- * steht sie kompakt neben Suche und Filtern (Fixliste 3, V7).
+ * bleibt für Screenreader (Fixliste 2, B1). Der Pfeil erst mit der breiten
+ * Form der Leiste: ohne „Zur Übersicht ↑“ ab xl, mit dem Button ab 1.680 px
+ * (arrowClassName, K47). Bis dahin steht sie kompakt neben Suche und
+ * Filtern (Fixliste 3, V7).
  */
 export default function ExportMenu({
   embedId,

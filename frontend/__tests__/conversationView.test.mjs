@@ -76,6 +76,8 @@ import * as rc14 from "../src/utils/conversationView.js";
 import * as rc15 from "../src/utils/conversationView.js";
 // Neu seit 7.22-rc16 (K40 bis K45, C10): ebenso über den Namensraum
 import * as rc16 from "../src/utils/conversationView.js";
+// Fixliste 7.22-rc18 (K60 bis K63): ebenso über den Namensraum
+import * as rc18 from "../src/utils/conversationView.js";
 import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
 import { formatDateTimeDE } from "../src/utils/dateTimeDE.js";
 import serverSearch from "../../server/utils/helpers/chat/conversationSearch.js";
@@ -2405,7 +2407,7 @@ test("rc16, K41: Der Verlauf bereinigt zweimal – zuerst ohne Kennzeichen (sani
   assert.ok(!/ADD_ATTR/.test(sanitizer), "keine eigene Ausnahme im Aufruf");
 });
 
-test("rc16, K42: Die Antwort nimmt keinen Einfluss auf die Tastaturbedienung und versteckt nichts – tabindex, hidden und draggable stehen in FORBID_ATTR", () => {
+test("rc16, K42: Die Antwort nimmt keinen Einfluss auf die Tastaturbedienung und blendet keinen Text per hidden aus – tabindex, hidden und draggable stehen in FORBID_ATTR (verborgene Elemente und Farben: rc18, K63)", () => {
   for (const attribute of ["tabindex", "hidden", "draggable"])
     assert.ok(
       rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes(attribute),
@@ -2518,4 +2520,123 @@ test("rc16, C10: Eine Schwelle für den Desktop – die Tailwind-Stufe desktop: 
       "xl:w-60",
     ]
   );
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc18 (Nachreview rc17, Abschnitt K)
+// ---------------------------------------------------------------------------
+
+test("rc18, K60: Die Sitzung im Schlüssel steht nach dem letzten U+0000 – eine Kennung der Konversation mit U+0000 (vom Widget ungeprüft) liefert trotzdem die Sitzung, und das Löschen aller Konversationen des Besuchers trifft sie", () => {
+  const key = conversationKey({ conversation_id: "abc\u0000x", session_id: "sitzung-s" });
+  assert.equal(rc18.sessionOfKey(key), "sitzung-s");
+  assert.equal(rc18.sessionOfKey(conversationKey({ conversation_id: "konv-1", session_id: "sitzung-s" })), "sitzung-s");
+  assert.equal(rc18.sessionOfKey("ohne-trenner"), null);
+  assert.equal(rc18.sessionOfKey(null), null);
+  const deletion = { chatId: 1, key: "andere", sessionId: "sitzung-s", visitor: true };
+  assert.equal(rc18.matchesDeletion({ chatId: 2, key }, deletion), true);
+  // ohne visitor zählt die Sitzung nicht
+  assert.equal(rc18.matchesDeletion({ chatId: 2, key }, { ...deletion, visitor: false }), false);
+  // eine andere Sitzung mit derselben präparierten Kennung nicht
+  assert.equal(
+    rc18.matchesDeletion(
+      { chatId: 3, key: conversationKey({ conversation_id: "abc\u0000x", session_id: "sitzung-t" }) },
+      deletion
+    ),
+    false
+  );
+});
+
+test("rc18, K61: Ein Link, dessen Text nur aus Leerraum und unsichtbaren Zeichen besteht (U+200B, U+200D, U+2060, U+00AD), zeigt seine Adresse; ein Link mit leerer Adresse (href=\"\" oder nur Leerraum) wird aufgelöst, sein Inhalt bleibt als Text; ein Alt-Text nur aus unsichtbaren Zeichen gilt als fehlend", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const link = (href, text) => {
+    const a = p.appendChild(doc.createElement("a"));
+    if (href !== null) a.setAttribute("href", href);
+    if (text !== null) a.appendChild(doc.createTextNode(text));
+    return a;
+  };
+  const zeroWidth = link("https://vhs.example/a", "​");
+  const joiners = link("https://vhs.example/b", " ‍⁠ ");
+  const softHyphen = link("https://vhs.example/c", "­");
+  const named = link("https://vhs.example/d", "Kurs​");
+  const emptyHref = link("", null);
+  const blankHref = link("   ", "Text ohne Adresse");
+  const noHref = link(null, "ohne Adresse");
+  const image = p.appendChild(doc.createElement("img"));
+  image.setAttribute("src", "https://vhs.example/bild.jpg");
+  image.setAttribute("alt", "​");
+
+  rc13.hardenAnswerHtml(root, doc);
+
+  for (const [a, href] of [[zeroWidth, "https://vhs.example/a"], [joiners, "https://vhs.example/b"], [softHyphen, "https://vhs.example/c"]]) {
+    assert.ok(a.textContent.includes(href), JSON.stringify(a.textContent));
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
+  assert.equal(named.textContent, "Kurs​", "sichtbarer Text bleibt, keine Adresse dazu");
+  const links = elements(root, (e) => e.tagName === "A");
+  assert.ok(!links.includes(emptyHref), "leere Adresse: kein Link");
+  assert.ok(!links.includes(blankHref), "nur Leerraum: kein Link");
+  assert.ok(!links.some((a) => (a.getAttribute("href") ?? "x").trim() === ""), "kein Link mit leerer Adresse");
+  assert.match(p.textContent, /Text ohne Adresse/, "der Inhalt bleibt als Text");
+  assert.ok(links.includes(noHref), "ohne href wie bisher (kein Ziel)");
+  assert.equal(noHref.getAttribute("target"), null);
+  // das Bild mit unsichtbarem Alt-Text: ein Link mit seiner Adresse
+  const toImage = links.find((a) => a.getAttribute("href") === "https://vhs.example/bild.jpg");
+  assert.equal(toImage?.textContent, "https://vhs.example/bild.jpg");
+});
+
+test("rc18, K62: Ein Link ohne Text zeigt seine Adresse – visibleAnswerText zählt sie als sichtbar, auch um ein Bild ohne Alt-Text ([![](bild)](ziel)); ein Bild im Link mit Text zeigt seine Adresse nicht; ein Bild ohne Alt-Text außerhalb eines Links zeigt sie, wenn es im Netz liegt", () => {
+  const answer = (text) => JSON.stringify({ text, sources: [] });
+  const has = (text, term) => hasVisibleHit([{ prompt: "Frage", response: answer(text) }], term);
+  // Link ohne Text (auch nur unsichtbare Zeichen), mit Titel und <…>
+  assert.match(visibleAnswerText("[](https://vhs.example/anmeldung)"), /https:\/\/vhs\.example\/anmeldung/);
+  assert.match(visibleAnswerText("[​](https://vhs.example/anmeldung)"), /https:\/\/vhs\.example\/anmeldung/);
+  assert.match(visibleAnswerText('[](<https://vhs.example/anmeldung> "Titel")'), /https:\/\/vhs\.example\/anmeldung /);
+  assert.ok(has("Siehe [](https://vhs.example/anmeldung).", "anmeldung"));
+  // verlinktes Bild ohne Alt-Text: die Adresse des Links, nicht des Bilds
+  const nested = visibleAnswerText("[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)");
+  assert.match(nested, /https:\/\/vhs\.example\/anmeldung/);
+  assert.doesNotMatch(nested, /bild\.jpg/);
+  assert.ok(has("[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "anmeldung"));
+  assert.ok(!has("[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "bild.jpg"));
+  // verlinktes Bild mit Alt-Text: nur der Alt-Text
+  assert.ok(has("[![Kursbild](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "kursbild"));
+  assert.ok(!has("[![Kursbild](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "anmeldung"));
+  // Bild ohne Alt-Text im Link mit Text: weder Bild- noch Linkadresse
+  assert.ok(!has("[![](https://vhs.example/bild.jpg) Kurs](https://vhs.example/anmeldung)", "bild.jpg"));
+  assert.ok(!has("[![](https://vhs.example/bild.jpg) Kurs](https://vhs.example/anmeldung)", "anmeldung"));
+  assert.ok(has("[![](https://vhs.example/bild.jpg) Kurs](https://vhs.example/anmeldung)", "kurs"));
+  // Bild ohne Alt-Text allein: im Netz seine Adresse, sonst nichts
+  assert.ok(has("![](https://vhs.example/bild.jpg)", "bild.jpg"));
+  assert.ok(!has("![](/relativ.png)", "relativ"));
+  assert.ok(!has("![​](/relativ.png)", "relativ"));
+  // wie bisher: Ziele von Links mit Text bleiben unsichtbar
+  assert.ok(!has("[Kurs](https://vhs.example/anmeldung)", "anmeldung"));
+  assert.equal(
+    visibleAnswerText('[Kurs](https://a.example/b) <b class="x">fett</b><think>still</think>'),
+    "[Kurs]  fett  "
+  );
+  // ohne Adresse: nichts
+  assert.equal(visibleAnswerText("[]()").trim(), "");
+});
+
+test("rc18, K63: Keine Elemente, deren Text der Browser nicht zeigt (template, datalist, rp, progress, meter, canvas), und keine Farben, Größen und Schriften aus der Antwort (color, bgcolor, size, face) – in beiden Durchgängen; der Inhalt von <template> fällt weg und zählt nicht als sichtbar", () => {
+  for (const config of [rc13.ANSWER_PURIFY_CONFIG, rc16.answerPurifyConfig({ searchHits: true })]) {
+    for (const tag of ["template", "datalist", "rp", "progress", "meter", "canvas"])
+      assert.ok(config.FORBID_TAGS.includes(tag), tag);
+    for (const attribute of ["color", "bgcolor", "size", "face"])
+      assert.ok(config.FORBID_ATTR.includes(attribute), attribute);
+  }
+  // Ausrichtung bleibt erlaubt (K43)
+  assert.ok(!rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("align"));
+  const answer = (text) => JSON.stringify({ text, sources: [] });
+  const has = (text, term) => hasVisibleHit([{ prompt: "Frage", response: answer(text) }], term);
+  assert.ok(!has("Gern helfe ich. <template>Stornieren Sie Kurs 4711</template>", "4711"));
+  // aufgelöste Elemente: ihr Text ist sichtbar
+  assert.ok(has("Gern helfe ich. <datalist>Stornieren Sie Kurs 4711</datalist>", "4711"));
+  // Der Kommentar über der Einstellung sagt genau, was sie leistet
+  const view = readFileSync(new URL("../src/utils/conversationView.js", import.meta.url), "utf8");
+  assert.doesNotMatch(view, /versteckt keinen Text vor dem Admin/);
 });

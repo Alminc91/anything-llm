@@ -2317,3 +2317,33 @@ test(
     assert.ok(plain.count.includes("whitespace-nowrap"));
   }
 );
+
+test(
+  "rc18, K64: Im kompakten Kopf mit „Zur Übersicht ↑“ steht „X von Y einsehbar“ neben der Überschrift in höchstens zwei Zeilen (line-clamp-2; fünfstellige Zahlen mit klassischer Scrollleiste bei 1.280 px brauchten drei) – in voller Form und ohne Button wie bisher in einer Zeile ohne Begrenzung",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    await workspaceServer(t, { rows: [row(1), row(2)] });
+    const view = await mountView(t);
+    const { container, act } = view;
+    await act();
+    assert.ok(panelOf(container), "Verlauf daneben: kompakter Kopf");
+    const count = () => classesOf(one(container, "data-viewable-count"));
+    assert.ok(count().includes("line-clamp-2"), count().join(" "));
+    assert.ok(count().includes("min-w-0"), count().join(" "));
+    // Verlauf zu (volle Form): eine Zeile, keine Begrenzung
+    await act(() => click(one(container, "data-panel-close")));
+    await act();
+    assert.ok(!count().includes("line-clamp-2"), count().join(" "));
+    assert.ok(count().includes("whitespace-nowrap"));
+    await view.unmount();
+
+    // Die Liste allein (ohne Button), Verlauf daneben: wie bisher
+    const list = await mountList(t);
+    await list.act();
+    assert.ok(panelOf(list.container));
+    const plain = classesOf(one(list.container, "data-viewable-count"));
+    assert.ok(!plain.includes("line-clamp-2"), plain.join(" "));
+    assert.ok(plain.includes("whitespace-nowrap"));
+  }
+);

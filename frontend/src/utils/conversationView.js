@@ -956,13 +956,16 @@ export function conversationKey({ conversation_id, session_id }) {
 }
 
 /**
- * Sitzung (Besucher) aus einem Schlüssel von conversationKey.
+ * Sitzung (Besucher) aus einem Schlüssel von conversationKey. Getrennt am
+ * letzten U+0000 (Review 7.22-rc17, K60): Die Kennung der Konversation
+ * kommt ungeprüft vom Widget und kann selbst U+0000 enthalten, die Sitzung
+ * ist eine geprüfte UUID ohne.
  * @param {string|null|undefined} key
  * @returns {string|null}
  */
 export function sessionOfKey(key) {
   if (typeof key !== "string") return null;
-  const at = key.indexOf("\u0000");
+  const at = key.lastIndexOf("\u0000");
   return at < 0 ? null : key.slice(at + 1);
 }
 
@@ -1025,16 +1028,74 @@ const AUTOLINK =
   /<((?:[a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s<>]*)|(?:[^\s<>@]+@[^\s<>@]+))>/g;
 
 /**
+ * Ohne sichtbares Zeichen: leer, nur Leerraum oder nur unsichtbare Zeichen
+ * (Unicode Cf, etwa U+200B, U+200D, U+2060 und das weiche Trennzeichen
+ * U+00AD; Review 7.22-rc17, K61). String.prototype.trim entfernt die
+ * unsichtbaren nicht.
+ * @param {string|null|undefined} text
+ * @returns {boolean}
+ */
+function isBlankText(text) {
+  return String(text ?? "").replace(/[\s\p{Cf}]/gu, "") === "";
+}
+
+// Markdown-Bild ![alt](ziel) und Markdown-Link [text](ziel) ohne
+// verschachtelte Klammern im Text; Bilder im Linktext stehen dann schon
+// als Platzhalter da (IMAGE_SLOT, zwischen Zeichen aus dem privaten
+// Bereich von Unicode: U+E000 Alt-Text U+E001 Adresse U+E000)
+const MARKDOWN_IMAGE = /!\[([^[\]]*)\]\(([^)]*)\)/g;
+const MARKDOWN_LINK = /\[([^[\]]*)\]\(([^)]*)\)/g;
+const IMAGE_SLOT = /\uE000([^\uE000\uE001]*)\uE001([^\uE000\uE001]*)\uE000/g;
+
+/**
+ * Adresse aus dem Ziel eines Markdown-Links: ohne Titel ("…" bzw. '…') und
+ * ohne spitze Klammern (<…>).
+ * @param {string} destination - Inhalt der runden Klammern
+ * @returns {string}
+ */
+function markdownAddress(destination) {
+  const value = destination.trim();
+  const bracketed = /^<([^>]*)>/.exec(value);
+  return bracketed ? bracketed[1] : value.split(/\s/)[0];
+}
+
+/**
  * Was von einem Antworttext sichtbar ist (ungefähr wie der MarkdownRenderer
- * ihn zeigt): ohne <think>-Blöcke (eingeklappt), ohne Ziele von Links und
- * Bildern ("[Text](https://…)" → "Text"), ohne HTML-Tags und Attribute.
- * Autolinks (<https://…>, <info@…>) bleiben als ihr sichtbarer Text.
+ * ihn zeigt): ohne <think>-Blöcke (eingeklappt) und ohne den Inhalt von
+ * <template> (fällt bei der Bereinigung weg, Review 7.22-rc17, K63), ohne
+ * Ziele von Links und Bildern ("[Text](https://…)" → "Text"), ohne
+ * HTML-Tags und Attribute. Autolinks (<https://…>, <info@…>) bleiben als
+ * ihr sichtbarer Text. Wie hardenAnswerHtml (Review 7.22-rc17, K62): Ein
+ * Bild im Link zeigt nur seinen Alt-Text; ein Link, dessen Text dann leer
+ * ist oder nur aus unsichtbaren Zeichen besteht, zeigt seine Adresse (auch
+ * um ein Bild ohne Alt-Text); ein Bild ohne Alt-Text außerhalb eines Links
+ * zeigt seine Adresse, wenn es im Netz liegt. Diese Adressen gelten als
+ * sichtbar.
  * @param {string} text
  * @returns {string}
  */
 export function visibleAnswerText(text) {
   return String(text ?? "")
     .replace(/<think>[^]*?<\/think>/g, " ")
+    .replace(/<template\b[^>]*>[^]*?<\/template\s*>/gi, " ")
+    .replace(
+      MARKDOWN_IMAGE,
+      (_, alt, destination) =>
+        `\uE000${alt}\uE001${markdownAddress(destination)}\uE000`
+    )
+    .replace(MARKDOWN_LINK, (_, label, destination) => {
+      const shown = label.replace(IMAGE_SLOT, "$1");
+      return isBlankText(shown)
+        ? ` ${markdownAddress(destination)} `
+        : `[${shown}]`;
+    })
+    .replace(IMAGE_SLOT, (_, alt, src) =>
+      !isBlankText(alt)
+        ? `![${alt}]`
+        : ANSWER_IMAGE_URL.test(src)
+          ? ` ${src} `
+          : " "
+    )
     .replace(/\]\([^)]*\)/g, "]")
     .replace(AUTOLINK, " $1 ")
     .replace(/<\/?[a-zA-Z][^>]*>/g, " ");
@@ -1284,7 +1345,17 @@ export function highlightTextNodes(root, term, doc) {
  *   Verlauf beim Öffnen sprang),
  * - kein tabindex, hidden und draggable (K42): Die Antwort bestimmt nicht,
  *   wohin der erste Tab-Druck der Seite springt, nimmt ihre Links nicht
- *   aus der Tastaturbedienung und versteckt keinen Text vor dem Admin.
+ *   aus der Tastaturbedienung und blendet keinen Text per hidden aus.
+ * - keine Elemente, deren Text der Browser nicht zeigt, und keine Farben,
+ *   Größen oder Schriften aus der Antwort (Review 7.22-rc17, K63; im
+ *   Browser mit DOMPurify 3.1.6 geprüft, kie575Layout.manual.mjs):
+ *   <datalist>, <rp>, <progress>, <meter> und <canvas> löst DOMPurify auf,
+ *   ihr Text steht sichtbar im Verlauf; <template> fällt mit seinem Inhalt
+ *   weg (DOMPurify verwirft den Inhalt verbotener template-Elemente),
+ *   visibleAnswerText zählt ihn darum nicht als sichtbar; color, bgcolor,
+ *   size und face (etwa <font color> wie der Grund, <table bgcolor>)
+ *   bleiben nicht stehen. Nicht abgedeckt: Verkleinern durch verschachtelte
+ *   <small> oder <sub> und ein zugeklapptes <details> (per Klick lesbar).
  * Klassen, Links und Bilder ordnet hardenAnswerHtml danach.
  */
 export const ANSWER_PURIFY_CONFIG = Object.freeze({
@@ -1303,6 +1374,12 @@ export const ANSWER_PURIFY_CONFIG = Object.freeze({
     "source",
     "track",
     "picture",
+    "template",
+    "datalist",
+    "rp",
+    "progress",
+    "meter",
+    "canvas",
   ],
   FORBID_ATTR: [
     "style",
@@ -1318,6 +1395,10 @@ export const ANSWER_PURIFY_CONFIG = Object.freeze({
     "tabindex",
     "hidden",
     "draggable",
+    "color",
+    "bgcolor",
+    "size",
+    "face",
   ],
   ALLOW_ARIA_ATTR: false,
   ALLOW_DATA_ATTR: false,
@@ -1380,7 +1461,11 @@ const ANSWER_IMAGE_URL = /^https?:\/\//i;
  * Ordnet das von DOMPurify bereinigte HTML einer Antwort (in einem inerten
  * Dokument, vor dem Einsetzen in die Seite):
  * - Links mit Adresse öffnen in einem neuen Tab (target="_blank") mit
- *   rel="noopener noreferrer"; ohne Adresse kein target.
+ *   rel="noopener noreferrer"; ohne Adresse kein target. Eine leere
+ *   Adresse (href="" oder nur Leerraum, aus [Text]() oder [Text](<>))
+ *   heißt keine Adresse: Der Link wird aufgelöst, sein Inhalt bleibt als
+ *   Text (Review 7.22-rc17, K61; sonst öffnete er die Admin-Seite selbst
+ *   in einem neuen Tab).
  * - Bilder laden nicht von selbst (kein Abruf beim Öffnen des Verlaufs:
  *   Zeitpunkt, IP-Adresse und Browser des Admins blieben sonst beim
  *   Absender): Ein Bild im Netz wird ein Link mit dem Alt-Text (ohne
@@ -1389,9 +1474,11 @@ const ANSWER_IMAGE_URL = /^https?:\/\//i;
  *   Kursseite), bleibt nur der Alt-Text: Ein Link im Link zerfiele beim
  *   Einsetzen in die Seite, und der Kurslink stünde leer da (Review
  *   7.22-rc15, K40).
- * - Ein Link mit Adresse, aber ohne Text (etwa ein verlinktes Bild ohne
- *   Alt-Text) zeigt seine Adresse: nie ein leerer, per Tab erreichbarer
- *   Link ohne Namen (K40).
+ * - Ein Link mit Adresse, aber ohne sichtbaren Text (etwa ein verlinktes
+ *   Bild ohne Alt-Text, oder nur Leerraum und unsichtbare Zeichen wie
+ *   U+200B, isBlankText) zeigt seine Adresse: nie ein leerer, per Tab
+ *   erreichbarer Link ohne Namen (K40, K61). Ebenso gilt ein Alt-Text nur
+ *   aus unsichtbaren Zeichen als fehlend.
  * - data-search-hit nur an den <mark> der eigenen Hervorhebung und nur im
  *   zweiten Durchgang (searchHits: true); sonst verworfen (K41).
  * - Klassen nur aus Markdown und Syntaxhervorhebung (ANSWER_CLASS).
@@ -1424,18 +1511,25 @@ export function hardenAnswerHtml(
       else node.removeAttribute("class");
     }
     if (tag === "A") {
-      if (node.hasAttribute("href")) {
+      const href = node.getAttribute("href");
+      if (href !== null && !href.trim()) {
+        // leere Adresse: kein Link (K61), der Inhalt bleibt an seiner Stelle
+        while (node.firstChild)
+          node.parentNode.insertBefore(node.firstChild, node);
+        node.parentNode.removeChild(node);
+      } else if (href !== null) {
         node.setAttribute("target", "_blank");
         node.setAttribute("rel", ANSWER_LINK_REL);
-        if (!(node.textContent ?? "").trim())
-          node.appendChild(doc.createTextNode(node.getAttribute("href")));
+        if (isBlankText(node.textContent))
+          node.appendChild(doc.createTextNode(href));
       } else {
         node.removeAttribute("target");
         node.removeAttribute("rel");
       }
     } else if (tag === "IMG") {
       const src = (node.getAttribute("src") ?? "").trim();
-      const alt = (node.getAttribute("alt") ?? "").trim();
+      const given = (node.getAttribute("alt") ?? "").trim();
+      const alt = isBlankText(given) ? "" : given;
       let replacement = null;
       if (ANSWER_IMAGE_URL.test(src) && !inLink) {
         replacement = doc.createElement("a");
