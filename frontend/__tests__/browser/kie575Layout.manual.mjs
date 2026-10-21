@@ -25,6 +25,12 @@
 // „Zur Übersicht ↑“ (K21): sichtbar nur auf dem Desktop, Klick bringt die
 // Seite weich an den Anfang (bei reduzierter Bewegung ohne Animation), der
 // Fokus steht danach auf der Überschrift, Tab geht von dort weiter.
+// Fixliste 7.22-rc15: Links im Verlauf in der Linkfarbe und unterstrichen,
+// Kontrast gegen den Grund jeder Antwort gemessen (auch getönte bewertete
+// Antworten), dickere Unterstreichung beim Darüberfahren, Ring beim
+// Tastaturfokus; auf dem Desktop und im Vollbild des Tablets (K30). Nach
+// „Zur Übersicht“ per Enter oder Leertaste trägt die Überschrift einen
+// sichtbaren Fokusring, per Maus keinen (K31).
 //
 // Der Server ist im Browser nachgestellt (page.route): Es läuft nur der
 // Vite-Dev-Server des Frontends – kein Container, kein Docker. Playwright
@@ -739,6 +745,120 @@ async function checkAnswerHtml(scenario, page, trackerHits, { width, theme }) {
   check(scenario, "K14 die Mitte der Seite gehört nicht dem eingeschleusten Link", !info.centerIsInjected);
 }
 
+/**
+ * Aussehen der Links im Verlauf (läuft in der Seite): Farbe, Unterstreichung,
+ * Ring und Kontrast gegen den Grund, auf dem der Link steht (alle
+ * Hintergründe bis zum ersten deckenden übereinandergelegt). selector:
+ * nur dieser Link, sonst alle Links der Antworten.
+ */
+function linkLooks(selector) {
+  const parse = (color) => {
+    const m = /rgba?\(([^)]+)\)/.exec(color ?? "");
+    if (!m) return null;
+    const parts = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+    return { rgb: parts.slice(0, 3), a: parts.length > 3 ? parts[3] : 1 };
+  };
+  const ground = (element) => {
+    const layers = [];
+    for (let node = element; node; node = node.parentElement) {
+      const color = parse(getComputedStyle(node).backgroundColor);
+      if (color && color.a > 0) {
+        layers.push(color);
+        if (color.a >= 1) break;
+      }
+    }
+    let base = [255, 255, 255];
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const { rgb, a } = layers[i];
+      base = rgb.map((value, k) => value * a + base[k] * (1 - a));
+    }
+    return base;
+  };
+  const channel = (value) => {
+    const c = value / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+  const contrast = (a, b) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const links = selector
+    ? [document.querySelector(selector)].filter(Boolean)
+    : [...document.querySelectorAll("[data-panel-body] [data-answer] a[href]")];
+  return links.map((a) => {
+    const style = getComputedStyle(a);
+    const answer = a.closest("[data-answer]");
+    const under = ground(a);
+    return {
+      text: a.textContent,
+      rated: a.closest("[data-message]")?.getAttribute("data-rated") ?? null,
+      color: style.color,
+      textColor: getComputedStyle(answer).color,
+      line: style.textDecorationLine,
+      thickness: style.textDecorationThickness,
+      outlineStyle: style.outlineStyle,
+      outlineWidth: style.outlineWidth,
+      outlineColor: style.outlineColor,
+      ground: under.map(Math.round),
+      contrast: Number(contrast(parse(style.color).rgb, under).toFixed(2)),
+      focusVisible: a.matches(":focus-visible"),
+      target: a.getAttribute("target"),
+      rel: a.getAttribute("rel"),
+    };
+  });
+}
+
+/**
+ * rc15 K30: Links im Verlauf in der Linkfarbe (nicht in der Textfarbe der
+ * Antwort) und unterstrichen, Kontrast mindestens 4,5:1 gegen den Grund,
+ * auch in getönten bewerteten Antworten. Darüberfahren: Unterstreichung
+ * 2 px, kräftigere Farbe, Kontrast weiter ≥ 4,5:1. Tastaturfokus (Tab):
+ * Ring 2 px in der Textfarbe. Neuer Tab und rel bleiben (E13).
+ */
+async function checkLinkLook(scenario, page, { width, theme, where }) {
+  const all = await page.evaluate(linkLooks);
+  const name = (text) => `K30 ${where}: ${text}`;
+  const rated = new Set(all.map((link) => link.rated ?? "ohne"));
+  check(scenario, name("Links in Antworten ohne, mit negativer und mit positiver Bewertung gefunden"), all.length >= 4 && rated.has("ohne") && rated.has("negative") && rated.has("positive"), { links: all.length, rated: [...rated] });
+  check(scenario, name("alle Links in der Linkfarbe (nicht in der Textfarbe der Antwort) und unterstrichen, 1 px"), all.every((link) => link.color !== link.textColor && link.line.includes("underline") && link.thickness === "1px"), all.map(({ text, color, textColor, line, thickness }) => ({ text, color, textColor, line, thickness })));
+  const lowest = Math.min(...all.map((link) => link.contrast));
+  check(scenario, name("Kontrast jedes Links gegen seinen Grund mindestens 4,5:1"), lowest >= 4.5, { lowest, links: all.map(({ text, rated: r, color, ground: g, contrast: c }) => ({ text, rated: r, color, ground: g, contrast: c })) });
+  check(scenario, name("Links weiter in neuem Tab mit rel=noopener noreferrer (E13)"), all.every((link) => link.target === "_blank" && link.rel === "noopener noreferrer"));
+
+  // Darüberfahren: der Kurslink der positiv bewerteten Antwort (getönt)
+  const selector = "[data-message][data-rated='positive'] [data-answer] a[href]";
+  const linkLocator = page.locator(selector).first();
+  await linkLocator.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+  const [normal] = await page.evaluate(linkLooks, selector);
+  await linkLocator.hover();
+  await page.waitForTimeout(250);
+  const [hovered] = await page.evaluate(linkLooks, selector);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k30-hover${where === "Vollbild" ? "-vollbild" : ""}.png`) });
+  check(scenario, name("Darüberfahren: Unterstreichung 2 px, andere Farbe, Kontrast ≥ 4,5:1"), hovered.thickness === "2px" && hovered.color !== normal.color && hovered.line.includes("underline") && hovered.contrast >= 4.5, { normal: { color: normal.color, thickness: normal.thickness }, hovered: { color: hovered.color, thickness: hovered.thickness, contrast: hovered.contrast } });
+
+  // Tastaturfokus: per Tab auf den Link (Umschalt+Tab zurück, Tab vor)
+  await page.mouse.move(2, 2);
+  await linkLocator.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await page.waitForTimeout(150);
+  const [focused] = await page.evaluate(linkLooks, selector);
+  const textPrimary = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--theme-text-primary)";
+    document.body.appendChild(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  const row = page.locator("[data-message][data-rated='positive'] [data-answer-row]").first();
+  await row.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k30-fokus${where === "Vollbild" ? "-vollbild" : ""}.png`) });
+  check(scenario, name("Tastaturfokus (Tab): Ring 2 px in der Textfarbe, Unterstreichung 2 px, Kontrast ≥ 4,5:1"), focused.focusVisible && focused.outlineStyle === "solid" && focused.outlineWidth === "2px" && focused.outlineColor === textPrimary && focused.thickness === "2px" && focused.contrast >= 4.5, { focused, textPrimary });
+  results.push({ scenario, phase: `k30-${where}`, links: all, hovered, focused });
+}
+
 /** Scrollposition der Seite (des scrollenden Rahmens) setzen; "end" = ganz unten. */
 const setPageScroll = (page, value) =>
   page.evaluate((v) => {
@@ -858,6 +978,46 @@ async function checkWheelHandoff(scenario, page, { width, theme }) {
 }
 
 /**
+ * rc15 K31: Fokusring der Überschrift „Konversationen“ (läuft in der Seite):
+ * Merker der Tastatur, Umriss und die Textfarbe des Themes zum Vergleich.
+ */
+function headingRing() {
+  const heading = document.querySelector("[data-overview-heading]");
+  const style = getComputedStyle(heading);
+  const probe = document.createElement("span");
+  probe.style.color = "var(--theme-text-primary)";
+  document.body.appendChild(probe);
+  const textPrimary = getComputedStyle(probe).color;
+  probe.remove();
+  const alpha = /rgba\([^)]*,\s*([\d.]+)\)/.exec(style.outlineColor)?.[1];
+  const visible =
+    style.outlineStyle !== "none" &&
+    parseFloat(style.outlineWidth) > 0 &&
+    (alpha === undefined || Number(alpha) > 0);
+  return {
+    focused: document.activeElement === heading,
+    marker: heading.hasAttribute("data-keyboard-focus"),
+    outlineStyle: style.outlineStyle,
+    outlineWidth: style.outlineWidth,
+    outlineColor: style.outlineColor,
+    outlineOffset: style.outlineOffset,
+    textPrimary,
+    visible,
+    ring: visible && style.outlineStyle === "solid" && style.outlineWidth === "2px" && style.outlineColor === textPrimary,
+  };
+}
+
+/** Ausschnitt um die Überschrift „Konversationen“ (K31). */
+async function headingShot(page, file) {
+  const box = await page.locator("[data-overview-heading]").boundingBox();
+  if (!box) return;
+  await page.screenshot({
+    path: path.join(OUT, file),
+    clip: { x: Math.max(0, box.x - 24), y: Math.max(0, box.y - 16), width: box.width + 48, height: box.height + 32 },
+  });
+}
+
+/**
  * rc14 K21: „Zur Übersicht ↑“ im Kopf der Konversationen, rechts neben den
  * Steuerelementen. Von ganz unten: Klick (Maus) bringt die Seite weich an
  * den Anfang (Zeitraum, Kennzahlen; scrollTop 0), der Fokus steht danach
@@ -900,6 +1060,10 @@ async function checkOverviewJump(scenario, page, { width, theme }) {
   check(scenario, "K21 Klick: die Seite steht danach ganz oben (Zeitraum, Kennzahlen; scrollTop 0)", after.page.scrollTop === 0 && after.overviewHeading.top > 0 && after.overviewHeading.bottom < after.innerHeight, { before: before.page.scrollTop, after: after.page.scrollTop, heading: after.overviewHeading });
   check(scenario, "K21 weich: nach 120 ms unterwegs (weder unten noch oben)", early > 0 && early < before.page.scrollTop, { early, before: before.page.scrollTop });
   check(scenario, "K21 Fokus danach auf der Überschrift der Ansicht", after.activeIsOverviewHeading, { activeElement: after.activeElement });
+  // rc15 K31: per Maus ausgelöst kein Ring
+  const mouseRing = await page.evaluate(headingRing);
+  await headingShot(page, `kie575-${width}-${theme}-k31-maus.png`);
+  check(scenario, "K31 per Maus: Überschrift fokussiert, ohne Fokusring", mouseRing.focused && !mouseRing.marker && !mouseRing.visible, mouseRing);
   check(scenario, "K21 Konversation und Adresse bleiben", after.currentRow === before.currentRow && after.url === before.url, { currentRow: after.currentRow, url: after.url });
   await page.keyboard.press("Tab");
   const next = await page.evaluate(() => document.activeElement?.hasAttribute("data-jump-to-list") ?? false);
@@ -917,6 +1081,30 @@ async function checkOverviewJump(scenario, page, { width, theme }) {
   await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k21-tastatur.png`) });
   check(scenario, "K21 reduzierte Bewegung (Enter): ohne Animation, nach 50 ms oben", instant.page.scrollTop === 0 && bottom.page.scrollTop > 0, { before: bottom.page.scrollTop, after: instant.page.scrollTop });
   check(scenario, "K21 reduzierte Bewegung: Fokus auf der Überschrift", instant.activeIsOverviewHeading, { activeElement: instant.activeElement });
+  // rc15 K31: per Tastatur (Enter) mit Ring, 2 px in der Textfarbe
+  const enterRing = await page.evaluate(headingRing);
+  await headingShot(page, `kie575-${width}-${theme}-k31-tastatur.png`);
+  check(scenario, "K31 per Enter: Überschrift mit sichtbarem Fokusring (2 px, Textfarbe)", enterRing.focused && enterRing.marker && enterRing.ring, enterRing);
+  // Tab weiter: der Ring geht mit dem Fokus
+  await page.keyboard.press("Tab");
+  const leftRing = await page.evaluate(headingRing);
+  const nextAfterEnter = await page.evaluate(() => document.activeElement?.hasAttribute("data-jump-to-list") ?? false);
+  check(scenario, "K31 Tab von der Überschrift: weiter zum Verweis, der Merker fällt weg", nextAfterEnter && !leftRing.focused && !leftRing.marker, leftRing);
+  // Leertaste
+  await setPageScroll(page, "end");
+  await page.waitForTimeout(200);
+  await page.focus("[data-jump-to-overview]");
+  await page.keyboard.press(" ");
+  await page.waitForTimeout(100);
+  const spaceRing = await page.evaluate(headingRing);
+  check(scenario, "K31 per Leertaste: Überschrift mit sichtbarem Fokusring", spaceRing.focused && spaceRing.marker && spaceRing.ring, spaceRing);
+  // danach per Maus: wieder ohne Ring
+  await setPageScroll(page, "end");
+  await page.waitForTimeout(200);
+  await page.click("[data-jump-to-overview]");
+  await page.waitForTimeout(100);
+  const mouseAgain = await page.evaluate(headingRing);
+  check(scenario, "K31 nach Tastatur wieder per Maus: ohne Fokusring", mouseAgain.focused && !mouseAgain.marker && !mouseAgain.visible, mouseAgain);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   check(scenario, "K21 Höhe des Bereichs unverändert", after.area.height === before.area.height && instant.area.height === before.area.height, { before: before.area.height, after: after.area.height });
   results.push({ scenario, phase: "k21", before, after, early, instant: instant.page.scrollTop });
@@ -1190,6 +1378,8 @@ async function wideScenario(browser, { width, height, theme }) {
 
   // rc12 K14 (E13): HTML in Antworten
   await checkAnswerHtml(scenario, page, trackerHits, { width, theme });
+  // rc15 K30: Links im Verlauf erkennbar (dieselbe Konversation)
+  await checkLinkLook(scenario, page, { width, theme, where: "Desktop" });
   check(scenario, "keine Fehler der Seite (bis zum Ende)", errors.length === 0, errors);
 
   await context.close();
@@ -1237,6 +1427,12 @@ async function tabletScenario(browser, { width, height, theme }) {
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
   check(scenario, "E15 Tablet: Escape schließt das Vollbild", (await page.locator("[data-conversation-panel]").count()) === 0);
+  // rc15 K30: Links im Vollbild-Verlauf
+  await page.click("[data-conversation-row] >> nth=1");
+  await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
+  await page.waitForTimeout(400);
+  await checkLinkLook(scenario, page, { width, theme, where: "Vollbild" });
+  await page.keyboard.press("Escape");
   check(scenario, "keine Fehler der Seite", errors.length === 0, errors);
   results.push({ scenario, phase: "tablet", ...top });
   await context.close();

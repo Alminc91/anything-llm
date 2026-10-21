@@ -274,6 +274,61 @@ export function scrollMotion() {
 }
 
 /**
+ * Hat die Tastatur einen Button ausgelöst (Fixliste 7.22-rc15, K31)?
+ * Enter und Leertaste lösen click mit detail 0 aus; Maus, Stift und Finger
+ * zählen die Klicks (detail ab 1). Ohne Ereignis oder ohne detail: nein.
+ * @param {{detail?: number}|null|undefined} event
+ * @returns {boolean}
+ */
+export function keyboardActivation(event) {
+  return event?.detail === 0;
+}
+
+/**
+ * Merker an einer Überschrift, die nach einer Tastaturbedienung den Fokus
+ * per Programm bekam (K31): Nur dann zeigt sie den Fokusring
+ * (HEADING_FOCUS_RING). Er fällt mit dem Fokus wieder weg
+ * (clearKeyboardFocus).
+ */
+export const KEYBOARD_FOCUS_ATTRIBUTE = "data-keyboard-focus";
+
+/**
+ * Fokusring einer Überschrift mit tabIndex -1 (Fixliste 7.22-rc15, K31):
+ * wie FOCUS_RING 2 px in der Textfarbe, aber außen mit 2 px Abstand (innen
+ * läge er auf der Schrift, eine Überschrift hat keinen Innenabstand). Zu
+ * sehen nur mit KEYBOARD_FOCUS_ATTRIBUTE, also nach Enter oder Leertaste,
+ * in jedem Browser gleich; nach einem Mausklick nie (focus:outline-none
+ * übergeht auch den Ring des Browsers).
+ * Die Klassen stehen wörtlich (siehe WORKSPACE).
+ */
+export const HEADING_FOCUS_RING =
+  "rounded focus:outline-none data-[keyboard-focus]:focus:outline data-[keyboard-focus]:focus:outline-2 data-[keyboard-focus]:focus:outline-offset-2 data-[keyboard-focus]:focus:outline-[color:var(--theme-text-primary)]";
+
+/**
+ * Fokus per Programm auf eine Überschrift (tabIndex -1) ohne zweites
+ * Scrollen (K21). Nach Tastaturbedienung mit Fokusring (K31): Merker
+ * KEYBOARD_FOCUS_ATTRIBUTE, dazu focusVisible für Browser, die die Option
+ * kennen; nach der Maus ohne Ring (ein alter Merker fällt weg).
+ * @param {Element|null|undefined} element
+ * @param {boolean} [keyboard]
+ */
+export function focusHeading(element, keyboard = false) {
+  if (typeof element?.focus !== "function") return;
+  if (keyboard) element.setAttribute?.(KEYBOARD_FOCUS_ATTRIBUTE, "");
+  else element.removeAttribute?.(KEYBOARD_FOCUS_ATTRIBUTE);
+  element.focus({ preventScroll: true, focusVisible: keyboard });
+}
+
+/**
+ * onBlur der Überschrift: Mit dem Fokus fällt der Merker weg; ein späterer
+ * Mausklick auf die Überschrift zeigt keinen Ring (K31).
+ * @param {{currentTarget?: Element|null}|null|undefined} event
+ */
+export function clearKeyboardFocus(event) {
+  event?.currentTarget?.removeAttribute?.(KEYBOARD_FOCUS_ATTRIBUTE);
+}
+
+/**
  * Abstände, mit denen die gewählte Zeile in der Spalte in Sicht kommt
  * (nearestScrollTop, Fixliste 7.22-rc11 K11): oben die Höhe der Überschrift
  * einer Tagesgruppe (pt-3 12 + Zeile 16 + pb-1 4 = 32 px), damit sie beim

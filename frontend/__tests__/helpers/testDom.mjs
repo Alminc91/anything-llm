@@ -317,3 +317,16 @@ export function pressKey(document, key) {
   const element = document.activeElement;
   handlersOf(element).onKeyDown?.(eventOn(element, { key }));
 }
+
+/**
+ * Enter oder Leertaste auf einer Schaltfläche: Sie hat den Fokus, die Taste
+ * geht an sie, danach folgt click mit detail 0 (Maus, Stift und Finger
+ * melden die Zahl der Klicks, ab 1).
+ * @param {object} element
+ * @param {"Enter"|" "} [key]
+ */
+export function keyboardClick(element, key = "Enter") {
+  element.focus();
+  handlersOf(element).onKeyDown?.(eventOn(element, { key }));
+  handlersOf(element).onClick?.(eventOn(element, { detail: 0 }));
+}

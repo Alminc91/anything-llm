@@ -27,11 +27,15 @@ import {
 } from "@/utils/embedLabel";
 import {
   AVATAR_CLEARANCE,
+  HEADING_FOCUS_RING,
   MUTED,
   OVERVIEW_TARGET,
+  clearKeyboardFocus,
   effectiveSearch,
+  focusHeading,
   holdScrollTarget,
   isWide,
+  keyboardActivation,
   scrollMotion,
 } from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
@@ -316,13 +320,14 @@ function WidgetAnalytics({ embeds, lastActivity }) {
   // 7.22-rc14, K21): zurück an den Anfang der Ansicht (Zeitraum,
   // Kennzahlen), weich bzw. bei reduzierter Bewegung ohne Animation; der
   // Fokus auf ihre Überschrift, damit Tastaturnutzer dort weitermachen
-  // (ohne zweites, hartes Scrollen).
-  const jumpToOverview = () => {
+  // (ohne zweites, hartes Scrollen). Per Enter oder Leertaste ausgelöst
+  // zeigt sie den Fokusring, per Maus nicht (Fixliste 7.22-rc15, K31).
+  const jumpToOverview = (event) => {
     overviewRef.current?.scrollIntoView?.({
       behavior: scrollMotion(),
       block: "start",
     });
-    overviewHeadingRef.current?.focus?.({ preventScroll: true });
+    focusHeading(overviewHeadingRef.current, keyboardActivation(event));
   };
 
   // Per Link oder nach dem Neuladen mit geöffneter Konversation: einmal zur
@@ -511,7 +516,8 @@ function jumpText(t, count, feedbackFilter, bucket, search = "") {
  * Kopfzeile: Titel mit dem Verweis zur Liste, Widget-Auswahl (nur bei
  * mehreren Widgets) und Zeitraum. headingRef: die Überschrift, auf die
  * „Zur Übersicht“ den Fokus setzt (tabIndex -1: per Programm fokussierbar,
- * nicht per Tab).
+ * nicht per Tab); nach Tastaturbedienung mit Fokusring, der mit dem Fokus
+ * wieder wegfällt (HEADING_FOCUS_RING, K31).
  */
 function Header({
   headingRef,
@@ -557,7 +563,8 @@ function Header({
           ref={headingRef}
           tabIndex={-1}
           data-overview-heading=""
-          className="text-white text-2xl font-bold"
+          onBlur={clearKeyboardFocus}
+          className={`text-white text-2xl font-bold ${HEADING_FOCUS_RING}`}
         >
           {t("embed-analytics.title")}
         </h2>

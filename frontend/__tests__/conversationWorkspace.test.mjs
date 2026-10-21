@@ -26,6 +26,7 @@ import {
   createDocument,
   elements,
   handlersOf,
+  keyboardClick,
 } from "./helpers/testDom.mjs";
 import requests from "../../server/__tests__/endpoints/support/embedAnalyticsRequests.js";
 
@@ -1840,7 +1841,11 @@ test(
     same(scrolls[0][0], target, "an den Anfang der Ansicht");
     assert.deepEqual(scrolls[0][1], { behavior: "smooth", block: "start" });
     same(document.activeElement, heading, "Fokus auf der Überschrift");
-    assert.deepEqual(heading.lastFocusOptions, { preventScroll: true });
+    // per Maus ohne Fokusring (rc15, K31)
+    assert.deepEqual(heading.lastFocusOptions, {
+      preventScroll: true,
+      focusVisible: false,
+    });
     assert.equal(server.calls.length, before, "nichts neu geladen");
     assert.deepEqual(currentRows(container), current);
     assert.ok(panelOf(container), "der Verlauf bleibt offen");
@@ -1893,6 +1898,72 @@ test(
     same(scrolls[0][0], overviewTargetOf(container, OVERVIEW_TARGET));
     assert.deepEqual(scrolls[0][1], { behavior: "auto", block: "start" });
     same(document.activeElement, one(container, "data-overview-heading"));
+  }
+);
+
+test(
+  "rc15, K31: „Zur Übersicht“ per Enter oder Leertaste: Die Überschrift „Konversationen“ bekommt den Fokus mit sichtbarem Ring (Merker data-keyboard-focus, focusVisible: true); per Maus ohne Ring; der Merker fällt mit dem Fokus weg, ein Mausklick danach zeigt keinen Ring",
+  { skip },
+  async (t) => {
+    const { HEADING_FOCUS_RING, KEYBOARD_FOCUS_ATTRIBUTE, OVERVIEW_TARGET } =
+      await renderer.load("/src/utils/conversationView.js");
+    assert.equal(KEYBOARD_FOCUS_ATTRIBUTE, "data-keyboard-focus");
+    stubWidth(t, true);
+    await workspaceServer(t, { rows: [row(1), row(2)] });
+    const { container, document, act } = await mountView(t);
+    const heading = one(container, "data-overview-heading");
+    assert.equal(heading.textContent, "Konversationen");
+    // Ring der Überschrift: nur mit dem Merker, sonst keiner
+    assert.ok(
+      hasClasses(heading, HEADING_FOCUS_RING.split(" ")),
+      heading.getAttribute("class")
+    );
+    const target = overviewTargetOf(container, OVERVIEW_TARGET);
+    const button = one(container, "data-jump-to-overview");
+
+    for (const key of ["Enter", " "]) {
+      const scrolls = captureScrolls(t);
+      await act(() => keyboardClick(button, key));
+      await act();
+      assert.equal(scrolls.length, 1, `${JSON.stringify(key)}: ein Sprung`);
+      same(scrolls[0][0], target);
+      same(document.activeElement, heading, "Fokus auf der Überschrift");
+      assert.equal(
+        heading.getAttribute("data-keyboard-focus"),
+        "",
+        `${JSON.stringify(key)}: Ring nach Tastatur`
+      );
+      assert.deepEqual(heading.lastFocusOptions, {
+        preventScroll: true,
+        focusVisible: true,
+      });
+      // Tab weiter (der Fokus geht woandershin): der Merker fällt weg
+      await act(() => button.focus());
+      assert.equal(heading.hasAttribute("data-keyboard-focus"), false);
+    }
+
+    // per Maus: kein Ring
+    await act(() => click(button));
+    await act();
+    same(document.activeElement, heading);
+    assert.equal(heading.hasAttribute("data-keyboard-focus"), false);
+    assert.deepEqual(heading.lastFocusOptions, {
+      preventScroll: true,
+      focusVisible: false,
+    });
+
+    // Tastatur, danach ein Mausklick auf die Überschrift selbst (sie hat den
+    // Fokus schon): Der Ring bleibt, bis der Fokus geht; nach dem Wegklicken
+    // und erneutem Mausklick auf die Überschrift keiner
+    await act(() => keyboardClick(button));
+    await act();
+    assert.equal(heading.getAttribute("data-keyboard-focus"), "");
+    await act(() => heading.blur());
+    assert.equal(heading.hasAttribute("data-keyboard-focus"), false);
+    same(document.activeElement, document.body);
+    await act(() => click(heading));
+    same(document.activeElement, heading);
+    assert.equal(heading.hasAttribute("data-keyboard-focus"), false);
   }
 );
 

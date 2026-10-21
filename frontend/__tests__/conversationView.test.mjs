@@ -72,6 +72,8 @@ import {
 import * as rc13 from "../src/utils/conversationView.js";
 // Neu seit 7.22-rc14 (K20, K21): ebenso über den Namensraum
 import * as rc14 from "../src/utils/conversationView.js";
+// Neu seit 7.22-rc15 (K31): ebenso über den Namensraum
+import * as rc15 from "../src/utils/conversationView.js";
 import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
 import { formatDateTimeDE } from "../src/utils/dateTimeDE.js";
 import serverSearch from "../../server/utils/helpers/chat/conversationSearch.js";
@@ -2030,4 +2032,242 @@ test("rc14, K21: Sprungziel „Übersicht“ – auf dem Desktop landet der Anfa
   const top = Number(layout.match(/ md:pt-(\d+) /)?.[1]);
   assert.ok(top > 0, "Abstand des Seitenrahmens gefunden");
   assert.equal(margin, top);
+});
+
+test("rc15, K30: Links im Verlauf in der Linkfarbe und unterstrichen; beim Darüberfahren und beim Tastaturfokus dickere Unterstreichung und kräftigere Farbe, beim Fokus der Ring der Seite (2 px in der Textfarbe); die Regel steht nach der Textfarbe der Antwort, die sie sonst überdeckte", () => {
+  const css = readFileSync(
+    new URL("../src/index.css", import.meta.url),
+    "utf8"
+  );
+  // Regel mit genau diesen Selektoren (nicht der Schluss einer längeren
+  // Liste): davor steht kein Komma
+  const ruleOf = (selectors) => {
+    const head = `${selectors.join(",\n")} {`;
+    let start = css.indexOf(`\n${head}`);
+    while (start >= 0 && css[start - 1] === ",")
+      start = css.indexOf(`\n${head}`, start + 1);
+    assert.ok(start >= 0, `keine Regel ${selectors.join(", ")}`);
+    start += 1;
+    return {
+      start,
+      body: css.slice(start + head.length, css.indexOf("}", start)),
+    };
+  };
+  const declarations = (body) =>
+    Object.fromEntries(
+      body
+        .split(";")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => part.split(/:\s*/).map((text) => text.trim()))
+    );
+  const color = ruleOf([
+    ".analytics-bot-response a[href]",
+    ".analytics-bot-response a[href] *:not(mark[data-search-hit])",
+  ]);
+  assert.deepEqual(declarations(color.body), {
+    color: "var(--konversationen-link) !important",
+  });
+  // gleiche Spezifität wie die Textfarbe der Antwort (Klasse, Element,
+  // Attribut): sie gilt nur, weil sie danach steht
+  const text = css.indexOf(
+    ".analytics-bot-response,\n.analytics-bot-response *:not(mark[data-search-hit]) {"
+  );
+  assert.ok(text >= 0 && text < color.start, "Linkfarbe nach der Textfarbe");
+  assert.ok(
+    css.indexOf(".analytics-bot-response em {") < color.start,
+    "und nach der Liste p, div, span, li, strong, em"
+  );
+  const look = ruleOf([".analytics-bot-response a[href]"]);
+  assert.deepEqual(declarations(look.body), {
+    "text-decoration-line": "underline",
+    "text-decoration-thickness": "1px",
+    "text-underline-offset": "2px",
+    "border-radius": "2px",
+  });
+  const thick = ruleOf([
+    ".analytics-bot-response a[href]:hover",
+    ".analytics-bot-response a[href]:focus-visible",
+  ]);
+  assert.deepEqual(declarations(thick.body), {
+    "text-decoration-thickness": "2px",
+  });
+  const strong = ruleOf([
+    ".analytics-bot-response a[href]:hover",
+    ".analytics-bot-response a[href]:hover *:not(mark[data-search-hit])",
+    ".analytics-bot-response a[href]:focus-visible",
+    ".analytics-bot-response a[href]:focus-visible *:not(mark[data-search-hit])",
+  ]);
+  assert.deepEqual(declarations(strong.body), {
+    color: "var(--konversationen-link-hover) !important",
+  });
+  // Ring wie bei den Buttons der Seite (FOCUS_RING: 2 px in der Textfarbe)
+  assert.match(rc15.FOCUS_RING, /focus-visible:outline-2/);
+  assert.match(
+    rc15.FOCUS_RING,
+    /focus-visible:outline-\[color:var\(--theme-text-primary\)\]/
+  );
+  const ring = ruleOf([".analytics-bot-response a[href]:focus-visible"]);
+  assert.deepEqual(declarations(ring.body), {
+    outline: "2px solid var(--theme-text-primary)",
+    "outline-offset": "2px",
+  });
+  // Nur Aussehen: Die Sicherheitsregeln (E13) bleiben bei der Bereinigung,
+  // das HTML der Antwort trägt weder Klassen noch Stil der Links
+  const doc = createDocument();
+  const root = doc.createElement("div");
+  const link = root.appendChild(doc.createElement("a"));
+  link.setAttribute("href", "https://example.org/kurs");
+  link.setAttribute("class", "fixed inset-0 text-red-500");
+  rc13.hardenAnswerHtml(root, doc);
+  assert.equal(link.getAttribute("target"), "_blank");
+  assert.equal(link.getAttribute("rel"), "noopener noreferrer");
+  assert.equal(link.getAttribute("class"), null);
+  assert.ok(rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("style"));
+  for (const file of [
+    "src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx",
+    "src/utils/chat/purifyConversation.js",
+  ])
+    assert.ok(
+      !/konversationen-link/.test(
+        readFileSync(new URL(`../${file}`, import.meta.url), "utf8")
+      ),
+      file
+    );
+});
+
+test("rc15, K30: Linkfarbe und Farbe beim Darüberfahren halten in hell und dunkel mindestens 4,5:1 gegen jeden Grund einer Antwort (Verlauf als Vollbild und auf dem Desktop, getönte bewertete Antworten); dunkel die Akzentfarbe des Themes", async () => {
+  const { createRequire } = await import("node:module");
+  const palette = createRequire(import.meta.url)("tailwindcss/colors");
+  const css = readFileSync(
+    new URL("../src/index.css", import.meta.url),
+    "utf8"
+  );
+  const variable = (block, name) => {
+    const start = css.indexOf(block);
+    assert.ok(start >= 0, block);
+    const match = css
+      .slice(start, css.indexOf("}", start))
+      .match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`));
+    assert.ok(match, `${block} --${name}`);
+    return match[1];
+  };
+  const DARK = ":root {\n  --konversationen-hit-bg";
+  const LIGHT = '[data-theme="light"] {\n  --konversationen-hit-bg';
+  const themeBlock = (theme, name) => {
+    const block = theme === "dunkel" ? ":root {" : '[data-theme="light"] {';
+    return hexRgb(variable(block, name));
+  };
+  const tints = Object.values(RATING_TINT).map((classes) => ({
+    dunkel: tailwindColor(
+      classes.split(/\s+/).find((c) => c.startsWith("bg-")),
+      palette
+    ),
+    hell: tailwindColor(
+      classes.split(/\s+/).find((c) => c.startsWith("light:bg-")),
+      palette
+    ),
+  }));
+  const report = [];
+  for (const [theme, block] of [
+    ["dunkel", DARK],
+    ["hell", LIGHT],
+  ]) {
+    const grounds = [];
+    for (const name of ["theme-bg-secondary", "theme-bg-primary"]) {
+      const ground = themeBlock(theme, name);
+      grounds.push(ground);
+      for (const tint of tints)
+        grounds.push(over(tint[theme].rgb, tint[theme].alpha, ground));
+    }
+    for (const name of ["konversationen-link", "konversationen-link-hover"]) {
+      const link = hexRgb(variable(block, name));
+      for (const ground of grounds) {
+        const ratio = contrast(link, ground);
+        report.push(`${theme} ${name}: ${ratio.toFixed(2)}`);
+        assert.ok(ratio >= 4.5, `${theme} ${name}: ${ratio}`);
+      }
+    }
+    // die Farbe beim Darüberfahren ist eine andere
+    assert.notEqual(
+      variable(block, "konversationen-link").toLowerCase(),
+      variable(block, "konversationen-link-hover").toLowerCase(),
+      theme
+    );
+  }
+  // dunkel: die Akzentfarbe des Themes
+  assert.equal(
+    variable(DARK, "konversationen-link").toLowerCase(),
+    variable(":root {", "theme-button-primary").toLowerCase()
+  );
+  assert.equal(report.length, 2 * 2 * 6);
+});
+
+test("rc15, K31: keyboardActivation: Enter und Leertaste (click mit detail 0) zählen als Tastatur, Maus, Stift und Finger (detail ab 1) nicht, ohne Ereignis oder ohne detail auch nicht", () => {
+  assert.equal(rc15.keyboardActivation({ detail: 0 }), true);
+  assert.equal(rc15.keyboardActivation({ detail: 1 }), false);
+  assert.equal(rc15.keyboardActivation({ detail: 2 }), false);
+  assert.equal(rc15.keyboardActivation({}), false);
+  assert.equal(rc15.keyboardActivation(null), false);
+  assert.equal(rc15.keyboardActivation(undefined), false);
+});
+
+test("rc15, K31: focusHeading: nach Tastatur mit Merker data-keyboard-focus und focusVisible: true, nach der Maus ohne (ein alter Merker fällt weg), immer ohne zweites Scrollen; clearKeyboardFocus nimmt den Merker beim Verlassen; ohne Element nichts", () => {
+  assert.equal(rc15.KEYBOARD_FOCUS_ATTRIBUTE, "data-keyboard-focus");
+  const doc = createDocument();
+  const heading = doc.body.appendChild(doc.createElement("h2"));
+  heading.setAttribute("tabindex", "-1");
+  rc15.focusHeading(heading, true);
+  assert.equal(doc.activeElement, heading);
+  assert.equal(heading.getAttribute("data-keyboard-focus"), "");
+  assert.deepEqual(heading.lastFocusOptions, {
+    preventScroll: true,
+    focusVisible: true,
+  });
+  rc15.focusHeading(heading, false);
+  assert.equal(heading.hasAttribute("data-keyboard-focus"), false);
+  assert.deepEqual(heading.lastFocusOptions, {
+    preventScroll: true,
+    focusVisible: false,
+  });
+  rc15.focusHeading(heading);
+  assert.deepEqual(heading.lastFocusOptions, {
+    preventScroll: true,
+    focusVisible: false,
+  });
+  rc15.focusHeading(heading, true);
+  rc15.clearKeyboardFocus({ currentTarget: heading });
+  assert.equal(heading.hasAttribute("data-keyboard-focus"), false);
+  // ohne Element oder ohne focus: nichts, kein Fehler
+  rc15.focusHeading(null, true);
+  rc15.focusHeading(undefined);
+  rc15.focusHeading({}, true);
+  rc15.clearKeyboardFocus(null);
+  rc15.clearKeyboardFocus({});
+});
+
+test("rc15, K31: HEADING_FOCUS_RING: Ring wie bei den Buttons (2 px, Textfarbe) außen mit 2 px Abstand, nur mit dem Merker der Tastatur; sonst übergeht focus:outline-none auch den Ring des Browsers", () => {
+  const classes = rc15.HEADING_FOCUS_RING.split(" ");
+  assert.ok(classes.includes("focus:outline-none"));
+  for (const name of [
+    "data-[keyboard-focus]:focus:outline",
+    "data-[keyboard-focus]:focus:outline-2",
+    "data-[keyboard-focus]:focus:outline-offset-2",
+    "data-[keyboard-focus]:focus:outline-[color:var(--theme-text-primary)]",
+  ])
+    assert.ok(classes.includes(name), name);
+  // gleiche Breite und Farbe wie FOCUS_RING
+  assert.ok(rc15.FOCUS_RING.split(" ").includes("focus-visible:outline-2"));
+  assert.ok(
+    rc15.FOCUS_RING.split(" ").includes(
+      "focus-visible:outline-[color:var(--theme-text-primary)]"
+    )
+  );
+  // kein Ring ohne Merker: keine focus-visible-Klasse an der Überschrift
+  assert.ok(!classes.some((name) => name.startsWith("focus-visible:")));
+  // der Merker im Namen der Klassen ist das Attribut aus focusHeading
+  assert.equal(
+    `data-${classes[2].match(/^data-\[([\w-]+)\]/)[1]}`,
+    rc15.KEYBOARD_FOCUS_ATTRIBUTE
+  );
 });
