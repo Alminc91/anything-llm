@@ -5,7 +5,8 @@ import { WIDE_QUERY, isWide } from "@/utils/conversationView";
 // Kopien in Liste, Panel, Exportmenü und Kopfzeile (Fixliste 7, F23/F24).
 
 /**
- * Breiter Bildschirm (ab lg: Panel neben der Liste)? Folgt Größenänderungen.
+ * Desktop (ab xl, 1.280 px: Panel neben der Liste; Fixliste 7.22-rc13,
+ * E15)? Folgt Größenänderungen.
  * Der Startwert kommt aus isWide() – derselben Prüfung wie überall in der
  * Ansicht, auch ohne matchMedia (dann false).
  * @returns {boolean}

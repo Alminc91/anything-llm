@@ -1,12 +1,14 @@
-// KIE-575: Konversationen als Arbeitsbereich ab lg – volle Breite, Liste und
-// Verlauf je mit eigener Bildlaufleiste, der Verlauf von sich aus offen
-// (neueste Konversation vorgewählt), ✕ schließt und merkt sich das, ↑/↓
-// blättern auch ohne Klick, Nachladen am Ende der Spalte.
+// KIE-575: Konversationen als Arbeitsbereich auf dem Desktop (ab xl,
+// 1.280 px; Fixliste 7.22-rc13, E15) – volle Breite, Liste und Verlauf je
+// mit eigener Bildlaufleiste, der Verlauf von sich aus offen (neueste
+// Konversation vorgewählt), ✕ schließt und merkt sich das, ↑/↓ blättern
+// auch ohne Klick, Nachladen am Ende der Spalte. Tablet und Smartphone
+// (unter xl) wie bisher unter lg.
 //
 // Die Liste ist mit React DOM in ein Dokument ohne Browser eingehängt
 // (helpers/renderSettingsPage.mjs, mount) – hinter einer Sonde für die
 // Adresse (helpers/ConversationListProbe.jsx). Breite: Ohne matchMedia gilt
-// die Ansicht als schmal; stubWidth(t, true) stellt „ab lg“ nach.
+// die Ansicht als schmal; stubWidth(t, true) stellt „Desktop“ nach.
 //
 // Maße (Breiten, Höhen, Scrollen der Spalten) bleiben Sache des
 // Browser-Tests (AK-1, AK-2, AK-9: frontend/__tests__/browser/
@@ -95,7 +97,10 @@ function message(id, extra = {}) {
  * Anfrage (so entstehen Doppelte, wenn vorn eine Zeile dazukommt). Der
  * Verlauf jeder Konversation: eine Nachricht, sofern state.details nichts
  * anderes sagt. state.holdMore: Folgeseiten (after) warten auf dieses
- * Promise (Fokus während des Nachladens, K15).
+ * Promise (Fokus während des Nachladens, K15); state.holdFirst ebenso die
+ * ersten Seiten eines Zuschnitts (Liste lädt, rc12 K06/K10). Löschen
+ * (DELETE …/conversation) nimmt die Zeile aus dem Bestand; mit
+ * state.deleteFails scheitert es.
  */
 async function workspaceServer(t, state) {
   const { API_BASE } = await renderer.load("/src/utils/constants.js");
@@ -149,6 +154,7 @@ async function workspaceServer(t, state) {
         value: rows.length - rest.length + start,
       });
       if (after && state.holdMore) await state.holdMore;
+      if (!after && state.holdFirst) await state.holdFirst;
       if (state.failList?.(call.body))
         return json({ success: false, error: "kaputt" }, 500);
       return json({
@@ -198,6 +204,14 @@ async function workspaceServer(t, state) {
     }
     if (url.endsWith("/conversation/deletion-preview"))
       return json({ success: true, messageCount: 1, visitor: null });
+    if (call.method === "DELETE" && /\/embed\/\d+\/conversation$/.test(url)) {
+      if (state.deleteFails)
+        return json({ success: false, error: "kaputt" }, 500);
+      state.rows = state.rows.filter(
+        (r) => r.first_chat_id !== call.body.chatId
+      );
+      return json({ success: true, deletedCount: 1 });
+    }
     return json({ success: false, error: "unbekannt" }, 404);
   };
   t.after(() => {
@@ -286,11 +300,11 @@ async function type({ container, act }, value) {
   await act(() => handlersOf(input).onChange({ target: { value } }));
 }
 
-/** window.matchMedia für eine Breite (lg = ab 1024 px). */
+/** window.matchMedia für eine Breite (Desktop = ab 1.280 px, xl; Fixliste 7.22-rc13 E15). */
 function stubWidth(t, wide) {
   const original = globalThis.window.matchMedia;
   globalThis.window.matchMedia = (query) => ({
-    matches: query.includes("1024") ? wide : false,
+    matches: query.includes("1280") ? wide : false,
     addEventListener() {},
     removeEventListener() {},
   });
@@ -323,10 +337,12 @@ function captureWindowKeys(t) {
   });
   return {
     count: () => listeners.length,
-    fire: async (act, key) => {
+    /** extra: etwa { shiftKey: true } (Modifikatortasten, rc12 K01) */
+    fire: async (act, key, extra = {}) => {
       const document = globalThis.document;
       const event = {
         key,
+        ...extra,
         target: document.activeElement ?? document.body,
         defaultPrevented: false,
         preventDefault() {
@@ -652,7 +668,7 @@ test(
     same(observer.root, one(container, "data-list-scroll"), "Rahmen: die Spalte");
     assert.deepEqual(observer.observed, [one(container, "data-list-end")]);
     assert.ok(
-      hasClasses(one(container, "data-list-scroll"), ["lg:overflow-y-auto"])
+      hasClasses(one(container, "data-list-scroll"), ["xl:overflow-y-auto"])
     );
 
     // 30 Seiten von selbst (AUTO_LOAD_ROUNDS), je eine Anfrage hinter der
@@ -846,7 +862,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "AK-1 / AK-2 (Aufbau): Bereich mit fester Höhe ab lg, Kopf in der linken Spalte, Zeilen in einem eigenen Scrollbereich, Verlauf daneben; die Seite „Konversationen“ ohne die Obergrenze von 1180 px, „Widgets“ behält sie",
+  "AK-1 / AK-2 (Aufbau) / E15: Bereich mit fester Höhe auf dem Desktop (xl), Kopf in der linken Spalte, Zeilen in einem eigenen Scrollbereich, Verlauf daneben; nichts davon schon ab lg (Tablet); die Seite „Konversationen“ ohne die Obergrenze von 1180 px, „Widgets“ behält sie",
   { skip },
   async (t) => {
     const { WORKSPACE } = await renderer.load("/src/utils/conversationView.js");
@@ -856,24 +872,31 @@ test(
     await act();
     const area = one(container, "data-conversation-area");
     assert.ok(hasClasses(area, WORKSPACE.area.split(" ")), WORKSPACE.area);
-    assert.ok(classesOf(area).includes("lg:h-[max(480px,calc(100vh-88px))]"));
+    assert.ok(classesOf(area).includes("xl:h-[max(480px,calc(100vh-88px))]"));
     const column = one(container, "data-list-column");
     const header = one(container, "data-list-header");
     const scroller = one(container, "data-list-scroll");
     same(column.parentNode, area);
     same(header.parentNode, column, "Kopf in der linken Spalte");
     same(scroller.parentNode, column);
-    assert.ok(hasClasses(header, ["lg:shrink-0"]));
+    assert.ok(hasClasses(header, ["xl:shrink-0"]));
     assert.ok(hasClasses(scroller, WORKSPACE.scroller.split(" ")));
     assert.ok(one(container, "data-conversation-list").parentNode === scroller);
     const panel = panelOf(container);
     same(panel.parentNode, area, "Verlauf neben der Spalte");
-    assert.ok(hasClasses(panel, ["lg:relative", ...WORKSPACE.panel.split(" ")]));
-    // nichts klebt, nichts hat eine Mindesthöhe der Seite
+    assert.ok(hasClasses(panel, ["xl:relative", ...WORKSPACE.panel.split(" ")]));
+    // nichts klebt, nichts hat eine Mindesthöhe der Seite; Arbeitsbereich
+    // und Verlauf haben keine lg:-Klassen mehr (das Tablet bekommt das
+    // Vollbild, E15)
+    for (const element of [area, column, header, scroller, panel])
+      assert.ok(
+        !classesOf(element).some((name) => name.startsWith("lg:")),
+        `${element.tagName}: ${element.getAttribute("class")}`
+      );
     for (const element of elements(container))
       for (const name of classesOf(element))
         assert.ok(
-          !/^lg:(sticky|min-h-\[calc)/.test(name),
+          !/^(lg|xl):(sticky|min-h-\[calc)/.test(name),
           `${element.tagName}: ${name}`
         );
 
@@ -1178,5 +1201,508 @@ test(
     // steht er auf der ersten neuen Zeile; das Suchfeld war vorher nicht mehr
     // fokussiert, nichts zieht ihn aus einem Feld
     same(document.activeElement, rowsOf(container)[40]);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc13 (Nachreview rc12): K01 bis K13, E15 Geräteklassen
+// ---------------------------------------------------------------------------
+
+/**
+ * window.matchMedia wie im Browser für eine Fensterbreite: Eine Abfrage
+ * „(min-width: N px)“ trifft zu, wenn N höchstens so breit ist (E15).
+ */
+function stubViewport(t, width) {
+  const original = globalThis.window.matchMedia;
+  globalThis.window.matchMedia = (query) => ({
+    matches:
+      Number(query.match(/min-width:\s*(\d+)px/)?.[1] ?? Infinity) <= width,
+    addEventListener() {},
+    removeEventListener() {},
+  });
+  t.after(() => {
+    globalThis.window.matchMedia = original;
+  });
+}
+
+/**
+ * Mausklick in nicht fokussierbaren Inhalt: Der Browser setzt den Fokus auf
+ * den nächsten fokussierbaren Vorfahren (tabindex, Schaltfläche) – gibt es
+ * keinen, bleibt er auf <body>.
+ */
+function clickInto(element) {
+  const document = element.ownerDocument;
+  for (let node = element; node && node !== document.body; node = node.parentNode)
+    if (node.hasAttribute?.("tabindex") || node.tagName === "BUTTON") {
+      node.focus();
+      return node;
+    }
+  document.activeElement?.blur?.();
+  return null;
+}
+
+/** Ein Promise mit Auslöser (für state.holdMore / state.holdFirst). */
+function gate() {
+  let release;
+  const promise = new Promise((resolve) => (release = resolve));
+  return { promise, release };
+}
+
+/** Einige Durchläufe, bis Anfragen und Effekte zur Ruhe kommen. */
+async function settle(act, rounds = 4) {
+  for (let i = 0; i < rounds; i++) await act();
+}
+
+test(
+  "rc13, E15: Tablet (1.024 px) wie bisher unter lg – keine Vorwahl, kein Platzhalter, kein Verlauf geladen; ein Klick öffnet das Vollbild (Dialog, neuer Eintrag), Escape schließt; ab 1.280 px (Desktop) der Arbeitsbereich mit Vorwahl",
+  { skip },
+  async (t) => {
+    const keys = captureWindowKeys(t);
+    const server = await workspaceServer(t, { rows: [row(1), row(2)] });
+
+    stubViewport(t, 1024);
+    const tablet = await mountList(t);
+    await tablet.act();
+    assert.equal(panelOf(tablet.container), null, "kein Verlauf von selbst");
+    assert.equal(emptyPanelOf(tablet.container), null);
+    assert.deepEqual(server.details(), []);
+    await tablet.act(() => click(rowsOf(tablet.container)[1]));
+    await tablet.act();
+    assert.equal(panelOf(tablet.container).getAttribute("role"), "dialog");
+    assert.equal(panelOf(tablet.container).getAttribute("aria-modal"), "true");
+    assert.equal(tablet.navigationType(), "PUSH");
+    await keys.fire(tablet.act, "Escape");
+    await tablet.act();
+    assert.equal(panelOf(tablet.container), null, "Escape schließt");
+    await tablet.unmount();
+
+    stubViewport(t, 1280);
+    const desktop = await mountList(t);
+    await desktop.act();
+    assert.ok(panelOf(desktop.container), "Desktop: Verlauf offen");
+    assert.equal(panelOf(desktop.container).hasAttribute("role"), false);
+    assert.deepEqual(currentRows(desktop.container), [1]);
+  }
+);
+
+test(
+  "rc12, K01: Klick in den Text des Verlaufs, dann ↓ – der Verlauf hat den Fokus (tabIndex 0) und scrollt, die Konversation bleibt; mit Umschalt-, Alt-, Strg- oder Befehlstaste wechselt ↓ auch bei Fokus auf <body> nicht",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const keys = captureWindowKeys(t);
+    const server = await workspaceServer(t, { rows: [row(1), row(2), row(3)] });
+    const view = await mountList(t);
+    const { container, document, act } = view;
+    await act();
+    assert.deepEqual(currentRows(container), [1]);
+    const body = one(container, "data-panel-body");
+    assert.equal(body.getAttribute("tabindex"), "0", "Verlauf fokussierbar");
+
+    // Klick in die Frage (nicht fokussierbar): Fokus auf den Verlauf
+    const focused = clickInto(one(body, "data-question"));
+    same(focused, body);
+    same(document.activeElement, body);
+    const down = await keys.fire(act, "ArrowDown");
+    await act();
+    assert.equal(down.defaultPrevented, false, "↓ gehört dem Verlauf");
+    assert.deepEqual(currentRows(container), [1]);
+    assert.equal(view.search(), "");
+
+    // Fokus auf <body>, aber mit Modifikatortaste: nichts
+    document.activeElement = document.body;
+    for (const modifier of ["shiftKey", "altKey", "ctrlKey", "metaKey"]) {
+      const event = await keys.fire(act, "ArrowDown", { [modifier]: true });
+      await act();
+      assert.equal(event.defaultPrevented, false, modifier);
+      assert.deepEqual(currentRows(container), [1], modifier);
+    }
+    // ohne: blättert wie bisher (AK-6)
+    await keys.fire(act, "ArrowDown");
+    await act();
+    assert.deepEqual(currentRows(container), [2]);
+    assert.deepEqual(server.details(), [1, 2]);
+  }
+);
+
+test(
+  "rc12, K05: Bei offener Lösch-Rückfrage wechselt ↓ die Konversation nicht – auch wenn ihr Fokus auf <body> gefallen ist",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const keys = captureWindowKeys(t);
+    await workspaceServer(t, { rows: [row(1), row(2)] });
+    const view = await mountList(t);
+    const { container, document, act } = view;
+    await settle(act);
+    await act(() => click(one(container, "data-delete-conversation")));
+    await settle(act);
+    const dialog = elements(document.body, (e) =>
+      e.hasAttribute("data-confirm-dialog")
+    )[0];
+    assert.ok(dialog, "Rückfrage offen");
+    // Klick auf den Text der Rückfrage: Fokus auf <body>
+    document.activeElement = document.body;
+    const event = await keys.fire(act, "ArrowDown");
+    await act();
+    assert.equal(event.defaultPrevented, false);
+    assert.deepEqual(currentRows(container), [1]);
+    assert.ok(
+      elements(document.body, (e) => e.hasAttribute("data-confirm-dialog"))[0],
+      "die Rückfrage bleibt"
+    );
+  }
+);
+
+test(
+  "rc12, K02 (a): Filterwechsel mit einer nachgeladenen Konversation (Zeile 45) – die Liste sucht sie in der neuen Liste wie beim Link, sie bleibt gewählt und in der Adresse, ihr Verlauf wird nicht neu geladen",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const rows = Array.from({ length: 60 }, (_, i) => row(100 + i));
+    const server = await workspaceServer(t, { rows });
+    const view = await mountList(t);
+    const { container, act } = view;
+    await act();
+    for (let i = 0; i < 2; i++) {
+      await act(() => click(one(container, "data-load-more")));
+      await settle(act, 3);
+    }
+    assert.equal(rowsOf(container).length, 60);
+    await act(() => click(rowsOf(container)[44]));
+    await act();
+    assert.deepEqual(currentRows(container), [144]);
+    assert.equal(view.search(), "?widget=3&conversation=144");
+
+    // Suche „Frage“: alle 60 passen, die erste Seite hat 20 – 144 steht auf
+    // Position 45
+    await type(view, "Frage");
+    await act(() => wait(350));
+    await settle(act, 6);
+    assert.ok(rowsOf(container).length >= 45, `${rowsOf(container).length}`);
+    assert.deepEqual(currentRows(container), [144]);
+    assert.equal(view.search(), "?widget=3&conversation=144&q=Frage");
+    assert.deepEqual(server.details(), [100, 144], "kein Neuladen des Verlaufs");
+  }
+);
+
+test(
+  "rc12, K02 (b): Ohne Wechsel des Zuschnitts fällt die Konversation nie aus der Adresse – auch nicht, während die Liste nach einem gescheiterten Löschen neu lädt (erst 100 Zeilen, dann der Rest)",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const state = {
+      rows: Array.from({ length: 160 }, (_, i) => row(100 + i)),
+      deleteFails: true,
+    };
+    await workspaceServer(t, state);
+    const view = await mountList(t);
+    const { container, act } = view;
+    await act();
+    for (let i = 0; i < 6; i++) {
+      await act(() => click(one(container, "data-load-more")));
+      await settle(act, 3);
+    }
+    assert.equal(rowsOf(container).length, 140);
+    await act(() => click(rowsOf(container)[129]));
+    await settle(act);
+    assert.equal(view.search(), "?widget=3&conversation=229");
+    await act(() => click(one(container, "data-delete-conversation")));
+    await settle(act);
+    const confirm = elements(view.document.body, (e) =>
+      e.hasAttribute("data-confirm-delete")
+    )[0];
+    await act(() => click(confirm));
+    await settle(act, 8);
+    assert.equal(rowsOf(container).length, 140, "aufgefüllt");
+    assert.equal(view.search(), "?widget=3&conversation=229");
+    assert.deepEqual(currentRows(container), [229]);
+  }
+);
+
+test(
+  "rc12, K03: „Weitere laden“ geklickt, danach ins Suchfeld – nach dem Nachladen bleibt der Fokus im Suchfeld",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const state = { rows: Array.from({ length: 60 }, (_, i) => row(300 + i)) };
+    await workspaceServer(t, state);
+    const { container, document, act } = await mountList(t);
+    await act();
+    const hold = gate();
+    state.holdMore = hold.promise;
+    await act(() => click(one(container, "data-load-more")));
+    await act();
+    const input = one(container, "data-search-input");
+    input.focus();
+    await act(() => hold.release());
+    await settle(act, 3);
+    assert.equal(rowsOf(container).length, 40);
+    same(document.activeElement, input, "Fokus bleibt im Suchfeld");
+  }
+);
+
+test(
+  "rc12, K09: Tab auf „Weitere laden“, das Spaltenende kommt in Sicht und die Liste lädt von selbst – der Fokus bleibt auf dem Knopf (keine Bewegung ohne Aktivierung), solange es ihn gibt",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const observers = stubIntersectionObserver(t);
+    const state = { rows: Array.from({ length: 80 }, (_, i) => row(300 + i)) };
+    await workspaceServer(t, state);
+    const { container, document, act } = await mountList(t);
+    await act();
+    const button = one(container, "data-load-more");
+    button.focus();
+    const hold = gate();
+    state.holdMore = hold.promise;
+    await observers.reach(act, observers.active());
+    await act();
+    await act(() => hold.release());
+    await settle(act, 3);
+    assert.equal(rowsOf(container).length, 40);
+    same(one(container, "data-load-more"), button, "Knopf bleibt");
+    same(document.activeElement, button, "Fokus bleibt auf dem Knopf");
+  }
+);
+
+test(
+  "rc12, K08: Link-Suche über mehrere Seiten, Fokus auf „Weitere laden“ – verschwindet der Knopf mit der letzten Seite, steht der Fokus auf deren erster Zeile statt im Leeren",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const hold = gate();
+    const state = {
+      rows: Array.from({ length: 220 }, (_, i) => row(300 + i)),
+      holdMore: hold.promise,
+    };
+    await workspaceServer(t, state);
+    const { container, document, act } = await mountList(t, {
+      query: "?widget=3&conversation=510",
+    });
+    await settle(act, 3);
+    assert.equal(rowsOf(container).length, 20, "die Link-Suche wartet");
+    one(container, "data-load-more").focus();
+    await act(() => hold.release());
+    await settle(act, 8);
+    assert.equal(rowsOf(container).length, 220);
+    assert.deepEqual(currentRows(container), [510]);
+    assert.equal(withAttribute(container, "data-load-more").length, 0);
+    same(document.activeElement, rowsOf(container)[120], "erste Zeile der letzten Seite");
+  }
+);
+
+test(
+  "rc12, K10: Wechsel der Suche bei Vorwahl – die vorgewählte Konversation bleibt während des Ladens gewählt (kein Platzhalter, kein Neuladen des Verlaufs) und danach, solange sie in der Liste steht, auch wenn die neue Liste mit einer anderen beginnt",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const state = { rows: [row(1), row(2), row(3)] };
+    const server = await workspaceServer(t, state);
+    const view = await mountList(t);
+    const { container, act } = view;
+    await act();
+    assert.deepEqual(currentRows(container), [1]);
+    // Inzwischen kam eine neue Konversation dazu (steht vorn)
+    state.rows = [row(0), row(1), row(2), row(3)];
+    const hold = gate();
+    state.holdFirst = hold.promise;
+    await type(view, "Frage");
+    await act(() => wait(350));
+    await act();
+    // die Liste lädt: Verlauf bleibt (keine Lücke, kein Platzhalter)
+    assert.ok(panelOf(container), "Verlauf bleibt während des Ladens");
+    assert.equal(emptyPanelOf(container), null);
+    await act(() => hold.release());
+    await settle(act);
+    assert.deepEqual(rowIds(container), [0, 1, 2, 3]);
+    assert.deepEqual(currentRows(container), [1], "die Wahl bleibt");
+    assert.deepEqual(server.details(), [1], "kein Neuladen des Verlaufs");
+    assert.equal(server.previews(), 1);
+    assert.equal(view.search(), "?q=Frage");
+    // fällt sie heraus: die erste Zeile der neuen Liste
+    await type(view, "Frage 3");
+    await act(() => wait(350));
+    await settle(act);
+    assert.deepEqual(rowIds(container), [3]);
+    assert.deepEqual(currentRows(container), [3]);
+  }
+);
+
+test(
+  "rc12, K06: Vorgewählte Konversation gelöscht – bis die neue Liste da ist, ist sie nicht wieder gewählt; der Verlauf zeigt gleich die nächste und lädt die gelöschte nicht neu",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const state = { rows: [row(1), row(2), row(3)] };
+    const server = await workspaceServer(t, state);
+    const view = await mountList(t);
+    const { container, act, document } = view;
+    await settle(act);
+    assert.deepEqual(currentRows(container), [1]);
+    await act(() => click(one(container, "data-delete-conversation")));
+    await settle(act);
+    const hold = gate();
+    state.holdFirst = hold.promise;
+    const confirm = elements(document.body, (e) =>
+      e.hasAttribute("data-confirm-delete")
+    )[0];
+    await act(() => click(confirm));
+    await settle(act);
+    // Die alte Liste steht noch (1 darin), gewählt ist 2
+    assert.deepEqual(rowIds(container), [1, 2, 3]);
+    assert.deepEqual(currentRows(container), [2]);
+    assert.match(panelOf(container).textContent, /Frage 2/);
+    await act(() => hold.release());
+    await settle(act);
+    assert.deepEqual(rowIds(container), [2, 3]);
+    assert.deepEqual(currentRows(container), [2]);
+    assert.deepEqual(server.details(), [1, 2]);
+    assert.equal(view.search(), "");
+  }
+);
+
+test(
+  "rc12, K07: Gemerkt „geschlossen“, per Link geöffnet, dann fällt die Konversation durch die Suche heraus – der Verlauf bleibt für diese Sitzung offen: die erste Zeile ist vorgewählt bzw. der Platzhalter zu sehen; ✕ schließt ihn wieder",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    await workspaceServer(t, {
+      rows: [
+        row(1, { preview: "Yoga am Abend" }),
+        row(2, { preview: "Spanisch A1" }),
+        row(7, { preview: "Töpfern" }),
+      ],
+    });
+    const view = await mountList(t, {
+      query: "?widget=3&conversation=7",
+      stored: { [PANEL_KEY]: "closed" },
+    });
+    const { container, act } = view;
+    await settle(act);
+    assert.deepEqual(currentRows(container), [7]);
+    await type(view, "Spanisch");
+    await act(() => wait(350));
+    await settle(act);
+    assert.equal(view.search(), "?widget=3&q=Spanisch");
+    assert.deepEqual(currentRows(container), [2], "erste Zeile vorgewählt");
+    assert.ok(panelOf(container));
+    assert.equal(stored(), "closed", "das Gemerkte bleibt");
+    await type(view, "Gibt es nicht");
+    await act(() => wait(350));
+    await settle(act);
+    assert.ok(emptyPanelOf(container), "Platzhalter");
+    await act(() => click(one(container, "data-empty-panel-close")));
+    await act();
+    assert.equal(emptyPanelOf(container), null);
+    assert.equal(panelOf(container), null);
+  }
+);
+
+test(
+  "rc12, K12 / K13: „Weitere laden“ ohne Hover-Ton im gesperrten Zustand auch im hellen Theme; der Beobachtungsanker steht nur auf dem Desktop und außerhalb der umbrechenden Leiste (keine 8 px mehr)",
+  { skip },
+  async (t) => {
+    const rows = Array.from({ length: 40 }, (_, i) => row(100 + i));
+    await workspaceServer(t, { rows });
+
+    stubWidth(t, false);
+    const narrow = await mountList(t);
+    await narrow.act();
+    const button = one(narrow.container, "data-load-more");
+    assert.ok(
+      hasClasses(button, [
+        "aria-disabled:hover:bg-transparent",
+        "light:aria-disabled:hover:bg-transparent",
+      ])
+    );
+    assert.equal(
+      withAttribute(narrow.container, "data-list-end").length,
+      0,
+      "kein Anker unter xl"
+    );
+    await narrow.unmount();
+
+    stubWidth(t, true);
+    const wide = await mountList(t);
+    await wide.act();
+    const end = one(wide.container, "data-list-end");
+    const bar = one(wide.container, "data-load-more").parentNode;
+    assert.ok(end.parentNode !== bar, "nicht in der Leiste");
+    assert.ok(
+      end.parentNode === one(wide.container, "data-conversation-list"),
+      "am Ende der Zeilen"
+    );
+    assert.equal(end.getAttribute("class"), null, "ohne Maße");
+  }
+);
+
+test(
+  "rc13, E15: Steht der Verlauf daneben (Desktop, Liste 44 %), hat der Kopf der Liste die kompakte Form – Werkzeugleiste in eigener Zeile ohne Abstand zum Benutzermenü, kurze Filternamen, „Exportieren“ ohne Pfeil; mit geschlossenem Verlauf die volle Form",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    await workspaceServer(t, { rows: [row(1), row(2)] });
+    const { container, act } = await mountList(t);
+    await act();
+    assert.ok(panelOf(container), "Verlauf daneben");
+    const wideClasses = [
+      "xl:grow",
+      "xl:basis-auto",
+      "sm:pr-11",
+      "xl:w-60",
+      "xl:flex-auto",
+      "xl:grow-[999]",
+      "xl:px-3",
+      "xl:px-3.5",
+      "xl:block",
+      "xl:hidden",
+      "hidden xl:inline-flex",
+    ];
+    const header = one(container, "data-list-header");
+    const used = () =>
+      elements(header).flatMap((element) => classesOf(element));
+    for (const name of wideClasses.filter((n) => !n.includes(" ")))
+      assert.ok(!used().includes(name), `kompakt ohne ${name}`);
+    const labels = withAttribute(header, "data-stable-label").map((e) =>
+      e.getAttribute("data-stable-label")
+    );
+    assert.ok(labels.includes("Positiv"), labels.join(", "));
+    assert.ok(!labels.includes("Positiv bewertet"), labels.join(", "));
+
+    // ✕: Die Liste hat die volle Breite – die volle Form
+    await act(() => click(one(container, "data-panel-close")));
+    await act();
+    assert.equal(panelOf(container), null);
+    for (const name of ["xl:grow", "xl:basis-auto", "sm:pr-11", "xl:w-60", "xl:grow-[999]", "xl:block"])
+      assert.ok(used().includes(name), `voll mit ${name}`);
+    const fullLabels = withAttribute(header, "data-stable-label").map((e) =>
+      e.getAttribute("data-stable-label")
+    );
+    assert.ok(fullLabels.includes("Positiv bewertet"), fullLabels.join(", "));
+  }
+);
+
+test(
+  "rc12, K09 / K15: Tab auf „Weitere laden“ (Fokus bleibt nach dem Nachladen von selbst dort), danach ein Mausklick darauf – zählt als Zeiger: der Fokus bleibt auf dem Knopf; Enter darauf (click ohne detail) wie bisher auf die erste neue Zeile",
+  { skip },
+  async (t) => {
+    stubWidth(t, true);
+    const state = { rows: Array.from({ length: 80 }, (_, i) => row(300 + i)) };
+    await workspaceServer(t, state);
+    const { container, document, act } = await mountList(t);
+    await act();
+    const button = one(container, "data-load-more");
+    button.focus();
+    // Mausklick: detail 1
+    await act(() => handlersOf(button).onClick({ detail: 1 }));
+    await settle(act, 3);
+    assert.equal(rowsOf(container).length, 40);
+    same(document.activeElement, button, "Zeiger: Fokus bleibt auf dem Knopf");
+    // Enter: click mit detail 0
+    await act(() => handlersOf(button).onClick({ detail: 0 }));
+    await settle(act, 3);
+    assert.equal(rowsOf(container).length, 60);
+    same(document.activeElement, rowsOf(container)[40], "Tastatur: erste neue Zeile");
   }
 );

@@ -38,8 +38,9 @@ import { useDismiss } from "./viewHooks";
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
 // Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
 // Säulendiagramm, Karte „Wann schreiben Ihre Besucher?" (KIE-539),
-// Konversationsliste mit Seitenpanel – ab lg ein Arbeitsbereich mit fester
-// Höhe am Seitenende (KIE-575): Kennzahlen und Diagramme scrollen darüber
+// Konversationsliste mit Seitenpanel – auf dem Desktop (ab xl) ein
+// Arbeitsbereich mit fester Höhe am Seitenende (KIE-575): Kennzahlen und
+// Diagramme scrollen darüber
 // weg; liegt der Bereich oben an, ist die Seite zu Ende. Der Seitenrahmen
 // nutzt dafür die volle Breite (ChatbotLayout fullWidth).
 //
@@ -309,8 +310,9 @@ function WidgetAnalytics({ embeds, lastActivity }) {
 
   // Per Link oder nach dem Neuladen mit geöffneter Konversation: einmal zur
   // Liste springen, sobald Kennzahlen und Liste stehen – sonst läge das
-  // Panel unter dem sichtbaren Bereich (Fixliste 2, B5). Nur ab lg: darunter
-  // öffnet die Konversation ohnehin als Vollbild. Ein Merker: true, solange
+  // Panel unter dem sichtbaren Bereich (Fixliste 2, B5). Nur auf dem
+  // Desktop (ab xl): sonst öffnet die Konversation ohnehin als Vollbild.
+  // Ein Merker: true, solange
   // der Sprung aussteht (Fixliste 3, S4).
   // Der Sprung hält eine Weile (holdScrollTarget): Ändert sich das Layout
   // über der Liste oder setzt der Browser die Scrollposition, springt die
@@ -348,9 +350,11 @@ function WidgetAnalytics({ embeds, lastActivity }) {
     if (!linkJumpPending || !listReady) return;
     setLinkJumpPending(false);
     if (!isWide()) return;
-    // Zur Überschrift der Liste: Der Arbeitsbereich (Liste und Verlauf)
-    // steht dann oben im Fenster. Die geöffnete Zeile bringt die Liste
-    // selbst in ihrer Spalte in Sicht (KIE-575, Fixliste 6 K5).
+    // Zur Liste: Der Arbeitsbereich (Liste und Verlauf) steht dann in seiner
+    // Ruhelage, 24 px unter dem Fensterrand, ganz im Fenster
+    // (AVATAR_CLEARANCE.jumpTarget, Review 7.22-rc12 K04). Die geöffnete
+    // Zeile bringt die Liste selbst in ihrer Spalte in Sicht (KIE-575,
+    // Fixliste 6 K5).
     releaseLinkJump.current = holdScrollTarget(
       listRef.current,
       () => listRef.current?.scrollIntoView?.({ block: "start" }),
@@ -421,8 +425,10 @@ function WidgetAnalytics({ embeds, lastActivity }) {
         failed={summary.failed}
       />
 
-      {/* Sprungziel: Überschrift und Werkzeugleiste landen unter dem
-          Benutzermenü oben rechts (Fixliste 3, V2) */}
+      {/* Sprungziel: auf Tablet und Smartphone landen Überschrift und
+          Werkzeugleiste unter dem Benutzermenü oben rechts (Fixliste 3, V2),
+          auf dem Desktop steht der Arbeitsbereich in seiner Ruhelage ganz
+          im Fenster (K04) */}
       <div ref={listRef} className={AVATAR_CLEARANCE.jumpTarget}>
         <ConversationList
           embedId={unknownLink ? null : selectedEmbed}

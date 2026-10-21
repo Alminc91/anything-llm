@@ -1,14 +1,24 @@
 // Browser-Prüfung KIE-575 (manuell, nicht Teil von `yarn test`): Maße des
-// Arbeitsbereichs „Konversationen“ ab lg – volle Breite (AK-1), Liste und
-// Verlauf gleich hoch mit je eigener Bildlaufleiste, die Seite endet, wenn
-// der Bereich oben anliegt (AK-2), nichts unleserlich breit bei 2.560 px
-// (AK-9); Vorwahl ohne Adresse und ohne Fokus (AK-3), ✕/Klick gemerkt
-// (AK-4), ↑/↓ ohne Klick (AK-6), Tab aus beiden Spalten (NAK-3); unter lg
-// (390 px) das Vollbild wie bisher (AK-8). Screenshots hell und dunkel.
+// Arbeitsbereichs „Konversationen“ auf dem Desktop – volle Breite (AK-1),
+// Liste und Verlauf gleich hoch mit je eigener Bildlaufleiste, die Seite
+// endet, wenn der Bereich oben anliegt (AK-2), nichts unleserlich breit bei
+// 2.560 px (AK-9); Vorwahl ohne Adresse und ohne Fokus (AK-3), ✕/Klick
+// gemerkt (AK-4), ↑/↓ ohne Klick (AK-6), Tab aus beiden Spalten (NAK-3);
+// auf dem Smartphone (390 px) das Vollbild wie bisher (AK-8). Screenshots
+// hell und dunkel.
 // Fixliste 7.22-rc11: ↓ und Panel-Pfeile vom frischen Stand scrollen die
 // Seite nicht (K11), ✕ und ⋯ liegen links vom Benutzermenü (K12), der
 // Bereich bleibt bei 1920×600 ganz im Fenster (K13), Blasen höchstens
 // 720 px (K14), der Fokus bleibt beim Nachladen am Listenende (K15).
+// Fixliste 7.22-rc13: Geräteklassen (E15) – Smartphone 390, Tablet 1.024
+// (Liste, Verlauf als Vollbild wie bisher unter lg), Desktop ab 1.280
+// (Arbeitsbereich, Verlauf 56 % und mindestens 480 px; geprüft 1.280,
+// 1.440 und 1.920); Klick in den Verlaufstext und ↓ scrollt den Verlauf
+// (K01), ein Filterwechsel behält eine nachgeladene Konversation (K02), der
+// Fokus bleibt beim Nachladen im Suchfeld (K03), nach dem Sprung zur Liste
+// ist die Unterkante des Bereichs sichtbar (K04, 1920×1080 und 1440×900),
+// Tab auf „Weitere laden“ lädt nach, ohne den Fokus zu ziehen (K09), HTML
+// in Antworten ohne style, Links in neuem Tab, Bilder ohne Abruf (K14, E13).
 //
 // Der Server ist im Browser nachgestellt (page.route): Es läuft nur der
 // Vite-Dev-Server des Frontends – kein Container, kein Docker. Playwright
@@ -67,6 +77,18 @@ const EMBED = {
   chat_retention_days: null,
   createdAt: new Date(NOW - 90 * 24 * HOUR).toISOString(),
 };
+// K14 (E13): Eine Antwort mit HTML, das die Seite überdecken bzw. ein Bild
+// von fremdem Server laden würde
+const TRACKER = "https://tracker.example";
+const HTML_ANSWER = [
+  'Bitte hier entlang: <a href="https://phish.example/login" style="position:fixed;inset:0;z-index:9999;display:block;background:rgba(255,0,0,0.08)">Kursseite</a>',
+  "",
+  `![Logo der VHS](${TRACKER}/pixel.png?md)`,
+  "",
+  `<img src="${TRACKER}/pixel.png?html" alt="Banner" style="width:100vw;height:100vh">`,
+  "",
+  '<a href="https://www.vhs-musterstadt.de/kurs" class="fixed inset-0 z-50">Anmeldung</a>',
+].join("\n");
 const PREVIEWS = [
   "Gibt es noch freie Plätze im Spanischkurs A1 am Dienstagabend?",
   "Wann beginnt der nächste Yoga-Kurs für Anfänger und was kostet er?",
@@ -94,6 +116,9 @@ const ROWS = Array.from({ length: 160 }, (_, i) => ({
   workspace: "VHS Musterstadt",
 }));
 
+// Die Konversation mit HTML in der ersten Antwort (K14)
+const HTML_ID = ROWS[2].first_chat_id;
+
 function messagesFor(id) {
   const row = ROWS.find((r) => r.first_chat_id === id) ?? ROWS[0];
   return Array.from({ length: 12 }, (_, k) => ({
@@ -103,7 +128,10 @@ function messagesFor(id) {
         ? row.preview
         : `${PREVIEWS[(k + id) % PREVIEWS.length]} (Rückfrage ${k})`,
     response: JSON.stringify({
-      text: `Gern helfe ich Ihnen weiter. **Kurs ${k + 1}** beginnt am Dienstag um 18:30 Uhr in Raum 204.\n\n- Dauer: 10 Abende\n- Gebühr: 96,00 Euro\n- Anmeldung über die [Kursseite](https://www.vhs-musterstadt.de/kurs/${id}${k})\n\nHaben Sie noch Fragen zu Terminen oder zur Anmeldung?`,
+      text:
+        id === HTML_ID && k === 0
+          ? HTML_ANSWER
+          : `Gern helfe ich Ihnen weiter. **Kurs ${k + 1}** beginnt am Dienstag um 18:30 Uhr in Raum 204.\n\n- Dauer: 10 Abende\n- Gebühr: 96,00 Euro\n- Anmeldung über die [Kursseite](https://www.vhs-musterstadt.de/kurs/${id}${k})\n\nHaben Sie noch Fragen zu Terminen oder zur Anmeldung?`,
       sources: [],
     }),
     createdAt: new Date(row.started_at + k * 90e3).toISOString(),
@@ -362,10 +390,33 @@ function measure() {
       right: Math.round(b.right),
     };
   };
+  // E15: Kopf der Liste (Suche, Filter, Export) ragt nicht über die Spalte
+  const header = q("[data-list-header]");
+  const headerOverflow = header
+    ? [...header.querySelectorAll("*")]
+        .filter((element) => element.getBoundingClientRect().width > 0)
+        .some(
+          (element) =>
+            element.getBoundingClientRect().right >
+            header.getBoundingClientRect().right + 1
+        )
+    : null;
   return {
     innerWidth: window.innerWidth,
     innerHeight: window.innerHeight,
     content: r(content),
+    listHeader: r(header),
+    listActions: r(q("[data-list-actions]")),
+    headerOverflow,
+    footer: r(q("[data-conversation-actions]")),
+    back: r(q("[data-panel-back]")),
+    nextButton: r(q("[data-panel-next]")),
+    avatarCovered: (() => {
+      if (!avatar || !panel) return null;
+      const b = avatar.getBoundingClientRect();
+      const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return !!top && panel.contains(top);
+    })(),
     contentAttr: content?.getAttribute("data-chatbot-content") ?? null,
     page: scrollable(scrollContainer),
     pageTop: r(scrollContainer)?.top ?? null,
@@ -424,6 +475,19 @@ function measure() {
 const rowInColumn = (rect, column) =>
   !!rect && !!column && rect.top >= column.top - 1 && rect.bottom <= column.bottom + 1;
 
+/** Wartet, bis „Weitere laden“ da und nicht beschäftigt ist. */
+const waitIdle = (page) =>
+  page
+    .waitForFunction(
+      () => {
+        const button = document.querySelector("[data-load-more]");
+        return !!button && !button.disabled && button.getAttribute("aria-disabled") !== "true";
+      },
+      null,
+      { timeout: 10_000 }
+    )
+    .catch(() => {});
+
 /** Beobachtet das fokussierte Element eine Weile (läuft in der Seite). */
 function sampleFocus(ms) {
   return new Promise((resolve) => {
@@ -470,11 +534,13 @@ function checkBubbles(scenario, m) {
 }
 
 /**
- * K15: Fokus auf „Weitere laden“ und nachladen. Per Tastatur (Tab vom
- * Listenende, Enter) geht der Fokus danach auf die erste neu geladene
- * Zeile, die in der Spalte zu sehen ist; per Maus bleibt er auf dem Knopf
- * (kein Fokusring, kein Sprung). Nie landet er auf <body>: Der Knopf ist
- * während des Ladens nicht gesperrt (aria-disabled statt disabled).
+ * K15: Fokus auf „Weitere laden“ und nachladen. Tab vom Listenende auf den
+ * Knopf: Die Liste lädt von selbst nach, der Fokus bleibt auf dem Knopf
+ * (rc12 K09: keine Bewegung ohne Aktivierung). Per Maus bleibt er auf dem
+ * Knopf (kein Sprung), auch wenn er ihn vorher per Tab bekam; Enter geht
+ * danach auf die erste neu geladene Zeile, die in der Spalte zu sehen ist.
+ * Nie landet er auf <body>: Der Knopf ist während des Ladens nicht gesperrt
+ * (aria-disabled statt disabled).
  */
 async function checkLoadMoreFocus(scenario, page) {
   const idle = () =>
@@ -493,7 +559,7 @@ async function checkLoadMoreFocus(scenario, page) {
   // 1. Tab vom Listenende auf den Knopf: Die Spalte steht oben (kein
   // Nachladen in Gang), die letzte Zeile bekommt den Fokus ohne Scrollen;
   // Tab geht auf den Knopf, der Browser holt ihn ins Bild, damit kommt das
-  // Spaltenende in Sicht – die Liste lädt von selbst nach
+  // Spaltenende in Sicht – die Liste lädt von selbst nach, der Fokus bleibt
   await page.evaluate(() => {
     document.querySelector("[data-list-scroll]").scrollTop = 0;
   });
@@ -508,8 +574,9 @@ async function checkLoadMoreFocus(scenario, page) {
   const seen = await page.evaluate(sampleFocus, PAGE_DELAY_MS + 900);
   const after = await page.evaluate(measure);
   check(scenario, "K15 (Tab, von selbst) Fokus auf dem Knopf, nie auf <body>", seen[0] === "load-more" && !seen.includes("BODY"), { seen });
-  check(scenario, "K15 (Tab, von selbst) danach Fokus auf der ersten neuen Zeile", after.rows > rowsBefore && after.activeRow === ROWS[rowsBefore].first_chat_id, { rowsBefore, rows: after.rows, activeRow: after.activeRow, activeElement: after.activeElement });
-  check(scenario, "K15 (Tab, von selbst) die Zeile ist in der Spalte sichtbar", rowInColumn(after.activeRowRect, after.scrollerRect), { row: after.activeRowRect, column: after.scrollerRect });
+  // rc12 K09: von selbst nachgeladen – der Fokus bleibt auf dem Knopf
+  // (keine Bewegung ohne Aktivierung), er wandert nicht auf Zeile 21
+  check(scenario, "K09 (Tab, von selbst) nachgeladen, der Fokus bleibt auf dem Knopf", after.rows > rowsBefore && after.activeIsLoadMore && !seen.some((label) => label.startsWith("row:")), { seen, rowsBefore, rows: after.rows, activeElement: after.activeElement, activeRow: after.activeRow });
 
   // 2. Klick mit der Maus: nicht gesperrt, der Fokus bleibt auf dem Knopf
   await idle();
@@ -530,6 +597,133 @@ async function checkLoadMoreFocus(scenario, page) {
   check(scenario, "K15 (Enter) nie auf <body>, danach Fokus auf der ersten neuen Zeile, in der Spalte sichtbar", !seenEnter.includes("BODY") && afterEnter.rows > rowsBeforeEnter && afterEnter.activeRow === ROWS[rowsBeforeEnter].first_chat_id && rowInColumn(afterEnter.activeRowRect, afterEnter.scrollerRect), { seen: seenEnter, rowsBefore: rowsBeforeEnter, rows: afterEnter.rows, activeRow: afterEnter.activeRow, row: afterEnter.activeRowRect, column: afterEnter.scrollerRect });
 }
 
+/**
+ * rc12 K04: Sprung zur Liste (Verweis in der Kopfzeile) – der Bereich steht
+ * danach in seiner Ruhelage (Oberkante 24 px) und ganz im Fenster: die
+ * Fußzeile des Verlaufs und das Ende der Spalte sind zu sehen (vorher stand
+ * er bei 96 px, die unteren 24 px lagen unter dem Fensterrand).
+ */
+async function checkJumpBottom(scenario, page, { width, theme }) {
+  await page.click("[data-jump-to-list]");
+  await page.waitForTimeout(1500);
+  const m = await page.evaluate(measure);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-sprung.png`) });
+  check(scenario, "K04 Sprung zur Liste: Bereich in der Ruhelage (Oberkante 24 px)", Math.abs(m.area.top - 24) <= 2, { areaTop: m.area.top });
+  check(scenario, "K04 Unterkante des Bereichs sichtbar (über dem Rahmen, Fensterhöhe − 16)", m.area.bottom <= m.innerHeight - 16 + 1, { areaBottom: m.area.bottom, innerHeight: m.innerHeight });
+  check(scenario, "K04 Fußzeile des Verlaufs ganz zu sehen", !!m.footer && m.footer.bottom <= m.innerHeight - 16 + 1, { footer: m.footer, innerHeight: m.innerHeight });
+  check(scenario, "K04 Ende der Spalte sichtbar", m.scrollerRect.bottom <= m.innerHeight - 16 + 1, { scroller: m.scrollerRect });
+  return m;
+}
+
+/**
+ * rc12 K01: Klick in den Text des Verlaufs (eine Frage, kein Link) setzt den
+ * Fokus in den Verlauf; ↓ scrollt dann den Verlauf, statt die Konversation
+ * zu wechseln. Mit Umschalttaste wechselt ↓ auch bei Fokus auf <body> nicht.
+ */
+async function checkHistoryArrow(scenario, page) {
+  const before = await page.evaluate(measure);
+  await page.locator("[data-panel-body] [data-question]").first().click({ position: { x: 12, y: 10 } });
+  const focused = await page.evaluate(() => document.activeElement?.hasAttribute("data-panel-body") ?? false);
+  for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowDown");
+  await page.waitForTimeout(500);
+  const after = await page.evaluate(measure);
+  check(scenario, "K01 Klick in den Verlaufstext: Fokus im Verlauf", focused, { activeElement: after.activeElement });
+  check(scenario, "K01 ↓ scrollt den Verlauf, die Konversation und die Adresse bleiben", after.panelBody.scrollTop > before.panelBody.scrollTop && after.currentRow === before.currentRow && after.url === before.url, { bodyBefore: before.panelBody.scrollTop, bodyAfter: after.panelBody.scrollTop, currentRow: after.currentRow, url: after.url });
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.keyboard.press("Alt+ArrowDown");
+  await page.waitForTimeout(400);
+  const modified = await page.evaluate(measure);
+  check(scenario, "K01 Umschalt/Alt+↓ bei Fokus auf <body>: keine andere Konversation", modified.currentRow === before.currentRow && modified.url === before.url, { currentRow: modified.currentRow, url: modified.url });
+}
+
+/**
+ * rc12 K03: Klick auf „Weitere laden“, danach ins Suchfeld – nach dem
+ * Nachladen steht der Fokus weiter im Suchfeld (vorher sprang er auf die
+ * erste neue Zeile).
+ */
+async function checkSearchFocusDuringLoad(scenario, page) {
+  await waitIdle(page);
+  const rowsBefore = await page.evaluate(() => document.querySelectorAll("[data-conversation-row]").length);
+  await page.click("[data-load-more]");
+  await page.focus("[data-search-input]");
+  const seen = await page.evaluate(sampleFocus, PAGE_DELAY_MS + 900);
+  const after = await page.evaluate(measure);
+  check(scenario, "K03 Klick auf „Weitere laden“, dann ins Suchfeld: nachgeladen, der Fokus bleibt im Suchfeld", after.rows > rowsBefore && after.activeElement === "INPUT" && !seen.some((label) => label.startsWith("row:")), { seen, rowsBefore, rows: after.rows, activeElement: after.activeElement });
+}
+
+/**
+ * rc12 K02: Filter „Positiv bewertet“, die sechste Zeile öffnen (in „Alle“
+ * die 22., nicht auf der ersten Seite), Filter zurück auf „Alle“ – die
+ * Konversation bleibt gewählt und in der Adresse (die Liste sucht sie wie
+ * beim Link) und steht in der Spalte im Bild.
+ */
+async function checkFilterKeepsLoaded(scenario, page, { width, theme }) {
+  const filter = (index) => `[data-feedback-filters] button >> nth=${index}`;
+  const target = ROWS.filter((r) => r.positive_count > 0)[5];
+  await page.click(filter(1));
+  await page.waitForSelector(`[data-conversation-row="${target.first_chat_id}"]`, { timeout: 10_000 });
+  await page.waitForTimeout(PAGE_DELAY_MS * 2);
+  await page.click(`[data-conversation-row="${target.first_chat_id}"]`);
+  await page.waitForTimeout(500);
+  const opened = await page.evaluate(measure);
+  await page.click(filter(0));
+  await page
+    .waitForFunction(
+      () => document.querySelectorAll("[data-conversation-row]").length > 20,
+      null,
+      { timeout: 10_000 }
+    )
+    .catch(() => {});
+  await page.waitForTimeout(800);
+  const m = await page.evaluate(measure);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k02.png`) });
+  const index = ROWS.indexOf(target);
+  check(scenario, `K02 Konversation ${target.first_chat_id} geöffnet (im Filter „Positiv“)`, opened.currentRow === target.first_chat_id && opened.url.includes(`conversation=${target.first_chat_id}`), { currentRow: opened.currentRow, url: opened.url });
+  check(scenario, `K02 zurück auf „Alle“ (Zeile ${index + 1}, nicht auf der ersten Seite): bleibt gewählt und in der Adresse`, index >= 20 && m.currentRow === target.first_chat_id && m.url.includes(`conversation=${target.first_chat_id}`), { currentRow: m.currentRow, url: m.url, rows: m.rows });
+  check(scenario, "K02 die Zeile steht in der Spalte im Bild", rowInColumn(m.currentRowRect, m.scrollerRect), { row: m.currentRowRect, column: m.scrollerRect });
+}
+
+/**
+ * rc12 K14 (E13): Eine Antwort mit HTML – ein Link mit style über der ganzen
+ * Seite, ein Markdown-Bild und ein <img> von fremdem Server, ein Link mit
+ * Klassen der Seite. Im Verlauf: kein Bild, kein Abruf beim fremden Server,
+ * Links ohne style und Klassen, in neuem Tab mit rel="noopener noreferrer";
+ * die Mitte der Seite gehört nicht dem eingeschleusten Link.
+ */
+async function checkAnswerHtml(scenario, page, trackerHits, { width, theme }) {
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+  const info = await page.evaluate(() => {
+    const body = document.querySelector("[data-panel-body]");
+    const answer = body.querySelector("[data-answer]");
+    const links = [...answer.querySelectorAll("a")].map((a) => ({
+      text: a.textContent,
+      href: a.getAttribute("href"),
+      target: a.getAttribute("target"),
+      rel: a.getAttribute("rel"),
+      style: a.getAttribute("style"),
+      cls: a.getAttribute("class"),
+      position: getComputedStyle(a).position,
+    }));
+    const center = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+    return {
+      images: document.querySelectorAll("[data-conversation-panel] img").length,
+      styled: answer.querySelectorAll("[style]").length,
+      links,
+      centerIsInjected: !!center?.closest?.("[data-answer] a"),
+    };
+  });
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k14.png`) });
+  const byText = (text) => info.links.find((link) => link.text === text);
+  check(scenario, "K14 keine Bilder im Verlauf, kein Abruf beim fremden Server", info.images === 0 && trackerHits.length === 0, { images: info.images, trackerHits });
+  check(scenario, "K14 Bilder als Link mit Alt-Text („Logo der VHS“, „Banner“)", !!byText("Logo der VHS") && !!byText("Banner") && byText("Banner").href.startsWith(TRACKER), { links: info.links });
+  check(scenario, "K14 kein style und keine Seitenklassen in der Antwort, Links im Fluss", info.styled === 0 && info.links.every((link) => link.style === null && link.cls === null && link.position === "static"), { styled: info.styled, links: info.links });
+  check(scenario, "K14 Links in neuem Tab mit rel=noopener noreferrer", info.links.length >= 4 && info.links.every((link) => link.target === "_blank" && link.rel === "noopener noreferrer"), { links: info.links });
+  check(scenario, "K14 die Mitte der Seite gehört nicht dem eingeschleusten Link", !info.centerIsInjected);
+}
+
 async function wideScenario(browser, { width, height, theme }) {
   const scenario = `${width}x${height} ${theme}`;
   const context = await browser.newContext({
@@ -539,6 +733,12 @@ async function wideScenario(browser, { width, height, theme }) {
   });
   await context.addInitScript(initStorage, { theme });
   await mockApi(context);
+  // K14: Abrufe beim fremden Server zählen (es darf keinen geben)
+  const trackerHits = [];
+  await context.route(`${TRACKER}/**`, (route) => {
+    trackerHits.push(route.request().url());
+    return route.fulfill({ status: 204, body: "" });
+  });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
@@ -561,11 +761,12 @@ async function wideScenario(browser, { width, height, theme }) {
   check(scenario, "AK-2 Liste scrollt selbst (overflow-y auto, Inhalt höher als Spalte)", top.scroller.overflowY === "auto" && top.scroller.scrollHeight > top.scroller.clientHeight, top.scroller);
   check(scenario, "AK-2 Verlauf scrollt selbst (overflow-y auto, Inhalt höher)", top.panelBody.overflowY === "auto" && top.panelBody.scrollHeight > top.panelBody.clientHeight, top.panelBody);
   check(scenario, "AK-2 Verlauf im Fluss (relative), nicht sticky", top.panelPosition === "relative", { position: top.panelPosition });
-  // Breiten der Spalten
+  // Breiten der Spalten (E15: einheitlich 44 % zu 56 %, Verlauf mindestens
+  // 480 px auf dem ganzen Desktop)
   const share = top.panel.width / top.area.width;
-  const expectedShare = width >= 1536 ? 0.56 : 0.5;
-  check(scenario, `Verlauf ${Math.round(expectedShare * 100)} % der Breite (abzüglich 8 px Spaltenabstand)`, Math.abs(top.panel.width - (top.area.width * expectedShare - 8)) <= 2 || (width >= 1280 && top.panel.width === 480), { panel: top.panel.width, column: top.column.width, share: Number(share.toFixed(3)) });
-  check(scenario, "Verlauf mindestens 480 px (ab xl)", width < 1280 || top.panel.width >= 480, { panel: top.panel.width });
+  check(scenario, "E15 Verlauf 56 % der Breite (abzüglich 8 px Spaltenabstand) oder 480 px", Math.abs(top.panel.width - (top.area.width * 0.56 - 8)) <= 2 || top.panel.width === 480, { panel: top.panel.width, column: top.column.width, share: Number(share.toFixed(3)) });
+  check(scenario, "E15 Verlauf mindestens 480 px", top.panel.width >= 480, { panel: top.panel.width });
+  check(scenario, "E15 Kopf der Liste ragt nicht über die Spalte (Suche, Filter, Export)", top.headerOverflow === false, { header: top.listHeader, actions: top.listActions, column: top.column });
   // AK-3: Vorwahl ohne Adresse, ohne Fokus
   check(scenario, "AK-3 neueste Konversation vorgewählt", top.currentRow === ROWS[0].first_chat_id, { currentRow: top.currentRow });
   check(scenario, "AK-3 Adresse ohne conversation", !/conversation=/.test(top.url), { url: top.url });
@@ -578,6 +779,18 @@ async function wideScenario(browser, { width, height, theme }) {
   results.push({ scenario, phase: "oben", ...top, rightGap });
   // K14: Blasen im Verlauf (bei 2.560 px vorher bis 1.800 px lang)
   checkBubbles(scenario, top);
+
+  // rc12 K04 (1920×1080 und 1440×900): Sprung zur Liste – Unterkante
+  // sichtbar; danach K01 im Verlauf. Dann frisch laden (K11 braucht die
+  // Seite oben).
+  if ((width === 1920 && height === 1080) || (width === 1440 && height === 900)) {
+    await checkJumpBottom(scenario, page, { width, theme });
+    await checkHistoryArrow(scenario, page);
+    await page.goto(PAGE, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
+    await page.waitForSelector("[data-column]", { timeout: 30_000 });
+    await page.waitForTimeout(400);
+  }
 
   // K11: ↓ vom frischen Stand (der Bereich liegt noch nicht oben an): Die
   // Seite bleibt stehen, nur die Spalte folgt der gewählten Zeile – 20×,
@@ -698,6 +911,10 @@ async function wideScenario(browser, { width, height, theme }) {
 
   // K15: Fokus auf „Weitere laden“ und nachladen
   await checkLoadMoreFocus(scenario, page);
+  // rc12 K03: Fokus bleibt im Suchfeld beim Nachladen
+  await checkSearchFocusDuringLoad(scenario, page);
+  // rc12 K02: Filterwechsel behält eine nachgeladene Konversation
+  await checkFilterKeepsLoaded(scenario, page, { width, theme });
 
   // NAK-3: Escape schließt nicht; Tab aus dem Verlauf heraus
   await page.keyboard.press("Escape");
@@ -750,6 +967,96 @@ async function wideScenario(browser, { width, height, theme }) {
   check(scenario, "AK-7 Deep-Link öffnet die genannte Konversation", linked.currentRow === ROWS[7].first_chat_id, { currentRow: linked.currentRow, url: linked.url });
   await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-link.png`) });
 
+  // rc12 K14 (E13): HTML in Antworten
+  await checkAnswerHtml(scenario, page, trackerHits, { width, theme });
+  check(scenario, "keine Fehler der Seite (bis zum Ende)", errors.length === 0, errors);
+
+  await context.close();
+}
+
+/**
+ * E15: Tablet (1.024 px) wie bisher unter lg – die Liste über die volle
+ * Breite, kein Verlauf von selbst; ein Klick öffnet den Verlauf als
+ * Vollbild mit „‹ Konversationen“ und 44 px hohen Schaltflächen, das
+ * Benutzermenü liegt darunter; Escape schließt.
+ */
+async function tabletScenario(browser, { width, height, theme }) {
+  const scenario = `${width}x${height} ${theme} (Tablet)`;
+  const context = await browser.newContext({
+    viewport: { width, height },
+    colorScheme: theme,
+    locale: "de-DE",
+  });
+  await context.addInitScript(initStorage, { theme });
+  await mockApi(context);
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(String(error)));
+  await page.goto(PAGE, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-row]", { timeout: 30_000 });
+  await page.waitForSelector("[data-column]", { timeout: 30_000 });
+  await page.waitForTimeout(600);
+  const top = await page.evaluate(measure);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-liste.png`) });
+  check(scenario, "E15 Tablet: kein Verlauf und kein Platzhalter von selbst", top.panel === null && top.emptyPanel === null && top.currentRow === null, { currentRow: top.currentRow });
+  check(scenario, "E15 Tablet: kein Arbeitsbereich (block), Liste scrollt mit der Seite", top.areaDisplay === "block" && top.scroller.overflowY === "visible", { display: top.areaDisplay, overflowY: top.scroller.overflowY });
+  check(scenario, "E15 Tablet: Liste über die volle Breite (Inhalt minus 48 px)", Math.abs(top.area.width - (top.content.width - 48)) <= 2, { area: top.area.width, content: top.content.width });
+  check(scenario, "E15 Tablet: Kopf der Liste ragt nicht über die Spalte", top.headerOverflow === false, { header: top.listHeader, actions: top.listActions });
+  await page.click("[data-conversation-row] >> nth=1");
+  await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
+  await page.waitForTimeout(400);
+  const full = await page.evaluate(measure);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-vollbild.png`) });
+  check(scenario, "E15 Tablet: Verlauf als Vollbild (fixed, so groß wie das Fenster)", full.panelPosition === "fixed" && full.panel.width === width && full.panel.height === height, { position: full.panelPosition, panel: full.panel });
+  check(scenario, "E15 Tablet: „‹ Konversationen“ sichtbar, ✕ nicht, Schaltflächen 44 px hoch", !!full.back && full.back.height === 44 && full.close?.width === 0 && full.nextButton?.height === 44, { back: full.back, close: full.close, next: full.nextButton });
+  check(scenario, "E15 Tablet: Fokus auf „‹ Konversationen“", await page.evaluate(() => document.activeElement?.hasAttribute("data-panel-back")));
+  check(scenario, "E15 Tablet: das Vollbild liegt über dem Benutzermenü", full.avatarCovered === true, { avatarCovered: full.avatarCovered });
+  check(scenario, "E15 Tablet: Adresse mit der Konversation (neuer Eintrag wie bisher)", /conversation=/.test(full.url), { url: full.url });
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  check(scenario, "E15 Tablet: Escape schließt das Vollbild", (await page.locator("[data-conversation-panel]").count()) === 0);
+  check(scenario, "keine Fehler der Seite", errors.length === 0, errors);
+  results.push({ scenario, phase: "tablet", ...top });
+  await context.close();
+}
+
+/**
+ * E15: Untergrenze des Desktops (1.280 px) – der Arbeitsbereich gilt, der
+ * Verlauf ist mindestens 480 px breit (56 %), der Kopf der Liste passt in
+ * die schmale Spalte; bei 1.279 px noch das Tablet.
+ */
+async function desktopEdgeScenario(browser, { width, height, theme }) {
+  const scenario = `${width}x${height} ${theme} (Desktop-Untergrenze)`;
+  const context = await browser.newContext({
+    viewport: { width, height },
+    colorScheme: theme,
+    locale: "de-DE",
+  });
+  await context.addInitScript(initStorage, { theme });
+  await mockApi(context);
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(String(error)));
+  await page.goto(PAGE, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-message]", { timeout: 30_000 });
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    const container = document.querySelector("[data-chatbot-content]").parentElement;
+    container.scrollTop = container.scrollHeight;
+  });
+  await page.waitForTimeout(300);
+  const m = await page.evaluate(measure);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-unten.png`) });
+  check(scenario, "E15 Desktop ab 1.280 px: Arbeitsbereich (flex), Verlauf vorgewählt", m.areaDisplay === "flex" && m.currentRow === ROWS[0].first_chat_id, { display: m.areaDisplay, currentRow: m.currentRow });
+  check(scenario, "E15 Verlauf 56 % und mindestens 480 px", m.panel.width >= 480 && (Math.abs(m.panel.width - (m.area.width * 0.56 - 8)) <= 2 || m.panel.width === 480), { panel: m.panel.width, area: m.area.width, column: m.column.width });
+  check(scenario, "E15 Kopf der Liste ragt nicht über die schmale Spalte", m.headerOverflow === false, { header: m.listHeader, actions: m.listActions, column: m.column });
+  checkAvatarClearance(scenario, m);
+  await page.setViewportSize({ width: width - 1, height });
+  await page.waitForTimeout(500);
+  const below = await page.evaluate(measure);
+  check(scenario, "E15 bei 1.279 px das Tablet: kein Arbeitsbereich", below.areaDisplay === "block", { display: below.areaDisplay });
+  check(scenario, "keine Fehler der Seite", errors.length === 0, errors);
+  results.push({ scenario, phase: "desktop-untergrenze", ...m });
   await context.close();
 }
 
@@ -839,11 +1146,15 @@ let browser;
 try {
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const wanted = (width) => ONLY === null || ONLY === width;
+  // E15: Smartphone 390, Tablet 1.024, Desktop 1.280 (Untergrenze), 1.440
+  // und 1.920; dazu 2.560 (AK-9) und das niedrige Fenster 1920×600 (K13)
   for (const theme of ["dark", "light"]) {
     if (wanted(1440)) await wideScenario(browser, { width: 1440, height: 900, theme });
     if (wanted(1920)) await wideScenario(browser, { width: 1920, height: 1080, theme });
     if (wanted(2560)) await wideScenario(browser, { width: 2560, height: 1440, theme });
     if (wanted(1920) || wanted(600)) await lowScenario(browser, { width: 1920, height: 600, theme });
+    if (wanted(1280)) await desktopEdgeScenario(browser, { width: 1280, height: 800, theme });
+    if (wanted(1024)) await tabletScenario(browser, { width: 1024, height: 768, theme });
     if (wanted(390)) await narrowScenario(browser, { width: 390, height: 844, theme });
   }
 } finally {

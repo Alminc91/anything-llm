@@ -1272,7 +1272,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "AK-9: Unter lg ist das Panel ein Vollbild mit „‹ Konversationen“; Schaltflächen 44 px hoch; „‹ Konversationen“ kehrt zur Liste zurück",
+  "AK-9 / E15: Auf Tablet und Smartphone (unter xl, 1.280 px) ist das Panel ein Vollbild mit „‹ Konversationen“; Schaltflächen 44 px hoch, kompakt erst auf dem Desktop; „‹ Konversationen“ kehrt zur Liste zurück",
   { skip },
   async (t) => {
     const server = await panelServer(t, { rows: [row(1), row(2)] });
@@ -1281,13 +1281,16 @@ test(
     const panel = panelOf(container);
     const classes = (element) =>
       (element.getAttribute("class") ?? "").split(/\s+/);
-    // Vollbild bis lg, ab lg die rechte Spalte des Arbeitsbereichs (KIE-575)
-    for (const name of ["fixed", "inset-0", "lg:relative", "lg:inset-auto"])
+    // Vollbild bis xl, auf dem Desktop die rechte Spalte des Arbeitsbereichs
+    // (KIE-575, E15) – kein lg: mehr, das Tablet bekommt das Vollbild
+    for (const name of ["fixed", "inset-0", "xl:relative", "xl:inset-auto"])
       assert.ok(classes(panel).includes(name), name);
+    assert.ok(!classes(panel).some((name) => name.startsWith("lg:")));
     const back = one(panel, "data-panel-back");
     assert.equal(back.textContent, "Konversationen");
     assert.ok(classes(back).includes("h-11"));
-    assert.ok(classes(back).includes("lg:hidden"));
+    assert.ok(classes(back).includes("xl:hidden"));
+    assert.ok(!classes(back).includes("lg:hidden"));
     for (const name of [
       "data-panel-previous",
       "data-panel-next",
@@ -1297,9 +1300,12 @@ test(
       const button = one(panel, name);
       assert.ok(classes(button).includes("h-11"), name);
       assert.ok(classes(button).includes("w-11"), name);
+      assert.ok(classes(button).includes("xl:h-9"), name);
+      assert.ok(!classes(button).includes("lg:h-9"), name);
     }
-    // ✕ nur ab lg
+    // ✕ nur auf dem Desktop
     assert.ok(classes(one(panel, "data-panel-close")).includes("hidden"));
+    assert.ok(classes(one(panel, "data-panel-close")).includes("xl:grid"));
     // Zeilen mindestens 44 px: zwei Textzeilen (20 + 18 px) und py-2
     const [first] = rowsOf(container);
     assert.ok(classes(first).includes("py-2"));
@@ -1524,7 +1530,7 @@ function captureKeys(t, document) {
     });
 }
 
-/** window.matchMedia für eine Breite (lg = ab 1024 px). */
+/** window.matchMedia für eine Breite (Desktop = ab 1.280 px, xl; Fixliste 7.22-rc13 E15). */
 // Fokusring der Seite (Listenzeilen, Diagramm-Schalter): 2 px in der
 // Textfarbe, nur bei Tastaturbedienung (Nachtrag N3)
 const FOCUS_RING = [
@@ -1536,7 +1542,7 @@ const FOCUS_RING = [
 function stubWidth(t, wide) {
   const original = globalThis.window.matchMedia;
   globalThis.window.matchMedia = (query) => ({
-    matches: query.includes("1024") ? wide : false,
+    matches: query.includes("1280") ? wide : false,
     addEventListener() {},
     removeEventListener() {},
   });
@@ -2550,7 +2556,7 @@ test(
 );
 
 test(
-  "Fixliste 2, B4 / KIE-575: Das Panel klebt ab lg nicht mehr – es ist die rechte Spalte des Arbeitsbereichs (relative, Breite nach WORKSPACE.panel), ohne gerechnete Höhe",
+  "Fixliste 2, B4 / KIE-575 / E15: Das Panel klebt nicht mehr – auf dem Desktop (xl) ist es die rechte Spalte des Arbeitsbereichs (relative, Breite nach WORKSPACE.panel), ohne gerechnete Höhe",
   { skip },
   async (t) => {
     const { WORKSPACE } = await renderer.load("/src/utils/conversationView.js");
@@ -2558,8 +2564,9 @@ test(
     const { container, act } = await mountList(t);
     await act(() => click(rowsOf(container)[0]));
     const panel = panelOf(container);
-    assert.ok(hasClasses(panel, ["lg:relative", ...WORKSPACE.panel.split(" ")]));
+    assert.ok(hasClasses(panel, ["xl:relative", ...WORKSPACE.panel.split(" ")]));
     for (const name of [
+      "lg:relative",
       "lg:sticky",
       "lg:top-16",
       "lg:top-4",
@@ -3072,7 +3079,7 @@ test(
     const mountView = async (query, wide) => {
       const restore = globalThis.window.matchMedia;
       globalThis.window.matchMedia = (q) => ({
-        matches: q.includes("1024") ? wide : false,
+        matches: q.includes("1280") ? wide : false,
         addEventListener() {},
         removeEventListener() {},
       });
@@ -3448,18 +3455,20 @@ test(
     const document = probe.document;
     await probe.unmount();
     const events = captureDocumentListeners(t, document);
-    // Sprünge zum Ziel „Liste“ (scroll-mt-20); die Liste steht danach bei 96
+    // Sprünge zum Ziel „Liste“ (auf dem Desktop xl:scroll-mt-2); die Liste
+    // steht danach in der Ruhelage des Arbeitsbereichs bei 24 (Rahmen 16 +
+    // 8, Review 7.22-rc12 K04; vorher scroll-mt-20: 96)
     const jumps = [];
     let listTop = 900;
     const original = {
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
     };
-    const isTarget = (element) => classesOf(element).includes("scroll-mt-20");
+    const isTarget = (element) => classesOf(element).includes("xl:scroll-mt-2");
     prototype.scrollIntoView = function (options) {
       if (isTarget(this)) {
         jumps.push(options);
-        listTop = 96;
+        listTop = 24;
       }
     };
     prototype.getBoundingClientRect = function () {
@@ -4239,7 +4248,8 @@ test(
     t.after(() => {
       globalThis.window.innerHeight = originalHeight;
     });
-    // Liste (Sprungziel scroll-mt-20) und Zeile 5: Lage im Fenster
+    // Liste (Sprungziel, auf dem Desktop xl:scroll-mt-2) und Zeile 5: Lage
+    // im Fenster
     const jumps = [];
     // Die Spalte stellt ihre Scrollposition selbst ein (rc11, K11): jede
     // Zuweisung an scrollTop der Spalte – ein scrollIntoView der Zeile
@@ -4251,13 +4261,13 @@ test(
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
     };
-    const isTarget = (element) => classesOf(element).includes("scroll-mt-20");
+    const isTarget = (element) => classesOf(element).includes("xl:scroll-mt-2");
     const isRow = (element) =>
       element.getAttribute?.("data-conversation-row") === "5";
     prototype.scrollIntoView = function (options) {
       if (isTarget(this)) {
         jumps.push(options);
-        listTop = 96;
+        listTop = 24;
       } else columnScrolls.push(["scrollIntoView", options]);
     };
     prototype.getBoundingClientRect = function () {
@@ -4365,13 +4375,13 @@ test(
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
     };
-    const isTarget = (element) => classesOf(element).includes("scroll-mt-20");
+    const isTarget = (element) => classesOf(element).includes("xl:scroll-mt-2");
     const isRow = (element) =>
       element.getAttribute?.("data-conversation-row") === "745";
     prototype.scrollIntoView = function (options) {
       if (isTarget(this)) {
         jumps.push(options);
-        listTop = 96;
+        listTop = 24;
       } else columnScrolls.push(["scrollIntoView", options]);
     };
     prototype.getBoundingClientRect = function () {
@@ -5417,7 +5427,7 @@ function switchableWidth(t, wide) {
   let current = wide;
   globalThis.window.matchMedia = (query) => ({
     get matches() {
-      return query.includes("1024") ? current : false;
+      return query.includes("1280") ? current : false;
     },
     addEventListener(_type, listener) {
       listeners.add(listener);
@@ -5588,7 +5598,7 @@ test(
 );
 
 test(
-  "rc3 (Opus Low 2): Die Bewertungs-Schaltflächen stehen gemeinsam in einer eigenen Zeile unter „Datum · Fragen · Uhrzeit“ (nie eine Pille allein in einer Folgezeile) – kurzer Text mit Daumen, je ohne Umbruch; mobil 44 px hoch, ab lg kompakt",
+  "rc3 (Opus Low 2): Die Bewertungs-Schaltflächen stehen gemeinsam in einer eigenen Zeile unter „Datum · Fragen · Uhrzeit“ (nie eine Pille allein in einer Folgezeile) – kurzer Text mit Daumen, je ohne Umbruch; mobil und auf dem Tablet 44 px hoch, auf dem Desktop (xl) kompakt",
   { skip },
   async (t) => {
     await panelServer(t, {
@@ -5619,7 +5629,7 @@ test(
     ]);
     for (const button of withAttribute(ratings, "data-rating-jump")) {
       assert.ok(
-        hasClasses(button, ["min-h-11", "lg:min-h-0", "whitespace-nowrap"])
+        hasClasses(button, ["min-h-11", "xl:min-h-0", "whitespace-nowrap"])
       );
       const icons = elements(button, (e) => e.tagName === "svg");
       assert.equal(icons.length, 1);

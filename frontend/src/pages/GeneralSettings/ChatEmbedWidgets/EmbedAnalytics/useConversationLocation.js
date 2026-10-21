@@ -14,8 +14,9 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 // Öffnen einer Konversation aus der geschlossenen Liste legt einen Eintrag im
 // Verlauf an: Der Zurück-Knopf des Browsers schließt sie wieder. Alles andere
 // – eine andere Konversation bei offenem Panel, vorherige/nächste, Suche,
-// Widget – ersetzt den aktuellen Eintrag. Ab lg (KIE-575) ist der Verlauf
-// ein Arbeitsbereich neben der Liste, der von sich aus offen ist: Dort
+// Widget – ersetzt den aktuellen Eintrag. Auf dem Desktop (ab xl, KIE-575)
+// ist der Verlauf ein Arbeitsbereich neben der Liste, der von sich aus
+// offen ist: Dort
 // ersetzt auch ein Klick aus der Liste (Option replace) – Zurück verlässt
 // die Seite, statt die Konversation zu schließen. Die automatische Vorwahl
 // der ersten Zeile schreibt nichts in die Adresse.
@@ -108,7 +109,7 @@ export default function useConversationLocation() {
     (id, { widgetId: widget, replace = false } = {}) => {
       // Aus der geschlossenen Liste: neuer Eintrag (Zurück schließt). Ist
       // schon eine Konversation offen – oder soll der Eintrag ohnehin
-      // ersetzt werden (Arbeitsbereich ab lg) –, wird ersetzt.
+      // ersetzt werden (Arbeitsbereich auf dem Desktop) –, wird ersetzt.
       const push = chatId === null && !replace;
       update(
         (next) => {

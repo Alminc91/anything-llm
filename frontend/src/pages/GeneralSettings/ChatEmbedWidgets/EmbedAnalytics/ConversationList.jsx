@@ -28,6 +28,7 @@ import {
   SEARCH_MAX_LENGTH,
   WORKSPACE,
   arrowNavigationAllowed,
+  arrowStep,
   berlinDateTime,
   berlinTime,
   conversationKey,
@@ -55,10 +56,11 @@ import { useWide } from "./viewHooks";
 // Konversationsliste der Ansicht „Konversationen": kompakte Zeilen, nach dem
 // Tag der LETZTEN Nachricht gruppiert (Berliner Zeit) und danach sortiert –
 // eine weitergeführte alte Konversation steht wieder oben. Ein Klick öffnet
-// den Gesprächsverlauf: ab lg als rechte Spalte eines Arbeitsbereichs mit
-// fester Höhe (KIE-575: Liste links, Verlauf rechts, je eigene
-// Bildlaufleiste; der Verlauf ist von sich aus offen, die neueste Zeile
-// vorgewählt, ✕ schließt ihn und merkt sich das), darunter als Vollbild.
+// den Gesprächsverlauf: auf dem Desktop (ab xl, 1.280 px; Fixliste
+// 7.22-rc13, E15) als rechte Spalte eines Arbeitsbereichs mit fester Höhe
+// (KIE-575: Liste links, Verlauf rechts, je eigene Bildlaufleiste; der
+// Verlauf ist von sich aus offen, die neueste Zeile vorgewählt, ✕ schließt
+// ihn und merkt sich das), auf Tablet und Smartphone als Vollbild.
 // Geöffnete Konversation und Suche stehen in der Adresse
 // (useConversationLocation); die automatische Vorwahl nicht.
 
@@ -107,9 +109,11 @@ const EMPTY_STATE_KEYS = {
 // Umschalter „Alle / Positiv bewertet / Negativ bewertet"
 // Von sm bis xl etwas schmaler (px-2.5): Suche (≥ 240 px), Filter und Export
 // passen so bei 1024 px neben dem Abstand zum Benutzermenü in eine Zeile
-// (Fixliste 4, V5).
+// (Fixliste 4, V5). Kompakt (Verlauf daneben, siehe compactHeader) bleibt
+// es bei px-2.5.
 const SEGMENT_CLASS =
-  "flex h-11 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm transition-colors sm:h-9 sm:px-2.5 xl:px-3";
+  "flex h-11 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm transition-colors sm:h-9 sm:px-2.5";
+const SEGMENT_WIDE = "xl:px-3";
 const SEGMENT_ACTIVE =
   "bg-white/10 text-theme-text-primary font-medium light:bg-black/[0.07]";
 // Gedämpfte Schrift wie die Kopfzeile: im hellen Theme #5f6368 statt
@@ -260,17 +264,29 @@ export default function ConversationList({
   const { t } = useTranslation();
   const place = useConversationLocation();
   const search = effectiveSearch(place.search);
-  // Die Konversation aus der Adresse (Link, Klick, Blättern). Ab lg kommt
-  // unten die automatische Vorwahl der ersten Zeile dazu (chatId).
+  // Die Konversation aus der Adresse (Link, Klick, Blättern). Auf dem
+  // Desktop kommt unten die automatische Vorwahl der ersten Zeile dazu
+  // (chatId).
   const linkedChatId = place.chatId;
+  // Desktop (ab xl, E15): Verlauf neben der Liste
   const wide = useWide();
   // KIE-575: Verlauf offen oder zu – gemerkt im Browser, Standard offen.
-  // Gilt nur ab lg (darunter öffnet eine Zeile das Vollbild wie bisher).
+  // Gilt nur auf dem Desktop (sonst öffnet eine Zeile das Vollbild wie
+  // bisher).
   const [panelOpen, setPanelOpen] = useState(() => readPanelPreference());
   const rememberPanel = useCallback((open) => {
     setPanelOpen(open);
     writePanelPreference(open);
   }, []);
+  // Ein Link öffnet immer, auch bei gemerkt „geschlossen“, ohne das Gemerkte
+  // zu ändern (AK-7). Für diese Sitzung gilt der Verlauf dann als offen, bis
+  // ✕ ihn schließt (Review 7.22-rc12, K07): Fällt die Konversation des
+  // Links nach einem Wechsel heraus, ist die erste Zeile vorgewählt bzw. der
+  // Platzhalter zu sehen – sonst verschwände der Verlauf samt Konversation.
+  const [linkKeepsOpen, setLinkKeepsOpen] = useState(
+    () => place.chatId !== null
+  );
+  const panelShown = panelOpen || linkKeepsOpen;
 
   const bucketStart = bucket?.start ?? null;
   const bucketEnd = bucket?.end ?? null;
@@ -506,16 +522,48 @@ export default function ConversationList({
   const moreFailed = !loading && list.moreFailed;
   const totalCount = loading ? 0 : list.total;
 
-  // KIE-575, ab lg: Ohne Konversation in der Adresse ist die erste (neueste)
-  // geladene Zeile vorgewählt, solange der Verlauf offen ist – ohne die
-  // Adresse oder den Verlauf des Browsers zu ändern (AK-3). Lädt die Liste
-  // (Wechsel von Zeitraum, Filter, Suche), ist vorerst nichts gewählt; der
-  // Platzhalter des Verlaufs hält derweil die Spalte (kein Layoutsprung).
-  const autoChatId =
-    wide && panelOpen && linkedChatId === null && items.length > 0
-      ? items[0].first_chat_id
-      : null;
+  // Position jeder Zeile (statt indexOf je Zeile beim Rendern)
+  const positions = useMemo(
+    () => new Map(items.map((item, index) => [item.first_chat_id, index])),
+    [items]
+  );
+
+  // Gelöscht, und die Liste lädt noch neu (Review 7.22-rc12, K06): Bis die
+  // neue Liste da ist, steht die gelöschte Konversation noch in der alten –
+  // sie wird dann nicht (wieder) vorgewählt. Gilt für genau den Stand der
+  // Liste beim Löschen.
+  const [deletedRow, setDeletedRow] = useState(null);
+  if (deletedRow && deletedRow.items !== list.items) setDeletedRow(null);
+  const deletedChatId = deletedRow?.chatId ?? null;
+
+  // KIE-575, Desktop: Ohne Konversation in der Adresse ist eine Zeile der
+  // geladenen Liste vorgewählt, solange der Verlauf offen ist – ohne die
+  // Adresse oder den Verlauf des Browsers zu ändern (AK-3): zuerst die
+  // neueste. Bei einem Wechsel von Zeitraum, Filter oder Suche bleibt die
+  // bisherige Wahl, auch während die Liste lädt, und danach, solange sie in
+  // der neuen Liste steht; sonst die erste Zeile (Review 7.22-rc12, K10:
+  // vorher fiel die Wahl beim Laden auf nichts, der Verlauf wurde neu
+  // geladen und sprang auf die erste Zeile). Gemerkt wird die Wahl je
+  // Widget (held). Lädt die Liste ohne bisherige Wahl, hält der Platzhalter
+  // des Verlaufs die Spalte (kein Layoutsprung).
+  const [held, setHeld] = useState({ embedId: null, chatId: null });
+  const heldChatId = held.embedId === embedId ? held.chatId : null;
+  let autoChatId = null;
+  if (wide && panelShown && linkedChatId === null) {
+    if (
+      heldChatId !== null &&
+      heldChatId !== deletedChatId &&
+      (loading || positions.has(heldChatId))
+    )
+      autoChatId = heldChatId;
+    else if (!loading)
+      autoChatId =
+        items.find((item) => item.first_chat_id !== deletedChatId)
+          ?.first_chat_id ?? null;
+  }
   const chatId = linkedChatId ?? autoChatId;
+  if (held.chatId !== chatId || held.embedId !== embedId)
+    setHeld({ embedId, chatId });
 
   // „Neu“ (K3) hängt an der Uhr: Läuft das erste „Neu“ ab, rechnet die Liste
   // neu, auch wenn die Seite offen bleibt; ebenso bei der Rückkehr in den Tab
@@ -550,17 +598,21 @@ export default function ConversationList({
   // (Tab ans Listenende, Klick), merkt sich die Liste, wohin der Fokus
   // danach gehört – ausgewertet, sobald die Seite da ist (Effekt unten).
   // rows: Zahl der Zeilen vorher (die erste neue Zeile), keyboard: Fokus
-  // per Tastatur (Fokusring sichtbar).
+  // per Tastatur (Fokusring sichtbar), byHand: Klick oder Enter auf den
+  // Knopf (loadMoreByHand). Von selbst (Spaltenende, Link-Suche, Auffüllen)
+  // entsteht der Wunsch nur, wenn keiner aussteht – eine Kette überschreibt
+  // ihn nicht (Review 7.22-rc12, K08).
   const loadMoreRef = useRef(null);
   const focusAfterLoad = useRef(null);
   const loadMore = useCallback(
     (limit = PAGE_SIZE) => {
       const button = loadMoreRef.current;
-      if (hasFocus(button))
+      if (hasFocus(button) && !focusAfterLoad.current)
         focusAfterLoad.current = {
           scope,
           rows: list.items.length,
           keyboard: focusVisible(button),
+          byHand: false,
         };
       const after = cursorAfter(lastItem, listMaxId);
       setRequest((current) => ({
@@ -610,12 +662,6 @@ export default function ConversationList({
   // Geöffnete Konversation, vorherige/nächste
   // ---------------------------------------------------------------------------
 
-  // Position jeder Zeile (statt indexOf je Zeile beim Rendern)
-  const positions = useMemo(
-    () => new Map(items.map((item, index) => [item.first_chat_id, index])),
-    [items]
-  );
-
   // Schlüssel der geladenen Konversation (Panel) – damit auch eine per Link
   // geöffnete Zeile in der Liste markiert ist, deren erste Zeile im Zeitraum
   // eine andere ist. outside: keine Nachricht im Zeitraum.
@@ -642,9 +688,10 @@ export default function ConversationList({
 
   const openRow = useCallback(
     (row) => {
-      // Ab lg ersetzt der Klick den Eintrag im Verlauf des Browsers: Der
-      // Verlauf ist dort ein Arbeitsbereich, den Zurück nicht schließt
-      // (KIE-575). Unter lg wie bisher (neuer Eintrag aus der Liste).
+      // Auf dem Desktop ersetzt der Klick den Eintrag im Verlauf des
+      // Browsers: Der Verlauf ist dort ein Arbeitsbereich, den Zurück nicht
+      // schließt (KIE-575). Im Vollbild wie bisher (neuer Eintrag aus der
+      // Liste).
       place.openConversation(row.first_chat_id, {
         widgetId: embedId,
         replace: wide,
@@ -655,10 +702,12 @@ export default function ConversationList({
     },
     [place, embedId, wide, panelOpen, rememberPanel]
   );
-  // ✕ (ab lg) bzw. „‹ Konversationen“ (unter lg): Ab lg wird „geschlossen“
-  // gemerkt – die Liste nimmt die volle Breite ein, bis eine Zeile geklickt
-  // wird; eine Konversation aus der Adresse verschwindet daraus wie bisher.
+  // ✕ (Desktop) bzw. „‹ Konversationen“ (Vollbild): Auf dem Desktop wird
+  // „geschlossen“ gemerkt – die Liste nimmt die volle Breite ein, bis eine
+  // Zeile geklickt wird; eine Konversation aus der Adresse verschwindet
+  // daraus wie bisher. Auch ein per Link offener Verlauf ist dann zu (K07).
   const closePanel = useCallback(() => {
+    setLinkKeepsOpen(false);
     if (wide) rememberPanel(false);
     if (linkedChatId !== null) place.closeConversation();
   }, [wide, rememberPanel, linkedChatId, place]);
@@ -702,12 +751,14 @@ export default function ConversationList({
       if (!loading && !loadingMore) loadMore();
     }
   };
-  // KIE-575, AK-6: ↑/↓ blättern ab lg auch ohne vorherigen Klick – direkt
-  // nach dem Öffnen der Seite steht der Fokus auf <body>, und niemand nimmt
-  // die Pfeiltasten (arrowNavigationAllowed: auch im Kopf des Panels, nicht
-  // auf Zeilen, in Eingaben, im Menü oder im scrollenden Verlauf). Der
-  // Fokus bleibt, wo er ist (kein Fokusdiebstahl); die gewählte Zeile kommt
-  // über openFollowing in der Spalte in Sicht.
+  // KIE-575, AK-6: ↑/↓ blättern auf dem Desktop auch ohne vorherigen Klick –
+  // direkt nach dem Öffnen der Seite steht der Fokus auf <body>, und niemand
+  // nimmt die Pfeiltasten (arrowNavigationAllowed: auch im Kopf des Panels,
+  // nicht auf Zeilen, in Eingaben, im Menü, im Verlauf – ein Klick in seinen
+  // Text setzt den Fokus dorthin – und nie bei offener Rückfrage). Mit
+  // Umschalt-, Alt-, Strg- oder Befehlstaste nicht (arrowStep, Review
+  // 7.22-rc12 K01). Der Fokus bleibt, wo er ist (kein Fokusdiebstahl); die
+  // gewählte Zeile kommt über openFollowing in der Spalte in Sicht.
   const navigateRef = useRef(navigate);
   useLayoutEffect(() => {
     navigateRef.current = navigate;
@@ -716,10 +767,11 @@ export default function ConversationList({
     if (!wide || chatId === null || typeof window === "undefined") return;
     function handleKeyDown(event) {
       if (event.defaultPrevented) return;
-      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const step = arrowStep(event);
+      if (step === 0) return;
       if (!arrowNavigationAllowed(document)) return;
       event.preventDefault();
-      navigateRef.current(event.key === "ArrowDown" ? 1 : -1);
+      navigateRef.current(step);
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -727,13 +779,14 @@ export default function ConversationList({
 
   // Per Link (Adresse beim Öffnen der Seite) geöffnet und (noch) nicht unter
   // den geladenen Konversationen: nachladen, bis sie gefunden ist – bis zu
-  // LINK_SEARCH_ROWS Zeilen. Nur im Zuschnitt, mit dem die Seite geöffnet
-  // wurde: Wechselt bei offenem Panel Filter oder Suche, lädt die Liste
-  // nichts nach, der Hinweis erscheint gleich (Fixliste 2, R5). Liegt die
-  // Konversation außerhalb des Zeitraums, steht sie nie in der Liste. Der
-  // Stand der Suche folgt allein aus der Liste (Fixliste 3, C4): Scheitert
-  // ein Nachladen, hält sie an und der Hinweis sagt es; gelingt später ein
-  // Nachladen (etwa „Weitere laden“), verschwindet er wieder.
+  // LINK_SEARCH_ROWS Zeilen. Im Zuschnitt, mit dem die Seite geöffnet
+  // wurde, und auf dem Desktop nach einem Wechsel des Zuschnitts (siehe
+  // linkedIn unten); im Vollbild gibt es bei offenem Panel keinen Wechsel
+  // (Fixliste 2, R5). Liegt die Konversation außerhalb des Zeitraums, steht
+  // sie nie in der Liste. Der Stand der Suche folgt allein aus der Liste
+  // (Fixliste 3, C4): Scheitert ein Nachladen, hält sie an und der Hinweis
+  // sagt es; gelingt später ein Nachladen (etwa „Weitere laden“),
+  // verschwindet er wieder.
   const [linkScope] = useState(() =>
     linkedChatId !== null ? { chatId: linkedChatId, scope } : null
   );
@@ -756,10 +809,93 @@ export default function ConversationList({
     !loadedKey.outside &&
     !loading &&
     !failed;
+  // Review 7.22-rc12, K02: Der Zuschnitt, in dem die Konversation aus der
+  // Adresse zuletzt in der Liste stand – geöffnet aus der Liste (Klick,
+  // Pfeiltasten, Link beim Öffnen der Seite) oder nach einem Wechsel darin
+  // gefunden (found). Nach einem echten Wechsel von Widget, Zeitraum,
+  // Filter, Säule oder Suche (scopeChanged) sucht die Liste sie wie beim
+  // Link (bis LINK_SEARCH_ROWS Zeilen), statt sie schon zu verwerfen, wenn
+  // sie nicht auf der ersten Seite steht. Ohne Wechsel (etwa die Liste lädt
+  // nach dem Löschen neu) fällt sie nie aus der Adresse.
+  const [linkedIn, setLinkedIn] = useState(() => ({
+    chatId: linkedChatId,
+    scope,
+    found: false,
+  }));
+  if (linkedIn.chatId !== linkedChatId)
+    setLinkedIn({ chatId: linkedChatId, scope, found: false });
+  else if (
+    linkedChatId !== null &&
+    linkedIn.scope !== scope &&
+    !loading &&
+    currentIndex >= 0
+  )
+    setLinkedIn({ chatId: linkedChatId, scope, found: true });
+  const scopeChanged =
+    linkedChatId !== null &&
+    linkedIn.chatId === linkedChatId &&
+    linkedIn.scope !== scope;
+  const searchAfterChange = wide && scopeChanged && !fromLink;
   const linkRows =
-    fromLink && notListed && items.length < LINK_SEARCH_ROWS
+    (fromLink || searchAfterChange) &&
+    notListed &&
+    items.length < LINK_SEARCH_ROWS
       ? Math.min(LINK_SEARCH_ROWS, items.length + PAGE_MAX)
       : 0;
+
+  // Die scrollende Spalte der Zeilen (Desktop) und die Zeile mit dem
+  // Schlüssel darin in Sicht bringen – die Scrollposition der Spalte wird
+  // gerechnet (nearestScrollTop, ROW_SCROLL_MARGIN), nicht per
+  // scrollIntoView: Das scrollte auch die Seite, solange der Bereich noch
+  // nicht oben anlag (Fixliste 7.22-rc11, K11). Die Seite bewegt sich so
+  // nie.
+  const columnRef = useRef(null);
+  const endRef = useRef(null);
+  const rowRefs = useRef(new Map());
+  const showRowInColumn = useCallback((key) => {
+    const column = columnRef.current;
+    const row = key === null ? null : rowRefs.current.get(key);
+    if (!column || !row) return;
+    column.scrollTop = nearestScrollTop(column, row, ROW_SCROLL_MARGIN);
+  }, []);
+
+  // K15: Die Seite ist da (oder gescheitert) – wohin gehört der Fokus, der
+  // beim Nachladen auf „Weitere laden“ stand (focusAfterLoad)?
+  // - Hat der Nutzer ihn inzwischen woanders hingesetzt (Suchfeld, Panel,
+  //   eine Zeile), bleibt er dort (Review 7.22-rc12, K03).
+  // - Von selbst nachgeladen (Spaltenende, Link-Suche, Auffüllen): Er bleibt
+  //   auf dem Knopf; nur wenn der Knopf mit der letzten Seite verschwunden
+  //   ist, geht er auf die erste neue Zeile (K09: Tab auf den Knopf lud
+  //   sonst nach und zog den Fokus ohne Aktivierung weiter).
+  // - Klick oder Enter: per Tastatur auf die erste neue Zeile (in der
+  //   Spalte in Sicht, ohne die Seite zu scrollen); per Zeiger bleibt er auf
+  //   dem Knopf, außer der Knopf ist verschwunden.
+  // Ohne neue Zeile (nur Doppelte, Fehler) bleibt der Knopf da und behält
+  // den Fokus. Dieser Effekt steht vor dem des gemeinsamen Nachladens: Effekte
+  // laufen in der Reihenfolge, in der sie stehen – so ist der Wunsch der
+  // eben geladenen Seite erledigt, bevor eine Kette die nächste anfordert und
+  // einen neuen anlegt (K08).
+  useEffect(() => {
+    const wish = focusAfterLoad.current;
+    if (!wish || loading || loadingMore) return;
+    focusAfterLoad.current = null;
+    if (wish.scope !== scope) return;
+    const button = loadMoreRef.current;
+    const onButton = hasFocus(button);
+    if (!onButton && !focusLost(document)) return;
+    if (!wish.byHand && button) return;
+    if (onButton && !wish.keyboard) return;
+    const first = items[wish.rows];
+    if (!first) return;
+    const key = conversationKey(first);
+    const row = rowRefs.current.get(key);
+    if (!row) return;
+    // Im Vollbild-Modus (Tablet, Smartphone) scrollt die Seite zur
+    // fokussierten Zeile wie bei Tab; per Zeiger (Knopf verschwunden) ohne
+    // Scrollen, damit nichts springt
+    row.focus?.(wide || !wish.keyboard ? { preventScroll: true } : undefined);
+    if (wide && wish.keyboard) showRowInColumn(key);
+  }, [loading, loadingMore, items, scope, wide, showRowInColumn]);
 
   // Gemeinsames Nachladen (Fixliste 3, S3): „Nächste“ am Ende, Link-Suche
   // und Auffüllen nach dem Löschen sagen nur, wie viele Zeilen sie brauchen;
@@ -767,9 +903,9 @@ export default function ConversationList({
   // überschreibt die eines anderen. Es hält an, wenn eine Seite keine neue
   // Zeile bringt (nur Doppelte, etwa nach Verschiebungen), ein Nachladen
   // scheitert oder AUTO_LOAD_ROUNDS Anfragen gestellt sind (Fixliste 3, C1).
-  // KIE-575, AK-5: Kommt ab lg das Ende der Spalte in Sicht, wünscht sich die
-  // Liste die nächste Seite (IntersectionObserver unten) – als Wunsch wie die
-  // anderen, über dasselbe Nachladen.
+  // KIE-575, AK-5: Kommt auf dem Desktop das Ende der Spalte in Sicht,
+  // wünscht sich die Liste die nächste Seite (IntersectionObserver unten) –
+  // als Wunsch wie die anderen, über dasselbe Nachladen.
   const [endWish, setEndWish] = useState(null);
   if (endWish && endWish.scope !== scope) setEndWish(null);
   const wantedRows = Math.max(
@@ -804,8 +940,8 @@ export default function ConversationList({
   if (settled(refill)) setRefill(null);
   if (settled(endWish)) setEndWish(null);
 
-  // Automatisches Nachladen am Ende der Spalte (ab lg, KIE-575): Ein
-  // Beobachter am letzten Element der geladenen Zeilen (data-list-end), mit
+  // Automatisches Nachladen am Ende der Spalte (Desktop, KIE-575): Ein
+  // Beobachter am Ende der geladenen Zeilen (data-list-end), mit
   // der Spalte als Rahmen. Kommt es in Sicht, kommt eine Seite dazu; der
   // Beobachter wird mit jeder Seite neu angelegt und meldet den Stand
   // (noch in Sicht: die nächste). Höchstens AUTO_LOAD_ROUNDS Seiten
@@ -814,20 +950,6 @@ export default function ConversationList({
   // einem Fehler und nach einer Seite ohne neue Zeile (stuck) bleibt der
   // Knopf „Weitere laden“ als Rückfall; ein Klick darauf beginnt die Zählung
   // von vorn.
-  const columnRef = useRef(null);
-  const endRef = useRef(null);
-  // Die Zeile mit dem Schlüssel in der scrollenden Spalte in Sicht bringen
-  // (ab lg) – die Scrollposition der Spalte wird gerechnet
-  // (nearestScrollTop, ROW_SCROLL_MARGIN), nicht per scrollIntoView: Das
-  // scrollte auch die Seite, solange der Bereich noch nicht oben anlag
-  // (Fixliste 7.22-rc11, K11). Die Seite bewegt sich so nie.
-  const rowRefs = useRef(new Map());
-  const showRowInColumn = useCallback((key) => {
-    const column = columnRef.current;
-    const row = key === null ? null : rowRefs.current.get(key);
-    if (!column || !row) return;
-    column.scrollTop = nearestScrollTop(column, row, ROW_SCROLL_MARGIN);
-  }, []);
   const [endRounds, setEndRounds] = useState({ scope: null, count: 0 });
   const endCount = endRounds.scope === scope ? endRounds.count : 0;
   const watchEnd =
@@ -852,35 +974,27 @@ export default function ConversationList({
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [watchEnd, scope, items.length]);
-  const loadMoreByHand = () => {
+  const loadMoreByHand = (event) => {
     // Nicht gesperrt während des Ladens (K15: disabled nähme den Fokus), ein
     // zweiter Klick lädt aber nicht noch einmal
     if (loadingMore) return;
     setEndRounds({ scope, count: 0 });
+    // Der Wunsch des Klicks gilt (K15), auch über einen ausstehenden einer
+    // Kette hinweg. Ein Mausklick (detail ≥ 1) zählt als Zeiger, auch wenn
+    // der Knopf seinen Fokus vorher per Tab bekam und :focus-visible behält
+    // (rc12 K09 lässt ihn beim Nachladen von selbst dort); Enter und
+    // Leertaste lösen click mit detail 0 aus.
+    const button = loadMoreRef.current;
+    focusAfterLoad.current = hasFocus(button)
+      ? {
+          scope,
+          rows: list.items.length,
+          keyboard: focusVisible(button) && !(event?.detail > 0),
+          byHand: true,
+        }
+      : null;
     loadMore();
   };
-  // K15: Die Seite ist da (oder gescheitert) – der Fokus, der auf „Weitere
-  // laden“ stand, geht per Tastatur auf die erste neue Zeile (in der Spalte
-  // in Sicht, ohne die Seite zu scrollen); per Zeiger bleibt er auf dem
-  // Knopf. Ist der Knopf mit der letzten Seite verschwunden, geht er in
-  // jedem Fall auf die erste neue Zeile statt ins Leere. Ohne neue Zeile
-  // (nur Doppelte, Fehler) bleibt der Knopf da und behält den Fokus.
-  useEffect(() => {
-    const wish = focusAfterLoad.current;
-    if (!wish || loading || loadingMore) return;
-    focusAfterLoad.current = null;
-    if (wish.scope !== scope) return;
-    const first = items[wish.rows];
-    if (!first) return;
-    if (hasFocus(loadMoreRef.current) && !wish.keyboard) return;
-    const key = conversationKey(first);
-    const row = rowRefs.current.get(key);
-    if (!row) return;
-    // Unter lg scrollt die Seite zur fokussierten Zeile wie bei Tab; per
-    // Zeiger (Knopf verschwunden) ohne Scrollen, damit nichts springt
-    row.focus?.(wide || !wish.keyboard ? { preventScroll: true } : undefined);
-    if (wide && wish.keyboard) showRowInColumn(key);
-  }, [loading, loadingMore, items, scope, wide, showRowInColumn]);
   // „Nächste“ am Ende, und das Nachladen scheiterte: Das Panel sagt es
   // (Fixliste 5, C2) – die Meldung am Knopf „Weitere Konversationen laden“
   // liegt nach dem Blättern oft unter dem Fensterrand. Ein erneuter Klick auf
@@ -924,8 +1038,9 @@ export default function ConversationList({
         : null;
 
   // Die markierte Zeile bleibt im Blick, wenn das Panel blättert (nur, wenn
-  // sie neben dem Panel steht: ab lg). Die Zeilen liegen in der scrollenden
-  // Spalte – nur die Spalte bewegt sich (showRowInColumn), die Seite nie.
+  // sie neben dem Panel steht: auf dem Desktop). Die Zeilen liegen in der
+  // scrollenden Spalte – nur die Spalte bewegt sich (showRowInColumn), die
+  // Seite nie.
   const currentKey = currentRow ? conversationKey(currentRow) : null;
   useEffect(() => {
     if (!currentKey || !followCurrent.current) return;
@@ -933,10 +1048,19 @@ export default function ConversationList({
     if (wide) showRowInColumn(currentKey);
   }, [currentKey, wide, showRowInColumn]);
 
+  // Nach einem Wechsel des Zuschnitts in der neuen Liste gefunden (K02):
+  // Die Zeile kommt in der Spalte in Sicht – die Liste beginnt nach dem
+  // Wechsel wieder oben.
+  const foundAfterChange = linkedIn.found;
+  useEffect(() => {
+    if (!foundAfterChange || !currentKey || !wide) return;
+    showRowInColumn(currentKey);
+  }, [foundAfterChange, currentKey, wide, showRowInColumn]);
+
   // Per Link geöffnet: Sobald die Zeile in der Liste markiert ist – auch
-  // erst nach dem Nachladen der Link-Suche –, kommt sie ab lg in der Spalte
-  // in Sicht (KIE-575: die Spalte scrollt selbst), und die Liste sagt es der
-  // Ansicht. Die hält ihren Sprung zur Liste (Fixliste 6, K5).
+  // erst nach dem Nachladen der Link-Suche –, kommt sie auf dem Desktop in
+  // der Spalte in Sicht (KIE-575: die Spalte scrollt selbst), und die Liste
+  // sagt es der Ansicht. Die hält ihren Sprung zur Liste (Fixliste 6, K5).
   useEffect(() => {
     if (!fromLink || !currentKey) return;
     if (wide) showRowInColumn(currentKey);
@@ -956,22 +1080,30 @@ export default function ConversationList({
     onLinkSearchChange(linkPending);
   }, [linkPending, onLinkSearchChange]);
 
-  // KIE-575, ab lg: Wechsel von Zeitraum, Filter oder Suche bei offenem
-  // Verlauf – steht die Konversation aus der Adresse nicht mehr in der
-  // geladenen Liste (geladen: ihr Verlauf ist da, sie liegt woanders oder
-  // außerhalb des Zeitraums), fällt sie aus der Adresse (ersetzt, kein
-  // Eintrag im Verlauf des Browsers); die erste Zeile der neuen Liste ist
-  // dann vorgewählt. Nicht beim Öffnen per Link (fromLink): Ein Link öffnet
-  // immer, auch außerhalb des Zeitraums – und nicht unter lg.
+  // KIE-575, Desktop: Wechsel von Widget, Zeitraum, Filter, Säule oder
+  // Suche bei offenem Verlauf – steht die Konversation aus der Adresse
+  // nicht mehr in der Liste, fällt sie aus der Adresse (ersetzt, kein
+  // Eintrag im Verlauf des Browsers); vorgewählt ist dann die erste Zeile
+  // der neuen Liste. „Nicht mehr in der Liste“ heißt (Review 7.22-rc12,
+  // K02): Ihr Verlauf ist geladen und sie liegt außerhalb des Zeitraums,
+  // oder die Suche nach dem Wechsel (linkRows, wie beim Link) ist am Ende,
+  // ohne sie zu finden – nicht schon, wenn sie nicht auf der ersten Seite
+  // steht. Nie ohne echten Wechsel (scopeChanged; etwa während die Liste
+  // nach einem gescheiterten Löschen neu lädt), nie während des Ladens oder
+  // Auffüllens und nicht, wenn ein Nachladen scheiterte (dann sagt der
+  // Hinweis im Kopf, dass die Liste nicht weiter geladen werden konnte).
+  // Nicht beim Öffnen per Link (fromLink): Ein Link öffnet immer, auch
+  // außerhalb des Zeitraums – und nicht im Vollbild.
   const staleLink =
-    wide &&
-    linkedChatId !== null &&
-    !fromLink &&
+    searchAfterChange &&
     !loading &&
     !failed &&
+    !loadingMore &&
+    !moreFailed &&
+    !refill &&
     currentIndex < 0 &&
     loadedKey.chatId === linkedChatId &&
-    (!!loadedKey.key || loadedKey.outside);
+    (loadedKey.outside || (!!loadedKey.key && !searchingLink));
   const unlinkConversation = place.unlinkConversation;
   useEffect(() => {
     if (staleLink) unlinkConversation();
@@ -995,8 +1127,8 @@ export default function ConversationList({
   }, [chatId]);
 
   // AK-18: ↑/↓ in der Liste – nur, wenn der Fokus auf einer Zeile steht.
-  // Ab lg bekommt die Zeile den Fokus ohne Scrollen der Seite, die Spalte
-  // folgt ihr (K11); unter lg wie heute (die Seite folgt dem Fokus).
+  // Auf dem Desktop bekommt die Zeile den Fokus ohne Scrollen der Seite, die
+  // Spalte folgt ihr (K11); sonst wie heute (die Seite folgt dem Fokus).
   const handleRowKeyDown = (event, row) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const index = positions.get(row.first_chat_id) ?? -1;
@@ -1028,8 +1160,14 @@ export default function ConversationList({
     else rowRefs.current.delete(key);
   }, []);
 
+  // Gelöscht: Eine Konversation aus der Adresse verschwindet daraus; die
+  // gelöschte wird bis zur neuen Liste nicht wieder vorgewählt (K06) – auf
+  // dem Desktop zeigt der Verlauf gleich die nächste.
   const handleDeleted = ({ deleted }) => {
-    if (deleted) place.closeConversation();
+    if (deleted) {
+      if (chatId !== null) setDeletedRow({ chatId, items: list.items });
+      if (linkedChatId !== null) place.closeConversation();
+    }
     reloadList();
   };
 
@@ -1097,6 +1235,16 @@ export default function ConversationList({
     [listHasRatings, items]
   );
 
+  // E15 (Fixliste 7.22-rc13): Steht der Verlauf auf dem Desktop neben der
+  // Liste, ist deren Spalte 44 % breit – bei 1.280 px rund 400 px, bei
+  // 1.920 px rund 680 px. Der Kopf nimmt dann die kompakte Form wie auf dem
+  // Tablet: Werkzeugleiste in eigener Zeile, kurze Filternamen, „Exportieren“
+  // ohne Pfeil; ohne Abstand zum Benutzermenü, das dann über dem Verlauf
+  // liegt. Sonst lief die Leiste unter den Verlauf. Die volle Form (xl:)
+  // gilt, wenn die Liste allein die Breite hat (Verlauf geschlossen).
+  const compactHeader = wide && !!embedId && (chatId !== null || panelShown);
+  const wideHeader = (className) => (compactHeader ? "" : className);
+
   // Leerzustand mit Suche: nennt auch die übrigen Filter (Bewertung, Säule).
   const otherFilters = [feedbackLabel, bucket?.label]
     .filter(Boolean)
@@ -1110,10 +1258,11 @@ export default function ConversationList({
       : t("embed-analytics.search.empty", { term: search });
 
   return (
-    // Ab lg ein Arbeitsbereich mit fester Höhe (KIE-575, WORKSPACE): links
-    // die Spalte der Liste (Kopf fest, Zeilen scrollen), rechts der Verlauf
-    // (Panel) bzw. sein Platzhalter, beide so hoch wie der Bereich. Unter lg
-    // wie bisher: Kopf, Liste, die Seite scrollt; das Panel ist ein Vollbild.
+    // Auf dem Desktop (ab xl, E15) ein Arbeitsbereich mit fester Höhe
+    // (KIE-575, WORKSPACE): links die Spalte der Liste (Kopf fest, Zeilen
+    // scrollen), rechts der Verlauf (Panel) bzw. sein Platzhalter, beide so
+    // hoch wie der Bereich. Auf Tablet und Smartphone wie bisher: Kopf,
+    // Liste, die Seite scrollt; das Panel ist ein Vollbild.
     <div data-conversation-area="" className={WORKSPACE.area}>
       <div data-list-column="" className={WORKSPACE.column}>
         {/* Kopfzeile – immer sichtbar, auch im Lade- und Leer-Zustand.
@@ -1132,7 +1281,7 @@ export default function ConversationList({
           darunter – nichts überlappt (B1). */}
         <div
           data-list-header=""
-          className="mb-3 flex flex-col gap-3 lg:shrink-0"
+          className="mb-3 flex flex-col gap-3 xl:shrink-0"
         >
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
             {/* Ab xl teilen sich Titelblock und Leiste den freien Platz einer
@@ -1143,7 +1292,7 @@ export default function ConversationList({
               (Fixliste 5, S4). */}
             <div
               data-list-title=""
-              className="order-1 flex min-w-0 flex-1 basis-40 flex-wrap content-start items-center gap-x-3 gap-y-0.5 xl:grow-[999]"
+              className={`order-1 flex min-w-0 flex-1 basis-40 flex-wrap content-start items-center gap-x-3 gap-y-0.5 ${wideHeader("xl:grow-[999]")}`}
             >
               <h3
                 ref={headingRef}
@@ -1189,13 +1338,13 @@ export default function ConversationList({
               bündig wie von sm bis xl (Fixliste 5, S4). */}
             <div
               data-list-tools=""
-              className={`contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 xl:grow xl:basis-auto ${AVATAR_CLEARANCE.toolbarEnd}`}
+              className={`contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 ${wideHeader(`xl:grow xl:basis-auto ${AVATAR_CLEARANCE.toolbarEnd}`)}`}
             >
               <SearchField
                 value={place.search}
                 onSearch={setPlaceSearch}
                 inputRef={searchInputRef}
-                className="order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 xl:w-60 xl:flex-auto"
+                className={`order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 ${wideHeader("xl:w-60 xl:flex-auto")}`}
               />
               <div
                 data-list-actions=""
@@ -1214,7 +1363,7 @@ export default function ConversationList({
                     aria-label={t("embed-analytics.rows.all-hint")}
                     title={t("embed-analytics.rows.all-hint")}
                     onClick={() => onFeedbackFilterChange("all")}
-                    className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${feedbackFilter === "all" ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+                    className={`${SEGMENT_CLASS} ${wideHeader(SEGMENT_WIDE)} flex-1 justify-center sm:flex-none ${feedbackFilter === "all" ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
                   >
                     <StableLabel text={t("embed-analytics.rows.all")} />
                   </button>
@@ -1230,7 +1379,7 @@ export default function ConversationList({
                         aria-label={t(`${labelKey}-hint`)}
                         title={t(`${labelKey}-hint`)}
                         onClick={() => toggleFilter(mode)}
-                        className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${active ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+                        className={`${SEGMENT_CLASS} ${wideHeader(SEGMENT_WIDE)} flex-1 justify-center sm:flex-none ${active ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
                       >
                         {/* Ein Daumen je Schaltfläche, in der Textfarbe; gefüllt,
                           wenn der Filter gesetzt ist – wie in der
@@ -1241,15 +1390,18 @@ export default function ConversationList({
                           aria-hidden="true"
                         />
                         {/* Bis xl der kurze Text, damit Suche, Filter und
-                          Export in eine Zeile passen (V7). */}
+                          Export in eine Zeile passen (V7); kompakt (Verlauf
+                          daneben, E15) immer der kurze. */}
                         <StableLabel
                           text={t(`${labelKey}-short`)}
-                          className="xl:hidden"
+                          className={wideHeader("xl:hidden")}
                         />
-                        <StableLabel
-                          text={t(labelKey)}
-                          className="hidden xl:inline-flex"
-                        />
+                        {!compactHeader && (
+                          <StableLabel
+                            text={t(labelKey)}
+                            className="hidden xl:inline-flex"
+                          />
+                        )}
                       </button>
                     );
                   })}
@@ -1259,8 +1411,9 @@ export default function ConversationList({
                   embedId={embedId}
                   selection={selection}
                   disabled={loading || failed || totalCount === 0}
+                  compact={compactHeader}
                   wrapperClassName="order-2 sm:order-none"
-                  className="flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-2.5 xl:px-3.5 light:border-gray-200"
+                  className={`flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-2.5 ${wideHeader("xl:px-3.5")} light:border-gray-200`}
                 />
               </div>
             </div>
@@ -1317,8 +1470,9 @@ export default function ConversationList({
           )}
         </div>
 
-        {/* Der scrollende Teil der Spalte (ab lg): Zeilen, „Weitere laden“,
-          Hinweise. Rahmen des Beobachters für das Nachladen am Ende. */}
+        {/* Der scrollende Teil der Spalte (Desktop): Zeilen, „Weitere
+          laden“, Hinweise. Rahmen des Beobachters für das Nachladen am
+          Ende. */}
         <div ref={columnRef} data-list-scroll="" className={WORKSPACE.scroller}>
           {loading ? (
             <div className="text-white">{t("embed-analytics.loading")}</div>
@@ -1403,16 +1557,16 @@ export default function ConversationList({
                   </section>
                 );
               })}
+              {/* Ende der geladenen Zeilen: Kommt es auf dem Desktop in der
+                  Spalte in Sicht, lädt die Liste von selbst nach (AK-5). Nur
+                  dort und vor der Leiste mit „Weitere laden“, ohne Höhe: In
+                  der umbrechenden Leiste machte der Anker sie bei jeder
+                  Breite 8 px höher (Review 7.22-rc12, K13). */}
+              {hasMore && wide && (
+                <div ref={endRef} data-list-end="" aria-hidden="true" />
+              )}
               {hasMore && (
                 <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border-t border-white/5 px-4 py-3 light:border-gray-100">
-                  {/* Ende der geladenen Zeilen: Kommt es ab lg in der Spalte
-                      in Sicht, lädt die Liste von selbst nach (AK-5). */}
-                  <div
-                    ref={endRef}
-                    data-list-end=""
-                    aria-hidden="true"
-                    className="basis-full"
-                  />
                   {/* Nachladen gescheitert: die Meldung hier am Knopf, der
                       Knopf versucht es erneut (Fixliste 4, V6) */}
                   {moreFailed && !loadingMore && (
@@ -1426,7 +1580,11 @@ export default function ConversationList({
                   )}
                   {/* Während des Ladens nicht gesperrt (disabled), sondern
                       aria-disabled: Ein gesperrter Knopf verlöre den Fokus an
-                      <body> (K15); der Klick ist derweil wirkungslos. */}
+                      <body> (K15); der Klick ist derweil wirkungslos. Ohne
+                      Hover-Ton, auch im hellen Theme: Dort gewann sonst
+                      light:hover:bg-black/5 (gleiche Spezifität, später im
+                      CSS), und der Knopf wirkte bedienbar (Review
+                      7.22-rc12, K12). */}
                   <button
                     type="button"
                     ref={loadMoreRef}
@@ -1434,7 +1592,7 @@ export default function ConversationList({
                     onClick={loadMoreByHand}
                     aria-disabled={loadingMore ? "true" : undefined}
                     aria-busy={loadingMore ? "true" : undefined}
-                    className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 aria-disabled:cursor-default aria-disabled:opacity-60 aria-disabled:hover:bg-transparent sm:h-9 light:border-gray-200 light:hover:bg-black/5"
+                    className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 aria-disabled:cursor-default aria-disabled:opacity-60 aria-disabled:hover:bg-transparent sm:h-9 light:border-gray-200 light:hover:bg-black/5 light:aria-disabled:hover:bg-transparent"
                   >
                     {loadingMore
                       ? t("embed-analytics.rows.loading-more")
@@ -1477,12 +1635,12 @@ export default function ConversationList({
 
       {/* Verlauf offen, aber nichts gewählt (Liste lädt oder ist leer): Der
           Platzhalter hält die rechte Spalte, damit die Liste nicht springt
-          (NAK-1); ✕ schließt den Verlauf wie im Panel. Nur ab lg. */}
-      {wide && panelOpen && chatId === null && !!embedId && (
+          (NAK-1); ✕ schließt den Verlauf wie im Panel. Nur auf dem Desktop. */}
+      {wide && panelShown && chatId === null && !!embedId && (
         <aside
           data-conversation-panel-empty=""
           aria-label={t("embed-analytics.panel.label")}
-          className={`relative hidden items-center justify-center rounded-xl border border-white/10 bg-theme-bg-primary lg:flex ${WORKSPACE.panel}`}
+          className={`relative hidden items-center justify-center rounded-xl border border-white/10 bg-theme-bg-primary xl:flex ${WORKSPACE.panel}`}
         >
           <button
             type="button"
@@ -1707,7 +1865,7 @@ const ConversationRow = memo(function ConversationRow({
       // K4 (Nachtrag KIE-560): deutlicher Hover in beiden Themes, Pfeil in
       // Textfarbe, Hand als Zeiger; nur Farben, kein Layoutsprung. Seit
       // Review 7.22-rc2 (B-11) kräftiger: dunkel 10 %, hell 6 %.
-      // In der scrollenden Spalte (ab lg) stellt die Liste die Zeile selbst
+      // In der scrollenden Spalte (Desktop) stellt die Liste die Zeile selbst
       // ein (showRowInColumn, ROW_SCROLL_MARGIN) – keine Scroll-Abstände.
       className={`group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
         selected

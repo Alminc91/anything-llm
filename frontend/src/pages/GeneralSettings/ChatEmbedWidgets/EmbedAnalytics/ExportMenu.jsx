@@ -26,6 +26,8 @@ const FORMATS = [
  * @param {boolean} [props.disabled] - nichts zu exportieren (Liste leer oder lädt)
  * @param {string} [props.className] - Aussehen der Schaltfläche (wie die Filter daneben)
  * @param {string} [props.wrapperClassName] - Platz in der Kopfzeile (order …)
+ * @param {boolean} [props.compact] - kompakter Kopf der Liste (Verlauf
+ *   daneben, Fixliste 7.22-rc13 E15): ohne Pfeil, auch ab xl
  *
  * Unter sm zeigt die Schaltfläche nur das Symbol; ihr Name „Exportieren"
  * bleibt für Screenreader (Fixliste 2, B1). Der Pfeil erst ab xl – bis dahin
@@ -37,6 +39,7 @@ export default function ExportMenu({
   disabled = false,
   className = "",
   wrapperClassName = "",
+  compact = false,
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -99,7 +102,7 @@ export default function ExportMenu({
         <CaretDown
           size={12}
           aria-hidden="true"
-          className={`hidden transition-transform xl:block ${open ? "rotate-180" : ""}`}
+          className={`hidden transition-transform ${compact ? "" : "xl:block"} ${open ? "rotate-180" : ""}`}
         />
       </button>
 

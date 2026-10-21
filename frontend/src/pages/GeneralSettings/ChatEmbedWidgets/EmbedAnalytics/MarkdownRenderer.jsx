@@ -3,7 +3,7 @@ import MarkdownIt from "markdown-it";
 import hljs from "highlight.js";
 import { CaretDown } from "@phosphor-icons/react";
 import "highlight.js/styles/github-dark.css";
-import DOMPurify from "@/utils/chat/purify";
+import sanitizeAnswerHtml from "@/utils/chat/purifyConversation";
 import { useTranslation } from "react-i18next";
 import { highlightTextNodes, searchPattern } from "@/utils/conversationView";
 
@@ -73,20 +73,24 @@ function parseContent(content) {
 
 /**
  * Bereinigtes HTML einer Antwort, die Treffer der Suche als <mark> markiert.
- * Hervorgehoben wird nach dem Bereinigen in einem inaktiven Dokument
- * (DOMParser: keine Skripte, keine Ladevorgänge) und nur in Textknoten – aus
- * Nutzertext entsteht kein HTML. Das Ergebnis wird noch einmal bereinigt.
+ * Bereinigt wird strenger als im Chat (sanitizeAnswerHtml, Fixliste
+ * 7.22-rc13 E13): kein style, Links in neuem Tab mit rel="noopener
+ * noreferrer", Bilder als Link statt Abruf – der Verlauf öffnet sich auf dem
+ * Desktop von selbst. Hervorgehoben wird nach dem Bereinigen in einem
+ * inaktiven Dokument (DOMParser: keine Skripte, keine Ladevorgänge) und nur
+ * in Textknoten – aus Nutzertext entsteht kein HTML. Das Ergebnis wird noch
+ * einmal bereinigt.
  * @param {string} html - gerendertes Markdown
  * @param {string} highlight - Suchbegriff ("" = keine Hervorhebung)
  * @returns {string}
  */
 function sanitizedHtml(html, highlight) {
-  const clean = DOMPurify.sanitize(html);
+  const clean = sanitizeAnswerHtml(html);
   if (!searchPattern(highlight) || typeof DOMParser === "undefined")
     return clean;
   const doc = new DOMParser().parseFromString(clean, "text/html");
   if (highlightTextNodes(doc.body, highlight, doc) === 0) return clean;
-  return DOMPurify.sanitize(doc.body.innerHTML);
+  return sanitizeAnswerHtml(doc.body.innerHTML);
 }
 
 /**

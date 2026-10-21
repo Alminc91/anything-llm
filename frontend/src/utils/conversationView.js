@@ -16,14 +16,19 @@ import { formatDateTimeDE } from "./dateTimeDE.js";
 export const BERLIN = "Europe/Berlin";
 const GERMAN = "de-DE";
 /**
- * Ab dieser Breite steht das Panel neben der Liste (Tailwind lg), darunter
- * ist es ein Vollbild.
+ * Geräteklassen der Ansicht (Fixliste 7.22-rc13, E15, einheitlich mit Widget
+ * und Design Center): Smartphone unter 768 px (Tailwind md), Tablet 768 bis
+ * 1.279 px, Desktop ab 1.280 px (Tailwind xl). Nur auf dem Desktop steht
+ * der Verlauf als Arbeitsbereich neben der Liste (KIE-575); auf Tablet und
+ * Smartphone ist er ein Vollbild wie bisher unter lg. Die Klassen der
+ * Ansicht tragen dafür das Präfix xl: (wörtlich, siehe WORKSPACE). Rückweg:
+ * diese Konstante und die xl:-Klassen der Ansicht.
  */
-export const WIDE_QUERY = "(min-width: 1024px)";
+export const WIDE_QUERY = "(min-width: 1280px)";
 
 /**
- * Breiter Bildschirm (Panel neben der Liste)? false ohne Fenster oder ohne
- * matchMedia.
+ * Desktop (Verlauf neben der Liste, ab 1.280 px)? false ohne Fenster oder
+ * ohne matchMedia.
  * @returns {boolean}
  */
 export function isWide() {
@@ -125,10 +130,15 @@ export function ratingJumpIds(messages, kind, period = {}) {
 // Einstellungsseiten beginnt ab md 16 px unter dem Fensterrand und endet
 // 16 px über dem unteren.
 export const AVATAR_CLEARANCE = {
-  // Sprungziel „Liste“ (Säule, Verweis, Link): Überschrift und Werkzeugleiste
-  // landen unter dem Benutzermenü, der Export-Knopf bleibt frei (Fixliste 3,
-  // V2)
-  jumpTarget: "scroll-mt-20",
+  // Sprungziel „Liste“ (Säule, Verweis, Link). Tablet und Smartphone:
+  // Überschrift und Werkzeugleiste landen unter dem Benutzermenü, der
+  // Export-Knopf bleibt frei (Fixliste 3, V2; 80 px). Desktop: genau die
+  // Ruhelage des Arbeitsbereichs (Review 7.22-rc12, K04) – Oberkante
+  // WORKSPACE_REST_TOP unter dem Fensterrand, also WORKSPACE_REST_TOP −
+  // FRAME_TOP = 8 px unter dem Rand des scrollenden Rahmens (xl:scroll-mt-2).
+  // Mit 80 px stand der Bereich 56 px tiefer, und seine unteren 24 px
+  // (Fußzeile des Verlaufs, „Weitere laden“) lagen unter dem Fensterrand.
+  jumpTarget: "scroll-mt-20 xl:scroll-mt-2",
   // rechter Rand der Kopfzeile ab md: Widget-Auswahl und Zeitraum enden links
   // vom Benutzermenü
   headerEnd: "md:pr-12",
@@ -139,34 +149,48 @@ export const AVATAR_CLEARANCE = {
   // rechten 35 px des Inhalts ab; 44 px lassen 9 px Luft und halten Filter
   // und Export auch bei 768 px Fensterbreite in einer Zeile (V5).
   toolbarEnd: "sm:pr-11",
-  // rechter Rand der Schaltflächenzeile (‹ › ⋯ ✕) im Kopf des Verlaufs ab lg
-  // (Fixliste 7.22-rc11, K12): Liegt der Arbeitsbereich oben an, steht
-  // diese Zeile auf der Höhe des Menüs (Zeile 41 bis 77 px, Menü 36 bis
-  // 71 px), und der rechte Rand des Verlaufs fällt mit dem des Menüs
+  // rechter Rand der Schaltflächenzeile (‹ › ⋯ ✕) im Kopf des Verlaufs auf
+  // dem Desktop (Fixliste 7.22-rc11, K12): Liegt der Arbeitsbereich oben an,
+  // steht diese Zeile auf der Höhe des Menüs (Zeile 41 bis 77 px, Menü 36
+  // bis 71 px), und der rechte Rand des Verlaufs fällt mit dem des Menüs
   // zusammen (beide 40 px vom Fensterrand). Mit dem Innenabstand des Kopfs
-  // (lg:px-5, 20 px) und dem Rahmen (1 px) enden ✕ und ⋯ so 49 px vom Rand
+  // (xl:px-5, 20 px) und dem Rahmen (1 px) enden ✕ und ⋯ so 49 px vom Rand
   // des Verlaufs: 14 px Luft zum 35 px breiten Menü. Nur die erste Zeile
   // des Kopfs: Frage und Angaben darunter liegen unter dem Menü und nutzen
-  // die Breite weiter.
-  panelHeadEnd: "lg:pr-7",
-  // ✕ des Platzhalters „Keine Konversation gewählt“ (nur ab lg): derselbe
-  // Abstand, absolut vom rechten Rand des Platzhalters
+  // die Breite weiter. Als Vollbild (Tablet, Smartphone) liegt das Panel
+  // über dem Menü (z-50 über z-40).
+  panelHeadEnd: "xl:pr-7",
+  // ✕ des Platzhalters „Keine Konversation gewählt“ (nur auf dem Desktop):
+  // derselbe Abstand, absolut vom rechten Rand des Platzhalters
   emptyPanelClose: "right-12",
 };
 
 // ---------------------------------------------------------------------------
-// Arbeitsbereich „Konversationen“ ab lg (KIE-575)
+// Arbeitsbereich „Konversationen“ auf dem Desktop (KIE-575, ab xl: E15)
 // ---------------------------------------------------------------------------
 
 /**
- * Abstand der Oberkante des Bereichs zum oberen Fensterrand, wenn die Seite
- * zu Ende gescrollt ist (px). Unter dem Bereich liegen 48 px (Innenabstand
- * der Ansicht 24 + Abstand des Seitenrahmens 24) und der Rahmen der
- * Einstellungsseiten endet 16 px über dem unteren Fensterrand: Mit
- * 100vh − 88 px liegt der Bereich dann 24 px unter dem oberen Fensterrand,
- * 8 px unter der Oberkante des Rahmens.
+ * Oberkante des scrollenden Rahmens der Einstellungsseiten unter dem
+ * Fensterrand (px, md:my-[16px]).
  */
-export const WORKSPACE_TOP_GAP = 88;
+export const FRAME_TOP = 16;
+/**
+ * Ruhelage des Bereichs: Oberkante unter dem Fensterrand, wenn die Seite zu
+ * Ende gescrollt ist (px) – 8 px unter der Oberkante des Rahmens. Daraus
+ * folgen die Höhe des Bereichs (WORKSPACE_TOP_GAP) und das Sprungziel
+ * (AVATAR_CLEARANCE.jumpTarget, xl:scroll-mt-2 = 8 px).
+ */
+export const WORKSPACE_REST_TOP = 24;
+/**
+ * Abstand der Oberkante des Bereichs zum oberen Fensterrand, wenn die Seite
+ * zu Ende gescrollt ist, plus der Platz darunter (px). Unter dem Bereich
+ * liegen 48 px (Innenabstand der Ansicht 24 + Abstand des Seitenrahmens 24)
+ * und der Rahmen der Einstellungsseiten endet 16 px über dem unteren
+ * Fensterrand: Mit 100vh − 88 px liegt der Bereich dann WORKSPACE_REST_TOP
+ * (24 px) unter dem oberen Fensterrand, 8 px unter der Oberkante des
+ * Rahmens.
+ */
+export const WORKSPACE_TOP_GAP = WORKSPACE_REST_TOP + 48 + 16;
 /**
  * So niedrig wird der Bereich nie (px); darunter scrollt die Seite weiter.
  * 480 statt 560 (Fixliste 7.22-rc11, K13): Unter dem Bereich liegen 64 px
@@ -178,18 +202,18 @@ export const WORKSPACE_TOP_GAP = 88;
  * sieben Zeilen neben einem lesbaren Verlauf. Die Alternative, unter
  * 640 px Fensterhöhe die Seite wieder normal scrollen zu lassen, brächte
  * eine dritte Darstellung mit zwei Scroll-Verhalten zurück, die KIE-575
- * abgeschafft hat, samt zweiter Weiche in Code und Tests; Fenster ab lg
- * (1.024 px breit) sind in der Praxis mindestens 600 px hoch (768-px-
- * Bildschirm abzüglich Browserleisten).
+ * abgeschafft hat, samt zweiter Weiche in Code und Tests; Desktop-Fenster
+ * (ab 1.280 px breit) sind in der Praxis mindestens 600 px hoch.
  */
 export const WORKSPACE_MIN_HEIGHT = 480;
-/** Ab dieser Breite (Tailwind xl) ist der Verlauf mindestens 480 px breit. */
+/** Der Verlauf ist auf dem Desktop überall mindestens so breit (px, E15). */
 export const WORKSPACE_PANEL_MIN_WIDTH = 480;
 
 /**
- * Klassen des Arbeitsbereichs ab lg: Liste links und Verlauf rechts, beide
- * so hoch wie der Bereich, je mit eigener Bildlaufleiste. Unter lg wirkt
- * keine davon (Vollbild-Panel, Seite scrollt).
+ * Klassen des Arbeitsbereichs auf dem Desktop (ab xl, E15): Liste links und
+ * Verlauf rechts, beide so hoch wie der Bereich, je mit eigener
+ * Bildlaufleiste. Auf Tablet und Smartphone wirkt keine davon
+ * (Vollbild-Panel, Seite scrollt).
  * - area: feste Höhe = Fensterhöhe − WORKSPACE_TOP_GAP, mindestens
  *   WORKSPACE_MIN_HEIGHT (480: bei 600 px Fensterhöhe ganz im Fenster,
  *   K13); Spalten mit 16 px Abstand
@@ -201,22 +225,21 @@ export const WORKSPACE_PANEL_MIN_WIDTH = 480;
  *   gehören so zur Spalte und verlängern nicht die Seite – ohne
  *   positionierten Vorfahren zählten die der unteren Zeilen zur Seite,
  *   die dann über den Bereich hinaus scrollte.
- * - panel: rechte Spalte – 50 % von lg bis 2xl, ab 2xl 56 % (je abzüglich
- *   des halben Spaltenabstands); ab xl mindestens WORKSPACE_PANEL_MIN_WIDTH.
- *   Von lg bis xl gilt die Mindestbreite bewusst nicht: Bei 1.024 px ist der
- *   Inhalt rund 650 px breit, der Liste blieben neben 480 px Verlauf
- *   rund 150 px.
+ * - panel: rechte Spalte – einheitlich 56 % (Liste 44 %, je abzüglich des
+ *   halben Spaltenabstands) und mindestens WORKSPACE_PANEL_MIN_WIDTH; kein
+ *   eigener Schritt mehr bei 1.536 px und keine schmalere Zone darunter
+ *   (E15). Bei 1.280 px ist der Bereich rund 920 px breit: Verlauf rund
+ *   510 px, Liste rund 400 px.
  * Die Klassen stehen wörtlich (keine Vorlagen mit den Konstanten): Tailwind
  * erzeugt nur CSS für Klassen, die es im Quelltext liest. Ein Test prüft,
  * dass die Zahlen darin zu den Konstanten passen.
  */
 export const WORKSPACE = {
-  area: "lg:flex lg:gap-4 lg:h-[max(480px,calc(100vh-88px))]",
-  column: "lg:flex lg:min-w-0 lg:flex-1 lg:flex-col",
+  area: "xl:flex xl:gap-4 xl:h-[max(480px,calc(100vh-88px))]",
+  column: "xl:flex xl:min-w-0 xl:flex-1 xl:flex-col",
   scroller:
-    "lg:relative lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain",
-  panel:
-    "lg:w-[calc(50%-8px)] 2xl:w-[calc(56%-8px)] xl:min-w-[480px] lg:shrink-0",
+    "xl:relative xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain",
+  panel: "xl:w-[calc(56%-8px)] xl:min-w-[480px] xl:shrink-0",
 };
 
 /**
@@ -233,6 +256,9 @@ export const ROW_SCROLL_MARGIN = { marginTop: 32, marginBottom: 8 };
  * lief über 1.800 Zeichen je Zeile. 720 px entsprechen rund 75 bis 85
  * Zeichen bei 14 px Schrift. Kein Deckel für Kennzahlen und Diagramm
  * (Nutzerwunsch: volle Breite) und keiner für den Verlauf selbst.
+ * Bewusst bei jeder Breite, auch im Vollbild auf dem Tablet (Fixliste
+ * 7.22-rc13, E14): Auf schmalen Bildschirmen wirkt der Deckel nicht, auf
+ * breiten Tablets begrenzt er die Zeilenlänge wie auf dem Desktop.
  */
 export const BUBBLE_MAX_WIDTH = 720;
 /**
@@ -249,17 +275,27 @@ export const BUBBLE = {
 export const PANEL_PREFERENCE_KEY = "kie.conversations.panel";
 
 /**
- * Gemerkter Zustand des Verlaufs ab lg: true (offen), solange nicht
- * "closed" gespeichert ist – auch ohne Speicher oder wenn er nicht lesbar
- * ist (privates Fenster, gesperrte Website-Daten).
- * @param {{getItem: Function}} [storage]
+ * Der Speicher des Browsers – erst im try aufgelöst: Bei gesperrten
+ * Website-Daten wirft schon der Zugriff auf localStorage (SecurityError),
+ * nicht erst getItem (Review 7.22-rc12, C4). undefined: der des Fensters.
+ * @param {{getItem?: Function, setItem?: Function}|null|undefined} storage
+ * @returns {{getItem?: Function, setItem?: Function}|null|undefined}
+ */
+const browserStorage = (storage) =>
+  storage === undefined ? globalThis.localStorage : storage;
+
+/**
+ * Gemerkter Zustand des Verlaufs auf dem Desktop: true (offen), solange
+ * nicht "closed" gespeichert ist – auch ohne Speicher oder wenn er nicht
+ * lesbar ist (privates Fenster, gesperrte Website-Daten).
+ * @param {{getItem: Function}|null} [storage] - ohne Angabe localStorage
  * @returns {boolean}
  */
-export function readPanelPreference(
-  storage = typeof localStorage === "undefined" ? null : localStorage
-) {
+export function readPanelPreference(storage) {
   try {
-    return storage?.getItem?.(PANEL_PREFERENCE_KEY) !== "closed";
+    return (
+      browserStorage(storage)?.getItem?.(PANEL_PREFERENCE_KEY) !== "closed"
+    );
   } catch {
     return true;
   }
@@ -269,17 +305,51 @@ export function readPanelPreference(
  * Merkt sich, ob der Verlauf offen oder zu ist. Ein nicht schreibbarer
  * Speicher ändert nichts an der Ansicht.
  * @param {boolean} open
- * @param {{setItem: Function}} [storage]
+ * @param {{setItem: Function}|null} [storage] - ohne Angabe localStorage
  */
-export function writePanelPreference(
-  open,
-  storage = typeof localStorage === "undefined" ? null : localStorage
-) {
+export function writePanelPreference(open, storage) {
   try {
-    storage?.setItem?.(PANEL_PREFERENCE_KEY, open ? "open" : "closed");
+    browserStorage(storage)?.setItem?.(
+      PANEL_PREFERENCE_KEY,
+      open ? "open" : "closed"
+    );
   } catch {
     // kein Speicher: der Zustand gilt für diese Seite
   }
+}
+
+/**
+ * Richtung einer Pfeiltaste für das Blättern in der Liste: 1 (↓), −1 (↑),
+ * sonst 0 – auch mit Umschalt-, Alt-, Strg- oder Befehlstaste: Umschalt+↓
+ * erweitert eine Textauswahl, Alt/Strg/Befehl+↓ gehören dem Browser oder
+ * dem System (Review 7.22-rc12, K01).
+ * @param {{key?: string, shiftKey?: boolean, altKey?: boolean, ctrlKey?: boolean, metaKey?: boolean}} event
+ * @returns {-1|0|1}
+ */
+export function arrowStep(event) {
+  if (
+    !event ||
+    event.shiftKey ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey
+  )
+    return 0;
+  if (event.key === "ArrowDown") return 1;
+  if (event.key === "ArrowUp") return -1;
+  return 0;
+}
+
+/**
+ * Steht ein modaler Dialog (aria-modal="true", etwa die Lösch-Rückfrage)
+ * im Dokument?
+ * @param {Document} doc
+ * @returns {boolean}
+ */
+function modalOpen(doc) {
+  if (typeof doc.querySelector === "function")
+    return !!doc.querySelector('[aria-modal="true"]');
+  return elementsWith(doc.body, "aria-modal", "true").length > 0;
 }
 
 /**
@@ -287,7 +357,11 @@ export function writePanelPreference(
  * niemandem gehört (auf <body>, Seite gerade geöffnet) oder im Kopf des
  * Panels steht (‹ › ⋯ ✕, Sprung-Schaltflächen) – dort tun die Pfeiltasten
  * sonst nichts. Nicht im Menü „⋯“ (eigene Pfeiltasten), nicht in Eingaben,
- * auf Listenzeilen (eigener Handler) oder im scrollenden Verlauf.
+ * auf Listenzeilen (eigener Handler) oder im scrollenden Verlauf: Der ist
+ * fokussierbar (tabIndex 0), ein Klick in seinen Text setzt den Fokus also
+ * dorthin, und ↓ scrollt ihn (Review 7.22-rc12, K01). Nie, solange ein
+ * modaler Dialog offen ist – auch wenn dessen Fokus auf <body> gefallen ist
+ * (K05: sonst wechselte ↓ die Konversation hinter der Lösch-Rückfrage).
  * @param {Document|undefined} [doc]
  * @returns {boolean}
  */
@@ -295,6 +369,7 @@ export function arrowNavigationAllowed(
   doc = typeof document === "undefined" ? undefined : document
 ) {
   if (!doc) return false;
+  if (modalOpen(doc)) return false;
   if (focusLost(doc)) return true;
   let inHead = false;
   for (let node = doc.activeElement; node && node !== doc.body; ) {
@@ -1055,6 +1130,123 @@ export function highlightTextNodes(root, term, doc) {
     parent.removeChild(node);
   }
   return hits;
+}
+
+// ---------------------------------------------------------------------------
+// HTML der Antworten im Verlauf (Admin-Ansicht; Review 7.22-rc12, K14;
+// Fixliste 7.22-rc13, E13)
+// ---------------------------------------------------------------------------
+
+/**
+ * DOMPurify für die Antworten im Verlauf der Konversationen. Antworten sind
+ * Ausgaben des Sprachmodells, die anonyme Besucher des Widgets beeinflussen
+ * können – und der Verlauf öffnet sich auf dem Desktop von selbst (AK-3),
+ * ohne Klick. Darum strenger als im Chat:
+ * - nur HTML (kein SVG, kein MathML: dort laden <image> und <use> fremde
+ *   Inhalte),
+ * - kein style (ein Link über der ganzen Seite, position:fixed) und kein
+ *   <style>; keine Formulare und Eingabefelder (abgefragte Kennwörter),
+ *   keine Medien, die von selbst laden (<video poster>, <audio>, <source>,
+ *   <picture>, srcset, background), keine Popover, keine Dialoge,
+ * - keine id, name und role sowie keine aria- und data-Attribute aus der
+ *   Antwort: Die Ansicht sucht nach eigenen Kennzeichen (aria-modal,
+ *   role="menu", data-rated); nur data-search-hit der Hervorhebung bleibt.
+ * Klassen, Links und Bilder ordnet hardenAnswerHtml danach.
+ */
+export const ANSWER_PURIFY_CONFIG = Object.freeze({
+  USE_PROFILES: { html: true },
+  FORBID_TAGS: [
+    "style",
+    "form",
+    "input",
+    "button",
+    "textarea",
+    "select",
+    "option",
+    "dialog",
+    "video",
+    "audio",
+    "source",
+    "track",
+    "picture",
+  ],
+  FORBID_ATTR: [
+    "style",
+    "id",
+    "name",
+    "role",
+    "srcset",
+    "background",
+    "poster",
+    "popover",
+    "popovertarget",
+    "popovertargetaction",
+  ],
+  ALLOW_ARIA_ATTR: false,
+  ALLOW_DATA_ATTR: false,
+  ADD_ATTR: ["data-search-hit"],
+});
+
+/** Rel jedes Links im Verlauf: kein Zugriff auf die Ansicht, kein Referrer. */
+export const ANSWER_LINK_REL = "noopener noreferrer";
+// Klassen aus Markdown und Syntaxhervorhebung (markdown-it, highlight.js) –
+// alle anderen kämen aus dem HTML der Antwort und könnten Klassen der Seite
+// nutzen (etwa „fixed inset-0 z-50“ als unsichtbare Fläche).
+const ANSWER_CLASS = /^(?:hljs(?:-[\w-]+)?|language-[\w-]+)$/;
+// Bilder werden nur als Link angeboten, wenn sie im Netz liegen
+const ANSWER_IMAGE_URL = /^https?:\/\//i;
+
+/**
+ * Ordnet das von DOMPurify bereinigte HTML einer Antwort (in einem inerten
+ * Dokument, vor dem Einsetzen in die Seite):
+ * - Links mit Adresse öffnen in einem neuen Tab (target="_blank") mit
+ *   rel="noopener noreferrer"; ohne Adresse kein target.
+ * - Bilder laden nicht von selbst (kein Abruf beim Öffnen des Verlaufs:
+ *   Zeitpunkt, IP-Adresse und Browser des Admins blieben sonst beim
+ *   Absender): Ein Bild im Netz wird ein Link mit dem Alt-Text (ohne
+ *   Alt-Text der Adresse), sonst bleibt nur der Alt-Text.
+ * - Klassen nur aus Markdown und Syntaxhervorhebung (ANSWER_CLASS).
+ * @param {Node|null} root - Wurzel des bereinigten HTML
+ * @param {Document} doc - Dokument der Wurzel (für neue Knoten)
+ */
+export function hardenAnswerHtml(root, doc) {
+  for (const node of [...(root?.childNodes ?? [])]) {
+    if (node.nodeType !== ELEMENT_NODE) continue;
+    hardenAnswerHtml(node, doc);
+    const classes = node.getAttribute?.("class");
+    if (classes !== null && classes !== undefined) {
+      const kept = classes
+        .split(/\s+/)
+        .filter((name) => ANSWER_CLASS.test(name));
+      if (kept.length > 0) node.setAttribute("class", kept.join(" "));
+      else node.removeAttribute("class");
+    }
+    const tag = String(node.tagName ?? node.nodeName).toUpperCase();
+    if (tag === "A") {
+      if (node.hasAttribute("href")) {
+        node.setAttribute("target", "_blank");
+        node.setAttribute("rel", ANSWER_LINK_REL);
+      } else {
+        node.removeAttribute("target");
+        node.removeAttribute("rel");
+      }
+    } else if (tag === "IMG") {
+      const src = (node.getAttribute("src") ?? "").trim();
+      const alt = (node.getAttribute("alt") ?? "").trim();
+      let replacement = null;
+      if (ANSWER_IMAGE_URL.test(src)) {
+        replacement = doc.createElement("a");
+        replacement.setAttribute("href", src);
+        replacement.setAttribute("target", "_blank");
+        replacement.setAttribute("rel", ANSWER_LINK_REL);
+        replacement.appendChild(doc.createTextNode(alt || src));
+      } else if (alt) {
+        replacement = doc.createTextNode(alt);
+      }
+      if (replacement) node.parentNode.insertBefore(replacement, node);
+      node.parentNode.removeChild(node);
+    }
+  }
 }
 
 /**
