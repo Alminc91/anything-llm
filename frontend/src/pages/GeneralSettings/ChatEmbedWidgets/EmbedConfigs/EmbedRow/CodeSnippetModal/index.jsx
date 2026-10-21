@@ -103,7 +103,9 @@ function SnippetBlock({ label, hint, snippet, copiedToast, children = null }) {
 }
 
 // Kufer Inline-Modus: optionaler Platzhalter. Nur wirksam, wenn im Design
-// Center "Darstellung: Inline" gewählt ist (oder data-display-mode="inline").
+// Center die Darstellung „In der Seite“ gewählt ist (data-display-mode am
+// Skript wirkt seit E23, Fixliste 7.22-rc17, nicht mehr); ohne Platzhalter
+// erscheint das Chatfenster.
 const InlinePlaceholderTag = () => {
   const { t } = useTranslation();
   return (

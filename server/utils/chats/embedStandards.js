@@ -9,11 +9,17 @@
 // und beim Prompt pro Embed (utils/chats/embed.js) ignoriert bzw. durch den
 // Standard ersetzt. Das Widget setzt dieselben Werte zusätzlich selbst
 // (auch ohne Server-Wert). Rangfolge im Widget nach E23 (Fixliste
-// 7.22-rc17): Was das Design Center einstellt, gilt nur aus dem Design
-// Center (Skript-Angaben und CSS-Variablen der Seite wirken nicht); die
-// festen Standards hier dürfen Entwickler per Skript-Angabe verfeinern, die
-// Skript-Angabe schlägt den gelieferten festen Standard. Ausnahme KI-Hinweis
-// (E24): auf keinem Weg abschaltbar oder änderbar.
+// 7.22-rc17): Was das Design Center einstellt (Gruppe A), gilt nur aus dem
+// Design Center (Skript-Angaben und CSS-Variablen der Seite wirken nicht);
+// die festen Standards hier (Gruppe B) dürfen Entwickler per Skript-Angabe
+// verfeinern, die Skript-Angabe schlägt den gelieferten festen Standard.
+// Ausgenommen sind (Fixliste 7.22-rc18 F62): der KI-Hinweis (disclaimer,
+// E24: auf keinem Weg abschaltbar oder änderbar), courseCardsAnswerStyle
+// (liest nur der Server für den Prompt, das Widget hat dafür keine Angabe)
+// und onlineDot (Online-Punkt entfernt, data-online-dot ohne Wirkung). Für
+// greetingStyle gilt E26 (7.22-rc18): Ist der Datenschutz-Hinweis an,
+// bleibt die Begrüßung eine Blase, auch gegen data-greeting-style="text".
+// Technik-Angaben am Skript (Gruppe C, etwa data-language) wirken immer.
 //
 // Eine Quelle für beide Wege: applyEmbedStandards (Konfiguration ans
 // Widget) und courseCardsValue (Karten an/aus, Prompt-Abschnitt).
@@ -31,9 +37,11 @@
 // das ohne Platzhalter als Chatfenster erscheint).
 // Ohne gespeicherte Wahl hängt der Standard an der TATSÄCHLICHEN Darstellung
 // (R4, Fixliste 7.22-rc8): Chatfenster (bubble) = Nur Text mit Links, In der
-// Seite (inline) = Kurskarten. Die kennt nur das Widget (Rückfall auf das
-// Chatfenster ohne Platzhalter, Inline nur per Script-Attribut; Review
-// 7.22-rc2 F01/F02). Deshalb liefert GET /embed/:id/config courseCards NUR,
+// Seite (inline) = Kurskarten. Die kennt nur das Widget: Ohne passenden
+// Platzhalter fällt „In der Seite“ auf das Chatfenster zurück (Review
+// 7.22-rc2 F01/F02); die Darstellung selbst kommt seit E23 (Fixliste
+// 7.22-rc17) nur aus dem Design Center, data-display-mode am Skript wirkt
+// nicht mehr. Deshalb liefert GET /embed/:id/config courseCards NUR,
 // wenn gespeichert (applyEmbedStandards), und das Widget schickt seine
 // Darstellung mit jeder Chat-Anfrage mit (Feld displayMode im Body von
 // stream-chat, endpoints/embed/index.js); der Prompt pro Embed nutzt es
@@ -74,9 +82,11 @@ const EMBED_FIXED_STANDARDS = Object.freeze({
 // "520px", data-inline-layout "overlay", data-inline-effect "morph",
 // data-inherit-font "true", data-inline-input "true", data-inline-open-on
 // "focus" (Standard der Topbar). Keine Max. Breite (Demo setzt keine: volle
-// Breite des Platzhalters). Diese Schlüssel wirken nur im Inline-Modus und
-// gehen deshalb an jedes Widget (auch an Chatblasen, deren Seite den Inline-
-// Modus noch per Script-Attribut verlangt).
+// Breite des Platzhalters). Diese Schlüssel wirken nur bei „In der Seite“
+// und gehen an jedes Widget: Ob es „In der Seite“ erscheint, entscheidet das
+// Widget aus der Darstellung im Design Center (displayMode, seit E23 nicht
+// mehr per data-display-mode) und dem Platzhalter in der Seite, sonst
+// erscheint das Chatfenster.
 const INLINE_FIXED_STANDARDS = Object.freeze({
   inlineInput: true,
   inlineOpenOn: "focus",

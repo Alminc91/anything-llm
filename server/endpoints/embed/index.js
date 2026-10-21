@@ -237,10 +237,13 @@ function embeddedEndpoints(app) {
         // - gespeichertes [] (oder nur leere Zeilen): [] mit
         //   defaultMessagesSaved: true, das Widget zeigt dann keine Pillen;
         // - nichts gespeichert (kein Array): die Standard-Startvorschläge der
-        //   Sprache mit defaultMessagesStandard: true (Kennzeichen, damit
-        //   das Widget den Standard erkennt). Die Sprache schickt das Widget
-        //   als ?language= mit (seine Sprache aus data-language, E12);
-        //   fehlend oder unbekannt -> de.
+        //   Sprache mit defaultMessagesStandard: true. Widgets bis
+        //   7.22-rc16 ließen an diesem Kennzeichen data-default-messages vor
+        //   den Standard; das Widget ab 7.22-rc17 wertet es nicht aus und
+        //   entfernt es. Es bleibt für ältere Widget-Kopien und einen
+        //   stabilen Vertrag (F52, Fixliste 7.22-rc18 C21). Die Sprache
+        //   schickt das Widget als ?language= mit (seine Sprache aus
+        //   data-language, E12); fehlend oder unbekannt -> de.
         // Vorrang im Widget: gespeichert (auch leer) vor Standard. Die
         // Startvorschläge stellt das Design Center ein (Gruppe A, E23): ein
         // data-default-messages am Skript wirkt nicht, auch wenn nichts

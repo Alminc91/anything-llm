@@ -2,8 +2,9 @@
 // „F · Fork“, Rangfolge E23 und E24, Nutzer 21.10.2026; ersetzt E18 aus
 // rc16 und ändert E10):
 // F50 Reiter Einbau: Der Einbau-Code braucht nur die Angaben aus dem
-//     Schnipsel; Angaben zu Aussehen und Texten im Einbau-Code wirken nicht
-//     (statt der Zusage aus E18, rc16).
+//     Schnipsel; Angaben im Einbau-Code ändern nicht, was das Design Center
+//     einstellt (statt der Zusage aus E18, rc16; Wortlaut seit rc18 nach
+//     E28, F61).
 // F51 Migrationsdoku: Abschnitt zu Angaben im Einbau-Code und CSS-Variablen
 //     nach E23 und E24, Prüfpunkte 8 bis 10, Vertrag der Startvorschläge nach
 //     E10 neu (gespeichert vor Standard, Skript-Attribut ohne Wirkung).
@@ -56,7 +57,7 @@ const text = (html) =>
 // ---------------------------------------------------------------------------
 
 test(
-  "F50 (E23): Einbau-Text sagt, dass der Einbau-Code nur diese Angaben braucht und Angaben zum Aussehen nicht wirken",
+  "F50 (E23, Wortlaut seit rc18 nach E28): Einbau-Text sagt, dass der Einbau-Code nur diese Angaben braucht und Angaben darin nicht ändern, was das Design Center einstellt",
   { skip },
   async () => {
     for (const config of [{}, { displayMode: "inline" }, { theme: "dark" }]) {
@@ -67,7 +68,7 @@ test(
       const shown = text(html);
       assert.ok(
         shown.includes(
-          "Der Einbau-Code braucht nur diese Angaben. Aussehen und Texte stellen Sie hier im Design Center ein; Angaben dazu im Einbau-Code wirken nicht."
+          "Der Einbau-Code braucht nur diese Angaben. Was Sie hier im Design Center einstellen, ändern Angaben im Einbau-Code nicht."
         ),
         shown
       );
@@ -157,7 +158,7 @@ test("F51: Vertrag der Startvorschläge nach E10 neu (gespeichert vor Standard, 
     /`data-default-messages` am Skript wirkt nicht, auch wenn nichts gespeichert ist/
   );
   assert.match(part, /`data-chatbot-bubbles-messages` wirkt nicht/);
-  // Kennzeichen bleiben (das Widget erkennt den Standard)
+  // Kennzeichen bleiben (für ältere Widget-Kopien und den Vertrag, C21)
   assert.match(part, /`defaultMessagesStandard: true`/);
   assert.match(part, /Kennzeichen bleiben/);
   // alte Reihenfolge Skript vor Standard und das Komma-Trennen der

@@ -1032,17 +1032,37 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
       .flatMap((key) => [attr(key), ...(LEGACY_ATTRS[key] ?? [])])
       .filter((name) => !groupA.includes(`\`${name}\``));
     expect(missing).toEqual([]);
-    // Akzentfarbe: auch die CSS-Variablen der Seite wirken nicht
-    for (const cssVar of ["--allm-accent", "--allm-on-accent"])
+    // Akzentfarbe und Schrift darauf: alle fünf CSS-Variablen der Seite,
+    // die das Widget aus dem Design Center setzt (Widget theme.js, dc: true),
+    // wirken nicht (F60, Fixliste 7.22-rc18)
+    for (const cssVar of [
+      "--allm-accent",
+      "--allm-on-accent",
+      "--allm-user-bg",
+      "--allm-user-text",
+      "--allm-link",
+    ])
       expect(groupA).toContain(`\`${cssVar}\``);
+    // die Konsole meldet nur Angaben im Einbau-Code, Seiten-CSS nicht
+    expect(groupA).toMatch(
+      /CSS-Variablen der Seite übergeht es ohne Konsolenwarnung/
+    );
   });
 
   test("feste Standards (Gruppe B) nicht in Gruppe A, KI-Hinweis unter E24, Technik in Gruppe C", () => {
     const groupA = bullet("Gruppe A");
     for (const key of FIXED) expect(groupA).not.toContain(`\`${attr(key)}\``);
-    expect(bullet("Gruppe B")).toMatch(
-      /Einbau-Angabe schlägt den festen\s+Standard/
-    );
+    const groupB = bullet("Gruppe B");
+    expect(groupB).toMatch(/Einbau-Angabe schlägt den festen\s+Standard/);
+    // F62 (Fixliste 7.22-rc18): feste Standards ohne Verfeinerung stehen als
+    // Ausnahme in Gruppe B (KI-Hinweis gesperrt, Antwortstil nur im Prompt,
+    // Online-Punkt entfernt)
+    for (const key of ["disclaimer", "courseCardsAnswerStyle", "onlineDot"]) {
+      expect(EMBED_FIXED_STANDARDS).toHaveProperty(key);
+      expect(groupB).toMatch(
+        new RegExp(`Nicht verfeinerbar sind .*\`${key}\``)
+      );
+    }
     const e24 = bullet("KI-Hinweis (E24)");
     for (const name of ["data-disclaimer", "data-disclaimer-text"])
       expect(e24).toContain(`\`${name}\``);

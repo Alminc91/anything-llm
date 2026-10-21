@@ -233,8 +233,10 @@ function visualConfigValue(embed = {}, key, tag = "visualConfigValue") {
  * entscheidet die tatsächliche Darstellung, die das Widget mit der Anfrage
  * schickt (R4, Fixliste 7.22-rc8): "inline" (In der Seite) an, sonst aus
  * (embedStandards.js courseCardsValue). Der gespeicherte displayMode zählt
- * dafür nicht: Das Widget kann ohne Platzhalter als Chatfenster laufen oder
- * nur per Script-Attribut in der Seite stehen.
+ * dafür nicht: Ohne passenden Platzhalter läuft das Widget auch bei „In der
+ * Seite“ als Chatfenster, und ältere Widget-Kopien (vor 7.22-rc17) folgen
+ * noch data-display-mode am Skript; im aktuellen Widget wirkt das Attribut
+ * seit E23 (Fixliste 7.22-rc17) nicht mehr.
  * visual_config ist in der DB ein JSON-String (embed_configs.visual_config).
  * @param {{visual_config?: string|object|null}} embed
  * @param {{displayMode?: string}} [options] tatsächliche Darstellung aus

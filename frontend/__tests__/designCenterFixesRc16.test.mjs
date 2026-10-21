@@ -272,9 +272,9 @@ test(
 // ---------------------------------------------------------------------------
 
 // Bewusst geändert in rc17 (F50, E23 ersetzt E18): Der Einbau-Text sagt
-// jetzt, dass Angaben zu Aussehen und Texten im Einbau-Code nicht wirken
-// (designCenterFixesRc17). Hier bleibt: weder die Zusage aus der Zeit vor
-// rc16 noch die aus rc16.
+// jetzt, dass Angaben im Einbau-Code nicht ändern, was das Design Center
+// einstellt (Wortlaut nach E28, designCenterFixesRc17 und Rc18). Hier
+// bleibt: weder die Zusage aus der Zeit vor rc16 noch die aus rc16.
 test(
   "F41 (E18, seit rc17 E23): Einbau-Text ohne die Zusagen von vor rc16 und aus rc16",
   { skip },

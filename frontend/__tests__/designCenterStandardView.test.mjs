@@ -373,7 +373,7 @@ test(
 );
 
 test(
-  "B-07/C04/27: Einbau bricht lange Zeilen um, Theme-Farben statt fester Farben, Hinweis auf Angaben im Einbau-Code (seit E23 rc17: wirken nicht)",
+  "B-07/C04/27: Einbau bricht lange Zeilen um, Theme-Farben statt fester Farben, Hinweis auf Angaben im Einbau-Code (seit E28 rc18: ändern nicht, was das Design Center einstellt)",
   { skip },
   async () => {
     for (const config of [{}, { displayMode: "inline" }]) {
@@ -389,10 +389,11 @@ test(
       }
       assert.doesNotMatch(html, /bg-black\/30|bg-white\/5|bg-white\/10/);
       // E23 (Fixliste 7.22-rc17 F50, bewusst geändert; vorher E18 aus
-      // rc16): Angaben zu Aussehen und Texten im Einbau-Code wirken nicht
+      // rc16), Wortlaut nach E28 (Fixliste 7.22-rc18 F61): Angaben im
+      // Einbau-Code ändern nicht, was das Design Center einstellt
       assert.ok(
         text(html).includes(
-          "Der Einbau-Code braucht nur diese Angaben. Aussehen und Texte stellen Sie hier im Design Center ein; Angaben dazu im Einbau-Code wirken nicht."
+          "Der Einbau-Code braucht nur diese Angaben. Was Sie hier im Design Center einstellen, ändern Angaben im Einbau-Code nicht."
         ),
         text(html)
       );

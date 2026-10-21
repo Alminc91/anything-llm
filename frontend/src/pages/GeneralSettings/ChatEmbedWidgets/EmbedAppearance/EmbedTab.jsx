@@ -235,13 +235,15 @@ export default function EmbedTab({ config, embed }) {
       {/* E23 (Fixliste 7.22-rc17, ersetzt E18 aus rc16): Was das Design
           Center einstellt (Gruppe A), gilt nur aus dem Design Center,
           gespeichert oder als Standard; Angaben dazu im Einbau-Code (etwa
-          data-theme) wirken nicht, auch ohne gespeicherten Wert */}
+          data-theme) wirken nicht, auch ohne gespeicherten Wert. Wortlaut
+          nach E28 (Fixliste 7.22-rc18 F61): Feste Standards ohne Feld
+          (Gruppe B) dürfen Entwickler weiter per Einbau-Angabe verfeinern,
+          der Text sagt deshalb nichts über Aussehen und Texte insgesamt */}
       <p className="text-theme-text-secondary text-xs leading-relaxed">
         Beim Chatfenster genügt das Skript, bei „In der Seite“ kommt der
-        Platzhalter dazu. Der Einbau-Code braucht nur diese Angaben. Aussehen
-        und Texte stellen Sie hier im Design Center ein; Angaben dazu im
-        Einbau-Code wirken nicht. Nach dem Speichern muss auf der Website nichts
-        geändert werden.
+        Platzhalter dazu. Der Einbau-Code braucht nur diese Angaben. Was Sie
+        hier im Design Center einstellen, ändern Angaben im Einbau-Code nicht.
+        Nach dem Speichern muss auf der Website nichts geändert werden.
       </p>
 
       <Step
