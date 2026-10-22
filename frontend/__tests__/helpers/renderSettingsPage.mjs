@@ -8,8 +8,9 @@
 // Schalter (CanViewChatHistory lädt ihn im Effekt) wird deshalb durch einen
 // festen Wert ersetzt; Seiten zeigen ihren Zustand vor dem ersten Laden.
 // Komponenten lassen sich mit Eigenschaften rendern (props, exportName), um
-// einen bestimmten Stand zu zeigen. DOMPurify (utils/chat/purify.js) ist
-// ersetzt, weil es ein Dokument braucht.
+// einen bestimmten Stand zu zeigen. DOMPurify (utils/chat/purify.js und die
+// strengere Instanz der Konversationen, utils/chat/purifyConversation.js)
+// ist ersetzt, weil es ein Dokument braucht.
 //
 // mount() hängt dieselbe Seite stattdessen mit React DOM in ein Dokument ohne
 // Browser ein (helpers/testDom.mjs): Effekte laufen, Handler lassen sich
@@ -31,6 +32,10 @@ const CAN_VIEW_CHAT_HISTORY = path.join(
 );
 const VIEWABLE_FLAG = "__TEST_CAN_VIEW_CHAT_HISTORY__";
 const PURIFY = path.join(FRONTEND_ROOT, "src/utils/chat/purify.js");
+const PURIFY_CONVERSATION = path.join(
+  FRONTEND_ROOT,
+  "src/utils/chat/purifyConversation.js"
+);
 const SELECTED_CLASS = "bg-theme-sidebar-subitem-selected";
 
 // Der Job „Run backend tests" installiert die Frontend-Pakete nicht.
@@ -87,6 +92,16 @@ export async function createRenderer() {
                   throw new Error("DOMPurify steht im Test-Renderer nicht zur Verfügung.");
                 },
               };
+            `;
+          // Die Antworten im Verlauf (Fixliste 7.22-rc13, E13): dieselbe
+          // Regel – die Regeln selbst prüft conversationView.test.mjs
+          // (ANSWER_PURIFY_CONFIG, hardenAnswerHtml), DOMPurify der
+          // Browser-Test
+          if (id === PURIFY_CONVERSATION)
+            return `
+              export default function sanitizeAnswerHtml() {
+                throw new Error("DOMPurify steht im Test-Renderer nicht zur Verfügung.");
+              }
             `;
           if (id !== CAN_VIEW_CHAT_HISTORY) return null;
           return `

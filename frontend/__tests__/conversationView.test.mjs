@@ -10,19 +10,31 @@ import assert from "node:assert/strict";
 import de from "../src/locales/de/common.js";
 import en from "../src/locales/en/common.js";
 import {
+  AVATAR_CLEARANCE,
+  BUBBLE,
+  BUBBLE_MAX_WIDTH,
   HOLD_SCROLL_BUSY_MAX_MS,
   HOLD_SCROLL_MAX_MS,
   HOLD_SCROLL_QUIET_MS,
-  PANEL_MIN_BODY,
-  PANEL_MIN_HEIGHT,
+  PANEL_PREFERENCE_KEY,
   RATING_BOX,
   RATING_FLASH,
   RATING_TINT,
+  ROW_SCROLL_MARGIN,
+  WORKSPACE,
+  WORKSPACE_MIN_HEIGHT,
+  WORKSPACE_PANEL_MIN_WIDTH,
+  WORKSPACE_TOP_GAP,
+  focusVisible,
+  hasFocus,
+  nearestScrollTop,
   ratingJumpIds,
   ratingOf,
+  readPanelPreference,
   SEARCH_MAX_LENGTH,
   ancestorsOf,
   answerText,
+  arrowNavigationAllowed,
   berlinDateTime,
   berlinTime,
   centeredScrollTop,
@@ -38,12 +50,13 @@ import {
   highlightParts,
   highlightTextNodes,
   holdScrollTarget,
+  isNewConversation,
   isWide,
   longDateLabel,
+  NEW_CONVERSATION_MS,
+  nextNewExpiry,
+  RATING_COLUMN,
   outsidePeriod,
-  panelChromeHeight,
-  panelFit,
-  revealMarkedRow,
   searchLinkIssue,
   searchPattern,
   searchVariants,
@@ -51,8 +64,23 @@ import {
   shortId,
   startScrollTop,
   startedOnOtherDay,
-  visibleAnswerText,
+  writePanelPreference,
 } from "../src/utils/conversationView.js";
+// Neu seit 7.22-rc13 (E13, E15, K01, K04): über den Namensraum, damit ein
+// fehlender Export nur die Tests trifft, die ihn brauchen
+import * as rc13 from "../src/utils/conversationView.js";
+// Neu seit 7.22-rc14 (K20, K21): ebenso über den Namensraum
+import * as rc14 from "../src/utils/conversationView.js";
+// Neu seit 7.22-rc15 (K31): ebenso über den Namensraum
+import * as rc15 from "../src/utils/conversationView.js";
+// Neu seit 7.22-rc16 (K40 bis K45, C10): ebenso über den Namensraum
+import * as rc16 from "../src/utils/conversationView.js";
+// Fixliste 7.22-rc18 (K60 bis K63): ebenso über den Namensraum
+import * as rc18 from "../src/utils/conversationView.js";
+// Fixliste 7.22-rc20 (K80 bis K90, B60): ebenso über den Namensraum
+import * as rc20 from "../src/utils/conversationView.js";
+// Fixliste 7.22-rc21 (K100 bis K104, B70): ebenso über den Namensraum
+import * as rc21 from "../src/utils/conversationView.js";
 import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
 import { formatDateTimeDE } from "../src/utils/dateTimeDE.js";
 import serverSearch from "../../server/utils/helpers/chat/conversationSearch.js";
@@ -80,6 +108,82 @@ const berlin = (day, time) => Date.parse(`${day}T${time}:00+02:00`);
 // ---------------------------------------------------------------------------
 // AK-2: Tagesgruppen nach der letzten Nachricht, Berliner Zeit
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Nachtrag KIE-560, K2/K3: „Neu“ nach der letzten Nachricht, Spalte der Marken
+// ---------------------------------------------------------------------------
+
+test("K3: „Neu“ gilt, solange die letzte Nachricht jünger als 4 Stunden ist – genau 4 Stunden: nicht mehr; reine Dauer über Tages- und Zeitzonengrenzen", () => {
+  assert.equal(NEW_CONVERSATION_MS, 4 * 60 * 60 * 1000);
+  const now = Date.parse("2026-10-13T10:00:00Z");
+  const at = (offsetMs) => ({ last_message_at: now - offsetMs });
+  assert.equal(isNewConversation(at(0), now), true);
+  assert.equal(isNewConversation(at(NEW_CONVERSATION_MS - 1), now), true);
+  assert.equal(isNewConversation(at(NEW_CONVERSATION_MS), now), false);
+  assert.equal(isNewConversation(at(NEW_CONVERSATION_MS + 1), now), false);
+  // Uhr des Besuchers vorgestellt: Zeitpunkt in der Zukunft gilt als neu
+  assert.equal(isNewConversation(at(-60_000), now), true);
+  // über Mitternacht in Berlin hinweg (23:30 → 01:00): Dauer 1,5 h
+  const afterMidnight = berlin("2026-10-14", "01:00");
+  assert.equal(
+    isNewConversation(
+      { last_message_at: berlin("2026-10-13", "23:30") },
+      afterMidnight
+    ),
+    true
+  );
+  // nach dem Beginn zählt nichts: früh begonnen, gerade weitergeführt
+  assert.equal(
+    isNewConversation(
+      { started_at: now - 5 * 86_400_000, last_message_at: now - 60_000 },
+      now
+    ),
+    true
+  );
+  // ohne gültigen Zeitpunkt nie neu
+  for (const last of [undefined, null, NaN, "2026-10-13", Infinity])
+    assert.equal(isNewConversation({ last_message_at: last }, now), false);
+  assert.equal(isNewConversation(null, now), false);
+});
+
+test("Review 7.22-rc2, K01: nextNewExpiry nennt, wann das erste „Neu“ der Liste abläuft; ohne neue Konversation null", () => {
+  const now = Date.parse("2026-10-13T10:00:00Z");
+  const HOUR = 3_600_000;
+  const rows = [
+    { last_message_at: now - 1 * HOUR },
+    { last_message_at: now - 3 * HOUR }, // läuft zuerst ab
+    { last_message_at: now - 5 * HOUR }, // schon alt
+    { last_message_at: null },
+  ];
+  assert.equal(nextNewExpiry(rows, now), now + 1 * HOUR);
+  assert.equal(nextNewExpiry([rows[2], rows[3]], now), null);
+  assert.equal(nextNewExpiry([], now), null);
+  assert.equal(nextNewExpiry(undefined, now), null);
+});
+
+test("Review 7.22-rc6, K03: nextNewExpiry liegt höchstens 4 Stunden nach jetzt, auch bei Zeitpunkten in der Zukunft (Uhr geht nach)", () => {
+  const now = Date.parse("2026-10-13T10:00:00Z");
+  const DAY = 86_400_000;
+  // 30 Tage in der Zukunft: ohne Deckel über dem Höchstwert von setTimeout
+  // (2^31-1 ms), der Zeitgeber feuerte sofort und immer wieder
+  const future = [{ last_message_at: now + 30 * DAY }];
+  assert.equal(isNewConversation(future[0], now), true);
+  const next = nextNewExpiry(future, now);
+  assert.equal(next, now + NEW_CONVERSATION_MS);
+  assert.ok(next - now + 200 <= 2 ** 31 - 1);
+  // eine echte frühere Ablaufzeit gewinnt weiter
+  const mixed = [...future, { last_message_at: now - 3_600_000 }];
+  assert.equal(nextNewExpiry(mixed, now), now + 3 * 3_600_000);
+  // knapp in der Zukunft: ebenfalls gedeckelt, nie später als 4 Stunden
+  assert.equal(
+    nextNewExpiry([{ last_message_at: now + 60_000 }], now),
+    now + NEW_CONVERSATION_MS
+  );
+});
+
+test("K2: Spalte der Bewertungsmarken mit fester Mindestbreite – unter sm 72 px, ab sm 106 px (zwei Marken mit zweistelliger Zahl)", () => {
+  assert.equal(RATING_COLUMN, "min-w-[72px] sm:min-w-[106px]");
+});
 
 test("AK-2: K1 (Beginn 09.10., letzte Nachricht 13.10.) steht unter „Heute · Dienstag, 13. Oktober“ über K2 (12.10.) – mit „begonnen am 9. Okt.“", () => {
   const today = "2026-10-13";
@@ -414,7 +518,18 @@ test("NFD: Ein zerlegtes „ü“ im Text wird hervorgehoben wie ein zusammenges
   assert.equal(highlightParts("Kurs B", pattern).length, 2);
 });
 
-test("Sichtbarer Treffer: Link-Adressen, HTML und <think> zählen nicht; Frage, Grund, Kommentar und Linktext schon (Fixliste Punkt 11)", () => {
+// Was eine Antwort sichtbar zeigt, entscheidet seit rc20 die Darstellung des
+// Verlaufs (answerShowsHit in MarkdownRenderer.jsx, Nachreview 7.22-rc19,
+// K81 bis K86). Sie braucht DOMPurify und läuft darum im Browser
+// (kie575Layout.manual.mjs, checkAnswerShowsHit: Link-Adressen, HTML,
+// <think>, Autolinks und die Fälle aus K62, K63 und K81 bis K86). Hier steht
+// sie als Attrappe: Diese zeigt einen Treffer nur in den Wörtern, die sie
+// kennt.
+const answerShowing = (...words) => (text, term) =>
+  words.some((word) => highlightParts(word, term).some((part) => part.hit)) &&
+  highlightParts(text, term).some((part) => part.hit);
+
+test("Sichtbarer Treffer: Frage, Grund und Kommentar zählen, eine Antwort nur, wenn ihre Darstellung den Begriff zeigt (Link-Adressen, HTML und <think> nicht: Browser) (Fixliste Punkt 11)", () => {
   const answer = (text) => JSON.stringify({ text, sources: [{ text: "Q" }] });
   const message = (extra) => ({
     prompt: "Wo melde ich mich an?",
@@ -425,21 +540,19 @@ test("Sichtbarer Treffer: Link-Adressen, HTML und <think> zählen nicht; Frage, 
     feedbackText: null,
     ...extra,
   });
-  assert.equal(
-    visibleAnswerText(
-      '[Kurs](https://a.example/b) <b class="x">fett</b><think>still</think>'
-    ),
-    "[Kurs]  fett  "
-  );
-  assert.equal(hasVisibleHit([message()], "vhs-lingen"), false);
-  assert.equal(hasVisibleHit([message()], "geheimattribut"), false);
-  assert.equal(hasVisibleHit([message()], "yoga"), false);
-  assert.equal(hasVisibleHit([message()], "anmeldung"), true);
-  assert.equal(hasVisibleHit([message()], "melde ich"), true);
+  // die Darstellung zeigt „Hier: Anmeldung ok“
+  const shows = answerShowing("Hier:", "Anmeldung", "ok");
+  assert.equal(hasVisibleHit([message()], "vhs-lingen", {}, shows), false);
+  assert.equal(hasVisibleHit([message()], "geheimattribut", {}, shows), false);
+  assert.equal(hasVisibleHit([message()], "yoga", {}, shows), false);
+  assert.equal(hasVisibleHit([message()], "anmeldung", {}, shows), true);
+  assert.equal(hasVisibleHit([message()], "melde ich", {}, shows), true);
   assert.equal(
     hasVisibleHit(
       [message({ feedbackScore: false, feedbackText: "vhs-lingen ist toll" })],
-      "vhs-lingen"
+      "vhs-lingen",
+      {},
+      shows
     ),
     true
   );
@@ -447,43 +560,35 @@ test("Sichtbarer Treffer: Link-Adressen, HTML und <think> zählen nicht; Frage, 
   assert.equal(
     hasVisibleHit(
       [message({ feedbackScore: null, feedbackText: "vhs-lingen ist toll" })],
-      "vhs-lingen"
+      "vhs-lingen",
+      {},
+      shows
     ),
     false
   );
   // ohne Suche: kein Hinweis
-  assert.equal(hasVisibleHit([message()], ""), true);
+  assert.equal(hasVisibleHit([message()], "", {}, shows), true);
 });
 
-test("Sichtbarer Treffer: Autolinks <https://…> und <info@…> zeigt die Antwort als Text – sie zählen (Fixliste 2, S2)", () => {
+test("Sichtbarer Treffer: Die Antwort geht als Text (answerText, ohne JSON) mit dem Begriff an ihre Darstellung; Autolinks <https://…> und <info@…> zeigt sie als Text (Browser) (Fixliste 2, S2)", () => {
   const answer = (text) => JSON.stringify({ text, sources: [] });
-  assert.equal(
-    visibleAnswerText(
-      "Siehe <https://kurs.example/a1> oder <info@vhs.example>."
-    ),
-    "Siehe  https://kurs.example/a1  oder  info@vhs.example ."
-  );
+  const calls = [];
+  const shows = (text, term) => {
+    calls.push([text, term]);
+    return answerShowing("https://kurs.example/a1", "info@vhs.example")(text, term);
+  };
+  const text = "Siehe <https://kurs.example/a1> oder <info@vhs.example>.";
   for (const term of ["kurs.example", "info@vhs", "https://kurs"])
     assert.equal(
-      hasVisibleHit(
-        [
-          {
-            prompt: "Frage",
-            response: answer(
-              "Siehe <https://kurs.example/a1> oder <info@vhs.example>."
-            ),
-          },
-        ],
-        term
-      ),
+      hasVisibleHit([{ prompt: "Frage", response: answer(text) }], term, {}, shows),
       true,
       term
     );
-  // echte Tags und ihre Attribute weiter nicht
-  assert.equal(
-    visibleAnswerText('<a href="https://kurs.example">Link</a>'),
-    " Link "
-  );
+  assert.deepEqual(calls, [
+    [text, "kurs.example"],
+    [text, "info@vhs"],
+    [text, "https://kurs"],
+  ]);
 });
 
 test("Sichtbarer Treffer: nur in den Nachrichten, die der Server durchsucht hat – im Zeitraum, mit Abschnitt die ganze Konversation (Fixliste 2, S7)", () => {
@@ -500,14 +605,16 @@ test("Sichtbarer Treffer: nur in den Nachrichten, die der Server durchsucht hat 
     },
   ];
   const october = { fromDay: "2026-10-01", toDay: "2026-10-31" };
+  // die Darstellung zeigt „hier“, nicht die Adresse
+  const shows = answerShowing("hier");
   // Im Oktober trifft „spanisch" nur die Link-Adresse – die sichtbare Frage
   // aus dem Juli hat der Server nicht durchsucht: Hinweis.
-  assert.equal(hasVisibleHit(messages, "spanisch", october), false);
+  assert.equal(hasVisibleHit(messages, "spanisch", october, shows), false);
   // ganze Konversation (Abschnitt) oder ohne Zeitraum: sichtbar
-  assert.equal(hasVisibleHit(messages, "spanisch", {}), true);
-  assert.equal(hasVisibleHit(messages, "spanisch"), true);
+  assert.equal(hasVisibleHit(messages, "spanisch", {}, shows), true);
+  assert.equal(hasVisibleHit(messages, "spanisch", undefined, shows), true);
   assert.equal(
-    hasVisibleHit(messages, "spanisch", { fromDay: null, toDay: null }),
+    hasVisibleHit(messages, "spanisch", { fromDay: null, toDay: null }, shows),
     true
   );
 });
@@ -534,25 +641,6 @@ test("Sprung zum Treffer: Nur der Verlauf scrollt – die Position steht mittig,
   assert.equal(firstElementWith(null, "data-search-hit"), null);
 });
 
-test("Fixliste 3, V3/V8: Höhe des Seitenpanels – es endet über dem unteren Fensterrand, wo immer es steht; steht es zu tief, wird es beim Öffnen geholt", () => {
-  // oben klebend (80 px): wie bisher 100vh - 112 px
-  assert.deepEqual(panelFit(80, 900), { maxHeight: 788, reveal: false });
-  // nach dem Sprung zur Liste tiefer (B5: 124 px) – die Fußzeile bleibt im
-  // Fenster (vorher 788 px, Unterkante bei 912)
-  assert.deepEqual(panelFit(124, 900), { maxHeight: 744, reveal: false });
-  assert.ok(124 + panelFit(124, 900).maxHeight <= 900 - 32);
-  // höher als die Klebekante gibt es nicht (beim Scrollen): wie oben
-  assert.deepEqual(panelFit(10, 900), { maxHeight: 788, reveal: false });
-  // weit unten (wenige Treffer): nie niedriger als 240 px, und beim Öffnen
-  // sind weniger als 320 px zu sehen – holen
-  assert.deepEqual(panelFit(700, 900), { maxHeight: 240, reveal: true });
-  assert.equal(panelFit(580, 900).reveal, false);
-  assert.equal(panelFit(581, 900).reveal, true);
-  // ohne Maße (kein Layout): nichts
-  assert.equal(panelFit(undefined, 900), null);
-  assert.equal(panelFit(100, undefined), null);
-});
-
 test("Fixliste 3, S4: isWide – eine Stelle für die Breitenprüfung, auch ohne matchMedia", () => {
   const original = globalThis.window;
   try {
@@ -561,7 +649,7 @@ test("Fixliste 3, S4: isWide – eine Stelle für die Breitenprüfung, auch ohne
     globalThis.window = {};
     assert.equal(isWide(), false);
     globalThis.window = {
-      matchMedia: (query) => ({ matches: query === "(min-width: 1024px)" }),
+      matchMedia: (query) => ({ matches: query === "(min-width: 1280px)" }),
     };
     assert.equal(isWide(), true);
     globalThis.window = { matchMedia: () => ({ matches: false }) };
@@ -588,27 +676,6 @@ test("Fixliste 4, S2: berlinDateTime – voller Zeitpunkt in Berliner Zeit im Fo
   // ohne gültigen Zeitpunkt wie formatDateTimeDE: "-"
   for (const value of [null, undefined, "", "kein Datum", NaN])
     assert.equal(berlinDateTime(value), "-", String(value));
-});
-
-test("Fixliste 4, V3: panelFit – am Seitenende endet das Panel über der Unterkante seines Bereichs und bleibt so unter dem Benutzermenü", () => {
-  // Bereich reicht weit nach unten: wie bisher (32 px über dem Fensterrand)
-  assert.deepEqual(panelFit(80, 900, 2000), { maxHeight: 788, reveal: false });
-  // ganz unten gescrollt, kurze Liste: Unter dem Bereich liegen 64 px Rand –
-  // das Panel endet an seiner Unterkante (836) und steht bei 80, nicht bei
-  // 47 unter dem Benutzermenü
-  const fit = panelFit(47, 900, 836);
-  assert.deepEqual(fit, { maxHeight: 756, reveal: false });
-  assert.ok(80 + fit.maxHeight <= 836);
-  // noch nicht klebend: Die Unterkante des Fensters bleibt maßgeblich
-  assert.deepEqual(panelFit(300, 900, 1088), { maxHeight: 568, reveal: false });
-  // ohne gültige Unterkante: ohne diese Grenze
-  for (const bottom of [undefined, NaN, null])
-    assert.deepEqual(panelFit(80, 900, bottom), {
-      maxHeight: 788,
-      reveal: false,
-    });
-  // nie niedriger als 240 px
-  assert.equal(panelFit(80, 900, 200).maxHeight, 240);
 });
 
 test("Fixliste 4, V7: holdScrollTarget – springt, hält das Ziel bei jeder Größenänderung eines Vorfahren und bei fremdem Scrollen, bis zur ersten Eingabe", () => {
@@ -798,23 +865,6 @@ test("Fixliste 5, S2: holdScrollTarget – fremdes Scrollen springt nur zurück,
   }
 });
 
-test("Fixliste 5, S5: panelFit – nie niedriger als Kopf und Fußzeile mit einem Rest Verlauf; die Fußzeile bleibt im Panelrahmen", () => {
-  // Kopf 196 px (schmales Panel, Frage über zwei Zeilen), Fußzeile 49 px
-  const min = panelChromeHeight(196, 49);
-  assert.equal(min, 196 + 49 + PANEL_MIN_BODY + 2);
-  // Panel weit unten (Mindesthöhe 240 reichte nicht): so hoch wie nötig
-  assert.equal(panelFit(700, 900, undefined, min).maxHeight, min);
-  assert.ok(min > PANEL_MIN_HEIGHT);
-  // sonst wie bisher
-  assert.equal(panelFit(300, 900, undefined, min).maxHeight, 568);
-  assert.equal(panelFit(700, 900).maxHeight, PANEL_MIN_HEIGHT);
-  // ohne Fußzeile (Konversation lädt) und ohne gemessenen Kopf
-  assert.equal(panelChromeHeight(120, undefined), 120 + PANEL_MIN_BODY + 2);
-  assert.equal(panelChromeHeight(0, 49), 0);
-  assert.equal(panelChromeHeight(undefined, 49), 0);
-  assert.equal(panelFit(700, 900, undefined, NaN).maxHeight, PANEL_MIN_HEIGHT);
-});
-
 test("Fixliste 5, S3: berlinDateTime ist formatDateTimeDE (utils/dateTimeDE.js) mit Berliner Zeit – keine zweite Formatierung", () => {
   for (const instant of [
     berlin("2026-10-13", "07:48"),
@@ -935,48 +985,6 @@ test("Fixliste 6, N1: hasContentGap – nur „einsehbar < gezählt“ ist eine 
     assert.equal(hasContentGap(counted, viewable), false);
 });
 
-test("Fixliste 6, K5: revealMarkedRow – die markierte Zeile unter dem Fensterrand (Zeile 45) kommt mit „nearest“ in Sicht; im Bild bleibt alles stehen", () => {
-  const doc = createDocument();
-  const root = doc.body.appendChild(doc.createElement("div"));
-  const makeRow = (id, top, current = false) => {
-    const row = root.appendChild(doc.createElement("button"));
-    row.setAttribute("data-conversation-row", String(id));
-    if (current) row.setAttribute("aria-current", "true");
-    row.getBoundingClientRect = () => ({ top, bottom: top + 54 });
-    row.scrolls = [];
-    row.scrollIntoView = (options) => row.scrolls.push(options);
-    return row;
-  };
-  // Ein anderes Element mit aria-current zählt nicht.
-  const other = root.appendChild(doc.createElement("a"));
-  other.setAttribute("aria-current", "true");
-  other.getBoundingClientRect = () => ({ top: 5000, bottom: 5020 });
-  other.scrollIntoView = () => assert.fail("kein Sprung zu anderen Elementen");
-
-  makeRow(1, 300);
-  const deep = makeRow(45, 2941, true);
-  assert.equal(revealMarkedRow(root, 900), true);
-  assert.deepEqual(deep.scrolls, [{ block: "nearest" }]);
-
-  // im freien Bereich: nichts (Zeile 3 nach dem Sprung zur Überschrift)
-  deep.removeAttribute("aria-current");
-  const near = makeRow(3, 387, true);
-  assert.equal(revealMarkedRow(root, 900), false);
-  assert.deepEqual(near.scrolls, []);
-  // knapp unter der Grenze (Fenster − 32 px) bzw. über PANEL_STUCK_TOP (80)
-  near.getBoundingClientRect = () => ({ top: 820, bottom: 874 });
-  assert.equal(revealMarkedRow(root, 900), true);
-  near.getBoundingClientRect = () => ({ top: 60, bottom: 114 });
-  assert.equal(revealMarkedRow(root, 900), true);
-  assert.equal(near.scrolls.length, 2);
-
-  // ohne markierte Zeile, ohne Bereich, ohne Fensterhöhe: nichts
-  near.removeAttribute("aria-current");
-  assert.equal(revealMarkedRow(root, 900), false);
-  assert.equal(revealMarkedRow(null, 900), false);
-  assert.equal(revealMarkedRow(root, NaN), false);
-});
-
 test("Fixliste 6, K5: holdScrollTarget().realign – springt erneut, solange das Halten läuft; danach nicht mehr", () => {
   const doc = createDocument();
   const target = doc.body
@@ -1077,7 +1085,9 @@ test("Fixliste 7, F05: Hervorhebung nach derselben Regel wie die Suche des Serve
   assert.equal(
     hasVisibleHit(
       [{ prompt: "?", response: JSON.stringify({ text: "KISA" }) }],
-      "kısa"
+      "kısa",
+      {},
+      answerShowing("KISA")
     ),
     true
   );
@@ -1535,4 +1545,1507 @@ test("Review 7.21.1 (N2 a): ratingJumpIds – die so bewerteten Antworten im Zei
     null,
     null,
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// KIE-575: Arbeitsbereich ab lg – Konstanten, gemerkter Verlauf, Pfeiltasten
+// ---------------------------------------------------------------------------
+
+test("KIE-575, AK-2 / rc11 K13 / rc13 E15: WORKSPACE – Bereich mit fester Höhe (100vh − 88 px, mindestens 480 px: bei 600 px Fensterhöhe ganz im Fenster), Liste scrollt selbst, Verlauf einheitlich 56 % und mindestens 480 px; alles nur auf dem Desktop (xl, 1.280 px), nichts ab lg oder 2xl", () => {
+  assert.equal(WORKSPACE_TOP_GAP, 88);
+  assert.equal(WORKSPACE_MIN_HEIGHT, 480);
+  // K13: Unter dem Bereich liegen 64 px (48 Innenabstand + 16 Rahmen). Bei
+  // 600 px Fensterhöhe (das niedrigste übliche Fenster ab lg) nimmt er
+  // 100vh − 88 = 512 px und steht 24 px unter dem oberen Rand; die
+  // Mindesthöhe greift erst unter 568 px und bleibt bis 544 px ohne
+  // Anschnitt (vorher 560: bei 600 px ragte er 24 px über den Rand).
+  assert.ok(Math.max(WORKSPACE_MIN_HEIGHT, 600 - WORKSPACE_TOP_GAP) + 64 <= 600);
+  assert.equal(WORKSPACE_MIN_HEIGHT + 64, 544);
+  assert.equal(WORKSPACE_PANEL_MIN_WIDTH, 480);
+  const classes = (value) => value.split(/\s+/).filter(Boolean);
+  const has = (value, names) =>
+    names.every((name) => classes(value).includes(name));
+  assert.ok(
+    has(WORKSPACE.area, [
+      "desktop:flex",
+      "desktop:gap-4",
+      "desktop:h-[max(480px,calc(100vh-88px))]",
+    ]),
+    WORKSPACE.area
+  );
+  assert.ok(
+    has(WORKSPACE.column, ["desktop:flex", "desktop:min-w-0", "desktop:flex-1", "desktop:flex-col"])
+  );
+  assert.ok(
+    has(WORKSPACE.scroller, ["desktop:min-h-0", "desktop:flex-1", "desktop:overflow-y-auto"])
+  );
+  // E15: einheitlich Liste 44 % und Verlauf 56 % (kein Schritt bei
+  // 1.536 px), der Verlauf überall mindestens 480 px
+  assert.deepEqual(classes(WORKSPACE.panel), [
+    "desktop:w-[calc(56%-8px)]",
+    "desktop:min-w-[480px]",
+    "desktop:shrink-0",
+  ]);
+  // Die Zahlen in den Klassen sind die Konstanten – wörtlich, damit Tailwind
+  // das CSS erzeugt (keine Vorlagen)
+  assert.ok(
+    WORKSPACE.area.includes(
+      `max(${WORKSPACE_MIN_HEIGHT}px,calc(100vh-${WORKSPACE_TOP_GAP}px))`
+    )
+  );
+  assert.ok(WORKSPACE.panel.includes(`min-w-[${WORKSPACE_PANEL_MIN_WIDTH}px]`));
+  const source = readFileSync(
+    new URL("../src/utils/conversationView.js", import.meta.url),
+    "utf8"
+  );
+  assert.ok(source.includes('"desktop:flex desktop:gap-4 desktop:h-[max(480px,calc(100vh-88px))]"'));
+  assert.ok(source.includes("desktop:min-w-[480px]"));
+  // Tablet und Smartphone wie bisher unter lg: nur Präfixe desktop:
+  // (Geräteklasse, rc16 C10; vorher xl:)
+  for (const value of Object.values(WORKSPACE))
+    for (const name of classes(value)) assert.match(name, /^desktop:/, name);
+});
+
+test("rc13, E15: Geräteklassen – der Verlauf steht ab 1.280 px (Stufe desktop:, Desktop) neben der Liste; darunter (Tablet 768 bis 1.279 px, Smartphone) ist er ein Vollbild", () => {
+  assert.equal(rc13.WIDE_QUERY, "(min-width: 1280px)");
+  const original = globalThis.window;
+  try {
+    for (const [width, desktop] of [
+      [390, false],
+      [768, false],
+      [1024, false],
+      [1279, false],
+      [1280, true],
+      [1440, true],
+      [1920, true],
+    ]) {
+      globalThis.window = {
+        matchMedia: (query) => ({
+          matches: Number(query.match(/min-width: (\d+)px/)?.[1]) <= width,
+        }),
+      };
+      assert.equal(isWide(), desktop, `${width} px`);
+    }
+  } finally {
+    globalThis.window = original;
+  }
+});
+
+test("Review 7.22-rc12, K04: Sprungziel „Liste“ – auf dem Desktop die Ruhelage des Arbeitsbereichs (Oberkante 24 px unter dem Fensterrand: 8 px unter dem Rahmen, desktop:scroll-mt-2), auf Tablet und Smartphone weiter unter dem Benutzermenü (scroll-mt-20); Höhe und Sprungziel aus derselben Ruhelage", () => {
+  const { FRAME_TOP, WORKSPACE_REST_TOP } = rc13;
+  assert.equal(AVATAR_CLEARANCE.jumpTarget, "scroll-mt-20 desktop:scroll-mt-2");
+  assert.equal(FRAME_TOP, 16);
+  assert.equal(WORKSPACE_REST_TOP, 24);
+  // desktop:scroll-mt-2 = 2 · 4 px = Ruhelage minus Rahmen
+  const margin = Number(
+    AVATAR_CLEARANCE.jumpTarget.match(/desktop:scroll-mt-(\d+)/)?.[1]
+  );
+  assert.equal(margin * 4, WORKSPACE_REST_TOP - FRAME_TOP);
+  // Höhe des Bereichs: Ruhelage oben, darunter 48 px Abstand und 16 px Rahmen
+  assert.equal(WORKSPACE_TOP_GAP, WORKSPACE_REST_TOP + 48 + 16);
+  // Nach dem Sprung endet der Bereich bei 1920×1080 im Fenster (vorher bei
+  // 96 + 992 = 1088 px, 24 px darunter)
+  for (const height of [1080, 900, 600]) {
+    const area = Math.max(WORKSPACE_MIN_HEIGHT, height - WORKSPACE_TOP_GAP);
+    const top = FRAME_TOP + margin * 4;
+    assert.ok(top + area <= height - 64, `${height}: ${top + area}`);
+  }
+});
+
+test("KIE-575, AK-4: readPanelPreference/writePanelPreference – Standard offen, „closed“ gemerkt, Fehler des Speichers ändern nichts", () => {
+  const store = new Map();
+  const storage = {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => store.set(key, String(value)),
+  };
+  assert.equal(PANEL_PREFERENCE_KEY, "kie.conversations.panel");
+  assert.equal(readPanelPreference(storage), true);
+  writePanelPreference(false, storage);
+  assert.equal(store.get(PANEL_PREFERENCE_KEY), "closed");
+  assert.equal(readPanelPreference(storage), false);
+  writePanelPreference(true, storage);
+  assert.equal(store.get(PANEL_PREFERENCE_KEY), "open");
+  assert.equal(readPanelPreference(storage), true);
+  // Unbekannter Wert: offen
+  store.set(PANEL_PREFERENCE_KEY, "irgendwas");
+  assert.equal(readPanelPreference(storage), true);
+  // Speicher gesperrt (privates Fenster): offen, Schreiben wirft nicht
+  const locked = {
+    getItem() {
+      throw new Error("gesperrt");
+    },
+    setItem() {
+      throw new Error("gesperrt");
+    },
+  };
+  assert.equal(readPanelPreference(locked), true);
+  assert.doesNotThrow(() => writePanelPreference(false, locked));
+  // kein Speicher
+  assert.equal(readPanelPreference(null), true);
+  assert.doesNotThrow(() => writePanelPreference(true, null));
+});
+
+test("KIE-575, AK-6: arrowNavigationAllowed – ↑/↓ blättern bei Fokus auf <body> oder im Kopf des Panels; nicht in Eingaben, auf Zeilen, im Menü „⋯“ oder im Verlauf", () => {
+  const doc = createDocument();
+  assert.equal(arrowNavigationAllowed(doc), true, "Seite gerade geöffnet");
+  const input = doc.body.appendChild(doc.createElement("input"));
+  input.focus();
+  assert.equal(arrowNavigationAllowed(doc), false, "Suchfeld");
+
+  const panel = doc.body.appendChild(doc.createElement("aside"));
+  const head = panel.appendChild(doc.createElement("header"));
+  head.setAttribute("data-panel-head", "");
+  const close = head.appendChild(doc.createElement("button"));
+  close.focus();
+  assert.equal(arrowNavigationAllowed(doc), true, "✕ im Kopf");
+  const menu = head.appendChild(doc.createElement("div"));
+  menu.setAttribute("role", "menu");
+  const item = menu.appendChild(doc.createElement("button"));
+  item.focus();
+  assert.equal(arrowNavigationAllowed(doc), false, "Menü „⋯“");
+  const body = panel.appendChild(doc.createElement("div"));
+  body.setAttribute("data-panel-body", "");
+  body.setAttribute("tabindex", "0");
+  body.focus();
+  assert.equal(arrowNavigationAllowed(doc), false, "scrollender Verlauf");
+
+  const row = doc.body.appendChild(doc.createElement("button"));
+  row.setAttribute("data-conversation-row", "1");
+  row.focus();
+  assert.equal(arrowNavigationAllowed(doc), false, "Zeile (eigener Handler)");
+  // Fokus auf einem Element, das nicht mehr im Dokument ist: wie <body>
+  doc.activeElement = doc.createElement("button");
+  assert.equal(arrowNavigationAllowed(doc), true);
+  assert.equal(arrowNavigationAllowed(undefined), false);
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc11 (Abnahme rc9): K11, K12, K14, K15
+// ---------------------------------------------------------------------------
+
+test("rc11, K11: nearestScrollTop – Scrollposition, bei der ein Element im Bereich ganz zu sehen ist, mit möglichst wenig Bewegung und nur für diesen Bereich (die Seite bleibt); ROW_SCROLL_MARGIN 32 oben (Tagesüberschrift), 8 unten", () => {
+  assert.deepEqual(ROW_SCROLL_MARGIN, { marginTop: 32, marginBottom: 8 });
+  // Bereich 300 px hoch ab y 100 mit Scrollposition scrollTop; Element bei
+  // offset (vom Anfang des Inhalts) mit Höhe height
+  const container = (scrollTop) => ({
+    scrollTop,
+    clientHeight: 300,
+    getBoundingClientRect: () => ({ top: 100 }),
+  });
+  const element = (offset, scrollTop, height = 54) => ({
+    getBoundingClientRect: () => ({ top: 100 + offset - scrollTop, height }),
+  });
+  // ganz im Bild: die Position bleibt
+  assert.equal(nearestScrollTop(container(0), element(100, 0)), 0);
+  assert.equal(nearestScrollTop(container(120), element(200, 120)), 120);
+  // genau am unteren Rand (Unterkante = Rand): bleibt
+  assert.equal(nearestScrollTop(container(0), element(246, 0)), 0);
+  // unten angeschnitten: die Unterkante an den unteren Rand, mit Rand
+  assert.equal(nearestScrollTop(container(0), element(270, 0)), 24);
+  assert.equal(
+    nearestScrollTop(container(0), element(270, 0), { marginBottom: 8 }),
+    32
+  );
+  // oben angeschnitten oder darüber: der Anfang nach oben, mit Rand
+  assert.equal(nearestScrollTop(container(200), element(150, 200)), 150);
+  assert.equal(
+    nearestScrollTop(container(200), element(150, 200), { marginTop: 32 }),
+    118
+  );
+  // höher als der Bereich: der Anfang nach oben
+  assert.equal(nearestScrollTop(container(50), element(80, 50, 400)), 80);
+  // nie unter 0; ohne Maße 0
+  assert.equal(
+    nearestScrollTop(container(10), element(0, 10), { marginTop: 32 }),
+    0
+  );
+  assert.equal(
+    nearestScrollTop(
+      { getBoundingClientRect: () => ({ top: 0 }) },
+      { getBoundingClientRect: () => ({ top: 0, height: 0 }) }
+    ),
+    0
+  );
+  // gerundet
+  assert.equal(nearestScrollTop(container(0), element(270.4, 0)), 24);
+});
+
+test("rc11, K12 / K14: AVATAR_CLEARANCE.panelHeadEnd (desktop:pr-7, nur auf dem Desktop: mit dem Innenabstand des Kopfs 48 px rechts, ✕ und ⋯ links vom Benutzermenü) und emptyPanelClose (right-12); BUBBLE: Blasen höchstens 720 px bei jeder Breite (E14), Nutzerblasen weiter höchstens 85 %", () => {
+  assert.equal(AVATAR_CLEARANCE.panelHeadEnd, "desktop:pr-7");
+  assert.equal(AVATAR_CLEARANCE.emptyPanelClose, "right-12");
+  assert.equal(BUBBLE_MAX_WIDTH, 720);
+  assert.deepEqual(BUBBLE, {
+    question: "max-w-[min(85%,720px)]",
+    answer: "max-w-[720px]",
+  });
+  for (const value of Object.values(BUBBLE))
+    assert.ok(value.includes(`${BUBBLE_MAX_WIDTH}px`), value);
+});
+
+test("rc11, K15: hasFocus – hat das Element den Fokus des Dokuments? (eine Stelle statt document.activeElement in der Liste, Fixliste 7 F24)", () => {
+  const doc = createDocument();
+  const button = doc.body.appendChild(doc.createElement("button"));
+  assert.equal(hasFocus(button, doc), false);
+  button.focus();
+  assert.equal(hasFocus(button, doc), true);
+  assert.equal(hasFocus(null, doc), false);
+  assert.equal(hasFocus(button, undefined), false);
+  button.blur();
+  assert.equal(hasFocus(button, doc), false);
+});
+
+test("rc11, K15: focusVisible – fragt :focus-visible ab (Tastaturfokus); ohne Auskunft (kein matches, unbekannte Pseudoklasse, kein Element) gilt Tastatur", () => {
+  assert.equal(focusVisible({ matches: (s) => s === ":focus-visible" }), true);
+  assert.equal(focusVisible({ matches: () => false }), false);
+  assert.equal(
+    focusVisible({
+      matches() {
+        throw new Error("unbekannte Pseudoklasse");
+      },
+    }),
+    true
+  );
+  assert.equal(focusVisible({}), true);
+  assert.equal(focusVisible(null), true);
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc13 (Nachreview rc12): K01, K05, C4, K14 (E13)
+// ---------------------------------------------------------------------------
+
+test("rc12, K01: arrowStep – ↓ 1, ↑ −1; mit Umschalt- (Textauswahl), Alt-, Strg- oder Befehlstaste 0, ebenso andere Tasten", () => {
+  const { arrowStep } = rc13;
+  assert.equal(arrowStep({ key: "ArrowDown" }), 1);
+  assert.equal(arrowStep({ key: "ArrowUp" }), -1);
+  for (const modifier of ["shiftKey", "altKey", "ctrlKey", "metaKey"]) {
+    assert.equal(arrowStep({ key: "ArrowDown", [modifier]: true }), 0, modifier);
+    assert.equal(arrowStep({ key: "ArrowUp", [modifier]: true }), 0, modifier);
+  }
+  assert.equal(arrowStep({ key: "ArrowLeft" }), 0);
+  assert.equal(arrowStep({ key: "Enter" }), 0);
+  assert.equal(arrowStep(null), 0);
+});
+
+test("rc12, K05: arrowNavigationAllowed – nie, solange ein modaler Dialog (aria-modal) offen ist, auch bei Fokus auf <body>; danach wieder", () => {
+  const doc = createDocument();
+  assert.equal(arrowNavigationAllowed(doc), true);
+  const dialog = doc.body.appendChild(doc.createElement("div"));
+  dialog.setAttribute("aria-modal", "true");
+  assert.equal(arrowNavigationAllowed(doc), false, "Rückfrage offen, <body>");
+  const head = doc.body.appendChild(doc.createElement("header"));
+  head.setAttribute("data-panel-head", "");
+  const close = head.appendChild(doc.createElement("button"));
+  close.focus();
+  assert.equal(arrowNavigationAllowed(doc), false, "Rückfrage offen, Kopf");
+  doc.body.removeChild(dialog);
+  assert.equal(arrowNavigationAllowed(doc), true, "Rückfrage zu");
+  // auch mit querySelector (Browser)
+  const browserLike = {
+    ...doc,
+    body: doc.body,
+    activeElement: doc.body,
+    querySelector: (selector) =>
+      selector === '[aria-modal="true"]' ? {} : null,
+  };
+  assert.equal(arrowNavigationAllowed(browserLike), false);
+});
+
+test("rc12, C4: readPanelPreference/writePanelPreference ohne Angabe – localStorage erst im try: Wirft schon der Zugriff (gesperrte Website-Daten), gilt offen und Schreiben wirft nicht; sonst der Speicher des Fensters", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const restore = () => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else delete globalThis.localStorage;
+  };
+  try {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("SecurityError: Zugriff verweigert");
+      },
+    });
+    assert.equal(readPanelPreference(), true);
+    assert.doesNotThrow(() => writePanelPreference(false));
+
+    const store = new Map();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key) => store.get(key) ?? null,
+        setItem: (key, value) => store.set(key, String(value)),
+      },
+    });
+    writePanelPreference(false);
+    assert.equal(store.get(PANEL_PREFERENCE_KEY), "closed");
+    assert.equal(readPanelPreference(), false);
+    // null: ausdrücklich ohne Speicher
+    assert.equal(readPanelPreference(null), true);
+  } finally {
+    restore();
+  }
+});
+
+test("rc12, K14 / rc13 E13: ANSWER_PURIFY_CONFIG – nur HTML, kein style (Attribut und Element), keine Formulare, Medien, Popover oder Dialoge, keine id/name/role, keine aria- und data-Attribute (data-search-hit nur im zweiten Durchgang, rc16 K41)", () => {
+  const config = rc13.ANSWER_PURIFY_CONFIG;
+  assert.ok(config, "ANSWER_PURIFY_CONFIG fehlt");
+  assert.deepEqual(config.USE_PROFILES, { html: true });
+  for (const tag of ["style", "form", "input", "button", "textarea", "select", "dialog", "video", "audio", "source", "picture"])
+    assert.ok(config.FORBID_TAGS.includes(tag), tag);
+  for (const attribute of ["style", "id", "name", "role", "srcset", "background", "poster", "popover", "popovertarget"])
+    assert.ok(config.FORBID_ATTR.includes(attribute), attribute);
+  assert.equal(config.ALLOW_ARIA_ATTR, false);
+  assert.equal(config.ALLOW_DATA_ATTR, false);
+  // rc16, K41: im ersten Durchgang keine Ausnahme, erst nach der
+  // Hervorhebung (answerPurifyConfig({ searchHits: true }))
+  assert.equal(config.ADD_ATTR, undefined);
+  assert.deepEqual(
+    rc16.answerPurifyConfig({ searchHits: true }).ADD_ATTR,
+    ["data-search-hit"]
+  );
+  // Die Hervorhebung der Suche setzt genau dieses Attribut
+  const doc = createDocument();
+  const p = doc.body.appendChild(doc.createElement("p"));
+  p.appendChild(doc.createTextNode("Yoga"));
+  highlightTextNodes(doc.body, "yoga", doc);
+  assert.ok(firstElementWith(doc.body, "data-search-hit"));
+});
+
+test("rc12, K14 / rc13 E13: hardenAnswerHtml – Links in neuem Tab mit rel=noopener noreferrer, Bilder laden nicht (im Netz: Link mit Alt-Text, sonst nur der Alt-Text), Klassen nur aus Markdown und Syntaxhervorhebung (Bewusste Änderung E40: ein <a> ohne href bleibt stehen, ohne href ist es kein Link)", () => {
+  const { hardenAnswerHtml, ANSWER_LINK_REL } = rc13;
+  assert.equal(ANSWER_LINK_REL, "noopener noreferrer");
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const link = p.appendChild(doc.createElement("a"));
+  link.setAttribute("href", "https://vhs.example/kurs");
+  link.setAttribute("target", "_self");
+  link.setAttribute("class", "fixed inset-0 z-50");
+  link.appendChild(doc.createTextNode("Kursseite"));
+  const anchor = p.appendChild(doc.createElement("a"));
+  anchor.setAttribute("target", "_top");
+  anchor.appendChild(doc.createTextNode("ohne Adresse"));
+  const tracker = p.appendChild(doc.createElement("img"));
+  tracker.setAttribute("src", "https://tracker.example/pixel.png?admin=1");
+  tracker.setAttribute("alt", "Logo der VHS");
+  const noAlt = p.appendChild(doc.createElement("img"));
+  noAlt.setAttribute("src", "http://bilder.example/a.png");
+  const inline = p.appendChild(doc.createElement("img"));
+  inline.setAttribute("src", "data:image/png;base64,AAAA");
+  inline.setAttribute("alt", "Diagramm");
+  const silent = p.appendChild(doc.createElement("img"));
+  silent.setAttribute("src", "/relativ.png");
+  const pre = root.appendChild(doc.createElement("pre"));
+  const code = pre.appendChild(doc.createElement("code"));
+  code.setAttribute("class", "language-js hljs absolute");
+  const keyword = code.appendChild(doc.createElement("span"));
+  keyword.setAttribute("class", "hljs-keyword");
+
+  hardenAnswerHtml(root, doc);
+
+  // keine Bilder mehr
+  assert.equal(elements(root, (e) => e.tagName === "IMG").length, 0);
+  const links = elements(root, (e) => e.tagName === "A");
+  const byText = (text) => links.find((a) => a.textContent === text);
+  const kurs = byText("Kursseite");
+  assert.equal(kurs.getAttribute("target"), "_blank");
+  assert.equal(kurs.getAttribute("rel"), "noopener noreferrer");
+  assert.equal(kurs.getAttribute("class"), null, "Seitenklassen entfernt");
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130; vorher seit rc21,
+  // K101 aufgelöst): Das <a> ohne Adresse bleibt, wie DOMPurify es lässt,
+  // ohne href und damit kein Link; target und rel trägt jedes <a>
+  const plain = byText("ohne Adresse");
+  assert.equal(plain?.getAttribute("href"), null);
+  assert.equal(plain.getAttribute("target"), "_blank");
+  assert.equal(plain.getAttribute("rel"), "noopener noreferrer");
+  assert.match(p.textContent, /ohne Adresse/);
+  const image = byText("Logo der VHS");
+  assert.ok(image, "Bild als Link mit Alt-Text");
+  assert.equal(image.getAttribute("href"), "https://tracker.example/pixel.png?admin=1");
+  assert.equal(image.getAttribute("target"), "_blank");
+  assert.equal(image.getAttribute("rel"), "noopener noreferrer");
+  assert.ok(byText("http://bilder.example/a.png"), "ohne Alt-Text: die Adresse");
+  // eingebettet oder relativ: kein Link, nur der Alt-Text (ohne: nichts)
+  assert.ok(!links.some((a) => (a.getAttribute("href") ?? "").startsWith("data:")));
+  assert.ok(!links.some((a) => a.getAttribute("href") === "/relativ.png"));
+  assert.match(p.textContent, /Diagramm/);
+  // Klassen aus Markdown und highlight.js bleiben
+  assert.equal(code.getAttribute("class"), "language-js hljs");
+  assert.equal(keyword.getAttribute("class"), "hljs-keyword");
+});
+
+test("rc12, K14 / rc13 E13: Der Verlauf der Konversationen bereinigt Antworten mit sanitizeAnswerHtml (eigene DOMPurify-Instanz mit ANSWER_PURIFY_CONFIG und hardenAnswerHtml) – nicht mit der gemeinsamen Einstellung des Chats", () => {
+  const renderer = readFileSync(
+    new URL(
+      "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  assert.ok(renderer.includes('from "@/utils/chat/purifyConversation"'));
+  assert.ok(!renderer.includes('from "@/utils/chat/purify"'));
+  assert.ok(!/DOMPurify\.sanitize/.test(renderer));
+  const sanitizer = readFileSync(
+    new URL("../src/utils/chat/purifyConversation.js", import.meta.url),
+    "utf8"
+  );
+  assert.ok(sanitizer.includes("createDOMPurify("));
+  // rc16, K41: die Einstellung je Durchgang (answerPurifyConfig)
+  assert.ok(sanitizer.includes("...answerPurifyConfig({ searchHits })"));
+  assert.ok(sanitizer.includes("RETURN_DOM: true"));
+  assert.ok(
+    sanitizer.includes("hardenAnswerHtml(body, body.ownerDocument, { searchHits })")
+  );
+  // Die gemeinsame Einstellung des Chats bleibt unverändert
+  const shared = readFileSync(
+    new URL("../src/utils/chat/purify.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(shared, /ADD_ATTR: \["target", "rel"\]/);
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc14 (Nutzer 21.10.: Weg zurück nach oben)
+// ---------------------------------------------------------------------------
+
+test("rc14, K20: Die Spalte der Liste gibt den Bildlauf an ihrem Rand an die Seite weiter – kein overscroll an ihr (vorher xl:overscroll-contain: ganz oben blieb das Mausrad in der Spalte, die Seite kam nicht mehr hoch); scrollen kann sie weiterhin selbst", () => {
+  const classes = WORKSPACE.scroller.split(/\s+/).filter(Boolean);
+  assert.ok(
+    !classes.some((name) => /overscroll/.test(name)),
+    WORKSPACE.scroller
+  );
+  for (const name of ["desktop:relative", "desktop:min-h-0", "desktop:flex-1", "desktop:overflow-y-auto"])
+    assert.ok(classes.includes(name), name);
+  // auch nicht anderswo im Arbeitsbereich (Bereich, Spalte, Verlauf)
+  for (const value of Object.values(WORKSPACE))
+    assert.doesNotMatch(value, /overscroll/, value);
+});
+
+test("rc14, K21: scrollMotion – der Sprung „Zur Übersicht“ ist weich, bei „reduzierte Bewegung“ ohne Animation; ohne Fenster oder matchMedia weich", () => {
+  assert.equal(rc14.REDUCED_MOTION_QUERY, "(prefers-reduced-motion: reduce)");
+  const original = globalThis.window;
+  try {
+    for (const [reduce, expected] of [
+      [false, "smooth"],
+      [true, "auto"],
+    ]) {
+      const asked = [];
+      globalThis.window = {
+        matchMedia: (query) => {
+          asked.push(query);
+          return { matches: query === rc14.REDUCED_MOTION_QUERY && reduce };
+        },
+      };
+      assert.equal(rc14.scrollMotion(), expected, `reduce: ${reduce}`);
+      assert.deepEqual(asked, [rc14.REDUCED_MOTION_QUERY]);
+    }
+    globalThis.window = {};
+    assert.equal(rc14.scrollMotion(), "smooth", "ohne matchMedia");
+    delete globalThis.window;
+    assert.equal(rc14.scrollMotion(), "smooth", "ohne Fenster");
+  } finally {
+    globalThis.window = original;
+  }
+});
+
+test("rc14, K21: Sprungziel „Übersicht“ – auf dem Desktop landet der Anfang der Ansicht so, dass die Seite ganz oben steht (desktop:scroll-mt-12 = 48 px = Abstand md:pt-12 des Seitenrahmens über der Ansicht)", () => {
+  assert.equal(rc14.OVERVIEW_TARGET, "desktop:scroll-mt-12");
+  const margin = Number(rc14.OVERVIEW_TARGET.match(/desktop:scroll-mt-(\d+)/)?.[1]);
+  const layout = readFileSync(
+    new URL(
+      "../src/pages/GeneralSettings/ChatEmbedWidgets/index.jsx",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  const top = Number(layout.match(/ md:pt-(\d+) /)?.[1]);
+  assert.ok(top > 0, "Abstand des Seitenrahmens gefunden");
+  assert.equal(margin, top);
+});
+
+test("rc15, K30: Links im Verlauf in der Linkfarbe und unterstrichen; beim Darüberfahren und beim Tastaturfokus dickere Unterstreichung und kräftigere Farbe, beim Fokus der Ring der Seite (2 px in der Textfarbe); die Regel steht nach der Textfarbe der Antwort, die sie sonst überdeckte", () => {
+  const css = readFileSync(
+    new URL("../src/index.css", import.meta.url),
+    "utf8"
+  );
+  // Regel mit genau diesen Selektoren (nicht der Schluss einer längeren
+  // Liste): davor steht kein Komma
+  const ruleOf = (selectors) => {
+    const head = `${selectors.join(",\n")} {`;
+    let start = css.indexOf(`\n${head}`);
+    while (start >= 0 && css[start - 1] === ",")
+      start = css.indexOf(`\n${head}`, start + 1);
+    assert.ok(start >= 0, `keine Regel ${selectors.join(", ")}`);
+    start += 1;
+    return {
+      start,
+      body: css.slice(start + head.length, css.indexOf("}", start)),
+    };
+  };
+  const declarations = (body) =>
+    Object.fromEntries(
+      body
+        .split(";")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => part.split(/:\s*/).map((text) => text.trim()))
+    );
+  const color = ruleOf([
+    ".analytics-bot-response a[href]",
+    ".analytics-bot-response a[href] *:not(mark[data-search-hit])",
+  ]);
+  assert.deepEqual(declarations(color.body), {
+    color: "var(--konversationen-link) !important",
+  });
+  // gleiche Spezifität wie die Textfarbe der Antwort (Klasse, Element,
+  // Attribut): sie gilt nur, weil sie danach steht
+  const text = css.indexOf(
+    ".analytics-bot-response,\n.analytics-bot-response *:not(mark[data-search-hit]) {"
+  );
+  assert.ok(text >= 0 && text < color.start, "Linkfarbe nach der Textfarbe");
+  assert.ok(
+    css.indexOf(".analytics-bot-response em {") < color.start,
+    "und nach der Liste p, div, span, li, strong, em"
+  );
+  const look = ruleOf([".analytics-bot-response a[href]"]);
+  assert.deepEqual(declarations(look.body), {
+    "text-decoration-line": "underline",
+    "text-decoration-thickness": "1px",
+    "text-underline-offset": "2px",
+    "border-radius": "2px",
+  });
+  const thick = ruleOf([
+    ".analytics-bot-response a[href]:hover",
+    ".analytics-bot-response a[href]:focus-visible",
+  ]);
+  assert.deepEqual(declarations(thick.body), {
+    "text-decoration-thickness": "2px",
+  });
+  const strong = ruleOf([
+    ".analytics-bot-response a[href]:hover",
+    ".analytics-bot-response a[href]:hover *:not(mark[data-search-hit])",
+    ".analytics-bot-response a[href]:focus-visible",
+    ".analytics-bot-response a[href]:focus-visible *:not(mark[data-search-hit])",
+  ]);
+  assert.deepEqual(declarations(strong.body), {
+    color: "var(--konversationen-link-hover) !important",
+  });
+  // Ring wie bei den Buttons der Seite (FOCUS_RING: 2 px in der Textfarbe)
+  assert.match(rc15.FOCUS_RING, /focus-visible:outline-2/);
+  assert.match(
+    rc15.FOCUS_RING,
+    /focus-visible:outline-\[color:var\(--theme-text-primary\)\]/
+  );
+  const ring = ruleOf([".analytics-bot-response a[href]:focus-visible"]);
+  assert.deepEqual(declarations(ring.body), {
+    outline: "2px solid var(--theme-text-primary)",
+    "outline-offset": "2px",
+  });
+  // Nur Aussehen: Die Sicherheitsregeln (E13) bleiben bei der Bereinigung,
+  // das HTML der Antwort trägt weder Klassen noch Stil der Links
+  const doc = createDocument();
+  const root = doc.createElement("div");
+  const link = root.appendChild(doc.createElement("a"));
+  link.setAttribute("href", "https://example.org/kurs");
+  link.setAttribute("class", "fixed inset-0 text-red-500");
+  rc13.hardenAnswerHtml(root, doc);
+  assert.equal(link.getAttribute("target"), "_blank");
+  assert.equal(link.getAttribute("rel"), "noopener noreferrer");
+  assert.equal(link.getAttribute("class"), null);
+  assert.ok(rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("style"));
+  for (const file of [
+    "src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx",
+    "src/utils/chat/purifyConversation.js",
+  ])
+    assert.ok(
+      !/konversationen-link/.test(
+        readFileSync(new URL(`../${file}`, import.meta.url), "utf8")
+      ),
+      file
+    );
+});
+
+test("rc15, K30: Linkfarbe und Farbe beim Darüberfahren halten in hell und dunkel mindestens 4,5:1 gegen jeden Grund einer Antwort (Verlauf als Vollbild und auf dem Desktop, getönte bewertete Antworten); dunkel die Akzentfarbe des Themes", async () => {
+  const { createRequire } = await import("node:module");
+  const palette = createRequire(import.meta.url)("tailwindcss/colors");
+  const css = readFileSync(
+    new URL("../src/index.css", import.meta.url),
+    "utf8"
+  );
+  const variable = (block, name) => {
+    const start = css.indexOf(block);
+    assert.ok(start >= 0, block);
+    const match = css
+      .slice(start, css.indexOf("}", start))
+      .match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`));
+    assert.ok(match, `${block} --${name}`);
+    return match[1];
+  };
+  const DARK = ":root {\n  --konversationen-hit-bg";
+  const LIGHT = '[data-theme="light"] {\n  --konversationen-hit-bg';
+  const themeBlock = (theme, name) => {
+    const block = theme === "dunkel" ? ":root {" : '[data-theme="light"] {';
+    return hexRgb(variable(block, name));
+  };
+  const tints = Object.values(RATING_TINT).map((classes) => ({
+    dunkel: tailwindColor(
+      classes.split(/\s+/).find((c) => c.startsWith("bg-")),
+      palette
+    ),
+    hell: tailwindColor(
+      classes.split(/\s+/).find((c) => c.startsWith("light:bg-")),
+      palette
+    ),
+  }));
+  const report = [];
+  for (const [theme, block] of [
+    ["dunkel", DARK],
+    ["hell", LIGHT],
+  ]) {
+    const grounds = [];
+    for (const name of ["theme-bg-secondary", "theme-bg-primary"]) {
+      const ground = themeBlock(theme, name);
+      grounds.push(ground);
+      for (const tint of tints)
+        grounds.push(over(tint[theme].rgb, tint[theme].alpha, ground));
+    }
+    for (const name of ["konversationen-link", "konversationen-link-hover"]) {
+      const link = hexRgb(variable(block, name));
+      for (const ground of grounds) {
+        const ratio = contrast(link, ground);
+        report.push(`${theme} ${name}: ${ratio.toFixed(2)}`);
+        assert.ok(ratio >= 4.5, `${theme} ${name}: ${ratio}`);
+      }
+    }
+    // die Farbe beim Darüberfahren ist eine andere
+    assert.notEqual(
+      variable(block, "konversationen-link").toLowerCase(),
+      variable(block, "konversationen-link-hover").toLowerCase(),
+      theme
+    );
+  }
+  // dunkel: die Akzentfarbe des Themes
+  assert.equal(
+    variable(DARK, "konversationen-link").toLowerCase(),
+    variable(":root {", "theme-button-primary").toLowerCase()
+  );
+  assert.equal(report.length, 2 * 2 * 6);
+});
+
+test("rc15, K31: keyboardActivation: Enter und Leertaste (click mit detail 0) zählen als Tastatur, Maus, Stift und Finger (detail ab 1) nicht, ohne Ereignis oder ohne detail auch nicht", () => {
+  assert.equal(rc15.keyboardActivation({ detail: 0 }), true);
+  assert.equal(rc15.keyboardActivation({ detail: 1 }), false);
+  assert.equal(rc15.keyboardActivation({ detail: 2 }), false);
+  assert.equal(rc15.keyboardActivation({}), false);
+  assert.equal(rc15.keyboardActivation(null), false);
+  assert.equal(rc15.keyboardActivation(undefined), false);
+});
+
+test("rc15, K31: focusHeading: nach Tastatur mit Merker data-keyboard-focus und focusVisible: true, nach der Maus ohne (ein alter Merker fällt weg), immer ohne zweites Scrollen; clearKeyboardFocus nimmt den Merker beim Verlassen; ohne Element nichts", () => {
+  assert.equal(rc15.KEYBOARD_FOCUS_ATTRIBUTE, "data-keyboard-focus");
+  const doc = createDocument();
+  const heading = doc.body.appendChild(doc.createElement("h2"));
+  heading.setAttribute("tabindex", "-1");
+  rc15.focusHeading(heading, true);
+  assert.equal(doc.activeElement, heading);
+  assert.equal(heading.getAttribute("data-keyboard-focus"), "");
+  assert.deepEqual(heading.lastFocusOptions, {
+    preventScroll: true,
+    focusVisible: true,
+  });
+  rc15.focusHeading(heading, false);
+  assert.equal(heading.hasAttribute("data-keyboard-focus"), false);
+  assert.deepEqual(heading.lastFocusOptions, {
+    preventScroll: true,
+    focusVisible: false,
+  });
+  rc15.focusHeading(heading);
+  assert.deepEqual(heading.lastFocusOptions, {
+    preventScroll: true,
+    focusVisible: false,
+  });
+  rc15.focusHeading(heading, true);
+  rc15.clearKeyboardFocus({ currentTarget: heading });
+  assert.equal(heading.hasAttribute("data-keyboard-focus"), false);
+  // ohne Element oder ohne focus: nichts, kein Fehler
+  rc15.focusHeading(null, true);
+  rc15.focusHeading(undefined);
+  rc15.focusHeading({}, true);
+  rc15.clearKeyboardFocus(null);
+  rc15.clearKeyboardFocus({});
+});
+
+test("rc15, K31: HEADING_FOCUS_RING: Ring wie bei den Buttons (2 px, Textfarbe) außen mit 2 px Abstand, nur mit dem Merker der Tastatur; sonst übergeht focus:outline-none auch den Ring des Browsers", () => {
+  const classes = rc15.HEADING_FOCUS_RING.split(" ");
+  assert.ok(classes.includes("focus:outline-none"));
+  for (const name of [
+    "data-[keyboard-focus]:focus:outline",
+    "data-[keyboard-focus]:focus:outline-2",
+    "data-[keyboard-focus]:focus:outline-offset-2",
+    "data-[keyboard-focus]:focus:outline-[color:var(--theme-text-primary)]",
+  ])
+    assert.ok(classes.includes(name), name);
+  // gleiche Breite und Farbe wie FOCUS_RING
+  assert.ok(rc15.FOCUS_RING.split(" ").includes("focus-visible:outline-2"));
+  assert.ok(
+    rc15.FOCUS_RING.split(" ").includes(
+      "focus-visible:outline-[color:var(--theme-text-primary)]"
+    )
+  );
+  // kein Ring ohne Merker: keine focus-visible-Klasse an der Überschrift
+  assert.ok(!classes.some((name) => name.startsWith("focus-visible:")));
+  // der Merker im Namen der Klassen ist das Attribut aus focusHeading
+  assert.equal(
+    `data-${classes[2].match(/^data-\[([\w-]+)\]/)[1]}`,
+    rc15.KEYBOARD_FOCUS_ATTRIBUTE
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc16 (Nachreview rc15, Abschnitt K)
+// ---------------------------------------------------------------------------
+
+test("rc16, K40: Ein verlinktes Bild (Markdown [![Kursbild](bild)](kurs)) wird kein zweiter Link im Link – der Kurslink bleibt und trägt den Alt-Text (Bewusste Änderung E40: ohne Alt-Text bleibt der Kurslink leer wie ein leerer Link im Widget, vorher seine Adresse)", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const course = p.appendChild(doc.createElement("a"));
+  course.setAttribute("href", "https://vhs.example/kurs/123");
+  const image = course.appendChild(doc.createElement("img"));
+  image.setAttribute("src", "https://vhs.example/bild.jpg");
+  image.setAttribute("alt", "Kursbild");
+  const bare = p.appendChild(doc.createElement("a"));
+  bare.setAttribute("href", "https://vhs.example/kurs/456");
+  const noAlt = bare.appendChild(doc.createElement("img"));
+  noAlt.setAttribute("src", "https://vhs.example/ohne-alt.jpg");
+  // Bild mit Text daneben im Link: der Text bleibt, keine Adresse dazu
+  const mixed = p.appendChild(doc.createElement("a"));
+  mixed.setAttribute("href", "https://vhs.example/kurs/789");
+  const logo = mixed.appendChild(doc.createElement("img"));
+  logo.setAttribute("src", "https://vhs.example/logo.png");
+  mixed.appendChild(doc.createTextNode("Kurs 789"));
+
+  rc13.hardenAnswerHtml(root, doc);
+
+  const links = elements(root, (e) => e.tagName === "A");
+  assert.equal(links.length, 3, "kein neuer Link für die Bilder");
+  assert.ok(
+    !links.some((a) => elements(a, (e) => e.tagName === "A").length > 0),
+    "kein Link im Link"
+  );
+  assert.equal(elements(root, (e) => e.tagName === "IMG").length, 0);
+  assert.equal(course.getAttribute("href"), "https://vhs.example/kurs/123");
+  assert.equal(course.textContent, "Kursbild");
+  assert.equal(course.getAttribute("target"), "_blank");
+  assert.equal(course.getAttribute("rel"), "noopener noreferrer");
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): keine Adresse als
+  // Linktext mehr (vorher K40, nie leer); die Bildadresse erscheint weiter
+  // nicht, das Bild lädt nicht (E13)
+  assert.equal(bare.textContent, "", "leer wie im Widget ohne Bild, nicht die Bildadresse");
+  assert.equal(bare.getAttribute("href"), "https://vhs.example/kurs/456");
+  assert.equal(bare.getAttribute("target"), "_blank");
+  assert.equal(mixed.textContent, "Kurs 789");
+  // außerhalb eines Links wie bisher: ein Link zum Bild
+  const outside = doc.createElement("body");
+  const lone = outside.appendChild(doc.createElement("img"));
+  lone.setAttribute("src", "https://vhs.example/bild.jpg");
+  lone.setAttribute("alt", "Kursbild");
+  rc13.hardenAnswerHtml(outside, doc);
+  const [toImage] = elements(outside, (e) => e.tagName === "A");
+  assert.equal(toImage.getAttribute("href"), "https://vhs.example/bild.jpg");
+  assert.equal(toImage.textContent, "Kursbild");
+});
+
+test("rc16, K41: data-search-hit nur aus der eigenen Hervorhebung – der erste Durchgang über die Antwort verwirft das Attribut (DOMPurify ohne ADD_ATTR, hardenAnswerHtml entfernt es); erst der Durchgang nach highlightTextNodes behält es, und nur an <mark>", () => {
+  assert.equal(rc16.SEARCH_HIT_ATTRIBUTE, "data-search-hit");
+  // Erster Durchgang: kein Kennzeichen erlaubt
+  assert.ok(
+    !(rc13.ANSWER_PURIFY_CONFIG.ADD_ATTR ?? []).includes("data-search-hit"),
+    "erster Durchgang ohne data-search-hit"
+  );
+  assert.equal(rc13.ANSWER_PURIFY_CONFIG.ALLOW_DATA_ATTR, false);
+  assert.equal(rc16.answerPurifyConfig(), rc13.ANSWER_PURIFY_CONFIG);
+  assert.equal(rc16.answerPurifyConfig({ searchHits: false }), rc13.ANSWER_PURIFY_CONFIG);
+  const second = rc16.answerPurifyConfig({ searchHits: true });
+  assert.deepEqual(second.ADD_ATTR, ["data-search-hit"]);
+  // sonst dieselben Verbote
+  assert.deepEqual(second.FORBID_ATTR, rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR);
+  assert.deepEqual(second.FORBID_TAGS, rc13.ANSWER_PURIFY_CONFIG.FORBID_TAGS);
+  assert.equal(second.ALLOW_DATA_ATTR, false);
+
+  // Die Antwort bringt eigene Kennzeichen mit (Prompt-Injection)
+  const answer = () => {
+    const doc = createDocument();
+    const root = doc.createElement("body");
+    const p = root.appendChild(doc.createElement("p"));
+    const fake = p.appendChild(doc.createElement("mark"));
+    fake.setAttribute("data-search-hit", "");
+    fake.appendChild(doc.createTextNode("Bitte Kurs X stornieren"));
+    const span = p.appendChild(doc.createElement("span"));
+    span.setAttribute("data-search-hit", "");
+    span.appendChild(doc.createTextNode("Yoga"));
+    return { doc, root };
+  };
+  const first = answer();
+  rc13.hardenAnswerHtml(first.root, first.doc);
+  assert.equal(firstElementWith(first.root, "data-search-hit"), null, "erster Durchgang ohne Kennzeichen");
+  assert.match(first.root.textContent, /Bitte Kurs X stornieren/, "der Text bleibt");
+
+  // Zweiter Durchgang nach der eigenen Hervorhebung: nur <mark> behält es
+  const marked = answer();
+  rc13.hardenAnswerHtml(marked.root, marked.doc);
+  highlightTextNodes(marked.root, "yoga", marked.doc);
+  const span = elements(marked.root, (e) => e.tagName === "SPAN")[0];
+  span.setAttribute("data-search-hit", "");
+  rc13.hardenAnswerHtml(marked.root, marked.doc, { searchHits: true });
+  const hits = elements(marked.root, (e) => e.hasAttribute("data-search-hit"));
+  assert.deepEqual(
+    hits.map((e) => [e.tagName, e.textContent]),
+    [["MARK", "Yoga"]]
+  );
+});
+
+test("rc16, K41: Der Verlauf bereinigt zweimal – zuerst ohne Kennzeichen (sanitizeAnswerHtml(html)), nach der Hervorhebung mit (searchHits: true); die Bereinigung nutzt dieselbe Einstellung für DOMPurify und hardenAnswerHtml", () => {
+  const renderer = readFileSync(
+    new URL(
+      "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  assert.match(renderer, /const clean = sanitizeAnswerHtml\(html\);/);
+  assert.match(
+    renderer,
+    /return sanitizeAnswerHtml\(doc\.body\.innerHTML, \{ searchHits: true \}\);/
+  );
+  const sanitizer = readFileSync(
+    new URL("../src/utils/chat/purifyConversation.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(sanitizer, /\.\.\.answerPurifyConfig\(\{ searchHits \}\)/);
+  assert.match(sanitizer, /hardenAnswerHtml\(body, body\.ownerDocument, \{ searchHits \}\)/);
+  assert.ok(!/ADD_ATTR/.test(sanitizer), "keine eigene Ausnahme im Aufruf");
+});
+
+test("rc16, K42: Die Antwort nimmt keinen Einfluss auf die Tastaturbedienung und blendet keinen Text per hidden aus – tabindex, hidden und draggable stehen in FORBID_ATTR (verborgene Elemente und Farben: rc18, K63)", () => {
+  for (const attribute of ["tabindex", "hidden", "draggable"])
+    assert.ok(
+      rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes(attribute),
+      attribute
+    );
+  // auch im zweiten Durchgang
+  for (const attribute of ["tabindex", "hidden", "draggable"])
+    assert.ok(
+      rc16.answerPurifyConfig({ searchHits: true }).FORBID_ATTR.includes(attribute),
+      attribute
+    );
+});
+
+test("rc16, K43: Ausrichtung der Tabellenspalten aus Markdown (|:--|:-:|--:|) als align statt style – style bleibt verboten, die Beträge stehen rechtsbündig wie im Widget", async () => {
+  const { default: MarkdownIt } = await import("markdown-it");
+  assert.equal(typeof rc16.tableAlignAttributes, "function", "Plugin fehlt");
+  const md = new MarkdownIt({ html: true }).use(rc16.tableAlignAttributes);
+  const html = md.render(
+    "| Kurs | Ort | Gebühr | Hinweis |\n|:---|:-:|---:|---|\n| Yoga | Raum 2 | 96,00 € | neu |"
+  );
+  assert.doesNotMatch(html, /style=/);
+  assert.match(html, /<th align="left">Kurs<\/th>/);
+  assert.match(html, /<th align="center">Ort<\/th>/);
+  assert.match(html, /<th align="right">Gebühr<\/th>/);
+  assert.match(html, /<th>Hinweis<\/th>/);
+  assert.match(html, /<td align="right">96,00 €<\/td>/);
+  assert.match(html, /<td>neu<\/td>/);
+  // Andere Stilangaben (rohes HTML) fasst das Plugin nicht an. Die Probe
+  // gilt dem Plugin allein (hier mit html: true); im Verlauf ist rohes HTML
+  // seit E39 Text (html: false, conversationAnswerMarkdown.test.mjs)
+  const raw = md.render('<table><tr><td style="position:fixed">x</td></tr></table>');
+  assert.match(raw, /style="position:fixed"/, "bleibt für DOMPurify");
+  // align ist im HTML-Profil von DOMPurify erlaubt (nicht verboten)
+  assert.ok(!rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("align"));
+  assert.ok(rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("style"));
+  // Der Verlauf nutzt das Plugin
+  const renderer = readFileSync(
+    new URL(
+      "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  assert.match(renderer, /\.use\(tableAlignAttributes\)/);
+});
+
+test("rc16, C10: Eine Schwelle für den Desktop – die Tailwind-Stufe desktop: (tailwind.config.js) und WIDE_QUERY kommen aus DESKTOP_MIN_WIDTH (deviceClasses.js); die Klassen der Geräteklasse heißen desktop:, xl: bleibt nur die Breitenstufe im Kopf der Liste", async () => {
+  const devices = await import("../src/utils/deviceClasses.js");
+  assert.equal(devices.DESKTOP_MIN_WIDTH, 1280);
+  assert.equal(devices.DESKTOP_SCREEN, "1280px");
+  const { default: config } = await import("../tailwind.config.js");
+  assert.equal(config.theme.extend.screens?.desktop, devices.DESKTOP_SCREEN);
+  // keine eigene Liste der Stufen (sonst fielen sm bis 2xl weg)
+  assert.equal(config.theme.screens, undefined);
+  assert.equal(rc16.WIDE_QUERY, `(min-width: ${devices.DESKTOP_SCREEN})`);
+  const source = (file) =>
+    readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+  assert.match(
+    source("utils/conversationView.js"),
+    /WIDE_QUERY = `\(min-width: \$\{DESKTOP_MIN_WIDTH\}px\)`/,
+    "WIDE_QUERY aus der Konstante, nicht als zweite Zahl"
+  );
+  assert.match(
+    readFileSync(new URL("../tailwind.config.js", import.meta.url), "utf8"),
+    /desktop: DESKTOP_SCREEN/
+  );
+
+  // Klassen der Geräteklasse (Arbeitsbereich, Sprungziele, Abstand zum
+  // Benutzermenü im Kopf des Verlaufs): nur desktop:
+  const tokens = (text, prefix) =>
+    new Set(
+      text.match(new RegExp(`(?<![\\w\\-\\[])${prefix}:[a-z0-9\\-\\[\\]\\.]+`, "g")) ??
+        []
+    );
+  const constants = [
+    ...Object.values(rc16.WORKSPACE),
+    rc16.OVERVIEW_TARGET,
+    rc16.AVATAR_CLEARANCE.jumpTarget,
+    rc16.AVATAR_CLEARANCE.panelHeadEnd,
+  ].join(" ");
+  assert.equal(tokens(constants, "xl").size, 0, [...tokens(constants, "xl")].join(" "));
+  assert.ok(tokens(constants, "desktop").has("desktop:flex"));
+  assert.ok(tokens(constants, "desktop").has("desktop:scroll-mt-12"));
+  assert.ok(tokens(constants, "desktop").has("desktop:pr-7"));
+  // Der Verlauf: Vollbild auf Tablet und Smartphone, Spalte auf dem Desktop
+  const detail = source(
+    "pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/ConversationDetail.jsx"
+  );
+  assert.deepEqual([...tokens(detail, "xl")], [], "kein xl: im Verlauf");
+  for (const name of ["desktop:relative", "desktop:hidden", "desktop:grid", "desktop:h-9", "desktop:block"])
+    assert.ok(tokens(detail, "desktop").has(name), name);
+  // Die Liste: desktop: für Arbeitsbereich, Platzhalter und „Zur
+  // Übersicht ↑“; xl: nur noch als Breitenstufe des Kopfs (volle Form der
+  // Werkzeugleiste ohne Verlauf daneben)
+  const list = source(
+    "pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/ConversationList.jsx"
+  );
+  for (const name of ["desktop:shrink-0", "desktop:flex", "desktop:inline-flex"])
+    assert.ok(tokens(list, "desktop").has(name), name);
+  assert.deepEqual(
+    [...tokens(list, "xl")].sort(),
+    [
+      "xl:basis-auto",
+      "xl:block",
+      "xl:flex-auto",
+      "xl:grow",
+      "xl:grow-[999]",
+      "xl:hidden",
+      "xl:inline-flex",
+      "xl:px-3",
+      "xl:px-3.5",
+      "xl:w-60",
+    ]
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc18 (Nachreview rc17, Abschnitt K)
+// ---------------------------------------------------------------------------
+
+test("rc18, K60: Die Sitzung im Schlüssel steht nach dem letzten U+0000 – eine Kennung der Konversation mit U+0000 (vom Widget ungeprüft) liefert trotzdem die Sitzung, und das Löschen aller Konversationen des Besuchers trifft sie", () => {
+  const key = conversationKey({ conversation_id: "abc\u0000x", session_id: "sitzung-s" });
+  assert.equal(rc18.sessionOfKey(key), "sitzung-s");
+  assert.equal(rc18.sessionOfKey(conversationKey({ conversation_id: "konv-1", session_id: "sitzung-s" })), "sitzung-s");
+  assert.equal(rc18.sessionOfKey("ohne-trenner"), null);
+  assert.equal(rc18.sessionOfKey(null), null);
+  const deletion = { chatId: 1, key: "andere", sessionId: "sitzung-s", visitor: true };
+  assert.equal(rc18.matchesDeletion({ chatId: 2, key }, deletion), true);
+  // ohne visitor zählt die Sitzung nicht
+  assert.equal(rc18.matchesDeletion({ chatId: 2, key }, { ...deletion, visitor: false }), false);
+  // eine andere Sitzung mit derselben präparierten Kennung nicht
+  assert.equal(
+    rc18.matchesDeletion(
+      { chatId: 3, key: conversationKey({ conversation_id: "abc\u0000x", session_id: "sitzung-t" }) },
+      deletion
+    ),
+    false
+  );
+});
+
+test("rc18, K61: Ein Alt-Text nur aus unsichtbaren Zeichen gilt als fehlend (bleibt). Bewusste Änderung E40: Ein Link, dessen Text nur aus Leerraum und unsichtbaren Zeichen besteht (U+200B, U+200D, U+2060, U+00AD), behält seinen Text (vorher seine Adresse); ein Link mit leerer Adresse (href=\"\" oder nur Leerraum) und ein <a> ohne href bleiben stehen wie im Widget (vorher aufgelöst)", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const link = (href, text) => {
+    const a = p.appendChild(doc.createElement("a"));
+    if (href !== null) a.setAttribute("href", href);
+    if (text !== null) a.appendChild(doc.createTextNode(text));
+    return a;
+  };
+  const zeroWidth = link("https://vhs.example/a", "​");
+  const joiners = link("https://vhs.example/b", " ‍⁠ ");
+  const softHyphen = link("https://vhs.example/c", "­");
+  const named = link("https://vhs.example/d", "Kurs​");
+  const emptyHref = link("", null);
+  const blankHref = link("   ", "Text ohne Adresse");
+  const noHref = link(null, "ohne Adresse");
+  const image = p.appendChild(doc.createElement("img"));
+  image.setAttribute("src", "https://vhs.example/bild.jpg");
+  image.setAttribute("alt", "​");
+
+  rc13.hardenAnswerHtml(root, doc);
+
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): Linktext und Adresse
+  // bleiben, wie Markdown sie erzeugt (wie im Widget); target und rel an
+  // jedem <a>
+  for (const [a, href, text] of [[zeroWidth, "https://vhs.example/a", "​"], [joiners, "https://vhs.example/b", " ‍⁠ "], [softHyphen, "https://vhs.example/c", "­"]]) {
+    assert.equal(a.textContent, text, JSON.stringify(a.textContent));
+    assert.equal(a.getAttribute("href"), href);
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
+  assert.equal(named.textContent, "Kurs​", "sichtbarer Text bleibt, keine Adresse dazu");
+  const links = elements(root, (e) => e.tagName === "A");
+  for (const [a, href, text] of [[emptyHref, "", ""], [blankHref, "   ", "Text ohne Adresse"], [noHref, null, "ohne Adresse"]]) {
+    assert.ok(links.includes(a), JSON.stringify(href));
+    assert.equal(a.getAttribute("href"), href);
+    assert.equal(a.textContent, text);
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
+  // das Bild mit unsichtbarem Alt-Text: ein Link mit seiner Adresse
+  const toImage = links.find((a) => a.getAttribute("href") === "https://vhs.example/bild.jpg");
+  assert.equal(toImage?.textContent, "https://vhs.example/bild.jpg");
+});
+
+test("rc18, K62 (seit rc20 über die Darstellung, K81 bis K86): Ein Bild im Link mit Text zeigt seine Adresse nicht; ein Bild ohne Alt-Text außerhalb eines Links zeigt sie, wenn es im Netz liegt. Bewusste Änderung E40: Ein Link ohne Text zeigt seine Adresse nicht mehr (wie im Widget), die Hervorhebung trifft sie nicht, der Hinweis „nur in Link-Adressen“ ist richtig; ebenso um ein Bild ohne Alt-Text ([![](bild)](ziel))", () => {
+  // Wie der Verlauf: erst hardenAnswerHtml, dann highlightTextNodes
+  // (answerShowsHit zählt deren Treffer); Markdown und DOMPurify: Browser
+  const shown = (build, term) => {
+    const doc = createDocument();
+    const root = doc.createElement("body");
+    build(doc, root.appendChild(doc.createElement("p")));
+    rc13.hardenAnswerHtml(root, doc);
+    return highlightTextNodes(root, term, doc);
+  };
+  const link = (doc, parent, href, text) => {
+    const a = parent.appendChild(doc.createElement("a"));
+    a.setAttribute("href", href);
+    if (text) a.appendChild(doc.createTextNode(text));
+    return a;
+  };
+  const image = (doc, parent, src, alt) => {
+    const img = parent.appendChild(doc.createElement("img"));
+    img.setAttribute("src", src);
+    if (alt !== undefined) img.setAttribute("alt", alt);
+  };
+  // Link ohne Text (auch nur unsichtbare Zeichen). Bewusste Änderung E40
+  // (Fixliste 7.22-rc22, K131): Die Adresse steht nicht als Text da, kein
+  // Treffer (vorher 1)
+  assert.equal(shown((doc, p) => link(doc, p, "https://vhs.example/anmeldung"), "anmeldung"), 0);
+  assert.equal(shown((doc, p) => link(doc, p, "https://vhs.example/anmeldung", "\u200B"), "anmeldung"), 0);
+  // verlinktes Bild ohne Alt-Text: weder die Adresse des Links (Bewusste
+  // Änderung E40, vorher 1) noch die des Bilds
+  const nested = (doc, p) => image(doc, link(doc, p, "https://vhs.example/anmeldung"), "https://vhs.example/bild.jpg");
+  assert.equal(shown(nested, "anmeldung"), 0);
+  assert.equal(shown(nested, "bild.jpg"), 0);
+  // verlinktes Bild mit Alt-Text: nur der Alt-Text
+  const withAlt = (doc, p) => image(doc, link(doc, p, "https://vhs.example/anmeldung"), "https://vhs.example/bild.jpg", "Kursbild");
+  assert.equal(shown(withAlt, "kursbild"), 1);
+  assert.equal(shown(withAlt, "anmeldung"), 0);
+  // Bild ohne Alt-Text im Link mit Text: weder Bild- noch Linkadresse
+  const withText = (doc, p) => {
+    const a = link(doc, p, "https://vhs.example/anmeldung");
+    image(doc, a, "https://vhs.example/bild.jpg");
+    a.appendChild(doc.createTextNode(" Kurs"));
+  };
+  assert.equal(shown(withText, "bild.jpg"), 0);
+  assert.equal(shown(withText, "anmeldung"), 0);
+  assert.equal(shown(withText, "kurs"), 1);
+  // Bild ohne Alt-Text allein: im Netz seine Adresse, sonst nichts
+  assert.equal(shown((doc, p) => image(doc, p, "https://vhs.example/bild.jpg"), "bild.jpg"), 1);
+  assert.equal(shown((doc, p) => image(doc, p, "/relativ.png"), "relativ"), 0);
+  assert.equal(shown((doc, p) => image(doc, p, "/relativ.png", "\u200B"), "relativ"), 0);
+  // wie bisher: Ziele von Links mit Text bleiben unsichtbar
+  assert.equal(shown((doc, p) => link(doc, p, "https://vhs.example/anmeldung", "Kurs"), "anmeldung"), 0);
+});
+
+test("rc18, K63: Keine Elemente, deren Text der Browser nicht zeigt (template, datalist, rp, progress, meter, canvas; dazu marquee: rc20, K80), und keine Farben, Größen und Schriften aus der Antwort (color, bgcolor, size, face; dazu width und height: rc20, K80) – in beiden Durchgängen; dass der Inhalt von <template> wegfällt und nicht als sichtbar zählt, prüft der Browser (rc20, K81)", () => {
+  for (const config of [rc13.ANSWER_PURIFY_CONFIG, rc16.answerPurifyConfig({ searchHits: true })]) {
+    for (const tag of ["template", "datalist", "rp", "progress", "meter", "canvas"])
+      assert.ok(config.FORBID_TAGS.includes(tag), tag);
+    for (const attribute of ["color", "bgcolor", "size", "face"])
+      assert.ok(config.FORBID_ATTR.includes(attribute), attribute);
+  }
+  // Ausrichtung bleibt erlaubt (K43)
+  assert.ok(!rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("align"));
+  // Der Kommentar über der Einstellung sagt genau, was sie leistet
+  const view = readFileSync(new URL("../src/utils/conversationView.js", import.meta.url), "utf8");
+  assert.doesNotMatch(view, /versteckt keinen Text vor dem Admin/);
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc20 (Nachreview rc19, Abschnitt K)
+// ---------------------------------------------------------------------------
+
+test("rc20, K80: <marquee> löst die Bereinigung auf (sein Text steht sichtbar im Verlauf), width und height aus der Antwort bleiben nicht stehen (<marquee width=\"1\"> zeigte nichts) – in beiden Durchgängen; der Kommentar nennt beides", () => {
+  for (const config of [rc13.ANSWER_PURIFY_CONFIG, rc16.answerPurifyConfig({ searchHits: true })]) {
+    assert.ok(config.FORBID_TAGS.includes("marquee"), "marquee");
+    for (const attribute of ["width", "height"])
+      assert.ok(config.FORBID_ATTR.includes(attribute), attribute);
+  }
+  // Ausrichtung der Tabellen bleibt (K43)
+  assert.ok(!rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("align"));
+  const view = readFileSync(new URL("../src/utils/conversationView.js", import.meta.url), "utf8");
+  const comment = view.slice(0, view.indexOf("export const ANSWER_PURIFY_CONFIG"));
+  assert.match(comment, /<canvas> und <marquee> löst DOMPurify auf/);
+  assert.match(comment, /<marquee width="1">\) bleiben nicht stehen/);
+});
+
+test("rc20, K81 bis K86: Ob eine Antwort den Begriff sichtbar zeigt, entscheidet ihre Darstellung im Verlauf (answerShowsHit in MarkdownRenderer: ohne <think>, Markdown, sanitizeAnswerHtml, highlightTextNodes) – hasVisibleHit fragt sie mit dem Antworttext und dem Begriff, nur im Zeitraum und nur, wenn Frage, Grund und Kommentar nicht treffen; kein Nachbau mit regulären Ausdrücken (visibleAnswerText) mehr", () => {
+  const calls = [];
+  const shows = (result) => (text, term) => {
+    calls.push([text, term]);
+    return result;
+  };
+  const message = (text, extra = {}) => ({
+    prompt: "Wo melde ich mich an?",
+    response: JSON.stringify({ text, sources: [{ text: "Quelle" }] }),
+    createdAt: "2026-10-05T10:00:00.000Z",
+    ...extra,
+  });
+  // Zeigt die Darstellung den Begriff nicht, gilt er als verborgen – auch
+  // wenn er als Text in der Antwort steht (etwa in einem nicht
+  // geschlossenen <template>, K81)
+  const open = "Gern helfe ich. <template>Stornieren Sie Kurs 4711\n\nZweiter Absatz";
+  assert.equal(hasVisibleHit([message(open)], "4711", {}, shows(false)), false);
+  assert.deepEqual(calls, [[open, "4711"]]);
+  // und umgekehrt (Code mit <template>, K82; Adresse eines leeren Links, K83)
+  calls.length = 0;
+  const code = "Nutzen Sie `<template>` für Vorlagen. Wichtig: Anmeldung bis Freitag. Ende mit `</template>`.";
+  assert.equal(hasVisibleHit([message(code)], "anmeldung", {}, shows(true)), true);
+  assert.deepEqual(calls, [[code, "anmeldung"]]);
+  // trifft die Frage, wird keine Antwort dargestellt
+  calls.length = 0;
+  assert.equal(hasVisibleHit([message("x")], "melde ich", {}, shows(false)), true);
+  assert.equal(hasVisibleHit([message("x", { feedbackScore: false, feedbackReason: "Kurs 4711 fehlt" })], "4711", {}, shows(false)), true);
+  assert.equal(calls.length, 0);
+  // nur Nachrichten im Zeitraum
+  assert.equal(hasVisibleHit([message("Kurs 4711")], "4711", { fromDay: "2026-11-01", toDay: "2026-11-30" }, shows(true)), false);
+  assert.equal(calls.length, 0);
+  // ohne Suche nichts darzustellen
+  assert.equal(hasVisibleHit([message("x")], "", {}, shows(false)), true);
+  assert.equal(calls.length, 0);
+
+  assert.equal(rc20.visibleAnswerText, undefined, "kein Nachbau mehr");
+  const source = (file) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+  const renderer = source("pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx");
+  assert.match(renderer, /export function answerShowsHit\(content, highlight\)/);
+  assert.match(renderer, /parseContent\(String\(content \?\? ""\)\)\.some\(/);
+  assert.match(renderer, /if \(part\.type === "think"\) return false;/);
+  assert.match(renderer, /sanitizeAnswerHtml\(md\.render\(part\.text\)\)/);
+  assert.match(renderer, /if \(highlightTextNodes\(doc\.body, highlight, doc\) > 0\) return true;/);
+  const detail = source("pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/ConversationDetail.jsx");
+  assert.match(detail, /import MarkdownRenderer, \{ answerShowsHit \} from "\.\/MarkdownRenderer";/);
+  assert.match(detail, /searchWholeConversation \? \{\} : \{ fromDay, toDay \},\s*answerShowsHit\s*\)/);
+});
+
+test("rc20, K87, K88, K90: Adressen mit Schema oder // bleiben Links in neuem Tab. Bewusste Änderung E40: Auch ein Link ohne Schema (nur ein Fragment wie #, ein Platzhalter wie „URL“, ein relativer Pfad, nur unsichtbare Zeichen U+00AD oder U+2060) bleibt ein Link wie im Widget, mit target und rel (vorher aufgelöst); ein Bild darin gilt als verlinkt und bleibt nur als Alt-Text (E13, K40)", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const link = (href, text, parent = p) => {
+    const a = parent.appendChild(doc.createElement("a"));
+    a.setAttribute("href", href);
+    if (text) a.appendChild(doc.createTextNode(text));
+    return a;
+  };
+  const without = [
+    link("#", "Kursseite"),
+    link("#anmeldung", "Sprung"),
+    link("URL", "Platzhalter"),
+    link("/anmeldung", "Relativ"),
+    link("kurs/4711", "Pfad"),
+    link("­", "­"),
+    link("⁠", "Wortverbinder"),
+  ];
+  const kept = [
+    link("https://vhs.example/kurs", "Kurs"),
+    link("  https://vhs.example/leer", "Mit Leerraum"),
+    link("mailto:info@vhs.example", "Mail"),
+    link("tel:+495911234", "Telefon"),
+    link("//vhs.example/kurs", "Ohne Schema"),
+  ];
+  // K90: Bild ohne Alt-Text in einem Link ohne Adresse ([![](bild)]())
+  // und Bild mit Alt-Text in einem Link auf „#“
+  const bare = p.appendChild(doc.createElement("img"));
+  const emptyLink = link("", null);
+  emptyLink.appendChild(bare);
+  bare.setAttribute("src", "https://vhs.example/kurs.jpg");
+  const named = doc.createElement("img");
+  named.setAttribute("src", "https://vhs.example/kursbild.jpg");
+  named.setAttribute("alt", "Kursbild");
+  link("#", null).appendChild(named);
+
+  rc13.hardenAnswerHtml(root, doc);
+
+  const links = elements(root, (e) => e.tagName === "A");
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): Links ohne Schema
+  // bleiben Links mit ihrer Adresse und ihrem Text, wie im Widget
+  for (const a of [...without, ...kept]) {
+    assert.ok(links.includes(a), JSON.stringify(a.getAttribute("href")));
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
+  assert.deepEqual(
+    without.map((a) => [a.getAttribute("href"), a.textContent]),
+    [["#", "Kursseite"], ["#anmeldung", "Sprung"], ["URL", "Platzhalter"], ["/anmeldung", "Relativ"], ["kurs/4711", "Pfad"], ["\u00ad", "\u00ad"], ["\u2060", "Wortverbinder"]]
+  );
+  // die Bilder: kein Abruf (kein <img>). Bewusste Änderung E40: Sie stehen
+  // in einem Link (auch der mit leerer Adresse und der auf #), also bleibt
+  // wie bei jedem verlinkten Bild nur der Alt-Text (E13, K40), kein Link
+  // im Link; vorher Links auf die Bilddatei
+  assert.equal(elements(root, (e) => e.tagName === "IMG").length, 0);
+  assert.equal(links.length, without.length + kept.length + 2, "kein neuer Link für die Bilder");
+  assert.equal(emptyLink.textContent, "");
+  assert.equal(emptyLink.getAttribute("href"), "");
+  const hashLink = links.at(-1);
+  assert.equal(hashLink.getAttribute("href"), "#");
+  assert.equal(hashLink.textContent, "Kursbild");
+});
+
+test("rc20, K89: Auch Zeichen, die laut Unicode ohne Darstellung bleiben dürfen (Default_Ignorable_Code_Point: U+3164, U+115F, U+1160, U+FFA0, U+034F, U+FE0F, U+FE00, U+17B4), und das leere Braille-Muster U+2800 gelten als unsichtbar: ein Alt-Text nur daraus gilt als fehlend (bleibt). Bewusste Änderung E40: Ein Link nur daraus behält seinen Text wie im Widget (vorher seine Adresse)", () => {
+  const blanks = ["ㅤ", "ᅟ", "ᅠ", "ﾠ", "͏", "️", "︀", "឴", "⠀", " ㅤ⠀ "];
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const links = blanks.map((text, index) => {
+    const a = p.appendChild(doc.createElement("a"));
+    a.setAttribute("href", `https://vhs.example/k89-${index}`);
+    a.appendChild(doc.createTextNode(text));
+    return a;
+  });
+  const image = p.appendChild(doc.createElement("img"));
+  image.setAttribute("src", "https://vhs.example/k89.jpg");
+  image.setAttribute("alt", "⠀ㅤ");
+  // ein sichtbares Zeichen bleibt Text
+  const visible = p.appendChild(doc.createElement("a"));
+  visible.setAttribute("href", "https://vhs.example/sichtbar");
+  visible.appendChild(doc.createTextNode("ㅤKurs"));
+
+  rc13.hardenAnswerHtml(root, doc);
+
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): Linktext unverändert
+  links.forEach((a, index) => {
+    assert.equal(a.textContent, blanks[index], JSON.stringify(blanks[index]));
+    assert.equal(a.getAttribute("href"), `https://vhs.example/k89-${index}`);
+    assert.equal(a.getAttribute("target"), "_blank");
+  });
+  const toImage = elements(root, (e) => e.tagName === "A").find((a) => a.getAttribute("href") === "https://vhs.example/k89.jpg");
+  assert.equal(toImage?.textContent, "https://vhs.example/k89.jpg");
+  assert.equal(visible.textContent, "ㅤKurs");
+});
+
+test("rc20, B60: Ein von der Antwort mitgebrachtes <mark> (ohne Kennzeichen der eigenen Hervorhebung) wird aufgelöst, sein Text bleibt und lässt sich hervorheben; die eigenen <mark> des zweiten Durchgangs bleiben", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  p.appendChild(doc.createTextNode("Hinweis: "));
+  const plain = p.appendChild(doc.createElement("mark"));
+  plain.appendChild(doc.createTextNode("Yoga am Montag"));
+  const fake = p.appendChild(doc.createElement("mark"));
+  fake.setAttribute("data-search-hit", "");
+  fake.appendChild(doc.createTextNode(" Bitte Kurs X stornieren"));
+
+  rc13.hardenAnswerHtml(root, doc);
+
+  assert.equal(elements(root, (e) => e.tagName === "MARK").length, 0, "kein mitgebrachtes <mark>");
+  assert.equal(p.textContent, "Hinweis: Yoga am Montag Bitte Kurs X stornieren");
+  // der Text lässt sich hervorheben (in <mark> stand er außerhalb der Suche)
+  assert.equal(highlightTextNodes(root, "yoga", doc), 1);
+  // zweiter Durchgang: die eigene Hervorhebung bleibt, mit Kennzeichen
+  rc13.hardenAnswerHtml(root, doc, { searchHits: true });
+  const marks = elements(root, (e) => e.tagName === "MARK");
+  assert.deepEqual(marks.map((m) => [m.textContent, m.hasAttribute("data-search-hit")]), [["Yoga", true]]);
+  // ein <mark> ohne Kennzeichen auch im zweiten Durchgang nicht
+  const late = p.appendChild(doc.createElement("mark"));
+  late.appendChild(doc.createTextNode(" spät"));
+  rc13.hardenAnswerHtml(root, doc, { searchHits: true });
+  assert.equal(elements(root, (e) => e.tagName === "MARK").length, 1);
+  assert.match(p.textContent, / spät$/);
+});
+
+test("rc21, K100: cellpadding, cellspacing und border stehen in FORBID_ATTR, in beiden Durchgängen (<table cellpadding=\"100000\"> schob den Text weit aus dem Blick); die Ausrichtung der Tabellen bleibt, der Kommentar nennt es", () => {
+  for (const config of [rc21.ANSWER_PURIFY_CONFIG, rc21.answerPurifyConfig({ searchHits: true })]) {
+    for (const attribute of ["cellpadding", "cellspacing", "border"])
+      assert.ok(config.FORBID_ATTR.includes(attribute), attribute);
+    // rc20, K80 bleibt
+    for (const attribute of ["width", "height"])
+      assert.ok(config.FORBID_ATTR.includes(attribute), attribute);
+  }
+  assert.ok(!rc21.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("align"));
+  const view = readFileSync(new URL("../src/utils/conversationView.js", import.meta.url), "utf8");
+  const comment = view.slice(0, view.indexOf("export const ANSWER_PURIFY_CONFIG"));
+  assert.match(comment, /cellpadding, cellspacing und border/);
+  assert.match(comment, /K100/);
+});
+
+test("rc21, K101: Ein <a> ohne href (nie gehabt oder von DOMPurify verworfen, etwa bei Kurs-ID:4711 oder javascript:) gilt nicht als Link, sein Text bleibt, kein Bild, kein Abruf. Bewusste Änderung E40: Das <a> bleibt ohne href stehen (vorher aufgelöst), ein Bild darin gilt als verlinkt und bleibt nur als Alt-Text (vorher Link auf die Bilddatei)", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = (...build) => {
+    const paragraph = root.appendChild(doc.createElement("p"));
+    for (const add of build) add(paragraph);
+    return paragraph;
+  };
+  const anchor = (parent, children = [], target = null) => {
+    const a = parent.appendChild(doc.createElement("a"));
+    if (target) a.setAttribute("target", target);
+    for (const child of children) a.appendChild(child);
+    return a;
+  };
+  const image = (src, alt) => {
+    const img = doc.createElement("img");
+    img.setAttribute("src", src);
+    if (alt !== undefined) img.setAttribute("alt", alt);
+    return img;
+  };
+  const bare = p((parent) => anchor(parent, [image("https://vhs.example/kurs.jpg")]));
+  const named = p((parent) => anchor(parent, [image("https://vhs.example/kursbild.jpg", "Kursbild")], "_top"));
+  const text = p((parent) => parent.appendChild(doc.createTextNode("Siehe ")), (parent) => anchor(parent, [doc.createTextNode("Kurs 4711")], "_top"));
+
+  rc21.hardenAnswerHtml(root, doc);
+
+  const links = elements(root, (e) => e.tagName === "A");
+  assert.equal(elements(root, (e) => e.tagName === "IMG").length, 0, "kein Bild, kein Abruf");
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): Die drei <a> bleiben
+  // ohne href (kein Link), mit target und rel wie jedes <a>; kein Link auf
+  // die Bilddateien (das Bild steht in einem <a>: nur der Alt-Text, E13)
+  assert.equal(links.length, 3, "kein neuer Link für die Bilder");
+  for (const a of links) {
+    assert.equal(a.getAttribute("href"), null);
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
+  // ohne Alt-Text: nichts (vorher die Bildadresse)
+  assert.equal(bare.textContent, "");
+  // mit Alt-Text: der Alt-Text
+  assert.equal(named.textContent, "Kursbild");
+  // nur Text: der Text bleibt, nichts dazu
+  assert.equal(text.textContent, "Siehe Kurs 4711");
+});
+
+test("rc21, K102 und B70 (Bewusste Änderung E40, vorher nach E37: Link ohne Ziel als Text mit seiner Adresse, Link nur aus U+3164 mit seiner Adresse): Jeder Link bleibt ein Link mit seiner Adresse und seinem Text wie im Widget, in neuem Tab mit rel; keine Adresse als Text, auch nicht nach einem zweiten Durchgang; die Suche trifft die Adresse nicht", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const paragraph = (href, text) => {
+    const p = root.appendChild(doc.createElement("p"));
+    const a = p.appendChild(doc.createElement("a"));
+    a.setAttribute("href", href);
+    if (text) a.appendChild(doc.createTextNode(text));
+    return { p, a };
+  };
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): Der Text danach ist
+  // der Linktext, die Adresse bleibt am Link (vorher als Text dahinter)
+  const cases = [
+    // [href, Linktext, Text danach]
+    ["/anmeldung", "", ""], // [](/anmeldung)
+    ["/kurs/123", "Kursseite", "Kursseite"], // [Kursseite](/kurs/123)
+    ["www.vhs-lingen.de/kurs/123", "Kursseite", "Kursseite"],
+    ["info@vhs-lingen.de", "Mail", "Mail"],
+    ["URL", "Platzhalter", "Platzhalter"],
+    ["#anmeldung", "Sprung", "Sprung"],
+    ["#", "", ""], // [](#)
+    ["#", "Kursseite", "Kursseite"],
+    ["  #  ", "Kursseite", "Kursseite"],
+    ["", "Text ohne Adresse", "Text ohne Adresse"],
+    ["   ", "Nur Leerraum", "Nur Leerraum"],
+    ["­", "Trennzeichen", "Trennzeichen"],
+    ["/anmeldung-k102", "ㅤ", "ㅤ"], // Link nur aus U+3164
+    ["/anmeldung-k102", " ​ㅤ ", " ​ㅤ "],
+  ].map(([href, text, expected]) => ({ href, expected, ...paragraph(href, text) }));
+  // B70: Link mit Ziel, Linktext nur aus U+3164
+  const withTarget = paragraph("https://www.vhs.example/k89", "ㅤ");
+
+  rc21.hardenAnswerHtml(root, doc);
+
+  for (const { href, expected, p, a } of cases) {
+    assert.equal(p.textContent, expected, JSON.stringify(href));
+    assert.deepEqual(elements(p, (e) => e.tagName === "A"), [a], `Link: ${JSON.stringify(href)}`);
+    assert.equal(a.getAttribute("href"), href);
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
+  // B70: der Linktext bleibt U+3164 (vorher genau die Adresse)
+  assert.equal(withTarget.a.textContent, "ㅤ");
+  assert.equal(withTarget.a.getAttribute("target"), "_blank");
+  assert.equal(withTarget.p.textContent, "ㅤ");
+  // ein zweiter Durchgang (nach der Hervorhebung) ändert nichts
+  rc21.hardenAnswerHtml(root, doc, { searchHits: true });
+  for (const { href, expected, p } of cases) assert.equal(p.textContent, expected, JSON.stringify(href));
+  assert.equal(withTarget.p.textContent, "ㅤ");
+  // die Adresse ist kein sichtbarer Text: die Suche trifft sie nicht, der
+  // Hinweis „nur in Link-Adressen“ ist richtig (vorher 1)
+  assert.equal(highlightTextNodes(cases[0].p, "anmeldung", doc), 0);
+});
+
+test("rc21, K103: answerShowsHit prüft zusätzlich den Text des bereinigten Körpers (doc.body.textContent): Ein Begriff über die Token der Syntaxhervorhebung im Codeblock steht sichtbar da, kein falscher Hinweis; Link-Adressen, verworfenes HTML und <think> bleiben draußen (Fälle mit echtem DOMPurify und highlight.js: kie575Layout.manual.mjs, SHOWS_HIT_CASES)", () => {
+  const renderer = readFileSync(
+    new URL("../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx", import.meta.url),
+    "utf8"
+  );
+  const body = renderer.slice(renderer.indexOf("export function answerShowsHit"), renderer.indexOf("function MarkdownRenderer("));
+  assert.match(body, /if \(highlightTextNodes\(doc\.body, highlight, doc\) > 0\) return true;/);
+  assert.match(body, /return !!searchPattern\(highlight\)\?\.test\(doc\.body\.textContent\);/);
+  // erst nach dem Bereinigen (sanitizeAnswerHtml) und ohne <think>
+  assert.ok(body.indexOf("sanitizeAnswerHtml(md.render(part.text))") < body.indexOf("doc.body.textContent"));
+  assert.match(body, /if \(part\.type === "think"\) return false;/);
+  // Wie der Text des Körpers über Token-Grenzen trifft: <span>Kurs</span> <span>4711</span>
+  const doc = createDocument();
+  const code = doc.createElement("code");
+  for (const [cls, text] of [["hljs-title class_", "Kurs"], [null, " "], ["hljs-number", "4711"]]) {
+    if (cls === null) code.appendChild(doc.createTextNode(text));
+    else {
+      const span = code.appendChild(doc.createElement("span"));
+      span.setAttribute("class", cls);
+      span.appendChild(doc.createTextNode(text));
+    }
+  }
+  assert.equal(highlightTextNodes(code, "Kurs 4711", doc), 0, "über Knotengrenzen keine Markierung");
+  assert.ok(searchPattern("Kurs 4711").test(code.textContent), "der sichtbare Text trifft");
+});
+
+test("rc21, K104 (Bewusste Änderung E40, vorher: https:/pfad und https:pfad werden Text mit ihrer Adresse): Jede Adresse bleibt am Link wie im Widget, auch https:/pfad und https:pfad; andere Schemata und // bleiben Links; alle in neuem Tab mit rel", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const link = (href, text) => {
+    const a = p.appendChild(doc.createElement("a"));
+    a.setAttribute("href", href);
+    a.appendChild(doc.createTextNode(text));
+    p.appendChild(doc.createTextNode(" "));
+    return a;
+  };
+  const without = [
+    link("https:/www.vhs.de/anmeldung", "Anmeldung"),
+    link("https:kurs/4711", "Kurs"),
+    link("http:/www.vhs.de/a", "Alt"),
+    link("HTTPS:www.vhs.de", "Groß"),
+    link("https:\\\\www.vhs.de", "Rückstrich"),
+  ];
+  const kept = [
+    link("https://www.vhs.de/anmeldung", "Richtig"),
+    link("HTTP://www.vhs.de", "Groß richtig"),
+    link(" https://www.vhs.de/leer", "Mit Leerraum"),
+    link("mailto:info@vhs.example", "Mail"),
+    link("tel:+495911234", "Telefon"),
+    link("//www.vhs.de/kurs", "Ohne Schema"),
+    link("httpsx:kurs", "Anderes Schema"),
+  ];
+
+  rc21.hardenAnswerHtml(root, doc);
+
+  const links = elements(root, (e) => e.tagName === "A");
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): auch ohne // ein Link
+  // mit Adresse und Text, keine Adresse als Text
+  assert.equal(p.textContent, "Anmeldung Kurs Alt Groß Rückstrich Richtig Groß richtig Mit Leerraum Mail Telefon Ohne Schema Anderes Schema ");
+  for (const a of [...without, ...kept]) {
+    assert.ok(links.includes(a), a.getAttribute("href"));
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
 });

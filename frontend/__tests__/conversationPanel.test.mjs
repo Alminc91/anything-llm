@@ -16,7 +16,7 @@ import {
   hasFrontendDeps,
 } from "./helpers/renderSettingsPage.mjs";
 import { click, elements, handlersOf, pressKey } from "./helpers/testDom.mjs";
-import { fixClock } from "./helpers/fixedClock.mjs";
+import { fixClock, movableClock } from "./helpers/fixedClock.mjs";
 import requests from "../../server/__tests__/endpoints/support/embedAnalyticsRequests.js";
 
 const { ROUTES, conversationsBody, exportBody } = requests;
@@ -162,6 +162,18 @@ async function panelServer(t, state) {
         totalCount: rows.length,
         // state.maxId: Stand der Liste (Fixliste 8, L2)
         ...(state.maxId === undefined ? {} : { maxId: state.maxId }),
+        // state.reportsRatings: Der Server meldet, ob eine Konversation der
+        // ganzen Auswahl bewertet ist (Review 7.22-rc2, K04); leere Seite null
+        ...(state.reportsRatings
+          ? {
+              hasRatings:
+                rest.length > offset
+                  ? rows.some(
+                      (r) => r.positive_count > 0 || r.negative_count > 0
+                    )
+                  : null,
+            }
+          : {}),
       });
     }
     // Widget-Liste und letzte Nachricht je Widget (Fixliste 6, N2):
@@ -265,12 +277,17 @@ async function toasts(t) {
   return shown;
 }
 
-/** Hängt die Liste unter einer Adresse ein (Suche, Konversation). */
-async function mountList(t, { query = "", props = {} } = {}) {
+/**
+ * Hängt die Liste unter einer Adresse ein (Suche, Konversation). stored:
+ * Browser-Speicher, etwa der gemerkte Verlauf (KIE-575: `panel: "closed"`
+ * – ab lg öffnet sonst die neueste Konversation von selbst).
+ */
+async function mountList(t, { query = "", props = {}, stored = {} } = {}) {
   const mounted = await renderer.mount(LIST, {
     location: `${LOCATION}${query}`,
     route: LOCATION,
     props: { embedId: EMBED_ID, ...PERIOD, ...props },
+    stored,
   });
   const { document } = mounted;
   if (!document.getElementById("root")) {
@@ -459,6 +476,216 @@ test(
     assert.equal(rowsOf(container).length, 25);
     assert.equal(withAttribute(container, "data-day-count").length, 0);
     assert.equal(withAttribute(container, "data-load-more").length, 0);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Nachtrag KIE-560: „Neu“ (K3), Spalte der Marken (K2), Hover (K4)
+// ---------------------------------------------------------------------------
+
+test(
+  "K3: „Neu“ vorn in der Zeile unter der Frage, solange die letzte Nachricht jünger als 4 Stunden ist (Uhr fest) – mit Tooltip; weitergeführte Konversation zusätzlich „begonnen am …“",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY); // 12:00 Berliner Zeit
+    const now = Date.parse(TODAY);
+    const HOUR = 3_600_000;
+    await panelServer(t, {
+      rows: [
+        // vor 3 h 59 min, begonnen vor vier Tagen
+        row(301, {
+          started_at: berlin("2026-10-09", "08:00"),
+          last_message_at: now - 4 * HOUR + 60_000,
+          message_count: 5,
+        }),
+        // genau vor 4 h: nicht mehr neu
+        row(302, {
+          started_at: now - 4 * HOUR - 60_000,
+          last_message_at: now - 4 * HOUR,
+        }),
+        // gestern
+        row(303),
+      ],
+    });
+    const { container } = await mountList(t);
+    const [fresh, boundary, old] = rowsOf(container);
+
+    const badge = one(fresh, "data-row-new");
+    assert.equal(badge.textContent, "Neu");
+    assert.equal(
+      badge.getAttribute("title"),
+      "Letzte Nachricht vor weniger als 4 Stunden"
+    );
+    // Die Marke steht vor der Meta-Zeile, nicht in ihr: Diese bleibt
+    // unverändert (und wird allein gekürzt).
+    const meta = one(fresh, "data-row-meta");
+    assert.equal(meta.textContent, "08:01 · 5 Fragen · begonnen am 9. Okt.");
+    assert.equal(badge.parentNode, meta.parentNode);
+    assert.equal(badge.nextSibling, meta);
+    // klein wie die übrigen Marken, Sky in beiden Themes, nie gekürzt
+    const badgeClass = badge.getAttribute("class");
+    for (const name of [
+      "shrink-0",
+      "text-[11px]",
+      "h-4",
+      "text-sky-300",
+      "bg-sky-500/15",
+      "light:text-sky-700",
+      "light:bg-sky-100",
+    ])
+      assert.ok(badgeClass.split(" ").includes(name), name);
+
+    assert.equal(withAttribute(boundary, "data-row-new").length, 0);
+    assert.equal(withAttribute(old, "data-row-new").length, 0);
+    assert.doesNotMatch(container.textContent, /–|—/);
+  }
+);
+
+test(
+  "K2: Trägt eine Zeile Marken, hat die Spalte der Marken in ALLEN Zeilen dieselbe Mindestbreite – ohne jede Bewertung keine",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    const state = {
+      rows: [
+        row(401, { positive_count: 12, negative_count: 3 }),
+        row(402),
+        row(403, { negative_count: 1 }),
+      ],
+    };
+    await panelServer(t, state);
+    const { container } = await mountList(t);
+    const columns = rowsOf(container).map((r) =>
+      one(r, "data-row-ratings").getAttribute("class").split(" ")
+    );
+    assert.equal(columns.length, 3);
+    for (const classes of columns) {
+      assert.ok(classes.includes("min-w-[72px]"), classes.join(" "));
+      assert.ok(classes.includes("sm:min-w-[106px]"), classes.join(" "));
+      assert.ok(classes.includes("justify-end"), classes.join(" "));
+    }
+    // dieselbe Spalte des Rasters in jeder Zeile (Frage 1fr, Marken, Pfeil)
+    assert.equal(
+      new Set(rowsOf(container).map((r) => r.getAttribute("class"))).size,
+      1
+    );
+  }
+);
+
+test(
+  "K2: Ohne jede Bewertung in der Liste reserviert die Spalte keinen Platz – die Fragen nutzen die volle Breite",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    await panelServer(t, { rows: [row(411), row(412)] });
+    const { container } = await mountList(t);
+    for (const r of rowsOf(container)) {
+      const classes = one(r, "data-row-ratings").getAttribute("class");
+      assert.doesNotMatch(classes, /min-w-/);
+    }
+  }
+);
+
+test(
+  "K4: Hover deutlich in beiden Themes, Pfeil beim Hover in Textfarbe, Hand als Zeiger; die gewählte Zeile behält ihre Farbe",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    await panelServer(t, { rows: [row(421)] });
+    const { container } = await mountList(t);
+    const [line] = rowsOf(container);
+    const classes = line.getAttribute("class").split(/\s+/);
+    for (const name of [
+      "group",
+      "cursor-pointer",
+      "hover:bg-white/10",
+      "light:hover:bg-black/[0.06]",
+      "transition-colors",
+    ])
+      assert.ok(classes.includes(name), name);
+    // Review 7.22-rc2, B-11: kräftiger als zuvor (7 % bzw. 4 %)
+    for (const weak of [
+      "hover:bg-white/5",
+      "hover:bg-white/[0.07]",
+      "light:hover:bg-black/[0.04]",
+    ])
+      assert.ok(!classes.includes(weak), weak);
+    const arrow = one(line, "data-row-arrow");
+    const arrowClasses = arrow.getAttribute("class").split(/\s+/);
+    assert.ok(arrowClasses.includes("group-hover:text-theme-text-primary"));
+    assert.ok(
+      arrowClasses.includes("group-focus-visible:text-theme-text-primary")
+    );
+    // nur Farben: keine Größe, kein Rand, kein Abstand je Zustand
+    for (const name of [...classes, ...arrowClasses])
+      assert.doesNotMatch(
+        name,
+        /^(group-)?(hover|focus-visible):(p|m|w|h|border|text-\[?\d)/,
+        name
+      );
+  }
+);
+
+test(
+  "Review 7.22-rc2, K01: Bleibt die Seite offen, verschwindet „Neu“, sobald die letzte Nachricht 4 Stunden alt ist; jüngere behalten die Marke",
+  { skip },
+  async (t) => {
+    const clock = movableClock(t, TODAY);
+    const now = Date.parse(TODAY);
+    const HOUR = 3_600_000;
+    await panelServer(t, {
+      rows: [
+        // läuft in 50 ms ab
+        row(311, {
+          started_at: now - 4 * HOUR,
+          last_message_at: now - 4 * HOUR + 50,
+        }),
+        // noch eine Stunde neu
+        row(312, {
+          started_at: now - 3 * HOUR - 60_000,
+          last_message_at: now - 3 * HOUR,
+        }),
+      ],
+    });
+    const { container, act } = await mountList(t);
+    const [expiring, fresh] = rowsOf(container);
+    assert.equal(withAttribute(expiring, "data-row-new").length, 1);
+    assert.equal(withAttribute(fresh, "data-row-new").length, 1);
+
+    // eine Minute später, ohne Neuladen und ohne Klick
+    clock.set(now + 60_000);
+    await act(() => wait(500));
+    assert.equal(withAttribute(expiring, "data-row-new").length, 0);
+    assert.equal(withAttribute(fresh, "data-row-new").length, 1);
+  }
+);
+
+test(
+  "Review 7.22-rc2, K04: Steht die erste bewertete Konversation erst auf Seite 2, reserviert die Liste die Spalte der Marken schon auf Seite 1 (Angabe des Servers); beim Nachladen springt sie nicht",
+  { skip },
+  async (t) => {
+    fixClock(t, TODAY);
+    // 21 Zeilen, nur die älteste (Seite 2) bewertet
+    const rows = Array.from({ length: 21 }, (_, i) =>
+      row(620 - i, {
+        last_message_at: berlin("2026-10-12", "12:05") - i * 60_000,
+        ...(i === 20 ? { positive_count: 1 } : {}),
+      })
+    );
+    await panelServer(t, { rows, reportsRatings: true });
+    const { container, act } = await mountList(t);
+    const columnOf = (r) => one(r, "data-row-ratings").getAttribute("class");
+    const firstPage = rowsOf(container);
+    assert.equal(firstPage.length, 20);
+    for (const r of firstPage)
+      assert.ok(columnOf(r).split(" ").includes("sm:min-w-[106px]"));
+    const before = firstPage.map(columnOf);
+
+    await act(() => click(one(container, "data-load-more")));
+    const all = rowsOf(container);
+    assert.equal(all.length, 21);
+    assert.deepEqual(all.slice(0, 20).map(columnOf), before);
+    assert.equal(new Set(all.map(columnOf)).size, 1);
   }
 );
 
@@ -684,10 +911,13 @@ test(
   async (t) => {
     // Panel neben der Liste (ab lg): Der Fokus bleibt in der Liste. Ohne
     // matchMedia gilt die Ansicht wie überall als schmal (useWide, Fixliste
-    // 7 F23) – dort öffnet das Vollbild und nimmt den Fokus.
+    // 7 F23) – dort öffnet das Vollbild und nimmt den Fokus. Verlauf
+    // gemerkt „geschlossen“ (KIE-575): sonst wäre er schon offen.
     stubWidth(t, true);
     const server = await panelServer(t, { rows: [row(1), row(2), row(3)] });
-    const { container, document, act } = await mountList(t);
+    const { container, document, act } = await mountList(t, {
+      stored: { "kie.conversations.panel": "closed" },
+    });
     const rows = () => rowsOf(container);
 
     rows()[0].focus();
@@ -1042,7 +1272,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "AK-9: Unter lg ist das Panel ein Vollbild mit „‹ Konversationen“; Schaltflächen 44 px hoch; „‹ Konversationen“ kehrt zur Liste zurück",
+  "AK-9 / E15: Auf Tablet und Smartphone (unter xl, 1.280 px) ist das Panel ein Vollbild mit „‹ Konversationen“; Schaltflächen 44 px hoch, kompakt erst auf dem Desktop; „‹ Konversationen“ kehrt zur Liste zurück",
   { skip },
   async (t) => {
     const server = await panelServer(t, { rows: [row(1), row(2)] });
@@ -1051,13 +1281,16 @@ test(
     const panel = panelOf(container);
     const classes = (element) =>
       (element.getAttribute("class") ?? "").split(/\s+/);
-    // Vollbild bis lg, ab lg Seitenpanel neben der Liste
-    for (const name of ["fixed", "inset-0", "lg:sticky", "lg:inset-auto"])
+    // Vollbild bis xl, auf dem Desktop die rechte Spalte des Arbeitsbereichs
+    // (KIE-575, E15) – kein lg: mehr, das Tablet bekommt das Vollbild
+    for (const name of ["fixed", "inset-0", "desktop:relative", "desktop:inset-auto"])
       assert.ok(classes(panel).includes(name), name);
+    assert.ok(!classes(panel).some((name) => name.startsWith("lg:")));
     const back = one(panel, "data-panel-back");
     assert.equal(back.textContent, "Konversationen");
     assert.ok(classes(back).includes("h-11"));
-    assert.ok(classes(back).includes("lg:hidden"));
+    assert.ok(classes(back).includes("desktop:hidden"));
+    assert.ok(!classes(back).includes("lg:hidden"));
     for (const name of [
       "data-panel-previous",
       "data-panel-next",
@@ -1067,9 +1300,12 @@ test(
       const button = one(panel, name);
       assert.ok(classes(button).includes("h-11"), name);
       assert.ok(classes(button).includes("w-11"), name);
+      assert.ok(classes(button).includes("desktop:h-9"), name);
+      assert.ok(!classes(button).includes("lg:h-9"), name);
     }
-    // ✕ nur ab lg
+    // ✕ nur auf dem Desktop
     assert.ok(classes(one(panel, "data-panel-close")).includes("hidden"));
+    assert.ok(classes(one(panel, "data-panel-close")).includes("desktop:grid"));
     // Zeilen mindestens 44 px: zwei Textzeilen (20 + 18 px) und py-2
     const [first] = rowsOf(container);
     assert.ok(classes(first).includes("py-2"));
@@ -1294,7 +1530,7 @@ function captureKeys(t, document) {
     });
 }
 
-/** window.matchMedia für eine Breite (lg = ab 1024 px). */
+/** window.matchMedia für eine Breite (Desktop = ab 1.280 px, xl; Fixliste 7.22-rc13 E15). */
 // Fokusring der Seite (Listenzeilen, Diagramm-Schalter): 2 px in der
 // Textfarbe, nur bei Tastaturbedienung (Nachtrag N3)
 const FOCUS_RING = [
@@ -1306,7 +1542,7 @@ const FOCUS_RING = [
 function stubWidth(t, wide) {
   const original = globalThis.window.matchMedia;
   globalThis.window.matchMedia = (query) => ({
-    matches: query.includes("1024") ? wide : false,
+    matches: query.includes("1280") ? wide : false,
     addEventListener() {},
     removeEventListener() {},
   });
@@ -1448,6 +1684,9 @@ test(
     t.after(() => {
       prototype.scrollIntoView = original;
     });
+    // Folgen heißt seit rc11 (K11): die Spalte stellt ihre Scrollposition
+    // ein, kein scrollIntoView
+    const columnScrolls = captureColumnScrolls(t, prototype);
     await act(() => click(rowsOf(container)[0]));
     await act();
     // am Anfang: nichts zu öffnen (Handler direkt, die Schaltfläche ist gesperrt)
@@ -1458,12 +1697,13 @@ test(
     await act(() => click(rowsOf(container)[2]));
     await act();
     assert.deepEqual(currentRows(container), [3]);
-    assert.deepEqual(scrolled, []);
+    assert.deepEqual(columnScrolls, []);
     // Blättern im Panel folgt weiterhin
     await act(() => click(one(container, "data-panel-previous")));
     await act();
     assert.deepEqual(currentRows(container), [2]);
-    assert.equal(scrolled.length, 1);
+    assert.equal(columnScrolls.length, 1);
+    assert.deepEqual(scrolled, [], "kein scrollIntoView");
   }
 );
 
@@ -2316,21 +2556,25 @@ test(
 );
 
 test(
-  "Fixliste 2, B4: Das Panel klebt ab lg 64 px unter dem oberen Rand – sein Kopf liegt unter dem Benutzermenü oben rechts",
+  "Fixliste 2, B4 / KIE-575 / E15: Das Panel klebt nicht mehr – auf dem Desktop (xl) ist es die rechte Spalte des Arbeitsbereichs (relative, Breite nach WORKSPACE.panel), ohne gerechnete Höhe",
   { skip },
   async (t) => {
+    const { WORKSPACE } = await renderer.load("/src/utils/conversationView.js");
     await panelServer(t, { rows: [row(1)] });
     const { container, act } = await mountList(t);
     await act(() => click(rowsOf(container)[0]));
     const panel = panelOf(container);
-    assert.ok(
-      hasClasses(panel, [
-        "lg:sticky",
-        "lg:top-16",
-        "lg:max-h-[calc(100vh-112px)]",
-      ])
-    );
-    assert.ok(!classesOf(panel).includes("lg:top-4"));
+    assert.ok(hasClasses(panel, ["desktop:relative", ...WORKSPACE.panel.split(" ")]));
+    for (const name of [
+      "lg:relative",
+      "lg:sticky",
+      "lg:top-16",
+      "lg:top-4",
+      "lg:scroll-mt-16",
+      "lg:max-h-[calc(100vh-112px)]",
+    ])
+      assert.ok(!classesOf(panel).includes(name), name);
+    assert.equal(panel.style.maxHeight ?? "", "");
   }
 );
 
@@ -2835,7 +3079,7 @@ test(
     const mountView = async (query, wide) => {
       const restore = globalThis.window.matchMedia;
       globalThis.window.matchMedia = (q) => ({
-        matches: q.includes("1024") ? wide : false,
+        matches: q.includes("1280") ? wide : false,
         addEventListener() {},
         removeEventListener() {},
       });
@@ -2859,11 +3103,17 @@ test(
       globalThis.window.matchMedia = restore;
     };
 
+    // Per Link ab lg: einmal zur Liste (Sprungziel scroll-mt-20). Die
+    // markierte Zeile bringt die Liste in ihrer Spalte in Sicht, indem sie
+    // deren Scrollposition rechnet (KIE-575, rc11 K11) – kein scrollIntoView
+    // der Zeile, das scrollte die Seite mit
     await mountView("?widget=3&conversation=5", true);
     assert.deepEqual(scrolled, [[true, { block: "start" }]]);
     scrolled.length = 0;
     await mountView("?widget=3&conversation=5", false);
     assert.deepEqual(scrolled, []);
+    // Ohne Konversation in der Adresse öffnet ab lg die neueste von selbst
+    // (KIE-575) – ohne jeden Sprung (NAK-1)
     await mountView("?widget=3", true);
     assert.deepEqual(scrolled, []);
   }
@@ -2982,133 +3232,6 @@ test(
     assert.equal(document.activeElement, one(container, "data-delete-visitor"));
     await keyDown("ArrowDown");
     assert.equal(document.activeElement, one(container, "data-menu-copy-id"));
-  }
-);
-
-/**
- * Maße für das Panel (Fixliste 3, V3/V8): Oberkante im Fenster und
- * Fensterhöhe; scrollIntoView des Panels wird gemerkt.
- */
-/**
- * Maße des Panels im Fenster. top und containerBottom (Unterkante des
- * Bereichs aus Liste und Panel) sind Zahlen oder Funktionen – so lässt sich
- * eine Verschiebung ohne Scrollen nachstellen.
- */
-function panelGeometry(
-  t,
-  document,
-  { top, viewportHeight = 900, containerBottom }
-) {
-  const valueOf = (value) => (typeof value === "function" ? value() : value);
-  // die Klasse, die getBoundingClientRect und scrollIntoView liefert
-  let proto = Object.getPrototypeOf(document.body);
-  while (!Object.prototype.hasOwnProperty.call(proto, "getBoundingClientRect"))
-    proto = Object.getPrototypeOf(proto);
-  const original = {
-    rect: proto.getBoundingClientRect,
-    scroll: proto.scrollIntoView,
-    height: globalThis.window.innerHeight,
-  };
-  const scrolled = [];
-  const isPanel = (node) => node?.hasAttribute?.("data-conversation-panel");
-  proto.getBoundingClientRect = function () {
-    if (isPanel(this)) {
-      const y = valueOf(top);
-      return { x: 0, y, top: y, left: 0, width: 520, height: 600 };
-    }
-    const bottom = valueOf(containerBottom);
-    if (bottom !== undefined && (this.childNodes ?? []).some(isPanel))
-      return {
-        x: 0,
-        y: 0,
-        top: 0,
-        left: 0,
-        width: 1000,
-        height: bottom,
-        bottom,
-      };
-    return original.rect.call(this);
-  };
-  proto.scrollIntoView = function (options) {
-    if (this.hasAttribute?.("data-conversation-panel")) scrolled.push(options);
-    return original.scroll.call(this, options);
-  };
-  globalThis.window.innerHeight = viewportHeight;
-  t.after(() => {
-    proto.getBoundingClientRect = original.rect;
-    proto.scrollIntoView = original.scroll;
-    globalThis.window.innerHeight = original.height;
-  });
-  return scrolled;
-}
-
-test(
-  "Fixliste 3, V3/V8: ab lg endet das Panel über dem unteren Fensterrand; steht es beim Öffnen so tief, dass kaum etwas zu sehen ist, wird es weich nach oben geholt – sonst bleibt die Seite stehen; per Link nicht (die Seite springt zur Liste)",
-  { skip },
-  async (t) => {
-    stubWidth(t, true);
-    const details = {
-      1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
-    };
-    for (const [top, maxHeight, reveal] of [
-      [700, "240px", true],
-      [300, "568px", false],
-      [124, "744px", false],
-    ]) {
-      await panelServer(t, { rows: [row(1), row(2)], details });
-      const view = await mountList(t);
-      const scrolled = panelGeometry(t, view.document, { top });
-      await view.act(() => click(rowsOf(view.container)[0]));
-      await view.act();
-      const panel = panelOf(view.container);
-      assert.equal(panel.style.maxHeight, maxHeight, String(top));
-      assert.deepEqual(
-        scrolled,
-        reveal ? [{ block: "start", behavior: "smooth" }] : [],
-        String(top)
-      );
-      await view.unmount();
-    }
-    // die Klasse dazu: scroll-mt-16 – scrollIntoView bringt das Panel an
-    // seine Klebekante unter dem Benutzermenü
-    await panelServer(t, { rows: [row(1)], details });
-    // Maße schon vor dem Einhängen: Das Panel öffnet mit der Seite
-    const scrolled = panelGeometry(t, globalThis.document, { top: 700 });
-    const linked = await mountList(t, { query: "?widget=3&conversation=1" });
-    await linked.act();
-    assert.equal(panelOf(linked.container).style.maxHeight, "240px");
-    assert.ok(
-      hasClasses(panelOf(linked.container), ["lg:scroll-mt-16", "lg:sticky"])
-    );
-    // per Link geöffnet: kein Holen (die Ansicht springt zur Liste)
-    assert.deepEqual(scrolled, []);
-    // die Liste ist ab lg mindestens so hoch wie das Panel werden kann –
-    // die Seite lässt sich immer weit genug scrollen
-    assert.ok(
-      hasClasses(panelOf(linked.container).parentNode, [
-        "lg:min-h-[calc(100vh-112px)]",
-      ])
-    );
-  }
-);
-
-test(
-  "Fixliste 3, V3: unter lg (Vollbild) keine angepasste Höhe",
-  { skip },
-  async (t) => {
-    stubWidth(t, false);
-    await panelServer(t, {
-      rows: [row(1)],
-      details: {
-        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
-      },
-    });
-    const view = await mountList(t);
-    const scrolled = panelGeometry(t, view.document, { top: 700 });
-    await view.act(() => click(rowsOf(view.container)[0]));
-    await view.act();
-    assert.equal(panelOf(view.container).style.maxHeight, undefined);
-    assert.deepEqual(scrolled, []);
   }
 );
 
@@ -3259,6 +3382,30 @@ function stubResizeObserver(t) {
 }
 
 /** Lauscher am Dokument abfangen (je Ereignistyp der zuletzt angemeldete). */
+/**
+ * Scrollposition der Spalte (data-list-scroll) mitschneiden: Jede Zuweisung
+ * an scrollTop der Spalte landet in der Liste (rc11, K11 – die Liste rechnet
+ * die Position selbst statt scrollIntoView); andere Elemente behalten ihren
+ * Wert wie bisher.
+ */
+function captureColumnScrolls(t, prototype) {
+  const scrolls = [];
+  Object.defineProperty(prototype, "scrollTop", {
+    configurable: true,
+    get() {
+      return this._scrollTop ?? 0;
+    },
+    set(value) {
+      this._scrollTop = value;
+      if (this.hasAttribute?.("data-list-scroll")) scrolls.push(value);
+    },
+  });
+  t.after(() => {
+    delete prototype.scrollTop;
+  });
+  return scrolls;
+}
+
 function captureDocumentListeners(t, document) {
   const listeners = new Map();
   const original = {
@@ -3293,88 +3440,6 @@ function captureDocumentListeners(t, document) {
 }
 
 test(
-  "Fixliste 4, V4: Verschiebt sich das Panel ohne Scrollen (Zeile der Filtermarkierungen erscheint/verschwindet), passt sich seine Höhe an – ResizeObserver auf den Vorfahren",
-  { skip },
-  async (t) => {
-    stubWidth(t, true);
-    const observers = stubResizeObserver(t);
-    await panelServer(t, {
-      rows: [row(1, { preview: "Spanisch" }), row(2)],
-      details: {
-        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
-      },
-    });
-    const view = await mountList(t);
-    const { container, act } = view;
-    let top = 300;
-    panelGeometry(t, view.document, { top: () => top });
-    await act(() => click(rowsOf(container)[0]));
-    await act();
-    const panel = panelOf(container);
-    assert.equal(panel.style.maxHeight, "568px");
-
-    // Beobachtet werden die Vorfahren des Panels: der Bereich aus Liste
-    // und Panel und die Liste mit ihrem Kopf (darin erscheint die Zeile)
-    const observer = observers.find((o) =>
-      o.observed.includes(panel.parentNode)
-    );
-    assert.ok(observer, "kein ResizeObserver auf dem Bereich des Panels");
-    assert.ok(
-      observer.observed.includes(one(container, "data-list-header").parentNode)
-    );
-
-    // Suche: Die Zeile „Suche: …“ erscheint, das Panel rutscht 38 px tiefer
-    // – kein Scroll-Ereignis, nur die Größe der Liste ändert sich
-    await type(view, "spanisch");
-    await act(() => wait(350));
-    await act();
-    assert.equal(withAttribute(container, "data-list-status").length, 1);
-    top = 338;
-    await act(() => observer.callback([]));
-    await act(() => wait(20));
-    assert.equal(panel.style.maxHeight, "530px");
-    // Die Zeile verschwindet wieder (✕): keine Lücke
-    await act(() => click(one(container, "data-filter-clear")));
-    await act(() => wait(350));
-    top = 300;
-    await act(() => observer.callback([]));
-    await act(() => wait(20));
-    assert.equal(panel.style.maxHeight, "568px");
-
-    // Schließen trennt den Beobachter
-    await act(() => click(one(container, "data-panel-close")));
-    await act();
-    assert.equal(observer.disconnected, true);
-  }
-);
-
-test(
-  "Fixliste 4, V3: Am Seitenende (kurze Liste) endet das Panel über der Unterkante seines Bereichs – es bleibt bei 80 px unter dem Benutzermenü statt nach oben geschoben zu werden",
-  { skip },
-  async (t) => {
-    stubWidth(t, true);
-    await panelServer(t, {
-      rows: [row(1), row(2)],
-      details: {
-        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
-      },
-    });
-    const view = await mountList(t);
-    // ganz unten gescrollt: Der Bereich endet 64 px über dem Fensterrand
-    // (836 bei 900), das Panel stand mit 788 px Höhe bei 47
-    const scrolled = panelGeometry(t, view.document, {
-      top: 47,
-      containerBottom: 836,
-    });
-    await view.act(() => click(rowsOf(view.container)[0]));
-    await view.act();
-    assert.equal(panelOf(view.container).style.maxHeight, "756px");
-    assert.ok(80 + 756 <= 836);
-    assert.deepEqual(scrolled, []);
-  }
-);
-
-test(
   "Fixliste 4, V7: Per Link geöffnet – der Sprung zur Liste hält bei Layoutänderungen (ResizeObserver) und fremdem Scrollen, bis der Nutzer selbst scrollt",
   { skip },
   async (t) => {
@@ -3390,18 +3455,20 @@ test(
     const document = probe.document;
     await probe.unmount();
     const events = captureDocumentListeners(t, document);
-    // Sprünge zum Ziel „Liste“ (scroll-mt-20); die Liste steht danach bei 96
+    // Sprünge zum Ziel „Liste“ (auf dem Desktop desktop:scroll-mt-2); die Liste
+    // steht danach in der Ruhelage des Arbeitsbereichs bei 24 (Rahmen 16 +
+    // 8, Review 7.22-rc12 K04; vorher scroll-mt-20: 96)
     const jumps = [];
     let listTop = 900;
     const original = {
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
     };
-    const isTarget = (element) => classesOf(element).includes("scroll-mt-20");
+    const isTarget = (element) => classesOf(element).includes("desktop:scroll-mt-2");
     prototype.scrollIntoView = function (options) {
       if (isTarget(this)) {
         jumps.push(options);
-        listTop = 96;
+        listTop = 24;
       }
     };
     prototype.getBoundingClientRect = function () {
@@ -3636,67 +3703,6 @@ test(
 );
 
 test(
-  "Fixliste 5, C1: Größenänderung des Fensters mit offenem Panel – das Ereignis „resize“ (Ziel: das Fenster) wirft nicht und setzt die Höhe neu",
-  { skip },
-  async (t) => {
-    stubWidth(t, true);
-    const windowListeners = new Map();
-    const original = {
-      add: globalThis.window.addEventListener,
-      remove: globalThis.window.removeEventListener,
-    };
-    globalThis.window.addEventListener = (type, listener) => {
-      windowListeners.set(type, [
-        ...(windowListeners.get(type) ?? []),
-        listener,
-      ]);
-    };
-    globalThis.window.removeEventListener = (type, listener) =>
-      windowListeners.set(
-        type,
-        (windowListeners.get(type) ?? []).filter((l) => l !== listener)
-      );
-    t.after(() => {
-      globalThis.window.addEventListener = original.add;
-      globalThis.window.removeEventListener = original.remove;
-    });
-    await panelServer(t, {
-      rows: [row(1), row(2)],
-      details: {
-        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
-      },
-    });
-    const view = await mountList(t);
-    panelGeometry(t, view.document, { top: 300 });
-    await view.act(() => click(rowsOf(view.container)[0]));
-    await view.act();
-    const panel = panelOf(view.container);
-    assert.equal(panel.style.maxHeight, "568px");
-    // wie im Browser: contains() wirft bei einem Ziel, das kein Knoten ist
-    const contains = panel.contains.bind(panel);
-    panel.contains = (node) => {
-      if (typeof node?.nodeType !== "number")
-        throw new TypeError(
-          "Failed to execute 'contains' on 'Node': parameter 1 is not of type 'Node'."
-        );
-      return contains(node);
-    };
-    const resize = windowListeners.get("resize") ?? [];
-    assert.ok(resize.length > 0, "kein Lauscher für resize");
-    for (const height of [700, 800, 900, 1000]) {
-      globalThis.window.innerHeight = height;
-      await view.act(() =>
-        resize.forEach((listener) =>
-          listener({ type: "resize", target: globalThis.window })
-        )
-      );
-      await view.act(() => wait(20));
-      assert.equal(panel.style.maxHeight, `${height - 32 - 300}px`);
-    }
-  }
-);
-
-test(
   "Fixliste 5, C2: „Nächste“ an der letzten geladenen Zeile, das Nachladen scheitert – Hinweis im Panel, kein Toast; ein erneutes „Nächste“ lädt nach und öffnet die nächste, der Hinweis ist fort",
   { skip },
   async (t) => {
@@ -3823,11 +3829,10 @@ test(
 );
 
 test(
-  "Fixliste 5, S5: Schmales Panel – Datum einzeilig (von lg bis xl in der Zeile unter der Frage), Fußzeile eine Zeile mit gekürzter Kennung; nie niedriger als Kopf und Fußzeile",
+  "Fixliste 5, S5: Schmales Panel – Datum einzeilig (von lg bis xl in der Zeile unter der Frage), Fußzeile eine Zeile mit gekürzter Kennung; Kopf und Fußzeile fest, der Verlauf dazwischen scrollt",
   { skip },
   async (t) => {
     stubWidth(t, true);
-    const observers = stubResizeObserver(t);
     await panelServer(t, {
       rows: [row(1), row(2)],
       details: {
@@ -3839,7 +3844,6 @@ test(
       },
     });
     const view = await mountList(t);
-    panelGeometry(t, view.document, { top: 700 });
     await view.act(() => click(rowsOf(view.container)[0]));
     await view.act();
     const panel = panelOf(view.container);
@@ -3847,9 +3851,9 @@ test(
     // Kopf: Datum neben den Schaltflächen erst ab xl, bis dahin einzeilig
     // in der Zeile unter der Frage; die Schaltflächen rechts
     const date = one(panel, "data-panel-date");
-    assert.ok(hasClasses(date, ["hidden", "xl:block", "whitespace-nowrap"]));
+    assert.ok(hasClasses(date, ["hidden", "desktop:block", "whitespace-nowrap"]));
     const metaDate = one(panel, "data-meta-date");
-    assert.ok(hasClasses(metaDate, ["xl:hidden", "whitespace-nowrap"]));
+    assert.ok(hasClasses(metaDate, ["desktop:hidden", "whitespace-nowrap"]));
     assert.equal(metaDate.textContent, date.textContent);
     assert.ok(
       hasClasses(one(panel, "data-panel-previous").parentNode, ["ml-auto"])
@@ -3871,18 +3875,9 @@ test(
     );
     assert.ok(hasClasses(one(panel, "data-panel-head"), ["shrink-0"]));
     assert.ok(hasClasses(one(panel, "data-panel-body"), ["min-h-0", "flex-1"]));
-
-    // Mindesthöhe: weit unten 240 px – Kopf 196 + Fußzeile 49 brauchen mehr
-    assert.equal(panel.style.maxHeight, "240px");
-    const head = one(panel, "data-panel-head");
-    const observer = observers.find((o) => o.observed.includes(head));
-    assert.ok(observer, "Kopf des Panels wird nicht beobachtet");
-    assert.ok(observer.observed.includes(one(panel, "data-panel-body")));
-    head.getBoundingClientRect = () => ({ top: 700, height: 196 });
-    footer.getBoundingClientRect = () => ({ top: 1011, height: 49 });
-    await view.act(() => observer.callback([]));
-    await view.act(() => wait(20));
-    assert.equal(panel.style.maxHeight, `${196 + 49 + 64 + 2}px`);
+    // KIE-575: Die Höhe gibt der Arbeitsbereich vor – keine gerechnete
+    // Höhe mehr am Panel
+    assert.equal(panel.style.maxHeight ?? "", "");
   }
 );
 
@@ -4215,22 +4210,25 @@ test(
 );
 
 test(
-  "Fixliste 6, K5: die Zeilen tragen Scroll-Abstände – „nearest“ lässt ab lg oben das Benutzermenü (80 px) und unten 32 px frei",
+  "Fixliste 6, K5 / KIE-575 / rc11 K11: Die gewählte Zeile kommt mit gerechneter Scrollposition in der Spalte in Sicht (ROW_SCROLL_MARGIN: oben die Überschrift der Tagesgruppe, 32 px, unten ein kleiner Rand) – die Zeilen tragen keine Scroll-Abstände mehr, auch nicht „scroll-mt-20“",
   { skip },
   async (t) => {
+    const { ROW_SCROLL_MARGIN } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    assert.deepEqual(ROW_SCROLL_MARGIN, { marginTop: 32, marginBottom: 8 });
     await panelServer(t, { rows: [row(1)] });
     const { container } = await mountList(t);
     const classes = rowsOf(container)[0].getAttribute("class").split(/\s+/);
-    // nur ab lg (Panel neben der Liste) – und nicht „scroll-mt-20“ selbst:
-    // Das trägt allein das Sprungziel der Liste
-    assert.ok(classes.includes("lg:scroll-mt-20"));
-    assert.ok(classes.includes("lg:scroll-mb-8"));
-    assert.ok(!classes.includes("scroll-mt-20"));
+    assert.ok(
+      !classes.some((name) => /scroll-m[tb]-/.test(name)),
+      classes.filter((name) => name.includes("scroll")).join(" ")
+    );
   }
 );
 
 test(
-  "Fixliste 6, K5: Ansicht – Sprung zur Liste, dann bis zur markierten Zeile, wenn sie unter dem Fensterrand steht; steht sie im Bild, bleibt es beim Sprung zur Überschrift",
+  "Fixliste 6, K5 / KIE-575: Ansicht – Sprung zur Liste, und die markierte Zeile kommt in ihrer Spalte in Sicht („nearest“, der Browser lässt sie stehen, wenn sie schon im Bild ist); eine Layoutänderung danach holt nur die Liste erneut",
   { skip },
   async (t) => {
     await panelServer(t, {
@@ -4250,27 +4248,27 @@ test(
     t.after(() => {
       globalThis.window.innerHeight = originalHeight;
     });
-    // Liste (Sprungziel scroll-mt-20) und Zeile 5: Lage im Fenster
+    // Liste (Sprungziel, auf dem Desktop desktop:scroll-mt-2) und Zeile 5: Lage
+    // im Fenster
     const jumps = [];
-    const rowJumps = [];
+    // Die Spalte stellt ihre Scrollposition selbst ein (rc11, K11): jede
+    // Zuweisung an scrollTop der Spalte – ein scrollIntoView der Zeile
+    // (das scrollte die Seite mit) landet hier als Fehler
+    const columnScrolls = captureColumnScrolls(t, prototype);
     let listTop = 900;
-    let rowTop = 2941;
+    const rowTop = 2941;
     const original = {
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
     };
-    const isTarget = (element) => classesOf(element).includes("scroll-mt-20");
+    const isTarget = (element) => classesOf(element).includes("desktop:scroll-mt-2");
     const isRow = (element) =>
       element.getAttribute?.("data-conversation-row") === "5";
     prototype.scrollIntoView = function (options) {
       if (isTarget(this)) {
         jumps.push(options);
-        listTop = 96;
-      } else if (isRow(this)) {
-        rowJumps.push(options);
-        // „nearest“ mit scroll-mb-8: Unterkante 32 px über dem Fensterrand
-        rowTop = 900 - 32 - 54;
-      }
+        listTop = 24;
+      } else columnScrolls.push(["scrollIntoView", options]);
     };
     prototype.getBoundingClientRect = function () {
       if (isTarget(this))
@@ -4304,31 +4302,33 @@ test(
       return mounted;
     };
 
-    // Zeile weit unten: zur Überschrift, dann bis zur Zeile
+    // Zur Überschrift, und die Zeile in ihrer Spalte in Sicht: Die Spalte
+    // (ohne Maße: Anfang 0, Höhe 0) stellt den Anfang der Zeile mit dem
+    // Rand der Tagesüberschrift (32 px) nach oben – nur die Spalte, kein
+    // scrollIntoView
     const deep = await mountView();
     assert.deepEqual(jumps, [{ block: "start" }]);
-    assert.deepEqual(rowJumps, [{ block: "nearest" }]);
+    assert.deepEqual(columnScrolls, [rowTop - 32]);
     assert.deepEqual(currentRows(deep.container), [5]);
     assert.ok(panelOf(deep.container), "Panel bleibt offen");
-    // Layoutänderung danach: Der Sprung hält wie bisher; die Zeile steht
-    // jetzt im Bild – kein weiterer Sprung zu ihr
+    // Layoutänderung danach: Der Sprung hält wie bisher; die Spalte hat
+    // ihre Zeile schon – kein weiteres Einstellen
     const hold = observers.find((o) =>
       (o.observed[0]?.childNodes ?? []).some((child) => isTarget(child))
     );
     listTop = 140;
     await deep.act(() => hold.callback([]));
     assert.equal(jumps.length, 2);
-    assert.equal(rowJumps.length, 1);
+    assert.equal(columnScrolls.length, 1);
     await deep.unmount();
 
-    // Zeile im Bild (Zeile 3 bei 1440×900): nur der Sprung zur Überschrift
+    // Zweites Öffnen: derselbe Weg, die Spalte einmal eingestellt
     jumps.length = 0;
-    rowJumps.length = 0;
+    columnScrolls.length = 0;
     listTop = 900;
-    rowTop = 387;
     await mountView();
     assert.deepEqual(jumps, [{ block: "start" }]);
-    assert.deepEqual(rowJumps, []);
+    assert.deepEqual(columnScrolls, [rowTop - 32]);
   }
 );
 
@@ -4368,24 +4368,21 @@ test(
       globalThis.window.innerHeight = originalHeight;
     });
     const jumps = [];
-    const rowJumps = [];
+    const columnScrolls = captureColumnScrolls(t, prototype);
     let listTop = 900;
-    let rowTop = 2941;
+    const rowTop = 2941;
     const original = {
       scroll: prototype.scrollIntoView,
       rect: prototype.getBoundingClientRect,
     };
-    const isTarget = (element) => classesOf(element).includes("scroll-mt-20");
+    const isTarget = (element) => classesOf(element).includes("desktop:scroll-mt-2");
     const isRow = (element) =>
       element.getAttribute?.("data-conversation-row") === "745";
     prototype.scrollIntoView = function (options) {
       if (isTarget(this)) {
         jumps.push(options);
-        listTop = 96;
-      } else if (isRow(this)) {
-        rowJumps.push(options);
-        rowTop = 900 - 32 - 54;
-      }
+        listTop = 24;
+      } else columnScrolls.push(["scrollIntoView", options]);
     };
     prototype.getBoundingClientRect = function () {
       if (isTarget(this))
@@ -4417,7 +4414,7 @@ test(
     for (let i = 0; i < 4; i++) await mounted.act();
     // erste Seite: Sprung zur Überschrift, Zeile 46 fehlt noch
     assert.deepEqual(jumps, [{ block: "start" }]);
-    assert.deepEqual(rowJumps, []);
+    assert.deepEqual(columnScrolls, []);
     assert.deepEqual(currentRows(mounted.container), []);
     const hold = observers.find((o) =>
       (o.observed[0]?.childNodes ?? []).some((child) => isTarget(child))
@@ -4432,7 +4429,7 @@ test(
     await mounted.act(() => release());
     for (let i = 0; i < 3; i++) await mounted.act();
     assert.deepEqual(currentRows(mounted.container), [745]);
-    assert.deepEqual(rowJumps, [{ block: "nearest" }]);
+    assert.deepEqual(columnScrolls, [rowTop - 32], "die Spalte stellt die Zeile ein");
 
     // Danach endet das Halten wie gewohnt nach der Ruhezeit
     await delay(HOLD_SCROLL_QUIET_MS + 300);
@@ -5430,7 +5427,7 @@ function switchableWidth(t, wide) {
   let current = wide;
   globalThis.window.matchMedia = (query) => ({
     get matches() {
-      return query.includes("1024") ? current : false;
+      return query.includes("1280") ? current : false;
     },
     addEventListener(_type, listener) {
       listeners.add(listener);
@@ -5601,7 +5598,7 @@ test(
 );
 
 test(
-  "rc3 (Opus Low 2): Die Bewertungs-Schaltflächen stehen gemeinsam in einer eigenen Zeile unter „Datum · Fragen · Uhrzeit“ (nie eine Pille allein in einer Folgezeile) – kurzer Text mit Daumen, je ohne Umbruch; mobil 44 px hoch, ab lg kompakt",
+  "rc3 (Opus Low 2): Die Bewertungs-Schaltflächen stehen gemeinsam in einer eigenen Zeile unter „Datum · Fragen · Uhrzeit“ (nie eine Pille allein in einer Folgezeile) – kurzer Text mit Daumen, je ohne Umbruch; mobil und auf dem Tablet 44 px hoch, auf dem Desktop (xl) kompakt",
   { skip },
   async (t) => {
     await panelServer(t, {
@@ -5632,12 +5629,83 @@ test(
     ]);
     for (const button of withAttribute(ratings, "data-rating-jump")) {
       assert.ok(
-        hasClasses(button, ["min-h-11", "lg:min-h-0", "whitespace-nowrap"])
+        hasClasses(button, ["min-h-11", "desktop:min-h-0", "whitespace-nowrap"])
       );
       const icons = elements(button, (e) => e.tagName === "svg");
       assert.equal(icons.length, 1);
       assert.equal(icons[0].getAttribute("aria-hidden"), "true");
       assert.equal(button.hasAttribute("disabled"), false);
     }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc11 (Abnahme rc9): K12 Abstand zum Benutzermenü, K14 Blasen
+// ---------------------------------------------------------------------------
+
+test(
+  "rc11, K12: Die Schaltflächenzeile im Kopf des Verlaufs (‹ › ⋯ ✕) hält rechts Abstand zum Benutzermenü (AVATAR_CLEARANCE.panelHeadEnd), ebenso das ✕ des Platzhalters (emptyPanelClose statt right-5)",
+  { skip },
+  async (t) => {
+    const { AVATAR_CLEARANCE } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    stubWidth(t, true);
+    await panelServer(t, { rows: [row(1, { preview: "Yoga" })] });
+    const view = await mountList(t);
+    const { container, act } = view;
+    await act();
+    const close = one(container, "data-panel-close");
+    // ✕ › Gruppe (‹ › ⋯ ✕) › Zeile › Kopf
+    const buttonRow = close.parentNode.parentNode;
+    assert.ok(
+      buttonRow.parentNode === one(container, "data-panel-head"),
+      "die erste Zeile des Kopfs"
+    );
+    assert.ok(
+      hasClasses(buttonRow, AVATAR_CLEARANCE.panelHeadEnd.split(" ")),
+      buttonRow.getAttribute("class")
+    );
+    // Platzhalter (Suche ohne Treffer): dasselbe für sein ✕
+    await view.unmount();
+    const empty = await mountList(t, { query: "?q=nichts" });
+    await empty.act();
+    const emptyClose = one(empty.container, "data-empty-panel-close");
+    assert.ok(
+      hasClasses(emptyClose, AVATAR_CLEARANCE.emptyPanelClose.split(" ")),
+      emptyClose.getAttribute("class")
+    );
+    assert.ok(!classesOf(emptyClose).includes("right-5"));
+  }
+);
+
+test(
+  "rc11, K14: Nachrichtenblasen im Verlauf höchstens 720 px breit (BUBBLE): Antwortzeile mit Deckel (linksbündig), Nutzerblase höchstens 85 % und 720 px; der Verlauf selbst ohne Deckel",
+  { skip },
+  async (t) => {
+    const { BUBBLE, BUBBLE_MAX_WIDTH } = await renderer.load(
+      "/src/utils/conversationView.js"
+    );
+    assert.equal(BUBBLE_MAX_WIDTH, 720);
+    await panelServer(t, {
+      rows: [row(1)],
+      details: {
+        1: { messages: [message(1, "konv-1", { session_id: "sitzung-1" })] },
+      },
+    });
+    const { container, act } = await mountList(t);
+    await act(() => click(rowsOf(container)[0]));
+    await act();
+    const panel = panelOf(container);
+    const question = one(panel, "data-question");
+    assert.ok(hasClasses(question, [BUBBLE.question]), question.getAttribute("class"));
+    assert.ok(!classesOf(question).includes("max-w-[85%]"));
+    const answerRow = one(panel, "data-answer-row");
+    assert.ok(hasClasses(answerRow, [BUBBLE.answer]), answerRow.getAttribute("class"));
+    assert.ok(
+      !classesOf(one(panel, "data-panel-body")).some((name) =>
+        name.startsWith("max-w")
+      )
+    );
   }
 );

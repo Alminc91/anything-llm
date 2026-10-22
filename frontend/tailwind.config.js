@@ -1,3 +1,5 @@
+import { DESKTOP_SCREEN } from "./src/utils/deviceClasses.js";
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: "class",
@@ -16,6 +18,13 @@ export default {
   },
   theme: {
     extend: {
+      // Desktop der Konversationsansicht (Verlauf neben der Liste, E15):
+      // dieselbe Schwelle wie WIDE_QUERY im Code (src/utils/deviceClasses.js,
+      // Review 7.22-rc15, C10). Tailwind ordnet die Stufe nach ihrem Wert
+      // zwischen lg und 2xl ein.
+      screens: {
+        desktop: DESKTOP_SCREEN
+      },
       rotate: {
         "270": "270deg",
         "360": "360deg"

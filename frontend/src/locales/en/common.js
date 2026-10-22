@@ -1714,6 +1714,7 @@ const TRANSLATIONS = {
       jump_one: "View {{formatted}} conversation",
       jump_other: "View {{formatted}} conversations",
       "jump-pending": "View conversations",
+      "to-overview": "To overview",
       "jump-negative_one": "View {{formatted}} negatively rated conversation",
       "jump-negative_other":
         "View {{formatted}} negatively rated conversations",
@@ -1821,6 +1822,8 @@ const TRANSLATIONS = {
       all: "All",
       "all-hint": "Show all conversations",
       "filter-group": "Filter by rating",
+      new: "New",
+      "new-hint": "Last message less than 4 hours ago",
     },
     search: {
       placeholder: "Search questions & answers",
@@ -1879,6 +1882,7 @@ const TRANSLATIONS = {
       "quote-close": "”",
       "jump-negative": "Jump to the next response rated negative",
       "jump-positive": "Jump to the next response rated positive",
+      empty: "No conversation selected",
     },
   },
   "date-picker": {

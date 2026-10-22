@@ -77,8 +77,9 @@ function shortQuestion(text) {
  * @param {{first_chat_id: number, preview?: string, message_count: number}|null} props.conversation -
  *   first_chat_id: id einer Zeile der Konversation (für das Löschen); null,
  *   solange sie nicht geladen ist
- * @param {() => void} props.onDeleted - nach dem Löschen (auch nach einem
- *   Fehlschlag: Die Liste lädt dann den tatsächlichen Stand)
+ * @param {(result: {deleted: boolean, visitor?: boolean}) => void} props.onDeleted -
+ *   nach dem Löschen (auch nach einem Fehlschlag: Die Liste lädt dann den
+ *   tatsächlichen Stand); visitor: alle Konversationen des Besuchers
  * @returns {{offerVisitor: boolean, refreshPreview: () => void, openDialog: (kind: "conversation"|"visitor") => void, dialog: React.ReactNode}}
  */
 export function useConversationDeletion({
@@ -260,7 +261,9 @@ export function useConversationDeletion({
         "success"
       );
     }
-    onDeleted({ deleted });
+    // visitor: alle Konversationen des Besuchers gelöscht (die Liste wählt
+    // bis zu ihrer neuen Fassung keine davon vor, Review 7.22-rc15, K45)
+    onDeleted({ deleted, visitor: wholeVisitor });
   };
 
   // Die Rückfrage frischt die Vorschau auf. „Alle Konversationen dieses

@@ -19,12 +19,13 @@ import { formatDateForInput } from "@/utils/billingDate";
 import showToast from "@/utils/toast";
 import {
   AVATAR_CLEARANCE,
+  BUBBLE,
   FOCUS_RING,
   MUTED,
   RATING_BOX,
   RATING_FLASH,
   RATING_TINT,
-  ancestorsOf,
+  WORKSPACE,
   answerText,
   berlinDateTime,
   berlinTime,
@@ -36,29 +37,32 @@ import {
   highlightParts,
   longDateLabel,
   outsidePeriod,
-  panelChromeHeight,
-  panelFit,
   ratingJumpIds,
   ratingOf,
   shortId,
   startScrollTop,
 } from "@/utils/conversationView";
-import MarkdownRenderer from "./MarkdownRenderer";
+import MarkdownRenderer, { answerShowsHit } from "./MarkdownRenderer";
 import { useConversationDeletion } from "./DeleteConversation";
 import { useDismiss, useWide } from "./viewHooks";
 
-// Konversationen-Ansicht: der Gesprächsverlauf einer Konversation – auf
-// breiten Bildschirmen (ab lg) als Seitenpanel rechts neben der Liste, darunter
-// als eigene Vollbildansicht mit „‹ Konversationen". Kopf (erste Frage, Datum,
-// Zeitspanne, Zahl der Fragen, Bewertungen, vorherige/nächste, ⋯, ✕) und
-// Fußzeile (gekürzte Kennung, Löschen) bleiben stehen; dazwischen scrollt der
-// Verlauf. Fragen als Sprechblase, Antworten über den MarkdownRenderer wie
-// bisher, die Bewertung direkt unter der bewerteten Antwort.
+// Konversationen-Ansicht: der Gesprächsverlauf einer Konversation – auf dem
+// Desktop (ab 1.280 px, Stufe desktop:; Fixliste 7.22-rc13, E15, und
+// Review 7.22-rc15, C10) als rechte Spalte des
+// Arbeitsbereichs neben der Liste (KIE-575: so hoch wie der Bereich, eigene
+// Bildlaufleiste), auf Tablet und Smartphone als eigene Vollbildansicht mit
+// „‹ Konversationen". Kopf (erste
+// Frage, Datum, Zeitspanne, Zahl der Fragen, Bewertungen, vorherige/nächste,
+// ⋯, ✕) und Fußzeile (gekürzte Kennung, Löschen) bleiben stehen; dazwischen
+// scrollt der Verlauf. Fragen als Sprechblase, Antworten über den
+// MarkdownRenderer wie bisher, die Bewertung direkt unter der bewerteten
+// Antwort.
 
-// Schaltflächen im Kopf: mobil 44 px hoch, ab lg kompakter.
+// Schaltflächen im Kopf: im Vollbild (Tablet, Smartphone) 44 px hoch, auf
+// dem Desktop kompakter.
 // Bei Tastaturbedienung der Fokusring der Seite statt des Browser-Rings
 // (Nachtrag N3) – für ‹ ›, ⋯, ✕ und „‹ Konversationen“ gleich.
-const ICON_BUTTON = `grid h-11 w-11 shrink-0 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent light:hover:bg-black/5 lg:h-9 lg:w-9 ${FOCUS_RING}`;
+const ICON_BUTTON = `grid h-11 w-11 shrink-0 place-items-center rounded-lg ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent light:hover:bg-black/5 desktop:h-9 desktop:w-9 ${FOCUS_RING}`;
 // Wie lange eine angesprungene Antwort hervorgehoben bleibt (N2 a)
 const RATING_FLASH_MS = 1500;
 // Trenner „·“ in der Zeile unter der Frage: VOR jedem Teil, in einem 16 px
@@ -129,7 +133,7 @@ function keepsInteractive(element) {
 }
 
 /**
- * Vollbild (unter lg): Alles außer dem Panel ist inert und für Screenreader
+ * Vollbild (Tablet, Smartphone): Alles außer dem Panel ist inert und für Screenreader
  * verborgen – die Geschwister jedes Vorfahren, außer Meldungen und Dialogen
  * (keepsInteractive). Beim Schließen wird der vorige Zustand
  * wiederhergestellt.
@@ -166,103 +170,6 @@ function useInertOutside(ref, active) {
 }
 
 /**
- * Ab lg: Das Panel endet über dem unteren Fensterrand, wo immer es steht
- * (panelFit) – auch direkt nach dem Sprung zur Liste, wenn es noch nicht oben
- * klebt (Fixliste 3, V3), und über dem Ende seines Bereichs, damit es am
- * Seitenende unter dem Benutzermenü bleibt (Fixliste 4, V3). Angepasst beim
- * Öffnen, beim Scrollen der Seite (nicht des Verlaufs im Panel), bei
- * Größenänderungen des Fensters und bei jeder Größenänderung eines Vorfahren
- * (ResizeObserver) – so auch, wenn es sich ohne Scrollen verschiebt, etwa
- * weil über der Liste die Zeile der Filtermarkierungen erscheint oder
- * verschwindet (Fixliste 4, V4). Höchstens einmal je Bild.
- *
- * Nie niedriger als Kopf und Fußzeile zusammen (plus ein Rest Verlauf,
- * PANEL_MIN_BODY): Steht das Panel weit unten (Mindesthöhe) und ist es
- * schmal (1024 px), läge die Fußzeile sonst unter dem Panelrahmen
- * (Fixliste 5, S5). Kopf und Verlauf werden dafür mit beobachtet – sie
- * ändern ihre Höhe, wenn die Konversation geladen ist bzw. die Fußzeile
- * erscheint.
- *
- * Scrollen und Größenänderungen des Fensters haben getrennte Lauscher: Beim
- * Ereignis „resize“ ist das Ziel das Fenster, kein Knoten – contains()
- * warf dort und die Höhe wurde nicht neu berechnet (Fixliste 5, C1).
- * @param {{current: HTMLElement|null}} ref
- * @param {boolean} active
- * @param {*} content - Wechselt er (andere Konversation), wird neu angepasst
- */
-function usePanelFit(ref, active, content) {
-  useEffect(() => {
-    const panel = ref.current;
-    if (!active || !panel || typeof window === "undefined") return;
-    const frame =
-      typeof window.requestAnimationFrame === "function"
-        ? (callback) => window.requestAnimationFrame(callback)
-        : (callback) => setTimeout(callback, 16);
-    const cancel =
-      typeof window.cancelAnimationFrame === "function"
-        ? (id) => window.cancelAnimationFrame(id)
-        : (id) => clearTimeout(id);
-    // Kopf, Verlauf und Fußzeile sind Kinder des Panels (nicht den ganzen
-    // Verlauf durchsuchen – fit läuft beim Scrollen)
-    const partOf = (attribute) =>
-      [...(panel.childNodes ?? [])].find(
-        (child) => child.nodeType === 1 && child.hasAttribute?.(attribute)
-      ) ?? null;
-    const heightOf = (attribute) =>
-      partOf(attribute)?.getBoundingClientRect?.().height;
-    let pending = null;
-    const fit = () => {
-      pending = null;
-      const result = panelFit(
-        panel.getBoundingClientRect?.().top,
-        window.innerHeight,
-        panel.parentNode?.getBoundingClientRect?.().bottom,
-        panelChromeHeight(
-          heightOf("data-panel-head"),
-          heightOf("data-conversation-actions")
-        )
-      );
-      if (result) panel.style.maxHeight = `${result.maxHeight}px`;
-    };
-    const schedule = () => {
-      if (pending === null) pending = frame(fit);
-    };
-    // Scrollt nur der Verlauf im Panel, bleibt die Höhe. Das Ziel eines
-    // Scroll-Ereignisses kann das Dokument sein (kein Element im Panel).
-    const onScroll = (event) => {
-      const target = event?.target;
-      if (target?.nodeType === 1 && panel.contains?.(target)) return;
-      schedule();
-    };
-    const onResize = () => schedule();
-    fit();
-    const doc = panel.ownerDocument;
-    doc?.addEventListener?.("scroll", onScroll, true);
-    window.addEventListener?.("resize", onResize);
-    // Lageänderungen ohne Scrollen: Ändert sich etwas über dem Panel, ändert
-    // sich die Größe eines Vorfahren (das Panel selbst nicht – es wird nur
-    // hier angepasst). Kopf und Verlauf: Mindesthöhe (S5).
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(() => schedule());
-    for (const element of [
-      ...ancestorsOf(panel),
-      partOf("data-panel-head"),
-      partOf("data-panel-body"),
-    ])
-      if (element) observer?.observe(element);
-    return () => {
-      if (pending !== null) cancel(pending);
-      observer?.disconnect();
-      doc?.removeEventListener?.("scroll", onScroll, true);
-      window.removeEventListener?.("resize", onResize);
-      panel.style.maxHeight = "";
-    };
-  }, [ref, active, content]);
-}
-
-/**
  * @param {Object} props
  * @param {number} props.embedId
  * @param {number} props.chatId - id einer Zeile der Konversation (Adresse)
@@ -283,14 +190,11 @@ function usePanelFit(ref, active, content) {
  *   konnte (der Knopf versucht es erneut)
  * @param {(direction: -1|1) => void} props.onNavigate
  * @param {() => void} props.onClose
- * @param {(result: {deleted: boolean}) => void} props.onDeleted
+ * @param {(result: {deleted: boolean, visitor?: boolean}) => void} props.onDeleted
  * @param {(summary: {key: string, outside: boolean}|null) => void} [props.onLoaded] -
  *   die geladene Konversation (Schlüssel für die Markierung in der Liste;
  *   outside: keine Nachricht im Zeitraum, sie kann dort nicht stehen)
  * @param {(chatId: number) => string} props.linkOf - Adresse der Konversation
- * @param {boolean} [props.reveal] - Beim Öffnen ab lg nach oben holen, wenn
- *   zu wenig davon zu sehen ist (nicht beim Öffnen per Link: Dann springt
- *   die Seite ohnehin zur Liste)
  * @param {boolean} [props.openedByLink] - per Link geöffnet, seither keine
  *   andere Konversation: Das Vollbild setzt den Fokus dann ohne sichtbaren
  *   Ring (Fixliste 9 A4, Nachtrag N3)
@@ -311,7 +215,6 @@ export default function ConversationDetail({
   onDeleted = () => {},
   onLoaded = () => {},
   linkOf = () => "",
-  reveal = true,
   openedByLink = false,
 }) {
   const { t } = useTranslation();
@@ -503,10 +406,14 @@ export default function ConversationDetail({
   };
   const flashId = flash?.chatId === chatId ? flash.id : null;
 
-  // Escape schließt das Panel – nicht, wenn ein Menü oder eine Rückfrage es
-  // schon für sich genommen hat (defaultPrevented: Sie lauschen am Dokument,
-  // das Panel am Fenster, also danach) oder in einem Eingabefeld getippt wird.
+  // Escape schließt das Vollbild (Tablet, Smartphone) – nicht, wenn ein Menü
+  // oder eine Rückfrage es schon für sich genommen hat (defaultPrevented:
+  // Sie lauschen am Dokument, das Panel am Fenster, also danach) oder in
+  // einem Eingabefeld getippt wird. Auf dem Desktop ist der Verlauf eine
+  // Spalte des Arbeitsbereichs, die nur ✕ schließt (KIE-575, NAK-3): Escape
+  // tut dort nichts.
   useEffect(() => {
+    if (wide) return;
     function handleKeyDown(event) {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const tag = String(event.target?.tagName ?? "").toUpperCase();
@@ -515,9 +422,9 @@ export default function ConversationDetail({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [onClose, wide]);
 
-  // Vollbild (unter lg): Fokus in den Kopf, der Hintergrund ist inert. Den
+  // Vollbild (Tablet, Smartphone): Fokus in den Kopf, der Hintergrund ist inert. Den
   // Fokus zurück auf die Zeile setzt die Liste.
   // Ohne sichtbaren Ring nur beim Öffnen per Link (Fixliste 9 A4, finale
   // Kontrolle L1, Nachtrag N3): Dann gab es noch keine Eingabe – der Browser
@@ -532,31 +439,9 @@ export default function ConversationDetail({
     else backRef.current?.focus?.();
   }, [wide]);
   useInertOutside(panelRef, !wide);
-  usePanelFit(panelRef, wide, chatId);
-
-  // Ab lg: Steht das Panel beim Öffnen so tief, dass kaum etwas davon zu
-  // sehen ist (wenige Treffer, die Liste endet unten im Fenster), wird es
-  // weich nach oben geholt – sonst bleibt die Seite stehen (AK-4,
-  // Fixliste 3 V8).
-  // Bewusst ein Sprung der Seite (Fixliste 7, F07, als Ausnahme in AK-4
-  // festgehalten): Das Panel steht neben der Liste in derselben Zeile, ab
-  // dem Anfang der Liste. Klebend (sticky) kann es nicht über den Anfang
-  // seines Bereichs steigen; es über Kennzahlen und Diagramm zu legen
-  // (fixed) verdeckte die rechte Hälfte der Seite. Der Sprung kommt nur, wenn
-  // weniger als PANEL_MIN_VISIBLE px zu sehen sind – also nur, wenn die
-  // Liste unten im Fenster beginnt –, und nur beim Öffnen. Die angeklickte
-  // Zeile bleibt dabei im Bild: Sie steht nie über dem Anfang des Panels und
-  // wandert um dieselbe Strecke nach oben (bis unter das Benutzermenü).
-  useEffect(() => {
-    if (!wide || !reveal || typeof window === "undefined") return;
-    const panel = panelRef.current;
-    const fit = panelFit(
-      panel?.getBoundingClientRect?.().top,
-      window.innerHeight
-    );
-    if (fit?.reveal)
-      panel.scrollIntoView?.({ block: "start", behavior: "smooth" });
-  }, [chatId, wide, reveal]);
+  // Auf dem Desktop füllt das Panel die rechte Spalte des Arbeitsbereichs (KIE-575):
+  // keine angepasste Höhe, kein Kleben, kein Holen nach oben – die Seite
+  // bewegt sich beim Öffnen nicht (NAK-1).
 
   // Menü „⋯": Klick außerhalb oder Escape schließt (Escape gibt den Fokus an
   // die Schaltfläche zurück – useDismiss, wie Exportmenü und
@@ -624,9 +509,12 @@ export default function ConversationDetail({
 
   // Der Begriff trifft nur Unsichtbares (Link-Adresse, HTML, <think>) –
   // die Suche des Servers liest den Antworttext, wie er gespeichert ist.
-  // Geprüft werden die Nachrichten, die auch der Server durchsucht hat (im
-  // Zeitraum bzw. mit Abschnitt die ganze Konversation); memoisiert – das
-  // Lesen der Antworten (JSON) läuft nicht bei jedem Rendern (S7).
+  // Sichtbar in einer Antwort ist, was der Verlauf hervorhebt
+  // (answerShowsHit, dieselbe Darstellung; Nachreview 7.22-rc19, K81 bis
+  // K86). Geprüft werden die Nachrichten, die auch der Server durchsucht
+  // hat (im Zeitraum bzw. mit Abschnitt die ganze Konversation);
+  // memoisiert – das Lesen und Darstellen der Antworten läuft nicht bei
+  // jedem Rendern (S7).
   const hiddenHit = useMemo(
     () =>
       ready &&
@@ -635,7 +523,8 @@ export default function ConversationDetail({
       !hasVisibleHit(
         messages,
         search,
-        searchWholeConversation ? {} : { fromDay, toDay }
+        searchWholeConversation ? {} : { fromDay, toDay },
+        answerShowsHit
       ),
     [ready, search, row, messages, searchWholeConversation, fromDay, toDay]
   );
@@ -695,26 +584,33 @@ export default function ConversationDetail({
       aria-label={t("embed-analytics.panel.label")}
       aria-modal={wide ? undefined : "true"}
       role={wide ? undefined : "dialog"}
-      // Ab lg klebt das Panel 64 px unter dem oberen Rand des Bereichs – sein
-      // Kopf (↑ ↓ ⋯ ✕) liegt so unter dem schwebenden Benutzermenü oben
-      // rechts („KI", bis 72 px), nicht darunter (Fixliste 2, B4). Die Höhe
-      // passt usePanelFit an, wo immer es steht (Fixliste 3, V3).
-      className={`fixed inset-0 z-50 flex flex-col bg-theme-bg-secondary lg:inset-auto lg:z-auto ${AVATAR_CLEARANCE.panel} lg:w-[min(520px,48%)] lg:shrink-0 lg:overflow-hidden lg:rounded-xl lg:border lg:border-white/10 lg:bg-theme-bg-primary`}
+      // Auf dem Desktop (desktop:, E15) die rechte Spalte des Arbeitsbereichs
+      // (KIE-575): im Fluss statt klebend (relative: Bezug für absolut
+      // positionierte Teile darin, etwa das Menü „⋯“ und Screenreader-Texte,
+      // die so im Panel bleiben und die Seite nicht verlängern), so hoch wie
+      // der Bereich (der Flex-Elternteil streckt sie), Breite nach
+      // WORKSPACE.panel; nur der Verlauf darin scrollt. Auf Tablet und
+      // Smartphone ein Vollbild.
+      className={`fixed inset-0 z-50 flex flex-col bg-theme-bg-secondary desktop:relative desktop:inset-auto desktop:z-auto ${WORKSPACE.panel} desktop:overflow-hidden desktop:rounded-xl desktop:border desktop:border-white/10 desktop:bg-theme-bg-primary`}
     >
       {/* Kopf – bleibt beim Scrollen stehen */}
       <header
         data-panel-head=""
-        className="flex shrink-0 flex-col gap-2 border-b border-white/10 px-2 pb-3 pt-2 light:border-gray-200 lg:px-5 lg:pt-4"
+        className="flex shrink-0 flex-col gap-2 border-b border-white/10 px-2 pb-3 pt-2 light:border-gray-200 desktop:px-5 desktop:pt-4"
       >
-        <div className="flex items-center justify-between gap-2">
-          {/* mobil: zurück zur Liste */}
+        {/* Rechts Abstand zum Benutzermenü (K12): Liegt der Bereich oben
+            an, steht diese Zeile auf dessen Höhe. */}
+        <div
+          className={`flex items-center justify-between gap-2 ${AVATAR_CLEARANCE.panelHeadEnd}`}
+        >
+          {/* Vollbild (Tablet, Smartphone): zurück zur Liste */}
           <button
             type="button"
             ref={backRef}
             data-panel-back=""
             onClick={onClose}
             onBlur={() => setBackLeft(true)}
-            className={`flex h-11 items-center gap-1 rounded-lg px-2 text-[15px] text-theme-text-primary hover:bg-white/10 light:hover:bg-black/5 lg:hidden ${
+            className={`flex h-11 items-center gap-1 rounded-lg px-2 text-[15px] text-theme-text-primary hover:bg-white/10 light:hover:bg-black/5 desktop:hidden ${
               quietBack
                 ? "focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5"
                 : FOCUS_RING
@@ -723,13 +619,12 @@ export default function ConversationDetail({
             <CaretLeft size={20} aria-hidden="true" />
             {t("embed-analytics.panel.back")}
           </button>
-          {/* Datum neben den Schaltflächen erst ab xl: Von lg bis xl ist das
-              Panel schmal (bei 1024 px 321 px) – dort brach „Dienstag,“ /
-              „13.10.2026“ um. Das Datum steht dann (wie mobil) einzeilig in
-              der Zeile unter der Frage (Fixliste 5, S5). */}
+          {/* Datum neben den Schaltflächen nur auf dem Desktop (desktop:, der
+              Verlauf ist dort mindestens 480 px breit); im Vollbild steht es
+              einzeilig in der Zeile unter der Frage (Fixliste 5, S5). */}
           <span
             data-panel-date=""
-            className={`hidden whitespace-nowrap text-sm ${MUTED} xl:block`}
+            className={`hidden whitespace-nowrap text-sm ${MUTED} desktop:block`}
           >
             {longDateLabel(headDay)}
           </span>
@@ -791,7 +686,7 @@ export default function ConversationDetail({
               aria-label={t("embed-analytics.panel.close")}
               title={t("embed-analytics.panel.close")}
               onClick={onClose}
-              className={`${ICON_BUTTON} hidden lg:grid`}
+              className={`${ICON_BUTTON} hidden desktop:grid`}
             >
               <X size={18} aria-hidden="true" />
             </button>
@@ -799,13 +694,13 @@ export default function ConversationDetail({
         </div>
 
         {head && (
-          <div className="flex flex-col gap-1.5 px-2 lg:px-0">
+          <div className="flex flex-col gap-1.5 px-2 desktop:px-0">
             {/* Höchstens drei Zeilen (Fixliste 9, A5): Die erste Frage steht
                 darunter ohnehin ganz in der Sprechblase; voll als title. */}
             <h3
               data-panel-question=""
               title={head.firstQuestion}
-              className="line-clamp-3 break-words text-[17px] font-semibold leading-snug text-theme-text-primary lg:text-lg"
+              className="line-clamp-3 break-words text-[17px] font-semibold leading-snug text-theme-text-primary desktop:text-lg"
             >
               <HighlightedText text={head.firstQuestion} term={search} />
             </h3>
@@ -820,7 +715,7 @@ export default function ConversationDetail({
                 <span
                   data-meta-item=""
                   data-meta-date=""
-                  className={`${META_ITEM} xl:hidden`}
+                  className={`${META_ITEM} desktop:hidden`}
                 >
                   {longDateLabel(headDay)}
                 </span>
@@ -904,12 +799,22 @@ export default function ConversationDetail({
       </header>
 
       {/* Verlauf – scrollt */}
-      {/* Der Browser macht den scrollbaren Verlauf per Tab erreichbar:
-          derselbe Fokusring wie im Kopf statt des Browser-Rings (rc3). */}
+      {/* Fokussierbar (tabIndex 0): per Tab erreichbar (scrollbarer
+          Bereich), und ein Klick in seinen Text setzt den Fokus hierher –
+          dann scrollt ↓ den Verlauf, statt die Konversation zu wechseln
+          (Review 7.22-rc12, K01; arrowNavigationAllowed). Derselbe
+          Fokusring wie im Kopf statt des Browser-Rings (rc3).
+          Bildlauf am Rand (Fixliste 7.22-rc14, K20): Auf dem Desktop
+          (desktop:overscroll-auto) geht das Mausrad an die Seite weiter,
+          sobald der Verlauf ganz oben (bzw. unten) steht. So kommt man über dem
+          Verlauf zurück zu Kennzahlen und Diagramm. Als Vollbild (Tablet,
+          Smartphone) hält er ihn wie bisher (overscroll-contain): Die Seite
+          dahinter bleibt stehen. */}
       <div
         ref={bodyRef}
         data-panel-body=""
-        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 lg:px-5 ${FOCUS_RING}`}
+        tabIndex={0}
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 desktop:overscroll-auto desktop:px-5 ${FOCUS_RING}`}
       >
         {!loaded ? (
           <p className={`py-4 text-center text-sm ${MUTED}`}>
@@ -926,7 +831,7 @@ export default function ConversationDetail({
               type="button"
               data-panel-retry=""
               onClick={() => setReload((count) => count + 1)}
-              className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 light:border-gray-200 light:hover:bg-black/5 lg:h-9"
+              className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 light:border-gray-200 light:hover:bg-black/5 desktop:h-9"
             >
               {t("embed-analytics.panel.retry")}
             </button>
@@ -954,20 +859,21 @@ export default function ConversationDetail({
       </div>
 
       {/* Fußzeile: gekürzte Kennung (kopieren) und Löschen – immer eine
-          Zeile: Reicht die Breite nicht (Panel bei 1024 px), wird die
-          Kennung weiter gekürzt, „Konversation löschen“ bleibt ganz
-          (Fixliste 5, S5). */}
+          Zeile: Reicht die Breite nicht (Vollbild auf dem Smartphone; auf
+          dem Desktop ist der Verlauf mindestens 480 px breit, bei 1.280 px
+          rund 510 px, E15), wird die Kennung weiter gekürzt, „Konversation
+          löschen“ bleibt ganz (Fixliste 5, S5; Review 7.22-rc15, C12). */}
       {deletable && (
         <footer
           data-conversation-actions=""
-          className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 px-3 py-2 light:border-gray-200 lg:px-4"
+          className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 px-3 py-2 light:border-gray-200 desktop:px-4"
         >
           <button
             type="button"
             data-panel-id=""
             onClick={copyId}
             title={t("embed-analytics.panel.copy-id")}
-            className={`flex h-11 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs ${MUTED} hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 lg:h-8 ${FOCUS_RING}`}
+            className={`flex h-11 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs ${MUTED} hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 desktop:h-8 ${FOCUS_RING}`}
           >
             <Copy size={13} aria-hidden="true" className="shrink-0" />
             <span className="truncate font-mono">
@@ -978,7 +884,7 @@ export default function ConversationDetail({
             type="button"
             data-delete-conversation=""
             onClick={() => openDelete("conversation")}
-            className={`flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[13px] ${MUTED} transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text lg:h-8 ${FOCUS_RING}`}
+            className={`flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[13px] ${MUTED} transition-colors hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text desktop:h-8 ${FOCUS_RING}`}
           >
             <Trash size={14} aria-hidden="true" />
             {t("embed-analytics.delete.conversation")}
@@ -998,7 +904,7 @@ function MenuItem({ Icon, label, onClick, danger = false, ...rest }) {
       role="menuitem"
       {...rest}
       onClick={onClick}
-      className={`flex min-h-[44px] w-full items-center gap-2 px-3 py-2 text-left text-sm ${MUTED} transition-colors focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5 lg:min-h-0 ${
+      className={`flex min-h-[44px] w-full items-center gap-2 px-3 py-2 text-left text-sm ${MUTED} transition-colors focus-visible:outline-none focus-visible:bg-white/10 light:focus-visible:bg-black/5 desktop:min-h-0 ${
         danger
           ? "hover:bg-theme-button-delete-hover-bg hover:text-theme-button-delete-hover-text"
           : "hover:bg-white/5 hover:text-theme-text-primary light:hover:bg-black/5"
@@ -1035,9 +941,10 @@ const Message = memo(function Message({ message, search, flash = false }) {
             time: berlinTime(message.createdAt),
           })}
         </span>
+        {/* höchstens 85 % und BUBBLE_MAX_WIDTH (K14) */}
         <div
           data-question=""
-          className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-theme-bg-chat-input px-3.5 py-2.5 text-sm leading-relaxed text-theme-text-primary"
+          className={`${BUBBLE.question} whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-theme-bg-chat-input px-3.5 py-2.5 text-sm leading-relaxed text-theme-text-primary`}
         >
           <HighlightedText text={message.prompt} term={search} />
         </div>
@@ -1049,12 +956,14 @@ const Message = memo(function Message({ message, search, flash = false }) {
           dem Kopf (tabIndex -1: per Programm fokussierbar, nicht per Tab).
           Während der kurzen Hervorhebung statt des Fokusrings: Beide setzen
           die Umrissfarbe, der Ring (:focus-visible nach Tastaturbedienung)
-          überdeckte sonst den Ton der Bewertung (Review 7.21.1). */}
+          überdeckte sonst den Ton der Bewertung (Review 7.21.1).
+          Höchstens BUBBLE_MAX_WIDTH breit, linksbündig (K14): Bei 2.560 px
+          liefen Antworten sonst über 1.800 px je Zeile. */}
       <div
         data-answer-row=""
         tabIndex={rating ? -1 : undefined}
         data-rating-flash={flash ? "" : undefined}
-        className={`-mx-2 -my-1.5 flex items-start gap-2.5 rounded-xl px-2 py-1.5 ${
+        className={`-mx-2 -my-1.5 flex items-start gap-2.5 rounded-xl px-2 py-1.5 ${BUBBLE.answer} ${
           rating
             ? `${RATING_TINT[rating]} ${flash ? RATING_FLASH[rating] : FOCUS_RING}`
             : ""
@@ -1090,7 +999,7 @@ const RATING_TEXT = {
  * Schaltfläche im Kopf: „N negativ/positiv bewertet“ mit Daumen – springt
  * zur nächsten so bewerteten Antwort (Nachtrag N2 a). Der Text bleibt der
  * Name der Schaltfläche, title beschreibt den Sprung. Mobil 44 px hoch
- * (AK-9), ab lg kompakt; Ton und Hintergrund wie die bewerteten Antworten.
+ * (AK-9), auf dem Desktop kompakt; Ton und Hintergrund wie die bewerteten Antworten.
  * Zu sehen nur mit mindestens einem Ziel (rc3 F06) – deshalb nie gesperrt.
  */
 function RatingJump({ kind, onJump, title, children }) {
@@ -1101,7 +1010,7 @@ function RatingJump({ kind, onJump, title, children }) {
       data-rating-jump={kind}
       title={title}
       onClick={() => onJump(kind)}
-      className={`group inline-flex min-h-11 items-center whitespace-nowrap rounded-md lg:min-h-0 ${RATING_TEXT[kind]} ${FOCUS_RING}`}
+      className={`group inline-flex min-h-11 items-center whitespace-nowrap rounded-md desktop:min-h-0 ${RATING_TEXT[kind]} ${FOCUS_RING}`}
     >
       <span
         className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 ${RATING_TINT[kind]}`}

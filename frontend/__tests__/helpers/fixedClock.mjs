@@ -30,3 +30,38 @@ export function fixClock(t, iso) {
   });
   return new RealDate(fixed);
 }
+
+/**
+ * Wie fixClock, aber die Uhr lässt sich im Test vorstellen: `set(iso)` gilt
+ * für alle folgenden `new Date()` und `Date.now()`.
+ * @param {import("node:test").TestContext} t
+ * @param {string} iso - Anfangszeitpunkt
+ * @returns {{set: (iso: string|number) => void}}
+ */
+export function movableClock(t, iso) {
+  const RealDate = globalThis.Date;
+  const parse = (value) => {
+    const ms = new RealDate(value).getTime();
+    if (Number.isNaN(ms)) throw new Error(`Kein Zeitpunkt: ${value}`);
+    return ms;
+  };
+  let current = parse(iso);
+  globalThis.Date = class extends RealDate {
+    constructor(...args) {
+      if (args.length === 0) super(current);
+      else super(...args);
+    }
+
+    static now() {
+      return current;
+    }
+  };
+  t.after(() => {
+    globalThis.Date = RealDate;
+  });
+  return {
+    set(value) {
+      current = parse(value);
+    },
+  };
+}

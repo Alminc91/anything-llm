@@ -1178,6 +1178,7 @@ const TRANSLATIONS = {
       jump_one: "{{formatted}} Konversation ansehen",
       jump_other: "{{formatted}} Konversationen ansehen",
       "jump-pending": "Konversationen ansehen",
+      "to-overview": "Zur Übersicht",
       "jump-negative_one":
         "{{formatted}} negativ bewertete Konversation ansehen",
       "jump-negative_other":
@@ -1292,6 +1293,8 @@ const TRANSLATIONS = {
       all: "Alle",
       "all-hint": "Alle Konversationen anzeigen",
       "filter-group": "Nach Bewertung filtern",
+      new: "Neu",
+      "new-hint": "Letzte Nachricht vor weniger als 4 Stunden",
     },
     search: {
       placeholder: "Fragen & Antworten suchen",
@@ -1351,6 +1354,7 @@ const TRANSLATIONS = {
       "quote-close": "“",
       "jump-negative": "Zur nächsten negativ bewerteten Antwort springen",
       "jump-positive": "Zur nächsten positiv bewerteten Antwort springen",
+      empty: "Keine Konversation gewählt",
     },
   },
   "embed-row": {

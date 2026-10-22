@@ -14,7 +14,12 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 // Öffnen einer Konversation aus der geschlossenen Liste legt einen Eintrag im
 // Verlauf an: Der Zurück-Knopf des Browsers schließt sie wieder. Alles andere
 // – eine andere Konversation bei offenem Panel, vorherige/nächste, Suche,
-// Widget – ersetzt den aktuellen Eintrag.
+// Widget – ersetzt den aktuellen Eintrag. Auf dem Desktop (ab xl, KIE-575)
+// ist der Verlauf ein Arbeitsbereich neben der Liste, der von sich aus
+// offen ist: Dort
+// ersetzt auch ein Klick aus der Liste (Option replace) – Zurück verlässt
+// die Seite, statt die Konversation zu schließen. Die automatische Vorwahl
+// der ersten Zeile schreibt nichts in die Adresse.
 
 export const PARAM_WIDGET = "widget";
 export const PARAM_CONVERSATION = "conversation";
@@ -53,8 +58,9 @@ export function positiveId(value) {
  *   widgetId: number|null,
  *   chatId: number|null,
  *   search: string,
- *   openConversation: (chatId: number, options?: {widgetId?: number}) => void,
+ *   openConversation: (chatId: number, options?: {widgetId?: number, replace?: boolean}) => void,
  *   closeConversation: () => void,
+ *   unlinkConversation: () => void,
  *   setSearch: (term: string) => void,
  *   setWidget: (widgetId: number) => void,
  *   clearLink: () => void,
@@ -100,10 +106,11 @@ export default function useConversationLocation() {
   );
 
   const openConversation = useCallback(
-    (id, { widgetId: widget } = {}) => {
+    (id, { widgetId: widget, replace = false } = {}) => {
       // Aus der geschlossenen Liste: neuer Eintrag (Zurück schließt). Ist
-      // schon eine Konversation offen, wird ersetzt.
-      const push = chatId === null;
+      // schon eine Konversation offen – oder soll der Eintrag ohnehin
+      // ersetzt werden (Arbeitsbereich auf dem Desktop) –, wird ersetzt.
+      const push = chatId === null && !replace;
       update(
         (next) => {
           if (widget) next.set(PARAM_WIDGET, String(widget));
@@ -140,6 +147,19 @@ export default function useConversationLocation() {
       nextState: null,
     });
   }, [state, search, navigate, update]);
+
+  // Die Konversation nur aus der Adresse nehmen – ohne Schritt zurück, als
+  // Ersetzen des aktuellen Eintrags (KIE-575): Nach einem Wechsel von
+  // Zeitraum, Filter oder Suche steht sie nicht mehr in der Liste; die
+  // Ansicht wählt dann die erste Zeile vor, und die Adresse nennt keine
+  // Konversation mehr, die nicht zu sehen ist.
+  const unlinkConversation = useCallback(
+    () =>
+      update((next) => next.delete(PARAM_CONVERSATION), {
+        nextState: null,
+      }),
+    [update]
+  );
 
   const setSearch = useCallback(
     (term) =>
@@ -197,6 +217,7 @@ export default function useConversationLocation() {
       search,
       openConversation,
       closeConversation,
+      unlinkConversation,
       setSearch,
       setWidget,
       clearLink,
@@ -208,6 +229,7 @@ export default function useConversationLocation() {
       search,
       openConversation,
       closeConversation,
+      unlinkConversation,
       setSearch,
       setWidget,
       clearLink,

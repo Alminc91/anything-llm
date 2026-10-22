@@ -3,12 +3,23 @@ import MarkdownIt from "markdown-it";
 import hljs from "highlight.js";
 import { CaretDown } from "@phosphor-icons/react";
 import "highlight.js/styles/github-dark.css";
-import DOMPurify from "@/utils/chat/purify";
+import sanitizeAnswerHtml from "@/utils/chat/purifyConversation";
 import { useTranslation } from "react-i18next";
-import { highlightTextNodes, searchPattern } from "@/utils/conversationView";
+import {
+  highlightTextNodes,
+  searchPattern,
+  tableAlignAttributes,
+} from "@/utils/conversationView";
 
+// html: false wie im Widget (src/utils/chat/markdown.js; Fixliste
+// 7.22-rc22, E39, K120): Markdown ja, rohes HTML der Antwort erscheint als
+// Text, so wie der Besucher es sah. Das ist die erste Sicherung;
+// sanitizeAnswerHtml (DOMPurify mit ANSWER_PURIFY_CONFIG, dann
+// hardenAnswerHtml) bleibt als zweite.
+// tableAlignAttributes: Ausrichtung der Tabellenspalten als align statt
+// style (style ist im Verlauf verboten; Review 7.22-rc15, K43)
 const md = new MarkdownIt({
-  html: true,
+  html: false,
   breaks: true,
   highlight: function (str, lang) {
     if (lang && hljs.getLanguage(lang)) {
@@ -18,7 +29,7 @@ const md = new MarkdownIt({
     }
     return ""; // use external default escaping
   },
-});
+}).use(tableAlignAttributes);
 
 const ThoughtBubble = ({ thought }) => {
   const { t } = useTranslation();
@@ -73,20 +84,63 @@ function parseContent(content) {
 
 /**
  * Bereinigtes HTML einer Antwort, die Treffer der Suche als <mark> markiert.
+ * Das HTML kommt allein aus Markdown (html: false, E39); rohes HTML der
+ * Antwort steht darin als Text. Bereinigt wird als zweite Sicherung und
+ * strenger als im Chat (sanitizeAnswerHtml, Fixliste 7.22-rc13 E13): kein
+ * style, Links in neuem Tab mit rel="noopener noreferrer", Bilder als Link
+ * statt Abruf – der Verlauf öffnet sich auf dem Desktop von selbst.
  * Hervorgehoben wird nach dem Bereinigen in einem inaktiven Dokument
- * (DOMParser: keine Skripte, keine Ladevorgänge) und nur in Textknoten – aus
- * Nutzertext entsteht kein HTML. Das Ergebnis wird noch einmal bereinigt.
+ * (DOMParser: keine Skripte, keine Ladevorgänge) und nur in Textknoten –
+ * aus Nutzertext entsteht kein HTML. Das Ergebnis wird noch einmal
+ * bereinigt. Erst dieser zweite Durchgang lässt data-search-hit an
+ * den eigenen <mark> stehen; der erste verwirft es, damit die Antwort keine
+ * eigenen „Treffer“ mitbringt (Review 7.22-rc15, K41).
  * @param {string} html - gerendertes Markdown
  * @param {string} highlight - Suchbegriff ("" = keine Hervorhebung)
  * @returns {string}
  */
 function sanitizedHtml(html, highlight) {
-  const clean = DOMPurify.sanitize(html);
+  const clean = sanitizeAnswerHtml(html);
   if (!searchPattern(highlight) || typeof DOMParser === "undefined")
     return clean;
   const doc = new DOMParser().parseFromString(clean, "text/html");
   if (highlightTextNodes(doc.body, highlight, doc) === 0) return clean;
-  return DOMPurify.sanitize(doc.body.innerHTML);
+  return sanitizeAnswerHtml(doc.body.innerHTML, { searchHits: true });
+}
+
+/**
+ * Zeigt der Verlauf in dieser Antwort einen Treffer der Suche? Dieselbe
+ * Darstellung wie MarkdownRenderer: ohne <think>-Blöcke (eingeklappt),
+ * Markdown, sanitizeAnswerHtml, dann highlightTextNodes. Sichtbar ist, was
+ * der Verlauf hervorhebt; ein Begriff nur in Link-Adressen, im Quelltext
+ * des Markdown (etwa der Adresse eines Bildes) oder in ausgeblendeten
+ * Gedanken ist es nicht (hasVisibleHit, Hinweis im Kopf des Verlaufs;
+ * Nachreview 7.22-rc19, K81 bis K86). Seit E40 zeigt der Verlauf Links wie
+ * das Widget, ohne die Adresse als Text: Auch die Adresse eines leeren
+ * Links oder eines Links ohne Schema ist verborgen (Fixliste 7.22-rc22,
+ * K131). Rohes HTML steht seit E39 als Text
+ * da, ein Begriff darin ist sichtbar (Fixliste 7.22-rc22, K122). Dazu der
+ * Text des bereinigten Körpers: Ein Begriff über die Grenzen von
+ * Textknoten, etwa über die Token der Syntaxhervorhebung im Code („Kurs
+ * 4711“ in <span>Kurs</span> <span>4711</span>), steht sichtbar da, auch
+ * wenn highlightTextNodes ihn nicht markiert (Nachreview 7.22-rc20, K103).
+ * Ohne DOMParser (kein Browser) gilt ein Treffer als sichtbar: dann kein
+ * Hinweis.
+ * @param {string} content - Text der Antwort (answerText)
+ * @param {string} highlight - Suchbegriff
+ * @returns {boolean}
+ */
+export function answerShowsHit(content, highlight) {
+  return parseContent(String(content ?? "")).some((part) => {
+    if (part.type === "think") return false;
+    if (typeof DOMParser === "undefined") return true;
+    const doc = new DOMParser().parseFromString(
+      sanitizeAnswerHtml(md.render(part.text)),
+      "text/html"
+    );
+    if (highlightTextNodes(doc.body, highlight, doc) > 0) return true;
+    return !!searchPattern(highlight)?.test(doc.body.textContent);
+  });
 }
 
 /**

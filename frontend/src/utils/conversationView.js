@@ -11,19 +11,27 @@
 import { formatDateForInput } from "./billingDate.js";
 import { addDays, formatDate, formatterOf } from "./analyticsTimeline.js";
 import { formatDateTimeDE } from "./dateTimeDE.js";
+import { DESKTOP_MIN_WIDTH } from "./deviceClasses.js";
 
 /** Zeitzone aller Tage und Uhrzeiten der Ansicht (auch in Tooltips). */
 export const BERLIN = "Europe/Berlin";
 const GERMAN = "de-DE";
 /**
- * Ab dieser Breite steht das Panel neben der Liste (Tailwind lg), darunter
- * ist es ein Vollbild.
+ * Geräteklassen der Ansicht (Fixliste 7.22-rc13, E15, einheitlich mit Widget
+ * und Design Center): Smartphone unter 768 px (Tailwind md), Tablet 768 bis
+ * 1.279 px, Desktop ab 1.280 px (DESKTOP_MIN_WIDTH). Nur auf dem Desktop
+ * steht der Verlauf als Arbeitsbereich neben der Liste (KIE-575); auf Tablet
+ * und Smartphone ist er ein Vollbild wie bisher unter lg. Die Klassen der
+ * Ansicht tragen dafür das Präfix desktop: (wörtlich, siehe WORKSPACE), eine
+ * eigene Tailwind-Stufe aus derselben Zahl wie diese Abfrage (Review
+ * 7.22-rc15, C10; vorher xl:, das im Kopf der Liste zugleich eine
+ * Breitenstufe ist). Rückweg: DESKTOP_MIN_WIDTH in deviceClasses.js.
  */
-export const WIDE_QUERY = "(min-width: 1024px)";
+export const WIDE_QUERY = `(min-width: ${DESKTOP_MIN_WIDTH}px)`;
 
 /**
- * Breiter Bildschirm (Panel neben der Liste)? false ohne Fenster oder ohne
- * matchMedia.
+ * Desktop (Verlauf neben der Liste, ab 1.280 px)? false ohne Fenster oder
+ * ohne matchMedia.
  * @returns {boolean}
  */
 export function isWide() {
@@ -123,16 +131,18 @@ export function ratingJumpIds(messages, kind, period = {}) {
 // Abstand zum schwebenden Benutzermenü oben rechts („KI“, bis 72 px unter
 // dem oberen Fensterrand) – an einer Stelle (Fixliste 3, S4). Der Bereich der
 // Einstellungsseiten beginnt ab md 16 px unter dem Fensterrand und endet
-// 16 px über dem unteren; das Panel klebt ab lg 64 px unter seinem oberen
-// Rand (Fixliste 2, B4).
+// 16 px über dem unteren.
 export const AVATAR_CLEARANCE = {
-  // Seitenpanel ab lg: klebt unter dem Benutzermenü; scroll-mt: so weit
-  // bringt scrollIntoView es nach oben (V8)
-  panel: "lg:sticky lg:top-16 lg:scroll-mt-16 lg:max-h-[calc(100vh-112px)]",
-  // Sprungziel „Liste“ (Säule, Verweis, Link): Überschrift und Werkzeugleiste
-  // landen unter dem Benutzermenü, der Export-Knopf bleibt frei (Fixliste 3,
-  // V2)
-  jumpTarget: "scroll-mt-20",
+  // Sprungziel „Liste“ (Säule, Verweis, Link). Tablet und Smartphone:
+  // Überschrift und Werkzeugleiste landen unter dem Benutzermenü, der
+  // Export-Knopf bleibt frei (Fixliste 3, V2; 80 px). Desktop: genau die
+  // Ruhelage des Arbeitsbereichs (Review 7.22-rc12, K04) – Oberkante
+  // WORKSPACE_REST_TOP unter dem Fensterrand, also WORKSPACE_REST_TOP −
+  // FRAME_TOP = 8 px unter dem Rand des scrollenden Rahmens
+  // (desktop:scroll-mt-2).
+  // Mit 80 px stand der Bereich 56 px tiefer, und seine unteren 24 px
+  // (Fußzeile des Verlaufs, „Weitere laden“) lagen unter dem Fensterrand.
+  jumpTarget: "scroll-mt-20 desktop:scroll-mt-2",
   // rechter Rand der Kopfzeile ab md: Widget-Auswahl und Zeitraum enden links
   // vom Benutzermenü
   headerEnd: "md:pr-12",
@@ -143,78 +153,355 @@ export const AVATAR_CLEARANCE = {
   // rechten 35 px des Inhalts ab; 44 px lassen 9 px Luft und halten Filter
   // und Export auch bei 768 px Fensterbreite in einer Zeile (V5).
   toolbarEnd: "sm:pr-11",
+  // rechter Rand der Schaltflächenzeile (‹ › ⋯ ✕) im Kopf des Verlaufs auf
+  // dem Desktop (Fixliste 7.22-rc11, K12): Liegt der Arbeitsbereich oben an,
+  // steht diese Zeile auf der Höhe des Menüs (Zeile 41 bis 77 px, Menü 36
+  // bis 71 px), und der rechte Rand des Verlaufs fällt mit dem des Menüs
+  // zusammen (beide 40 px vom Fensterrand). Mit dem Innenabstand des Kopfs
+  // (desktop:px-5, 20 px) und dem Rahmen (1 px) enden ✕ und ⋯ so 49 px vom Rand
+  // des Verlaufs: 14 px Luft zum 35 px breiten Menü. Nur die erste Zeile
+  // des Kopfs: Frage und Angaben darunter liegen unter dem Menü und nutzen
+  // die Breite weiter. Als Vollbild (Tablet, Smartphone) liegt das Panel
+  // über dem Menü (z-50 über z-40).
+  panelHeadEnd: "desktop:pr-7",
+  // ✕ des Platzhalters „Keine Konversation gewählt“ (nur auf dem Desktop):
+  // derselbe Abstand, absolut vom rechten Rand des Platzhalters
+  emptyPanelClose: "right-12",
 };
-/** Oberkante des klebenden Panels im Fenster (16 px Rand + lg:top-16). */
-export const PANEL_STUCK_TOP = 80;
-/** Abstand der Unterkante des Panels zum Fensterrand (16 + 16 px). */
-export const PANEL_BOTTOM_GAP = 32;
-/** So niedrig wird das Panel nie, auch wenn es weit unten steht. */
-export const PANEL_MIN_HEIGHT = 240;
-/**
- * Sichtbar müssen beim Öffnen mindestens so viele Pixel des Panels sein –
- * sonst holt die Ansicht es nach oben (Fixliste 3, V8).
- */
-export const PANEL_MIN_VISIBLE = 320;
-/**
- * So viel Verlauf bleibt mindestens zwischen Kopf und Fußzeile sichtbar,
- * auch wenn das Panel dafür über die Mindesthöhe wächst (Fixliste 5, S5).
- */
-export const PANEL_MIN_BODY = 64;
+
+// ---------------------------------------------------------------------------
+// Arbeitsbereich „Konversationen“ auf dem Desktop (KIE-575, E15)
+// ---------------------------------------------------------------------------
 
 /**
- * Mindesthöhe des Panels aus Kopf und Fußzeile: Kopf + Fußzeile +
- * PANEL_MIN_BODY + Rahmen (2 px). Die Fußzeile bleibt so in jeder Höhe
- * innerhalb des Panelrahmens – nur der Verlauf dazwischen scrollt
- * (Fixliste 5, S5). 0 ohne gemessenen Kopf.
- * @param {number} [headHeight] - Höhe des Kopfs (px)
- * @param {number} [footerHeight] - Höhe der Fußzeile (px; fehlt sie, 0)
- * @returns {number}
+ * Oberkante des scrollenden Rahmens der Einstellungsseiten unter dem
+ * Fensterrand (px, md:my-[16px]).
  */
-export function panelChromeHeight(headHeight, footerHeight) {
-  if (!Number.isFinite(headHeight) || headHeight <= 0) return 0;
-  const footer = Number.isFinite(footerHeight) ? footerHeight : 0;
-  return Math.ceil(headHeight + footer + PANEL_MIN_BODY + 2);
+export const FRAME_TOP = 16;
+/**
+ * Ruhelage des Bereichs: Oberkante unter dem Fensterrand, wenn die Seite zu
+ * Ende gescrollt ist (px) – 8 px unter der Oberkante des Rahmens. Daraus
+ * folgen die Höhe des Bereichs (WORKSPACE_TOP_GAP) und das Sprungziel
+ * (AVATAR_CLEARANCE.jumpTarget, desktop:scroll-mt-2 = 8 px).
+ */
+export const WORKSPACE_REST_TOP = 24;
+/**
+ * Abstand der Oberkante des Bereichs zum oberen Fensterrand, wenn die Seite
+ * zu Ende gescrollt ist, plus der Platz darunter (px). Unter dem Bereich
+ * liegen 48 px (Innenabstand der Ansicht 24 + Abstand des Seitenrahmens 24)
+ * und der Rahmen der Einstellungsseiten endet 16 px über dem unteren
+ * Fensterrand: Mit 100vh − 88 px liegt der Bereich dann WORKSPACE_REST_TOP
+ * (24 px) unter dem oberen Fensterrand, 8 px unter der Oberkante des
+ * Rahmens.
+ */
+export const WORKSPACE_TOP_GAP = WORKSPACE_REST_TOP + 48 + 16;
+/**
+ * So niedrig wird der Bereich nie (px); darunter scrollt die Seite weiter.
+ * 480 statt 560 (Fixliste 7.22-rc11, K13): Unter dem Bereich liegen 64 px
+ * (48 + Rahmen 16). Mit 560 ragte er bei 600 px Fensterhöhe 24 px über den
+ * oberen Rand, das ✕ war angeschnitten. Mit 480 nimmt er bis 568 px
+ * Fensterhöhe die volle Höhe 100vh − 88 (bei 600 px: 512 px, Oberkante
+ * 24 px) und bleibt bis 544 px ganz im Fenster; erst darunter wird er
+ * angeschnitten. 480 px reichen für Kopf (rund 100 px) und sechs bis
+ * sieben Zeilen neben einem lesbaren Verlauf. Die Alternative, unter
+ * 640 px Fensterhöhe die Seite wieder normal scrollen zu lassen, brächte
+ * eine dritte Darstellung mit zwei Scroll-Verhalten zurück, die KIE-575
+ * abgeschafft hat, samt zweiter Weiche in Code und Tests; Desktop-Fenster
+ * (ab 1.280 px breit) sind in der Praxis mindestens 600 px hoch.
+ */
+export const WORKSPACE_MIN_HEIGHT = 480;
+/** Der Verlauf ist auf dem Desktop überall mindestens so breit (px, E15). */
+export const WORKSPACE_PANEL_MIN_WIDTH = 480;
+
+/**
+ * Klassen des Arbeitsbereichs auf dem Desktop (desktop:, E15): Liste links und
+ * Verlauf rechts, beide so hoch wie der Bereich, je mit eigener
+ * Bildlaufleiste. Auf Tablet und Smartphone wirkt keine davon
+ * (Vollbild-Panel, Seite scrollt).
+ * - area: feste Höhe = Fensterhöhe − WORKSPACE_TOP_GAP, mindestens
+ *   WORKSPACE_MIN_HEIGHT (480: bei 600 px Fensterhöhe ganz im Fenster,
+ *   K13); Spalten mit 16 px Abstand
+ * - column: linke Spalte – Kopf (Suche, Filter) oben fest, darunter der
+ *   scrollende Teil
+ * - scroller: der scrollende Teil der linken Spalte (Zeilen, „Weitere
+ *   laden“, Hinweise). Positioniert (relative): Die nur für Screenreader
+ *   bestimmten Texte der Bewertungsmarken (sr-only: position absolute)
+ *   gehören so zur Spalte und verlängern nicht die Seite – ohne
+ *   positionierten Vorfahren zählten die der unteren Zeilen zur Seite,
+ *   die dann über den Bereich hinaus scrollte. Ohne overscroll-contain
+ *   (Fixliste 7.22-rc14, K20): Die Spalte hält das Mausrad nur, solange
+ *   sie selbst scrollen kann. Steht sie ganz oben, scrollt die Seite
+ *   weiter hoch zu Kennzahlen und Diagramm; steht sie ganz unten und die
+ *   Seite noch nicht, rückt die Seite nach, bis der Bereich oben anliegt
+ *   (dort endet sie). Vorher kam man nur über den schmalen Spalt zwischen
+ *   den Spalten wieder nach oben.
+ * - panel: rechte Spalte – einheitlich 56 % (Liste 44 %, je abzüglich des
+ *   halben Spaltenabstands) und mindestens WORKSPACE_PANEL_MIN_WIDTH; kein
+ *   eigener Schritt mehr bei 1.536 px und keine schmalere Zone darunter
+ *   (E15). Bei 1.280 px ist der Bereich rund 920 px breit: Verlauf rund
+ *   510 px, Liste rund 400 px.
+ * Die Klassen stehen wörtlich (keine Vorlagen mit den Konstanten): Tailwind
+ * erzeugt nur CSS für Klassen, die es im Quelltext liest. Ein Test prüft,
+ * dass die Zahlen darin zu den Konstanten passen.
+ */
+export const WORKSPACE = {
+  area: "desktop:flex desktop:gap-4 desktop:h-[max(480px,calc(100vh-88px))]",
+  column: "desktop:flex desktop:min-w-0 desktop:flex-1 desktop:flex-col",
+  scroller:
+    "desktop:relative desktop:min-h-0 desktop:flex-1 desktop:overflow-y-auto",
+  panel: "desktop:w-[calc(56%-8px)] desktop:min-w-[480px] desktop:shrink-0",
+};
+
+/**
+ * Sprungziel „Zur Übersicht“ (Fixliste 7.22-rc14, K21): der Anfang der
+ * Ansicht (Kopfzeile mit Zeitraum, darunter die Kennzahlen). Über der
+ * Ansicht liegt im Seitenrahmen ab md der Abstand pt-12 (48 px,
+ * ChatbotLayout); mit demselben Abstand als scroll-margin steht die Seite
+ * nach dem Sprung ganz oben, wie beim Öffnen. Nur auf dem Desktop (desktop:):
+ * Nur dort gibt es den Button.
+ */
+export const OVERVIEW_TARGET = "desktop:scroll-mt-12";
+
+/** Abfrage „reduzierte Bewegung“ des Systems. */
+export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+/**
+ * Verhalten eines Sprungs der Seite (Fixliste 7.22-rc14, K21): weich,
+ * außer das System wünscht reduzierte Bewegung, dann ohne Animation.
+ * Ohne Fenster oder ohne matchMedia weich.
+ * @returns {"smooth"|"auto"}
+ */
+export function scrollMotion() {
+  const reduce =
+    typeof window !== "undefined" &&
+    !!window.matchMedia?.(REDUCED_MOTION_QUERY)?.matches;
+  return reduce ? "auto" : "smooth";
 }
 
 /**
- * Höhe des Seitenpanels ab lg (Fixliste 3, V3/V8): Es endet über dem unteren
- * Fensterrand, wo immer es gerade steht – oben klebend (PANEL_STUCK_TOP) oder
- * tiefer, solange die Seite noch nicht so weit gescrollt ist (etwa direkt
- * nach dem Sprung zur Liste). reveal: Beim Öffnen ist zu wenig davon zu
- * sehen.
- *
- * containerBottom: Unterkante des Bereichs, in dem das Panel klebt (Liste
- * und Panel). Ein klebendes Element verlässt ihn nie – reicht er nicht bis
- * PANEL_STUCK_TOP + Höhe, schiebt der Browser das Panel nach oben unter das
- * Benutzermenü. Das geschieht am Seitenende: Unter dem Bereich liegen dann
- * noch 64 px Rand (24 + 24 + 16), nicht 32. Das Panel endet deshalb auch
- * über dieser Kante und bleibt bei PANEL_STUCK_TOP (Fixliste 4, V3).
- *
- * minHeight: Kopf und Fußzeile mit einem Rest Verlauf (panelChromeHeight) –
- * darunter wird das Panel nie, auch nicht an der Mindesthöhe; sonst läge die
- * Fußzeile außerhalb des Panelrahmens (Fixliste 5, S5).
- * @param {number} top - Oberkante des Panels im Fenster (px)
- * @param {number} viewportHeight - Höhe des Fensters (px)
- * @param {number} [containerBottom] - Unterkante des Bereichs im Fenster
- *   (px); ohne gültigen Wert ohne diese Grenze
- * @param {number} [minHeight] - Mindesthöhe aus Kopf und Fußzeile (px)
- * @returns {{maxHeight: number, reveal: boolean}|null} - null ohne gültige Maße
+ * Hat die Tastatur einen Button ausgelöst (Fixliste 7.22-rc15, K31)?
+ * Enter und Leertaste lösen click mit detail 0 aus; Maus, Stift und Finger
+ * zählen die Klicks (detail ab 1). Ohne Ereignis oder ohne detail: nein.
+ * @param {{detail?: number}|null|undefined} event
+ * @returns {boolean}
  */
-export function panelFit(top, viewportHeight, containerBottom, minHeight = 0) {
-  if (!Number.isFinite(top) || !Number.isFinite(viewportHeight)) return null;
-  const visibleTop = Math.max(top, PANEL_STUCK_TOP);
-  const bottom = Math.min(
-    viewportHeight - PANEL_BOTTOM_GAP,
-    Number.isFinite(containerBottom) ? containerBottom : Infinity
-  );
-  return {
-    maxHeight: Math.max(
-      PANEL_MIN_HEIGHT,
-      Number.isFinite(minHeight) ? minHeight : 0,
-      Math.round(bottom - visibleTop)
-    ),
-    reveal: viewportHeight - top < PANEL_MIN_VISIBLE,
-  };
+export function keyboardActivation(event) {
+  return event?.detail === 0;
+}
+
+/**
+ * Merker an einer Überschrift, die nach einer Tastaturbedienung den Fokus
+ * per Programm bekam (K31): Nur dann zeigt sie den Fokusring
+ * (HEADING_FOCUS_RING). Er fällt mit dem Fokus wieder weg
+ * (clearKeyboardFocus).
+ */
+export const KEYBOARD_FOCUS_ATTRIBUTE = "data-keyboard-focus";
+
+/**
+ * Fokusring einer Überschrift mit tabIndex -1 (Fixliste 7.22-rc15, K31):
+ * wie FOCUS_RING 2 px in der Textfarbe, aber außen mit 2 px Abstand (innen
+ * läge er auf der Schrift, eine Überschrift hat keinen Innenabstand). Zu
+ * sehen nur mit KEYBOARD_FOCUS_ATTRIBUTE, also nach Enter oder Leertaste,
+ * in jedem Browser gleich; nach einem Mausklick nie (focus:outline-none
+ * übergeht auch den Ring des Browsers).
+ * Die Klassen stehen wörtlich (siehe WORKSPACE).
+ */
+export const HEADING_FOCUS_RING =
+  "rounded focus:outline-none data-[keyboard-focus]:focus:outline data-[keyboard-focus]:focus:outline-2 data-[keyboard-focus]:focus:outline-offset-2 data-[keyboard-focus]:focus:outline-[color:var(--theme-text-primary)]";
+
+/**
+ * Fokus per Programm auf eine Überschrift (tabIndex -1) ohne zweites
+ * Scrollen (K21). Nach Tastaturbedienung mit Fokusring (K31): Merker
+ * KEYBOARD_FOCUS_ATTRIBUTE, dazu focusVisible für Browser, die die Option
+ * kennen; nach der Maus ohne Ring (ein alter Merker fällt weg).
+ * @param {Element|null|undefined} element
+ * @param {boolean} [keyboard]
+ */
+export function focusHeading(element, keyboard = false) {
+  if (typeof element?.focus !== "function") return;
+  if (keyboard) element.setAttribute?.(KEYBOARD_FOCUS_ATTRIBUTE, "");
+  else element.removeAttribute?.(KEYBOARD_FOCUS_ATTRIBUTE);
+  element.focus({ preventScroll: true, focusVisible: keyboard });
+}
+
+/**
+ * onBlur der Überschrift: Mit dem Fokus fällt der Merker weg; ein späterer
+ * Mausklick auf die Überschrift zeigt keinen Ring (K31).
+ * @param {{currentTarget?: Element|null}|null|undefined} event
+ */
+export function clearKeyboardFocus(event) {
+  event?.currentTarget?.removeAttribute?.(KEYBOARD_FOCUS_ATTRIBUTE);
+}
+
+/**
+ * Abstände, mit denen die gewählte Zeile in der Spalte in Sicht kommt
+ * (nearestScrollTop, Fixliste 7.22-rc11 K11): oben die Höhe der Überschrift
+ * einer Tagesgruppe (pt-3 12 + Zeile 16 + pb-1 4 = 32 px), damit sie beim
+ * Blättern nach oben mitkommt; unten ein kleiner Rand.
+ */
+export const ROW_SCROLL_MARGIN = { marginTop: 32, marginBottom: 8 };
+
+/**
+ * Längste Zeile einer Nachrichtenblase im Verlauf (px, Fixliste 7.22-rc11,
+ * K14): Bei 2.560 px war der Verlauf rund 1.230 px breit und eine Antwort
+ * lief über 1.800 Zeichen je Zeile. 720 px entsprechen rund 75 bis 85
+ * Zeichen bei 14 px Schrift. Kein Deckel für Kennzahlen und Diagramm
+ * (Nutzerwunsch: volle Breite) und keiner für den Verlauf selbst.
+ * Bewusst bei jeder Breite, auch im Vollbild auf dem Tablet (Fixliste
+ * 7.22-rc13, E14): Auf schmalen Bildschirmen wirkt der Deckel nicht, auf
+ * breiten Tablets begrenzt er die Zeilenlänge wie auf dem Desktop.
+ */
+export const BUBBLE_MAX_WIDTH = 720;
+/**
+ * Klassen der Blasen (wörtlich, siehe WORKSPACE): die Antwortzeile (Avatar
+ * und Text, linksbündig) höchstens BUBBLE_MAX_WIDTH; die Nutzerblase rechts
+ * wie bisher höchstens 85 % und ebenfalls höchstens BUBBLE_MAX_WIDTH.
+ */
+export const BUBBLE = {
+  question: "max-w-[min(85%,720px)]",
+  answer: "max-w-[720px]",
+};
+
+/** Schlüssel im Browser-Speicher: Verlauf offen ("open") oder zu ("closed"). */
+export const PANEL_PREFERENCE_KEY = "kie.conversations.panel";
+
+/**
+ * Der Speicher des Browsers – erst im try aufgelöst: Bei gesperrten
+ * Website-Daten wirft schon der Zugriff auf localStorage (SecurityError),
+ * nicht erst getItem (Review 7.22-rc12, C4). undefined: der des Fensters.
+ * @param {{getItem?: Function, setItem?: Function}|null|undefined} storage
+ * @returns {{getItem?: Function, setItem?: Function}|null|undefined}
+ */
+const browserStorage = (storage) =>
+  storage === undefined ? globalThis.localStorage : storage;
+
+/**
+ * Gemerkter Zustand des Verlaufs auf dem Desktop: true (offen), solange
+ * nicht "closed" gespeichert ist – auch ohne Speicher oder wenn er nicht
+ * lesbar ist (privates Fenster, gesperrte Website-Daten).
+ * @param {{getItem: Function}|null} [storage] - ohne Angabe localStorage
+ * @returns {boolean}
+ */
+export function readPanelPreference(storage) {
+  try {
+    return (
+      browserStorage(storage)?.getItem?.(PANEL_PREFERENCE_KEY) !== "closed"
+    );
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Merkt sich, ob der Verlauf offen oder zu ist. Ein nicht schreibbarer
+ * Speicher ändert nichts an der Ansicht.
+ * @param {boolean} open
+ * @param {{setItem: Function}|null} [storage] - ohne Angabe localStorage
+ */
+export function writePanelPreference(open, storage) {
+  try {
+    browserStorage(storage)?.setItem?.(
+      PANEL_PREFERENCE_KEY,
+      open ? "open" : "closed"
+    );
+  } catch {
+    // kein Speicher: der Zustand gilt für diese Seite
+  }
+}
+
+/**
+ * Richtung einer Pfeiltaste für das Blättern in der Liste: 1 (↓), −1 (↑),
+ * sonst 0 – auch mit Umschalt-, Alt-, Strg- oder Befehlstaste: Umschalt+↓
+ * erweitert eine Textauswahl, Alt/Strg/Befehl+↓ gehören dem Browser oder
+ * dem System (Review 7.22-rc12, K01).
+ * @param {{key?: string, shiftKey?: boolean, altKey?: boolean, ctrlKey?: boolean, metaKey?: boolean}} event
+ * @returns {-1|0|1}
+ */
+export function arrowStep(event) {
+  if (
+    !event ||
+    event.shiftKey ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey
+  )
+    return 0;
+  if (event.key === "ArrowDown") return 1;
+  if (event.key === "ArrowUp") return -1;
+  return 0;
+}
+
+/**
+ * Steht ein modaler Dialog (aria-modal="true", etwa die Lösch-Rückfrage)
+ * im Dokument?
+ * @param {Document} doc
+ * @returns {boolean}
+ */
+function modalOpen(doc) {
+  if (typeof doc.querySelector === "function")
+    return !!doc.querySelector('[aria-modal="true"]');
+  return elementsWith(doc.body, "aria-modal", "true").length > 0;
+}
+
+/**
+ * Dürfen ↑/↓ am Fenster die Liste blättern (AK-6)? Ja, wenn der Fokus
+ * niemandem gehört (auf <body>, Seite gerade geöffnet) oder im Kopf des
+ * Panels steht (‹ › ⋯ ✕, Sprung-Schaltflächen) – dort tun die Pfeiltasten
+ * sonst nichts. Nicht im Menü „⋯“ (eigene Pfeiltasten), nicht in Eingaben,
+ * auf Listenzeilen (eigener Handler) oder im scrollenden Verlauf: Der ist
+ * fokussierbar (tabIndex 0), ein Klick in seinen Text setzt den Fokus also
+ * dorthin, und ↓ scrollt ihn (Review 7.22-rc12, K01). Nie, solange ein
+ * modaler Dialog offen ist – auch wenn dessen Fokus auf <body> gefallen ist
+ * (K05: sonst wechselte ↓ die Konversation hinter der Lösch-Rückfrage).
+ * @param {Document|undefined} [doc]
+ * @returns {boolean}
+ */
+export function arrowNavigationAllowed(
+  doc = typeof document === "undefined" ? undefined : document
+) {
+  if (!doc) return false;
+  if (modalOpen(doc)) return false;
+  if (focusLost(doc)) return true;
+  let inHead = false;
+  for (let node = doc.activeElement; node && node !== doc.body; ) {
+    if (node.getAttribute?.("role") === "menu") return false;
+    if (node.hasAttribute?.("data-panel-head")) inHead = true;
+    node = node.parentNode;
+  }
+  return inHead;
+}
+
+/**
+ * Hat das Element den Fokus des Dokuments? Eine Stelle statt
+ * document.activeElement in der Liste (Fixliste 7, F24) – für „Weitere
+ * laden“ beim Nachladen (Fixliste 7.22-rc11, K15).
+ * @param {Element|null|undefined} element
+ * @param {Document|undefined} [doc]
+ * @returns {boolean}
+ */
+export function hasFocus(
+  element,
+  doc = typeof document === "undefined" ? undefined : document
+) {
+  return !!element && !!doc && doc.activeElement === element;
+}
+
+/**
+ * Zeigt der Browser für das Element den Fokusring, weil es per Tastatur
+ * fokussiert wurde (:focus-visible)? Ohne Auskunft (kein matches, Browser
+ * ohne :focus-visible, kein Element) gilt Tastatur – dann bekommt der Fokus
+ * nach dem Nachladen die erste neue Zeile (Fixliste 7.22-rc11, K15).
+ * @param {Element|null|undefined} element
+ * @returns {boolean}
+ */
+export function focusVisible(element) {
+  try {
+    return typeof element?.matches === "function"
+      ? element.matches(":focus-visible")
+      : true;
+  } catch {
+    return true;
+  }
 }
 
 /** Elternelemente eines Knotens bis unter <body> (nur Elemente). */
@@ -394,36 +681,6 @@ export function holdScrollTarget(target, jump, options = {}) {
   });
 }
 
-/**
- * Per Link geöffnete Zeile in Sicht (Fixliste 6, K5): Liegt die markierte
- * Zeile der Liste (aria-current) nach dem Sprung zur Überschrift außerhalb
- * des freien Bereichs – unter dem Fensterrand (abzüglich PANEL_BOTTOM_GAP)
- * oder über PANEL_STUCK_TOP –, scrollt die Seite gerade so weit, dass sie
- * sichtbar ist (block „nearest“; Abstand über scroll-margin der Zeile). Die
- * Liste hat keinen eigenen Scrollbereich, das Panel klebt ab lg oben
- * (lg:sticky) und bleibt so ganz zu sehen; nur die Überschrift wandert aus
- * dem Fenster. Steht die Zeile schon im Bild, bleibt alles, wie es ist.
- * @param {Element|null} root - Bereich der Liste
- * @param {number} [viewportHeight] - Höhe des Fensters (px)
- * @returns {boolean} - true, wenn gescrollt wurde
- */
-export function revealMarkedRow(root, viewportHeight) {
-  const height =
-    viewportHeight ??
-    (typeof window !== "undefined" ? window.innerHeight : undefined);
-  if (!root || !Number.isFinite(height)) return false;
-  const row = elementsWith(root, "aria-current", "true").find((element) =>
-    element.hasAttribute?.("data-conversation-row")
-  );
-  const rect = row?.getBoundingClientRect?.();
-  if (!rect || !Number.isFinite(rect.top) || !Number.isFinite(rect.bottom))
-    return false;
-  if (rect.top >= PANEL_STUCK_TOP && rect.bottom <= height - PANEL_BOTTOM_GAP)
-    return false;
-  row.scrollIntoView?.({ block: "nearest" });
-  return true;
-}
-
 /** Kürzester Suchbegriff, ab dem gesucht wird. */
 export const SEARCH_MIN_LENGTH = 2;
 /**
@@ -578,6 +835,71 @@ export function groupByLastMessageDay(conversations) {
 }
 
 /**
+ * Wie lange eine Konversation nach ihrer letzten Nachricht als „Neu" gilt
+ * (Nachtrag KIE-560, K3): eine reine Dauer, unabhängig von Zeitzone und
+ * Tagesgrenze.
+ */
+export const NEW_CONVERSATION_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * „Neu“: Die letzte Nachricht ist jünger als NEW_CONVERSATION_MS (genau
+ * vier Stunden alt: nicht mehr neu). Ohne gültigen Zeitpunkt nie neu.
+ * Maßgeblich ist last_message_at der Liste, also die letzte Nachricht in der
+ * Auswahl (Zeitraum, Stand der ersten Seite), nicht eine spätere außerhalb
+ * davon (Review 7.22-rc2, N06).
+ * @param {{last_message_at: number}} conversation
+ * @param {number} [now] - jetzt (ms seit 1970)
+ * @returns {boolean}
+ */
+export function isNewConversation(conversation, now = Date.now()) {
+  const last = conversation?.last_message_at;
+  return (
+    typeof last === "number" &&
+    Number.isFinite(last) &&
+    now - last < NEW_CONVERSATION_MS
+  );
+}
+
+/**
+ * Wann endet das nächste „Neu“ der Liste? Der früheste Zeitpunkt, an dem eine
+ * jetzt neue Konversation vier Stunden alt wird; null, wenn keine neu ist.
+ * Die Liste rechnet „Neu“ dann erneut aus, auch wenn die Seite offen bleibt
+ * (Review 7.22-rc2, K01). Höchstens vier Stunden nach now: Ein Zeitpunkt in
+ * der Zukunft (Uhr des Rechners geht nach) ergäbe sonst eine Wartezeit über
+ * dem Höchstwert von setTimeout (etwa 24,8 Tage), der Zeitgeber feuerte sofort
+ * und die Liste rechnete ohne Pause neu (Review 7.22-rc6, K03).
+ * @param {Array<{last_message_at: number}>} conversations
+ * @param {number} now - jetzt (ms seit 1970)
+ * @returns {number|null} - Zeitpunkt (ms seit 1970)
+ */
+export function nextNewExpiry(conversations, now) {
+  let next = null;
+  for (const conversation of conversations ?? []) {
+    if (!isNewConversation(conversation, now)) continue;
+    const ends = Math.min(
+      conversation.last_message_at + NEW_CONVERSATION_MS,
+      now + NEW_CONVERSATION_MS
+    );
+    if (next === null || ends < next) next = ends;
+  }
+  return next;
+}
+
+/**
+ * Mindestbreite der Spalte mit den Bewertungsmarken (Nachtrag KIE-560, K2):
+ * so breit wie beide Marken mit zweistelliger Zahl, damit die Frage in allen
+ * Zeilen an derselben Stelle endet (vorher war die Spalte je Zeile so breit
+ * wie ihre Marken). Gerechnet mit Plus Jakarta Sans 12 px, Stärke 600: die
+ * breiteste zweistellige Zahl („40“) misst 16,34 px.
+ * - ab sm (Pille): 8 + Daumen 13 + 4 + 16,34 + 8 = 49,34 px je Marke, zwei
+ *   Marken mit 6 px Abstand 104,7 px → 106 px
+ * - unter sm (ohne Pille): 13 + 2 + 16,34 = 31,34 px je Marke, zwei Marken
+ *   mit 8 px Abstand 70,7 px → 72 px
+ * Dreistellige Zahlen dürfen die Spalte ihrer Zeile verbreitern.
+ */
+export const RATING_COLUMN = "min-w-[72px] sm:min-w-[106px]";
+
+/**
  * Beginn an einem anderen Tag als die letzte Nachricht? Dann der Tag des
  * Beginns, sonst null.
  * @param {{started_at: number, last_message_at: number}} conversation
@@ -646,6 +968,45 @@ export function conversationKey({ conversation_id, session_id }) {
 }
 
 /**
+ * Sitzung (Besucher) aus einem Schlüssel von conversationKey. Getrennt am
+ * letzten U+0000 (Review 7.22-rc17, K60): Die Kennung der Konversation
+ * kommt ungeprüft vom Widget und kann selbst U+0000 enthalten, die Sitzung
+ * ist eine geprüfte UUID ohne.
+ * @param {string|null|undefined} key
+ * @returns {string|null}
+ */
+export function sessionOfKey(key) {
+  if (typeof key !== "string") return null;
+  const at = key.lastIndexOf("\u0000");
+  return at < 0 ? null : key.slice(at + 1);
+}
+
+/**
+ * Gehört eine Konversation zu dem, was eben gelöscht wurde (Review
+ * 7.22-rc15, K45)? Bis die Liste nach dem Löschen neu geladen ist, steht
+ * das Gelöschte noch in der alten und wird nicht (wieder) vorgewählt.
+ * Verglichen wird die Kennung und der Schlüssel (conversationKey): Die
+ * erste Kennung einer Konversation hängt am Zeitraum, und eine per Link
+ * geöffnete trägt oft eine andere als ihre Zeile. Beim Löschen aller
+ * Konversationen eines Besuchers (visitor) zählt jede Konversation seiner
+ * Sitzung.
+ * @param {{chatId?: number|null, key?: string|null}} conversation
+ * @param {{chatId: number|null, key: string|null, sessionId: string|null, visitor: boolean}|null} deletion
+ * @returns {boolean}
+ */
+export function matchesDeletion({ chatId = null, key = null }, deletion) {
+  if (!deletion) return false;
+  if (chatId !== null && chatId === deletion.chatId) return true;
+  if (key === null) return false;
+  if (deletion.key && key === deletion.key) return true;
+  return (
+    !!deletion.visitor &&
+    !!deletion.sessionId &&
+    sessionOfKey(key) === deletion.sessionId
+  );
+}
+
+/**
  * Die Kennung gekürzt für die Fußzeile: die ersten 8 Zeichen und „…".
  * @param {string|null|undefined} id
  * @returns {string}
@@ -673,25 +1034,25 @@ export function answerText(response) {
   return response;
 }
 
-// Markdown-Autolinks: <https://…>, <mailto:…>, <info@vhs.de> – der
-// MarkdownRenderer zeigt die Adresse als Linktext (Fixliste 2, S2).
-const AUTOLINK =
-  /<((?:[a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s<>]*)|(?:[^\s<>@]+@[^\s<>@]+))>/g;
-
 /**
- * Was von einem Antworttext sichtbar ist (ungefähr wie der MarkdownRenderer
- * ihn zeigt): ohne <think>-Blöcke (eingeklappt), ohne Ziele von Links und
- * Bildern ("[Text](https://…)" → "Text"), ohne HTML-Tags und Attribute.
- * Autolinks (<https://…>, <info@…>) bleiben als ihr sichtbarer Text.
- * @param {string} text
- * @returns {string}
+ * Ohne sichtbares Zeichen: leer, nur Leerraum oder nur unsichtbare Zeichen.
+ * Unsichtbar sind Unicode Cf (etwa U+200B, U+200D, U+2060 und das weiche
+ * Trennzeichen U+00AD; Review 7.22-rc17, K61), alle Zeichen, die laut
+ * Unicode ohne Darstellung bleiben dürfen (Default_Ignorable_Code_Point,
+ * etwa die Füllzeichen U+3164, U+115F, U+1160 und U+FFA0, U+034F, die
+ * Variantenwähler U+FE00 bis U+FE0F und U+17B4), und das leere
+ * Braille-Muster U+2800 (Nachreview 7.22-rc19, K89).
+ * String.prototype.trim entfernt die unsichtbaren nicht.
+ * @param {string|null|undefined} text
+ * @returns {boolean}
  */
-export function visibleAnswerText(text) {
-  return String(text ?? "")
-    .replace(/<think>[^]*?<\/think>/g, " ")
-    .replace(/\]\([^)]*\)/g, "]")
-    .replace(AUTOLINK, " $1 ")
-    .replace(/<\/?[a-zA-Z][^>]*>/g, " ");
+function isBlankText(text) {
+  return (
+    String(text ?? "").replace(
+      /[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]/gu,
+      ""
+    ) === ""
+  );
 }
 
 /**
@@ -829,9 +1190,18 @@ export function highlightParts(text, term) {
 /**
  * Steht der Suchbegriff irgendwo SICHTBAR in der Konversation – in einer
  * Frage, im sichtbaren Antworttext, in Grund oder Kommentar? Die Suche des
- * Servers liest auch Link-Adressen, HTML und <think>-Blöcke der Antwort; nur
- * dort getroffen, weist das Panel darauf hin (Fixliste Punkt 11; bewusst so
- * belassen, Fixliste 7 F13: siehe benchmarks/conversationSearch.manual.js).
+ * Servers liest auch Link-Adressen und <think>-Blöcke der Antwort (rohes
+ * HTML steht seit E39 als Text im Verlauf, ein Treffer darin ist
+ * sichtbar); nur dort getroffen, weist das Panel darauf hin (Fixliste
+ * Punkt 11; bewusst so belassen, Fixliste 7 F13: siehe
+ * benchmarks/conversationSearch.manual.js).
+ *
+ * Ob eine Antwort den Begriff sichtbar zeigt, sagt answerShowsHit: die
+ * Darstellung des Verlaufs selbst (MarkdownRenderer: Markdown, DOMPurify,
+ * hardenAnswerHtml, dann highlightTextNodes). Sichtbar ist, was der Verlauf
+ * hervorhebt (Nachreview 7.22-rc19, K81 bis K86; vorher bildete
+ * visibleAnswerText diese Darstellung mit regulären Ausdrücken nach und
+ * wich in Randfällen ab).
  *
  * Geprüft werden nur die Nachrichten, die auch der Server durchsucht hat:
  * die im Zeitraum (Fixliste 2, S7) – mit Abschnitt (Säulenklick) die ganze
@@ -840,10 +1210,12 @@ export function highlightParts(text, term) {
  * @param {Array<{prompt: string, response: string, createdAt?: string, feedbackScore?: boolean|null, feedbackReason?: string|null, feedbackText?: string|null}>} messages
  * @param {string} term
  * @param {{fromDay?: string|null, toDay?: string|null}} [period] -
- *   Kalendertage der Liste; ohne Angabe alle Nachrichten
+ *   Kalendertage der Liste; {} für alle Nachrichten
+ * @param {(text: string, term: string) => boolean} answerShowsHit - zeigt
+ *   der Verlauf in dieser Antwort (Text wie answerText) einen Treffer?
  * @returns {boolean} - true auch ohne Suche
  */
-export function hasVisibleHit(messages, term, period = {}) {
+export function hasVisibleHit(messages, term, period = {}, answerShowsHit) {
   const pattern = searchPattern(term);
   if (!pattern) return true;
   const hit = (text) => {
@@ -857,7 +1229,7 @@ export function hasVisibleHit(messages, term, period = {}) {
         hit(message.prompt) ||
         (message.feedbackScore === false &&
           (hit(message.feedbackReason) || hit(message.feedbackText))) ||
-        hit(visibleAnswerText(answerText(message.response)))
+        answerShowsHit(answerText(message.response), term)
     );
 }
 
@@ -911,6 +1283,261 @@ export function highlightTextNodes(root, term, doc) {
     parent.removeChild(node);
   }
   return hits;
+}
+
+// ---------------------------------------------------------------------------
+// HTML der Antworten im Verlauf (Admin-Ansicht; Review 7.22-rc12, K14;
+// Fixliste 7.22-rc13, E13). Seit Fixliste 7.22-rc22 (E39) zweite
+// Sicherung: Die erste ist html: false im MarkdownRenderer, rohes HTML der
+// Antwort steht als Text im Verlauf wie im Widget.
+// ---------------------------------------------------------------------------
+
+/**
+ * DOMPurify für die Antworten im Verlauf der Konversationen. Antworten sind
+ * Ausgaben des Sprachmodells, die anonyme Besucher des Widgets beeinflussen
+ * können – und der Verlauf öffnet sich auf dem Desktop von selbst (AK-3),
+ * ohne Klick. Darum strenger als im Chat.
+ * Zweite Sicherung (Fixliste 7.22-rc22, E39, K123): Die erste ist
+ * html: false im MarkdownRenderer wie im Widget. Rohes HTML der Antwort
+ * kommt nur noch als Text an; bereinigt wird das HTML, das markdown-it
+ * selbst erzeugt (Links, Bilder, Tabellen, Code). Die Einträge bleiben
+ * stehen: Sie greifen, falls die erste Sicherung einmal fehlt, und die
+ * Begründungen unten beschreiben, was sie dann abfangen.
+ * - nur HTML (kein SVG, kein MathML: dort laden <image> und <use> fremde
+ *   Inhalte),
+ * - kein style (ein Link über der ganzen Seite, position:fixed) und kein
+ *   <style>; keine Formulare und Eingabefelder (abgefragte Kennwörter),
+ *   keine Medien, die von selbst laden (<video poster>, <audio>, <source>,
+ *   <picture>, srcset, background), keine Popover, keine Dialoge,
+ * - keine id, name und role sowie keine aria- und data-Attribute aus der
+ *   Antwort: Die Ansicht sucht nach eigenen Kennzeichen (aria-modal,
+ *   role="menu", data-rated, data-search-hit). Auch nicht data-search-hit:
+ *   Das Kennzeichen der Hervorhebung erlaubt erst der zweite Durchgang
+ *   nach highlightTextNodes (answerPurifyConfig, Review 7.22-rc15, K41;
+ *   vorher konnte die Antwort eigene „Treffer“ mitbringen, zu denen der
+ *   Verlauf beim Öffnen sprang),
+ * - kein tabindex, hidden und draggable (K42): Die Antwort bestimmt nicht,
+ *   wohin der erste Tab-Druck der Seite springt, nimmt ihre Links nicht
+ *   aus der Tastaturbedienung und blendet keinen Text per hidden aus.
+ * - keine Elemente, deren Text der Browser nicht zeigt, und keine Farben,
+ *   Größen, Maße oder Schriften aus der Antwort (Review 7.22-rc17, K63;
+ *   Nachreview 7.22-rc19, K80; im Browser mit DOMPurify 3.1.6 geprüft,
+ *   kie575Layout.manual.mjs): <datalist>, <rp>, <progress>, <meter>,
+ *   <canvas> und <marquee> löst DOMPurify auf, ihr Text steht sichtbar im
+ *   Verlauf; <template> fällt mit seinem Inhalt weg (DOMPurify verwirft den
+ *   Inhalt verbotener template-Elemente, auch eines nicht geschlossenen),
+ *   ebenso der Inhalt von <noscript>, <xmp>, <svg> und den übrigen
+ *   Elementen, die DOMPurify samt Inhalt verwirft; answerShowsHit zählt
+ *   nur, was der Verlauf zeigt. color, bgcolor, size, face, width,
+ *   height, cellpadding, cellspacing und border (etwa <font color> wie der
+ *   Grund, <table bgcolor>, <table cellpadding="100000">,
+ *   <marquee width="1">) bleiben nicht stehen (die drei Maße der Tabelle:
+ *   Nachreview 7.22-rc20, K100; der Text stand weit außerhalb des Blicks).
+ *   Nicht abgedeckt:
+ *   Verkleinern durch verschachtelte <small> oder <sub> und ein
+ *   zugeklapptes <details> (per Klick lesbar).
+ * Klassen, Links und Bilder ordnet hardenAnswerHtml danach.
+ */
+export const ANSWER_PURIFY_CONFIG = Object.freeze({
+  USE_PROFILES: { html: true },
+  FORBID_TAGS: [
+    "style",
+    "form",
+    "input",
+    "button",
+    "textarea",
+    "select",
+    "option",
+    "dialog",
+    "video",
+    "audio",
+    "source",
+    "track",
+    "picture",
+    "template",
+    "datalist",
+    "rp",
+    "progress",
+    "meter",
+    "canvas",
+    "marquee",
+  ],
+  FORBID_ATTR: [
+    "style",
+    "id",
+    "name",
+    "role",
+    "srcset",
+    "background",
+    "poster",
+    "popover",
+    "popovertarget",
+    "popovertargetaction",
+    "tabindex",
+    "hidden",
+    "draggable",
+    "color",
+    "bgcolor",
+    "size",
+    "face",
+    "width",
+    "height",
+    "cellpadding",
+    "cellspacing",
+    "border",
+  ],
+  ALLOW_ARIA_ATTR: false,
+  ALLOW_DATA_ATTR: false,
+});
+
+/** Kennzeichen eines Treffers der Suche im Verlauf (highlightTextNodes). */
+export const SEARCH_HIT_ATTRIBUTE = "data-search-hit";
+
+// Zweiter Durchgang (nach highlightTextNodes): wie der erste, dazu das
+// Kennzeichen der eigenen Hervorhebung
+const HIGHLIGHT_PURIFY_CONFIG = Object.freeze({
+  ...ANSWER_PURIFY_CONFIG,
+  ADD_ATTR: [SEARCH_HIT_ATTRIBUTE],
+});
+
+/**
+ * Einstellung von DOMPurify für einen Durchgang über eine Antwort (Review
+ * 7.22-rc15, K41): Der erste Durchgang über das HTML der Antwort verwirft
+ * jedes data-search-hit (ANSWER_PURIFY_CONFIG); erst der Durchgang nach
+ * der eigenen Hervorhebung (searchHits: true) lässt es stehen.
+ * @param {{searchHits?: boolean}} [options]
+ * @returns {object}
+ */
+export function answerPurifyConfig({ searchHits = false } = {}) {
+  return searchHits ? HIGHLIGHT_PURIFY_CONFIG : ANSWER_PURIFY_CONFIG;
+}
+
+/**
+ * markdown-it-Plugin (Review 7.22-rc15, K43): Die Ausrichtung der Spalten
+ * einer Markdown-Tabelle (|:--|:-:|--:|) steht als align statt als
+ * style="text-align:…" an th und td. style ist im Verlauf verboten (E13),
+ * align erlaubt DOMPurify im HTML-Profil; die Beträge einer Preistabelle
+ * stehen so rechtsbündig wie im Widget. Nur die Zellen, die markdown-it
+ * selbst erzeugt; rohes HTML der Antwort ist seit E39 Text (html: false),
+ * DOMPurify bleibt die zweite Sicherung.
+ * @param {object} md - markdown-it
+ */
+export function tableAlignAttributes(md) {
+  md.core.ruler.push("table_align_attributes", (state) => {
+    for (const token of state.tokens) {
+      if (token.type !== "th_open" && token.type !== "td_open") continue;
+      const style = token.attrGet?.("style");
+      const align = /^text-align:(left|center|right)$/.exec(style ?? "")?.[1];
+      if (!align) continue;
+      token.attrs = token.attrs.filter(([name]) => name !== "style");
+      token.attrSet("align", align);
+    }
+  });
+}
+
+/** Rel jedes Links im Verlauf: kein Zugriff auf die Ansicht, kein Referrer. */
+export const ANSWER_LINK_REL = "noopener noreferrer";
+// Klassen aus Markdown und Syntaxhervorhebung (markdown-it, highlight.js) –
+// alle anderen kämen aus dem HTML der Antwort und könnten Klassen der Seite
+// nutzen (etwa „fixed inset-0 z-50“ als unsichtbare Fläche).
+const ANSWER_CLASS = /^(?:hljs(?:-[\w-]+)?|language-[\w-]+)$/;
+// Bilder werden nur als Link angeboten, wenn sie im Netz liegen
+const ANSWER_IMAGE_URL = /^https?:\/\//i;
+
+/** Löst ein Element auf: sein Inhalt bleibt an seiner Stelle. */
+function unwrapElement(node) {
+  while (node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
+  node.parentNode.removeChild(node);
+}
+
+/**
+ * Ordnet das von DOMPurify bereinigte HTML einer Antwort (in einem inerten
+ * Dokument, vor dem Einsetzen in die Seite). Zweite Sicherung wie
+ * ANSWER_PURIFY_CONFIG (Fixliste 7.22-rc22, E39, K123): Die erste ist
+ * html: false im MarkdownRenderer, rohes HTML der Antwort ist Text. Links
+ * und Bilder kommen damit nur noch aus Markdown ([Text](Adresse),
+ * ![Alt](Adresse), <https://…>), die Regeln unten gelten für sie weiter.
+ * Was nur rohes HTML betrifft (mitgebrachtes <mark> und data-search-hit,
+ * fremde Klassen), fangen sie ab, falls die erste Sicherung einmal fehlt:
+ * - Jedes <a> öffnet in einem neuen Tab (target="_blank") mit
+ *   rel="noopener noreferrer". Sonst bleibt der Link, wie Markdown ihn
+ *   erzeugt, so wie im Widget (src/utils/chat/markdown.js, link_open;
+ *   Fixliste 7.22-rc22, E40, K130): Linktext und Adresse unverändert, auch
+ *   ein leerer Linktext und eine Adresse ohne Schema (/kurs/1, #). Welche
+ *   Adresse ein Link wird, entscheiden markdown-it (validateLink:
+ *   javascript:, vbscript:, file: und data: außer Bildern bleiben Text)
+ *   und DOMPurify (verwirft jedes href, das nicht in seiner Liste steht,
+ *   etwa data: an einem Link oder kurs-link:4711; ohne href ist <a> kein
+ *   Link, sein Text bleibt). Die früheren Umschreibungen (Adresse anhängen
+ *   E37, leere Links mit der Adresse füllen K40 und B70, Links ohne Schema
+ *   auflösen K87, K101 und K104, Sonderregeln für unsichtbare Zeichen K61,
+ *   K88 und K89) entfallen seit E40.
+ * - Bilder laden nicht von selbst (kein Abruf beim Öffnen des Verlaufs:
+ *   Zeitpunkt, IP-Adresse und Browser des Admins blieben sonst beim
+ *   Absender; E13): Ein Bild im Netz wird ein Link mit dem Alt-Text (ohne
+ *   Alt-Text der Adresse), sonst bleibt nur der Alt-Text. Steht das Bild
+ *   in einem <a> (verlinktes Bild, etwa ein Kursbild zur Kursseite),
+ *   bleibt nur der Alt-Text: Ein Link im Link zerfiele beim Einsetzen in
+ *   die Seite (Review 7.22-rc15, K40). Ein Alt-Text nur aus unsichtbaren
+ *   Zeichen (isBlankText) gilt als fehlend (K61, K89).
+ * - data-search-hit nur an den <mark> der eigenen Hervorhebung und nur im
+ *   zweiten Durchgang (searchHits: true); sonst verworfen (K41). Ein
+ *   <mark> ohne dieses Kennzeichen bringt die Antwort mit: Es wird
+ *   aufgelöst, sein Text bleibt (Nachreview 7.22-rc19, B60; die Farbe des
+ *   Browsers, Gelb mit weißem Text, war im dunklen Schema unlesbar).
+ * - Klassen nur aus Markdown und Syntaxhervorhebung (ANSWER_CLASS).
+ * @param {Node|null} root - Wurzel des bereinigten HTML
+ * @param {Document} doc - Dokument der Wurzel (für neue Knoten)
+ * @param {{searchHits?: boolean}} [options]
+ * @param {boolean} [inLink] - intern: root liegt in einem Link
+ */
+export function hardenAnswerHtml(
+  root,
+  doc,
+  { searchHits = false } = {},
+  inLink = false
+) {
+  for (const node of [...(root?.childNodes ?? [])]) {
+    if (node.nodeType !== ELEMENT_NODE) continue;
+    const tag = String(node.tagName ?? node.nodeName).toUpperCase();
+    hardenAnswerHtml(node, doc, { searchHits }, inLink || tag === "A");
+    if (
+      node.hasAttribute?.(SEARCH_HIT_ATTRIBUTE) &&
+      !(searchHits && tag === "MARK")
+    )
+      node.removeAttribute(SEARCH_HIT_ATTRIBUTE);
+    const classes = node.getAttribute?.("class");
+    if (classes !== null && classes !== undefined) {
+      const kept = classes
+        .split(/\s+/)
+        .filter((name) => ANSWER_CLASS.test(name));
+      if (kept.length > 0) node.setAttribute("class", kept.join(" "));
+      else node.removeAttribute("class");
+    }
+    if (tag === "A") {
+      node.setAttribute("target", "_blank");
+      node.setAttribute("rel", ANSWER_LINK_REL);
+    } else if (tag === "IMG") {
+      const src = (node.getAttribute("src") ?? "").trim();
+      const given = (node.getAttribute("alt") ?? "").trim();
+      const alt = isBlankText(given) ? "" : given;
+      let replacement = null;
+      if (ANSWER_IMAGE_URL.test(src) && !inLink) {
+        replacement = doc.createElement("a");
+        replacement.setAttribute("href", src);
+        replacement.setAttribute("target", "_blank");
+        replacement.setAttribute("rel", ANSWER_LINK_REL);
+        replacement.appendChild(doc.createTextNode(alt || src));
+      } else if (alt) {
+        replacement = doc.createTextNode(alt);
+      }
+      if (replacement) node.parentNode.insertBefore(replacement, node);
+      node.parentNode.removeChild(node);
+    } else if (tag === "MARK" && !node.hasAttribute(SEARCH_HIT_ATTRIBUTE)) {
+      // mitgebrachtes <mark>: aufgelöst, der Text bleibt (B60)
+      unwrapElement(node);
+    }
+  }
 }
 
 /**
@@ -978,6 +1605,36 @@ const scrollPosition = (value) =>
  */
 export function startScrollTop(container, element, margin = 16) {
   return scrollPosition(offsetInScroller(container, element).offset - margin);
+}
+
+/**
+ * Scrollposition eines Bereichs, bei der ein Element darin ganz zu sehen
+ * ist, mit möglichst wenig Bewegung – wie scrollIntoView „nearest“, aber nur
+ * für diesen Bereich: Die Seite und andere scrollende Vorfahren bleiben
+ * stehen (Fixliste 7.22-rc11, K11: scrollIntoView scrollte beim Blättern
+ * die Seite mit, solange der Arbeitsbereich noch nicht oben anlag). Steht
+ * das Element schon ganz im Ausschnitt, bleibt die Position. Liegt es
+ * darüber (oder ist es höher als der Ausschnitt), kommt sein Anfang mit
+ * marginTop Abstand nach oben; liegt es darunter, sein Ende mit
+ * marginBottom Abstand nach unten.
+ * @param {{scrollTop: number, clientHeight: number, getBoundingClientRect: Function}} container
+ * @param {{getBoundingClientRect: Function}} element
+ * @param {{marginTop?: number, marginBottom?: number}} [margins]
+ * @returns {number}
+ */
+export function nearestScrollTop(
+  container,
+  element,
+  { marginTop = 0, marginBottom = 0 } = {}
+) {
+  const { offset, height } = offsetInScroller(container, element);
+  const current = container.scrollTop || 0;
+  const view = container.clientHeight || 0;
+  const start = offset - marginTop;
+  const end = offset + height + marginBottom;
+  if (start < current || end - start > view) return scrollPosition(start);
+  if (end > current + view) return scrollPosition(end - view);
+  return scrollPosition(current);
 }
 
 /**

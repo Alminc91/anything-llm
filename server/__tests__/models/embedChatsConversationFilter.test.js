@@ -327,6 +327,170 @@ describe("getConversations — Ergebnisform", () => {
 });
 
 // ============================================================================
+// Nachtrag KIE-560, K1: Vorschau der ersten Frage. Der Server liefert bis zu
+// 300 Zeichen (Wortgrenze, „…" nur wenn gekürzt, eine Zeile); sichtbar kürzt
+// die Liste per CSS an der vollen Breite.
+// ============================================================================
+describe("Vorschau der ersten Frage (Nachtrag KIE-560, K1)", () => {
+  const preview = EmbedChats.listPreview;
+  const words = (count) =>
+    Array.from({ length: count }, (_, i) => `wort${i}`).join(" ");
+
+  test("kurze Frage unverändert, ohne „…“", () => {
+    expect(preview("Wann beginnt der Yoga-Kurs?")).toBe(
+      "Wann beginnt der Yoga-Kurs?"
+    );
+    expect(preview("")).toBe("");
+    expect(preview(null)).toBe("");
+  });
+
+  test("bis 300 Zeichen ganz; 150 Zeichen werden nicht mehr nach 100 gekürzt", () => {
+    const q150 = "a".repeat(150);
+    expect(preview(q150)).toBe(q150);
+    const q300 = `${"b".repeat(149)} ${"c".repeat(150)}`;
+    expect(q300).toHaveLength(300);
+    expect(preview(q300)).toBe(q300);
+  });
+
+  test("länger als 300: an der letzten Wortgrenze gekürzt, mit „…“ (kein „...“)", () => {
+    const text = words(80); // > 300 Zeichen
+    expect(text.length).toBeGreaterThan(300);
+    const result = preview(text);
+    expect(result.endsWith("…")).toBe(true);
+    expect(result).not.toMatch(/\.\.\.$/);
+    const body = result.slice(0, -1);
+    expect(body.length).toBeLessThanOrEqual(300);
+    // endet an einem ganzen Wort, das im Original von einem Leerzeichen
+    // gefolgt wird
+    expect(text.startsWith(`${body} `)).toBe(true);
+    expect(body.length).toBeGreaterThan(290);
+  });
+
+  test("Zeilenumbrüche, Tabulatoren und Steuerzeichen werden zu einem Leerzeichen", () => {
+    expect(
+      preview("  Hallo,\r\n\nich suche\teinen\u0000Kurs \u2028 bitte  ")
+    ).toBe("Hallo, ich suche einen Kurs bitte");
+  });
+
+  test("ein Wort ohne Leerzeichen (Link) wird hart gekürzt – nie mitten in einem Ersatzpaar", () => {
+    const link = `https://example.org/${"x".repeat(400)}`;
+    expect(preview(link)).toBe(`${link.slice(0, 300)}…`);
+    // Emoji (zwei UTF-16-Einheiten) genau über der Grenze
+    const emoji = `${"y".repeat(299)}😀${"z".repeat(50)}`;
+    const cut = preview(emoji);
+    expect(cut).toBe(`${"y".repeat(299)}…`);
+    expect(() => encodeURIComponent(cut)).not.toThrow();
+  });
+
+  test("sehr lange Frage: Ergebnis wie bei kurzer; viel Leerraum dazwischen zählt nicht", () => {
+    const huge = `${words(80)} ${"q".repeat(100_000)}`;
+    const result = preview(huge);
+    expect(result).toBe(preview(words(80)));
+    // Leerraum fällt zu einem Leerzeichen zusammen, wie viel es auch ist
+    expect(preview(`kurz${" ".repeat(5_000)}rest`)).toBe("kurz rest");
+  });
+
+  // Review 7.22-rc12, C5: Die Vorschau sammelt Wörter direkt aus der Frage,
+  // bis die Zeile lang genug ist – es gibt kein Lesefenster mehr, an dessen
+  // Grenze Sonderfälle entstehen (rc2 K02, rc6 K01/K02).
+  test("C5: viel Leerraum vor dem ersten Wort – die Wörter dahinter fehlen nicht (vorher leere Vorschau)", () => {
+    expect(preview(`${" ".repeat(2_400)}Hallo Welt`)).toBe("Hallo Welt");
+    const controls = "\n".repeat(10_000) + "Hallo\u0000Welt";
+    expect(preview(controls)).toBe("Hallo Welt");
+  });
+
+  test("C5: ein Wort weit hinten zählt ganz – an der Grenze kürzt die Wortregel, nicht die Lesegrenze", () => {
+    const text = `Frage${" ".repeat(2_385)}Donaudampfschifffahrt`;
+    expect(preview(text)).toBe("Frage Donaudampfschifffahrt");
+    const more = `Frage${" ".repeat(2_385)}Donaudampf ${"x".repeat(50)}`;
+    expect(preview(more)).toBe(`Frage Donaudampf ${"x".repeat(50)}`);
+  });
+
+  test("C5: langes Wort aus Emoji über der Grenze: hart bei 300 gekürzt, ohne halbes Ersatzpaar; genau 300 Zeichen bleiben ganz", () => {
+    // ein Emoji: zwei UTF-16-Einheiten (Ersatzpaar)
+    const emoji = String.fromCodePoint(0x1f600);
+    const fits = " ".repeat(2_199) + emoji.repeat(150);
+    expect(preview(fits)).toBe(emoji.repeat(150));
+    const text = " ".repeat(2_199) + emoji.repeat(151);
+    const result = preview(text);
+    expect(result).toBe(emoji.repeat(150) + "…");
+    expect(() => encodeURIComponent(result)).not.toThrow();
+    const odd = "a" + emoji.repeat(151);
+    const cut = preview(odd);
+    expect(cut).toBe("a" + emoji.repeat(149) + "…");
+    expect(() => encodeURIComponent(cut)).not.toThrow();
+  });
+
+  // Review 7.22-rc2, K03: Beginnt ein langes Wort (Link) zwischen Zeichen 150
+  // und 300, endet die Vorschau nicht schon davor, sondern an der Grenze.
+  test("K03: langes Wort ab Zeichen 180 wird hart bei 300 gekürzt, nicht vor dem Wort", () => {
+    const head = "Siehe hier: ".repeat(15); // 180 Zeichen
+    const link = `https://example.org/${"x".repeat(250)}`;
+    const text = `${head}${link} und mehr`;
+    const result = preview(text);
+    expect(result).toBe(`${text.slice(0, 300)}…`);
+    // ein kurzes Wort an der Grenze fällt dagegen ganz weg
+    const short = `${"a".repeat(140)} ${"b".repeat(155)} kurzeswortamende rest`;
+    expect(preview(short)).toBe(`${"a".repeat(140)} ${"b".repeat(155)}…`);
+  });
+
+  // Review 7.22-rc6, K01: Folgt nur Leerraum, ist nichts gekürzt, also kein
+  // „…“.
+  test("K01: nur Leerraum dahinter: kein „…“", () => {
+    expect(preview(`Frage${" ".repeat(3_000)}`)).toBe("Frage");
+    expect(preview(`Frage${"\n".repeat(3_000)}`)).toBe("Frage");
+    expect(preview(`Frage${"\r\n\t\u0000\u0085\u2028".repeat(600)}`)).toBe(
+      "Frage"
+    );
+    // ein sichtbares Zeichen danach: ein Wort mehr (C5), nicht „Frage…“
+    expect(preview(`Frage${" ".repeat(3_000)}x`)).toBe("Frage x");
+    // lange Frage, danach nur Leerraum: wie ohne den Leerraum
+    expect(preview(`${words(80)}${" ".repeat(3_000)}`)).toBe(
+      preview(words(80))
+    );
+    // genau 300 Zeichen, danach nur Leerraum: ganz, ohne „…“
+    const exact = `${"b".repeat(149)} ${"c".repeat(150)}`;
+    expect(preview(`${exact}${" ".repeat(3_000)}`)).toBe(exact);
+    // genau 300 Zeichen und noch ein Wort: an der Wortgrenze gekürzt
+    expect(preview(`${exact} d`)).toBe(`${exact}…`);
+  });
+
+  // Review 7.22-rc6, K02 / Nachreview rc12, N6: Ein langer Link hinter viel
+  // Leerraum zählt mit voller Länge – hart bei 300 gekürzt, bei jeder Länge
+  // des Kopfs. Vorher endete die Vorschau an der Lesegrenze (2.400
+  // Zeichen), wenn davor nur 90 Zeichen des Links lagen: bei Kopf 100 nach
+  // 190 Zeichen, bei Kopf 200 nach 290.
+  test("K02 / N6: langer Link hinter viel Leerraum: immer hart bei 300 gekürzt", () => {
+    const link = `https://example.org/${"x".repeat(495)}`; // 515 Zeichen
+    for (const size of [100, 200, 261]) {
+      const head = "t".repeat(size);
+      // vom Link liegen nur 90 Zeichen vor Zeichen 2.400
+      const text = `${head}${" ".repeat(2_310 - size)}${link}`;
+      const line = `${head} ${link}`;
+      const result = preview(text);
+      expect(result).toBe(`${line.slice(0, 300)}…`);
+      expect(result).toHaveLength(301);
+    }
+    // ein kurzes Wort an der Grenze fällt dagegen ganz weg
+    const head = "t".repeat(261);
+    const short = `${head}${" ".repeat(2_050)}${"k".repeat(95)} rest`;
+    expect(preview(short)).toBe(`${head}…`);
+  });
+
+  test("die Liste liefert die Vorschau über listPreview", async () => {
+    const long = words(80);
+    prisma.embed_chats.findMany.mockResolvedValue([
+      { ...FIRST_CHATS[0], prompt: `Zeile eins\nZeile zwei` },
+      { ...FIRST_CHATS[1], prompt: long },
+    ]);
+    const result = await getConversations(EMBED_ID, 0, 20);
+    expect(result[0].preview).toBe("Zeile eins Zeile zwei");
+    expect(result[1].preview).toBe(preview(long));
+    expect(result[1].preview.length).toBeGreaterThan(200);
+  });
+});
+
+// ============================================================================
 // KIE-536 — Abschnitts-Filter der Konversationsliste (Klick auf eine Säule):
 // nur Konversationen, deren erste vorhandene Nachricht im Abschnitt liegt.
 // ============================================================================

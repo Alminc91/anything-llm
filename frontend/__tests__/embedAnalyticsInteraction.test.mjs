@@ -1329,22 +1329,26 @@ test(
       [positive(), "Positiv", "Positiv bewertet"],
       [negative(), "Negativ", "Negativ bewertet"],
     ]) {
-      // bis xl der kurze Text, ab xl der lange (Fixliste 3, V7)
+      // bis xl der kurze Text, ab xl der lange (Fixliste 3, V7); in der
+      // Ansicht steht „Zur Übersicht ↑“ mit in der Leiste: dann die lange
+      // erst ab 1.680 px (Fixliste 7.22-rc16, K47)
       assert.deepEqual(
         elements(button, (element) => element.tagName === "SPAN").map(
           (span) => [
             (span.getAttribute("class") ?? "")
               .split(" ")
               .filter((name) =>
-                /^(hidden|xl:hidden|xl:inline-flex)$/.test(name)
+                /^(hidden|(xl|min-\[1680px\]):(hidden|inline-flex))$/.test(
+                  name
+                )
               )
               .join(" "),
             span.textContent,
           ]
         ),
         [
-          ["xl:hidden", short],
-          ["hidden xl:inline-flex", long],
+          ["min-[1680px]:hidden", short],
+          ["hidden min-[1680px]:inline-flex", long],
         ]
       );
       assert.doesNotMatch(button.textContent, emoji);

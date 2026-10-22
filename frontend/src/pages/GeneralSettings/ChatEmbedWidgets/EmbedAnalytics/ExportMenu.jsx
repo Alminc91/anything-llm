@@ -26,10 +26,17 @@ const FORMATS = [
  * @param {boolean} [props.disabled] - nichts zu exportieren (Liste leer oder lädt)
  * @param {string} [props.className] - Aussehen der Schaltfläche (wie die Filter daneben)
  * @param {string} [props.wrapperClassName] - Platz in der Kopfzeile (order …)
+ * @param {boolean} [props.compact] - kompakter Kopf der Liste (Verlauf
+ *   daneben, Fixliste 7.22-rc13 E15): ohne Pfeil, auch ab xl
+ * @param {string} [props.arrowClassName] - ab welcher Breite der Pfeil
+ *   erscheint (ohne compact): "xl:block", mit „Zur Übersicht ↑“ in der
+ *   Leiste "min-[1680px]:block" (Fixliste 7.22-rc16, K47)
  *
  * Unter sm zeigt die Schaltfläche nur das Symbol; ihr Name „Exportieren"
- * bleibt für Screenreader (Fixliste 2, B1). Der Pfeil erst ab xl – bis dahin
- * steht sie kompakt neben Suche und Filtern (Fixliste 3, V7).
+ * bleibt für Screenreader (Fixliste 2, B1). Der Pfeil erst mit der breiten
+ * Form der Leiste: ohne „Zur Übersicht ↑“ ab xl, mit dem Button ab 1.680 px
+ * (arrowClassName, K47). Bis dahin steht sie kompakt neben Suche und
+ * Filtern (Fixliste 3, V7).
  */
 export default function ExportMenu({
   embedId,
@@ -37,6 +44,8 @@ export default function ExportMenu({
   disabled = false,
   className = "",
   wrapperClassName = "",
+  compact = false,
+  arrowClassName = "xl:block",
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -99,7 +108,7 @@ export default function ExportMenu({
         <CaretDown
           size={12}
           aria-hidden="true"
-          className={`hidden transition-transform xl:block ${open ? "rotate-180" : ""}`}
+          className={`hidden transition-transform ${compact ? "" : arrowClassName} ${open ? "rotate-180" : ""}`}
         />
       </button>
 

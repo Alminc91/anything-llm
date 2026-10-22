@@ -1574,6 +1574,7 @@ const TRANSLATIONS = {
       jump_one: null,
       jump_other: null,
       "jump-pending": null,
+      "to-overview": null,
       "jump-negative_one": null,
       "jump-negative_other": null,
       "jump-positive_one": null,
@@ -1662,6 +1663,8 @@ const TRANSLATIONS = {
       all: null,
       "all-hint": null,
       "filter-group": null,
+      new: null,
+      "new-hint": null,
     },
     search: {
       placeholder: null,
@@ -1712,6 +1715,7 @@ const TRANSLATIONS = {
       "quote-close": null,
       "jump-negative": null,
       "jump-positive": null,
+      empty: null,
     },
   },
   "date-picker": {

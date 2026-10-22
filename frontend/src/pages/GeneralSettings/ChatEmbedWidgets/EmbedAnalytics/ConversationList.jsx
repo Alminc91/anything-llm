@@ -21,31 +21,51 @@ import { formatDateForInput } from "@/utils/billingDate";
 import showToast from "@/utils/toast";
 import {
   AVATAR_CLEARANCE,
+  FOCUS_RING,
   MUTED,
+  RATING_COLUMN,
+  ROW_SCROLL_MARGIN,
   SEARCH_MAX_LENGTH,
+  WORKSPACE,
+  arrowNavigationAllowed,
+  arrowStep,
   berlinDateTime,
   berlinTime,
   conversationKey,
   dayGroupLabel,
   effectiveSearch,
   focusLost,
+  focusVisible,
   groupByLastMessageDay,
   hasContentGap,
-  isWide,
+  hasFocus,
+  isNewConversation,
+  keyboardActivation,
+  matchesDeletion,
+  nearestScrollTop,
+  nextNewExpiry,
+  readPanelPreference,
   searchLinkIssue,
+  sessionOfKey,
   shortDayLabel,
   startedOnOtherDay,
+  writePanelPreference,
 } from "@/utils/conversationView";
 import ConversationDetail from "./ConversationDetail";
 import ExportMenu from "./ExportMenu";
 import useConversationLocation from "./useConversationLocation";
+import { useWide } from "./viewHooks";
 
 // Konversationsliste der Ansicht „Konversationen": kompakte Zeilen, nach dem
 // Tag der LETZTEN Nachricht gruppiert (Berliner Zeit) und danach sortiert –
 // eine weitergeführte alte Konversation steht wieder oben. Ein Klick öffnet
-// den Gesprächsverlauf: ab lg als Seitenpanel rechts (die Liste bleibt, wo
-// sie ist), darunter als Vollbild. Geöffnete Konversation und Suche stehen in
-// der Adresse (useConversationLocation).
+// den Gesprächsverlauf: auf dem Desktop (ab 1.280 px, Stufe desktop:;
+// Fixliste 7.22-rc13, E15) als rechte Spalte eines Arbeitsbereichs mit fester Höhe
+// (KIE-575: Liste links, Verlauf rechts, je eigene Bildlaufleiste; der
+// Verlauf ist von sich aus offen, die neueste Zeile vorgewählt, ✕ schließt
+// ihn und merkt sich das), auf Tablet und Smartphone als Vollbild.
+// Geöffnete Konversation und Suche stehen in der Adresse
+// (useConversationLocation); die automatische Vorwahl nicht.
 
 const PAGE_SIZE = 20;
 // Größte Seite, die der Server liefert (analytics/conversations)
@@ -54,12 +74,24 @@ const PAGE_MAX = 100;
 // vielen Zeilen lädt die Liste nach, um sie zu finden (vorherige/nächste) –
 // in Seiten zu PAGE_MAX (Fixliste 3, S2).
 const LINK_SEARCH_ROWS = 500;
+// Nach einem Wechsel von Suche, Filter, Säule oder Zeitraum sucht die Liste
+// die Konversation aus der Adresse nur in so vielen Zeilen (Review
+// 7.22-rc12, K02; Fixliste 7.22-rc16, E19 zu K46: höchstens ein Nachladen
+// statt bis zu fünf; findet sie sie dort nicht, fällt sie aus der Adresse).
+const CHANGE_SEARCH_ROWS = 100;
 // Höchstens so viele Anfragen stellt das automatische Nachladen (Link-Suche,
 // „Nächste“ am Ende, Auffüllen nach dem Löschen) hintereinander – zusätzlich
 // zum Abbruch, wenn eine Seite keine neue Zeile bringt (Fixliste 3, C1).
 const AUTO_LOAD_ROUNDS = 30;
 // Verzögerung der Suche nach der letzten Eingabe
 const SEARCH_DELAY_MS = 300;
+// So lange nach dem Ablauf des ersten „Neu“ rechnet die Liste neu: Ein
+// Zeitgeber feuert nie vor seiner Zeit, die Spanne fängt Ungenauigkeit ab.
+const NEW_TICK_MS = 200;
+// Leere Liste während des Ladens: immer dasselbe Array, damit Effekte mit
+// items als Abhängigkeit nicht bei jedem Rendern neu laufen (Review
+// 7.22-rc6, C3).
+const NO_ITEMS = [];
 
 // KIE-508/527: die beiden exklusiven Feedback-Filter (ein Zustand:
 // "all" | "negative" | "positive"), als Config statt Copy-Paste-Buttons.
@@ -83,11 +115,47 @@ const EMPTY_STATE_KEYS = {
 };
 
 // Umschalter „Alle / Positiv bewertet / Negativ bewertet"
-// Von sm bis xl etwas schmaler (px-2.5): Suche (≥ 240 px), Filter und Export
-// passen so bei 1024 px neben dem Abstand zum Benutzermenü in eine Zeile
-// (Fixliste 4, V5).
+// Ab sm bis zur breiten Form der Leiste etwas schmaler (px-2.5): ohne
+// „Zur Übersicht ↑“ bis xl, mit dem Button bis 1.680 px (FULL_TOOLBAR,
+// K47). Suche (≥ 240 px), Filter und Export passen so bei 1024 px neben
+// dem Abstand zum Benutzermenü in eine Zeile (Fixliste 4, V5). Kompakt
+// (Verlauf daneben, siehe compactHeader) bleibt es bei px-2.5.
 const SEGMENT_CLASS =
-  "flex h-11 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm transition-colors sm:h-9 sm:px-2.5 xl:px-3";
+  "flex h-11 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm transition-colors sm:h-9 sm:px-2.5";
+// Die breite Form der Werkzeugleiste im Kopf in voller Form (Verlauf zu):
+// lange Namen der Bewertungsfilter, etwas mehr Innenabstand, „Exportieren“
+// mit Pfeil. Ohne „Zur Übersicht ↑“ ab xl wie bisher (Fixliste 3, V7), mit
+// dem Button erst ab 1.680 px (Fixliste 7.22-rc16, K47). Darunter die
+// schmale Form wie auf dem Tablet und im kompakten Kopf: Sie spart mehr
+// Breite, als der Button braucht (deutsch rund 165 zu 137 px). So wird der
+// Kopf zwischen 1.280 und 1.680 px durch den Button nicht höher (wo
+// Überschrift und Leiste vorher nebeneinander passten, tun sie es weiter),
+// und der Button steht weiter rechts neben „Exportieren“ in derselben
+// Zeile (E17). Ab 1.680 px passt die breite Form samt Button und „N von M
+// einsehbar“ in eine Zeile. In der Ansicht steht der Button immer in der
+// Leiste (index.jsx übergibt onJumpToOverview), es gilt also withOverview;
+// plain bleibt für die Liste ohne Button (Tests). Die Kurzform zwischen
+// 1.280 und 1.679 px („Positiv“, „Negativ“, „Exportieren“ ohne Pfeil) ist
+// vom Nutzer bestätigt am 21.10.2026 (Fixliste 7.22-rc18, E27, KIE-575
+// §11): Der Kopf wird durch den Button nicht höher (K47).
+// Rückweg: die Schwelle in withOverview. Die Klassen stehen wörtlich
+// (Tailwind liest nur, was im Quelltext steht).
+const FULL_TOOLBAR = {
+  plain: {
+    short: "xl:hidden",
+    long: "hidden xl:inline-flex",
+    segment: "xl:px-3",
+    exportButton: "xl:px-3.5",
+    exportArrow: "xl:block",
+  },
+  withOverview: {
+    short: "min-[1680px]:hidden",
+    long: "hidden min-[1680px]:inline-flex",
+    segment: "min-[1680px]:px-3",
+    exportButton: "min-[1680px]:px-3.5",
+    exportArrow: "min-[1680px]:block",
+  },
+};
 const SEGMENT_ACTIVE =
   "bg-white/10 text-theme-text-primary font-medium light:bg-black/[0.07]";
 // Gedämpfte Schrift wie die Kopfzeile: im hellen Theme #5f6368 statt
@@ -219,6 +287,9 @@ function cursorAfter(row, maxId) {
  *   sich nicht finden lässt (Fixliste 8, M1)
  * @param {{current: object|null}} [props.headingRef] - Überschrift der Liste
  *   (Ziel des Verweises „Konversationen ansehen" in der Kopfzeile)
+ * @param {() => void} [props.onJumpToOverview] - zurück an den Anfang der
+ *   Ansicht (Zeitraum, Kennzahlen); ohne Angabe kein Button „Zur Übersicht“
+ *   (Fixliste 7.22-rc14, K21)
  */
 export default function ConversationList({
   embedId,
@@ -234,11 +305,34 @@ export default function ConversationList({
   onLinkedRowShown = () => {},
   onLinkSearchChange = () => {},
   headingRef = null,
+  onJumpToOverview = null,
 }) {
   const { t } = useTranslation();
   const place = useConversationLocation();
   const search = effectiveSearch(place.search);
-  const chatId = place.chatId;
+  // Die Konversation aus der Adresse (Link, Klick, Blättern). Auf dem
+  // Desktop kommt unten die automatische Vorwahl der ersten Zeile dazu
+  // (chatId).
+  const linkedChatId = place.chatId;
+  // Desktop (WIDE_QUERY, E15): Verlauf neben der Liste
+  const wide = useWide();
+  // KIE-575: Verlauf offen oder zu – gemerkt im Browser, Standard offen.
+  // Gilt nur auf dem Desktop (sonst öffnet eine Zeile das Vollbild wie
+  // bisher).
+  const [panelOpen, setPanelOpen] = useState(() => readPanelPreference());
+  const rememberPanel = useCallback((open) => {
+    setPanelOpen(open);
+    writePanelPreference(open);
+  }, []);
+  // Ein Link öffnet immer, auch bei gemerkt „geschlossen“, ohne das Gemerkte
+  // zu ändern (AK-7). Für diese Sitzung gilt der Verlauf dann als offen, bis
+  // ✕ ihn schließt (Review 7.22-rc12, K07): Fällt die Konversation des
+  // Links nach einem Wechsel heraus, ist die erste Zeile vorgewählt bzw. der
+  // Platzhalter zu sehen – sonst verschwände der Verlauf samt Konversation.
+  const [linkKeepsOpen, setLinkKeepsOpen] = useState(
+    () => place.chatId !== null
+  );
+  const panelShown = panelOpen || linkKeepsOpen;
 
   const bucketStart = bucket?.start ?? null;
   const bucketEnd = bucket?.end ?? null;
@@ -285,7 +379,8 @@ export default function ConversationList({
   ].join("|");
   // Anfrage: erste Seite eines Zuschnitts, nachladen (append: hinter der
   // letzten geladenen Zeile, after) oder nach dem Löschen neu laden
-  // (dieselbe Menge ab vorn).
+  // (dieselbe Menge ab vorn). focusWish (nur beim Nachladen): wohin der
+  // Fokus gehört, wenn die Seite dieser Anfrage da ist (K15, siehe unten).
   const [request, setRequest] = useState({
     id: 1,
     scope,
@@ -311,6 +406,8 @@ export default function ConversationList({
   // wieder gelingt. added: neue Zeilen des letzten Nachladens (null nach
   // der ersten Seite) – 0 heißt, die Seite brachte nur Doppelte. maxId: Stand
   // der ersten Seite – weitere Seiten lesen ihn (Fixliste 8, L2).
+  // hasRatings: Laut Server trägt eine Konversation der ganzen Auswahl eine
+  // Bewertung (Review 7.22-rc2, K04); einmal wahr, bleibt es beim Nachladen.
   const [list, setList] = useState({
     scope: null,
     requestId: 0,
@@ -321,6 +418,7 @@ export default function ConversationList({
     moreFailed: false,
     added: null,
     maxId: null,
+    hasRatings: false,
   });
 
   // Einsehbare Konversationen des Zeitraums ohne jeden Filter (Bewertung,
@@ -390,8 +488,11 @@ export default function ConversationList({
         hasMore,
         totalCount: total,
         maxId,
+        hasRatings,
       } = answer;
       if (success) {
+        // „Neu“ der frischen Zeilen nach der Uhr von jetzt (K01)
+        setNow(Date.now());
         setList((previous) => {
           const append = request.append && previous.scope === scope;
           const items = append
@@ -412,6 +513,7 @@ export default function ConversationList({
               : Number.isSafeInteger(maxId)
                 ? maxId
                 : null,
+            hasRatings: hasRatings === true || (append && previous.hasRatings),
           };
         });
         if (!filtered) rememberUnfiltered(total);
@@ -437,6 +539,7 @@ export default function ConversationList({
                 moreFailed: false,
                 added: null,
                 maxId: null,
+                hasRatings: false,
               }
         );
       }
@@ -461,10 +564,131 @@ export default function ConversationList({
   const loading = list.scope !== scope;
   const failed = !loading && list.failed;
   const loadingMore = !loading && list.requestId !== request.id;
-  const items = loading ? [] : list.items;
+  const items = loading ? NO_ITEMS : list.items;
   const hasMore = !loading && list.hasMore;
   const moreFailed = !loading && list.moreFailed;
   const totalCount = loading ? 0 : list.total;
+
+  // Position jeder Zeile (statt indexOf je Zeile beim Rendern), nach der
+  // ersten Kennung und nach dem Schlüssel der Konversation
+  const positions = useMemo(
+    () => new Map(items.map((item, index) => [item.first_chat_id, index])),
+    [items]
+  );
+  const keyPositions = useMemo(
+    () => new Map(items.map((item, index) => [conversationKey(item), index])),
+    [items]
+  );
+  // Die neueste Anfrage der Liste (für das Löschen, K45: Es kommt erst nach
+  // einem await zurück).
+  const latestRequestId = useRef(request.id);
+  useLayoutEffect(() => {
+    latestRequestId.current = request.id;
+  });
+
+  // Schlüssel der geladenen Konversation (Panel) – damit auch eine per Link
+  // geöffnete Zeile in der Liste markiert ist, deren erste Zeile im Zeitraum
+  // eine andere ist. outside: keine Nachricht im Zeitraum.
+  const [loadedKey, setLoadedKey] = useState({
+    chatId: null,
+    key: null,
+    outside: false,
+  });
+
+  // Gelöscht, und die Liste lädt noch neu (Review 7.22-rc12, K06): Bis die
+  // neue Liste da ist, steht das Gelöschte noch in der alten – es wird dann
+  // nicht (wieder) vorgewählt. Review 7.22-rc15, K45: verglichen nach
+  // Kennung und Schlüssel der Konversation (eine per Link oder nach einem
+  // Zeitraumwechsel gefundene trägt eine andere Kennung als ihre Zeile),
+  // beim Löschen aller Konversationen eines Besuchers nach seiner Sitzung;
+  // und gebunden an die Anfrage, nicht an den Stand der Liste beim Klick:
+  // Der Schutz gilt, bis eine Liste aus einer Anfrage nach dem Löschen da
+  // ist (afterRequest), auch wenn inzwischen eine nachgeladene Seite kam.
+  const [deletion, setDeletion] = useState(null);
+  if (deletion && !loading && list.requestId > deletion.afterRequest)
+    setDeletion(null);
+  const deletedItem = (item) =>
+    matchesDeletion(
+      { chatId: item.first_chat_id, key: conversationKey(item) },
+      deletion
+    );
+
+  // KIE-575, Desktop: Ohne Konversation in der Adresse ist eine Zeile der
+  // geladenen Liste vorgewählt, solange der Verlauf offen ist – ohne die
+  // Adresse oder den Verlauf des Browsers zu ändern (AK-3): zuerst die
+  // neueste. Bei einem Wechsel von Zeitraum, Filter oder Suche bleibt die
+  // bisherige Wahl, auch während die Liste lädt, und danach, solange sie in
+  // der neuen Liste steht; sonst die erste Zeile (Review 7.22-rc12, K10:
+  // vorher fiel die Wahl beim Laden auf nichts, der Verlauf wurde neu
+  // geladen und sprang auf die erste Zeile). Gemerkt wird die Wahl je
+  // Widget (held), mit dem Schlüssel ihrer Konversation: Schneidet ein
+  // Zeitraumwechsel ihren Anfang ab, steht sie unter einer neuen ersten
+  // Kennung in der Liste – sie bleibt gewählt, unter ihrer bisherigen
+  // Kennung, und ihr Verlauf wird nicht neu geladen (Review 7.22-rc15, K44;
+  // markiert ist ihre Zeile über den Schlüssel wie beim Link). Lädt die
+  // Liste ohne bisherige Wahl, hält der Platzhalter des Verlaufs die Spalte
+  // (kein Layoutsprung).
+  const [held, setHeld] = useState({ embedId: null, chatId: null, key: null });
+  const heldChatId = held.embedId === embedId ? held.chatId : null;
+  const heldKey =
+    heldChatId === null
+      ? null
+      : loadedKey.chatId === heldChatId && loadedKey.key
+        ? loadedKey.key
+        : held.key;
+  const heldListed =
+    heldChatId !== null &&
+    (positions.has(heldChatId) ||
+      (heldKey !== null && keyPositions.has(heldKey)));
+  let autoChatId = null;
+  if (wide && panelShown && linkedChatId === null) {
+    if (
+      heldChatId !== null &&
+      !matchesDeletion({ chatId: heldChatId, key: heldKey }, deletion) &&
+      (loading || heldListed)
+    )
+      autoChatId = heldChatId;
+    else if (!loading)
+      autoChatId =
+        items.find((item) => !deletedItem(item))?.first_chat_id ?? null;
+  }
+  const chatId = linkedChatId ?? autoChatId;
+  const chatKey =
+    chatId === null
+      ? null
+      : positions.has(chatId)
+        ? conversationKey(items[positions.get(chatId)])
+        : chatId === heldChatId
+          ? heldKey
+          : null;
+  if (
+    held.chatId !== chatId ||
+    held.embedId !== embedId ||
+    held.key !== chatKey
+  )
+    setHeld({ embedId, chatId, key: chatKey });
+
+  // „Neu“ (K3) hängt an der Uhr: Läuft das erste „Neu“ ab, rechnet die Liste
+  // neu, auch wenn die Seite offen bleibt; ebenso bei der Rückkehr in den Tab
+  // (Zeitgeber ruhen im Hintergrund und im Ruhezustand). Neu gerendert
+  // werden nur die Zeilen, deren „Neu“ sich ändert (Review 7.22-rc2, K01).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const refresh = () => setNow(Date.now());
+    const next = nextNewExpiry(items, now);
+    const timer =
+      next === null
+        ? null
+        : setTimeout(refresh, Math.max(0, next - Date.now()) + NEW_TICK_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [items, now]);
 
   /**
    * Weitere Konversationen anhängen (höchstens PAGE_MAX je Anfrage) – hinter
@@ -473,8 +697,31 @@ export default function ConversationList({
    */
   const lastItem = list.items.at(-1);
   const listMaxId = list.maxId;
+  // K15 (Fixliste 7.22-rc11): Hat „Weitere laden“ beim Nachladen den Fokus
+  // (Tab ans Listenende, Klick), trägt die Anfrage den Wunsch, wohin der
+  // Fokus danach gehört (request.focusWish) – ausgewertet, sobald die Seite
+  // genau dieser Anfrage da ist (Effekt unten). rows: Zahl der Zeilen
+  // vorher (die erste neue Zeile), keyboard: Fokus per Tastatur
+  // (Fokusring sichtbar), byHand: Klick oder Enter auf den Knopf
+  // (loadMoreByHand, gibt seinen Wunsch mit). Von selbst (Spaltenende,
+  // Link-Suche, Auffüllen) entsteht er, wenn der Knopf beim Anfordern den
+  // Fokus hat. An die Anfrage gebunden (Review 7.22-rc15, C9): Jede Seite
+  // einer Kette hat ihren eigenen Wunsch, unabhängig von der Reihenfolge
+  // der Effekte (vorher ein Wunsch für alle in einem Ref, K08).
+  const loadMoreRef = useRef(null);
   const loadMore = useCallback(
-    (limit = PAGE_SIZE) => {
+    (limit = PAGE_SIZE, byHandWish = null) => {
+      const button = loadMoreRef.current;
+      const focusWish =
+        byHandWish ??
+        (hasFocus(button)
+          ? {
+              scope,
+              rows: list.items.length,
+              keyboard: focusVisible(button),
+              byHand: false,
+            }
+          : null);
       const after = cursorAfter(lastItem, listMaxId);
       setRequest((current) => ({
         id: current.id + 1,
@@ -483,9 +730,10 @@ export default function ConversationList({
         after,
         limit,
         append: true,
+        focusWish,
       }));
     },
-    [lastItem, listMaxId, list.items.length]
+    [lastItem, listMaxId, list.items.length, scope]
   );
 
   // Nach dem Löschen: dieselbe Auswahl ab vorn, so viele Zeilen wie geladen
@@ -523,20 +771,7 @@ export default function ConversationList({
   // Geöffnete Konversation, vorherige/nächste
   // ---------------------------------------------------------------------------
 
-  // Position jeder Zeile (statt indexOf je Zeile beim Rendern)
-  const positions = useMemo(
-    () => new Map(items.map((item, index) => [item.first_chat_id, index])),
-    [items]
-  );
-
-  // Schlüssel der geladenen Konversation (Panel) – damit auch eine per Link
-  // geöffnete Zeile in der Liste markiert ist, deren erste Zeile im Zeitraum
-  // eine andere ist. outside: keine Nachricht im Zeitraum.
-  const [loadedKey, setLoadedKey] = useState({
-    chatId: null,
-    key: null,
-    outside: false,
-  });
+  // Der Verlauf ist geladen: Schlüssel seiner Konversation (loadedKey oben)
   const handleLoaded = useCallback(
     (summary) =>
       setLoadedKey({
@@ -548,15 +783,34 @@ export default function ConversationList({
   );
   let currentIndex = chatId === null ? -1 : (positions.get(chatId) ?? -1);
   if (currentIndex < 0 && chatId !== null && loadedKey.chatId === chatId)
-    currentIndex = items.findIndex(
-      (item) => conversationKey(item) === loadedKey.key
-    );
+    currentIndex = keyPositions.get(loadedKey.key) ?? -1;
   const currentRow = currentIndex >= 0 ? items[currentIndex] : null;
 
   const openRow = useCallback(
-    (row) => place.openConversation(row.first_chat_id, { widgetId: embedId }),
-    [place, embedId]
+    (row) => {
+      // Auf dem Desktop ersetzt der Klick den Eintrag im Verlauf des
+      // Browsers: Der Verlauf ist dort ein Arbeitsbereich, den Zurück nicht
+      // schließt (KIE-575). Im Vollbild wie bisher (neuer Eintrag aus der
+      // Liste).
+      place.openConversation(row.first_chat_id, {
+        widgetId: embedId,
+        replace: wide,
+      });
+      // Ein Klick auf eine Zeile öffnet den geschlossenen Verlauf wieder und
+      // merkt sich „offen“ (AK-4).
+      if (wide && !panelOpen) rememberPanel(true);
+    },
+    [place, embedId, wide, panelOpen, rememberPanel]
   );
+  // ✕ (Desktop) bzw. „‹ Konversationen“ (Vollbild): Auf dem Desktop wird
+  // „geschlossen“ gemerkt – die Liste nimmt die volle Breite ein, bis eine
+  // Zeile geklickt wird; eine Konversation aus der Adresse verschwindet
+  // daraus wie bisher. Auch ein per Link offener Verlauf ist dann zu (K07).
+  const closePanel = useCallback(() => {
+    setLinkKeepsOpen(false);
+    if (wide) rememberPanel(false);
+    if (linkedChatId !== null) place.closeConversation();
+  }, [wide, rememberPanel, linkedChatId, place]);
 
   // Blättert das Panel (vorherige/nächste), folgt die Liste der markierten
   // Zeile; ein Klick in die Liste verschiebt sie nicht (AK-4). Gesetzt nur,
@@ -597,18 +851,44 @@ export default function ConversationList({
       if (!loading && !loadingMore) loadMore();
     }
   };
+  // KIE-575, AK-6: ↑/↓ blättern auf dem Desktop auch ohne vorherigen Klick –
+  // direkt nach dem Öffnen der Seite steht der Fokus auf <body>, und niemand
+  // nimmt die Pfeiltasten (arrowNavigationAllowed: auch im Kopf des Panels,
+  // nicht auf Zeilen, in Eingaben, im Menü, im Verlauf – ein Klick in seinen
+  // Text setzt den Fokus dorthin – und nie bei offener Rückfrage). Mit
+  // Umschalt-, Alt-, Strg- oder Befehlstaste nicht (arrowStep, Review
+  // 7.22-rc12 K01). Der Fokus bleibt, wo er ist (kein Fokusdiebstahl); die
+  // gewählte Zeile kommt über openFollowing in der Spalte in Sicht.
+  const navigateRef = useRef(navigate);
+  useLayoutEffect(() => {
+    navigateRef.current = navigate;
+  });
+  useEffect(() => {
+    if (!wide || chatId === null || typeof window === "undefined") return;
+    function handleKeyDown(event) {
+      if (event.defaultPrevented) return;
+      const step = arrowStep(event);
+      if (step === 0) return;
+      if (!arrowNavigationAllowed(document)) return;
+      event.preventDefault();
+      navigateRef.current(step);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [wide, chatId]);
 
   // Per Link (Adresse beim Öffnen der Seite) geöffnet und (noch) nicht unter
-  // den geladenen Konversationen: nachladen, bis sie gefunden ist – bis zu
-  // LINK_SEARCH_ROWS Zeilen. Nur im Zuschnitt, mit dem die Seite geöffnet
-  // wurde: Wechselt bei offenem Panel Filter oder Suche, lädt die Liste
-  // nichts nach, der Hinweis erscheint gleich (Fixliste 2, R5). Liegt die
+  // den geladenen Konversationen: nachladen, bis sie gefunden ist – im
+  // Zuschnitt, mit dem die Seite geöffnet wurde, bis zu LINK_SEARCH_ROWS
+  // Zeilen; auf dem Desktop nach einem Wechsel des Zuschnitts (siehe
+  // linkedIn unten) nur bis CHANGE_SEARCH_ROWS (E19, K46). Im Vollbild gibt
+  // es bei offenem Panel keinen Wechsel (Fixliste 2, R5). Liegt die
   // Konversation außerhalb des Zeitraums, steht sie nie in der Liste. Der
   // Stand der Suche folgt allein aus der Liste (Fixliste 3, C4): Scheitert
   // ein Nachladen, hält sie an und der Hinweis sagt es; gelingt später ein
   // Nachladen (etwa „Weitere laden“), verschwindet er wieder.
   const [linkScope] = useState(() =>
-    chatId !== null ? { chatId, scope } : null
+    linkedChatId !== null ? { chatId: linkedChatId, scope } : null
   );
   const fromLink =
     linkScope !== null &&
@@ -619,7 +899,7 @@ export default function ConversationList({
   // Ring. Schließen oder Blättern beendet das – öffnet der Nutzer dieselbe
   // Konversation danach per Klick oder Tastatur, gilt sie nicht mehr als
   // per Link geöffnet.
-  const [linkOpening, setLinkOpening] = useState(chatId !== null);
+  const [linkOpening, setLinkOpening] = useState(linkedChatId !== null);
   if (linkOpening && chatId !== linkScope?.chatId) setLinkOpening(false);
   const notListed =
     chatId !== null &&
@@ -629,10 +909,100 @@ export default function ConversationList({
     !loadedKey.outside &&
     !loading &&
     !failed;
+  // Review 7.22-rc12, K02: Der Zuschnitt, in dem die Konversation aus der
+  // Adresse zuletzt in der Liste stand – geöffnet aus der Liste (Klick,
+  // Pfeiltasten, Link beim Öffnen der Seite) oder nach einem Wechsel darin
+  // gefunden (found). Nach einem echten Wechsel von Widget, Zeitraum,
+  // Filter, Säule oder Suche (scopeChanged) sucht die Liste sie wie beim
+  // Link, aber nur bis CHANGE_SEARCH_ROWS Zeilen (E19, K46), statt sie
+  // schon zu verwerfen, wenn sie nicht auf der ersten Seite steht. Ohne
+  // Wechsel (etwa die Liste lädt nach dem Löschen neu) fällt sie nie aus
+  // der Adresse.
+  const [linkedIn, setLinkedIn] = useState(() => ({
+    chatId: linkedChatId,
+    scope,
+    found: false,
+  }));
+  if (linkedIn.chatId !== linkedChatId)
+    setLinkedIn({ chatId: linkedChatId, scope, found: false });
+  else if (
+    linkedChatId !== null &&
+    linkedIn.scope !== scope &&
+    !loading &&
+    currentIndex >= 0
+  )
+    setLinkedIn({ chatId: linkedChatId, scope, found: true });
+  const scopeChanged =
+    linkedChatId !== null &&
+    linkedIn.chatId === linkedChatId &&
+    linkedIn.scope !== scope;
+  const searchAfterChange = wide && scopeChanged && !fromLink;
+  // Beim Link bis LINK_SEARCH_ROWS, nach einem Wechsel nur bis
+  // CHANGE_SEARCH_ROWS (E19): Steht sie dort nicht, gilt sie als nicht mehr
+  // in der Liste (staleLink unten), statt nach jedem Wechsel bis zu 500
+  // Zeilen nachzuladen (Review 7.22-rc15, K46).
+  const searchRows = fromLink ? LINK_SEARCH_ROWS : CHANGE_SEARCH_ROWS;
   const linkRows =
-    fromLink && notListed && items.length < LINK_SEARCH_ROWS
-      ? Math.min(LINK_SEARCH_ROWS, items.length + PAGE_MAX)
+    (fromLink || searchAfterChange) && notListed && items.length < searchRows
+      ? Math.min(searchRows, items.length + PAGE_MAX)
       : 0;
+
+  // Die scrollende Spalte der Zeilen (Desktop) und die Zeile mit dem
+  // Schlüssel darin in Sicht bringen – die Scrollposition der Spalte wird
+  // gerechnet (nearestScrollTop, ROW_SCROLL_MARGIN), nicht per
+  // scrollIntoView: Das scrollte auch die Seite, solange der Bereich noch
+  // nicht oben anlag (Fixliste 7.22-rc11, K11). Die Seite bewegt sich so
+  // nie.
+  const columnRef = useRef(null);
+  const endRef = useRef(null);
+  const rowRefs = useRef(new Map());
+  const showRowInColumn = useCallback((key) => {
+    const column = columnRef.current;
+    const row = key === null ? null : rowRefs.current.get(key);
+    if (!column || !row) return;
+    column.scrollTop = nearestScrollTop(column, row, ROW_SCROLL_MARGIN);
+  }, []);
+
+  // K15: Die Seite ist da (oder gescheitert) – wohin gehört der Fokus, der
+  // beim Nachladen auf „Weitere laden“ stand (request.focusWish)?
+  // - Hat der Nutzer ihn inzwischen woanders hingesetzt (Suchfeld, Panel,
+  //   eine Zeile), bleibt er dort (Review 7.22-rc12, K03).
+  // - Von selbst nachgeladen (Spaltenende, Link-Suche, Auffüllen): Er bleibt
+  //   auf dem Knopf; nur wenn der Knopf mit der letzten Seite verschwunden
+  //   ist, geht er auf die erste neue Zeile (K09: Tab auf den Knopf lud
+  //   sonst nach und zog den Fokus ohne Aktivierung weiter).
+  // - Klick oder Enter: per Tastatur auf die erste neue Zeile (in der
+  //   Spalte in Sicht, ohne die Seite zu scrollen); per Zeiger bleibt er auf
+  //   dem Knopf, außer der Knopf ist verschwunden.
+  // Ohne neue Zeile (nur Doppelte, Fehler) bleibt der Knopf da und behält
+  // den Fokus. Ausgewertet wird genau einmal je Anfrage, sobald ihre Seite
+  // da ist (list.requestId = request.id); fordert eine Kette im selben
+  // Durchgang schon die nächste Seite an, trägt diese ihren eigenen Wunsch
+  // (Review 7.22-rc15, C9: keine Abhängigkeit von der Reihenfolge der
+  // Effekte mehr).
+  const wishDone = useRef(0);
+  useEffect(() => {
+    const wish = request.focusWish;
+    if (!wish || loading || list.requestId !== request.id) return;
+    if (wishDone.current === request.id) return;
+    wishDone.current = request.id;
+    if (wish.scope !== scope) return;
+    const button = loadMoreRef.current;
+    const onButton = hasFocus(button);
+    if (!onButton && !focusLost(document)) return;
+    if (!wish.byHand && button) return;
+    if (onButton && !wish.keyboard) return;
+    const first = items[wish.rows];
+    if (!first) return;
+    const key = conversationKey(first);
+    const row = rowRefs.current.get(key);
+    if (!row) return;
+    // Im Vollbild-Modus (Tablet, Smartphone) scrollt die Seite zur
+    // fokussierten Zeile wie bei Tab; per Zeiger (Knopf verschwunden) ohne
+    // Scrollen, damit nichts springt
+    row.focus?.(wide || !wish.keyboard ? { preventScroll: true } : undefined);
+    if (wide && wish.keyboard) showRowInColumn(key);
+  }, [request, list.requestId, loading, items, scope, wide, showRowInColumn]);
 
   // Gemeinsames Nachladen (Fixliste 3, S3): „Nächste“ am Ende, Link-Suche
   // und Auffüllen nach dem Löschen sagen nur, wie viele Zeilen sie brauchen;
@@ -640,10 +1010,16 @@ export default function ConversationList({
   // überschreibt die eines anderen. Es hält an, wenn eine Seite keine neue
   // Zeile bringt (nur Doppelte, etwa nach Verschiebungen), ein Nachladen
   // scheitert oder AUTO_LOAD_ROUNDS Anfragen gestellt sind (Fixliste 3, C1).
+  // KIE-575, AK-5: Kommt auf dem Desktop das Ende der Spalte in Sicht,
+  // wünscht sich die Liste die nächste Seite (IntersectionObserver unten) –
+  // als Wunsch wie die anderen, über dasselbe Nachladen.
+  const [endWish, setEndWish] = useState(null);
+  if (endWish && endWish.scope !== scope) setEndWish(null);
   const wantedRows = Math.max(
     refill?.rows ?? 0,
     advanceAfter?.rows ?? 0,
-    linkRows
+    linkRows,
+    endWish?.rows ?? 0
   );
   const [autoRounds, setAutoRounds] = useState({ scope: null, count: 0 });
   const rounds = autoRounds.scope === scope ? autoRounds.count : 0;
@@ -669,6 +1045,64 @@ export default function ConversationList({
   const settled = (wish) =>
     !!wish && idle && (items.length >= wish.rows || stuck);
   if (settled(refill)) setRefill(null);
+  if (settled(endWish)) setEndWish(null);
+
+  // Automatisches Nachladen am Ende der Spalte (Desktop, KIE-575): Ein
+  // Beobachter am Ende der geladenen Zeilen (data-list-end), mit
+  // der Spalte als Rahmen. Kommt es in Sicht, kommt eine Seite dazu; der
+  // Beobachter wird mit jeder Seite neu angelegt und meldet den Stand
+  // (noch in Sicht: die nächste). Höchstens AUTO_LOAD_ROUNDS Seiten
+  // hintereinander – eine eigene Zählung, weil das gemeinsame Nachladen
+  // seine Zählung nach jedem erfüllten Wunsch zurücksetzt. Danach, nach
+  // einem Fehler und nach einer Seite ohne neue Zeile (stuck) bleibt der
+  // Knopf „Weitere laden“ als Rückfall; ein Klick darauf beginnt die Zählung
+  // von vorn.
+  const [endRounds, setEndRounds] = useState({ scope: null, count: 0 });
+  const endCount = endRounds.scope === scope ? endRounds.count : 0;
+  const watchEnd =
+    wide && hasMore && idle && !stuck && endCount < AUTO_LOAD_ROUNDS;
+  useEffect(() => {
+    if (!watchEnd || typeof IntersectionObserver === "undefined") return;
+    const sentinel = endRef.current;
+    const root = columnRef.current;
+    if (!sentinel || !root) return;
+    const rows = items.length + PAGE_SIZE;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setEndWish({ scope, rows });
+        setEndRounds((current) => ({
+          scope,
+          count: (current.scope === scope ? current.count : 0) + 1,
+        }));
+      },
+      { root }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [watchEnd, scope, items.length]);
+  const loadMoreByHand = (event) => {
+    // Nicht gesperrt während des Ladens (K15: disabled nähme den Fokus), ein
+    // zweiter Klick lädt aber nicht noch einmal
+    if (loadingMore) return;
+    setEndRounds({ scope, count: 0 });
+    // Der Wunsch des Klicks gilt (K15) und geht mit der Anfrage (C9). Ein
+    // Mausklick (detail ≥ 1) zählt als Zeiger, auch wenn der Knopf seinen
+    // Fokus vorher per Tab bekam und :focus-visible behält (rc12 K09 lässt
+    // ihn beim Nachladen von selbst dort); Enter und Leertaste lösen click
+    // mit detail 0 aus – dieselbe Regel wie bei „Zur Übersicht“
+    // (keyboardActivation, Review 7.22-rc15, C11).
+    const button = loadMoreRef.current;
+    const wish = hasFocus(button)
+      ? {
+          scope,
+          rows: list.items.length,
+          keyboard: focusVisible(button) && keyboardActivation(event),
+          byHand: true,
+        }
+      : null;
+    loadMore(PAGE_SIZE, wish);
+  };
   // „Nächste“ am Ende, und das Nachladen scheiterte: Das Panel sagt es
   // (Fixliste 5, C2) – die Meldung am Knopf „Weitere Konversationen laden“
   // liegt nach dem Blättern oft unter dem Fensterrand. Ein erneuter Klick auf
@@ -712,23 +1146,34 @@ export default function ConversationList({
         : null;
 
   // Die markierte Zeile bleibt im Blick, wenn das Panel blättert (nur, wenn
-  // sie neben dem Panel steht: ab lg).
-  const rowRefs = useRef(new Map());
+  // sie neben dem Panel steht: auf dem Desktop). Die Zeilen liegen in der
+  // scrollenden Spalte – nur die Spalte bewegt sich (showRowInColumn), die
+  // Seite nie.
   const currentKey = currentRow ? conversationKey(currentRow) : null;
   useEffect(() => {
     if (!currentKey || !followCurrent.current) return;
     followCurrent.current = false;
-    if (isWide())
-      rowRefs.current.get(currentKey)?.scrollIntoView?.({ block: "nearest" });
-  }, [currentKey]);
+    if (wide) showRowInColumn(currentKey);
+  }, [currentKey, wide, showRowInColumn]);
+
+  // Nach einem Wechsel des Zuschnitts in der neuen Liste gefunden (K02):
+  // Die Zeile kommt in der Spalte in Sicht – die Liste beginnt nach dem
+  // Wechsel wieder oben.
+  const foundAfterChange = linkedIn.found;
+  useEffect(() => {
+    if (!foundAfterChange || !currentKey || !wide) return;
+    showRowInColumn(currentKey);
+  }, [foundAfterChange, currentKey, wide, showRowInColumn]);
 
   // Per Link geöffnet: Sobald die Zeile in der Liste markiert ist – auch
-  // erst nach dem Nachladen der Link-Suche –, sagt die Liste es der Ansicht.
-  // Die bringt sie in Sicht, solange ihr Sprung zur Liste hält (Fixliste 6,
-  // K5).
+  // erst nach dem Nachladen der Link-Suche –, kommt sie auf dem Desktop in
+  // der Spalte in Sicht (KIE-575: die Spalte scrollt selbst), und die Liste
+  // sagt es der Ansicht. Die hält ihren Sprung zur Liste (Fixliste 6, K5).
   useEffect(() => {
-    if (fromLink && currentKey) onLinkedRowShown();
-  }, [fromLink, currentKey, onLinkedRowShown]);
+    if (!fromLink || !currentKey) return;
+    if (wide) showRowInColumn(currentKey);
+    onLinkedRowShown();
+  }, [fromLink, currentKey, onLinkedRowShown, wide, showRowInColumn]);
   // Solange die per Link geöffnete Konversation noch gesucht wird – die
   // Liste oder das Panel lädt, die Link-Suche lädt Folgeseiten –, hält die
   // Ansicht ihren Sprung, auch wenn eine Seite lange braucht (Fixliste 8,
@@ -742,6 +1187,35 @@ export default function ConversationList({
   useEffect(() => {
     onLinkSearchChange(linkPending);
   }, [linkPending, onLinkSearchChange]);
+
+  // KIE-575, Desktop: Wechsel von Widget, Zeitraum, Filter, Säule oder
+  // Suche bei offenem Verlauf – steht die Konversation aus der Adresse
+  // nicht mehr in der Liste, fällt sie aus der Adresse (ersetzt, kein
+  // Eintrag im Verlauf des Browsers); vorgewählt ist dann die erste Zeile
+  // der neuen Liste. „Nicht mehr in der Liste“ heißt (Review 7.22-rc12,
+  // K02): Ihr Verlauf ist geladen und sie liegt außerhalb des Zeitraums,
+  // oder die Suche nach dem Wechsel (linkRows, wie beim Link) ist am Ende,
+  // ohne sie zu finden – nicht schon, wenn sie nicht auf der ersten Seite
+  // steht. Nie ohne echten Wechsel (scopeChanged; etwa während die Liste
+  // nach einem gescheiterten Löschen neu lädt), nie während des Ladens oder
+  // Auffüllens und nicht, wenn ein Nachladen scheiterte (dann sagt der
+  // Hinweis im Kopf, dass die Liste nicht weiter geladen werden konnte).
+  // Nicht beim Öffnen per Link (fromLink): Ein Link öffnet immer, auch
+  // außerhalb des Zeitraums – und nicht im Vollbild.
+  const staleLink =
+    searchAfterChange &&
+    !loading &&
+    !failed &&
+    !loadingMore &&
+    !moreFailed &&
+    !refill &&
+    currentIndex < 0 &&
+    loadedKey.chatId === linkedChatId &&
+    (loadedKey.outside || (!!loadedKey.key && !searchingLink));
+  const unlinkConversation = place.unlinkConversation;
+  useEffect(() => {
+    if (staleLink) unlinkConversation();
+  }, [staleLink, unlinkConversation]);
 
   // Schließt das Panel, kehrt der Fokus auf die Zeile zurück (statt im
   // Nichts zu stehen) – ohne die Liste zu verschieben.
@@ -761,13 +1235,19 @@ export default function ConversationList({
   }, [chatId]);
 
   // AK-18: ↑/↓ in der Liste – nur, wenn der Fokus auf einer Zeile steht.
+  // Auf dem Desktop bekommt die Zeile den Fokus ohne Scrollen der Seite, die
+  // Spalte folgt ihr (K11); sonst wie heute (die Seite folgt dem Fokus).
   const handleRowKeyDown = (event, row) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const index = positions.get(row.first_chat_id) ?? -1;
     const target = index + (event.key === "ArrowDown" ? 1 : -1);
     if (index < 0 || target < 0 || target >= items.length) return;
     event.preventDefault();
-    rowRefs.current.get(conversationKey(items[target]))?.focus?.();
+    const key = conversationKey(items[target]);
+    if (wide) {
+      rowRefs.current.get(key)?.focus?.({ preventScroll: true });
+      showRowInColumn(key);
+    } else rowRefs.current.get(key)?.focus?.();
     if (chatId !== null) openRow(items[target]);
   };
   // Stabile Handler für die Zeilen (Fixliste 7, F32): ConversationRow ist
@@ -788,8 +1268,31 @@ export default function ConversationList({
     else rowRefs.current.delete(key);
   }, []);
 
-  const handleDeleted = ({ deleted }) => {
-    if (deleted) place.closeConversation();
+  // Gelöscht: Eine Konversation aus der Adresse verschwindet daraus; das
+  // Gelöschte wird bis zur neuen Liste nicht wieder vorgewählt (K06, K45) –
+  // auf dem Desktop zeigt der Verlauf gleich die nächste. visitor: alle
+  // Konversationen des Besuchers (seiner Sitzung) sind gelöscht. Kennung,
+  // Zeile und Schlüssel stammen aus dem Stand beim Klick auf „Löschen“: Sie
+  // beschreiben das Gelöschte. Gebunden an die neueste Anfrage von jetzt
+  // (latestRequestId, nach dem await), nicht an den Stand der Liste.
+  const handleDeleted = ({ deleted, visitor = false }) => {
+    if (deleted) {
+      if (chatId !== null) {
+        const key = currentRow
+          ? conversationKey(currentRow)
+          : loadedKey.chatId === chatId
+            ? loadedKey.key
+            : null;
+        setDeletion({
+          afterRequest: latestRequestId.current,
+          chatId,
+          key,
+          sessionId: currentRow?.session_id ?? sessionOfKey(key),
+          visitor: !!visitor,
+        });
+      }
+      if (linkedChatId !== null) place.closeConversation();
+    }
     reloadList();
   };
 
@@ -842,6 +1345,77 @@ export default function ConversationList({
 
   const today = formatDateForInput(new Date());
   const groups = useMemo(() => groupByLastMessageDay(items), [items]);
+  // K2 (Nachtrag KIE-560): Trägt eine geladene Zeile Bewertungsmarken, ist
+  // deren Spalte in allen Zeilen gleich breit (RATING_COLUMN) – die Fragen
+  // enden dann überall an derselben Stelle. Ohne jede Bewertung bleibt die
+  // Spalte leer, und die Fragen nutzen die Breite.
+  // Der Server sagt das für die ganze Auswahl (hasRatings): So steht die
+  // Spalte schon auf der ersten Seite und springt beim Nachladen nicht
+  // (Review 7.22-rc2, K04). Die geladenen Zeilen gelten zusätzlich.
+  const listHasRatings = !loading && list.hasRatings;
+  const ratingColumn = useMemo(
+    () =>
+      listHasRatings ||
+      items.some((item) => item.positive_count > 0 || item.negative_count > 0),
+    [listHasRatings, items]
+  );
+
+  // E15 (Fixliste 7.22-rc13): Steht der Verlauf auf dem Desktop neben der
+  // Liste, ist deren Spalte 44 % breit – bei 1.280 px rund 400 px, bei
+  // 1.920 px rund 680 px. Der Kopf nimmt dann die kompakte Form wie auf dem
+  // Tablet: Werkzeugleiste in eigener Zeile, kurze Filternamen, „Exportieren“
+  // ohne Pfeil; ohne Abstand zum Benutzermenü, das dann über dem Verlauf
+  // liegt. Sonst lief die Leiste unter den Verlauf. Hat die Liste allein
+  // die Breite (Verlauf geschlossen), gilt die volle Form: der Kopf ab xl,
+  // die Leiste ohne Button ab xl, mit „Zur Übersicht ↑“ ab 1.680 px (K47,
+  // FULL_TOOLBAR). xl: ist im Kopf eine Breitenstufe (Platz für die Leiste
+  // neben der Überschrift), nicht die Geräteklasse; die heißt desktop:
+  // (Review 7.22-rc15, C10).
+  const compactHeader = wide && !!embedId && (chatId !== null || panelShown);
+  const wideHeader = (className) => (compactHeader ? "" : className);
+  // K47: die breite Form der Leiste erst ab 1.680 px, wenn „Zur Übersicht ↑“
+  // darin steht (FULL_TOOLBAR)
+  const toolbar = onJumpToOverview
+    ? FULL_TOOLBAR.withOverview
+    : FULL_TOOLBAR.plain;
+  // K47 (Fixliste 7.22-rc16), kompakter Kopf mit „Zur Übersicht ↑“ in der
+  // Zeile der Überschrift: Reicht der Platz neben Überschrift und Button
+  // nicht für „X von Y einsehbar“ (mit Filter; mit kurzen Zahlen reicht er
+  // ab etwa 1.290 px, KIE-575 B64), bricht die Zahl in sich auf zwei Zeilen
+  // um, neben der Überschrift
+  // (zwei Zeilen zu 20 px = Höhe der Überschrift, 40 px). Vorher brach sie
+  // als Ganzes unter die Überschrift, und der Button machte den Kopf 22 px
+  // höher. Höchstens zwei Zeilen (line-clamp-2, Review 7.22-rc17, K64):
+  // Mit fünfstelligen Zahlen und einer klassischen Scrollleiste (17 px)
+  // brauchte die Zahl bei 1.280 px drei Zeilen (gemessen, ab 1.288 px
+  // zwei); dann endet die zweite Zeile mit „…“, die Zahlen bleiben
+  // sichtbar, der volle Text steht weiter im Element (Screenreader). Ohne
+  // Button und in voller Form bleibt es beim Umbruch unter die Überschrift
+  // (Fixliste 3, V1).
+  const countBeside = compactHeader && !!onJumpToOverview;
+
+  // „Zur Übersicht ↑“ (Fixliste 7.22-rc14, K21): zurück an den Anfang der
+  // Ansicht, nur auf dem Desktop (hidden desktop:inline-flex; auf Tablet und
+  // Smartphone scrollt die Seite ohnehin normal). Mit dem Kopf in voller
+  // Form (Verlauf zu) rechts neben „Exportieren“. Kompakt (Verlauf daneben)
+  // füllen Suche, Filter und Export die Zeile der Werkzeugleiste schon bis
+  // rund 2.000 px Fensterbreite; der Button stünde dort in einer eigenen
+  // Zeile und nähme der Liste rund 50 px. Er steht dann rechts neben dem
+  // Titelblock in der Zeile der Überschrift (order-1 wie der Titelblock,
+  // die Leiste folgt in eigener Zeile); reicht der Platz nicht, bricht
+  // „N einsehbar“ neben der Überschrift in sich um (countBeside, K47), der
+  // Button bleibt oben.
+  const overviewButton = onJumpToOverview ? (
+    <button
+      type="button"
+      data-jump-to-overview=""
+      onClick={onJumpToOverview}
+      className={`hidden h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg px-3 text-sm text-theme-text-primary transition-colors hover:border-white/20 light:border-gray-200 desktop:inline-flex ${compactHeader ? "order-1" : ""} ${FOCUS_RING}`}
+    >
+      {t("embed-analytics.list.to-overview")}
+      <span aria-hidden="true"> ↑</span>
+    </button>
+  ) : null;
 
   // Leerzustand mit Suche: nennt auch die übrigen Filter (Bewertung, Säule).
   const otherFilters = [feedbackLabel, bucket?.label]
@@ -856,8 +1430,14 @@ export default function ConversationList({
       : t("embed-analytics.search.empty", { term: search });
 
   return (
-    <div>
-      {/* Kopfzeile – immer sichtbar, auch im Lade- und Leer-Zustand.
+    // Auf dem Desktop (desktop:, E15) ein Arbeitsbereich mit fester Höhe
+    // (KIE-575, WORKSPACE): links die Spalte der Liste (Kopf fest, Zeilen
+    // scrollen), rechts der Verlauf (Panel) bzw. sein Platzhalter, beide so
+    // hoch wie der Bereich. Auf Tablet und Smartphone wie bisher: Kopf,
+    // Liste, die Seite scrollt; das Panel ist ein Vollbild.
+    <div data-conversation-area="" className={WORKSPACE.area}>
+      <div data-list-column="" className={WORKSPACE.column}>
+        {/* Kopfzeile – immer sichtbar, auch im Lade- und Leer-Zustand.
           Überschrift mit „N einsehbar“ bzw. „X von Y einsehbar“ daneben
           (Fixliste 3, V1); reicht der Platz nicht, bricht die Zahl unter
           die Überschrift, nicht die Werkzeugleiste um. Die Werkzeugleiste
@@ -871,46 +1451,50 @@ export default function ConversationList({
           Filter gesetzt ist. Unter sm: „Exportieren“ als Symbol neben der
           Überschrift, Suche und Bewertungsfilter je in voller Breite
           darunter – nichts überlappt (B1). */}
-      <div data-list-header="" className="mb-3 flex flex-col gap-3">
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-          {/* Ab xl teilen sich Titelblock und Leiste den freien Platz einer
+        <div
+          data-list-header=""
+          className="mb-3 flex flex-col gap-3 desktop:shrink-0"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+            {/* Ab xl teilen sich Titelblock und Leiste den freien Platz einer
               gemeinsamen Zeile fast ganz zugunsten des Titels (grow 999 zu 1):
               Die Suche bleibt dort 240 px, „N einsehbar“ neben der
               Überschrift. Bricht die Leiste unter die Überschrift (1280 px),
               ist sie allein in ihrer Zeile und füllt sie – wie von sm bis xl
               (Fixliste 5, S4). */}
-          <div
-            data-list-title=""
-            className="order-1 flex min-w-0 flex-1 basis-40 flex-wrap content-start items-center gap-x-3 gap-y-0.5 xl:grow-[999]"
-          >
-            <h3
-              ref={headingRef}
-              tabIndex={-1}
-              data-list-heading=""
-              className="flex min-h-11 items-center text-base font-semibold text-theme-text-primary sm:min-h-10"
+            <div
+              data-list-title=""
+              className={`order-1 flex min-w-0 flex-1 basis-40 ${countBeside ? "flex-nowrap" : "flex-wrap"} content-start items-center gap-x-3 gap-y-0.5 ${wideHeader("xl:grow-[999]")}`}
             >
-              {t("embed-analytics.list.title")}
-            </h3>
-            {!loading && !failed && (
-              <span
-                data-viewable-count=""
-                title={t("embed-analytics.list.viewable-hint")}
-                className={`whitespace-nowrap text-sm ${MUTED}`}
+              <h3
+                ref={headingRef}
+                tabIndex={-1}
+                data-list-heading=""
+                className={`flex min-h-11 items-center text-base font-semibold text-theme-text-primary sm:min-h-10 ${countBeside ? "shrink-0" : ""}`}
               >
-                {outOf === null
-                  ? t("embed-analytics.list.viewable", {
-                      count: totalCount,
-                      formatted: formatNumber(totalCount),
-                    })
-                  : t("embed-analytics.list.viewable-of", {
-                      count: totalCount,
-                      formatted: formatNumber(totalCount),
-                      total: formatNumber(outOf),
-                    })}
-              </span>
-            )}
-          </div>
-          {/* unter sm „contents“: Die Teile ordnen sich in die Kopfzeile ein.
+                {t("embed-analytics.list.title")}
+              </h3>
+              {!loading && !failed && (
+                <span
+                  data-viewable-count=""
+                  title={t("embed-analytics.list.viewable-hint")}
+                  className={`${countBeside ? "line-clamp-2 min-w-0" : "whitespace-nowrap"} text-sm ${MUTED}`}
+                >
+                  {outOf === null
+                    ? t("embed-analytics.list.viewable", {
+                        count: totalCount,
+                        formatted: formatNumber(totalCount),
+                      })
+                    : t("embed-analytics.list.viewable-of", {
+                        count: totalCount,
+                        formatted: formatNumber(totalCount),
+                        total: formatNumber(outOf),
+                      })}
+                </span>
+              )}
+            </div>
+            {compactHeader && overviewButton}
+            {/* unter sm „contents“: Die Teile ordnen sich in die Kopfzeile ein.
               Von sm bis xl steht die Leiste in einer eigenen Zeile: Suche so
               breit wie möglich (mindestens 240 px, Basis 0 – nicht die volle
               Zeile, Fixliste 4 V5), Bewertungsfilter mit kurzen Namen und
@@ -925,140 +1509,147 @@ export default function ConversationList({
               keinen nennenswerten Zuwachs (Titel grow 999); bricht sie um,
               füllt sie ihre Zeile (xl:grow), und die Suche wächst – links
               bündig wie von sm bis xl (Fixliste 5, S4). */}
-          <div
-            data-list-tools=""
-            className={`contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 xl:grow xl:basis-auto ${AVATAR_CLEARANCE.toolbarEnd}`}
-          >
-            <SearchField
-              value={place.search}
-              onSearch={setPlaceSearch}
-              inputRef={searchInputRef}
-              className="order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 xl:w-60 xl:flex-auto"
-            />
             <div
-              data-list-actions=""
-              className="contents sm:flex sm:items-center sm:gap-2"
+              data-list-tools=""
+              className={`contents sm:order-2 sm:ml-auto sm:flex sm:basis-full sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 ${wideHeader(`xl:grow xl:basis-auto ${AVATAR_CLEARANCE.toolbarEnd}`)}`}
             >
+              <SearchField
+                value={place.search}
+                onSearch={setPlaceSearch}
+                inputRef={searchInputRef}
+                className={`order-3 basis-full sm:order-none sm:min-w-[240px] sm:flex-1 ${wideHeader("xl:w-60 xl:flex-auto")}`}
+              />
               <div
-                role="group"
-                data-feedback-filters=""
-                aria-label={t("embed-analytics.rows.filter-group")}
-                className="order-4 flex min-w-0 basis-full gap-0.5 rounded-lg border border-white/10 bg-theme-settings-input-bg p-0.5 sm:order-none sm:basis-auto light:border-gray-200"
+                data-list-actions=""
+                className="contents sm:flex sm:items-center sm:gap-2"
               >
-                <button
-                  type="button"
-                  ref={allFilterRef}
-                  aria-pressed={feedbackFilter === "all"}
-                  aria-label={t("embed-analytics.rows.all-hint")}
-                  title={t("embed-analytics.rows.all-hint")}
-                  onClick={() => onFeedbackFilterChange("all")}
-                  className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${feedbackFilter === "all" ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+                <div
+                  role="group"
+                  data-feedback-filters=""
+                  aria-label={t("embed-analytics.rows.filter-group")}
+                  className="order-4 flex min-w-0 basis-full gap-0.5 rounded-lg border border-white/10 bg-theme-settings-input-bg p-0.5 sm:order-none sm:basis-auto light:border-gray-200"
                 >
-                  <StableLabel text={t("embed-analytics.rows.all")} />
-                </button>
-                {FEEDBACK_FILTERS.map(({ mode, Icon, labelKey }) => {
-                  const active = feedbackFilter === mode;
-                  return (
-                    <button
-                      key={mode}
-                      type="button"
-                      aria-pressed={active}
-                      // Texte neben labelKey: …-hint (Tooltip, Name für
-                      // Screenreader) und …-short (schmale Fenster).
-                      aria-label={t(`${labelKey}-hint`)}
-                      title={t(`${labelKey}-hint`)}
-                      onClick={() => toggleFilter(mode)}
-                      className={`${SEGMENT_CLASS} flex-1 justify-center sm:flex-none ${active ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
-                    >
-                      {/* Ein Daumen je Schaltfläche, in der Textfarbe; gefüllt,
+                  <button
+                    type="button"
+                    ref={allFilterRef}
+                    aria-pressed={feedbackFilter === "all"}
+                    aria-label={t("embed-analytics.rows.all-hint")}
+                    title={t("embed-analytics.rows.all-hint")}
+                    onClick={() => onFeedbackFilterChange("all")}
+                    className={`${SEGMENT_CLASS} ${wideHeader(toolbar.segment)} flex-1 justify-center sm:flex-none ${feedbackFilter === "all" ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+                  >
+                    <StableLabel text={t("embed-analytics.rows.all")} />
+                  </button>
+                  {FEEDBACK_FILTERS.map(({ mode, Icon, labelKey }) => {
+                    const active = feedbackFilter === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={active}
+                        // Texte neben labelKey: …-hint (Tooltip, Name für
+                        // Screenreader) und …-short (schmale Fenster).
+                        aria-label={t(`${labelKey}-hint`)}
+                        title={t(`${labelKey}-hint`)}
+                        onClick={() => toggleFilter(mode)}
+                        className={`${SEGMENT_CLASS} ${wideHeader(toolbar.segment)} flex-1 justify-center sm:flex-none ${active ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}
+                      >
+                        {/* Ein Daumen je Schaltfläche, in der Textfarbe; gefüllt,
                           wenn der Filter gesetzt ist – wie in der
                           Chat-Oberfläche. */}
-                      <Icon
-                        size={15}
-                        weight={active ? "fill" : "regular"}
-                        aria-hidden="true"
-                      />
-                      {/* Bis xl der kurze Text, damit Suche, Filter und
-                          Export in eine Zeile passen (V7). */}
-                      <StableLabel
-                        text={t(`${labelKey}-short`)}
-                        className="xl:hidden"
-                      />
-                      <StableLabel
-                        text={t(labelKey)}
-                        className="hidden xl:inline-flex"
-                      />
-                    </button>
-                  );
-                })}
+                        <Icon
+                          size={15}
+                          weight={active ? "fill" : "regular"}
+                          aria-hidden="true"
+                        />
+                        {/* Bis xl der kurze Text, damit Suche, Filter und
+                          Export in eine Zeile passen (V7); kompakt (Verlauf
+                          daneben, E15) immer der kurze; mit „Zur
+                          Übersicht ↑“ in der Leiste bis 1.680 px (K47). */}
+                        <StableLabel
+                          text={t(`${labelKey}-short`)}
+                          className={wideHeader(toolbar.short)}
+                        />
+                        {!compactHeader && (
+                          <StableLabel
+                            text={t(labelKey)}
+                            className={toolbar.long}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* KIE-538: Export der Auswahl, die die Liste gerade zeigt */}
+                <ExportMenu
+                  embedId={embedId}
+                  selection={selection}
+                  disabled={loading || failed || totalCount === 0}
+                  compact={compactHeader}
+                  arrowClassName={toolbar.exportArrow}
+                  wrapperClassName="order-2 sm:order-none"
+                  className={`flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-2.5 ${wideHeader(toolbar.exportButton)} light:border-gray-200`}
+                />
               </div>
-              {/* KIE-538: Export der Auswahl, die die Liste gerade zeigt */}
-              <ExportMenu
-                embedId={embedId}
-                selection={selection}
-                disabled={loading || failed || totalCount === 0}
-                wrapperClassName="order-2 sm:order-none"
-                className="flex h-11 w-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/10 bg-theme-settings-input-bg text-sm text-theme-text-primary transition-colors hover:border-white/20 sm:h-10 sm:w-auto sm:px-2.5 xl:px-3.5 light:border-gray-200"
-              />
+              {!compactHeader && overviewButton}
             </div>
           </div>
-        </div>
-        {/* Filtermarkierungen – eine eigene Zeile nur, wenn ein Filter
+          {/* Filtermarkierungen – eine eigene Zeile nur, wenn ein Filter
             gesetzt ist. gap-y 18 px: Die 44-px-Trefferflächen der ✕ ragen je
             9 px über ihre Markierung hinaus und überlappen sich so auch bei
             umbrochenen Markierungen nicht (Fixliste 3, S1). */}
-        {(feedbackActive || bucket || search) && (
-          <div
-            data-list-status=""
-            className="flex flex-wrap items-center gap-x-3 gap-y-[18px]"
-          >
-            {feedbackActive && (
-              <FilterMark
-                data-feedback-filter-mark={feedbackFilter}
-                label={t("embed-analytics.list.only-feedback", {
-                  filter: feedbackLabel,
-                })}
-                clearLabel={t("embed-analytics.list.clear-feedback", {
-                  filter: feedbackLabel,
-                })}
-                onClear={() => onFeedbackFilterChange("all")}
-                focusAfter={() => allFilterRef.current?.focus?.()}
-              />
-            )}
-            {bucket && (
-              <FilterMark
-                data-bucket-filter=""
-                label={t("embed-analytics.list.only-bucket", {
-                  period: bucket.label,
-                })}
-                clearLabel={t("embed-analytics.list.clear-bucket", {
-                  period: bucket.label,
-                })}
-                onClear={onClearBucket}
-                focusAfter={() =>
-                  headingRef?.current?.focus?.({ preventScroll: true })
-                }
-              />
-            )}
-            {search && (
-              <FilterMark
-                data-search-filter-mark=""
-                label={t("embed-analytics.search.mark", { term: search })}
-                clearLabel={t("embed-analytics.search.clear", { term: search })}
-                onClear={clearSearch}
-                focusAfter={() => searchInputRef.current?.focus?.()}
-              />
-            )}
-          </div>
-        )}
-      </div>
+          {(feedbackActive || bucket || search) && (
+            <div
+              data-list-status=""
+              className="flex flex-wrap items-center gap-x-3 gap-y-[18px]"
+            >
+              {feedbackActive && (
+                <FilterMark
+                  data-feedback-filter-mark={feedbackFilter}
+                  label={t("embed-analytics.list.only-feedback", {
+                    filter: feedbackLabel,
+                  })}
+                  clearLabel={t("embed-analytics.list.clear-feedback", {
+                    filter: feedbackLabel,
+                  })}
+                  onClear={() => onFeedbackFilterChange("all")}
+                  focusAfter={() => allFilterRef.current?.focus?.()}
+                />
+              )}
+              {bucket && (
+                <FilterMark
+                  data-bucket-filter=""
+                  label={t("embed-analytics.list.only-bucket", {
+                    period: bucket.label,
+                  })}
+                  clearLabel={t("embed-analytics.list.clear-bucket", {
+                    period: bucket.label,
+                  })}
+                  onClear={onClearBucket}
+                  focusAfter={() =>
+                    headingRef?.current?.focus?.({ preventScroll: true })
+                  }
+                />
+              )}
+              {search && (
+                <FilterMark
+                  data-search-filter-mark=""
+                  label={t("embed-analytics.search.mark", { term: search })}
+                  clearLabel={t("embed-analytics.search.clear", {
+                    term: search,
+                  })}
+                  onClear={clearSearch}
+                  focusAfter={() => searchInputRef.current?.focus?.()}
+                />
+              )}
+            </div>
+          )}
+        </div>
 
-      {/* Ab lg mindestens so hoch wie das Panel werden kann: So lässt sich
-          die Seite immer so weit scrollen, dass das Panel ganz zu sehen ist –
-          auch bei wenigen Treffern (Fixliste 3, V8) –, und die Seite
-          schrumpft nicht, wenn eine Suche die Liste verkürzt. */}
-      <div className="flex items-start gap-4 lg:min-h-[calc(100vh-112px)]">
-        <div className="min-w-0 flex-1">
+        {/* Der scrollende Teil der Spalte (Desktop): Zeilen, „Weitere
+          laden“, Hinweise. Rahmen des Beobachters für das Nachladen am
+          Ende. */}
+        <div ref={columnRef} data-list-scroll="" className={WORKSPACE.scroller}>
           {loading ? (
             <div className="text-white">{t("embed-analytics.loading")}</div>
           ) : failed ? (
@@ -1126,6 +1717,8 @@ export default function ConversationList({
                           <ConversationRow
                             conversation={conversation}
                             today={today}
+                            isNew={isNewConversation(conversation, now)}
+                            ratingColumn={ratingColumn}
                             selected={
                               positions.get(conversation.first_chat_id) ===
                               currentIndex
@@ -1140,6 +1733,14 @@ export default function ConversationList({
                   </section>
                 );
               })}
+              {/* Ende der geladenen Zeilen: Kommt es auf dem Desktop in der
+                  Spalte in Sicht, lädt die Liste von selbst nach (AK-5). Nur
+                  dort und vor der Leiste mit „Weitere laden“, ohne Höhe: In
+                  der umbrechenden Leiste machte der Anker sie bei jeder
+                  Breite 8 px höher (Review 7.22-rc12, K13). */}
+              {hasMore && wide && (
+                <div ref={endRef} data-list-end="" aria-hidden="true" />
+              )}
               {hasMore && (
                 <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border-t border-white/5 px-4 py-3 light:border-gray-100">
                   {/* Nachladen gescheitert: die Meldung hier am Knopf, der
@@ -1153,12 +1754,21 @@ export default function ConversationList({
                       {t("embed-analytics.rows.load-more-failed")}
                     </span>
                   )}
+                  {/* Während des Ladens nicht gesperrt (disabled), sondern
+                      aria-disabled: Ein gesperrter Knopf verlöre den Fokus an
+                      <body> (K15); der Klick ist derweil wirkungslos. Ohne
+                      Hover-Ton, auch im hellen Theme: Dort gewann sonst
+                      light:hover:bg-black/5 (gleiche Spezifität, später im
+                      CSS), und der Knopf wirkte bedienbar (Review
+                      7.22-rc12, K12). */}
                   <button
                     type="button"
+                    ref={loadMoreRef}
                     data-load-more=""
-                    onClick={() => loadMore()}
-                    disabled={loadingMore}
-                    className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 disabled:opacity-60 sm:h-9 light:border-gray-200 light:hover:bg-black/5"
+                    onClick={loadMoreByHand}
+                    aria-disabled={loadingMore ? "true" : undefined}
+                    aria-busy={loadingMore ? "true" : undefined}
+                    className="h-11 rounded-lg border border-white/10 px-4 text-sm text-theme-text-primary transition-colors hover:bg-white/5 aria-disabled:cursor-default aria-disabled:opacity-60 aria-disabled:hover:bg-transparent sm:h-9 light:border-gray-200 light:hover:bg-black/5 light:aria-disabled:hover:bg-transparent"
                   >
                     {loadingMore
                       ? t("embed-analytics.rows.loading-more")
@@ -1197,33 +1807,57 @@ export default function ConversationList({
               </p>
             )}
         </div>
-
-        {chatId !== null && embedId && (
-          <ConversationDetail
-            embedId={embedId}
-            chatId={chatId}
-            row={currentRow}
-            search={search}
-            fromDay={fromDay}
-            toDay={toDay}
-            // Die Suche prüft die Zeilen im Zeitraum – mit Abschnitt
-            // (Säulenklick) die ganze Konversation (Fixliste 2, S7).
-            searchWholeConversation={!!bucket}
-            canPrevious={currentIndex > 0}
-            canNext={
-              currentIndex >= 0 && (currentIndex < items.length - 1 || hasMore)
-            }
-            navigationHint={navigationHint}
-            onNavigate={navigate}
-            onClose={place.closeConversation}
-            onDeleted={handleDeleted}
-            onLoaded={handleLoaded}
-            linkOf={(id) => place.conversationUrl(id, embedId)}
-            reveal={!fromLink}
-            openedByLink={linkOpening}
-          />
-        )}
       </div>
+
+      {/* Verlauf offen, aber nichts gewählt (Liste lädt oder ist leer): Der
+          Platzhalter hält die rechte Spalte, damit die Liste nicht springt
+          (NAK-1); ✕ schließt den Verlauf wie im Panel. Nur auf dem Desktop. */}
+      {wide && panelShown && chatId === null && !!embedId && (
+        <aside
+          data-conversation-panel-empty=""
+          aria-label={t("embed-analytics.panel.label")}
+          className={`relative hidden items-center justify-center rounded-xl border border-white/10 bg-theme-bg-primary desktop:flex ${WORKSPACE.panel}`}
+        >
+          <button
+            type="button"
+            data-empty-panel-close=""
+            aria-label={t("embed-analytics.panel.close")}
+            title={t("embed-analytics.panel.close")}
+            onClick={closePanel}
+            className={`absolute top-4 grid h-9 w-9 place-items-center rounded-lg ${AVATAR_CLEARANCE.emptyPanelClose} ${MUTED} transition-colors hover:bg-white/10 hover:text-theme-text-primary light:hover:bg-black/5 ${FOCUS_RING}`}
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+          <p className={`px-6 text-center text-sm ${MUTED}`}>
+            {t("embed-analytics.panel.empty")}
+          </p>
+        </aside>
+      )}
+
+      {chatId !== null && embedId && (
+        <ConversationDetail
+          embedId={embedId}
+          chatId={chatId}
+          row={currentRow}
+          search={search}
+          fromDay={fromDay}
+          toDay={toDay}
+          // Die Suche prüft die Zeilen im Zeitraum – mit Abschnitt
+          // (Säulenklick) die ganze Konversation (Fixliste 2, S7).
+          searchWholeConversation={!!bucket}
+          canPrevious={currentIndex > 0}
+          canNext={
+            currentIndex >= 0 && (currentIndex < items.length - 1 || hasMore)
+          }
+          navigationHint={navigationHint}
+          onNavigate={navigate}
+          onClose={closePanel}
+          onDeleted={handleDeleted}
+          onLoaded={handleLoaded}
+          linkOf={(id) => place.conversationUrl(id, embedId)}
+          openedByLink={linkOpening}
+        />
+      )}
     </div>
   );
 }
@@ -1288,7 +1922,10 @@ function SearchField({ value, onSearch, inputRef: outerRef, className = "" }) {
   // es wie ein <label>.
   // Platzhalter in voller Länge (Fixliste 2 B6, Fixliste 5 V1): Der Rahmen
   // ist ab sm mindestens 240 px breit (ab xl neben der Überschrift genau
-  // 240 px, bei 1024 px 253 px), darunter volle Breite (≥ 328 px). Davon
+  // 240 px, auf dem Tablet bei 1.024 px rund 250 px; im kompakten Kopf auf
+  // dem Desktop so breit wie die Liste, 44 % neben dem Verlauf, bei
+  // 1.280 px rund 400 px; Review 7.22-rc15, C12), darunter volle Breite
+  // (≥ 328 px). Davon
   // gehen 44 px ab – Rahmen 2, pl-2.5 10, Lupe 16, zwei Lücken gap-1.5 je 6,
   // Platzhalter-Ersatz w-1 4 –, dem Feld bleiben mindestens 196 px. Der
   // Platzhalter (Plus Jakarta Sans 14 px) misst „Fragen & Antworten suchen“
@@ -1346,14 +1983,20 @@ function SearchField({ value, onSearch, inputRef: outerRef, className = "" }) {
 
 /**
  * Eine Zeile der Liste: Uhrzeit der letzten Nachricht, erste Frage, darunter
- * „N Fragen" (mit „begonnen am …", „Grund: …") und Marken der Bewertungen.
+ * „N Fragen" (mit „begonnen am …", „Grund: …") und Marken der Bewertungen;
+ * „Neu“ vorn in der Zeile darunter, solange die letzte Nachricht jünger als
+ * vier Stunden ist (Nachtrag KIE-560, K3).
  * memo (Fixliste 7, F32): Die Handler sind stabil und bekommen die Zeile
  * mit; neu gerendert wird nur, was sich ändert (etwa die Markierung).
- * @param {{conversation: object, today: string, selected: boolean, onOpen: (row: object) => void, onKeyDown: (event: object, row: object) => void, setRowRef: (key: string, element: HTMLElement|null) => void}} props
+ * @param {{conversation: object, today: string, isNew: boolean, ratingColumn: boolean, selected: boolean, onOpen: (row: object) => void, onKeyDown: (event: object, row: object) => void, setRowRef: (key: string, element: HTMLElement|null) => void}} props
+ *   isNew: Marke „Neu“ (K3), von der Liste mit ihrer Uhr gerechnet (K01)
+ *   ratingColumn: Spalte der Bewertungsmarken in fester Mindestbreite (K2)
  */
 const ConversationRow = memo(function ConversationRow({
   conversation,
   today,
+  isNew,
+  ratingColumn,
   selected,
   onOpen,
   onKeyDown,
@@ -1385,7 +2028,8 @@ const ConversationRow = memo(function ConversationRow({
       }),
   ].filter(Boolean);
   const reasonText = reason && t("embed-analytics.rows.reason", { reason });
-  // Der Grund wird in schmaler Liste (1024 px mit Panel) gekürzt – der
+  // Der Grund wird in schmaler Liste gekürzt (Desktop mit Verlauf daneben:
+  // Liste 44 %, bei 1.280 px rund 400 px; Review 7.22-rc15, C12) – der
   // Tooltip nennt ihn ganz (Fixliste 6, S2).
   const metaTitle = reasonText ? [...meta, reasonText].join(" · ") : undefined;
 
@@ -1398,10 +2042,15 @@ const ConversationRow = memo(function ConversationRow({
       aria-current={selected ? "true" : undefined}
       onClick={() => onOpen(conversation)}
       onKeyDown={(event) => onKeyDown(event, conversation)}
-      className={`grid w-full grid-cols-[minmax(0,1fr)_auto_16px] lg:scroll-mb-8 lg:scroll-mt-20 items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
+      // K4 (Nachtrag KIE-560): deutlicher Hover in beiden Themes, Pfeil in
+      // Textfarbe, Hand als Zeiger; nur Farben, kein Layoutsprung. Seit
+      // Review 7.22-rc2 (B-11) kräftiger: dunkel 10 %, hell 6 %.
+      // In der scrollenden Spalte (Desktop) stellt die Liste die Zeile selbst
+      // ein (showRowInColumn, ROW_SCROLL_MARGIN) – keine Scroll-Abstände.
+      className={`group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-3 border-t border-white/5 px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--theme-text-primary)] sm:grid-cols-[44px_minmax(0,1fr)_auto_16px] sm:px-5 light:border-gray-100 ${
         selected
           ? "bg-sky-500/15 light:bg-sky-50"
-          : "hover:bg-white/5 light:hover:bg-black/[0.03]"
+          : "hover:bg-white/10 light:hover:bg-black/[0.06]"
       }`}
     >
       <span
@@ -1422,16 +2071,21 @@ const ConversationRow = memo(function ConversationRow({
         {/* Ab sm steht „Grund: …“ am Ende dieser Zeile (AK-1). Unter sm
             hat er eine eigene Zeile: Neben Uhrzeit, „N Fragen“ und Marken
             blieb davon bei 360 px nichts lesbar (Fixliste 5, V2). */}
-        <span
-          data-row-meta=""
-          title={metaTitle}
-          className={`truncate text-[13px] leading-[18px] ${MUTED}`}
-        >
-          <span className="sm:hidden">{time} · </span>
-          {meta.join(" · ")}
-          {reasonText && (
-            <span className="hidden sm:inline"> · {reasonText}</span>
-          )}
+        {/* „Neu“ steht vor der Zeile, nicht in ihr: Es wird nie
+            abgeschnitten, und die Zeile bleibt 18 px hoch (Marke 16 px). */}
+        <span className="flex min-w-0 items-center gap-1.5">
+          {isNew && <NewBadge />}
+          <span
+            data-row-meta=""
+            title={metaTitle}
+            className={`min-w-0 truncate text-[13px] leading-[18px] ${MUTED}`}
+          >
+            <span className="sm:hidden">{time} · </span>
+            {meta.join(" · ")}
+            {reasonText && (
+              <span className="hidden sm:inline"> · {reasonText}</span>
+            )}
+          </span>
         </span>
         {reasonText && (
           <span
@@ -1443,7 +2097,12 @@ const ConversationRow = memo(function ConversationRow({
           </span>
         )}
       </span>
-      <span className="flex items-center gap-2 sm:gap-1.5">
+      <span
+        data-row-ratings=""
+        className={`flex items-center justify-end gap-2 sm:gap-1.5 ${
+          ratingColumn ? RATING_COLUMN : ""
+        }`}
+      >
         <RatingBadge
           count={conversation.positive_count}
           Icon={ThumbsUp}
@@ -1457,10 +2116,38 @@ const ConversationRow = memo(function ConversationRow({
           labelKey="embed-analytics.conversations.negative-count"
         />
       </span>
-      <CaretRight size={16} aria-hidden="true" className={MUTED} />
+      <CaretRight
+        size={16}
+        aria-hidden="true"
+        data-row-arrow=""
+        className={`${MUTED} transition-colors group-hover:text-theme-text-primary group-focus-visible:text-theme-text-primary`}
+      />
     </button>
   );
 });
+
+/**
+ * Marke „Neu“ (Nachtrag KIE-560, K3): klein, in Sky. Bewusst flacher und
+ * eckiger als die Bewertungsmarken (16 px hoch, 11 px Schrift statt Pille mit
+ * 24 px und 12 px): Sie steht in der Meta-Zeile, die 18 px hoch bleibt
+ * (Review 7.22-rc2, N05). Kontrast der Schrift auf der Marke: dunkel
+ * sky-300 auf sky-500/15 9,5:1 (auf gewählter Zeile 7,4:1), hell sky-700 auf
+ * sky-100 5,2:1 – auch auf der gewählten Zeile (sky-50) bleibt die Marke
+ * sichtbar.
+ */
+function NewBadge() {
+  const { t } = useTranslation();
+  const hint = t("embed-analytics.rows.new-hint");
+  return (
+    <span
+      data-row-new=""
+      title={hint}
+      className="inline-flex h-4 shrink-0 items-center rounded px-1.5 text-[11px] font-semibold leading-4 bg-sky-500/15 text-sky-300 light:bg-sky-100 light:text-sky-700"
+    >
+      {t("embed-analytics.rows.new")}
+    </span>
+  );
+}
 
 // KIE-508/527: Marke „👍 n" / „👎 n" je Konversation – als Umriss-Daumen.
 // Unter sm kompakt – nur Daumen und Zahl in der Farbe der Marke, ohne Pille

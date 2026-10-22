@@ -27,11 +27,16 @@ import {
 } from "@/utils/embedLabel";
 import {
   AVATAR_CLEARANCE,
+  HEADING_FOCUS_RING,
   MUTED,
+  OVERVIEW_TARGET,
+  clearKeyboardFocus,
   effectiveSearch,
+  focusHeading,
   holdScrollTarget,
   isWide,
-  revealMarkedRow,
+  keyboardActivation,
+  scrollMotion,
 } from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
 import { useDismiss } from "./viewHooks";
@@ -39,7 +44,11 @@ import { useDismiss } from "./viewHooks";
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
 // Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
 // Säulendiagramm, Karte „Wann schreiben Ihre Besucher?" (KIE-539),
-// Konversationsliste mit Seitenpanel.
+// Konversationsliste mit Seitenpanel – auf dem Desktop (ab 1.280 px) ein
+// Arbeitsbereich mit fester Höhe am Seitenende (KIE-575): Kennzahlen und
+// Diagramme scrollen darüber
+// weg; liegt der Bereich oben an, ist die Seite zu Ende. Der Seitenrahmen
+// nutzt dafür die volle Breite (ChatbotLayout fullWidth).
 //
 // Widget, geöffnete Konversation und Suche stehen in der Adresse
 // (useConversationLocation): Ein Link auf eine Konversation lässt sich
@@ -159,6 +168,9 @@ function WidgetAnalytics({ embeds, lastActivity }) {
   const [compare, setCompare] = useState(false);
   const listRef = useRef(null);
   const listHeadingRef = useRef(null);
+  // Anfang der Ansicht und ihre Überschrift: Ziel von „Zur Übersicht“ (K21)
+  const overviewRef = useRef(null);
+  const overviewHeadingRef = useRef(null);
   // Einsehbare Konversationen der Liste (null, solange sie lädt) – für den
   // Verweis in der Kopfzeile.
   const [viewableCount, setViewableCount] = useState(null);
@@ -304,11 +316,25 @@ function WidgetAnalytics({ embeds, lastActivity }) {
     scrollToList();
     listHeadingRef.current?.focus?.({ preventScroll: true });
   };
+  // „Zur Übersicht ↑“ im Kopf der Konversationen (Desktop, Fixliste
+  // 7.22-rc14, K21): zurück an den Anfang der Ansicht (Zeitraum,
+  // Kennzahlen), weich bzw. bei reduzierter Bewegung ohne Animation; der
+  // Fokus auf ihre Überschrift, damit Tastaturnutzer dort weitermachen
+  // (ohne zweites, hartes Scrollen). Per Enter oder Leertaste ausgelöst
+  // zeigt sie den Fokusring, per Maus nicht (Fixliste 7.22-rc15, K31).
+  const jumpToOverview = (event) => {
+    overviewRef.current?.scrollIntoView?.({
+      behavior: scrollMotion(),
+      block: "start",
+    });
+    focusHeading(overviewHeadingRef.current, keyboardActivation(event));
+  };
 
   // Per Link oder nach dem Neuladen mit geöffneter Konversation: einmal zur
   // Liste springen, sobald Kennzahlen und Liste stehen – sonst läge das
-  // Panel unter dem sichtbaren Bereich (Fixliste 2, B5). Nur ab lg: darunter
-  // öffnet die Konversation ohnehin als Vollbild. Ein Merker: true, solange
+  // Panel unter dem sichtbaren Bereich (Fixliste 2, B5). Nur auf dem
+  // Desktop (ab 1.280 px): sonst öffnet die Konversation ohnehin als Vollbild.
+  // Ein Merker: true, solange
   // der Sprung aussteht (Fixliste 3, S4).
   // Der Sprung hält eine Weile (holdScrollTarget): Ändert sich das Layout
   // über der Liste oder setzt der Browser die Scrollposition, springt die
@@ -346,15 +372,14 @@ function WidgetAnalytics({ embeds, lastActivity }) {
     if (!linkJumpPending || !listReady) return;
     setLinkJumpPending(false);
     if (!isWide()) return;
-    // Zur Überschrift der Liste; steht die geöffnete Zeile dann unter dem
-    // Fensterrand (Zeile 45), weiter bis zu ihr – das Panel klebt oben und
-    // bleibt sichtbar (Fixliste 6, K5).
+    // Zur Liste: Der Arbeitsbereich (Liste und Verlauf) steht dann in seiner
+    // Ruhelage, 24 px unter dem Fensterrand, ganz im Fenster
+    // (AVATAR_CLEARANCE.jumpTarget, Review 7.22-rc12 K04). Die geöffnete
+    // Zeile bringt die Liste selbst in ihrer Spalte in Sicht (KIE-575,
+    // Fixliste 6 K5).
     releaseLinkJump.current = holdScrollTarget(
       listRef.current,
-      () => {
-        listRef.current?.scrollIntoView?.({ block: "start" });
-        revealMarkedRow(listRef.current);
-      },
+      () => listRef.current?.scrollIntoView?.({ block: "start" }),
       { busy: () => linkSearching.current }
     );
   }, [linkJumpPending, listReady]);
@@ -368,8 +393,14 @@ function WidgetAnalytics({ embeds, lastActivity }) {
   );
 
   return (
-    <div className="flex w-full min-w-0 flex-col p-2 md:p-6">
+    // Sprungziel „Zur Übersicht“ (OVERVIEW_TARGET): Die Seite steht danach
+    // ganz oben
+    <div
+      ref={overviewRef}
+      className={`flex w-full min-w-0 flex-col p-2 md:p-6 ${OVERVIEW_TARGET}`}
+    >
       <Header
+        headingRef={overviewHeadingRef}
         embeds={embeds}
         selectedEmbed={selectedEmbed}
         onSelectEmbed={setSelectedEmbed}
@@ -422,8 +453,10 @@ function WidgetAnalytics({ embeds, lastActivity }) {
         failed={summary.failed}
       />
 
-      {/* Sprungziel: Überschrift und Werkzeugleiste landen unter dem
-          Benutzermenü oben rechts (Fixliste 3, V2) */}
+      {/* Sprungziel: auf Tablet und Smartphone landen Überschrift und
+          Werkzeugleiste unter dem Benutzermenü oben rechts (Fixliste 3, V2),
+          auf dem Desktop steht der Arbeitsbereich in seiner Ruhelage ganz
+          im Fenster (K04) */}
       <div ref={listRef} className={AVATAR_CLEARANCE.jumpTarget}>
         <ConversationList
           embedId={unknownLink ? null : selectedEmbed}
@@ -438,6 +471,7 @@ function WidgetAnalytics({ embeds, lastActivity }) {
           onLinkedRowShown={revealLinkedRow}
           onLinkSearchChange={handleLinkSearchChange}
           headingRef={listHeadingRef}
+          onJumpToOverview={jumpToOverview}
           showDeletedHint={showsDeletedHint({
             retentionDays,
             startDay: bucket?.start ?? summaryData?.fromDay ?? fromDay,
@@ -480,9 +514,13 @@ function jumpText(t, count, feedbackFilter, bucket, search = "") {
 
 /**
  * Kopfzeile: Titel mit dem Verweis zur Liste, Widget-Auswahl (nur bei
- * mehreren Widgets) und Zeitraum.
+ * mehreren Widgets) und Zeitraum. headingRef: die Überschrift, auf die
+ * „Zur Übersicht“ den Fokus setzt (tabIndex -1: per Programm fokussierbar,
+ * nicht per Tab); nach Tastaturbedienung mit Fokusring, der mit dem Fokus
+ * wieder wegfällt (HEADING_FOCUS_RING, K31).
  */
 function Header({
+  headingRef,
   embeds,
   selectedEmbed,
   onSelectEmbed,
@@ -521,7 +559,13 @@ function Header({
   return (
     <div className="flex flex-wrap gap-3 justify-between items-center mb-6">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="text-white text-2xl font-bold">
+        <h2
+          ref={headingRef}
+          tabIndex={-1}
+          data-overview-heading=""
+          onBlur={clearKeyboardFocus}
+          className={`text-white text-2xl font-bold ${HEADING_FOCUS_RING}`}
+        >
           {t("embed-analytics.title")}
         </h2>
         {/* Sprung zur Liste. Ohne einsehbare Konversation entfällt er: Die

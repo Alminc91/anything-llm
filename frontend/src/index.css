@@ -1197,10 +1197,14 @@ does not extend the close button beyond the viewport. */
 :root {
   --konversationen-hit-bg: #854d0e;
   --konversationen-hit-text: #fef9c3;
+  --konversationen-link: #46c8ff;
+  --konversationen-link-hover: #bae6fd;
 }
 [data-theme="light"] {
   --konversationen-hit-bg: #fde047;
   --konversationen-hit-text: #1c1917;
+  --konversationen-link: #0369a1;
+  --konversationen-link-hover: #075985;
 }
 mark[data-search-hit] {
   background-color: var(--konversationen-hit-bg);
@@ -1222,6 +1226,42 @@ mark[data-search-hit] {
 .analytics-bot-response strong,
 .analytics-bot-response em {
   color: var(--theme-text-primary) !important;
+}
+
+/* Konversationen-Ansicht: Links im Verlauf als Links erkennbar (Fixliste
+   7.22-rc15, K30), in der Linkfarbe und unterstrichen statt in der
+   Textfarbe der Antwort. Dunkel die Akzentfarbe des Themes (#46c8ff, wie
+   --theme-button-primary); hell ist dessen Akzent (#0ba5ec) auf Weiß zu
+   blass (2,8:1), dort Sky 700. Gegen jeden Grund einer Antwort (Verlauf
+   auf dem Desktop und als Vollbild, getönte bewertete Antworten) mindestens
+   4,5:1, auch beim Darüberfahren (conversationView.test.mjs rechnet nach).
+   Darüberfahren und Tastaturfokus: dickere Unterstreichung und eine
+   kräftigere Farbe, beim Fokus dazu der Ring der Seite (2 px in der
+   Textfarbe, außen, da ein Link keinen Innenabstand hat). Nur Aussehen:
+   Bereinigung, neuer Tab und rel bleiben bei sanitizeAnswerHtml (E13). */
+.analytics-bot-response a[href],
+.analytics-bot-response a[href] *:not(mark[data-search-hit]) {
+  color: var(--konversationen-link) !important;
+}
+.analytics-bot-response a[href] {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  border-radius: 2px;
+}
+.analytics-bot-response a[href]:hover,
+.analytics-bot-response a[href]:focus-visible {
+  text-decoration-thickness: 2px;
+}
+.analytics-bot-response a[href]:hover,
+.analytics-bot-response a[href]:hover *:not(mark[data-search-hit]),
+.analytics-bot-response a[href]:focus-visible,
+.analytics-bot-response a[href]:focus-visible *:not(mark[data-search-hit]) {
+  color: var(--konversationen-link-hover) !important;
+}
+.analytics-bot-response a[href]:focus-visible {
+  outline: 2px solid var(--theme-text-primary);
+  outline-offset: 2px;
 }
 
 /* Konversationen-Ansicht: Absätze und Blöcke einer Antwort mit Abstand wie
