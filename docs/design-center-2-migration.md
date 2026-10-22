@@ -183,18 +183,21 @@ Eine Regel für gültige Farben (E41, 7.22-rc22): Akzentfarbe und Schrift auf
 der Akzentfarbe (die Farben der Gruppe A, daraus auch Nutzerblasen und Links)
 gelten nur als Hex (`#rgb`, `#rrggbb`, `#rrggbbaa`) und als `rgb()`/`rgba()`
 mit ganzen Zahlen bis 255, Leerraum darin nur Leerzeichen, Tab, Zeilenumbruch
-und Seitenvorschub, wie im Design Center. Maßgeblich ist `parseColor`
+und Seitenvorschub, und nur deckend, wie im Design Center. Maßgeblich ist
+`parseColor`
 (`frontend/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAppearance/contrast.js`,
-wortgleich mit `src/utils/contrast.js` im Widget): Was es liest, zeigt das
-Widget, und die Kontrastrechnung kann es lesen; das Design Center nimmt davon
-neue Eingaben nur deckend an. Andere gespeicherte Werte (z. B. `hsl()`,
-Farbnamen wie `teal`, Prozent, `#rgba`, `transparent`, `oklch()`, Systemfarben
-wie `Canvas`, `var()`, Wörter ohne Farbe wie „blau“, `rgb()` mit gemischten
-Trennern oder mit geschützten Leerzeichen) ergeben im Widget ab 7.22 den
-Standard: Akzentfarbe `#01A5A9`, Schrift nach Kontrast. Das Design Center
-meldet sie erst, wenn das Feld geändert wird; die Vorschau zeigt bis dahin
-den gespeicherten Wert. Vor dem Rollout zählen (Prüfpunkt 12). Rückweg:
-`dcColor` im Widget wieder erweitern.
+wortgleich mit `src/utils/contrast.js` im Widget) zusammen mit der Deckkraft:
+Was es liest und deckend ist, zeigt das Widget, und die Kontrastrechnung kann
+es lesen; genau diese Werte nimmt das Design Center an. Andere gespeicherte
+Werte (z. B. `hsl()`, Farbnamen wie `teal`, Prozent, `#rgba`, `transparent`,
+`oklch()`, Systemfarben wie `Canvas`, `var()`, Wörter ohne Farbe wie „blau“,
+`rgb()` mit gemischten Trennern oder mit geschützten Leerzeichen) und Werte
+mit Deckkraft unter 1 (`rgba()` mit Alpha unter 1, `#rrggbbaa` unter `ff`;
+E41 Ergänzung (a)) ergeben im Widget ab 7.22 den Standard: Akzentfarbe
+`#01A5A9`, Schrift nach Kontrast. Das Design Center meldet sie erst, wenn das
+Feld geändert wird; das Feld zeigt bis dahin den gespeicherten Wert, die
+Vorschau zeigt wie das Widget den Standard (E41 Ergänzung (b)). Vor dem
+Rollout zählen (Prüfpunkt 12). Rückweg: `dcColor` im Widget wieder erweitern.
 
 ## Begrüßung, Texte, Hinweise
 
@@ -273,4 +276,4 @@ Text mit Links“ ein.
 9. Seiten mit eigener Kopie des Widgets (z. B. Demo `/widget/anythingllm-chat-widget.min.js`): auf das Widget ab 7.22-rc17 bringen, sonst fehlen die Startvorschläge (Listen als Array, E11), ohne gespeicherte Kurskarten-Wahl auch `displayMode` im Chat (R4), und Angaben der Gruppe A im Einbau-Code wirken dort weiter. Ab 7.22-rc13 ruft das Widget `/config?language=<Sprache>` auf: Eigene Demo-Kopien, die die `/config`-Antwort abfangen (z. B. die Topbar-Schalter der Demo in `app.js` und `next/app.js`), müssen die Adresse ohne Query vergleichen, sonst greifen ihre Schalter still nicht mehr (W41, 7.22-rc16). Seit E23 (7.22-rc17): Demo-Seite und Einbau-Paket vhs Rhein (`Kundendaten/Chatbot/demo_site/einbau_rhein/`) auf Pflicht- und Entwickler-Angaben kürzen; Gruppe-A-Angaben entfernen, Effekte und Inline-Feinheiten (Gruppe B) dürfen bleiben. Topbar-Schalter, die Design-Center-Optionen nachstellen, schreiben ihre Werte in die `/config`-Antwort statt in Attribute. Gilt auch für `praesentation` und `demo-inline`, die das Widget direkt vom Container laden: erst die Demo anpassen, dann auf 7.22 stellen.
 10. Snippets mit Gruppe-A-Angaben am Skript (z. B. `data-theme`, `data-display-mode`, `data-position`, `data-chat-icon`, `data-button-color`, `data-greeting`, `data-privacy-notice`) und Seiten, deren CSS eine der fünf Variablen `--allm-accent`, `--allm-on-accent`, `--allm-user-bg`, `--allm-user-text` oder `--allm-link` setzt: Diese Angaben wirken ab 7.22 nicht mehr, auch wenn im Design Center dafür nichts gespeichert ist (E23, 7.22-rc17; ersetzt E18 aus 7.22-rc16). Es gilt das Design Center, gespeichert oder sein Standard. Vor dem Rollout je Kundenseite die Werte aus dem Einbau-Code mit dem Design Center vergleichen, im Seiten-CSS (eigene Stylesheets und `style`-Angaben der Seite) nach diesen fünf Variablen suchen und, wo der Kunde die Werte behalten will, im Design Center eintragen. Die Browser-Konsole hilft nur beim Einbau-Code: Verworfene Angaben dort meldet das Widget, Seiten-CSS übergeht es ohne Konsolenwarnung. Gruppe-B-Angaben (z. B. `data-inline-effect`, `--allm-radius`) wirken weiter.
 11. Nur auf den Containern, die 7.16 bis 7.21.1 liefen (ki-helfer, intern, demo-inline, praesentation, entwicklung): gespeicherte `privacyText` nach dem Wort „Mitarbeitende“ durchsuchen und die Treffer je Container zählen (E30, 7.22-rc19). Bis 7.21.1 zeigte das Feld den Standardtext als Wert; wer ihn dort bearbeitet hat, hat ihn samt dem alten Standardpunkt gespeichert, und dieser Text bleibt nach 7.22 stehen. Der Standardtext lautet seit E30 „Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.“ Treffer nur melden; gespeicherte Texte der Kunden nicht ändern. Die Flotte (7.8) hatte diesen Standardtext nie.
-12. Gespeicherte Farbwerte, die `parseColor` nicht liest (E41, 7.22-rc22): je Container in `visual_config` die Werte von `accentColor` und `userTextColor` mit `parseColor` prüfen und die Treffer je Kunde zählen, z. B. `hsl()`, Farbnamen, Prozent, `#rgba`, `oklch()`, Systemfarben oder `rgb()` mit gemischten Trennern oder geschützten Leerzeichen. Diese Widgets zeigen ab 7.22 die Standardfarbe `#01A5A9` bzw. die Schrift nach Kontrast (Absatz unter der Tabelle „Darstellung“). Erwartet sind wenige oder keine Treffer, das Design Center hatte immer einen Farbwähler. Treffer nur melden; gespeicherte Werte der Kunden nicht ändern.
+12. Gespeicherte Farbwerte, die `parseColor` nicht liest oder die nicht deckend sind (E41, 7.22-rc22): je Container in `visual_config` die Werte von `accentColor` und `userTextColor` mit `parseColor` und auf Deckkraft unter 1 prüfen und die Treffer je Kunde zählen, z. B. `hsl()`, Farbnamen, Prozent, `#rgba`, `oklch()`, Systemfarben, `rgb()` mit gemischten Trennern oder geschützten Leerzeichen, `rgba()` mit Alpha unter 1 oder `#rrggbbaa` unter `ff`. Diese Widgets zeigen ab 7.22 die Standardfarbe `#01A5A9` bzw. die Schrift nach Kontrast (Absatz unter der Tabelle „Darstellung“). Erwartet sind wenige oder keine Treffer, das Design Center hatte immer einen Farbwähler. Treffer nur melden; gespeicherte Werte der Kunden nicht ändern.

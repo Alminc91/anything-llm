@@ -10,8 +10,12 @@
 // geschlossenen Chat-Button wie am Desktop (bei „Aus“ keine, KIE-568).
 // Hell/Dunkel in beiden Darstellungen. Die Vorschau folgt den Feldern: ohne
 // gespeicherten Wert zeigt sie die Vorbelegung (R5; Untertitel, Start-
-// vorschläge, Willkommensblasen). Lange Wörter brechen um, statt über den
-// Rand zu laufen (Restpunkt 5, rc7: BREAK). Chatfenster und Box „In der
+// vorschläge, Willkommensblasen). Farben wie im Widget: einen Wert, den die
+// Farbregel nicht annimmt (accentColorError meldet ihn), zeigt sie als
+// Standard (previewAccentColor, previewUserTextColor; Fixliste 7.22-rc22
+// E41 Ergänzung (b)), das Feld zeigt weiter den eingegebenen Wert. Lange
+// Wörter brechen um, statt über den Rand zu laufen (Restpunkt 5, rc7:
+// BREAK). Chatfenster und Box „In der
 // Seite“ haben eine feste Höhe wie live im Widget (Rückmeldung des Nutzers
 // vom 20.10.2026: 77 % der Vorschaufläche bzw. 520 px); der Nachrichten-
 // bereich scrollt innen mit sichtbarer Bildlaufleiste, beim Öffnen steht
@@ -41,9 +45,11 @@ import {
   privacyBlocks,
   privacyNoticeOn,
   privacyTitleFieldValue,
+  previewAccentColor,
   previewGreeting,
   previewInlineBar,
   previewPlaceholder,
+  previewUserTextColor,
   textItems,
   PILL_MAX_LEN,
   pillLabel,
@@ -51,7 +57,6 @@ import {
   subtitleFieldValue,
   textValue,
   themeChoice,
-  userTextColor,
   validPrivacyUrl,
 } from "./widgetKeys";
 
@@ -379,7 +384,7 @@ export const SAMPLE_USER_MESSAGE = "Gibt es Kurse am Wochenende?";
 // kind: data-preview der Pille ("pill" Startvorschlag, "follow-up-pill"
 // Folgefrage der Beispiel-Antwort)
 export function SuggestionPill({ config, palette, text, kind = "pill" }) {
-  const accent = lookValue(config, "accentColor");
+  const accent = previewAccentColor(config);
   return (
     <span
       className={`rounded-full px-3 py-1 text-[11px] font-medium border cursor-default transition-colors max-w-full ${BREAK} bg-[color:var(--pill-bg)] text-[color:var(--pill-text)] hover:bg-[color:var(--pill-accent)] hover:text-[color:var(--pill-on-accent)]`}
@@ -388,7 +393,7 @@ export function SuggestionPill({ config, palette, text, kind = "pill" }) {
         "--pill-bg": palette.panelBg,
         "--pill-text": pillTextColor(accent, palette.pillTextBgs, palette.text),
         "--pill-accent": accent,
-        "--pill-on-accent": userTextColor(config),
+        "--pill-on-accent": previewUserTextColor(config),
       }}
       title={text.length > PILL_MAX_LEN ? text : undefined}
       data-preview={kind}
@@ -410,8 +415,8 @@ function PreviewUserMessage({ config, palette }) {
       <div
         className={`text-[12.5px] leading-relaxed rounded-[18px] rounded-tr-[4px] px-3.5 py-2.5 max-w-[80%] ${BREAK}`}
         style={{
-          backgroundColor: lookValue(config, "accentColor"),
-          color: userTextColor(config),
+          backgroundColor: previewAccentColor(config),
+          color: previewUserTextColor(config),
         }}
         data-preview="user-message"
       >
@@ -468,7 +473,7 @@ function PreviewCourseCard({ course, palette, accent }) {
 // oder Text zuerst, bei „Nur Text mit Links“ die klassische Antwort mit
 // verlinkten Kurstiteln; darunter eine Folgefrage
 export function PreviewSampleAnswer({ config, palette }) {
-  const accent = lookValue(config, "accentColor");
+  const accent = previewAccentColor(config);
   const cardsOn = choiceValue(config, "courseCards") === "auto";
   const position = choiceValue(config, "courseCardsPosition");
   const textStyle = { color: palette.text };
@@ -561,7 +566,7 @@ export function PreviewWelcome({
   greetingKey,
   palette,
 }) {
-  const accentColor = lookValue(config, "accentColor");
+  const accentColor = previewAccentColor(config);
   const greeting = previewGreeting(config, greetingKey, defaults);
   // Schalter „Datenschutz-Hinweis anzeigen“ aus: nur die Begrüßungsblase
   const showPrivacy = privacyNoticeOn(config);
@@ -715,7 +720,7 @@ function BubblePreview({
   useLayoutEffect(() => {
     if (open) scrollToEnd(messagesRef.current);
   }, [open, height]);
-  const accentColor = lookValue(config, "accentColor");
+  const accentColor = previewAccentColor(config);
   const isLeft = lookValue(config, "position").includes("left");
   // Willkommensblasen wie am Desktop (KIE-568): „Aus“ = keine; ohne eigene
   // Texte die Standardblasen wie im Widget (im Feld als Vorbelegung, R5)
@@ -827,7 +832,11 @@ function BubblePreview({
           onClick={() => setOpen(!open)}
           aria-label={open ? "Chat schließen" : "Chat öffnen"}
         >
-          <ChatIcon config={config} size={24} color={userTextColor(config)} />
+          <ChatIcon
+            config={config}
+            size={24}
+            color={previewUserTextColor(config)}
+          />
         </button>
         <span
           className="text-xs select-none whitespace-nowrap"
@@ -863,7 +872,7 @@ function InlinePreview({
   useLayoutEffect(() => {
     if (expanded) scrollToEnd(messagesRef.current);
   }, [expanded]);
-  const accentColor = lookValue(config, "accentColor");
+  const accentColor = previewAccentColor(config);
   // Eingeklappte Leiste: Demo-Texte bzw. früher gespeicherter Leistentext,
   // nicht der Platzhalter des Chat-Eingabefelds (Entscheidung D2)
   const { placeholder, sendText } = previewInlineBar(config, defaults);
@@ -975,7 +984,7 @@ function InlinePreview({
                 className="rounded-full px-4 py-2 text-[13px] font-semibold flex-shrink-0"
                 style={{
                   backgroundColor: accentColor,
-                  color: userTextColor(config),
+                  color: previewUserTextColor(config),
                 }}
               >
                 {sendText}

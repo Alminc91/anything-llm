@@ -333,6 +333,41 @@ export function userTextColor(config = {}) {
   );
 }
 
+// Farben der Vorschau wie im Widget (Fixliste 7.22-rc22 E41 Ergänzung (b),
+// Vorschau gleich Gegenstelle): ein Wert gilt nur, wenn die eine Farbregel
+// ihn annimmt, also accentColorError nichts meldet (parseColor liest ihn,
+// deckend); sonst der Standard, wie dcColor im Widget (src/utils/theme.js).
+// Nur die Vorschau: Felder und Meldungen bleiben beim eingegebenen Wert
+// (accentFieldValue, validateConfig). Rückweg: in WidgetPreview.jsx wieder
+// lookValue und userTextColor.
+function previewColor(value, fallback = null) {
+  const text = textValue(value).trim();
+  return text && accentColorError(text) === null ? text : fallback;
+}
+
+/**
+ * Akzentfarbe in der Vorschau: der gespeicherte bzw. eingegebene Wert,
+ * wenn die Farbregel ihn annimmt (getrimmt), sonst der Standard #01A5A9.
+ * @param {Object} config
+ * @returns {string}
+ */
+export function previewAccentColor(config = {}) {
+  return previewColor(config?.accentColor, DEFAULT_ACCENT_COLOR);
+}
+
+/**
+ * Schrift auf der Akzentfarbe in der Vorschau: die gespeicherte, wenn die
+ * Farbregel sie annimmt, sonst die Empfehlung zur Akzentfarbe der Vorschau.
+ * @param {Object} config
+ * @returns {string}
+ */
+export function previewUserTextColor(config = {}) {
+  return (
+    previewColor(storedUserTextColor(config)) ||
+    recommendedTextColor(previewAccentColor(config))
+  );
+}
+
 // Option (Weiß/Schwarz) zu einer Empfehlung
 function optionFor(recommended) {
   return recommended === SHOWN_BLACK
