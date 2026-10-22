@@ -1,10 +1,12 @@
 // Design Center › Einbau: Schritt 1 das Skript (echte Werte dieses Widgets),
-// Schritt 2 der Platzhalter nur bei Darstellung „In der Seite“, dazu eine
+// Schritt 2 der Platzhalter nur bei Darstellung „In der Seite“ mit der
+// Warnung vor verlinkten Bereichen (F70, Fixliste 7.22-rc19), dazu eine
 // kurze Anleitung für WordPress, TYPO3 und andere Systeme. Alle
 // Einstellungen kommen aus dem Design Center; data-*-Attribute für das, was
 // das Design Center einstellt, wirken nicht (E23, Fixliste 7.22-rc17).
 import { useState } from "react";
-import { Check, CopySimple } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
+import { Check, CopySimple, Warning } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
 import { EMBED_INLINE_PLACEHOLDER_SNIPPET } from "@/utils/constants";
 import { displayMode } from "./widgetKeys";
@@ -164,6 +166,103 @@ function CopyBlock({ snippet, copiedToast, label }) {
   );
 }
 
+// Marke im übersetzten Satz, an der der Platzhalter als Code steht
+// ({{code}} in den Sprachdateien). Kein <Trans>: Der Code hat selbst spitze
+// Klammern und würde dort als HTML gelesen.
+const CODE_MARK = "\u0000";
+
+// Code im Warnblock: im Satz als Stück der Zeile, bei den Beispielen als
+// eigene Zeile unter „Richtig:“ bzw. „Falsch:“ (bricht nur bei Platzmangel)
+function InlineCode({ children, block = false }) {
+  const layout = block
+    ? "block w-fit max-w-full mt-1 px-1.5 py-0.5"
+    : "px-1 py-px box-decoration-clone";
+  return (
+    <code
+      className={`${layout} font-mono text-[12px] rounded border border-red-400/40 bg-black/40 text-red-50 light:border-red-200 light:bg-white light:text-red-950 [overflow-wrap:anywhere]`}
+    >
+      {children}
+    </code>
+  );
+}
+
+/**
+ * Satz mit dem Code an jeder Marke (CODE_MARK).
+ * @param {string} text übersetzter Satz, {{code}} durch CODE_MARK ersetzt
+ * @param {string} code
+ * @returns {Array<string|JSX.Element>}
+ */
+export function withInlineCode(text, code) {
+  const [first, ...rest] = String(text).split(CODE_MARK);
+  return [
+    first,
+    ...rest.flatMap((after, i) => [
+      <InlineCode key={i}>{code}</InlineCode>,
+      after,
+    ]),
+  ];
+}
+
+/**
+ * Warnung im Reiter „Einbau“ bei „In der Seite“ (F70, Fixliste 7.22-rc19;
+ * AK-7 aus issues/inline-platzhalter-in-link.md): Der Platzhalter darf nicht
+ * in einem verlinkten Block stehen, sonst öffnet ein Klick die verlinkte
+ * Seite statt der Eingabeleiste. Text vom Nutzer am 21.10.2026 wörtlich
+ * freigegeben (design-center-vereinfachen.md, Eintrag „Warnung im Reiter
+ * Einbau“), de und en in den Sprachdateien (embed-appearance.
+ * inline-link-warning); das ⚠ der Überschrift ist das Warndreieck vorn. Der
+ * Platzhalter kommt aus derselben Konstante wie der Schnipsel. Rot in hell
+ * und dunkel, Text mindestens 4,5:1 auf der Fläche des Blocks (Messung
+ * .test-storage/rc19).
+ */
+export function InlineLinkWarning() {
+  const { t } = useTranslation();
+  const text = (key) =>
+    t(`embed-appearance.inline-link-warning.${key}`, { code: CODE_MARK });
+  const placeholder = EMBED_INLINE_PLACEHOLDER_SNIPPET;
+  const examples = [
+    {
+      key: "right",
+      sign: "✓",
+      code: `<section> … ${placeholder} … </section>`,
+    },
+    {
+      key: "wrong",
+      sign: "✗",
+      code: `<a href="/kurse"> … ${placeholder} … </a>`,
+    },
+  ];
+  return (
+    <div
+      className="rounded-lg border-2 border-red-500 bg-red-950/60 light:border-red-600 light:bg-red-50 p-4 space-y-2.5 text-[13px] leading-relaxed text-red-100 light:text-red-900"
+      data-testid="inline-link-warning"
+    >
+      <p className="flex items-start gap-2 text-sm font-bold text-red-200 light:text-red-800">
+        <Warning
+          size={20}
+          weight="fill"
+          className="flex-shrink-0 text-red-400 light:text-red-600"
+          aria-hidden="true"
+          data-testid="inline-link-warning-icon"
+        />
+        <span>{text("title")}</span>
+      </p>
+      <p>{withInlineCode(text("placement"), placeholder)}</p>
+      <p>{text("check")}</p>
+      <ul className="space-y-1.5">
+        {examples.map(({ key, sign, code }) => (
+          <li key={key} data-testid={`inline-link-warning-${key}`}>
+            <strong className="font-bold">
+              <span aria-hidden="true">{sign}</span> {text(key)}
+            </strong>{" "}
+            <InlineCode block>{code}</InlineCode>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // badge: kleine Marke neben dem Titel (R3: „nur bei „In der Seite““)
 function Step({ number, title, note = null, badge = null, children }) {
   return (
@@ -265,6 +364,9 @@ export default function EmbedTab({ config, embed }) {
           badge="nur bei „In der Seite“"
           note="Fehlt der Platzhalter auf einer Seite, erscheint dort automatisch das Chatfenster."
         >
+          {/* F70: vor dem Schnipsel, damit die Warnung vor dem Kopieren
+              gelesen wird */}
+          <InlineLinkWarning />
           <CopyBlock
             snippet={EMBED_INLINE_PLACEHOLDER_SNIPPET}
             copiedToast="Platzhalter kopiert."

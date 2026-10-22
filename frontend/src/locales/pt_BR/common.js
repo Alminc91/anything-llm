@@ -1761,6 +1761,15 @@ const TRANSLATIONS = {
       "settings-hint": null,
     },
   },
+  "embed-appearance": {
+    "inline-link-warning": {
+      title: null,
+      placement: null,
+      check: null,
+      right: null,
+      wrong: null,
+    },
+  },
   billing: {
     customer: {
       "load-error": null,

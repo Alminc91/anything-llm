@@ -1913,6 +1913,19 @@ const TRANSLATIONS = {
         "Appearance and texts are set under “Erscheinungsbild”. Its “Einbau” tab shows the ready-made code; no further data attributes are needed.",
     },
   },
+  // Design Center, tab "Einbau" with "In der Seite": warning next to the
+  // placeholder (Fixliste 7.22-rc19 F70). {{code}} = placeholder snippet.
+  "embed-appearance": {
+    "inline-link-warning": {
+      title: "Do not put the placeholder inside linked areas",
+      placement:
+        "Put {{code}} in a regular content area of your page. If the placeholder sits inside a linked block, the input bar cannot be opened reliably. A click then opens the linked page instead. Linked blocks are, for example, a linked card, a teaser, a button or a section with a link setting in the page builder.",
+      check:
+        "Check in your page builder whether the block or the column has a link setting.",
+      right: "Correct:",
+      wrong: "Wrong:",
+    },
+  },
   billing: {
     customer: {
       "load-error": "Usage data could not be loaded.",

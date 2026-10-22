@@ -391,11 +391,15 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
     visualConfig && typeof visualConfig === "object" ? visualConfig : {};
   const out = { ...mapped };
 
-  // Begrüßung nur als greeting (Review 7.22-rc6 F08): Das Widget behandelt
-  // greeting und greetingBubbleText als eine Gruppe des Servers (ein
-  // Serverwert verdrängt beide Script-Attribute) und kürzt eine zu lange
-  // Begrüßung selbst. Ein eigener greetingBubbleText geht nicht mehr ans
-  // Widget; welcher gespeicherte Text gilt, entscheidet effectiveGreeting.
+  // Begrüßung nur als greeting (Review 7.22-rc6 F08): Ein eigener
+  // greetingBubbleText geht nicht mehr ans Widget; welcher gespeicherte Text
+  // gilt, entscheidet effectiveGreeting. Das Widget kürzt eine zu lange
+  // Begrüßung selbst. Der Text gehört zu Gruppe A (E23, Fixliste
+  // 7.22-rc17): data-greeting und data-greeting-bubble-text am Skript wirken
+  // nie, auch ohne gespeicherten Text (dann gilt der Standard der Sprache im
+  // Widget). Die Form der Begrüßung (greetingStyle, fest "bubble" in
+  // EMBED_FIXED_STANDARDS) ist Gruppe B: data-greeting-style="text" wirkt
+  // nur bei abgeschaltetem Datenschutz-Hinweis (E26, Fixliste 7.22-rc18).
   const greeting = effectiveGreeting(vc);
   if (greeting) out.greeting = greeting;
   const placeholder = effectivePlaceholder(vc);

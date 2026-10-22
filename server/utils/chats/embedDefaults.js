@@ -28,9 +28,10 @@ const EMBED_DEFAULT_TEXTS = {
     greeting: "Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?",
     inputPlaceholder: "Ihre Frage eingeben",
     privacyTitle: "Datenschutz",
+    // ohne Gendersprache: „Mitarbeiter“ (E30, Fixliste 7.22-rc19)
     privacyPoints: [
       "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
-      "Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
+      "Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ],
     // KI-Hinweis unter der Eingabe (R1, Fixliste 7.22-rc8): eindeutig

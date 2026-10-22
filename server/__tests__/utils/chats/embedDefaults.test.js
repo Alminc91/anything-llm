@@ -97,7 +97,7 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
     expect(de.privacyTitle).toBe("Datenschutz");
     expect(de.privacyText.split("\n")).toEqual([
       "• Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
-      "• Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
+      "• Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "• Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ]);
     // R1 (Fixliste 7.22-rc8): „Unsere KI“ statt „KI“, bewusst geändert;
@@ -118,6 +118,27 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
     for (const lang of Object.keys(EMBED_DEFAULT_TEXTS))
       for (const text of Object.values(embedDefaultTexts(lang)).flat())
         expect(text).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  // E30 (Fixliste 7.22-rc19, Nutzerentscheidung): Standardtexte ohne
+  // Gendersprache; „Mitarbeiter“ statt „Mitarbeitende“. Englisch unverändert,
+  // gespeicherte Texte der Kunden bleiben, wie sie sind.
+  test("E30: Datenschutz-Standard „Mitarbeiter der Einrichtung …“, keine Gendersprache", () => {
+    expect(EMBED_DEFAULT_TEXTS.de.privacyPoints[1]).toBe(
+      "Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen."
+    );
+    expect(PANEL_TEXTS.de.privacyPoints).toEqual(
+      EMBED_DEFAULT_TEXTS.de.privacyPoints
+    );
+    expect(EMBED_DEFAULT_TEXTS.en.privacyPoints[1]).toBe(
+      "Staff of the institution may view conversations for quality assurance."
+    );
+    for (const lang of Object.keys(EMBED_DEFAULT_TEXTS))
+      for (const text of [
+        ...Object.values(embedDefaultTexts(lang)).flat(),
+        ...PANEL_TEXTS[lang].privacyPoints,
+      ])
+        expect(text).not.toMatch(/Mitarbeitende|\w[*:_]innen\b|\wInnen\b/);
   });
 
   test("Standardtexte passen in die Grenzen von Server und Widget", () => {
@@ -183,8 +204,17 @@ describeWidget(
       return JSON.parse(`"${m[1]}"`);
     };
 
+    // privacyPoints: [ "…", "…" ] als Liste der Texte
+    const points = (text) => {
+      const m = /privacyPoints:\s*\[([^\]]*)\]/.exec(text);
+      expect(m).not.toBeNull();
+      return [...m[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((p) =>
+        JSON.parse(`"${p[1]}"`)
+      );
+    };
+
     test.each(["de", "en"])(
-      "%s: KI-Hinweis, Name, Untertitel, Begrüßung, Platzhalter, Überschrift",
+      "%s: KI-Hinweis, Name, Untertitel, Begrüßung, Platzhalter, Überschrift, Datenschutz-Punkte",
       (lang) => {
         const widget = block(lang);
         const ours = EMBED_DEFAULT_TEXTS[lang];
@@ -194,6 +224,8 @@ describeWidget(
         expect(field(widget, "greetingBubble")).toBe(ours.greeting);
         expect(field(widget, "inputPlaceholder")).toBe(ours.inputPlaceholder);
         expect(field(widget, "privacyTitle")).toBe(ours.privacyTitle);
+        // Datenschutz-Punkte (E30, Fixliste 7.22-rc19): wortgleich im Widget
+        expect(points(widget)).toEqual(ours.privacyPoints);
         // Fixture-Kopie ebenfalls auf dem Stand des Widgets
         expect(PANEL_TEXTS[lang].aiDisclaimer).toBe(
           field(widget, "aiDisclaimer")

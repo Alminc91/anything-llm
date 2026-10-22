@@ -1459,6 +1459,20 @@ const TRANSLATIONS = {
         "Aussehen und Texte stellen Sie unter „Erscheinungsbild“ ein. Dort zeigt der Reiter „Einbau“ den fertigen Code, weitere data-Attribute sind nicht nötig.",
     },
   },
+  // Design Center, Reiter „Einbau“ bei „In der Seite“: Warnblock beim
+  // Platzhalter (Fixliste 7.22-rc19 F70, Text vom Nutzer am 21.10.2026
+  // freigegeben). {{code}} = der Platzhalter-Schnipsel als Code.
+  "embed-appearance": {
+    "inline-link-warning": {
+      title: "Platzhalter nicht in verlinkte Bereiche setzen",
+      placement:
+        "Setzen Sie {{code}} in einen normalen Inhaltsbereich Ihrer Seite. Liegt der Platzhalter in einem verlinkten Block, kann die Eingabeleiste nicht zuverlässig geöffnet werden. Ein Klick öffnet dann die verlinkte Seite. Verlinkte Blöcke sind zum Beispiel eine verlinkte Karte, ein Teaser, ein Button oder ein Abschnitt mit Link-Einstellung im Seiten-Builder.",
+      check:
+        "Prüfen Sie in Ihrem Seiten-Builder, ob der Block oder die Spalte eine Link-Einstellung hat.",
+      right: "Richtig:",
+      wrong: "Falsch:",
+    },
+  },
   "chat-row": {
     "view-thoughts": "Gedanken anzeigen",
   },
