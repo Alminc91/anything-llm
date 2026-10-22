@@ -216,8 +216,9 @@ test("F51: Prüfpunkte 8 bis 10 nach E23", () => {
   );
   assert.match(p10, /Gruppe-B-Angaben .* wirken weiter/);
   // nach 10 nur noch Prüfpunkt 11 (E30, Fixliste 7.22-rc20 F84, Prüfung in
-  // designCenterFixesRc20.test.mjs)
-  assert.doesNotMatch(doc, /^12\. /m);
+  // designCenterFixesRc20.test.mjs) und, bewusst geändert in rc22 (E41,
+  // F101), Prüfpunkt 12 (Prüfung in designCenterFixesRc22.test.mjs)
+  assert.doesNotMatch(doc, /^13\. /m);
   // Textregeln: keine Gedankenstriche
   assert.doesNotMatch(doc, /[–—]/);
 });

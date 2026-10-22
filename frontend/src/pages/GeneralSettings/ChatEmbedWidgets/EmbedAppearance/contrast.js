@@ -24,6 +24,9 @@
 // ganzen Zahlen bis 255, wie CSS nur mit Kommas (Alpha nach Komma) oder nur
 // mit Leerzeichen (Alpha nach „/“), Alpha als Zahl oder Prozent (Fixliste
 // 7.22-rc21 W91: „rgb(1, 2 3)“ lehnt CSS ab, der Button wäre durchsichtig).
+// Leerraum in rgb() nur wie in CSS: Leerzeichen, Tab, Zeilenumbruch und
+// Seitenvorschub ([ \t\n\r\f]); geschützte oder schmale Leerzeichen
+// (U+00A0, U+2009) liest CSS nicht als Trenner (Fixliste 7.22-rc22 E41).
 
 export const WHITE = "#FFFFFF";
 export const BLACK = "#000000";
@@ -40,10 +43,10 @@ export function parseColor(color) {
   m = /^#([0-9a-f]{6})(?:[0-9a-f]{2})?$/i.exec(c);
   if (m) return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
   m =
-    /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(?:\d+(?:\.\d+)?|\.\d+)%?\s*)?\)$/i.exec(
+    /^rgba?\([ \t\n\r\f]*(\d{1,3})[ \t\n\r\f]*,[ \t\n\r\f]*(\d{1,3})[ \t\n\r\f]*,[ \t\n\r\f]*(\d{1,3})[ \t\n\r\f]*(?:,[ \t\n\r\f]*(?:\d+(?:\.\d+)?|\.\d+)%?[ \t\n\r\f]*)?\)$/i.exec(
       c
     ) ||
-    /^rgba?\(\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})\s*(?:\/\s*(?:\d+(?:\.\d+)?|\.\d+)%?\s*)?\)$/i.exec(
+    /^rgba?\([ \t\n\r\f]*(\d{1,3})[ \t\n\r\f]+(\d{1,3})[ \t\n\r\f]+(\d{1,3})[ \t\n\r\f]*(?:\/[ \t\n\r\f]*(?:\d+(?:\.\d+)?|\.\d+)%?[ \t\n\r\f]*)?\)$/i.exec(
       c
     );
   if (m) {
