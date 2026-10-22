@@ -6,6 +6,9 @@ import "@/utils/chat/themes/github-dark.css";
 import "@/utils/chat/themes/github.css";
 import { useTranslation } from "react-i18next";
 import { EMBED_INLINE_PLACEHOLDER_SNIPPET } from "@/utils/constants";
+import { safeJsonParse } from "@/utils/request";
+import { InlineLinkWarning } from "@/pages/GeneralSettings/ChatEmbedWidgets/EmbedAppearance/EmbedTab";
+import { displayMode } from "@/pages/GeneralSettings/ChatEmbedWidgets/EmbedAppearance/widgetKeys";
 
 export default function CodeSnippetModal({ embed, closeModal }) {
   const { t } = useTranslation();
@@ -29,7 +32,7 @@ export default function CodeSnippetModal({ embed, closeModal }) {
         <div className="px-7 py-6">
           <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
             <ScriptTag embed={embed} />
-            <InlinePlaceholderTag />
+            <InlinePlaceholderTag inline={storedInline(embed)} />
           </div>
           <div className="flex justify-between items-center mt-6 pt-6 border-t border-theme-modal-border">
             <button
@@ -102,17 +105,45 @@ function SnippetBlock({ label, hint, snippet, copiedToast, children = null }) {
   );
 }
 
+// Darstellung „In der Seite“ laut gespeicherter visual_config des Widgets,
+// gelesen wie im Design Center (widgetKeys.js displayMode); ohne lesbare
+// Angabe das Chatfenster.
+function storedInline(embed) {
+  const config = safeJsonParse(embed?.visual_config, null);
+  return (
+    !!config &&
+    typeof config === "object" &&
+    !Array.isArray(config) &&
+    displayMode(config) === "inline"
+  );
+}
+
 // Kufer Inline-Modus: optionaler Platzhalter. Nur wirksam, wenn im Design
-// Center "Darstellung: Inline" gewählt ist (oder data-display-mode="inline").
-const InlinePlaceholderTag = () => {
+// Center die Darstellung „In der Seite“ gewählt ist (data-display-mode am
+// Skript wirkt seit E23, Fixliste 7.22-rc17, nicht mehr); ohne Platzhalter
+// erscheint das Chatfenster. Ist „In der Seite“ gewählt, steht vor dem
+// Schnipsel dieselbe Warnung vor verlinkten Bereichen wie im Reiter Einbau
+// (E32, Fixliste 7.22-rc20 F80), und die Beschriftung nennt ihn nicht
+// „Optional“ (E38, Fixliste 7.22-rc21).
+const InlinePlaceholderTag = ({ inline = false }) => {
   const { t } = useTranslation();
   return (
     <SnippetBlock
-      label={t("code-snippet-modal.inline-tag.label")}
+      label={t(
+        inline
+          ? "code-snippet-modal.inline-tag.label-inline"
+          : "code-snippet-modal.inline-tag.label"
+      )}
       hint={t("code-snippet-modal.inline-tag.hint")}
       snippet={EMBED_INLINE_PLACEHOLDER_SNIPPET}
       copiedToast={t("code-snippet-modal.inline-tag.copied")}
-    />
+    >
+      {inline && (
+        <div className="mt-2">
+          <InlineLinkWarning />
+        </div>
+      )}
+    </SnippetBlock>
   );
 };
 
@@ -146,14 +177,12 @@ const ScriptTag = ({ embed }) => {
       snippet={snippet}
       copiedToast={t("code-snippet-modal.copied")}
     >
-      <a
-        href="https://github.com/Mintplex-Labs/anythingllm-embed/blob/main/README.md"
-        target="_blank"
-        rel="noreferrer"
-        className="text-blue-300 light:text-blue-500 hover:underline"
-      >
-        {t("code-snippet-modal.script-tag.view-options")}
-      </a>
+      {/* Alle Einstellungen kommen aus dem Design Center (Erscheinungsbild,
+          Reiter Einbau); die Liste der data-Attribute im Upstream-README
+          wirkt größtenteils nicht mehr (Review 7.22-rc6 F11) */}
+      <p className="text-theme-text-secondary text-xs mt-1">
+        {t("code-snippet-modal.script-tag.settings-hint")}
+      </p>
     </SnippetBlock>
   );
 };

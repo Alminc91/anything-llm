@@ -341,7 +341,7 @@ test(
     });
     assert.equal(
       headingOf(ambiguous.container, "H3").textContent,
-      "Einbettung aktualisieren – KuferMedia · Widget 3"
+      "Einbettung aktualisieren: KuferMedia · Widget 3"
     );
     await ambiguous.unmount();
 
@@ -349,7 +349,7 @@ test(
     const plain = await mountModal({ embed: ELBE });
     assert.equal(
       headingOf(plain.container, "H3").textContent,
-      "Einbettung aktualisieren – Chatbot Elbe"
+      "Einbettung aktualisieren: Chatbot Elbe"
     );
   }
 );

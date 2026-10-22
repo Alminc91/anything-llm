@@ -21,8 +21,12 @@ const { getTTSProvider, isTTSConfigured } = require("../../utils/TextToSpeech");
 const { getSTTProvider, isSTTConfigured } = require("../../utils/SpeechToText");
 const multer = require("multer");
 const {
-  COURSE_CARDS_ANSWER_STYLES,
-  COURSE_CARDS_LAYOUTS,
+  applyEmbedStandards,
+  embedDisplayMode,
+} = require("../../utils/chats/embedStandards");
+const {
+  embedDefaultsLanguage,
+  defaultSuggestions,
 } = require("../../utils/chats/embedDefaults");
 
 // Configure multer for audio file uploads (store in memory)
@@ -59,104 +63,31 @@ const upload = multer({
   },
 });
 
-// Kufer Inline-Modus / Fenstergröße: Whitelist-Validierung der visual_config-
-// Felder, bevor sie ans (öffentliche) Widget gehen. Die Werte landen dort in
-// style/CSS — daher nur Zahl + erlaubte Einheit, Enums, Integer-Range, kurzer
-// Text. Ungültig -> Feld weglassen (Widget nutzt dann seinen Default). Das
-// Widget validiert zusätzlich selbst (utils/layout.js).
+// Kufer Design Center: Whitelist-Validierung der visual_config-Felder, die
+// noch frei wählbar sind, bevor sie ans (öffentliche) Widget gehen. Die Werte
+// landen dort in style/CSS bzw. als Text — daher nur Enums, kurzer Text und
+// geprüfter Link. Ungültig -> Feld weglassen (Widget nutzt dann seinen
+// Default). Alle übrigen Darstellungs-Schlüssel sind seit dem vereinfachten
+// Design Center (15.10.2026) fest: applyEmbedStandards
+// (utils/chats/embedStandards.js) entfernt Altwerte und setzt die Standards.
 const LAYOUT_ENUMS = {
   displayMode: ["bubble", "inline"],
-  inlineStartState: ["collapsed", "expanded"],
-  inlineTheme: ["light", "dark"],
-  // Fenster-Theme (Embed-Issue CSS-Variablen/Theme)
+  // Farbschema des Fensters und der Inline-Leiste (Hell/Dunkel; "auto" aus
+  // älteren Konfigurationen bleibt gültig)
   theme: ["light", "dark", "auto"],
-  // Kurskarten v2: Karten über oder unter der Antwort
-  courseCardsPosition: ["below", "above"],
-  // Antwortstil im Karten-Modus: kurz (Standard, Such-Abschnitt ohne Links),
-  // ausführlich (Liste mit Links) oder klassisch (kein Abschnitt, Karten nur
-  // aus Links/Marker) — wählt den Prompt-Abschnitt, den der Server bei
-  // courseCards = "auto" anhängt (utils/chats/embedDefaults.js)
-  courseCardsAnswerStyle: COURSE_CARDS_ANSWER_STYLES,
-  // Kartenlayout: Raster (zwei nebeneinander, Widget-Standard) oder Zeilen
-  // (eine Karte je Zeile, Zeit links, Status rechts) — nur Darstellung
-  courseCardsLayout: COURSE_CARDS_LAYOUTS,
-  // Leisten-Variante: Öffnen bei Klick (wie INLINE_OPEN_ON_VALUES im Widget)
-  inlineOpenOn: ["submit", "focus"],
-  // Panel-Optik (Mockup „Wunschfragen im Panel“): Vorschläge als Balken oder
-  // Pillen, Begrüßung als Text oder Blase; Datenschutz-Hinweis in der
-  // Begrüßungsblase oder einmalig als Karte; fester KI-Hinweis im Fuß
-  suggestionStyle: ["bars", "pills"],
-  greetingStyle: ["text", "bubble"],
-  privacyNotice: ["none", "bubble", "modal"],
-  // disclaimer "footer": das Widget zeigt den KI-Hinweis fest unter dem
-  // Eingabefeld. Der vom Modell erzeugte Prompt-Footer entfällt damit NICHT
-  // automatisch – das regelt separat server/utils/chats/embed.js (Folge-
-  // änderung nach dem Merge von Kurskarten v3: bei disclaimer === "footer"
-  // eine Systemprompt-Zeile anhängen, die den Modell-Footer unterdrückt).
-  // Bis dahin kann der Hinweis doppelt erscheinen.
-  disclaimer: ["none", "footer"],
-  // Folgefragen: Vorschläge des Modells als Pillen unter der letzten Antwort
-  // (der Server entfernt die Zeile "[[FRAGEN: …]]" unabhängig davon immer)
-  followUps: ["none", "pills"],
 };
 
-// Text-Schlüssel des Widgets mit Höchstlänge wie im Widget (utils/layout.js:
-// shortText mit INLINE_TEXT_MAX_LEN = 120, INLINE_SEND_TEXT_MAX_LEN = 40).
-// Wert wird getrimmt; leer oder zu lang -> weglassen (nicht kürzen).
-// courseCards/inlineLayout/inlineEffect gehen als kurzer Text durch, die
-// Enum-Prüfung macht das Widget, damit neue Werte keine Fork-Änderung brauchen.
+// Text-Schlüssel mit Höchstlänge wie im Widget (utils/layout.js). Wert wird
+// getrimmt; zu lang -> weglassen (nicht kürzen). Leer ("") geht als leerer
+// Wert mit: Untertitel "" = bewusst kein Untertitel (R5, Fixliste 7.22-rc8,
+// wie privacyTitle), fehlender Wert = Standard des Widgets („Online-Berater
+// mit künstlicher Intelligenz“). Begrüßung, Platzhalter und Datenschutz-
+// Texte prüft applyEmbedStandards.
 const WIDGET_TEXT_MAX = {
-  inlineCollapsedText: 120,
-  inlineInputPlaceholder: 120,
-  inlineSendText: 40,
-  courseCards: 40,
-  inlineLayout: 40,
-  inlineEffect: 40,
-  // Panel-Optik/Datenschutz-/KI-Hinweis (Höchstlängen wie im Widget,
-  // utils/layout.js). privacyText und privacyUrl haben eigene Prüfungen
-  // (validPrivacyText, validUrl).
-  greetingBubbleText: 300,
   assistantSubtitle: 60,
-  privacyTitle: 120,
-  privacyButtonText: 40,
-  disclaimerText: 160,
 };
-// privacyText wie privacyTextValue() im Widget: Stichpunkte je Zeile bzw. "|"
-const PRIVACY_POINTS_MAX = 5;
-const PRIVACY_POINT_MAX_LEN = 160;
-const PRIVACY_TEXT_MAX_LEN = 1000;
 // privacyUrl wie safeUrl() im Widget
 const URL_MAX_LEN = 512;
-// Boolean-Schlüssel: echte Booleans oder "true"/"false"/"on"/"off"/"1"/"0"/
-// "yes"/"no" (wie bool() im Widget); alles andere -> weglassen.
-const WIDGET_BOOLEAN_KEYS = ["inlineInput", "onlineDot"];
-const LAYOUT_LENGTHS = {
-  windowWidth: ["px", "%", "vw", "vh"],
-  windowHeight: ["px", "%", "vw", "vh"],
-  inlineHeight: ["px", "vh"],
-  inlineMaxWidth: ["px"],
-};
-
-function validCssLength(value, units) {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0)
-    value = String(value);
-  if (typeof value !== "string") return null;
-  const m = /^(\d{1,4}(?:\.\d{1,2})?)(px|%|vw|vh)?$/.exec(
-    value.trim().toLowerCase()
-  );
-  if (!m || Number(m[1]) <= 0) return null;
-  const unit = m[2] || "px";
-  return units.includes(unit) ? `${m[1]}${unit}` : null;
-}
-
-function validBoolean(value) {
-  if (typeof value === "boolean") return value;
-  if (typeof value !== "string") return null;
-  const v = value.trim().toLowerCase();
-  if (["true", "on", "1", "yes"].includes(v)) return true;
-  if (["false", "off", "0", "no"].includes(v)) return false;
-  return null;
-}
 
 // Link (Datenschutz) wie safeUrl() im Widget: absolute https-URL oder Pfad
 // der eigenen Seite ("/…", nicht "//…"), ohne Leer-/Steuerzeichen, höchstens
@@ -176,36 +107,38 @@ function validUrl(value) {
   }
 }
 
-// Datenschutz-Stichpunkte wie privacyTextValue() im Widget: Rohtext (getrimmt)
-// höchstens PRIVACY_TEXT_MAX_LEN Zeichen, Punkte per Zeilenumbruch oder "|"
-// getrennt, getrimmt, leere verworfen; 1–5 Punkte mit je höchstens 160
-// Zeichen. Verletzt -> null (weglassen, nicht kürzen). Rückgabe normalisiert:
-// ein Punkt je Zeile.
-function validPrivacyText(value) {
-  if (typeof value !== "string") return null;
-  const v = value.trim();
-  if (v.length === 0 || v.length > PRIVACY_TEXT_MAX_LEN) return null;
-  const points = v
-    .split(/\r?\n|\|/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
-  if (
-    points.length === 0 ||
-    points.length > PRIVACY_POINTS_MAX ||
-    points.some((p) => p.length > PRIVACY_POINT_MAX_LEN)
-  )
-    return null;
-  return points.join("\n");
+// Schrift auf der Kundenfarbe (Entscheidung E1, Fixliste 7.22-rc7):
+// „Schwarz“ wird als #222628 gespeichert und ausgeliefert. Ein früher
+// gespeichertes reines Schwarz (#000000) liefert der Server ebenfalls als
+// #222628 aus, passend zur Schrift der Antworten; gespeichert bleibt es
+// unverändert. Empfehlung und Warnung im Design Center und im Widget rechnen
+// mit dieser gezeigten Farbe (contrast.js SHOWN_BLACK, widgetKeys.js
+// LEGACY_USER_TEXT_COLORS).
+const SHOWN_BLACK = "#222628";
+const LEGACY_USER_TEXT_COLORS = Object.freeze({ "#000000": SHOWN_BLACK });
+function shownUserTextColor(value) {
+  if (typeof value !== "string") return value;
+  // nur eigene Schlüssel (C1, Fixliste 7.22-rc13): „__proto__“ oder
+  // „constructor“ als gespeicherter Wert liefern nicht Object.prototype
+  const key = value.trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(LEGACY_USER_TEXT_COLORS, key)
+    ? LEGACY_USER_TEXT_COLORS[key]
+    : value;
 }
 
-// Ganzzahl 0–200, als Zahl oder String (optional mit "px", wie im Widget)
-function validOffset(value) {
-  let n = value;
-  if (typeof value === "string") {
-    const m = /^\s*(\d{1,3})\s*(px)?\s*$/i.exec(value);
-    n = m ? Number(m[1]) : null;
-  }
-  return Number.isInteger(n) && n >= 0 && n <= 200 ? n : null;
+/**
+ * Gespeicherte Liste (Startvorschläge, Willkommensblasen) für /config:
+ * getrimmte, nicht leere Strings, Kommas bleiben im Eintrag (E11, Fixliste
+ * 7.22-rc13: die Listen gehen als JSON-Array ans Widget, nicht mehr
+ * kommagetrennt). Kein Array = nichts gespeichert (null).
+ * @param {*} value
+ * @returns {string[]|null}
+ */
+function savedList(value) {
+  if (!Array.isArray(value)) return null;
+  return value
+    .filter((m) => typeof m === "string" && m.trim().length > 0)
+    .map((m) => m.trim());
 }
 
 function mapLayoutConfig(visualConfig = {}) {
@@ -216,31 +149,48 @@ function mapLayoutConfig(visualConfig = {}) {
     const normalized = v.trim().toLowerCase(); // wie Widget: case-insensitiv
     if (allowed.includes(normalized)) out[key] = normalized;
   }
-  for (const [key, units] of Object.entries(LAYOUT_LENGTHS)) {
-    const v = validCssLength(visualConfig[key], units);
-    if (v) out[key] = v;
-  }
-  for (const key of ["offsetX", "offsetY"]) {
-    const v = validOffset(visualConfig[key]);
-    if (v !== null) out[key] = v;
-  }
-  if (typeof visualConfig.inheritFont === "boolean")
-    out.inheritFont = visualConfig.inheritFont;
   for (const [key, maxLen] of Object.entries(WIDGET_TEXT_MAX)) {
     const v = visualConfig[key];
     if (typeof v !== "string") continue;
     const text = v.trim();
-    if (text.length > 0 && text.length <= maxLen) out[key] = text;
+    if (text.length <= maxLen) out[key] = text;
   }
-  const privacyText = validPrivacyText(visualConfig.privacyText);
-  if (privacyText !== null) out.privacyText = privacyText;
   const privacyUrl = validUrl(visualConfig.privacyUrl);
   if (privacyUrl !== null) out.privacyUrl = privacyUrl;
-  for (const key of WIDGET_BOOLEAN_KEYS) {
-    const v = validBoolean(visualConfig[key]);
-    if (v !== null) out[key] = v;
-  }
   return out;
+}
+
+/**
+ * Gespeicherte visual_config für GET /embed/:id/config. Die Middleware hat
+ * die Zeile schon geladen (response.locals.embedConfig); ihr Wert wird
+ * gelesen, statt die Datenbank ein zweites Mal zu fragen. Nur wenn die Zeile
+ * keinen visual_config-Eintrag mitbringt, fragt EmbedConfig.getVisualConfig.
+ * ok false: gespeicherter Wert nicht lesbar (kein JSON-Objekt); die Antwort
+ * enthält dann nur die Standards und darf nicht zwischengespeichert werden
+ * (Review F06: sonst gälte ein vorübergehender Fehler 5 Minuten lang).
+ * @param {{uuid: string, visual_config?: string|object|null}} embed
+ * @returns {Promise<{config: Object, ok: boolean}>}
+ */
+async function storedVisualConfig(embed) {
+  if (!embed || !("visual_config" in embed))
+    return {
+      config: (await EmbedConfig.getVisualConfig(embed?.uuid)) || {},
+      ok: true,
+    };
+  let value = embed.visual_config;
+  if (value === null || value === undefined || value === "")
+    return { config: {}, ok: true };
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch (e) {
+      console.error("[Embed Config] visual_config unparsable", e.message);
+      return { config: {}, ok: false };
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return { config: {}, ok: false };
+  return { config: value, ok: true };
 }
 
 function embeddedEndpoints(app) {
@@ -253,7 +203,7 @@ function embeddedEndpoints(app) {
     async (request, response) => {
       try {
         const embed = response.locals.embedConfig;
-        const visualConfig = await EmbedConfig.getVisualConfig(embed.uuid);
+        const { config: visualConfig, ok } = await storedVisualConfig(embed);
 
         // Map simplified fields to widget data-attributes
         const mapped = {};
@@ -262,23 +212,16 @@ function embeddedEndpoints(app) {
           mapped.userBgColor = visualConfig.accentColor;
           mapped.linkColor = visualConfig.accentColor;
         }
-        if (visualConfig.userTextColor) {
-          // Soften legacy pure black so it matches the assistant text color
-          // in the live widget and looks less harsh on warm accent colors.
-          mapped.userTextColor =
-            visualConfig.userTextColor === "#000000"
-              ? "#222628"
-              : visualConfig.userTextColor;
-        }
+        if (visualConfig.userTextColor)
+          mapped.userTextColor = shownUserTextColor(visualConfig.userTextColor);
         if (visualConfig.name) {
           mapped.brandText = visualConfig.name;
           mapped.assistantName = visualConfig.name;
         }
         if (visualConfig.chatIcon) mapped.chatIcon = visualConfig.chatIcon;
         if (visualConfig.position) mapped.position = visualConfig.position;
-        if (visualConfig.greeting) mapped.greeting = visualConfig.greeting;
-        if (visualConfig.sendMessageText)
-          mapped.sendMessageText = visualConfig.sendMessageText;
+        // greeting/sendMessageText: applyEmbedStandards (Begrüßung und
+        // Platzhalter ohne frühere Vorbelegungen)
         if (visualConfig.supportEmail)
           mapped.supportEmail = visualConfig.supportEmail;
         // KIE-503: "Frühere Chats" pro Embed abschaltbar (Widget-Einstellungen,
@@ -286,23 +229,46 @@ function embeddedEndpoints(app) {
         // nur explizites false wird ans Widget gemeldet.
         if (embed.history_enabled === false) mapped.historyEnabled = false;
 
-        if (Array.isArray(visualConfig.defaultMessages)) {
-          const cleaned = visualConfig.defaultMessages
-            .filter((m) => typeof m === "string" && m.trim().length > 0)
-            .map((m) => m.trim());
-          if (cleaned.length > 0) mapped.defaultMessages = cleaned.join(",");
+        // Startvorschläge (S1 Fixliste 7.22-rc10, Vertrag mit dem Widget
+        // nach E10 bis E12 der Fixliste 7.22-rc13, Vorrang nach E10 neu und
+        // E23 der Fixliste 7.22-rc17), immer als JSON-Array:
+        // - gespeicherte Liste: bereinigt (savedList), Einträge mit Komma
+        //   bleiben ganz (E11);
+        // - gespeichertes [] (oder nur leere Zeilen): [] mit
+        //   defaultMessagesSaved: true, das Widget zeigt dann keine Pillen;
+        // - nichts gespeichert (kein Array): die Standard-Startvorschläge der
+        //   Sprache mit defaultMessagesStandard: true. Widgets bis
+        //   7.22-rc16 ließen an diesem Kennzeichen data-default-messages vor
+        //   den Standard; das Widget ab 7.22-rc17 wertet es nicht aus und
+        //   entfernt es. Es bleibt für ältere Widget-Kopien und einen
+        //   stabilen Vertrag (F52, Fixliste 7.22-rc18 C21). Die Sprache
+        //   schickt das Widget als ?language= mit (seine Sprache aus
+        //   data-language, E12); fehlend oder unbekannt -> de.
+        // Vorrang im Widget: gespeichert (auch leer) vor Standard. Die
+        // Startvorschläge stellt das Design Center ein (Gruppe A, E23): ein
+        // data-default-messages am Skript wirkt nicht, auch wenn nichts
+        // gespeichert ist.
+        // Fixture des Vertrags: __tests__/utils/chats/fixtures/
+        // embedConfigContract.json, Test __tests__/endpoints/
+        // embedConfigContract.test.js (Gegenprobe mit KUFER_EMBED_DIR).
+        const suggestions = savedList(visualConfig.defaultMessages);
+        if (suggestions === null) {
+          mapped.defaultMessages = defaultSuggestions(
+            embedDefaultsLanguage(request.query?.language)
+          );
+          mapped.defaultMessagesStandard = true;
+        } else {
+          mapped.defaultMessages = suggestions;
+          if (suggestions.length === 0) mapped.defaultMessagesSaved = true;
         }
-        if (Array.isArray(visualConfig.chatbotBubblesMessages)) {
-          const cleaned = visualConfig.chatbotBubblesMessages
-            .filter((m) => typeof m === "string" && m.trim().length > 0)
-            .map((m) => m.trim());
-          if (cleaned.length > 0)
-            mapped.chatbotBubblesMessages = cleaned.join(",");
-        }
+        // Willkommensblasen: nur eine gespeicherte, nicht leere Liste (leer
+        // = Standardblasen des Widgets, wie im Design Center), als Array
+        const bubbles = savedList(visualConfig.chatbotBubblesMessages);
+        if (bubbles !== null && bubbles.length > 0)
+          mapped.chatbotBubblesMessages = bubbles;
 
-        // Darstellung (Blase/Inline), Fenstergröße/Randabstand, Theme und
-        // Inline-/Kurskarten-Schlüssel — nur validierte Werte ausliefern,
-        // ungültige Felder weglassen.
+        // Darstellung (Blase/Inline), Farbschema, Untertitel, Datenschutz-
+        // Link — nur validierte Werte ausliefern, ungültige Felder weglassen.
         Object.assign(mapped, mapLayoutConfig(visualConfig));
 
         // Logo: serve from upload endpoint or use URL
@@ -317,11 +283,21 @@ function embeddedEndpoints(app) {
           mapped.assistantIcon = visualConfig.logoUrl;
         }
 
-        response.setHeader("Cache-Control", "public, max-age=300");
-        response.status(200).json(mapped);
+        // Feste Standards (Design Center vereinfacht): Altwerte entfallener
+        // Optionen ignorieren, Begrüßung/Platzhalter/Datenschutz-Text aus den
+        // gespeicherten Texten, feste Werte erzwingen.
+        response.setHeader(
+          "Cache-Control",
+          ok ? "public, max-age=300" : "no-store"
+        );
+        response.status(200).json(applyEmbedStandards(mapped, visualConfig));
       } catch (e) {
         console.error("[Embed Config]", e.message);
-        response.status(200).json({});
+        // auch im Fehlerfall die festen Standards (kein Widget ohne
+        // KI-Hinweis, keine alten Optionen), aber nicht zwischenspeichern:
+        // Der nächste Aufruf soll wieder die gespeicherten Werte liefern.
+        response.setHeader("Cache-Control", "no-store");
+        response.status(200).json(applyEmbedStandards({}, {}));
       }
     }
   );
@@ -373,6 +349,11 @@ function embeddedEndpoints(app) {
           model = null,
           temperature = null,
           username = null,
+          // Tatsächliche Darstellung des Widgets ("inline"|"bubble"), vom
+          // Widget mit jeder Anfrage geschickt. Nur für den Standard von
+          // „Antworten mit Kursen“ ohne gespeicherte Wahl (R4, Fixliste
+          // 7.22-rc8); ungültig oder fehlend zählt als Chatfenster.
+          displayMode = null,
         } = reqBody(request);
 
         // Fallback: If no conversationId, use sessionId for backwards compatibility
@@ -390,6 +371,7 @@ function embeddedEndpoints(app) {
           modelOverride: model,
           temperatureOverride: temperature,
           username,
+          displayMode: embedDisplayMode(displayMode),
         });
         await Telemetry.sendTelemetry("embed_sent_chat", {
           multiUserMode: multiUserMode(response),

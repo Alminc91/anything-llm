@@ -5,8 +5,10 @@
 // eine Kopie (fixtures/embedPanelTexts.json, mit Stand-Kommentar).
 const {
   EMBED_DEFAULT_TEXTS,
+  DEFAULT_SUGGESTIONS,
   embedDefaultsLanguage,
   embedDefaultTexts,
+  defaultSuggestions,
   COURSE_CARDS_PROMPT_NOTE,
   COURSE_CARDS_LONG_PROMPT_NOTE,
   COURSE_CARDS_SECTION_HEADING,
@@ -20,59 +22,218 @@ const {
   DISCLAIMER_PROMPT_NOTE,
   FOLLOW_UPS_PROMPT_NOTE,
 } = require("../../../utils/chats/embedCourseSources");
+const { normalizePrivacyText } = require("../../../utils/chats/embedStandards");
 const PANEL_TEXTS = require("./fixtures/embedPanelTexts.json");
 
 describe("Standardtexte = Widget-PANEL_TEXTS", () => {
   test.each(["de", "en"])("%s wörtlich wie im Widget", (lang) => {
     const widget = PANEL_TEXTS[lang];
     expect(embedDefaultTexts(lang)).toEqual({
-      greetingBubbleText: widget.greetingBubble,
+      name: widget.assistantName,
+      assistantSubtitle: widget.assistantSubtitle,
+      greeting: widget.greetingBubble,
+      sendMessageText: widget.inputPlaceholder,
       privacyTitle: widget.privacyTitle,
-      privacyText: widget.privacyPoints.join("\n"),
-      privacyButtonText: widget.privacyButton,
+      privacyText: widget.privacyPoints.map((p) => `• ${p}`).join("\n"),
       disclaimerText: widget.aiDisclaimer,
+      inlineInputPlaceholder: widget.inlineBarPlaceholder,
+      inlineSendText: widget.inlineSendText,
+      // S1 (Fixliste 7.22-rc10): Startvorschläge hat das Widget nicht, der
+      // Server liefert sie (DEFAULT_SUGGESTIONS, auch live über /config)
+      defaultMessages: [...DEFAULT_SUGGESTIONS[lang]],
     });
   });
 
-  test("Hard Constraint 4: deutsche Texte wörtlich", () => {
-    const de = embedDefaultTexts("de");
-    expect(de.greetingBubbleText).toBe(
-      "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen."
-    );
-    expect(embedDefaultTexts("en").greetingBubbleText).toBe(
-      "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for."
-    );
-    expect(de.privacyText.split("\n")).toEqual([
-      "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
-      "Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
-      "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
+  // S1 (Fixliste 7.22-rc10): Standard-Startvorschläge je Sprache, wörtlich
+  // wie die Vorbelegung des Design Centers. Kommas wären seit E11 (Fixliste
+  // 7.22-rc13, /config liefert Arrays) erlaubt; die Standards haben keine.
+  test("S1: Standard-Startvorschläge de/en wörtlich, Kopie, ohne Gedankenstriche", () => {
+    expect(defaultSuggestions("de")).toEqual([
+      "Ich suche einen Deutschkurs.",
+      "Gibt es Excel-Kurse am Abend?",
     ]);
-    expect(de.privacyButtonText).toBe("Start");
-    expect(de.disclaimerText).toBe(
-      "Ich bin eine KI und kann Fehler machen. Bitte überprüfen Sie meine Antworten."
+    expect(defaultSuggestions("en")).toEqual([
+      "I am looking for a German course.",
+      "Are there Excel courses in the evening?",
+    ]);
+    for (const lang of [undefined, "fr", "", "en-GB"])
+      expect(defaultSuggestions(lang)).toEqual(
+        defaultSuggestions(lang === "en-GB" ? "en" : "de")
+      );
+    expect(embedDefaultTexts("en").defaultMessages).toEqual(
+      defaultSuggestions("en")
     );
+    for (const lang of Object.keys(DEFAULT_SUGGESTIONS))
+      for (const text of DEFAULT_SUGGESTIONS[lang])
+        expect(text).not.toMatch(/[\u2013\u2014]/);
+    // Kopie: der Aufrufer kann die Standards nicht verändern
+    const list = defaultSuggestions("de");
+    list.push("x");
+    expect(defaultSuggestions("de")).toHaveLength(2);
+    expect(() => DEFAULT_SUGGESTIONS.de.push("x")).toThrow();
   });
 
-  test("Standardtexte passen in die Server-Grenzen (mapLayoutConfig)", () => {
+  test("D2: eingeklappte Inline-Leiste mit den Demo-Texten, je Sprache", () => {
+    expect(embedDefaultTexts("de")).toMatchObject({
+      inlineInputPlaceholder: "Stellen Sie hier Ihre Frage …",
+      inlineSendText: "Chatten",
+    });
+    expect(embedDefaultTexts("en")).toMatchObject({
+      inlineInputPlaceholder: "Ask your question here …",
+      inlineSendText: "Chat",
+    });
+  });
+
+  test("Auftrag B: deutsche Texte wörtlich (Design Center vereinfacht, 15.10.2026)", () => {
+    const de = embedDefaultTexts("de");
+    expect(de.greeting).toBe(
+      "Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?"
+    );
+    expect(de.name).toBe("KI-Berater");
+    expect(de.assistantSubtitle).toBe(
+      "Online-Berater mit künstlicher Intelligenz"
+    );
+    expect(de.sendMessageText).toBe("Ihre Frage eingeben");
+    expect(de.privacyTitle).toBe("Datenschutz");
+    expect(de.privacyText.split("\n")).toEqual([
+      "• Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
+      "• Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
+      "• Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
+    ]);
+    // R1 (Fixliste 7.22-rc8): „Unsere KI“ statt „KI“, bewusst geändert;
+    // Kurzfassung „prüfen“ nach der Messung des Widgets (eine Zeile bis
+    // 1280 px nur so), en unverändert
+    expect(de.disclaimerText).toBe(
+      "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten."
+    );
+    expect(embedDefaultTexts("en").disclaimerText).toBe(
+      "Our AI can make mistakes. Please double-check the answers."
+    );
+    // entfallen: Knopf der Datenschutz-Karte, eigener Text der Begrüßungsblase
+    expect(de).not.toHaveProperty("privacyButtonText");
+    expect(de).not.toHaveProperty("greetingBubbleText");
+  });
+
+  test("keine Gedankenstriche (– oder —) in sichtbaren Standardtexten", () => {
+    for (const lang of Object.keys(EMBED_DEFAULT_TEXTS))
+      for (const text of Object.values(embedDefaultTexts(lang)).flat())
+        expect(text).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  // E30 (Fixliste 7.22-rc19, Nutzerentscheidung): Standardtexte ohne
+  // Gendersprache; „Mitarbeiter“ statt „Mitarbeitende“. Englisch unverändert,
+  // gespeicherte Texte der Kunden bleiben, wie sie sind.
+  test("E30: Datenschutz-Standard „Mitarbeiter der Einrichtung …“, keine Gendersprache", () => {
+    expect(EMBED_DEFAULT_TEXTS.de.privacyPoints[1]).toBe(
+      "Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen."
+    );
+    expect(PANEL_TEXTS.de.privacyPoints).toEqual(
+      EMBED_DEFAULT_TEXTS.de.privacyPoints
+    );
+    expect(EMBED_DEFAULT_TEXTS.en.privacyPoints[1]).toBe(
+      "Staff of the institution may view conversations for quality assurance."
+    );
+    for (const lang of Object.keys(EMBED_DEFAULT_TEXTS))
+      for (const text of [
+        ...Object.values(embedDefaultTexts(lang)).flat(),
+        ...PANEL_TEXTS[lang].privacyPoints,
+      ])
+        expect(text).not.toMatch(/Mitarbeitende|\w[*:_]innen\b|\wInnen\b/);
+  });
+
+  test("Standardtexte passen in die Grenzen von Server und Widget", () => {
     for (const lang of Object.keys(EMBED_DEFAULT_TEXTS)) {
       const t = embedDefaultTexts(lang);
-      expect(t.greetingBubbleText.length).toBeLessThanOrEqual(300);
+      expect(t.greeting.length).toBeLessThanOrEqual(300);
+      expect(t.assistantSubtitle.length).toBeLessThanOrEqual(60);
+      expect(t.sendMessageText.length).toBeLessThanOrEqual(120);
       expect(t.privacyTitle.length).toBeLessThanOrEqual(120);
-      expect(t.privacyButtonText.length).toBeLessThanOrEqual(40);
       expect(t.disclaimerText.length).toBeLessThanOrEqual(160);
-      expect(t.privacyText.length).toBeLessThanOrEqual(1000);
-      const points = t.privacyText.split("\n");
-      expect(points.length).toBeLessThanOrEqual(5);
-      for (const p of points) expect(p.length).toBeLessThanOrEqual(160);
+      // freier Datenschutz-Text: unverändert gültig (normalizePrivacyText)
+      expect(normalizePrivacyText(t.privacyText)).toBe(t.privacyText);
     }
   });
 
   test("Rückgabe ist eine Kopie (Aufrufer kann nichts verändern)", () => {
     const a = embedDefaultTexts("de");
     a.privacyTitle = "x";
-    expect(embedDefaultTexts("de").privacyTitle).toBe("Datenschutz:");
+    a.defaultMessages.push("x");
+    expect(embedDefaultTexts("de").privacyTitle).toBe("Datenschutz");
+    expect(embedDefaultTexts("de").defaultMessages).toHaveLength(2);
   });
 });
+
+// R1 (Fixliste 7.22-rc8): Gegenprobe gegen das Embed-Repo selbst (nicht nur
+// gegen die Fixture-Kopie). KUFER_EMBED_DIR zeigt auf den Worktree des
+// Widgets; ohne die Variable wird übersprungen. Kürzt das Widget den
+// KI-Hinweis nach der Messung (unter 10 px Schrift) auf „Bitte prüfen Sie“,
+// scheitert dieser Test, bis embedDefaults.js und die Fixture nachgezogen
+// sind.
+const embedDir = process.env.KUFER_EMBED_DIR;
+const describeWidget = embedDir ? describe : describe.skip;
+describeWidget(
+  "Standardtexte wortgleich mit PANEL_TEXTS im Embed-Repo (KUFER_EMBED_DIR)",
+  () => {
+    const fs = require("fs");
+    const path = require("path");
+    let source = "";
+    beforeAll(() => {
+      source = fs.readFileSync(
+        path.join(embedDir, "src/utils/layout.js"),
+        "utf8"
+      );
+    });
+    // PANEL_TEXTS = { de: {…}, en: {…} }: je Sprache die String-Felder
+    const block = (lang) => {
+      const start = source.indexOf(
+        `${lang}: {`,
+        source.indexOf("PANEL_TEXTS = {")
+      );
+      expect(start).toBeGreaterThan(0);
+      let depth = 0;
+      for (let i = source.indexOf("{", start); i < source.length; i++) {
+        if (source[i] === "{") depth++;
+        else if (source[i] === "}" && --depth === 0)
+          return source.slice(start, i + 1);
+      }
+      throw new Error(`PANEL_TEXTS.${lang} ohne Ende`);
+    };
+    const field = (text, name) => {
+      const m = new RegExp(`${name}:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(text);
+      expect(m).not.toBeNull();
+      return JSON.parse(`"${m[1]}"`);
+    };
+
+    // privacyPoints: [ "…", "…" ] als Liste der Texte
+    const points = (text) => {
+      const m = /privacyPoints:\s*\[([^\]]*)\]/.exec(text);
+      expect(m).not.toBeNull();
+      return [...m[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((p) =>
+        JSON.parse(`"${p[1]}"`)
+      );
+    };
+
+    test.each(["de", "en"])(
+      "%s: KI-Hinweis, Name, Untertitel, Begrüßung, Platzhalter, Überschrift, Datenschutz-Punkte",
+      (lang) => {
+        const widget = block(lang);
+        const ours = EMBED_DEFAULT_TEXTS[lang];
+        expect(field(widget, "aiDisclaimer")).toBe(ours.disclaimerText);
+        expect(field(widget, "assistantName")).toBe(ours.assistantName);
+        expect(field(widget, "assistantSubtitle")).toBe(ours.assistantSubtitle);
+        expect(field(widget, "greetingBubble")).toBe(ours.greeting);
+        expect(field(widget, "inputPlaceholder")).toBe(ours.inputPlaceholder);
+        expect(field(widget, "privacyTitle")).toBe(ours.privacyTitle);
+        // Datenschutz-Punkte (E30, Fixliste 7.22-rc19): wortgleich im Widget
+        expect(points(widget)).toEqual(ours.privacyPoints);
+        // Fixture-Kopie ebenfalls auf dem Stand des Widgets
+        expect(PANEL_TEXTS[lang].aiDisclaimer).toBe(
+          field(widget, "aiDisclaimer")
+        );
+      }
+    );
+  }
+);
 
 describe("embedDefaultsLanguage wie panelLanguage() im Widget", () => {
   test.each([

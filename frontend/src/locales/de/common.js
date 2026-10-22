@@ -963,6 +963,7 @@ const TRANSLATIONS = {
     title: "Konversationen",
     "load-error": "Fehler beim Laden der Konversationsdaten.",
     loading: "Laden …",
+    "no-value": "k. A.",
     "all-time": "Gesamt",
     "statistics-title": "STATISTIKEN",
     stats: {
@@ -984,7 +985,7 @@ const TRANSLATIONS = {
       "max-words-prompt-desc": "Längste User-Anfrage (Outlier-Indikator)",
       "show-technical": "Technische Details anzeigen",
       "technical-note":
-        "Berechnet aus den noch vorhandenen Konversationsinhalten im gewählten Zeitraum – ohne gelöschte und vom Besucher geleerte Nachrichten. Die Kennzahlen oben zählen dagegen jede Nachricht.",
+        "Berechnet aus den noch vorhandenen Konversationsinhalten im gewählten Zeitraum, ohne gelöschte und vom Besucher geleerte Nachrichten. Die Kennzahlen oben zählen dagegen jede Nachricht.",
       "feedback-positive-label": "Positiv",
       "feedback-positive-desc": "Positiv bewertete Antworten",
       "feedback-negative-label": "Negativ",
@@ -999,7 +1000,7 @@ const TRANSLATIONS = {
     "no-conversations": "Keine Konversationen vorhanden.",
     "session-copied": "Session ID kopiert!",
     "retention-notice":
-      "DSGVO-Datenlöschung aktiv — Aufbewahrung {{days}} Tage, Chats verfallen am {{expiryDate}}",
+      "DSGVO-Datenlöschung aktiv: Aufbewahrung {{days}} Tage, Chats verfallen am {{expiryDate}}",
     "select-embed": "Widget wählen",
     "embed-label": {
       unnamed: "Widget {{id}}",
@@ -1030,15 +1031,15 @@ const TRANSLATIONS = {
       "no-ratings": "Keine Bewertungen",
       "show-negative": "Betroffene Konversationen anzeigen",
       "conversations-hint":
-        "Im Zeitraum begonnene Konversationen. Die Liste unten zeigt nur Konversationen, deren Inhalte noch vorhanden sind – die Zahlen können sich unterscheiden.",
+        "Im Zeitraum begonnene Konversationen. Die Liste unten zeigt nur Konversationen, deren Inhalte noch vorhanden sind. Die Zahlen können sich deshalb unterscheiden.",
       ratings: "Bewertungen",
       "rated-share": "{{value}} % der Antworten bewertet",
       "positive-count": "{{value}} positiv",
       "negative-count": "{{value}} negativ",
       "negative-action":
-        "{{value}} negativ – Betroffene Konversationen anzeigen",
+        "{{value}} negativ: Betroffene Konversationen anzeigen",
       "positive-action":
-        "{{value}} positiv – Betroffene Konversationen anzeigen",
+        "{{value}} positiv: Betroffene Konversationen anzeigen",
       satisfaction: "Zufriedenheit",
       "satisfaction-value": "{{value}} %",
       "satisfaction-of": "{{positive}} von {{total}} Bewertungen positiv",
@@ -1057,11 +1058,11 @@ const TRANSLATIONS = {
       "change-points_other":
         "{{change}} Punkte ggü. Vorzeitraum ({{previous}} %)",
       "previous-value": "Vorzeitraum: {{value}}",
-      "previous-bucket": "Vorzeitraum: {{period}} — {{value}}",
+      "previous-bucket": "Vorzeitraum: {{period}} · {{value}}",
       "previous-range": "Vorzeitraum: {{range}}",
       "change-range": "Veränderung gegenüber dem Vorzeitraum {{range}}.",
       running:
-        "Der gewählte Zeitraum läuft noch – die Veränderung ist vorläufig.",
+        "Der gewählte Zeitraum läuft noch. Die Veränderung ist vorläufig.",
       unavailable: "Kein Vergleich verfügbar",
       "unavailable-since":
         "Kein Vergleich verfügbar: Der Vorzeitraum beginnt vor dem {{date}}, dem ersten Tag mit Zählwerten.",
@@ -1094,7 +1095,7 @@ const TRANSLATIONS = {
       "keyboard-hint": "Mit den Pfeiltasten wechseln Sie zwischen den Säulen.",
       "filter-hint":
         "Die Eingabetaste zeigt in der Liste nur die Konversationen dieses Abschnitts.",
-      tooltip: "{{period}} — {{value}}",
+      tooltip: "{{period}} · {{value}}",
       value: {
         messages_one: "{{formatted}} Nachricht",
         messages_other: "{{formatted}} Nachrichten",
@@ -1105,9 +1106,9 @@ const TRANSLATIONS = {
         hour: "{{day}}, {{from}}–{{to}} Uhr",
         week: "KW {{week}}",
         "week-range": "{{period}} ({{start}}–{{end}})",
-        "partial-from": "{{period}} – ab {{start}}",
-        "partial-until": "{{period}} – bis {{end}}",
-        "partial-between": "{{period}} – {{start}} bis {{end}}",
+        "partial-from": "{{period}}, ab {{start}}",
+        "partial-until": "{{period}}, bis {{end}}",
+        "partial-between": "{{period}}, {{start}} bis {{end}}",
       },
       tick: {
         hour: "{{hour}} Uhr",
@@ -1157,7 +1158,7 @@ const TRANSLATIONS = {
         less: "weniger",
         more: "mehr",
         range: "{{from}}–{{to}}",
-        unused: "–",
+        unused: "k. A.",
       },
       hint: {
         "short-range":
@@ -1205,9 +1206,9 @@ const TRANSLATIONS = {
       // Fixliste 6, N1: gezählt (Zählerbuch) vs. einsehbar (gespeicherte
       // Inhalte), nur ohne Filter
       "content-gap_one":
-        "{{counted}} Konversation gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht)\u00a0– die Kennzahlen zählen weiter.",
+        "{{counted}} Konversation gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht). Die Kennzahlen zählen weiter.",
       "content-gap_other":
-        "{{counted}} Konversationen gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht)\u00a0– die Kennzahlen zählen weiter.",
+        "{{counted}} Konversationen gezählt, {{viewable}} davon einsehbar. Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht). Die Kennzahlen zählen weiter.",
     },
     // KIE-538
     export: {
@@ -1215,12 +1216,12 @@ const TRANSLATIONS = {
       "menu-label": "Exportformat",
       csv: "CSV (für Excel)",
       json: "JSON",
-      hint: "Exportiert die Konversationen der aktuellen Auswahl – Widget, Zeitraum und Filter.",
+      hint: "Exportiert die Konversationen der aktuellen Auswahl (Widget, Zeitraum und Filter).",
       running: "Export läuft …",
       success: "Export gespeichert: {{filename}}",
       error: "Der Export ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
       "too-many":
-        "Zu viele Treffer für den Export – höchstens {{max}} Konversationen. Bitte grenzen Sie Suche, Filter oder Zeitraum ein.",
+        "Zu viele Treffer für den Export: höchstens {{max}} Konversationen. Bitte grenzen Sie Suche, Filter oder Zeitraum ein.",
     },
     delete: {
       conversation: "Konversation löschen",
@@ -1240,7 +1241,7 @@ const TRANSLATIONS = {
       "visitor-count_other":
         "Aus demselben Browser stammen in diesem Widget {{conversations}} Konversationen mit zusammen {{messages}} Nachrichten. Alle werden endgültig gelöscht.",
       "visitor-changed":
-        "Der Stand hat sich inzwischen geändert – es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut.",
+        "Der Stand hat sich inzwischen geändert. Es wurde nichts gelöscht. Bitte prüfen Sie die neuen Zahlen und bestätigen Sie erneut.",
       "visitor-note":
         "Dazu gehören auch Konversationen, die der Besucher im Widget selbst geleert hat und die in dieser Liste nicht mehr erscheinen. Konversationen aus anderen Browsern bleiben erhalten.",
       confirm: "Endgültig löschen",
@@ -1253,8 +1254,8 @@ const TRANSLATIONS = {
       "visitor-success_other":
         "{{conversations}} Konversationen gelöscht ({{messages}} Nachrichten).",
       error: "Die Konversation konnte nicht gelöscht werden.",
-      gone: "Diese Konversation gibt es nicht mehr – sie wurde inzwischen gelöscht. Die Liste zeigt jetzt den aktuellen Stand.",
-      busy: "Die Datenbank war gerade ausgelastet – es wurde nichts gelöscht. Bitte bestätigen Sie in einigen Sekunden erneut.",
+      gone: "Diese Konversation gibt es nicht mehr. Sie wurde inzwischen gelöscht. Die Liste zeigt jetzt den aktuellen Stand.",
+      busy: "Die Datenbank war gerade ausgelastet. Es wurde nichts gelöscht. Bitte bestätigen Sie in einigen Sekunden erneut.",
       timeout:
         "Der Server hat nicht rechtzeitig geantwortet. Bitte prüfen Sie in einigen Sekunden in der Liste, ob die Konversation noch da ist, und löschen Sie sie bei Bedarf erneut.",
     },
@@ -1330,7 +1331,9 @@ const TRANSLATIONS = {
       "negative-count_other": "{{formatted}} negativ bewertet",
       time: "{{time}} Uhr",
       span: "{{from}}–{{to}} Uhr",
-      "span-days": "{{from}} – {{to}} Uhr",
+      "span-days": "{{from}} bis {{to}} Uhr",
+      // Tooltip der Zeitangabe im Kopf (Beginn und letzte Nachricht)
+      "span-full": "{{from}} bis {{to}}",
       outside: "Diese Konversation liegt außerhalb des gewählten Zeitraums",
       "not-found":
         "Diese Konversation wurde nicht gefunden, oder Sie haben keinen Zugriff darauf.",
@@ -1339,11 +1342,11 @@ const TRANSLATIONS = {
       "hidden-hit":
         "„{{term}}“ steht in dieser Konversation nur in Link-Adressen, im Quelltext oder in ausgeblendeten Gedanken einer Antwort.",
       "not-in-list":
-        "Diese Konversation steht nicht in der geladenen Liste – vorherige und nächste sind nicht verfügbar.",
+        "Diese Konversation steht nicht in der geladenen Liste. Vorherige und nächste sind nicht verfügbar.",
       "not-loaded":
-        "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar.",
+        "Die Liste konnte nicht weiter geladen werden. Vorherige und nächste sind nicht verfügbar.",
       "next-not-loaded":
-        "Die nächste Konversation konnte nicht geladen werden – bitte erneut versuchen.",
+        "Die nächste Konversation konnte nicht geladen werden. Bitte erneut versuchen.",
       "quote-open": "„",
       "quote-close": "“",
       "jump-negative": "Zur nächsten negativ bewerteten Antwort springen",
@@ -1443,16 +1446,33 @@ const TRANSLATIONS = {
     copied: "Snippet in Zwischenablage kopiert!",
     "script-comment":
       "Fügen Sie dieses Script-Tag in den <head> oder <body> Ihrer Website ein.",
-    "copy-failed": "Kopieren nicht möglich — bitte manuell markieren.",
+    "copy-failed": "Kopieren nicht möglich. Bitte manuell markieren.",
     "inline-tag": {
-      label: "Optional: Inline-Darstellung",
-      hint: "Ist unter „Erscheinungsbild → Aussehen → Darstellung“ „Inline“ gewählt, fügen Sie diesen Platzhalter an der gewünschten Stelle Ihrer Seite ein. Ohne diesen Platzhalter erscheint weiterhin die Chat-Blase. Das Script-Snippet oben bleibt unverändert.",
+      label: "Optional: Darstellung „In der Seite“",
+      "label-inline": "Darstellung „In der Seite“",
+      hint: "Ist unter „Erscheinungsbild → Aussehen → Darstellung“ „In der Seite“ gewählt, fügen Sie diesen Platzhalter dort in Ihre Seite ein, wo die Eingabeleiste erscheinen soll. Fehlt der Platzhalter auf einer Seite, erscheint dort automatisch das Chatfenster. Das Skript oben bleibt unverändert.",
       copied: "Platzhalter kopiert.",
     },
     "script-tag": {
       label: "HTML Script Tag Einbettungscode",
       hint: "Betten Sie Ihr Chat-Widget als Helpdesk-Chat in der Ecke Ihrer Website ein.",
-      "view-options": "Alle Stil- und Konfigurationsoptionen anzeigen →",
+      "settings-hint":
+        "Aussehen und Texte stellen Sie unter „Erscheinungsbild“ ein. Dort zeigt der Reiter „Einbau“ den fertigen Code, weitere data-Attribute sind nicht nötig.",
+    },
+  },
+  // Design Center, Reiter „Einbau“ bei „In der Seite“: Warnblock beim
+  // Platzhalter (Fixliste 7.22-rc19 F70, Text vom Nutzer am 21.10.2026
+  // freigegeben). {{code}} = der Platzhalter-Schnipsel als Code.
+  "embed-appearance": {
+    "inline-link-warning": {
+      title: "Platzhalter nicht in verlinkte Bereiche setzen",
+      placement:
+        "Setzen Sie {{code}} in einen normalen Inhaltsbereich Ihrer Seite. Liegt der Platzhalter in einem verlinkten Block, kann die Eingabeleiste nicht zuverlässig geöffnet werden. Ein Klick öffnet dann die verlinkte Seite. Verlinkte Blöcke sind zum Beispiel eine verlinkte Karte, ein Teaser, ein Button oder ein Abschnitt mit Link-Einstellung im Seiten-Builder.",
+      check:
+        "Prüfen Sie in Ihrem Seiten-Builder, ob der Block oder die Spalte eine Link-Einstellung hat.",
+      right: "Richtig:",
+      wrong: "Falsch:",
+      icon: "Warnung",
     },
   },
   "chat-row": {

@@ -610,7 +610,7 @@ test(
 // ---------------------------------------------------------------------------
 
 const RUNNING =
-  "Der gewählte Zeitraum läuft noch – die Veränderung ist vorläufig.";
+  "Der gewählte Zeitraum läuft noch. Die Veränderung ist vorläufig.";
 // Welcher Tag „heute" im Browser ist, hängt an der Zeitzone des Prozesses.
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -818,7 +818,7 @@ const THIRTY_DAYS = {
 };
 
 test(
-  "Tooltip (AK-5): nennt zusätzlich den Wert des Vorzeitraums mit seinem Abschnitt, „Vorzeitraum: Mo., 07.09.2026 — 32 Nachrichten“ – unter dem Mauszeiger und mit der Tastatur",
+  "Tooltip (AK-5): nennt zusätzlich den Wert des Vorzeitraums mit seinem Abschnitt, „Vorzeitraum: Mo., 07.09.2026 · 32 Nachrichten“ – unter dem Mauszeiger und mit der Tastatur",
   { skip },
   async (t) => {
     const { container, document, act } = await mount(t, CHART, {
@@ -836,17 +836,17 @@ test(
     await act(() => movePointer(document, columns[OCT_07]));
     assert.equal(
       tooltipPreviousOf(container),
-      "Vorzeitraum: Mo., 07.09.2026 — 32 Nachrichten"
+      "Vorzeitraum: Mo., 07.09.2026 · 32 Nachrichten"
     );
     assert.equal(
       tooltipOf(container).textContent,
-      "Mi., 07.10.2026 — 38 NachrichtenVorzeitraum: Mo., 07.09.2026 — 32 Nachrichten"
+      "Mi., 07.10.2026 · 38 NachrichtenVorzeitraum: Mo., 07.09.2026 · 32 Nachrichten"
     );
     // Die zweite Zeile ist eine eigene Zeile, in deutscher Zahlenschreibweise.
     await act(() => movePointer(document, columns[OCT_06]));
     assert.equal(
       tooltipPreviousOf(container),
-      "Vorzeitraum: So., 06.09.2026 — 1.008 Nachrichten"
+      "Vorzeitraum: So., 06.09.2026 · 1.008 Nachrichten"
     );
     const [second] = withAttribute(
       tooltipOf(container),
@@ -860,30 +860,30 @@ test(
     await act(() => columns[29].focus());
     assert.equal(
       tooltipOf(container).textContent,
-      "Mo., 12.10.2026 — 43 NachrichtenVorzeitraum: Sa., 12.09.2026 — 37 Nachrichten"
+      "Mo., 12.10.2026 · 43 NachrichtenVorzeitraum: Sa., 12.09.2026 · 37 Nachrichten"
     );
     await act(() => pressKey(document, "ArrowLeft"));
     assert.equal(document.activeElement, columns[28]);
     assert.equal(
       tooltipPreviousOf(container),
-      "Vorzeitraum: Fr., 11.09.2026 — 36 Nachrichten"
+      "Vorzeitraum: Fr., 11.09.2026 · 36 Nachrichten"
     );
     await act(() => pressKey(document, "Home"));
     assert.equal(
       tooltipOf(container).textContent,
-      "So., 13.09.2026 — 14 NachrichtenVorzeitraum: Fr., 14.08.2026 — 8 Nachrichten"
+      "So., 13.09.2026 · 14 NachrichtenVorzeitraum: Fr., 14.08.2026 · 8 Nachrichten"
     );
     // Dieselbe Angabe wie am Säulenplatz für Screenreader – an jedem Platz
     assert.match(
       columns[0].getAttribute("aria-label"),
-      /^So\., 13\.09\.2026 — 14 Nachrichten\. Vorzeitraum: Fr\., 14\.08\.2026 — 8 Nachrichten\. Die Eingabetaste /
+      /^So\., 13\.09\.2026 · 14 Nachrichten\. Vorzeitraum: Fr\., 14\.08\.2026 · 8 Nachrichten\. Die Eingabetaste /
     );
     for (const [i, column] of columns.entries()) {
       await act(() => movePointer(document, column));
       const previous = tooltipPreviousOf(container);
       assert.match(
         previous,
-        /^Vorzeitraum: [A-Z][a-z]\., \d\d\.\d\d\.2026 — [\d.]+ Nachrichten$/
+        /^Vorzeitraum: [A-Z][a-z]\., \d\d\.\d\d\.2026 · [\d.]+ Nachrichten$/
       );
       assert.ok(
         column.getAttribute("aria-label").includes(`. ${previous}. `),
@@ -905,12 +905,12 @@ test(
     await act(() => movePointer(document, columnsOf(container)[OCT_06]));
     assert.equal(
       tooltipOf(container).textContent,
-      "Di., 06.10.2026 — 37 Nachrichten"
+      "Di., 06.10.2026 · 37 Nachrichten"
     );
     assert.equal(tooltipPreviousOf(container), null);
     assert.equal(
       columnsOf(container)[0].getAttribute("aria-label"),
-      "So., 13.09.2026 — 14 Nachrichten. Die Eingabetaste zeigt in der Liste nur die Konversationen dieses Abschnitts."
+      "So., 13.09.2026 · 14 Nachrichten. Die Eingabetaste zeigt in der Liste nur die Konversationen dieses Abschnitts."
     );
   }
 );
@@ -1046,15 +1046,15 @@ test(
       }
     }
 
-    // 320 px, erster Platz: „So., 13.09.2026 — 14 Nachrichten“ (geschätzt
+    // 320 px, erster Platz: „So., 13.09.2026 · 14 Nachrichten“ (geschätzt
     // 230 px) stünde 16 px nach innen gerückt bei 32,3 px. „Vorzeitraum: Fr.,
-    // 14.08.2026 — 8 Nachrichten“ (308 px) ragte dort hinaus: 12 px vom Rand.
+    // 14.08.2026 · 8 Nachrichten“ (308 px) ragte dort hinaus: 12 px vom Rand.
     await act(() => setWidth(320));
     await act(() => movePointer(document, columns[0]));
     const first = tooltipOf(container);
     assert.equal(
       tooltipPreviousOf(container),
-      "Vorzeitraum: Fr., 14.08.2026 — 8 Nachrichten"
+      "Vorzeitraum: Fr., 14.08.2026 · 8 Nachrichten"
     );
     assert.equal(first.style.left, "12px");
     assert.equal(first.style.maxWidth, "308px");
@@ -1065,7 +1065,7 @@ test(
     const right = tooltipOf(container);
     assert.equal(
       tooltipPreviousOf(container),
-      "Vorzeitraum: Do., 10.09.2026 — 35 Nachrichten"
+      "Vorzeitraum: Do., 10.09.2026 · 35 Nachrichten"
     );
     assert.equal(right.style.right, "5.5px");
     assert.equal(right.style.maxWidth, "314.5px");
@@ -1295,7 +1295,7 @@ test(
     const weekTable = tableOf(weeks);
     assert.deepEqual(weekTable.head, COMPARED_HEAD);
     assert.deepEqual(weekTable.body, [
-      ["KW 40 – ab 30.09.", "10", "KW 37 (07.09.–13.09.2026)", "7", "1", "1"],
+      ["KW 40, ab 30.09.", "10", "KW 37 (07.09.–13.09.2026)", "7", "1", "1"],
       [
         "KW 41 (05.10.–11.10.2026)",
         "15",
@@ -1304,7 +1304,7 @@ test(
         "1",
         "1",
       ],
-      ["KW 42 – bis 12.10.", "5", "KW 39 (21.09.–27.09.2026)", "9", "1", "1"],
+      ["KW 42, bis 12.10.", "5", "KW 39 (21.09.–27.09.2026)", "9", "1", "1"],
     ]);
     assert.deepEqual(weekTable.foot, [
       "Summe",
@@ -1340,8 +1340,8 @@ test(
     });
     assert.equal(tableRangeOf(months), "Vorzeitraum: 01.07.2026–31.08.2026");
     assert.deepEqual(tableOf(months).body, [
-      ["September 2026 – ab 15.09.", "20", "Juli 2026", "11", "1", "1"],
-      ["Oktober 2026 – bis 12.10.", "30", "August 2026", "22", "1", "1"],
+      ["September 2026, ab 15.09.", "20", "Juli 2026", "11", "1", "1"],
+      ["Oktober 2026, bis 12.10.", "30", "August 2026", "22", "1", "1"],
     ]);
     assert.deepEqual(tableOf(months).foot, [
       "Summe",
@@ -1482,7 +1482,7 @@ test(
     await act(() => movePointer(document, columnsOf(container)[OCT_06]));
     assert.equal(
       tooltipOf(container).textContent,
-      "Di., 06.10.2026 — 0 NachrichtenVorzeitraum: So., 06.09.2026 — 1.008 Nachrichten"
+      "Di., 06.10.2026 · 0 NachrichtenVorzeitraum: So., 06.09.2026 · 1.008 Nachrichten"
     );
     assert.equal(columnsOf(container)[OCT_06].getAttribute("role"), "img");
     await act(() => movePointer(document, null));
@@ -1661,7 +1661,7 @@ test(
     await act(() => movePointer(document, columnsOf(container)[OCT_06]));
     assert.equal(
       tooltipOf(container).textContent,
-      "Di., 06.10.2026 — 0 KonversationenVorzeitraum: So., 06.09.2026 — 2 Konversationen"
+      "Di., 06.10.2026 · 0 KonversationenVorzeitraum: So., 06.09.2026 · 2 Konversationen"
     );
     await act(() => movePointer(document, null));
     // Die Tabelle gab es hier schon in KIE-536 – jetzt mit dem Vorzeitraum.
@@ -1795,7 +1795,7 @@ test(
       columnsOf(container)[9]
         .getAttribute("aria-label")
         .endsWith(
-          `${formatDate(today)}, 9–10 Uhr — 0 Nachrichten. Vorzeitraum: ${weekdayOf(yesterday)}, ${formatDate(yesterday)}, 9–10 Uhr — 9 Nachrichten`
+          `${formatDate(today)}, 9–10 Uhr · 0 Nachrichten. Vorzeitraum: ${weekdayOf(yesterday)}, ${formatDate(yesterday)}, 9–10 Uhr · 9 Nachrichten`
         ),
       columnsOf(container)[9].getAttribute("aria-label")
     );
@@ -1867,12 +1867,12 @@ test(
     await act(() => movePointer(document, columnsOf(container)[OCT_06]));
     assert.equal(
       tooltipOf(container).textContent,
-      "Di., 06.10.2026 — 2 KonversationenVorzeitraum: So., 06.09.2026 — 2 Konversationen"
+      "Di., 06.10.2026 · 2 KonversationenVorzeitraum: So., 06.09.2026 · 2 Konversationen"
     );
     await act(() => movePointer(document, columnsOf(container)[OCT_07]));
     assert.equal(
       tooltipPreviousOf(container),
-      "Vorzeitraum: Mo., 07.09.2026 — 0 Konversationen"
+      "Vorzeitraum: Mo., 07.09.2026 · 0 Konversationen"
     );
     await act(() => movePointer(document, null));
 
@@ -1997,7 +1997,7 @@ test(
     await act(() => movePointer(document, columns[3]));
     assert.equal(
       tooltipPreviousOf(container),
-      "Vorzeitraum: So., 11.10.2026, 3–4 Uhr — 0 Nachrichten"
+      "Vorzeitraum: So., 11.10.2026, 3–4 Uhr · 0 Nachrichten"
     );
     assert.equal(markers().length, 2);
     assert.ok(near(markers()[0][0], points[3][0]));

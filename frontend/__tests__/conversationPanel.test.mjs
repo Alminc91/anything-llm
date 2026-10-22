@@ -1754,7 +1754,7 @@ test(
     const panel = panelOf(container);
     assert.equal(
       one(panel, "data-panel-navigation-hint").textContent,
-      "Diese Konversation steht nicht in der geladenen Liste – vorherige und nächste sind nicht verfügbar."
+      "Diese Konversation steht nicht in der geladenen Liste. Vorherige und nächste sind nicht verfügbar."
     );
     assert.equal(
       one(panel, "data-panel-previous").hasAttribute("disabled"),
@@ -2483,7 +2483,7 @@ test(
     const panel = panelOf(container);
     assert.equal(
       one(panel, "data-panel-navigation-hint").textContent,
-      "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar."
+      "Die Liste konnte nicht weiter geladen werden. Vorherige und nächste sind nicht verfügbar."
     );
     assert.equal(
       one(panel, "data-panel-previous").hasAttribute("disabled"),
@@ -2534,7 +2534,7 @@ test(
     assert.ok(panel, "Panel bleibt offen");
     assert.equal(
       one(panel, "data-panel-navigation-hint").textContent,
-      "Diese Konversation steht nicht in der geladenen Liste – vorherige und nächste sind nicht verfügbar."
+      "Diese Konversation steht nicht in der geladenen Liste. Vorherige und nächste sind nicht verfügbar."
     );
   }
 );
@@ -2761,7 +2761,7 @@ test(
     );
     assert.equal(
       span.getAttribute("title"),
-      "13.10.2026, 07:47:00 Uhr – 13.10.2026, 07:48:00 Uhr"
+      "13.10.2026, 07:47:00 Uhr bis 13.10.2026, 07:48:00 Uhr"
     );
     const [visitor] = elements(
       one(container, "data-panel-body"),
@@ -2913,7 +2913,7 @@ test(
         (element) => element.textContent
       );
     assert.deepEqual(hint(), [
-      "Die Liste konnte nicht weiter geladen werden – vorherige und nächste sind nicht verfügbar.",
+      "Die Liste konnte nicht weiter geladen werden. Vorherige und nächste sind nicht verfügbar.",
     ]);
 
     // „Weitere laden“ gelingt: Der Hinweis ist fort, die Suche läuft weiter
@@ -3741,7 +3741,7 @@ test(
     );
     assert.deepEqual(currentRows(container), [319]);
     assert.deepEqual(hint(), [
-      "Die nächste Konversation konnte nicht geladen werden – bitte erneut versuchen.",
+      "Die nächste Konversation konnte nicht geladen werden. Bitte erneut versuchen.",
     ]);
     // Fixliste 6, K1: eigener Text für „Nächste“ (der Link-Fall sagt, dass
     // vorherige/nächste fehlen); als Statusmeldung angesagt
@@ -3893,7 +3893,7 @@ test(
 // Vor dem Gedankenstrich ein geschütztes Leerzeichen (Fixliste 9, A5): Keine
 // Zeile beginnt mit „–“.
 const GAP_TAIL =
-  "Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht)\u00a0– die Kennzahlen zählen weiter.";
+  "Inhalte können gelöscht worden sein (Aufbewahrungsfrist, vom Besucher geleert oder hier gelöscht). Die Kennzahlen zählen weiter.";
 
 test(
   "Fixliste 6, N1: leere Liste, aber Konversationen gezählt – der Hinweis ersetzt „Keine Konversationen vorhanden.“, ohne zweiten Hinweis auf die Aufbewahrungsfrist",

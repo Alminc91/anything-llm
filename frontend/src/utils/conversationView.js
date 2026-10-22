@@ -493,6 +493,15 @@ export function hasContentGap(counted, viewable) {
 /** Mitternacht (UTC) eines Kalendertags – formatterOf rechnet in UTC. */
 const instantOf = (day) => new Date(`${day}T00:00:00Z`);
 
+// Platzhalter für einen unbekannten Tag in der Sprache der Oberfläche; ohne
+// Übersetzung (z. B. ohne i18n geladen) der deutsche Text
+function noValue(t) {
+  const text = typeof t === "function" ? t("embed-analytics.no-value") : null;
+  return typeof text === "string" && text && text !== "embed-analytics.no-value"
+    ? text
+    : "k. A.";
+}
+
 /**
  * Überschrift einer Tagesgruppe: „Heute · Dienstag, 13. Oktober",
  * „Gestern · Montag, 12. Oktober", „Sonntag, 11. Oktober"; aus einem anderen
@@ -504,7 +513,9 @@ const instantOf = (day) => new Date(`${day}T00:00:00Z`);
  * @returns {string}
  */
 export function dayGroupLabel(day, today, { t }) {
-  if (!day) return "–";
+  // unbekannter Tag: „k. A.“ (en „n/a“) statt Gedankenstrich (Fixliste
+  // 7.22-rc3, D8; Sprachschlüssel seit Review 7.22-rc6 F09)
+  if (!day) return noValue(t);
   const sameYear = day.slice(0, 4) === today.slice(0, 4);
   const date = formatterOf(GERMAN, {
     weekday: "long",
@@ -523,10 +534,11 @@ export function dayGroupLabel(day, today, { t }) {
  * anderen Jahr als heute mit Jahreszahl.
  * @param {string} day
  * @param {string} today
+ * @param {{t?: Function}} [context] - für den Platzhalter eines unbekannten Tags
  * @returns {string}
  */
-export function shortDayLabel(day, today) {
-  if (!day) return "–";
+export function shortDayLabel(day, today, { t } = {}) {
+  if (!day) return noValue(t);
   return formatterOf(GERMAN, {
     day: "numeric",
     month: "short",

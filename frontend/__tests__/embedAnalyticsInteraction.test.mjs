@@ -144,7 +144,7 @@ test(
     assert.match(section().getAttribute("class"), /\bpy-3\b/);
     assert.equal(
       elements(section(), (element) => element.tagName === "P")[0].textContent,
-      "Konversationen pro Tag – Im gewählten Zeitraum wurde keine Konversation begonnen"
+      "Konversationen pro Tag: Im gewählten Zeitraum wurde keine Konversation begonnen"
     );
     assert.equal(columnsOf(container).length, 0);
     assert.equal(
@@ -181,10 +181,10 @@ test(
     assert.equal(tooltipOf(container), null);
 
     await act(() => movePointer(document, columns[OCT_06]));
-    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 · 37 Nachrichten");
 
     await act(() => movePointer(document, columns[OCT_07]));
-    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 · 38 Nachrichten");
 
     await act(() => movePointer(document, null));
     assert.equal(tooltipOf(container), null);
@@ -209,15 +209,15 @@ test(
     assert.deepEqual(selected, [
       { start: "2026-10-06", end: "2026-10-06", label: "Di., 06.10.2026" },
     ]);
-    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 · 37 Nachrichten");
 
     // Der Fokus bleibt auf dem 06.10., der Zeiger steht auf dem 07.10.
     await act(() => movePointer(document, columns[OCT_07]));
     assert.equal(document.activeElement, columns[OCT_06]);
-    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 · 38 Nachrichten");
 
     await act(() => movePointer(document, columns[2]));
-    assert.equal(tooltipOf(container), "Di., 15.09.2026 — 16 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 15.09.2026 · 16 Nachrichten");
   }
 );
 
@@ -237,33 +237,33 @@ test(
     );
     assert.deepEqual(tabStop, [columns[29]]);
     await act(() => columns[29].focus());
-    assert.equal(tooltipOf(container), "Mo., 12.10.2026 — 43 Nachrichten");
+    assert.equal(tooltipOf(container), "Mo., 12.10.2026 · 43 Nachrichten");
     assert.deepEqual(ringsOf(container), [29]);
 
     await act(() => pressKey(document, "ArrowLeft"));
     assert.equal(document.activeElement, columns[28]);
-    assert.equal(tooltipOf(container), "So., 11.10.2026 — 42 Nachrichten");
+    assert.equal(tooltipOf(container), "So., 11.10.2026 · 42 Nachrichten");
     assert.deepEqual(ringsOf(container), [28]);
 
     // Der Mauszeiger kommt dazu: Er gewinnt, der Fokusrahmen bleibt.
     await act(() => movePointer(document, columns[OCT_06]));
-    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 · 37 Nachrichten");
     assert.deepEqual(ringsOf(container), [28]);
 
     // Der Zeiger ruht, die Pfeiltaste wechselt die Säule: Der Tooltip folgt ihr.
     await act(() => pressKey(document, "ArrowLeft"));
     assert.equal(document.activeElement, columns[27]);
-    assert.equal(tooltipOf(container), "Sa., 10.10.2026 — 41 Nachrichten");
+    assert.equal(tooltipOf(container), "Sa., 10.10.2026 · 41 Nachrichten");
     await act(() => pressKey(document, "Home"));
-    assert.equal(tooltipOf(container), "So., 13.09.2026 — 14 Nachrichten");
+    assert.equal(tooltipOf(container), "So., 13.09.2026 · 14 Nachrichten");
 
     // Der Zeiger bewegt sich auf seiner Säule: wieder die Säule unter ihm.
     await act(() => movePointer(document, columns[OCT_06]));
-    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 · 37 Nachrichten");
 
     // Der Zeiger verlässt das Diagramm: zurück zur fokussierten Säule.
     await act(() => movePointer(document, null));
-    assert.equal(tooltipOf(container), "So., 13.09.2026 — 14 Nachrichten");
+    assert.equal(tooltipOf(container), "So., 13.09.2026 · 14 Nachrichten");
 
     // Der Fokus verlässt das Diagramm: kein Tooltip, kein Rahmen.
     await act(() => columns[0].blur());
@@ -292,26 +292,26 @@ test(
     const columns = columnsOf(container);
 
     await act(() => columns[29].focus());
-    assert.equal(tooltipOf(container), "Mo., 12.10.2026 — 43 Nachrichten");
+    assert.equal(tooltipOf(container), "Mo., 12.10.2026 · 43 Nachrichten");
     assert.deepEqual(ringsOf(container), [29]);
     assert.deepEqual(highlightsOf(container), [29]);
 
     await act(() => pressKey(document, "Home"));
     assert.equal(document.activeElement, columns[0]);
     await act(() => pressKey(document, "ArrowRight"));
-    assert.equal(tooltipOf(container), "Mo., 14.09.2026 — 15 Nachrichten");
+    assert.equal(tooltipOf(container), "Mo., 14.09.2026 · 15 Nachrichten");
     assert.deepEqual(ringsOf(container), [1]);
 
     await act(() => pressKey(document, "Enter"));
     assert.equal(selected.at(-1).start, "2026-09-14");
-    assert.equal(tooltipOf(container), "Mo., 14.09.2026 — 15 Nachrichten");
+    assert.equal(tooltipOf(container), "Mo., 14.09.2026 · 15 Nachrichten");
     assert.deepEqual(ringsOf(container), [1]);
 
     await act(() => pressKey(document, "End"));
     await act(() => pressKey(document, " "));
     assert.equal(selected.at(-1).start, "2026-10-12");
     assert.equal(selected.length, 2);
-    assert.equal(tooltipOf(container), "Mo., 12.10.2026 — 43 Nachrichten");
+    assert.equal(tooltipOf(container), "Mo., 12.10.2026 · 43 Nachrichten");
     assert.deepEqual(ringsOf(container), [29]);
 
     // Am Rand bleibt der Fokus stehen.
@@ -331,7 +331,7 @@ test(
 
     await act(() => click(columnsOf(container)[23]));
     assert.equal(document.activeElement, columnsOf(container)[23]);
-    assert.match(tooltipOf(container), / — 37 Nachrichten$/);
+    assert.match(tooltipOf(container), / · 37 Nachrichten$/);
     assert.deepEqual(highlightsOf(container), [23]);
     // Der Klick fokussiert den Platz, ein Rahmen erscheint dabei nicht.
     assert.deepEqual(ringsOf(container), []);
@@ -375,7 +375,7 @@ test(
     await act(() => click(columns[OCT_06], "pen"));
     assert.equal(selected.length, 1);
     assert.equal(document.activeElement, columns[OCT_06]);
-    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 · 37 Nachrichten");
     assert.deepEqual(highlightsOf(container), [OCT_06]);
     assert.deepEqual(ringsOf(container), []);
 
@@ -386,7 +386,7 @@ test(
 
     // Die Tastatur setzt dort fort, mit Rahmen.
     await act(() => pressKey(document, "ArrowRight"));
-    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 · 38 Nachrichten");
     assert.deepEqual(ringsOf(container), [OCT_07]);
   }
 );
@@ -409,12 +409,12 @@ test(
 
     await act(() => pressKey(document, "Enter"));
     assert.equal(selected.length, 2);
-    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 · 37 Nachrichten");
     assert.deepEqual(ringsOf(container), [OCT_06]);
 
     await act(() => pressKey(document, "ArrowRight"));
     assert.equal(document.activeElement, columns[OCT_07]);
-    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 · 38 Nachrichten");
     assert.deepEqual(ringsOf(container), [OCT_07]);
 
     // Klick auf die letzte Säule, Zeiger weg, Pfeil nach rechts: Der Fokus
@@ -424,7 +424,7 @@ test(
     await act(() => movePointer(document, null));
     assert.equal(tooltipOf(container), null);
     await act(() => pressKey(document, "ArrowRight"));
-    assert.equal(tooltipOf(container), "Mo., 12.10.2026 — 43 Nachrichten");
+    assert.equal(tooltipOf(container), "Mo., 12.10.2026 · 43 Nachrichten");
     assert.deepEqual(ringsOf(container), [29]);
 
     // Tab aus dem Diagramm und zurück: Tastaturfokus mit Rahmen.
@@ -434,7 +434,7 @@ test(
     await act(() => movePointer(document, null));
     await act(() => columns[OCT_06].blur());
     await act(() => columns[OCT_06].focus());
-    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 · 37 Nachrichten");
     assert.deepEqual(ringsOf(container), [OCT_06]);
   }
 );
@@ -458,10 +458,10 @@ test(
     assert.deepEqual(ringsOf(container), []);
 
     await act(() => pressKey(document, "ArrowRight"));
-    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 · 38 Nachrichten");
     await act(() => leaveWindow(document));
     await act(() => returnToWindow(document));
-    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 · 38 Nachrichten");
     assert.deepEqual(ringsOf(container), [OCT_07]);
 
     // Danach verlässt der Fokus das Diagramm wie gewohnt.
@@ -482,7 +482,7 @@ test(
     const columns = columnsOf(container);
 
     await act(() => columns[OCT_06].focus());
-    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 · 37 Nachrichten");
     assert.deepEqual(ringsOf(container), [OCT_06]);
 
     // Der Fokus geht an ein anderes Element der Seite. Das blur-Ereignis
@@ -508,7 +508,7 @@ test(
       document.activeElement = document.body;
     });
     await act(() => columns[OCT_07].focus());
-    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 · 38 Nachrichten");
     assert.deepEqual(ringsOf(container), [OCT_07]);
 
     // Ohne document.hasFocus entscheidet das aktive Element allein.
@@ -520,7 +520,7 @@ test(
     });
     await act(() => leaveWindow(document));
     await act(() => returnToWindow(document));
-    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 · 38 Nachrichten");
     assert.deepEqual(ringsOf(container), [OCT_07]);
     await act(() => columns[OCT_07].blur());
     assert.equal(tooltipOf(container), null);
@@ -541,10 +541,10 @@ test(
 
     await act(() => tap(columns[OCT_06]));
     assert.equal(selected.length, 1);
-    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 37 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 · 37 Nachrichten");
 
     await act(() => tap(columns[OCT_07]));
-    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 38 Nachrichten");
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 · 38 Nachrichten");
 
     await act(() => columns[OCT_07].blur());
     assert.equal(tooltipOf(container), null);
@@ -579,14 +579,14 @@ test(
     };
 
     const tall = await tooltipTop(OCT_06);
-    assert.equal(tooltipOf(container), "Di., 06.10.2026 — 84 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 06.10.2026 · 84 Nachrichten");
     assert.equal(await tooltipTop(OCT_07), tall);
-    assert.equal(tooltipOf(container), "Mi., 07.10.2026 — 1 Nachricht");
+    assert.equal(tooltipOf(container), "Mi., 07.10.2026 · 1 Nachricht");
     // Platz ohne Säule rechts daneben: dieselbe Höhe
     assert.equal(await tooltipTop(OCT_07 + 1), tall);
     // weit weg von der hohen Säule: direkt über der eigenen, also viel tiefer
     assert.ok((await tooltipTop(2)) > tall + 100);
-    assert.equal(tooltipOf(container), "Di., 15.09.2026 — 3 Nachrichten");
+    assert.equal(tooltipOf(container), "Di., 15.09.2026 · 3 Nachrichten");
   }
 );
 
@@ -684,13 +684,13 @@ test(
       }
     }
 
-    // 340 px: „KW 29 (13.07.–19.07.2026) — 1.234 Nachrichten" ist geschätzt
+    // 340 px: „KW 29 (13.07.–19.07.2026) · 1.234 Nachrichten" ist geschätzt
     // 314,5 px breit.
     await act(() => setWidth(340));
     const first = await tooltipAt(0);
     assert.equal(
       first.textContent,
-      "KW 29 (13.07.–19.07.2026) — 1.234 Nachrichten"
+      "KW 29 (13.07.–19.07.2026) · 1.234 Nachrichten"
     );
     // links verankert bei 39 px ragte er rechts hinaus (353,5 px): 25,5 px
     assert.equal(first.style.left, "25.5px");
@@ -1070,7 +1070,7 @@ test(
     );
     assert.equal(
       bucketMarkOf(view.container).textContent,
-      "Nur KW 42 – bis 12.10."
+      "Nur KW 42, bis 12.10."
     );
     await view.unmount();
 
@@ -1117,7 +1117,7 @@ test(
     await act(() => click(columnsOf(container)[13]));
     assert.equal(
       tooltipOf(container),
-      "Di., 06.10.2026, 13–14 Uhr — 13 Nachrichten"
+      "Di., 06.10.2026, 13–14 Uhr · 13 Nachrichten"
     );
     assert.equal(server.lists().length, 1);
     assert.equal(bucketMarkOf(container), null);
@@ -1423,7 +1423,7 @@ test(
     const link = buttonOf(ratings, "3 negativ");
     assert.equal(
       link.getAttribute("aria-label"),
-      "3 negativ – Betroffene Konversationen anzeigen"
+      "3 negativ: Betroffene Konversationen anzeigen"
     );
     await act(() => click(link));
     assert.deepEqual(
@@ -1463,7 +1463,7 @@ test(
     const link = buttonOf(ratings, "9 positiv");
     assert.equal(
       link.getAttribute("aria-label"),
-      "9 positiv – Betroffene Konversationen anzeigen"
+      "9 positiv: Betroffene Konversationen anzeigen"
     );
     assert.equal(
       link.getAttribute("class"),
@@ -2022,7 +2022,7 @@ test(
     assert.deepEqual(toasts, [
       { type: "error", message: "Fehler beim Laden der Konversationsdaten." },
     ]);
-    assert.match(kpiTextOf(container)[0], /^Nachrichten–/);
+    assert.match(kpiTextOf(container)[0], /^Nachrichtenk\. A\./);
   }
 );
 
@@ -2137,7 +2137,7 @@ for (const [name, clipboard, expected] of [
     },
     {
       type: "error",
-      message: "Kopieren nicht möglich — bitte manuell markieren.",
+      message: "Kopieren nicht möglich. Bitte manuell markieren.",
     },
   ],
   [
@@ -2145,7 +2145,7 @@ for (const [name, clipboard, expected] of [
     undefined,
     {
       type: "error",
-      message: "Kopieren nicht möglich — bitte manuell markieren.",
+      message: "Kopieren nicht möglich. Bitte manuell markieren.",
     },
   ],
 ]) {

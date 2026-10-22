@@ -1504,6 +1504,7 @@ const TRANSLATIONS = {
     title: "Analytics Dashboard",
     "load-error": "Error loading analytics data.",
     loading: "Loading …",
+    "no-value": "n/a",
     "all-time": "All Time",
     "statistics-title": "STATISTICS",
     stats: {
@@ -1525,7 +1526,7 @@ const TRANSLATIONS = {
       "max-words-prompt-desc": "Longest user request (outlier indicator)",
       "show-technical": "Show technical details",
       "technical-note":
-        "Calculated from the conversation contents that still exist in the selected period – without deleted messages and messages cleared by the visitor. The figures above count every message.",
+        "Calculated from the conversation contents that still exist in the selected period, without deleted messages and messages cleared by the visitor. The figures above count every message.",
       "feedback-positive-label": "Positive",
       "feedback-positive-desc": "Positively rated responses",
       "feedback-negative-label": "Negative",
@@ -1540,7 +1541,7 @@ const TRANSLATIONS = {
     "no-conversations": "No conversations available.",
     "session-copied": "Session ID copied!",
     "retention-notice":
-      "GDPR data deletion active — retention {{days}} days, chats expire on {{expiryDate}}",
+      "GDPR data deletion active: retention {{days}} days, chats expire on {{expiryDate}}",
     "select-embed": "Select widget",
     "embed-label": {
       unnamed: "Widget {{id}}",
@@ -1571,13 +1572,13 @@ const TRANSLATIONS = {
       "no-ratings": "No ratings",
       "show-negative": "Show affected conversations",
       "conversations-hint":
-        "Conversations started in the period. The list below only shows conversations whose contents still exist – the numbers may differ.",
+        "Conversations started in the period. The list below only shows conversations whose contents still exist. The numbers may therefore differ.",
       ratings: "Ratings",
       "rated-share": "{{value}} % of responses rated",
       "positive-count": "{{value}} positive",
       "negative-count": "{{value}} negative",
-      "negative-action": "{{value}} negative – Show affected conversations",
-      "positive-action": "{{value}} positive – Show affected conversations",
+      "negative-action": "{{value}} negative: Show affected conversations",
+      "positive-action": "{{value}} positive: Show affected conversations",
       satisfaction: "Satisfaction",
       "satisfaction-value": "{{value}} %",
       "satisfaction-of": "{{positive}} of {{total}} ratings positive",
@@ -1597,11 +1598,11 @@ const TRANSLATIONS = {
       "change-points_other":
         "{{change}} points vs. previous period ({{previous}} %)",
       "previous-value": "Previous period: {{value}}",
-      "previous-bucket": "Previous period: {{period}} — {{value}}",
+      "previous-bucket": "Previous period: {{period}} · {{value}}",
       "previous-range": "Previous period: {{range}}",
       "change-range": "Change compared with the previous period {{range}}.",
       running:
-        "The selected period is still running – the change is preliminary.",
+        "The selected period is still running. The change is preliminary.",
       unavailable: "No comparison available",
       "unavailable-since":
         "No comparison available: the previous period begins before {{date}}, the first day with counts.",
@@ -1634,7 +1635,7 @@ const TRANSLATIONS = {
       "keyboard-hint": "Use the arrow keys to move between the columns.",
       "filter-hint":
         "Enter shows only the conversations of this section in the list.",
-      tooltip: "{{period}} — {{value}}",
+      tooltip: "{{period}} · {{value}}",
       value: {
         messages_one: "{{formatted}} message",
         messages_other: "{{formatted}} messages",
@@ -1645,9 +1646,9 @@ const TRANSLATIONS = {
         hour: "{{day}}, {{from}}:00–{{to}}:00",
         week: "CW {{week}}",
         "week-range": "{{period}} ({{start}}–{{end}})",
-        "partial-from": "{{period}} – from {{start}}",
-        "partial-until": "{{period}} – until {{end}}",
-        "partial-between": "{{period}} – {{start}} to {{end}}",
+        "partial-from": "{{period}}, from {{start}}",
+        "partial-until": "{{period}}, until {{end}}",
+        "partial-between": "{{period}}, {{start}} to {{end}}",
       },
       tick: {
         hour: "{{hour}}:00",
@@ -1694,7 +1695,7 @@ const TRANSLATIONS = {
         less: "fewer",
         more: "more",
         range: "{{from}}–{{to}}",
-        unused: "–",
+        unused: "n/a",
       },
       hint: {
         "short-range": "Please select at least {{days}} days for this view",
@@ -1736,9 +1737,9 @@ const TRANSLATIONS = {
       "deleted-hint":
         "Older contents were deleted according to the retention period.",
       "content-gap_one":
-        "{{counted}} conversation counted, {{viewable}} of them viewable. Contents may have been deleted (retention period, cleared by the visitor or deleted here)\u00a0– the key figures keep counting.",
+        "{{counted}} conversation counted, {{viewable}} of them viewable. Contents may have been deleted (retention period, cleared by the visitor or deleted here). The key figures keep counting.",
       "content-gap_other":
-        "{{counted}} conversations counted, {{viewable}} of them viewable. Contents may have been deleted (retention period, cleared by the visitor or deleted here)\u00a0– the key figures keep counting.",
+        "{{counted}} conversations counted, {{viewable}} of them viewable. Contents may have been deleted (retention period, cleared by the visitor or deleted here). The key figures keep counting.",
     },
     // KIE-538
     export: {
@@ -1746,12 +1747,12 @@ const TRANSLATIONS = {
       "menu-label": "Export format",
       csv: "CSV (for Excel)",
       json: "JSON",
-      hint: "Exports the conversations of the current selection – widget, period and filter.",
+      hint: "Exports the conversations of the current selection (widget, period and filter).",
       running: "Exporting …",
       success: "Export saved: {{filename}}",
       error: "The export failed. Please try again.",
       "too-many":
-        "Too many matches to export – at most {{max}} conversations. Please narrow the search, filter or period.",
+        "Too many matches to export: at most {{max}} conversations. Please narrow the search, filter or period.",
     },
     delete: {
       conversation: "Delete conversation",
@@ -1771,7 +1772,7 @@ const TRANSLATIONS = {
       "visitor-count_other":
         "The same browser has {{conversations}} conversations with {{messages}} messages in total in this widget. All of them will be deleted permanently.",
       "visitor-changed":
-        "The conversations have changed in the meantime – nothing was deleted. Please check the new numbers and confirm again.",
+        "The conversations have changed in the meantime. Nothing was deleted. Please check the new numbers and confirm again.",
       "visitor-note":
         "This includes conversations the visitor has cleared in the widget, which no longer appear in this list. Conversations from other browsers are kept.",
       confirm: "Delete permanently",
@@ -1784,8 +1785,8 @@ const TRANSLATIONS = {
       "visitor-success_other":
         "{{conversations}} conversations deleted ({{messages}} messages).",
       error: "The conversation could not be deleted.",
-      gone: "This conversation no longer exists – it has been deleted in the meantime. The list now shows the current state.",
-      busy: "The database was busy – nothing was deleted. Please confirm again in a few seconds.",
+      gone: "This conversation no longer exists. It has been deleted in the meantime. The list now shows the current state.",
+      busy: "The database was busy. Nothing was deleted. Please confirm again in a few seconds.",
       timeout:
         "The server did not respond in time. Please check the list in a few seconds to see whether the conversation is still there, and delete it again if needed.",
     },
@@ -1859,7 +1860,8 @@ const TRANSLATIONS = {
       "negative-count_other": "{{formatted}} rated negative",
       time: "{{time}}",
       span: "{{from}}–{{to}}",
-      "span-days": "{{from}} – {{to}}",
+      "span-days": "{{from}} to {{to}}",
+      "span-full": "{{from}} to {{to}}",
       outside: "This conversation is outside the selected period",
       "not-found":
         "This conversation was not found, or you do not have access to it.",
@@ -1868,11 +1870,11 @@ const TRANSLATIONS = {
       "hidden-hit":
         "“{{term}}” appears in this conversation only in link addresses, markup or hidden thoughts of a response.",
       "not-in-list":
-        "This conversation is not in the loaded list – previous and next are not available.",
+        "This conversation is not in the loaded list. Previous and next are not available.",
       "not-loaded":
-        "The list could not be loaded further – previous and next are not available.",
+        "The list could not be loaded further. Previous and next are not available.",
       "next-not-loaded":
-        "The next conversation could not be loaded – please try again.",
+        "The next conversation could not be loaded. Please try again.",
       "quote-open": "“",
       "quote-close": "”",
       "jump-negative": "Jump to the next response rated negative",
@@ -1898,16 +1900,32 @@ const TRANSLATIONS = {
     copied: "Snippet copied to clipboard!",
     "script-comment":
       "Paste this script tag into your website's <head> or <body> tag.",
-    "copy-failed": "Copying failed — please select the text manually.",
+    "copy-failed": "Copying failed. Please select the text manually.",
     "inline-tag": {
-      label: "Optional: inline display",
-      hint: "If “Erscheinungsbild → Aussehen → Darstellung” is set to “Inline”, paste this placeholder where the chat should appear on your page. Without the placeholder the chat bubble is shown as before. The script snippet above stays unchanged.",
+      label: "Optional: display “In der Seite” (in the page)",
+      "label-inline": "Display “In der Seite” (in the page)",
+      hint: "If “Erscheinungsbild → Aussehen → Darstellung” is set to “In der Seite”, paste this placeholder where the input bar should appear on your page. If the placeholder is missing on a page, the chat window (“Chatfenster”) appears there automatically. The script snippet above stays unchanged.",
       copied: "Placeholder copied.",
     },
     "script-tag": {
       label: "HTML Script Tag Embed Code",
       hint: "Embed your chat widget as a helpdesk chat in the corner of your website.",
-      "view-options": "View all style and configuration options →",
+      "settings-hint":
+        "Appearance and texts are set under “Erscheinungsbild”. Its “Einbau” tab shows the ready-made code; no further data attributes are needed.",
+    },
+  },
+  // Design Center, tab "Einbau" with "In der Seite": warning next to the
+  // placeholder (Fixliste 7.22-rc19 F70). {{code}} = placeholder snippet.
+  "embed-appearance": {
+    "inline-link-warning": {
+      title: "Do not put the placeholder inside linked areas",
+      placement:
+        "Put {{code}} in a regular content area of your page. If the placeholder sits inside a linked block, the input bar cannot be opened reliably. A click then opens the linked page instead. Linked blocks are, for example, a linked card, a teaser, a button or a section with a link setting in the page builder.",
+      check:
+        "Check in your page builder whether the block or the column has a link setting.",
+      right: "Correct:",
+      wrong: "Wrong:",
+      icon: "Warning",
     },
   },
   billing: {

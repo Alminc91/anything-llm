@@ -111,6 +111,7 @@ export default function WeekdayHourCard({ summary, loading, failed = false }) {
               messages: formatNumber(MIN_MESSAGES),
             })
           : null;
+  const title = t("embed-analytics.weekday-hour.title");
   if (hint)
     return (
       <section
@@ -122,9 +123,10 @@ export default function WeekdayHourCard({ summary, loading, failed = false }) {
       >
         <p className={`text-sm ${MUTED}`}>
           <span id={titleId} className="font-medium">
-            {t("embed-analytics.weekday-hour.title")}
+            {title}
           </span>
-          {" – "}
+          {/* ohne Gedankenstrich: nach „?“ ein Leerzeichen, sonst „: “ */}
+          {/[.?!:]$/.test(title) ? " " : ": "}
           <span data-heat-frame="">{hint}</span>
         </p>
       </section>

@@ -1442,6 +1442,7 @@ const TRANSLATIONS = {
     title: null,
     "load-error": null,
     loading: null,
+    "no-value": null,
     "all-time": null,
     "statistics-title": null,
     stats: {
@@ -1759,6 +1760,7 @@ const TRANSLATIONS = {
       time: null,
       span: null,
       "span-days": null,
+      "span-full": null,
       outside: null,
       "not-found": null,
       "load-error": null,
@@ -1794,13 +1796,24 @@ const TRANSLATIONS = {
     "copy-failed": null,
     "inline-tag": {
       label: null,
+      "label-inline": null,
       hint: null,
       copied: null,
     },
     "script-tag": {
       label: null,
       hint: null,
-      "view-options": null,
+      "settings-hint": null,
+    },
+  },
+  "embed-appearance": {
+    "inline-link-warning": {
+      title: null,
+      placement: null,
+      check: null,
+      right: null,
+      wrong: null,
+      icon: null,
     },
   },
   billing: {

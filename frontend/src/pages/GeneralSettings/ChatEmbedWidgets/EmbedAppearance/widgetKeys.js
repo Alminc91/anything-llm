@@ -1,197 +1,547 @@
-// Design Center: Widget-Schlüssel der Leiste, des Panels, der Kurskarten und
-// der Datenschutz-/KI-Hinweise (visual_config). Grenzen und Enums wie der
-// Server (server/endpoints/embed: LAYOUT_ENUMS, WIDGET_TEXT_MAX,
-// validPrivacyText, validUrl) und das Widget (utils/layout.js). Der Server
-// prüft beim Ausliefern selbst noch einmal (mapLayoutConfig) — hier nur
-// zusätzlich, damit ungültige Werte gar nicht erst gespeichert werden.
+// Design Center (vereinfacht, 15./16.10.2026): Logik der Felder, die Kunden
+// noch einstellen (visual_config). Alle übrigen Darstellungs-Optionen sind
+// fest eingebaut; der Server erzwingt sie beim Ausliefern
+// (server/utils/chats/embedStandards.js), das Widget zusätzlich selbst.
+// Gespeicherte Werte entfallener Optionen bleiben beim Speichern unverändert
+// stehen (kein Datenverlust), das Design Center schreibt sie nicht neu.
+//
+// Grenzen und Regeln wie der Server (endpoints/embed mapLayoutConfig,
+// embedStandards.js): Hier nur zusätzlich, damit ungültige Werte gar nicht
+// erst gespeichert werden.
 
+import {
+  SHOWN_BLACK,
+  MIN_TEXT_CONTRAST,
+  accessibleTextColor,
+  contrastRatio,
+  parseColor,
+  recommendedTextColor,
+} from "./contrast.js";
+
+// Begriffe (R3, Fixliste 7.22-rc8): „Chatfenster“ (der Button in der Ecke
+// öffnet ein Chatfenster) und „In der Seite“ (Eingabeleiste im
+// Seiteninhalt); die Schlüssel bubble/inline bleiben.
+export const DISPLAY_MODE_OPTIONS = [
+  { value: "bubble", label: "Chatfenster" },
+  { value: "inline", label: "In der Seite" },
+];
+export const THEME_OPTIONS = [
+  { value: "light", label: "Hell" },
+  { value: "dark", label: "Dunkel" },
+];
+export const POSITION_OPTIONS = [
+  { value: "bottom-left", label: "Links" },
+  { value: "bottom-right", label: "Rechts" },
+];
+export const USER_TEXT_COLOR_OPTIONS = [
+  { value: "#FFFFFF", label: "Weiß" },
+  { value: SHOWN_BLACK, label: "Schwarz" },
+];
+
+// Antworten mit Kursen (KIE-567, Reiter Aussehen, beide Darstellungen).
+// Werte wie der Server (embedStandards.js COURSE_CARDS_VALUES,
+// COURSE_CARDS_POSITIONS). Ohne bzw. mit ungültigem Wert gilt der Standard:
+// für die Reihenfolge „Karten zuerst“, für „Kurse anzeigen als“ je nach
+// Darstellung (R4, Fixliste 7.22-rc8; embedStandards.js
+// COURSE_CARDS_DEFAULTS): Chatfenster „Nur Text mit Links“, In der Seite
+// „Kurskarten“. Das Design Center rechnet mit der gewählten Darstellung;
+// live entscheidet das Widget nach seiner tatsächlichen Darstellung.
 export const COURSE_CARDS_OPTIONS = [
-  { value: "off", label: "Aus" },
-  { value: "auto", label: "An" },
+  { value: "auto", label: "Kurskarten" },
+  { value: "off", label: "Nur Text mit Links" },
 ];
+export const COURSE_CARDS_DEFAULTS = { inline: "auto", bubble: "off" };
 export const COURSE_CARDS_POSITION_OPTIONS = [
-  { value: "below", label: "Unter dem Text" },
   { value: "above", label: "Karten zuerst" },
+  { value: "below", label: "Text zuerst" },
 ];
-export const COURSE_CARDS_ANSWER_STYLE_OPTIONS = [
-  { value: "short", label: "Kurz" },
-  { value: "long", label: "Ausführlich" },
-  { value: "classic", label: "Klassisch" },
+// Willkommensblasen je Gerät (KIE-568, Reiter Inhalt, nur Chatfenster), Werte
+// wie der Server (WELCOME_BUBBLES_VALUES), Standard "first". Kurze
+// Beschriftungen seit R11 (Fixliste 7.22-rc9); die Schlüssel bleiben.
+export const WELCOME_BUBBLES_OPTIONS = [
+  { value: "off", label: "Aus" },
+  { value: "first", label: "Erster Besuch" },
+  { value: "every", label: "Jeder Besuch" },
 ];
-// Kartenlayout: Raster = zwei Karten nebeneinander (Widget-Standard),
-// Zeilen = eine Karte je Zeile (Zeit links, Status rechts)
-export const COURSE_CARDS_LAYOUT_OPTIONS = [
-  { value: "grid", label: "Raster" },
-  { value: "rows", label: "Zeilen" },
-];
-export const FOLLOW_UPS_OPTIONS = [
-  { value: "none", label: "Aus" },
-  { value: "pills", label: "An" },
-];
-export const INLINE_OPEN_ON_OPTIONS = [
-  { value: "submit", label: "Beim Absenden" },
-  { value: "focus", label: "Beim Klick ins Feld" },
-];
-export const INLINE_LAYOUT_OPTIONS = [
-  { value: "flow", label: "Im Seitenfluss" },
-  { value: "overlay", label: "Schwebend" },
-];
-// "" = Standard (Schlüssel weglassen): im Seitenfluss ohne Animation,
-// schwebend "expand" (resolveInlineEffect im Widget)
-export const INLINE_EFFECT_OPTIONS = [
-  { value: "", label: "Standard" },
-  { value: "expand", label: "Aufklappen" },
-  { value: "grow", label: "Wachsen" },
-  { value: "spring", label: "Federn" },
-  { value: "float", label: "Gleiten" },
-  { value: "morph", label: "Verwandeln" },
-];
-export const SUGGESTION_STYLE_OPTIONS = [
-  { value: "bars", label: "Balken" },
-  { value: "pills", label: "Pillen" },
-];
-export const GREETING_STYLE_OPTIONS = [
-  { value: "text", label: "Text" },
-  { value: "bubble", label: "Blase" },
-];
-export const PRIVACY_NOTICE_OPTIONS = [
-  { value: "none", label: "Keiner" },
-  { value: "bubble", label: "In der Begrüßung" },
-  { value: "modal", label: "Karte beim Öffnen" },
-];
-export const DISCLAIMER_OPTIONS = [
-  { value: "none", label: "Vom Modell" },
-  { value: "footer", label: "Fest unter der Eingabe" },
+export const WELCOME_BUBBLES_DEVICES = [
+  { key: "welcomeBubblesDesktop", label: "Desktop" },
+  { key: "welcomeBubblesMobile", label: "Handy" },
 ];
 
-// Enum-Schlüssel mit Standard (= angezeigt, solange nichts gespeichert ist).
-// Gespeichert wird ein Enum nur nach aktiver Wahl (wie displayMode).
-export const WIDGET_ENUMS = {
-  courseCards: { options: COURSE_CARDS_OPTIONS, fallback: "off" },
+// Auswahl-Schlüssel mit Standard (für choiceValue/withChoice); fallback als
+// Funktion des Bearbeitungsstands, wenn der Standard von anderen Feldern
+// abhängt (courseCards von der Darstellung, R4)
+export const CHOICE_DEFAULTS = {
+  courseCards: {
+    options: COURSE_CARDS_OPTIONS,
+    fallback: (config) => COURSE_CARDS_DEFAULTS[displayMode(config)],
+  },
   courseCardsPosition: {
     options: COURSE_CARDS_POSITION_OPTIONS,
-    fallback: "below",
+    fallback: "above",
   },
-  courseCardsAnswerStyle: {
-    options: COURSE_CARDS_ANSWER_STYLE_OPTIONS,
-    fallback: "short",
+  welcomeBubblesDesktop: {
+    options: WELCOME_BUBBLES_OPTIONS,
+    fallback: "first",
   },
-  courseCardsLayout: {
-    options: COURSE_CARDS_LAYOUT_OPTIONS,
-    fallback: "grid",
-  },
-  followUps: { options: FOLLOW_UPS_OPTIONS, fallback: "none" },
-  inlineOpenOn: { options: INLINE_OPEN_ON_OPTIONS, fallback: "submit" },
-  inlineLayout: { options: INLINE_LAYOUT_OPTIONS, fallback: "flow" },
-  inlineEffect: { options: INLINE_EFFECT_OPTIONS, fallback: "" },
-  suggestionStyle: { options: SUGGESTION_STYLE_OPTIONS, fallback: "bars" },
-  greetingStyle: { options: GREETING_STYLE_OPTIONS, fallback: "text" },
-  privacyNotice: { options: PRIVACY_NOTICE_OPTIONS, fallback: "none" },
-  disclaimer: { options: DISCLAIMER_OPTIONS, fallback: "none" },
+  welcomeBubblesMobile: { options: WELCOME_BUBBLES_OPTIONS, fallback: "first" },
 };
 
-// Auswahl-Schlüssel, die der Server als kurzen Freitext speichert (dort in
-// WIDGET_TEXT_MAX, die Enum-Prüfung macht das Widget): unbekannte Werte
-// (z. B. per API gesetzt oder neuer als dieses Design Center) bleiben beim
-// Speichern erhalten und gelten nicht als Fehler.
-export const FREE_TEXT_ENUM_KEYS = [
-  "courseCards",
-  "inlineLayout",
-  "inlineEffect",
+/**
+ * Standard eines Auswahl-Schlüssels im Bearbeitungsstand (für courseCards
+ * nach der gewählten Darstellung).
+ * @param {Object} config
+ * @param {keyof CHOICE_DEFAULTS} key
+ * @returns {string}
+ */
+export function choiceDefault(config, key) {
+  const { fallback } = CHOICE_DEFAULTS[key];
+  return typeof fallback === "function" ? fallback(config) : fallback;
+}
+
+/**
+ * Wirksamer Wert eines Auswahl-Schlüssels wie im Server (courseCardsValue,
+ * courseCardsPositionValue, welcomeBubblesValue): String, getrimmt und klein
+ * geschrieben einer der Werte, sonst der Standard (choiceDefault).
+ * @param {Object} config
+ * @param {keyof CHOICE_DEFAULTS} key
+ * @returns {string}
+ */
+export function choiceValue(config, key) {
+  const { options } = CHOICE_DEFAULTS[key];
+  const v = config?.[key];
+  if (typeof v !== "string") return choiceDefault(config, key);
+  const normalized = v.trim().toLowerCase();
+  return options.some((o) => o.value === normalized)
+    ? normalized
+    : choiceDefault(config, key);
+}
+
+/**
+ * Bearbeitungsstand nach einer Auswahl (Regel D6: nur geänderte Werte
+ * speichern). Zeigt der gespeicherte Stand (bzw. ohne gespeicherten Wert
+ * der Standard, bei courseCards nach der gerade gewählten Darstellung)
+ * schon die gewählte Option, gilt wieder der gespeicherte Stand (fehlt der
+ * Schlüssel dort, bleibt er weg; so schreibt ein Klick auf den Standard
+ * nichts). Sonst wird die Wahl gesetzt.
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {keyof CHOICE_DEFAULTS} key
+ * @param {string} value gewählte Option
+ * @returns {Object}
+ */
+export function withChoice(config, initial = {}, key, value) {
+  return withEffective(config, initial, key, value, (c) => choiceValue(c, key));
+}
+
+// Regel D6 für eine Auswahl: Zeigt der gespeicherte Stand (ohne
+// gespeicherten Wert der Standard) schon die gewählte Option, gilt wieder der
+// gespeicherte Stand, sonst wird die Wahl gesetzt. effective: wirksamer Wert
+// eines Bearbeitungsstands.
+function withEffective(config, initial, key, value, effective) {
+  const restored = { ...config };
+  if (key in initial) restored[key] = initial[key];
+  else delete restored[key];
+  if (effective(restored) === value) return restored;
+  return { ...config, [key]: value };
+}
+
+// Auswahlen im Reiter Aussehen und ihr wirksamer Wert (wie Markierung und
+// Vorschau): Darstellung, Farbschema, Chat-Icon, Position (F11, Fixliste
+// 7.22-rc13)
+const LOOK_CHOICES = {
+  displayMode: (config) => displayMode(config),
+  theme: (config) => themeChoice(config),
+  chatIcon: (config) => lookValue(config, "chatIcon"),
+  position: (config) => lookValue(config, "position"),
+};
+
+/**
+ * Bearbeitungsstand nach einem Klick auf Darstellung, Farbschema, Chat-Icon
+ * oder Position (F11, Fixliste 7.22-rc13; Regel D6 wie withChoice): Ein
+ * Klick auf die schon markierte Option (gespeichert oder, ohne gespeicherten
+ * Wert, der Standard des Widgets) schreibt nichts. Sonst hätte ein Klick auf
+ * „Links“ bei einem neuen Widget position „bottom-left“ gespeichert, und der
+ * Serverwert schlüge danach ein data-position am Skript. Seit E23 (Fixliste
+ * 7.22-rc17) wirkt ein data-position ohnehin nicht mehr; die Regel D6 bleibt.
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {keyof LOOK_CHOICES} key
+ * @param {string} value gewählte Option
+ * @returns {Object}
+ */
+export function withLook(config, initial = {}, key, value) {
+  const effective = LOOK_CHOICES[key];
+  if (!effective) return { ...config, [key]: value };
+  return withEffective(config, initial, key, value, effective);
+}
+
+// Vorbelegung der Listen (R5, Fixliste 7.22-rc8): Ohne gespeicherte Liste
+// zeigt das Design Center diese Einträge als echte, bearbeitbare Zeilen und
+// die Vorschau sie mit; geschrieben werden sie erst, wenn der Kunde die
+// Liste ändert (Regel D6: unveränderte Vorbelegung wird nicht gespeichert,
+// sonst schrieb schon eine Farbänderung diese Fragen in jedes Widget).
+// - Startvorschläge: genau zwei Beispiele; Quelle ist der Server
+//   (embedDefaults.js DEFAULT_SUGGESTIONS, über GET /embed/defaults als
+//   defaults.defaultMessages; S1 Fixliste 7.22-rc10), der sie ohne
+//   gespeicherte Liste auch live ausliefert (das Widget hat keine eigenen).
+//   DEFAULT_SUGGESTIONS hier ist die Kopie als Rückfall, solange die
+//   Standardtexte nicht geladen sind (Vertrag im Test designCenterFixesRc10);
+//   alle gelöscht und gespeichert = keine Startvorschläge (defaultMessages: []).
+// - Willkommensblasen: der Standard des Widgets (UI_TEXTS.de.welcomeBubbles,
+//   Gegenprobe im Test designCenterStandardLogic mit KUFER_EMBED_DIR); alle
+//   gelöscht = Standardblasen (wie ohne Schlüssel).
+export const DEFAULT_SUGGESTIONS = [
+  "Ich suche einen Deutschkurs.",
+  "Gibt es Excel-Kurse am Abend?",
 ];
-export const FREE_TEXT_ENUM_MAX = 40;
-
-// Text-Schlüssel mit Höchstlänge wie der Server (WIDGET_TEXT_MAX)
-export const WIDGET_TEXT_MAX = {
-  inlineInputPlaceholder: 120,
-  inlineSendText: 40,
-  greetingBubbleText: 300,
-  assistantSubtitle: 60,
-  privacyTitle: 120,
-  privacyButtonText: 40,
-  disclaimerText: 160,
+export const DEFAULT_WELCOME_BUBBLES = [
+  "Hallo! Ich bin Ihr KI-Berater.",
+  "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",
+];
+export const LIST_DEFAULTS = {
+  defaultMessages: DEFAULT_SUGGESTIONS,
+  chatbotBubblesMessages: DEFAULT_WELCOME_BUBBLES,
 };
-export const PRIVACY_POINTS_MAX = 5;
-export const PRIVACY_POINT_MAX_LEN = 160;
+
+/**
+ * Vorbelegung einer Liste: bei den Startvorschlägen die Liste des Servers
+ * (defaults.defaultMessages aus GET /embed/defaults, S1), sonst bzw. solange
+ * die Standardtexte nicht geladen sind die Kopie LIST_DEFAULTS.
+ * @param {keyof LIST_DEFAULTS} key
+ * @param {Object|null} [defaults] Standardtexte aus GET /embed/defaults
+ * @returns {Array}
+ */
+export function listDefault(key, defaults = null) {
+  const v = defaults?.[key];
+  return Array.isArray(v) ? v : LIST_DEFAULTS[key];
+}
+
+/**
+ * Zeilen einer Liste im Feld und in der Vorschau: die gespeicherte Liste
+ * (auch leer) oder, ohne Schlüssel, die Vorbelegung (Kopie, listDefault).
+ * @param {Object} config
+ * @param {keyof LIST_DEFAULTS} key
+ * @param {Object|null} [defaults] Standardtexte aus GET /embed/defaults
+ * @returns {Array}
+ */
+export function listItems(config = {}, key, defaults = null) {
+  const v = config?.[key];
+  return Array.isArray(v) ? v : [...listDefault(key, defaults)];
+}
+
+// Listen bereinigt (getrimmte, nicht leere Strings) gleich?
+function sameList(a, b) {
+  return (
+    JSON.stringify(textItems(a).map((s) => s.trim())) ===
+    JSON.stringify(textItems(b).map((s) => s.trim()))
+  );
+}
+
+// Aussehen ohne gespeicherten Wert: genau die Standards des Widgets
+// (anythingllm-embed, hooks/useScriptAttributes.js DEFAULT_SETTINGS:
+// buttonColor, chatIcon, position). Das Design Center zeigt sie an,
+// speichert sie aber nur, wenn der Kunde etwas wählt. Die Schrift auf der
+// Akzentfarbe hat keinen festen Standard: ohne gespeicherten Wert gilt die
+// Empfehlung nach Kontrast (userTextColor, KIE-565 Nachtrag).
+export const LOOK_DEFAULTS = {
+  accentColor: "#01A5A9",
+  chatIcon: "chatBubble",
+  position: "bottom-left",
+};
+export const DEFAULT_ACCENT_COLOR = LOOK_DEFAULTS.accentColor;
+
+/**
+ * Wert fürs Aussehen: gespeicherter Text bzw. Standard des Widgets; bei
+ * "userTextColor" ohne gespeicherten Wert die Empfehlung zur Akzentfarbe.
+ * @param {Object} config
+ * @param {"accentColor"|"userTextColor"|"chatIcon"|"position"} key
+ * @returns {string}
+ */
+export function lookValue(config, key) {
+  if (key === "userTextColor") return userTextColor(config);
+  const v = config?.[key];
+  return typeof v === "string" && v.trim() ? v : LOOK_DEFAULTS[key];
+}
+
+/**
+ * Wert im Feld „Akzentfarbe“ (R5: der wirksame Wert als Feldwert, kein
+ * grauer Platzhalter): der gespeicherte bzw. gerade eingegebene Text, sonst
+ * der Standard des Widgets.
+ * @param {Object} config
+ * @returns {string}
+ */
+export function accentFieldValue(config = {}) {
+  const v = config?.accentColor;
+  return typeof v === "string" ? v : DEFAULT_ACCENT_COLOR;
+}
+
+// ---------------------------------------------------------------------------
+// Schrift auf der Akzentfarbe (KIE-565 Nachtrag, Nutzer 15.10.2026): Weiß
+// oder Schwarz für Nutzer-Nachrichten und alle Flächen in Akzentfarbe
+// (Senden-Button, Chat-Button, gefüllte Pillen beim Darüberfahren). Die
+// Empfehlung rechnet wie das Widget (contrast.js, wortgleich mit
+// anythingllm-embed src/utils/contrast.js): WCAG-2.x-Kontrast der
+// Akzentfarbe zu den gezeigten Schriften #FFFFFF und #222628, der höhere
+// gewinnt, Gleichstand Weiß (Entscheidung E1, Fixliste 7.22-rc7).
+// Empfehlung, Markierung und Warnung rechnen alle mit der Farbe, die das
+// Widget zeigt: „Schwarz“ ist #222628, auch ein früher gespeichertes
+// #000000 (der Server liefert es als #222628 aus). Gespeichert wird nur,
+// was der Kunde wählt (Regel D6); ein gespeicherter Altwert #000000 bleibt
+// beim Speichern unverändert stehen, und ein Klick auf die schon wirksame
+// Option ändert nichts (withUserTextColor).
+// ---------------------------------------------------------------------------
+
+export { MIN_TEXT_CONTRAST };
+
+// Früher gespeicherte Werte und die Farbe, die das Widget dafür zeigt (wie
+// der Server, endpoints/embed/index.js shownUserTextColor)
+const LEGACY_USER_TEXT_COLORS = { "#000000": SHOWN_BLACK };
+
+/**
+ * Gespeicherte Schrift auf der Akzentfarbe als gezeigte Farbe (die beiden
+ * Optionen mit einheitlicher Schreibweise, früheres #000000 als #222628)
+ * oder null, wenn keine gespeichert ist.
+ * @param {Object} config
+ * @returns {string|null}
+ */
+export function storedUserTextColor(config = {}) {
+  const v = config?.userTextColor;
+  if (typeof v !== "string" || !v.trim()) return null;
+  const key = v.trim().toLowerCase();
+  const option = USER_TEXT_COLOR_OPTIONS.find(
+    (o) => o.value.toLowerCase() === key
+  );
+  if (option) return option.value;
+  // nur eigene Schlüssel (C1, Fixliste 7.22-rc13): „__proto__“ oder
+  // „constructor“ liefern sonst Object.prototype bzw. die Funktion Object
+  return Object.prototype.hasOwnProperty.call(LEGACY_USER_TEXT_COLORS, key)
+    ? LEGACY_USER_TEXT_COLORS[key]
+    : v;
+}
+
+/**
+ * Wirksame Schrift auf der Akzentfarbe: gespeicherter Wert bzw. die
+ * Empfehlung zur (wirksamen) Akzentfarbe, wie im Widget.
+ * @param {Object} config
+ * @returns {string}
+ */
+export function userTextColor(config = {}) {
+  return (
+    storedUserTextColor(config) ||
+    recommendedTextColor(lookValue(config, "accentColor"))
+  );
+}
+
+// Farben der Vorschau wie im Widget (Fixliste 7.22-rc22 E41 Ergänzung (b),
+// Vorschau gleich Gegenstelle): ein Wert gilt nur, wenn die eine Farbregel
+// ihn annimmt, also accentColorError nichts meldet (parseColor liest ihn,
+// deckend); sonst der Standard, wie dcColor im Widget (src/utils/theme.js).
+// Nur die Vorschau: Felder und Meldungen bleiben beim eingegebenen Wert
+// (accentFieldValue, validateConfig). Rückweg: in WidgetPreview.jsx wieder
+// lookValue und userTextColor.
+function previewColor(value, fallback = null) {
+  const text = textValue(value).trim();
+  return text && accentColorError(text) === null ? text : fallback;
+}
+
+/**
+ * Akzentfarbe in der Vorschau: der gespeicherte bzw. eingegebene Wert,
+ * wenn die Farbregel ihn annimmt (getrimmt), sonst der Standard #01A5A9.
+ * @param {Object} config
+ * @returns {string}
+ */
+export function previewAccentColor(config = {}) {
+  return previewColor(config?.accentColor, DEFAULT_ACCENT_COLOR);
+}
+
+/**
+ * Schrift auf der Akzentfarbe in der Vorschau: die gespeicherte, wenn die
+ * Farbregel sie annimmt, sonst die Empfehlung zur Akzentfarbe der Vorschau.
+ * @param {Object} config
+ * @returns {string}
+ */
+export function previewUserTextColor(config = {}) {
+  return (
+    previewColor(storedUserTextColor(config)) ||
+    recommendedTextColor(previewAccentColor(config))
+  );
+}
+
+// Option (Weiß/Schwarz) zu einer Empfehlung
+function optionFor(recommended) {
+  return recommended === SHOWN_BLACK
+    ? USER_TEXT_COLOR_OPTIONS[1]
+    : USER_TEXT_COLOR_OPTIONS[0];
+}
+
+/**
+ * Markierte Option im Feld: die gespeicherte bzw. die empfohlene.
+ * @param {Object} config
+ * @returns {string|null} Wert der Option; null bei einem gespeicherten
+ *   Wert, der keine der beiden Optionen ist (keine markiert)
+ */
+export function userTextColorChoice(config = {}) {
+  const stored = storedUserTextColor(config);
+  if (stored)
+    return USER_TEXT_COLOR_OPTIONS.some((o) => o.value === stored)
+      ? stored
+      : null;
+  return optionFor(recommendedTextColor(lookValue(config, "accentColor")))
+    .value;
+}
+
+/**
+ * Bearbeitungsstand nach einem Klick auf Weiß oder Schwarz (E1, Regel D6):
+ * Zeigt der gespeicherte Wert (bzw. ohne gespeicherten Wert die Empfehlung
+ * zur aktuellen Akzentfarbe) schon die gewählte Option, gilt wieder der
+ * gespeicherte Stand (fehlt der Schlüssel dort, bleibt er weg; ein
+ * gespeichertes #000000 bleibt #000000). Sonst wird die Option gesetzt.
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {string} value Wert der Option
+ * @returns {Object}
+ */
+export function withUserTextColor(config, initial = {}, value) {
+  const restored = { ...config };
+  if ("userTextColor" in initial)
+    restored.userTextColor = initial.userTextColor;
+  else delete restored.userTextColor;
+  if (userTextColorChoice(restored) === value) return restored;
+  return { ...config, userTextColor: value };
+}
+
+/**
+ * Fehlermeldung zum Farbcode der Akzentfarbe oder null (Review 7.22-rc6
+ * F06). Leer ist kein Fehler (es gilt der Standard). Empfehlung und Warnung
+ * rechnen mit einer deckenden Farbe; eine durchscheinende (#rrggbbaa,
+ * rgba() mit Alpha unter 1) würde auf der Seite heller erscheinen, als
+ * gerechnet. Deshalb nur deckende Farbcodes.
+ * @param {*} value
+ * @returns {string|null}
+ */
+export function accentColorError(value) {
+  const text = textValue(value).trim();
+  if (!text) return null;
+  if (parseColor(text) === null)
+    return "Bitte einen Farbcode wie #01A5A9 angeben.";
+  if (colorAlpha(text) < 1)
+    return "Bitte eine deckende Farbe ohne Transparenz angeben.";
+  return null;
+}
+
+// Alphawert eines (gültigen) Farbcodes, 0 … 1; ohne Angabe 1. Bei rgb()/
+// rgba() zählt nur ein vierter Kanal als Alpha (Restpunkt 5, rc7: „rgb(0,
+// 0, 0)“ galt mit dem dritten Kanal 0 fälschlich als durchscheinend).
+function colorAlpha(color) {
+  const hex = /^#[0-9a-f]{6}([0-9a-f]{2})$/i.exec(color);
+  if (hex) return parseInt(hex[1], 16) / 255;
+  const fn = /^rgba?\(([^)]*)\)$/i.exec(color.trim());
+  if (!fn) return 1;
+  const parts = fn[1].trim().split(/\s*[,/]\s*|\s+/);
+  if (parts.length < 4) return 1;
+  const m = /^([\d.]+)(%?)$/.exec(parts[3]);
+  if (!m) return 0;
+  const value = Number(m[1]);
+  if (!Number.isFinite(value)) return 0;
+  return m[2] ? value / 100 : value;
+}
+
+/**
+ * Kontrast für Texte: eine Nachkommastelle, abgeschnitten (nicht gerundet),
+ * z. B. 4,38 -> "4,3:1". Bewusst (Restpunkt 6, rc7): Abschneiden ist
+ * konservativ. Gerundet stünde bei 4,46 „4,5:1“ neben der Warnung „unter
+ * 4,5:1“; so zeigt der Text nie mehr Kontrast, als tatsächlich erreicht
+ * wird.
+ */
+export function contrastLabel(ratio) {
+  const value = Math.floor(ratio * 10) / 10;
+  return `${value.toLocaleString("de-DE", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}:1`;
+}
+
+/**
+ * Empfehlung und Warnung unter dem Feld „Schrift auf der Akzentfarbe“.
+ * @param {Object} config
+ * @returns {{recommendedLabel: string|null, ratio: number|null,
+ *   warning: string|null}}
+ *   recommendedLabel null: Akzentfarbe ist kein gültiger deckender Farbcode
+ *   (dann steht die Fehlermeldung am Feld; Restpunkt 5, rc7: für eine
+ *   durchscheinende Farbe wurde sonst mit dem Rohwert gerechnet)
+ */
+export function userTextColorAdvice(config = {}) {
+  const accent = lookValue(config, "accentColor");
+  if (parseColor(accent) === null || accentColorError(accent) !== null)
+    return { recommendedLabel: null, ratio: null, warning: null };
+  // Gerechnet mit der gezeigten Schrift (#FFFFFF bzw. #222628, E1). Auf
+  // mittleren Akzentfarben erreicht auch die Empfehlung 4,5:1 nicht; dann
+  // hilft nur eine hellere oder dunklere Akzentfarbe.
+  const shown = userTextColor(config);
+  const recommended = recommendedTextColor(accent);
+  const ratio = contrastRatio(accent, shown);
+  let warning = null;
+  if (ratio !== null && ratio < MIN_TEXT_CONTRAST)
+    warning =
+      shown === recommended
+        ? `Kontrast nur ${contrastLabel(ratio)}: Weder Weiß noch Schwarz erreicht auf dieser Akzentfarbe 4,5:1. Eine hellere oder dunklere Akzentfarbe ist besser lesbar.`
+        : `Kontrast nur ${contrastLabel(ratio)}: Unter 4,5:1 ist die Schrift auf der Akzentfarbe schwer lesbar.`;
+  return {
+    recommendedLabel: optionFor(recommended).label,
+    ratio,
+    warning,
+  };
+}
+
+/**
+ * Schrift der Pillen (Startvorschläge in der Vorschau, wie die Folgefragen
+ * im Widget, theme.js pillTextColor): die Akzentfarbe, wenn sie auf allen
+ * Flächen mindestens 4,5:1 erreicht, sonst abgedunkelt (helle Fläche) bzw.
+ * aufgehellt (dunkle Fläche). Nicht auswertbare Akzentfarbe: fallback.
+ * @param {string} accent Akzentfarbe
+ * @param {string[]} backgrounds Flächen
+ * @param {string} fallback
+ * @returns {string}
+ */
+export function pillTextColor(accent, backgrounds, fallback = accent) {
+  return accessibleTextColor(accent, backgrounds) || fallback;
+}
+
+// Eingeklappte Inline-Leiste (Entscheidung D2): Demo-Texte des Widgets
+// (PANEL_TEXTS.de inlineBarPlaceholder/inlineSendText), nicht der Platzhalter
+// des Chat-Eingabefelds. Ohne geladene Standardtexte diese deutschen Werte.
+const INLINE_BAR_PLACEHOLDER = "Stellen Sie hier Ihre Frage …";
+const INLINE_SEND_TEXT = "Chatten";
+
+// Frühere Vorbelegungen (wie LEGACY_DEFAULT_GREETINGS/-PLACEHOLDERS im
+// Server): so gespeicherte Texte gelten als „kein eigener Text“, das Feld
+// zeigt den neuen Standard. Der alte Wert bleibt gespeichert, bis der Kunde
+// das Feld ändert. Name „Ihr Online-Berater“ und die alten Willkommensblasen
+// („Hallo! Ich bin Ihr Online-Berater!“ …) gehören bewusst nicht dazu: Sie
+// bleiben eigene Kundenwerte (Entscheidung E2, Fixliste 7.22-rc7).
+export const LEGACY_DEFAULT_GREETINGS = [
+  "Dieser Chatbot nutzt künstliche Intelligenz (KI). Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung von uns eingesehen werden. Bitte geben Sie keine sensiblen personenbezogenen Daten ein.",
+  "Hallo und herzlich willkommen! Ich helfe Ihnen gerne weiter und beantworte Ihre Fragen mit intelligenten, KI-gestützten Antworten.",
+  "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
+  "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for.",
+];
+export const LEGACY_DEFAULT_PLACEHOLDERS = ["Wie kann ich Ihnen helfen?"];
+export const LEGACY_DEFAULT_PRIVACY_TITLES = ["Datenschutz:", "Privacy:"];
+
+export const GREETING_MAX_LEN = 300;
+// Gekürzte Begrüßung: bis zu diesem Zeichen auf ein Wortende, davor hart
+const GREETING_WORD_CUT_MIN = 200;
+export const SUBTITLE_MAX_LEN = 60;
+export const PLACEHOLDER_MAX_LEN = 120;
+export const PRIVACY_TITLE_MAX_LEN = 120;
 export const PRIVACY_TEXT_MAX_LEN = 1000;
+// in Meldungen mit Tausenderpunkt („1.000“, C2 Fixliste 7.22-rc13)
+const PRIVACY_TEXT_MAX_LABEL = PRIVACY_TEXT_MAX_LEN.toLocaleString("de-DE");
+export const PRIVACY_LINES_MAX = 12;
+export const PRIVACY_LINE_MAX_LEN = 500;
 export const URL_MAX_LEN = 512;
-export const WIDGET_BOOLEAN_KEYS = ["inlineInput", "onlineDot"];
-
-// Enum-Schlüssel, deren Standard nie gespeichert wird: die aktive Wahl des
-// Standards entfernt den Schlüssel (fehlend = Standard im Widget) — aber nur,
-// solange das Feld sichtbar ist; ausgeblendet bleibt ein vorhandener Wert
-// unangetastet.
-export const ENUM_DEFAULTS_NOT_STORED = { courseCardsLayout: "grid" };
-
-// Felder mit Kufer-Standardtext (GET /embed/defaults): stehen als Wert im
-// Feld, solange nichts gespeichert ist; gespeichert wird nur eine Abweichung.
-export const DEFAULT_TEXT_KEYS = [
-  "greetingBubbleText",
-  "privacyTitle",
-  "privacyText",
-  "privacyButtonText",
-  "disclaimerText",
-];
-
-// Felder, die beim aktuellen Stand ausgeblendet sind (Leiste nur im Inline-
-// Modus, Unterfelder nur bei passender Wahl). Ausgeblendete Felder werden
-// nicht geprüft (der Admin könnte sie nicht korrigieren); ungültige Werte
-// darin verwirft cleanWidgetKeys beim Speichern.
-export function hiddenWidgetKeys(config, { inline }) {
-  const hidden = new Set();
-  const inputBar = config.inlineInput === true;
-  if (!inline || !inputBar)
-    ["inlineOpenOn", "inlineInputPlaceholder", "inlineSendText"].forEach((k) =>
-      hidden.add(k)
-    );
-  if (!inline) ["inlineLayout", "inlineEffect"].forEach((k) => hidden.add(k));
-  if (enumValue(config.courseCards) !== "auto")
-    [
-      "courseCardsPosition",
-      "courseCardsAnswerStyle",
-      "courseCardsLayout",
-    ].forEach((k) => hidden.add(k));
-  if (!privacyFieldsVisible(config))
-    ["privacyTitle", "privacyText", "privacyUrl", "privacyButtonText"].forEach(
-      (k) => hidden.add(k)
-    );
-  if (enumValue(config.privacyNotice) !== "modal")
-    hidden.add("privacyButtonText");
-  if (enumValue(config.disclaimer) !== "footer") hidden.add("disclaimerText");
-  return hidden;
-}
-
-// Datenschutz-Felder genau bei privacyNotice "bubble" oder "modal" (auch die
-// Sichtbarkeit in WidgetKeySections richtet sich danach)
-export function privacyFieldsVisible(config) {
-  const notice = enumValue(config.privacyNotice);
-  return notice === "bubble" || notice === "modal";
-}
-
-// Reiter, in dem ein Feld steht (für „Fehler korrigieren“ beim Speichern)
-export const FIELD_TAB = {
-  inlineOpenOn: "design",
-  inlineLayout: "design",
-  inlineEffect: "design",
-  inlineInputPlaceholder: "design",
-  inlineSendText: "design",
-  suggestionStyle: "inhalt",
-  greetingStyle: "inhalt",
-  greetingBubbleText: "inhalt",
-  assistantSubtitle: "inhalt",
-  courseCards: "antworten",
-  courseCardsPosition: "antworten",
-  courseCardsAnswerStyle: "antworten",
-  courseCardsLayout: "antworten",
-  followUps: "antworten",
-  privacyNotice: "antworten",
-  privacyTitle: "antworten",
-  privacyText: "antworten",
-  privacyUrl: "antworten",
-  privacyButtonText: "antworten",
-  disclaimer: "antworten",
-  disclaimerText: "antworten",
-};
+const PRIVACY_MARK_RE = /^[•\-–]\s*/;
 
 // Nur Strings zählen als Text; alles andere (Zahl, Objekt, Liste aus einer
 // per API gesetzten visual_config) wird wie ein leeres Feld behandelt.
@@ -199,46 +549,349 @@ export function textValue(value) {
   return typeof value === "string" ? value : "";
 }
 
-function isBlank(value) {
+export function isBlank(value) {
   return textValue(value).trim() === "";
 }
 
-export function enumValue(value) {
-  return typeof value === "string" ? value.trim().toLowerCase() : value;
+/**
+ * Eigener Text: String, getrimmt nicht leer und keine frühere Vorbelegung.
+ * @param {*} value
+ * @param {string[]} [legacy]
+ * @returns {string|null}
+ */
+export function ownText(value, legacy = []) {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text || legacy.includes(text)) return null;
+  return text;
 }
 
-function enumAllowed(key) {
-  return WIDGET_ENUMS[key].options.map((o) => o.value).filter(Boolean);
+/** @returns {"inline"|"bubble"} wirksame Darstellung wie im Server */
+export function displayMode(config = {}) {
+  return typeof config.displayMode === "string" &&
+    config.displayMode.trim().toLowerCase() === "inline"
+    ? "inline"
+    : "bubble";
 }
 
-// Gespeicherter Auswahl-Wert, den das Design Center nicht kennt (gesetzt,
-// String, keine der Optionen)
-export function unknownEnumValue(config, key) {
-  return (
-    !isBlank(config[key]) && !enumAllowed(key).includes(enumValue(config[key]))
+/**
+ * Farbschema für die Auswahl: "light"/"dark"; ein älteres "auto" (folgt dem
+ * Gerät) bleibt gespeichert, bis Hell oder Dunkel gewählt wird (null = keine
+ * Option aktiv).
+ * @returns {"light"|"dark"|null}
+ */
+export function themeChoice(config = {}) {
+  const theme = textValue(config.theme).trim().toLowerCase();
+  if (theme === "dark") return "dark";
+  if (theme === "auto") return null;
+  return "light";
+}
+
+// ---------------------------------------------------------------------------
+// Begrüßung: ein Feld „Begrüßungstext“ (die Begrüßung ist immer die Blase).
+// Früher gab es zusätzlich den „Text der Begrüßungsblase“
+// (greetingBubbleText). Wie im Server (embedStandards.js effectiveGreeting)
+// hat ein gespeicherter Blasentext Vorrang, wenn er bisher sichtbar in der
+// Blase stand (greetingStyle oder privacyNotice "bubble") oder es keine
+// eigene Begrüßung gibt (Review 7.22-rc6 F03). Bearbeitet wird der
+// Schlüssel, der gerade gilt (aus dem gespeicherten Stand bestimmt).
+// ---------------------------------------------------------------------------
+
+// Wie greetingBubbleTextShown() im Server
+function greetingBubbleTextShown(stored = {}) {
+  const isBubble = (v) =>
+    typeof v === "string" && v.trim().toLowerCase() === "bubble";
+  return isBubble(stored.greetingStyle) || isBubble(stored.privacyNotice);
+}
+
+/**
+ * Schlüssel, in den das Feld „Begrüßungstext“ schreibt.
+ * @param {Object} stored gespeicherte visual_config (beim Laden)
+ * @returns {"greetingBubbleText"|"greeting"}
+ */
+export function greetingKey(stored = {}) {
+  const bubble = ownText(stored.greetingBubbleText, LEGACY_DEFAULT_GREETINGS);
+  const greeting = ownText(stored.greeting, LEGACY_DEFAULT_GREETINGS);
+  return bubble && (!greeting || greetingBubbleTextShown(stored))
+    ? "greetingBubbleText"
+    : "greeting";
+}
+
+/**
+ * Wert im Feld: eigener Text bzw. "" beim Leeren; frühere Vorbelegung oder
+ * fehlender Wert zeigen den Standardtext.
+ */
+export function greetingFieldValue(config, key, defaults) {
+  const v = config[key];
+  if (typeof v === "string" && !LEGACY_DEFAULT_GREETINGS.includes(v.trim()))
+    return v;
+  return textValue(defaults?.greeting);
+}
+
+/**
+ * Text in der Begrüßungsblase des Widgets: eine Begrüßung über 300 Zeichen
+ * (alter Wert ohne Grenze) erscheint auf ein Wortende gekürzt mit „…“.
+ * Wörtlich wie shortenGreeting() im Widget (anythingllm-embed
+ * src/utils/layout.js): Seit Review 7.22-rc6 F08 kürzt allein das Widget,
+ * der Server liefert die Begrüßung ungekürzt. Gegenprobe mit
+ * KUFER_EMBED_DIR im Test designCenterStandardLogic.
+ * @param {string} text getrimmter Text
+ * @returns {string}
+ */
+export function bubbleGreetingText(text) {
+  if (text.length <= GREETING_MAX_LEN) return text;
+  let cut = text.slice(0, GREETING_MAX_LEN - 1);
+  const space = cut.search(/\s\S*$/);
+  if (space >= GREETING_WORD_CUT_MIN) cut = cut.slice(0, space);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return `${cut.replace(/[\s.,;:!?]+$/u, "")}…`;
+}
+
+/** Text der Begrüßungsblase in der Vorschau (leer = Standardtext). */
+export function previewGreeting(config, key, defaults) {
+  return bubbleGreetingText(
+    greetingFieldValue(config, key, defaults).trim() ||
+      textValue(defaults?.greeting)
   );
 }
 
-// Datenschutz-Punkte wie validPrivacyText() im Server
-export function splitPrivacyPoints(text) {
-  if (typeof text !== "string") return [];
-  return text
-    .split(/\r?\n|\|/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
+/**
+ * Wert im Feld „Platzhalter“ (Chat-Eingabefeld, Entscheidung D2): eigener
+ * Text bzw. "" beim Leeren; frühere Vorbelegung oder fehlender Wert zeigen
+ * den Standardtext (R5: Standard als Feldwert).
+ */
+export function placeholderFieldValue(config = {}, defaults = null) {
+  const v = config.sendMessageText;
+  return typeof v === "string" &&
+    !LEGACY_DEFAULT_PLACEHOLDERS.includes(v.trim())
+    ? v
+    : textValue(defaults?.sendMessageText);
 }
 
+/**
+ * Wert im Feld „Name“: gespeicherter Text bzw. "" beim Leeren; fehlend der
+ * Standard „KI-Berater“ (R5). Leer gespeichert gilt als Standard.
+ */
+export function nameFieldValue(config = {}, defaults = null) {
+  const v = config.name;
+  return typeof v === "string" ? v : textValue(defaults?.name);
+}
+
+/**
+ * Wert im Feld „Untertitel“: gespeicherter Text, auch "" (bewusst kein
+ * Untertitel, R5); fehlend der Standard „Online-Berater mit künstlicher
+ * Intelligenz“, den das Widget dann auch live zeigt.
+ */
+export function subtitleFieldValue(config = {}, defaults = null) {
+  const v = config.assistantSubtitle;
+  return typeof v === "string" ? v : textValue(defaults?.assistantSubtitle);
+}
+
+/** Platzhalter in der Vorschau: eigener Text, sonst Standardtext. */
+export function previewPlaceholder(config, defaults) {
+  return (
+    ownText(config.sendMessageText, LEGACY_DEFAULT_PLACEHOLDERS) ||
+    textValue(defaults?.sendMessageText) ||
+    "Ihre Frage eingeben"
+  );
+}
+
+/**
+ * Früher im alten Design Center eigens gespeicherter Text der Inline-
+ * Leiste (inlineInputPlaceholder, höchstens 120 Zeichen): bleibt wirksam
+ * (Review F04), sonst null. Wie inlineBarPlaceholder() im Server.
+ * @param {Object} config
+ * @returns {string|null}
+ */
+export function storedInlineBarPlaceholder(config = {}) {
+  const text = ownText(config.inlineInputPlaceholder);
+  return text && text.length <= PLACEHOLDER_MAX_LEN ? text : null;
+}
+
+/**
+ * Platzhalter und Button der eingeklappten Inline-Leiste in der Vorschau:
+ * gespeicherter Leistentext bzw. die Demo-Texte (Entscheidung D2).
+ * @returns {{placeholder: string, sendText: string}}
+ */
+export function previewInlineBar(config, defaults) {
+  return {
+    placeholder:
+      storedInlineBarPlaceholder(config) ||
+      textValue(defaults?.inlineInputPlaceholder) ||
+      INLINE_BAR_PLACEHOLDER,
+    sendText: textValue(defaults?.inlineSendText) || INLINE_SEND_TEXT,
+  };
+}
+
+/**
+ * Wert im Feld „Überschrift“ des Datenschutz-Hinweises: eigener Text, ""
+ * (bewusst keine Überschrift) bzw. der Standard, wenn nichts oder der
+ * frühere Standard mit Doppelpunkt gespeichert ist.
+ */
+export function privacyTitleFieldValue(config, defaults) {
+  const v = config.privacyTitle;
+  if (
+    typeof v === "string" &&
+    !LEGACY_DEFAULT_PRIVACY_TITLES.includes(v.trim())
+  )
+    return v;
+  return textValue(defaults?.privacyTitle);
+}
+
+// ---------------------------------------------------------------------------
+// Datenschutz-Hinweis an/aus (KIE-565 Nachtrag, Nutzer 15.10.2026): Schalter
+// „Datenschutz-Hinweis anzeigen“, gespeichert im vorhandenen Schlüssel
+// privacyNotice. Aus = "none"; an = "bubble" bzw. jeder andere oder kein
+// Wert (wie privacyNoticeValue() im Server, auch das frühere "modal"). Ein
+// leerer Text bedeutet weiter „Standardtext“, nicht „aus“.
+// ---------------------------------------------------------------------------
+
+// Felder des Hinweises; bei ausgeschaltetem Hinweis bleiben sie gespeichert,
+// wie sie sind
+export const PRIVACY_FIELD_KEYS = ["privacyTitle", "privacyText", "privacyUrl"];
+
+/** @returns {boolean} Datenschutz-Hinweis wird angezeigt */
+export function privacyNoticeOn(config = {}) {
+  const v = config?.privacyNotice;
+  return !(typeof v === "string" && v.trim().toLowerCase() === "none");
+}
+
+/**
+ * Bearbeitungsstand nach dem Schalter: aus -> "none". An -> der gespeicherte
+ * Stand, wenn der Hinweis dort an war (auch ohne Schlüssel oder mit einem
+ * Altwert wie "modal"; so entsteht kein ungefragter Schreibvorgang, Regel
+ * D6), sonst "bubble".
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {boolean} on
+ * @returns {Object}
+ */
+export function withPrivacyNotice(config, initial = {}, on = true) {
+  const next = { ...config };
+  if (!on) next.privacyNotice = "none";
+  else if (!privacyNoticeOn(initial)) next.privacyNotice = "bubble";
+  else if ("privacyNotice" in initial)
+    next.privacyNotice = initial.privacyNotice;
+  else delete next.privacyNotice;
+  return next;
+}
+
+// ---------------------------------------------------------------------------
+// Datenschutz-Text, freies Format, genau wie im Widget (utils/layout.js
+// parsePrivacyText) und im Server (normalizePrivacyText): Zeilen mit „•“,
+// „-“ oder „–“ am Anfang sind Aufzählungspunkte, andere Zeilen Absätze.
+// Altformat (keine Zeile mit Zeichen, so bis 7.21 gespeichert): Zeilen bzw.
+// „|“-Teile, mehrere als Punkte, eine einzelne als Absatz. Gespeichert wird
+// immer im neuen Format (Review F10): Altformat mit mehreren Teilen als
+// „• “-Zeilen, damit die Bedeutung beim nächsten Lesen gleich bleibt (F08).
+// ---------------------------------------------------------------------------
+
+function cleanLines(parts) {
+  return parts.map((l) => l.trim()).filter((l) => l.length > 0);
+}
+
+function privacyLines(text) {
+  const lines = cleanLines(text.split(/\r?\n/));
+  if (lines.some((l) => PRIVACY_MARK_RE.test(l)))
+    return { marked: true, lines };
+  return { marked: false, lines: cleanLines(text.split(/\r?\n|\|/)) };
+}
+
+/**
+ * Altformat mit mehreren Teilen (keine Zeile mit „•“, „-“ oder „–“, aber
+ * mehrere Zeilen bzw. „|“-Teile): Das Widget zeigt alle als Punkte. Dieselbe
+ * Regel wie der Parser (getrimmte Zeilen, auch NBSP vor dem Zeichen; Review
+ * F09).
+ * @param {*} value
+ * @returns {boolean}
+ */
+export function privacyWithoutMarks(value) {
+  if (typeof value !== "string") return false;
+  const { marked, lines } = privacyLines(value);
+  return !marked && lines.length > 1;
+}
+
+/**
+ * Text für das Feld: Altformat mit mehreren Zeilen als „• “-Zeilen (gleiche
+ * Darstellung wie im Widget), sonst unverändert.
+ * @param {*} value
+ * @returns {string}
+ */
+export function privacyFieldText(value) {
+  const text = textValue(value);
+  if (!text.trim()) return text;
+  const { marked, lines } = privacyLines(text);
+  if (marked || lines.length < 2) return text;
+  return lines.map((l) => `• ${l}`).join("\n");
+}
+
+/**
+ * Normalform wie normalizePrivacyText() im Server: getrimmte Zeilen, leere
+ * weg, Altformat auch an „|“ getrennt und bei mehreren Teilen als „• “-
+ * Zeilen; 1 bis 12 Zeilen mit je höchstens 500 Zeichen, Rohtext und
+ * Normalform höchstens 1000 (Review 7.22-rc6 F05). Ungültig -> null.
+ * @param {*} value
+ * @returns {string|null}
+ */
+export function normalizePrivacyText(value) {
+  const text = textValue(value).trim();
+  if (!text || text.length > PRIVACY_TEXT_MAX_LEN) return null;
+  const { marked, lines } = privacyLines(text);
+  if (
+    lines.length === 0 ||
+    lines.length > PRIVACY_LINES_MAX ||
+    lines.some((l) => l.length > PRIVACY_LINE_MAX_LEN)
+  )
+    return null;
+  const normalized = (
+    !marked && lines.length > 1 ? lines.map((l) => `• ${l}`) : lines
+  ).join("\n");
+  return normalized.length <= PRIVACY_TEXT_MAX_LEN ? normalized : null;
+}
+
+/**
+ * Fehlermeldung zum Datenschutz-Text oder null. Leer ist kein Fehler (es
+ * gilt der Standardtext).
+ * @param {*} value
+ * @returns {string|null}
+ */
 export function privacyTextError(value) {
-  const v = textValue(value).trim();
-  if (v.length > PRIVACY_TEXT_MAX_LEN)
-    return `Maximal ${PRIVACY_TEXT_MAX_LEN} Zeichen insgesamt.`;
-  const points = splitPrivacyPoints(v);
-  if (points.length > PRIVACY_POINTS_MAX)
-    return `Höchstens ${PRIVACY_POINTS_MAX} Punkte (ein Punkt je Zeile).`;
-  const tooLong = points.findIndex((p) => p.length > PRIVACY_POINT_MAX_LEN);
+  const text = textValue(value).trim();
+  if (!text) return null;
+  if (text.length > PRIVACY_TEXT_MAX_LEN)
+    return `Maximal ${PRIVACY_TEXT_MAX_LABEL} Zeichen insgesamt.`;
+  const { lines } = privacyLines(text);
+  if (lines.length > PRIVACY_LINES_MAX)
+    return `Höchstens ${PRIVACY_LINES_MAX} Zeilen.`;
+  const tooLong = lines.findIndex((l) => l.length > PRIVACY_LINE_MAX_LEN);
   if (tooLong >= 0)
-    return `Punkt ${tooLong + 1} ist zu lang (maximal ${PRIVACY_POINT_MAX_LEN} Zeichen je Punkt).`;
+    return `Zeile ${tooLong + 1} ist zu lang (maximal ${PRIVACY_LINE_MAX_LEN} Zeichen je Zeile).`;
+  // gespeichert wird mit „• “ vor jeder Zeile (Altformat), auch das zählt
+  if (normalizePrivacyText(text) === null)
+    return `Maximal ${PRIVACY_TEXT_MAX_LABEL} Zeichen insgesamt, mit den Zeichen „• “ am Zeilenanfang.`;
   return null;
+}
+
+/**
+ * Datenschutz-Text in Blöcke wie parsePrivacyText() im Widget.
+ * @param {*} text
+ * @returns {{type: "bullet"|"paragraph", text: string}[]}
+ */
+export function privacyBlocks(text) {
+  if (typeof text !== "string") return [];
+  const { marked, lines } = privacyLines(text);
+  if (lines.length === 0) return [];
+  if (!marked)
+    return lines.length === 1
+      ? [{ type: "paragraph", text: lines[0] }]
+      : lines.map((t) => ({ type: "bullet", text: t }));
+  return lines
+    .map((l) =>
+      PRIVACY_MARK_RE.test(l)
+        ? { type: "bullet", text: l.replace(PRIVACY_MARK_RE, "").trim() }
+        : { type: "paragraph", text: l }
+    )
+    .filter((block) => block.text.length > 0);
 }
 
 // Link wie validUrl() im Server: https://… oder Pfad der eigenen Seite
@@ -258,130 +911,272 @@ export function validPrivacyUrl(value) {
 }
 
 /**
- * Fehlermeldungen je Feld für gesetzte, ungültige Werte.
- * @param {Object} config aktuelle visual_config (Bearbeitungsstand)
- * @param {{inline: boolean}} opts Inline-Modus aktiv (Leisten-Felder sichtbar)
+ * Entspricht der Text dem Standard? Ohne geladene Standardtexte nie (damit
+ * ein eigener Text beim Speichern nicht versehentlich verloren geht).
+ * @param {"name"|"assistantSubtitle"|"greeting"|"sendMessageText"|"privacyTitle"|"privacyText"} defaultKey
+ * @param {*} value
+ * @param {Object|null} defaults
+ * @returns {boolean}
+ */
+export function sameAsDefault(defaultKey, value, defaults) {
+  const standard = defaults?.[defaultKey];
+  if (typeof standard !== "string" || typeof value !== "string") return false;
+  if (defaultKey === "privacyText") {
+    if (normalizePrivacyText(value) === null) return false;
+    return (
+      JSON.stringify(privacyBlocks(value)) ===
+      JSON.stringify(privacyBlocks(standard))
+    );
+  }
+  return value.trim() === standard.trim();
+}
+
+/**
+ * Wurde das Feld in dieser Sitzung gegenüber dem gespeicherten Stand
+ * bearbeitet? Inhaltlich verglichen (Listen sind nach einer Bearbeitung neue
+ * Arrays, auch wenn der Inhalt wieder gleich ist). Ein Begriff für
+ * validateConfig und cleanConfig (C7, Fixliste 7.22-rc16).
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {string} key
+ * @returns {boolean}
+ */
+function edited(config, initial, key) {
+  return JSON.stringify(config[key]) !== JSON.stringify(initial[key]);
+}
+
+// Reiter, in dem ein Feld steht (für „Fehler korrigieren“ beim Speichern)
+export const FIELD_TAB = {
+  accentColor: "aussehen",
+  assistantSubtitle: "inhalt",
+  greeting: "inhalt",
+  greetingBubbleText: "inhalt",
+  sendMessageText: "inhalt",
+  privacyTitle: "inhalt",
+  privacyText: "inhalt",
+  privacyUrl: "inhalt",
+};
+
+/**
+ * Fehlermeldungen je Feld. Texte mit Grenzen, die schon gespeichert waren
+ * (z. B. eine lange Begrüßung von früher), blockieren das Speichern erst,
+ * wenn sie geändert werden.
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {"greeting"|"greetingBubbleText"} gKey Schlüssel der Begrüßung
  * @returns {Object<string,string>}
  */
-export function validateWidgetKeys(config, { inline }) {
+export function validateConfig(config, initial, gKey) {
   const errors = {};
-  const hidden = hiddenWidgetKeys(config, { inline });
-  const skip = (key) => hidden.has(key);
-  for (const key of Object.keys(WIDGET_ENUMS)) {
-    if (skip(key) || !unknownEnumValue(config, key)) continue;
-    if (!FREE_TEXT_ENUM_KEYS.includes(key))
-      errors[key] = "Ungültiger Wert — bitte eine Option wählen.";
-    else if (config[key].trim().length > FREE_TEXT_ENUM_MAX)
-      errors[key] =
-        `Eigener Wert zu lang (maximal ${FREE_TEXT_ENUM_MAX} Zeichen) — bitte eine Option wählen.`;
+  // Akzentfarbe: nur ein geänderter Wert wird geprüft (ein früher
+  // gespeicherter Farbname bleibt speicherbar)
+  if (edited(config, initial, "accentColor")) {
+    const error = accentColorError(config.accentColor);
+    if (error) errors.accentColor = error;
   }
-  for (const [key, max] of Object.entries(WIDGET_TEXT_MAX)) {
-    if (skip(key) || isBlank(config[key])) continue;
-    if (config[key].trim().length > max)
-      errors[key] = `Maximal ${max} Zeichen.`;
-  }
-  if (!skip("privacyText") && !isBlank(config.privacyText)) {
+  if (textValue(config.assistantSubtitle).trim().length > SUBTITLE_MAX_LEN)
+    errors.assistantSubtitle = `Maximal ${SUBTITLE_MAX_LEN} Zeichen.`;
+  if (
+    edited(config, initial, gKey) &&
+    textValue(config[gKey]).trim().length > GREETING_MAX_LEN
+  )
+    errors[gKey] = `Maximal ${GREETING_MAX_LEN} Zeichen.`;
+  if (
+    edited(config, initial, "sendMessageText") &&
+    textValue(config.sendMessageText).trim().length > PLACEHOLDER_MAX_LEN
+  )
+    errors.sendMessageText = `Maximal ${PLACEHOLDER_MAX_LEN} Zeichen.`;
+  // Hinweis aus: die ausgegrauten Felder werden nicht gespeichert und
+  // deshalb auch nicht geprüft
+  if (!privacyNoticeOn(config)) return errors;
+  if (textValue(config.privacyTitle).trim().length > PRIVACY_TITLE_MAX_LEN)
+    errors.privacyTitle = `Maximal ${PRIVACY_TITLE_MAX_LEN} Zeichen.`;
+  if (edited(config, initial, "privacyText")) {
     const error = privacyTextError(config.privacyText);
     if (error) errors.privacyText = error;
   }
-  if (
-    !skip("privacyUrl") &&
-    !isBlank(config.privacyUrl) &&
-    !validPrivacyUrl(config.privacyUrl)
-  )
+  if (!isBlank(config.privacyUrl) && !validPrivacyUrl(config.privacyUrl))
     errors.privacyUrl =
       "Bitte eine https://-Adresse oder einen Pfad Ihrer Seite (z. B. /datenschutz) angeben.";
   return errors;
 }
 
 /**
- * Entspricht der Text dem Kufer-Standard? Nur für DEFAULT_TEXT_KEYS und nur
- * mit geladenen Standardtexten — ohne sie (Laden fehlgeschlagen) nie, damit
- * ein eigener Text beim Speichern nicht versehentlich gelöscht wird.
- * @param {string} key
- * @param {*} value
- * @param {Object|null} defaults
- * @returns {boolean}
- */
-export function sameAsDefault(key, value, defaults) {
-  if (!DEFAULT_TEXT_KEYS.includes(key)) return false;
-  const standard = defaults?.[key];
-  if (typeof standard !== "string" || typeof value !== "string") return false;
-  if (key === "privacyText")
-    return (
-      splitPrivacyPoints(value).join("\n") ===
-      splitPrivacyPoints(standard).join("\n")
-    );
-  return value.trim() === standard.trim();
-}
-
-/**
- * Vor dem Speichern: leere Felder entfernen (nie "" speichern), Texte
- * trimmen, Datenschutz-Punkte als „ein Punkt je Zeile“ normalisieren,
- * Standardtexte weglassen (leer = Widget-Standard), Enums klein schreiben.
- * Nicht-Strings gelten als leer. Ungültige Werte (nur in ausgeblendeten
- * Feldern möglich) werden verworfen — außer bei FREE_TEXT_ENUM_KEYS: dort
- * bleibt ein unbekannter Wert erhalten (der Server speichert ihn als
- * Freitext). ENUM_DEFAULTS_NOT_STORED: Standardwert im sichtbaren Feld wird
- * entfernt (ausgeblendet unangetastet). Es werden nie Schlüssel hinzugefügt.
+ * Vor dem Speichern: nur die bearbeitbaren Felder bereinigen. Schlüssel
+ * entfallener Optionen bleiben, wie sie gespeichert sind; es werden keine
+ * neuen Darstellungs-Schlüssel geschrieben. Ein Wert, der in dieser Sitzung
+ * auf den Standard gebracht wurde, entfernt den Schlüssel (R5); ein
+ * unverändert gespeicherter Wert, der dem Standard gleicht, bleibt stehen
+ * (F05, Fixliste 7.22-rc13: sonst gälte nach dem Speichern eines anderen
+ * Feldes wieder ein altes data-* am Skript, z. B. data-button-color; seit
+ * E23, Fixliste 7.22-rc17, wirken solche Angaben nicht mehr, F05 bleibt).
+ * Ausnahmen: Untertitel "" und Startvorschläge [] sind bewusste Werte.
+ * Dieselbe Funktion bestimmt im Design Center, ob es „Ungespeicherte
+ * Änderungen“ gibt (bereinigter Bearbeitungsstand gegen bereinigten
+ * gespeicherten Stand).
+ * - Akzentfarbe: leer oder der Standard des Widgets -> entfernen.
+ * - Name: leer oder „KI-Berater“ -> entfernen, sonst getrimmt.
+ * - Untertitel: Standard -> entfernen; "" bleibt "" (kein Untertitel),
+ *   sonst getrimmt.
+ * - Begrüßung: leer oder Standardtext -> Schlüssel entfernen, dazu den
+ *   anderen eigenen Text (greeting bzw. greetingBubbleText), sonst würde
+ *   er sichtbar; unveränderte frühere Vorbelegung bleibt stehen. Gälte nach
+ *   dem Speichern der andere eigene Text (etwa weil der Schalter
+ *   „Datenschutz-Hinweis anzeigen“ privacyNotice umstellt, F04 Fixliste
+ *   7.22-rc13), wird er entfernt: Live bleibt der Text aus dem Feld.
+ * - Platzhalter: leer oder Standardtext -> entfernen, frühere Vorbelegung
+ *   bleibt.
+ * - Startvorschläge: leere Zeilen weg; genau die Vorbelegung -> entfernen;
+ *   [] bleibt [] (keine Startvorschläge).
+ * - Willkommensblasen: leere Zeilen weg; Vorbelegung oder [] -> entfernen
+ *   (es gelten die Standardblasen des Widgets).
+ * - Link: leer -> entfernen.
+ * - Datenschutz-Überschrift: Standard -> entfernen, leer -> "" (bewusst
+ *   keine Überschrift), sonst getrimmt.
+ * - Datenschutz-Text: unverändert bleibt er, wie er ist; geändert: leer oder
+ *   Standard -> entfernen, sonst Normalform.
+ * - Datenschutz-Hinweis aus (privacyNotice "none"): Überschrift, Text und
+ *   Link bleiben genau wie gespeichert (Eingaben in den ausgegrauten Feldern
+ *   werden nicht geschrieben).
  * @param {Object} config
- * @param {Object|null} defaults Standardtexte (GET /embed/defaults) oder null
+ * @param {{initial: Object, defaults: Object|null, greetingKey: string}} opts
  * @returns {Object}
  */
-export function cleanWidgetKeys(config, defaults = null) {
-  const cleaned = { ...config };
-  const drop = (key) => delete cleaned[key];
-  for (const key of Object.keys(WIDGET_ENUMS)) {
-    if (!(key in cleaned)) continue;
-    if (isBlank(cleaned[key])) drop(key);
-    else if (!unknownEnumValue(cleaned, key))
-      cleaned[key] = enumValue(cleaned[key]);
-    else if (
-      FREE_TEXT_ENUM_KEYS.includes(key) &&
-      cleaned[key].trim().length <= FREE_TEXT_ENUM_MAX
-    )
-      cleaned[key] = cleaned[key].trim();
-    else drop(key);
+export function cleanConfig(
+  config,
+  { initial = {}, defaults = null, greetingKey: gKey = "greeting" } = {}
+) {
+  const out = { ...config };
+  const drop = (key) => delete out[key];
+  // Standardwert entfernen, wenn in dieser Sitzung bearbeitet (edited, wie
+  // in validateConfig); unverändert gespeichert bleibt er, wie er ist (F05)
+  const dropIfEdited = (key) => {
+    if (edited(config, initial, key)) drop(key);
+  };
+
+  if (typeof out.accentColor === "string") {
+    const v = out.accentColor.trim();
+    if (!v) drop("accentColor");
+    else if (v.toLowerCase() === DEFAULT_ACCENT_COLOR.toLowerCase())
+      dropIfEdited("accentColor");
+    else out.accentColor = v;
   }
-  // Standard nicht speichern — nur bei sichtbarem Feld (hiddenWidgetKeys
-  // hängt für diese Schlüssel nicht vom Inline-Modus ab)
-  const hidden = hiddenWidgetKeys(cleaned, { inline: true });
-  for (const [key, standard] of Object.entries(ENUM_DEFAULTS_NOT_STORED))
-    if (cleaned[key] === standard && !hidden.has(key)) drop(key);
-  for (const [key, max] of Object.entries(WIDGET_TEXT_MAX)) {
-    if (!(key in cleaned)) continue;
-    const v = textValue(cleaned[key]).trim();
-    if (!v || v.length > max || sameAsDefault(key, v, defaults)) drop(key);
-    else cleaned[key] = v;
+
+  if (typeof out.name === "string") {
+    const v = out.name.trim();
+    if (!v) drop("name");
+    else if (sameAsDefault("name", v, defaults)) dropIfEdited("name");
+    else out.name = v;
   }
-  if ("privacyText" in cleaned) {
-    const v = textValue(cleaned.privacyText);
+
+  const otherGreeting =
+    gKey === "greetingBubbleText" ? "greeting" : "greetingBubbleText";
+  if (typeof out[gKey] === "string") {
+    const v = out[gKey].trim();
+    if (!LEGACY_DEFAULT_GREETINGS.includes(v)) {
+      const standard = v && sameAsDefault("greeting", v, defaults);
+      if (!v || (standard && edited(config, initial, gKey))) {
+        // Standard: auch den anderen eigenen Text entfernen, sonst würde er
+        // sichtbar (früherer Blasentext bei Stil „text“ bzw. eine eigene
+        // greeting hinter dem Blasentext)
+        drop(gKey);
+        if (ownText(out[otherGreeting], LEGACY_DEFAULT_GREETINGS))
+          drop(otherGreeting);
+      } else if (!standard) out[gKey] = v;
+    }
+  }
+  // F04 (Fixliste 7.22-rc13): Die Begrüßung bleibt der Text aus dem Feld.
+  // Gälte nach dem Speichern der andere eigene Text (greetingKey hängt an
+  // greetingStyle und privacyNotice, und der Schalter „Datenschutz-Hinweis
+  // anzeigen“ schreibt privacyNotice), wird der andere Text entfernt. Er war
+  // bis dahin nicht zu sehen (weder live noch im Design Center). Bewusste
+  // Ausnahme zum Negativfall „keine Kundendaten verloren (Texte bleiben)“
+  // (E20, Fixliste 7.22-rc16); gelöscht wird nur, wenn der Kunde den
+  // Schalter umstellt und speichert, nie beim Update.
+  if (
+    ownText(out[gKey], LEGACY_DEFAULT_GREETINGS) &&
+    ownText(out[otherGreeting], LEGACY_DEFAULT_GREETINGS) &&
+    greetingKey(out) !== gKey
+  )
+    drop(otherGreeting);
+
+  if (typeof out.sendMessageText === "string") {
+    const v = out.sendMessageText.trim();
+    if (!LEGACY_DEFAULT_PLACEHOLDERS.includes(v)) {
+      if (!v) drop("sendMessageText");
+      else if (sameAsDefault("sendMessageText", v, defaults))
+        dropIfEdited("sendMessageText");
+      else out.sendMessageText = v;
+    }
+  }
+
+  if ("assistantSubtitle" in out) {
+    const v = textValue(out.assistantSubtitle).trim();
+    if (sameAsDefault("assistantSubtitle", v, defaults))
+      dropIfEdited("assistantSubtitle");
+    else out.assistantSubtitle = v;
+  }
+
+  if (Array.isArray(out.defaultMessages)) {
+    const items = textItems(out.defaultMessages).map((s) => s.trim());
+    if (sameList(items, listDefault("defaultMessages", defaults)))
+      dropIfEdited("defaultMessages");
+    else out.defaultMessages = items;
+  }
+
+  if (Array.isArray(out.chatbotBubblesMessages)) {
+    const items = textItems(out.chatbotBubblesMessages).map((s) => s.trim());
+    if (items.length === 0 || sameList(items, DEFAULT_WELCOME_BUBBLES))
+      dropIfEdited("chatbotBubblesMessages");
+    else out.chatbotBubblesMessages = items;
+  }
+
+  if (!privacyNoticeOn(out)) {
+    for (const key of PRIVACY_FIELD_KEYS) {
+      if (key in initial) out[key] = initial[key];
+      else drop(key);
+    }
+    return out;
+  }
+
+  if (typeof out.privacyTitle === "string") {
+    const v = out.privacyTitle.trim();
+    if (sameAsDefault("privacyTitle", v, defaults))
+      dropIfEdited("privacyTitle");
+    else out.privacyTitle = v;
+  }
+
+  if ("privacyText" in out && edited(config, initial, "privacyText")) {
+    const v = textValue(out.privacyText);
+    const normalized = normalizePrivacyText(v);
     if (
       !v.trim() ||
-      privacyTextError(v) ||
+      normalized === null ||
       sameAsDefault("privacyText", v, defaults)
     )
       drop("privacyText");
-    else cleaned.privacyText = splitPrivacyPoints(v).join("\n");
+    else out.privacyText = normalized;
   }
-  if ("privacyUrl" in cleaned) {
-    if (validPrivacyUrl(cleaned.privacyUrl))
-      cleaned.privacyUrl = cleaned.privacyUrl.trim();
+
+  if ("privacyUrl" in out) {
+    if (validPrivacyUrl(out.privacyUrl)) out.privacyUrl = out.privacyUrl.trim();
     else drop("privacyUrl");
   }
-  for (const key of WIDGET_BOOLEAN_KEYS)
-    if (key in cleaned && typeof cleaned[key] !== "boolean") drop(key);
-  return cleaned;
+  return out;
 }
 
-// Wert für die Anzeige: gespeicherter/bearbeiteter Wert, sonst Standardtext
-// (Nicht-Strings wie leer: dann der Standardtext)
-export function displayedText(config, key, defaults) {
-  if (typeof config[key] === "string") return config[key];
-  return textValue(defaults?.[key]);
+// Pillen der Vorschau: über 60 Zeichen auf 59 gekürzt mit „…“, ohne ein
+// Emoji (Ersatzpaar) zu zerschneiden (Review 7.22-rc6 F07)
+export const PILL_MAX_LEN = 60;
+export function pillLabel(text) {
+  if (text.length <= PILL_MAX_LEN) return text;
+  let cut = text.slice(0, PILL_MAX_LEN - 1);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return `${cut.trimEnd()}…`;
 }
 
-// Startvorschläge für die Vorschau: nur nicht-leere Strings
+// Listen (Startvorschläge, Willkommensblasen) für die Vorschau: nur
+// nicht-leere Strings
 export function textItems(list) {
   return Array.isArray(list)
     ? list.filter((m) => typeof m === "string" && m.trim())

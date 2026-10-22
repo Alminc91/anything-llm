@@ -29,34 +29,76 @@ const FORBIDDEN = [
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
-describe("courseCardsEnabled (Gate visual_config.courseCards)", () => {
-  test("nur 'auto' schaltet ein (String aus der DB und Objekt)", () => {
-    expect(
-      courseCardsEnabled({ visual_config: '{"courseCards":"auto"}' })
-    ).toBe(true);
-    expect(
-      courseCardsEnabled({ visual_config: { courseCards: " Auto " } })
-    ).toBe(true);
+// KIE-567: Kurskarten nach der Wahl im Design Center („Kurse anzeigen
+// als“), gespeichert in visual_config.courseCards: "off" = Nur Text mit
+// Links, "auto" = Kurskarten, in beiden Darstellungen. Ohne gespeicherte
+// Wahl (fehlend, ungültig, unlesbar) entscheidet die tatsächliche
+// Darstellung, die das Widget mitschickt (R4, Fixliste 7.22-rc8): inline an,
+// sonst aus; der gespeicherte displayMode zählt dafür nicht (F01/F02: der
+// Server kennt die tatsächliche Darstellung nur aus der Anfrage).
+describe("courseCardsEnabled (KIE-567, R4: gespeicherte Wahl, sonst Darstellung)", () => {
+  test.each([
+    ['{"courseCards":"off"}'],
+    ['{"courseCards":" OFF "}'],
+    ['{"displayMode":"inline","courseCards":"off"}'],
+    ['{"displayMode":"bubble","courseCards":"off"}'],
+    [{ courseCards: "off" }],
+  ])("aus bei visual_config=%p, in beiden Darstellungen", (visual_config) => {
+    for (const displayMode of ["inline", "bubble", undefined])
+      expect(courseCardsEnabled({ visual_config }, { displayMode })).toBe(
+        false
+      );
   });
 
+  test.each([
+    ['{"courseCards":"auto"}'],
+    ['{"courseCards":" Auto "}'],
+    ['{"displayMode":"bubble","courseCards":"auto"}'],
+    [{ courseCards: "auto" }],
+  ])("an bei visual_config=%p, in beiden Darstellungen", (visual_config) => {
+    for (const displayMode of ["inline", "bubble", undefined])
+      expect(courseCardsEnabled({ visual_config }, { displayMode })).toBe(true);
+  });
+
+  // bewusst geändert (R4): ohne Wahl bisher immer an, jetzt nach Darstellung
   test.each([
     [undefined],
     [null],
     [""],
     ["{}"],
-    ['{"courseCards":"off"}'],
-    ['{"courseCards":true}'],
-    ['{"courseCards":"on"}'],
+    ['{"courseCards":"kaputt"}'],
+    ['{"courseCards":false}'],
+    ['{"displayMode":"inline"}'],
+    ['{"displayMode":"bubble"}'],
+    ['{"courseCardsPosition":"below"}'],
     ["kein json"],
-  ])("aus bei visual_config=%p", (visual_config) => {
-    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    expect(courseCardsEnabled({ visual_config })).toBe(false);
-    spy.mockRestore();
-  });
+  ])(
+    "ohne Wahl bei visual_config=%p: In der Seite an, Chatfenster oder ohne Angabe aus",
+    (visual_config) => {
+      const spy = jest.spyOn(console, "error").mockImplementation(() => {});
+      expect(
+        courseCardsEnabled({ visual_config }, { displayMode: "inline" })
+      ).toBe(true);
+      expect(
+        courseCardsEnabled({ visual_config }, { displayMode: " Inline " })
+      ).toBe(true);
+      for (const displayMode of ["bubble", undefined, null, "", "seite", 1])
+        expect(courseCardsEnabled({ visual_config }, { displayMode })).toBe(
+          false
+        );
+      expect(courseCardsEnabled({ visual_config })).toBe(false);
+      spy.mockRestore();
+    }
+  );
 
   test("unlesbares visual_config wird mit Präfix geloggt", () => {
     const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    expect(courseCardsEnabled({ visual_config: "{kaputt" })).toBe(false);
+    expect(
+      courseCardsEnabled(
+        { visual_config: "{kaputt" },
+        { displayMode: "inline" }
+      )
+    ).toBe(true);
     expect(spy).toHaveBeenCalledWith(
       "[courseCardsEnabled] visual_config unparsable",
       expect.any(String)
@@ -64,7 +106,9 @@ describe("courseCardsEnabled (Gate visual_config.courseCards)", () => {
     spy.mockRestore();
   });
 
-  test("ohne Embed-Objekt aus", () => {
+  test("ohne Embed-Objekt nach Darstellung", () => {
+    expect(courseCardsEnabled(undefined, { displayMode: "inline" })).toBe(true);
+    expect(courseCardsEnabled(null, { displayMode: "inline" })).toBe(true);
     expect(courseCardsEnabled(undefined)).toBe(false);
     expect(courseCardsEnabled(null)).toBe(false);
   });
@@ -658,12 +702,10 @@ describe("Kurskarten v3: sessions/venue aus 'Dauer:'/'Kursort:'", () => {
   });
 });
 
-describe("visualConfigValue / disclaimerFooterEnabled", () => {
+describe("visualConfigValue", () => {
   const {
     visualConfigValue,
-    disclaimerFooterEnabled,
     courseCardsEnabled,
-    followUpsEnabled,
   } = require("../../../utils/chats/embedCourseSources");
 
   test("liest JSON-String und Objekt, normalisiert Strings", () => {
@@ -682,31 +724,21 @@ describe("visualConfigValue / disclaimerFooterEnabled", () => {
     expect(visualConfigValue({}, "disclaimer")).toBe(null);
   });
 
-  test("disclaimerFooterEnabled nur bei footer; courseCardsEnabled unverändert", () => {
+  test("C02: keine Schalter mehr für feste Standards (KI-Hinweis, Folgefragen, Antwortstil)", () => {
+    const mod = require("../../../utils/chats/embedCourseSources");
+    expect(mod).not.toHaveProperty("disclaimerFooterEnabled");
+    expect(mod).not.toHaveProperty("followUpsEnabled");
+    expect(mod).not.toHaveProperty("courseCardsAnswerStyle");
+    // R4: der gespeicherte displayMode entscheidet nicht, die gemeldete
+    // Darstellung (bewusst geändert)
     expect(
-      disclaimerFooterEnabled({ visual_config: '{"disclaimer":"footer"}' })
-    ).toBe(true);
-    expect(
-      disclaimerFooterEnabled({ visual_config: '{"disclaimer":"none"}' })
+      courseCardsEnabled({ visual_config: '{"displayMode":"INLINE"}' })
     ).toBe(false);
-    expect(disclaimerFooterEnabled({})).toBe(false);
     expect(
-      courseCardsEnabled({ visual_config: '{"courseCards":"AUTO"}' })
+      courseCardsEnabled(
+        { visual_config: '{"displayMode":"INLINE"}' },
+        { displayMode: "INLINE" }
+      )
     ).toBe(true);
-  });
-
-  test("followUpsEnabled nur bei pills", () => {
-    expect(followUpsEnabled({ visual_config: '{"followUps":"pills"}' })).toBe(
-      true
-    );
-    expect(followUpsEnabled({ visual_config: { followUps: " Pills " } })).toBe(
-      true
-    );
-    expect(followUpsEnabled({ visual_config: '{"followUps":"none"}' })).toBe(
-      false
-    );
-    expect(followUpsEnabled({ visual_config: "{kaputt" })).toBe(false);
-    expect(followUpsEnabled({})).toBe(false);
-    expect(followUpsEnabled()).toBe(false);
   });
 });

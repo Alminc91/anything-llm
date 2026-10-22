@@ -1,42 +1,71 @@
-// Kufer Design Center: Standardtexte des Embed-Widgets (Panel-Optik,
-// Datenschutz- und KI-Hinweis) und die Prompt-Abschnitte des Karten-Modus.
+// Kufer Design Center: Standardtexte des Embed-Widgets (Kopf, Begrüßung,
+// Eingabe, Datenschutz- und KI-Hinweis) und die Prompt-Abschnitte des
+// Karten-Modus.
 //
 // Standardtexte: wörtliche Kopie von PANEL_TEXTS im Embed-Repo
 // (anythingllm-embed, src/utils/layout.js) — das Widget hat sie selbst, der
 // öffentliche Endpunkt /embed/:id/config liefert sie NICHT aus. Nur das
 // Design Center lädt sie (GET /embed/defaults?lang=de|en), um sie als Wert
-// ins Feld zu setzen und „Auf Standardtext zurücksetzen“ anzubieten.
+// bzw. Vorbelegung ins Feld zu setzen und „Standardtext“ anzubieten.
+// Ausnahme Startvorschläge (DEFAULT_SUGGESTIONS, S1 Fixliste 7.22-rc10): das
+// Widget hat keine eigenen; /embed/:id/config liefert sie in der Sprache des
+// Widgets (?language=, E12 Fixliste 7.22-rc13) gekennzeichnet aus
+// (defaultMessagesStandard), wenn keine Liste gespeichert ist, und
+// /embed/defaults gibt sie dem Design Center als Vorbelegung mit
+// (defaultMessages).
 // Bei Änderungen im Widget hier nachziehen; der Jest-Test
 // (__tests__/utils/chats/embedDefaults.test.js) vergleicht mit einer Kopie
 // der Widget-Werte (fixtures/embedPanelTexts.json).
+// Design Center vereinfacht (15.10.2026): keine Gedankenstriche in diesen
+// Texten; der KI-Hinweis ist fest (nicht änderbar). Name, Untertitel und
+// Platzhalter sind die Standards, die das Widget ohne gespeicherten Wert
+// zeigt (der Untertitel seit R5, Fixliste 7.22-rc8, auch live); das Design
+// Center zeigt sie als Feldwert (Vorbelegung) und schreibt nur Abweichungen.
 const EMBED_DEFAULT_TEXTS = {
   de: {
-    greetingBubbleText:
-      "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
-    privacyTitle: "Datenschutz:",
+    assistantName: "KI-Berater",
+    assistantSubtitle: "Online-Berater mit künstlicher Intelligenz",
+    greeting: "Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?",
+    inputPlaceholder: "Ihre Frage eingeben",
+    privacyTitle: "Datenschutz",
+    // ohne Gendersprache: „Mitarbeiter“ (E30, Fixliste 7.22-rc19)
     privacyPoints: [
       "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
-      "Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
+      "Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ],
-    privacyButtonText: "Start",
+    // KI-Hinweis unter der Eingabe (R1, Fixliste 7.22-rc8): eindeutig
+    // „Unsere KI“. Kurzfassung „prüfen“ nach der Messung des Widgets
+    // (Chatfenster bei 1280 px: „überprüfen“ bräuchte 9,0 px Schrift, unter
+    // der Ein-Zeilen-Grenze von 10 px); wortgleich mit PANEL_TEXTS, Gegenprobe
+    // mit KUFER_EMBED_DIR im Test embedDefaults
     disclaimerText:
-      "Ich bin eine KI und kann Fehler machen. Bitte überprüfen Sie meine Antworten.",
+      "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten.",
+    // eingeklappte Inline-Leiste (Demo-Texte; Entscheidung D2, 7.22-rc3)
+    inlineBarPlaceholder: "Stellen Sie hier Ihre Frage …",
+    inlineSendText: "Chatten",
   },
   en: {
-    greetingBubbleText:
-      "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for.",
-    privacyTitle: "Privacy:",
+    assistantName: "AI Advisor",
+    assistantSubtitle: "Online advisor powered by artificial intelligence",
+    greeting: "Hello! I am your AI advisor. How can I help you?",
+    inputPlaceholder: "Enter your question",
+    privacyTitle: "Privacy",
     privacyPoints: [
       "Your requests stay on servers in Germany and are not passed on to third parties.",
       "Staff of the institution may view conversations for quality assurance.",
       "Please only share information that is necessary for your request.",
     ],
-    privacyButtonText: "Start",
     disclaimerText:
-      "I am an AI and can make mistakes. Please double-check my answers.",
+      "Our AI can make mistakes. Please double-check the answers.",
+    inlineBarPlaceholder: "Ask your question here …",
+    inlineSendText: "Chat",
   },
 };
+
+// Aufzählungszeichen der Standard-Datenschutzpunkte im freien Text
+// (privacyText): Zeilen mit „•“ oder „-“ am Anfang sind Punkte.
+const PRIVACY_BULLET = "• ";
 
 // Sprache wie panelLanguage() im Widget: Sprachcode (2 Buchstaben, optional
 // Region wie "en-GB"/"en_US"), nur Sprachen mit eigenen Texten; sonst "de".
@@ -49,16 +78,64 @@ function embedDefaultsLanguage(value) {
     : "de";
 }
 
-// Standardtexte einer Sprache unter den visual_config-Schlüsseln, die das
-// Design Center bearbeitet; privacyText wie gespeichert: ein Punkt je Zeile.
+// Standard-Startvorschläge je Sprache (S1, Fixliste 7.22-rc10): das Widget
+// hat keine eigenen. Ohne gespeicherte Liste (visual_config.defaultMessages
+// fehlt oder ist keine Liste) liefert GET /embed/:id/config diese zwei
+// Beispiele als Array mit defaultMessagesStandard: true aus; das Widget
+// nimmt sie, ein data-default-messages am Skript wirkt nicht (E10 neu und
+// E23, Fixliste 7.22-rc17). Ein gespeichertes [] (im Design Center alle
+// gelöscht und gespeichert) bleibt leer. Das Design Center zeigt dieselben zwei als
+// Vorbelegung (GET /embed/defaults, embedDefaultTexts().defaultMessages) und
+// schreibt sie erst, wenn der Kunde die Liste ändert (R5); Kopie als Rückfall
+// vor dem Laden: frontend widgetKeys.js DEFAULT_SUGGESTIONS. Kommas sind
+// erlaubt: /config liefert die Listen als JSON-Array (E11).
+const DEFAULT_SUGGESTIONS = Object.freeze({
+  de: Object.freeze([
+    "Ich suche einen Deutschkurs.",
+    "Gibt es Excel-Kurse am Abend?",
+  ]),
+  en: Object.freeze([
+    "I am looking for a German course.",
+    "Are there Excel courses in the evening?",
+  ]),
+});
+
+/**
+ * Standard-Startvorschläge einer Sprache (Kopie; unbekannte Sprache -> de).
+ * @param {string} [lang]
+ * @returns {string[]}
+ */
+function defaultSuggestions(lang = "de") {
+  return [...DEFAULT_SUGGESTIONS[embedDefaultsLanguage(lang)]];
+}
+
+/**
+ * Standardtexte einer Sprache unter den visual_config-Schlüsseln, die das
+ * Design Center bearbeitet bzw. anzeigt: name/assistantSubtitle/
+ * sendMessageText/greeting/privacyTitle/privacyText als Standardtext und
+ * Vorbelegung (privacyText im freien Format, ein „• “-Punkt je Zeile),
+ * disclaimerText sowie Platzhalter und Button der eingeklappten Inline-Leiste
+ * (inlineInputPlaceholder, inlineSendText) nur zur Anzeige (fest); dazu die
+ * Standard-Startvorschläge (defaultMessages, S1) als Vorbelegung der Liste.
+ * @param {string} [lang]
+ * @returns {{name: string, assistantSubtitle: string, greeting: string,
+ *   sendMessageText: string, privacyTitle: string, privacyText: string,
+ *   disclaimerText: string, inlineInputPlaceholder: string,
+ *   inlineSendText: string, defaultMessages: string[]}}
+ */
 function embedDefaultTexts(lang = "de") {
   const t = EMBED_DEFAULT_TEXTS[embedDefaultsLanguage(lang)];
   return {
-    greetingBubbleText: t.greetingBubbleText,
+    name: t.assistantName,
+    assistantSubtitle: t.assistantSubtitle,
+    greeting: t.greeting,
+    sendMessageText: t.inputPlaceholder,
     privacyTitle: t.privacyTitle,
-    privacyText: t.privacyPoints.join("\n"),
-    privacyButtonText: t.privacyButtonText,
+    privacyText: t.privacyPoints.map((p) => PRIVACY_BULLET + p).join("\n"),
     disclaimerText: t.disclaimerText,
+    inlineInputPlaceholder: t.inlineBarPlaceholder,
+    inlineSendText: t.inlineSendText,
+    defaultMessages: defaultSuggestions(lang),
   };
 }
 
@@ -166,15 +243,16 @@ const COURSE_CARDS_SECTION_RE =
 // Ende eines Abschnitts: Trennzeile ▪▪▪ oder die nächste ###-Überschrift
 const SECTION_END_RE = /^[ \t]*(?:▪▪▪[ \t]*$|###[ \t])/;
 
-// Antwortstile (Enum visual_config.courseCardsAnswerStyle; Quelle auch für
-// LAYOUT_ENUMS in endpoints/embed). Standard ohne/ungültigen Wert: "short".
+// Antwortstile des Karten-Abschnitts (früher wählbar über
+// visual_config.courseCardsAnswerStyle). Seit dem vereinfachten Design
+// Center (15.10.2026) fest "short" (embedStandards.js); "long" und
+// "classic" bleiben nur als Abschnitte für spätere Varianten/Tests.
 const COURSE_CARDS_ANSWER_STYLES = ["short", "long", "classic"];
 
-// Kartenlayout im Widget (Enum visual_config.courseCardsLayout, ebenfalls
-// Quelle für LAYOUT_ENUMS in endpoints/embed): "grid" zwei Karten
-// nebeneinander (Widget-Standard, auch ohne/ungültigen Wert), "rows" eine
-// Karte je Zeile (Zeit links, Status rechts). Reine Darstellung — kommt nie
-// in den System-Prompt.
+// Kartenlayouts im Widget: "grid" zwei Karten nebeneinander, "rows" eine
+// Karte je Zeile (Zeit links, Status rechts). Seit dem vereinfachten Design
+// Center fest "rows" (embedStandards.js). Reine Darstellung — kommt nie in
+// den System-Prompt.
 const COURSE_CARDS_LAYOUTS = ["grid", "rows"];
 
 /**
@@ -231,8 +309,11 @@ function removeCourseCardsSections(prompt) {
 
 module.exports = {
   EMBED_DEFAULT_TEXTS,
+  PRIVACY_BULLET,
+  DEFAULT_SUGGESTIONS,
   embedDefaultsLanguage,
   embedDefaultTexts,
+  defaultSuggestions,
   COURSE_CARDS_PROMPT_NOTE,
   COURSE_CARDS_LONG_PROMPT_NOTE,
   COURSE_CARDS_SECTION_HEADING,

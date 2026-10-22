@@ -1,4 +1,6 @@
-// Kurskarten im Embed-Widget (opt-in über visual_config.courseCards = "auto").
+// Kurskarten im Embed-Widget (im Design Center wählbar über
+// visual_config.courseCards "auto"|"off", KIE-567; ohne gespeicherte Wahl
+// nach der tatsächlichen Darstellung, R4; siehe embedStandards.js).
 //
 // Das Widget bekommt die Quellen einer Antwort bewusst NICHT (sources: [] im
 // Stream, Historie ohne sources) — Kontext-Schnipsel dürfen Endnutzer nie
@@ -30,7 +32,7 @@
 // (Collector + Pipeline) würden das Lesen der Kopfzeilen und die
 // web://…website-Rückübersetzung überflüssig machen.
 
-const { COURSE_CARDS_ANSWER_STYLES } = require("./embedDefaults");
+const { courseCardsValue } = require("./embedStandards");
 const path = require("path");
 const {
   ISO_DATE_RX,
@@ -205,12 +207,6 @@ function cleanTeaserText(value) {
   return cleanShortText(v, TEASER_MAX_LEN);
 }
 
-/**
- * Ist die Kurskarten-Option für dieses Embed eingeschaltet?
- * visual_config ist in der DB ein JSON-String (embed_configs.visual_config).
- * @param {{visual_config?: string|object|null}} embed
- * @returns {boolean}
- */
 // visual_config eines Embeds (JSON-String oder Objekt) → Wert eines
 // Schlüssels, normalisiert (String getrimmt + Kleinschreibung); null, wenn
 // nicht gesetzt oder nicht parsbar.
@@ -229,49 +225,48 @@ function visualConfigValue(embed = {}, key, tag = "visualConfigValue") {
   return value ?? null;
 }
 
-function courseCardsEnabled(embed = {}) {
+/**
+ * Kurskarten für dieses Embed an? Gespeicherte Wahl im Design Center
+ * („Antworten mit Kursen“, KIE-567): visual_config.courseCards "auto" =
+ * Kurskarten, "off" = Nur Text mit Links, in beiden Darstellungen gleich.
+ * Ohne gespeicherte Wahl (fehlend, ungültig, visual_config nicht lesbar)
+ * entscheidet die tatsächliche Darstellung, die das Widget mit der Anfrage
+ * schickt (R4, Fixliste 7.22-rc8): "inline" (In der Seite) an, sonst aus
+ * (embedStandards.js courseCardsValue). Der gespeicherte displayMode zählt
+ * dafür nicht: Ohne passenden Platzhalter läuft das Widget auch bei „In der
+ * Seite“ als Chatfenster, und ältere Widget-Kopien (vor 7.22-rc17) folgen
+ * noch data-display-mode am Skript; im aktuellen Widget wirkt das Attribut
+ * seit E23 (Fixliste 7.22-rc17) nicht mehr.
+ * visual_config ist in der DB ein JSON-String (embed_configs.visual_config).
+ * @param {{visual_config?: string|object|null}} embed
+ * @param {{displayMode?: string}} [options] tatsächliche Darstellung aus
+ *   dem Body von stream-chat ("inline"|"bubble"); fehlt -> Chatfenster
+ * @returns {boolean}
+ */
+function courseCardsEnabled(embed = {}, { displayMode } = {}) {
   return (
-    visualConfigValue(embed, "courseCards", "courseCardsEnabled") === "auto"
+    courseCardsValue(
+      visualConfigValue(embed, "courseCards", "courseCardsEnabled"),
+      displayMode
+    ) === "auto"
   );
 }
 
-// Antwortstil im Karten-Modus (visual_config.courseCardsAnswerStyle):
-// "long" = ausführlich (Liste mit Links), "classic" = kein Prompt-Abschnitt
-// (Karten nur aus Links/Marker), sonst "short" (Standard: Suche, kurze
-// Antwort ohne Links) — wählt den Prompt-Abschnitt in embedDefaults.js.
-function courseCardsAnswerStyle(embed = {}) {
-  const style = visualConfigValue(
-    embed,
-    "courseCardsAnswerStyle",
-    "courseCardsAnswerStyle"
-  );
-  return COURSE_CARDS_ANSWER_STYLES.includes(style) ? style : "short";
-}
-
-// Fester KI-Hinweis im Widget (visual_config.disclaimer = "footer"): das
-// Widget zeigt die Zeile selbst unter dem Eingabefeld, das Modell soll den
-// Prompt-Pflicht-Footer dann nicht mehr erzeugen (spart Tokens, keine
-// Dopplung, Sprachausgabe liest ihn nicht vor).
-function disclaimerFooterEnabled(embed = {}) {
-  return (
-    visualConfigValue(embed, "disclaimer", "disclaimerFooterEnabled") ===
-    "footer"
-  );
-}
+// KI-Hinweis (disclaimer "footer"), Folgefragen (followUps "pills") und der
+// kurze Antwortstil im Karten-Modus (courseCardsAnswerStyle "short") sind
+// feste Standards (embedStandards.js EMBED_FIXED_STANDARDS): Der Prompt pro
+// Embed hängt die Hinweise unten immer an (utils/chats/embed.js
+// embedSystemPrompt); gespeicherte Altwerte werden nicht mehr gelesen.
 
 // Wird ans ENDE des System-Prompts gehängt (hinter der Zeitzeile), damit der
 // gecachte Prompt-Präfix der Flotte unverändert bleibt.
 const DISCLAIMER_PROMPT_NOTE =
   "\n\n### Footer Override (ACTIVE)\nThe chat widget displays the AI disclaimer itself below the input field. Do NOT write the Mandatory Footer sentence (\u201eIch bin eine KI und kann Fehler machen \u2026\u201c or its translation) at the end of your answers. Everything else about the footer section is disabled.";
 
-// Folgefragen-Vorschläge im Widget (visual_config.followUps = "pills"): nur
-// dann sendet der Server den Chunk { type: "followUps" } und bittet das
-// Modell um die Endzeile "[[FRAGEN: …]]". Erkennen/Entfernen/Speichern der
-// Zeile laufen unabhängig davon immer (embedCardsMarker.js).
-function followUpsEnabled(embed = {}) {
-  return visualConfigValue(embed, "followUps", "followUpsEnabled") === "pills";
-}
-
+// Folgefragen-Vorschläge im Widget sind immer an (followUps "pills"): Der
+// Server sendet den Chunk { type: "followUps" } und bittet das Modell um die
+// Endzeile "[[FRAGEN: …]]". Erkennen/Entfernen/Speichern der Zeile laufen
+// ohnehin immer (embedCardsMarker.js).
 // Wird wie DISCLAIMER_PROMPT_NOTE ans ENDE des System-Prompts gehängt
 // (hinter den Disclaimer-Hinweis), der gecachte Präfix bleibt unverändert.
 // Richtung: Vorschläge sind Nachrichten des Nutzers an den Berater, nie
@@ -1261,12 +1256,9 @@ function sanitizeCourseTeasers(teasers, courseSources = []) {
 
 module.exports = {
   visualConfigValue,
-  disclaimerFooterEnabled,
   DISCLAIMER_PROMPT_NOTE,
-  followUpsEnabled,
   FOLLOW_UPS_PROMPT_NOTE,
   courseCardsEnabled,
-  courseCardsAnswerStyle,
   buildCourseSources,
   mergeCourseSources,
   completeCourseSourcesFromReply,
