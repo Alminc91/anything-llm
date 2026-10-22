@@ -103,7 +103,9 @@ test(
     assert.match(title[1], /\bfont-bold\b/);
     assert.ok(title[2].startsWith("<svg"), title[2]);
     assert.match(title[2], /data-testid="inline-link-warning-icon"/);
-    assert.match(title[2], /aria-hidden="true"/);
+    // seit rc20 (F81) ein Bild mit Namen statt aria-hidden, Prüfung in
+    // designCenterFixesRc20.test.mjs
+    assert.match(title[2], /role="img"/);
     assert.equal(text(title[2]), TITLE);
     // rot, hell und dunkel
     const outer = /^<div class="([^"]*)"/.exec(block)[1].split(/\s+/);
@@ -209,7 +211,8 @@ test(
 );
 
 test("F70: Sprachdateien: de und en gepflegt, übrige Sprachen null", async () => {
-  const keys = ["title", "placement", "check", "right", "wrong"];
+  // icon: Name des Warndreiecks (rc20 F81, designCenterFixesRc20.test.mjs)
+  const keys = ["title", "placement", "check", "right", "wrong", "icon"];
   const langs = fs
     .readdirSync(LOCALES, { withFileTypes: true })
     .filter((d) => d.isDirectory())

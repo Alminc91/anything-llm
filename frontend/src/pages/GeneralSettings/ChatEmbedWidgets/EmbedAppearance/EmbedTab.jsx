@@ -210,10 +210,13 @@ export function withInlineCode(text, code) {
  * Seite statt der Eingabeleiste. Text vom Nutzer am 21.10.2026 wörtlich
  * freigegeben (design-center-vereinfachen.md, Eintrag „Warnung im Reiter
  * Einbau“), de und en in den Sprachdateien (embed-appearance.
- * inline-link-warning); das ⚠ der Überschrift ist das Warndreieck vorn. Der
- * Platzhalter kommt aus derselben Konstante wie der Schnipsel. Rot in hell
- * und dunkel, Text mindestens 4,5:1 auf der Fläche des Blocks (Messung
- * .test-storage/rc19).
+ * inline-link-warning); das ⚠ der Überschrift ist das Warndreieck vorn,
+ * für Screenreader ein Bild mit dem Namen „Warnung“ (F81, Fixliste
+ * 7.22-rc20). Der Platzhalter kommt aus derselben Konstante wie der
+ * Schnipsel. Rot in hell und dunkel, Text und Warndreieck mindestens 4,5:1
+ * auf der Fläche des Blocks (Messung .test-storage/rc19 und rc20;
+ * Warndreieck hell red-700 nach E35, Fixliste 7.22-rc20). Auch im Dialog
+ * „Einbettungscode“ der Widget-Liste bei „In der Seite“ (E32, F80).
  */
 export function InlineLinkWarning() {
   const { t } = useTranslation();
@@ -241,8 +244,9 @@ export function InlineLinkWarning() {
         <Warning
           size={20}
           weight="fill"
-          className="flex-shrink-0 text-red-400 light:text-red-600"
-          aria-hidden="true"
+          className="flex-shrink-0 text-red-400 light:text-red-700"
+          role="img"
+          aria-label={text("icon")}
           data-testid="inline-link-warning-icon"
         />
         <span>{text("title")}</span>

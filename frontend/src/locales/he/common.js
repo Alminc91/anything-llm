@@ -1759,6 +1759,7 @@ const TRANSLATIONS = {
       check: null,
       right: null,
       wrong: null,
+      icon: null,
     },
   },
   billing: {

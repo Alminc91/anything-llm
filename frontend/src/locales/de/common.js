@@ -1471,6 +1471,7 @@ const TRANSLATIONS = {
         "Prüfen Sie in Ihrem Seiten-Builder, ob der Block oder die Spalte eine Link-Einstellung hat.",
       right: "Richtig:",
       wrong: "Falsch:",
+      icon: "Warnung",
     },
   },
   "chat-row": {

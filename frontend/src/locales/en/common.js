@@ -1924,6 +1924,7 @@ const TRANSLATIONS = {
         "Check in your page builder whether the block or the column has a link setting.",
       right: "Correct:",
       wrong: "Wrong:",
+      icon: "Warning",
     },
   },
   billing: {
