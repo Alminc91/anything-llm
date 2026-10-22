@@ -577,7 +577,7 @@ export function PreviewWelcome({
   const blocks = privacyBlocks(privacyText);
   const url = validPrivacyUrl(config.privacyUrl);
   // ohne gespeicherte Liste die Standard-Startvorschläge des Servers (S1,
-  // wie live im Widget; R5)
+  // wie live im Widget; R5); seit E42 leer, also keine Pillen
   const pills = textItems(listItems(config, "defaultMessages", defaults)).slice(
     0,
     6

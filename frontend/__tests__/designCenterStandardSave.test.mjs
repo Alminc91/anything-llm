@@ -241,19 +241,20 @@ test(
   }
 );
 
+// Bewusste Änderung E42 (7.22-rc23): Vorbelegung der Startvorschläge leer
+// (bis 7.22-rc22 zwei Beispiele als Feldwerte)
 test(
-  "D6/B-03/R5: Bestandskunde ohne Startvorschläge und Willkommensblasen: Vorbelegung im Feld, Speichern schreibt keine dazu",
+  "D6/B-03/R5, Bewusste Änderung E42: Bestandskunde ohne Startvorschläge und Willkommensblasen: Vorbelegung im Feld, Speichern schreibt keine dazu",
   { skip },
   async (t) => {
     const stored = { accentColor: "#FFA102", name: "VHS" };
     const { container, act, calls } = await open(t, [widget(5, stored)], 5);
     assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
     await act(() => click(buttons(container, "Inhalt")[0]));
-    // Vorbelegung als Feldwerte, aber nicht im Bearbeitungsstand
-    assert.deepEqual(listInputs(container, "suggestions").map(valueOf), [
-      "Ich suche einen Deutschkurs.",
-      "Gibt es Excel-Kurse am Abend?",
-    ]);
+    // Vorbelegung als Feldwerte, aber nicht im Bearbeitungsstand; die
+    // Startvorschläge sind leer (E42)
+    assert.deepEqual(listInputs(container, "suggestions").map(valueOf), []);
+    assert.ok(container.textContent.includes("Leer: keine Startvorschläge."));
     assert.deepEqual(listInputs(container, "welcome-bubbles").map(valueOf), [
       "Hallo! Ich bin Ihr KI-Berater.",
       "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",
@@ -275,23 +276,29 @@ test(
   }
 );
 
+// Bewusste Änderung E42 (7.22-rc23): ohne gespeicherte Liste ist das Feld
+// leer; der Kunde fügt eigene Vorschläge hinzu (bis 7.22-rc22 änderte er
+// die erste von zwei Beispielzeilen). Eine Liste, die der Kunde danach
+// wieder leert, ist der Standard (Schlüssel entfällt, live ebenso keine
+// Startvorschläge); bis 7.22-rc22 wurde sie als [] gespeichert.
 test(
-  "R5: eine geänderte Vorbelegung wird mit der ganzen Liste gespeichert; alle Startvorschläge gelöscht = []",
+  "R5, Bewusste Änderung E42: eigene Startvorschläge werden mit der ganzen Liste gespeichert; alle gelöscht = Standard (keine Startvorschläge)",
   { skip },
   async (t) => {
     const { container, act, calls } = await open(t, [widget(9, null)], 9);
     await act(() => click(buttons(container, "Inhalt")[0]));
-    const [first] = listInputs(container, "suggestions");
-    await act(() =>
-      handlersOf(first).onChange({ target: { value: "Welche Kurse gibt es?" } })
-    );
+    assert.deepEqual(listInputs(container, "suggestions"), []);
+    for (const value of ["Welche Kurse gibt es?", "Gibt es Yoga am Abend?"]) {
+      await act(() => click(buttons(container, "Vorschlag hinzufügen")[0]));
+      const inputs = listInputs(container, "suggestions");
+      await act(() =>
+        handlersOf(inputs[inputs.length - 1]).onChange({ target: { value } })
+      );
+    }
     assert.ok(container.textContent.includes("Ungespeicherte Änderungen"));
     await act(() => click(buttons(container, "Speichern")[0]));
     assert.deepEqual(savedBody(calls), {
-      defaultMessages: [
-        "Welche Kurse gibt es?",
-        "Gibt es Excel-Kurse am Abend?",
-      ],
+      defaultMessages: ["Welche Kurse gibt es?", "Gibt es Yoga am Abend?"],
     });
 
     calls.length = 0;
@@ -306,7 +313,7 @@ test(
     while (remove()) await act(() => click(remove()));
     assert.ok(container.textContent.includes("Leer: keine Startvorschläge."));
     await act(() => click(buttons(container, "Speichern")[0]));
-    assert.deepEqual(savedBody(calls), { defaultMessages: [] });
+    assert.deepEqual(savedBody(calls), {});
   }
 );
 

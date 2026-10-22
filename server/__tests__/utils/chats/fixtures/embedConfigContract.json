@@ -1,11 +1,8 @@
 {
-  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true. chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang (E10 neu, E23 und E24, Fixliste 7.22-rc17): gespeichert (auch leer) vor Standard; Startvorschläge und Willkommensblasen stellt das Design Center ein (Gruppe A), Skript-Attribute dazu (data-default-messages, data-chatbot-bubbles-messages) wirken nicht, auch wenn nichts gespeichert ist und auch mit älterem Server. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. Bei Änderung hier UND im Fork nachziehen.",
+  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true; der Standard ist seit E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23) in jeder Sprache leer, also [] mit dem Kennzeichen, das Widget zeigt keine Startvorschläge (bis 7.22-rc22 zwei Beispiele je Sprache). chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang (E10 neu, E23 und E24, Fixliste 7.22-rc17): gespeichert (auch leer) vor Standard; Startvorschläge und Willkommensblasen stellt das Design Center ein (Gruppe A), Skript-Attribute dazu (data-default-messages, data-chatbot-bubbles-messages) wirken nicht, auch wenn nichts gespeichert ist und auch mit älterem Server. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. Bei Änderung hier UND im Fork nachziehen.",
   "standardSuggestions": {
-    "de": ["Ich suche einen Deutschkurs.", "Gibt es Excel-Kurse am Abend?"],
-    "en": [
-      "I am looking for a German course.",
-      "Are there Excel courses in the evening?"
-    ]
+    "de": [],
+    "en": []
   },
   "languageQuery": [
     { "scriptLanguage": null, "query": "de", "standards": "de" },
@@ -18,80 +15,56 @@
   ],
   "cases": [
     {
-      "name": "nichts gespeichert, ohne Skript-Attribut: Standard deutsch",
+      "name": "nichts gespeichert, ohne Skript-Attribut: Standard deutsch, leer (E42)",
       "request": { "language": "de" },
       "visualConfig": {},
       "config": {
-        "defaultMessages": [
-          "Ich suche einen Deutschkurs.",
-          "Gibt es Excel-Kurse am Abend?"
-        ],
+        "defaultMessages": [],
         "defaultMessagesStandard": true
       },
       "script": {},
       "widget": {
-        "defaultMessages": [
-          "Ich suche einen Deutschkurs.",
-          "Gibt es Excel-Kurse am Abend?"
-        ],
+        "defaultMessages": [],
         "chatbotBubblesMessages": []
       }
     },
     {
-      "name": "nichts gespeichert, englisches Widget: Standard englisch",
+      "name": "nichts gespeichert, englisches Widget: Standard englisch, leer (E42)",
       "request": { "language": "en" },
       "visualConfig": {},
       "config": {
-        "defaultMessages": [
-          "I am looking for a German course.",
-          "Are there Excel courses in the evening?"
-        ],
+        "defaultMessages": [],
         "defaultMessagesStandard": true
       },
       "script": { "language": "en" },
       "widget": {
-        "defaultMessages": [
-          "I am looking for a German course.",
-          "Are there Excel courses in the evening?"
-        ]
+        "defaultMessages": []
       }
     },
     {
-      "name": "nichts gespeichert, Sprache fehlt oder unbekannt: Standard deutsch",
+      "name": "nichts gespeichert, Sprache fehlt oder unbekannt: Standard deutsch, leer (E42)",
       "request": { "language": "fr" },
       "visualConfig": {},
       "config": {
-        "defaultMessages": [
-          "Ich suche einen Deutschkurs.",
-          "Gibt es Excel-Kurse am Abend?"
-        ],
+        "defaultMessages": [],
         "defaultMessagesStandard": true
       },
       "script": { "language": "fr" },
       "widget": {
-        "defaultMessages": [
-          "Ich suche einen Deutschkurs.",
-          "Gibt es Excel-Kurse am Abend?"
-        ]
+        "defaultMessages": []
       }
     },
     {
-      "name": "nichts gespeichert, Skript-Attribut gesetzt: Standard, das Skript-Attribut wirkt nicht (E23)",
+      "name": "nichts gespeichert, Skript-Attribut gesetzt: Standard (leer, E42), das Skript-Attribut wirkt nicht (E23)",
       "request": { "language": "de" },
       "visualConfig": {},
       "config": {
-        "defaultMessages": [
-          "Ich suche einen Deutschkurs.",
-          "Gibt es Excel-Kurse am Abend?"
-        ],
+        "defaultMessages": [],
         "defaultMessagesStandard": true
       },
       "script": { "defaultMessages": "Spanisch A1, Yoga" },
       "widget": {
-        "defaultMessages": [
-          "Ich suche einen Deutschkurs.",
-          "Gibt es Excel-Kurse am Abend?"
-        ]
+        "defaultMessages": []
       }
     },
     {

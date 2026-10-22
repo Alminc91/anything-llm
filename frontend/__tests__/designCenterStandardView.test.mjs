@@ -572,18 +572,19 @@ const inputValues = (html, list) => {
   return [...block.matchAll(/<input[^>]*value="([^"]*)"/g)].map((m) => m[1]);
 };
 
+// Bewusste Änderung E42 (7.22-rc23): die Vorbelegung der Startvorschläge
+// ist leer, das Feld zeigt ohne gespeicherte Liste keine Zeile, nur den
+// Hinweis (bis 7.22-rc22 zwei Beispiele)
 test(
-  "R5: ohne gespeicherte Werte stehen die Vorbelegungen in den Feldern, keine Vorschläge zum Übernehmen",
+  "R5, Bewusste Änderung E42: ohne gespeicherte Werte stehen die Vorbelegungen in den Feldern, Startvorschläge leer, keine Vorschläge zum Übernehmen",
   { skip },
   async () => {
     const html = await show(CONTENT, contentProps({}));
     const t = text(html);
     assert.ok(!t.includes("Noch keine gespeichert"));
     assert.ok(!t.includes("übernehmen"));
-    assert.deepEqual(inputValues(html, "suggestions"), [
-      "Ich suche einen Deutschkurs.",
-      "Gibt es Excel-Kurse am Abend?",
-    ]);
+    assert.deepEqual(inputValues(html, "suggestions"), []);
+    assert.ok(t.includes("Leer: keine Startvorschläge."));
     assert.deepEqual(inputValues(html, "welcome-bubbles"), [
       "Hallo! Ich bin Ihr KI-Berater.",
       "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",

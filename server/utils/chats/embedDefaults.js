@@ -8,11 +8,12 @@
 // Design Center lädt sie (GET /embed/defaults?lang=de|en), um sie als Wert
 // bzw. Vorbelegung ins Feld zu setzen und „Standardtext“ anzubieten.
 // Ausnahme Startvorschläge (DEFAULT_SUGGESTIONS, S1 Fixliste 7.22-rc10): das
-// Widget hat keine eigenen; /embed/:id/config liefert sie in der Sprache des
-// Widgets (?language=, E12 Fixliste 7.22-rc13) gekennzeichnet aus
-// (defaultMessagesStandard), wenn keine Liste gespeichert ist, und
-// /embed/defaults gibt sie dem Design Center als Vorbelegung mit
-// (defaultMessages).
+// Widget hat keine eigenen; /embed/:id/config liefert den Standard der
+// Sprache des Widgets (?language=, E12 Fixliste 7.22-rc13) gekennzeichnet
+// aus (defaultMessagesStandard), wenn keine Liste gespeichert ist, und
+// /embed/defaults gibt ihn dem Design Center als Vorbelegung mit
+// (defaultMessages). Seit E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23)
+// ist dieser Standard in jeder Sprache leer.
 // Bei Änderungen im Widget hier nachziehen; der Jest-Test
 // (__tests__/utils/chats/embedDefaults.test.js) vergleicht mit einer Kopie
 // der Widget-Werte (fixtures/embedPanelTexts.json).
@@ -79,29 +80,33 @@ function embedDefaultsLanguage(value) {
 }
 
 // Standard-Startvorschläge je Sprache (S1, Fixliste 7.22-rc10): das Widget
-// hat keine eigenen. Ohne gespeicherte Liste (visual_config.defaultMessages
-// fehlt oder ist keine Liste) liefert GET /embed/:id/config diese zwei
-// Beispiele als Array mit defaultMessagesStandard: true aus; das Widget
-// nimmt sie, ein data-default-messages am Skript wirkt nicht (E10 neu und
-// E23, Fixliste 7.22-rc17). Ein gespeichertes [] (im Design Center alle
-// gelöscht und gespeichert) bleibt leer. Das Design Center zeigt dieselben zwei als
-// Vorbelegung (GET /embed/defaults, embedDefaultTexts().defaultMessages) und
-// schreibt sie erst, wenn der Kunde die Liste ändert (R5); Kopie als Rückfall
-// vor dem Laden: frontend widgetKeys.js DEFAULT_SUGGESTIONS. Kommas sind
-// erlaubt: /config liefert die Listen als JSON-Array (E11).
+// hat keine eigenen. Bewusste Änderung E42 (Nutzerentscheidung 22.10.2026,
+// 7.22-rc23): der Standard ist in allen Sprachen leer. Ob eine Einrichtung
+// Deutsch- oder Excel-Kurse anbietet, weiß nur der Kunde; Startvorschläge
+// gibt es nur, wenn er sie im Design Center einträgt. Bis 7.22-rc22 standen
+// hier zwei Beispiele („Ich suche einen Deutschkurs.“, „Gibt es Excel-Kurse
+// am Abend?“ bzw. englisch).
+// Ohne gespeicherte Liste (visual_config.defaultMessages fehlt oder ist
+// keine Liste) liefert GET /embed/:id/config diesen Standard als Array mit
+// defaultMessagesStandard: true aus (seit E42 also [] mit dem Kennzeichen,
+// Vertrag unverändert); das Widget zeigt dann keine Startvorschläge, ein
+// data-default-messages am Skript wirkt nicht (E10 neu und E23, Fixliste
+// 7.22-rc17). Eine gespeicherte Liste gilt unverändert, ein gespeichertes []
+// (im Design Center alle gelöscht und gespeichert) bleibt „keine“
+// (defaultMessagesSaved). Das Design Center nimmt denselben Standard als
+// Vorbelegung (GET /embed/defaults, embedDefaultTexts().defaultMessages):
+// ohne gespeicherte Liste ist das Feld leer und die Vorschau ohne Pillen.
+// Kopie als Rückfall vor dem Laden: frontend widgetKeys.js
+// DEFAULT_SUGGESTIONS. Kommas sind erlaubt: /config liefert die Listen als
+// JSON-Array (E11).
 const DEFAULT_SUGGESTIONS = Object.freeze({
-  de: Object.freeze([
-    "Ich suche einen Deutschkurs.",
-    "Gibt es Excel-Kurse am Abend?",
-  ]),
-  en: Object.freeze([
-    "I am looking for a German course.",
-    "Are there Excel courses in the evening?",
-  ]),
+  de: Object.freeze([]),
+  en: Object.freeze([]),
 });
 
 /**
- * Standard-Startvorschläge einer Sprache (Kopie; unbekannte Sprache -> de).
+ * Standard-Startvorschläge einer Sprache (Kopie; unbekannte Sprache -> de);
+ * seit E42 in jeder Sprache [] (Bewusste Änderung E42, 7.22-rc23).
  * @param {string} [lang]
  * @returns {string[]}
  */
@@ -116,7 +121,8 @@ function defaultSuggestions(lang = "de") {
  * Vorbelegung (privacyText im freien Format, ein „• “-Punkt je Zeile),
  * disclaimerText sowie Platzhalter und Button der eingeklappten Inline-Leiste
  * (inlineInputPlaceholder, inlineSendText) nur zur Anzeige (fest); dazu die
- * Standard-Startvorschläge (defaultMessages, S1) als Vorbelegung der Liste.
+ * Standard-Startvorschläge (defaultMessages, S1) als Vorbelegung der Liste,
+ * seit E42 leer.
  * @param {string} [lang]
  * @returns {{name: string, assistantSubtitle: string, greeting: string,
  *   sendMessageText: string, privacyTitle: string, privacyText: string,

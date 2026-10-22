@@ -45,17 +45,12 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
   });
 
   // S1 (Fixliste 7.22-rc10): Standard-Startvorschläge je Sprache, wörtlich
-  // wie die Vorbelegung des Design Centers. Kommas wären seit E11 (Fixliste
-  // 7.22-rc13, /config liefert Arrays) erlaubt; die Standards haben keine.
-  test("S1: Standard-Startvorschläge de/en wörtlich, Kopie, ohne Gedankenstriche", () => {
-    expect(defaultSuggestions("de")).toEqual([
-      "Ich suche einen Deutschkurs.",
-      "Gibt es Excel-Kurse am Abend?",
-    ]);
-    expect(defaultSuggestions("en")).toEqual([
-      "I am looking for a German course.",
-      "Are there Excel courses in the evening?",
-    ]);
+  // wie die Vorbelegung des Design Centers. Bewusste Änderung E42
+  // (Nutzerentscheidung 22.10.2026, 7.22-rc23): der Standard ist in jeder
+  // Sprache leer; bis 7.22-rc22 standen hier zwei Beispiele je Sprache.
+  test("S1, Bewusste Änderung E42: Standard-Startvorschläge de/en leer, Kopie, eingefroren", () => {
+    expect(defaultSuggestions("de")).toEqual([]);
+    expect(defaultSuggestions("en")).toEqual([]);
     for (const lang of [undefined, "fr", "", "en-GB"])
       expect(defaultSuggestions(lang)).toEqual(
         defaultSuggestions(lang === "en-GB" ? "en" : "de")
@@ -69,8 +64,57 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
     // Kopie: der Aufrufer kann die Standards nicht verändern
     const list = defaultSuggestions("de");
     list.push("x");
-    expect(defaultSuggestions("de")).toHaveLength(2);
+    expect(defaultSuggestions("de")).toHaveLength(0);
     expect(() => DEFAULT_SUGGESTIONS.de.push("x")).toThrow();
+    expect(() => DEFAULT_SUGGESTIONS.en.push("x")).toThrow();
+  });
+
+  // E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23): Kunden ohne gespeicherte
+  // Startvorschläge bekommen keine Standard-Startvorschläge mehr, in allen
+  // Sprachen; die früheren Beispiele kommen auf keinem Weg mehr vor.
+  test("E42: kein Standard-Startvorschlag in irgendeiner Sprache, auch nicht in den Standardtexten des Design Centers", () => {
+    const OLD = [
+      "Ich suche einen Deutschkurs.",
+      "Gibt es Excel-Kurse am Abend?",
+      "I am looking for a German course.",
+      "Are there Excel courses in the evening?",
+    ];
+    expect(Object.keys(DEFAULT_SUGGESTIONS).sort()).toEqual(["de", "en"]);
+    for (const lang of Object.keys(DEFAULT_SUGGESTIONS)) {
+      expect(DEFAULT_SUGGESTIONS[lang]).toEqual([]);
+      expect(Object.isFrozen(DEFAULT_SUGGESTIONS[lang])).toBe(true);
+    }
+    expect(Object.isFrozen(DEFAULT_SUGGESTIONS)).toBe(true);
+    for (const lang of [
+      "de",
+      "en",
+      "DE",
+      "en-GB",
+      "en_US",
+      "fr",
+      "tr",
+      "uk",
+      "ar",
+      "",
+      undefined,
+      null,
+      7,
+      "<x>",
+    ]) {
+      expect([lang, defaultSuggestions(lang)]).toEqual([lang, []]);
+      expect([lang, embedDefaultTexts(lang).defaultMessages]).toEqual([
+        lang,
+        [],
+      ]);
+      // die übrigen Standardtexte bleiben
+      expect(embedDefaultTexts(lang).name).toBeTruthy();
+    }
+    const all = JSON.stringify([
+      DEFAULT_SUGGESTIONS,
+      embedDefaultTexts("de"),
+      embedDefaultTexts("en"),
+    ]);
+    for (const text of OLD) expect(all).not.toContain(text);
   });
 
   test("D2: eingeklappte Inline-Leiste mit den Demo-Texten, je Sprache", () => {
@@ -154,12 +198,14 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
     }
   });
 
-  test("Rückgabe ist eine Kopie (Aufrufer kann nichts verändern)", () => {
+  // Bewusste Änderung E42 (7.22-rc23): die Startvorschläge sind leer, die
+  // Kopie bleibt leer (bis 7.22-rc22 Länge 2)
+  test("Rückgabe ist eine Kopie (Aufrufer kann nichts verändern), Bewusste Änderung E42", () => {
     const a = embedDefaultTexts("de");
     a.privacyTitle = "x";
     a.defaultMessages.push("x");
     expect(embedDefaultTexts("de").privacyTitle).toBe("Datenschutz");
-    expect(embedDefaultTexts("de").defaultMessages).toHaveLength(2);
+    expect(embedDefaultTexts("de").defaultMessages).toEqual([]);
   });
 });
 

@@ -149,8 +149,9 @@ test("F101: Prüfpunkt 12 zählt gespeicherte Farbwerte, die parseColor nicht li
   assert.match(point, /\(E41, 7\.22-rc22\)/);
   assert.match(point, /nur melden/);
   assert.match(point, /gespeicherte Werte der Kunden nicht ändern/);
-  // Prüfpunkt 12 ist der letzte
-  assert.doesNotMatch(doc, /^13\. /m);
+  // nach Prüfpunkt 12 nur noch Prüfpunkt 13 (bewusst geändert in rc24, E43;
+  // Prüfung in server/__tests__/utils/chats/embedStandards.test.js)
+  assert.doesNotMatch(doc, /^14\. /m);
   // Textregeln: keine Gedankenstriche
   assert.doesNotMatch(doc, /[–—]/);
 });

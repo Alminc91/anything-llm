@@ -18,9 +18,11 @@ Bis 7.21 hat das Design Center beim ersten Speichern seine Vorbelegung
 als „nicht gesetzt“; Name, Willkommensblasen, Farbe und Schrift bleiben
 eigene Kundenwerte (Entscheidung E2, Fixliste 7.22-rc7). Die Vorbelegung
 enthielt auch `defaultMessages: []`: Jedes bis 7.21 gespeicherte Widget hat
-deshalb eine leere Liste und zeigt auch ab 7.22 keine Startvorschläge. Die
-neuen Standard-Startvorschläge erscheinen praktisch nur bei Widgets, die nie
-im Design Center gespeichert wurden.
+deshalb eine leere Liste und zeigt auch ab 7.22 keine Startvorschläge. Seit
+E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23) ist auch der Standard leer:
+Startvorschläge zeigt ein Widget nur mit einer eigenen, im Design Center
+gespeicherten Liste (bis 7.22-rc22 zeigten nie gespeicherte Widgets zwei
+Beispiele).
 
 Seit 7.22 bleibt ein gespeicherter Wert, der dem Standard gleicht, beim
 Speichern eines anderen Feldes stehen (F05, Fixliste 7.22-rc13); entfernt
@@ -127,7 +129,22 @@ Widget-Repo unter `tests/fixtures/embedConfigContract.json`; Server-Test
   des Widgets>` auf (aus `data-language`); fehlend oder unbekannt heißt `de`.
   Der Server wählt damit nur die Standard-Startvorschläge. Design Center und
   Vorschau zeigen weiter die deutschen Standards, weil die Sprache des
-  Widgets nur im Skript steht.
+  Widgets nur im Skript steht. Seit E42 ist der Standard in jeder Sprache
+  leer; Abfrage und Sprachwahl bleiben für den Vertrag und den Cache je
+  Sprache.
+- **Standard leer (E42, Nutzerentscheidung 22.10.2026, 7.22-rc23):** Ohne
+  gespeicherte Liste gibt es keine Startvorschläge, in allen Sprachen.
+  Begründung des Nutzers: Ob eine Einrichtung Deutsch- oder Excel-Kurse
+  anbietet, muss der Kunde festlegen. Bis 7.22-rc22 lieferte der Server
+  ohne Liste zwei Beispiele („Ich suche einen Deutschkurs.“, „Gibt es
+  Excel-Kurse am Abend?“, englisch „I am looking for a German course.“, „Are
+  there Excel courses in the evening?“). Der Vertrag bleibt: `[]` mit
+  `defaultMessagesStandard: true`. Gespeicherte Listen gelten unverändert,
+  ein gespeichertes `[]` bleibt „keine Startvorschläge“. Im Design Center
+  ist das Feld „Fragen zum Anklicken“ ohne gespeicherte Liste leer, die
+  Vorschau zeigt keine Pillen. Leert ein Kunde dort eine gespeicherte
+  Liste, entfällt der Schlüssel beim Speichern (Standard, R5); live gibt es
+  dann ebenso keine Startvorschläge.
 - **Listen als JSON-Array (E11):** `defaultMessages` und
   `chatbotBubblesMessages` kommen als Array von Strings, nicht mehr
   kommagetrennt. Einträge mit Komma („Gibt es Kurse, die abends
@@ -138,7 +155,8 @@ Widget-Repo unter `tests/fixtures/embedConfigContract.json`; Server-Test
 - **Kennzeichen:** gespeicherte Liste: das Array ohne Kennzeichen;
   gespeichertes `[]` (oder nur leere Zeilen): `[]` mit
   `defaultMessagesSaved: true`; nichts gespeichert: die
-  Standard-Startvorschläge der Sprache mit `defaultMessagesStandard: true`.
+  Standard-Startvorschläge der Sprache mit `defaultMessagesStandard: true`,
+  seit E42 also `[]` mit diesem Kennzeichen.
   Willkommensblasen nur, wenn eine nicht leere Liste gespeichert ist. Die
   Kennzeichen bleiben mit 7.22-rc17 unverändert (F52), für ältere
   Widget-Kopien und einen stabilen Vertrag: Bis 7.22-rc16 ließ das Widget
@@ -205,7 +223,7 @@ Rollout zählen (Prüfpunkt 12). Rückweg: `dcColor` im Widget wieder erweitern.
 | --------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `greetingStyle`                         | `text` (alter Standard), `bubble`                                                | immer Begrüßung als erste Blase (gespeicherter Wert ohne Wirkung); `data-greeting-style="text"` am Skript wirkt nur bei abgeschaltetem Datenschutz-Hinweis (Gruppe B, E26, 7.22-rc18) |
 | `greeting`                              | eigener Text                                                                     | wird die Begrüßungsblase; über 300 Zeichen kürzt das Widget auf ein Wortende mit „…“                                                                                                         |
-| `greeting`                              | alte Vorbelegung („Hallo und herzlich willkommen! …“) oder alter Widget-Standard | gilt als nicht gesetzt: neuer Standard „Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?“                                                                                           |
+| `greeting`                              | alte Vorbelegung („Hallo und herzlich willkommen! …“), alter Widget-Standard oder alte Datenschutz-Vorlage (E43), auch mit anderem Leerraum | gilt als nicht gesetzt: neuer Standard „Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?“, darunter die Datenschutz-Blase (Abschnitt „Alte Datenschutz-Vorlagen in der Begrüßung“) |
 | `greetingBubbleText`                    | eigener Text bei `greetingStyle` oder `privacyNotice` `bubble`                   | gewinnt gegen `greeting` (stand bisher in der Blase)                                                                                                                                         |
 | `greetingBubbleText`                    | eigener Text bei Stil `text`                                                     | ignoriert, solange eine eigene `greeting` gesetzt ist (war nie sichtbar)                                                                                                                     |
 | `greeting` und `greetingBubbleText`     | beide eigener Text                                                               | schaltet der Kunde den Datenschutz-Hinweis um, bleibt beim Speichern der Text aus dem Feld „Begrüßungstext“; der andere, bisher unsichtbare Text wird entfernt (F04, 7.22-rc13; bewusste Ausnahme zum Negativfall „Texte bleiben“, E20, 7.22-rc16) |
@@ -219,13 +237,58 @@ Rollout zählen (Prüfpunkt 12). Rückweg: `dcColor` im Widget wieder erweitern.
 | `chatbotBubblesMessages`                | „Hallo! Ich bin Ihr Online-Berater!“ … (alte Vorbelegung)                        | bleibt eigener Kundenwert (E2)                                                                                                                                                               |
 | `chatbotBubblesMessages`                | fehlt oder leer                                                                  | Standard-Willkommensblasen des Widgets in der Sprache des Widgets; `data-chatbot-bubbles-messages` am Skript wirkt nicht (E23)                                                               |
 | `chatbotBubblesMessages`                | eigene Liste                                                                     | bleibt; ausgeliefert als Array, eine Blase mit Komma bleibt eine Blase (E11)                                                                                                                 |
-| `defaultMessages`                       | fehlt                                                                            | Standard-Startvorschläge der Sprache des Widgets, auch live (S1, 7.22-rc10; Sprache per `?language=`, E12): „Ich suche einen Deutschkurs.“, „Gibt es Excel-Kurse am Abend?“ (en „I am looking for a German course.“, „Are there Excel courses in the evening?“), auch bei Doku- und Info-Bots; ein `data-default-messages` am Skript wirkt nicht (E10 neu, E23, 7.22-rc17); das Design Center zeigt sie als Vorbelegung und schreibt sie erst nach einer Änderung (R5) |
+| `defaultMessages`                       | fehlt                                                                            | keine Startvorschläge, in jeder Sprache (Standard leer, E42, Nutzerentscheidung 22.10.2026, 7.22-rc23; bis 7.22-rc22 zwei Beispiele, S1); ein `data-default-messages` am Skript wirkt nicht (E10 neu, E23, 7.22-rc17); im Design Center ist das Feld leer, die Vorschau ohne Pillen |
 | `defaultMessages`                       | `[]` (alle gelöscht und gespeichert, auch die Vorbelegung bis 7.21)              | bewusst keine Startvorschläge, auch wenn am Skript `data-default-messages` steht (E10)                                                                                                       |
 | `defaultMessages`                       | eigene Liste                                                                     | bleibt; ausgeliefert als Array, Einträge mit Komma bleiben ganz (E11)                                                                                                                        |
 | `suggestionStyle`                       | `bars` u. a.                                                                     | Startvorschläge als Buttons wie die Folgefragen                                                                                                                                              |
 | `followUps`                             | `none` (alter Standard)                                                          | Folgefragen als Buttons an                                                                                                                                                                   |
 | `disclaimer`                            | `none` (alter Standard)                                                          | KI-Hinweis fest einzeilig unter der Eingabe: „Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten.“ (R1, 7.22-rc8, Kurzform nach der Messung des Widgets; en „Our AI can make mistakes. Please double-check the answers.“); auf keinem Weg abschaltbar oder änderbar, auch nicht per `data-disclaimer` oder CSS-Variable (E24) |
 | `disclaimerText`                        | eigener Text                                                                     | ignoriert, ebenso `data-disclaimer-text` am Skript (E24)                                                                                                                                     |
+
+## Alte Datenschutz-Vorlagen in der Begrüßung (E43, 7.22-rc24)
+
+Nutzerentscheidung 22.10.2026 („Alte Vorlage als nicht gesetzt“): Steht in
+`greeting` oder `greetingBubbleText` genau eine unserer alten
+Datenschutz-Vorlagen, gilt die Begrüßung wie nicht gesetzt. Es gilt die
+Standard-Begrüßung der Sprache des Widgets („Hallo! Ich bin Ihr KI-Berater.
+Wie kann ich Ihnen helfen?“, en „Hello! I am your AI advisor. How can I help
+you?“), darunter die Datenschutz-Blase wie bei jedem Widget ohne eigene
+Begrüßung. Sonst stünde der Hinweis ab 7.22 doppelt da (Begrüßung und
+Datenschutz-Blase). Gespeichert bleibt alles unverändert, die Datenbank wird
+nicht geändert.
+
+- **Erlaubnisliste:** `LEGACY_PRIVACY_GREETINGS` in
+  `server/utils/chats/embedStandards.js` (Kopie im Design Center
+  `widgetKeys.js`, ein Test vergleicht beide), genaue Texte, keine
+  Stichwortsuche. Verglichen wird nach Normalisierung von Leerraum
+  (Zeilenumbrüche, Tabulatoren, mehrfache und geschützte Leerzeichen, Rand);
+  dieser Vergleich gilt seit E43 auch für die übrigen früheren Vorbelegungen
+  der Begrüßung (`LEGACY_DEFAULT_GREETINGS`).
+- **Erkannte Vorlagen** (Erhebung der Flotte am 22.10.2026, nur lesend, 82
+  Container auf 7.8 und 7.21.1, 86 Embeds):
+  1. Juni-Rollout (12.06.2026, ab 21.07.2026 auch Code-Standard des
+     Widgets), bei 58 Embeds in 51 Containern gespeichert (55 eingeschaltet),
+     überall wortgleich: „Dieser Chatbot nutzt künstliche Intelligenz (KI). Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung von uns eingesehen werden. Bitte geben Sie keine sensiblen personenbezogenen Daten ein.“
+     Dieser Wortlaut galt schon seit dem Design Center 2.0 als frühere
+     Vorbelegung (Vergleich nach `trim()`); für diese Widgets ändert E43
+     nichts Sichtbares.
+  2. Früherer Standard-Datenschutztext des Widgets (06.10.2026 bis E30,
+     7.22-rc19, noch mit „Mitarbeitende“) als ein Absatz, bei 3 Embeds eines
+     Demo-Containers; dort stand der Hinweis mit 7.22-rc23 doppelt:
+     „Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben. Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen. Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.“
+- **Bleiben eigene Texte:** vom Kunden abgewandelte Vorlagen (umgestellt,
+  ergänzt, gekürzt, andere Wörter), die Vorlage mit eigenem Satz davor oder
+  dahinter, eigene Datenschutz- oder Einwilligungssätze. Solche Widgets
+  zeigen ab 7.22 Begrüßung und Datenschutz-Blase nacheinander (Prüfpunkt 13).
+  Ist `greeting` eine Vorlage und `greetingBubbleText` ein eigener Text (oder
+  umgekehrt), gilt der eigene Text.
+- **Design Center:** Der Reiter Inhalt zeigt bei einer Vorlage im Feld
+  „Begrüßungstext“ den Standard (wie ohne gespeicherten Text), die Vorschau
+  ebenso. Gespeichert wird die Begrüßung erst, wenn der Kunde das Feld
+  ändert; beim Speichern anderer Felder bleibt die Vorlage wörtlich stehen.
+- **Widget:** unverändert. Die Begrüßung kommt allein vom Server (Gruppe A,
+  E23: `data-greeting` und `data-greeting-bubble-text` am Skript wirken
+  nicht); liefert er keine, zeigt das Widget den Standard seiner Sprache.
 
 ## Datenschutz-Hinweis
 
@@ -271,9 +334,10 @@ Text mit Links“ ein.
 4. Widgets mit eigenem `inlineSendText` oder `inlineCollapsedText`: Kunde informieren (Demo-Texte).
 5. Widgets mit `userTextColor` `#FFFFFF` auf heller Akzentfarbe: das Design Center warnt unter 4,5:1; ggf. „Schwarz“ wählen.
 6. Widgets ohne `assistantSubtitle`: zeigen ab 7.22 den Standard-Untertitel; wer keinen will, leert das Feld im Design Center.
-7. Widgets ohne gespeicherte `defaultMessages` (nie im Design Center gespeichert): zeigen ab 7.22 die zwei Standard-Startvorschläge, auch Doku- und Info-Bots (Bethel, Nazareth, Dokubot); passen die Beispiele nicht, im Design Center eigene eintragen oder alle löschen und speichern. Bis 7.21 gespeicherte Widgets haben `[]` und zeigen keine.
-8. Snippets mit `data-default-messages` am Skript: Das Attribut wirkt ab 7.22 nicht mehr, auch wenn im Design Center keine Liste gespeichert ist (E10 neu, E23, 7.22-rc17); es gilt die gespeicherte Liste, sonst die Standard-Startvorschläge. Bis 7.21 gespeicherte Widgets haben `[]` (alte Vorbelegung) und zeigen keine Startvorschläge. Vor dem Flotten-Rollout zählen, welche Kundenseiten das Attribut nutzen (F44, 7.22-rc16), und deren Liste im Design Center eintragen; erst danach auf 7.22 stellen.
+7. Widgets ohne gespeicherte `defaultMessages` (nie im Design Center gespeichert): zeigen ab 7.22 keine Startvorschläge, der Standard ist leer (E42, Nutzerentscheidung 22.10.2026, 7.22-rc23; bis 7.22-rc22 waren es zwei Beispiele). Wer Startvorschläge will, trägt sie im Design Center ein. Gespeicherte Listen gelten unverändert, ein gespeichertes `[]` bleibt „keine“. Bis 7.21 gespeicherte Widgets haben `[]` und zeigen keine. Nichts zu zählen oder zu ändern.
+8. Snippets mit `data-default-messages` am Skript: Das Attribut wirkt ab 7.22 nicht mehr, auch wenn im Design Center keine Liste gespeichert ist (E10 neu, E23, 7.22-rc17); es gilt die gespeicherte Liste, sonst gibt es keine Startvorschläge (Standard leer, E42). Bis 7.21 gespeicherte Widgets haben `[]` (alte Vorbelegung) und zeigen keine Startvorschläge. Vor dem Flotten-Rollout zählen, welche Kundenseiten das Attribut nutzen (F44, 7.22-rc16), und deren Liste im Design Center eintragen; erst danach auf 7.22 stellen.
 9. Seiten mit eigener Kopie des Widgets (z. B. Demo `/widget/anythingllm-chat-widget.min.js`): auf das Widget ab 7.22-rc17 bringen, sonst fehlen die Startvorschläge (Listen als Array, E11), ohne gespeicherte Kurskarten-Wahl auch `displayMode` im Chat (R4), und Angaben der Gruppe A im Einbau-Code wirken dort weiter. Ab 7.22-rc13 ruft das Widget `/config?language=<Sprache>` auf: Eigene Demo-Kopien, die die `/config`-Antwort abfangen (z. B. die Topbar-Schalter der Demo in `app.js` und `next/app.js`), müssen die Adresse ohne Query vergleichen, sonst greifen ihre Schalter still nicht mehr (W41, 7.22-rc16). Seit E23 (7.22-rc17): Demo-Seite und Einbau-Paket vhs Rhein (`Kundendaten/Chatbot/demo_site/einbau_rhein/`) auf Pflicht- und Entwickler-Angaben kürzen; Gruppe-A-Angaben entfernen, Effekte und Inline-Feinheiten (Gruppe B) dürfen bleiben. Topbar-Schalter, die Design-Center-Optionen nachstellen, schreiben ihre Werte in die `/config`-Antwort statt in Attribute. Gilt auch für `praesentation` und `demo-inline`, die das Widget direkt vom Container laden: erst die Demo anpassen, dann auf 7.22 stellen.
 10. Snippets mit Gruppe-A-Angaben am Skript (z. B. `data-theme`, `data-display-mode`, `data-position`, `data-chat-icon`, `data-button-color`, `data-greeting`, `data-privacy-notice`) und Seiten, deren CSS eine der fünf Variablen `--allm-accent`, `--allm-on-accent`, `--allm-user-bg`, `--allm-user-text` oder `--allm-link` setzt: Diese Angaben wirken ab 7.22 nicht mehr, auch wenn im Design Center dafür nichts gespeichert ist (E23, 7.22-rc17; ersetzt E18 aus 7.22-rc16). Es gilt das Design Center, gespeichert oder sein Standard. Vor dem Rollout je Kundenseite die Werte aus dem Einbau-Code mit dem Design Center vergleichen, im Seiten-CSS (eigene Stylesheets und `style`-Angaben der Seite) nach diesen fünf Variablen suchen und, wo der Kunde die Werte behalten will, im Design Center eintragen. Die Browser-Konsole hilft nur beim Einbau-Code: Verworfene Angaben dort meldet das Widget, Seiten-CSS übergeht es ohne Konsolenwarnung. Gruppe-B-Angaben (z. B. `data-inline-effect`, `--allm-radius`) wirken weiter.
 11. Nur auf den Containern, die 7.16 bis 7.21.1 liefen (ki-helfer, intern, demo-inline, praesentation, entwicklung): gespeicherte `privacyText` nach dem Wort „Mitarbeitende“ durchsuchen und die Treffer je Container zählen (E30, 7.22-rc19). Bis 7.21.1 zeigte das Feld den Standardtext als Wert; wer ihn dort bearbeitet hat, hat ihn samt dem alten Standardpunkt gespeichert, und dieser Text bleibt nach 7.22 stehen. Der Standardtext lautet seit E30 „Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.“ Treffer nur melden; gespeicherte Texte der Kunden nicht ändern. Die Flotte (7.8) hatte diesen Standardtext nie.
 12. Gespeicherte Farbwerte, die `parseColor` nicht liest oder die nicht deckend sind (E41, 7.22-rc22): je Container in `visual_config` die Werte von `accentColor` und `userTextColor` mit `parseColor` und auf Deckkraft unter 1 prüfen und die Treffer je Kunde zählen, z. B. `hsl()`, Farbnamen, Prozent, `#rgba`, `oklch()`, Systemfarben, `rgb()` mit gemischten Trennern oder geschützten Leerzeichen, `rgba()` mit Alpha unter 1 oder `#rrggbbaa` unter `ff`. Diese Widgets zeigen ab 7.22 die Standardfarbe `#01A5A9` bzw. die Schrift nach Kontrast (Absatz unter der Tabelle „Darstellung“). Erwartet sind wenige oder keine Treffer, das Design Center hatte immer einen Farbwähler. Treffer nur melden; gespeicherte Werte der Kunden nicht ändern.
+13. Begrüßungen mit eigenem Datenschutzinhalt, die keiner Vorlage aus `LEGACY_PRIVACY_GREETINGS` wortgleich entsprechen (E43, 7.22-rc24): Sie bleiben eigene Kundentexte, ab 7.22 folgt ihnen die Datenschutz-Blase, der Hinweis steht also zweimal da. Je Container `greeting` und `greetingBubbleText` lesen und die Treffer je Kunde melden (Stand 22.10.2026: zwei Kunden, einer mit einer abgewandelten Juni-Vorlage, einer mit eigenen Einwilligungssätzen). Gespeicherte Texte der Kunden nicht ändern; der Kunde kürzt die Begrüßung im Design Center oder schaltet den Datenschutz-Hinweis ab. Wortgleiche Vorlagen (auch mit anderem Leerraum) brauchen nichts.

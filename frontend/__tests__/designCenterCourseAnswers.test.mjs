@@ -313,20 +313,31 @@ const at = (html, marker) => html.indexOf(`data-preview="${marker}"`);
 // R4 (bewusst geändert): ohne Wahl folgt die Vorschau dem Standard der
 // Darstellung (Chatfenster Nur Text mit Links, In der Seite Karten zuerst)
 test(
-  "Vorschau: Beispiel-Antwort folgt der Wahl (Karten zuerst, Text zuerst, Nur Text mit Links), Chatfenster und In der Seite",
+  "Vorschau (Bewusste Änderung E42: ohne gespeicherte Startvorschläge keine Pillen): Beispiel-Antwort folgt der Wahl (Karten zuerst, Text zuerst, Nur Text mit Links), Chatfenster und In der Seite",
   { skip },
   async () => {
     // Chatfenster ohne Wahl: Nur Text mit Links
     const bubble = await previewHtml({});
     assert.match(bubble, /data-course-cards="off"/);
     assert.equal((bubble.match(/data-preview="course-link"/g) || []).length, 2);
-    // Standard der Vorbelegung ohne gespeicherte Startvorschläge (R5): die
-    // zwei Beispiele als Pillen, die Folgefrage ist kein Startvorschlag
-    assert.equal((bubble.match(/data-preview="pill"/g) || []).length, 2);
+    // Standard der Vorbelegung ohne gespeicherte Startvorschläge (R5).
+    // Bewusste Änderung E42 (7.22-rc23): der Standard ist leer, also keine
+    // Pillen (bis 7.22-rc22 die zwei Beispiele); die Folgefrage ist kein
+    // Startvorschlag und bleibt
+    assert.equal((bubble.match(/data-preview="pill"/g) || []).length, 0);
     assert.match(bubble, /data-preview="follow-up-pill"/);
     assert.doesNotMatch(
       await previewHtml({ defaultMessages: [] }),
       /data-preview="pill"/
+    );
+    // eigene Liste: ihre Pillen
+    assert.equal(
+      (
+        (await previewHtml({ defaultMessages: ["A?", "B?"] })).match(
+          /data-preview="pill"/g
+        ) || []
+      ).length,
+      2
     );
 
     // Kurskarten gewählt: Karten zuerst (In der Seite ohne Wahl ebenso, im

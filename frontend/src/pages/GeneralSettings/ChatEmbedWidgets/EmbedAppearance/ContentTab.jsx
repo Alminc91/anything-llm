@@ -271,7 +271,8 @@ export default function ContentTab({
   const legacyPoints = privacyWithoutMarks(privacyText);
 
   // ohne gespeicherte Liste die Standard-Startvorschläge des Servers (S1:
-  // dieselben, die das Widget ohne Liste zeigt)
+  // dieselben, die das Widget ohne Liste zeigt); seit E42 leer, das Feld
+  // zeigt dann nur „Leer: keine Startvorschläge.“
   const suggestions = listItems(config, "defaultMessages", defaults);
   const welcomeBubbles = listItems(config, "chatbotBubblesMessages");
 
@@ -462,7 +463,7 @@ export default function ContentTab({
       <GroupHeading title="Startvorschläge" />
       <SettingsSection
         title="Fragen zum Anklicken"
-        hint="Buttons mit Fragen, die Besucher mit einem Klick stellen können. Ohne eigene Liste gelten die zwei Beispiele, auch im Widget; alle gelöscht und gespeichert: keine Startvorschläge."
+        hint="Buttons mit Fragen, die Besucher mit einem Klick stellen können. Ohne eigene Liste zeigt das Widget keine Startvorschläge."
       >
         <MessageList
           items={suggestions}

@@ -124,6 +124,28 @@ describe("Vertrag /config (E10 bis E12): Fälle der Fixture über HTTP wie das W
     expect(body.defaultMessagesStandard).toBe(true);
   });
 
+  // E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23): Standard der
+  // Startvorschläge in jeder Sprache leer; der Vertrag (Array, Kennzeichen
+  // defaultMessagesStandard) bleibt. Bis 7.22-rc22 zwei Beispiele je Sprache.
+  test("E42: Standard der Fixture leer, der Server liefert in jeder Sprache [] mit Kennzeichen", async () => {
+    expect(CONTRACT.standardSuggestions).toEqual({ de: [], en: [] });
+    expect(JSON.stringify(CONTRACT)).not.toMatch(/Deutschkurs|Excel/);
+    const standardCases = forkCases.filter(
+      (c) => c.config.defaultMessagesStandard === true
+    );
+    expect(standardCases.length).toBeGreaterThanOrEqual(4);
+    for (const c of standardCases) {
+      expect([c.name, c.config.defaultMessages]).toEqual([c.name, []]);
+      expect([c.name, c.widget.defaultMessages]).toEqual([c.name, []]);
+    }
+    for (const language of [undefined, "de", "en", "en-gb", "fr", "tr"]) {
+      const { status, body } = await widgetFetch({}, language);
+      expect(status).toBe(200);
+      expect([language, body.defaultMessages]).toEqual([language, []]);
+      expect(body.defaultMessagesStandard).toBe(true);
+    }
+  });
+
   test.each(CONTRACT.languageQuery.map((c) => [c.query, c.standards]))(
     "?language=%s -> Standard-Startvorschläge %s",
     async (query, standards) => {

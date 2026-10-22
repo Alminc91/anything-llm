@@ -128,7 +128,7 @@ const { defaultSuggestions } = require("../../utils/chats/embedDefaults");
 // Willkommensblasen beim ersten Besuch, KIE-568; Datenschutz-Hinweis ohne
 // gespeicherten Wert an, KIE-565 Nachtrag; Standard-Startvorschläge der
 // Sprache ohne gespeicherte Liste, S1 Fixliste 7.22-rc10, als Array und
-// gekennzeichnet, E10/E11 Fixliste 7.22-rc13)
+// gekennzeichnet, E10/E11 Fixliste 7.22-rc13; seit E42, 7.22-rc23, leer)
 const STANDARD = {
   ...EMBED_FIXED_STANDARDS,
   ...INLINE_FIXED_STANDARDS,
@@ -148,7 +148,7 @@ const STANDARD_ERROR = Object.fromEntries(
 );
 
 describe("GET /embed/:embedId/config — feste Standards", () => {
-  test("Standards wörtlich: Blase, Pillen, Folgefragen, Datenschutz-Blase, KI-Hinweis im Fuß, kein Online-Punkt, Karten wie Demo-Variante 4, Inline wie Demo", async () => {
+  test("Standards wörtlich (Bewusste Änderung E42: Startvorschläge leer): Blase, Pillen, Folgefragen, Datenschutz-Blase, KI-Hinweis im Fuß, kein Online-Punkt, Karten wie Demo-Variante 4, Inline wie Demo", async () => {
     const res = await fetchConfig({});
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
@@ -170,10 +170,9 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       inlineStartState: "collapsed",
       inlineHeight: "520px",
       inheritFont: true,
-      defaultMessages: [
-        "Ich suche einen Deutschkurs.",
-        "Gibt es Excel-Kurse am Abend?",
-      ],
+      // Bewusste Änderung E42 (7.22-rc23): Standard-Startvorschläge leer,
+      // Kennzeichen unverändert (bis 7.22-rc22 zwei Beispiele)
+      defaultMessages: [],
       defaultMessagesStandard: true,
     });
   });
@@ -378,7 +377,10 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
 // Standard mit defaultMessagesStandard, ein gespeichertes [] als [] mit
 // defaultMessagesSaved; die Sprache schickt das Widget als ?language= mit
 // (fehlend oder unbekannt de). Den Aufruf über HTTP wie das Widget und die
-// Fälle des Vertrags prüft embedConfigContract.test.js.
+// Fälle des Vertrags prüft embedConfigContract.test.js. Bewusste Änderung
+// E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23): der Standard ist in jeder
+// Sprache leer, also [] mit defaultMessagesStandard; gespeicherte Listen und
+// ein gespeichertes [] gelten unverändert.
 describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
   async function fetchWithLanguage(visualConfig, language) {
     EmbedConfig.getVisualConfig.mockResolvedValue(visualConfig);
@@ -395,27 +397,23 @@ describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
     return res;
   }
 
-  test("ohne gespeicherte Liste: die zwei deutschen Standard-Startvorschläge als Array, gekennzeichnet", async () => {
+  test("Bewusste Änderung E42: ohne gespeicherte Liste der deutsche Standard als Array, leer, gekennzeichnet", async () => {
     for (const vc of [{}, { accentColor: "#FFA102" }, null]) {
       const res = await fetchConfig(vc);
-      expect(res.body.defaultMessages).toEqual([
-        "Ich suche einen Deutschkurs.",
-        "Gibt es Excel-Kurse am Abend?",
-      ]);
+      expect(res.body.defaultMessages).toEqual([]);
       expect(res.body.defaultMessagesStandard).toBe(true);
       expect(res.body).not.toHaveProperty("defaultMessagesSaved");
       expect(res.headers["Cache-Control"]).toBe("public, max-age=300");
     }
-    // kein Fehler im Standard: nicht 5 Minuten ohne Vorschläge
+    // kein Fehler im Standard: zwischengespeichert wie jede Antwort
     const row = await fetchConfig({});
     expect(row.body).toEqual(STANDARD);
   });
 
-  test("?language=en liefert die englischen, fehlend oder unbekannt die deutschen", async () => {
-    expect((await fetchWithLanguage({}, "en")).body.defaultMessages).toEqual([
-      "I am looking for a German course.",
-      "Are there Excel courses in the evening?",
-    ]);
+  test("Bewusste Änderung E42: ?language=en liefert den englischen Standard, fehlend oder unbekannt den deutschen, beide leer", async () => {
+    expect((await fetchWithLanguage({}, "en")).body.defaultMessages).toEqual(
+      []
+    );
     expect((await fetchWithLanguage({}, "en-GB")).body.defaultMessages).toEqual(
       defaultSuggestions("en")
     );
@@ -467,6 +465,65 @@ describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
     expect(body.chatbotBubblesMessages).toEqual([
       "Hallo, schön, dass Sie da sind!",
     ]);
+  });
+
+  // E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23): Kunden ohne gespeicherte
+  // Startvorschläge bekommen keine Standard-Startvorschläge mehr, in allen
+  // Sprachen; das Kennzeichen bleibt (Vertrag). Gespeicherte Listen gelten
+  // unverändert, ein gespeichertes [] bleibt „keine“.
+  test("E42: ohne gespeicherte Liste in jeder Sprache [] mit defaultMessagesStandard, nie die früheren Beispiele", async () => {
+    const OLD = /Deutschkurs|Excel|German course/;
+    for (const language of [
+      undefined,
+      "de",
+      "en",
+      "en-GB",
+      "fr",
+      "tr",
+      "uk",
+      "ar",
+      "",
+      "<x>",
+      ["en"],
+    ])
+      for (const vc of [
+        {},
+        null,
+        { defaultMessages: "a,b" },
+        { name: "VHS" },
+      ]) {
+        const res = await fetchWithLanguage(vc, language);
+        const label = JSON.stringify([language, vc]);
+        expect([label, res.statusCode]).toEqual([label, 200]);
+        expect([label, res.body.defaultMessages]).toEqual([label, []]);
+        expect([label, res.body.defaultMessagesStandard]).toEqual([
+          label,
+          true,
+        ]);
+        expect(res.body).not.toHaveProperty("defaultMessagesSaved");
+        expect(JSON.stringify(res.body)).not.toMatch(OLD);
+        expect(res.headers["Cache-Control"]).toBe("public, max-age=300");
+      }
+    // gespeicherte Liste unverändert (auch die früheren Beispiele als eigene
+    // Liste), gespeichertes [] bleibt „keine“ mit defaultMessagesSaved
+    const own = await fetchWithLanguage(
+      {
+        defaultMessages: [
+          "Ich suche einen Deutschkurs.",
+          "Gibt es Excel-Kurse am Abend?",
+        ],
+      },
+      "en"
+    );
+    expect(own.body.defaultMessages).toEqual([
+      "Ich suche einen Deutschkurs.",
+      "Gibt es Excel-Kurse am Abend?",
+    ]);
+    expect(own.body).not.toHaveProperty("defaultMessagesStandard");
+    const none = await fetchWithLanguage({ defaultMessages: [] }, "de");
+    expect(none.body.defaultMessages).toEqual([]);
+    expect(none.body.defaultMessagesSaved).toBe(true);
+    expect(none.body).not.toHaveProperty("defaultMessagesStandard");
   });
 });
 
@@ -1080,5 +1137,100 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
     expect(doc).not.toMatch(
       /Gespeicherte Werte schlagen ältere Angaben am Skript/
     );
+  });
+});
+
+// E43 (Nutzerentscheidung 22.10.2026, 7.22-rc24): eine gespeicherte
+// Begrüßung, die (nach Normalisierung von Leerraum) genau einer unserer
+// alten Datenschutz-Vorlagen entspricht, gilt wie nicht gesetzt. Die
+// Antwort gleicht dann der ohne gespeicherte Begrüßung: kein greeting, das
+// Widget zeigt den Standard seiner Sprache, die Datenschutz-Blase bleibt an.
+describe("GET /embed/:embedId/config: alte Datenschutz-Vorlagen in der Begrüßung (E43)", () => {
+  // die zwei Vorlagen wörtlich (Liste selbst: embedStandards.test.js E43)
+  const JUNE =
+    "Dieser Chatbot nutzt künstliche Intelligenz (KI). Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung von uns eingesehen werden. Bitte geben Sie keine sensiblen personenbezogenen Daten ein.";
+  const PRE_E30 =
+    "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben. Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen. Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.";
+  async function fetchWithLanguage(visualConfig, language) {
+    EmbedConfig.getVisualConfig.mockResolvedValue(visualConfig);
+    const res = mockResponse();
+    await configRoute(
+      {
+        params: { embedId: "embed-uuid" },
+        query: language === undefined ? {} : { language },
+        protocol: "https",
+        get: () => "example.org",
+      },
+      res
+    );
+    return res;
+  }
+  const withoutGreeting = (vc) => {
+    const { greeting, greetingBubbleText, ...rest } = vc;
+    return rest;
+  };
+  const LANGUAGES = [undefined, "de", "en", "en-GB"];
+
+  test("Vorlage (auch mit anderem Leerraum) in greeting oder greetingBubbleText: Antwort wie ohne Begrüßung, in de und en", async () => {
+    const stored = [];
+    for (const text of [JUNE, PRE_E30]) {
+      const spaced = `  ${text.replace(/\. /g, ".\n\n")}\t`;
+      stored.push(
+        { greeting: text },
+        { greeting: spaced },
+        { greeting: text.replace(/ /g, "  "), privacyNotice: "bubble" },
+        { greetingBubbleText: spaced, privacyNotice: "bubble" },
+        {
+          accentColor: "#FFA102",
+          name: "VHS",
+          greeting: spaced,
+          greetingBubbleText:
+            "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
+          privacyNotice: "bubble",
+          privacyText: text.replace(/\. /g, ".\n"),
+          displayMode: "inline",
+        }
+      );
+    }
+    for (const language of LANGUAGES)
+      for (const vc of stored) {
+        const res = await fetchWithLanguage(vc, language);
+        expect(res.body).not.toHaveProperty("greeting");
+        expect(res.body).not.toHaveProperty("greetingBubbleText");
+        expect(res.body.privacyNotice).toBe("bubble");
+        expect(res.body).toEqual(
+          (await fetchWithLanguage(withoutGreeting(vc), language)).body
+        );
+        expect(res.headers["Cache-Control"]).toBe("public, max-age=300");
+      }
+  });
+
+  test("eigene Kundentexte gehen unverändert (getrimmt) als greeting, in de und en; nur die Vorlage im anderen Feld fällt weg", async () => {
+    const june = JUNE;
+    const own = [
+      "Willkommen bei der VHS! Wie können wir helfen?",
+      `${june} Willkommen bei der VHS!`,
+      june.replace("von uns", "von der VHS"),
+      "Dieser Chatbot nutzt künstliche Intelligenz (KI). Bitte geben Sie keine sensiblen Daten ein.",
+    ];
+    for (const language of LANGUAGES)
+      for (const text of own) {
+        const plain = await fetchWithLanguage(
+          { greeting: ` ${text} ` },
+          language
+        );
+        expect(plain.body.greeting).toBe(text);
+        // Vorlage als Blasentext, eigener Text als greeting: der eigene gilt
+        const mixed = await fetchWithLanguage(
+          {
+            greeting: text,
+            greetingBubbleText: june.replace(/\. /g, ".\n"),
+            privacyNotice: "bubble",
+          },
+          language
+        );
+        expect(mixed.body.greeting).toBe(text);
+        expect(mixed.body).not.toHaveProperty("greetingBubbleText");
+      }
   });
 });
