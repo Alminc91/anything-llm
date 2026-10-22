@@ -567,3 +567,188 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
     expect(doc).not.toMatch(/\s[–—]\s/);
   });
 });
+
+// E43 (Nutzerentscheidung 22.10.2026, „Alte Vorlage als nicht gesetzt“,
+// 7.22-rc24): Unsere früheren Datenschutz-Vorlagen in der gespeicherten
+// Begrüßung (greeting, greetingBubbleText) gelten wie nicht gesetzt, damit
+// der Hinweis nicht doppelt steht (Begrüßung und Datenschutz-Blase).
+// Erlaubnisliste exakter Texte, verglichen nach Normalisierung von
+// Leerraum; keine Stichwortsuche. Erhebung der Flotte:
+// issues/rollout-722/datenschutz-vorlagen.md.
+describe("E43: alte Datenschutz-Vorlagen in der Begrüßung", () => {
+  const {
+    LEGACY_PRIVACY_GREETINGS,
+    isLegacyGreeting,
+  } = require("../../../utils/chats/embedStandards");
+  const fs = require("fs");
+  const path = require("path");
+  // Juni-Rollout (Kundendaten/Chatbot/prompt_rollout/rollout_greeting.py)
+  const JUNE =
+    "Dieser Chatbot nutzt künstliche Intelligenz (KI). Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung von uns eingesehen werden. Bitte geben Sie keine sensiblen personenbezogenen Daten ein.";
+  // früherer Standard-Datenschutztext (vor E30) als ein Absatz (demo-inline)
+  const PRE_E30 =
+    "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben. Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen. Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.";
+  const OLD_BUBBLE =
+    "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.";
+  const PRIVACY_TEXT_PRE_E30 = PRE_E30.replace(/\. /g, ".\n");
+
+  // Leerraum-Varianten eines Textes: Umbrüche, Tabs, doppelte und
+  // geschützte Leerzeichen, Rand
+  const whitespaceVariants = (text) => [
+    text.replace(/([.!?]) /g, "$1\n"),
+    text.replace(/([.!?]) /g, "$1\r\n\r\n"),
+    text.replace(/ /g, "  "),
+    text.replace(/ (?=\S)/, "\t"),
+    text.replace(/ /g, "\u00A0"),
+    `\n  ${text.replace(/([.!?]) /g, "$1 \n ")}  \n`,
+  ];
+
+  test("Erlaubnisliste: genau die zwei erkannten Vorlagen, eingefroren", () => {
+    expect(LEGACY_PRIVACY_GREETINGS).toEqual([JUNE, PRE_E30]);
+    expect(Object.isFrozen(LEGACY_PRIVACY_GREETINGS)).toBe(true);
+    for (const text of LEGACY_PRIVACY_GREETINGS) {
+      expect(text).toBe(text.trim());
+      expect(text).not.toMatch(/\s{2}|[\t\n\r\u00A0]/);
+    }
+  });
+
+  test("jede Vorlage in greeting oder greetingBubbleText ergibt den Standard (null), mit und ohne Datenschutz-Blase", () => {
+    for (const text of LEGACY_PRIVACY_GREETINGS)
+      for (const extra of [
+        {},
+        { privacyNotice: "bubble" },
+        { greetingStyle: "bubble" },
+        { greetingStyle: "text" },
+        { privacyNotice: "none" },
+      ]) {
+        expect(isLegacyGreeting(text)).toBe(true);
+        expect(effectiveGreeting({ greeting: text, ...extra })).toBe(null);
+        expect(effectiveGreeting({ greetingBubbleText: text, ...extra })).toBe(
+          null
+        );
+        expect(
+          effectiveGreeting({
+            greeting: text,
+            greetingBubbleText: OLD_BUBBLE,
+            ...extra,
+          })
+        ).toBe(null);
+        const out = applyEmbedStandards({}, { greeting: text, ...extra });
+        expect(out).not.toHaveProperty("greeting");
+        expect(out).not.toHaveProperty("greetingBubbleText");
+        expect(out).toEqual(applyEmbedStandards({}, extra));
+      }
+  });
+
+  test("Leerraum-Varianten der Vorlagen gelten ebenso als nicht gesetzt (auch die übrigen früheren Vorbelegungen)", () => {
+    for (const text of [
+      ...LEGACY_PRIVACY_GREETINGS,
+      ...LEGACY_DEFAULT_GREETINGS,
+    ])
+      for (const variant of whitespaceVariants(text)) {
+        expect(variant).not.toBe(text);
+        expect(isLegacyGreeting(variant)).toBe(true);
+        expect(effectiveGreeting({ greeting: variant })).toBe(null);
+        expect(
+          effectiveGreeting({
+            greetingBubbleText: variant,
+            privacyNotice: "bubble",
+          })
+        ).toBe(null);
+      }
+  });
+
+  test("Demo-Fall: Datenschutztext als Begrüßung, alter Blasentext, Datenschutz-Blase an: Standard-Begrüßung, die Blase behält den gespeicherten Datenschutztext", () => {
+    const stored = {
+      displayMode: "inline",
+      privacyNotice: "bubble",
+      privacyText: PRIVACY_TEXT_PRE_E30,
+      greeting: PRE_E30,
+      greetingBubbleText: OLD_BUBBLE,
+    };
+    const out = applyEmbedStandards({}, stored);
+    expect(out).not.toHaveProperty("greeting");
+    expect(out).not.toHaveProperty("greetingBubbleText");
+    expect(out.privacyNotice).toBe("bubble");
+    expect(out.privacyText).toBe(
+      PRE_E30.split(". ")
+        .map((s, i, all) => `• ${s}${i < all.length - 1 ? "." : ""}`)
+        .join("\n")
+    );
+    // gleich wie ohne gespeicherte Begrüßung
+    const { greeting, greetingBubbleText, ...rest } = stored;
+    expect(out).toEqual(applyEmbedStandards({}, rest));
+  });
+
+  test("eigene Texte bleiben: abgewandelte Vorlage, Vorlage mit eigenem Satz, Teil der Vorlage, Kundentext mit Datenschutzsatz, aktueller Standard", () => {
+    const { greeting: standardDe, privacyText: privacyDe } =
+      embedDefaultTexts("de");
+    const { greeting: standardEn, privacyText: privacyEn } =
+      embedDefaultTexts("en");
+    const own = [
+      // Kunde hat die Vorlage umgestellt und ergänzt
+      "Dieser Chatbot nutzt künstliche Intelligenz (KI). Bitte geben Sie keine vertraulichen oder sensiblen personenbezogenen Daten ein. Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung anonymisiert von uns eingesehen werden.",
+      `${JUNE} Willkommen bei der VHS!`,
+      `Willkommen! ${JUNE}`,
+      JUNE.replace("von uns", "von der VHS"),
+      JUNE.slice(0, JUNE.indexOf(" Bitte")),
+      JUNE.replace(/\.$/, ""),
+      JUNE.replace("(KI)", "( KI )"),
+      PRE_E30.replace("Mitarbeitende", "Mitarbeiter"),
+      privacyDe.replace(/^• /gm, "").replace(/\n/g, " "),
+      privacyEn.replace(/^• /gm, "").replace(/\n/g, " "),
+      "Willkommen! Mit dem Absenden Ihrer Nachricht stimmen Sie unserer Datenschutzerklärung zu.",
+      standardDe,
+      standardEn,
+    ];
+    for (const text of own) {
+      expect(isLegacyGreeting(text)).toBe(false);
+      expect(effectiveGreeting({ greeting: text })).toBe(text);
+      expect(
+        effectiveGreeting({ greetingBubbleText: text, privacyNotice: "bubble" })
+      ).toBe(text);
+      expect(applyEmbedStandards({}, { greeting: text }).greeting).toBe(text);
+    }
+    // eigener Text gewinnt gegen eine Vorlage im anderen Feld; eigener
+    // Leerraum innerhalb bleibt erhalten (nur der Rand wird getrimmt)
+    expect(
+      effectiveGreeting({
+        greeting: " Eigene  Begrüßung\nZeile zwei ",
+        greetingBubbleText: JUNE.replace(/\. /g, ".\n"),
+        privacyNotice: "bubble",
+      })
+    ).toBe("Eigene  Begrüßung\nZeile zwei");
+    expect(
+      effectiveGreeting({
+        greeting: PRE_E30.replace(/ /g, "  "),
+        greetingBubbleText: "Eigene Blase",
+        greetingStyle: "text",
+      })
+    ).toBe("Eigene Blase");
+    for (const value of [undefined, null, 5, ["x"], {}, "", "   "])
+      expect(isLegacyGreeting(value)).toBe(false);
+  });
+
+  test("Migrationsdoku: Abschnitt E43 mit beiden Vorlagen", () => {
+    const doc = fs.readFileSync(
+      path.join(__dirname, "../../../../docs/design-center-2-migration.md"),
+      "utf8"
+    );
+    const start = doc.indexOf(
+      "## Alte Datenschutz-Vorlagen in der Begrüßung (E43"
+    );
+    expect(start).toBeGreaterThan(0);
+    const section = doc.slice(start, doc.indexOf("\n## ", start + 1));
+    for (const text of LEGACY_PRIVACY_GREETINGS)
+      expect(section).toContain(text);
+    expect(section).not.toMatch(/[–—]/);
+    // Prüfpunkt 13: Kundentexte mit eigenem Datenschutzinhalt nur melden;
+    // er ist der letzte (Prüfungen in designCenterFixesRc17/Rc22 angehoben)
+    expect(doc).toMatch(/^13\. /m);
+    const point = doc.slice(doc.search(/^13\. /m));
+    expect(point).toMatch(/\(E43, 7\.22-rc24\)/);
+    expect(point).toMatch(/`LEGACY_PRIVACY_GREETINGS`/);
+    expect(point).toMatch(/Gespeicherte Texte der Kunden nicht ändern/);
+    expect(doc).not.toMatch(/^14\. /m);
+  });
+});

@@ -1139,3 +1139,98 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
     );
   });
 });
+
+// E43 (Nutzerentscheidung 22.10.2026, 7.22-rc24): eine gespeicherte
+// Begrüßung, die (nach Normalisierung von Leerraum) genau einer unserer
+// alten Datenschutz-Vorlagen entspricht, gilt wie nicht gesetzt. Die
+// Antwort gleicht dann der ohne gespeicherte Begrüßung: kein greeting, das
+// Widget zeigt den Standard seiner Sprache, die Datenschutz-Blase bleibt an.
+describe("GET /embed/:embedId/config: alte Datenschutz-Vorlagen in der Begrüßung (E43)", () => {
+  // die zwei Vorlagen wörtlich (Liste selbst: embedStandards.test.js E43)
+  const JUNE =
+    "Dieser Chatbot nutzt künstliche Intelligenz (KI). Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung von uns eingesehen werden. Bitte geben Sie keine sensiblen personenbezogenen Daten ein.";
+  const PRE_E30 =
+    "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben. Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen. Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.";
+  async function fetchWithLanguage(visualConfig, language) {
+    EmbedConfig.getVisualConfig.mockResolvedValue(visualConfig);
+    const res = mockResponse();
+    await configRoute(
+      {
+        params: { embedId: "embed-uuid" },
+        query: language === undefined ? {} : { language },
+        protocol: "https",
+        get: () => "example.org",
+      },
+      res
+    );
+    return res;
+  }
+  const withoutGreeting = (vc) => {
+    const { greeting, greetingBubbleText, ...rest } = vc;
+    return rest;
+  };
+  const LANGUAGES = [undefined, "de", "en", "en-GB"];
+
+  test("Vorlage (auch mit anderem Leerraum) in greeting oder greetingBubbleText: Antwort wie ohne Begrüßung, in de und en", async () => {
+    const stored = [];
+    for (const text of [JUNE, PRE_E30]) {
+      const spaced = `  ${text.replace(/\. /g, ".\n\n")}\t`;
+      stored.push(
+        { greeting: text },
+        { greeting: spaced },
+        { greeting: text.replace(/ /g, "  "), privacyNotice: "bubble" },
+        { greetingBubbleText: spaced, privacyNotice: "bubble" },
+        {
+          accentColor: "#FFA102",
+          name: "VHS",
+          greeting: spaced,
+          greetingBubbleText:
+            "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
+          privacyNotice: "bubble",
+          privacyText: text.replace(/\. /g, ".\n"),
+          displayMode: "inline",
+        }
+      );
+    }
+    for (const language of LANGUAGES)
+      for (const vc of stored) {
+        const res = await fetchWithLanguage(vc, language);
+        expect(res.body).not.toHaveProperty("greeting");
+        expect(res.body).not.toHaveProperty("greetingBubbleText");
+        expect(res.body.privacyNotice).toBe("bubble");
+        expect(res.body).toEqual(
+          (await fetchWithLanguage(withoutGreeting(vc), language)).body
+        );
+        expect(res.headers["Cache-Control"]).toBe("public, max-age=300");
+      }
+  });
+
+  test("eigene Kundentexte gehen unverändert (getrimmt) als greeting, in de und en; nur die Vorlage im anderen Feld fällt weg", async () => {
+    const june = JUNE;
+    const own = [
+      "Willkommen bei der VHS! Wie können wir helfen?",
+      `${june} Willkommen bei der VHS!`,
+      june.replace("von uns", "von der VHS"),
+      "Dieser Chatbot nutzt künstliche Intelligenz (KI). Bitte geben Sie keine sensiblen Daten ein.",
+    ];
+    for (const language of LANGUAGES)
+      for (const text of own) {
+        const plain = await fetchWithLanguage(
+          { greeting: ` ${text} ` },
+          language
+        );
+        expect(plain.body.greeting).toBe(text);
+        // Vorlage als Blasentext, eigener Text als greeting: der eigene gilt
+        const mixed = await fetchWithLanguage(
+          {
+            greeting: text,
+            greetingBubbleText: june.replace(/\. /g, ".\n"),
+            privacyNotice: "bubble",
+          },
+          language
+        );
+        expect(mixed.body.greeting).toBe(text);
+        expect(mixed.body).not.toHaveProperty("greetingBubbleText");
+      }
+  });
+});

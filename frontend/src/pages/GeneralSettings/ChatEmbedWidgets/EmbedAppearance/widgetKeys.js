@@ -527,6 +527,17 @@ export const LEGACY_DEFAULT_GREETINGS = [
   "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
   "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for.",
 ];
+// Alte Datenschutz-Vorlagen in der Begrüßung (E43, Nutzerentscheidung
+// 22.10.2026, 7.22-rc24): wortgleiche Kopie von LEGACY_PRIVACY_GREETINGS im
+// Server (embedStandards.js; Test designCenterLegacyPrivacyGreeting
+// vergleicht). Eine so gespeicherte Begrüßung gilt wie nicht gesetzt: Das
+// Feld „Begrüßungstext“ zeigt den Standard, die Vorschau ebenso, gespeichert
+// wird erst, wenn der Kunde das Feld ändert. Eigene Texte bleiben, auch
+// abgewandelte Vorlagen (Erlaubnisliste, keine Stichwortsuche).
+export const LEGACY_PRIVACY_GREETINGS = [
+  "Dieser Chatbot nutzt künstliche Intelligenz (KI). Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung von uns eingesehen werden. Bitte geben Sie keine sensiblen personenbezogenen Daten ein.",
+  "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben. Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen. Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
+];
 export const LEGACY_DEFAULT_PLACEHOLDERS = ["Wie kann ich Ihnen helfen?"];
 export const LEGACY_DEFAULT_PRIVACY_TITLES = ["Datenschutz:", "Privacy:"];
 
@@ -565,6 +576,37 @@ export function ownText(value, legacy = []) {
   const text = value.trim();
   if (!text || legacy.includes(text)) return null;
   return text;
+}
+
+// Leerraum vereinheitlichen wie collapseWhitespace() im Server (E43)
+function collapseWhitespace(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+const LEGACY_GREETINGS_NORMALIZED = new Set(
+  [...LEGACY_DEFAULT_GREETINGS, ...LEGACY_PRIVACY_GREETINGS].map(
+    collapseWhitespace
+  )
+);
+
+/**
+ * Frühere Vorbelegung oder alte Datenschutz-Vorlage der Begrüßung? Genau
+ * verglichen, nur nach Normalisierung von Leerraum (wie isLegacyGreeting()
+ * im Server, E43). Kein String -> false.
+ * @param {*} value
+ * @returns {boolean}
+ */
+export function isLegacyGreeting(value) {
+  return (
+    typeof value === "string" &&
+    LEGACY_GREETINGS_NORMALIZED.has(collapseWhitespace(value))
+  );
+}
+
+// Eigene Begrüßung wie ownGreeting() im Server: eigener Text (getrimmt) und
+// weder frühere Vorbelegung noch alte Datenschutz-Vorlage
+function ownGreeting(value) {
+  const text = ownText(value);
+  return text && !isLegacyGreeting(text) ? text : null;
 }
 
 /** @returns {"inline"|"bubble"} wirksame Darstellung wie im Server */
@@ -611,21 +653,21 @@ function greetingBubbleTextShown(stored = {}) {
  * @returns {"greetingBubbleText"|"greeting"}
  */
 export function greetingKey(stored = {}) {
-  const bubble = ownText(stored.greetingBubbleText, LEGACY_DEFAULT_GREETINGS);
-  const greeting = ownText(stored.greeting, LEGACY_DEFAULT_GREETINGS);
+  const bubble = ownGreeting(stored.greetingBubbleText);
+  const greeting = ownGreeting(stored.greeting);
   return bubble && (!greeting || greetingBubbleTextShown(stored))
     ? "greetingBubbleText"
     : "greeting";
 }
 
 /**
- * Wert im Feld: eigener Text bzw. "" beim Leeren; frühere Vorbelegung oder
- * fehlender Wert zeigen den Standardtext.
+ * Wert im Feld: eigener Text bzw. "" beim Leeren; frühere Vorbelegung, alte
+ * Datenschutz-Vorlage (E43, auch mit anderem Leerraum) oder fehlender Wert
+ * zeigen den Standardtext.
  */
 export function greetingFieldValue(config, key, defaults) {
   const v = config[key];
-  if (typeof v === "string" && !LEGACY_DEFAULT_GREETINGS.includes(v.trim()))
-    return v;
+  if (typeof v === "string" && !isLegacyGreeting(v)) return v;
   return textValue(defaults?.greeting);
 }
 
@@ -1021,7 +1063,8 @@ export function validateConfig(config, initial, gKey) {
  *   sonst getrimmt.
  * - Begrüßung: leer oder Standardtext -> Schlüssel entfernen, dazu den
  *   anderen eigenen Text (greeting bzw. greetingBubbleText), sonst würde
- *   er sichtbar; unveränderte frühere Vorbelegung bleibt stehen. Gälte nach
+ *   er sichtbar; unveränderte frühere Vorbelegung oder alte Datenschutz-
+ *   Vorlage (E43) bleibt stehen. Gälte nach
  *   dem Speichern der andere eigene Text (etwa weil der Schalter
  *   „Datenschutz-Hinweis anzeigen“ privacyNotice umstellt, F04 Fixliste
  *   7.22-rc13), wird er entfernt: Live bleibt der Text aus dem Feld.
@@ -1077,15 +1120,14 @@ export function cleanConfig(
     gKey === "greetingBubbleText" ? "greeting" : "greetingBubbleText";
   if (typeof out[gKey] === "string") {
     const v = out[gKey].trim();
-    if (!LEGACY_DEFAULT_GREETINGS.includes(v)) {
+    if (!isLegacyGreeting(v)) {
       const standard = v && sameAsDefault("greeting", v, defaults);
       if (!v || (standard && edited(config, initial, gKey))) {
         // Standard: auch den anderen eigenen Text entfernen, sonst würde er
         // sichtbar (früherer Blasentext bei Stil „text“ bzw. eine eigene
         // greeting hinter dem Blasentext)
         drop(gKey);
-        if (ownText(out[otherGreeting], LEGACY_DEFAULT_GREETINGS))
-          drop(otherGreeting);
+        if (ownGreeting(out[otherGreeting])) drop(otherGreeting);
       } else if (!standard) out[gKey] = v;
     }
   }
@@ -1098,8 +1140,8 @@ export function cleanConfig(
   // (E20, Fixliste 7.22-rc16); gelöscht wird nur, wenn der Kunde den
   // Schalter umstellt und speichert, nie beim Update.
   if (
-    ownText(out[gKey], LEGACY_DEFAULT_GREETINGS) &&
-    ownText(out[otherGreeting], LEGACY_DEFAULT_GREETINGS) &&
+    ownGreeting(out[gKey]) &&
+    ownGreeting(out[otherGreeting]) &&
     greetingKey(out) !== gKey
   )
     drop(otherGreeting);

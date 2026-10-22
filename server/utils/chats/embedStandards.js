@@ -112,6 +112,9 @@ const INLINE_FIXED_STANDARDS = Object.freeze({
 // Sie bleiben eigene Kundenwerte; der Nutzer will vorerst überall
 // „Online-Berater“. Ebenso userTextColor "#FFFFFF" (war auch die wählbare
 // Option „Weiß“).
+// Diese vier Texte stehen wortgleich auch im Widget (anythingllm-embed
+// src/utils/layout.js) und im Design Center (widgetKeys.js); der erste ist
+// zugleich die erste Datenschutz-Vorlage in LEGACY_PRIVACY_GREETINGS (E43).
 const LEGACY_DEFAULT_GREETINGS = Object.freeze([
   // früherer Widget-Standard von greeting (Datenschutzsatz, steht jetzt in
   // der eigenen Datenschutz-Blase)
@@ -119,6 +122,28 @@ const LEGACY_DEFAULT_GREETINGS = Object.freeze([
   "Hallo und herzlich willkommen! Ich helfe Ihnen gerne weiter und beantworte Ihre Fragen mit intelligenten, KI-gestützten Antworten.",
   "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
   "Hello! I am your digital advisor powered by artificial intelligence (AI). Just describe what you are looking for.",
+]);
+// Alte Datenschutz-Vorlagen in der Begrüßung (E43, Nutzerentscheidung
+// 22.10.2026 „Alte Vorlage als nicht gesetzt“, 7.22-rc24): Steht einer
+// dieser Texte als greeting oder greetingBubbleText gespeichert, gilt die
+// Begrüßung wie nicht gesetzt (Standard-Begrüßung der Sprache im Widget,
+// darunter die Datenschutz-Blase wie bei jedem Widget ohne eigene
+// Begrüßung). Sonst stünde der Hinweis ab 7.22 doppelt da. Eine
+// Erlaubnisliste exakter Texte, keine Stichwortsuche: Eigene Texte der
+// Kunden bleiben, auch abgewandelte Vorlagen. Verglichen wird nach
+// Normalisierung von Leerraum (isLegacyGreeting). Erhebung der Flotte
+// (22.10.2026, nur lesend): issues/rollout-722/datenschutz-vorlagen.md im
+// Pipeline-Repo; Migrationsdoku docs/design-center-2-migration.md (E43).
+// Kopie im Design Center: frontend widgetKeys.js (Test
+// designCenterLegacyPrivacyGreeting.test.mjs vergleicht). Gespeichert
+// bleibt alles unverändert.
+const LEGACY_PRIVACY_GREETINGS = Object.freeze([
+  // Juni-Rollout (Kundendaten/Chatbot/prompt_rollout/rollout_greeting.py,
+  // 12.06.2026), ab 21.07.2026 auch Code-Standard des Widgets
+  "Dieser Chatbot nutzt künstliche Intelligenz (KI). Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung von uns eingesehen werden. Bitte geben Sie keine sensiblen personenbezogenen Daten ein.",
+  // früherer Standard-Datenschutztext des Widgets (06.10.2026 bis E30,
+  // 7.22-rc19, noch mit „Mitarbeitende“) als ein Absatz
+  "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben. Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen. Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
 ]);
 const LEGACY_DEFAULT_PLACEHOLDERS = Object.freeze([
   "Wie kann ich Ihnen helfen?",
@@ -233,6 +258,42 @@ function ownText(value, legacy = []) {
   return text;
 }
 
+// Leerraum vereinheitlichen (E43): Zeilenumbrüche, Tabulatoren, mehrfache
+// und geschützte Leerzeichen werden ein Leerzeichen, der Rand entfällt
+function collapseWhitespace(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+// frühere Vorbelegungen und Datenschutz-Vorlagen der Begrüßung, normalisiert
+const LEGACY_GREETINGS_NORMALIZED = new Set(
+  [...LEGACY_DEFAULT_GREETINGS, ...LEGACY_PRIVACY_GREETINGS].map(
+    collapseWhitespace
+  )
+);
+
+/**
+ * Ist der gespeicherte Begrüßungstext eine frühere Vorbelegung
+ * (LEGACY_DEFAULT_GREETINGS) oder eine alte Datenschutz-Vorlage
+ * (LEGACY_PRIVACY_GREETINGS, E43)? Verglichen wird genau, nur nach
+ * Normalisierung von Leerraum (collapseWhitespace); Groß-/Kleinschreibung,
+ * Satzzeichen und Wörter zählen. Kein String -> false.
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isLegacyGreeting(value) {
+  return (
+    typeof value === "string" &&
+    LEGACY_GREETINGS_NORMALIZED.has(collapseWhitespace(value))
+  );
+}
+
+// Eigene Begrüßung: eigener Text (getrimmt, Leerraum innen bleibt) und keine
+// frühere Vorbelegung oder Datenschutz-Vorlage
+function ownGreeting(value) {
+  const text = ownText(value);
+  return text && !isLegacyGreeting(text) ? text : null;
+}
+
 /**
  * Stand der frühere „Text der Begrüßungsblase“ sichtbar in einer Blase? Das
  * alte Widget zeigte greetingBubbleText nur bei greetingStyle "bubble" bzw.
@@ -257,17 +318,16 @@ function greetingBubbleTextShown(visualConfig = {}) {
  * der Blase stand (greetingBubbleTextShown; greeting war dann nur die
  * kleine Zeile darunter bzw. gar nicht zu sehen) oder wenn es keine eigene
  * Begrüßung gibt. Beim früheren Stil „text“ gilt greeting: Das ist der Text,
- * den Besucher bisher sahen. Frühere Vorbelegungen zählen nicht (-> null =
- * Standard). Gleiche Regel im Design Center (widgetKeys.js greetingKey).
+ * den Besucher bisher sahen. Frühere Vorbelegungen und alte Datenschutz-
+ * Vorlagen zählen nicht, auch mit anderem Leerraum (isLegacyGreeting, E43;
+ * -> null = Standard). Gleiche Regel im Design Center (widgetKeys.js
+ * greetingKey).
  * @param {Object} visualConfig
  * @returns {string|null}
  */
 function effectiveGreeting(visualConfig = {}) {
-  const bubble = ownText(
-    visualConfig?.greetingBubbleText,
-    LEGACY_DEFAULT_GREETINGS
-  );
-  const greeting = ownText(visualConfig?.greeting, LEGACY_DEFAULT_GREETINGS);
+  const bubble = ownGreeting(visualConfig?.greetingBubbleText);
+  const greeting = ownGreeting(visualConfig?.greeting);
   if (bubble && (!greeting || greetingBubbleTextShown(visualConfig)))
     return bubble;
   return greeting;
@@ -393,7 +453,8 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
 
   // Begrüßung nur als greeting (Review 7.22-rc6 F08): Ein eigener
   // greetingBubbleText geht nicht mehr ans Widget; welcher gespeicherte Text
-  // gilt, entscheidet effectiveGreeting. Das Widget kürzt eine zu lange
+  // gilt, entscheidet effectiveGreeting (alte Datenschutz-Vorlagen gelten
+  // dort als nicht gesetzt, E43). Das Widget kürzt eine zu lange
   // Begrüßung selbst. Der Text gehört zu Gruppe A (E23, Fixliste
   // 7.22-rc17): data-greeting und data-greeting-bubble-text am Skript wirken
   // nie, auch ohne gespeicherten Text (dann gilt der Standard der Sprache im
@@ -433,6 +494,7 @@ module.exports = {
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
   LEGACY_DEFAULT_GREETINGS,
+  LEGACY_PRIVACY_GREETINGS,
   LEGACY_DEFAULT_PLACEHOLDERS,
   LEGACY_DEFAULT_PRIVACY_TITLES,
   PRIVACY_TEXT_MAX_LEN,
@@ -445,6 +507,7 @@ module.exports = {
   courseCardsPositionValue,
   welcomeBubblesValue,
   greetingBubbleTextShown,
+  isLegacyGreeting,
   effectiveGreeting,
   effectivePlaceholder,
   inlineBarPlaceholder,
