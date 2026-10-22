@@ -1380,8 +1380,9 @@ export default function ConversationList({
     : FULL_TOOLBAR.plain;
   // K47 (Fixliste 7.22-rc16), kompakter Kopf mit „Zur Übersicht ↑“ in der
   // Zeile der Überschrift: Reicht der Platz neben Überschrift und Button
-  // nicht für „X von Y einsehbar“ (mit Filter, Desktop bis rund 1.330 px),
-  // bricht die Zahl in sich auf zwei Zeilen um, neben der Überschrift
+  // nicht für „X von Y einsehbar“ (mit Filter; mit kurzen Zahlen reicht er
+  // ab etwa 1.290 px, KIE-575 B64), bricht die Zahl in sich auf zwei Zeilen
+  // um, neben der Überschrift
   // (zwei Zeilen zu 20 px = Höhe der Überschrift, 40 px). Vorher brach sie
   // als Ganzes unter die Überschrift, und der Button machte den Kopf 22 px
   // höher. Höchstens zwei Zeilen (line-clamp-2, Review 7.22-rc17, K64):

@@ -57,6 +57,14 @@
 // (K89), ein Bild in einem Link ohne Adresse bleibt als Link auf die
 // Bilddatei (K90); ein mitgebrachtes <mark> wird Text in der Farbe der
 // Antwort, auch dunkel (B60).
+// Fixliste 7.22-rc21 (Nachreview rc20): Tabelle mit cellpadding,
+// cellspacing und border lesbar im Blick (K100); ein Bild in einem <a> ohne
+// href bleibt als Link auf die Bilddatei (K101); Links ohne Ziel zeigen
+// ihre Adresse als Text, ohne Linktext nur die Adresse, bei # nur den
+// Linktext (K102 nach E37), ein Link mit Ziel nur aus U+3164 zeigt genau
+// seine Adresse (B70); ein Begriff über die Token der Syntaxhervorhebung
+// im Codeblock gilt als sichtbar (K103); https:/pfad und https:pfad sind
+// Text (K104).
 //
 // Der Server ist im Browser nachgestellt (page.route): Es läuft nur der
 // Vite-Dev-Server des Frontends – kein Container, kein Docker. Playwright
@@ -182,6 +190,33 @@ const HTML_ANSWER_RC20 = [
   "",
   "Leer: [](https://www.vhs-musterstadt.de/kurs/k85töpfern) und [&nbsp;](https://www.vhs-musterstadt.de/k86anmeldung).",
 ].join("\n");
+// Fixliste 7.22-rc21 (Nachreview rc20) in der achten Antwort: Tabelle mit
+// riesigen Maßen (K100), Bilder in <a> ohne href (K101: nie gehabt, von
+// DOMPurify verworfen bei javascript: und Kurs-ID:), Links ohne Ziel mit
+// und ohne Linktext (K102, E37), https: ohne // (K104), ein Begriff über
+// Token-Grenzen im Codeblock (K103)
+const HTML_ANSWER_RC21 = [
+  'Gern helfe ich. <table cellpadding="100000" cellspacing="50000" border="100000"><tr><td>Versteckt cellpadding</td></tr></table>',
+  "",
+  `Bilder in Links ohne href: <a><img src="${TRACKER}/k101.jpg"></a>, <a href="javascript:void(0)"><img src="${TRACKER}/k101-js.jpg" alt="Kursfoto k101"></a> und [![](${TRACKER}/k101-id.jpg)](Kurs-ID:4711)`,
+  "",
+  "Ohne Ziel: [](/anmeldung-k102a), [Kursseite](/kurs/k102), [](#), [Sprung](#) und [\u3164](/anmeldung-k102b).",
+  "",
+  "Tippfehler: [Anmeldung](https:/www.vhs-musterstadt.de/k104a) und [Kurs](https:kurs/k104b).",
+  "",
+  "```js\nconst k103kurs = 4711;\n```",
+].join("\n");
+// Suchbegriffe der Antwort rc21: sichtbar (kein Hinweis; markiert, wo der
+// Begriff in einem Textknoten steht)
+const RC21_SEARCHES = [
+  ["K101 Bild in <a> ohne href", "k101.jpg", true],
+  ["K102 Link ohne Ziel und ohne Text", "anmeldung-k102a", true],
+  ["K102 Link ohne Ziel mit Text", "kurs/k102", true],
+  ["K102 Link ohne Ziel nur aus U+3164", "anmeldung-k102b", true],
+  ["K104 https:/ ohne //", "k104a", true],
+  ["K104 https: ohne //", "k104b", true],
+  ["K103 Begriff über Token-Grenzen im Codeblock", "k103kurs = 4711", false],
+];
 // … und in der sechsten: Inhalt, den DOMPurify verwirft (K81), am Ende ein
 // nicht geschlossenes <template>, das den Rest der Antwort verschluckt
 const HTML_ANSWER_RC20_HIDDEN = [
@@ -255,6 +290,8 @@ function messagesFor(id) {
               ? HTML_ANSWER_RC20
               : id === HTML_ID && k === 5
               ? HTML_ANSWER_RC20_HIDDEN
+              : id === HTML_ID && k === 7
+              ? HTML_ANSWER_RC21
               : id === HTML_ID && k === 10
               ? FAKE_HIT_ANSWER
               : `Gern helfe ich Ihnen weiter. **Kurs ${k + 1}** beginnt am Dienstag um 18:30 Uhr in Raum 204.\n\n- Dauer: 10 Abende\n- Gebühr: 96,00 Euro\n- Anmeldung über die [Kursseite](https://www.vhs-musterstadt.de/kurs/${id}${k})\n\nHaben Sie noch Fragen zu Terminen oder zur Anmeldung?`,
@@ -1070,6 +1107,20 @@ const SHOWS_HIT_CASES = [
   ["K89 Link nur aus U+3164", "[ㅤ](https://vhs.example/k89)", "k89", true],
   ["K90 Bild ohne Alt-Text im Link ohne Adresse", "[![](https://vhs.example/k90.jpg)]()", "k90.jpg", true],
   ["B60 mitgebrachtes <mark>", "Hinweis: <mark>Yoga am Montag</mark>", "yoga", true],
+  // Fixliste 7.22-rc21
+  ["K100 Tabelle mit cellpadding", 'Gern helfe ich. <table cellpadding="100000"><tr><td>Stornieren Sie Kurs 4711</td></tr></table> Ende', "4711", true],
+  ["K101 Bild in <a> ohne href", '<a><img src="https://vhs.example/k101.jpg"></a>', "k101.jpg", true],
+  ["K101 Bild in <a href=\"javascript:…\">", '<a href="javascript:void(0)"><img src="https://vhs.example/k101.jpg"></a>', "k101.jpg", true],
+  ["K101 Bild im Link auf Kurs-ID:", "[![](https://vhs.example/k101.jpg)](Kurs-ID:4711)", "k101.jpg", true],
+  ["K102 Link ohne Ziel und ohne Text", "Siehe [](/anmeldung).", "anmeldung", true],
+  ["K102 Link ohne Ziel mit Text: Adresse dahinter", "[Kursseite](/kurs/123)", "kurs/123", true],
+  ["K102 Link ohne Ziel nur aus U+3164", "[ㅤ](/anmeldung)", "anmeldung", true],
+  ["K102 Link auf #: keine Adresse", "[Kursseite](#)", "kursseite (#)", false],
+  ["K103 Begriff über Token-Grenzen im Codeblock", "```js\nconst kurs = 4711;\n```", "kurs = 4711", true],
+  ["K103 Begriff über Token-Grenzen im Codeblock (Wörter)", "```js\nKurs 4711 buchen\n```", "Kurs 4711", true],
+  ["K103 Kontrolle: Adresse eines Links mit Text bleibt verborgen", "```js\nconst a = 1;\n```\n\n[Kurs](https://vhs.example/kurs-4711)", "kurs-4711", false],
+  ["K104 https:/ ohne //: Adresse als Text", "[Anmeldung](https:/www.vhs.de/anmeldung)", "www.vhs.de", true],
+  ["K104 https: ohne //: Adresse als Text", "[Kurs](https:kurs/4711)", "kurs/4711", true],
 ];
 
 /**
@@ -1137,7 +1188,8 @@ async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }
       marquees: answers.reduce((n, a) => n + a.querySelectorAll("marquee").length, 0),
       sized: answers.flatMap((a) => [...a.querySelectorAll("[width], [height]")]).map((e) => e.outerHTML.slice(0, 80)),
       links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") })),
-      withoutTarget: allLinks.filter((l) => !/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(l.href ?? "") || l.target !== "_blank"),
+      // Ziel wie ANSWER_LINK_TARGET (seit rc21, K104: http und https nur mit //)
+      withoutTarget: allLinks.filter((l) => !/^[\t\n\f\r ]*(?:https?:\/\/|(?!https?:)[a-z][a-z\d+.-]*:|\/\/)/i.test(l.href ?? "") || l.target !== "_blank"),
       unnamed: allLinks.filter((l) => blank(l.text)),
       plainTexts: ["Kursseite", "Platzhalter", "Relativ", "Wortverbinder"].map((word) => [word, answer.textContent.includes(word)]),
       images: body.querySelectorAll("img").length,
@@ -1173,6 +1225,100 @@ async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }
     }));
     const ok = searched.row && (visible ? searched.marks.length > 0 && searched.hiddenHit === null : searched.marks.length === 0 && searched.hiddenHit !== null);
     check(scenario, `${label}: Suche „${term}“ ${visible ? "markiert, kein Hinweis" : "mit Hinweis „nur in Link-Adressen, im Quelltext …“, keine Markierung"}`, ok, searched);
+  }
+  // zurück zum Stand ohne Suche für die folgenden Prüfungen
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+}
+
+/**
+ * Fixliste 7.22-rc21 (läuft nach checkAnswerHtmlRc20, dieselbe
+ * Konversation, achte Antwort; echtes DOMPurify im Browser): K100 Text in
+ * einer Tabelle mit cellpadding, cellspacing und border steht in der
+ * Antwort im Blick, keine dieser Angaben aus der Antwort; K101 Bilder in
+ * <a> ohne href als Link auf die Bilddatei, kein <a> ohne href, kein
+ * Abruf; K102 (E37) Links ohne Ziel sind Text mit ihrer Adresse, ohne
+ * Linktext nur die Adresse (ohne U+3164 davor), bei # nur der Linktext;
+ * B70 der Link mit Ziel nur aus U+3164 zeigt genau seine Adresse; K104
+ * https:/pfad und https:pfad sind Text. Danach je Suchbegriff aus
+ * RC21_SEARCHES: kein Hinweis, markiert, wo der Begriff in einem Textknoten
+ * steht (K103: über Token-Grenzen im Code ohne Markierung, aber auch ohne
+ * Hinweis).
+ */
+async function checkAnswerHtmlRc21(scenario, page, trackerHits, { width, theme }) {
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+  await page.locator("[data-panel-body] [data-answer] >> nth=7").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(200);
+  const info = await page.evaluate(() => {
+    const body = document.querySelector("[data-panel-body]");
+    const answers = [...body.querySelectorAll("[data-answer]")];
+    const answer = answers[7];
+    const box = answer.getBoundingClientRect();
+    const place = (word) => {
+      const walker = document.createTreeWalker(answer, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.data.includes(word)) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const rect = range.getBoundingClientRect();
+        const cell = node.parentElement.closest("td");
+        return {
+          left: Math.round(rect.left - box.left),
+          top: Math.round(rect.top - box.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          answerWidth: Math.round(box.width),
+          answerHeight: Math.round(box.height),
+          padding: cell ? getComputedStyle(cell).paddingLeft : null,
+          inside: rect.width > 0 && rect.left >= box.left - 1 && rect.right <= box.right + 1 && rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1,
+        };
+      }
+      return null;
+    };
+    return {
+      text: answer.textContent,
+      table: place("Versteckt cellpadding"),
+      sized: answers.flatMap((a) => [...a.querySelectorAll("[cellpadding], [cellspacing], [border]")]).map((e) => e.outerHTML.slice(0, 80)),
+      links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") })),
+      withoutHref: answers.reduce((n, a) => n + a.querySelectorAll("a:not([href])").length, 0),
+      k89: [...answers[4].querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href") })).find((l) => l.href === "https://www.vhs-musterstadt.de/k89") ?? null,
+      images: body.querySelectorAll("img").length,
+    };
+  });
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k100-k104.png`) });
+  const t = info.table;
+  check(scenario, "K100 Tabelle mit cellpadding, cellspacing und border: Text in der Antwort im Blick, Zelle mit kleinem Innenabstand", !!t && t.inside && parseFloat(t.padding) < 20 && t.answerHeight < 2000, { table: t });
+  check(scenario, "K100 keine cellpadding, cellspacing und border aus der Antwort", info.sized.length === 0, { sized: info.sized });
+  const toImage = (name) => info.links.find((l) => l.href === `${TRACKER}/${name}`);
+  check(scenario, "K101 Bilder in <a> ohne href (nie gehabt, javascript:, Kurs-ID:) als Link auf die Bilddatei, kein <a> ohne href, kein Abruf", toImage("k101.jpg")?.text === `${TRACKER}/k101.jpg` && toImage("k101-js.jpg")?.text === "Kursfoto k101" && toImage("k101-id.jpg")?.text === `${TRACKER}/k101-id.jpg` && [toImage("k101.jpg"), toImage("k101-js.jpg"), toImage("k101-id.jpg")].every((l) => l.target === "_blank") && info.withoutHref === 0 && info.images === 0 && trackerHits.length === 0, { links: info.links, withoutHref: info.withoutHref, images: info.images, trackerHits });
+  const k102 = "Ohne Ziel: /anmeldung-k102a, Kursseite (/kurs/k102), , Sprung und /anmeldung-k102b.";
+  check(scenario, "K102 (E37) Links ohne Ziel sind Text mit ihrer Adresse: „/anmeldung-k102a“, „Kursseite (/kurs/k102)“, [](#) leer, „Sprung“ ohne #, nur U+3164 wird „/anmeldung-k102b“", info.text.includes(k102) && !info.links.some((l) => ["/anmeldung-k102a", "/kurs/k102", "#", "/anmeldung-k102b"].includes(l.href)), { expected: k102, text: info.text.slice(info.text.indexOf("Ohne Ziel"), info.text.indexOf("Tippfehler")), links: info.links });
+  check(scenario, "B70 Link mit Ziel nur aus U+3164 zeigt genau seine Adresse (kein Füllzeichen davor)", !!info.k89 && info.k89.text === info.k89.href, { link: info.k89 });
+  const k104 = "Tippfehler: Anmeldung (https:/www.vhs-musterstadt.de/k104a) und Kurs (https:kurs/k104b).";
+  check(scenario, "K104 https:/pfad und https:pfad sind Text mit ihrer Adresse, kein Link auf die Admin-Seite", info.text.includes(k104) && !info.links.some((l) => /^https?:(?!\/\/)/i.test(l.href ?? "")), { expected: k104, links: info.links });
+
+  for (const [label, term, marked] of RC21_SEARCHES) {
+    await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}&q=${encodeURIComponent(term)}`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+    await page.waitForTimeout(600);
+    const searched = await page.evaluate(() => ({
+      marks: [...document.querySelectorAll("[data-panel-body] mark[data-search-hit]")].map((mark) => mark.textContent),
+      hiddenHit: document.querySelector("[data-panel-hidden-hit]")?.textContent ?? null,
+      row: !!document.querySelector("[data-conversation-row][aria-current='true']"),
+    }));
+    const ok = searched.row && searched.hiddenHit === null && (marked ? searched.marks.length > 0 : true);
+    check(scenario, `${label}: Suche „${term}“ ohne Hinweis „nur in Link-Adressen, im Quelltext …“${marked ? ", markiert" : ""}`, ok, searched);
+  }
+  if (width === 1440) {
+    await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}&q=${encodeURIComponent("k103kurs = 4711")}`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+    await page.waitForTimeout(600);
+    await page.locator("[data-panel-body] [data-answer] >> nth=7").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k103-suche.png`) });
   }
   // zurück zum Stand ohne Suche für die folgenden Prüfungen
   await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
@@ -1822,6 +1968,9 @@ async function wideScenario(browser, { width, height, theme }) {
   // ohne Ziel, mitgebrachtes <mark>
   await checkAnswerShowsHit(scenario, page);
   await checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme });
+  // rc21 K100 bis K104, B70: Tabellenmaße, <a> ohne href, Adressen von
+  // Links ohne Ziel, Begriff über Token-Grenzen im Code, https: ohne //
+  await checkAnswerHtmlRc21(scenario, page, trackerHits, { width, theme });
   // rc15 K30: Links im Verlauf erkennbar (dieselbe Konversation)
   await checkLinkLook(scenario, page, { width, theme, where: "Desktop" });
   check(scenario, "keine Fehler der Seite (bis zum Ende)", errors.length === 0, errors);
@@ -2099,9 +2248,10 @@ function headerWithAndWithoutButton() {
  * „Zur Übersicht ↑“ nicht höher als ohne ihn, mit geschlossenem Verlauf
  * (Kopf in voller Form, vorher rechts neben „Exportieren“: bei 1.440 px
  * eine zweite Zeile, bei 1.280 px eine dritte) und mit offenem (kompakt),
- * ohne und mit Bewertungsfilter („N von M einsehbar“ ist länger; bis rund
- * 1.330 px bricht die Zahl neben der Überschrift in sich um, vorher als
- * Ganzes darunter: 22 px höher). Gemessen bei 1.280, 1.440 und 1.536 px
+ * ohne und mit Bewertungsfilter („N von M einsehbar“ ist länger; bricht
+ * die Zahl neben der Überschrift in sich um, mit kurzen Zahlen ab etwa
+ * 1.290 px einzeilig, KIE-575 B64; vorher als Ganzes darunter: 22 px
+ * höher). Gemessen bei 1.280, 1.440 und 1.536 px
  * (Screenshots) und dazwischen in Schritten von 8 px bis 1.760 px; der
  * Wortlaut bleibt, nichts ragt über die Spalte.
  */

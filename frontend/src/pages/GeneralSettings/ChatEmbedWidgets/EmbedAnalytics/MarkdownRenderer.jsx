@@ -108,8 +108,12 @@ function sanitizedHtml(html, highlight) {
  * der Verlauf hervorhebt; ein Begriff nur in Link-Adressen, im Quelltext,
  * in verworfenem HTML oder in ausgeblendeten Gedanken ist es nicht
  * (hasVisibleHit, Hinweis im Kopf des Verlaufs; Nachreview 7.22-rc19, K81
- * bis K86). Ohne DOMParser (kein Browser) gilt ein Treffer als sichtbar:
- * dann kein Hinweis.
+ * bis K86). Dazu der Text des bereinigten Körpers: Ein Begriff über die
+ * Grenzen von Textknoten, etwa über die Token der Syntaxhervorhebung im
+ * Code („Kurs 4711“ in <span>Kurs</span> <span>4711</span>), steht sichtbar
+ * da, auch wenn highlightTextNodes ihn nicht markiert (Nachreview
+ * 7.22-rc20, K103). Ohne DOMParser (kein Browser) gilt ein Treffer als
+ * sichtbar: dann kein Hinweis.
  * @param {string} content - Text der Antwort (answerText)
  * @param {string} highlight - Suchbegriff
  * @returns {boolean}
@@ -122,7 +126,8 @@ export function answerShowsHit(content, highlight) {
       sanitizeAnswerHtml(md.render(part.text)),
       "text/html"
     );
-    return highlightTextNodes(doc.body, highlight, doc) > 0;
+    if (highlightTextNodes(doc.body, highlight, doc) > 0) return true;
+    return !!searchPattern(highlight)?.test(doc.body.textContent);
   });
 }
 

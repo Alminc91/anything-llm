@@ -1306,9 +1306,12 @@ export function highlightTextNodes(root, term, doc) {
  *   Inhalt verbotener template-Elemente, auch eines nicht geschlossenen),
  *   ebenso der Inhalt von <noscript>, <xmp>, <svg> und den übrigen
  *   Elementen, die DOMPurify samt Inhalt verwirft; answerShowsHit zählt
- *   nur, was der Verlauf zeigt. color, bgcolor, size, face, width und
- *   height (etwa <font color> wie der Grund, <table bgcolor>,
- *   <marquee width="1">) bleiben nicht stehen. Nicht abgedeckt:
+ *   nur, was der Verlauf zeigt. color, bgcolor, size, face, width,
+ *   height, cellpadding, cellspacing und border (etwa <font color> wie der
+ *   Grund, <table bgcolor>, <table cellpadding="100000">,
+ *   <marquee width="1">) bleiben nicht stehen (die drei Maße der Tabelle:
+ *   Nachreview 7.22-rc20, K100; der Text stand weit außerhalb des Blicks).
+ *   Nicht abgedeckt:
  *   Verkleinern durch verschachtelte <small> oder <sub> und ein
  *   zugeklapptes <details> (per Klick lesbar).
  * Klassen, Links und Bilder ordnet hardenAnswerHtml danach.
@@ -1357,6 +1360,9 @@ export const ANSWER_PURIFY_CONFIG = Object.freeze({
     "face",
     "width",
     "height",
+    "cellpadding",
+    "cellspacing",
+    "border",
   ],
   ALLOW_ARIA_ATTR: false,
   ALLOW_DATA_ATTR: false,
@@ -1415,8 +1421,11 @@ const ANSWER_CLASS = /^(?:hljs(?:-[\w-]+)?|language-[\w-]+)$/;
 // Bilder werden nur als Link angeboten, wenn sie im Netz liegen
 const ANSWER_IMAGE_URL = /^https?:\/\//i;
 // Ein Link im Verlauf hat ein Ziel, wenn seine Adresse ein Schema hat
-// (https:, mailto:, tel:) oder mit // beginnt (Nachreview 7.22-rc19, K87)
-const ANSWER_LINK_TARGET = /^[\t\n\f\r ]*(?:[a-z][a-z\d+.-]*:|\/\/)/i;
+// (https:, mailto:, tel:) oder mit // beginnt (Nachreview 7.22-rc19, K87);
+// http: und https: nur mit // (https:/pfad und https:pfad löst der Browser
+// gegen die Admin-Seite auf; Nachreview 7.22-rc20, K104)
+const ANSWER_LINK_TARGET =
+  /^[\t\n\f\r ]*(?:https?:\/\/|(?!https?:)[a-z][a-z\d+.-]*:|\/\/)/i;
 
 /** Löst ein Element auf: sein Inhalt bleibt an seiner Stelle. */
 function unwrapElement(node) {
@@ -1428,14 +1437,20 @@ function unwrapElement(node) {
  * Ordnet das von DOMPurify bereinigte HTML einer Antwort (in einem inerten
  * Dokument, vor dem Einsetzen in die Seite):
  * - Links mit Adresse öffnen in einem neuen Tab (target="_blank") mit
- *   rel="noopener noreferrer"; ohne Adresse kein target. Eine Adresse ohne
- *   Ziel (ANSWER_LINK_TARGET) heißt keine Adresse: leer oder nur Leerraum
- *   (aus [Text]() oder [Text](<>)), nur unsichtbare Zeichen, nur ein
- *   Fragment (#, #anmeldung), ein Platzhalter wie „URL“ oder ein relativer
- *   Pfad (/anmeldung). Der Link wird aufgelöst, sein Inhalt bleibt als
- *   Text, ein Bild darin wie außerhalb eines Links (Review 7.22-rc17, K61;
- *   Nachreview 7.22-rc19, K87, K88, K90; sonst öffnete er die Admin-Seite
- *   selbst oder eine Seite des Servers in einem neuen Tab).
+ *   rel="noopener noreferrer". Eine Adresse ohne Ziel (ANSWER_LINK_TARGET)
+ *   heißt keine Adresse: kein href (DOMPurify hat es verworfen, etwa
+ *   Kurs-ID:4711 oder javascript:), leer oder nur Leerraum (aus [Text]()
+ *   oder [Text](<>)), nur unsichtbare Zeichen, nur ein Fragment (#,
+ *   #anmeldung), ein Platzhalter wie „URL“, ein relativer Pfad
+ *   (/anmeldung) oder https: ohne //. Der Link wird aufgelöst, sein Inhalt
+ *   bleibt als Text, ein Bild darin wie außerhalb eines Links (Review
+ *   7.22-rc17, K61; Nachreview 7.22-rc19, K87, K88, K90; Nachreview
+ *   7.22-rc20, K101; sonst öffnete er die Admin-Seite selbst oder eine
+ *   Seite des Servers in einem neuen Tab). Die Adresse bleibt als Text
+ *   sichtbar (E37, Nachreview 7.22-rc20, K102): mit Inhalt dahinter in
+ *   Klammern („Kursseite (/kurs/123)“), ohne sichtbaren Inhalt allein
+ *   (statt der unsichtbaren Zeichen); bei # und ohne Adresse nur der
+ *   Inhalt.
  * - Bilder laden nicht von selbst (kein Abruf beim Öffnen des Verlaufs:
  *   Zeitpunkt, IP-Adresse und Browser des Admins blieben sonst beim
  *   Absender): Ein Bild im Netz wird ein Link mit dem Alt-Text (ohne
@@ -1447,8 +1462,10 @@ function unwrapElement(node) {
  * - Ein Link mit Adresse, aber ohne sichtbaren Text (etwa ein verlinktes
  *   Bild ohne Alt-Text, oder nur Leerraum und unsichtbare Zeichen wie
  *   U+200B, isBlankText) zeigt seine Adresse: nie ein leerer, per Tab
- *   erreichbarer Link ohne Namen (K40, K61). Ebenso gilt ein Alt-Text nur
- *   aus unsichtbaren Zeichen als fehlend.
+ *   erreichbarer Link ohne Namen (K40, K61). Die Adresse ersetzt die
+ *   unsichtbaren Zeichen (Nachreview 7.22-rc20, B70: U+3164 stand sonst
+ *   als Marke davor). Ebenso gilt ein Alt-Text nur aus unsichtbaren
+ *   Zeichen als fehlend.
  * - data-search-hit nur an den <mark> der eigenen Hervorhebung und nur im
  *   zweiten Durchgang (searchHits: true); sonst verworfen (K41). Ein
  *   <mark> ohne dieses Kennzeichen bringt die Antwort mit: Es wird
@@ -1470,9 +1487,9 @@ export function hardenAnswerHtml(
     if (node.nodeType !== ELEMENT_NODE) continue;
     const tag = String(node.tagName ?? node.nodeName).toUpperCase();
     const href = tag === "A" ? node.getAttribute("href") : null;
-    // ein Link ohne Ziel wird unten aufgelöst: sein Inhalt steht dann
-    // nicht in einem Link (K90)
-    const noTarget = href !== null && !ANSWER_LINK_TARGET.test(href);
+    // ein Link ohne Ziel (auch ohne href, K101) wird unten aufgelöst: sein
+    // Inhalt steht dann nicht in einem Link (K90)
+    const noTarget = tag === "A" && !ANSWER_LINK_TARGET.test(href ?? "");
     hardenAnswerHtml(
       node,
       doc,
@@ -1494,16 +1511,18 @@ export function hardenAnswerHtml(
     }
     if (tag === "A") {
       if (noTarget) {
-        // Adresse ohne Ziel: kein Link (K61, K87), der Inhalt bleibt
+        // Adresse ohne Ziel: kein Link (K61, K87), der Inhalt bleibt, die
+        // Adresse als Text dahinter oder statt eines leeren Inhalts (E37)
+        const address = (href ?? "").trim();
+        if (address !== "#" && !isBlankText(address)) {
+          if (isBlankText(node.textContent)) node.textContent = address;
+          else node.appendChild(doc.createTextNode(` (${address})`));
+        }
         unwrapElement(node);
-      } else if (href !== null) {
+      } else {
         node.setAttribute("target", "_blank");
         node.setAttribute("rel", ANSWER_LINK_REL);
-        if (isBlankText(node.textContent))
-          node.appendChild(doc.createTextNode(href));
-      } else {
-        node.removeAttribute("target");
-        node.removeAttribute("rel");
+        if (isBlankText(node.textContent)) node.textContent = href;
       }
     } else if (tag === "IMG") {
       const src = (node.getAttribute("src") ?? "").trim();

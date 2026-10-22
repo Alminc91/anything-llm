@@ -79,6 +79,8 @@ import * as rc16 from "../src/utils/conversationView.js";
 import * as rc18 from "../src/utils/conversationView.js";
 // Fixliste 7.22-rc20 (K80 bis K90, B60): ebenso über den Namensraum
 import * as rc20 from "../src/utils/conversationView.js";
+// Fixliste 7.22-rc21 (K100 bis K104, B70): ebenso über den Namensraum
+import * as rc21 from "../src/utils/conversationView.js";
 import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
 import { formatDateTimeDE } from "../src/utils/dateTimeDE.js";
 import serverSearch from "../../server/utils/helpers/chat/conversationSearch.js";
@@ -1947,9 +1949,9 @@ test("rc12, K14 / rc13 E13: hardenAnswerHtml – Links in neuem Tab mit rel=noop
   assert.equal(kurs.getAttribute("target"), "_blank");
   assert.equal(kurs.getAttribute("rel"), "noopener noreferrer");
   assert.equal(kurs.getAttribute("class"), null, "Seitenklassen entfernt");
-  const plain = byText("ohne Adresse");
-  assert.equal(plain.getAttribute("target"), null);
-  assert.equal(plain.getAttribute("rel"), null);
+  // ohne Adresse kein Link, der Text bleibt (seit rc21, K101)
+  assert.equal(byText("ohne Adresse"), undefined);
+  assert.match(p.textContent, /ohne Adresse/);
   const image = byText("Logo der VHS");
   assert.ok(image, "Bild als Link mit Alt-Text");
   assert.equal(image.getAttribute("href"), "https://tracker.example/pixel.png?admin=1");
@@ -2586,8 +2588,9 @@ test("rc18, K61: Ein Link, dessen Text nur aus Leerraum und unsichtbaren Zeichen
   assert.ok(!links.includes(blankHref), "nur Leerraum: kein Link");
   assert.ok(!links.some((a) => (a.getAttribute("href") ?? "x").trim() === ""), "kein Link mit leerer Adresse");
   assert.match(p.textContent, /Text ohne Adresse/, "der Inhalt bleibt als Text");
-  assert.ok(links.includes(noHref), "ohne href wie bisher (kein Ziel)");
-  assert.equal(noHref.getAttribute("target"), null);
+  // ohne href: kein Link, der Text bleibt (seit rc21, K101)
+  assert.ok(!links.includes(noHref), "ohne href kein Link");
+  assert.match(p.textContent, /ohne Adresse/);
   // das Bild mit unsichtbarem Alt-Text: ein Link mit seiner Adresse
   const toImage = links.find((a) => a.getAttribute("href") === "https://vhs.example/bild.jpg");
   assert.equal(toImage?.textContent, "https://vhs.example/bild.jpg");
@@ -2716,7 +2719,7 @@ test("rc20, K81 bis K86: Ob eine Antwort den Begriff sichtbar zeigt, entscheidet
   assert.match(renderer, /parseContent\(String\(content \?\? ""\)\)\.some\(/);
   assert.match(renderer, /if \(part\.type === "think"\) return false;/);
   assert.match(renderer, /sanitizeAnswerHtml\(md\.render\(part\.text\)\)/);
-  assert.match(renderer, /return highlightTextNodes\(doc\.body, highlight, doc\) > 0;/);
+  assert.match(renderer, /if \(highlightTextNodes\(doc\.body, highlight, doc\) > 0\) return true;/);
   const detail = source("pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/ConversationDetail.jsx");
   assert.match(detail, /import MarkdownRenderer, \{ answerShowsHit \} from "\.\/MarkdownRenderer";/);
   assert.match(detail, /searchWholeConversation \? \{\} : \{ fromDay, toDay \},\s*answerShowsHit\s*\)/);
@@ -2836,4 +2839,177 @@ test("rc20, B60: Ein von der Antwort mitgebrachtes <mark> (ohne Kennzeichen der 
   rc13.hardenAnswerHtml(root, doc, { searchHits: true });
   assert.equal(elements(root, (e) => e.tagName === "MARK").length, 1);
   assert.match(p.textContent, / spät$/);
+});
+
+test("rc21, K100: cellpadding, cellspacing und border stehen in FORBID_ATTR, in beiden Durchgängen (<table cellpadding=\"100000\"> schob den Text weit aus dem Blick); die Ausrichtung der Tabellen bleibt, der Kommentar nennt es", () => {
+  for (const config of [rc21.ANSWER_PURIFY_CONFIG, rc21.answerPurifyConfig({ searchHits: true })]) {
+    for (const attribute of ["cellpadding", "cellspacing", "border"])
+      assert.ok(config.FORBID_ATTR.includes(attribute), attribute);
+    // rc20, K80 bleibt
+    for (const attribute of ["width", "height"])
+      assert.ok(config.FORBID_ATTR.includes(attribute), attribute);
+  }
+  assert.ok(!rc21.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("align"));
+  const view = readFileSync(new URL("../src/utils/conversationView.js", import.meta.url), "utf8");
+  const comment = view.slice(0, view.indexOf("export const ANSWER_PURIFY_CONFIG"));
+  assert.match(comment, /cellpadding, cellspacing und border/);
+  assert.match(comment, /K100/);
+});
+
+test("rc21, K101: Ein <a> ohne href (nie gehabt oder von DOMPurify verworfen, etwa bei Kurs-ID:4711 oder javascript:) gilt nicht als Link: Es wird aufgelöst, sein Text bleibt, ein Bild darin wird wie außerhalb eines Links ein Link auf die Bilddatei", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = (...build) => {
+    const paragraph = root.appendChild(doc.createElement("p"));
+    for (const add of build) add(paragraph);
+    return paragraph;
+  };
+  const anchor = (parent, children = [], target = null) => {
+    const a = parent.appendChild(doc.createElement("a"));
+    if (target) a.setAttribute("target", target);
+    for (const child of children) a.appendChild(child);
+    return a;
+  };
+  const image = (src, alt) => {
+    const img = doc.createElement("img");
+    img.setAttribute("src", src);
+    if (alt !== undefined) img.setAttribute("alt", alt);
+    return img;
+  };
+  const bare = p((parent) => anchor(parent, [image("https://vhs.example/kurs.jpg")]));
+  const named = p((parent) => anchor(parent, [image("https://vhs.example/kursbild.jpg", "Kursbild")], "_top"));
+  const text = p((parent) => parent.appendChild(doc.createTextNode("Siehe ")), (parent) => anchor(parent, [doc.createTextNode("Kurs 4711")], "_top"));
+
+  rc21.hardenAnswerHtml(root, doc);
+
+  const links = elements(root, (e) => e.tagName === "A");
+  assert.ok(links.every((a) => a.getAttribute("href") !== null), "kein <a> ohne href");
+  assert.equal(elements(root, (e) => e.tagName === "IMG").length, 0, "kein Bild, kein Abruf");
+  // ohne Alt-Text: Link auf die Bilddatei mit ihrer Adresse
+  const toBare = links.find((a) => a.getAttribute("href") === "https://vhs.example/kurs.jpg");
+  assert.equal(toBare?.textContent, "https://vhs.example/kurs.jpg");
+  assert.equal(toBare?.getAttribute("target"), "_blank");
+  assert.equal(toBare?.getAttribute("rel"), "noopener noreferrer");
+  assert.equal(bare.textContent, "https://vhs.example/kurs.jpg");
+  // mit Alt-Text: Link auf die Bilddatei mit dem Alt-Text
+  const toNamed = links.find((a) => a.getAttribute("href") === "https://vhs.example/kursbild.jpg");
+  assert.equal(toNamed?.textContent, "Kursbild");
+  assert.equal(named.textContent, "Kursbild");
+  // nur Text: kein Link, der Text bleibt, nichts dazu
+  assert.equal(text.textContent, "Siehe Kurs 4711");
+  assert.equal(elements(text, (e) => e.tagName === "A").length, 0);
+});
+
+test("rc21, K102 und B70 nach E37: Ein Link ohne gültiges Ziel wird Text und behält seine Adresse sichtbar. Mit Linktext „Linktext (Adresse)“, ohne sichtbaren Linktext nur die Adresse (sie ersetzt unsichtbare Zeichen wie U+3164), bei # oder leerer Adresse nur der Linktext; ein Link mit Ziel ohne sichtbaren Text zeigt genau seine Adresse, ohne das Füllzeichen davor", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const paragraph = (href, text) => {
+    const p = root.appendChild(doc.createElement("p"));
+    const a = p.appendChild(doc.createElement("a"));
+    a.setAttribute("href", href);
+    if (text) a.appendChild(doc.createTextNode(text));
+    return { p, a };
+  };
+  const cases = [
+    // [href, Linktext, Text danach]
+    ["/anmeldung", "", "/anmeldung"], // [](/anmeldung)
+    ["/kurs/123", "Kursseite", "Kursseite (/kurs/123)"], // [Kursseite](/kurs/123)
+    ["www.vhs-lingen.de/kurs/123", "Kursseite", "Kursseite (www.vhs-lingen.de/kurs/123)"],
+    ["info@vhs-lingen.de", "Mail", "Mail (info@vhs-lingen.de)"],
+    ["URL", "Platzhalter", "Platzhalter (URL)"],
+    ["#anmeldung", "Sprung", "Sprung (#anmeldung)"],
+    ["#", "", ""], // [](#)
+    ["#", "Kursseite", "Kursseite"],
+    ["  #  ", "Kursseite", "Kursseite"],
+    ["", "Text ohne Adresse", "Text ohne Adresse"],
+    ["   ", "Nur Leerraum", "Nur Leerraum"],
+    ["­", "Trennzeichen", "Trennzeichen"],
+    ["/anmeldung-k102", "ㅤ", "/anmeldung-k102"], // Link nur aus U+3164
+    ["/anmeldung-k102", " ​ㅤ ", "/anmeldung-k102"],
+  ].map(([href, text, expected]) => ({ href, expected, ...paragraph(href, text) }));
+  // B70: Link mit Ziel, Linktext nur aus U+3164
+  const withTarget = paragraph("https://www.vhs.example/k89", "ㅤ");
+
+  rc21.hardenAnswerHtml(root, doc);
+
+  for (const { href, expected, p } of cases) {
+    assert.equal(p.textContent, expected, JSON.stringify(href));
+    assert.equal(elements(p, (e) => e.tagName === "A").length, 0, `kein Link: ${JSON.stringify(href)}`);
+  }
+  assert.equal(withTarget.a.textContent, "https://www.vhs.example/k89");
+  assert.equal(withTarget.a.getAttribute("target"), "_blank");
+  assert.equal(withTarget.p.textContent, "https://www.vhs.example/k89");
+  // ein zweiter Durchgang (nach der Hervorhebung) hängt nichts doppelt an
+  rc21.hardenAnswerHtml(root, doc, { searchHits: true });
+  for (const { href, expected, p } of cases) assert.equal(p.textContent, expected, JSON.stringify(href));
+  assert.equal(withTarget.p.textContent, "https://www.vhs.example/k89");
+  // die Adresse ist jetzt sichtbarer Text: die Suche trifft sie
+  assert.equal(highlightTextNodes(cases[0].p, "anmeldung", doc), 1);
+});
+
+test("rc21, K103: answerShowsHit prüft zusätzlich den Text des bereinigten Körpers (doc.body.textContent): Ein Begriff über die Token der Syntaxhervorhebung im Codeblock steht sichtbar da, kein falscher Hinweis; Link-Adressen, verworfenes HTML und <think> bleiben draußen (Fälle mit echtem DOMPurify und highlight.js: kie575Layout.manual.mjs, SHOWS_HIT_CASES)", () => {
+  const renderer = readFileSync(
+    new URL("../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx", import.meta.url),
+    "utf8"
+  );
+  const body = renderer.slice(renderer.indexOf("export function answerShowsHit"), renderer.indexOf("function MarkdownRenderer("));
+  assert.match(body, /if \(highlightTextNodes\(doc\.body, highlight, doc\) > 0\) return true;/);
+  assert.match(body, /return !!searchPattern\(highlight\)\?\.test\(doc\.body\.textContent\);/);
+  // erst nach dem Bereinigen (sanitizeAnswerHtml) und ohne <think>
+  assert.ok(body.indexOf("sanitizeAnswerHtml(md.render(part.text))") < body.indexOf("doc.body.textContent"));
+  assert.match(body, /if \(part\.type === "think"\) return false;/);
+  // Wie der Text des Körpers über Token-Grenzen trifft: <span>Kurs</span> <span>4711</span>
+  const doc = createDocument();
+  const code = doc.createElement("code");
+  for (const [cls, text] of [["hljs-title class_", "Kurs"], [null, " "], ["hljs-number", "4711"]]) {
+    if (cls === null) code.appendChild(doc.createTextNode(text));
+    else {
+      const span = code.appendChild(doc.createElement("span"));
+      span.setAttribute("class", cls);
+      span.appendChild(doc.createTextNode(text));
+    }
+  }
+  assert.equal(highlightTextNodes(code, "Kurs 4711", doc), 0, "über Knotengrenzen keine Markierung");
+  assert.ok(searchPattern("Kurs 4711").test(code.textContent), "der sichtbare Text trifft");
+});
+
+test("rc21, K104: http: und https: gelten nur mit // als Ziel. https:/pfad und https:pfad (der Browser löste sie gegen die Admin-Seite auf) werden Text mit ihrer Adresse; andere Schemata und // bleiben Links", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const link = (href, text) => {
+    const a = p.appendChild(doc.createElement("a"));
+    a.setAttribute("href", href);
+    a.appendChild(doc.createTextNode(text));
+    p.appendChild(doc.createTextNode(" "));
+    return a;
+  };
+  const without = [
+    link("https:/www.vhs.de/anmeldung", "Anmeldung"),
+    link("https:kurs/4711", "Kurs"),
+    link("http:/www.vhs.de/a", "Alt"),
+    link("HTTPS:www.vhs.de", "Groß"),
+    link("https:\\\\www.vhs.de", "Rückstrich"),
+  ];
+  const kept = [
+    link("https://www.vhs.de/anmeldung", "Richtig"),
+    link("HTTP://www.vhs.de", "Groß richtig"),
+    link(" https://www.vhs.de/leer", "Mit Leerraum"),
+    link("mailto:info@vhs.example", "Mail"),
+    link("tel:+495911234", "Telefon"),
+    link("//www.vhs.de/kurs", "Ohne Schema"),
+    link("httpsx:kurs", "Anderes Schema"),
+  ];
+
+  rc21.hardenAnswerHtml(root, doc);
+
+  const links = elements(root, (e) => e.tagName === "A");
+  for (const a of without) assert.ok(!links.includes(a), a.getAttribute("href"));
+  for (const text of ["Anmeldung (https:/www.vhs.de/anmeldung)", "Kurs (https:kurs/4711)", "Alt (http:/www.vhs.de/a)", "Groß (HTTPS:www.vhs.de)", "Rückstrich (https:\\\\www.vhs.de)"])
+    assert.ok(p.textContent.includes(text), text);
+  for (const a of kept) {
+    assert.ok(links.includes(a), a.getAttribute("href"));
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
 });
