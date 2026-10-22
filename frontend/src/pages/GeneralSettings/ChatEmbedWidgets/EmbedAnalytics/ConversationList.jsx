@@ -136,8 +136,8 @@ const SEGMENT_CLASS =
 // Leiste (index.jsx übergibt onJumpToOverview), es gilt also withOverview;
 // plain bleibt für die Liste ohne Button (Tests). Die Kurzform zwischen
 // 1.280 und 1.679 px („Positiv“, „Negativ“, „Exportieren“ ohne Pfeil) ist
-// eine Entscheidung zur Bestätigung durch den Nutzer (Fixliste 7.22-rc18,
-// E27, KIE-575 §11): Der Kopf wird durch den Button nicht höher (K47).
+// vom Nutzer bestätigt am 21.10.2026 (Fixliste 7.22-rc18, E27, KIE-575
+// §11): Der Kopf wird durch den Button nicht höher (K47).
 // Rückweg: die Schwelle in withOverview. Die Klassen stehen wörtlich
 // (Tailwind liest nur, was im Quelltext steht).
 const FULL_TOOLBAR = {
@@ -1365,11 +1365,12 @@ export default function ConversationList({
   // 1.920 px rund 680 px. Der Kopf nimmt dann die kompakte Form wie auf dem
   // Tablet: Werkzeugleiste in eigener Zeile, kurze Filternamen, „Exportieren“
   // ohne Pfeil; ohne Abstand zum Benutzermenü, das dann über dem Verlauf
-  // liegt. Sonst lief die Leiste unter den Verlauf. Die volle Form (xl:)
-  // gilt, wenn die Liste allein die Breite hat (Verlauf geschlossen). xl:
-  // ist im Kopf eine Breitenstufe (Platz für die Leiste neben der
-  // Überschrift), nicht die Geräteklasse; die heißt desktop: (Review
-  // 7.22-rc15, C10).
+  // liegt. Sonst lief die Leiste unter den Verlauf. Hat die Liste allein
+  // die Breite (Verlauf geschlossen), gilt die volle Form: der Kopf ab xl,
+  // die Leiste ohne Button ab xl, mit „Zur Übersicht ↑“ ab 1.680 px (K47,
+  // FULL_TOOLBAR). xl: ist im Kopf eine Breitenstufe (Platz für die Leiste
+  // neben der Überschrift), nicht die Geräteklasse; die heißt desktop:
+  // (Review 7.22-rc15, C10).
   const compactHeader = wide && !!embedId && (chatId !== null || panelShown);
   const wideHeader = (className) => (compactHeader ? "" : className);
   // K47: die breite Form der Leiste erst ab 1.680 px, wenn „Zur Übersicht ↑“

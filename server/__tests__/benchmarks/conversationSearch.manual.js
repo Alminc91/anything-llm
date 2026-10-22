@@ -404,7 +404,8 @@ async function main() {
   // müsste jede Treffer-Zeile des Zeitraums gelesen und ihr sichtbarer Text
   // geprüft werden - gemessen wird genau das: die Treffer-Zeilen samt
   // Antworttext lesen (dieselbe Bedingung wie die Liste) und in JS prüfen
-  // (dieselbe Regel wie visibleAnswerText im Frontend).
+  // (Näherung der früheren Regel visibleAnswerText im Frontend; dort
+  // entscheidet seit Nachreview 7.22-rc19 die Darstellung, answerShowsHit).
   if (VISIBLE) {
     const { Prisma } = require(
       path.join(SERVER, "node_modules/@prisma/client")

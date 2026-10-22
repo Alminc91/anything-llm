@@ -42,7 +42,7 @@ import {
   shortId,
   startScrollTop,
 } from "@/utils/conversationView";
-import MarkdownRenderer from "./MarkdownRenderer";
+import MarkdownRenderer, { answerShowsHit } from "./MarkdownRenderer";
 import { useConversationDeletion } from "./DeleteConversation";
 import { useDismiss, useWide } from "./viewHooks";
 
@@ -509,9 +509,12 @@ export default function ConversationDetail({
 
   // Der Begriff trifft nur Unsichtbares (Link-Adresse, HTML, <think>) –
   // die Suche des Servers liest den Antworttext, wie er gespeichert ist.
-  // Geprüft werden die Nachrichten, die auch der Server durchsucht hat (im
-  // Zeitraum bzw. mit Abschnitt die ganze Konversation); memoisiert – das
-  // Lesen der Antworten (JSON) läuft nicht bei jedem Rendern (S7).
+  // Sichtbar in einer Antwort ist, was der Verlauf hervorhebt
+  // (answerShowsHit, dieselbe Darstellung; Nachreview 7.22-rc19, K81 bis
+  // K86). Geprüft werden die Nachrichten, die auch der Server durchsucht
+  // hat (im Zeitraum bzw. mit Abschnitt die ganze Konversation);
+  // memoisiert – das Lesen und Darstellen der Antworten läuft nicht bei
+  // jedem Rendern (S7).
   const hiddenHit = useMemo(
     () =>
       ready &&
@@ -520,7 +523,8 @@ export default function ConversationDetail({
       !hasVisibleHit(
         messages,
         search,
-        searchWholeConversation ? {} : { fromDay, toDay }
+        searchWholeConversation ? {} : { fromDay, toDay },
+        answerShowsHit
       ),
     [ready, search, row, messages, searchWholeConversation, fromDay, toDay]
   );

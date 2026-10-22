@@ -102,6 +102,31 @@ function sanitizedHtml(html, highlight) {
 }
 
 /**
+ * Zeigt der Verlauf in dieser Antwort einen Treffer der Suche? Dieselbe
+ * Darstellung wie MarkdownRenderer: ohne <think>-Blöcke (eingeklappt),
+ * Markdown, sanitizeAnswerHtml, dann highlightTextNodes. Sichtbar ist, was
+ * der Verlauf hervorhebt; ein Begriff nur in Link-Adressen, im Quelltext,
+ * in verworfenem HTML oder in ausgeblendeten Gedanken ist es nicht
+ * (hasVisibleHit, Hinweis im Kopf des Verlaufs; Nachreview 7.22-rc19, K81
+ * bis K86). Ohne DOMParser (kein Browser) gilt ein Treffer als sichtbar:
+ * dann kein Hinweis.
+ * @param {string} content - Text der Antwort (answerText)
+ * @param {string} highlight - Suchbegriff
+ * @returns {boolean}
+ */
+export function answerShowsHit(content, highlight) {
+  return parseContent(String(content ?? "")).some((part) => {
+    if (part.type === "think") return false;
+    if (typeof DOMParser === "undefined") return true;
+    const doc = new DOMParser().parseFromString(
+      sanitizeAnswerHtml(md.render(part.text)),
+      "text/html"
+    );
+    return highlightTextNodes(doc.body, highlight, doc) > 0;
+  });
+}
+
+/**
  * Gerendert wird nur neu, wenn sich Antwort oder Suchbegriff ändern (memo):
  * Markdown, DOMPurify und Hervorhebung kosten je Antwort – sonst liefen sie
  * bei jedem Tastendruck im Suchfeld für den ganzen Verlauf.

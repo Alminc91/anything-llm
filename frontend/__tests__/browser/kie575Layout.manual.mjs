@@ -47,6 +47,16 @@
 // fünfstelligen Zahlen und einer klassischen Scrollleiste (17 px, per CSS
 // nachgestellt) höchstens zweizeilig, 1.280 bis 1.440 px (K64; --k64
 // allein).
+// Fixliste 7.22-rc20 (Nachreview rc19): Text in <marquee> mit Maßen
+// sichtbar, keine width und height aus der Antwort (K80); ob eine Antwort
+// den Suchbegriff sichtbar zeigt, entscheidet ihre Darstellung
+// (answerShowsHit): Tabelle der Fälle in der Seite mit echtem DOMPurify
+// und je Fall eine Suche mit Markierung bzw. Hinweis im Verlauf (K81 bis
+// K86); Links ohne Ziel (#, Platzhalter, relativ, unsichtbare Zeichen)
+// werden Text (K87, K88), ein Link nur aus U+3164 zeigt seine Adresse
+// (K89), ein Bild in einem Link ohne Adresse bleibt als Link auf die
+// Bilddatei (K90); ein mitgebrachtes <mark> wird Text in der Farbe der
+// Antwort, auch dunkel (B60).
 //
 // Der Server ist im Browser nachgestellt (page.route): Es läuft nur der
 // Vite-Dev-Server des Frontends – kein Container, kein Docker. Playwright
@@ -149,6 +159,52 @@ const HTML_ANSWER_RC18 = [
 ].join("\n");
 const FAKE_HIT_ANSWER =
   'Hinweis: <mark data-search-hit="">Bitte Kurs X stornieren</mark> und <span data-search-hit="">hier</span> weiter.';
+// Fixliste 7.22-rc20 (Nachreview rc19) in der fünften Antwort: <marquee>
+// und eine Tabelle mit Maßen (K80), Links ohne Ziel (K87, K88), ein Link
+// nur aus U+3164 (K89), ein Bild in einem Link ohne Adresse (K90) und je
+// ein Suchbegriff für K82 bis K86 (sichtbar oder nur in einer Adresse)
+const HTML_ANSWER_RC20 = [
+  'Gern helfe ich. <marquee width="1">Versteckt marquee1</marquee> <marquee width="0" height="0">Versteckt marquee0</marquee>',
+  "",
+  '<table width="1" height="1"><tr><td width="1" height="1">Versteckt Tabellenmaß</td></tr></table>',
+  "",
+  'Ohne Ziel: [Kursseite](#), [Platzhalter](URL), [Relativ](/anmeldung), <a href="&shy;">&shy;</a> und <a href="&#x2060;">Wortverbinder</a>.',
+  "",
+  `Leerzeichen des Hangul: [\u3164](https://www.vhs-musterstadt.de/k89) und ein Bild im Link ohne Adresse: [![](${TRACKER}/k90.jpg)]()`,
+  "",
+  "Nutzen Sie `<template>` für Vorlagen. Wichtig: k82anmeldung bis Freitag. Ende mit `</template>`.",
+  "",
+  "```html\n<template>k82codeblock</template>\n```",
+  "",
+  `Siehe <a href="https://www.vhs-musterstadt.de/k83anmeldung"></a> und <img src="${TRACKER}/k83bild.jpg">.`,
+  "",
+  "Mehr unter [Anmeldung](https://www.vhs-musterstadt.de/anmeldung)(k84kostenlos).",
+  "",
+  "Leer: [](https://www.vhs-musterstadt.de/kurs/k85töpfern) und [&nbsp;](https://www.vhs-musterstadt.de/k86anmeldung).",
+].join("\n");
+// … und in der sechsten: Inhalt, den DOMPurify verwirft (K81), am Ende ein
+// nicht geschlossenes <template>, das den Rest der Antwort verschluckt
+const HTML_ANSWER_RC20_HIDDEN = [
+  "<template><template>a</template> k81verschachtelt</template> Weiter.",
+  "",
+  "Gern helfe ich. <template>Stornieren Sie Kurs k81offen",
+  "",
+  "Zweiter Absatz mit Rabattcode k81rest",
+].join("\n");
+// Suchbegriffe der Antworten rc20: sichtbar (markiert, kein Hinweis) oder
+// nur im Quelltext bzw. in einer Adresse (Hinweis, keine Markierung)
+const RC20_SEARCHES = [
+  ["K81 nicht geschlossenes <template>", "k81offen", false],
+  ["K81 Rest nach nicht geschlossenem <template>", "k81rest", false],
+  ["K81 verschachteltes <template>", "k81verschachtelt", false],
+  ["K82 Code mit <template>", "k82anmeldung", true],
+  ["K82 Codeblock mit <template>", "k82codeblock", true],
+  ["K83 rohes <a href> ohne Text", "k83anmeldung", true],
+  ["K83 rohes <img> ohne Alt-Text", "k83bild", true],
+  ["K84 Klammer nach dem Link", "k84kostenlos", true],
+  ["K85 Adresse mit Umlaut (prozentkodiert angezeigt)", "k85töpfern", false],
+  ["K86 Linktext nur &nbsp;", "k86anmeldung", true],
+];
 const PREVIEWS = [
   "Gibt es noch freie Plätze im Spanischkurs A1 am Dienstagabend?",
   "Wann beginnt der nächste Yoga-Kurs für Anfänger und was kostet er?",
@@ -195,6 +251,10 @@ function messagesFor(id) {
             ? HTML_ANSWER_RC16
             : id === HTML_ID && k === 2
               ? HTML_ANSWER_RC18
+              : id === HTML_ID && k === 4
+              ? HTML_ANSWER_RC20
+              : id === HTML_ID && k === 5
+              ? HTML_ANSWER_RC20_HIDDEN
               : id === HTML_ID && k === 10
               ? FAKE_HIT_ANSWER
               : `Gern helfe ich Ihnen weiter. **Kurs ${k + 1}** beginnt am Dienstag um 18:30 Uhr in Raum 204.\n\n- Dauer: 10 Abende\n- Gebühr: 96,00 Euro\n- Anmeldung über die [Kursseite](https://www.vhs-musterstadt.de/kurs/${id}${k})\n\nHaben Sie noch Fragen zu Terminen oder zur Anmeldung?`,
@@ -959,6 +1019,167 @@ async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }
   await page.waitForTimeout(800);
 }
 
+// Fixliste 7.22-rc20, K81 bis K86: Zeigt der Verlauf die Antwort mit dem
+// Begriff? [Fall, Antworttext, Begriff, sichtbar]. Dazu die Fälle, die bis
+// rc19 visibleAnswerText in Node prüfte (Fixliste Punkt 11, Fixliste 2 S2,
+// rc18 K62 und K63).
+const SHOWS_HIT_CASES = [
+  ["Punkt 11 Link-Adresse", 'Hier: [Anmeldung](https://vhs-lingen.example/anmeldung) <span data-x="geheimattribut">ok</span><think>Gedanke zu Yoga</think>', "vhs-lingen", false],
+  ["Punkt 11 HTML-Attribut", 'Hier: [Anmeldung](https://vhs-lingen.example/anmeldung) <span data-x="geheimattribut">ok</span>', "geheimattribut", false],
+  ["Punkt 11 <think>", "Hier: ok<think>Gedanke zu Yoga</think>", "yoga", false],
+  ["Punkt 11 Linktext", "Hier: [Anmeldung](https://vhs-lingen.example/anmeldung)", "anmeldung", true],
+  ["S2 Autolink", "Siehe <https://kurs.example/a1> oder <info@vhs.example>.", "kurs.example", true],
+  ["S2 Autolink E-Mail", "Siehe <https://kurs.example/a1> oder <info@vhs.example>.", "info@vhs", true],
+  ["S2 Adresse eines HTML-Links", '<a href="https://kurs.example">Link</a>', "kurs.example", false],
+  ["K62 Link ohne Text", "Siehe [](https://vhs.example/anmeldung).", "anmeldung", true],
+  ["K62 Link nur aus U+200B", "[​](https://vhs.example/anmeldung)", "anmeldung", true],
+  ["K62 Link ohne Text mit Titel", '[](<https://vhs.example/anmeldung> "Titel")', "anmeldung", true],
+  ["K62 verlinktes Bild ohne Alt-Text: Linkadresse", "[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "anmeldung", true],
+  ["K62 verlinktes Bild ohne Alt-Text: nicht die Bildadresse", "[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "bild.jpg", false],
+  ["K62 verlinktes Bild mit Alt-Text", "[![Kursbild](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "kursbild", true],
+  ["K62 verlinktes Bild mit Alt-Text: keine Adresse", "[![Kursbild](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "anmeldung", false],
+  ["K62 Bild im Link mit Text", "[![](https://vhs.example/bild.jpg) Kurs](https://vhs.example/anmeldung)", "bild.jpg", false],
+  ["K62 Bild ohne Alt-Text im Netz", "![](https://vhs.example/bild.jpg)", "bild.jpg", true],
+  ["K62 Bild ohne Alt-Text relativ", "![](/relativ.png)", "relativ", false],
+  ["K62 Ziel eines Links mit Text", "[Kurs](https://vhs.example/anmeldung)", "anmeldung", false],
+  ["K63 <template>", "Gern helfe ich. <template>Stornieren Sie Kurs 4711</template>", "4711", false],
+  ["K63 <datalist> aufgelöst", "Gern helfe ich. <datalist>Stornieren Sie Kurs 4711</datalist>", "4711", true],
+  ["K80 <marquee> aufgelöst", 'Gern helfe ich. <marquee width="1">Stornieren Sie Kurs 4711</marquee>', "4711", true],
+  ["K81 nicht geschlossenes <template>", "Gern helfe ich. <template>Stornieren Sie Kurs 4711\n\nZweiter Absatz mit Rabattcode X", "4711", false],
+  ["K81 Rest nach nicht geschlossenem <template>", "Gern helfe ich. <template>Stornieren Sie Kurs 4711\n\nZweiter Absatz mit Rabattcode X", "rabattcode", false],
+  ["K81 verschachteltes <template>", "<template><template>a</template> Kurs 4711</template>", "4711", false],
+  ["K81 <noscript>", "Gern. <noscript>Stornieren Sie Kurs 4711</noscript> Ende", "4711", false],
+  ["K81 <xmp>", "Gern. <xmp>Stornieren Sie Kurs 4711</xmp> Ende", "4711", false],
+  ["K81 <svg>", "Gern. <svg><text>Stornieren Sie Kurs 4711</text></svg> Ende", "4711", false],
+  ["K81 <video>", "Gern. <video>Stornieren Sie Kurs 4711</video> Ende", "4711", false],
+  ["K81 <iframe>", "Gern. <iframe>Stornieren Sie Kurs 4711</iframe> Ende", "4711", false],
+  ["K82 Code mit <template>", "Nutzen Sie `<template>` für Vorlagen. Wichtig: Anmeldung bis Freitag. Ende mit `</template>`.", "anmeldung", true],
+  ["K82 Codeblock mit <template>", "```html\n<template>Hallo Welt</template>\n```", "hallo welt", true],
+  ["K83 rohes <a href> ohne Text", 'Siehe <a href="https://vhs.example/anmeldung"></a>.', "anmeldung", true],
+  ["K83 rohes <img> ohne Alt-Text", '<img src="https://vhs.example/k83.jpg">', "k83.jpg", true],
+  ["K83 rohes <img> mit Alt-Text", '<img src="https://vhs.example/k83.jpg" alt="Kursfoto">', "kursfoto", true],
+  ["K84 Klammer nach dem Link", "Mehr unter [Anmeldung](https://vhs.de/anmeldung)(kostenlos)", "kostenlos", true],
+  ["K84 Klammer nach dem Bild", "![Bild](https://x.example/a.jpg)(Foto: VHS)", "foto: vhs", true],
+  ["K85 Adresse mit Umlaut: nicht dekodiert", "[](https://vhs.de/kurs/töpfern)", "töpfern", false],
+  ["K85 Adresse mit Umlaut: so wie angezeigt", "[](https://vhs.de/kurs/töpfern)", "t%C3%B6pfern", true],
+  ["K86 Linktext &nbsp;", "Siehe [&nbsp;](https://vhs.example/anmeldung).", "anmeldung", true],
+  ["K86 Linktext &#8203;", "Siehe [&#8203;](https://vhs.example/anmeldung).", "anmeldung", true],
+  ["K86 Linktext <b></b>", "Siehe [<b></b>](https://vhs.example/anmeldung).", "anmeldung", true],
+  ["K86 Linktext Code-Span", "Siehe [` `](https://vhs.example/anmeldung).", "anmeldung", true],
+  ["K87 Link auf #", "Anmeldung über die [Kursseite](#anmeldung)", "kursseite", true],
+  ["K89 Link nur aus U+3164", "[ㅤ](https://vhs.example/k89)", "k89", true],
+  ["K90 Bild ohne Alt-Text im Link ohne Adresse", "[![](https://vhs.example/k90.jpg)]()", "k90.jpg", true],
+  ["B60 mitgebrachtes <mark>", "Hinweis: <mark>Yoga am Montag</mark>", "yoga", true],
+];
+
+/**
+ * Fixliste 7.22-rc20, K81 bis K86 (läuft in der Seite, echtes DOMPurify und
+ * markdown-it aus dem Dev-Server): hasVisibleHit mit answerShowsHit aus
+ * MarkdownRenderer für jeden Fall aus SHOWS_HIT_CASES, je Fall als Prüfung.
+ */
+async function checkAnswerShowsHit(scenario, page) {
+  const results = await page.evaluate(async (cases) => {
+    const { hasVisibleHit } = await import("/src/utils/conversationView.js");
+    const { answerShowsHit } = await import(
+      "/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx"
+    );
+    return cases.map(([label, text, term, expected]) => {
+      try {
+        const message = { prompt: "Frage", response: JSON.stringify({ text, sources: [] }) };
+        return { label, expected, shown: hasVisibleHit([message], term, {}, answerShowsHit) };
+      } catch (error) {
+        return { label, expected, error: String(error) };
+      }
+    });
+  }, SHOWS_HIT_CASES);
+  for (const result of results)
+    check(scenario, `K81 bis K86 Sichtbarkeit aus der Darstellung: ${result.label} (${result.expected ? "sichtbar" : "verborgen"})`, result.shown === result.expected, result);
+}
+
+/**
+ * Fixliste 7.22-rc20 (läuft nach checkAnswerHtmlRc18, dieselbe
+ * Konversation, fünfte, sechste und elfte Antwort; echtes DOMPurify im
+ * Browser): K80 Text in <marquee> und in einer Tabelle mit Maßen sichtbar,
+ * keine width und height aus der Antwort; K87, K88 Links ohne Ziel sind
+ * Text, jeder Link im Verlauf hat ein Ziel mit Schema und einen sichtbaren
+ * Namen; K89 Link nur aus U+3164 zeigt seine Adresse; K90 Bild im Link
+ * ohne Adresse als Link auf die Bilddatei, kein Abruf; B60 ein
+ * mitgebrachtes <mark> ist Text in der Farbe der Antwort ohne eigene
+ * Fläche. Danach je Suchbegriff aus RC20_SEARCHES: sichtbar heißt
+ * markiert und kein Hinweis, verborgen heißt Hinweis und keine Markierung
+ * (K81 bis K86).
+ */
+async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }) {
+  const info = await page.evaluate(() => {
+    const body = document.querySelector("[data-panel-body]");
+    const answers = [...body.querySelectorAll("[data-answer]")];
+    const answer = answers[4];
+    const shown = (root, word) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.data.includes(word)) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+        const element = node.parentElement;
+        if (rects.length > 0 && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) {
+          const style = getComputedStyle(element);
+          return { shown: true, tag: element.tagName, color: style.color, background: style.backgroundColor };
+        }
+      }
+      return { shown: false };
+    };
+    const blank = (text) => text.replace(/[\s\p{Cf}\p{Default_Ignorable_Code_Point}⠀]/gu, "") === "";
+    const allLinks = answers.flatMap((a) => [...a.querySelectorAll("a")]).map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") }));
+    return {
+      answerColor: getComputedStyle(answer).color,
+      marquee: { one: shown(answer, "Versteckt marquee1"), zero: shown(answer, "Versteckt marquee0"), table: shown(answer, "Versteckt Tabellenmaß") },
+      marquees: answers.reduce((n, a) => n + a.querySelectorAll("marquee").length, 0),
+      sized: answers.flatMap((a) => [...a.querySelectorAll("[width], [height]")]).map((e) => e.outerHTML.slice(0, 80)),
+      links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") })),
+      withoutTarget: allLinks.filter((l) => !/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(l.href ?? "") || l.target !== "_blank"),
+      unnamed: allLinks.filter((l) => blank(l.text)),
+      plainTexts: ["Kursseite", "Platzhalter", "Relativ", "Wortverbinder"].map((word) => [word, answer.textContent.includes(word)]),
+      images: body.querySelectorAll("img").length,
+      fakeMarks: answers[10].querySelectorAll("mark").length,
+      fake: shown(answers[10], "Bitte Kurs X stornieren"),
+      fakeAnswerColor: getComputedStyle(answers[10]).color,
+    };
+  });
+  await page.locator("[data-panel-body] [data-answer] >> nth=4").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k80-k90.png`) });
+  await page.locator("[data-panel-body] [data-answer] >> nth=10").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-b60.png`) });
+  check(scenario, "K80 Text in <marquee width=1> und <marquee width=0 height=0> sichtbar (aufgelöst), Tabelle mit Maßen lesbar", info.marquee.one.shown && info.marquee.zero.shown && info.marquee.table.shown && info.marquees === 0, { marquee: info.marquee, marquees: info.marquees });
+  check(scenario, "K80 keine width und height aus der Antwort", info.sized.length === 0, { sized: info.sized });
+  check(scenario, "K87, K88 Links ohne Ziel (#, URL, /anmeldung, nur U+00AD, nur U+2060) sind Text, ihr Text bleibt", info.plainTexts.every(([, found]) => found) && !info.links.some((l) => ["#", "URL", "/anmeldung", "­", "⁠"].includes(l.href)), { plainTexts: info.plainTexts, links: info.links });
+  check(scenario, "K87, K88 jeder Link im Verlauf hat ein Ziel mit Schema, öffnet in neuem Tab und hat einen sichtbaren Namen", info.withoutTarget.length === 0 && info.unnamed.length === 0, { withoutTarget: info.withoutTarget, unnamed: info.unnamed });
+  const k89 = info.links.find((l) => l.href === "https://www.vhs-musterstadt.de/k89");
+  check(scenario, "K89 Link nur aus U+3164 zeigt seine Adresse", !!k89 && k89.text.includes(k89.href), { link: k89 });
+  const k90 = info.links.find((l) => l.href === `${TRACKER}/k90.jpg`);
+  check(scenario, "K90 Bild ohne Alt-Text im Link ohne Adresse: Link auf die Bilddatei mit ihrer Adresse, kein Bild, kein Abruf", !!k90 && k90.text === k90.href && k90.target === "_blank" && info.images === 0 && trackerHits.length === 0, { link: k90, images: info.images, trackerHits });
+  check(scenario, `B60 mitgebrachtes <mark> (${theme}): kein <mark>, Text sichtbar in der Farbe der Antwort ohne eigene Fläche`, info.fakeMarks === 0 && info.fake.shown && info.fake.tag !== "MARK" && info.fake.color === info.fakeAnswerColor && /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(info.fake.background), { marks: info.fakeMarks, fake: info.fake, answerColor: info.fakeAnswerColor });
+
+  for (const [label, term, visible] of RC20_SEARCHES) {
+    await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}&q=${encodeURIComponent(term)}`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+    await page.waitForTimeout(600);
+    const searched = await page.evaluate(() => ({
+      marks: [...document.querySelectorAll("[data-panel-body] mark[data-search-hit]")].map((mark) => mark.textContent),
+      hiddenHit: document.querySelector("[data-panel-hidden-hit]")?.textContent ?? null,
+      row: !!document.querySelector("[data-conversation-row][aria-current='true']"),
+    }));
+    const ok = searched.row && (visible ? searched.marks.length > 0 && searched.hiddenHit === null : searched.marks.length === 0 && searched.hiddenHit !== null);
+    check(scenario, `${label}: Suche „${term}“ ${visible ? "markiert, kein Hinweis" : "mit Hinweis „nur in Link-Adressen, im Quelltext …“, keine Markierung"}`, ok, searched);
+  }
+  // zurück zum Stand ohne Suche für die folgenden Prüfungen
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+}
+
 /**
  * Aussehen der Links im Verlauf (läuft in der Seite): Farbe, Unterstreichung,
  * Ring und Kontrast gegen den Grund, auf dem der Link steht (alle
@@ -1597,6 +1818,10 @@ async function wideScenario(browser, { width, height, theme }) {
   // rc18 K61 bis K63: unsichtbare Linktexte, Links ohne Adresse, leere
   // Links in der Suche, verborgener und gefärbter Text
   await checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme });
+  // rc20 K80 bis K90, B60: Maße, Sichtbarkeit aus der Darstellung, Links
+  // ohne Ziel, mitgebrachtes <mark>
+  await checkAnswerShowsHit(scenario, page);
+  await checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme });
   // rc15 K30: Links im Verlauf erkennbar (dieselbe Konversation)
   await checkLinkLook(scenario, page, { width, theme, where: "Desktop" });
   check(scenario, "keine Fehler der Seite (bis zum Ende)", errors.length === 0, errors);

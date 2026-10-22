@@ -1022,83 +1022,25 @@ export function answerText(response) {
   return response;
 }
 
-// Markdown-Autolinks: <https://…>, <mailto:…>, <info@vhs.de> – der
-// MarkdownRenderer zeigt die Adresse als Linktext (Fixliste 2, S2).
-const AUTOLINK =
-  /<((?:[a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s<>]*)|(?:[^\s<>@]+@[^\s<>@]+))>/g;
-
 /**
- * Ohne sichtbares Zeichen: leer, nur Leerraum oder nur unsichtbare Zeichen
- * (Unicode Cf, etwa U+200B, U+200D, U+2060 und das weiche Trennzeichen
- * U+00AD; Review 7.22-rc17, K61). String.prototype.trim entfernt die
- * unsichtbaren nicht.
+ * Ohne sichtbares Zeichen: leer, nur Leerraum oder nur unsichtbare Zeichen.
+ * Unsichtbar sind Unicode Cf (etwa U+200B, U+200D, U+2060 und das weiche
+ * Trennzeichen U+00AD; Review 7.22-rc17, K61), alle Zeichen, die laut
+ * Unicode ohne Darstellung bleiben dürfen (Default_Ignorable_Code_Point,
+ * etwa die Füllzeichen U+3164, U+115F, U+1160 und U+FFA0, U+034F, die
+ * Variantenwähler U+FE00 bis U+FE0F und U+17B4), und das leere
+ * Braille-Muster U+2800 (Nachreview 7.22-rc19, K89).
+ * String.prototype.trim entfernt die unsichtbaren nicht.
  * @param {string|null|undefined} text
  * @returns {boolean}
  */
 function isBlankText(text) {
-  return String(text ?? "").replace(/[\s\p{Cf}]/gu, "") === "";
-}
-
-// Markdown-Bild ![alt](ziel) und Markdown-Link [text](ziel) ohne
-// verschachtelte Klammern im Text; Bilder im Linktext stehen dann schon
-// als Platzhalter da (IMAGE_SLOT, zwischen Zeichen aus dem privaten
-// Bereich von Unicode: U+E000 Alt-Text U+E001 Adresse U+E000)
-const MARKDOWN_IMAGE = /!\[([^[\]]*)\]\(([^)]*)\)/g;
-const MARKDOWN_LINK = /\[([^[\]]*)\]\(([^)]*)\)/g;
-const IMAGE_SLOT = /\uE000([^\uE000\uE001]*)\uE001([^\uE000\uE001]*)\uE000/g;
-
-/**
- * Adresse aus dem Ziel eines Markdown-Links: ohne Titel ("…" bzw. '…') und
- * ohne spitze Klammern (<…>).
- * @param {string} destination - Inhalt der runden Klammern
- * @returns {string}
- */
-function markdownAddress(destination) {
-  const value = destination.trim();
-  const bracketed = /^<([^>]*)>/.exec(value);
-  return bracketed ? bracketed[1] : value.split(/\s/)[0];
-}
-
-/**
- * Was von einem Antworttext sichtbar ist (ungefähr wie der MarkdownRenderer
- * ihn zeigt): ohne <think>-Blöcke (eingeklappt) und ohne den Inhalt von
- * <template> (fällt bei der Bereinigung weg, Review 7.22-rc17, K63), ohne
- * Ziele von Links und Bildern ("[Text](https://…)" → "Text"), ohne
- * HTML-Tags und Attribute. Autolinks (<https://…>, <info@…>) bleiben als
- * ihr sichtbarer Text. Wie hardenAnswerHtml (Review 7.22-rc17, K62): Ein
- * Bild im Link zeigt nur seinen Alt-Text; ein Link, dessen Text dann leer
- * ist oder nur aus unsichtbaren Zeichen besteht, zeigt seine Adresse (auch
- * um ein Bild ohne Alt-Text); ein Bild ohne Alt-Text außerhalb eines Links
- * zeigt seine Adresse, wenn es im Netz liegt. Diese Adressen gelten als
- * sichtbar.
- * @param {string} text
- * @returns {string}
- */
-export function visibleAnswerText(text) {
-  return String(text ?? "")
-    .replace(/<think>[^]*?<\/think>/g, " ")
-    .replace(/<template\b[^>]*>[^]*?<\/template\s*>/gi, " ")
-    .replace(
-      MARKDOWN_IMAGE,
-      (_, alt, destination) =>
-        `\uE000${alt}\uE001${markdownAddress(destination)}\uE000`
-    )
-    .replace(MARKDOWN_LINK, (_, label, destination) => {
-      const shown = label.replace(IMAGE_SLOT, "$1");
-      return isBlankText(shown)
-        ? ` ${markdownAddress(destination)} `
-        : `[${shown}]`;
-    })
-    .replace(IMAGE_SLOT, (_, alt, src) =>
-      !isBlankText(alt)
-        ? `![${alt}]`
-        : ANSWER_IMAGE_URL.test(src)
-          ? ` ${src} `
-          : " "
-    )
-    .replace(/\]\([^)]*\)/g, "]")
-    .replace(AUTOLINK, " $1 ")
-    .replace(/<\/?[a-zA-Z][^>]*>/g, " ");
+  return (
+    String(text ?? "").replace(
+      /[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]/gu,
+      ""
+    ) === ""
+  );
 }
 
 /**
@@ -1240,6 +1182,13 @@ export function highlightParts(text, term) {
  * dort getroffen, weist das Panel darauf hin (Fixliste Punkt 11; bewusst so
  * belassen, Fixliste 7 F13: siehe benchmarks/conversationSearch.manual.js).
  *
+ * Ob eine Antwort den Begriff sichtbar zeigt, sagt answerShowsHit: die
+ * Darstellung des Verlaufs selbst (MarkdownRenderer: Markdown, DOMPurify,
+ * hardenAnswerHtml, dann highlightTextNodes). Sichtbar ist, was der Verlauf
+ * hervorhebt (Nachreview 7.22-rc19, K81 bis K86; vorher bildete
+ * visibleAnswerText diese Darstellung mit regulären Ausdrücken nach und
+ * wich in Randfällen ab).
+ *
  * Geprüft werden nur die Nachrichten, die auch der Server durchsucht hat:
  * die im Zeitraum (Fixliste 2, S7) – mit Abschnitt (Säulenklick) die ganze
  * Konversation, dann ohne Zeitraum. Grund und Kommentar zeigt das Panel nur
@@ -1247,10 +1196,12 @@ export function highlightParts(text, term) {
  * @param {Array<{prompt: string, response: string, createdAt?: string, feedbackScore?: boolean|null, feedbackReason?: string|null, feedbackText?: string|null}>} messages
  * @param {string} term
  * @param {{fromDay?: string|null, toDay?: string|null}} [period] -
- *   Kalendertage der Liste; ohne Angabe alle Nachrichten
+ *   Kalendertage der Liste; {} für alle Nachrichten
+ * @param {(text: string, term: string) => boolean} answerShowsHit - zeigt
+ *   der Verlauf in dieser Antwort (Text wie answerText) einen Treffer?
  * @returns {boolean} - true auch ohne Suche
  */
-export function hasVisibleHit(messages, term, period = {}) {
+export function hasVisibleHit(messages, term, period = {}, answerShowsHit) {
   const pattern = searchPattern(term);
   if (!pattern) return true;
   const hit = (text) => {
@@ -1264,7 +1215,7 @@ export function hasVisibleHit(messages, term, period = {}) {
         hit(message.prompt) ||
         (message.feedbackScore === false &&
           (hit(message.feedbackReason) || hit(message.feedbackText))) ||
-        hit(visibleAnswerText(answerText(message.response)))
+        answerShowsHit(answerText(message.response), term)
     );
 }
 
@@ -1347,15 +1298,19 @@ export function highlightTextNodes(root, term, doc) {
  *   wohin der erste Tab-Druck der Seite springt, nimmt ihre Links nicht
  *   aus der Tastaturbedienung und blendet keinen Text per hidden aus.
  * - keine Elemente, deren Text der Browser nicht zeigt, und keine Farben,
- *   Größen oder Schriften aus der Antwort (Review 7.22-rc17, K63; im
- *   Browser mit DOMPurify 3.1.6 geprüft, kie575Layout.manual.mjs):
- *   <datalist>, <rp>, <progress>, <meter> und <canvas> löst DOMPurify auf,
- *   ihr Text steht sichtbar im Verlauf; <template> fällt mit seinem Inhalt
- *   weg (DOMPurify verwirft den Inhalt verbotener template-Elemente),
- *   visibleAnswerText zählt ihn darum nicht als sichtbar; color, bgcolor,
- *   size und face (etwa <font color> wie der Grund, <table bgcolor>)
- *   bleiben nicht stehen. Nicht abgedeckt: Verkleinern durch verschachtelte
- *   <small> oder <sub> und ein zugeklapptes <details> (per Klick lesbar).
+ *   Größen, Maße oder Schriften aus der Antwort (Review 7.22-rc17, K63;
+ *   Nachreview 7.22-rc19, K80; im Browser mit DOMPurify 3.1.6 geprüft,
+ *   kie575Layout.manual.mjs): <datalist>, <rp>, <progress>, <meter>,
+ *   <canvas> und <marquee> löst DOMPurify auf, ihr Text steht sichtbar im
+ *   Verlauf; <template> fällt mit seinem Inhalt weg (DOMPurify verwirft den
+ *   Inhalt verbotener template-Elemente, auch eines nicht geschlossenen),
+ *   ebenso der Inhalt von <noscript>, <xmp>, <svg> und den übrigen
+ *   Elementen, die DOMPurify samt Inhalt verwirft; answerShowsHit zählt
+ *   nur, was der Verlauf zeigt. color, bgcolor, size, face, width und
+ *   height (etwa <font color> wie der Grund, <table bgcolor>,
+ *   <marquee width="1">) bleiben nicht stehen. Nicht abgedeckt:
+ *   Verkleinern durch verschachtelte <small> oder <sub> und ein
+ *   zugeklapptes <details> (per Klick lesbar).
  * Klassen, Links und Bilder ordnet hardenAnswerHtml danach.
  */
 export const ANSWER_PURIFY_CONFIG = Object.freeze({
@@ -1380,6 +1335,7 @@ export const ANSWER_PURIFY_CONFIG = Object.freeze({
     "progress",
     "meter",
     "canvas",
+    "marquee",
   ],
   FORBID_ATTR: [
     "style",
@@ -1399,6 +1355,8 @@ export const ANSWER_PURIFY_CONFIG = Object.freeze({
     "bgcolor",
     "size",
     "face",
+    "width",
+    "height",
   ],
   ALLOW_ARIA_ATTR: false,
   ALLOW_DATA_ATTR: false,
@@ -1456,16 +1414,28 @@ export const ANSWER_LINK_REL = "noopener noreferrer";
 const ANSWER_CLASS = /^(?:hljs(?:-[\w-]+)?|language-[\w-]+)$/;
 // Bilder werden nur als Link angeboten, wenn sie im Netz liegen
 const ANSWER_IMAGE_URL = /^https?:\/\//i;
+// Ein Link im Verlauf hat ein Ziel, wenn seine Adresse ein Schema hat
+// (https:, mailto:, tel:) oder mit // beginnt (Nachreview 7.22-rc19, K87)
+const ANSWER_LINK_TARGET = /^[\t\n\f\r ]*(?:[a-z][a-z\d+.-]*:|\/\/)/i;
+
+/** Löst ein Element auf: sein Inhalt bleibt an seiner Stelle. */
+function unwrapElement(node) {
+  while (node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
+  node.parentNode.removeChild(node);
+}
 
 /**
  * Ordnet das von DOMPurify bereinigte HTML einer Antwort (in einem inerten
  * Dokument, vor dem Einsetzen in die Seite):
  * - Links mit Adresse öffnen in einem neuen Tab (target="_blank") mit
- *   rel="noopener noreferrer"; ohne Adresse kein target. Eine leere
- *   Adresse (href="" oder nur Leerraum, aus [Text]() oder [Text](<>))
- *   heißt keine Adresse: Der Link wird aufgelöst, sein Inhalt bleibt als
- *   Text (Review 7.22-rc17, K61; sonst öffnete er die Admin-Seite selbst
- *   in einem neuen Tab).
+ *   rel="noopener noreferrer"; ohne Adresse kein target. Eine Adresse ohne
+ *   Ziel (ANSWER_LINK_TARGET) heißt keine Adresse: leer oder nur Leerraum
+ *   (aus [Text]() oder [Text](<>)), nur unsichtbare Zeichen, nur ein
+ *   Fragment (#, #anmeldung), ein Platzhalter wie „URL“ oder ein relativer
+ *   Pfad (/anmeldung). Der Link wird aufgelöst, sein Inhalt bleibt als
+ *   Text, ein Bild darin wie außerhalb eines Links (Review 7.22-rc17, K61;
+ *   Nachreview 7.22-rc19, K87, K88, K90; sonst öffnete er die Admin-Seite
+ *   selbst oder eine Seite des Servers in einem neuen Tab).
  * - Bilder laden nicht von selbst (kein Abruf beim Öffnen des Verlaufs:
  *   Zeitpunkt, IP-Adresse und Browser des Admins blieben sonst beim
  *   Absender): Ein Bild im Netz wird ein Link mit dem Alt-Text (ohne
@@ -1480,7 +1450,10 @@ const ANSWER_IMAGE_URL = /^https?:\/\//i;
  *   erreichbarer Link ohne Namen (K40, K61). Ebenso gilt ein Alt-Text nur
  *   aus unsichtbaren Zeichen als fehlend.
  * - data-search-hit nur an den <mark> der eigenen Hervorhebung und nur im
- *   zweiten Durchgang (searchHits: true); sonst verworfen (K41).
+ *   zweiten Durchgang (searchHits: true); sonst verworfen (K41). Ein
+ *   <mark> ohne dieses Kennzeichen bringt die Antwort mit: Es wird
+ *   aufgelöst, sein Text bleibt (Nachreview 7.22-rc19, B60; die Farbe des
+ *   Browsers, Gelb mit weißem Text, war im dunklen Schema unlesbar).
  * - Klassen nur aus Markdown und Syntaxhervorhebung (ANSWER_CLASS).
  * @param {Node|null} root - Wurzel des bereinigten HTML
  * @param {Document} doc - Dokument der Wurzel (für neue Knoten)
@@ -1496,7 +1469,16 @@ export function hardenAnswerHtml(
   for (const node of [...(root?.childNodes ?? [])]) {
     if (node.nodeType !== ELEMENT_NODE) continue;
     const tag = String(node.tagName ?? node.nodeName).toUpperCase();
-    hardenAnswerHtml(node, doc, { searchHits }, inLink || tag === "A");
+    const href = tag === "A" ? node.getAttribute("href") : null;
+    // ein Link ohne Ziel wird unten aufgelöst: sein Inhalt steht dann
+    // nicht in einem Link (K90)
+    const noTarget = href !== null && !ANSWER_LINK_TARGET.test(href);
+    hardenAnswerHtml(
+      node,
+      doc,
+      { searchHits },
+      inLink || (tag === "A" && !noTarget)
+    );
     if (
       node.hasAttribute?.(SEARCH_HIT_ATTRIBUTE) &&
       !(searchHits && tag === "MARK")
@@ -1511,12 +1493,9 @@ export function hardenAnswerHtml(
       else node.removeAttribute("class");
     }
     if (tag === "A") {
-      const href = node.getAttribute("href");
-      if (href !== null && !href.trim()) {
-        // leere Adresse: kein Link (K61), der Inhalt bleibt an seiner Stelle
-        while (node.firstChild)
-          node.parentNode.insertBefore(node.firstChild, node);
-        node.parentNode.removeChild(node);
+      if (noTarget) {
+        // Adresse ohne Ziel: kein Link (K61, K87), der Inhalt bleibt
+        unwrapElement(node);
       } else if (href !== null) {
         node.setAttribute("target", "_blank");
         node.setAttribute("rel", ANSWER_LINK_REL);
@@ -1542,6 +1521,9 @@ export function hardenAnswerHtml(
       }
       if (replacement) node.parentNode.insertBefore(replacement, node);
       node.parentNode.removeChild(node);
+    } else if (tag === "MARK" && !node.hasAttribute(SEARCH_HIT_ATTRIBUTE)) {
+      // mitgebrachtes <mark>: aufgelöst, der Text bleibt (B60)
+      unwrapElement(node);
     }
   }
 }

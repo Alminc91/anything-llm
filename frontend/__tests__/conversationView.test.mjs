@@ -64,7 +64,6 @@ import {
   shortId,
   startScrollTop,
   startedOnOtherDay,
-  visibleAnswerText,
   writePanelPreference,
 } from "../src/utils/conversationView.js";
 // Neu seit 7.22-rc13 (E13, E15, K01, K04): über den Namensraum, damit ein
@@ -78,6 +77,8 @@ import * as rc15 from "../src/utils/conversationView.js";
 import * as rc16 from "../src/utils/conversationView.js";
 // Fixliste 7.22-rc18 (K60 bis K63): ebenso über den Namensraum
 import * as rc18 from "../src/utils/conversationView.js";
+// Fixliste 7.22-rc20 (K80 bis K90, B60): ebenso über den Namensraum
+import * as rc20 from "../src/utils/conversationView.js";
 import { formatDateForInput as berlinDay } from "../src/utils/billingDate.js";
 import { formatDateTimeDE } from "../src/utils/dateTimeDE.js";
 import serverSearch from "../../server/utils/helpers/chat/conversationSearch.js";
@@ -515,7 +516,18 @@ test("NFD: Ein zerlegtes „ü“ im Text wird hervorgehoben wie ein zusammenges
   assert.equal(highlightParts("Kurs B", pattern).length, 2);
 });
 
-test("Sichtbarer Treffer: Link-Adressen, HTML und <think> zählen nicht; Frage, Grund, Kommentar und Linktext schon (Fixliste Punkt 11)", () => {
+// Was eine Antwort sichtbar zeigt, entscheidet seit rc20 die Darstellung des
+// Verlaufs (answerShowsHit in MarkdownRenderer.jsx, Nachreview 7.22-rc19,
+// K81 bis K86). Sie braucht DOMPurify und läuft darum im Browser
+// (kie575Layout.manual.mjs, checkAnswerShowsHit: Link-Adressen, HTML,
+// <think>, Autolinks und die Fälle aus K62, K63 und K81 bis K86). Hier steht
+// sie als Attrappe: Diese zeigt einen Treffer nur in den Wörtern, die sie
+// kennt.
+const answerShowing = (...words) => (text, term) =>
+  words.some((word) => highlightParts(word, term).some((part) => part.hit)) &&
+  highlightParts(text, term).some((part) => part.hit);
+
+test("Sichtbarer Treffer: Frage, Grund und Kommentar zählen, eine Antwort nur, wenn ihre Darstellung den Begriff zeigt (Link-Adressen, HTML und <think> nicht: Browser) (Fixliste Punkt 11)", () => {
   const answer = (text) => JSON.stringify({ text, sources: [{ text: "Q" }] });
   const message = (extra) => ({
     prompt: "Wo melde ich mich an?",
@@ -526,21 +538,19 @@ test("Sichtbarer Treffer: Link-Adressen, HTML und <think> zählen nicht; Frage, 
     feedbackText: null,
     ...extra,
   });
-  assert.equal(
-    visibleAnswerText(
-      '[Kurs](https://a.example/b) <b class="x">fett</b><think>still</think>'
-    ),
-    "[Kurs]  fett  "
-  );
-  assert.equal(hasVisibleHit([message()], "vhs-lingen"), false);
-  assert.equal(hasVisibleHit([message()], "geheimattribut"), false);
-  assert.equal(hasVisibleHit([message()], "yoga"), false);
-  assert.equal(hasVisibleHit([message()], "anmeldung"), true);
-  assert.equal(hasVisibleHit([message()], "melde ich"), true);
+  // die Darstellung zeigt „Hier: Anmeldung ok“
+  const shows = answerShowing("Hier:", "Anmeldung", "ok");
+  assert.equal(hasVisibleHit([message()], "vhs-lingen", {}, shows), false);
+  assert.equal(hasVisibleHit([message()], "geheimattribut", {}, shows), false);
+  assert.equal(hasVisibleHit([message()], "yoga", {}, shows), false);
+  assert.equal(hasVisibleHit([message()], "anmeldung", {}, shows), true);
+  assert.equal(hasVisibleHit([message()], "melde ich", {}, shows), true);
   assert.equal(
     hasVisibleHit(
       [message({ feedbackScore: false, feedbackText: "vhs-lingen ist toll" })],
-      "vhs-lingen"
+      "vhs-lingen",
+      {},
+      shows
     ),
     true
   );
@@ -548,43 +558,35 @@ test("Sichtbarer Treffer: Link-Adressen, HTML und <think> zählen nicht; Frage, 
   assert.equal(
     hasVisibleHit(
       [message({ feedbackScore: null, feedbackText: "vhs-lingen ist toll" })],
-      "vhs-lingen"
+      "vhs-lingen",
+      {},
+      shows
     ),
     false
   );
   // ohne Suche: kein Hinweis
-  assert.equal(hasVisibleHit([message()], ""), true);
+  assert.equal(hasVisibleHit([message()], "", {}, shows), true);
 });
 
-test("Sichtbarer Treffer: Autolinks <https://…> und <info@…> zeigt die Antwort als Text – sie zählen (Fixliste 2, S2)", () => {
+test("Sichtbarer Treffer: Die Antwort geht als Text (answerText, ohne JSON) mit dem Begriff an ihre Darstellung; Autolinks <https://…> und <info@…> zeigt sie als Text (Browser) (Fixliste 2, S2)", () => {
   const answer = (text) => JSON.stringify({ text, sources: [] });
-  assert.equal(
-    visibleAnswerText(
-      "Siehe <https://kurs.example/a1> oder <info@vhs.example>."
-    ),
-    "Siehe  https://kurs.example/a1  oder  info@vhs.example ."
-  );
+  const calls = [];
+  const shows = (text, term) => {
+    calls.push([text, term]);
+    return answerShowing("https://kurs.example/a1", "info@vhs.example")(text, term);
+  };
+  const text = "Siehe <https://kurs.example/a1> oder <info@vhs.example>.";
   for (const term of ["kurs.example", "info@vhs", "https://kurs"])
     assert.equal(
-      hasVisibleHit(
-        [
-          {
-            prompt: "Frage",
-            response: answer(
-              "Siehe <https://kurs.example/a1> oder <info@vhs.example>."
-            ),
-          },
-        ],
-        term
-      ),
+      hasVisibleHit([{ prompt: "Frage", response: answer(text) }], term, {}, shows),
       true,
       term
     );
-  // echte Tags und ihre Attribute weiter nicht
-  assert.equal(
-    visibleAnswerText('<a href="https://kurs.example">Link</a>'),
-    " Link "
-  );
+  assert.deepEqual(calls, [
+    [text, "kurs.example"],
+    [text, "info@vhs"],
+    [text, "https://kurs"],
+  ]);
 });
 
 test("Sichtbarer Treffer: nur in den Nachrichten, die der Server durchsucht hat – im Zeitraum, mit Abschnitt die ganze Konversation (Fixliste 2, S7)", () => {
@@ -601,14 +603,16 @@ test("Sichtbarer Treffer: nur in den Nachrichten, die der Server durchsucht hat 
     },
   ];
   const october = { fromDay: "2026-10-01", toDay: "2026-10-31" };
+  // die Darstellung zeigt „hier“, nicht die Adresse
+  const shows = answerShowing("hier");
   // Im Oktober trifft „spanisch" nur die Link-Adresse – die sichtbare Frage
   // aus dem Juli hat der Server nicht durchsucht: Hinweis.
-  assert.equal(hasVisibleHit(messages, "spanisch", october), false);
+  assert.equal(hasVisibleHit(messages, "spanisch", october, shows), false);
   // ganze Konversation (Abschnitt) oder ohne Zeitraum: sichtbar
-  assert.equal(hasVisibleHit(messages, "spanisch", {}), true);
-  assert.equal(hasVisibleHit(messages, "spanisch"), true);
+  assert.equal(hasVisibleHit(messages, "spanisch", {}, shows), true);
+  assert.equal(hasVisibleHit(messages, "spanisch", undefined, shows), true);
   assert.equal(
-    hasVisibleHit(messages, "spanisch", { fromDay: null, toDay: null }),
+    hasVisibleHit(messages, "spanisch", { fromDay: null, toDay: null }, shows),
     true
   );
 });
@@ -1079,7 +1083,9 @@ test("Fixliste 7, F05: Hervorhebung nach derselben Regel wie die Suche des Serve
   assert.equal(
     hasVisibleHit(
       [{ prompt: "?", response: JSON.stringify({ text: "KISA" }) }],
-      "kısa"
+      "kısa",
+      {},
+      answerShowing("KISA")
     ),
     true
   );
@@ -2587,42 +2593,56 @@ test("rc18, K61: Ein Link, dessen Text nur aus Leerraum und unsichtbaren Zeichen
   assert.equal(toImage?.textContent, "https://vhs.example/bild.jpg");
 });
 
-test("rc18, K62: Ein Link ohne Text zeigt seine Adresse – visibleAnswerText zählt sie als sichtbar, auch um ein Bild ohne Alt-Text ([![](bild)](ziel)); ein Bild im Link mit Text zeigt seine Adresse nicht; ein Bild ohne Alt-Text außerhalb eines Links zeigt sie, wenn es im Netz liegt", () => {
-  const answer = (text) => JSON.stringify({ text, sources: [] });
-  const has = (text, term) => hasVisibleHit([{ prompt: "Frage", response: answer(text) }], term);
-  // Link ohne Text (auch nur unsichtbare Zeichen), mit Titel und <…>
-  assert.match(visibleAnswerText("[](https://vhs.example/anmeldung)"), /https:\/\/vhs\.example\/anmeldung/);
-  assert.match(visibleAnswerText("[​](https://vhs.example/anmeldung)"), /https:\/\/vhs\.example\/anmeldung/);
-  assert.match(visibleAnswerText('[](<https://vhs.example/anmeldung> "Titel")'), /https:\/\/vhs\.example\/anmeldung /);
-  assert.ok(has("Siehe [](https://vhs.example/anmeldung).", "anmeldung"));
+test("rc18, K62 (seit rc20 über die Darstellung, K81 bis K86): Ein Link ohne Text zeigt seine Adresse, die Hervorhebung trifft sie – auch um ein Bild ohne Alt-Text ([![](bild)](ziel)); ein Bild im Link mit Text zeigt seine Adresse nicht; ein Bild ohne Alt-Text außerhalb eines Links zeigt sie, wenn es im Netz liegt", () => {
+  // Wie der Verlauf: erst hardenAnswerHtml, dann highlightTextNodes
+  // (answerShowsHit zählt deren Treffer); Markdown und DOMPurify: Browser
+  const shown = (build, term) => {
+    const doc = createDocument();
+    const root = doc.createElement("body");
+    build(doc, root.appendChild(doc.createElement("p")));
+    rc13.hardenAnswerHtml(root, doc);
+    return highlightTextNodes(root, term, doc);
+  };
+  const link = (doc, parent, href, text) => {
+    const a = parent.appendChild(doc.createElement("a"));
+    a.setAttribute("href", href);
+    if (text) a.appendChild(doc.createTextNode(text));
+    return a;
+  };
+  const image = (doc, parent, src, alt) => {
+    const img = parent.appendChild(doc.createElement("img"));
+    img.setAttribute("src", src);
+    if (alt !== undefined) img.setAttribute("alt", alt);
+  };
+  // Link ohne Text (auch nur unsichtbare Zeichen)
+  assert.equal(shown((doc, p) => link(doc, p, "https://vhs.example/anmeldung"), "anmeldung"), 1);
+  assert.equal(shown((doc, p) => link(doc, p, "https://vhs.example/anmeldung", "\u200B"), "anmeldung"), 1);
   // verlinktes Bild ohne Alt-Text: die Adresse des Links, nicht des Bilds
-  const nested = visibleAnswerText("[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)");
-  assert.match(nested, /https:\/\/vhs\.example\/anmeldung/);
-  assert.doesNotMatch(nested, /bild\.jpg/);
-  assert.ok(has("[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "anmeldung"));
-  assert.ok(!has("[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "bild.jpg"));
+  const nested = (doc, p) => image(doc, link(doc, p, "https://vhs.example/anmeldung"), "https://vhs.example/bild.jpg");
+  assert.equal(shown(nested, "anmeldung"), 1);
+  assert.equal(shown(nested, "bild.jpg"), 0);
   // verlinktes Bild mit Alt-Text: nur der Alt-Text
-  assert.ok(has("[![Kursbild](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "kursbild"));
-  assert.ok(!has("[![Kursbild](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "anmeldung"));
+  const withAlt = (doc, p) => image(doc, link(doc, p, "https://vhs.example/anmeldung"), "https://vhs.example/bild.jpg", "Kursbild");
+  assert.equal(shown(withAlt, "kursbild"), 1);
+  assert.equal(shown(withAlt, "anmeldung"), 0);
   // Bild ohne Alt-Text im Link mit Text: weder Bild- noch Linkadresse
-  assert.ok(!has("[![](https://vhs.example/bild.jpg) Kurs](https://vhs.example/anmeldung)", "bild.jpg"));
-  assert.ok(!has("[![](https://vhs.example/bild.jpg) Kurs](https://vhs.example/anmeldung)", "anmeldung"));
-  assert.ok(has("[![](https://vhs.example/bild.jpg) Kurs](https://vhs.example/anmeldung)", "kurs"));
+  const withText = (doc, p) => {
+    const a = link(doc, p, "https://vhs.example/anmeldung");
+    image(doc, a, "https://vhs.example/bild.jpg");
+    a.appendChild(doc.createTextNode(" Kurs"));
+  };
+  assert.equal(shown(withText, "bild.jpg"), 0);
+  assert.equal(shown(withText, "anmeldung"), 0);
+  assert.equal(shown(withText, "kurs"), 1);
   // Bild ohne Alt-Text allein: im Netz seine Adresse, sonst nichts
-  assert.ok(has("![](https://vhs.example/bild.jpg)", "bild.jpg"));
-  assert.ok(!has("![](/relativ.png)", "relativ"));
-  assert.ok(!has("![​](/relativ.png)", "relativ"));
+  assert.equal(shown((doc, p) => image(doc, p, "https://vhs.example/bild.jpg"), "bild.jpg"), 1);
+  assert.equal(shown((doc, p) => image(doc, p, "/relativ.png"), "relativ"), 0);
+  assert.equal(shown((doc, p) => image(doc, p, "/relativ.png", "\u200B"), "relativ"), 0);
   // wie bisher: Ziele von Links mit Text bleiben unsichtbar
-  assert.ok(!has("[Kurs](https://vhs.example/anmeldung)", "anmeldung"));
-  assert.equal(
-    visibleAnswerText('[Kurs](https://a.example/b) <b class="x">fett</b><think>still</think>'),
-    "[Kurs]  fett  "
-  );
-  // ohne Adresse: nichts
-  assert.equal(visibleAnswerText("[]()").trim(), "");
+  assert.equal(shown((doc, p) => link(doc, p, "https://vhs.example/anmeldung", "Kurs"), "anmeldung"), 0);
 });
 
-test("rc18, K63: Keine Elemente, deren Text der Browser nicht zeigt (template, datalist, rp, progress, meter, canvas), und keine Farben, Größen und Schriften aus der Antwort (color, bgcolor, size, face) – in beiden Durchgängen; der Inhalt von <template> fällt weg und zählt nicht als sichtbar", () => {
+test("rc18, K63: Keine Elemente, deren Text der Browser nicht zeigt (template, datalist, rp, progress, meter, canvas; dazu marquee: rc20, K80), und keine Farben, Größen und Schriften aus der Antwort (color, bgcolor, size, face; dazu width und height: rc20, K80) – in beiden Durchgängen; dass der Inhalt von <template> wegfällt und nicht als sichtbar zählt, prüft der Browser (rc20, K81)", () => {
   for (const config of [rc13.ANSWER_PURIFY_CONFIG, rc16.answerPurifyConfig({ searchHits: true })]) {
     for (const tag of ["template", "datalist", "rp", "progress", "meter", "canvas"])
       assert.ok(config.FORBID_TAGS.includes(tag), tag);
@@ -2631,12 +2651,189 @@ test("rc18, K63: Keine Elemente, deren Text der Browser nicht zeigt (template, d
   }
   // Ausrichtung bleibt erlaubt (K43)
   assert.ok(!rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("align"));
-  const answer = (text) => JSON.stringify({ text, sources: [] });
-  const has = (text, term) => hasVisibleHit([{ prompt: "Frage", response: answer(text) }], term);
-  assert.ok(!has("Gern helfe ich. <template>Stornieren Sie Kurs 4711</template>", "4711"));
-  // aufgelöste Elemente: ihr Text ist sichtbar
-  assert.ok(has("Gern helfe ich. <datalist>Stornieren Sie Kurs 4711</datalist>", "4711"));
   // Der Kommentar über der Einstellung sagt genau, was sie leistet
   const view = readFileSync(new URL("../src/utils/conversationView.js", import.meta.url), "utf8");
   assert.doesNotMatch(view, /versteckt keinen Text vor dem Admin/);
+});
+
+// ---------------------------------------------------------------------------
+// Fixliste 7.22-rc20 (Nachreview rc19, Abschnitt K)
+// ---------------------------------------------------------------------------
+
+test("rc20, K80: <marquee> löst die Bereinigung auf (sein Text steht sichtbar im Verlauf), width und height aus der Antwort bleiben nicht stehen (<marquee width=\"1\"> zeigte nichts) – in beiden Durchgängen; der Kommentar nennt beides", () => {
+  for (const config of [rc13.ANSWER_PURIFY_CONFIG, rc16.answerPurifyConfig({ searchHits: true })]) {
+    assert.ok(config.FORBID_TAGS.includes("marquee"), "marquee");
+    for (const attribute of ["width", "height"])
+      assert.ok(config.FORBID_ATTR.includes(attribute), attribute);
+  }
+  // Ausrichtung der Tabellen bleibt (K43)
+  assert.ok(!rc13.ANSWER_PURIFY_CONFIG.FORBID_ATTR.includes("align"));
+  const view = readFileSync(new URL("../src/utils/conversationView.js", import.meta.url), "utf8");
+  const comment = view.slice(0, view.indexOf("export const ANSWER_PURIFY_CONFIG"));
+  assert.match(comment, /<canvas> und <marquee> löst DOMPurify auf/);
+  assert.match(comment, /<marquee width="1">\) bleiben nicht stehen/);
+});
+
+test("rc20, K81 bis K86: Ob eine Antwort den Begriff sichtbar zeigt, entscheidet ihre Darstellung im Verlauf (answerShowsHit in MarkdownRenderer: ohne <think>, Markdown, sanitizeAnswerHtml, highlightTextNodes) – hasVisibleHit fragt sie mit dem Antworttext und dem Begriff, nur im Zeitraum und nur, wenn Frage, Grund und Kommentar nicht treffen; kein Nachbau mit regulären Ausdrücken (visibleAnswerText) mehr", () => {
+  const calls = [];
+  const shows = (result) => (text, term) => {
+    calls.push([text, term]);
+    return result;
+  };
+  const message = (text, extra = {}) => ({
+    prompt: "Wo melde ich mich an?",
+    response: JSON.stringify({ text, sources: [{ text: "Quelle" }] }),
+    createdAt: "2026-10-05T10:00:00.000Z",
+    ...extra,
+  });
+  // Zeigt die Darstellung den Begriff nicht, gilt er als verborgen – auch
+  // wenn er als Text in der Antwort steht (etwa in einem nicht
+  // geschlossenen <template>, K81)
+  const open = "Gern helfe ich. <template>Stornieren Sie Kurs 4711\n\nZweiter Absatz";
+  assert.equal(hasVisibleHit([message(open)], "4711", {}, shows(false)), false);
+  assert.deepEqual(calls, [[open, "4711"]]);
+  // und umgekehrt (Code mit <template>, K82; Adresse eines leeren Links, K83)
+  calls.length = 0;
+  const code = "Nutzen Sie `<template>` für Vorlagen. Wichtig: Anmeldung bis Freitag. Ende mit `</template>`.";
+  assert.equal(hasVisibleHit([message(code)], "anmeldung", {}, shows(true)), true);
+  assert.deepEqual(calls, [[code, "anmeldung"]]);
+  // trifft die Frage, wird keine Antwort dargestellt
+  calls.length = 0;
+  assert.equal(hasVisibleHit([message("x")], "melde ich", {}, shows(false)), true);
+  assert.equal(hasVisibleHit([message("x", { feedbackScore: false, feedbackReason: "Kurs 4711 fehlt" })], "4711", {}, shows(false)), true);
+  assert.equal(calls.length, 0);
+  // nur Nachrichten im Zeitraum
+  assert.equal(hasVisibleHit([message("Kurs 4711")], "4711", { fromDay: "2026-11-01", toDay: "2026-11-30" }, shows(true)), false);
+  assert.equal(calls.length, 0);
+  // ohne Suche nichts darzustellen
+  assert.equal(hasVisibleHit([message("x")], "", {}, shows(false)), true);
+  assert.equal(calls.length, 0);
+
+  assert.equal(rc20.visibleAnswerText, undefined, "kein Nachbau mehr");
+  const source = (file) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+  const renderer = source("pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/MarkdownRenderer.jsx");
+  assert.match(renderer, /export function answerShowsHit\(content, highlight\)/);
+  assert.match(renderer, /parseContent\(String\(content \?\? ""\)\)\.some\(/);
+  assert.match(renderer, /if \(part\.type === "think"\) return false;/);
+  assert.match(renderer, /sanitizeAnswerHtml\(md\.render\(part\.text\)\)/);
+  assert.match(renderer, /return highlightTextNodes\(doc\.body, highlight, doc\) > 0;/);
+  const detail = source("pages/GeneralSettings/ChatEmbedWidgets/EmbedAnalytics/ConversationDetail.jsx");
+  assert.match(detail, /import MarkdownRenderer, \{ answerShowsHit \} from "\.\/MarkdownRenderer";/);
+  assert.match(detail, /searchWholeConversation \? \{\} : \{ fromDay, toDay \},\s*answerShowsHit\s*\)/);
+});
+
+test("rc20, K87, K88, K90: Ein Link ohne Ziel (nur ein Fragment wie #, ein Platzhalter wie „URL“, ein relativer Pfad, nur unsichtbare Zeichen U+00AD oder U+2060) wird aufgelöst, sein Text bleibt – kein neuer Tab auf die Admin-Seite; Adressen mit Schema oder // bleiben Links; ein Bild in einem aufgelösten Link gilt nicht als verlinkt", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const link = (href, text, parent = p) => {
+    const a = parent.appendChild(doc.createElement("a"));
+    a.setAttribute("href", href);
+    if (text) a.appendChild(doc.createTextNode(text));
+    return a;
+  };
+  const without = [
+    link("#", "Kursseite"),
+    link("#anmeldung", "Sprung"),
+    link("URL", "Platzhalter"),
+    link("/anmeldung", "Relativ"),
+    link("kurs/4711", "Pfad"),
+    link("­", "­"),
+    link("⁠", "Wortverbinder"),
+  ];
+  const kept = [
+    link("https://vhs.example/kurs", "Kurs"),
+    link("  https://vhs.example/leer", "Mit Leerraum"),
+    link("mailto:info@vhs.example", "Mail"),
+    link("tel:+495911234", "Telefon"),
+    link("//vhs.example/kurs", "Ohne Schema"),
+  ];
+  // K90: Bild ohne Alt-Text in einem Link ohne Adresse ([![](bild)]())
+  // und Bild mit Alt-Text in einem Link auf „#“
+  const bare = p.appendChild(doc.createElement("img"));
+  const emptyLink = link("", null);
+  emptyLink.appendChild(bare);
+  bare.setAttribute("src", "https://vhs.example/kurs.jpg");
+  const named = doc.createElement("img");
+  named.setAttribute("src", "https://vhs.example/kursbild.jpg");
+  named.setAttribute("alt", "Kursbild");
+  link("#", null).appendChild(named);
+
+  rc13.hardenAnswerHtml(root, doc);
+
+  const links = elements(root, (e) => e.tagName === "A");
+  for (const a of without) assert.ok(!links.includes(a), JSON.stringify(a.getAttribute("href")));
+  for (const text of ["Kursseite", "Sprung", "Platzhalter", "Relativ", "Pfad", "Wortverbinder"])
+    assert.ok(p.textContent.includes(text), text);
+  for (const a of kept) {
+    assert.ok(links.includes(a), a.getAttribute("href"));
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
+  assert.ok(!links.some((a) => ["", "#", "URL"].includes(a.getAttribute("href").trim())));
+  // die Bilder: Links auf die Bilddatei wie außerhalb eines Links, kein
+  // Abruf (kein <img>), nichts geht verloren
+  assert.equal(elements(root, (e) => e.tagName === "IMG").length, 0);
+  const toImage = (src) => links.find((a) => a.getAttribute("href") === src);
+  assert.equal(toImage("https://vhs.example/kurs.jpg")?.textContent, "https://vhs.example/kurs.jpg");
+  assert.equal(toImage("https://vhs.example/kursbild.jpg")?.textContent, "Kursbild");
+  assert.equal(toImage("https://vhs.example/kursbild.jpg")?.getAttribute("target"), "_blank");
+});
+
+test("rc20, K89: Auch Zeichen, die laut Unicode ohne Darstellung bleiben dürfen (Default_Ignorable_Code_Point: U+3164, U+115F, U+1160, U+FFA0, U+034F, U+FE0F, U+FE00, U+17B4), und das leere Braille-Muster U+2800 gelten als unsichtbar: ein Link nur daraus zeigt seine Adresse, ein Alt-Text nur daraus gilt als fehlend", () => {
+  const blanks = ["ㅤ", "ᅟ", "ᅠ", "ﾠ", "͏", "️", "︀", "឴", "⠀", " ㅤ⠀ "];
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  const links = blanks.map((text, index) => {
+    const a = p.appendChild(doc.createElement("a"));
+    a.setAttribute("href", `https://vhs.example/k89-${index}`);
+    a.appendChild(doc.createTextNode(text));
+    return a;
+  });
+  const image = p.appendChild(doc.createElement("img"));
+  image.setAttribute("src", "https://vhs.example/k89.jpg");
+  image.setAttribute("alt", "⠀ㅤ");
+  // ein sichtbares Zeichen bleibt Text
+  const visible = p.appendChild(doc.createElement("a"));
+  visible.setAttribute("href", "https://vhs.example/sichtbar");
+  visible.appendChild(doc.createTextNode("ㅤKurs"));
+
+  rc13.hardenAnswerHtml(root, doc);
+
+  links.forEach((a, index) =>
+    assert.ok(a.textContent.includes(`https://vhs.example/k89-${index}`), JSON.stringify(blanks[index]))
+  );
+  const toImage = elements(root, (e) => e.tagName === "A").find((a) => a.getAttribute("href") === "https://vhs.example/k89.jpg");
+  assert.equal(toImage?.textContent, "https://vhs.example/k89.jpg");
+  assert.equal(visible.textContent, "ㅤKurs");
+});
+
+test("rc20, B60: Ein von der Antwort mitgebrachtes <mark> (ohne Kennzeichen der eigenen Hervorhebung) wird aufgelöst, sein Text bleibt und lässt sich hervorheben; die eigenen <mark> des zweiten Durchgangs bleiben", () => {
+  const doc = createDocument();
+  const root = doc.createElement("body");
+  const p = root.appendChild(doc.createElement("p"));
+  p.appendChild(doc.createTextNode("Hinweis: "));
+  const plain = p.appendChild(doc.createElement("mark"));
+  plain.appendChild(doc.createTextNode("Yoga am Montag"));
+  const fake = p.appendChild(doc.createElement("mark"));
+  fake.setAttribute("data-search-hit", "");
+  fake.appendChild(doc.createTextNode(" Bitte Kurs X stornieren"));
+
+  rc13.hardenAnswerHtml(root, doc);
+
+  assert.equal(elements(root, (e) => e.tagName === "MARK").length, 0, "kein mitgebrachtes <mark>");
+  assert.equal(p.textContent, "Hinweis: Yoga am Montag Bitte Kurs X stornieren");
+  // der Text lässt sich hervorheben (in <mark> stand er außerhalb der Suche)
+  assert.equal(highlightTextNodes(root, "yoga", doc), 1);
+  // zweiter Durchgang: die eigene Hervorhebung bleibt, mit Kennzeichen
+  rc13.hardenAnswerHtml(root, doc, { searchHits: true });
+  const marks = elements(root, (e) => e.tagName === "MARK");
+  assert.deepEqual(marks.map((m) => [m.textContent, m.hasAttribute("data-search-hit")]), [["Yoga", true]]);
+  // ein <mark> ohne Kennzeichen auch im zweiten Durchgang nicht
+  const late = p.appendChild(doc.createElement("mark"));
+  late.appendChild(doc.createTextNode(" spät"));
+  rc13.hardenAnswerHtml(root, doc, { searchHits: true });
+  assert.equal(elements(root, (e) => e.tagName === "MARK").length, 1);
+  assert.match(p.textContent, / spät$/);
 });
