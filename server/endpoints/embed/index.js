@@ -237,7 +237,9 @@ function embeddedEndpoints(app) {
         // - gespeichertes [] (oder nur leere Zeilen): [] mit
         //   defaultMessagesSaved: true, das Widget zeigt dann keine Pillen;
         // - nichts gespeichert (kein Array): die Standard-Startvorschläge der
-        //   Sprache mit defaultMessagesStandard: true. Widgets bis
+        //   Sprache mit defaultMessagesStandard: true; seit E42 (7.22-rc23,
+        //   Nutzerentscheidung 22.10.2026) ist der Standard in jeder Sprache
+        //   leer, also [] mit dem Kennzeichen (Widget ohne Pillen). Widgets bis
         //   7.22-rc16 ließen an diesem Kennzeichen data-default-messages vor
         //   den Standard; das Widget ab 7.22-rc17 wertet es nicht aus und
         //   entfernt es. Es bleibt für ältere Widget-Kopien und einen

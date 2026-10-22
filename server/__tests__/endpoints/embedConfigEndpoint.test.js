@@ -128,7 +128,7 @@ const { defaultSuggestions } = require("../../utils/chats/embedDefaults");
 // Willkommensblasen beim ersten Besuch, KIE-568; Datenschutz-Hinweis ohne
 // gespeicherten Wert an, KIE-565 Nachtrag; Standard-Startvorschläge der
 // Sprache ohne gespeicherte Liste, S1 Fixliste 7.22-rc10, als Array und
-// gekennzeichnet, E10/E11 Fixliste 7.22-rc13)
+// gekennzeichnet, E10/E11 Fixliste 7.22-rc13; seit E42, 7.22-rc23, leer)
 const STANDARD = {
   ...EMBED_FIXED_STANDARDS,
   ...INLINE_FIXED_STANDARDS,
@@ -148,7 +148,7 @@ const STANDARD_ERROR = Object.fromEntries(
 );
 
 describe("GET /embed/:embedId/config — feste Standards", () => {
-  test("Standards wörtlich: Blase, Pillen, Folgefragen, Datenschutz-Blase, KI-Hinweis im Fuß, kein Online-Punkt, Karten wie Demo-Variante 4, Inline wie Demo", async () => {
+  test("Standards wörtlich (Bewusste Änderung E42: Startvorschläge leer): Blase, Pillen, Folgefragen, Datenschutz-Blase, KI-Hinweis im Fuß, kein Online-Punkt, Karten wie Demo-Variante 4, Inline wie Demo", async () => {
     const res = await fetchConfig({});
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
@@ -170,10 +170,9 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
       inlineStartState: "collapsed",
       inlineHeight: "520px",
       inheritFont: true,
-      defaultMessages: [
-        "Ich suche einen Deutschkurs.",
-        "Gibt es Excel-Kurse am Abend?",
-      ],
+      // Bewusste Änderung E42 (7.22-rc23): Standard-Startvorschläge leer,
+      // Kennzeichen unverändert (bis 7.22-rc22 zwei Beispiele)
+      defaultMessages: [],
       defaultMessagesStandard: true,
     });
   });
@@ -378,7 +377,10 @@ describe("GET /embed/:embedId/config — feste Standards", () => {
 // Standard mit defaultMessagesStandard, ein gespeichertes [] als [] mit
 // defaultMessagesSaved; die Sprache schickt das Widget als ?language= mit
 // (fehlend oder unbekannt de). Den Aufruf über HTTP wie das Widget und die
-// Fälle des Vertrags prüft embedConfigContract.test.js.
+// Fälle des Vertrags prüft embedConfigContract.test.js. Bewusste Änderung
+// E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23): der Standard ist in jeder
+// Sprache leer, also [] mit defaultMessagesStandard; gespeicherte Listen und
+// ein gespeichertes [] gelten unverändert.
 describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
   async function fetchWithLanguage(visualConfig, language) {
     EmbedConfig.getVisualConfig.mockResolvedValue(visualConfig);
@@ -395,27 +397,23 @@ describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
     return res;
   }
 
-  test("ohne gespeicherte Liste: die zwei deutschen Standard-Startvorschläge als Array, gekennzeichnet", async () => {
+  test("Bewusste Änderung E42: ohne gespeicherte Liste der deutsche Standard als Array, leer, gekennzeichnet", async () => {
     for (const vc of [{}, { accentColor: "#FFA102" }, null]) {
       const res = await fetchConfig(vc);
-      expect(res.body.defaultMessages).toEqual([
-        "Ich suche einen Deutschkurs.",
-        "Gibt es Excel-Kurse am Abend?",
-      ]);
+      expect(res.body.defaultMessages).toEqual([]);
       expect(res.body.defaultMessagesStandard).toBe(true);
       expect(res.body).not.toHaveProperty("defaultMessagesSaved");
       expect(res.headers["Cache-Control"]).toBe("public, max-age=300");
     }
-    // kein Fehler im Standard: nicht 5 Minuten ohne Vorschläge
+    // kein Fehler im Standard: zwischengespeichert wie jede Antwort
     const row = await fetchConfig({});
     expect(row.body).toEqual(STANDARD);
   });
 
-  test("?language=en liefert die englischen, fehlend oder unbekannt die deutschen", async () => {
-    expect((await fetchWithLanguage({}, "en")).body.defaultMessages).toEqual([
-      "I am looking for a German course.",
-      "Are there Excel courses in the evening?",
-    ]);
+  test("Bewusste Änderung E42: ?language=en liefert den englischen Standard, fehlend oder unbekannt den deutschen, beide leer", async () => {
+    expect((await fetchWithLanguage({}, "en")).body.defaultMessages).toEqual(
+      []
+    );
     expect((await fetchWithLanguage({}, "en-GB")).body.defaultMessages).toEqual(
       defaultSuggestions("en")
     );
@@ -467,6 +465,65 @@ describe("GET /embed/:embedId/config — Startvorschläge (S1)", () => {
     expect(body.chatbotBubblesMessages).toEqual([
       "Hallo, schön, dass Sie da sind!",
     ]);
+  });
+
+  // E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23): Kunden ohne gespeicherte
+  // Startvorschläge bekommen keine Standard-Startvorschläge mehr, in allen
+  // Sprachen; das Kennzeichen bleibt (Vertrag). Gespeicherte Listen gelten
+  // unverändert, ein gespeichertes [] bleibt „keine“.
+  test("E42: ohne gespeicherte Liste in jeder Sprache [] mit defaultMessagesStandard, nie die früheren Beispiele", async () => {
+    const OLD = /Deutschkurs|Excel|German course/;
+    for (const language of [
+      undefined,
+      "de",
+      "en",
+      "en-GB",
+      "fr",
+      "tr",
+      "uk",
+      "ar",
+      "",
+      "<x>",
+      ["en"],
+    ])
+      for (const vc of [
+        {},
+        null,
+        { defaultMessages: "a,b" },
+        { name: "VHS" },
+      ]) {
+        const res = await fetchWithLanguage(vc, language);
+        const label = JSON.stringify([language, vc]);
+        expect([label, res.statusCode]).toEqual([label, 200]);
+        expect([label, res.body.defaultMessages]).toEqual([label, []]);
+        expect([label, res.body.defaultMessagesStandard]).toEqual([
+          label,
+          true,
+        ]);
+        expect(res.body).not.toHaveProperty("defaultMessagesSaved");
+        expect(JSON.stringify(res.body)).not.toMatch(OLD);
+        expect(res.headers["Cache-Control"]).toBe("public, max-age=300");
+      }
+    // gespeicherte Liste unverändert (auch die früheren Beispiele als eigene
+    // Liste), gespeichertes [] bleibt „keine“ mit defaultMessagesSaved
+    const own = await fetchWithLanguage(
+      {
+        defaultMessages: [
+          "Ich suche einen Deutschkurs.",
+          "Gibt es Excel-Kurse am Abend?",
+        ],
+      },
+      "en"
+    );
+    expect(own.body.defaultMessages).toEqual([
+      "Ich suche einen Deutschkurs.",
+      "Gibt es Excel-Kurse am Abend?",
+    ]);
+    expect(own.body).not.toHaveProperty("defaultMessagesStandard");
+    const none = await fetchWithLanguage({ defaultMessages: [] }, "de");
+    expect(none.body.defaultMessages).toEqual([]);
+    expect(none.body.defaultMessagesSaved).toBe(true);
+    expect(none.body).not.toHaveProperty("defaultMessagesStandard");
   });
 });
 

@@ -4,7 +4,9 @@
 //    und gelten auch live (GET /embed/:id/config ohne gespeicherte Liste); das
 //    Design Center zeigt sie als Vorbelegung, die Kopie DEFAULT_SUGGESTIONS in
 //    widgetKeys.js ist nur der Rückfall, solange die Standardtexte nicht
-//    geladen sind (Vertrag: wörtlich gleich).
+//    geladen sind (Vertrag: wörtlich gleich). Bewusste Änderung E42
+//    (Nutzerentscheidung 22.10.2026, 7.22-rc23): der Standard ist leer, das
+//    Feld ohne gespeicherte Liste leer und die Vorschau ohne Pillen.
 // S2 Die Skriptzeile im Reiter Einbau bricht nur noch nach „/“ um: jeder Teil
 //    ein nicht umbrechendes Stück (whitespace-pre), kein <wbr> nach „.“ oder
 //    „-“, die Box ohne break-all, der Text unverändert.
@@ -92,17 +94,13 @@ const contentProps = (config, defaults) => ({
 // S1 Startvorschläge: eine Quelle (Server)
 // ---------------------------------------------------------------------------
 
-test("S1: Vorbelegung der Startvorschläge wörtlich wie DEFAULT_SUGGESTIONS.de des Servers (Vertrag), englische vorhanden", () => {
+// Bewusste Änderung E42 (7.22-rc23): Vorbelegung und Standard leer, auch
+// englisch (bis 7.22-rc22 zwei Beispiele je Sprache)
+test("S1, Bewusste Änderung E42: Vorbelegung der Startvorschläge wörtlich wie DEFAULT_SUGGESTIONS.de des Servers (Vertrag), leer, englische ebenso", () => {
   assert.deepEqual(DEFAULTS.defaultMessages, keys.DEFAULT_SUGGESTIONS);
   assert.deepEqual([...DEFAULT_SUGGESTIONS.de], keys.DEFAULT_SUGGESTIONS);
-  assert.deepEqual(keys.DEFAULT_SUGGESTIONS, [
-    "Ich suche einen Deutschkurs.",
-    "Gibt es Excel-Kurse am Abend?",
-  ]);
-  assert.deepEqual(defaultSuggestions("en"), [
-    "I am looking for a German course.",
-    "Are there Excel courses in the evening?",
-  ]);
+  assert.deepEqual(keys.DEFAULT_SUGGESTIONS, []);
+  assert.deepEqual(defaultSuggestions("en"), []);
   // kommagetrennt ans Widget: keine Kommas in den Standards
   for (const lang of Object.keys(DEFAULT_SUGGESTIONS))
     for (const s of DEFAULT_SUGGESTIONS[lang]) assert.ok(!s.includes(","), s);
@@ -143,6 +141,10 @@ test("S1: listDefault/listItems nehmen die Liste des Servers, ohne geladene Stan
   assert.deepEqual(server.defaultMessages, ["A?", "B?"]);
 });
 
+// Seit E42 ist keys.DEFAULT_SUGGESTIONS []: die Zeilen mit der Kopie prüfen
+// damit die leere Liste (gegen die Serverliste A/B bleibt sie []; gegen den
+// leeren Standard entfällt der Schlüssel). Die Fälle des leeren Standards
+// einzeln: Test „E42: cleanConfig …“ unten.
 test("S1: cleanConfig erkennt die Liste des Servers als Standard (Schlüssel entfällt); [] bleibt; ohne Standardtexte die Kopie", () => {
   const server = { ...DEFAULTS, defaultMessages: ["A?", "B?"] };
   const clean = (cfg, defaults) =>
@@ -166,7 +168,7 @@ test("S1: cleanConfig erkennt die Liste des Servers als Standard (Schlüssel ent
 });
 
 test(
-  "S1: Reiter Inhalt und Vorschau (Chatfenster und In der Seite) zeigen die Startvorschläge des Servers",
+  "S1, Bewusste Änderung E42: Reiter Inhalt und Vorschau (Chatfenster und In der Seite) zeigen die Startvorschläge des Servers",
   { skip },
   async () => {
     const server = {
@@ -177,16 +179,17 @@ test(
     assert.match(content, /value="Welche Kurse gibt es\?"/);
     assert.match(content, /value="Wie melde ich mich an\?"/);
     assert.doesNotMatch(content, /Ich suche einen Deutschkurs\./);
+    // Bewusste Änderung E42 (7.22-rc23): der Hinweis nennt keine Beispiele
+    // mehr; Standardtexte noch nicht geladen: die Kopie, seit E42 leer
     assert.ok(
       text(content).includes(
-        "Ohne eigene Liste gelten die zwei Beispiele, auch im Widget; alle gelöscht und gespeichert: keine Startvorschläge."
+        "Buttons mit Fragen, die Besucher mit einem Klick stellen können. Ohne eigene Liste zeigt das Widget keine Startvorschläge."
       )
     );
-    // Standardtexte noch nicht geladen: die Kopie
-    assert.match(
-      await show(CONTENT, contentProps({}, null)),
-      /value="Ich suche einen Deutschkurs\."/
-    );
+    assert.ok(!text(content).includes("zwei Beispiele"));
+    const notLoaded = await show(CONTENT, contentProps({}, null));
+    assert.doesNotMatch(notLoaded, /Deutschkurs|Excel/);
+    assert.ok(text(notLoaded).includes("Leer: keine Startvorschläge."));
     for (const config of [{}, { displayMode: "inline" }]) {
       const preview = await show(PREVIEW, {
         config,
@@ -208,6 +211,98 @@ test(
         greetingKey: "greeting",
       }),
       /data-preview="pill"/
+    );
+  }
+);
+
+// ---------------------------------------------------------------------------
+// E42 Standard der Startvorschläge leer (Nutzerentscheidung 22.10.2026,
+// 7.22-rc23): ohne gespeicherte Liste ist das Feld leer, die Vorschau ohne
+// Pillen (Chatfenster) und ohne Chips (In der Seite); gespeicherte Listen
+// gelten unverändert, ein gespeichertes [] bleibt „keine“.
+// ---------------------------------------------------------------------------
+
+test("E42: cleanConfig mit dem leeren Standard: leere Liste schreibt nichts, eigene Liste bleibt, gespeichertes [] bleibt, geleerte Liste entfällt", () => {
+  const clean = (cfg, initial = {}) =>
+    keys.cleanConfig(cfg, {
+      initial,
+      defaults: DEFAULTS,
+      greetingKey: "greeting",
+    });
+  // ohne gespeicherte Liste: [] und leere Zeilen sind der Standard
+  assert.deepEqual(clean({ defaultMessages: [] }), {});
+  assert.deepEqual(clean({ defaultMessages: ["", "  "] }), {});
+  // eigene Liste: getrimmt gespeichert, auch die früheren Beispiele
+  assert.deepEqual(clean({ defaultMessages: [" Yoga? ", ""] }), {
+    defaultMessages: ["Yoga?"],
+  });
+  assert.deepEqual(
+    clean({
+      defaultMessages: [
+        "Ich suche einen Deutschkurs.",
+        "Gibt es Excel-Kurse am Abend?",
+      ],
+    }),
+    {
+      defaultMessages: [
+        "Ich suche einen Deutschkurs.",
+        "Gibt es Excel-Kurse am Abend?",
+      ],
+    }
+  );
+  // gespeichertes [] bleibt beim Speichern eines anderen Feldes stehen
+  assert.deepEqual(
+    clean({ defaultMessages: [], theme: "dark" }, { defaultMessages: [] }),
+    { defaultMessages: [], theme: "dark" }
+  );
+  // gespeicherte Liste geleert: Schlüssel entfällt (Standard, live ebenso
+  // keine Startvorschläge)
+  assert.deepEqual(
+    clean({ defaultMessages: [] }, { defaultMessages: ["A?"] }),
+    {}
+  );
+});
+
+test(
+  "E42: ohne gespeicherte Liste Feld leer mit Hinweis, Vorschau ohne Pillen und Chips; mit und ohne geladene Standardtexte",
+  { skip },
+  async () => {
+    for (const defaults of [DEFAULTS, null]) {
+      const content = await show(CONTENT, contentProps({}, defaults));
+      const list = content.slice(
+        content.indexOf('data-list="suggestions"'),
+        content.indexOf("Vorschlag hinzufügen")
+      );
+      assert.ok(list.length > 0, "Liste der Startvorschläge fehlt");
+      assert.doesNotMatch(list, /<input/);
+      assert.ok(text(list).includes("Leer: keine Startvorschläge."));
+      assert.doesNotMatch(content, /Deutschkurs|Excel/);
+      for (const config of [{}, { displayMode: "inline" }]) {
+        const preview = await show(PREVIEW, {
+          config,
+          logoPreview: null,
+          defaults,
+          greetingKey: "greeting",
+        });
+        assert.doesNotMatch(preview, /data-preview="pills?"/);
+        assert.doesNotMatch(preview, /Deutschkurs|Excel/);
+      }
+    }
+    // eigene Liste: Feld und Vorschau zeigen sie
+    const own = { defaultMessages: ["Wie melde ich mich an?"] };
+    assert.match(
+      await show(CONTENT, contentProps(own, DEFAULTS)),
+      /value="Wie melde ich mich an\?"/
+    );
+    assert.ok(
+      text(
+        await show(PREVIEW, {
+          config: own,
+          logoPreview: null,
+          defaults: DEFAULTS,
+          greetingKey: "greeting",
+        })
+      ).includes("Wie melde ich mich an?")
     );
   }
 );

@@ -181,20 +181,21 @@ export function withLook(config, initial = {}, key, value) {
 // die Vorschau sie mit; geschrieben werden sie erst, wenn der Kunde die
 // Liste ändert (Regel D6: unveränderte Vorbelegung wird nicht gespeichert,
 // sonst schrieb schon eine Farbänderung diese Fragen in jedes Widget).
-// - Startvorschläge: genau zwei Beispiele; Quelle ist der Server
-//   (embedDefaults.js DEFAULT_SUGGESTIONS, über GET /embed/defaults als
-//   defaults.defaultMessages; S1 Fixliste 7.22-rc10), der sie ohne
-//   gespeicherte Liste auch live ausliefert (das Widget hat keine eigenen).
+// - Startvorschläge: Quelle ist der Server (embedDefaults.js
+//   DEFAULT_SUGGESTIONS, über GET /embed/defaults als
+//   defaults.defaultMessages; S1 Fixliste 7.22-rc10), der denselben
+//   Standard ohne gespeicherte Liste auch live ausliefert (das Widget hat
+//   keine eigenen). Bewusste Änderung E42 (Nutzerentscheidung 22.10.2026,
+//   7.22-rc23): der Standard ist leer (bis 7.22-rc22 zwei Beispiele); ohne
+//   gespeicherte Liste ist das Feld leer und die Vorschau ohne Pillen.
 //   DEFAULT_SUGGESTIONS hier ist die Kopie als Rückfall, solange die
 //   Standardtexte nicht geladen sind (Vertrag im Test designCenterFixesRc10);
-//   alle gelöscht und gespeichert = keine Startvorschläge (defaultMessages: []).
+//   eine gespeicherte Liste gilt unverändert, ein gespeichertes [] bleibt
+//   „keine Startvorschläge“.
 // - Willkommensblasen: der Standard des Widgets (UI_TEXTS.de.welcomeBubbles,
 //   Gegenprobe im Test designCenterStandardLogic mit KUFER_EMBED_DIR); alle
 //   gelöscht = Standardblasen (wie ohne Schlüssel).
-export const DEFAULT_SUGGESTIONS = [
-  "Ich suche einen Deutschkurs.",
-  "Gibt es Excel-Kurse am Abend?",
-];
+export const DEFAULT_SUGGESTIONS = [];
 export const DEFAULT_WELCOME_BUBBLES = [
   "Hallo! Ich bin Ihr KI-Berater.",
   "Möchten Sie mehr über unser Angebot erfahren? Ich helfe gerne weiter!",
@@ -1027,7 +1028,10 @@ export function validateConfig(config, initial, gKey) {
  * - Platzhalter: leer oder Standardtext -> entfernen, frühere Vorbelegung
  *   bleibt.
  * - Startvorschläge: leere Zeilen weg; genau die Vorbelegung -> entfernen;
- *   [] bleibt [] (keine Startvorschläge).
+ *   [] bleibt [] (keine Startvorschläge). Seit E42 ist die Vorbelegung
+ *   leer: eine in dieser Sitzung geleerte Liste entfällt wie jeder auf den
+ *   Standard gebrachte Wert (live ebenso keine Startvorschläge), ein
+ *   unverändert gespeichertes [] bleibt stehen.
  * - Willkommensblasen: leere Zeilen weg; Vorbelegung oder [] -> entfernen
  *   (es gelten die Standardblasen des Widgets).
  * - Link: leer -> entfernen.

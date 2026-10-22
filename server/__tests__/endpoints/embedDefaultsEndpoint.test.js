@@ -149,7 +149,7 @@ describe("GET /embed/defaults — Auth wie die übrigen Embed-Verwaltungsendpunk
     expect(res.body).toBeUndefined();
   });
 
-  test("AK-2: angemeldeter Admin bekommt die Standardtexte (de)", async () => {
+  test("AK-2, Bewusste Änderung E42: angemeldeter Admin bekommt die Standardtexte (de), Startvorschläge leer", async () => {
     const res = await runChain(
       chain,
       request({ token: "gueltig", lang: "de" })
@@ -159,21 +159,18 @@ describe("GET /embed/defaults — Auth wie die übrigen Embed-Verwaltungsendpunk
     expect(res.body.defaults.privacyTitle).toBe("Datenschutz");
     expect(res.body.defaults.privacyText.split("\n")).toHaveLength(3);
     // S1 (Fixliste 7.22-rc10): die Standard-Startvorschläge für die
-    // Vorbelegung des Design Centers (dieselben wie live in /config)
-    expect(res.body.defaults.defaultMessages).toEqual([
-      "Ich suche einen Deutschkurs.",
-      "Gibt es Excel-Kurse am Abend?",
-    ]);
+    // Vorbelegung des Design Centers (dieselben wie live in /config).
+    // Bewusste Änderung E42 (7.22-rc23): leer, das Feld im Design Center
+    // ist ohne gespeicherte Liste leer (bis 7.22-rc22 zwei Beispiele)
+    expect(res.body.defaults.defaultMessages).toEqual([]);
   });
 
-  test("AK-2: lang=en -> englisch; fehlend/unbekannt -> deutsch", async () => {
+  test("AK-2, Bewusste Änderung E42: lang=en -> englisch; fehlend/unbekannt -> deutsch", async () => {
     let res = await runChain(chain, request({ token: "gueltig", lang: "en" }));
     expect(res.body.lang).toBe("en");
     expect(res.body.defaults.privacyTitle).toBe("Privacy");
-    expect(res.body.defaults.defaultMessages).toEqual([
-      "I am looking for a German course.",
-      "Are there Excel courses in the evening?",
-    ]);
+    // Bewusste Änderung E42 (7.22-rc23): auch englisch leer
+    expect(res.body.defaults.defaultMessages).toEqual([]);
     for (const lang of [undefined, "fr", "<x>", ["en"]]) {
       res = await runChain(chain, request({ token: "gueltig", lang }));
       expect(res.statusCode).toBe(200);

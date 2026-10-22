@@ -449,11 +449,10 @@ test(
 // R5: Vorbelegung, Speichern nur geänderter Felder
 // ---------------------------------------------------------------------------
 
-test("R5: Vorbelegungen (DEFAULT_SUGGESTIONS genau zwei, Willkommensblasen = Widget-Standard)", () => {
-  assert.deepEqual(keys.DEFAULT_SUGGESTIONS, [
-    "Ich suche einen Deutschkurs.",
-    "Gibt es Excel-Kurse am Abend?",
-  ]);
+// Bewusste Änderung E42 (7.22-rc23): DEFAULT_SUGGESTIONS leer (bis
+// 7.22-rc22 genau zwei Beispiele)
+test("R5, Bewusste Änderung E42: Vorbelegungen (DEFAULT_SUGGESTIONS leer, Willkommensblasen = Widget-Standard)", () => {
+  assert.deepEqual(keys.DEFAULT_SUGGESTIONS, []);
   assert.deepEqual(
     keys.LIST_DEFAULTS.defaultMessages,
     keys.DEFAULT_SUGGESTIONS
@@ -515,7 +514,12 @@ test("R5: Vorbelegungen (DEFAULT_SUGGESTIONS genau zwei, Willkommensblasen = Wid
   assert.equal(keys.accentFieldValue({ accentColor: "#1" }), "#1");
 });
 
-test('R5: cleanConfig entfernt Werte, die dem Standard entsprechen; Untertitel "" und Startvorschläge [] bleiben', () => {
+// Bewusste Änderung E42 (7.22-rc23): mit dem leeren Standard der
+// Startvorschläge ist eine leere Liste ohne gespeicherten Wert der Standard
+// (kein Schlüssel); die früheren Beispiele sind eine eigene Liste. Ein
+// unverändert gespeichertes [] bleibt (Test „E42: cleanConfig …“ in
+// designCenterFixesRc10.test.mjs).
+test('R5, Bewusste Änderung E42: cleanConfig entfernt Werte, die dem Standard entsprechen; Untertitel "" bleibt', () => {
   const base = { initial: {}, defaults: DEFAULTS, greetingKey: "greeting" };
   const clean = (config) => keys.cleanConfig(config, base);
   assert.deepEqual(clean({ name: "KI-Berater" }), {});
@@ -548,12 +552,15 @@ test('R5: cleanConfig entfernt Werte, die dem Standard entsprechen; Untertitel "
         "Gibt es Excel-Kurse am Abend?",
       ],
     }),
-    {}
+    {
+      defaultMessages: [
+        "Ich suche einen Deutschkurs.",
+        "Gibt es Excel-Kurse am Abend?",
+      ],
+    }
   );
-  assert.deepEqual(clean({ defaultMessages: [] }), { defaultMessages: [] });
-  assert.deepEqual(clean({ defaultMessages: ["", " "] }), {
-    defaultMessages: [],
-  });
+  assert.deepEqual(clean({ defaultMessages: [] }), {});
+  assert.deepEqual(clean({ defaultMessages: ["", " "] }), {});
   assert.deepEqual(clean({ defaultMessages: ["A?", ""] }), {
     defaultMessages: ["A?"],
   });
@@ -651,17 +658,25 @@ const unsaved = (container) =>
 const type = (act, el, value) =>
   act(() => handlersOf(el).onChange({ target: { value } }));
 
+// Bewusste Änderung E42 (7.22-rc23): die Vorbelegung der Startvorschläge
+// ist leer; eine neue leere Zeile ist noch keine Änderung, ein Text schon,
+// zurück auf leer wieder nicht (bis 7.22-rc22: erste Beispielzeile ändern
+// und zurück)
 test(
-  "R5: „Ungespeicherte Änderungen“ nur bei echter Änderung: Vorbelegung bearbeiten und zurück, Standard eintippen",
+  "R5, Bewusste Änderung E42: „Ungespeicherte Änderungen“ nur bei echter Änderung: Vorbelegung bearbeiten und zurück, Standard eintippen",
   { skip },
   async (t) => {
     const { container, act } = await open(t, [widget(9, null)], 9, "Inhalt");
     assert.ok(!unsaved(container));
+    assert.deepEqual(listInputs(container, "suggestions"), []);
+    await act(() => click(button(container, "Vorschlag hinzufügen")));
     const [first] = listInputs(container, "suggestions");
+    assert.ok(first, "neue Zeile fehlt");
+    assert.ok(!unsaved(container), "leere Zeile ist keine Änderung");
     await type(act, first, "Ich suche einen Sprachkurs.");
     assert.ok(unsaved(container));
-    await type(act, first, "Ich suche einen Deutschkurs.");
-    assert.ok(!unsaved(container), "zurück auf die Vorbelegung");
+    await type(act, first, "");
+    assert.ok(!unsaved(container), "zurück auf die Vorbelegung (leer)");
     const name = byLabel(container, "Name des Chatbots");
     await type(act, name, "VHS");
     assert.ok(unsaved(container));
