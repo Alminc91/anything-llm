@@ -39,7 +39,10 @@ const skip = hasFrontendDeps
 
 const PLACEHOLDER = '<div id="kufer-assistent"></div>';
 const TITLE = "Platzhalter nicht in verlinkte Bereiche setzen";
-const DIALOG_LABEL = "Optional: Darstellung „In der Seite“";
+// Beschriftung des Platzhalter-Teils; seit E38 (Fixliste 7.22-rc21) ohne
+// „Optional: “ davor, wenn „In der Seite“ gespeichert ist
+// (designCenterFixesRc21)
+const DIALOG_LABEL = "Darstellung „In der Seite“";
 
 let renderer;
 before(async () => {

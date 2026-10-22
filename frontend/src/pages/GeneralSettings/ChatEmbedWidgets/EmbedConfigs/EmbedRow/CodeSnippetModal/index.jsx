@@ -123,12 +123,17 @@ function storedInline(embed) {
 // Skript wirkt seit E23, Fixliste 7.22-rc17, nicht mehr); ohne Platzhalter
 // erscheint das Chatfenster. Ist „In der Seite“ gewählt, steht vor dem
 // Schnipsel dieselbe Warnung vor verlinkten Bereichen wie im Reiter Einbau
-// (E32, Fixliste 7.22-rc20 F80).
+// (E32, Fixliste 7.22-rc20 F80), und die Beschriftung nennt ihn nicht
+// „Optional“ (E38, Fixliste 7.22-rc21).
 const InlinePlaceholderTag = ({ inline = false }) => {
   const { t } = useTranslation();
   return (
     <SnippetBlock
-      label={t("code-snippet-modal.inline-tag.label")}
+      label={t(
+        inline
+          ? "code-snippet-modal.inline-tag.label-inline"
+          : "code-snippet-modal.inline-tag.label"
+      )}
       hint={t("code-snippet-modal.inline-tag.hint")}
       snippet={EMBED_INLINE_PLACEHOLDER_SNIPPET}
       copiedToast={t("code-snippet-modal.inline-tag.copied")}

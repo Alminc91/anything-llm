@@ -1759,6 +1759,7 @@ const TRANSLATIONS = {
     "copy-failed": null,
     "inline-tag": {
       label: null,
+      "label-inline": null,
       hint: null,
       copied: null,
     },

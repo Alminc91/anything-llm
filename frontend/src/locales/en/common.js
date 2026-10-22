@@ -1903,6 +1903,7 @@ const TRANSLATIONS = {
     "copy-failed": "Copying failed. Please select the text manually.",
     "inline-tag": {
       label: "Optional: display “In der Seite” (in the page)",
+      "label-inline": "Display “In der Seite” (in the page)",
       hint: "If “Erscheinungsbild → Aussehen → Darstellung” is set to “In der Seite”, paste this placeholder where the input bar should appear on your page. If the placeholder is missing on a page, the chat window (“Chatfenster”) appears there automatically. The script snippet above stays unchanged.",
       copied: "Placeholder copied.",
     },

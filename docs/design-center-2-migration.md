@@ -76,10 +76,11 @@ von Hand gebauten Einbau-Codes (Demo-Seite, Einbau-Paket vhs Rhein).
   „KI-Hinweis (E24)“), `courseCardsAnswerStyle` (die kurze Antwort zu
   Kurskarten; den Wert liest nur der Server für den Prompt, das Widget hat
   dafür keine Angabe) und `onlineDot` (den Online-Punkt gibt es nicht mehr,
-  `data-online-dot` bleibt ohne Wirkung). Text, Überschrift und Fläche der
-  Datenschutz-Blase sind je Farbschema fest (E25, 7.22-rc18): Einbau-Angaben
-  wie `data-assistant-bg-color` und Seiten-Variablen wie `--allm-assistant-bg`
-  ändern sie nicht, die Begrüßungsblase darüber folgt ihnen weiter. Grenze
+  `data-online-dot` bleibt ohne Wirkung). Die Farben von Text, Überschrift und
+  Fläche der Datenschutz-Blase sind je Farbschema fest (E25, 7.22-rc18):
+  Einbau-Angaben wie `data-assistant-bg-color` und Seiten-Variablen wie
+  `--allm-assistant-bg` ändern sie nicht, die Begrüßungsblase darüber folgt
+  ihnen weiter. Grenze
   beim Begrüßungsstil (E26,
   7.22-rc18): `data-greeting-style="text"` wirkt nur, solange der
   Datenschutz-Hinweis im Design Center aus ist; ist er an, bleibt die

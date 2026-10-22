@@ -20,7 +20,10 @@
 //   speichert das Design Center „Schwarz“, so liefert der Server es aus,
 //   Entscheidung E1 der Fixliste 7.22-rc7), der höhere gewinnt, bei
 //   Gleichstand Weiß. Ungültige Farbe: Weiß (bisheriger Standard).
-// Farben: #rgb, #rrggbb, #rrggbbaa (Alpha wird ignoriert), rgb()/rgba().
+// Farben: #rgb, #rrggbb, #rrggbbaa (Alpha wird ignoriert), rgb()/rgba() mit
+// ganzen Zahlen bis 255, wie CSS nur mit Kommas (Alpha nach Komma) oder nur
+// mit Leerzeichen (Alpha nach „/“), Alpha als Zahl oder Prozent (Fixliste
+// 7.22-rc21 W91: „rgb(1, 2 3)“ lehnt CSS ab, der Button wäre durchsichtig).
 
 export const WHITE = "#FFFFFF";
 export const BLACK = "#000000";
@@ -37,7 +40,10 @@ export function parseColor(color) {
   m = /^#([0-9a-f]{6})(?:[0-9a-f]{2})?$/i.exec(c);
   if (m) return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
   m =
-    /^rgba?\(\s*(\d{1,3})\s*[,\s]\s*(\d{1,3})\s*[,\s]\s*(\d{1,3})\s*(?:[,/]\s*[\d.]+%?\s*)?\)$/i.exec(
+    /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(?:\d+(?:\.\d+)?|\.\d+)%?\s*)?\)$/i.exec(
+      c
+    ) ||
+    /^rgba?\(\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})\s*(?:\/\s*(?:\d+(?:\.\d+)?|\.\d+)%?\s*)?\)$/i.exec(
       c
     );
   if (m) {

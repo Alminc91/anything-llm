@@ -1449,6 +1449,7 @@ const TRANSLATIONS = {
     "copy-failed": "Kopieren nicht möglich. Bitte manuell markieren.",
     "inline-tag": {
       label: "Optional: Darstellung „In der Seite“",
+      "label-inline": "Darstellung „In der Seite“",
       hint: "Ist unter „Erscheinungsbild → Aussehen → Darstellung“ „In der Seite“ gewählt, fügen Sie diesen Platzhalter dort in Ihre Seite ein, wo die Eingabeleiste erscheinen soll. Fehlt der Platzhalter auf einer Seite, erscheint dort automatisch das Chatfenster. Das Skript oben bleibt unverändert.",
       copied: "Platzhalter kopiert.",
     },
