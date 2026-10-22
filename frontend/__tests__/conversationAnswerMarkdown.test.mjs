@@ -19,12 +19,24 @@
 // die Zeichen der Antwort unverändert, damit die Suche des Servers und die
 // Hervorhebung dieselben Zeichen sehen; die Leiste eines Codeblocks im
 // Widget (Sprache, „Copy“) gehört nicht zur Antwort.
+//
+// Links wie im Widget (Fixliste 7.22-rc22, E40, K130 und K131): Für die
+// Links läuft hier zusätzlich hardenAnswerHtml (target und rel an jedem
+// <a>, Bilder ohne Abruf) über das HTML des Verlaufs, in einem Dokument
+// ohne Browser (helpers/testDom.mjs; das HTML von markdown-it liest
+// htmlToDom). Verglichen werden Adresse, Linktext, target und rel jedes
+// Links mit dem Widget (link_open in src/utils/chat/markdown.js). Was
+// DOMPurify danach an Adressen verwirft (kurs-link:, data: an einem Link),
+// prüft der Browser-Test mit echtem DOMPurify (Antwort E40 und
+// checkSecondSafety).
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { hardenAnswerHtml } from "../src/utils/conversationView.js";
+import { createDocument, elements } from "./helpers/testDom.mjs";
 
 const FRONTEND_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -139,9 +151,58 @@ const CODE_CASES = [
   ["Code im Text", "Nutzen Sie `<template>` für Vorlagen.", "<template>"],
 ];
 
+// Fixliste 7.22-rc22, E40 (K131): Links wie im Widget. [Fall, Antwort,
+// Links als [Adresse, Linktext], sichtbarer Text]. Jeder Link trägt im
+// Verlauf wie im Widget target="_blank" und rel="noopener noreferrer";
+// Linktext und Adresse bleiben, wie markdown-it sie erzeugt. Ungültige
+// Ziele (validateLink) lässt markdown-it als Text stehen, eine nackte
+// Adresse bleibt Text (linkify ist in beiden aus).
+const SITE = "https://www.vhs-musterstadt.de";
+const LINK_CASES = [
+  ["[Kurs](https://…)", `Anmeldung über die [Kurs](${SITE}/kurs/4711).`, [[`${SITE}/kurs/4711`, "Kurs"]], "Anmeldung über die Kurs."],
+  ["[](https://…)", `Leer: [](${SITE}/anmeldung) Ende`, [[`${SITE}/anmeldung`, ""]], "Leer: Ende"],
+  ["[Kurs](/kurs/1)", "Siehe [Kurs](/kurs/1).", [["/kurs/1", "Kurs"]], "Siehe Kurs."],
+  ["[Kurs](javascript:alert(1))", "Siehe [Kurs](javascript:alert(1)).", [], "Siehe [Kurs](javascript:alert(1))."],
+  ["[Kurs](kurs-link:4711)", "Siehe [Kurs](kurs-link:4711).", [["kurs-link:4711", "Kurs"]], "Siehe Kurs."],
+  ["<https://…>", `Siehe <${SITE}/kurs>.`, [[`${SITE}/kurs`, `${SITE}/kurs`]], `Siehe ${SITE}/kurs.`],
+  ["nackte URL", `Mehr unter ${SITE}/kurs und www.vhs-musterstadt.de`, [], `Mehr unter ${SITE}/kurs und www.vhs-musterstadt.de`],
+  // bis rc21 umgeschrieben, seit E40 wie im Widget (Bewusste Änderung E40)
+  ["[Kursseite](#) (vorher K87, K102: Text)", "Zur [Kursseite](#).", [["#", "Kursseite"]], "Zur Kursseite."],
+  ["[](#) (vorher K102: Text)", "Leer: [](#) Ende", [["#", ""]], "Leer: Ende"],
+  ["[Text](<>) (vorher K61: Text)", "Siehe [Text ohne Adresse](<>).", [["", "Text ohne Adresse"]], "Siehe Text ohne Adresse."],
+  ["[Kursseite](URL) (vorher K87, E37: Text mit Adresse)", "[Kursseite](URL)", [["URL", "Kursseite"]], "Kursseite"],
+  ["[Kursseite](/kurs/123) (vorher K102, E37: „Kursseite (/kurs/123)“)", "[Kursseite](/kurs/123)", [["/kurs/123", "Kursseite"]], "Kursseite"],
+  ["Linktext nur U+3164 (vorher K89, B70: die Adresse)", `Siehe [\u3164](${SITE}/k89).`, [[`${SITE}/k89`, "\u3164"]], "Siehe \u3164."],
+  ["Linktext nur U+200B (vorher K61: die Adresse)", `Siehe [\u200b](${SITE}/k61).`, [[`${SITE}/k61`, "\u200b"]], "Siehe \u200b."],
+  ["https:/ ohne // (vorher K104: Text mit Adresse)", "[Anmeldung](https:/www.vhs-musterstadt.de/anmeldung)", [["https:/www.vhs-musterstadt.de/anmeldung", "Anmeldung"]], "Anmeldung"],
+  ["Adresse mit Umlaut ohne Linktext (K85)", "[](https://vhs.de/kurs/töpfern)", [["https://vhs.de/kurs/t%C3%B6pfern", ""]], ""],
+  ["Adresse mit & und Titel", '[Kurs](https://vhs.de/a?b=1&c=2 "Titel")', [["https://vhs.de/a?b=1&c=2", "Kurs"]], "Kurs"],
+];
+// Ziele, die kein Link werden dürfen: markdown-it (validateLink) lässt sie
+// als Text stehen, im Verlauf wie im Widget. DOMPurify als zweite
+// Sicherung: Browser-Test (checkSecondSafety).
+const BLOCKED_LINKS = [
+  ["javascript:", "[Kurs](javascript:alert(1))"],
+  ["JavaScript: groß", "[Kurs](JavaScript:alert(1))"],
+  ["javascript: als Entität", "[Kurs](&#106;avascript:alert(1))"],
+  ["javascript: mit Leerraum davor", "[Kurs]( javascript:alert(1))"],
+  ["javascript: in spitzen Klammern", "[Kurs](<javascript:alert(1)>)"],
+  ["javascript: als Referenz", "[Kurs][ref]\n\n[ref]: javascript:alert(1)"],
+  ["javascript: als Autolink", "<javascript:alert(1)>"],
+  ["vbscript:", "[Kurs](vbscript:msgbox(1))"],
+  ["data:text/html", "[Kurs](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)"],
+  ["file:", "[Kurs](file:///etc/passwd)"],
+  ["Bild mit javascript:", "![Bild](javascript:alert(1))"],
+  ["Bild mit file:", "![Bild](file:///etc/passwd)"],
+];
+// Adressen, die nie an einem Link stehen dürfen (auch mit Steuerzeichen
+// oder Leerraum davor, die der Browser überspringt)
+const BAD_SCHEME = /^[\x00-\x20]*(?:javascript|vbscript|data|file):/i;
+
 let he = null;
 let adminServer = null;
 let renderAdmin = null;
+let widgetServer = null;
 
 /**
  * Sichtbarer Text eines HTML-Stücks: ohne Tags, Entitäten aufgelöst,
@@ -159,6 +220,98 @@ const codeText = (html) => {
   const open = html.indexOf(">", start) + 1;
   return visibleText(html.slice(open, html.indexOf("</code>", open)));
 };
+// Elemente ohne schließendes Tag in der Ausgabe von markdown-it
+const VOID_TAGS = new Set(["br", "hr", "img"]);
+/**
+ * Liest das HTML von markdown-it (Verlauf und Widget) in ein Dokument ohne
+ * Browser (helpers/testDom.mjs): Tags mit Attributen in doppelten
+ * Anführungszeichen, Entitäten in Text und Attributen. Kein allgemeiner
+ * HTML-Parser; ein schließendes Tag ohne öffnendes lässt den Test
+ * scheitern.
+ * @param {object} doc - createDocument()
+ * @param {string} html
+ * @returns {object} - <body> mit dem Inhalt
+ */
+function htmlToDom(doc, html) {
+  const root = doc.createElement("body");
+  const stack = [root];
+  const source = String(html).replace(/<!--[\s\S]*?-->/g, "");
+  const addText = (text) => {
+    if (text) stack.at(-1).appendChild(doc.createTextNode(he.decode(text)));
+  };
+  let last = 0;
+  for (const match of source.matchAll(
+    /<(\/?)([a-zA-Z][\w-]*)((?:\s+[\w:-]+(?:="[^"]*")?)*)\s*\/?>/g
+  )) {
+    addText(source.slice(last, match.index));
+    last = match.index + match[0].length;
+    const [, closing, name, attributes] = match;
+    const tag = name.toUpperCase();
+    if (closing) {
+      const open = stack.findLastIndex((element) => element.tagName === tag);
+      assert.ok(open > 0, `</${name}> ohne öffnendes Tag`);
+      stack.length = open;
+      continue;
+    }
+    const element = stack.at(-1).appendChild(doc.createElement(name));
+    for (const [, key, value = ""] of attributes.matchAll(
+      /([\w:-]+)(?:="([^"]*)")?/g
+    ))
+      element.setAttribute(key, he.decode(value));
+    if (!VOID_TAGS.has(name.toLowerCase())) stack.push(element);
+  }
+  addText(source.slice(last));
+  return root;
+}
+/**
+ * Links und sichtbarer Text eines HTML-Stücks, nach Wunsch zuvor wie im
+ * Verlauf geordnet (hardenAnswerHtml; DOMPurify nur im Browser).
+ * @param {string} html
+ * @param {{harden?: boolean}} [options]
+ */
+function linksOf(html, { harden = false } = {}) {
+  const doc = createDocument();
+  const root = htmlToDom(doc, html);
+  if (harden) hardenAnswerHtml(root, doc);
+  return {
+    links: elements(root, (e) => e.tagName === "A").map((a) => ({
+      href: a.getAttribute("href"),
+      text: a.textContent,
+      target: a.getAttribute("target"),
+      rel: a.getAttribute("rel"),
+    })),
+    images: elements(root, (e) => e.tagName === "IMG").length,
+    text: root.textContent.replace(/\s+/g, " ").trim(),
+  };
+}
+/** Der Verlauf: MarkdownRenderer, dann hardenAnswerHtml. */
+const adminLinks = (content) => linksOf(renderAdmin(content), { harden: true });
+/** renderMarkdown des Widgets (src/utils/chat/markdown.js, KUFER_EMBED_DIR). */
+async function widgetMarkdown() {
+  if (!widgetServer) {
+    const { createServer } = await import("vite");
+    widgetServer = await createServer({
+      root: WIDGET_DIR,
+      configFile: false,
+      logLevel: "error",
+      appType: "custom",
+      server: {
+        middlewareMode: true,
+        hmr: { server: http.createServer() },
+        watch: null,
+      },
+      optimizeDeps: { disabled: true },
+      resolve: {
+        alias: [{ find: "@", replacement: path.join(WIDGET_DIR, "src") }],
+      },
+    });
+  }
+  return (await widgetServer.ssrLoadModule("/src/utils/chat/markdown.js"))
+    .default;
+}
+// typographer: true nur im Widget (siehe oben): Anführungszeichen gleich
+const straight = (text) =>
+  text.replace(/[“”„]/g, '"').replace(/[‘’‚]/g, "'");
 /** Tags im HTML (ohne die Hülle des Renderers). */
 const tagsOf = (html) =>
   [...String(html).matchAll(/<\/?([a-zA-Z][\w-]*)/g)].map(([, tag]) =>
@@ -222,6 +375,7 @@ before(async () => {
 
 after(async () => {
   await adminServer?.close();
+  await widgetServer?.close();
 });
 
 test("rc22, K120 (E39): Im Konversationen-Bereich gibt es genau eine markdown-it-Instanz für Modellantworten, die des Verlaufs (MarkdownRenderer.jsx), und sie rendert mit html: false wie das Widget", () => {
@@ -315,45 +469,86 @@ test(
   "rc22, K121 (E39): Gleichlauf mit dem Widget: dieselben Eingaben ergeben im Verlauf denselben sichtbaren Text wie im Widget (src/utils/chat/markdown.js aus KUFER_EMBED_DIR)",
   { skip: widgetSkip },
   async () => {
-    const { createServer } = await import("vite");
-    const widgetServer = await createServer({
-      root: WIDGET_DIR,
-      configFile: false,
-      logLevel: "error",
-      appType: "custom",
-      server: {
-        middlewareMode: true,
-        hmr: { server: http.createServer() },
-        watch: null,
-      },
-      optimizeDeps: { disabled: true },
-      resolve: {
-        alias: [{ find: "@", replacement: path.join(WIDGET_DIR, "src") }],
-      },
-    });
-    try {
-      const { default: renderMarkdown } = await widgetServer.ssrLoadModule(
-        "/src/utils/chat/markdown.js"
+    const renderMarkdown = await widgetMarkdown();
+    // Das Widget erzeugt aus rohem HTML ebenfalls kein Element
+    assert.doesNotMatch(renderMarkdown("Das ist <b>wichtig</b>."), /<b>/);
+    for (const [label, content] of CASES)
+      assert.equal(
+        visibleText(renderAdmin(content)),
+        straight(visibleText(renderMarkdown(content))),
+        label
       );
-      // typographer: true nur im Widget (siehe oben): Anführungszeichen gleich
-      const straight = (text) =>
-        text.replace(/[“”„]/g, '"').replace(/[‘’‚]/g, "'");
-      // Das Widget erzeugt aus rohem HTML ebenfalls kein Element
-      assert.doesNotMatch(renderMarkdown("Das ist <b>wichtig</b>."), /<b>/);
-      for (const [label, content] of CASES)
-        assert.equal(
-          visibleText(renderAdmin(content)),
-          straight(visibleText(renderMarkdown(content))),
-          label
-        );
-      for (const [label, content] of CODE_CASES)
-        assert.equal(
-          codeText(renderAdmin(content)),
-          codeText(renderMarkdown(content)),
-          label
-        );
-    } finally {
-      await widgetServer.close();
+    for (const [label, content] of CODE_CASES)
+      assert.equal(
+        codeText(renderAdmin(content)),
+        codeText(renderMarkdown(content)),
+        label
+      );
+  }
+);
+
+test(
+  "rc22, K130, K131 (E40): Links im Verlauf wie im Widget (feste Fälle, Markdown und hardenAnswerHtml): Linktext und Adresse unverändert, auch [](https://…), [Kurs](/kurs/1), # und Adressen ohne //, keine Adresse als Text; jeder Link in neuem Tab mit rel=\"noopener noreferrer\"; [Kurs](javascript:alert(1)) und die nackte Adresse bleiben Text",
+  { skip },
+  () => {
+    for (const [label, content, links, text] of LINK_CASES) {
+      const shown = adminLinks(content);
+      assert.deepEqual(
+        shown.links,
+        links.map(([href, linkText]) => ({
+          href,
+          text: linkText,
+          target: "_blank",
+          rel: "noopener noreferrer",
+        })),
+        label
+      );
+      assert.equal(shown.text, text, label);
+      // Die Adresse steht nur als Text da, wo sie der Linktext ist
+      // (<https://…>): Ein Begriff allein in der Adresse ergibt den Hinweis
+      // „nur in Link-Adressen“ (Browser: SHOWS_HIT_CASES)
+      for (const link of shown.links)
+        if (link.href && link.text !== link.href)
+          assert.ok(!shown.text.includes(link.href), `${label}: Adresse sichtbar`);
     }
+  }
+);
+
+test(
+  "rc22, K131 (E40): javascript:, vbscript:, data: und file: werden kein Link (markdown-it validateLink, auch groß, als Entität, mit Leerraum, in spitzen Klammern, als Referenz und als Autolink) und kein Bild: kein <a>, kein <img>, der Text bleibt; DOMPurify als zweite Sicherung prüft der Browser-Test",
+  { skip },
+  () => {
+    for (const [label, content] of BLOCKED_LINKS) {
+      const shown = adminLinks(content);
+      assert.deepEqual(shown.links, [], label);
+      assert.equal(shown.images, 0, label);
+      assert.ok(shown.text.length > 0, `${label}: Text bleibt`);
+    }
+    // Kein Link aus irgendeinem Fall trägt eine solche Adresse
+    for (const [label, content] of [...LINK_CASES, ...BLOCKED_LINKS])
+      for (const link of adminLinks(content).links)
+        assert.doesNotMatch(link.href ?? "", BAD_SCHEME, label);
+  }
+);
+
+test(
+  "rc22, K131 (E40): Gleichlauf mit dem Widget für Links: dieselben Eingaben ergeben im Verlauf dieselben Links (Adresse, Linktext, target, rel) und denselben sichtbaren Text wie im Widget (src/utils/chat/markdown.js aus KUFER_EMBED_DIR), auch für die gesperrten Ziele",
+  { skip: widgetSkip },
+  async () => {
+    const renderMarkdown = await widgetMarkdown();
+    for (const [label, content] of [...LINK_CASES, ...BLOCKED_LINKS]) {
+      const admin = adminLinks(content);
+      const widget = linksOf(renderMarkdown(content));
+      assert.deepEqual(admin.links, widget.links, label);
+      assert.equal(admin.text, straight(widget.text), label);
+      assert.equal(widget.images, 0, label);
+    }
+    // Gegenprobe: Die festen Erwartungen oben sind die des Widgets
+    for (const [label, content, links] of LINK_CASES)
+      assert.deepEqual(
+        linksOf(renderMarkdown(content)).links.map((l) => [l.href, l.text]),
+        links,
+        label
+      );
   }
 );

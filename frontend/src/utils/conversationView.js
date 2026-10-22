@@ -1431,12 +1431,6 @@ export const ANSWER_LINK_REL = "noopener noreferrer";
 const ANSWER_CLASS = /^(?:hljs(?:-[\w-]+)?|language-[\w-]+)$/;
 // Bilder werden nur als Link angeboten, wenn sie im Netz liegen
 const ANSWER_IMAGE_URL = /^https?:\/\//i;
-// Ein Link im Verlauf hat ein Ziel, wenn seine Adresse ein Schema hat
-// (https:, mailto:, tel:) oder mit // beginnt (Nachreview 7.22-rc19, K87);
-// http: und https: nur mit // (https:/pfad und https:pfad löst der Browser
-// gegen die Admin-Seite auf; Nachreview 7.22-rc20, K104)
-const ANSWER_LINK_TARGET =
-  /^[\t\n\f\r ]*(?:https?:\/\/|(?!https?:)[a-z][a-z\d+.-]*:|\/\/)/i;
 
 /** Löst ein Element auf: sein Inhalt bleibt an seiner Stelle. */
 function unwrapElement(node) {
@@ -1453,36 +1447,27 @@ function unwrapElement(node) {
  * ![Alt](Adresse), <https://…>), die Regeln unten gelten für sie weiter.
  * Was nur rohes HTML betrifft (mitgebrachtes <mark> und data-search-hit,
  * fremde Klassen), fangen sie ab, falls die erste Sicherung einmal fehlt:
- * - Links mit Adresse öffnen in einem neuen Tab (target="_blank") mit
- *   rel="noopener noreferrer". Eine Adresse ohne Ziel (ANSWER_LINK_TARGET)
- *   heißt keine Adresse: kein href (DOMPurify hat es verworfen, etwa
- *   Kurs-ID:4711 oder javascript:), leer oder nur Leerraum (aus [Text]()
- *   oder [Text](<>)), nur unsichtbare Zeichen, nur ein Fragment (#,
- *   #anmeldung), ein Platzhalter wie „URL“, ein relativer Pfad
- *   (/anmeldung) oder https: ohne //. Der Link wird aufgelöst, sein Inhalt
- *   bleibt als Text, ein Bild darin wie außerhalb eines Links (Review
- *   7.22-rc17, K61; Nachreview 7.22-rc19, K87, K88, K90; Nachreview
- *   7.22-rc20, K101; sonst öffnete er die Admin-Seite selbst oder eine
- *   Seite des Servers in einem neuen Tab). Die Adresse bleibt als Text
- *   sichtbar (E37, Nachreview 7.22-rc20, K102): mit Inhalt dahinter in
- *   Klammern („Kursseite (/kurs/123)“), ohne sichtbaren Inhalt allein
- *   (statt der unsichtbaren Zeichen); bei # und ohne Adresse nur der
- *   Inhalt.
+ * - Jedes <a> öffnet in einem neuen Tab (target="_blank") mit
+ *   rel="noopener noreferrer". Sonst bleibt der Link, wie Markdown ihn
+ *   erzeugt, so wie im Widget (src/utils/chat/markdown.js, link_open;
+ *   Fixliste 7.22-rc22, E40, K130): Linktext und Adresse unverändert, auch
+ *   ein leerer Linktext und eine Adresse ohne Schema (/kurs/1, #). Welche
+ *   Adresse ein Link wird, entscheiden markdown-it (validateLink:
+ *   javascript:, vbscript:, file: und data: außer Bildern bleiben Text)
+ *   und DOMPurify (verwirft jedes href, das nicht in seiner Liste steht,
+ *   etwa data: an einem Link oder kurs-link:4711; ohne href ist <a> kein
+ *   Link, sein Text bleibt). Die früheren Umschreibungen (Adresse anhängen
+ *   E37, leere Links mit der Adresse füllen K40 und B70, Links ohne Schema
+ *   auflösen K87, K101 und K104, Sonderregeln für unsichtbare Zeichen K61,
+ *   K88 und K89) entfallen seit E40.
  * - Bilder laden nicht von selbst (kein Abruf beim Öffnen des Verlaufs:
  *   Zeitpunkt, IP-Adresse und Browser des Admins blieben sonst beim
- *   Absender): Ein Bild im Netz wird ein Link mit dem Alt-Text (ohne
+ *   Absender; E13): Ein Bild im Netz wird ein Link mit dem Alt-Text (ohne
  *   Alt-Text der Adresse), sonst bleibt nur der Alt-Text. Steht das Bild
- *   schon in einem Link (verlinktes Bild, etwa ein Kursbild zur
- *   Kursseite), bleibt nur der Alt-Text: Ein Link im Link zerfiele beim
- *   Einsetzen in die Seite, und der Kurslink stünde leer da (Review
- *   7.22-rc15, K40).
- * - Ein Link mit Adresse, aber ohne sichtbaren Text (etwa ein verlinktes
- *   Bild ohne Alt-Text, oder nur Leerraum und unsichtbare Zeichen wie
- *   U+200B, isBlankText) zeigt seine Adresse: nie ein leerer, per Tab
- *   erreichbarer Link ohne Namen (K40, K61). Die Adresse ersetzt die
- *   unsichtbaren Zeichen (Nachreview 7.22-rc20, B70: U+3164 stand sonst
- *   als Marke davor). Ebenso gilt ein Alt-Text nur aus unsichtbaren
- *   Zeichen als fehlend.
+ *   in einem <a> (verlinktes Bild, etwa ein Kursbild zur Kursseite),
+ *   bleibt nur der Alt-Text: Ein Link im Link zerfiele beim Einsetzen in
+ *   die Seite (Review 7.22-rc15, K40). Ein Alt-Text nur aus unsichtbaren
+ *   Zeichen (isBlankText) gilt als fehlend (K61, K89).
  * - data-search-hit nur an den <mark> der eigenen Hervorhebung und nur im
  *   zweiten Durchgang (searchHits: true); sonst verworfen (K41). Ein
  *   <mark> ohne dieses Kennzeichen bringt die Antwort mit: Es wird
@@ -1503,16 +1488,7 @@ export function hardenAnswerHtml(
   for (const node of [...(root?.childNodes ?? [])]) {
     if (node.nodeType !== ELEMENT_NODE) continue;
     const tag = String(node.tagName ?? node.nodeName).toUpperCase();
-    const href = tag === "A" ? node.getAttribute("href") : null;
-    // ein Link ohne Ziel (auch ohne href, K101) wird unten aufgelöst: sein
-    // Inhalt steht dann nicht in einem Link (K90)
-    const noTarget = tag === "A" && !ANSWER_LINK_TARGET.test(href ?? "");
-    hardenAnswerHtml(
-      node,
-      doc,
-      { searchHits },
-      inLink || (tag === "A" && !noTarget)
-    );
+    hardenAnswerHtml(node, doc, { searchHits }, inLink || tag === "A");
     if (
       node.hasAttribute?.(SEARCH_HIT_ATTRIBUTE) &&
       !(searchHits && tag === "MARK")
@@ -1527,20 +1503,8 @@ export function hardenAnswerHtml(
       else node.removeAttribute("class");
     }
     if (tag === "A") {
-      if (noTarget) {
-        // Adresse ohne Ziel: kein Link (K61, K87), der Inhalt bleibt, die
-        // Adresse als Text dahinter oder statt eines leeren Inhalts (E37)
-        const address = (href ?? "").trim();
-        if (address !== "#" && !isBlankText(address)) {
-          if (isBlankText(node.textContent)) node.textContent = address;
-          else node.appendChild(doc.createTextNode(` (${address})`));
-        }
-        unwrapElement(node);
-      } else {
-        node.setAttribute("target", "_blank");
-        node.setAttribute("rel", ANSWER_LINK_REL);
-        if (isBlankText(node.textContent)) node.textContent = href;
-      }
+      node.setAttribute("target", "_blank");
+      node.setAttribute("rel", ANSWER_LINK_REL);
     } else if (tag === "IMG") {
       const src = (node.getAttribute("src") ?? "").trim();
       const given = (node.getAttribute("alt") ?? "").trim();

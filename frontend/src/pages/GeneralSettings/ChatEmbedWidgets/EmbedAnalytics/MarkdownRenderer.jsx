@@ -115,7 +115,10 @@ function sanitizedHtml(html, highlight) {
  * der Verlauf hervorhebt; ein Begriff nur in Link-Adressen, im Quelltext
  * des Markdown (etwa der Adresse eines Bildes) oder in ausgeblendeten
  * Gedanken ist es nicht (hasVisibleHit, Hinweis im Kopf des Verlaufs;
- * Nachreview 7.22-rc19, K81 bis K86). Rohes HTML steht seit E39 als Text
+ * Nachreview 7.22-rc19, K81 bis K86). Seit E40 zeigt der Verlauf Links wie
+ * das Widget, ohne die Adresse als Text: Auch die Adresse eines leeren
+ * Links oder eines Links ohne Schema ist verborgen (Fixliste 7.22-rc22,
+ * K131). Rohes HTML steht seit E39 als Text
  * da, ein Begriff darin ist sichtbar (Fixliste 7.22-rc22, K122). Dazu der
  * Text des bereinigten Körpers: Ein Begriff über die Grenzen von
  * Textknoten, etwa über die Token der Syntaxhervorhebung im Code („Kurs

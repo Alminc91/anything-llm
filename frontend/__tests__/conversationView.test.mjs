@@ -1909,7 +1909,7 @@ test("rc12, K14 / rc13 E13: ANSWER_PURIFY_CONFIG – nur HTML, kein style (Attri
   assert.ok(firstElementWith(doc.body, "data-search-hit"));
 });
 
-test("rc12, K14 / rc13 E13: hardenAnswerHtml – Links in neuem Tab mit rel=noopener noreferrer, Bilder laden nicht (im Netz: Link mit Alt-Text, sonst nur der Alt-Text), Klassen nur aus Markdown und Syntaxhervorhebung", () => {
+test("rc12, K14 / rc13 E13: hardenAnswerHtml – Links in neuem Tab mit rel=noopener noreferrer, Bilder laden nicht (im Netz: Link mit Alt-Text, sonst nur der Alt-Text), Klassen nur aus Markdown und Syntaxhervorhebung (Bewusste Änderung E40: ein <a> ohne href bleibt stehen, ohne href ist es kein Link)", () => {
   const { hardenAnswerHtml, ANSWER_LINK_REL } = rc13;
   assert.equal(ANSWER_LINK_REL, "noopener noreferrer");
   const doc = createDocument();
@@ -1949,8 +1949,13 @@ test("rc12, K14 / rc13 E13: hardenAnswerHtml – Links in neuem Tab mit rel=noop
   assert.equal(kurs.getAttribute("target"), "_blank");
   assert.equal(kurs.getAttribute("rel"), "noopener noreferrer");
   assert.equal(kurs.getAttribute("class"), null, "Seitenklassen entfernt");
-  // ohne Adresse kein Link, der Text bleibt (seit rc21, K101)
-  assert.equal(byText("ohne Adresse"), undefined);
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130; vorher seit rc21,
+  // K101 aufgelöst): Das <a> ohne Adresse bleibt, wie DOMPurify es lässt,
+  // ohne href und damit kein Link; target und rel trägt jedes <a>
+  const plain = byText("ohne Adresse");
+  assert.equal(plain?.getAttribute("href"), null);
+  assert.equal(plain.getAttribute("target"), "_blank");
+  assert.equal(plain.getAttribute("rel"), "noopener noreferrer");
   assert.match(p.textContent, /ohne Adresse/);
   const image = byText("Logo der VHS");
   assert.ok(image, "Bild als Link mit Alt-Text");
@@ -2298,7 +2303,7 @@ test("rc15, K31: HEADING_FOCUS_RING: Ring wie bei den Buttons (2 px, Textfarbe) 
 // Fixliste 7.22-rc16 (Nachreview rc15, Abschnitt K)
 // ---------------------------------------------------------------------------
 
-test("rc16, K40: Ein verlinktes Bild (Markdown [![Kursbild](bild)](kurs)) wird kein zweiter Link im Link – der Kurslink bleibt und trägt den Alt-Text; ohne Alt-Text seine eigene Adresse, nie leer", () => {
+test("rc16, K40: Ein verlinktes Bild (Markdown [![Kursbild](bild)](kurs)) wird kein zweiter Link im Link – der Kurslink bleibt und trägt den Alt-Text (Bewusste Änderung E40: ohne Alt-Text bleibt der Kurslink leer wie ein leerer Link im Widget, vorher seine Adresse)", () => {
   const doc = createDocument();
   const root = doc.createElement("body");
   const p = root.appendChild(doc.createElement("p"));
@@ -2331,7 +2336,12 @@ test("rc16, K40: Ein verlinktes Bild (Markdown [![Kursbild](bild)](kurs)) wird k
   assert.equal(course.textContent, "Kursbild");
   assert.equal(course.getAttribute("target"), "_blank");
   assert.equal(course.getAttribute("rel"), "noopener noreferrer");
-  assert.equal(bare.textContent, "https://vhs.example/kurs/456", "nicht leer, nicht die Bildadresse");
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): keine Adresse als
+  // Linktext mehr (vorher K40, nie leer); die Bildadresse erscheint weiter
+  // nicht, das Bild lädt nicht (E13)
+  assert.equal(bare.textContent, "", "leer wie im Widget ohne Bild, nicht die Bildadresse");
+  assert.equal(bare.getAttribute("href"), "https://vhs.example/kurs/456");
+  assert.equal(bare.getAttribute("target"), "_blank");
   assert.equal(mixed.textContent, "Kurs 789");
   // außerhalb eines Links wie bisher: ein Link zum Bild
   const outside = doc.createElement("body");
@@ -2556,7 +2566,7 @@ test("rc18, K60: Die Sitzung im Schlüssel steht nach dem letzten U+0000 – ein
   );
 });
 
-test("rc18, K61: Ein Link, dessen Text nur aus Leerraum und unsichtbaren Zeichen besteht (U+200B, U+200D, U+2060, U+00AD), zeigt seine Adresse; ein Link mit leerer Adresse (href=\"\" oder nur Leerraum) wird aufgelöst, sein Inhalt bleibt als Text; ein Alt-Text nur aus unsichtbaren Zeichen gilt als fehlend", () => {
+test("rc18, K61: Ein Alt-Text nur aus unsichtbaren Zeichen gilt als fehlend (bleibt). Bewusste Änderung E40: Ein Link, dessen Text nur aus Leerraum und unsichtbaren Zeichen besteht (U+200B, U+200D, U+2060, U+00AD), behält seinen Text (vorher seine Adresse); ein Link mit leerer Adresse (href=\"\" oder nur Leerraum) und ein <a> ohne href bleiben stehen wie im Widget (vorher aufgelöst)", () => {
   const doc = createDocument();
   const root = doc.createElement("body");
   const p = root.appendChild(doc.createElement("p"));
@@ -2579,26 +2589,30 @@ test("rc18, K61: Ein Link, dessen Text nur aus Leerraum und unsichtbaren Zeichen
 
   rc13.hardenAnswerHtml(root, doc);
 
-  for (const [a, href] of [[zeroWidth, "https://vhs.example/a"], [joiners, "https://vhs.example/b"], [softHyphen, "https://vhs.example/c"]]) {
-    assert.ok(a.textContent.includes(href), JSON.stringify(a.textContent));
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): Linktext und Adresse
+  // bleiben, wie Markdown sie erzeugt (wie im Widget); target und rel an
+  // jedem <a>
+  for (const [a, href, text] of [[zeroWidth, "https://vhs.example/a", "​"], [joiners, "https://vhs.example/b", " ‍⁠ "], [softHyphen, "https://vhs.example/c", "­"]]) {
+    assert.equal(a.textContent, text, JSON.stringify(a.textContent));
+    assert.equal(a.getAttribute("href"), href);
     assert.equal(a.getAttribute("target"), "_blank");
     assert.equal(a.getAttribute("rel"), "noopener noreferrer");
   }
   assert.equal(named.textContent, "Kurs​", "sichtbarer Text bleibt, keine Adresse dazu");
   const links = elements(root, (e) => e.tagName === "A");
-  assert.ok(!links.includes(emptyHref), "leere Adresse: kein Link");
-  assert.ok(!links.includes(blankHref), "nur Leerraum: kein Link");
-  assert.ok(!links.some((a) => (a.getAttribute("href") ?? "x").trim() === ""), "kein Link mit leerer Adresse");
-  assert.match(p.textContent, /Text ohne Adresse/, "der Inhalt bleibt als Text");
-  // ohne href: kein Link, der Text bleibt (seit rc21, K101)
-  assert.ok(!links.includes(noHref), "ohne href kein Link");
-  assert.match(p.textContent, /ohne Adresse/);
+  for (const [a, href, text] of [[emptyHref, "", ""], [blankHref, "   ", "Text ohne Adresse"], [noHref, null, "ohne Adresse"]]) {
+    assert.ok(links.includes(a), JSON.stringify(href));
+    assert.equal(a.getAttribute("href"), href);
+    assert.equal(a.textContent, text);
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
   // das Bild mit unsichtbarem Alt-Text: ein Link mit seiner Adresse
   const toImage = links.find((a) => a.getAttribute("href") === "https://vhs.example/bild.jpg");
   assert.equal(toImage?.textContent, "https://vhs.example/bild.jpg");
 });
 
-test("rc18, K62 (seit rc20 über die Darstellung, K81 bis K86): Ein Link ohne Text zeigt seine Adresse, die Hervorhebung trifft sie – auch um ein Bild ohne Alt-Text ([![](bild)](ziel)); ein Bild im Link mit Text zeigt seine Adresse nicht; ein Bild ohne Alt-Text außerhalb eines Links zeigt sie, wenn es im Netz liegt", () => {
+test("rc18, K62 (seit rc20 über die Darstellung, K81 bis K86): Ein Bild im Link mit Text zeigt seine Adresse nicht; ein Bild ohne Alt-Text außerhalb eines Links zeigt sie, wenn es im Netz liegt. Bewusste Änderung E40: Ein Link ohne Text zeigt seine Adresse nicht mehr (wie im Widget), die Hervorhebung trifft sie nicht, der Hinweis „nur in Link-Adressen“ ist richtig; ebenso um ein Bild ohne Alt-Text ([![](bild)](ziel))", () => {
   // Wie der Verlauf: erst hardenAnswerHtml, dann highlightTextNodes
   // (answerShowsHit zählt deren Treffer); Markdown und DOMPurify: Browser
   const shown = (build, term) => {
@@ -2619,12 +2633,15 @@ test("rc18, K62 (seit rc20 über die Darstellung, K81 bis K86): Ein Link ohne Te
     img.setAttribute("src", src);
     if (alt !== undefined) img.setAttribute("alt", alt);
   };
-  // Link ohne Text (auch nur unsichtbare Zeichen)
-  assert.equal(shown((doc, p) => link(doc, p, "https://vhs.example/anmeldung"), "anmeldung"), 1);
-  assert.equal(shown((doc, p) => link(doc, p, "https://vhs.example/anmeldung", "\u200B"), "anmeldung"), 1);
-  // verlinktes Bild ohne Alt-Text: die Adresse des Links, nicht des Bilds
+  // Link ohne Text (auch nur unsichtbare Zeichen). Bewusste Änderung E40
+  // (Fixliste 7.22-rc22, K131): Die Adresse steht nicht als Text da, kein
+  // Treffer (vorher 1)
+  assert.equal(shown((doc, p) => link(doc, p, "https://vhs.example/anmeldung"), "anmeldung"), 0);
+  assert.equal(shown((doc, p) => link(doc, p, "https://vhs.example/anmeldung", "\u200B"), "anmeldung"), 0);
+  // verlinktes Bild ohne Alt-Text: weder die Adresse des Links (Bewusste
+  // Änderung E40, vorher 1) noch die des Bilds
   const nested = (doc, p) => image(doc, link(doc, p, "https://vhs.example/anmeldung"), "https://vhs.example/bild.jpg");
-  assert.equal(shown(nested, "anmeldung"), 1);
+  assert.equal(shown(nested, "anmeldung"), 0);
   assert.equal(shown(nested, "bild.jpg"), 0);
   // verlinktes Bild mit Alt-Text: nur der Alt-Text
   const withAlt = (doc, p) => image(doc, link(doc, p, "https://vhs.example/anmeldung"), "https://vhs.example/bild.jpg", "Kursbild");
@@ -2727,7 +2744,7 @@ test("rc20, K81 bis K86: Ob eine Antwort den Begriff sichtbar zeigt, entscheidet
   assert.match(detail, /searchWholeConversation \? \{\} : \{ fromDay, toDay \},\s*answerShowsHit\s*\)/);
 });
 
-test("rc20, K87, K88, K90: Ein Link ohne Ziel (nur ein Fragment wie #, ein Platzhalter wie „URL“, ein relativer Pfad, nur unsichtbare Zeichen U+00AD oder U+2060) wird aufgelöst, sein Text bleibt – kein neuer Tab auf die Admin-Seite; Adressen mit Schema oder // bleiben Links; ein Bild in einem aufgelösten Link gilt nicht als verlinkt", () => {
+test("rc20, K87, K88, K90: Adressen mit Schema oder // bleiben Links in neuem Tab. Bewusste Änderung E40: Auch ein Link ohne Schema (nur ein Fragment wie #, ein Platzhalter wie „URL“, ein relativer Pfad, nur unsichtbare Zeichen U+00AD oder U+2060) bleibt ein Link wie im Widget, mit target und rel (vorher aufgelöst); ein Bild darin gilt als verlinkt und bleibt nur als Alt-Text (E13, K40)", () => {
   const doc = createDocument();
   const root = doc.createElement("body");
   const p = root.appendChild(doc.createElement("p"));
@@ -2767,25 +2784,31 @@ test("rc20, K87, K88, K90: Ein Link ohne Ziel (nur ein Fragment wie #, ein Platz
   rc13.hardenAnswerHtml(root, doc);
 
   const links = elements(root, (e) => e.tagName === "A");
-  for (const a of without) assert.ok(!links.includes(a), JSON.stringify(a.getAttribute("href")));
-  for (const text of ["Kursseite", "Sprung", "Platzhalter", "Relativ", "Pfad", "Wortverbinder"])
-    assert.ok(p.textContent.includes(text), text);
-  for (const a of kept) {
-    assert.ok(links.includes(a), a.getAttribute("href"));
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): Links ohne Schema
+  // bleiben Links mit ihrer Adresse und ihrem Text, wie im Widget
+  for (const a of [...without, ...kept]) {
+    assert.ok(links.includes(a), JSON.stringify(a.getAttribute("href")));
     assert.equal(a.getAttribute("target"), "_blank");
     assert.equal(a.getAttribute("rel"), "noopener noreferrer");
   }
-  assert.ok(!links.some((a) => ["", "#", "URL"].includes(a.getAttribute("href").trim())));
-  // die Bilder: Links auf die Bilddatei wie außerhalb eines Links, kein
-  // Abruf (kein <img>), nichts geht verloren
+  assert.deepEqual(
+    without.map((a) => [a.getAttribute("href"), a.textContent]),
+    [["#", "Kursseite"], ["#anmeldung", "Sprung"], ["URL", "Platzhalter"], ["/anmeldung", "Relativ"], ["kurs/4711", "Pfad"], ["\u00ad", "\u00ad"], ["\u2060", "Wortverbinder"]]
+  );
+  // die Bilder: kein Abruf (kein <img>). Bewusste Änderung E40: Sie stehen
+  // in einem Link (auch der mit leerer Adresse und der auf #), also bleibt
+  // wie bei jedem verlinkten Bild nur der Alt-Text (E13, K40), kein Link
+  // im Link; vorher Links auf die Bilddatei
   assert.equal(elements(root, (e) => e.tagName === "IMG").length, 0);
-  const toImage = (src) => links.find((a) => a.getAttribute("href") === src);
-  assert.equal(toImage("https://vhs.example/kurs.jpg")?.textContent, "https://vhs.example/kurs.jpg");
-  assert.equal(toImage("https://vhs.example/kursbild.jpg")?.textContent, "Kursbild");
-  assert.equal(toImage("https://vhs.example/kursbild.jpg")?.getAttribute("target"), "_blank");
+  assert.equal(links.length, without.length + kept.length + 2, "kein neuer Link für die Bilder");
+  assert.equal(emptyLink.textContent, "");
+  assert.equal(emptyLink.getAttribute("href"), "");
+  const hashLink = links.at(-1);
+  assert.equal(hashLink.getAttribute("href"), "#");
+  assert.equal(hashLink.textContent, "Kursbild");
 });
 
-test("rc20, K89: Auch Zeichen, die laut Unicode ohne Darstellung bleiben dürfen (Default_Ignorable_Code_Point: U+3164, U+115F, U+1160, U+FFA0, U+034F, U+FE0F, U+FE00, U+17B4), und das leere Braille-Muster U+2800 gelten als unsichtbar: ein Link nur daraus zeigt seine Adresse, ein Alt-Text nur daraus gilt als fehlend", () => {
+test("rc20, K89: Auch Zeichen, die laut Unicode ohne Darstellung bleiben dürfen (Default_Ignorable_Code_Point: U+3164, U+115F, U+1160, U+FFA0, U+034F, U+FE0F, U+FE00, U+17B4), und das leere Braille-Muster U+2800 gelten als unsichtbar: ein Alt-Text nur daraus gilt als fehlend (bleibt). Bewusste Änderung E40: Ein Link nur daraus behält seinen Text wie im Widget (vorher seine Adresse)", () => {
   const blanks = ["ㅤ", "ᅟ", "ᅠ", "ﾠ", "͏", "️", "︀", "឴", "⠀", " ㅤ⠀ "];
   const doc = createDocument();
   const root = doc.createElement("body");
@@ -2806,9 +2829,12 @@ test("rc20, K89: Auch Zeichen, die laut Unicode ohne Darstellung bleiben dürfen
 
   rc13.hardenAnswerHtml(root, doc);
 
-  links.forEach((a, index) =>
-    assert.ok(a.textContent.includes(`https://vhs.example/k89-${index}`), JSON.stringify(blanks[index]))
-  );
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): Linktext unverändert
+  links.forEach((a, index) => {
+    assert.equal(a.textContent, blanks[index], JSON.stringify(blanks[index]));
+    assert.equal(a.getAttribute("href"), `https://vhs.example/k89-${index}`);
+    assert.equal(a.getAttribute("target"), "_blank");
+  });
   const toImage = elements(root, (e) => e.tagName === "A").find((a) => a.getAttribute("href") === "https://vhs.example/k89.jpg");
   assert.equal(toImage?.textContent, "https://vhs.example/k89.jpg");
   assert.equal(visible.textContent, "ㅤKurs");
@@ -2858,7 +2884,7 @@ test("rc21, K100: cellpadding, cellspacing und border stehen in FORBID_ATTR, in 
   assert.match(comment, /K100/);
 });
 
-test("rc21, K101: Ein <a> ohne href (nie gehabt oder von DOMPurify verworfen, etwa bei Kurs-ID:4711 oder javascript:) gilt nicht als Link: Es wird aufgelöst, sein Text bleibt, ein Bild darin wird wie außerhalb eines Links ein Link auf die Bilddatei", () => {
+test("rc21, K101: Ein <a> ohne href (nie gehabt oder von DOMPurify verworfen, etwa bei Kurs-ID:4711 oder javascript:) gilt nicht als Link, sein Text bleibt, kein Bild, kein Abruf. Bewusste Änderung E40: Das <a> bleibt ohne href stehen (vorher aufgelöst), ein Bild darin gilt als verlinkt und bleibt nur als Alt-Text (vorher Link auf die Bilddatei)", () => {
   const doc = createDocument();
   const root = doc.createElement("body");
   const p = (...build) => {
@@ -2885,24 +2911,25 @@ test("rc21, K101: Ein <a> ohne href (nie gehabt oder von DOMPurify verworfen, et
   rc21.hardenAnswerHtml(root, doc);
 
   const links = elements(root, (e) => e.tagName === "A");
-  assert.ok(links.every((a) => a.getAttribute("href") !== null), "kein <a> ohne href");
   assert.equal(elements(root, (e) => e.tagName === "IMG").length, 0, "kein Bild, kein Abruf");
-  // ohne Alt-Text: Link auf die Bilddatei mit ihrer Adresse
-  const toBare = links.find((a) => a.getAttribute("href") === "https://vhs.example/kurs.jpg");
-  assert.equal(toBare?.textContent, "https://vhs.example/kurs.jpg");
-  assert.equal(toBare?.getAttribute("target"), "_blank");
-  assert.equal(toBare?.getAttribute("rel"), "noopener noreferrer");
-  assert.equal(bare.textContent, "https://vhs.example/kurs.jpg");
-  // mit Alt-Text: Link auf die Bilddatei mit dem Alt-Text
-  const toNamed = links.find((a) => a.getAttribute("href") === "https://vhs.example/kursbild.jpg");
-  assert.equal(toNamed?.textContent, "Kursbild");
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): Die drei <a> bleiben
+  // ohne href (kein Link), mit target und rel wie jedes <a>; kein Link auf
+  // die Bilddateien (das Bild steht in einem <a>: nur der Alt-Text, E13)
+  assert.equal(links.length, 3, "kein neuer Link für die Bilder");
+  for (const a of links) {
+    assert.equal(a.getAttribute("href"), null);
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
+  }
+  // ohne Alt-Text: nichts (vorher die Bildadresse)
+  assert.equal(bare.textContent, "");
+  // mit Alt-Text: der Alt-Text
   assert.equal(named.textContent, "Kursbild");
-  // nur Text: kein Link, der Text bleibt, nichts dazu
+  // nur Text: der Text bleibt, nichts dazu
   assert.equal(text.textContent, "Siehe Kurs 4711");
-  assert.equal(elements(text, (e) => e.tagName === "A").length, 0);
 });
 
-test("rc21, K102 und B70 nach E37: Ein Link ohne gültiges Ziel wird Text und behält seine Adresse sichtbar. Mit Linktext „Linktext (Adresse)“, ohne sichtbaren Linktext nur die Adresse (sie ersetzt unsichtbare Zeichen wie U+3164), bei # oder leerer Adresse nur der Linktext; ein Link mit Ziel ohne sichtbaren Text zeigt genau seine Adresse, ohne das Füllzeichen davor", () => {
+test("rc21, K102 und B70 (Bewusste Änderung E40, vorher nach E37: Link ohne Ziel als Text mit seiner Adresse, Link nur aus U+3164 mit seiner Adresse): Jeder Link bleibt ein Link mit seiner Adresse und seinem Text wie im Widget, in neuem Tab mit rel; keine Adresse als Text, auch nicht nach einem zweiten Durchgang; die Suche trifft die Adresse nicht", () => {
   const doc = createDocument();
   const root = doc.createElement("body");
   const paragraph = (href, text) => {
@@ -2912,41 +2939,48 @@ test("rc21, K102 und B70 nach E37: Ein Link ohne gültiges Ziel wird Text und be
     if (text) a.appendChild(doc.createTextNode(text));
     return { p, a };
   };
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): Der Text danach ist
+  // der Linktext, die Adresse bleibt am Link (vorher als Text dahinter)
   const cases = [
     // [href, Linktext, Text danach]
-    ["/anmeldung", "", "/anmeldung"], // [](/anmeldung)
-    ["/kurs/123", "Kursseite", "Kursseite (/kurs/123)"], // [Kursseite](/kurs/123)
-    ["www.vhs-lingen.de/kurs/123", "Kursseite", "Kursseite (www.vhs-lingen.de/kurs/123)"],
-    ["info@vhs-lingen.de", "Mail", "Mail (info@vhs-lingen.de)"],
-    ["URL", "Platzhalter", "Platzhalter (URL)"],
-    ["#anmeldung", "Sprung", "Sprung (#anmeldung)"],
+    ["/anmeldung", "", ""], // [](/anmeldung)
+    ["/kurs/123", "Kursseite", "Kursseite"], // [Kursseite](/kurs/123)
+    ["www.vhs-lingen.de/kurs/123", "Kursseite", "Kursseite"],
+    ["info@vhs-lingen.de", "Mail", "Mail"],
+    ["URL", "Platzhalter", "Platzhalter"],
+    ["#anmeldung", "Sprung", "Sprung"],
     ["#", "", ""], // [](#)
     ["#", "Kursseite", "Kursseite"],
     ["  #  ", "Kursseite", "Kursseite"],
     ["", "Text ohne Adresse", "Text ohne Adresse"],
     ["   ", "Nur Leerraum", "Nur Leerraum"],
     ["­", "Trennzeichen", "Trennzeichen"],
-    ["/anmeldung-k102", "ㅤ", "/anmeldung-k102"], // Link nur aus U+3164
-    ["/anmeldung-k102", " ​ㅤ ", "/anmeldung-k102"],
+    ["/anmeldung-k102", "ㅤ", "ㅤ"], // Link nur aus U+3164
+    ["/anmeldung-k102", " ​ㅤ ", " ​ㅤ "],
   ].map(([href, text, expected]) => ({ href, expected, ...paragraph(href, text) }));
   // B70: Link mit Ziel, Linktext nur aus U+3164
   const withTarget = paragraph("https://www.vhs.example/k89", "ㅤ");
 
   rc21.hardenAnswerHtml(root, doc);
 
-  for (const { href, expected, p } of cases) {
+  for (const { href, expected, p, a } of cases) {
     assert.equal(p.textContent, expected, JSON.stringify(href));
-    assert.equal(elements(p, (e) => e.tagName === "A").length, 0, `kein Link: ${JSON.stringify(href)}`);
+    assert.deepEqual(elements(p, (e) => e.tagName === "A"), [a], `Link: ${JSON.stringify(href)}`);
+    assert.equal(a.getAttribute("href"), href);
+    assert.equal(a.getAttribute("target"), "_blank");
+    assert.equal(a.getAttribute("rel"), "noopener noreferrer");
   }
-  assert.equal(withTarget.a.textContent, "https://www.vhs.example/k89");
+  // B70: der Linktext bleibt U+3164 (vorher genau die Adresse)
+  assert.equal(withTarget.a.textContent, "ㅤ");
   assert.equal(withTarget.a.getAttribute("target"), "_blank");
-  assert.equal(withTarget.p.textContent, "https://www.vhs.example/k89");
-  // ein zweiter Durchgang (nach der Hervorhebung) hängt nichts doppelt an
+  assert.equal(withTarget.p.textContent, "ㅤ");
+  // ein zweiter Durchgang (nach der Hervorhebung) ändert nichts
   rc21.hardenAnswerHtml(root, doc, { searchHits: true });
   for (const { href, expected, p } of cases) assert.equal(p.textContent, expected, JSON.stringify(href));
-  assert.equal(withTarget.p.textContent, "https://www.vhs.example/k89");
-  // die Adresse ist jetzt sichtbarer Text: die Suche trifft sie
-  assert.equal(highlightTextNodes(cases[0].p, "anmeldung", doc), 1);
+  assert.equal(withTarget.p.textContent, "ㅤ");
+  // die Adresse ist kein sichtbarer Text: die Suche trifft sie nicht, der
+  // Hinweis „nur in Link-Adressen“ ist richtig (vorher 1)
+  assert.equal(highlightTextNodes(cases[0].p, "anmeldung", doc), 0);
 });
 
 test("rc21, K103: answerShowsHit prüft zusätzlich den Text des bereinigten Körpers (doc.body.textContent): Ein Begriff über die Token der Syntaxhervorhebung im Codeblock steht sichtbar da, kein falscher Hinweis; Link-Adressen, verworfenes HTML und <think> bleiben draußen (Fälle mit echtem DOMPurify und highlight.js: kie575Layout.manual.mjs, SHOWS_HIT_CASES)", () => {
@@ -2975,7 +3009,7 @@ test("rc21, K103: answerShowsHit prüft zusätzlich den Text des bereinigten Kö
   assert.ok(searchPattern("Kurs 4711").test(code.textContent), "der sichtbare Text trifft");
 });
 
-test("rc21, K104: http: und https: gelten nur mit // als Ziel. https:/pfad und https:pfad (der Browser löste sie gegen die Admin-Seite auf) werden Text mit ihrer Adresse; andere Schemata und // bleiben Links", () => {
+test("rc21, K104 (Bewusste Änderung E40, vorher: https:/pfad und https:pfad werden Text mit ihrer Adresse): Jede Adresse bleibt am Link wie im Widget, auch https:/pfad und https:pfad; andere Schemata und // bleiben Links; alle in neuem Tab mit rel", () => {
   const doc = createDocument();
   const root = doc.createElement("body");
   const p = root.appendChild(doc.createElement("p"));
@@ -3006,10 +3040,10 @@ test("rc21, K104: http: und https: gelten nur mit // als Ziel. https:/pfad und h
   rc21.hardenAnswerHtml(root, doc);
 
   const links = elements(root, (e) => e.tagName === "A");
-  for (const a of without) assert.ok(!links.includes(a), a.getAttribute("href"));
-  for (const text of ["Anmeldung (https:/www.vhs.de/anmeldung)", "Kurs (https:kurs/4711)", "Alt (http:/www.vhs.de/a)", "Groß (HTTPS:www.vhs.de)", "Rückstrich (https:\\\\www.vhs.de)"])
-    assert.ok(p.textContent.includes(text), text);
-  for (const a of kept) {
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K130): auch ohne // ein Link
+  // mit Adresse und Text, keine Adresse als Text
+  assert.equal(p.textContent, "Anmeldung Kurs Alt Groß Rückstrich Richtig Groß richtig Mit Leerraum Mail Telefon Ohne Schema Anderes Schema ");
+  for (const a of [...without, ...kept]) {
     assert.ok(links.includes(a), a.getAttribute("href"));
     assert.equal(a.getAttribute("target"), "_blank");
     assert.equal(a.getAttribute("rel"), "noopener noreferrer");

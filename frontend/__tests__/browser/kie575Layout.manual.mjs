@@ -74,6 +74,19 @@
 // rohes HTML dargestellt erwarteten, heißen „Bewusste Änderung E39“ und
 // erwarten jetzt den Text. Die zweite Sicherung (sanitizeAnswerHtml mit
 // echtem DOMPurify) prüft checkSecondSafety direkt am rohen HTML (K123).
+// Fixliste 7.22-rc22 (E40, K130, K131): Links im Verlauf wie im Widget.
+// Linktext und Adresse bleiben, wie Markdown sie erzeugt, auch bei leeren
+// Links, relativen Adressen, # und Adressen ohne //; jedes <a> öffnet in
+// einem neuen Tab mit rel="noopener noreferrer". javascript:, vbscript:,
+// file: und data: werden kein Link (markdown-it validateLink, DOMPurify),
+// die Adresse von kurs-link: und data: an einem Link verwirft DOMPurify.
+// Die zehnte Antwort trägt die Fälle aus K131 (Screenshots e40-links und
+// e40-suche hell und dunkel, bei 1.440 px ein Klick auf den relativen Link
+// in einen neuen Tab ohne opener); ein Begriff nur in der Adresse eines
+// leeren oder relativen Links ergibt den Hinweis „nur in Link-Adressen“.
+// Prüfungen, die die früheren Umschreibungen erwarteten (K61, K62, K87 bis
+// K90, K101, K102, B70, K104 und ihre Fälle der Sichtbarkeit), heißen
+// „Bewusste Änderung E40“ und erwarten die Darstellung des Widgets.
 //
 // Der Server ist im Browser nachgestellt (page.route): Es läuft nur der
 // Vite-Dev-Server des Frontends – kein Container, kein Docker. Playwright
@@ -216,14 +229,17 @@ const HTML_ANSWER_RC21 = [
   "```js\nconst k103kurs = 4711;\n```",
 ].join("\n");
 // Suchbegriffe der Antwort rc21: sichtbar (kein Hinweis; markiert, wo der
-// Begriff in einem Textknoten steht)
+// Begriff in einem Textknoten steht: true). Bewusste Änderung E40
+// (Fixliste 7.22-rc22, K131): Die Adressen der Links stehen nicht mehr als
+// Text da, der Begriff ist verborgen ("hinweis": Hinweis „nur in
+// Link-Adressen …“, keine Markierung; vorher sichtbar und markiert)
 const RC21_SEARCHES = [
   ["K101 Bild in <a> ohne href (E39: als Text)", "k101.jpg", true],
-  ["K102 Link ohne Ziel und ohne Text", "anmeldung-k102a", true],
-  ["K102 Link ohne Ziel mit Text", "kurs/k102", true],
-  ["K102 Link ohne Ziel nur aus U+3164", "anmeldung-k102b", true],
-  ["K104 https:/ ohne //", "k104a", true],
-  ["K104 https: ohne //", "k104b", true],
+  ["K102 Link ohne Schema und ohne Text (Bewusste Änderung E40)", "anmeldung-k102a", "hinweis"],
+  ["K102 Link ohne Schema mit Text (Bewusste Änderung E40)", "kurs/k102", "hinweis"],
+  ["K102 Link ohne Schema nur aus U+3164 (Bewusste Änderung E40)", "anmeldung-k102b", "hinweis"],
+  ["K104 https:/ ohne // (Bewusste Änderung E40)", "k104a", "hinweis"],
+  ["K104 https: ohne // (Bewusste Änderung E40)", "k104b", "hinweis"],
   ["K103 Begriff über Token-Grenzen im Codeblock", "k103kurs = 4711", false],
 ];
 // Fixliste 7.22-rc22 (E39) in der neunten Antwort: die Eingaben aus K121.
@@ -263,6 +279,51 @@ const HTML_ANSWER_E39 = [
   "<div>Kurs 4711</div>",
   "```",
 ].join("\n");
+// Fixliste 7.22-rc22 (E40, K131) in der zehnten Antwort: Links wie im
+// Widget. E40_LINKS sind die Links, die der Verlauf zeigt, in dieser
+// Reihenfolge, als [Adresse, Linktext]; Adresse null heißt: DOMPurify hat
+// sie verworfen, das <a> ist kein Link (im Widget ebenso: purify.js mit den
+// Standardregeln von DOMPurify). E40_TEXT steht wörtlich als Text da.
+const E40_SITE = "https://www.vhs-musterstadt.de";
+const HTML_ANSWER_E40 = [
+  `Wie im Widget: [Kurs e40](${E40_SITE}/kurs/e40voll), leer [](${E40_SITE}/e40leer), relativ [Relativ e40](/kurs/e40relativ) und [Sprung e40](#e40sprung).`,
+  "",
+  "Kein Link: [Gefahr e40](javascript:alert(1)), [VB e40](vbscript:msgbox(1)), [Datei e40](file:///etc/passwd), [Seite e40](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==) und <javascript:alert(1)>.",
+  "",
+  "Adresse verworfen: [Kurslink e40](kurs-link:4711) und [Bild e40](data:image/png;base64,iVBORw0KGgo=).",
+  "",
+  `Autolink <${E40_SITE}/e40auto>, nackt ${E40_SITE}/e40nackt, Füllzeichen [\u3164](${E40_SITE}/e40fueller) und Tippfehler [Tippfehler e40](https:/www.vhs-musterstadt.de/e40tipp).`,
+].join("\n");
+const E40_LINKS = [
+  [`${E40_SITE}/kurs/e40voll`, "Kurs e40"],
+  [`${E40_SITE}/e40leer`, ""],
+  ["/kurs/e40relativ", "Relativ e40"],
+  ["#e40sprung", "Sprung e40"],
+  [null, "Kurslink e40"],
+  [null, "Bild e40"],
+  [`${E40_SITE}/e40auto`, `${E40_SITE}/e40auto`],
+  [`${E40_SITE}/e40fueller`, "\u3164"],
+  ["https:/www.vhs-musterstadt.de/e40tipp", "Tippfehler e40"],
+];
+const E40_TEXT = [
+  "[Gefahr e40](javascript:alert(1))",
+  "[VB e40](vbscript:msgbox(1))",
+  "[Datei e40](file:///etc/passwd)",
+  "[Seite e40](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)",
+  "<javascript:alert(1)>",
+  `nackt ${E40_SITE}/e40nackt,`,
+];
+// Suchbegriffe der Antwort E40: [Fall, Begriff, sichtbar]; verborgen heißt
+// Hinweis „nur in Link-Adressen …“ und keine Markierung
+const E40_SEARCHES = [
+  ["E40 Begriff nur in der Adresse eines leeren Links", "e40leer", false],
+  ["E40 Begriff nur in einer relativen Adresse", "kurs/e40relativ", false],
+  ["E40 Begriff nur in der Adresse eines Links aus U+3164", "e40fueller", false],
+  ["E40 Begriff nur in der Adresse von https:/ ohne //", "e40tipp", false],
+  ["E40 Begriff in der nackten Adresse (Text)", "e40nackt", true],
+  ["E40 Begriff im Autolink (Linktext)", "e40auto", true],
+  ["E40 Begriff in einem gesperrten Ziel (Text)", "msgbox", true],
+];
 // … und in der sechsten: Inhalt, den DOMPurify verwirft (K81), am Ende ein
 // nicht geschlossenes <template>, das den Rest der Antwort verschluckt
 const HTML_ANSWER_RC20_HIDDEN = [
@@ -286,7 +347,9 @@ const RC20_SEARCHES = [
   ["K83 rohes <img> ohne Alt-Text", "k83bild", true],
   ["K84 Klammer nach dem Link", "k84kostenlos", true],
   ["K85 Adresse mit Umlaut (prozentkodiert angezeigt)", "k85töpfern", false],
-  ["K86 Linktext nur &nbsp;", "k86anmeldung", true],
+  // Bewusste Änderung E40 (Fixliste 7.22-rc22, K131): Der Linktext bleibt
+  // &nbsp;, die Adresse ist verborgen (vorher sichtbar als Linktext)
+  ["K86 Linktext nur &nbsp; (Bewusste Änderung E40)", "k86anmeldung", false],
 ];
 const PREVIEWS = [
   "Gibt es noch freie Plätze im Spanischkurs A1 am Dienstagabend?",
@@ -342,6 +405,8 @@ function messagesFor(id) {
               ? HTML_ANSWER_RC21
               : id === HTML_ID && k === 8
               ? HTML_ANSWER_E39
+              : id === HTML_ID && k === 9
+              ? HTML_ANSWER_E40
               : id === HTML_ID && k === 10
               ? FAKE_HIT_ANSWER
               : `Gern helfe ich Ihnen weiter. **Kurs ${k + 1}** beginnt am Dienstag um 18:30 Uhr in Raum 204.\n\n- Dauer: 10 Abende\n- Gebühr: 96,00 Euro\n- Anmeldung über die [Kursseite](https://www.vhs-musterstadt.de/kurs/${id}${k})\n\nHaben Sie noch Fragen zu Terminen oder zur Anmeldung?`,
@@ -1049,6 +1114,11 @@ async function checkAnswerHtmlRc16(scenario, page, trackerHits, { width, theme }
  * keine Farbe, Größe oder Schrift aus der Antwort (font color/size/face,
  * table bgcolor). Bewusste Änderung E39 (Fixliste 7.22-rc22): Diese
  * Elemente stehen samt Tags als Text da; auch <template> mit seinem Inhalt.
+ * Bewusste Änderung E40 (Fixliste 7.22-rc22, K130, K131): Links bleiben
+ * wie im Widget. Der Link nur aus unsichtbaren Zeichen behält seinen
+ * Text, die Links ohne Adresse und die leeren Links bleiben Links (in
+ * neuem Tab), ohne Adresse als Text; die Suche nach einem Begriff nur in
+ * ihren Adressen ergibt den Hinweis „nur in Link-Adressen“.
  */
 async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }) {
   const read = () =>
@@ -1074,7 +1144,7 @@ async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }
         answerColor: getComputedStyle(answer).color,
         answerFont: getComputedStyle(answer).fontFamily,
         answerSize: getComputedStyle(answer).fontSize,
-        links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") })),
+        links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target"), rel: a.getAttribute("rel") })),
         texts: Object.fromEntries(words.map((word) => [word, shown(`Versteckt ${word}`)])),
         template: answer.querySelectorAll("template").length + (answer.innerHTML.includes("Versteckt template") ? 1 : 0),
         templateElements: answer.querySelectorAll("template").length,
@@ -1093,10 +1163,12 @@ async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }
   await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k61-k63.png`) });
   const link = (part) => info.links.find((l) => (l.href ?? "").endsWith(part));
   const invisible = [link("/unsichtbar"), link("/trennzeichen")];
-  check(scenario, "K61 Link nur aus unsichtbaren Zeichen (U+200B, U+00AD) zeigt seine Adresse", invisible.every((l) => !!l && l.text.includes(l.href) && l.target === "_blank"), { links: invisible });
-  check(scenario, "K61 Link ohne Adresse ([]() und [Text](<>)) ist kein Link mehr, sein Text bleibt", !info.links.some((l) => (l.href ?? "").trim() === "") && info.noAddress, { links: info.links.filter((l) => (l.href ?? "").trim() === ""), noAddress: info.noAddress });
+  const linkOk = (l) => !!l && l.target === "_blank" && l.rel === "noopener noreferrer";
+  check(scenario, "K61 Bewusste Änderung E40: Link nur aus unsichtbaren Zeichen (U+200B, U+00AD) behält seinen Text wie im Widget (vorher seine Adresse), in neuem Tab mit rel", invisible.every(linkOk) && invisible[0].text === "\u200B" && invisible[1].text === "\u00AD", { links: invisible });
+  const empty = info.links.filter((l) => l.href === "");
+  check(scenario, "K61 Bewusste Änderung E40: Links ohne Adresse ([]() und [Text](<>)) bleiben Links wie im Widget (vorher Text), ihr Text bleibt, in neuem Tab", empty.length === 2 && empty.every(linkOk) && empty.map((l) => l.text).join("|") === "|Text ohne Adresse" && info.noAddress, { links: empty, noAddress: info.noAddress });
   const k62 = [link(`/einschreibung-k62`), link(`/einschreibung-bild`)];
-  check(scenario, "K62 leere Links zeigen ihre Adresse (auch das verlinkte Bild ohne Alt-Text), kein Abruf", k62.every((l) => !!l && l.text === l.href) && info.images === 0 && trackerHits.length === 0, { links: k62, images: info.images, trackerHits });
+  check(scenario, "K62 Bewusste Änderung E40: leere Links bleiben leer wie im Widget (vorher ihre Adresse), auch das verlinkte Bild ohne Alt-Text; kein Abruf", k62.every((l) => linkOk(l) && l.text === "") && !info.text.includes(K62_TERM) && info.images === 0 && trackerHits.length === 0, { links: k62, images: info.images, trackerHits });
   const hidden = Object.entries(info.texts).filter(([word, t]) => word !== "font" && word !== "Tabelle" && !t.shown).map(([word]) => word);
   const k63Raw = ["<datalist>Versteckt datalist</datalist>", "<rp>Versteckt rp</rp>", "<progress>Versteckt progress</progress>", "<meter>Versteckt meter</meter>", "<canvas>Versteckt canvas</canvas>"];
   check(scenario, "K63 Text in <datalist>, <rp>, <progress>, <meter> und <canvas> sichtbar, kein solches Element; Bewusste Änderung E39: samt Tags als Text (vorher aufgelöst)", hidden.length === 0 && info.hiding.length === 0 && k63Raw.every((raw) => info.text.includes(raw)), { hidden, elements: info.hiding, missing: k63Raw.filter((raw) => !info.text.includes(raw)) });
@@ -1109,7 +1181,7 @@ async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }
   await page.waitForTimeout(800);
   const searched = await read();
   await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k62-suche.png`) });
-  check(scenario, `K62 Suche „${K62_TERM}“: Treffer in den sichtbaren Adressen markiert, kein Hinweis „nur in Link-Adressen“`, searched.hits.length >= 2 && searched.hits.every((hit) => hit.toLowerCase() === K62_TERM) && searched.hiddenHit === null, { hits: searched.hits, hiddenHit: searched.hiddenHit });
+  check(scenario, `K62 Bewusste Änderung E40: Suche „${K62_TERM}“: der Begriff steht nur in den Adressen der leeren Links, Hinweis „nur in Link-Adressen“, keine Markierung (vorher markiert ohne Hinweis)`, searched.hits.length === 0 && searched.hiddenHit !== null, { hits: searched.hits, hiddenHit: searched.hiddenHit });
   // zurück zum Stand ohne Suche für die folgenden Prüfungen
   await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
@@ -1123,7 +1195,12 @@ async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }
 // Rohes HTML steht als Text da, ein Begriff darin (auch in einem Attribut
 // oder in <template>) ist sichtbar; ein Linktext aus rohem HTML wie
 // [<b></b>](…) ist Text, die Adresse des Links bleibt dann verborgen.
+// Bewusste Änderung E40 (Fixliste 7.22-rc22, K131): Links stehen wie im
+// Widget da, ohne ihre Adresse als Text, auch leere Links, Links nur aus
+// unsichtbaren Zeichen, relative Adressen und https: ohne //; ein Begriff
+// nur in ihrer Adresse ist verborgen (Hinweis „nur in Link-Adressen“).
 const E39 = " (Bewusste Änderung E39)";
+const E40 = " (Bewusste Änderung E40)";
 const SHOWS_HIT_CASES = [
   ["Punkt 11 Link-Adresse", 'Hier: [Anmeldung](https://vhs-lingen.example/anmeldung) <span data-x="geheimattribut">ok</span><think>Gedanke zu Yoga</think>', "vhs-lingen", false],
   ["Punkt 11 HTML-Attribut" + E39, 'Hier: [Anmeldung](https://vhs-lingen.example/anmeldung) <span data-x="geheimattribut">ok</span>', "geheimattribut", true],
@@ -1132,10 +1209,10 @@ const SHOWS_HIT_CASES = [
   ["S2 Autolink", "Siehe <https://kurs.example/a1> oder <info@vhs.example>.", "kurs.example", true],
   ["S2 Autolink E-Mail", "Siehe <https://kurs.example/a1> oder <info@vhs.example>.", "info@vhs", true],
   ["S2 Adresse eines HTML-Links" + E39, '<a href="https://kurs.example">Link</a>', "kurs.example", true],
-  ["K62 Link ohne Text", "Siehe [](https://vhs.example/anmeldung).", "anmeldung", true],
-  ["K62 Link nur aus U+200B", "[​](https://vhs.example/anmeldung)", "anmeldung", true],
-  ["K62 Link ohne Text mit Titel", '[](<https://vhs.example/anmeldung> "Titel")', "anmeldung", true],
-  ["K62 verlinktes Bild ohne Alt-Text: Linkadresse", "[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "anmeldung", true],
+  ["K62 Link ohne Text" + E40, "Siehe [](https://vhs.example/anmeldung).", "anmeldung", false],
+  ["K62 Link nur aus U+200B" + E40, "[​](https://vhs.example/anmeldung)", "anmeldung", false],
+  ["K62 Link ohne Text mit Titel" + E40, '[](<https://vhs.example/anmeldung> "Titel")', "anmeldung", false],
+  ["K62 verlinktes Bild ohne Alt-Text: Linkadresse" + E40, "[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "anmeldung", false],
   ["K62 verlinktes Bild ohne Alt-Text: nicht die Bildadresse", "[![](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "bild.jpg", false],
   ["K62 verlinktes Bild mit Alt-Text", "[![Kursbild](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "kursbild", true],
   ["K62 verlinktes Bild mit Alt-Text: keine Adresse", "[![Kursbild](https://vhs.example/bild.jpg)](https://vhs.example/anmeldung)", "anmeldung", false],
@@ -1162,30 +1239,30 @@ const SHOWS_HIT_CASES = [
   ["K84 Klammer nach dem Link", "Mehr unter [Anmeldung](https://vhs.de/anmeldung)(kostenlos)", "kostenlos", true],
   ["K84 Klammer nach dem Bild", "![Bild](https://x.example/a.jpg)(Foto: VHS)", "foto: vhs", true],
   ["K85 Adresse mit Umlaut: nicht dekodiert", "[](https://vhs.de/kurs/töpfern)", "töpfern", false],
-  ["K85 Adresse mit Umlaut: so wie angezeigt", "[](https://vhs.de/kurs/töpfern)", "t%C3%B6pfern", true],
-  ["K86 Linktext &nbsp;", "Siehe [&nbsp;](https://vhs.example/anmeldung).", "anmeldung", true],
-  ["K86 Linktext &#8203;", "Siehe [&#8203;](https://vhs.example/anmeldung).", "anmeldung", true],
+  ["K85 Adresse mit Umlaut: prozentkodiert" + E40, "[](https://vhs.de/kurs/töpfern)", "t%C3%B6pfern", false],
+  ["K86 Linktext &nbsp;" + E40, "Siehe [&nbsp;](https://vhs.example/anmeldung).", "anmeldung", false],
+  ["K86 Linktext &#8203;" + E40, "Siehe [&#8203;](https://vhs.example/anmeldung).", "anmeldung", false],
   ["K86 Linktext <b></b>" + E39, "Siehe [<b></b>](https://vhs.example/anmeldung).", "anmeldung", false],
   ["K86 Linktext <b></b> als Text" + E39, "Siehe [<b></b>](https://vhs.example/anmeldung).", "<b></b>", true],
-  ["K86 Linktext Code-Span", "Siehe [` `](https://vhs.example/anmeldung).", "anmeldung", true],
+  ["K86 Linktext Code-Span" + E40, "Siehe [` `](https://vhs.example/anmeldung).", "anmeldung", false],
   ["K87 Link auf #", "Anmeldung über die [Kursseite](#anmeldung)", "kursseite", true],
-  ["K89 Link nur aus U+3164", "[ㅤ](https://vhs.example/k89)", "k89", true],
-  ["K90 Bild ohne Alt-Text im Link ohne Adresse", "[![](https://vhs.example/k90.jpg)]()", "k90.jpg", true],
+  ["K89 Link nur aus U+3164" + E40, "[ㅤ](https://vhs.example/k89)", "k89", false],
+  ["K90 Bild ohne Alt-Text im Link ohne Adresse" + E40, "[![](https://vhs.example/k90.jpg)]()", "k90.jpg", false],
   ["B60 mitgebrachtes <mark>", "Hinweis: <mark>Yoga am Montag</mark>", "yoga", true],
   // Fixliste 7.22-rc21
   ["K100 Tabelle mit cellpadding", 'Gern helfe ich. <table cellpadding="100000"><tr><td>Stornieren Sie Kurs 4711</td></tr></table> Ende', "4711", true],
   ["K101 Bild in <a> ohne href", '<a><img src="https://vhs.example/k101.jpg"></a>', "k101.jpg", true],
   ["K101 Bild in <a href=\"javascript:…\">", '<a href="javascript:void(0)"><img src="https://vhs.example/k101.jpg"></a>', "k101.jpg", true],
-  ["K101 Bild im Link auf Kurs-ID:", "[![](https://vhs.example/k101.jpg)](Kurs-ID:4711)", "k101.jpg", true],
-  ["K102 Link ohne Ziel und ohne Text", "Siehe [](/anmeldung).", "anmeldung", true],
-  ["K102 Link ohne Ziel mit Text: Adresse dahinter", "[Kursseite](/kurs/123)", "kurs/123", true],
-  ["K102 Link ohne Ziel nur aus U+3164", "[ㅤ](/anmeldung)", "anmeldung", true],
+  ["K101 Bild im Link auf Kurs-ID:" + E40, "[![](https://vhs.example/k101.jpg)](Kurs-ID:4711)", "k101.jpg", false],
+  ["K102 Link ohne Schema und ohne Text" + E40, "Siehe [](/anmeldung).", "anmeldung", false],
+  ["K102 Link ohne Schema mit Text: keine Adresse dahinter" + E40, "[Kursseite](/kurs/123)", "kurs/123", false],
+  ["K102 Link ohne Schema nur aus U+3164" + E40, "[ㅤ](/anmeldung)", "anmeldung", false],
   ["K102 Link auf #: keine Adresse", "[Kursseite](#)", "kursseite (#)", false],
   ["K103 Begriff über Token-Grenzen im Codeblock", "```js\nconst kurs = 4711;\n```", "kurs = 4711", true],
   ["K103 Begriff über Token-Grenzen im Codeblock (Wörter)", "```js\nKurs 4711 buchen\n```", "Kurs 4711", true],
   ["K103 Kontrolle: Adresse eines Links mit Text bleibt verborgen", "```js\nconst a = 1;\n```\n\n[Kurs](https://vhs.example/kurs-4711)", "kurs-4711", false],
-  ["K104 https:/ ohne //: Adresse als Text", "[Anmeldung](https:/www.vhs.de/anmeldung)", "www.vhs.de", true],
-  ["K104 https: ohne //: Adresse als Text", "[Kurs](https:kurs/4711)", "kurs/4711", true],
+  ["K104 https:/ ohne //: keine Adresse als Text" + E40, "[Anmeldung](https:/www.vhs.de/anmeldung)", "www.vhs.de", false],
+  ["K104 https: ohne //: keine Adresse als Text" + E40, "[Kurs](https:kurs/4711)", "kurs/4711", false],
   // Fixliste 7.22-rc22 (E39, K122): rohes HTML als Text
   ["E39 Tag eines rohen Elements", "Das ist <b>wichtig</b>.", "<b>", true],
   ["E39 Attribut eines rohen <font>", 'Gern. <font color="#0e0f0f">Kurs</font>', "#0e0f0f", true],
@@ -1193,6 +1270,16 @@ const SHOWS_HIT_CASES = [
   ["E39 Adresse eines rohen <img>", '<img src="https://vhs.example/e39bild.jpg" alt="Kursfoto">', "e39bild", true],
   ["E39 Kontrolle: <think> bleibt verborgen", "Antwort mit <b>x</b><think>e39gedanke</think>", "e39gedanke", false],
   ["E39 Kontrolle: Adresse eines Markdown-Links bleibt verborgen", "Siehe [Kurs](https://vhs.example/e39md) und <b>x</b>", "e39md", false],
+  // Fixliste 7.22-rc22 (E40, K131): Links wie im Widget
+  ["E40 Linktext eines relativen Links", "Siehe [Kursseite e40](/kurs/e40).", "kursseite e40", true],
+  ["E40 relative Adresse verborgen", "Siehe [Kursseite](/kurs/e40).", "kurs/e40", false],
+  ["E40 Adresse eines leeren Links verborgen", "Leer: [](https://vhs.example/e40leer) Ende", "e40leer", false],
+  ["E40 javascript: bleibt Text", "Siehe [Kurs](javascript:alert(1)).", "javascript:alert", true],
+  ["E40 vbscript: bleibt Text", "Siehe [Kurs](vbscript:msgbox(1)).", "vbscript:msgbox", true],
+  ["E40 kurs-link: Linktext", "Siehe [Kurs e40](kurs-link:4711).", "kurs e40", true],
+  ["E40 kurs-link: Adresse verborgen", "Siehe [Kurs](kurs-link:4711).", "kurs-link", false],
+  ["E40 Autolink", "Siehe <https://vhs.example/e40auto>.", "e40auto", true],
+  ["E40 nackte Adresse ist Text", "Mehr unter https://vhs.example/e40nackt", "e40nackt", true],
 ];
 
 /**
@@ -1232,7 +1319,11 @@ async function checkAnswerShowsHit(scenario, page) {
  * markiert und kein Hinweis, verborgen heißt Hinweis und keine Markierung
  * (K81 bis K86). Bewusste Änderung E39 (Fixliste 7.22-rc22): <marquee>,
  * die Tabelle mit Maßen und das mitgebrachte <mark> stehen samt Tags als
- * Text da.
+ * Text da. Bewusste Änderung E40 (Fixliste 7.22-rc22, K130, K131): Links
+ * ohne Schema (#, URL, /anmeldung) bleiben Links wie im Widget, der Link
+ * nur aus U+3164 behält seinen Text, das Bild im Link ohne Adresse bleibt
+ * wie jedes verlinkte Bild ohne Alt-Text nur als leerer Link (E13); jeder
+ * Link öffnet in neuem Tab mit rel, Namen und Schema wie im Widget.
  */
 async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }) {
   const info = await page.evaluate(() => {
@@ -1255,7 +1346,7 @@ async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }
       return { shown: false };
     };
     const blank = (text) => text.replace(/[\s\p{Cf}\p{Default_Ignorable_Code_Point}⠀]/gu, "") === "";
-    const allLinks = answers.flatMap((a) => [...a.querySelectorAll("a")]).map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") }));
+    const allLinks = answers.flatMap((a) => [...a.querySelectorAll("a")]).map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target"), rel: a.getAttribute("rel") }));
     return {
       answerColor: getComputedStyle(answer).color,
       text: answer.textContent,
@@ -1263,9 +1354,10 @@ async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }
       marquee: { one: shown(answer, "Versteckt marquee1"), zero: shown(answer, "Versteckt marquee0"), table: shown(answer, "Versteckt Tabellenmaß") },
       marquees: answers.reduce((n, a) => n + a.querySelectorAll("marquee").length, 0),
       sized: answers.flatMap((a) => [...a.querySelectorAll("[width], [height]")]).map((e) => e.outerHTML.slice(0, 80)),
-      links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") })),
-      // Ziel wie ANSWER_LINK_TARGET (seit rc21, K104: http und https nur mit //)
-      withoutTarget: allLinks.filter((l) => !/^[\t\n\f\r ]*(?:https?:\/\/|(?!https?:)[a-z][a-z\d+.-]*:|\/\/)/i.test(l.href ?? "") || l.target !== "_blank"),
+      links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target"), rel: a.getAttribute("rel") })),
+      // Bewusste Änderung E40: jedes <a> in neuem Tab mit rel; Adresse und
+      // Name wie im Widget (vorher nur Ziele mit Schema, immer mit Namen)
+      withoutTarget: allLinks.filter((l) => l.target !== "_blank" || l.rel !== "noopener noreferrer"),
       unnamed: allLinks.filter((l) => blank(l.text)),
       plainTexts: ["Kursseite", "Platzhalter", "Relativ", "Wortverbinder"].map((word) => [word, answer.textContent.includes(word)]),
       images: body.querySelectorAll("img").length,
@@ -1282,12 +1374,13 @@ async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }
   await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-b60.png`) });
   check(scenario, "K80 Text in <marquee width=1> und <marquee width=0 height=0> sichtbar, Tabelle mit Maßen lesbar, kein <marquee>; Bewusste Änderung E39: samt Tags als Text (vorher aufgelöst)", info.marquee.one.shown && info.marquee.zero.shown && info.marquee.table.shown && info.marquees === 0 && info.text.includes('<marquee width="1">Versteckt marquee1</marquee>') && info.text.includes('<table width="1" height="1"><tr><td width="1" height="1">Versteckt Tabellenmaß</td></tr></table>'), { marquee: info.marquee, marquees: info.marquees });
   check(scenario, "K80 keine width und height aus der Antwort", info.sized.length === 0, { sized: info.sized });
-  check(scenario, "K87, K88 Links ohne Ziel (#, URL, /anmeldung, nur U+00AD, nur U+2060) sind Text, ihr Text bleibt", info.plainTexts.every(([, found]) => found) && !info.links.some((l) => ["#", "URL", "/anmeldung", "­", "⁠"].includes(l.href)), { plainTexts: info.plainTexts, links: info.links });
-  check(scenario, "K87, K88 jeder Link im Verlauf hat ein Ziel mit Schema, öffnet in neuem Tab und hat einen sichtbaren Namen", info.withoutTarget.length === 0 && info.unnamed.length === 0, { withoutTarget: info.withoutTarget, unnamed: info.unnamed });
+  const asLink = (href, text) => info.links.some((l) => l.href === href && l.text === text && l.target === "_blank");
+  check(scenario, "K87, K88 Bewusste Änderung E40: Links ohne Schema ([Kursseite](#), [Platzhalter](URL), [Relativ](/anmeldung)) bleiben Links wie im Widget (vorher Text); die rohen <a> (nur U+00AD, nur U+2060) stehen seit E39 als Text da", info.plainTexts.every(([, found]) => found) && asLink("#", "Kursseite") && asLink("URL", "Platzhalter") && asLink("/anmeldung", "Relativ") && !info.links.some((l) => ["\u00AD", "\u2060"].includes(l.href)), { plainTexts: info.plainTexts, links: info.links });
+  check(scenario, "K87, K88 Bewusste Änderung E40: jeder Link im Verlauf öffnet in neuem Tab mit rel=noopener noreferrer; Adresse und Name wie im Widget, auch ohne Schema oder sichtbaren Namen (vorher nur Ziele mit Schema, immer mit Namen)", info.withoutTarget.length === 0 && info.unnamed.length > 0, { withoutTarget: info.withoutTarget, unnamed: info.unnamed });
   const k89 = info.links.find((l) => l.href === "https://www.vhs-musterstadt.de/k89");
-  check(scenario, "K89 Link nur aus U+3164 zeigt seine Adresse", !!k89 && k89.text.includes(k89.href), { link: k89 });
-  const k90 = info.links.find((l) => l.href === `${TRACKER}/k90.jpg`);
-  check(scenario, "K90 Bild ohne Alt-Text im Link ohne Adresse: Link auf die Bilddatei mit ihrer Adresse, kein Bild, kein Abruf", !!k90 && k90.text === k90.href && k90.target === "_blank" && info.images === 0 && trackerHits.length === 0, { link: k90, images: info.images, trackerHits });
+  check(scenario, "K89 Bewusste Änderung E40: Link nur aus U+3164 behält seinen Text wie im Widget (vorher seine Adresse)", !!k89 && k89.text === "\u3164" && k89.target === "_blank", { link: k89 });
+  const k90 = info.links.find((l) => l.href === "");
+  check(scenario, "K90 Bewusste Änderung E40: Bild ohne Alt-Text im Link ohne Adresse: der Link bleibt (leer, wie jedes verlinkte Bild ohne Alt-Text, E13), kein Link auf die Bilddatei (vorher), kein Bild, kein Abruf", !!k90 && k90.text === "" && k90.target === "_blank" && !info.links.some((l) => l.href === `${TRACKER}/k90.jpg`) && info.images === 0 && trackerHits.length === 0, { link: k90, links: info.links, images: info.images, trackerHits });
   check(scenario, `B60 mitgebrachtes <mark> (${theme}): kein <mark>, Text sichtbar in der Farbe der Antwort ohne eigene Fläche; Bewusste Änderung E39: samt Tag als Text`, info.fakeMarks === 0 && info.fake.shown && info.fake.tag !== "MARK" && info.fake.color === info.fakeAnswerColor && /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(info.fake.background) && info.fakeText.includes('<mark data-search-hit="">Bitte Kurs X stornieren</mark>'), { marks: info.fakeMarks, fake: info.fake, answerColor: info.fakeAnswerColor });
 
   for (const [label, term, visible] of RC20_SEARCHES) {
@@ -1322,7 +1415,13 @@ async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }
  * steht (K103: über Token-Grenzen im Code ohne Markierung, aber auch ohne
  * Hinweis). Bewusste Änderung E39 (Fixliste 7.22-rc22): Die rohe Tabelle
  * und die rohen <a><img> stehen als Text da; Link auf die Bilddatei bleibt
- * das Bild im Markdown-Link auf Kurs-ID:.
+ * das Bild im Markdown-Link auf Kurs-ID:. Bewusste Änderung E40 (Fixliste
+ * 7.22-rc22, K130, K131): Die Links ohne Schema und die mit https: ohne //
+ * bleiben Links wie im Widget, ohne Adresse als Text; der Link nur aus
+ * U+3164 behält seinen Text; das Bild im Link auf Kurs-ID: steht in einem
+ * <a> ohne href (DOMPurify verwirft Kurs-ID:) und bleibt wie jedes
+ * verlinkte Bild ohne Alt-Text leer, kein Link auf die Bilddatei. Die
+ * Begriffe nur in diesen Adressen ergeben den Hinweis.
  */
 async function checkAnswerHtmlRc21(scenario, page, trackerHits, { width, theme }) {
   await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
@@ -1360,8 +1459,9 @@ async function checkAnswerHtmlRc21(scenario, page, trackerHits, { width, theme }
       text: answer.textContent,
       table: place("Versteckt cellpadding"),
       sized: answers.flatMap((a) => [...a.querySelectorAll("[cellpadding], [cellspacing], [border]")]).map((e) => e.outerHTML.slice(0, 80)),
-      links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") })),
-      withoutHref: answers.reduce((n, a) => n + a.querySelectorAll("a:not([href])").length, 0),
+      links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target"), rel: a.getAttribute("rel") })),
+      // nur diese Antwort (die zehnte, E40, hat eigene <a> ohne href)
+      withoutHref: answer.querySelectorAll("a:not([href])").length,
       k89: [...answers[4].querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href") })).find((l) => l.href === "https://www.vhs-musterstadt.de/k89") ?? null,
       images: body.querySelectorAll("img").length,
     };
@@ -1371,12 +1471,13 @@ async function checkAnswerHtmlRc21(scenario, page, trackerHits, { width, theme }
   check(scenario, "K100 Bewusste Änderung E39: die rohe Tabelle mit cellpadding, cellspacing und border steht als Text da, ihr Text in der Antwort im Blick, keine Zelle", !!t && t.inside && t.padding === null && t.answerHeight < 2000 && info.text.includes('<table cellpadding="100000" cellspacing="50000" border="100000"><tr><td>Versteckt cellpadding</td></tr></table>'), { table: t });
   check(scenario, "K100 keine cellpadding, cellspacing und border aus der Antwort", info.sized.length === 0, { sized: info.sized });
   const toImage = (name) => info.links.find((l) => l.href === `${TRACKER}/${name}`);
-  check(scenario, "K101 Bild im Markdown-Link auf Kurs-ID: als Link auf die Bilddatei, kein <a> ohne href, kein Abruf; Bewusste Änderung E39: die rohen <a><img> (ohne href, javascript:) stehen als Text da", toImage("k101-id.jpg")?.text === `${TRACKER}/k101-id.jpg` && toImage("k101-id.jpg").target === "_blank" && !toImage("k101.jpg") && !toImage("k101-js.jpg") && info.text.includes(`<a><img src="${TRACKER}/k101.jpg"></a>`) && info.text.includes(`<a href="javascript:void(0)"><img src="${TRACKER}/k101-js.jpg" alt="Kursfoto k101"></a>`) && info.withoutHref === 0 && info.images === 0 && trackerHits.length === 0, { links: info.links, withoutHref: info.withoutHref, images: info.images, trackerHits });
-  const k102 = "Ohne Ziel: /anmeldung-k102a, Kursseite (/kurs/k102), , Sprung und /anmeldung-k102b.";
-  check(scenario, "K102 (E37) Links ohne Ziel sind Text mit ihrer Adresse: „/anmeldung-k102a“, „Kursseite (/kurs/k102)“, [](#) leer, „Sprung“ ohne #, nur U+3164 wird „/anmeldung-k102b“", info.text.includes(k102) && !info.links.some((l) => ["/anmeldung-k102a", "/kurs/k102", "#", "/anmeldung-k102b"].includes(l.href)), { expected: k102, text: info.text.slice(info.text.indexOf("Ohne Ziel"), info.text.indexOf("Tippfehler")), links: info.links });
-  check(scenario, "B70 Link mit Ziel nur aus U+3164 zeigt genau seine Adresse (kein Füllzeichen davor)", !!info.k89 && info.k89.text === info.k89.href, { link: info.k89 });
-  const k104 = "Tippfehler: Anmeldung (https:/www.vhs-musterstadt.de/k104a) und Kurs (https:kurs/k104b).";
-  check(scenario, "K104 https:/pfad und https:pfad sind Text mit ihrer Adresse, kein Link auf die Admin-Seite", info.text.includes(k104) && !info.links.some((l) => /^https?:(?!\/\/)/i.test(l.href ?? "")), { expected: k104, links: info.links });
+  check(scenario, "K101 Bewusste Änderung E40: Bild im Markdown-Link auf Kurs-ID: (DOMPurify verwirft die Adresse) steht in einem <a> ohne href und bleibt wie jedes verlinkte Bild ohne Alt-Text leer, kein Link auf die Bilddatei (vorher), kein Abruf; Bewusste Änderung E39: die rohen <a><img> (ohne href, javascript:) stehen als Text da", !toImage("k101-id.jpg") && !toImage("k101.jpg") && !toImage("k101-js.jpg") && info.text.includes(`<a><img src="${TRACKER}/k101.jpg"></a>`) && info.text.includes(`<a href="javascript:void(0)"><img src="${TRACKER}/k101-js.jpg" alt="Kursfoto k101"></a>`) && info.withoutHref === 1 && info.links.some((l) => l.href === null && l.text === "" && l.target === "_blank") && info.images === 0 && trackerHits.length === 0, { links: info.links, withoutHref: info.withoutHref, images: info.images, trackerHits });
+  const k102 = "Ohne Ziel: , Kursseite, , Sprung und \u3164.";
+  const k102Links = [["/anmeldung-k102a", ""], ["/kurs/k102", "Kursseite"], ["#", ""], ["#", "Sprung"], ["/anmeldung-k102b", "\u3164"]];
+  check(scenario, "K102 Bewusste Änderung E40: Links ohne Schema bleiben Links wie im Widget, Adresse und Linktext unverändert, keine Adresse als Text (vorher nach E37 Text mit Adresse)", info.text.includes(k102) && k102Links.every(([href, text]) => info.links.some((l) => l.href === href && l.text === text && l.target === "_blank" && l.rel === "noopener noreferrer")), { expected: k102, text: info.text.slice(info.text.indexOf("Ohne Ziel"), info.text.indexOf("Tippfehler")), links: info.links });
+  check(scenario, "B70 Bewusste Änderung E40: Link mit Ziel nur aus U+3164 behält seinen Text wie im Widget (vorher genau seine Adresse)", !!info.k89 && info.k89.text === "\u3164", { link: info.k89 });
+  const k104 = "Tippfehler: Anmeldung und Kurs.";
+  check(scenario, "K104 Bewusste Änderung E40: https:/pfad und https:pfad bleiben Links wie im Widget, keine Adresse als Text (vorher Text mit Adresse)", info.text.includes(k104) && ["https:/www.vhs-musterstadt.de/k104a", "https:kurs/k104b"].every((href) => info.links.some((l) => l.href === href && l.target === "_blank" && l.rel === "noopener noreferrer")), { expected: k104, links: info.links });
 
   for (const [label, term, marked] of RC21_SEARCHES) {
     await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}&q=${encodeURIComponent(term)}`, { waitUntil: "domcontentloaded" });
@@ -1387,6 +1488,10 @@ async function checkAnswerHtmlRc21(scenario, page, trackerHits, { width, theme }
       hiddenHit: document.querySelector("[data-panel-hidden-hit]")?.textContent ?? null,
       row: !!document.querySelector("[data-conversation-row][aria-current='true']"),
     }));
+    if (marked === "hinweis") {
+      check(scenario, `${label}: Suche „${term}“ mit Hinweis „nur in Link-Adressen, im Quelltext …“, keine Markierung`, searched.row && searched.marks.length === 0 && searched.hiddenHit !== null, searched);
+      continue;
+    }
     const ok = searched.row && searched.hiddenHit === null && (marked ? searched.marks.length > 0 : true);
     check(scenario, `${label}: Suche „${term}“ ohne Hinweis „nur in Link-Adressen, im Quelltext …“${marked ? ", markiert" : ""}`, ok, searched);
   }
@@ -1498,12 +1603,105 @@ async function checkAnswerE39(scenario, page, trackerHits, { width, theme }) {
 }
 
 /**
+ * Fixliste 7.22-rc22 (E40, K130, K131; läuft nach checkAnswerE39, dieselbe
+ * Konversation, zehnte Antwort; echtes DOMPurify im Browser): Links wie im
+ * Widget. Die Links der Antwort sind genau E40_LINKS (Adresse und Linktext
+ * unverändert, keine Adresse als Text, kurs-link: und data: an einem Link
+ * ohne Adresse); jedes <a> im Verlauf öffnet in neuem Tab mit
+ * rel="noopener noreferrer", kein href mit javascript:, vbscript:, data:
+ * oder file:; die gesperrten Ziele und die nackte Adresse stehen als Text
+ * da (E40_TEXT). Bei 1.440 px öffnet ein Klick auf den relativen Link
+ * einen neuen Tab auf diese Adresse ohne Zugriff auf die Ansicht
+ * (window.opener null, kein Referrer). Danach je Begriff aus E40_SEARCHES:
+ * sichtbar heißt markiert und kein Hinweis, verborgen heißt Hinweis und
+ * keine Markierung.
+ */
+async function checkAnswerE40(scenario, page, trackerHits, { width, theme }) {
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+  await page.locator("[data-panel-body] [data-answer] >> nth=9").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(200);
+  const info = await page.evaluate(() => {
+    const body = document.querySelector("[data-panel-body]");
+    const answers = [...body.querySelectorAll("[data-answer]")];
+    const answer = answers[9];
+    const linkOf = (a) => ({ href: a.getAttribute("href"), text: a.textContent, target: a.getAttribute("target"), rel: a.getAttribute("rel") });
+    return {
+      text: answer.textContent,
+      links: [...answer.querySelectorAll("a")].map(linkOf),
+      all: answers.flatMap((a) => [...a.querySelectorAll("a")].map(linkOf)),
+      // ohne Adresse: kein Link (kein :any-link), nicht unterstrichen
+      plain: [...answer.querySelectorAll("a:not([href])")].map((a) => ({ text: a.textContent, link: a.matches(":any-link"), line: getComputedStyle(a).textDecorationLine })),
+      images: body.querySelectorAll("img").length,
+    };
+  });
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-e40-links.png`) });
+  const expected = E40_LINKS.map(([href, text]) => ({ href, text, target: "_blank", rel: "noopener noreferrer" }));
+  check(scenario, "E40 Links wie im Widget: Adresse und Linktext unverändert (auch leer, relativ, #, nur U+3164, https:/ ohne //, Autolink), kurs-link: und data: an einem Link ohne Adresse (DOMPurify), in dieser Reihenfolge", JSON.stringify(info.links) === JSON.stringify(expected), { links: info.links, expected });
+  const hiddenAddresses = E40_LINKS.filter(([href, text]) => href && text !== href).map(([href]) => href);
+  check(scenario, "E40 keine Adresse als Text: Adressen von Links mit eigenem Linktext stehen nicht in der Antwort", hiddenAddresses.every((href) => !info.text.includes(href)), { shown: hiddenAddresses.filter((href) => info.text.includes(href)) });
+  check(scenario, "E40 javascript:, vbscript:, file:, data:text/html und <javascript:…> bleiben Text wie im Widget, ebenso die nackte Adresse", E40_TEXT.every((text) => info.text.includes(text)), { missing: E40_TEXT.filter((text) => !info.text.includes(text)) });
+  const bad = info.all.filter((l) => l.target !== "_blank" || l.rel !== "noopener noreferrer" || /^[\x00-\x20]*(?:javascript|vbscript|data|file):/i.test(l.href ?? ""));
+  check(scenario, "E40 target=_blank und rel=noopener noreferrer an jedem <a> im Verlauf, kein href mit javascript:, vbscript:, data: oder file:", info.all.length > 0 && bad.length === 0, { bad, links: info.all.length });
+  check(scenario, "E40 <a> ohne Adresse (kurs-link:, data:) ist kein Link und nicht unterstrichen, sein Text bleibt", info.plain.length === 2 && info.plain.every((a) => !a.link && !a.line.includes("underline")), { plain: info.plain });
+  check(scenario, "E40 kein Bild und kein Abruf", info.images === 0 && trackerHits.length === 0, { images: info.images, trackerHits });
+
+  const relative = page.locator("[data-panel-body] [data-answer] >> nth=9").locator('a[href="/kurs/e40relativ"]');
+  if (width === 1440 && (await relative.count()) !== 1)
+    check(scenario, "E40 Klick auf den relativen Link: der Link fehlt", false, { links: await relative.count() });
+  else if (width === 1440) {
+    // Klick auf den relativen Link: neuer Tab auf die Adresse, ohne opener
+    // und ohne Referrer; der Verlauf bleibt
+    const context = page.context();
+    // die Anfrage des neuen Tabs (der Tab entsteht vor seiner Navigation)
+    const navigation = context.waitForEvent("request", { predicate: (request) => request.isNavigationRequest() && new URL(request.url()).pathname === "/kurs/e40relativ", timeout: 15_000 }).catch(() => null);
+    const [popup] = await Promise.all([context.waitForEvent("page"), relative.click()]);
+    const request = await navigation;
+    await popup.waitForURL(/\/kurs\/e40relativ/, { timeout: 15_000 }).catch(() => {});
+    await popup.waitForLoadState("domcontentloaded").catch(() => {});
+    const opened = {
+      request: request?.url() ?? null,
+      sameTab: request ? (() => { try { return request.frame().page() === page; } catch { return null; } })() : null,
+      referer: request ? (await request.allHeaders()).referer ?? "" : null,
+      url: popup.url(),
+      opener: await popup.evaluate(() => window.opener === null).catch((error) => String(error)),
+      referrer: await popup.evaluate(() => document.referrer).catch((error) => String(error)),
+      stays: page.url(),
+    };
+    await popup.close();
+    check(scenario, "E40 Klick auf den relativen Link öffnet einen neuen Tab auf /kurs/e40relativ ohne Zugriff auf die Ansicht (window.opener null, ohne Referer), der Verlauf bleibt", opened.request === `${BASE}/kurs/e40relativ` && opened.sameTab === false && opened.referer === "" && opened.opener === true && opened.referrer === "" && opened.stays.includes(`conversation=${HTML_ID}`), opened);
+  }
+
+  for (const [label, term, visible] of E40_SEARCHES) {
+    await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}&q=${encodeURIComponent(term)}`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+    await page.waitForTimeout(600);
+    const searched = await page.evaluate(() => ({
+      marks: [...document.querySelectorAll("[data-panel-body] mark[data-search-hit]")].map((mark) => mark.textContent),
+      hiddenHit: document.querySelector("[data-panel-hidden-hit]")?.textContent ?? null,
+      row: !!document.querySelector("[data-conversation-row][aria-current='true']"),
+    }));
+    if (term === "e40leer") await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-e40-suche.png`) });
+    const ok = searched.row && (visible ? searched.marks.length > 0 && searched.hiddenHit === null : searched.marks.length === 0 && searched.hiddenHit !== null);
+    check(scenario, `${label}: Suche „${term}“ ${visible ? "markiert, kein Hinweis" : "mit Hinweis „nur in Link-Adressen, im Quelltext …“, keine Markierung"}`, ok, searched);
+  }
+  // zurück zum Stand ohne Suche für die folgenden Prüfungen
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+}
+
+/**
  * Fixliste 7.22-rc22 (K123, läuft in der Seite mit echtem DOMPurify): Die
  * zweite Sicherung bleibt wirksam. Seit E39 erreicht rohes HTML sie im
  * Verlauf nicht mehr; geprüft wird sie darum direkt: sanitizeAnswerHtml
  * mit dem rohen HTML der früheren Fälle (K14, K41, K42, K63, K80, K100,
  * K101, B60, Formulare und Medien). Ausgewertet wird in einem inaktiven
- * Dokument (DOMParser), nichts lädt.
+ * Dokument (DOMParser), nichts lädt. Fixliste 7.22-rc22 (E40, K131): An
+ * rohen Links verwirft DOMPurify javascript:, vbscript:, data: und file:
+ * (auch groß, mit Leerraum oder Tabulator darin) sowie unbekannte Schemata
+ * wie kurs-link:; target und rel stehen an jedem <a>.
  */
 async function checkSecondSafety(scenario, page) {
   const results = await page.evaluate(async ({ tracker, fakeHit }) => {
@@ -1535,9 +1733,12 @@ async function checkSecondSafety(scenario, page) {
     add("K80, K100 kein <marquee> (Text bleibt), keine width, height, cellpadding, cellspacing, border",
       '<marquee width="1">Versteckt marquee</marquee><table width="1" height="1" cellpadding="100000" cellspacing="50000" border="100000"><tr><td width="1" height="1">Versteckt Tabelle</td></tr></table>',
       (root) => all(root, "marquee, [width], [height], [cellpadding], [cellspacing], [border]") === 0 && root.textContent.includes("Versteckt marquee") && root.textContent.includes("Versteckt Tabelle"));
-    add("K101 Bild in <a> ohne href und in javascript: als Link auf die Bilddatei, kein <a> ohne href",
+    add("K101 Bewusste Änderung E40: Bild in <a> ohne href und in javascript: (DOMPurify verwirft die Adresse) bleibt im <a> ohne href nur als Alt-Text, kein Bild, kein Link auf die Bilddatei, kein javascript: (vorher Links auf die Bilddateien)",
       `<a><img src="${tracker}/k101.jpg"></a> <a href="javascript:void(0)"><img src="${tracker}/k101-js.jpg" alt="Kursfoto k101"></a>`,
-      (root) => all(root, "a:not([href]), img") === 0 && links(root).some((l) => l.href === `${tracker}/k101.jpg` && l.text === `${tracker}/k101.jpg`) && links(root).some((l) => l.href === `${tracker}/k101-js.jpg` && l.text === "Kursfoto k101") && !links(root).some((l) => /^javascript:/i.test(l.href ?? "")));
+      (root) => all(root, "a[href], img") === 0 && links(root).length === 2 && links(root).every((l) => l.target === "_blank" && l.rel === "noopener noreferrer") && links(root).map((l) => l.text).join("|") === "|Kursfoto k101");
+    add("E40 javascript:, vbscript:, data: und file: (auch groß, mit Leerraum, mit Tabulator) und kurs-link: verliert jedes rohe <a> (kein href), https: und relative Adressen bleiben; target und rel an jedem <a>",
+      '<a href="javascript:alert(1)">J1</a><a href="JaVaScRiPt:alert(1)">J2</a><a href=" javascript:alert(1)">J3</a><a href="java&#x09;script:alert(1)">J4</a><a href="vbscript:msgbox(1)">V</a><a href="data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;">D1</a><a href="data:image/png;base64,iVBORw0KGgo=">D2</a><a href="file:///etc/passwd">F</a><a href="kurs-link:4711">K</a><a href="https://vhs.example/kurs" target="_self">OK</a><a href="/kurs/1">Rel</a><a href="#anmeldung">Sprung</a>',
+      (root) => JSON.stringify(links(root).map((l) => [l.text, l.href])) === JSON.stringify([["J1", null], ["J2", null], ["J3", null], ["J4", null], ["V", null], ["D1", null], ["D2", null], ["F", null], ["K", null], ["OK", "https://vhs.example/kurs"], ["Rel", "/kurs/1"], ["Sprung", "#anmeldung"]]) && links(root).every((l) => l.target === "_blank" && l.rel === "noopener noreferrer"));
     add("Formulare, Medien, SVG und <style> fallen weg",
       `<form><input name="kennwort"><button>Senden</button></form><video poster="${tracker}/v.png"></video><audio src="${tracker}/a.mp3"></audio><svg><image href="${tracker}/s.png"></image></svg><style>body{display:none}</style><dialog open>Dialog</dialog>`,
       (root) => all(root, "form, input, button, video, audio, svg, image, style, dialog") === 0);
@@ -2195,6 +2396,8 @@ async function wideScenario(browser, { width, height, theme }) {
   // rc22 E39, K121 bis K123: rohes HTML als Text wie im Widget, Suche in
   // rohem HTML, zweite Sicherung direkt mit echtem DOMPurify
   await checkAnswerE39(scenario, page, trackerHits, { width, theme });
+  // rc22 E40, K130, K131: Links wie im Widget, Suche in Link-Adressen
+  await checkAnswerE40(scenario, page, trackerHits, { width, theme });
   await checkSecondSafety(scenario, page);
   // rc15 K30: Links im Verlauf erkennbar (dieselbe Konversation)
   await checkLinkLook(scenario, page, { width, theme, where: "Desktop" });
