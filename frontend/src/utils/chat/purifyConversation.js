@@ -8,6 +8,9 @@ import { answerPurifyConfig, hardenAnswerHtml } from "@/utils/conversationView";
 // übergeht – und sie gilt für den Chat unverändert weiter.
 // Angelegt beim ersten Aufruf, nicht beim Laden des Moduls: Ohne Browser
 // (Test-Renderer) gibt es kein Dokument.
+// Seit Fixliste 7.22-rc22 (E39) die zweite Sicherung: Die erste ist
+// html: false im MarkdownRenderer, rohes HTML der Antwort ist dort schon
+// Text.
 
 let purify = null;
 

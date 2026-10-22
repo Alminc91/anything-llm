@@ -65,6 +65,15 @@
 // seine Adresse (B70); ein Begriff über die Token der Syntaxhervorhebung
 // im Codeblock gilt als sichtbar (K103); https:/pfad und https:pfad sind
 // Text (K104).
+// Fixliste 7.22-rc22 (E39): Der Verlauf rendert wie das Widget ohne rohes
+// HTML (html: false). Rohes HTML einer Antwort steht samt Tags als Text da,
+// sichtbar und durchsuchbar; Markdown (Tabelle, Link, Codeblock) wie
+// bisher. Die neunte Antwort trägt die Eingaben aus K121 (Screenshots
+// e39-rohes-html hell und dunkel), eine Suche nach einem Begriff in der
+// Adresse eines rohen <a> markiert ihn ohne Hinweis (K122). Prüfungen, die
+// rohes HTML dargestellt erwarteten, heißen „Bewusste Änderung E39“ und
+// erwarten jetzt den Text. Die zweite Sicherung (sanitizeAnswerHtml mit
+// echtem DOMPurify) prüft checkSecondSafety direkt am rohen HTML (K123).
 //
 // Der Server ist im Browser nachgestellt (page.route): Es läuft nur der
 // Vite-Dev-Server des Frontends – kein Container, kein Docker. Playwright
@@ -209,7 +218,7 @@ const HTML_ANSWER_RC21 = [
 // Suchbegriffe der Antwort rc21: sichtbar (kein Hinweis; markiert, wo der
 // Begriff in einem Textknoten steht)
 const RC21_SEARCHES = [
-  ["K101 Bild in <a> ohne href", "k101.jpg", true],
+  ["K101 Bild in <a> ohne href (E39: als Text)", "k101.jpg", true],
   ["K102 Link ohne Ziel und ohne Text", "anmeldung-k102a", true],
   ["K102 Link ohne Ziel mit Text", "kurs/k102", true],
   ["K102 Link ohne Ziel nur aus U+3164", "anmeldung-k102b", true],
@@ -217,6 +226,43 @@ const RC21_SEARCHES = [
   ["K104 https: ohne //", "k104b", true],
   ["K103 Begriff über Token-Grenzen im Codeblock", "k103kurs = 4711", false],
 ];
+// Fixliste 7.22-rc22 (E39) in der neunten Antwort: die Eingaben aus K121.
+// Rohes HTML steht als Text da (wie im Widget), Markdown wird dargestellt.
+// E39_TERM steht nur in der Adresse des rohen <a>: als Text sichtbar
+// (K122); E39_MD_TERM nur in der Adresse des Markdown-Links: verborgen.
+const E39_TERM = "e39roh";
+const E39_MD_TERM = "kurs/e39md";
+const E39_RAW = [
+  '<p style="position:fixed;inset:0">Absatz e39</p>',
+  "<b>fett</b>",
+  "Zeile eins<br>Zeile zwei",
+  "<datalist>Versteckt datalist</datalist>",
+  "<template>Versteckt template</template>",
+  '<marquee width="1">Versteckt marquee</marquee>',
+  '<font color="#0e0f0f" size="1">Versteckt font</font>',
+  '<table cellpadding="100000"><tr><td>Versteckt cellpadding</td></tr></table>',
+  `<a href="https://www.vhs-musterstadt.de/${E39_TERM}" class="fixed inset-0 z-50">Kursseite roh</a>`,
+  `<img src="${TRACKER}/e39.png" alt="Banner e39">`,
+];
+const HTML_ANSWER_E39 = [
+  `Rohes HTML: ${E39_RAW[0]} ${E39_RAW[1]} ${E39_RAW[2]}`,
+  "",
+  `Gern helfe ich. ${E39_RAW[3]} ${E39_RAW[4]} ${E39_RAW[5]} ${E39_RAW[6]}`,
+  "",
+  E39_RAW[7],
+  "",
+  `Roh: ${E39_RAW[8]} und ${E39_RAW[9]}`,
+  "",
+  "| Kurs | Gebühr |",
+  "|:--|--:|",
+  "| Yoga | 96,00 € |",
+  "",
+  `Anmeldung über die [Kursseite](https://www.vhs-musterstadt.de/${E39_MD_TERM}).`,
+  "",
+  "```html",
+  "<div>Kurs 4711</div>",
+  "```",
+].join("\n");
 // … und in der sechsten: Inhalt, den DOMPurify verwirft (K81), am Ende ein
 // nicht geschlossenes <template>, das den Rest der Antwort verschluckt
 const HTML_ANSWER_RC20_HIDDEN = [
@@ -228,10 +274,12 @@ const HTML_ANSWER_RC20_HIDDEN = [
 ].join("\n");
 // Suchbegriffe der Antworten rc20: sichtbar (markiert, kein Hinweis) oder
 // nur im Quelltext bzw. in einer Adresse (Hinweis, keine Markierung)
+// Bewusste Änderung E39 (Fixliste 7.22-rc22, K122): Der Inhalt von
+// <template> steht als Text da, markiert und ohne Hinweis
 const RC20_SEARCHES = [
-  ["K81 nicht geschlossenes <template>", "k81offen", false],
-  ["K81 Rest nach nicht geschlossenem <template>", "k81rest", false],
-  ["K81 verschachteltes <template>", "k81verschachtelt", false],
+  ["K81 nicht geschlossenes <template> (Bewusste Änderung E39)", "k81offen", true],
+  ["K81 Rest nach nicht geschlossenem <template> (Bewusste Änderung E39)", "k81rest", true],
+  ["K81 verschachteltes <template> (Bewusste Änderung E39)", "k81verschachtelt", true],
   ["K82 Code mit <template>", "k82anmeldung", true],
   ["K82 Codeblock mit <template>", "k82codeblock", true],
   ["K83 rohes <a href> ohne Text", "k83anmeldung", true],
@@ -292,6 +340,8 @@ function messagesFor(id) {
               ? HTML_ANSWER_RC20_HIDDEN
               : id === HTML_ID && k === 7
               ? HTML_ANSWER_RC21
+              : id === HTML_ID && k === 8
+              ? HTML_ANSWER_E39
               : id === HTML_ID && k === 10
               ? FAKE_HIT_ANSWER
               : `Gern helfe ich Ihnen weiter. **Kurs ${k + 1}** beginnt am Dienstag um 18:30 Uhr in Raum 204.\n\n- Dauer: 10 Abende\n- Gebühr: 96,00 Euro\n- Anmeldung über die [Kursseite](https://www.vhs-musterstadt.de/kurs/${id}${k})\n\nHaben Sie noch Fragen zu Terminen oder zur Anmeldung?`,
@@ -871,7 +921,9 @@ async function checkFilterKeepsLoaded(scenario, page, { width, theme }) {
  * Seite, ein Markdown-Bild und ein <img> von fremdem Server, ein Link mit
  * Klassen der Seite. Im Verlauf: kein Bild, kein Abruf beim fremden Server,
  * Links ohne style und Klassen, in neuem Tab mit rel="noopener noreferrer";
- * die Mitte der Seite gehört nicht dem eingeschleusten Link.
+ * die Mitte der Seite gehört nicht dem eingeschleusten Link. Bewusste
+ * Änderung E39 (Fixliste 7.22-rc22): Das rohe <img> und die rohen <a>
+ * stehen als Text da; Link bleibt nur das Bild aus Markdown.
  */
 async function checkAnswerHtml(scenario, page, trackerHits, { width, theme }) {
   await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
@@ -894,15 +946,16 @@ async function checkAnswerHtml(scenario, page, trackerHits, { width, theme }) {
       images: document.querySelectorAll("[data-conversation-panel] img").length,
       styled: answer.querySelectorAll("[style]").length,
       links,
+      text: answer.textContent,
       centerIsInjected: !!center?.closest?.("[data-answer] a"),
     };
   });
   await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k14.png`) });
   const byText = (text) => info.links.find((link) => link.text === text);
   check(scenario, "K14 keine Bilder im Verlauf, kein Abruf beim fremden Server", info.images === 0 && trackerHits.length === 0, { images: info.images, trackerHits });
-  check(scenario, "K14 Bilder als Link mit Alt-Text („Logo der VHS“, „Banner“)", !!byText("Logo der VHS") && !!byText("Banner") && byText("Banner").href.startsWith(TRACKER), { links: info.links });
+  check(scenario, "K14 Bild aus Markdown als Link mit Alt-Text („Logo der VHS“); Bewusste Änderung E39: das rohe <img> („Banner“) steht als Text da, kein Link", !!byText("Logo der VHS") && byText("Logo der VHS").href.startsWith(TRACKER) && !byText("Banner") && info.text.includes(`<img src="${TRACKER}/pixel.png?html" alt="Banner" style="width:100vw;height:100vh">`), { links: info.links });
   check(scenario, "K14 kein style und keine Seitenklassen in der Antwort, Links im Fluss", info.styled === 0 && info.links.every((link) => link.style === null && link.cls === null && link.position === "static"), { styled: info.styled, links: info.links });
-  check(scenario, "K14 Links in neuem Tab mit rel=noopener noreferrer", info.links.length >= 4 && info.links.every((link) => link.target === "_blank" && link.rel === "noopener noreferrer"), { links: info.links });
+  check(scenario, "K14 Links in neuem Tab mit rel=noopener noreferrer; Bewusste Änderung E39: die rohen <a> („Kursseite“, „Anmeldung“) stehen als Text da", info.links.length >= 1 && info.links.every((link) => link.target === "_blank" && link.rel === "noopener noreferrer") && !byText("Kursseite") && !byText("Anmeldung") && info.text.includes('<a href="https://phish.example/login" style="position:fixed;') && info.text.includes('<a href="https://www.vhs-musterstadt.de/kurs" class="fixed inset-0 z-50">Anmeldung</a>'), { links: info.links });
   check(scenario, "K14 die Mitte der Seite gehört nicht dem eingeschleusten Link", !info.centerIsInjected);
 }
 
@@ -913,6 +966,8 @@ async function checkAnswerHtml(scenario, page, trackerHits, { width, theme }) {
  * Kennzeichen eines Treffers fällt weg, der Verlauf springt nicht dorthin,
  * und mit Suche trägt nur die eigene Hervorhebung das Kennzeichen; K42 kein
  * tabindex aus der Antwort; K43 Spalten der Tabelle ausgerichtet ohne style.
+ * Bewusste Änderung E39 (Fixliste 7.22-rc22): das rohe <a tabindex> und
+ * das mitgebrachte <mark data-search-hit> stehen als Text da.
  */
 async function checkAnswerHtmlRc16(scenario, page, trackerHits, { width, theme }) {
   const read = () =>
@@ -954,6 +1009,7 @@ async function checkAnswerHtmlRc16(scenario, page, trackerHits, { width, theme }
           text: element.textContent,
         })),
         fakeText: answers[10]?.textContent ?? null,
+        secondText: answers[1].textContent,
         links,
         tabindexInAnswers: answers.reduce((count, answer) => count + answer.querySelectorAll("[tabindex]").length, 0),
         cells,
@@ -964,8 +1020,8 @@ async function checkAnswerHtmlRc16(scenario, page, trackerHits, { width, theme }
   await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k40-k43.png`) });
   const course = info.links.find((link) => link.href === "https://www.vhs-musterstadt.de/kurs/bild");
   check(scenario, "K40 verlinktes Bild: Link zur Kursseite mit dem Alt-Text, kein Link im Link, kein Link zur Bilddatei, kein Abruf", !!course && course.text === "Kursbild" && !info.links.some((link) => link.nested) && !info.links.some((link) => (link.href ?? "").endsWith("/kursbild.jpg")) && info.images === 0 && trackerHits.length === 0, { course, links: info.links.filter((link) => /kurs\/bild|kursbild/.test(link.href ?? "")), trackerHits });
-  check(scenario, "K41 ohne Suche: kein Kennzeichen eines Treffers im Verlauf, der Verlauf steht oben (kein Sprung zur mitgebrachten Markierung), deren Text bleibt", info.hits.length === 0 && info.scrollTop === 0 && /Bitte Kurs X stornieren/.test(info.fakeText ?? ""), { hits: info.hits, scrollTop: info.scrollTop, fakeText: info.fakeText });
-  check(scenario, "K42 kein tabindex aus der Antwort (Link „Weiter“ normal per Tab erreichbar)", info.tabindexInAnswers === 0 && info.links.some((link) => link.text === "Weiter" && link.tabindex === null), { tabindex: info.tabindexInAnswers });
+  check(scenario, "K41 ohne Suche: kein Kennzeichen eines Treffers im Verlauf, der Verlauf steht oben (kein Sprung zur mitgebrachten Markierung), deren Text bleibt; Bewusste Änderung E39: das mitgebrachte <mark data-search-hit> steht samt Tag als Text da", info.hits.length === 0 && info.scrollTop === 0 && (info.fakeText ?? "").includes('<mark data-search-hit="">Bitte Kurs X stornieren</mark>'), { hits: info.hits, scrollTop: info.scrollTop, fakeText: info.fakeText });
+  check(scenario, "K42 kein tabindex aus der Antwort; Bewusste Änderung E39: das rohe <a tabindex> „Weiter“ steht als Text da, kein Link", info.tabindexInAnswers === 0 && !info.links.some((link) => link.text === "Weiter") && info.secondText.includes('<a href="https://www.vhs-musterstadt.de/weiter" tabindex="1">Weiter</a>'), { tabindex: info.tabindexInAnswers, links: info.links.filter((link) => link.text === "Weiter") });
   const cell = (text) => info.cells.find((c) => c.text === text);
   // Kopfzeile: Die Spalte ist so breit wie ihr längster Eintrag; geprüft
   // werden die kürzeren Einträge (dort zeigt sich die Ausrichtung)
@@ -991,7 +1047,8 @@ async function checkAnswerHtmlRc16(scenario, page, trackerHits, { width, theme }
  * Hinweis „nur in Link-Adressen“; K63 der Text in <datalist>, <rp>,
  * <progress>, <meter> und <canvas> ist sichtbar, <template> fällt weg,
  * keine Farbe, Größe oder Schrift aus der Antwort (font color/size/face,
- * table bgcolor).
+ * table bgcolor). Bewusste Änderung E39 (Fixliste 7.22-rc22): Diese
+ * Elemente stehen samt Tags als Text da; auch <template> mit seinem Inhalt.
  */
 async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }) {
   const read = () =>
@@ -1020,6 +1077,8 @@ async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }
         links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") })),
         texts: Object.fromEntries(words.map((word) => [word, shown(`Versteckt ${word}`)])),
         template: answer.querySelectorAll("template").length + (answer.innerHTML.includes("Versteckt template") ? 1 : 0),
+        templateElements: answer.querySelectorAll("template").length,
+        text: answer.textContent,
         hiding: [...answer.querySelectorAll("datalist, rp, progress, meter, canvas, template")].map((e) => e.tagName),
         attributes: [...answer.querySelectorAll("[color], [bgcolor], [size], [face]")].map((e) => e.outerHTML.slice(0, 80)),
         noAddress: answer.textContent.includes("Text ohne Adresse"),
@@ -1039,10 +1098,11 @@ async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }
   const k62 = [link(`/einschreibung-k62`), link(`/einschreibung-bild`)];
   check(scenario, "K62 leere Links zeigen ihre Adresse (auch das verlinkte Bild ohne Alt-Text), kein Abruf", k62.every((l) => !!l && l.text === l.href) && info.images === 0 && trackerHits.length === 0, { links: k62, images: info.images, trackerHits });
   const hidden = Object.entries(info.texts).filter(([word, t]) => word !== "font" && word !== "Tabelle" && !t.shown).map(([word]) => word);
-  check(scenario, "K63 Text in <datalist>, <rp>, <progress>, <meter> und <canvas> sichtbar (Elemente aufgelöst)", hidden.length === 0 && info.hiding.length === 0, { hidden, elements: info.hiding });
-  check(scenario, "K63 <template> fällt mit seinem Inhalt weg", info.template === 0, { template: info.template });
+  const k63Raw = ["<datalist>Versteckt datalist</datalist>", "<rp>Versteckt rp</rp>", "<progress>Versteckt progress</progress>", "<meter>Versteckt meter</meter>", "<canvas>Versteckt canvas</canvas>"];
+  check(scenario, "K63 Text in <datalist>, <rp>, <progress>, <meter> und <canvas> sichtbar, kein solches Element; Bewusste Änderung E39: samt Tags als Text (vorher aufgelöst)", hidden.length === 0 && info.hiding.length === 0 && k63Raw.every((raw) => info.text.includes(raw)), { hidden, elements: info.hiding, missing: k63Raw.filter((raw) => !info.text.includes(raw)) });
+  check(scenario, "K63 Bewusste Änderung E39: <template> steht samt Inhalt als Text da (vorher fiel es weg), kein template-Element", info.templateElements === 0 && info.text.includes("<template>Versteckt template</template>"), { templateElements: info.templateElements, template: info.template });
   const plain = (t) => t.shown && t.color === info.answerColor && t.fontSize === info.answerSize && t.fontFamily === info.answerFont;
-  check(scenario, "K63 keine Farbe, Größe oder Schrift aus der Antwort (font color/size/face, table bgcolor): Text in der Farbe und Größe der Antwort", info.attributes.length === 0 && plain(info.texts.font) && plain(info.texts.Tabelle), { attributes: info.attributes, font: info.texts.font, table: info.texts.Tabelle, answer: { color: info.answerColor, size: info.answerSize, font: info.answerFont } });
+  check(scenario, "K63 keine Farbe, Größe oder Schrift aus der Antwort (font color/size/face, table bgcolor): Text in der Farbe und Größe der Antwort; E39: <font> und <table> als Text", info.attributes.length === 0 && plain(info.texts.font) && plain(info.texts.Tabelle) && info.text.includes('<font color="#0e0f0f" size="1" face="serif">Versteckt font</font>'), { attributes: info.attributes, font: info.texts.font, table: info.texts.Tabelle, answer: { color: info.answerColor, size: info.answerSize, font: info.answerFont } });
   // K62 mit Suche: der Begriff steht nur in den Adressen der leeren Links
   await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}&q=${K62_TERM}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
@@ -1059,15 +1119,19 @@ async function checkAnswerHtmlRc18(scenario, page, trackerHits, { width, theme }
 // Fixliste 7.22-rc20, K81 bis K86: Zeigt der Verlauf die Antwort mit dem
 // Begriff? [Fall, Antworttext, Begriff, sichtbar]. Dazu die Fälle, die bis
 // rc19 visibleAnswerText in Node prüfte (Fixliste Punkt 11, Fixliste 2 S2,
-// rc18 K62 und K63).
+// rc18 K62 und K63). Bewusste Änderung E39 (Fixliste 7.22-rc22, K122):
+// Rohes HTML steht als Text da, ein Begriff darin (auch in einem Attribut
+// oder in <template>) ist sichtbar; ein Linktext aus rohem HTML wie
+// [<b></b>](…) ist Text, die Adresse des Links bleibt dann verborgen.
+const E39 = " (Bewusste Änderung E39)";
 const SHOWS_HIT_CASES = [
   ["Punkt 11 Link-Adresse", 'Hier: [Anmeldung](https://vhs-lingen.example/anmeldung) <span data-x="geheimattribut">ok</span><think>Gedanke zu Yoga</think>', "vhs-lingen", false],
-  ["Punkt 11 HTML-Attribut", 'Hier: [Anmeldung](https://vhs-lingen.example/anmeldung) <span data-x="geheimattribut">ok</span>', "geheimattribut", false],
+  ["Punkt 11 HTML-Attribut" + E39, 'Hier: [Anmeldung](https://vhs-lingen.example/anmeldung) <span data-x="geheimattribut">ok</span>', "geheimattribut", true],
   ["Punkt 11 <think>", "Hier: ok<think>Gedanke zu Yoga</think>", "yoga", false],
   ["Punkt 11 Linktext", "Hier: [Anmeldung](https://vhs-lingen.example/anmeldung)", "anmeldung", true],
   ["S2 Autolink", "Siehe <https://kurs.example/a1> oder <info@vhs.example>.", "kurs.example", true],
   ["S2 Autolink E-Mail", "Siehe <https://kurs.example/a1> oder <info@vhs.example>.", "info@vhs", true],
-  ["S2 Adresse eines HTML-Links", '<a href="https://kurs.example">Link</a>', "kurs.example", false],
+  ["S2 Adresse eines HTML-Links" + E39, '<a href="https://kurs.example">Link</a>', "kurs.example", true],
   ["K62 Link ohne Text", "Siehe [](https://vhs.example/anmeldung).", "anmeldung", true],
   ["K62 Link nur aus U+200B", "[​](https://vhs.example/anmeldung)", "anmeldung", true],
   ["K62 Link ohne Text mit Titel", '[](<https://vhs.example/anmeldung> "Titel")', "anmeldung", true],
@@ -1079,17 +1143,17 @@ const SHOWS_HIT_CASES = [
   ["K62 Bild ohne Alt-Text im Netz", "![](https://vhs.example/bild.jpg)", "bild.jpg", true],
   ["K62 Bild ohne Alt-Text relativ", "![](/relativ.png)", "relativ", false],
   ["K62 Ziel eines Links mit Text", "[Kurs](https://vhs.example/anmeldung)", "anmeldung", false],
-  ["K63 <template>", "Gern helfe ich. <template>Stornieren Sie Kurs 4711</template>", "4711", false],
+  ["K63 <template>" + E39, "Gern helfe ich. <template>Stornieren Sie Kurs 4711</template>", "4711", true],
   ["K63 <datalist> aufgelöst", "Gern helfe ich. <datalist>Stornieren Sie Kurs 4711</datalist>", "4711", true],
   ["K80 <marquee> aufgelöst", 'Gern helfe ich. <marquee width="1">Stornieren Sie Kurs 4711</marquee>', "4711", true],
-  ["K81 nicht geschlossenes <template>", "Gern helfe ich. <template>Stornieren Sie Kurs 4711\n\nZweiter Absatz mit Rabattcode X", "4711", false],
-  ["K81 Rest nach nicht geschlossenem <template>", "Gern helfe ich. <template>Stornieren Sie Kurs 4711\n\nZweiter Absatz mit Rabattcode X", "rabattcode", false],
-  ["K81 verschachteltes <template>", "<template><template>a</template> Kurs 4711</template>", "4711", false],
-  ["K81 <noscript>", "Gern. <noscript>Stornieren Sie Kurs 4711</noscript> Ende", "4711", false],
-  ["K81 <xmp>", "Gern. <xmp>Stornieren Sie Kurs 4711</xmp> Ende", "4711", false],
-  ["K81 <svg>", "Gern. <svg><text>Stornieren Sie Kurs 4711</text></svg> Ende", "4711", false],
-  ["K81 <video>", "Gern. <video>Stornieren Sie Kurs 4711</video> Ende", "4711", false],
-  ["K81 <iframe>", "Gern. <iframe>Stornieren Sie Kurs 4711</iframe> Ende", "4711", false],
+  ["K81 nicht geschlossenes <template>" + E39, "Gern helfe ich. <template>Stornieren Sie Kurs 4711\n\nZweiter Absatz mit Rabattcode X", "4711", true],
+  ["K81 Rest nach nicht geschlossenem <template>" + E39, "Gern helfe ich. <template>Stornieren Sie Kurs 4711\n\nZweiter Absatz mit Rabattcode X", "rabattcode", true],
+  ["K81 verschachteltes <template>" + E39, "<template><template>a</template> Kurs 4711</template>", "4711", true],
+  ["K81 <noscript>" + E39, "Gern. <noscript>Stornieren Sie Kurs 4711</noscript> Ende", "4711", true],
+  ["K81 <xmp>" + E39, "Gern. <xmp>Stornieren Sie Kurs 4711</xmp> Ende", "4711", true],
+  ["K81 <svg>" + E39, "Gern. <svg><text>Stornieren Sie Kurs 4711</text></svg> Ende", "4711", true],
+  ["K81 <video>" + E39, "Gern. <video>Stornieren Sie Kurs 4711</video> Ende", "4711", true],
+  ["K81 <iframe>" + E39, "Gern. <iframe>Stornieren Sie Kurs 4711</iframe> Ende", "4711", true],
   ["K82 Code mit <template>", "Nutzen Sie `<template>` für Vorlagen. Wichtig: Anmeldung bis Freitag. Ende mit `</template>`.", "anmeldung", true],
   ["K82 Codeblock mit <template>", "```html\n<template>Hallo Welt</template>\n```", "hallo welt", true],
   ["K83 rohes <a href> ohne Text", 'Siehe <a href="https://vhs.example/anmeldung"></a>.', "anmeldung", true],
@@ -1101,7 +1165,8 @@ const SHOWS_HIT_CASES = [
   ["K85 Adresse mit Umlaut: so wie angezeigt", "[](https://vhs.de/kurs/töpfern)", "t%C3%B6pfern", true],
   ["K86 Linktext &nbsp;", "Siehe [&nbsp;](https://vhs.example/anmeldung).", "anmeldung", true],
   ["K86 Linktext &#8203;", "Siehe [&#8203;](https://vhs.example/anmeldung).", "anmeldung", true],
-  ["K86 Linktext <b></b>", "Siehe [<b></b>](https://vhs.example/anmeldung).", "anmeldung", true],
+  ["K86 Linktext <b></b>" + E39, "Siehe [<b></b>](https://vhs.example/anmeldung).", "anmeldung", false],
+  ["K86 Linktext <b></b> als Text" + E39, "Siehe [<b></b>](https://vhs.example/anmeldung).", "<b></b>", true],
   ["K86 Linktext Code-Span", "Siehe [` `](https://vhs.example/anmeldung).", "anmeldung", true],
   ["K87 Link auf #", "Anmeldung über die [Kursseite](#anmeldung)", "kursseite", true],
   ["K89 Link nur aus U+3164", "[ㅤ](https://vhs.example/k89)", "k89", true],
@@ -1121,6 +1186,13 @@ const SHOWS_HIT_CASES = [
   ["K103 Kontrolle: Adresse eines Links mit Text bleibt verborgen", "```js\nconst a = 1;\n```\n\n[Kurs](https://vhs.example/kurs-4711)", "kurs-4711", false],
   ["K104 https:/ ohne //: Adresse als Text", "[Anmeldung](https:/www.vhs.de/anmeldung)", "www.vhs.de", true],
   ["K104 https: ohne //: Adresse als Text", "[Kurs](https:kurs/4711)", "kurs/4711", true],
+  // Fixliste 7.22-rc22 (E39, K122): rohes HTML als Text
+  ["E39 Tag eines rohen Elements", "Das ist <b>wichtig</b>.", "<b>", true],
+  ["E39 Attribut eines rohen <font>", 'Gern. <font color="#0e0f0f">Kurs</font>', "#0e0f0f", true],
+  ["E39 HTML-Kommentar", "Gern. <!-- e39vermerk --> Ende", "e39vermerk", true],
+  ["E39 Adresse eines rohen <img>", '<img src="https://vhs.example/e39bild.jpg" alt="Kursfoto">', "e39bild", true],
+  ["E39 Kontrolle: <think> bleibt verborgen", "Antwort mit <b>x</b><think>e39gedanke</think>", "e39gedanke", false],
+  ["E39 Kontrolle: Adresse eines Markdown-Links bleibt verborgen", "Siehe [Kurs](https://vhs.example/e39md) und <b>x</b>", "e39md", false],
 ];
 
 /**
@@ -1158,7 +1230,9 @@ async function checkAnswerShowsHit(scenario, page) {
  * mitgebrachtes <mark> ist Text in der Farbe der Antwort ohne eigene
  * Fläche. Danach je Suchbegriff aus RC20_SEARCHES: sichtbar heißt
  * markiert und kein Hinweis, verborgen heißt Hinweis und keine Markierung
- * (K81 bis K86).
+ * (K81 bis K86). Bewusste Änderung E39 (Fixliste 7.22-rc22): <marquee>,
+ * die Tabelle mit Maßen und das mitgebrachte <mark> stehen samt Tags als
+ * Text da.
  */
 async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }) {
   const info = await page.evaluate(() => {
@@ -1184,6 +1258,8 @@ async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }
     const allLinks = answers.flatMap((a) => [...a.querySelectorAll("a")]).map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target") }));
     return {
       answerColor: getComputedStyle(answer).color,
+      text: answer.textContent,
+      fakeText: answers[10].textContent,
       marquee: { one: shown(answer, "Versteckt marquee1"), zero: shown(answer, "Versteckt marquee0"), table: shown(answer, "Versteckt Tabellenmaß") },
       marquees: answers.reduce((n, a) => n + a.querySelectorAll("marquee").length, 0),
       sized: answers.flatMap((a) => [...a.querySelectorAll("[width], [height]")]).map((e) => e.outerHTML.slice(0, 80)),
@@ -1204,7 +1280,7 @@ async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }
   await page.locator("[data-panel-body] [data-answer] >> nth=10").scrollIntoViewIfNeeded();
   await page.waitForTimeout(200);
   await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-b60.png`) });
-  check(scenario, "K80 Text in <marquee width=1> und <marquee width=0 height=0> sichtbar (aufgelöst), Tabelle mit Maßen lesbar", info.marquee.one.shown && info.marquee.zero.shown && info.marquee.table.shown && info.marquees === 0, { marquee: info.marquee, marquees: info.marquees });
+  check(scenario, "K80 Text in <marquee width=1> und <marquee width=0 height=0> sichtbar, Tabelle mit Maßen lesbar, kein <marquee>; Bewusste Änderung E39: samt Tags als Text (vorher aufgelöst)", info.marquee.one.shown && info.marquee.zero.shown && info.marquee.table.shown && info.marquees === 0 && info.text.includes('<marquee width="1">Versteckt marquee1</marquee>') && info.text.includes('<table width="1" height="1"><tr><td width="1" height="1">Versteckt Tabellenmaß</td></tr></table>'), { marquee: info.marquee, marquees: info.marquees });
   check(scenario, "K80 keine width und height aus der Antwort", info.sized.length === 0, { sized: info.sized });
   check(scenario, "K87, K88 Links ohne Ziel (#, URL, /anmeldung, nur U+00AD, nur U+2060) sind Text, ihr Text bleibt", info.plainTexts.every(([, found]) => found) && !info.links.some((l) => ["#", "URL", "/anmeldung", "­", "⁠"].includes(l.href)), { plainTexts: info.plainTexts, links: info.links });
   check(scenario, "K87, K88 jeder Link im Verlauf hat ein Ziel mit Schema, öffnet in neuem Tab und hat einen sichtbaren Namen", info.withoutTarget.length === 0 && info.unnamed.length === 0, { withoutTarget: info.withoutTarget, unnamed: info.unnamed });
@@ -1212,7 +1288,7 @@ async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }
   check(scenario, "K89 Link nur aus U+3164 zeigt seine Adresse", !!k89 && k89.text.includes(k89.href), { link: k89 });
   const k90 = info.links.find((l) => l.href === `${TRACKER}/k90.jpg`);
   check(scenario, "K90 Bild ohne Alt-Text im Link ohne Adresse: Link auf die Bilddatei mit ihrer Adresse, kein Bild, kein Abruf", !!k90 && k90.text === k90.href && k90.target === "_blank" && info.images === 0 && trackerHits.length === 0, { link: k90, images: info.images, trackerHits });
-  check(scenario, `B60 mitgebrachtes <mark> (${theme}): kein <mark>, Text sichtbar in der Farbe der Antwort ohne eigene Fläche`, info.fakeMarks === 0 && info.fake.shown && info.fake.tag !== "MARK" && info.fake.color === info.fakeAnswerColor && /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(info.fake.background), { marks: info.fakeMarks, fake: info.fake, answerColor: info.fakeAnswerColor });
+  check(scenario, `B60 mitgebrachtes <mark> (${theme}): kein <mark>, Text sichtbar in der Farbe der Antwort ohne eigene Fläche; Bewusste Änderung E39: samt Tag als Text`, info.fakeMarks === 0 && info.fake.shown && info.fake.tag !== "MARK" && info.fake.color === info.fakeAnswerColor && /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(info.fake.background) && info.fakeText.includes('<mark data-search-hit="">Bitte Kurs X stornieren</mark>'), { marks: info.fakeMarks, fake: info.fake, answerColor: info.fakeAnswerColor });
 
   for (const [label, term, visible] of RC20_SEARCHES) {
     await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}&q=${encodeURIComponent(term)}`, { waitUntil: "domcontentloaded" });
@@ -1244,7 +1320,9 @@ async function checkAnswerHtmlRc20(scenario, page, trackerHits, { width, theme }
  * https:/pfad und https:pfad sind Text. Danach je Suchbegriff aus
  * RC21_SEARCHES: kein Hinweis, markiert, wo der Begriff in einem Textknoten
  * steht (K103: über Token-Grenzen im Code ohne Markierung, aber auch ohne
- * Hinweis).
+ * Hinweis). Bewusste Änderung E39 (Fixliste 7.22-rc22): Die rohe Tabelle
+ * und die rohen <a><img> stehen als Text da; Link auf die Bilddatei bleibt
+ * das Bild im Markdown-Link auf Kurs-ID:.
  */
 async function checkAnswerHtmlRc21(scenario, page, trackerHits, { width, theme }) {
   await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
@@ -1290,10 +1368,10 @@ async function checkAnswerHtmlRc21(scenario, page, trackerHits, { width, theme }
   });
   await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-k100-k104.png`) });
   const t = info.table;
-  check(scenario, "K100 Tabelle mit cellpadding, cellspacing und border: Text in der Antwort im Blick, Zelle mit kleinem Innenabstand", !!t && t.inside && parseFloat(t.padding) < 20 && t.answerHeight < 2000, { table: t });
+  check(scenario, "K100 Bewusste Änderung E39: die rohe Tabelle mit cellpadding, cellspacing und border steht als Text da, ihr Text in der Antwort im Blick, keine Zelle", !!t && t.inside && t.padding === null && t.answerHeight < 2000 && info.text.includes('<table cellpadding="100000" cellspacing="50000" border="100000"><tr><td>Versteckt cellpadding</td></tr></table>'), { table: t });
   check(scenario, "K100 keine cellpadding, cellspacing und border aus der Antwort", info.sized.length === 0, { sized: info.sized });
   const toImage = (name) => info.links.find((l) => l.href === `${TRACKER}/${name}`);
-  check(scenario, "K101 Bilder in <a> ohne href (nie gehabt, javascript:, Kurs-ID:) als Link auf die Bilddatei, kein <a> ohne href, kein Abruf", toImage("k101.jpg")?.text === `${TRACKER}/k101.jpg` && toImage("k101-js.jpg")?.text === "Kursfoto k101" && toImage("k101-id.jpg")?.text === `${TRACKER}/k101-id.jpg` && [toImage("k101.jpg"), toImage("k101-js.jpg"), toImage("k101-id.jpg")].every((l) => l.target === "_blank") && info.withoutHref === 0 && info.images === 0 && trackerHits.length === 0, { links: info.links, withoutHref: info.withoutHref, images: info.images, trackerHits });
+  check(scenario, "K101 Bild im Markdown-Link auf Kurs-ID: als Link auf die Bilddatei, kein <a> ohne href, kein Abruf; Bewusste Änderung E39: die rohen <a><img> (ohne href, javascript:) stehen als Text da", toImage("k101-id.jpg")?.text === `${TRACKER}/k101-id.jpg` && toImage("k101-id.jpg").target === "_blank" && !toImage("k101.jpg") && !toImage("k101-js.jpg") && info.text.includes(`<a><img src="${TRACKER}/k101.jpg"></a>`) && info.text.includes(`<a href="javascript:void(0)"><img src="${TRACKER}/k101-js.jpg" alt="Kursfoto k101"></a>`) && info.withoutHref === 0 && info.images === 0 && trackerHits.length === 0, { links: info.links, withoutHref: info.withoutHref, images: info.images, trackerHits });
   const k102 = "Ohne Ziel: /anmeldung-k102a, Kursseite (/kurs/k102), , Sprung und /anmeldung-k102b.";
   check(scenario, "K102 (E37) Links ohne Ziel sind Text mit ihrer Adresse: „/anmeldung-k102a“, „Kursseite (/kurs/k102)“, [](#) leer, „Sprung“ ohne #, nur U+3164 wird „/anmeldung-k102b“", info.text.includes(k102) && !info.links.some((l) => ["/anmeldung-k102a", "/kurs/k102", "#", "/anmeldung-k102b"].includes(l.href)), { expected: k102, text: info.text.slice(info.text.indexOf("Ohne Ziel"), info.text.indexOf("Tippfehler")), links: info.links });
   check(scenario, "B70 Link mit Ziel nur aus U+3164 zeigt genau seine Adresse (kein Füllzeichen davor)", !!info.k89 && info.k89.text === info.k89.href, { link: info.k89 });
@@ -1324,6 +1402,149 @@ async function checkAnswerHtmlRc21(scenario, page, trackerHits, { width, theme }
   await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
   await page.waitForTimeout(800);
+}
+
+/**
+ * Fixliste 7.22-rc22 (E39, K121, K122; läuft nach checkAnswerHtmlRc21,
+ * dieselbe Konversation, neunte Antwort; echtes DOMPurify im Browser): Der
+ * Verlauf zeigt rohes HTML wie das Widget als Text. Jedes rohe Stück aus
+ * E39_RAW steht wörtlich in der Antwort, aus keinem entsteht ein Element;
+ * der Text ist sichtbar, im Blick und in der Farbe der Antwort; lange Tags
+ * brechen in der Blase um. Markdown bleibt: Tabelle mit ausgerichteten
+ * Spalten, Link in neuem Tab, Codeblock mit <div> als Text. Danach K122:
+ * ein Begriff nur in der Adresse des rohen <a> ist als Text sichtbar
+ * (markiert, kein Hinweis); die Adresse des Markdown-Links bleibt verborgen
+ * (Hinweis, keine Markierung).
+ */
+async function checkAnswerE39(scenario, page, trackerHits, { width, theme }) {
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+  await page.locator("[data-panel-body] [data-answer] >> nth=8").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(200);
+  const info = await page.evaluate(() => {
+    const body = document.querySelector("[data-panel-body]");
+    const answer = [...body.querySelectorAll("[data-answer]")][8];
+    const box = answer.getBoundingClientRect();
+    const answerStyle = getComputedStyle(answer);
+    const place = (word) => {
+      const walker = document.createTreeWalker(answer, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.data.includes(word)) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const rect = range.getBoundingClientRect();
+        const element = node.parentElement;
+        const style = getComputedStyle(element);
+        return {
+          tag: element.tagName,
+          shown: rect.width > 0 && rect.height > 0 && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }),
+          inside: rect.left >= box.left - 1 && rect.right <= box.right + 1 && rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1,
+          color: style.color,
+          fontSize: style.fontSize,
+        };
+      }
+      return null;
+    };
+    const cell = (text) => [...answer.querySelectorAll("th, td")].find((c) => c.textContent === text);
+    return {
+      text: answer.textContent,
+      tags: [...new Set([...answer.querySelectorAll("*")].map((e) => e.tagName))].sort(),
+      fromRaw: [...answer.querySelectorAll("b, font, marquee, datalist, template, img, [style], [class*='fixed']")].map((e) => e.outerHTML.slice(0, 80)),
+      tables: answer.querySelectorAll("table").length,
+      links: [...answer.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target"), rel: a.getAttribute("rel") })),
+      code: answer.querySelector("pre code")?.textContent ?? null,
+      // align="right" an th/td ergibt in Chrome text-align -webkit-right
+      align: Object.fromEntries([["kurs", "Kurs"], ["fee", "96,00 €"]].map(([key, text]) => [key, cell(text) ? getComputedStyle(cell(text)).textAlign.replace(/^-webkit-/, "") : null])),
+      places: Object.fromEntries(["Absatz e39", "Versteckt datalist", "Versteckt template", "Versteckt marquee", "Versteckt font", "Versteckt cellpadding", "Kursseite roh", "Banner e39"].map((word) => [word, place(word)])),
+      answer: { color: answerStyle.color, fontSize: answerStyle.fontSize },
+      overflow: { answer: answer.scrollWidth - answer.clientWidth, body: body.scrollWidth - body.clientWidth },
+      images: body.querySelectorAll("img").length,
+    };
+  });
+  await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-e39-rohes-html.png`) });
+  const missing = E39_RAW.filter((raw) => !info.text.includes(raw));
+  check(scenario, "E39 rohes HTML steht wörtlich als Text in der Antwort wie im Widget (<p style>, <b>, <br>, <datalist>, <template>, <marquee>, <font color>, <table cellpadding>, <a href>, <img>)", missing.length === 0, { missing });
+  // DIV: die Hülle des MarkdownRenderer um jeden Teil der Antwort
+  const allowed = new Set(["DIV", "P", "BR", "TABLE", "THEAD", "TBODY", "TR", "TH", "TD", "A", "PRE", "CODE", "SPAN"]);
+  check(scenario, "E39 aus rohem HTML entsteht kein Element: nur Absätze, die Markdown-Tabelle, der Markdown-Link und der Codeblock", info.fromRaw.length === 0 && info.tags.every((tag) => allowed.has(tag)) && info.tables === 1 && info.links.length === 1, { tags: info.tags, fromRaw: info.fromRaw, tables: info.tables, links: info.links });
+  const bad = Object.entries(info.places).filter(([, p]) => !p || !p.shown || !p.inside || p.color !== info.answer.color || p.fontSize !== info.answer.fontSize).map(([word, p]) => ({ word, ...p }));
+  check(scenario, "E39 Text aus rohem HTML sichtbar, im Blick der Antwort, in Farbe und Größe der Antwort", bad.length === 0, { bad, answer: info.answer });
+  check(scenario, "E39 keine waagerechte Überbreite: lange Tags und Adressen brechen in der Blase um", info.overflow.answer <= 1 && info.overflow.body <= 1, info.overflow);
+  const link = info.links[0];
+  check(scenario, "E39 Markdown bleibt: Tabelle (Kurs links, Gebühr rechts), Link „Kursseite“ in neuem Tab, Codeblock zeigt <div>Kurs 4711</div> als Text", info.align.kurs === "left" && info.align.fee === "right" && !!link && link.text === "Kursseite" && link.href === `https://www.vhs-musterstadt.de/${E39_MD_TERM}` && link.target === "_blank" && link.rel === "noopener noreferrer" && (info.code ?? "").includes("<div>Kurs 4711</div>"), { align: info.align, link, code: info.code });
+  check(scenario, "E39 kein Bild und kein Abruf des rohen <img>", info.images === 0 && !trackerHits.some((url) => url.includes("e39.png")), { images: info.images, trackerHits });
+
+  for (const [label, term, visible] of [
+    ["K122 (E39) Begriff nur in der Adresse eines rohen <a>", E39_TERM, true],
+    ["K122 (E39) Kontrolle: Begriff nur in der Adresse des Markdown-Links", E39_MD_TERM, false],
+  ]) {
+    await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}&q=${encodeURIComponent(term)}`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+    await page.waitForTimeout(600);
+    const searched = await page.evaluate(() => ({
+      marks: [...document.querySelectorAll("[data-panel-body] mark[data-search-hit]")].map((mark) => mark.textContent),
+      hiddenHit: document.querySelector("[data-panel-hidden-hit]")?.textContent ?? null,
+      row: !!document.querySelector("[data-conversation-row][aria-current='true']"),
+    }));
+    if (visible) await page.screenshot({ path: path.join(OUT, `kie575-${width}-${theme}-e39-suche.png`) });
+    const ok = searched.row && (visible ? searched.marks.length > 0 && searched.marks.every((mark) => mark.toLowerCase() === term) && searched.hiddenHit === null : searched.marks.length === 0 && searched.hiddenHit !== null);
+    check(scenario, `${label}: Suche „${term}“ ${visible ? "als Text sichtbar, markiert, kein Hinweis" : "mit Hinweis „nur in Link-Adressen, im Quelltext …“, keine Markierung"}`, ok, searched);
+  }
+  // zurück zum Stand ohne Suche für die folgenden Prüfungen
+  await page.goto(`${PAGE}?widget=3&conversation=${HTML_ID}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-conversation-panel] [data-answer]", { timeout: 30_000 });
+  await page.waitForTimeout(800);
+}
+
+/**
+ * Fixliste 7.22-rc22 (K123, läuft in der Seite mit echtem DOMPurify): Die
+ * zweite Sicherung bleibt wirksam. Seit E39 erreicht rohes HTML sie im
+ * Verlauf nicht mehr; geprüft wird sie darum direkt: sanitizeAnswerHtml
+ * mit dem rohen HTML der früheren Fälle (K14, K41, K42, K63, K80, K100,
+ * K101, B60, Formulare und Medien). Ausgewertet wird in einem inaktiven
+ * Dokument (DOMParser), nichts lädt.
+ */
+async function checkSecondSafety(scenario, page) {
+  const results = await page.evaluate(async ({ tracker, fakeHit }) => {
+    const { default: sanitizeAnswerHtml } = await import("/src/utils/chat/purifyConversation.js");
+    const clean = (html) => new DOMParser().parseFromString(sanitizeAnswerHtml(html), "text/html").body;
+    const all = (root, selector) => root.querySelectorAll(selector).length;
+    const links = (root) => [...root.querySelectorAll("a")].map((a) => ({ text: a.textContent, href: a.getAttribute("href"), target: a.getAttribute("target"), rel: a.getAttribute("rel") }));
+    const cases = [];
+    const add = (label, html, test) => {
+      try {
+        const root = clean(html);
+        cases.push({ label, ok: !!test(root), html: root.innerHTML.slice(0, 300) });
+      } catch (error) {
+        cases.push({ label, ok: false, error: String(error) });
+      }
+    };
+    add("K14 kein style, keine Seitenklassen, kein Bild; Links in neuem Tab mit rel, Bild als Link mit Alt-Text",
+      `<p>Bitte hier entlang: <a href="https://phish.example/login" style="position:fixed;inset:0;z-index:9999">Kursseite</a></p><img src="${tracker}/pixel.png?html" alt="Banner" style="width:100vw;height:100vh"><a href="https://www.vhs-musterstadt.de/kurs" class="fixed inset-0 z-50">Anmeldung</a>`,
+      (root) => all(root, "[style], [class], img") === 0 && links(root).length === 3 && links(root).every((l) => l.target === "_blank" && l.rel === "noopener noreferrer") && links(root).some((l) => l.text === "Banner" && l.href.startsWith(tracker)));
+    add("K41 kein mitgebrachtes Kennzeichen, kein mitgebrachtes <mark> (B60), der Text bleibt",
+      fakeHit,
+      (root) => all(root, "[data-search-hit], mark") === 0 && root.textContent.includes("Bitte Kurs X stornieren"));
+    add("K42 kein tabindex, hidden, draggable",
+      '<a href="https://www.vhs-musterstadt.de/weiter" tabindex="1" draggable="true">Weiter</a><span hidden>Versteckt</span>',
+      (root) => all(root, "[tabindex], [hidden], [draggable]") === 0 && links(root).some((l) => l.text === "Weiter"));
+    add("K63 <datalist>, <rp>, <progress>, <meter>, <canvas> aufgelöst (Text bleibt), <template> fällt weg, keine Farben, Größen, Schriften",
+      '<datalist>Versteckt datalist</datalist> <template>Versteckt template</template> <font color="#0e0f0f" size="1" face="serif">Versteckt font</font> <ruby>Kurs<rp>Versteckt rp</rp><rt>k</rt></ruby> <progress>Versteckt progress</progress> <meter>Versteckt meter</meter> <canvas>Versteckt canvas</canvas><table bgcolor="#0e0f0f"><tr><td>Zelle</td></tr></table>',
+      (root) => all(root, "datalist, template, rp, progress, meter, canvas, [color], [bgcolor], [size], [face]") === 0 && ["datalist", "rp", "progress", "meter", "canvas", "font"].every((word) => root.textContent.includes(`Versteckt ${word}`)) && !root.innerHTML.includes("Versteckt template"));
+    add("K80, K100 kein <marquee> (Text bleibt), keine width, height, cellpadding, cellspacing, border",
+      '<marquee width="1">Versteckt marquee</marquee><table width="1" height="1" cellpadding="100000" cellspacing="50000" border="100000"><tr><td width="1" height="1">Versteckt Tabelle</td></tr></table>',
+      (root) => all(root, "marquee, [width], [height], [cellpadding], [cellspacing], [border]") === 0 && root.textContent.includes("Versteckt marquee") && root.textContent.includes("Versteckt Tabelle"));
+    add("K101 Bild in <a> ohne href und in javascript: als Link auf die Bilddatei, kein <a> ohne href",
+      `<a><img src="${tracker}/k101.jpg"></a> <a href="javascript:void(0)"><img src="${tracker}/k101-js.jpg" alt="Kursfoto k101"></a>`,
+      (root) => all(root, "a:not([href]), img") === 0 && links(root).some((l) => l.href === `${tracker}/k101.jpg` && l.text === `${tracker}/k101.jpg`) && links(root).some((l) => l.href === `${tracker}/k101-js.jpg` && l.text === "Kursfoto k101") && !links(root).some((l) => /^javascript:/i.test(l.href ?? "")));
+    add("Formulare, Medien, SVG und <style> fallen weg",
+      `<form><input name="kennwort"><button>Senden</button></form><video poster="${tracker}/v.png"></video><audio src="${tracker}/a.mp3"></audio><svg><image href="${tracker}/s.png"></image></svg><style>body{display:none}</style><dialog open>Dialog</dialog>`,
+      (root) => all(root, "form, input, button, video, audio, svg, image, style, dialog") === 0);
+    return cases;
+  }, { tracker: TRACKER, fakeHit: FAKE_HIT_ANSWER });
+  for (const result of results)
+    check(scenario, `K123 zweite Sicherung (sanitizeAnswerHtml, echtes DOMPurify): ${result.label}`, result.ok, result);
 }
 
 /**
@@ -1971,6 +2192,10 @@ async function wideScenario(browser, { width, height, theme }) {
   // rc21 K100 bis K104, B70: Tabellenmaße, <a> ohne href, Adressen von
   // Links ohne Ziel, Begriff über Token-Grenzen im Code, https: ohne //
   await checkAnswerHtmlRc21(scenario, page, trackerHits, { width, theme });
+  // rc22 E39, K121 bis K123: rohes HTML als Text wie im Widget, Suche in
+  // rohem HTML, zweite Sicherung direkt mit echtem DOMPurify
+  await checkAnswerE39(scenario, page, trackerHits, { width, theme });
+  await checkSecondSafety(scenario, page);
   // rc15 K30: Links im Verlauf erkennbar (dieselbe Konversation)
   await checkLinkLook(scenario, page, { width, theme, where: "Desktop" });
   check(scenario, "keine Fehler der Seite (bis zum Ende)", errors.length === 0, errors);

@@ -2443,7 +2443,9 @@ test("rc16, K43: Ausrichtung der Tabellenspalten aus Markdown (|:--|:-:|--:|) al
   assert.match(html, /<th>Hinweis<\/th>/);
   assert.match(html, /<td align="right">96,00 €<\/td>/);
   assert.match(html, /<td>neu<\/td>/);
-  // Andere Stilangaben (rohes HTML) fasst das Plugin nicht an
+  // Andere Stilangaben (rohes HTML) fasst das Plugin nicht an. Die Probe
+  // gilt dem Plugin allein (hier mit html: true); im Verlauf ist rohes HTML
+  // seit E39 Text (html: false, conversationAnswerMarkdown.test.mjs)
   const raw = md.render('<table><tr><td style="position:fixed">x</td></tr></table>');
   assert.match(raw, /style="position:fixed"/, "bleibt für DOMPurify");
   // align ist im HTML-Profil von DOMPurify erlaubt (nicht verboten)

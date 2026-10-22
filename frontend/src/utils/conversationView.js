@@ -1178,9 +1178,11 @@ export function highlightParts(text, term) {
 /**
  * Steht der Suchbegriff irgendwo SICHTBAR in der Konversation – in einer
  * Frage, im sichtbaren Antworttext, in Grund oder Kommentar? Die Suche des
- * Servers liest auch Link-Adressen, HTML und <think>-Blöcke der Antwort; nur
- * dort getroffen, weist das Panel darauf hin (Fixliste Punkt 11; bewusst so
- * belassen, Fixliste 7 F13: siehe benchmarks/conversationSearch.manual.js).
+ * Servers liest auch Link-Adressen und <think>-Blöcke der Antwort (rohes
+ * HTML steht seit E39 als Text im Verlauf, ein Treffer darin ist
+ * sichtbar); nur dort getroffen, weist das Panel darauf hin (Fixliste
+ * Punkt 11; bewusst so belassen, Fixliste 7 F13: siehe
+ * benchmarks/conversationSearch.manual.js).
  *
  * Ob eine Antwort den Begriff sichtbar zeigt, sagt answerShowsHit: die
  * Darstellung des Verlaufs selbst (MarkdownRenderer: Markdown, DOMPurify,
@@ -1273,14 +1275,22 @@ export function highlightTextNodes(root, term, doc) {
 
 // ---------------------------------------------------------------------------
 // HTML der Antworten im Verlauf (Admin-Ansicht; Review 7.22-rc12, K14;
-// Fixliste 7.22-rc13, E13)
+// Fixliste 7.22-rc13, E13). Seit Fixliste 7.22-rc22 (E39) zweite
+// Sicherung: Die erste ist html: false im MarkdownRenderer, rohes HTML der
+// Antwort steht als Text im Verlauf wie im Widget.
 // ---------------------------------------------------------------------------
 
 /**
  * DOMPurify für die Antworten im Verlauf der Konversationen. Antworten sind
  * Ausgaben des Sprachmodells, die anonyme Besucher des Widgets beeinflussen
  * können – und der Verlauf öffnet sich auf dem Desktop von selbst (AK-3),
- * ohne Klick. Darum strenger als im Chat:
+ * ohne Klick. Darum strenger als im Chat.
+ * Zweite Sicherung (Fixliste 7.22-rc22, E39, K123): Die erste ist
+ * html: false im MarkdownRenderer wie im Widget. Rohes HTML der Antwort
+ * kommt nur noch als Text an; bereinigt wird das HTML, das markdown-it
+ * selbst erzeugt (Links, Bilder, Tabellen, Code). Die Einträge bleiben
+ * stehen: Sie greifen, falls die erste Sicherung einmal fehlt, und die
+ * Begründungen unten beschreiben, was sie dann abfangen.
  * - nur HTML (kein SVG, kein MathML: dort laden <image> und <use> fremde
  *   Inhalte),
  * - kein style (ein Link über der ganzen Seite, position:fixed) und kein
@@ -1396,7 +1406,8 @@ export function answerPurifyConfig({ searchHits = false } = {}) {
  * style="text-align:…" an th und td. style ist im Verlauf verboten (E13),
  * align erlaubt DOMPurify im HTML-Profil; die Beträge einer Preistabelle
  * stehen so rechtsbündig wie im Widget. Nur die Zellen, die markdown-it
- * selbst erzeugt; rohes HTML der Antwort bleibt Sache von DOMPurify.
+ * selbst erzeugt; rohes HTML der Antwort ist seit E39 Text (html: false),
+ * DOMPurify bleibt die zweite Sicherung.
  * @param {object} md - markdown-it
  */
 export function tableAlignAttributes(md) {
@@ -1435,7 +1446,13 @@ function unwrapElement(node) {
 
 /**
  * Ordnet das von DOMPurify bereinigte HTML einer Antwort (in einem inerten
- * Dokument, vor dem Einsetzen in die Seite):
+ * Dokument, vor dem Einsetzen in die Seite). Zweite Sicherung wie
+ * ANSWER_PURIFY_CONFIG (Fixliste 7.22-rc22, E39, K123): Die erste ist
+ * html: false im MarkdownRenderer, rohes HTML der Antwort ist Text. Links
+ * und Bilder kommen damit nur noch aus Markdown ([Text](Adresse),
+ * ![Alt](Adresse), <https://…>), die Regeln unten gelten für sie weiter.
+ * Was nur rohes HTML betrifft (mitgebrachtes <mark> und data-search-hit,
+ * fremde Klassen), fangen sie ab, falls die erste Sicherung einmal fehlt:
  * - Links mit Adresse öffnen in einem neuen Tab (target="_blank") mit
  *   rel="noopener noreferrer". Eine Adresse ohne Ziel (ANSWER_LINK_TARGET)
  *   heißt keine Adresse: kein href (DOMPurify hat es verworfen, etwa
