@@ -225,12 +225,27 @@ test("Platzhalter: frühere Vorbelegung zeigt den Standard", () => {
     keys.placeholderFieldValue({ sendMessageText: "Frage?" }),
     "Frage?"
   );
+  // Standard seit der Nutzerentscheidung vom 23.10.2026 wie die Leiste; der
+  // alte Standard „Ihre Frage eingeben“ zählt wie die alte Vorbelegung nicht
+  for (const sendMessageText of [
+    "Wie kann ich Ihnen helfen?",
+    "Ihre Frage eingeben",
+    " Enter your question ",
+  ]) {
+    assert.equal(
+      keys.previewPlaceholder({ sendMessageText }, DEFAULTS),
+      "Stellen Sie hier Ihre Frage …"
+    );
+    assert.equal(server.effectivePlaceholder({ sendMessageText }), null);
+  }
+  // ohne geladene Standardtexte derselbe Standard
   assert.equal(
-    keys.previewPlaceholder(
-      { sendMessageText: "Wie kann ich Ihnen helfen?" },
-      DEFAULTS
-    ),
-    "Ihre Frage eingeben"
+    keys.previewPlaceholder({}, null),
+    "Stellen Sie hier Ihre Frage …"
+  );
+  assert.equal(
+    keys.previewPlaceholder({}, embedDefaultTexts("en")),
+    "Ask your question here …"
   );
 });
 
@@ -568,10 +583,18 @@ test(
   }
 );
 
-test("D2/F04: Inline-Leiste mit Demo-Texten, nur ein früher gespeicherter Leistentext gilt", () => {
+// Nutzerentscheidung 23.10.2026 (ersetzt D2): eingeklappt und aufgeklappt
+// derselbe Platzhalter. Rangfolge wie inlineBarPlaceholder() im Server:
+// früher gespeicherter Leistentext, eigener Platzhalter bis 120 Zeichen,
+// sonst Standard (gleich dem des Chat-Eingabefelds).
+test("23.10.2026/F04: Inline-Leiste der Vorschau mit dem Platzhalter des Chats, früher gespeicherter Leistentext geht vor", () => {
+  // ohne eigenen Text: Standard, gleich dem Platzhalter im Eingabefeld
   for (const config of [
     {},
-    { sendMessageText: "Ihre Frage an uns" },
+    { sendMessageText: "Ihre Frage eingeben" },
+    { sendMessageText: "Wie kann ich Ihnen helfen?" },
+    { sendMessageText: "  " },
+    { sendMessageText: "p".repeat(121) },
     { inlineInputPlaceholder: "  " },
     { inlineInputPlaceholder: "q".repeat(121) },
   ]) {
@@ -579,20 +602,64 @@ test("D2/F04: Inline-Leiste mit Demo-Texten, nur ein früher gespeicherter Leist
       placeholder: "Stellen Sie hier Ihre Frage …",
       sendText: "Chatten",
     });
+    assert.equal(server.inlineBarPlaceholder(config), null);
     assert.equal(
       keys.storedInlineBarPlaceholder(config),
       server.inlineBarPlaceholder(config)
     );
   }
-  const own = { inlineInputPlaceholder: " Was suchen Sie? " };
   assert.equal(
-    keys.previewInlineBar(own, DEFAULTS).placeholder,
-    "Was suchen Sie?"
+    keys.previewInlineBar({}, DEFAULTS).placeholder,
+    keys.previewPlaceholder({}, DEFAULTS)
   );
+  // eigener Platzhalter: Fenster und Leiste zeigen ihn
+  const ownInput = { sendMessageText: " Ihre Frage an uns " };
+  assert.equal(
+    keys.previewInlineBar(ownInput, DEFAULTS).placeholder,
+    "Ihre Frage an uns"
+  );
+  assert.equal(
+    keys.previewPlaceholder(ownInput, DEFAULTS),
+    "Ihre Frage an uns"
+  );
+  assert.equal(
+    keys.previewInlineBar(ownInput, DEFAULTS).placeholder,
+    server.inlineBarPlaceholder(ownInput)
+  );
+  // genau 120 Zeichen passen noch, 121 nicht (Leiste dann mit Standard)
+  const max = { sendMessageText: "p".repeat(120) };
+  assert.equal(
+    keys.previewInlineBar(max, DEFAULTS).placeholder,
+    server.inlineBarPlaceholder(max)
+  );
+  // früher gespeicherter Leistentext gewinnt, auch gegen den eigenen
+  // Platzhalter; ungültiger Leistentext fällt auf den Platzhalter zurück
+  const own = { inlineInputPlaceholder: " Was suchen Sie? " };
+  for (const config of [
+    own,
+    { ...own, sendMessageText: "Ihre Frage an uns" },
+  ]) {
+    assert.equal(
+      keys.previewInlineBar(config, DEFAULTS).placeholder,
+      "Was suchen Sie?"
+    );
+    assert.equal(
+      keys.previewInlineBar(config, DEFAULTS).placeholder,
+      server.inlineBarPlaceholder(config)
+    );
+  }
   assert.equal(
     keys.storedInlineBarPlaceholder(own),
     server.inlineBarPlaceholder(own)
   );
+  for (const inlineInputPlaceholder of ["  ", "q".repeat(121), 5]) {
+    const config = { inlineInputPlaceholder, sendMessageText: "Was nun?" };
+    assert.equal(
+      keys.previewInlineBar(config, DEFAULTS).placeholder,
+      "Was nun?"
+    );
+    assert.equal(server.inlineBarPlaceholder(config), "Was nun?");
+  }
   // ohne geladene Standardtexte dieselben Demo-Texte
   assert.deepEqual(keys.previewInlineBar({}, null), {
     placeholder: DEFAULTS.inlineInputPlaceholder,
@@ -600,17 +667,25 @@ test("D2/F04: Inline-Leiste mit Demo-Texten, nur ein früher gespeicherter Leist
   });
 });
 
-test("B-06: Aussehen ohne gespeicherten Wert zeigt die Standards des Widgets (Akzentfarbe Türkis wie live)", () => {
-  assert.equal(keys.lookValue({}, "accentColor").toLowerCase(), "#01a5a9");
-  assert.equal(keys.lookValue({ accentColor: "" }, "accentColor"), "#01A5A9");
+// Standard-Akzentfarbe seit 23.10.2026 Petrol #007C82 (vorher Türkis
+// #01A5A9), gleicher Wert wie DEFAULT_ACCENT im Widget
+test("B-06: Aussehen ohne gespeicherten Wert zeigt die Standards des Widgets (Akzentfarbe Petrol)", () => {
+  assert.equal(keys.lookValue({}, "accentColor").toLowerCase(), "#007c82");
+  assert.equal(keys.lookValue({ accentColor: "" }, "accentColor"), "#007C82");
+  assert.equal(keys.LOOK_DEFAULTS.accentColor, keys.DEFAULT_ACCENT_COLOR);
   assert.equal(
     keys.lookValue({ accentColor: "#FFA102" }, "accentColor"),
     "#FFA102"
   );
   // Schrift auf der Kundenfarbe: ohne gespeicherten Wert die Empfehlung
-  // nach Kontrast wie im Widget (KIE-565 Nachtrag), auf Türkis Schwarz,
-  // gezeigt als #222628 (E1, Fixliste 7.22-rc7)
-  assert.equal(keys.lookValue({}, "userTextColor"), "#222628");
+  // nach Kontrast wie im Widget (KIE-565 Nachtrag), auf Petrol Weiß
+  // (4,99:1 gegen 3,06:1 mit #222628, E1, Fixliste 7.22-rc7)
+  assert.equal(keys.lookValue({}, "userTextColor"), "#FFFFFF");
+  // ein früher gespeichertes Türkis ist eine Kundenfarbe: dort Schwarz
+  assert.equal(
+    keys.lookValue({ accentColor: "#01A5A9" }, "userTextColor"),
+    "#222628"
+  );
   assert.equal(keys.lookValue({}, "chatIcon"), "chatBubble");
   assert.equal(keys.lookValue({}, "position"), "bottom-left");
 });

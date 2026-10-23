@@ -128,6 +128,24 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
     });
   });
 
+  // Nutzerentscheidung 23.10.2026 (7.22.2): Der Standard-Platzhalter des
+  // Chat-Eingabefelds ist derselbe Text wie in der eingeklappten Leiste, mit
+  // Leerzeichen und typografischen Auslassungspunkten (U+2026). Bis
+  // 7.22.2-rc4 „Ihre Frage eingeben“ / „Enter your question“.
+  test("23.10.2026: Standard-Platzhalter des Chats gleich dem der eingeklappten Leiste, je Sprache", () => {
+    expect(embedDefaultTexts("de").sendMessageText).toBe(
+      "Stellen Sie hier Ihre Frage \u2026"
+    );
+    expect(embedDefaultTexts("en").sendMessageText).toBe(
+      "Ask your question here \u2026"
+    );
+    for (const lang of [...Object.keys(EMBED_DEFAULT_TEXTS), "fr", undefined]) {
+      const t = embedDefaultTexts(lang);
+      expect(t.sendMessageText).toBe(t.inlineInputPlaceholder);
+      expect(t.sendMessageText).not.toMatch(/\.\.\.|eingeben|Enter your/);
+    }
+  });
+
   test("Auftrag B: deutsche Texte wörtlich (Design Center vereinfacht, 15.10.2026)", () => {
     const de = embedDefaultTexts("de");
     expect(de.greeting).toBe(
@@ -137,7 +155,8 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
     expect(de.assistantSubtitle).toBe(
       "Online-Berater mit künstlicher Intelligenz"
     );
-    expect(de.sendMessageText).toBe("Ihre Frage eingeben");
+    // Platzhalter seit der Nutzerentscheidung vom 23.10.2026 wie die Leiste
+    expect(de.sendMessageText).toBe("Stellen Sie hier Ihre Frage …");
     expect(de.privacyTitle).toBe("Datenschutz");
     expect(de.privacyText.split("\n")).toEqual([
       "• Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",

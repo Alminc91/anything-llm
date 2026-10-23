@@ -37,6 +37,7 @@ import {
   CaretUp,
 } from "@phosphor-icons/react";
 import {
+  DEFAULT_ACCENT_COLOR,
   DEFAULT_WELCOME_BUBBLES,
   choiceValue,
   displayMode,
@@ -59,6 +60,7 @@ import {
   themeChoice,
   validPrivacyUrl,
 } from "./widgetKeys";
+import { parseColor } from "./contrast";
 
 export const CHAT_ICONS = [
   { id: "chatBubble", label: "Sprechblase", Icon: ChatCircleDots },
@@ -101,13 +103,28 @@ export function previewWindowHeight(areaHeight) {
 // DEFAULT_INLINE_HEIGHT)
 export const INLINE_PANEL_HEIGHT_PX = 520;
 
-// Verlauf ans Ende scrollen: beim Öffnen steht er unten wie im Widget
-// (Beispiel-Nutzernachricht, Beschriftung und Eingabe sichtbar), Begrüßung
-// und Datenschutz-Blase sind durch Hochscrollen erreichbar. Ohne Maße (kein
-// Browser) passiert nichts.
-export function scrollToEnd(el) {
-  if (!el || typeof el.scrollHeight !== "number") return;
-  el.scrollTop = el.scrollHeight;
+// Schatten des aufgeklappten Panels „In der Seite“ wie im Widget (theme.js,
+// Standard seit 7.22.2, Nutzer 23.10.2026 nach der rhein-Demo): hell weich
+// und tief, leicht in der Akzentfarbe getönt (Akzent × 0,33), dunkel schwarz
+// mit feinem Rand in der Akzentfarbe. Maße wegen der kleineren Vorschau
+// etwas kürzer als live (30/70 statt 40/90 px).
+export function inlinePanelShadow(accent, scheme) {
+  const rgb = parseColor(accent) || parseColor(DEFAULT_ACCENT_COLOR);
+  if (scheme === "dark")
+    return `0 30px 70px -30px rgba(0,0,0,.8), 0 0 0 1px rgba(${rgb.join(",")},.1)`;
+  const [r, g, b] = rgb.map((c) => Math.round(c * 0.33));
+  return `0 30px 70px -30px rgba(${r},${g},${b},.45), 0 4px 14px rgba(23,24,27,.06)`;
+}
+
+// Verlauf an den Anfang scrollen: beim Öffnen und Aufklappen zeigt die
+// Vorschau wie beim ersten Besuch zuerst Kopf, Begrüßung und Datenschutz-
+// Blase; die Beispiel-Antwort ist durch Runterscrollen erreichbar und kommt
+// ins Bild, sobald sich eine Einstellung unter „Antworten mit Kursen“
+// ändert (Nutzer 23.10.2026; bis 7.22.1 stand der Verlauf unten wie ein
+// wieder geladener Verlauf, Rückmeldung 20.10.).
+export function scrollToStart(el) {
+  if (!el) return;
+  el.scrollTop = 0;
 }
 
 // Abstand eines ins Bild gescrollten Blocks zum Rand des Verlaufs (px)
@@ -172,8 +189,8 @@ export function revealInPreview(el) {
 
 // Block nach einer Änderung seines Inhalts ins Bild holen. Nicht beim
 // ersten Zeichnen und nicht, wenn die Standardtexte (GET /embed/defaults)
-// erst nach dem Zeichnen ankommen: dann steht der Verlauf unten wie beim
-// Öffnen (Rückmeldung 20.10.). signature null = Standardtexte noch nicht
+// erst nach dem Zeichnen ankommen: dann bleibt der Verlauf, wo er beim
+// Öffnen stand (oben). signature null = Standardtexte noch nicht
 // geladen (nach einem Ladefehler gilt die Signatur, F42 Fixliste
 // 7.22-rc16).
 function useRevealOnChange(ref, signature) {
@@ -205,7 +222,11 @@ const PALETTES = {
     text: "#1c1917",
     muted: "#57534e",
     line: "#e7e5e4",
-    bubbleBg: "#f5f5f4",
+    // Blasen von Begrüßung, Datenschutz-Hinweis und Antworten wie im Widget:
+    // weiß mit Schatten (theme.js assistant-bg, bubble-shadow; bis 7.22.1
+    // zeigte die Vorschau sie grau, Nutzer 23.10.2026)
+    bubbleBg: "#ffffff",
+    bubbleShadow: "0 4px 14px rgba(0, 0, 0, 0.25)",
     inputBg: "#ffffff",
     // Flächen, auf denen die Schrift der Pillen 4,5:1 erreichen muss (wie
     // im Widget, theme.js pillTextColor)
@@ -221,7 +242,9 @@ const PALETTES = {
     text: "#f4f4f5",
     muted: "#b4b4bb",
     line: "rgba(255,255,255,.12)",
-    bubbleBg: "#2a2a30",
+    // wie im Widget (DARK.assistantBg, DARK.bubbleShadow)
+    bubbleBg: "#2a2a2f",
+    bubbleShadow: "0 4px 14px rgba(0, 0, 0, 0.35)",
     inputBg: "#141417",
     // Panel der Vorschau und Flächen des dunklen Widgets (DARK.bg, surface)
     pillTextBgs: ["#1d1d21", "#131316"],
@@ -476,6 +499,14 @@ export function PreviewSampleAnswer({ config, palette }) {
   const accent = previewAccentColor(config);
   const cardsOn = choiceValue(config, "courseCards") === "auto";
   const position = choiceValue(config, "courseCardsPosition");
+  // Änderung unter „Antworten mit Kursen“ (Kurse anzeigen als, Reihenfolge):
+  // die Beispiel-Antwort kommt ins Bild, weil der Verlauf oben beginnt
+  // (Nutzer 23.10.2026); nicht beim ersten Zeichnen
+  const answerRef = useRef(null);
+  useRevealOnChange(
+    answerRef,
+    JSON.stringify([cardsOn, cardsOn ? position : null])
+  );
   const textStyle = { color: palette.text };
   const text = (
     <p
@@ -500,6 +531,7 @@ export function PreviewSampleAnswer({ config, palette }) {
   );
   return (
     <div
+      ref={answerRef}
       className="w-full space-y-2 pt-1"
       data-preview="sample-answer"
       data-course-cards={cardsOn ? "auto" : "off"}
@@ -603,8 +635,11 @@ export function PreviewWelcome({
     pillsRef,
     loaded(JSON.stringify(pills.map((pill) => pill.trim())))
   );
+  // Begrüßung und Datenschutz-Hinweis gleich: Fläche, Schatten, Schrift
+  // (Nutzer 23.10.2026, wie im Widget seit 7.22.2)
   const bubble = {
     backgroundColor: palette.bubbleBg,
+    boxShadow: palette.bubbleShadow,
     color: palette.text,
   };
   return (
@@ -620,7 +655,7 @@ export function PreviewWelcome({
       {showPrivacy && (
         <div
           ref={privacyRef}
-          className={`text-[11.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] space-y-1 ${BREAK}`}
+          className={`text-[12.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] space-y-1 ${BREAK}`}
           style={bubble}
           data-preview="privacy-bubble"
         >
@@ -714,12 +749,12 @@ function BubblePreview({
 }) {
   const [open, setOpen] = useState(true);
   const height = previewWindowHeight(areaHeight);
-  // beim Öffnen steht der Verlauf unten wie im Widget (auch nach einer
-  // Änderung der Fensterhöhe)
+  // beim Öffnen steht der Verlauf oben (scrollToStart); eine Änderung der
+  // Fensterhöhe verschiebt ihn nicht
   const messagesRef = useRef(null);
   useLayoutEffect(() => {
-    if (open) scrollToEnd(messagesRef.current);
-  }, [open, height]);
+    if (open) scrollToStart(messagesRef.current);
+  }, [open]);
   const accentColor = previewAccentColor(config);
   const isLeft = lookValue(config, "position").includes("left");
   // Willkommensblasen wie am Desktop (KIE-568): „Aus“ = keine; ohne eigene
@@ -870,14 +905,15 @@ function InlinePreview({
   // Button bleibt möglich (Spezifikation §12 Eintrag 12, Nutzer 21.10.2026:
   // „im aufgeklappten Modus als Standard!“)
   const [expanded, setExpanded] = useState(true);
-  // aufgeklappt steht der Verlauf unten wie im Widget
+  // aufgeklappt steht der Verlauf oben (scrollToStart)
   const messagesRef = useRef(null);
   useLayoutEffect(() => {
-    if (expanded) scrollToEnd(messagesRef.current);
+    if (expanded) scrollToStart(messagesRef.current);
   }, [expanded]);
   const accentColor = previewAccentColor(config);
-  // Eingeklappte Leiste: Demo-Texte bzw. früher gespeicherter Leistentext,
-  // nicht der Platzhalter des Chat-Eingabefelds (Entscheidung D2)
+  // Eingeklappte Leiste: derselbe Platzhalter wie im Eingabefeld (eigener
+  // Text bis 120 Zeichen oder Standard), ein früher gespeicherter
+  // Leistentext geht vor (Nutzerentscheidung 23.10.2026, ersetzt D2)
   const { placeholder, sendText } = previewInlineBar(config, defaults);
   const chips = textItems(listItems(config, "defaultMessages", defaults)).slice(
     0,
@@ -921,7 +957,7 @@ function InlinePreview({
               // feste Höhe wie live (Serverstandard inlineHeight); der
               // Verlauf scrollt innen mit sichtbarer Bildlaufleiste
               height: `${INLINE_PANEL_HEIGHT_PX}px`,
-              boxShadow: "0 30px 70px -30px rgba(64,36,8,.45)",
+              boxShadow: inlinePanelShadow(accentColor, palette.scheme),
             }}
             data-preview="inline-panel"
           >

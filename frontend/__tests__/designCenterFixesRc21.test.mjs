@@ -102,7 +102,7 @@ test("W91: parseColor liest rgb()/rgba() nur mit Kommas oder nur mit Leerzeichen
 });
 
 test("W91: Design Center lehnt gemischte Trenner als Akzentfarbe ab, gültige Schreibweisen bleiben", () => {
-  const CODE = "Bitte einen Farbcode wie #01A5A9 angeben.";
+  const CODE = "Bitte einen Farbcode wie #007C82 angeben.";
   for (const value of MIXED_SEPARATORS) {
     assert.equal(keys.accentColorError(value), CODE, value);
     const errors = keys.validateConfig({ accentColor: value }, {}, "greeting");
@@ -210,10 +210,7 @@ test("E38: Sprachdateien: Beschriftung bei „In der Seite“ de und en, übrige
 // N42 Migrationsdoku
 // ---------------------------------------------------------------------------
 
-test("N42: Gruppe B spricht von den Farben der Datenschutz-Blase", () => {
+test("N42 (seit 7.22.2): Gruppe B spricht von der Datenschutz-Blase wie den Antwortblasen", () => {
   const doc = fs.readFileSync(MIGRATION, "utf8").replace(/\s+/g, " ");
-  assert.match(
-    doc,
-    /Die Farben von Text, Überschrift und Fläche der Datenschutz-Blase sind je Farbschema fest \(E25, 7\.22-rc18\)/
-  );
+  assert.match(doc, /gleiche Fläche, Textfarbe, Schriftgröße und Zeilenhöhe/);
 });

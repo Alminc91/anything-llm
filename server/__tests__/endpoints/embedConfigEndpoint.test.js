@@ -670,12 +670,13 @@ describe("GET /embed/:embedId/config — Begrüßung (Begrüßungsblase)", () =>
 });
 
 describe("GET /embed/:embedId/config — Platzhalter", () => {
-  // D2: Das Feld „Platzhalter“ gilt für das Eingabefeld des Chats; die
-  // eingeklappte Inline-Leiste behält die Demo-Texte des Widgets.
-  test("D2: Platzhalter nur für das Chat-Eingabefeld, nicht für die Inline-Leiste", async () => {
+  // Nutzerentscheidung 23.10.2026 (ersetzt D2 aus 7.22-rc3): Das Feld
+  // „Platzhalter“ gilt für das Eingabefeld des Chats und für die
+  // eingeklappte Inline-Leiste; eingeklappt und aufgeklappt derselbe Text.
+  test("23.10.2026: eigener Platzhalter für das Chat-Eingabefeld und die Inline-Leiste", async () => {
     const res = await fetchConfig({ sendMessageText: " Ihre Frage an uns " });
     expect(res.body.sendMessageText).toBe("Ihre Frage an uns");
-    expect(res.body).not.toHaveProperty("inlineInputPlaceholder");
+    expect(res.body.inlineInputPlaceholder).toBe("Ihre Frage an uns");
   });
 
   test("F04: früher gespeicherter eigener Leistentext bleibt wirksam", async () => {
@@ -698,18 +699,35 @@ describe("GET /embed/:embedId/config — Platzhalter", () => {
       ).not.toHaveProperty("inlineInputPlaceholder");
   });
 
-  test("frühere Vorbelegung „Wie kann ich Ihnen helfen?“ und leer -> Widget-Standard", async () => {
-    for (const sendMessageText of ["Wie kann ich Ihnen helfen?", " ", 3]) {
+  test("frühere Vorbelegung „Wie kann ich Ihnen helfen?“, alter Standard und leer -> Widget-Standard", async () => {
+    // alter Standard bis 7.22.2-rc4 (Nutzerentscheidung 23.10.2026)
+    for (const sendMessageText of [
+      "Wie kann ich Ihnen helfen?",
+      "Ihre Frage eingeben",
+      "Enter your question",
+      " ",
+      3,
+    ]) {
       const res = await fetchConfig({ sendMessageText });
       expect(res.body).not.toHaveProperty("sendMessageText");
       expect(res.body).not.toHaveProperty("inlineInputPlaceholder");
     }
   });
 
-  test("über 120 Zeichen für das Chat-Eingabefeld", async () => {
+  test("über 120 Zeichen nur für das Chat-Eingabefeld, die Leiste zeigt den Standard", async () => {
     const res = await fetchConfig({ sendMessageText: "p".repeat(121) });
     expect(res.body.sendMessageText).toHaveLength(121);
     expect(res.body).not.toHaveProperty("inlineInputPlaceholder");
+  });
+
+  test("23.10.2026: ungültiger früherer Leistentext -> Leiste mit dem eigenen Platzhalter", async () => {
+    for (const inlineInputPlaceholder of ["  ", "q".repeat(121), 7]) {
+      const res = await fetchConfig({
+        sendMessageText: "Was suchen Sie?",
+        inlineInputPlaceholder,
+      });
+      expect(res.body.inlineInputPlaceholder).toBe("Was suchen Sie?");
+    }
   });
 });
 
@@ -1075,14 +1093,29 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
     ...Object.keys(EMBED_FIXED_STANDARDS),
     ...Object.keys(INLINE_FIXED_STANDARDS),
   ]);
+  // Aus einem Feld abgeleitet, aber Gruppe B: Den Platzhalter der
+  // eingeklappten Leiste liefert /config seit 23.10.2026 aus dem Feld
+  // „Platzhalter“ (sendMessageText, Gruppe A); als Text der Inline-Leiste
+  // verfeinert data-inline-input-placeholder ihn weiterhin (Widget:
+  // inlineInputPlaceholder nicht in DC_COVERED).
+  const DERIVED_GROUP_B = ["inlineInputPlaceholder"];
   const FLAGS = ["defaultMessagesSaved", "defaultMessagesStandard"];
 
   test("jedes Skript-Attribut eines Design-Center-Felds steht in Gruppe A", async () => {
     const { body } = await fetchConfig(ALL_FIELDS);
     const groupA = bullet("Gruppe A");
     const keys = Object.keys(body).filter(
-      (key) => !FIXED.has(key) && !FLAGS.includes(key)
+      (key) =>
+        !FIXED.has(key) &&
+        !FLAGS.includes(key) &&
+        !DERIVED_GROUP_B.includes(key)
     );
+    // der abgeleitete Leistentext kommt mit und steht in Gruppe B
+    expect(body.inlineInputPlaceholder).toBe(ALL_FIELDS.sendMessageText);
+    for (const key of DERIVED_GROUP_B) {
+      expect(bullet("Gruppe B")).toContain(`\`${attr(key)}\``);
+      expect(bullet("Gruppe A")).not.toContain(`\`${attr(key)}\``);
+    }
     // genug Schlüssel aus Feldern (Farbe, Logo, Name, Listen, Datenschutz …)
     expect(keys.length).toBeGreaterThanOrEqual(20);
     const missing = keys

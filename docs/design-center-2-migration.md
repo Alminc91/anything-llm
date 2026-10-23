@@ -69,7 +69,9 @@ von Hand gebauten Einbau-Codes (Demo-Seite, Einbau-Paket vhs Rhein).
   Werte aus `EMBED_FIXED_STANDARDS` und `INLINE_FIXED_STANDARDS`
   (`server/utils/chats/embedStandards.js`) und alle Optik-Werte ohne Feld:
   Inline-Layout, Effekt, Höhe, Startzustand, Öffnen, Eingabeleiste, Texte
-  der Inline-Leiste, Schrift der Seite übernehmen, Begrüßungs-, Vorschlags-
+  der Inline-Leiste (der Platzhalter der Leiste folgt seit 23.10.2026 dem
+  Feld „Platzhalter“; `data-inline-input-placeholder` verfeinert ihn
+  weiterhin), Schrift der Seite übernehmen, Begrüßungs-, Vorschlags-
   und Folgefragen-Stil, Radien, Schatten, Flächen- und Textfarben,
   Kopffarben, Icon-Stil, Textgröße. Entwickler dürfen sie per Einbau-Angabe
   oder CSS-Variable verfeinern; die Einbau-Angabe schlägt den festen
@@ -78,11 +80,12 @@ von Hand gebauten Einbau-Codes (Demo-Seite, Einbau-Paket vhs Rhein).
   „KI-Hinweis (E24)“), `courseCardsAnswerStyle` (die kurze Antwort zu
   Kurskarten; den Wert liest nur der Server für den Prompt, das Widget hat
   dafür keine Angabe) und `onlineDot` (den Online-Punkt gibt es nicht mehr,
-  `data-online-dot` bleibt ohne Wirkung). Die Farben von Text, Überschrift und
-  Fläche der Datenschutz-Blase sind je Farbschema fest (E25, 7.22-rc18):
-  Einbau-Angaben wie `data-assistant-bg-color` und Seiten-Variablen wie
-  `--allm-assistant-bg` ändern sie nicht, die Begrüßungsblase darüber folgt
-  ihnen weiter. Grenze
+  `data-online-dot` bleibt ohne Wirkung). Die Datenschutz-Blase sieht seit
+  7.22.2 aus wie die Begrüßungsblase und die Antwortblasen (Nutzer 23.10.2026,
+  ersetzt E25 aus 7.22-rc18 mit festen Farben): gleiche Fläche, Textfarbe,
+  Schriftgröße und Zeilenhöhe; `data-assistant-bg-color` und
+  `--allm-assistant-bg` ändern alle diese Blasen gemeinsam, `--allm-text-muted`
+  erreicht sie nicht. Grenze
   beim Begrüßungsstil (E26,
   7.22-rc18): `data-greeting-style="text"` wirkt nur, solange der
   Datenschutz-Hinweis im Design Center aus ist; ist er an, bleibt die
@@ -185,7 +188,7 @@ Widget-Repo unter `tests/fixtures/embedConfigContract.json`; Server-Test
 | `theme`                                                                                          | `light`, `dark`                                        | unverändert wählbar, gilt jetzt für Chatfenster und Eingabeleiste                                                             |
 | `theme`                                                                                          | `auto`                                                 | bleibt (folgt dem Gerät), bis Hell oder Dunkel gewählt wird                                                                   |
 | `inlineTheme`                                                                                    | `light`, `dark`                                        | ignoriert, die Leiste folgt `theme` (Einbau-Angabe siehe Abschnitt „Angaben im Einbau-Code“)                                  |
-| `accentColor`                                                                                    | gespeichert (auch `#607D8B` aus der alten Vorbelegung) | bleibt als Hex oder `rgb()`, wie im Design Center; andere gespeicherte Werte ergeben den Standard `#01A5A9` (E41, Absatz unter der Tabelle, Prüfpunkt 12); neue Eingaben nur als deckender Farbcode; `data-button-color` u. a. und die Seiten-Variablen `--allm-accent`, `--allm-on-accent`, `--allm-user-bg`, `--allm-user-text`, `--allm-link` wirken nicht (E23, Prüfpunkt 10) |
+| `accentColor`                                                                                    | gespeichert (auch `#607D8B` aus der alten Vorbelegung) | bleibt als Hex oder `rgb()`, wie im Design Center; andere gespeicherte Werte ergeben den Standard `#007C82` (E41, Absatz unter der Tabelle, Prüfpunkt 12); neue Eingaben nur als deckender Farbcode; `data-button-color` u. a. und die Seiten-Variablen `--allm-accent`, `--allm-on-accent`, `--allm-user-bg`, `--allm-user-text`, `--allm-link` wirken nicht (E23, Prüfpunkt 10) |
 | `userTextColor`                                                                                  | fehlt                                                  | Empfehlung nach Kontrast zur Akzentfarbe: Weiß oder Schwarz `#222628` (vorher immer Weiß); beim Standard-Türkis jetzt Schwarz |
 | `userTextColor`                                                                                  | `#FFFFFF` (auch aus der alten Vorbelegung)             | bleibt Weiß (bewusste Wahl, nicht von der Vorbelegung zu unterscheiden)                                                       |
 | `userTextColor`                                                                                  | `#000000`                                              | bleibt gespeichert, ausgeliefert und angezeigt als „Schwarz“ `#222628` (E1)                                                   |
@@ -212,10 +215,22 @@ Werte (z. B. `hsl()`, Farbnamen wie `teal`, Prozent, `#rgba`, `transparent`,
 `rgb()` mit gemischten Trennern oder mit geschützten Leerzeichen) und Werte
 mit Deckkraft unter 1 (`rgba()` mit Alpha unter 1, `#rrggbbaa` unter `ff`;
 E41 Ergänzung (a)) ergeben im Widget ab 7.22 den Standard: Akzentfarbe
-`#01A5A9`, Schrift nach Kontrast. Das Design Center meldet sie erst, wenn das
+`#007C82` (bis 7.22.1 `#01A5A9`), Schrift nach Kontrast. Das Design Center meldet sie erst, wenn das
 Feld geändert wird; das Feld zeigt bis dahin den gespeicherten Wert, die
 Vorschau zeigt wie das Widget den Standard (E41 Ergänzung (b)). Vor dem
 Rollout zählen (Prüfpunkt 12). Rückweg: `dcColor` im Widget wieder erweitern.
+
+### Standard-Akzentfarbe Petrol (7.22.2)
+
+Nutzerentscheidung 23.10.2026: Die Standard-Akzentfarbe wechselt von
+Würfel-Türkis `#01A5A9` auf Kufer-Petrol `#007C82` (gleicher Farbton wie der
+Würfel, nur dunkler). Die Schrift nach Kontrast wird darauf Weiß (4,99:1,
+vorher Schwarz auf Türkis 5,06:1); Links auf Weiß erreichen 4,99:1 statt
+3,02:1. Wirkt auf alle Widgets ohne gespeicherte Akzentfarbe. Gespeicherte
+Farben bleiben, auch ein gespeichertes `#01A5A9`; es gilt ab 7.22.2 als
+eigene Kundenfarbe (beim Rollout einzeln entscheiden, ob es entfernt wird).
+Quelle im Widget: `DEFAULT_ACCENT` in `src/utils/theme.js`; im Design Center
+`LOOK_DEFAULTS.accentColor` in `widgetKeys.js`; beide gleich halten.
 
 ## Begrüßung, Texte, Hinweise
 
@@ -227,8 +242,9 @@ Rollout zählen (Prüfpunkt 12). Rückweg: `dcColor` im Widget wieder erweitern.
 | `greetingBubbleText`                    | eigener Text bei `greetingStyle` oder `privacyNotice` `bubble`                   | gewinnt gegen `greeting` (stand bisher in der Blase)                                                                                                                                         |
 | `greetingBubbleText`                    | eigener Text bei Stil `text`                                                     | ignoriert, solange eine eigene `greeting` gesetzt ist (war nie sichtbar)                                                                                                                     |
 | `greeting` und `greetingBubbleText`     | beide eigener Text                                                               | schaltet der Kunde den Datenschutz-Hinweis um, bleibt beim Speichern der Text aus dem Feld „Begrüßungstext“; der andere, bisher unsichtbare Text wird entfernt (F04, 7.22-rc13; bewusste Ausnahme zum Negativfall „Texte bleiben“, E20, 7.22-rc16) |
-| `sendMessageText`                       | „Wie kann ich Ihnen helfen?“ (alte Vorbelegung)                                  | gilt als nicht gesetzt: Standard „Ihre Frage eingeben“                                                                                                                                       |
-| `inlineInputPlaceholder`                | eigener Leistentext bis 120 Zeichen                                              | bleibt wirksam                                                                                                                                                                               |
+| `sendMessageText`                       | „Wie kann ich Ihnen helfen?“ (alte Vorbelegung), „Ihre Frage eingeben“ / „Enter your question“ (Standard bis 7.22.2-rc4) | gilt als nicht gesetzt: Standard „Stellen Sie hier Ihre Frage …“ (en „Ask your question here …“), seit der Nutzerentscheidung vom 23.10.2026 derselbe Text wie in der eingeklappten Leiste |
+| `sendMessageText`                       | eigener Text                                                                     | gilt im Eingabefeld des Chats (Chatfenster und aufgeklapptes „In der Seite“) und seit 23.10.2026 auch in der eingeklappten Leiste, wenn er höchstens 120 Zeichen hat (sonst dort der Standard) |
+| `inlineInputPlaceholder`                | eigener Leistentext bis 120 Zeichen                                              | bleibt wirksam und geht in der eingeklappten Leiste dem eigenen Platzhalter vor                                                                                                             |
 | `inlineSendText`, `inlineCollapsedText` | eigener Text                                                                     | nicht mehr ausgeliefert: Demo-Texte („Stellen Sie hier Ihre Frage …“, „Chatten“); Einbau-Angaben verfeinern sie (Gruppe B, E23)                                                              |
 | `name`                                  | „Ihr Online-Berater“ (alte Vorbelegung)                                          | bleibt eigener Kundenwert (E2)                                                                                                                                                               |
 | `assistantSubtitle`                     | fehlt                                                                            | Standard-Untertitel „Online-Berater mit künstlicher Intelligenz“ (en „Online advisor powered by artificial intelligence“), auch live im Widget (R5, 7.22-rc8; vorher kein Untertitel)        |
@@ -339,5 +355,5 @@ Text mit Links“ ein.
 9. Seiten mit eigener Kopie des Widgets (z. B. Demo `/widget/anythingllm-chat-widget.min.js`): auf das Widget ab 7.22-rc17 bringen, sonst fehlen die Startvorschläge (Listen als Array, E11), ohne gespeicherte Kurskarten-Wahl auch `displayMode` im Chat (R4), und Angaben der Gruppe A im Einbau-Code wirken dort weiter. Ab 7.22-rc13 ruft das Widget `/config?language=<Sprache>` auf: Eigene Demo-Kopien, die die `/config`-Antwort abfangen (z. B. die Topbar-Schalter der Demo in `app.js` und `next/app.js`), müssen die Adresse ohne Query vergleichen, sonst greifen ihre Schalter still nicht mehr (W41, 7.22-rc16). Seit E23 (7.22-rc17): Demo-Seite und Einbau-Paket vhs Rhein (`Kundendaten/Chatbot/demo_site/einbau_rhein/`) auf Pflicht- und Entwickler-Angaben kürzen; Gruppe-A-Angaben entfernen, Effekte und Inline-Feinheiten (Gruppe B) dürfen bleiben. Topbar-Schalter, die Design-Center-Optionen nachstellen, schreiben ihre Werte in die `/config`-Antwort statt in Attribute. Gilt auch für `praesentation` und `demo-inline`, die das Widget direkt vom Container laden: erst die Demo anpassen, dann auf 7.22 stellen.
 10. Snippets mit Gruppe-A-Angaben am Skript (z. B. `data-theme`, `data-display-mode`, `data-position`, `data-chat-icon`, `data-button-color`, `data-greeting`, `data-privacy-notice`) und Seiten, deren CSS eine der fünf Variablen `--allm-accent`, `--allm-on-accent`, `--allm-user-bg`, `--allm-user-text` oder `--allm-link` setzt: Diese Angaben wirken ab 7.22 nicht mehr, auch wenn im Design Center dafür nichts gespeichert ist (E23, 7.22-rc17; ersetzt E18 aus 7.22-rc16). Es gilt das Design Center, gespeichert oder sein Standard. Vor dem Rollout je Kundenseite die Werte aus dem Einbau-Code mit dem Design Center vergleichen, im Seiten-CSS (eigene Stylesheets und `style`-Angaben der Seite) nach diesen fünf Variablen suchen und, wo der Kunde die Werte behalten will, im Design Center eintragen. Die Browser-Konsole hilft nur beim Einbau-Code: Verworfene Angaben dort meldet das Widget, Seiten-CSS übergeht es ohne Konsolenwarnung. Gruppe-B-Angaben (z. B. `data-inline-effect`, `--allm-radius`) wirken weiter.
 11. Nur auf den Containern, die 7.16 bis 7.21.1 liefen (ki-helfer, intern, demo-inline, praesentation, entwicklung): gespeicherte `privacyText` nach dem Wort „Mitarbeitende“ durchsuchen und die Treffer je Container zählen (E30, 7.22-rc19). Bis 7.21.1 zeigte das Feld den Standardtext als Wert; wer ihn dort bearbeitet hat, hat ihn samt dem alten Standardpunkt gespeichert, und dieser Text bleibt nach 7.22 stehen. Der Standardtext lautet seit E30 „Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.“ Treffer nur melden; gespeicherte Texte der Kunden nicht ändern. Die Flotte (7.8) hatte diesen Standardtext nie.
-12. Gespeicherte Farbwerte, die `parseColor` nicht liest oder die nicht deckend sind (E41, 7.22-rc22): je Container in `visual_config` die Werte von `accentColor` und `userTextColor` mit `parseColor` und auf Deckkraft unter 1 prüfen und die Treffer je Kunde zählen, z. B. `hsl()`, Farbnamen, Prozent, `#rgba`, `oklch()`, Systemfarben, `rgb()` mit gemischten Trennern oder geschützten Leerzeichen, `rgba()` mit Alpha unter 1 oder `#rrggbbaa` unter `ff`. Diese Widgets zeigen ab 7.22 die Standardfarbe `#01A5A9` bzw. die Schrift nach Kontrast (Absatz unter der Tabelle „Darstellung“). Erwartet sind wenige oder keine Treffer, das Design Center hatte immer einen Farbwähler. Treffer nur melden; gespeicherte Werte der Kunden nicht ändern.
+12. Gespeicherte Farbwerte, die `parseColor` nicht liest oder die nicht deckend sind (E41, 7.22-rc22): je Container in `visual_config` die Werte von `accentColor` und `userTextColor` mit `parseColor` und auf Deckkraft unter 1 prüfen und die Treffer je Kunde zählen, z. B. `hsl()`, Farbnamen, Prozent, `#rgba`, `oklch()`, Systemfarben, `rgb()` mit gemischten Trennern oder geschützten Leerzeichen, `rgba()` mit Alpha unter 1 oder `#rrggbbaa` unter `ff`. Diese Widgets zeigen ab 7.22 die Standardfarbe (ab 7.22.2 `#007C82`, vorher `#01A5A9`) bzw. die Schrift nach Kontrast (Absatz unter der Tabelle „Darstellung“). Erwartet sind wenige oder keine Treffer, das Design Center hatte immer einen Farbwähler. Treffer nur melden; gespeicherte Werte der Kunden nicht ändern.
 13. Begrüßungen mit eigenem Datenschutzinhalt, die keiner Vorlage aus `LEGACY_PRIVACY_GREETINGS` wortgleich entsprechen (E43, 7.22-rc24): Sie bleiben eigene Kundentexte, ab 7.22 folgt ihnen die Datenschutz-Blase, der Hinweis steht also zweimal da. Je Container `greeting` und `greetingBubbleText` lesen und die Treffer je Kunde melden (Stand 22.10.2026: zwei Kunden, einer mit einer abgewandelten Juni-Vorlage, einer mit eigenen Einwilligungssätzen). Gespeicherte Texte der Kunden nicht ändern; der Kunde kürzt die Begrüßung im Design Center oder schaltet den Datenschutz-Hinweis ab. Wortgleiche Vorlagen (auch mit anderem Leerraum) brauchen nichts.

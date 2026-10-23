@@ -214,17 +214,14 @@ test(
 );
 
 test(
-  "Rückmeldung 20.10.: beim Öffnen des Chatfensters steht der Verlauf unten (scrollTop = scrollHeight); scrollToEnd ohne Maße ohne Wirkung",
+  "Nutzer 23.10.2026 (vorher Rückmeldung 20.10.): beim Öffnen des Chatfensters steht der Verlauf oben (scrollTop = 0), auch wenn er vorher gescrollt war; scrollToStart ohne Element ohne Wirkung",
   { skip },
   async (t) => {
-    const { scrollToEnd } = await renderer.load(PREVIEW);
-    const fake = { scrollHeight: 1234, scrollTop: 0 };
-    scrollToEnd(fake);
-    assert.equal(fake.scrollTop, 1234);
-    const bare = { scrollTop: 0 };
-    scrollToEnd(bare);
-    assert.equal(bare.scrollTop, 0);
-    scrollToEnd(null);
+    const { scrollToStart } = await renderer.load(PREVIEW);
+    const fake = { scrollHeight: 1234, scrollTop: 600 };
+    scrollToStart(fake);
+    assert.equal(fake.scrollTop, 0);
+    scrollToStart(null);
 
     const mounted = await renderer.mount(PREVIEW, {
       location: "/",
@@ -250,13 +247,16 @@ test(
           el.tagName === "BUTTON" &&
           /^Chat (schließen|öffnen)$/.test(el.getAttribute("aria-label") || "")
       ).at(-1);
-    // schließen und wieder öffnen: der neue Nachrichtenbereich steht unten
+    assert.equal(first.scrollTop, 0, "beim ersten Öffnen oben");
+    // runtergescrollt, schließen und wieder öffnen: der neue
+    // Nachrichtenbereich steht oben, nicht am Ende (scrollHeight 900)
+    first.scrollTop = 500;
     await act(() => click(toggle()));
     assert.equal(byPreview(container, "chat-messages").length, 0);
     await act(() => click(toggle()));
     const messages = byPreview(container, "chat-messages")[0];
     assert.ok(messages, "Nachrichtenbereich nach dem Öffnen");
-    assert.equal(messages.scrollTop, 900);
+    assert.equal(messages.scrollTop, 0);
   }
 );
 
@@ -278,7 +278,7 @@ test(
 );
 
 test(
-  "D12 / 20.10.: In der Seite, aufgeklappt: Beschriftung direkt unter der Blase im selben rechtsbündigen Block; die Box ist fest 520 px hoch wie live, der Verlauf scrollt innen mit sichtbarer Bildlaufleiste und steht beim Aufklappen unten",
+  "D12 / 20.10.: In der Seite, aufgeklappt: Beschriftung direkt unter der Blase im selben rechtsbündigen Block; die Box ist fest 520 px hoch wie live, der Verlauf scrollt innen mit sichtbarer Bildlaufleiste und steht beim Aufklappen oben (Nutzer 23.10.2026)",
   { skip },
   async (t) => {
     const mounted = await renderer.mount(PREVIEW, {
@@ -323,7 +323,7 @@ test(
     ])
       assert.ok(classes(messages).includes(cls), cls);
     assert.ok(!classes(messages).includes("no-scroll"));
-    assert.equal(messages.scrollTop, 900, "Verlauf steht unten");
+    assert.equal(messages.scrollTop, 0, "Verlauf steht oben, nicht am Ende");
     const caption = byPreview(panel, "user-message-caption")[0];
     assert.ok(caption, "Beschriftung in der Box");
     assert.equal(caption.textContent, "Beispiel-Nutzernachricht");

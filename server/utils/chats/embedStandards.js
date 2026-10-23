@@ -104,7 +104,11 @@ const INLINE_FIXED_STANDARDS = Object.freeze({
 //   ersten Speichern mitgeschrieben) und die frühere Standard-Begrüßungsblase
 //   des Widgets (de/en, „einfach“ wirkte zu locker).
 // - Platzhalter: DEFAULT_CONFIG.sendMessageText bis 7.21; er wiederholte die
-//   Frage der neuen Begrüßung („Wie kann ich Ihnen helfen?“).
+//   Frage der neuen Begrüßung („Wie kann ich Ihnen helfen?“). Dazu der
+//   Standard bis 7.22.2-rc4 („Ihre Frage eingeben“ / „Enter your question“):
+//   Seit der Nutzerentscheidung vom 23.10.2026 ist der Standard derselbe Text
+//   wie in der eingeklappten Inline-Leiste; ein so gespeicherter alter
+//   Standard (Feld im Design Center unverändert gespeichert) zeigt den neuen.
 // Bewusst NICHT in diesen Listen (Entscheidung E2, Fixliste 7.22-rc7): die
 // übrigen Vorbelegungen aus DEFAULT_CONFIG bis 7.21, Name „Ihr
 // Online-Berater“ und die Willkommensblasen „Hallo! Ich bin Ihr
@@ -147,6 +151,9 @@ const LEGACY_PRIVACY_GREETINGS = Object.freeze([
 ]);
 const LEGACY_DEFAULT_PLACEHOLDERS = Object.freeze([
   "Wie kann ich Ihnen helfen?",
+  // Standard bis 7.22.2-rc4 (de/en), Nutzerentscheidung 23.10.2026
+  "Ihre Frage eingeben",
+  "Enter your question",
 ]);
 // Datenschutz-Überschrift: früherer Standard mit Doppelpunkt (de/en)
 const LEGACY_DEFAULT_PRIVACY_TITLES = Object.freeze([
@@ -336,8 +343,9 @@ function effectiveGreeting(visualConfig = {}) {
 /**
  * Platzhalter im Eingabefeld des Chats (Chatblase und aufgeklappte Inline-
  * Box; Feld „Platzhalter“ im Design Center): sendMessageText, sonst null
- * (Standard des Widgets). Frühere Vorbelegung zählt nicht. Die eingeklappte
- * Inline-Leiste hat eigene Texte (inlineBarPlaceholder).
+ * (Standard des Widgets). Frühere Vorbelegungen und frühere Standards
+ * zählen nicht. Die eingeklappte Inline-Leiste zeigt ihn ebenfalls, wenn er
+ * kurz genug ist (inlineBarPlaceholder, Nutzerentscheidung 23.10.2026).
  * @param {Object} visualConfig
  * @returns {string|null}
  */
@@ -346,17 +354,27 @@ function effectivePlaceholder(visualConfig = {}) {
 }
 
 /**
- * Platzhalter der eingeklappten Inline-Leiste (Entscheidung D2): Standard
- * ist der Demo-Text des Widgets („Stellen Sie hier Ihre Frage …“, je nach
- * Sprache), nicht der Platzhalter des Chat-Eingabefelds. Nur ein früher im
- * alten Design Center eigens gespeicherter Leistentext (inlineInputPlaceholder,
- * höchstens 120 Zeichen wie im Widget) bleibt wirksam; sonst null.
+ * Platzhalter der eingeklappten Inline-Leiste. Eingeklappt und aufgeklappt
+ * zeigen denselben Text (Nutzerentscheidung 23.10.2026, ersetzt den festen
+ * Demo-Text der Leiste aus Entscheidung D2, 7.22-rc3). Rangfolge, je
+ * getrimmt und nur mit höchstens INLINE_TEXT_MAX_LEN Zeichen wie im Widget:
+ * 1. ein früher im alten Design Center eigens gespeicherter Leistentext
+ *    (inlineInputPlaceholder, Review F04),
+ * 2. sonst der eigene Platzhalter des Chats (effectivePlaceholder),
+ * 3. sonst null: Das Widget zeigt den Standard seiner Sprache („Stellen Sie
+ *    hier Ihre Frage …“ bzw. „Ask your question here …“), der gleich dem
+ *    Standard des Chat-Eingabefelds ist.
+ * Ein längerer eigener Platzhalter gilt nur im Eingabefeld des Chats.
  * @param {Object} visualConfig
  * @returns {string|null}
  */
 function inlineBarPlaceholder(visualConfig = {}) {
-  const text = ownText(visualConfig?.inlineInputPlaceholder);
-  return text && text.length <= INLINE_TEXT_MAX_LEN ? text : null;
+  const fits = (text) =>
+    text && text.length <= INLINE_TEXT_MAX_LEN ? text : null;
+  return (
+    fits(ownText(visualConfig?.inlineInputPlaceholder)) ||
+    fits(effectivePlaceholder(visualConfig))
+  );
 }
 
 /**

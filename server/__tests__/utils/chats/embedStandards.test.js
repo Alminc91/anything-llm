@@ -10,6 +10,7 @@ const {
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
   LEGACY_DEFAULT_GREETINGS,
+  LEGACY_DEFAULT_PLACEHOLDERS,
   embedDisplayMode,
   storedCourseCards,
   defaultCourseCards,
@@ -377,11 +378,88 @@ describe("Begrüßung und Platzhalter", () => {
     expect(effectivePlaceholder({ sendMessageText: "" })).toBe(null);
   });
 
-  test("D2: Platzhalter des Chat-Eingabefelds gilt nicht für die Inline-Leiste", () => {
-    expect(inlineBarPlaceholder({ sendMessageText: "Ihre Frage an uns" })).toBe(
-      null
-    );
+  // Nutzerentscheidung 23.10.2026 (7.22.2): Der bisherige Standard
+  // „Ihre Frage eingeben“ / „Enter your question“ gilt gespeichert als nicht
+  // gesetzt; das Widget zeigt dann den neuen Standard (gleich der Leiste).
+  test("23.10.2026: alter Standard gespeichert -> nicht gesetzt (neuer Standard), auch in der Leiste", () => {
+    expect(LEGACY_DEFAULT_PLACEHOLDERS).toEqual([
+      "Wie kann ich Ihnen helfen?",
+      "Ihre Frage eingeben",
+      "Enter your question",
+    ]);
+    expect(Object.isFrozen(LEGACY_DEFAULT_PLACEHOLDERS)).toBe(true);
+    for (const sendMessageText of [
+      "Ihre Frage eingeben",
+      " Ihre Frage eingeben ",
+      "Enter your question",
+    ]) {
+      expect(effectivePlaceholder({ sendMessageText })).toBe(null);
+      expect(inlineBarPlaceholder({ sendMessageText })).toBe(null);
+      const out = applyEmbedStandards({}, { sendMessageText });
+      expect(out).not.toHaveProperty("sendMessageText");
+      expect(out).not.toHaveProperty("inlineInputPlaceholder");
+    }
+    // ähnliche, aber eigene Texte bleiben
+    expect(
+      effectivePlaceholder({ sendMessageText: "Ihre Frage eingeben!" })
+    ).toBe("Ihre Frage eingeben!");
+  });
+
+  // Nutzerentscheidung 23.10.2026 (ersetzt D2, 7.22-rc3): eingeklappt und
+  // aufgeklappt derselbe Platzhalter
+  test("23.10.2026: eigener Platzhalter gilt im Chat und in der eingeklappten Leiste", () => {
+    const vc = { sendMessageText: " Ihre Frage an uns " };
+    expect(effectivePlaceholder(vc)).toBe("Ihre Frage an uns");
+    expect(inlineBarPlaceholder(vc)).toBe("Ihre Frage an uns");
+    const out = applyEmbedStandards({}, vc);
+    expect(out.sendMessageText).toBe("Ihre Frage an uns");
+    expect(out.inlineInputPlaceholder).toBe("Ihre Frage an uns");
+    // ohne eigenen Platzhalter: nichts, das Widget nimmt seinen Standard
     expect(inlineBarPlaceholder({})).toBe(null);
+    expect(inlineBarPlaceholder({ sendMessageText: "  " })).toBe(null);
+    expect(inlineBarPlaceholder({ sendMessageText: 7 })).toBe(null);
+    expect(applyEmbedStandards({}, {})).not.toHaveProperty(
+      "inlineInputPlaceholder"
+    );
+    // der neue Standard gespeichert ist ein eigener Text: Fenster und
+    // Leiste zeigen ihn (gleich dem Standard des Widgets)
+    const { sendMessageText } = embedDefaultTexts("de");
+    expect(inlineBarPlaceholder({ sendMessageText })).toBe(sendMessageText);
+  });
+
+  test("23.10.2026: früher gespeicherter Leistentext gewinnt für die Leiste", () => {
+    const vc = {
+      sendMessageText: "Ihre Frage an uns",
+      inlineInputPlaceholder: " Was suchen Sie? ",
+    };
+    expect(inlineBarPlaceholder(vc)).toBe("Was suchen Sie?");
+    const out = applyEmbedStandards({}, vc);
+    expect(out.sendMessageText).toBe("Ihre Frage an uns");
+    expect(out.inlineInputPlaceholder).toBe("Was suchen Sie?");
+    // ungültiger Leistentext: es gilt der eigene Platzhalter
+    for (const inlineInputPlaceholder of ["  ", "x".repeat(121), 5])
+      expect(inlineBarPlaceholder({ ...vc, inlineInputPlaceholder })).toBe(
+        "Ihre Frage an uns"
+      );
+    // Leistentext neben altem Standard als Platzhalter
+    expect(
+      inlineBarPlaceholder({
+        sendMessageText: "Ihre Frage eingeben",
+        inlineInputPlaceholder: "Was suchen Sie?",
+      })
+    ).toBe("Was suchen Sie?");
+  });
+
+  test("23.10.2026: eigener Platzhalter über 120 Zeichen -> Leiste mit Standard, Chat mit dem Text", () => {
+    const long = "p".repeat(121);
+    expect(effectivePlaceholder({ sendMessageText: long })).toBe(long);
+    expect(inlineBarPlaceholder({ sendMessageText: long })).toBe(null);
+    const out = applyEmbedStandards({}, { sendMessageText: long });
+    expect(out.sendMessageText).toBe(long);
+    expect(out).not.toHaveProperty("inlineInputPlaceholder");
+    // genau 120 Zeichen (nach dem Trimmen) passen noch
+    const max = "p".repeat(120);
+    expect(inlineBarPlaceholder({ sendMessageText: ` ${max} ` })).toBe(max);
   });
 
   test("F04: früher eigens gespeicherter Leistentext bleibt wirksam (getrimmt, höchstens 120 Zeichen)", () => {

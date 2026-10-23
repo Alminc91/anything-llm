@@ -1,10 +1,10 @@
 {
-  "_comment": "Soll-Stand von PANEL_TEXTS (Auszug) für das Embed-Repo anythingllm-embed, src/utils/layout.js: Texte aus dem Umsetzungsauftrag „Design Center vereinfacht“ (issues/design-center-umsetzung-nacht-15-10.md, Abschnitt B, Nutzerentscheidungen 15.10.2026; keine Gedankenstriche). privacyPoints stehen im freien Datenschutz-Text (privacyText) als „• “-Zeilen. assistantName, assistantSubtitle und inputPlaceholder sind die Standards, die das Widget ohne gespeicherten Wert zeigt (der Untertitel seit R5, Fixliste 7.22-rc8, auch live); das Design Center zeigt sie als Vorbelegung im Feld. inlineBarPlaceholder und inlineSendText sind die Texte der eingeklappten Inline-Leiste (Demo-Texte, Entscheidung D2 der Fixliste 7.22-rc3; das Design-Center-Feld „Platzhalter“ gilt nur für das Chat-Eingabefeld). KI-Hinweis seit R1 (Fixliste 7.22-rc8) „Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten.“ (Kurzfassung nach der Messung des Widgets, Chatfenster 1280 px) / „Our AI can make mistakes. Please double-check the answers.“; Gegenprobe gegen das Widget: Test mit KUFER_EMBED_DIR. Der passende Embed-Commit (Branch feat/design-center-standard) folgt parallel. Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
+  "_comment": "Soll-Stand von PANEL_TEXTS (Auszug) für das Embed-Repo anythingllm-embed, src/utils/layout.js: Texte aus dem Umsetzungsauftrag „Design Center vereinfacht“ (issues/design-center-umsetzung-nacht-15-10.md, Abschnitt B, Nutzerentscheidungen 15.10.2026; keine Gedankenstriche). privacyPoints stehen im freien Datenschutz-Text (privacyText) als „• “-Zeilen. assistantName, assistantSubtitle und inputPlaceholder sind die Standards, die das Widget ohne gespeicherten Wert zeigt (der Untertitel seit R5, Fixliste 7.22-rc8, auch live); das Design Center zeigt sie als Vorbelegung im Feld. inlineBarPlaceholder und inlineSendText sind die Texte der eingeklappten Inline-Leiste (Demo-Texte, Entscheidung D2 der Fixliste 7.22-rc3). Seit der Nutzerentscheidung vom 23.10.2026 (7.22.2) ist inputPlaceholder derselbe Text wie inlineBarPlaceholder („Stellen Sie hier Ihre Frage …“ / „Ask your question here …“, bis 7.22.2-rc4 „Ihre Frage eingeben“ / „Enter your question“), und ein eigener Platzhalter aus dem Design-Center-Feld „Platzhalter“ gilt auch in der Leiste (embedStandards.js inlineBarPlaceholder). KI-Hinweis seit R1 (Fixliste 7.22-rc8) „Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten.“ (Kurzfassung nach der Messung des Widgets, Chatfenster 1280 px) / „Our AI can make mistakes. Please double-check the answers.“; Gegenprobe gegen das Widget: Test mit KUFER_EMBED_DIR. Der passende Embed-Commit (Branch feat/design-center-standard) folgt parallel. Bei Änderung der Widget-Standardtexte hier UND in server/utils/chats/embedDefaults.js nachziehen.",
   "de": {
     "assistantName": "KI-Berater",
     "assistantSubtitle": "Online-Berater mit künstlicher Intelligenz",
     "greetingBubble": "Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?",
-    "inputPlaceholder": "Ihre Frage eingeben",
+    "inputPlaceholder": "Stellen Sie hier Ihre Frage …",
     "privacyTitle": "Datenschutz",
     "privacyPoints": [
       "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben.",
@@ -19,7 +19,7 @@
     "assistantName": "AI Advisor",
     "assistantSubtitle": "Online advisor powered by artificial intelligence",
     "greetingBubble": "Hello! I am your AI advisor. How can I help you?",
-    "inputPlaceholder": "Enter your question",
+    "inputPlaceholder": "Ask your question here …",
     "privacyTitle": "Privacy",
     "privacyPoints": [
       "Your requests stay on servers in Germany and are not passed on to third parties.",

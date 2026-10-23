@@ -264,10 +264,11 @@ test(
     assert.ok(!html.includes("Hallo und herzlich willkommen"));
     assert.ok(html.includes("• Punkt eins\n• Punkt zwei"));
     // Platzhalter: R5, der Standard steht als Wert im Feld (frühere
-    // Vorbelegung zählt nicht)
+    // Vorbelegung zählt nicht); seit 23.10.2026 derselbe Text wie in der
+    // eingeklappten Leiste
     assert.match(
       html,
-      /aria-label="Platzhalter im Eingabefeld"[^>]*value="Ihre Frage eingeben"|value="Ihre Frage eingeben"[^>]*aria-label="Platzhalter im Eingabefeld"/
+      /aria-label="Platzhalter im Eingabefeld"[^>]*value="Stellen Sie hier Ihre Frage …"|value="Stellen Sie hier Ihre Frage …"[^>]*aria-label="Platzhalter im Eingabefeld"/
     );
   }
 );
@@ -425,7 +426,7 @@ test(
 );
 
 test(
-  "B-06: ohne gespeicherte Kundenfarbe zeigen Aussehen und Vorschau das Türkis des Widgets",
+  "B-06: ohne gespeicherte Kundenfarbe zeigen Aussehen und Vorschau das Petrol des Widgets",
   { skip },
   async () => {
     const look = await show(APPEARANCE, {
@@ -433,45 +434,64 @@ test(
       updateField: noop,
       logoPreview: null,
     });
-    assert.match(look, /type="color"[^>]*value="#01A5A9"/i);
+    // Standard seit 23.10.2026 Petrol #007C82, vorher Türkis #01A5A9
+    assert.match(look, /type="color"[^>]*value="#007C82"/i);
     assert.ok(!look.includes("#607D8B"));
+    assert.ok(!/#01A5A9/i.test(look));
     const preview = await show(PREVIEW, {
       config: {},
       logoPreview: null,
       defaults: DEFAULTS,
       greetingKey: "greeting",
     });
-    assert.match(preview, /background-color:#01A5A9/i);
+    assert.match(preview, /background-color:#007C82/i);
     assert.ok(!preview.includes("#607D8B"));
+    assert.ok(!/#01A5A9/i.test(preview));
   }
 );
 
+// Nutzerentscheidung 23.10.2026 (ersetzt D2): eingeklappt und aufgeklappt
+// derselbe Platzhalter, der eigene Platzhalter des Chats auch in der Leiste
 test(
-  "D2: Inline-Leiste der Vorschau mit Demo-Text, auch mit eigenem Platzhalter des Chat-Felds; früherer Leistentext gilt",
+  "23.10.2026: Inline-Leiste der Vorschau mit dem Platzhalter des Chats, auch mit eigenem Platzhalter; früherer Leistentext gilt",
   { skip },
   async (t) => {
+    const props = (config) => ({
+      config: { displayMode: "inline", ...config },
+      logoPreview: null,
+      defaults: DEFAULTS,
+      greetingKey: "greeting",
+    });
+    // Standard: eingeklappt und aufgeklappt „Stellen Sie hier Ihre Frage …“
+    const standard = (await collapsedInline(t, props({}))).textContent;
+    assert.ok(standard.includes("Stellen Sie hier Ihre Frage …"));
+    assert.ok(!standard.includes("Ihre Frage eingeben"));
+    const expandedStandard = text(await show(PREVIEW, props({})));
+    assert.ok(expandedStandard.includes("Stellen Sie hier Ihre Frage …"));
+    assert.ok(!expandedStandard.includes("Ihre Frage eingeben"));
+    // eigener Platzhalter: auch eingeklappt
     const own = (
-      await collapsedInline(t, {
-        config: { displayMode: "inline", sendMessageText: "Ihre Frage an uns" },
-        logoPreview: null,
-        defaults: DEFAULTS,
-        greetingKey: "greeting",
-      })
+      await collapsedInline(t, props({ sendMessageText: "Ihre Frage an uns" }))
     ).textContent;
-    assert.ok(own.includes("Stellen Sie hier Ihre Frage …"));
-    assert.ok(!own.includes("Ihre Frage an uns"));
+    assert.ok(own.includes("Ihre Frage an uns"));
+    assert.ok(!own.includes("Stellen Sie hier Ihre Frage …"));
+    // über 120 Zeichen (früher gespeichert): eingeklappt der Standard
+    const long = (
+      await collapsedInline(t, props({ sendMessageText: "p".repeat(121) }))
+    ).textContent;
+    assert.ok(long.includes("Stellen Sie hier Ihre Frage …"));
+    // früher gespeicherter Leistentext geht vor
     const legacy = (
-      await collapsedInline(t, {
-        config: {
-          displayMode: "inline",
+      await collapsedInline(
+        t,
+        props({
           inlineInputPlaceholder: "Was suchen Sie?",
-        },
-        logoPreview: null,
-        defaults: DEFAULTS,
-        greetingKey: "greeting",
-      })
+          sendMessageText: "Ihre Frage an uns",
+        })
+      )
     ).textContent;
     assert.ok(legacy.includes("Was suchen Sie?"));
+    assert.ok(!legacy.includes("Ihre Frage an uns"));
     // Hinweis beim Feld „Platzhalter“
     const bubbleHint = text(await show(CONTENT, contentProps({})));
     assert.ok(
@@ -485,7 +505,36 @@ test(
     );
     assert.ok(
       inlineHint.includes(
-        "Die eingeklappte Leiste zeigt fest „Stellen Sie hier Ihre Frage …“."
+        "Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext. Die eingeklappte Leiste zeigt denselben Text."
+      )
+    );
+    assert.ok(!inlineHint.includes("zeigt fest"));
+    // auch mit eigenem Platzhalter derselbe Text
+    const ownHint = text(
+      await show(
+        CONTENT,
+        contentProps({
+          displayMode: "inline",
+          sendMessageText: "Ihre Frage an uns",
+        })
+      )
+    );
+    assert.ok(
+      ownHint.includes("Die eingeklappte Leiste zeigt denselben Text.")
+    );
+    // früher gespeicherter Platzhalter über 120 Zeichen: Leiste mit Standard
+    const longHint = text(
+      await show(
+        CONTENT,
+        contentProps({
+          displayMode: "inline",
+          sendMessageText: "p".repeat(121),
+        })
+      )
+    );
+    assert.ok(
+      longHint.includes(
+        "Die eingeklappte Leiste zeigt „Stellen Sie hier Ihre Frage …“."
       )
     );
     const legacyHint = text(
@@ -658,5 +707,69 @@ test(
       empty,
       /aria-label="Untertitel"[^>]*value=""|value=""[^>]*aria-label="Untertitel"/
     );
+  }
+);
+
+test(
+  "Nutzer 23.10.2026: Begrüßung und Datenschutz-Blase der Vorschau gleich wie im Widget (Fläche, Schatten, Schriftgröße), hell weiß, dunkel #2a2a2f",
+  { skip },
+  async () => {
+    for (const [theme, bg] of [
+      ["light", "#ffffff"],
+      ["dark", "#2a2a2f"],
+    ]) {
+      const html = await show(PREVIEW, {
+        config: { theme },
+        logoPreview: null,
+        defaults: DEFAULTS,
+        greetingKey: "greeting",
+      });
+      const tag = (kind) =>
+        html.match(new RegExp(`<div[^>]*data-preview="${kind}"[^>]*>`))?.[0];
+      const greeting = tag("greeting-bubble");
+      const privacy = tag("privacy-bubble");
+      assert.ok(greeting && privacy, theme);
+      for (const el of [greeting, privacy]) {
+        assert.match(el, new RegExp(`background-color:${bg}`, "i"), theme);
+        assert.match(el, /box-shadow:0 4px 14px/, theme);
+        assert.match(el, /text-\[12\.5px\]/, theme);
+      }
+      assert.doesNotMatch(html, /text-\[11\.5px\]/, theme);
+    }
+  }
+);
+
+test(
+  "Nutzer 23.10.2026: Schatten des aufgeklappten Panels „In der Seite“ aus der Akzentfarbe (wie im Widget), hell getönt, dunkel mit Rand in der Akzentfarbe",
+  { skip },
+  async () => {
+    const { inlinePanelShadow } = await renderer.load(PREVIEW);
+    // Petrol (Standard) und das Orange der rhein-Demo: Akzent × 0,33
+    assert.equal(
+      inlinePanelShadow("#007C82", "light"),
+      "0 30px 70px -30px rgba(0,41,43,.45), 0 4px 14px rgba(23,24,27,.06)"
+    );
+    assert.equal(
+      inlinePanelShadow("#C4430A", "light"),
+      "0 30px 70px -30px rgba(65,22,3,.45), 0 4px 14px rgba(23,24,27,.06)"
+    );
+    assert.equal(
+      inlinePanelShadow("#C4430A", "dark"),
+      "0 30px 70px -30px rgba(0,0,0,.8), 0 0 0 1px rgba(196,67,10,.1)"
+    );
+    // ungültige Farbe: Standard
+    assert.equal(
+      inlinePanelShadow("kein-farbcode", "light"),
+      inlinePanelShadow("#007C82", "light")
+    );
+    const html = await show(PREVIEW, {
+      config: { displayMode: "inline", accentColor: "#C4430A" },
+      logoPreview: null,
+      defaults: DEFAULTS,
+      greetingKey: "greeting",
+    });
+    const panel = html.match(/<div[^>]*data-preview="inline-panel"[^>]*>/)?.[0];
+    assert.ok(panel, "Panel");
+    assert.match(panel, /box-shadow:0 30px 70px -30px rgba\(65,22,3,\.45\)/);
   }
 );

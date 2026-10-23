@@ -245,8 +245,12 @@ function sameList(a, b) {
 // speichert sie aber nur, wenn der Kunde etwas wählt. Die Schrift auf der
 // Akzentfarbe hat keinen festen Standard: ohne gespeicherten Wert gilt die
 // Empfehlung nach Kontrast (userTextColor, KIE-565 Nachtrag).
+// Akzentfarbe: Kufer-Petrol, gleicher Farbton wie der Würfel, nur dunkler;
+// die Empfehlung ergibt darauf Weiß (4,99:1). Nutzerentscheidung 23.10.2026,
+// vorher Würfel-Türkis #01A5A9 mit schwarzer Schrift. Gleicher Wert wie
+// DEFAULT_ACCENT im Widget (src/utils/theme.js).
 export const LOOK_DEFAULTS = {
-  accentColor: "#01A5A9",
+  accentColor: "#007C82",
   chatIcon: "chatBubble",
   position: "bottom-left",
 };
@@ -348,7 +352,7 @@ function previewColor(value, fallback = null) {
 
 /**
  * Akzentfarbe in der Vorschau: der gespeicherte bzw. eingegebene Wert,
- * wenn die Farbregel ihn annimmt (getrimmt), sonst der Standard #01A5A9.
+ * wenn die Farbregel ihn annimmt (getrimmt), sonst der Standard #007C82.
  * @param {Object} config
  * @returns {string}
  */
@@ -425,7 +429,7 @@ export function accentColorError(value) {
   const text = textValue(value).trim();
   if (!text) return null;
   if (parseColor(text) === null)
-    return "Bitte einen Farbcode wie #01A5A9 angeben.";
+    return "Bitte einen Farbcode wie #007C82 angeben.";
   if (colorAlpha(text) < 1)
     return "Bitte eine deckende Farbe ohne Transparenz angeben.";
   return null;
@@ -509,10 +513,15 @@ export function pillTextColor(accent, backgrounds, fallback = accent) {
   return accessibleTextColor(accent, backgrounds) || fallback;
 }
 
-// Eingeklappte Inline-Leiste (Entscheidung D2): Demo-Texte des Widgets
-// (PANEL_TEXTS.de inlineBarPlaceholder/inlineSendText), nicht der Platzhalter
-// des Chat-Eingabefelds. Ohne geladene Standardtexte diese deutschen Werte.
+// Eingeklappte Inline-Leiste: Texte des Widgets (PANEL_TEXTS.de
+// inlineBarPlaceholder/inlineSendText). Seit der Nutzerentscheidung vom
+// 23.10.2026 ist der Standard-Platzhalter des Chat-Eingabefelds derselbe
+// Text, und ein eigener Platzhalter gilt auch in der Leiste
+// (previewInlineBar). Ohne geladene Standardtexte diese deutschen Werte.
 const INLINE_BAR_PLACEHOLDER = "Stellen Sie hier Ihre Frage …";
+// Standard-Platzhalter des Chat-Eingabefelds ohne geladene Standardtexte
+// (PANEL_TEXTS.de inputPlaceholder), gleich dem der Leiste (23.10.2026)
+const INPUT_PLACEHOLDER = INLINE_BAR_PLACEHOLDER;
 const INLINE_SEND_TEXT = "Chatten";
 
 // Frühere Vorbelegungen (wie LEGACY_DEFAULT_GREETINGS/-PLACEHOLDERS im
@@ -538,7 +547,13 @@ export const LEGACY_PRIVACY_GREETINGS = [
   "Dieser Chatbot nutzt künstliche Intelligenz (KI). Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung von uns eingesehen werden. Bitte geben Sie keine sensiblen personenbezogenen Daten ein.",
   "Ihre Anfragen bleiben auf Servern in Deutschland und werden nicht an Dritte weitergegeben. Mitarbeitende der Einrichtung können Gespräche zur Qualitätssicherung einsehen. Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
 ];
-export const LEGACY_DEFAULT_PLACEHOLDERS = ["Wie kann ich Ihnen helfen?"];
+// Platzhalter: Vorbelegung bis 7.21 und der Standard bis 7.22.2-rc4 (de/en,
+// Nutzerentscheidung 23.10.2026), wortgleich mit dem Server
+export const LEGACY_DEFAULT_PLACEHOLDERS = [
+  "Wie kann ich Ihnen helfen?",
+  "Ihre Frage eingeben",
+  "Enter your question",
+];
 export const LEGACY_DEFAULT_PRIVACY_TITLES = ["Datenschutz:", "Privacy:"];
 
 export const GREETING_MAX_LEN = 300;
@@ -699,9 +714,10 @@ export function previewGreeting(config, key, defaults) {
 }
 
 /**
- * Wert im Feld „Platzhalter“ (Chat-Eingabefeld, Entscheidung D2): eigener
- * Text bzw. "" beim Leeren; frühere Vorbelegung oder fehlender Wert zeigen
- * den Standardtext (R5: Standard als Feldwert).
+ * Wert im Feld „Platzhalter“ (Chat-Eingabefeld; „In der Seite“ auch die
+ * eingeklappte Leiste, 23.10.2026): eigener Text bzw. "" beim Leeren;
+ * frühere Vorbelegung, früherer Standard oder fehlender Wert zeigen den
+ * Standardtext (R5: Standard als Feldwert).
  */
 export function placeholderFieldValue(config = {}, defaults = null) {
   const v = config.sendMessageText;
@@ -735,14 +751,15 @@ export function previewPlaceholder(config, defaults) {
   return (
     ownText(config.sendMessageText, LEGACY_DEFAULT_PLACEHOLDERS) ||
     textValue(defaults?.sendMessageText) ||
-    "Ihre Frage eingeben"
+    INPUT_PLACEHOLDER
   );
 }
 
 /**
  * Früher im alten Design Center eigens gespeicherter Text der Inline-
  * Leiste (inlineInputPlaceholder, höchstens 120 Zeichen): bleibt wirksam
- * (Review F04), sonst null. Wie inlineBarPlaceholder() im Server.
+ * (Review F04), sonst null. Wie inlineBarPlaceholder() im Server, Stufe 1
+ * der Rangfolge (23.10.2026).
  * @param {Object} config
  * @returns {string|null}
  */
@@ -752,14 +769,32 @@ export function storedInlineBarPlaceholder(config = {}) {
 }
 
 /**
- * Platzhalter und Button der eingeklappten Inline-Leiste in der Vorschau:
- * gespeicherter Leistentext bzw. die Demo-Texte (Entscheidung D2).
+ * Eigener Platzhalter des Chats, wie ihn die eingeklappte Leiste zeigt:
+ * eigener Text (ohne frühere Vorbelegungen und Standards, getrimmt) mit
+ * höchstens 120 Zeichen, sonst null. Wie im Server inlineBarPlaceholder()
+ * Stufe 2 (Nutzerentscheidung 23.10.2026).
+ * @param {Object} config
+ * @returns {string|null}
+ */
+export function ownBarPlaceholder(config = {}) {
+  const text = ownText(config.sendMessageText, LEGACY_DEFAULT_PLACEHOLDERS);
+  return text && text.length <= PLACEHOLDER_MAX_LEN ? text : null;
+}
+
+/**
+ * Platzhalter und Button der eingeklappten Inline-Leiste in der Vorschau.
+ * Platzhalter wie inlineBarPlaceholder() im Server (Nutzerentscheidung
+ * 23.10.2026: eingeklappt und aufgeklappt derselbe Text): früher
+ * gespeicherter Leistentext, sonst der eigene Platzhalter des Chats bis 120
+ * Zeichen, sonst der Standard (gleich dem des Chat-Eingabefelds). Der
+ * Button zeigt den Text des Widgets („Chatten“).
  * @returns {{placeholder: string, sendText: string}}
  */
 export function previewInlineBar(config, defaults) {
   return {
     placeholder:
       storedInlineBarPlaceholder(config) ||
+      ownBarPlaceholder(config) ||
       textValue(defaults?.inlineInputPlaceholder) ||
       INLINE_BAR_PLACEHOLDER,
     sendText: textValue(defaults?.inlineSendText) || INLINE_SEND_TEXT,
@@ -1069,7 +1104,7 @@ export function validateConfig(config, initial, gKey) {
  *   „Datenschutz-Hinweis anzeigen“ privacyNotice umstellt, F04 Fixliste
  *   7.22-rc13), wird er entfernt: Live bleibt der Text aus dem Feld.
  * - Platzhalter: leer oder Standardtext -> entfernen, frühere Vorbelegung
- *   bleibt.
+ *   oder früherer Standard (LEGACY_DEFAULT_PLACEHOLDERS) bleibt.
  * - Startvorschläge: leere Zeilen weg; genau die Vorbelegung -> entfernen;
  *   [] bleibt [] (keine Startvorschläge). Seit E42 ist die Vorbelegung
  *   leer: eine in dieser Sitzung geleerte Liste entfällt wie jeder auf den

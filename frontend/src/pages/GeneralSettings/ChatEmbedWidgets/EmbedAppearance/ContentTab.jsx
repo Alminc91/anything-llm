@@ -40,6 +40,7 @@ import {
   nameFieldValue,
   placeholderFieldValue,
   previewInlineBar,
+  previewPlaceholder,
   privacyFieldText,
   privacyNoticeOn,
   privacyTitleFieldValue,
@@ -251,6 +252,11 @@ export default function ContentTab({
     !defaults || sameAsDefault("sendMessageText", placeholder, defaults);
   const inlineBar = previewInlineBar(config, defaults);
   const storedBarText = storedInlineBarPlaceholder(config);
+  // Eingeklappte Leiste und Eingabefeld zeigen denselben Text
+  // (Nutzerentscheidung 23.10.2026); anders nur bei früher gespeichertem
+  // Leistentext oder einem gespeicherten Platzhalter über 120 Zeichen
+  const barSameAsInput =
+    inlineBar.placeholder === previewPlaceholder(config, defaults);
 
   const privacyOn = privacyNoticeOn(config);
   const privacyTitle = privacyTitleFieldValue(config, defaults);
@@ -504,7 +510,9 @@ export default function ContentTab({
               ? "Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext."
               : storedBarText
                 ? `Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext. Die eingeklappte Leiste zeigt Ihren früher gespeicherten Text „${storedBarText}“.`
-                : `Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext. Die eingeklappte Leiste zeigt fest „${inlineBar.placeholder}“.`
+                : barSameAsInput
+                  ? "Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext. Die eingeklappte Leiste zeigt denselben Text."
+                  : `Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext. Die eingeklappte Leiste zeigt „${inlineBar.placeholder}“.`
           }
         />
       </div>

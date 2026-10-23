@@ -76,7 +76,7 @@ test("F06: durchscheinende oder ungültige Kundenfarbe wird abgelehnt", () => {
   for (const value of ["red", "#01A5", "01A5A9", "rgb(300,0,0)"])
     assert.equal(
       keys.accentColorError(value),
-      "Bitte einen Farbcode wie #01A5A9 angeben.",
+      "Bitte einen Farbcode wie #007C82 angeben.",
       value
     );
   for (const value of [
@@ -213,12 +213,13 @@ test(
         assert.doesNotMatch(tag, /bg-primary-button text-white/, label);
       }
     }
-    // Schrift auf der Kundenfarbe: markierte Option ebenso
-    const black = html.match(
-      /<button[^>]*aria-pressed="true"[^>]*>(?:(?!<\/button>).)*Schwarz<\/button>/s
+    // Schrift auf der Kundenfarbe: markierte Option ebenso (ohne
+    // gespeicherten Wert die Empfehlung zum Standard #007C82, also Weiß)
+    const marked = html.match(
+      /<button[^>]*aria-pressed="true"[^>]*>(?:(?!<\/button>).)*Weiß<\/button>/s
     )?.[0];
-    assert.ok(black, "Schwarz markiert");
-    assert.match(black, /bg-primary-button text-black light:text-white/);
+    assert.ok(marked, "Weiß markiert");
+    assert.match(marked, /bg-primary-button text-black light:text-white/);
     // Schritt-Nummern im Reiter Einbau
     const embed = await show(EMBED, {
       config: { displayMode: "inline" },
@@ -246,7 +247,8 @@ test(
   "B-02: Kontrastwarnung im hellen Modus dunkler Bernstein",
   { skip },
   async () => {
-    const html = await appearance({ userTextColor: "#FFFFFF" });
+    // Schwarz auf dem Standard #007C82: 3,06:1, also Warnung
+    const html = await appearance({ userTextColor: "#222628" });
     const warning = html.match(
       /<p[^>]*data-testid="user-text-warning"[^>]*>/
     )?.[0];
