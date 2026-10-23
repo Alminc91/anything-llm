@@ -427,10 +427,10 @@ describe("applyCategoryChains (AK-14)", () => {
     const guard = createOverviewLinkGuard({ contextTexts: [out], map });
     const url = `${HOST}/kursprogramm/fitness-gesundheit`;
     expect(guard.check("Fitness (1.250 Kurse)", url).text).toBe(
-      "Fitness & Gesundheit (1.250 Kurse)"
+      "Fitness & Gesundheit (1.250\u00a0Kurse)"
     );
     expect(guard.check("Fitness", url, { overview: "en" }).text).toBe(
-      "Fitness & Gesundheit (1,250 courses)"
+      "Fitness & Gesundheit (1,250\u00a0courses)"
     );
   });
 
@@ -716,7 +716,7 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
       })
     ).toEqual({
       remove: false,
-      text: "Sport & Fitness (61 Kurse)",
+      text: "Sport & Fitness (61\u00a0Kurse)",
       url: SPORT_URL,
       line: "de",
     });
@@ -725,7 +725,7 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
       guardFor().check("**Alle 5 Kurse in Sport**", `${SPORT_URL}/`)
     ).toEqual({
       remove: false,
-      text: "Sport & Fitness (61 Kurse)",
+      text: "Sport & Fitness (61\u00a0Kurse)",
       url: SPORT_URL,
       line: null,
     });
@@ -735,28 +735,71 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
     const guard = guardFor();
     expect(guard.check("Sport", SPORT_URL, { overview: "de" })).toEqual({
       remove: false,
-      text: "Sport & Fitness (61 Kurse)",
+      text: "Sport & Fitness (61\u00a0Kurse)",
       url: SPORT_URL,
       line: null,
     });
     expect(guard.check("Sports", SPORT_URL, { overview: "en" }).text).toBe(
-      "Sport & Fitness (61 courses)"
+      "Sport & Fitness (61\u00a0courses)"
     );
     expect(
       guard.check(SPORT_URL, SPORT_URL, { overview: "de", autolink: true }).text
-    ).toBe("Sport & Fitness (61 Kurse)");
+    ).toBe("Sport & Fitness (61\u00a0Kurse)");
   });
 
   test("NAK-7: n = 1 -> „(1 Kurs)“, null -> nur Titel", () => {
     const guard = guardFor([courseText(), pageText(ENGLISH_URL)]);
     expect(guard.check("Alle 7 Kurse in Kraft", KRAFT_URL).text).toBe(
-      "Sport & Fitness · Kraft & Ausdauer (1 Kurs)"
+      "Sport & Fitness · Kraft & Ausdauer (1\u00a0Kurs)"
     );
     expect(guard.check("Kraft", KRAFT_URL, { overview: "en" }).text).toBe(
-      "Sport & Fitness · Kraft & Ausdauer (1 course)"
+      "Sport & Fitness · Kraft & Ausdauer (1\u00a0course)"
     );
     expect(guard.check("**Alle 3 Kurse in Englisch**", ENGLISH_URL).text).toBe(
       "Englisch"
+    );
+  });
+
+  test("R7-D2 (AK-9): angezeigter Titel ohne Oberkategorie, wenn der Name sie enthält (ohne Groß/Klein und Plural-Endung)", () => {
+    const shown = (title, count = 2, lang = "de") =>
+      __test__.overviewLinkText({ title, count }, lang);
+    expect(shown("Intensivkurse · Intensivkurs - A 1")).toBe(
+      "Intensivkurs - A 1 (2\u00a0Kurse)"
+    );
+    expect(shown("Kurse · Kurs am Abend", 1)).toBe(
+      "Kurs am Abend (1\u00a0Kurs)"
+    );
+    expect(shown("Sport · Sportarten", null)).toBe("Sportarten");
+    expect(shown("SPRACHEN · Sprachkurse Englisch", 3, "en")).toBe(
+      "Sprachkurse Englisch (3\u00a0courses)"
+    );
+    expect(shown("Stufe B2 · Stufe B2.3", null)).toBe("Stufe B2.3");
+    // Gegenproben: Name enthält die Oberkategorie nicht (am Wortanfang)
+    expect(shown("Entspannungstechniken · Qi Gong")).toBe(
+      "Entspannungstechniken · Qi Gong (2\u00a0Kurse)"
+    );
+    expect(shown("Sport & Fitness · Kraft & Ausdauer", null)).toBe(
+      "Sport & Fitness · Kraft & Ausdauer"
+    );
+    expect(shown("Kunst · Lebenskunst", null)).toBe("Kunst · Lebenskunst");
+    expect(shown("Ski · Skigymnastik", null)).toBe("Ski · Skigymnastik");
+    expect(shown("A · B · A und B", null)).toBe("A · B · A und B");
+    // Kurstitel im Fließtext auf der Knotenadresse bekommt ebenfalls den
+    // kurzen Titel, die Kette im Kontext bleibt
+    const data = mapData();
+    data.nodes[
+      "Fitness & Gesundheit \\ Sport & Fitness \\ Kraft & Ausdauer"
+    ].title = "Sport & Fitness · Sport & Fitness am Abend";
+    const map = parse(data);
+    const guard = guardFor([courseText()], map);
+    expect(guard.check("Kraft", KRAFT_URL, { overview: "de" }).text).toBe(
+      "Sport & Fitness am Abend (1\u00a0Kurs)"
+    );
+    expect(guard.check("Sport & Fitness am Abend", KRAFT_URL).text).toBe(
+      "Sport & Fitness am Abend"
+    );
+    expect(applyCategoryChains([courseText()], map)[0]).toContain(
+      "Kategorie-Ebene 3: Sport & Fitness · Sport & Fitness am Abend (1 Kurs)"
     );
   });
 
@@ -772,26 +815,26 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
   test("Englisch alte Form: Linktext E29 englisch", () => {
     const guard = guardFor();
     expect(guard.check("**All 5 courses in Sports**", SPORT_URL).text).toBe(
-      "Sport & Fitness (61 courses)"
+      "Sport & Fitness (61\u00a0courses)"
     );
     expect(guard.check("**all 4 Courses in strength**", KRAFT_URL).text).toBe(
-      "Sport & Fitness · Kraft & Ausdauer (1 course)"
+      "Sport & Fitness · Kraft & Ausdauer (1\u00a0course)"
     );
   });
 
   test("Knoten im Fließtext: Zahl mit Sprache aus dem Wort der Kurszahl (de/en), anderes Wort bleibt (K1-D2), sonst nur Titel; ohne Kategorie-Form unverändert (R3-D4)", () => {
     const guard = guardFor();
     expect(guard.check("Sport (3 Kurse)", SPORT_URL).text).toBe(
-      "Sport & Fitness (61 Kurse)"
+      "Sport & Fitness (61\u00a0Kurse)"
     );
     expect(guard.check("Sport, 3 Kurse", SPORT_URL).text).toBe(
-      "Sport & Fitness (61 Kurse)"
+      "Sport & Fitness (61\u00a0Kurse)"
     );
     expect(guard.check("Sports (3 courses)", SPORT_URL).text).toBe(
-      "Sport & Fitness (61 courses)"
+      "Sport & Fitness (61\u00a0courses)"
     );
     expect(guard.check("Sport (3 cours)", SPORT_URL).text).toBe(
-      "Sport & Fitness (61 cours)"
+      "Sport & Fitness (61\u00a0cours)"
     );
     // nackte Klammerzahl nur mit Knotentitel (R2-S9)
     expect(guard.check("Sport & Fitness (3)", SPORT_URL).text).toBe(
@@ -854,7 +897,8 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
     expect(guard.check("12 Kurse", sommer)).toEqual({ remove: true });
   });
 
-  test("bekannte Adressen: Kontext, System-Prompt, gespeicherte Quellen früherer Antworten; nicht ihr Text und nicht die Fragen des Nutzers (S3, R4-D3)", () => {
+  test("bekannte Adressen: Kontext, System-Prompt, gespeicherte Quellen früherer Antworten (verkettet, R3-SN1); nicht ihr Text und nicht die Fragen des Nutzers (S3, R4-D3)", () => {
+    const errors = jest.spyOn(console, "error").mockImplementation(() => {});
     const geeste = `${HOST}/kurssuche/liste?suchesetzen=false&kfs_aussenst=Geeste`;
     const answer = `Siehe ${HOST}/aus-antwort und ${HOST}/vom-nutzer.`;
     const guard = guardFor([courseText()], parse(), {
@@ -873,20 +917,29 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
               { text: `Quelle: ${HOST}/aus-quelle.` },
               null,
               { text: 7 },
+              // Kopfzeile, die die Kette ersetzt: das Modell sah sie nicht
+              { text: `Titel: X\nBereich-Link: ${HOST}/alt-bereich\n\nText` },
             ],
           }),
         },
-        { prompt: "x", response: "kein JSON" },
+        { id: 17, prompt: "x", response: "kein JSON" },
         { prompt: "y", response: JSON.stringify({ text: "ohne Quellen" }) },
         null,
       ],
     });
     expect(guard.check("**Alle Kurse in Geeste**", geeste)).toBeNull();
     expect(guard.check("Alle Kurse in X", `${HOST}/aus-quelle`)).toBeNull();
-    for (const path of ["aus-antwort", "vom-nutzer"])
+    for (const path of ["aus-antwort", "vom-nutzer", "alt-bereich"])
       expect(guard.check("Alle Kurse in X", `${HOST}/${path}`)).toEqual({
         remove: true,
       });
+    // R3-SC1: kaputtes JSON gemeldet, nur mit Chat-ID, ohne Inhalt
+    expect(errors).toHaveBeenCalledWith(
+      "[categoryChains] gespeicherte Antwort kein JSON, Chat",
+      17
+    );
+    expect(JSON.stringify(errors.mock.calls)).not.toContain('kein JSON"');
+    errors.mockRestore();
   });
 
   test("R4-D3: ein Prädikat „ist Kurs-Link“ (Kontext oder course_links), Originalform bekannter Adressen", () => {
@@ -947,7 +1000,7 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
     data.nodes["Fitness & Gesundheit \\ Sport & Fitness"].count = 1250;
     const guard = guardFor([courseText()], parse(data));
     expect(guard.check("Sport (3 cours)", SPORT_URL).text).toBe(
-      "Sport & Fitness (1.250 cours)"
+      "Sport & Fitness (1.250\u00a0cours)"
     );
     expect(guard.check("**Spanisch A1 (2)**", SPORT_URL)).toBeNull();
     expect(guard.check("Sport & Fitness (2)", SPORT_URL).text).toBe(
@@ -968,7 +1021,7 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
     });
     // Kette: Ebene 2 „Englisch (9 Kurse)“ zuerst, dann Ebene 3 „Konversation“
     expect(guard.check("Alle Kurse in Englisch", ENGLISH_URL).text).toBe(
-      "Englisch (9 Kurse)"
+      "Englisch (9\u00a0Kurse)"
     );
   });
 

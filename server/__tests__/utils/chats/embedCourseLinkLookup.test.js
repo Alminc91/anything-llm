@@ -995,9 +995,14 @@ describe("R5-D2: wörtlicher Treffer vor Schlüsseltreffer", () => {
     const text = `Hier mehr:\n\n${TUT.entries["tut-23"]}\n\nViel Spaß!`;
     expect(linkOf(text)).toBe(third);
     expectAll(text, text, tutGuard());
-    // auch die zweite, in der Übersichtszeile und als Autolink
+    // auch die zweite, in der Übersichtszeile und als Autolink; je Link
+    // eine eigene Zeile (S7-1)
     const more = `[Alle Kurse in Senioren](${second})\nMehr Kurse zum Thema: [Senioren vhs](${third}) · <${second}>\nEnde`;
-    expectAll(more, more, tutGuard());
+    expectAll(
+      more,
+      `[Alle Kurse in Senioren](${second})\nMehr Kurse zum Thema: [Senioren vhs](${third})\nMehr Kurse zum Thema: <${second}>\nEnde`,
+      tutGuard()
+    );
   });
 
   test("Adresse nicht wörtlich bekannt: Originalform der ersten Fundstelle", () => {
