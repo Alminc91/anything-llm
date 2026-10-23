@@ -118,7 +118,7 @@ const GUARDED = [
   "Passend:",
   `1. [**Rückenfit**](${COURSE_URL})`,
   "",
-  `Mehr Kurse zum Thema: [Rücken (7 Kurse)](${SPORT_URL}/ruecken)`,
+  `Mehr Kurse zum Thema: [Rücken (7\u00a0Kurse)](${SPORT_URL}/ruecken)`,
   "Fragen? Gern.",
 ].join("\n");
 // E29: neue Form vom Modell, zwei Links in einer Zeile, dazu Fließtext mit
@@ -129,9 +129,27 @@ const REPLY_E29 = [
   `**Mehr Kurse zum Thema:** [Rücken](${SPORT_URL}/ruecken) und [Sport](${SPORT_URL})`,
 ].join("\n");
 const GUARDED_E29 = [
-  `Passend ist [Rückenfit](${COURSE_URL}), mehr unter [Sport (40 Kurse)](${SPORT_URL}).`,
+  `Passend ist [Rückenfit](${COURSE_URL}), mehr unter [Sport (40\u00a0Kurse)](${SPORT_URL}).`,
   "",
-  `Mehr Kurse zum Thema: [Rücken (7 Kurse)](${SPORT_URL}/ruecken) · [Sport (40 Kurse)](${SPORT_URL})`,
+  `Mehr Kurse zum Thema: [Rücken (7\u00a0Kurse)](${SPORT_URL}/ruecken) · [Sport (40\u00a0Kurse)](${SPORT_URL})`,
+].join("\n");
+// R6-D3 (Browser K6): eigene Einleitung des Modells vor einem Kategorie-Link
+// am Zeilenende; Fließtext mit Link mitten im Satz bleibt
+const REPLY_K6 = [
+  "Passend:",
+  `1. [**Rückenfit**](${COURSE_URL})`,
+  "",
+  `Sie finden alle Rückenkurse [hier](${SPORT_URL}/ruecken) im Programm.`,
+  "",
+  `Weitere Angebote finden Sie hier: [Alle 10 Kurse in Rücken](${SPORT_URL}/ruecken)`,
+].join("\n");
+const GUARDED_K6 = [
+  "Passend:",
+  `1. [**Rückenfit**](${COURSE_URL})`,
+  "",
+  `Sie finden alle Rückenkurse [hier](${SPORT_URL}/ruecken) im Programm.`,
+  "",
+  `Mehr Kurse zum Thema: [Rücken (7\u00a0Kurse)](${SPORT_URL}/ruecken)`,
 ].join("\n");
 
 function streamingHandler(tokens) {
@@ -268,6 +286,18 @@ describe("mit gültiger Karte", () => {
       const { stored, text } = await run({ streaming, reply: REPLY_E29 });
       expect(text).toBe(GUARDED_E29);
       expect(stored.text).toBe(GUARDED_E29);
+    }
+  );
+
+  test.each([
+    ["Stream", true],
+    ["ohne Streaming", false],
+  ])(
+    "%s: R6-D3 eigene Einleitung vor Kategorie-Link am Zeilenende: Zeile vom Server, gesendet gleich gespeichert",
+    async (_name, streaming) => {
+      const { stored, text } = await run({ streaming, reply: REPLY_K6 });
+      expect(text).toBe(GUARDED_K6);
+      expect(stored.text).toBe(GUARDED_K6);
     }
   );
 });

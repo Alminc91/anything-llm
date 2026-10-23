@@ -591,6 +591,19 @@ const ENUMERATION_RX =
   /^[ \t>]*(?:\d{1,3}[.)]|[-*+\u2022\u25aa\u25ab\u25e6\u2023])[ \t]/u;
 // Länge, bis zu der eine Einleitung am Zeilenanfang erkannt wird
 const INTRO_SCAN = 64;
+// R6-D3: eigene Einleitung des Modells vor einem Kategorie-Link am
+// Zeilenende („Weitere Angebote finden Sie hier: [Yoga (3 Kurse)](…)“), in
+// der ersten Zeile eines Absatzes ohne Aufzählungszeichen (nur dort wird
+// der Zeilenanfang bis zur Entscheidung gehalten, NAK-10): höchstens OWN_INTRO_MAX Zeichen bis einschließlich „:“, davor kein
+// Zeilenende, kein Link und kein Satzende; nach dem „:“ höchstens
+// OWN_INTRO_GAP Zeichen Schmuck und Leerraum, dann der Link; nach dem Link
+// bis zum Zeilenende höchstens OWN_INTRO_TAIL Zeichen Schmuck, Leerraum,
+// „.“ oder „!“
+const OWN_INTRO_MAX = 80;
+const OWN_INTRO_GAP = 8;
+const OWN_INTRO_TAIL = 16;
+const OWN_INTRO_STOP = "\n[<.!?";
+const OWN_INTRO_TAIL_CHARS = " \t\r*_.!";
 // Schmuck und Leerraum direkt vor einem möglichen Link (mitten in der
 // Zeile): gehalten, bis der Link entschieden ist (R1-D3)
 const LINK_LEAD_CHARS = "*_ \t";
@@ -634,8 +647,9 @@ function scanInlineLink(s, i, final, wide = false) {
     if (k >= limit) return open ? "open" : "stop";
     return s[k] === "\n" ? "stop" : "ok";
   };
-  // "\" maskiert das nächste Zeichen, ein Zeilenende nur im weiten Modus
-  const escapesLineEnd = (j) => !wide && s[j + 1] === "\n";
+  // "\" maskiert das nächste Zeichen; ein Zeilenende dahinter gilt wie
+  // ohne "\": eng nie, weit nicht vor einer Leerzeile (R3-S3)
+  const escaped = (j) => (s[j + 1] === "\n" ? lineBreak(j + 1) : "ok");
   const skipSpace = (j) => {
     for (; j < limit; j += 1) {
       if (s[j] === " " || s[j] === "\t") continue;
@@ -656,7 +670,8 @@ function scanInlineLink(s, i, final, wide = false) {
       const next = lineBreak(j);
       if (next !== "ok") return next === "open" ? PENDING : NONE;
     } else if (c === "\\") {
-      if (escapesLineEnd(j)) return NONE;
+      const next = escaped(j);
+      if (next !== "ok") return next === "open" ? PENDING : NONE;
       j += 1;
     } else if (c === "[") {
       depth += 1;
@@ -685,7 +700,8 @@ function scanInlineLink(s, i, final, wide = false) {
       const c = s[j];
       if (c <= " " || c === "\x7f") break;
       if (c === "\\") {
-        if (escapesLineEnd(j)) return NONE;
+        const next = escaped(j);
+        if (next !== "ok") return next === "open" ? PENDING : NONE;
         j += 1;
       } else if (c === "(") parens += 1;
       else if (c === ")") {
@@ -707,7 +723,8 @@ function scanInlineLink(s, i, final, wide = false) {
         const next = lineBreak(j);
         if (next !== "ok") return next === "open" ? PENDING : NONE;
       } else if (s[j] === "\\") {
-        if (escapesLineEnd(j)) return NONE;
+        const next = escaped(j);
+        if (next !== "ok") return next === "open" ? PENDING : NONE;
         j += 1;
       }
     }
@@ -802,6 +819,43 @@ function courseWindowEnd(s, from, final) {
   return final ? s.length : -1;
 }
 
+/**
+ * Eigene Einleitung des Modells ab from (R6-D3, Form bei OWN_INTRO_MAX):
+ * der Link am Zeilenende dahinter (Ergebnis von scanInlineLink), PENDING,
+ * solange offen (nur ohne final), sonst null. Hängt nur vom Text ab: Stream,
+ * Antwort ohne Streaming und Speichern lesen dasselbe.
+ * @param {string} s
+ * @param {number} from - erstes Zeichen nach dem Schmuck am Zeilenanfang
+ * @param {boolean} final
+ * @returns {object|null}
+ */
+function ownIntroLink(s, from, final) {
+  let j = from;
+  for (; s[j] !== ":"; j += 1) {
+    if (j - from >= OWN_INTRO_MAX) return null;
+    if (j >= s.length) return final ? null : PENDING;
+    if (OWN_INTRO_STOP.includes(s[j])) return null;
+  }
+  if (j - from >= OWN_INTRO_MAX) return null;
+  let k = j + 1;
+  while (k < s.length && k - j - 1 < OWN_INTRO_GAP && "*_ \t".includes(s[k]))
+    k += 1;
+  if (k >= s.length) return final ? null : PENDING;
+  if (s[k] !== "[") return null;
+  const found = scanInlineLink(s, k, final);
+  if (found.state !== "link") return found.state === "pending" ? PENDING : null;
+  if (found.nested) return null;
+  let t = found.end;
+  while (
+    t < s.length &&
+    t - found.end < OWN_INTRO_TAIL &&
+    OWN_INTRO_TAIL_CHARS.includes(s[t])
+  )
+    t += 1;
+  if (t >= s.length) return final ? found : PENDING;
+  return s[t] === "\n" ? found : null;
+}
+
 // Offene Hervorhebungen (**, __, *, _) einer gesendeten Zeile schließen,
 // wenn ihr Rest entfällt (R1-D3); Aufzählungszeichen am Anfang zählt nicht
 function emphasisClosers(lineText) {
@@ -841,9 +895,15 @@ function emphasisClosers(lineText) {
  * einem Link beginnen, gelten ihre Links als Übersichtslinks; die
  * Einleitung kommt mit dem ersten gesendeten Text der Liste und entfällt,
  * wenn alle Links der Liste entfallen. Sonst bleibt sie unverändert.
- * Ebenso gehören Listenzeilen und Zeilen, die mit einem Link beginnen,
- * direkt unter einer Übersichtszeile mit Link (ohne Leerzeile, im Widget
- * derselbe Absatz) zum Block (R5-D3).
+ * Ebenso gehören Zeilen ohne Aufzählungszeichen, die mit einem erkannten
+ * Link beginnen, direkt unter einer Übersichtszeile mit Link (ohne
+ * Leerzeile, im Widget derselbe Absatz) zum Block (R5-D3, R3-S2); Kurs-Links
+ * gelten dort wie im Fließtext.
+ * Eigene Einleitung des Modells (R6-D3): Steht am Zeilenende ein
+ * Kategorie-Link hinter einer kurzen Einleitung (ownIntroLink), setzt der
+ * Server die Zeile wie bei der Einleitung E29. Bis zur Entscheidung wird
+ * die erste Zeile eines Absatzes gehalten (höchstens OWN_INTRO_MAX Zeichen,
+ * Link und Zeilenende dahinter).
  * Nicht erkannte Linkformen ("[" bzw. "<" ohne gültigen Link, verschachtelte
  * Links, Referenzlinks, Links über ein Zeilenende) gelten in
  * Übersichtszeile und -block als entfernte Links (fail-closed); ein Link
@@ -873,11 +933,13 @@ class OverviewLinkFilter {
     // AK-21: gehaltener Kurstitel-Link {found, candidates}; this.rest ist
     // dann der Text danach bis zur Entscheidung (courseWindowEnd)
     this.course = null;
-    this.#newLine();
+    this.#newLine(true);
   }
 
-  // Zustand einer neuen Zeile
-  #newLine() {
+  // Zustand einer neuen Zeile; paragraph: erste Zeile eines Absatzes
+  // (Antwortanfang oder nach einer Leerzeile)
+  #newLine(paragraph = false) {
+    this.paragraph = paragraph;
     this.prefix = ""; // gehaltener Zeilenanfang (nur Schmuckzeichen)
     this.lead = ""; // gehaltener Schmuck/Leerraum vor einem möglichen Link
     this.lineStart = true; // in dieser Zeile noch kein Text gesendet
@@ -888,6 +950,8 @@ class OverviewLinkFilter {
     // Schmuckfolge vor einem möglichen Link schon gesendet (über
     // LINE_PREFIX_MAX): der Rest dieser Folge wird nicht mehr gehalten
     this.leadOver = false;
+    // eigene Einleitung des Modells geprüft, keine (R6-D3)
+    this.ownIntroSeen = false;
     // Übersichtszeile: {lang, raw (Originaltext bis zum ersten Link),
     // links (gesehene Links), kept (gesendete Links)}
     this.line = null;
@@ -895,12 +959,18 @@ class OverviewLinkFilter {
 
   // Erstes Zeichen c nach dem Schmuck: gehört die Zeile zum
   // Übersichtsblock (Listenzeile oder Zeile, die mit einem Link beginnt)?
+  // Direkt unter einer Übersichtszeile (follows) nur eine Zeile ohne
+  // Aufzählungszeichen, die mit einem erkannten Link beginnt (linked): im
+  // Widget derselbe Absatz; eine Liste beginnt dort einen neuen (R3-S2).
   // Sonst endet der Block (Ausgabe seiner Einleitung bzw. nichts).
-  #beginLine(c) {
+  #beginLine(c, linked = false) {
     if (this.begun) return "";
     this.begun = true;
     if (!this.block) return "";
-    if (ENUMERATION_RX.test(this.prefix) || c === "[" || c === "<") {
+    const listed = ENUMERATION_RX.test(this.prefix);
+    if (
+      this.block.follows ? !listed && linked : listed || c === "[" || c === "<"
+    ) {
       this.inBlock = true;
       this.block.listed = true;
       return "";
@@ -919,7 +989,8 @@ class OverviewLinkFilter {
 
   // Zeilenanfang bisher nur Leerraum, Block wartet auf seine Liste: eine
   // Leerzeile dort zählt wie bei markdown-it auch mit mehr als
-  // LINE_PREFIX_MAX Leerzeichen
+  // LINE_PREFIX_MAX Leerzeichen (prefix bleibt höchstens LINE_PREFIX_MAX
+  // lang, der Rest wird gekürzt, R6-D1)
   #blankBeforeList() {
     const block = this.block;
     return (
@@ -1086,21 +1157,42 @@ class OverviewLinkFilter {
           break;
         }
         const char = String.fromCodePoint(s.codePointAt(i));
-        if (
-          LINE_PREFIX_RX.test(char) &&
-          (this.prefix.length + char.length <= LINE_PREFIX_MAX ||
-            ((c === " " || c === "\t") && this.#blankBeforeList()))
-        ) {
-          this.prefix += char;
-          i += char.length;
-          continue;
+        if (LINE_PREFIX_RX.test(char)) {
+          if (this.prefix.length + char.length <= LINE_PREFIX_MAX) {
+            this.prefix += char;
+            i += char.length;
+            continue;
+          }
+          // Leerzeile vor der Liste eines Übersichtsblocks (R5-D3):
+          // Leerraum über LINE_PREFIX_MAX wird gekürzt, nicht angehängt
+          // (R6-D1, R3-S1); der Zeilenanfang bleibt so kurz
+          if ((c === " " || c === "\t") && this.#blankBeforeList()) {
+            i += 1;
+            continue;
+          }
         }
         if (c === "\n" && this.#blockGap()) {
-          this.#newLine();
+          this.#newLine(true);
           i += 1;
           continue;
         }
-        out += this.#beginLine(c);
+        // unter einer Übersichtszeile: beginnt die Zeile mit einem
+        // erkannten Link (R3-S2)?
+        let linked = false;
+        if (
+          this.block?.follows &&
+          (c === "[" || c === "<") &&
+          !ENUMERATION_RX.test(this.prefix)
+        ) {
+          const found =
+            c === "[" ? scanInlineLink(s, i, final) : scanAutolink(s, i, final);
+          if (found.state === "pending") {
+            this.rest = s.slice(i);
+            break;
+          }
+          linked = found.state === "link";
+        }
+        out += this.#beginLine(c, linked);
       }
       const overview = this.#overview();
       if (c === "[" || (c === "<" && overview)) {
@@ -1190,9 +1282,14 @@ class OverviewLinkFilter {
         out += this.#send("");
       }
       if (c === "\n") {
+        // Leerzeile: nur Leerraum gehalten, nichts gesendet
+        const blank =
+          this.lineStart &&
+          !this.line &&
+          /^[ \t]*$/.test(this.prefix + this.lead);
         if (this.line) out += this.#endLine();
         else out += this.#send("\n");
-        this.#newLine();
+        this.#newLine(blank);
         i += 1;
         continue;
       }
@@ -1219,6 +1316,31 @@ class OverviewLinkFilter {
           this.line = { lang: intro.lang, raw, links: 0, kept: 0 };
           i += intro.length;
           continue;
+        }
+        // R6-D3: Kategorie-Link am Zeilenende hinter einer eigenen
+        // Einleitung des Modells: der Server setzt die Zeile
+        if (
+          this.paragraph &&
+          !overview &&
+          !this.ownIntroSeen &&
+          !ENUMERATION_RX.test(this.prefix)
+        ) {
+          const found = ownIntroLink(s, i, final);
+          if (found === PENDING) {
+            this.rest = s.slice(i);
+            break;
+          }
+          const verdict =
+            found && this.guard.check(found.text, found.url, { intro: true });
+          if (verdict?.line && !verdict.remove) {
+            this.prefix = "";
+            this.lineStart = false;
+            this.line = { lang: verdict.line, raw: "", links: 1, kept: 0 };
+            out += this.#lineLink(this.#render(found, verdict));
+            i = found.end;
+            continue;
+          }
+          this.ownIntroSeen = true;
         }
       }
       const rx = overview ? OVERVIEW_LINE_RUN_RX : LINE_RUN_RX;

@@ -93,6 +93,7 @@ const {
   urlKey: courseUrlKey,
   hostKey,
   trimUrlTail,
+  URL_MAX_LEN: LINK_KEY_MAX_LEN,
 } = require("./embedCourseSources");
 
 const CATEGORY_MAP_LABEL = "kufer_category_map";
@@ -104,6 +105,8 @@ const CATEGORY_MAP_MAX_AGE_MS = 36 * 60 * 60 * 1000;
 const CATEGORY_MAP_FUTURE_MS = 60 * 60 * 1000;
 const CHAIN_DEPTH_MAX = 5;
 const TITLE_MAX_LEN = 200;
+// Knoten und course_links (isSafeUrl); Adressschlüssel aus Kontext und
+// Antwort bis LINK_KEY_MAX_LEN (500 wie httpUrl, R3-S5)
 const URL_MAX_LEN = 300;
 // E20: Sonderknoten (nach normalizePart), beenden die Kette
 const SPECIAL_NODE_RX =
@@ -147,11 +150,12 @@ const OVERVIEW_TEXT_RX =
   /^(alle|all)(?: (\d+(?:[.,]\d{3})*))? (kurse|courses) in(?![\p{L}\p{N}])/iu;
 // Kurszahl im Linktext („12 Kurse“, „(1.250 courses)“, „3 cours“, „12
 // Kursen“), auf linkLabel; Wort in den häufigsten Sprachen der Besucher
-// (R1-D2); g für alle Treffer (courseCount, nodeTitleCount)
+// (R1-D2); g für alle Treffer (courseCount, nodeTitleCount). Nicht nach
+// „:“ (Uhrzeit „18:00 Kurs“, R3-S4)
 const COUNT_WORDS =
   "kurs(?:e|en)?|courses?|cours|cursos?|corsi|corso|cursus(?:sen)?|kursy|kursów|kurzy|kurzů|kurslar|kursu|курс(?:а|ов|ы|и|ів)?";
 const COURSE_COUNT_RX = new RegExp(
-  `(?<![\\p{L}\\p{N}.,])(\\d+(?:[.,]\\d{3})*) ?(${COUNT_WORDS})(?![\\p{L}\\p{N}])`,
+  `(?<![\\p{L}\\p{N}.,:])(\\d+(?:[.,]\\d{3})*) ?(${COUNT_WORDS})(?![\\p{L}\\p{N}])`,
   "giu"
 );
 // Außerhalb von Übersichten (R5-D4, B4) zählt die Kurszahl nur am Ende des
@@ -166,11 +170,12 @@ const COUNT_TAIL_RX = /^[\s)\]*_.,;:!]*$/u;
 // sie der Knotentitel ist (R2-S9: „Spanisch A1 (2)“ ist ein Kurstitel)
 const BARE_COUNT_RX = /\(\s*\d+(?:[.,]\d{3})*\s*\)$/u;
 // In Übersichtszeile und -block zählt jede Kurszahl im Linktext (R5-D4):
-// Zahl vor einem Wort, das auf ein Kurswort endet (auch im Kompositum
-// „12 Yogakurse“, „12 Yoga-Kurse“, an jeder Stelle), und nackte
-// Klammerzahl samt Leerraum davor; g für alle Treffer, auf linkLabel-Länge
+// nach den Kurszahlen von COURSE_COUNT_RX (withoutCounts) noch die Zahl vor
+// einem Kompositum („12 Yogakurse“, „12 Yoga-Kurse“, an jeder Stelle) und
+// nackte Klammerzahl samt Leerraum davor; g für alle Treffer, auf
+// linkLabel-Länge
 const OVERVIEW_COUNT_RX = new RegExp(
-  `(?<![\\p{L}\\p{N}.,])\\d+(?:[.,]\\d{3})* ?([\\p{L}-]*?(?:${COUNT_WORDS}))(?![\\p{L}\\p{N}])`,
+  `(?<![\\p{L}\\p{N}.,:])\\d+(?:[.,]\\d{3})* ?([\\p{L}-]*?(?:${COUNT_WORDS}))(?![\\p{L}\\p{N}])`,
   "giu"
 );
 const OVERVIEW_BARE_COUNT_RX = /\s*\(\s*\d+(?:[.,]\d{3})*\s*\)/gu;
@@ -366,16 +371,16 @@ function isSafeUrl(url) {
  * dann wie die Kurskarten (embedCourseSources.urlKey: Schema, „www.“,
  * Fragment, Schrägstrich am Ende, Groß/klein egal), dann Kategorieseiten
  * „…/kategorie/<Name>/<Nr>“ gleich „…/kategorie/<Nr>“ (url_key im
- * Benchmark). Keine http(s)-Adresse oder länger als URL_MAX_LEN -> null.
+ * Benchmark). Keine http(s)-Adresse oder länger als LINK_KEY_MAX_LEN -> null.
  * @param {any} url
  * @returns {string|null}
  */
 function linkKey(url) {
   if (typeof url !== "string") return null;
   const raw = url.trim();
-  // R2-S12: Länge vor jeder weiteren Verarbeitung begrenzen (Knoten und
-  // course_links sind höchstens so lang)
-  if (raw.length > URL_MAX_LEN) return null;
+  // R2-S12: Länge vor jeder weiteren Verarbeitung begrenzen, dieselbe
+  // Grenze wie httpUrl (R3-S5)
+  if (raw.length > LINK_KEY_MAX_LEN) return null;
   const key = courseUrlKey(trimUrlTail(raw));
   if (!key) return null;
   const m = CATEGORY_KEY_RX.exec(key);
@@ -958,17 +963,21 @@ function formatCount(n, lang = "de") {
   return n.toLocaleString(lang === "en" ? "en-US" : "de-DE");
 }
 
+// Zwischen Zahl und Wort im Linktext: geschütztes Leerzeichen, „(12 Kurse)“
+// bricht nicht um (R6-D4); in der Kettenzeile des Kontexts ein Leerzeichen
+const COUNT_SPACE_LINK = " ";
+
 // „<Titel> (<Zahl> <Wort>)“: ein Helfer für Kettenzeile und Linktexte
 // (R2-S13); Wort nach E29 (OVERVIEW_LINE) oder das des Modells (K1-D2)
-function titleWithCount(title, n, word, lang = "de") {
-  return `${title} (${formatCount(n, lang)} ${word})`;
+function titleWithCount(title, n, word, lang = "de", space = COUNT_SPACE_LINK) {
+  return `${title} (${formatCount(n, lang)}${space}${word})`;
 }
 
 // Zahl im Kontext (Kettenzeile): null ohne Klammer, sonst auch 0
 function countLabel(count) {
   if (count === null) return "";
   const { one, many } = OVERVIEW_LINE.de;
-  return titleWithCount("", count, count === 1 ? one : many);
+  return titleWithCount("", count, count === 1 ? one : many, "de", " ");
 }
 
 // Zahl im Linktext nur, wenn gezählt und mindestens 1 (NAK-7)
@@ -1183,26 +1192,50 @@ function stripCourseCount(text, anywhere = false) {
   const flat = String(text).replace(/\s+/g, " ");
   if ([...flat].length > LABEL_MAX_LEN) return text; // nie ein Übersichtstext
   const old = OVERVIEW_TEXT_RX.exec(linkLabel(flat));
-  if (!anywhere) {
-    if (old) {
-      if (!old[2]) return text;
-      return flat.replace(` ${old[2]} `, " ");
-    }
-    const m = courseCount(flat);
-    if (!m) return text;
-    const out = withoutCount(flat, m);
-    return linkLabel(out) ? out.trim() : null;
-  }
   let out = flat;
+  // alte Form: Zahl zwischen „Kurse“ und „in“; eine Kurszahl dahinter
+  // („Alle Kurse in Geeste (12 Kurse)“) zählt wie sonst (R3-S4)
   if (old?.[2]) out = out.replace(` ${old[2]} `, " ");
-  const m = old ? null : courseCount(out);
-  if (m) out = withoutCount(out, m);
-  out = out
-    .replace(OVERVIEW_COUNT_RX, "$1")
-    .replace(OVERVIEW_BARE_COUNT_RX, "")
-    .replace(/ {2,}/g, " ");
+  if (anywhere) {
+    out = withoutCounts(out)
+      .replace(OVERVIEW_COUNT_RX, "$1")
+      .replace(OVERVIEW_BARE_COUNT_RX, "")
+      .replace(/ {2,}/g, " ");
+  } else {
+    const m = courseCount(out);
+    if (m) out = withoutCount(out, m);
+  }
   if (out === flat) return text;
   return linkLabel(out) ? out.trim() : null;
+}
+
+// Zahl m steht in Klammern („Sport (12 Kurse) für …“)?
+function countInParens(flat, m) {
+  let from = m.index;
+  while (from > 0 && flat[from - 1] === " ") from -= 1;
+  let after = m.index + m[0].length;
+  while (after < flat.length && flat[after] === " ") after += 1;
+  return flat[from - 1] === "(" && flat[after] === ")";
+}
+
+/**
+ * Jede Kurszahl (COURSE_COUNT_RX) von hinten nach vorn entfernen (R3-S4):
+ * in Klammern oder am Ende samt Klammer bzw. Trenner (withoutCount), sonst
+ * nur die Zahl („12 Kurse im Sommer“ -> „Kurse im Sommer“).
+ * @param {string} flat - Leerraum zusammengefasst, höchstens LABEL_MAX_LEN
+ * @returns {string}
+ */
+function withoutCounts(flat) {
+  let out = flat;
+  const all = [...flat.matchAll(COURSE_COUNT_RX)];
+  for (let k = all.length - 1; k >= 0; k -= 1) {
+    const m = all[k];
+    const end = m.index + m[0].length;
+    if (countInParens(out, m) || COUNT_TAIL_RX.test(out.slice(end)))
+      out = withoutCount(out, m);
+    else out = out.slice(0, m.index) + out.slice(end - m[2].length);
+  }
+  return out;
 }
 
 // Text ohne die Kurszahl m, samt Klammer bzw. Trenner davor
@@ -1329,9 +1362,10 @@ function matchOverviewIntro(head, final) {
 /**
  * Adressen aus Fremdtext (Kontext, Prompt, gespeicherte Quellen) in known
  * eintragen: Schlüssel -> Originaladresse (ohne Satzzeichen am Ende); die
- * erste Fundstelle gewinnt. verbatim bekommt jede Fundstelle wörtlich
+ * erste sichere Fundstelle gewinnt (isSafeUrl, R3-S6), ohne sichere null
+ * (Ziel des Modells bleibt). verbatim bekommt jede Fundstelle wörtlich
  * (R5-D2).
- * @param {Map<string, string>} known
+ * @param {Map<string, string|null>} known
  * @param {Set<string>} verbatim
  * @param {any} text
  */
@@ -1342,7 +1376,8 @@ function learnUrls(known, verbatim, text) {
     if (!key) continue;
     const original = trimUrlTail(m[0]);
     verbatim.add(original);
-    if (!known.has(key)) known.set(key, original);
+    const safe = isSafeUrl(original) ? original : null;
+    if (!known.has(key) || (safe && !known.get(key))) known.set(key, safe);
   }
 }
 
@@ -1362,6 +1397,11 @@ function storedSourceTexts(storedChats) {
       try {
         data = JSON.parse(data);
       } catch {
+        // nur die Chat-ID, nie der Inhalt (R3-SC1)
+        console.error(
+          "[categoryChains] gespeicherte Antwort kein JSON, Chat",
+          Number(record?.id) || "?"
+        );
         continue;
       }
     }
@@ -1394,18 +1434,22 @@ function isCourseDoc(text) {
  * Ohne Karte null (keine Absicherung, Antwort unverändert).
  *
  * check(text, url, where) mit where = {overview, lineStart, autolink,
- * follows}:
+ * follows, intro}:
  *   overview: Sprache der Übersichtszeile bzw. des Übersichtsblocks, in dem
  *     der Link steht, sonst null; lineStart: vor dem Link nur Schmuck;
  *   autolink: Link der Form <https://…> (Text = Adresse); follows: Zeile
  *     direkt unter einer Übersichtszeile (R5-D3), dort setzt ein Knoten-Link
- *     in alter Form am Zeilenanfang wie sonst die ganze Zeile.
+ *     in alter Form am Zeilenanfang wie sonst die ganze Zeile, Kurs-Links
+ *     gelten wie im Fließtext (R3-S2); intro: Link am Zeilenende hinter
+ *     einer kurzen Einleitung des Modells (R6-D3), dort setzt ein
+ *     Kategorie-Link mit Sprache de/en (alte Form oder Kurszahl) die Zeile.
  * Ergebnis (dieselbe Entscheidung für Stream, Antwort und Speichern):
  *   null: unverändert;
  *   {remove: true}: entfernen;
  *   {remove: false, text, url, line}: Link „[text](url)“; url null = Ziel
  *     des Modells behalten; line = Sprache, wenn der Server die ganze Zeile
- *     setzt (Knoten-Link in alter Form am Zeilenanfang);
+ *     setzt (Knoten-Link in alter Form am Zeilenanfang bzw. hinter einer
+ *     eigenen Einleitung);
  *   {course: {exact, key, url}}: AK-21 ohne Bestätigung aus den Quellen
  *     (Stufe 2); der Filter hält den Link samt Text danach und fragt
  *     pickCourse(course, Text nach dem Link) -> Kurs-Link oder null
@@ -1435,8 +1479,9 @@ function createOverviewLinkGuard({
     verbatim.add(course.url);
   learnUrls(known, verbatim, context);
   learnUrls(known, verbatim, systemPrompt);
+  // verkettet wie im Kontext, den das Modell damals sah (R3-SN1)
   for (const text of storedSourceTexts(storedChats))
-    learnUrls(known, verbatim, text);
+    learnUrls(known, verbatim, chainText(text, map));
   // „Kurs-Link:“-Zeilen des Kontexts dieser Anfrage
   const contextCourseLinks = new Set(
     [...context.matchAll(CONTEXT_COURSE_LINK_RX)]
@@ -1557,10 +1602,11 @@ function createOverviewLinkGuard({
       text,
       url,
       {
-        overview = null,
+        overview: where = null,
         lineStart = false,
         autolink = false,
         follows = false,
+        intro = false,
       } = {}
     ) {
       const label = autolink ? "" : linkLabel(text);
@@ -1568,6 +1614,15 @@ function createOverviewLinkGuard({
       const count = old ? null : courseCount(label);
       const key = linkKey(url);
       const node = nodeOf(key);
+      // Zeile direkt unter einer Übersichtszeile (R3-S2): Kurs-Links
+      // (Adresse oder Kurstitel) wie im Fließtext
+      const overview =
+        follows &&
+        !old &&
+        !autolink &&
+        (isCourseLink(key) || courseCandidates(map, text))
+          ? null
+          : where;
       if (!overview && !autolink && !old && !count) {
         const course = courseVerdict(text, url, key, node);
         if (course) return course;
@@ -1596,9 +1651,13 @@ function createOverviewLinkGuard({
               : "en"
             : null;
           // alte Form am Zeilenanfang: der Server setzt die Zeile, auch
-          // direkt unter einer Übersichtszeile (R5-D3)
-          const line =
-            old && lineStart && (!overview || follows) ? oldLang : null;
+          // direkt unter einer Übersichtszeile (R5-D3); ebenso hinter
+          // einer eigenen Einleitung des Modells, wenn die Sprache aus
+          // alter Form oder Kurszahl folgt (R6-D3)
+          let line = null;
+          if (old && lineStart && (!overview || follows)) line = oldLang;
+          else if (intro && !overview)
+            line = oldLang ?? countLang(count ?? titled);
           const lang =
             line ?? overview ?? oldLang ?? countLang(count ?? titled);
           return {
@@ -1612,9 +1671,12 @@ function createOverviewLinkGuard({
       if (!overview && !old && !count) return null;
       if (!key || !known.has(key)) return { remove: true };
       if (isCourseLink(key) && (overview || old)) return { remove: true };
-      // Regel 4: bekannte Adresse wörtlich, sonst in der Originalform der
-      // ersten Fundstelle (R4-D3, R5-D2)
-      const target = verbatim.has(url) ? null : known.get(key);
+      // Regel 4: bekannte Adresse wörtlich, sonst in der sicheren
+      // Originalform der ersten Fundstelle (R4-D3, R5-D2, R3-S6), nie von
+      // https auf http
+      let target = verbatim.has(url) ? null : known.get(key);
+      if (target && /^http:/i.test(target) && /^https:/i.test(url))
+        target = null;
       if (autolink)
         return target
           ? { remove: false, text: target, url: target, line: null }

@@ -1313,6 +1313,8 @@ module.exports = {
   urlKey,
   hostKey,
   trimUrlTail,
+  // KIE-576 R3-S5: eine Längengrenze für Adressschlüssel (httpUrl, linkKey)
+  URL_MAX_LEN,
   // nur für Tests
   __test__: {
     COURSE_SOURCE_FIELDS,
