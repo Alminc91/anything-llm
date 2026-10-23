@@ -287,7 +287,19 @@ test(
     });
     t.after(() => mounted.unmount());
     const { container, act } = mounted;
+    // startet aufgeklappt (7.22.1, Spezifikation §12 Eintrag 12); erst
+    // einklappen, dann prüft der Test das Aufklappen
+    assert.ok(byPreview(container, "inline-panel")[0], "startet aufgeklappt");
+    await act(() =>
+      click(
+        elements(
+          container,
+          (el) => el.getAttribute("aria-label") === "Einklappen"
+        )[0]
+      )
+    );
     const bar = byPreview(container, "inline-bar")[0];
+    assert.ok(bar, "eingeklappte Leiste");
     // Maße wie im Browser: der Verlauf ist höher als sein Bereich
     const proto = Object.getPrototypeOf(bar);
     Object.defineProperty(proto, "scrollHeight", {
