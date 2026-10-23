@@ -332,9 +332,64 @@ const CASES = [
     `${DE}\n[Sport (40 Kurse)](${SPORT_URL})\nEnde`,
   ],
   [
-    "R4-D2: zwei Leerzeilen oder Text nach der Leerzeile beenden den Block",
-    `${DE}\n\n\n- [Sommerprogramm](${HOST}/erfunden)\n${DE}\n\nFragen Sie gern.\n- [Sommerprogramm](${HOST}/erfunden)`,
-    `${DE}\n\n\n- [Sommerprogramm](${HOST}/erfunden)\n${DE}\n\nFragen Sie gern.\n- [Sommerprogramm](${HOST}/erfunden)`,
+    "R4-D2: Text nach der Leerzeile beendet den Block",
+    `${DE}\n\nFragen Sie gern.\n- [Sommerprogramm](${HOST}/erfunden)`,
+    `${DE}\n\nFragen Sie gern.\n- [Sommerprogramm](${HOST}/erfunden)`,
+  ],
+  [
+    "R5-D3 (F04): zwei und drei Leerzeilen nach der Einleitung: Block bleibt offen",
+    `${DE}\n\n\n- [Sommerprogramm](${HOST}/erfunden)\nText\n${DE}\n \n\t\n\n- [Sportkurse](${SPORT_URL})\n- [Sommer](${HOST}/erfunden)\nEnde`,
+    `Text\n${DE}\n \n\t\n\n- [Sport (40 Kurse)](${SPORT_URL})\nEnde`,
+  ],
+  [
+    "R5-D3: Leerzeile mit mehr als 16 Leerzeichen zählt als Leerzeile",
+    `${DE}\n${" ".repeat(20)}\n\n- [Sommer](${HOST}/erfunden)\nEnde\n${DE}\n${" ".repeat(20)}\nText`,
+    `Ende\n${DE}\n${" ".repeat(20)}\nText`,
+  ],
+  [
+    "R5-D3: Aufzählungszeile direkt unter der Übersichtszeile gehört zum Block",
+    `${DE} [Yoga](${YOGA_URL})\n- Tipp: [Sommer](${HOST}/erfunden) mehr\n- Text ohne Link\nEnde`,
+    `${DE} [Yoga (1 Kurs)](${YOGA_URL})\n- Tipp:\n- Text ohne Link\nEnde`,
+  ],
+  [
+    "R5-D3: Leerzeilen nach der Einleitung, danach Text: alles unverändert",
+    `${DE}\n\n\n\nFragen Sie gern.\n[Sommer](${HOST}/erfunden)`,
+    `${DE}\n\n\n\nFragen Sie gern.\n[Sommer](${HOST}/erfunden)`,
+  ],
+  [
+    "R5-D3 (F06): Zeile mit Link direkt unter der Übersichtszeile gehört zum Block",
+    `${DE} [Yoga](${YOGA_URL})\n[Sommer](${HOST}/erfunden)\n- [Sommer (7)](${OTHER_URL}) hier\n[Tanz](${TANZ_URL})\nEnde`,
+    `${DE} [Yoga (1 Kurs)](${YOGA_URL})\n- [Sommer](${OTHER_URL}) hier\n[Tanz](${TANZ_URL})\nEnde`,
+  ],
+  [
+    "R5-D3: Übersichtszeile ohne behaltenen Link, Folgezeile mit Link: ebenfalls geprüft",
+    `${DE} [Pilates](${HOST}/pilates)\n[Sommer](${HOST}/erfunden)\n[Alle 3 Kurse in Yoga](${YOGA_URL})\nEnde`,
+    `${DE} [Yoga (1 Kurs)](${YOGA_URL})\nEnde`,
+  ],
+  [
+    "R5-D3: Leerzeile oder Text ohne Link am Anfang beendet den Block nach der Übersichtszeile",
+    `${DE} [Yoga](${YOGA_URL})\n\n[Sommer](${HOST}/erfunden)\n${DE} [Yoga](${YOGA_URL})\nSiehe [Sommer](${HOST}/erfunden)\nEnde`,
+    `${DE} [Yoga (1 Kurs)](${YOGA_URL})\n\n[Sommer](${HOST}/erfunden)\n${DE} [Yoga (1 Kurs)](${YOGA_URL})\nSiehe [Sommer](${HOST}/erfunden)\nEnde`,
+  ],
+  [
+    "R5-D4 (F30, F53, F56): Zahl in der Übersichtszeile überall, Nicht-Knoten: Zahl weg",
+    `${DE} [12 Yogakurse](${OTHER_URL}) · [Sommer (7)](${OTHER_URL}) · [12 Kurse im Sommer](${OTHER_URL})\nEnde`,
+    `${DE} [Yogakurse](${OTHER_URL}) · [Sommer](${OTHER_URL}) · [Kurse im Sommer](${OTHER_URL})\nEnde`,
+  ],
+  [
+    "R5-D4: Zahl im Übersichtsblock überall, auch fett, Bindestrich und englisch",
+    `${DE}\n- [**12 Yoga-Kurse**](${OTHER_URL})\n- [**Sommer (7)**](${OTHER_URL})\n- [3 Sprachkurse, 12 Kurse](${OTHER_URL})\n- [12 courses in summer](${OTHER_URL})\nEnde`,
+    `${DE}\n- [**Yoga-Kurse**](${OTHER_URL})\n- [**Sommer**](${OTHER_URL})\n- [Sprachkurse](${OTHER_URL})\n- [courses in summer](${OTHER_URL})\nEnde`,
+  ],
+  [
+    "R5-D4 (F55, F30): Zahl in der Übersicht auf einem Knoten: Titel und Kartenzahl",
+    `${DE} [alle 7 Kurse zum Thema Yoga](${YOGA_URL}) · [12 Sportkurse](${SPORT_URL})\nEnde`,
+    `${DE} [Yoga (1 Kurs)](${YOGA_URL}) · [Sport (40 Kurse)](${SPORT_URL})\nEnde`,
+  ],
+  [
+    "R5-D4 Gegenprobe (B4, R5-D5): außerhalb von Übersichten nur die Zahl am Ende",
+    `Siehe [12 Yogakurse](${OTHER_URL}), [Sommer (7)](${OTHER_URL}), [12 Kurse im Sommer](${OTHER_URL}) und [alle 7 Kurse zum Thema Yoga](${YOGA_URL}).\n1. [**Alphabetisierungskurs Abschnitt 4 Kurs 311**](${OTHER_URL})\nEnde`,
+    `Siehe [12 Yogakurse](${OTHER_URL}), [Sommer (7)](${OTHER_URL}), [12 Kurse im Sommer](${OTHER_URL}) und [alle 7 Kurse zum Thema Yoga](${YOGA_URL}).\n1. [**Alphabetisierungskurs Abschnitt 4 Kurs 311**](${OTHER_URL})\nEnde`,
   ],
   [
     "R4-D2 (R2-S7): verschachtelter Link in Übersichtszeile und -block fällt weg",

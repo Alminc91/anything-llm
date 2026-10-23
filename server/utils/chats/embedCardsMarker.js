@@ -834,13 +834,16 @@ function emphasisClosers(lineText) {
  * behaltenen Links mit Trenner; Schmuck und übriger Text der Zeile
  * entfallen. Die Einleitung wird erst mit dem ersten behaltenen Link
  * gesendet; bleibt keiner, entfällt die Zeile samt Zeilenende.
- * Übersichtsblock (S2, R4-D2): Eine Einleitung ohne Link wird bis zur
- * nächsten Zeile gehalten; höchstens eine Leerzeile direkt danach gehört
- * dazu (markdown-it zeigt Einleitung, Leerzeile und Liste wie ohne
- * Leerzeile). Folgen Listenzeilen oder Zeilen, die (nach Schmuck) mit einem
- * Link beginnen, gelten ihre Links als Übersichtslinks; die Einleitung
- * kommt mit dem ersten gesendeten Text der Liste und entfällt, wenn alle
- * Links der Liste entfallen. Sonst bleibt sie unverändert.
+ * Übersichtsblock (S2, R4-D2, R5-D3): Eine Einleitung ohne Link wird bis
+ * zur nächsten Zeile gehalten; Leerzeilen direkt danach gehören dazu,
+ * beliebig viele (markdown-it zeigt Einleitung, Leerzeilen und Liste wie
+ * ohne Leerzeile). Folgen Listenzeilen oder Zeilen, die (nach Schmuck) mit
+ * einem Link beginnen, gelten ihre Links als Übersichtslinks; die
+ * Einleitung kommt mit dem ersten gesendeten Text der Liste und entfällt,
+ * wenn alle Links der Liste entfallen. Sonst bleibt sie unverändert.
+ * Ebenso gehören Listenzeilen und Zeilen, die mit einem Link beginnen,
+ * direkt unter einer Übersichtszeile mit Link (ohne Leerzeile, im Widget
+ * derselbe Absatz) zum Block (R5-D3).
  * Nicht erkannte Linkformen ("[" bzw. "<" ohne gültigen Link, verschachtelte
  * Links, Referenzlinks, Links über ein Zeilenende) gelten in
  * Übersichtszeile und -block als entfernte Links (fail-closed); ein Link
@@ -865,7 +868,8 @@ class OverviewLinkFilter {
   constructor(guard) {
     this.guard = guard;
     this.rest = ""; // unentschiedener Rest ab einem möglichen Link
-    this.block = null; // Übersichtsblock {lang, raw, links, kept, sent}
+    // Übersichtsblock {lang, raw, links, kept, sent, listed, follows}
+    this.block = null;
     // AK-21: gehaltener Kurstitel-Link {found, candidates}; this.rest ist
     // dann der Text danach bis zur Entscheidung (courseWindowEnd)
     this.course = null;
@@ -904,15 +908,23 @@ class OverviewLinkFilter {
     return this.#closeBlock();
   }
 
-  // Leerzeile direkt nach der Einleitung eines Übersichtsblocks (höchstens
-  // eine, R4-D2): gehört zum Block
+  // Leerzeile nach der Einleitung eines Übersichtsblocks, vor der Liste
+  // (beliebig viele, R5-D3): gehört zum Block; nicht unter einer
+  // Übersichtszeile (dort endet der Absatz)
   #blockGap() {
-    const block = this.block;
-    if (!block || block.gap || block.listed || !/^[ \t]*$/.test(this.prefix))
-      return false;
-    block.gap = true;
-    block.raw += `${this.prefix}\n`;
+    if (!this.#blankBeforeList()) return false;
+    this.block.raw += `${this.prefix}\n`;
     return true;
+  }
+
+  // Zeilenanfang bisher nur Leerraum, Block wartet auf seine Liste: eine
+  // Leerzeile dort zählt wie bei markdown-it auch mit mehr als
+  // LINE_PREFIX_MAX Leerzeichen
+  #blankBeforeList() {
+    const block = this.block;
+    return (
+      !!block && !block.follows && !block.listed && /^[ \t]*$/.test(this.prefix)
+    );
   }
 
   #closeBlock() {
@@ -971,11 +983,25 @@ class OverviewLinkFilter {
   }
 
   // Zeilenende einer Übersichtszeile: Einleitung ohne Link wird zum
-  // möglichen Übersichtsblock (gehalten), sonst "\n" nur mit behaltenem Link
+  // möglichen Übersichtsblock (gehalten), sonst "\n" nur mit behaltenem
+  // Link; die Zeilen direkt darunter können zum Block gehören (R5-D3,
+  // follows: nichts zu halten, keine Leerzeile)
   #endLine() {
     const line = this.line;
     this.line = null;
-    if (line.links > 0) return line.kept > 0 ? "\n" : "";
+    if (line.links > 0) {
+      if (!this.block)
+        this.block = {
+          lang: line.lang,
+          raw: "",
+          links: 0,
+          kept: 0,
+          sent: true,
+          listed: false,
+          follows: true,
+        };
+      return line.kept > 0 ? "\n" : "";
+    }
     const out = this.block ? this.#closeBlock() : "";
     this.block = {
       lang: line.lang,
@@ -983,8 +1009,8 @@ class OverviewLinkFilter {
       links: 0,
       kept: 0,
       sent: false,
-      gap: false, // Leerzeile nach der Einleitung gesehen
       listed: false, // erste Zeile der Liste gesehen
+      follows: false,
     };
     return out;
   }
@@ -1062,7 +1088,8 @@ class OverviewLinkFilter {
         const char = String.fromCodePoint(s.codePointAt(i));
         if (
           LINE_PREFIX_RX.test(char) &&
-          this.prefix.length + char.length <= LINE_PREFIX_MAX
+          (this.prefix.length + char.length <= LINE_PREFIX_MAX ||
+            ((c === " " || c === "\t") && this.#blankBeforeList()))
         ) {
           this.prefix += char;
           i += char.length;
@@ -1114,6 +1141,7 @@ class OverviewLinkFilter {
           overview,
           lineStart: this.lineStart,
           autolink: !!found.autolink,
+          follows: !this.line && this.inBlock && this.block.follows,
         });
         i = found.end;
         if (verdict?.course) {

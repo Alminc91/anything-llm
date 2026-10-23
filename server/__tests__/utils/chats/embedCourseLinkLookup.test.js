@@ -928,3 +928,80 @@ describe("R4-D1: Stufe 2 und Halten prüfen dieselben Widersprüche", () => {
     expectAll(right, right.replace(OVERVIEW_PAGE, kurs("26200-070")), guard);
   });
 });
+
+// KIE-576 Runde 5 (R5-D1, R5-D2) mit Fällen aus der Messung AK-21 r4
+// (fixtures/courseLinkLookupR5.json, nur die nötigen Zeilen)
+const R5 = require("./fixtures/courseLinkLookupR5.json");
+const LIN18 = R5.lingen;
+const RENTE = LIN18.course_links["2027F16005"].url;
+
+describe("R5-D1: Kursnummer im Text vor der Nummer in der Adresse", () => {
+  test("lin-18: Adresse mit fremder bzw. nicht vorhandener Kursnummer, Text nennt die Nummer: Kurs-Link (jede Aufteilung)", () => {
+    for (const guard of [r3Guard(LIN18), r3Guard(LIN18, [LIN.overview])]) {
+      for (const id of ["lin-18-A_live", "lin-18-F"]) {
+        const text = reply(LIN18.entries[id]);
+        expectAll(text, text.replace(linkOf(text), RENTE), guard);
+      }
+    }
+  });
+
+  test("Adresse mit anderer Kursnummer, Text nur mit Datum: unverändert (lin-13-knr)", () => {
+    const guard = r3Guard(LIN18);
+    const dated = reply(
+      LIN18.entries["lin-18-A_live"].replace(/\n\s*\*\*Kurs:\*\* \S+/, "")
+    );
+    expect(dated).not.toContain("2027F16005");
+    expectAll(dated, dated, guard);
+    for (const id of ["lin-13-2", "lin-13-knr"]) {
+      const text = reply(LIN.entries[id]);
+      expectAll(text, text, r3Guard(LIN, [ZUMBA_DOC, LIN.overview]));
+    }
+  });
+
+  test("Nummer im Text, aber anderes Datum oder zweite Nummer gleicher Form im Text: unverändert", () => {
+    const guard = r3Guard(LIN18);
+    const entry = LIN18.entries["lin-18-A_live"];
+    const otherDate = reply(entry.replace("05.04.2027", "12.04.2027"));
+    expectAll(otherDate, otherDate, guard);
+    const twoNumbers = reply(
+      entry.replace(
+        "**Kurs:** 2027F16005",
+        "**Kurs:** 2027F16005, Folgekurs 2027F16006"
+      )
+    );
+    expectAll(twoNumbers, twoNumbers, guard);
+  });
+
+  test("Nummer im Text gehört zu einem Kurs mit anderem Titel: unverändert", () => {
+    const guard = r3Guard(LIN18);
+    const foreign = reply(
+      LIN18.entries["lin-18-A_live"].replace(
+        "**Kurs:** 2027F16005",
+        "**Kurs:** 2026H16105"
+      )
+    );
+    expectAll(foreign, foreign, guard);
+  });
+});
+
+describe("R5-D2: wörtlicher Treffer vor Schlüsseltreffer", () => {
+  const TUT = R5.tuttlingen;
+  const tutGuard = () => r3Guard(TUT, TUT.context, { links: false });
+  const [first, second, third] = TUT.context.map(
+    (doc) => /^source: (\S+)$/m.exec(doc)[1]
+  );
+
+  test("tut-23: drei Adressen mit gleichem Schlüssel, Modell nutzt die dritte wörtlich: sie bleibt", () => {
+    const text = `Hier mehr:\n\n${TUT.entries["tut-23"]}\n\nViel Spaß!`;
+    expect(linkOf(text)).toBe(third);
+    expectAll(text, text, tutGuard());
+    // auch die zweite, in der Übersichtszeile und als Autolink
+    const more = `[Alle Kurse in Senioren](${second})\nMehr Kurse zum Thema: [Senioren vhs](${third}) · <${second}>\nEnde`;
+    expectAll(more, more, tutGuard());
+  });
+
+  test("Adresse nicht wörtlich bekannt: Originalform der ersten Fundstelle", () => {
+    const text = `[**Alle 4 Kurse in Senioren vhs**](http://vhs-tuttlingen.de/Kurse/kategorie/101/)`;
+    expectAll(text, `[**Alle Kurse in Senioren vhs**](${first})`, tutGuard());
+  });
+});

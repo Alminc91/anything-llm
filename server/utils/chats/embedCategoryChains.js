@@ -44,13 +44,18 @@
 //      früherer Antworten (Feld sources); nicht der Text früherer Antworten.
 //      Eine Normalisierung: linkKey.
 //   4. Bekannte Adresse, kein Knoten: Link bleibt, eine Kurszahl im Linktext
-//      fällt weg (NAK-7); Ziel ist die bekannte Adresse in Originalform.
+//      fällt weg (NAK-7): außerhalb von Übersichten die am Ende, in
+//      Übersichtszeile und -block jede (R5-D4). Ziel: steht die Adresse des
+//      Modells wörtlich in einer geprüften Quelle, sie selbst, sonst die
+//      erste Fundstelle mit gleichem Schlüssel (R4-D3, R5-D2).
 // Form der Übersichtszeile (E29) nur in OVERVIEW_LINE und overviewLinkText:
 //   Mehr Kurse zum Thema: [<title> (<n> Kurse)](<url>) · [<title>](<url>)
 // Übersichtszeile: Zeile mit der Einleitung (de/en, auch mit *, _, # drum
 // herum) oder mit einem Knoten-Link in alter Form am Zeilenanfang; der
-// Server setzt sie selbst. Übersichtsblock: Einleitung ohne Link und die
-// direkt folgenden Listenzeilen; dort wird je Link entschieden.
+// Server setzt sie selbst. Übersichtsblock: Einleitung ohne Link, beliebig
+// viele Leerzeilen und die folgenden Listenzeilen bzw. Zeilen mit Link am
+// Anfang, ebenso solche Zeilen direkt unter einer Übersichtszeile mit Link
+// (R5-D3); dort wird je Link entschieden.
 //
 // Kurslink nachschlagen (AK-21, E38): Optionales Feld course_links der Karte
 //   {"<kursnummer>": {"title": "…", "start": "YYYY-MM-DD[THH:MM]",
@@ -74,6 +79,9 @@
 //   Widerspruch (R4-D1, eine Prüfung für beide Wege, courseContradicts):
 //     Adresse des Modells oder Text danach tragen eine andere Kursnummer
 //     gleicher Form, oder der Text nennt ein Datum, aber nicht den Beginn.
+//     Nennt der Text die Kursnummer des Kandidaten und passt sein Titel,
+//     zählt die Adresse nicht (R5-D1); ein Datum allein überstimmt sie
+//     nicht.
 // Im Zweifel bleibt der Link unverändert. Ein kaputtes course_links lässt
 // nur dieses Feld bzw. den Eintrag fallen, nie die Karte.
 //
@@ -140,9 +148,14 @@ const OVERVIEW_TEXT_RX =
 // Kurszahl im Linktext („12 Kurse“, „(1.250 courses)“, „3 cours“, „12
 // Kursen“), auf linkLabel; Wort in den häufigsten Sprachen der Besucher
 // (R1-D2); g für alle Treffer (courseCount, nodeTitleCount)
-const COURSE_COUNT_RX =
-  /(?<![\p{L}\p{N}.,])(\d+(?:[.,]\d{3})*) ?(kurs(?:e|en)?|courses?|cours|cursos?|corsi|corso|cursus(?:sen)?|kursy|kursów|kurzy|kurzů|kurslar|kursu|курс(?:а|ов|ы|и|ів)?)(?![\p{L}\p{N}])/giu;
-// Kurszahl zählt nur am Ende des Linktexts (letzter Treffer, R2-S8), danach
+const COUNT_WORDS =
+  "kurs(?:e|en)?|courses?|cours|cursos?|corsi|corso|cursus(?:sen)?|kursy|kursów|kurzy|kurzů|kurslar|kursu|курс(?:а|ов|ы|и|ів)?";
+const COURSE_COUNT_RX = new RegExp(
+  `(?<![\\p{L}\\p{N}.,])(\\d+(?:[.,]\\d{3})*) ?(${COUNT_WORDS})(?![\\p{L}\\p{N}])`,
+  "giu"
+);
+// Außerhalb von Übersichten (R5-D4, B4) zählt die Kurszahl nur am Ende des
+// Linktexts (letzter Treffer, R2-S8), danach
 // höchstens Klammer, Satzzeichen oder Schmuck („Sport (3 Kurse)“, „Kultur,
 // 2 Kurse“). In einem Kurstitel („… ab 60 Kurs am Nachmittag“, „Abschnitt 4
 // Kurs 311“) ist sie keine Kurszahl und bleibt stehen; auf einer
@@ -152,6 +165,15 @@ const COUNT_TAIL_RX = /^[\s)\]*_.,;:!]*$/u;
 // Zahl in Klammern am Ende („Sport (3)“): Kurszahl nur, wenn der Text ohne
 // sie der Knotentitel ist (R2-S9: „Spanisch A1 (2)“ ist ein Kurstitel)
 const BARE_COUNT_RX = /\(\s*\d+(?:[.,]\d{3})*\s*\)$/u;
+// In Übersichtszeile und -block zählt jede Kurszahl im Linktext (R5-D4):
+// Zahl vor einem Wort, das auf ein Kurswort endet (auch im Kompositum
+// „12 Yogakurse“, „12 Yoga-Kurse“, an jeder Stelle), und nackte
+// Klammerzahl samt Leerraum davor; g für alle Treffer, auf linkLabel-Länge
+const OVERVIEW_COUNT_RX = new RegExp(
+  `(?<![\\p{L}\\p{N}.,])\\d+(?:[.,]\\d{3})* ?([\\p{L}-]*?(?:${COUNT_WORDS}))(?![\\p{L}\\p{N}])`,
+  "giu"
+);
+const OVERVIEW_BARE_COUNT_RX = /\s*\(\s*\d+(?:[.,]\d{3})*\s*\)/gu;
 // Sprache des Worts zur Kurszahl: Wörter aus OVERVIEW_LINE (E29), dazu der
 // Dativ „Kursen“
 const COUNT_WORD_LANG = Object.fromEntries([
@@ -589,15 +611,23 @@ function urlTokens(url) {
 /**
  * Widerspricht etwas dem Kurs (R4-D1)? Eine Prüfung für Stufe 2 und Halten:
  *   Adresse des Modells oder Text tragen eine andere Kursnummer gleicher
- *   Form (numberContradicts);
+ *   Form (numberContradicts); die Adresse nicht, wenn der Text die
+ *   Kursnummer des Kurses nennt und sein Titel passt (named, R5-D1: der
+ *   Link soll zu dem passen, was der Besucher liest; ein Datum allein
+ *   überstimmt die Adresse nicht);
  *   der Text nennt ein Datum, aber nicht das Beginndatum des Kurses (nur
  *   bei Kursen mit Beginndatum).
  * @param {object} course - Eintrag aus course_links
  * @param {{urlTokens: string[], tokens: string[], dates: object[]}} features
+ * @param {boolean} [named] - Kursnummer im Text, Titel passt
  * @returns {boolean}
  */
-function courseContradicts(course, { urlTokens, tokens, dates }) {
-  if (numberContradicts(course, urlTokens)) return true;
+function courseContradicts(
+  course,
+  { urlTokens, tokens, dates },
+  named = false
+) {
+  if (!named && numberContradicts(course, urlTokens)) return true;
   if (numberContradicts(course, tokens)) return true;
   return (
     !!course.date &&
@@ -690,7 +720,8 @@ function containsWord(hay, needle) {
  * deren Kursnummer im Text steht und deren Titel zum Linktext passt
  * (R3-D3). Merkmale schließen nur aus, wenn Adresse oder Text sie hergeben:
  *   Widerspruch (courseContradicts, R4-D1): andere Kursnummer gleicher Form
- *     in Adresse oder Text, anderes Datum im Text;
+ *     in Adresse oder Text, anderes Datum im Text; die Adresse nicht bei
+ *     Kandidaten über die Kursnummer im Text (Titel passt, R5-D1);
  *   Kursnummer (ab 4 Zeichen): steht die Nummer eines Kandidaten im Text,
  *     nur diese; ohne Nummer im Text nur die exakten Kandidaten;
  *   Datum: Kandidaten ohne Beginndatum entfallen, wenn ein anderer
@@ -724,8 +755,10 @@ function pickCourseUrl({ exact, key, url }, windowText, map) {
     if (c && titleFits(c, key)) byNumber.add(c);
   }
   const confirmed = new Set(byNumber);
-  let rest = byNumber.size > 0 ? [...byNumber] : exact;
-  rest = rest.filter((c) => !courseContradicts(c, features));
+  // byNumber: Kursnummer im Text, Titel passt (exakt oder titleFits)
+  const named = byNumber.size > 0;
+  let rest = named ? [...byNumber] : exact;
+  rest = rest.filter((c) => !courseContradicts(c, features, named));
   if (dates.length > 0) {
     // übrig: Kandidaten mit diesem Datum oder ohne Beginndatum
     const dateIn = (c) => !!c.date;
@@ -1136,22 +1169,39 @@ function linkLabel(text) {
 
 /**
  * Kurszahl im Linktext entfernen (Regel 4): alte Form nur die Zahl („Alle 3
- * Kurse in X“ -> „Alle Kurse in X“), sonst die Angabe samt Klammer bzw.
- * Trenner davor. Ohne Zahl derselbe Text; bleibt nichts übrig, null.
+ * Kurse in X“ -> „Alle Kurse in X“), sonst die Angabe am Ende samt Klammer
+ * bzw. Trenner davor. In Übersichtszeile und -block (anywhere, R5-D4)
+ * zusätzlich jede andere Kurszahl: vor einem Kurswort nur die Zahl („12
+ * Yogakurse“ -> „Yogakurse“, „12 Kurse im Sommer“ -> „Kurse im Sommer“),
+ * nackte Klammerzahl samt Klammer („Sommer (7)“ -> „Sommer“). Ohne Zahl
+ * derselbe Text; bleibt nichts übrig, null.
  * @param {string} text - Linktext des Modells
+ * @param {boolean} [anywhere] - Link in Übersichtszeile oder -block
  * @returns {string|null}
  */
-function stripCourseCount(text) {
+function stripCourseCount(text, anywhere = false) {
   const flat = String(text).replace(/\s+/g, " ");
   if ([...flat].length > LABEL_MAX_LEN) return text; // nie ein Übersichtstext
   const old = OVERVIEW_TEXT_RX.exec(linkLabel(flat));
-  if (old) {
-    if (!old[2]) return text;
-    return flat.replace(` ${old[2]} `, " ");
+  if (!anywhere) {
+    if (old) {
+      if (!old[2]) return text;
+      return flat.replace(` ${old[2]} `, " ");
+    }
+    const m = courseCount(flat);
+    if (!m) return text;
+    const out = withoutCount(flat, m);
+    return linkLabel(out) ? out.trim() : null;
   }
-  const m = courseCount(flat);
-  if (!m) return text;
-  const out = withoutCount(flat, m);
+  let out = flat;
+  if (old?.[2]) out = out.replace(` ${old[2]} `, " ");
+  const m = old ? null : courseCount(out);
+  if (m) out = withoutCount(out, m);
+  out = out
+    .replace(OVERVIEW_COUNT_RX, "$1")
+    .replace(OVERVIEW_BARE_COUNT_RX, "")
+    .replace(/ {2,}/g, " ");
+  if (out === flat) return text;
   return linkLabel(out) ? out.trim() : null;
 }
 
@@ -1279,15 +1329,20 @@ function matchOverviewIntro(head, final) {
 /**
  * Adressen aus Fremdtext (Kontext, Prompt, gespeicherte Quellen) in known
  * eintragen: Schlüssel -> Originaladresse (ohne Satzzeichen am Ende); die
- * erste Fundstelle gewinnt.
+ * erste Fundstelle gewinnt. verbatim bekommt jede Fundstelle wörtlich
+ * (R5-D2).
  * @param {Map<string, string>} known
+ * @param {Set<string>} verbatim
  * @param {any} text
  */
-function learnUrls(known, text) {
+function learnUrls(known, verbatim, text) {
   if (typeof text !== "string") return;
   for (const m of text.matchAll(CONTEXT_URL_RX)) {
     const key = linkKey(m[0]);
-    if (key && !known.has(key)) known.set(key, trimUrlTail(m[0]));
+    if (!key) continue;
+    const original = trimUrlTail(m[0]);
+    verbatim.add(original);
+    if (!known.has(key)) known.set(key, original);
   }
 }
 
@@ -1338,10 +1393,13 @@ function isCourseDoc(text) {
  * Antworten des Verlaufs (nur ihr Feld sources zählt, R4-D3) und Karte.
  * Ohne Karte null (keine Absicherung, Antwort unverändert).
  *
- * check(text, url, where) mit where = {overview, lineStart, autolink}:
+ * check(text, url, where) mit where = {overview, lineStart, autolink,
+ * follows}:
  *   overview: Sprache der Übersichtszeile bzw. des Übersichtsblocks, in dem
  *     der Link steht, sonst null; lineStart: vor dem Link nur Schmuck;
- *   autolink: Link der Form <https://…> (Text = Adresse).
+ *   autolink: Link der Form <https://…> (Text = Adresse); follows: Zeile
+ *     direkt unter einer Übersichtszeile (R5-D3), dort setzt ein Knoten-Link
+ *     in alter Form am Zeilenanfang wie sonst die ganze Zeile.
  * Ergebnis (dieselbe Entscheidung für Stream, Antwort und Speichern):
  *   null: unverändert;
  *   {remove: true}: entfernen;
@@ -1369,11 +1427,16 @@ function createOverviewLinkGuard({
   );
   const context = contextList.join("\n");
   // Bekannt (R4-D3): Schlüssel -> Originaladresse aus geprüften Quellen;
-  // Knoten entscheidet Regel 1 vorher
+  // Knoten entscheidet Regel 1 vorher. verbatim: jede bekannte Adresse
+  // wörtlich (R5-D2: wörtlicher Treffer vor Schlüsseltreffer)
   const known = new Map(map.courseUrls ?? []);
-  learnUrls(known, context);
-  learnUrls(known, systemPrompt);
-  for (const text of storedSourceTexts(storedChats)) learnUrls(known, text);
+  const verbatim = new Set(known.values());
+  for (const course of map.courseNumbers?.values() ?? [])
+    verbatim.add(course.url);
+  learnUrls(known, verbatim, context);
+  learnUrls(known, verbatim, systemPrompt);
+  for (const text of storedSourceTexts(storedChats))
+    learnUrls(known, verbatim, text);
   // „Kurs-Link:“-Zeilen des Kontexts dieser Anfrage
   const contextCourseLinks = new Set(
     [...context.matchAll(CONTEXT_COURSE_LINK_RX)]
@@ -1493,7 +1556,12 @@ function createOverviewLinkGuard({
     check(
       text,
       url,
-      { overview = null, lineStart = false, autolink = false } = {}
+      {
+        overview = null,
+        lineStart = false,
+        autolink = false,
+        follows = false,
+      } = {}
     ) {
       const label = autolink ? "" : linkLabel(text);
       const old = OVERVIEW_TEXT_RX.exec(label);
@@ -1527,26 +1595,32 @@ function createOverviewLinkGuard({
               ? "de"
               : "en"
             : null;
-          const lang = overview ?? oldLang ?? countLang(count ?? titled);
+          // alte Form am Zeilenanfang: der Server setzt die Zeile, auch
+          // direkt unter einer Übersichtszeile (R5-D3)
+          const line =
+            old && lineStart && (!overview || follows) ? oldLang : null;
+          const lang =
+            line ?? overview ?? oldLang ?? countLang(count ?? titled);
           return {
             remove: false,
             text: nodeLinkText(node, lang, count ?? titled),
             url: node.url,
-            line: !overview && old && lineStart ? lang : null,
+            line,
           };
         }
       }
       if (!overview && !old && !count) return null;
       if (!key || !known.has(key)) return { remove: true };
       if (isCourseLink(key) && (overview || old)) return { remove: true };
-      // Regel 4: bekannte Adresse in Originalform (R4-D3)
-      const original = known.get(key);
-      const target = original === url ? null : original;
+      // Regel 4: bekannte Adresse wörtlich, sonst in der Originalform der
+      // ersten Fundstelle (R4-D3, R5-D2)
+      const target = verbatim.has(url) ? null : known.get(key);
       if (autolink)
         return target
           ? { remove: false, text: target, url: target, line: null }
           : null;
-      const stripped = stripCourseCount(text);
+      // in Übersichten jede Kurszahl, sonst nur die am Ende (R5-D4, B4)
+      const stripped = stripCourseCount(text, !!overview);
       if (stripped === null) return { remove: true };
       return stripped === text && !target
         ? null

@@ -1,0 +1,47 @@
+{
+  "_quelle": "KIE-576 Messung AK-21 Runde 4 vom 23.10.2026 (messung-ak21-r4.md): Benchmark-Antworten, Serverkarten und Kontextköpfe, gekürzt auf die nötigen Zeilen",
+  "lingen": {
+    "nodes": {
+      "Gesellschaft, Umwelt, Politik \\ Recht und Finanzen": {
+        "title": "Recht und Finanzen",
+        "url": "https://www.vhs-lingen.de/programm/gesellschaft-umwelt-politik/kategorie/Recht+und+Finanzen/161",
+        "count": null
+      }
+    },
+    "course_links": {
+      "2027F16005": {
+        "title": "Die Zukunft der Rente: Wie wir unser Alterssicherungssystem generationengerecht gestalten",
+        "start": "2027-04-05T19:30",
+        "place": "Web-Seminar",
+        "url": "https://www.vhs-lingen.de/programm/kurssuche/kurs/die-zukunft-der-rente-wie-wir-unser-alterssicherungssystem-generationengerecht-gestalten/2027F16005"
+      },
+      "2026H16105": {
+        "title": "Die Bauern waren nicht überrascht. Pandemische Geschichte auf dem Lande:   Das Beispiel Schweinepest",
+        "start": "2026-12-09T19:30",
+        "place": "Web-Seminar",
+        "url": "https://www.vhs-lingen.de/programm/kurssuche/kurs/die-bauern-waren-nicht-ueberrascht-pandemische-geschichte-auf-dem-lande-das-beispiel-schweinepest/2026H16105"
+      }
+    },
+    "entries": {
+      "lin-18-A_live": "3. [**Die Zukunft der Rente: Wie wir unser Alterssicherungssystem generationengerecht gestalten**](https://www.vhs-lingen.de/programm/gesellschaft-umwelt-politik/kategorie/157?knr=2026H16105&browse=forward)\n   Ein Web-Seminar zur Gestaltung eines generationengerechten Alterssicherungssystems.\n   **Beginn:** Mo. 05.04.2027, 19:30 Uhr\n   **Ort:** Web-Seminar\n   **Kurs:** 2027F16005\n   **Status:** Anmeldung möglich",
+      "lin-18-F": "3. [**Die Zukunft der Rente: Wie wir unser Alterssicherungssystem generationengerecht gestalten**](https://www.vhs-lingen.de/programm/gesellschaft-umwelt-politik/kategorie/157?knr=2026H16005&browse=forward)\n   Ein Web-Seminar zur Gestaltung eines generationengerechten Alterssicherungssystems.\n   **Beginn:** Mo. 05.04.2027, 19:30 Uhr\n   **Ort:** Web-Seminar\n   **Preis:** kostenlos | **Kurs:** 2027F16005\n   **Status:** Anmeldung möglich"
+    }
+  },
+  "tuttlingen": {
+    "nodes": {
+      "Besonderes": {
+        "title": "Besonderes",
+        "url": "https://www.vhs-tuttlingen.de/kurse/kategorie/Besonderes/95",
+        "count": null
+      }
+    },
+    "context": [
+      "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurse_junge-vhs_kategorie_101.html\npublished: 10/22/2026, 5:18:58 AM\nsource: https://www.vhs-tuttlingen.de/kurse/junge-vhs/kategorie/101\n</document_metadata>\n\nSie befinden sich hier:\nStartseiteKurseJunge vhs\nSenioren vhs\nMenschen in der dritten Lebensphase",
+      "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurssuche_kategorie_101.html\npublished: 10/22/2026, 5:26:52 AM\nsource: https://www.vhs-tuttlingen.de/kurssuche/kategorie/101\n</document_metadata>\n\nSie befinden sich hier:\nStartseiteKurssuche\nSenioren vhs\nMenschen in der dritten Lebensphase",
+      "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurse_kategorie_101.html\npublished: 10/22/2026, 5:17:42 AM\nsource: https://www.vhs-tuttlingen.de/kurse/kategorie/101\n</document_metadata>\n\nSie befinden sich hier:\nStartseiteKurse\nSenioren vhs\nMenschen in der dritten Lebensphase"
+    ],
+    "entries": {
+      "tut-23": "[**Alle Kurse in Senioren vhs**](https://www.vhs-tuttlingen.de/kurse/kategorie/101)"
+    }
+  }
+}
