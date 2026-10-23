@@ -55,7 +55,11 @@ jest.mock("../../../utils/helpers/chat", () => ({
 const prisma = require("../../../utils/prisma");
 const helpers = require("../../../utils/helpers");
 const { EmbedChats } = require("../../../models/embedChats");
-const { writeResponseChunk } = require("../../../utils/helpers/chat/responses");
+const {
+  writeResponseChunk,
+  convertToPromptHistory,
+} = require("../../../utils/helpers/chat/responses");
+const { chatPrompt } = require("../../../utils/chats/index");
 const { streamChatWithForEmbed } = require("../../../utils/chats/embed");
 const {
   __test__: chains,
@@ -264,6 +268,39 @@ describe("mit gültiger Karte", () => {
       const { stored, text } = await run({ streaming, reply: REPLY_E29 });
       expect(text).toBe(GUARDED_E29);
       expect(stored.text).toBe(GUARDED_E29);
+    }
+  );
+});
+
+describe("bekannte Adressen aus System-Prompt und Verlauf (R1-D1 Regel 3, S3, S12)", () => {
+  const GEESTE_URL = `${HOST}/kurssuche/liste?suchesetzen=false&kfs_aussenst=Geeste`;
+  const WINTER_URL = `${HOST}/kurse/winter`;
+  const REPLY_KNOWN = [
+    `[**Alle Kurse in Geeste**](${GEESTE_URL})`,
+    `[**Alle Kurse in Winter**](${WINTER_URL})`,
+    `[**Alle Kurse in Pilates**](${HOST}/kurse/pilates)`,
+    "Ende",
+  ].join("\n");
+  const KEPT = [
+    `[**Alle Kurse in Geeste**](${GEESTE_URL})`,
+    `[**Alle Kurse in Winter**](${WINTER_URL})`,
+    "Ende",
+  ].join("\n");
+
+  test.each([
+    ["Stream", true],
+    ["ohne Streaming", false],
+  ])(
+    "%s: Standort-Link der Kundenregel und Link der vorigen Antwort bleiben, erfundener weg",
+    async (_name, streaming) => {
+      chatPrompt.mockResolvedValueOnce(`Regeln\n▪ Geeste → \`${GEESTE_URL}\``);
+      convertToPromptHistory.mockReturnValueOnce([
+        { role: "user", content: `Und ${HOST}/kurse/pilates ?` },
+        { role: "assistant", content: `Siehe [Winter](${WINTER_URL}).` },
+      ]);
+      const { stored, text } = await run({ streaming, reply: REPLY_KNOWN });
+      expect(text).toBe(KEPT);
+      expect(stored.text).toBe(KEPT);
     }
   );
 });

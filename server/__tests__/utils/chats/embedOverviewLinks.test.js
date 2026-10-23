@@ -1,8 +1,9 @@
 /* eslint-env jest, node */
-// KIE-576 AK-15: Absicherung der Übersichtslinks („Alle Kurse in …“) als
-// letzte Stufe des Markerfilters (OverviewLinkFilter): Stream, ganze Antwort
-// (parseCardsReply, auch fürs Speichern) und jede Aufteilung in Token
-// entscheiden gleich; ohne Prüfer bleibt alles wie vorher (NAK-6, NAK-9).
+// KIE-576 AK-15: Absicherung der Links als letzte Stufe des Markerfilters
+// (OverviewLinkFilter, Prüfer an der Adresse nach R1-D1): Stream, ganze
+// Antwort (parseCardsReply, auch fürs Speichern) und jede Aufteilung in
+// Token entscheiden gleich; ohne Prüfer bleibt alles wie vorher (NAK-6,
+// NAK-9).
 
 jest.mock("../../../utils/prisma", () => ({}));
 
@@ -24,6 +25,18 @@ const KULTUR_URL = `${HOST}/kursprogramm/kultur`;
 const COURSE_URL = `${HOST}/kurssuche/kurs/hatha-yoga/26100-001`;
 const TANZ_COURSE_URL = `${HOST}/kurssuche/kurs/salsa/26100-002`;
 const OTHER_URL = `${HOST}/kurse/sommer`;
+const ABEND_URL = `${HOST}/kursprogramm/kategorie/Abendkurse/335`;
+// Standort-Link aus den Kundenregeln (Meppen-Vorlage), nur im System-Prompt
+const GEESTE_URL = `${HOST}/kurssuche/liste?suchesetzen=false&kfs_aussenst=Geeste`;
+const SYSTEM_PROMPT = `Location links:\n▪ Geeste → \`${GEESTE_URL}\`\n[**Alle Kurse in $LOCATION_NAME**]($LOCATION_URL)`;
+// Verlauf: geprüfte Links früherer Antworten zählen, Links des Nutzers nicht
+const HISTORY = [
+  { role: "user", content: `Was gibt es unter ${HOST}/kurse/nutzer ?` },
+  {
+    role: "assistant",
+    content: `Mehr Kurse zum Thema: [Winter](${HOST}/kurse/winter)`,
+  },
+];
 
 const MAP = chains.parseCategoryMap(
   JSON.stringify({
@@ -36,6 +49,7 @@ const MAP = chains.parseCategoryMap(
       "Sport \\ Tanz": { title: "Tanz", url: TANZ_URL, count: null },
       // Knoten der Karte, aber nicht im Kontext dieser Antwort
       Kultur: { title: "Kultur", url: KULTUR_URL, count: 5 },
+      "Sport \\ Abendkurse": { title: "Abendkurse", url: ABEND_URL, count: 7 },
     },
     courses: {},
   })
@@ -55,11 +69,16 @@ const CONTEXT = applyCategoryChains(
   [
     courseDoc("Hatha-Yoga", "26100-001", "Sport \\ Yoga", COURSE_URL),
     courseDoc("Salsa", "26100-002", "Sport \\ Tanz", TANZ_COURSE_URL),
-    `<document_metadata>\nsource: ${OTHER_URL}\n</document_metadata>\n\nSommer`,
+    `<document_metadata>\nsource: ${OTHER_URL}\n</document_metadata>\n\nSommer. Mehr unter ${HOST}/kurse/herbst.`,
   ],
   MAP
 );
-const GUARD = createOverviewLinkGuard({ contextTexts: CONTEXT, map: MAP });
+const GUARD = createOverviewLinkGuard({
+  contextTexts: CONTEXT,
+  map: MAP,
+  systemPrompt: SYSTEM_PROMPT,
+  history: HISTORY,
+});
 
 const LIST = `1. [**Hatha-Yoga**](${COURSE_URL}) am Montag`;
 const DE = "Mehr Kurse zum Thema:";
@@ -104,9 +123,9 @@ const CASES = [
     `Hier ist ein Kurs:\n${LIST}\n\n${DE} [Sport (40 Kurse)](${SPORT_URL})\n\nViel Spaß!`,
   ],
   [
-    "n = 1: „(1 Kurs)“",
+    "n = 1: „(1 Kurs)“, Ziel ist node.url (S8)",
     `${LIST}\n👉 [Alle 2 Kurse in Yoga](${YOGA_URL}/)`,
-    `${LIST}\n${DE} [Yoga (1 Kurs)](${YOGA_URL}/)`,
+    `${LIST}\n${DE} [Yoga (1 Kurs)](${YOGA_URL})`,
   ],
   [
     "Zahl null (NAK-7): nur der Titel",
@@ -174,9 +193,19 @@ const CASES = [
     `${LIST}\n`,
   ],
   [
-    "Text vor dem Link bleibt, Link und Rest der Zeile weg",
+    "R1-D3: Text vor dem Link bleibt, Leerraum davor, Link und Rest der Zeile weg",
     `${LIST}\nMehr unter [Alle Kurse in Pilates](${HOST}/pilates) hier.\nEnde`,
-    `${LIST}\nMehr unter \nEnde`,
+    `${LIST}\nMehr unter\nEnde`,
+  ],
+  [
+    "R1-D3 (S7): Fettdruck direkt vor dem Link entfällt mit ihm",
+    `Weitere Angebote: **[Alle Kurse in Yoga](${HOST}/erfunden)** und Pilates.\nEnde`,
+    `Weitere Angebote:\nEnde`,
+  ],
+  [
+    "R1-D3 (S7): offener Fettdruck und Kursiv werden geschlossen",
+    `**Tipp: [Alle Kurse in Yoga](${HOST}/erfunden) hier**\n- _Auch [Pilates (3 Kurse)](${HOST}/p) und_\nEnde`,
+    `**Tipp:**\n- _Auch_\nEnde`,
   ],
   [
     "alte Form mitten im Text: nur der Linktext, Zeile bleibt",
@@ -184,44 +213,99 @@ const CASES = [
     `Mehr unter [Sport (40 Kurse)](${SPORT_URL}) hier.`,
   ],
   [
-    "(c) Knoten-Link im Fließtext: nur Linktext mit Zahl wird gesetzt, Satz bleibt",
+    "Regel 1: Knoten-Link im Fließtext: Linktext aus der Karte (Zahl nur mit Sprache de/en), Satz bleibt",
     `Schauen Sie in [unsere Sportkurse](${SPORT_URL}) rein, z. B. [Yoga (7 Kurse)](${YOGA_URL}).`,
-    `Schauen Sie in [unsere Sportkurse](${SPORT_URL}) rein, z. B. [Yoga (1 Kurs)](${YOGA_URL}).`,
+    `Schauen Sie in [Sport](${SPORT_URL}) rein, z. B. [Yoga (1 Kurs)](${YOGA_URL}).`,
   ],
   [
-    "(c) Knoten-Link im Fließtext, nicht im Kontext: nur der Link wird Text",
-    `Auch [Kultur (3 Kurse)](${KULTUR_URL}) ist schön.\nEnde`,
-    `Auch Kultur ist schön.\nEnde`,
+    "Regel 1: Knoten der Karte gilt immer als geprüft, auch ohne Kontext, Zeile bleibt",
+    `Auch [Kultur (3 Kurse)](${KULTUR_URL}) ist schön.\n👉 [Kultur](${KULTUR_URL})  \n[Kultur, 2 Kurse](${KULTUR_URL}) bietet viel.`,
+    `Auch [Kultur (5 Kurse)](${KULTUR_URL}) ist schön.\n👉 [Kultur](${KULTUR_URL})  \n[Kultur (5 Kurse)](${KULTUR_URL}) bietet viel.`,
   ],
   [
-    "(c) Knoten-Link nach Schmuck: nur Linktext, Zeile bleibt",
+    "Regel 1: Knoten-Link nach Schmuck: nur Linktext, Zeile bleibt",
     `👉 [Yoga (4 Kurse)](${YOGA_URL})`,
     `👉 [Yoga (1 Kurs)](${YOGA_URL})`,
   ],
   [
-    "(c) Knoten-Link nach Schmuck, nicht im Kontext: ganze Zeile weg",
-    `${LIST}\n👉 [Kultur (3 Kurse)](${KULTUR_URL})\nEnde`,
-    `${LIST}\nEnde`,
-  ],
-  [
-    "(c) Knoten-Link am Zeilenanfang, nicht im Kontext, Satz geht weiter: nur der Link wird Text",
-    `${LIST}\n[Kultur (3 Kurse)](${KULTUR_URL}) bietet viel.\n👉 [Kultur](${KULTUR_URL})  \nEnde\n[Kultur](${KULTUR_URL}) `,
-    `${LIST}\nKultur bietet viel.\nEnde\n`,
-  ],
-  [
-    "(c) in einer Aufzählung: kein Übersichtslink, unverändert",
+    "Regel 1: auch in einer Aufzählung",
     `- [Yoga (4 Kurse)](${YOGA_URL})\n2. [Kultur](${KULTUR_URL}) am Montag\n* **Tipp:** [Tanz (2 Kurse)](${TANZ_URL})`,
-    `- [Yoga (4 Kurse)](${YOGA_URL})\n2. [Kultur](${KULTUR_URL}) am Montag\n* **Tipp:** [Tanz (2 Kurse)](${TANZ_URL})`,
+    `- [Yoga (1 Kurs)](${YOGA_URL})\n2. [Kultur](${KULTUR_URL}) am Montag\n* **Tipp:** [Tanz](${TANZ_URL})`,
   ],
   [
-    "im Kontext, kein Knoten: unverändert (auch in der Übersichtszeile)",
+    "S8: erfundene Adresse mit richtiger Kategorienummer bekommt node.url",
+    `${DE} [Abend](${HOST}/erfunden/kategorie/335)\nSiehe [Abendkurse (2 Kurse)](${HOST}/x/kategorie/Abend/335/).`,
+    `${DE} [Abendkurse (7 Kurse)](${ABEND_URL})\nSiehe [Abendkurse (7 Kurse)](${ABEND_URL}).`,
+  ],
+  [
+    "im Kontext, kein Knoten, ohne Zahl: unverändert (auch in der Übersichtszeile)",
     `[**Alle Kurse in Sommer**](${OTHER_URL})\n${DE} [Sommer](${OTHER_URL})`,
     `[**Alle Kurse in Sommer**](${OTHER_URL})\n${DE} [Sommer](${OTHER_URL})`,
   ],
   [
-    "andere Links und Klammern unverändert",
-    `Siehe [Anmeldung](${HOST}/anmeldung), [1] und [Alle Infos](${HOST}/x) oder [Alle Kurse in X](mailto:a@b.de).`,
-    `Siehe [Anmeldung](${HOST}/anmeldung), [1] und [Alle Infos](${HOST}/x) oder [Alle Kurse in X](mailto:a@b.de).`,
+    "Regel 4 (S17): bekannte Adresse, kein Knoten: Kurszahl im Linktext entfällt",
+    `[**Alle 9 Kurse in Sommer**](${OTHER_URL})\n${DE} [Sommer (25 Kurse)](${OTHER_URL})\nSiehe [Sommerprogramm, 12 Kurse](${OTHER_URL}) und [Hatha-Yoga (3 Kurse)](${COURSE_URL}).`,
+    `[**Alle Kurse in Sommer**](${OTHER_URL})\n${DE} [Sommer](${OTHER_URL})\nSiehe [Sommerprogramm](${OTHER_URL}) und [Hatha-Yoga](${COURSE_URL}).`,
+  ],
+  [
+    "normale Kurs-Links und andere Links im Fließtext bleiben unangetastet",
+    `Siehe [Anmeldung](${HOST}/anmeldung), [1] und [Alle Infos](${HOST}/x), [Hatha-Yoga](${COURSE_URL}) oder <${HOST}/pilates>.`,
+    `Siehe [Anmeldung](${HOST}/anmeldung), [1] und [Alle Infos](${HOST}/x), [Hatha-Yoga](${COURSE_URL}) oder <${HOST}/pilates>.`,
+  ],
+  [
+    "Regel 3: alte Form mit fremdem Schema (mailto) oder relativer Adresse: unbekannt, entfernt",
+    `Siehe [Anmeldung](${HOST}/anmeldung) oder [Alle Kurse in X](mailto:a@b.de).\n[Alle Kurse in Y](/kurse/y)\nEnde`,
+    `Siehe [Anmeldung](${HOST}/anmeldung) oder\nEnde`,
+  ],
+  [
+    "S3: Standort-Link aus dem System-Prompt (Kundenregel) bleibt",
+    `${LIST}\n[**Alle Kurse in Geeste**](${GEESTE_URL})\n${DE} [Sport](${SPORT_URL}) · [Geeste](${GEESTE_URL})`,
+    `${LIST}\n[**Alle Kurse in Geeste**](${GEESTE_URL})\n${DE} [Sport (40 Kurse)](${SPORT_URL}) · [Geeste](${GEESTE_URL})`,
+  ],
+  [
+    "S10/S11: Kontextadresse mit Satzzeichen und www-Variante bleiben",
+    `[Alle Kurse in Herbst](${HOST}/kurse/herbst)\n[Alle Kurse in Sommer](https://vhs-beispiel.de/Kurse/Sommer/#oben)`,
+    `[Alle Kurse in Herbst](${HOST}/kurse/herbst)\n[Alle Kurse in Sommer](https://vhs-beispiel.de/Kurse/Sommer/#oben)`,
+  ],
+  [
+    "S12: Link aus der gespeicherten vorigen Antwort bleibt, Adresse aus der Nutzerfrage nicht",
+    `${DE} [Winter](${HOST}/kurse/winter)\n[Alle Kurse in X](${HOST}/kurse/nutzer)\nEnde`,
+    `${DE} [Winter](${HOST}/kurse/winter)\nEnde`,
+  ],
+  [
+    "S2: Einleitung allein, darunter Liste: Knoten gesetzt, erfundener Link samt Zeile weg",
+    `${LIST}\n\n${DE}\n- [Sportkurse (3 Kurse)](${SPORT_URL})\n- [Pilates (4 Kurse)](${HOST}/pilates)\n\nViel Spaß!`,
+    `${LIST}\n\n${DE}\n- [Sport (40 Kurse)](${SPORT_URL})\n\nViel Spaß!`,
+  ],
+  [
+    "S2: Übersichtsblock ohne gültigen Link: Einleitung entfällt mit; Kurs-Link im Block weg (Regel 2)",
+    `Text\n**${DE}**\n1. [Pilates](${HOST}/pilates)\n2. [Hatha-Yoga](${COURSE_URL})\nEnde`,
+    `Text\nEnde`,
+  ],
+  [
+    "S2: Einleitung ohne Link, danach keine Liste oder Liste ohne Link: unverändert",
+    `${DE}\nFragen Sie gern nach.\n${DE}\n- Yoga am Montag\n${DE}`,
+    `${DE}\nFragen Sie gern nach.\n${DE}\n- Yoga am Montag\n${DE}`,
+  ],
+  [
+    "S5: Einleitung mit Schmuck (**, ###, _) wird erkannt",
+    `**Mehr Kurse zum Thema**: [Sportkurse](${SPORT_URL}) · [Pilates](${HOST}/pilates)\n### Mehr Kurse zum Thema: [Pilates (3 Kurse)](${HOST}/pilates)\n_Mehr Kurse zum Thema:_ [Yoga](${YOGA_URL})`,
+    `${DE} [Sport (40 Kurse)](${SPORT_URL})\n${DE} [Yoga (1 Kurs)](${YOGA_URL})`,
+  ],
+  [
+    "S4: Link mit Titel, Adresse in <…>, HTTPS:// werden erkannt",
+    `${DE} [Pilates](${HOST}/pilates "Pilates") · [Yoga]( <${YOGA_URL}> 'Yoga' )\n[**Alle 3 Kurse in Pilates**](<${HOST}/pilates>)\n[Alle 3 Kurse in Sport](HTTPS://WWW.vhs-beispiel.de/kursprogramm/sport)`,
+    `${DE} [Yoga (1 Kurs)](${YOGA_URL})\n${DE} [Sport (40 Kurse)](${SPORT_URL})`,
+  ],
+  [
+    "S4: Autolink in der Übersichtszeile wird geprüft",
+    `${DE} <${HOST}/pilates>\n${DE} <${SPORT_URL}> und <info@vhs-beispiel.de>`,
+    `${DE} [Sport (40 Kurse)](${SPORT_URL})`,
+  ],
+  [
+    "R1-D1 Regel 6: nicht erkannte Linkform in Übersichtszeile und -block: verworfen (fail-closed)",
+    `${DE} [Pilates][1]\n${DE}\n- [Pilates]\n\n[1]: ${HOST}/pilates`,
+    `\n[1]: ${HOST}/pilates`,
   ],
   [
     "mit Karten-Marker, Teaser und Folgefragen",
@@ -236,6 +320,33 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
       expected
     );
     expect([...splitEverywhere(reply)]).toEqual([expected]);
+  });
+
+  test("S1: Linktexte mit 550 Leerzeichen bzw. Müll: ganze Antwort und Stream unter 5 ms je Link", () => {
+    parseCardsReply(`[Sport (3 Kurse)](${SPORT_URL})`, {
+      overviewLinks: GUARD,
+    });
+    const labels = [
+      `Sport (1${" ".repeat(550)}x`,
+      `Alle${" ".repeat(550)}x`,
+      Array.from({ length: 590 }, (_, i) => "(*_ 1.,K"[i % 8]).join(""),
+    ];
+    for (const label of labels) {
+      for (const url of [SPORT_URL, `${HOST}/erfunden`]) {
+        const links = 20;
+        const reply = `${DE} [${label}](${url})\n`.repeat(links);
+        let start = process.hrtime.bigint();
+        parseCardsReply(reply, { overviewLinks: GUARD });
+        expect(
+          Number(process.hrtime.bigint() - start) / 1e6 / links
+        ).toBeLessThan(5);
+        start = process.hrtime.bigint();
+        streamed(reply, 4);
+        expect(
+          Number(process.hrtime.bigint() - start) / 1e6 / links
+        ).toBeLessThan(5);
+      }
+    }
   });
 
   test("NAK-8: kein ungeprüfter Übersichtslink in irgendeinem Stream-Stück", () => {
@@ -253,11 +364,12 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
 
   test("Link wird erst nach der Prüfung gesendet (bis „)“ zurückgehalten)", () => {
     const filter = new OverviewLinkFilter(GUARD);
+    // Leerraum direkt vor dem Link wird mit ihm gehalten (R1-D3)
     expect(
       filter.push("Text [**Alle 3 Kurse in Sport**](https://www.vhs")
-    ).toBe("Text ");
+    ).toBe("Text");
     expect(filter.push("-beispiel.de/kursprogramm/sport) danach")).toBe(
-      `[Sport (40 Kurse)](${SPORT_URL}) danach`
+      ` [Sport (40 Kurse)](${SPORT_URL}) danach`
     );
   });
 
@@ -323,6 +435,76 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
     const filter = new OverviewLinkFilter(GUARD);
     expect(filter.push("Absatz\n- ")).toBe("Absatz\n");
     expect(filter.push("Punkt")).toBe("- Punkt");
+  });
+});
+
+describe("eine Entscheidung für Stream und ganze Antwort (Zufallsantworten, fester Startwert)", () => {
+  // kleine Bausteine echter Antworten; jede Zusammensetzung muss im Stream
+  // (zufällige Token-Grenzen) genauso aussehen wie ganz geprüft, und keine
+  // Übersichtszeile und kein Link in alter Form zeigt auf eine unbekannte
+  // Adresse oder einen Kurs-Link (NAK-8)
+  const PARTS = [
+    DE,
+    `**${DE.slice(0, -1)}**:`,
+    `### ${EN}`,
+    "\n",
+    "\n",
+    "\n",
+    "- ",
+    "1. ",
+    "👉 ",
+    " ",
+    "**",
+    "_",
+    "Text ",
+    "und ",
+    " · ",
+    "(a)",
+    "[1]",
+    "[x][y]",
+    `[Sport (3 Kurse)](${SPORT_URL})`,
+    `[Alle 3 Kurse in Yoga](${YOGA_URL}/)`,
+    `[Pilates](${HOST}/erfunden)`,
+    `[Alle Kurse in X](${HOST}/erfunden)`,
+    `[Hatha](${COURSE_URL})`,
+    `[Alle Kurse in Hatha](${COURSE_URL})`,
+    `[Sommer (2 Kurse)](${OTHER_URL})`,
+    `[Geeste](${GEESTE_URL} "Ort")`,
+    `<${SPORT_URL}>`,
+    `<${HOST}/erfunden>`,
+  ];
+  let seed = 576;
+  const rand = (n) => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed % n;
+  };
+  const badTarget = (text) =>
+    [`](${HOST}/erfunden)`, `](${COURSE_URL})`, `<${HOST}/erfunden>`].some(
+      (t) => text.includes(t)
+    );
+
+  test("2.000 Antworten: Stream gleich ganze Antwort, kein ungeprüfter Übersichtslink", () => {
+    for (let n = 0; n < 2000; n++) {
+      let reply = "";
+      for (let k = 1 + rand(12); k > 0; k--) reply += PARTS[rand(PARTS.length)];
+      const whole = parseCardsReply(reply, { overviewLinks: GUARD }).text;
+      const filter = new CardsMarkerFilter({ overviewLinks: GUARD });
+      let out = "";
+      for (let i = 0; i < reply.length; ) {
+        const size = 1 + rand(6);
+        out += filter.push(reply.slice(i, i + size)).text;
+        i += size;
+      }
+      out += filter.push("", { final: true }).text;
+      expect(out).toBe(whole);
+      for (const line of whole.split("\n")) {
+        const body = line.replace(/^[\s>*+\-\d.)👉#_]*/u, "");
+        if (/^(Mehr Kurse zum Thema|More courses on this topic)/.test(body))
+          expect(badTarget(line)).toBe(false);
+        for (const m of line.matchAll(/\[Alle [^\]]*\]\([^)]*\)/g))
+          expect(badTarget(m[0])).toBe(false);
+      }
+    }
   });
 });
 

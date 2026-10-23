@@ -1269,6 +1269,9 @@ module.exports = {
   COURSE_SOURCES_MAX,
   createCourseLookup,
   sanitizeCourseSources,
+  // KIE-576: gemeinsamer Adressvergleich mit dem Prüfer der Übersichtslinks
+  urlKey,
+  trimUrlTail,
   // nur für Tests
   __test__: {
     COURSE_SOURCE_FIELDS,

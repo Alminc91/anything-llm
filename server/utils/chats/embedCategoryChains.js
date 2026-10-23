@@ -23,24 +23,32 @@
 // Gelesen wird nur der Kopfblock (wie embedCourseSources.headerBlock):
 // Freitext der Beschreibung oder gecrawlter Seiten erzeugt keine Kette.
 //
-// Absicherung (createOverviewLinkGuard, Port von guard v2 aus dem Benchmark
-// f3_parallel.py): Ein Übersichtslink wird entfernt, wenn seine Adresse ein
-// Kurs-Link des Kontexts ist oder nirgends im Kontext steht; zeigt er auf
-// einen Knoten der Karte, setzt der Server Titel und Zahl selbst ein. Der
-// Stream-Filter dazu ist OverviewLinkFilter in embedCardsMarker.js.
+// Absicherung (createOverviewLinkGuard, KIE-576 R1-D1): Der Prüfer
+// entscheidet an der Adresse eines Links, nicht am Wortlaut. Eine einzige
+// Entscheidung (check) für Stream, Antwort ohne Streaming und gespeicherten
+// Text; der Filter dazu ist OverviewLinkFilter in embedCardsMarker.js.
+//   1. Adresse ist ein Knoten der Karte: Linktext immer neu (Titel, Zahl nur
+//      bei de/en), Ziel node.url; überall (Zeile, Liste, Fließtext).
+//   2. Kurs-Link des Kontexts als Übersichtslink: entfernen.
+//   3. Übersichtslink mit unbekannter Adresse: entfernen. Übersichtslink =
+//      Link in einer Übersichtszeile oder einem Übersichtsblock, Linktext in
+//      alter Form („Alle [n] Kurse in …“) oder mit Kurszahl („12 Kurse“).
+//      Bekannt = Adresse aus Kontext, System-Prompt (Kundenregeln) oder
+//      gespeicherten Assistenten-Antworten (eine Normalisierung: linkKey).
+//   4. Bekannte Adresse, kein Knoten: Link bleibt, eine Kurszahl im Linktext
+//      fällt weg (NAK-7).
 // Form der Übersichtszeile (E29) nur in OVERVIEW_LINE und overviewLinkText:
 //   Mehr Kurse zum Thema: [<title> (<n> Kurse)](<url>) · [<title>](<url>)
-// Übersichtslink ist ein Markdown-Link (a) in einer Zeile, die mit der
-// Einleitung beginnt (Schmuck davor zählt nicht), (b) mit dem alten Linktext
-// „Alle [n] Kurse in …“/„All [n] courses in …“ oder (c) mit einem Knoten der
-// Karte als Adresse außerhalb einer Aufzählung. Bei (a) und bei (b) am
-// Zeilenanfang setzt der Server die ganze Zeile, bei (c) und (b) mitten im
-// Text nur den Linktext.
+// Übersichtszeile: Zeile mit der Einleitung (de/en, auch mit *, _, # drum
+// herum) oder mit einem Knoten-Link in alter Form am Zeilenanfang; der
+// Server setzt sie selbst. Übersichtsblock: Einleitung ohne Link und die
+// direkt folgenden Listenzeilen; dort wird je Link entschieden.
 //
 // Ohne gültige Karte (fehlt, kein JSON, version ≠ 1, älter als 36 h) gibt es
 // weder Kette noch Absicherung: Kontext und Antwort bleiben exakt wie vorher.
 
 const prisma = require("../prisma");
+const { urlKey: courseUrlKey, trimUrlTail } = require("./embedCourseSources");
 
 const CATEGORY_MAP_LABEL = "kufer_category_map";
 // Vertrag: höchstens 2 MB (UTF-8), sonst schreibt die Pipeline nicht
@@ -83,13 +91,30 @@ const OVERVIEW_LINE = {
 };
 const OVERVIEW_LANGS = ["de", "en"];
 
-// Absicherung: Übersichtslink und Adressen im Kontext (guard v2)
-// (b) alte Form des Linktexts (Prompt bis v3.5)
-const OVERVIEW_TEXT_RX = /^(alle|all)(\s+\d+)?\s+(kurse|courses)\s+in\b/i;
-// Zahl in Klammern am Ende des Linktexts („Sport (12 Kurse)“, „Sport (12 cours)“)
-const COUNT_PAREN_RX = /^(.*?)\s*\(\s*(\d+)\s*([^()\d]*?)\s*\)$/su;
-const CONTEXT_URL_RX = /https?:\/\/[^\s)\]|"<>]+/g;
+// Absicherung. Security (ReDoS, S1): Linktexte werden vor jeder Regex auf
+// einen Leerraum je Lücke zusammengefasst und auf LABEL_MAX_LEN Codepunkte
+// gekürzt (linkLabel); die Muster haben keine überlappenden Quantoren.
+const LABEL_MAX_LEN = 200;
+// alte Form des Linktexts (Prompt bis v3.5), auf linkLabel
+const OVERVIEW_TEXT_RX =
+  /^(alle|all)(?: (\d+(?:[.,]\d{3})*))? (kurse|courses) in(?![\p{L}\p{N}])/iu;
+// Kurszahl im Linktext („12 Kurse“, „(1.250 courses)“, „3 cours“), auf
+// linkLabel; Wort in den häufigsten Sprachen der Besucher (R1-D2)
+const COURSE_COUNT_RX =
+  /(?<![\p{L}\p{N}.,])(\d+(?:[.,]\d{3})*) ?(kurse?|courses?|cours|cursos?|corsi|corso|cursus(?:sen)?|kursy|kursów|kurzy|kurzů|kurslar|kursu|курс(?:а|ов|ы|и|ів)?)(?![\p{L}\p{N}])/iu;
+const COUNT_WORD_LANG = {
+  kurs: "de",
+  kurse: "de",
+  course: "en",
+  courses: "en",
+};
+// Adressen in Kontext, Prompt und Verlauf (Satzzeichen am Ende schneidet
+// trimUrlTail ab)
+const CONTEXT_URL_RX = /https?:\/\/[^\s)\]|"'<>`]+/gi;
 const CONTEXT_COURSE_LINK_RX = /^Kurs-Link:[ \t]*(\S+)/gm;
+// Kategorieseiten „…/kategorie/<Name>/<Nr>“ = „…/kategorie/<Nr>“ (auf dem
+// Schlüssel von courseUrlKey: Host und Pfad klein, ohne Schema)
+const CATEGORY_KEY_RX = /^([^/]+)(?:\/[^?]*)?\/kategorie\/(?:[^/?]+\/)?(\d+)$/;
 
 /**
  * Eine Ebene eines Kategoriepfads zum Vergleich: wie category_common.
@@ -157,18 +182,21 @@ function isSafeUrl(url) {
 }
 
 /**
- * Vergleichsschlüssel einer Adresse: ohne Schrägstrich am Ende; Kategorie-
- * seiten „…/kategorie/<Name>/<Nr>“ und „…/kategorie/<Nr>“ gelten als gleich
- * (wie url_key im Benchmark).
- * @param {string} url
- * @returns {string}
+ * Gemeinsamer Vergleichsschlüssel einer Adresse (K6) für Knoten, Kontext,
+ * Prompt, Verlauf und Modell-Links: Satzzeichen am Ende ab (trimUrlTail),
+ * dann wie die Kurskarten (embedCourseSources.urlKey: Schema, „www.“,
+ * Fragment, Schrägstrich am Ende, Groß/klein egal), dann Kategorieseiten
+ * „…/kategorie/<Name>/<Nr>“ gleich „…/kategorie/<Nr>“ (url_key im
+ * Benchmark). Keine http(s)-Adresse -> null.
+ * @param {any} url
+ * @returns {string|null}
  */
-function urlKey(url) {
-  const u = String(url ?? "").replace(/\/+$/, "");
-  const m = /^(https?:\/\/[^/]+)(?:\/.*)?\/kategorie\/(?:[^/]+\/)?(\d+)$/.exec(
-    u
-  );
-  return m ? `${m[1]}#kat${m[2]}` : u;
+function linkKey(url) {
+  if (typeof url !== "string") return null;
+  const key = courseUrlKey(trimUrlTail(url.trim()));
+  if (!key) return null;
+  const m = CATEGORY_KEY_RX.exec(key);
+  return m ? `${m[1]}#kat${m[2]}` : key;
 }
 
 /**
@@ -249,10 +277,14 @@ function buildCategoryMap(data) {
       Number.isSafeInteger(node.count) && node.count >= 0 ? node.count : null;
     const entry = { parts, title, url: node.url, count };
     nodes.set(key, entry);
-    const k = urlKey(node.url);
+    const k = linkKey(node.url);
+    if (!k) continue;
     if (!byUrl.has(k)) byUrl.set(k, []);
     byUrl.get(k).push(entry);
   }
+  // je Adresse kürzester Pfad zuerst (stabil: bei Gleichstand Kartenreihenfolge)
+  for (const list of byUrl.values())
+    list.sort((a, b) => a.parts.length - b.parts.length);
 
   const courses = new Map();
   for (const [number, path] of Object.entries(data.courses ?? {})) {
@@ -324,9 +356,20 @@ async function loadCategoryMap({ now = Date.now() } = {}) {
   return map;
 }
 
+// Kursanzahl als Text (deutsches bzw. englisches Zahlformat, S14)
+function formatCount(n, lang = "de") {
+  return n.toLocaleString(lang === "en" ? "en-US" : "de-DE");
+}
+
+// Zahl im Kontext (Kettenzeile): null ohne Klammer, sonst auch 0
 function countLabel(count) {
   if (count === null) return "";
-  return count === 1 ? " (1 Kurs)" : ` (${count} Kurse)`;
+  return count === 1 ? " (1 Kurs)" : ` (${formatCount(count)} Kurse)`;
+}
+
+// Zahl im Linktext nur, wenn gezählt und mindestens 1 (NAK-7)
+function hasCount(node) {
+  return node.count !== null && node.count >= 1;
 }
 
 /**
@@ -439,12 +482,9 @@ function chainText(text, map) {
   // Gecrawlte Kategorieseite: Quellenadresse im Metadatenkopf
   if (metaEnd === 0) return text;
   const source = SOURCE_LINE_RX.exec(text.slice(0, metaEnd));
-  const candidates = source ? map.byUrl.get(urlKey(source[1])) : null;
+  const candidates = source ? map.byUrl.get(linkKey(source[1])) : null;
   if (!candidates) return text;
-  const node = candidates.reduce((best, n) =>
-    n.parts.length < best.parts.length ? n : best
-  );
-  const chain = chainLines(node.parts, map);
+  const chain = chainLines(candidates[0].parts, map);
   if (chain.length === 0) return text;
   return `${text.slice(0, metaEnd)}${chain.join("\n")}\n${text.slice(metaEnd)}`;
 }
@@ -492,7 +532,7 @@ async function buildChainedContext(
 }
 
 /**
- * Linktext eines Übersichtslinks auf einen Knoten (E29): „<title> (<n> Kurse)“,
+ * Linktext eines Links auf einen Knoten (E29): „<title> (<n> Kurse)“,
  * n = 1 „(1 Kurs)“, ohne gezählte Zahl nur „<title>“. Nicht fett.
  * @param {{title: string, count: number|null}} node
  * @param {"de"|"en"} lang
@@ -500,93 +540,179 @@ async function buildChainedContext(
  */
 function overviewLinkText(node, lang) {
   const form = OVERVIEW_LINE[lang];
+  if (!hasCount(node)) return node.title;
   const n = node.count;
-  if (n === null || n < 1) return node.title;
-  return `${node.title} (${n} ${n === 1 ? form.one : form.many})`;
-}
-
-// Sprache der Zahl in Klammern („12 Kurse“ -> de, „12 courses“ -> en)
-function langOfCountWord(word) {
-  const w = word.toLowerCase();
-  return OVERVIEW_LANGS.find(
-    (lang) =>
-      w === OVERVIEW_LINE[lang].one.toLowerCase() ||
-      w === OVERVIEW_LINE[lang].many.toLowerCase()
-  );
+  return `${node.title} (${formatCount(n, lang)} ${n === 1 ? form.one : form.many})`;
 }
 
 /**
- * (c) Linktext eines Knoten-Links ohne Einleitung: nur mit Zahl in Klammern
- * am Ende neu gesetzt (Titel aus der Karte, Zahl ersetzt oder entfernt; Wort
- * einer anderen Sprache bleibt), sonst unverändert (Fließtext bleibt heil).
+ * Linktext zum Prüfen (S1): Leerraum zusammengefasst, höchstens
+ * LABEL_MAX_LEN Codepunkte, ohne * und _ und Leerraum an den Enden.
+ * @param {any} text
  * @returns {string}
  */
-function nodeLinkText(text, label, node) {
-  const paren = COUNT_PAREN_RX.exec(label);
-  if (!paren) return text;
-  const lang = langOfCountWord(paren[3]);
-  if (lang) return overviewLinkText(node, lang);
-  if (node.count === null || node.count < 1) return node.title;
-  return `${node.title} (${node.count}${paren[3] ? ` ${paren[3]}` : ""})`;
-}
-
-// Erkennen der Einleitung am Zeilenanfang: Treffer, noch offen (Text endet
-// mitten in der Einleitung) oder nichts
-const INTRO_PENDING = { pending: true };
-function matchOverviewIntro(head, final) {
-  const lower = String(head ?? "").toLowerCase();
-  for (const lang of OVERVIEW_LANGS) {
-    const intro = OVERVIEW_LINE[lang].intro.toLowerCase();
-    if (lower.startsWith(intro)) return { lang, length: intro.length };
-  }
-  if (final) return null;
-  for (const lang of OVERVIEW_LANGS) {
-    const intro = OVERVIEW_LINE[lang].intro.toLowerCase();
-    if (lower.length < intro.length && intro.startsWith(lower))
-      return INTRO_PENDING;
-  }
-  return null;
+function linkLabel(text) {
+  const flat = truncateCodePoints(
+    String(text ?? "").replace(/\s+/g, " "),
+    LABEL_MAX_LEN
+  );
+  let a = 0;
+  let b = flat.length;
+  while (a < b && "*_ ".includes(flat[a])) a += 1;
+  while (b > a && "*_ ".includes(flat[b - 1])) b -= 1;
+  return flat.slice(a, b);
 }
 
 /**
- * Prüfer für Übersichtslinks einer Antwort (guard v2, Form E29). Eingaben:
- * die Kontexttexte, wie das Modell sie bekam (mit Kette), und die Karte. Ohne
- * Karte null (keine Absicherung, Antwort unverändert).
+ * Kurszahl im Linktext entfernen (Regel 4): alte Form nur die Zahl („Alle 3
+ * Kurse in X“ -> „Alle Kurse in X“), sonst die Angabe samt Klammer bzw.
+ * Trenner davor. Ohne Zahl derselbe Text; bleibt nichts übrig, null.
+ * @param {string} text - Linktext des Modells
+ * @returns {string|null}
+ */
+function stripCourseCount(text) {
+  const flat = String(text).replace(/\s+/g, " ");
+  if ([...flat].length > LABEL_MAX_LEN) return text; // nie ein Übersichtstext
+  const old = OVERVIEW_TEXT_RX.exec(linkLabel(flat));
+  if (old) {
+    if (!old[2]) return text;
+    return flat.replace(` ${old[2]} `, " ");
+  }
+  const m = COURSE_COUNT_RX.exec(flat);
+  if (!m) return text;
+  let from = m.index;
+  let to = m.index + m[0].length;
+  while (from > 0 && flat[from - 1] === " ") from -= 1;
+  let after = to;
+  while (after < flat.length && flat[after] === " ") after += 1;
+  if (flat[from - 1] === "(" && flat[after] === ")") {
+    from -= 1;
+    to = after + 1;
+  } else if (from > 0 && ",;:\u00b7\u2013\u2014-".includes(flat[from - 1])) {
+    from -= 1;
+  }
+  while (from > 0 && flat[from - 1] === " ") from -= 1;
+  const out = `${flat.slice(0, from)}${flat.slice(to)}`.replace(/ {2,}/g, " ");
+  return linkLabel(out) ? out.trim() : null;
+}
+
+// Sprache der Zahl im Linktext: Wort der Kurszahl, sonst null
+function countLang(count) {
+  return count ? COUNT_WORD_LANG[count[2].toLowerCase()] ?? null : null;
+}
+
+/**
+ * Linktext eines Knoten-Links (Regel 1): Titel aus der Karte; mit Sprache
+ * de/en die Zahl nach E29; schreibt das Modell die Zahl mit einem Wort einer
+ * anderen Sprache, bleibt dieses Wort (K1-D2), sonst nur der Titel.
+ * @returns {string}
+ */
+function nodeLinkText(node, lang, count) {
+  if (lang) return overviewLinkText(node, lang);
+  if (count && hasCount(node))
+    return `${node.title} (${node.count} ${count[2]})`;
+  return node.title;
+}
+
+// Einleitung am Zeilenanfang (E29, de/en): Schmuck * _ # davor, * _ vor und
+// nach dem Doppelpunkt (S5), je höchstens INTRO_DECOR_MAX Zeichen (die
+// Einleitung passt so immer in INTRO_SCAN des Filters). Treffer
+// {lang, length}, offen (Text endet mittendrin) oder null
+const INTRO_PENDING = { pending: true };
+const INTRO_DECOR_MAX = 8;
+function matchOverviewIntro(head, final) {
+  const s = String(head ?? "");
+  let i = 0;
+  while (i < s.length && i < INTRO_DECOR_MAX && "#*_ \t".includes(s[i])) i += 1;
+  let pending = false;
+  for (const lang of OVERVIEW_LANGS) {
+    const intro = OVERVIEW_LINE[lang].intro.toLowerCase();
+    const phrase = intro.endsWith(":") ? intro.slice(0, -1) : intro;
+    let k = i;
+    let j = 0;
+    while (
+      j < phrase.length &&
+      k < s.length &&
+      s[k].toLowerCase() === phrase[j]
+    ) {
+      j += 1;
+      k += 1;
+    }
+    if (j < phrase.length) {
+      if (k === s.length) pending = true;
+      continue;
+    }
+    const gap = k + INTRO_DECOR_MAX;
+    while (k < s.length && k < gap && "*_ \t".includes(s[k])) k += 1;
+    if (k === s.length) {
+      pending = true;
+      continue;
+    }
+    if (s[k] !== ":") continue;
+    k += 1;
+    const close = k + INTRO_DECOR_MAX;
+    while (k < s.length && k < close && "*_".includes(s[k])) k += 1;
+    if (k === s.length && !final) return INTRO_PENDING;
+    return { lang, length: k };
+  }
+  return pending && !final ? INTRO_PENDING : null;
+}
+
+/**
+ * Prüfer für Links einer Antwort (R1-D1, Form E29). Eingaben: Kontexttexte,
+ * wie das Modell sie bekam (mit Kette), System-Prompt, Verlauf (nur die
+ * gespeicherten Assistenten-Antworten zählen) und Karte. Ohne Karte null
+ * (keine Absicherung, Antwort unverändert).
  *
- * check(text, url, where) mit where = {lang, lineStart, enumeration}:
- *   lang: Sprache der Einleitung, wenn der Link in einer Zeile „Mehr Kurse
- *     zum Thema: …“ steht (a); lineStart: vor dem Link nur Schmuck;
- *   enumeration: Zeile ist ein Aufzählungspunkt („1. “, „- “, „• “ …).
- * Ergebnis:
- *   null: kein Übersichtslink, unverändert;
- *   {remove: true}: Link (am Zeilenanfang samt Zeile) entfernen;
- *   {remove: true, plain}: (c) nur den Link durch plain ersetzen (steht
- *     er allein in seiner Zeile, entfällt die Zeile);
- *   {remove: false, text, line}: Linktext text; line = Sprache, wenn der
- *     Server die ganze Zeile setzt ((b) am Zeilenanfang).
+ * check(text, url, where) mit where = {overview, lineStart, autolink}:
+ *   overview: Sprache der Übersichtszeile bzw. des Übersichtsblocks, in dem
+ *     der Link steht, sonst null; lineStart: vor dem Link nur Schmuck;
+ *   autolink: Link der Form <https://…> (Text = Adresse).
+ * Ergebnis (dieselbe Entscheidung für Stream, Antwort und Speichern):
+ *   null: unverändert;
+ *   {remove: true}: entfernen;
+ *   {remove: false, text, url, line}: Link „[text](url)“; url null = Ziel
+ *     des Modells behalten; line = Sprache, wenn der Server die ganze Zeile
+ *     setzt (Knoten-Link in alter Form am Zeilenanfang).
  * intro(lang), separator und matchIntro dienen dem Stream-Filter zum Setzen
  * der Zeile (Form nur in OVERVIEW_LINE).
- * @param {{contextTexts: string[], map: object|null}} input
+ * @param {{contextTexts?: string[], map: object|null, systemPrompt?: string, history?: {role: string, content: any}[]}} input
  * @returns {object|null}
  */
-function createOverviewLinkGuard({ contextTexts, map } = {}) {
+function createOverviewLinkGuard({
+  contextTexts,
+  map,
+  systemPrompt = "",
+  history = [],
+} = {}) {
   if (!map) return null;
   const context = (Array.isArray(contextTexts) ? contextTexts : [])
     .filter((t) => typeof t === "string")
     .join("\n");
-  const seen = new Set(
-    (context.match(CONTEXT_URL_RX) ?? []).map((u) => urlKey(u))
-  );
+  const known = new Set();
+  const learn = (text) => {
+    if (typeof text !== "string") return;
+    for (const m of text.matchAll(CONTEXT_URL_RX)) {
+      const key = linkKey(m[0]);
+      if (key) known.add(key);
+    }
+  };
+  learn(context);
+  learn(systemPrompt);
+  for (const entry of Array.isArray(history) ? history : [])
+    if (entry?.role === "assistant") learn(entry.content);
   const courseLinks = new Set(
-    [...context.matchAll(CONTEXT_COURSE_LINK_RX)].map((m) => urlKey(m[1]))
+    [...context.matchAll(CONTEXT_COURSE_LINK_RX)]
+      .map((m) => linkKey(m[1]))
+      .filter(Boolean)
   );
 
-  // Knoten zu einer Adresse: der, dessen Kettenzeile im Kontext steht (erste
-  // Fundstelle), sonst der mit dem kürzesten Pfad
-  const nodeOf = (url) => {
-    const candidates = map.byUrl.get(urlKey(url));
+  // Knoten zu einer Adresse: der, dessen Kettenzeile im Kontext zuerst
+  // steht, sonst der mit dem kürzesten Pfad
+  const nodeOf = (key) => {
+    const candidates = key ? map.byUrl.get(key) : null;
     if (!candidates) return null;
-    let best = null;
+    let best = candidates[0];
     let bestPos = Infinity;
     for (const node of candidates) {
       const pos = context.indexOf(
@@ -597,10 +723,7 @@ function createOverviewLinkGuard({ contextTexts, map } = {}) {
         bestPos = pos;
       }
     }
-    return (
-      best ??
-      candidates.reduce((a, n) => (n.parts.length < a.parts.length ? n : a))
-    );
+    return best;
   };
 
   return {
@@ -610,39 +733,36 @@ function createOverviewLinkGuard({ contextTexts, map } = {}) {
     check(
       text,
       url,
-      { lang = null, lineStart = false, enumeration = false } = {}
+      { overview = null, lineStart = false, autolink = false } = {}
     ) {
-      const label = String(text ?? "").replace(/^[*\s]+|[*\s]+$/g, "");
+      const label = autolink ? "" : linkLabel(text);
       const old = OVERVIEW_TEXT_RX.exec(label);
-      const key = urlKey(url);
-      const isNode = map.byUrl.has(key);
-      const kind = lang
-        ? "line"
-        : old
-          ? "old"
-          : isNode && !enumeration
-            ? "node"
-            : null;
-      if (!kind) return null;
-      if (courseLinks.has(key) || !seen.has(key)) {
-        if (kind !== "node") return { remove: true };
-        const plain = COUNT_PAREN_RX.exec(label)?.[1] ?? label;
-        return { remove: true, plain };
-      }
-      const node = isNode ? nodeOf(url) : null;
-      if (!node) return { remove: false, text, line: null };
-      if (kind === "node")
+      const count = old ? null : COURSE_COUNT_RX.exec(label);
+      const key = linkKey(url);
+      const node = nodeOf(key);
+      if (node) {
+        const oldLang = old
+          ? old[1].toLowerCase() === "alle"
+            ? "de"
+            : "en"
+          : null;
+        const lang = overview ?? oldLang ?? countLang(count);
         return {
           remove: false,
-          text: nodeLinkText(text, label, node),
-          line: null,
+          text: nodeLinkText(node, lang, count),
+          url: node.url,
+          line: !overview && old && lineStart ? lang : null,
         };
-      const textLang = lang ?? (old[1].toLowerCase() === "alle" ? "de" : "en");
-      return {
-        remove: false,
-        text: overviewLinkText(node, textLang),
-        line: kind === "old" && lineStart ? textLang : null,
-      };
+      }
+      if (!overview && !old && !count) return null;
+      if (!key || !known.has(key)) return { remove: true };
+      if (courseLinks.has(key) && (overview || old)) return { remove: true };
+      if (autolink) return null;
+      const stripped = stripCourseCount(text);
+      if (stripped === null) return { remove: true };
+      return stripped === text
+        ? null
+        : { remove: false, text: stripped, url: null, line: null };
     },
   };
 }
@@ -664,7 +784,10 @@ module.exports = {
     parseCategoryMap,
     normalizePart,
     pathParts,
-    urlKey,
+    linkKey,
+    linkLabel,
+    stripCourseCount,
+    matchOverviewIntro,
     chainText,
     resetCache: () => {
       cached = { raw: null, map: null };
