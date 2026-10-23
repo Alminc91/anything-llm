@@ -19,10 +19,7 @@ const {
   startMetadataFilterResolution,
 } = require("./metadataFilterResolver");
 const { Telemetry } = require("../../models/telemetry");
-const {
-  loadCategoryMap,
-  applyCategoryChains,
-} = require("./embedCategoryChains");
+const { buildChainedContext } = require("./embedCategoryChains");
 const { CollectorApi } = require("../collectorApi");
 const fs = require("fs");
 const path = require("path");
@@ -413,11 +410,8 @@ async function chatSync({
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
   // KIE-576: Kategorie-Kette im Kontext (nur contextTexts, siehe
   // embedCategoryChains.js); ohne gültige Karte unverändert. Die Absicherung
-  // der Übersichtslinks gibt es nur im Embed-Pfad (Markerfilter).
-  contextTexts = applyCategoryChains(
-    [...contextTexts, ...filledSources.contextTexts],
-    await loadCategoryMap()
-  );
+  // der Links gibt es nur im Embed-Pfad (Markerfilter).
+  ({ contextTexts } = await buildChainedContext(contextTexts, filledSources));
   sources = [...sources, ...vectorSearchResults.sources];
 
   // If in query mode and no context chunks are found from search, backfill, or pins -  do not
@@ -834,11 +828,8 @@ async function streamChat({
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
   // KIE-576: Kategorie-Kette im Kontext (nur contextTexts, siehe
   // embedCategoryChains.js); ohne gültige Karte unverändert. Die Absicherung
-  // der Übersichtslinks gibt es nur im Embed-Pfad (Markerfilter).
-  contextTexts = applyCategoryChains(
-    [...contextTexts, ...filledSources.contextTexts],
-    await loadCategoryMap()
-  );
+  // der Links gibt es nur im Embed-Pfad (Markerfilter).
+  ({ contextTexts } = await buildChainedContext(contextTexts, filledSources));
   sources = [...sources, ...vectorSearchResults.sources];
 
   // If in query mode and no context chunks are found from search, backfill, or pins -  do not

@@ -171,7 +171,12 @@ beforeEach(() => {
   });
 });
 
-async function run({ reply = REPLY, streaming = true, map = MAP_JSON() }) {
+async function run({
+  reply = REPLY,
+  streaming = true,
+  map = MAP_JSON(),
+  courseCards = "off",
+}) {
   prisma.system_settings.findFirst.mockResolvedValue(
     map === null ? null : { value: map }
   );
@@ -198,7 +203,7 @@ async function run({ reply = REPLY, streaming = true, map = MAP_JSON() }) {
     id: 3,
     chat_mode: "chat",
     message_limit: 20,
-    visual_config: JSON.stringify({ courseCards: "off" }),
+    visual_config: JSON.stringify({ courseCards }),
     workspace: { id: 9, slug: "chatbot", messagesLimit: null, topN: 4 },
   };
   jest.spyOn(console, "log").mockImplementation(() => {});
@@ -259,6 +264,27 @@ describe("mit gültiger Karte", () => {
       const { stored, text } = await run({ streaming, reply: REPLY_E29 });
       expect(text).toBe(GUARDED_E29);
       expect(stored.text).toBe(GUARDED_E29);
+    }
+  );
+});
+
+describe("R1-D4 (NAK-9): im Kurskarten-Modus weder Kette noch Prüfer", () => {
+  test.each([
+    ["Stream", true],
+    ["ohne Streaming", false],
+  ])(
+    "%s: gültige Karte, Kurskarten an: Kontext und Antwort mit Übersichtslinks unverändert",
+    async (_name, streaming) => {
+      const { stored, text, contextTexts } = await run({
+        streaming,
+        courseCards: "auto",
+      });
+      expect(contextTexts).toEqual([COURSE_TEXT, PAGE_TEXT]);
+      expect(text).toBe(REPLY);
+      expect(stored.text).toBe(REPLY);
+      expect(prisma.system_settings.findFirst).not.toHaveBeenCalledWith(
+        expect.objectContaining({ where: { label: "kufer_category_map" } })
+      );
     }
   );
 });

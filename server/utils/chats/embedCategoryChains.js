@@ -468,6 +468,30 @@ function applyCategoryChains(contextTexts, map) {
 }
 
 /**
+ * Kontext eines Chatpfads (SC7): angeheftete Texte und Treffer, mit Kette,
+ * falls eine gültige Karte vorliegt. enabled = false (Kurskarten-Modus,
+ * R1-D4): keine Karte, Kontext unverändert.
+ * @param {string[]} contextTexts
+ * @param {{contextTexts: string[]}} filledSources - fillSourceWindow()
+ * @param {{enabled?: boolean}} [options]
+ * @returns {Promise<{contextTexts: string[], map: object|null}>}
+ */
+async function buildChainedContext(
+  contextTexts,
+  filledSources,
+  { enabled = true } = {}
+) {
+  const map = enabled ? await loadCategoryMap() : null;
+  return {
+    contextTexts: applyCategoryChains(
+      [...contextTexts, ...filledSources.contextTexts],
+      map
+    ),
+    map,
+  };
+}
+
+/**
  * Linktext eines Übersichtslinks auf einen Knoten (E29): „<title> (<n> Kurse)“,
  * n = 1 „(1 Kurs)“, ohne gezählte Zahl nur „<title>“. Nicht fett.
  * @param {{title: string, count: number|null}} node
@@ -628,6 +652,7 @@ module.exports = {
   validateCategoryMapSetting,
   loadCategoryMap,
   applyCategoryChains,
+  buildChainedContext,
   createOverviewLinkGuard,
   categoryMapUpdatedAt,
   // nur für Tests

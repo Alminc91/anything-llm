@@ -18,10 +18,7 @@ const {
 } = require("./index");
 const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
 const { startMetadataFilterResolution } = require("./metadataFilterResolver");
-const {
-  loadCategoryMap,
-  applyCategoryChains,
-} = require("./embedCategoryChains");
+const { buildChainedContext } = require("./embedCategoryChains");
 
 const VALID_CHAT_MODE = ["chat", "query"];
 
@@ -275,11 +272,8 @@ async function streamChatWithWorkspace(
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
   // KIE-576: Kategorie-Kette im Kontext (nur contextTexts, siehe
   // embedCategoryChains.js); ohne gültige Karte unverändert. Die Absicherung
-  // der Übersichtslinks gibt es nur im Embed-Pfad (Markerfilter).
-  contextTexts = applyCategoryChains(
-    [...contextTexts, ...filledSources.contextTexts],
-    await loadCategoryMap()
-  );
+  // der Links gibt es nur im Embed-Pfad (Markerfilter).
+  ({ contextTexts } = await buildChainedContext(contextTexts, filledSources));
   sources = [...sources, ...vectorSearchResults.sources];
 
   // Check if workspace has reached message limit

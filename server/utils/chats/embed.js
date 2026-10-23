@@ -33,8 +33,7 @@ const {
   restoreCardsMarkers,
 } = require("./embedCardsMarker");
 const {
-  loadCategoryMap,
-  applyCategoryChains,
+  buildChainedContext,
   createOverviewLinkGuard,
 } = require("./embedCategoryChains");
 
@@ -215,19 +214,34 @@ async function streamChatWithForEmbed(
   // If a past citation was used to answer the question - that is visible in the history so it logically makes sense
   // and does not appear to the user that a new response used information that is otherwise irrelevant for a given prompt.
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
+  // Folgefragen sind fester Standard (immer an): Prompt-Hinweis am Ende
+  // (embedSystemPrompt) und Chunk an das Widget. Kurskarten nach der Wahl
+  // im Design Center (KIE-567, courseCards "auto" = Kurskarten, "off" = Nur
+  // Text mit Links: klassischer Prompt ohne Karten-Abschnitt); ohne
+  // gespeicherte Wahl nach der Darstellung, die das Widget mitschickt (R4:
+  // In der Seite an, Chatfenster aus).
+  const cardsOn = courseCardsEnabled(embed, { displayMode });
+  const systemPrompt = embedSystemPrompt(
+    await chatPrompt(embed.workspace, username),
+    { cardsOn }
+  );
+
   // KIE-576: mit gültiger Kategorie-Karte je Kursdokument die Kette
   // „Kategorie-Ebene d: …“ statt der Kategorie-/Bereich-Link-Zeilen (nur
   // contextTexts; sources, Kurskarten und Verlauf bleiben unverändert). Der
-  // Prüfer der Übersichtslinks sieht denselben Kontext wie das Modell; ohne
-  // Karte gibt es weder Kette noch Prüfer (alles wie vorher).
-  const categoryMap = await loadCategoryMap();
-  contextTexts = applyCategoryChains(
-    [...contextTexts, ...filledSources.contextTexts],
-    categoryMap
-  );
+  // Prüfer der Links kennt die Adressen, die auch das Modell sieht: Kontext,
+  // System-Prompt (Kundenregeln) und gespeicherte Antworten des Verlaufs.
+  // Ohne Karte und im Kurskarten-Modus (R1-D4, NAK-9) gibt es weder Kette
+  // noch Prüfer (alles wie vorher).
+  const chained = await buildChainedContext(contextTexts, filledSources, {
+    enabled: !cardsOn,
+  });
+  contextTexts = chained.contextTexts;
   const overviewLinks = createOverviewLinkGuard({
     contextTexts,
-    map: categoryMap,
+    map: chained.map,
+    systemPrompt,
+    history: chatHistory,
   });
   sources = [...sources, ...vectorSearchResults.sources];
   // Quelle je Kontextblock [CONTEXT n] (n = Index in contextTexts)
@@ -249,22 +263,11 @@ async function streamChatWithForEmbed(
     return;
   }
 
-  // Folgefragen sind fester Standard (immer an): Prompt-Hinweis am Ende
-  // (embedSystemPrompt) und Chunk an das Widget. Kurskarten nach der Wahl
-  // im Design Center (KIE-567, courseCards "auto" = Kurskarten, "off" = Nur
-  // Text mit Links: klassischer Prompt ohne Karten-Abschnitt); ohne
-  // gespeicherte Wahl nach der Darstellung, die das Widget mitschickt (R4:
-  // In der Seite an, Chatfenster aus).
-  const cardsOn = courseCardsEnabled(embed, { displayMode });
-
   // Compress message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: embedSystemPrompt(
-        await chatPrompt(embed.workspace, username),
-        { cardsOn }
-      ),
+      systemPrompt,
       userPrompt: message,
       contextTexts,
       chatHistory,
