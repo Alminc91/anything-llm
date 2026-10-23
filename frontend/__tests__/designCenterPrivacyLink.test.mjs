@@ -153,6 +153,47 @@ test("AK-7: früher ausgeschaltet (none): Überschrift, Text und Link werden gep
   );
 });
 
+// F5 (C1, Fixliste rc1): Eine leere Überschrift ist kein eigener Zustand
+// mehr. Sie gilt wie der Standard: beim Speichern entfernt (wie der
+// Standard nur nach einer Bearbeitung, F05), der Server liefert sie nicht
+// aus, die Vorschau zeigt den Standard. Bis 7.22.2 hieß leer „keine
+// Überschrift“.
+test("F5: leere Überschrift gilt wie der Standard: beim Speichern entfernt, ungeändert gespeichert bleibt sie stehen", () => {
+  for (const privacyTitle of ["", "   "]) {
+    for (const initial of [{}, { privacyTitle: "Hinweis" }])
+      assert.deepEqual(
+        keys.cleanConfig(
+          { privacyTitle },
+          { initial, defaults: DEFAULTS, greetingKey: "greeting" }
+        ),
+        {},
+        `${JSON.stringify(privacyTitle)} aus ${JSON.stringify(initial)}`
+      );
+    const stored = { privacyTitle };
+    assert.deepEqual(
+      keys.cleanConfig(stored, { initial: stored, defaults: DEFAULTS }),
+      stored
+    );
+  }
+});
+
+test("F5: Vorschau zeigt bei leerer Überschrift den Standard, ohne Sonderfall in der Darstellung", async () => {
+  if (!hasFrontendDeps) return;
+  const { previewPrivacy } = await renderer.load(PREVIEW);
+  for (const privacyTitle of ["", "   ", undefined]) {
+    assert.equal(
+      previewPrivacy({ privacyTitle }, DEFAULTS).title,
+      "Datenschutz"
+    );
+    assert.equal(previewPrivacy({ privacyTitle }, null).title, "Datenschutz");
+  }
+  assert.equal(
+    previewPrivacy({ privacyTitle: " Hinweis " }, DEFAULTS).title,
+    "Hinweis"
+  );
+  assert.equal("standardTitle" in previewPrivacy({}, DEFAULTS), false);
+});
+
 // ---------------------------------------------------------------------------
 // Reiter Inhalt
 // ---------------------------------------------------------------------------

@@ -577,8 +577,12 @@ describe("Datenschutz-Text", () => {
       expect(normalizePrivacyText(v)).toBe(null);
   });
 
-  test("privacyTitleValue: leer bleibt leer (keine Überschrift), früherer Standard mit Doppelpunkt = Standard", () => {
-    expect(privacyTitleValue("")).toBe("");
+  // F5 (C1, Fixliste rc1, 7.23): leer gilt wie nicht gesetzt, das Fenster
+  // zeigt den Standard; bis 7.22.2 lieferte der Server "" (keine Überschrift
+  // in der Blase)
+  test("privacyTitleValue: leer = nicht gesetzt (Standard im Fenster), früherer Standard mit Doppelpunkt = Standard", () => {
+    expect(privacyTitleValue("")).toBe(undefined);
+    expect(privacyTitleValue("   ")).toBe(undefined);
     expect(privacyTitleValue("Datenschutz:")).toBe(undefined);
     expect(privacyTitleValue(" Privacy: ")).toBe(undefined);
     expect(privacyTitleValue(" Datenschutz ")).toBe("Datenschutz");

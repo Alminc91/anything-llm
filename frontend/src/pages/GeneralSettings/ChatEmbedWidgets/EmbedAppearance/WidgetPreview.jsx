@@ -684,8 +684,8 @@ export const PRIVACY_STATEMENT_LINK = "Datenschutzerklärung";
 /**
  * Inhalt von Fußzeile und Datenschutz-Fenster der Vorschau: feste Texte aus
  * den Standardtexten (sonst PRIVACY_PREVIEW_TEXTS), Überschrift wie das Feld
- * (gespeichert, sonst Standard; "" ergibt im Fenster den Standard wie im
- * Widget, privacyDialogTitle), Text als
+ * (gespeichert, sonst Standard; leer gilt wie der Standard, wie im Widget
+ * und beim Speichern, F5), Text als
  * Absätze und Punkte (gespeichert, sonst Standard; nie als HTML), Link zur
  * Datenschutzerklärung nur als gültige https-Adresse oder Pfad.
  * @param {Object} config
@@ -695,12 +695,13 @@ export function previewPrivacy(config, defaults) {
   const text = textValue(config.privacyText).trim()
     ? config.privacyText
     : textValue(defaults?.privacyText);
+  const standard = defaults || PRIVACY_PREVIEW_TEXTS;
   return {
     ...privacyFixedTexts(defaults),
-    title: privacyTitleFieldValue(
-      config,
-      defaults || PRIVACY_PREVIEW_TEXTS
-    ).trim(),
+    title:
+      privacyTitleFieldValue(config, standard).trim() ||
+      textValue(standard.privacyTitle).trim() ||
+      PRIVACY_PREVIEW_TEXTS.privacyTitle,
     blocks: privacyBlocks(text),
     url: validPrivacyUrl(config.privacyUrl) ? config.privacyUrl.trim() : "",
   };
@@ -713,8 +714,6 @@ function privacyFixedTexts(defaults) {
   return {
     disclaimer: fixed("disclaimerText"),
     linkText: fixed("privacyLinkText"),
-    // Überschrift des Fensters bei leerem Feld
-    standardTitle: fixed("privacyTitle"),
     aiTitle: fixed("privacyAiTitle"),
     aiText: fixed("privacyAiText"),
     closeText: fixed("privacyCloseText"),
@@ -857,7 +856,7 @@ function PreviewPrivacyDialog({
           tabIndex={-1}
           className={`text-[15px] font-bold leading-snug outline-none ${BREAK}`}
         >
-          {privacy.title || privacy.standardTitle}
+          {privacy.title}
         </h3>
       </div>
       <div

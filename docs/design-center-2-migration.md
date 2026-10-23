@@ -345,7 +345,7 @@ mit eigenem Datenschutz-Text.
 | `privacyUrl`        | fehlt                                                             | kein Link zur Datenschutzerklärung im Fenster; das Design Center empfiehlt, ihn einzutragen |
 | `privacyUrl`        | `https://…` oder `/pfad`                                          | ab 7.23 als Link zur Datenschutzerklärung im Datenschutz-Fenster (bis 7.22.2 am Ende der Blase), neuer Tab |
 | `privacyTitle`      | „Datenschutz:“ / „Privacy:“                                       | gilt als nicht gesetzt: Standard ohne Doppelpunkt                        |
-| `privacyTitle`      | `""`                                                              | ab 7.23 zeigt das Datenschutz-Fenster den Standard „Datenschutz“ (en „Privacy“), das Fenster hat immer eine Überschrift; 7.22 bis 7.22.2 bewusst keine Überschrift in der Blase |
+| `privacyTitle`      | `""`                                                              | ab 7.23 wie nicht gesetzt: `GET /embed/:id/config` liefert keine Überschrift, das Datenschutz-Fenster zeigt den Standard „Datenschutz“ (en „Privacy“), das Design Center entfernt eine geleerte Überschrift beim Speichern (F5, Fixliste rc1); 7.22 bis 7.22.2 bewusst keine Überschrift in der Blase |
 | `privacyText`       | Altformat (Zeilen bzw. „\|“-Teile ohne „•“ oder „-“)              | mehrere Teile als Aufzählung („• “-Zeilen), ein Teil als Absatz          |
 | `privacyText`       | länger als 1000 Zeichen, auch erst nach dem Voranstellen von „• “ | nicht ausgeliefert: Standardtext; im Design Center Fehler beim Ändern    |
 

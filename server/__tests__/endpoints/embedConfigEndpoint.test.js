@@ -806,20 +806,23 @@ describe("GET /embed/:embedId/config — Untertitel und Datenschutz", () => {
       );
   });
 
-  test("privacyTitle: eigener Text, leer = bewusst keine Überschrift, zu lang/kein String/früherer Standard weggelassen", async () => {
+  // F5 (C1, Fixliste rc1, 7.23): leer gilt wie nicht gesetzt (das Fenster
+  // zeigt den Standard); bis 7.22.2 lieferte der Server "" (keine Überschrift)
+  test("privacyTitle: eigener Text, leer/zu lang/kein String/früherer Standard weggelassen", async () => {
     expect(
       (await fetchConfig({ privacyTitle: " Hinweis " })).body.privacyTitle
     ).toBe("Hinweis");
-    expect((await fetchConfig({ privacyTitle: "" })).body.privacyTitle).toBe(
-      ""
-    );
-    expect((await fetchConfig({ privacyTitle: "   " })).body.privacyTitle).toBe(
-      ""
-    );
     expect(
       (await fetchConfig({ privacyTitle: "t".repeat(120) })).body.privacyTitle
     ).toHaveLength(120);
-    for (const privacyTitle of ["t".repeat(121), null, 5, "Datenschutz:"])
+    for (const privacyTitle of [
+      "",
+      "   ",
+      "t".repeat(121),
+      null,
+      5,
+      "Datenschutz:",
+    ])
       expect((await fetchConfig({ privacyTitle })).body).not.toHaveProperty(
         "privacyTitle"
       );

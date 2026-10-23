@@ -803,9 +803,9 @@ export function previewInlineBar(config, defaults) {
 
 /**
  * Wert im Feld „Überschrift“ des Datenschutz-Hinweises: eigener Text, ""
- * (geleert; das Datenschutz-Fenster zeigt dann den Standard, bis 7.22.2
- * hatte die Blase keine Überschrift) bzw. der Standard, wenn nichts oder der
- * frühere Standard mit Doppelpunkt gespeichert ist.
+ * (geleert; gilt wie der Standard, cleanConfig entfernt es beim Speichern,
+ * bis 7.22.2 hatte die Blase dann keine Überschrift) bzw. der Standard,
+ * wenn nichts oder der frühere Standard mit Doppelpunkt gespeichert ist.
  */
 export function privacyTitleFieldValue(config, defaults) {
   const v = config.privacyTitle;
@@ -1197,9 +1197,12 @@ export function cleanConfig(
     else out.chatbotBubblesMessages = items;
   }
 
+  // Überschrift: leer gilt wie der Standard (das Fenster zeigt dann
+  // „Datenschutz“; F5, Fixliste rc1, 7.23; bis 7.22.2 hieß leer „keine
+  // Überschrift“)
   if (typeof out.privacyTitle === "string") {
     const v = out.privacyTitle.trim();
-    if (sameAsDefault("privacyTitle", v, defaults))
+    if (!v || sameAsDefault("privacyTitle", v, defaults))
       dropIfEdited("privacyTitle");
     else out.privacyTitle = v;
   }

@@ -431,17 +431,18 @@ function normalizePrivacyText(value) {
 
 /**
  * Überschrift des Datenschutz-Hinweises: eigener Text (getrimmt, höchstens
- * 120 Zeichen) oder "" (im Design Center geleert; das Widget zeigt im
- * Datenschutz-Fenster dann seinen Standard „Datenschutz“, bis 7.22.2 hatte
- * die Blase keine Überschrift). undefined = nicht gesetzt/ungültig oder
- * früherer Standard mit Doppelpunkt (Widget-Standard „Datenschutz“).
+ * 120 Zeichen). undefined = nicht gesetzt, leer, ungültig oder früherer
+ * Standard mit Doppelpunkt: Das Widget zeigt im Datenschutz-Fenster dann
+ * seinen Standard „Datenschutz“. Leer gilt seit 7.23 wie nicht gesetzt (F5,
+ * Fixliste rc1); bis 7.22.2 lieferte der Server "" für eine Blase ohne
+ * Überschrift.
  * @param {*} value
  * @returns {string|undefined}
  */
 function privacyTitleValue(value) {
   if (typeof value !== "string") return undefined;
   const text = value.trim();
-  if (LEGACY_DEFAULT_PRIVACY_TITLES.includes(text)) return undefined;
+  if (!text || LEGACY_DEFAULT_PRIVACY_TITLES.includes(text)) return undefined;
   return text.length <= PRIVACY_TITLE_MAX_LEN ? text : undefined;
 }
 
