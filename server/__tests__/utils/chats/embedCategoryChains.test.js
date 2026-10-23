@@ -793,7 +793,11 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
     expect(guard.check("Sport (3 cours)", SPORT_URL).text).toBe(
       "Sport & Fitness (61 cours)"
     );
-    expect(guard.check("Sport (3)", SPORT_URL).text).toBe("Sport & Fitness");
+    // nackte Klammerzahl nur mit Knotentitel (R2-S9)
+    expect(guard.check("Sport & Fitness (3)", SPORT_URL).text).toBe(
+      "Sport & Fitness"
+    );
+    expect(guard.check("Sport (3)", SPORT_URL)).toBeNull();
     expect(guard.check("unsere Sportkurse", SPORT_URL)).toBeNull();
   });
 
@@ -850,21 +854,105 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
     expect(guard.check("12 Kurse", sommer)).toEqual({ remove: true });
   });
 
-  test("bekannte Adressen: Kontext, System-Prompt, gespeicherte Antworten; nicht die Fragen des Nutzers (S3, S12)", () => {
+  test("bekannte Adressen: Kontext, System-Prompt, gespeicherte Quellen früherer Antworten; nicht ihr Text und nicht die Fragen des Nutzers (S3, R4-D3)", () => {
     const geeste = `${HOST}/kurssuche/liste?suchesetzen=false&kfs_aussenst=Geeste`;
+    const answer = `Siehe ${HOST}/aus-antwort und ${HOST}/vom-nutzer.`;
     const guard = guardFor([courseText()], parse(), {
       systemPrompt: `▪ Geeste → \`${geeste}\``,
+      // Text früherer Antworten (zählt nicht mehr)
       history: [
         { role: "user", content: `${HOST}/vom-nutzer` },
-        { role: "assistant", content: `Siehe ${HOST}/aus-antwort.` },
-        { role: "assistant", content: null },
+        { role: "assistant", content: answer },
+      ],
+      storedChats: [
+        {
+          prompt: `${HOST}/vom-nutzer`,
+          response: JSON.stringify({
+            text: answer,
+            sources: [
+              { text: `Quelle: ${HOST}/aus-quelle.` },
+              null,
+              { text: 7 },
+            ],
+          }),
+        },
+        { prompt: "x", response: "kein JSON" },
+        { prompt: "y", response: JSON.stringify({ text: "ohne Quellen" }) },
+        null,
       ],
     });
     expect(guard.check("**Alle Kurse in Geeste**", geeste)).toBeNull();
-    expect(guard.check("Alle Kurse in X", `${HOST}/aus-antwort`)).toBeNull();
-    expect(guard.check("Alle Kurse in X", `${HOST}/vom-nutzer`)).toEqual({
+    expect(guard.check("Alle Kurse in X", `${HOST}/aus-quelle`)).toBeNull();
+    for (const path of ["aus-antwort", "vom-nutzer"])
+      expect(guard.check("Alle Kurse in X", `${HOST}/${path}`)).toEqual({
+        remove: true,
+      });
+  });
+
+  test("R4-D3: ein Prädikat „ist Kurs-Link“ (Kontext oder course_links), Originalform bekannter Adressen", () => {
+    const course = `${HOST}/kurssuche/kurs/aquarell/26100-009`;
+    const map = parse(
+      mapData({
+        course_links: {
+          "26100-009": { title: "Aquarell", start: "2026-03-02", url: course },
+        },
+      })
+    );
+    const guard = guardFor([courseText()], map);
+    // Kurs-Link nur aus course_links: als Übersichtslink entfernt (Regel 2)
+    expect(guard.check("Aquarell", course, { overview: "de" })).toEqual({
       remove: true,
     });
+    expect(guard.check("Alle Kurse in Aquarell", course)).toEqual({
+      remove: true,
+    });
+    // Kurszahl im Fließtext: Zahl weg, Ziel bleibt
+    expect(guard.check("Aquarell (3 Kurse)", course)).toEqual({
+      remove: false,
+      text: "Aquarell",
+      url: null,
+      line: null,
+    });
+    // andere Schreibung einer Kontextadresse: Originaladresse
+    const known = `${HOST}/kurssuche/kurs/rueckenfit/26100-001`;
+    expect(
+      guard.check(
+        "Rückenfit (3 Kurse)",
+        "http://VHS-BEISPIEL.de/KURSSUCHE/kurs/Rueckenfit/26100-001/"
+      )
+    ).toEqual({ remove: false, text: "Rückenfit", url: known, line: null });
+  });
+
+  test("R2-S12: lange Adressen in Kontext, Prompt und Quellen: linear (Zeitgrenze)", () => {
+    const { trimUrlTail } = require("../../../utils/chats/embedCourseSources");
+    const long = `${HOST}/${".".repeat(60000)}x`;
+    const start = process.hrtime.bigint();
+    const guard = guardFor([courseText(), `Siehe ${long}`], parse(), {
+      systemPrompt: long,
+      storedChats: [
+        { response: JSON.stringify({ text: "", sources: [{ text: long }] }) },
+      ],
+    });
+    expect(guard.check("Alle Kurse in X", long)).toEqual({ remove: true });
+    expect(trimUrlTail(`${HOST}/a${")".repeat(60000)}`)).toBe(`${HOST}/a`);
+    expect(trimUrlTail(`${HOST}/(a)).,`)).toBe(`${HOST}/(a)`);
+    expect(trimUrlTail(`${HOST}/a${"._".repeat(30000)}x`)).toBe(
+      `${HOST}/a${"._".repeat(30000)}x`
+    );
+    expect(Number(process.hrtime.bigint() - start) / 1e6).toBeLessThan(100);
+  });
+
+  test("R2-S13: Zahl mit fremdem Kurswort im deutschen Zahlformat; R2-S9: Kurstitel auf „(n)“ bleibt", () => {
+    const data = mapData();
+    data.nodes["Fitness & Gesundheit \\ Sport & Fitness"].count = 1250;
+    const guard = guardFor([courseText()], parse(data));
+    expect(guard.check("Sport (3 cours)", SPORT_URL).text).toBe(
+      "Sport & Fitness (1.250 cours)"
+    );
+    expect(guard.check("**Spanisch A1 (2)**", SPORT_URL)).toBeNull();
+    expect(guard.check("Sport & Fitness (2)", SPORT_URL).text).toBe(
+      "Sport & Fitness"
+    );
   });
 
   test("mehrere Knoten mit gleicher Adresse: der, dessen Kettenzeile im Kontext steht", () => {

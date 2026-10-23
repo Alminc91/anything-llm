@@ -587,14 +587,32 @@ const ANCHOR_RX =
 const REPLY_SCAN_LEN = 20000;
 const BARE_URL_RX = /<?(https?:\/\/[^\s<>"'\]]+)>?/g;
 
-// Satzzeichen am URL-Ende abschneiden; ")" nur, wenn sie keine "(" in der
-// URL schließt.
+const URL_TAIL_PUNCT = ".,;:!?*_";
+
+/**
+ * Satzzeichen am Ende einer Adresse abschneiden (. , ; : ! ? * _); ")" nur,
+ * wenn sie keine "(" der Adresse schließt („…/kurs_(neu))." -> „…/kurs_(neu)“).
+ * Läuft linear vom Ende her (KIE-576 R2-S12: keine Regex auf Fremdtext
+ * unbekannter Länge). Gemeinsame Normalisierung mit dem Prüfer der
+ * Kategorie-Karte (embedCategoryChains.linkKey).
+ * @param {string} url
+ * @returns {string}
+ */
 function trimUrlTail(url) {
-  let u = url.replace(/[.,;:!?*_]+$/, "");
-  const count = (ch) => u.split(ch).length - 1;
-  while (u.endsWith(")") && count(")") > count("("))
-    u = u.slice(0, -1).replace(/[.,;:!?*_]+$/, "");
-  return u;
+  let open = 0;
+  let close = 0;
+  for (let i = 0; i < url.length; i += 1) {
+    if (url[i] === "(") open += 1;
+    else if (url[i] === ")") close += 1;
+  }
+  let end = url.length;
+  for (;;) {
+    while (end > 0 && URL_TAIL_PUNCT.includes(url[end - 1])) end -= 1;
+    if (end === 0 || url[end - 1] !== ")" || close <= open) break;
+    end -= 1;
+    close -= 1;
+  }
+  return url.slice(0, end);
 }
 
 /**
@@ -634,14 +652,36 @@ function extractReplyLinks(replyText = "") {
     });
 }
 
-// Vergleichsschlüssel einer URL (wie das Widget): Schema, "www.", Fragment,
-// Schluss-Slash und Groß-/Kleinschreibung egal.
+// Host zum Vergleich: klein, ohne „www.“ (ohne Port und Zugangsdaten)
+function hostPart(u) {
+  return u.hostname.toLowerCase().replace(/^www\./, "");
+}
+
+/**
+ * Vergleichsschlüssel einer URL (wie das Widget): Schema, „www.“, Port,
+ * Zugangsdaten, Fragment, Schrägstrich am Ende und Groß-/Kleinschreibung
+ * (auch in Pfad und Abfrage) egal. Satzzeichen am Ende schneidet der
+ * Aufrufer vorher ab (trimUrlTail). Keine http(s)-Adresse oder länger als
+ * URL_MAX_LEN -> null.
+ * @param {any} value
+ * @returns {string|null}
+ */
 function urlKey(value) {
   const url = httpUrl(value);
   if (!url) return null;
   const u = new URL(url);
-  const host = u.hostname.toLowerCase().replace(/^www\./, "");
-  return `${host}${u.pathname.replace(/\/+$/, "")}${u.search}`.toLowerCase();
+  return `${hostPart(u)}${u.pathname.replace(/\/+$/, "")}${u.search}`.toLowerCase();
+}
+
+/**
+ * Host einer URL nach derselben Regel wie urlKey (klein, ohne „www.“),
+ * sonst null.
+ * @param {any} value
+ * @returns {string|null}
+ */
+function hostKey(value) {
+  const url = httpUrl(value);
+  return url ? hostPart(new URL(url)) : null;
 }
 
 // Transliteration wie unidecode für die Zeichen, die NFKD nicht zerlegt
@@ -1271,6 +1311,7 @@ module.exports = {
   sanitizeCourseSources,
   // KIE-576: gemeinsamer Adressvergleich mit dem Prüfer der Übersichtslinks
   urlKey,
+  hostKey,
   trimUrlTail,
   // nur für Tests
   __test__: {

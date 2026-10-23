@@ -229,8 +229,10 @@ async function streamChatWithForEmbed(
   // KIE-576: mit gültiger Kategorie-Karte je Kursdokument die Kette
   // „Kategorie-Ebene d: …“ statt der Kategorie-/Bereich-Link-Zeilen (nur
   // contextTexts; sources, Kurskarten und Verlauf bleiben unverändert). Der
-  // Prüfer der Links kennt die Adressen, die auch das Modell sieht: Kontext,
-  // System-Prompt (Kundenregeln) und gespeicherte Antworten des Verlaufs.
+  // Prüfer der Links kennt nur Adressen aus geprüften Quellen (R4-D3):
+  // Karte (Knoten, course_links), Kontext, System-Prompt (Kundenregeln) und
+  // die gespeicherten Quellen früherer Antworten (Feld sources), nicht deren
+  // Text.
   // Ohne Karte und im Kurskarten-Modus (R1-D4, NAK-9) gibt es weder Kette
   // noch Prüfer (alles wie vorher).
   const chained = await buildChainedContext(contextTexts, filledSources, {
@@ -241,7 +243,7 @@ async function streamChatWithForEmbed(
     contextTexts,
     map: chained.map,
     systemPrompt,
-    history: chatHistory,
+    storedChats: rawHistory,
   });
   sources = [...sources, ...vectorSearchResults.sources];
   // Quelle je Kontextblock [CONTEXT n] (n = Index in contextTexts)

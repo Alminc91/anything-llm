@@ -25,16 +25,32 @@ const KULTUR_URL = `${HOST}/kursprogramm/kultur`;
 const COURSE_URL = `${HOST}/kurssuche/kurs/hatha-yoga/26100-001`;
 const TANZ_COURSE_URL = `${HOST}/kurssuche/kurs/salsa/26100-002`;
 const OTHER_URL = `${HOST}/kurse/sommer`;
+// Kurs aus course_links, nicht im Kontext
+const AQUARELL_URL = `${HOST}/kurssuche/kurs/aquarell/26100-009`;
 const ABEND_URL = `${HOST}/kursprogramm/kategorie/Abendkurse/335`;
 // Standort-Link aus den Kundenregeln (Meppen-Vorlage), nur im System-Prompt
 const GEESTE_URL = `${HOST}/kurssuche/liste?suchesetzen=false&kfs_aussenst=Geeste`;
 const SYSTEM_PROMPT = `Location links:\n▪ Geeste → \`${GEESTE_URL}\`\n[**Alle Kurse in $LOCATION_NAME**]($LOCATION_URL)`;
-// Verlauf: geprüfte Links früherer Antworten zählen, Links des Nutzers nicht
+// Verlauf (R4-D3): bekannt sind nur Adressen aus den gespeicherten Quellen
+// früherer Antworten (Feld sources), nicht aus ihrem Text; so macht ein Echo
+// einer Adresse aus der Nutzerfrage sie nicht bekannt. Derselbe Verlauf
+// steht zum Vergleich auch als Text (history), den der Prüfer nicht liest.
+const ECHO_TEXT = `Gern, unter ${HOST}/kurse/nutzer und ${HOST}/kurse/echo finden Sie mehr, etwa ${AQUARELL_URL}.`;
 const HISTORY = [
   { role: "user", content: `Was gibt es unter ${HOST}/kurse/nutzer ?` },
+  { role: "assistant", content: ECHO_TEXT },
+];
+const STORED_CHATS = [
   {
-    role: "assistant",
-    content: `Mehr Kurse zum Thema: [Winter](${HOST}/kurse/winter)`,
+    prompt: `Was gibt es unter ${HOST}/kurse/nutzer ?`,
+    response: JSON.stringify({
+      text: ECHO_TEXT,
+      sources: [
+        {
+          text: `<document_metadata>\nsource: ${HOST}/kurse/winter\n</document_metadata>\n\nWinterkurse`,
+        },
+      ],
+    }),
   },
 ];
 
@@ -52,6 +68,13 @@ const MAP = chains.parseCategoryMap(
       "Sport \\ Abendkurse": { title: "Abendkurse", url: ABEND_URL, count: 7 },
     },
     courses: {},
+    course_links: {
+      "26100-009": {
+        title: "Aquarell",
+        start: "2026-03-02",
+        url: AQUARELL_URL,
+      },
+    },
   })
 );
 const courseDoc = (title, number, path, link) =>
@@ -78,6 +101,7 @@ const GUARD = createOverviewLinkGuard({
   map: MAP,
   systemPrompt: SYSTEM_PROMPT,
   history: HISTORY,
+  storedChats: STORED_CHATS,
 });
 
 const LIST = `1. [**Hatha-Yoga**](${COURSE_URL}) am Montag`;
@@ -263,14 +287,74 @@ const CASES = [
     `${LIST}\n[**Alle Kurse in Geeste**](${GEESTE_URL})\n${DE} [Sport (40 Kurse)](${SPORT_URL}) · [Geeste](${GEESTE_URL})`,
   ],
   [
-    "S10/S11: Kontextadresse mit Satzzeichen und www-Variante bleiben",
+    "S10/S11: Kontextadresse mit Satzzeichen und www-Variante bleiben, in der Originalform (R4-D3)",
     `[Alle Kurse in Herbst](${HOST}/kurse/herbst)\n[Alle Kurse in Sommer](https://vhs-beispiel.de/Kurse/Sommer/#oben)`,
-    `[Alle Kurse in Herbst](${HOST}/kurse/herbst)\n[Alle Kurse in Sommer](https://vhs-beispiel.de/Kurse/Sommer/#oben)`,
+    `[Alle Kurse in Herbst](${HOST}/kurse/herbst)\n[Alle Kurse in Sommer](${OTHER_URL})`,
   ],
   [
-    "S12: Link aus der gespeicherten vorigen Antwort bleibt, Adresse aus der Nutzerfrage nicht",
+    "S12: Link aus den gespeicherten Quellen der vorigen Antwort bleibt, Adresse aus der Nutzerfrage nicht",
     `${DE} [Winter](${HOST}/kurse/winter)\n[Alle Kurse in X](${HOST}/kurse/nutzer)\nEnde`,
     `${DE} [Winter](${HOST}/kurse/winter)\nEnde`,
+  ],
+  [
+    "R4-D3 (R2-S4): Echo einer Adresse im Text der vorigen Antwort bleibt unbekannt",
+    `${DE} [Echo](${HOST}/kurse/echo)\nSiehe [Alle Kurse in Echo](${HOST}/kurse/echo).\nEnde`,
+    `Siehe\nEnde`,
+  ],
+  [
+    "R4-D3 (R2-S5): Kurs-Link aus course_links (nicht im Kontext) in der Übersichtszeile fällt weg",
+    `${DE} [Sport](${SPORT_URL}) · [Aquarell](${AQUARELL_URL})\n${DE} [Aquarell (3 Kurse)](${AQUARELL_URL})\nEnde`,
+    `${DE} [Sport (40 Kurse)](${SPORT_URL})\nEnde`,
+  ],
+  [
+    "R4-D3 (R2-S6): bekannte Adresse in anderer Schreibung: Originaladresse",
+    `${DE} [Sommer](http://VHS-BEISPIEL.DE/Kurse/SOMMER.)\n[Alle 3 Kurse in Sommer](${HOST}/kurse/sommer/)\nEnde`,
+    `${DE} [Sommer](${OTHER_URL})\n[Alle Kurse in Sommer](${OTHER_URL})\nEnde`,
+  ],
+  [
+    "R4-D2 (R2-S8): letzte Kurszahl zählt, auch „Kursen“; Zahl vorn auf Knotenadresse mit Knotentitel",
+    `Siehe [Erste Hilfe 1 Kurs (12 Kurse)](${OTHER_URL}) und [Yoga (12 Kursen)](${OTHER_URL}).\nMehr in [12 Kurse Yoga](${YOGA_URL}) und [Alphabetisierungskurs Abschnitt 4 Kurs 311](${YOGA_URL}).`,
+    `Siehe [Erste Hilfe 1 Kurs](${OTHER_URL}) und [Yoga](${OTHER_URL}).\nMehr in [Yoga (1 Kurs)](${YOGA_URL}) und [Alphabetisierungskurs Abschnitt 4 Kurs 311](${YOGA_URL}).`,
+  ],
+  [
+    "R4-D2 (R2-S3): Einleitung, Leerzeile, Liste: Block bleibt offen, erfundener Link weg",
+    `${LIST}\n\n${DE}\n\n- [Sportkurse (3 Kurse)](${SPORT_URL})\n- [Sommerprogramm](${HOST}/erfunden)\n\nViel Spaß!`,
+    `${LIST}\n\n${DE}\n\n- [Sport (40 Kurse)](${SPORT_URL})\n\nViel Spaß!`,
+  ],
+  [
+    "R4-D2: Einleitung, Leerzeile, nur erfundene Links: Einleitung und Leerzeile entfallen mit",
+    `Text\n**${DE}**\n\n- [Sommerprogramm](${HOST}/erfunden)\nEnde`,
+    `Text\nEnde`,
+  ],
+  [
+    "R4-D2: Einleitung mit Linkzeilen ohne Aufzählungszeichen: Block",
+    `${DE}\n[Sportkurse](${SPORT_URL})\n👉 [Sommerprogramm](${HOST}/erfunden)\nEnde`,
+    `${DE}\n[Sport (40 Kurse)](${SPORT_URL})\nEnde`,
+  ],
+  [
+    "R4-D2: zwei Leerzeilen oder Text nach der Leerzeile beenden den Block",
+    `${DE}\n\n\n- [Sommerprogramm](${HOST}/erfunden)\n${DE}\n\nFragen Sie gern.\n- [Sommerprogramm](${HOST}/erfunden)`,
+    `${DE}\n\n\n- [Sommerprogramm](${HOST}/erfunden)\n${DE}\n\nFragen Sie gern.\n- [Sommerprogramm](${HOST}/erfunden)`,
+  ],
+  [
+    "R4-D2 (R2-S7): verschachtelter Link in Übersichtszeile und -block fällt weg",
+    `${DE} [x [Yoga](${HOST}/erfunden) y](${OTHER_URL}) · [Sport](${SPORT_URL})\n${DE}\n- [x [Yoga](${HOST}/erfunden) y](${OTHER_URL}) danach\nEnde`,
+    `${DE} [Sport (40 Kurse)](${SPORT_URL})\nEnde`,
+  ],
+  [
+    "R4-D2 (R2-S7): Referenzlink im Block nach Leerzeile fällt weg",
+    `${DE}\n\n[Alle Kurse in Yoga][1]\n\n[1]: ${HOST}/erfunden`,
+    `\n[1]: ${HOST}/erfunden`,
+  ],
+  [
+    "R4-D2 (R2-S7): Umbruch im Linktext im Block und in der Zeile: Link samt Folgezeile weg",
+    `${DE}\n- [Alle Kurse in\nYoga](${HOST}/erfunden) mehr\n- [Sportkurse](${SPORT_URL})\n${DE} [Alle Kurse\nin Yoga](\n${HOST}/erfunden) · [Sport](${SPORT_URL})\nEnde`,
+    `${DE}\n- [Sport (40 Kurse)](${SPORT_URL})\n${DE} [Sport (40 Kurse)](${SPORT_URL})\nEnde`,
+  ],
+  [
+    "R4-D2 (R2-S7): „\\“ vor dem Zeilenende: kein Link über zwei Zeilen, Zeilen bleiben getrennt",
+    `Siehe [Sommer\\\n(3 Kurse)](${OTHER_URL}) hier\n- [Alle 3 Kurse in Sport](${SPORT_URL})\n${DE}\n- [Yoga\\\nneu](${HOST}/erfunden)\nEnde`,
+    `Siehe [Sommer\\\n(3 Kurse)](${OTHER_URL}) hier\n${DE} [Sport (40 Kurse)](${SPORT_URL})\nEnde`,
   ],
   [
     "S2: Einleitung allein, darunter Liste: Knoten gesetzt, erfundener Link samt Zeile weg",
@@ -431,6 +515,22 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
     expect(notLink.push("[Hinweis] weiter")).toBe("[Hinweis] weiter");
   });
 
+  test("R2-S10: mehr als 16 Schmuckzeichen vor einem verworfenen Link: jede Aufteilung gleich der ganzen Antwort", () => {
+    for (const lead of [
+      "*".repeat(20),
+      " ".repeat(17),
+      `${"_".repeat(10)} ${"*".repeat(10)}`,
+      ` ${"*".repeat(15)}`,
+    ]) {
+      const reply = `Mehr unter${lead}[Alle Kurse in X](${HOST}/erfunden) hier.\nEnde`;
+      const whole = parseCardsReply(reply, { overviewLinks: GUARD }).text;
+      expect(
+        whole.startsWith(lead.length > 16 ? `Mehr unter${lead}` : "Mehr unter")
+      ).toBe(true);
+      expect([...splitEverywhere(reply)]).toEqual([whole]);
+    }
+  });
+
   test("Schmuck am Zeilenanfang wird nur bis zur Entscheidung gehalten", () => {
     const filter = new OverviewLinkFilter(GUARD);
     expect(filter.push("Absatz\n- ")).toBe("Absatz\n");
@@ -472,6 +572,12 @@ describe("eine Entscheidung für Stream und ganze Antwort (Zufallsantworten, fes
     `[Geeste](${GEESTE_URL} "Ort")`,
     `<${SPORT_URL}>`,
     `<${HOST}/erfunden>`,
+    // R4-D2: Link über ein Zeilenende, verschachtelt, "\" vor dem
+    // Zeilenende, lange Schmuckfolge
+    `[Alle Kurse in\nX](${HOST}/erfunden)`,
+    `[x [Pilates](${HOST}/erfunden) y](${OTHER_URL})`,
+    "\\\n",
+    "*".repeat(20),
   ];
   let seed = 576;
   const rand = (n) => {

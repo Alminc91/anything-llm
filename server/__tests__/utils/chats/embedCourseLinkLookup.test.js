@@ -849,3 +849,82 @@ describe("R3-4 (B4, R3-D4): Regel 1 nur für Kategorie-Links", () => {
     );
   });
 });
+
+// KIE-576 Runde 4 (R4-D1): eine Widerspruchsprüfung für Stufe 2 und Halten
+describe("R4-D1: Stufe 2 und Halten prüfen dieselben Widersprüche", () => {
+  const pilatesOverview = [
+    "<document_metadata>",
+    `source: ${OVERVIEW_PAGE}`,
+    "</document_metadata>",
+    "",
+    "Pilates",
+    "Mo. 02.02.2026, 18:00 Uhr",
+    "Lingen",
+  ].join("\n");
+  const pilatesGuard = () =>
+    createOverviewLinkGuard({
+      contextTexts: applyCategoryChains(
+        [
+          pilatesOverview,
+          courseDoc("Pilates", "26200-021", "Sport", kurs("26200-021")),
+        ],
+        MAP
+      ),
+      map: MAP,
+    });
+
+  test("R2-S1: Übersicht plus Kursdokument eines anderen gleichnamigen Kurses: Halten, nicht Stufe 2", () => {
+    const guard = pilatesGuard();
+    // Stufe 2 hätte sofort den Kurs vom 02.02. gesetzt
+    expect(guard.check("Pilates", OVERVIEW_PAGE).course).toBeTruthy();
+    const dated = `Probieren Sie [Pilates](${OVERVIEW_PAGE}) ab dem 09.02.2026 aus.`;
+    expectAll(dated, dated.replace(OVERVIEW_PAGE, kurs("26200-021")), guard);
+    const bare = `Probieren Sie [Pilates](${OVERVIEW_PAGE}) aus.`;
+    expectAll(bare, bare, guard);
+  });
+
+  test("R2-S2: lin-13-knr ohne Zeile „Kurs:“, Adresse mit anderer Kursnummer: unverändert (Abfrage und Pfad)", () => {
+    const guard = r3Guard(LIN);
+    for (const url of [
+      `${NEUE_ANGEBOTE}?knr=2026H96570&browse=forward`,
+      "https://www.vhs-lingen.de/programm/kurssuche/kurs/zumba-r/2026H96570",
+    ]) {
+      const text = reply(
+        `2. [**Zumba®**](${url})\n  Ein energiegeladener Fitnesstanzkurs.\n  **Beginn:** Do. 29.10.2026, 18:30 Uhr\n  **Status:** Anmeldung möglich`
+      );
+      expectAll(text, text, guard);
+    }
+    // Gegenprobe: Adresse ohne Kursnummer, Datum bestätigt
+    const plain = reply(
+      `2. [**Zumba®**](${NEUE_ANGEBOTE})\n  **Beginn:** Do. 29.10.2026, 18:30 Uhr`
+    );
+    expectAll(plain, plain.replace(NEUE_ANGEBOTE, linUrl("2026H96580")), guard);
+  });
+
+  test("R2-S11: „3. Juni 10:00“ ergibt kein Scheindatum 10.6. (de und en)", () => {
+    const map = chains.parseCategoryMap(
+      mapJson({
+        course_links: {
+          ...COURSE_LINKS,
+          "26200-070": {
+            title: "Aquafit",
+            start: "2026-06-10T18:00",
+            place: "Lingen",
+            url: kurs("26200-070"),
+          },
+        },
+      })
+    );
+    const guard = guardFor(map);
+    for (const when of ["3. Juni 10:00 Uhr", "3 June 10:00"]) {
+      const text = reply(
+        entry(1, "Aquafit", OVERVIEW_PAGE, { beginn: `Mi. ${when}` })
+      );
+      expectAll(text, text, guard);
+    }
+    const right = reply(
+      entry(1, "Aquafit", OVERVIEW_PAGE, { beginn: "Mi. 10. Juni, 18:00 Uhr" })
+    );
+    expectAll(right, right.replace(OVERVIEW_PAGE, kurs("26200-070")), guard);
+  });
+});

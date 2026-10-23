@@ -272,7 +272,7 @@ describe("mit gültiger Karte", () => {
   );
 });
 
-describe("bekannte Adressen aus System-Prompt und Verlauf (R1-D1 Regel 3, S3, S12)", () => {
+describe("bekannte Adressen aus System-Prompt und gespeicherten Quellen (R1-D1 Regel 3, S3, R4-D3)", () => {
   const GEESTE_URL = `${HOST}/kurssuche/liste?suchesetzen=false&kfs_aussenst=Geeste`;
   const WINTER_URL = `${HOST}/kurse/winter`;
   const REPLY_KNOWN = [
@@ -291,12 +291,25 @@ describe("bekannte Adressen aus System-Prompt und Verlauf (R1-D1 Regel 3, S3, S1
     ["Stream", true],
     ["ohne Streaming", false],
   ])(
-    "%s: Standort-Link der Kundenregel und Link der vorigen Antwort bleiben, erfundener weg",
+    "%s: Standort-Link der Kundenregel und Adresse aus den Quellen der vorigen Antwort bleiben; Echo der Nutzeradresse und erfundener Link weg",
     async (_name, streaming) => {
       chatPrompt.mockResolvedValueOnce(`Regeln\n▪ Geeste → \`${GEESTE_URL}\``);
+      // Die vorige Antwort wiederholt die Adresse aus der Nutzerfrage; nur
+      // ihre gespeicherten Quellen (sources) machen Adressen bekannt
+      const echo = `Siehe ${HOST}/kurse/pilates und [Winter](${WINTER_URL}).`;
+      EmbedChats.forEmbedByUser.mockResolvedValueOnce([
+        {
+          id: 1,
+          prompt: `Und ${HOST}/kurse/pilates ?`,
+          response: JSON.stringify({
+            text: echo,
+            sources: [{ text: `Winterprogramm: ${WINTER_URL}` }],
+          }),
+        },
+      ]);
       convertToPromptHistory.mockReturnValueOnce([
         { role: "user", content: `Und ${HOST}/kurse/pilates ?` },
-        { role: "assistant", content: `Siehe [Winter](${WINTER_URL}).` },
+        { role: "assistant", content: echo },
       ]);
       const { stored, text } = await run({ streaming, reply: REPLY_KNOWN });
       expect(text).toBe(KEPT);

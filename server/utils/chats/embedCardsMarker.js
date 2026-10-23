@@ -605,34 +605,63 @@ const EMAIL_RX =
  * ausgeglichenen Klammern und "\"-Maskierung, Ziel roh (Klammern
  * ausgeglichen) oder in <…>, optionaler Titel "…", '…' oder (…), Leerraum
  * um Ziel und Titel, Schema beliebig.
- *   - "link": {text, url, raw, after (Ziel samt Klammern), end}
+ *   - "link": {text, url, raw, after (Ziel samt Klammern), end, nested}
+ *     nested: der Linktext enthält "[" (markdown-it zeigt dann einen
+ *     inneren Link, nicht diesen)
  *   - "pending": könnte noch einer werden (nur ohne final)
  *   - "none": sonst; "[" ist Text
- * Linkformen über eine Zeile hinaus oder über das Fenster erkennt der Scanner
- * nicht ("none"); in einer Übersichtszeile bzw. einem Übersichtsblock
- * verwirft der Filter sie (fail-closed, R1-D1 Regel 6).
+ * Linkformen über eine Zeile hinaus (auch "\" vor dem Zeilenende) oder über
+ * das Fenster erkennt der Scanner nicht ("none"). In einer Übersichtszeile
+ * bzw. einem Übersichtsblock verwirft der Filter sie samt der Zeilen, über
+ * die sie reichen (fail-closed, R1-D1 Regel 6, R4-D2): Dafür sucht der
+ * weite Modus (wide) ihr Ende wie markdown-it über Zeilenenden hinweg (nicht
+ * über eine Leerzeile).
  * @param {string} s
  * @param {number} i
  * @param {boolean} final
- * @returns {{state: "pending"|"none"|"link", text?: string, url?: string, raw?: string, after?: string, end?: number}}
+ * @param {boolean} [wide]
+ * @returns {{state: "pending"|"none"|"link", text?: string, url?: string, raw?: string, after?: string, end?: number, nested?: boolean}}
  */
-function scanInlineLink(s, i, final) {
+function scanInlineLink(s, i, final, wide = false) {
   const limit = Math.min(s.length, i + LINK_WINDOW);
   const open = !final && limit === s.length && s.length < i + LINK_WINDOW;
   const undecided = () => (open ? PENDING : NONE);
+  // Zeilenende an j im Link: nur im weiten Modus und ohne Leerzeile danach
+  const lineBreak = (j) => {
+    if (!wide) return "stop";
+    let k = j + 1;
+    while (k < limit && (s[k] === " " || s[k] === "\t")) k += 1;
+    if (k >= limit) return open ? "open" : "stop";
+    return s[k] === "\n" ? "stop" : "ok";
+  };
+  // "\" maskiert das nächste Zeichen, ein Zeilenende nur im weiten Modus
+  const escapesLineEnd = (j) => !wide && s[j + 1] === "\n";
   const skipSpace = (j) => {
-    while (j < limit && (s[j] === " " || s[j] === "\t")) j += 1;
+    for (; j < limit; j += 1) {
+      if (s[j] === " " || s[j] === "\t") continue;
+      if (s[j] !== "\n") break;
+      const next = lineBreak(j);
+      if (next === "open") return limit;
+      if (next === "stop") break;
+    }
     return j;
   };
   let j = i + 1;
   let depth = 1;
+  let nested = false;
   for (;;) {
     if (j >= limit) return undecided();
     const c = s[j];
-    if (c === "\n") return NONE;
-    if (c === "\\") j += 1;
-    else if (c === "[") depth += 1;
-    else if (c === "]" && --depth === 0) break;
+    if (c === "\n") {
+      const next = lineBreak(j);
+      if (next !== "ok") return next === "open" ? PENDING : NONE;
+    } else if (c === "\\") {
+      if (escapesLineEnd(j)) return NONE;
+      j += 1;
+    } else if (c === "[") {
+      depth += 1;
+      nested = true;
+    } else if (c === "]" && --depth === 0) break;
     j += 1;
   }
   const labelEnd = j;
@@ -655,8 +684,10 @@ function scanInlineLink(s, i, final) {
     while (j < limit) {
       const c = s[j];
       if (c <= " " || c === "\x7f") break;
-      if (c === "\\") j += 1;
-      else if (c === "(") parens += 1;
+      if (c === "\\") {
+        if (escapesLineEnd(j)) return NONE;
+        j += 1;
+      } else if (c === "(") parens += 1;
       else if (c === ")") {
         if (parens === 0) break;
         parens -= 1;
@@ -672,8 +703,13 @@ function scanInlineLink(s, i, final) {
   if (j > afterUrl && (s[j] === '"' || s[j] === "'" || s[j] === "(")) {
     const closer = s[j] === "(" ? ")" : s[j];
     for (j += 1; j < limit && s[j] !== closer; j += 1) {
-      if (s[j] === "\n") return NONE;
-      if (s[j] === "\\") j += 1;
+      if (s[j] === "\n") {
+        const next = lineBreak(j);
+        if (next !== "ok") return next === "open" ? PENDING : NONE;
+      } else if (s[j] === "\\") {
+        if (escapesLineEnd(j)) return NONE;
+        j += 1;
+      }
     }
     if (j >= limit) return undecided();
     j = skipSpace(j + 1);
@@ -687,6 +723,7 @@ function scanInlineLink(s, i, final) {
     raw: s.slice(i, j + 1),
     after: s.slice(labelEnd + 1, j + 1),
     end: j + 1,
+    nested,
   };
 }
 
@@ -797,12 +834,17 @@ function emphasisClosers(lineText) {
  * behaltenen Links mit Trenner; Schmuck und übriger Text der Zeile
  * entfallen. Die Einleitung wird erst mit dem ersten behaltenen Link
  * gesendet; bleibt keiner, entfällt die Zeile samt Zeilenende.
- * Übersichtsblock (S2): Eine Einleitung ohne Link wird bis zur nächsten
- * Zeile gehalten. Folgen Listenzeilen, gelten ihre Links als Übersichtslinks;
- * die Einleitung kommt mit dem ersten gesendeten Text der Liste und entfällt,
- * wenn alle Links der Liste entfallen. Sonst bleibt sie unverändert.
- * Nicht erkannte Linkformen ("[" bzw. "<" ohne gültigen Link) gelten in
- * Übersichtszeile und -block als entfernte Links (fail-closed).
+ * Übersichtsblock (S2, R4-D2): Eine Einleitung ohne Link wird bis zur
+ * nächsten Zeile gehalten; höchstens eine Leerzeile direkt danach gehört
+ * dazu (markdown-it zeigt Einleitung, Leerzeile und Liste wie ohne
+ * Leerzeile). Folgen Listenzeilen oder Zeilen, die (nach Schmuck) mit einem
+ * Link beginnen, gelten ihre Links als Übersichtslinks; die Einleitung
+ * kommt mit dem ersten gesendeten Text der Liste und entfällt, wenn alle
+ * Links der Liste entfallen. Sonst bleibt sie unverändert.
+ * Nicht erkannte Linkformen ("[" bzw. "<" ohne gültigen Link, verschachtelte
+ * Links, Referenzlinks, Links über ein Zeilenende) gelten in
+ * Übersichtszeile und -block als entfernte Links (fail-closed); ein Link
+ * über ein Zeilenende fällt samt Folgezeile weg (R4-D2).
  *
  * Sonst: Entfernt wird ein Link mit dem Rest seiner Zeile; stand davor nur
  * Schmuck, die ganze Zeile samt Zeilenende (wie guard v2). Mitten in der
@@ -839,22 +881,38 @@ class OverviewLinkFilter {
     this.sent = ""; // in dieser Zeile gesendeter Text
     this.drop = null; // Rest der Zeile verwerfen: "line" (samt "\n") | "rest"
     this.inBlock = false; // Listenzeile des Übersichtsblocks
+    // Schmuckfolge vor einem möglichen Link schon gesendet (über
+    // LINE_PREFIX_MAX): der Rest dieser Folge wird nicht mehr gehalten
+    this.leadOver = false;
     // Übersichtszeile: {lang, raw (Originaltext bis zum ersten Link),
     // links (gesehene Links), kept (gesendete Links)}
     this.line = null;
   }
 
-  // Erstes Zeichen nach dem Schmuck: gehört die Zeile zum Übersichtsblock?
+  // Erstes Zeichen c nach dem Schmuck: gehört die Zeile zum
+  // Übersichtsblock (Listenzeile oder Zeile, die mit einem Link beginnt)?
   // Sonst endet der Block (Ausgabe seiner Einleitung bzw. nichts).
-  #beginLine() {
+  #beginLine(c) {
     if (this.begun) return "";
     this.begun = true;
     if (!this.block) return "";
-    if (ENUMERATION_RX.test(this.prefix)) {
+    if (ENUMERATION_RX.test(this.prefix) || c === "[" || c === "<") {
       this.inBlock = true;
+      this.block.listed = true;
       return "";
     }
     return this.#closeBlock();
+  }
+
+  // Leerzeile direkt nach der Einleitung eines Übersichtsblocks (höchstens
+  // eine, R4-D2): gehört zum Block
+  #blockGap() {
+    const block = this.block;
+    if (!block || block.gap || block.listed || !/^[ \t]*$/.test(this.prefix))
+      return false;
+    block.gap = true;
+    block.raw += `${this.prefix}\n`;
+    return true;
   }
 
   #closeBlock() {
@@ -925,6 +983,8 @@ class OverviewLinkFilter {
       links: 0,
       kept: 0,
       sent: false,
+      gap: false, // Leerzeile nach der Einleitung gesehen
+      listed: false, // erste Zeile der Liste gesehen
     };
     return out;
   }
@@ -1008,7 +1068,12 @@ class OverviewLinkFilter {
           i += char.length;
           continue;
         }
-        out += this.#beginLine();
+        if (c === "\n" && this.#blockGap()) {
+          this.#newLine();
+          i += 1;
+          continue;
+        }
+        out += this.#beginLine(c);
       }
       const overview = this.#overview();
       if (c === "[" || (c === "<" && overview)) {
@@ -1018,14 +1083,31 @@ class OverviewLinkFilter {
           this.rest = s.slice(i);
           break;
         }
-        if (found.state === "none") {
-          // "<" ohne Autolink ist Text; "[" ohne erkannten Link in einer
-          // Übersichtszeile bzw. einem Übersichtsblock: fail-closed
-          if (c === "<") out += this.line ? this.#lineText(c) : this.#send(c);
-          else if (this.line) this.line.links += 1;
-          else if (overview) out += this.#removeLink();
-          else out += this.#send(c);
+        this.leadOver = false;
+        if (c === "<" && found.state === "none") {
+          // "<" ohne Autolink ist Text
+          out += this.line ? this.#lineText(c) : this.#send(c);
           i += 1;
+          continue;
+        }
+        if (found.state === "none" && !overview) {
+          out += this.#send(c);
+          i += 1;
+          continue;
+        }
+        if (found.state === "none" || (found.nested && overview)) {
+          // Übersichtszeile bzw. -block: nicht erkannte Linkform fällt weg
+          // (fail-closed, R1-D1 Regel 6, R4-D2), ein Link über ein
+          // Zeilenende samt Folgezeile (Ende im weiten Modus)
+          const wide =
+            found.state === "link" ? found : scanInlineLink(s, i, final, true);
+          if (wide.state === "pending") {
+            this.rest = s.slice(i);
+            break;
+          }
+          if (this.line) this.line.links += 1;
+          else out += this.#removeLink();
+          i = wide.state === "link" ? wide.end : i + 1;
           continue;
         }
         const verdict = this.guard.check(found.text, found.url, {
@@ -1066,11 +1148,16 @@ class OverviewLinkFilter {
         continue;
       }
       if (this.lead) {
-        // weiterer Schmuck vor einem möglichen Link (Token-Grenze darin)
-        if (LINK_LEAD_CHARS.includes(c) && this.lead.length < LINE_PREFIX_MAX) {
-          this.lead += c;
-          i += 1;
-          continue;
+        // weiterer Schmuck vor einem möglichen Link (Token-Grenze darin);
+        // über LINE_PREFIX_MAX geht die ganze Folge hinaus wie in der ganzen
+        // Antwort (R2-S10)
+        if (LINK_LEAD_CHARS.includes(c)) {
+          if (this.lead.length < LINE_PREFIX_MAX) {
+            this.lead += c;
+            i += 1;
+            continue;
+          }
+          this.leadOver = true;
         }
         out += this.#send("");
       }
@@ -1110,20 +1197,22 @@ class OverviewLinkFilter {
       rx.lastIndex = i;
       const run = rx.exec(s)[0];
       i += run.length;
-      // Schmuck/Leerraum am Ende halten, wenn ein Link folgen kann
+      // Schmuck/Leerraum am Ende halten, wenn ein Link folgen kann; eine
+      // Folge über LINE_PREFIX_MAX Zeichen geht ganz hinaus, auch über eine
+      // Token-Grenze hinweg (leadOver)
       let k = run.length;
       while (k > 0 && LINK_LEAD_CHARS.includes(run[k - 1])) k -= 1;
+      const tail = run.length - k;
+      const over =
+        tail > LINE_PREFIX_MAX || (tail > 0 && k === 0 && this.leadOver);
       const next = s[i];
       const linkMayFollow =
         i < s.length ? next === "[" || (next === "<" && overview) : !final;
-      if (
-        k < run.length &&
-        run.length - k <= LINE_PREFIX_MAX &&
-        linkMayFollow
-      ) {
+      if (tail > 0 && !over && linkMayFollow) {
         if (k > 0) out += this.#send(run.slice(0, k));
         this.lead = run.slice(k);
       } else out += this.#send(run);
+      this.leadOver = tail > 0 && over;
     }
     if (final) {
       if (!this.drop) {
