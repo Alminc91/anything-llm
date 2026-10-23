@@ -122,7 +122,7 @@ const GUARDED = [
   "Fragen? Gern.",
 ].join("\n");
 // E29: neue Form vom Modell, zwei Links in einer Zeile, dazu Fließtext mit
-// Knoten-Link
+// Knoten-Link; je Link eine eigene Zeile mit Einleitung (S7-1)
 const REPLY_E29 = [
   `Passend ist [Rückenfit](${COURSE_URL}), mehr unter [Sport (3 Kurse)](${SPORT_URL}).`,
   "",
@@ -131,7 +131,22 @@ const REPLY_E29 = [
 const GUARDED_E29 = [
   `Passend ist [Rückenfit](${COURSE_URL}), mehr unter [Sport (40\u00a0Kurse)](${SPORT_URL}).`,
   "",
-  `Mehr Kurse zum Thema: [Rücken (7\u00a0Kurse)](${SPORT_URL}/ruecken) · [Sport (40\u00a0Kurse)](${SPORT_URL})`,
+  `Mehr Kurse zum Thema: [Rücken (7\u00a0Kurse)](${SPORT_URL}/ruecken)`,
+  `Mehr Kurse zum Thema: [Sport (40\u00a0Kurse)](${SPORT_URL})`,
+].join("\n");
+// S7-1 englisch: zwei Links mit Komma bzw. in der Zeile darunter
+const REPLY_E29_EN = [
+  `More courses on this topic: [Back](${SPORT_URL}/ruecken), [Sports](${SPORT_URL})`,
+  `More courses on this topic: [Sports](${SPORT_URL})`,
+  `- [Back (3 courses)](${SPORT_URL}/ruecken)`,
+  "Questions?",
+].join("\n");
+const GUARDED_E29_EN = [
+  `More courses on this topic: [Rücken (7\u00a0courses)](${SPORT_URL}/ruecken)`,
+  `More courses on this topic: [Sport (40\u00a0courses)](${SPORT_URL})`,
+  `More courses on this topic: [Sport (40\u00a0courses)](${SPORT_URL})`,
+  `More courses on this topic: [Rücken (7\u00a0courses)](${SPORT_URL}/ruecken)`,
+  "Questions?",
 ].join("\n");
 // R6-D3 (Browser K6): eigene Einleitung des Modells vor einem Kategorie-Link
 // am Zeilenende; Fließtext mit Link mitten im Satz bleibt
@@ -278,14 +293,16 @@ describe("mit gültiger Karte", () => {
   );
 
   test.each([
-    ["Stream", true],
-    ["ohne Streaming", false],
+    ["Stream, deutsch", true, REPLY_E29, GUARDED_E29],
+    ["ohne Streaming, deutsch", false, REPLY_E29, GUARDED_E29],
+    ["Stream, englisch", true, REPLY_E29_EN, GUARDED_E29_EN],
+    ["ohne Streaming, englisch", false, REPLY_E29_EN, GUARDED_E29_EN],
   ])(
-    "%s: E29 Übersichtszeile vom Server gesetzt, gesendet gleich gespeichert",
-    async (_name, streaming) => {
-      const { stored, text } = await run({ streaming, reply: REPLY_E29 });
-      expect(text).toBe(GUARDED_E29);
-      expect(stored.text).toBe(GUARDED_E29);
+    "%s: E29 Übersichtszeile vom Server gesetzt, je Link eine Zeile (S7-1), gesendet gleich gespeichert",
+    async (_name, streaming, reply, expected) => {
+      const { stored, text } = await run({ streaming, reply });
+      expect(text).toBe(expected);
+      expect(stored.text).toBe(expected);
     }
   );
 

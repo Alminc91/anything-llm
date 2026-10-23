@@ -760,6 +760,49 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
     );
   });
 
+  test("R7-D2 (AK-9): angezeigter Titel ohne Oberkategorie, wenn der Name sie enthält (ohne Groß/Klein und Plural-Endung)", () => {
+    const shown = (title, count = 2, lang = "de") =>
+      __test__.overviewLinkText({ title, count }, lang);
+    expect(shown("Intensivkurse · Intensivkurs - A 1")).toBe(
+      "Intensivkurs - A 1 (2\u00a0Kurse)"
+    );
+    expect(shown("Kurse · Kurs am Abend", 1)).toBe(
+      "Kurs am Abend (1\u00a0Kurs)"
+    );
+    expect(shown("Sport · Sportarten", null)).toBe("Sportarten");
+    expect(shown("SPRACHEN · Sprachkurse Englisch", 3, "en")).toBe(
+      "Sprachkurse Englisch (3\u00a0courses)"
+    );
+    expect(shown("Stufe B2 · Stufe B2.3", null)).toBe("Stufe B2.3");
+    // Gegenproben: Name enthält die Oberkategorie nicht (am Wortanfang)
+    expect(shown("Entspannungstechniken · Qi Gong")).toBe(
+      "Entspannungstechniken · Qi Gong (2\u00a0Kurse)"
+    );
+    expect(shown("Sport & Fitness · Kraft & Ausdauer", null)).toBe(
+      "Sport & Fitness · Kraft & Ausdauer"
+    );
+    expect(shown("Kunst · Lebenskunst", null)).toBe("Kunst · Lebenskunst");
+    expect(shown("Ski · Skigymnastik", null)).toBe("Ski · Skigymnastik");
+    expect(shown("A · B · A und B", null)).toBe("A · B · A und B");
+    // Kurstitel im Fließtext auf der Knotenadresse bekommt ebenfalls den
+    // kurzen Titel, die Kette im Kontext bleibt
+    const data = mapData();
+    data.nodes[
+      "Fitness & Gesundheit \\ Sport & Fitness \\ Kraft & Ausdauer"
+    ].title = "Sport & Fitness · Sport & Fitness am Abend";
+    const map = parse(data);
+    const guard = guardFor([courseText()], map);
+    expect(guard.check("Kraft", KRAFT_URL, { overview: "de" }).text).toBe(
+      "Sport & Fitness am Abend (1\u00a0Kurs)"
+    );
+    expect(guard.check("Sport & Fitness am Abend", KRAFT_URL).text).toBe(
+      "Sport & Fitness am Abend"
+    );
+    expect(applyCategoryChains([courseText()], map)[0]).toContain(
+      "Kategorie-Ebene 3: Sport & Fitness · Sport & Fitness am Abend (1 Kurs)"
+    );
+  });
+
   test("Zahl < 1 -> nur Titel", () => {
     const data = mapData();
     data.nodes["Fitness & Gesundheit \\ Sport & Fitness"].count = 0;

@@ -50,18 +50,24 @@
 //      erste sichere Fundstelle mit gleichem Schlüssel (R4-D3, R5-D2,
 //      R3-S6), nie von https auf http.
 // Form der Übersichtszeile (E29) nur in OVERVIEW_LINE und overviewLinkText:
-//   Mehr Kurse zum Thema: [<title> (<n> Kurse)](<url>) · [<title>](<url>)
-//   (zwischen Zahl und Wort ein geschütztes Leerzeichen, R6-D4)
+//   Mehr Kurse zum Thema: [<title> (<n> Kurse)](<url>)
+//   (zwischen Zahl und Wort ein geschütztes Leerzeichen, R6-D4); je Link
+//   eine eigene Zeile mit Einleitung, auch bei zwei Kategorien (E29
+//   präzisiert 23.10.2026, S7-1). Angezeigter Titel ohne Oberkategorie, wenn
+//   der Name sie enthält (displayTitle, R7-D2); Karte und Kette im Kontext
+//   behalten den vollen Titel.
 // Übersichtszeile: Zeile mit der Einleitung (de/en, auch mit *, _, # drum
 // herum), mit einem Knoten-Link in alter Form am Zeilenanfang oder mit
 // einem Kategorie-Link am Zeilenende hinter einer kurzen Einleitung des
 // Modells in der ersten Zeile eines Absatzes (R6-D3, Sprache aus alter Form
 // oder Kurszahl); der Server setzt sie selbst. Übersichtsblock: Einleitung
 // ohne Link, beliebig viele Leerzeilen und die folgenden Listenzeilen bzw.
-// Zeilen mit Link am Anfang, ebenso Zeilen ohne Aufzählungszeichen, die mit
-// einem erkannten Link beginnen, direkt unter einer Übersichtszeile mit
-// Link (R5-D3, R3-S2; Kurs-Links dort wie im Fließtext); dort wird je Link
-// entschieden.
+// Zeilen mit Link am Anfang, ebenso Zeilen, die (auch nach einem
+// Aufzählungszeichen, weil das Widget Listen abschaltet, R7-D1) mit einem
+// erkannten Link beginnen, direkt unter einer Übersichtszeile mit Link
+// (R5-D3, R3-S2; Kurs-Links dort wie im Fließtext); dort wird je Link
+// entschieden, ein behaltener Link am Anfang einer solchen Zeile bekommt
+// eine eigene Übersichtszeile (S7-1).
 //
 // Kurslink nachschlagen (AK-21, E38): Optionales Feld course_links der Karte
 //   {"<kursnummer>": {"title": "…", "start": "YYYY-MM-DD[THH:MM]",
@@ -138,10 +144,10 @@ const COURSE_LINK_LINE_RX = /^Kurs-Link:[ \t]*(\S+)/;
 const SOURCE_LINE_RX = /^source:[ \t]*(\S+)/m;
 
 // KIE-576 E29: Form der Übersichtszeile, nur hier ändern. Einleitung je
-// Sprache, Wort zur Zahl (n = 1 / sonst) und Trenner zwischen zwei Links in
-// derselben Zeile. Ohne gezählte Zahl (null oder < 1) steht nur der Titel.
+// Sprache und Wort zur Zahl (n = 1 / sonst); jeder Link steht in einer
+// eigenen Zeile mit Einleitung (S7-1). Ohne gezählte Zahl (null oder < 1)
+// steht nur der Titel.
 const OVERVIEW_LINE = {
-  separator: " · ",
   de: { intro: "Mehr Kurse zum Thema:", one: "Kurs", many: "Kurse" },
   en: { intro: "More courses on this topic:", one: "course", many: "courses" },
 };
@@ -991,6 +997,43 @@ function hasCount(node) {
   return node.count !== null && node.count >= 1;
 }
 
+// R7-D2 (AK-9): Titel ab Ebene 3 „Oberkategorie · Name“ (Pipeline). Der
+// angezeigte Linktitel lässt die Oberkategorie weg, wenn der Name sie
+// enthält: ohne Groß/Klein, Oberkategorie auch ohne deutsche Plural-Endung,
+// am Wortanfang im Namen („Intensivkurse · Intensivkurs - A 1“ ->
+// „Intensivkurs - A 1“, „Sport · Sportarten“ -> „Sportarten“). Stämme unter
+// PARENT_STEM_MIN Zeichen zählen nicht (zu unscharf).
+const TITLE_PARENT_SEP = " \u00b7 ";
+const PLURAL_ENDINGS = ["en", "er", "e", "n", "s"];
+const PARENT_STEM_MIN = 4;
+
+/**
+ * Angezeigter Titel eines Knotens (R7-D2): „Oberkategorie · Name“ wird zu
+ * „Name“, wenn der Name die Oberkategorie am Wortanfang enthält; sonst der
+ * Titel unverändert (auch bei mehr als einem Trenner).
+ * @param {string} title - Titel aus der Karte
+ * @returns {string}
+ */
+function displayTitle(title) {
+  const parts = title.split(TITLE_PARENT_SEP);
+  if (parts.length !== 2) return title;
+  const parent = normalizeFree(parts[0]);
+  const name = normalizeFree(parts[1]);
+  const stems = [parent];
+  for (const ending of PLURAL_ENDINGS)
+    if (parent.endsWith(ending)) stems.push(parent.slice(0, -ending.length));
+  for (const stem of stems) {
+    if (stem.length < PARENT_STEM_MIN) continue;
+    for (
+      let at = name.indexOf(stem);
+      at !== -1;
+      at = name.indexOf(stem, at + 1)
+    )
+      if (at === 0 || !WORD_CHAR_RX.test(name[at - 1])) return parts[1];
+  }
+  return title;
+}
+
 /**
  * Kettenzeilen eines Pfads: je Ebene mit Knoten eine Zeile, bis vor den
  * ersten Sonderknoten, höchstens Ebene 5.
@@ -1152,16 +1195,18 @@ async function buildChainedContext(
 
 /**
  * Linktext eines Links auf einen Knoten (E29): „<title> (<n> Kurse)“,
- * n = 1 „(1 Kurs)“, ohne gezählte Zahl nur „<title>“. Nicht fett.
+ * n = 1 „(1 Kurs)“, ohne gezählte Zahl nur „<title>“ (angezeigter Titel,
+ * displayTitle, R7-D2). Nicht fett.
  * @param {{title: string, count: number|null}} node
  * @param {"de"|"en"} lang
  * @returns {string}
  */
 function overviewLinkText(node, lang) {
   const form = OVERVIEW_LINE[lang];
-  if (!hasCount(node)) return node.title;
+  const title = displayTitle(node.title);
+  if (!hasCount(node)) return title;
   const n = node.count;
-  return titleWithCount(node.title, n, n === 1 ? form.one : form.many, lang);
+  return titleWithCount(title, n, n === 1 ? form.one : form.many, lang);
 }
 
 /**
@@ -1293,16 +1338,18 @@ function countLang(count) {
 }
 
 /**
- * Linktext eines Knoten-Links (Regel 1): Titel aus der Karte; mit Sprache
- * de/en die Zahl nach E29; schreibt das Modell die Zahl mit einem Wort einer
- * anderen Sprache, bleibt dieses Wort (K1-D2), sonst nur der Titel.
+ * Linktext eines Knoten-Links (Regel 1): angezeigter Titel aus der Karte
+ * (displayTitle, R7-D2); mit Sprache de/en die Zahl nach E29; schreibt das
+ * Modell die Zahl mit einem Wort einer anderen Sprache, bleibt dieses Wort
+ * (K1-D2), sonst nur der Titel.
  * @returns {string}
  */
 function nodeLinkText(node, lang, count) {
   if (lang) return overviewLinkText(node, lang);
+  const title = displayTitle(node.title);
   if (count && hasCount(node))
-    return titleWithCount(node.title, node.count, count[2]);
-  return node.title;
+    return titleWithCount(title, node.count, count[2]);
+  return title;
 }
 
 /**
@@ -1444,9 +1491,10 @@ function isCourseDoc(text) {
  *   overview: Sprache der Übersichtszeile bzw. des Übersichtsblocks, in dem
  *     der Link steht, sonst null; lineStart: vor dem Link nur Schmuck;
  *   autolink: Link der Form <https://…> (Text = Adresse); follows: Zeile
- *     direkt unter einer Übersichtszeile (R5-D3), dort setzt ein Knoten-Link
- *     in alter Form am Zeilenanfang wie sonst die ganze Zeile, Kurs-Links
- *     gelten wie im Fließtext (R3-S2); intro: Link am Zeilenende hinter
+ *     direkt unter einer Übersichtszeile (R5-D3, R7-D1: auch mit
+ *     Aufzählungszeichen), dort bekommt ein behaltener Link am Zeilenanfang
+ *     eine eigene Übersichtszeile (S7-1; alte Form in ihrer Sprache), Kurs-
+ *     Links gelten wie im Fließtext (R3-S2); intro: Link am Zeilenende hinter
  *     einer kurzen Einleitung des Modells (R6-D3), dort setzt ein
  *     Kategorie-Link mit Sprache de/en (alte Form oder Kurszahl) die Zeile.
  * Ergebnis (dieselbe Entscheidung für Stream, Antwort und Speichern):
@@ -1454,14 +1502,14 @@ function isCourseDoc(text) {
  *   {remove: true}: entfernen;
  *   {remove: false, text, url, line}: Link „[text](url)“; url null = Ziel
  *     des Modells behalten; line = Sprache, wenn der Server die ganze Zeile
- *     setzt (Knoten-Link in alter Form am Zeilenanfang bzw. hinter einer
- *     eigenen Einleitung);
+ *     setzt (Knoten-Link in alter Form am Zeilenanfang, hinter einer
+ *     eigenen Einleitung bzw. Link am Anfang einer Folgezeile);
  *   {course: {exact, key, url}}: AK-21 ohne Bestätigung aus den Quellen
  *     (Stufe 2); der Filter hält den Link samt Text danach und fragt
  *     pickCourse(course, Text nach dem Link) -> Kurs-Link oder null
  *     (Link unverändert).
- * intro(lang), separator und matchIntro dienen dem Stream-Filter zum Setzen
- * der Zeile (Form nur in OVERVIEW_LINE).
+ * intro(lang) und matchIntro dienen dem Stream-Filter zum Setzen der Zeile
+ * (Form nur in OVERVIEW_LINE).
  * @param {{contextTexts?: string[], map: object|null, systemPrompt?: string, storedChats?: {response: any}[]}} input
  * @returns {object|null}
  */
@@ -1600,7 +1648,6 @@ function createOverviewLinkGuard({
   };
 
   return {
-    separator: OVERVIEW_LINE.separator,
     intro: (lang) => OVERVIEW_LINE[lang].intro,
     matchIntro: matchOverviewIntro,
     pickCourse: (course, windowText) => pickCourseUrl(course, windowText, map),
@@ -1629,6 +1676,11 @@ function createOverviewLinkGuard({
         (isCourseLink(key) || courseCandidates(map, text))
           ? null
           : where;
+      // S7-1: jeder andere behaltene Link am Anfang dieser Zeile bekommt
+      // eine eigene Übersichtszeile in ihrer Sprache; alte Form nur auf einem
+      // Knoten (unten), sonst bleibt sie wie außerhalb von Übersichten
+      const ownLine =
+        follows && lineStart && overview && !old ? overview : null;
       if (!overview && !autolink && !old && !count) {
         const course = courseVerdict(text, url, key, node);
         if (course) return course;
@@ -1662,6 +1714,7 @@ function createOverviewLinkGuard({
           // alter Form oder Kurszahl folgt (R6-D3)
           let line = null;
           if (old && lineStart && (!overview || follows)) line = oldLang;
+          else if (ownLine) line = ownLine;
           else if (intro && !overview)
             line = oldLang ?? countLang(count ?? titled);
           const lang =
@@ -1684,15 +1737,20 @@ function createOverviewLinkGuard({
       if (target && /^http:/i.test(target) && /^https:/i.test(url))
         target = null;
       if (autolink)
-        return target
-          ? { remove: false, text: target, url: target, line: null }
+        return target || ownLine
+          ? {
+              remove: false,
+              text: target ?? text,
+              url: target ?? url,
+              line: ownLine,
+            }
           : null;
       // in Übersichten jede Kurszahl, sonst nur die am Ende (R5-D4, B4)
       const stripped = stripCourseCount(text, !!overview);
       if (stripped === null) return { remove: true };
-      return stripped === text && !target
+      return stripped === text && !target && !ownLine
         ? null
-        : { remove: false, text: stripped, url: target, line: null };
+        : { remove: false, text: stripped, url: target, line: ownLine };
     },
   };
 }
@@ -1709,6 +1767,7 @@ module.exports = {
   __test__: {
     OVERVIEW_LINE,
     overviewLinkText,
+    displayTitle,
     CATEGORY_MAP_MAX_BYTES,
     CATEGORY_MAP_MAX_AGE_MS,
     parseCategoryMap,

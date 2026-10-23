@@ -83,7 +83,8 @@
 // Link an seiner Adresse, bevor er gesendet wird (R1-D1): Knoten der Karte
 // bekommen Titel, Zahl und Adresse aus der Karte; Übersichtslinks auf einen
 // Kurs-Link oder eine unbekannte Adresse entfallen; die Übersichtszeile
-// „Mehr Kurse zum Thema: [<Titel> (<n> Kurse)](<url>)“ setzt der Server (E29).
+// „Mehr Kurse zum Thema: [<Titel> (<n> Kurse)](<url>)“ setzt der Server (E29),
+// je Link eine Zeile (S7-1).
 // Stream und gespeicherter Text entscheiden gleich; ohne Karte keine Stufe.
 
 const { writeResponseChunk } = require("../helpers/chat/responses");
@@ -884,9 +885,10 @@ function emphasisClosers(lineText) {
  *
  * Übersichtszeile (E29): Beginnt eine Zeile (nach Schmuck) mit der
  * Einleitung oder mit einem Knoten-Link in alter Form („Alle Kurse in …“),
- * setzt der Server die Zeile selbst: Einleitung des Prüfers, dann die
- * behaltenen Links mit Trenner; Schmuck und übriger Text der Zeile
- * entfallen. Die Einleitung wird erst mit dem ersten behaltenen Link
+ * setzt der Server die Zeile selbst: je behaltenem Link eine eigene Zeile
+ * mit der Einleitung des Prüfers (S7-1, auch wenn das Modell zwei Links mit
+ * „ · “ oder Komma in eine Zeile schreibt); Schmuck und übriger Text der
+ * Zeile entfallen. Die Einleitung wird erst mit dem ersten behaltenen Link
  * gesendet; bleibt keiner, entfällt die Zeile samt Zeilenende.
  * Übersichtsblock (S2, R4-D2, R5-D3): Eine Einleitung ohne Link wird bis
  * zur nächsten Zeile gehalten; Leerzeilen direkt danach gehören dazu,
@@ -895,10 +897,12 @@ function emphasisClosers(lineText) {
  * einem Link beginnen, gelten ihre Links als Übersichtslinks; die
  * Einleitung kommt mit dem ersten gesendeten Text der Liste und entfällt,
  * wenn alle Links der Liste entfallen. Sonst bleibt sie unverändert.
- * Ebenso gehören Zeilen ohne Aufzählungszeichen, die mit einem erkannten
- * Link beginnen, direkt unter einer Übersichtszeile mit Link (ohne
- * Leerzeile, im Widget derselbe Absatz) zum Block (R5-D3, R3-S2); Kurs-Links
- * gelten dort wie im Fließtext.
+ * Ebenso gehören Zeilen, die (nach Schmuck oder Aufzählungszeichen) mit
+ * einem erkannten Link beginnen, direkt unter einer Übersichtszeile mit
+ * Link (ohne Leerzeile; das Widget schaltet Listen ab, alles steht im
+ * selben Absatz) zum Block (R5-D3, R3-S2, R7-D1); Kurs-Links gelten dort
+ * wie im Fließtext, ein anderer behaltener Link am Zeilenanfang bekommt eine
+ * eigene Übersichtszeile (S7-1).
  * Eigene Einleitung des Modells (R6-D3): Steht am Zeilenende ein
  * Kategorie-Link hinter einer kurzen Einleitung (ownIntroLink), setzt der
  * Server die Zeile wie bei der Einleitung E29. Bis zur Entscheidung wird
@@ -923,7 +927,7 @@ function emphasisClosers(lineText) {
  */
 class OverviewLinkFilter {
   /**
-   * @param {{check: Function, matchIntro: Function, intro: (lang: string) => string, separator: string}} guard
+   * @param {{check: Function, matchIntro: Function, intro: (lang: string) => string}} guard
    */
   constructor(guard) {
     this.guard = guard;
@@ -959,18 +963,16 @@ class OverviewLinkFilter {
 
   // Erstes Zeichen c nach dem Schmuck: gehört die Zeile zum
   // Übersichtsblock (Listenzeile oder Zeile, die mit einem Link beginnt)?
-  // Direkt unter einer Übersichtszeile (follows) nur eine Zeile ohne
-  // Aufzählungszeichen, die mit einem erkannten Link beginnt (linked): im
-  // Widget derselbe Absatz; eine Liste beginnt dort einen neuen (R3-S2).
+  // Direkt unter einer Übersichtszeile (follows) nur eine Zeile, die mit
+  // einem erkannten Link beginnt (linked), auch mit Aufzählungszeichen: das
+  // Widget schaltet Listen ab, sie steht im selben Absatz (R3-S2, R7-D1).
   // Sonst endet der Block (Ausgabe seiner Einleitung bzw. nichts).
   #beginLine(c, linked = false) {
     if (this.begun) return "";
     this.begun = true;
     if (!this.block) return "";
     const listed = ENUMERATION_RX.test(this.prefix);
-    if (
-      this.block.follows ? !listed && linked : listed || c === "[" || c === "<"
-    ) {
+    if (this.block.follows ? linked : listed || c === "[" || c === "<") {
       this.inBlock = true;
       this.block.listed = true;
       return "";
@@ -1029,13 +1031,11 @@ class OverviewLinkFilter {
     return head + this.#blockHead() + sent;
   }
 
-  // Behaltenen Link in der Übersichtszeile senden
+  // Behaltenen Link in der Übersichtszeile senden: jeder Link in einer
+  // eigenen Zeile mit Einleitung (E29 präzisiert 23.10.2026, S7-1)
   #lineLink(link) {
     const line = this.line;
-    const head =
-      line.kept === 0
-        ? `${this.guard.intro(line.lang)} `
-        : this.guard.separator;
+    const head = `${line.kept === 0 ? "" : "\n"}${this.guard.intro(line.lang)} `;
     line.kept += 1;
     return `${this.#blockHead()}${head}${link}`;
   }
@@ -1176,14 +1176,10 @@ class OverviewLinkFilter {
           i += 1;
           continue;
         }
-        // unter einer Übersichtszeile: beginnt die Zeile mit einem
-        // erkannten Link (R3-S2)?
+        // unter einer Übersichtszeile: beginnt die Zeile (auch nach
+        // Aufzählungszeichen, R7-D1) mit einem erkannten Link (R3-S2)?
         let linked = false;
-        if (
-          this.block?.follows &&
-          (c === "[" || c === "<") &&
-          !ENUMERATION_RX.test(this.prefix)
-        ) {
+        if (this.block?.follows && (c === "[" || c === "<")) {
           const found =
             c === "[" ? scanInlineLink(s, i, final) : scanAutolink(s, i, final);
           if (found.state === "pending") {
@@ -1256,7 +1252,8 @@ class OverviewLinkFilter {
           this.block.kept += 1;
         }
         if (verdict?.line) {
-          // Knoten-Link in alter Form am Zeilenanfang: der Server setzt die Zeile
+          // Knoten-Link in alter Form am Zeilenanfang bzw. behaltener Link am
+          // Anfang einer Folgezeile (S7-1): der Server setzt die Zeile
           this.prefix = "";
           this.lead = "";
           this.lineStart = false;

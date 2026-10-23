@@ -172,9 +172,24 @@ const CASES = [
     `Plus de cours sur ce thème : [Sport (40\u00a0cours)](${SPORT_URL})\nEt aussi : [Tanz](${TANZ_URL})`,
   ],
   [
-    "zwei Links in einer Zeile: mit „ · “, übriger Text entfällt",
+    "S7-1: zwei Links in einer Zeile: je Link eine eigene Zeile mit Einleitung, übriger Text entfällt",
     `${DE} [Sport](${SPORT_URL}) und [Yoga (2 Kurse)](${YOGA_URL}).\nEnde`,
-    `${DE} [Sport (40\u00a0Kurse)](${SPORT_URL}) · [Yoga (1\u00a0Kurs)](${YOGA_URL})\nEnde`,
+    `${DE} [Sport (40\u00a0Kurse)](${SPORT_URL})\n${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\nEnde`,
+  ],
+  [
+    "S7-1: zwei Links mit „ · “ bzw. Komma: je eine Zeile, deutsch und englisch",
+    `${DE} [Sport](${SPORT_URL}) · [Yoga](${YOGA_URL})\n${EN} [Sports](${SPORT_URL}), [Yoga](${YOGA_URL})\nEnde`,
+    `${DE} [Sport (40\u00a0Kurse)](${SPORT_URL})\n${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\n${EN} [Sport (40\u00a0courses)](${SPORT_URL})\n${EN} [Yoga (1\u00a0course)](${YOGA_URL})\nEnde`,
+  ],
+  [
+    "S7-1: zweiter Link in der Zeile darunter, ohne Einleitung oder als Aufzählung: eigene Zeile mit Einleitung",
+    `${DE} [Sport](${SPORT_URL})\n[Yoga](${YOGA_URL}) hier\n\n${EN} [Sports](${SPORT_URL})\n- **[Yoga](${YOGA_URL})**\nEnde`,
+    `${DE} [Sport (40\u00a0Kurse)](${SPORT_URL})\n${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\n\n${EN} [Sport (40\u00a0courses)](${SPORT_URL})\n${EN} [Yoga (1\u00a0course)](${YOGA_URL})\nEnde`,
+  ],
+  [
+    "S7-1: bekannte Adresse (kein Knoten) in der Zeile darunter: eigene Zeile, Zahl weg",
+    `${DE} [Sport](${SPORT_URL})\n[Sommer (3 Kurse)](${OTHER_URL})\nEnde`,
+    `${DE} [Sport (40\u00a0Kurse)](${SPORT_URL})\n${DE} [Sommer](${OTHER_URL})\nEnde`,
   ],
   [
     "zwei Links in einer Zeile, der erste ungültig: nur der zweite",
@@ -182,9 +197,9 @@ const CASES = [
     `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})`,
   ],
   [
-    "zwei alte Links in einer Zeile: eine Zeile in neuer Form",
+    "zwei alte Links in einer Zeile: je eine Zeile in neuer Form (S7-1)",
     `👉 [Alle Kurse in Sport](${SPORT_URL}) | [Alle Kurse in Yoga](${YOGA_URL})`,
-    `${DE} [Sport (40\u00a0Kurse)](${SPORT_URL}) · [Yoga (1\u00a0Kurs)](${YOGA_URL})`,
+    `${DE} [Sport (40\u00a0Kurse)](${SPORT_URL})\n${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})`,
   ],
   [
     "zwei Zeilen untereinander bleiben zwei Zeilen (je neue Form)",
@@ -284,7 +299,7 @@ const CASES = [
   [
     "S3: Standort-Link aus dem System-Prompt (Kundenregel) bleibt",
     `${LIST}\n[**Alle Kurse in Geeste**](${GEESTE_URL})\n${DE} [Sport](${SPORT_URL}) · [Geeste](${GEESTE_URL})`,
-    `${LIST}\n[**Alle Kurse in Geeste**](${GEESTE_URL})\n${DE} [Sport (40\u00a0Kurse)](${SPORT_URL}) · [Geeste](${GEESTE_URL})`,
+    `${LIST}\n[**Alle Kurse in Geeste**](${GEESTE_URL})\n${DE} [Sport (40\u00a0Kurse)](${SPORT_URL})\n${DE} [Geeste](${GEESTE_URL})`,
   ],
   [
     "S10/S11: Kontextadresse mit Satzzeichen und www-Variante bleiben, in der Originalform (R4-D3)",
@@ -347,7 +362,7 @@ const CASES = [
     `Ende\n${DE}\n${" ".repeat(16)}\nText`,
   ],
   [
-    "R3-S2: Aufzählungszeile direkt unter der Übersichtszeile beginnt einen neuen Absatz, Fließtext",
+    "R3-S2: Aufzählungszeile ohne Link am Anfang direkt unter der Übersichtszeile: Fließtext",
     `${DE} [Yoga](${YOGA_URL})\n- Tipp: [Sommer](${HOST}/erfunden) mehr\n- Text ohne Link\nEnde`,
     `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\n- Tipp: [Sommer](${HOST}/erfunden) mehr\n- Text ohne Link\nEnde`,
   ],
@@ -357,14 +372,24 @@ const CASES = [
     `${DE}\n\n\n\nFragen Sie gern.\n[Sommer](${HOST}/erfunden)`,
   ],
   [
-    "R5-D3 (F06): Zeile mit Link direkt unter der Übersichtszeile gehört zum Block, eine Liste danach nicht (R3-S2)",
+    "R5-D3 (F06), R7-D1: Zeilen mit Link am Anfang direkt unter der Übersichtszeile gehören zum Block, auch als Aufzählung; je behaltener Link eine Zeile (S7-1)",
     `${DE} [Yoga](${YOGA_URL})\n[Sommer](${HOST}/erfunden)\n- [Sommer (7)](${OTHER_URL}) hier\n[Tanz](${TANZ_URL})\nEnde`,
-    `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\n- [Sommer (7)](${OTHER_URL}) hier\n[Tanz](${TANZ_URL})\nEnde`,
+    `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\n${DE} [Sommer](${OTHER_URL})\n${DE} [Tanz](${TANZ_URL})\nEnde`,
   ],
   [
-    "R3-S2: Kursliste direkt unter der Übersichtszeile bleibt",
+    "R7-D1 (Z04): Aufzählungszeile mit unbekannter Adresse direkt unter der Übersichtszeile fällt weg",
+    `${DE} [Yoga](${YOGA_URL})\n- [Sommer](${HOST}/erfunden)\nEnde\n${EN} [Yoga](${YOGA_URL})\n2. [Summer](${HOST}/erfunden) more`,
+    `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\nEnde\n${EN} [Yoga (1\u00a0course)](${YOGA_URL})\n`,
+  ],
+  [
+    "R7-D1 (Z30): Kursliste unter der Übersichtszeile bleibt",
+    `${DE} [Yoga](${YOGA_URL})\n1. [Hatha-Yoga am Morgen](${COURSE_URL})\n   Beginn: Mo. 02.03.2026\n2. [**Salsa**](${TANZ_COURSE_URL})\nEnde`,
+    `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\n1. [Hatha-Yoga am Morgen](${COURSE_URL})\n   Beginn: Mo. 02.03.2026\n2. [**Salsa**](${TANZ_COURSE_URL})\nEnde`,
+  ],
+  [
+    "R3-S2, R7-D1: Kursliste direkt unter der Übersichtszeile bleibt, unbekannte Adresse in derselben Liste fällt weg",
     `${DE} [Yoga](${YOGA_URL})\n1. [**Hatha-Yoga**](${COURSE_URL}) am Montag\n- [Sommer](${HOST}/erfunden) neu\nEnde`,
-    `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\n1. [**Hatha-Yoga**](${COURSE_URL}) am Montag\n- [Sommer](${HOST}/erfunden) neu\nEnde`,
+    `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\n1. [**Hatha-Yoga**](${COURSE_URL}) am Montag\nEnde`,
   ],
   [
     "R3-S2: „[Text]“ ohne Link direkt unter der Übersichtszeile bleibt",
@@ -389,7 +414,7 @@ const CASES = [
   [
     "R3-S4: Kurszahl mitten im Linktext der Übersicht samt Klammer, Uhrzeit bleibt",
     `${DE} [Sport (12 Kurse) für Senioren](${OTHER_URL}) · [Yoga (3 Kurse) und Pilates](${OTHER_URL}) · [Yoga 18:00 Kurs](${OTHER_URL})\nEnde`,
-    `${DE} [Sport für Senioren](${OTHER_URL}) · [Yoga und Pilates](${OTHER_URL}) · [Yoga 18:00 Kurs](${OTHER_URL})\nEnde`,
+    `${DE} [Sport für Senioren](${OTHER_URL})\n${DE} [Yoga und Pilates](${OTHER_URL})\n${DE} [Yoga 18:00 Kurs](${OTHER_URL})\nEnde`,
   ],
   [
     "R6-D3 (K6): eigene Einleitung vor Kategorie-Link am Zeilenende: Zeile vom Server",
@@ -414,7 +439,7 @@ const CASES = [
   [
     "R5-D4 (F30, F53, F56): Zahl in der Übersichtszeile überall, Nicht-Knoten: Zahl weg",
     `${DE} [12 Yogakurse](${OTHER_URL}) · [Sommer (7)](${OTHER_URL}) · [12 Kurse im Sommer](${OTHER_URL})\nEnde`,
-    `${DE} [Yogakurse](${OTHER_URL}) · [Sommer](${OTHER_URL}) · [Kurse im Sommer](${OTHER_URL})\nEnde`,
+    `${DE} [Yogakurse](${OTHER_URL})\n${DE} [Sommer](${OTHER_URL})\n${DE} [Kurse im Sommer](${OTHER_URL})\nEnde`,
   ],
   [
     "R5-D4: Zahl im Übersichtsblock überall, auch fett, Bindestrich und englisch",
@@ -424,7 +449,7 @@ const CASES = [
   [
     "R5-D4 (F55, F30): Zahl in der Übersicht auf einem Knoten: Titel und Kartenzahl",
     `${DE} [alle 7 Kurse zum Thema Yoga](${YOGA_URL}) · [12 Sportkurse](${SPORT_URL})\nEnde`,
-    `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL}) · [Sport (40\u00a0Kurse)](${SPORT_URL})\nEnde`,
+    `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\n${DE} [Sport (40\u00a0Kurse)](${SPORT_URL})\nEnde`,
   ],
   [
     "R5-D4 Gegenprobe (B4, R5-D5): außerhalb von Übersichten nur die Zahl am Ende",
@@ -557,7 +582,7 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
     expect(filter.push("Absatz\n- Mehr Kur")).toBe("Absatz\n");
     expect(filter.push("se zum Thema: **[Sp")).toBe("");
     expect(filter.push(`ort](${SPORT_URL}) · [Yoga](${YOGA_URL})`)).toBe(
-      `${DE} [Sport (40\u00a0Kurse)](${SPORT_URL}) · [Yoga (1\u00a0Kurs)](${YOGA_URL})`
+      `${DE} [Sport (40\u00a0Kurse)](${SPORT_URL})\n${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})`
     );
     const other = new OverviewLinkFilter(GUARD);
     expect(other.push("Mehr Kur")).toBe("");
@@ -573,13 +598,12 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
     );
   });
 
-  test("Form an einer Stelle: Einleitung, Wort und Trenner kommen aus OVERVIEW_LINE", () => {
+  test("Form an einer Stelle: Einleitung und Wort kommen aus OVERVIEW_LINE, je Link eine Zeile (S7-1)", () => {
     const { OVERVIEW_LINE } = chains;
     const saved = JSON.stringify(OVERVIEW_LINE);
     try {
       OVERVIEW_LINE.de.intro = "Weitere Angebote:";
       OVERVIEW_LINE.de.many = "Angebote";
-      OVERVIEW_LINE.separator = " | ";
       const guard = createOverviewLinkGuard({
         contextTexts: CONTEXT,
         map: MAP,
@@ -590,7 +614,7 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
           { overviewLinks: guard }
         ).text
       ).toBe(
-        `Weitere Angebote: [Sport (40\u00a0Angebote)](${SPORT_URL}) | [Yoga (1\u00a0Kurs)](${YOGA_URL})`
+        `Weitere Angebote: [Sport (40\u00a0Angebote)](${SPORT_URL})\nWeitere Angebote: [Yoga (1\u00a0Kurs)](${YOGA_URL})`
       );
     } finally {
       Object.assign(OVERVIEW_LINE, JSON.parse(saved));
@@ -649,6 +673,59 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
     );
   });
 
+  test("R7-D1: Kurstitel auf einer Knotenadresse als Aufzählung direkt unter der Übersichtszeile wie im Fließtext", () => {
+    const reply = `${DE} [Yoga](${YOGA_URL})\n- [Aquarell](${YOGA_URL}) ab 02.03.2026\nEnde`;
+    expectGuarded(
+      GUARD,
+      reply,
+      `${DE} [Yoga (1\u00a0Kurs)](${YOGA_URL})\n- [Aquarell](${AQUARELL_URL}) ab 02.03.2026\nEnde`
+    );
+  });
+
+  test("R7-D2 (AK-9): Oberkategorie im angezeigten Titel weg, wenn der Name sie enthält; Kontext unverändert", () => {
+    const url = (n) => `${HOST}/kursprogramm/kategorie/${n}`;
+    const map = chains.parseCategoryMap(
+      JSON.stringify({
+        version: 1,
+        client: "vhs-beispiel",
+        created: new Date().toISOString(),
+        nodes: {
+          "Sprachen \\ Intensivkurse \\ Intensivkurs - A 1": {
+            title: "Intensivkurse · Intensivkurs - A 1",
+            url: url(1),
+            count: 4,
+          },
+          "Gesundheit \\ Entspannungstechniken \\ Qi Gong": {
+            title: "Entspannungstechniken · Qi Gong",
+            url: url(2),
+            count: 3,
+          },
+        },
+        courses: {},
+      })
+    );
+    const context = applyCategoryChains(
+      [
+        courseDoc(
+          "Qi Gong",
+          "26100-010",
+          "Gesundheit \\ Entspannungstechniken \\ Qi Gong",
+          `${HOST}/kurssuche/kurs/qi-gong/26100-010`
+        ),
+      ],
+      map
+    );
+    expect(context[0]).toContain(
+      `Entspannungstechniken · Qi Gong (3 Kurse) | ${url(2)}`
+    );
+    const guard = createOverviewLinkGuard({ contextTexts: context, map });
+    expectGuarded(
+      guard,
+      `${DE} [Intensivkurs A1](${url(1)}) · [Qi Gong](${url(2)})\nSiehe [Intensivkurse (2 Kurse)](${url(1)}).`,
+      `${DE} [Intensivkurs - A 1 (4\u00a0Kurse)](${url(1)})\n${DE} [Entspannungstechniken · Qi Gong (3\u00a0Kurse)](${url(2)})\nSiehe [Intensivkurs - A 1 (4\u00a0Kurse)](${url(1)}).`
+    );
+  });
+
   test("R3-S5: bekannte Adresse mit 301 bis 500 Zeichen bleibt in der Übersichtszeile", () => {
     const long = `${HOST}/kurse/${"a".repeat(400)}`;
     const guard = createOverviewLinkGuard({
@@ -672,7 +749,7 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
     expectGuarded(
       guard,
       reply,
-      `${DE} [Sommer](${HOST}/kurse/sommer) · [Winter](${HOST}/kurse/winter) · [Herbst](${HOST}/kurse/herbst)\nEnde`
+      `${DE} [Sommer](${HOST}/kurse/sommer)\n${DE} [Winter](${HOST}/kurse/winter)\n${DE} [Herbst](${HOST}/kurse/herbst)\nEnde`
     );
   });
 
