@@ -69,7 +69,9 @@ von Hand gebauten Einbau-Codes (Demo-Seite, Einbau-Paket vhs Rhein).
   Werte aus `EMBED_FIXED_STANDARDS` und `INLINE_FIXED_STANDARDS`
   (`server/utils/chats/embedStandards.js`) und alle Optik-Werte ohne Feld:
   Inline-Layout, Effekt, Höhe, Startzustand, Öffnen, Eingabeleiste, Texte
-  der Inline-Leiste, Schrift der Seite übernehmen, Begrüßungs-, Vorschlags-
+  der Inline-Leiste (der Platzhalter der Leiste folgt seit 23.10.2026 dem
+  Feld „Platzhalter“; `data-inline-input-placeholder` verfeinert ihn
+  weiterhin), Schrift der Seite übernehmen, Begrüßungs-, Vorschlags-
   und Folgefragen-Stil, Radien, Schatten, Flächen- und Textfarben,
   Kopffarben, Icon-Stil, Textgröße. Entwickler dürfen sie per Einbau-Angabe
   oder CSS-Variable verfeinern; die Einbau-Angabe schlägt den festen
@@ -240,8 +242,9 @@ Quelle im Widget: `DEFAULT_ACCENT` in `src/utils/theme.js`; im Design Center
 | `greetingBubbleText`                    | eigener Text bei `greetingStyle` oder `privacyNotice` `bubble`                   | gewinnt gegen `greeting` (stand bisher in der Blase)                                                                                                                                         |
 | `greetingBubbleText`                    | eigener Text bei Stil `text`                                                     | ignoriert, solange eine eigene `greeting` gesetzt ist (war nie sichtbar)                                                                                                                     |
 | `greeting` und `greetingBubbleText`     | beide eigener Text                                                               | schaltet der Kunde den Datenschutz-Hinweis um, bleibt beim Speichern der Text aus dem Feld „Begrüßungstext“; der andere, bisher unsichtbare Text wird entfernt (F04, 7.22-rc13; bewusste Ausnahme zum Negativfall „Texte bleiben“, E20, 7.22-rc16) |
-| `sendMessageText`                       | „Wie kann ich Ihnen helfen?“ (alte Vorbelegung)                                  | gilt als nicht gesetzt: Standard „Ihre Frage eingeben“                                                                                                                                       |
-| `inlineInputPlaceholder`                | eigener Leistentext bis 120 Zeichen                                              | bleibt wirksam                                                                                                                                                                               |
+| `sendMessageText`                       | „Wie kann ich Ihnen helfen?“ (alte Vorbelegung), „Ihre Frage eingeben“ / „Enter your question“ (Standard bis 7.22.2-rc4) | gilt als nicht gesetzt: Standard „Stellen Sie hier Ihre Frage …“ (en „Ask your question here …“), seit der Nutzerentscheidung vom 23.10.2026 derselbe Text wie in der eingeklappten Leiste |
+| `sendMessageText`                       | eigener Text                                                                     | gilt im Eingabefeld des Chats (Chatfenster und aufgeklapptes „In der Seite“) und seit 23.10.2026 auch in der eingeklappten Leiste, wenn er höchstens 120 Zeichen hat (sonst dort der Standard) |
+| `inlineInputPlaceholder`                | eigener Leistentext bis 120 Zeichen                                              | bleibt wirksam und geht in der eingeklappten Leiste dem eigenen Platzhalter vor                                                                                                             |
 | `inlineSendText`, `inlineCollapsedText` | eigener Text                                                                     | nicht mehr ausgeliefert: Demo-Texte („Stellen Sie hier Ihre Frage …“, „Chatten“); Einbau-Angaben verfeinern sie (Gruppe B, E23)                                                              |
 | `name`                                  | „Ihr Online-Berater“ (alte Vorbelegung)                                          | bleibt eigener Kundenwert (E2)                                                                                                                                                               |
 | `assistantSubtitle`                     | fehlt                                                                            | Standard-Untertitel „Online-Berater mit künstlicher Intelligenz“ (en „Online advisor powered by artificial intelligence“), auch live im Widget (R5, 7.22-rc8; vorher kein Untertitel)        |

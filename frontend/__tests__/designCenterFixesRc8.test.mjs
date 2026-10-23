@@ -499,14 +499,22 @@ test("R5, Bewusste Änderung E42: Vorbelegungen (DEFAULT_SUGGESTIONS leer, Willk
     keys.subtitleFieldValue({ assistantSubtitle: "" }, DEFAULTS),
     ""
   );
-  assert.equal(keys.placeholderFieldValue({}, DEFAULTS), "Ihre Frage eingeben");
+  // Platzhalter-Standard seit der Nutzerentscheidung vom 23.10.2026 wie die
+  // eingeklappte Leiste; der alte Standard gilt wie die alte Vorbelegung
+  // als nicht gesetzt
   assert.equal(
-    keys.placeholderFieldValue(
-      { sendMessageText: "Wie kann ich Ihnen helfen?" },
-      DEFAULTS
-    ),
-    "Ihre Frage eingeben"
+    keys.placeholderFieldValue({}, DEFAULTS),
+    "Stellen Sie hier Ihre Frage …"
   );
+  for (const sendMessageText of [
+    "Wie kann ich Ihnen helfen?",
+    "Ihre Frage eingeben",
+    "Enter your question",
+  ])
+    assert.equal(
+      keys.placeholderFieldValue({ sendMessageText }, DEFAULTS),
+      "Stellen Sie hier Ihre Frage …"
+    );
   assert.equal(
     keys.placeholderFieldValue({ sendMessageText: "Frage?" }, DEFAULTS),
     "Frage?"
@@ -544,7 +552,16 @@ test('R5, Bewusste Änderung E42: cleanConfig entfernt Werte, die dem Standard e
   assert.deepEqual(clean({ assistantSubtitle: " Beratung " }), {
     assistantSubtitle: "Beratung",
   });
-  assert.deepEqual(clean({ sendMessageText: "Ihre Frage eingeben" }), {});
+  assert.deepEqual(clean({ sendMessageText: DEFAULTS.sendMessageText }), {});
+  assert.deepEqual(
+    clean({ sendMessageText: " Stellen Sie hier Ihre Frage … " }),
+    {}
+  );
+  // alter Standard (bis 7.22.2-rc4, 23.10.2026): bleibt wie jede frühere
+  // Vorbelegung stehen und gilt als nicht gesetzt
+  assert.deepEqual(clean({ sendMessageText: "Ihre Frage eingeben" }), {
+    sendMessageText: "Ihre Frage eingeben",
+  });
   assert.deepEqual(
     clean({ defaultMessages: [...keys.DEFAULT_SUGGESTIONS] }),
     {}
@@ -789,7 +806,7 @@ test(
       "Inhalt"
     );
     const placeholder = byLabel(container, "Platzhalter im Eingabefeld");
-    assert.equal(valueOf(placeholder), "Ihre Frage eingeben");
+    assert.equal(valueOf(placeholder), "Stellen Sie hier Ihre Frage …");
     const title = byLabel(container, "Überschrift des Datenschutz-Hinweises");
     assert.equal(valueOf(title), "Datenschutz");
     for (const field of [placeholder, title]) {
@@ -817,7 +834,7 @@ test(
     await act(() => click(reset));
     assert.equal(
       valueOf(byLabel(container, "Platzhalter im Eingabefeld")),
-      "Ihre Frage eingeben"
+      "Stellen Sie hier Ihre Frage …"
     );
     await act(() => click(button(container, "Speichern")));
     assert.deepEqual(savedBody(calls), { privacyTitle: "Hinweis" });

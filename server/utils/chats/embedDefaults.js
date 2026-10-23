@@ -22,12 +22,19 @@
 // Platzhalter sind die Standards, die das Widget ohne gespeicherten Wert
 // zeigt (der Untertitel seit R5, Fixliste 7.22-rc8, auch live); das Design
 // Center zeigt sie als Feldwert (Vorbelegung) und schreibt nur Abweichungen.
+// Platzhalter (Nutzerentscheidung 23.10.2026, 7.22.2): Das Eingabefeld des
+// Chats (Chatfenster und aufgeklapptes „In der Seite“) zeigt denselben Text
+// wie die eingeklappte Inline-Leiste, „Stellen Sie hier Ihre Frage …“ bzw.
+// „Ask your question here …“. Bis 7.22.2-rc4 stand hier „Ihre Frage
+// eingeben“ bzw. „Enter your question“; so gespeichert gilt der alte Text
+// als nicht gesetzt (embedStandards.js LEGACY_DEFAULT_PLACEHOLDERS).
 const EMBED_DEFAULT_TEXTS = {
   de: {
     assistantName: "KI-Berater",
     assistantSubtitle: "Online-Berater mit künstlicher Intelligenz",
     greeting: "Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?",
-    inputPlaceholder: "Ihre Frage eingeben",
+    // gleich inlineBarPlaceholder (Nutzerentscheidung 23.10.2026)
+    inputPlaceholder: "Stellen Sie hier Ihre Frage …",
     privacyTitle: "Datenschutz",
     // ohne Gendersprache: „Mitarbeiter“ (E30, Fixliste 7.22-rc19)
     privacyPoints: [
@@ -50,7 +57,7 @@ const EMBED_DEFAULT_TEXTS = {
     assistantName: "AI Advisor",
     assistantSubtitle: "Online advisor powered by artificial intelligence",
     greeting: "Hello! I am your AI advisor. How can I help you?",
-    inputPlaceholder: "Enter your question",
+    inputPlaceholder: "Ask your question here …",
     privacyTitle: "Privacy",
     privacyPoints: [
       "Your requests stay on servers in Germany and are not passed on to third parties.",
@@ -120,7 +127,8 @@ function defaultSuggestions(lang = "de") {
  * sendMessageText/greeting/privacyTitle/privacyText als Standardtext und
  * Vorbelegung (privacyText im freien Format, ein „• “-Punkt je Zeile),
  * disclaimerText sowie Platzhalter und Button der eingeklappten Inline-Leiste
- * (inlineInputPlaceholder, inlineSendText) nur zur Anzeige (fest); dazu die
+ * (inlineInputPlaceholder, inlineSendText) nur zur Anzeige (Standard der
+ * Leiste; seit 23.10.2026 gleich dem Platzhalter des Chats); dazu die
  * Standard-Startvorschläge (defaultMessages, S1) als Vorbelegung der Liste,
  * seit E42 leer.
  * @param {string} [lang]

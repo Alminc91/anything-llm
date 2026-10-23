@@ -911,8 +911,9 @@ function InlinePreview({
     if (expanded) scrollToStart(messagesRef.current);
   }, [expanded]);
   const accentColor = previewAccentColor(config);
-  // Eingeklappte Leiste: Demo-Texte bzw. früher gespeicherter Leistentext,
-  // nicht der Platzhalter des Chat-Eingabefelds (Entscheidung D2)
+  // Eingeklappte Leiste: derselbe Platzhalter wie im Eingabefeld (eigener
+  // Text bis 120 Zeichen oder Standard), ein früher gespeicherter
+  // Leistentext geht vor (Nutzerentscheidung 23.10.2026, ersetzt D2)
   const { placeholder, sendText } = previewInlineBar(config, defaults);
   const chips = textItems(listItems(config, "defaultMessages", defaults)).slice(
     0,

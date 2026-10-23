@@ -264,10 +264,11 @@ test(
     assert.ok(!html.includes("Hallo und herzlich willkommen"));
     assert.ok(html.includes("• Punkt eins\n• Punkt zwei"));
     // Platzhalter: R5, der Standard steht als Wert im Feld (frühere
-    // Vorbelegung zählt nicht)
+    // Vorbelegung zählt nicht); seit 23.10.2026 derselbe Text wie in der
+    // eingeklappten Leiste
     assert.match(
       html,
-      /aria-label="Platzhalter im Eingabefeld"[^>]*value="Ihre Frage eingeben"|value="Ihre Frage eingeben"[^>]*aria-label="Platzhalter im Eingabefeld"/
+      /aria-label="Platzhalter im Eingabefeld"[^>]*value="Stellen Sie hier Ihre Frage …"|value="Stellen Sie hier Ihre Frage …"[^>]*aria-label="Platzhalter im Eingabefeld"/
     );
   }
 );
@@ -449,32 +450,48 @@ test(
   }
 );
 
+// Nutzerentscheidung 23.10.2026 (ersetzt D2): eingeklappt und aufgeklappt
+// derselbe Platzhalter, der eigene Platzhalter des Chats auch in der Leiste
 test(
-  "D2: Inline-Leiste der Vorschau mit Demo-Text, auch mit eigenem Platzhalter des Chat-Felds; früherer Leistentext gilt",
+  "23.10.2026: Inline-Leiste der Vorschau mit dem Platzhalter des Chats, auch mit eigenem Platzhalter; früherer Leistentext gilt",
   { skip },
   async (t) => {
+    const props = (config) => ({
+      config: { displayMode: "inline", ...config },
+      logoPreview: null,
+      defaults: DEFAULTS,
+      greetingKey: "greeting",
+    });
+    // Standard: eingeklappt und aufgeklappt „Stellen Sie hier Ihre Frage …“
+    const standard = (await collapsedInline(t, props({}))).textContent;
+    assert.ok(standard.includes("Stellen Sie hier Ihre Frage …"));
+    assert.ok(!standard.includes("Ihre Frage eingeben"));
+    const expandedStandard = text(await show(PREVIEW, props({})));
+    assert.ok(expandedStandard.includes("Stellen Sie hier Ihre Frage …"));
+    assert.ok(!expandedStandard.includes("Ihre Frage eingeben"));
+    // eigener Platzhalter: auch eingeklappt
     const own = (
-      await collapsedInline(t, {
-        config: { displayMode: "inline", sendMessageText: "Ihre Frage an uns" },
-        logoPreview: null,
-        defaults: DEFAULTS,
-        greetingKey: "greeting",
-      })
+      await collapsedInline(t, props({ sendMessageText: "Ihre Frage an uns" }))
     ).textContent;
-    assert.ok(own.includes("Stellen Sie hier Ihre Frage …"));
-    assert.ok(!own.includes("Ihre Frage an uns"));
+    assert.ok(own.includes("Ihre Frage an uns"));
+    assert.ok(!own.includes("Stellen Sie hier Ihre Frage …"));
+    // über 120 Zeichen (früher gespeichert): eingeklappt der Standard
+    const long = (
+      await collapsedInline(t, props({ sendMessageText: "p".repeat(121) }))
+    ).textContent;
+    assert.ok(long.includes("Stellen Sie hier Ihre Frage …"));
+    // früher gespeicherter Leistentext geht vor
     const legacy = (
-      await collapsedInline(t, {
-        config: {
-          displayMode: "inline",
+      await collapsedInline(
+        t,
+        props({
           inlineInputPlaceholder: "Was suchen Sie?",
-        },
-        logoPreview: null,
-        defaults: DEFAULTS,
-        greetingKey: "greeting",
-      })
+          sendMessageText: "Ihre Frage an uns",
+        })
+      )
     ).textContent;
     assert.ok(legacy.includes("Was suchen Sie?"));
+    assert.ok(!legacy.includes("Ihre Frage an uns"));
     // Hinweis beim Feld „Platzhalter“
     const bubbleHint = text(await show(CONTENT, contentProps({})));
     assert.ok(
@@ -488,7 +505,36 @@ test(
     );
     assert.ok(
       inlineHint.includes(
-        "Die eingeklappte Leiste zeigt fest „Stellen Sie hier Ihre Frage …“."
+        "Grauer Text im Eingabefeld des Chats. Leer: es gilt der Standardtext. Die eingeklappte Leiste zeigt denselben Text."
+      )
+    );
+    assert.ok(!inlineHint.includes("zeigt fest"));
+    // auch mit eigenem Platzhalter derselbe Text
+    const ownHint = text(
+      await show(
+        CONTENT,
+        contentProps({
+          displayMode: "inline",
+          sendMessageText: "Ihre Frage an uns",
+        })
+      )
+    );
+    assert.ok(
+      ownHint.includes("Die eingeklappte Leiste zeigt denselben Text.")
+    );
+    // früher gespeicherter Platzhalter über 120 Zeichen: Leiste mit Standard
+    const longHint = text(
+      await show(
+        CONTENT,
+        contentProps({
+          displayMode: "inline",
+          sendMessageText: "p".repeat(121),
+        })
+      )
+    );
+    assert.ok(
+      longHint.includes(
+        "Die eingeklappte Leiste zeigt „Stellen Sie hier Ihre Frage …“."
       )
     );
     const legacyHint = text(
