@@ -47,15 +47,21 @@
 //      fällt weg (NAK-7): außerhalb von Übersichten die am Ende, in
 //      Übersichtszeile und -block jede (R5-D4). Ziel: steht die Adresse des
 //      Modells wörtlich in einer geprüften Quelle, sie selbst, sonst die
-//      erste Fundstelle mit gleichem Schlüssel (R4-D3, R5-D2).
+//      erste sichere Fundstelle mit gleichem Schlüssel (R4-D3, R5-D2,
+//      R3-S6), nie von https auf http.
 // Form der Übersichtszeile (E29) nur in OVERVIEW_LINE und overviewLinkText:
 //   Mehr Kurse zum Thema: [<title> (<n> Kurse)](<url>) · [<title>](<url>)
+//   (zwischen Zahl und Wort ein geschütztes Leerzeichen, R6-D4)
 // Übersichtszeile: Zeile mit der Einleitung (de/en, auch mit *, _, # drum
-// herum) oder mit einem Knoten-Link in alter Form am Zeilenanfang; der
-// Server setzt sie selbst. Übersichtsblock: Einleitung ohne Link, beliebig
-// viele Leerzeilen und die folgenden Listenzeilen bzw. Zeilen mit Link am
-// Anfang, ebenso solche Zeilen direkt unter einer Übersichtszeile mit Link
-// (R5-D3); dort wird je Link entschieden.
+// herum), mit einem Knoten-Link in alter Form am Zeilenanfang oder mit
+// einem Kategorie-Link am Zeilenende hinter einer kurzen Einleitung des
+// Modells in der ersten Zeile eines Absatzes (R6-D3, Sprache aus alter Form
+// oder Kurszahl); der Server setzt sie selbst. Übersichtsblock: Einleitung
+// ohne Link, beliebig viele Leerzeilen und die folgenden Listenzeilen bzw.
+// Zeilen mit Link am Anfang, ebenso Zeilen ohne Aufzählungszeichen, die mit
+// einem erkannten Link beginnen, direkt unter einer Übersichtszeile mit
+// Link (R5-D3, R3-S2; Kurs-Links dort wie im Fließtext); dort wird je Link
+// entschieden.
 //
 // Kurslink nachschlagen (AK-21, E38): Optionales Feld course_links der Karte
 //   {"<kursnummer>": {"title": "…", "start": "YYYY-MM-DD[THH:MM]",
