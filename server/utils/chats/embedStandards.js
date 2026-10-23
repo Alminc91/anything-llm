@@ -15,10 +15,13 @@
 // verfeinern, die Skript-Angabe schlägt den gelieferten festen Standard.
 // Ausgenommen sind (Fixliste 7.22-rc18 F62): der KI-Hinweis (disclaimer,
 // E24: auf keinem Weg abschaltbar oder änderbar), courseCardsAnswerStyle
-// (liest nur der Server für den Prompt, das Widget hat dafür keine Angabe)
-// und onlineDot (Online-Punkt entfernt, data-online-dot ohne Wirkung). Für
-// greetingStyle gilt E26 (7.22-rc18): Ist der Datenschutz-Hinweis an,
-// bleibt die Begrüßung eine Blase, auch gegen data-greeting-style="text".
+// (liest nur der Server für den Prompt, das Widget hat dafür keine Angabe),
+// onlineDot (Online-Punkt entfernt, data-online-dot ohne Wirkung) und seit
+// der Datenschutz-Fußzeile (Nutzer 23.10.2026) privacyNotice: immer der
+// Link „Datenschutz“ neben dem KI-Hinweis, data-privacy-notice wirkt nicht.
+// Die Grenze für greetingStyle (E26, 7.22-rc18: Begrüßung als Blase, solange
+// die Datenschutz-Blase darunter hing) hat seit 7.23 keinen Anlass mehr; wie
+// data-greeting-style wirkt, legt das Widget fest.
 // Technik-Angaben am Skript (Gruppe C, etwa data-language) wirken immer.
 //
 // Eine Quelle für beide Wege: applyEmbedStandards (Konfiguration ans
@@ -65,13 +68,20 @@ const DEFAULT_WELCOME_BUBBLES = "first";
 // („Suche“, chatbot-v4): kurzer Chatbot-Text, Karten als Zeilen. Ob Karten
 // erscheinen und an welcher Stelle, wählt der Kunde (courseCardsValue,
 // courseCardsPositionValue unten).
-// Der Datenschutz-Hinweis ist nicht mehr fest (KIE-565 Nachtrag, Nutzer
-// 15.10.2026): privacyNoticeValue() unten.
+// Datenschutz-Hinweis (privacyNotice) fest "link" (Nutzer 23.10.2026,
+// issues/datenschutz-fusszeile.md AK-7/AK-10): Der Link „Datenschutz“ steht
+// immer in der Zeile des KI-Hinweises unter der Eingabe und öffnet das
+// Datenschutz-Fenster; keine Blase beim Start, kein „Aus“, keine Auswahl im
+// Design Center. Gespeicherte Altwerte ("bubble", "none", "modal") bleiben in
+// visual_config stehen und wirken nicht. Bis 7.22.2 war der Hinweis eine
+// zweite Blase unter der Begrüßung, im Design Center abschaltbar (KIE-565
+// Nachtrag, privacyNoticeValue). Der Prompt pro Embed hängt nicht davon ab.
 const EMBED_FIXED_STANDARDS = Object.freeze({
   greetingStyle: "bubble",
   suggestionStyle: "pills",
   followUps: "pills",
   disclaimer: "footer",
+  privacyNotice: "link",
   onlineDot: false,
   courseCardsAnswerStyle: "short",
   courseCardsLayout: "rows",
@@ -130,9 +140,10 @@ const LEGACY_DEFAULT_GREETINGS = Object.freeze([
 // Alte Datenschutz-Vorlagen in der Begrüßung (E43, Nutzerentscheidung
 // 22.10.2026 „Alte Vorlage als nicht gesetzt“, 7.22-rc24): Steht einer
 // dieser Texte als greeting oder greetingBubbleText gespeichert, gilt die
-// Begrüßung wie nicht gesetzt (Standard-Begrüßung der Sprache im Widget,
-// darunter die Datenschutz-Blase wie bei jedem Widget ohne eigene
-// Begrüßung). Sonst stünde der Hinweis ab 7.22 doppelt da. Eine
+// Begrüßung wie nicht gesetzt (Standard-Begrüßung der Sprache im Widget;
+// der Datenschutz-Hinweis steht seit 7.23 im Fenster hinter dem Link
+// „Datenschutz“, bis 7.22.2 als Blase darunter). Sonst stünde der Hinweis
+// doppelt da. Eine
 // Erlaubnisliste exakter Texte, keine Stichwortsuche: Eigene Texte der
 // Kunden bleiben, auch abgewandelte Vorlagen. Verglichen wird nach
 // Normalisierung von Leerraum (isLegacyGreeting). Erhebung der Flotte
@@ -306,7 +317,9 @@ function ownGreeting(value) {
  * alte Widget zeigte greetingBubbleText nur bei greetingStyle "bubble" bzw.
  * mit dem Datenschutz-Hinweis in der Blase (privacyNotice "bubble"); beim
  * früheren Standard „text“ war er unsichtbar (Review 7.22-rc6 F03).
- * Groß-/Kleinschreibung und Leerraum egal.
+ * Groß-/Kleinschreibung und Leerraum egal. Liest bewusst den gespeicherten
+ * Altwert von privacyNotice (nicht den festen Standard "link"), damit seit
+ * der Datenschutz-Fußzeile (7.23) jedes Widget dieselbe Begrüßung behält.
  * @param {Object} visualConfig
  * @returns {boolean}
  */
@@ -432,33 +445,16 @@ function privacyTitleValue(value) {
 }
 
 /**
- * Datenschutz-Hinweis (privacyNotice), im Design Center abschaltbar (Schalter
- * „Datenschutz-Hinweis anzeigen“, KIE-565 Nachtrag, Nutzer 15.10.2026): nur
- * ein gespeichertes "none" (Groß-/Kleinschreibung und Leerraum egal) schaltet
- * die zweite Blase ab. Jeder andere Wert und ein fehlender Wert ergeben
- * "bubble", auch das frühere "modal" (Einmal-Hinweis entfällt). Der Prompt
- * pro Embed hängt nicht davon ab (embed.js embedSystemPrompt kennt keinen
- * Datenschutz-Abschnitt).
- * @param {*} value gespeicherter visual_config.privacyNotice
- * @returns {"none"|"bubble"}
- */
-function privacyNoticeValue(value) {
-  return typeof value === "string" && value.trim().toLowerCase() === "none"
-    ? "none"
-    : "bubble";
-}
-
-/**
  * Feste Standards auf die (bereits validierte) Konfiguration für das Widget
- * anwenden: Begrüßung, Platzhalter, Leistentext und Datenschutz aus den
- * gespeicherten Texten setzen, Datenschutz-Hinweis an oder aus
- * (privacyNoticeValue), Reihenfolge der Karten (KIE-567) sowie
+ * anwenden: Begrüßung, Platzhalter, Leistentext und Datenschutz-Texte aus
+ * den gespeicherten Texten setzen, Reihenfolge der Karten (KIE-567) sowie
  * Willkommensblasen je Gerät (KIE-568) immer mit gültigem Wert, feste Werte
- * erzwingen. courseCards geht NUR mit, wenn eine Wahl gespeichert ist (R4,
- * Fixliste 7.22-rc8); sonst entscheidet das Widget nach seiner
- * tatsächlichen Darstellung (In der Seite Kurskarten, Chatfenster Nur Text
- * mit Links). Was sonst ans Widget
- * geht, legt allein die Erlaubtliste des Endpunkts fest (`mapped`).
+ * erzwingen (darunter privacyNotice "link", Datenschutz-Fußzeile 7.23).
+ * courseCards geht NUR mit, wenn eine Wahl gespeichert ist (R4, Fixliste
+ * 7.22-rc8); sonst entscheidet das Widget nach seiner tatsächlichen
+ * Darstellung (In der Seite Kurskarten, Chatfenster Nur Text mit Links).
+ * Was sonst ans Widget geht, legt allein die Erlaubtliste des Endpunkts
+ * fest (`mapped`).
  * Verändert `mapped` nicht, gibt ein neues Objekt zurück.
  * @param {Object} mapped Antwort von /config vor den Standards
  * @param {Object} visualConfig gespeicherte visual_config (Rohwerte)
@@ -477,8 +473,8 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
   // 7.22-rc17): data-greeting und data-greeting-bubble-text am Skript wirken
   // nie, auch ohne gespeicherten Text (dann gilt der Standard der Sprache im
   // Widget). Die Form der Begrüßung (greetingStyle, fest "bubble" in
-  // EMBED_FIXED_STANDARDS) ist Gruppe B: data-greeting-style="text" wirkt
-  // nur bei abgeschaltetem Datenschutz-Hinweis (E26, Fixliste 7.22-rc18).
+  // EMBED_FIXED_STANDARDS) ist Gruppe B; wie weit data-greeting-style="text"
+  // sie verfeinert, legt das Widget fest (E26, Fixliste 7.22-rc18).
   const greeting = effectiveGreeting(vc);
   if (greeting) out.greeting = greeting;
   const placeholder = effectivePlaceholder(vc);
@@ -491,7 +487,6 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
   if (privacyText !== null) out.privacyText = privacyText;
 
   Object.assign(out, EMBED_FIXED_STANDARDS, INLINE_FIXED_STANDARDS, {
-    privacyNotice: privacyNoticeValue(vc.privacyNotice),
     courseCardsPosition: courseCardsPositionValue(vc.courseCardsPosition),
     welcomeBubblesDesktop: welcomeBubblesValue(vc.welcomeBubblesDesktop),
     welcomeBubblesMobile: welcomeBubblesValue(vc.welcomeBubblesMobile),
@@ -531,6 +526,5 @@ module.exports = {
   inlineBarPlaceholder,
   normalizePrivacyText,
   privacyTitleValue,
-  privacyNoticeValue,
   applyEmbedStandards,
 };

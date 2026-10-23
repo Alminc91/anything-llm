@@ -230,18 +230,27 @@ test("F62: Kopfkommentar von embedStandards.js grenzt die Verfeinerung ein", () 
 // E26 Datenschutz-Hinweis erzwingt die Begrüßungsblase
 // ---------------------------------------------------------------------------
 
-test('E26: Migrationsdoku sagt, dass data-greeting-style="text" nur ohne Datenschutz-Hinweis wirkt', () => {
+// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Es gibt
+// keine Datenschutz-Blase mehr, an der die Begrüßungsblase hing. Die Doku
+// nennt E26 als Regel bis 7.22.2 und verweist für die Wirkung von
+// data-greeting-style auf ATTRIBUTES.md im Widget; bis 7.22.2 hieß es
+// „wirkt nur, solange der Datenschutz-Hinweis im Design Center aus ist“.
+test('E26: Migrationsdoku nennt die Grenze für data-greeting-style="text" als Stand bis 7.22.2', () => {
   const doc = readDoc();
   const groupB = bullet(doc, "Gruppe B");
-  assert.match(
+  assert.doesNotMatch(
     groupB,
     /`data-greeting-style="text"` wirkt nur, solange der Datenschutz-Hinweis im Design Center aus ist/
   );
   assert.match(groupB, /E26, 7\.22-rc18/);
-  const notice = bullet(doc, "KI-Hinweis (E24)");
-  assert.match(notice, /auch gegen `data-greeting-style="text"` \(E26/);
+  assert.match(groupB, /hat ab 7\.23 keinen Anlass mehr/);
   assert.match(tableRow(doc, "greetingStyle"), /E26/);
+  assert.match(tableRow(doc, "greetingStyle"), /7\.22 bis 7\.22\.2/);
   assert.match(tableRow(doc, "privacyNotice", "`bubble`, `modal`"), /E26/);
+  assert.match(
+    tableRow(doc, "privacyNotice", "`bubble`, `modal`"),
+    /keine Datenschutz-Blase beim Start mehr/
+  );
 });
 
 // ---------------------------------------------------------------------------

@@ -334,18 +334,18 @@ function bullet(doc, name) {
     .replace(/\s+/g, " ");
 }
 
-test("F83 (seit 7.22.2): Gruppe B nennt die Datenschutz-Blase wie die Antwortblasen (ersetzt E25)", () => {
+// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Die
+// Datenschutz-Blase entfällt; das Datenschutz-Fenster nutzt Fläche und
+// Schrift der Antwortblasen (D2). Bis 7.22.2 stand hier „Die
+// Datenschutz-Blase sieht seit 7.22.2 aus wie die Begrüßungsblase und die
+// Antwortblasen …“ mit den Angaben, die alle Blasen gemeinsam ändern.
+test("F83 (seit 7.23): Gruppe B nennt das Datenschutz-Fenster mit Fläche und Schrift der Antwortblasen (ersetzte E25)", () => {
   const group = bullet(readDoc(), "Gruppe B");
   assert.match(
     group,
-    /Die Datenschutz-Blase sieht seit 7\.22\.2 aus wie die Begrüßungsblase und die Antwortblasen \(Nutzer 23\.10\.2026, ersetzt E25/
+    /Das Datenschutz-Fenster \(ab 7\.23\) nutzt Fläche und Schrift der Antwortblasen und die Rundung des Panels, wie bis 7\.22\.2 die Datenschutz-Blase \(Nutzer 23\.10\.2026, ersetzte E25/
   );
-  // die Angaben, die alle Blasen gemeinsam ändern, und die gedämpfte
-  // Textfarbe, die sie nicht erreicht
-  assert.match(group, /`data-assistant-bg-color`/);
-  assert.match(group, /`--allm-assistant-bg`/);
-  assert.match(group, /ändern alle diese Blasen gemeinsam/);
-  assert.match(group, /`--allm-text-muted` erreicht sie nicht/);
+  assert.doesNotMatch(group, /Die Datenschutz-Blase sieht seit 7\.22\.2/);
   assert.doesNotMatch(group, /je Farbschema fest/);
   assert.doesNotMatch(group, /[–—]/);
 });

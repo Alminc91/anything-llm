@@ -272,8 +272,15 @@ test("C28: Kommentar zur Begrüßung in applyEmbedStandards nach E23 und E26", (
     comment,
     /data-greeting und data-greeting-bubble-text am Skript wirken nie, auch ohne gespeicherten Text/
   );
+  // Bewusste Änderung (Datenschutz-Fußzeile, 7.23): Ohne Datenschutz-Blase
+  // hat die Grenze aus E26 keinen Anlass mehr, das Widget legt die Wirkung
+  // fest; bis 7.22.2 „wirkt nur bei abgeschaltetem Datenschutz-Hinweis“
+  assert.doesNotMatch(
+    comment,
+    /data-greeting-style="text" wirkt nur bei abgeschaltetem Datenschutz-Hinweis/
+  );
   assert.match(
     comment,
-    /data-greeting-style="text" wirkt nur bei abgeschaltetem Datenschutz-Hinweis \(E26/
+    /wie weit data-greeting-style="text" sie verfeinert, legt das Widget fest \(E26/
   );
 });

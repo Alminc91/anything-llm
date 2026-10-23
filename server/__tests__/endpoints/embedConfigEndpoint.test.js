@@ -125,14 +125,14 @@ const { defaultSuggestions } = require("../../utils/chats/embedDefaults");
 // Antwort ohne eigene Werte: nur die festen Standards (Karten ohne
 // gespeicherte Wahl OHNE Schlüssel, das Widget entscheidet nach seiner
 // Darstellung, R4 Fixliste 7.22-rc8; Reihenfolge Karten zuerst, KIE-567;
-// Willkommensblasen beim ersten Besuch, KIE-568; Datenschutz-Hinweis ohne
-// gespeicherten Wert an, KIE-565 Nachtrag; Standard-Startvorschläge der
+// Willkommensblasen beim ersten Besuch, KIE-568; Datenschutz-Hinweis fest
+// als Link in der Fußzeile, privacyNotice "link" unter den festen
+// Standards, Nutzer 23.10.2026; Standard-Startvorschläge der
 // Sprache ohne gespeicherte Liste, S1 Fixliste 7.22-rc10, als Array und
 // gekennzeichnet, E10/E11 Fixliste 7.22-rc13; seit E42, 7.22-rc23, leer)
 const STANDARD = {
   ...EMBED_FIXED_STANDARDS,
   ...INLINE_FIXED_STANDARDS,
-  privacyNotice: "bubble",
   courseCardsPosition: "above",
   welcomeBubblesDesktop: "first",
   welcomeBubblesMobile: "first",
@@ -148,14 +148,16 @@ const STANDARD_ERROR = Object.fromEntries(
 );
 
 describe("GET /embed/:embedId/config — feste Standards", () => {
-  test("Standards wörtlich (Bewusste Änderung E42: Startvorschläge leer): Blase, Pillen, Folgefragen, Datenschutz-Blase, KI-Hinweis im Fuß, kein Online-Punkt, Karten wie Demo-Variante 4, Inline wie Demo", async () => {
+  test("Standards wörtlich (Bewusste Änderung E42: Startvorschläge leer): Blase, Pillen, Folgefragen, Datenschutz als Link in der Fußzeile, KI-Hinweis im Fuß, kein Online-Punkt, Karten wie Demo-Variante 4, Inline wie Demo", async () => {
     const res = await fetchConfig({});
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
       greetingStyle: "bubble",
       suggestionStyle: "pills",
       followUps: "pills",
-      privacyNotice: "bubble",
+      // Datenschutz-Fußzeile (Nutzer 23.10.2026): immer der Link, bis
+      // 7.22.2 "bubble" (Blase beim Start)
+      privacyNotice: "link",
       disclaimer: "footer",
       onlineDot: false,
       courseCardsAnswerStyle: "short",
@@ -731,36 +733,37 @@ describe("GET /embed/:embedId/config — Platzhalter", () => {
   });
 });
 
-// KIE-565 Nachtrag (Nutzer 15.10.2026): Datenschutz-Hinweis im Design
-// Center abschaltbar. Nur "none" schaltet ab; fehlend, "bubble", das
-// frühere "modal" und alles andere ergeben die Blase.
-describe("GET /embed/:embedId/config: Datenschutz-Hinweis an/aus", () => {
-  test("privacyNotice none bleibt none, sonst alles unverändert", async () => {
-    const res = await fetchConfig({ privacyNotice: "none" });
-    expect(res.body).toEqual({ ...STANDARD, privacyNotice: "none" });
-    expect(
-      (await fetchConfig({ privacyNotice: " NONE " })).body.privacyNotice
-    ).toBe("none");
-  });
-
-  test("ohne Wert, bubble, Altwert modal und ungültige Werte -> bubble", async () => {
+// Datenschutz als Link in der Fußzeile (issues/datenschutz-fusszeile.md,
+// Nutzer 23.10.2026, AK-7/AK-10, Vertrag Punkt 6): /config liefert immer
+// privacyNotice "link"; gespeicherte Altwerte wirken nicht (bis 7.22.2
+// schaltete "none" den Hinweis ab, KIE-565 Nachtrag, und "bubble"/"modal"/
+// fehlend ergaben die Blase beim Start).
+describe("GET /embed/:embedId/config: Datenschutz-Hinweis immer als Link", () => {
+  test("jeder gespeicherte Wert ergibt link, sonst alles wie ohne Wert", async () => {
     for (const privacyNotice of [
-      undefined,
+      "none",
+      " NONE ",
       "bubble",
       "modal",
+      "link",
+      undefined,
       "",
       "off",
       false,
       0,
       null,
       ["none"],
-    ])
-      expect((await fetchConfig({ privacyNotice })).body.privacyNotice).toBe(
-        "bubble"
-      );
+    ]) {
+      const res = await fetchConfig({ privacyNotice });
+      expect([privacyNotice, res.body.privacyNotice]).toEqual([
+        privacyNotice,
+        "link",
+      ]);
+      expect(res.body).toEqual(STANDARD);
+    }
   });
 
-  test("aus: gespeicherte Datenschutz-Texte bleiben unverändert ausgeliefert", async () => {
+  test("früher ausgeschaltet: gespeicherte Datenschutz-Texte gehen mit, der Link bleibt", async () => {
     const res = await fetchConfig({
       privacyNotice: "none",
       privacyTitle: "Hinweis",
@@ -768,7 +771,7 @@ describe("GET /embed/:embedId/config: Datenschutz-Hinweis an/aus", () => {
       privacyUrl: "/datenschutz",
     });
     expect(res.body).toMatchObject({
-      privacyNotice: "none",
+      privacyNotice: "link",
       privacyTitle: "Hinweis",
       privacyText: "• Eins",
       privacyUrl: "/datenschutz",
@@ -1084,7 +1087,8 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
     welcomeBubblesDesktop: "every",
     welcomeBubblesMobile: "off",
     supportEmail: "info@example.org",
-    privacyNotice: "bubble",
+    // privacyNotice ist seit der Datenschutz-Fußzeile (23.10.2026) kein Feld
+    // mehr, sondern fester Standard (Gruppe B, nicht verfeinerbar)
     privacyTitle: "Hinweis",
     privacyText: "Eigener Text",
     privacyUrl: "https://example.org/datenschutz",
@@ -1147,7 +1151,14 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
     // F62 (Fixliste 7.22-rc18): feste Standards ohne Verfeinerung stehen als
     // Ausnahme in Gruppe B (KI-Hinweis gesperrt, Antwortstil nur im Prompt,
     // Online-Punkt entfernt)
-    for (const key of ["disclaimer", "courseCardsAnswerStyle", "onlineDot"]) {
+    // Datenschutz-Fußzeile (23.10.2026): der Link „Datenschutz“ ist ein
+    // fester Standard ohne Verfeinerung (data-privacy-notice wirkt nicht)
+    for (const key of [
+      "disclaimer",
+      "courseCardsAnswerStyle",
+      "onlineDot",
+      "privacyNotice",
+    ]) {
       expect(EMBED_FIXED_STANDARDS).toHaveProperty(key);
       expect(groupB).toMatch(
         new RegExp(`Nicht verfeinerbar sind .*\`${key}\``)
@@ -1230,7 +1241,7 @@ describe("GET /embed/:embedId/config: alte Datenschutz-Vorlagen in der Begrüßu
         const res = await fetchWithLanguage(vc, language);
         expect(res.body).not.toHaveProperty("greeting");
         expect(res.body).not.toHaveProperty("greetingBubbleText");
-        expect(res.body.privacyNotice).toBe("bubble");
+        expect(res.body.privacyNotice).toBe("link");
         expect(res.body).toEqual(
           (await fetchWithLanguage(withoutGreeting(vc), language)).body
         );

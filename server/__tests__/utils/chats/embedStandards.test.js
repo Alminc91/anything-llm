@@ -22,9 +22,9 @@ const {
   inlineBarPlaceholder,
   normalizePrivacyText,
   privacyTitleValue,
-  privacyNoticeValue,
   applyEmbedStandards,
 } = require("../../../utils/chats/embedStandards");
+const embedStandards = require("../../../utils/chats/embedStandards");
 const { embedDefaultTexts } = require("../../../utils/chats/embedDefaults");
 
 describe("Darstellung und Kurskarten", () => {
@@ -261,38 +261,62 @@ describe("Willkommensblasen je Gerät (KIE-568)", () => {
   });
 });
 
-// KIE-565 Nachtrag (Nutzer 15.10.2026): Datenschutz-Hinweis abschaltbar
-describe("Datenschutz-Hinweis an/aus (privacyNotice)", () => {
-  test("nicht mehr unter den festen Standards", () => {
-    expect("privacyNotice" in EMBED_FIXED_STANDARDS).toBe(false);
+// Datenschutz als Link in der Fußzeile (issues/datenschutz-fusszeile.md,
+// Nutzer 23.10.2026, AK-7/AK-10, Vertrag Punkt 6): Der Link „Datenschutz“
+// steht immer unter der Eingabe, es gibt keine Auswahl mehr (kein Schalter,
+// keine Blase beim Start, kein „Aus“). privacyNotice ist ein fester Standard
+// "link"; gespeicherte Altwerte ("bubble", "none", "modal") wirken nicht.
+// Bis 7.22.2 schaltete "none" den Hinweis ab (KIE-565 Nachtrag).
+describe("Datenschutz-Hinweis immer als Link (privacyNotice)", () => {
+  test('fester Standard "link", keine eigene Prüffunktion mehr', () => {
+    expect(EMBED_FIXED_STANDARDS.privacyNotice).toBe("link");
+    expect(embedStandards).not.toHaveProperty("privacyNoticeValue");
   });
 
   test.each([
-    ["none", "none"],
-    [" None ", "none"],
-    ["bubble", "bubble"],
-    ["modal", "bubble"],
-    [undefined, "bubble"],
-    [null, "bubble"],
-    ["", "bubble"],
-    ["aus", "bubble"],
-    [false, "bubble"],
-  ])("privacyNoticeValue(%p) -> %p", (input, expected) => {
-    expect(privacyNoticeValue(input)).toBe(expected);
+    ["none"],
+    [" None "],
+    ["bubble"],
+    ["BUBBLE"],
+    ["modal"],
+    ["link"],
+    [undefined],
+    [null],
+    [""],
+    ["aus"],
+    [false],
+    [0],
+    [["none"]],
+    [{ value: "none" }],
+  ])("gespeichert %p -> link", (privacyNotice) => {
+    const vc = privacyNotice === undefined ? {} : { privacyNotice };
+    expect(applyEmbedStandards({}, vc).privacyNotice).toBe("link");
+    expect(
+      applyEmbedStandards({}, { ...vc, displayMode: "inline" }).privacyNotice
+    ).toBe("link");
   });
 
-  test("applyEmbedStandards: none bleibt none, Altwert modal wird bubble, fehlend bubble", () => {
-    expect(
-      applyEmbedStandards({}, { privacyNotice: "none" }).privacyNotice
-    ).toBe("none");
-    expect(
-      applyEmbedStandards({}, { privacyNotice: "modal" }).privacyNotice
-    ).toBe("bubble");
-    expect(applyEmbedStandards({}, {}).privacyNotice).toBe("bubble");
-    // ein durchgereichter Wert aus mapped kann den gespeicherten nicht schlagen
-    expect(
-      applyEmbedStandards({ privacyNotice: "none" }, {}).privacyNotice
-    ).toBe("bubble");
+  test("ein Wert aus mapped (Erlaubtliste) schlägt den festen Standard nicht", () => {
+    for (const value of ["none", "bubble", "modal"])
+      expect(
+        applyEmbedStandards({ privacyNotice: value }, {}).privacyNotice
+      ).toBe("link");
+  });
+
+  test("gespeicherte Texte des Hinweises bleiben, auch bei früher ausgeschaltetem Hinweis", () => {
+    const out = applyEmbedStandards(
+      {},
+      {
+        privacyNotice: "none",
+        privacyTitle: " Hinweis ",
+        privacyText: "• Eins",
+      }
+    );
+    expect(out).toMatchObject({
+      privacyNotice: "link",
+      privacyTitle: "Hinweis",
+      privacyText: "• Eins",
+    });
   });
 });
 
@@ -582,7 +606,6 @@ describe("applyEmbedStandards", () => {
       buttonColor: "#123456",
       ...EMBED_FIXED_STANDARDS,
       ...INLINE_FIXED_STANDARDS,
-      privacyNotice: "bubble",
       courseCardsPosition: "above",
       welcomeBubblesDesktop: "first",
       welcomeBubblesMobile: "first",
@@ -643,6 +666,39 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
     ])
       expect(doc).toContain(`\`${key}\``);
     expect(doc).not.toMatch(/\s[–—]\s/);
+  });
+
+  // Datenschutz-Fußzeile (Nutzer 23.10.2026, 7.23): Abschnitt
+  // „Datenschutz-Hinweis“ beschreibt den festen Link, das Fenster und die
+  // Altwerte ohne Wirkung; der Schalter steht nur noch als früherer Stand
+  test("Datenschutz-Hinweis: Link immer, Fenster, Altwerte ohne Wirkung", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const doc = fs.readFileSync(
+      path.join(__dirname, "../../../../docs/design-center-2-migration.md"),
+      "utf8"
+    );
+    const start = doc.indexOf("## Datenschutz-Hinweis");
+    expect(start).toBeGreaterThan(0);
+    const section = doc
+      .slice(start, doc.indexOf("\n## ", start + 1))
+      .replace(/\s+/g, " ");
+    for (const text of [
+      "„Unsere KI kann Fehler machen · Datenschutz“",
+      "„Our AI can make mistakes · Privacy“",
+      '`privacyNotice: "link"`',
+      "„Hinweis zur KI“",
+      embedDefaultTexts("de").privacyAiText,
+      "„Schließen“",
+      "kein Schalter im Design Center, keine Blase beim Start, kein „Aus“",
+      "Keine Migration",
+    ])
+      expect(section).toContain(text);
+    const rows = section.split("| `privacyNotice` |");
+    // drei Zeilen: bubble/modal/fehlt, none, Skript-Attribut
+    expect(rows).toHaveLength(4);
+    expect(rows[2]).toMatch(/^ `none` .*ab 7\.23 ohne Wirkung/);
+    expect(section).not.toMatch(/[–—]/);
   });
 });
 
@@ -736,7 +792,7 @@ describe("E43: alte Datenschutz-Vorlagen in der Begrüßung", () => {
       }
   });
 
-  test("Demo-Fall: Datenschutztext als Begrüßung, alter Blasentext, Datenschutz-Blase an: Standard-Begrüßung, die Blase behält den gespeicherten Datenschutztext", () => {
+  test("Demo-Fall: Datenschutztext als Begrüßung, alter Blasentext, früher Datenschutz-Blase an: Standard-Begrüßung, das Datenschutz-Fenster behält den gespeicherten Datenschutztext", () => {
     const stored = {
       displayMode: "inline",
       privacyNotice: "bubble",
@@ -747,7 +803,9 @@ describe("E43: alte Datenschutz-Vorlagen in der Begrüßung", () => {
     const out = applyEmbedStandards({}, stored);
     expect(out).not.toHaveProperty("greeting");
     expect(out).not.toHaveProperty("greetingBubbleText");
-    expect(out.privacyNotice).toBe("bubble");
+    // Datenschutz-Fußzeile (23.10.2026): gespeichert "bubble", geliefert
+    // der feste Link
+    expect(out.privacyNotice).toBe("link");
     expect(out.privacyText).toBe(
       PRE_E30.split(". ")
         .map((s, i, all) => `• ${s}${i < all.length - 1 ? "." : ""}`)
@@ -820,13 +878,20 @@ describe("E43: alte Datenschutz-Vorlagen in der Begrüßung", () => {
     for (const text of LEGACY_PRIVACY_GREETINGS)
       expect(section).toContain(text);
     expect(section).not.toMatch(/[–—]/);
-    // Prüfpunkt 13: Kundentexte mit eigenem Datenschutzinhalt nur melden;
-    // er ist der letzte (Prüfungen in designCenterFixesRc17/Rc22 angehoben)
+    // Prüfpunkt 13: Kundentexte mit eigenem Datenschutzinhalt nur melden
     expect(doc).toMatch(/^13\. /m);
-    const point = doc.slice(doc.search(/^13\. /m));
+    const point = doc.slice(doc.search(/^13\. /m), doc.search(/^14\. /m));
     expect(point).toMatch(/\(E43, 7\.22-rc24\)/);
     expect(point).toMatch(/`LEGACY_PRIVACY_GREETINGS`/);
     expect(point).toMatch(/Gespeicherte Texte der Kunden nicht ändern/);
-    expect(doc).not.toMatch(/^14\. /m);
+    // Bewusste Änderung (Datenschutz-Fußzeile 7.23): kein Abschalten mehr
+    expect(point).not.toMatch(/schaltet den Datenschutz-Hinweis ab/);
+    // Prüfpunkt 14 (Datenschutz-Fußzeile, 7.23) ist der letzte (Prüfungen
+    // in designCenterFixesRc17/Rc22 angehoben)
+    const last = doc.slice(doc.search(/^14\. /m));
+    expect(last).toMatch(/Datenschutz als Link in der Fußzeile \(7\.23/);
+    expect(last).toMatch(/Nichts zu migrieren/);
+    expect(last).toMatch(/`privacyUrl`/);
+    expect(doc).not.toMatch(/^15\. /m);
   });
 });
