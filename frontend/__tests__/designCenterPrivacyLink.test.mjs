@@ -961,6 +961,46 @@ test(
   }
 );
 
+// F3 (R1-D2 der Fixliste rc1): Bei „In der Seite“ ist die Textspalte des
+// Fensters höchstens etwa 70 Zeichen breit und linksbündig; Kopfzeile mit
+// Schließen-Symbol und Button-Zeile bleiben über die ganze Breite, der
+// Textbereich scrollt weiter über die ganze Breite. Im Chatfenster keine
+// Grenze.
+test(
+  "F3 (R1-D2): Textspalte des Fensters bei „In der Seite“ höchstens 70 Zeichen breit, Kopf, Button-Zeile und Bildlauf über die ganze Breite; im Chatfenster ohne Grenze",
+  { skip },
+  async (t) => {
+    for (const displayMode of [undefined, "inline"]) {
+      const mounted = await renderer.mount(PREVIEW, {
+        location: "/",
+        props: previewProps({ displayMode, privacyUrl: "/datenschutz" }),
+      });
+      t.after(() => mounted.unmount());
+      const { container, act } = mounted;
+      await act(() => click(byPreview(container, "privacy-link")[0]));
+      const [dialog] = dialogs(container);
+      const body = byPreview(dialog, "privacy-dialog-body")[0];
+      const [column] = byPreview(body, "privacy-dialog-text");
+      assert.ok(column, `${displayMode}: Textspalte fehlt`);
+      // der ganze Inhalt steht in der Spalte, der Bildlauf bleibt am Rand
+      assert.deepEqual(body.childNodes, [column]);
+      assert.ok(plain(column).includes(AI_TEXT));
+      assert.ok(plain(column).includes("Datenschutzerklärung"));
+      assert.equal(body.style.maxWidth, undefined);
+      if (displayMode === "inline") {
+        assert.equal(column.style.maxWidth, "70ch");
+        assert.doesNotMatch(column.getAttribute("class") || "", /mx-auto/);
+      } else assert.equal(column.style.maxWidth, undefined);
+      // Kopf und Button-Zeile ohne Grenze
+      for (const el of [
+        headingOf(dialog).parentNode,
+        buttonByText(dialog, "Schließen").parentNode,
+      ])
+        assert.equal(el.style.maxWidth, undefined, displayMode);
+    }
+  }
+);
+
 // Gegenprobe gegen das Widget (KUFER_EMBED_DIR, Checkout von
 // anythingllm-embed): dieselbe Farbe wie privacyLinkColor im Widget für
 // dieselbe gespeicherte Akzentfarbe (der Server liefert sie als linkColor,

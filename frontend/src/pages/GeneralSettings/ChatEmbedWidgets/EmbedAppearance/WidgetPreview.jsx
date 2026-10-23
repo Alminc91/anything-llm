@@ -836,10 +836,20 @@ function othersSignature(config) {
 const coveredProps = (covered) => (covered ? { inert: "" } : {});
 
 // Abstände des Datenschutz-Fensters: im Chatfenster wie die Blasen, im Panel
-// „In der Seite“ weiter innen wegen der Rundung von 40 px
+// „In der Seite“ weiter innen wegen der Rundung von 40 px. Dort ist die
+// Textspalte höchstens etwa 70 Zeichen breit und linksbündig (R1-D2,
+// Fixliste rc1: das breite Panel ergab sonst Zeilen bis 150 Zeichen);
+// Kopfzeile, Button-Zeile und Bildlauf bleiben über die ganze Breite.
+// Rückweg: column weglassen.
+const PRIVACY_TEXT_MAX_WIDTH = "70ch";
 const PRIVACY_DIALOG_INSETS = {
   bubble: { x: "px-4", close: "top-2 right-2", title: "pr-11" },
-  inline: { x: "px-8", close: "top-3.5 right-5", title: "pr-14" },
+  inline: {
+    x: "px-8",
+    close: "top-3.5 right-5",
+    title: "pr-14",
+    column: { maxWidth: PRIVACY_TEXT_MAX_WIDTH },
+  },
 };
 
 /**
@@ -932,40 +942,46 @@ function PreviewPrivacyDialog({
       <div
         ref={bodyRef}
         tabIndex={0}
-        className={`flex-1 min-h-0 overflow-y-auto preview-scrollbar ${inset.x} py-3 space-y-3 text-[12.5px] leading-relaxed focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 ${BREAK}`}
+        className={`flex-1 min-h-0 overflow-y-auto preview-scrollbar ${inset.x} py-3 text-[12.5px] leading-relaxed focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 ${BREAK}`}
         style={{ ...scrollbarStyle(palette), outlineColor: link }}
         data-preview="privacy-dialog-body"
       >
-        {privacy.blocks.length > 0 && (
-          <div className="space-y-1">
-            {privacy.blocks.map((block, i) =>
-              block.type === "bullet" ? (
-                <p key={i} className="flex gap-1.5">
-                  <span aria-hidden="true">•</span>
-                  <span>{block.text}</span>
-                </p>
-              ) : (
-                <p key={i}>{block.text}</p>
-              )
-            )}
+        <div
+          className="space-y-3"
+          style={inset.column}
+          data-preview="privacy-dialog-text"
+        >
+          {privacy.blocks.length > 0 && (
+            <div className="space-y-1">
+              {privacy.blocks.map((block, i) =>
+                block.type === "bullet" ? (
+                  <p key={i} className="flex gap-1.5">
+                    <span aria-hidden="true">•</span>
+                    <span>{block.text}</span>
+                  </p>
+                ) : (
+                  <p key={i}>{block.text}</p>
+                )
+              )}
+            </div>
+          )}
+          <div className="space-y-0.5" data-preview="privacy-ai">
+            <p className="font-semibold">{privacy.aiTitle}</p>
+            <p>{privacy.aiText}</p>
           </div>
-        )}
-        <div className="space-y-0.5" data-preview="privacy-ai">
-          <p className="font-semibold">{privacy.aiTitle}</p>
-          <p>{privacy.aiText}</p>
+          {privacy.url && (
+            <p>
+              <span
+                className="underline underline-offset-2 font-medium"
+                style={{ color: link }}
+                title={privacy.url}
+                data-preview="privacy-statement-link"
+              >
+                {PRIVACY_STATEMENT_LINK}
+              </span>
+            </p>
+          )}
         </div>
-        {privacy.url && (
-          <p>
-            <span
-              className="underline underline-offset-2 font-medium"
-              style={{ color: link }}
-              title={privacy.url}
-              data-preview="privacy-statement-link"
-            >
-              {PRIVACY_STATEMENT_LINK}
-            </span>
-          </p>
-        )}
       </div>
       <div
         className={`flex justify-end ${inset.x} pt-2.5 pb-3.5 flex-shrink-0`}
