@@ -238,6 +238,29 @@ describe("loadCategoryMap: Wert, Alter (E22), Cache", () => {
     console.error.mockRestore();
   });
 
+  test("R1-D7 (SC8): verworfene Karte wird einmal je Wert gemeldet", async () => {
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      stored("{");
+      expect(await loadCategoryMap({ now: NOW })).toBeNull();
+      expect(await loadCategoryMap({ now: NOW })).toBeNull();
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0]).toMatch(
+        /Karte verworfen: kein gültiges JSON/
+      );
+      stored(JSON.stringify(mapData({ version: 2 })));
+      expect(await loadCategoryMap({ now: NOW })).toBeNull();
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy.mock.calls[1][0]).toMatch(/version ist nicht 1/);
+      // gültige, nur abgelaufene Karte ist kein Fehler
+      stored(JSON.stringify(mapData({ created: "2026-10-01T00:00:00Z" })));
+      expect(await loadCategoryMap({ now: NOW })).toBeNull();
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test("Cache: gleicher Wert -> dieselbe Karte, geänderter Wert -> neu geparst", async () => {
     stored(JSON.stringify(mapData()));
     const first = await loadCategoryMap({ now: NOW });
@@ -291,6 +314,16 @@ describe("parseCategoryMap: nur brauchbare Knoten", () => {
       count: null,
     });
     expect(map.nodes.get("l").count).toBeNull();
+  });
+
+  test("S15: Titel über 200 Zeichen wird nach Codepunkten gekürzt (kein halbes Emoji)", () => {
+    const data = mapData();
+    data.nodes["Fitness & Gesundheit"].title = `${"a".repeat(199)}😀😀`;
+    const node = parse(data).nodes.get("fitness & gesundheit");
+    expect(node.title).toBe(`${"a".repeat(199)}😀`);
+    expect(node.title).not.toMatch(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+    );
   });
 
   test("Pfade werden wie category_common verglichen: klein, Leerraum, ohne []()<>", () => {

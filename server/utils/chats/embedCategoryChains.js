@@ -99,13 +99,30 @@ const CONTEXT_COURSE_LINK_RX = /^Kurs-Link:[ \t]*(\S+)/gm;
  * @returns {string}
  */
 function normalizePart(part) {
-  return String(part ?? "")
-    .normalize("NFC")
+  return cleanText(String(part ?? "").normalize("NFC")).toLowerCase();
+}
+
+// Wie category_common.clean_title: einzeilig, ohne []()<>, Leerraum
+// zusammengefasst (Grundlage von normalizePart und cleanTitle)
+function cleanText(text) {
+  return text
     .replace(CONTROL_RX, " ")
     .replace(UNSAFE_TITLE_RX, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+    .trim();
+}
+
+// Höchstens max Codepunkte (kein halbes Surrogatpaar, S15)
+function truncateCodePoints(text, max) {
+  if (text.length <= max) return text;
+  let out = "";
+  let n = 0;
+  for (const char of text) {
+    if (n === max) break;
+    out += char;
+    n += 1;
+  }
+  return out;
 }
 
 /**
@@ -127,13 +144,7 @@ function pathKey(parts) {
 
 function cleanTitle(title) {
   if (typeof title !== "string") return "";
-  return title
-    .replace(CONTROL_RX, " ")
-    .replace(UNSAFE_TITLE_RX, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, TITLE_MAX_LEN)
-    .trim();
+  return truncateCodePoints(cleanText(title), TITLE_MAX_LEN).trim();
 }
 
 function isSafeUrl(url) {
@@ -169,19 +180,28 @@ function urlKey(url) {
  */
 function validateCategoryMapSetting(update) {
   if (update === null || update === undefined || update === "") return null;
-  if (typeof update !== "string")
-    throw new Error(`${CATEGORY_MAP_LABEL}: Wert ist kein JSON-String`);
-  if (Buffer.byteLength(update, "utf8") > CATEGORY_MAP_MAX_BYTES)
-    throw new Error(`${CATEGORY_MAP_LABEL}: größer als 2 MB`);
-  let data;
-  try {
-    data = JSON.parse(update);
-  } catch {
-    throw new Error(`${CATEGORY_MAP_LABEL}: kein gültiges JSON`);
-  }
-  const problem = contractProblem(data);
+  const { problem } = readContract(update);
   if (problem) throw new Error(`${CATEGORY_MAP_LABEL}: ${problem}`);
   return update;
+}
+
+/**
+ * Gespeicherten Wert nach Vertrag lesen (gemeinsam für Validator und Leser).
+ * @param {any} raw
+ * @returns {{data: object, problem?: undefined}|{problem: string, data?: undefined}}
+ */
+function readContract(raw) {
+  if (typeof raw !== "string") return { problem: "Wert ist kein JSON-String" };
+  if (Buffer.byteLength(raw, "utf8") > CATEGORY_MAP_MAX_BYTES)
+    return { problem: "größer als 2 MB" };
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return { problem: "kein gültiges JSON" };
+  }
+  const problem = contractProblem(data);
+  return problem ? { problem } : { data };
 }
 
 function isPlainObject(value) {
@@ -210,15 +230,11 @@ function contractProblem(data) {
  */
 function parseCategoryMap(raw) {
   if (typeof raw !== "string" || raw.length === 0) return null;
-  if (Buffer.byteLength(raw, "utf8") > CATEGORY_MAP_MAX_BYTES) return null;
-  let data;
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (contractProblem(data)) return null;
+  const { data } = readContract(raw);
+  return data ? buildCategoryMap(data) : null;
+}
 
+function buildCategoryMap(data) {
   const nodes = new Map();
   const byUrl = new Map();
   for (const [path, node] of Object.entries(data.nodes)) {
@@ -294,7 +310,12 @@ async function readStoredMap() {
 async function loadCategoryMap({ now = Date.now() } = {}) {
   const raw = await readStoredMap();
   if (typeof raw !== "string" || raw.length === 0) return null;
-  if (raw !== cached.raw) cached = { raw, map: parseCategoryMap(raw) };
+  if (raw !== cached.raw) {
+    const { data, problem } = readContract(raw);
+    // verworfene Karte melden (R1-D7), dank Cache einmal je Wert
+    if (problem) console.error(`[categoryChains] Karte verworfen: ${problem}`);
+    cached = { raw, map: data ? buildCategoryMap(data) : null };
+  }
   const map = cached.map;
   if (!map) return null;
   const age = now - map.createdMs;
@@ -398,7 +419,7 @@ function chainText(text, map) {
     // die Kette; ohne Kategoriepfad (geteilter Kopfblock) keine Kette.
     let chain = [];
     if (pathLine !== -1) {
-      const number = courseNumber ?? courseNumberFromLink(courseLink);
+      const number = courseNumber || courseNumberFromLink(courseLink);
       const parts =
         (number && map.courses.get(number)) ||
         pathParts(CATEGORY_PATH_LINE_RX.exec(lines[pathLine])[1]);
