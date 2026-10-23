@@ -634,6 +634,9 @@ test(
     assert.ok(dialog, "Fenster öffnet bei Änderung");
     assert.ok(plain(dialog).includes("Neue Überschrift"));
     assert.equal(document.activeElement, title, "Fokus bleibt im Feld");
+    // ohne Fokus im Fenster nicht modal: das Design Center bleibt für
+    // Screenreader erreichbar
+    assert.equal(dialog.getAttribute("aria-modal"), null);
     const textarea = byAria(container, "Text des Datenschutz-Hinweises");
     await act(() =>
       handlersOf(textarea).onChange({ target: { value: "• Neuer Punkt" } })

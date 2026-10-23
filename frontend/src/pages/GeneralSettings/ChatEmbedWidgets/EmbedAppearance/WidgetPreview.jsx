@@ -786,9 +786,12 @@ const PRIVACY_DIALOG_INSETS = {
  * Punkt „Hinweis zur KI“, Link zur Datenschutzerklärung (falls gesetzt),
  * Button „Schließen“, das Schließen-Symbol oben rechts (im Dokument zuletzt).
  * Fläche und Schrift der Antwortblasen, Rundung des Panels (D2).
- * role="dialog", aria-modal, aria-labelledby auf die Überschrift; nach einem
- * Klick auf den Link Fokus auf der Überschrift; Tab-Reihenfolge Text,
- * Schließen, Schließen-Symbol, Tab bleibt im Fenster; Esc schließt. Der Link
+ * role="dialog", aria-labelledby auf die Überschrift; nach einem Klick auf
+ * den Link aria-modal und Fokus auf der Überschrift, Tab-Reihenfolge Text,
+ * Schließen, Schließen-Symbol, Tab bleibt im Fenster; Esc schließt. Öffnet
+ * es sich beim Bearbeiten eines Felds (focusOnOpen false), bleibt der Fokus
+ * im Feld und das Fenster ohne aria-modal: Das Design Center daneben bleibt
+ * für Screenreader erreichbar. Der Link
  * zur Datenschutzerklärung ist in der Vorschau nicht bedienbar (ein Pfad
  * wie /datenschutz gehört zur Seite des Kunden, nicht zum Design Center).
  */
@@ -837,7 +840,7 @@ function PreviewPrivacyDialog({
     <div
       ref={dialogRef}
       role="dialog"
-      aria-modal="true"
+      aria-modal={focusOnOpen ? "true" : undefined}
       aria-labelledby={titleId}
       onKeyDown={onKeyDown}
       className="absolute inset-0 z-20 flex flex-col"
@@ -860,8 +863,8 @@ function PreviewPrivacyDialog({
       <div
         ref={bodyRef}
         tabIndex={0}
-        className={`flex-1 min-h-0 overflow-y-auto preview-scrollbar ${inset.x} py-3 space-y-3 text-[12.5px] leading-relaxed outline-none ${BREAK}`}
-        style={scrollbarStyle(palette)}
+        className={`flex-1 min-h-0 overflow-y-auto preview-scrollbar ${inset.x} py-3 space-y-3 text-[12.5px] leading-relaxed focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 ${BREAK}`}
+        style={{ ...scrollbarStyle(palette), outlineColor: link }}
         data-preview="privacy-dialog-body"
       >
         {privacy.blocks.length > 0 && (
