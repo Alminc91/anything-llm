@@ -53,9 +53,11 @@
 //   Mehr Kurse zum Thema: [<title> (<n> Kurse)](<url>)
 //   (zwischen Zahl und Wort ein geschütztes Leerzeichen, R6-D4); je Link
 //   eine eigene Zeile mit Einleitung, auch bei zwei Kategorien (E29
-//   präzisiert 23.10.2026, S7-1). Angezeigter Titel ohne Oberkategorie, wenn
-//   der Name sie enthält (displayTitle, R7-D2); Karte und Kette im Kontext
-//   behalten den vollen Titel.
+//   präzisiert 23.10.2026, S7-1). Angezeigter Titel: ist die Oberkategorie
+//   nur eine Stufe oder ein Format, die nächste aussagekräftige höhere Ebene
+//   (levelParentTitle, R8-D1), sonst ohne Oberkategorie, wenn der Name sie
+//   enthält (displayTitle, R7-D2); Karte und Kette im Kontext behalten den
+//   vollen Titel.
 // Übersichtszeile: Zeile mit der Einleitung (de/en, auch mit *, _, # drum
 // herum), mit einem Knoten-Link in alter Form am Zeilenanfang oder mit
 // einem Kategorie-Link am Zeilenende hinter einer kurzen Einleitung des
@@ -356,6 +358,19 @@ function pathParts(path) {
   return String(path ?? "")
     .split(PATH_SEP)
     .map(normalizePart)
+    .filter(Boolean);
+}
+
+/**
+ * Ebenennamen eines Kategoriepfads wie pathParts, aber nur gesäubert wie die
+ * Titel (cleanText, Groß/Klein bleibt); für den angezeigten Titel (R8-D1).
+ * @param {string} path
+ * @returns {string[]}
+ */
+function pathNames(path) {
+  return String(path ?? "")
+    .split(PATH_SEP)
+    .map((part) => cleanText(part.normalize("NFC")))
     .filter(Boolean);
 }
 
@@ -874,7 +889,13 @@ function buildCategoryMap(data) {
     if (nodes.has(key)) continue;
     const count =
       Number.isSafeInteger(node.count) && node.count >= 0 ? node.count : null;
-    const entry = { parts, title, url: node.url, count };
+    const entry = {
+      parts,
+      names: pathNames(path),
+      title,
+      url: node.url,
+      count,
+    };
     nodes.set(key, entry);
     const k = linkKey(node.url);
     if (!k) continue;
@@ -1007,14 +1028,120 @@ const TITLE_PARENT_SEP = " \u00b7 ";
 const PLURAL_ENDINGS = ["en", "er", "e", "n", "s"];
 const PARENT_STEM_MIN = 4;
 
+// R8-D1: Ebenenname, der nur eine Stufe oder ein Format nennt („Niveau B2“,
+// „Stufe A2“, „Sprachkurse von A1 bis B2“, „Intensivkurse“). Genau wie
+// generic() der Titel-Bewertung (KIE-576 titel-bewertung/regel_test.py):
+// alle Wörter aus LEVEL_WORD_RX, oder ein Stufenkürzel A1 bis C2 mit
+// höchstens LEVEL_OTHER_MAX anderen Wörtern. Wortgrenzen mit Unicode, damit
+// Umlaute als Buchstaben zählen.
+const LEVEL_TOKEN_RX = /[A-Za-zÄÖÜäöüß0-9.+/,]+/g;
+const LEVEL_WORD_RX = new RegExp(
+  "^(?:" +
+    [
+      "[abc][12](?:[.,/]\\d)*\\+?",
+      "niveau\\w*",
+      "stufe\\w*",
+      "niveaustufe\\w*",
+      "grundstufe",
+      "mittelstufe",
+      "oberstufe",
+      "anfänger\\w*",
+      "einsteiger\\w*",
+      "fortgeschritten\\w*",
+      "intensiv\\w*",
+      "auffrisch\\w*",
+      "online\\w*",
+      "präsenz\\w*",
+      "montag\\w*",
+      "dienstag\\w*",
+      "mittwoch\\w*",
+      "donnerstag\\w*",
+      "freitag\\w*",
+      "samstag\\w*",
+      "sonntag\\w*",
+      "wochenende",
+      "abend\\w*",
+      "vormittag\\w*",
+      "nachmittag\\w*",
+      "spezielle",
+      "spezial",
+      "weitere",
+      "sonstige",
+      "allgemein\\w*",
+      "kurse?",
+      "angebote?",
+      "einstieg\\w*",
+      "lehrwerk\\w*",
+      "tempo",
+      "normales",
+      "schnelles",
+      "langsames",
+      "bis",
+      "von",
+      "und",
+      "für",
+      "mit",
+      "im",
+      "am",
+      "in",
+      "der",
+      "die",
+      "das",
+      "-",
+      "grundwissen",
+      "grundlagen",
+    ]
+      .join("|")
+      .replaceAll("\\w", "[\\p{L}\\p{N}_]") +
+    ")$",
+  "iu"
+);
+const LEVEL_CODE_RX = /(?<![\p{L}\p{N}_])[abc]\s?[12](?![\p{L}\p{N}_])/iu;
+const LEVEL_OTHER_MAX = 2;
+
 /**
- * Angezeigter Titel eines Knotens (R7-D2): „Oberkategorie · Name“ wird zu
- * „Name“, wenn der Name die Oberkategorie am Wortanfang enthält; sonst der
- * Titel unverändert (auch bei mehr als einem Trenner).
+ * Nennt der Ebenenname nur eine Stufe oder ein Format (R8-D1)?
+ * @param {string} name - gesäuberter Ebenenname
+ * @returns {boolean}
+ */
+function isLevelName(name) {
+  const words = name.match(LEVEL_TOKEN_RX) ?? [];
+  const other = words.filter((word) => !LEVEL_WORD_RX.test(word)).length;
+  return other === 0 || (LEVEL_CODE_RX.test(name) && other <= LEVEL_OTHER_MAX);
+}
+
+/**
+ * R8-D1 (AK-9): Ist die direkte Oberkategorie im Titel „Oberkategorie ·
+ * Name“ nur eine Stufe oder ein Format, steht dort die nächste
+ * aussagekräftige höhere Ebene des Pfads („Niveau B2 · Not just talking“ ->
+ * „Englisch · Not just talking“). Ebenennamen aus dem Knotenschlüssel
+ * (node.names). Keine solche Ebene oder Titel ohne Trenner: null.
  * @param {string} title - Titel aus der Karte
+ * @param {string[]} names - gesäuberte Ebenennamen des Knotens
+ * @returns {string|null}
+ */
+function levelParentTitle(title, names) {
+  const at = title.indexOf(TITLE_PARENT_SEP);
+  if (at === -1 || names.length < 3) return null;
+  if (!isLevelName(names[names.length - 2])) return null;
+  for (let i = names.length - 3; i >= 0; i -= 1)
+    if (!isLevelName(names[i]))
+      return cleanTitle(`${names[i]}${title.slice(at)}`);
+  return null;
+}
+
+/**
+ * Angezeigter Titel eines Knotens: zuerst R8-D1 (levelParentTitle); ändert
+ * das nichts, R7-D2: „Oberkategorie · Name“ wird zu „Name“, wenn der Name
+ * die Oberkategorie am Wortanfang enthält; sonst der Titel unverändert (auch
+ * bei mehr als einem Trenner).
+ * @param {string} title - Titel aus der Karte
+ * @param {string[]} [names] - gesäuberte Ebenennamen des Knotens (R8-D1)
  * @returns {string}
  */
-function displayTitle(title) {
+function displayTitle(title, names = []) {
+  const level = levelParentTitle(title, names);
+  if (level) return level;
   const parts = title.split(TITLE_PARENT_SEP);
   if (parts.length !== 2) return title;
   const parent = normalizeFree(parts[0]);
@@ -1197,13 +1324,13 @@ async function buildChainedContext(
  * Linktext eines Links auf einen Knoten (E29): „<title> (<n> Kurse)“,
  * n = 1 „(1 Kurs)“, ohne gezählte Zahl nur „<title>“ (angezeigter Titel,
  * displayTitle, R7-D2). Nicht fett.
- * @param {{title: string, count: number|null}} node
+ * @param {{title: string, names?: string[], count: number|null}} node
  * @param {"de"|"en"} lang
  * @returns {string}
  */
 function overviewLinkText(node, lang) {
   const form = OVERVIEW_LINE[lang];
-  const title = displayTitle(node.title);
+  const title = displayTitle(node.title, node.names);
   if (!hasCount(node)) return title;
   const n = node.count;
   return titleWithCount(title, n, n === 1 ? form.one : form.many, lang);
@@ -1346,7 +1473,7 @@ function countLang(count) {
  */
 function nodeLinkText(node, lang, count) {
   if (lang) return overviewLinkText(node, lang);
-  const title = displayTitle(node.title);
+  const title = displayTitle(node.title, node.names);
   if (count && hasCount(node))
     return titleWithCount(title, node.count, count[2]);
   return title;
@@ -1768,6 +1895,7 @@ module.exports = {
     OVERVIEW_LINE,
     overviewLinkText,
     displayTitle,
+    isLevelName,
     CATEGORY_MAP_MAX_BYTES,
     CATEGORY_MAP_MAX_AGE_MS,
     parseCategoryMap,
