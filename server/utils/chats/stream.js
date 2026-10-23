@@ -18,6 +18,10 @@ const {
 } = require("./index");
 const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
 const { startMetadataFilterResolution } = require("./metadataFilterResolver");
+const {
+  loadCategoryMap,
+  applyCategoryChains,
+} = require("./embedCategoryChains");
 
 const VALID_CHAT_MODE = ["chat", "query"];
 
@@ -269,7 +273,13 @@ async function streamChatWithWorkspace(
   // If a past citation was used to answer the question - that is visible in the history so it logically makes sense
   // and does not appear to the user that a new response used information that is otherwise irrelevant for a given prompt.
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
-  contextTexts = [...contextTexts, ...filledSources.contextTexts];
+  // KIE-576: Kategorie-Kette im Kontext (nur contextTexts, siehe
+  // embedCategoryChains.js); ohne gültige Karte unverändert. Die Absicherung
+  // der Übersichtslinks gibt es nur im Embed-Pfad (Markerfilter).
+  contextTexts = applyCategoryChains(
+    [...contextTexts, ...filledSources.contextTexts],
+    await loadCategoryMap()
+  );
   sources = [...sources, ...vectorSearchResults.sources];
 
   // Check if workspace has reached message limit
