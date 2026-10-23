@@ -663,3 +663,32 @@ test(
     );
   }
 );
+
+test(
+  "Nutzer 23.10.2026: Begrüßung und Datenschutz-Blase der Vorschau gleich wie im Widget (Fläche, Schatten, Schriftgröße), hell weiß, dunkel #2a2a2f",
+  { skip },
+  async () => {
+    for (const [theme, bg] of [
+      ["light", "#ffffff"],
+      ["dark", "#2a2a2f"],
+    ]) {
+      const html = await show(PREVIEW, {
+        config: { theme },
+        logoPreview: null,
+        defaults: DEFAULTS,
+        greetingKey: "greeting",
+      });
+      const tag = (kind) =>
+        html.match(new RegExp(`<div[^>]*data-preview="${kind}"[^>]*>`))?.[0];
+      const greeting = tag("greeting-bubble");
+      const privacy = tag("privacy-bubble");
+      assert.ok(greeting && privacy, theme);
+      for (const el of [greeting, privacy]) {
+        assert.match(el, new RegExp(`background-color:${bg}`, "i"), theme);
+        assert.match(el, /box-shadow:0 4px 14px/, theme);
+        assert.match(el, /text-\[12\.5px\]/, theme);
+      }
+      assert.doesNotMatch(html, /text-\[11\.5px\]/, theme);
+    }
+  }
+);

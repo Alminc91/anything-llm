@@ -210,10 +210,7 @@ test("E38: Sprachdateien: Beschriftung bei „In der Seite“ de und en, übrige
 // N42 Migrationsdoku
 // ---------------------------------------------------------------------------
 
-test("N42: Gruppe B spricht von den Farben der Datenschutz-Blase", () => {
+test("N42 (seit 7.22.2): Gruppe B spricht von der Datenschutz-Blase wie den Antwortblasen", () => {
   const doc = fs.readFileSync(MIGRATION, "utf8").replace(/\s+/g, " ");
-  assert.match(
-    doc,
-    /Die Farben von Text, Überschrift und Fläche der Datenschutz-Blase sind je Farbschema fest \(E25, 7\.22-rc18\)/
-  );
+  assert.match(doc, /gleiche Fläche, Textfarbe, Schriftgröße und Zeilenhöhe/);
 });

@@ -8,7 +8,7 @@
 //     dem Namen „Warnung“ bzw. „Warning“.
 // F82 (E35) Warndreieck hell in red-700, mindestens 4,5:1 auf der Fläche des
 //     Blocks; dunkel unverändert.
-// F83 Migrationsdoku: feste Farben der Datenschutz-Blase (E25).
+// F83 Migrationsdoku: Datenschutz-Blase wie die Antwortblasen (seit 7.22.2, ersetzt E25).
 // F84 Migrationsdoku: Prüfpunkt zu gespeicherten Datenschutz-Texten mit dem
 //     alten Standardpunkt (E30).
 import test, { after, before } from "node:test";
@@ -334,16 +334,19 @@ function bullet(doc, name) {
     .replace(/\s+/g, " ");
 }
 
-test("F83: Gruppe B nennt die festen Farben der Datenschutz-Blase (E25)", () => {
+test("F83 (seit 7.22.2): Gruppe B nennt die Datenschutz-Blase wie die Antwortblasen (ersetzt E25)", () => {
   const group = bullet(readDoc(), "Gruppe B");
   assert.match(
     group,
-    /Text, Überschrift und Fläche der Datenschutz-Blase sind je Farbschema fest \(E25, 7\.22-rc18\)/
+    /Die Datenschutz-Blase sieht seit 7\.22\.2 aus wie die Begrüßungsblase und die Antwortblasen \(Nutzer 23\.10\.2026, ersetzt E25/
   );
-  // die Angaben, die dort nicht wirken, und die Begrüßungsblase, die folgt
+  // die Angaben, die alle Blasen gemeinsam ändern, und die gedämpfte
+  // Textfarbe, die sie nicht erreicht
   assert.match(group, /`data-assistant-bg-color`/);
   assert.match(group, /`--allm-assistant-bg`/);
-  assert.match(group, /Begrüßungsblase darüber folgt/);
+  assert.match(group, /ändern alle diese Blasen gemeinsam/);
+  assert.match(group, /`--allm-text-muted` erreicht sie nicht/);
+  assert.doesNotMatch(group, /je Farbschema fest/);
   assert.doesNotMatch(group, /[–—]/);
 });
 

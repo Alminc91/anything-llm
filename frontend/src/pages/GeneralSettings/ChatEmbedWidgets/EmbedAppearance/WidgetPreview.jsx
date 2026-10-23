@@ -207,7 +207,11 @@ const PALETTES = {
     text: "#1c1917",
     muted: "#57534e",
     line: "#e7e5e4",
-    bubbleBg: "#f5f5f4",
+    // Blasen von Begrüßung, Datenschutz-Hinweis und Antworten wie im Widget:
+    // weiß mit Schatten (theme.js assistant-bg, bubble-shadow; bis 7.22.1
+    // zeigte die Vorschau sie grau, Nutzer 23.10.2026)
+    bubbleBg: "#ffffff",
+    bubbleShadow: "0 4px 14px rgba(0, 0, 0, 0.25)",
     inputBg: "#ffffff",
     // Flächen, auf denen die Schrift der Pillen 4,5:1 erreichen muss (wie
     // im Widget, theme.js pillTextColor)
@@ -223,7 +227,9 @@ const PALETTES = {
     text: "#f4f4f5",
     muted: "#b4b4bb",
     line: "rgba(255,255,255,.12)",
-    bubbleBg: "#2a2a30",
+    // wie im Widget (DARK.assistantBg, DARK.bubbleShadow)
+    bubbleBg: "#2a2a2f",
+    bubbleShadow: "0 4px 14px rgba(0, 0, 0, 0.35)",
     inputBg: "#141417",
     // Panel der Vorschau und Flächen des dunklen Widgets (DARK.bg, surface)
     pillTextBgs: ["#1d1d21", "#131316"],
@@ -614,8 +620,11 @@ export function PreviewWelcome({
     pillsRef,
     loaded(JSON.stringify(pills.map((pill) => pill.trim())))
   );
+  // Begrüßung und Datenschutz-Hinweis gleich: Fläche, Schatten, Schrift
+  // (Nutzer 23.10.2026, wie im Widget seit 7.22.2)
   const bubble = {
     backgroundColor: palette.bubbleBg,
+    boxShadow: palette.bubbleShadow,
     color: palette.text,
   };
   return (
@@ -631,7 +640,7 @@ export function PreviewWelcome({
       {showPrivacy && (
         <div
           ref={privacyRef}
-          className={`text-[11.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] space-y-1 ${BREAK}`}
+          className={`text-[12.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] space-y-1 ${BREAK}`}
           style={bubble}
           data-preview="privacy-bubble"
         >
