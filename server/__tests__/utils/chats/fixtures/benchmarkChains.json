@@ -1,0 +1,2000 @@
+{
+ "_hinweis": "KIE-576 AK-16: erzeugt von issues/KIE-576/benchmark/server_fixture/bauen.py aus den Benchmarkdaten (Lauf 4 F3b, Lauf 5 F3c). Texte gekürzt (Kopfblock ohne Kursleitung, gecrawlte Seiten nur Metadatenkopf), Karten auf die berührten Knoten gekürzt, count aus dem Feed zum Bauzeitpunkt (Zahlenquelle weicht vom Benchmark ab), courses leer.",
+ "karten": {
+  "bielefeld-nazareth-bildung": {
+   "version": 1,
+   "client": "bielefeld-nazareth-bildung",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Führung": {
+     "title": "Führung",
+     "url": "https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung",
+     "count": 37
+    },
+    "Neurologische/kognitive Beeinträchtigungen": {
+     "title": "Neurologische/kognitive Beeinträchtigungen",
+     "url": "https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=59&katvaterid=0&katname=Neurologischekognitive+Beeintraechtigungen",
+     "count": 8
+    },
+    "Psychische Erkrankungen | Seelische Gesundheit": {
+     "title": "Psychische Erkrankungen | Seelische Gesundheit",
+     "url": "https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=56&katvaterid=0&katname=Psychische+Erkrankungen+Seelische+Gesundheit",
+     "count": 32
+    }
+   },
+   "courses": {}
+  },
+  "kvhs-germersheim": {
+   "version": 1,
+   "client": "kvhs-germersheim",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Suche über Kategorien": {
+     "title": "Suche über Kategorien",
+     "url": "https://www.kvhs-germersheim.de/kurse/kategorie/Suche+ueber+Kategorien/432",
+     "count": 3
+    },
+    "kvhs Germersheim": {
+     "title": "kvhs Germersheim",
+     "url": "https://www.kvhs-germersheim.de/kurse/kategorie/kvhs+Germersheim/371",
+     "count": 36
+    },
+    "vhs Bellheim": {
+     "title": "vhs Bellheim",
+     "url": "https://www.kvhs-germersheim.de/kurse/kategorie/vhs+Bellheim/377",
+     "count": 11
+    },
+    "vhs Hagenbach": {
+     "title": "vhs Hagenbach",
+     "url": "https://www.kvhs-germersheim.de/kurse/kategorie/vhs+Hagenbach/383",
+     "count": 28
+    },
+    "vhs Hatzenbühl": {
+     "title": "vhs Hatzenbühl",
+     "url": "https://www.kvhs-germersheim.de/kurse/kategorie/vhs+Hatzenbuehl/389",
+     "count": 4
+    },
+    "vhs Jockgrim": {
+     "title": "vhs Jockgrim",
+     "url": "https://www.kvhs-germersheim.de/kurse/kategorie/vhs+Jockgrim/395",
+     "count": 13
+    },
+    "vhs Lingenfeld": {
+     "title": "vhs Lingenfeld",
+     "url": "https://www.kvhs-germersheim.de/kurse/kategorie/vhs+Lingenfeld/401",
+     "count": 37
+    },
+    "vhs Neupotz": {
+     "title": "vhs Neupotz",
+     "url": "https://www.kvhs-germersheim.de/kurse/kategorie/vhs+Neupotz/407",
+     "count": 14
+    },
+    "vhs Rülzheim": {
+     "title": "vhs Rülzheim",
+     "url": "https://www.kvhs-germersheim.de/kurse/kategorie/vhs+Ruelzheim/433",
+     "count": 14
+    },
+    "vhs Schwegenheim": {
+     "title": "vhs Schwegenheim",
+     "url": "https://www.kvhs-germersheim.de/kurse/kategorie/vhs+Schwegenheim/419",
+     "count": 2
+    },
+    "vhs Wörth am Rhein": {
+     "title": "vhs Wörth am Rhein",
+     "url": "https://www.kvhs-germersheim.de/kurse/vhs-woerth/kategorie/vhs+Woerth+am+Rhein/216",
+     "count": 72
+    },
+    "Suche über Kategorien \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 3
+    },
+    "kvhs Germersheim \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 10
+    },
+    "vhs Bellheim \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 9
+    },
+    "vhs Hagenbach \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 16
+    },
+    "vhs Hatzenbühl \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 3
+    },
+    "vhs Jockgrim \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 5
+    },
+    "vhs Lingenfeld \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 16
+    },
+    "vhs Neupotz \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 11
+    },
+    "vhs Rülzheim \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 12
+    },
+    "vhs Schwegenheim \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 2
+    },
+    "vhs Wörth am Rhein \\ Beruf - EDV - Organisation/Management": {
+     "title": "Beruf - EDV - Organisation/Management",
+     "url": "https://www.kvhs-germersheim.de/kurse/vhs-woerth/kategorie/Beruf+-+EDV+-+OrganisationManagement/349",
+     "count": 2
+    },
+    "vhs Wörth am Rhein \\ Gesundheit": {
+     "title": "Gesundheit",
+     "url": "https://www.kvhs-germersheim.de/kurse/gesundheit",
+     "count": 41
+    }
+   },
+   "courses": {}
+  },
+  "vhs-altoetting": {
+   "version": 1,
+   "client": "vhs-altoetting",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Arbeit, Beruf": {
+     "title": "Arbeit, Beruf",
+     "url": "https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Arbeit+Beruf/33",
+     "count": 60
+    },
+    "Sprachen": {
+     "title": "Sprachen",
+     "url": "https://www.vhs-altoetting.de/programm/sprachen",
+     "count": 33
+    },
+    "Arbeit, Beruf \\ EDV-Kurse": {
+     "title": "EDV-Kurse",
+     "url": "https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/EDV-Kurse/50",
+     "count": 31
+    },
+    "Sprachen \\ Englisch": {
+     "title": "Englisch",
+     "url": "https://www.vhs-altoetting.de/programm/sprachen/kategorie/Englisch/66",
+     "count": 12
+    },
+    "Arbeit, Beruf \\ EDV-Kurse \\ Tabellenkalkulation": {
+     "title": "Tabellenkalkulation",
+     "url": "https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Tabellenkalkulation/56",
+     "count": 2
+    },
+    "Sprachen \\ Englisch \\ Aufbaustufe": {
+     "title": "Aufbaustufe",
+     "url": "https://www.vhs-altoetting.de/programm/sprachen/kategorie/Aufbaustufe/73",
+     "count": 3
+    },
+    "Sprachen \\ Englisch \\ Grundstufe": {
+     "title": "Grundstufe",
+     "url": "https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe/68",
+     "count": 7
+    },
+    "Sprachen \\ Englisch \\ Grundstufe \\ Grundstufe 1": {
+     "title": "Grundstufe 1",
+     "url": "https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe+1/69",
+     "count": 5
+    }
+   },
+   "courses": {}
+  },
+  "vhs-brilon": {
+   "version": 1,
+   "client": "vhs-brilon",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "IT, Medien und Beruf": {
+     "title": "IT, Medien und Beruf",
+     "url": "https://www.vhs-bmo.de/programm/it-medien-beruf",
+     "count": 159
+    },
+    "Leben! Familie, Kinder und Gesellschaft": {
+     "title": "Leben! Familie, Kinder und Gesellschaft",
+     "url": "https://www.vhs-bmo.de/programm/gesellschaft-familie",
+     "count": 122
+    },
+    "Online-Kurse und Digitale Veranstaltungen": {
+     "title": "Online-Kurse und Digitale Veranstaltungen",
+     "url": "https://www.vhs-bmo.de/kursmixer/online-kurse",
+     "count": 96
+    },
+    "Sprachen": {
+     "title": "Sprachen",
+     "url": "https://www.vhs-bmo.de/programm/sprachen",
+     "count": 32
+    },
+    "IT, Medien und Beruf \\ Lebensthemen": {
+     "title": "Lebensthemen",
+     "url": "https://www.vhs-bmo.de/programm/it-medien-beruf/kategorie/Lebensthemen/197",
+     "count": 6
+    },
+    "Leben! Familie, Kinder und Gesellschaft \\ Rente und Vorsorge": {
+     "title": "Rente und Vorsorge",
+     "url": "https://www.vhs-bmo.de/programm/gesellschaft-familie/kategorie/Rente+und+Vorsorge/140",
+     "count": 1
+    },
+    "Leben! Familie, Kinder und Gesellschaft \\ Verbraucherfragen und Sicherheit": {
+     "title": "Verbraucherfragen und Sicherheit",
+     "url": "https://www.vhs-bmo.de/programm/gesellschaft-familie/kategorie/Verbraucherfragen+und+Sicherheit/16",
+     "count": 22
+    },
+    "Online-Kurse und Digitale Veranstaltungen \\ Online-Kurse Sprachen": {
+     "title": "Online-Kurse Sprachen",
+     "url": "https://www.vhs-bmo.de/kursmixer/online-kurse/kategorie/Online-Kurse+Sprachen/187",
+     "count": 16
+    },
+    "Sprachen \\ Englisch": {
+     "title": "Englisch",
+     "url": "https://www.vhs-bmo.de/programm/sprachen/kategorie/Englisch/11",
+     "count": 20
+    }
+   },
+   "courses": {}
+  },
+  "vhs-dortmund": {
+   "version": 1,
+   "client": "vhs-dortmund",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Beruf, IT, vhs.Digitallabor": {
+     "title": "Beruf, IT, vhs.Digitallabor",
+     "url": "https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor",
+     "count": 65
+    },
+    "Gesundheit und Bewegung": {
+     "title": "Gesundheit und Bewegung",
+     "url": "https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung",
+     "count": 171
+    },
+    "Politik, Gesellschaft, Umwelt, Astrophysik": {
+     "title": "Politik, Gesellschaft, Umwelt, Astrophysik",
+     "url": "https://vhs.dortmund.de/programm/politik-gesellschaft-oekologie/kategorie/Politik+Gesellschaft+Umwelt+Astrophysik/45",
+     "count": 80
+    },
+    "Beruf, IT, vhs.Digitallabor \\ Beruf": {
+     "title": "Beruf",
+     "url": "https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/Beruf/465",
+     "count": 23
+    },
+    "Gesundheit und Bewegung \\ Gymnastik, Fitness und Körperschulung": {
+     "title": "Gymnastik, Fitness und Körperschulung",
+     "url": "https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung/kategorie/Gymnastik+Fitness+und+Koerperschulung/74",
+     "count": 12
+    },
+    "Gesundheit und Bewegung \\ Medizinische Fragen": {
+     "title": "Medizinische Fragen",
+     "url": "https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung/kategorie/Medizinische+Fragen/302",
+     "count": 7
+    },
+    "Gesundheit und Bewegung \\ Outdoor": {
+     "title": "Outdoor",
+     "url": "https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung/kategorie/Outdoor/289",
+     "count": 4
+    },
+    "Politik, Gesellschaft, Umwelt, Astrophysik \\ Politik": {
+     "title": "Politik",
+     "url": "https://vhs.dortmund.de/programm/politik-gesellschaft-oekologie/kategorie/Politik/50",
+     "count": 22
+    },
+    "Politik, Gesellschaft, Umwelt, Astrophysik \\ Umwelt": {
+     "title": "Umwelt",
+     "url": "https://vhs.dortmund.de/programm/politik-gesellschaft-oekologie/kategorie/Umwelt/46",
+     "count": 18
+    },
+    "Beruf, IT, vhs.Digitallabor \\ Beruf \\ Qualifizierungen & zertifizierte Weiterbildungen": {
+     "title": "Qualifizierungen & zertifizierte Weiterbildungen",
+     "url": "https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/Qualifizierungen+zertifizierte+Weiterbildungen/466",
+     "count": 7
+    },
+    "Beruf, IT, vhs.Digitallabor \\ Beruf \\ Wirtschaft & Praxiswissen": {
+     "title": "Wirtschaft & Praxiswissen",
+     "url": "https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/Wirtschaft+Praxiswissen/275",
+     "count": 3
+    }
+   },
+   "courses": {}
+  },
+  "vhs-duesseldorf": {
+   "version": 1,
+   "client": "vhs-duesseldorf",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Deutsch und Integration": {
+     "title": "Deutsch und Integration",
+     "url": "https://vhs.duesseldorf.de/programm/deutsch-und-integration",
+     "count": 44
+    },
+    "Gesundheit, Bewegung, Psychologie": {
+     "title": "Gesundheit, Bewegung, Psychologie",
+     "url": "https://vhs.duesseldorf.de/programm/gesundheit",
+     "count": 139
+    },
+    "Sprachen": {
+     "title": "Sprachen",
+     "url": "https://vhs.duesseldorf.de/programm/sprachen",
+     "count": 417
+    },
+    "Gesundheit, Bewegung, Psychologie \\ Tanz und Rhythmus": {
+     "title": "Tanz und Rhythmus",
+     "url": "https://vhs.duesseldorf.de/programm/gesundheit/tanz",
+     "count": 23
+    },
+    "Sprachen \\ Arabisch": {
+     "title": "Arabisch",
+     "url": "https://vhs.duesseldorf.de/programm/sprachen/kategorie/Arabisch/1535",
+     "count": 10
+    },
+    "Sprachen \\ Hebräisch": {
+     "title": "Hebräisch",
+     "url": "https://vhs.duesseldorf.de/programm/sprachen/kategorie/Hebraeisch/1536",
+     "count": 5
+    },
+    "Sprachen \\ Italienisch": {
+     "title": "Italienisch",
+     "url": "https://vhs.duesseldorf.de/programm/sprachen/italienisch",
+     "count": 35
+    },
+    "Sprachen \\ Persisch": {
+     "title": "Persisch",
+     "url": "https://vhs.duesseldorf.de/programm/sprachen/kategorie/Persisch/1537",
+     "count": 1
+    },
+    "Gesundheit, Bewegung, Psychologie \\ Tanz und Rhythmus \\ Verschiedene Tanzformen": {
+     "title": "Verschiedene Tanzformen",
+     "url": "https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Verschiedene+Tanzformen/606",
+     "count": 16
+    },
+    "Sprachen \\ Italienisch \\ Sprachkurse von A1 bis B2": {
+     "title": "Sprachkurse von A1 bis B2",
+     "url": "https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2",
+     "count": 30
+    },
+    "Gesundheit, Bewegung, Psychologie \\ Tanz und Rhythmus \\ Verschiedene Tanzformen \\ Tanzen lernen - Von Standard bis Swing": {
+     "title": "Tanzen lernen - Von Standard bis Swing",
+     "url": "https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Tanzen+lernen+-+Von+Standard+bis+Swing/721",
+     "count": 1
+    },
+    "Gesundheit, Bewegung, Psychologie \\ Tanz und Rhythmus \\ Verschiedene Tanzformen \\ Tänzerische Gymnastik und Ballett": {
+     "title": "Tänzerische Gymnastik und Ballett",
+     "url": "https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Taenzerische+Gymnastik+und+Ballett/604",
+     "count": 8
+    },
+    "Sprachen \\ Italienisch \\ Sprachkurse von A1 bis B2 \\ Stufe A1": {
+     "title": "Stufe A1",
+     "url": "https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A1/1944",
+     "count": 12
+    },
+    "Sprachen \\ Italienisch \\ Sprachkurse von A1 bis B2 \\ Stufe A2": {
+     "title": "Stufe A2",
+     "url": "https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A2/1948",
+     "count": 7
+    },
+    "Sprachen \\ Italienisch \\ Sprachkurse von A1 bis B2 \\ Stufe B1": {
+     "title": "Stufe B1",
+     "url": "https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+B1/1952",
+     "count": 6
+    },
+    "Sprachen \\ Italienisch \\ Sprachkurse von A1 bis B2 \\ Stufe A1 \\ Stufe A1.3": {
+     "title": "Stufe A1.3",
+     "url": "https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A13/1947",
+     "count": 6
+    }
+   },
+   "courses": {}
+  },
+  "vhs-koeln": {
+   "version": 1,
+   "client": "vhs-koeln",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Politik und Gesellschaft": {
+     "title": "Politik und Gesellschaft",
+     "url": "https://www.koelner-vhs.de/politik-gesellschaft",
+     "count": 81
+    },
+    "Sprachen": {
+     "title": "Sprachen",
+     "url": "https://www.koelner-vhs.de/kurse/sprachen",
+     "count": 606
+    },
+    "Politik und Gesellschaft \\ Geschichte": {
+     "title": "Geschichte",
+     "url": "https://www.koelner-vhs.de/politik-gesellschaft/geschichte",
+     "count": 11
+    },
+    "Sprachen \\ Deutsch": {
+     "title": "Deutsch",
+     "url": "https://www.koelner-vhs.de/kurse/sprachen/kategorie/Deutsch/69",
+     "count": 32
+    },
+    "Sprachen \\ Niederländisch": {
+     "title": "Niederländisch",
+     "url": "https://www.koelner-vhs.de/kurse/sprachen/niederlaendisch",
+     "count": 25
+    }
+   },
+   "courses": {}
+  },
+  "vhs-lingen": {
+   "version": 1,
+   "client": "vhs-lingen",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Beruf, IT und Software": {
+     "title": "Beruf, IT und Software",
+     "url": "https://www.vhs-lingen.de/programm/beruf-it/kategorie/Beruf+IT+und+Software/135",
+     "count": 140
+    },
+    "Grundbildung, Schulabschlüsse": {
+     "title": "Grundbildung, Schulabschlüsse",
+     "url": "https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse",
+     "count": 3
+    },
+    "Kultur, Kunst": {
+     "title": "Kultur, Kunst",
+     "url": "https://www.vhs-lingen.de/programm/kultur-kunst",
+     "count": 41
+    },
+    "Sprachen": {
+     "title": "Sprachen",
+     "url": "https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch",
+     "count": 79
+    },
+    "Beruf, IT und Software \\ IT und Software": {
+     "title": "IT und Software",
+     "url": "https://www.vhs-lingen.de/programm/beruf-it/kategorie/IT+und+Software/137",
+     "count": 75
+    },
+    "Grundbildung, Schulabschlüsse \\ Schulabschlüsse": {
+     "title": "Schulabschlüsse",
+     "url": "https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse/kategorie/Schulabschluesse/71",
+     "count": 2
+    },
+    "Kultur, Kunst \\ Musik": {
+     "title": "Musik",
+     "url": "https://www.vhs-lingen.de/programm/kultur-kunst/kategorie/Musik/172",
+     "count": 5
+    },
+    "Sprachen \\ Sprachen auf Bestellung": {
+     "title": "Sprachen auf Bestellung",
+     "url": "https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch/kategorie/Sprachen+auf+Bestellung/386",
+     "count": 2
+    },
+    "Beruf, IT und Software \\ IT und Software \\ KI": {
+     "title": "KI",
+     "url": "https://www.vhs-lingen.de/programm/beruf-it/kategorie/KI/381",
+     "count": 44
+    },
+    "Sprachen \\ Sprachen auf Bestellung \\ Einzel- und Firmenschulung": {
+     "title": "Einzel- und Firmenschulung",
+     "url": "https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch/kategorie/Einzel-+und+Firmenschulung/302",
+     "count": 1
+    }
+   },
+   "courses": {}
+  },
+  "vhs-mainz": {
+   "version": 1,
+   "client": "vhs-mainz",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Gesundheit, Bewegung, Lebensstil": {
+     "title": "Gesundheit, Bewegung, Lebensstil",
+     "url": "https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/",
+     "count": 402
+    },
+    "Kunst, Kultur und Kreatives": {
+     "title": "Kunst, Kultur und Kreatives",
+     "url": "https://www.vhs-mainz.de/programmbereiche/kunst-und-kultur/",
+     "count": 260
+    },
+    "Gesundheit, Bewegung, Lebensstil \\ Entspannung, Bewegung, Gesundheitsvorsorge": {
+     "title": "Entspannung, Bewegung, Gesundheitsvorsorge",
+     "url": "https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/kw/bereich/kategorien/kategorie-id/547/oberkategorie-id/8/kategorie-name/Entspannung%20Bewegung%20Gesundheitsvorsorge",
+     "count": 277
+    },
+    "Gesundheit, Bewegung, Lebensstil \\ Online-Kurse Gesundheit und Fitness": {
+     "title": "Online-Kurse Gesundheit und Fitness",
+     "url": "https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/kw/bereich/kategorien/kategorie-id/368/oberkategorie-id/8/kategorie-name/Online-Kurse%20Gesundheit%20und%20Fitness",
+     "count": 10
+    },
+    "Kunst, Kultur und Kreatives \\ Ferien- und Urlaubsangebote": {
+     "title": "Ferien- und Urlaubsangebote",
+     "url": "https://www.vhs-mainz.de/programmbereiche/kunst-und-kultur/kw/bereich/kategorien/kategorie-id/512/oberkategorie-id/6/kategorie-name/Ferien-%20und%20Urlaubsangebote",
+     "count": 11
+    },
+    "Kunst, Kultur und Kreatives \\ Kurse für Kinder und Jugendliche": {
+     "title": "Kurse für Kinder und Jugendliche",
+     "url": "https://www.vhs-mainz.de/programmbereiche/kunst-und-kultur/kw/bereich/kategorien/kategorie-id/514/oberkategorie-id/6/kategorie-name/Kurse%20fuer%20Kinder%20und%20Jugendliche",
+     "count": 3
+    },
+    "Gesundheit, Bewegung, Lebensstil \\ Entspannung, Bewegung, Gesundheitsvorsorge \\ Forum für Gesundheit": {
+     "title": "Forum für Gesundheit",
+     "url": "https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/189/oberkategorie-id/547/kategorie-name/Forum%20fuer%20Gesundheit",
+     "count": 8
+    },
+    "Gesundheit, Bewegung, Lebensstil \\ Entspannung, Bewegung, Gesundheitsvorsorge \\ Körpertraining / Beweglichkeit": {
+     "title": "Körpertraining / Beweglichkeit",
+     "url": "https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/192/oberkategorie-id/547/kategorie-name/Koerpertraining%20Beweglichkeit",
+     "count": 59
+    },
+    "Gesundheit, Bewegung, Lebensstil \\ Entspannung, Bewegung, Gesundheitsvorsorge \\ Forum für Gesundheit \\ Seminare, Vorträge": {
+     "title": "Seminare, Vorträge",
+     "url": "https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/190/oberkategorie-id/189/kategorie-name/Seminare%20Vortraege",
+     "count": 8
+    },
+    "Gesundheit, Bewegung, Lebensstil \\ Entspannung, Bewegung, Gesundheitsvorsorge \\ Körpertraining / Beweglichkeit \\ Fitness / Ausdauer": {
+     "title": "Fitness / Ausdauer",
+     "url": "https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/195/oberkategorie-id/192/kategorie-name/Fitness%20Ausdauer",
+     "count": 4
+    },
+    "Gesundheit, Bewegung, Lebensstil \\ Entspannung, Bewegung, Gesundheitsvorsorge \\ Körpertraining / Beweglichkeit \\ Kräftigung": {
+     "title": "Kräftigung",
+     "url": "https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/298/oberkategorie-id/192/kategorie-name/Kraeftigung",
+     "count": 28
+    }
+   },
+   "courses": {}
+  },
+  "vhs-marburg": {
+   "version": 1,
+   "client": "vhs-marburg",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Gesellschaft": {
+     "title": "Gesellschaft",
+     "url": "https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt",
+     "count": 45
+    },
+    "Sprachen": {
+     "title": "Sprachen",
+     "url": "https://www.vhs-marburg.de/kurse/sprachen",
+     "count": 89
+    },
+    "Gesellschaft \\ Nachhaltigkeit - Alltag": {
+     "title": "Nachhaltigkeit - Alltag",
+     "url": "https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt/kategorie/Nachhaltigkeit+-+Alltag/322",
+     "count": 3
+    },
+    "Gesellschaft \\ Ökonomie": {
+     "title": "Ökonomie",
+     "url": "https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt/kategorie/OEkonomie/426",
+     "count": 6
+    },
+    "Sprachen \\ Englisch": {
+     "title": "Englisch",
+     "url": "https://www.vhs-marburg.de/kurse/sprachen/kategorie/Englisch/110",
+     "count": 16
+    },
+    "Sprachen \\ Englisch \\ Einstiegskurse bis A1": {
+     "title": "Einstiegskurse bis A1",
+     "url": "https://www.vhs-marburg.de/kurse/sprachen/kategorie/Einstiegskurse+bis+A1/335",
+     "count": 4
+    },
+    "Sprachen \\ Englisch \\ Niveau B1": {
+     "title": "Niveau B1",
+     "url": "https://www.vhs-marburg.de/kurse/sprachen/kategorie/Niveau+B1/337",
+     "count": 8
+    }
+   },
+   "courses": {}
+  },
+  "vhs-meppen": {
+   "version": 1,
+   "client": "vhs-meppen",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Fitness & Gesundheit": {
+     "title": "Fitness & Gesundheit",
+     "url": "https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit",
+     "count": 148
+    },
+    "Fitness & Gesundheit \\ Sport & Fitness": {
+     "title": "Sport & Fitness",
+     "url": "https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness",
+     "count": 61
+    },
+    "Fitness & Gesundheit \\ Sport & Fitness \\ Fit-Kids": {
+     "title": "Fit-Kids",
+     "url": "https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness/kategorie/Fit-Kids/357",
+     "count": 1
+    },
+    "Fitness & Gesundheit \\ Sport & Fitness \\ Kraft & Ausdauer": {
+     "title": "Kraft & Ausdauer",
+     "url": "https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness/kategorie/Kraft+Ausdauer/149",
+     "count": 41
+    }
+   },
+   "courses": {}
+  },
+  "vhs-rostock": {
+   "version": 1,
+   "client": "vhs-rostock",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Sprachen": {
+     "title": "Sprachen",
+     "url": "https://www.vhs-hro.de/kurse/sprachen",
+     "count": 58
+    },
+    "Sprachen \\ Deutsch als Fremdsprache": {
+     "title": "Deutsch als Fremdsprache",
+     "url": "https://www.vhs-hro.de/kurse/sprachen/kategorie/Deutsch+als+Fremdsprache/382",
+     "count": 7
+    },
+    "Sprachen \\ Fremdsprachen": {
+     "title": "Fremdsprachen",
+     "url": "https://www.vhs-hro.de/kurse/sprachen/kategorie/Fremdsprachen/445",
+     "count": 41
+    },
+    "Sprachen \\ Fremdsprachen \\ Englisch": {
+     "title": "Englisch",
+     "url": "https://www.vhs-hro.de/kurse/sprachen/kategorie/Englisch/358",
+     "count": 15
+    }
+   },
+   "courses": {}
+  },
+  "vhs-rur-eifel": {
+   "version": 1,
+   "client": "vhs-rur-eifel",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Gesundheit, Bewegung und Ernährung": {
+     "title": "Gesundheit, Bewegung und Ernährung",
+     "url": "https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung",
+     "count": 161
+    },
+    "Sprachen": {
+     "title": "Sprachen",
+     "url": "https://www.vhs-rur-eifel.de/programm/sprachen-integrationskurse",
+     "count": 200
+    },
+    "Gesundheit, Bewegung und Ernährung \\ Gesundheit und Psyche": {
+     "title": "Gesundheit und Psyche",
+     "url": "https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung/kategorie/Gesundheit+und+Psyche/175",
+     "count": 14
+    },
+    "Gesundheit, Bewegung und Ernährung \\ Gesundheitswissen": {
+     "title": "Gesundheitswissen",
+     "url": "https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung/kategorie/Gesundheitswissen/174",
+     "count": 20
+    },
+    "Gesundheit, Bewegung und Ernährung \\ Gymnastik": {
+     "title": "Gymnastik",
+     "url": "https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung/kategorie/Gymnastik/107",
+     "count": 54
+    },
+    "Sprachen \\ Deutsch als Mutter- und Fremdsprache": {
+     "title": "Deutsch als Mutter- und Fremdsprache",
+     "url": "https://www.vhs-rur-eifel.de/programm/sprachen-integrationskurse/kategorie/Deutsch+als+Mutter-+und+Fremdsprache/178",
+     "count": 42
+    }
+   },
+   "courses": {}
+  },
+  "vhs-salzburg": {
+   "version": 1,
+   "client": "vhs-salzburg",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Eltern & Kinder": {
+     "title": "Eltern & Kinder",
+     "url": "https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder",
+     "count": 97
+    },
+    "Kunst, Kultur & Kulinarium": {
+     "title": "Kunst, Kultur & Kulinarium",
+     "url": "https://www.volkshochschule.at/kurse/kunst-kreatives/kategorie/Kunst+Kultur+Kulinarium/18",
+     "count": 95
+    },
+    "Politik & Gesellschaft": {
+     "title": "Politik & Gesellschaft",
+     "url": "https://www.volkshochschule.at/kurse/politik-gesellschaft/vhs-politik-und-gesellschaft",
+     "count": 37
+    },
+    "Eltern & Kinder \\ Allgemein Kinder": {
+     "title": "Allgemein Kinder",
+     "url": "https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/Allgemein+Kinder/194",
+     "count": 21
+    },
+    "Eltern & Kinder \\ Kinder und Küche": {
+     "title": "Kinder und Küche",
+     "url": "https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/Kinder+und+Kueche/167",
+     "count": 3
+    },
+    "Eltern & Kinder \\ Natur Kinder": {
+     "title": "Natur Kinder",
+     "url": "https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/Natur+Kinder/161",
+     "count": 4
+    },
+    "Kunst, Kultur & Kulinarium \\ Mode & Handwerk": {
+     "title": "Mode & Handwerk",
+     "url": "https://www.volkshochschule.at/kurse/kunst-kreatives/mode-handwerk",
+     "count": 2
+    },
+    "Politik & Gesellschaft \\ Geschichte & Politik": {
+     "title": "Geschichte & Politik",
+     "url": "https://www.volkshochschule.at/kurse/politik-gesellschaft/geschichte-politik",
+     "count": 4
+    },
+    "Politik & Gesellschaft \\ Psychologie & Pädagogik": {
+     "title": "Psychologie & Pädagogik",
+     "url": "https://www.volkshochschule.at/kurse/politik-gesellschaft/psychologie-paedagogik",
+     "count": 18
+    }
+   },
+   "courses": {}
+  },
+  "vhs-tuebingen": {
+   "version": 1,
+   "client": "vhs-tuebingen",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Kultur und Gestalten": {
+     "title": "Kultur und Gestalten",
+     "url": "https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten",
+     "count": 196
+    },
+    "Sprachen": {
+     "title": "Sprachen",
+     "url": "https://www.vhs-tuebingen.de/kurse/sprachen",
+     "count": 250
+    },
+    "Kultur und Gestalten \\ Darstellende Kunst": {
+     "title": "Darstellende Kunst",
+     "url": "https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten/kategorie/Darstellende+Kunst/334",
+     "count": 4
+    },
+    "Kultur und Gestalten \\ Kunst- und Kulturgeschichte": {
+     "title": "Kunst- und Kulturgeschichte",
+     "url": "https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten/kategorie/Kunst-+und+Kulturgeschichte/18",
+     "count": 12
+    },
+    "Sprachen \\ Deutsch": {
+     "title": "Deutsch",
+     "url": "https://www.vhs-tuebingen.de/kurse/deutschkurse/kategorie/Deutsch/54",
+     "count": 106
+    },
+    "Sprachen \\ Deutsch \\ Deutschkurse": {
+     "title": "Deutschkurse",
+     "url": "https://www.vhs-tuebingen.de/kurse/deutschkurse",
+     "count": 70
+    }
+   },
+   "courses": {}
+  },
+  "vhs-tuttlingen": {
+   "version": 1,
+   "client": "vhs-tuttlingen",
+   "created": "2026-10-23T08:12:53+00:00",
+   "nodes": {
+    "Exkursionen und Studienreisen": {
+     "title": "Exkursionen und Studienreisen",
+     "url": "https://www.vhs-tuttlingen.de/kurse/kategorie/Exkursionen+und+Studienreisen/99",
+     "count": 5
+    },
+    "Fremdsprachen": {
+     "title": "Fremdsprachen",
+     "url": "https://www.vhs-tuttlingen.de/kurse/fremdsprachen",
+     "count": 66
+    },
+    "Gesundheit - Fitness - Ernährung": {
+     "title": "Gesundheit - Fitness - Ernährung",
+     "url": "https://www.vhs-tuttlingen.de/kurse/gesundheit-bewegung/kategorie/Gesundheit+-+Fitness+-+Ernaehrung/42",
+     "count": 200
+    },
+    "Fremdsprachen \\ Englisch": {
+     "title": "Englisch",
+     "url": "https://www.vhs-tuttlingen.de/kurse/fremdsprachen/kategorie/Englisch/23",
+     "count": 22
+    },
+    "Gesundheit - Fitness - Ernährung \\ Gymnastik - Fitness": {
+     "title": "Gymnastik - Fitness",
+     "url": "https://www.vhs-tuttlingen.de/kurse/gesundheit-bewegung/kategorie/Gymnastik+-+Fitness/45",
+     "count": 100
+    }
+   },
+   "courses": {}
+  }
+ },
+ "faelle": [
+  {
+   "id": "bie-11",
+   "kunde": "bielefeld-nazareth-bildung",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: veranstaltungen-bildung-beratung-bethel-de-webbasys-index-php-kathaupt-11-knr-27-pt188-kursname-professioneller-umgang-mit-demenz-bei-menschen-m-b21fbc21cf4a4f2a.txt\npublished: 10/22/2026, 4:31:41 AM\n</document_metadata>\n\nTitel: Professioneller Umgang mit Demenz bei Menschen mit kognitiver Beeinträchtigung\nKursnummer: 27-PT188\nKursstatus: Anmeldung möglich\nKursgebühr: 180,00\nBeginn: Do. 04.11.2027, 08:30 Uhr\nEnde: Do. 04.11.2027, 16:30 Uhr\nDauer: 1 Tag\nKursort: steht noch nicht fest\nBezirk: Bildung & Beratung Bethel\nKategorie: Neurologische/kognitive Beeinträchtigungen\nKategoriepfad: Neurologische/kognitive Beeinträchtigungen\nKurs-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=11&knr=27-PT188&kursname=professioneller-umgang-mit-demenz-bei-menschen-mit-kognitiver-beeintraechtigung\nKategorie-Link-Titel: Neurologische/kognitive Beeinträchtigungen\nKategorie-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=59&katvaterid=0&katname=Neurologischekognitive+Beeintraechtigungen\nBereich-Link-Titel: Neurologische/kognitive Beeinträchtigungen\nBereich-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=59&katvaterid=0&katname=Neurologischekognitive+Beeintraechtigungen\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: veranstaltungen-bildung-beratung-bethel-de-webbasys-index-php-kathaupt-11-knr-26-pt188b-kursname-professioneller-umgang-mit-demenz-bei-menschen-f3bdddad95a3fa3b.txt\npublished: 10/22/2026, 4:31:17 AM\n</document_metadata>\n\nTitel: Professioneller Umgang mit Demenz bei Menschen mit kognitiver Beeinträchtigung\nKursnummer: 26-PT188B\nKursstatus: Anmeldung möglich\nKursgebühr: 175,00\nBeginn: Mi. 04.11.2026, 08:30 Uhr\nEnde: Mi. 04.11.2026, 16:30 Uhr\nDauer: 1 Tag\nKursort: 1.06\nBezirk: Bildung & Beratung Bethel\nKategorie: Neurologische/kognitive Beeinträchtigungen\nKategoriepfad: Neurologische/kognitive Beeinträchtigungen\nKurs-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=11&knr=26-PT188B&kursname=professioneller-umgang-mit-demenz-bei-menschen-mit-kognitiver-beeintraechtigung\nKategorie-Link-Titel: Neurologische/kognitive Beeinträchtigungen\nKategorie-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=59&katvaterid=0&katname=Neurologischekognitive+Beeintraechtigungen\nBereich-Link-Titel: Neurologische/kognitive Beeinträchtigungen\nBereich-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=59&katvaterid=0&katname=Neurologischekognitive+Beeintraechtigungen\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: bildung-beratung-bethel.de_.html\npublished: 10/13/2026, 4:15:53 AM\nsource: https://www.bildung-beratung-bethel.de\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: veranstaltungen-bildung-beratung-bethel-de-webbasys-index-php-kathaupt-11-knr-27-pt192-kursname-psychische-erkrankungen-bei-menschen-mit-intelli-4897f96be12748bc.txt\npublished: 10/22/2026, 4:31:29 AM\n</document_metadata>\n\nTitel: Psychische Erkrankungen bei Menschen mit Intelligenzminderung\nKursnummer: 27-PT192\nKursstatus: Keine Anmeldung möglich - Inhouse-Anfrage möglich\nKursgebühr: 180,00\nBeginn: Fr. 01.01.2027, 09:00 Uhr\nEnde: Fr. 01.01.2027, 16:30 Uhr\nDauer: 1 Tag\nKursort: Festsaal I (E.01)\nBezirk: Bildung & Beratung Bethel\nKategorie: Psychische Erkrankungen | Seelische Gesundheit\nKategoriepfad: Psychische Erkrankungen | Seelische Gesundheit\nKurs-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=11&knr=27-PT192&kursname=psychische-erkrankungen-bei-menschen-mit-intelligenzminderung\nKategorie-Link-Titel: Psychische Erkrankungen | Seelische Gesundheit\nKategorie-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=56&katvaterid=0&katname=Psychische+Erkrankungen+Seelische+Gesundheit\nBereich-Link-Titel: Psychische Erkrankungen | Seelische Gesundheit\nBereich-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=56&katvaterid=0&katname=Psychische+Erkrankungen+Seelische+Gesundheit\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Neurologische/kognitive Beeinträchtigungen (8 Kurse) | https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=59&katvaterid=0&katname=Neurologischekognitive+Beeintraechtigungen"
+    ],
+    [
+     "Kategorie-Ebene 1: Neurologische/kognitive Beeinträchtigungen (8 Kurse) | https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=59&katvaterid=0&katname=Neurologischekognitive+Beeintraechtigungen"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Psychische Erkrankungen | Seelische Gesundheit (32 Kurse) | https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=56&katvaterid=0&katname=Psychische+Erkrankungen+Seelische+Gesundheit"
+    ]
+   ]
+  },
+  {
+   "id": "bie-01",
+   "kunde": "bielefeld-nazareth-bildung",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: veranstaltungen-bildung-beratung-bethel-de-webbasys-index-php-kathaupt-11-knr-27-fb014-kursname-will-und-kann-ich-fuehren-ein-tag-zur-orientieru-d5269e464ec78630.txt\npublished: 10/22/2026, 4:31:27 AM\n</document_metadata>\n\nTitel: Will und kann ich führen?  Ein Tag zur Orientierung\nKursnummer: 27-FB014\nKursstatus: Keine Anmeldung möglich - Inhouse-Anfrage möglich\nKursgebühr: 0,00\nBeginn: 2027-01-01 :00\nEnde: 2027-01-01 :00\nDauer: 1 Tag\nKursort: steht noch nicht fest\nBezirk: Bildung & Beratung Bethel\nKategorie: Führung\nKategoriepfad: Führung\nKurs-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=11&knr=27-FB014&kursname=will-und-kann-ich-fuehren-ein-tag-zur-orientierung\nKategorie-Link-Titel: Führung\nKategorie-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung\nBereich-Link-Titel: Führung\nBereich-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: veranstaltungen-bildung-beratung-bethel-de-webbasys-index-php-kathaupt-11-knr-26-fb149-kursname-will-und-kann-ich-fuehren-ein-tag-zur-orientieru-f168af24670f2ba1.txt\npublished: 10/22/2026, 4:31:17 AM\n</document_metadata>\n\nTitel: Will und kann ich führen? Ein Tag zur Orientierung\nKursnummer: 26-FB149\nKursstatus: Anmeldung möglich\nKursgebühr: 220,00\nBeginn: Mo. 09.11.2026, 09:00 Uhr\nEnde: Mo. 09.11.2026, 17:00 Uhr\nDauer: 1 Tag\nKursort: 1.05\nBezirk: Bildung & Beratung Bethel\nKategorie: Führung\nKategoriepfad: Führung\nKurs-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=11&knr=26-FB149&kursname=will-und-kann-ich-fuehren-ein-tag-zur-orientierung\nKategorie-Link-Titel: Führung\nKategorie-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung\nBereich-Link-Titel: Führung\nBereich-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: veranstaltungen-bildung-beratung-bethel-de-webbasys-index-php-kathaupt-11-knr-26-fb015-kursname-basis-schulung-4-stunden-zum-neuen-kompetenzmode-34d3aaa2b9b6a2a5.txt\npublished: 10/22/2026, 4:31:43 AM\n</document_metadata>\n\nTitel: Basis-Schulung (4 Stunden) zum neuen Kompetenzmodell für Führungskräfte in Bethel: Orientierung, Anwendung & Einsatzmöglichkeiten\nKursnummer: 26-FB015\nKursstatus: Keine Anmeldung möglich - Inhouse-Anfrage möglich\nKursgebühr: 0,00\nBeginn: 2026-07-06 :00\nEnde: 2026-07-06 :00\nDauer: 4 Stunden\nKursort: steht noch nicht fest\nBezirk: Bildung & Beratung Bethel\nKategorie: Führung\nKategoriepfad: Führung\nKurs-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=11&knr=26-FB015&kursname=basis-schulung-4-stunden-zum-neuen-kompetenzmodell-fuer-fuehrungskraefte-in-bethel-orientierung-anwendung-einsatzmoeglichkeiten\nKategorie-Link-Titel: Führung\nKategorie-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung\nBereich-Link-Titel: Führung\nBereich-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: veranstaltungen-bildung-beratung-bethel-de-webbasys-index-php-kathaupt-11-knr-26-fb016-kursname-praxis-schulung-1-tag-zum-neuen-kompetenzmodell-5fc21701d936eeaa.txt\npublished: 10/22/2026, 4:31:20 AM\n</document_metadata>\n\nTitel: Praxis-Schulung (1 Tag) zum neuen Kompetenzmodell für Führungskräfte in Bethel: Orientierung, Einsatzmöglichkeiten & Anwendungspraxis\nKursnummer: 26-FB016\nKursstatus: Keine Anmeldung möglich - Inhouse-Anfrage möglich\nKursgebühr: 0,00\nBeginn: 2026-11-21 :00\nEnde: 2026-11-21 :00\nDauer: 1 Tag\nKursort: steht noch nicht fest\nBezirk: Bildung & Beratung Bethel\nKategorie: Führung\nKategoriepfad: Führung\nKurs-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=11&knr=26-FB016&kursname=praxis-schulung-1-tag-zum-neuen-kompetenzmodell-fuer-fuehrungskraefte-in-bethel-orientierung-einsatzmoeglichkeiten-anwendungspraxis\nKategorie-Link-Titel: Führung\nKategorie-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung\nBereich-Link-Titel: Führung\nBereich-Link: https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Führung (37 Kurse) | https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung"
+    ],
+    [
+     "Kategorie-Ebene 1: Führung (37 Kurse) | https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung"
+    ],
+    [
+     "Kategorie-Ebene 1: Führung (37 Kurse) | https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung"
+    ],
+    [
+     "Kategorie-Ebene 1: Führung (37 Kurse) | https://veranstaltungen.bildung-beratung-bethel.de/webbasys/index.php?kathaupt=1&katid=6&katvaterid=0&katname=Fuehrung"
+    ]
+   ]
+  },
+  {
+   "id": "ger-03",
+   "kunde": "kvhs-germersheim",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: kvhs-germersheim.de_kurse_vhs-woerth.html\npublished: 10/2/2026, 4:35:52 AM\nsource: https://www.kvhs-germersheim.de/kurse/vhs-woerth\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: kvhs-germersheim.de_kurse_vhs-woerth_kategorie_216.html\npublished: 10/2/2026, 4:36:11 AM\nsource: https://www.kvhs-germersheim.de/kurse/vhs-woerth/kategorie/216\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: kvhs-germersheim.de_kurse_vhs-woerth_kategorie_303.html\npublished: 10/16/2026, 8:13:20 AM\nsource: https://www.kvhs-germersheim.de/kurse/vhs-woerth/kategorie/303\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: kvhs-germersheim.de_kurse_vhs-woerth_kategorie_349.html\npublished: 10/18/2026, 4:45:25 AM\nsource: https://www.kvhs-germersheim.de/kurse/vhs-woerth/kategorie/349\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [],
+    [
+     "Kategorie-Ebene 1: vhs Wörth am Rhein (73 Kurse) | https://www.kvhs-germersheim.de/kurse/vhs-woerth/kategorie/vhs+Woerth+am+Rhein/216"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: vhs Wörth am Rhein (73 Kurse) | https://www.kvhs-germersheim.de/kurse/vhs-woerth/kategorie/vhs+Woerth+am+Rhein/216",
+     "Kategorie-Ebene 2: Beruf - EDV - Organisation/Management (2 Kurse) | https://www.kvhs-germersheim.de/kurse/vhs-woerth/kategorie/Beruf+-+EDV+-+OrganisationManagement/349"
+    ]
+   ]
+  },
+  {
+   "id": "ger-02",
+   "kunde": "kvhs-germersheim",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: kvhs-germersheim.de_kurse_kategorie_94.html\npublished: 6/18/2026, 11:16:40 AM\nsource: https://www.kvhs-germersheim.de/kurse/kategorie/94\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: kvhs-germersheim.de_kurse_kategorie_392.html\npublished: 10/1/2026, 4:37:50 AM\nsource: https://www.kvhs-germersheim.de/kurse/kategorie/392\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: kvhs-germersheim.de_kurse_gesundheit.html\npublished: 10/20/2026, 4:57:19 AM\nsource: https://www.kvhs-germersheim.de/kurse/gesundheit\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-kvhs-germersheim-de-kurssuche-kurs-bewegt-in-den-tag-gymnastik-fuer-50-am-vormittag-l3027001kv-d93cb32c45b629a9.txt\npublished: 10/22/2026, 4:50:15 AM\n</document_metadata>\n\nTitel: \"Bewegt in den Tag\" - Gymnastik für 50+ - am Vormittag\nKursnummer: L3027001KV\nKursstatus: Anmeldung möglich\nKursgebühr: 60,00\nBeginn: Di. 29.09.2026, 10:15 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Di. 29.09.2026, 11:15 Uhr\nDauer: 11 Termine\nKursort: Rülzheim, TSC-Royal\nBezirk: kvhs Germersheim\nKategorie: Gesundheit\nKategoriepfad: kvhs Germersheim \\ Gesundheit\nKurs-Link: https://www.kvhs-germersheim.de/kurssuche/kurs/bewegt-in-den-tag-gymnastik-fuer-50-am-vormittag/L3027001KV\nKategorie-Link-Titel: Gesundheit\nKategorie-Link: https://www.kvhs-germersheim.de/kurse/gesundheit\nBereich-Link-Titel: kvhs Germersheim\nBereich-Link: https://www.kvhs-germersheim.de/kurse/kategorie/kvhs+Germersheim/371\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [],
+    [],
+    [
+     "Kategorie-Ebene 1: Suche über Kategorien (3 Kurse) | https://www.kvhs-germersheim.de/kurse/kategorie/Suche+ueber+Kategorien/432",
+     "Kategorie-Ebene 2: Gesundheit (3 Kurse) | https://www.kvhs-germersheim.de/kurse/gesundheit"
+    ],
+    [
+     "Kategorie-Ebene 1: kvhs Germersheim (36 Kurse) | https://www.kvhs-germersheim.de/kurse/kategorie/kvhs+Germersheim/371",
+     "Kategorie-Ebene 2: Gesundheit (10 Kurse) | https://www.kvhs-germersheim.de/kurse/gesundheit"
+    ]
+   ]
+  },
+  {
+   "id": "alt-10",
+   "kunde": "vhs-altoetting",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-altoetting.de_programm_sprachen_kategorie_66.html\npublished: 10/20/2026, 4:49:32 AM\nsource: https://www.vhs-altoetting.de/programm/sprachen/kategorie/66\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-altoetting.de_programm_sprachen_kategorie_73.html\npublished: 9/30/2026, 12:42:29 PM\nsource: https://www.vhs-altoetting.de/programm/sprachen/kategorie/73\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-altoetting.de_programm_sprachen_kategorie_69.html\npublished: 9/24/2026, 8:43:24 AM\nsource: https://www.vhs-altoetting.de/programm/sprachen/kategorie/69\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-altoetting.de_programm_sprachen_kategorie_68.html\npublished: 9/24/2026, 8:43:20 AM\nsource: https://www.vhs-altoetting.de/programm/sprachen/kategorie/68\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Sprachen (33 Kurse) | https://www.vhs-altoetting.de/programm/sprachen",
+     "Kategorie-Ebene 2: Englisch (12 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Englisch/66"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (33 Kurse) | https://www.vhs-altoetting.de/programm/sprachen",
+     "Kategorie-Ebene 2: Englisch (12 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Englisch/66",
+     "Kategorie-Ebene 3: Aufbaustufe (3 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Aufbaustufe/73"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (33 Kurse) | https://www.vhs-altoetting.de/programm/sprachen",
+     "Kategorie-Ebene 2: Englisch (12 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Englisch/66",
+     "Kategorie-Ebene 3: Grundstufe (7 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe/68",
+     "Kategorie-Ebene 4: Grundstufe 1 (5 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe+1/69"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (33 Kurse) | https://www.vhs-altoetting.de/programm/sprachen",
+     "Kategorie-Ebene 2: Englisch (12 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Englisch/66",
+     "Kategorie-Ebene 3: Grundstufe (7 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe/68"
+    ]
+   ]
+  },
+  {
+   "id": "alt-16",
+   "kunde": "vhs-altoetting",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-altoetting-de-kurssuche-kurs-englisch-fuer-absolute-anfaenger-ohne-vorkenntnisse-t3210-a3b882f25eda1020.txt\npublished: 10/22/2026, 4:37:40 AM\n</document_metadata>\n\nTitel: Englisch für absolute Anfänger ohne Vorkenntnisse\nKursnummer: T3210\nKursstatus: Anmeldung möglich\nKursgebühr: 135,00\nBeginn: Fr. 25.09.2026, 10:00 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Fr. 25.09.2026, 11:30 Uhr\nDauer: 15 Vormittage\nKursort: vhs-Verwaltung, Neuöttinger Str. 32, Seminarraum 1\nKategorie: Grundstufe 1\nKategoriepfad: Sprachen \\ Englisch \\ Grundstufe \\ Grundstufe 1\nKurs-Link: https://www.vhs-altoetting.de/kurssuche/kurs/englisch-fuer-absolute-anfaenger-ohne-vorkenntnisse/T3210\nKategorie-Link-Titel: Grundstufe 1\nKategorie-Link: https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe+1/69\nBereich-Link-Titel: Sprachen\nBereich-Link: https://www.vhs-altoetting.de/programm/sprachen\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-altoetting.de_programm_sprachen_kategorie_69.html\npublished: 9/24/2026, 8:43:24 AM\nsource: https://www.vhs-altoetting.de/programm/sprachen/kategorie/69\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-altoetting-de-kurssuche-kurs-englisch-fuer-absolute-anfaenger-i-2-t3212-763c76b706bbf5cf.txt\npublished: 10/22/2026, 4:37:40 AM\n</document_metadata>\n\nTitel: Englisch für absolute Anfänger I/2\nKursnummer: T3212\nKursstatus: Anmeldung möglich\nKursgebühr: 135,00\nBeginn: Di. 22.09.2026, 10:00 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Di. 22.09.2026, 11:30 Uhr\nDauer: 15 Vormittage\nKursort: vhs-Verwaltung, Neuöttinger Str. 32, Seminarraum 3\nKategorie: Grundstufe 1\nKategoriepfad: Sprachen \\ Englisch \\ Grundstufe \\ Grundstufe 1\nKurs-Link: https://www.vhs-altoetting.de/kurssuche/kurs/englisch-fuer-absolute-anfaenger-i-2/T3212\nKategorie-Link-Titel: Grundstufe 1\nKategorie-Link: https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe+1/69\nBereich-Link-Titel: Sprachen\nBereich-Link: https://www.vhs-altoetting.de/programm/sprachen\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-altoetting.de_programm_sprachen_kategorie_68.html\npublished: 9/24/2026, 8:43:20 AM\nsource: https://www.vhs-altoetting.de/programm/sprachen/kategorie/68\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Sprachen (33 Kurse) | https://www.vhs-altoetting.de/programm/sprachen",
+     "Kategorie-Ebene 2: Englisch (12 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Englisch/66",
+     "Kategorie-Ebene 3: Grundstufe (7 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe/68",
+     "Kategorie-Ebene 4: Grundstufe 1 (5 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe+1/69"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (33 Kurse) | https://www.vhs-altoetting.de/programm/sprachen",
+     "Kategorie-Ebene 2: Englisch (12 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Englisch/66",
+     "Kategorie-Ebene 3: Grundstufe (7 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe/68",
+     "Kategorie-Ebene 4: Grundstufe 1 (5 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe+1/69"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (33 Kurse) | https://www.vhs-altoetting.de/programm/sprachen",
+     "Kategorie-Ebene 2: Englisch (12 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Englisch/66",
+     "Kategorie-Ebene 3: Grundstufe (7 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe/68",
+     "Kategorie-Ebene 4: Grundstufe 1 (5 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe+1/69"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (33 Kurse) | https://www.vhs-altoetting.de/programm/sprachen",
+     "Kategorie-Ebene 2: Englisch (12 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Englisch/66",
+     "Kategorie-Ebene 3: Grundstufe (7 Kurse) | https://www.vhs-altoetting.de/programm/sprachen/kategorie/Grundstufe/68"
+    ]
+   ]
+  },
+  {
+   "id": "alt-14",
+   "kunde": "vhs-altoetting",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-altoetting-de-kurssuche-kurs-microsoft-excel-grundkurs-kompakt-t2445b-f4263cf7e2d61e35.txt\npublished: 10/22/2026, 4:37:36 AM\n</document_metadata>\n\nTitel: Microsoft Excel - Grundkurs kompakt\nKursnummer: T2445B\nKursstatus: Anmeldung möglich\nKursgebühr: 128,00\nBeginn: Mo. 07.12.2026, 18:30 Uhr\nEnde: Mo. 07.12.2026, 21:30 Uhr\nDauer: 4 Abende\nKursort: vhs-Verwaltung, Neuöttinger Str. 32, EDV-Raum\nKategorie: Tabellenkalkulation\nKategoriepfad: Arbeit, Beruf  \\ EDV-Kurse \\ Tabellenkalkulation\nKurs-Link: https://www.vhs-altoetting.de/kurssuche/kurs/microsoft-excel-grundkurs-kompakt/T2445B\nKategorie-Link-Titel: EDV-Kurse · Tabellenkalkulation\nKategorie-Link: https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Tabellenkalkulation/56\nBereich-Link-Titel: Arbeit, Beruf\nBereich-Link: https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Arbeit+Beruf/33\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-altoetting-de-kurssuche-kurs-microsoft-excel-crashkurs-t2449-9cdb29753f6770f3.txt\npublished: 10/22/2026, 4:37:36 AM\n</document_metadata>\n\nTitel: Microsoft Excel Crashkurs\nKursnummer: T2449\nKursstatus: Plätze frei\nKursgebühr: 74,00\nBeginn: Sa. 05.12.2026, 09:00 Uhr\nEnde: Sa. 05.12.2026, 16:00 Uhr\nDauer: 1 Termin\nKursort: vhs-Verwaltung, Neuöttinger Str. 32, EDV-Raum\nKategorie: Tabellenkalkulation\nKategoriepfad: Arbeit, Beruf  \\ EDV-Kurse \\ Tabellenkalkulation\nKurs-Link: https://www.vhs-altoetting.de/kurssuche/kurs/microsoft-excel-crashkurs/T2449\nKategorie-Link-Titel: EDV-Kurse · Tabellenkalkulation\nKategorie-Link: https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Tabellenkalkulation/56\nBereich-Link-Titel: Arbeit, Beruf\nBereich-Link: https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Arbeit+Beruf/33\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-altoetting.de_programm_arbeit-beruf-edv_kategorie_56.html\npublished: 10/8/2026, 10:42:32 AM\nsource: https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/56\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-altoetting.de_programm_arbeit-beruf-edv_kategorie_Tabellenkalkulation_56.html\npublished: 10/8/2026, 10:42:23 AM\nsource: https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Tabellenkalkulation/56\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Arbeit, Beruf (61 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Arbeit+Beruf/33",
+     "Kategorie-Ebene 2: EDV-Kurse (31 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/EDV-Kurse/50",
+     "Kategorie-Ebene 3: Tabellenkalkulation (2 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Tabellenkalkulation/56"
+    ],
+    [
+     "Kategorie-Ebene 1: Arbeit, Beruf (61 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Arbeit+Beruf/33",
+     "Kategorie-Ebene 2: EDV-Kurse (31 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/EDV-Kurse/50",
+     "Kategorie-Ebene 3: Tabellenkalkulation (2 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Tabellenkalkulation/56"
+    ],
+    [
+     "Kategorie-Ebene 1: Arbeit, Beruf (61 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Arbeit+Beruf/33",
+     "Kategorie-Ebene 2: EDV-Kurse (31 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/EDV-Kurse/50",
+     "Kategorie-Ebene 3: Tabellenkalkulation (2 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Tabellenkalkulation/56"
+    ],
+    [
+     "Kategorie-Ebene 1: Arbeit, Beruf (61 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Arbeit+Beruf/33",
+     "Kategorie-Ebene 2: EDV-Kurse (31 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/EDV-Kurse/50",
+     "Kategorie-Ebene 3: Tabellenkalkulation (2 Kurse) | https://www.vhs-altoetting.de/programm/arbeit-beruf-edv/kategorie/Tabellenkalkulation/56"
+    ]
+   ]
+  },
+  {
+   "id": "bri-12",
+   "kunde": "vhs-brilon",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-bmo-de-kurssuche-kurs-nehmen-sie-ihre-geldanlage-selbst-in-die-hand-geld-anlegen-und-sparen-in-wirtschaftlich-unsicheren-zeiten-x13-740-35c123fdcaf49e26.txt\npublished: 10/22/2026, 4:33:40 AM\n</document_metadata>\n\nTitel: Nehmen Sie Ihre Geldanlage selbst in die Hand!  Geld anlegen und sparen in wirtschaftlich unsicheren Zeiten\nKursnummer: X13.740\nKursstatus: Anmeldung möglich\nKursgebühr: 38,20\nBeginn: Di. 03.11.2026, 18:00 Uhr\nEnde: Di. 03.11.2026, 21:00 Uhr\nDauer: 2 Abende\nKursort: Brilon, VHS-Haus, Kreuziger Mauer 31, 3. OG\nBezirk: Brilon\nKategorie: Lebensthemen\nKategoriepfad: IT, Medien und Beruf \\ Lebensthemen\nKurs-Link: https://www.vhs-bmo.de/kurssuche/kurs/nehmen-sie-ihre-geldanlage-selbst-in-die-hand-geld-anlegen-und-sparen-in-wirtschaftlich-unsicheren-zeiten/X13.740\nKategorie-Link: https://www.vhs-bmo.de/kurse/it-medien-und-beruf\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-bmo.de_programm_gesellschaft-familie_kategorie_16.html\npublished: 10/20/2026, 4:56:27 AM\nsource: https://www.vhs-bmo.de/programm/gesellschaft-familie/kategorie/16\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-bmo.de_programm_gesellschaft-familie_kategorie_140.html\npublished: 10/20/2026, 4:55:50 AM\nsource: https://www.vhs-bmo.de/programm/gesellschaft-familie/kategorie/140\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-bmo.de_programm_gesellschaft-familie.html\npublished: 10/22/2026, 4:36:00 AM\nsource: https://www.vhs-bmo.de/programm/gesellschaft-familie\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: IT, Medien und Beruf (160 Kurse) | https://www.vhs-bmo.de/programm/it-medien-beruf",
+     "Kategorie-Ebene 2: Lebensthemen (6 Kurse) | https://www.vhs-bmo.de/programm/it-medien-beruf/kategorie/Lebensthemen/197"
+    ],
+    [
+     "Kategorie-Ebene 1: Leben! Familie, Kinder und Gesellschaft (123 Kurse) | https://www.vhs-bmo.de/programm/gesellschaft-familie",
+     "Kategorie-Ebene 2: Verbraucherfragen und Sicherheit (22 Kurse) | https://www.vhs-bmo.de/programm/gesellschaft-familie/kategorie/Verbraucherfragen+und+Sicherheit/16"
+    ],
+    [
+     "Kategorie-Ebene 1: Leben! Familie, Kinder und Gesellschaft (123 Kurse) | https://www.vhs-bmo.de/programm/gesellschaft-familie",
+     "Kategorie-Ebene 2: Rente und Vorsorge (1 Kurs) | https://www.vhs-bmo.de/programm/gesellschaft-familie/kategorie/Rente+und+Vorsorge/140"
+    ],
+    [
+     "Kategorie-Ebene 1: Leben! Familie, Kinder und Gesellschaft (123 Kurse) | https://www.vhs-bmo.de/programm/gesellschaft-familie"
+    ]
+   ]
+  },
+  {
+   "id": "bri-02",
+   "kunde": "vhs-brilon",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-bmo-de-kurssuche-kurs-online-kurs-conversacion-en-espanol-b1-x42-420-344e899df9f39317.txt\npublished: 9/25/2026, 2:28:55 AM\n</document_metadata>\n\nTitel: Online-Kurs: Conversación en espanol B1\nKursnummer: X42.420\nKursstatus: Anmeldung möglich\nKursgebühr: 38,30\nBeginn: Di. 03.11.2026, 19:30 Uhr\nEnde: Di. 03.11.2026, 20:30 Uhr\nDauer: 6 Abende\nKursort: Online-Seminarraum 02-VHS, Zoom\nBezirk: Olsberg\nKategorie: Online-Kurse Sprachen\nKategoriepfad: Online-Kurse und Digitale Veranstaltungen \\ Online-Kurse Sprachen\nKurs-Link: https://www.vhs-bmo.de/kurssuche/kurs/online-kurs-conversacion-en-espanol-b1/X42.420\nKategorie-Link: https://www.vhs-bmo.de/kurse/online-kurse-und-digitale-veranstaltungen\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-bmo.de_programm_sprachen_kategorie_9.html\npublished: 10/21/2026, 4:47:01 AM\nsource: https://www.vhs-bmo.de/programm/sprachen/kategorie/9\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-bmo.de_programm_sprachen.html\npublished: 10/21/2026, 4:45:24 AM\nsource: https://www.vhs-bmo.de/programm/sprachen\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-bmo.de_programm_sprachen_kategorie_11.html\npublished: 10/21/2026, 4:46:57 AM\nsource: https://www.vhs-bmo.de/programm/sprachen/kategorie/11\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Online-Kurse und Digitale Veranstaltungen (96 Kurse) | https://www.vhs-bmo.de/kursmixer/online-kurse",
+     "Kategorie-Ebene 2: Online-Kurse Sprachen (16 Kurse) | https://www.vhs-bmo.de/kursmixer/online-kurse/kategorie/Online-Kurse+Sprachen/187"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Sprachen (32 Kurse) | https://www.vhs-bmo.de/programm/sprachen"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (32 Kurse) | https://www.vhs-bmo.de/programm/sprachen",
+     "Kategorie-Ebene 2: Englisch (20 Kurse) | https://www.vhs-bmo.de/programm/sprachen/kategorie/Englisch/11"
+    ]
+   ]
+  },
+  {
+   "id": "dor-07",
+   "kunde": "vhs-dortmund",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-einstieg-in-excel-grundlagen-fuer-den-bueroalltag-26-24693d-bb05f247ce4b90f5.txt\npublished: 9/29/2026, 12:02:10 PM\n</document_metadata>\n\nTitel: Einstieg in Excel – Grundlagen für den Büroalltag\nKursnummer: 26-24693D\nKursstatus: Anmeldung möglich\nKursgebühr: 126,00\nBeginn: Fr. 06.11.2026, 18:00 Uhr\nEnde: Fr. 06.11.2026, 21:15 Uhr\nDauer: 3 Termine\nKursort: VHS Bildungscampus West, Raum 20\nBezirk: Dorstfeld\nKategorie: Neu hinzugefügt\nKategoriepfad: Neu hinzugefügt\nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/einstieg-in-excel-grundlagen-fuer-den-bueroalltag/26-24693D\nKategorie-Link: https://vhs.dortmund.de/programm/neu-hinzugefuegt\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-excel-grundkurs-online-26-24681d-ad5e7fcb325c38e5.txt\npublished: 10/5/2026, 1:01:59 PM\n</document_metadata>\n\nTitel: Excel Grundkurs - online\nKursnummer: 26-24681D\nKursstatus: Anmeldung möglich\nKursgebühr: 94,50\nBeginn: Mo. 02.11.2026, 19:00 Uhr\nEnde: Mo. 02.11.2026, 21:30 Uhr\nDauer: 5 Termine\nKursort: vhs.online\nKategorie: Neu hinzugefügt\nKategoriepfad: Neu hinzugefügt\nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/excel-grundkurs-online/26-24681D\nKategorie-Link: https://vhs.dortmund.de/programm/neu-hinzugefuegt\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-bildungsurlaub-fit-fuers-buero-einfuehrung-in-word-und-excel-26-24619d-48c4b589bba78483.txt\npublished: 10/13/2026, 4:02:04 PM\n</document_metadata>\n\nTitel: Bildungsurlaub: Fit fürs Büro - Einführung in Word und Excel\nKursnummer: 26-24619D\nKursstatus: Anmeldung möglich\nKursgebühr: 157,20\nBeginn: Di. 10.11.2026, 09:30 Uhr\nEnde: Di. 10.11.2026, 16:30 Uhr\nDauer: 3 Termine\nKursort: VHS Kampstraße, Raum 1.10\nBezirk: Innenstadt\nKategorie: Neu hinzugefügt\nKategoriepfad: Neu hinzugefügt\nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/bildungsurlaub-fit-fuers-buero-einfuehrung-in-word-und-excel/26-24619D\nKategorie-Link: https://vhs.dortmund.de/programm/neu-hinzugefuegt\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-bildungsurlaub-fit-fuers-buero-einfuehrung-in-word-und-excel-27-24617d-a65ec58d4cb6bc7e.txt\npublished: 9/25/2026, 2:49:04 AM\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [],
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "id": "dor-06",
+   "kunde": "vhs-dortmund",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-was-treibt-sie-an-mit-biografiearbeit-den-naechsten-beruflichen-schritt-finden-26-14411d-da9f2fc9298de191.txt\npublished: 9/25/2026, 2:48:28 AM\n</document_metadata>\n\nTitel: Was treibt Sie an? Mit Biografiearbeit den nächsten beruflichen Schritt finden\nKursnummer: 26-14411D\nKursstatus: Anmeldung möglich\nKursgebühr: 82,80\nBeginn: Mi. 11.11.2026, 17:45 Uhr\nEnde: Mi. 11.11.2026, 20:15 Uhr\nDauer: 4 Termine\nKursort: VHS Kampstraße, Raum E.10\nBezirk: Innenstadt\nKategorie: Neu hinzugefügt\nKategoriepfad: Neu hinzugefügt\nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/was-treibt-sie-an-mit-biografiearbeit-den-naechsten-beruflichen-schritt-finden/26-14411D\nKategorie-Link: https://vhs.dortmund.de/programm/neu-hinzugefuegt\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.dortmund.de_nachhaltig-leben_1-keine-armut-12_sonderkategorie_506.html\npublished: 10/21/2026, 4:50:15 AM\nsource: https://vhs.dortmund.de/nachhaltig-leben/1-keine-armut-12/sonderkategorie/506\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.dortmund.de_programm_beruf-it-vhsdigitallabor_kategorie_465.html\npublished: 10/21/2026, 4:49:49 AM\nsource: https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/465\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-informationsveranstaltung-weiterbildung-zum-coach-online-27-81862-ea6b31bb7f8d0d17.txt\npublished: 9/28/2026, 5:02:05 PM\n</document_metadata>\n\nTitel: Informationsveranstaltung Weiterbildung zum Coach - online\nKursnummer: 27-81862\nKursstatus: Anmeldung möglich\nKursgebühr: 0,00\nBeginn: Di. 26.01.2027, 18:00 Uhr\nEnde: Di. 26.01.2027, 20:00 Uhr\nDauer: 1 Termin\nKursort: vhs.online\nKategorie: Qualifizierungen & zertifizierte Weiterbildungen \nKategoriepfad: Beruf, IT, vhs.Digitallabor \\ Beruf \\ Qualifizierungen & zertifizierte Weiterbildungen \nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/informationsveranstaltung-weiterbildung-zum-coach-online/27-81862\nKategorie-Link: https://vhs.dortmund.de/programm/beruf-it-vhs-digitallabor/beruf\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [],
+    [],
+    [
+     "Kategorie-Ebene 1: Beruf, IT, vhs.Digitallabor (65 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor",
+     "Kategorie-Ebene 2: Beruf (23 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/Beruf/465"
+    ],
+    [
+     "Kategorie-Ebene 1: Beruf, IT, vhs.Digitallabor (65 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor",
+     "Kategorie-Ebene 2: Beruf (23 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/Beruf/465",
+     "Kategorie-Ebene 3: Qualifizierungen & zertifizierte Weiterbildungen (7 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/Qualifizierungen+zertifizierte+Weiterbildungen/466"
+    ]
+   ]
+  },
+  {
+   "id": "dor-11",
+   "kunde": "vhs-dortmund",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-schoene-vielfalt-nachhaltige-wohlfuehlprodukte-aus-heimischen-wildpflanzen-26-55524-2713b5de9e07a6ae.txt\npublished: 10/22/2026, 9:01:51 PM\n</document_metadata>\n\nTitel: Schöne Vielfalt – Nachhaltige Wohlfühlprodukte aus heimischen Wildpflanzen\nKursnummer: 26-55524\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 0,00\nBeginn: So. 25.10.2026, 11:00 Uhr\nEnde: So. 25.10.2026, 13:00 Uhr\nDauer: 1 Termin\nKursort: Treffpunkt - siehe \"Weitere Details/Kursbeschreibung\"\nKategorie: Umwelt\nKategoriepfad: Politik, Gesellschaft, Umwelt, Astrophysik \\ Umwelt\nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/schoene-vielfalt-nachhaltige-wohlfuehlprodukte-aus-heimischen-wildpflanzen/26-55524\nKategorie-Link: https://vhs.dortmund.de/programm/politik-gesellschaft-umwelt-astrophysik/umwelt\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-auszeit-fuer-mich-entspannungswochenende-in-der-benediktinerabtei-gerleve-27-83040d-47092141b84b89d8.txt\npublished: 9/25/2026, 2:48:58 AM\n</document_metadata>\n\nTitel: Auszeit für mich - Entspannungswochenende in der Benediktinerabtei Gerleve\nKursnummer: 27-83040D\nKursstatus: Anmeldung möglich\nKursgebühr: 344,00\nBeginn: Fr. 08.01.2027, 17:00 Uhr\nEnde: Fr. 08.01.2027, 13:00 Uhr\nDauer: 3 Termine\nKursort: Treffpunkt - siehe \"Weitere Details/Kursbeschreibung\"\nKategorie: Neu hinzugefügt\nKategoriepfad: Neu hinzugefügt\nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/auszeit-fuer-mich-entspannungswochenende-in-der-benediktinerabtei-gerleve/27-83040D\nKategorie-Link: https://vhs.dortmund.de/programm/neu-hinzugefuegt\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-wanderung-naturschutzgebiete-26-85925d-4d657012ced65eb1.txt\npublished: 9/25/2026, 2:48:57 AM\n</document_metadata>\n\nTitel: Wanderung: Naturschutzgebiete\nKursnummer: 26-85925D\nKursstatus: Anmeldung möglich\nKursgebühr: 12,00\nBeginn: So. 20.12.2026, 11:15 Uhr\nEnde: So. 20.12.2026, 15:45 Uhr\nDauer: 1 Termin\nKursort: Treffpunkt - siehe \"Weitere Details/Kursbeschreibung\"\nKategorie: Outdoor\nKategoriepfad: Gesundheit und Bewegung \\ Outdoor\nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/wanderung-naturschutzgebiete/26-85925D\nKategorie-Link: https://vhs.dortmund.de/programm/gesundheit-und-bewegung/outdoor\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-nordic-walking-zum-kennenlernen-26-85905d-741f5f0d072cbbb2.txt\npublished: 10/22/2026, 4:01:50 PM\n</document_metadata>\n\nTitel: Nordic Walking zum Kennenlernen\nKursnummer: 26-85905D\nKursstatus: Anmeldung möglich\nKursgebühr: 18,00\nBeginn: Mi. 21.10.2026, 18:00 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Mi. 21.10.2026, 19:30 Uhr\nDauer: 2 Termine\nKursort: Treffpunkt - siehe \"Weitere Details/Kursbeschreibung\"\nBezirk: Hombruch\nKategorie: Gymnastik, Fitness und Körperschulung\nKategoriepfad: Gesundheit und Bewegung \\ Gymnastik, Fitness und Körperschulung\nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/nordic-walking-zum-kennenlernen/26-85905D\nKategorie-Link: https://vhs.dortmund.de/programm/gesundheit-und-bewegung/gymnastik-fitness-und-koerperschulung\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Politik, Gesellschaft, Umwelt, Astrophysik (80 Kurse) | https://vhs.dortmund.de/programm/politik-gesellschaft-oekologie/kategorie/Politik+Gesellschaft+Umwelt+Astrophysik/45",
+     "Kategorie-Ebene 2: Umwelt (18 Kurse) | https://vhs.dortmund.de/programm/politik-gesellschaft-oekologie/kategorie/Umwelt/46"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Gesundheit und Bewegung (172 Kurse) | https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung",
+     "Kategorie-Ebene 2: Outdoor (4 Kurse) | https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung/kategorie/Outdoor/289"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit und Bewegung (172 Kurse) | https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung",
+     "Kategorie-Ebene 2: Gymnastik, Fitness und Körperschulung (12 Kurse) | https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung/kategorie/Gymnastik+Fitness+und+Koerperschulung/74"
+    ]
+   ]
+  },
+  {
+   "id": "dor-01",
+   "kunde": "vhs-dortmund",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs.dortmund.de_programm_gesundheit-ernaehrung-bewegung.html\npublished: 10/22/2026, 8:02:18 PM\nsource: https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.dortmund.de_programm_gesundheit-ernaehrung-bewegung_kategorie_302.html\npublished: 10/21/2026, 12:01:54 PM\nsource: https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung/kategorie/302\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.dortmund.de_programm_gesundheit-ernaehrung-bewegung_kategorie_21.html\npublished: 10/22/2026, 8:02:22 PM\nsource: https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung/kategorie/21\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.dortmund.de_nachhaltig-leben_1-keine-armut-18.html\npublished: 10/21/2026, 4:49:35 AM\nsource: https://vhs.dortmund.de/nachhaltig-leben/1-keine-armut-18\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Gesundheit und Bewegung (172 Kurse) | https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit und Bewegung (172 Kurse) | https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung",
+     "Kategorie-Ebene 2: Medizinische Fragen (7 Kurse) | https://vhs.dortmund.de/programm/gesundheit-ernaehrung-bewegung/kategorie/Medizinische+Fragen/302"
+    ],
+    [],
+    []
+   ]
+  },
+  {
+   "id": "dor-10",
+   "kunde": "vhs-dortmund",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-steuerwissen-etfs-aktien-26-14117d-3d1d21298b08fb67.txt\npublished: 10/15/2026, 2:02:04 PM\n</document_metadata>\n\nTitel: Steuerwissen: ETFs & Aktien\nKursnummer: 26-14117D\nKursstatus: fast ausgebucht\nKursgebühr: 8,00\nBeginn: Sa. 05.12.2026, 12:00 Uhr\nEnde: Sa. 05.12.2026, 13:30 Uhr\nDauer: 1 Termin\nKursort: VHS Kampstraße, 2.242 Besprechungsraum VHS\nBezirk: Innenstadt\nKategorie: Wirtschaft & Praxiswissen\nKategoriepfad: Beruf, IT, vhs.Digitallabor \\ Beruf \\ Wirtschaft & Praxiswissen\nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/steuerwissen-etfs-aktien/26-14117D\nKategorie-Link: https://vhs.dortmund.de/programm/beruf-it-vhs-digitallabor/beruf\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.dortmund.de_ueber-uns_unsere-dozenten_dozent_Bittner_12596.html\npublished: 9/10/2026, 2:40:05 AM\nsource: https://vhs.dortmund.de/ueber-uns/unsere-dozenten/dozent/Bittner/12596\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-dortmund-de-kurssuche-kurs-steuern-verstehen-und-sparen-einfuehrung-in-das-deutsche-steuersystem-26-51572-a928432854ce6c9d.txt\npublished: 9/25/2026, 2:48:46 AM\n</document_metadata>\n\nTitel: Steuern verstehen und sparen – Einführung in das deutsche Steuersystem\nKursnummer: 26-51572\nKursstatus: Anmeldung möglich\nKursgebühr: 8,00\nBeginn: Di. 01.12.2026, 19:30 Uhr\nEnde: Di. 01.12.2026, 21:45 Uhr\nDauer: 1 Termin\nKursort: VHS Kampstraße, Raum E.09\nBezirk: Innenstadt\nKategorie: Politik\nKategoriepfad: Politik, Gesellschaft, Umwelt, Astrophysik \\ Politik\nKurs-Link: https://vhs.dortmund.de/kurssuche/kurs/steuern-verstehen-und-sparen-einfuehrung-in-das-deutsche-steuersystem/26-51572\nKategorie-Link: https://vhs.dortmund.de/programm/politik-gesellschaft-umwelt-astrophysik/politik\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.dortmund.de_programm_beruf-it-vhsdigitallabor_kategorie_275.html\npublished: 10/15/2026, 4:41:13 AM\nsource: https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/275\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Beruf, IT, vhs.Digitallabor (65 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor",
+     "Kategorie-Ebene 2: Beruf (23 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/Beruf/465",
+     "Kategorie-Ebene 3: Wirtschaft & Praxiswissen (3 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/Wirtschaft+Praxiswissen/275"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Politik, Gesellschaft, Umwelt, Astrophysik (80 Kurse) | https://vhs.dortmund.de/programm/politik-gesellschaft-oekologie/kategorie/Politik+Gesellschaft+Umwelt+Astrophysik/45",
+     "Kategorie-Ebene 2: Politik (22 Kurse) | https://vhs.dortmund.de/programm/politik-gesellschaft-oekologie/kategorie/Politik/50"
+    ],
+    [
+     "Kategorie-Ebene 1: Beruf, IT, vhs.Digitallabor (65 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor",
+     "Kategorie-Ebene 2: Beruf (23 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/Beruf/465",
+     "Kategorie-Ebene 3: Wirtschaft & Praxiswissen (3 Kurse) | https://vhs.dortmund.de/programm/beruf-it-vhsdigitallabor/kategorie/Wirtschaft+Praxiswissen/275"
+    ]
+   ]
+  },
+  {
+   "id": "due-15",
+   "kunde": "vhs-duesseldorf",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-duesseldorf-de-kurssuche-kurs-italienisch-a1-3-i503311-0e6ef7191eb5d52f.txt\npublished: 9/25/2026, 2:38:27 AM\n</document_metadata>\n\nTitel: Italienisch A1.3\nKursnummer: I503311\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 102,00\nBeginn: Di. 08.09.2026, 18:35 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Di. 08.09.2026, 20:05 Uhr\nDauer: 9 Termine\nKursort: Görres-Gymnasium, Königsallee 57, Stadtmitte, Raum 224\nBezirk: Allgemeine Weiterbildung\nKategorie: Stufe A1.3\nKategoriepfad: Sprachen \\ Italienisch \\ Sprachkurse von A1 bis B2 \\ Stufe A1 \\ Stufe A1.3\nKurs-Link: https://vhs.duesseldorf.de/kurssuche/kurs/italienisch-a1-3/I503311\nKategorie-Link: https://vhs.duesseldorf.de/programm/sprachen/italienisch\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-duesseldorf-de-kurssuche-kurs-italienisch-a1-3-i503312-8db39cdf837e2e2e.txt\npublished: 9/25/2026, 2:38:27 AM\n</document_metadata>\n\nTitel: Italienisch A1.3\nKursnummer: I503312\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 136,00\nBeginn: Di. 15.09.2026, 17:00 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Di. 15.09.2026, 18:30 Uhr\nDauer: 10 Termine\nKursort: Humboldt-Gymnasium, Adlerstr. 15, Pempelfort, Raum 307\nBezirk: Allgemeine Weiterbildung\nKategorie: Stufe A1.3\nKategoriepfad: Sprachen \\ Italienisch \\ Sprachkurse von A1 bis B2 \\ Stufe A1 \\ Stufe A1.3\nKurs-Link: https://vhs.duesseldorf.de/kurssuche/kurs/italienisch-a1-3/I503312\nKategorie-Link: https://vhs.duesseldorf.de/programm/sprachen/italienisch\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_italienisch_sprachkurse-von-a1-bis-b1_b2_kategorie_1952.html\npublished: 10/9/2026, 6:24:59 PM\nsource: https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/1952\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_italienisch_sprachkurse-von-a1-bis-b1_b2_kategorie_Stufe+B1_1952.html\npublished: 6/29/2026, 1:12:41 PM\nsource: https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+B1/1952\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_italienisch_sprachkurse-von-a1-bis-b1_b2_kategorie_1944.html\npublished: 10/17/2026, 4:35:31 AM\nsource: https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/1944\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_italienisch_sprachkurse-von-a1-bis-b1_b2_kategorie_Stufe+A2_1948.html\npublished: 6/29/2026, 1:12:42 PM\nsource: https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A2/1948\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_italienisch_sprachkurse-von-a1-bis-b1_b2.html\npublished: 10/9/2026, 4:30:56 AM\nsource: https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_italienisch_sprachkurse-von-a1-bis-b1_b2_kategorie_1948.html\npublished: 10/9/2026, 6:25:00 PM\nsource: https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/1948\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Italienisch (35 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch",
+     "Kategorie-Ebene 3: Sprachkurse von A1 bis B2 (30 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2",
+     "Kategorie-Ebene 4: Stufe A1 (12 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A1/1944",
+     "Kategorie-Ebene 5: Stufe A1.3 (6 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A13/1947"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Italienisch (35 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch",
+     "Kategorie-Ebene 3: Sprachkurse von A1 bis B2 (30 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2",
+     "Kategorie-Ebene 4: Stufe A1 (12 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A1/1944",
+     "Kategorie-Ebene 5: Stufe A1.3 (6 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A13/1947"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Italienisch (35 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch",
+     "Kategorie-Ebene 3: Sprachkurse von A1 bis B2 (30 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2",
+     "Kategorie-Ebene 4: Stufe B1 (6 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+B1/1952"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Italienisch (35 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch",
+     "Kategorie-Ebene 3: Sprachkurse von A1 bis B2 (30 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2",
+     "Kategorie-Ebene 4: Stufe B1 (6 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+B1/1952"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Italienisch (35 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch",
+     "Kategorie-Ebene 3: Sprachkurse von A1 bis B2 (30 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2",
+     "Kategorie-Ebene 4: Stufe A1 (12 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A1/1944"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Italienisch (35 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch",
+     "Kategorie-Ebene 3: Sprachkurse von A1 bis B2 (30 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2",
+     "Kategorie-Ebene 4: Stufe A2 (7 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A2/1948"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Italienisch (35 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch",
+     "Kategorie-Ebene 3: Sprachkurse von A1 bis B2 (30 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Italienisch (35 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch",
+     "Kategorie-Ebene 3: Sprachkurse von A1 bis B2 (30 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2",
+     "Kategorie-Ebene 4: Stufe A2 (7 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/italienisch/sprachkurse-von-a1-bis-b1/b2/kategorie/Stufe+A2/1948"
+    ]
+   ]
+  },
+  {
+   "id": "due-14",
+   "kunde": "vhs-duesseldorf",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_gesundheit_tanz_kategorie_Verschiedene+Tanzformen_606.html\npublished: 5/23/2026, 6:10:27 PM\nsource: https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Verschiedene+Tanzformen/606\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_gesundheit_tanz_kategorie_606.html\npublished: 10/11/2026, 4:37:02 AM\nsource: https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/606\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_gesundheit_tanz.html\npublished: 10/11/2026, 4:36:39 AM\nsource: https://vhs.duesseldorf.de/programm/gesundheit/tanz\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_gesundheit_tanz_kategorie_1432.html\npublished: 10/11/2026, 4:36:47 AM\nsource: https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/1432\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_gesundheit_tanz.html\npublished: 10/11/2026, 4:36:39 AM\nsource: https://vhs.duesseldorf.de/programm/gesundheit/tanz\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-duesseldorf-de-kurssuche-kurs-schwungvoll-ab-60-fit-bleiben-durch-rhythmus-bewegung-und-tanz-fuer-die-generation-60-plus-i851550-dea0455b763a92fc.txt\npublished: 9/25/2026, 2:39:23 AM\n</document_metadata>\n\nTitel: Schwungvoll ab 60 - Fit bleiben durch Rhythmus, Bewegung und Tanz für die Generation 60 plus\nKursnummer: I851550\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 100,00\nBeginn: Do. 17.09.2026, 11:00 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Do. 17.09.2026, 12:30 Uhr\nDauer: 10 Termine\nKursort: vhs, Haus V, Yorckstr. 23, Derendorf, Raum V.1.24\nKategorie: Tanzen lernen - Von Standard bis Swing\nKategoriepfad: Gesundheit, Bewegung, Psychologie \\ Tanz und Rhythmus \\ Verschiedene Tanzformen \\ Tanzen lernen - Von Standard bis Swing\nKurs-Link: https://vhs.duesseldorf.de/kurssuche/kurs/schwungvoll-ab-60-fit-bleiben-durch-rhythmus-bewegung-und-tanz-fuer-die-generation-60-plus/I851550\nKategorie-Link: https://vhs.duesseldorf.de/programm/gesundheit-bewegung-psychologie/tanz-und-rhythmus\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_gesundheit_tanz_kategorie_604.html\npublished: 10/9/2026, 6:21:27 PM\nsource: https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/604\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-duesseldorf-de-kurssuche-kurs-seminar-dein-einstieg-in-den-schleiertanz-elegant-fliessend-wirkungsvoll-i855080-9242d852433ec725.txt\npublished: 9/25/2026, 2:39:24 AM\n</document_metadata>\n\nTitel: (Seminar) Dein Einstieg in den Schleiertanz – elegant, fließend, wirkungsvoll\nKursnummer: I855080\nKursstatus: Anmeldung möglich\nKursgebühr: 24,00\nBeginn: So. 15.11.2026, 12:00 Uhr\nEnde: So. 15.11.2026, 15:00 Uhr\nDauer: 1 Termin\nKursort: vhs, Haus V, Yorckstr. 23, Derendorf, Raum V.1.24\nBezirk: Stadtbezirk 03\nKategorie: Tänzerische Gymnastik und Ballett\nKategoriepfad: Gesundheit, Bewegung, Psychologie \\ Tanz und Rhythmus \\ Verschiedene Tanzformen \\ Tänzerische Gymnastik und Ballett\nKurs-Link: https://vhs.duesseldorf.de/kurssuche/kurs/seminar-dein-einstieg-in-den-schleiertanz-elegant-fliessend-wirkungsvoll/I855080\nKategorie-Link: https://vhs.duesseldorf.de/programm/gesundheit-bewegung-psychologie/tanz-und-rhythmus\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Psychologie (140 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit",
+     "Kategorie-Ebene 2: Tanz und Rhythmus (23 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz",
+     "Kategorie-Ebene 3: Verschiedene Tanzformen (16 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Verschiedene+Tanzformen/606"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Psychologie (140 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit",
+     "Kategorie-Ebene 2: Tanz und Rhythmus (23 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz",
+     "Kategorie-Ebene 3: Verschiedene Tanzformen (16 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Verschiedene+Tanzformen/606"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Psychologie (140 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit",
+     "Kategorie-Ebene 2: Tanz und Rhythmus (23 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Psychologie (140 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit",
+     "Kategorie-Ebene 2: Tanz und Rhythmus (23 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Psychologie (140 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit",
+     "Kategorie-Ebene 2: Tanz und Rhythmus (23 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz",
+     "Kategorie-Ebene 3: Verschiedene Tanzformen (16 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Verschiedene+Tanzformen/606",
+     "Kategorie-Ebene 4: Tanzen lernen - Von Standard bis Swing (1 Kurs) | https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Tanzen+lernen+-+Von+Standard+bis+Swing/721"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Psychologie (140 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit",
+     "Kategorie-Ebene 2: Tanz und Rhythmus (23 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz",
+     "Kategorie-Ebene 3: Verschiedene Tanzformen (16 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Verschiedene+Tanzformen/606",
+     "Kategorie-Ebene 4: Tänzerische Gymnastik und Ballett (8 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Taenzerische+Gymnastik+und+Ballett/604"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Psychologie (140 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit",
+     "Kategorie-Ebene 2: Tanz und Rhythmus (23 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz",
+     "Kategorie-Ebene 3: Verschiedene Tanzformen (16 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Verschiedene+Tanzformen/606",
+     "Kategorie-Ebene 4: Tänzerische Gymnastik und Ballett (8 Kurse) | https://vhs.duesseldorf.de/programm/gesundheit/tanz/kategorie/Taenzerische+Gymnastik+und+Ballett/604"
+    ]
+   ]
+  },
+  {
+   "id": "due-01",
+   "kunde": "vhs-duesseldorf",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen.html\npublished: 10/9/2026, 4:30:09 AM\nsource: https://vhs.duesseldorf.de/programm/sprachen\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_kategorie_1229.html\npublished: 10/9/2026, 4:33:04 AM\nsource: https://vhs.duesseldorf.de/programm/sprachen/kategorie/1229\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_kategorie_1537.html\npublished: 10/9/2026, 4:33:30 AM\nsource: https://vhs.duesseldorf.de/programm/sprachen/kategorie/1537\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_kategorie_1536.html\npublished: 10/9/2026, 4:34:29 AM\nsource: https://vhs.duesseldorf.de/programm/sprachen/kategorie/1536\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_kategorie_1535.html\npublished: 10/9/2026, 4:35:28 AM\nsource: https://vhs.duesseldorf.de/programm/sprachen/kategorie/1535\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_kurssuche.html\npublished: 10/21/2026, 4:46:14 AM\nsource: https://vhs.duesseldorf.de/kurssuche\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_sprachen_kategorie_1453.html\npublished: 10/9/2026, 4:34:49 AM\nsource: https://vhs.duesseldorf.de/programm/sprachen/kategorie/1453\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs.duesseldorf.de_programm_deutsch-und-integration.html\npublished: 10/9/2026, 4:30:11 AM\nsource: https://vhs.duesseldorf.de/programm/deutsch-und-integration\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Persisch (1 Kurs) | https://vhs.duesseldorf.de/programm/sprachen/kategorie/Persisch/1537"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Hebräisch (5 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/kategorie/Hebraeisch/1536"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (417 Kurse) | https://vhs.duesseldorf.de/programm/sprachen",
+     "Kategorie-Ebene 2: Arabisch (10 Kurse) | https://vhs.duesseldorf.de/programm/sprachen/kategorie/Arabisch/1535"
+    ],
+    [],
+    [],
+    [
+     "Kategorie-Ebene 1: Deutsch und Integration (44 Kurse) | https://vhs.duesseldorf.de/programm/deutsch-und-integration"
+    ]
+   ]
+  },
+  {
+   "id": "koe-02",
+   "kunde": "vhs-koeln",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: koelner-vhs.de_kurse_sprachen_integrationskurse.html\npublished: 10/22/2026, 5:16:08 PM\nsource: https://www.koelner-vhs.de/kurse/sprachen/integrationskurse\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: koelner-vhs.de_kurse_sprachen_kategorie_69.html\npublished: 10/22/2026, 1:17:49 PM\nsource: https://www.koelner-vhs.de/kurse/sprachen/kategorie/69\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: koelner-vhs.de_kurse_sprachen_spanisch_kategorie_120.html\npublished: 10/22/2026, 1:17:44 PM\nsource: https://www.koelner-vhs.de/kurse/sprachen/spanisch/kategorie/120\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: koelner-vhs.de_kurse_sprachen_niederlaendisch.html\npublished: 10/22/2026, 3:17:00 PM\nsource: https://www.koelner-vhs.de/kurse/sprachen/niederlaendisch\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [],
+    [
+     "Kategorie-Ebene 1: Sprachen (606 Kurse) | https://www.koelner-vhs.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Deutsch (32 Kurse) | https://www.koelner-vhs.de/kurse/sprachen/kategorie/Deutsch/69"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Sprachen (606 Kurse) | https://www.koelner-vhs.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Niederländisch (25 Kurse) | https://www.koelner-vhs.de/kurse/sprachen/niederlaendisch"
+    ]
+   ]
+  },
+  {
+   "id": "koe-11",
+   "kunde": "vhs-koeln",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: koelner-vhs.de_politik-gesellschaft_geschichte_kategorie_47.html\npublished: 10/19/2026, 4:49:52 AM\nsource: https://www.koelner-vhs.de/politik-gesellschaft/geschichte/kategorie/47\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: koelner-vhs.de_politik-gesellschaft_geschichte.html\npublished: 10/19/2026, 4:48:16 AM\nsource: https://www.koelner-vhs.de/politik-gesellschaft/geschichte\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: koelner-vhs.de_ueber-uns_lehrkraefte_dozent_27824.html\npublished: 9/28/2026, 4:47:19 AM\nsource: https://www.koelner-vhs.de/ueber-uns/lehrkraefte/dozent/27824\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: koelner-vhs.de_ueber-uns_geschichte.html\npublished: 10/17/2026, 4:48:58 AM\nsource: https://www.koelner-vhs.de/ueber-uns/geschichte\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [],
+    [
+     "Kategorie-Ebene 1: Politik und Gesellschaft (81 Kurse) | https://www.koelner-vhs.de/politik-gesellschaft",
+     "Kategorie-Ebene 2: Geschichte (11 Kurse) | https://www.koelner-vhs.de/politik-gesellschaft/geschichte"
+    ],
+    [],
+    []
+   ]
+  },
+  {
+   "id": "lin-10",
+   "kunde": "vhs-lingen",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-lingen-de-programm-kurssuche-kurs-einzel-und-firmenschulungen-fremdsprachen-auf-bestellung-2026h78997-077d5af4b8584d84.txt\npublished: 10/22/2026, 4:42:55 AM\n</document_metadata>\n\nTitel: Einzel- und Firmenschulungen Fremdsprachen  auf Bestellung\nKursnummer: 2026H78997\nKursstatus: fast ausgebucht\nKursgebühr: 0,00\nBeginn: 2026-08-31 :00\nEnde: 2026-08-31 :00\nKursort: Bildungszentrum Gebrüder-Grimm, U-Raum\nKategorie: Einzel- und Firmenschulung\nKategoriepfad: Sprachen \\ Sprachen auf Bestellung \\ Einzel- und Firmenschulung\nKurs-Link: https://www.vhs-lingen.de/programm/kurssuche/kurs/einzel-und-firmenschulungen-fremdsprachen-auf-bestellung/2026H78997\nKategorie-Link-Titel: Sprachen auf Bestellung · Einzel- und Firmenschulung\nKategorie-Link: https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch/kategorie/Einzel-+und+Firmenschulung/302\nBereich-Link-Titel: Sprachen\nBereich-Link: https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-lingen.de_programm_business_sprachen.html\npublished: 6/1/2026, 10:04:22 AM\nsource: https://www.vhs-lingen.de/programm/business/sprachen\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-lingen-de-programm-kurssuche-kurs-sprachen-lernen-mit-ki-sprachkompetenz-fuer-den-beruf-gezielt-entwickeln-2027f66520-97851b96c50eadbf.txt\npublished: 10/22/2026, 4:43:33 AM\n</document_metadata>\n\nTitel: Sprachen lernen mit KI  Sprachkompetenz für den Beruf gezielt entwickeln\nKursnummer: 2027F66520\nKursstatus: Anmeldung möglich\nKursgebühr: 22,00\nBeginn: Di. 08.06.2027, 09:00 Uhr\nEnde: Di. 08.06.2027, 10:00 Uhr\nDauer: 1 Termin\nKursort: Online-Kurs\nKategorie: KI\nKategoriepfad: Beruf, IT und Software \\ IT und Software \\ KI\nKurs-Link: https://www.vhs-lingen.de/programm/kurssuche/kurs/sprachen-lernen-mit-ki-sprachkompetenz-fuer-den-beruf-gezielt-entwickeln/2027F66520\nKategorie-Link-Titel: IT und Software · KI\nKategorie-Link: https://www.vhs-lingen.de/programm/beruf-it/kategorie/KI/381\nBereich-Link-Titel: Beruf, IT und Software\nBereich-Link: https://www.vhs-lingen.de/programm/beruf-it/kategorie/Beruf+IT+und+Software/135\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-lingen.de_programm_sprachen-fremdsprache-deutsch_kategorie_386.html\npublished: 10/13/2026, 11:24:24 AM\nsource: https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch/kategorie/386\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Sprachen (79 Kurse) | https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch",
+     "Kategorie-Ebene 2: Sprachen auf Bestellung (2 Kurse) | https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch/kategorie/Sprachen+auf+Bestellung/386",
+     "Kategorie-Ebene 3: Einzel- und Firmenschulung (1 Kurs) | https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch/kategorie/Einzel-+und+Firmenschulung/302"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Beruf, IT und Software (140 Kurse) | https://www.vhs-lingen.de/programm/beruf-it/kategorie/Beruf+IT+und+Software/135",
+     "Kategorie-Ebene 2: IT und Software (75 Kurse) | https://www.vhs-lingen.de/programm/beruf-it/kategorie/IT+und+Software/137",
+     "Kategorie-Ebene 3: KI (44 Kurse) | https://www.vhs-lingen.de/programm/beruf-it/kategorie/KI/381"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (79 Kurse) | https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch",
+     "Kategorie-Ebene 2: Sprachen auf Bestellung (2 Kurse) | https://www.vhs-lingen.de/programm/sprachen-fremdsprache-deutsch/kategorie/Sprachen+auf+Bestellung/386"
+    ]
+   ]
+  },
+  {
+   "id": "lin-28",
+   "kunde": "vhs-lingen",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-lingen.de_programm_kultur-kunst_kategorie_172.html\npublished: 10/21/2026, 1:17:54 PM\nsource: https://www.vhs-lingen.de/programm/kultur-kunst/kategorie/172\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-lingen-de-programm-kurssuche-kurs-gitarre-fuer-anfaenger-und-anfaengerinnen-2026h85010-a768e22c6205f220.txt\npublished: 10/22/2026, 4:43:00 AM\n</document_metadata>\n\nTitel: Gitarre für Anfänger und Anfängerinnen\nKursnummer: 2026H85010\nKursstatus: Anmeldung möglich\nKursgebühr: 58,00\nBeginn: Mi. 09.09.2026, 18:00 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Mi. 09.09.2026, 19:00 Uhr\nDauer: 10 Termine\nKursort: Bildungszentrum Gebrüder-Grimm, EG11\nKategorie: Musik\nKategoriepfad: Kultur, Kunst \\ Musik\nKurs-Link: https://www.vhs-lingen.de/programm/kurssuche/kurs/gitarre-fuer-anfaenger-und-anfaengerinnen/2026H85010\nKategorie-Link-Titel: Musik\nKategorie-Link: https://www.vhs-lingen.de/programm/kultur-kunst/kategorie/Musik/172\nBereich-Link-Titel: Kultur, Kunst\nBereich-Link: https://www.vhs-lingen.de/programm/kultur-kunst\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-lingen-de-programm-kurssuche-kurs-mitmach-chor-der-vhs-ich-kann-eigentlich-nicht-singen-2026h85002-ccd2acb65865788c.txt\npublished: 10/22/2026, 4:42:59 AM\n</document_metadata>\n\nTitel: Mitmach-Chor der VHS  Ich kann eigentlich nicht singen\nKursnummer: 2026H85002\nKursstatus: Anmeldung möglich\nKursgebühr: 80,00\nBeginn: Fr. 04.09.2026, 18:00 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Fr. 04.09.2026, 19:15 Uhr\nDauer: 17 Termine\nKursort: Calvinhaus Lingen, Saal\nKategorie: Musik\nKategoriepfad: Kultur, Kunst \\ Musik\nKurs-Link: https://www.vhs-lingen.de/programm/kurssuche/kurs/mitmach-chor-der-vhs-ich-kann-eigentlich-nicht-singen/2026H85002\nKategorie-Link-Titel: Musik\nKategorie-Link: https://www.vhs-lingen.de/programm/kultur-kunst/kategorie/Musik/172\nBereich-Link-Titel: Kultur, Kunst\nBereich-Link: https://www.vhs-lingen.de/programm/kultur-kunst\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-lingen-de-programm-kurssuche-kurs-gitarre-fortgeschrittene-i-2026h85020-c1a5b211d166597f.txt\npublished: 10/22/2026, 4:43:01 AM\n</document_metadata>\n\nTitel: Gitarre Fortgeschrittene I\nKursnummer: 2026H85020\nKursstatus: Anmeldung möglich\nKursgebühr: 58,00\nBeginn: Mi. 09.09.2026, 19:10 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Mi. 09.09.2026, 20:10 Uhr\nDauer: 10 Termine\nKursort: Bildungszentrum Gebrüder-Grimm, EG11\nKategorie: Musik\nKategoriepfad: Kultur, Kunst \\ Musik\nKurs-Link: https://www.vhs-lingen.de/programm/kurssuche/kurs/gitarre-fortgeschrittene-i/2026H85020\nKategorie-Link-Titel: Musik\nKategorie-Link: https://www.vhs-lingen.de/programm/kultur-kunst/kategorie/Musik/172\nBereich-Link-Titel: Kultur, Kunst\nBereich-Link: https://www.vhs-lingen.de/programm/kultur-kunst\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Kultur, Kunst (41 Kurse) | https://www.vhs-lingen.de/programm/kultur-kunst",
+     "Kategorie-Ebene 2: Musik (5 Kurse) | https://www.vhs-lingen.de/programm/kultur-kunst/kategorie/Musik/172"
+    ],
+    [
+     "Kategorie-Ebene 1: Kultur, Kunst (41 Kurse) | https://www.vhs-lingen.de/programm/kultur-kunst",
+     "Kategorie-Ebene 2: Musik (5 Kurse) | https://www.vhs-lingen.de/programm/kultur-kunst/kategorie/Musik/172"
+    ],
+    [
+     "Kategorie-Ebene 1: Kultur, Kunst (41 Kurse) | https://www.vhs-lingen.de/programm/kultur-kunst",
+     "Kategorie-Ebene 2: Musik (5 Kurse) | https://www.vhs-lingen.de/programm/kultur-kunst/kategorie/Musik/172"
+    ],
+    [
+     "Kategorie-Ebene 1: Kultur, Kunst (41 Kurse) | https://www.vhs-lingen.de/programm/kultur-kunst",
+     "Kategorie-Ebene 2: Musik (5 Kurse) | https://www.vhs-lingen.de/programm/kultur-kunst/kategorie/Musik/172"
+    ]
+   ]
+  },
+  {
+   "id": "lin-25",
+   "kunde": "vhs-lingen",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-lingen-de-programm-kurssuche-kurs-vorbereitung-auf-die-realschulpruefung-2026-2027-tageslehrgang-2026h01025-cfe663023552ea3e.txt\npublished: 10/22/2026, 4:43:00 AM\n</document_metadata>\n\nTitel: Vorbereitung auf die Realschulprüfung 2026/2027  Tageslehrgang\nKursnummer: 2026H01025\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 0,00\nBeginn: Mo. 07.09.2026, 08:00 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Mo. 07.09.2026, 13:00 Uhr\nDauer: 10 Monate\nKursort: Bildungszentrum Gebrüder-Grimm, EG08\nKategorie: Schulabschlüsse\nKategoriepfad: Grundbildung, Schulabschlüsse \\ Schulabschlüsse\nKurs-Link: https://www.vhs-lingen.de/programm/kurssuche/kurs/vorbereitung-auf-die-realschulpruefung-2026-2027-tageslehrgang/2026H01025\nKategorie-Link-Titel: Schulabschlüsse\nKategorie-Link: https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse/kategorie/Schulabschluesse/71\nBereich-Link-Titel: Grundbildung, Schulabschlüsse\nBereich-Link: https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-lingen-de-programm-kurssuche-kurs-vorbereitung-auf-die-hauptschulpruefung-2026-2027-2026h01020-0dc739602e58c27e.txt\npublished: 10/22/2026, 4:43:01 AM\n</document_metadata>\n\nTitel: Vorbereitung auf die Hauptschulprüfung 2026/2027\nKursnummer: 2026H01020\nKursstatus: Plätze frei\nKursgebühr: 0,00\nBeginn: Mo. 21.09.2026, 08:00 Uhr — Bereits gestartet, Einstieg möglich\nEnde: Mo. 21.09.2026, 13:00 Uhr\nDauer: 9 Monate\nKursort: Bildungszentrum Gebrüder-Grimm, EG10\nKategorie: Schulabschlüsse\nKategoriepfad: Grundbildung, Schulabschlüsse \\ Schulabschlüsse\nKurs-Link: https://www.vhs-lingen.de/programm/kurssuche/kurs/vorbereitung-auf-die-hauptschulpruefung-2026-2027/2026H01020\nKategorie-Link-Titel: Schulabschlüsse\nKategorie-Link: https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse/kategorie/Schulabschluesse/71\nBereich-Link-Titel: Grundbildung, Schulabschlüsse\nBereich-Link: https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-lingen.de_infoservice_downloads_grundbildung-schulabschluesse.html\npublished: 6/2/2026, 1:28:57 AM\nsource: https://www.vhs-lingen.de/infoservice/downloads/grundbildung-schulabschluesse\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-lingen.de_programm_grundbildung-schulabschluesse_kategorie_71.html\npublished: 10/13/2026, 1:23:43 PM\nsource: https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse/kategorie/71\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Grundbildung, Schulabschlüsse (3 Kurse) | https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse",
+     "Kategorie-Ebene 2: Schulabschlüsse (2 Kurse) | https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse/kategorie/Schulabschluesse/71"
+    ],
+    [
+     "Kategorie-Ebene 1: Grundbildung, Schulabschlüsse (3 Kurse) | https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse",
+     "Kategorie-Ebene 2: Schulabschlüsse (2 Kurse) | https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse/kategorie/Schulabschluesse/71"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Grundbildung, Schulabschlüsse (3 Kurse) | https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse",
+     "Kategorie-Ebene 2: Schulabschlüsse (2 Kurse) | https://www.vhs-lingen.de/programm/grundbildung-schulabschluesse/kategorie/Schulabschluesse/71"
+    ]
+   ]
+  },
+  {
+   "id": "mai-01",
+   "kunde": "vhs-mainz",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-mainz-de-kursdetails-kurs-anders-bewegen-bewusster-handeln-alexander-technik-im-alltag-xi82101-896ddf42423e10b8.txt\npublished: 9/25/2026, 2:25:04 AM\n</document_metadata>\n\nTitel: Anders bewegen, bewusster handeln – Alexander-Technik im Alltag\nKursnummer: XI82101\nKursstatus: Anmeldung möglich\nKursgebühr: 84,00\nBeginn: Do. 04.03.2027, 18:00 Uhr\nEnde: Do. 04.03.2027, 19:30 Uhr\nDauer: 5 Termine\nKursort: Innenstadt; vhs-Haus; C; 2.09; Entspannung\nKategorie: Seminare, Vorträge\nKategoriepfad: Gesundheit, Bewegung, Lebensstil \\ Entspannung, Bewegung, Gesundheitsvorsorge \\ Forum für Gesundheit \\ Seminare, Vorträge\nKurs-Link: https://www.vhs-mainz.de/kursdetails/kurs/anders-bewegen-bewusster-handeln-alexander-technik-im-alltag/XI82101\nKategorie-Link: https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-mainz-de-kursdetails-kurs-fitness-mix-onlinekurs-xi86417-4b81b9c40455a829.txt\npublished: 9/25/2026, 2:24:18 AM\n</document_metadata>\n\nTitel: Fitness-Mix - Onlinekurs\nKursnummer: XI86417\nKursstatus: Anmeldung möglich\nKursgebühr: 43,00\nBeginn: Mi. 13.01.2027, 17:30 Uhr\nEnde: Mi. 13.01.2027, 18:30 Uhr\nDauer: 5 Termine\nKursort: Online; Zoom; Abt. 5; Raum 04\nKategorie: Online-Kurse Gesundheit und Fitness\nKategoriepfad: Gesundheit, Bewegung, Lebensstil \\ Online-Kurse Gesundheit und Fitness\nKurs-Link: https://www.vhs-mainz.de/kursdetails/kurs/fitness-mix-onlinekurs/XI86417\nKategorie-Link: https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-mainz-de-kursdetails-kurs-gymnastik-fuer-aeltere-xi86188-bc64b0e76c1dd47a.txt\npublished: 10/22/2026, 2:42:25 PM\n</document_metadata>\n\nTitel: Gymnastik für Ältere\nKursnummer: XI86188\nKursstatus: Anmeldung möglich\nKursgebühr: 94,00\nBeginn: Do. 03.12.2026, 12:00 Uhr\nEnde: Do. 03.12.2026, 13:15 Uhr\nDauer: 8 Termine\nKursort: Innenstadt; vhs-Haus; C; 0.08; Turnhalle\nKategorie: Kräftigung\nKategoriepfad: Gesundheit, Bewegung, Lebensstil \\ Entspannung, Bewegung, Gesundheitsvorsorge \\ Körpertraining / Beweglichkeit \\ Kräftigung\nKurs-Link: https://www.vhs-mainz.de/kursdetails/kurs/gymnastik-fuer-aeltere/XI86188\nKategorie-Link: https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-mainz.de_programmbereiche_gesundheit-bewegung-lebensstil.html\npublished: 9/30/2026, 6:46:16 AM\nsource: https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Lebensstil (405 Kurse) | https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/",
+     "Kategorie-Ebene 2: Entspannung, Bewegung, Gesundheitsvorsorge (279 Kurse) | https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/kw/bereich/kategorien/kategorie-id/547/oberkategorie-id/8/kategorie-name/Entspannung%20Bewegung%20Gesundheitsvorsorge",
+     "Kategorie-Ebene 3: Forum für Gesundheit (8 Kurse) | https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/189/oberkategorie-id/547/kategorie-name/Forum%20fuer%20Gesundheit",
+     "Kategorie-Ebene 4: Seminare, Vorträge (8 Kurse) | https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/190/oberkategorie-id/189/kategorie-name/Seminare%20Vortraege"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Lebensstil (405 Kurse) | https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/",
+     "Kategorie-Ebene 2: Online-Kurse Gesundheit und Fitness (10 Kurse) | https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/kw/bereich/kategorien/kategorie-id/368/oberkategorie-id/8/kategorie-name/Online-Kurse%20Gesundheit%20und%20Fitness"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Lebensstil (405 Kurse) | https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/",
+     "Kategorie-Ebene 2: Entspannung, Bewegung, Gesundheitsvorsorge (279 Kurse) | https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/kw/bereich/kategorien/kategorie-id/547/oberkategorie-id/8/kategorie-name/Entspannung%20Bewegung%20Gesundheitsvorsorge",
+     "Kategorie-Ebene 3: Körpertraining / Beweglichkeit (59 Kurse) | https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/192/oberkategorie-id/547/kategorie-name/Koerpertraining%20Beweglichkeit",
+     "Kategorie-Ebene 4: Kräftigung (28 Kurse) | https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/298/oberkategorie-id/192/kategorie-name/Kraeftigung"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Lebensstil (405 Kurse) | https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/"
+    ]
+   ]
+  },
+  {
+   "id": "mai-13",
+   "kunde": "vhs-mainz",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-mainz-de-kursdetails-kurs-selbstverteidigung-fuer-kinder-9-12-jahre-xi86582-b90486af87876521.txt\npublished: 9/27/2026, 3:45:51 PM\n</document_metadata>\n\nTitel: Selbstverteidigung für Kinder (9-12 Jahre)\nKursnummer: XI86582\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 23,00\nBeginn: Sa. 14.11.2026, 09:00 Uhr\nEnde: Sa. 14.11.2026, 13:00 Uhr\nDauer: 1 Termin\nKursort: Innenstadt; vhs-Haus; C; 0.08; Turnhalle\nKategorie: Fitness / Ausdauer\nKategoriepfad: Gesundheit, Bewegung, Lebensstil \\ Entspannung, Bewegung, Gesundheitsvorsorge \\ Körpertraining / Beweglichkeit \\ Fitness / Ausdauer\nKurs-Link: https://www.vhs-mainz.de/kursdetails/kurs/selbstverteidigung-fuer-kinder-9-12-jahre/XI86582\nKategorie-Link: https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-mainz-de-kursdetails-kurs-tolle-tricks-mit-kleinen-dingen-zauberkurs-fuer-kinder-von-10-bis-12-jahren-xi65294-4bad1d01dffc72a1.txt\npublished: 10/22/2026, 4:28:40 AM\n</document_metadata>\n\nTitel: Tolle Tricks mit kleinen Dingen!   Zauberkurs für Kinder von 10 bis 12 Jahren\nKursnummer: XI65294\nKursstatus: Anmeldung möglich\nKursgebühr: 70,00\nBeginn: Mo. 05.07.2027, 10:00 Uhr\nEnde: Mo. 05.07.2027, 14:00 Uhr\nDauer: 5 Termine\nKursort: Innenstadt; vhs-Haus; C; -1.01 (UG)\nKategorie: Ferien- und Urlaubsangebote\nKategoriepfad: Kunst, Kultur und Kreatives \\ Ferien- und Urlaubsangebote\nKurs-Link: https://www.vhs-mainz.de/kursdetails/kurs/tolle-tricks-mit-kleinen-dingen-zauberkurs-fuer-kinder-von-10-bis-12-jahren/XI65294\nKategorie-Link: https://www.vhs-mainz.de/programmbereiche/kunst-kultur-und-kreatives\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-mainz.de_programmbereiche_kunst-und-kultur_kw_bereich_kategorien_kategorie-id_514_oberkategorie-id_6_kategorie-name_Kurse-fuer-Kinder-und-Jugendliche.html\npublished: 10/19/2026, 11:47:20 AM\nsource: https://www.vhs-mainz.de/programmbereiche/kunst-und-kultur/kw/bereich/kategorien/kategorie-id/514/oberkategorie-id/6/kategorie-name/Kurse%20fuer%20Kinder%20und%20Jugendliche\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-mainz-de-kursdetails-kurs-tolle-tricks-mit-kleinen-dingen-zauberkurs-fuer-kinder-von-10-bis-12-jahren-xi65293-2d3d228af91039e2.txt\npublished: 10/22/2026, 4:28:38 AM\n</document_metadata>\n\nTitel: Tolle Tricks mit kleinen Dingen!   Zauberkurs für Kinder von 10 bis 12 Jahren\nKursnummer: XI65293\nKursstatus: Anmeldung möglich\nKursgebühr: 70,00\nBeginn: Di. 30.03.2027, 10:00 Uhr\nEnde: Di. 30.03.2027, 14:00 Uhr\nDauer: 4 Termine\nKursort: Innenstadt; vhs-Haus; C; 0.08; Turnhalle\nKategorie: Ferien- und Urlaubsangebote\nKategoriepfad: Kunst, Kultur und Kreatives \\ Ferien- und Urlaubsangebote\nKurs-Link: https://www.vhs-mainz.de/kursdetails/kurs/tolle-tricks-mit-kleinen-dingen-zauberkurs-fuer-kinder-von-10-bis-12-jahren/XI65293\nKategorie-Link: https://www.vhs-mainz.de/programmbereiche/kunst-kultur-und-kreatives\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung, Lebensstil (405 Kurse) | https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/",
+     "Kategorie-Ebene 2: Entspannung, Bewegung, Gesundheitsvorsorge (279 Kurse) | https://www.vhs-mainz.de/programmbereiche/gesundheit-bewegung-lebensstil/kw/bereich/kategorien/kategorie-id/547/oberkategorie-id/8/kategorie-name/Entspannung%20Bewegung%20Gesundheitsvorsorge",
+     "Kategorie-Ebene 3: Körpertraining / Beweglichkeit (59 Kurse) | https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/192/oberkategorie-id/547/kategorie-name/Koerpertraining%20Beweglichkeit",
+     "Kategorie-Ebene 4: Fitness / Ausdauer (4 Kurse) | https://www.vhs-mainz.de/programm/kw/bereich/kategorien/kategorie-id/195/oberkategorie-id/192/kategorie-name/Fitness%20Ausdauer"
+    ],
+    [
+     "Kategorie-Ebene 1: Kunst, Kultur und Kreatives (262 Kurse) | https://www.vhs-mainz.de/programmbereiche/kunst-und-kultur/",
+     "Kategorie-Ebene 2: Ferien- und Urlaubsangebote (11 Kurse) | https://www.vhs-mainz.de/programmbereiche/kunst-und-kultur/kw/bereich/kategorien/kategorie-id/512/oberkategorie-id/6/kategorie-name/Ferien-%20und%20Urlaubsangebote"
+    ],
+    [
+     "Kategorie-Ebene 1: Kunst, Kultur und Kreatives (262 Kurse) | https://www.vhs-mainz.de/programmbereiche/kunst-und-kultur/",
+     "Kategorie-Ebene 2: Kurse für Kinder und Jugendliche (3 Kurse) | https://www.vhs-mainz.de/programmbereiche/kunst-und-kultur/kw/bereich/kategorien/kategorie-id/514/oberkategorie-id/6/kategorie-name/Kurse%20fuer%20Kinder%20und%20Jugendliche"
+    ],
+    [
+     "Kategorie-Ebene 1: Kunst, Kultur und Kreatives (262 Kurse) | https://www.vhs-mainz.de/programmbereiche/kunst-und-kultur/",
+     "Kategorie-Ebene 2: Ferien- und Urlaubsangebote (11 Kurse) | https://www.vhs-mainz.de/programmbereiche/kunst-und-kultur/kw/bereich/kategorien/kategorie-id/512/oberkategorie-id/6/kategorie-name/Ferien-%20und%20Urlaubsangebote"
+    ]
+   ]
+  },
+  {
+   "id": "mar-04",
+   "kunde": "vhs-marburg",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-marburg.de_kurse_sprachen_kategorie_110.html\npublished: 10/20/2026, 1:44:51 PM\nsource: https://www.vhs-marburg.de/kurse/sprachen/kategorie/110\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-marburg.de_kurse_sprachen_kategorie_335.html\npublished: 10/1/2026, 11:44:22 AM\nsource: https://www.vhs-marburg.de/kurse/sprachen/kategorie/335\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-marburg.de_kurse_sprachen_kategorie_337.html\npublished: 10/20/2026, 1:44:55 PM\nsource: https://www.vhs-marburg.de/kurse/sprachen/kategorie/337\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-marburg-de-kurssuche-kurs-englisch-einstiegskurs-am-samstag-262-40616-b9f9dad3c69c4911.txt\npublished: 10/22/2026, 4:30:41 AM\n</document_metadata>\n\nTitel: Englisch-Einstiegskurs am Samstag\nKursnummer: 262-40616\nKursstatus: Anmeldung möglich\nKursgebühr: 126,00\nBeginn: Sa. 24.10.2026, 09:00 Uhr\nEnde: Sa. 24.10.2026, 11:30 Uhr\nDauer: 9 Termine\nKursort: Volkshochschule, Deutschhausstraße 38; Raum 304\nKategorie: Einstiegskurse bis A1\nKategoriepfad: Sprachen \\ Englisch \\ Einstiegskurse bis A1\nKurs-Link: https://www.vhs-marburg.de/kurssuche/kurs/englisch-einstiegskurs-am-samstag/262-40616\nKategorie-Link-Titel: Englisch · Einstiegskurse bis A1\nKategorie-Link: https://www.vhs-marburg.de/kurse/sprachen/kategorie/Einstiegskurse+bis+A1/335\nBereich-Link-Titel: Sprachen\nBereich-Link: https://www.vhs-marburg.de/kurse/sprachen\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Sprachen (91 Kurse) | https://www.vhs-marburg.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Englisch (16 Kurse) | https://www.vhs-marburg.de/kurse/sprachen/kategorie/Englisch/110"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (91 Kurse) | https://www.vhs-marburg.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Englisch (16 Kurse) | https://www.vhs-marburg.de/kurse/sprachen/kategorie/Englisch/110",
+     "Kategorie-Ebene 3: Einstiegskurse bis A1 (4 Kurse) | https://www.vhs-marburg.de/kurse/sprachen/kategorie/Einstiegskurse+bis+A1/335"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (91 Kurse) | https://www.vhs-marburg.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Englisch (16 Kurse) | https://www.vhs-marburg.de/kurse/sprachen/kategorie/Englisch/110",
+     "Kategorie-Ebene 3: Niveau B1 (8 Kurse) | https://www.vhs-marburg.de/kurse/sprachen/kategorie/Niveau+B1/337"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (91 Kurse) | https://www.vhs-marburg.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Englisch (16 Kurse) | https://www.vhs-marburg.de/kurse/sprachen/kategorie/Englisch/110",
+     "Kategorie-Ebene 3: Einstiegskurse bis A1 (4 Kurse) | https://www.vhs-marburg.de/kurse/sprachen/kategorie/Einstiegskurse+bis+A1/335"
+    ]
+   ]
+  },
+  {
+   "id": "mar-10",
+   "kunde": "vhs-marburg",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-marburg-de-kurssuche-kurs-bildungsurlaub-wirtschafts-und-finanzwissen-einfach-erklaert-volkswirtschaftliche-und-gesellschaftliche-zusamm-867f9264f58fd708.txt\npublished: 10/22/2026, 4:30:49 AM\n</document_metadata>\n\nTitel: Bildungsurlaub: Wirtschafts- und Finanzwissen einfach erklärt    Volkswirtschaftliche und gesellschaftliche Zusammenhänge und Entwicklungen verstehen\nKursnummer: 262-13900\nKursstatus: Keine Online-Anmeldung möglich\nKursgebühr: 228,00\nBeginn: Mo. 16.11.2026, 08:30 Uhr\nEnde: Mo. 16.11.2026, 15:45 Uhr\nDauer: 5 Termine\nKursort: Online-Veranstaltung\nKategorie: Ökonomie\nKategoriepfad: Gesellschaft \\ Ökonomie\nKurs-Link: https://www.vhs-marburg.de/kurssuche/kurs/bildungsurlaub-wirtschafts-und-finanzwissen-einfach-erklaert-volkswirtschaftliche-und-gesellschaftliche-zusammenhaenge-und-entwicklungen-verstehen/262-13900\nKategorie-Link-Titel: Ökonomie\nKategorie-Link: https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt/kategorie/OEkonomie/426\nBereich-Link-Titel: Gesellschaft\nBereich-Link: https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-marburg-de-kurssuche-kurs-bildungsurlaub-wirtschafts-und-finanzwissen-einfach-erklaert-volkswirtschaftliche-und-gesellschaftliche-zusamm-b8369bead4d9ffd1.txt\npublished: 10/22/2026, 4:30:55 AM\n</document_metadata>\n\nTitel: Bildungsurlaub: Wirtschafts- und Finanzwissen einfach erklärt    Volkswirtschaftliche und gesellschaftliche Zusammenhänge und Entwicklungen verstehen\nKursnummer: 271-13900\nKursstatus: Anmeldung möglich\nKursgebühr: 228,00\nBeginn: Mo. 14.06.2027, 08:30 Uhr\nEnde: Mo. 14.06.2027, 15:45 Uhr\nDauer: 5 Termine\nKursort: Online-Veranstaltung\nKategorie: Ökonomie\nKategoriepfad: Gesellschaft \\ Ökonomie\nKurs-Link: https://www.vhs-marburg.de/kurssuche/kurs/bildungsurlaub-wirtschafts-und-finanzwissen-einfach-erklaert-volkswirtschaftliche-und-gesellschaftliche-zusammenhaenge-und-entwicklungen-verstehen/271-13900\nKategorie-Link-Titel: Ökonomie\nKategorie-Link: https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt/kategorie/OEkonomie/426\nBereich-Link-Titel: Gesellschaft\nBereich-Link: https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-marburg.de_kurse_politik-gesellschaft-umwelt_kategorie_322.html\npublished: 10/19/2026, 12:44:30 PM\nsource: https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt/kategorie/322\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-marburg.de_kurse_politik-gesellschaft-umwelt_kategorie_426.html\npublished: 10/19/2026, 12:44:33 PM\nsource: https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt/kategorie/426\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Gesellschaft (45 Kurse) | https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt",
+     "Kategorie-Ebene 2: Ökonomie (6 Kurse) | https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt/kategorie/OEkonomie/426"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesellschaft (45 Kurse) | https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt",
+     "Kategorie-Ebene 2: Ökonomie (6 Kurse) | https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt/kategorie/OEkonomie/426"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesellschaft (45 Kurse) | https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt",
+     "Kategorie-Ebene 2: Nachhaltigkeit - Alltag (3 Kurse) | https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt/kategorie/Nachhaltigkeit+-+Alltag/322"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesellschaft (45 Kurse) | https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt",
+     "Kategorie-Ebene 2: Ökonomie (6 Kurse) | https://www.vhs-marburg.de/kurse/politik-gesellschaft-umwelt/kategorie/OEkonomie/426"
+    ]
+   ]
+  },
+  {
+   "id": "mep-16",
+   "kunde": "vhs-meppen",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-kubai-kai-karate-fuer-jedes-alter-26296-078-3b0c7bd225cea60e.txt\npublished: 10/22/2026, 4:41:30 AM\n</document_metadata>\n\nTitel: Kubai-Kai-Karate – für jedes Alter\nKursnummer: 26296-078\nKursstatus: Anmeldung möglich\nKursgebühr: 80,40\nBeginn: Fr. 04.09.2026, 17:30 Uhr — Bereits gestartet, Einstieg möglich\nDauer: 13x\nKursort: Freih.-v.-Stein-Haus, Raum 1-30, Bewegung/Gesundheit\nBezirk: Meppen\nKategorie: Neu\nKategoriepfad: Fitness & Gesundheit \\ Neu\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/kubai-kai-karate-fuer-jedes-alter/26296-078\nKategorie-Link-Titel: Fitness & Gesundheit\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-kubai-kai-karate-26296-077-745e45e711348f51.txt\npublished: 10/22/2026, 4:41:27 AM\n</document_metadata>\n\nTitel: Kubai-Kai-Karate\nKursnummer: 26296-077\nKursstatus: fast ausgebucht\nKursgebühr: 89,00\nBeginn: Do. 20.08.2026, 18:00 Uhr — Bereits gestartet, Einstieg möglich\nDauer: 15x\nKursort: Turnhalle Hasebrink\nBezirk: Meppen\nKategorie: Neu\nKategoriepfad: Fitness & Gesundheit \\ Neu\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/kubai-kai-karate/26296-077\nKategorie-Link-Titel: Fitness & Gesundheit\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-kubai-kai-karate-fuer-kids-26296-079-a2957f276c57e189.txt\npublished: 10/22/2026, 4:41:26 AM\n</document_metadata>\n\nTitel: Kubai-Kai-Karate für Kids\nKursnummer: 26296-079\nKursstatus: Anmeldung möglich\nKursgebühr: 83,00\nBeginn: Di. 18.08.2026, 16:45 Uhr — Bereits gestartet, Einstieg möglich\nDauer: 15x\nKursort: Freih.-v.-Stein-Haus, Raum 1-30, Bewegung/Gesundheit\nBezirk: Meppen\nKategorie: Neu\nKategoriepfad: Fitness & Gesundheit \\ Neu\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/kubai-kai-karate-fuer-kids/26296-079\nKategorie-Link-Titel: Fitness & Gesundheit\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-meppen.de_kursprogramm_fitness-gesundheit_sport-fitness_kategorie_357.html\npublished: 9/15/2026, 5:31:26 PM\nsource: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness/kategorie/357\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit"
+    ],
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit"
+    ],
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit"
+    ],
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit",
+     "Kategorie-Ebene 2: Sport & Fitness (61 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness",
+     "Kategorie-Ebene 3: Fit-Kids (1 Kurs) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness/kategorie/Fit-Kids/357"
+    ]
+   ]
+  },
+  {
+   "id": "mep-10",
+   "kunde": "vhs-meppen",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-pilates-26296-308-7a66da9c2b597c1e.txt\npublished: 10/22/2026, 4:41:27 AM\n</document_metadata>\n\nTitel: Pilates\nKursnummer: 26296-308\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 54,60\nBeginn: Do. 20.08.2026, 11:15 Uhr — Bereits gestartet, Einstieg möglich\nDauer: 9x\nKursort: VHS-Gebäude Haselünne, Bewegung/Gesundheit, OG Raum 6\nBezirk: Haselünne\nKategorie: Warteliste\nKategoriepfad: Fitness & Gesundheit \\ Warteliste\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/pilates/26296-308\nKategorie-Link-Titel: Warteliste\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/warteliste\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-pilates-26296-309-9259d8eb5638dbb7.txt\npublished: 10/22/2026, 4:41:41 AM\n</document_metadata>\n\nTitel: Pilates\nKursnummer: 26296-309\nKursstatus: fast ausgebucht\nKursgebühr: 54,60\nBeginn: Do. 05.11.2026, 11:15 Uhr\nDauer: 9x\nKursort: VHS-Gebäude Haselünne, Bewegung/Gesundheit, OG Raum 6\nBezirk: Haselünne\nKategorie: Kraft & Ausdauer\nKategoriepfad: Fitness & Gesundheit \\ Sport & Fitness \\ Kraft & Ausdauer\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/pilates/26296-309\nKategorie-Link-Titel: Sport & Fitness · Kraft & Ausdauer\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness/kategorie/Kraft+Ausdauer/149\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-pilates-26296-306-8eacd3b2b7ee3489.txt\npublished: 10/22/2026, 4:41:27 AM\n</document_metadata>\n\nTitel: Pilates\nKursnummer: 26296-306\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 54,60\nBeginn: Do. 20.08.2026, 10:15 Uhr — Bereits gestartet, Einstieg möglich\nDauer: 9x\nKursort: VHS-Gebäude Haselünne, Bewegung/Gesundheit, OG Raum 6\nBezirk: Haselünne\nKategorie: Warteliste\nKategoriepfad: Fitness & Gesundheit \\ Warteliste\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/pilates/26296-306\nKategorie-Link-Titel: Warteliste\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/warteliste\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-pilates-26296-307-9bdf1dbe3a73dd35.txt\npublished: 10/22/2026, 4:41:42 AM\n</document_metadata>\n\nTitel: Pilates\nKursnummer: 26296-307\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 54,60\nBeginn: Do. 05.11.2026, 10:15 Uhr\nDauer: 9x\nKursort: VHS-Gebäude Haselünne, Bewegung/Gesundheit, OG Raum 6\nBezirk: Haselünne\nKategorie: Warteliste\nKategoriepfad: Fitness & Gesundheit \\ Warteliste\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/pilates/26296-307\nKategorie-Link-Titel: Warteliste\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/warteliste\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit"
+    ],
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit",
+     "Kategorie-Ebene 2: Sport & Fitness (61 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness",
+     "Kategorie-Ebene 3: Kraft & Ausdauer (41 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness/kategorie/Kraft+Ausdauer/149"
+    ],
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit"
+    ],
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit"
+    ]
+   ]
+  },
+  {
+   "id": "mep-17",
+   "kunde": "vhs-meppen",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-bewegung-ist-gesund-und-haelt-fit-funktionsgymnastik-40-26296-316-9272c26591d76ced.txt\npublished: 10/22/2026, 4:41:46 AM\n</document_metadata>\n\nTitel: Bewegung ist gesund und hält fit  Funktionsgymnastik 40+\nKursnummer: 26296-316\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 50,30\nBeginn: Mi. 11.11.2026, 19:00 Uhr\nDauer: 8x\nKursort: Kleinfeldturnhalle Haselünne\nBezirk: Haselünne\nKategorie: Warteliste\nKategoriepfad: Fitness & Gesundheit \\ Warteliste\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/bewegung-ist-gesund-und-haelt-fit-funktionsgymnastik-40/26296-316\nKategorie-Link-Titel: Warteliste\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/warteliste\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-fitnesstraining-26296-312-1582a96932d179f2.txt\npublished: 10/22/2026, 4:41:22 AM\n</document_metadata>\n\nTitel: Fitnesstraining\nKursnummer: 26296-312\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 54,60\nBeginn: Mo. 10.08.2026, 19:35 Uhr — Bereits gestartet, Einstieg möglich\nDauer: 9x\nKursort: VHS-Gebäude Haselünne, Bewegung/Gesundheit, OG Raum 6\nBezirk: Haselünne\nKategorie: Warteliste\nKategoriepfad: Fitness & Gesundheit \\ Warteliste\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/fitnesstraining/26296-312\nKategorie-Link-Titel: Warteliste\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/warteliste\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-bewegung-ist-gesund-und-haelt-fit-funktionsgymnastik-40-26296-315-145a7ae1dde6d829.txt\npublished: 10/22/2026, 4:41:26 AM\n</document_metadata>\n\nTitel: Bewegung ist gesund und hält fit  Funktionsgymnastik 40+\nKursnummer: 26296-315\nKursstatus: Anmeldung möglich\nKursgebühr: 54,60\nBeginn: Mi. 19.08.2026, 19:00 Uhr — Bereits gestartet, Einstieg möglich\nDauer: 9x\nKursort: Kleinfeldturnhalle Haselünne\nBezirk: Haselünne\nKategorie: Kraft & Ausdauer\nKategoriepfad: Fitness & Gesundheit \\ Sport & Fitness \\ Kraft & Ausdauer\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/bewegung-ist-gesund-und-haelt-fit-funktionsgymnastik-40/26296-315\nKategorie-Link-Titel: Sport & Fitness · Kraft & Ausdauer\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness/kategorie/Kraft+Ausdauer/149\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-meppen-de-kurssuche-kurs-fitnesstraining-26296-313-e49fb31c378d9573.txt\npublished: 10/22/2026, 4:41:48 AM\n</document_metadata>\n\nTitel: Fitnesstraining\nKursnummer: 26296-313\nKursstatus: Anmeldung auf Warteliste\nKursgebühr: 46,00\nBeginn: Mo. 16.11.2026, 19:35 Uhr\nDauer: 7x\nKursort: VHS-Gebäude Haselünne, Bewegung/Gesundheit, OG Raum 6\nBezirk: Haselünne\nKategorie: Warteliste\nKategoriepfad: Fitness & Gesundheit \\ Warteliste\nKurs-Link: https://www.vhs-meppen.de/kurssuche/kurs/fitnesstraining/26296-313\nKategorie-Link-Titel: Warteliste\nKategorie-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/warteliste\nBereich-Link-Titel: Fitness & Gesundheit\nBereich-Link: https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit"
+    ],
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit"
+    ],
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit",
+     "Kategorie-Ebene 2: Sport & Fitness (61 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness",
+     "Kategorie-Ebene 3: Kraft & Ausdauer (41 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit/sport-fitness/kategorie/Kraft+Ausdauer/149"
+    ],
+    [
+     "Kategorie-Ebene 1: Fitness & Gesundheit (148 Kurse) | https://www.vhs-meppen.de/kursprogramm/fitness-gesundheit"
+    ]
+   ]
+  },
+  {
+   "id": "ros-02",
+   "kunde": "vhs-rostock",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-hro.de_kurse_sprachen.html\npublished: 10/11/2026, 4:41:31 AM\nsource: https://www.vhs-hro.de/kurse/sprachen\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-hro.de_kurse_sprachen_kategorie_355.html\npublished: 10/11/2026, 4:42:14 AM\nsource: https://www.vhs-hro.de/kurse/sprachen/kategorie/355\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-hro.de_kurse_sprachen_kategorie_382.html\npublished: 10/14/2026, 2:21:36 PM\nsource: https://www.vhs-hro.de/kurse/sprachen/kategorie/382\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-hro.de_kurse_sprachen_kategorie_358.html\npublished: 10/7/2026, 6:21:44 PM\nsource: https://www.vhs-hro.de/kurse/sprachen/kategorie/358\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Sprachen (58 Kurse) | https://www.vhs-hro.de/kurse/sprachen"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Sprachen (58 Kurse) | https://www.vhs-hro.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Deutsch als Fremdsprache (7 Kurse) | https://www.vhs-hro.de/kurse/sprachen/kategorie/Deutsch+als+Fremdsprache/382"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (58 Kurse) | https://www.vhs-hro.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Fremdsprachen (41 Kurse) | https://www.vhs-hro.de/kurse/sprachen/kategorie/Fremdsprachen/445",
+     "Kategorie-Ebene 3: Englisch (15 Kurse) | https://www.vhs-hro.de/kurse/sprachen/kategorie/Englisch/358"
+    ]
+   ]
+  },
+  {
+   "id": "ros-04",
+   "kunde": "vhs-rostock",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-hro.de_kurse_sprachen_kategorie_445.html\npublished: 10/7/2026, 6:21:40 PM\nsource: https://www.vhs-hro.de/kurse/sprachen/kategorie/445\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-hro.de_kurse_sprachen_kategorie_355.html\npublished: 10/11/2026, 4:42:14 AM\nsource: https://www.vhs-hro.de/kurse/sprachen/kategorie/355\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-hro.de_kurse_sprachen.html\npublished: 10/11/2026, 4:41:31 AM\nsource: https://www.vhs-hro.de/kurse/sprachen\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-hro.de_kurse_sprachen_kategorie_358.html\npublished: 10/7/2026, 6:21:44 PM\nsource: https://www.vhs-hro.de/kurse/sprachen/kategorie/358\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Sprachen (58 Kurse) | https://www.vhs-hro.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Fremdsprachen (41 Kurse) | https://www.vhs-hro.de/kurse/sprachen/kategorie/Fremdsprachen/445"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Sprachen (58 Kurse) | https://www.vhs-hro.de/kurse/sprachen"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (58 Kurse) | https://www.vhs-hro.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Fremdsprachen (41 Kurse) | https://www.vhs-hro.de/kurse/sprachen/kategorie/Fremdsprachen/445",
+     "Kategorie-Ebene 3: Englisch (15 Kurse) | https://www.vhs-hro.de/kurse/sprachen/kategorie/Englisch/358"
+    ]
+   ]
+  },
+  {
+   "id": "rur-01",
+   "kunde": "vhs-rur-eifel",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-rur-eifel-de-kurssuche-kurs-deutsch-konversationskurs-b1-b2-y5133c-d9942bafa52e941e.txt\npublished: 9/25/2026, 2:48:37 AM\n</document_metadata>\n\nTitel: Deutsch - Konversationskurs (B1/B2)\nKursnummer: Y5133C\nKursstatus: Plätze frei\nKursgebühr: 250,00\nBeginn: Mo. 05.04.2027, 11:30 Uhr\nEnde: Mo. 05.04.2027, 13:00 Uhr\nDauer: 27 x\nKursort: Marienstr. 24, Raum 003\nBezirk: Düren\nKategorie: Deutsch als Mutter- und Fremdsprache\nKategoriepfad: Sprachen \\ Deutsch als Mutter- und Fremdsprache\nKurs-Link: https://www.vhs-rur-eifel.de/kurssuche/kurs/deutsch-konversationskurs-b1-b2/Y5133C\nKategorie-Link: https://www.vhs-rur-eifel.de/programm/sprachen/deutsch-als-mutter-und-fremdsprache\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-rur-eifel-de-kurssuche-kurs-deutsch-konversationskurs-b1-b2-y5133b-d5903b0321d92f72.txt\npublished: 9/25/2026, 2:48:17 AM\n</document_metadata>\n\nTitel: Deutsch - Konversationskurs (B1/B2)\nKursnummer: Y5133B\nKursstatus: Plätze frei\nKursgebühr: 150,00\nBeginn: Mo. 18.01.2027, 11:30 Uhr\nEnde: Mo. 18.01.2027, 13:00 Uhr\nDauer: 16 x\nKursort: Marienstr. 24, Raum 003\nBezirk: Düren\nKategorie: Deutsch als Mutter- und Fremdsprache\nKategoriepfad: Sprachen \\ Deutsch als Mutter- und Fremdsprache\nKurs-Link: https://www.vhs-rur-eifel.de/kurssuche/kurs/deutsch-konversationskurs-b1-b2/Y5133B\nKategorie-Link: https://www.vhs-rur-eifel.de/programm/sprachen/deutsch-als-mutter-und-fremdsprache\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-rur-eifel-de-kurssuche-kurs-deutsch-im-alltag-schwierige-gespraeche-meistern-a2-b1-y5120a-8c6a8dba1e4afd35.txt\npublished: 9/25/2026, 2:47:58 AM\n</document_metadata>\n\nTitel: Deutsch im Alltag - Schwierige Gespräche meistern (A2/B1)\nKursnummer: Y5120A\nKursstatus: Plätze frei\nKursgebühr: 120,00\nBeginn: Mo. 02.11.2026, 18:00 Uhr\nEnde: Mo. 02.11.2026, 19:30 Uhr\nDauer: 10 x\nKursort: Marienstr. 24, Raum 103\nBezirk: Düren\nKategorie: Deutsch als Mutter- und Fremdsprache\nKategoriepfad: Sprachen \\ Deutsch als Mutter- und Fremdsprache\nKurs-Link: https://www.vhs-rur-eifel.de/kurssuche/kurs/deutsch-im-alltag-schwierige-gespraeche-meistern-a2-b1/Y5120A\nKategorie-Link: https://www.vhs-rur-eifel.de/programm/sprachen/deutsch-als-mutter-und-fremdsprache\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-rur-eifel-de-kurssuche-kurs-deutsch-im-alltag-schwierige-gespraeche-meistern-a2-b1-y5120c-3515b5c3b6997894.txt\npublished: 9/25/2026, 2:48:49 AM\n</document_metadata>\n\nTitel: Deutsch im Alltag - Schwierige Gespräche meistern (A2/B1)\nKursnummer: Y5120C\nKursstatus: Plätze frei\nKursgebühr: 120,00\nBeginn: Mo. 07.06.2027, 18:00 Uhr\nEnde: Mo. 07.06.2027, 19:30 Uhr\nDauer: 10 x\nKursort: Marienstr. 24, Raum 103\nBezirk: Düren\nKategorie: Deutsch als Mutter- und Fremdsprache\nKategoriepfad: Sprachen \\ Deutsch als Mutter- und Fremdsprache\nKurs-Link: https://www.vhs-rur-eifel.de/kurssuche/kurs/deutsch-im-alltag-schwierige-gespraeche-meistern-a2-b1/Y5120C\nKategorie-Link: https://www.vhs-rur-eifel.de/programm/sprachen/deutsch-als-mutter-und-fremdsprache\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Sprachen (200 Kurse) | https://www.vhs-rur-eifel.de/programm/sprachen-integrationskurse",
+     "Kategorie-Ebene 2: Deutsch als Mutter- und Fremdsprache (42 Kurse) | https://www.vhs-rur-eifel.de/programm/sprachen-integrationskurse/kategorie/Deutsch+als+Mutter-+und+Fremdsprache/178"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (200 Kurse) | https://www.vhs-rur-eifel.de/programm/sprachen-integrationskurse",
+     "Kategorie-Ebene 2: Deutsch als Mutter- und Fremdsprache (42 Kurse) | https://www.vhs-rur-eifel.de/programm/sprachen-integrationskurse/kategorie/Deutsch+als+Mutter-+und+Fremdsprache/178"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (200 Kurse) | https://www.vhs-rur-eifel.de/programm/sprachen-integrationskurse",
+     "Kategorie-Ebene 2: Deutsch als Mutter- und Fremdsprache (42 Kurse) | https://www.vhs-rur-eifel.de/programm/sprachen-integrationskurse/kategorie/Deutsch+als+Mutter-+und+Fremdsprache/178"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (200 Kurse) | https://www.vhs-rur-eifel.de/programm/sprachen-integrationskurse",
+     "Kategorie-Ebene 2: Deutsch als Mutter- und Fremdsprache (42 Kurse) | https://www.vhs-rur-eifel.de/programm/sprachen-integrationskurse/kategorie/Deutsch+als+Mutter-+und+Fremdsprache/178"
+    ]
+   ]
+  },
+  {
+   "id": "rur-02",
+   "kunde": "vhs-rur-eifel",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-rur-eifel-de-kurssuche-kurs-micro-workouts-snack-bewegung-statt-was-ungesundes-y4502b-e57bbabd31dafc8a.txt\npublished: 10/14/2026, 3:11:28 PM\n</document_metadata>\n\nTitel: Micro-Workouts: 'Snack Bewegung statt was Ungesundes'\nKursnummer: Y4502B\nKursstatus: Plätze frei\nKursgebühr: 0,00\nBeginn: Fr. 19.02.2027, 17:30 Uhr\nEnde: Fr. 19.02.2027, 19:00 Uhr\nDauer: 1 Termin\nKursort: Düren, Volkshochschule, Klassenraum 010, Violengasse 2\nBezirk: Düren\nKategorie: Gesundheitswissen\nKategoriepfad: Gesundheit, Bewegung und Ernährung \\ Gesundheitswissen\nKurs-Link: https://www.vhs-rur-eifel.de/kurssuche/kurs/micro-workouts-snack-bewegung-statt-was-ungesundes/Y4502B\nKategorie-Link: https://www.vhs-rur-eifel.de/programm/gesundheit-bewegung-und-ernaehrung/gesundheitswissen\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-rur-eifel-de-kurssuche-kurs-power-rhythmus-und-staerke-y4515c-6d308bebb4ccc4b9.txt\npublished: 9/25/2026, 2:48:36 AM\n</document_metadata>\n\nTitel: Power, Rhythmus und Stärke\nKursnummer: Y4515C\nKursstatus: Plätze frei\nKursgebühr: 81,50\nBeginn: Mo. 05.04.2027, 19:00 Uhr\nEnde: Mo. 05.04.2027, 20:00 Uhr\nDauer: 14 Termine\nKursort: Grundschule Nideggen, Aula\nBezirk: Nideggen\nKategorie: Gymnastik\nKategoriepfad: Gesundheit, Bewegung und Ernährung \\ Gymnastik\nKurs-Link: https://www.vhs-rur-eifel.de/kurssuche/kurs/power-rhythmus-und-staerke/Y4515C\nKategorie-Link: https://www.vhs-rur-eifel.de/programm/gesundheit-bewegung-und-ernaehrung/gymnastik\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-rur-eifel-de-kurssuche-kurs-taiji-y4315b-01516e562f60f619.txt\npublished: 9/25/2026, 2:48:15 AM\n</document_metadata>\n\nTitel: Taiji\nKursnummer: Y4315B\nKursstatus: Plätze frei\nKursgebühr: 30,00\nBeginn: Mo. 18.01.2027, 17:00 Uhr\nEnde: Mo. 18.01.2027, 18:00 Uhr\nDauer: 7 Termine\nKursort: Düren, Volkshochschule, Aula, Violengasse 2\nBezirk: Düren\nKategorie: Gesundheit und Psyche\nKategoriepfad: Gesundheit, Bewegung und Ernährung \\ Gesundheit und Psyche\nKurs-Link: https://www.vhs-rur-eifel.de/kurssuche/kurs/taiji/Y4315B\nKategorie-Link: https://www.vhs-rur-eifel.de/programm/gesundheit-bewegung-und-ernaehrung/gesundheit-und-psyche\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-rur-eifel-de-kurssuche-kurs-taiji-y4315c-c7a2cc3d7a2d49dc.txt\npublished: 9/25/2026, 2:48:36 AM\n</document_metadata>\n\nTitel: Taiji\nKursnummer: Y4315C\nKursstatus: Plätze frei\nKursgebühr: 63,50\nBeginn: Mo. 05.04.2027, 17:00 Uhr\nEnde: Mo. 05.04.2027, 18:00 Uhr\nDauer: 14 Termine\nKursort: Düren, Volkshochschule, Aula, Violengasse 2\nBezirk: Düren\nKategorie: Gesundheit und Psyche\nKategoriepfad: Gesundheit, Bewegung und Ernährung \\ Gesundheit und Psyche\nKurs-Link: https://www.vhs-rur-eifel.de/kurssuche/kurs/taiji/Y4315C\nKategorie-Link: https://www.vhs-rur-eifel.de/programm/gesundheit-bewegung-und-ernaehrung/gesundheit-und-psyche\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung und Ernährung (161 Kurse) | https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung",
+     "Kategorie-Ebene 2: Gesundheitswissen (20 Kurse) | https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung/kategorie/Gesundheitswissen/174"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung und Ernährung (161 Kurse) | https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung",
+     "Kategorie-Ebene 2: Gymnastik (54 Kurse) | https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung/kategorie/Gymnastik/107"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung und Ernährung (161 Kurse) | https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung",
+     "Kategorie-Ebene 2: Gesundheit und Psyche (14 Kurse) | https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung/kategorie/Gesundheit+und+Psyche/175"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit, Bewegung und Ernährung (161 Kurse) | https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung",
+     "Kategorie-Ebene 2: Gesundheit und Psyche (14 Kurse) | https://www.vhs-rur-eifel.de/programm/gesundheit-und-ernaehrung/kategorie/Gesundheit+und+Psyche/175"
+    ]
+   ]
+  },
+  {
+   "id": "sbg-07",
+   "kunde": "vhs-salzburg",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_politik-gesellschaft_vhs-politik-und-gesellschaft.html\npublished: 4/18/2026, 10:53:56 PM\nsource: https://www.volkshochschule.at/kurse/politik-gesellschaft/vhs-politik-und-gesellschaft\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_politik-gesellschaft_geschichte-politik.html\npublished: 10/19/2026, 4:38:13 AM\nsource: https://www.volkshochschule.at/kurse/politik-gesellschaft/geschichte-politik\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-volkshochschule-at-kurssuche-kurs-good-news-bad-news-fake-news-happy-minds-ein-vortrag-von-juliana-krohn-friedensbuero-salzburg-27-1-12101-8f05e5518f57e71d.txt\npublished: 10/22/2026, 4:36:54 AM\n</document_metadata>\n\nTitel: good news, bad news - fake news (\"Happy Minds\")   Ein Vortrag von Juliana Krohn  - Friedensbüro Salzburg\nKursnummer: 27-1-12101\nKursstatus: Keine Anmeldung möglich\nKursgebühr: 0,00\nBeginn: Di. 26.01.2027, 18:00 Uhr\nEnde: Di. 26.01.2027, 19:30 Uhr\nDauer: 1x\nKursort: Online\nBezirk: Salzburg\nKategorie: Psychologie & Pädagogik\nKategoriepfad: Politik & Gesellschaft \\ Psychologie & Pädagogik\nKurs-Link: https://www.volkshochschule.at/kurssuche/kurs/good-news-bad-news-fake-news-happy-minds-ein-vortrag-von-juliana-krohn-friedensbuero-salzburg/27-1-12101\nKategorie-Link-Titel: Psychologie & Pädagogik\nKategorie-Link: https://www.volkshochschule.at/kurse/politik-gesellschaft/psychologie-paedagogik\nBereich-Link-Titel: Politik & Gesellschaft\nBereich-Link: https://www.volkshochschule.at/kurse/politik-gesellschaft/vhs-politik-und-gesellschaft\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_politik-gesellschaft_psychologie-paedagogik.html\npublished: 10/21/2026, 4:46:47 AM\nsource: https://www.volkshochschule.at/kurse/politik-gesellschaft/psychologie-paedagogik\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_politik-gesellschaft_psychologie-paedagogik.html\npublished: 10/21/2026, 4:46:47 AM\nsource: https://www.volkshochschule.at/kurse/politik-gesellschaft/psychologie-paedagogik\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_politik-gesellschaft_psychologie-paedagogik_kategorie_368.html\npublished: 10/21/2026, 4:47:45 AM\nsource: https://www.volkshochschule.at/kurse/politik-gesellschaft/psychologie-paedagogik/kategorie/368\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Politik & Gesellschaft (37 Kurse) | https://www.volkshochschule.at/kurse/politik-gesellschaft/vhs-politik-und-gesellschaft"
+    ],
+    [
+     "Kategorie-Ebene 1: Politik & Gesellschaft (37 Kurse) | https://www.volkshochschule.at/kurse/politik-gesellschaft/vhs-politik-und-gesellschaft",
+     "Kategorie-Ebene 2: Geschichte & Politik (4 Kurse) | https://www.volkshochschule.at/kurse/politik-gesellschaft/geschichte-politik"
+    ],
+    [
+     "Kategorie-Ebene 1: Politik & Gesellschaft (37 Kurse) | https://www.volkshochschule.at/kurse/politik-gesellschaft/vhs-politik-und-gesellschaft",
+     "Kategorie-Ebene 2: Psychologie & Pädagogik (18 Kurse) | https://www.volkshochschule.at/kurse/politik-gesellschaft/psychologie-paedagogik"
+    ],
+    [
+     "Kategorie-Ebene 1: Politik & Gesellschaft (37 Kurse) | https://www.volkshochschule.at/kurse/politik-gesellschaft/vhs-politik-und-gesellschaft",
+     "Kategorie-Ebene 2: Psychologie & Pädagogik (18 Kurse) | https://www.volkshochschule.at/kurse/politik-gesellschaft/psychologie-paedagogik"
+    ],
+    [
+     "Kategorie-Ebene 1: Politik & Gesellschaft (37 Kurse) | https://www.volkshochschule.at/kurse/politik-gesellschaft/vhs-politik-und-gesellschaft",
+     "Kategorie-Ebene 2: Psychologie & Pädagogik (18 Kurse) | https://www.volkshochschule.at/kurse/politik-gesellschaft/psychologie-paedagogik"
+    ],
+    []
+   ]
+  },
+  {
+   "id": "sbg-08",
+   "kunde": "vhs-salzburg",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_eltern-kinder_fuer-eltern-kinder_kategorie_167.html\npublished: 10/14/2026, 12:08:03 PM\nsource: https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/167\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_eltern-kinder_fuer-eltern-kinder_kategorie_346.html\npublished: 10/21/2026, 4:46:44 AM\nsource: https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/346\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_eltern-kinder_fuer-eltern-kinder.html\npublished: 10/21/2026, 4:46:39 AM\nsource: https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_eltern-kinder_fuer-eltern-kinder_kategorie_161.html\npublished: 10/22/2026, 10:16:13 AM\nsource: https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/161\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_eltern-kinder_fuer-eltern-kinder_kategorie_194.html\npublished: 10/21/2026, 2:06:48 PM\nsource: https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/194\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_eltern-kinder_fuer-eltern-kinder_kategorie_322.html\npublished: 10/21/2026, 4:47:47 AM\nsource: https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/322\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Eltern & Kinder (98 Kurse) | https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder",
+     "Kategorie-Ebene 2: Kinder und Küche (3 Kurse) | https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/Kinder+und+Kueche/167"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Eltern & Kinder (98 Kurse) | https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder"
+    ],
+    [
+     "Kategorie-Ebene 1: Eltern & Kinder (98 Kurse) | https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder",
+     "Kategorie-Ebene 2: Natur Kinder (4 Kurse) | https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/Natur+Kinder/161"
+    ],
+    [
+     "Kategorie-Ebene 1: Eltern & Kinder (98 Kurse) | https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder",
+     "Kategorie-Ebene 2: Allgemein Kinder (21 Kurse) | https://www.volkshochschule.at/kurse/eltern-kinder/fuer-eltern-kinder/kategorie/Allgemein+Kinder/194"
+    ],
+    []
+   ]
+  },
+  {
+   "id": "sbg-24",
+   "kunde": "vhs-salzburg",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_kunst-kreatives_mode-handwerk_kategorie_369.html\npublished: 10/22/2026, 2:12:56 PM\nsource: https://www.volkshochschule.at/kurse/kunst-kreatives/mode-handwerk/kategorie/369\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_kunst-kreatives_mode-handwerk.html\npublished: 10/22/2026, 2:12:52 PM\nsource: https://www.volkshochschule.at/kurse/kunst-kreatives/mode-handwerk\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_kunst-kreatives_mode-handwerk_kategorie_369.html\npublished: 10/22/2026, 2:12:56 PM\nsource: https://www.volkshochschule.at/kurse/kunst-kreatives/mode-handwerk/kategorie/369\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_kunst-kreatives_mode-handwerk.html\npublished: 10/22/2026, 2:12:52 PM\nsource: https://www.volkshochschule.at/kurse/kunst-kreatives/mode-handwerk\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_kunst-kreatives_textiles-gestalten.html\npublished: 10/15/2026, 6:07:59 PM\nsource: https://www.volkshochschule.at/kurse/kunst-kreatives/textiles-gestalten\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: volkshochschule.at_kurse_kunst-kreatives_textiles-gestalten_kategorie_109.html\npublished: 10/15/2026, 6:09:15 PM\nsource: https://www.volkshochschule.at/kurse/kunst-kreatives/textiles-gestalten/kategorie/109\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [],
+    [
+     "Kategorie-Ebene 1: Kunst, Kultur & Kulinarium (95 Kurse) | https://www.volkshochschule.at/kurse/kunst-kreatives/kategorie/Kunst+Kultur+Kulinarium/18",
+     "Kategorie-Ebene 2: Mode & Handwerk (2 Kurse) | https://www.volkshochschule.at/kurse/kunst-kreatives/mode-handwerk"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Kunst, Kultur & Kulinarium (95 Kurse) | https://www.volkshochschule.at/kurse/kunst-kreatives/kategorie/Kunst+Kultur+Kulinarium/18",
+     "Kategorie-Ebene 2: Mode & Handwerk (2 Kurse) | https://www.volkshochschule.at/kurse/kunst-kreatives/mode-handwerk"
+    ],
+    [],
+    []
+   ]
+  },
+  {
+   "id": "tue-04",
+   "kunde": "vhs-tuebingen",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-tuebingen.de_kurse_sprachen.html\npublished: 10/22/2026, 5:33:14 PM\nsource: https://www.vhs-tuebingen.de/kurse/sprachen\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuebingen.de_kurse_sprachen_kategorie_47.html\npublished: 10/22/2026, 5:33:19 PM\nsource: https://www.vhs-tuebingen.de/kurse/sprachen/kategorie/47\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuebingen.de_kurse_deutschkurse.html\npublished: 10/22/2026, 5:33:10 PM\nsource: https://www.vhs-tuebingen.de/kurse/deutschkurse\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuebingen.de_kurse_deutschkurse_kategorie_54.html\npublished: 10/22/2026, 5:33:12 PM\nsource: https://www.vhs-tuebingen.de/kurse/deutschkurse/kategorie/54\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Sprachen (250 Kurse) | https://www.vhs-tuebingen.de/kurse/sprachen"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Sprachen (250 Kurse) | https://www.vhs-tuebingen.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Deutsch (106 Kurse) | https://www.vhs-tuebingen.de/kurse/deutschkurse/kategorie/Deutsch/54",
+     "Kategorie-Ebene 3: Deutschkurse (70 Kurse) | https://www.vhs-tuebingen.de/kurse/deutschkurse"
+    ],
+    [
+     "Kategorie-Ebene 1: Sprachen (250 Kurse) | https://www.vhs-tuebingen.de/kurse/sprachen",
+     "Kategorie-Ebene 2: Deutsch (106 Kurse) | https://www.vhs-tuebingen.de/kurse/deutschkurse/kategorie/Deutsch/54"
+    ]
+   ]
+  },
+  {
+   "id": "tue-03",
+   "kunde": "vhs-tuebingen",
+   "variante": "F3c_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: www-vhs-tuebingen-de-veranstaltungssuche-kurs-kunst-im-ohr-ein-livestream-fuer-alle-sinne-eine-veranstaltung-in-der-online-reihe-wissen-live-262-78ffd898cf80af8c.txt\npublished: 10/22/2026, 4:45:51 AM\n</document_metadata>\n\nTitel: Kunst im Ohr - Ein Livestream für alle Sinne   Eine Veranstaltung in der Online-Reihe \"wissen live\"\nKursnummer: 262-10036V\nKursstatus: Anmeldung möglich\nKursgebühr: 0,00\nBeginn: Mi. 25.11.2026, 19:30 Uhr\nDauer: 1 Termin\nKursort: 99 Raum für Online Schulungen\nBezirk: Tübingen\nKategorie: Kunst- und Kulturgeschichte\nKategoriepfad: Kultur und Gestalten \\ Kunst- und Kulturgeschichte\nKurs-Link: https://www.vhs-tuebingen.de/veranstaltungssuche/kurs/kunst-im-ohr-ein-livestream-fuer-alle-sinne-eine-veranstaltung-in-der-online-reihe-wissen-live/262-10036V\nKategorie-Link-Titel: Kunst- und Kulturgeschichte\nKategorie-Link: https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten/kategorie/Kunst-+und+Kulturgeschichte/18\nBereich-Link-Titel: Kultur und Gestalten\nBereich-Link: https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten\n\nKursbeschreibung: (gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuebingen.de_kurse_kultur-und-gestalten_kategorie_334.html\npublished: 10/22/2026, 4:34:10 PM\nsource: https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten/kategorie/334\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuebingen.de_kurse_kultur-und-gestalten_kategorie_18.html\npublished: 10/17/2026, 12:31:31 PM\nsource: https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten/kategorie/18\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: www-vhs-tuebingen-de-veranstaltungssuche-kurs-ronnie-wood-the-artist-fuehrung-durch-die-ausstellung-im-neuen-kunstmuseum-tuebingen-nkt-262-20305-16db86c233503ca3.txt\npublished: 10/22/2026, 4:45:37 AM\n</document_metadata>\n\nTitel: Ronnie Wood. The Artist  Führung durch die Ausstellung im Neuen Kunstmuseum Tübingen (NKT)\nKursnummer: 262-20305\nKursstatus: Anmeldung möglich\nKursgebühr: 15,00\nBeginn: Do. 12.11.2026, 18:00 Uhr\nDauer: 1 Termin\nKursort: 15 Neues Kunstmuseum Tübingen\nBezirk: Tübingen\nKategorie: Kunst- und Kulturgeschichte\nKategoriepfad: Kultur und Gestalten \\ Kunst- und Kulturgeschichte\nKurs-Link: https://www.vhs-tuebingen.de/veranstaltungssuche/kurs/ronnie-wood-the-artist-fuehrung-durch-die-ausstellung-im-neuen-kunstmuseum-tuebingen-nkt/262-20305\nKategorie-Link-Titel: Kunst- und Kulturgeschichte\nKategorie-Link: https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten/kategorie/Kunst-+und+Kulturgeschichte/18\nBereich-Link-Titel: Kultur und Gestalten\nBereich-Link: https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten\n\nKursbeschreibung: (gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Kultur und Gestalten (200 Kurse) | https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten",
+     "Kategorie-Ebene 2: Kunst- und Kulturgeschichte (14 Kurse) | https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten/kategorie/Kunst-+und+Kulturgeschichte/18"
+    ],
+    [
+     "Kategorie-Ebene 1: Kultur und Gestalten (200 Kurse) | https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten",
+     "Kategorie-Ebene 2: Darstellende Kunst (5 Kurse) | https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten/kategorie/Darstellende+Kunst/334"
+    ],
+    [
+     "Kategorie-Ebene 1: Kultur und Gestalten (200 Kurse) | https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten",
+     "Kategorie-Ebene 2: Kunst- und Kulturgeschichte (14 Kurse) | https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten/kategorie/Kunst-+und+Kulturgeschichte/18"
+    ],
+    [
+     "Kategorie-Ebene 1: Kultur und Gestalten (200 Kurse) | https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten",
+     "Kategorie-Ebene 2: Kunst- und Kulturgeschichte (14 Kurse) | https://www.vhs-tuebingen.de/kurse/kultur-und-gestalten/kategorie/Kunst-+und+Kulturgeschichte/18"
+    ]
+   ]
+  },
+  {
+   "id": "tut-07",
+   "kunde": "vhs-tuttlingen",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurssuche_kategorie_290.html\npublished: 5/30/2026, 1:34:17 AM\nsource: https://www.vhs-tuttlingen.de/kurssuche/kategorie/290\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurse_kategorie_Gymnastik+-+Fitness_416.html\npublished: 5/29/2026, 6:04:29 PM\nsource: https://www.vhs-tuttlingen.de/kurse/kategorie/Gymnastik+-+Fitness/416\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurse_gesundheit-bewegung_kategorie_45.html\npublished: 10/22/2026, 5:21:22 AM\nsource: https://www.vhs-tuttlingen.de/kurse/gesundheit-bewegung/kategorie/45\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurse_gesundheit-bewegung-1_kategorie_45.html\npublished: 10/22/2026, 5:30:10 AM\nsource: https://www.vhs-tuttlingen.de/kurse/gesundheit-bewegung-1/kategorie/45\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [],
+    [],
+    [
+     "Kategorie-Ebene 1: Gesundheit - Fitness - Ernährung (200 Kurse) | https://www.vhs-tuttlingen.de/kurse/gesundheit-bewegung/kategorie/Gesundheit+-+Fitness+-+Ernaehrung/42",
+     "Kategorie-Ebene 2: Gymnastik - Fitness (100 Kurse) | https://www.vhs-tuttlingen.de/kurse/gesundheit-bewegung/kategorie/Gymnastik+-+Fitness/45"
+    ],
+    [
+     "Kategorie-Ebene 1: Gesundheit - Fitness - Ernährung (200 Kurse) | https://www.vhs-tuttlingen.de/kurse/gesundheit-bewegung/kategorie/Gesundheit+-+Fitness+-+Ernaehrung/42",
+     "Kategorie-Ebene 2: Gymnastik - Fitness (100 Kurse) | https://www.vhs-tuttlingen.de/kurse/gesundheit-bewegung/kategorie/Gymnastik+-+Fitness/45"
+    ]
+   ]
+  },
+  {
+   "id": "tut-09",
+   "kunde": "vhs-tuttlingen",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurse_fremdsprachen_kategorie_23.html\npublished: 10/22/2026, 5:22:12 AM\nsource: https://www.vhs-tuttlingen.de/kurse/fremdsprachen/kategorie/23\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurse_kategorie_258.html\npublished: 5/29/2026, 6:06:20 PM\nsource: https://www.vhs-tuttlingen.de/kurse/kategorie/258\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurse_fremdsprachen-1_kategorie_23.html\npublished: 10/22/2026, 5:25:07 AM\nsource: https://www.vhs-tuttlingen.de/kurse/fremdsprachen-1/kategorie/23\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurssuche_kategorie_258.html\npublished: 5/30/2026, 1:38:44 AM\nsource: https://www.vhs-tuttlingen.de/kurssuche/kategorie/258\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [
+     "Kategorie-Ebene 1: Fremdsprachen (66 Kurse) | https://www.vhs-tuttlingen.de/kurse/fremdsprachen",
+     "Kategorie-Ebene 2: Englisch (22 Kurse) | https://www.vhs-tuttlingen.de/kurse/fremdsprachen/kategorie/Englisch/23"
+    ],
+    [],
+    [
+     "Kategorie-Ebene 1: Fremdsprachen (66 Kurse) | https://www.vhs-tuttlingen.de/kurse/fremdsprachen",
+     "Kategorie-Ebene 2: Englisch (22 Kurse) | https://www.vhs-tuttlingen.de/kurse/fremdsprachen/kategorie/Englisch/23"
+    ],
+    []
+   ]
+  },
+  {
+   "id": "tut-06",
+   "kunde": "vhs-tuttlingen",
+   "variante": "F3b_replay",
+   "quellen": [
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kontakt_agb.html\npublished: 5/29/2026, 1:26:47 AM\nsource: https://www.vhs-tuttlingen.de/kontakt/agb\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurssuche_kategorie_99.html\npublished: 10/22/2026, 5:26:46 AM\nsource: https://www.vhs-tuttlingen.de/kurssuche/kategorie/99\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurse_kategorie_99.html\npublished: 10/22/2026, 4:56:32 AM\nsource: https://www.vhs-tuttlingen.de/kurse/kategorie/99\n</document_metadata>\n\n(Seitentext gekürzt)\n",
+    "<document_metadata>\nsourceDocument: vhs-tuttlingen.de_kurssuche_kategorie_155.html\npublished: 10/22/2026, 5:26:56 AM\nsource: https://www.vhs-tuttlingen.de/kurssuche/kategorie/155\n</document_metadata>\n\n(Seitentext gekürzt)\n"
+   ],
+   "erwartet": [
+    [],
+    [
+     "Kategorie-Ebene 1: Exkursionen und Studienreisen (5 Kurse) | https://www.vhs-tuttlingen.de/kurse/kategorie/Exkursionen+und+Studienreisen/99"
+    ],
+    [
+     "Kategorie-Ebene 1: Exkursionen und Studienreisen (5 Kurse) | https://www.vhs-tuttlingen.de/kurse/kategorie/Exkursionen+und+Studienreisen/99"
+    ],
+    []
+   ]
+  }
+ ]
+}

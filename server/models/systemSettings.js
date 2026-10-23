@@ -13,6 +13,9 @@ const { getBaseLLMProviderModel } = require("../utils/helpers");
 const {
   ConnectionStringParser,
 } = require("../utils/agents/aibitat/plugins/sql-agent/SQLConnectors/utils");
+const {
+  validateCategoryMapSetting,
+} = require("../utils/chats/embedCategoryChains");
 
 function isNullOrNaN(value) {
   if (value === null) return true;
@@ -258,6 +261,12 @@ const SystemSettings = {
         .filter((loc) => /^[a-z0-9äöüß\-. ]{1,80}$/.test(loc));
       return [...new Set(cleaned)].join(",");
     },
+    // KIE-576: Kategorie-Karte (JSON, version 1, höchstens 2 MB), geschrieben
+    // nur von der Pipeline über _updateSettings (docker exec), nicht über
+    // HTTP: das Label steht bewusst nicht in supportedFields (R1-D6). Leer ->
+    // null (keine Karte); ungültig -> Fehler, das Update wird abgelehnt und
+    // der alte Wert bleibt. Gelesen nur von embedCategoryChains.loadCategoryMap.
+    kufer_category_map: (update) => validateCategoryMapSetting(update),
     // Global default vector search mode. Invalid values coerce to "default".
     vector_search_default: (update) => {
       const validModes = ["default", "rerank", "hybrid", "hybrid_rerank"];
