@@ -205,10 +205,27 @@ describe.each(PATHS)("%s", (_name, call) => {
     expect(stored.sources.map((s) => s.text)).toEqual([COURSE_TEXT]);
   });
 
-  test("NAK-6: ohne Karte Kontext bytegleich", async () => {
-    prisma.system_settings.findFirst.mockResolvedValue(null);
-    await call();
-    const { contextTexts } = connector.compressMessages.mock.calls[0][0];
-    expect(contextTexts).toEqual([COURSE_TEXT]);
-  });
+  test.each([
+    ["ohne Karte", null],
+    ["kaputt", { value: "{" }],
+    [
+      "älter als 36 h",
+      {
+        value: MAP_JSON().replace(
+          /"created":"[^"]+"/,
+          `"created":"${new Date(Date.now() - 37 * 3600 * 1000).toISOString()}"`
+        ),
+      },
+    ],
+  ])(
+    "NAK-6: %s Kontext bytegleich, gespeicherte Antwort unverändert",
+    async (_name, row) => {
+      prisma.system_settings.findFirst.mockResolvedValue(row);
+      await call();
+      const { contextTexts } = connector.compressMessages.mock.calls[0][0];
+      expect(contextTexts).toEqual([COURSE_TEXT]);
+      const stored = WorkspaceChats.new.mock.calls[0][0].response;
+      expect(stored.text).toBe("Antwort");
+    }
+  );
 });

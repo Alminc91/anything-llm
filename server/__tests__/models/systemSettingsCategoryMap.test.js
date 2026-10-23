@@ -50,6 +50,18 @@ describe("Whitelist und Validator", () => {
     });
   });
 
+  test("K2: Karte mit updated und unbekanntem Feld wird unverändert gespeichert", async () => {
+    const value = MAP.replace(
+      '"courses":{}',
+      '"courses":{},"updated":"2026-10-23T07:00:00Z","neu":true'
+    );
+    const result = await SystemSettings.updateSettings({ [LABEL]: value });
+    expect(result).toEqual({ success: true, error: null });
+    expect(prisma.system_settings.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: { value } })
+    );
+  });
+
   test("leerer Wert leert die Karte (null)", async () => {
     await SystemSettings.updateSettings({ [LABEL]: "" });
     expect(prisma.system_settings.upsert).toHaveBeenCalledWith(
@@ -99,6 +111,17 @@ describe("kein Ausgabeweg für die Karte", () => {
       .sort();
     expect(users).toEqual([
       path.join("models", "systemSettings.js"),
+      path.join("utils", "chats", "embedCategoryChains.js"),
+    ]);
+  });
+
+  test("K2: der Stand der Karte (categoryMapUpdatedAt) wird nirgends ausgegeben", () => {
+    const users = jsFiles(serverRoot)
+      .filter((file) =>
+        fs.readFileSync(file, "utf8").includes("categoryMapUpdatedAt")
+      )
+      .map((file) => path.relative(serverRoot, file));
+    expect(users).toEqual([
       path.join("utils", "chats", "embedCategoryChains.js"),
     ]);
   });
