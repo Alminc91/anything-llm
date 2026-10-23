@@ -99,8 +99,6 @@ const SystemSettings = {
     "metadata_filter_locations",
     "search_trace",
     "course_selection",
-    // KIE-576: Kategorie-Karte der Pipeline (nie in publicFields)
-    "kufer_category_map",
 
     // Hub settings
     "hub_api_key",
@@ -264,9 +262,10 @@ const SystemSettings = {
       return [...new Set(cleaned)].join(",");
     },
     // KIE-576: Kategorie-Karte (JSON, version 1, höchstens 2 MB), geschrieben
-    // nachts von der Pipeline wie metadata_filter_locations. Leer -> null
-    // (keine Karte); ungültig -> Fehler, das Update wird abgelehnt und der alte
-    // Wert bleibt. Gelesen nur von embedCategoryChains.loadCategoryMap.
+    // nur von der Pipeline über _updateSettings (docker exec), nicht über
+    // HTTP: das Label steht bewusst nicht in supportedFields (R1-D6). Leer ->
+    // null (keine Karte); ungültig -> Fehler, das Update wird abgelehnt und
+    // der alte Wert bleibt. Gelesen nur von embedCategoryChains.loadCategoryMap.
     kufer_category_map: (update) => validateCategoryMapSetting(update),
     // Global default vector search mode. Invalid values coerce to "default".
     vector_search_default: (update) => {

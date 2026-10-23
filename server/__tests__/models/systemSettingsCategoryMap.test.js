@@ -1,8 +1,10 @@
 /* eslint-env jest, node */
 // KIE-576 S1: SystemSetting kufer_category_map (Kategorie-Karte der Pipeline).
-// Whitelist mit Validator (JSON, version 1, höchstens 2 MB, sonst abgelehnt)
-// und kein Ausgabeweg: nicht in publicFields (einzige generische Ausgabe
-// /admin/system-preferences-for), kein Endpunkt nennt das Label.
+// Validator (JSON, version 1, höchstens 2 MB, sonst abgelehnt) greift in
+// _updateSettings, dem Schreibweg der Pipeline (docker exec). R1-D6: nicht
+// über HTTP schreibbar (nicht in supportedFields, updateSettings verwirft das
+// Label) und kein Ausgabeweg: nicht in publicFields (einzige generische
+// Ausgabe /admin/system-preferences-for), kein Endpunkt nennt das Label.
 
 const fs = require("fs");
 const path = require("path");
@@ -35,13 +37,19 @@ beforeEach(() => {
 });
 
 describe("Whitelist und Validator", () => {
-  test("schreibbar über updateSettings (supportedFields), nie öffentlich (publicFields)", () => {
-    expect(SystemSettings.supportedFields).toContain(LABEL);
+  test("R1-D6: nicht über HTTP schreibbar (supportedFields), nie öffentlich (publicFields)", () => {
+    expect(SystemSettings.supportedFields).not.toContain(LABEL);
     expect(SystemSettings.publicFields).not.toContain(LABEL);
   });
 
-  test("gültige Karte wird unverändert gespeichert", async () => {
+  test("R1-D6: updateSettings (Weg der HTTP-Endpunkte) schreibt die Karte nicht", async () => {
     const result = await SystemSettings.updateSettings({ [LABEL]: MAP });
+    expect(result).toEqual({ success: true, error: null });
+    expect(prisma.system_settings.upsert).not.toHaveBeenCalled();
+  });
+
+  test("gültige Karte wird über _updateSettings unverändert gespeichert", async () => {
+    const result = await SystemSettings._updateSettings({ [LABEL]: MAP });
     expect(result).toEqual({ success: true, error: null });
     expect(prisma.system_settings.upsert).toHaveBeenCalledWith({
       where: { label: LABEL },
@@ -55,7 +63,7 @@ describe("Whitelist und Validator", () => {
       '"courses":{}',
       '"courses":{},"updated":"2026-10-23T07:00:00Z","neu":true'
     );
-    const result = await SystemSettings.updateSettings({ [LABEL]: value });
+    const result = await SystemSettings._updateSettings({ [LABEL]: value });
     expect(result).toEqual({ success: true, error: null });
     expect(prisma.system_settings.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ update: { value } })
@@ -63,7 +71,8 @@ describe("Whitelist und Validator", () => {
   });
 
   test("leerer Wert leert die Karte (null)", async () => {
-    await SystemSettings.updateSettings({ [LABEL]: "" });
+    const result = await SystemSettings._updateSettings({ [LABEL]: "" });
+    expect(result).toEqual({ success: true, error: null });
     expect(prisma.system_settings.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ update: { value: null } })
     );
@@ -83,7 +92,7 @@ describe("Whitelist und Validator", () => {
     "%s: abgelehnt, nichts geschrieben, Fehler an den Aufrufer",
     async (_name, value) => {
       jest.spyOn(console, "error").mockImplementation(() => {});
-      const result = await SystemSettings.updateSettings({ [LABEL]: value });
+      const result = await SystemSettings._updateSettings({ [LABEL]: value });
       console.error.mockRestore();
       expect(result.success).toBe(false);
       expect(result.error).toMatch(LABEL);
