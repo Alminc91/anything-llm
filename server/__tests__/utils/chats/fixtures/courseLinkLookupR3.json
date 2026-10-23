@@ -1,0 +1,111 @@
+{
+  "_quelle": "KIE-576 Messung AK-21 vom 23.10.2026 (messung-ak21.md): Benchmark-Antworten und Serverkarten, gekürzt auf die nötigen Zeilen; Namen von Kursleitungen entfernt",
+  "lingen": {
+    "nodes": {
+      "Gesundheit \\ Bewegung": {
+        "title": "Bewegung",
+        "url": "https://www.vhs-lingen.de/programm/gesundheit/kategorie/Bewegung/144",
+        "count": null
+      }
+    },
+    "course_links": {
+      "2026H96580": {
+        "title": "Zumba®",
+        "start": "2026-10-29T18:30",
+        "place": "Grundschule Schepsdorf, Sporthalle",
+        "url": "https://www.vhs-lingen.de/programm/kurssuche/kurs/zumba-r/2026H96580"
+      },
+      "2026H95650": {
+        "title": "Yoga mit dem Stuhl",
+        "start": "2026-08-20T18:15",
+        "place": "Bildungszentrum Gebrüder-Grimm, OG14",
+        "url": "https://www.vhs-lingen.de/programm/kurssuche/kurs/yoga-mit-dem-stuhl/2026H95650"
+      },
+      "2026H72020": {
+        "title": "A new start - English Refresher (A2)  Intensivkurs/Bildungsurlaub",
+        "start": "2026-11-23T08:30",
+        "place": "Bildungszentrum Gebrüder-Grimm, OG07",
+        "url": "https://www.vhs-lingen.de/programm/kurssuche/kurs/a-new-start-english-refresher-a2-intensivkurs-bildungsurlaub/2026H72020"
+      },
+      "2027F72015": {
+        "title": "A new start - English Refresher (A2)  Intensivkurs/Bildungsurlaub",
+        "start": "2027-06-14T08:30",
+        "place": "Bildungszentrum Gebrüder-Grimm, OG07",
+        "url": "https://www.vhs-lingen.de/programm/kurssuche/kurs/a-new-start-english-refresher-a2-intensivkurs-bildungsurlaub/2027F72015"
+      }
+    },
+    "entries": {
+      "lin-13-2": "2. [**Zumba®**](https://www.vhs-lingen.de/programm/kurssuche/kurs/zumba-r/2026H96570)\n  Ein energiegeladener Fitnesstanzkurs für Ihre Gesundheit.\n  **Beginn:** Do. 03.09.2026, 18:30 Uhr\n  **Ort:** Grundschule Schepsdorf, Sporthalle\n  **Kurs:** 2026H96570\n  **Status:** Anmeldung möglich",
+      "lin-13-knr": "2. [**Zumba®**](https://www.vhs-lingen.de/programm/neue-angebote/kategorie/356?knr=2026H96570&browse=forward)\n  Ein energiegeladener Fitnesstanzkurs für Ihre Gesundheit.\n  **Beginn:** Do. 03.09.2026, 18:30 Uhr\n  **Ort:** Grundschule Schepsdorf, Sporthalle\n  **Kurs:** 2026H96570\n  **Status:** Anmeldung möglich",
+      "lin-23-3": "3. [**Yoga mit dem Stuhl**](https://www.vhs-lingen.de/programm/gesundheit/kategorie/141?knr=2026H95620&browse=forward)\nEine sanfte Form des Yoga, die durch die Nutzung eines Stuhls besonders zugänglich ist.\n**Beginn:** Fr. 02.10.2026, 15.00\n**Ort:** Bildungszentrum Gebrüder-Grimm, OG06\n**Kurs:** 2026H95620\n**Status:** Plätze frei",
+      "lin-21-2": "2. [**A new start - English Refresher (A2)**](https://www.vhs-lingen.de/programm/bildungsurlaub)\nEin Intensivkurs zur Auffrischung Ihrer Englischkenntnisse auf dem Niveau A2.\n**Beginn:** Mo. 23.11.2026, 8.30 Uhr\n**Ort:** Bildungszentrum Gebrüder-Grimm, OG07\n**Kurs:** 2026H72020\n**Status:** Anmeldung möglich"
+    },
+    "overview": "<document_metadata>\nsource: https://www.vhs-lingen.de/programm/neue-angebote/kategorie/356?knr=2026H95345&browse=forward\n</document_metadata>\n\nTitel\nDatum\nOrt\nNr.\n \nSommer-VHS: Zumba® für Kinder (8-11 Jahre)\n \nWann:\nMi. 19.08.2026, 17.00 Uhr \nWo:\nGrundschule Schepsdorf, Sporthalle \nNr.:\n2026H96560 \nStatus:\nPlätze frei\nZumba®\n \nWann:\nDo. 03.09.2026, 18.30 Uhr \nWo:\nGrundschule Schepsdorf, Sporthalle \nNr.:\n2026H96570 \nStatus:\nAnmeldung möglich\n80 Jahre VHS Lingen - Yoga mit dem Stuhl\n \nWann:\nFr. 02.10.2026, 15.00 Uhr \nWo:\nBildungszentrum Gebrüder-Grimm, OG06 \nNr.:\n2026H95620 \nStatus:\nPlätze frei"
+  },
+  "altoetting": {
+    "nodes": {
+      "Kultur und Gestalten": {
+        "title": "Kultur und Gestalten",
+        "url": "https://www.vhs-altoetting.de/programm/kultur-gestalten",
+        "count": null
+      }
+    },
+    "course_links": {
+      "T3280": {
+        "title": "Let's level up your Business English!",
+        "start": "2026-09-22T17:30",
+        "place": "vhs-Zentrum, Burghauser Str. 77, LS 4",
+        "url": "https://www.vhs-altoetting.de/kurssuche/kurs/let-s-level-up-your-business-english/T3280"
+      },
+      "T8240A": {
+        "title": "Hatha-Yoga (Förderung durch Krankenkassen)",
+        "start": "2026-09-16T09:00",
+        "place": "Perach",
+        "url": "https://www.vhs-altoetting.de/kurssuche/kurs/hatha-yoga-foerderung-durch-krankenkassen/T8240A"
+      },
+      "T4004A": {
+        "title": "Hatha-Yoga  Ein Weg, Gesundheit, Ruhe und Kraft in sich selbst zu finden",
+        "start": "2026-09-21T18:00",
+        "place": "vhs-Zentrum, Burghauser Str. 77, LS 3",
+        "url": "https://www.vhs-altoetting.de/kurssuche/kurs/hatha-yoga-ein-weg/T4004A"
+      }
+    },
+    "entries": {
+      "alt-04-2": "2. [**Dot Painting Workshop - Teelichthalter**](https://www.vhs-altoetting.de/programm/kultur-gestalten)\n  Gestalten Sie kreative Teelichthalter mit der Dot-Painting-Technik.\n  **Beginn:** Do. 22.10.2026, 18.00 Uhr\n  **Ort:** vhs-Zentrum, Burghauser Str. 77, LS 3\n  **Kurs:** T5050 | **Status:** Anmeldung möglich",
+      "alt-06-1": "1. [**Hatha-Yoga in Perach (Förderung durch Krankenkassen)**](https://www.vhs-altoetting.de/programm/gesundheit/kategorie/476)\n   Ein Yoga-Kurs mit möglicher Krankenkassenzuschuss in Perach.\n   **Beginn:** Mi. 16.09.2026, 9.00 Uhr\n   **Ort:** Bürgerhaus Perach\n   **Kurs:** T8240A\n   **Status:** Anmeldung möglich",
+      "alt-10-2": "2. [**Let's level up your Business English!**](https://www.vhs-altoetting.de/programm/sprachen/kategorie/66)\n   Verbessern Sie Ihre Englischkenntnisse gezielt für den beruflichen Kontext.\n   **Beginn:** Di. 22.09.2026, 17.30 Uhr\n   **Ort:** vhs-Zentrum, Burghauser Str. 77, LS 4\n   **Kurs:** T3280\n   **Status:** Plätze frei"
+    }
+  },
+  "marburg": {
+    "nodes": {
+      "Gesundheit": {
+        "title": "Gesundheit",
+        "url": "https://www.vhs-marburg.de/kurse/gesundheit",
+        "count": null
+      }
+    },
+    "course_links": {
+      "262-30126": {
+        "title": "Hatha-Yoga  Einstiegs- und Vertiefungskurs",
+        "start": "2026-09-01T20:00",
+        "place": "Kulturscheune in Michelbach, Michelbacher Straße",
+        "url": "https://www.vhs-marburg.de/kurssuche/kurs/hatha-yoga-einstiegs-und-vertiefungskurs/262-30126"
+      },
+      "262-30125": {
+        "title": "Hatha-Yoga  Einstiegs- und Vertiefungskurs",
+        "start": "2026-09-01T18:15",
+        "place": "Kulturscheune in Michelbach, Michelbacher Straße",
+        "url": "https://www.vhs-marburg.de/kurssuche/kurs/hatha-yoga-einstiegs-und-vertiefungskurs/262-30125"
+      },
+      "262-30133": {
+        "title": "Hatha-Yoga  Einstiegs- und Vertiefungskurs 50+",
+        "start": "2026-09-24T10:30",
+        "place": "Volkshochschule, Deutschhausstraße 38; Raum 403",
+        "url": "https://www.vhs-marburg.de/kurssuche/kurs/hatha-yoga-einstiegs-und-vertiefungskurs-50/262-30133"
+      }
+    },
+    "entries": {
+      "mar-02-3": "3. [**Hatha-Yoga**](https://www.vhs-marburg.de/kurse/gesundheit)\n   Eine klassische Yoga-Praxis zur Förderung von Beweglichkeit und innerer Ruhe.\n   **Beginn:** Di. 01.09.2026, 18.15 Uhr\n   **Ort:** Kulturscheune in Michelbach, Michelbacher Straße\n   **Kurs:** 262-30125"
+    }
+  }
+}

@@ -19,6 +19,7 @@ const {
   startMetadataFilterResolution,
 } = require("./metadataFilterResolver");
 const { Telemetry } = require("../../models/telemetry");
+const { buildChainedContext } = require("./embedCategoryChains");
 const { CollectorApi } = require("../collectorApi");
 const fs = require("fs");
 const path = require("path");
@@ -407,7 +408,10 @@ async function chatSync({
   // If a past citation was used to answer the question - that is visible in the history so it logically makes sense
   // and does not appear to the user that a new response used information that is otherwise irrelevant for a given prompt.
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
-  contextTexts = [...contextTexts, ...filledSources.contextTexts];
+  // KIE-576: Kategorie-Kette im Kontext (nur contextTexts, siehe
+  // embedCategoryChains.js); ohne gültige Karte unverändert. Die Absicherung
+  // der Links gibt es nur im Embed-Pfad (Markerfilter).
+  ({ contextTexts } = await buildChainedContext(contextTexts, filledSources));
   sources = [...sources, ...vectorSearchResults.sources];
 
   // If in query mode and no context chunks are found from search, backfill, or pins -  do not
@@ -822,7 +826,10 @@ async function streamChat({
   // If a past citation was used to answer the question - that is visible in the history so it logically makes sense
   // and does not appear to the user that a new response used information that is otherwise irrelevant for a given prompt.
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
-  contextTexts = [...contextTexts, ...filledSources.contextTexts];
+  // KIE-576: Kategorie-Kette im Kontext (nur contextTexts, siehe
+  // embedCategoryChains.js); ohne gültige Karte unverändert. Die Absicherung
+  // der Links gibt es nur im Embed-Pfad (Markerfilter).
+  ({ contextTexts } = await buildChainedContext(contextTexts, filledSources));
   sources = [...sources, ...vectorSearchResults.sources];
 
   // If in query mode and no context chunks are found from search, backfill, or pins -  do not

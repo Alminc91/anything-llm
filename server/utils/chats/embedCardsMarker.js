@@ -77,6 +77,15 @@
 // zurück, bis entschieden ist (höchstens ein Fenster) — der Stream ergibt
 // dasselbe wie die ganze Antwort (parseCardsReply). Gespeichert als
 // followUps (Widget-Verlauf), im LLM-Verlauf wieder als letzte Zeile.
+//
+// KIE-576 Absicherung: Mit gültiger Kategorie-Karte (embedCategoryChains.js,
+// nur ohne Kurskarten) prüft eine letzte Stufe (OverviewLinkFilter) jeden
+// Link an seiner Adresse, bevor er gesendet wird (R1-D1): Knoten der Karte
+// bekommen Titel, Zahl und Adresse aus der Karte; Übersichtslinks auf einen
+// Kurs-Link oder eine unbekannte Adresse entfallen; die Übersichtszeile
+// „Mehr Kurse zum Thema: [<Titel> (<n> Kurse)](<url>)“ setzt der Server (E29),
+// je Link eine Zeile (S7-1).
+// Stream und gespeicherter Text entscheiden gleich; ohne Karte keine Stufe.
 
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { safeJsonParse } = require("../http");
@@ -564,16 +573,835 @@ function cleanStoredResponse(response) {
   return text === data.text ? response : JSON.stringify({ ...data, text });
 }
 
+// KIE-576: Links der Antwort prüfen (Übersichtslinks „Mehr Kurse zum Thema:
+// …“, alte Form „Alle Kurse in …“, Knoten der Karte), bevor sie das Widget
+// erreichen. Fenster ab "[" bzw. "<" bis zum Ende des Links; höchstens so
+// viele Zeichen Aufzählungs-/Schmuckzeichen am Zeilenanfang werden
+// mitgehalten (auch _ und #: Einleitung mit Schmuck davor, S5).
+const LINK_WINDOW = 600;
+const LINE_PREFIX_MAX = 16;
+const LINE_PREFIX_RX =
+  /^[ \t>*_#+\u2022\u00b7\u25aa\u25ab\u25b8\u25ba\u25e6\u2023\u2192\-\u2013\u2014\d.)\p{Extended_Pictographic}\uFE0F\u200D]$/u;
+const LINE_RUN_RX = /[^\n[]+/y;
+// in einer Übersichtszeile bzw. einem Übersichtsblock auch vor "<" halten
+// (Autolink <https://…>)
+const OVERVIEW_LINE_RUN_RX = /[^\n[<]+/y;
+// Zeile ist ein Aufzählungspunkt („1. “, „2) “, „- “, „* “, „• “, „▪ “):
+// Listenzeile eines Übersichtsblocks
+const ENUMERATION_RX =
+  /^[ \t>]*(?:\d{1,3}[.)]|[-*+\u2022\u25aa\u25ab\u25e6\u2023])[ \t]/u;
+// Länge, bis zu der eine Einleitung am Zeilenanfang erkannt wird
+const INTRO_SCAN = 64;
+// R6-D3: eigene Einleitung des Modells vor einem Kategorie-Link am
+// Zeilenende („Weitere Angebote finden Sie hier: [Yoga (3 Kurse)](…)“), in
+// der ersten Zeile eines Absatzes ohne Aufzählungszeichen (nur dort wird
+// der Zeilenanfang bis zur Entscheidung gehalten, NAK-10): höchstens OWN_INTRO_MAX Zeichen bis einschließlich „:“, davor kein
+// Zeilenende, kein Link und kein Satzende; nach dem „:“ höchstens
+// OWN_INTRO_GAP Zeichen Schmuck und Leerraum, dann der Link; nach dem Link
+// bis zum Zeilenende höchstens OWN_INTRO_TAIL Zeichen Schmuck, Leerraum,
+// „.“ oder „!“
+const OWN_INTRO_MAX = 80;
+const OWN_INTRO_GAP = 8;
+const OWN_INTRO_TAIL = 16;
+const OWN_INTRO_STOP = "\n[<.!?";
+const OWN_INTRO_TAIL_CHARS = " \t\r*_.!";
+// Schmuck und Leerraum direkt vor einem möglichen Link (mitten in der
+// Zeile): gehalten, bis der Link entschieden ist (R1-D3)
+const LINK_LEAD_CHARS = "*_ \t";
+// Autolinks wie markdown-it (lib/rules_inline/autolink.mjs)
+const AUTOLINK_RX = /^[a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^<>\x00-\x20]*$/;
+const EMAIL_RX =
+  /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+
+/**
+ * Inline-Link ab Position i (dort steht "[") im Fenster LINK_WINDOW, in der
+ * Grammatik von markdown-it innerhalb einer Zeile: Linktext mit
+ * ausgeglichenen Klammern und "\"-Maskierung, Ziel roh (Klammern
+ * ausgeglichen) oder in <…>, optionaler Titel "…", '…' oder (…), Leerraum
+ * um Ziel und Titel, Schema beliebig.
+ *   - "link": {text, url, raw, after (Ziel samt Klammern), end, nested}
+ *     nested: der Linktext enthält "[" (markdown-it zeigt dann einen
+ *     inneren Link, nicht diesen)
+ *   - "pending": könnte noch einer werden (nur ohne final)
+ *   - "none": sonst; "[" ist Text
+ * Linkformen über eine Zeile hinaus (auch "\" vor dem Zeilenende) oder über
+ * das Fenster erkennt der Scanner nicht ("none"). In einer Übersichtszeile
+ * bzw. einem Übersichtsblock verwirft der Filter sie samt der Zeilen, über
+ * die sie reichen (fail-closed, R1-D1 Regel 6, R4-D2): Dafür sucht der
+ * weite Modus (wide) ihr Ende wie markdown-it über Zeilenenden hinweg (nicht
+ * über eine Leerzeile).
+ * @param {string} s
+ * @param {number} i
+ * @param {boolean} final
+ * @param {boolean} [wide]
+ * @returns {{state: "pending"|"none"|"link", text?: string, url?: string, raw?: string, after?: string, end?: number, nested?: boolean}}
+ */
+function scanInlineLink(s, i, final, wide = false) {
+  const limit = Math.min(s.length, i + LINK_WINDOW);
+  const open = !final && limit === s.length && s.length < i + LINK_WINDOW;
+  const undecided = () => (open ? PENDING : NONE);
+  // Zeilenende an j im Link: nur im weiten Modus und ohne Leerzeile danach
+  const lineBreak = (j) => {
+    if (!wide) return "stop";
+    let k = j + 1;
+    while (k < limit && (s[k] === " " || s[k] === "\t")) k += 1;
+    if (k >= limit) return open ? "open" : "stop";
+    return s[k] === "\n" ? "stop" : "ok";
+  };
+  // "\" maskiert das nächste Zeichen; ein Zeilenende dahinter gilt wie
+  // ohne "\": eng nie, weit nicht vor einer Leerzeile (R3-S3)
+  const escaped = (j) => (s[j + 1] === "\n" ? lineBreak(j + 1) : "ok");
+  const skipSpace = (j) => {
+    for (; j < limit; j += 1) {
+      if (s[j] === " " || s[j] === "\t") continue;
+      if (s[j] !== "\n") break;
+      const next = lineBreak(j);
+      if (next === "open") return limit;
+      if (next === "stop") break;
+    }
+    return j;
+  };
+  let j = i + 1;
+  let depth = 1;
+  let nested = false;
+  for (;;) {
+    if (j >= limit) return undecided();
+    const c = s[j];
+    if (c === "\n") {
+      const next = lineBreak(j);
+      if (next !== "ok") return next === "open" ? PENDING : NONE;
+    } else if (c === "\\") {
+      const next = escaped(j);
+      if (next !== "ok") return next === "open" ? PENDING : NONE;
+      j += 1;
+    } else if (c === "[") {
+      depth += 1;
+      nested = true;
+    } else if (c === "]" && --depth === 0) break;
+    j += 1;
+  }
+  const labelEnd = j;
+  j += 1;
+  if (j >= limit) return undecided();
+  if (s[j] !== "(") return NONE;
+  j = skipSpace(j + 1);
+  if (j >= limit) return undecided();
+  let url;
+  if (s[j] === "<") {
+    const start = j + 1;
+    for (j = start; j < limit && s[j] !== ">"; j += 1)
+      if (s[j] === "\n" || s[j] === "<") return NONE;
+    if (j >= limit) return undecided();
+    url = s.slice(start, j);
+    j += 1;
+  } else {
+    const start = j;
+    let parens = 0;
+    while (j < limit) {
+      const c = s[j];
+      if (c <= " " || c === "\x7f") break;
+      if (c === "\\") {
+        const next = escaped(j);
+        if (next !== "ok") return next === "open" ? PENDING : NONE;
+        j += 1;
+      } else if (c === "(") parens += 1;
+      else if (c === ")") {
+        if (parens === 0) break;
+        parens -= 1;
+      }
+      j += 1;
+    }
+    if (j >= limit) return undecided();
+    url = s.slice(start, j);
+  }
+  const afterUrl = j;
+  j = skipSpace(j);
+  if (j >= limit) return undecided();
+  if (j > afterUrl && (s[j] === '"' || s[j] === "'" || s[j] === "(")) {
+    const closer = s[j] === "(" ? ")" : s[j];
+    for (j += 1; j < limit && s[j] !== closer; j += 1) {
+      if (s[j] === "\n") {
+        const next = lineBreak(j);
+        if (next !== "ok") return next === "open" ? PENDING : NONE;
+      } else if (s[j] === "\\") {
+        const next = escaped(j);
+        if (next !== "ok") return next === "open" ? PENDING : NONE;
+        j += 1;
+      }
+    }
+    if (j >= limit) return undecided();
+    j = skipSpace(j + 1);
+    if (j >= limit) return undecided();
+  }
+  if (s[j] !== ")") return NONE;
+  return {
+    state: "link",
+    text: s.slice(i + 1, labelEnd),
+    url,
+    raw: s.slice(i, j + 1),
+    after: s.slice(labelEnd + 1, j + 1),
+    end: j + 1,
+    nested,
+  };
+}
+
+/**
+ * Autolink ab Position i (dort steht "<"): <schema:…> oder <name@host>
+ * wie markdown-it; Text = Adresse.
+ * @returns {{state: "pending"|"none"|"link", text?: string, url?: string, raw?: string, end?: number, autolink?: boolean}}
+ */
+function scanAutolink(s, i, final) {
+  const limit = Math.min(s.length, i + LINK_WINDOW);
+  let j = i + 1;
+  while (j < limit && s[j] !== ">" && s[j] !== "<" && s[j] > " ") j += 1;
+  if (j >= limit)
+    return !final && limit === s.length && s.length < i + LINK_WINDOW
+      ? PENDING
+      : NONE;
+  if (s[j] !== ">") return NONE;
+  const inner = s.slice(i + 1, j);
+  const url = AUTOLINK_RX.test(inner)
+    ? inner
+    : EMAIL_RX.test(inner)
+      ? `mailto:${inner}`
+      : null;
+  if (url === null) return NONE;
+  return {
+    state: "link",
+    text: inner,
+    url,
+    raw: s.slice(i, j + 1),
+    end: j + 1,
+    autolink: true,
+  };
+}
+
+// KIE-576 AK-21: Text nach einem Kurstitel-Link ohne Bestätigung aus den
+// Quellen (R3-D1), aus dem der Prüfer die Merkmale liest (Beginn, Zeit, Ort,
+// Kursnummer). Er endet vor dem nächsten "[" (nächster Link), vor einer
+// Leerzeile (neuer Eintrag) oder nach COURSE_WINDOW Zeichen. Im Stream
+// werden Link und Text so lange gehalten (nur bei Kurstitel-Links auf
+// Adressen ohne Kurs-Link, NAK-10). Grenze 400: Ein Eintrag nach dem
+// Kursschema des Prompts (Beschreibung, „Beginn:“, „Ort:“, „Preis: | Kurs:“,
+// „Status:“) hat etwa 250 bis 380 Zeichen, „Beginn:“ steht in den ersten
+// 250; 400 sind etwa 100 Tokens, bei Last (63 t/s) höchstens etwa 1,6 s
+// Halten, und bleiben unter dem Linkfenster LINK_WINDOW (600).
+const COURSE_WINDOW = 400;
+// Leerzeile: Zeilenende, höchstens so viel Leerraum, Zeilenende
+const BLANK_LINE_SCAN = 16;
+
+/**
+ * Ende des Merkmalstexts ab from (AK-21) oder -1, solange es noch offen ist
+ * (nur ohne final). Hängt nur vom Text ab, nicht von der Aufteilung in
+ * Token: Stream, Antwort ohne Streaming und Speichern lesen dasselbe.
+ * @param {string} s
+ * @param {number} from
+ * @param {boolean} final
+ * @returns {number}
+ */
+function courseWindowEnd(s, from, final) {
+  const limit = from + COURSE_WINDOW;
+  for (let j = from; j < s.length && j < limit; j += 1) {
+    if (s[j] === "[") return j;
+    if (s[j] !== "\n") continue;
+    // k: erstes Zeichen nach höchstens BLANK_LINE_SCAN Leerraumzeichen
+    let k = j + 1;
+    while (
+      k < s.length &&
+      k - j - 1 < BLANK_LINE_SCAN &&
+      " \t\r".includes(s[k])
+    )
+      k += 1;
+    if (k === s.length) {
+      if (!final) return -1;
+    } else if (s[k] === "\n") return j;
+  }
+  if (s.length >= limit) return limit;
+  return final ? s.length : -1;
+}
+
+/**
+ * Eigene Einleitung des Modells ab from (R6-D3, Form bei OWN_INTRO_MAX):
+ * der Link am Zeilenende dahinter (Ergebnis von scanInlineLink), PENDING,
+ * solange offen (nur ohne final), sonst null. Hängt nur vom Text ab: Stream,
+ * Antwort ohne Streaming und Speichern lesen dasselbe.
+ * @param {string} s
+ * @param {number} from - erstes Zeichen nach dem Schmuck am Zeilenanfang
+ * @param {boolean} final
+ * @returns {object|null}
+ */
+function ownIntroLink(s, from, final) {
+  let j = from;
+  for (; s[j] !== ":"; j += 1) {
+    if (j - from >= OWN_INTRO_MAX) return null;
+    if (j >= s.length) return final ? null : PENDING;
+    if (OWN_INTRO_STOP.includes(s[j])) return null;
+  }
+  if (j - from >= OWN_INTRO_MAX) return null;
+  let k = j + 1;
+  while (k < s.length && k - j - 1 < OWN_INTRO_GAP && "*_ \t".includes(s[k]))
+    k += 1;
+  if (k >= s.length) return final ? null : PENDING;
+  if (s[k] !== "[") return null;
+  const found = scanInlineLink(s, k, final);
+  if (found.state !== "link") return found.state === "pending" ? PENDING : null;
+  if (found.nested) return null;
+  let t = found.end;
+  while (
+    t < s.length &&
+    t - found.end < OWN_INTRO_TAIL &&
+    OWN_INTRO_TAIL_CHARS.includes(s[t])
+  )
+    t += 1;
+  if (t >= s.length) return final ? found : PENDING;
+  return s[t] === "\n" ? found : null;
+}
+
+// Offene Hervorhebungen (**, __, *, _) einer gesendeten Zeile schließen,
+// wenn ihr Rest entfällt (R1-D3); Aufzählungszeichen am Anfang zählt nicht
+function emphasisClosers(lineText) {
+  const body = lineText.replace(ENUMERATION_RX, "");
+  const count = (text, mark) => text.split(mark).length - 1;
+  let closers = "";
+  for (const mark of ["**", "__"])
+    if (count(body, mark) % 2 === 1) closers = mark + closers;
+  const single = body
+    .replace(/\*\*|__/g, "")
+    .replace(/(?<=[\p{L}\p{N}])_(?=[\p{L}\p{N}])/gu, "");
+  for (const mark of ["*", "_"])
+    if (count(single, mark) % 2 === 1) closers = mark + closers;
+  return closers;
+}
+
+/**
+ * KIE-576 Absicherung (R1-D1): Zustandsbehafteter Filter, der jeden Link mit
+ * dem Prüfer aus embedCategoryChains (createOverviewLinkGuard.check)
+ * entscheidet; Stream und ganze Antwort teilen ihn (gleiche Entscheidung bei
+ * jeder Aufteilung in Token). Läuft hinter dem ProtocolMarkerFilter.
+ * Zurückgehalten werden ein möglicher Link ab "[" bis zu seinem Ende
+ * (Zeilenende, Fenstergrenze oder Antwortende entscheiden dagegen),
+ * Aufzählungs-/Schmuckzeichen am Zeilenanfang, Schmuck und Leerraum direkt
+ * vor einem Link und eine begonnene Einleitung am Zeilenanfang.
+ *
+ * Übersichtszeile (E29): Beginnt eine Zeile (nach Schmuck) mit der
+ * Einleitung oder mit einem Knoten-Link in alter Form („Alle Kurse in …“),
+ * setzt der Server die Zeile selbst: je behaltenem Link eine eigene Zeile
+ * mit der Einleitung des Prüfers (S7-1, auch wenn das Modell zwei Links mit
+ * „ · “ oder Komma in eine Zeile schreibt); Schmuck und übriger Text der
+ * Zeile entfallen. Die Einleitung wird erst mit dem ersten behaltenen Link
+ * gesendet; bleibt keiner, entfällt die Zeile samt Zeilenende.
+ * Übersichtsblock (S2, R4-D2, R5-D3): Eine Einleitung ohne Link wird bis
+ * zur nächsten Zeile gehalten; Leerzeilen direkt danach gehören dazu,
+ * beliebig viele (markdown-it zeigt Einleitung, Leerzeilen und Liste wie
+ * ohne Leerzeile). Folgen Listenzeilen oder Zeilen, die (nach Schmuck) mit
+ * einem Link beginnen, gelten ihre Links als Übersichtslinks; die
+ * Einleitung kommt mit dem ersten gesendeten Text der Liste und entfällt,
+ * wenn alle Links der Liste entfallen. Sonst bleibt sie unverändert.
+ * Ebenso gehören Zeilen, die (nach Schmuck oder Aufzählungszeichen) mit
+ * einem erkannten Link beginnen, direkt unter einer Übersichtszeile mit
+ * Link (ohne Leerzeile; das Widget schaltet Listen ab, alles steht im
+ * selben Absatz) zum Block (R5-D3, R3-S2, R7-D1); Kurs-Links gelten dort
+ * wie im Fließtext, ein anderer behaltener Link am Zeilenanfang bekommt eine
+ * eigene Übersichtszeile (S7-1).
+ * Eigene Einleitung des Modells (R6-D3): Steht am Zeilenende ein
+ * Kategorie-Link hinter einer kurzen Einleitung (ownIntroLink), setzt der
+ * Server die Zeile wie bei der Einleitung E29. Bis zur Entscheidung wird
+ * die erste Zeile eines Absatzes gehalten (höchstens OWN_INTRO_MAX Zeichen,
+ * Link und Zeilenende dahinter).
+ * Nicht erkannte Linkformen ("[" bzw. "<" ohne gültigen Link, verschachtelte
+ * Links, Referenzlinks, Links über ein Zeilenende) gelten in
+ * Übersichtszeile und -block als entfernte Links (fail-closed); ein Link
+ * über ein Zeilenende fällt samt Folgezeile weg (R4-D2).
+ *
+ * Sonst: Entfernt wird ein Link mit dem Rest seiner Zeile; stand davor nur
+ * Schmuck, die ganze Zeile samt Zeilenende (wie guard v2). Mitten in der
+ * Zeile bleibt der schon gesendete Text, gehaltener Schmuck davor entfällt
+ * und offene Hervorhebungen werden geschlossen (R1-D3). Neu gesetzt wird
+ * sonst nur der Link selbst; die Zeile bleibt.
+ *
+ * Kurslink nachschlagen (AK-21): Meldet der Prüfer Kandidaten zum Linktext
+ * ohne Bestätigung aus den Quellen ({course}, R3-D1), hält der Filter den
+ * Link und den Text danach bis courseWindowEnd, lässt pickCourse
+ * entscheiden und sendet dann alles auf einmal; der gehaltene Text läuft
+ * anschließend normal durch den Filter.
+ */
+class OverviewLinkFilter {
+  /**
+   * @param {{check: Function, matchIntro: Function, intro: (lang: string) => string}} guard
+   */
+  constructor(guard) {
+    this.guard = guard;
+    this.rest = ""; // unentschiedener Rest ab einem möglichen Link
+    // Übersichtsblock {lang, raw, links, kept, sent, listed, follows}
+    this.block = null;
+    // AK-21: gehaltener Kurstitel-Link {found, candidates}; this.rest ist
+    // dann der Text danach bis zur Entscheidung (courseWindowEnd)
+    this.course = null;
+    this.#newLine(true);
+  }
+
+  // Zustand einer neuen Zeile; paragraph: erste Zeile eines Absatzes
+  // (Antwortanfang oder nach einer Leerzeile)
+  #newLine(paragraph = false) {
+    this.paragraph = paragraph;
+    this.prefix = ""; // gehaltener Zeilenanfang (nur Schmuckzeichen)
+    this.lead = ""; // gehaltener Schmuck/Leerraum vor einem möglichen Link
+    this.lineStart = true; // in dieser Zeile noch kein Text gesendet
+    this.begun = false; // erstes Zeichen nach dem Schmuck gesehen
+    this.sent = ""; // in dieser Zeile gesendeter Text
+    this.drop = null; // Rest der Zeile verwerfen: "line" (samt "\n") | "rest"
+    this.inBlock = false; // Listenzeile des Übersichtsblocks
+    // Schmuckfolge vor einem möglichen Link schon gesendet (über
+    // LINE_PREFIX_MAX): der Rest dieser Folge wird nicht mehr gehalten
+    this.leadOver = false;
+    // eigene Einleitung des Modells geprüft, keine (R6-D3)
+    this.ownIntroSeen = false;
+    // Übersichtszeile: {lang, raw (Originaltext bis zum ersten Link),
+    // links (gesehene Links), kept (gesendete Links)}
+    this.line = null;
+  }
+
+  // Erstes Zeichen c nach dem Schmuck: gehört die Zeile zum
+  // Übersichtsblock (Listenzeile oder Zeile, die mit einem Link beginnt)?
+  // Direkt unter einer Übersichtszeile (follows) nur eine Zeile, die mit
+  // einem erkannten Link beginnt (linked), auch mit Aufzählungszeichen: das
+  // Widget schaltet Listen ab, sie steht im selben Absatz (R3-S2, R7-D1).
+  // Sonst endet der Block (Ausgabe seiner Einleitung bzw. nichts).
+  #beginLine(c, linked = false) {
+    if (this.begun) return "";
+    this.begun = true;
+    if (!this.block) return "";
+    const listed = ENUMERATION_RX.test(this.prefix);
+    if (this.block.follows ? linked : listed || c === "[" || c === "<") {
+      this.inBlock = true;
+      this.block.listed = true;
+      return "";
+    }
+    return this.#closeBlock();
+  }
+
+  // Leerzeile nach der Einleitung eines Übersichtsblocks, vor der Liste
+  // (beliebig viele, R5-D3): gehört zum Block; nicht unter einer
+  // Übersichtszeile (dort endet der Absatz)
+  #blockGap() {
+    if (!this.#blankBeforeList()) return false;
+    this.block.raw += `${this.prefix}\n`;
+    return true;
+  }
+
+  // Zeilenanfang bisher nur Leerraum, Block wartet auf seine Liste: eine
+  // Leerzeile dort zählt wie bei markdown-it auch mit mehr als
+  // LINE_PREFIX_MAX Leerzeichen (prefix bleibt höchstens LINE_PREFIX_MAX
+  // lang, der Rest wird gekürzt, R6-D1)
+  #blankBeforeList() {
+    const block = this.block;
+    return (
+      !!block && !block.follows && !block.listed && /^[ \t]*$/.test(this.prefix)
+    );
+  }
+
+  #closeBlock() {
+    const block = this.block;
+    this.block = null;
+    this.inBlock = false;
+    if (block.sent || (block.links > 0 && block.kept === 0)) return "";
+    return block.raw;
+  }
+
+  // Einleitung des Übersichtsblocks vor dem ersten Text seiner Liste
+  #blockHead() {
+    if (!this.inBlock || this.block.sent) return "";
+    this.block.sent = true;
+    return this.block.raw;
+  }
+
+  // Sprache der Übersichtszeile bzw. des Übersichtsblocks, sonst null
+  #overview() {
+    return this.line?.lang ?? (this.inBlock ? this.block.lang : null);
+  }
+
+  // Text der laufenden Zeile senden (mit gehaltenem Schmuck davor)
+  #send(text) {
+    const head = this.#beginLine();
+    const sent = this.prefix + this.lead + text;
+    this.prefix = "";
+    this.lead = "";
+    this.lineStart = false;
+    this.sent += sent;
+    return head + this.#blockHead() + sent;
+  }
+
+  // Behaltenen Link in der Übersichtszeile senden: jeder Link in einer
+  // eigenen Zeile mit Einleitung (E29 präzisiert 23.10.2026, S7-1)
+  #lineLink(link) {
+    const line = this.line;
+    const head = `${line.kept === 0 ? "" : "\n"}${this.guard.intro(line.lang)} `;
+    line.kept += 1;
+    return `${this.#blockHead()}${head}${link}`;
+  }
+
+  // Text in der Übersichtszeile: vor dem ersten Link gehalten (höchstens ein
+  // Fenster, sonst ist es keine Übersichtszeile und wird gesendet), danach
+  // verworfen
+  #lineText(text) {
+    const line = this.line;
+    if (line.links > 0) return "";
+    line.raw += text;
+    if (line.raw.length <= LINK_WINDOW) return "";
+    this.line = null;
+    this.sent = line.raw;
+    return this.#blockHead() + line.raw;
+  }
+
+  // Zeilenende einer Übersichtszeile: Einleitung ohne Link wird zum
+  // möglichen Übersichtsblock (gehalten), sonst "\n" nur mit behaltenem
+  // Link; die Zeilen direkt darunter können zum Block gehören (R5-D3,
+  // follows: nichts zu halten, keine Leerzeile)
+  #endLine() {
+    const line = this.line;
+    this.line = null;
+    if (line.links > 0) {
+      if (!this.block)
+        this.block = {
+          lang: line.lang,
+          raw: "",
+          links: 0,
+          kept: 0,
+          sent: true,
+          listed: false,
+          follows: true,
+        };
+      return line.kept > 0 ? "\n" : "";
+    }
+    const out = this.block ? this.#closeBlock() : "";
+    this.block = {
+      lang: line.lang,
+      raw: `${line.raw}\n`,
+      links: 0,
+      kept: 0,
+      sent: false,
+      listed: false, // erste Zeile der Liste gesehen
+      follows: false,
+    };
+    return out;
+  }
+
+  // Link entfernt (oder nicht erkannte Linkform im Übersichtsblock)
+  #removeLink() {
+    if (this.inBlock) this.block.links += 1;
+    this.lead = "";
+    if (this.lineStart) {
+      this.prefix = "";
+      this.drop = "line";
+      return "";
+    }
+    this.drop = "rest";
+    return emphasisClosers(this.sent);
+  }
+
+  // Ausgabe eines behaltenen Links
+  #render(found, verdict) {
+    if (!verdict) return found.raw;
+    if (verdict.url) return `[${verdict.text}](${verdict.url})`;
+    return `[${verdict.text}]${found.after}`;
+  }
+
+  /**
+   * @param {string} piece
+   * @param {{final?: boolean}} [options]
+   * @returns {string} jetzt auszugebender Text
+   */
+  push(piece, { final = false } = {}) {
+    const s = this.rest + (typeof piece === "string" ? piece : "");
+    this.rest = "";
+    let out = "";
+    let i = 0;
+    while (i < s.length || (final && this.course)) {
+      if (this.course) {
+        // AK-21: Kurstitel-Link ohne Bestätigung, Merkmale danach
+        const end = courseWindowEnd(s, i, final);
+        if (end === -1) {
+          this.rest = s.slice(i);
+          i = s.length;
+          break;
+        }
+        const { found, candidates } = this.course;
+        this.course = null;
+        const url = this.guard.pickCourse(candidates, s.slice(i, end));
+        out += this.#send(
+          url ? `[${found.text}](${url})` : this.#render(found, null)
+        );
+        continue;
+      }
+      if (this.drop) {
+        const newline = s.indexOf("\n", i);
+        if (newline === -1) {
+          i = s.length;
+          break;
+        }
+        if (this.drop === "line") {
+          this.#newLine();
+          i = newline + 1;
+        } else {
+          this.drop = null;
+          i = newline;
+        }
+        continue;
+      }
+      const c = s[i];
+      if (this.lineStart && !this.begun && !this.lead) {
+        // Token-Grenze mitten in einem Zeichen (Emoji): auf den Rest warten
+        const code = s.charCodeAt(i);
+        if (code >= 0xd800 && code <= 0xdbff && i + 1 === s.length && !final) {
+          this.rest = s.slice(i);
+          break;
+        }
+        const char = String.fromCodePoint(s.codePointAt(i));
+        if (LINE_PREFIX_RX.test(char)) {
+          if (this.prefix.length + char.length <= LINE_PREFIX_MAX) {
+            this.prefix += char;
+            i += char.length;
+            continue;
+          }
+          // Leerzeile vor der Liste eines Übersichtsblocks (R5-D3):
+          // Leerraum über LINE_PREFIX_MAX wird gekürzt, nicht angehängt
+          // (R6-D1, R3-S1); der Zeilenanfang bleibt so kurz
+          if ((c === " " || c === "\t") && this.#blankBeforeList()) {
+            i += 1;
+            continue;
+          }
+        }
+        if (c === "\n" && this.#blockGap()) {
+          this.#newLine(true);
+          i += 1;
+          continue;
+        }
+        // unter einer Übersichtszeile: beginnt die Zeile (auch nach
+        // Aufzählungszeichen, R7-D1) mit einem erkannten Link (R3-S2)?
+        let linked = false;
+        if (this.block?.follows && (c === "[" || c === "<")) {
+          const found =
+            c === "[" ? scanInlineLink(s, i, final) : scanAutolink(s, i, final);
+          if (found.state === "pending") {
+            this.rest = s.slice(i);
+            break;
+          }
+          linked = found.state === "link";
+        }
+        out += this.#beginLine(c, linked);
+      }
+      const overview = this.#overview();
+      if (c === "[" || (c === "<" && overview)) {
+        const found =
+          c === "[" ? scanInlineLink(s, i, final) : scanAutolink(s, i, final);
+        if (found.state === "pending") {
+          this.rest = s.slice(i);
+          break;
+        }
+        this.leadOver = false;
+        if (c === "<" && found.state === "none") {
+          // "<" ohne Autolink ist Text
+          out += this.line ? this.#lineText(c) : this.#send(c);
+          i += 1;
+          continue;
+        }
+        if (found.state === "none" && !overview) {
+          out += this.#send(c);
+          i += 1;
+          continue;
+        }
+        if (found.state === "none" || (found.nested && overview)) {
+          // Übersichtszeile bzw. -block: nicht erkannte Linkform fällt weg
+          // (fail-closed, R1-D1 Regel 6, R4-D2), ein Link über ein
+          // Zeilenende samt Folgezeile (Ende im weiten Modus)
+          const wide =
+            found.state === "link" ? found : scanInlineLink(s, i, final, true);
+          if (wide.state === "pending") {
+            this.rest = s.slice(i);
+            break;
+          }
+          if (this.line) this.line.links += 1;
+          else out += this.#removeLink();
+          i = wide.state === "link" ? wide.end : i + 1;
+          continue;
+        }
+        const verdict = this.guard.check(found.text, found.url, {
+          overview,
+          lineStart: this.lineStart,
+          autolink: !!found.autolink,
+          follows: !this.line && this.inBlock && this.block.follows,
+        });
+        i = found.end;
+        if (verdict?.course) {
+          // nur außerhalb von Übersichtszeile und -block (check)
+          this.course = { found, candidates: verdict.course };
+          continue;
+        }
+        if (this.line) {
+          this.line.links += 1;
+          if (!verdict?.remove)
+            out += this.#lineLink(this.#render(found, verdict));
+          continue;
+        }
+        if (verdict?.remove) {
+          out += this.#removeLink();
+          continue;
+        }
+        if (this.inBlock) {
+          this.block.links += 1;
+          this.block.kept += 1;
+        }
+        if (verdict?.line) {
+          // Knoten-Link in alter Form am Zeilenanfang bzw. behaltener Link am
+          // Anfang einer Folgezeile (S7-1): der Server setzt die Zeile
+          this.prefix = "";
+          this.lead = "";
+          this.lineStart = false;
+          this.line = { lang: verdict.line, raw: "", links: 1, kept: 0 };
+          out += this.#lineLink(this.#render(found, verdict));
+          continue;
+        }
+        out += this.#send(this.#render(found, verdict));
+        continue;
+      }
+      if (this.lead) {
+        // weiterer Schmuck vor einem möglichen Link (Token-Grenze darin);
+        // über LINE_PREFIX_MAX geht die ganze Folge hinaus wie in der ganzen
+        // Antwort (R2-S10)
+        if (LINK_LEAD_CHARS.includes(c)) {
+          if (this.lead.length < LINE_PREFIX_MAX) {
+            this.lead += c;
+            i += 1;
+            continue;
+          }
+          this.leadOver = true;
+        }
+        out += this.#send("");
+      }
+      if (c === "\n") {
+        // Leerzeile: nur Leerraum gehalten, nichts gesendet
+        const blank =
+          this.lineStart &&
+          !this.line &&
+          /^[ \t]*$/.test(this.prefix + this.lead);
+        if (this.line) out += this.#endLine();
+        else out += this.#send("\n");
+        this.#newLine(blank);
+        i += 1;
+        continue;
+      }
+      if (this.line) {
+        // übriger Text der Übersichtszeile
+        const rx = OVERVIEW_LINE_RUN_RX;
+        rx.lastIndex = i;
+        const run = rx.exec(s)[0];
+        out += this.#lineText(run);
+        i += run.length;
+        continue;
+      }
+      if (this.lineStart) {
+        // Einleitung der Übersichtszeile (E29)
+        const intro = this.guard.matchIntro(s.slice(i, i + INTRO_SCAN), final);
+        if (intro?.pending) {
+          this.rest = s.slice(i);
+          break;
+        }
+        if (intro) {
+          const raw = this.prefix + s.slice(i, i + intro.length);
+          this.prefix = "";
+          this.lineStart = false;
+          this.line = { lang: intro.lang, raw, links: 0, kept: 0 };
+          i += intro.length;
+          continue;
+        }
+        // R6-D3: Kategorie-Link am Zeilenende hinter einer eigenen
+        // Einleitung des Modells: der Server setzt die Zeile
+        if (
+          this.paragraph &&
+          !overview &&
+          !this.ownIntroSeen &&
+          !ENUMERATION_RX.test(this.prefix)
+        ) {
+          const found = ownIntroLink(s, i, final);
+          if (found === PENDING) {
+            this.rest = s.slice(i);
+            break;
+          }
+          const verdict =
+            found && this.guard.check(found.text, found.url, { intro: true });
+          if (verdict?.line && !verdict.remove) {
+            this.prefix = "";
+            this.lineStart = false;
+            this.line = { lang: verdict.line, raw: "", links: 1, kept: 0 };
+            out += this.#lineLink(this.#render(found, verdict));
+            i = found.end;
+            continue;
+          }
+          this.ownIntroSeen = true;
+        }
+      }
+      const rx = overview ? OVERVIEW_LINE_RUN_RX : LINE_RUN_RX;
+      rx.lastIndex = i;
+      const run = rx.exec(s)[0];
+      i += run.length;
+      // Schmuck/Leerraum am Ende halten, wenn ein Link folgen kann; eine
+      // Folge über LINE_PREFIX_MAX Zeichen geht ganz hinaus, auch über eine
+      // Token-Grenze hinweg (leadOver)
+      let k = run.length;
+      while (k > 0 && LINK_LEAD_CHARS.includes(run[k - 1])) k -= 1;
+      const tail = run.length - k;
+      const over =
+        tail > LINE_PREFIX_MAX || (tail > 0 && k === 0 && this.leadOver);
+      const next = s[i];
+      const linkMayFollow =
+        i < s.length ? next === "[" || (next === "<" && overview) : !final;
+      if (tail > 0 && !over && linkMayFollow) {
+        if (k > 0) out += this.#send(run.slice(0, k));
+        this.lead = run.slice(k);
+      } else out += this.#send(run);
+      this.leadOver = tail > 0 && over;
+    }
+    if (final) {
+      if (!this.drop) {
+        if (this.line) {
+          const line = this.line;
+          this.line = null;
+          if (line.links === 0) out += this.#blockHead() + line.raw;
+        } else if (this.prefix || this.lead) out += this.#send("");
+      }
+      if (this.block) out += this.#closeBlock();
+      this.#newLine();
+    }
+    return out;
+  }
+}
+
+/**
+ * Übersichtslinks einer vollständigen Antwort prüfen (OverviewLinkFilter in
+ * einem Durchgang). Ohne Prüfer (keine gültige Karte) unverändert.
+ * @param {any} text
+ * @param {object|null} overviewLinks - createOverviewLinkGuard()
+ * @returns {any}
+ */
+function guardOverviewLinks(text, overviewLinks) {
+  if (!overviewLinks || typeof text !== "string") return text;
+  return new OverviewLinkFilter(overviewLinks).push(text, { final: true });
+}
+
 /**
  * Vollständige Antwort zerlegen: Marker, Teaserzeilen, Folgefragen, Rest-
  * Text (ohne Marker, Teaserzeilen und Protokoll-Marker). Ohne Marker bleibt
  * der Text bis auf Protokoll-Marker unverändert (auch "[[TEASER"-Zeilen).
+ * KIE-576: mit overviewLinks (Prüfer aus createOverviewLinkGuard) laufen die
+ * Übersichtslinks des Rest-Texts zuletzt durch den OverviewLinkFilter,
+ * dieselbe Entscheidung wie im Stream.
  * @param {string} text
- * @param {{userMessage?: string}} [options] - gerade gestellte Nutzerfrage
- *   (Pillen gleich dieser Frage werden verworfen)
+ * @param {{userMessage?: string, overviewLinks?: object|null}} [options] -
+ *   gerade gestellte Nutzerfrage (Pillen gleich dieser Frage werden
+ *   verworfen); Prüfer der Übersichtslinks
  * @returns {{marker: object, teasers: {index: number, text: string}[], followUps: string[], text: string}}
  */
-function parseCardsReply(text, { userMessage } = {}) {
+function parseCardsReply(text, { userMessage, overviewLinks = null } = {}) {
   const marker = parseCardsMarker(text, { final: true });
   if (typeof text !== "string")
     return { marker, teasers: [], followUps: [], text };
@@ -593,7 +1421,7 @@ function parseCardsReply(text, { userMessage } = {}) {
     marker,
     teasers,
     followUps: followUps.followUps ?? [],
-    text: followUps.text,
+    text: guardOverviewLinks(followUps.text, overviewLinks),
   };
 }
 
@@ -621,18 +1449,22 @@ function stripCardsMarker(text) {
  * ProtocolMarkerFilter, der "[[FRAGEN: …]]"/"[[KARTEN: …]]" überall entfernt
  * (Leerraum am Ende und ein begonnener Marker werden bis zur Entscheidung
  * gehalten); Folgefragen der letzten Zeile -> beim Antwortende.
+ * KIE-576: danach (nur mit Prüfer) der OverviewLinkFilter.
  */
 class CardsMarkerFilter {
   /**
-   * @param {{userMessage?: string}} [options] - gerade gestellte Nutzerfrage
+   * @param {{userMessage?: string, overviewLinks?: object|null}} [options] -
+   *   gerade gestellte Nutzerfrage; KIE-576: Prüfer der Übersichtslinks
+   *   (ohne: keine Prüfung, Text wie bisher)
    */
-  constructor({ userMessage } = {}) {
+  constructor({ userMessage, overviewLinks = null } = {}) {
     this.buffer = "";
     this.phase = "marker";
     this.marker = null; // { indices: number[], valid: boolean }
     this.teasers = []; // gesammelte Teaserzeilen ({index, text})
     this.teasersReported = false;
     this.protocol = new ProtocolMarkerFilter({ userMessage });
+    this.links = overviewLinks ? new OverviewLinkFilter(overviewLinks) : null;
   }
 
   #teaserStep(final) {
@@ -674,6 +1506,7 @@ class CardsMarkerFilter {
   push(token, { final = false } = {}) {
     const out = this.#cardsStep(token, final);
     out.text = this.protocol.push(out.text, { final });
+    if (this.links) out.text = this.links.push(out.text, { final });
     if (final && this.protocol.followUps)
       out.followUps = this.protocol.followUps.slice();
     return out;
@@ -718,15 +1551,16 @@ function parseSseChunk(raw) {
  * HINTER onMarker (Karten zuerst) und VOR dem Text dahinter.
  * @param {import("express").Response} response
  * userMessage: gerade gestellte Nutzerfrage (Folgefragen-Regeln wie
- * parseCardsReply).
- * @param {{onMarker: (marker: {indices: number[], valid: boolean}) => (void|Promise<void>), onTeasers?: (lines: {index: number, text: string}[]) => (void|Promise<void>), userMessage?: string}} options
+ * parseCardsReply). overviewLinks: KIE-576 Prüfer der Übersichtslinks (wie
+ * parseCardsReply), ohne: Text wie bisher.
+ * @param {{onMarker: (marker: {indices: number[], valid: boolean}) => (void|Promise<void>), onTeasers?: (lines: {index: number, text: string}[]) => (void|Promise<void>), userMessage?: string, overviewLinks?: object|null}} options
  * @returns {{response: import("express").Response, done: () => Promise<void>, filter: CardsMarkerFilter}}
  */
 function createCardsMarkerResponse(
   response,
-  { onMarker, onTeasers, userMessage } = {}
+  { onMarker, onTeasers, userMessage, overviewLinks = null } = {}
 ) {
-  const filter = new CardsMarkerFilter({ userMessage });
+  const filter = new CardsMarkerFilter({ userMessage, overviewLinks });
   let queue = Promise.resolve();
   const later = (fn) => {
     queue = queue.then(fn).catch((e) => {
@@ -952,6 +1786,10 @@ module.exports = {
     followUpKey,
     followUpsLine,
     ProtocolMarkerFilter,
+    OverviewLinkFilter,
+    LINK_WINDOW,
+    COURSE_WINDOW,
+    courseWindowEnd,
     CARDS_MARKER_TAG,
     CARDS_MARKER_BUFFER_MAX,
     scanBracketLine,
