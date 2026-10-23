@@ -101,13 +101,15 @@ export function previewWindowHeight(areaHeight) {
 // DEFAULT_INLINE_HEIGHT)
 export const INLINE_PANEL_HEIGHT_PX = 520;
 
-// Verlauf ans Ende scrollen: beim Öffnen steht er unten wie im Widget
-// (Beispiel-Nutzernachricht, Beschriftung und Eingabe sichtbar), Begrüßung
-// und Datenschutz-Blase sind durch Hochscrollen erreichbar. Ohne Maße (kein
-// Browser) passiert nichts.
-export function scrollToEnd(el) {
-  if (!el || typeof el.scrollHeight !== "number") return;
-  el.scrollTop = el.scrollHeight;
+// Verlauf an den Anfang scrollen: beim Öffnen und Aufklappen zeigt die
+// Vorschau wie beim ersten Besuch zuerst Kopf, Begrüßung und Datenschutz-
+// Blase; die Beispiel-Antwort ist durch Runterscrollen erreichbar und kommt
+// ins Bild, sobald sich eine Einstellung unter „Antworten mit Kursen“
+// ändert (Nutzer 23.10.2026; bis 7.22.1 stand der Verlauf unten wie ein
+// wieder geladener Verlauf, Rückmeldung 20.10.).
+export function scrollToStart(el) {
+  if (!el) return;
+  el.scrollTop = 0;
 }
 
 // Abstand eines ins Bild gescrollten Blocks zum Rand des Verlaufs (px)
@@ -172,8 +174,8 @@ export function revealInPreview(el) {
 
 // Block nach einer Änderung seines Inhalts ins Bild holen. Nicht beim
 // ersten Zeichnen und nicht, wenn die Standardtexte (GET /embed/defaults)
-// erst nach dem Zeichnen ankommen: dann steht der Verlauf unten wie beim
-// Öffnen (Rückmeldung 20.10.). signature null = Standardtexte noch nicht
+// erst nach dem Zeichnen ankommen: dann bleibt der Verlauf, wo er beim
+// Öffnen stand (oben). signature null = Standardtexte noch nicht
 // geladen (nach einem Ladefehler gilt die Signatur, F42 Fixliste
 // 7.22-rc16).
 function useRevealOnChange(ref, signature) {
@@ -476,6 +478,14 @@ export function PreviewSampleAnswer({ config, palette }) {
   const accent = previewAccentColor(config);
   const cardsOn = choiceValue(config, "courseCards") === "auto";
   const position = choiceValue(config, "courseCardsPosition");
+  // Änderung unter „Antworten mit Kursen“ (Kurse anzeigen als, Reihenfolge):
+  // die Beispiel-Antwort kommt ins Bild, weil der Verlauf oben beginnt
+  // (Nutzer 23.10.2026); nicht beim ersten Zeichnen
+  const answerRef = useRef(null);
+  useRevealOnChange(
+    answerRef,
+    JSON.stringify([cardsOn, cardsOn ? position : null])
+  );
   const textStyle = { color: palette.text };
   const text = (
     <p
@@ -500,6 +510,7 @@ export function PreviewSampleAnswer({ config, palette }) {
   );
   return (
     <div
+      ref={answerRef}
       className="w-full space-y-2 pt-1"
       data-preview="sample-answer"
       data-course-cards={cardsOn ? "auto" : "off"}
@@ -714,12 +725,12 @@ function BubblePreview({
 }) {
   const [open, setOpen] = useState(true);
   const height = previewWindowHeight(areaHeight);
-  // beim Öffnen steht der Verlauf unten wie im Widget (auch nach einer
-  // Änderung der Fensterhöhe)
+  // beim Öffnen steht der Verlauf oben (scrollToStart); eine Änderung der
+  // Fensterhöhe verschiebt ihn nicht
   const messagesRef = useRef(null);
   useLayoutEffect(() => {
-    if (open) scrollToEnd(messagesRef.current);
-  }, [open, height]);
+    if (open) scrollToStart(messagesRef.current);
+  }, [open]);
   const accentColor = previewAccentColor(config);
   const isLeft = lookValue(config, "position").includes("left");
   // Willkommensblasen wie am Desktop (KIE-568): „Aus“ = keine; ohne eigene
@@ -870,10 +881,10 @@ function InlinePreview({
   // Button bleibt möglich (Spezifikation §12 Eintrag 12, Nutzer 21.10.2026:
   // „im aufgeklappten Modus als Standard!“)
   const [expanded, setExpanded] = useState(true);
-  // aufgeklappt steht der Verlauf unten wie im Widget
+  // aufgeklappt steht der Verlauf oben (scrollToStart)
   const messagesRef = useRef(null);
   useLayoutEffect(() => {
-    if (expanded) scrollToEnd(messagesRef.current);
+    if (expanded) scrollToStart(messagesRef.current);
   }, [expanded]);
   const accentColor = previewAccentColor(config);
   // Eingeklappte Leiste: Demo-Texte bzw. früher gespeicherter Leistentext,

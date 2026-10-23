@@ -329,3 +329,28 @@ test(
     assert.equal(messages.scrollTop, 116 - (100 + 8));
   }
 );
+
+test(
+  "Nutzer 23.10.2026: Verlauf beginnt oben; eine Änderung unter „Antworten mit Kursen“ holt die Beispiel-Antwort ins Bild, das erste Zeichnen und andere Felder nicht",
+  { skip },
+  async (t) => {
+    const { container, act } = await open(t, [widget(9, null)], 9, DEFAULTS);
+    const preview = (kind) =>
+      elements(container, (el) => el.getAttribute("data-preview") === kind)[0];
+    const messages = preview("chat-messages");
+    const answer = preview("sample-answer");
+    assert.ok(messages && answer);
+    assert.equal(messages.scrollTop, 0, "beginnt oben");
+    // Maße wie im Browser: Verlauf 454 px hoch, die Antwort liegt darunter
+    messages.getBoundingClientRect = () => ({ top: 100, bottom: 554 });
+    answer.getBoundingClientRect = () => ({ top: 700, bottom: 900 });
+    // ein Feld ohne Bezug zur Antwort: nichts bewegt sich
+    await act(() => click(buttons(container, "Rechts")[0]));
+    assert.equal(messages.scrollTop, 0, "Position des Chat-Buttons");
+    // Kurse anzeigen als: Kurskarten -> Unterkante mit Abstand sichtbar,
+    // Oberkante bleibt im Bild (revealScrollTop)
+    await act(() => click(buttons(container, "Kurskarten")[0]));
+    assert.equal(preview("sample-answer"), answer, "derselbe Block");
+    assert.equal(messages.scrollTop, 900 - (554 - 8));
+  }
+);
