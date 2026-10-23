@@ -1158,7 +1158,7 @@ export function cleanConfig(
   // Ausnahme zum Negativfall „keine Kundendaten verloren (Texte bleiben)“
   // (E20, Fixliste 7.22-rc16). Bis 7.22.2 löste das der Schalter
   // „Datenschutz-Hinweis anzeigen“ aus; seit 7.23 schreibt das Design Center
-  // privacyNotice nicht mehr (unten), greetingKey bleibt also gleich.
+  // privacyNotice nicht mehr (oben), greetingKey bleibt also gleich.
   if (
     ownGreeting(out[gKey]) &&
     ownGreeting(out[otherGreeting]) &&
