@@ -13,6 +13,7 @@ const {
   loadCategoryMap,
   applyCategoryChains,
   createOverviewLinkGuard,
+  categoryMapUpdatedAt,
   __test__,
 } = require("../../../utils/chats/embedCategoryChains");
 
@@ -143,6 +144,16 @@ describe("Validator kufer_category_map (Whitelist)", () => {
     expect(() => validateCategoryMapSetting(value)).toThrow(CATEGORY_MAP_LABEL);
   });
 
+  test("K2: optionales updated und unbekannte Felder werden akzeptiert", () => {
+    const raw = JSON.stringify(
+      mapData({ updated: "2026-10-23T07:00:00Z", extra: { a: 1 } })
+    );
+    expect(validateCategoryMapSetting(raw)).toBe(raw);
+    // auch ein unbrauchbares updated lehnt die Karte nicht ab (ignoriert)
+    const odd = JSON.stringify(mapData({ updated: "bald" }));
+    expect(validateCategoryMapSetting(odd)).toBe(odd);
+  });
+
   test("größer als 2 MB (UTF-8) -> abgelehnt, genau 2 MB -> gültig", () => {
     const base = JSON.stringify(mapData({ pad: "" }));
     const room = __test__.CATEGORY_MAP_MAX_BYTES - Buffer.byteLength(base);
@@ -186,6 +197,33 @@ describe("loadCategoryMap: Wert, Alter (E22), Cache", () => {
   ])("%s -> null", async (_name, value) => {
     stored(value);
     expect(await loadCategoryMap({ now: NOW })).toBeNull();
+  });
+
+  test("K2: updated ändert das Alter nicht (E22 zählt created)", async () => {
+    stored(
+      JSON.stringify(
+        mapData({
+          created: "2026-10-21T19:59:59Z",
+          updated: "2026-10-23T07:00:00Z",
+        })
+      )
+    );
+    expect(await loadCategoryMap({ now: NOW })).toBeNull();
+  });
+
+  test("K2: categoryMapUpdatedAt liefert updated, sonst created", async () => {
+    stored(JSON.stringify(mapData({ updated: "2026-10-23T07:00:00Z" })));
+    const map = await loadCategoryMap({ now: NOW });
+    expect(categoryMapUpdatedAt(map)).toBe("2026-10-23T07:00:00.000Z");
+    stored(JSON.stringify(mapData({ updated: "bald" })));
+    expect(categoryMapUpdatedAt(await loadCategoryMap({ now: NOW }))).toBe(
+      "2026-10-22T21:00:00.000Z"
+    );
+    stored(JSON.stringify(mapData()));
+    expect(categoryMapUpdatedAt(await loadCategoryMap({ now: NOW }))).toBe(
+      "2026-10-22T21:00:00.000Z"
+    );
+    expect(categoryMapUpdatedAt(null)).toBeNull();
   });
 
   test("genau 36 h alt -> gültig", async () => {
@@ -347,6 +385,40 @@ describe("applyCategoryChains (AK-14)", () => {
     const [out] = applyCategoryChains([courseText({ path })], parse());
     expect(out.match(/^Kategorie-Ebene .*$/gm)).toEqual([CHAIN_SPORT[0]]);
   });
+
+  test("K3: gültige Karte, Kategoriepfad ohne Treffer: keine Kette, die vier Zeilen fallen weg (gewollt)", () => {
+    const [out] = applyCategoryChains(
+      [courseText({ path: "Kochen \\ Backen" })],
+      parse()
+    );
+    const head = out.split("Kursbeschreibung:")[0];
+    expect(head).not.toMatch(/^Kategorie-Ebene/m);
+    expect(head).not.toMatch(
+      /^(?:Kategorie-Link-Titel|Kategorie-Link|Bereich-Link-Titel|Bereich-Link):/m
+    );
+    expect(out).toContain("Kategoriepfad: Kochen \\ Backen\nKurs-Link: ");
+  });
+
+  test.each([
+    ["fehlt", null],
+    ["kaputt", "{"],
+    [
+      "älter als 36 h",
+      JSON.stringify(mapData({ created: "2026-10-21T19:59:59Z" })),
+    ],
+  ])(
+    "K3/NAK-6: Karte %s -> Kursdokument ohne Treffer bytegleich",
+    async (_name, value) => {
+      prisma.system_settings.findFirst.mockResolvedValue(
+        value === null ? null : { value }
+      );
+      const map = await loadCategoryMap({ now: NOW });
+      const texts = [courseText({ path: "Kochen \\ Backen" }), courseText()];
+      expect(map).toBeNull();
+      expect(applyCategoryChains(texts, map)).toBe(texts);
+      expect(createOverviewLinkGuard({ contextTexts: texts, map })).toBeNull();
+    }
+  );
 
   test("Sonderpfad ohne Knoten davor: keine Kette, die vier Zeilen fallen trotzdem weg", () => {
     const [out] = applyCategoryChains(
@@ -537,42 +609,123 @@ describe("createOverviewLinkGuard (AK-15, guard v2)", () => {
     ).toEqual({ remove: true });
   });
 
-  test("Knoten im Kontext: deutscher Linktext neu gesetzt, Zahl aus der Karte (n >= 2)", () => {
+  test("Knoten im Kontext, alte Form am Zeilenanfang: Linktext E29, Zeile vom Server", () => {
+    expect(
+      guardFor().check("**Alle 5 Kurse in Sport**", `${SPORT_URL}/`, {
+        lineStart: true,
+      })
+    ).toEqual({
+      remove: false,
+      text: "Sport & Fitness (61 Kurse)",
+      line: "de",
+    });
+    // mitten im Text: nur der Linktext
     expect(
       guardFor().check("**Alle 5 Kurse in Sport**", `${SPORT_URL}/`)
     ).toEqual({
       remove: false,
-      text: "**Alle 61 Kurse in Sport & Fitness**",
+      text: "Sport & Fitness (61 Kurse)",
+      line: null,
     });
   });
 
-  test("NAK-7: n = 1 oder null -> ohne Zahl", () => {
+  test("Übersichtszeile (lang): jeder Link ist Übersichtslink, Text nach E29", () => {
+    const guard = guardFor();
+    expect(guard.check("Sport", SPORT_URL, { lang: "de" })).toEqual({
+      remove: false,
+      text: "Sport & Fitness (61 Kurse)",
+      line: null,
+    });
+    expect(guard.check("Rückenfit", COURSE_URL, { lang: "de" })).toEqual({
+      remove: true,
+    });
+    expect(guard.check("Sports", SPORT_URL, { lang: "en" }).text).toBe(
+      "Sport & Fitness (61 courses)"
+    );
+  });
+
+  test("NAK-7: n = 1 -> „(1 Kurs)“, null -> nur Titel", () => {
     const guard = guardFor([
       courseText(),
       pageText(`${HOST}/kursprogramm/sprachen/englisch`),
     ]);
     expect(guard.check("Alle 7 Kurse in Kraft", KRAFT_URL).text).toBe(
-      "**Alle Kurse in Sport & Fitness · Kraft & Ausdauer**"
+      "Sport & Fitness · Kraft & Ausdauer (1 Kurs)"
+    );
+    expect(guard.check("Kraft", KRAFT_URL, { lang: "en" }).text).toBe(
+      "Sport & Fitness · Kraft & Ausdauer (1 course)"
     );
     expect(
       guard.check(
         "**Alle 3 Kurse in Englisch**",
         `${HOST}/kursprogramm/sprachen/englisch`
       ).text
-    ).toBe("**Alle Kurse in Englisch**");
+    ).toBe("Englisch");
   });
 
-  test("Englisch: nur die Zahl ersetzt, eingesetzt oder entfernt, Rest unverändert", () => {
+  test("Zahl < 1 -> nur Titel", () => {
+    const data = mapData();
+    data.nodes["Fitness & Gesundheit \\ Sport & Fitness"].count = 0;
+    const guard = guardFor([courseText()], parse(data));
+    expect(guard.check("Sport (4 Kurse)", SPORT_URL, { lang: "de" }).text).toBe(
+      "Sport & Fitness"
+    );
+  });
+
+  test("Englisch alte Form: Linktext E29 englisch", () => {
     const guard = guardFor();
     expect(guard.check("**All 5 courses in Sports**", SPORT_URL).text).toBe(
-      "**All 61 courses in Sports**"
-    );
-    expect(guard.check("All courses in Sports", SPORT_URL).text).toBe(
-      "All 61 courses in Sports"
+      "Sport & Fitness (61 courses)"
     );
     expect(guard.check("**all 4 Courses in strength**", KRAFT_URL).text).toBe(
-      "**all Courses in strength**"
+      "Sport & Fitness · Kraft & Ausdauer (1 course)"
     );
+  });
+
+  test("(c) Knoten-Link ohne Einleitung: Titel und Zahl nur bei Zahl in Klammern", () => {
+    const guard = guardFor();
+    expect(guard.check("Sport (3 Kurse)", SPORT_URL).text).toBe(
+      "Sport & Fitness (61 Kurse)"
+    );
+    expect(guard.check("Sports (3 courses)", SPORT_URL).text).toBe(
+      "Sport & Fitness (61 courses)"
+    );
+    expect(guard.check("Sport (3 cours)", SPORT_URL).text).toBe(
+      "Sport & Fitness (61 cours)"
+    );
+    expect(guard.check("unsere Sportkurse", SPORT_URL).text).toBe(
+      "unsere Sportkurse"
+    );
+    // Aufzählung: kein Übersichtslink
+    expect(
+      guard.check("Sport (3 Kurse)", SPORT_URL, { enumeration: true })
+    ).toBeNull();
+    // nicht im Kontext: nur noch Text (ohne Zahl); ob die Zeile entfällt,
+    // entscheidet der Filter
+    const english = `${HOST}/kursprogramm/sprachen/englisch`;
+    expect(guard.check("Englisch (3 Kurse)", english)).toEqual({
+      remove: true,
+      plain: "Englisch",
+    });
+    expect(guard.check("**Englisch**", english, { lineStart: true })).toEqual({
+      remove: true,
+      plain: "Englisch",
+    });
+  });
+
+  test("Einleitung erkennen: Treffer, offen, nichts", () => {
+    const guard = guardFor();
+    expect(guard.matchIntro("Mehr Kurse zum Thema: [x]", false)).toEqual({
+      lang: "de",
+      length: "Mehr Kurse zum Thema:".length,
+    });
+    expect(guard.matchIntro("more courses on this topic:", true)).toEqual({
+      lang: "en",
+      length: "More courses on this topic:".length,
+    });
+    expect(guard.matchIntro("Mehr Ku", false)).toEqual({ pending: true });
+    expect(guard.matchIntro("Mehr Ku", true)).toBeNull();
+    expect(guard.matchIntro("Mehr Kurse zum Thema Yoga", false)).toBeNull();
   });
 
   test("im Kontext, aber kein Knoten der Karte (z. B. gecrawlte Seite) -> Linktext unverändert", () => {
@@ -581,10 +734,13 @@ describe("createOverviewLinkGuard (AK-15, guard v2)", () => {
       guard.check("**Alle 9 Kurse im Sommer in X**", `${HOST}/kurse/sommer`)
     ).toBeNull();
     expect(
-      guard.check("**Alle 9 Kurse in Sommer**", `${HOST}/kurse/sommer`)
+      guard.check("**Alle 9 Kurse in Sommer**", `${HOST}/kurse/sommer`, {
+        lineStart: true,
+      })
     ).toEqual({
       remove: false,
       text: "**Alle 9 Kurse in Sommer**",
+      line: null,
     });
   });
 
@@ -605,6 +761,6 @@ describe("createOverviewLinkGuard (AK-15, guard v2)", () => {
         "Alle Kurse in Englisch",
         `${HOST}/kursprogramm/sprachen/englisch`
       ).text
-    ).toBe("**Alle 9 Kurse in Englisch**");
+    ).toBe("Englisch (9 Kurse)");
   });
 });

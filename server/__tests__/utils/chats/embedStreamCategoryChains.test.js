@@ -114,8 +114,20 @@ const GUARDED = [
   "Passend:",
   `1. [**Rückenfit**](${COURSE_URL})`,
   "",
-  `[**Alle 7 Kurse in Rücken**](${SPORT_URL}/ruecken)`,
+  `Mehr Kurse zum Thema: [Rücken (7 Kurse)](${SPORT_URL}/ruecken)`,
   "Fragen? Gern.",
+].join("\n");
+// E29: neue Form vom Modell, zwei Links in einer Zeile, dazu Fließtext mit
+// Knoten-Link
+const REPLY_E29 = [
+  `Passend ist [Rückenfit](${COURSE_URL}), mehr unter [Sport (3 Kurse)](${SPORT_URL}).`,
+  "",
+  `**Mehr Kurse zum Thema:** [Rücken](${SPORT_URL}/ruecken) und [Sport](${SPORT_URL})`,
+].join("\n");
+const GUARDED_E29 = [
+  `Passend ist [Rückenfit](${COURSE_URL}), mehr unter [Sport (40 Kurse)](${SPORT_URL}).`,
+  "",
+  `Mehr Kurse zum Thema: [Rücken (7 Kurse)](${SPORT_URL}/ruecken) · [Sport (40 Kurse)](${SPORT_URL})`,
 ].join("\n");
 
 function streamingHandler(tokens) {
@@ -237,11 +249,24 @@ describe("mit gültiger Karte", () => {
       expect(stored.text).toBe(GUARDED);
     }
   );
+
+  test.each([
+    ["Stream", true],
+    ["ohne Streaming", false],
+  ])(
+    "%s: E29 Übersichtszeile vom Server gesetzt, gesendet gleich gespeichert",
+    async (_name, streaming) => {
+      const { stored, text } = await run({ streaming, reply: REPLY_E29 });
+      expect(text).toBe(GUARDED_E29);
+      expect(stored.text).toBe(GUARDED_E29);
+    }
+  );
 });
 
 describe("NAK-6: ohne gültige Karte wie vorher", () => {
-  test.each([
+  const INVALID = [
     ["kein Eintrag", null],
+    ["leer", ""],
     [
       "abgelaufen",
       MAP_JSON().replace(
@@ -249,11 +274,36 @@ describe("NAK-6: ohne gültige Karte wie vorher", () => {
         '"created":"2026-01-01T00:00:00Z"'
       ),
     ],
+    [
+      "knapp älter als 36 h",
+      MAP_JSON().replace(
+        /"created":"[^"]+"/,
+        `"created":"${new Date(Date.now() - 36 * 3600 * 1000 - 60 * 1000).toISOString()}"`
+      ),
+    ],
     ["kaputt", "{"],
-  ])("%s: Kontext bytegleich, Antwort unverändert", async (_name, map) => {
-    const { stored, text, contextTexts } = await run({ map });
-    expect(contextTexts).toEqual([COURSE_TEXT, PAGE_TEXT]);
-    expect(text).toBe(REPLY);
-    expect(stored.text).toBe(REPLY);
-  });
+    ["version 2", MAP_JSON().replace('"version":1', '"version":2')],
+  ];
+  const cases = INVALID.flatMap(([name, map]) =>
+    [
+      ["Stream", true],
+      ["ohne Streaming", false],
+    ].flatMap(([mode, streaming]) => [
+      [`${name}, ${mode}, alte Form`, map, streaming, REPLY],
+      [`${name}, ${mode}, neue Form`, map, streaming, REPLY_E29],
+    ])
+  );
+  test.each(cases)(
+    "%s: Kontext bytegleich, Antwort gesendet und gespeichert unverändert",
+    async (_name, map, streaming, reply) => {
+      const { stored, text, contextTexts } = await run({
+        map,
+        streaming,
+        reply,
+      });
+      expect(contextTexts).toEqual([COURSE_TEXT, PAGE_TEXT]);
+      expect(text).toBe(reply);
+      expect(stored.text).toBe(reply);
+    }
+  );
 });

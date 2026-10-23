@@ -1,5 +1,5 @@
 // KIE-576 Paket 2 „Kette“: Kategorie-Kette im Kontext und Absicherung des
-// Übersichtslinks („Alle Kurse in …“).
+// Übersichtslinks („Mehr Kurse zum Thema: …“, E29).
 //
 // Die Pipeline schreibt nach dem nächtlichen Kartenlauf die Karte des Kunden
 // als SystemSetting kufer_category_map (Vertrag in der Spezifikation
@@ -28,6 +28,14 @@
 // Kurs-Link des Kontexts ist oder nirgends im Kontext steht; zeigt er auf
 // einen Knoten der Karte, setzt der Server Titel und Zahl selbst ein. Der
 // Stream-Filter dazu ist OverviewLinkFilter in embedCardsMarker.js.
+// Form der Übersichtszeile (E29) nur in OVERVIEW_LINE und overviewLinkText:
+//   Mehr Kurse zum Thema: [<title> (<n> Kurse)](<url>) · [<title>](<url>)
+// Übersichtslink ist ein Markdown-Link (a) in einer Zeile, die mit der
+// Einleitung beginnt (Schmuck davor zählt nicht), (b) mit dem alten Linktext
+// „Alle [n] Kurse in …“/„All [n] courses in …“ oder (c) mit einem Knoten der
+// Karte als Adresse außerhalb einer Aufzählung. Bei (a) und bei (b) am
+// Zeilenanfang setzt der Server die ganze Zeile, bei (c) und (b) mitten im
+// Text nur den Linktext.
 //
 // Ohne gültige Karte (fehlt, kein JSON, version ≠ 1, älter als 36 h) gibt es
 // weder Kette noch Absicherung: Kontext und Antwort bleiben exakt wie vorher.
@@ -65,9 +73,21 @@ const COURSE_NUMBER_LINE_RX = /^Kursnummer:[ \t]*(.+)$/;
 const COURSE_LINK_LINE_RX = /^Kurs-Link:[ \t]*(\S+)/;
 const SOURCE_LINE_RX = /^source:[ \t]*(\S+)/m;
 
+// KIE-576 E29: Form der Übersichtszeile, nur hier ändern. Einleitung je
+// Sprache, Wort zur Zahl (n = 1 / sonst) und Trenner zwischen zwei Links in
+// derselben Zeile. Ohne gezählte Zahl (null oder < 1) steht nur der Titel.
+const OVERVIEW_LINE = {
+  separator: " · ",
+  de: { intro: "Mehr Kurse zum Thema:", one: "Kurs", many: "Kurse" },
+  en: { intro: "More courses on this topic:", one: "course", many: "courses" },
+};
+const OVERVIEW_LANGS = ["de", "en"];
+
 // Absicherung: Übersichtslink und Adressen im Kontext (guard v2)
+// (b) alte Form des Linktexts (Prompt bis v3.5)
 const OVERVIEW_TEXT_RX = /^(alle|all)(\s+\d+)?\s+(kurse|courses)\s+in\b/i;
-const ENGLISH_COUNT_RX = /^([^\p{L}\p{N}]*all)(?:\s+\d+)?(\s+courses\s+in\b)/iu;
+// Zahl in Klammern am Ende des Linktexts („Sport (12 Kurse)“, „Sport (12 cours)“)
+const COUNT_PAREN_RX = /^(.*?)\s*\(\s*(\d+)\s*([^()\d]*?)\s*\)$/su;
 const CONTEXT_URL_RX = /https?:\/\/[^\s)\]|"<>]+/g;
 const CONTEXT_COURSE_LINK_RX = /^Kurs-Link:[ \t]*(\S+)/gm;
 
@@ -224,7 +244,27 @@ function parseCategoryMap(raw) {
     const id = String(number).trim();
     if (id && parts.length > 0) courses.set(id, parts);
   }
-  return { createdMs: Date.parse(data.created), nodes, byUrl, courses };
+  // Optionales Feld updated (stündlicher Nachtrag der Zahlen, E28): wird
+  // akzeptiert, ändert weder Gültigkeit noch Alter (E22 zählt created)
+  const createdMs = Date.parse(data.created);
+  const updatedMs =
+    typeof data.updated === "string" &&
+    Number.isFinite(Date.parse(data.updated))
+      ? Date.parse(data.updated)
+      : null;
+  return { createdMs, updatedMs, nodes, byUrl, courses };
+}
+
+/**
+ * Stand der Zahlen einer gültigen Karte: updated, falls vorhanden und ein
+ * Zeitpunkt, sonst created. Für das Folgepaket „Kursanzahl im Untertitel“;
+ * nur intern (keine öffentliche Ausgabe).
+ * @param {object|null} map - loadCategoryMap()
+ * @returns {string|null} ISO-8601 UTC
+ */
+function categoryMapUpdatedAt(map) {
+  const ms = map?.updatedMs ?? map?.createdMs;
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
 // Zuletzt gelesener Wert und seine Laufzeitform: neu geparst wird nur, wenn
@@ -407,13 +447,82 @@ function applyCategoryChains(contextTexts, map) {
 }
 
 /**
- * Prüfer für Übersichtslinks einer Antwort (guard v2). Eingaben: die Kontext-
- * texte, wie das Modell sie bekam (mit Kette), und die Karte. Ohne Karte
- * null (keine Absicherung, Antwort unverändert).
- * check(text, url) -> null (kein Übersichtslink, unverändert) oder
- * {remove: true} oder {remove: false, text} (Linktext, ggf. neu gesetzt).
+ * Linktext eines Übersichtslinks auf einen Knoten (E29): „<title> (<n> Kurse)“,
+ * n = 1 „(1 Kurs)“, ohne gezählte Zahl nur „<title>“. Nicht fett.
+ * @param {{title: string, count: number|null}} node
+ * @param {"de"|"en"} lang
+ * @returns {string}
+ */
+function overviewLinkText(node, lang) {
+  const form = OVERVIEW_LINE[lang];
+  const n = node.count;
+  if (n === null || n < 1) return node.title;
+  return `${node.title} (${n} ${n === 1 ? form.one : form.many})`;
+}
+
+// Sprache der Zahl in Klammern („12 Kurse“ -> de, „12 courses“ -> en)
+function langOfCountWord(word) {
+  const w = word.toLowerCase();
+  return OVERVIEW_LANGS.find(
+    (lang) =>
+      w === OVERVIEW_LINE[lang].one.toLowerCase() ||
+      w === OVERVIEW_LINE[lang].many.toLowerCase()
+  );
+}
+
+/**
+ * (c) Linktext eines Knoten-Links ohne Einleitung: nur mit Zahl in Klammern
+ * am Ende neu gesetzt (Titel aus der Karte, Zahl ersetzt oder entfernt; Wort
+ * einer anderen Sprache bleibt), sonst unverändert (Fließtext bleibt heil).
+ * @returns {string}
+ */
+function nodeLinkText(text, label, node) {
+  const paren = COUNT_PAREN_RX.exec(label);
+  if (!paren) return text;
+  const lang = langOfCountWord(paren[3]);
+  if (lang) return overviewLinkText(node, lang);
+  if (node.count === null || node.count < 1) return node.title;
+  return `${node.title} (${node.count}${paren[3] ? ` ${paren[3]}` : ""})`;
+}
+
+// Erkennen der Einleitung am Zeilenanfang: Treffer, noch offen (Text endet
+// mitten in der Einleitung) oder nichts
+const INTRO_PENDING = { pending: true };
+function matchOverviewIntro(head, final) {
+  const lower = String(head ?? "").toLowerCase();
+  for (const lang of OVERVIEW_LANGS) {
+    const intro = OVERVIEW_LINE[lang].intro.toLowerCase();
+    if (lower.startsWith(intro)) return { lang, length: intro.length };
+  }
+  if (final) return null;
+  for (const lang of OVERVIEW_LANGS) {
+    const intro = OVERVIEW_LINE[lang].intro.toLowerCase();
+    if (lower.length < intro.length && intro.startsWith(lower))
+      return INTRO_PENDING;
+  }
+  return null;
+}
+
+/**
+ * Prüfer für Übersichtslinks einer Antwort (guard v2, Form E29). Eingaben:
+ * die Kontexttexte, wie das Modell sie bekam (mit Kette), und die Karte. Ohne
+ * Karte null (keine Absicherung, Antwort unverändert).
+ *
+ * check(text, url, where) mit where = {lang, lineStart, enumeration}:
+ *   lang: Sprache der Einleitung, wenn der Link in einer Zeile „Mehr Kurse
+ *     zum Thema: …“ steht (a); lineStart: vor dem Link nur Schmuck;
+ *   enumeration: Zeile ist ein Aufzählungspunkt („1. “, „- “, „• “ …).
+ * Ergebnis:
+ *   null: kein Übersichtslink, unverändert;
+ *   {remove: true}: Link (am Zeilenanfang samt Zeile) entfernen;
+ *   {remove: true, plain}: (c) nur den Link durch plain ersetzen (steht
+ *     er allein in seiner Zeile, entfällt die Zeile);
+ *   {remove: false, text, line}: Linktext text; line = Sprache, wenn der
+ *     Server die ganze Zeile setzt ((b) am Zeilenanfang).
+ * intro(lang), separator und matchIntro dienen dem Stream-Filter zum Setzen
+ * der Zeile (Form nur in OVERVIEW_LINE).
  * @param {{contextTexts: string[], map: object|null}} input
- * @returns {{check: (text: string, url: string) => (null|{remove: boolean, text?: string})}|null}
+ * @returns {object|null}
  */
 function createOverviewLinkGuard({ contextTexts, map } = {}) {
   if (!map) return null;
@@ -450,26 +559,44 @@ function createOverviewLinkGuard({ contextTexts, map } = {}) {
   };
 
   return {
-    check(text, url) {
+    separator: OVERVIEW_LINE.separator,
+    intro: (lang) => OVERVIEW_LINE[lang].intro,
+    matchIntro: matchOverviewIntro,
+    check(
+      text,
+      url,
+      { lang = null, lineStart = false, enumeration = false } = {}
+    ) {
       const label = String(text ?? "").replace(/^[*\s]+|[*\s]+$/g, "");
-      const overview = OVERVIEW_TEXT_RX.exec(label);
-      if (!overview) return null;
+      const old = OVERVIEW_TEXT_RX.exec(label);
       const key = urlKey(url);
-      if (courseLinks.has(key) || !seen.has(key)) return { remove: true };
-      const node = nodeOf(url);
-      if (!node) return { remove: false, text };
-      const many = node.count !== null && node.count >= 2;
-      if (overview[1].toLowerCase() === "alle")
+      const isNode = map.byUrl.has(key);
+      const kind = lang
+        ? "line"
+        : old
+          ? "old"
+          : isNode && !enumeration
+            ? "node"
+            : null;
+      if (!kind) return null;
+      if (courseLinks.has(key) || !seen.has(key)) {
+        if (kind !== "node") return { remove: true };
+        const plain = COUNT_PAREN_RX.exec(label)?.[1] ?? label;
+        return { remove: true, plain };
+      }
+      const node = isNode ? nodeOf(url) : null;
+      if (!node) return { remove: false, text, line: null };
+      if (kind === "node")
         return {
           remove: false,
-          text: `**Alle ${many ? `${node.count} ` : ""}Kurse in ${node.title}**`,
+          text: nodeLinkText(text, label, node),
+          line: null,
         };
+      const textLang = lang ?? (old[1].toLowerCase() === "alle" ? "de" : "en");
       return {
         remove: false,
-        text: String(text).replace(
-          ENGLISH_COUNT_RX,
-          (_, head, tail) => `${head}${many ? ` ${node.count}` : ""}${tail}`
-        ),
+        text: overviewLinkText(node, textLang),
+        line: kind === "old" && lineStart ? textLang : null,
       };
     },
   };
@@ -481,8 +608,11 @@ module.exports = {
   loadCategoryMap,
   applyCategoryChains,
   createOverviewLinkGuard,
+  categoryMapUpdatedAt,
   // nur für Tests
   __test__: {
+    OVERVIEW_LINE,
+    overviewLinkText,
     CATEGORY_MAP_MAX_BYTES,
     CATEGORY_MAP_MAX_AGE_MS,
     parseCategoryMap,
