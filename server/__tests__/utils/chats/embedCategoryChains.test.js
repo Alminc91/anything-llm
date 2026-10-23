@@ -803,6 +803,124 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
     );
   });
 
+  test("R8-D1 Vertrag (titel-bewertung/vertrag-stufenregel.json, 840 Titel): Stufen-Oberkategorie übersprungen, sonst wie R7-D2", () => {
+    const contract = require("./fixtures/titelStufenregel.json");
+    const shown = (entry) => {
+      const map = parse({
+        ...mapData(),
+        nodes: {
+          [entry.pfad.join(" \\ ")]: {
+            title: entry.titel_karte,
+            url: `${HOST}/kursprogramm/kategorie/1`,
+            count: null,
+          },
+        },
+        courses: {},
+      });
+      const [node] = map.nodes.values();
+      return __test__.overviewLinkText(node, "de");
+    };
+    // erwartet wie die Pipeline-Titel gesäubert (ohne Klammern)
+    const clean = (text) =>
+      text
+        .replace(/[[\]()<>]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    let changed = 0;
+    for (const entry of contract) {
+      if (entry.erwartet_regel2 !== entry.titel_karte) {
+        changed += 1;
+        expect([entry.pfad, shown(entry)]).toEqual([
+          entry.pfad,
+          clean(entry.erwartet_regel2),
+        ]);
+      } else {
+        expect([entry.pfad, shown(entry)]).toEqual([
+          entry.pfad,
+          __test__.displayTitle(entry.titel_karte),
+        ]);
+      }
+    }
+    expect(changed).toBe(76);
+  });
+
+  test("R8-D1: Erkennung „nur Stufe oder Format“ wie generic(), Umlaute zählen als Buchstaben", () => {
+    const level = __test__.isLevelName;
+    for (const name of [
+      "Niveau B2",
+      "Stufe A2",
+      "Sprachkurse von A1 bis B2",
+      "Niveaustufen A1.1- A1.3",
+      "Intensivkurse",
+      "Weitere Angebote",
+      "Deutsch C1 und C2",
+      "Deutsch A1 - B1 Intensivkurse",
+      "Präsenzkurse am Abend",
+      "B1+",
+    ])
+      expect([name, level(name)]).toEqual([name, true]);
+    for (const name of [
+      "Englisch",
+      "Deutsch als Zweitsprache DaZ",
+      "Fotografie",
+      "Kultur und Kreativität",
+      "Weitere Fremdsprachen von A bis Z",
+      "Übungsa1 Kurse",
+      "Englisch für die Reise B1 Konversation",
+      "Sprachen",
+    ])
+      expect([name, level(name)]).toEqual([name, false]);
+  });
+
+  test("R8-D1: angezeigter Titel im Prüfer, Kette im Kontext unverändert, Vorrang vor R7-D2", () => {
+    const url = (n) => `${HOST}/kursprogramm/kategorie/${n}`;
+    const map = parse({
+      ...mapData(),
+      nodes: {
+        "Fremdsprachen \\ Englisch \\ Niveau B2 \\ Not just talking": {
+          title: "Niveau B2 · Not just talking",
+          url: url(1),
+          count: 3,
+        },
+        "Deutsch als Zweitsprache \\ Intensivkurse \\ Intensivkurs - A 1": {
+          title: "Intensivkurse · Intensivkurs - A 1",
+          url: url(2),
+          count: 1,
+        },
+        "Niveau A1 \\ Stufe A1 \\ Stufe A1.1": {
+          title: "Stufe A1 · Stufe A1.1",
+          url: url(3),
+          count: null,
+        },
+      },
+      courses: {},
+    });
+    const texts = [
+      courseText({
+        path: "Fremdsprachen \\ Englisch \\ Niveau B2 \\ Not just talking",
+      }),
+    ];
+    // Kette im Kontext mit vollem Kartentitel
+    expect(applyCategoryChains(texts, map)[0]).toContain(
+      `Kategorie-Ebene 4: Niveau B2 · Not just talking (3 Kurse) | ${url(1)}`
+    );
+    const guard = guardFor(texts, map);
+    expect(
+      guard.check("Not just talking", url(1), { overview: "en" }).text
+    ).toBe("Englisch · Not just talking (3 courses)");
+    expect(guard.check("Niveau B2 (3 Kurse)", url(1)).text).toBe(
+      "Englisch · Not just talking (3 Kurse)"
+    );
+    // R8-D1 vor R7-D2: höhere Ebene statt Name allein
+    expect(guard.check("A1", url(2), { overview: "de" }).text).toBe(
+      "Deutsch als Zweitsprache · Intensivkurs - A 1 (1 Kurs)"
+    );
+    // keine aussagekräftige höhere Ebene: R7-D2 wie bisher
+    expect(guard.check("Stufe A1.1", url(3), { overview: "de" }).text).toBe(
+      "Stufe A1.1"
+    );
+  });
+
   test("Zahl < 1 -> nur Titel", () => {
     const data = mapData();
     data.nodes["Fitness & Gesundheit \\ Sport & Fitness"].count = 0;

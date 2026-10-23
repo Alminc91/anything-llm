@@ -319,6 +319,55 @@ describe("mit gültiger Karte", () => {
   );
 });
 
+describe("R8-D1: Stufen-Oberkategorie im angezeigten Titel übersprungen", () => {
+  const LEVEL_URL = `${HOST}/kursprogramm/kategorie/77`;
+  const MAP_LEVEL = () => {
+    const data = JSON.parse(MAP_JSON());
+    data.nodes["Fremdsprachen \\ Englisch \\ Niveau B2 \\ Not just talking"] = {
+      title: "Niveau B2 · Not just talking",
+      url: LEVEL_URL,
+      count: 3,
+    };
+    return JSON.stringify(data);
+  };
+  const REPLY_DE = [
+    `Passend ist [Rückenfit](${COURSE_URL}), dazu [Niveau B2 (2 Kurse)](${LEVEL_URL}).`,
+    "",
+    `Mehr Kurse zum Thema: [Not just talking](${LEVEL_URL})`,
+  ].join("\n");
+  const GUARDED_DE = [
+    `Passend ist [Rückenfit](${COURSE_URL}), dazu [Englisch · Not just talking (3\u00a0Kurse)](${LEVEL_URL}).`,
+    "",
+    `Mehr Kurse zum Thema: [Englisch · Not just talking (3\u00a0Kurse)](${LEVEL_URL})`,
+  ].join("\n");
+  const REPLY_EN = [
+    `[**All courses in Niveau B2**](${LEVEL_URL})`,
+    "Questions?",
+  ].join("\n");
+  const GUARDED_EN = [
+    `More courses on this topic: [Englisch · Not just talking (3\u00a0courses)](${LEVEL_URL})`,
+    "Questions?",
+  ].join("\n");
+
+  test.each([
+    ["Stream, deutsch", true, REPLY_DE, GUARDED_DE],
+    ["ohne Streaming, deutsch", false, REPLY_DE, GUARDED_DE],
+    ["Stream, englisch", true, REPLY_EN, GUARDED_EN],
+    ["ohne Streaming, englisch", false, REPLY_EN, GUARDED_EN],
+  ])(
+    "%s: höhere aussagekräftige Ebene im Linktext, gesendet gleich gespeichert",
+    async (_name, streaming, reply, expected) => {
+      const { stored, text } = await run({
+        streaming,
+        reply,
+        map: MAP_LEVEL(),
+      });
+      expect(text).toBe(expected);
+      expect(stored.text).toBe(expected);
+    }
+  );
+});
+
 describe("bekannte Adressen aus System-Prompt und gespeicherten Quellen (R1-D1 Regel 3, S3, R4-D3)", () => {
   const GEESTE_URL = `${HOST}/kurssuche/liste?suchesetzen=false&kfs_aussenst=Geeste`;
   const WINTER_URL = `${HOST}/kurse/winter`;

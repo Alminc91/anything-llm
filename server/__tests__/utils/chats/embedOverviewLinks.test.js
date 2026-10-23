@@ -682,7 +682,9 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
     );
   });
 
-  test("R7-D2 (AK-9): Oberkategorie im angezeigten Titel weg, wenn der Name sie enthält; Kontext unverändert", () => {
+  // R8-D1 hat Vorrang: „Intensivkurse“ ist nur ein Format, daher steht die
+  // höhere Ebene „Sprachen“ davor statt des Namens allein (R7-D2)
+  test("R7-D2 (AK-9), R8-D1: Oberkategorie im angezeigten Titel weg bzw. ersetzt; Kontext unverändert", () => {
     const url = (n) => `${HOST}/kursprogramm/kategorie/${n}`;
     const map = chains.parseCategoryMap(
       JSON.stringify({
@@ -722,7 +724,46 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
     expectGuarded(
       guard,
       `${DE} [Intensivkurs A1](${url(1)}) · [Qi Gong](${url(2)})\nSiehe [Intensivkurse (2 Kurse)](${url(1)}).`,
-      `${DE} [Intensivkurs - A 1 (4\u00a0Kurse)](${url(1)})\n${DE} [Entspannungstechniken · Qi Gong (3\u00a0Kurse)](${url(2)})\nSiehe [Intensivkurs - A 1 (4\u00a0Kurse)](${url(1)}).`
+      `${DE} [Sprachen · Intensivkurs - A 1 (4\u00a0Kurse)](${url(1)})\n${DE} [Entspannungstechniken · Qi Gong (3\u00a0Kurse)](${url(2)})\nSiehe [Sprachen · Intensivkurs - A 1 (4\u00a0Kurse)](${url(1)}).`
+    );
+  });
+
+  test("R8-D1: Stufen-Oberkategorie im angezeigten Titel übersprungen, an jeder Schnittstelle gleich; Kontext unverändert", () => {
+    const url = (n) => `${HOST}/kursprogramm/kategorie/${n}`;
+    const map = chains.parseCategoryMap(
+      JSON.stringify({
+        version: 1,
+        client: "vhs-beispiel",
+        created: new Date().toISOString(),
+        nodes: {
+          "Sprachen \\ Italienisch \\ Sprachkurse von A1 bis B2 \\ Stufe A2": {
+            title: "Sprachkurse von A1 bis B2 · Stufe A2",
+            url: url(1),
+            count: 5,
+          },
+          "Sprachen \\ Italienisch \\ Sprachkurse von A1 bis B2 \\ Stufe A2 \\ Stufe A2.2":
+            { title: "Stufe A2 · Stufe A2.2", url: url(2), count: 1 },
+        },
+        courses: {},
+      })
+    );
+    const context = applyCategoryChains(
+      [
+        courseDoc(
+          "Italienisch A2.2",
+          "26400-022",
+          "Sprachen \\ Italienisch \\ Sprachkurse von A1 bis B2 \\ Stufe A2 \\ Stufe A2.2",
+          `${HOST}/kurssuche/kurs/italienisch-a2-2/26400-022`
+        ),
+      ],
+      map
+    );
+    expect(context[0]).toContain(`Stufe A2 · Stufe A2.2 (1 Kurs) | ${url(2)}`);
+    const guard = createOverviewLinkGuard({ contextTexts: context, map });
+    expectGuarded(
+      guard,
+      `${DE} [Stufe A2](${url(1)}) · [Stufe A2.2](${url(2)})\n${EN} [Level A2](${url(1)})\nSiehe [Stufe A2.2 (2 Kurse)](${url(2)}).`,
+      `${DE} [Italienisch · Stufe A2 (5\u00a0Kurse)](${url(1)})\n${DE} [Italienisch · Stufe A2.2 (1\u00a0Kurs)](${url(2)})\n${EN} [Italienisch · Stufe A2 (5\u00a0courses)](${url(1)})\nSiehe [Italienisch · Stufe A2.2 (1\u00a0Kurs)](${url(2)}).`
     );
   });
 
