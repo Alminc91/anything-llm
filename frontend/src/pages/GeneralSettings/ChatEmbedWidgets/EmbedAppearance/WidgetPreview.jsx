@@ -2,31 +2,31 @@
 // festen Standard mit den Inhalten des Kunden. Begrüßung als erste Blase
 // (keine Datenschutz-Blase mehr, Datenschutz-Fußzeile 7.23), Startvorschläge
 // als Pillen wie die Folgefragen, eine Beispiel-Nutzernachricht in
-// Akzentfarbe (Schrift auf der
-// Akzentfarbe sichtbar), darauf eine Beispiel-Antwort mit Kursen nach der
-// Wahl „Antworten mit Kursen“ (Karten zuerst, Text zuerst oder Nur Text mit
-// Links, KIE-567; ohne Wahl der Standard der Darstellung, R4), unter der
-// Eingabe fest die Zeile „Unsere KI kann Fehler machen · Datenschutz“; der
-// Link öffnet das Datenschutz-Fenster über dem Chat (Nutzer 23.10.2026,
-// issues/datenschutz-fusszeile.md AK-9), kein Online-Punkt. Willkommensblasen am
-// geschlossenen Chat-Button wie am Desktop (bei „Aus“ keine, KIE-568).
-// Hell/Dunkel in beiden Darstellungen. Die Vorschau folgt den Feldern: ohne
-// gespeicherten Wert zeigt sie die Vorbelegung (R5; Untertitel, Start-
-// vorschläge, Willkommensblasen). Farben wie im Widget: einen Wert, den die
-// Farbregel nicht annimmt (accentColorError meldet ihn), zeigt sie als
-// Standard (previewAccentColor, previewUserTextColor; Fixliste 7.22-rc22
-// E41 Ergänzung (b)), das Feld zeigt weiter den eingegebenen Wert. Lange
-// Wörter brechen um, statt über den Rand zu laufen (Restpunkt 5, rc7:
-// BREAK). Chatfenster und Box „In der
-// Seite“ haben eine feste Höhe wie live im Widget (Rückmeldung des Nutzers
-// vom 20.10.2026: 77 % der Vorschaufläche bzw. 520 px); der Nachrichten-
-// bereich scrollt innen mit sichtbarer Bildlaufleiste, beim Öffnen steht
-// der Verlauf oben, nichts wird abgeschnitten (D12 rc11). Ändern sich
-// Begrüßung oder Startvorschläge, scrollt der Verlauf den Block ins Bild
-// (F10, Fixliste 7.22-rc13); ändern sich Überschrift, Text oder Link des
-// Datenschutz-Hinweises, öffnet sich das Datenschutz-Fenster mit der
-// Änderung (ohne dem Feld den Fokus zu nehmen). Beide hängen oben; die Vorschau-Spalte
-// scrollt nur, wenn das Fenster zu niedrig ist (B-06, R7).
+// Akzentfarbe (Schrift auf der Akzentfarbe sichtbar), darauf eine
+// Beispiel-Antwort mit Kursen nach der Wahl „Antworten mit Kursen“ (Karten
+// zuerst, Text zuerst oder Nur Text mit Links, KIE-567; ohne Wahl der
+// Standard der Darstellung, R4), unter der Eingabe fest die Zeile „Unsere
+// KI kann Fehler machen · Datenschutz“; der Link öffnet das
+// Datenschutz-Fenster über dem Chat (Nutzer 23.10.2026,
+// issues/datenschutz-fusszeile.md AK-9), kein Online-Punkt.
+// Willkommensblasen am geschlossenen Chat-Button wie am Desktop (bei „Aus“
+// keine, KIE-568). Hell/Dunkel in beiden Darstellungen. Die Vorschau folgt
+// den Feldern: ohne gespeicherten Wert zeigt sie die Vorbelegung (R5;
+// Untertitel, Startvorschläge, Willkommensblasen). Farben wie im Widget:
+// einen Wert, den die Farbregel nicht annimmt (accentColorError meldet ihn),
+// zeigt sie als Standard (previewAccentColor, previewUserTextColor; Fixliste
+// 7.22-rc22 E41 Ergänzung (b)), das Feld zeigt weiter den eingegebenen Wert.
+// Lange Wörter brechen um, statt über den Rand zu laufen (Restpunkt 5, rc7:
+// BREAK). Chatfenster und Box „In der Seite“ haben eine feste Höhe wie live
+// im Widget (Rückmeldung des Nutzers vom 20.10.2026: 77 % der
+// Vorschaufläche bzw. 520 px); der Nachrichtenbereich scrollt innen mit
+// sichtbarer Bildlaufleiste, beim Öffnen steht der Verlauf oben, nichts wird
+// abgeschnitten (D12 rc11). Ändern sich Begrüßung oder Startvorschläge,
+// scrollt der Verlauf den Block ins Bild (F10, Fixliste 7.22-rc13); ändern
+// sich Überschrift, Text oder Link des Datenschutz-Hinweises, öffnet sich
+// das Datenschutz-Fenster mit der Änderung (ohne dem Feld den Fokus zu
+// nehmen). Beide hängen oben; die Vorschau-Spalte scrollt nur, wenn das
+// Fenster zu niedrig ist (B-06, R7).
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import {
   ChatCircleDots,
@@ -120,10 +120,10 @@ export function inlinePanelShadow(accent, scheme) {
 
 // Verlauf an den Anfang scrollen: beim Öffnen und Aufklappen zeigt die
 // Vorschau wie beim ersten Besuch zuerst Kopf und Begrüßung (bis 7.22.2 mit
-// der Datenschutz-Blase); die Beispiel-Antwort ist durch Runterscrollen erreichbar und kommt
-// ins Bild, sobald sich eine Einstellung unter „Antworten mit Kursen“
-// ändert (Nutzer 23.10.2026; bis 7.22.1 stand der Verlauf unten wie ein
-// wieder geladener Verlauf, Rückmeldung 20.10.).
+// der Datenschutz-Blase); die Beispiel-Antwort ist durch Runterscrollen
+// erreichbar und kommt ins Bild, sobald sich eine Einstellung unter
+// „Antworten mit Kursen“ ändert (Nutzer 23.10.2026; bis 7.22.1 stand der
+// Verlauf unten wie ein wieder geladener Verlauf, Rückmeldung 20.10.).
 export function scrollToStart(el) {
   if (!el) return;
   el.scrollTop = 0;

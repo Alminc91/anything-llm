@@ -130,8 +130,8 @@ const INLINE_FIXED_STANDARDS = Object.freeze({
 // src/utils/layout.js) und im Design Center (widgetKeys.js); der erste ist
 // zugleich die erste Datenschutz-Vorlage in LEGACY_PRIVACY_GREETINGS (E43).
 const LEGACY_DEFAULT_GREETINGS = Object.freeze([
-  // früherer Widget-Standard von greeting (Datenschutzsatz, steht jetzt in
-  // der eigenen Datenschutz-Blase)
+  // früherer Widget-Standard von greeting (Datenschutzsatz, steht jetzt im
+  // Datenschutz-Fenster, 7.22 bis 7.22.2 in der Datenschutz-Blase)
   "Dieser Chatbot nutzt künstliche Intelligenz (KI). Ihre Nachrichten werden nicht an Dritte weitergegeben, können aber zur Qualitätssicherung von uns eingesehen werden. Bitte geben Sie keine sensiblen personenbezogenen Daten ein.",
   "Hallo und herzlich willkommen! Ich helfe Ihnen gerne weiter und beantworte Ihre Fragen mit intelligenten, KI-gestützten Antworten.",
   "Hallo! Ich bin Ihr digitaler Berater mit künstlicher Intelligenz (KI). Beschreiben Sie einfach, was Sie suchen.",
