@@ -38,6 +38,9 @@ const {
   embedDefaultTexts,
 } = require("../../server/utils/chats/embedDefaults.js");
 const DEFAULTS = embedDefaultTexts("de");
+// das echte fetch, vor jedem Ersatz gesichert (stubServer stellt es wieder
+// her, auch wenn ein Test mehrmals ersetzt; C3, Fixliste rc1)
+const REAL_FETCH = globalThis.fetch;
 
 // Wortlaute aus der Spezifikation (AK-1, AK-3, AK-6)
 const HINT =
@@ -607,7 +610,6 @@ const widget = (id, visualConfig) => ({
 });
 
 function stubServer(t, embeds) {
-  const original = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
     const body = init.body === undefined ? undefined : JSON.parse(init.body);
@@ -621,7 +623,7 @@ function stubServer(t, embeds) {
     return { ok: true, status: 200, json: async () => answer };
   };
   t.after(() => {
-    globalThis.fetch = original;
+    globalThis.fetch = REAL_FETCH;
   });
   return calls;
 }
@@ -742,3 +744,10 @@ test(
     assert.deepEqual(savedBody(calls), { ...off, privacyTitle: "Neu" });
   }
 );
+
+// C3 (F6, Fixliste rc1): Ein Test ersetzt fetch dreimal; danach gilt wieder
+// das echte fetch, nicht ein früherer Ersatz (bis rc1 stellte jede
+// Rückgabe den jeweils vorigen Wert her, zuletzt den zweiten Ersatz).
+test("C3: nach den Tests mit ersetztem fetch gilt wieder das echte fetch", () => {
+  assert.equal(globalThis.fetch, REAL_FETCH);
+});
