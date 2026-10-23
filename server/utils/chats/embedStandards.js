@@ -20,8 +20,8 @@
 // der Datenschutz-Fußzeile (Nutzer 23.10.2026) privacyNotice: immer der
 // Link „Datenschutz“ neben dem KI-Hinweis, data-privacy-notice wirkt nicht.
 // Die Grenze für greetingStyle (E26, 7.22-rc18: Begrüßung als Blase, solange
-// die Datenschutz-Blase darunter hing) hat seit 7.23 keinen Anlass mehr; wie
-// data-greeting-style wirkt, legt das Widget fest.
+// die Datenschutz-Blase darunter hing) hat seit 7.23 keinen Anlass mehr; das
+// Widget lässt data-greeting-style seitdem wie jede Gruppe-B-Angabe gelten.
 // Technik-Angaben am Skript (Gruppe C, etwa data-language) wirken immer.
 //
 // Eine Quelle für beide Wege: applyEmbedStandards (Konfiguration ans
@@ -431,9 +431,10 @@ function normalizePrivacyText(value) {
 
 /**
  * Überschrift des Datenschutz-Hinweises: eigener Text (getrimmt, höchstens
- * 120 Zeichen) oder "" = bewusst keine Überschrift (im Design Center
- * geleert). undefined = nicht gesetzt/ungültig oder früherer Standard mit
- * Doppelpunkt (Widget-Standard „Datenschutz“).
+ * 120 Zeichen) oder "" (im Design Center geleert; das Widget zeigt im
+ * Datenschutz-Fenster dann seinen Standard „Datenschutz“, bis 7.22.2 hatte
+ * die Blase keine Überschrift). undefined = nicht gesetzt/ungültig oder
+ * früherer Standard mit Doppelpunkt (Widget-Standard „Datenschutz“).
  * @param {*} value
  * @returns {string|undefined}
  */

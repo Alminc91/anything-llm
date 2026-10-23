@@ -90,9 +90,10 @@ von Hand gebauten Einbau-Codes (Demo-Seite, Einbau-Paket vhs Rhein).
   festen Farben). Die Grenze beim Begrüßungsstil (E26, 7.22-rc18:
   `data-greeting-style="text"` wirkte nur bei abgeschaltetem
   Datenschutz-Hinweis, weil die Datenschutz-Blase an der Begrüßungsblase
-  hing) hat ab 7.23 keinen Anlass mehr; wie die Angabe wirkt, legt
-  `ATTRIBUTES.md` im Widget fest. Die Tabellen unten nennen den Standard,
-  der ohne solche Angabe gilt. Ob frühere Angaben
+  hing) hat ab 7.23 keinen Anlass mehr und entfällt im Widget:
+  `data-greeting-style="text"` verfeinert den Standard wie die übrigen
+  Angaben dieser Gruppe. Die Tabellen unten nennen den Standard, der ohne
+  solche Angabe gilt. Ob frühere Angaben
   ohne Feld wie `data-window-width`, `data-offset-x`,
   `data-inline-max-width`, `data-inline-theme` oder
   `data-course-cards-layout` als Verfeinerung wirken oder ohne Wirkung
@@ -239,7 +240,7 @@ Quelle im Widget: `DEFAULT_ACCENT` in `src/utils/theme.js`; im Design Center
 
 | Schlüssel                               | Alter Wert                                                                       | Neues Verhalten                                                                                                                                                                              |
 | --------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `greetingStyle`                         | `text` (alter Standard), `bubble`                                                | immer Begrüßung als erste Blase (gespeicherter Wert ohne Wirkung); `data-greeting-style="text"` am Skript wirkte 7.22 bis 7.22.2 nur bei abgeschaltetem Datenschutz-Hinweis (Gruppe B, E26, 7.22-rc18); ab 7.23 gibt es keine Datenschutz-Blase mehr, die Wirkung der Angabe legt `ATTRIBUTES.md` im Widget fest |
+| `greetingStyle`                         | `text` (alter Standard), `bubble`                                                | immer Begrüßung als erste Blase (gespeicherter Wert ohne Wirkung); `data-greeting-style="text"` am Skript wirkte 7.22 bis 7.22.2 nur bei abgeschaltetem Datenschutz-Hinweis (Gruppe B, E26, 7.22-rc18); ab 7.23 gibt es keine Datenschutz-Blase mehr, die Ausnahme entfällt, die Angabe verfeinert wie jede Gruppe-B-Angabe |
 | `greeting`                              | eigener Text                                                                     | wird die Begrüßungsblase; über 300 Zeichen kürzt das Widget auf ein Wortende mit „…“                                                                                                         |
 | `greeting`                              | alte Vorbelegung („Hallo und herzlich willkommen! …“), alter Widget-Standard oder alte Datenschutz-Vorlage (E43), auch mit anderem Leerraum | gilt als nicht gesetzt: neuer Standard „Hallo! Ich bin Ihr KI-Berater. Wie kann ich Ihnen helfen?“; der Datenschutz-Hinweis steht ab 7.23 im Fenster hinter dem Link „Datenschutz“ (bis 7.22.2 als Blase darunter; Abschnitt „Alte Datenschutz-Vorlagen in der Begrüßung“) |
 | `greetingBubbleText`                    | eigener Text bei `greetingStyle` oder `privacyNotice` `bubble`                   | gewinnt gegen `greeting` (stand bisher in der Blase)                                                                                                                                         |
@@ -341,7 +342,7 @@ mit eigenem Datenschutz-Text.
 | `privacyUrl`        | fehlt                                                             | kein Link zur Datenschutzerklärung im Fenster; das Design Center empfiehlt, ihn einzutragen |
 | `privacyUrl`        | `https://…` oder `/pfad`                                          | ab 7.23 als Link zur Datenschutzerklärung im Datenschutz-Fenster (bis 7.22.2 am Ende der Blase), neuer Tab |
 | `privacyTitle`      | „Datenschutz:“ / „Privacy:“                                       | gilt als nicht gesetzt: Standard ohne Doppelpunkt                        |
-| `privacyTitle`      | `""`                                                              | bewusst keine Überschrift                                                |
+| `privacyTitle`      | `""`                                                              | ab 7.23 zeigt das Datenschutz-Fenster den Standard „Datenschutz“ (en „Privacy“), das Fenster hat immer eine Überschrift; 7.22 bis 7.22.2 bewusst keine Überschrift in der Blase |
 | `privacyText`       | Altformat (Zeilen bzw. „\|“-Teile ohne „•“ oder „-“)              | mehrere Teile als Aufzählung („• “-Zeilen), ein Teil als Absatz          |
 | `privacyText`       | länger als 1000 Zeichen, auch erst nach dem Voranstellen von „• “ | nicht ausgeliefert: Standardtext; im Design Center Fehler beim Ändern    |
 

@@ -307,10 +307,10 @@ describe("Datenschutz-Fußzeile: Texte des Vertrags", () => {
 
 // R1 (Fixliste 7.22-rc8): Gegenprobe gegen das Embed-Repo selbst (nicht nur
 // gegen die Fixture-Kopie). KUFER_EMBED_DIR zeigt auf den Worktree des
-// Widgets; ohne die Variable wird übersprungen. Kürzt das Widget den
-// KI-Hinweis nach der Messung (unter 10 px Schrift) auf „Bitte prüfen Sie“,
-// scheitert dieser Test, bis embedDefaults.js und die Fixture nachgezogen
-// sind.
+// Widgets; ohne die Variable wird übersprungen. Ändert das Widget einen
+// dieser Texte (seit der Datenschutz-Fußzeile, 7.23, auch Linktext, Punkt
+// „Hinweis zur KI“ und Button im Fenster), scheitert dieser Test, bis
+// embedDefaults.js und die Fixture nachgezogen sind.
 const embedDir = process.env.KUFER_EMBED_DIR;
 const describeWidget = embedDir ? describe : describe.skip;
 describeWidget(
