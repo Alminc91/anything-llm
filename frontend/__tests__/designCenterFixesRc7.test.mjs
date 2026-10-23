@@ -184,7 +184,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "B-05/B-06: markierte Option mit schwarzer Schrift auf der Akzentfläche und aria-pressed",
+  "B-05/B-06: markierte Option auf der Akzentfläche mit Schrift wie „Speichern“ (dunkel schwarz, hell weiß, 21.10.2026) und aria-pressed",
   { skip },
   async () => {
     const html = await appearance({ courseCards: "auto" });
@@ -205,7 +205,11 @@ test(
       assert.ok(tag, label);
       assert.match(tag, new RegExp(`aria-pressed="${pressed}"`), label);
       if (pressed === "true") {
-        assert.match(tag, /bg-primary-button text-black/, label);
+        assert.match(
+          tag,
+          /bg-primary-button text-black light:text-white/,
+          label
+        );
         assert.doesNotMatch(tag, /bg-primary-button text-white/, label);
       }
     }
@@ -214,13 +218,23 @@ test(
       /<button[^>]*aria-pressed="true"[^>]*>(?:(?!<\/button>).)*Schwarz<\/button>/s
     )?.[0];
     assert.ok(black, "Schwarz markiert");
-    assert.match(black, /bg-primary-button text-black/);
+    assert.match(black, /bg-primary-button text-black light:text-white/);
     // Schritt-Nummern im Reiter Einbau
     const embed = await show(EMBED, {
       config: { displayMode: "inline" },
       embed: { uuid: "abc" },
     });
     assert.doesNotMatch(embed, /bg-primary-button text-white/);
+    // Schritt-Nummern und markierte Optionen: hell weiß wie „Speichern“
+    assert.ok(
+      (embed.match(/bg-primary-button text-black light:text-white/g) || [])
+        .length >= 3,
+      "Schritt-Nummern wie die markierten Optionen"
+    );
+    assert.doesNotMatch(
+      embed,
+      /bg-primary-button text-black(?! light:text-white)/
+    );
   }
 );
 

@@ -56,6 +56,23 @@ after(async () => {
 });
 
 const noop = () => {};
+
+// Vorschau „In der Seite“ eingeklappt: Sie startet seit 7.22.1 aufgeklappt
+// (Spezifikation §12 Eintrag 12), die Leiste erscheint nach „Einklappen“.
+async function collapsedInline(t, props) {
+  const mounted = await renderer.mount(PREVIEW, { location: "/", props });
+  t.after(() => mounted.unmount());
+  const { container, act } = mounted;
+  await act(() =>
+    click(
+      elements(
+        container,
+        (el) => el.getAttribute("aria-label") === "Einklappen"
+      )[0]
+    )
+  );
+  return container;
+}
 const text = (html) =>
   html
     .replace(/<[^>]+>/g, " ")
@@ -435,9 +452,20 @@ test(
 test(
   "Punkt 2: Inline-Leiste: Senden-Button in der Schrift auf der Akzentfarbe (ohne Wert die Empfehlung)",
   { skip },
-  async () => {
-    const html = await preview({ displayMode: "inline" });
-    assert.match(html, /background-color:#01A5A9;color:#222628[^>]*>Chatten</i);
+  async (t) => {
+    const container = await collapsedInline(t, {
+      config: { displayMode: "inline" },
+      logoPreview: null,
+      defaults: DEFAULTS,
+      greetingKey: "greeting",
+    });
+    const send = elements(
+      container,
+      (el) => el.tagName === "SPAN" && el.textContent === "Chatten"
+    )[0];
+    assert.ok(send, "Senden-Button der Leiste");
+    assert.equal(send.style.backgroundColor.toUpperCase(), "#01A5A9");
+    assert.equal(send.style.color.toUpperCase(), BLACK);
   }
 );
 
@@ -573,6 +601,15 @@ test(
     });
     t.after(() => mounted.unmount());
     const { container, act } = mounted;
+    // startet aufgeklappt (7.22.1): erst einklappen
+    await act(() =>
+      click(
+        elements(
+          container,
+          (el) => el.getAttribute("aria-label") === "Einklappen"
+        )[0]
+      )
+    );
     const bar = elements(
       container,
       (el) => el.getAttribute("data-preview") === "inline-bar"

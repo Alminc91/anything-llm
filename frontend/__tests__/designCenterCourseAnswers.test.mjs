@@ -385,12 +385,15 @@ test(
       },
     });
     t.after(() => mounted.unmount());
-    const { container, act } = mounted;
-    const bar = elements(
-      container,
-      (el) => el.getAttribute("data-preview") === "inline-bar"
-    )[0];
-    await act(() => click(elements(bar, (el) => el.tagName === "BUTTON")[0]));
+    const { container } = mounted;
+    // startet aufgeklappt (7.22.1, Spezifikation §12 Eintrag 12)
+    assert.equal(
+      elements(
+        container,
+        (el) => el.getAttribute("data-preview") === "inline-bar"
+      ).length,
+      0
+    );
     const answer = elements(
       container,
       (el) => el.getAttribute("data-preview") === "sample-answer"
@@ -523,15 +526,8 @@ test(
     await act(() => click(button(container, "In der Seite")));
     assert.ok(button(container, "Kurskarten (Standard)"));
     assert.ok(button(container, "Nur Text mit Links"));
-    // Vorschau „In der Seite“: Box aufklappen, dann die Beispiel-Antwort
-    const expand = () =>
-      elements(
-        container,
-        (el) => el.getAttribute("data-preview") === "inline-bar"
-      )[0];
-    await act(() =>
-      click(elements(expand(), (el) => el.tagName === "BUTTON")[0])
-    );
+    // Vorschau „In der Seite“ startet aufgeklappt mit der Beispiel-Antwort
+    // (7.22.1, Spezifikation §12 Eintrag 12)
     assert.equal(previewAttr(container, "data-course-cards"), "auto");
     // In der Seite den Standard wählen: keine Wahl gespeichert
     await act(() => click(button(container, "Kurskarten (Standard)")));

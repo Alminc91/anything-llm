@@ -271,7 +271,7 @@ export function InlineLinkWarning() {
 function Step({ number, title, note = null, badge = null, children }) {
   return (
     <div className="flex gap-3">
-      <span className="flex-shrink-0 w-7 h-7 rounded-full bg-primary-button text-black text-sm font-semibold flex items-center justify-center">
+      <span className="flex-shrink-0 w-7 h-7 rounded-full bg-primary-button text-black light:text-white text-sm font-semibold flex items-center justify-center">
         {number}
       </span>
       <div className="flex-1 min-w-0 space-y-2">
@@ -312,7 +312,7 @@ function PageSketch({ inline }) {
       </div>
       {inline && (
         <div className="flex items-center gap-2 rounded-full border border-primary-button/60 px-3 py-1.5">
-          <span className="w-5 h-5 rounded-full bg-primary-button text-black text-[10px] font-semibold flex items-center justify-center">
+          <span className="w-5 h-5 rounded-full bg-primary-button text-black light:text-white text-[10px] font-semibold flex items-center justify-center">
             2
           </span>
           <span className="flex-1">Platzhalter: hier erscheint die Leiste</span>
@@ -322,7 +322,7 @@ function PageSketch({ inline }) {
       <div className="h-2 rounded bg-theme-sidebar-border w-7/12" />
       <div className="flex items-center gap-2 border-t border-white/10 pt-2">
         <span className="font-semibold">Footer</span>
-        <span className="w-5 h-5 rounded-full bg-primary-button text-black text-[10px] font-semibold flex items-center justify-center">
+        <span className="w-5 h-5 rounded-full bg-primary-button text-black light:text-white text-[10px] font-semibold flex items-center justify-center">
           1
         </span>
         <span>Skript</span>

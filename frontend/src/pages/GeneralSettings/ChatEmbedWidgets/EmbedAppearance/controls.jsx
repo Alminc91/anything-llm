@@ -115,10 +115,12 @@ export function GrowingTextarea({ value, minRows, className = "", ...rest }) {
   );
 }
 
-// Markierte Option: Fläche in der Akzentfarbe der App, Schrift schwarz.
-// Weiß auf dem hellen Blau des Dunkelmodus (#46c8ff) erreichte nur etwa
-// 1,9:1 (Browser 7.22-rc6 B-05); Schwarz hat auf beiden Blautönen über 7:1.
-export const SELECTED_CLASS = "bg-primary-button text-black";
+// Markierte Option: Fläche in der Akzentfarbe der App, Schrift wie beim
+// Button „Speichern“ von AnythingLLM (Nutzerentscheidung 21.10.2026, „die
+// AnythingLLM Farben anwenden konsistent“): im hellen Modus weiß auf dem
+// Blau (#0ba5ec), im Dunkelmodus schwarz auf dem hellen Blau (#46c8ff), weil
+// Weiß dort nur etwa 1,9:1 erreicht (Browser 7.22-rc6 B-05).
+export const SELECTED_CLASS = "bg-primary-button text-black light:text-white";
 
 // Button-Gruppe im Stil der Positions-Auswahl; compact = kleinere Buttons
 // (für Gruppen mit vielen Optionen, bricht bei Bedarf um). placeholder: vorn

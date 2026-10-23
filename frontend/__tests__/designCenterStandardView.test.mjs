@@ -34,6 +34,23 @@ after(async () => {
 });
 
 const noop = () => {};
+
+// Vorschau „In der Seite“ eingeklappt: Sie startet seit 7.22.1 aufgeklappt
+// (Spezifikation §12 Eintrag 12), die Leiste erscheint nach „Einklappen“.
+async function collapsedInline(t, props) {
+  const mounted = await renderer.mount(PREVIEW, { location: "/", props });
+  t.after(() => mounted.unmount());
+  const { container, act } = mounted;
+  await act(() =>
+    click(
+      elements(
+        container,
+        (el) => el.getAttribute("aria-label") === "Einklappen"
+      )[0]
+    )
+  );
+  return container;
+}
 const text = (html) =>
   html
     // Umbruchstellen im Skript-Schnipsel (EmbedTab CopyBlock)
@@ -349,9 +366,9 @@ test(
       greetingKey: "greeting",
     });
     assert.match(dark, /data-preview-theme="dark"/);
-    assert.match(dark, /data-preview="inline-bar"/);
-    assert.ok(text(dark).includes("Stellen Sie hier Ihre Frage …"));
-    assert.ok(text(dark).includes("Chatten"));
+    // „In der Seite“ startet aufgeklappt (7.22.1); die Leiste prüft D2
+    assert.match(dark, /data-preview="inline-panel"/);
+    assert.doesNotMatch(dark, /data-preview="inline-bar"/);
   }
 );
 
@@ -432,19 +449,19 @@ test(
 test(
   "D2: Inline-Leiste der Vorschau mit Demo-Text, auch mit eigenem Platzhalter des Chat-Felds; früherer Leistentext gilt",
   { skip },
-  async () => {
-    const own = text(
-      await show(PREVIEW, {
+  async (t) => {
+    const own = (
+      await collapsedInline(t, {
         config: { displayMode: "inline", sendMessageText: "Ihre Frage an uns" },
         logoPreview: null,
         defaults: DEFAULTS,
         greetingKey: "greeting",
       })
-    );
+    ).textContent;
     assert.ok(own.includes("Stellen Sie hier Ihre Frage …"));
     assert.ok(!own.includes("Ihre Frage an uns"));
-    const legacy = text(
-      await show(PREVIEW, {
+    const legacy = (
+      await collapsedInline(t, {
         config: {
           displayMode: "inline",
           inlineInputPlaceholder: "Was suchen Sie?",
@@ -453,7 +470,7 @@ test(
         defaults: DEFAULTS,
         greetingKey: "greeting",
       })
-    );
+    ).textContent;
     assert.ok(legacy.includes("Was suchen Sie?"));
     // Hinweis beim Feld „Platzhalter“
     const bubbleHint = text(await show(CONTENT, contentProps({})));
@@ -502,12 +519,15 @@ test(
       },
     });
     t.after(() => mounted.unmount());
-    const { container, act } = mounted;
-    const bar = elements(
-      container,
-      (el) => el.getAttribute("data-preview") === "inline-bar"
-    )[0];
-    await act(() => click(elements(bar, (el) => el.tagName === "BUTTON")[0]));
+    const { container } = mounted;
+    // startet aufgeklappt (7.22.1, Spezifikation §12 Eintrag 12)
+    assert.equal(
+      elements(
+        container,
+        (el) => el.getAttribute("data-preview") === "inline-bar"
+      ).length,
+      0
+    );
     const panel = elements(
       container,
       (el) => el.getAttribute("data-preview") === "inline-panel"

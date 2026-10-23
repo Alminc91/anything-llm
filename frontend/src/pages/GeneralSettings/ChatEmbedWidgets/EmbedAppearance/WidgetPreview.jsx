@@ -866,7 +866,10 @@ function InlinePreview({
   greetingKey,
   palette,
 }) {
-  const [expanded, setExpanded] = useState(false);
+  // startet aufgeklappt wie die Vorschau des Chatfensters, Einklappen per
+  // Button bleibt möglich (Spezifikation §12 Eintrag 12, Nutzer 21.10.2026:
+  // „im aufgeklappten Modus als Standard!“)
+  const [expanded, setExpanded] = useState(true);
   // aufgeklappt steht der Verlauf unten wie im Widget
   const messagesRef = useRef(null);
   useLayoutEffect(() => {

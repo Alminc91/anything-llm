@@ -546,12 +546,15 @@ test(
       }),
     });
     t.after(() => mounted.unmount());
-    const { container, act } = mounted;
-    const bar = elements(
-      container,
-      (el) => el.getAttribute("data-preview") === "inline-bar"
-    )[0];
-    await act(() => click(elements(bar, (el) => el.tagName === "BUTTON")[0]));
+    const { container } = mounted;
+    // startet aufgeklappt (7.22.1, Spezifikation §12 Eintrag 12)
+    assert.equal(
+      elements(
+        container,
+        (el) => el.getAttribute("data-preview") === "inline-bar"
+      ).length,
+      0
+    );
     const byText = (value) =>
       elements(
         container,
