@@ -17,7 +17,10 @@
 // (wie designCenterStandardSave.test.mjs).
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   createRenderer,
   hasFrontendDeps,
@@ -742,6 +745,250 @@ test(
     );
     await act(() => click(buttonByText(container, "Speichern")));
     assert.deepEqual(savedBody(calls), { ...off, privacyTitle: "Neu" });
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Zustand des Vorschau-Fensters (F2 der Fixliste rc1: F-2, F-3, F-4, C2)
+// ---------------------------------------------------------------------------
+
+// liegt das Element in einem inerten Teil (oder ist es selbst inert)?
+const isInert = (el) => {
+  for (let n = el; n; n = n.parentNode)
+    if (typeof n.hasAttribute === "function" && n.hasAttribute("inert"))
+      return true;
+  return false;
+};
+// Fokus wie im Browser: ein Element in einem inerten Teil bekommt ihn nicht
+// (das Test-Dokument kennt inert nicht)
+const withBrowserFocus = (el) => {
+  const focus = el.focus;
+  el.focus = function (options) {
+    if (!isInert(this)) focus.call(this, options);
+  };
+  return el;
+};
+const headingOf = (dialog) =>
+  elements(
+    dialog,
+    (el) => el.getAttribute("id") === dialog.getAttribute("aria-labelledby")
+  )[0];
+const titleField = (container) =>
+  byAria(container, "Überschrift des Datenschutz-Hinweises");
+const typeInto = (act, field, value) =>
+  act(() => handlersOf(field).onChange({ target: { value } }));
+
+test(
+  "F2 (F-2): Bearbeiten macht das Fenster nie modal: nach Klick auf „Datenschutz“ und Tippen in die Überschrift bleibt es offen, ohne aria-modal, der Fokus bleibt im Feld",
+  { skip },
+  async (t) => {
+    const { container, act, document } = await openDesignCenter(
+      t,
+      [widget(4, STORED)],
+      4
+    );
+    await act(() => click(byPreview(container, "privacy-link")[0]));
+    let [dialog] = dialogs(container);
+    assert.equal(dialog.getAttribute("aria-modal"), "true");
+    const title = titleField(container);
+    title.focus();
+    await typeInto(act, title, "Neue Überschrift");
+    [dialog] = dialogs(container);
+    assert.ok(dialog, "Fenster bleibt offen");
+    assert.equal(plain(headingOf(dialog)), "Neue Überschrift");
+    assert.equal(dialog.getAttribute("aria-modal"), null);
+    assert.equal(document.activeElement, title);
+  }
+);
+
+for (const [name, displayMode, toggleLabel, messages] of [
+  ["Chatfenster", undefined, "Chat schließen", "chat-messages"],
+  ["In der Seite", "inline", "Einklappen", "inline-messages"],
+])
+  test(
+    `F2 (F-3) ${name}: unter dem offenen Fenster sind Kopf-Schalter, Verlauf und Link „Datenschutz“ inert; wird das Fenster modal, bekommt die Überschrift den Fokus, Schließen gibt ihn dem Link zurück`,
+    { skip },
+    async (t) => {
+      const { container, act, document } = await openDesignCenter(
+        t,
+        [widget(4, { ...STORED, displayMode })],
+        4
+      );
+      const link = withBrowserFocus(byPreview(container, "privacy-link")[0]);
+      const covered = () => [
+        byAria(container, toggleLabel),
+        link,
+        byPreview(container, messages)[0],
+      ];
+      for (const el of covered()) assert.ok(!isInert(el), "zu: bedienbar");
+      const title = titleField(container);
+      title.focus();
+      await typeInto(act, title, "Neu");
+      const [dialog] = dialogs(container);
+      assert.equal(dialog.getAttribute("aria-modal"), null);
+      for (const el of covered())
+        assert.ok(
+          isInert(el),
+          `offen: ${el.getAttribute("aria-label") || el.getAttribute("data-preview")} inert`
+        );
+      assert.ok(!isInert(dialog), "das Fenster selbst ist bedienbar");
+      // der Link wird bedient (im Browser nur noch per Skript erreichbar):
+      // das offene Fenster wird modal, der Fokus geht auf die Überschrift
+      await act(() => handlersOf(link).onClick({ detail: 0 }));
+      assert.equal(dialogs(container)[0], dialog, "dasselbe Fenster");
+      assert.equal(dialog.getAttribute("aria-modal"), "true");
+      assert.equal(document.activeElement, headingOf(dialog));
+      // Schließen: erst ohne inert, dann der Fokus auf den Link
+      await act(() => click(buttonByText(dialog, "Schließen")));
+      assert.equal(dialogs(container).length, 0);
+      for (const el of covered()) assert.ok(!isInert(el), "wieder bedienbar");
+      assert.equal(document.activeElement, link);
+    }
+  );
+
+test(
+  "F2 (F-4): eine andere Änderung (Begrüßung, Akzentfarbe) schließt das Fenster, damit sie in der Vorschau zu sehen ist; Änderungen an Überschrift, Text und Link lassen es offen",
+  { skip },
+  async (t) => {
+    const { container, act, document } = await openDesignCenter(
+      t,
+      [widget(4, STORED)],
+      4
+    );
+    const open = () => dialogs(container).length === 1;
+    const title = titleField(container);
+    title.focus();
+    await typeInto(act, title, "Neu");
+    assert.ok(open(), "Überschrift öffnet");
+    await typeInto(
+      act,
+      byAria(container, "Text des Datenschutz-Hinweises"),
+      "• Eins"
+    );
+    await typeInto(
+      act,
+      byAria(container, "Link zur Datenschutzerklärung"),
+      "/datenschutz"
+    );
+    assert.ok(open(), "Text und Link lassen es offen");
+    // Begrüßung: das selbst geöffnete Fenster schließt, der Fokus bleibt
+    const greeting = byAria(container, "Begrüßungstext");
+    greeting.focus();
+    await typeInto(act, greeting, "Guten Tag!");
+    assert.ok(!open(), "Begrüßung schließt das Fenster");
+    assert.equal(document.activeElement, greeting, "Fokus bleibt im Feld");
+    assert.ok(
+      text(container.textContent).includes("Guten Tag!"),
+      "Begrüßung in der Vorschau"
+    );
+    // nach einem Klick auf den Link geöffnet: auch eine Änderung der Optik
+    // (Akzentfarbe im Reiter Aussehen) schließt es
+    await act(() => click(byPreview(container, "privacy-link")[0]));
+    assert.ok(open());
+    await act(() => click(buttonByText(container, "Aussehen")));
+    await typeInto(
+      act,
+      byAria(container, "Akzentfarbe als Farbcode"),
+      "#C4430A"
+    );
+    assert.ok(!open(), "Akzentfarbe schließt das Fenster");
+  }
+);
+
+// F3 (R1-D1 der Fixliste rc1): eine Linkfarbe für den Link „Datenschutz“,
+// den Link zur Datenschutzerklärung und alle Fokusrahmen im Fenster, wie im
+// Widget (theme.js privacyLinkColor): hell die Akzentfarbe, dunkel fest
+// DARK.link #5CC8CB, je mit mindestens 4,5:1 zur Fläche der Fußzeile und
+// des Fensters (Fokusrahmen brauchen 3:1)
+const PRIVACY_SURFACES = { light: ["#ffffff"], dark: ["#1d1d21", "#2a2a2f"] };
+const LINK_ACCENTS = [
+  undefined,
+  "#FFA102",
+  "#63b4e3",
+  "#01A5A9",
+  "#FFFF00",
+  "#1d1d21",
+  "#ffffff",
+];
+
+test(
+  "F3 (R1-D1): Link „Datenschutz“, Link zur Datenschutzerklärung und alle Fokusrahmen im Fenster in einer Farbe, hell aus der Akzentfarbe, dunkel #5CC8CB, mindestens 4,5:1 zu Fußzeile und Fenster",
+  { skip },
+  async (t) => {
+    const { contrastRatio } = await import(
+      "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAppearance/contrast.js"
+    );
+    for (const theme of ["light", "dark"])
+      for (const displayMode of [undefined, "inline"])
+        for (const accentColor of LINK_ACCENTS) {
+          const label = `${theme} ${displayMode} ${accentColor}`;
+          const mounted = await renderer.mount(PREVIEW, {
+            location: "/",
+            props: previewProps({
+              theme,
+              displayMode,
+              accentColor,
+              privacyUrl: "/datenschutz",
+            }),
+          });
+          t.after(() => mounted.unmount());
+          const { container, act } = mounted;
+          const link = byPreview(container, "privacy-link")[0];
+          const color = link.style.color;
+          assert.equal(link.style.outlineColor, color, label);
+          await act(() => click(link));
+          const [dialog] = dialogs(container);
+          const rings = [
+            byPreview(dialog, "privacy-dialog-body")[0],
+            buttonByText(dialog, "Schließen"),
+            byAria(dialog, CLOSE_LABEL),
+          ];
+          for (const el of rings)
+            assert.equal(el.style.outlineColor, color, `${label} Fokusrahmen`);
+          assert.equal(
+            byPreview(dialog, "privacy-statement-link")[0].style.color,
+            color,
+            `${label} Link zur Datenschutzerklärung`
+          );
+          for (const surface of PRIVACY_SURFACES[theme])
+            assert.ok(
+              contrastRatio(color, surface) >= 4.5,
+              `${label}: ${color} auf ${surface}`
+            );
+          if (theme === "dark")
+            assert.equal(color.toLowerCase(), "#5cc8cb", label);
+        }
+  }
+);
+
+// Gegenprobe gegen das Widget (KUFER_EMBED_DIR, Checkout von
+// anythingllm-embed): dieselbe Farbe wie privacyLinkColor im Widget für
+// dieselbe gespeicherte Akzentfarbe (der Server liefert sie als linkColor,
+// endpoints/embed/index.js)
+const WIDGET_THEME = process.env.KUFER_EMBED_DIR
+  ? path.join(process.env.KUFER_EMBED_DIR, "src/utils/theme.js")
+  : null;
+test(
+  "F3 Gleichlauf: Linkfarbe der Vorschau gleich privacyLinkColor des Widgets, hell und dunkel (KUFER_EMBED_DIR)",
+  {
+    skip:
+      skip ||
+      (WIDGET_THEME && fs.existsSync(WIDGET_THEME)
+        ? false
+        : "KUFER_EMBED_DIR nicht gesetzt"),
+  },
+  async () => {
+    const theme = await import(pathToFileURL(WIDGET_THEME).href);
+    const { previewPrivacyLinkColor } = await renderer.load(PREVIEW);
+    for (const scheme of ["light", "dark"])
+      for (const accentColor of LINK_ACCENTS) {
+        const settings = accentColor ? { linkColor: accentColor } : {};
+        assert.equal(
+          previewPrivacyLinkColor({ theme: scheme, accentColor }).toLowerCase(),
+          theme.privacyLinkColor(settings, scheme).toLowerCase(),
+          `${scheme} ${accentColor}`
+        );
+      }
   }
 );
 
