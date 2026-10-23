@@ -704,6 +704,47 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
     expect(rows[2]).toMatch(/^ `none` .*ab 7\.23 ohne Wirkung/);
     expect(section).not.toMatch(/[–—]/);
   });
+
+  // F4 (Fixliste rc1, F-5 bis F-7): privacyNotice überall wie im Widget
+  // eingeordnet (Gruppe A, fest „link“, das Skript-Attribut wirkt nicht und
+  // steht in der Konsole); Button „Schließen“ statt „kein Dialog“;
+  // Prüfpunkt 10 ohne data-privacy-notice als Wert zum Eintragen,
+  // Prüfpunkt 14 mit älteren Widget-Kopien und der Reihenfolge
+  test("Migrationsdoku: privacyNotice in Gruppe A, Button „Schließen“, Prüfpunkte 10 und 14 (F4)", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const doc = fs.readFileSync(
+      path.join(__dirname, "../../../../docs/design-center-2-migration.md"),
+      "utf8"
+    );
+    const flat = (text) => text.replace(/\s+/g, " ");
+    const row = (key, old) =>
+      flat(doc).match(
+        new RegExp(`\\| \`${key}\` +\\| ${old} +\\|([^|]*)\\|`)
+      )?.[1] ?? "";
+    const script = row("privacyNotice", "`data-privacy-notice` am Skript");
+    expect(script).toMatch(/Gruppe A/);
+    expect(script).toMatch(/Konsole/);
+    expect(script).not.toMatch(/ohne Verfeinerung/);
+    const button = row("privacyButtonText", "eigener Text");
+    expect(button).toMatch(/„Schließen“/);
+    expect(button).not.toMatch(/kein Dialog/);
+    const point = (n) =>
+      flat(
+        doc.slice(
+          doc.search(new RegExp(`^${n}\\. `, "m")),
+          doc.search(new RegExp(`^${n + 1}\\. `, "m"))
+        )
+      );
+    const p10 = point(10);
+    expect(p10).not.toMatch(/z\. B\. [^)]*`data-privacy-notice`/);
+    expect(p10).toMatch(/`data-privacy-notice`.*Prüfpunkt 14/);
+    const p14 = flat(doc.slice(doc.search(/^14\. /m)));
+    expect(p14).toMatch(/bis 7\.22\.2/);
+    expect(p14).toMatch(/Ungültiger privacyNotice-Wert "link"/);
+    expect(p14).toMatch(/vor dem Server auf 7\.23/);
+    expect(p14).not.toMatch(/den langen KI-Hinweis ohne Link\.$/);
+  });
 });
 
 // E43 (Nutzerentscheidung 22.10.2026, „Alte Vorlage als nicht gesetzt“,

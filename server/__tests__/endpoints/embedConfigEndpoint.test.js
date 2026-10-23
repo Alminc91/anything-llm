@@ -1091,7 +1091,8 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
     welcomeBubblesMobile: "off",
     supportEmail: "info@example.org",
     // privacyNotice ist seit der Datenschutz-Fußzeile (23.10.2026) kein Feld
-    // mehr, sondern fester Standard (Gruppe B, nicht verfeinerbar)
+    // mehr, sondern fest "link"; eingeordnet bleibt es in Gruppe A
+    // (FIXED_GROUP_A unten)
     privacyTitle: "Hinweis",
     privacyText: "Eigener Text",
     privacyUrl: "https://example.org/datenschutz",
@@ -1106,6 +1107,12 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
   // verfeinert data-inline-input-placeholder ihn weiterhin (Widget:
   // inlineInputPlaceholder nicht in DC_COVERED).
   const DERIVED_GROUP_B = ["inlineInputPlaceholder"];
+  // Fest vom Server, aber Gruppe A wie im Widget (DC_COVERED, Hard
+  // Constraint 6 der Spezifikation datenschutz-fusszeile): das Skript-Attribut
+  // wird verworfen und in der Konsole gemeldet; seit 7.23 immer der Link
+  // „Datenschutz“ (F4, Fixliste rc1; bis rc1 hier als Gruppe B, nicht
+  // verfeinerbar)
+  const FIXED_GROUP_A = ["privacyNotice"];
   const FLAGS = ["defaultMessagesSaved", "defaultMessagesStandard"];
 
   test("jedes Skript-Attribut eines Design-Center-Felds steht in Gruppe A", async () => {
@@ -1148,20 +1155,22 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
 
   test("feste Standards (Gruppe B) nicht in Gruppe A, KI-Hinweis unter E24, Technik in Gruppe C", () => {
     const groupA = bullet("Gruppe A");
-    for (const key of FIXED) expect(groupA).not.toContain(`\`${attr(key)}\``);
+    for (const key of FIXED)
+      if (!FIXED_GROUP_A.includes(key))
+        expect(groupA).not.toContain(`\`${attr(key)}\``);
     const groupB = bullet("Gruppe B");
+    // privacyNotice: fest, aber Gruppe A (Attribut verworfen, Konsole)
+    for (const key of FIXED_GROUP_A) {
+      expect(EMBED_FIXED_STANDARDS).toHaveProperty(key);
+      expect(groupA).toContain(`\`${attr(key)}\``);
+      expect(groupB).not.toContain(`\`${key}\``);
+      expect(groupB).not.toContain(`\`${attr(key)}\``);
+    }
     expect(groupB).toMatch(/Einbau-Angabe schlägt den festen\s+Standard/);
     // F62 (Fixliste 7.22-rc18): feste Standards ohne Verfeinerung stehen als
     // Ausnahme in Gruppe B (KI-Hinweis gesperrt, Antwortstil nur im Prompt,
     // Online-Punkt entfernt)
-    // Datenschutz-Fußzeile (23.10.2026): der Link „Datenschutz“ ist ein
-    // fester Standard ohne Verfeinerung (data-privacy-notice wirkt nicht)
-    for (const key of [
-      "disclaimer",
-      "courseCardsAnswerStyle",
-      "onlineDot",
-      "privacyNotice",
-    ]) {
+    for (const key of ["disclaimer", "courseCardsAnswerStyle", "onlineDot"]) {
       expect(EMBED_FIXED_STANDARDS).toHaveProperty(key);
       expect(groupB).toMatch(
         new RegExp(`Nicht verfeinerbar sind .*\`${key}\``)

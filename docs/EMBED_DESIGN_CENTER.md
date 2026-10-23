@@ -112,7 +112,8 @@ bleibt unverändert.
 
 ## Standardtexte
 
-Begrüßungsblase, Datenschutz-Titel/-Punkte/-Knopf und KI-Hinweis haben
+Begrüßungsblase, Datenschutz-Fenster (Überschrift, Punkte, „Hinweis zur KI“,
+Button „Schließen“; seit 7.23) und KI-Hinweis mit dem Link „Datenschutz“ haben
 Kufer-Standardtexte (de/en, wörtlich wie `PANEL_TEXTS` im Embed-Repo). Das
 Design Center lädt sie über `GET /api/embed/defaults?lang=de|en` (angemeldet,
 Rollen wie die übrigen Embed-Verwaltungsendpunkte), zeigt sie als Feldwert und

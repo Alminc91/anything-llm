@@ -334,19 +334,22 @@ function bullet(doc, name) {
     .replace(/\s+/g, " ");
 }
 
-// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Die
-// Datenschutz-Blase entfällt; das Datenschutz-Fenster nutzt Fläche und
-// Schrift der Antwortblasen (D2). Bis 7.22.2 stand hier „Die
-// Datenschutz-Blase sieht seit 7.22.2 aus wie die Begrüßungsblase und die
-// Antwortblasen …“ mit den Angaben, die alle Blasen gemeinsam ändern.
-test("F83 (seit 7.23): Gruppe B nennt das Datenschutz-Fenster mit Fläche und Schrift der Antwortblasen (ersetzte E25)", () => {
+// Bewusste Änderungen (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Die
+// Datenschutz-Blase entfällt. Das Datenschutz-Fenster nutzte in 7.23-rc1
+// Fläche und Schrift der Antwortblasen (D2); seit rc2 hat es feste Farben je
+// Farbschema wie der KI-Hinweis, keine Angabe und keine Variable der Seite
+// wirkt darauf (R1-D1, Fixliste datenschutz-fusszeile rc1). Bis 7.22.2 stand
+// hier „Die Datenschutz-Blase sieht seit 7.22.2 aus wie die Begrüßungsblase
+// und die Antwortblasen …“ mit den Angaben, die alle Blasen gemeinsam ändern.
+test("F83 (seit 7.23-rc2, R1-D1): Gruppe B nimmt das Datenschutz-Fenster mit festen Farben je Farbschema aus", () => {
   const group = bullet(readDoc(), "Gruppe B");
   assert.match(
     group,
-    /Das Datenschutz-Fenster \(ab 7\.23\) nutzt Fläche und Schrift der Antwortblasen und die Rundung des Panels, wie bis 7\.22\.2 die Datenschutz-Blase \(Nutzer 23\.10\.2026, ersetzte E25/
+    /Ausgenommen ist das Datenschutz-Fenster \(ab 7\.23\): Fläche, Schrift, Trennlinien, Link und Fokusrahmen fest je Farbschema/
   );
+  assert.match(group, /R1-D1/);
+  assert.doesNotMatch(group, /nutzt Fläche und Schrift der Antwortblasen/);
   assert.doesNotMatch(group, /Die Datenschutz-Blase sieht seit 7\.22\.2/);
-  assert.doesNotMatch(group, /je Farbschema fest/);
   assert.doesNotMatch(group, /[–—]/);
 });
 

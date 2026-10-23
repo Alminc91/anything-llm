@@ -61,11 +61,14 @@ von Hand gebauten Einbau-Codes (Demo-Seite, Einbau-Paket vhs Rhein).
   Willkommensblasen und ihre Anzeige je Gerät
   (`data-chatbot-bubbles-messages`, `data-welcome-bubbles-desktop`,
   `data-welcome-bubbles-mobile`, `data-display-chatbot-bubbles`,
-  `data-bubble-persistence`), Support-E-Mail (`data-support-email`) und die
+  `data-bubble-persistence`), Support-E-Mail (`data-support-email`), die
   Texte des Datenschutz-Fensters: Überschrift, Text und Link zur
   Datenschutzerklärung (`data-privacy-title`, `data-privacy-text`,
-  `data-privacy-url`). Den Datenschutz-Hinweis selbst gibt es seit 7.23
-  nur noch als festen Link (Gruppe B, nicht verfeinerbar).
+  `data-privacy-url`) und der Datenschutz-Hinweis selbst
+  (`data-privacy-notice`). Für ihn hat das Design Center seit 7.23 keine
+  Auswahl mehr: Er ist immer der Link „Datenschutz“ neben dem KI-Hinweis,
+  `GET /embed/:id/config` liefert fest `privacyNotice: "link"`, das Widget
+  verwirft die Angabe im Einbau-Code und meldet sie in der Konsole.
 - **Gruppe B, feste Standards ohne Feld im Design Center:** die festen
   Werte aus `EMBED_FIXED_STANDARDS` und `INLINE_FIXED_STANDARDS`
   (`server/utils/chats/embedStandards.js`) und alle Optik-Werte ohne Feld:
@@ -76,18 +79,22 @@ von Hand gebauten Einbau-Codes (Demo-Seite, Einbau-Paket vhs Rhein).
   und Folgefragen-Stil, Radien, Schatten, Flächen- und Textfarben,
   Kopffarben, Icon-Stil, Textgröße. Entwickler dürfen sie per Einbau-Angabe
   oder CSS-Variable verfeinern; die Einbau-Angabe schlägt den festen
-  Standard, den der Server liefert. Nicht verfeinerbar sind vier Werte aus
+  Standard, den der Server liefert. Nicht verfeinerbar sind drei Werte aus
   `EMBED_FIXED_STANDARDS`: der KI-Hinweis (`disclaimer`, gesperrt, siehe
   „KI-Hinweis (E24)“), `courseCardsAnswerStyle` (die kurze Antwort zu
   Kurskarten; den Wert liest nur der Server für den Prompt, das Widget hat
-  dafür keine Angabe), `onlineDot` (den Online-Punkt gibt es nicht mehr,
-  `data-online-dot` bleibt ohne Wirkung) und seit 7.23 `privacyNotice`
-  (immer `link`: der Link „Datenschutz“ neben dem KI-Hinweis,
-  `data-privacy-notice` bleibt ohne Wirkung, siehe „Datenschutz-Hinweis“).
-  Das Datenschutz-Fenster (ab 7.23) nutzt Fläche und Schrift der
-  Antwortblasen und die Rundung des Panels, wie bis 7.22.2 die
-  Datenschutz-Blase (Nutzer 23.10.2026, ersetzte E25 aus 7.22-rc18 mit
-  festen Farben). Die Grenze beim Begrüßungsstil (E26, 7.22-rc18:
+  dafür keine Angabe) und `onlineDot` (den Online-Punkt gibt es nicht mehr,
+  `data-online-dot` bleibt ohne Wirkung). Ausgenommen ist das
+  Datenschutz-Fenster (ab 7.23): Fläche, Schrift, Trennlinien, Link und
+  Fokusrahmen fest je Farbschema wie beim KI-Hinweis (Fläche und Schrift
+  wie die Standard-Antwortblase, hell Weiß, dunkel `#2A2A2F`; Link und
+  Fokusrahmen in der Farbe des Links „Datenschutz“ mit mindestens 4,5:1),
+  keine Angabe im Einbau-Code und keine CSS-Variable der Seite wirkt darauf
+  (R1-D1, Fixliste datenschutz-fusszeile rc1; in 7.23-rc1 folgte es noch
+  Fläche und Schrift der Antwortblasen wie bis 7.22.2 die
+  Datenschutz-Blase, D2). Nur der Button „Schließen“ nutzt die Akzentfarbe
+  aus dem Design Center; bei „In der Seite“ ist die Textspalte des Fensters
+  höchstens etwa 70 Zeichen breit (R1-D2). Die Grenze beim Begrüßungsstil (E26, 7.22-rc18:
   `data-greeting-style="text"` wirkte nur bei abgeschaltetem
   Datenschutz-Hinweis, weil die Datenschutz-Blase an der Begrüßungsblase
   hing) hat ab 7.23 keinen Anlass mehr und entfällt im Widget:
@@ -340,8 +347,8 @@ mit eigenem Datenschutz-Text.
 | ------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `privacyNotice`     | `bubble`, `modal`, fehlt                                          | ab 7.23 keine Datenschutz-Blase beim Start mehr, der Link „Datenschutz“ steht in der Fußzeile; Begrüßung, Startvorschläge und Folgefragen bleiben. 7.22 bis 7.22.2: zweite Blase unter der Begrüßung, die Begrüßung blieb dafür eine Blase, auch gegen `data-greeting-style="text"` (E26, 7.22-rc18); der Einmal-Dialog `modal` entfiel schon mit 7.22 |
 | `privacyNotice`     | `none`                                                            | ab 7.23 ohne Wirkung: der Link steht trotzdem in der Fußzeile (kein „Aus“ mehr). 7.22 bis 7.22.2: Hinweis aus (Schalter „Datenschutz-Hinweis anzeigen“) |
-| `privacyNotice`     | `data-privacy-notice` am Skript                                   | ohne Wirkung, wie seit 7.22-rc17 (Gruppe A, E23); ab 7.23 fester Standard ohne Verfeinerung |
-| `privacyButtonText` | eigener Text                                                      | wirkungslos (kein Dialog mehr)                                           |
+| `privacyNotice`     | `data-privacy-notice` am Skript                                   | ohne Wirkung, wie seit 7.22-rc17 (Gruppe A, E23): der Link „Datenschutz“ steht immer in der Fußzeile; das Widget meldet die Angabe in der Konsole |
+| `privacyButtonText` | eigener Text                                                      | wirkungslos; der Button im Datenschutz-Fenster heißt ab 7.23 fest „Schließen“ (en „Close“) |
 | `privacyUrl`        | fehlt                                                             | kein Link zur Datenschutzerklärung im Fenster; das Design Center empfiehlt, ihn einzutragen |
 | `privacyUrl`        | `https://…` oder `/pfad`                                          | ab 7.23 als Link zur Datenschutzerklärung im Datenschutz-Fenster (bis 7.22.2 am Ende der Blase), neuer Tab |
 | `privacyTitle`      | „Datenschutz:“ / „Privacy:“                                       | gilt als nicht gesetzt: Standard ohne Doppelpunkt                        |
@@ -384,8 +391,8 @@ Text mit Links“ ein.
 7. Widgets ohne gespeicherte `defaultMessages` (nie im Design Center gespeichert): zeigen ab 7.22 keine Startvorschläge, der Standard ist leer (E42, Nutzerentscheidung 22.10.2026, 7.22-rc23; bis 7.22-rc22 waren es zwei Beispiele). Wer Startvorschläge will, trägt sie im Design Center ein. Gespeicherte Listen gelten unverändert, ein gespeichertes `[]` bleibt „keine“. Bis 7.21 gespeicherte Widgets haben `[]` und zeigen keine. Nichts zu zählen oder zu ändern.
 8. Snippets mit `data-default-messages` am Skript: Das Attribut wirkt ab 7.22 nicht mehr, auch wenn im Design Center keine Liste gespeichert ist (E10 neu, E23, 7.22-rc17); es gilt die gespeicherte Liste, sonst gibt es keine Startvorschläge (Standard leer, E42). Bis 7.21 gespeicherte Widgets haben `[]` (alte Vorbelegung) und zeigen keine Startvorschläge. Vor dem Flotten-Rollout zählen, welche Kundenseiten das Attribut nutzen (F44, 7.22-rc16), und deren Liste im Design Center eintragen; erst danach auf 7.22 stellen.
 9. Seiten mit eigener Kopie des Widgets (z. B. Demo `/widget/anythingllm-chat-widget.min.js`): auf das Widget ab 7.22-rc17 bringen, sonst fehlen die Startvorschläge (Listen als Array, E11), ohne gespeicherte Kurskarten-Wahl auch `displayMode` im Chat (R4), und Angaben der Gruppe A im Einbau-Code wirken dort weiter. Ab 7.22-rc13 ruft das Widget `/config?language=<Sprache>` auf: Eigene Demo-Kopien, die die `/config`-Antwort abfangen (z. B. die Topbar-Schalter der Demo in `app.js` und `next/app.js`), müssen die Adresse ohne Query vergleichen, sonst greifen ihre Schalter still nicht mehr (W41, 7.22-rc16). Seit E23 (7.22-rc17): Demo-Seite und Einbau-Paket vhs Rhein (`Kundendaten/Chatbot/demo_site/einbau_rhein/`) auf Pflicht- und Entwickler-Angaben kürzen; Gruppe-A-Angaben entfernen, Effekte und Inline-Feinheiten (Gruppe B) dürfen bleiben. Topbar-Schalter, die Design-Center-Optionen nachstellen, schreiben ihre Werte in die `/config`-Antwort statt in Attribute. Gilt auch für `praesentation` und `demo-inline`, die das Widget direkt vom Container laden: erst die Demo anpassen, dann auf 7.22 stellen.
-10. Snippets mit Gruppe-A-Angaben am Skript (z. B. `data-theme`, `data-display-mode`, `data-position`, `data-chat-icon`, `data-button-color`, `data-greeting`, `data-privacy-notice`) und Seiten, deren CSS eine der fünf Variablen `--allm-accent`, `--allm-on-accent`, `--allm-user-bg`, `--allm-user-text` oder `--allm-link` setzt: Diese Angaben wirken ab 7.22 nicht mehr, auch wenn im Design Center dafür nichts gespeichert ist (E23, 7.22-rc17; ersetzt E18 aus 7.22-rc16). Es gilt das Design Center, gespeichert oder sein Standard. Vor dem Rollout je Kundenseite die Werte aus dem Einbau-Code mit dem Design Center vergleichen, im Seiten-CSS (eigene Stylesheets und `style`-Angaben der Seite) nach diesen fünf Variablen suchen und, wo der Kunde die Werte behalten will, im Design Center eintragen. Die Browser-Konsole hilft nur beim Einbau-Code: Verworfene Angaben dort meldet das Widget, Seiten-CSS übergeht es ohne Konsolenwarnung. Gruppe-B-Angaben (z. B. `data-inline-effect`, `--allm-radius`) wirken weiter.
+10. Snippets mit Gruppe-A-Angaben am Skript (z. B. `data-theme`, `data-display-mode`, `data-position`, `data-chat-icon`, `data-button-color`, `data-greeting`) und Seiten, deren CSS eine der fünf Variablen `--allm-accent`, `--allm-on-accent`, `--allm-user-bg`, `--allm-user-text` oder `--allm-link` setzt: Diese Angaben wirken ab 7.22 nicht mehr, auch wenn im Design Center dafür nichts gespeichert ist (E23, 7.22-rc17; ersetzt E18 aus 7.22-rc16). Es gilt das Design Center, gespeichert oder sein Standard. Vor dem Rollout je Kundenseite die Werte aus dem Einbau-Code mit dem Design Center vergleichen, im Seiten-CSS (eigene Stylesheets und `style`-Angaben der Seite) nach diesen fünf Variablen suchen und, wo der Kunde die Werte behalten will, im Design Center eintragen. Die Browser-Konsole hilft nur beim Einbau-Code: Verworfene Angaben dort meldet das Widget, Seiten-CSS übergeht es ohne Konsolenwarnung. Gruppe-B-Angaben (z. B. `data-inline-effect`, `--allm-radius`) wirken weiter. `data-privacy-notice` braucht keinen Abgleich: Dafür gibt es ab 7.23 kein Feld mehr, der Link „Datenschutz“ ist fest (Prüfpunkt 14).
 11. Nur auf den Containern, die 7.16 bis 7.21.1 liefen (ki-helfer, intern, demo-inline, praesentation, entwicklung): gespeicherte `privacyText` nach dem Wort „Mitarbeitende“ durchsuchen und die Treffer je Container zählen (E30, 7.22-rc19). Bis 7.21.1 zeigte das Feld den Standardtext als Wert; wer ihn dort bearbeitet hat, hat ihn samt dem alten Standardpunkt gespeichert, und dieser Text bleibt nach 7.22 stehen. Der Standardtext lautet seit E30 „Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.“ Treffer nur melden; gespeicherte Texte der Kunden nicht ändern. Die Flotte (7.8) hatte diesen Standardtext nie.
 12. Gespeicherte Farbwerte, die `parseColor` nicht liest oder die nicht deckend sind (E41, 7.22-rc22): je Container in `visual_config` die Werte von `accentColor` und `userTextColor` mit `parseColor` und auf Deckkraft unter 1 prüfen und die Treffer je Kunde zählen, z. B. `hsl()`, Farbnamen, Prozent, `#rgba`, `oklch()`, Systemfarben, `rgb()` mit gemischten Trennern oder geschützten Leerzeichen, `rgba()` mit Alpha unter 1 oder `#rrggbbaa` unter `ff`. Diese Widgets zeigen ab 7.22 die Standardfarbe (ab 7.22.2 `#007C82`, vorher `#01A5A9`) bzw. die Schrift nach Kontrast (Absatz unter der Tabelle „Darstellung“). Erwartet sind wenige oder keine Treffer, das Design Center hatte immer einen Farbwähler. Treffer nur melden; gespeicherte Werte der Kunden nicht ändern.
 13. Begrüßungen mit eigenem Datenschutzinhalt, die keiner Vorlage aus `LEGACY_PRIVACY_GREETINGS` wortgleich entsprechen (E43, 7.22-rc24): Sie bleiben eigene Kundentexte. In 7.22 folgte ihnen die Datenschutz-Blase, ab 7.23 steht der Hinweis zusätzlich im Datenschutz-Fenster hinter dem Link „Datenschutz“. Je Container `greeting` und `greetingBubbleText` lesen und die Treffer je Kunde melden (Stand 22.10.2026: zwei Kunden, einer mit einer abgewandelten Juni-Vorlage, einer mit eigenen Einwilligungssätzen). Gespeicherte Texte der Kunden nicht ändern; der Kunde kürzt die Begrüßung im Design Center (abschalten lässt sich der Link ab 7.23 nicht). Wortgleiche Vorlagen (auch mit anderem Leerraum) brauchen nichts.
-14. Datenschutz als Link in der Fußzeile (7.23, Nutzerentscheidung 23.10.2026): Nichts zu migrieren, gespeicherte Werte bleiben. Widgets mit `privacyNotice` `bubble` (Scan 23.10.2026: 3) zeigen statt der Blase den Link; Widgets mit eigenem `privacyText` (2) zeigen ihn im Fenster, dort einmal öffnen und prüfen. Einen Link zur Datenschutzerklärung (`privacyUrl`) hat kein Widget: Kunden auf das Feld „Link zur Datenschutzerklärung“ im Reiter Inhalt hinweisen. Seiten mit eigener Kopie des Widgets (Demo) brauchen das Widget ab 7.23, sonst zeigen sie den langen KI-Hinweis ohne Link.
+14. Datenschutz als Link in der Fußzeile (7.23, Nutzerentscheidung 23.10.2026): Nichts zu migrieren, gespeicherte Werte bleiben. Widgets mit `privacyNotice` `bubble` (Scan 23.10.2026: 3) zeigen statt der Blase den Link; Widgets mit eigenem `privacyText` (2) zeigen ihn im Fenster, dort einmal öffnen und prüfen. Einen Link zur Datenschutzerklärung (`privacyUrl`) hat kein Widget: Kunden auf das Feld „Link zur Datenschutzerklärung“ im Reiter Inhalt hinweisen. Widget-Kopien bis 7.22.2 (eigene Kopien wie Demo und Einbau-Paket vhs Rhein, auch ein altes Bundle im Zwischenspeicher des Browsers) kennen den Wert `link` nicht: Gegen einen Server 7.23 zeigen sie wieder die Datenschutz-Blase unter der Begrüßung und den langen KI-Hinweis ohne Link, auch bei gespeichertem `none`, und melden bei jedem Laden „Ungültiger privacyNotice-Wert "link"“ in der Konsole. Reihenfolge deshalb: eigene Kopien (Demo, rhein) vor dem Server auf 7.23 bringen.

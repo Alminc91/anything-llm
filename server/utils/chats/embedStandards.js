@@ -16,9 +16,11 @@
 // Ausgenommen sind (Fixliste 7.22-rc18 F62): der KI-Hinweis (disclaimer,
 // E24: auf keinem Weg abschaltbar oder änderbar), courseCardsAnswerStyle
 // (liest nur der Server für den Prompt, das Widget hat dafür keine Angabe),
-// onlineDot (Online-Punkt entfernt, data-online-dot ohne Wirkung) und seit
-// der Datenschutz-Fußzeile (Nutzer 23.10.2026) privacyNotice: immer der
-// Link „Datenschutz“ neben dem KI-Hinweis, data-privacy-notice wirkt nicht.
+// onlineDot (Online-Punkt entfernt, data-online-dot ohne Wirkung).
+// privacyNotice liefert der Server seit der Datenschutz-Fußzeile (Nutzer
+// 23.10.2026) fest "link" (immer der Link „Datenschutz“ neben dem
+// KI-Hinweis); es zählt wie im Widget zu Gruppe A: data-privacy-notice wird
+// verworfen und in der Konsole gemeldet.
 // Die Grenze für greetingStyle (E26, 7.22-rc18: Begrüßung als Blase, solange
 // die Datenschutz-Blase darunter hing) hat seit 7.23 keinen Anlass mehr; das
 // Widget lässt data-greeting-style seitdem wie jede Gruppe-B-Angabe gelten.
@@ -72,7 +74,9 @@ const DEFAULT_WELCOME_BUBBLES = "first";
 // issues/datenschutz-fusszeile.md AK-7/AK-10): Der Link „Datenschutz“ steht
 // immer in der Zeile des KI-Hinweises unter der Eingabe und öffnet das
 // Datenschutz-Fenster; keine Blase beim Start, kein „Aus“, keine Auswahl im
-// Design Center. Gespeicherte Altwerte ("bubble", "none", "modal") bleiben in
+// Design Center (Gruppe A: data-privacy-notice wirkt nicht). Widget-Kopien
+// bis 7.22.2 kennen "link" nicht und zeigen dann wieder die Blase
+// (Migrationsdoku, Prüfpunkt 14). Gespeicherte Altwerte ("bubble", "none", "modal") bleiben in
 // visual_config stehen und wirken nicht. Bis 7.22.2 war der Hinweis eine
 // zweite Blase unter der Begrüßung, im Design Center abschaltbar (KIE-565
 // Nachtrag, privacyNoticeValue). Der Prompt pro Embed hängt nicht davon ab.
