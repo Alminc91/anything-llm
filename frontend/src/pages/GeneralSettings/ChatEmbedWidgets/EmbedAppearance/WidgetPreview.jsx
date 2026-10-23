@@ -37,6 +37,7 @@ import {
   CaretUp,
 } from "@phosphor-icons/react";
 import {
+  DEFAULT_ACCENT_COLOR,
   DEFAULT_WELCOME_BUBBLES,
   choiceValue,
   displayMode,
@@ -59,6 +60,7 @@ import {
   themeChoice,
   validPrivacyUrl,
 } from "./widgetKeys";
+import { parseColor } from "./contrast";
 
 export const CHAT_ICONS = [
   { id: "chatBubble", label: "Sprechblase", Icon: ChatCircleDots },
@@ -100,6 +102,19 @@ export function previewWindowHeight(areaHeight) {
 // inlineHeight in server/utils/chats/embedStandards.js, im Widget
 // DEFAULT_INLINE_HEIGHT)
 export const INLINE_PANEL_HEIGHT_PX = 520;
+
+// Schatten des aufgeklappten Panels „In der Seite“ wie im Widget (theme.js,
+// Standard seit 7.22.2, Nutzer 23.10.2026 nach der rhein-Demo): hell weich
+// und tief, leicht in der Akzentfarbe getönt (Akzent × 0,33), dunkel schwarz
+// mit feinem Rand in der Akzentfarbe. Maße wegen der kleineren Vorschau
+// etwas kürzer als live (30/70 statt 40/90 px).
+export function inlinePanelShadow(accent, scheme) {
+  const rgb = parseColor(accent) || parseColor(DEFAULT_ACCENT_COLOR);
+  if (scheme === "dark")
+    return `0 30px 70px -30px rgba(0,0,0,.8), 0 0 0 1px rgba(${rgb.join(",")},.1)`;
+  const [r, g, b] = rgb.map((c) => Math.round(c * 0.33));
+  return `0 30px 70px -30px rgba(${r},${g},${b},.45), 0 4px 14px rgba(23,24,27,.06)`;
+}
 
 // Verlauf an den Anfang scrollen: beim Öffnen und Aufklappen zeigt die
 // Vorschau wie beim ersten Besuch zuerst Kopf, Begrüßung und Datenschutz-
@@ -941,7 +956,7 @@ function InlinePreview({
               // feste Höhe wie live (Serverstandard inlineHeight); der
               // Verlauf scrollt innen mit sichtbarer Bildlaufleiste
               height: `${INLINE_PANEL_HEIGHT_PX}px`,
-              boxShadow: "0 30px 70px -30px rgba(64,36,8,.45)",
+              boxShadow: inlinePanelShadow(accentColor, palette.scheme),
             }}
             data-preview="inline-panel"
           >

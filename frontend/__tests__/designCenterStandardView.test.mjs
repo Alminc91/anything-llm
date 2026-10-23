@@ -692,3 +692,38 @@ test(
     }
   }
 );
+
+test(
+  "Nutzer 23.10.2026: Schatten des aufgeklappten Panels „In der Seite“ aus der Akzentfarbe (wie im Widget), hell getönt, dunkel mit Rand in der Akzentfarbe",
+  { skip },
+  async () => {
+    const { inlinePanelShadow } = await renderer.load(PREVIEW);
+    // Petrol (Standard) und das Orange der rhein-Demo: Akzent × 0,33
+    assert.equal(
+      inlinePanelShadow("#007C82", "light"),
+      "0 30px 70px -30px rgba(0,41,43,.45), 0 4px 14px rgba(23,24,27,.06)"
+    );
+    assert.equal(
+      inlinePanelShadow("#C4430A", "light"),
+      "0 30px 70px -30px rgba(65,22,3,.45), 0 4px 14px rgba(23,24,27,.06)"
+    );
+    assert.equal(
+      inlinePanelShadow("#C4430A", "dark"),
+      "0 30px 70px -30px rgba(0,0,0,.8), 0 0 0 1px rgba(196,67,10,.1)"
+    );
+    // ungültige Farbe: Standard
+    assert.equal(
+      inlinePanelShadow("kein-farbcode", "light"),
+      inlinePanelShadow("#007C82", "light")
+    );
+    const html = await show(PREVIEW, {
+      config: { displayMode: "inline", accentColor: "#C4430A" },
+      logoPreview: null,
+      defaults: DEFAULTS,
+      greetingKey: "greeting",
+    });
+    const panel = html.match(/<div[^>]*data-preview="inline-panel"[^>]*>/)?.[0];
+    assert.ok(panel, "Panel");
+    assert.match(panel, /box-shadow:0 30px 70px -30px rgba\(65,22,3,\.45\)/);
+  }
+);
