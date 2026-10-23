@@ -77,6 +77,12 @@
 // zurück, bis entschieden ist (höchstens ein Fenster) — der Stream ergibt
 // dasselbe wie die ganze Antwort (parseCardsReply). Gespeichert als
 // followUps (Widget-Verlauf), im LLM-Verlauf wieder als letzte Zeile.
+//
+// KIE-576 Absicherung: Mit gültiger Kategorie-Karte (embedCategoryChains.js)
+// prüft eine letzte Stufe (OverviewLinkFilter) jeden Übersichtslink „Alle
+// Kurse in …“, bevor er gesendet wird: entfernt, wenn die Adresse ein
+// Kurs-Link oder nicht im Kontext ist, sonst Titel und Zahl aus der Karte.
+// Stream und gespeicherter Text entscheiden gleich; ohne Karte keine Stufe.
 
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { safeJsonParse } = require("../http");
@@ -564,16 +570,187 @@ function cleanStoredResponse(response) {
   return text === data.text ? response : JSON.stringify({ ...data, text });
 }
 
+// KIE-576: Übersichtslinks („Alle Kurse in …“) prüfen, bevor sie das Widget
+// erreichen. Fenster ab "[" bis ")" (Linktext + Adresse); höchstens so viele
+// Zeichen Aufzählungs-/Schmuckzeichen am Zeilenanfang werden mitgehalten.
+const LINK_WINDOW = 600;
+const LINE_PREFIX_MAX = 16;
+const MARKDOWN_LINK_RX = /^\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/;
+// Anfang eines möglichen Links: "[text", "[text]", "[text](" + Adressanfang
+const PARTIAL_LINK_RX = /^\[[^\]\n]*(?:\](?:\(([^)\s]*))?)?$/;
+const LINE_PREFIX_RX =
+  /^[ \t>*\u2022\u00b7\-\u2013\u2014\d.)\p{Extended_Pictographic}\uFE0F\u200D]$/u;
+const LINE_TEXT_RX = /[^\n[]+/y;
+
+/**
+ * Markdown-Link ab Position i (dort steht "[") im Fenster LINK_WINDOW.
+ *   - "link": "[text](http…)" vollständig; end = hinter ")"
+ *   - "pending": könnte noch einer werden (nur ohne final)
+ *   - "none": sonst; "[" ist Text
+ * @param {string} s
+ * @param {number} i
+ * @param {boolean} final
+ * @returns {{state: "pending"|"none"|"link", text?: string, url?: string, end?: number}}
+ */
+function scanMarkdownLink(s, i, final) {
+  const win = s.slice(i, i + LINK_WINDOW);
+  const m = MARKDOWN_LINK_RX.exec(win);
+  if (m) return { state: "link", text: m[1], url: m[2], end: i + m[0].length };
+  if (final || win.length >= LINK_WINDOW) return NONE;
+  const partial = PARTIAL_LINK_RX.exec(win);
+  if (!partial) return NONE;
+  const url = partial[1];
+  if (
+    url === undefined ||
+    "https://".startsWith(url) ||
+    "http://".startsWith(url) ||
+    /^https?:\/\//.test(url)
+  )
+    return PENDING;
+  return NONE;
+}
+
+/**
+ * KIE-576 Absicherung: Zustandsbehafteter Filter, der Übersichtslinks mit
+ * dem Prüfer aus embedCategoryChains (createOverviewLinkGuard) entscheidet —
+ * Stream und ganze Antwort teilen ihn (gleiche Entscheidung bei jeder
+ * Aufteilung in Token). Läuft hinter dem ProtocolMarkerFilter.
+ * Zurückgehalten werden ein möglicher Link ab "[" bis ")" (Zeilenende,
+ * Fenstergrenze oder Antwortende entscheiden dagegen) und Aufzählungs-/
+ * Schmuckzeichen am Zeilenanfang davor. Entfernt wird ein Übersichtslink
+ * mit dem Rest seiner Zeile; stand davor nur Schmuck, die ganze Zeile samt
+ * Zeilenende (wie guard v2), sonst bleibt der schon gesendete Zeilenanfang.
+ * Neu gesetzt wird nur der Linktext; alle anderen Links bleiben unverändert.
+ */
+class OverviewLinkFilter {
+  /**
+   * @param {{check: (text: string, url: string) => (null|{remove: boolean, text?: string})}} guard
+   */
+  constructor(guard) {
+    this.guard = guard;
+    this.rest = ""; // unentschiedener Rest ab einem möglichen Link ("[")
+    this.prefix = ""; // gehaltener Zeilenanfang (nur Schmuckzeichen)
+    this.lineStart = true; // in dieser Zeile noch kein Text gesendet
+    this.drop = null; // Rest der Zeile verwerfen: "line" (samt "\n") | "rest"
+  }
+
+  #text(out, text) {
+    const sent = out + this.prefix + text;
+    this.prefix = "";
+    this.lineStart = false;
+    return sent;
+  }
+
+  /**
+   * @param {string} piece
+   * @param {{final?: boolean}} [options]
+   * @returns {string} jetzt auszugebender Text
+   */
+  push(piece, { final = false } = {}) {
+    const s = this.rest + (typeof piece === "string" ? piece : "");
+    this.rest = "";
+    let out = "";
+    let i = 0;
+    while (i < s.length) {
+      if (this.drop) {
+        const newline = s.indexOf("\n", i);
+        if (newline === -1) {
+          i = s.length;
+          break;
+        }
+        i = this.drop === "line" ? newline + 1 : newline;
+        this.drop = null;
+        this.lineStart = true;
+        continue;
+      }
+      if (s[i] === "\n") {
+        out += `${this.prefix}\n`;
+        this.prefix = "";
+        this.lineStart = true;
+        i += 1;
+        continue;
+      }
+      if (s[i] === "[") {
+        const found = scanMarkdownLink(s, i, final);
+        if (found.state === "pending") {
+          this.rest = s.slice(i);
+          break;
+        }
+        if (found.state === "none") {
+          out = this.#text(out, "[");
+          i += 1;
+          continue;
+        }
+        const verdict = this.guard.check(found.text, found.url);
+        if (verdict?.remove) {
+          this.drop = this.lineStart ? "line" : "rest";
+          this.prefix = "";
+        } else {
+          out = this.#text(
+            out,
+            verdict ? `[${verdict.text}](${found.url})` : s.slice(i, found.end)
+          );
+        }
+        i = found.end;
+        continue;
+      }
+      if (this.lineStart) {
+        // Token-Grenze mitten in einem Zeichen (Emoji): auf den Rest warten
+        const code = s.charCodeAt(i);
+        if (code >= 0xd800 && code <= 0xdbff && i + 1 === s.length && !final) {
+          this.rest = s.slice(i);
+          break;
+        }
+        const char = String.fromCodePoint(s.codePointAt(i));
+        if (
+          LINE_PREFIX_RX.test(char) &&
+          this.prefix.length + char.length <= LINE_PREFIX_MAX
+        ) {
+          this.prefix += char;
+          i += char.length;
+          continue;
+        }
+      }
+      LINE_TEXT_RX.lastIndex = i;
+      const run = LINE_TEXT_RX.exec(s)[0];
+      out = this.#text(out, run);
+      i += run.length;
+    }
+    if (final) {
+      out += this.prefix;
+      this.prefix = "";
+      this.drop = null;
+    }
+    return out;
+  }
+}
+
+/**
+ * Übersichtslinks einer vollständigen Antwort prüfen (OverviewLinkFilter in
+ * einem Durchgang). Ohne Prüfer (keine gültige Karte) unverändert.
+ * @param {any} text
+ * @param {object|null} overviewLinks - createOverviewLinkGuard()
+ * @returns {any}
+ */
+function guardOverviewLinks(text, overviewLinks) {
+  if (!overviewLinks || typeof text !== "string") return text;
+  return new OverviewLinkFilter(overviewLinks).push(text, { final: true });
+}
+
 /**
  * Vollständige Antwort zerlegen: Marker, Teaserzeilen, Folgefragen, Rest-
  * Text (ohne Marker, Teaserzeilen und Protokoll-Marker). Ohne Marker bleibt
  * der Text bis auf Protokoll-Marker unverändert (auch "[[TEASER"-Zeilen).
+ * KIE-576: mit overviewLinks (Prüfer aus createOverviewLinkGuard) laufen die
+ * Übersichtslinks des Rest-Texts zuletzt durch den OverviewLinkFilter —
+ * dieselbe Entscheidung wie im Stream.
  * @param {string} text
- * @param {{userMessage?: string}} [options] - gerade gestellte Nutzerfrage
- *   (Pillen gleich dieser Frage werden verworfen)
+ * @param {{userMessage?: string, overviewLinks?: object|null}} [options] -
+ *   gerade gestellte Nutzerfrage (Pillen gleich dieser Frage werden
+ *   verworfen); Prüfer der Übersichtslinks
  * @returns {{marker: object, teasers: {index: number, text: string}[], followUps: string[], text: string}}
  */
-function parseCardsReply(text, { userMessage } = {}) {
+function parseCardsReply(text, { userMessage, overviewLinks = null } = {}) {
   const marker = parseCardsMarker(text, { final: true });
   if (typeof text !== "string")
     return { marker, teasers: [], followUps: [], text };
@@ -593,7 +770,7 @@ function parseCardsReply(text, { userMessage } = {}) {
     marker,
     teasers,
     followUps: followUps.followUps ?? [],
-    text: followUps.text,
+    text: guardOverviewLinks(followUps.text, overviewLinks),
   };
 }
 
@@ -621,18 +798,22 @@ function stripCardsMarker(text) {
  * ProtocolMarkerFilter, der "[[FRAGEN: …]]"/"[[KARTEN: …]]" überall entfernt
  * (Leerraum am Ende und ein begonnener Marker werden bis zur Entscheidung
  * gehalten); Folgefragen der letzten Zeile -> beim Antwortende.
+ * KIE-576: danach (nur mit Prüfer) der OverviewLinkFilter.
  */
 class CardsMarkerFilter {
   /**
-   * @param {{userMessage?: string}} [options] - gerade gestellte Nutzerfrage
+   * @param {{userMessage?: string, overviewLinks?: object|null}} [options] -
+   *   gerade gestellte Nutzerfrage; KIE-576: Prüfer der Übersichtslinks
+   *   (ohne: keine Prüfung, Text wie bisher)
    */
-  constructor({ userMessage } = {}) {
+  constructor({ userMessage, overviewLinks = null } = {}) {
     this.buffer = "";
     this.phase = "marker";
     this.marker = null; // { indices: number[], valid: boolean }
     this.teasers = []; // gesammelte Teaserzeilen ({index, text})
     this.teasersReported = false;
     this.protocol = new ProtocolMarkerFilter({ userMessage });
+    this.links = overviewLinks ? new OverviewLinkFilter(overviewLinks) : null;
   }
 
   #teaserStep(final) {
@@ -674,6 +855,7 @@ class CardsMarkerFilter {
   push(token, { final = false } = {}) {
     const out = this.#cardsStep(token, final);
     out.text = this.protocol.push(out.text, { final });
+    if (this.links) out.text = this.links.push(out.text, { final });
     if (final && this.protocol.followUps)
       out.followUps = this.protocol.followUps.slice();
     return out;
@@ -718,15 +900,16 @@ function parseSseChunk(raw) {
  * HINTER onMarker (Karten zuerst) und VOR dem Text dahinter.
  * @param {import("express").Response} response
  * userMessage: gerade gestellte Nutzerfrage (Folgefragen-Regeln wie
- * parseCardsReply).
- * @param {{onMarker: (marker: {indices: number[], valid: boolean}) => (void|Promise<void>), onTeasers?: (lines: {index: number, text: string}[]) => (void|Promise<void>), userMessage?: string}} options
+ * parseCardsReply). overviewLinks: KIE-576 Prüfer der Übersichtslinks (wie
+ * parseCardsReply), ohne: Text wie bisher.
+ * @param {{onMarker: (marker: {indices: number[], valid: boolean}) => (void|Promise<void>), onTeasers?: (lines: {index: number, text: string}[]) => (void|Promise<void>), userMessage?: string, overviewLinks?: object|null}} options
  * @returns {{response: import("express").Response, done: () => Promise<void>, filter: CardsMarkerFilter}}
  */
 function createCardsMarkerResponse(
   response,
-  { onMarker, onTeasers, userMessage } = {}
+  { onMarker, onTeasers, userMessage, overviewLinks = null } = {}
 ) {
-  const filter = new CardsMarkerFilter({ userMessage });
+  const filter = new CardsMarkerFilter({ userMessage, overviewLinks });
   let queue = Promise.resolve();
   const later = (fn) => {
     queue = queue.then(fn).catch((e) => {
@@ -952,6 +1135,8 @@ module.exports = {
     followUpKey,
     followUpsLine,
     ProtocolMarkerFilter,
+    OverviewLinkFilter,
+    LINK_WINDOW,
     CARDS_MARKER_TAG,
     CARDS_MARKER_BUFFER_MAX,
     scanBracketLine,

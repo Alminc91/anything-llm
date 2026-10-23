@@ -32,6 +32,11 @@ const {
   storedTeaserLines,
   restoreCardsMarkers,
 } = require("./embedCardsMarker");
+const {
+  loadCategoryMap,
+  applyCategoryChains,
+  createOverviewLinkGuard,
+} = require("./embedCategoryChains");
 
 async function streamChatWithForEmbed(
   response,
@@ -210,7 +215,20 @@ async function streamChatWithForEmbed(
   // If a past citation was used to answer the question - that is visible in the history so it logically makes sense
   // and does not appear to the user that a new response used information that is otherwise irrelevant for a given prompt.
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
-  contextTexts = [...contextTexts, ...filledSources.contextTexts];
+  // KIE-576: mit gültiger Kategorie-Karte je Kursdokument die Kette
+  // „Kategorie-Ebene d: …“ statt der Kategorie-/Bereich-Link-Zeilen (nur
+  // contextTexts; sources, Kurskarten und Verlauf bleiben unverändert). Der
+  // Prüfer der Übersichtslinks sieht denselben Kontext wie das Modell; ohne
+  // Karte gibt es weder Kette noch Prüfer (alles wie vorher).
+  const categoryMap = await loadCategoryMap();
+  contextTexts = applyCategoryChains(
+    [...contextTexts, ...filledSources.contextTexts],
+    categoryMap
+  );
+  const overviewLinks = createOverviewLinkGuard({
+    contextTexts,
+    map: categoryMap,
+  });
   sources = [...sources, ...vectorSearchResults.sources];
   // Quelle je Kontextblock [CONTEXT n] (n = Index in contextTexts)
   const contextSources = [...pinnedSources, ...filledSources.sources];
@@ -321,7 +339,10 @@ async function streamChatWithForEmbed(
       });
     completeText = textResponse;
     metrics = performanceMetrics;
-    parsedReply = parseCardsReply(completeText, { userMessage: message });
+    parsedReply = parseCardsReply(completeText, {
+      userMessage: message,
+      overviewLinks,
+    });
     if (parsedReply.marker.state === "marker") {
       await announceCourses({ indices: parsedReply.marker.indices ?? [] });
       sendCourseTeasers(parsedReply.teasers);
@@ -342,6 +363,7 @@ async function streamChatWithForEmbed(
       onMarker: announceCourses,
       onTeasers: sendCourseTeasers,
       userMessage: message,
+      overviewLinks,
     });
     completeText = await LLMConnector.handleStream(
       markerStream.response,
@@ -362,7 +384,10 @@ async function streamChatWithForEmbed(
   // (Feld fehlt). Kurskarten v3: Teaserzeilen zu Marker-Nummern (nur die
   // sammelt parseCardsReply) ebenso als courseTeaserLines (LLM-Verlauf), den
   // Karten zugeordnet als courseTeasers (Widget-Verlauf).
-  parsedReply ??= parseCardsReply(completeText, { userMessage: message });
+  parsedReply ??= parseCardsReply(completeText, {
+    userMessage: message,
+    overviewLinks,
+  });
   const replyMarker = parsedReply.marker;
   const courseCardsMarker =
     replyMarker.state === "marker" && replyMarker.valid
