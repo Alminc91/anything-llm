@@ -721,11 +721,12 @@ function scanAutolink(s, i, final) {
   };
 }
 
-// KIE-576 AK-21: Text nach einem Kurstitel-Link mit mehreren Kandidaten, aus
-// dem der Prüfer die Merkmale liest (Beginn, Zeit, Ort, Kursnummer). Er endet
-// vor dem nächsten "[" (nächster Link), vor einer Leerzeile (neuer Eintrag)
-// oder nach COURSE_WINDOW Zeichen. Im Stream werden Link und Text so lange
-// gehalten (nur in diesem Fall, NAK-10). Grenze 400: Ein Eintrag nach dem
+// KIE-576 AK-21: Text nach einem Kurstitel-Link ohne Bestätigung aus den
+// Quellen (R3-D1), aus dem der Prüfer die Merkmale liest (Beginn, Zeit, Ort,
+// Kursnummer). Er endet vor dem nächsten "[" (nächster Link), vor einer
+// Leerzeile (neuer Eintrag) oder nach COURSE_WINDOW Zeichen. Im Stream
+// werden Link und Text so lange gehalten (nur bei Kurstitel-Links auf
+// Adressen ohne Kurs-Link, NAK-10). Grenze 400: Ein Eintrag nach dem
 // Kursschema des Prompts (Beschreibung, „Beginn:“, „Ort:“, „Preis: | Kurs:“,
 // „Status:“) hat etwa 250 bis 380 Zeichen, „Beginn:“ steht in den ersten
 // 250; 400 sind etwa 100 Tokens, bei Last (63 t/s) höchstens etwa 1,6 s
@@ -809,10 +810,11 @@ function emphasisClosers(lineText) {
  * und offene Hervorhebungen werden geschlossen (R1-D3). Neu gesetzt wird
  * sonst nur der Link selbst; die Zeile bleibt.
  *
- * Kurslink nachschlagen (AK-21): Meldet der Prüfer mehrere Kurse zum
- * Linktext ({course}), hält der Filter den Link und den Text danach bis
- * courseWindowEnd, lässt pickCourse entscheiden und sendet dann alles auf
- * einmal; der gehaltene Text läuft anschließend normal durch den Filter.
+ * Kurslink nachschlagen (AK-21): Meldet der Prüfer Kandidaten zum Linktext
+ * ohne Bestätigung aus den Quellen ({course}, R3-D1), hält der Filter den
+ * Link und den Text danach bis courseWindowEnd, lässt pickCourse
+ * entscheiden und sendet dann alles auf einmal; der gehaltene Text läuft
+ * anschließend normal durch den Filter.
  */
 class OverviewLinkFilter {
   /**
@@ -959,7 +961,7 @@ class OverviewLinkFilter {
     let i = 0;
     while (i < s.length || (final && this.course)) {
       if (this.course) {
-        // AK-21: Kurstitel-Link mit mehreren Kandidaten, Merkmale danach
+        // AK-21: Kurstitel-Link ohne Bestätigung, Merkmale danach
         const end = courseWindowEnd(s, i, final);
         if (end === -1) {
           this.rest = s.slice(i);

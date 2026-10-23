@@ -3,7 +3,9 @@
 // Kurstitel auf eine Adresse, die kein Kurs-Link ist (etwa eine gecrawlte
 // Kategorieseite), setzt der Prüfer den Kurs-Link aus course_links, wenn
 // Titel und Merkmale danach genau einen Kurs treffen. Sonst bleibt der Link
-// unverändert (NAK-11). Gehalten wird nur bei mehreren Kandidaten (NAK-10).
+// unverändert (NAK-11). Ersetzt wird nur mit Bestätigung (R3-D1): sofort
+// über eine Übersichtsseite im Kontext (Stufe 2), sonst nach Halten über
+// Beginndatum oder Kursnummer im Text danach.
 // Stream (jede Aufteilung), Antwort ohne Streaming und Speichern
 // (parseCardsReply) entscheiden gleich.
 
@@ -228,26 +230,28 @@ describe("AK-21 Kurslink nachschlagen", () => {
     expectAll(text, text.replace(YOGA_URL, kurs("26200-010")));
   });
 
-  test("eindeutiger Titel auf erfundener Adresse und im Fließtext", () => {
-    const text = `Probieren Sie [Yoga am Morgen](${HOST}/erfunden) aus.`;
+  test("eindeutiger Titel auf erfundener Adresse im Fließtext: nur mit Bestätigung (R3-D1)", () => {
+    const bare = `Probieren Sie [Yoga am Morgen](${HOST}/erfunden) aus.`;
+    expectAll(bare, bare);
+    const dated = `Probieren Sie [Yoga am Morgen](${HOST}/erfunden) ab dem 12.01.2026 aus.`;
     expectAll(
-      text,
-      `Probieren Sie [Yoga am Morgen](${kurs("26200-010")}) aus.`
+      dated,
+      `Probieren Sie [Yoga am Morgen](${kurs("26200-010")}) ab dem 12.01.2026 aus.`
     );
   });
 
   test("Normalisierung: Groß/klein, Leerraum, Anführungszeichen, Striche, Nummerierung", () => {
     const text = [
-      `[**  YOGA   am morgen **](${OVERVIEW_PAGE})`,
-      `[1. Yoga am Morgen](${OVERVIEW_PAGE})`,
-      `["Yoga - sanft" für Ältere](${OVERVIEW_PAGE})`,
+      `[**  YOGA   am morgen **](${OVERVIEW_PAGE}) 12.01.2026`,
+      `[1. Yoga am Morgen](${OVERVIEW_PAGE}) 12.01.2026`,
+      `["Yoga - sanft" für Ältere](${OVERVIEW_PAGE}) 01.06.2026`,
     ].join("\n");
     expectAll(
       text,
       [
-        `[**  YOGA   am morgen **](${kurs("26200-010")})`,
-        `[1. Yoga am Morgen](${kurs("26200-010")})`,
-        `["Yoga - sanft" für Ältere](${kurs("26200-060")})`,
+        `[**  YOGA   am morgen **](${kurs("26200-010")}) 12.01.2026`,
+        `[1. Yoga am Morgen](${kurs("26200-010")}) 12.01.2026`,
+        `["Yoga - sanft" für Ältere](${kurs("26200-060")}) 01.06.2026`,
       ].join("\n")
     );
   });
@@ -428,19 +432,16 @@ describe("AK-21 Kurslink nachschlagen", () => {
     expectAll(text, plain[0]);
   });
 
-  test("Karte ohne course_links: Ergebnis wie vorher (Regel 1 bzw. unverändert)", () => {
+  test("Karte ohne course_links: Kurstitel bleiben (R3-D4), Kategorie-Link nach Regel 1", () => {
     expect(MAP_PLAIN.courseTitles.size).toBe(0);
     const text = reply(
       entry(1, "Yoga am Morgen", YOGA_URL, { beginn: "12.01.2026" }),
       entry(2, "Pilates", OVERVIEW_PAGE, { beginn: "09.02.2026" })
     );
-    // vorher: Knoten-Link bekommt Titel der Karte (R1-D1 Regel 1), sonst
-    // bleibt alles
-    expectAll(
-      text,
-      text.replace(`[**Yoga am Morgen**](${YOGA_URL})`, `[Yoga](${YOGA_URL})`),
-      GUARD_PLAIN
-    );
+    // Kurstitel auf Knotenadresse: Text bleibt (früher Knotentitel „Yoga“)
+    expectAll(text, text, GUARD_PLAIN);
+    const category = `Mehr unter [YOGA](${YOGA_URL}).`;
+    expectAll(category, `Mehr unter [Yoga](${YOGA_URL}).`, GUARD_PLAIN);
   });
 
   test("Kurskarten-Modus (R1-D4): keine Karte, kein Prüfer, Antwort unverändert", async () => {
@@ -460,8 +461,16 @@ describe("AK-21 Kurslink nachschlagen", () => {
     expect(parseCardsReply(text, { overviewLinks: guard }).text).toBe(text);
   });
 
-  test("NAK-10: eindeutiger oder kein Kandidat sofort, mehrere gehalten bis zu den Merkmalen", () => {
-    const filter = new OverviewLinkFilter(GUARD);
+  test("NAK-10: Stufe 2 oder kein Kandidat sofort, sonst gehalten bis zu den Merkmalen", () => {
+    // Übersichtsseite im Kontext nennt „Yoga am Morgen“ mit Beginn
+    const guard = createOverviewLinkGuard({
+      contextTexts: [
+        ...contextFor(MAP),
+        `<document_metadata>\nsource: ${OVERVIEW_PAGE}\n</document_metadata>\n\nYoga am Morgen\nMo. 12.01.2026, 09:00 Uhr`,
+      ],
+      map: MAP,
+    });
+    const filter = new OverviewLinkFilter(guard);
     const unique = filter.push(`1. [**Yoga am Morgen**](${YOGA_URL})\n`);
     expect(unique).toBe(`1. [**Yoga am Morgen**](${kurs("26200-010")})\n`);
     const none = filter.push(`2. [**Aquarell**](${OVERVIEW_PAGE})\n`);
@@ -473,6 +482,13 @@ describe("AK-21 Kurslink nachschlagen", () => {
     const done = filter.push("\n4. Ende");
     expect(done).toBe(
       `3. [**Pilates**](${kurs("26200-021")})\n  Text\n  **Beginn:** 09.02.2026\n\n4. Ende`
+    );
+    // eindeutig, aber ohne Übersicht (Kurs-Link nur im Kursdokument):
+    // gehalten, ohne Merkmale unverändert
+    const single = new OverviewLinkFilter(guard);
+    expect(single.push(`[**Hatha-Yoga**](${OVERVIEW_PAGE})\n`)).toBe("");
+    expect(single.push("", { final: true })).toBe(
+      `[**Hatha-Yoga**](${OVERVIEW_PAGE})\n`
     );
   });
 });
@@ -558,5 +574,278 @@ describe("Vertrag course_links", () => {
     const perLink = (performance.now() - t0) / runs;
     expect(found).toBeGreaterThan(0);
     expect(perLink).toBeLessThan(1);
+  });
+});
+
+// KIE-576 Runde 3 (R3-D1 bis R3-D4) mit Fällen aus der Messung AK-21
+// (fixtures/courseLinkLookupR3.json, nur die nötigen Zeilen)
+const R3 = require("./fixtures/courseLinkLookupR3.json");
+const r3Map = (client, { links = true } = {}) =>
+  chains.parseCategoryMap(
+    JSON.stringify({
+      version: 1,
+      client: "messung",
+      created: new Date().toISOString(),
+      nodes: client.nodes,
+      courses: {},
+      ...(links ? { course_links: client.course_links } : {}),
+    })
+  );
+const r3Guard = (client, contextTexts = [], options) => {
+  const map = r3Map(client, options);
+  return createOverviewLinkGuard({
+    contextTexts: applyCategoryChains(contextTexts, map),
+    map,
+  });
+};
+const LIN = R3.lingen;
+const ALT = R3.altoetting;
+const MAR = R3.marburg;
+const linUrl = (n) => LIN.course_links[n].url;
+const altUrl = (n) => ALT.course_links[n].url;
+const marUrl = (n) => MAR.course_links[n].url;
+const linkOf = (text) => /\]\((\S+?)\)/.exec(text)[1];
+const NEUE_ANGEBOTE = `${"https://www.vhs-lingen.de"}/programm/neue-angebote/kategorie/356`;
+// Kursdokument im Kontext (mit Kurs-Link), wie es die Suche liefert
+const ZUMBA_DOC = [
+  "<document_metadata>",
+  "sourceDocument: kurs.txt",
+  "</document_metadata>",
+  "",
+  "Titel: Zumba®",
+  "Kursnummer: 2026H96580",
+  "Beginn: Do. 29.10.2026, 18:30 Uhr",
+  "Kategoriepfad: Gesundheit \\ Bewegung",
+  `Kurs-Link: ${linUrl("2026H96580")}`,
+].join("\n");
+// Übersichtsseite im Kontext: Titel, darunter Datum (Form der Lingen-Seiten)
+const overviewDoc = (...rows) =>
+  [
+    "<document_metadata>",
+    `source: ${NEUE_ANGEBOTE}`,
+    "</document_metadata>",
+    "",
+    ...rows.flatMap(([title, when, nr]) => [
+      title,
+      " ",
+      "Wann:",
+      `${when} `,
+      "Nr.:",
+      `${nr} `,
+      "Status:",
+      "Plätze frei",
+    ]),
+  ].join("\n");
+
+describe("R3-1 (B1, R3-D1): Bestätigung auch bei nur einem Kandidaten", () => {
+  test("lin-13: Nummer und Datum widersprechen dem einzigen Kandidaten: unverändert", () => {
+    const guard = r3Guard(LIN, [ZUMBA_DOC, LIN.overview]);
+    for (const id of ["lin-13-2", "lin-13-knr"]) {
+      const text = reply(LIN.entries[id]);
+      expectAll(text, text, guard);
+    }
+  });
+
+  test("lin-23: Kursnummer im Text und in der Adresse gehört zu einem anderen Kurs: unverändert", () => {
+    const guard = r3Guard(LIN, [LIN.overview]);
+    const text = reply(LIN.entries["lin-23-3"]);
+    expectAll(text, text, guard);
+    // auch ohne Kontext
+    expectAll(text, text, r3Guard(LIN));
+  });
+
+  test("nur ein Merkmal widerspricht (Datum oder Nummer): unverändert", () => {
+    const guard = r3Guard(LIN);
+    const otherDate = reply(
+      `[**Zumba®**](${NEUE_ANGEBOTE})\n**Beginn:** Do. 03.09.2026\n**Kurs:** 2026H96580`
+    );
+    expectAll(otherDate, otherDate, guard);
+    const otherNumber = reply(
+      `[**Zumba®**](${NEUE_ANGEBOTE})\n**Beginn:** Do. 29.10.2026\n**Kurs:** 2026H96570`
+    );
+    expectAll(otherNumber, otherNumber, guard);
+  });
+
+  test("einziger Kandidat: Bestätigung über die Nummer allein oder das Datum allein, ohne Bestätigung unverändert", () => {
+    const guard = r3Guard(LIN);
+    const bare = `Probieren Sie [Zumba®](${NEUE_ANGEBOTE}) aus.`;
+    expectAll(bare, bare, guard);
+    const byNumber = reply(
+      `[**Zumba®**](${NEUE_ANGEBOTE})\n  Tanzen Sie sich fit.\n  **Kurs:** 2026H96580`
+    );
+    expectAll(
+      byNumber,
+      byNumber.replace(NEUE_ANGEBOTE, linUrl("2026H96580")),
+      guard
+    );
+    const byDate = reply(
+      `[**Zumba®**](${NEUE_ANGEBOTE})\n  **Beginn:** Do. 29.10.2026, 18:30 Uhr`
+    );
+    expectAll(
+      byDate,
+      byDate.replace(NEUE_ANGEBOTE, linUrl("2026H96580")),
+      guard
+    );
+  });
+
+  test("Stufe 2: Kandidat mit Titel und Beginn in einer Übersicht der Anfrage: sofort ersetzt; nicht bei anderem Datum derselben Quelle", () => {
+    const overview = overviewDoc(
+      [
+        "Sommer-VHS: Zumba® für Kinder (8-11 Jahre)",
+        "Mi. 19.08.2026, 17.00 Uhr",
+        "2026H96560",
+      ],
+      ["Zumba®", "Do. 29.10.2026, 18.30 Uhr", "2026H96580"]
+    );
+    const guard = r3Guard(LIN, [overview]);
+    const text = `Probieren Sie [Zumba®](${NEUE_ANGEBOTE}) aus.`;
+    const expected = `Probieren Sie [Zumba®](${linUrl("2026H96580")}) aus.`;
+    expectAll(text, expected, guard);
+    // NAK-10: nach „)“ sofort gesendet, nichts gehalten
+    const filter = new OverviewLinkFilter(guard);
+    expect(filter.push(`1. [**Zumba®**](${NEUE_ANGEBOTE})`)).toBe(
+      `1. [**Zumba®**](${linUrl("2026H96580")})`
+    );
+    // nennt die Quelle denselben Titel mit anderem Datum (lin-13: Kurs
+    // fehlt in course_links), gilt Stufe 2 nicht: gehalten, unverändert
+    const held = new OverviewLinkFilter(r3Guard(LIN, [LIN.overview]));
+    expect(held.push(`1. [**Zumba®**](${NEUE_ANGEBOTE})\n`)).toBe("");
+    expect(held.push("", { final: true })).toBe(
+      `1. [**Zumba®**](${NEUE_ANGEBOTE})\n`
+    );
+  });
+
+  test("Stufe 2 nicht, wenn das Kursdokument des Kandidaten im Kontext steht (Modell hatte den Kurs-Link)", () => {
+    const guard = r3Guard(LIN, [ZUMBA_DOC]);
+    const filter = new OverviewLinkFilter(guard);
+    expect(filter.push(`1. [**Zumba®**](${NEUE_ANGEBOTE})\n`)).toBe("");
+  });
+
+  test("Stufe 2 nicht, wenn die Adresse eine andere Kursnummer trägt", () => {
+    const overview = overviewDoc([
+      "Zumba®",
+      "Do. 29.10.2026, 18.30 Uhr",
+      "2026H96580",
+    ]);
+    const guard = r3Guard(LIN, [overview]);
+    const url = `${NEUE_ANGEBOTE}?knr=2026H96570&browse=forward`;
+    const text = `Probieren Sie [Zumba®](${url}) aus.`;
+    expectAll(text, text, guard);
+  });
+});
+
+describe("R3-2 (B2, R3-D2): Haupttitel vor zwei Leerzeichen als zweiter Schlüssel", () => {
+  test("lin-21: Antwort nennt nur den Haupttitel, Datum und Nummer entscheiden", () => {
+    const text = reply(LIN.entries["lin-21-2"]);
+    expectAll(
+      text,
+      text.replace(linkOf(text), linUrl("2026H72020")),
+      r3Guard(LIN)
+    );
+  });
+
+  test("mar-02: gleicher Haupttitel, anderer Untertitel: mehrere Kandidaten, Merkmale entscheiden", () => {
+    const guard = r3Guard(MAR);
+    const verdict = guard.check(
+      "**Hatha-Yoga**",
+      "https://www.vhs-marburg.de/kurse/gesundheit"
+    );
+    expect(verdict.course).toBeTruthy();
+    const text = reply(MAR.entries["mar-02-3"]);
+    expectAll(text, text.replace(linkOf(text), marUrl("262-30125")), guard);
+    // nur das Datum, zwei Kurse am selben Tag: unverändert
+    const ambiguous = reply(
+      "[**Hatha-Yoga**](https://www.vhs-marburg.de/kurse/gesundheit)\n**Beginn:** Di. 01.09.2026"
+    );
+    expectAll(ambiguous, ambiguous, guard);
+    // voller Titel mit Untertitel trifft weiterhin
+    const full = reply(
+      `[**Hatha-Yoga Einstiegs- und Vertiefungskurs 50+**](https://www.vhs-marburg.de/kurse/gesundheit)\n**Beginn:** Do. 24.09.2026, 10:30 Uhr`
+    );
+    expectAll(full, full.replace(linkOf(full), marUrl("262-30133")), guard);
+  });
+});
+
+describe("R3-3 (R3-D3): Kursnummer im Text als Schlüssel", () => {
+  test("alt-06: Titel weicht ab („in Perach“), Nummer im Text trifft", () => {
+    const text = reply(ALT.entries["alt-06-1"]);
+    expectAll(text, text.replace(linkOf(text), altUrl("T8240A")), r3Guard(ALT));
+  });
+
+  test("Titel weicht nur im Untertitel ab: Nummer entscheidet, Datum allein nicht", () => {
+    const guard = r3Guard(MAR);
+    const page = "https://www.vhs-marburg.de/kurse/gesundheit";
+    const withNumber = reply(
+      `[**Hatha-Yoga Vertiefung**](${page})\n**Beginn:** Do. 24.09.2026\n**Kurs:** 262-30133`
+    );
+    expectAll(withNumber, withNumber.replace(page, marUrl("262-30133")), guard);
+    const dateOnly = reply(
+      `[**Hatha-Yoga Vertiefung**](${page})\n**Beginn:** Do. 24.09.2026`
+    );
+    expectAll(dateOnly, dateOnly, guard);
+    // Nummer eines Kurses mit anderem Titel: unverändert
+    const altPage =
+      "https://www.vhs-altoetting.de/programm/gesundheit/kategorie/476";
+    const foreign = reply(
+      `[**Hatha-Yoga am Abend**](${altPage})\n**Beginn:** Di. 22.09.2026\n**Kurs:** T3280`
+    );
+    expectAll(foreign, foreign, r3Guard(ALT));
+  });
+});
+
+describe("R3-4 (B4, R3-D4): Regel 1 nur für Kategorie-Links", () => {
+  test("alt-04: Kurstitel auf Knotenadresse bleibt (ohne und mit course_links); alt-10 bekommt den Kurs-Link", () => {
+    const text = reply(ALT.entries["alt-04-2"]);
+    expectAll(text, text, r3Guard(ALT, [], { links: false }));
+    expectAll(text, text, r3Guard(ALT));
+    const alt10 = reply(ALT.entries["alt-10-2"]);
+    expectAll(
+      alt10,
+      alt10.replace(linkOf(alt10), altUrl("T3280")),
+      r3Guard(ALT)
+    );
+  });
+
+  test("Kategorie-Link bleibt Regel 1: Knotentitel, alte Form, Kurszahl, Übersicht; anderer Text nicht", () => {
+    const url = ALT.nodes["Kultur und Gestalten"].url;
+    const guard = r3Guard(ALT, [], { links: false });
+    const text = [
+      `Mehr unter [kultur UND gestalten](${url}).`,
+      `Mehr unter [Alle Kurse in Kultur](${url}).`,
+      `Mehr unter [Kreativkurse (12 Kurse)](${url}).`,
+      `Mehr Kurse zum Thema: [Kreatives](${url})`,
+    ].join("\n");
+    const out = [...allPaths(text, guard)];
+    expect(out).toHaveLength(1);
+    expect(out[0].match(/\[Kultur und Gestalten\]/g)).toHaveLength(4);
+    const free = `Schauen Sie in [unsere Kreativkurse](${url}) rein.`;
+    expectAll(free, free, guard);
+  });
+
+  test("Kurszahl nur am Ende des Linktexts: Zahl mitten im Kurstitel bleibt (tue-04, koe-12)", () => {
+    const node = ALT.nodes["Kultur und Gestalten"].url;
+    const courseUrl =
+      "https://www.vhs-altoetting.de/kurssuche/kurs/iphone/T9001";
+    const doc = [
+      "<document_metadata>",
+      "sourceDocument: kurs.txt",
+      "</document_metadata>",
+      "",
+      "Titel: iPhone Einführung",
+      `Kurs-Link: ${courseUrl}`,
+    ].join("\n");
+    const guard = r3Guard(ALT, [doc], { links: false });
+    const text = [
+      `1. [**Alphabetisierungskurs Abschnitt 4 Kurs 311**](${node})`,
+      `2. [**iPhone Einführung - Praxisworkshop für Menschen ab 60 Kurs am Nachmittag**](${courseUrl})`,
+    ].join("\n");
+    expectAll(text, text, guard);
+    // Kurszahl am Ende: weiter Regel 1 bzw. Regel 4
+    const counted = `[Kreatives, 3 Kurse](${node}) und [iPhone (2 Kurse)](${courseUrl})`;
+    expectAll(
+      counted,
+      `[Kultur und Gestalten](${node}) und [iPhone](${courseUrl})`,
+      guard
+    );
   });
 });

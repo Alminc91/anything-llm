@@ -27,8 +27,12 @@
 // entscheidet an der Adresse eines Links, nicht am Wortlaut. Eine einzige
 // Entscheidung (check) für Stream, Antwort ohne Streaming und gespeicherten
 // Text; der Filter dazu ist OverviewLinkFilter in embedCardsMarker.js.
-//   1. Adresse ist ein Knoten der Karte: Linktext immer neu (Titel, Zahl nur
-//      bei de/en), Ziel node.url; überall (Zeile, Liste, Fließtext).
+//   1. Adresse ist ein Knoten der Karte und der Link sieht wie ein
+//      Kategorie-Link aus: Linktext neu (Titel, Zahl nur bei de/en), Ziel
+//      node.url. Kategorie-Link (R3-D4) = Link in Übersichtszeile oder
+//      -block, alte Form „Alle … Kurse in …“, Linktext mit Kurszahl oder
+//      Linktext gleich Knotentitel (normalisiert). Sonst, etwa bei einem
+//      Kurstitel, bleibt der Linktext (Ziel wie vom Modell oder AK-21).
 //   2. Kurs-Link des Kontexts als Übersichtslink: entfernen.
 //   3. Übersichtslink mit unbekannter Adresse: entfernen. Übersichtslink =
 //      Link in einer Übersichtszeile oder einem Übersichtsblock, Linktext in
@@ -51,11 +55,21 @@
 // Übersichtszeile und -block einen Kurstitel auf eine Adresse, die kein
 // Kurs-Link ist (Kontext oder course_links), etwa eine gecrawlte
 // Kategorieseite, sucht der Prüfer den Kurs über den Titel (genau, nur
-// normalisiert). Ein Kandidat: dessen Kurs-Link. Mehrere: Merkmale aus dem
-// Text direkt nach dem Link (Beginndatum, Beginnzeit, Ort, Kursnummer),
-// bleibt genau einer, dessen Kurs-Link; sonst bleibt der Link unverändert
-// (NAK-11). Ein kaputtes course_links lässt nur dieses Feld bzw. den
-// Eintrag fallen, nie die Karte.
+// normalisiert; Schlüssel sind der volle Titel und der Haupttitel vor zwei
+// Leerzeichen, R3-D2). Ersetzt wird nur mit Bestätigung (R3-D1, NAK-11 vor
+// NAK-10), auch bei nur einem Kandidaten:
+//   Stufe 2, sofort: Unter den Kandidaten steht genau einer mit Titel und
+//     Beginndatum in einer Übersichtsseite des Kontexts, kein anderer Kurs
+//     dieses Titels mit anderem Datum, sein Kurs-Link fehlt im Kontext und
+//     die Adresse des Modells trägt keine andere Kursnummer.
+//   Sonst Halten: Der Filter hält Link und Text danach (bis zum nächsten
+//     Link, zur Leerzeile, höchstens 400 Zeichen) und ersetzt nur, wenn
+//     Beginndatum oder Kursnummer dort bestätigen und nichts widerspricht
+//     (Datum eines anderen Beginns, Kursnummer gleicher Form). Eine
+//     Kursnummer im Text aus course_links ist zusätzlich ein Kandidat, wenn
+//     sein Titel oder Haupttitel zum Linktext passt (R3-D3).
+// Im Zweifel bleibt der Link unverändert. Ein kaputtes course_links lässt
+// nur dieses Feld bzw. den Eintrag fallen, nie die Karte.
 //
 // Ohne gültige Karte (fehlt, kein JSON, version ≠ 1, älter als 36 h) gibt es
 // weder Kette noch Absicherung: Kontext und Antwort bleiben exakt wie vorher.
@@ -116,6 +130,14 @@ const OVERVIEW_TEXT_RX =
 // linkLabel; Wort in den häufigsten Sprachen der Besucher (R1-D2)
 const COURSE_COUNT_RX =
   /(?<![\p{L}\p{N}.,])(\d+(?:[.,]\d{3})*) ?(kurse?|courses?|cours|cursos?|corsi|corso|cursus(?:sen)?|kursy|kursów|kurzy|kurzů|kurslar|kursu|курс(?:а|ов|ы|и|ів)?)(?![\p{L}\p{N}])/iu;
+// Kurszahl zählt nur am Ende des Linktexts, danach höchstens Klammer,
+// Satzzeichen oder Schmuck („Sport (3 Kurse)“, „Kultur, 2 Kurse“). In einem
+// Kurstitel („… ab 60 Kurs am Nachmittag“, „Abschnitt 4 Kurs 311“) ist sie
+// keine Kurszahl und bleibt stehen.
+const COUNT_TAIL_RX = /^[\s)\]*_.,;:!]*$/u;
+// Zahl in Klammern am Ende („Sport (3)“): bei einem Knoten-Link ebenfalls
+// eine Kurszahl (R3-D4), damit keine falsche Zahl stehen bleibt (NAK-7)
+const BARE_COUNT_RX = /\(\s*\d+(?:[.,]\d{3})*\s*\)$/u;
 const COUNT_WORD_LANG = {
   kurs: "de",
   kurse: "de",
@@ -149,6 +171,25 @@ const QUOTE_SINGLE_RX = /[\u2018\u2019\u201a\u201b\u2039\u203a\u00b4`']/g;
 const DASH_RX = /[\u2010-\u2015\u2212]/g;
 const MD_ESCAPE_RX = /\\([!-/:-@[-`{-~])/g;
 const NUMBERING_RX = /^\d{1,3}[.)] ?/;
+// Haupttitel (R3-D2): Teil eines Feed-Titels vor zwei oder mehr
+// Leerraumzeichen („Hatha-Yoga  Einstiegskurs“ -> „Hatha-Yoga“)
+const MAIN_TITLE_SPLIT_RX = /\s{2,}/;
+// R3-D3: Ein Titel oder Haupttitel, mit dem der Linktext beginnt (bis zu
+// einem Leerzeichen), macht den Link zum Kandidaten für das Nachschlagen
+// über die Kursnummer. Kürzere Anfänge zählen nicht; Trenner am Ende des
+// Anfangs („Hatha-Yoga: …“) fallen weg.
+const COURSE_PREFIX_MIN_LEN = 5;
+const PREFIX_TAIL_CHARS = " -:,;(\u00b7|/";
+// Kursnummern im Text: Buchstaben und Ziffern, dazwischen - . / _
+const NUMBER_TOKEN_RX = /[\p{L}\p{N}]+(?:[-./_][\p{L}\p{N}]+)*/gu;
+// Stufe 2 (R3-D1): Beginndatum einer Titelzeile im Kontext steht in den
+// folgenden SOURCE_DATE_SCAN Zeichen (Übersichtsseiten: Titel, „Wann:“,
+// Datum); Anfang einer Titelzeile: Aufzählung, Überschrift, „Titel:“
+const SOURCE_DATE_SCAN = 300;
+const SOURCE_LINE_HEAD_RX =
+  /^[ \t]*(?:#{1,6}[ \t]*|[-*+\u2022][ \t]+|\d{1,3}[.)][ \t]*)?(?:titel:[ \t]*)?/iu;
+// Kursdokument im Kontext (hat eine Zeile „Kurs-Link:“)
+const COURSE_DOC_RX = /^Kurs-Link:/m;
 // Merkmale im Text nach dem Link (höchstens COURSE_WINDOW Zeichen, siehe
 // embedCardsMarker.courseWindowEnd): Datum als T.M.[JJ]JJ, „5. März 2026“,
 // „March 5, 2026“ oder ISO; Zeit als HH:MM, HH.MM, „18 Uhr“, „6 pm“ und
@@ -360,7 +401,7 @@ function parseCourseStart(start) {
  * Ein Eintrag von course_links (Vertrag Serverkarte) in Laufzeitform, sonst
  * null (nur dieser Eintrag entfällt). url: sicher wie Knotenadressen und auf
  * dem Host des Kunden (Host eines Knotens der Karte).
- * @returns {{titleKey: string, number: string, url: string, date: {y: number, m: number, d: number}|null, time: string|null, place: string|null, placeHead: string|null}|null}
+ * @returns {{titleKey: string, mainKey: string|null, number: string, shape: string, url: string, date: {y: number, m: number, d: number}|null, time: string|null, place: string|null, placeHead: string|null}|null}
  */
 function courseEntry(number, entry, hosts) {
   const id = String(number).trim();
@@ -370,6 +411,10 @@ function courseEntry(number, entry, hosts) {
   const titleKey = courseTitleKey(entry.title);
   if (!titleKey || !isSafeUrl(entry.url) || !hosts.has(hostKey(entry.url)))
     return null;
+  // R3-D2: Haupttitel als zweiter Schlüssel, wenn er sich vom Titel
+  // unterscheidet
+  const head = entry.title.trim().split(MAIN_TITLE_SPLIT_RX)[0];
+  const mainKey = courseTitleKey(head);
   const start = parseCourseStart(entry.start);
   let place = null;
   let placeHead = null;
@@ -385,7 +430,9 @@ function courseEntry(number, entry, hosts) {
   }
   return {
     titleKey,
+    mainKey: mainKey && mainKey !== titleKey ? mainKey : null,
     number: id.toLowerCase(),
+    shape: numberShape(id.toLowerCase()),
     url: entry.url,
     date: start ? { y: start.y, m: start.m, d: start.d } : null,
     time: start?.time ?? null,
@@ -395,17 +442,19 @@ function courseEntry(number, entry, hosts) {
 }
 
 /**
- * Index der Kurse aus course_links (einmal je Karte): Titelschlüssel ->
- * Kurse, dazu die Vergleichsschlüssel aller Kurs-Links. Kein Objekt -> leer
- * (die Karte bleibt gültig).
+ * Index der Kurse aus course_links (einmal je Karte): Titel- und
+ * Haupttitelschlüssel -> Kurse, Kursnummer (klein) -> Kurs, dazu die
+ * Vergleichsschlüssel aller Kurs-Links. Kein Objekt -> leer (die Karte
+ * bleibt gültig).
  * @param {any} raw - data.course_links
  * @param {Map<string, object>} nodes
- * @returns {{courseTitles: Map<string, object[]>, courseUrls: Set<string>}}
+ * @returns {{courseTitles: Map<string, object[]>, courseNumbers: Map<string, object>, courseUrls: Set<string>}}
  */
 function buildCourseLinks(raw, nodes) {
   const courseTitles = new Map();
+  const courseNumbers = new Map();
   const courseUrls = new Set();
-  if (!isPlainObject(raw)) return { courseTitles, courseUrls };
+  if (!isPlainObject(raw)) return { courseTitles, courseNumbers, courseUrls };
   const hosts = new Set();
   for (const node of nodes.values()) {
     const host = hostKey(node.url);
@@ -414,32 +463,103 @@ function buildCourseLinks(raw, nodes) {
   for (const [number, entry] of Object.entries(raw)) {
     const course = courseEntry(number, entry, hosts);
     if (!course) continue;
-    if (!courseTitles.has(course.titleKey))
-      courseTitles.set(course.titleKey, []);
-    courseTitles.get(course.titleKey).push(course);
+    for (const titleKey of [course.titleKey, course.mainKey]) {
+      if (!titleKey) continue;
+      if (!courseTitles.has(titleKey)) courseTitles.set(titleKey, []);
+      courseTitles.get(titleKey).push(course);
+    }
+    if (!courseNumbers.has(course.number))
+      courseNumbers.set(course.number, course);
     const key = linkKey(course.url);
     if (key) courseUrls.add(key);
   }
-  return { courseTitles, courseUrls };
+  return { courseTitles, courseNumbers, courseUrls };
+}
+
+// Beginnt der Linktext (Schlüssel) mit einem Titel oder Haupttitel aus
+// course_links, bis zu einem Leerzeichen (R3-D3)?
+function hasTitlePrefix(map, key) {
+  for (let p = key.indexOf(" "); p !== -1; p = key.indexOf(" ", p + 1)) {
+    let end = p;
+    while (end > 0 && PREFIX_TAIL_CHARS.includes(key[end - 1])) end -= 1;
+    if (end >= COURSE_PREFIX_MIN_LEN && map.courseTitles.has(key.slice(0, end)))
+      return true;
+  }
+  return false;
 }
 
 /**
- * Kandidaten zum Linktext (AK-21): Kurse mit gleichem Titelschlüssel; ohne
- * Treffer ein zweiter Versuch ohne Nummerierung am Anfang („1. Yoga“).
+ * Kandidaten zum Linktext (AK-21): Kurse mit gleichem Titel- oder
+ * Haupttitelschlüssel (exact); ohne Treffer ein zweiter Versuch ohne
+ * Nummerierung am Anfang („1. Yoga“). Ohne exakten Treffer nur dann ein
+ * Ergebnis (exact leer), wenn der Linktext mit einem Titel oder Haupttitel
+ * beginnt: Dann kann eine Kursnummer im Text den Kurs bestimmen (R3-D3).
+ * key: Schlüssel des Linktexts für titleFits.
  * @param {object} map
  * @param {string} text - Linktext des Modells
- * @returns {object[]|null}
+ * @returns {{exact: object[], key: string}|null}
  */
 function courseCandidates(map, text) {
   if (!map.courseTitles || map.courseTitles.size === 0) return null;
-  const key = courseTitleKey(text);
-  if (!key) return null;
-  const direct = map.courseTitles.get(key);
-  if (direct) return direct;
-  const numbering = NUMBERING_RX.exec(key);
-  return numbering
-    ? map.courseTitles.get(key.slice(numbering[0].length)) ?? null
-    : null;
+  const full = courseTitleKey(text);
+  if (!full) return null;
+  const numbering = NUMBERING_RX.exec(full);
+  const plain = numbering ? full.slice(numbering[0].length) : null;
+  const key = map.courseTitles.has(full) || !plain ? full : plain;
+  const exact = map.courseTitles.get(key);
+  if (exact) return { exact: [...new Set(exact)], key };
+  return hasTitlePrefix(map, key) ? { exact: [], key } : null;
+}
+
+// Wörter (durch Leerzeichen getrennt) von a alle in b?
+function wordsIn(a, b) {
+  const words = new Set(b.split(" "));
+  return a.split(" ").every((w) => words.has(w));
+}
+
+/**
+ * Passt ein Kurs (über die Kursnummer gefunden) zum Linktext (R3-D3)? Ja,
+ * wenn alle Wörter seines Titels oder Haupttitels im Linktext stehen oder
+ * alle Wörter des Linktexts im Titel (Modell ergänzt „in Perach“ oder lässt
+ * „NEU:“ weg). Die Kursnummer bestätigt, der Titel schließt Fremde aus.
+ * @param {object} course
+ * @param {string} key - courseCandidates().key
+ * @returns {boolean}
+ */
+function titleFits(course, key) {
+  return [course.titleKey, course.mainKey].some(
+    (title) => !!title && (wordsIn(title, key) || wordsIn(key, title))
+  );
+}
+
+// Form einer Kursnummer: Ziffer -> 9, Buchstabe -> a, Rest bleibt
+// („2026h96580“ -> „9999a99999“)
+function numberShape(number) {
+  return number.replace(/\p{N}/gu, "9").replace(/\p{L}/gu, "a");
+}
+
+/**
+ * Widerspricht eine Nummer im Text dem Kurs (R3-D1)? Ja, wenn ein Token
+ * dieselbe Form wie seine Kursnummer hat, aber eine andere Nummer ist. Nur
+ * bei Formen mit Buchstaben oder Trennern: reine Ziffern wären auch
+ * Postleitzahlen oder Jahre.
+ * @param {object} course
+ * @param {string[]} tokens - Kleinbuchstaben, NUMBER_TOKEN_RX
+ * @returns {boolean}
+ */
+function numberContradicts(course, tokens) {
+  if (!/[^9]/.test(course.shape)) return false;
+  return tokens.some(
+    (t) =>
+      t.length === course.number.length &&
+      t !== course.number &&
+      numberShape(t) === course.shape
+  );
+}
+
+// Datum aus dem Text ({y|null, m, d}) gleich dem Beginndatum des Kurses?
+function sameDay(d, date) {
+  return d.m === date.m && d.d === date.d && (d.y === null || d.y === date.y);
 }
 
 // Gemeinsame Adresse aller Kandidaten, sonst null
@@ -452,14 +572,14 @@ function validDate(d, m) {
   return d >= 1 && d <= 31 && m >= 1 && m <= 12;
 }
 
-// Daten im Text nach dem Link ({y|null, m, d}); masked: Text mit Leerzeichen
-// an Stelle der Daten (für die Zeiten)
+// Daten im Text nach dem Link ({y|null, m, d, at}); masked: Text mit
+// Leerzeichen an Stelle der Daten (für die Zeiten)
 function windowDates(text) {
   const dates = [];
   const spans = [];
   const add = (match, y, m, d) => {
     if (!validDate(d, m)) return;
-    dates.push({ y, m, d });
+    dates.push({ y, m, d, at: match.index });
     spans.push([match.index, match.index + match[0].length]);
   };
   for (const m of text.matchAll(DATE_ISO_RX))
@@ -518,69 +638,63 @@ function containsWord(hay, needle) {
 }
 
 /**
- * Kurs zu mehreren Kandidaten gleichen Titels (AK-21) aus dem Text direkt
- * nach dem Link. Merkmale schließen nur aus, wenn der Text sie hergibt:
- *   Datum: Kandidaten ohne eines der genannten Daten entfallen (auch ohne
- *     Beginndatum, NAK-11: dann ist unklar, ob er gemeint ist);
+ * Kurs zum gehaltenen Link (AK-21, R3-D1) aus dem Text direkt nach dem
+ * Link. Kandidaten: die exakten zum Linktext, dazu Kurse aus course_links,
+ * deren Kursnummer im Text steht und deren Titel zum Linktext passt
+ * (R3-D3). Merkmale schließen nur aus, wenn der Text sie hergibt:
+ *   Kursnummer (ab 4 Zeichen): steht die Nummer eines Kandidaten im Text,
+ *     nur diese; ohne Nummer im Text nur die exakten Kandidaten. Eine
+ *     andere Nummer gleicher Form im Text widerspricht (numberContradicts);
+ *   Datum: Kandidaten mit anderem Beginndatum entfallen; ohne Beginndatum
+ *     entfallen sie nur, wenn ein anderer Kandidat das Datum trifft (NAK-11);
  *   Zeit: steht die Beginnzeit eines Kandidaten im Text, entfallen
  *     Kandidaten mit anderer Beginnzeit (eine Zahl wie „Raum 1.01“ allein
  *     schließt niemanden aus);
  *   Ort: steht der Ort eines Kandidaten im Text, entfallen Kandidaten mit
- *     anderem Ort;
- *   Kursnummer (ab 4 Zeichen): steht die Nummer eines Kandidaten im Text,
- *     nur diese.
- * Bleibt genau eine Adresse und hat ein Merkmal sie bestätigt, deren Kurs-
- * Link, sonst null (Link unverändert).
- * @param {object[]} candidates
+ *     anderem Ort.
+ * Bleibt genau eine Adresse und haben Kursnummer oder Beginndatum sie
+ * bestätigt, deren Kurs-Link, sonst null (Link unverändert).
+ * @param {{exact: object[], key: string}|object[]} candidates
  * @param {string} windowText
+ * @param {object|null} [map] - Karte (Kursnummern aus course_links)
  * @returns {string|null}
  */
-function pickCourseUrl(candidates, windowText) {
-  const single = sameUrl(candidates);
-  if (single) return single;
+function pickCourseUrl(candidates, windowText, map = null) {
+  const exact = Array.isArray(candidates) ? candidates : candidates?.exact;
+  const fitKey = Array.isArray(candidates) ? null : candidates?.key;
   const text = String(windowText ?? "").normalize("NFC");
   const hay = normalizeFree(text);
+  const tokens = hay.match(NUMBER_TOKEN_RX) ?? [];
   const { dates, masked } = windowDates(text);
   const times = windowTimes(masked);
-  const confirmed = new Set();
-  let rest = candidates;
+  const numberIn = (c) =>
+    c.number.length >= COURSE_NUMBER_MIN_LEN && containsWord(hay, c.number);
+  const byNumber = new Set((exact ?? []).filter(numberIn));
+  if (map?.courseNumbers && fitKey) {
+    for (const t of tokens) {
+      const c = t.length >= COURSE_NUMBER_MIN_LEN && map.courseNumbers.get(t);
+      if (c && titleFits(c, fitKey)) byNumber.add(c);
+    }
+  }
+  const confirmed = new Set(byNumber);
+  let rest = byNumber.size > 0 ? [...byNumber] : exact ?? [];
+  rest = rest.filter((c) => !numberContradicts(c, tokens));
   if (dates.length > 0) {
+    const dateIn = (c) => !!c.date && dates.some((d) => sameDay(d, c.date));
+    const anyDate = rest.some(dateIn);
     rest = rest.filter((c) => {
-      const hit =
-        !!c.date &&
-        dates.some(
-          (d) =>
-            d.m === c.date.m &&
-            d.d === c.date.d &&
-            (d.y === null || d.y === c.date.y)
-        );
-      if (hit) confirmed.add(c);
-      return hit;
+      if (dateIn(c)) {
+        confirmed.add(c);
+        return true;
+      }
+      return !c.date && !anyDate;
     });
   }
   const timeIn = (c) => !!c.time && times.has(c.time);
-  if (candidates.some(timeIn)) {
-    rest = rest.filter((c) => {
-      if (!c.time) return true;
-      if (timeIn(c)) confirmed.add(c);
-      return timeIn(c);
-    });
-  }
+  if (rest.some(timeIn)) rest = rest.filter((c) => !c.time || timeIn(c));
   const placeIn = (c) =>
     !!c.place && (containsWord(hay, c.place) || containsWord(hay, c.placeHead));
-  if (candidates.some(placeIn)) {
-    rest = rest.filter((c) => {
-      if (!c.place) return true;
-      if (placeIn(c)) confirmed.add(c);
-      return placeIn(c);
-    });
-  }
-  const numberIn = (c) =>
-    c.number.length >= COURSE_NUMBER_MIN_LEN && containsWord(hay, c.number);
-  if (candidates.some(numberIn)) {
-    rest = rest.filter(numberIn);
-    rest.forEach((c) => confirmed.add(c));
-  }
+  if (rest.some(placeIn)) rest = rest.filter((c) => !c.place || placeIn(c));
   const url = sameUrl(rest);
   return url && rest.some((c) => confirmed.has(c)) ? url : null;
 }
@@ -640,7 +754,7 @@ function contractProblem(data) {
  * Adresse, ohne Titel, tiefer als Ebene 5 oder unter einem Sonderknoten
  * entfallen; count nur als ganze Zahl ≥ 0, sonst null.
  * @param {string} raw
- * @returns {{createdMs: number, nodes: Map<string, object>, byUrl: Map<string, object[]>, courses: Map<string, string[]>, courseTitles: Map<string, object[]>, courseUrls: Set<string>}|null}
+ * @returns {{createdMs: number, nodes: Map<string, object>, byUrl: Map<string, object[]>, courses: Map<string, string[]>, courseTitles: Map<string, object[]>, courseNumbers: Map<string, object>, courseUrls: Set<string>}|null}
  */
 function parseCategoryMap(raw) {
   if (typeof raw !== "string" || raw.length === 0) return null;
@@ -687,7 +801,7 @@ function buildCategoryMap(data) {
       ? Date.parse(data.updated)
       : null;
   // AK-21: Kurse aus course_links (optional; kaputt -> leer, Karte bleibt)
-  const { courseTitles, courseUrls } = buildCourseLinks(
+  const { courseTitles, courseNumbers, courseUrls } = buildCourseLinks(
     data.course_links,
     nodes
   );
@@ -698,6 +812,7 @@ function buildCategoryMap(data) {
     byUrl,
     courses,
     courseTitles,
+    courseNumbers,
     courseUrls,
   };
 }
@@ -977,7 +1092,7 @@ function stripCourseCount(text) {
     if (!old[2]) return text;
     return flat.replace(` ${old[2]} `, " ");
   }
-  const m = COURSE_COUNT_RX.exec(flat);
+  const m = courseCount(flat);
   if (!m) return text;
   let from = m.index;
   let to = m.index + m[0].length;
@@ -993,6 +1108,16 @@ function stripCourseCount(text) {
   while (from > 0 && flat[from - 1] === " ") from -= 1;
   const out = `${flat.slice(0, from)}${flat.slice(to)}`.replace(/ {2,}/g, " ");
   return linkLabel(out) ? out.trim() : null;
+}
+
+/**
+ * Kurszahl im Linktext (COURSE_COUNT_RX), nur am Ende (COUNT_TAIL_RX).
+ * @param {string} text
+ * @returns {RegExpExecArray|null}
+ */
+function courseCount(text) {
+  const m = COURSE_COUNT_RX.exec(text);
+  return m && COUNT_TAIL_RX.test(text.slice(m.index + m[0].length)) ? m : null;
 }
 
 // Sprache der Zahl im Linktext: Wort der Kurszahl, sonst null
@@ -1011,6 +1136,22 @@ function nodeLinkText(node, lang, count) {
   if (count && hasCount(node))
     return `${node.title} (${node.count} ${count[2]})`;
   return node.title;
+}
+
+/**
+ * Linktext gleich Titel des Knotens (R3-D4), normalisiert wie Kurstitel;
+ * bei einem Titel mit Kette („Sport & Fitness · Kraft & Ausdauer“) zählt
+ * auch die letzte Ebene.
+ * @param {{title: string}} node
+ * @param {string} text - Linktext des Modells
+ * @returns {boolean}
+ */
+function isNodeTitle(node, text) {
+  const key = courseTitleKey(text);
+  if (!key) return false;
+  if (courseTitleKey(node.title) === key) return true;
+  const parts = node.title.split(" \u00b7 ");
+  return parts.length > 1 && courseTitleKey(parts[parts.length - 1]) === key;
 }
 
 // Einleitung am Zeilenanfang (E29, de/en): Schmuck * _ # davor, * _ vor und
@@ -1073,9 +1214,10 @@ function matchOverviewIntro(head, final) {
  *   {remove: false, text, url, line}: Link „[text](url)“; url null = Ziel
  *     des Modells behalten; line = Sprache, wenn der Server die ganze Zeile
  *     setzt (Knoten-Link in alter Form am Zeilenanfang);
- *   {course: Kandidaten}: AK-21 mit mehreren Kursen gleichen Titels; der
- *     Filter hält den Link samt Text danach und fragt pickCourse(Kandidaten,
- *     Text nach dem Link) -> Kurs-Link oder null (Link unverändert).
+ *   {course: Kandidaten}: AK-21 ohne Bestätigung aus den Quellen (Stufe 2);
+ *     der Filter hält den Link samt Text danach und fragt
+ *     pickCourse(Kandidaten, Text nach dem Link) -> Kurs-Link oder null
+ *     (Link unverändert).
  * intro(lang), separator und matchIntro dienen dem Stream-Filter zum Setzen
  * der Zeile (Form nur in OVERVIEW_LINE).
  * @param {{contextTexts?: string[], map: object|null, systemPrompt?: string, history?: {role: string, content: any}[]}} input
@@ -1088,9 +1230,10 @@ function createOverviewLinkGuard({
   history = [],
 } = {}) {
   if (!map) return null;
-  const context = (Array.isArray(contextTexts) ? contextTexts : [])
-    .filter((t) => typeof t === "string")
-    .join("\n");
+  const contextList = (Array.isArray(contextTexts) ? contextTexts : []).filter(
+    (t) => typeof t === "string"
+  );
+  const context = contextList.join("\n");
   const known = new Set();
   const learn = (text) => {
     if (typeof text !== "string") return;
@@ -1128,18 +1271,83 @@ function createOverviewLinkGuard({
     return best;
   };
 
+  // Stufe 2 (R3-D1): Zeilen der Übersichtsseiten im Kontext (Texte ohne
+  // „Kurs-Link:“), deren Text ein Titel oder Haupttitel aus course_links
+  // ist; einmal je Prüfer, erst beim ersten Kandidaten
+  let titleLines = null;
+  const sourceTitleLines = () => {
+    if (titleLines) return titleLines;
+    titleLines = [];
+    for (const doc of contextList) {
+      if (COURSE_DOC_RX.test(doc)) continue;
+      let start = 0;
+      for (const line of doc.split("\n")) {
+        const end = start + line.length;
+        const key =
+          line.length <= COURSE_TEXT_SCAN_MAX
+            ? courseTitleKey(line.replace(SOURCE_LINE_HEAD_RX, ""))
+            : null;
+        if (key && map.courseTitles.has(key))
+          titleLines.push({ doc, key, start, end });
+        start = end + 1;
+      }
+    }
+    return titleLines;
+  };
+
+  /**
+   * Stufe 2 (R3-D1): Kurs-Link, wenn unter den exakten Kandidaten genau
+   * einer mit Titel und Beginndatum in einer Übersichtsseite des Kontexts
+   * steht. Beginndatum einer Titelzeile: erstes Datum danach (höchstens
+   * SOURCE_DATE_SCAN Zeichen, nicht über die nächste solche Zeile). Nennt
+   * eine Übersicht den Titel mit einem Datum keines Kandidaten (Kurs fehlt
+   * in course_links), oder mehrere Kandidaten, gilt Stufe 2 nicht. Ebenso
+   * nicht, wenn der Kurs-Link des Kandidaten im Kontext steht (das Modell
+   * hatte ihn und verlinkt anders) oder die Adresse des Modells eine andere
+   * Kursnummer gleicher Form trägt.
+   * @returns {string|null}
+   */
+  const sourceConfirmed = (exact, url) => {
+    if (exact.length === 0) return null;
+    const keys = new Set(exact.flatMap((c) => [c.titleKey, c.mainKey]));
+    const lines = sourceTitleLines().filter((l) => keys.has(l.key));
+    let hit = null;
+    for (const [i, line] of lines.entries()) {
+      const next = lines.find((l, j) => j > i && l.doc === line.doc);
+      const to = Math.min(
+        line.end + SOURCE_DATE_SCAN,
+        next ? next.start : line.doc.length
+      );
+      const { dates } = windowDates(line.doc.slice(line.end, to));
+      if (dates.length === 0) continue;
+      const first = dates.reduce((a, b) => (b.at < a.at ? b : a));
+      const named = exact.filter(
+        (c) =>
+          (c.titleKey === line.key || c.mainKey === line.key) &&
+          !!c.date &&
+          sameDay(first, c.date)
+      );
+      const found = sameUrl(named);
+      if (!found || (hit && hit.url !== found)) return null;
+      hit = named[0];
+    }
+    if (!hit || courseLinks.has(linkKey(hit.url))) return null;
+    const tokens = String(url).toLowerCase().match(NUMBER_TOKEN_RX) ?? [];
+    return numberContradicts(hit, tokens) ? null : hit.url;
+  };
+
   // AK-21: Kurstitel verlinkt auf eine Adresse, die kein Kurs-Link ist.
   // Nicht bei einem Knoten, dessen Titel der Linktext ist (Kategorie-Link,
-  // Regel 1). Ergebnis: Link mit Kurs-Link, {course} (mehrere Kandidaten,
-  // der Filter entscheidet mit dem Text danach) oder null (kein Kandidat).
-  const courseVerdict = (text, key, node) => {
+  // Regel 1). Ergebnis: Link mit Kurs-Link (Stufe 2), {course} (der Filter
+  // hält und entscheidet mit dem Text danach, pickCourse) oder null (kein
+  // Kandidat).
+  const courseVerdict = (text, url, key, node) => {
     if (key && (courseLinks.has(key) || map.courseUrls?.has(key))) return null;
     const candidates = courseCandidates(map, text);
     if (!candidates) return null;
-    if (node && courseTitleKey(node.title) === courseTitleKey(text))
-      return null;
-    const url = sameUrl(candidates);
-    if (url) return { remove: false, text, url, line: null };
+    if (node && isNodeTitle(node, text)) return null;
+    const sure = sourceConfirmed(candidates.exact, url);
+    if (sure) return { remove: false, text, url: sure, line: null };
     return { course: candidates };
   };
 
@@ -1147,7 +1355,8 @@ function createOverviewLinkGuard({
     separator: OVERVIEW_LINE.separator,
     intro: (lang) => OVERVIEW_LINE[lang].intro,
     matchIntro: matchOverviewIntro,
-    pickCourse: pickCourseUrl,
+    pickCourse: (candidates, windowText) =>
+      pickCourseUrl(candidates, windowText, map),
     check(
       text,
       url,
@@ -1155,14 +1364,19 @@ function createOverviewLinkGuard({
     ) {
       const label = autolink ? "" : linkLabel(text);
       const old = OVERVIEW_TEXT_RX.exec(label);
-      const count = old ? null : COURSE_COUNT_RX.exec(label);
+      const count = old ? null : courseCount(label);
       const key = linkKey(url);
       const node = nodeOf(key);
-      if (!overview && !autolink && !old) {
-        const course = courseVerdict(text, key, node);
+      if (!overview && !autolink && !old && !count) {
+        const course = courseVerdict(text, url, key, node);
         if (course) return course;
       }
-      if (node) {
+      // Regel 1 nur für Kategorie-Links (R3-D4): Übersicht, alte Form,
+      // Kurszahl oder Knotentitel; ein Kurstitel auf einer Knotenadresse
+      // behält seinen Text (unten: ohne Übersicht und Zahl null)
+      const categoryLike =
+        overview || old || count || BARE_COUNT_RX.test(label);
+      if (node && (categoryLike || isNodeTitle(node, text))) {
         const oldLang = old
           ? old[1].toLowerCase() === "alle"
             ? "de"

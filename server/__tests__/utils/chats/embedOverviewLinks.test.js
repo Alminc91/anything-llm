@@ -213,9 +213,9 @@ const CASES = [
     `Mehr unter [Sport (40 Kurse)](${SPORT_URL}) hier.`,
   ],
   [
-    "Regel 1: Knoten-Link im Fließtext: Linktext aus der Karte (Zahl nur mit Sprache de/en), Satz bleibt",
-    `Schauen Sie in [unsere Sportkurse](${SPORT_URL}) rein, z. B. [Yoga (7 Kurse)](${YOGA_URL}).`,
-    `Schauen Sie in [Sport](${SPORT_URL}) rein, z. B. [Yoga (1 Kurs)](${YOGA_URL}).`,
+    "Regel 1: Knoten-Link im Fließtext: Linktext aus der Karte (Zahl nur mit Sprache de/en), Satz bleibt; anderer Linktext bleibt (R3-D4)",
+    `Schauen Sie in [unsere Sportkurse](${SPORT_URL}) rein, z. B. [Yoga (7 Kurse)](${YOGA_URL}) oder [sport](${SPORT_URL}).`,
+    `Schauen Sie in [unsere Sportkurse](${SPORT_URL}) rein, z. B. [Yoga (1 Kurs)](${YOGA_URL}) oder [Sport](${SPORT_URL}).`,
   ],
   [
     "Regel 1: Knoten der Karte gilt immer als geprüft, auch ohne Kontext, Zeile bleibt",

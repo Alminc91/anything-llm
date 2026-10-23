@@ -698,12 +698,15 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
       url: ENGLISH_URL,
       line: null,
     });
-    expect(guard.check("unsere Sportkurse", SPORT_URL)).toEqual({
+    expect(guard.check("**sport & FITNESS**", `${SPORT_URL}/`)).toEqual({
       remove: false,
       text: "Sport & Fitness",
       url: SPORT_URL,
       line: null,
     });
+    // R3-D4: anderer Linktext (etwa ein Kurstitel) ist kein Kategorie-Link
+    expect(guard.check("unsere Sportkurse", SPORT_URL)).toBeNull();
+    expect(guard.check("Zumba® am Abend", SPORT_URL)).toBeNull();
   });
 
   test("Knoten, alte Form am Zeilenanfang: Linktext E29, Zeile vom Server", () => {
@@ -776,7 +779,7 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
     );
   });
 
-  test("Knoten im Fließtext: Zahl mit Sprache aus dem Wort der Kurszahl (de/en), anderes Wort bleibt (K1-D2), sonst nur Titel", () => {
+  test("Knoten im Fließtext: Zahl mit Sprache aus dem Wort der Kurszahl (de/en), anderes Wort bleibt (K1-D2), sonst nur Titel; ohne Kategorie-Form unverändert (R3-D4)", () => {
     const guard = guardFor();
     expect(guard.check("Sport (3 Kurse)", SPORT_URL).text).toBe(
       "Sport & Fitness (61 Kurse)"
@@ -791,9 +794,7 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
       "Sport & Fitness (61 cours)"
     );
     expect(guard.check("Sport (3)", SPORT_URL).text).toBe("Sport & Fitness");
-    expect(guard.check("unsere Sportkurse", SPORT_URL).text).toBe(
-      "Sport & Fitness"
-    );
+    expect(guard.check("unsere Sportkurse", SPORT_URL)).toBeNull();
   });
 
   test("Einleitung erkennen: Treffer, offen, nichts; Schmuck *, _, # (S5)", () => {
