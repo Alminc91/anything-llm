@@ -235,7 +235,9 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
 // Datenschutz als Link in der Fußzeile (issues/datenschutz-fusszeile.md,
 // Nutzer 23.10.2026, Vertrag Punkte 1 bis 4): kurzer KI-Hinweis, Linktext in
 // derselben Zeile, Punkt „Hinweis zur KI“ und Button „Schließen“ im
-// Datenschutz-Fenster; de und en wortgleich mit PANEL_TEXTS im Widget.
+// Datenschutz-Fenster; de und en wortgleich mit PANEL_TEXTS im Widget. Der
+// KI-Punkt gilt seit F8 (Nutzer 23.10.2026, Vertrag rc2) für alle Kunden,
+// auch ohne Kursangebot: ohne Kurs-Wörter, Verweis auf „unsere Website“.
 describe("Datenschutz-Fußzeile: Texte des Vertrags", () => {
   const CONTRACT = {
     de: {
@@ -243,7 +245,7 @@ describe("Datenschutz-Fußzeile: Texte des Vertrags", () => {
       privacyLinkText: "Datenschutz",
       privacyAiTitle: "Hinweis zur KI",
       privacyAiText:
-        "Unser KI-Berater ist auf richtige Auskünfte aus unserem Kursangebot optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Sicherheit immer auch auf der Kursseite.",
+        "Unser KI-Berater ist auf richtige Auskünfte optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Kontrolle immer auf unserer Website.",
       privacyCloseText: "Schließen",
       privacyTitle: "Datenschutz",
     },
@@ -252,7 +254,7 @@ describe("Datenschutz-Fußzeile: Texte des Vertrags", () => {
       privacyLinkText: "Privacy",
       privacyAiTitle: "About the AI",
       privacyAiText:
-        "Our AI advisor is optimised for accurate information about our courses. Like any AI, it can still make the occasional mistake. For safety, you can always find important details such as dates and prices on the course page.",
+        "Our AI advisor is optimised for accurate information. Like any AI, it can still make the occasional mistake. You can always check important details such as dates and prices on our website.",
       privacyCloseText: "Close",
       privacyTitle: "Privacy",
     },
@@ -285,6 +287,16 @@ describe("Datenschutz-Fußzeile: Texte des Vertrags", () => {
         "privacyCloseText",
       ])
         expect(PANEL_TEXTS[lang][key]).toBe(CONTRACT[lang][key]);
+    }
+  });
+
+  test("F8: KI-Punkt neutral für alle Kunden (keine Kurs-Wörter, Verweis auf die Website)", () => {
+    for (const lang of ["de", "en"]) {
+      const { privacyAiText } = embedDefaultTexts(lang);
+      expect(privacyAiText).not.toMatch(/kurs|course/i);
+      expect(privacyAiText).toMatch(
+        lang === "de" ? /auf unserer Website\.$/ : /on our website\.$/
+      );
     }
   });
 

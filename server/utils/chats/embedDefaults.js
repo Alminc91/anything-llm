@@ -59,10 +59,12 @@ const EMBED_DEFAULT_TEXTS = {
     disclaimerText: "Unsere KI kann Fehler machen",
     // Link in der Zeile des KI-Hinweises
     privacyLinkText: "Datenschutz",
-    // fester Punkt im Datenschutz-Fenster (Wortlaut freigegeben 23.10.2026)
+    // fester Punkt im Datenschutz-Fenster; ein Wortlaut für alle Kunden,
+    // auch ohne Kursangebot (F8, Nutzer 23.10.2026; vorher mit
+    // „Kursangebot“ und „Kursseite“)
     privacyAiTitle: "Hinweis zur KI",
     privacyAiText:
-      "Unser KI-Berater ist auf richtige Auskünfte aus unserem Kursangebot optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Sicherheit immer auch auf der Kursseite.",
+      "Unser KI-Berater ist auf richtige Auskünfte optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Kontrolle immer auf unserer Website.",
     // Button am Ende des Datenschutz-Fensters
     privacyCloseText: "Schließen",
     // eingeklappte Inline-Leiste (Demo-Texte; Entscheidung D2, 7.22-rc3)
@@ -84,7 +86,7 @@ const EMBED_DEFAULT_TEXTS = {
     privacyLinkText: "Privacy",
     privacyAiTitle: "About the AI",
     privacyAiText:
-      "Our AI advisor is optimised for accurate information about our courses. Like any AI, it can still make the occasional mistake. For safety, you can always find important details such as dates and prices on the course page.",
+      "Our AI advisor is optimised for accurate information. Like any AI, it can still make the occasional mistake. You can always check important details such as dates and prices on our website.",
     privacyCloseText: "Close",
     inlineBarPlaceholder: "Ask your question here …",
     inlineSendText: "Chat",

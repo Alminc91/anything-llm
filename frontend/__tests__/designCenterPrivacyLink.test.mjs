@@ -47,7 +47,7 @@ const FIXED_NOTE =
 const FOOTER = "Unsere KI kann Fehler machen · Datenschutz";
 const AI_TITLE = "Hinweis zur KI";
 const AI_TEXT =
-  "Unser KI-Berater ist auf richtige Auskünfte aus unserem Kursangebot optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Sicherheit immer auch auf der Kursseite.";
+  "Unser KI-Berater ist auf richtige Auskünfte optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Kontrolle immer auf unserer Website.";
 const CLOSE_LABEL = "Datenschutz schließen";
 
 // gespeicherte Werte von privacyNotice: keiner, die Altwerte bis 7.22.2 und

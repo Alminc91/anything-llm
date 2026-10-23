@@ -673,7 +673,7 @@ export const PRIVACY_PREVIEW_TEXTS = Object.freeze({
   privacyTitle: "Datenschutz",
   privacyAiTitle: "Hinweis zur KI",
   privacyAiText:
-    "Unser KI-Berater ist auf richtige Auskünfte aus unserem Kursangebot optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Sicherheit immer auch auf der Kursseite.",
+    "Unser KI-Berater ist auf richtige Auskünfte optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Kontrolle immer auf unserer Website.",
   privacyCloseText: "Schließen",
 });
 // Beschriftung des Schließen-Symbols im Fenster (wie im Widget, de) und
