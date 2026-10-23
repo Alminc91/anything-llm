@@ -78,7 +78,6 @@ const contentProps = (config) => ({
   updateField: noop,
   updateOptionalField: noop,
   resetKeys: noop,
-  setPrivacyNotice: noop,
   addListItem: noop,
   updateListItem: noop,
   removeListItem: noop,
@@ -198,7 +197,9 @@ test(
       "Begrüßung",
       "Begrüßungstext",
       "Datenschutz-Hinweis",
-      "Datenschutz-Hinweis anzeigen",
+      // Bewusste Änderung (Datenschutz-Fußzeile, 7.23): kein Schalter
+      // „Datenschutz-Hinweis anzeigen“ mehr, dafür der Hinweis zum Link
+      "erscheint immer als Link „Datenschutz“ unter der Eingabe",
       "Überschrift (optional)",
       "Text",
       "Link zur Datenschutzerklärung",
@@ -319,8 +320,13 @@ test(
   }
 );
 
+// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): keine
+// Datenschutz-Blase mehr, die Fußzeile trägt den Link „Datenschutz“; Text und
+// Link zur Datenschutzerklärung stehen im Fenster, das erst der Klick öffnet
+// (designCenterPrivacyLink.test.mjs). Bis 7.22.2 hieß der Test „zwei Blasen“
+// und prüfte Text, Link und leere Überschrift in der Datenschutz-Blase.
 test(
-  "Vorschau: zwei Blasen, Pillen, KI-Zeile (R1), kein Online-Punkt; Hell/Dunkel",
+  "Vorschau: Begrüßungsblase, Pillen, KI-Zeile mit Link „Datenschutz“ (R1, 7.23), kein Online-Punkt; Hell/Dunkel",
   { skip },
   async () => {
     const html = await show(PREVIEW, {
@@ -342,20 +348,15 @@ test(
       html,
       /data-preview="greeting-bubble"[^>]*>Hallo! Ich bin Ihr KI-Berater/
     );
-    assert.match(html, /data-preview="privacy-bubble"/);
-    assert.ok(t.includes("Absatz • Punkt"));
-    assert.ok(t.includes("Datenschutzerklärung"));
-    // leere Überschrift: keine
-    assert.ok(
-      !/data-preview="privacy-bubble"[^>]*><p class="font-semibold"/.test(html)
-    );
+    assert.doesNotMatch(html, /data-preview="privacy-bubble"/);
+    // Datenschutz-Text und Link erst im Fenster
+    assert.ok(!t.includes("Absatz • Punkt"));
+    assert.ok(!t.includes("Datenschutzerklärung"));
     assert.match(html, /data-preview="pills"/);
     assert.ok(t.includes("Welche Sprachkurse gibt es?"));
-    // R1 (7.22-rc8): „Unsere KI“
-    assert.match(
-      html,
-      /data-preview="disclaimer"[^>]*>Unsere KI kann Fehler machen\. Bitte prüfen Sie die Antworten\./
-    );
+    // R1 (7.22-rc8): „Unsere KI“; seit 7.23 kurz, daneben der Link
+    assert.ok(t.includes("Unsere KI kann Fehler machen · Datenschutz"));
+    assert.match(html, /data-preview="privacy-link"[^>]*>Datenschutz</);
     assert.ok(!html.includes("bg-green-500"), "kein Online-Punkt");
     assert.match(html, /data-preview-theme="light"/);
     assert.doesNotMatch(t, /[–—]/);
@@ -555,7 +556,7 @@ test(
 );
 
 test(
-  "B-06 / 20.10.: aufgeklapptes Inline-Panel der Vorschau schneidet nichts ab: feste Höhe wie live (520 px), der Verlauf scrollt innen mit sichtbarer Bildlaufleiste (kein verstecktes Scrollen), Datenschutz-Blase vorhanden",
+  "B-06 / 20.10.: aufgeklapptes Inline-Panel der Vorschau schneidet nichts ab: feste Höhe wie live (520 px), der Verlauf scrollt innen mit sichtbarer Bildlaufleiste (kein verstecktes Scrollen), Link „Datenschutz“ statt Datenschutz-Blase (7.23)",
   { skip },
   async (t) => {
     const mounted = await renderer.mount(PREVIEW, {
@@ -591,11 +592,21 @@ test(
     assert.match(messages.getAttribute("class"), /\boverflow-y-auto\b/);
     assert.match(messages.getAttribute("class"), /\bpreview-scrollbar\b/);
     assert.doesNotMatch(messages.getAttribute("class"), /no-scroll/);
-    assert.ok(
+    // Bewusste Änderung (Datenschutz-Fußzeile, 7.23): keine Datenschutz-
+    // Blase mehr, der Link steht in der Fußzeile des Panels
+    assert.equal(
       elements(
         panel,
         (el) => el.getAttribute("data-preview") === "privacy-bubble"
-      ).length === 1
+      ).length,
+      0
+    );
+    assert.equal(
+      elements(
+        panel,
+        (el) => el.getAttribute("data-preview") === "privacy-link"
+      ).length,
+      1
     );
   }
 );
@@ -710,10 +721,14 @@ test(
   }
 );
 
+// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Die
+// Datenschutz-Blase entfällt; das Datenschutz-Fenster hat Fläche und Schrift
+// der Begrüßungs- und Antwortblasen (D2). Bis 7.22.2 prüfte der Test die
+// Datenschutz-Blase wie die Begrüßung (Fläche, Schatten, Schriftgröße).
 test(
-  "Nutzer 23.10.2026: Begrüßung und Datenschutz-Blase der Vorschau gleich wie im Widget (Fläche, Schatten, Schriftgröße), hell weiß, dunkel #2a2a2f",
+  "Nutzer 23.10.2026: Begrüßungsblase und Datenschutz-Fenster der Vorschau wie im Widget (Fläche, Schriftgröße), hell weiß, dunkel #2a2a2f",
   { skip },
-  async () => {
+  async (t) => {
     for (const [theme, bg] of [
       ["light", "#ffffff"],
       ["dark", "#2a2a2f"],
@@ -724,17 +739,49 @@ test(
         defaults: DEFAULTS,
         greetingKey: "greeting",
       });
-      const tag = (kind) =>
-        html.match(new RegExp(`<div[^>]*data-preview="${kind}"[^>]*>`))?.[0];
-      const greeting = tag("greeting-bubble");
-      const privacy = tag("privacy-bubble");
-      assert.ok(greeting && privacy, theme);
-      for (const el of [greeting, privacy]) {
-        assert.match(el, new RegExp(`background-color:${bg}`, "i"), theme);
-        assert.match(el, /box-shadow:0 4px 14px/, theme);
-        assert.match(el, /text-\[12\.5px\]/, theme);
-      }
+      const greeting = html.match(
+        /<div[^>]*data-preview="greeting-bubble"[^>]*>/
+      )?.[0];
+      assert.ok(greeting, theme);
+      assert.match(greeting, new RegExp(`background-color:${bg}`, "i"), theme);
+      assert.match(greeting, /box-shadow:0 4px 14px/, theme);
+      assert.match(greeting, /text-\[12\.5px\]/, theme);
       assert.doesNotMatch(html, /text-\[11\.5px\]/, theme);
+      assert.doesNotMatch(html, /data-preview="privacy-bubble"/, theme);
+
+      const mounted = await renderer.mount(PREVIEW, {
+        location: "/",
+        props: {
+          config: { theme },
+          logoPreview: null,
+          defaults: DEFAULTS,
+          greetingKey: "greeting",
+        },
+      });
+      t.after(() => mounted.unmount());
+      const { container, act } = mounted;
+      const byPreview = (name) =>
+        elements(
+          container,
+          (el) => el.getAttribute("data-preview") === name
+        )[0];
+      await act(() => click(byPreview("privacy-link")));
+      const dialog = byPreview("privacy-dialog");
+      assert.ok(dialog, theme);
+      assert.equal(
+        dialog.style.backgroundColor.toLowerCase(),
+        bg.toLowerCase(),
+        theme
+      );
+      assert.match(
+        byPreview("privacy-dialog-body").getAttribute("class"),
+        /text-\[12\.5px\]/
+      );
+      // lange Wörter brechen um wie in den Blasen (Restpunkt 5, rc7)
+      assert.match(
+        byPreview("privacy-dialog-body").getAttribute("class"),
+        /\[overflow-wrap:anywhere\]/
+      );
     }
   }
 );

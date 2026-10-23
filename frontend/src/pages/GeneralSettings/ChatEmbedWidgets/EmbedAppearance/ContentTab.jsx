@@ -1,6 +1,7 @@
 // Design Center › Inhalt, in der Reihenfolge des Chats (R6, Fixliste
-// 7.22-rc8): Name und Untertitel, Begrüßung, Datenschutz-Hinweis (Schalter,
-// Überschrift, Text, Link), Startvorschläge, Platzhalter im Eingabefeld, nur
+// 7.22-rc8): Name und Untertitel, Begrüßung, Datenschutz-Hinweis
+// (Überschrift, Text, Link des Datenschutz-Fensters; seit 7.23 ohne
+// Schalter), Startvorschläge, Platzhalter im Eingabefeld, nur
 // beim Chatfenster die Gruppe „Geschlossener Chat“ (Willkommensblasen und
 // wann sie erscheinen, KIE-568), Support-E-Mail.
 // Kompakter seit R11 (Fixliste 7.22-rc9, Mockup Ansicht 3): die Überschrift
@@ -22,7 +23,6 @@ import {
   GrowingTextarea,
   Segmented,
   SettingsSection,
-  Switch,
   inputClass,
 } from "./controls";
 import {
@@ -42,7 +42,6 @@ import {
   previewInlineBar,
   previewPlaceholder,
   privacyFieldText,
-  privacyNoticeOn,
   privacyTitleFieldValue,
   privacyWithoutMarks,
   sameAsDefault,
@@ -55,6 +54,18 @@ import {
 const DEFAULTS_LOAD_ERROR = "Standardtexte konnten nicht geladen werden";
 const PRIVACY_RULE =
   "Freier Text. Zeilen mit „•“ oder „-“ am Anfang werden zu Aufzählungspunkten, andere Zeilen bleiben Absätze.";
+
+// Datenschutz-Hinweis (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): keine
+// Auswahl mehr, der Link „Datenschutz“ steht immer unter der Eingabe und
+// öffnet das Datenschutz-Fenster. Hinweis wörtlich aus AK-6, die Zeile zum
+// festen Teil und der Hinweis zum Link wie im Mockup
+// (issues/datenschutz-fusszeile/mockup/DesignCenter.dc.html).
+export const PRIVACY_NOTICE_HINT =
+  "Der Datenschutz-Hinweis erscheint immer als Link „Datenschutz“ unter der Eingabe. Für den Inhalt sind Sie als Betreiber der Website verantwortlich.";
+export const PRIVACY_FIXED_NOTE =
+  "Fest eingebaut: der KI-Hinweis „Unsere KI kann Fehler machen“ und daneben der Link „Datenschutz“.";
+export const PRIVACY_URL_HINT =
+  "https://… oder ein Pfad Ihrer Seite wie /datenschutz. Steht im Datenschutz-Fenster unter dem Text. Empfohlen: Ohne Link fehlt im Hinweis der Verweis auf Ihre Datenschutzerklärung.";
 
 // Mindesthöhe der wachsenden Textfelder in Zeilen (R11)
 export const GREETING_MIN_ROWS = 2;
@@ -223,7 +234,6 @@ export default function ContentTab({
   updateField,
   updateOptionalField,
   resetKeys,
-  setPrivacyNotice,
   setChoice = () => {},
   addListItem,
   updateListItem,
@@ -258,7 +268,6 @@ export default function ContentTab({
   const barSameAsInput =
     inlineBar.placeholder === previewPlaceholder(config, defaults);
 
-  const privacyOn = privacyNoticeOn(config);
   const privacyTitle = privacyTitleFieldValue(config, defaults);
   const privacyTitleIsStandard =
     !defaults || sameAsDefault("privacyTitle", privacyTitle, defaults);
@@ -352,45 +361,15 @@ export default function ContentTab({
               ? "Leer: es gilt der Standardtext."
               : greetingTooLongStored
                 ? `Der gespeicherte Text ist länger als ${GREETING_MAX_LEN} Zeichen. Im Chat erscheint er gekürzt (wie in der Vorschau).`
-                : privacyOn
-                  ? `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen. Der Datenschutz-Hinweis folgt als eigene, zweite Blase.`
-                  : `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen.`
+                : `Erste Blase im Chat, max. ${GREETING_MAX_LEN} Zeichen.`
           }
         />
       </div>
 
-      <GroupHeading
-        title="Datenschutz-Hinweis"
-        hint="Zweite Blase unter der Begrüßung, Text frei anpassbar."
-      />
-      <div data-privacy-switch="">
-        <Switch
-          label="Datenschutz-Hinweis anzeigen"
-          checked={privacyOn}
-          onChange={(checked) => setPrivacyNotice(checked)}
-        />
-        <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
-          Wir empfehlen, den Hinweis anzuzeigen. Er informiert Besucher, wie mit
-          ihren Anfragen umgegangen wird.
-        </p>
-      </div>
-      {/* Hinweis aus: Felder ausgegraut und gesperrt, die gespeicherten
-          Werte bleiben erhalten (cleanConfig schreibt sie unverändert) */}
-      <fieldset
-        disabled={!privacyOn}
-        data-privacy-fields={privacyOn ? "on" : "off"}
-        className={
-          privacyOn
-            ? "space-y-5 min-w-0"
-            : "space-y-5 min-w-0 opacity-40 pointer-events-none select-none"
-        }
-      >
-        {!privacyOn && (
-          <p className="text-theme-text-secondary text-xs leading-relaxed">
-            Der Hinweis ist ausgeschaltet. Überschrift, Text und Link bleiben
-            gespeichert und gelten wieder, sobald Sie ihn einschalten.
-          </p>
-        )}
+      <GroupHeading title="Datenschutz-Hinweis" hint={PRIVACY_NOTICE_HINT} />
+      {/* Felder des Datenschutz-Fensters, immer bearbeitbar (bis 7.22.2
+          gesperrt, wenn der Schalter „Datenschutz-Hinweis anzeigen“ aus war) */}
+      <div className="space-y-5 min-w-0" data-privacy-fields="">
         {/* Überschrift schmal allein (halbe Breite), der Link darunter über
             die volle Breite, weil Links lang werden können (R11) */}
         <FieldPair>
@@ -414,9 +393,12 @@ export default function ContentTab({
               className={inputClass(errors.privacyTitle)}
               aria-label="Überschrift des Datenschutz-Hinweises"
             />
+            {/* leer: das Fenster zeigt den Standard (Widget
+                privacyDialogTitle); bis 7.22.2 hatte die Blase dann keine
+                Überschrift */}
             <FieldNote
               error={errors.privacyTitle}
-              hint="Leer: keine Überschrift."
+              hint="Leer: es gilt „Datenschutz“."
             />
           </div>
         </FieldPair>
@@ -452,7 +434,7 @@ export default function ContentTab({
         </div>
         <SettingsSection
           title="Link zur Datenschutzerklärung"
-          hint="https://… oder ein Pfad Ihrer Seite wie /datenschutz. Leer: kein Link. Steht am Ende der Blase."
+          hint={PRIVACY_URL_HINT}
           error={errors.privacyUrl}
         >
           <input
@@ -462,9 +444,13 @@ export default function ContentTab({
             onChange={(e) => updateOptionalField("privacyUrl", e.target.value)}
             placeholder="https://www.ihre-seite.de/datenschutz"
             className={inputClass(errors.privacyUrl)}
+            aria-label="Link zur Datenschutzerklärung"
           />
         </SettingsSection>
-      </fieldset>
+        <p className="text-theme-text-secondary text-xs leading-relaxed">
+          {PRIVACY_FIXED_NOTE}
+        </p>
+      </div>
 
       <GroupHeading title="Startvorschläge" />
       <SettingsSection

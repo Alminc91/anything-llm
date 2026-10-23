@@ -172,45 +172,6 @@ export function Segmented({
   );
 }
 
-// Schalter mit Beschriftung (Datenschutz-Hinweis anzeigen). An: Fläche in
-// der Akzentfarbe der App wie die markierten Optionen; aus: graue Fläche
-// mit sichtbarem Rand, daneben „An“ bzw. „Aus“ (Browser 7.22-rc6 B-02: der
-// allgemeine Toggle war im Aus-Zustand kaum als Schalter zu erkennen und
-// im An-Zustand grün statt in der Akzentfarbe).
-// Der versteckte Schalter (sr-only = position: absolute) braucht einen
-// positionierten Vorfahren (R7, Fixliste 7.22-rc8): Ohne ihn lag er an
-// seiner statischen Position relativ zur Seite, also in der gescrollten
-// Spalte außerhalb des Fensters; der Klick auf die Beschriftung fokussierte
-// ihn, der Browser scrollte das ganze Dokument dorthin (Layoutsprung, weißer
-// Bereich unter der Seite). Mit `relative` am Rahmen liegt er im sichtbaren
-// Schalter.
-export function Switch({ label, checked, onChange }) {
-  return (
-    <label className="flex items-center justify-between gap-4 cursor-pointer">
-      <span className="text-white text-sm font-medium">{label}</span>
-      <span className="relative flex items-center gap-2 shrink-0">
-        <span
-          className="text-xs font-medium text-theme-text-secondary"
-          data-switch-state=""
-        >
-          {checked ? "An" : "Aus"}
-        </span>
-        <input
-          type="checkbox"
-          role="switch"
-          className="peer sr-only"
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-        <span
-          aria-hidden="true"
-          className="relative w-9 h-5 rounded-full border transition-colors bg-zinc-600 border-zinc-400 light:bg-zinc-300 light:border-zinc-500 peer-checked:bg-primary-button peer-checked:border-primary-button peer-focus-visible:ring-2 peer-focus-visible:ring-primary-button/60 after:absolute after:top-[2px] after:left-[2px] after:w-3.5 after:h-3.5 after:rounded-full after:bg-white after:shadow after:transition-transform after:content-[''] peer-checked:after:translate-x-4"
-        />
-      </span>
-    </label>
-  );
-}
-
 // Zwischenüberschrift für eine Gruppe von Einstellungen; first = erste
 // Gruppe des Reiters (ohne Trennlinie darüber)
 export function GroupHeading({ title, hint = null, first = false }) {

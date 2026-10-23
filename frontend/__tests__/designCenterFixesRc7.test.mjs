@@ -267,29 +267,23 @@ const contentProps = (config) => ({
   updateField: noop,
   updateOptionalField: noop,
   resetKeys: noop,
-  setPrivacyNotice: noop,
   setChoice: noop,
   addListItem: noop,
   updateListItem: noop,
   removeListItem: noop,
 });
 
+// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Den
+// Datenschutz-Schalter gibt es nicht mehr (Link „Datenschutz“ immer, AK-6).
+// Bis 7.22.2 prüfte B-02 hier den Schalter in der Akzentfarbe mit „An“/„Aus“.
 test(
-  "B-02: Datenschutz-Schalter in der Akzentfarbe, aus deutlich erkennbar mit „Aus“",
+  "B-02 seit 7.23: kein Datenschutz-Schalter mehr im Reiter Inhalt",
   { skip },
   async () => {
-    for (const [config, state] of [
-      [{}, "An"],
-      [{ privacyNotice: "none" }, "Aus"],
-    ]) {
+    for (const config of [{}, { privacyNotice: "none" }]) {
       const html = await show(CONTENT, contentProps(config));
-      const at = html.indexOf("data-privacy-switch");
-      const block = html.slice(at, html.indexOf("</label>", at));
-      assert.match(block, /role="switch"/);
-      assert.match(block, /peer-checked:bg-primary-button/);
-      assert.doesNotMatch(block, /green-/);
-      assert.match(block, /border-zinc-400/);
-      assert.ok(text(block).includes(state), state);
+      assert.doesNotMatch(html, /data-privacy-switch|role="switch"/);
+      assert.ok(!text(html).includes("Datenschutz-Hinweis anzeigen"));
     }
   }
 );

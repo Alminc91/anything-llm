@@ -72,7 +72,6 @@ const contentProps = (config) => ({
   updateField: noop,
   updateOptionalField: noop,
   resetKeys: noop,
-  setPrivacyNotice: noop,
   setChoice: noop,
   addListItem: noop,
   updateListItem: noop,
@@ -92,26 +91,29 @@ function buttonTag(html, label) {
 // R1: KI-Hinweis
 // ---------------------------------------------------------------------------
 
+// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Der
+// KI-Hinweis ist kurz, in derselben Zeile folgt der Link „Datenschutz“; die
+// Bitte, Antworten zu prüfen, steht im Datenschutz-Fenster. Bis 7.22.2
+// „Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten.“ bzw. „Our
+// AI can make mistakes. Please double-check the answers.“
 test(
-  "R1: KI-Hinweis wörtlich (de/en), Vorschau zeigt ihn",
+  "R1: KI-Hinweis wörtlich (de/en), Vorschau zeigt ihn mit dem Link „Datenschutz“",
   { skip },
   async () => {
-    assert.equal(
-      DEFAULTS.disclaimerText,
-      "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten."
-    );
+    assert.equal(DEFAULTS.disclaimerText, "Unsere KI kann Fehler machen");
     assert.equal(
       embedDefaultTexts("en").disclaimerText,
-      "Our AI can make mistakes. Please double-check the answers."
+      "Our AI can make mistakes"
     );
-    for (const config of [{}, { displayMode: "inline" }]) {
-      const html = await preview(config);
-      if (config.displayMode) continue; // Leiste eingeklappt: kein Hinweis
-      assert.match(
-        html,
-        /data-preview="disclaimer"[^>]*>Unsere KI kann Fehler machen\. Bitte prüfen Sie die Antworten\.</
+    const footer = (html) =>
+      text(
+        html.match(/<p[^>]*data-preview="disclaimer"[^>]*>([\s\S]*?)<\/p>/)[1]
       );
-    }
+    for (const config of [{}, { displayMode: "inline" }])
+      assert.equal(
+        footer(await preview(config)),
+        "Unsere KI kann Fehler machen · Datenschutz"
+      );
     // ohne geladene Standardtexte derselbe Text
     const fallback = await show(PREVIEW, {
       config: {},
@@ -119,11 +121,11 @@ test(
       defaults: null,
       greetingKey: "greeting",
     });
-    assert.ok(
-      text(fallback).includes(
-        "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten."
-      )
+    assert.equal(
+      footer(fallback),
+      "Unsere KI kann Fehler machen · Datenschutz"
     );
+    assert.ok(!text(fallback).includes("Bitte prüfen Sie die Antworten"));
   }
 );
 
@@ -364,10 +366,11 @@ test(
       // Kurskarten gewählt, damit auch der Kartentitel geprüft wird
       courseCards: "auto",
     });
+    // die Datenschutz-Blase entfällt seit 7.23 (Datenschutz-Fußzeile); den
+    // Umbruch im Datenschutz-Fenster prüft designCenterPrivacyLink.test.mjs
     for (const marker of [
       "pill",
       "greeting-bubble",
-      "privacy-bubble",
       "user-message",
       "answer-text",
       "follow-up-pill",
@@ -870,18 +873,18 @@ test(
 // (sr-only = position: absolute) hatte keinen positionierten Vorfahren und
 // lag an seiner statischen Position außerhalb des Fensters; der Fokus beim
 // Klick scrollte das Dokument dorthin. Hier die DOM-Bedingungen.
+// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Der
+// einzige Schalter (Datenschutz-Hinweis) entfällt und mit ihm die Komponente
+// Switch in controls.jsx. Bis 7.22.2 prüfte R7 hier den positionierten
+// Rahmen um den versteckten Schalter; der Seitenrahmen (Test unten) bleibt.
 test(
-  "R7: Schalter in einem positionierten Rahmen, Seite positioniert",
+  "R7 seit 7.23: kein versteckter Schalter mehr im Reiter Inhalt, Switch entfällt",
   { skip },
   async () => {
     const html = await show(CONTENT, contentProps({}));
-    const input = html.match(/<input[^>]*role="switch"[^>]*>/)[0];
-    assert.match(input, /sr-only/);
-    // Rahmen (span) direkt um Zustandstext und Schalter mit `relative`
-    assert.match(
-      html,
-      /<span class="[^"]*\brelative\b[^"]*"><span[^>]*data-switch-state[^>]*>[^<]*<\/span><input[^>]*role="switch"/
-    );
+    assert.doesNotMatch(html, /role="switch"|data-switch-state/);
+    const controls = await renderer.load(`${DIR}/controls.jsx`);
+    assert.equal("Switch" in controls, false);
   }
 );
 

@@ -374,9 +374,11 @@ test(
           `${show(value)} ${JSON.stringify(look)}`
         );
     }
-    // Datenschutz-Link und Links der Kurse sind dabei (Akzentfarbe)
+    // Datenschutz-Link und Links der Kurse sind dabei (Akzentfarbe). Bewusste
+    // Änderung (Datenschutz-Fußzeile, 7.23): statt „Datenschutzerklärung“ in
+    // der Datenschutz-Blase der Link „Datenschutz“ in der Fußzeile
     const links = await preview(LOOKS[2]);
-    assert.ok(links.includes("Datenschutzerklärung"));
+    assert.match(links, /data-preview="privacy-link"[^>]*>Datenschutz</);
     assert.match(links, /data-preview="course-link"/);
     // Gegenprobe: angenommene Werte zeigt die Vorschau (getrimmt) mit der
     // Schrift nach Kontrast, in der Nutzerblase und am Senden-Button der

@@ -20,7 +20,6 @@ import {
   validateConfig,
   withChoice,
   withLook,
-  withPrivacyNotice,
   withUserTextColor,
 } from "./widgetKeys";
 
@@ -175,13 +174,6 @@ export default function EmbedAppearance() {
       return next;
     });
   }, []);
-
-  // Schalter „Datenschutz-Hinweis anzeigen“: aus = "none", wieder an = der
-  // gespeicherte Stand bzw. "bubble" (widgetKeys.js withPrivacyNotice)
-  const setPrivacyNotice = useCallback(
-    (on) => setConfig((prev) => withPrivacyNotice(prev, initialConfig, on)),
-    [initialConfig]
-  );
 
   // Auswahl „Antworten mit Kursen“ (KIE-567) und „Willkommensblasen
   // anzeigen“ (KIE-568): gespeichert wird nur eine Abweichung vom
@@ -395,7 +387,6 @@ export default function EmbedAppearance() {
                 updateField={updateField}
                 updateOptionalField={updateOptionalField}
                 resetKeys={resetKeys}
-                setPrivacyNotice={setPrivacyNotice}
                 setChoice={setChoice}
                 addListItem={addListItem}
                 updateListItem={updateListItem}

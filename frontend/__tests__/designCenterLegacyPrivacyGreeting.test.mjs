@@ -222,7 +222,6 @@ test(
             updateField: noop,
             updateOptionalField: noop,
             resetKeys: noop,
-            setPrivacyNotice: noop,
             addListItem: noop,
             updateListItem: noop,
             removeListItem: noop,
