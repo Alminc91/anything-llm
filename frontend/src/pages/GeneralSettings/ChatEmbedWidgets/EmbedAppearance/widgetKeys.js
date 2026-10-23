@@ -245,8 +245,12 @@ function sameList(a, b) {
 // speichert sie aber nur, wenn der Kunde etwas wählt. Die Schrift auf der
 // Akzentfarbe hat keinen festen Standard: ohne gespeicherten Wert gilt die
 // Empfehlung nach Kontrast (userTextColor, KIE-565 Nachtrag).
+// Akzentfarbe: Kufer-Petrol, gleicher Farbton wie der Würfel, nur dunkler;
+// die Empfehlung ergibt darauf Weiß (4,99:1). Nutzerentscheidung 23.10.2026,
+// vorher Würfel-Türkis #01A5A9 mit schwarzer Schrift. Gleicher Wert wie
+// DEFAULT_ACCENT im Widget (src/utils/theme.js).
 export const LOOK_DEFAULTS = {
-  accentColor: "#01A5A9",
+  accentColor: "#007C82",
   chatIcon: "chatBubble",
   position: "bottom-left",
 };
@@ -348,7 +352,7 @@ function previewColor(value, fallback = null) {
 
 /**
  * Akzentfarbe in der Vorschau: der gespeicherte bzw. eingegebene Wert,
- * wenn die Farbregel ihn annimmt (getrimmt), sonst der Standard #01A5A9.
+ * wenn die Farbregel ihn annimmt (getrimmt), sonst der Standard #007C82.
  * @param {Object} config
  * @returns {string}
  */
@@ -425,7 +429,7 @@ export function accentColorError(value) {
   const text = textValue(value).trim();
   if (!text) return null;
   if (parseColor(text) === null)
-    return "Bitte einen Farbcode wie #01A5A9 angeben.";
+    return "Bitte einen Farbcode wie #007C82 angeben.";
   if (colorAlpha(text) < 1)
     return "Bitte eine deckende Farbe ohne Transparenz angeben.";
   return null;

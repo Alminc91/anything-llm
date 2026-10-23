@@ -102,7 +102,7 @@ test("W91: parseColor liest rgb()/rgba() nur mit Kommas oder nur mit Leerzeichen
 });
 
 test("W91: Design Center lehnt gemischte Trenner als Akzentfarbe ab, gültige Schreibweisen bleiben", () => {
-  const CODE = "Bitte einen Farbcode wie #01A5A9 angeben.";
+  const CODE = "Bitte einen Farbcode wie #007C82 angeben.";
   for (const value of MIXED_SEPARATORS) {
     assert.equal(keys.accentColorError(value), CODE, value);
     const errors = keys.validateConfig({ accentColor: value }, {}, "greeting");

@@ -230,8 +230,9 @@ test(
     const { container, act, calls } = await open(t, [widget(9, null)], 9);
     assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
     const color = byLabel(container, "Akzentfarbe als Farbcode");
-    // ohne gespeicherte Farbe: der Standard des Widgets als Feldwert (R5)
-    assert.equal(valueOf(color), "#01A5A9");
+    // ohne gespeicherte Farbe: der Standard des Widgets als Feldwert (R5),
+    // seit 23.10.2026 Petrol
+    assert.equal(valueOf(color), "#007C82");
     await act(() =>
       handlersOf(color).onChange({ target: { value: "#123456" } })
     );

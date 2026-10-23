@@ -13,7 +13,8 @@
 //     zeigt gespeicherte bzw. eingegebene Farbwerte, die die Farbregel nicht
 //     annimmt (parseColor liest sie nicht oder Deckkraft unter 1, also genau
 //     die, die accentColorError meldet), als Standard wie das Widget:
-//     Akzentfarbe #01A5A9, Schrift nach Kontrast. Das Feld zeigt weiter den
+//     Akzentfarbe #007C82 (seit 23.10.2026, vorher #01A5A9), Schrift nach
+//     Kontrast. Das Feld zeigt weiter den
 //     eingegebenen Wert mit der Fehlermeldung. Gleichlauf mit dem Widget
 //     (dcColor, onAccentTextColor, userTextColorFor) mit KUFER_EMBED_DIR.
 import test, { after, before } from "node:test";
@@ -35,7 +36,7 @@ const ROOT = path.resolve(
   ".."
 );
 const MIGRATION = path.join(ROOT, "docs", "design-center-2-migration.md");
-const FORMAT_ERROR = "Bitte einen Farbcode wie #01A5A9 angeben.";
+const FORMAT_ERROR = "Bitte einen Farbcode wie #007C82 angeben.";
 
 // Werte mit Unicode-Zeichen lesbar in der Meldung (U+00A0 statt Leerzeichen)
 const show = (value) =>
@@ -118,7 +119,7 @@ test("F101: accentColor „bleibt“ nur als Farbcode, den parseColor liest; die
   const row = tableRow(doc, "accentColor");
   // nicht mehr ohne Einschränkung „bleibt“
   assert.doesNotMatch(row, /\| bleibt; neue Eingaben/);
-  assert.match(row, /andere gespeicherte Werte ergeben den Standard `#01A5A9`/);
+  assert.match(row, /andere gespeicherte Werte ergeben den Standard `#007C82`/);
   assert.match(row, /Prüfpunkt 12/);
   const rule = doc.replace(/\s+/g, " ");
   assert.match(rule, /Eine Regel für gültige Farben \(E41, 7\.22-rc22\)/);
@@ -165,11 +166,15 @@ const PREVIEW = `${DIR}/WidgetPreview.jsx`;
 const APPEARANCE = `${DIR}/AppearanceTab.jsx`;
 const PREVIEW_SOURCE = path.join(ROOT, "frontend", PREVIEW);
 const OPACITY_ERROR = "Bitte eine deckende Farbe ohne Transparenz angeben.";
-const DEFAULT_ACCENT = "#01A5A9";
+// Standard Petrol (Nutzerentscheidung 23.10.2026), Empfehlung darauf Weiß
+// (4,99:1 gegen 3,06:1 mit #222628)
+const DEFAULT_ACCENT = "#007C82";
 const WHITE = "#FFFFFF";
 // „Schwarz“, wie es gezeigt wird (E1, Fixliste 7.22-rc7); Empfehlung zu
-// #01A5A9
+// hellen Akzentfarben wie dem früheren Standard #01A5A9 (5,06:1)
 const BLACK = "#222628";
+// früherer Standard, jetzt eine Kundenfarbe mit Empfehlung Schwarz
+const OLD_TURQUOISE = "#01A5A9";
 const skip = hasFrontendDeps
   ? false
   : "frontend/node_modules nicht installiert";
@@ -215,8 +220,9 @@ const TRANSLUCENT = [
   "  rgba(0, 51, 102, .99)\n",
 ];
 const REJECTED = [...OTHER_FORMATS, ...UNICODE_SPACE, ...TRANSLUCENT];
-// Werte, die sie annimmt (Dunkelblau: Empfehlung Weiß, anders als beim
-// Standard); die Vorschau zeigt sie getrimmt wie das Widget
+// Werte, die sie annimmt (Dunkelblau: Empfehlung Weiß wie beim Standard;
+// Gegenprobe mit Schwarz über OLD_TURQUOISE); die Vorschau zeigt sie
+// getrimmt wie das Widget
 const ACCEPTED = [
   "#003366",
   "#036",
@@ -238,7 +244,8 @@ const REJECTED_TEXT = [
   "var(--allm-user-text)",
 ];
 
-test("E41 (b): previewAccentColor zeigt abgelehnte Werte als Standard #01A5A9, angenommene getrimmt; dieselbe Regel wie accentColorError", () => {
+test("E41 (b): previewAccentColor zeigt abgelehnte Werte als Standard #007C82, angenommene getrimmt; dieselbe Regel wie accentColorError", () => {
+  assert.equal(keys.DEFAULT_ACCENT_COLOR, DEFAULT_ACCENT);
   for (const value of REJECTED) {
     assert.notEqual(keys.accentColorError(value), null, show(value));
     assert.equal(
@@ -273,28 +280,47 @@ test("E41 (b): previewAccentColor zeigt abgelehnte Werte als Standard #01A5A9, a
 });
 
 test("E41 (b): previewUserTextColor: Schrift wie das Widget, abgelehnte Werte ergeben die Empfehlung zur gezeigten Akzentfarbe", () => {
-  // abgelehnte Akzentfarbe: Empfehlung zu #01A5A9 (Schwarz), nicht Weiß
+  // abgelehnte Akzentfarbe: Empfehlung zu #007C82 (Weiß)
   for (const value of REJECTED)
     assert.equal(
       keys.previewUserTextColor({ accentColor: value }),
-      BLACK,
+      WHITE,
       show(value)
     );
+  // Gegenprobe zum Rohwert: hell und durchscheinend ergäbe roh Schwarz,
+  // die Vorschau rechnet mit dem gezeigten Petrol
+  assert.equal(
+    keys.previewUserTextColor({ accentColor: "rgba(1, 165, 169, 0.5)" }),
+    WHITE
+  );
   for (const value of ACCEPTED)
     assert.equal(
       keys.previewUserTextColor({ accentColor: value }),
       WHITE,
       show(value)
     );
+  // angenommene helle Kundenfarbe: eigene Empfehlung, anders als beim Standard
+  assert.equal(
+    keys.previewUserTextColor({ accentColor: OLD_TURQUOISE }),
+    BLACK
+  );
   // abgelehnte gespeicherte Schrift: die Empfehlung
   for (const value of REJECTED_TEXT) {
-    assert.equal(keys.previewUserTextColor({ userTextColor: value }), BLACK);
+    assert.equal(keys.previewUserTextColor({ userTextColor: value }), WHITE);
     assert.equal(
       keys.previewUserTextColor({
         accentColor: "#003366",
         userTextColor: value,
       }),
       WHITE,
+      value
+    );
+    assert.equal(
+      keys.previewUserTextColor({
+        accentColor: OLD_TURQUOISE,
+        userTextColor: value,
+      }),
+      BLACK,
       value
     );
   }
@@ -339,7 +365,7 @@ test(
   async () => {
     for (const look of LOOKS) {
       const standard = await preview(look);
-      assert.match(standard, /background-color:#01A5A9/i);
+      assert.match(standard, /background-color:#007C82/i);
       for (const value of REJECTED)
         assert.equal(
           await preview({ ...look, accentColor: value }),
@@ -422,8 +448,9 @@ test(
       const tag = (await preview(config)).match(
         /<div[^>]*data-preview="user-message"[^>]*>/
       )[0];
+      // Standard Petrol mit der Empfehlung Weiß
       assert.ok(
-        tag.includes(`background-color:${DEFAULT_ACCENT};color:${BLACK}`),
+        tag.includes(`background-color:${DEFAULT_ACCENT};color:${WHITE}`),
         tag
       );
     }

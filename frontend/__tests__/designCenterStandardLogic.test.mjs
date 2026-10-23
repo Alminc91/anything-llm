@@ -600,17 +600,25 @@ test("D2/F04: Inline-Leiste mit Demo-Texten, nur ein früher gespeicherter Leist
   });
 });
 
-test("B-06: Aussehen ohne gespeicherten Wert zeigt die Standards des Widgets (Akzentfarbe Türkis wie live)", () => {
-  assert.equal(keys.lookValue({}, "accentColor").toLowerCase(), "#01a5a9");
-  assert.equal(keys.lookValue({ accentColor: "" }, "accentColor"), "#01A5A9");
+// Standard-Akzentfarbe seit 23.10.2026 Petrol #007C82 (vorher Türkis
+// #01A5A9), gleicher Wert wie DEFAULT_ACCENT im Widget
+test("B-06: Aussehen ohne gespeicherten Wert zeigt die Standards des Widgets (Akzentfarbe Petrol)", () => {
+  assert.equal(keys.lookValue({}, "accentColor").toLowerCase(), "#007c82");
+  assert.equal(keys.lookValue({ accentColor: "" }, "accentColor"), "#007C82");
+  assert.equal(keys.LOOK_DEFAULTS.accentColor, keys.DEFAULT_ACCENT_COLOR);
   assert.equal(
     keys.lookValue({ accentColor: "#FFA102" }, "accentColor"),
     "#FFA102"
   );
   // Schrift auf der Kundenfarbe: ohne gespeicherten Wert die Empfehlung
-  // nach Kontrast wie im Widget (KIE-565 Nachtrag), auf Türkis Schwarz,
-  // gezeigt als #222628 (E1, Fixliste 7.22-rc7)
-  assert.equal(keys.lookValue({}, "userTextColor"), "#222628");
+  // nach Kontrast wie im Widget (KIE-565 Nachtrag), auf Petrol Weiß
+  // (4,99:1 gegen 3,06:1 mit #222628, E1, Fixliste 7.22-rc7)
+  assert.equal(keys.lookValue({}, "userTextColor"), "#FFFFFF");
+  // ein früher gespeichertes Türkis ist eine Kundenfarbe: dort Schwarz
+  assert.equal(
+    keys.lookValue({ accentColor: "#01A5A9" }, "userTextColor"),
+    "#222628"
+  );
   assert.equal(keys.lookValue({}, "chatIcon"), "chatBubble");
   assert.equal(keys.lookValue({}, "position"), "bottom-left");
 });

@@ -425,7 +425,7 @@ test(
 );
 
 test(
-  "B-06: ohne gespeicherte Kundenfarbe zeigen Aussehen und Vorschau das Türkis des Widgets",
+  "B-06: ohne gespeicherte Kundenfarbe zeigen Aussehen und Vorschau das Petrol des Widgets",
   { skip },
   async () => {
     const look = await show(APPEARANCE, {
@@ -433,16 +433,19 @@ test(
       updateField: noop,
       logoPreview: null,
     });
-    assert.match(look, /type="color"[^>]*value="#01A5A9"/i);
+    // Standard seit 23.10.2026 Petrol #007C82, vorher Türkis #01A5A9
+    assert.match(look, /type="color"[^>]*value="#007C82"/i);
     assert.ok(!look.includes("#607D8B"));
+    assert.ok(!/#01A5A9/i.test(look));
     const preview = await show(PREVIEW, {
       config: {},
       logoPreview: null,
       defaults: DEFAULTS,
       greetingKey: "greeting",
     });
-    assert.match(preview, /background-color:#01A5A9/i);
+    assert.match(preview, /background-color:#007C82/i);
     assert.ok(!preview.includes("#607D8B"));
+    assert.ok(!/#01A5A9/i.test(preview));
   }
 );
 

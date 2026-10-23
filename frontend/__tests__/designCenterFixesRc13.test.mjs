@@ -75,9 +75,9 @@ const text = (html) =>
 // ---------------------------------------------------------------------------
 
 // Gespeichert sind genau die Standards (frühere Design-Center-Versionen
-// speicherten volle Konfigurationen)
+// speicherten volle Konfigurationen); Akzentfarbe seit 23.10.2026 Petrol
 const STORED_DEFAULTS = {
-  accentColor: "#01A5A9",
+  accentColor: keys.DEFAULT_ACCENT_COLOR,
   name: "KI-Berater",
   assistantSubtitle: DEFAULTS.assistantSubtitle,
   sendMessageText: DEFAULTS.sendMessageText,
@@ -109,21 +109,27 @@ test("F05: unverändert gespeicherte Standardwerte bleiben beim Speichern eines 
     defaultMessages: ["Eigene?"],
     chatbotBubblesMessages: ["Eigene Blase"],
   };
-  const reset = { ...STORED_DEFAULTS, accentColor: "#01a5a9" };
+  const reset = { ...STORED_DEFAULTS, accentColor: "#007c82" };
   delete reset.greeting;
   assert.deepEqual(
     keys.cleanConfig(reset, { initial: own, defaults: DEFAULTS }),
     {}
   );
   // ohne gespeicherten Stand (initial {}) wie bisher: Standard -> entfernt
+  assert.equal(keys.DEFAULT_ACCENT_COLOR, "#007C82");
   assert.deepEqual(
     keys.cleanConfig(
-      { accentColor: "#01A5A9", name: " KI-Berater " },
+      { accentColor: "#007C82", name: " KI-Berater " },
       {
         defaults: DEFAULTS,
       }
     ),
     {}
+  );
+  // das frühere Türkis ist kein Standard mehr, sondern eine Kundenfarbe
+  assert.deepEqual(
+    keys.cleanConfig({ accentColor: "#01A5A9" }, { defaults: DEFAULTS }),
+    { accentColor: "#01A5A9" }
   );
 });
 

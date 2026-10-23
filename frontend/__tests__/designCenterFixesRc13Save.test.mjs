@@ -224,8 +224,10 @@ test(
   "F05: gespeicherte Standardfarbe und Standardname bleiben beim Speichern des Farbschemas",
   { skip },
   async (t) => {
+    // Standardfarbe seit 23.10.2026 Petrol; das frühere Türkis wäre hier
+    // eine Kundenfarbe und prüfte die Regel nicht
     const stored = {
-      accentColor: "#01A5A9",
+      accentColor: "#007C82",
       name: "KI-Berater",
       defaultMessages: [...DEFAULTS.defaultMessages],
     };

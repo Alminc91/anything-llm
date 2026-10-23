@@ -112,10 +112,21 @@ test("Kontrast nach WCAG 2.x: Grenzwerte und bekannte Paare", () => {
   assert.equal(contrast.contrastRatio("#FFFFFF", "#000000"), 21);
   assert.equal(contrast.contrastRatio("#000", "#000000"), 1);
   assert.equal(contrast.contrastRatio("#ffffff", "#FFF"), 1);
-  // Türkis des Widgets auf Weiß gut 3:1 (zu wenig für Text)
+  // früheres Türkis des Widgets auf Weiß gut 3:1 (zu wenig für Text)
   assert.ok(
     Math.abs(contrast.contrastRatio("#01A5A9", WHITE) - 3.02) < 0.01,
     String(contrast.contrastRatio("#01A5A9", WHITE))
+  );
+  // Standard Petrol (seit 23.10.2026): Weiß 4,99:1, Schwarz (#222628)
+  // 3,06:1, also Weiß über 4,5:1
+  assert.equal(keys.DEFAULT_ACCENT_COLOR, "#007C82");
+  assert.ok(
+    Math.abs(contrast.contrastRatio("#007C82", WHITE) - 4.99) < 0.01,
+    String(contrast.contrastRatio("#007C82", WHITE))
+  );
+  assert.ok(
+    Math.abs(contrast.contrastRatio("#007C82", BLACK) - 3.06) < 0.01,
+    String(contrast.contrastRatio("#007C82", BLACK))
   );
   for (const [a, b] of [
     ["#01A5A9", BLACK],
@@ -188,10 +199,14 @@ test(
 );
 
 test("D6: ohne gespeicherten Wert gilt die Empfehlung, gespeicherte Werte bleiben", () => {
-  // neues Widget mit Türkis: Schwarz empfohlen, gezeigt als #222628 (E1)
-  assert.equal(keys.userTextColor({}), BLACK);
-  assert.equal(keys.lookValue({}, "userTextColor"), BLACK);
-  assert.equal(keys.userTextColorChoice({}), BLACK);
+  // neues Widget mit Petrol #007C82: Weiß empfohlen (4,99:1 gegen 3,06:1
+  // mit #222628, E1)
+  assert.equal(keys.userTextColor({}), WHITE);
+  assert.equal(keys.lookValue({}, "userTextColor"), WHITE);
+  assert.equal(keys.userTextColorChoice({}), WHITE);
+  // helle Akzentfarbe, auch das frühere Türkis: Schwarz, gezeigt als #222628
+  assert.equal(keys.userTextColor({ accentColor: "#01A5A9" }), BLACK);
+  assert.equal(keys.userTextColorChoice({ accentColor: "#01A5A9" }), BLACK);
   assert.equal(keys.userTextColor({ accentColor: "#003366" }), WHITE);
   assert.equal(keys.userTextColorChoice({ accentColor: "#003366" }), WHITE);
   // gespeichert bleibt gespeichert, auch bei schlechtem Kontrast
@@ -220,8 +235,10 @@ test("D6: ohne gespeicherten Wert gilt die Empfehlung, gespeicherte Werte bleibe
 });
 
 test("Empfehlung und Warnung unter dem Feld", () => {
+  // Standard Petrol: Empfehlung Weiß mit 4,99:1, also keine Warnung
   const fresh = keys.userTextColorAdvice({});
-  assert.equal(fresh.recommendedLabel, "Schwarz");
+  assert.equal(fresh.recommendedLabel, "Weiß");
+  assert.ok(Math.abs(fresh.ratio - 4.99) < 0.01, String(fresh.ratio));
   assert.equal(fresh.warning, null);
   // C13 (Fixliste 7.22-rc16, bewusst geändert): kein Feld „stored“ mehr,
   // seit F12 (rc13) liest es niemand
@@ -231,10 +248,11 @@ test("Empfehlung und Warnung unter dem Feld", () => {
     "warning",
   ]);
 
-  const white = keys.userTextColorAdvice({ userTextColor: WHITE });
-  assert.ok(!("stored" in white));
+  // gewähltes Schwarz auf Petrol: 3,06:1, abgeschnitten „3,0:1“
+  const black = keys.userTextColorAdvice({ userTextColor: BLACK });
+  assert.ok(!("stored" in black));
   assert.equal(
-    white.warning,
+    black.warning,
     "Kontrast nur 3,0:1: Unter 4,5:1 ist die Schrift auf der Akzentfarbe schwer lesbar."
   );
 
@@ -374,22 +392,26 @@ test(
     assert.ok(!t.includes("Schrift in Nutzer-Nachrichten"));
     // F12 (Fixliste 7.22-rc13, bewusst geändert): nur die Empfehlung, ohne
     // den Zusatz „Solange Sie nichts wählen …“ (S3, rc10)
-    assert.ok(t.includes("Empfohlen: Schwarz"), t);
+    // Standard Petrol: Empfehlung Weiß
+    assert.ok(t.includes("Empfohlen: Weiß"), t);
     assert.ok(!t.includes("Solange Sie nichts wählen"), t);
     assert.doesNotMatch(html, /data-testid="user-text-warning"/);
-    // Schwarz ist als wirksamer Wert markiert, Weiß nicht
+    // Weiß ist als wirksamer Wert markiert, Schwarz nicht
     const pressed = [
       ...html.matchAll(
         /<button[^>]*aria-pressed="(true|false)"[^>]*>(?:(?!<\/button>).)*?(Weiß|Schwarz)<\/button>/g
       ),
     ].map((m) => [m[2], m[1]]);
     assert.deepEqual(Object.fromEntries(pressed), {
-      Weiß: "false",
-      Schwarz: "true",
+      Weiß: "true",
+      Schwarz: "false",
     });
 
     const blue = text(await appearance({ accentColor: "#003366" }));
     assert.ok(blue.includes("Empfohlen: Weiß"));
+    // helle Akzentfarbe (früheres Türkis): die Empfehlung folgt ihr
+    const light = text(await appearance({ accentColor: "#01A5A9" }));
+    assert.ok(light.includes("Empfohlen: Schwarz"));
   }
 );
 
@@ -397,9 +419,10 @@ test(
   "Punkt 2: Warnung bei gewählter Kombination unter 4,5:1, gespeicherter Wert bleibt aktiv",
   { skip },
   async () => {
-    const html = await appearance({ userTextColor: WHITE });
+    // Schwarz auf dem Standard Petrol: 3,06:1, also Warnung
+    const html = await appearance({ userTextColor: BLACK });
     const t = text(html);
-    assert.ok(t.includes("Empfohlen: Schwarz"));
+    assert.ok(t.includes("Empfohlen: Weiß"));
     assert.ok(!t.includes("Solange Sie nichts wählen"));
     assert.match(html, /data-testid="user-text-warning"/);
     assert.ok(
@@ -407,9 +430,9 @@ test(
         "Kontrast nur 3,0:1: Unter 4,5:1 ist die Schrift auf der Akzentfarbe schwer lesbar."
       )
     );
-    assert.match(html, /aria-pressed="true"[^>]*>(?:(?!<\/button>).)*Weiß/);
+    assert.match(html, /aria-pressed="true"[^>]*>(?:(?!<\/button>).)*Schwarz/);
     // gute Wahl: keine Warnung
-    const ok = await appearance({ userTextColor: BLACK });
+    const ok = await appearance({ userTextColor: WHITE });
     assert.doesNotMatch(ok, /data-testid="user-text-warning"/);
   }
 );
@@ -418,16 +441,16 @@ test(
   "Punkt 2: Vorschau Chatblase zeigt eine Nutzer-Nachricht in Akzentfarbe mit der Schrift, darunter „Beispiel-Nutzernachricht“",
   { skip },
   async () => {
-    // ohne gespeicherten Wert: die Empfehlung wie im Widget (Schwarz auf
-    // Türkis)
+    // ohne gespeicherten Wert: die Empfehlung wie im Widget (Weiß auf
+    // Petrol)
     const fresh = await preview({});
     assert.match(
       fresh,
       /data-preview="user-message"[^>]*>|style="[^"]*"[^>]*data-preview="user-message"/
     );
     const tag = fresh.match(/<div[^>]*data-preview="user-message"[^>]*>/)[0];
-    assert.match(tag, /background-color:#01A5A9/i);
-    assert.match(tag, /(^|[;"])color:#222628/i);
+    assert.match(tag, /background-color:#007C82/i);
+    assert.match(tag, /(^|[;"])color:#FFFFFF/i);
     const t = text(fresh);
     assert.ok(t.includes("Beispiel-Nutzernachricht"));
     assert.ok(
@@ -445,7 +468,15 @@ test(
     assert.match(storedTag, /background-color:#FFA102/i);
     assert.match(storedTag, /(^|[;"])color:#FFFFFF/i);
     // Chat-Button der Vorschau: Icon in der Schrift auf der Akzentfarbe
-    assert.match(fresh, /<svg[^>]*fill="#222628"/);
+    assert.match(fresh, /<svg[^>]*fill="#FFFFFF"/);
+    // helle Akzentfarbe (früheres Türkis): Empfehlung Schwarz in Blase und
+    // Icon
+    const light = await preview({ accentColor: "#01A5A9" });
+    const lightTag = light.match(
+      /<div[^>]*data-preview="user-message"[^>]*>/
+    )[0];
+    assert.match(lightTag, /(^|[;"])color:#222628/i);
+    assert.match(light, /<svg[^>]*fill="#222628"/);
   }
 );
 
@@ -464,8 +495,9 @@ test(
       (el) => el.tagName === "SPAN" && el.textContent === "Chatten"
     )[0];
     assert.ok(send, "Senden-Button der Leiste");
-    assert.equal(send.style.backgroundColor.toUpperCase(), "#01A5A9");
-    assert.equal(send.style.color.toUpperCase(), BLACK);
+    // Standard Petrol mit der Empfehlung Weiß
+    assert.equal(send.style.backgroundColor.toUpperCase(), "#007C82");
+    assert.equal(send.style.color.toUpperCase(), WHITE);
   }
 );
 
@@ -716,29 +748,31 @@ test(
   async (t) => {
     const { container, act, calls } = await open(t, [widget(9, null)], 9);
     assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
-    assert.equal(pressed(container, "Schwarz"), "true");
-    assert.ok(container.textContent.includes("Empfohlen: Schwarz"));
-    // Akzentfarbe ändern: Empfehlung folgt, gespeichert wird nur die Farbe
+    // Standard Petrol: Weiß empfohlen
+    assert.equal(pressed(container, "Weiß"), "true");
+    assert.ok(container.textContent.includes("Empfohlen: Weiß"));
+    // Akzentfarbe ändern: Empfehlung folgt, gespeichert wird nur die Farbe;
+    // das frühere Türkis ist eine Kundenfarbe und wird gespeichert
     const color = elements(
       container,
       (el) => el.getAttribute("aria-label") === "Akzentfarbe als Farbcode"
     )[0];
     await act(() =>
-      handlersOf(color).onChange({ target: { value: "#003366" } })
+      handlersOf(color).onChange({ target: { value: "#01A5A9" } })
     );
-    assert.equal(pressed(container, "Weiß"), "true");
-    assert.ok(container.textContent.includes("Empfohlen: Weiß"));
+    assert.equal(pressed(container, "Schwarz"), "true");
+    assert.ok(container.textContent.includes("Empfohlen: Schwarz"));
     await act(() => click(buttons(container, "Speichern")[0]));
-    assert.deepEqual(savedBody(calls), { accentColor: "#003366" });
+    assert.deepEqual(savedBody(calls), { accentColor: "#01A5A9" });
 
-    // bewusste Wahl wird gespeichert
+    // bewusste Wahl wird gespeichert (Weiß auf Türkis 3,02:1)
     calls.length = 0;
-    await act(() => click(buttons(container, "Schwarz")[0]));
-    assert.ok(container.textContent.includes("Kontrast nur 1,2:1"));
+    await act(() => click(buttons(container, "Weiß")[0]));
+    assert.ok(container.textContent.includes("Kontrast nur 3,0:1"));
     await act(() => click(buttons(container, "Speichern")[0]));
     assert.deepEqual(savedBody(calls), {
-      accentColor: "#003366",
-      userTextColor: BLACK,
+      accentColor: "#01A5A9",
+      userTextColor: WHITE,
     });
   }
 );
@@ -800,17 +834,27 @@ test("E1: früher gespeichertes #000000 gilt als Schwarz (#222628) und bleibt ge
 });
 
 test("E1: Klick auf die schon wirksame Option ändert den Bearbeitungsstand nicht", () => {
-  // ohne gespeicherten Wert: Empfehlung (Türkis -> Schwarz)
-  assert.deepEqual(keys.withUserTextColor({}, {}, BLACK), {});
-  assert.deepEqual(keys.withUserTextColor({}, {}, WHITE), {
-    userTextColor: WHITE,
+  // ohne gespeicherten Wert: Empfehlung (Petrol -> Weiß)
+  assert.deepEqual(keys.withUserTextColor({}, {}, WHITE), {});
+  assert.deepEqual(keys.withUserTextColor({}, {}, BLACK), {
+    userTextColor: BLACK,
   });
   // gewählt und wieder zurück auf die Empfehlung: Schlüssel entfällt
   assert.deepEqual(
-    keys.withUserTextColor({ userTextColor: WHITE }, {}, BLACK),
+    keys.withUserTextColor({ userTextColor: BLACK }, {}, WHITE),
     {}
   );
-  // Akzentfarbe geändert, die Empfehlung ist jetzt Weiß: Schwarz muss
+  // Akzentfarbe geändert, die Empfehlung ist jetzt Schwarz (früheres
+  // Türkis): Weiß muss gespeichert werden, Schwarz folgt der Empfehlung
+  assert.deepEqual(
+    keys.withUserTextColor({ accentColor: "#01A5A9" }, {}, WHITE),
+    { accentColor: "#01A5A9", userTextColor: WHITE }
+  );
+  assert.deepEqual(
+    keys.withUserTextColor({ accentColor: "#01A5A9" }, {}, BLACK),
+    { accentColor: "#01A5A9" }
+  );
+  // dunkle Akzentfarbe: Empfehlung Weiß wie beim Standard; Schwarz muss
   // gespeichert werden, Weiß folgt der Empfehlung
   assert.deepEqual(
     keys.withUserTextColor({ accentColor: "#003366" }, {}, BLACK),
@@ -864,16 +908,17 @@ test(
 );
 
 test(
-  "E1 (Opus DC-3): neues Widget, Klick auf das empfohlene Schwarz erzeugt keine ungespeicherte Änderung",
+  "E1 (Opus DC-3): neues Widget, Klick auf das empfohlene Weiß erzeugt keine ungespeicherte Änderung",
   { skip },
   async (t) => {
     const { container, act } = await open(t, [widget(5, null)], 5);
-    assert.equal(pressed(container, "Schwarz"), "true");
-    await act(() => click(buttons(container, "Schwarz")[0]));
-    assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
+    // Standard Petrol: Weiß empfohlen
+    assert.equal(pressed(container, "Weiß"), "true");
     await act(() => click(buttons(container, "Weiß")[0]));
-    assert.ok(container.textContent.includes("Ungespeicherte Änderungen"));
+    assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
     await act(() => click(buttons(container, "Schwarz")[0]));
+    assert.ok(container.textContent.includes("Ungespeicherte Änderungen"));
+    await act(() => click(buttons(container, "Weiß")[0]));
     assert.ok(!container.textContent.includes("Ungespeicherte Änderungen"));
   }
 );

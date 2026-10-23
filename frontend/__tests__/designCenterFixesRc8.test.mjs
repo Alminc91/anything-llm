@@ -273,7 +273,8 @@ test(
   "R10: „Akzentfarbe“ in Feld, Hinweisen, Warnung und aria-labels; Schlüssel accentColor bleibt",
   { skip },
   async () => {
-    const html = await appearance({ userTextColor: "#FFFFFF" });
+    // Schwarz auf dem Standard #007C82: 3,06:1, abgeschnitten „3,0:1“
+    const html = await appearance({ userTextColor: "#222628" });
     const t = text(html);
     assert.ok(t.includes("Akzentfarbe"));
     assert.ok(t.includes("Schrift auf der Akzentfarbe"));
@@ -350,9 +351,9 @@ test(
     // R5: der Standard steht im Feld, kein Platzhalter
     assert.match(
       look,
-      /aria-label="Akzentfarbe als Farbcode"[^>]*value="#01A5A9"|value="#01A5A9"[^>]*aria-label="Akzentfarbe als Farbcode"/
+      /aria-label="Akzentfarbe als Farbcode"[^>]*value="#007C82"|value="#007C82"[^>]*aria-label="Akzentfarbe als Farbcode"/
     );
-    assert.doesNotMatch(look, /placeholder="#01A5A9"/);
+    assert.doesNotMatch(look, /placeholder="#007C82"/);
 
     const word = "Supercalifragilistic".repeat(4);
     const html = await preview({
@@ -510,7 +511,7 @@ test("R5, Bewusste Änderung E42: Vorbelegungen (DEFAULT_SUGGESTIONS leer, Willk
     keys.placeholderFieldValue({ sendMessageText: "Frage?" }, DEFAULTS),
     "Frage?"
   );
-  assert.equal(keys.accentFieldValue({}), "#01A5A9");
+  assert.equal(keys.accentFieldValue({}), "#007C82");
   assert.equal(keys.accentFieldValue({ accentColor: "#1" }), "#1");
 });
 
@@ -526,7 +527,11 @@ test('R5, Bewusste Änderung E42: cleanConfig entfernt Werte, die dem Standard e
   assert.deepEqual(clean({ name: " KI-Berater " }), {});
   assert.deepEqual(clean({ name: "" }), {});
   assert.deepEqual(clean({ name: " VHS " }), { name: "VHS" });
-  assert.deepEqual(clean({ accentColor: "#01a5a9" }), {});
+  assert.deepEqual(clean({ accentColor: "#007c82" }), {});
+  // früherer Standard, jetzt eine Kundenfarbe
+  assert.deepEqual(clean({ accentColor: "#01A5A9" }), {
+    accentColor: "#01A5A9",
+  });
   assert.deepEqual(clean({ accentColor: " " }), {});
   assert.deepEqual(clean({ accentColor: "#123456" }), {
     accentColor: "#123456",
