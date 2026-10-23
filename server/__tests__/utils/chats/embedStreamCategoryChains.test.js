@@ -305,6 +305,75 @@ describe("bekannte Adressen aus System-Prompt und Verlauf (R1-D1 Regel 3, S3, S1
   );
 });
 
+describe("AK-21 Kurslink nachschlagen im Embed-Pfad (ohne Kurskarten)", () => {
+  const kurs = (n) => `${HOST}/kurssuche/kurs/pilates/${n}`;
+  const MAP_COURSES = () =>
+    JSON.stringify({
+      ...JSON.parse(MAP_JSON()),
+      course_links: {
+        "26200-020": {
+          title: "Pilates",
+          start: "2026-02-02T18:00",
+          place: "Lingen",
+          url: kurs("26200-020"),
+        },
+        "26200-021": {
+          title: "Pilates",
+          start: "2026-02-09T18:00",
+          place: "Lingen",
+          url: kurs("26200-021"),
+        },
+      },
+    });
+  // Kurstitel verlinkt auf die gecrawlte Kategorieseite (Quelle p1)
+  const REPLY_COURSE = [
+    "Passend:",
+    `**1.** [**Pilates**](${SPORT_URL})`,
+    "  Kräftigung für den ganzen Körper.",
+    "  **Beginn:** Mo. 09.02.2026, 18:00 - 19:30 Uhr | 10x",
+    "  **Ort:** Lingen",
+    "",
+    "Fragen? Gern.",
+  ].join("\n");
+  const RESOLVED = REPLY_COURSE.replace(
+    `(${SPORT_URL})`,
+    `(${kurs("26200-021")})`
+  );
+
+  test.each([
+    ["Stream", true],
+    ["ohne Streaming", false],
+  ])(
+    "%s: zwei gleiche Titel, Datum entscheidet; gesendet gleich gespeichert",
+    async (_name, streaming) => {
+      const { stored, text } = await run({
+        streaming,
+        reply: REPLY_COURSE,
+        map: MAP_COURSES(),
+      });
+      expect(text).toBe(RESOLVED);
+      expect(stored.text).toBe(RESOLVED);
+    }
+  );
+
+  test.each([
+    ["Stream", true],
+    ["ohne Streaming", false],
+  ])(
+    "%s: Kurskarten an: Antwort unverändert (R1-D4)",
+    async (_name, streaming) => {
+      const { stored, text } = await run({
+        streaming,
+        reply: REPLY_COURSE,
+        map: MAP_COURSES(),
+        courseCards: "auto",
+      });
+      expect(text).toBe(REPLY_COURSE);
+      expect(stored.text).toBe(REPLY_COURSE);
+    }
+  );
+});
+
 describe("R1-D4 (NAK-9): im Kurskarten-Modus weder Kette noch Prüfer", () => {
   test.each([
     ["Stream", true],

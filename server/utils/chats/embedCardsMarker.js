@@ -721,6 +721,49 @@ function scanAutolink(s, i, final) {
   };
 }
 
+// KIE-576 AK-21: Text nach einem Kurstitel-Link mit mehreren Kandidaten, aus
+// dem der Prüfer die Merkmale liest (Beginn, Zeit, Ort, Kursnummer). Er endet
+// vor dem nächsten "[" (nächster Link), vor einer Leerzeile (neuer Eintrag)
+// oder nach COURSE_WINDOW Zeichen. Im Stream werden Link und Text so lange
+// gehalten (nur in diesem Fall, NAK-10). Grenze 400: Ein Eintrag nach dem
+// Kursschema des Prompts (Beschreibung, „Beginn:“, „Ort:“, „Preis: | Kurs:“,
+// „Status:“) hat etwa 250 bis 380 Zeichen, „Beginn:“ steht in den ersten
+// 250; 400 sind etwa 100 Tokens, bei Last (63 t/s) höchstens etwa 1,6 s
+// Halten, und bleiben unter dem Linkfenster LINK_WINDOW (600).
+const COURSE_WINDOW = 400;
+// Leerzeile: Zeilenende, höchstens so viel Leerraum, Zeilenende
+const BLANK_LINE_SCAN = 16;
+
+/**
+ * Ende des Merkmalstexts ab from (AK-21) oder -1, solange es noch offen ist
+ * (nur ohne final). Hängt nur vom Text ab, nicht von der Aufteilung in
+ * Token: Stream, Antwort ohne Streaming und Speichern lesen dasselbe.
+ * @param {string} s
+ * @param {number} from
+ * @param {boolean} final
+ * @returns {number}
+ */
+function courseWindowEnd(s, from, final) {
+  const limit = from + COURSE_WINDOW;
+  for (let j = from; j < s.length && j < limit; j += 1) {
+    if (s[j] === "[") return j;
+    if (s[j] !== "\n") continue;
+    // k: erstes Zeichen nach höchstens BLANK_LINE_SCAN Leerraumzeichen
+    let k = j + 1;
+    while (
+      k < s.length &&
+      k - j - 1 < BLANK_LINE_SCAN &&
+      " \t\r".includes(s[k])
+    )
+      k += 1;
+    if (k === s.length) {
+      if (!final) return -1;
+    } else if (s[k] === "\n") return j;
+  }
+  if (s.length >= limit) return limit;
+  return final ? s.length : -1;
+}
+
 // Offene Hervorhebungen (**, __, *, _) einer gesendeten Zeile schließen,
 // wenn ihr Rest entfällt (R1-D3); Aufzählungszeichen am Anfang zählt nicht
 function emphasisClosers(lineText) {
@@ -765,6 +808,11 @@ function emphasisClosers(lineText) {
  * Zeile bleibt der schon gesendete Text, gehaltener Schmuck davor entfällt
  * und offene Hervorhebungen werden geschlossen (R1-D3). Neu gesetzt wird
  * sonst nur der Link selbst; die Zeile bleibt.
+ *
+ * Kurslink nachschlagen (AK-21): Meldet der Prüfer mehrere Kurse zum
+ * Linktext ({course}), hält der Filter den Link und den Text danach bis
+ * courseWindowEnd, lässt pickCourse entscheiden und sendet dann alles auf
+ * einmal; der gehaltene Text läuft anschließend normal durch den Filter.
  */
 class OverviewLinkFilter {
   /**
@@ -774,6 +822,9 @@ class OverviewLinkFilter {
     this.guard = guard;
     this.rest = ""; // unentschiedener Rest ab einem möglichen Link
     this.block = null; // Übersichtsblock {lang, raw, links, kept, sent}
+    // AK-21: gehaltener Kurstitel-Link {found, candidates}; this.rest ist
+    // dann der Text danach bis zur Entscheidung (courseWindowEnd)
+    this.course = null;
     this.#newLine();
   }
 
@@ -906,7 +957,23 @@ class OverviewLinkFilter {
     this.rest = "";
     let out = "";
     let i = 0;
-    while (i < s.length) {
+    while (i < s.length || (final && this.course)) {
+      if (this.course) {
+        // AK-21: Kurstitel-Link mit mehreren Kandidaten, Merkmale danach
+        const end = courseWindowEnd(s, i, final);
+        if (end === -1) {
+          this.rest = s.slice(i);
+          i = s.length;
+          break;
+        }
+        const { found, candidates } = this.course;
+        this.course = null;
+        const url = this.guard.pickCourse(candidates, s.slice(i, end));
+        out += this.#send(
+          url ? `[${found.text}](${url})` : this.#render(found, null)
+        );
+        continue;
+      }
       if (this.drop) {
         const newline = s.indexOf("\n", i);
         if (newline === -1) {
@@ -965,6 +1032,11 @@ class OverviewLinkFilter {
           autolink: !!found.autolink,
         });
         i = found.end;
+        if (verdict?.course) {
+          // nur außerhalb von Übersichtszeile und -block (check)
+          this.course = { found, candidates: verdict.course };
+          continue;
+        }
         if (this.line) {
           this.line.links += 1;
           if (!verdict?.remove)
@@ -1478,6 +1550,8 @@ module.exports = {
     ProtocolMarkerFilter,
     OverviewLinkFilter,
     LINK_WINDOW,
+    COURSE_WINDOW,
+    courseWindowEnd,
     CARDS_MARKER_TAG,
     CARDS_MARKER_BUFFER_MAX,
     scanBracketLine,

@@ -44,6 +44,19 @@
 // Server setzt sie selbst. Übersichtsblock: Einleitung ohne Link und die
 // direkt folgenden Listenzeilen; dort wird je Link entschieden.
 //
+// Kurslink nachschlagen (AK-21, E38): Optionales Feld course_links der Karte
+//   {"<kursnummer>": {"title": "…", "start": "YYYY-MM-DD[THH:MM]",
+//                     "place": "…", "url": "https://…"}}
+// mit den eingelernten Kursen. Verlinkt das Modell außerhalb von
+// Übersichtszeile und -block einen Kurstitel auf eine Adresse, die kein
+// Kurs-Link ist (Kontext oder course_links), etwa eine gecrawlte
+// Kategorieseite, sucht der Prüfer den Kurs über den Titel (genau, nur
+// normalisiert). Ein Kandidat: dessen Kurs-Link. Mehrere: Merkmale aus dem
+// Text direkt nach dem Link (Beginndatum, Beginnzeit, Ort, Kursnummer),
+// bleibt genau einer, dessen Kurs-Link; sonst bleibt der Link unverändert
+// (NAK-11). Ein kaputtes course_links lässt nur dieses Feld bzw. den
+// Eintrag fallen, nie die Karte.
+//
 // Ohne gültige Karte (fehlt, kein JSON, version ≠ 1, älter als 36 h) gibt es
 // weder Kette noch Absicherung: Kontext und Antwort bleiben exakt wie vorher.
 
@@ -67,6 +80,7 @@ const SPECIAL_NODE_RX =
 const PATH_SEP = "\\";
 const UNSAFE_TITLE_RX = /[[\]()<>]/g;
 const CONTROL_RX = /[\p{Cc}\u2028\u2029]/gu;
+const CONTROL_CHAR_RX = /[\p{Cc}\u2028\u2029]/u;
 // category_common.is_safe_url: keine Leer-, Steuer- und Markdown-Zeichen
 const UNSAFE_URL_RX = /[\x00-\x20\x7f()[\]<>"'`\\{}|^\u0085\u00a0\u3000]/;
 
@@ -115,6 +129,89 @@ const CONTEXT_COURSE_LINK_RX = /^Kurs-Link:[ \t]*(\S+)/gm;
 // Kategorieseiten „…/kategorie/<Name>/<Nr>“ = „…/kategorie/<Nr>“ (auf dem
 // Schlüssel von courseUrlKey: Host und Pfad klein, ohne Schema)
 const CATEGORY_KEY_RX = /^([^/]+)(?:\/[^?]*)?\/kategorie\/(?:[^/?]+\/)?(\d+)$/;
+
+// AK-21 Kurslink nachschlagen. Grenzen je Eintrag von course_links; Texte
+// werden vor jeder Regex auf diese Längen geprüft (Security wie S1).
+const COURSE_TITLE_MAX_LEN = 300;
+const COURSE_TEXT_SCAN_MAX = 1000;
+const COURSE_PLACE_MAX_LEN = 200;
+const COURSE_NUMBER_MAX_LEN = 64;
+// kürzere Kursnummern („12“) taugen nicht als Merkmal im Text (Preis, Dauer)
+const COURSE_NUMBER_MIN_LEN = 4;
+// Beginn laut Vertrag: Ortszeit ohne Zone; Jahre vor 1950 (Nulldatum 1899)
+// gelten als fehlend
+const COURSE_START_RX = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/;
+const COURSE_START_MIN_YEAR = 1950;
+// Titelvergleich: Anführungszeichen und Striche vereinheitlicht, Markdown-
+// Maskierung und * weg, Nummerierung „1. “ im Linktext (zweiter Versuch)
+const QUOTE_DOUBLE_RX = /[\u201c\u201d\u201e\u201f\u00ab\u00bb\u2033"]/g;
+const QUOTE_SINGLE_RX = /[\u2018\u2019\u201a\u201b\u2039\u203a\u00b4`']/g;
+const DASH_RX = /[\u2010-\u2015\u2212]/g;
+const MD_ESCAPE_RX = /\\([!-/:-@[-`{-~])/g;
+const NUMBERING_RX = /^\d{1,3}[.)] ?/;
+// Merkmale im Text nach dem Link (höchstens COURSE_WINDOW Zeichen, siehe
+// embedCardsMarker.courseWindowEnd): Datum als T.M.[JJ]JJ, „5. März 2026“,
+// „March 5, 2026“ oder ISO; Zeit als HH:MM, HH.MM, „18 Uhr“, „6 pm“ und
+// Anfang eines Bereichs „18 bis 19.30 Uhr“
+const MONTHS = {
+  januar: 1,
+  jan: 1,
+  january: 1,
+  februar: 2,
+  feb: 2,
+  february: 2,
+  märz: 3,
+  maerz: 3,
+  mär: 3,
+  mrz: 3,
+  march: 3,
+  mar: 3,
+  april: 4,
+  apr: 4,
+  mai: 5,
+  may: 5,
+  juni: 6,
+  jun: 6,
+  june: 6,
+  juli: 7,
+  jul: 7,
+  july: 7,
+  august: 8,
+  aug: 8,
+  september: 9,
+  sept: 9,
+  sep: 9,
+  oktober: 10,
+  okt: 10,
+  october: 10,
+  oct: 10,
+  november: 11,
+  nov: 11,
+  dezember: 12,
+  dez: 12,
+  december: 12,
+  dec: 12,
+};
+const MONTH_ALT = Object.keys(MONTHS)
+  .sort((a, b) => b.length - a.length)
+  .join("|");
+const DATE_DMY_RX =
+  /(?<![\p{N}.,])(\d{1,2})\.[ \u00a0]?(\d{1,2})\.(?:[ \u00a0]?(\d{4})|(\d{2}))?(?!\p{N})/gu;
+const DATE_DAY_MONTH_RX = new RegExp(
+  `(?<![\\p{N}.,])(\\d{1,2})\\.?[ \\u00a0]+(${MONTH_ALT})\\.?(?:[ \\u00a0]+(\\d{4}))?(?![\\p{L}\\p{N}])`,
+  "giu"
+);
+const DATE_MONTH_DAY_RX = new RegExp(
+  `(?<![\\p{L}])(${MONTH_ALT})\\.?[ \\u00a0]+(\\d{1,2})(?:st|nd|rd|th)?,?(?:[ \\u00a0]+(\\d{4}))?(?![\\p{L}\\p{N}])`,
+  "giu"
+);
+const DATE_ISO_RX = /(?<!\p{N})(\d{4})-(\d{2})-(\d{2})(?!\p{N})/gu;
+const TIME_RX =
+  /(?<![\p{N}.,:])([01]?\d|2[0-3])[:.]([0-5]\d)(?!\p{N})(?:[ \u00a0]?([ap])\.?m\b\.?)?/giu;
+const TIME_HOUR_RX =
+  /(?<![\p{N}.,:])([01]?\d|2[0-3])[ \u00a0]?(?:uhr|h|([ap])\.?m\.?)(?![\p{L}])/giu;
+const TIME_RANGE_START_RX =
+  /(?<![\p{N}.,:])([01]?\d|2[0-3])(?=[ \u00a0]?(?:[-\u2010-\u2015]|bis|to)[ \u00a0]?(?:[01]?\d|2[0-3])(?:[:.][0-5]\d)?[ \u00a0]?(?:uhr|h|[ap]\.?m))/giu;
 
 /**
  * Eine Ebene eines Kategoriepfads zum Vergleich: wie category_common.
@@ -199,6 +296,295 @@ function linkKey(url) {
   return m ? `${m[1]}#kat${m[2]}` : key;
 }
 
+// Host einer Adresse zum Vergleich (klein, ohne „www.“), sonst null
+function hostKey(url) {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+// Freitext zum Vergleich (AK-21): NFC, Anführungszeichen und Striche
+// vereinheitlicht, Leerraum zusammengefasst, klein
+function normalizeFree(text) {
+  return String(text ?? "")
+    .normalize("NFC")
+    .replace(QUOTE_DOUBLE_RX, '"')
+    .replace(QUOTE_SINGLE_RX, "'")
+    .replace(DASH_RX, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Vergleichsschlüssel eines Kurstitels bzw. Linktexts (AK-21): ohne * und
+ * Markdown-Maskierung, _ an den Enden weg, wie cleanText (ohne []()<>,
+ * Leerraum zusammengefasst), Anführungszeichen und Striche vereinheitlicht,
+ * NFC, klein. Keine unscharfe Ähnlichkeit. Zu lang oder leer -> null.
+ * @param {any} text
+ * @returns {string|null}
+ */
+function courseTitleKey(text) {
+  if (typeof text !== "string" || text.length > COURSE_TEXT_SCAN_MAX)
+    return null;
+  let key = normalizeFree(
+    cleanText(text.replace(MD_ESCAPE_RX, "$1").replace(/\*/g, ""))
+  );
+  let a = 0;
+  let b = key.length;
+  while (a < b && (key[a] === "_" || key[a] === " ")) a += 1;
+  while (b > a && (key[b - 1] === "_" || key[b - 1] === " ")) b -= 1;
+  key = key.slice(a, b);
+  if (!key || [...key].length > COURSE_TITLE_MAX_LEN) return null;
+  return key;
+}
+
+// Beginn nach Vertrag („YYYY-MM-DD“ oder „YYYY-MM-DDTHH:MM“), sonst null
+function parseCourseStart(start) {
+  const m = typeof start === "string" ? COURSE_START_RX.exec(start) : null;
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (y < COURSE_START_MIN_YEAR || mo < 1 || mo > 12 || d < 1 || d > 31)
+    return null;
+  let time = null;
+  if (m[4] !== undefined) {
+    if (Number(m[4]) > 23 || Number(m[5]) > 59) return null;
+    time = `${m[4]}:${m[5]}`;
+  }
+  return { y, m: mo, d, time };
+}
+
+/**
+ * Ein Eintrag von course_links (Vertrag Serverkarte) in Laufzeitform, sonst
+ * null (nur dieser Eintrag entfällt). url: sicher wie Knotenadressen und auf
+ * dem Host des Kunden (Host eines Knotens der Karte).
+ * @returns {{titleKey: string, number: string, url: string, date: {y: number, m: number, d: number}|null, time: string|null, place: string|null, placeHead: string|null}|null}
+ */
+function courseEntry(number, entry, hosts) {
+  const id = String(number).trim();
+  if (!id || id.length > COURSE_NUMBER_MAX_LEN || CONTROL_CHAR_RX.test(id))
+    return null;
+  if (!isPlainObject(entry)) return null;
+  const titleKey = courseTitleKey(entry.title);
+  if (!titleKey || !isSafeUrl(entry.url) || !hosts.has(hostKey(entry.url)))
+    return null;
+  const start = parseCourseStart(entry.start);
+  let place = null;
+  let placeHead = null;
+  if (
+    typeof entry.place === "string" &&
+    entry.place.length <= COURSE_TEXT_SCAN_MAX
+  ) {
+    place = normalizeFree(cleanText(entry.place)) || null;
+    if (place && [...place].length > COURSE_PLACE_MAX_LEN) place = null;
+    // erster Teil vor dem Komma („VHS-Haus, Raum 3“ -> „vhs-haus“)
+    const head = place ? place.split(",")[0].trim() : "";
+    placeHead = head.length >= 3 && head !== place ? head : null;
+  }
+  return {
+    titleKey,
+    number: id.toLowerCase(),
+    url: entry.url,
+    date: start ? { y: start.y, m: start.m, d: start.d } : null,
+    time: start?.time ?? null,
+    place,
+    placeHead,
+  };
+}
+
+/**
+ * Index der Kurse aus course_links (einmal je Karte): Titelschlüssel ->
+ * Kurse, dazu die Vergleichsschlüssel aller Kurs-Links. Kein Objekt -> leer
+ * (die Karte bleibt gültig).
+ * @param {any} raw - data.course_links
+ * @param {Map<string, object>} nodes
+ * @returns {{courseTitles: Map<string, object[]>, courseUrls: Set<string>}}
+ */
+function buildCourseLinks(raw, nodes) {
+  const courseTitles = new Map();
+  const courseUrls = new Set();
+  if (!isPlainObject(raw)) return { courseTitles, courseUrls };
+  const hosts = new Set();
+  for (const node of nodes.values()) {
+    const host = hostKey(node.url);
+    if (host) hosts.add(host);
+  }
+  for (const [number, entry] of Object.entries(raw)) {
+    const course = courseEntry(number, entry, hosts);
+    if (!course) continue;
+    if (!courseTitles.has(course.titleKey))
+      courseTitles.set(course.titleKey, []);
+    courseTitles.get(course.titleKey).push(course);
+    const key = linkKey(course.url);
+    if (key) courseUrls.add(key);
+  }
+  return { courseTitles, courseUrls };
+}
+
+/**
+ * Kandidaten zum Linktext (AK-21): Kurse mit gleichem Titelschlüssel; ohne
+ * Treffer ein zweiter Versuch ohne Nummerierung am Anfang („1. Yoga“).
+ * @param {object} map
+ * @param {string} text - Linktext des Modells
+ * @returns {object[]|null}
+ */
+function courseCandidates(map, text) {
+  if (!map.courseTitles || map.courseTitles.size === 0) return null;
+  const key = courseTitleKey(text);
+  if (!key) return null;
+  const direct = map.courseTitles.get(key);
+  if (direct) return direct;
+  const numbering = NUMBERING_RX.exec(key);
+  return numbering
+    ? map.courseTitles.get(key.slice(numbering[0].length)) ?? null
+    : null;
+}
+
+// Gemeinsame Adresse aller Kandidaten, sonst null
+function sameUrl(candidates) {
+  const url = candidates[0]?.url ?? null;
+  return url && candidates.every((c) => c.url === url) ? url : null;
+}
+
+function validDate(d, m) {
+  return d >= 1 && d <= 31 && m >= 1 && m <= 12;
+}
+
+// Daten im Text nach dem Link ({y|null, m, d}); masked: Text mit Leerzeichen
+// an Stelle der Daten (für die Zeiten)
+function windowDates(text) {
+  const dates = [];
+  const spans = [];
+  const add = (match, y, m, d) => {
+    if (!validDate(d, m)) return;
+    dates.push({ y, m, d });
+    spans.push([match.index, match.index + match[0].length]);
+  };
+  for (const m of text.matchAll(DATE_ISO_RX))
+    add(m, Number(m[1]), Number(m[2]), Number(m[3]));
+  for (const m of text.matchAll(DATE_DMY_RX)) {
+    const y = m[3] ? Number(m[3]) : m[4] ? 2000 + Number(m[4]) : null;
+    add(m, y, Number(m[2]), Number(m[1]));
+  }
+  for (const m of text.matchAll(DATE_DAY_MONTH_RX))
+    add(
+      m,
+      m[3] ? Number(m[3]) : null,
+      MONTHS[m[2].toLowerCase()],
+      Number(m[1])
+    );
+  for (const m of text.matchAll(DATE_MONTH_DAY_RX))
+    add(
+      m,
+      m[3] ? Number(m[3]) : null,
+      MONTHS[m[1].toLowerCase()],
+      Number(m[2])
+    );
+  let masked = text;
+  for (const [a, b] of spans)
+    masked = masked.slice(0, a) + " ".repeat(b - a) + masked.slice(b);
+  return { dates, masked };
+}
+
+// Zeiten im Text nach dem Link als „HH:MM“ (am/pm umgerechnet)
+function windowTimes(masked) {
+  const times = new Set();
+  const add = (h, min, ampm) => {
+    let hour = Number(h);
+    const half = ampm ? ampm.toLowerCase() : null;
+    if (half === "p" && hour < 12) hour += 12;
+    if (half === "a" && hour === 12) hour = 0;
+    if (hour > 23) return;
+    times.add(`${String(hour).padStart(2, "0")}:${min}`);
+  };
+  for (const m of masked.matchAll(TIME_RX)) add(m[1], m[2], m[3]);
+  for (const m of masked.matchAll(TIME_HOUR_RX)) add(m[1], "00", m[2]);
+  for (const m of masked.matchAll(TIME_RANGE_START_RX)) add(m[1], "00", null);
+  return times;
+}
+
+// needle als eigenes Wort in hay (Nachbarn keine Buchstaben/Ziffern)
+const WORD_CHAR_RX = /[\p{L}\p{N}]/u;
+function containsWord(hay, needle) {
+  if (!needle) return false;
+  for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + 1)) {
+    const before = i > 0 ? hay[i - 1] : "";
+    const after = hay[i + needle.length] ?? "";
+    if (!WORD_CHAR_RX.test(before) && !WORD_CHAR_RX.test(after)) return true;
+  }
+  return false;
+}
+
+/**
+ * Kurs zu mehreren Kandidaten gleichen Titels (AK-21) aus dem Text direkt
+ * nach dem Link. Merkmale schließen nur aus, wenn der Text sie hergibt:
+ *   Datum: Kandidaten ohne eines der genannten Daten entfallen (auch ohne
+ *     Beginndatum, NAK-11: dann ist unklar, ob er gemeint ist);
+ *   Zeit: steht die Beginnzeit eines Kandidaten im Text, entfallen
+ *     Kandidaten mit anderer Beginnzeit (eine Zahl wie „Raum 1.01“ allein
+ *     schließt niemanden aus);
+ *   Ort: steht der Ort eines Kandidaten im Text, entfallen Kandidaten mit
+ *     anderem Ort;
+ *   Kursnummer (ab 4 Zeichen): steht die Nummer eines Kandidaten im Text,
+ *     nur diese.
+ * Bleibt genau eine Adresse und hat ein Merkmal sie bestätigt, deren Kurs-
+ * Link, sonst null (Link unverändert).
+ * @param {object[]} candidates
+ * @param {string} windowText
+ * @returns {string|null}
+ */
+function pickCourseUrl(candidates, windowText) {
+  const single = sameUrl(candidates);
+  if (single) return single;
+  const text = String(windowText ?? "").normalize("NFC");
+  const hay = normalizeFree(text);
+  const { dates, masked } = windowDates(text);
+  const times = windowTimes(masked);
+  const confirmed = new Set();
+  let rest = candidates;
+  if (dates.length > 0) {
+    rest = rest.filter((c) => {
+      const hit =
+        !!c.date &&
+        dates.some(
+          (d) =>
+            d.m === c.date.m &&
+            d.d === c.date.d &&
+            (d.y === null || d.y === c.date.y)
+        );
+      if (hit) confirmed.add(c);
+      return hit;
+    });
+  }
+  const timeIn = (c) => !!c.time && times.has(c.time);
+  if (candidates.some(timeIn)) {
+    rest = rest.filter((c) => {
+      if (!c.time) return true;
+      if (timeIn(c)) confirmed.add(c);
+      return timeIn(c);
+    });
+  }
+  const placeIn = (c) =>
+    !!c.place && (containsWord(hay, c.place) || containsWord(hay, c.placeHead));
+  if (candidates.some(placeIn)) {
+    rest = rest.filter((c) => {
+      if (!c.place) return true;
+      if (placeIn(c)) confirmed.add(c);
+      return placeIn(c);
+    });
+  }
+  const numberIn = (c) =>
+    c.number.length >= COURSE_NUMBER_MIN_LEN && containsWord(hay, c.number);
+  if (candidates.some(numberIn)) {
+    rest = rest.filter(numberIn);
+    rest.forEach((c) => confirmed.add(c));
+  }
+  const url = sameUrl(rest);
+  return url && rest.some((c) => confirmed.has(c)) ? url : null;
+}
+
 /**
  * Wert des SystemSettings prüfen (Whitelist-Validator): leer -> null (Karte
  * entfernt); gültig -> derselbe String; sonst Fehler (das Update wird
@@ -254,7 +640,7 @@ function contractProblem(data) {
  * Adresse, ohne Titel, tiefer als Ebene 5 oder unter einem Sonderknoten
  * entfallen; count nur als ganze Zahl ≥ 0, sonst null.
  * @param {string} raw
- * @returns {{createdMs: number, nodes: Map<string, object>, byUrl: Map<string, object[]>, courses: Map<string, string[]>}|null}
+ * @returns {{createdMs: number, nodes: Map<string, object>, byUrl: Map<string, object[]>, courses: Map<string, string[]>, courseTitles: Map<string, object[]>, courseUrls: Set<string>}|null}
  */
 function parseCategoryMap(raw) {
   if (typeof raw !== "string" || raw.length === 0) return null;
@@ -300,7 +686,20 @@ function buildCategoryMap(data) {
     Number.isFinite(Date.parse(data.updated))
       ? Date.parse(data.updated)
       : null;
-  return { createdMs, updatedMs, nodes, byUrl, courses };
+  // AK-21: Kurse aus course_links (optional; kaputt -> leer, Karte bleibt)
+  const { courseTitles, courseUrls } = buildCourseLinks(
+    data.course_links,
+    nodes
+  );
+  return {
+    createdMs,
+    updatedMs,
+    nodes,
+    byUrl,
+    courses,
+    courseTitles,
+    courseUrls,
+  };
 }
 
 /**
@@ -673,7 +1072,10 @@ function matchOverviewIntro(head, final) {
  *   {remove: true}: entfernen;
  *   {remove: false, text, url, line}: Link „[text](url)“; url null = Ziel
  *     des Modells behalten; line = Sprache, wenn der Server die ganze Zeile
- *     setzt (Knoten-Link in alter Form am Zeilenanfang).
+ *     setzt (Knoten-Link in alter Form am Zeilenanfang);
+ *   {course: Kandidaten}: AK-21 mit mehreren Kursen gleichen Titels; der
+ *     Filter hält den Link samt Text danach und fragt pickCourse(Kandidaten,
+ *     Text nach dem Link) -> Kurs-Link oder null (Link unverändert).
  * intro(lang), separator und matchIntro dienen dem Stream-Filter zum Setzen
  * der Zeile (Form nur in OVERVIEW_LINE).
  * @param {{contextTexts?: string[], map: object|null, systemPrompt?: string, history?: {role: string, content: any}[]}} input
@@ -726,10 +1128,26 @@ function createOverviewLinkGuard({
     return best;
   };
 
+  // AK-21: Kurstitel verlinkt auf eine Adresse, die kein Kurs-Link ist.
+  // Nicht bei einem Knoten, dessen Titel der Linktext ist (Kategorie-Link,
+  // Regel 1). Ergebnis: Link mit Kurs-Link, {course} (mehrere Kandidaten,
+  // der Filter entscheidet mit dem Text danach) oder null (kein Kandidat).
+  const courseVerdict = (text, key, node) => {
+    if (key && (courseLinks.has(key) || map.courseUrls?.has(key))) return null;
+    const candidates = courseCandidates(map, text);
+    if (!candidates) return null;
+    if (node && courseTitleKey(node.title) === courseTitleKey(text))
+      return null;
+    const url = sameUrl(candidates);
+    if (url) return { remove: false, text, url, line: null };
+    return { course: candidates };
+  };
+
   return {
     separator: OVERVIEW_LINE.separator,
     intro: (lang) => OVERVIEW_LINE[lang].intro,
     matchIntro: matchOverviewIntro,
+    pickCourse: pickCourseUrl,
     check(
       text,
       url,
@@ -740,6 +1158,10 @@ function createOverviewLinkGuard({
       const count = old ? null : COURSE_COUNT_RX.exec(label);
       const key = linkKey(url);
       const node = nodeOf(key);
+      if (!overview && !autolink && !old) {
+        const course = courseVerdict(text, key, node);
+        if (course) return course;
+      }
       if (node) {
         const oldLang = old
           ? old[1].toLowerCase() === "alle"
@@ -789,6 +1211,8 @@ module.exports = {
     stripCourseCount,
     matchOverviewIntro,
     chainText,
+    courseTitleKey,
+    pickCourseUrl,
     resetCache: () => {
       cached = { raw: null, map: null };
     },
