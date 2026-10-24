@@ -65,8 +65,9 @@ const upload = multer({
 
 // Kufer Design Center: Whitelist-Validierung der visual_config-Felder, die
 // noch frei wählbar sind, bevor sie ans (öffentliche) Widget gehen. Die Werte
-// landen dort in style/CSS bzw. als Text — daher nur Enums, kurzer Text und
-// geprüfter Link. Ungültig -> Feld weglassen (Widget nutzt dann seinen
+// landen dort in style/CSS bzw. als Text, daher nur Enums, kurzer Text,
+// geprüfter Link und ein Schalter (privacyStartBubble, nur true, AK-12).
+// Ungültig -> Feld weglassen (Widget nutzt dann seinen
 // Default). Alle übrigen Darstellungs-Schlüssel sind seit dem vereinfachten
 // Design Center (15.10.2026) fest: applyEmbedStandards
 // (utils/chats/embedStandards.js) entfernt Altwerte und setzt die Standards.
@@ -158,6 +159,11 @@ function mapLayoutConfig(visualConfig = {}) {
   }
   const privacyUrl = validUrl(visualConfig.privacyUrl);
   if (privacyUrl !== null) out.privacyUrl = privacyUrl;
+  // Datenschutz zusätzlich beim Start als Blase (AK-12, Nutzer 24.10.2026):
+  // nur gespeichert genau true, sonst fehlt der Schlüssel (das Widget zeigt
+  // dann nur den Link). privacyNotice bleibt fest "link"; alte Werte davon
+  // schalten die Blase nicht ein (D2).
+  if (visualConfig.privacyStartBubble === true) out.privacyStartBubble = true;
   return out;
 }
 
@@ -271,7 +277,8 @@ function embeddedEndpoints(app) {
           mapped.chatbotBubblesMessages = bubbles;
 
         // Darstellung (Blase/Inline), Farbschema, Untertitel, Datenschutz-
-        // Link — nur validierte Werte ausliefern, ungültige Felder weglassen.
+        // Link und Datenschutz-Blase beim Start (AK-12): nur validierte
+        // Werte ausliefern, ungültige Felder weglassen.
         Object.assign(mapped, mapLayoutConfig(visualConfig));
 
         // Logo: serve from upload endpoint or use URL

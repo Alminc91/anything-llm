@@ -779,6 +779,78 @@ describe("GET /embed/:embedId/config: Datenschutz-Hinweis immer als Link", () =>
   });
 });
 
+// AK-12 (issues/datenschutz-fusszeile.md, Nutzer 24.10.2026, Vertrag Punkt
+// 1 und 2): Schalter „Zusätzlich beim Start als Blase zeigen“ im Design
+// Center, gespeichert als privacyStartBubble: true (aus = kein Schlüssel).
+// /config liefert privacyStartBubble: true nur bei genau true, sonst fehlt
+// der Schlüssel; privacyNotice bleibt fest "link", alte Werte schalten die
+// Blase nicht ein (D2).
+describe("GET /embed/:embedId/config: Datenschutz zusätzlich als Blase beim Start (AK-12)", () => {
+  test("nur gespeichert genau true ergibt privacyStartBubble: true, sonst wie ohne Wert", async () => {
+    const on = await fetchConfig({ privacyStartBubble: true });
+    expect(on.body).toEqual({ ...STANDARD, privacyStartBubble: true });
+    expect(on.body.privacyNotice).toBe("link");
+    for (const privacyStartBubble of [
+      false,
+      "true",
+      " TRUE ",
+      1,
+      "1",
+      "on",
+      null,
+      undefined,
+      "",
+      {},
+      [true],
+    ]) {
+      const res = await fetchConfig({ privacyStartBubble });
+      expect([privacyStartBubble, res.body]).toEqual([
+        privacyStartBubble,
+        STANDARD,
+      ]);
+    }
+  });
+
+  test("D2: alte Werte von privacyNotice schalten die Blase nicht ein", async () => {
+    for (const privacyNotice of [
+      "bubble",
+      " BUBBLE ",
+      "modal",
+      "none",
+      "link",
+    ]) {
+      const res = await fetchConfig({ privacyNotice });
+      expect([privacyNotice, res.body]).toEqual([privacyNotice, STANDARD]);
+      expect(res.body).not.toHaveProperty("privacyStartBubble");
+    }
+    // umgekehrt: die Blase ändert den festen Link nicht
+    const both = await fetchConfig({
+      privacyNotice: "none",
+      privacyStartBubble: true,
+    });
+    expect(both.body).toMatchObject({
+      privacyNotice: "link",
+      privacyStartBubble: true,
+    });
+  });
+
+  test("mit der Blase gehen die gespeicherten Datenschutz-Texte wie bisher mit", async () => {
+    const res = await fetchConfig({
+      privacyStartBubble: true,
+      privacyTitle: " Hinweis ",
+      privacyText: "• Eins",
+      privacyUrl: "/datenschutz",
+    });
+    expect(res.body).toEqual({
+      ...STANDARD,
+      privacyStartBubble: true,
+      privacyTitle: "Hinweis",
+      privacyText: "• Eins",
+      privacyUrl: "/datenschutz",
+    });
+  });
+});
+
 describe("GET /embed/:embedId/config — Untertitel und Datenschutz", () => {
   test("assistantSubtitle: getrimmt, höchstens 60 Zeichen; leer = bewusst kein Untertitel (R5), fehlend = Standard im Widget", async () => {
     expect(
@@ -1034,6 +1106,71 @@ describe("GET /embed/:embedId/config — Speichern und Ausliefern (echte EmbedCo
     for (const cardsOn of [true, false]) {
       const prompt = embedSystemPrompt("System", { cardsOn });
       expect(prompt).not.toMatch(/ignore all previous|<script>/);
+    }
+  });
+
+  // AK-12 (Vertrag Punkt 2): Speichern über POST /embed/update/:id und die
+  // Developer-API (/v1/embed/new, /v1/embed/:uuid; beide über EmbedConfig.new
+  // bzw. EmbedConfig.update) nimmt für privacyStartBubble nur boolesche Werte
+  // an, wie die übrigen geprüften Felder (BOOLEAN_KEYS, history_enabled);
+  // anderes wird verworfen, alle übrigen Schlüssel bleiben unverändert.
+  test("AK-12: privacyStartBubble true wird gespeichert und als Blase ausgeliefert", async () => {
+    const vc = { name: "VHS", privacyStartBubble: true };
+    const res = await saveAndFetch(vc);
+    expect(JSON.parse(rows.get(1).visual_config)).toEqual(vc);
+    expect(res.body.privacyStartBubble).toBe(true);
+    // als JSON-String (Design Center) ebenso, der String bleibt wörtlich
+    const raw = JSON.stringify(vc);
+    expect((await saveAndFetch(raw)).body.privacyStartBubble).toBe(true);
+    expect(rows.get(1).visual_config).toBe(raw);
+  });
+
+  test("AK-12: nicht boolesche Werte von privacyStartBubble werden beim Speichern verworfen, false bleibt ohne Blase", async () => {
+    for (const value of ["true", "1", 1, 0, null, {}, [true], "false"]) {
+      for (const input of [
+        { name: "VHS", privacyStartBubble: value, privacyTitle: "Hinweis" },
+        JSON.stringify({ name: "VHS", privacyStartBubble: value }),
+      ]) {
+        const res = await saveAndFetch(input);
+        const stored = JSON.parse(rows.get(1).visual_config);
+        expect([value, "privacyStartBubble" in stored]).toEqual([value, false]);
+        expect(stored.name).toBe("VHS");
+        expect(res.body).not.toHaveProperty("privacyStartBubble");
+      }
+    }
+    const res = await saveAndFetch({ privacyStartBubble: false });
+    expect(JSON.parse(rows.get(1).visual_config)).toEqual({
+      privacyStartBubble: false,
+    });
+    expect(res.body).not.toHaveProperty("privacyStartBubble");
+  });
+
+  test("AK-12: Anlegen (EmbedConfig.new, Developer-API /v1/embed/new) prüft privacyStartBubble ebenso", async () => {
+    prisma.embed_configs.create = jest.fn(async ({ data }) => {
+      rows.set(1, data);
+      return { id: 1, ...data };
+    });
+    try {
+      for (const [privacyStartBubble, kept] of [
+        [true, true],
+        [false, true],
+        ["true", false],
+        [1, false],
+      ]) {
+        rows.clear();
+        const { embed } = await ActualEmbedConfig.new({
+          workspace_id: 1,
+          visual_config: { name: "VHS", privacyStartBubble },
+        });
+        expect(embed).not.toBeNull();
+        const stored = JSON.parse(rows.get(1).visual_config);
+        expect([privacyStartBubble, stored]).toEqual([
+          privacyStartBubble,
+          kept ? { name: "VHS", privacyStartBubble } : { name: "VHS" },
+        ]);
+      }
+    } finally {
+      delete prisma.embed_configs.create;
     }
   });
 });
