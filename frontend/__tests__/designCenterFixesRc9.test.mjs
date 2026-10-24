@@ -307,8 +307,9 @@ test(
   async () => {
     const html = await show(CONTENT, contentProps({}));
     // Name und Untertitel standen seit R11 paarweise; seit der Rückmeldung
-    // des Nutzers vom 20.10. untereinander über die volle Spaltenbreite
-    assert.deepEqual(labelsOf(html), [["Überschrift (optional)"]]);
+    // des Nutzers vom 20.10. untereinander über die volle Spaltenbreite.
+    // Überschrift ohne „(optional)“ seit F12 (Fixliste datenschutz rc2)
+    assert.deepEqual(labelsOf(html), [["Überschrift"]]);
     for (const label of [
       "Name",
       "Untertitel",
@@ -335,7 +336,7 @@ test(
       // „Datenschutz-Hinweis anzeigen“ der Hinweis unter der Überschrift
       // (Wortlaut seit F10, Fixliste rc2, wie im Mockup)
       "Erscheint immer als Link „Datenschutz“ unter der Eingabe",
-      "Überschrift (optional)",
+      "Überschrift",
       "Text",
       "Link zur Datenschutzerklärung",
       "Fest eingebaut: der KI-Hinweis",
@@ -356,7 +357,7 @@ test(
     }
     // bei „In der Seite“ dieselben Paare
     const inline = await show(CONTENT, contentProps({ displayMode: "inline" }));
-    assert.deepEqual(labelsOf(inline), [["Überschrift (optional)"]]);
+    assert.deepEqual(labelsOf(inline), [["Überschrift"]]);
   }
 );
 

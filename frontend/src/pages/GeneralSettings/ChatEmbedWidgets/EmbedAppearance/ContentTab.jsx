@@ -386,11 +386,13 @@ export default function ContentTab({
       <div className="space-y-5 min-w-0" data-privacy-fields="">
         {/* Überschrift schmal allein (halbe Breite), der Link darunter über
             die volle Breite, weil Links lang werden können (R11) */}
+        {/* ohne „(optional)“ wie im Mockup (F12, Fixliste rc2): Text und
+            Link sind ebenso freiwillig, leer gilt jeweils der Hinweis
+            unter dem Feld */}
         <FieldPair>
           <div data-field="">
             <FieldTitle
               title="Überschrift"
-              optional
               action={
                 <StandardTextButton
                   isStandard={privacyTitleIsStandard}

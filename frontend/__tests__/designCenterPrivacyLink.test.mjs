@@ -332,6 +332,33 @@ test(
   }
 );
 
+// F12 (Fixliste rc2, Nachtrag 24.10.2026; Opus EMP-5): „(optional)“ bei
+// der Überschrift entfällt wie im Mockup; Text und Link sind ebenso
+// freiwillig und tragen es auch nicht. Außerhalb der Gruppe bleibt es
+// (Untertitel, Support-E-Mail).
+test(
+  "F12: Überschrift, Text und Link des Datenschutz-Hinweises ohne „(optional)“",
+  { skip },
+  async () => {
+    for (const displayMode of [undefined, "inline"]) {
+      const html = await renderer.render(CONTENT, {
+        location: "/",
+        props: contentProps({ displayMode }),
+      });
+      const fields = html.match(
+        /data-privacy-fields=""[\s\S]*?Fest eingebaut: der KI-Hinweis/
+      );
+      assert.ok(fields, `${displayMode}: Gruppe fehlt`);
+      const group = text(fields[0]);
+      assert.ok(group.includes("Überschrift Standardtext"), group);
+      assert.ok(!group.includes("(optional)"), group);
+      const t = text(html);
+      assert.ok(t.includes("Untertitel (optional)"), displayMode);
+      assert.ok(t.includes("Support-E-Mail (optional)"), displayMode);
+    }
+  }
+);
+
 // ---------------------------------------------------------------------------
 // Vorschau, serverseitig gerendert
 // ---------------------------------------------------------------------------

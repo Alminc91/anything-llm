@@ -854,8 +854,9 @@ test(
       assert.ok(i >= 0, s);
       return i;
     };
+    // Überschrift ohne „(optional)“ seit F12 (Fixliste datenschutz rc2)
     assert.ok(
-      at("Überschrift (optional)") < at("Link zur Datenschutzerklärung")
+      at("Überschrift Standardtext") < at("Link zur Datenschutzerklärung")
     );
     assert.ok(
       at("Freier Text. Zeilen mit") < at("Link zur Datenschutzerklärung")

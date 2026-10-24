@@ -201,7 +201,8 @@ test(
       // „Datenschutz-Hinweis anzeigen“ mehr, dafür der Hinweis zum Link
       // (Wortlaut seit F10, Fixliste rc2, wie im Mockup)
       "Erscheint immer als Link „Datenschutz“ unter der Eingabe",
-      "Überschrift (optional)",
+      // ohne „(optional)“ seit F12 (Fixliste datenschutz rc2)
+      "Überschrift",
       "Text",
       "Link zur Datenschutzerklärung",
       "Startvorschläge",
