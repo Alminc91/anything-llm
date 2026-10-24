@@ -332,43 +332,118 @@ test(
   }
 );
 
-// Link zur Datenschutzerklärung in der Blase: Farbe wie im Widget
-// (PanelWelcome PrivacyBubble: var(--allmi-link), hell die Akzentfarbe,
-// dunkel DARK.link), ohne den Kontrastausgleich von Fußzeile und Fenster
-// (wie in 7.22.2). Gegenprobe gegen das Widget mit KUFER_EMBED_DIR.
+// L1 (Hinweis O1 zu AK-12, 24.10.2026; bewusste Änderung des Tests aus
+// rc5): Link zur Datenschutzerklärung in der Blase in der Farbe aller
+// Datenschutz-Links, eine Quelle für Fußzeile, Fenster und Blase
+// (previewPrivacyLinkColor, im Widget theme.js privacyLinkColor): hell aus
+// der Akzentfarbe, dunkel #5CC8CB, je mit mindestens 4,5:1 zur Fläche der
+// Blase (Fläche der Begrüßungsblase, hell #ffffff, dunkel #2a2a2f). Bis rc5
+// nahm die Blase die rohe Linkfarbe (hell #FFA102 auf Weiß rund 2,0:1).
+// Gegenprobe gegen das Widget mit KUFER_EMBED_DIR: dieselbe Farbe, dieselbe
+// Fläche und die feste Regel am Link der Blase im Theme-Stylesheet.
 const WIDGET_DIR = globalThis.process?.env?.KUFER_EMBED_DIR;
+const BUBBLE_SURFACES = { light: "#ffffff", dark: "#2a2a2f" };
+const BUBBLE_LINK_ACCENTS = [
+  undefined,
+  "#FFA102",
+  "#63b4e3",
+  "#01A5A9",
+  "#FFFF00",
+  "#ffffff",
+  "#0b5f8a",
+];
 test(
-  "AK-12 (D4): Linkfarbe in der Blase wie im Widget, hell die Akzentfarbe, dunkel #5CC8CB",
+  "AK-12 (L1): Link in der Blase in der Farbe aller Datenschutz-Links, hell und dunkel mindestens 4,5:1 zur Fläche der Blase, gleich der Fußzeile",
   { skip },
   async () => {
-    const colorOf = (tag) =>
-      tag.match(/style="[^"]*(?<![-\w])color:\s*([^;"]+)/)?.[1].trim();
-    for (const [theme, accentColor, expected] of [
-      ["light", undefined, "#007C82"],
-      ["light", "#FFA102", "#FFA102"],
-      ["light", "#01A5A9", "#01A5A9"],
-      ["dark", "#FFA102", "#5CC8CB"],
-      ["dark", undefined, "#5CC8CB"],
-    ]) {
-      const label = `${theme} ${accentColor}`;
-      const html = await renderer.render(PREVIEW, {
-        location: "/",
-        props: previewProps({
-          theme,
-          accentColor,
-          privacyStartBubble: true,
-          privacyUrl: "/datenschutz",
-        }),
-      });
-      const link = blockOf(html, "privacy-bubble").match(
-        /<span[^>]*data-preview="privacy-statement-link"[^>]*>/
-      );
-      assert.ok(link, label);
-      assert.equal(colorOf(link[0])?.toUpperCase(), expected, label);
-    }
+    const { contrastRatio } = await import(
+      "../src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAppearance/contrast.js"
+    );
+    const { previewPrivacyLinkColor } = await renderer.load(PREVIEW);
+    const styleValue = (tag, prop) =>
+      tag
+        .match(new RegExp(`style="[^"]*(?<![-\\w])${prop}:\\s*([^;"]+)`))?.[1]
+        .trim();
+    const tagOf = (html, name) =>
+      html.match(new RegExp(`<[a-z]+[^>]*data-preview="${name}"[^>]*>`))?.[0];
+    const bubbleColors = {};
+    for (const theme of ["light", "dark"])
+      for (const accentColor of BUBBLE_LINK_ACCENTS) {
+        const label = `${theme} ${accentColor}`;
+        const html = await renderer.render(PREVIEW, {
+          location: "/",
+          props: previewProps({
+            theme,
+            accentColor,
+            privacyStartBubble: true,
+            privacyUrl: "/datenschutz",
+          }),
+        });
+        const bubble = blockOf(html, "privacy-bubble");
+        assert.ok(bubble, label);
+        const link = tagOf(bubble, "privacy-statement-link");
+        assert.ok(link, label);
+        const color = styleValue(link, "color");
+        const surface = styleValue(openTag(bubble), "background-color");
+        assert.equal(surface?.toLowerCase(), BUBBLE_SURFACES[theme], label);
+        assert.equal(
+          color?.toLowerCase(),
+          previewPrivacyLinkColor({ theme, accentColor }).toLowerCase(),
+          label
+        );
+        assert.ok(
+          contrastRatio(color, surface) >= 4.5,
+          `${label}: ${color} auf ${surface}`
+        );
+        // dieselbe Farbe wie der Link „Datenschutz“ in der Fußzeile (der im
+        // Fenster ist gleich, Test F3 in designCenterPrivacyLink)
+        assert.equal(
+          styleValue(tagOf(html, "privacy-link"), "color")?.toLowerCase(),
+          color.toLowerCase(),
+          `${label} Fußzeile`
+        );
+        if (theme === "dark")
+          assert.equal(color.toLowerCase(), "#5cc8cb", label);
+        bubbleColors[label] = color.toLowerCase();
+      }
+    // eine ausreichende Akzentfarbe bleibt unverändert, eine zu helle wird
+    // abgedunkelt
+    assert.equal(bubbleColors["light #0b5f8a"], "#0b5f8a");
+    assert.notEqual(bubbleColors["light #FFA102"], "#ffa102");
     if (!WIDGET_DIR) return;
     const fs = await import("node:fs");
     const path = await import("node:path");
+    const { pathToFileURL } = await import("node:url");
+    const widgetTheme = await import(
+      pathToFileURL(path.join(WIDGET_DIR, "src/utils/theme.js")).href
+    );
+    for (const theme of ["light", "dark"]) {
+      assert.equal(
+        widgetTheme.PRIVACY_BUBBLE_BG[theme].toLowerCase(),
+        BUBBLE_SURFACES[theme],
+        `Widget Fläche ${theme}`
+      );
+      for (const accentColor of BUBBLE_LINK_ACCENTS) {
+        const label = `Widget ${theme} ${accentColor}`;
+        const settings = accentColor ? { linkColor: accentColor } : {};
+        const expected = widgetTheme.privacyLinkColor(settings, theme);
+        assert.equal(
+          bubbleColors[`${theme} ${accentColor}`],
+          expected.toLowerCase(),
+          label
+        );
+        assert.ok(
+          widgetTheme
+            .buildThemeCss(settings, theme)
+            .split("\n")
+            .includes(
+              `#${widgetTheme.PRIVACY_BUBBLE_ID} a { color: ${expected} !important; }`
+            ),
+          `${label} Regel am Link der Blase`
+        );
+      }
+    }
+    assert.equal(widgetTheme.PRIVACY_BUBBLE_ID, "anything-llm-privacy-bubble");
     const source = fs.readFileSync(
       path.join(
         WIDGET_DIR,
@@ -377,12 +452,7 @@ test(
       "utf8"
     );
     const bubble = source.slice(source.indexOf("function PrivacyBubble"));
-    assert.match(bubble, /color: `var\(--allmi-link, /);
-    const theme = fs.readFileSync(
-      path.join(WIDGET_DIR, "src/utils/theme.js"),
-      "utf8"
-    );
-    assert.match(theme, /link: "#5CC8CB"/);
+    assert.match(bubble, /id=\{PRIVACY_BUBBLE_ID\}/);
   }
 );
 

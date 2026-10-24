@@ -690,7 +690,8 @@ export function PreviewWelcome({
   );
   // Begrüßung und Datenschutz-Blase wie im Widget seit 7.22.2: Fläche,
   // Schatten, Schrift (Nutzer 23.10.2026); dieselbe Fläche hat das
-  // Datenschutz-Fenster (PREVIEW_PRIVACY_DIALOG_COLORS)
+  // Datenschutz-Fenster (PREVIEW_PRIVACY_DIALOG_COLORS). Der Link in der
+  // Blase hat die Farbe aller Datenschutz-Links (previewPrivacyLinkColor, L1)
   const bubble = {
     backgroundColor: palette.bubbleBg,
     boxShadow: palette.bubbleShadow,
@@ -719,7 +720,7 @@ export function PreviewWelcome({
             <p>
               <PrivacyStatementLink
                 url={privacy.url}
-                color={previewLinkColor(config, palette)}
+                color={previewPrivacyLinkColor(config, palette)}
               />
             </p>
           )}
@@ -801,29 +802,36 @@ function privacyFixedTexts(defaults) {
   };
 }
 
-// Linkfarbe des Widgets für den Link „Datenschutz“, den Link zur
-// Datenschutzerklärung und alle Fokusrahmen im Datenschutz-Fenster, eine
-// Farbe wie im Widget (theme.js privacyLinkColor, R1-D1 Fixliste rc1): hell
-// die Akzentfarbe (der Server liefert sie als linkColor), dunkel fest
-// DARK.link, je mit mindestens 4,5:1 zur Fläche der Fußzeile und des
-// Fensters (abgedunkelt bzw. aufgehellt, wenn nötig; Fokusrahmen brauchen
-// 3:1). Gegenprobe gegen das Widget im Test designCenterPrivacyLink.
+// Farbe aller Datenschutz-Links der Vorschau, eine Quelle (L1, Hinweis O1
+// zu AK-12): der Link „Datenschutz“ in der Fußzeile, der Link zur
+// Datenschutzerklärung und alle Fokusrahmen im Datenschutz-Fenster und der
+// Link zur Datenschutzerklärung in der Datenschutz-Blase beim Start. Eine
+// Farbe wie im Widget (theme.js privacyLinkColor, R1-D1 Fixliste rc1, L1):
+// hell die Akzentfarbe (der Server liefert sie als linkColor), dunkel fest
+// DARK.link, je mit mindestens 4,5:1 zur Fläche der Fußzeile, des Fensters
+// und der Blase (Fläche der Begrüßungsblase, palette.bubbleBg; abgedunkelt
+// bzw. aufgehellt, wenn nötig; Fokusrahmen brauchen 3:1). Bis rc5 nahm die
+// Blase die rohe Linkfarbe (hell #FFA102 auf Weiß rund 2,0:1). Gegenprobe
+// gegen das Widget in den Tests designCenterPrivacyLink und
+// designCenterPrivacyStartBubble (KUFER_EMBED_DIR).
 const DARK_LINK_COLOR = "#5CC8CB";
 export function previewPrivacyLinkColor(config, palette = paletteOf(config)) {
-  const link = previewLinkColor(config, palette);
+  const link = rawLinkColor(config, palette);
   return pillTextColor(
     link,
-    [palette.panelBg, PREVIEW_PRIVACY_DIALOG_COLORS[palette.scheme].bg],
+    [
+      palette.panelBg,
+      PREVIEW_PRIVACY_DIALOG_COLORS[palette.scheme].bg,
+      palette.bubbleBg,
+    ],
     palette.text
   );
 }
 
 // Linkfarbe des Widgets ohne Kontrastausgleich (theme.js --allmi-link): hell
-// die Akzentfarbe, dunkel fest DARK.link. So färbt das Widget den Link zur
-// Datenschutzerklärung in der Datenschutz-Blase beim Start (AK-12, wie in
-// 7.22.2: PanelWelcome PrivacyBubble, var(--allmi-link)); Fußzeile und
-// Fenster nehmen sie mit Ausgleich (previewPrivacyLinkColor).
-export function previewLinkColor(config, palette = paletteOf(config)) {
+// die Akzentfarbe, dunkel fest DARK.link. Nur Grundlage für
+// previewPrivacyLinkColor; kein Datenschutz-Link nutzt sie direkt (L1).
+function rawLinkColor(config, palette) {
   return palette.scheme === "dark"
     ? DARK_LINK_COLOR
     : previewAccentColor(config);

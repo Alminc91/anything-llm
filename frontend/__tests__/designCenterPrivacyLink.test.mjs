@@ -1178,7 +1178,10 @@ test(
 // den Link zur Datenschutzerklärung und alle Fokusrahmen im Fenster, wie im
 // Widget (theme.js privacyLinkColor): hell die Akzentfarbe, dunkel fest
 // DARK.link #5CC8CB, je mit mindestens 4,5:1 zur Fläche der Fußzeile und
-// des Fensters (Fokusrahmen brauchen 3:1)
+// des Fensters (Fokusrahmen brauchen 3:1). Seit L1 (Korrektur zu AK-12)
+// hat auch der Link in der Datenschutz-Blase diese Farbe, ihre Fläche
+// (hell #ffffff, dunkel #2a2a2f) steht schon in der Liste; Test dazu in
+// designCenterPrivacyStartBubble.
 const PRIVACY_SURFACES = { light: ["#ffffff"], dark: ["#1d1d21", "#2a2a2f"] };
 const LINK_ACCENTS = [
   undefined,
