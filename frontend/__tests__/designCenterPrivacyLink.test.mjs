@@ -186,6 +186,28 @@ test("F5: leere Überschrift gilt wie der Standard: beim Speichern entfernt, ung
   }
 });
 
+// F18 (C3 und NF-7, Fixliste rc3): eine Funktion für „leer oder nur
+// Leerzeichen“ im Feld Überschrift. Bis rc3 stand die Regel für reine
+// Leerzeichen zusätzlich als Zweig in ContentTab.jsx (F11).
+test('F18: privacyTitleFieldValue ergibt bei leerer Überschrift und bei nur Leerzeichen "", sonst den Feldwert', () => {
+  for (const privacyTitle of ["", "   ", " \n\t "])
+    for (const defaults of [DEFAULTS, null])
+      assert.equal(
+        keys.privacyTitleFieldValue({ privacyTitle }, defaults),
+        "",
+        `${JSON.stringify(privacyTitle)} ${defaults ? "mit" : "ohne"} Standardtexte`
+      );
+  assert.equal(
+    keys.privacyTitleFieldValue({ privacyTitle: " Hinweis " }, DEFAULTS),
+    " Hinweis "
+  );
+  assert.equal(
+    keys.privacyTitleFieldValue({}, DEFAULTS),
+    DEFAULTS.privacyTitle
+  );
+  assert.equal(keys.privacyTitleFieldValue({}, null), "");
+});
+
 test("F5: Vorschau zeigt bei leerer Überschrift den Standard, ohne Sonderfall in der Darstellung", async () => {
   if (!hasFrontendDeps) return;
   const { previewPrivacy } = await renderer.load(PREVIEW);
@@ -310,8 +332,10 @@ test(
       ["gespeichert Leerzeichen", { privacyTitle: "   " }, null, DEFAULTS, ""],
       ["geleert", { privacyTitle: "" }, {}, DEFAULTS, ""],
       ["Standardtexte fehlen", {}, null, null, ""],
-      // beim Tippen bleibt das Feld, wie es ist
-      ["bearbeitet Leerzeichen", { privacyTitle: "  " }, {}, DEFAULTS, "  "],
+      // nur Leerzeichen gilt auch beim Tippen wie leer (F18,
+      // privacyTitleFieldValue); bis rc3 blieb das Feld dann, wie es war
+      ["bearbeitet Leerzeichen", { privacyTitle: "  " }, {}, DEFAULTS, ""],
+      ["bearbeitet", { privacyTitle: " Hin" }, {}, DEFAULTS, " Hin"],
       ["eigener Text", { privacyTitle: "Hinweis" }, null, DEFAULTS, "Hinweis"],
       ["nichts gespeichert", {}, null, DEFAULTS, "Datenschutz"],
     ]) {

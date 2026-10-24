@@ -79,10 +79,11 @@ const LAYOUT_ENUMS = {
 
 // Text-Schlüssel mit Höchstlänge wie im Widget (utils/layout.js). Wert wird
 // getrimmt; zu lang -> weglassen (nicht kürzen). Leer ("") geht als leerer
-// Wert mit: Untertitel "" = bewusst kein Untertitel (R5, Fixliste 7.22-rc8,
-// wie privacyTitle), fehlender Wert = Standard des Widgets („Online-Berater
-// mit künstlicher Intelligenz“). Begrüßung, Platzhalter und Datenschutz-
-// Texte prüft applyEmbedStandards.
+// Wert mit: Untertitel "" = bewusst kein Untertitel (R5, Fixliste 7.22-rc8),
+// fehlender Wert = Standard des Widgets („Online-Berater mit künstlicher
+// Intelligenz“). Anders die Datenschutz-Überschrift: leer gilt wie der
+// Standard (F5, privacyTitleValue in embedStandards.js). Begrüßung,
+// Platzhalter und Datenschutz-Texte prüft applyEmbedStandards.
 const WIDGET_TEXT_MAX = {
   assistantSubtitle: 60,
 };

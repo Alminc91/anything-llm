@@ -803,12 +803,16 @@ export function previewInlineBar(config, defaults) {
 
 /**
  * Wert im Feld „Überschrift“ des Datenschutz-Hinweises: eigener Text, ""
- * (geleert; gilt wie der Standard, cleanConfig entfernt es beim Speichern,
- * bis 7.22.2 hatte die Blase dann keine Überschrift) bzw. der Standard,
- * wenn nichts oder der frühere Standard mit Doppelpunkt gespeichert ist.
+ * bei leerer Überschrift oder nur Leerzeichen (gespeichert oder getippt;
+ * leer gilt wie der Standard, F5: das Feld zeigt den Standard als
+ * Platzhalter, cleanConfig entfernt es beim Speichern; bis 7.22.2 hatte die
+ * Blase dann keine Überschrift) bzw. der Standard, wenn nichts oder der
+ * frühere Standard mit Doppelpunkt gespeichert ist. Die eine Stelle für
+ * „leer“ im Feld und in der Vorschau (F18, Fixliste rc3).
  */
 export function privacyTitleFieldValue(config, defaults) {
   const v = config.privacyTitle;
+  if (typeof v === "string" && !v.trim()) return "";
   if (
     typeof v === "string" &&
     !LEGACY_DEFAULT_PRIVACY_TITLES.includes(v.trim())
@@ -1107,8 +1111,9 @@ export function validateConfig(config, initial, gKey) {
  * - Willkommensblasen: leere Zeilen weg; Vorbelegung oder [] -> entfernen
  *   (es gelten die Standardblasen des Widgets).
  * - Link: leer -> entfernen.
- * - Datenschutz-Überschrift: Standard -> entfernen, leer -> "" (im
- *   Datenschutz-Fenster gilt dann der Standard, seit 7.23), sonst getrimmt.
+ * - Datenschutz-Überschrift: leer gilt wie der Standard (F5, seit 7.23):
+ *   leer oder Standard -> entfernen, wenn in dieser Sitzung bearbeitet;
+ *   unverändert gespeichert bleibt sie, wie sie ist; sonst getrimmt.
  * - Datenschutz-Text: unverändert bleibt er, wie er ist; geändert: leer oder
  *   Standard -> entfernen, sonst Normalform.
  * - privacyNotice: nie geschrieben (Datenschutz-Fußzeile 7.23, AK-6): der

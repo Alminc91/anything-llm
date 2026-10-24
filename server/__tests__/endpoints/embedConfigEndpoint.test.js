@@ -789,9 +789,10 @@ describe("GET /embed/:embedId/config — Untertitel und Datenschutz", () => {
       (await fetchConfig({ assistantSubtitle: "y".repeat(60) })).body
         .assistantSubtitle
     ).toHaveLength(60);
-    // R5 (Fixliste 7.22-rc8, bewusst geändert): "" geht als "" mit, wie
-    // privacyTitle (EMPTY_MEANS_NONE im Widget); fehlend -> kein Schlüssel,
-    // das Widget zeigt „Online-Berater mit künstlicher Intelligenz“
+    // R5 (Fixliste 7.22-rc8, bewusst geändert): "" geht als "" mit
+    // (EMPTY_MEANS_NONE im Widget); fehlend -> kein Schlüssel, das Widget
+    // zeigt „Online-Berater mit künstlicher Intelligenz“. Anders die
+    // Datenschutz-Überschrift: leer gilt wie der Standard (F5, Test unten)
     for (const assistantSubtitle of ["", "  "])
       expect(
         (await fetchConfig({ assistantSubtitle })).body.assistantSubtitle

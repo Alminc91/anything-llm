@@ -273,15 +273,9 @@ export default function ContentTab({
     inlineBar.placeholder === previewPlaceholder(config, defaults);
 
   // Leeres Feld mit dem Standard als Platzhalter wie das Textfeld (F11,
-  // Fixliste rc2); eine vor 7.23 gespeicherte leere Überschrift ("" oder nur
-  // Leerzeichen, gilt wie der Standard) zeigt das Feld leer, bis sie
-  // bearbeitet wird, beim Tippen bleibt der Feldwert, wie er ist
-  const privacyTitleValue = privacyTitleFieldValue(config, defaults);
-  const privacyTitle =
-    config.privacyTitle === initialConfig.privacyTitle &&
-    !privacyTitleValue.trim()
-      ? ""
-      : privacyTitleValue;
+  // Fixliste rc2); leer oder nur Leerzeichen gilt wie der Standard
+  // (privacyTitleFieldValue, F18 Fixliste rc3)
+  const privacyTitle = privacyTitleFieldValue(config, defaults);
   const privacyTitleDefault = privacyTitleStandard(defaults);
   const privacyTitleIsStandard =
     !defaults || sameAsDefault("privacyTitle", privacyTitle, defaults);
