@@ -89,18 +89,17 @@ class LanceDb extends VectorDatabase {
    * and RERUN UNFILTERED: a missing filter degrades to today's behavior,
    * an empty result would silently hide courses.
    *
-   * KIE-576 Paket 3 (E35): `exclusion` (courseInventory.courseSearchExclusion)
-   * schließt veraltete Kursdokumente in der Anfrage selbst aus
-   * („id NOT IN (…)“, mit der Filterbedingung per AND verbunden), also vor
-   * Vektor- und Stichwortsuche und vor dem Reranker. Scheitert die
-   * verbundene Bedingung an Altspalten, gilt wie bisher die Suche ohne
-   * Metadatenfilter, aber mit dem Ausschluss. Nur wenn auch der Ausschluss
-   * nicht als Bedingung geht (zu viele Abschnitte, Fehler), ist der
-   * dokumentierte Rückfall dran: `extra` Treffer mehr holen, veraltete
-   * verwerfen und auf `limit` kürzen, noch vor dem Reranker. Abschnitte, die
-   * nur ihr Kopfblock als veraltet verrät (Dokument nicht mehr im
-   * Workspace), werden hier ebenfalls verworfen. Ohne `exclusion` läuft
-   * alles exakt wie vorher (NAK-K1).
+   * KIE-576 Paket 3 (E35, KR-1): `exclusion`
+   * (courseInventory.courseSearchExclusion) schließt veraltete
+   * Kursdokumente in der Anfrage selbst aus („id NOT IN (…)“, mit der
+   * Filterbedingung per AND verbunden), also vor Vektor- und Stichwortsuche
+   * und vor dem Reranker, ohne Obergrenze. Scheitert die verbundene
+   * Bedingung an Altspalten, gilt wie bisher die Suche ohne Metadatenfilter,
+   * aber mit dem Ausschluss. Lehnt LanceDB die erste Form ab, folgt einmal
+   * die zweite (Blöcke per AND). Scheitert auch sie, gibt die Anfrage keine
+   * Treffer zurück (fail-closed) und loggt einen Fehler. Treffer werden nie
+   * nachträglich verworfen. Ohne `exclusion` läuft alles exakt wie vorher
+   * (NAK-K1).
    * @param {(limit?: number) => import('@lancedb/lancedb').Query} buildQuery -
    *   Factory returning a FRESH query builder (must be re-callable for the
    *   retry), with the given row limit.
@@ -126,35 +125,92 @@ class LanceDb extends VectorDatabase {
       }
     }
 
-    const keep = (rows) => {
-      const kept = rows.filter((row) => !exclusion.hides(row));
-      exclusion.stats.dropped += rows.length - kept.length;
-      return kept;
-    };
     const attempts = [];
-    if (exclusion.where) {
-      if (whereClause)
-        attempts.push(`(${whereClause}) AND (${exclusion.where})`);
-      attempts.push(exclusion.where);
+    for (const form of Array.isArray(exclusion.clauses)
+      ? exclusion.clauses
+      : []) {
+      if (whereClause) attempts.push(`(${whereClause}) AND (${form})`);
+      attempts.push(form);
     }
     for (const clause of attempts) {
       try {
-        return keep(await build().where(clause).toArray());
+        return await build().where(clause).toArray();
       } catch (e) {
         this.logger(
           `courseInventory: Suche mit Ausschluss gescheitert (${e.message}), nächster Versuch.`
         );
       }
     }
-    // Rückfall ohne Bedingung: mehr Treffer, veraltete vor dem Reranker
-    // verwerfen, auf die gewohnte Anzahl kürzen
-    const extra = Number.isInteger(exclusion.extra) ? exclusion.extra : 0;
-    const rows = keep(
-      await (
-        Number.isInteger(limit) ? buildQuery(limit + extra) : buildQuery()
-      ).toArray()
+    // fail-closed: ohne Ausschluss in der Anfrage keine Treffer
+    if (exclusion.stats) exclusion.stats.failClosed++;
+    console.error(
+      `[courseInventory] Ausschluss veralteter Kurse nicht in der Anfrage möglich (${attempts.length > 0 ? `${attempts.length} Bedingungen abgelehnt` : "unzulässige Abschnitt-ID"}), Suche ohne Treffer.`
     );
-    return Number.isInteger(limit) ? rows.slice(0, limit) : rows;
+    return [];
+  }
+
+  /**
+   * KIE-576 Paket 3, KR-1: Zeilen der Tabelle, deren ID der Workspace nicht
+   * kennt (verwaiste Abschnitte), mit den Spalten id, text, title und
+   * published, soweit vorhanden. Läuft im Serverprozess selbst, höchstens
+   * stündlich mit dem Index des Kursbestands. Tabelle fehlt -> leer.
+   * @param {string} namespace
+   * @param {Set<string>} knownIds
+   * @returns {Promise<object[]>}
+   */
+  async orphanRows(namespace, knownIds = new Set()) {
+    const { client } = await this.connect();
+    if (!(await this.namespaceExists(client, namespace))) return [];
+    const table = await client.openTable(namespace);
+    const total = await table.countRows();
+    if (total === 0) return [];
+    const ids = await table.query().select(["id"]).limit(total).toArray();
+    const orphanIds = ids
+      .map((row) => row.id)
+      .filter((id) => typeof id === "string" && !knownIds.has(id));
+    if (orphanIds.length === 0) return [];
+    return await this.rowsByIds(table, orphanIds, [
+      "id",
+      "text",
+      "title",
+      "published",
+    ]);
+  }
+
+  /**
+   * KIE-576 Paket 3, KR-1: Text der Abschnitte zu den IDs.
+   * @param {string} namespace
+   * @param {string[]} ids
+   * @returns {Promise<{id: string, text: string}[]>}
+   */
+  async rowTexts(namespace, ids = []) {
+    const { client } = await this.connect();
+    if (!(await this.namespaceExists(client, namespace))) return [];
+    const table = await client.openTable(namespace);
+    return await this.rowsByIds(table, ids, ["id", "text"]);
+  }
+
+  // Zeilen zu IDs in Blöcken, nur vorhandene Spalten; IDs mit fremden
+  // Zeichen kommen nicht in die Anfrage (ihre Zeile bleibt unbekannt)
+  async rowsByIds(table, ids, columns) {
+    const fields = new Set((await table.schema()).fields.map((f) => f.name));
+    const select = columns.filter((column) => fields.has(column));
+    const safe = [...new Set(ids)].filter(
+      (id) => typeof id === "string" && /^[A-Za-z0-9_.:-]{1,100}$/.test(id)
+    );
+    const rows = [];
+    for (let i = 0; i < safe.length; i += 500) {
+      const batch = safe.slice(i, i + 500);
+      rows.push(
+        ...(await table
+          .query()
+          .where(`id IN (${batch.map((id) => `'${id}'`).join(",")})`)
+          .select(select)
+          .limit(batch.length)
+          .toArray())
+      );
+    }
+    return rows;
   }
 
   /**
@@ -171,19 +227,8 @@ class LanceDb extends VectorDatabase {
     const { client } = await this.connect();
     if (!(await this.namespaceExists(client, namespace))) return found;
     const table = await client.openTable(namespace);
-    const safe = [...new Set(ids)].filter((id) =>
-      /^[A-Za-z0-9_.:-]{1,100}$/.test(id)
-    );
-    for (let i = 0; i < safe.length; i += 500) {
-      const batch = safe.slice(i, i + 500);
-      const rows = await table
-        .query()
-        .where(`id IN (${batch.map((id) => `'${id}'`).join(",")})`)
-        .select(["id"])
-        .limit(batch.length)
-        .toArray();
-      for (const row of rows) found.add(row.id);
-    }
+    for (const row of await this.rowsByIds(table, ids, ["id"]))
+      found.add(row.id);
     return found;
   }
 
@@ -1676,9 +1721,9 @@ class LanceDb extends VectorDatabase {
       SearchTrace.writeTrace(trace);
     }
     // Je Anfrage nur Zahlen und Workspace, keine Inhalte
-    if (exclusion && (exclusion.staleDocs > 0 || exclusion.stats.dropped > 0))
+    if (exclusion)
       this.logger(
-        `courseInventory: ${namespace}: ${exclusion.staleDocs} veraltete Kursdokumente (${exclusion.excludedIds} Abschnitte) ${exclusion.where ? "in der Suche ausgeschlossen" : "ohne Vorfilter"}, ${exclusion.stats.dropped} Treffer nachträglich verworfen`
+        `courseInventory: ${namespace}: ${exclusion.staleDocs} veraltete Kursdokumente (${exclusion.excludedIds} Abschnitte, davon ${exclusion.headBlockIds} über den Kopfblock) in der Suche ausgeschlossen, ${exclusion.stats.failClosed} Anfragen ohne Treffer (fail-closed)`
       );
 
     const { contextTexts, sourceDocuments } = result;

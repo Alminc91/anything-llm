@@ -219,7 +219,12 @@ const VECTORS = {
   faq: ["vf"],
 };
 
-function installDeps({ present = undefined, reads = [] } = {}) {
+function installDeps({
+  present = undefined,
+  reads = [],
+  orphans = [],
+  texts = [],
+} = {}) {
   const deps = {
     findWorkspaceId: jest.fn(async (slug) => (slug === "ws" ? 7 : null)),
     listDocuments: jest.fn(async () =>
@@ -239,6 +244,10 @@ function installDeps({ present = undefined, reads = [] } = {}) {
     }),
     existingVectorIds: jest.fn(async (_slug, ids) =>
       present === undefined ? new Set(ids) : present
+    ),
+    orphanRows: jest.fn(async () => orphans),
+    rowTexts: jest.fn(async (_slug, ids) =>
+      texts.filter((row) => ids.includes(row.id))
     ),
   };
   t.setDeps(deps);
@@ -270,7 +279,7 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     expect(status).toMatchObject({ count: 1, stale: 1, missing: 3 });
     // ausgeschlossen werden trotzdem alle veralteten Abschnitte
     const exclusion = await courseSearchExclusion("ws");
-    expect(exclusion.where).toBe("id NOT IN ('v900a','v900b','v901')");
+    expect(exclusion.clauses[0]).toBe("id NOT IN ('v900a','v900b','v901')");
   });
 
   test("AK-K9: Vektorspeicher nicht prüfbar (null): es zählt document_vectors", async () => {
@@ -345,40 +354,26 @@ describe("Ausschluss und Prüfer (E35, NAK-K2)", () => {
     installDeps();
   });
 
-  test("Filterbedingung nur mit den Abschnitten veralteter Kursdokumente", async () => {
+  test("Filterbedingung nur mit den Abschnitten veralteter Kursdokumente, kein Nachfilter", async () => {
     const exclusion = await courseSearchExclusion("ws");
-    expect(exclusion.where).toBe("id NOT IN ('v900a','v900b','v901')");
-    expect(exclusion.staleDocs).toBe(2);
-    expect(exclusion.extra).toBe(3);
-    // Treffer: über die Vektor-ID oder den eigenen Kopfblock
-    expect(exclusion.hides({ id: "v900b", text: "Folgeabschnitt" })).toBe(true);
-    expect(
-      exclusion.hides({ id: "fremd", text: chunk(courseText("262-777")) })
-    ).toBe(true);
-    expect(
-      exclusion.hides({ id: "v100a", text: chunk(courseText("262-100")) })
-    ).toBe(false);
-    // Dokumente ohne Kursnummer nie
-    expect(
-      exclusion.hides({ id: "vs", text: DOCS["custom-documents/seite.json"] })
-    ).toBe(false);
-    expect(exclusion.hides({ id: "vf", text: "Titel: FAQ\nText" })).toBe(false);
-    expect(
-      exclusion.hides({
-        id: "x",
-        text: "Kursbeschreibung: Kursnummer: 262-777",
-      })
-    ).toBe(false);
+    expect(exclusion.clauses).toEqual([
+      "id NOT IN ('v900a','v900b','v901')",
+      "(id NOT IN ('v900a','v900b','v901'))",
+    ]);
+    expect(exclusion).toMatchObject({
+      staleDocs: 2,
+      excludedIds: 3,
+      headBlockIds: 0,
+      stats: { failClosed: 0 },
+    });
+    // KR-1: kein Prüfer für Treffer nach der Suche, kein Rückfall
+    expect(exclusion).not.toHaveProperty("hides");
+    expect(exclusion).not.toHaveProperty("extra");
+    expect(exclusion).not.toHaveProperty("where");
   });
 
-  test("zu viele Abschnitte: kein Vorfilter, nur der Rückfall", async () => {
-    t.reset();
-    prisma.system_settings.findFirst.mockResolvedValue({ value: value() });
-    const many = Array.from(
-      { length: t.EXCLUSION_WHERE_MAX_IDS + 1 },
-      (_, i) => `id-${i}`
-    );
-    installDeps();
+  test("KR-1: über 5.000 Abschnitte stehen alle in der Bedingung, zweite Form in Blöcken per AND", async () => {
+    const many = Array.from({ length: 12345 }, (_, i) => `id-${i}`);
     const deps = installDeps();
     deps.listVectors.mockImplementation(async (docIds) =>
       docIds.flatMap((docId) =>
@@ -389,12 +384,111 @@ describe("Ausschluss und Prüfer (E35, NAK-K2)", () => {
       )
     );
     const exclusion = await courseSearchExclusion("ws");
-    expect(exclusion.where).toBeNull();
-    expect(exclusion.hides({ id: "id-17" })).toBe(true);
-    expect(exclusion.extra).toBe(500);
+    expect(exclusion.excludedIds).toBe(12346);
+    const [one, blocks] = exclusion.clauses;
+    const listed = (clause) =>
+      clause.match(/'[^']*'/g).map((q) => q.slice(1, -1));
+    expect(one.startsWith("id NOT IN (")).toBe(true);
+    expect(new Set(listed(one))).toEqual(new Set([...many, "v901"]));
+    const parts = blocks.split(" AND ");
+    expect(parts).toHaveLength(Math.ceil(12346 / t.EXCLUSION_BLOCK));
+    for (const part of parts)
+      expect(part).toMatch(/^\(id NOT IN \('[^)]*\)\)$/);
+    expect(new Set(listed(blocks))).toEqual(new Set([...many, "v901"]));
   });
 
-  test("Vektor-IDs mit fremden Zeichen kommen nie in die Bedingung", async () => {
+  test("KR-1: kein veralteter Abschnitt -> kein Ausschluss (Suche wie vorher)", async () => {
+    prisma.system_settings.findFirst.mockResolvedValue({
+      value: value({
+        offered: ["262-100", "262-101", "262-102", "262-900", "262-901"],
+      }),
+    });
+    expect(await courseSearchExclusion("ws")).toBeNull();
+  });
+
+  test("KR-1: verwaiste Abschnitte mit veraltetem Kopfblock stehen in der Bedingung, samt ihrem Upload", async () => {
+    const deps = installDeps({
+      orphans: [
+        // veralteter Kurs, Dokument dem Workspace unbekannt
+        {
+          id: "o1",
+          text: chunk(courseText("262-777")),
+          title: "alt.txt",
+          published: "1.1.2026, 10:00:00",
+        },
+        // Folgeabschnitt desselben Uploads (ohne Kursnummer)
+        {
+          id: "o1b",
+          text: "Folgeabschnitt",
+          title: "alt.txt",
+          published: "1.1.2026, 10:00:00",
+        },
+        // anderer Upload mit gleichem Titel, ohne Kursnummer: bleibt
+        {
+          id: "o2",
+          text: "Folgeabschnitt",
+          title: "alt.txt",
+          published: "2.1.2026, 10:00:00",
+        },
+        // verwaist, aber angeboten: bleibt
+        { id: "o3", text: chunk(courseText("262-100")), title: "k.txt" },
+        // verwaist, ohne Kursnummer: bleibt
+        { id: "o4", text: "Titel: FAQ\nText" },
+      ],
+    });
+    const exclusion = await courseSearchExclusion("ws");
+    expect(exclusion.clauses[0]).toBe(
+      "id NOT IN ('o1','o1b','v900a','v900b','v901')"
+    );
+    expect(exclusion.headBlockIds).toBe(2);
+    // bekannt sind die Abschnitte aller Dokumente, nicht nur der Kurse
+    const known = deps.orphanRows.mock.calls[0][1];
+    expect([...known].sort()).toEqual(Object.values(VECTORS).flat().sort());
+    // die Prüfer der Chatpfade kennen sie ebenso
+    const guard = await courseInventoryGuard({ slug: "ws" });
+    expect(guard.hidesSource({ id: "o1b", text: "Folgeabschnitt" })).toBe(true);
+    expect(guard.hidesSource({ id: "o2", text: "Folgeabschnitt" })).toBe(false);
+  });
+
+  test("KR-1: Dokument mit unlesbarer Datei: Kopfblock aus dem Vektorspeicher, alle seine Abschnitte ausgeschlossen, Datei nicht gemerkt", async () => {
+    const deps = installDeps({
+      texts: [
+        { id: "v100a", text: chunk(courseText("262-555")) },
+        { id: "v100b", text: "Folgeabschnitt" },
+      ],
+    });
+    deps.readDocumentText.mockImplementation(async (docpath) => {
+      if (docpath.endsWith("k100.json")) throw new Error("ENOENT");
+      return DOCS[docpath] ?? null;
+    });
+    const exclusion = await courseSearchExclusion("ws");
+    expect(exclusion.clauses[0]).toBe(
+      "id NOT IN ('v100a','v100b','v900a','v900b','v901')"
+    );
+    expect(deps.rowTexts).toHaveBeenCalledWith("ws", ["v100a", "v100b"]);
+    // nach einer Stunde wird die Datei erneut gelesen
+    clock.now += t.INDEX_MAX_AGE_MS;
+    deps.readDocumentText.mockClear();
+    await courseSearchExclusion("ws");
+    expect(deps.readDocumentText).toHaveBeenCalledTimes(1);
+    expect(deps.readDocumentText).toHaveBeenCalledWith(
+      "custom-documents/k100.json"
+    );
+  });
+
+  test("KR-1: Prüfung der verwaisten Abschnitte scheitert: geloggt, Ausschluss der bekannten bleibt", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const deps = installDeps();
+    deps.orphanRows.mockRejectedValue(new Error("busy"));
+    const exclusion = await courseSearchExclusion("ws");
+    expect(exclusion.clauses[0]).toBe("id NOT IN ('v900a','v900b','v901')");
+    expect(error).toHaveBeenCalledWith(
+      "[courseInventory] verwaiste Abschnitte nicht prüfbar: busy"
+    );
+    error.mockRestore();
+  });
+
+  test("Vektor-IDs mit fremden Zeichen kommen nie in die Bedingung, dann fail-closed", async () => {
     const deps = installDeps();
     deps.listVectors.mockImplementation(async (docIds) =>
       docIds.includes("k900")
@@ -406,8 +500,8 @@ describe("Ausschluss und Prüfer (E35, NAK-K2)", () => {
         : []
     );
     const exclusion = await courseSearchExclusion("ws");
-    expect(exclusion.where).toBe("id NOT IN ('ok-1')");
-    expect(exclusion.hides({ id: "x') OR (1=1" })).toBe(true);
+    expect(exclusion.clauses).toEqual([]);
+    expect(exclusion.excludedIds).toBe(2);
   });
 
   test("Prüfer: angeheftete Dokumente, gespeicherte Quellen, Kurskarten-Dokumente", async () => {

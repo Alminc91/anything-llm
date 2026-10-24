@@ -22,13 +22,24 @@
 // Workspace. Die Prüfung läuft im Serverprozess selbst (kein fremder
 // Prozess auf LanceDB) und höchstens einmal je Stunde mit dem Index.
 //
-// Ausblenden (E35): Kursdokumente mit Kursnummer außerhalb von A kommen in
-// keinen Schritt der Suche. Der Ausschluss sitzt als Filterbedingung
-// „id NOT IN (…)“ in der Anfrage an LanceDB (lance/index.js
-// filteredQueryRows, wie der Metadatenfilter aus KIE-480), also vor
-// Vektor- und Stichwortsuche und vor dem Reranker. Angeheftete Dokumente,
-// der Rückgriff über fillSourceWindow und die Kurskarten prüfen dieselben
-// Regeln (guard). Dokumente ohne Kursnummer sind nie betroffen.
+// Ausblenden (E35, Nutzerregel 24.10.2026: alte Kurse kommen nie hinein,
+// nicht erst später ausgeschlossen): Kursdokumente mit Kursnummer außerhalb
+// von A kommen in keinen Schritt der Suche. Der Ausschluss sitzt als
+// Filterbedingung „id NOT IN (…)“ in jeder Anfrage an LanceDB
+// (lance/index.js filteredQueryRows, wie der Metadatenfilter aus KIE-480),
+// also vor Vektor- und Stichwortsuche und vor dem Reranker. Es gibt keine
+// Obergrenze und keinen Rückfall mit nachträglichem Verwerfen: Die Zeilen
+// tragen keine Dokumentspalte (docId steht nur in document_vectors, title
+// und url sind nicht eindeutig je Dokument), deshalb stehen alle
+// Abschnitt-IDs in der Bedingung. Zwei Formen: eine Liste und, falls
+// LanceDB die ablehnt, Blöcke per AND. Lehnt LanceDB beide ab, bringt die
+// Anfrage keine Treffer (fail-closed). Verwaiste Abschnitte (Zeile in der
+// Tabelle, Dokument dem Workspace unbekannt) und Abschnitte von Dokumenten
+// mit unlesbarer Datei werden beim stündlichen Aufbau über ihren Kopfblock
+// geprüft und stehen ebenso in der Bedingung. Angeheftete Dokumente, der
+// Rückgriff über fillSourceWindow und die Kurskarten wählen ihre Dokumente
+// nach denselben Regeln aus (guard), dort wird nicht gesucht. Dokumente
+// ohne Kursnummer sind nie betroffen.
 //
 // Ohne gültigen Wert (fehlt, kein JSON, version ≠ 1, leeres offered, älter
 // als 24 h) oder ohne einen einzigen angebotenen Kurs im Workspace
@@ -58,14 +69,15 @@ const DOC_FILE_MAX_BYTES = 1024 * 1024;
 const READ_CONCURRENCY = 8;
 // Größe der IN-Listen an Datenbank und LanceDB
 const QUERY_BATCH = 500;
-// Höchstzahl Abschnitte im Vorfilter „id NOT IN (…)“; darüber nur der
-// dokumentierte Rückfall (mehr Treffer holen, vor dem Reranker filtern)
-const EXCLUSION_WHERE_MAX_IDS = 5000;
-// Rückfall: so viele Treffer zusätzlich, höchstens
-const FALLBACK_EXTRA_MAX = 500;
-// Vektor-IDs (uuidv4) für die Filterbedingung; andere werden nur nachträglich
-// geprüft, nie in die Anfrage geschrieben
+// Zweite Form des Ausschlusses: Blöcke „id NOT IN (…)“ dieser Größe per AND
+// (ohne Obergrenze für die Zahl der Blöcke)
+const EXCLUSION_BLOCK = 1000;
+// Vektor-IDs (uuidv4) für die Filterbedingung; eine andere ID kommt nie in
+// die Anfrage, dann gilt fail-closed (keine Treffer)
 const VECTOR_ID_RX = /^[A-Za-z0-9_.:-]{1,100}$/;
+// Dokumentdatei nicht lesbar (fehlt, kein JSON): nicht über die Stunde
+// hinaus gemerkt, seine Abschnitte werden über den Kopfblock geprüft
+const UNREADABLE = Symbol("unreadable");
 
 function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -273,16 +285,32 @@ function defaultDeps() {
       if (typeof VectorDb?.existingVectorIds !== "function") return null;
       return await VectorDb.existingVectorIds(slug, ids);
     },
+    // KR-1: Zeilen der Tabelle, die keinem Dokument des Workspace gehören
+    // (verwaist), als [{id, text, title, published}]; null = nicht prüfbar
+    orphanRows: async (slug, knownIds) => {
+      const { getVectorDbClass } = require("../helpers");
+      const VectorDb = getVectorDbClass();
+      if (typeof VectorDb?.orphanRows !== "function") return null;
+      return await VectorDb.orphanRows(slug, knownIds);
+    },
+    // KR-1: Text der Abschnitte zu den IDs, als [{id, text}]; null = nicht
+    // prüfbar
+    rowTexts: async (slug, ids) => {
+      const { getVectorDbClass } = require("../helpers");
+      const VectorDb = getVectorDbClass();
+      if (typeof VectorDb?.rowTexts !== "function") return null;
+      return await VectorDb.rowTexts(slug, ids);
+    },
   };
 }
 
 let deps = defaultDeps();
 // slug -> {raw, builtAt, promise}
 const indexCache = new Map();
-// slug -> Map(docpath -> Kursnummer|null): Dokumentdateien ändern sich nicht
-// (ein neuer Upload bekommt einen neuen docpath), deshalb über die Stunde
-// hinaus gemerkt; Einträge entfallener Dokumente werden beim Neuaufbau
-// entfernt.
+// slug -> Map(docpath -> Kursnummer|null|UNREADABLE): Dokumentdateien
+// ändern sich nicht (ein neuer Upload bekommt einen neuen docpath), deshalb
+// über die Stunde hinaus gemerkt (UNREADABLE nicht); Einträge entfallener
+// Dokumente werden beim Neuaufbau entfernt.
 const docKeyMemo = new Map();
 
 async function mapWithLimit(items, limit, fn) {
@@ -305,7 +333,7 @@ async function documentKeys(slug, documents) {
   const memo = new Map();
   await mapWithLimit(documents, READ_CONCURRENCY, async ({ docpath }) => {
     if (typeof docpath !== "string" || memo.has(docpath)) return;
-    if (previous.has(docpath)) {
+    if (previous.has(docpath) && previous.get(docpath) !== UNREADABLE) {
       memo.set(docpath, previous.get(docpath));
       return;
     }
@@ -313,7 +341,7 @@ async function documentKeys(slug, documents) {
     try {
       key = courseKeyOfText(await deps.readDocumentText(docpath));
     } catch {
-      key = null;
+      key = UNREADABLE;
     }
     memo.set(docpath, key);
   });
@@ -321,10 +349,75 @@ async function documentKeys(slug, documents) {
   return memo;
 }
 
-function exclusionWhere(ids) {
-  const safe = [...ids].filter((id) => VECTOR_ID_RX.test(id));
-  if (safe.length === 0 || safe.length > EXCLUSION_WHERE_MAX_IDS) return null;
-  return `id NOT IN (${safe.map((id) => `'${id}'`).join(",")})`;
+const notIn = (ids) => `id NOT IN (${ids.map((id) => `'${id}'`).join(",")})`;
+
+/**
+ * Bedingungen für den Ausschluss, ohne Obergrenze: [eine Liste, Blöcke per
+ * AND]. Leer, wenn nichts auszuschließen ist; null, wenn eine ID nicht in
+ * die Anfrage darf (dann fail-closed).
+ * @param {Set<string>} ids
+ * @returns {string[]|null}
+ */
+function exclusionClauses(ids) {
+  const list = [...ids].sort();
+  if (list.length === 0) return [];
+  if (!list.every((id) => typeof id === "string" && VECTOR_ID_RX.test(id)))
+    return null;
+  const blocks = [];
+  for (let i = 0; i < list.length; i += EXCLUSION_BLOCK)
+    blocks.push(`(${notIn(list.slice(i, i + EXCLUSION_BLOCK))})`);
+  return [notIn(list), blocks.join(" AND ")];
+}
+
+// Veraltet nach dem eigenen Kopfblock (Kursnummer außerhalb von A)
+function textIsStale(index, text) {
+  const key = courseKeyOfText(text);
+  return key !== null && !index.offered.has(key);
+}
+
+/**
+ * KR-1: Abschnitte, die kein lesbares Dokument des Workspace erklärt, über
+ * ihren Kopfblock prüfen: verwaiste Zeilen (gruppiert über title und
+ * published, die alle Abschnitte eines Uploads teilen) und Abschnitte von
+ * Dokumenten mit unlesbarer Datei (gruppiert über docId). Ergebnis: die
+ * auszuschließenden IDs. Fehler: geloggt, dann ohne diese Prüfung.
+ */
+async function headBlockExclusions(slug, offered, { knownIds, unreadable }) {
+  const out = new Set();
+  const stale = (text) => textIsStale({ offered }, text);
+  try {
+    const orphans = (await deps.orphanRows(slug, knownIds)) || [];
+    const groupOf = (row) =>
+      typeof row.title === "string" && typeof row.published === "string"
+        ? `${row.title}\u0000${row.published}`
+        : null;
+    const staleGroups = new Set();
+    for (const row of orphans)
+      if (stale(row.text)) {
+        out.add(row.id);
+        const group = groupOf(row);
+        if (group !== null) staleGroups.add(group);
+      }
+    for (const row of orphans)
+      if (staleGroups.has(groupOf(row))) out.add(row.id);
+  } catch (error) {
+    console.error(
+      `[courseInventory] verwaiste Abschnitte nicht prüfbar: ${error.message}`
+    );
+  }
+  try {
+    const ids = unreadable.flatMap(({ vectorIds }) => vectorIds);
+    const texts = ids.length > 0 ? (await deps.rowTexts(slug, ids)) || [] : [];
+    const textById = new Map(texts.map((row) => [row.id, row.text]));
+    for (const { vectorIds } of unreadable)
+      if (vectorIds.some((id) => stale(textById.get(id))))
+        for (const id of vectorIds) out.add(id);
+  } catch (error) {
+    console.error(
+      `[courseInventory] Abschnitte unlesbarer Dokumente nicht prüfbar: ${error.message}`
+    );
+  }
+  return out;
 }
 
 /**
@@ -339,12 +432,15 @@ async function buildIndex(slug, inventory) {
   const documents = (await deps.listDocuments(workspaceId)) || [];
   const keys = await documentKeys(slug, documents);
 
-  const courseDocs = documents
-    .map((doc) => ({ ...doc, key: keys.get(doc.docpath) ?? null }))
-    .filter((doc) => doc.key !== null);
+  const withKeys = documents.map((doc) => ({
+    ...doc,
+    key: keys.get(doc.docpath) ?? null,
+  }));
+  const courseDocs = withKeys.filter((doc) => typeof doc.key === "string");
+  // Abschnitte aller Dokumente: welche Zeilen der Tabelle der Workspace kennt
   const vectorsByDoc = new Map();
   for (const { docId, vectorId } of await deps.listVectors(
-    courseDocs.map((doc) => doc.docId)
+    documents.map((doc) => doc.docId)
   )) {
     if (!vectorsByDoc.has(docId)) vectorsByDoc.set(docId, []);
     vectorsByDoc.get(docId).push(vectorId);
@@ -383,6 +479,20 @@ async function buildIndex(slug, inventory) {
   const excludedIds = new Set(
     staleDocs.flatMap((doc) => vectorsByDoc.get(doc.docId) || [])
   );
+  let headBlockIds = new Set();
+  if (anyOffered) {
+    const knownIds = new Set();
+    for (const ids of vectorsByDoc.values())
+      for (const id of ids) knownIds.add(id);
+    headBlockIds = await headBlockExclusions(slug, offered, {
+      knownIds,
+      unreadable: withKeys
+        .filter((doc) => doc.key === UNREADABLE)
+        .map((doc) => ({ vectorIds: vectorsByDoc.get(doc.docId) || [] }))
+        .filter(({ vectorIds }) => vectorIds.length > 0),
+    });
+    for (const id of headBlockIds) excludedIds.add(id);
+  }
   return {
     slug,
     raw: inventory.raw,
@@ -398,8 +508,9 @@ async function buildIndex(slug, inventory) {
       missing: [...offered].filter((key) => !known.has(key)).length,
     },
     staleDocCount: staleDocs.length,
+    headBlockCount: headBlockIds.size,
     excludedIds,
-    where: exclusionWhere(excludedIds),
+    clauses: exclusionClauses(excludedIds),
   };
 }
 
@@ -451,31 +562,26 @@ function rowIsStale(index, row) {
   return key !== null && !index.offered.has(key);
 }
 
-function textIsStale(index, text) {
-  const key = courseKeyOfText(text);
-  return key !== null && !index.offered.has(key);
-}
-
 /**
- * Ausschluss für eine Suche im Vektorspeicher (lance/index.js): where =
- * Filterbedingung „id NOT IN (…)“ (null, wenn nichts auszuschließen ist
- * oder die Liste zu lang ist), hides(row) für den Rückfall und für
- * Abschnitte, die nur ihr Kopfblock verrät; extra = zusätzliche Treffer im
- * Rückfall. stats zählt je Suche. null: nichts auszublenden (kein gültiger
- * Wert, Workspace ohne angebotene Kurse). Wirft nie.
+ * Ausschluss für eine Suche im Vektorspeicher (lance/index.js): clauses =
+ * die Formen der Filterbedingung („id NOT IN (…)“ als eine Liste, dann als
+ * Blöcke per AND), in jeder Anfrage, ohne Obergrenze. clauses leer heißt
+ * fail-closed: keine Treffer (eine ID darf nicht in die Anfrage). stats
+ * zählt je Suche die Anfragen ohne Treffer, weil LanceDB jede Form
+ * abgelehnt hat. null: nichts auszublenden (kein gültiger Wert, Workspace
+ * ohne angebotene Kurse, kein veralteter Abschnitt). Wirft nie.
  * @param {string} namespace
- * @returns {Promise<{where: string|null, hides: (row: object) => boolean, extra: number, staleDocs: number, stats: {dropped: number}}|null>}
+ * @returns {Promise<{clauses: string[], excludedIds: number, staleDocs: number, headBlockIds: number, stats: {failClosed: number}}|null>}
  */
 async function courseSearchExclusion(namespace) {
   const index = await workspaceInventory(namespace);
-  if (!index?.active) return null;
+  if (!index?.active || index.excludedIds.size === 0) return null;
   return {
-    where: index.where,
-    hides: (row) => rowIsStale(index, row),
-    extra: Math.min(index.excludedIds.size, FALLBACK_EXTRA_MAX),
+    clauses: index.clauses || [],
     excludedIds: index.excludedIds.size,
     staleDocs: index.staleDocCount,
-    stats: { dropped: 0 },
+    headBlockIds: index.headBlockCount,
+    stats: { failClosed: 0 },
   };
 }
 
@@ -562,7 +668,7 @@ module.exports = {
     INVENTORY_MAX_BYTES,
     INVENTORY_MAX_AGE_MS,
     INDEX_MAX_AGE_MS,
-    EXCLUSION_WHERE_MAX_IDS,
+    EXCLUSION_BLOCK,
     courseKey,
     courseKeyOfText,
     readCourseInventory,

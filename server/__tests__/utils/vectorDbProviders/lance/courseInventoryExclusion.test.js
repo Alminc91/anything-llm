@@ -6,6 +6,9 @@
  * der Reranker (Testdouble) bekommen nachweislich kein altes Kursdokument,
  * die Zahl der Quellen bleibt gleich, Dokumente ohne Kursnummer bleiben.
  * Ohne gültigen Kursbestand ist das Ergebnis gleich wie vorher (NAK-K1).
+ * KR-1: kein Rückfall mit nachträglichem Verwerfen, auch nicht bei über
+ * 5.000 Abschnitten, bei verwaisten Abschnitten oder bei abgelehnter
+ * Bedingung (dann fail-closed).
  * Gegen eine echte, temporäre LanceDB-Tabelle wie selectionPaths.test.js.
  */
 const fs = require("fs");
@@ -104,6 +107,75 @@ const ROWS = [
 const STALE = new Set(["alt1", "alt1b", "alt2"]);
 const OFFERED = ["262-100", "262-101", "262-102", "262-103", "262-104"];
 
+// KR-1: über 5.000 Abschnitte eines veralteten Kurses, alle dem Suchvektor
+// am nächsten; dazu angebotene Kurse und eine Seite ohne Kursnummer
+const NS_BIG = "kursbestand_gross";
+const BIG_STALE = 6200;
+const BIG_ROWS = [
+  ...Array.from({ length: BIG_STALE }, (_, i) => ({
+    id: `viel-${i}`,
+    doc: "d-viel",
+    title: i === 0 ? "Yoga viel" : undefined,
+    number: i === 0 ? "262-950" : undefined,
+    text: i === 0 ? undefined : `${QUERY} Folgeabschnitt viel ${i}`,
+    v: [1, 0.00001 * i, 0, 0],
+  })),
+  ...ROWS.filter((r) => !STALE.has(r.id)),
+].map((r) => ({ ...r, text: r.text ?? header(r.number, r.title) }));
+
+// KR-1: verwaiste Abschnitte (in der Tabelle, Dokument dem Workspace
+// unbekannt): ein veralteter Kurs mit Folgeabschnitt desselben Uploads, ein
+// angebotener Kurs und eine Seite ohne Kursnummer
+const NS_ORPHAN = "kursbestand_verwaist";
+const ORPHAN_ROWS = [
+  {
+    id: "waise1",
+    orphan: true,
+    title: "Yoga verwaist",
+    number: "262-960",
+    published: "1.10.2026, 08:00:00",
+    v: [1, 0, 0, 0],
+  },
+  {
+    id: "waise1b",
+    orphan: true,
+    title: "Yoga verwaist",
+    text: `${QUERY} Folgeabschnitt verwaist`,
+    published: "1.10.2026, 08:00:00",
+    v: [1, 0.001, 0, 0],
+  },
+  {
+    id: "waise2",
+    orphan: true,
+    title: "Yoga angeboten verwaist",
+    number: "262-100",
+    published: "2.10.2026, 08:00:00",
+    v: [1, 0.002, 0, 0],
+  },
+  ...ROWS.filter((r) => !STALE.has(r.id) && r.id !== "k1"),
+].map((r) => ({ ...r, text: r.text ?? header(r.number, r.title) }));
+const ORPHAN_STALE = new Set(["waise1", "waise1b"]);
+
+// fail-closed: eine Abschnitt-ID, die nie in die Anfrage darf
+const NS_BAD = "kursbestand_fremd";
+const BAD_ROWS = [
+  {
+    id: "alt'fremd",
+    doc: "d-fremd",
+    title: "Yoga fremd",
+    number: "262-970",
+    v: [1, 0, 0, 0],
+  },
+  ...ROWS.filter((r) => !STALE.has(r.id)),
+].map((r) => ({ ...r, text: r.text ?? header(r.number, r.title) }));
+
+const WORKSPACES = {
+  [NS]: ROWS,
+  [NS_BIG]: BIG_ROWS,
+  [NS_ORPHAN]: ORPHAN_ROWS,
+  [NS_BAD]: BAD_ROWS,
+};
+
 const lance = new LanceDb();
 const mockLLM = { embedTextInput: async () => QUERY_VECTOR };
 
@@ -123,28 +195,41 @@ function useInventory(on) {
   );
 }
 
+// Dokument-IDs je Workspace eindeutig (Präfix), verwaiste Zeilen ohne
+// Dokument
+const docOf = (ns, row) => (row.orphan ? null : `${ns}/${row.doc}`);
+const slugs = Object.keys(WORKSPACES);
+
 function installWorkspace() {
-  const docs = [...new Set(ROWS.map((r) => r.doc))];
+  const known = Object.entries(WORKSPACES).flatMap(([ns, rows]) =>
+    rows
+      .filter((r) => !r.orphan)
+      .map((r) => ({ ns, docId: docOf(ns, r), row: r }))
+  );
   inventory.setDeps({
-    findWorkspaceId: async (slug) => (slug === NS ? 1 : null),
-    listDocuments: async () =>
-      docs.map((doc) => ({
-        docId: doc,
-        docpath: `custom-documents/${doc}.json`,
-      })),
+    findWorkspaceId: async (slug) =>
+      slugs.includes(slug) ? slugs.indexOf(slug) + 1 : null,
+    listDocuments: async (workspaceId) => {
+      const ns = slugs[workspaceId - 1];
+      return [
+        ...new Set(known.filter((k) => k.ns === ns).map((k) => k.docId)),
+      ].map((docId) => ({
+        docId,
+        docpath: `custom-documents/${encodeURIComponent(docId)}.json`,
+      }));
+    },
     listVectors: async (docIds) =>
-      ROWS.filter((r) => docIds.includes(r.doc)).map((r) => ({
-        docId: r.doc,
-        vectorId: r.id,
-      })),
+      known
+        .filter((k) => docIds.includes(k.docId))
+        .map((k) => ({ docId: k.docId, vectorId: k.row.id })),
     readDocumentText: async (docpath) => {
-      const doc = path.basename(docpath, ".json");
-      return (
-        ROWS.find((r) => r.doc === doc && r.number)?.text ??
-        ROWS.find((r) => r.doc === doc).text
-      );
+      const docId = decodeURIComponent(path.basename(docpath, ".json"));
+      const rows = known.filter((k) => k.docId === docId).map((k) => k.row);
+      return (rows.find((r) => r.number) ?? rows[0]).text;
     },
     existingVectorIds: (slug, ids) => lance.existingVectorIds(slug, ids),
+    orphanRows: (slug, knownIds) => lance.orphanRows(slug, knownIds),
+    rowTexts: (slug, ids) => lance.rowTexts(slug, ids),
   });
 }
 
@@ -168,18 +253,21 @@ const ids = (result) => result.sources.map((s) => s.id);
 
 beforeAll(async () => {
   const { client } = await lance.connect();
-  await client.dropTable(NS).catch(() => {});
-  await lance.updateOrCreateCollection(
-    client,
-    ROWS.map(({ id, title, text, v }) => ({
-      id,
-      title: `${title ?? id}.txt`,
-      text,
-      vector: v,
-    })),
-    NS
-  );
-}, 60000);
+  for (const [ns, rows] of Object.entries(WORKSPACES)) {
+    await client.dropTable(ns).catch(() => {});
+    await lance.updateOrCreateCollection(
+      client,
+      rows.map(({ id, title, text, v, published }) => ({
+        id,
+        title: `${title ?? id}.txt`,
+        published: published ?? "24.10.2026, 08:00:00",
+        text,
+        vector: v,
+      })),
+      ns
+    );
+  }
+}, 120000);
 
 afterAll(() => {
   fs.rmSync(process.env.STORAGE_DIR, { recursive: true, force: true });
@@ -246,8 +334,66 @@ test("Stichwortsuche (BM25) und Vektorarm tragen den Ausschluss selbst", async (
   expect(arms.ftsRows.filter((r) => STALE.has(r.id))).toEqual([]);
   expect(arms.vectorRows.filter((r) => STALE.has(r.id))).toEqual([]);
   expect(arms.vectorRows.length).toBe(ROWS.length - STALE.size);
-  // der Vorfilter hat gewirkt: nichts musste nachträglich verworfen werden
-  expect(exclusion.stats.dropped).toBe(0);
+  // die Bedingung stand in der Anfrage, keine Anfrage ohne Treffer
+  expect(exclusion.stats.failClosed).toBe(0);
+});
+
+const staleIn = (rows, stale) =>
+  rows.map((r) => r.id).filter((id) => stale.has(id));
+
+describe.each(MODES)("KR-1, Modus %s", (mode) => {
+  const run = (namespace) =>
+    lance.performSimilaritySearch({
+      namespace,
+      input: QUERY,
+      LLMConnector: mockLLM,
+      topN: 4,
+      similarityThreshold: 0,
+      searchMode: mode,
+    });
+  const rerankCandidates = () =>
+    mockRerank.mock.calls.flatMap(([, docs]) => docs);
+
+  test("über 5.000 Abschnitte: alle in der Anfrage ausgeschlossen, Reranker ohne altes Dokument", async () => {
+    useInventory(true);
+    const bigStale = new Set(
+      BIG_ROWS.filter((r) => r.doc === "d-viel").map((r) => r.id)
+    );
+    expect(bigStale.size).toBeGreaterThan(5000);
+    const result = await run(NS_BIG);
+    expect(result.sources).toHaveLength(4);
+    expect(staleIn(result.sources, bigStale)).toEqual([]);
+    expect(staleIn(rerankCandidates(), bigStale)).toEqual([]);
+    if (mode.includes("rerank")) expect(mockRerank).toHaveBeenCalled();
+  });
+
+  test("verwaiste Abschnitte: veralteter Kurs samt Folgeabschnitt ausgeschlossen, angebotener bleibt", async () => {
+    useInventory(true);
+    const result = await lance.performSimilaritySearch({
+      namespace: NS_ORPHAN,
+      input: QUERY,
+      LLMConnector: mockLLM,
+      topN: 6,
+      similarityThreshold: 0,
+      searchMode: mode,
+    });
+    expect(staleIn(result.sources, ORPHAN_STALE)).toEqual([]);
+    expect(staleIn(rerankCandidates(), ORPHAN_STALE)).toEqual([]);
+    expect(result.sources.map((s) => s.id)).toContain("waise2");
+    expect(result.sources).toHaveLength(6);
+  });
+
+  test("Bedingung nicht möglich: fail-closed, keine Treffer, Reranker ohne altes Dokument, Fehler geloggt", async () => {
+    useInventory(true);
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const result = await run(NS_BAD);
+    expect(result.sources).toEqual([]);
+    expect(staleIn(rerankCandidates(), new Set(["alt'fremd"]))).toEqual([]);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("Suche ohne Treffer")
+    );
+    error.mockRestore();
+  });
 });
 
 test("Dokument ohne Kursnummer bleibt, auch wenn veraltete Kurse ausgeschlossen sind", async () => {
@@ -297,7 +443,7 @@ test("AK-K9: existingVectorIds findet die Zeilen der Tabelle, fehlende Tabelle -
   expect((await lance.existingVectorIds("keine_tabelle", ["k1"])).size).toBe(0);
 });
 
-describe("filteredQueryRows: Bedingung, Rückfall (dokumentiert)", () => {
+describe("filteredQueryRows: Bedingung in der Anfrage, ohne Rückfall (KR-1)", () => {
   // Abfrage-Attrappe: zeichnet Bedingung und Grenze auf, scheitert auf Wunsch
   const fakeQuery =
     (rows, fails = () => false, log = []) =>
@@ -322,11 +468,10 @@ describe("filteredQueryRows: Bedingung, Rückfall (dokumentiert)", () => {
     { id: "k2", text: "c" },
     { id: "k3", text: "d" },
   ];
-  const exclusion = (where = "id NOT IN ('alt')") => ({
-    where,
-    hides: (row) => row.id === "alt",
-    extra: 1,
-    stats: { dropped: 0 },
+  const FORMS = ["id NOT IN ('alt')", "(id NOT IN ('alt'))"];
+  const exclusion = (clauses = FORMS) => ({
+    clauses,
+    stats: { failClosed: 0 },
   });
 
   test("Metadatenfilter und Ausschluss per AND in einer Anfrage", async () => {
@@ -357,20 +502,74 @@ describe("filteredQueryRows: Bedingung, Rückfall (dokumentiert)", () => {
     ]);
   });
 
-  test("Ausschluss nicht als Bedingung möglich: mehr Treffer, veraltete vor dem Reranker verworfen, Anzahl gleich", async () => {
+  test("erste Form abgelehnt: einmal die zweite Form, Ergebnis unverändert übernommen", async () => {
     const log = [];
-    const ex = exclusion(null);
     const result = await lance.filteredQueryRows(
-      fakeQuery(rows, () => false, log),
+      fakeQuery(rows, (c) => c === FORMS[0], log),
       null,
-      {
-        limit: 2,
-        exclusion: ex,
-      }
+      { limit: 2, exclusion: exclusion() }
     );
-    expect(log).toEqual([{ clause: null, limit: 3 }]);
-    expect(result.map((r) => r.id)).toEqual(["k1", "k2"]);
-    expect(ex.stats.dropped).toBe(1);
+    expect(log).toEqual([
+      { clause: FORMS[0], limit: 2 },
+      { clause: FORMS[1], limit: 2 },
+    ]);
+    // Attrappe liefert ungefiltert: es wird nichts nachträglich verworfen
+    expect(result.map((r) => r.id)).toEqual(["alt", "k1"]);
+  });
+
+  test("mit Metadatenfilter: erst mit, dann ohne Filter, je Form", async () => {
+    const log = [];
+    await lance.filteredQueryRows(
+      fakeQuery(rows, (c) => c.includes(FORMS[0]) && !c.includes("(("), log),
+      "price < 10",
+      { limit: 2, exclusion: exclusion() }
+    );
+    expect(log.map((l) => l.clause)).toEqual([
+      `(price < 10) AND (${FORMS[0]})`,
+      FORMS[0],
+      `(price < 10) AND (${FORMS[1]})`,
+    ]);
+  });
+
+  test("beide Formen abgelehnt: fail-closed, keine Treffer, nie eine Anfrage ohne Bedingung", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const log = [];
+    const ex = exclusion();
+    const result = await lance.filteredQueryRows(
+      fakeQuery(rows, () => true, log),
+      "price < 10",
+      { limit: 2, exclusion: ex }
+    );
+    expect(result).toEqual([]);
+    expect(log).toHaveLength(4);
+    expect(log.every((l) => l.clause && l.clause.includes("NOT IN"))).toBe(
+      true
+    );
+    expect(log.every((l) => l.limit === 2)).toBe(true);
+    expect(ex.stats.failClosed).toBe(1);
+    expect(error).toHaveBeenCalledWith(
+      "[courseInventory] Ausschluss veralteter Kurse nicht in der Anfrage möglich (4 Bedingungen abgelehnt), Suche ohne Treffer."
+    );
+    error.mockRestore();
+  });
+
+  test("keine zulässige Form (unzulässige ID): fail-closed ohne Anfrage", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const log = [];
+    const ex = exclusion([]);
+    expect(
+      await lance.filteredQueryRows(
+        fakeQuery(rows, () => false, log),
+        null,
+        {
+          limit: 2,
+          exclusion: ex,
+        }
+      )
+    ).toEqual([]);
+    expect(log).toEqual([]);
+    expect(ex.stats.failClosed).toBe(1);
+    error.mockRestore();
   });
 
   test("ohne Ausschluss genau wie bisher (KIE-480: Fehler -> ungefiltert)", async () => {
