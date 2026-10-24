@@ -224,6 +224,14 @@ function useOnSignatureChange(signature, onChange) {
   }, [signature]);
 }
 
+// Signatur erst, wenn die Standardtexte da sind oder nicht mehr kommen
+// (Ladefehler, F42 Fixliste 7.22-rc16: sonst bliebe sie immer null und
+// nichts käme ins Bild), vorher null (useOnSignatureChange). Eine Regel für
+// alle Signaturen der Vorschau (C4, Fixliste datenschutz-fusszeile rc3).
+function loadedSignature(defaults, defaultsError, signature) {
+  return defaults || defaultsError ? signature : null;
+}
+
 // Block nach einer Änderung seines Inhalts ins Bild holen; sonst bleibt der
 // Verlauf, wo er beim Öffnen stand (oben)
 function useRevealOnChange(ref, signature) {
@@ -382,14 +390,7 @@ export default function WidgetPreview({
 // höher (mindestens 60 px); der Button rechts bleibt frei (gap-3, 12 px),
 // wie im Widget (N3, Nutzerentscheidung 20.10.2026, Fixliste 7.22-rc13:
 // „Es muss immer ausgeschrieben sein“; ersetzt die Ellipse aus rc10 W1).
-function PreviewHeader({
-  config,
-  logoPreview,
-  defaults,
-  palette,
-  action,
-  covered = false,
-}) {
+function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
   const name =
     textValue(config.name).trim() || textValue(defaults?.name) || "KI-Berater";
   // Untertitel wie das Widget (R5): ohne gespeicherten Wert der Standard,
@@ -400,7 +401,6 @@ function PreviewHeader({
       className="flex items-center gap-3 px-4 py-2.5 min-h-[60px] flex-shrink-0"
       style={{ borderBottom: `1px solid ${palette.line}` }}
       data-preview="header"
-      {...coveredProps(covered)}
     >
       <img
         src={logoPreview || DEFAULT_LOGO}
@@ -647,10 +647,8 @@ export function PreviewWelcome({
   // Verlauf woanders steht (Datenschutz: usePrivacyWindow öffnet das Fenster)
   const greetingRef = useRef(null);
   const pillsRef = useRef(null);
-  // Signaturen erst, wenn die Standardtexte da sind oder nicht mehr kommen
-  // (Ladefehler, F42 Fixliste 7.22-rc16: sonst blieben sie immer null und
-  // nichts käme ins Bild)
-  const loaded = (signature) => (defaults || defaultsError ? signature : null);
+  const loaded = (signature) =>
+    loadedSignature(defaults, defaultsError, signature);
   useRevealOnChange(greetingRef, loaded(greeting));
   // getrimmt wie gespeichert (cleanConfig): Speichern ist keine Bearbeitung,
   // die Vorschau springt danach nicht zu den Pillen (F43 Fixliste 7.22-rc16)
@@ -783,24 +781,28 @@ export const PREVIEW_PRIVACY_DIALOG_COLORS = Object.freeze({
   dark: Object.freeze({ text: "#F4F2EF", bg: "#2A2A2F", line: "#787B82" }),
 });
 
+// Zustand des Datenschutz-Fensters der Vorschau. Es ist nie modal (R3-D1,
+// Fixliste rc3); focus heißt nur „Fokus beim Öffnen auf die Überschrift“.
 const PRIVACY_CLOSED = Object.freeze({ isOpen: false, focus: false });
-// beim Bearbeiten geöffnet bzw. offen gehalten: nie modal, der Fokus bleibt
-// im Feld (F-2)
-const PRIVACY_EDITING = Object.freeze({ isOpen: true, focus: false });
-// per Link geöffnet: modal, Fokus auf der Überschrift
+// beim Bearbeiten geöffnet: der Fokus bleibt im Feld (E3)
+const PRIVACY_SHOWN = Object.freeze({ isOpen: true, focus: false });
+// per Link geöffnet: Fokus auf der Überschrift
 const PRIVACY_CLICKED = Object.freeze({ isOpen: true, focus: true });
 
 /**
- * Datenschutz-Fenster der Vorschau offen oder zu (AK-9). Klick auf den Link
- * öffnet es modal und setzt den Fokus hinein; Schließen setzt den Fokus
- * zurück auf den Link (erst wenn das Fenster zu ist: solange es offen ist,
- * sind Link und Kopf inert). Ändert sich der Inhalt (Überschrift, Text oder
- * Link im Reiter Inhalt), öffnet es sich ohne Fokuswechsel und ohne
- * aria-modal, damit die Änderung zu sehen ist (wie F10 bei der Begrüßung);
- * ein schon offenes Fenster ist ab dann ebenfalls nicht mehr modal (F-2).
- * onReveal öffnet dazu den Chat. Ändert sich irgendetwas anderes (Begrüßung,
- * Startvorschläge, Beispielantwort, Optik), schließt das Fenster, damit die
- * Änderung nicht dahinter verborgen bleibt (F-4, F10).
+ * Datenschutz-Fenster der Vorschau offen oder zu (AK-9), nie modal (R3-D1,
+ * Fixliste rc3: kein aria-modal, keine Tab-Falle; bis rc3 nach einem Klick
+ * modal, beim Bearbeiten nicht, und jede Runde fand einen neuen Wechsel
+ * zwischen beiden). Klick auf den Link öffnet es und setzt den Fokus auf
+ * die Überschrift. Schließen (Button, Symbol, Esc) gibt den Fokus an den
+ * Link zurück, wenn er im Fenster lag (close(true); erst wenn das Fenster
+ * zu ist: solange es offen ist, sind Link und Kopf inert). Ändert sich der
+ * Inhalt (Überschrift, Text oder Link im Reiter Inhalt), öffnet es sich
+ * ohne Fokuswechsel, damit die Änderung zu sehen ist (E3, wie F10 bei der
+ * Begrüßung); onReveal öffnet dazu den Chat. Ändert sich irgendetwas anderes
+ * (Begrüßung, Startvorschläge, Beispielantwort, Optik), schließt das
+ * Fenster, damit die Änderung nicht dahinter verborgen bleibt (F-4, F10).
+ * Rückweg zu modal: aria-modal und Tab-Falle an focusOnOpen hängen.
  * @param {{signature: string|null, others: string, onReveal?: () => void}} args
  *   signature: Inhalt des Fensters (privacySignature), others: alle übrigen
  *   Einstellungen (othersSignature)
@@ -816,7 +818,7 @@ function usePrivacyWindow({ signature, others, onReveal }) {
     setState(PRIVACY_CLOSED);
   });
   useOnSignatureChange(signature, () => {
-    setState(PRIVACY_EDITING);
+    setState(PRIVACY_SHOWN);
     onReveal?.();
   });
   useLayoutEffect(() => {
@@ -828,8 +830,9 @@ function usePrivacyWindow({ signature, others, onReveal }) {
     ...state,
     linkRef,
     show: () => setState(PRIVACY_CLICKED),
-    close: () => {
-      restoreFocus.current = true;
+    // focusInside: der Fokus lag beim Schließen im Fenster
+    close: (focusInside) => {
+      restoreFocus.current = !!focusInside;
       setState(PRIVACY_CLOSED);
     },
     // beim Schließen bzw. Einklappen des Chats, ohne Fokuswechsel
@@ -842,9 +845,12 @@ function usePrivacyWindow({ signature, others, onReveal }) {
 
 // Signatur des Fensterinhalts für usePrivacyWindow
 function privacySignature(config, defaults, defaultsError) {
-  if (!defaults && !defaultsError) return null;
   const { title, blocks, url } = previewPrivacy(config, defaults);
-  return JSON.stringify([title, blocks, url]);
+  return loadedSignature(
+    defaults,
+    defaultsError,
+    JSON.stringify([title, blocks, url])
+  );
 }
 
 // Signatur aller übrigen Einstellungen (alles außer Überschrift, Text und
@@ -859,10 +865,19 @@ function othersSignature(config) {
   );
 }
 
-// Teile des Chats unter dem offenen Datenschutz-Fenster: weder per Tab noch
-// per Maus oder Screenreader erreichbar (F-3). React 18 kennt inert nicht
-// als Schalter: der leere Text setzt das Attribut (ab React 19 inert={true}).
-const coveredProps = (covered) => (covered ? { inert: "" } : {});
+// Hülle um Kopf, Verlauf und Eingabe, je Darstellung eine (C6, Fixliste
+// rc3): Unter dem offenen Datenschutz-Fenster ist alles darin weder per Tab
+// noch per Maus oder Screenreader erreichbar (F-3). display: contents, die
+// Teile bleiben im Flex-Layout des Panels; inert wirkt trotzdem auf alles
+// darin. React 18 kennt inert nicht als Schalter: der leere Text setzt das
+// Attribut (ab React 19 inert={true}).
+function PrivacyCovered({ covered, children }) {
+  return (
+    <div className="contents" {...(covered ? { inert: "" } : {})}>
+      {children}
+    </div>
+  );
+}
 
 // Abstände des Datenschutz-Fensters: im Chatfenster wie die Blasen, im Panel
 // „In der Seite“ weiter innen wegen der Rundung von 40 px. Dort ist die
@@ -898,15 +913,18 @@ const PRIVACY_DIALOG_INSETS = {
  * Widgets (PREVIEW_PRIVACY_DIALOG_COLORS; R1-D1 im Widget: keine Variable
  * der Seite wirkt darauf), Rundung des Panels; Link zur Datenschutzerklärung und alle Fokusrahmen in der
  * Linkfarbe (previewPrivacyLinkColor). Kopf, Verlauf und Eingabe darunter
- * sind inert (coveredProps).
- * role="dialog", aria-labelledby auf die Überschrift; nach einem Klick auf
- * den Link aria-modal und Fokus auf der Überschrift, Tab-Reihenfolge Text,
- * Schließen, Schließen-Symbol, Tab bleibt im Fenster; Esc schließt. Öffnet
- * es sich beim Bearbeiten eines Felds (focusOnOpen false), bleibt der Fokus
- * im Feld und das Fenster ohne aria-modal: Das Design Center daneben bleibt
- * für Screenreader erreichbar. Der Link
- * zur Datenschutzerklärung ist in der Vorschau nicht bedienbar (ein Pfad
- * wie /datenschutz gehört zur Seite des Kunden, nicht zum Design Center).
+ * sind inert (PrivacyCovered).
+ * role="dialog", aria-labelledby auf die Überschrift, nie aria-modal und
+ * keine Tab-Falle (R3-D1, Fixliste rc3): Das Design Center daneben bleibt
+ * für Tastatur und Screenreader erreichbar, Tab läuft nach dem
+ * Schließen-Symbol normal weiter. Im Widget bleibt das Fenster modal (AK-5).
+ * Nach einem Klick auf den Link (focusOnOpen) liegt der Fokus auf der
+ * Überschrift, Tab-Reihenfolge Text, Schließen, Schließen-Symbol; öffnet es
+ * sich beim Bearbeiten eines Felds, bleibt der Fokus im Feld (E3). Esc
+ * schließt. onClose(focusInside): ob der Fokus beim Schließen im Fenster
+ * lag. Der Link zur Datenschutzerklärung ist in der Vorschau nicht
+ * bedienbar (ein Pfad wie /datenschutz gehört zur Seite des Kunden, nicht
+ * zum Design Center).
  */
 function PreviewPrivacyDialog({
   config,
@@ -919,37 +937,26 @@ function PreviewPrivacyDialog({
   const titleId = useId();
   const dialogRef = useRef(null);
   const headingRef = useRef(null);
-  const bodyRef = useRef(null);
-  const iconRef = useRef(null);
   const privacy = previewPrivacy(config, defaults);
   const inset = PRIVACY_DIALOG_INSETS[inline ? "inline" : "bubble"];
   const colors = PREVIEW_PRIVACY_DIALOG_COLORS[palette.scheme];
   const line = `1px solid ${colors.line}`;
   const link = previewPrivacyLinkColor(config, palette);
-  // beim Öffnen per Link und wenn ein beim Bearbeiten geöffnetes Fenster
-  // per Link modal wird (F-3)
+  // beim Öffnen per Link und wenn der Link ein beim Bearbeiten geöffnetes
+  // Fenster bedient (F-3)
   useLayoutEffect(() => {
     if (focusOnOpen) headingRef.current?.focus();
   }, [focusOnOpen]);
+  const close = () => {
+    const dialog = dialogRef.current;
+    onClose(!!dialog?.contains(dialog.ownerDocument.activeElement));
+  };
+  // nur Esc; Tab bewegt der Browser (keine Tab-Falle, R3-D1)
   const onKeyDown = (e) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      onClose();
-      return;
-    }
-    if (e.key !== "Tab") return;
-    // Tab-Falle: Text, Schließen, Schließen-Symbol, dann wieder der Text
-    const active = dialogRef.current?.ownerDocument?.activeElement;
-    const first = bodyRef.current;
-    const last = iconRef.current;
-    if (e.shiftKey && (active === first || active === headingRef.current)) {
-      e.preventDefault();
-      last?.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first?.focus();
-    }
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
   };
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
@@ -957,7 +964,6 @@ function PreviewPrivacyDialog({
     <div
       ref={dialogRef}
       role="dialog"
-      aria-modal={focusOnOpen ? "true" : undefined}
       aria-labelledby={titleId}
       onKeyDown={onKeyDown}
       className="absolute inset-0 z-20 flex flex-col"
@@ -978,7 +984,6 @@ function PreviewPrivacyDialog({
         </h3>
       </div>
       <div
-        ref={bodyRef}
         tabIndex={0}
         className={`flex-1 min-h-0 overflow-y-auto preview-scrollbar ${inset.x} py-3 text-[12.5px] leading-relaxed focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 ${BREAK}`}
         style={{ ...scrollbarStyle(palette), outlineColor: link }}
@@ -1027,7 +1032,7 @@ function PreviewPrivacyDialog({
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={close}
           className={`h-10 px-5 rounded-xl text-[13px] font-semibold ${focusRing}`}
           style={{
             backgroundColor: previewAccentColor(config),
@@ -1040,8 +1045,7 @@ function PreviewPrivacyDialog({
       </div>
       <button
         type="button"
-        ref={iconRef}
-        onClick={onClose}
+        onClick={close}
         aria-label={PRIVACY_CLOSE_LABEL}
         title={PRIVACY_CLOSE_LABEL}
         className={`absolute ${PRIVACY_CLOSE_TOP} ${inset.close} w-8 h-8 rounded-lg flex items-center justify-center ${focusRing}`}
@@ -1068,11 +1072,7 @@ function PreviewInput({
   const { disclaimer, linkText } = privacyFixedTexts(defaults);
   const link = previewPrivacyLinkColor(config, palette);
   return (
-    <div
-      className="px-4 pb-2.5 pt-1 flex-shrink-0"
-      data-preview="input"
-      {...coveredProps(privacyOpen)}
-    >
+    <div className="px-4 pb-2.5 pt-1 flex-shrink-0" data-preview="input">
       <div
         className="flex items-center w-full rounded-2xl"
         style={{
@@ -1193,46 +1193,46 @@ function BubblePreview({
             }}
             data-preview="chat-panel"
           >
-            <PreviewHeader
-              config={config}
-              logoPreview={logoPreview}
-              defaults={defaults}
-              palette={palette}
-              covered={privacyWindow.isOpen}
-              action={
-                <button
-                  type="button"
-                  onClick={() => setChatOpen(false)}
-                  aria-label="Chat schließen"
-                  style={{ color: palette.muted }}
-                >
-                  <X size={18} weight="bold" />
-                </button>
-              }
-            />
-            <div
-              ref={messagesRef}
-              className="flex-1 min-h-0 overflow-y-auto preview-scrollbar px-4 py-4"
-              style={scrollbarStyle(palette)}
-              data-preview="chat-messages"
-              {...coveredProps(privacyWindow.isOpen)}
-            >
-              <PreviewWelcome
+            <PrivacyCovered covered={privacyWindow.isOpen}>
+              <PreviewHeader
+                config={config}
+                logoPreview={logoPreview}
+                defaults={defaults}
+                palette={palette}
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setChatOpen(false)}
+                    aria-label="Chat schließen"
+                    style={{ color: palette.muted }}
+                  >
+                    <X size={18} weight="bold" />
+                  </button>
+                }
+              />
+              <div
+                ref={messagesRef}
+                className="flex-1 min-h-0 overflow-y-auto preview-scrollbar px-4 py-4"
+                style={scrollbarStyle(palette)}
+                data-preview="chat-messages"
+              >
+                <PreviewWelcome
+                  config={config}
+                  defaults={defaults}
+                  defaultsError={defaultsError}
+                  greetingKey={greetingKey}
+                  palette={palette}
+                />
+              </div>
+              <PreviewInput
                 config={config}
                 defaults={defaults}
-                defaultsError={defaultsError}
-                greetingKey={greetingKey}
                 palette={palette}
+                privacyLinkRef={privacyWindow.linkRef}
+                privacyOpen={privacyWindow.isOpen}
+                onOpenPrivacy={privacyWindow.show}
               />
-            </div>
-            <PreviewInput
-              config={config}
-              defaults={defaults}
-              palette={palette}
-              privacyLinkRef={privacyWindow.linkRef}
-              privacyOpen={privacyWindow.isOpen}
-              onOpenPrivacy={privacyWindow.show}
-            />
+            </PrivacyCovered>
             {privacyWindow.isOpen && (
               <PreviewPrivacyDialog
                 config={config}
@@ -1388,50 +1388,50 @@ function InlinePreview({
             }}
             data-preview="inline-panel"
           >
-            <div className="px-3 pt-2 flex-shrink-0">
-              <PreviewHeader
-                config={config}
-                logoPreview={logoPreview}
-                defaults={defaults}
-                palette={palette}
-                covered={privacyWindow.isOpen}
-                action={
-                  <button
-                    type="button"
-                    onClick={() => setPanelExpanded(false)}
-                    aria-label="Einklappen"
-                    style={{ color: palette.muted }}
-                  >
-                    <CaretUp size={18} weight="bold" />
-                  </button>
-                }
-              />
-            </div>
-            <div
-              ref={messagesRef}
-              className="flex-1 min-h-0 overflow-y-auto preview-scrollbar px-6 py-4"
-              style={scrollbarStyle(palette)}
-              data-preview="inline-messages"
-              {...coveredProps(privacyWindow.isOpen)}
-            >
-              <PreviewWelcome
-                config={config}
-                defaults={defaults}
-                defaultsError={defaultsError}
-                greetingKey={greetingKey}
-                palette={palette}
-              />
-            </div>
-            <div className="px-3 pb-2 flex-shrink-0">
-              <PreviewInput
-                config={config}
-                defaults={defaults}
-                palette={palette}
-                privacyLinkRef={privacyWindow.linkRef}
-                privacyOpen={privacyWindow.isOpen}
-                onOpenPrivacy={privacyWindow.show}
-              />
-            </div>
+            <PrivacyCovered covered={privacyWindow.isOpen}>
+              <div className="px-3 pt-2 flex-shrink-0">
+                <PreviewHeader
+                  config={config}
+                  logoPreview={logoPreview}
+                  defaults={defaults}
+                  palette={palette}
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => setPanelExpanded(false)}
+                      aria-label="Einklappen"
+                      style={{ color: palette.muted }}
+                    >
+                      <CaretUp size={18} weight="bold" />
+                    </button>
+                  }
+                />
+              </div>
+              <div
+                ref={messagesRef}
+                className="flex-1 min-h-0 overflow-y-auto preview-scrollbar px-6 py-4"
+                style={scrollbarStyle(palette)}
+                data-preview="inline-messages"
+              >
+                <PreviewWelcome
+                  config={config}
+                  defaults={defaults}
+                  defaultsError={defaultsError}
+                  greetingKey={greetingKey}
+                  palette={palette}
+                />
+              </div>
+              <div className="px-3 pb-2 flex-shrink-0">
+                <PreviewInput
+                  config={config}
+                  defaults={defaults}
+                  palette={palette}
+                  privacyLinkRef={privacyWindow.linkRef}
+                  privacyOpen={privacyWindow.isOpen}
+                  onOpenPrivacy={privacyWindow.show}
+                />
+              </div>
+            </PrivacyCovered>
             {privacyWindow.isOpen && (
               <PreviewPrivacyDialog
                 config={config}

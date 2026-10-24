@@ -494,8 +494,10 @@ for (const [name, displayMode, panelName] of [
       assert.match(panel.getAttribute("class"), /\brelative\b/);
       assert.match(dialog.getAttribute("class"), /\babsolute\b/);
       assert.match(dialog.getAttribute("class"), /\binset-0\b/);
-      // Barrierefreiheit wie im Widget (AK-5)
-      assert.equal(dialog.getAttribute("aria-modal"), "true");
+      // role="dialog" und aria-labelledby wie im Widget (AK-5); in der
+      // Vorschau nie aria-modal, das Design Center daneben bleibt
+      // erreichbar (R3-D1, Fixliste rc3)
+      assert.equal(dialog.getAttribute("aria-modal"), null);
       const titleId = dialog.getAttribute("aria-labelledby");
       assert.ok(titleId);
       const heading = elements(
@@ -519,8 +521,12 @@ for (const [name, displayMode, panelName] of [
       );
       assert.ok(buttonByText(dialog, "Schließen"));
       assert.ok(byAria(dialog, CLOSE_LABEL));
-      // Fokus beim Öffnen im Fenster
-      assert.ok(dialog.contains(document.activeElement), "Fokus im Fenster");
+      // Fokus beim Öffnen auf der Überschrift
+      assert.equal(
+        document.activeElement,
+        heading,
+        "Fokus auf der Überschrift"
+      );
       // der Verlauf bleibt darunter erhalten
       assert.equal(byPreview(container, "greeting-bubble").length, 1);
 
@@ -550,7 +556,7 @@ for (const [name, displayMode, panelName] of [
   );
 
 test(
-  "AK-9: Tab-Reihenfolge wie im Widget (Text, Schließen, Schließen-Symbol) und bleibt im Fenster; Standardtexte ohne eigene Werte",
+  "AK-9, F14 (R3-D1, NF-2): Tab-Reihenfolge wie im Widget (Text, Schließen, Schließen-Symbol), keine Tab-Falle: Umschalt+Tab von der Überschrift und Tab vom Schließen-Symbol verlassen das Fenster; Standardtexte ohne eigene Werte",
   { skip },
   async (t) => {
     const mounted = await renderer.mount(PREVIEW, {
@@ -577,6 +583,9 @@ test(
       (el) => el.getAttribute("id") === dialog.getAttribute("aria-labelledby")
     )[0];
     assert.equal(document.activeElement, heading);
+    // Tab bewegt immer der Browser, das Fenster greift nie ein (bis rc3 eine
+    // Tab-Falle wie im Widget: Umschalt+Tab sprang auf das Schließen-Symbol,
+    // Tab vom Symbol zurück auf den Text)
     let prevented = false;
     const tab = (shiftKey) => ({
       key: "Tab",
@@ -586,20 +595,19 @@ test(
       },
       stopPropagation() {},
     });
-    // Umschalt+Tab von der Überschrift: zum letzten (Schließen-Symbol)
-    await act(() => handlersOf(dialog).onKeyDown(tab(true)));
-    assert.equal(document.activeElement, x);
-    assert.ok(prevented);
-    // Tab vom letzten: zurück zum Text
-    prevented = false;
-    await act(() => handlersOf(dialog).onKeyDown(tab(false)));
-    assert.equal(document.activeElement, body);
-    assert.ok(prevented);
-    // dazwischen der Browser (kein Eingriff)
-    prevented = false;
-    close.focus();
-    await act(() => handlersOf(dialog).onKeyDown(tab(false)));
-    assert.ok(!prevented);
+    for (const [from, shiftKey] of [
+      [heading, true],
+      [body, true],
+      [close, false],
+      [x, false],
+    ]) {
+      prevented = false;
+      from.focus();
+      await act(() => handlersOf(dialog).onKeyDown(tab(shiftKey)));
+      assert.ok(!prevented, `${shiftKey ? "Umschalt+" : ""}Tab abgefangen`);
+      assert.equal(document.activeElement, from, "Fokus nicht versetzt");
+      assert.equal(dialogs(container).length, 1, "Fenster bleibt offen");
+    }
     // ohne eigene Werte: Standard-Überschrift und Standardpunkte, kein Link
     // zur Datenschutzerklärung
     assert.equal(plain(heading), DEFAULTS.privacyTitle);
@@ -830,7 +838,8 @@ test(
 );
 
 // ---------------------------------------------------------------------------
-// Zustand des Vorschau-Fensters (F2 der Fixliste rc1: F-2, F-3, F-4, C2)
+// Zustand des Vorschau-Fensters (F2 der Fixliste rc1: F-2, F-3, F-4, C2;
+// seit rc4 nie modal: F14 der Fixliste rc3, R3-D1)
 // ---------------------------------------------------------------------------
 
 // liegt das Element in einem inerten Teil (oder ist es selbst inert)?
@@ -860,7 +869,7 @@ const typeInto = (act, field, value) =>
   act(() => handlersOf(field).onChange({ target: { value } }));
 
 test(
-  "F2 (F-2): Bearbeiten macht das Fenster nie modal: nach Klick auf „Datenschutz“ und Tippen in die Überschrift bleibt es offen, ohne aria-modal, der Fokus bleibt im Feld",
+  "F14 (R3-D1, NF-1): nie modal: Klick auf „Datenschutz“ öffnet ohne aria-modal mit Fokus auf der Überschrift; danach ins Feld, ungültig oder gültig tippen: offen, ohne aria-modal, der Fokus bleibt im Feld",
   { skip },
   async (t) => {
     const { container, act, document } = await openDesignCenter(
@@ -870,7 +879,20 @@ test(
     );
     await act(() => click(byPreview(container, "privacy-link")[0]));
     let [dialog] = dialogs(container);
-    assert.equal(dialog.getAttribute("aria-modal"), "true");
+    assert.equal(dialog.getAttribute("aria-modal"), null);
+    assert.equal(document.activeElement, headingOf(dialog));
+    // Klick ins Feld ohne Tippen (NF-1, Ablauf 1)
+    const url = byAria(container, "Link zur Datenschutzerklärung");
+    url.focus();
+    [dialog] = dialogs(container);
+    assert.ok(dialog, "Fenster bleibt offen");
+    assert.equal(dialog.getAttribute("aria-modal"), null);
+    // ungültige Adresse, die Vorschau ändert sich nicht (NF-1, Ablauf 2)
+    await typeInto(act, url, "www.vhs.de/datenschutz");
+    [dialog] = dialogs(container);
+    assert.ok(dialog, "Fenster bleibt offen");
+    assert.equal(dialog.getAttribute("aria-modal"), null);
+    assert.equal(document.activeElement, url);
     const title = titleField(container);
     title.focus();
     await typeInto(act, title, "Neue Überschrift");
@@ -882,12 +904,79 @@ test(
   }
 );
 
-for (const [name, displayMode, toggleLabel, messages] of [
-  ["Chatfenster", undefined, "Chat schließen", "chat-messages"],
-  ["In der Seite", "inline", "Einklappen", "inline-messages"],
+test(
+  "F14 (R3-D1, NF-2): eine Feldänderung öffnet das Fenster ohne Fokuswechsel; Tab im Fenster greift nicht ein; Schließen ohne Fokus im Fenster lässt ihn im Feld, Schließen und Esc mit Fokus im Fenster geben ihn dem Link",
+  { skip },
+  async (t) => {
+    const { container, act, document } = await openDesignCenter(
+      t,
+      [widget(4, STORED)],
+      4
+    );
+    const link = withBrowserFocus(byPreview(container, "privacy-link")[0]);
+    const title = titleField(container);
+    title.focus();
+    await typeInto(act, title, "Eins");
+    let [dialog] = dialogs(container);
+    assert.ok(dialog, "Feldänderung öffnet");
+    assert.equal(dialog.getAttribute("aria-modal"), null);
+    assert.equal(document.activeElement, title, "Fokus bleibt im Feld");
+    // weiter per Tab ins Fenster und vom Schließen-Symbol wieder hinaus:
+    // kein Eingriff (NF-2)
+    const x = byAria(dialog, CLOSE_LABEL);
+    x.focus();
+    let prevented = false;
+    await act(() =>
+      handlersOf(dialog).onKeyDown({
+        key: "Tab",
+        shiftKey: false,
+        preventDefault() {
+          prevented = true;
+        },
+        stopPropagation() {},
+      })
+    );
+    assert.ok(!prevented, "Tab vom Schließen-Symbol abgefangen");
+    assert.equal(document.activeElement, x);
+    // Klick auf „Schließen“, ohne dass der Button den Fokus bekommt (wie in
+    // Safari): der Fokus bleibt im Feld
+    title.focus();
+    await act(() =>
+      handlersOf(buttonByText(dialog, "Schließen")).onClick({ detail: 1 })
+    );
+    assert.equal(dialogs(container).length, 0);
+    assert.equal(document.activeElement, title, "Fokus bleibt im Feld");
+    // Klick mit Fokus auf dem Button: der Fokus geht an den Link
+    await typeInto(act, title, "Zwei");
+    [dialog] = dialogs(container);
+    assert.equal(document.activeElement, title);
+    await act(() => click(buttonByText(dialog, "Schließen")));
+    assert.equal(dialogs(container).length, 0);
+    assert.equal(document.activeElement, link);
+    // Esc im Fenster: ebenso
+    title.focus();
+    await typeInto(act, title, "Drei");
+    [dialog] = dialogs(container);
+    const body = byPreview(dialog, "privacy-dialog-body")[0];
+    body.focus();
+    await act(() =>
+      handlersOf(dialog).onKeyDown({
+        key: "Escape",
+        preventDefault() {},
+        stopPropagation() {},
+      })
+    );
+    assert.equal(dialogs(container).length, 0);
+    assert.equal(document.activeElement, link);
+  }
+);
+
+for (const [name, displayMode, toggleLabel, messages, panelName] of [
+  ["Chatfenster", undefined, "Chat schließen", "chat-messages", "chat-panel"],
+  ["In der Seite", "inline", "Einklappen", "inline-messages", "inline-panel"],
 ])
   test(
-    `F2 (F-3) ${name}: unter dem offenen Fenster sind Kopf-Schalter, Verlauf und Link „Datenschutz“ inert; wird das Fenster modal, bekommt die Überschrift den Fokus, Schließen gibt ihn dem Link zurück`,
+    `F2 (F-3), F14 (C6) ${name}: unter dem offenen Fenster sind Kopf-Schalter, Verlauf und Link „Datenschutz“ inert, in einer gemeinsamen Hülle; wird der Link bedient, bekommt die Überschrift den Fokus, Schließen gibt ihn dem Link zurück`,
     { skip },
     async (t) => {
       const { container, act, document } = await openDesignCenter(
@@ -913,11 +1002,22 @@ for (const [name, displayMode, toggleLabel, messages] of [
           `offen: ${el.getAttribute("aria-label") || el.getAttribute("data-preview")} inert`
         );
       assert.ok(!isInert(dialog), "das Fenster selbst ist bedienbar");
+      // eine Hülle je Darstellung (C6, NF-10): genau ein inertes Element im
+      // Panel, es enthält Kopf, Verlauf und Eingabe, das Fenster nicht
+      const panel = byPreview(container, panelName)[0];
+      const shells = elements(panel, (el) => el.hasAttribute("inert"));
+      assert.equal(shells.length, 1, "eine inerte Hülle");
+      for (const part of ["header", messages, "input"])
+        assert.ok(
+          shells[0].contains(byPreview(panel, part)[0]),
+          `${part} in der Hülle`
+        );
+      assert.ok(!shells[0].contains(dialog), "Fenster außerhalb der Hülle");
       // der Link wird bedient (im Browser nur noch per Skript erreichbar):
-      // das offene Fenster wird modal, der Fokus geht auf die Überschrift
+      // der Fokus geht auf die Überschrift, nicht modal (R3-D1)
       await act(() => handlersOf(link).onClick({ detail: 0 }));
       assert.equal(dialogs(container)[0], dialog, "dasselbe Fenster");
-      assert.equal(dialog.getAttribute("aria-modal"), "true");
+      assert.equal(dialog.getAttribute("aria-modal"), null);
       assert.equal(document.activeElement, headingOf(dialog));
       // Schließen: erst ohne inert, dann der Fokus auf den Link
       await act(() => click(buttonByText(dialog, "Schließen")));
