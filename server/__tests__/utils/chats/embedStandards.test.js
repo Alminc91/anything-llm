@@ -739,11 +739,20 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
     const p10 = point(10);
     expect(p10).not.toMatch(/z\. B\. [^)]*`data-privacy-notice`/);
     expect(p10).toMatch(/`data-privacy-notice`.*Prüfpunkt 14/);
-    const p14 = flat(doc.slice(doc.search(/^14\. /m)));
+    // Prüfpunkt 14 ist der letzte der Datei: ohne trim träfe „$“ nie den
+    // Punkt am Satzende, sondern den Zeilenumbruch am Dateiende (F17, NF-5)
+    const p14Of = (text) => flat(text.slice(text.search(/^14\. /m))).trim();
+    const OLD_END = /den langen KI-Hinweis ohne Link\.$/;
+    const p14 = p14Of(doc);
     expect(p14).toMatch(/bis 7\.22\.2/);
     expect(p14).toMatch(/Ungültiger privacyNotice-Wert "link"/);
     expect(p14).toMatch(/vor dem Server auf 7\.23/);
-    expect(p14).not.toMatch(/den langen KI-Hinweis ohne Link\.$/);
+    expect(p14).not.toMatch(OLD_END);
+    // Gegenprobe: Hängt der alte Schlusssatz wieder am Punkt, schlägt die
+    // Prüfung an (F17, NF-5)
+    const oldEnd =
+      " Seiten mit eigener Kopie des Widgets (Demo) brauchen das Widget ab 7.23, sonst zeigen sie den langen KI-Hinweis ohne Link.\n";
+    expect(p14Of(doc.trimEnd() + oldEnd)).toMatch(OLD_END);
   });
 });
 
