@@ -284,6 +284,54 @@ test(
   }
 );
 
+// F11 (Fixliste rc2, Nachtrag 24.10.2026; Opus EMP-4, Sonnet
+// EMP-1-AltTitelLeer): Das leere Feld Überschrift zeigt den Standard
+// „Datenschutz“ als Platzhalter, wie das Textfeld den Standardtext. Das gilt
+// auch für eine vor 7.23 gespeicherte leere Überschrift ("" oder nur
+// Leerzeichen, solange sie nicht bearbeitet ist); eine Bearbeitung zeigt
+// das Feld unverändert. Der Platzhalter kommt aus derselben Quelle wie die
+// Überschrift im Fenster der Vorschau.
+const titleTag = (html) =>
+  tagWith(html, 'aria-label="Überschrift des Datenschutz-Hinweises"');
+const attrOf = (tag, name) => {
+  const m = tag.match(new RegExp(`\\s${name}="([^"]*)"`));
+  return m ? m[1] : null;
+};
+
+test(
+  "F11: leeres Feld Überschrift zeigt „Datenschutz“ als Platzhalter, auch bei alt gespeicherter leerer Überschrift und ohne Standardtexte",
+  { skip },
+  async () => {
+    const { previewPrivacy } = await renderer.load(PREVIEW);
+    const standard = previewPrivacy({ privacyTitle: "" }, DEFAULTS).title;
+    assert.equal(standard, "Datenschutz");
+    for (const [label, config, initial, defaults, value] of [
+      ["gespeichert leer", { privacyTitle: "" }, null, DEFAULTS, ""],
+      ["gespeichert Leerzeichen", { privacyTitle: "   " }, null, DEFAULTS, ""],
+      ["geleert", { privacyTitle: "" }, {}, DEFAULTS, ""],
+      ["Standardtexte fehlen", {}, null, null, ""],
+      // beim Tippen bleibt das Feld, wie es ist
+      ["bearbeitet Leerzeichen", { privacyTitle: "  " }, {}, DEFAULTS, "  "],
+      ["eigener Text", { privacyTitle: "Hinweis" }, null, DEFAULTS, "Hinweis"],
+      ["nichts gespeichert", {}, null, DEFAULTS, "Datenschutz"],
+    ]) {
+      const html = await renderer.render(CONTENT, {
+        location: "/",
+        props: {
+          ...contentProps(config, initial ?? config),
+          defaults,
+          defaultsError: defaults === null,
+        },
+      });
+      const field = titleTag(html);
+      assert.equal(attrOf(field, "placeholder"), standard, label);
+      assert.equal(attrOf(field, "value") ?? "", value, label);
+      // der Hinweis unter dem Feld nennt denselben Standard
+      assert.ok(text(html).includes(`Leer: es gilt „${standard}“.`), label);
+    }
+  }
+);
+
 // ---------------------------------------------------------------------------
 // Vorschau, serverseitig gerendert
 // ---------------------------------------------------------------------------

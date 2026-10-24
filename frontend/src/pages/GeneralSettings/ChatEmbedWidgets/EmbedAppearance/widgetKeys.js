@@ -817,6 +817,22 @@ export function privacyTitleFieldValue(config, defaults) {
   return textValue(defaults?.privacyTitle);
 }
 
+// Überschrift des Datenschutz-Fensters ohne eigenen Text (Widget
+// privacyDialogTitle, de), solange die Standardtexte fehlen
+export const PRIVACY_TITLE_STANDARD = "Datenschutz";
+
+/**
+ * Standard der Überschrift des Datenschutz-Hinweises: der des Servers, sonst
+ * PRIVACY_TITLE_STANDARD. Eine Quelle für die Überschrift im Fenster der
+ * Vorschau bei leerem Feld (previewPrivacy), den Platzhalter des Felds und
+ * den Hinweis darunter (F11, Fixliste rc2).
+ * @param {Object|null} defaults
+ * @returns {string}
+ */
+export function privacyTitleStandard(defaults) {
+  return textValue(defaults?.privacyTitle).trim() || PRIVACY_TITLE_STANDARD;
+}
+
 // ---------------------------------------------------------------------------
 // Datenschutz-Hinweis (Datenschutz-Fußzeile, Nutzer 23.10.2026, Release 7.23,
 // issues/datenschutz-fusszeile.md): immer der Link „Datenschutz“ neben dem

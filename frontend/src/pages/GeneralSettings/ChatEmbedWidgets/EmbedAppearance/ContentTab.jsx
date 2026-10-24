@@ -43,6 +43,7 @@ import {
   previewPlaceholder,
   privacyFieldText,
   privacyTitleFieldValue,
+  privacyTitleStandard,
   privacyWithoutMarks,
   sameAsDefault,
   storedInlineBarPlaceholder,
@@ -271,7 +272,17 @@ export default function ContentTab({
   const barSameAsInput =
     inlineBar.placeholder === previewPlaceholder(config, defaults);
 
-  const privacyTitle = privacyTitleFieldValue(config, defaults);
+  // Leeres Feld mit dem Standard als Platzhalter wie das Textfeld (F11,
+  // Fixliste rc2); eine vor 7.23 gespeicherte leere Überschrift ("" oder nur
+  // Leerzeichen, gilt wie der Standard) zeigt das Feld leer, bis sie
+  // bearbeitet wird, beim Tippen bleibt der Feldwert, wie er ist
+  const privacyTitleValue = privacyTitleFieldValue(config, defaults);
+  const privacyTitle =
+    config.privacyTitle === initialConfig.privacyTitle &&
+    !privacyTitleValue.trim()
+      ? ""
+      : privacyTitleValue;
+  const privacyTitleDefault = privacyTitleStandard(defaults);
   const privacyTitleIsStandard =
     !defaults || sameAsDefault("privacyTitle", privacyTitle, defaults);
 
@@ -393,6 +404,7 @@ export default function ContentTab({
               value={privacyTitle}
               maxLength={PRIVACY_TITLE_MAX_LEN}
               onChange={(e) => updateField("privacyTitle", e.target.value)}
+              placeholder={privacyTitleDefault}
               className={inputClass(errors.privacyTitle)}
               aria-label="Überschrift des Datenschutz-Hinweises"
             />
@@ -401,7 +413,7 @@ export default function ContentTab({
                 Überschrift */}
             <FieldNote
               error={errors.privacyTitle}
-              hint="Leer: es gilt „Datenschutz“."
+              hint={`Leer: es gilt „${privacyTitleDefault}“.`}
             />
           </div>
         </FieldPair>

@@ -47,8 +47,10 @@ import {
   listItems,
   lookValue,
   PRIVACY_FIELD_KEYS,
+  PRIVACY_TITLE_STANDARD,
   privacyBlocks,
   privacyTitleFieldValue,
+  privacyTitleStandard,
   previewAccentColor,
   previewGreeting,
   previewInlineBar,
@@ -701,7 +703,7 @@ export function PreviewWelcome({
 export const PRIVACY_PREVIEW_TEXTS = Object.freeze({
   disclaimerText: "Unsere KI kann Fehler machen",
   privacyLinkText: "Datenschutz",
-  privacyTitle: "Datenschutz",
+  privacyTitle: PRIVACY_TITLE_STANDARD,
   privacyAiTitle: "Hinweis zur KI",
   privacyAiText:
     "Unser KI-Berater ist auf richtige Auskünfte optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Kontrolle immer auf unserer Website.",
@@ -726,13 +728,11 @@ export function previewPrivacy(config, defaults) {
   const text = textValue(config.privacyText).trim()
     ? config.privacyText
     : textValue(defaults?.privacyText);
-  const standard = defaults || PRIVACY_PREVIEW_TEXTS;
   return {
     ...privacyFixedTexts(defaults),
     title:
-      privacyTitleFieldValue(config, standard).trim() ||
-      textValue(standard.privacyTitle).trim() ||
-      PRIVACY_PREVIEW_TEXTS.privacyTitle,
+      privacyTitleFieldValue(config, defaults).trim() ||
+      privacyTitleStandard(defaults),
     blocks: privacyBlocks(text),
     url: validPrivacyUrl(config.privacyUrl) ? config.privacyUrl.trim() : "",
   };
