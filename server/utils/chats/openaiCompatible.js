@@ -116,9 +116,10 @@ async function chatSync({
   let sources = [];
   let pinnedDocIdentifiers = [];
   // KIE-576 Paket 3 (E35): veraltete Kursdokumente (Kursnummer nicht im
-  // Feed) kommen weder als angeheftetes Dokument noch über den Rückgriff
-  // in Kontext und Quellen; die Suche schließt sie selbst aus
-  // (lance/index.js). Ohne gültigen Kursbestand null: alles wie heute.
+  // Feed) kommen nicht als angeheftetes Dokument in Kontext und Quellen
+  // (einen Rückgriff auf frühere Quellen hat dieser Pfad nicht); die Suche
+  // schließt sie selbst aus (lance/index.js). Ohne gültigen Kursbestand
+  // null: alles wie heute.
   const inventoryGuard = await courseInventoryGuard(workspace);
   await new DocumentManager({
     workspace,
@@ -477,9 +478,10 @@ async function streamChat({
   let sources = [];
   let pinnedDocIdentifiers = [];
   // KIE-576 Paket 3 (E35): veraltete Kursdokumente (Kursnummer nicht im
-  // Feed) kommen weder als angeheftetes Dokument noch über den Rückgriff
-  // in Kontext und Quellen; die Suche schließt sie selbst aus
-  // (lance/index.js). Ohne gültigen Kursbestand null: alles wie heute.
+  // Feed) kommen nicht als angeheftetes Dokument in Kontext und Quellen
+  // (einen Rückgriff auf frühere Quellen hat dieser Pfad nicht); die Suche
+  // schließt sie selbst aus (lance/index.js). Ohne gültigen Kursbestand
+  // null: alles wie heute.
   const inventoryGuard = await courseInventoryGuard(workspace);
   await new DocumentManager({
     workspace,
