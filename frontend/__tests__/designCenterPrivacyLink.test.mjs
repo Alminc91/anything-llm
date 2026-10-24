@@ -1127,6 +1127,56 @@ test(
   }
 );
 
+// F13 (Fixliste rc2, Nachtrag 24.10.2026; Opus EMP-8): Fläche, Schrift und
+// Trennlinien des Fensters der Vorschau aus denselben Werten wie das Widget
+// (theme.js PRIVACY_DIALOG_COLORS): hell Schrift #222628 und Linien
+// #E9E9E9, dunkel #F4F2EF und #787B82 (bis rc2 die Palette der Vorschau,
+// hell #1c1917 und #e7e5e4, dunkel #f4f4f5 und rgba(255,255,255,.12)). Das
+// Schließen-Symbol hat wie im Widget die Schrift des Fensters (color:
+// inherit; bis rc2 das gedämpfte Grau der Vorschau).
+const DIALOG_COLORS = {
+  light: { text: "#222628", bg: "#ffffff", line: "#e9e9e9" },
+  dark: { text: "#f4f2ef", bg: "#2a2a2f", line: "#787b82" },
+};
+test(
+  "F13: Fläche, Schrift, Trennlinien und Schließen-Symbol des Fensters wie im Widget, hell und dunkel, in beiden Darstellungen",
+  { skip },
+  async (t) => {
+    for (const theme of ["light", "dark"])
+      for (const displayMode of [undefined, "inline"]) {
+        const label = `${theme} ${displayMode}`;
+        const want = DIALOG_COLORS[theme];
+        const mounted = await renderer.mount(PREVIEW, {
+          location: "/",
+          // eigene Akzentfarbe: das Fenster bleibt trotzdem fest
+          props: previewProps({ theme, displayMode, accentColor: "#C4430A" }),
+        });
+        t.after(() => mounted.unmount());
+        const { container, act } = mounted;
+        await act(() => click(byPreview(container, "privacy-link")[0]));
+        const [dialog] = dialogs(container);
+        const lower = (v) => String(v ?? "").toLowerCase();
+        assert.equal(lower(dialog.style.color), want.text, label);
+        assert.equal(lower(dialog.style.backgroundColor), want.bg, label);
+        assert.equal(
+          lower(headingOf(dialog).parentNode.style.borderBottom),
+          `1px solid ${want.line}`,
+          `${label} Linie unter der Überschrift`
+        );
+        assert.equal(
+          lower(buttonByText(dialog, "Schließen").parentNode.style.borderTop),
+          `1px solid ${want.line}`,
+          `${label} Linie über dem Button`
+        );
+        assert.equal(
+          byAria(dialog, CLOSE_LABEL).style.color,
+          "inherit",
+          `${label} Schließen-Symbol`
+        );
+      }
+  }
+);
+
 // Gegenprobe gegen das Widget (KUFER_EMBED_DIR, Checkout von
 // anythingllm-embed): dieselbe Farbe wie privacyLinkColor im Widget für
 // dieselbe gespeicherte Akzentfarbe (der Server liefert sie als linkColor,
@@ -1155,6 +1205,36 @@ test(
           `${scheme} ${accentColor}`
         );
       }
+  }
+);
+
+test(
+  "F13 Gleichlauf: Farben des Fensters der Vorschau gleich PRIVACY_DIALOG_COLORS des Widgets, hell und dunkel (KUFER_EMBED_DIR)",
+  {
+    skip:
+      skip ||
+      (WIDGET_THEME && fs.existsSync(WIDGET_THEME)
+        ? false
+        : "KUFER_EMBED_DIR nicht gesetzt"),
+  },
+  async () => {
+    const theme = await import(pathToFileURL(WIDGET_THEME).href);
+    const { PREVIEW_PRIVACY_DIALOG_COLORS } = await renderer.load(PREVIEW);
+    for (const scheme of ["light", "dark"])
+      for (const key of ["text", "bg", "line"])
+        assert.equal(
+          PREVIEW_PRIVACY_DIALOG_COLORS[scheme][key].toLowerCase(),
+          theme.PRIVACY_DIALOG_COLORS[scheme][key].toLowerCase(),
+          `${scheme} ${key}`
+        );
+    // und die festen Werte aus der Fixliste (Gegenprobe des Tests oben)
+    for (const scheme of ["light", "dark"])
+      for (const key of ["text", "bg", "line"])
+        assert.equal(
+          theme.PRIVACY_DIALOG_COLORS[scheme][key].toLowerCase(),
+          DIALOG_COLORS[scheme][key],
+          `Widget ${scheme} ${key}`
+        );
   }
 );
 

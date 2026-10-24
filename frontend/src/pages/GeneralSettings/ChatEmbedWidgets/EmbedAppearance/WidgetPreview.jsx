@@ -249,10 +249,10 @@ const PALETTES = {
     text: "#1c1917",
     muted: "#57534e",
     line: "#e7e5e4",
-    // Blasen von Begrüßung und Antworten und das Datenschutz-Fenster wie im
-    // Widget:
+    // Blasen von Begrüßung und Antworten wie im Widget:
     // weiß mit Schatten (theme.js assistant-bg, bubble-shadow; bis 7.22.1
-    // zeigte die Vorschau sie grau, Nutzer 23.10.2026)
+    // zeigte die Vorschau sie grau, Nutzer 23.10.2026). Das
+    // Datenschutz-Fenster hat feste Farben (PREVIEW_PRIVACY_DIALOG_COLORS).
     bubbleBg: "#ffffff",
     bubbleShadow: "0 4px 14px rgba(0, 0, 0, 0.25)",
     inputBg: "#ffffff",
@@ -659,7 +659,8 @@ export function PreviewWelcome({
     loaded(JSON.stringify(pills.map((pill) => pill.trim())))
   );
   // Begrüßung wie im Widget seit 7.22.2: Fläche, Schatten, Schrift (Nutzer
-  // 23.10.2026); dieselbe Fläche und Schrift hat das Datenschutz-Fenster
+  // 23.10.2026); dieselbe Fläche hat das Datenschutz-Fenster
+  // (PREVIEW_PRIVACY_DIALOG_COLORS)
   const bubble = {
     backgroundColor: palette.bubbleBg,
     boxShadow: palette.bubbleShadow,
@@ -762,8 +763,25 @@ const DARK_LINK_COLOR = "#5CC8CB";
 export function previewPrivacyLinkColor(config, palette = paletteOf(config)) {
   const link =
     palette.scheme === "dark" ? DARK_LINK_COLOR : previewAccentColor(config);
-  return pillTextColor(link, [palette.panelBg, palette.bubbleBg], palette.text);
+  return pillTextColor(
+    link,
+    [palette.panelBg, PREVIEW_PRIVACY_DIALOG_COLORS[palette.scheme].bg],
+    palette.text
+  );
 }
+
+// Farben des Datenschutz-Fensters, dieselben Werte wie im Widget (theme.js
+// PRIVACY_DIALOG_COLORS, R1-D1 Fixliste rc1): fest je Farbschema, keine
+// Einstellung wirkt darauf. Fläche und Schrift wie die Standard-Antwortblase
+// des Widgets, Trennlinien wie dort die Linie unter dem Kopf (F13, Fixliste
+// rc2; bis rc2 aus der Palette der Vorschau, hell Schrift #1c1917 und Linien
+// #e7e5e4, dunkel #f4f4f5 und rgba(255,255,255,.12)). Das Schließen-Symbol
+// hat die Schrift des Fensters (im Widget color: inherit). Gegenprobe gegen
+// das Widget im Test designCenterPrivacyLink.
+export const PREVIEW_PRIVACY_DIALOG_COLORS = Object.freeze({
+  light: Object.freeze({ text: "#222628", bg: "#FFFFFF", line: "#E9E9E9" }),
+  dark: Object.freeze({ text: "#F4F2EF", bg: "#2A2A2F", line: "#787B82" }),
+});
 
 const PRIVACY_CLOSED = Object.freeze({ isOpen: false, focus: false });
 // beim Bearbeiten geöffnet bzw. offen gehalten: nie modal, der Fokus bleibt
@@ -876,9 +894,9 @@ const PRIVACY_DIALOG_INSETS = {
  * Überschrift (gespeichert, sonst und bei leerem Feld der Standard), Text,
  * Punkt „Hinweis zur KI“, Link zur Datenschutzerklärung (falls gesetzt),
  * Button „Schließen“, das Schließen-Symbol oben rechts (im Dokument zuletzt).
- * Fläche und Schrift fest je Farbschema wie die Standard-Antwortblase
- * (R1-D1 im Widget: keine Variable der Seite wirkt darauf), Rundung des
- * Panels; Link zur Datenschutzerklärung und alle Fokusrahmen in der
+ * Fläche, Schrift und Trennlinien fest je Farbschema mit den Werten des
+ * Widgets (PREVIEW_PRIVACY_DIALOG_COLORS; R1-D1 im Widget: keine Variable
+ * der Seite wirkt darauf), Rundung des Panels; Link zur Datenschutzerklärung und alle Fokusrahmen in der
  * Linkfarbe (previewPrivacyLinkColor). Kopf, Verlauf und Eingabe darunter
  * sind inert (coveredProps).
  * role="dialog", aria-labelledby auf die Überschrift; nach einem Klick auf
@@ -905,6 +923,8 @@ function PreviewPrivacyDialog({
   const iconRef = useRef(null);
   const privacy = previewPrivacy(config, defaults);
   const inset = PRIVACY_DIALOG_INSETS[inline ? "inline" : "bubble"];
+  const colors = PREVIEW_PRIVACY_DIALOG_COLORS[palette.scheme];
+  const line = `1px solid ${colors.line}`;
   const link = previewPrivacyLinkColor(config, palette);
   // beim Öffnen per Link und wenn ein beim Bearbeiten geöffnetes Fenster
   // per Link modal wird (F-3)
@@ -941,12 +961,12 @@ function PreviewPrivacyDialog({
       aria-labelledby={titleId}
       onKeyDown={onKeyDown}
       className="absolute inset-0 z-20 flex flex-col"
-      style={{ backgroundColor: palette.bubbleBg, color: palette.text }}
+      style={{ backgroundColor: colors.bg, color: colors.text }}
       data-preview="privacy-dialog"
     >
       <div
         className={`${inset.x} ${inset.title} pt-3.5 pb-2.5 flex-shrink-0`}
-        style={{ borderBottom: `1px solid ${palette.line}` }}
+        style={{ borderBottom: line }}
       >
         <h3
           id={titleId}
@@ -1003,7 +1023,7 @@ function PreviewPrivacyDialog({
       </div>
       <div
         className={`flex justify-end ${inset.x} pt-2.5 pb-3.5 flex-shrink-0`}
-        style={{ borderTop: `1px solid ${palette.line}` }}
+        style={{ borderTop: line }}
       >
         <button
           type="button"
@@ -1025,7 +1045,7 @@ function PreviewPrivacyDialog({
         aria-label={PRIVACY_CLOSE_LABEL}
         title={PRIVACY_CLOSE_LABEL}
         className={`absolute ${PRIVACY_CLOSE_TOP} ${inset.close} w-8 h-8 rounded-lg flex items-center justify-center ${focusRing}`}
-        style={{ color: palette.muted, outlineColor: link }}
+        style={{ color: "inherit", outlineColor: link }}
       >
         <X size={16} weight="bold" aria-hidden="true" />
       </button>
