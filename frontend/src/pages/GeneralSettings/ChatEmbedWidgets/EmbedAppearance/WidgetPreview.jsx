@@ -35,6 +35,7 @@ import {
   X,
   PaperPlaneRight,
   CaretUp,
+  Info,
 } from "@phosphor-icons/react";
 import {
   DEFAULT_ACCENT_COLOR,
@@ -55,6 +56,7 @@ import {
   PILL_MAX_LEN,
   pillLabel,
   pillTextColor,
+  previewCourseCount,
   subtitleFieldValue,
   textValue,
   themeChoice,
@@ -276,6 +278,7 @@ export default function WidgetPreview({
   defaults,
   defaultsError = false,
   greetingKey,
+  courseInventory = null,
 }) {
   const palette = paletteOf(config);
   const inline = displayMode(config) === "inline";
@@ -331,6 +334,7 @@ export default function WidgetPreview({
               defaultsError={defaultsError}
               greetingKey={greetingKey}
               palette={palette}
+              courseInventory={courseInventory}
             />
           ) : (
             <BubblePreview
@@ -341,6 +345,7 @@ export default function WidgetPreview({
               greetingKey={greetingKey}
               palette={palette}
               areaHeight={areaHeight}
+              courseInventory={courseInventory}
             />
           )}
         </div>
@@ -354,12 +359,26 @@ export default function WidgetPreview({
 // höher (mindestens 60 px); der Button rechts bleibt frei (gap-3, 12 px),
 // wie im Widget (N3, Nutzerentscheidung 20.10.2026, Fixliste 7.22-rc13:
 // „Es muss immer ausgeschrieben sein“; ersetzt die Ellipse aus rc10 W1).
-function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
+// KIE-576 Paket 3: mit Schalter „Kursanzahl im Untertitel“ an steht statt des
+// Untertitels „aktuell 812 Kurse“ mit dem Info-Symbol wie im Widget, mit der
+// echten Zahl des Kursbestands, sonst einer Beispielzahl (Vorschau nicht
+// bedienbar, das Symbol ist nur Schmuck).
+function PreviewHeader({
+  config,
+  logoPreview,
+  defaults,
+  palette,
+  action,
+  courseInventory = null,
+}) {
   const name =
     textValue(config.name).trim() || textValue(defaults?.name) || "KI-Berater";
+  const courseCount = previewCourseCount(config, courseInventory);
   // Untertitel wie das Widget (R5): ohne gespeicherten Wert der Standard,
   // "" = kein Untertitel
-  const subtitle = subtitleFieldValue(config, defaults).trim();
+  const subtitle = courseCount
+    ? ""
+    : subtitleFieldValue(config, defaults).trim();
   return (
     <div
       className="flex items-center gap-3 px-4 py-2.5 min-h-[60px] flex-shrink-0"
@@ -386,6 +405,17 @@ function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
             data-preview="header-subtitle"
           >
             {subtitle}
+          </span>
+        )}
+        {courseCount && (
+          <span
+            className="flex items-center gap-1 text-[11px] leading-snug whitespace-nowrap"
+            style={{ color: palette.muted }}
+            data-preview="header-course-count"
+            data-sample={courseCount.sample ? "true" : "false"}
+          >
+            {courseCount.text}
+            <Info size={13} weight="bold" aria-hidden="true" />
           </span>
         )}
       </span>
@@ -746,6 +776,7 @@ function BubblePreview({
   greetingKey,
   palette,
   areaHeight = null,
+  courseInventory = null,
 }) {
   const [open, setOpen] = useState(true);
   const height = previewWindowHeight(areaHeight);
@@ -796,6 +827,7 @@ function BubblePreview({
               logoPreview={logoPreview}
               defaults={defaults}
               palette={palette}
+              courseInventory={courseInventory}
               action={
                 <button
                   type="button"
@@ -900,6 +932,7 @@ function InlinePreview({
   defaultsError = false,
   greetingKey,
   palette,
+  courseInventory = null,
 }) {
   // startet aufgeklappt wie die Vorschau des Chatfensters, Einklappen per
   // Button bleibt möglich (Spezifikation §12 Eintrag 12, Nutzer 21.10.2026:
@@ -967,6 +1000,7 @@ function InlinePreview({
                 logoPreview={logoPreview}
                 defaults={defaults}
                 palette={palette}
+                courseInventory={courseInventory}
                 action={
                   <button
                     type="button"

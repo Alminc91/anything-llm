@@ -1,5 +1,7 @@
 // Design Center › Inhalt, in der Reihenfolge des Chats (R6, Fixliste
-// 7.22-rc8): Name und Untertitel, Begrüßung, Datenschutz-Hinweis (Schalter,
+// 7.22-rc8): Name und Untertitel (seit KIE-576 Paket 3 mit dem Schalter
+// „Kursanzahl im Untertitel“, der internen Zeile zum Kursbestand und dem Feld
+// „Bezeichnung“; an sperrt den Untertitel), Begrüßung, Datenschutz-Hinweis (Schalter,
 // Überschrift, Text, Link), Startvorschläge, Platzhalter im Eingabefeld, nur
 // beim Chatfenster die Gruppe „Geschlossener Chat“ (Willkommensblasen und
 // wann sie erscheinen, KIE-568), Support-E-Mail.
@@ -31,9 +33,13 @@ import {
   PRIVACY_TITLE_MAX_LEN,
   SUBTITLE_MAX_LEN,
   URL_MAX_LEN,
+  COURSE_COUNT_WORD_MAX_LEN,
   WELCOME_BUBBLES_DEVICES,
   WELCOME_BUBBLES_OPTIONS,
   choiceValue,
+  courseCountOn,
+  courseCountStatusLine,
+  courseCountWordFieldValue,
   displayMode,
   greetingFieldValue,
   listItems,
@@ -97,6 +103,15 @@ export const WELCOME_BUBBLES_HINT =
 export const EMPTY_SUGGESTIONS_HINT = "Leer: keine Startvorschläge.";
 export const EMPTY_WELCOME_BUBBLES_HINT =
   "Leer: es gelten die Standardblasen. Abschalten über „Willkommensblasen anzeigen“.";
+
+// Kursanzahl im Untertitel (KIE-576 Paket 3)
+export const COURSE_COUNT_SWITCH_LABEL = "Kursanzahl im Untertitel";
+export const COURSE_COUNT_SUBTITLE_LOCKED =
+  "Statt des Untertitels steht die Kursanzahl.";
+export const COURSE_COUNT_WORD_HINT =
+  "Wort hinter der Zahl, im Plural, z. B. „Seminare“. Leer: es gilt „Kurse“.";
+export const COURSE_COUNT_HINT =
+  "In der Titelleiste des Chats steht statt des Untertitels die Zahl der Kurse, z. B. „aktuell 837 Kurse“, mit einem Info-Symbol. Gezählt werden nur Kurse aus dem Kursprogramm, die der KI-Berater kennt. Aus: eigener Untertitel oder keiner.";
 
 // „Willkommensblasen anzeigen“ (KIE-568, nur Chatfenster): je Gerät Aus /
 // Erster Besuch (Standard) / Jeder Besuch, je Gerät eine Zeile mit der
@@ -225,6 +240,8 @@ export default function ContentTab({
   resetKeys,
   setPrivacyNotice,
   setChoice = () => {},
+  setCourseCount = () => {},
+  courseInventory = null,
   addListItem,
   updateListItem,
   removeListItem,
@@ -232,6 +249,7 @@ export default function ContentTab({
   const bubble = displayMode(config) === "bubble";
 
   const name = nameFieldValue(config, defaults);
+  const countOn = courseCountOn(config);
   const subtitle = subtitleFieldValue(config, defaults);
   const subtitleIsStandard =
     !defaults ||
@@ -299,29 +317,80 @@ export default function ContentTab({
           aria-label="Name des Chatbots"
         />
       </SettingsSection>
-      <div data-field="">
-        <FieldTitle
-          title="Untertitel"
-          optional
-          action={
-            <StandardTextButton
-              isStandard={subtitleIsStandard}
-              defaultsError={defaultsError}
-              onReset={() => resetKeys(["assistantSubtitle"])}
-            />
+      <div data-course-count-switch="">
+        <Switch
+          label={COURSE_COUNT_SWITCH_LABEL}
+          checked={countOn}
+          onChange={(checked) => setCourseCount(checked)}
+        />
+        {/* Interne Zeile (nur im Design Center, nie im Widget): Kursbestand
+            vom Server (GET /embed/defaults?embedId=) */}
+        <p
+          className="text-white text-xs mt-1.5 leading-relaxed"
+          data-course-count-status=""
+        >
+          {courseCountStatusLine(courseInventory)}
+        </p>
+        <p className="text-theme-text-secondary text-xs mt-1 leading-relaxed">
+          {COURSE_COUNT_HINT}
+        </p>
+      </div>
+      {countOn && (
+        <div data-field="" data-course-count-word="">
+          <FieldTitle title="Bezeichnung" />
+          <input
+            type="text"
+            value={courseCountWordFieldValue(config)}
+            maxLength={COURSE_COUNT_WORD_MAX_LEN}
+            onChange={(e) => updateField("courseCountWord", e.target.value)}
+            className={inputClass(errors.courseCountWord)}
+            aria-label="Bezeichnung der Kursanzahl"
+            aria-invalid={errors.courseCountWord ? "true" : undefined}
+          />
+          <FieldNote
+            error={errors.courseCountWord}
+            hint={COURSE_COUNT_WORD_HINT}
+          />
+        </div>
+      )}
+      {/* Kursanzahl an: Untertitel gesperrt, sein gespeicherter Wert bleibt
+          und gilt wieder mit Schalter aus (NAK-K5) */}
+      <div data-field="" data-subtitle-field={countOn ? "locked" : "open"}>
+        <fieldset
+          disabled={countOn}
+          className={
+            countOn
+              ? "min-w-0 opacity-40 pointer-events-none select-none"
+              : "min-w-0"
           }
-        />
-        <input
-          type="text"
-          value={subtitle}
-          maxLength={SUBTITLE_MAX_LEN}
-          onChange={(e) => updateField("assistantSubtitle", e.target.value)}
-          className={inputClass(errors.assistantSubtitle)}
-          aria-label="Untertitel"
-        />
+        >
+          <FieldTitle
+            title="Untertitel"
+            optional
+            action={
+              <StandardTextButton
+                isStandard={subtitleIsStandard}
+                defaultsError={defaultsError}
+                onReset={() => resetKeys(["assistantSubtitle"])}
+              />
+            }
+          />
+          <input
+            type="text"
+            value={subtitle}
+            maxLength={SUBTITLE_MAX_LEN}
+            onChange={(e) => updateField("assistantSubtitle", e.target.value)}
+            className={inputClass(errors.assistantSubtitle)}
+            aria-label="Untertitel"
+          />
+        </fieldset>
         <FieldNote
           error={errors.assistantSubtitle}
-          hint="Kleine Zeile unter dem Namen in der Titelleiste des Chats. Leer: kein Untertitel."
+          hint={
+            countOn
+              ? COURSE_COUNT_SUBTITLE_LOCKED
+              : "Kleine Zeile unter dem Namen in der Titelleiste des Chats. Leer: kein Untertitel."
+          }
         />
       </div>
 

@@ -361,7 +361,10 @@ test(
   "Inhalt: Hinweise unter dem Feld (Name, Untertitel, Überschrift, Link, Platzhalter, Support)",
   { skip },
   async () => {
-    const html = await show(CONTENT, contentProps({}));
+    // Hinweis des Untertitels nur mit Schalter „Kursanzahl im Untertitel“
+    // aus (KIE-576 Paket 3, Standard an: dann steht dort, dass die
+    // Kursanzahl den Untertitel ersetzt)
+    const html = await show(CONTENT, contentProps({ courseCountMode: "off" }));
     for (const [field, hint] of [
       ['aria-label="Name des Chatbots"', "Leer: es gilt „KI-Berater“."],
       ['aria-label="Untertitel"', "Leer: kein Untertitel."],
