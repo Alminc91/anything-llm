@@ -1109,10 +1109,12 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
   const DERIVED_GROUP_B = ["inlineInputPlaceholder"];
   // Fest vom Server, aber Gruppe A wie im Widget (DC_COVERED, Hard
   // Constraint 6 der Spezifikation datenschutz-fusszeile): das Skript-Attribut
-  // wird verworfen und in der Konsole gemeldet; seit 7.23 immer der Link
-  // „Datenschutz“ (F4, Fixliste rc1; bis rc1 hier als Gruppe B, nicht
-  // verfeinerbar)
-  const FIXED_GROUP_A = ["privacyNotice"];
+  // wird verworfen und in der Konsole gemeldet. privacyNotice: seit 7.23
+  // immer der Link „Datenschutz“ (F4, Fixliste rc1; bis rc1 hier als
+  // Gruppe B, nicht verfeinerbar). greetingStyle: die Begrüßung ist immer
+  // eine Blase (D2 gekippt, Nutzer 24.10.2026, F8 Fixliste rc2; bis 7.22.2
+  // Gruppe B mit der Grenze E26)
+  const FIXED_GROUP_A = ["privacyNotice", "greetingStyle"];
   const FLAGS = ["defaultMessagesSaved", "defaultMessagesStandard"];
 
   test("jedes Skript-Attribut eines Design-Center-Felds steht in Gruppe A", async () => {
@@ -1159,12 +1161,14 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
       if (!FIXED_GROUP_A.includes(key))
         expect(groupA).not.toContain(`\`${attr(key)}\``);
     const groupB = bullet("Gruppe B");
-    // privacyNotice: fest, aber Gruppe A (Attribut verworfen, Konsole)
+    // privacyNotice und greetingStyle: fest, aber Gruppe A (Attribut
+    // verworfen, Konsole); Gruppe B nennt das Attribut auch nicht mit Wert
+    // (etwa `data-greeting-style="text"` als Verfeinerung)
     for (const key of FIXED_GROUP_A) {
       expect(EMBED_FIXED_STANDARDS).toHaveProperty(key);
       expect(groupA).toContain(`\`${attr(key)}\``);
       expect(groupB).not.toContain(`\`${key}\``);
-      expect(groupB).not.toContain(`\`${attr(key)}\``);
+      expect(groupB).not.toContain(attr(key));
     }
     expect(groupB).toMatch(/Einbau-Angabe schlägt den festen\s+Standard/);
     // F62 (Fixliste 7.22-rc18): feste Standards ohne Verfeinerung stehen als

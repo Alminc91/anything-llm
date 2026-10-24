@@ -7,7 +7,9 @@
 // F62 Gruppe B eingegrenzt (courseCardsAnswerStyle nur Prompt, onlineDot
 //     entfernt, KI-Hinweis gesperrt), Gruppe C in der Einleitung.
 // E26 Datenschutz-Hinweis an erzwingt die Begrüßungsblase, auch gegen
-//     data-greeting-style="text" (Doku).
+//     data-greeting-style="text" (Doku). Seit 7.23 Stand bis 7.22.2:
+//     data-greeting-style wirkt nicht mehr (Gruppe A, D2 gekippt am
+//     24.10.2026, Fixliste datenschutz-fusszeile rc2 F8).
 // C20 Kommentare zu data-display-mode nach E23.
 // C21 Begründung des Kennzeichens defaultMessagesStandard.
 // Server-Seite (F60 Gruppe A, F62 Gruppe B gegen EMBED_FIXED_STANDARDS):
@@ -227,29 +229,55 @@ test("F62: Kopfkommentar von embedStandards.js grenzt die Verfeinerung ein", () 
 });
 
 // ---------------------------------------------------------------------------
-// E26 Datenschutz-Hinweis erzwingt die Begrüßungsblase
+// E26 Datenschutz-Hinweis erzwingt die Begrüßungsblase (bis 7.22.2), ab
+// 7.23 Begrüßung immer als Blase
 // ---------------------------------------------------------------------------
 
-// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Es gibt
-// keine Datenschutz-Blase mehr, an der die Begrüßungsblase hing. Die Doku
-// nennt E26 als Regel bis 7.22.2 und verweist für die Wirkung von
-// data-greeting-style auf ATTRIBUTES.md im Widget; bis 7.22.2 hieß es
-// „wirkt nur, solange der Datenschutz-Hinweis im Design Center aus ist“.
-test('E26: Migrationsdoku nennt die Grenze für data-greeting-style="text" als Stand bis 7.22.2', () => {
+// Bewusste Änderung (Datenschutz-Fußzeile, 7.23): Es gibt keine
+// Datenschutz-Blase mehr, an der die Begrüßungsblase hing. Seit D2 gekippt
+// ist (Nutzer 24.10.2026, Fixliste datenschutz-fusszeile rc2 F8, Gegenstück
+// W13 im Widget) ist die Form der Begrüßung keine Einbau-Angabe mehr: Die
+// Begrüßung ist immer eine Blase, data-greeting-style wirkt nicht (Gruppe A
+// wie data-privacy-notice, das Widget meldet die Angabe in der Konsole).
+// E26 bleibt als Stand bis 7.22.2 genannt (Gruppe B, „text“ wirkte nur bei
+// abgeschaltetem Datenschutz-Hinweis, also praktisch nie). In 7.23-rc1/rc2
+// stand hier noch „verfeinert wie jede Gruppe-B-Angabe“ (D2).
+test("E26: Migrationsdoku und Kopfkommentar: data-greeting-style ab 7.23 ohne Wirkung (Gruppe A), E26 als Stand bis 7.22.2", () => {
   const doc = readDoc();
+  const groupA = bullet(doc, "Gruppe A");
   const groupB = bullet(doc, "Gruppe B");
-  assert.doesNotMatch(
-    groupB,
-    /`data-greeting-style="text"` wirkt nur, solange der Datenschutz-Hinweis im Design Center aus ist/
-  );
-  assert.match(groupB, /E26, 7\.22-rc18/);
-  assert.match(groupB, /hat ab 7\.23 keinen Anlass mehr/);
-  assert.match(tableRow(doc, "greetingStyle"), /E26/);
-  assert.match(tableRow(doc, "greetingStyle"), /7\.22 bis 7\.22\.2/);
+  assert.match(groupA, /`data-greeting-style`/);
+  assert.match(groupA, /`greetingStyle: "bubble"`/);
+  assert.doesNotMatch(groupB, /data-greeting-style/);
+  assert.doesNotMatch(groupB, /Begrüßungs-, Vorschlags-/);
+  assert.doesNotMatch(groupB, /hat ab 7\.23 keinen Anlass mehr/);
+  const row = tableRow(doc, "greetingStyle");
+  assert.match(row, /`data-greeting-style` am Skript ab 7\.23 ohne Wirkung/);
+  assert.match(row, /Gruppe A/);
+  assert.match(row, /Konsole/);
+  assert.match(row, /E26/);
+  assert.match(row, /7\.22 bis 7\.22\.2/);
+  assert.doesNotMatch(row, /verfeinert wie jede Gruppe-B-Angabe/);
   assert.match(tableRow(doc, "privacyNotice", "`bubble`, `modal`"), /E26/);
   assert.match(
     tableRow(doc, "privacyNotice", "`bubble`, `modal`"),
     /keine Datenschutz-Blase beim Start mehr/
+  );
+  // Prüfpunkt 10: kein Abgleich nötig, sichtbar ändert sich nichts
+  assert.match(
+    checkpoint(doc, 10),
+    /`data-greeting-style` braucht ebenfalls keinen Abgleich/
+  );
+  // Kopfkommentar von embedStandards.js wie die Doku
+  const source = fs.readFileSync(STANDARDS, "utf8");
+  const head = source
+    .slice(0, source.indexOf("\nconst "))
+    .replace(/^\/\/ ?/gm, "")
+    .replace(/\s+/g, " ");
+  assert.doesNotMatch(head, /wie jede Gruppe-B-Angabe gelten/);
+  assert.match(
+    head,
+    /greetingStyle liefert der Server fest "bubble" .* zählt seit 7\.23 wie privacyNotice zu Gruppe A: data-greeting-style wird verworfen und in der Konsole gemeldet/
   );
 });
 

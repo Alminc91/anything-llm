@@ -21,9 +21,13 @@
 // 23.10.2026) fest "link" (immer der Link „Datenschutz“ neben dem
 // KI-Hinweis); es zählt wie im Widget zu Gruppe A: data-privacy-notice wird
 // verworfen und in der Konsole gemeldet.
-// Die Grenze für greetingStyle (E26, 7.22-rc18: Begrüßung als Blase, solange
-// die Datenschutz-Blase darunter hing) hat seit 7.23 keinen Anlass mehr; das
-// Widget lässt data-greeting-style seitdem wie jede Gruppe-B-Angabe gelten.
+// greetingStyle liefert der Server fest "bubble" (Begrüßung immer als
+// Blase) und es zählt seit 7.23 wie privacyNotice zu Gruppe A:
+// data-greeting-style wird verworfen und in der Konsole gemeldet (D2
+// gekippt, Nutzer 24.10.2026: die Form der Begrüßung kommt aus dem Design
+// Center, nicht aus dem Einbau-Code). Bis 7.22.2 war es Gruppe B mit der
+// Grenze E26 (7.22-rc18: "text" nur bei abgeschaltetem Datenschutz-Hinweis),
+// wirkte also praktisch nie.
 // Technik-Angaben am Skript (Gruppe C, etwa data-language) wirken immer.
 //
 // Eine Quelle für beide Wege: applyEmbedStandards (Konfiguration ans
@@ -74,7 +78,8 @@ const DEFAULT_WELCOME_BUBBLES = "first";
 // issues/datenschutz-fusszeile.md AK-7/AK-10): Der Link „Datenschutz“ steht
 // immer in der Zeile des KI-Hinweises unter der Eingabe und öffnet das
 // Datenschutz-Fenster; keine Blase beim Start, kein „Aus“, keine Auswahl im
-// Design Center (Gruppe A: data-privacy-notice wirkt nicht). Widget-Kopien
+// Design Center (Gruppe A: data-privacy-notice wirkt nicht). Ebenso fest
+// und Gruppe A: greetingStyle "bubble" (Kopfkommentar). Widget-Kopien
 // bis 7.22.2 kennen "link" nicht und zeigen dann wieder die Blase
 // (Migrationsdoku, Prüfpunkt 14). Gespeicherte Altwerte ("bubble", "none", "modal") bleiben in
 // visual_config stehen und wirken nicht. Bis 7.22.2 war der Hinweis eine
@@ -455,7 +460,8 @@ function privacyTitleValue(value) {
  * anwenden: Begrüßung, Platzhalter, Leistentext und Datenschutz-Texte aus
  * den gespeicherten Texten setzen, Reihenfolge der Karten (KIE-567) sowie
  * Willkommensblasen je Gerät (KIE-568) immer mit gültigem Wert, feste Werte
- * erzwingen (darunter privacyNotice "link", Datenschutz-Fußzeile 7.23).
+ * erzwingen (darunter privacyNotice "link" und greetingStyle "bubble",
+ * beide Gruppe A seit 7.23).
  * courseCards geht NUR mit, wenn eine Wahl gespeichert ist (R4, Fixliste
  * 7.22-rc8); sonst entscheidet das Widget nach seiner tatsächlichen
  * Darstellung (In der Seite Kurskarten, Chatfenster Nur Text mit Links).
@@ -479,8 +485,9 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
   // 7.22-rc17): data-greeting und data-greeting-bubble-text am Skript wirken
   // nie, auch ohne gespeicherten Text (dann gilt der Standard der Sprache im
   // Widget). Die Form der Begrüßung (greetingStyle, fest "bubble" in
-  // EMBED_FIXED_STANDARDS) ist Gruppe B; wie weit data-greeting-style="text"
-  // sie verfeinert, legt das Widget fest (E26, Fixliste 7.22-rc18).
+  // EMBED_FIXED_STANDARDS) gehört seit 7.23 ebenfalls zu Gruppe A:
+  // data-greeting-style am Skript wirkt nie (D2 gekippt, Nutzer 24.10.2026;
+  // bis 7.22.2 Gruppe B mit der Grenze E26, Fixliste 7.22-rc18).
   const greeting = effectiveGreeting(vc);
   if (greeting) out.greeting = greeting;
   const placeholder = effectivePlaceholder(vc);
