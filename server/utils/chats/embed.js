@@ -32,6 +32,10 @@ const {
   storedTeaserLines,
   restoreCardsMarkers,
 } = require("./embedCardsMarker");
+const {
+  buildChainedContext,
+  createOverviewLinkGuard,
+} = require("./embedCategoryChains");
 
 async function streamChatWithForEmbed(
   response,
@@ -210,7 +214,37 @@ async function streamChatWithForEmbed(
   // If a past citation was used to answer the question - that is visible in the history so it logically makes sense
   // and does not appear to the user that a new response used information that is otherwise irrelevant for a given prompt.
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
-  contextTexts = [...contextTexts, ...filledSources.contextTexts];
+  // Folgefragen sind fester Standard (immer an): Prompt-Hinweis am Ende
+  // (embedSystemPrompt) und Chunk an das Widget. Kurskarten nach der Wahl
+  // im Design Center (KIE-567, courseCards "auto" = Kurskarten, "off" = Nur
+  // Text mit Links: klassischer Prompt ohne Karten-Abschnitt); ohne
+  // gespeicherte Wahl nach der Darstellung, die das Widget mitschickt (R4:
+  // In der Seite an, Chatfenster aus).
+  const cardsOn = courseCardsEnabled(embed, { displayMode });
+  const systemPrompt = embedSystemPrompt(
+    await chatPrompt(embed.workspace, username),
+    { cardsOn }
+  );
+
+  // KIE-576: mit gültiger Kategorie-Karte je Kursdokument die Kette
+  // „Kategorie-Ebene d: …“ statt der Kategorie-/Bereich-Link-Zeilen (nur
+  // contextTexts; sources, Kurskarten und Verlauf bleiben unverändert). Der
+  // Prüfer der Links kennt nur Adressen aus geprüften Quellen (R4-D3):
+  // Karte (Knoten, course_links), Kontext, System-Prompt (Kundenregeln) und
+  // die gespeicherten Quellen früherer Antworten (Feld sources), nicht deren
+  // Text.
+  // Ohne Karte und im Kurskarten-Modus (R1-D4, NAK-9) gibt es weder Kette
+  // noch Prüfer (alles wie vorher).
+  const chained = await buildChainedContext(contextTexts, filledSources, {
+    enabled: !cardsOn,
+  });
+  contextTexts = chained.contextTexts;
+  const overviewLinks = createOverviewLinkGuard({
+    contextTexts,
+    map: chained.map,
+    systemPrompt,
+    storedChats: rawHistory,
+  });
   sources = [...sources, ...vectorSearchResults.sources];
   // Quelle je Kontextblock [CONTEXT n] (n = Index in contextTexts)
   const contextSources = [...pinnedSources, ...filledSources.sources];
@@ -231,22 +265,11 @@ async function streamChatWithForEmbed(
     return;
   }
 
-  // Folgefragen sind fester Standard (immer an): Prompt-Hinweis am Ende
-  // (embedSystemPrompt) und Chunk an das Widget. Kurskarten nach der Wahl
-  // im Design Center (KIE-567, courseCards "auto" = Kurskarten, "off" = Nur
-  // Text mit Links: klassischer Prompt ohne Karten-Abschnitt); ohne
-  // gespeicherte Wahl nach der Darstellung, die das Widget mitschickt (R4:
-  // In der Seite an, Chatfenster aus).
-  const cardsOn = courseCardsEnabled(embed, { displayMode });
-
   // Compress message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: embedSystemPrompt(
-        await chatPrompt(embed.workspace, username),
-        { cardsOn }
-      ),
+      systemPrompt,
       userPrompt: message,
       contextTexts,
       chatHistory,
@@ -321,7 +344,10 @@ async function streamChatWithForEmbed(
       });
     completeText = textResponse;
     metrics = performanceMetrics;
-    parsedReply = parseCardsReply(completeText, { userMessage: message });
+    parsedReply = parseCardsReply(completeText, {
+      userMessage: message,
+      overviewLinks,
+    });
     if (parsedReply.marker.state === "marker") {
       await announceCourses({ indices: parsedReply.marker.indices ?? [] });
       sendCourseTeasers(parsedReply.teasers);
@@ -342,6 +368,7 @@ async function streamChatWithForEmbed(
       onMarker: announceCourses,
       onTeasers: sendCourseTeasers,
       userMessage: message,
+      overviewLinks,
     });
     completeText = await LLMConnector.handleStream(
       markerStream.response,
@@ -362,7 +389,10 @@ async function streamChatWithForEmbed(
   // (Feld fehlt). Kurskarten v3: Teaserzeilen zu Marker-Nummern (nur die
   // sammelt parseCardsReply) ebenso als courseTeaserLines (LLM-Verlauf), den
   // Karten zugeordnet als courseTeasers (Widget-Verlauf).
-  parsedReply ??= parseCardsReply(completeText, { userMessage: message });
+  parsedReply ??= parseCardsReply(completeText, {
+    userMessage: message,
+    overviewLinks,
+  });
   const replyMarker = parsedReply.marker;
   const courseCardsMarker =
     replyMarker.state === "marker" && replyMarker.valid
