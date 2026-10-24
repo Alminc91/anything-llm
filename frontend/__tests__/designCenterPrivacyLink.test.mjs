@@ -1082,6 +1082,51 @@ test(
   }
 );
 
+// F13 (Fixliste rc2, Nachtrag 24.10.2026; Opus EMP-7): Das
+// Schließen-Symbol steht mittig zur ersten Zeile der Überschrift, im
+// Chatfenster und bei „In der Seite“ (bis rc2 dort 6 px tiefer: Mitte
+// Überschrift 298, Symbol 304). Gerechnet aus den Klassen der Vorschau
+// (Tailwind-Abstand n = n × 4 px), im Browser gemessen in der Anleitung.
+const TW_LEADING = { "leading-tight": 1.25, "leading-snug": 1.375 };
+const twSpace = (cls, prefix) => {
+  const m = (cls || "").match(
+    new RegExp(`(?:^|\\s)${prefix}-(\\d+(?:\\.\\d+)?)(?=\\s|$)`)
+  );
+  assert.ok(m, `${prefix}-… fehlt in „${cls}“`);
+  return Number(m[1]) * 4;
+};
+test(
+  "F13: Schließen-Symbol mittig zur ersten Zeile der Überschrift, im Chatfenster und bei „In der Seite“",
+  { skip },
+  async (t) => {
+    for (const displayMode of [undefined, "inline"]) {
+      const mounted = await renderer.mount(PREVIEW, {
+        location: "/",
+        props: previewProps({ displayMode }),
+      });
+      t.after(() => mounted.unmount());
+      const { container, act } = mounted;
+      await act(() => click(byPreview(container, "privacy-link")[0]));
+      const [dialog] = dialogs(container);
+      const heading = headingOf(dialog);
+      const headCls = heading.parentNode.getAttribute("class");
+      const titleCls = heading.getAttribute("class");
+      const size = Number(titleCls.match(/text-\[(\d+(?:\.\d+)?)px\]/)[1]);
+      const leading = Object.entries(TW_LEADING).find(([c]) =>
+        titleCls.split(/\s+/).includes(c)
+      );
+      assert.ok(leading, `Zeilenhöhe in „${titleCls}“`);
+      const titleMid = twSpace(headCls, "pt") + (size * leading[1]) / 2;
+      const iconCls = byAria(dialog, CLOSE_LABEL).getAttribute("class");
+      const iconMid = twSpace(iconCls, "top") + twSpace(iconCls, "h") / 2;
+      assert.ok(
+        Math.abs(iconMid - titleMid) <= 1,
+        `${displayMode}: Symbol ${iconMid} px, Überschrift ${titleMid} px`
+      );
+    }
+  }
+);
+
 // Gegenprobe gegen das Widget (KUFER_EMBED_DIR, Checkout von
 // anythingllm-embed): dieselbe Farbe wie privacyLinkColor im Widget für
 // dieselbe gespeicherte Akzentfarbe (der Server liefert sie als linkColor,

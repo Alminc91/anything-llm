@@ -852,12 +852,19 @@ const coveredProps = (covered) => (covered ? { inert: "" } : {});
 // Fixliste rc1: das breite Panel ergab sonst Zeilen bis 150 Zeichen);
 // Kopfzeile, Button-Zeile und Bildlauf bleiben über die ganze Breite.
 // Rückweg: column weglassen.
+// Das Schließen-Symbol steht in beiden Darstellungen gleich hoch, mittig
+// zur ersten Zeile der Überschrift wie im Widget (F13, Fixliste rc2; bis rc2
+// bei „In der Seite“ top-3.5, 6 px tiefer): Kopf pt-3.5 (14 px) plus halbe
+// Zeile der Überschrift (15 px × 1,375 / 2 = 10,3 px) = 24,3 px, Symbol
+// h-8 (32 px) mit top-2 (8 px) = 24 px. Nur der Abstand nach rechts folgt
+// der Rundung des Panels.
+const PRIVACY_CLOSE_TOP = "top-2";
 const PRIVACY_TEXT_MAX_WIDTH = "70ch";
 const PRIVACY_DIALOG_INSETS = {
-  bubble: { x: "px-4", close: "top-2 right-2", title: "pr-11" },
+  bubble: { x: "px-4", close: "right-2", title: "pr-11" },
   inline: {
     x: "px-8",
-    close: "top-3.5 right-5",
+    close: "right-5",
     title: "pr-14",
     column: { maxWidth: PRIVACY_TEXT_MAX_WIDTH },
   },
@@ -1017,7 +1024,7 @@ function PreviewPrivacyDialog({
         onClick={onClose}
         aria-label={PRIVACY_CLOSE_LABEL}
         title={PRIVACY_CLOSE_LABEL}
-        className={`absolute ${inset.close} w-8 h-8 rounded-lg flex items-center justify-center ${focusRing}`}
+        className={`absolute ${PRIVACY_CLOSE_TOP} ${inset.close} w-8 h-8 rounded-lg flex items-center justify-center ${focusRing}`}
         style={{ color: palette.muted, outlineColor: link }}
       >
         <X size={16} weight="bold" aria-hidden="true" />
