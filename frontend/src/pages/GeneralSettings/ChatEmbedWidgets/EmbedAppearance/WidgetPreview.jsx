@@ -719,7 +719,7 @@ export function PreviewWelcome({
             <p>
               <PrivacyStatementLink
                 url={privacy.url}
-                color={previewPrivacyLinkColor(config, palette)}
+                color={previewLinkColor(config, palette)}
               />
             </p>
           )}
@@ -810,13 +810,23 @@ function privacyFixedTexts(defaults) {
 // 3:1). Gegenprobe gegen das Widget im Test designCenterPrivacyLink.
 const DARK_LINK_COLOR = "#5CC8CB";
 export function previewPrivacyLinkColor(config, palette = paletteOf(config)) {
-  const link =
-    palette.scheme === "dark" ? DARK_LINK_COLOR : previewAccentColor(config);
+  const link = previewLinkColor(config, palette);
   return pillTextColor(
     link,
     [palette.panelBg, PREVIEW_PRIVACY_DIALOG_COLORS[palette.scheme].bg],
     palette.text
   );
+}
+
+// Linkfarbe des Widgets ohne Kontrastausgleich (theme.js --allmi-link): hell
+// die Akzentfarbe, dunkel fest DARK.link. So färbt das Widget den Link zur
+// Datenschutzerklärung in der Datenschutz-Blase beim Start (AK-12, wie in
+// 7.22.2: PanelWelcome PrivacyBubble, var(--allmi-link)); Fußzeile und
+// Fenster nehmen sie mit Ausgleich (previewPrivacyLinkColor).
+export function previewLinkColor(config, palette = paletteOf(config)) {
+  return palette.scheme === "dark"
+    ? DARK_LINK_COLOR
+    : previewAccentColor(config);
 }
 
 // Farben des Datenschutz-Fensters, dieselben Werte wie im Widget (theme.js

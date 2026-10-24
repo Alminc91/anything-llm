@@ -332,6 +332,60 @@ test(
   }
 );
 
+// Link zur Datenschutzerklärung in der Blase: Farbe wie im Widget
+// (PanelWelcome PrivacyBubble: var(--allmi-link), hell die Akzentfarbe,
+// dunkel DARK.link), ohne den Kontrastausgleich von Fußzeile und Fenster
+// (wie in 7.22.2). Gegenprobe gegen das Widget mit KUFER_EMBED_DIR.
+const WIDGET_DIR = globalThis.process?.env?.KUFER_EMBED_DIR;
+test(
+  "AK-12 (D4): Linkfarbe in der Blase wie im Widget, hell die Akzentfarbe, dunkel #5CC8CB",
+  { skip },
+  async () => {
+    const colorOf = (tag) =>
+      tag.match(/style="[^"]*(?<![-\w])color:\s*([^;"]+)/)?.[1].trim();
+    for (const [theme, accentColor, expected] of [
+      ["light", undefined, "#007C82"],
+      ["light", "#FFA102", "#FFA102"],
+      ["light", "#01A5A9", "#01A5A9"],
+      ["dark", "#FFA102", "#5CC8CB"],
+      ["dark", undefined, "#5CC8CB"],
+    ]) {
+      const label = `${theme} ${accentColor}`;
+      const html = await renderer.render(PREVIEW, {
+        location: "/",
+        props: previewProps({
+          theme,
+          accentColor,
+          privacyStartBubble: true,
+          privacyUrl: "/datenschutz",
+        }),
+      });
+      const link = blockOf(html, "privacy-bubble").match(
+        /<span[^>]*data-preview="privacy-statement-link"[^>]*>/
+      );
+      assert.ok(link, label);
+      assert.equal(colorOf(link[0])?.toUpperCase(), expected, label);
+    }
+    if (!WIDGET_DIR) return;
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const source = fs.readFileSync(
+      path.join(
+        WIDGET_DIR,
+        "src/components/ChatWindow/ChatContainer/ChatHistory/PanelWelcome/index.jsx"
+      ),
+      "utf8"
+    );
+    const bubble = source.slice(source.indexOf("function PrivacyBubble"));
+    assert.match(bubble, /color: `var\(--allmi-link, /);
+    const theme = fs.readFileSync(
+      path.join(WIDGET_DIR, "src/utils/theme.js"),
+      "utf8"
+    );
+    assert.match(theme, /link: "#5CC8CB"/);
+  }
+);
+
 test(
   "AK-12: ohne eigene Werte Standardüberschrift und Standardtext, kein Link; leere Überschrift gilt wie der Standard",
   { skip },
