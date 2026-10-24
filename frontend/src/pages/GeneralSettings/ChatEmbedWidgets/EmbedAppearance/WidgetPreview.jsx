@@ -101,6 +101,17 @@ export function previewWindowHeight(areaHeight) {
   );
 }
 
+// Breite des Chatfensters in der Vorschau: fest 370 px (seit 03/2026, schmal
+// und hoch wie das Widget), in einem schmalen Design Center nie schmaler als
+// 360 px. Live ist das Fenster ab 768 px Bildschirmbreite mindestens 360 px
+// breit (Widget src/App.jsx, Nutzer 24.10.2026, W12/F9 der Fixliste
+// datenschutz-fusszeile rc2); vorher schrumpfte die Vorschau mit der Spalte,
+// unter 360 px bei einem Design Center unter 816 px Breite (768 px: 336 px).
+// min-width geht vor max-width; das Fenster ragt dann höchstens in den
+// Innenabstand der Vorschaufläche, ohne waagerechten Bildlauf.
+export const PREVIEW_WINDOW_WIDTH_PX = 370;
+export const PREVIEW_WINDOW_MIN_WIDTH_PX = 360;
+
 // Höhe der aufgeklappten Box „In der Seite“: fest wie live (Serverstandard
 // inlineHeight in server/utils/chats/embedStandards.js, im Widget
 // DEFAULT_INLINE_HEIGHT)
@@ -1126,7 +1137,14 @@ function BubblePreview({
   const devicesDiffer =
     desktopBubbles !== choiceValue(config, "welcomeBubblesMobile");
   return (
-    <div className="w-[370px] max-w-full flex flex-col items-stretch">
+    <div
+      className="max-w-full flex flex-col items-stretch"
+      style={{
+        width: `${PREVIEW_WINDOW_WIDTH_PX}px`,
+        minWidth: `${PREVIEW_WINDOW_MIN_WIDTH_PX}px`,
+      }}
+      data-preview="chat-column"
+    >
       {/* Feste Höhe wie live (previewWindowHeight: 77 % der Vorschaufläche,
           mindestens 400 px); der Nachrichtenbereich scrollt innen mit
           sichtbarer Bildlaufleiste (vor rc11 war sie versteckt und schnitt
