@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require("uuid");
 const { DocumentManager } = require("../DocumentManager");
+const { courseInventoryGuard } = require("./courseInventory");
 const { WorkspaceChats } = require("../../models/workspaceChats");
 const { Workspace } = require("../../models/workspace");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
@@ -114,13 +115,19 @@ async function chatSync({
   let contextTexts = [];
   let sources = [];
   let pinnedDocIdentifiers = [];
+  // KIE-576 Paket 3 (E35): veraltete Kursdokumente (Kursnummer nicht im
+  // Feed) kommen weder als angeheftetes Dokument noch über den Rückgriff
+  // in Kontext und Quellen; die Suche schließt sie selbst aus
+  // (lance/index.js). Ohne gültigen Kursbestand null: alles wie heute.
+  const inventoryGuard = await courseInventoryGuard(workspace);
   await new DocumentManager({
     workspace,
     maxTokens: LLMConnector.promptWindowLimit(),
   })
     .pinnedDocs()
     .then((pinnedDocs) => {
-      pinnedDocs.forEach((doc) => {
+      const keptDocs = inventoryGuard?.filterPinned(pinnedDocs) ?? pinnedDocs;
+      keptDocs.forEach((doc) => {
         const { pageContent, ...metadata } = doc;
         pinnedDocIdentifiers.push(sourceIdentifier(doc));
         contextTexts.push(doc.pageContent);
@@ -196,6 +203,7 @@ async function chatSync({
     );
   }
 
+  inventoryGuard?.report();
   // For OpenAI Compatible chats, we cannot do backfilling so we simply aggregate results here.
   contextTexts = [...contextTexts, ...vectorSearchResults.contextTexts];
   sources = [...sources, ...vectorSearchResults.sources];
@@ -468,13 +476,19 @@ async function streamChat({
   let contextTexts = [];
   let sources = [];
   let pinnedDocIdentifiers = [];
+  // KIE-576 Paket 3 (E35): veraltete Kursdokumente (Kursnummer nicht im
+  // Feed) kommen weder als angeheftetes Dokument noch über den Rückgriff
+  // in Kontext und Quellen; die Suche schließt sie selbst aus
+  // (lance/index.js). Ohne gültigen Kursbestand null: alles wie heute.
+  const inventoryGuard = await courseInventoryGuard(workspace);
   await new DocumentManager({
     workspace,
     maxTokens: LLMConnector.promptWindowLimit(),
   })
     .pinnedDocs()
     .then((pinnedDocs) => {
-      pinnedDocs.forEach((doc) => {
+      const keptDocs = inventoryGuard?.filterPinned(pinnedDocs) ?? pinnedDocs;
+      keptDocs.forEach((doc) => {
         const { pageContent, ...metadata } = doc;
         pinnedDocIdentifiers.push(sourceIdentifier(doc));
         contextTexts.push(doc.pageContent);
@@ -544,6 +558,7 @@ async function streamChat({
     return;
   }
 
+  inventoryGuard?.report();
   // For OpenAI Compatible chats, we cannot do backfilling so we simply aggregate results here.
   contextTexts = [...contextTexts, ...vectorSearchResults.contextTexts];
   sources = [...sources, ...vectorSearchResults.sources];

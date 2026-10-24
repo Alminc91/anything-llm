@@ -374,6 +374,10 @@ function cannonball({
  * @param {object} config.searchResults = vector `similarityResponse` results for .sources
  * @param {object[]} config.history - rawHistory of chat containing sources
  * @param {string[]} config.filterIdentifiers - Pinned document identifiers to prevent duplicate context
+ * @param {((source: object) => boolean)|null} [config.excludeSource] - KIE-576
+ *   Paket 3: gespeicherte Quellen, für die das true ergibt (veraltete
+ *   Kursdokumente, courseInventory guard.hidesSource), kommen nicht in den
+ *   Rückgriff. Ohne Angabe wie bisher.
  * @returns {{
  *   contextTexts: string[],
  *   sources: object[],
@@ -384,6 +388,7 @@ function fillSourceWindow({
   searchResults = [], // Sources from similarity search
   history = [], // Raw history
   filterIdentifiers = [], // pinned document sources
+  excludeSource = null, // KIE-576: veraltete Kursdokumente
 } = config) {
   const sources = [...searchResults];
 
@@ -424,7 +429,8 @@ function fillSourceWindow({
         filterIdentifiers.includes(sourceIdentifier(source)) == false && // source cannot be in current pins
         source.hasOwnProperty("score") && // source cannot have come from a pinned document that was previously pinned
         source.hasOwnProperty("text") && // source has a valid text property we can use
-        seenChunks.has(source.id) == false // is unique
+        seenChunks.has(source.id) == false && // is unique
+        (typeof excludeSource !== "function" || !excludeSource(source))
       );
     });
 
