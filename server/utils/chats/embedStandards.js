@@ -77,8 +77,11 @@ const DEFAULT_WELCOME_BUBBLES = "first";
 // Datenschutz-Hinweis (privacyNotice) fest "link" (Nutzer 23.10.2026,
 // issues/datenschutz-fusszeile.md AK-7/AK-10): Der Link „Datenschutz“ steht
 // immer in der Zeile des KI-Hinweises unter der Eingabe und öffnet das
-// Datenschutz-Fenster; keine Blase beim Start, kein „Aus“, keine Auswahl im
-// Design Center (Gruppe A: data-privacy-notice wirkt nicht). Ebenso fest
+// Datenschutz-Fenster; kein „Aus“ (Gruppe A: data-privacy-notice wirkt
+// nicht). Die Blase beim Start ist seit AK-12 (Nutzer 24.10.2026) eine
+// Option mit eigenem Schlüssel, privacyStartBubble (nur true, Erlaubtliste
+// im Endpunkt, endpoints/embed/index.js mapLayoutConfig); privacyNotice
+// schaltet sie nicht ein (D2). Ebenso fest
 // und Gruppe A: greetingStyle "bubble" (Kopfkommentar). Widget-Kopien
 // bis 7.22.2 kennen "link" nicht und zeigen dann wieder die Blase
 // (Migrationsdoku, Prüfpunkt 14). Gespeicherte Altwerte ("bubble", "none", "modal") bleiben in
