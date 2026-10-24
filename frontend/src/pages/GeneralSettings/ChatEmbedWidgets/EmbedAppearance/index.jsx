@@ -84,8 +84,12 @@ export default function EmbedAppearance() {
   // verglichen, damit eine Vorbelegung, die der Kunde wieder auf den
   // Standard bringt, nicht als Änderung zählt
   const cleanOptions = { initial: initialConfig, defaults, greetingKey };
+  // Der bereinigte Stand entscheidet auch in der Vorschau, ob sich etwas
+  // geändert hat (Datenschutz-Fenster, F15 Fixliste datenschutz-fusszeile
+  // rc3): Speichern bereinigt, ändert die Vorschau aber nicht
+  const cleanedConfig = cleanConfig(config, cleanOptions);
   const hasChanges =
-    stableStringify(cleanConfig(config, cleanOptions)) !==
+    stableStringify(cleanedConfig) !==
     stableStringify(cleanConfig(initialConfig, cleanOptions));
 
   useEffect(() => {
@@ -429,6 +433,7 @@ export default function EmbedAppearance() {
         <div className="hidden md:flex flex-1 min-w-0">
           <WidgetPreview
             config={config}
+            cleanedConfig={cleanedConfig}
             logoPreview={logoPreview}
             defaults={defaults}
             defaultsError={defaultsError}

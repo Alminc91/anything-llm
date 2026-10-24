@@ -701,16 +701,18 @@ const widget = (id, visualConfig) => ({
   _count: { embed_chats: 0 },
 });
 
-function stubServer(t, embeds) {
+// defaultsReady: Standardtexte erst, wenn dieses Versprechen erfüllt ist
+function stubServer(t, embeds, defaultsReady = null) {
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
     const body = init.body === undefined ? undefined : JSON.parse(init.body);
     calls.push({ url, method: init.method, body });
     let answer = {};
     if (url.endsWith("/embeds")) answer = { embeds };
-    else if (url.includes("/embed/defaults"))
+    else if (url.includes("/embed/defaults")) {
+      await defaultsReady;
       answer = { lang: "de", defaults: DEFAULTS };
-    else if (url.includes("/embed/update/"))
+    } else if (url.includes("/embed/update/"))
       answer = { success: true, error: null };
     return { ok: true, status: 200, json: async () => answer };
   };
@@ -720,8 +722,8 @@ function stubServer(t, embeds) {
   return calls;
 }
 
-async function openDesignCenter(t, embeds, id) {
-  const calls = stubServer(t, embeds);
+async function openDesignCenter(t, embeds, id, defaultsReady = null) {
+  const calls = stubServer(t, embeds, defaultsReady);
   const mounted = await renderer.mount(DESIGN_CENTER, {
     location: `/settings/embed-config/${id}/appearance`,
     route: "/settings/embed-config/:embedId/appearance",
@@ -1073,6 +1075,72 @@ test(
       "#C4430A"
     );
     assert.ok(!open(), "Akzentfarbe schließt das Fenster");
+  }
+);
+
+// F15 (NF-3, Fixliste rc3): Ob eine andere Änderung das Fenster schließt,
+// entscheidet der bereinigte Stand (cleanConfig, wie „Ungespeicherte
+// Änderungen“), nicht die rohen Werte. Speichern bereinigt auch Felder
+// außerhalb des Datenschutzes (geleerte Begrüßung entfällt, Leerzeichen am
+// Ende), in der Vorschau ändert sich dadurch nichts: Speichern ist keine
+// Bearbeitung (wie F43 bei den Startvorschlägen).
+test(
+  "F15 (NF-3): Speichern schließt das Fenster nicht, auch wenn es andere Felder bereinigt (geleerte Begrüßung, Leerzeichen am Ende)",
+  { skip },
+  async (t) => {
+    for (const greetingValue of ["", "Guten Tag! "]) {
+      const label = JSON.stringify(greetingValue);
+      const { container, act, calls } = await openDesignCenter(
+        t,
+        [widget(4, STORED)],
+        4
+      );
+      await typeInto(act, byAria(container, "Begrüßungstext"), greetingValue);
+      const text = byAria(container, "Text des Datenschutz-Hinweises");
+      text.focus();
+      await typeInto(act, text, "• Ein Punkt");
+      assert.equal(dialogs(container).length, 1, `${label}: Text öffnet`);
+      await act(() => click(buttonByText(container, "Speichern")));
+      assert.ok(savedBody(calls), `${label}: gespeichert`);
+      assert.ok(!unsaved(container), `${label}: nichts mehr ungespeichert`);
+      assert.equal(
+        dialogs(container).length,
+        1,
+        `${label}: Fenster bleibt nach dem Speichern offen`
+      );
+    }
+  }
+);
+
+// Der bereinigte Stand hängt an den Standardtexten (cleanConfig vergleicht
+// mit ihnen). Kommen sie erst, wenn das Fenster schon offen ist, ist das
+// keine Änderung: Die Signatur ist bis dahin null wie bei allen Blöcken der
+// Vorschau (C4, loadedSignature). Gespeichert ist die Standard-Begrüßung
+// mit Leerzeichen am Ende: ohne Standardtexte bereinigt getrimmt, mit ihnen
+// unverändert (Standard, nicht bearbeitet).
+test(
+  "F15 (C4): Standardtexte kommen erst nach dem Klick auf „Datenschutz“: das Fenster bleibt offen",
+  { skip },
+  async (t) => {
+    let release;
+    const defaultsReady = new Promise((resolve) => {
+      release = resolve;
+    });
+    const { container, act } = await openDesignCenter(
+      t,
+      [widget(4, { name: "VHS", greeting: `${DEFAULTS.greeting} ` })],
+      4,
+      defaultsReady
+    );
+    await act(() => click(byPreview(container, "privacy-link")[0]));
+    assert.equal(dialogs(container).length, 1, "Klick öffnet");
+    await act(() => release());
+    await act();
+    assert.ok(
+      titleField(container).getAttribute("placeholder"),
+      "Standardtexte geladen"
+    );
+    assert.equal(dialogs(container).length, 1, "Fenster bleibt offen");
   }
 );
 

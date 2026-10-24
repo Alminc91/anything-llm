@@ -301,13 +301,17 @@ function ChatIcon({ config, size, color }) {
 
 /**
  * Vorschau rechts im Design Center.
- * @param {{config: Object, logoPreview: string|null, defaults: Object|null,
- *   defaultsError?: boolean, greetingKey: string}} props
+ * @param {{config: Object, cleanedConfig?: Object, logoPreview: string|null,
+ *   defaults: Object|null, defaultsError?: boolean, greetingKey: string}} props
+ *   cleanedConfig: der bereinigte Stand (cleanConfig, wie er gespeichert
+ *   würde); daran erkennt das Datenschutz-Fenster andere Änderungen (F15).
+ *   Ohne ihn (Vorschau allein) gilt config.
  *   defaultsError: Laden der Standardtexte fehlgeschlagen (sie kommen nicht
  *   mehr; bearbeitete Blöcke werden trotzdem ins Bild geholt, F42)
  */
 export default function WidgetPreview({
   config,
+  cleanedConfig = config,
   logoPreview,
   defaults,
   defaultsError = false,
@@ -362,6 +366,7 @@ export default function WidgetPreview({
           {inline ? (
             <InlinePreview
               config={config}
+              cleanedConfig={cleanedConfig}
               logoPreview={logoPreview}
               defaults={defaults}
               defaultsError={defaultsError}
@@ -371,6 +376,7 @@ export default function WidgetPreview({
           ) : (
             <BubblePreview
               config={config}
+              cleanedConfig={cleanedConfig}
               logoPreview={logoPreview}
               defaults={defaults}
               defaultsError={defaultsError}
@@ -801,11 +807,14 @@ const PRIVACY_CLICKED = Object.freeze({ isOpen: true, focus: true });
  * ohne Fokuswechsel, damit die Änderung zu sehen ist (E3, wie F10 bei der
  * Begrüßung); onReveal öffnet dazu den Chat. Ändert sich irgendetwas anderes
  * (Begrüßung, Startvorschläge, Beispielantwort, Optik), schließt das
- * Fenster, damit die Änderung nicht dahinter verborgen bleibt (F-4, F10).
+ * Fenster, damit die Änderung nicht dahinter verborgen bleibt (F-4, F10);
+ * Speichern ändert nichts davon (F15).
  * Rückweg zu modal: aria-modal und Tab-Falle an focusOnOpen hängen.
- * @param {{signature: string|null, others: string, onReveal?: () => void}} args
+ * @param {{signature: string|null, others: string|null,
+ *   onReveal?: () => void}} args
  *   signature: Inhalt des Fensters (privacySignature), others: alle übrigen
- *   Einstellungen (othersSignature)
+ *   Einstellungen, bereinigt (othersSignature); null = Standardtexte noch
+ *   nicht geladen
  */
 function usePrivacyWindow({ signature, others, onReveal }) {
   const [state, setState] = useState(PRIVACY_CLOSED);
@@ -855,13 +864,26 @@ function privacySignature(config, defaults, defaultsError) {
 
 // Signatur aller übrigen Einstellungen (alles außer Überschrift, Text und
 // Link des Datenschutz-Hinweises), unabhängig von der Reihenfolge der
-// Schlüssel
-function othersSignature(config) {
-  return JSON.stringify(
-    Object.keys(config)
-      .filter((key) => !PRIVACY_FIELD_KEYS.includes(key))
-      .sort()
-      .map((key) => [key, config[key]])
+// Schlüssel, aus dem bereinigten Stand (cleanConfig, F15 Fixliste rc3,
+// NF-3): Speichern bereinigt auch andere Felder (eine geleerte Begrüßung
+// entfällt, Leerzeichen am Ende), die Vorschau ändert sich dadurch nicht,
+// das Fenster bleibt offen (Speichern ist keine Bearbeitung, wie F43). Bis
+// rc3 aus den rohen Werten. Der bereinigte Stand vergleicht mit den
+// Standardtexten, deshalb erst ab geladenen Standardtexten (C4).
+function othersSignature(cleanedConfig, defaults, defaultsError) {
+  return loadedSignature(
+    defaults,
+    defaultsError,
+    JSON.stringify(
+      Object.keys(cleanedConfig)
+        .filter(
+          (key) =>
+            !PRIVACY_FIELD_KEYS.includes(key) &&
+            cleanedConfig[key] !== undefined
+        )
+        .sort()
+        .map((key) => [key, cleanedConfig[key]])
+    )
   );
 }
 
@@ -1123,6 +1145,7 @@ function PreviewInput({
 
 function BubblePreview({
   config,
+  cleanedConfig = config,
   logoPreview,
   defaults,
   defaultsError = false,
@@ -1142,7 +1165,7 @@ function BubblePreview({
   // den Chat, beim Schließen des Chats schließt es mit
   const privacyWindow = usePrivacyWindow({
     signature: privacySignature(config, defaults, defaultsError),
-    others: othersSignature(config),
+    others: othersSignature(cleanedConfig, defaults, defaultsError),
     onReveal: () => setOpen(true),
   });
   const setChatOpen = (next) => {
@@ -1311,6 +1334,7 @@ function BubblePreview({
 
 function InlinePreview({
   config,
+  cleanedConfig = config,
   logoPreview,
   defaults,
   defaultsError = false,
@@ -1330,7 +1354,7 @@ function InlinePreview({
   // im Reiter Inhalt klappt auf, beim Einklappen schließt es mit
   const privacyWindow = usePrivacyWindow({
     signature: privacySignature(config, defaults, defaultsError),
-    others: othersSignature(config),
+    others: othersSignature(cleanedConfig, defaults, defaultsError),
     onReveal: () => setExpanded(true),
   });
   const setPanelExpanded = (next) => {
