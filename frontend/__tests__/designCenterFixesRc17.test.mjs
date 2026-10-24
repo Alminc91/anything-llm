@@ -138,7 +138,14 @@ test("F51 (E23, E24): Abschnitt zu Angaben im Einbau-Code und CSS-Variablen", ()
     part,
     /Datenschutz-Hinweis schaltet nur der Schalter im Design Center/
   );
-  assert.match(part, /es gibt dort keinen Schalter mehr/);
+  // Bewusste Änderung (AK-12, Nutzer 24.10.2026): der Schalter
+  // „Zusätzlich beim Start als Blase zeigen“ fügt nur die Blase hinzu; bis
+  // rc4 „es gibt dort keinen Schalter mehr“
+  assert.doesNotMatch(part, /es gibt dort keinen Schalter mehr/);
+  assert.match(
+    part,
+    /der Schalter „Zusätzlich beim Start als Blase zeigen“ fügt nur die Blase hinzu, der Link bleibt/
+  );
   assert.match(part, /weder `data-privacy-notice` noch ein Wert im Design/);
   // E18 nicht mehr als geltende Regel
   assert.doesNotMatch(

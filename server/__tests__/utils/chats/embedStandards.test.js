@@ -652,6 +652,7 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
       "privacyNotice",
       "privacyText",
       "privacyTitle",
+      "privacyStartBubble",
       "courseCards",
       "courseCardsPosition",
       "welcomeBubblesDesktop",
@@ -674,7 +675,11 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
 
   // Datenschutz-Fußzeile (Nutzer 23.10.2026, 7.23): Abschnitt
   // „Datenschutz-Hinweis“ beschreibt den festen Link, das Fenster und die
-  // Altwerte ohne Wirkung; der Schalter steht nur noch als früherer Stand
+  // Altwerte ohne Wirkung; der Schalter „Datenschutz-Hinweis anzeigen“ steht
+  // nur noch als früherer Stand. Bewusste Änderung (AK-12, Nutzer
+  // 24.10.2026): „kein Schalter im Design Center, keine Blase beim Start“
+  // gilt nicht mehr, dazu kommt die Option „Zusätzlich beim Start als Blase
+  // zeigen“ (privacyStartBubble, eigener Test unten).
   test("Datenschutz-Hinweis: Link immer, Fenster, Altwerte ohne Wirkung", () => {
     const fs = require("fs");
     const path = require("path");
@@ -694,10 +699,12 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
       "„Hinweis zur KI“",
       embedDefaultTexts("de").privacyAiText,
       "„Schließen“",
-      "kein Schalter im Design Center, keine Blase beim Start, kein „Aus“",
+      "kein „Aus“, kein Pop-up mit Bestätigung",
       "Keine Migration",
     ])
       expect(section).toContain(text);
+    expect(section).not.toMatch(/kein Schalter im Design Center/);
+    expect(section).not.toMatch(/keine neuen Schlüssel/);
     const rows = section.split("| `privacyNotice` |");
     // drei Zeilen: bubble/modal/fehlt, none, Skript-Attribut
     expect(rows).toHaveLength(4);
@@ -753,6 +760,54 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
     const oldEnd =
       " Seiten mit eigener Kopie des Widgets (Demo) brauchen das Widget ab 7.23, sonst zeigen sie den langen KI-Hinweis ohne Link.\n";
     expect(p14Of(doc.trimEnd() + oldEnd)).toMatch(OLD_END);
+  });
+
+  // AK-12 (Nutzer 24.10.2026, Vertrag Punkt 7): die Option „Zusätzlich beim
+  // Start als Blase zeigen“ im Abschnitt Datenschutz-Hinweis (Speicherwert,
+  // Auslieferung, Altwerte, Link bleibt), je Wert eine Tabellenzeile, in
+  // Gruppe A und im Prüfpunkt 14; die Zahlen des Scans sind keine
+  // Kundenwünsche (Nutzer 24.10.2026)
+  test("Migrationsdoku: Datenschutz zusätzlich beim Start als Blase (AK-12)", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const doc = fs.readFileSync(
+      path.join(__dirname, "../../../../docs/design-center-2-migration.md"),
+      "utf8"
+    );
+    const flat = (text) => text.replace(/\s+/g, " ");
+    const start = doc.indexOf("## Datenschutz-Hinweis");
+    const section = flat(doc.slice(start, doc.indexOf("\n## ", start + 1)));
+    for (const text of [
+      "„Zusätzlich beim Start als Blase zeigen“",
+      "`privacyStartBubble: true`",
+      "nie `false`",
+      "unter der Begrüßungsblase",
+      "ohne den Punkt „Hinweis zur KI“",
+      "Der Link „Datenschutz“ in der Fußzeile bleibt",
+      "nur boolesche Werte",
+      "Alte Werte von `privacyNotice` (auch `bubble`) schalten die Blase nicht ein",
+      "neu in `visual_config` ist nur `privacyStartBubble`",
+      "sagen nichts darüber, wie Kunden den Hinweis haben wollen",
+    ])
+      expect(section).toContain(text);
+    const rows = section.split("| `privacyStartBubble` |").slice(1);
+    expect(rows.map((r) => r.trim().split(" |")[0])).toEqual([
+      "fehlt",
+      "`true`",
+      "`false` oder ein anderer Wert",
+      "`data-privacy-start-bubble` am Skript",
+    ]);
+    expect(rows[3]).toMatch(/Gruppe A/);
+    expect(section).not.toMatch(/[–—]/);
+    // Gruppe A nennt die Angabe, der Prüfpunkt 14 den Schalter
+    const groupA = flat(
+      doc.slice(doc.indexOf("- **Gruppe A"), doc.indexOf("- **Gruppe B"))
+    );
+    expect(groupA).toContain("`data-privacy-start-bubble`");
+    expect(groupA).toContain("`privacyStartBubble: true`");
+    const p14 = flat(doc.slice(doc.search(/^14\. /m)));
+    expect(p14).toMatch(/„Zusätzlich beim Start als Blase zeigen“/);
+    expect(p14).toMatch(/nicht automatisch/);
   });
 });
 

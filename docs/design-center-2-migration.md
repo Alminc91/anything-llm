@@ -63,13 +63,16 @@ von Hand gebauten Einbau-Codes (Demo-Seite, Einbau-Paket vhs Rhein).
   (`data-chatbot-bubbles-messages`, `data-welcome-bubbles-desktop`,
   `data-welcome-bubbles-mobile`, `data-display-chatbot-bubbles`,
   `data-bubble-persistence`), Support-E-Mail (`data-support-email`), die
-  Texte des Datenschutz-Fensters: Überschrift, Text und Link zur
-  Datenschutzerklärung (`data-privacy-title`, `data-privacy-text`,
-  `data-privacy-url`) und der Datenschutz-Hinweis selbst
-  (`data-privacy-notice`). Für ihn hat das Design Center seit 7.23 keine
-  Auswahl mehr: Er ist immer der Link „Datenschutz“ neben dem KI-Hinweis,
-  `GET /embed/:id/config` liefert fest `privacyNotice: "link"`, das Widget
-  verwirft die Angabe im Einbau-Code und meldet sie in der Konsole. Ebenso
+  Texte des Datenschutz-Hinweises (Fenster und Blase): Überschrift, Text und
+  Link zur Datenschutzerklärung (`data-privacy-title`, `data-privacy-text`,
+  `data-privacy-url`), der Datenschutz-Hinweis selbst
+  (`data-privacy-notice`) und ab 7.23 der Schalter „Zusätzlich beim Start
+  als Blase zeigen“ (`data-privacy-start-bubble`, AK-12). Der Link
+  „Datenschutz“ neben dem KI-Hinweis steht seit 7.23 immer da,
+  `GET /embed/:id/config` liefert fest `privacyNotice: "link"`; die Blase
+  beim Start kommt nur dazu, wenn der Schalter im Design Center an ist
+  (`privacyStartBubble: true`). Das Widget verwirft beide Angaben im
+  Einbau-Code und meldet sie in der Konsole. Ebenso
   die Form der Begrüßung: Sie ist ab 7.23 immer eine Blase,
   `GET /embed/:id/config` liefert fest `greetingStyle: "bubble"`, das
   Widget verwirft `data-greeting-style` und meldet die Angabe in der
@@ -123,8 +126,9 @@ von Hand gebauten Einbau-Codes (Demo-Seite, Einbau-Paket vhs Rhein).
   machen könnten, wirken auf ihn nicht. Seit 7.23 steht in derselben Zeile
   der Link „Datenschutz“ („Unsere KI kann Fehler machen · Datenschutz“); auch
   ihn und das Datenschutz-Fenster blendet keine Angabe aus, weder
-  `data-privacy-notice` noch ein Wert im Design Center (es gibt dort keinen
-  Schalter mehr).
+  `data-privacy-notice` noch ein Wert im Design Center (der Schalter
+  „Zusätzlich beim Start als Blase zeigen“ fügt nur die Blase hinzu, der Link
+  bleibt).
 
 Die vollständige Liste je Gruppe steht im Widget-Repo in `ATTRIBUTES.md`.
 Unverändert bleibt die Schnittstelle zur Seite: der Platzhalter, das Signal
@@ -338,21 +342,45 @@ unserer Website.“, en „Our AI advisor is optimised for accurate information.
 Like any AI, it can still make the occasional mistake. You can always check
 important details such as dates and prices on our website.“; ein Wortlaut für
 alle Kunden, auch ohne Kursangebot, F8), dem Link zur Datenschutzerklärung
-(`privacyUrl`, falls gesetzt) und dem Button „Schließen“. Es gibt keine Wahl
-mehr: kein Schalter im Design Center, keine Blase beim Start, kein „Aus“, kein
-Pop-up mit Bestätigung. `GET /embed/:id/config` liefert fest
-`privacyNotice: "link"` (`EMBED_FIXED_STANDARDS`); das Design Center schreibt
-`privacyNotice` beim Speichern nicht, ein gespeicherter Altwert bleibt
-unverändert stehen. Keine Migration, keine neuen Schlüssel in `visual_config`.
+(`privacyUrl`, falls gesetzt) und dem Button „Schließen“. Den Link gibt es
+immer: kein „Aus“, kein Pop-up mit Bestätigung. `GET /embed/:id/config` liefert
+fest `privacyNotice: "link"` (`EMBED_FIXED_STANDARDS`); das Design Center
+schreibt `privacyNotice` beim Speichern nicht, ein gespeicherter Altwert bleibt
+unverändert stehen.
+
+Zusätzlich beim Start als Blase (AK-12, Nutzer 24.10.2026): Im Reiter Inhalt
+steht in der Gruppe „Datenschutz-Hinweis“ der Schalter „Zusätzlich beim Start
+als Blase zeigen“, Standard aus. Ist er an, zeigt das Widget beim Start unter
+der Begrüßungsblase eine Datenschutz-Blase wie bis 7.22.2 (Fläche, Schrift und
+Abstände wie die Begrüßung; Überschrift, Text als Punkte, Link zur
+Datenschutzerklärung, falls gesetzt; ohne den Punkt „Hinweis zur KI“, der steht
+im Fenster). Sie bleibt im Verlauf mit der Begrüßung oben stehen, die
+Startvorschläge folgen darunter; die Vorschau im Design Center zeigt sie
+ebenso. Der Link „Datenschutz“ in der Fußzeile bleibt auch mit Blase (D1).
+Gespeichert wird `privacyStartBubble: true`; ist der Schalter aus, entfernt das
+Design Center den Schlüssel (nie `false`). `GET /embed/:id/config` liefert
+`privacyStartBubble: true` nur, wenn genau `true` gespeichert ist, sonst fehlt
+der Schlüssel. Beim Speichern (Design Center und Developer-API) nimmt der
+Server für ihn nur boolesche Werte an und verwirft andere. Alte Werte von
+`privacyNotice` (auch `bubble`) schalten die Blase nicht ein (D2), eine Angabe
+im Einbau-Code ebenso wenig (Gruppe A). Keine Migration; neu in
+`visual_config` ist nur `privacyStartBubble`.
+
 Bestand laut Scan vom 23.10.2026 (94 Widgets, nur lesend): 91 ohne
 `privacyNotice`, 3 mit `bubble`, keines mit `none`, keines mit `privacyUrl`, 2
-mit eigenem Datenschutz-Text.
+mit eigenem Datenschutz-Text. Die Zahlen beschreiben gespeicherte Werte; sie
+sagen nichts darüber, wie Kunden den Hinweis haben wollen: Die Blase war bis
+7.22.2 der Standard und gerade erst ausgeliefert (Nutzer 24.10.2026).
 
 | Schlüssel           | Alter Wert                                                        | Neues Verhalten                                                          |
 | ------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `privacyNotice`     | `bubble`, `modal`, fehlt                                          | ab 7.23 keine Datenschutz-Blase beim Start mehr, der Link „Datenschutz“ steht in der Fußzeile; Begrüßung, Startvorschläge und Folgefragen bleiben. 7.22 bis 7.22.2: zweite Blase unter der Begrüßung, die Begrüßung blieb dafür eine Blase, auch gegen `data-greeting-style="text"` (E26, 7.22-rc18); der Einmal-Dialog `modal` entfiel schon mit 7.22 |
+| `privacyNotice`     | `bubble`, `modal`, fehlt                                          | ab 7.23 keine Datenschutz-Blase beim Start mehr, der Link „Datenschutz“ steht in der Fußzeile; Begrüßung, Startvorschläge und Folgefragen bleiben. Auch `bubble` schaltet die Blase beim Start (`privacyStartBubble`) nicht ein (D2). 7.22 bis 7.22.2: zweite Blase unter der Begrüßung, die Begrüßung blieb dafür eine Blase, auch gegen `data-greeting-style="text"` (E26, 7.22-rc18); der Einmal-Dialog `modal` entfiel schon mit 7.22 |
 | `privacyNotice`     | `none`                                                            | ab 7.23 ohne Wirkung: der Link steht trotzdem in der Fußzeile (kein „Aus“ mehr). 7.22 bis 7.22.2: Hinweis aus (Schalter „Datenschutz-Hinweis anzeigen“) |
 | `privacyNotice`     | `data-privacy-notice` am Skript                                   | ohne Wirkung, wie seit 7.22-rc17 (Gruppe A, E23): der Link „Datenschutz“ steht immer in der Fußzeile; das Widget meldet die Angabe in der Konsole |
+| `privacyStartBubble` | fehlt                                                             | Standard: nur der Link „Datenschutz“ in der Fußzeile, keine Blase beim Start (AK-1) |
+| `privacyStartBubble` | `true`                                                            | ab 7.23 (AK-12) zusätzlich die Datenschutz-Blase beim Start unter der Begrüßung; der Link bleibt |
+| `privacyStartBubble` | `false` oder ein anderer Wert                                     | wie fehlt: `GET /embed/:id/config` liefert den Schlüssel nicht, das Design Center zeigt den Schalter aus und entfernt den Wert beim nächsten Speichern; neu speichert der Server nur boolesche Werte |
+| `privacyStartBubble` | `data-privacy-start-bubble` am Skript                             | ohne Wirkung (Gruppe A): die Blase kommt nur aus dem Design Center; das Widget meldet die Angabe in der Konsole |
 | `privacyButtonText` | eigener Text                                                      | wirkungslos; der Button im Datenschutz-Fenster heißt ab 7.23 fest „Schließen“ (en „Close“) |
 | `privacyUrl`        | fehlt                                                             | kein Link zur Datenschutzerklärung im Fenster; das Design Center empfiehlt, ihn einzutragen |
 | `privacyUrl`        | `https://…` oder `/pfad`                                          | ab 7.23 als Link zur Datenschutzerklärung im Datenschutz-Fenster (bis 7.22.2 am Ende der Blase), neuer Tab |
@@ -400,4 +428,4 @@ Text mit Links“ ein.
 11. Nur auf den Containern, die 7.16 bis 7.21.1 liefen (ki-helfer, intern, demo-inline, praesentation, entwicklung): gespeicherte `privacyText` nach dem Wort „Mitarbeitende“ durchsuchen und die Treffer je Container zählen (E30, 7.22-rc19). Bis 7.21.1 zeigte das Feld den Standardtext als Wert; wer ihn dort bearbeitet hat, hat ihn samt dem alten Standardpunkt gespeichert, und dieser Text bleibt nach 7.22 stehen. Der Standardtext lautet seit E30 „Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.“ Treffer nur melden; gespeicherte Texte der Kunden nicht ändern. Die Flotte (7.8) hatte diesen Standardtext nie.
 12. Gespeicherte Farbwerte, die `parseColor` nicht liest oder die nicht deckend sind (E41, 7.22-rc22): je Container in `visual_config` die Werte von `accentColor` und `userTextColor` mit `parseColor` und auf Deckkraft unter 1 prüfen und die Treffer je Kunde zählen, z. B. `hsl()`, Farbnamen, Prozent, `#rgba`, `oklch()`, Systemfarben, `rgb()` mit gemischten Trennern oder geschützten Leerzeichen, `rgba()` mit Alpha unter 1 oder `#rrggbbaa` unter `ff`. Diese Widgets zeigen ab 7.22 die Standardfarbe (ab 7.22.2 `#007C82`, vorher `#01A5A9`) bzw. die Schrift nach Kontrast (Absatz unter der Tabelle „Darstellung“). Erwartet sind wenige oder keine Treffer, das Design Center hatte immer einen Farbwähler. Treffer nur melden; gespeicherte Werte der Kunden nicht ändern.
 13. Begrüßungen mit eigenem Datenschutzinhalt, die keiner Vorlage aus `LEGACY_PRIVACY_GREETINGS` wortgleich entsprechen (E43, 7.22-rc24): Sie bleiben eigene Kundentexte. In 7.22 folgte ihnen die Datenschutz-Blase, ab 7.23 steht der Hinweis zusätzlich im Datenschutz-Fenster hinter dem Link „Datenschutz“. Je Container `greeting` und `greetingBubbleText` lesen und die Treffer je Kunde melden (Stand 22.10.2026: zwei Kunden, einer mit einer abgewandelten Juni-Vorlage, einer mit eigenen Einwilligungssätzen). Gespeicherte Texte der Kunden nicht ändern; der Kunde kürzt die Begrüßung im Design Center (abschalten lässt sich der Link ab 7.23 nicht). Wortgleiche Vorlagen (auch mit anderem Leerraum) brauchen nichts.
-14. Datenschutz als Link in der Fußzeile (7.23, Nutzerentscheidung 23.10.2026): Nichts zu migrieren, gespeicherte Werte bleiben. Widgets mit `privacyNotice` `bubble` (Scan 23.10.2026: 3) zeigen statt der Blase den Link; Widgets mit eigenem `privacyText` (2) zeigen ihn im Fenster, dort einmal öffnen und prüfen. Einen Link zur Datenschutzerklärung (`privacyUrl`) hat kein Widget: Kunden auf das Feld „Link zur Datenschutzerklärung“ im Reiter Inhalt hinweisen. Widget-Kopien bis 7.22.2 (eigene Kopien wie Demo und Einbau-Paket vhs Rhein, auch ein altes Bundle im Zwischenspeicher des Browsers) kennen den Wert `link` nicht: Gegen einen Server 7.23 zeigen sie wieder die Datenschutz-Blase unter der Begrüßung und den langen KI-Hinweis ohne Link, auch bei gespeichertem `none`, und melden bei jedem Laden „Ungültiger privacyNotice-Wert "link"“ in der Konsole. Reihenfolge deshalb: eigene Kopien (Demo, rhein) vor dem Server auf 7.23 bringen.
+14. Datenschutz als Link in der Fußzeile (7.23, Nutzerentscheidung 23.10.2026): Nichts zu migrieren, gespeicherte Werte bleiben. Widgets mit `privacyNotice` `bubble` (Scan 23.10.2026: 3) zeigen statt der Blase den Link; Widgets mit eigenem `privacyText` (2) zeigen ihn im Fenster, dort einmal öffnen und prüfen. Einen Link zur Datenschutzerklärung (`privacyUrl`) hat kein Widget: Kunden auf das Feld „Link zur Datenschutzerklärung“ im Reiter Inhalt hinweisen. Widget-Kopien bis 7.22.2 (eigene Kopien wie Demo und Einbau-Paket vhs Rhein, auch ein altes Bundle im Zwischenspeicher des Browsers) kennen den Wert `link` nicht: Gegen einen Server 7.23 zeigen sie wieder die Datenschutz-Blase unter der Begrüßung und den langen KI-Hinweis ohne Link, auch bei gespeichertem `none`, und melden bei jedem Laden „Ungültiger privacyNotice-Wert "link"“ in der Konsole. Reihenfolge deshalb: eigene Kopien (Demo, rhein) vor dem Server auf 7.23 bringen. Datenschutz zusätzlich beim Start als Blase (AK-12): Wer den Hinweis gleich beim Öffnen sehen will, schaltet im Reiter Inhalt „Zusätzlich beim Start als Blase zeigen“ ein. Das geschieht nicht automatisch, auch nicht bei gespeichertem `bubble` (D2); vor dem Rollout ist nichts umzustellen.

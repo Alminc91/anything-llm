@@ -1234,6 +1234,9 @@ describe("E23: Gruppe A der Migrationsdoku deckt die Felder des Design Centers a
     privacyTitle: "Hinweis",
     privacyText: "Eigener Text",
     privacyUrl: "https://example.org/datenschutz",
+    // Schalter „Zusätzlich beim Start als Blase zeigen“ (AK-12): Gruppe A,
+    // data-privacy-start-bubble wirkt nicht
+    privacyStartBubble: true,
   };
   const FIXED = new Set([
     ...Object.keys(EMBED_FIXED_STANDARDS),
