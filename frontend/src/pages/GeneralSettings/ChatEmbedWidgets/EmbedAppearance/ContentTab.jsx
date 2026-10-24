@@ -1,7 +1,8 @@
 // Design Center › Inhalt, in der Reihenfolge des Chats (R6, Fixliste
 // 7.22-rc8): Name und Untertitel, Begrüßung, Datenschutz-Hinweis
-// (Überschrift, Text, Link des Datenschutz-Fensters; seit 7.23 ohne
-// Schalter), Startvorschläge, Platzhalter im Eingabefeld, nur
+// (Schalter „Zusätzlich beim Start als Blase zeigen“ seit AK-12, dann
+// Überschrift, Text, Link des Datenschutz-Fensters), Startvorschläge,
+// Platzhalter im Eingabefeld, nur
 // beim Chatfenster die Gruppe „Geschlossener Chat“ (Willkommensblasen und
 // wann sie erscheinen, KIE-568), Support-E-Mail.
 // Kompakter seit R11 (Fixliste 7.22-rc9, Mockup Ansicht 3): die Überschrift
@@ -23,6 +24,7 @@ import {
   GrowingTextarea,
   Segmented,
   SettingsSection,
+  Switch,
   inputClass,
 } from "./controls";
 import {
@@ -42,6 +44,7 @@ import {
   previewInlineBar,
   previewPlaceholder,
   privacyFieldText,
+  privacyStartBubbleOn,
   privacyTitleFieldValue,
   privacyTitleStandard,
   privacyWithoutMarks,
@@ -56,9 +59,10 @@ const DEFAULTS_LOAD_ERROR = "Standardtexte konnten nicht geladen werden";
 const PRIVACY_RULE =
   "Freier Text. Zeilen mit „•“ oder „-“ am Anfang werden zu Aufzählungspunkten, andere Zeilen bleiben Absätze.";
 
-// Datenschutz-Hinweis (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): keine
-// Auswahl mehr, der Link „Datenschutz“ steht immer unter der Eingabe und
-// öffnet das Datenschutz-Fenster. Gruppenhinweis, die Zeile zum festen Teil
+// Datenschutz-Hinweis (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): kein
+// „Aus“, der Link „Datenschutz“ steht immer unter der Eingabe und öffnet das
+// Datenschutz-Fenster; seit AK-12 (24.10.2026) optional zusätzlich die Blase
+// beim Start (Schalter unten). Gruppenhinweis, die Zeile zum festen Teil
 // und der Hinweis zum Link wie im freigegebenen Mockup
 // (issues/datenschutz-fusszeile/mockup/DesignCenter.dc.html); seit F10
 // (Fixliste rc2, Nachtrag 24.10.2026) mit dem Satz, was ein Klick zeigt,
@@ -70,6 +74,12 @@ export const PRIVACY_FIXED_NOTE =
   "Fest eingebaut: der KI-Hinweis „Unsere KI kann Fehler machen“ und daneben der Link „Datenschutz“.";
 export const PRIVACY_URL_HINT =
   "https://… oder ein Pfad Ihrer Seite wie /datenschutz. Steht im Hinweis unter dem Text. Empfohlen: Ohne Link fehlt im Hinweis der Verweis auf Ihre Datenschutzerklärung.";
+// Datenschutz zusätzlich beim Start als Blase (AK-12, Nutzer 24.10.2026,
+// Wortlaut D3): Standard aus, der Link bleibt in jedem Fall (D1)
+export const PRIVACY_START_BUBBLE_LABEL =
+  "Zusätzlich beim Start als Blase zeigen";
+export const PRIVACY_START_BUBBLE_HINT =
+  "Standard: nur als Link „Datenschutz“ unter der Eingabe. Mit Blase steht der Hinweis gleich beim Öffnen unter der Begrüßung und braucht mehr Platz.";
 
 // Mindesthöhe der wachsenden Textfelder in Zeilen (R11)
 export const GREETING_MIN_ROWS = 2;
@@ -375,8 +385,24 @@ export default function ContentTab({
       </div>
 
       <GroupHeading title="Datenschutz-Hinweis" hint={PRIVACY_NOTICE_HINT} />
-      {/* Felder des Datenschutz-Fensters, immer bearbeitbar (bis 7.22.2
-          gesperrt, wenn der Schalter „Datenschutz-Hinweis anzeigen“ aus war) */}
+      {/* AK-12: direkt unter dem Gruppenhinweis, vor den Feldern. An
+          speichert privacyStartBubble: true, aus entfernt den Schlüssel
+          (cleanConfig); die Felder darunter gelten für Fenster und Blase */}
+      <div data-privacy-start-bubble="">
+        <Switch
+          label={PRIVACY_START_BUBBLE_LABEL}
+          checked={privacyStartBubbleOn(config)}
+          onChange={(checked) =>
+            updateOptionalField("privacyStartBubble", checked ? true : null)
+          }
+        />
+        <p className="text-theme-text-secondary text-xs mt-1.5 leading-relaxed">
+          {PRIVACY_START_BUBBLE_HINT}
+        </p>
+      </div>
+      {/* Felder des Datenschutz-Fensters, immer bearbeitbar, auch bei
+          ausgeschalteter Blase (bis 7.22.2 gesperrt, wenn der Schalter
+          „Datenschutz-Hinweis anzeigen“ aus war) */}
       <div className="space-y-5 min-w-0" data-privacy-fields="">
         {/* Überschrift schmal allein (halbe Breite), der Link darunter über
             die volle Breite, weil Links lang werden können (R11) */}

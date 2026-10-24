@@ -1,6 +1,7 @@
 // Live-Vorschau des Design Centers (Mock, angelehnt an das Widget): zeigt den
 // festen Standard mit den Inhalten des Kunden. Begrüßung als erste Blase
-// (keine Datenschutz-Blase mehr, Datenschutz-Fußzeile 7.23), Startvorschläge
+// (darunter die Datenschutz-Blase nur mit dem Schalter „Zusätzlich beim
+// Start als Blase zeigen“, AK-12; sonst seit 7.23 keine), Startvorschläge
 // als Pillen wie die Folgefragen, eine Beispiel-Nutzernachricht in
 // Akzentfarbe (Schrift auf der Akzentfarbe sichtbar), darauf eine
 // Beispiel-Antwort mit Kursen nach der Wahl „Antworten mit Kursen“ (Karten
@@ -49,6 +50,7 @@ import {
   PRIVACY_FIELD_KEYS,
   PRIVACY_TITLE_STANDARD,
   privacyBlocks,
+  privacyStartBubbleOn,
   privacyTitleFieldValue,
   privacyTitleStandard,
   previewAccentColor,
@@ -631,9 +633,16 @@ export function PreviewSampleAnswer({ config, palette }) {
   );
 }
 
-// Startzustand des Chats: Begrüßungsblase, Pillen, Beispiel-Nutzernachricht.
-// Die Datenschutz-Blase entfällt seit 7.23 (Datenschutz-Fußzeile, AK-1): Der
-// Hinweis steht im Fenster hinter dem Link unter der Eingabe.
+// Blasen von Begrüßung und Datenschutz-Hinweis: Schriftgröße, Zeilenhöhe,
+// Rundung, Innenabstand und Breite gleich (wie im Widget seit 7.22.2,
+// Nutzer 23.10.2026; D4 zu AK-12)
+const WELCOME_BUBBLE_CLASS = `text-[12.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] ${BREAK}`;
+
+// Startzustand des Chats: Begrüßungsblase, Datenschutz-Blase (nur mit dem
+// Schalter „Zusätzlich beim Start als Blase zeigen“, AK-12), Pillen,
+// Beispiel-Nutzernachricht. Ohne den Schalter keine Datenschutz-Blase (seit
+// 7.23, AK-1): Der Hinweis steht im Fenster hinter dem Link unter der
+// Eingabe; der Link bleibt auch mit Blase (D1).
 export function PreviewWelcome({
   config,
   defaults,
@@ -642,29 +651,46 @@ export function PreviewWelcome({
   palette,
 }) {
   const greeting = previewGreeting(config, greetingKey, defaults);
+  // Datenschutz-Blase wie in 7.22.2 (D4): Überschrift (gespeichert, sonst
+  // und bei leerem Feld der Standard), Text als Punkte und Absätze, Link zur
+  // Datenschutzerklärung nur mit gültiger Adresse, ohne den Punkt „Hinweis
+  // zur KI“ (der steht im Fenster); dieselben Werte wie das Fenster
+  // (previewPrivacy), alles als Text
+  const showPrivacy = privacyStartBubbleOn(config);
+  const privacy = previewPrivacy(config, defaults);
   // ohne gespeicherte Liste die Standard-Startvorschläge des Servers (S1,
   // wie live im Widget; R5); seit E42 leer, also keine Pillen
   const pills = textItems(listItems(config, "defaultMessages", defaults)).slice(
     0,
     6
   );
-  // F10 (Fixliste 7.22-rc13): Wer im Reiter Inhalt Begrüßung oder
-  // Startvorschläge ändert, sieht den Block in der Vorschau, auch wenn der
-  // Verlauf woanders steht (Datenschutz: usePrivacyWindow öffnet das Fenster)
+  // F10 (Fixliste 7.22-rc13): Wer im Reiter Inhalt Begrüßung, Datenschutz-
+  // Blase oder Startvorschläge ändert, sieht den Block in der Vorschau, auch
+  // wenn der Verlauf woanders steht (Felder des Datenschutz-Hinweises öffnen
+  // zusätzlich das Fenster, usePrivacyWindow)
   const greetingRef = useRef(null);
+  const privacyRef = useRef(null);
   const pillsRef = useRef(null);
   const loaded = (signature) =>
     loadedSignature(defaults, defaultsError, signature);
   useRevealOnChange(greetingRef, loaded(greeting));
+  useRevealOnChange(
+    privacyRef,
+    loaded(
+      showPrivacy
+        ? JSON.stringify([privacy.title, privacy.blocks, privacy.url])
+        : ""
+    )
+  );
   // getrimmt wie gespeichert (cleanConfig): Speichern ist keine Bearbeitung,
   // die Vorschau springt danach nicht zu den Pillen (F43 Fixliste 7.22-rc16)
   useRevealOnChange(
     pillsRef,
     loaded(JSON.stringify(pills.map((pill) => pill.trim())))
   );
-  // Begrüßung wie im Widget seit 7.22.2: Fläche, Schatten, Schrift (Nutzer
-  // 23.10.2026); dieselbe Fläche hat das Datenschutz-Fenster
-  // (PREVIEW_PRIVACY_DIALOG_COLORS)
+  // Begrüßung und Datenschutz-Blase wie im Widget seit 7.22.2: Fläche,
+  // Schatten, Schrift (Nutzer 23.10.2026); dieselbe Fläche hat das
+  // Datenschutz-Fenster (PREVIEW_PRIVACY_DIALOG_COLORS)
   const bubble = {
     backgroundColor: palette.bubbleBg,
     boxShadow: palette.bubbleShadow,
@@ -674,12 +700,31 @@ export function PreviewWelcome({
     <div className="w-full space-y-2.5" data-preview="welcome">
       <div
         ref={greetingRef}
-        className={`text-[12.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] ${BREAK}`}
+        className={WELCOME_BUBBLE_CLASS}
         style={bubble}
         data-preview="greeting-bubble"
       >
         {greeting}
       </div>
+      {showPrivacy && (
+        <div
+          ref={privacyRef}
+          className={`${WELCOME_BUBBLE_CLASS} space-y-1`}
+          style={bubble}
+          data-preview="privacy-bubble"
+        >
+          <p className="font-bold">{privacy.title}</p>
+          <PrivacyBlockList blocks={privacy.blocks} />
+          {privacy.url && (
+            <p>
+              <PrivacyStatementLink
+                url={privacy.url}
+                color={previewPrivacyLinkColor(config, palette)}
+              />
+            </p>
+          )}
+        </div>
+      )}
       {pills.length > 0 && (
         <div
           ref={pillsRef}
@@ -925,6 +970,42 @@ const PRIVACY_DIALOG_INSETS = {
   },
 };
 
+// Datenschutz-Text als Punkte und Absätze (privacyBlocks), nur als Text, nie
+// als HTML; im Fenster und in der Datenschutz-Blase (AK-12) gleich
+function PrivacyBlockList({ blocks }) {
+  if (blocks.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      {blocks.map((block, i) =>
+        block.type === "bullet" ? (
+          <p key={i} className="flex gap-1.5">
+            <span aria-hidden="true">•</span>
+            <span>{block.text}</span>
+          </p>
+        ) : (
+          <p key={i}>{block.text}</p>
+        )
+      )}
+    </div>
+  );
+}
+
+// Link zur Datenschutzerklärung in Fenster und Blase, in der Vorschau nicht
+// bedienbar (ein Pfad wie /datenschutz gehört zur Seite des Kunden); die
+// Adresse steht im Tooltip. Nur mit gültiger Adresse (previewPrivacy).
+function PrivacyStatementLink({ url, color }) {
+  return (
+    <span
+      className="underline underline-offset-2 font-medium"
+      style={{ color }}
+      title={url}
+      data-preview="privacy-statement-link"
+    >
+      {PRIVACY_STATEMENT_LINK}
+    </span>
+  );
+}
+
 /**
  * Datenschutz-Fenster über dem ganzen Chat (Panel des Chatfensters bzw. das
  * aufgeklappte Panel „In der Seite“), wie im Widget (PrivacyNotice):
@@ -1016,34 +1097,14 @@ function PreviewPrivacyDialog({
           style={inset.column}
           data-preview="privacy-dialog-text"
         >
-          {privacy.blocks.length > 0 && (
-            <div className="space-y-1">
-              {privacy.blocks.map((block, i) =>
-                block.type === "bullet" ? (
-                  <p key={i} className="flex gap-1.5">
-                    <span aria-hidden="true">•</span>
-                    <span>{block.text}</span>
-                  </p>
-                ) : (
-                  <p key={i}>{block.text}</p>
-                )
-              )}
-            </div>
-          )}
+          <PrivacyBlockList blocks={privacy.blocks} />
           <div className="space-y-0.5" data-preview="privacy-ai">
             <p className="font-semibold">{privacy.aiTitle}</p>
             <p>{privacy.aiText}</p>
           </div>
           {privacy.url && (
             <p>
-              <span
-                className="underline underline-offset-2 font-medium"
-                style={{ color: link }}
-                title={privacy.url}
-                data-preview="privacy-statement-link"
-              >
-                {PRIVACY_STATEMENT_LINK}
-              </span>
+              <PrivacyStatementLink url={privacy.url} color={link} />
             </p>
           )}
         </div>

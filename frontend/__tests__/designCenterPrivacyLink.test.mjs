@@ -251,7 +251,7 @@ const tagWith = (html, attr) => {
 };
 
 test(
-  "AK-6: Inhalt ohne Schalter, Hinweis wörtlich, Überschrift, Text und Link bearbeitbar, für jeden gespeicherten Wert",
+  "AK-6: Inhalt ohne Schalter „Datenschutz-Hinweis anzeigen“ (seit AK-12 nur der Schalter für die Blase), Hinweis wörtlich, Überschrift, Text und Link bearbeitbar, für jeden gespeicherten Wert",
   { skip },
   async () => {
     for (const privacyNotice of NOTICE_VALUES) {
@@ -275,7 +275,13 @@ test(
       assert.ok(!t.includes("Datenschutz-Hinweis anzeigen"), label);
       assert.ok(!t.includes("Wir empfehlen, den Hinweis anzuzeigen"), label);
       assert.ok(!t.includes("ausgeschaltet"), label);
-      assert.doesNotMatch(html, /data-privacy-switch|role="switch"/, label);
+      // Bewusste Änderung (AK-12, Nutzer 24.10.2026): der einzige Schalter
+      // ist „Zusätzlich beim Start als Blase zeigen“ (designCenterPrivacy
+      // StartBubble.test.mjs); bis rc4 gab es hier keinen Schalter. Den
+      // Schalter „Datenschutz-Hinweis anzeigen“ (bis 7.22.2) gibt es nicht.
+      assert.doesNotMatch(html, /data-privacy-switch/, label);
+      assert.equal((html.match(/role="switch"/g) || []).length, 1, label);
+      assert.ok(t.includes("Zusätzlich beim Start als Blase zeigen"), label);
       assert.doesNotMatch(html, /<fieldset/, label);
       for (const field of [
         tagWith(html, 'aria-label="Überschrift des Datenschutz-Hinweises"'),

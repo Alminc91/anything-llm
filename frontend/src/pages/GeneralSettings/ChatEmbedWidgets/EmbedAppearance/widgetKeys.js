@@ -841,17 +841,35 @@ export function privacyTitleStandard(defaults) {
 // Datenschutz-Hinweis (Datenschutz-Fußzeile, Nutzer 23.10.2026, Release 7.23,
 // issues/datenschutz-fusszeile.md): immer der Link „Datenschutz“ neben dem
 // KI-Hinweis unter der Eingabe; er öffnet das Datenschutz-Fenster mit
-// Überschrift, Text und Link zur Datenschutzerklärung. Keine Auswahl im
-// Design Center (kein Schalter, keine Blase beim Start, kein „Aus“; der
+// Überschrift, Text und Link zur Datenschutzerklärung. Kein „Aus“ (der
 // Server liefert fest privacyNotice "link"). Bis 7.22.2 gab es den Schalter
 // „Datenschutz-Hinweis anzeigen“ (KIE-565 Nachtrag, privacyNotice "none"
 // bzw. "bubble"). privacyNotice schreibt das Design Center nie mehr
 // (cleanConfig übernimmt den gespeicherten Stand); ein Altwert bleibt in
-// visual_config stehen und wirkt nicht.
+// visual_config stehen und wirkt nicht. Seit AK-12 (Nutzer 24.10.2026) gibt
+// es zusätzlich den Schalter „Zusätzlich beim Start als Blase zeigen“
+// (privacyStartBubble, eigener Schlüssel, privacyStartBubbleOn): an steht der
+// Hinweis beim Start zusätzlich als Blase unter der Begrüßung, der Link
+// bleibt.
 // ---------------------------------------------------------------------------
 
 // Felder des Datenschutz-Fensters im Reiter Inhalt
 export const PRIVACY_FIELD_KEYS = ["privacyTitle", "privacyText", "privacyUrl"];
+
+/**
+ * Schalter „Zusätzlich beim Start als Blase zeigen“ (AK-12, Nutzer
+ * 24.10.2026): an nur bei genau true, wie im Server (GET /embed/:id/config)
+ * und im Widget. Ein anderer Wert ("true", 1, false) und alte Werte von
+ * privacyNotice (auch "bubble", D2) zählen als aus. Die eine Stelle für den
+ * Schalter im Reiter Inhalt und die Datenschutz-Blase der Vorschau.
+ * Gespeichert wird nur true, aus entfernt den Schlüssel (cleanConfig). Der
+ * Link „Datenschutz“ in der Fußzeile bleibt in jedem Fall (D1).
+ * @param {Object} config
+ * @returns {boolean}
+ */
+export function privacyStartBubbleOn(config = {}) {
+  return config?.privacyStartBubble === true;
+}
 
 // ---------------------------------------------------------------------------
 // Datenschutz-Text, freies Format, genau wie im Widget (utils/layout.js
@@ -1121,6 +1139,9 @@ export function validateConfig(config, initial, gKey) {
  *   dazu. Bis 7.22.2 schrieb der Schalter „Datenschutz-Hinweis anzeigen“
  *   "none"/"bubble", und bei "none" blieben Überschrift, Text und Link
  *   gesperrt; seit 7.23 gelten für sie immer die Regeln oben.
+ * - privacyStartBubble (AK-12): genau true bleibt, jeder andere Wert wird
+ *   entfernt, auch ein unverändert gespeicherter (aus = kein Schlüssel, nie
+ *   false; der Server liefert nur true aus, privacyStartBubbleOn).
  * @param {Object} config
  * @param {{initial: Object, defaults: Object|null, greetingKey: string}} opts
  * @returns {Object}
@@ -1244,6 +1265,9 @@ export function cleanConfig(
     if (validPrivacyUrl(out.privacyUrl)) out.privacyUrl = out.privacyUrl.trim();
     else drop("privacyUrl");
   }
+
+  // Datenschutz beim Start als Blase (AK-12): nur true wird gespeichert
+  if (!privacyStartBubbleOn(out)) drop("privacyStartBubble");
   return out;
 }
 

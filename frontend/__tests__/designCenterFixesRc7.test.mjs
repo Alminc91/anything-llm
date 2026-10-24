@@ -274,16 +274,32 @@ const contentProps = (config) => ({
 });
 
 // Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Den
-// Datenschutz-Schalter gibt es nicht mehr (Link „Datenschutz“ immer, AK-6).
-// Bis 7.22.2 prüfte B-02 hier den Schalter in der Akzentfarbe mit „An“/„Aus“.
+// Schalter „Datenschutz-Hinweis anzeigen“ gibt es nicht mehr (Link
+// „Datenschutz“ immer, AK-6). Seit AK-12 (Nutzer 24.10.2026) steht dort
+// derselbe Baustein für „Zusätzlich beim Start als Blase zeigen“; B-02 gilt
+// für ihn wie bis 7.22.2: in der Akzentfarbe, aus deutlich mit „Aus“.
 test(
-  "B-02 seit 7.23: kein Datenschutz-Schalter mehr im Reiter Inhalt",
+  "B-02 seit AK-12: Schalter „Zusätzlich beim Start als Blase zeigen“ in der Akzentfarbe, aus deutlich erkennbar mit „Aus“; kein „Datenschutz-Hinweis anzeigen“",
   { skip },
   async () => {
-    for (const config of [{}, { privacyNotice: "none" }]) {
+    for (const [config, state] of [
+      [{}, "Aus"],
+      [{ privacyNotice: "none" }, "Aus"],
+      [{ privacyNotice: "bubble" }, "Aus"],
+      [{ privacyStartBubble: true }, "An"],
+    ]) {
       const html = await show(CONTENT, contentProps(config));
-      assert.doesNotMatch(html, /data-privacy-switch|role="switch"/);
+      assert.doesNotMatch(html, /data-privacy-switch/);
       assert.ok(!text(html).includes("Datenschutz-Hinweis anzeigen"));
+      const at = html.indexOf("data-privacy-start-bubble");
+      assert.ok(at >= 0, "Schalter fehlt");
+      const block = html.slice(at, html.indexOf("</label>", at));
+      assert.match(block, /role="switch"/);
+      assert.match(block, /peer-checked:bg-primary-button/);
+      assert.doesNotMatch(block, /green-/);
+      assert.match(block, /border-zinc-400/);
+      assert.ok(text(block).includes(state), state);
+      assert.equal((html.match(/role="switch"/g) || []).length, 1);
     }
   }
 );

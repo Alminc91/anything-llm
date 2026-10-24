@@ -875,17 +875,23 @@ test(
 // lag an seiner statischen Position außerhalb des Fensters; der Fokus beim
 // Klick scrollte das Dokument dorthin. Hier die DOM-Bedingungen.
 // Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Der
-// einzige Schalter (Datenschutz-Hinweis) entfällt und mit ihm die Komponente
-// Switch in controls.jsx. Bis 7.22.2 prüfte R7 hier den positionierten
-// Rahmen um den versteckten Schalter; der Seitenrahmen (Test unten) bleibt.
+// Schalter „Datenschutz-Hinweis anzeigen“ entfiel mit 7.23 samt Switch in
+// controls.jsx. Seit AK-12 (Nutzer 24.10.2026) ist Switch wieder da, für
+// „Zusätzlich beim Start als Blase zeigen“; R7 gilt wieder wie bis 7.22.2.
 test(
-  "R7 seit 7.23: kein versteckter Schalter mehr im Reiter Inhalt, Switch entfällt",
+  "R7: Schalter in einem positionierten Rahmen, Seite positioniert (seit AK-12 wieder mit Schalter)",
   { skip },
   async () => {
     const html = await show(CONTENT, contentProps({}));
-    assert.doesNotMatch(html, /role="switch"|data-switch-state/);
+    const input = html.match(/<input[^>]*role="switch"[^>]*>/)[0];
+    assert.match(input, /sr-only/);
+    // Rahmen (span) direkt um Zustandstext und Schalter mit `relative`
+    assert.match(
+      html,
+      /<span class="[^"]*\brelative\b[^"]*"><span[^>]*data-switch-state[^>]*>[^<]*<\/span><input[^>]*role="switch"/
+    );
     const controls = await renderer.load(`${DIR}/controls.jsx`);
-    assert.equal("Switch" in controls, false);
+    assert.equal(typeof controls.Switch, "function");
   }
 );
 
