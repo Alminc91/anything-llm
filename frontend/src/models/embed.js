@@ -392,9 +392,15 @@ const Embed = {
   // Ergebnis { defaults, error }: bei Fehler defaults = null und error mit
   // Meldung (das Design Center zeigt sie und behandelt dann nichts als
   // Standard).
-  getDefaults: async (lang = "de") => {
+  // KIE-576 Paket 3: mit embedId zusätzlich courseInventory (interne Zeile
+  // „Kursanzahl im Untertitel“), sonst bzw. ohne Kursbestand null
+  getDefaults: async (lang = "de", embedId = null) => {
+    const embedQuery =
+      embedId === null || embedId === undefined
+        ? ""
+        : `&embedId=${encodeURIComponent(embedId)}`;
     return await fetch(
-      `${API_BASE}/embed/defaults?lang=${encodeURIComponent(lang)}`,
+      `${API_BASE}/embed/defaults?lang=${encodeURIComponent(lang)}${embedQuery}`,
       { method: "GET", headers: baseHeaders() }
     )
       .then(async (res) => {
@@ -407,11 +413,19 @@ const Embed = {
           Array.isArray(defaults)
         )
           throw new Error("Antwort ohne Standardtexte");
-        return { defaults, error: null };
+        return {
+          defaults,
+          courseInventory: body?.courseInventory ?? null,
+          error: null,
+        };
       })
       .catch((e) => {
         console.error(e);
-        return { defaults: null, error: e.message || String(e) };
+        return {
+          defaults: null,
+          courseInventory: null,
+          error: e.message || String(e),
+        };
       });
   },
 

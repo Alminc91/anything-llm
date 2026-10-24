@@ -1,5 +1,5 @@
 {
-  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true; der Standard ist seit E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23) in jeder Sprache leer, also [] mit dem Kennzeichen, das Widget zeigt keine Startvorschläge (bis 7.22-rc22 zwei Beispiele je Sprache). chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang (E10 neu, E23 und E24, Fixliste 7.22-rc17): gespeichert (auch leer) vor Standard; Startvorschläge und Willkommensblasen stellt das Design Center ein (Gruppe A), Skript-Attribute dazu (data-default-messages, data-chatbot-bubbles-messages) wirken nicht, auch wenn nichts gespeichert ist und auch mit älterem Server. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. Bei Änderung hier UND im Fork nachziehen.",
+  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true; der Standard ist seit E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23) in jeder Sprache leer, also [] mit dem Kennzeichen, das Widget zeigt keine Startvorschläge (bis 7.22-rc22 zwei Beispiele je Sprache). chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang (E10 neu, E23 und E24, Fixliste 7.22-rc17): gespeichert (auch leer) vor Standard; Startvorschläge und Willkommensblasen stellt das Design Center ein (Gruppe A), Skript-Attribute dazu (data-default-messages, data-chatbot-bubbles-messages) wirken nicht, auch wenn nichts gespeichert ist und auch mit älterem Server. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. courseCount (KIE-576 Paket 3, Vertrag in issues/KIE-576/KIE-576-kursanzahl.md): {count, offered, stand, word} nur, wenn die Anzeige an ist (visual_config courseCountMode, Standard on), die Kursliste kufer_course_inventory gültig ist und count = Kurse im Kursprogramm und im Workspace mindestens 1 ist; sonst fehlt der Schlüssel ganz (configAbsent). Das Widget übernimmt das Feld geprüft (fehlend oder ungültig: null) und zeigt es nur, solange stand höchstens 24 h alt ist; ein Skript-Attribut dazu wirkt nicht. Bei Änderung hier UND im Fork nachziehen.",
   "standardSuggestions": {
     "de": [],
     "en": []
@@ -122,6 +122,37 @@
       "configAbsent": ["chatbotBubblesMessages"],
       "script": { "chatbotBubblesMessages": "Hallo, Willkommen" },
       "widget": { "chatbotBubblesMessages": [] }
+    },
+    {
+      "name": "Kursanzahl (KIE-576): gültige Kursliste, Anzeige an (Standard): courseCount mit count, offered, stand und word, das Widget übernimmt es",
+      "request": { "language": "de" },
+      "visualConfig": {},
+      "config": {
+        "courseCount": {
+          "count": 812,
+          "offered": 837,
+          "stand": "2026-10-24T08:00:00.000Z",
+          "word": "Kurse"
+        }
+      },
+      "script": {},
+      "widget": {
+        "courseCount": {
+          "count": 812,
+          "offered": 837,
+          "stand": "2026-10-24T08:00:00.000Z",
+          "word": "Kurse"
+        }
+      }
+    },
+    {
+      "name": "Kursanzahl (KIE-576): Anzeige aus oder keine gültige Kursliste: kein Schlüssel courseCount, das Widget zeigt den Untertitel",
+      "request": { "language": "de" },
+      "visualConfig": { "courseCountMode": "off" },
+      "config": {},
+      "configAbsent": ["courseCount"],
+      "script": {},
+      "widget": { "courseCount": null }
     },
     {
       "name": "älterer Server ohne Startvorschläge: keine, das Skript-Attribut wirkt nicht (E23)",

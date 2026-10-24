@@ -18,6 +18,7 @@ const {
   stripTimeFilters,
 } = require("./searchFilters");
 const SearchTrace = require("./searchTrace");
+const { courseSearchExclusion } = require("../../chats/courseInventory");
 const {
   selectContexts,
   selectionConfig,
@@ -87,21 +88,148 @@ class LanceDb extends VectorDatabase {
    * the filtered query throw ("no field named ...") — in that case we log
    * and RERUN UNFILTERED: a missing filter degrades to today's behavior,
    * an empty result would silently hide courses.
-   * @param {() => import('@lancedb/lancedb').Query} buildQuery - Factory
-   *   returning a FRESH query builder (must be re-callable for the retry).
+   *
+   * KIE-576 Paket 3 (E35, KR-1): `exclusion`
+   * (courseInventory.courseSearchExclusion) schließt veraltete
+   * Kursdokumente in der Anfrage selbst aus („id NOT IN (…)“, mit der
+   * Filterbedingung per AND verbunden), also vor Vektor- und Stichwortsuche
+   * und vor dem Reranker, ohne Obergrenze. Scheitert die verbundene
+   * Bedingung an Altspalten, gilt wie bisher die Suche ohne Metadatenfilter,
+   * aber mit dem Ausschluss. Lehnt LanceDB die erste Form ab, folgt einmal
+   * die zweite (Blöcke per AND). Scheitert auch sie, gibt die Anfrage keine
+   * Treffer zurück (fail-closed) und loggt einen Fehler. Treffer werden nie
+   * nachträglich verworfen. Ohne `exclusion` läuft alles exakt wie vorher
+   * (NAK-K1).
+   * @param {(limit?: number) => import('@lancedb/lancedb').Query} buildQuery -
+   *   Factory returning a FRESH query builder (must be re-callable for the
+   *   retry), with the given row limit.
    * @param {string|null} whereClause - Output of filtersToWhere().
+   * @param {{limit?: number, exclusion?: object|null}} [options]
    * @returns {Promise<object[]>} Result rows.
    */
-  async filteredQueryRows(buildQuery, whereClause = null) {
-    if (!whereClause) return await buildQuery().toArray();
-    try {
-      return await buildQuery().where(whereClause).toArray();
-    } catch (e) {
-      this.logger(
-        `searchFilters: filtered query failed (${e.message}) — retrying unfiltered.`
-      );
-      return await buildQuery().toArray();
+  async filteredQueryRows(
+    buildQuery,
+    whereClause = null,
+    { limit, exclusion = null } = {}
+  ) {
+    const build = () => buildQuery(limit);
+    if (!exclusion) {
+      if (!whereClause) return await build().toArray();
+      try {
+        return await build().where(whereClause).toArray();
+      } catch (e) {
+        this.logger(
+          `searchFilters: filtered query failed (${e.message}) — retrying unfiltered.`
+        );
+        return await build().toArray();
+      }
     }
+
+    const attempts = [];
+    for (const form of Array.isArray(exclusion.clauses)
+      ? exclusion.clauses
+      : []) {
+      if (whereClause) attempts.push(`(${whereClause}) AND (${form})`);
+      attempts.push(form);
+    }
+    for (const clause of attempts) {
+      try {
+        return await build().where(clause).toArray();
+      } catch (e) {
+        this.logger(
+          `courseInventory: Suche mit Ausschluss gescheitert (${e.message}), nächster Versuch.`
+        );
+      }
+    }
+    // fail-closed: ohne Ausschluss in der Anfrage keine Treffer
+    if (exclusion.stats) exclusion.stats.failClosed++;
+    console.error(
+      `[courseInventory] Ausschluss veralteter Kurse nicht in der Anfrage möglich (${attempts.length > 0 ? `${attempts.length} Bedingungen abgelehnt` : "unzulässige Abschnitt-ID"}), Suche ohne Treffer.`
+    );
+    return [];
+  }
+
+  /**
+   * KIE-576 Paket 3, KR-1: Zeilen der Tabelle, deren ID der Workspace nicht
+   * kennt (verwaiste Abschnitte), mit den Spalten id, text, title und
+   * published, soweit vorhanden. Läuft im Serverprozess selbst, höchstens
+   * stündlich mit dem Index des Kursbestands. Tabelle fehlt -> leer.
+   * @param {string} namespace
+   * @param {Set<string>} knownIds
+   * @returns {Promise<object[]>}
+   */
+  async orphanRows(namespace, knownIds = new Set()) {
+    const { client } = await this.connect();
+    if (!(await this.namespaceExists(client, namespace))) return [];
+    const table = await client.openTable(namespace);
+    const total = await table.countRows();
+    if (total === 0) return [];
+    const ids = await table.query().select(["id"]).limit(total).toArray();
+    const orphanIds = ids
+      .map((row) => row.id)
+      .filter((id) => typeof id === "string" && !knownIds.has(id));
+    if (orphanIds.length === 0) return [];
+    return await this.rowsByIds(table, orphanIds, [
+      "id",
+      "text",
+      "title",
+      "published",
+    ]);
+  }
+
+  /**
+   * KIE-576 Paket 3, KR-1: Text der Abschnitte zu den IDs.
+   * @param {string} namespace
+   * @param {string[]} ids
+   * @returns {Promise<{id: string, text: string}[]>}
+   */
+  async rowTexts(namespace, ids = []) {
+    const { client } = await this.connect();
+    if (!(await this.namespaceExists(client, namespace))) return [];
+    const table = await client.openTable(namespace);
+    return await this.rowsByIds(table, ids, ["id", "text"]);
+  }
+
+  // Zeilen zu IDs in Blöcken, nur vorhandene Spalten; IDs mit fremden
+  // Zeichen kommen nicht in die Anfrage (ihre Zeile bleibt unbekannt)
+  async rowsByIds(table, ids, columns) {
+    const fields = new Set((await table.schema()).fields.map((f) => f.name));
+    const select = columns.filter((column) => fields.has(column));
+    const safe = [...new Set(ids)].filter(
+      (id) => typeof id === "string" && /^[A-Za-z0-9_.:-]{1,100}$/.test(id)
+    );
+    const rows = [];
+    for (let i = 0; i < safe.length; i += 500) {
+      const batch = safe.slice(i, i + 500);
+      rows.push(
+        ...(await table
+          .query()
+          .where(`id IN (${batch.map((id) => `'${id}'`).join(",")})`)
+          .select(select)
+          .limit(batch.length)
+          .toArray())
+      );
+    }
+    return rows;
+  }
+
+  /**
+   * KIE-576 Paket 3, AK-K9: welche der Abschnitte (Vektor-IDs) gibt es in
+   * der Tabelle des Workspace wirklich? Läuft im Serverprozess selbst (kein
+   * fremder Prozess auf LanceDB), höchstens stündlich mit dem Index des
+   * Kursbestands. Tabelle fehlt -> leere Menge.
+   * @param {string} namespace
+   * @param {string[]} ids
+   * @returns {Promise<Set<string>>}
+   */
+  async existingVectorIds(namespace, ids = []) {
+    const found = new Set();
+    const { client } = await this.connect();
+    if (!(await this.namespaceExists(client, namespace))) return found;
+    const table = await client.openTable(namespace);
+    for (const row of await this.rowsByIds(table, ids, ["id"]))
+      found.add(row.id);
+    return found;
   }
 
   async heartbeat() {
@@ -157,6 +285,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     filterIdentifiers = [],
     whereClause = null,
+    exclusion = null,
     trace = null,
     selection = null,
   }) {
@@ -188,12 +317,13 @@ class LanceDb extends VectorDatabase {
     );
     const vectorStart = Date.now();
     const vectorSearchResults = await this.filteredQueryRows(
-      () =>
+      (limit) =>
         collection
           .vectorSearch(queryVector)
           .distanceType("cosine")
-          .limit(searchLimit),
-      whereClause
+          .limit(limit),
+      whereClause,
+      { limit: searchLimit, exclusion }
     );
     if (trace)
       trace.vectorArm = {
@@ -325,6 +455,7 @@ class LanceDb extends VectorDatabase {
     topN = 4,
     filterIdentifiers = [],
     whereClause = null,
+    exclusion = null,
     trace = null,
   }) {
     const collection = await client.openTable(namespace);
@@ -336,9 +467,13 @@ class LanceDb extends VectorDatabase {
 
     const vectorStart = Date.now();
     const response = await this.filteredQueryRows(
-      () =>
-        collection.vectorSearch(queryVector).distanceType("cosine").limit(topN),
-      whereClause
+      (limit) =>
+        collection
+          .vectorSearch(queryVector)
+          .distanceType("cosine")
+          .limit(limit),
+      whereClause,
+      { limit: topN, exclusion }
     );
     if (trace)
       trace.vectorArm = {
@@ -517,6 +652,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     filterIdentifiers = [],
     whereClause = null,
+    exclusion = null,
     trace = null,
   }) {
     const collection = await client.openTable(namespace);
@@ -542,6 +678,7 @@ class LanceDb extends VectorDatabase {
       queryVector,
       armLimit,
       whereClause,
+      exclusion,
       trace,
     });
 
@@ -619,18 +756,20 @@ class LanceDb extends VectorDatabase {
     queryVector,
     armLimit,
     whereClause = null,
+    exclusion = null,
     trace = null,
   }) {
     let vectorError = null;
     const vectorStart = Date.now();
     const vectorRows = await this.filteredQueryRows(
-      () =>
+      (limit) =>
         collection
           .query()
           .nearestTo(queryVector)
           .distanceType("cosine")
-          .limit(armLimit),
-      whereClause
+          .limit(limit),
+      whereClause,
+      { limit: armLimit, exclusion }
     ).catch((e) => {
       this.logger("hybridArms:vector", e.message);
       vectorError = e.message;
@@ -651,12 +790,13 @@ class LanceDb extends VectorDatabase {
     const ftsStart = Date.now();
     if (typeof query === "string" && query.trim().length > 0) {
       ftsRows = await this.filteredQueryRows(
-        () =>
+        (limit) =>
           collection
             .query()
             .fullTextSearch(query, { columns: "text" })
-            .limit(armLimit),
-        whereClause
+            .limit(limit),
+        whereClause,
+        { limit: armLimit, exclusion }
       ).catch((e) => {
         this.logger("hybridArms:fts", e.message);
         ftsError = e.message;
@@ -716,6 +856,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     filterIdentifiers = [],
     whereClause = null,
+    exclusion = null,
     trace = null,
     selection = null,
   }) {
@@ -744,6 +885,7 @@ class LanceDb extends VectorDatabase {
       queryVector,
       armLimit: armFetch,
       whereClause,
+      exclusion,
       trace,
     });
 
@@ -1461,11 +1603,17 @@ class LanceDb extends VectorDatabase {
       mode === "rerank" || mode === "hybrid_rerank"
         ? this.resolveCourseSelection(namespace)
         : null;
-    const [queryVector, resolvedFilters, selection] = await Promise.all([
-      LLMConnector.embedTextInput(input),
-      filterTask,
-      selectionTask,
-    ]);
+    // KIE-576 Paket 3 (E35): veraltete Kursdokumente des Workspace (Kurs-
+    // nummer nicht im Feed) gehen in keinen Schritt der Suche; ohne gültigen
+    // Kursbestand null (alles wie vorher). Wirft nie.
+    const exclusionTask = courseSearchExclusion(namespace).catch(() => null);
+    const [queryVector, resolvedFilters, selection, exclusion] =
+      await Promise.all([
+        LLMConnector.embedTextInput(input),
+        filterTask,
+        selectionTask,
+        exclusionTask,
+      ]);
     if (!activeFilters && resolvedFilters)
       activeFilters = sanitizeSearchFilters(resolvedFilters.filters);
     if (trace && resolvedFilters) {
@@ -1488,6 +1636,7 @@ class LanceDb extends VectorDatabase {
             topN,
             filterIdentifiers,
             whereClause,
+            exclusion,
             trace,
             selection,
           });
@@ -1501,6 +1650,7 @@ class LanceDb extends VectorDatabase {
             topN,
             filterIdentifiers,
             whereClause,
+            exclusion,
             trace,
           });
         case "hybrid_rerank":
@@ -1513,6 +1663,7 @@ class LanceDb extends VectorDatabase {
             topN,
             filterIdentifiers,
             whereClause,
+            exclusion,
             trace,
             selection,
           });
@@ -1525,6 +1676,7 @@ class LanceDb extends VectorDatabase {
             topN,
             filterIdentifiers,
             whereClause,
+            exclusion,
             trace,
           });
       }
@@ -1568,6 +1720,11 @@ class LanceDb extends VectorDatabase {
       trace.relaxed = relaxNote !== null;
       SearchTrace.writeTrace(trace);
     }
+    // Je Anfrage nur Zahlen und Workspace, keine Inhalte
+    if (exclusion)
+      this.logger(
+        `courseInventory: ${namespace}: ${exclusion.staleDocs} veraltete Kursdokumente (${exclusion.excludedIds} Abschnitte, davon ${exclusion.headBlockIds} über den Kopfblock) in der Suche ausgeschlossen, ${exclusion.stats.failClosed} Anfragen ohne Treffer (fail-closed)`
+      );
 
     const { contextTexts, sourceDocuments } = result;
     const sources = sourceDocuments.map((metadata, i) => {

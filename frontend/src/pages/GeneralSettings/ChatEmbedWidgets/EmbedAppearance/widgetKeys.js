@@ -855,6 +855,179 @@ export function withPrivacyNotice(config, initial = {}, on = true) {
 }
 
 // ---------------------------------------------------------------------------
+// Kursanzahl im Untertitel (KIE-576 Paket 3): Schalter „Kursanzahl im
+// Untertitel“ (visual_config.courseCountMode, Standard an) und Feld
+// „Bezeichnung“ (visual_config.courseCountWord, Standard „Kurse“). Regeln wie
+// der Server (embedStandards.js courseCountModeValue, courseCountWordValue;
+// Gegenprobe im Test designCenterCourseCount). An: Statt des Untertitels
+// steht live „aktuell <Zahl> <Bezeichnung>“, der Untertitel bleibt
+// gespeichert (NAK-K5) und erscheint mit Schalter aus wieder. Keine
+// Kombination aus beidem (E32).
+// ---------------------------------------------------------------------------
+
+export const COURSE_COUNT_WORD_MAX_LEN = 20;
+export const DEFAULT_COURSE_COUNT_WORD = "Kurse";
+// Beispielzahl der Vorschau ohne Kursliste vom Kursprogramm
+export const SAMPLE_COURSE_COUNT = 837;
+const COURSE_COUNT_WORD_RE = /^[\p{L} -]+$/u;
+export const COURSE_COUNT_WORD_ERROR = `Nur Buchstaben, Leerzeichen und Bindestrich, höchstens ${COURSE_COUNT_WORD_MAX_LEN} Zeichen.`;
+
+/** @returns {boolean} Kursanzahl statt des Untertitels (fehlend: an) */
+export function courseCountOn(config = {}) {
+  const v = config?.courseCountMode;
+  return !(typeof v === "string" && v.trim().toLowerCase() === "off");
+}
+
+/**
+ * Bearbeitungsstand nach dem Schalter (Regel D6 wie withChoice): Zeigt der
+ * gespeicherte Stand (ohne Schlüssel der Standard an) schon die Wahl, gilt
+ * er wieder; sonst wird "on" bzw. "off" gesetzt. "on" entfällt beim
+ * Speichern, wenn es in dieser Sitzung gesetzt wurde (cleanConfig).
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {boolean} on
+ * @returns {Object}
+ */
+export function withCourseCount(config, initial = {}, on = true) {
+  return withEffective(
+    config,
+    initial,
+    "courseCountMode",
+    on ? "on" : "off",
+    (c) => (courseCountOn(c) ? "on" : "off")
+  );
+}
+
+/**
+ * Gültige Bezeichnung wie im Server: getrimmt, Leerraum zu einem
+ * Leerzeichen, 1 bis 20 Zeichen, nur Buchstaben, Leerzeichen und
+ * Bindestrich, mindestens ein Buchstabe; sonst null.
+ * @param {*} value
+ * @returns {string|null}
+ */
+export function courseCountWordValue(value) {
+  if (typeof value !== "string") return null;
+  const word = value.normalize("NFC").trim().replace(/\s+/g, " ");
+  if (word.length === 0 || word.length > COURSE_COUNT_WORD_MAX_LEN) return null;
+  if (!COURSE_COUNT_WORD_RE.test(word) || !/\p{L}/u.test(word)) return null;
+  return word;
+}
+
+/** Wert im Feld „Bezeichnung“: gespeicherter Text, fehlend der Standard. */
+export function courseCountWordFieldValue(config = {}) {
+  const v = config.courseCountWord;
+  return typeof v === "string" ? v : DEFAULT_COURSE_COUNT_WORD;
+}
+
+/** Fehlertext für das Feld „Bezeichnung“ oder null (leer = Standard). */
+export function courseCountWordError(value) {
+  if (isBlank(value)) return null;
+  return courseCountWordValue(value) === null ? COURSE_COUNT_WORD_ERROR : null;
+}
+
+/**
+ * Kursbestand vom Server (GET /embed/defaults?embedId=, courseInventory)
+ * prüfen: ganze Zahlen ≥ 0 und ein Zeitpunkt, sonst null.
+ * @param {*} value
+ * @returns {{count: number, offered: number, stale: number, missing: number, stand: string}|null}
+ */
+export function courseInventoryValue(value) {
+  if (!value || typeof value !== "object") return null;
+  const n = (k) => Number.isSafeInteger(value[k]) && value[k] >= 0;
+  if (!["count", "offered", "stale", "missing"].every(n)) return null;
+  if (
+    typeof value.stand !== "string" ||
+    !Number.isFinite(Date.parse(value.stand))
+  )
+    return null;
+  return {
+    count: value.count,
+    offered: value.offered,
+    stale: value.stale,
+    missing: value.missing,
+    stand: value.stand,
+  };
+}
+
+const BERLIN_DAY = new Intl.DateTimeFormat("de-DE", {
+  timeZone: "Europe/Berlin",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const BERLIN_TIME = new Intl.DateTimeFormat("de-DE", {
+  timeZone: "Europe/Berlin",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/**
+ * Stand für die interne Zeile, Zeit in Europe/Berlin: heute „10:00 Uhr“,
+ * gestern „gestern, 10:00 Uhr“, sonst „23.10., 10:00 Uhr“.
+ * @param {string} stand ISO-Zeitpunkt
+ * @param {number} [now]
+ * @returns {string}
+ */
+export function courseCountStandText(stand, now = Date.now()) {
+  const at = new Date(stand);
+  const time = `${BERLIN_TIME.format(at)} Uhr`;
+  const day = BERLIN_DAY.format(at);
+  if (day === BERLIN_DAY.format(new Date(now))) return time;
+  if (day === BERLIN_DAY.format(new Date(now - 24 * 60 * 60 * 1000)))
+    return `gestern, ${time}`;
+  return `${day.slice(0, 6)}, ${time}`;
+}
+
+/**
+ * Interne Zeile unter dem Schalter: „Im KI-Berater: 812 von 837 angebotenen
+ * Kursen · 3 veraltete ausgeblendet · Stand 10:00 Uhr“; ohne veraltete ohne
+ * den mittleren Teil; ohne gültigen Kursbestand „Noch keine Kursliste vom
+ * Kursprogramm“.
+ * @param {*} inventory courseInventory vom Server
+ * @param {number} [now]
+ * @returns {string}
+ */
+export function courseCountStatusLine(inventory, now = Date.now()) {
+  const value = courseInventoryValue(inventory);
+  if (!value) return "Noch keine Kursliste vom Kursprogramm";
+  const de = (n) => n.toLocaleString("de-DE");
+  const parts = [
+    `Im KI-Berater: ${de(value.count)} von ${de(value.offered)} angebotenen ${
+      value.offered === 1 ? "Kurs" : "Kursen"
+    }`,
+  ];
+  if (value.stale > 0)
+    parts.push(
+      value.stale === 1
+        ? "1 veralteter ausgeblendet"
+        : `${de(value.stale)} veraltete ausgeblendet`
+    );
+  parts.push(`Stand ${courseCountStandText(value.stand, now)}`);
+  return parts.join(" · ");
+}
+
+/**
+ * Kopf der Vorschau mit Kursanzahl: „aktuell 812 Kurse“ mit der echten Zahl
+ * (count ≥ 1), sonst mit der Beispielzahl; Bezeichnung wie live (ungültig
+ * oder leer: „Kurse“). null mit Schalter aus.
+ * @param {Object} config
+ * @param {*} inventory courseInventory vom Server
+ * @returns {{text: string, sample: boolean}|null}
+ */
+export function previewCourseCount(config = {}, inventory = null) {
+  if (!courseCountOn(config)) return null;
+  const value = courseInventoryValue(inventory);
+  const real = value && value.count >= 1;
+  const n = real ? value.count : SAMPLE_COURSE_COUNT;
+  const word =
+    courseCountWordValue(config.courseCountWord) ?? DEFAULT_COURSE_COUNT_WORD;
+  return {
+    text: `aktuell ${n.toLocaleString("de-DE")} ${word}`,
+    sample: !real,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Datenschutz-Text, freies Format, genau wie im Widget (utils/layout.js
 // parsePrivacyText) und im Server (normalizePrivacyText): Zeilen mit „•“,
 // „-“ oder „–“ am Anfang sind Aufzählungspunkte, andere Zeilen Absätze.
@@ -1027,6 +1200,7 @@ function edited(config, initial, key) {
 export const FIELD_TAB = {
   accentColor: "aussehen",
   assistantSubtitle: "inhalt",
+  courseCountWord: "inhalt",
   greeting: "inhalt",
   greetingBubbleText: "inhalt",
   sendMessageText: "inhalt",
@@ -1054,6 +1228,12 @@ export function validateConfig(config, initial, gKey) {
   }
   if (textValue(config.assistantSubtitle).trim().length > SUBTITLE_MAX_LEN)
     errors.assistantSubtitle = `Maximal ${SUBTITLE_MAX_LEN} Zeichen.`;
+  // Bezeichnung der Kursanzahl: nur mit Schalter an und nur geändert (ein
+  // Feld, das aus ist, wird nicht gespeichert)
+  if (courseCountOn(config) && edited(config, initial, "courseCountWord")) {
+    const error = courseCountWordError(config.courseCountWord);
+    if (error) errors.courseCountWord = error;
+  }
   if (
     edited(config, initial, gKey) &&
     textValue(config[gKey]).trim().length > GREETING_MAX_LEN
@@ -1120,6 +1300,10 @@ export function validateConfig(config, initial, gKey) {
  * - Datenschutz-Hinweis aus (privacyNotice "none"): Überschrift, Text und
  *   Link bleiben genau wie gespeichert (Eingaben in den ausgegrauten Feldern
  *   werden nicht geschrieben).
+ * - Kursanzahl (KIE-576 Paket 3): an ist der Standard, ein in dieser Sitzung
+ *   gesetztes "on" entfällt; "off" bleibt. Bezeichnung: leer oder „Kurse“
+ *   -> entfernen (wie jeder auf den Standard gebrachte Wert), sonst die
+ *   Normalform; mit Schalter aus bleibt sie, wie sie gespeichert ist.
  * @param {Object} config
  * @param {{initial: Object, defaults: Object|null, greetingKey: string}} opts
  * @returns {Object}
@@ -1196,6 +1380,21 @@ export function cleanConfig(
     if (sameAsDefault("assistantSubtitle", v, defaults))
       dropIfEdited("assistantSubtitle");
     else out.assistantSubtitle = v;
+  }
+
+  if ("courseCountMode" in out) {
+    if (courseCountOn(out)) dropIfEdited("courseCountMode");
+    else out.courseCountMode = "off";
+  }
+  if (!courseCountOn(out)) {
+    if ("courseCountWord" in initial)
+      out.courseCountWord = initial.courseCountWord;
+    else drop("courseCountWord");
+  } else if (typeof out.courseCountWord === "string") {
+    const v = courseCountWordValue(out.courseCountWord);
+    if (isBlank(out.courseCountWord)) drop("courseCountWord");
+    else if (v === DEFAULT_COURSE_COUNT_WORD) dropIfEdited("courseCountWord");
+    else if (v !== null) out.courseCountWord = v;
   }
 
   if (Array.isArray(out.defaultMessages)) {

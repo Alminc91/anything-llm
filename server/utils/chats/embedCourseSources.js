@@ -73,6 +73,7 @@ const COURSE_LINK_HEADER_RX = /^Kurs-Link:[ \t]*(.+)$/m;
 const TITLE_HEADER_RX = /^Titel:[ \t]*(.+)$/m;
 const SESSIONS_HEADER_RX = /^Dauer:[ \t]*(.+)$/m;
 const VENUE_HEADER_RX = /^Kursort:[ \t]*(.+)$/m;
+const COURSE_NUMBER_HEADER_RX = /^Kursnummer:[ \t]*(.+)$/m;
 // Ende des Kopfblocks: ab "Kursbeschreibung:" folgt Freitext, ebenso nach
 // der ersten Leerzeile (der Extraktor trennt Kopf und Beschreibung so).
 const DESCRIPTION_HEADER_RX = /^Kursbeschreibung:/m;
@@ -334,6 +335,17 @@ function headerDetailsFromBlock(block) {
   if (sessions) out.sessions = sessions;
   if (venue) out.venue = venue;
   return out;
+}
+
+// KIE-576 Paket 3: Kursnummer eines Kursdokuments (Kopfzeile
+// "Kursnummer:" des Extraktors, zweite Zeile nach "Titel:"). Nur aus dem
+// Kopfblock (headerBlock) und nur, wenn er mit "Titel:" beginnt wie jede
+// Seite des Extraktors (run_pipeline.is_course_page); sonst kein
+// Kursdokument (Webseite, FAQ, Zusatzwissen) -> undefined.
+function courseNumberFromText(text) {
+  const block = headerBlock(text);
+  if (!block.startsWith("Titel:")) return undefined;
+  return headerLine(block, COURSE_NUMBER_HEADER_RX) || undefined;
 }
 
 // Ist der Kopfblock der des Kursdokuments (erste Zeilen mit "Titel:"/
@@ -867,9 +879,15 @@ function toDocIndex(docs) {
  * Bedarf), Cache je Dokument, Zähler der Dateizugriffe (höchstens
  * COURSE_LOOKUPS_MAX). Wird für Marker-Auflösung und Antwort-Links gemeinsam
  * benutzt. Kein workspace-übergreifender Cache.
- * @param {{workspace?: object, deps?: object}} options
+ * KIE-576 Paket 3: hideDocument (courseInventory guard.hidesDocument) blendet
+ * veraltete Kursdokumente aus, sie ergeben keine Karte (wie unlesbar: null).
+ * @param {{workspace?: object, deps?: object, hideDocument?: (doc: object) => boolean}} options
  */
-function createCourseLookup({ workspace = null, deps = {} } = {}) {
+function createCourseLookup({
+  workspace = null,
+  deps = {},
+  hideDocument = null,
+} = {}) {
   const d = { ...defaultLookupDeps(), ...deps };
   let docpathsPromise = null;
   let indexPromise = null;
@@ -912,7 +930,12 @@ function createCourseLookup({ workspace = null, deps = {} } = {}) {
     stats.reads++;
     const promise = Promise.resolve()
       .then(() => d.readFile(full))
-      .then((raw) => courseEntryFromDocument(JSON.parse(raw)))
+      .then((raw) => {
+        const doc = JSON.parse(raw);
+        if (typeof hideDocument === "function" && hideDocument(doc))
+          return null;
+        return courseEntryFromDocument(doc);
+      })
       .catch((e) => {
         console.error("[courseLookup] Dokument nicht lesbar:", e.message);
         return null;
@@ -1309,6 +1332,8 @@ module.exports = {
   COURSE_SOURCES_MAX,
   createCourseLookup,
   sanitizeCourseSources,
+  // KIE-576 Paket 3: Kursnummer aus dem Kopfblock (courseInventory.js)
+  courseNumberFromText,
   // KIE-576: gemeinsamer Adressvergleich mit dem Prüfer der Übersichtslinks
   urlKey,
   hostKey,
