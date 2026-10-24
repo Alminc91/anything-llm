@@ -199,7 +199,8 @@ test(
       "Datenschutz-Hinweis",
       // Bewusste Änderung (Datenschutz-Fußzeile, 7.23): kein Schalter
       // „Datenschutz-Hinweis anzeigen“ mehr, dafür der Hinweis zum Link
-      "erscheint immer als Link „Datenschutz“ unter der Eingabe",
+      // (Wortlaut seit F10, Fixliste rc2, wie im Mockup)
+      "Erscheint immer als Link „Datenschutz“ unter der Eingabe",
       "Überschrift (optional)",
       "Text",
       "Link zur Datenschutzerklärung",

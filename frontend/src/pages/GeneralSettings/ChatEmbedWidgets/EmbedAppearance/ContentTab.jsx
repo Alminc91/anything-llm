@@ -57,15 +57,18 @@ const PRIVACY_RULE =
 
 // Datenschutz-Hinweis (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): keine
 // Auswahl mehr, der Link „Datenschutz“ steht immer unter der Eingabe und
-// öffnet das Datenschutz-Fenster. Hinweis wörtlich aus AK-6, die Zeile zum
-// festen Teil und der Hinweis zum Link wie im Mockup
-// (issues/datenschutz-fusszeile/mockup/DesignCenter.dc.html).
+// öffnet das Datenschutz-Fenster. Gruppenhinweis, die Zeile zum festen Teil
+// und der Hinweis zum Link wie im freigegebenen Mockup
+// (issues/datenschutz-fusszeile/mockup/DesignCenter.dc.html); seit F10
+// (Fixliste rc2, Nachtrag 24.10.2026) mit dem Satz, was ein Klick zeigt,
+// und in der ganzen Gruppe ein Begriff, „Hinweis“ (bis rc2 daneben
+// „Datenschutz-Fenster“ im Hinweis zum Link).
 export const PRIVACY_NOTICE_HINT =
-  "Der Datenschutz-Hinweis erscheint immer als Link „Datenschutz“ unter der Eingabe. Für den Inhalt sind Sie als Betreiber der Website verantwortlich.";
+  "Erscheint immer als Link „Datenschutz“ unter der Eingabe. Ein Klick öffnet den Hinweis über dem Chat. Für den Inhalt sind Sie als Betreiber der Website verantwortlich.";
 export const PRIVACY_FIXED_NOTE =
   "Fest eingebaut: der KI-Hinweis „Unsere KI kann Fehler machen“ und daneben der Link „Datenschutz“.";
 export const PRIVACY_URL_HINT =
-  "https://… oder ein Pfad Ihrer Seite wie /datenschutz. Steht im Datenschutz-Fenster unter dem Text. Empfohlen: Ohne Link fehlt im Hinweis der Verweis auf Ihre Datenschutzerklärung.";
+  "https://… oder ein Pfad Ihrer Seite wie /datenschutz. Steht im Hinweis unter dem Text. Empfohlen: Ohne Link fehlt im Hinweis der Verweis auf Ihre Datenschutzerklärung.";
 
 // Mindesthöhe der wachsenden Textfelder in Zeilen (R11)
 export const GREETING_MIN_ROWS = 2;

@@ -333,7 +333,8 @@ test(
       "Datenschutz-Hinweis",
       // Bewusste Änderung (Datenschutz-Fußzeile, 7.23): statt des Schalters
       // „Datenschutz-Hinweis anzeigen“ der Hinweis unter der Überschrift
-      "erscheint immer als Link „Datenschutz“ unter der Eingabe",
+      // (Wortlaut seit F10, Fixliste rc2, wie im Mockup)
+      "Erscheint immer als Link „Datenschutz“ unter der Eingabe",
       "Überschrift (optional)",
       "Text",
       "Link zur Datenschutzerklärung",
@@ -374,10 +375,11 @@ test(
         "Leer: es gilt „Datenschutz“.",
       ],
       // Bewusste Änderung (Datenschutz-Fußzeile, 7.23): der Link steht im
-      // Datenschutz-Fenster (bis 7.22.2 „Steht am Ende der Blase.“)
+      // Datenschutz-Fenster (bis 7.22.2 „Steht am Ende der Blase.“), seit
+      // F10 (Fixliste rc2) mit dem Begriff der Gruppe „Hinweis“
       [
         'placeholder="https://www.ihre-seite.de/datenschutz"',
-        "Steht im Datenschutz-Fenster unter dem Text.",
+        "Steht im Hinweis unter dem Text.",
       ],
       [
         'aria-label="Platzhalter im Eingabefeld"',

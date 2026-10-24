@@ -45,9 +45,12 @@ const DEFAULTS = embedDefaultTexts("de");
 // her, auch wenn ein Test mehrmals ersetzt; C3, Fixliste rc1)
 const REAL_FETCH = globalThis.fetch;
 
-// Wortlaute aus der Spezifikation (AK-1, AK-3, AK-6)
+// Wortlaute aus der Spezifikation (AK-1, AK-3, AK-6); der Gruppenhinweis
+// seit F10 (Fixliste rc2, Nachtrag 24.10.2026) wie im freigegebenen Mockup
+// (issues/datenschutz-fusszeile/mockup/DesignCenter.dc.html) mit dem Satz,
+// was ein Klick zeigt
 const HINT =
-  "Der Datenschutz-Hinweis erscheint immer als Link „Datenschutz“ unter der Eingabe. Für den Inhalt sind Sie als Betreiber der Website verantwortlich.";
+  "Erscheint immer als Link „Datenschutz“ unter der Eingabe. Ein Klick öffnet den Hinweis über dem Chat. Für den Inhalt sind Sie als Betreiber der Website verantwortlich.";
 const FIXED_NOTE =
   "Fest eingebaut: der KI-Hinweis „Unsere KI kann Fehler machen“ und daneben der Link „Datenschutz“.";
 const FOOTER = "Unsere KI kann Fehler machen · Datenschutz";
@@ -264,7 +267,10 @@ test(
       // keine Datenschutz-Blase mehr: Hinweise zu Begrüßung und Link
       assert.ok(!t.includes("zweite Blase"), label);
       assert.ok(!t.includes("Ende der Blase"), label);
-      assert.ok(t.includes("Steht im Datenschutz-Fenster unter dem Text."));
+      // F10: ein Begriff in der Gruppe, „Hinweis“ (wie Gruppe und Mockup),
+      // nicht daneben „Datenschutz-Fenster“
+      assert.ok(t.includes("Steht im Hinweis unter dem Text."), label);
+      assert.ok(!t.includes("Datenschutz-Fenster"), label);
       // leere Überschrift: im Fenster der Standard wie im Widget
       assert.ok(t.includes("Leer: es gilt „Datenschutz“."), label);
       assert.ok(!t.includes("Leer: keine Überschrift."), label);
