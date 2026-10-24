@@ -341,17 +341,54 @@ function bullet(doc, name) {
 // wirkt darauf (R1-D1, Fixliste datenschutz-fusszeile rc1). Bis 7.22.2 stand
 // hier „Die Datenschutz-Blase sieht seit 7.22.2 aus wie die Begrüßungsblase
 // und die Antwortblasen …“ mit den Angaben, die alle Blasen gemeinsam ändern.
-test("F83 (seit 7.23-rc2, R1-D1): Gruppe B nimmt das Datenschutz-Fenster mit festen Farben je Farbschema aus", () => {
-  const group = bullet(readDoc(), "Gruppe B");
-  assert.match(
-    group,
-    /Ausgenommen ist das Datenschutz-Fenster \(ab 7\.23\): Fläche, Schrift, Trennlinien, Link und Fokusrahmen fest je Farbschema/
-  );
-  assert.match(group, /R1-D1/);
-  assert.doesNotMatch(group, /nutzt Fläche und Schrift der Antwortblasen/);
-  assert.doesNotMatch(group, /Die Datenschutz-Blase sieht seit 7\.22\.2/);
-  assert.doesNotMatch(group, /[–—]/);
-});
+// F16 (NF-4, Fixliste rc3): Fest sind nur Fläche, Schrift und Trennlinien;
+// Link und Fokusrahmen haben die Farbe des Links „Datenschutz“, hell aus der
+// Akzentfarbe, dunkel fest. Bis rc3 hieß es „Link und Fokusrahmen fest je
+// Farbschema“ und „Nur der Button „Schließen“ nutzt die Akzentfarbe“, und
+// dieser Test schrieb den falschen Satz fest. Seit F16 prüft er die Farben
+// gegen den Code (previewPrivacyLinkColor, gleich privacyLinkColor des
+// Widgets, Gegenprobe in designCenterPrivacyLink).
+test(
+  "F83, F16 (seit 7.23-rc2, R1-D1): Gruppe B nimmt das Datenschutz-Fenster aus: Fläche, Schrift und Trennlinien fest, Link und Fokusrahmen hell aus der Akzentfarbe, dunkel fest, wie im Code",
+  { skip },
+  async () => {
+    const group = bullet(readDoc(), "Gruppe B");
+    const { previewPrivacyLinkColor } = await renderer.load(
+      "/src/pages/GeneralSettings/ChatEmbedWidgets/EmbedAppearance/WidgetPreview.jsx"
+    );
+    // hell: die Akzentfarbe (wenn sie 4,5:1 erreicht), dunkel: eine feste
+    // Farbe, gleich für jede Akzentfarbe
+    for (const accentColor of ["#0F766E", "#C4430A", "#1D4ED8"])
+      assert.equal(
+        previewPrivacyLinkColor({ theme: "light", accentColor }).toLowerCase(),
+        accentColor.toLowerCase(),
+        `hell ${accentColor}`
+      );
+    const dark = new Set(
+      [undefined, "#01A5A9", "#C4430A", "#FFFF00"].map((accentColor) =>
+        previewPrivacyLinkColor({ theme: "dark", accentColor }).toUpperCase()
+      )
+    );
+    assert.equal(dark.size, 1, [...dark].join(", "));
+    const [darkLink] = dark;
+    assert.match(
+      group,
+      /Ausgenommen ist das Datenschutz-Fenster \(ab 7\.23\): Fläche, Schrift und Trennlinien fest je Farbschema/
+    );
+    assert.ok(
+      group.includes(
+        `Link und Fokusrahmen hell aus der Akzentfarbe, dunkel fest \`${darkLink}\`, je mit mindestens 4,5:1`
+      ),
+      group
+    );
+    assert.doesNotMatch(group, /Link und Fokusrahmen fest je Farbschema/);
+    assert.doesNotMatch(group, /Nur der Button „Schließen“ nutzt/);
+    assert.match(group, /R1-D1/);
+    assert.doesNotMatch(group, /nutzt Fläche und Schrift der Antwortblasen/);
+    assert.doesNotMatch(group, /Die Datenschutz-Blase sieht seit 7\.22\.2/);
+    assert.doesNotMatch(group, /[–—]/);
+  }
+);
 
 test("F84: Prüfpunkt 11 zählt gespeicherte privacyText mit dem alten Standardpunkt (E30)", () => {
   const point = checkpoint(readDoc(), 11);

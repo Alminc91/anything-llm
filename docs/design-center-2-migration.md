@@ -93,15 +93,17 @@ von Hand gebauten Einbau-Codes (Demo-Seite, Einbau-Paket vhs Rhein).
   Kurskarten; den Wert liest nur der Server für den Prompt, das Widget hat
   dafür keine Angabe) und `onlineDot` (den Online-Punkt gibt es nicht mehr,
   `data-online-dot` bleibt ohne Wirkung). Ausgenommen ist das
-  Datenschutz-Fenster (ab 7.23): Fläche, Schrift, Trennlinien, Link und
-  Fokusrahmen fest je Farbschema wie beim KI-Hinweis (Fläche und Schrift
-  wie die Standard-Antwortblase, hell Weiß, dunkel `#2A2A2F`; Link und
-  Fokusrahmen in der Farbe des Links „Datenschutz“ mit mindestens 4,5:1),
-  keine Angabe im Einbau-Code und keine CSS-Variable der Seite wirkt darauf
+  Datenschutz-Fenster (ab 7.23): Fläche, Schrift und Trennlinien fest je
+  Farbschema wie beim KI-Hinweis (Fläche und Schrift wie die
+  Standard-Antwortblase, hell Weiß, dunkel `#2A2A2F`); Link und
+  Fokusrahmen hell aus der Akzentfarbe, dunkel fest `#5CC8CB`, je mit
+  mindestens 4,5:1 (dieselbe Farbe wie der Link „Datenschutz“). Keine
+  Angabe im Einbau-Code und keine CSS-Variable der Seite wirkt darauf
   (R1-D1, Fixliste datenschutz-fusszeile rc1; in 7.23-rc1 folgte es noch
   Fläche und Schrift der Antwortblasen wie bis 7.22.2 die
-  Datenschutz-Blase, D2). Nur der Button „Schließen“ nutzt die Akzentfarbe
-  aus dem Design Center; bei „In der Seite“ ist die Textspalte des Fensters
+  Datenschutz-Blase, D2). Die Akzentfarbe aus dem Design Center wirkt im
+  Fenster also auf den Button „Schließen“ und hell auf Link und
+  Fokusrahmen; bei „In der Seite“ ist die Textspalte des Fensters
   höchstens etwa 70 Zeichen breit (R1-D2). Die Tabellen unten nennen den
   Standard, der ohne solche Angabe gilt. Ob frühere Angaben
   ohne Feld wie `data-window-width`, `data-offset-x`,
