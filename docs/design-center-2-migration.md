@@ -350,7 +350,10 @@ unverändert stehen.
 
 Zusätzlich beim Start als Blase (AK-12, Nutzer 24.10.2026): Im Reiter Inhalt
 steht in der Gruppe „Datenschutz-Hinweis“ der Schalter „Zusätzlich beim Start
-als Blase zeigen“, Standard aus. Ist er an, zeigt das Widget beim Start unter
+als Blase zeigen“, Standard aus, mit dem Hinweis „Mit Blase steht der Hinweis
+zusätzlich gleich beim Öffnen unter der Begrüßung und braucht mehr Platz.“
+(seit 25.10.2026 ohne den Satz zum Standard, den der Gruppenhinweis schon
+nennt). Ist er an, zeigt das Widget beim Start unter
 der Begrüßungsblase eine Datenschutz-Blase wie bis 7.22.2 (Fläche, Schrift und
 Abstände wie die Begrüßung; Überschrift, Text als Punkte, Link zur
 Datenschutzerklärung, falls gesetzt; ohne den Punkt „Hinweis zur KI“, der steht

@@ -40,10 +40,14 @@ const {
 const DEFAULTS = embedDefaultTexts("de");
 const REAL_FETCH = globalThis.fetch;
 
-// Wortlaute aus dem Vertrag (Punkt 6, D3 vom 24.10.2026)
+// Wortlaute aus dem Vertrag (Punkt 6, D3 vom 24.10.2026); der Hinweis seit
+// 25.10.2026 gekürzt (Fixliste AK-12 A2, Browser Opus EMP-2): Der Satz
+// „Standard: nur als Link „Datenschutz“ unter der Eingabe.“ wiederholte den
+// Gruppenhinweis direkt darüber
 const SWITCH_LABEL = "Zusätzlich beim Start als Blase zeigen";
 const SWITCH_HINT =
-  "Standard: nur als Link „Datenschutz“ unter der Eingabe. Mit Blase steht der Hinweis gleich beim Öffnen unter der Begrüßung und braucht mehr Platz.";
+  "Mit Blase steht der Hinweis zusätzlich gleich beim Öffnen unter der Begrüßung und braucht mehr Platz.";
+const OLD_HINT_START = "Standard: nur als Link";
 // Gruppenhinweis (AK-6, unverändert)
 const GROUP_HINT =
   "Erscheint immer als Link „Datenschutz“ unter der Eingabe. Ein Klick öffnet den Hinweis über dem Chat. Für den Inhalt sind Sie als Betreiber der Website verantwortlich.";
@@ -192,6 +196,8 @@ test(
         };
         assert.ok(at(GROUP_HINT) < at(SWITCH_LABEL), label);
         assert.ok(at(SWITCH_LABEL) < at(SWITCH_HINT), label);
+        // der Gruppenhinweis steht nur einmal da (A2)
+        assert.ok(!t.includes(OLD_HINT_START), label);
         const fields = html.indexOf('data-privacy-fields=""');
         assert.ok(fields > html.indexOf('role="switch"'), label);
         assert.ok(t.indexOf(SWITCH_HINT) < at("Überschrift Standardtext"));

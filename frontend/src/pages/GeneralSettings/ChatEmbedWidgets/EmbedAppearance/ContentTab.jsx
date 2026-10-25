@@ -75,11 +75,13 @@ export const PRIVACY_FIXED_NOTE =
 export const PRIVACY_URL_HINT =
   "https://… oder ein Pfad Ihrer Seite wie /datenschutz. Steht im Hinweis unter dem Text. Empfohlen: Ohne Link fehlt im Hinweis der Verweis auf Ihre Datenschutzerklärung.";
 // Datenschutz zusätzlich beim Start als Blase (AK-12, Nutzer 24.10.2026,
-// Wortlaut D3): Standard aus, der Link bleibt in jedem Fall (D1)
+// Wortlaut D3): Standard aus, der Link bleibt in jedem Fall (D1). Der
+// Hinweis seit 25.10.2026 ohne den Satz zum Standard, den der
+// Gruppenhinweis direkt darüber schon nennt (Fixliste AK-12 A2)
 export const PRIVACY_START_BUBBLE_LABEL =
   "Zusätzlich beim Start als Blase zeigen";
 export const PRIVACY_START_BUBBLE_HINT =
-  "Standard: nur als Link „Datenschutz“ unter der Eingabe. Mit Blase steht der Hinweis gleich beim Öffnen unter der Begrüßung und braucht mehr Platz.";
+  "Mit Blase steht der Hinweis zusätzlich gleich beim Öffnen unter der Begrüßung und braucht mehr Platz.";
 
 // Mindesthöhe der wachsenden Textfelder in Zeilen (R11)
 export const GREETING_MIN_ROWS = 2;

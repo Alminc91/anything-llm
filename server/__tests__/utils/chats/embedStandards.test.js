@@ -779,6 +779,8 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
     const section = flat(doc.slice(start, doc.indexOf("\n## ", start + 1)));
     for (const text of [
       "„Zusätzlich beim Start als Blase zeigen“",
+      // Hinweis am Schalter, gekürzt (Fixliste AK-12 A2)
+      "„Mit Blase steht der Hinweis zusätzlich gleich beim Öffnen unter der Begrüßung und braucht mehr Platz.“",
       "`privacyStartBubble: true`",
       "nie `false`",
       "unter der Begrüßungsblase",
@@ -799,6 +801,7 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
     ]);
     expect(rows[3]).toMatch(/Gruppe A/);
     expect(section).not.toMatch(/[–—]/);
+    expect(section).not.toContain("Standard: nur als Link");
     // Gruppe A nennt die Angabe, der Prüfpunkt 14 den Schalter
     const groupA = flat(
       doc.slice(doc.indexOf("- **Gruppe A"), doc.indexOf("- **Gruppe B"))
