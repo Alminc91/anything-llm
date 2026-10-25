@@ -633,6 +633,14 @@ export function PreviewSampleAnswer({ config, palette }) {
   );
 }
 
+// Startvorschläge der Vorschau (höchstens sechs): ohne gespeicherte Liste
+// die Standard-Startvorschläge des Servers (S1, wie live im Widget; R5),
+// seit E42 leer, also keine Pillen. Eine Stelle für den Verlauf, die
+// eingeklappte Leiste und die Signatur der Startansicht (A1).
+function previewPills(config, defaults) {
+  return textItems(listItems(config, "defaultMessages", defaults)).slice(0, 6);
+}
+
 // Blasen von Begrüßung und Datenschutz-Hinweis: Schriftgröße, Zeilenhöhe,
 // Rundung, Innenabstand und Breite gleich (wie im Widget seit 7.22.2,
 // Nutzer 23.10.2026; D4 zu AK-12)
@@ -658,12 +666,7 @@ export function PreviewWelcome({
   // (previewPrivacy), alles als Text
   const showPrivacy = privacyStartBubbleOn(config);
   const privacy = previewPrivacy(config, defaults);
-  // ohne gespeicherte Liste die Standard-Startvorschläge des Servers (S1,
-  // wie live im Widget; R5); seit E42 leer, also keine Pillen
-  const pills = textItems(listItems(config, "defaultMessages", defaults)).slice(
-    0,
-    6
-  );
+  const pills = previewPills(config, defaults);
   // F10 (Fixliste 7.22-rc13): Wer im Reiter Inhalt Begrüßung, Datenschutz-
   // Blase oder Startvorschläge ändert, sieht den Block in der Vorschau, auch
   // wenn der Verlauf woanders steht (Felder des Datenschutz-Hinweises öffnen
@@ -871,7 +874,8 @@ const PRIVACY_CLICKED = Object.freeze({ isOpen: true, focus: true });
  * Begrüßung); onReveal öffnet dazu den Chat. Ändert sich irgendetwas anderes
  * (Begrüßung, Startvorschläge, Beispielantwort, Optik), schließt das
  * Fenster, damit die Änderung nicht dahinter verborgen bleibt (F-4, F10);
- * Speichern ändert nichts davon (F15).
+ * Speichern ändert nichts davon (F15). Den Chat öffnet zusätzlich eine
+ * Änderung der Startansicht (useOpenOnStartViewChange, A1).
  * Rückweg zu modal: aria-modal und Tab-Falle an focusOnOpen hängen.
  * @param {{signature: string|null, others: string|null,
  *   onReveal?: () => void}} args
@@ -948,6 +952,37 @@ function othersSignature(cleanedConfig, defaults, defaultsError) {
         .map((key) => [key, cleanedConfig[key]])
     )
   );
+}
+
+// Signatur der Startansicht (Review AF-1, Fixliste AK-12 A1): Begrüßung,
+// Datenschutz-Blase (Schalter „Zusätzlich beim Start als Blase zeigen“) und,
+// mit pills, die Startvorschläge. Diese Blöcke zeichnet die Vorschau nur im
+// offenen Chat (PreviewWelcome); ändert sich einer bei geschlossenem bzw.
+// eingeklapptem Chat, öffnet useOpenOnStartViewChange ihn, damit die
+// Änderung zu sehen ist (wie onReveal bei Überschrift, Text und Link, E3).
+// Bis rc5 öffnete nur der Inhalt des Datenschutz-Fensters den Chat, alles
+// andere schloss nur das Fenster (others), und der Schalter blieb bei
+// geschlossener Vorschau ohne sichtbare Wirkung. Aus dem bereinigten Stand
+// wie othersSignature: Speichern öffnet nichts (F15, F43).
+function startViewSignature(
+  cleanedConfig,
+  { greetingKey, defaults, defaultsError, pills }
+) {
+  const parts = [
+    previewGreeting(cleanedConfig, greetingKey, defaults),
+    privacyStartBubbleOn(cleanedConfig),
+  ];
+  if (pills)
+    parts.push(previewPills(cleanedConfig, defaults).map((p) => p.trim()));
+  return loadedSignature(defaults, defaultsError, JSON.stringify(parts));
+}
+
+// Chat der Vorschau öffnen, wenn sich die Startansicht ändert (A1); offen
+// ändert sich nichts, PreviewWelcome holt den Block dann ins Bild (F10).
+// Das Datenschutz-Fenster schließt dabei wie bei jeder anderen Einstellung
+// (others in usePrivacyWindow, F-4, R3-D1).
+function useOpenOnStartViewChange(signature, openChat) {
+  useOnSignatureChange(signature, openChat);
 }
 
 // Hülle um Kopf, Verlauf und Eingabe, je Darstellung eine (C6, Fixliste
@@ -1247,6 +1282,17 @@ function BubblePreview({
     others: othersSignature(cleanedConfig, defaults, defaultsError),
     onReveal: () => setOpen(true),
   });
+  // Startvorschläge stehen nur im offenen Chat (geschlossen zeigt die
+  // Vorschau die Willkommensblasen), sie zählen zur Startansicht
+  useOpenOnStartViewChange(
+    startViewSignature(cleanedConfig, {
+      greetingKey,
+      defaults,
+      defaultsError,
+      pills: true,
+    }),
+    () => setOpen(true)
+  );
   const setChatOpen = (next) => {
     setOpen(next);
     if (!next) privacyWindow.reset();
@@ -1436,6 +1482,17 @@ function InlinePreview({
     others: othersSignature(cleanedConfig, defaults, defaultsError),
     onReveal: () => setExpanded(true),
   });
+  // Startvorschläge stehen eingeklappt unter der Leiste, ihre Änderung ist
+  // dort zu sehen; sie klappen nicht auf (E1, Fixliste AK-12 A1)
+  useOpenOnStartViewChange(
+    startViewSignature(cleanedConfig, {
+      greetingKey,
+      defaults,
+      defaultsError,
+      pills: false,
+    }),
+    () => setExpanded(true)
+  );
   const setPanelExpanded = (next) => {
     setExpanded(next);
     if (!next) privacyWindow.reset();
@@ -1445,10 +1502,7 @@ function InlinePreview({
   // Text bis 120 Zeichen oder Standard), ein früher gespeicherter
   // Leistentext geht vor (Nutzerentscheidung 23.10.2026, ersetzt D2)
   const { placeholder, sendText } = previewInlineBar(config, defaults);
-  const chips = textItems(listItems(config, "defaultMessages", defaults)).slice(
-    0,
-    6
-  );
+  const chips = previewPills(config, defaults);
   return (
     <div
       className="w-full max-w-[640px] rounded-xl overflow-hidden flex flex-col"

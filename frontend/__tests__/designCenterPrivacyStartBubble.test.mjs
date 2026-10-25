@@ -746,6 +746,115 @@ for (const [name, displayMode] of [
     }
   );
 
+// A1 (Review AF-1, Fixliste AK-12, 25.10.2026): Der Schalter und die
+// übrigen Teile der Startansicht (Begrüßung, im Chatfenster auch die
+// Startvorschläge) öffnen eine geschlossene bzw. eingeklappte Vorschau,
+// damit die Änderung zu sehen ist (wie Überschrift, Text und Link, E3); das
+// Datenschutz-Fenster bleibt zu (F-4, R3-D1). Was auch geschlossen zu sehen
+// ist (Willkommensblasen neben dem Chat-Button, Startvorschläge unter der
+// eingeklappten Leiste), und Speichern öffnen nichts (F15, F43). Bis rc5
+// blieb die Vorschau zu, nur „Ungespeicherte Änderungen“ erschien.
+const listInput = (root, list) =>
+  elements(
+    elements(root, (el) => el.getAttribute("data-list") === list)[0],
+    (el) => el.tagName === "INPUT"
+  )[0];
+for (const [name, displayMode, closeLabel, panelName] of [
+  ["Chatfenster", undefined, "Chat schließen", "chat-panel"],
+  ["In der Seite", "inline", "Einklappen", "inline-panel"],
+])
+  test(
+    `AK-12 A1 ${name}: Schalter, Begrüßung und Startvorschläge öffnen eine geschlossene Vorschau mit Blase und ohne Fenster; Speichern und geschlossen sichtbare Teile öffnen nichts`,
+    { skip },
+    async (t) => {
+      const inline = displayMode === "inline";
+      const { container, act } = await openDesignCenter(
+        t,
+        [widget(8, { displayMode, defaultMessages: ["Kurse?"] })],
+        8
+      );
+      const panelOpen = () => byPreview(container, panelName).length === 1;
+      const close = async (what) => {
+        await act(() => click(byAria(container, closeLabel)));
+        assert.ok(!panelOpen(), `${what}: Vorschau zu`);
+      };
+      assert.ok(panelOpen(), "startet offen");
+
+      // Schalter an: Chat offen, Blase sichtbar, Fenster zu
+      await close("Schalter an");
+      await toggle(act, theSwitch(container), true);
+      assert.ok(panelOpen(), "Schalter an öffnet die Vorschau");
+      assert.equal(byPreview(container, "privacy-bubble").length, 1);
+      assert.equal(dialogs(container).length, 0, "Fenster zu");
+      // Schalter aus: ebenso, die Blase ist weg
+      await close("Schalter aus");
+      await toggle(act, theSwitch(container), false);
+      assert.ok(panelOpen(), "Schalter aus öffnet die Vorschau");
+      assert.equal(byPreview(container, "privacy-bubble").length, 0);
+      assert.equal(dialogs(container).length, 0);
+
+      // Begrüßung
+      await close("Begrüßung");
+      await act(() =>
+        handlersOf(byAria(container, "Begrüßungstext")).onChange({
+          target: { value: "Guten Tag! " },
+        })
+      );
+      assert.ok(panelOpen(), "Begrüßung öffnet die Vorschau");
+      assert.equal(
+        plain(byPreview(container, "greeting-bubble")[0]),
+        "Guten Tag!"
+      );
+      assert.equal(dialogs(container).length, 0);
+
+      // Speichern ist keine Bearbeitung (F15, F43): bleibt zu
+      await close("Speichern");
+      await act(() => click(buttonByText(container, "Speichern")));
+      assert.ok(!unsaved(container), "gespeichert");
+      assert.ok(!panelOpen(), "Speichern öffnet nicht");
+
+      // Startvorschläge: Im Chatfenster nur im offenen Chat zu sehen, also
+      // öffnet die Vorschau; In der Seite stehen sie unter der eingeklappten
+      // Leiste, die Vorschau bleibt zu (E1)
+      await act(() =>
+        handlersOf(listInput(container, "suggestions")).onChange({
+          target: { value: "Kurse am Abend?" },
+        })
+      );
+      assert.equal(panelOpen(), !inline, "Startvorschlag");
+      const bar = byPreview(container, "inline-bar")[0];
+      if (inline)
+        assert.ok(
+          plain(bar).includes("Kurse am Abend?"),
+          "Pille an der Leiste"
+        );
+      else
+        assert.ok(
+          byPreview(container, "pill").some(
+            (pill) => plain(pill) === "Kurse am Abend?"
+          ),
+          "Pille im Chat"
+        );
+
+      // Chatfenster: Willkommensblasen stehen neben dem geschlossenen
+      // Chat-Button, ihre Änderung öffnet nichts
+      if (!inline) {
+        await close("Willkommensblasen");
+        await act(() =>
+          handlersOf(listInput(container, "welcome-bubbles")).onChange({
+            target: { value: "Fragen Sie mich!" },
+          })
+        );
+        assert.ok(!panelOpen(), "Willkommensblasen öffnen nicht");
+        assert.ok(
+          byPreview(container, "welcome-bubble").some(
+            (bubble) => plain(bubble) === "Fragen Sie mich!"
+          )
+        );
+      }
+    }
+  );
+
 test("C3: nach den Tests mit ersetztem fetch gilt wieder das echte fetch", () => {
   assert.equal(globalThis.fetch, REAL_FETCH);
 });
