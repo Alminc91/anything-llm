@@ -1,5 +1,5 @@
 {
-  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true; der Standard ist seit E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23) in jeder Sprache leer, also [] mit dem Kennzeichen, das Widget zeigt keine Startvorschläge (bis 7.22-rc22 zwei Beispiele je Sprache). chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang (E10 neu, E23 und E24, Fixliste 7.22-rc17): gespeichert (auch leer) vor Standard; Startvorschläge und Willkommensblasen stellt das Design Center ein (Gruppe A), Skript-Attribute dazu (data-default-messages, data-chatbot-bubbles-messages) wirken nicht, auch wenn nichts gespeichert ist und auch mit älterem Server. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. Bei Änderung hier UND im Fork nachziehen.",
+  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true; der Standard ist seit E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23) in jeder Sprache leer, also [] mit dem Kennzeichen, das Widget zeigt keine Startvorschläge (bis 7.22-rc22 zwei Beispiele je Sprache). chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang (E10 neu, E23 und E24, Fixliste 7.22-rc17): gespeichert (auch leer) vor Standard; Startvorschläge und Willkommensblasen stellt das Design Center ein (Gruppe A), Skript-Attribute dazu (data-default-messages, data-chatbot-bubbles-messages) wirken nicht, auch wenn nichts gespeichert ist und auch mit älterem Server. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Datenschutz (Fixliste AK-12 A4, Review AF-6): privacyNotice liefert der Server fest als link, auch bei gespeichertem Altwert; privacyStartBubble nur bei gespeichert genau true, sonst fehlt der Schlüssel (configAbsent); Skript-Attribute dazu wirken nicht (Gruppe A). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. Bei Änderung hier UND im Fork nachziehen.",
   "standardSuggestions": {
     "de": [],
     "en": []
@@ -122,6 +122,50 @@
       "configAbsent": ["chatbotBubblesMessages"],
       "script": { "chatbotBubblesMessages": "Hallo, Willkommen" },
       "widget": { "chatbotBubblesMessages": [] }
+    },
+    {
+      "name": "Datenschutz-Blase beim Start gespeichert (privacyStartBubble true, AK-12): der Server liefert true, das Widget zeigt sie, der Link Datenschutz bleibt (privacyNotice link)",
+      "request": { "language": "de" },
+      "visualConfig": { "privacyStartBubble": true },
+      "config": { "privacyStartBubble": true, "privacyNotice": "link" },
+      "script": {},
+      "widget": { "privacyStartBubble": true, "privacyNotice": "link" }
+    },
+    {
+      "name": "privacyStartBubble als Text \"true\" gespeichert: kein Schlüssel, keine Blase (AK-12, nur genau true)",
+      "request": { "language": "de" },
+      "visualConfig": { "privacyStartBubble": "true" },
+      "config": { "privacyNotice": "link" },
+      "configAbsent": ["privacyStartBubble"],
+      "script": {},
+      "widget": { "privacyStartBubble": false, "privacyNotice": "link" }
+    },
+    {
+      "name": "privacyStartBubble false gespeichert: kein Schlüssel, keine Blase (AK-12)",
+      "request": { "language": "de" },
+      "visualConfig": { "privacyStartBubble": false },
+      "config": { "privacyNotice": "link" },
+      "configAbsent": ["privacyStartBubble"],
+      "script": {},
+      "widget": { "privacyStartBubble": false, "privacyNotice": "link" }
+    },
+    {
+      "name": "nichts gespeichert, Skript-Attribute data-privacy-start-bubble und data-privacy-notice gesetzt: keine Blase, der Link bleibt (Gruppe A, AK-10, AK-12)",
+      "request": { "language": "de" },
+      "visualConfig": {},
+      "config": { "privacyNotice": "link" },
+      "configAbsent": ["privacyStartBubble"],
+      "script": { "privacyStartBubble": "true", "privacyNotice": "bubble" },
+      "widget": { "privacyStartBubble": false, "privacyNotice": "link" }
+    },
+    {
+      "name": "Altwert privacyNotice bubble gespeichert: der Server liefert link, keine Blase (AK-7, AK-10, D2)",
+      "request": { "language": "de" },
+      "visualConfig": { "privacyNotice": "bubble" },
+      "config": { "privacyNotice": "link" },
+      "configAbsent": ["privacyStartBubble"],
+      "script": {},
+      "widget": { "privacyStartBubble": false, "privacyNotice": "link" }
     },
     {
       "name": "älterer Server ohne Startvorschläge: keine, das Skript-Attribut wirkt nicht (E23)",
