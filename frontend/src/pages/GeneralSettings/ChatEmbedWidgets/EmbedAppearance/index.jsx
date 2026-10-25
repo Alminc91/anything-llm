@@ -81,8 +81,8 @@ export default function EmbedAppearance() {
   // Standard, „Standardtext“ ist deaktiviert.
   const [defaults, setDefaults] = useState(null);
   const [defaultsError, setDefaultsError] = useState(false);
-  // KIE-576 Paket 3: Kursbestand des Workspace für die interne Zeile und die
-  // Vorschau (mit den Standardtexten geladen); null = keine Kursliste
+  // KIE-576 Paket 3: Kursbestand des Workspace für die Vorschau (mit den
+  // Standardtexten geladen); null = keine Kursliste
   const [courseInventory, setCourseInventory] = useState(null);
 
   // „Ungespeicherte Änderungen“ nur bei echter Änderung (R5): bereinigt
@@ -413,7 +413,6 @@ export default function EmbedAppearance() {
                 setPrivacyNotice={setPrivacyNotice}
                 setChoice={setChoice}
                 setCourseCount={setCourseCount}
-                courseInventory={courseInventory}
                 addListItem={addListItem}
                 updateListItem={updateListItem}
                 removeListItem={removeListItem}

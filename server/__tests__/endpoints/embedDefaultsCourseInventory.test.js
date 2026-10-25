@@ -1,9 +1,10 @@
 /* eslint-env jest, node */
 // KIE-576 Paket 3: GET /embed/defaults?embedId=<id> liefert dem Design Center
-// zusätzlich courseInventory (interne Zeile: im KI-Berater, angeboten,
-// veraltet, Stand). Kein neuer Endpunkt, nur lesend; nur für ein Widget, das
-// der Nutzer verwalten darf (wie validEmbedAccess), sonst fehlt das Feld und
-// die Standardtexte kommen trotzdem. Die Middleware-Kette prüft
+// zusätzlich courseInventory für die Vorschau (im KI-Berater, angeboten,
+// ausgeblendet, Stand; die interne Zeile entfällt seit D-K5). Kein neuer
+// Endpunkt, nur lesend; nur für ein Widget, das der Nutzer verwalten darf
+// (wie validEmbedAccess), sonst fehlt das Feld und die Standardtexte kommen
+// trotzdem. Die Middleware-Kette prüft
 // embedDefaultsEndpoint.test.js; hier der Handler selbst.
 
 jest.mock("../../utils/prisma", () => ({}));
@@ -84,8 +85,7 @@ async function call(query) {
 const STATUS = {
   count: 812,
   offered: 837,
-  stale: 3,
-  missing: 25,
+  hidden: 14,
   stand: "2026-10-24T08:00:00.000Z",
 };
 
@@ -119,7 +119,7 @@ test("mit embedId: courseInventory des Workspace des Widgets", async () => {
   expect(courseInventoryStatus).toHaveBeenCalledWith({ id: 9, slug: "kurse" });
 });
 
-test("ohne gültigen Kursbestand: courseInventory null („Noch keine Kursliste“)", async () => {
+test("ohne gültigen Kursbestand: courseInventory null (Vorschau mit Beispielzahl)", async () => {
   courseInventoryStatus.mockResolvedValue(null);
   const res = await call({ lang: "de", embedId: "5" });
   expect(res.body.courseInventory).toBeNull();

@@ -4,8 +4,9 @@
 // „Bezeichnung“ (Standard „Kurse“) ist frei und wird geprüft (ein Wort aus
 // Buchstaben, Bindestrich nur zwischen Buchstaben, höchstens 20 Zeichen, wie
 // der Server; Fixliste r2b: Meldung statt stiller Kürzung).
-// Darunter die interne Zeile zum Kursbestand (GET /embed/defaults?embedId=).
-// Die Vorschau zeigt die echte Zahl, sonst eine Beispielzahl. Gespeichert
+// Die interne Zeile zum Kursbestand unter dem Schalter entfällt (D-K5, die
+// Info-Karte im Widget sagt es dem Besucher). Die Vorschau zeigt die echte
+// Zahl (GET /embed/defaults?embedId=), sonst eine Beispielzahl. Gespeichert
 // wird nur Abweichendes vom Standard (Regel D6); der Untertitel bleibt
 // gespeichert und gilt mit Schalter aus wieder (NAK-K5).
 //
@@ -41,14 +42,15 @@ const CONTRACT = require("../../server/__tests__/utils/chats/fixtures/embedConfi
 
 const SWITCH_LABEL = "Kursanzahl im Untertitel";
 const LOCKED_HINT = "Statt des Untertitels steht die Kursanzahl.";
+// D-K5: frühere interne Zeile („Im KI-Berater: … von … · … veraltete
+// ausgeblendet · Stand …“ bzw. ohne Kursliste dieser Satz)
 const NO_LIST = "Noch keine Kursliste vom Kursprogramm";
-// 24.10.2026 12:00 Uhr in Berlin (MESZ, UTC+2)
-const NOW = Date.parse("2026-10-24T10:00:00Z");
+const INTERNAL_LINE =
+  /Im KI-Berater:|veraltete? ausgeblendet|Noch keine Kursliste/;
 const INVENTORY = {
   count: 812,
   offered: 837,
-  stale: 3,
-  missing: 25,
+  hidden: 14,
   stand: "2026-10-24T08:00:00.000Z",
 };
 
@@ -260,50 +262,17 @@ test("Prüfung: ungültige geänderte Bezeichnung blockiert nur mit Schalter an"
   );
 });
 
-test("interne Zeile: Zahlen deutsch, veraltete nur ab 1, Stand in Berliner Zeit", () => {
-  assert.equal(
-    keys.courseCountStatusLine(INVENTORY, NOW),
-    "Im KI-Berater: 812 von 837 angebotenen Kursen · 3 veraltete ausgeblendet · Stand 10:00 Uhr"
-  );
-  assert.equal(
-    keys.courseCountStatusLine(
-      { ...INVENTORY, count: 1243, offered: 1250, stale: 0 },
-      NOW
-    ),
-    "Im KI-Berater: 1.243 von 1.250 angebotenen Kursen · Stand 10:00 Uhr"
-  );
-  assert.equal(
-    keys.courseCountStatusLine({ ...INVENTORY, stale: 1 }, NOW),
-    "Im KI-Berater: 812 von 837 angebotenen Kursen · 1 veralteter ausgeblendet · Stand 10:00 Uhr"
-  );
-  assert.equal(
-    keys.courseCountStatusLine(
-      { ...INVENTORY, count: 1, offered: 1, stale: 0 },
-      NOW
-    ),
-    "Im KI-Berater: 1 von 1 angebotenen Kurs · Stand 10:00 Uhr"
-  );
-  // gestern bzw. älter (Berliner Kalendertag)
-  assert.match(
-    keys.courseCountStatusLine(
-      { ...INVENTORY, stand: "2026-10-23T21:59:00Z" },
-      NOW
-    ),
-    /Stand gestern, 23:59 Uhr$/
-  );
-  assert.match(
-    keys.courseCountStatusLine(
-      { ...INVENTORY, stand: "2026-10-23T22:00:00Z" },
-      NOW
-    ),
-    /Stand 00:00 Uhr$/
-  );
-  assert.match(
-    keys.courseCountStatusLine(
-      { ...INVENTORY, stand: "2026-10-21T06:30:00Z" },
-      NOW
-    ),
-    /Stand 21\.10\., 08:30 Uhr$/
+test("D-K5: keine interne Zeile mehr, Kursbestand nur noch für die Vorschau geprüft", () => {
+  assert.equal(keys.courseCountStatusLine, undefined);
+  assert.equal(keys.courseCountStandText, undefined);
+  assert.deepEqual(keys.courseInventoryValue(INVENTORY), {
+    count: 812,
+    offered: 837,
+    stand: INVENTORY.stand,
+  });
+  // ohne stale und missing (D-K5) gültig, ungültige Zahlen nicht
+  assert.ok(
+    keys.courseInventoryValue({ count: 1, offered: 1, stand: INVENTORY.stand })
   );
   for (const bad of [
     null,
@@ -313,7 +282,7 @@ test("interne Zeile: Zahlen deutsch, veraltete nur ab 1, Stand in Berliner Zeit"
     { ...INVENTORY, count: "812" },
     { ...INVENTORY, stand: "gestern" },
   ])
-    assert.equal(keys.courseCountStatusLine(bad, NOW), NO_LIST);
+    assert.equal(keys.courseInventoryValue(bad), null);
 });
 
 test("Vorschau: echte Zahl, sonst Beispielzahl; Bezeichnung wie live; Schalter aus ohne Zahl", () => {
@@ -387,16 +356,12 @@ const subtitleFieldset = (html) => {
 };
 
 test(
-  "Inhalt, Standard an: Schalter an, Untertitel gesperrt mit Hinweis, Bezeichnung frei mit „Kurse“, interne Zeile",
+  "Inhalt, Standard an: Schalter an, Untertitel gesperrt mit Hinweis, Bezeichnung frei mit „Kurse“, ohne interne Zeile (D-K5)",
   { skip },
   async () => {
     const html = await renderer.render(CONTENT, {
       location: "/",
-      // Stand heute: die Seite rechnet mit der echten Uhr („Stand HH:MM Uhr“)
-      props: contentProps(
-        { assistantSubtitle: "Ihr Kursberater" },
-        { courseInventory: { ...INVENTORY, stand: new Date().toISOString() } }
-      ),
+      props: contentProps({ assistantSubtitle: "Ihr Kursberater" }),
     });
     const t = text(html);
     const switchBlock = block(html, "data-course-count-switch");
@@ -418,11 +383,10 @@ test(
     // keine stille Kürzung: zu lange Eingaben bekommen die Meldung
     assert.doesNotMatch(word, /maxLength|maxlength/);
     assert.doesNotMatch(word, /disabled/);
-    assert.match(
-      t,
-      /Im KI-Berater: 812 von 837 angebotenen Kursen · 3 veraltete ausgeblendet · Stand \d\d:\d\d Uhr/
-    );
-    // Reihenfolge: Name, Schalter mit interner Zeile, Bezeichnung, Untertitel
+    // D-K5: keine interne Zeile unter dem Schalter
+    assert.doesNotMatch(t, INTERNAL_LINE);
+    assert.ok(!html.includes("data-course-count-status"));
+    // Reihenfolge: Name, Schalter, Bezeichnung, Untertitel
     assert.ok(t.indexOf(SWITCH_LABEL) < t.indexOf("Bezeichnung"));
     assert.ok(t.indexOf("Bezeichnung") < t.indexOf("Untertitel (optional)"));
     // Textregeln: keine Gedankenstriche
@@ -450,8 +414,8 @@ test(
     assert.ok(
       t.includes("Kleine Zeile unter dem Namen in der Titelleiste des Chats.")
     );
-    // ohne Kursbestand
-    assert.ok(t.includes(NO_LIST));
+    // ohne Kursbestand keine interne Zeile (D-K5)
+    assert.ok(!t.includes(NO_LIST));
   }
 );
 
@@ -612,18 +576,20 @@ const savedBody = (calls) => {
 const statusLine = (container) =>
   elements(container, (el) => el.hasAttribute?.("data-course-count-status"))[0]
     ?.textContent;
+const switchText = (container) =>
+  elements(container, (el) => el.hasAttribute?.("data-course-count-switch"))[0]
+    ?.textContent;
 
 test(
-  "Seite: Kursbestand des Widgets geladen (embedId), interne Zeile und Vorschau mit echter Zahl",
+  "Seite: Kursbestand des Widgets geladen (embedId), keine interne Zeile, Vorschau mit echter Zahl",
   { skip },
   async (t) => {
     const { container, calls } = await open(t, [widget(4, {})], 4);
     const defaultsCall = calls.find((c) => c.url.includes("/embed/defaults"));
     assert.match(defaultsCall.url, /[?&]embedId=4(&|$)/);
-    assert.match(
-      statusLine(container),
-      /^Im KI-Berater: 812 von 837 angebotenen Kursen · 3 veraltete ausgeblendet · Stand /
-    );
+    assert.equal(statusLine(container), undefined);
+    assert.ok(switchText(container).includes(SWITCH_LABEL));
+    assert.doesNotMatch(switchText(container), INTERNAL_LINE);
     const counts = elements(
       container,
       (el) => el.getAttribute?.("data-preview") === "header-course-count"
@@ -633,11 +599,12 @@ test(
 );
 
 test(
-  "Seite ohne Kursbestand: „Noch keine Kursliste vom Kursprogramm“, Vorschau mit Beispielzahl",
+  "Seite ohne Kursbestand: keine interne Zeile (D-K5), Vorschau mit Beispielzahl",
   { skip },
   async (t) => {
     const { container } = await open(t, [widget(4, {})], 4, null);
-    assert.equal(statusLine(container), NO_LIST);
+    assert.equal(statusLine(container), undefined);
+    assert.ok(!container.textContent.includes(NO_LIST));
     const counts = elements(
       container,
       (el) => el.getAttribute?.("data-preview") === "header-course-count"

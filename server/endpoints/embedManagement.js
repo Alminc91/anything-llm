@@ -358,8 +358,8 @@ function embedManagementEndpoints(app) {
   // die übrigen Embed-Verwaltungsendpunkte. Der öffentliche /config liefert
   // sie nicht (das Widget hat sie selbst).
   // KIE-576 Paket 3: mit ?embedId=<id> zusätzlich courseInventory für die
-  // interne Zeile im Design Center ({count, offered, stale, missing, stand}
-  // oder null ohne gültigen Kursbestand), nur lesend und nur für ein Widget,
+  // Vorschau im Design Center ({count, offered, hidden, stand} oder null
+  // ohne gültigen Kursbestand), nur lesend und nur für ein Widget,
   // das der Nutzer verwalten darf (userCanAccessEmbed wie validEmbedAccess);
   // sonst fehlt das Feld, die Standardtexte kommen trotzdem.
   app.get(

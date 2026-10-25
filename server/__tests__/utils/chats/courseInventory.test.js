@@ -2,8 +2,8 @@
 // KIE-576 Paket 3: Kursbestand des Kursprogramms (kufer_course_inventory).
 // AK-K2: Validator nach Vertrag (Form, 512 KiB, Alter 24 h), nicht über HTTP
 // schreibbar (NAK-K4), ungültig = wie heute (NAK-K1). AK-K4: count = |A ∩ B|,
-// offered = |A|, stale = |B \ A| aus den eigenen Kursdokumenten des
-// Workspace, gemerkt höchstens 1 h je Workspace und Wert. AK-K9: Dokumente
+// offered = |A|, hidden = veraltete Kursdokumente (D-K5) aus den eigenen
+// Kursdokumenten des Workspace, gemerkt höchstens 1 h je Workspace und Wert. AK-K9: Dokumente
 // ohne Suchdaten zählen nicht als eingelernt. NAK-K2: nie ein Dokument ohne
 // Kursnummer, nie bei leerer Liste oder ohne angebotenen Kurs.
 
@@ -297,16 +297,16 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     prisma.system_settings.findFirst.mockResolvedValue({ value: value() });
   });
 
-  test("count = |A ∩ B|, offered = |A|, stale = |B \\ A|, missing = |A \\ B|", async () => {
+  test("count = |A ∩ B|, offered = |A|, hidden = veraltete Kursdokumente (D-K5)", async () => {
     installDeps();
     const status = await courseInventoryStatus({ slug: "ws" });
     // A = 100..103, B (eingelernt) = 100, 101, 102, 900, 901 (103 ohne
-    // document_vectors), Dokumente ohne Kursnummer zählen nie
+    // document_vectors), Dokumente ohne Kursnummer zählen nie; ausgeblendet
+    // die Dokumente zu 900 und 901
     expect(status).toEqual({
       count: 3,
       offered: 4,
-      stale: 2,
-      missing: 1,
+      hidden: 2,
       stand: "2026-10-24T08:00:00.000Z",
     });
   });
@@ -314,7 +314,9 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
   test("AK-K9: ohne Zeilen im Vektorspeicher zählt ein Dokument nicht als eingelernt", async () => {
     installDeps({ present: new Set(["v100b", "v900a", "vs"]) });
     const status = await courseInventoryStatus({ slug: "ws" });
-    expect(status).toMatchObject({ count: 1, stale: 1, missing: 3 });
+    // hidden zählt alle veralteten Kursdokumente, sie werden alle
+    // ausgeschlossen (D-K5)
+    expect(status).toMatchObject({ count: 1, offered: 4, hidden: 2 });
     // ausgeschlossen werden trotzdem alle veralteten Abschnitte
     const exclusion = await courseSearchExclusion("ws");
     expect(exclusion.clauses[0]).toBe("id NOT IN ('v900a','v900b','v901')");
@@ -324,7 +326,7 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     installDeps({ present: null });
     expect(await courseInventoryStatus({ slug: "ws" })).toMatchObject({
       count: 3,
-      stale: 2,
+      hidden: 2,
     });
   });
 
@@ -357,7 +359,7 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     // veralteten Abschnitte gilt trotzdem
     expect(await courseInventoryStatus({ slug: "ws" })).toMatchObject({
       count: 3,
-      missing: 1,
+      offered: 4,
     });
     expect(error).toHaveBeenCalledWith(
       "[courseInventory] Suchdaten nicht prüfbar: busy"
@@ -700,12 +702,13 @@ describe("courseCount für /config (Vertrag)", () => {
     installDeps();
   });
 
-  test("Anzeige an: count, offered, stand, word", async () => {
+  test("Anzeige an: count, offered, hidden, stand, word", async () => {
     expect(
       await courseCountField({ slug: "ws" }, { mode: "on", word: "Kurse" })
     ).toEqual({
       count: 3,
       offered: 4,
+      hidden: 2,
       stand: "2026-10-24T08:00:00.000Z",
       word: "Kurse",
     });

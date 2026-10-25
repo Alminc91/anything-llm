@@ -925,83 +925,21 @@ export function courseCountWordError(value) {
 
 /**
  * Kursbestand vom Server (GET /embed/defaults?embedId=, courseInventory)
- * prüfen: ganze Zahlen ≥ 0 und ein Zeitpunkt, sonst null.
+ * prüfen: ganze Zahlen ≥ 0 und ein Zeitpunkt, sonst null. Die Vorschau
+ * braucht nur count (die interne Zeile entfällt seit D-K5).
  * @param {*} value
- * @returns {{count: number, offered: number, stale: number, missing: number, stand: string}|null}
+ * @returns {{count: number, offered: number, stand: string}|null}
  */
 export function courseInventoryValue(value) {
   if (!value || typeof value !== "object") return null;
   const n = (k) => Number.isSafeInteger(value[k]) && value[k] >= 0;
-  if (!["count", "offered", "stale", "missing"].every(n)) return null;
+  if (!["count", "offered"].every(n)) return null;
   if (
     typeof value.stand !== "string" ||
     !Number.isFinite(Date.parse(value.stand))
   )
     return null;
-  return {
-    count: value.count,
-    offered: value.offered,
-    stale: value.stale,
-    missing: value.missing,
-    stand: value.stand,
-  };
-}
-
-const BERLIN_DAY = new Intl.DateTimeFormat("de-DE", {
-  timeZone: "Europe/Berlin",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-const BERLIN_TIME = new Intl.DateTimeFormat("de-DE", {
-  timeZone: "Europe/Berlin",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-/**
- * Stand für die interne Zeile, Zeit in Europe/Berlin: heute „10:00 Uhr“,
- * gestern „gestern, 10:00 Uhr“, sonst „23.10., 10:00 Uhr“.
- * @param {string} stand ISO-Zeitpunkt
- * @param {number} [now]
- * @returns {string}
- */
-export function courseCountStandText(stand, now = Date.now()) {
-  const at = new Date(stand);
-  const time = `${BERLIN_TIME.format(at)} Uhr`;
-  const day = BERLIN_DAY.format(at);
-  if (day === BERLIN_DAY.format(new Date(now))) return time;
-  if (day === BERLIN_DAY.format(new Date(now - 24 * 60 * 60 * 1000)))
-    return `gestern, ${time}`;
-  return `${day.slice(0, 6)}, ${time}`;
-}
-
-/**
- * Interne Zeile unter dem Schalter: „Im KI-Berater: 812 von 837 angebotenen
- * Kursen · 3 veraltete ausgeblendet · Stand 10:00 Uhr“; ohne veraltete ohne
- * den mittleren Teil; ohne gültigen Kursbestand „Noch keine Kursliste vom
- * Kursprogramm“.
- * @param {*} inventory courseInventory vom Server
- * @param {number} [now]
- * @returns {string}
- */
-export function courseCountStatusLine(inventory, now = Date.now()) {
-  const value = courseInventoryValue(inventory);
-  if (!value) return "Noch keine Kursliste vom Kursprogramm";
-  const de = (n) => n.toLocaleString("de-DE");
-  const parts = [
-    `Im KI-Berater: ${de(value.count)} von ${de(value.offered)} angebotenen ${
-      value.offered === 1 ? "Kurs" : "Kursen"
-    }`,
-  ];
-  if (value.stale > 0)
-    parts.push(
-      value.stale === 1
-        ? "1 veralteter ausgeblendet"
-        : `${de(value.stale)} veraltete ausgeblendet`
-    );
-  parts.push(`Stand ${courseCountStandText(value.stand, now)}`);
-  return parts.join(" · ");
+  return { count: value.count, offered: value.offered, stand: value.stand };
 }
 
 /**

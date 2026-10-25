@@ -37,7 +37,6 @@ import {
   WELCOME_BUBBLES_OPTIONS,
   choiceValue,
   courseCountOn,
-  courseCountStatusLine,
   courseCountWordFieldValue,
   displayMode,
   greetingFieldValue,
@@ -240,7 +239,6 @@ export default function ContentTab({
   setPrivacyNotice,
   setChoice = () => {},
   setCourseCount = () => {},
-  courseInventory = null,
   addListItem,
   updateListItem,
   removeListItem,
@@ -322,14 +320,6 @@ export default function ContentTab({
           checked={countOn}
           onChange={(checked) => setCourseCount(checked)}
         />
-        {/* Interne Zeile (nur im Design Center, nie im Widget): Kursbestand
-            vom Server (GET /embed/defaults?embedId=) */}
-        <p
-          className="text-white text-xs mt-1.5 leading-relaxed"
-          data-course-count-status=""
-        >
-          {courseCountStatusLine(courseInventory)}
-        </p>
         <p className="text-theme-text-secondary text-xs mt-1 leading-relaxed">
           {COURSE_COUNT_HINT}
         </p>

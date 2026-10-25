@@ -14,8 +14,8 @@
 // courseNumberFromText). Daraus:
 //   count   = |A ∩ B|   (Zahl im Untertitel, nie größer, NAK-K3)
 //   offered = |A|
-//   stale   = |B \ A|   (veraltet, ausgeblendet)
-//   missing = |A \ B|
+//   hidden  = Kursdokumente mit Kursnummer außerhalb von A (veraltet, in
+//             der Suche ausgeblendet, D-K5)
 // B zählt nur eingelernte Dokumente (AK-K9, E34 Stufe 2): Zu jedem
 // Kursdokument muss es Suchdaten geben, also Einträge in document_vectors
 // und (bei LanceDB) mindestens eine dieser Zeilen in der Tabelle des
@@ -528,12 +528,7 @@ async function buildIndex(slug, inventory) {
   return {
     ...base,
     active: true,
-    counts: {
-      count,
-      offered: offered.size,
-      stale: [...known].filter((key) => !offered.has(key)).length,
-      missing: [...offered].filter((key) => !known.has(key)).length,
-    },
+    counts: { count, offered: offered.size },
     staleDocCount: staleDocs.length,
     headBlockCount: headBlockIds.size,
     excludedIds,
@@ -662,16 +657,17 @@ async function courseInventoryGuard(workspace) {
 }
 
 /**
- * Zahlen für /config und das Design Center: {count, offered, stale,
- * missing, stand}; null ohne gültigen Wert oder ohne angebotenen Kurs im
- * Workspace. Wirft nie.
+ * Zahlen für /config und die Vorschau im Design Center: {count, offered,
+ * hidden, stand}; hidden = veraltete Kursdokumente des Workspace, die die
+ * Suche ausblendet (staleDocCount, D-K5). null ohne gültigen Wert oder ohne
+ * angebotenen Kurs im Workspace. Wirft nie.
  * @param {{slug?: string}|null} workspace
- * @returns {Promise<{count: number, offered: number, stale: number, missing: number, stand: string}|null>}
+ * @returns {Promise<{count: number, offered: number, hidden: number, stand: string}|null>}
  */
 async function courseInventoryStatus(workspace) {
   const index = await workspaceInventory(workspace?.slug);
   if (!index?.active) return null;
-  return { ...index.counts, stand: index.stand };
+  return { ...index.counts, hidden: index.staleDocCount, stand: index.stand };
 }
 
 /**
@@ -679,7 +675,7 @@ async function courseInventoryStatus(workspace) {
  * an, gültigem Wert und count ≥ 1, sonst null (das Feld fehlt ganz).
  * @param {{slug?: string}|null} workspace
  * @param {{mode: "on"|"off", word: string}} options
- * @returns {Promise<{count: number, offered: number, stand: string, word: string}|null>}
+ * @returns {Promise<{count: number, offered: number, hidden: number, stand: string, word: string}|null>}
  */
 async function courseCountField(workspace, { mode, word }) {
   if (mode !== "on") return null;
@@ -688,6 +684,7 @@ async function courseCountField(workspace, { mode, word }) {
   return {
     count: status.count,
     offered: status.offered,
+    hidden: status.hidden,
     stand: status.stand,
     word,
   };

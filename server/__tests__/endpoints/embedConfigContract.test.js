@@ -19,11 +19,12 @@
 // `${baseApiUrl}/${embedId}/config?language=…`). So kommt die Sprache durch
 // das Parsen der Adresse, nicht als eingesetztes request.query.
 //
-// KIE-576 Paket 3: courseCount {count, offered, stand, word} nach Vertrag
-// (issues/KIE-576/KIE-576-kursanzahl.md) mit den Beispielwerten der Fixture:
-// Kursbestand mit 837 Kursnummern, 812 davon als Kursdokumente im Workspace,
-// 3 veraltete. Der Kursbestand kommt aus der echten courseInventory.js
-// (Datenbankzeile und Workspace-Dokumente als Attrappen).
+// KIE-576 Paket 3: courseCount {count, offered, hidden, stand, word} nach
+// Vertrag (issues/KIE-576/KIE-576-kursanzahl.md, D-K5) mit den
+// Beispielwerten der Fixture: Kursbestand mit 837 Kursnummern, 812 davon als
+// Kursdokumente im Workspace, 14 veraltete (hidden). Der Kursbestand kommt
+// aus der echten courseInventory.js (Datenbankzeile und Workspace-Dokumente
+// als Attrappen).
 
 jest.mock("../../utils/prisma", () => ({
   system_settings: {
@@ -88,7 +89,7 @@ const {
   __test__: courseInventory,
 } = require("../../utils/chats/courseInventory");
 
-// Kursbestand der Beispielwerte: A = 837 Kursnummern, B = 812 davon plus 3
+// Kursbestand der Beispielwerte: A = 837 Kursnummern, B = 812 davon plus 14
 // veraltete, Stand 24.10.2026 08:00 UTC; die Uhr des Tests läuft zwei Stunden
 // danach (der Stand ist gültig, höchstens 24 h alt)
 const STAND = "2026-10-24T08:00:00Z";
@@ -104,7 +105,8 @@ const INVENTORY_ROW = {
     offered: OFFERED,
   }),
 };
-const WORKSPACE_NUMBERS = [...OFFERED.slice(0, 812), "ALT-1", "ALT-2", "ALT-3"];
+const STALE_NUMBERS = Array.from({ length: 14 }, (_, i) => `ALT-${i + 1}`);
+const WORKSPACE_NUMBERS = [...OFFERED.slice(0, 812), ...STALE_NUMBERS];
 function installCourseInventory(row = INVENTORY_ROW) {
   globalThis.__courseInventoryRow = row;
   courseInventory.reset();
@@ -329,6 +331,7 @@ describe("Vertrag /config: courseCount (KIE-576 Paket 3)", () => {
   const EXAMPLE = {
     count: 812,
     offered: 837,
+    hidden: 14,
     stand: "2026-10-24T08:00:00.000Z",
     word: "Kurse",
   };
@@ -343,15 +346,70 @@ describe("Vertrag /config: courseCount (KIE-576 Paket 3)", () => {
     expect(without.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("genau die vier Felder, Zahlen als ganze Zahlen", async () => {
+  test("genau die fünf Felder, Zahlen als ganze Zahlen", async () => {
     const { body } = await widgetFetch({}, "de");
     expect(body.courseCount).toEqual(EXAMPLE);
     expect(Object.keys(body.courseCount).sort()).toEqual([
       "count",
+      "hidden",
       "offered",
       "stand",
       "word",
     ]);
+    for (const key of ["count", "offered", "hidden"])
+      expect(Number.isSafeInteger(body.courseCount[key])).toBe(true);
+  });
+
+  // D-K5: hidden = veraltete Kursdokumente des Workspace, die die Suche
+  // ausblendet (staleDocCount), auch 0
+  test("D-K5: hidden ohne veraltete Kursdokumente 0", async () => {
+    globalThis.__courseInventoryRow = INVENTORY_ROW;
+    courseInventory.reset();
+    courseInventory.setDeps({
+      findWorkspaceId: async () => 1,
+      listDocuments: async () =>
+        OFFERED.slice(0, 812).map((number) => ({
+          docId: `d-${number}`,
+          docpath: `custom-documents/${number}.json`,
+        })),
+      listVectors: async (docIds) =>
+        docIds.map((docId) => ({ docId, vectorId: `v-${docId}` })),
+      readDocumentText: async (docpath) =>
+        `Titel: Kurs\nKursnummer: ${docpath.slice(17, -5)}\n`,
+      tableRows: async () => null,
+    });
+    const { body } = await widgetFetch({}, "de");
+    expect(body.courseCount).toEqual({ ...EXAMPLE, hidden: 0 });
+  });
+
+  // Info-Karte (D-K5): die Zeilen baut das Widget; die Fixture hält sie
+  // wortgleich für beide Seiten. Hier: der Beispielfall passt zur Antwort
+  // des Servers, die Wortlaute folgen dem Vertrag.
+  test("D-K5: Fixture courseCountTexts zum Beispiel des Servers, Wortlaut nach Vertrag", async () => {
+    const { cases } = CONTRACT.courseCountTexts;
+    const { body } = await widgetFetch({}, "de");
+    expect(cases[0].courseCount).toEqual(body.courseCount);
+    const de = cases.filter((c) => c.language === "de");
+    const en = cases.filter((c) => c.language === "en");
+    expect(de.length).toBeGreaterThanOrEqual(4);
+    expect(en.length).toBeGreaterThanOrEqual(3);
+    const lines = cases.flatMap((c) => c.lines);
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
+        "1 beendeter Kurs ist ausgeblendet.",
+        "Zurzeit fehlt 1 Kurs.",
+        "Für eine vollständige Suche nutzen Sie bitte die Kurssuche auf unserer Webseite.",
+        "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite.",
+        "1 ended course is hidden.",
+        "1 course is currently missing.",
+      ])
+    );
+    // entfallen (D-K5): „Alle … sind enthalten.“, „… von … angebotenen …“
+    for (const line of lines) {
+      expect(line).not.toMatch(/sind enthalten|on offer are included/);
+      expect(line).not.toMatch(/[–—]/);
+    }
   });
 
   test.each([

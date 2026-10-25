@@ -392,8 +392,8 @@ const Embed = {
   // Ergebnis { defaults, error }: bei Fehler defaults = null und error mit
   // Meldung (das Design Center zeigt sie und behandelt dann nichts als
   // Standard).
-  // KIE-576 Paket 3: mit embedId zusätzlich courseInventory (interne Zeile
-  // „Kursanzahl im Untertitel“), sonst bzw. ohne Kursbestand null
+  // KIE-576 Paket 3: mit embedId zusätzlich courseInventory (Zahl in der
+  // Vorschau), sonst bzw. ohne Kursbestand null
   getDefaults: async (lang = "de", embedId = null) => {
     const embedQuery =
       embedId === null || embedId === undefined
