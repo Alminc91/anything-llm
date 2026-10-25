@@ -113,7 +113,9 @@ bleibt unverändert.
 ## Standardtexte
 
 Begrüßungsblase, Datenschutz-Fenster (Überschrift, Punkte, „Hinweis zur KI“,
-Button „Schließen“; seit 7.23) und KI-Hinweis mit dem Link „Datenschutz“ haben
+Button „Schließen“; seit 7.23; Überschrift und Punkte mit dem Schalter
+„Zusätzlich beim Start als Blase zeigen“ auch in der Datenschutz-Blase, AK-12)
+und KI-Hinweis mit dem Link „Datenschutz“ haben
 Kufer-Standardtexte (de/en, wörtlich wie `PANEL_TEXTS` im Embed-Repo). Das
 Design Center lädt sie über `GET /api/embed/defaults?lang=de|en` (angemeldet,
 Rollen wie die übrigen Embed-Verwaltungsendpunkte), zeigt sie als Feldwert und

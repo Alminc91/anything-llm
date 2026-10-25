@@ -811,6 +811,57 @@ describe("Migrationstabelle docs/design-center-2-migration.md", () => {
     const p14 = flat(doc.slice(doc.search(/^14\. /m)));
     expect(p14).toMatch(/„Zusätzlich beim Start als Blase zeigen“/);
     expect(p14).toMatch(/nicht automatisch/);
+
+    // Review AF-2 (Fixliste AK-12 A3): auch die umliegenden Sätze zu den
+    // mitbetroffenen Schlüsseln (privacyUrl, privacyTitle, Blase) nennen den
+    // Stand mit Schalter, nicht nur die neuen Zeilen; bis rc5 sagte der
+    // Einleitungssatz, es gebe keine Blase mehr
+    const raw = doc.slice(start, doc.indexOf("\n## ", start + 1));
+    const intro = flat(
+      raw.slice(0, raw.indexOf("Zusätzlich beim Start als Blase (AK-12"))
+    );
+    expect(intro).toContain(
+      "steht der Datenschutz-Hinweis standardmäßig nicht mehr als Blase im Verlauf"
+    );
+    expect(intro).toContain("AK-12");
+    const row = (key, old) =>
+      raw
+        .split("\n")
+        .find(
+          (line) =>
+            line.startsWith(`| \`${key}\``) && line.split("|")[2].trim() === old
+        );
+    expect(row("privacyUrl", "fehlt")).toContain(
+      "im Fenster und, mit `privacyStartBubble`, am Ende der Blase"
+    );
+    expect(row("privacyUrl", "`https://…` oder `/pfad`")).toContain(
+      "im Datenschutz-Fenster und, mit `privacyStartBubble`, am Ende der Blase"
+    );
+    expect(row("privacyTitle", '`""`')).toContain(
+      "die Blase zeigt mit dem Schalter ebenfalls den Standard"
+    );
+    // Suchlauf über die übrigen Stellen der Doku zur Blase (Klassenlösung
+    // AF-2): Begrüßung, alte Vorlagen, Prüfpunkt 13 und die Standardtexte
+    const whole = flat(doc);
+    for (const text of [
+      "(bis 7.22.2 als Blase darunter, ab 7.23 als Blase nur mit `privacyStartBubble`;",
+      "ab 7.23 Begrüßung und Datenschutz-Fenster, mit `privacyStartBubble` auch wieder die Blase",
+      "das Fenster, mit `privacyStartBubble` dazu die Blase (Prüfpunkt 13)",
+    ])
+      expect(whole).toContain(text);
+    const p13 = flat(doc.slice(doc.search(/^13\. /m), doc.search(/^14\. /m)));
+    expect(p13).toContain(
+      "mit dem Schalter „Zusätzlich beim Start als Blase zeigen“, wieder in der Blase darunter"
+    );
+    const center = flat(
+      fs.readFileSync(
+        path.join(__dirname, "../../../../docs/EMBED_DESIGN_CENTER.md"),
+        "utf8"
+      )
+    );
+    expect(center).toContain(
+      "mit dem Schalter „Zusätzlich beim Start als Blase zeigen“ auch in der Datenschutz-Blase"
+    );
   });
 });
 
