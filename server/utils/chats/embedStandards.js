@@ -62,14 +62,18 @@ const WELCOME_BUBBLES_VALUES = Object.freeze(["off", "first", "every"]);
 const DEFAULT_WELCOME_BUBBLES = "first";
 // KIE-576 Paket 3: Kursanzahl im Untertitel (visual_config.courseCountMode,
 // Standard an) und ihre Bezeichnung (visual_config.courseCountWord, ein
-// Pluralwort: höchstens 20 Zeichen, nur Buchstaben, Leerzeichen und
-// Bindestrich; fehlt oder ungültig: „Kurse“, englisch „courses“). Dieselben
-// Regeln prüft das Design Center (widgetKeys.js, Gegenprobe im Test
-// designCenterCourseCount).
+// Wort: nach trim 1 bis 20 UTF-16-Einheiten, Buchstaben, Bindestrich nur
+// zwischen Buchstaben, etwa „Seminare“ oder „Online-Kurse“; fehlt, leer
+// oder ungültig: „Kurse“, englisch „courses“). Dieselben Regeln prüfen das
+// Design Center (widgetKeys.js) und das Widget; Beispiele in der Fixture
+// des Vertrags (embedConfigContract.json, courseCountWords).
 const COURSE_COUNT_MODES = Object.freeze(["on", "off"]);
 const DEFAULT_COURSE_COUNT_MODE = "on";
 const COURSE_COUNT_WORD_MAX_LEN = 20;
-const COURSE_COUNT_WORD_RX = /^[\p{L} -]+$/u;
+const COURSE_COUNT_WORD_RX = /^\p{L}+(?:-\p{L}+)*$/u;
+// Meldung, wenn das Design Center eine ungültige Bezeichnung speichern will
+const COURSE_COUNT_WORD_ERROR =
+  "Bitte ein Wort aus Buchstaben, höchstens 20 Zeichen, etwa Seminare oder Online-Kurse.";
 const DEFAULT_COURSE_COUNT_WORDS = Object.freeze({
   de: "Kurse",
   en: "courses",
@@ -283,18 +287,56 @@ function courseCountModeValue(value) {
 
 /**
  * Gespeicherte Bezeichnung der Kursanzahl (visual_config.courseCountWord):
- * getrimmt, Leerraum zu einem Leerzeichen, 1 bis 20 Zeichen, nur Buchstaben,
- * Leerzeichen und Bindestrich, mindestens ein Buchstabe. Sonst null (es
- * gilt der Standard der Sprache).
+ * getrimmt, 1 bis 20 Zeichen (UTF-16), ein Wort aus Buchstaben, Bindestrich
+ * nur zwischen Buchstaben. Sonst null (es gilt der Standard der Sprache,
+ * auch für einen ungültigen Altbestand).
  * @param {*} value
  * @returns {string|null}
  */
 function courseCountWordValue(value) {
   if (typeof value !== "string") return null;
-  const word = value.normalize("NFC").trim().replace(/\s+/g, " ");
+  const word = value.trim();
   if (word.length === 0 || word.length > COURSE_COUNT_WORD_MAX_LEN) return null;
-  if (!COURSE_COUNT_WORD_RX.test(word) || !/\p{L}/u.test(word)) return null;
-  return word;
+  return COURSE_COUNT_WORD_RX.test(word) ? word : null;
+}
+
+/**
+ * Bezeichnung der Kursanzahl beim Speichern der visual_config (POST
+ * /embed/update, Design Center): leer oder nur Leerzeichen -> Feld entfernt,
+ * gültig -> getrimmt gespeichert, ungültig -> error (HTTP 400, nichts
+ * gespeichert). Ohne Feld oder ohne lesbares JSON bleibt der Wert, wie er
+ * ist.
+ * @param {*} visualConfig gesendete visual_config (JSON-String oder Objekt)
+ * @returns {{visualConfig: *, error: string|null}}
+ */
+function courseCountWordOnSave(visualConfig) {
+  let config = visualConfig;
+  if (typeof config === "string") {
+    try {
+      config = JSON.parse(config);
+    } catch {
+      return { visualConfig, error: null };
+    }
+  }
+  if (
+    !config ||
+    typeof config !== "object" ||
+    Array.isArray(config) ||
+    !Object.prototype.hasOwnProperty.call(config, "courseCountWord")
+  )
+    return { visualConfig, error: null };
+  const value = config.courseCountWord;
+  const next = { ...config };
+  if (value === null || (typeof value === "string" && value.trim() === ""))
+    delete next.courseCountWord;
+  else if (courseCountWordValue(value) !== null)
+    next.courseCountWord = value.trim();
+  else return { visualConfig, error: COURSE_COUNT_WORD_ERROR };
+  return {
+    visualConfig:
+      typeof visualConfig === "string" ? JSON.stringify(next) : next,
+    error: null,
+  };
 }
 
 /**
@@ -565,6 +607,7 @@ module.exports = {
   WELCOME_BUBBLES_VALUES,
   COURSE_COUNT_MODES,
   COURSE_COUNT_WORD_MAX_LEN,
+  COURSE_COUNT_WORD_ERROR,
   DEFAULT_COURSE_COUNT_WORDS,
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
@@ -583,6 +626,7 @@ module.exports = {
   welcomeBubblesValue,
   courseCountModeValue,
   courseCountWordValue,
+  courseCountWordOnSave,
   courseCountWord,
   greetingBubbleTextShown,
   isLegacyGreeting,

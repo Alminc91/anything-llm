@@ -227,8 +227,7 @@ function installWorkspace() {
       const rows = known.filter((k) => k.docId === docId).map((k) => k.row);
       return (rows.find((r) => r.number) ?? rows[0]).text;
     },
-    existingVectorIds: (slug, ids) => lance.existingVectorIds(slug, ids),
-    orphanRows: (slug, knownIds) => lance.orphanRows(slug, knownIds),
+    tableRows: (slug) => lance.tableRows(slug),
     rowTexts: (slug, ids) => lance.rowTexts(slug, ids),
   });
 }
@@ -434,19 +433,45 @@ test("ohne Kursbestand bytegleich wie ohne Ausschluss (NAK-K1)", async () => {
   ).toEqual(calls);
 });
 
-test("AK-K9: existingVectorIds findet die Zeilen der Tabelle, fehlende Tabelle -> leer", async () => {
+test("AK-K9, G: tableRows liest alle Zeilen einmal (id, title, published), fehlende Tabelle -> leer", async () => {
+  const rows = await lance.tableRows(NS);
+  expect(rows.map((r) => r.id).sort()).toEqual(ROWS.map((r) => r.id).sort());
+  const row = rows.find((r) => r.id === "alt2");
+  expect([row.title, row.published]).toEqual([
+    "Yoga alt zwei.txt",
+    "24.10.2026, 08:00:00",
+  ]);
+  expect(await lance.tableRows("keine_tabelle")).toEqual([]);
+});
+
+test("F: echte LanceDB lehnt eine Bedingung ab (unbekannte Spalte): fail-closed, die Gegenprobe gelingt", async () => {
+  const error = jest.spyOn(console, "error").mockImplementation(() => {});
+  const { client } = await lance.connect();
+  const collection = await client.openTable(NS);
+  const build = (limit) =>
+    collection
+      .query()
+      .nearestTo(QUERY_VECTOR)
+      .distanceType("cosine")
+      .limit(limit);
+  const ex = { clauses: ["gibtsnicht NOT IN ('a')"], stats: { failClosed: 0 } };
   expect(
-    [
-      ...(await lance.existingVectorIds(NS, ["k1", "gibtsnicht", "alt2"])),
-    ].sort()
-  ).toEqual(["alt2", "k1"]);
-  expect((await lance.existingVectorIds("keine_tabelle", ["k1"])).size).toBe(0);
+    await lance.filteredQueryRows(build, null, { limit: 3, exclusion: ex })
+  ).toEqual([]);
+  expect(ex.stats.failClosed).toBe(1);
+  const ok = { clauses: ["id NOT IN ('alt1')"], stats: { failClosed: 0 } };
+  const rows = await lance.filteredQueryRows(build, null, {
+    limit: 3,
+    exclusion: ok,
+  });
+  expect(rows.map((r) => r.id)).toEqual(["alt1b", "alt2", "k1"]);
+  error.mockRestore();
 });
 
 describe("filteredQueryRows: Bedingung in der Anfrage, ohne Rückfall (KR-1)", () => {
   // Abfrage-Attrappe: zeichnet Bedingung und Grenze auf, scheitert auf Wunsch
   const fakeQuery =
-    (rows, fails = () => false, log = []) =>
+    (rows, fails = () => false, log = [], message = "no field named x") =>
     (limit) => {
       const q = {
         clause: null,
@@ -456,12 +481,16 @@ describe("filteredQueryRows: Bedingung in der Anfrage, ohne Rückfall (KR-1)", (
         },
         async toArray() {
           log.push({ clause: q.clause, limit });
-          if (q.clause && fails(q.clause)) throw new Error("no field named x");
+          if (q.clause && fails(q.clause)) throw new Error(message);
           return rows.slice(0, limit);
         },
       };
       return q;
     };
+  // Gegenprobe nach einem Fehler (F): „id IS NULL“
+  const PROBE = "id IS NULL";
+  const withoutProbes = (log) =>
+    log.map((l) => l.clause).filter((c) => c !== PROBE);
   const rows = [
     { id: "alt", text: "a" },
     { id: "k1", text: "b" },
@@ -496,7 +525,7 @@ describe("filteredQueryRows: Bedingung in der Anfrage, ohne Rückfall (KR-1)", (
       "price < 10",
       { limit: 2, exclusion: exclusion() }
     );
-    expect(log.map((l) => l.clause)).toEqual([
+    expect(withoutProbes(log)).toEqual([
       "(price < 10) AND (id NOT IN ('alt'))",
       "id NOT IN ('alt')",
     ]);
@@ -511,6 +540,7 @@ describe("filteredQueryRows: Bedingung in der Anfrage, ohne Rückfall (KR-1)", (
     );
     expect(log).toEqual([
       { clause: FORMS[0], limit: 2 },
+      { clause: PROBE, limit: 2 },
       { clause: FORMS[1], limit: 2 },
     ]);
     // Attrappe liefert ungefiltert: es wird nichts nachträglich verworfen
@@ -524,7 +554,7 @@ describe("filteredQueryRows: Bedingung in der Anfrage, ohne Rückfall (KR-1)", (
       "price < 10",
       { limit: 2, exclusion: exclusion() }
     );
-    expect(log.map((l) => l.clause)).toEqual([
+    expect(withoutProbes(log)).toEqual([
       `(price < 10) AND (${FORMS[0]})`,
       FORMS[0],
       `(price < 10) AND (${FORMS[1]})`,
@@ -536,21 +566,56 @@ describe("filteredQueryRows: Bedingung in der Anfrage, ohne Rückfall (KR-1)", (
     const log = [];
     const ex = exclusion();
     const result = await lance.filteredQueryRows(
-      fakeQuery(rows, () => true, log),
+      fakeQuery(rows, (c) => c.includes("NOT IN"), log),
       "price < 10",
       { limit: 2, exclusion: ex }
     );
     expect(result).toEqual([]);
-    expect(log).toHaveLength(4);
-    expect(log.every((l) => l.clause && l.clause.includes("NOT IN"))).toBe(
-      true
-    );
+    expect(withoutProbes(log)).toHaveLength(4);
+    expect(log).toHaveLength(8);
+    expect(
+      log.every(
+        (l) => l.clause && (l.clause.includes("NOT IN") || l.clause === PROBE)
+      )
+    ).toBe(true);
     expect(log.every((l) => l.limit === 2)).toBe(true);
     expect(ex.stats.failClosed).toBe(1);
     expect(error).toHaveBeenCalledWith(
       "[courseInventory] Ausschluss veralteter Kurse nicht in der Anfrage möglich (4 Bedingungen abgelehnt), Suche ohne Treffer."
     );
     error.mockRestore();
+  });
+
+  test("F: anderer Fehler (Tabelle, Datei): geht an den Aufrufer wie ohne Ausschluss, kein fail-closed", async () => {
+    const log = [];
+    const ex = exclusion();
+    await expect(
+      lance.filteredQueryRows(
+        fakeQuery(rows, () => true, log, "Not found: data/x.lance"),
+        null,
+        { limit: 2, exclusion: ex }
+      )
+    ).rejects.toThrow("Not found: data/x.lance");
+    expect(log.map((l) => l.clause)).toEqual([FORMS[0], PROBE]);
+    expect(ex.stats.failClosed).toBe(0);
+  });
+
+  test("F: die angenommene Form wird gemerkt und zuerst versucht", async () => {
+    const ex = { ...exclusion(), form: { accepted: 0 } };
+    const first = [];
+    await lance.filteredQueryRows(
+      fakeQuery(rows, (c) => c === FORMS[0], first),
+      null,
+      { limit: 2, exclusion: ex }
+    );
+    expect(ex.form).toEqual({ accepted: 1 });
+    const second = [];
+    await lance.filteredQueryRows(
+      fakeQuery(rows, (c) => c === FORMS[0], second),
+      null,
+      { limit: 2, exclusion: { ...ex, stats: { failClosed: 0 } } }
+    );
+    expect(second.map((l) => l.clause)).toEqual([FORMS[1]]);
   });
 
   test("keine zulässige Form (unzulässige ID): fail-closed ohne Anfrage", async () => {

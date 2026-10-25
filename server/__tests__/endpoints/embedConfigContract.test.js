@@ -119,7 +119,7 @@ function installCourseInventory(row = INVENTORY_ROW) {
       docIds.map((docId) => ({ docId, vectorId: `v-${docId}` })),
     readDocumentText: async (docpath) =>
       `Titel: Kurs\nKursnummer: ${docpath.slice(17, -5)}\nKurs-Link: https://www.vhs-beispiel.de/kurs\n`,
-    existingVectorIds: async () => null,
+    tableRows: async () => null,
   });
 }
 const realDateNow = Date.now;
@@ -364,10 +364,16 @@ describe("Vertrag /config: courseCount (KIE-576 Paket 3)", () => {
       "Lehrgänge",
     ],
     [
-      "Bindestrich und Leerzeichen erlaubt",
+      "Bindestrich zwischen Buchstaben erlaubt",
+      { courseCountWord: "Online-Kurse" },
+      "de",
+      "Online-Kurse",
+    ],
+    [
+      "Leerzeichen: Standard (ein Wort, Fixliste r2b)",
       { courseCountWord: "Online-Kurse vor Ort" },
       "de",
-      "Online-Kurse vor Ort",
+      "Kurse",
     ],
     ["Ziffer: Standard", { courseCountWord: "Kurse 2026" }, "de", "Kurse"],
     ["Satzzeichen: Standard", { courseCountWord: "Kurse!" }, "de", "Kurse"],
@@ -383,6 +389,31 @@ describe("Vertrag /config: courseCount (KIE-576 Paket 3)", () => {
     const { body } = await widgetFetch(visualConfig, language);
     expect(body.courseCount).toEqual({ ...EXAMPLE, word });
   });
+
+  // Vertrag der Bezeichnung (Fixture courseCountWords, wortgleich im
+  // Widget): ein gespeicherter ungültiger Wert (Altbestand) gilt wie leer
+  test.each(CONTRACT.courseCountWords.valid)(
+    "Bezeichnung gültig %j: word %j",
+    async (input, word) => {
+      const { body } = await widgetFetch({ courseCountWord: input }, "de");
+      expect(body.courseCount).toEqual({ ...EXAMPLE, word });
+    }
+  );
+  test.each(CONTRACT.courseCountWords.invalid)(
+    "Bezeichnung ungültig %j: Standard der Sprache",
+    async (input) => {
+      for (const [language, word] of [
+        ["de", "Kurse"],
+        ["en", "courses"],
+      ]) {
+        const { body } = await widgetFetch(
+          { courseCountWord: input },
+          language
+        );
+        expect(body.courseCount).toEqual({ ...EXAMPLE, word });
+      }
+    }
+  );
 
   test.each([
     ["Anzeige aus (auch groß geschrieben)", { courseCountMode: " OFF " }],

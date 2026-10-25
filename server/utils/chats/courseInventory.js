@@ -32,20 +32,24 @@
 // tragen keine Dokumentspalte (docId steht nur in document_vectors, title
 // und url sind nicht eindeutig je Dokument), deshalb stehen alle
 // Abschnitt-IDs in der Bedingung. Zwei Formen: eine Liste und, falls
-// LanceDB die ablehnt, Blöcke per AND. Lehnt LanceDB beide ab, bringt die
-// Anfrage keine Treffer (fail-closed). Verwaiste Abschnitte (Zeile in der
-// Tabelle, Dokument dem Workspace unbekannt) und Abschnitte von Dokumenten
-// mit unlesbarer Datei werden beim stündlichen Aufbau über ihren Kopfblock
-// geprüft und stehen ebenso in der Bedingung. Angeheftete Dokumente, der
-// Rückgriff über fillSourceWindow und die Kurskarten wählen ihre Dokumente
-// nach denselben Regeln aus (guard), dort wird nicht gesucht. Dokumente
-// ohne Kursnummer sind nie betroffen.
+// LanceDB die ablehnt, Blöcke per AND; die angenommene Form merkt sich der
+// Index. Lehnt LanceDB beide ab, bringt die Anfrage keine Treffer
+// (fail-closed), andere Fehler gehen wie ohne Ausschluss an den Aufrufer.
+// Verwaiste Abschnitte (Zeile in der Tabelle, Dokument dem Workspace
+// unbekannt) und Abschnitte von Dokumenten mit unlesbarer Datei werden beim
+// stündlichen Aufbau über ihren Kopfblock geprüft und stehen ebenso in der
+// Bedingung. Angeheftete Dokumente, der Rückgriff über fillSourceWindow und
+// die Kurskarten wählen ihre Dokumente nach denselben Regeln aus (guard),
+// dort wird nicht gesucht. Dokumente ohne Kursnummer sind nie betroffen.
 //
-// Ohne gültigen Wert (fehlt, kein JSON, version ≠ 1, leeres offered, älter
-// als 24 h) oder ohne einen einzigen angebotenen Kurs im Workspace
-// (|A ∩ B| = 0, etwa die Liste eines anderen Kunden) gibt es weder Zahl noch
-// Ausblenden: alles wie vorher (NAK-K1, NAK-K2). Ein kaputter Eintrag kippt
-// nie den Chat: alle Einstiege fangen Fehler ab.
+// Ohne gültigen Wert (fehlt, kein JSON, version ≠ 1, keine gültige
+// Kursnummer in offered, älter als 24 h) oder ohne einen einzigen
+// angebotenen Kurs im Workspace (|A ∩ B| = 0, etwa die Liste eines anderen
+// Kunden) gibt es weder Zahl noch Ausblenden: alles wie vorher (NAK-K1,
+// NAK-K2), ohne Kursliste kostet das je Aufruf nur das Lesen der einen
+// Zeile. Ungültige einzelne Einträge in offered werden übersprungen. Ein
+// kaputter Eintrag kippt nie den Chat: alle Einstiege fangen Fehler ab. Ein
+// unvollständiger Index (Vektorspeicher nicht lesbar) wird nicht gemerkt.
 
 const fs = require("fs");
 const prisma = require("../prisma");
@@ -126,9 +130,9 @@ function contractProblem(data) {
     return "created ist kein Zeitpunkt";
   if (!Array.isArray(data.offered)) return "offered ist keine Liste";
   if (data.offered.length === 0) return "offered ist leer";
-  for (const number of data.offered)
-    if (courseKey(number) === null)
-      return "offered enthält eine ungültige Kursnummer";
+  // einzelne ungültige Einträge überspringt readCourseInventory (J)
+  if (!data.offered.some((number) => courseKey(number) !== null))
+    return "offered enthält keine gültige Kursnummer";
   return null;
 }
 
@@ -179,15 +183,17 @@ function validateCourseInventorySetting(update, { now = Date.now() } = {}) {
 /**
  * Laufzeitform eines gespeicherten Werts (ohne Altersprüfung, die macht
  * loadCourseInventory je Aufruf). Leer -> {inventory: null} ohne problem.
+ * Ungültige Einträge in offered werden übersprungen (skipped).
  * @param {*} raw
- * @returns {{inventory: {raw: string, createdMs: number, stand: string, offered: Set<string>}|null, problem?: string}}
+ * @returns {{inventory: {raw: string, createdMs: number, stand: string, offered: Set<string>}|null, problem?: string, skipped?: number}}
  */
 function readCourseInventory(raw) {
   if (typeof raw !== "string" || raw.length === 0) return { inventory: null };
   const { data, problem } = readContract(raw);
   if (problem) return { inventory: null, problem };
   const createdMs = Date.parse(data.created);
-  const offered = new Set(data.offered.map(courseKey));
+  const keys = data.offered.map(courseKey);
+  const offered = new Set(keys.filter((key) => key !== null));
   return {
     inventory: {
       raw,
@@ -195,6 +201,7 @@ function readCourseInventory(raw) {
       stand: new Date(createdMs).toISOString(),
       offered,
     },
+    skipped: keys.length - keys.filter((key) => key !== null).length,
   };
 }
 
@@ -226,10 +233,15 @@ async function loadCourseInventory({ now = Date.now() } = {}) {
   const raw = await readStoredInventory();
   if (typeof raw !== "string" || raw.length === 0) return null;
   if (raw !== cached.raw) {
-    const { inventory, problem } = readCourseInventory(raw);
-    // verworfenen Wert melden, dank Cache einmal je Wert
+    const { inventory, problem, skipped } = readCourseInventory(raw);
+    // verworfenen Wert und übersprungene Einträge melden, dank Cache einmal
+    // je Wert
     if (problem)
       console.error(`[courseInventory] Kursliste verworfen: ${problem}`);
+    if (skipped)
+      console.error(
+        `[courseInventory] Kursliste: ${skipped} ungültige Kursnummern übersprungen`
+      );
     cached = { raw, inventory };
   }
   const inventory = cached.inventory;
@@ -277,21 +289,15 @@ function defaultDeps() {
       const doc = JSON.parse(await fs.promises.readFile(full, "utf8"));
       return typeof doc?.pageContent === "string" ? doc.pageContent : null;
     },
-    // AK-K9: vorhandene Zeilen im Vektorspeicher; null = nicht prüfbar
-    // (anderer Vektorspeicher, Fehler) -> es zählt document_vectors
-    existingVectorIds: async (slug, ids) => {
+    // Alle Zeilen der Tabelle als [{id, title, published}], einmal je Aufbau
+    // (AK-K9: vorhandene Abschnitte, KR-1: verwaiste, I: Uploads der
+    // gespeicherten Quellen); null = nicht prüfbar (anderer Vektorspeicher)
+    // -> es zählt document_vectors
+    tableRows: async (slug) => {
       const { getVectorDbClass } = require("../helpers");
       const VectorDb = getVectorDbClass();
-      if (typeof VectorDb?.existingVectorIds !== "function") return null;
-      return await VectorDb.existingVectorIds(slug, ids);
-    },
-    // KR-1: Zeilen der Tabelle, die keinem Dokument des Workspace gehören
-    // (verwaist), als [{id, text, title, published}]; null = nicht prüfbar
-    orphanRows: async (slug, knownIds) => {
-      const { getVectorDbClass } = require("../helpers");
-      const VectorDb = getVectorDbClass();
-      if (typeof VectorDb?.orphanRows !== "function") return null;
-      return await VectorDb.orphanRows(slug, knownIds);
+      if (typeof VectorDb?.tableRows !== "function") return null;
+      return await VectorDb.tableRows(slug);
     },
     // KR-1: Text der Abschnitte zu den IDs, als [{id, text}]; null = nicht
     // prüfbar
@@ -375,48 +381,41 @@ function textIsStale(index, text) {
   return key !== null && !index.offered.has(key);
 }
 
+// Upload, zu dem ein Abschnitt gehört: title und published teilen alle
+// Abschnitte eines Uploads (die Zeilen tragen keine Dokumentspalte)
+function uploadGroup(row) {
+  return typeof row?.title === "string" && typeof row?.published === "string"
+    ? `${row.title}\u0000${row.published}`
+    : null;
+}
+
 /**
  * KR-1: Abschnitte, die kein lesbares Dokument des Workspace erklärt, über
- * ihren Kopfblock prüfen: verwaiste Zeilen (gruppiert über title und
- * published, die alle Abschnitte eines Uploads teilen) und Abschnitte von
- * Dokumenten mit unlesbarer Datei (gruppiert über docId). Ergebnis: die
- * auszuschließenden IDs. Fehler: geloggt, dann ohne diese Prüfung.
+ * ihren Kopfblock prüfen: verwaiste Zeilen (gruppiert über ihren Upload) und
+ * Abschnitte von Dokumenten mit unlesbarer Datei (gruppiert über docId).
+ * Ergebnis: die auszuschließenden IDs. Fehler gehen an buildIndex (S4).
  */
-async function headBlockExclusions(slug, offered, { knownIds, unreadable }) {
+async function headBlockExclusions(slug, offered, { orphans, unreadable }) {
   const out = new Set();
-  const stale = (text) => textIsStale({ offered }, text);
-  try {
-    const orphans = (await deps.orphanRows(slug, knownIds)) || [];
-    const groupOf = (row) =>
-      typeof row.title === "string" && typeof row.published === "string"
-        ? `${row.title}\u0000${row.published}`
-        : null;
-    const staleGroups = new Set();
-    for (const row of orphans)
-      if (stale(row.text)) {
-        out.add(row.id);
-        const group = groupOf(row);
-        if (group !== null) staleGroups.add(group);
-      }
-    for (const row of orphans)
-      if (staleGroups.has(groupOf(row))) out.add(row.id);
-  } catch (error) {
-    console.error(
-      `[courseInventory] verwaiste Abschnitte nicht prüfbar: ${error.message}`
-    );
-  }
-  try {
-    const ids = unreadable.flatMap(({ vectorIds }) => vectorIds);
-    const texts = ids.length > 0 ? (await deps.rowTexts(slug, ids)) || [] : [];
-    const textById = new Map(texts.map((row) => [row.id, row.text]));
-    for (const { vectorIds } of unreadable)
-      if (vectorIds.some((id) => stale(textById.get(id))))
-        for (const id of vectorIds) out.add(id);
-  } catch (error) {
-    console.error(
-      `[courseInventory] Abschnitte unlesbarer Dokumente nicht prüfbar: ${error.message}`
-    );
-  }
+  const ids = [
+    ...orphans.map((row) => row.id),
+    ...unreadable.flatMap(({ vectorIds }) => vectorIds),
+  ];
+  if (ids.length === 0) return out;
+  const texts = (await deps.rowTexts(slug, ids)) || [];
+  const textById = new Map(texts.map((row) => [row.id, row.text]));
+  const stale = (id) => textIsStale({ offered }, textById.get(id));
+  const staleGroups = new Set();
+  for (const row of orphans)
+    if (stale(row.id)) {
+      out.add(row.id);
+      const group = uploadGroup(row);
+      if (group !== null) staleGroups.add(group);
+    }
+  for (const row of orphans)
+    if (staleGroups.has(uploadGroup(row))) out.add(row.id);
+  for (const { vectorIds } of unreadable)
+    if (vectorIds.some(stale)) for (const id of vectorIds) out.add(id);
   return out;
 }
 
@@ -446,61 +445,89 @@ async function buildIndex(slug, inventory) {
     vectorsByDoc.get(docId).push(vectorId);
   }
 
-  // AK-K9: welche Abschnitte gibt es wirklich im Vektorspeicher?
-  const allIds = courseDocs.flatMap((doc) => vectorsByDoc.get(doc.docId) || []);
-  let present = null;
-  try {
-    present =
-      allIds.length > 0 ? await deps.existingVectorIds(slug, allIds) : null;
-  } catch (error) {
-    console.error(
-      `[courseInventory] Suchdaten nicht prüfbar: ${error.message}`
-    );
-    present = null;
-  }
-  const embedded = (doc) => {
-    const ids = vectorsByDoc.get(doc.docId) || [];
-    if (ids.length === 0) return false;
-    return present === null ? true : ids.some((id) => present.has(id));
-  };
-
   const offered = inventory.offered;
   const allKeys = new Set(courseDocs.map((doc) => doc.key));
-  const known = new Set(courseDocs.filter(embedded).map((doc) => doc.key));
-  let count = 0;
-  for (const key of known) if (offered.has(key)) count++;
   let anyOffered = false;
   for (const key of allKeys)
     if (offered.has(key)) {
       anyOffered = true;
       break;
     }
+  const base = {
+    slug,
+    raw: inventory.raw,
+    stand: inventory.stand,
+    offered,
+    complete: true,
+  };
+  // NAK-K2: ohne einen einzigen angebotenen Kurs im Workspace (Liste eines
+  // anderen Kunden, Workspace ohne Kurse) wird nichts ausgeblendet; dann
+  // wird der Vektorspeicher nicht gelesen (G)
+  if (!anyOffered) return { ...base, active: false };
+
+  // Zeilen der Tabelle einmal lesen (G): AK-K9 welche Abschnitte gibt es
+  // wirklich im Vektorspeicher, KR-1 verwaiste Abschnitte. Fehler: Index
+  // gilt für diese Anfrage, wird aber nicht gemerkt (S4)
+  let rows = null;
+  try {
+    rows = await deps.tableRows(slug);
+  } catch (error) {
+    console.error(
+      `[courseInventory] Suchdaten nicht prüfbar: ${error.message}`
+    );
+    base.complete = false;
+  }
+  const present = rows ? new Set(rows.map((row) => row.id)) : null;
+  const embedded = (doc) => {
+    const ids = vectorsByDoc.get(doc.docId) || [];
+    if (ids.length === 0) return false;
+    return present === null ? true : ids.some((id) => present.has(id));
+  };
+  const known = new Set(courseDocs.filter(embedded).map((doc) => doc.key));
+  let count = 0;
+  for (const key of known) if (offered.has(key)) count++;
+
   const staleDocs = courseDocs.filter((doc) => !offered.has(doc.key));
   const excludedIds = new Set(
     staleDocs.flatMap((doc) => vectorsByDoc.get(doc.docId) || [])
   );
+  const knownIds = new Set();
+  for (const ids of vectorsByDoc.values())
+    for (const id of ids) knownIds.add(id);
   let headBlockIds = new Set();
-  if (anyOffered) {
-    const knownIds = new Set();
-    for (const ids of vectorsByDoc.values())
-      for (const id of ids) knownIds.add(id);
+  try {
     headBlockIds = await headBlockExclusions(slug, offered, {
-      knownIds,
+      orphans: (rows || []).filter((row) => !knownIds.has(row.id)),
       unreadable: withKeys
         .filter((doc) => doc.key === UNREADABLE)
         .map((doc) => ({ vectorIds: vectorsByDoc.get(doc.docId) || [] }))
         .filter(({ vectorIds }) => vectorIds.length > 0),
     });
-    for (const id of headBlockIds) excludedIds.add(id);
+  } catch (error) {
+    console.error(
+      `[courseInventory] Abschnitte ohne lesbares Dokument nicht prüfbar: ${error.message}`
+    );
+    base.complete = false;
   }
+  for (const id of headBlockIds) excludedIds.add(id);
+
+  // I (S6): Uploads der Tabelle, deren Abschnitte alle ausgeschlossen sind
+  // (eindeutig veraltet), für gespeicherte Quellen ohne Kopfblock
+  const uploadStale = new Map();
+  for (const row of rows || []) {
+    const group = uploadGroup(row);
+    if (group === null) continue;
+    uploadStale.set(
+      group,
+      (uploadStale.get(group) ?? true) && excludedIds.has(row.id)
+    );
+  }
+  const staleUploads = new Set(
+    [...uploadStale].filter(([, stale]) => stale).map(([group]) => group)
+  );
   return {
-    slug,
-    raw: inventory.raw,
-    stand: inventory.stand,
-    offered,
-    // NAK-K2: ohne einen einzigen angebotenen Kurs im Workspace (Liste eines
-    // anderen Kunden, Workspace ohne Kurse) wird nichts ausgeblendet
-    active: anyOffered,
+    ...base,
+    active: true,
     counts: {
       count,
       offered: offered.size,
@@ -510,15 +537,19 @@ async function buildIndex(slug, inventory) {
     staleDocCount: staleDocs.length,
     headBlockCount: headBlockIds.size,
     excludedIds,
+    staleUploads,
     clauses: exclusionClauses(excludedIds),
+    // F: zuletzt angenommene Form der Bedingung, zuerst versucht
+    form: { accepted: 0 },
   };
 }
 
 /**
  * Index eines Workspace (Namespace = slug) zum gültigen Kursbestand, gemerkt
  * höchstens 1 h je Workspace und Wert (AK-K4); null ohne gültigen Wert,
- * ohne Workspace oder bei einem Fehler (dann ohne Merken, der nächste Aufruf
- * versucht es erneut). Wirft nie.
+ * ohne Workspace oder bei einem Fehler. Ein gescheiterter oder
+ * unvollständiger Index wird nicht gemerkt, der nächste Aufruf baut neu
+ * (S4). Wirft nie.
  * @param {string} slug
  * @param {{now?: number}} [options]
  * @returns {Promise<object|null>}
@@ -543,7 +574,8 @@ async function workspaceInventory(slug, { now = Date.now() } = {}) {
     });
     indexCache.set(slug, fresh);
     const index = await fresh.promise;
-    if (!index && indexCache.get(slug) === fresh) indexCache.delete(slug);
+    if (!index?.complete && indexCache.get(slug) === fresh)
+      indexCache.delete(slug);
     return index;
   } catch (error) {
     console.error(`[courseInventory] ${error.message}`);
@@ -554,30 +586,36 @@ async function workspaceInventory(slug, { now = Date.now() } = {}) {
 // Ist ein Abschnitt (Treffer oder gespeicherte Quelle) veraltet? Über seine
 // Vektor-ID (Dokument des Workspace mit Kursnummer außerhalb von A) oder über
 // seinen eigenen Kopfblock (auch ein Abschnitt, dessen Dokument der
-// Workspace nicht mehr kennt). Ohne Kursnummer nie.
+// Workspace nicht mehr kennt). Ohne Kopfblock über title und published
+// seinem Upload zugeordnet (I, S6): nur ein eindeutig veralteter Upload
+// blendet aus, ohne bekanntes Dokument bleibt der Abschnitt.
 function rowIsStale(index, row) {
   if (!row || typeof row !== "object") return false;
   if (typeof row.id === "string" && index.excludedIds.has(row.id)) return true;
   const key = courseKeyOfText(row.text);
-  return key !== null && !index.offered.has(key);
+  if (key !== null) return !index.offered.has(key);
+  return index.staleUploads.has(uploadGroup(row));
 }
 
 /**
  * Ausschluss für eine Suche im Vektorspeicher (lance/index.js): clauses =
  * die Formen der Filterbedingung („id NOT IN (…)“ als eine Liste, dann als
  * Blöcke per AND), in jeder Anfrage, ohne Obergrenze. clauses leer heißt
- * fail-closed: keine Treffer (eine ID darf nicht in die Anfrage). stats
- * zählt je Suche die Anfragen ohne Treffer, weil LanceDB jede Form
- * abgelehnt hat. null: nichts auszublenden (kein gültiger Wert, Workspace
- * ohne angebotene Kurse, kein veralteter Abschnitt). Wirft nie.
+ * fail-closed: keine Treffer (eine ID darf nicht in die Anfrage). form:
+ * die zuletzt angenommene Form, gemeinsam für alle Suchen bis zum nächsten
+ * Aufbau des Index (F). stats zählt je Suche die Anfragen ohne Treffer,
+ * weil LanceDB jede Form abgelehnt hat. null: nichts auszublenden (kein
+ * gültiger Wert, Workspace ohne angebotene Kurse, kein veralteter
+ * Abschnitt). Wirft nie.
  * @param {string} namespace
- * @returns {Promise<{clauses: string[], excludedIds: number, staleDocs: number, headBlockIds: number, stats: {failClosed: number}}|null>}
+ * @returns {Promise<{clauses: string[], form: {accepted: number}, excludedIds: number, staleDocs: number, headBlockIds: number, stats: {failClosed: number}}|null>}
  */
 async function courseSearchExclusion(namespace) {
   const index = await workspaceInventory(namespace);
   if (!index?.active || index.excludedIds.size === 0) return null;
   return {
     clauses: index.clauses || [],
+    form: index.form,
     excludedIds: index.excludedIds.size,
     staleDocs: index.staleDocCount,
     headBlockIds: index.headBlockCount,

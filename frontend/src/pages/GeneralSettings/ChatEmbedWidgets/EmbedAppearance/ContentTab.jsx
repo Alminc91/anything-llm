@@ -33,7 +33,6 @@ import {
   PRIVACY_TITLE_MAX_LEN,
   SUBTITLE_MAX_LEN,
   URL_MAX_LEN,
-  COURSE_COUNT_WORD_MAX_LEN,
   WELCOME_BUBBLES_DEVICES,
   WELCOME_BUBBLES_OPTIONS,
   choiceValue,
@@ -341,7 +340,6 @@ export default function ContentTab({
           <input
             type="text"
             value={courseCountWordFieldValue(config)}
-            maxLength={COURSE_COUNT_WORD_MAX_LEN}
             onChange={(e) => updateField("courseCountWord", e.target.value)}
             className={inputClass(errors.courseCountWord)}
             aria-label="Bezeichnung der Kursanzahl"

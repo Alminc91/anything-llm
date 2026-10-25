@@ -220,7 +220,7 @@ beforeEach(() => {
     listVectors: async (docIds) =>
       docIds.map((docId) => ({ docId, vectorId: `v${docId.slice(1)}` })),
     readDocumentText: async (docpath) => DOCS[docpath],
-    existingVectorIds: async () => null,
+    tableRows: async () => null,
   });
   globalThis.__pinnedDocs = PINNED();
   connector = {

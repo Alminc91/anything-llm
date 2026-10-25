@@ -99,7 +99,7 @@ describe("Validator (AK-K2) und Schreibweg (NAK-K4)", () => {
     ["offered fehlt", value({ offered: undefined })],
     ["offered leer", value({ offered: [] })],
     ["offered mit Zahl statt Text", value({ offered: [262] })],
-    ["offered mit leerer Nummer", value({ offered: ["262-1", "  "] })],
+    ["offered nur mit leeren Nummern", value({ offered: ["  ", ""] })],
     ["Nummer zu lang", value({ offered: ["x".repeat(65)] })],
     ["älter als 24 h", value({ created: "2026-10-23T09:59:00Z" })],
     ["mehr als 1 h in der Zukunft", value({ created: "2026-10-24T11:30:00Z" })],
@@ -172,6 +172,22 @@ describe("Lesen (NAK-K1)", () => {
     console.error.mockRestore();
   });
 
+  test("J: ungültige Einträge in offered werden übersprungen, der Wert gilt (einmal je Wert geloggt)", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const raw = value({
+      offered: ["262-100", "  ", 262, "x".repeat(65), "262-\u0007", "262-101"],
+    });
+    expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
+    prisma.system_settings.findFirst.mockResolvedValue({ value: raw });
+    const inventory = await loadCourseInventory({ now: NOW });
+    expect([...inventory.offered]).toEqual(["262-100", "262-101"]);
+    await loadCourseInventory({ now: NOW });
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(
+      "[courseInventory] Kursliste: 4 ungültige Kursnummern übersprungen"
+    );
+  });
+
   test("Datenbankfehler: kein Kursbestand, kein Wurf", async () => {
     jest.spyOn(console, "error").mockImplementation(() => {});
     prisma.system_settings.findFirst.mockRejectedValue(new Error("busy"));
@@ -219,6 +235,16 @@ const VECTORS = {
   faq: ["vf"],
 };
 
+// Zeilen der Tabelle: die Abschnitte der Dokumente mit title und published
+// ihres Uploads
+const PUBLISHED = "24.10.2026, 08:00:00";
+const DOC_ROWS = Object.entries(VECTORS).flatMap(([docId, ids]) =>
+  ids.map((id) => ({ id, title: `${docId}.txt`, published: PUBLISHED }))
+);
+
+// present: nur diese Abschnitte stehen in der Tabelle (null: nicht
+// prüfbar), orphans: verwaiste Zeilen der Tabelle {id, text, title,
+// published}, texts: Text weiterer Abschnitte
 function installDeps({
   present = undefined,
   reads = [],
@@ -242,12 +268,24 @@ function installDeps({
       reads.push(docpath);
       return DOCS[docpath] ?? null;
     }),
-    existingVectorIds: jest.fn(async (_slug, ids) =>
-      present === undefined ? new Set(ids) : present
+    tableRows: jest.fn(async () =>
+      present === null
+        ? null
+        : [
+            ...DOC_ROWS.filter(
+              (row) => present === undefined || present.has(row.id)
+            ),
+            ...orphans.map(({ id, title, published }) => ({
+              id,
+              title,
+              published,
+            })),
+          ]
     ),
-    orphanRows: jest.fn(async () => orphans),
     rowTexts: jest.fn(async (_slug, ids) =>
-      texts.filter((row) => ids.includes(row.id))
+      [...texts, ...orphans]
+        .filter((row) => ids.includes(row.id))
+        .map(({ id, text }) => ({ id, text }))
     ),
   };
   t.setDeps(deps);
@@ -311,6 +349,41 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     expect(reads.sort()).toEqual(Object.keys(DOCS).sort());
   });
 
+  test("S4: Vektorspeicher nicht lesbar: Index gilt für den Aufruf, wird aber nicht gemerkt", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const deps = installDeps();
+    deps.tableRows.mockRejectedValueOnce(new Error("busy"));
+    // ohne Tabelle zählt document_vectors, der Ausschluss der bekannten
+    // veralteten Abschnitte gilt trotzdem
+    expect(await courseInventoryStatus({ slug: "ws" })).toMatchObject({
+      count: 3,
+      missing: 1,
+    });
+    expect(error).toHaveBeenCalledWith(
+      "[courseInventory] Suchdaten nicht prüfbar: busy"
+    );
+    expect((await courseSearchExclusion("ws")).clauses[0]).toBe(
+      "id NOT IN ('v900a','v900b','v901')"
+    );
+    // der zweite Aufruf hat neu gebaut, danach ist der Index gemerkt
+    expect(deps.listDocuments).toHaveBeenCalledTimes(2);
+    await courseInventoryStatus({ slug: "ws" });
+    expect(deps.listDocuments).toHaveBeenCalledTimes(2);
+    error.mockRestore();
+  });
+
+  test("G: Tabelle je Aufbau einmal gelesen, auch mit verwaisten und unlesbaren Abschnitten", async () => {
+    const deps = installDeps({
+      orphans: [{ id: "o1", text: chunk(courseText("262-777")) }],
+    });
+    await courseInventoryStatus({ slug: "ws" });
+    await courseSearchExclusion("ws");
+    await courseInventoryGuard({ slug: "ws" });
+    expect(deps.tableRows).toHaveBeenCalledTimes(1);
+    expect(deps.rowTexts).toHaveBeenCalledTimes(1);
+    expect(deps.rowTexts).toHaveBeenCalledWith("ws", ["o1"]);
+  });
+
   test("Fehler beim Aufbau: null ohne Merken, der nächste Aufruf versucht es neu", async () => {
     jest.spyOn(console, "error").mockImplementation(() => {});
     const deps = installDeps();
@@ -323,13 +396,17 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
   });
 
   test("NAK-K2: kein angebotener Kurs im Workspace (Liste eines anderen Kunden): nichts ausgeblendet, keine Zahl", async () => {
-    installDeps();
+    const deps = installDeps();
     prisma.system_settings.findFirst.mockResolvedValue({
       value: value({ offered: ["999-1", "999-2"] }),
     });
     expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
     expect(await courseSearchExclusion("ws")).toBeNull();
     expect(await courseInventoryGuard({ slug: "ws" })).toBeNull();
+    // G: der Vektorspeicher wird dafür nicht gelesen, der Index gemerkt
+    expect(deps.tableRows).not.toHaveBeenCalled();
+    expect(deps.rowTexts).not.toHaveBeenCalled();
+    expect(deps.listDocuments).toHaveBeenCalledTimes(1);
   });
 
   test("NAK-K1: ohne gültigen Wert weder Zahl noch Ausschluss, kein Dokument gelesen", async () => {
@@ -340,6 +417,26 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     expect(await courseInventoryGuard({ slug: "ws" })).toBeNull();
     expect(deps.listDocuments).not.toHaveBeenCalled();
   });
+
+  test.each([
+    ["kein Wert", null],
+    ["älter als 24 h", { value: value({ created: "2026-10-23T09:00:00Z" }) }],
+  ])(
+    "G, NAK-K1 (%s): je Aufruf nur das Lesen der Zeile, geparst einmal je Wert, sonst nichts",
+    async (_name, row) => {
+      const deps = installDeps();
+      prisma.system_settings.findFirst.mockResolvedValue(row);
+      const parse = jest.spyOn(JSON, "parse");
+      for (let i = 0; i < 3; i++) {
+        expect(await courseSearchExclusion("ws")).toBeNull();
+        expect(await courseInventoryGuard({ slug: "ws" })).toBeNull();
+      }
+      expect(prisma.system_settings.findFirst).toHaveBeenCalledTimes(6);
+      expect(parse).toHaveBeenCalledTimes(row ? 1 : 0);
+      parse.mockRestore();
+      for (const fn of Object.values(deps)) expect(fn).not.toHaveBeenCalled();
+    }
+  );
 
   test("unbekannter Workspace: null", async () => {
     installDeps();
@@ -441,9 +538,15 @@ describe("Ausschluss und Prüfer (E35, NAK-K2)", () => {
       "id NOT IN ('o1','o1b','v900a','v900b','v901')"
     );
     expect(exclusion.headBlockIds).toBe(2);
-    // bekannt sind die Abschnitte aller Dokumente, nicht nur der Kurse
-    const known = deps.orphanRows.mock.calls[0][1];
-    expect([...known].sort()).toEqual(Object.values(VECTORS).flat().sort());
+    // bekannt sind die Abschnitte aller Dokumente, nicht nur der Kurse:
+    // gelesen werden nur die Texte der verwaisten
+    expect(deps.rowTexts).toHaveBeenCalledWith("ws", [
+      "o1",
+      "o1b",
+      "o2",
+      "o3",
+      "o4",
+    ]);
     // die Prüfer der Chatpfade kennen sie ebenso
     const guard = await courseInventoryGuard({ slug: "ws" });
     expect(guard.hidesSource({ id: "o1b", text: "Folgeabschnitt" })).toBe(true);
@@ -476,15 +579,22 @@ describe("Ausschluss und Prüfer (E35, NAK-K2)", () => {
     );
   });
 
-  test("KR-1: Prüfung der verwaisten Abschnitte scheitert: geloggt, Ausschluss der bekannten bleibt", async () => {
+  test("KR-1, S4: Prüfung der verwaisten Abschnitte scheitert: geloggt, Ausschluss der bekannten bleibt, Index nicht gemerkt", async () => {
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
-    const deps = installDeps();
-    deps.orphanRows.mockRejectedValue(new Error("busy"));
+    const deps = installDeps({
+      orphans: [{ id: "o1", text: chunk(courseText("262-777")) }],
+    });
+    deps.rowTexts.mockRejectedValueOnce(new Error("busy"));
     const exclusion = await courseSearchExclusion("ws");
     expect(exclusion.clauses[0]).toBe("id NOT IN ('v900a','v900b','v901')");
     expect(error).toHaveBeenCalledWith(
-      "[courseInventory] verwaiste Abschnitte nicht prüfbar: busy"
+      "[courseInventory] Abschnitte ohne lesbares Dokument nicht prüfbar: busy"
     );
+    // der nächste Aufruf baut neu und findet den verwaisten Abschnitt
+    expect((await courseSearchExclusion("ws")).clauses[0]).toBe(
+      "id NOT IN ('o1','v900a','v900b','v901')"
+    );
+    expect(deps.listDocuments).toHaveBeenCalledTimes(2);
     error.mockRestore();
   });
 
@@ -534,6 +644,53 @@ describe("Ausschluss und Prüfer (E35, NAK-K2)", () => {
       "[courseInventory] ws: ausgeblendet 1 angeheftete Dokumente, 2 Quellen aus dem Verlauf"
     );
     log.mockRestore();
+  });
+});
+
+describe("I (S6): gespeicherte Quellen ohne Kopfblock", () => {
+  beforeEach(() => {
+    prisma.system_settings.findFirst.mockResolvedValue({ value: value() });
+  });
+  const source = (id, title, published = PUBLISHED) => ({
+    id,
+    text: "Folgeabschnitt ohne Kopfzeile",
+    title,
+    published,
+  });
+
+  test("über title und published dem Upload zugeordnet: nur ein eindeutig veralteter Upload blendet aus", async () => {
+    installDeps({
+      orphans: [
+        // verwaister Abschnitt ohne Kursnummer mit gleichem title und
+        // published wie k901 (veraltet)
+        { id: "o5", text: "Text", title: "k901.txt", published: PUBLISHED },
+      ],
+    });
+    const guard = await courseInventoryGuard({ slug: "ws" });
+    // ID nicht mehr in der Tabelle (neu eingebettet), Upload veraltet
+    expect(guard.hidesSource(source("weg-1", "k900.txt"))).toBe(true);
+    // angebotener Upload, auch mit unbekannter ID
+    expect(guard.hidesSource(source("weg-3", "k100.txt"))).toBe(false);
+    // ohne bekanntes Dokument: bleibt wie heute
+    expect(guard.hidesSource(source("weg-4", "gibtsnicht.txt"))).toBe(false);
+    expect(guard.hidesSource(source("weg-5", "k900.txt", "1.1.2020"))).toBe(
+      false
+    );
+    expect(guard.hidesSource({ id: "weg-6", text: "ohne title" })).toBe(false);
+    // Upload ohne Kursnummer (FAQ) bleibt
+    expect(guard.hidesSource(source("weg-7", "faq.txt"))).toBe(false);
+    // nicht eindeutig (unter gleichem Upload auch ein Abschnitt, der nicht
+    // ausgeschlossen ist): bleibt
+    expect(guard.hidesSource(source("weg-8", "k901.txt"))).toBe(false);
+  });
+
+  test("Vektorspeicher nicht prüfbar: Quellen ohne Kopfblock bleiben wie heute", async () => {
+    installDeps({ present: null });
+    const guard = await courseInventoryGuard({ slug: "ws" });
+    expect(guard.hidesSource(source("weg-1", "k900.txt"))).toBe(false);
+    expect(guard.hidesSource({ id: "v900b", text: "Folgeabschnitt" })).toBe(
+      true
+    );
   });
 });
 

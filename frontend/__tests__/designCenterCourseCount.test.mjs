@@ -1,8 +1,9 @@
 // KIE-576 Paket 3, AK-K6: Design Center › Inhalt › Name und Untertitel.
 // Schalter „Kursanzahl im Untertitel“ (Standard an) sperrt den Untertitel
 // mit dem Hinweis „Statt des Untertitels steht die Kursanzahl.“, das Feld
-// „Bezeichnung“ (Standard „Kurse“) ist frei und wird geprüft (höchstens 20
-// Zeichen, nur Buchstaben, Leerzeichen und Bindestrich, wie der Server).
+// „Bezeichnung“ (Standard „Kurse“) ist frei und wird geprüft (ein Wort aus
+// Buchstaben, Bindestrich nur zwischen Buchstaben, höchstens 20 Zeichen, wie
+// der Server; Fixliste r2b: Meldung statt stiller Kürzung).
 // Darunter die interne Zeile zum Kursbestand (GET /embed/defaults?embedId=).
 // Die Vorschau zeigt die echte Zahl, sonst eine Beispielzahl. Gespeichert
 // wird nur Abweichendes vom Standard (Regel D6); der Untertitel bleibt
@@ -35,6 +36,8 @@ const {
   embedDefaultTexts,
 } = require("../../server/utils/chats/embedDefaults.js");
 const DEFAULTS = embedDefaultTexts("de");
+// Vertrag der Bezeichnung (wortgleich im Widget): courseCountWords
+const CONTRACT = require("../../server/__tests__/utils/chats/fixtures/embedConfigContract.json");
 
 const SWITCH_LABEL = "Kursanzahl im Untertitel";
 const LOCKED_HINT = "Statt des Untertitels steht die Kursanzahl.";
@@ -111,7 +114,22 @@ test("Bezeichnung: dieselbe Regel wie der Server (courseCountWordValue)", () => 
     server.DEFAULT_COURSE_COUNT_WORDS.de
   );
   assert.equal(keys.courseCountWordValue(" Seminare "), "Seminare");
-  assert.equal(keys.courseCountWordValue("Kurse  vor   Ort"), "Kurse vor Ort");
+  assert.equal(keys.courseCountWordValue("Kurse  vor   Ort"), null);
+});
+
+test("Bezeichnung: Beispiele des Vertrags (courseCountWords), ungültig mit Meldung", () => {
+  for (const [input, word] of CONTRACT.courseCountWords.valid) {
+    assert.equal(keys.courseCountWordValue(input), word, input);
+    assert.equal(keys.courseCountWordError(input), null, input);
+  }
+  for (const input of CONTRACT.courseCountWords.invalid) {
+    assert.equal(keys.courseCountWordValue(input), null, input);
+    assert.equal(
+      keys.courseCountWordError(input),
+      "Bitte ein Wort aus Buchstaben, höchstens 20 Zeichen, etwa Seminare oder Online-Kurse.",
+      input
+    );
+  }
 });
 
 test("Schalter: an/aus wie der Server (courseCountModeValue), fehlend an", () => {
@@ -137,7 +155,7 @@ test("Fehlertext nur bei ungültiger, nicht leerer Bezeichnung", () => {
   assert.equal(keys.courseCountWordError("Seminare"), null);
   assert.equal(
     keys.courseCountWordError("Kurse!"),
-    "Nur Buchstaben, Leerzeichen und Bindestrich, höchstens 20 Zeichen."
+    "Bitte ein Wort aus Buchstaben, höchstens 20 Zeichen, etwa Seminare oder Online-Kurse."
   );
   assert.ok(keys.courseCountWordError("x".repeat(21)));
 });
@@ -220,7 +238,7 @@ test("Prüfung: ungültige geänderte Bezeichnung blockiert nur mit Schalter an"
   );
   assert.equal(
     errors.courseCountWord,
-    "Nur Buchstaben, Leerzeichen und Bindestrich, höchstens 20 Zeichen."
+    "Bitte ein Wort aus Buchstaben, höchstens 20 Zeichen, etwa Seminare oder Online-Kurse."
   );
   assert.equal(keys.FIELD_TAB.courseCountWord, "inhalt");
   assert.deepEqual(
@@ -374,9 +392,10 @@ test(
   async () => {
     const html = await renderer.render(CONTENT, {
       location: "/",
+      // Stand heute: die Seite rechnet mit der echten Uhr („Stand HH:MM Uhr“)
       props: contentProps(
         { assistantSubtitle: "Ihr Kursberater" },
-        { courseInventory: INVENTORY }
+        { courseInventory: { ...INVENTORY, stand: new Date().toISOString() } }
       ),
     });
     const t = text(html);
@@ -396,7 +415,8 @@ test(
     );
     const word = block(html, "data-course-count-word");
     assert.match(word, /value="Kurse"/);
-    assert.match(word, /maxLength="20"|maxlength="20"/);
+    // keine stille Kürzung: zu lange Eingaben bekommen die Meldung
+    assert.doesNotMatch(word, /maxLength|maxlength/);
     assert.doesNotMatch(word, /disabled/);
     assert.match(
       t,

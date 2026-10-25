@@ -96,10 +96,12 @@ class LanceDb extends VectorDatabase {
    * und vor dem Reranker, ohne Obergrenze. Scheitert die verbundene
    * Bedingung an Altspalten, gilt wie bisher die Suche ohne Metadatenfilter,
    * aber mit dem Ausschluss. Lehnt LanceDB die erste Form ab, folgt einmal
-   * die zweite (Blöcke per AND). Scheitert auch sie, gibt die Anfrage keine
-   * Treffer zurück (fail-closed) und loggt einen Fehler. Treffer werden nie
-   * nachträglich verworfen. Ohne `exclusion` läuft alles exakt wie vorher
-   * (NAK-K1).
+   * die zweite (Blöcke per AND); die angenommene Form merkt sich der Index
+   * (exclusion.form) und versucht sie zuerst. Lehnt LanceDB jede Form ab,
+   * gibt die Anfrage keine Treffer zurück (fail-closed) und loggt einen
+   * Fehler. Andere Fehler (Tabelle, Index, Datei) gehen wie ohne Ausschluss
+   * an den Aufrufer. Treffer werden nie nachträglich verworfen. Ohne
+   * `exclusion` läuft alles exakt wie vorher (NAK-K1).
    * @param {(limit?: number) => import('@lancedb/lancedb').Query} buildQuery -
    *   Factory returning a FRESH query builder (must be re-callable for the
    *   retry), with the given row limit.
@@ -125,56 +127,77 @@ class LanceDb extends VectorDatabase {
       }
     }
 
-    const attempts = [];
-    for (const form of Array.isArray(exclusion.clauses)
-      ? exclusion.clauses
-      : []) {
-      if (whereClause) attempts.push(`(${whereClause}) AND (${form})`);
-      attempts.push(form);
-    }
-    for (const clause of attempts) {
-      try {
-        return await build().where(clause).toArray();
-      } catch (e) {
-        this.logger(
-          `courseInventory: Suche mit Ausschluss gescheitert (${e.message}), nächster Versuch.`
-        );
+    const forms = Array.isArray(exclusion.clauses) ? exclusion.clauses : [];
+    let rejected = 0;
+    for (let i = exclusion.form?.accepted ?? 0; i < forms.length; i++) {
+      const attempts = whereClause
+        ? [`(${whereClause}) AND (${forms[i]})`, forms[i]]
+        : [forms[i]];
+      for (const clause of attempts) {
+        const rows = await this.rowsWithCondition(build, clause);
+        if (rows) {
+          if (exclusion.form) exclusion.form.accepted = i;
+          return rows;
+        }
+        rejected++;
       }
     }
     // fail-closed: ohne Ausschluss in der Anfrage keine Treffer
     if (exclusion.stats) exclusion.stats.failClosed++;
     console.error(
-      `[courseInventory] Ausschluss veralteter Kurse nicht in der Anfrage möglich (${attempts.length > 0 ? `${attempts.length} Bedingungen abgelehnt` : "unzulässige Abschnitt-ID"}), Suche ohne Treffer.`
+      `[courseInventory] Ausschluss veralteter Kurse nicht in der Anfrage möglich (${rejected > 0 ? `${rejected} Bedingungen abgelehnt` : "unzulässige Abschnitt-ID"}), Suche ohne Treffer.`
     );
     return [];
   }
 
   /**
-   * KIE-576 Paket 3, KR-1: Zeilen der Tabelle, deren ID der Workspace nicht
-   * kennt (verwaiste Abschnitte), mit den Spalten id, text, title und
-   * published, soweit vorhanden. Läuft im Serverprozess selbst, höchstens
-   * stündlich mit dem Index des Kursbestands. Tabelle fehlt -> leer.
-   * @param {string} namespace
-   * @param {Set<string>} knownIds
-   * @returns {Promise<object[]>}
+   * KIE-576 Paket 3 (F): Anfrage mit Bedingung. Lehnt LanceDB die Bedingung
+   * ab, ist das Ergebnis null (nächster Versuch); jeder andere Fehler geht
+   * an den Aufrufer. Ob es an der Bedingung lag, zeigt eine Gegenprobe mit
+   * derselben Anfrage und „id IS NULL“ (jede Zeile hat eine ID, also nie
+   * ein Treffer): gelingt sie, war nur die Bedingung abgelehnt (Parse- oder
+   * Schemafehler), sonst liegt der Fehler bei Tabelle, Index oder Datei.
+   * @param {() => import('@lancedb/lancedb').Query} build
+   * @param {string} clause
+   * @returns {Promise<object[]|null>}
    */
-  async orphanRows(namespace, knownIds = new Set()) {
+  async rowsWithCondition(build, clause) {
+    try {
+      return await build().where(clause).toArray();
+    } catch (e) {
+      try {
+        await build().where("id IS NULL").toArray();
+      } catch {
+        throw e;
+      }
+      this.logger(
+        `courseInventory: Bedingung abgelehnt (${e.message}), nächster Versuch.`
+      );
+      return null;
+    }
+  }
+
+  /**
+   * KIE-576 Paket 3 (KR-1, AK-K9, G): alle Zeilen der Tabelle mit den
+   * Spalten id, title und published, soweit vorhanden, in einer Abfrage.
+   * Daraus bestimmt der Index des Kursbestands vorhandene und verwaiste
+   * Abschnitte und die Uploads gespeicherter Quellen. Läuft im Serverprozess
+   * selbst, höchstens stündlich mit dem Index. Tabelle fehlt -> leer.
+   * @param {string} namespace
+   * @returns {Promise<{id: string, title?: string, published?: string}[]>}
+   */
+  async tableRows(namespace) {
     const { client } = await this.connect();
     if (!(await this.namespaceExists(client, namespace))) return [];
     const table = await client.openTable(namespace);
     const total = await table.countRows();
     if (total === 0) return [];
-    const ids = await table.query().select(["id"]).limit(total).toArray();
-    const orphanIds = ids
-      .map((row) => row.id)
-      .filter((id) => typeof id === "string" && !knownIds.has(id));
-    if (orphanIds.length === 0) return [];
-    return await this.rowsByIds(table, orphanIds, [
-      "id",
-      "text",
-      "title",
-      "published",
-    ]);
+    const fields = new Set((await table.schema()).fields.map((f) => f.name));
+    return await table
+      .query()
+      .select(["id", "title", "published"].filter((c) => fields.has(c)))
+      .limit(total)
+      .toArray();
   }
 
   /**
@@ -211,25 +234,6 @@ class LanceDb extends VectorDatabase {
       );
     }
     return rows;
-  }
-
-  /**
-   * KIE-576 Paket 3, AK-K9: welche der Abschnitte (Vektor-IDs) gibt es in
-   * der Tabelle des Workspace wirklich? Läuft im Serverprozess selbst (kein
-   * fremder Prozess auf LanceDB), höchstens stündlich mit dem Index des
-   * Kursbestands. Tabelle fehlt -> leere Menge.
-   * @param {string} namespace
-   * @param {string[]} ids
-   * @returns {Promise<Set<string>>}
-   */
-  async existingVectorIds(namespace, ids = []) {
-    const found = new Set();
-    const { client } = await this.connect();
-    if (!(await this.namespaceExists(client, namespace))) return found;
-    const table = await client.openTable(namespace);
-    for (const row of await this.rowsByIds(table, ids, ["id"]))
-      found.add(row.id);
-    return found;
   }
 
   async heartbeat() {

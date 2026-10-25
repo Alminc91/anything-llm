@@ -869,8 +869,8 @@ export const COURSE_COUNT_WORD_MAX_LEN = 20;
 export const DEFAULT_COURSE_COUNT_WORD = "Kurse";
 // Beispielzahl der Vorschau ohne Kursliste vom Kursprogramm
 export const SAMPLE_COURSE_COUNT = 837;
-const COURSE_COUNT_WORD_RE = /^[\p{L} -]+$/u;
-export const COURSE_COUNT_WORD_ERROR = `Nur Buchstaben, Leerzeichen und Bindestrich, höchstens ${COURSE_COUNT_WORD_MAX_LEN} Zeichen.`;
+const COURSE_COUNT_WORD_RE = /^\p{L}+(?:-\p{L}+)*$/u;
+export const COURSE_COUNT_WORD_ERROR = `Bitte ein Wort aus Buchstaben, höchstens ${COURSE_COUNT_WORD_MAX_LEN} Zeichen, etwa Seminare oder Online-Kurse.`;
 
 /** @returns {boolean} Kursanzahl statt des Untertitels (fehlend: an) */
 export function courseCountOn(config = {}) {
@@ -899,18 +899,16 @@ export function withCourseCount(config, initial = {}, on = true) {
 }
 
 /**
- * Gültige Bezeichnung wie im Server: getrimmt, Leerraum zu einem
- * Leerzeichen, 1 bis 20 Zeichen, nur Buchstaben, Leerzeichen und
- * Bindestrich, mindestens ein Buchstabe; sonst null.
+ * Gültige Bezeichnung wie im Server: getrimmt, 1 bis 20 Zeichen (UTF-16),
+ * ein Wort aus Buchstaben, Bindestrich nur zwischen Buchstaben; sonst null.
  * @param {*} value
  * @returns {string|null}
  */
 export function courseCountWordValue(value) {
   if (typeof value !== "string") return null;
-  const word = value.normalize("NFC").trim().replace(/\s+/g, " ");
+  const word = value.trim();
   if (word.length === 0 || word.length > COURSE_COUNT_WORD_MAX_LEN) return null;
-  if (!COURSE_COUNT_WORD_RE.test(word) || !/\p{L}/u.test(word)) return null;
-  return word;
+  return COURSE_COUNT_WORD_RE.test(word) ? word : null;
 }
 
 /** Wert im Feld „Bezeichnung“: gespeicherter Text, fehlend der Standard. */
