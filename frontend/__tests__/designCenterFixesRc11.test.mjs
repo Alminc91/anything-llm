@@ -213,6 +213,38 @@ test(
   }
 );
 
+// F9 (Fixliste datenschutz-fusszeile rc2, Gegenstück zu W12 im Widget, Nutzer
+// 24.10.2026 „machen wir gerne 360px“): Live ist das Chatfenster ab 768 px
+// Bildschirmbreite nie schmaler als 360 px (Widget src/App.jsx). Die Vorschau
+// zeigt es 370 px breit; in einem schmalen Design Center schrumpfte es mit
+// der Vorschau-Spalte, unter 360 px bei weniger als 816 px Fensterbreite
+// (gemessen in Chromium: 768 px → 336 px, 800 px → 352 px). Jetzt nie unter
+// 360 px, wie live; min-width geht in CSS vor max-width, das Fenster ragt
+// dann höchstens in den Innenabstand der Vorschaufläche (24 px je Seite),
+// ohne waagerechten Bildlauf (Messung .test-storage/rc3-f9/f9_measure.py).
+test(
+  "F9: Chatfenster der Vorschau 370 px breit und nie schmaler als 360 px (wie live ab 768 px, W12)",
+  { skip },
+  async () => {
+    const { PREVIEW_WINDOW_WIDTH_PX, PREVIEW_WINDOW_MIN_WIDTH_PX } =
+      await renderer.load(PREVIEW);
+    assert.equal(PREVIEW_WINDOW_WIDTH_PX, 370);
+    assert.equal(PREVIEW_WINDOW_MIN_WIDTH_PX, 360);
+    for (const config of [{}, { theme: "dark" }, { position: "bottom-left" }]) {
+      const column = tagOf(await preview(config), "chat-column");
+      assert.match(styleOf(column), /(^|;)\s*width:\s*370px/);
+      assert.match(styleOf(column), /min-width:\s*360px/);
+      assert.match(classOf(column), /\bmax-w-full\b/);
+      assert.doesNotMatch(classOf(column), /\bw-\[/);
+      // das Fenster selbst füllt die Spalte
+      assert.match(
+        classOf(tagOf(await preview(config), "chat-panel")),
+        /\bw-full\b/
+      );
+    }
+  }
+);
+
 test(
   "Nutzer 23.10.2026 (vorher Rückmeldung 20.10.): beim Öffnen des Chatfensters steht der Verlauf oben (scrollTop = 0), auch wenn er vorher gescrollt war; scrollToStart ohne Element ohne Wirkung",
   { skip },

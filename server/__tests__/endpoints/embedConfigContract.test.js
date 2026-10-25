@@ -186,6 +186,57 @@ describe("Vertrag /config (E10 bis E12): Fälle der Fixture über HTTP wie das W
     }
   );
 
+  // AK-12 und AK-10 (Review AF-6, Fixliste AK-12 A4): Der Vertrag deckt in
+  // beiden Kopien den Schalter „Zusätzlich beim Start als Blase zeigen“ ab
+  // (privacyStartBubble: der Server liefert ihn nur bei gespeichert genau
+  // true, das Widget zeigt die Blase nur dann; ein Skript-Attribut wirkt
+  // nicht, Gruppe A) und den festen Link „Datenschutz“ (privacyNotice
+  // "link", auch bei gespeichertem Altwert und Skript-Attribut). Bis rc5 nur
+  // je Seite getestet: Änderte eine Seite die Form des Werts, blieben beide
+  // Suiten grün.
+  test('AK-12, AK-10: Fixture mit Fällen für privacyStartBubble (true, "true", false, fehlt) und privacyNotice "link"', () => {
+    const stored = (c) => c.visualConfig?.privacyStartBubble;
+    const bubbleCases = forkCases.filter(
+      (c) => "privacyStartBubble" in c.widget
+    );
+    const storedValues = bubbleCases.map(stored);
+    for (const value of [true, "true", false, undefined])
+      expect([value, storedValues.includes(value)]).toEqual([value, true]);
+    for (const c of bubbleCases) {
+      const on = stored(c) === true;
+      expect([c.name, c.widget.privacyStartBubble]).toEqual([c.name, on]);
+      if (on)
+        expect([c.name, c.config.privacyStartBubble]).toEqual([c.name, true]);
+      else
+        expect([c.name, c.configAbsent]).toEqual([
+          c.name,
+          expect.arrayContaining(["privacyStartBubble"]),
+        ]);
+    }
+    expect(
+      bubbleCases.some(
+        (c) =>
+          c.script?.privacyStartBubble !== undefined &&
+          c.widget.privacyStartBubble === false
+      )
+    ).toBe(true);
+    const noticeCases = forkCases.filter((c) => "privacyNotice" in c.config);
+    expect(noticeCases.length).toBeGreaterThanOrEqual(1);
+    for (const c of noticeCases)
+      expect([c.name, c.config.privacyNotice, c.widget.privacyNotice]).toEqual([
+        c.name,
+        "link",
+        "link",
+      ]);
+    // ein gespeicherter Altwert und ein Skript-Attribut ändern den Link nicht
+    expect(
+      noticeCases.some((c) => c.visualConfig.privacyNotice === "bubble")
+    ).toBe(true);
+    expect(noticeCases.some((c) => c.script?.privacyNotice !== undefined)).toBe(
+      true
+    );
+  });
+
   // E23 (Fixliste 7.22-rc17, E10 neu): Startvorschläge und
   // Willkommensblasen stellt das Design Center ein (Gruppe A). In keinem Fall
   // der Fixture ändert ein Skript-Attribut die aufgelöste Liste: Das Widget

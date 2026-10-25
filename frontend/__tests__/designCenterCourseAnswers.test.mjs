@@ -10,7 +10,7 @@
 //
 // Logik gegen den Server-Code (embedStandards.js), Darstellung serverseitig
 // gerendert, Bedienung und Speichern mit eingehängter Seite und ersetztem
-// fetch (wie designCenterPrivacySwitch.test.mjs).
+// fetch (wie designCenterPrivacyLink.test.mjs).
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";

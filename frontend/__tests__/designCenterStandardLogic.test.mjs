@@ -355,10 +355,9 @@ test("Speichern: Platzhalter, Überschrift, Text und Link", () => {
     { sendMessageText: "Wie kann ich Ihnen helfen?" }
   );
   assert.deepEqual(keys.cleanConfig({ sendMessageText: " " }, base), {});
-  // Überschrift: leer = bewusst keine, Standard = Schlüssel weg
-  assert.deepEqual(keys.cleanConfig({ privacyTitle: "  " }, base), {
-    privacyTitle: "",
-  });
+  // Überschrift: leer gilt wie der Standard, beide = Schlüssel weg (F5,
+  // Fixliste rc1, 7.23; bis 7.22.2 hieß leer „bewusst keine“)
+  assert.deepEqual(keys.cleanConfig({ privacyTitle: "  " }, base), {});
   assert.deepEqual(keys.cleanConfig({ privacyTitle: "Datenschutz" }, base), {});
   // Text: Standard (auch im Altformat) weg, eigener in Normalform
   assert.deepEqual(

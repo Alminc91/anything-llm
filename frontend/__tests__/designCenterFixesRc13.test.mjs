@@ -1,7 +1,9 @@
 // Korrekturrunde 7.22-rc13 (Fixliste fixliste-7.22-rc13.md, Abschnitt
 // „F · Fork“, Funde aus review-7.22-nachreview-rc12.md), Teil Design Center
 // ohne eingehängte Seite (Logik und serverseitig gerendertes HTML):
-// F04 Begrüßung bleibt beim Datenschutz-Schalter der Text aus dem Feld.
+// F04 Begrüßung bleibt beim Datenschutz-Schalter der Text aus dem Feld
+//     (Schalter bis 7.22.2; seit 7.23 schreibt das Design Center
+//     privacyNotice nicht, beide Texte bleiben).
 // F05 Unverändert gespeicherte Standardwerte bleiben beim Speichern stehen.
 // F06 Kein Lookbehind im Frontend (Safari unter 16.4).
 // F07 Im Einbau-Schnipsel sind nur die Adressen nicht umbrechend.
@@ -153,54 +155,46 @@ const BOTH_TEXTS = {
   greetingStyle: "text",
 };
 
-test("F04: Einschalten aus „none“ -> Begrüßung bleibt greeting, der unsichtbare Blasentext entfällt", () => {
-  const initial = { ...BOTH_TEXTS, privacyNotice: "none" };
-  const gKey = keys.greetingKey(initial);
-  assert.equal(gKey, "greeting");
-  assert.equal(server.effectiveGreeting(initial), BOTH_TEXTS.greeting);
-  const config = keys.withPrivacyNotice(initial, initial, true);
-  const out = keys.cleanConfig(config, {
-    initial,
-    defaults: DEFAULTS,
-    greetingKey: gKey,
-  });
-  assert.equal(out.privacyNotice, "bubble");
-  assert.equal(out.greeting, BOTH_TEXTS.greeting);
-  assert.ok(!("greetingBubbleText" in out));
-  // live (Server) dieselbe Begrüßung wie vorher und im Feld
-  assert.equal(server.effectiveGreeting(out), BOTH_TEXTS.greeting);
-  assert.equal(keys.greetingKey(out), gKey);
-
-  // ohne Wechsel des Schalters bleibt alles stehen (kein Datenverlust)
-  for (const privacyNotice of ["none", "bubble", undefined]) {
-    const stored = { ...BOTH_TEXTS };
-    if (privacyNotice) stored.privacyNotice = privacyNotice;
-    const kept = keys.cleanConfig(
-      { ...stored, theme: "dark" },
-      {
-        initial: stored,
+// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Den
+// Schalter „Datenschutz-Hinweis anzeigen“ gibt es nicht mehr, das Design
+// Center schreibt privacyNotice nie (widgetKeys.js cleanConfig). Damit kann
+// sich greetingKey beim Speichern nicht mehr ändern: Beide Begrüßungstexte
+// und der gespeicherte Altwert bleiben stehen, live gilt dieselbe Begrüßung.
+// Bis 7.22.2 prüften die beiden F04-Tests hier withPrivacyNotice (Einschalten
+// aus „none“ entfernte den unsichtbaren Blasentext, Ausschalten bei „bubble“
+// die greeting).
+test("F04 seit 7.23: Speichern ändert privacyNotice nicht, beide Begrüßungstexte bleiben, live dieselbe Begrüßung", () => {
+  for (const privacyNotice of ["none", "bubble", "modal", undefined]) {
+    const initial = { ...BOTH_TEXTS };
+    if (privacyNotice) initial.privacyNotice = privacyNotice;
+    const gKey = keys.greetingKey(initial);
+    // auch ein abweichender Wert im Bearbeitungsstand (z. B. von früher)
+    for (const edited of ["none", "bubble", undefined]) {
+      const config = { ...initial, theme: "dark" };
+      if (edited) config.privacyNotice = edited;
+      else delete config.privacyNotice;
+      const out = keys.cleanConfig(config, {
+        initial,
         defaults: DEFAULTS,
-        greetingKey: keys.greetingKey(stored),
-      }
-    );
-    assert.deepEqual(kept, { ...stored, theme: "dark" });
+        greetingKey: gKey,
+      });
+      assert.deepEqual(out, { ...initial, theme: "dark" });
+      assert.equal(keys.greetingKey(out), gKey);
+      assert.equal(
+        server.effectiveGreeting(out),
+        server.effectiveGreeting(initial)
+      );
+    }
   }
-});
-
-test("F04: Ausschalten bei „bubble“ -> Begrüßung bleibt der Blasentext, greeting entfällt", () => {
-  const initial = { ...BOTH_TEXTS, privacyNotice: "bubble" };
-  const gKey = keys.greetingKey(initial);
-  assert.equal(gKey, "greetingBubbleText");
-  const config = keys.withPrivacyNotice(initial, initial, false);
-  const out = keys.cleanConfig(config, {
-    initial,
-    defaults: DEFAULTS,
-    greetingKey: gKey,
-  });
-  assert.equal(out.privacyNotice, "none");
-  assert.equal(out.greetingBubbleText, BOTH_TEXTS.greetingBubbleText);
-  assert.ok(!("greeting" in out));
-  assert.equal(server.effectiveGreeting(out), BOTH_TEXTS.greetingBubbleText);
+  // greetingKey liest weiter den gespeicherten Altwert (wie der Server)
+  assert.equal(
+    keys.greetingKey({ ...BOTH_TEXTS, privacyNotice: "none" }),
+    "greeting"
+  );
+  assert.equal(
+    keys.greetingKey({ ...BOTH_TEXTS, privacyNotice: "bubble" }),
+    "greetingBubbleText"
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -630,7 +624,6 @@ test(
           updateField: noop,
           updateOptionalField: noop,
           resetKeys: noop,
-          setPrivacyNotice: noop,
           setChoice: noop,
           addListItem: noop,
           updateListItem: noop,

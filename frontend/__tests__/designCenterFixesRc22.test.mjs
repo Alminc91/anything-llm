@@ -150,9 +150,10 @@ test("F101: Prüfpunkt 12 zählt gespeicherte Farbwerte, die parseColor nicht li
   assert.match(point, /\(E41, 7\.22-rc22\)/);
   assert.match(point, /nur melden/);
   assert.match(point, /gespeicherte Werte der Kunden nicht ändern/);
-  // nach Prüfpunkt 12 nur noch Prüfpunkt 13 (bewusst geändert in rc24, E43;
-  // Prüfung in server/__tests__/utils/chats/embedStandards.test.js)
-  assert.doesNotMatch(doc, /^14\. /m);
+  // nach Prüfpunkt 12 nur noch Prüfpunkt 13 (bewusst geändert in rc24, E43)
+  // und Prüfpunkt 14 (bewusst geändert mit der Datenschutz-Fußzeile, 7.23;
+  // beide geprüft in server/__tests__/utils/chats/embedStandards.test.js)
+  assert.doesNotMatch(doc, /^15\. /m);
   // Textregeln: keine Gedankenstriche
   assert.doesNotMatch(doc, /[–—]/);
 });
@@ -373,9 +374,11 @@ test(
           `${show(value)} ${JSON.stringify(look)}`
         );
     }
-    // Datenschutz-Link und Links der Kurse sind dabei (Akzentfarbe)
+    // Datenschutz-Link und Links der Kurse sind dabei (Akzentfarbe). Bewusste
+    // Änderung (Datenschutz-Fußzeile, 7.23): statt „Datenschutzerklärung“ in
+    // der Datenschutz-Blase der Link „Datenschutz“ in der Fußzeile
     const links = await preview(LOOKS[2]);
-    assert.ok(links.includes("Datenschutzerklärung"));
+    assert.match(links, /data-preview="privacy-link"[^>]*>Datenschutz</);
     assert.match(links, /data-preview="course-link"/);
     // Gegenprobe: angenommene Werte zeigt die Vorschau (getrimmt) mit der
     // Schrift nach Kontrast, in der Nutzerblase und am Senden-Button der

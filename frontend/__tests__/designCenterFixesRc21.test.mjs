@@ -210,7 +210,12 @@ test("E38: Sprachdateien: Beschriftung bei „In der Seite“ de und en, übrige
 // N42 Migrationsdoku
 // ---------------------------------------------------------------------------
 
-test("N42 (seit 7.22.2): Gruppe B spricht von der Datenschutz-Blase wie den Antwortblasen", () => {
+// Bewusste Änderungen (Datenschutz-Fußzeile, 7.23): statt der Blase das
+// Datenschutz-Fenster, in 7.23-rc1 mit Fläche und Schrift der Antwortblasen
+// (D2), seit rc2 fest je Farbschema wie die Standard-Antwortblase (R1-D1,
+// Fixliste datenschutz-fusszeile rc1)
+test("N42 (seit 7.23-rc2): Gruppe B spricht vom Datenschutz-Fenster mit der Fläche der Standard-Antwortblase", () => {
   const doc = fs.readFileSync(MIGRATION, "utf8").replace(/\s+/g, " ");
-  assert.match(doc, /gleiche Fläche, Textfarbe, Schriftgröße und Zeilenhöhe/);
+  assert.match(doc, /wie die Standard-Antwortblase, hell Weiß/);
+  assert.doesNotMatch(doc, /nutzt Fläche und Schrift der Antwortblasen/);
 });

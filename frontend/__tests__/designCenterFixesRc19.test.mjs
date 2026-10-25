@@ -5,7 +5,8 @@
 //     Warndreieck direkt beim Platzhalter-Schnipsel, Text vom Nutzer am
 //     21.10.2026 wörtlich freigegeben, englisch sinngemäß, nicht beim
 //     Chatfenster. Kontrast und Optik: Browser-Beleg .test-storage/rc19.
-// C28 Kommentar an applyEmbedStandards nach E23 und E26.
+// C28 Kommentar an applyEmbedStandards nach E23 und E26 (seit 7.23: Form
+//     der Begrüßung Gruppe A, Fixliste datenschutz-fusszeile rc2 F8).
 // E30 (Standardtext Datenschutz ohne Gendersprache): Jest-Test
 // server/__tests__/utils/chats/embedDefaults.test.js.
 import test, { after, before } from "node:test";
@@ -272,8 +273,20 @@ test("C28: Kommentar zur Begrüßung in applyEmbedStandards nach E23 und E26", (
     comment,
     /data-greeting und data-greeting-bubble-text am Skript wirken nie, auch ohne gespeicherten Text/
   );
+  // Bewusste Änderung (Datenschutz-Fußzeile, 7.23): bis 7.22.2 „wirkt nur
+  // bei abgeschaltetem Datenschutz-Hinweis“ (E26), in 7.23-rc1/rc2 „legt das
+  // Widget fest“ (D2). Seit D2 gekippt ist (Nutzer 24.10.2026, Fixliste
+  // datenschutz-fusszeile rc2 F8) gehört die Form der Begrüßung zu Gruppe A:
+  // data-greeting-style wirkt nie.
+  assert.doesNotMatch(
+    comment,
+    /data-greeting-style="text" wirkt nur bei abgeschaltetem Datenschutz-Hinweis/
+  );
+  assert.doesNotMatch(comment, /legt das Widget fest/);
+  assert.doesNotMatch(comment, /ist Gruppe B/);
   assert.match(
     comment,
-    /data-greeting-style="text" wirkt nur bei abgeschaltetem Datenschutz-Hinweis \(E26/
+    /Die Form der Begrüßung \(greetingStyle, fest "bubble" in EMBED_FIXED_STANDARDS\) gehört seit 7\.23 ebenfalls zu Gruppe A: data-greeting-style am Skript wirkt nie/
   );
+  assert.match(comment, /E26, Fixliste 7\.22-rc18/);
 });

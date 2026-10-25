@@ -172,9 +172,11 @@ export function Segmented({
   );
 }
 
-// Schalter mit Beschriftung (Datenschutz-Hinweis anzeigen). An: Fläche in
-// der Akzentfarbe der App wie die markierten Optionen; aus: graue Fläche
-// mit sichtbarem Rand, daneben „An“ bzw. „Aus“ (Browser 7.22-rc6 B-02: der
+// Schalter mit Beschriftung (seit AK-12, 7.23: „Zusätzlich beim Start als
+// Blase zeigen“ im Reiter Inhalt; bis 7.22.2 derselbe Baustein für
+// „Datenschutz-Hinweis anzeigen“). An: Fläche in der Akzentfarbe der App wie
+// die markierten Optionen; aus: graue Fläche mit sichtbarem Rand, daneben
+// „An“ bzw. „Aus“ (Browser 7.22-rc6 B-02: der
 // allgemeine Toggle war im Aus-Zustand kaum als Schalter zu erkennen und
 // im An-Zustand grün statt in der Akzentfarbe).
 // Der versteckte Schalter (sr-only = position: absolute) braucht einen

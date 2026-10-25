@@ -1,6 +1,6 @@
 // Kufer Design Center: Standardtexte des Embed-Widgets (Kopf, Begrüßung,
-// Eingabe, Datenschutz- und KI-Hinweis) und die Prompt-Abschnitte des
-// Karten-Modus.
+// Eingabe, Datenschutz-Fenster, KI-Hinweis mit Link „Datenschutz“) und die
+// Prompt-Abschnitte des Karten-Modus.
 //
 // Standardtexte: wörtliche Kopie von PANEL_TEXTS im Embed-Repo
 // (anythingllm-embed, src/utils/layout.js) — das Widget hat sie selbst, der
@@ -28,6 +28,12 @@
 // „Ask your question here …“. Bis 7.22.2-rc4 stand hier „Ihre Frage
 // eingeben“ bzw. „Enter your question“; so gespeichert gilt der alte Text
 // als nicht gesetzt (embedStandards.js LEGACY_DEFAULT_PLACEHOLDERS).
+// Datenschutz als Link in der Fußzeile (Nutzer 23.10.2026, Release 7.23,
+// issues/datenschutz-fusszeile.md): Unter der Eingabe steht eine Zeile
+// „Unsere KI kann Fehler machen · Datenschutz“ (KI-Hinweis, „ · “, Linktext;
+// nur der Linktext ist klickbar). Der Link öffnet das Datenschutz-Fenster
+// mit Überschrift, Datenschutz-Text, dem festen Punkt „Hinweis zur KI“, dem
+// Link zur Datenschutzerklärung (privacyUrl) und dem Button „Schließen“.
 const EMBED_DEFAULT_TEXTS = {
   de: {
     assistantName: "KI-Berater",
@@ -42,13 +48,25 @@ const EMBED_DEFAULT_TEXTS = {
       "Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ],
-    // KI-Hinweis unter der Eingabe (R1, Fixliste 7.22-rc8): eindeutig
-    // „Unsere KI“. Kurzfassung „prüfen“ nach der Messung des Widgets
-    // (Chatfenster bei 1280 px: „überprüfen“ bräuchte 9,0 px Schrift, unter
-    // der Ein-Zeilen-Grenze von 10 px); wortgleich mit PANEL_TEXTS, Gegenprobe
-    // mit KUFER_EMBED_DIR im Test embedDefaults
-    disclaimerText:
-      "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten.",
+    // KI-Hinweis unter der Eingabe (R1, Fixliste 7.22-rc8: eindeutig
+    // „Unsere KI“), fest und nicht abschaltbar (E24). Seit 23.10.2026 kurz
+    // und ohne Satzpunkt, weil der Link „Datenschutz“ in derselben Zeile
+    // folgt; die Bitte, Antworten zu prüfen, steht als Punkt „Hinweis zur
+    // KI“ im Datenschutz-Fenster (privacyAiText). Bis 7.22.2 „Unsere KI kann
+    // Fehler machen. Bitte prüfen Sie die Antworten.“ Wortgleich mit
+    // PANEL_TEXTS.aiDisclaimer, Gegenprobe mit KUFER_EMBED_DIR im Test
+    // embedDefaults
+    disclaimerText: "Unsere KI kann Fehler machen",
+    // Link in der Zeile des KI-Hinweises
+    privacyLinkText: "Datenschutz",
+    // fester Punkt im Datenschutz-Fenster; ein Wortlaut für alle Kunden,
+    // auch ohne Kursangebot (F8, Nutzer 23.10.2026; vorher mit
+    // „Kursangebot“ und „Kursseite“)
+    privacyAiTitle: "Hinweis zur KI",
+    privacyAiText:
+      "Unser KI-Berater ist auf richtige Auskünfte optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Kontrolle immer auf unserer Website.",
+    // Button am Ende des Datenschutz-Fensters
+    privacyCloseText: "Schließen",
     // eingeklappte Inline-Leiste (Demo-Texte; Entscheidung D2, 7.22-rc3)
     inlineBarPlaceholder: "Stellen Sie hier Ihre Frage …",
     inlineSendText: "Chatten",
@@ -64,8 +82,12 @@ const EMBED_DEFAULT_TEXTS = {
       "Staff of the institution may view conversations for quality assurance.",
       "Please only share information that is necessary for your request.",
     ],
-    disclaimerText:
-      "Our AI can make mistakes. Please double-check the answers.",
+    disclaimerText: "Our AI can make mistakes",
+    privacyLinkText: "Privacy",
+    privacyAiTitle: "About the AI",
+    privacyAiText:
+      "Our AI advisor is optimised for accurate information. Like any AI, it can still make the occasional mistake. You can always check important details such as dates and prices on our website.",
+    privacyCloseText: "Close",
     inlineBarPlaceholder: "Ask your question here …",
     inlineSendText: "Chat",
   },
@@ -126,16 +148,20 @@ function defaultSuggestions(lang = "de") {
  * Design Center bearbeitet bzw. anzeigt: name/assistantSubtitle/
  * sendMessageText/greeting/privacyTitle/privacyText als Standardtext und
  * Vorbelegung (privacyText im freien Format, ein „• “-Punkt je Zeile),
- * disclaimerText sowie Platzhalter und Button der eingeklappten Inline-Leiste
- * (inlineInputPlaceholder, inlineSendText) nur zur Anzeige (Standard der
- * Leiste; seit 23.10.2026 gleich dem Platzhalter des Chats); dazu die
- * Standard-Startvorschläge (defaultMessages, S1) als Vorbelegung der Liste,
- * seit E42 leer.
+ * disclaimerText, die festen Texte von Link und Datenschutz-Fenster
+ * (privacyLinkText, privacyAiTitle, privacyAiText, privacyCloseText; für die
+ * Vorschau, Datenschutz-Fußzeile 23.10.2026) sowie Platzhalter und Button
+ * der eingeklappten Inline-Leiste (inlineInputPlaceholder, inlineSendText)
+ * nur zur Anzeige (Standard der Leiste; seit 23.10.2026 gleich dem
+ * Platzhalter des Chats); dazu die Standard-Startvorschläge
+ * (defaultMessages, S1) als Vorbelegung der Liste, seit E42 leer.
  * @param {string} [lang]
  * @returns {{name: string, assistantSubtitle: string, greeting: string,
  *   sendMessageText: string, privacyTitle: string, privacyText: string,
- *   disclaimerText: string, inlineInputPlaceholder: string,
- *   inlineSendText: string, defaultMessages: string[]}}
+ *   disclaimerText: string, privacyLinkText: string, privacyAiTitle: string,
+ *   privacyAiText: string, privacyCloseText: string,
+ *   inlineInputPlaceholder: string, inlineSendText: string,
+ *   defaultMessages: string[]}}
  */
 function embedDefaultTexts(lang = "de") {
   const t = EMBED_DEFAULT_TEXTS[embedDefaultsLanguage(lang)];
@@ -147,6 +173,10 @@ function embedDefaultTexts(lang = "de") {
     privacyTitle: t.privacyTitle,
     privacyText: t.privacyPoints.map((p) => PRIVACY_BULLET + p).join("\n"),
     disclaimerText: t.disclaimerText,
+    privacyLinkText: t.privacyLinkText,
+    privacyAiTitle: t.privacyAiTitle,
+    privacyAiText: t.privacyAiText,
+    privacyCloseText: t.privacyCloseText,
     inlineInputPlaceholder: t.inlineBarPlaceholder,
     inlineSendText: t.inlineSendText,
     defaultMessages: defaultSuggestions(lang),

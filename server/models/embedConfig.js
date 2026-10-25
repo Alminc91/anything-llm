@@ -244,6 +244,25 @@ const NUMBER_KEYS = [
   "chat_retention_days",
 ];
 
+// Schalter in visual_config (Design Center): nur boolesche Werte, wie
+// BOOLEAN_KEYS und history_enabled oben. privacyStartBubble: Datenschutz
+// zusätzlich beim Start als Blase (AK-12, issues/datenschutz-fusszeile.md);
+// das Design Center speichert nur true, aus = kein Schlüssel. Ein anderer
+// Wert (etwa "true" oder 1 über die Developer-API) wird beim Speichern
+// verworfen; alle übrigen Schlüssel bleiben, wie sie kommen.
+const VISUAL_BOOLEAN_KEYS = ["privacyStartBubble"];
+
+// Schlüssel aus VISUAL_BOOLEAN_KEYS mit einem nicht booleschen Wert; kein
+// Objekt (Array, Zahl, null) -> keine
+function invalidVisualBooleanKeys(config) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return [];
+  return VISUAL_BOOLEAN_KEYS.filter(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(config, key) &&
+      typeof config[key] !== "boolean"
+  );
+}
+
 // Helper to validate a data object strictly into the proper format
 function validatedCreationData(value, field) {
   if (field === "chat_mode") {
@@ -296,11 +315,14 @@ function validatedCreationData(value, field) {
   if (field === "visual_config") {
     try {
       if (!value) return null;
-      if (typeof value === "string") {
-        JSON.parse(value); // validate
-        return value;
+      const parsed = typeof value === "string" ? JSON.parse(value) : value;
+      const invalid = invalidVisualBooleanKeys(parsed);
+      if (invalid.length > 0) {
+        const kept = { ...parsed };
+        for (const key of invalid) delete kept[key];
+        return JSON.stringify(kept);
       }
-      return JSON.stringify(value);
+      return typeof value === "string" ? value : JSON.stringify(value);
     } catch {
       return null;
     }
