@@ -146,6 +146,16 @@ test("Anteil der fehlenden Kurse", { skip }, () => {
   assert.deepEqual(util.missingShare({ offered: 2000, missing: 5 }), {
     small: true,
   });
+  // Fixliste r2 Nr. 2 (F4): abgerundet wie die Schwellen der Ampel
+  assert.deepEqual(util.missingShare({ offered: 864, missing: 42 }), {
+    value: 4,
+  });
+  assert.deepEqual(util.missingShare({ offered: 1000, missing: 109 }), {
+    value: 10,
+  });
+  assert.deepEqual(util.missingShare({ offered: 1000, missing: 9 }), {
+    small: true,
+  });
   assert.equal(util.missingShare({ offered: 864, missing: 0 }), null);
   assert.equal(util.missingShare({ offered: 0, missing: 0 }), null);
 });
@@ -176,6 +186,39 @@ test("Zeitpunkte des Abgleichs in Berliner Zeit", { skip }, () => {
       Date.parse("2026-10-26T22:40:00.000Z")
     ),
     "morgen, 00:30 Uhr"
+  );
+});
+
+// Fixliste r2 Nr. 3 (F5): „gestern“ und „morgen“ nach Berliner Kalendertagen,
+// auch an den Tagen der Zeitumstellung (25.10.2026 hat 25 h, 29.03.2026 23 h)
+test("Gestern und morgen über die Zeitumstellung", { skip }, () => {
+  const at = (iso, now) => util.formatRunTime(t, iso, Date.parse(now));
+  // 25.10.2026, 23:30 Uhr (Winterzeit): 24 h zuvor ist noch der 25.10.
+  assert.equal(
+    at("2026-10-24T08:00:00.000Z", "2026-10-25T22:30:00.000Z"),
+    "gestern, 10:00 Uhr"
+  );
+  assert.equal(
+    at("2026-10-25T07:00:00.000Z", "2026-10-25T22:30:00.000Z"),
+    "heute, 08:00 Uhr"
+  );
+  // 28.03.2026, 23:30 Uhr (Winterzeit): 24 h später ist schon der 30.03.
+  assert.equal(
+    at("2026-03-29T08:00:00.000Z", "2026-03-28T22:30:00.000Z"),
+    "morgen, 10:00 Uhr"
+  );
+  assert.equal(
+    at("2026-03-29T22:30:00.000Z", "2026-03-28T22:30:00.000Z"),
+    "30.03., 00:30 Uhr"
+  );
+  // Jahreswechsel
+  assert.equal(
+    at("2025-12-31T22:00:00.000Z", "2026-01-01T10:00:00.000Z"),
+    "gestern, 23:00 Uhr"
+  );
+  assert.equal(
+    at("2026-01-01T10:00:00.000Z", "2025-12-31T12:00:00.000Z"),
+    "morgen, 11:00 Uhr"
   );
 });
 

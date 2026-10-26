@@ -64,13 +64,15 @@ export function isUnreachable(status) {
 }
 
 /**
- * Anteil der fehlenden Kurse in ganzen Prozent; unter 1 % als „unter 1 %“.
+ * Anteil der fehlenden Kurse in ganzen Prozent, abgerundet wie die Schwellen
+ * der Ampel (4,9 % zeigt „4 %“, nie „5 %“ bei Grün); unter 1 % als „unter
+ * 1 %“.
  * @param {{offered: number, missing: number}} counts
  * @returns {{value: number}|{small: true}|null} null ohne fehlende Kurse
  */
 export function missingShare({ offered, missing }) {
   if (!(missing > 0) || !(offered > 0)) return null;
-  const value = Math.round((missing / offered) * 100);
+  const value = Math.floor((missing / offered) * 100);
   return value < 1 ? { small: true } : { value };
 }
 
@@ -86,6 +88,26 @@ const berlinTime = new Intl.DateTimeFormat("de-DE", {
   hour: "2-digit",
   minute: "2-digit",
 });
+// Ein Kalendertag ohne Zeitzone, im selben Format wie berlinDay
+const plainDay = new Intl.DateTimeFormat("de-DE", {
+  timeZone: "UTC",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
+/**
+ * Berliner Kalendertag von now, um days Tage verschoben („TT.MM.JJJJ“). Nach
+ * Kalendertagen, nicht ± 24 h: Die Tage der Zeitumstellung haben 23 oder
+ * 25 Stunden.
+ * @param {number} now
+ * @param {number} days
+ * @returns {string}
+ */
+function berlinDayShifted(now, days) {
+  const [d, m, y] = berlinDay.format(now).split(".").map(Number);
+  return plainDay.format(Date.UTC(y, m - 1, d + days));
+}
 
 /**
  * Zeitpunkt eines Abgleichs: „heute, 10:00 Uhr“, „gestern, 10:00 Uhr“,
@@ -108,11 +130,10 @@ export function formatRunTime(
   if (!Number.isFinite(ms)) return t("course-status.none");
   const day = berlinDay.format(ms);
   const time = berlinTime.format(ms);
-  const DAY = 24 * 60 * 60 * 1000;
   if (day === berlinDay.format(now)) return t("course-status.today", { time });
-  if (day === berlinDay.format(now - DAY))
+  if (day === berlinDayShifted(now, -1))
     return t("course-status.yesterday", { time });
-  if (day === berlinDay.format(now + DAY))
+  if (day === berlinDayShifted(now, 1))
     return t("course-status.tomorrow", { time });
   const [d, m, y] = day.split(".");
   const date = y === berlinDay.format(now).split(".")[2] ? `${d}.${m}.` : day;
