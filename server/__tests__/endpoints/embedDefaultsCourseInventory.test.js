@@ -1,7 +1,8 @@
 /* eslint-env jest, node */
 // KIE-576 Paket 3: GET /embed/defaults?embedId=<id> liefert dem Design Center
-// zusätzlich courseInventory für die Vorschau (im KI-Berater, angeboten,
-// ausgeblendet, Stand; die interne Zeile entfällt seit D-K5). Kein neuer
+// zusätzlich courseInventory für die Vorschau, seit Fixliste r4 Nr. 2 und 3
+// nur noch {count} (die Vorschau zeigt nur die Zahl; angeboten,
+// ausgeblendet und Stand bleiben intern). Kein neuer
 // Endpunkt, nur lesend; nur für ein Widget, das der Nutzer verwalten darf
 // (wie validEmbedAccess), sonst fehlt das Feld und die Standardtexte kommen
 // trotzdem. Die Middleware-Kette prüft
@@ -108,13 +109,14 @@ test("ohne embedId wie bisher: nur Sprache und Standardtexte", async () => {
   expect(courseInventoryStatus).not.toHaveBeenCalled();
 });
 
-test("mit embedId: courseInventory des Workspace des Widgets", async () => {
+test("mit embedId: courseInventory des Workspace des Widgets, nur count", async () => {
   const res = await call({ lang: "de", embedId: "5" });
   expect(res.body).toEqual({
     lang: "de",
     defaults: embedDefaultTexts("de"),
-    courseInventory: STATUS,
+    courseInventory: { count: 812 },
   });
+  expect(Object.keys(res.body.courseInventory)).toEqual(["count"]);
   expect(EmbedConfig.getWithWorkspace).toHaveBeenCalledWith({ id: 5 });
   expect(courseInventoryStatus).toHaveBeenCalledWith({ id: 9, slug: "kurse" });
 });
@@ -138,7 +140,7 @@ test("Default-Nutzer mit Zugriff: courseInventory", async () => {
   userFromSession.mockResolvedValue({ id: 8, role: "default" });
   WorkspaceUser.get.mockResolvedValue({ id: 1 });
   const res = await call({ lang: "de", embedId: "5" });
-  expect(res.body.courseInventory).toEqual(STATUS);
+  expect(res.body.courseInventory).toEqual({ count: 812 });
 });
 
 test.each([["abc"], ["-1"], ["0"], ["1.5"], [""]])(

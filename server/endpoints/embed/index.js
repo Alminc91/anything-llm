@@ -285,14 +285,15 @@ function embeddedEndpoints(app) {
         Object.assign(mapped, mapLayoutConfig(visualConfig));
 
         // KIE-576 Paket 3: Kursanzahl im Untertitel nach Vertrag
-        // (issues/KIE-576/KIE-576-kursanzahl.md): courseCount {count,
-        // offered, hidden, stand, word} nur mit Anzeige an (courseCountMode,
-        // Standard an), gültigem Kursbestand der Pipeline (courseInventory.js)
-        // und count ≥ 1; count = Kurse im Feed und im Workspace (nie mehr,
-        // NAK-K3), hidden = veraltete Kursdokumente, die die Suche ausblendet
-        // (D-K5). Sonst fehlt das Feld ganz. Der Untertitel geht unverändert mit (NAK-K5):
-        // Das Widget zeigt ihn, sobald courseCount fehlt oder stand älter als
-        // 24 h ist.
+        // (issues/KIE-576/KIE-576-kursanzahl.md, Fixliste r4 Nr. 2):
+        // courseCount {count, word} nur mit Anzeige an (courseCountMode,
+        // Standard an), gültigem, höchstens 24 h altem Kursbestand der
+        // Pipeline (courseInventory.js, die 24-h-Regel entscheidet der
+        // Server) und count ≥ 1; count = Kurse im Feed und im Workspace (nie
+        // mehr, NAK-K3). offered, hidden und stand sind Betreiber-Info und
+        // gehen nicht mit. Sonst fehlt das Feld ganz. Der Untertitel geht
+        // unverändert mit (NAK-K5): Das Widget zeigt ihn, sobald courseCount
+        // fehlt.
         const courseCount = await courseCountField(embed.workspace, {
           mode: courseCountModeValue(visualConfig.courseCountMode),
           word: courseCountWord(

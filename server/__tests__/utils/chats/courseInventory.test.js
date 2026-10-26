@@ -758,15 +758,17 @@ describe("courseCount für /config (Vertrag)", () => {
     installDeps();
   });
 
-  test("Anzeige an: count, offered, hidden, stand, word", async () => {
+  // Fixliste r4 Nr. 2: öffentlich nur count und word; offered, hidden und
+  // stand berechnet courseInventoryStatus weiter intern (Betreiber-Info)
+  test("Anzeige an: nur count und word, die übrigen Zahlen bleiben intern", async () => {
     expect(
       await courseCountField({ slug: "ws" }, { mode: "on", word: "Kurse" })
-    ).toEqual({
+    ).toEqual({ count: 3, word: "Kurse" });
+    expect(await courseInventoryStatus({ slug: "ws" })).toEqual({
       count: 3,
       offered: 4,
       hidden: 2,
       stand: "2026-10-24T08:00:00.000Z",
-      word: "Kurse",
     });
   });
 
