@@ -267,29 +267,44 @@ const contentProps = (config) => ({
   updateField: noop,
   updateOptionalField: noop,
   resetKeys: noop,
-  setPrivacyNotice: noop,
   setChoice: noop,
   addListItem: noop,
   updateListItem: noop,
   removeListItem: noop,
 });
 
+// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Den
+// Schalter „Datenschutz-Hinweis anzeigen“ gibt es nicht mehr (Link
+// „Datenschutz“ immer, AK-6). Seit AK-12 (Nutzer 24.10.2026) steht dort
+// derselbe Baustein für „Zusätzlich beim Start als Blase zeigen“; B-02 gilt
+// für ihn wie bis 7.22.2: in der Akzentfarbe, aus deutlich mit „Aus“.
 test(
-  "B-02: Datenschutz-Schalter in der Akzentfarbe, aus deutlich erkennbar mit „Aus“",
+  "B-02 seit AK-12: Schalter „Zusätzlich beim Start als Blase zeigen“ in der Akzentfarbe, aus deutlich erkennbar mit „Aus“; kein „Datenschutz-Hinweis anzeigen“",
   { skip },
   async () => {
     for (const [config, state] of [
-      [{}, "An"],
+      [{}, "Aus"],
       [{ privacyNotice: "none" }, "Aus"],
+      [{ privacyNotice: "bubble" }, "Aus"],
+      [{ privacyStartBubble: true }, "An"],
     ]) {
       const html = await show(CONTENT, contentProps(config));
-      const at = html.indexOf("data-privacy-switch");
+      assert.doesNotMatch(html, /data-privacy-switch/);
+      assert.ok(!text(html).includes("Datenschutz-Hinweis anzeigen"));
+      const at = html.indexOf("data-privacy-start-bubble");
+      assert.ok(at >= 0, "Schalter fehlt");
       const block = html.slice(at, html.indexOf("</label>", at));
       assert.match(block, /role="switch"/);
       assert.match(block, /peer-checked:bg-primary-button/);
       assert.doesNotMatch(block, /green-/);
       assert.match(block, /border-zinc-400/);
       assert.ok(text(block).includes(state), state);
+      // Seit KIE-576 Paket 3 steht im Reiter Inhalt zusätzlich der Schalter
+      // „Kursanzahl im Untertitel“ (designCenterCourseCount.test.mjs); im
+      // Datenschutz-Hinweis bleibt es genau ein Schalter.
+      assert.equal((block.match(/role="switch"/g) || []).length, 1);
+      assert.equal((html.match(/role="switch"/g) || []).length, 2);
+      assert.match(html, /data-course-count-switch/);
     }
   }
 );

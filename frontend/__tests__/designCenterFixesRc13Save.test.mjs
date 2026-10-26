@@ -2,7 +2,8 @@
 // Design Center mit eingehängter Seite (helpers/renderSettingsPage.mjs,
 // mount; fetch ersetzt: GET /embeds, GET /embed/defaults, POST
 // /embed/update/:id):
-// F04 Datenschutz-Schalter: Begrüßung bleibt live der Text aus dem Feld.
+// F04 Datenschutz-Schalter: Begrüßung bleibt live der Text aus dem Feld
+//     (Schalter bis 7.22.2; seit 7.23 bleibt privacyNotice unverändert).
 // F05 Speichern eines anderen Feldes lässt gespeicherte Standardwerte stehen.
 // F10 Vorschau: geänderte Begrüßung wird im Verlauf ins Bild gescrollt.
 // F11 Klick auf die markierte Option (Standard) ist keine Änderung.
@@ -103,11 +104,6 @@ const listInputs = (container, list) =>
     (el) => el.tagName === "INPUT"
   );
 const valueOf = (el) => el.getAttribute("value") ?? el.value ?? "";
-const privacySwitch = (container) =>
-  elements(
-    elements(container, (el) => el.hasAttribute?.("data-privacy-switch"))[0],
-    (el) => el.tagName === "INPUT" && el.getAttribute("type") === "checkbox"
-  )[0];
 
 // ---------------------------------------------------------------------------
 // F13 Listen-Handler mit der Liste des Servers
@@ -243,8 +239,14 @@ test(
 // F04 Datenschutz-Schalter und Begrüßung
 // ---------------------------------------------------------------------------
 
+// Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): Ohne
+// Schalter kann der Kunde privacyNotice nicht mehr umstellen. Bis 7.22.2
+// schaltete dieser Test den Hinweis aus „none“ ein und prüfte, dass live die
+// Begrüßung aus dem Feld blieb. Jetzt: Speichern eines anderen Feldes lässt
+// den Altwert „none“ und beide Begrüßungstexte stehen, live und im Feld
+// gilt dieselbe Begrüßung.
 test(
-  "F04: Schalter aus „none“ einschalten: live bleibt die Begrüßung aus dem Feld",
+  "F04 seit 7.23: Altwert „none“ bleibt beim Speichern, live und im Feld dieselbe Begrüßung",
   { skip },
   async (t) => {
     const stored = {
@@ -260,14 +262,18 @@ test(
       field().textContent || field().value,
       "Willkommen bei der VHS X"
     );
+    assert.equal(
+      elements(container, (el) => el.hasAttribute?.("data-privacy-switch"))
+        .length,
+      0
+    );
+    const title = byLabel(container, "Überschrift des Datenschutz-Hinweises");
     await act(() =>
-      handlersOf(privacySwitch(container)).onChange({
-        target: { checked: true },
-      })
+      handlersOf(title).onChange({ target: { value: "Hinweis" } })
     );
     await act(() => click(buttons(container, "Speichern")[0]));
     const saved = savedBody(calls);
-    assert.equal(saved.privacyNotice, "bubble");
+    assert.deepEqual(saved, { ...stored, privacyTitle: "Hinweis" });
     assert.equal(
       server.effectiveGreeting(saved),
       "Willkommen bei der VHS X",

@@ -83,7 +83,6 @@ const contentProps = (config, defaults) => ({
   updateField: noop,
   updateOptionalField: noop,
   resetKeys: noop,
-  setPrivacyNotice: noop,
   setChoice: noop,
   addListItem: noop,
   updateListItem: noop,

@@ -78,7 +78,6 @@ const contentProps = (config) => ({
   updateField: noop,
   updateOptionalField: noop,
   resetKeys: noop,
-  setPrivacyNotice: noop,
   setChoice: noop,
   addListItem: noop,
   updateListItem: noop,
@@ -308,8 +307,9 @@ test(
   async () => {
     const html = await show(CONTENT, contentProps({}));
     // Name und Untertitel standen seit R11 paarweise; seit der Rückmeldung
-    // des Nutzers vom 20.10. untereinander über die volle Spaltenbreite
-    assert.deepEqual(labelsOf(html), [["Überschrift (optional)"]]);
+    // des Nutzers vom 20.10. untereinander über die volle Spaltenbreite.
+    // Überschrift ohne „(optional)“ seit F12 (Fixliste datenschutz rc2)
+    assert.deepEqual(labelsOf(html), [["Überschrift"]]);
     for (const label of [
       "Name",
       "Untertitel",
@@ -332,10 +332,14 @@ test(
       "Begrüßung",
       "Begrüßungstext",
       "Datenschutz-Hinweis",
-      "Datenschutz-Hinweis anzeigen",
-      "Überschrift (optional)",
+      // Bewusste Änderung (Datenschutz-Fußzeile, 7.23): statt des Schalters
+      // „Datenschutz-Hinweis anzeigen“ der Hinweis unter der Überschrift
+      // (Wortlaut seit F10, Fixliste rc2, wie im Mockup)
+      "Erscheint immer als Link „Datenschutz“ unter der Eingabe",
+      "Überschrift",
       "Text",
       "Link zur Datenschutzerklärung",
+      "Fest eingebaut: der KI-Hinweis",
       "Startvorschläge",
       "Platzhalter im Eingabefeld",
       "Geschlossener Chat",
@@ -353,7 +357,7 @@ test(
     }
     // bei „In der Seite“ dieselben Paare
     const inline = await show(CONTENT, contentProps({ displayMode: "inline" }));
-    assert.deepEqual(labelsOf(inline), [["Überschrift (optional)"]]);
+    assert.deepEqual(labelsOf(inline), [["Überschrift"]]);
   }
 );
 
@@ -368,13 +372,18 @@ test(
     for (const [field, hint] of [
       ['aria-label="Name des Chatbots"', "Leer: es gilt „KI-Berater“."],
       ['aria-label="Untertitel"', "Leer: kein Untertitel."],
+      // Bewusste Änderung (Datenschutz-Fußzeile, 7.23): das Fenster zeigt
+      // bei leerem Feld den Standard (bis 7.22.2 „Leer: keine Überschrift.“)
       [
         'aria-label="Überschrift des Datenschutz-Hinweises"',
-        "Leer: keine Überschrift.",
+        "Leer: es gilt „Datenschutz“.",
       ],
+      // Bewusste Änderung (Datenschutz-Fußzeile, 7.23): der Link steht im
+      // Datenschutz-Fenster (bis 7.22.2 „Steht am Ende der Blase.“), seit
+      // F10 (Fixliste rc2) mit dem Begriff der Gruppe „Hinweis“
       [
         'placeholder="https://www.ihre-seite.de/datenschutz"',
-        "Steht am Ende der Blase.",
+        "Steht im Hinweis unter dem Text.",
       ],
       [
         'aria-label="Platzhalter im Eingabefeld"',

@@ -803,11 +803,16 @@ export function previewInlineBar(config, defaults) {
 
 /**
  * Wert im Feld „Überschrift“ des Datenschutz-Hinweises: eigener Text, ""
- * (bewusst keine Überschrift) bzw. der Standard, wenn nichts oder der
- * frühere Standard mit Doppelpunkt gespeichert ist.
+ * bei leerer Überschrift oder nur Leerzeichen (gespeichert oder getippt;
+ * leer gilt wie der Standard, F5: das Feld zeigt den Standard als
+ * Platzhalter, cleanConfig entfernt es beim Speichern; bis 7.22.2 hatte die
+ * Blase dann keine Überschrift) bzw. der Standard, wenn nichts oder der
+ * frühere Standard mit Doppelpunkt gespeichert ist. Die eine Stelle für
+ * „leer“ im Feld und in der Vorschau (F18, Fixliste rc3).
  */
 export function privacyTitleFieldValue(config, defaults) {
   const v = config.privacyTitle;
+  if (typeof v === "string" && !v.trim()) return "";
   if (
     typeof v === "string" &&
     !LEGACY_DEFAULT_PRIVACY_TITLES.includes(v.trim())
@@ -816,42 +821,54 @@ export function privacyTitleFieldValue(config, defaults) {
   return textValue(defaults?.privacyTitle);
 }
 
-// ---------------------------------------------------------------------------
-// Datenschutz-Hinweis an/aus (KIE-565 Nachtrag, Nutzer 15.10.2026): Schalter
-// „Datenschutz-Hinweis anzeigen“, gespeichert im vorhandenen Schlüssel
-// privacyNotice. Aus = "none"; an = "bubble" bzw. jeder andere oder kein
-// Wert (wie privacyNoticeValue() im Server, auch das frühere "modal"). Ein
-// leerer Text bedeutet weiter „Standardtext“, nicht „aus“.
-// ---------------------------------------------------------------------------
-
-// Felder des Hinweises; bei ausgeschaltetem Hinweis bleiben sie gespeichert,
-// wie sie sind
-export const PRIVACY_FIELD_KEYS = ["privacyTitle", "privacyText", "privacyUrl"];
-
-/** @returns {boolean} Datenschutz-Hinweis wird angezeigt */
-export function privacyNoticeOn(config = {}) {
-  const v = config?.privacyNotice;
-  return !(typeof v === "string" && v.trim().toLowerCase() === "none");
-}
+// Überschrift des Datenschutz-Fensters ohne eigenen Text (Widget
+// privacyDialogTitle, de), solange die Standardtexte fehlen
+export const PRIVACY_TITLE_STANDARD = "Datenschutz";
 
 /**
- * Bearbeitungsstand nach dem Schalter: aus -> "none". An -> der gespeicherte
- * Stand, wenn der Hinweis dort an war (auch ohne Schlüssel oder mit einem
- * Altwert wie "modal"; so entsteht kein ungefragter Schreibvorgang, Regel
- * D6), sonst "bubble".
- * @param {Object} config Bearbeitungsstand
- * @param {Object} initial gespeicherter Stand
- * @param {boolean} on
- * @returns {Object}
+ * Standard der Überschrift des Datenschutz-Hinweises: der des Servers, sonst
+ * PRIVACY_TITLE_STANDARD. Eine Quelle für die Überschrift im Fenster der
+ * Vorschau bei leerem Feld (previewPrivacy), den Platzhalter des Felds und
+ * den Hinweis darunter (F11, Fixliste rc2).
+ * @param {Object|null} defaults
+ * @returns {string}
  */
-export function withPrivacyNotice(config, initial = {}, on = true) {
-  const next = { ...config };
-  if (!on) next.privacyNotice = "none";
-  else if (!privacyNoticeOn(initial)) next.privacyNotice = "bubble";
-  else if ("privacyNotice" in initial)
-    next.privacyNotice = initial.privacyNotice;
-  else delete next.privacyNotice;
-  return next;
+export function privacyTitleStandard(defaults) {
+  return textValue(defaults?.privacyTitle).trim() || PRIVACY_TITLE_STANDARD;
+}
+
+// ---------------------------------------------------------------------------
+// Datenschutz-Hinweis (Datenschutz-Fußzeile, Nutzer 23.10.2026, Release 7.23,
+// issues/datenschutz-fusszeile.md): immer der Link „Datenschutz“ neben dem
+// KI-Hinweis unter der Eingabe; er öffnet das Datenschutz-Fenster mit
+// Überschrift, Text und Link zur Datenschutzerklärung. Kein „Aus“ (der
+// Server liefert fest privacyNotice "link"). Bis 7.22.2 gab es den Schalter
+// „Datenschutz-Hinweis anzeigen“ (KIE-565 Nachtrag, privacyNotice "none"
+// bzw. "bubble"). privacyNotice schreibt das Design Center nie mehr
+// (cleanConfig übernimmt den gespeicherten Stand); ein Altwert bleibt in
+// visual_config stehen und wirkt nicht. Seit AK-12 (Nutzer 24.10.2026) gibt
+// es zusätzlich den Schalter „Zusätzlich beim Start als Blase zeigen“
+// (privacyStartBubble, eigener Schlüssel, privacyStartBubbleOn): an steht der
+// Hinweis beim Start zusätzlich als Blase unter der Begrüßung, der Link
+// bleibt.
+// ---------------------------------------------------------------------------
+
+// Felder des Datenschutz-Fensters im Reiter Inhalt
+export const PRIVACY_FIELD_KEYS = ["privacyTitle", "privacyText", "privacyUrl"];
+
+/**
+ * Schalter „Zusätzlich beim Start als Blase zeigen“ (AK-12, Nutzer
+ * 24.10.2026): an nur bei genau true, wie im Server (GET /embed/:id/config)
+ * und im Widget. Ein anderer Wert ("true", 1, false) und alte Werte von
+ * privacyNotice (auch "bubble", D2) zählen als aus. Die eine Stelle für den
+ * Schalter im Reiter Inhalt und die Datenschutz-Blase der Vorschau.
+ * Gespeichert wird nur true, aus entfernt den Schlüssel (cleanConfig). Der
+ * Link „Datenschutz“ in der Fußzeile bleibt in jedem Fall (D1).
+ * @param {Object} config
+ * @returns {boolean}
+ */
+export function privacyStartBubbleOn(config = {}) {
+  return config?.privacyStartBubble === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1180,9 +1197,8 @@ export function validateConfig(config, initial, gKey) {
     textValue(config.sendMessageText).trim().length > PLACEHOLDER_MAX_LEN
   )
     errors.sendMessageText = `Maximal ${PLACEHOLDER_MAX_LEN} Zeichen.`;
-  // Hinweis aus: die ausgegrauten Felder werden nicht gespeichert und
-  // deshalb auch nicht geprüft
-  if (!privacyNoticeOn(config)) return errors;
+  // Datenschutz-Fenster: seit 7.23 immer bearbeitbar (kein Schalter mehr,
+  // bis 7.22.2 wurden die Felder bei ausgeschaltetem Hinweis nicht geprüft)
   if (textValue(config.privacyTitle).trim().length > PRIVACY_TITLE_MAX_LEN)
     errors.privacyTitle = `Maximal ${PRIVACY_TITLE_MAX_LEN} Zeichen.`;
   if (edited(config, initial, "privacyText")) {
@@ -1216,9 +1232,9 @@ export function validateConfig(config, initial, gKey) {
  *   anderen eigenen Text (greeting bzw. greetingBubbleText), sonst würde
  *   er sichtbar; unveränderte frühere Vorbelegung oder alte Datenschutz-
  *   Vorlage (E43) bleibt stehen. Gälte nach
- *   dem Speichern der andere eigene Text (etwa weil der Schalter
- *   „Datenschutz-Hinweis anzeigen“ privacyNotice umstellt, F04 Fixliste
- *   7.22-rc13), wird er entfernt: Live bleibt der Text aus dem Feld.
+ *   dem Speichern der andere eigene Text (F04 Fixliste 7.22-rc13: bis
+ *   7.22.2 stellte der Schalter „Datenschutz-Hinweis anzeigen“
+ *   privacyNotice um), wird er entfernt: Live bleibt der Text aus dem Feld.
  * - Platzhalter: leer oder Standardtext -> entfernen, frühere Vorbelegung
  *   oder früherer Standard (LEGACY_DEFAULT_PLACEHOLDERS) bleibt.
  * - Startvorschläge: leere Zeilen weg; genau die Vorbelegung -> entfernen;
@@ -1229,13 +1245,19 @@ export function validateConfig(config, initial, gKey) {
  * - Willkommensblasen: leere Zeilen weg; Vorbelegung oder [] -> entfernen
  *   (es gelten die Standardblasen des Widgets).
  * - Link: leer -> entfernen.
- * - Datenschutz-Überschrift: Standard -> entfernen, leer -> "" (bewusst
- *   keine Überschrift), sonst getrimmt.
+ * - Datenschutz-Überschrift: leer gilt wie der Standard (F5, seit 7.23):
+ *   leer oder Standard -> entfernen, wenn in dieser Sitzung bearbeitet;
+ *   unverändert gespeichert bleibt sie, wie sie ist; sonst getrimmt.
  * - Datenschutz-Text: unverändert bleibt er, wie er ist; geändert: leer oder
  *   Standard -> entfernen, sonst Normalform.
- * - Datenschutz-Hinweis aus (privacyNotice "none"): Überschrift, Text und
- *   Link bleiben genau wie gespeichert (Eingaben in den ausgegrauten Feldern
- *   werden nicht geschrieben).
+ * - privacyNotice: nie geschrieben (Datenschutz-Fußzeile 7.23, AK-6): der
+ *   gespeicherte Stand bleibt wörtlich, ohne gespeicherten Wert kommt keiner
+ *   dazu. Bis 7.22.2 schrieb der Schalter „Datenschutz-Hinweis anzeigen“
+ *   "none"/"bubble", und bei "none" blieben Überschrift, Text und Link
+ *   gesperrt; seit 7.23 gelten für sie immer die Regeln oben.
+ * - privacyStartBubble (AK-12): genau true bleibt, jeder andere Wert wird
+ *   entfernt, auch ein unverändert gespeicherter (aus = kein Schlüssel, nie
+ *   false; der Server liefert nur true aus, privacyStartBubbleOn).
  * - Kursanzahl (KIE-576 Paket 3): an ist der Standard, ein in dieser Sitzung
  *   gesetztes "on" entfällt; "off" bleibt. Bezeichnung: leer oder „Kurse“
  *   -> entfernen (wie jeder auf den Standard gebrachte Wert), sonst die
@@ -1255,6 +1277,11 @@ export function cleanConfig(
   const dropIfEdited = (key) => {
     if (edited(config, initial, key)) drop(key);
   };
+  // privacyNotice schreibt das Design Center nicht (Datenschutz-Fußzeile
+  // 7.23, AK-6): wörtlich der gespeicherte Stand, ohne ihn kein Schlüssel.
+  // Zuerst, damit greetingKey (F04 unten) mit dem gespeicherten Wert rechnet.
+  if ("privacyNotice" in initial) out.privacyNotice = initial.privacyNotice;
+  else drop("privacyNotice");
 
   if (typeof out.accentColor === "string") {
     const v = out.accentColor.trim();
@@ -1288,12 +1315,12 @@ export function cleanConfig(
   }
   // F04 (Fixliste 7.22-rc13): Die Begrüßung bleibt der Text aus dem Feld.
   // Gälte nach dem Speichern der andere eigene Text (greetingKey hängt an
-  // greetingStyle und privacyNotice, und der Schalter „Datenschutz-Hinweis
-  // anzeigen“ schreibt privacyNotice), wird der andere Text entfernt. Er war
+  // greetingStyle und privacyNotice), wird der andere Text entfernt. Er war
   // bis dahin nicht zu sehen (weder live noch im Design Center). Bewusste
   // Ausnahme zum Negativfall „keine Kundendaten verloren (Texte bleiben)“
-  // (E20, Fixliste 7.22-rc16); gelöscht wird nur, wenn der Kunde den
-  // Schalter umstellt und speichert, nie beim Update.
+  // (E20, Fixliste 7.22-rc16). Bis 7.22.2 löste das der Schalter
+  // „Datenschutz-Hinweis anzeigen“ aus; seit 7.23 schreibt das Design Center
+  // privacyNotice nicht mehr (oben), greetingKey bleibt also gleich.
   if (
     ownGreeting(out[gKey]) &&
     ownGreeting(out[otherGreeting]) &&
@@ -1347,17 +1374,12 @@ export function cleanConfig(
     else out.chatbotBubblesMessages = items;
   }
 
-  if (!privacyNoticeOn(out)) {
-    for (const key of PRIVACY_FIELD_KEYS) {
-      if (key in initial) out[key] = initial[key];
-      else drop(key);
-    }
-    return out;
-  }
-
+  // Überschrift: leer gilt wie der Standard (das Fenster zeigt dann
+  // „Datenschutz“; F5, Fixliste rc1, 7.23; bis 7.22.2 hieß leer „keine
+  // Überschrift“)
   if (typeof out.privacyTitle === "string") {
     const v = out.privacyTitle.trim();
-    if (sameAsDefault("privacyTitle", v, defaults))
+    if (!v || sameAsDefault("privacyTitle", v, defaults))
       dropIfEdited("privacyTitle");
     else out.privacyTitle = v;
   }
@@ -1378,6 +1400,9 @@ export function cleanConfig(
     if (validPrivacyUrl(out.privacyUrl)) out.privacyUrl = out.privacyUrl.trim();
     else drop("privacyUrl");
   }
+
+  // Datenschutz beim Start als Blase (AK-12): nur true wird gespeichert
+  if (!privacyStartBubbleOn(out)) drop("privacyStartBubble");
   return out;
 }
 

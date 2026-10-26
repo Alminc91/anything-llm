@@ -101,6 +101,13 @@ const OWN = {
   privacyText: "• Erste Zeile\n• Zweite Zeile",
   privacyUrl: "https://example.org/datenschutz",
   disclaimerText: "Eigener KI-Hinweis",
+  // feste Texte von Link und Datenschutz-Fenster (Datenschutz-Fußzeile,
+  // 7.23): kein Feld im Design Center; von Hand gespeichert bleiben sie
+  // stehen wie disclaimerText
+  privacyLinkText: "Eigener Linktext",
+  privacyAiTitle: "Eigener KI-Titel",
+  privacyAiText: "Eigener KI-Punkt",
+  privacyCloseText: "Zu",
   inlineInputPlaceholder: "Eigener Leistentext",
   inlineSendText: "Los",
   defaultMessages: ["Yoga am Abend?", "Gibt es Kurse, die abends stattfinden?"],

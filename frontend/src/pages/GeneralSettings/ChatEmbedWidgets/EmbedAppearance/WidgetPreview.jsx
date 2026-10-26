@@ -1,30 +1,34 @@
 // Live-Vorschau des Design Centers (Mock, angelehnt an das Widget): zeigt den
-// festen Standard mit den Inhalten des Kunden. Begrüßung als erste Blase,
-// Datenschutz-Hinweis als eigene zweite Blase (ausgeschaltet: nur die
-// Begrüßungsblase, KIE-565 Nachtrag), Startvorschläge als Pillen wie die
-// Folgefragen, eine Beispiel-Nutzernachricht in Akzentfarbe (Schrift auf der
-// Akzentfarbe sichtbar), darauf eine Beispiel-Antwort mit Kursen nach der
-// Wahl „Antworten mit Kursen“ (Karten zuerst, Text zuerst oder Nur Text mit
-// Links, KIE-567; ohne Wahl der Standard der Darstellung, R4), KI-Hinweis
-// fest unter der Eingabe, kein Online-Punkt. Willkommensblasen am
-// geschlossenen Chat-Button wie am Desktop (bei „Aus“ keine, KIE-568).
-// Hell/Dunkel in beiden Darstellungen. Die Vorschau folgt den Feldern: ohne
-// gespeicherten Wert zeigt sie die Vorbelegung (R5; Untertitel, Start-
-// vorschläge, Willkommensblasen). Farben wie im Widget: einen Wert, den die
-// Farbregel nicht annimmt (accentColorError meldet ihn), zeigt sie als
-// Standard (previewAccentColor, previewUserTextColor; Fixliste 7.22-rc22
-// E41 Ergänzung (b)), das Feld zeigt weiter den eingegebenen Wert. Lange
-// Wörter brechen um, statt über den Rand zu laufen (Restpunkt 5, rc7:
-// BREAK). Chatfenster und Box „In der
-// Seite“ haben eine feste Höhe wie live im Widget (Rückmeldung des Nutzers
-// vom 20.10.2026: 77 % der Vorschaufläche bzw. 520 px); der Nachrichten-
-// bereich scrollt innen mit sichtbarer Bildlaufleiste, beim Öffnen steht
-// der Verlauf unten, Begrüßung und Datenschutz-Blase sind durch Hochscrollen
-// erreichbar, nichts wird abgeschnitten (D12 rc11). Ändert sich Begrüßung,
-// Datenschutz-Hinweis oder Startvorschläge, scrollt der Verlauf den Block ins
-// Bild (F10, Fixliste 7.22-rc13). Beide hängen oben; die Vorschau-Spalte
-// scrollt nur, wenn das Fenster zu niedrig ist (B-06, R7).
-import { useLayoutEffect, useRef, useState } from "react";
+// festen Standard mit den Inhalten des Kunden. Begrüßung als erste Blase
+// (darunter die Datenschutz-Blase nur mit dem Schalter „Zusätzlich beim
+// Start als Blase zeigen“, AK-12; sonst seit 7.23 keine), Startvorschläge
+// als Pillen wie die Folgefragen, eine Beispiel-Nutzernachricht in
+// Akzentfarbe (Schrift auf der Akzentfarbe sichtbar), darauf eine
+// Beispiel-Antwort mit Kursen nach der Wahl „Antworten mit Kursen“ (Karten
+// zuerst, Text zuerst oder Nur Text mit Links, KIE-567; ohne Wahl der
+// Standard der Darstellung, R4), unter der Eingabe fest die Zeile „Unsere
+// KI kann Fehler machen · Datenschutz“; der Link öffnet das
+// Datenschutz-Fenster über dem Chat (Nutzer 23.10.2026,
+// issues/datenschutz-fusszeile.md AK-9), kein Online-Punkt.
+// Willkommensblasen am geschlossenen Chat-Button wie am Desktop (bei „Aus“
+// keine, KIE-568). Hell/Dunkel in beiden Darstellungen. Die Vorschau folgt
+// den Feldern: ohne gespeicherten Wert zeigt sie die Vorbelegung (R5;
+// Untertitel, Startvorschläge, Willkommensblasen). Farben wie im Widget:
+// einen Wert, den die Farbregel nicht annimmt (accentColorError meldet ihn),
+// zeigt sie als Standard (previewAccentColor, previewUserTextColor; Fixliste
+// 7.22-rc22 E41 Ergänzung (b)), das Feld zeigt weiter den eingegebenen Wert.
+// Lange Wörter brechen um, statt über den Rand zu laufen (Restpunkt 5, rc7:
+// BREAK). Chatfenster und Box „In der Seite“ haben eine feste Höhe wie live
+// im Widget (Rückmeldung des Nutzers vom 20.10.2026: 77 % der
+// Vorschaufläche bzw. 520 px); der Nachrichtenbereich scrollt innen mit
+// sichtbarer Bildlaufleiste, beim Öffnen steht der Verlauf oben, nichts wird
+// abgeschnitten (D12 rc11). Ändern sich Begrüßung oder Startvorschläge,
+// scrollt der Verlauf den Block ins Bild (F10, Fixliste 7.22-rc13); ändern
+// sich Überschrift, Text oder Link des Datenschutz-Hinweises, öffnet sich
+// das Datenschutz-Fenster mit der Änderung (ohne dem Feld den Fokus zu
+// nehmen), jede andere Änderung schließt es wieder. Beide hängen oben; die
+// Vorschau-Spalte scrollt nur, wenn das Fenster zu niedrig ist (B-06, R7).
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import {
   ChatCircleDots,
   Headset,
@@ -44,9 +48,12 @@ import {
   displayMode,
   listItems,
   lookValue,
+  PRIVACY_FIELD_KEYS,
+  PRIVACY_TITLE_STANDARD,
   privacyBlocks,
-  privacyNoticeOn,
+  privacyStartBubbleOn,
   privacyTitleFieldValue,
+  privacyTitleStandard,
   previewAccentColor,
   previewGreeting,
   previewInlineBar,
@@ -100,6 +107,17 @@ export function previewWindowHeight(areaHeight) {
   );
 }
 
+// Breite des Chatfensters in der Vorschau: fest 370 px (seit 03/2026, schmal
+// und hoch wie das Widget), in einem schmalen Design Center nie schmaler als
+// 360 px. Live ist das Fenster ab 768 px Bildschirmbreite mindestens 360 px
+// breit (Widget src/App.jsx, Nutzer 24.10.2026, W12/F9 der Fixliste
+// datenschutz-fusszeile rc2); vorher schrumpfte die Vorschau mit der Spalte,
+// unter 360 px bei einem Design Center unter 816 px Breite (768 px: 336 px).
+// min-width geht vor max-width; das Fenster ragt dann höchstens in den
+// Innenabstand der Vorschaufläche, ohne waagerechten Bildlauf.
+export const PREVIEW_WINDOW_WIDTH_PX = 370;
+export const PREVIEW_WINDOW_MIN_WIDTH_PX = 360;
+
 // Höhe der aufgeklappten Box „In der Seite“: fest wie live (Serverstandard
 // inlineHeight in server/utils/chats/embedStandards.js, im Widget
 // DEFAULT_INLINE_HEIGHT)
@@ -119,11 +137,11 @@ export function inlinePanelShadow(accent, scheme) {
 }
 
 // Verlauf an den Anfang scrollen: beim Öffnen und Aufklappen zeigt die
-// Vorschau wie beim ersten Besuch zuerst Kopf, Begrüßung und Datenschutz-
-// Blase; die Beispiel-Antwort ist durch Runterscrollen erreichbar und kommt
-// ins Bild, sobald sich eine Einstellung unter „Antworten mit Kursen“
-// ändert (Nutzer 23.10.2026; bis 7.22.1 stand der Verlauf unten wie ein
-// wieder geladener Verlauf, Rückmeldung 20.10.).
+// Vorschau wie beim ersten Besuch zuerst Kopf und Begrüßung (bis 7.22.2 mit
+// der Datenschutz-Blase); die Beispiel-Antwort ist durch Runterscrollen
+// erreichbar und kommt ins Bild, sobald sich eine Einstellung unter
+// „Antworten mit Kursen“ ändert (Nutzer 23.10.2026; bis 7.22.1 stand der
+// Verlauf unten wie ein wieder geladener Verlauf, Rückmeldung 20.10.).
 export function scrollToStart(el) {
   if (!el) return;
   el.scrollTop = 0;
@@ -189,20 +207,39 @@ export function revealInPreview(el) {
   if (next !== scroller.scrollTop) scroller.scrollTop = next;
 }
 
-// Block nach einer Änderung seines Inhalts ins Bild holen. Nicht beim
-// ersten Zeichnen und nicht, wenn die Standardtexte (GET /embed/defaults)
-// erst nach dem Zeichnen ankommen: dann bleibt der Verlauf, wo er beim
-// Öffnen stand (oben). signature null = Standardtexte noch nicht
-// geladen (nach einem Ladefehler gilt die Signatur, F42 Fixliste
-// 7.22-rc16).
-function useRevealOnChange(ref, signature) {
+// Rückruf nach einer Änderung der Signatur, eine Regel für alle Blöcke der
+// Vorschau (C2, Fixliste datenschutz-fusszeile rc1): nicht beim ersten
+// Zeichnen und nicht, wenn die Standardtexte (GET /embed/defaults) erst
+// nach dem Zeichnen ankommen (signature null = noch nicht geladen; nach
+// einem Ladefehler gilt die Signatur, F42 Fixliste 7.22-rc16). Der Rückruf
+// liegt in einem Ref: Er darf Props und State lesen, ohne den Effekt bei
+// jedem Zeichnen auszulösen.
+function useOnSignatureChange(signature, onChange) {
   const last = useRef(signature);
+  const callback = useRef(onChange);
+  useLayoutEffect(() => {
+    callback.current = onChange;
+  });
   useLayoutEffect(() => {
     if (last.current === signature) return;
     const loaded = last.current !== null;
     last.current = signature;
-    if (loaded && signature !== null) revealInPreview(ref.current);
+    if (loaded && signature !== null) callback.current();
   }, [signature]);
+}
+
+// Signatur erst, wenn die Standardtexte da sind oder nicht mehr kommen
+// (Ladefehler, F42 Fixliste 7.22-rc16: sonst bliebe sie immer null und
+// nichts käme ins Bild), vorher null (useOnSignatureChange). Eine Regel für
+// alle Signaturen der Vorschau (C4, Fixliste datenschutz-fusszeile rc3).
+function loadedSignature(defaults, defaultsError, signature) {
+  return defaults || defaultsError ? signature : null;
+}
+
+// Block nach einer Änderung seines Inhalts ins Bild holen; sonst bleibt der
+// Verlauf, wo er beim Öffnen stand (oben)
+function useRevealOnChange(ref, signature) {
+  useOnSignatureChange(signature, () => revealInPreview(ref.current));
 }
 
 // Sichtbare, zum Farbschema passende Bildlaufleiste des Verlaufs
@@ -224,9 +261,10 @@ const PALETTES = {
     text: "#1c1917",
     muted: "#57534e",
     line: "#e7e5e4",
-    // Blasen von Begrüßung, Datenschutz-Hinweis und Antworten wie im Widget:
+    // Blasen von Begrüßung und Antworten wie im Widget:
     // weiß mit Schatten (theme.js assistant-bg, bubble-shadow; bis 7.22.1
-    // zeigte die Vorschau sie grau, Nutzer 23.10.2026)
+    // zeigte die Vorschau sie grau, Nutzer 23.10.2026). Das
+    // Datenschutz-Fenster hat feste Farben (PREVIEW_PRIVACY_DIALOG_COLORS).
     bubbleBg: "#ffffff",
     bubbleShadow: "0 4px 14px rgba(0, 0, 0, 0.25)",
     inputBg: "#ffffff",
@@ -267,13 +305,17 @@ function ChatIcon({ config, size, color }) {
 
 /**
  * Vorschau rechts im Design Center.
- * @param {{config: Object, logoPreview: string|null, defaults: Object|null,
- *   defaultsError?: boolean, greetingKey: string}} props
+ * @param {{config: Object, cleanedConfig?: Object, logoPreview: string|null,
+ *   defaults: Object|null, defaultsError?: boolean, greetingKey: string}} props
+ *   cleanedConfig: der bereinigte Stand (cleanConfig, wie er gespeichert
+ *   würde); daran erkennt das Datenschutz-Fenster andere Änderungen (F15).
+ *   Ohne ihn (Vorschau allein) gilt config.
  *   defaultsError: Laden der Standardtexte fehlgeschlagen (sie kommen nicht
  *   mehr; bearbeitete Blöcke werden trotzdem ins Bild geholt, F42)
  */
 export default function WidgetPreview({
   config,
+  cleanedConfig = config,
   logoPreview,
   defaults,
   defaultsError = false,
@@ -329,6 +371,7 @@ export default function WidgetPreview({
           {inline ? (
             <InlinePreview
               config={config}
+              cleanedConfig={cleanedConfig}
               logoPreview={logoPreview}
               defaults={defaults}
               defaultsError={defaultsError}
@@ -339,6 +382,7 @@ export default function WidgetPreview({
           ) : (
             <BubblePreview
               config={config}
+              cleanedConfig={cleanedConfig}
               logoPreview={logoPreview}
               defaults={defaults}
               defaultsError={defaultsError}
@@ -619,8 +663,24 @@ export function PreviewSampleAnswer({ config, palette }) {
   );
 }
 
-// Startzustand des Chats: Begrüßungsblase, Datenschutz-Blase (falls an),
-// Pillen, Beispiel-Nutzernachricht
+// Startvorschläge der Vorschau (höchstens sechs): ohne gespeicherte Liste
+// die Standard-Startvorschläge des Servers (S1, wie live im Widget; R5),
+// seit E42 leer, also keine Pillen. Eine Stelle für den Verlauf, die
+// eingeklappte Leiste und die Signatur der Startansicht (A1).
+function previewPills(config, defaults) {
+  return textItems(listItems(config, "defaultMessages", defaults)).slice(0, 6);
+}
+
+// Blasen von Begrüßung und Datenschutz-Hinweis: Schriftgröße, Zeilenhöhe,
+// Rundung, Innenabstand und Breite gleich (wie im Widget seit 7.22.2,
+// Nutzer 23.10.2026; D4 zu AK-12)
+const WELCOME_BUBBLE_CLASS = `text-[12.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] ${BREAK}`;
+
+// Startzustand des Chats: Begrüßungsblase, Datenschutz-Blase (nur mit dem
+// Schalter „Zusätzlich beim Start als Blase zeigen“, AK-12), Pillen,
+// Beispiel-Nutzernachricht. Ohne den Schalter keine Datenschutz-Blase (seit
+// 7.23, AK-1): Der Hinweis steht im Fenster hinter dem Link unter der
+// Eingabe; der Link bleibt auch mit Blase (D1).
 export function PreviewWelcome({
   config,
   defaults,
@@ -628,36 +688,32 @@ export function PreviewWelcome({
   greetingKey,
   palette,
 }) {
-  const accentColor = previewAccentColor(config);
   const greeting = previewGreeting(config, greetingKey, defaults);
-  // Schalter „Datenschutz-Hinweis anzeigen“ aus: nur die Begrüßungsblase
-  const showPrivacy = privacyNoticeOn(config);
-  const title = privacyTitleFieldValue(config, defaults).trim();
-  const privacyText = textValue(config.privacyText).trim()
-    ? config.privacyText
-    : textValue(defaults?.privacyText);
-  const blocks = privacyBlocks(privacyText);
-  const url = validPrivacyUrl(config.privacyUrl);
-  // ohne gespeicherte Liste die Standard-Startvorschläge des Servers (S1,
-  // wie live im Widget; R5); seit E42 leer, also keine Pillen
-  const pills = textItems(listItems(config, "defaultMessages", defaults)).slice(
-    0,
-    6
-  );
+  // Datenschutz-Blase wie in 7.22.2 (D4): Überschrift (gespeichert, sonst
+  // und bei leerem Feld der Standard), Text als Punkte und Absätze, Link zur
+  // Datenschutzerklärung nur mit gültiger Adresse, ohne den Punkt „Hinweis
+  // zur KI“ (der steht im Fenster); dieselben Werte wie das Fenster
+  // (previewPrivacy), alles als Text
+  const showPrivacy = privacyStartBubbleOn(config);
+  const privacy = previewPrivacy(config, defaults);
+  const pills = previewPills(config, defaults);
   // F10 (Fixliste 7.22-rc13): Wer im Reiter Inhalt Begrüßung, Datenschutz-
-  // Hinweis oder Startvorschläge ändert, sieht den Block in der Vorschau,
-  // auch wenn der Verlauf unten steht
+  // Blase oder Startvorschläge ändert, sieht den Block in der Vorschau, auch
+  // wenn der Verlauf woanders steht (Felder des Datenschutz-Hinweises öffnen
+  // zusätzlich das Fenster, usePrivacyWindow)
   const greetingRef = useRef(null);
   const privacyRef = useRef(null);
   const pillsRef = useRef(null);
-  // Signaturen erst, wenn die Standardtexte da sind oder nicht mehr kommen
-  // (Ladefehler, F42 Fixliste 7.22-rc16: sonst blieben sie immer null und
-  // nichts käme ins Bild)
-  const loaded = (signature) => (defaults || defaultsError ? signature : null);
+  const loaded = (signature) =>
+    loadedSignature(defaults, defaultsError, signature);
   useRevealOnChange(greetingRef, loaded(greeting));
   useRevealOnChange(
     privacyRef,
-    loaded(showPrivacy ? JSON.stringify([title, blocks, url]) : "")
+    loaded(
+      showPrivacy
+        ? JSON.stringify([privacy.title, privacy.blocks, privacy.url])
+        : ""
+    )
   );
   // getrimmt wie gespeichert (cleanConfig): Speichern ist keine Bearbeitung,
   // die Vorschau springt danach nicht zu den Pillen (F43 Fixliste 7.22-rc16)
@@ -665,8 +721,10 @@ export function PreviewWelcome({
     pillsRef,
     loaded(JSON.stringify(pills.map((pill) => pill.trim())))
   );
-  // Begrüßung und Datenschutz-Hinweis gleich: Fläche, Schatten, Schrift
-  // (Nutzer 23.10.2026, wie im Widget seit 7.22.2)
+  // Begrüßung und Datenschutz-Blase wie im Widget seit 7.22.2: Fläche,
+  // Schatten, Schrift (Nutzer 23.10.2026); dieselbe Fläche hat das
+  // Datenschutz-Fenster (PREVIEW_PRIVACY_DIALOG_COLORS). Der Link in der
+  // Blase hat die Farbe aller Datenschutz-Links (previewPrivacyLinkColor, L1)
   const bubble = {
     backgroundColor: palette.bubbleBg,
     boxShadow: palette.bubbleShadow,
@@ -676,7 +734,7 @@ export function PreviewWelcome({
     <div className="w-full space-y-2.5" data-preview="welcome">
       <div
         ref={greetingRef}
-        className={`text-[12.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] ${BREAK}`}
+        className={WELCOME_BUBBLE_CLASS}
         style={bubble}
         data-preview="greeting-bubble"
       >
@@ -685,26 +743,18 @@ export function PreviewWelcome({
       {showPrivacy && (
         <div
           ref={privacyRef}
-          className={`text-[12.5px] leading-relaxed rounded-[18px] rounded-tl-[4px] px-3.5 py-2.5 max-w-[88%] space-y-1 ${BREAK}`}
+          className={`${WELCOME_BUBBLE_CLASS} space-y-1`}
           style={bubble}
           data-preview="privacy-bubble"
         >
-          {title && <p className="font-semibold">{title}</p>}
-          {blocks.map((block, i) =>
-            block.type === "bullet" ? (
-              <p key={i} className="flex gap-1.5">
-                <span aria-hidden="true">•</span>
-                <span>{block.text}</span>
-              </p>
-            ) : (
-              <p key={i}>{block.text}</p>
-            )
-          )}
-          {url && (
+          <p className="font-bold">{privacy.title}</p>
+          <PrivacyBlockList blocks={privacy.blocks} />
+          {privacy.url && (
             <p>
-              <span className="underline" style={{ color: accentColor }}>
-                Datenschutzerklärung
-              </span>
+              <PrivacyStatementLink
+                url={privacy.url}
+                color={previewPrivacyLinkColor(config, palette)}
+              />
             </p>
           )}
         </div>
@@ -731,9 +781,462 @@ export function PreviewWelcome({
   );
 }
 
-// Eingabe mit fester KI-Zeile darunter (eine Zeile, dezent)
-function PreviewInput({ config, defaults, palette }) {
+// Feste Texte von Fußzeile und Datenschutz-Fenster, solange die
+// Standardtexte (GET /embed/defaults, Sprache de) nicht geladen sind; gleich
+// embedDefaultTexts("de") im Server (Test designCenterPrivacyLink).
+export const PRIVACY_PREVIEW_TEXTS = Object.freeze({
+  disclaimerText: "Unsere KI kann Fehler machen",
+  privacyLinkText: "Datenschutz",
+  privacyTitle: PRIVACY_TITLE_STANDARD,
+  privacyAiTitle: "Hinweis zur KI",
+  privacyAiText:
+    "Unser KI-Berater ist auf richtige Auskünfte optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Kontrolle immer auf unserer Website.",
+  privacyCloseText: "Schließen",
+});
+// Beschriftung des Schließen-Symbols im Fenster (wie im Widget, de) und
+// Linktext zur Datenschutzerklärung (Widget PANEL_TEXTS.privacyBubbleLink)
+export const PRIVACY_CLOSE_LABEL = "Datenschutz schließen";
+export const PRIVACY_STATEMENT_LINK = "Datenschutzerklärung";
+
+/**
+ * Inhalt von Fußzeile und Datenschutz-Fenster der Vorschau: feste Texte aus
+ * den Standardtexten (sonst PRIVACY_PREVIEW_TEXTS), Überschrift wie das Feld
+ * (gespeichert, sonst Standard; leer gilt wie der Standard, wie im Widget
+ * und beim Speichern, F5), Text als
+ * Absätze und Punkte (gespeichert, sonst Standard; nie als HTML), Link zur
+ * Datenschutzerklärung nur als gültige https-Adresse oder Pfad.
+ * @param {Object} config
+ * @param {Object|null} defaults
+ */
+export function previewPrivacy(config, defaults) {
+  const text = textValue(config.privacyText).trim()
+    ? config.privacyText
+    : textValue(defaults?.privacyText);
+  return {
+    ...privacyFixedTexts(defaults),
+    title:
+      privacyTitleFieldValue(config, defaults).trim() ||
+      privacyTitleStandard(defaults),
+    blocks: privacyBlocks(text),
+    url: validPrivacyUrl(config.privacyUrl) ? config.privacyUrl.trim() : "",
+  };
+}
+
+// Feste Texte (nicht im Design Center änderbar) aus den Standardtexten
+function privacyFixedTexts(defaults) {
+  const fixed = (key) =>
+    textValue(defaults?.[key]).trim() || PRIVACY_PREVIEW_TEXTS[key];
+  return {
+    disclaimer: fixed("disclaimerText"),
+    linkText: fixed("privacyLinkText"),
+    aiTitle: fixed("privacyAiTitle"),
+    aiText: fixed("privacyAiText"),
+    closeText: fixed("privacyCloseText"),
+  };
+}
+
+// Farbe aller Datenschutz-Links der Vorschau, eine Quelle (L1, Hinweis O1
+// zu AK-12): der Link „Datenschutz“ in der Fußzeile, der Link zur
+// Datenschutzerklärung und alle Fokusrahmen im Datenschutz-Fenster und der
+// Link zur Datenschutzerklärung in der Datenschutz-Blase beim Start. Eine
+// Farbe wie im Widget (theme.js privacyLinkColor, R1-D1 Fixliste rc1, L1):
+// hell die Akzentfarbe (der Server liefert sie als linkColor), dunkel fest
+// DARK.link, je mit mindestens 4,5:1 zur Fläche der Fußzeile, des Fensters
+// und der Blase (Fläche der Begrüßungsblase, palette.bubbleBg; abgedunkelt
+// bzw. aufgehellt, wenn nötig; Fokusrahmen brauchen 3:1). Bis rc5 nahm die
+// Blase die rohe Linkfarbe (hell #FFA102 auf Weiß rund 2,0:1). Gegenprobe
+// gegen das Widget in den Tests designCenterPrivacyLink und
+// designCenterPrivacyStartBubble (KUFER_EMBED_DIR).
+const DARK_LINK_COLOR = "#5CC8CB";
+export function previewPrivacyLinkColor(config, palette = paletteOf(config)) {
+  const link = rawLinkColor(config, palette);
+  return pillTextColor(
+    link,
+    [
+      palette.panelBg,
+      PREVIEW_PRIVACY_DIALOG_COLORS[palette.scheme].bg,
+      palette.bubbleBg,
+    ],
+    palette.text
+  );
+}
+
+// Linkfarbe des Widgets ohne Kontrastausgleich (theme.js --allmi-link): hell
+// die Akzentfarbe, dunkel fest DARK.link. Nur Grundlage für
+// previewPrivacyLinkColor; kein Datenschutz-Link nutzt sie direkt (L1).
+function rawLinkColor(config, palette) {
+  return palette.scheme === "dark"
+    ? DARK_LINK_COLOR
+    : previewAccentColor(config);
+}
+
+// Farben des Datenschutz-Fensters, dieselben Werte wie im Widget (theme.js
+// PRIVACY_DIALOG_COLORS, R1-D1 Fixliste rc1): fest je Farbschema, keine
+// Einstellung wirkt darauf. Fläche und Schrift wie die Standard-Antwortblase
+// des Widgets, Trennlinien wie dort die Linie unter dem Kopf (F13, Fixliste
+// rc2; bis rc2 aus der Palette der Vorschau, hell Schrift #1c1917 und Linien
+// #e7e5e4, dunkel #f4f4f5 und rgba(255,255,255,.12)). Das Schließen-Symbol
+// hat die Schrift des Fensters (im Widget color: inherit). Gegenprobe gegen
+// das Widget im Test designCenterPrivacyLink.
+export const PREVIEW_PRIVACY_DIALOG_COLORS = Object.freeze({
+  light: Object.freeze({ text: "#222628", bg: "#FFFFFF", line: "#E9E9E9" }),
+  dark: Object.freeze({ text: "#F4F2EF", bg: "#2A2A2F", line: "#787B82" }),
+});
+
+// Zustand des Datenschutz-Fensters der Vorschau. Es ist nie modal (R3-D1,
+// Fixliste rc3); focus heißt nur „Fokus beim Öffnen auf die Überschrift“.
+const PRIVACY_CLOSED = Object.freeze({ isOpen: false, focus: false });
+// beim Bearbeiten geöffnet: der Fokus bleibt im Feld (E3)
+const PRIVACY_SHOWN = Object.freeze({ isOpen: true, focus: false });
+// per Link geöffnet: Fokus auf der Überschrift
+const PRIVACY_CLICKED = Object.freeze({ isOpen: true, focus: true });
+
+/**
+ * Datenschutz-Fenster der Vorschau offen oder zu (AK-9), nie modal (R3-D1,
+ * Fixliste rc3: kein aria-modal, keine Tab-Falle; bis rc3 nach einem Klick
+ * modal, beim Bearbeiten nicht, und jede Runde fand einen neuen Wechsel
+ * zwischen beiden). Klick auf den Link öffnet es und setzt den Fokus auf
+ * die Überschrift. Schließen (Button, Symbol, Esc) gibt den Fokus an den
+ * Link zurück, wenn er im Fenster lag (close(true); erst wenn das Fenster
+ * zu ist: solange es offen ist, sind Link und Kopf inert). Ändert sich der
+ * Inhalt (Überschrift, Text oder Link im Reiter Inhalt), öffnet es sich
+ * ohne Fokuswechsel, damit die Änderung zu sehen ist (E3, wie F10 bei der
+ * Begrüßung); onReveal öffnet dazu den Chat. Ändert sich irgendetwas anderes
+ * (Begrüßung, Startvorschläge, Beispielantwort, Optik), schließt das
+ * Fenster, damit die Änderung nicht dahinter verborgen bleibt (F-4, F10);
+ * Speichern ändert nichts davon (F15). Den Chat öffnet zusätzlich eine
+ * Änderung der Startansicht (useOpenOnStartViewChange, A1).
+ * Rückweg zu modal: aria-modal und Tab-Falle an focusOnOpen hängen.
+ * @param {{signature: string|null, others: string|null,
+ *   onReveal?: () => void}} args
+ *   signature: Inhalt des Fensters (privacySignature), others: alle übrigen
+ *   Einstellungen, bereinigt (othersSignature); null = Standardtexte noch
+ *   nicht geladen
+ */
+function usePrivacyWindow({ signature, others, onReveal }) {
+  const [state, setState] = useState(PRIVACY_CLOSED);
+  const linkRef = useRef(null);
+  const restoreFocus = useRef(false);
+  // zuerst die übrigen Einstellungen: ändern sich beide, gilt die Änderung
+  // am Datenschutz (das Fenster zeigt sie)
+  useOnSignatureChange(others, () => {
+    restoreFocus.current = false;
+    setState(PRIVACY_CLOSED);
+  });
+  useOnSignatureChange(signature, () => {
+    setState(PRIVACY_SHOWN);
+    onReveal?.();
+  });
+  useLayoutEffect(() => {
+    if (state.isOpen || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    linkRef.current?.focus();
+  }, [state.isOpen]);
+  return {
+    ...state,
+    linkRef,
+    show: () => setState(PRIVACY_CLICKED),
+    // focusInside: der Fokus lag beim Schließen im Fenster
+    close: (focusInside) => {
+      restoreFocus.current = !!focusInside;
+      setState(PRIVACY_CLOSED);
+    },
+    // beim Schließen bzw. Einklappen des Chats, ohne Fokuswechsel
+    reset: () => {
+      restoreFocus.current = false;
+      setState(PRIVACY_CLOSED);
+    },
+  };
+}
+
+// Signatur des Fensterinhalts für usePrivacyWindow
+function privacySignature(config, defaults, defaultsError) {
+  const { title, blocks, url } = previewPrivacy(config, defaults);
+  return loadedSignature(
+    defaults,
+    defaultsError,
+    JSON.stringify([title, blocks, url])
+  );
+}
+
+// Signatur aller übrigen Einstellungen (alles außer Überschrift, Text und
+// Link des Datenschutz-Hinweises), unabhängig von der Reihenfolge der
+// Schlüssel, aus dem bereinigten Stand (cleanConfig, F15 Fixliste rc3,
+// NF-3): Speichern bereinigt auch andere Felder (eine geleerte Begrüßung
+// entfällt, Leerzeichen am Ende), die Vorschau ändert sich dadurch nicht,
+// das Fenster bleibt offen (Speichern ist keine Bearbeitung, wie F43). Bis
+// rc3 aus den rohen Werten. Der bereinigte Stand vergleicht mit den
+// Standardtexten, deshalb erst ab geladenen Standardtexten (C4).
+function othersSignature(cleanedConfig, defaults, defaultsError) {
+  return loadedSignature(
+    defaults,
+    defaultsError,
+    JSON.stringify(
+      Object.keys(cleanedConfig)
+        .filter(
+          (key) =>
+            !PRIVACY_FIELD_KEYS.includes(key) &&
+            cleanedConfig[key] !== undefined
+        )
+        .sort()
+        .map((key) => [key, cleanedConfig[key]])
+    )
+  );
+}
+
+// Signatur der Startansicht (Review AF-1, Fixliste AK-12 A1): Begrüßung,
+// Datenschutz-Blase (Schalter „Zusätzlich beim Start als Blase zeigen“) und,
+// mit pills, die Startvorschläge. Diese Blöcke zeichnet die Vorschau nur im
+// offenen Chat (PreviewWelcome); ändert sich einer bei geschlossenem bzw.
+// eingeklapptem Chat, öffnet useOpenOnStartViewChange ihn, damit die
+// Änderung zu sehen ist (wie onReveal bei Überschrift, Text und Link, E3).
+// Bis rc5 öffnete nur der Inhalt des Datenschutz-Fensters den Chat, alles
+// andere schloss nur das Fenster (others), und der Schalter blieb bei
+// geschlossener Vorschau ohne sichtbare Wirkung. Aus dem bereinigten Stand
+// wie othersSignature: Speichern öffnet nichts (F15, F43).
+function startViewSignature(
+  cleanedConfig,
+  { greetingKey, defaults, defaultsError, pills }
+) {
+  const parts = [
+    previewGreeting(cleanedConfig, greetingKey, defaults),
+    privacyStartBubbleOn(cleanedConfig),
+  ];
+  if (pills)
+    parts.push(previewPills(cleanedConfig, defaults).map((p) => p.trim()));
+  return loadedSignature(defaults, defaultsError, JSON.stringify(parts));
+}
+
+// Chat der Vorschau öffnen, wenn sich die Startansicht ändert (A1); offen
+// ändert sich nichts, PreviewWelcome holt den Block dann ins Bild (F10).
+// Das Datenschutz-Fenster schließt dabei wie bei jeder anderen Einstellung
+// (others in usePrivacyWindow, F-4, R3-D1).
+function useOpenOnStartViewChange(signature, openChat) {
+  useOnSignatureChange(signature, openChat);
+}
+
+// Hülle um Kopf, Verlauf und Eingabe, je Darstellung eine (C6, Fixliste
+// rc3): Unter dem offenen Datenschutz-Fenster ist alles darin weder per Tab
+// noch per Maus oder Screenreader erreichbar (F-3). display: contents, die
+// Teile bleiben im Flex-Layout des Panels; inert wirkt trotzdem auf alles
+// darin. React 18 kennt inert nicht als Schalter: der leere Text setzt das
+// Attribut (ab React 19 inert={true}).
+function PrivacyCovered({ covered, children }) {
+  return (
+    <div className="contents" {...(covered ? { inert: "" } : {})}>
+      {children}
+    </div>
+  );
+}
+
+// Abstände des Datenschutz-Fensters: im Chatfenster wie die Blasen, im Panel
+// „In der Seite“ weiter innen wegen der Rundung von 40 px. Dort ist die
+// Textspalte höchstens etwa 70 Zeichen breit und linksbündig (R1-D2,
+// Fixliste rc1: das breite Panel ergab sonst Zeilen bis 150 Zeichen);
+// Kopfzeile, Button-Zeile und Bildlauf bleiben über die ganze Breite.
+// Rückweg: column weglassen.
+// Das Schließen-Symbol steht in beiden Darstellungen gleich hoch, mittig
+// zur ersten Zeile der Überschrift wie im Widget (F13, Fixliste rc2; bis rc2
+// bei „In der Seite“ top-3.5, 6 px tiefer): Kopf pt-3.5 (14 px) plus halbe
+// Zeile der Überschrift (15 px × 1,375 / 2 = 10,3 px) = 24,3 px, Symbol
+// h-8 (32 px) mit top-2 (8 px) = 24 px. Nur der Abstand nach rechts folgt
+// der Rundung des Panels.
+const PRIVACY_CLOSE_TOP = "top-2";
+const PRIVACY_TEXT_MAX_WIDTH = "70ch";
+const PRIVACY_DIALOG_INSETS = {
+  bubble: { x: "px-4", close: "right-2", title: "pr-11" },
+  inline: {
+    x: "px-8",
+    close: "right-5",
+    title: "pr-14",
+    column: { maxWidth: PRIVACY_TEXT_MAX_WIDTH },
+  },
+};
+
+// Datenschutz-Text als Punkte und Absätze (privacyBlocks), nur als Text, nie
+// als HTML; im Fenster und in der Datenschutz-Blase (AK-12) gleich
+function PrivacyBlockList({ blocks }) {
+  if (blocks.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      {blocks.map((block, i) =>
+        block.type === "bullet" ? (
+          <p key={i} className="flex gap-1.5">
+            <span aria-hidden="true">•</span>
+            <span>{block.text}</span>
+          </p>
+        ) : (
+          <p key={i}>{block.text}</p>
+        )
+      )}
+    </div>
+  );
+}
+
+// Link zur Datenschutzerklärung in Fenster und Blase, in der Vorschau nicht
+// bedienbar (ein Pfad wie /datenschutz gehört zur Seite des Kunden); die
+// Adresse steht im Tooltip. Nur mit gültiger Adresse (previewPrivacy).
+function PrivacyStatementLink({ url, color }) {
+  return (
+    <span
+      className="underline underline-offset-2 font-medium"
+      style={{ color }}
+      title={url}
+      data-preview="privacy-statement-link"
+    >
+      {PRIVACY_STATEMENT_LINK}
+    </span>
+  );
+}
+
+/**
+ * Datenschutz-Fenster über dem ganzen Chat (Panel des Chatfensters bzw. das
+ * aufgeklappte Panel „In der Seite“), wie im Widget (PrivacyNotice):
+ * Überschrift (gespeichert, sonst und bei leerem Feld der Standard), Text,
+ * Punkt „Hinweis zur KI“, Link zur Datenschutzerklärung (falls gesetzt),
+ * Button „Schließen“, das Schließen-Symbol oben rechts (im Dokument zuletzt).
+ * Fläche, Schrift und Trennlinien fest je Farbschema mit den Werten des
+ * Widgets (PREVIEW_PRIVACY_DIALOG_COLORS; R1-D1 im Widget: keine Variable
+ * der Seite wirkt darauf), Rundung des Panels; Link zur Datenschutzerklärung und alle Fokusrahmen in der
+ * Linkfarbe (previewPrivacyLinkColor). Kopf, Verlauf und Eingabe darunter
+ * sind inert (PrivacyCovered).
+ * role="dialog", aria-labelledby auf die Überschrift, nie aria-modal und
+ * keine Tab-Falle (R3-D1, Fixliste rc3): Das Design Center daneben bleibt
+ * für Tastatur und Screenreader erreichbar, Tab läuft nach dem
+ * Schließen-Symbol normal weiter. Im Widget bleibt das Fenster modal (AK-5).
+ * Nach einem Klick auf den Link (focusOnOpen) liegt der Fokus auf der
+ * Überschrift, Tab-Reihenfolge Text, Schließen, Schließen-Symbol; öffnet es
+ * sich beim Bearbeiten eines Felds, bleibt der Fokus im Feld (E3). Esc
+ * schließt. onClose(focusInside): ob der Fokus beim Schließen im Fenster
+ * lag. Der Link zur Datenschutzerklärung ist in der Vorschau nicht
+ * bedienbar (ein Pfad wie /datenschutz gehört zur Seite des Kunden, nicht
+ * zum Design Center).
+ */
+function PreviewPrivacyDialog({
+  config,
+  defaults,
+  palette,
+  focusOnOpen = false,
+  onClose,
+  inline = false,
+}) {
+  const titleId = useId();
+  const dialogRef = useRef(null);
+  const headingRef = useRef(null);
+  const privacy = previewPrivacy(config, defaults);
+  const inset = PRIVACY_DIALOG_INSETS[inline ? "inline" : "bubble"];
+  const colors = PREVIEW_PRIVACY_DIALOG_COLORS[palette.scheme];
+  const line = `1px solid ${colors.line}`;
+  const link = previewPrivacyLinkColor(config, palette);
+  // beim Öffnen per Link und wenn der Link ein beim Bearbeiten geöffnetes
+  // Fenster bedient (F-3)
+  useLayoutEffect(() => {
+    if (focusOnOpen) headingRef.current?.focus();
+  }, [focusOnOpen]);
+  const close = () => {
+    const dialog = dialogRef.current;
+    onClose(!!dialog?.contains(dialog.ownerDocument.activeElement));
+  };
+  // nur Esc; Tab bewegt der Browser (keine Tab-Falle, R3-D1)
+  const onKeyDown = (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  };
+  const focusRing =
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
+  return (
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-labelledby={titleId}
+      onKeyDown={onKeyDown}
+      className="absolute inset-0 z-20 flex flex-col"
+      style={{ backgroundColor: colors.bg, color: colors.text }}
+      data-preview="privacy-dialog"
+    >
+      <div
+        className={`${inset.x} ${inset.title} pt-3.5 pb-2.5 flex-shrink-0`}
+        style={{ borderBottom: line }}
+      >
+        <h3
+          id={titleId}
+          ref={headingRef}
+          tabIndex={-1}
+          className={`text-[15px] font-bold leading-snug outline-none ${BREAK}`}
+        >
+          {privacy.title}
+        </h3>
+      </div>
+      <div
+        tabIndex={0}
+        className={`flex-1 min-h-0 overflow-y-auto preview-scrollbar ${inset.x} py-3 text-[12.5px] leading-relaxed focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 ${BREAK}`}
+        style={{ ...scrollbarStyle(palette), outlineColor: link }}
+        data-preview="privacy-dialog-body"
+      >
+        <div
+          className="space-y-3"
+          style={inset.column}
+          data-preview="privacy-dialog-text"
+        >
+          <PrivacyBlockList blocks={privacy.blocks} />
+          <div className="space-y-0.5" data-preview="privacy-ai">
+            <p className="font-semibold">{privacy.aiTitle}</p>
+            <p>{privacy.aiText}</p>
+          </div>
+          {privacy.url && (
+            <p>
+              <PrivacyStatementLink url={privacy.url} color={link} />
+            </p>
+          )}
+        </div>
+      </div>
+      <div
+        className={`flex justify-end ${inset.x} pt-2.5 pb-3.5 flex-shrink-0`}
+        style={{ borderTop: line }}
+      >
+        <button
+          type="button"
+          onClick={close}
+          className={`h-10 px-5 rounded-xl text-[13px] font-semibold ${focusRing}`}
+          style={{
+            backgroundColor: previewAccentColor(config),
+            color: previewUserTextColor(config),
+            outlineColor: link,
+          }}
+        >
+          {privacy.closeText}
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={close}
+        aria-label={PRIVACY_CLOSE_LABEL}
+        title={PRIVACY_CLOSE_LABEL}
+        className={`absolute ${PRIVACY_CLOSE_TOP} ${inset.close} w-8 h-8 rounded-lg flex items-center justify-center ${focusRing}`}
+        style={{ color: "inherit", outlineColor: link }}
+      >
+        <X size={16} weight="bold" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+// Eingabe mit fester Zeile darunter: KI-Hinweis und Link „Datenschutz“ in
+// einer Zeile, dezent; nur der Linktext ist klickbar (Nutzer 23.10.2026).
+// Bei Platzmangel kürzt sich der KI-Hinweis, nie der Link.
+function PreviewInput({
+  config,
+  defaults,
+  palette,
+  privacyLinkRef,
+  privacyOpen = false,
+  onOpenPrivacy,
+}) {
   const placeholder = previewPlaceholder(config, defaults);
+  const { disclaimer, linkText } = privacyFixedTexts(defaults);
+  const link = previewPrivacyLinkColor(config, palette);
   return (
     <div className="px-4 pb-2.5 pt-1 flex-shrink-0" data-preview="input">
       <div
@@ -757,12 +1260,28 @@ function PreviewInput({ config, defaults, palette }) {
         />
       </div>
       <p
-        className="text-center text-[10px] leading-snug mt-1.5 truncate"
+        className="flex items-baseline justify-center min-w-0 whitespace-nowrap text-[10px] leading-snug mt-1.5"
         style={{ color: palette.muted }}
         data-preview="disclaimer"
       >
-        {textValue(defaults?.disclaimerText) ||
-          "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten."}
+        <span className="truncate min-w-0" data-preview="disclaimer-text">
+          {disclaimer}
+        </span>
+        <span className="whitespace-pre flex-shrink-0" aria-hidden="true">
+          {" · "}
+        </span>
+        <button
+          type="button"
+          ref={privacyLinkRef}
+          onClick={onOpenPrivacy}
+          aria-haspopup="dialog"
+          aria-expanded={privacyOpen ? "true" : "false"}
+          className="flex-shrink-0 underline underline-offset-2 -my-1 py-1 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
+          style={{ color: link, outlineColor: link }}
+          data-preview="privacy-link"
+        >
+          {linkText}
+        </button>
       </p>
     </div>
   );
@@ -770,6 +1289,7 @@ function PreviewInput({ config, defaults, palette }) {
 
 function BubblePreview({
   config,
+  cleanedConfig = config,
   logoPreview,
   defaults,
   defaultsError = false,
@@ -786,6 +1306,28 @@ function BubblePreview({
   useLayoutEffect(() => {
     if (open) scrollToStart(messagesRef.current);
   }, [open]);
+  // Datenschutz-Fenster (AK-9); eine Änderung im Reiter Inhalt öffnet auch
+  // den Chat, beim Schließen des Chats schließt es mit
+  const privacyWindow = usePrivacyWindow({
+    signature: privacySignature(config, defaults, defaultsError),
+    others: othersSignature(cleanedConfig, defaults, defaultsError),
+    onReveal: () => setOpen(true),
+  });
+  // Startvorschläge stehen nur im offenen Chat (geschlossen zeigt die
+  // Vorschau die Willkommensblasen), sie zählen zur Startansicht
+  useOpenOnStartViewChange(
+    startViewSignature(cleanedConfig, {
+      greetingKey,
+      defaults,
+      defaultsError,
+      pills: true,
+    }),
+    () => setOpen(true)
+  );
+  const setChatOpen = (next) => {
+    setOpen(next);
+    if (!next) privacyWindow.reset();
+  };
   const accentColor = previewAccentColor(config);
   const isLeft = lookValue(config, "position").includes("left");
   // Willkommensblasen wie am Desktop (KIE-568): „Aus“ = keine; ohne eigene
@@ -801,7 +1343,14 @@ function BubblePreview({
   const devicesDiffer =
     desktopBubbles !== choiceValue(config, "welcomeBubblesMobile");
   return (
-    <div className="w-[370px] max-w-full flex flex-col items-stretch">
+    <div
+      className="max-w-full flex flex-col items-stretch"
+      style={{
+        width: `${PREVIEW_WINDOW_WIDTH_PX}px`,
+        minWidth: `${PREVIEW_WINDOW_MIN_WIDTH_PX}px`,
+      }}
+      data-preview="chat-column"
+    >
       {/* Feste Höhe wie live (previewWindowHeight: 77 % der Vorschaufläche,
           mindestens 400 px); der Nachrichtenbereich scrollt innen mit
           sichtbarer Bildlaufleiste (vor rc11 war sie versteckt und schnitt
@@ -815,49 +1364,64 @@ function BubblePreview({
       >
         {open ? (
           <div
-            className="w-full flex-1 min-h-0 rounded-2xl flex flex-col overflow-hidden"
+            className="relative w-full flex-1 min-h-0 rounded-2xl flex flex-col overflow-hidden"
             style={{
               backgroundColor: palette.panelBg,
               boxShadow:
                 "0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)",
             }}
+            data-preview="chat-panel"
           >
-            <PreviewHeader
-              config={config}
-              logoPreview={logoPreview}
-              defaults={defaults}
-              palette={palette}
-              courseInventory={courseInventory}
-              action={
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  aria-label="Chat schließen"
-                  style={{ color: palette.muted }}
-                >
-                  <X size={18} weight="bold" />
-                </button>
-              }
-            />
-            <div
-              ref={messagesRef}
-              className="flex-1 min-h-0 overflow-y-auto preview-scrollbar px-4 py-4"
-              style={scrollbarStyle(palette)}
-              data-preview="chat-messages"
-            >
-              <PreviewWelcome
+            <PrivacyCovered covered={privacyWindow.isOpen}>
+              <PreviewHeader
+                config={config}
+                logoPreview={logoPreview}
+                defaults={defaults}
+                palette={palette}
+                courseInventory={courseInventory}
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setChatOpen(false)}
+                    aria-label="Chat schließen"
+                    style={{ color: palette.muted }}
+                  >
+                    <X size={18} weight="bold" />
+                  </button>
+                }
+              />
+              <div
+                ref={messagesRef}
+                className="flex-1 min-h-0 overflow-y-auto preview-scrollbar px-4 py-4"
+                style={scrollbarStyle(palette)}
+                data-preview="chat-messages"
+              >
+                <PreviewWelcome
+                  config={config}
+                  defaults={defaults}
+                  defaultsError={defaultsError}
+                  greetingKey={greetingKey}
+                  palette={palette}
+                />
+              </div>
+              <PreviewInput
                 config={config}
                 defaults={defaults}
-                defaultsError={defaultsError}
-                greetingKey={greetingKey}
                 palette={palette}
+                privacyLinkRef={privacyWindow.linkRef}
+                privacyOpen={privacyWindow.isOpen}
+                onOpenPrivacy={privacyWindow.show}
               />
-            </div>
-            <PreviewInput
-              config={config}
-              defaults={defaults}
-              palette={palette}
-            />
+            </PrivacyCovered>
+            {privacyWindow.isOpen && (
+              <PreviewPrivacyDialog
+                config={config}
+                defaults={defaults}
+                palette={palette}
+                focusOnOpen={privacyWindow.focus}
+                onClose={privacyWindow.close}
+              />
+            )}
           </div>
         ) : (
           bubbles.length > 0 && (
@@ -896,7 +1460,7 @@ function BubblePreview({
             backgroundColor: accentColor,
             boxShadow: `0 4px 14px ${accentColor}40`,
           }}
-          onClick={() => setOpen(!open)}
+          onClick={() => setChatOpen(!open)}
           aria-label={open ? "Chat schließen" : "Chat öffnen"}
         >
           <ChatIcon
@@ -927,6 +1491,7 @@ function BubblePreview({
 
 function InlinePreview({
   config,
+  cleanedConfig = config,
   logoPreview,
   defaults,
   defaultsError = false,
@@ -943,15 +1508,34 @@ function InlinePreview({
   useLayoutEffect(() => {
     if (expanded) scrollToStart(messagesRef.current);
   }, [expanded]);
+  // Datenschutz-Fenster über dem aufgeklappten Panel (AK-9); eine Änderung
+  // im Reiter Inhalt klappt auf, beim Einklappen schließt es mit
+  const privacyWindow = usePrivacyWindow({
+    signature: privacySignature(config, defaults, defaultsError),
+    others: othersSignature(cleanedConfig, defaults, defaultsError),
+    onReveal: () => setExpanded(true),
+  });
+  // Startvorschläge stehen eingeklappt unter der Leiste, ihre Änderung ist
+  // dort zu sehen; sie klappen nicht auf (E1, Fixliste AK-12 A1)
+  useOpenOnStartViewChange(
+    startViewSignature(cleanedConfig, {
+      greetingKey,
+      defaults,
+      defaultsError,
+      pills: false,
+    }),
+    () => setExpanded(true)
+  );
+  const setPanelExpanded = (next) => {
+    setExpanded(next);
+    if (!next) privacyWindow.reset();
+  };
   const accentColor = previewAccentColor(config);
   // Eingeklappte Leiste: derselbe Platzhalter wie im Eingabefeld (eigener
   // Text bis 120 Zeichen oder Standard), ein früher gespeicherter
   // Leistentext geht vor (Nutzerentscheidung 23.10.2026, ersetzt D2)
   const { placeholder, sendText } = previewInlineBar(config, defaults);
-  const chips = textItems(listItems(config, "defaultMessages", defaults)).slice(
-    0,
-    6
-  );
+  const chips = previewPills(config, defaults);
   return (
     <div
       className="w-full max-w-[640px] rounded-xl overflow-hidden flex flex-col"
@@ -984,7 +1568,7 @@ function InlinePreview({
         </div>
         {expanded ? (
           <div
-            className="w-full rounded-[40px] flex flex-col overflow-hidden"
+            className="relative w-full rounded-[40px] flex flex-col overflow-hidden"
             style={{
               backgroundColor: palette.panelBg,
               // feste Höhe wie live (Serverstandard inlineHeight); der
@@ -994,52 +1578,67 @@ function InlinePreview({
             }}
             data-preview="inline-panel"
           >
-            <div className="px-3 pt-2 flex-shrink-0">
-              <PreviewHeader
+            <PrivacyCovered covered={privacyWindow.isOpen}>
+              <div className="px-3 pt-2 flex-shrink-0">
+                <PreviewHeader
+                  config={config}
+                  logoPreview={logoPreview}
+                  defaults={defaults}
+                  palette={palette}
+                  courseInventory={courseInventory}
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => setPanelExpanded(false)}
+                      aria-label="Einklappen"
+                      style={{ color: palette.muted }}
+                    >
+                      <CaretUp size={18} weight="bold" />
+                    </button>
+                  }
+                />
+              </div>
+              <div
+                ref={messagesRef}
+                className="flex-1 min-h-0 overflow-y-auto preview-scrollbar px-6 py-4"
+                style={scrollbarStyle(palette)}
+                data-preview="inline-messages"
+              >
+                <PreviewWelcome
+                  config={config}
+                  defaults={defaults}
+                  defaultsError={defaultsError}
+                  greetingKey={greetingKey}
+                  palette={palette}
+                />
+              </div>
+              <div className="px-3 pb-2 flex-shrink-0">
+                <PreviewInput
+                  config={config}
+                  defaults={defaults}
+                  palette={palette}
+                  privacyLinkRef={privacyWindow.linkRef}
+                  privacyOpen={privacyWindow.isOpen}
+                  onOpenPrivacy={privacyWindow.show}
+                />
+              </div>
+            </PrivacyCovered>
+            {privacyWindow.isOpen && (
+              <PreviewPrivacyDialog
                 config={config}
-                logoPreview={logoPreview}
                 defaults={defaults}
                 palette={palette}
-                courseInventory={courseInventory}
-                action={
-                  <button
-                    type="button"
-                    onClick={() => setExpanded(false)}
-                    aria-label="Einklappen"
-                    style={{ color: palette.muted }}
-                  >
-                    <CaretUp size={18} weight="bold" />
-                  </button>
-                }
+                focusOnOpen={privacyWindow.focus}
+                onClose={privacyWindow.close}
+                inline
               />
-            </div>
-            <div
-              ref={messagesRef}
-              className="flex-1 min-h-0 overflow-y-auto preview-scrollbar px-6 py-4"
-              style={scrollbarStyle(palette)}
-              data-preview="inline-messages"
-            >
-              <PreviewWelcome
-                config={config}
-                defaults={defaults}
-                defaultsError={defaultsError}
-                greetingKey={greetingKey}
-                palette={palette}
-              />
-            </div>
-            <div className="px-3 pb-2 flex-shrink-0">
-              <PreviewInput
-                config={config}
-                defaults={defaults}
-                palette={palette}
-              />
-            </div>
+            )}
           </div>
         ) : (
           <div className="space-y-2.5" data-preview="inline-bar">
             <button
               type="button"
-              onClick={() => setExpanded(true)}
+              onClick={() => setPanelExpanded(true)}
               className="w-full flex items-center gap-3 rounded-full pl-5 pr-1.5 py-1.5 text-left"
               style={{
                 backgroundColor: palette.panelBg,

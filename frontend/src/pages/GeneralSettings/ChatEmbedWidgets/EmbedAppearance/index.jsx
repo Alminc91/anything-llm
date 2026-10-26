@@ -21,7 +21,6 @@ import {
   withChoice,
   withCourseCount,
   withLook,
-  withPrivacyNotice,
   withUserTextColor,
 } from "./widgetKeys";
 
@@ -89,8 +88,12 @@ export default function EmbedAppearance() {
   // verglichen, damit eine Vorbelegung, die der Kunde wieder auf den
   // Standard bringt, nicht als Änderung zählt
   const cleanOptions = { initial: initialConfig, defaults, greetingKey };
+  // Der bereinigte Stand entscheidet auch in der Vorschau, ob sich etwas
+  // geändert hat (Datenschutz-Fenster, F15 Fixliste datenschutz-fusszeile
+  // rc3): Speichern bereinigt, ändert die Vorschau aber nicht
+  const cleanedConfig = cleanConfig(config, cleanOptions);
   const hasChanges =
-    stableStringify(cleanConfig(config, cleanOptions)) !==
+    stableStringify(cleanedConfig) !==
     stableStringify(cleanConfig(initialConfig, cleanOptions));
 
   useEffect(() => {
@@ -182,13 +185,6 @@ export default function EmbedAppearance() {
       return next;
     });
   }, []);
-
-  // Schalter „Datenschutz-Hinweis anzeigen“: aus = "none", wieder an = der
-  // gespeicherte Stand bzw. "bubble" (widgetKeys.js withPrivacyNotice)
-  const setPrivacyNotice = useCallback(
-    (on) => setConfig((prev) => withPrivacyNotice(prev, initialConfig, on)),
-    [initialConfig]
-  );
 
   // Auswahl „Antworten mit Kursen“ (KIE-567) und „Willkommensblasen
   // anzeigen“ (KIE-568): gespeichert wird nur eine Abweichung vom
@@ -410,7 +406,6 @@ export default function EmbedAppearance() {
                 updateField={updateField}
                 updateOptionalField={updateOptionalField}
                 resetKeys={resetKeys}
-                setPrivacyNotice={setPrivacyNotice}
                 setChoice={setChoice}
                 setCourseCount={setCourseCount}
                 addListItem={addListItem}
@@ -454,6 +449,7 @@ export default function EmbedAppearance() {
         <div className="hidden md:flex flex-1 min-w-0">
           <WidgetPreview
             config={config}
+            cleanedConfig={cleanedConfig}
             logoPreview={logoPreview}
             defaults={defaults}
             defaultsError={defaultsError}

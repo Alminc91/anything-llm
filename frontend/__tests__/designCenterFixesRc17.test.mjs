@@ -131,10 +131,22 @@ test("F51 (E23, E24): Abschnitt zu Angaben im Einbau-Code und CSS-Variablen", ()
     /wirken nicht, auch wenn im Design Center nichts gespeichert ist/
   );
   assert.match(part, /Einbau-Angabe schlägt den festen Standard/);
-  assert.match(
+  // Bewusste Änderung (Datenschutz-Fußzeile, Nutzer 23.10.2026, 7.23): den
+  // Schalter gibt es nicht mehr, der Link „Datenschutz“ ist fest; bis 7.22.2
+  // „Den Datenschutz-Hinweis schaltet nur der Schalter im Design Center …“
+  assert.doesNotMatch(
     part,
     /Datenschutz-Hinweis schaltet nur der Schalter im Design Center/
   );
+  // Bewusste Änderung (AK-12, Nutzer 24.10.2026): der Schalter
+  // „Zusätzlich beim Start als Blase zeigen“ fügt nur die Blase hinzu; bis
+  // rc4 „es gibt dort keinen Schalter mehr“
+  assert.doesNotMatch(part, /es gibt dort keinen Schalter mehr/);
+  assert.match(
+    part,
+    /der Schalter „Zusätzlich beim Start als Blase zeigen“ fügt nur die Blase hinzu, der Link bleibt/
+  );
+  assert.match(part, /weder `data-privacy-notice` noch ein Wert im Design/);
   // E18 nicht mehr als geltende Regel
   assert.doesNotMatch(
     doc,
@@ -219,8 +231,10 @@ test("F51: Prüfpunkte 8 bis 10 nach E23", () => {
   // designCenterFixesRc20.test.mjs) und, bewusst geändert in rc22 (E41,
   // F101), Prüfpunkt 12 (Prüfung in designCenterFixesRc22.test.mjs) sowie,
   // bewusst geändert in rc24 (E43), Prüfpunkt 13 (Prüfung in
-  // server/__tests__/utils/chats/embedStandards.test.js, E43)
-  assert.doesNotMatch(doc, /^14\. /m);
+  // server/__tests__/utils/chats/embedStandards.test.js, E43) und, bewusst
+  // geändert mit der Datenschutz-Fußzeile (7.23), Prüfpunkt 14 (Prüfung
+  // ebenda)
+  assert.doesNotMatch(doc, /^15\. /m);
   // Textregeln: keine Gedankenstriche
   assert.doesNotMatch(doc, /[–—]/);
 });

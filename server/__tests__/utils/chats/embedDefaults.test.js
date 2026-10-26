@@ -36,6 +36,12 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
       privacyTitle: widget.privacyTitle,
       privacyText: widget.privacyPoints.map((p) => `• ${p}`).join("\n"),
       disclaimerText: widget.aiDisclaimer,
+      // Datenschutz-Fußzeile (Nutzer 23.10.2026): Link neben dem KI-Hinweis,
+      // Punkt „Hinweis zur KI“ und Button im Datenschutz-Fenster
+      privacyLinkText: widget.privacyLinkText,
+      privacyAiTitle: widget.privacyAiTitle,
+      privacyAiText: widget.privacyAiText,
+      privacyCloseText: widget.privacyCloseText,
       inlineInputPlaceholder: widget.inlineBarPlaceholder,
       inlineSendText: widget.inlineSendText,
       // S1 (Fixliste 7.22-rc10): Startvorschläge hat das Widget nicht, der
@@ -163,14 +169,12 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
       "• Mitarbeiter der Einrichtung können Gespräche zur Qualitätssicherung einsehen.",
       "• Bitte teilen Sie nur Angaben, die für Ihre Anfrage nötig sind.",
     ]);
-    // R1 (Fixliste 7.22-rc8): „Unsere KI“ statt „KI“, bewusst geändert;
-    // Kurzfassung „prüfen“ nach der Messung des Widgets (eine Zeile bis
-    // 1280 px nur so), en unverändert
-    expect(de.disclaimerText).toBe(
-      "Unsere KI kann Fehler machen. Bitte prüfen Sie die Antworten."
-    );
+    // R1 (Fixliste 7.22-rc8): „Unsere KI“ statt „KI“; bewusst gekürzt am
+    // 23.10.2026 (Datenschutz-Fußzeile): die Bitte, Antworten zu prüfen,
+    // steht als eigener Punkt im Datenschutz-Fenster
+    expect(de.disclaimerText).toBe("Unsere KI kann Fehler machen");
     expect(embedDefaultTexts("en").disclaimerText).toBe(
-      "Our AI can make mistakes. Please double-check the answers."
+      "Our AI can make mistakes"
     );
     // entfallen: Knopf der Datenschutz-Karte, eigener Text der Begrüßungsblase
     expect(de).not.toHaveProperty("privacyButtonText");
@@ -228,12 +232,97 @@ describe("Standardtexte = Widget-PANEL_TEXTS", () => {
   });
 });
 
+// Datenschutz als Link in der Fußzeile (issues/datenschutz-fusszeile.md,
+// Nutzer 23.10.2026, Vertrag Punkte 1 bis 4): kurzer KI-Hinweis, Linktext in
+// derselben Zeile, Punkt „Hinweis zur KI“ und Button „Schließen“ im
+// Datenschutz-Fenster; de und en wortgleich mit PANEL_TEXTS im Widget. Der
+// KI-Punkt gilt seit F8 (Nutzer 23.10.2026, Vertrag rc2) für alle Kunden,
+// auch ohne Kursangebot: ohne Kurs-Wörter, Verweis auf „unsere Website“.
+describe("Datenschutz-Fußzeile: Texte des Vertrags", () => {
+  const CONTRACT = {
+    de: {
+      disclaimerText: "Unsere KI kann Fehler machen",
+      privacyLinkText: "Datenschutz",
+      privacyAiTitle: "Hinweis zur KI",
+      privacyAiText:
+        "Unser KI-Berater ist auf richtige Auskünfte optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Kontrolle immer auf unserer Website.",
+      privacyCloseText: "Schließen",
+      privacyTitle: "Datenschutz",
+    },
+    en: {
+      disclaimerText: "Our AI can make mistakes",
+      privacyLinkText: "Privacy",
+      privacyAiTitle: "About the AI",
+      privacyAiText:
+        "Our AI advisor is optimised for accurate information. Like any AI, it can still make the occasional mistake. You can always check important details such as dates and prices on our website.",
+      privacyCloseText: "Close",
+      privacyTitle: "Privacy",
+    },
+  };
+
+  test.each(["de", "en"])("%s: Wortlaut wörtlich", (lang) => {
+    const t = embedDefaultTexts(lang);
+    for (const [key, value] of Object.entries(CONTRACT[lang]))
+      expect([key, t[key]]).toEqual([key, value]);
+    // Rohtexte unter denselben Namen (Kopie von PANEL_TEXTS)
+    for (const key of [
+      "disclaimerText",
+      "privacyLinkText",
+      "privacyAiTitle",
+      "privacyAiText",
+      "privacyCloseText",
+    ])
+      expect(EMBED_DEFAULT_TEXTS[lang][key]).toBe(CONTRACT[lang][key]);
+  });
+
+  test("Fixture = Vertrag (aiDisclaimer und die neuen Schlüssel des Widgets)", () => {
+    for (const lang of ["de", "en"]) {
+      expect(PANEL_TEXTS[lang].aiDisclaimer).toBe(
+        CONTRACT[lang].disclaimerText
+      );
+      for (const key of [
+        "privacyLinkText",
+        "privacyAiTitle",
+        "privacyAiText",
+        "privacyCloseText",
+      ])
+        expect(PANEL_TEXTS[lang][key]).toBe(CONTRACT[lang][key]);
+    }
+  });
+
+  test("F8: KI-Punkt neutral für alle Kunden (keine Kurs-Wörter, Verweis auf die Website)", () => {
+    for (const lang of ["de", "en"]) {
+      const { privacyAiText } = embedDefaultTexts(lang);
+      expect(privacyAiText).not.toMatch(/kurs|course/i);
+      expect(privacyAiText).toMatch(
+        lang === "de" ? /auf unserer Website\.$/ : /on our website\.$/
+      );
+    }
+  });
+
+  test("Fußzeile ohne alten Zusatz, ohne Satzpunkt am Ende, keine Gedankenstriche oder Gendersprache", () => {
+    for (const lang of ["de", "en"]) {
+      const t = embedDefaultTexts(lang);
+      expect(t.disclaimerText).not.toMatch(/prüfen|double-check|\.$/);
+      expect(`${t.disclaimerText} · ${t.privacyLinkText}`).toBe(
+        lang === "de"
+          ? "Unsere KI kann Fehler machen · Datenschutz"
+          : "Our AI can make mistakes · Privacy"
+      );
+      for (const key of Object.keys(CONTRACT[lang]))
+        expect(t[key]).not.toMatch(
+          /[\u2013\u2014]|Mitarbeitende|\w[*:_]innen\b|\wInnen\b/
+        );
+    }
+  });
+});
+
 // R1 (Fixliste 7.22-rc8): Gegenprobe gegen das Embed-Repo selbst (nicht nur
 // gegen die Fixture-Kopie). KUFER_EMBED_DIR zeigt auf den Worktree des
-// Widgets; ohne die Variable wird übersprungen. Kürzt das Widget den
-// KI-Hinweis nach der Messung (unter 10 px Schrift) auf „Bitte prüfen Sie“,
-// scheitert dieser Test, bis embedDefaults.js und die Fixture nachgezogen
-// sind.
+// Widgets; ohne die Variable wird übersprungen. Ändert das Widget einen
+// dieser Texte (seit der Datenschutz-Fußzeile, 7.23, auch Linktext, Punkt
+// „Hinweis zur KI“ und Button im Fenster), scheitert dieser Test, bis
+// embedDefaults.js und die Fixture nachgezogen sind.
 const embedDir = process.env.KUFER_EMBED_DIR;
 const describeWidget = embedDir ? describe : describe.skip;
 describeWidget(
@@ -279,7 +368,7 @@ describeWidget(
     };
 
     test.each(["de", "en"])(
-      "%s: KI-Hinweis, Name, Untertitel, Begrüßung, Platzhalter, Überschrift, Datenschutz-Punkte",
+      "%s: KI-Hinweis, Name, Untertitel, Begrüßung, Platzhalter, Überschrift, Datenschutz-Link und -Fenster, Datenschutz-Punkte",
       (lang) => {
         const widget = block(lang);
         const ours = EMBED_DEFAULT_TEXTS[lang];
@@ -289,6 +378,17 @@ describeWidget(
         expect(field(widget, "greetingBubble")).toBe(ours.greeting);
         expect(field(widget, "inputPlaceholder")).toBe(ours.inputPlaceholder);
         expect(field(widget, "privacyTitle")).toBe(ours.privacyTitle);
+        // Datenschutz-Fußzeile (23.10.2026): Linktext, Punkt „Hinweis zur
+        // KI“ und Button im Fenster unter denselben Namen
+        for (const key of [
+          "privacyLinkText",
+          "privacyAiTitle",
+          "privacyAiText",
+          "privacyCloseText",
+        ]) {
+          expect([key, field(widget, key)]).toEqual([key, ours[key]]);
+          expect([key, PANEL_TEXTS[lang][key]]).toEqual([key, ours[key]]);
+        }
         // Datenschutz-Punkte (E30, Fixliste 7.22-rc19): wortgleich im Widget
         expect(points(widget)).toEqual(ours.privacyPoints);
         // Fixture-Kopie ebenfalls auf dem Stand des Widgets
