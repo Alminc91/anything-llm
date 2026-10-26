@@ -26,7 +26,9 @@
 // Überschrift (headline), Zeilen (details), Anteil der fehlenden Kurse
 // (missingPercent), ob der Chat die Kursliste anwendet (listApplied) und die
 // Hinweiszeile (notice, D-r6-3) rechnet nur der Server; Seite und Mail lesen
-// sie ab.
+// sie ab. Ausgeblendete Kurse (hidden, counts.hidden) liefert er nur, solange
+// der Chat die Kursliste anwendet, sonst [] und 0: dann blendet der Chat
+// nichts aus (Fixliste r7 Nr. 1).
 
 const { courseInventoryDetails } = require("./courseInventory");
 
@@ -128,8 +130,9 @@ const notSetUp = () => ({
  * („fehlen“, „alter“; beide, wenn beides zutrifft), Zahlen mit dem Anteil
  * der fehlenden Kurse, die Listen (je höchstens 500, die Gesamtzahl steht in
  * counts), letzter Lauf, letzter erfolgreicher Abgleich (created), ob der
- * Chat die Kursliste anwendet, die Hinweiszeile (notice: nur bei Gelb oder
- * Rot und listApplied false) und ob das Ende geschätzt ist. Nur lesend;
+ * Chat die Kursliste anwendet (ausgeblendete Kurse nur dann, sonst [] und
+ * 0), die Hinweiszeile (notice: nur bei Gelb oder Rot und listApplied false)
+ * und ob das Ende geschätzt ist. Nur lesend;
  * wirft bei einem Lesefehler.
  * @param {{slug?: string}|null} workspace
  * @param {{now?: number, lists?: boolean}} [options]
@@ -146,6 +149,7 @@ async function courseStatus(
   const byMissing = missingLevel(missing, counts.offered);
   const byAge = ageLevel(now - inventory.createdMs);
   const level = Math.max(byMissing, byAge);
+  const { listApplied } = details;
   const reasons = [];
   if (byMissing > 0) reasons.push("fehlen");
   if (byAge > 0) reasons.push("alter");
@@ -161,15 +165,15 @@ async function courseStatus(
       offered: counts.offered,
       count: counts.count,
       missing,
-      hidden: counts.hidden,
+      hidden: listApplied ? counts.hidden : 0,
     },
     missingPercent: missingPercentOf(missing, counts.offered),
     missing: details.missing ?? [],
-    hidden: details.hidden ?? [],
+    hidden: listApplied ? details.hidden ?? [] : [],
     lastRun,
     syncedAt: inventory.stand,
-    listApplied: details.listApplied,
-    notice: level > 0 && !details.listApplied ? NOTICE_LIST_NOT_APPLIED : null,
+    listApplied,
+    notice: level > 0 && !listApplied ? NOTICE_LIST_NOT_APPLIED : null,
     estimatedEnd: inventory.estimatedEnd,
   };
 }

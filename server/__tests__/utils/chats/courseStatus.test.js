@@ -409,7 +409,8 @@ describe("Vertrag r4: listApplied", () => {
     expect(await courseStatus(WS)).toMatchObject({
       state: "gelb",
       listApplied: false,
-      counts: { hidden: 1 },
+      counts: { hidden: 0 },
+      hidden: [],
     });
     expect(await courseSearchExclusion("ws")).toBeNull();
     expect(await courseInventoryStatus(WS)).toBeNull();
@@ -464,6 +465,33 @@ describe("Vertrag r6: notice", () => {
       state: "gruen",
       listApplied: false,
       notice: null,
+    });
+  });
+});
+
+// Fixliste r7 Nr. 1 (AM1): ausgeblendete Kurse nur, solange der Chat die
+// Kursliste anwendet; sonst [] und 0, Seite, Mail und Bericht zeigen ab
+describe("Vertrag r7: hidden", () => {
+  test("Liste angewendet: Kurse außerhalb der Kursliste mit Zahl", async () => {
+    workspaceWith(numbers("262", 100), {
+      "custom-documents/alt.json": courseDoc("261-1"),
+    });
+    const status = await run(1);
+    expect(status).toMatchObject({ listApplied: true, counts: { hidden: 1 } });
+    expect(status.hidden.map((item) => item.knr)).toEqual(["261-1"]);
+  });
+
+  test.each([
+    ["Gelb (25 h)", 25],
+    ["Grün, created in der Zukunft", -2],
+  ])("%s, Liste nicht angewendet: [] und 0", async (_name, hours) => {
+    workspaceWith(numbers("262", 100), {
+      "custom-documents/alt.json": courseDoc("261-1"),
+    });
+    expect(await run(hours)).toMatchObject({
+      listApplied: false,
+      counts: { hidden: 0 },
+      hidden: [],
     });
   });
 });
@@ -803,7 +831,8 @@ describe("Nur lesend (NAK-1, NAK-3)", () => {
     expect(await courseStatus(WS)).toMatchObject({
       state: "gelb",
       reasons: ["alter"],
-      counts: { offered: 100, count: 100, missing: 0, hidden: 1 },
+      counts: { offered: 100, count: 100, missing: 0, hidden: 0 },
+      hidden: [],
       listApplied: false,
     });
   });
