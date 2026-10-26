@@ -222,6 +222,41 @@ test("D6: Bezeichnung nur gespeichert, wenn sie vom Standard abweicht; mit Schal
   );
 });
 
+test("r3-S1: ungültige gespeicherte Bezeichnung wird beim Speichern verworfen, mit Schalter an und aus", () => {
+  const old = { courseCountWord: "Kurse am Abend", accentColor: "#123456" };
+  const opts = { initial: old, defaults: DEFAULTS, greetingKey: "greeting" };
+  // unverändert mit Schalter an: keine Fehlermarke, beim Speichern verworfen
+  assert.deepEqual(keys.validateConfig({ ...old }, old, "greeting"), {});
+  assert.deepEqual(keys.cleanConfig({ ...old }, opts), {
+    accentColor: "#123456",
+  });
+  // Schalter aus: der ungültige Wert aus initial wird nicht übernommen
+  assert.deepEqual(
+    keys.cleanConfig(keys.withCourseCount(old, old, false), opts),
+    { accentColor: "#123456", courseCountMode: "off" }
+  );
+  // neu eingegeben bleibt sie stehen (Speichern-Button sichtbar),
+  // validateConfig sperrt das Speichern mit Meldung
+  assert.deepEqual(
+    keys.cleanConfig({ ...old, courseCountWord: "Neu!" }, opts),
+    { accentColor: "#123456", courseCountWord: "Neu!" }
+  );
+  assert.equal(
+    keys.validateConfig({ ...old, courseCountWord: "Neu!" }, old, "greeting")
+      .courseCountWord,
+    keys.COURSE_COUNT_WORD_ERROR
+  );
+  // ein gültiger gespeicherter Wert bleibt mit Schalter aus erhalten
+  const valid = { courseCountWord: "Seminare" };
+  assert.deepEqual(
+    keys.cleanConfig(keys.withCourseCount(valid, valid, false), {
+      ...opts,
+      initial: valid,
+    }),
+    { courseCountWord: "Seminare", courseCountMode: "off" }
+  );
+});
+
 test("NAK-K5: der Untertitel bleibt beim Speichern mit Schalter an und aus erhalten", () => {
   const stored = { assistantSubtitle: "Ihr Kursberater" };
   const opts = { initial: stored, defaults: DEFAULTS, greetingKey: "greeting" };

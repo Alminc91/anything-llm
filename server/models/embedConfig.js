@@ -1,6 +1,7 @@
 const { v4 } = require("uuid");
 const prisma = require("../utils/prisma");
 const { VALID_CHAT_MODE } = require("../utils/chats/stream");
+const { courseCountWordValue } = require("../utils/chats/embedStandards");
 
 const EmbedConfig = {
   writable: [
@@ -312,14 +313,32 @@ function validatedCreationData(value, field) {
     return isNaN(value) || Number(value) <= 0 ? null : Number(value);
   }
 
+  // KIE-576 r3-S1: Bezeichnung der Kursanzahl (courseCountWord) für alle
+  // Schreibwege (neu, Design Center, Developer-API) nach derselben Regel wie
+  // beim Lesen (courseCountWordValue): gültig in NFC und getrimmt, sonst
+  // (leer, kein Text, ungültig, auch ein Altwert) verworfen, es gilt der
+  // Standard der Sprache. Eine neu eingegebene ungültige Bezeichnung lehnt
+  // das Design Center mit Meldung ab (validateConfig).
   if (field === "visual_config") {
     try {
       if (!value) return null;
       const parsed = typeof value === "string" ? JSON.parse(value) : value;
       const invalid = invalidVisualBooleanKeys(parsed);
-      if (invalid.length > 0) {
+      const hasWord =
+        !!parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        Object.prototype.hasOwnProperty.call(parsed, "courseCountWord");
+      const word = hasWord
+        ? courseCountWordValue(parsed.courseCountWord)
+        : null;
+      const wordChanged =
+        hasWord && (word === null || word !== parsed.courseCountWord);
+      if (invalid.length > 0 || wordChanged) {
         const kept = { ...parsed };
         for (const key of invalid) delete kept[key];
+        if (wordChanged && word === null) delete kept.courseCountWord;
+        else if (wordChanged) kept.courseCountWord = word;
         return JSON.stringify(kept);
       }
       return typeof value === "string" ? value : JSON.stringify(value);

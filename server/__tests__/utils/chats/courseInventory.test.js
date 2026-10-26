@@ -2,7 +2,7 @@
 // KIE-576 Paket 3: Kursbestand des Kursprogramms (kufer_course_inventory).
 // AK-K2: Validator nach Vertrag (Form, 512 KiB, Alter 24 h), nicht über HTTP
 // schreibbar (NAK-K4), ungültig = wie heute (NAK-K1). AK-K4: count = |A ∩ B|,
-// offered = |A|, hidden = veraltete Kursdokumente (D-K5) aus den eigenen
+// offered = |A|, hidden = |B \ A| (veraltete Kursnummern, D-K5) aus den eigenen
 // Kursdokumenten des Workspace, gemerkt höchstens 1 h je Workspace und Wert. AK-K9: Dokumente
 // ohne Suchdaten zählen nicht als eingelernt. NAK-K2: nie ein Dokument ohne
 // Kursnummer, nie bei leerer Liste oder ohne angebotenen Kurs.
@@ -297,7 +297,7 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     prisma.system_settings.findFirst.mockResolvedValue({ value: value() });
   });
 
-  test("count = |A ∩ B|, offered = |A|, hidden = veraltete Kursdokumente (D-K5)", async () => {
+  test("count = |A ∩ B|, offered = |A|, hidden = |B \\ A| (D-K5)", async () => {
     installDeps();
     const status = await courseInventoryStatus({ slug: "ws" });
     // A = 100..103, B (eingelernt) = 100, 101, 102, 900, 901 (103 ohne
@@ -314,12 +314,49 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
   test("AK-K9: ohne Zeilen im Vektorspeicher zählt ein Dokument nicht als eingelernt", async () => {
     installDeps({ present: new Set(["v100b", "v900a", "vs"]) });
     const status = await courseInventoryStatus({ slug: "ws" });
-    // hidden zählt alle veralteten Kursdokumente, sie werden alle
-    // ausgeschlossen (D-K5)
-    expect(status).toMatchObject({ count: 1, offered: 4, hidden: 2 });
+    // hidden wie count (r3-S4): nur eingelernte veraltete Kursnummern (900;
+    // 901 hat keine Zeile im Vektorspeicher)
+    expect(status).toMatchObject({ count: 1, offered: 4, hidden: 1 });
     // ausgeschlossen werden trotzdem alle veralteten Abschnitte
     const exclusion = await courseSearchExclusion("ws");
     expect(exclusion.clauses[0]).toBe("id NOT IN ('v900a','v900b','v901')");
+  });
+
+  test("r3-S4: hidden zählt verschiedene Kursnummern, ohne Dokumente ohne document_vectors", async () => {
+    const deps = installDeps();
+    // zweites Dokument zu 262-900 (eingelernt) und eines zu 262-902 ohne
+    // document_vectors
+    const extra = {
+      "custom-documents/k900b.json": courseText("262-900", "Alter Kurs"),
+      "custom-documents/k902.json": courseText("262-902", "Ohne Suchdaten"),
+    };
+    const vectors = { ...VECTORS, k900b: ["v900c"] };
+    deps.listDocuments.mockImplementation(async () =>
+      [...Object.keys(DOCS), ...Object.keys(extra)].map((docpath) => ({
+        docId: path.basename(docpath, ".json"),
+        docpath,
+      }))
+    );
+    deps.readDocumentText.mockImplementation(
+      async (docpath) => DOCS[docpath] ?? extra[docpath] ?? null
+    );
+    deps.listVectors.mockImplementation(async (docIds) =>
+      docIds.flatMap((docId) =>
+        (vectors[docId] || []).map((vectorId) => ({ docId, vectorId }))
+      )
+    );
+    deps.tableRows.mockImplementation(async () => [
+      ...DOC_ROWS,
+      { id: "v900c", title: "k900b.txt", published: PUBLISHED },
+    ]);
+    expect(await courseInventoryStatus({ slug: "ws" })).toMatchObject({
+      count: 3,
+      hidden: 2,
+    });
+    // ausgeschlossen werden weiter alle Abschnitte veralteter Dokumente
+    expect((await courseSearchExclusion("ws")).clauses[0]).toBe(
+      "id NOT IN ('v900a','v900b','v900c','v901')"
+    );
   });
 
   test("AK-K9: Vektorspeicher nicht prüfbar (null): es zählt document_vectors", async () => {
@@ -351,7 +388,7 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     expect(reads.sort()).toEqual(Object.keys(DOCS).sort());
   });
 
-  test("S4: Vektorspeicher nicht lesbar: Index gilt für den Aufruf, wird aber nicht gemerkt", async () => {
+  test("S4, r3-S3 a: Vektorspeicher nicht lesbar: Index gilt, wird aber nur 2 min gemerkt", async () => {
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
     const deps = installDeps();
     deps.tableRows.mockRejectedValueOnce(new Error("busy"));
@@ -367,8 +404,18 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     expect((await courseSearchExclusion("ws")).clauses[0]).toBe(
       "id NOT IN ('v900a','v900b','v901')"
     );
-    // der zweite Aufruf hat neu gebaut, danach ist der Index gemerkt
+    // innerhalb von 2 min gemerkt, danach neu gebaut; der vollständige
+    // Index gilt wieder 1 h
+    expect(deps.listDocuments).toHaveBeenCalledTimes(1);
+    clock.now += t.INCOMPLETE_INDEX_MAX_AGE_MS - 1;
+    await courseInventoryStatus({ slug: "ws" });
+    expect(deps.listDocuments).toHaveBeenCalledTimes(1);
+    clock.now += 1;
+    expect(await courseInventoryStatus({ slug: "ws" })).toMatchObject({
+      count: 3,
+    });
     expect(deps.listDocuments).toHaveBeenCalledTimes(2);
+    clock.now += t.INCOMPLETE_INDEX_MAX_AGE_MS;
     await courseInventoryStatus({ slug: "ws" });
     expect(deps.listDocuments).toHaveBeenCalledTimes(2);
     error.mockRestore();
@@ -386,14 +433,19 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     expect(deps.rowTexts).toHaveBeenCalledWith("ws", ["o1"]);
   });
 
-  test("Fehler beim Aufbau: null ohne Merken, der nächste Aufruf versucht es neu", async () => {
+  test("r3-S3 a: Fehler beim Aufbau: null, 2 min gemerkt, danach neu versucht", async () => {
     jest.spyOn(console, "error").mockImplementation(() => {});
     const deps = installDeps();
     deps.listDocuments.mockRejectedValueOnce(new Error("busy"));
     expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
+    clock.now += t.INCOMPLETE_INDEX_MAX_AGE_MS - 1;
+    expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
+    expect(deps.listDocuments).toHaveBeenCalledTimes(1);
+    clock.now += 1;
     expect(await courseInventoryStatus({ slug: "ws" })).toMatchObject({
       count: 3,
     });
+    expect(deps.listDocuments).toHaveBeenCalledTimes(2);
     console.error.mockRestore();
   });
 
@@ -405,7 +457,9 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
     expect(await courseSearchExclusion("ws")).toBeNull();
     expect(await courseInventoryGuard({ slug: "ws" })).toBeNull();
-    // G: der Vektorspeicher wird dafür nicht gelesen, der Index gemerkt
+    // G (r3-S3 b): weder document_vectors noch der Vektorspeicher werden
+    // dafür gelesen, der Index gemerkt
+    expect(deps.listVectors).not.toHaveBeenCalled();
     expect(deps.tableRows).not.toHaveBeenCalled();
     expect(deps.rowTexts).not.toHaveBeenCalled();
     expect(deps.listDocuments).toHaveBeenCalledTimes(1);
@@ -581,7 +635,7 @@ describe("Ausschluss und Prüfer (E35, NAK-K2)", () => {
     );
   });
 
-  test("KR-1, S4: Prüfung der verwaisten Abschnitte scheitert: geloggt, Ausschluss der bekannten bleibt, Index nicht gemerkt", async () => {
+  test("KR-1, S4: Prüfung der verwaisten Abschnitte scheitert: geloggt, Ausschluss der bekannten bleibt, Index nur 2 min gemerkt", async () => {
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
     const deps = installDeps({
       orphans: [{ id: "o1", text: chunk(courseText("262-777")) }],
@@ -592,7 +646,9 @@ describe("Ausschluss und Prüfer (E35, NAK-K2)", () => {
     expect(error).toHaveBeenCalledWith(
       "[courseInventory] Abschnitte ohne lesbares Dokument nicht prüfbar: busy"
     );
-    // der nächste Aufruf baut neu und findet den verwaisten Abschnitt
+    // nach 2 min baut der nächste Aufruf neu und findet den verwaisten
+    // Abschnitt
+    clock.now += t.INCOMPLETE_INDEX_MAX_AGE_MS;
     expect((await courseSearchExclusion("ws")).clauses[0]).toBe(
       "id NOT IN ('o1','v900a','v900b','v901')"
     );

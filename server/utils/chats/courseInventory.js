@@ -14,8 +14,8 @@
 // courseNumberFromText). Daraus:
 //   count   = |A ∩ B|   (Zahl im Untertitel, nie größer, NAK-K3)
 //   offered = |A|
-//   hidden  = Kursdokumente mit Kursnummer außerhalb von A (veraltet, in
-//             der Suche ausgeblendet, D-K5)
+//   hidden  = |B \ A|   (veraltete Kursnummern, in der Suche ausgeblendet,
+//             D-K5; gezählt wie count)
 // B zählt nur eingelernte Dokumente (AK-K9, E34 Stufe 2): Zu jedem
 // Kursdokument muss es Suchdaten geben, also Einträge in document_vectors
 // und (bei LanceDB) mindestens eine dieser Zeilen in der Tabelle des
@@ -49,7 +49,8 @@
 // NAK-K2), ohne Kursliste kostet das je Aufruf nur das Lesen der einen
 // Zeile. Ungültige einzelne Einträge in offered werden übersprungen. Ein
 // kaputter Eintrag kippt nie den Chat: alle Einstiege fangen Fehler ab. Ein
-// unvollständiger Index (Vektorspeicher nicht lesbar) wird nicht gemerkt.
+// unvollständiger Index (Vektorspeicher nicht lesbar) wird nur 2 min
+// gemerkt.
 
 const fs = require("fs");
 const prisma = require("../prisma");
@@ -64,6 +65,8 @@ const INVENTORY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const INVENTORY_FUTURE_MS = 60 * 60 * 1000;
 // AK-K4: Index je Workspace und Wert höchstens 1 h gemerkt
 const INDEX_MAX_AGE_MS = 60 * 60 * 1000;
+// r3-S3 a: ein unvollständiger oder gescheiterter Index nur 2 min
+const INCOMPLETE_INDEX_MAX_AGE_MS = 2 * 60 * 1000;
 const COURSE_NUMBER_MAX_LEN = 64;
 const CLIENT_MAX_LEN = 200;
 const CONTROL_RX = /[\p{Cc}\u2028\u2029]/u;
@@ -436,14 +439,6 @@ async function buildIndex(slug, inventory) {
     key: keys.get(doc.docpath) ?? null,
   }));
   const courseDocs = withKeys.filter((doc) => typeof doc.key === "string");
-  // Abschnitte aller Dokumente: welche Zeilen der Tabelle der Workspace kennt
-  const vectorsByDoc = new Map();
-  for (const { docId, vectorId } of await deps.listVectors(
-    documents.map((doc) => doc.docId)
-  )) {
-    if (!vectorsByDoc.has(docId)) vectorsByDoc.set(docId, []);
-    vectorsByDoc.get(docId).push(vectorId);
-  }
 
   const offered = inventory.offered;
   const allKeys = new Set(courseDocs.map((doc) => doc.key));
@@ -462,12 +457,21 @@ async function buildIndex(slug, inventory) {
   };
   // NAK-K2: ohne einen einzigen angebotenen Kurs im Workspace (Liste eines
   // anderen Kunden, Workspace ohne Kurse) wird nichts ausgeblendet; dann
-  // wird der Vektorspeicher nicht gelesen (G)
+  // werden weder document_vectors noch der Vektorspeicher gelesen (G)
   if (!anyOffered) return { ...base, active: false };
+
+  // Abschnitte aller Dokumente: welche Zeilen der Tabelle der Workspace kennt
+  const vectorsByDoc = new Map();
+  for (const { docId, vectorId } of await deps.listVectors(
+    documents.map((doc) => doc.docId)
+  )) {
+    if (!vectorsByDoc.has(docId)) vectorsByDoc.set(docId, []);
+    vectorsByDoc.get(docId).push(vectorId);
+  }
 
   // Zeilen der Tabelle einmal lesen (G): AK-K9 welche Abschnitte gibt es
   // wirklich im Vektorspeicher, KR-1 verwaiste Abschnitte. Fehler: Index
-  // gilt für diese Anfrage, wird aber nicht gemerkt (S4)
+  // gilt, wird aber nur 2 min gemerkt (S4, r3-S3 a)
   let rows = null;
   try {
     rows = await deps.tableRows(slug);
@@ -488,6 +492,9 @@ async function buildIndex(slug, inventory) {
   for (const key of known) if (offered.has(key)) count++;
 
   const staleDocs = courseDocs.filter((doc) => !offered.has(doc.key));
+  // hidden wie count (r3-S4): verschiedene Kursnummern der eingelernten
+  // veralteten Dokumente; ausgeschlossen werden alle veralteten
+  const hidden = new Set(staleDocs.filter(embedded).map((doc) => doc.key)).size;
   const excludedIds = new Set(
     staleDocs.flatMap((doc) => vectorsByDoc.get(doc.docId) || [])
   );
@@ -528,7 +535,7 @@ async function buildIndex(slug, inventory) {
   return {
     ...base,
     active: true,
-    counts: { count, offered: offered.size },
+    counts: { count, offered: offered.size, hidden },
     staleDocCount: staleDocs.length,
     headBlockCount: headBlockIds.size,
     excludedIds,
@@ -543,8 +550,8 @@ async function buildIndex(slug, inventory) {
  * Index eines Workspace (Namespace = slug) zum gültigen Kursbestand, gemerkt
  * höchstens 1 h je Workspace und Wert (AK-K4); null ohne gültigen Wert,
  * ohne Workspace oder bei einem Fehler. Ein gescheiterter oder
- * unvollständiger Index wird nicht gemerkt, der nächste Aufruf baut neu
- * (S4). Wirft nie.
+ * unvollständiger Index wird nur 2 min gemerkt, danach baut der nächste
+ * Aufruf neu (S4, r3-S3 a). Wirft nie.
  * @param {string} slug
  * @param {{now?: number}} [options]
  * @returns {Promise<object|null>}
@@ -559,18 +566,22 @@ async function workspaceInventory(slug, { now = Date.now() } = {}) {
       entry &&
       entry.raw === inventory.raw &&
       now - entry.builtAt >= 0 &&
-      now - entry.builtAt < INDEX_MAX_AGE_MS
+      now - entry.builtAt < entry.maxAge
     )
       return await entry.promise;
-    const fresh = { raw: inventory.raw, builtAt: now, promise: null };
+    const fresh = {
+      raw: inventory.raw,
+      builtAt: now,
+      maxAge: INDEX_MAX_AGE_MS,
+      promise: null,
+    };
     fresh.promise = buildIndex(slug, inventory).catch((error) => {
       console.error(`[courseInventory] Index nicht gebaut: ${error.message}`);
       return null;
     });
     indexCache.set(slug, fresh);
     const index = await fresh.promise;
-    if (!index?.complete && indexCache.get(slug) === fresh)
-      indexCache.delete(slug);
+    if (!index?.complete) fresh.maxAge = INCOMPLETE_INDEX_MAX_AGE_MS;
     return index;
   } catch (error) {
     console.error(`[courseInventory] ${error.message}`);
@@ -658,8 +669,9 @@ async function courseInventoryGuard(workspace) {
 
 /**
  * Zahlen für /config und die Vorschau im Design Center: {count, offered,
- * hidden, stand}; hidden = veraltete Kursdokumente des Workspace, die die
- * Suche ausblendet (staleDocCount, D-K5). null ohne gültigen Wert oder ohne
+ * hidden, stand}; hidden = verschiedene Kursnummern der eingelernten
+ * veralteten Kursdokumente, die die Suche ausblendet (D-K5, gezählt wie
+ * count). null ohne gültigen Wert oder ohne
  * angebotenen Kurs im Workspace. Wirft nie.
  * @param {{slug?: string}|null} workspace
  * @returns {Promise<{count: number, offered: number, hidden: number, stand: string}|null>}
@@ -667,7 +679,7 @@ async function courseInventoryGuard(workspace) {
 async function courseInventoryStatus(workspace) {
   const index = await workspaceInventory(workspace?.slug);
   if (!index?.active) return null;
-  return { ...index.counts, hidden: index.staleDocCount, stand: index.stand };
+  return { ...index.counts, stand: index.stand };
 }
 
 /**
@@ -703,6 +715,7 @@ module.exports = {
     INVENTORY_MAX_BYTES,
     INVENTORY_MAX_AGE_MS,
     INDEX_MAX_AGE_MS,
+    INCOMPLETE_INDEX_MAX_AGE_MS,
     EXCLUSION_BLOCK,
     courseKey,
     courseKeyOfText,

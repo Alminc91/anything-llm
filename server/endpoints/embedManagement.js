@@ -21,7 +21,6 @@ const {
   embedDefaultTexts,
 } = require("../utils/chats/embedDefaults");
 const { courseInventoryStatus } = require("../utils/chats/courseInventory");
-const { courseCountWordOnSave } = require("../utils/chats/embedStandards");
 const {
   berlinMidnight,
   berlinDayOf,
@@ -433,18 +432,6 @@ function embedManagementEndpoints(app) {
         ) {
           response.sendStatus(403).end();
           return;
-        }
-
-        // KIE-576 Paket 3: Bezeichnung der Kursanzahl nach Vertrag, eine
-        // ungültige wird nicht gespeichert (400 mit Meldung), eine leere
-        // entfernt
-        if (updates?.visual_config !== undefined) {
-          const word = courseCountWordOnSave(updates.visual_config);
-          if (word.error) {
-            response.status(400).json({ success: false, error: word.error });
-            return;
-          }
-          updates.visual_config = word.visualConfig;
         }
 
         const { success, error } = await EmbedConfig.update(embedId, updates);
