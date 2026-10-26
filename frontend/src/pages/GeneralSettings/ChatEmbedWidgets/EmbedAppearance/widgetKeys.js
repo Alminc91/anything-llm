@@ -919,14 +919,15 @@ export function withCourseCount(config, initial = {}, on = true) {
 }
 
 /**
- * Gültige Bezeichnung wie im Server: getrimmt, 1 bis 20 Zeichen (UTF-16),
- * ein Wort aus Buchstaben, Bindestrich nur zwischen Buchstaben; sonst null.
+ * Gültige Bezeichnung wie im Server: in NFC (r3-S2), getrimmt, 1 bis 20
+ * Zeichen (UTF-16), ein Wort aus Buchstaben, Bindestrich nur zwischen
+ * Buchstaben; sonst null.
  * @param {*} value
  * @returns {string|null}
  */
 export function courseCountWordValue(value) {
   if (typeof value !== "string") return null;
-  const word = value.trim();
+  const word = value.normalize("NFC").trim();
   if (word.length === 0 || word.length > COURSE_COUNT_WORD_MAX_LEN) return null;
   return COURSE_COUNT_WORD_RE.test(word) ? word : null;
 }
@@ -1284,6 +1285,8 @@ export function validateConfig(config, initial, gKey) {
  *   gesetztes "on" entfällt; "off" bleibt. Bezeichnung: leer oder „Kurse“
  *   -> entfernen (wie jeder auf den Standard gebrachte Wert), sonst die
  *   Normalform; mit Schalter aus bleibt sie, wie sie gespeichert ist.
+ *   Ungültig und unverändert gespeichert -> entfernen (r3-S1); neu
+ *   eingegeben sperrt validateConfig das Speichern.
  * @param {Object} config
  * @param {{initial: Object, defaults: Object|null, greetingKey: string}} opts
  * @returns {Object}
@@ -1371,15 +1374,20 @@ export function cleanConfig(
     if (courseCountOn(out)) dropIfEdited("courseCountMode");
     else out.courseCountMode = "off";
   }
+  // r3-S1: eine ungültige Bezeichnung aus initial wird verworfen, es gilt
+  // der Standard wie live; eine neu eingegebene ungültige bleibt stehen und
+  // sperrt das Speichern mit Meldung (validateConfig)
   if (!courseCountOn(out)) {
-    if ("courseCountWord" in initial)
+    if (courseCountWordValue(initial.courseCountWord) !== null)
       out.courseCountWord = initial.courseCountWord;
     else drop("courseCountWord");
   } else if (typeof out.courseCountWord === "string") {
     const v = courseCountWordValue(out.courseCountWord);
     if (isBlank(out.courseCountWord)) drop("courseCountWord");
-    else if (v === DEFAULT_COURSE_COUNT_WORD) dropIfEdited("courseCountWord");
-    else if (v !== null) out.courseCountWord = v;
+    else if (v === null) {
+      if (!edited(config, initial, "courseCountWord")) drop("courseCountWord");
+    } else if (v === DEFAULT_COURSE_COUNT_WORD) dropIfEdited("courseCountWord");
+    else out.courseCountWord = v;
   }
 
   if (Array.isArray(out.defaultMessages)) {
