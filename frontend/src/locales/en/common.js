@@ -274,6 +274,8 @@ const TRANSLATIONS = {
     "chatbot-status": "Status",
     "chatbot-conversations": "Conversations",
     "chatbot-design-center": "Design Center",
+    "chatbot-expand": "Expand Chatbot",
+    "chatbot-collapse": "Collapse Chatbot",
     "embed-chats": "Chat Embed History",
     security: "Security",
     "event-logs": "Event Logs",
@@ -2046,8 +2048,8 @@ const TRANSLATIONS = {
       title: {
         aktuell: "Course program up to date",
         unvollstaendig: "Course program incomplete",
-        "nicht-aktualisiert": "Course program not updated",
-        "nicht-abrufbar": "Course program not retrievable",
+        nicht_aktualisiert: "Course program not updated",
+        nicht_abrufbar: "Course program not retrievable",
         nicht_eingerichtet: "Synchronization not set up",
       },
       "not-set-up":
@@ -2070,6 +2072,8 @@ const TRANSLATIONS = {
         "We are taking care of it. If you have any questions, please contact us at {{email}}.",
       "closing-unreachable":
         "We are taking care of it. If the address of your website or your course program has changed, please contact us at {{email}}.",
+      "list-not-applied":
+        "Until the next successful synchronization, the AI advisor does not hide any courses.",
     },
     kpi: {
       offered: "In the course program",
@@ -2085,9 +2089,10 @@ const TRANSLATIONS = {
     },
     hidden: {
       label: "Hidden courses",
-      title: "Hidden, presumably ended ({{count}})",
+      title:
+        "Hidden because ended or no longer in the course program ({{count}})",
       estimated:
-        "Estimated, not guaranteed: your course program provides no end date, so we estimate it from start and duration. With the end date, the estimate is no longer needed.",
+        "Interim solution: your course program does not provide an end date yet. Until then, we estimate the end from start and duration. In rare cases, courses that are still running may be hidden as well. We are actively working on adopting the end date.",
       notice:
         "Since {{date}}: Excluding past courses is currently being optimized.",
       from: "from {{date}}",

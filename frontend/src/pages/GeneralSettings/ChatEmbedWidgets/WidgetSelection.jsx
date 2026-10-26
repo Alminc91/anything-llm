@@ -53,18 +53,24 @@ export function useChatbotWidgets() {
   return state;
 }
 
+// Kennung der Meldung „Widget nicht gefunden“: react-toastify zeigt eine
+// Meldung mit derselben Kennung nicht ein zweites Mal
+const WIDGET_NOT_FOUND_TOAST = "chatbot-widget-not-found";
+
 /**
  * Das gezeigte Widget: widget= aus der Adresse, sonst das zuletzt gewählte,
  * sonst das mit der jüngsten Nachricht. Ein Widget in der Adresse, das der
- * Nutzer nicht sieht (fremd, gelöscht), meldet einen Hinweis und wird aus
- * der Adresse genommen; gezeigt wird dann die Vorauswahl.
+ * Nutzer nicht sieht (fremd, gelöscht, keine gültige Kennung wie „abc“),
+ * meldet einmal den Hinweis „Dieses Widget wurde nicht gefunden …“ und wird
+ * aus der Adresse genommen; gezeigt wird dann die Vorauswahl. Der Hinweis
+ * ist in Status, Konversationen und Design Center derselbe (Fixliste r4
+ * Nr. 11).
  * @param {object} options
  * @param {Array<{id: number}>} options.embeds - sichtbare Widgets
  * @param {Array<object>|null} [options.lastActivity]
  * @param {(id: number) => void} [options.setWidget] - schreibt widget= (die
  *   Konversationen nehmen dabei auch die geöffnete Konversation heraus)
  * @param {() => void} [options.clearWidget] - nimmt widget= heraus
- * @param {string} [options.notFoundText] - Hinweis bei fremdem Widget
  * @returns {{widgetId: number|null, unknownLink: boolean, selectWidget: (id: number) => void}}
  */
 export function useWidgetSelection({
@@ -72,16 +78,16 @@ export function useWidgetSelection({
   lastActivity = null,
   setWidget = null,
   clearWidget = null,
-  notFoundText = null,
 }) {
   const { t } = useTranslation();
   const { user } = useUser();
   const userId = user?.id ?? null;
   const [params, setParams] = useSearchParams();
 
-  const linkedId = positiveId(params.get(PARAM_WIDGET));
+  const linkedValue = params.get(PARAM_WIDGET);
+  const linkedId = positiveId(linkedValue);
   const linked = embeds.some((embed) => embed.id === linkedId);
-  const unknownLink = linkedId !== null && !linked;
+  const unknownLink = linkedValue !== null && !linked;
   const remembered = rememberedWidget(userId);
   const preferred = useMemo(
     () =>
@@ -116,10 +122,12 @@ export function useWidgetSelection({
     [setWidget, clearWidget, setParams]
   );
 
-  const hint = notFoundText ?? t("embed-analytics.widget-not-found");
+  const hint = t("embed-analytics.widget-not-found");
   useEffect(() => {
     if (!unknownLink) return;
-    showToast(hint, "error");
+    // eine Meldung, auch wenn die Ansicht neu rendert, bevor widget= aus
+    // der Adresse ist (sonst stand sie in den Konversationen doppelt)
+    showToast(hint, "error", { toastId: WIDGET_NOT_FOUND_TOAST });
     updateWidgetParam(null);
   }, [unknownLink, updateWidgetParam, hint]);
 
@@ -173,8 +181,25 @@ export function WidgetPicker({ embeds, selectedId, onSelect }) {
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 bg-theme-settings-input-bg text-theme-text-primary rounded-lg px-4 py-2 text-sm border border-white/10 cursor-pointer"
       >
-        <span>
-          {current ? embedLabel(current) : t("embed-analytics.select-embed")}
+        {/* Die Schaltfläche ist so breit wie die längste Bezeichnung (alle
+            liegen unsichtbar übereinander), damit die Liste darunter jede
+            Bezeichnung in einer Zeile zeigt (Fixliste r4 Nr. 9) */}
+        <span className="grid text-left">
+          {options.map((embed) => (
+            <span
+              key={embed.id}
+              aria-hidden="true"
+              className="invisible col-start-1 row-start-1 whitespace-nowrap"
+            >
+              {embedLabel(embed)}
+            </span>
+          ))}
+          <span
+            data-widget-picker-current=""
+            className="col-start-1 row-start-1 whitespace-nowrap"
+          >
+            {current ? embedLabel(current) : t("embed-analytics.select-embed")}
+          </span>
         </span>
         <CaretDown
           size={12}
@@ -201,10 +226,10 @@ export function WidgetPicker({ embeds, selectedId, onSelect }) {
                 onSelect(embed.id);
                 setOpen(false);
               }}
-              className={`flex items-center justify-between w-full px-3 py-2 text-sm text-left transition-all cursor-pointer
+              className={`flex items-center justify-between gap-2 w-full px-3 py-2 text-sm text-left transition-all cursor-pointer
                 ${selectedId === embed.id ? "bg-white/10 text-theme-text-primary font-medium" : `${MUTED} hover:bg-white/5 hover:text-theme-text-primary`}`}
             >
-              <span>{embedLabel(embed)}</span>
+              <span className="whitespace-nowrap">{embedLabel(embed)}</span>
               {selectedId === embed.id && (
                 <Check
                   size={14}

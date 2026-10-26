@@ -115,7 +115,6 @@ function WidgetAnalytics({ embeds, lastActivity }) {
     lastActivity,
     setWidget: place.setWidget,
     clearWidget: place.clearLink,
-    notFoundText: t("embed-analytics.panel.not-found"),
   });
   // Zählwerte des Zeitraums: { embedId, data, loading, failed, period } –
   // period ist der gewählte Zeitraum, zu dem data gehört.

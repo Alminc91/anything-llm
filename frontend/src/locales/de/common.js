@@ -290,6 +290,8 @@ const TRANSLATIONS = {
     "chatbot-status": "Status",
     "chatbot-conversations": "Konversationen",
     "chatbot-design-center": "Design Center",
+    "chatbot-expand": "Chatbot aufklappen",
+    "chatbot-collapse": "Chatbot zuklappen",
     "embed-chats": "Chat-Widget-Verlauf",
     security: "Sicherheit",
     "event-logs": "Ereignisprotokolle",
@@ -2060,8 +2062,8 @@ const TRANSLATIONS = {
       title: {
         aktuell: "Kursprogramm aktuell",
         unvollstaendig: "Kursprogramm unvollständig",
-        "nicht-aktualisiert": "Kursprogramm nicht aktualisiert",
-        "nicht-abrufbar": "Kursprogramm nicht abrufbar",
+        nicht_aktualisiert: "Kursprogramm nicht aktualisiert",
+        nicht_abrufbar: "Kursprogramm nicht abrufbar",
         nicht_eingerichtet: "Abgleich nicht eingerichtet",
       },
       "not-set-up":
@@ -2084,6 +2086,8 @@ const TRANSLATIONS = {
         "Wir kümmern uns darum. Bei Fragen kontaktieren Sie uns unter {{email}}.",
       "closing-unreachable":
         "Wir kümmern uns darum. Falls sich die Adresse Ihrer Website oder Ihres Kursprogramms geändert hat, kontaktieren Sie uns bitte unter {{email}}.",
+      "list-not-applied":
+        "Bis zum nächsten erfolgreichen Abgleich blendet der KI-Berater keine Kurse aus.",
     },
     kpi: {
       offered: "Im Kursprogramm",
@@ -2099,9 +2103,10 @@ const TRANSLATIONS = {
     },
     hidden: {
       label: "Ausgeblendete Kurse",
-      title: "Ausgeblendet, da voraussichtlich beendet ({{count}})",
+      title:
+        "Ausgeblendet, da beendet oder nicht mehr im Kursprogramm ({{count}})",
       estimated:
-        "Geschätzt, nicht garantiert: Ihr Kursprogramm liefert kein Enddatum, wir schätzen es aus Beginn und Dauer. Mit dem Enddatum entfällt die Schätzung.",
+        "Übergangslösung: Ihr Kursprogramm liefert noch kein Enddatum. Bis dahin schätzen wir das Ende aus Beginn und Dauer. Dabei können vereinzelt auch laufende Kurse ausgeblendet werden. Wir arbeiten aktiv daran, das Enddatum zu übernehmen.",
       notice:
         "Seit {{date}}: Zurzeit wird das Ausschließen vergangener Kurse optimiert.",
       from: "ab {{date}}",

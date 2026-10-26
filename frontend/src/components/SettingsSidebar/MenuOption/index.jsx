@@ -16,6 +16,7 @@ export default function MenuOption({
   isChild = false,
   opensFirstChild = false,
   dot = null,
+  toggleLabels = null,
 }) {
   const storageKey = generateStorageKey({ key: btnText });
   const location = useLocation();
@@ -129,7 +130,18 @@ export default function MenuOption({
           )}
         </Link>
         {hasChildren && (
-          <button onClick={handleClick} className="p-2 text-white">
+          <button
+            onClick={handleClick}
+            className="p-2 text-white"
+            // Kufer (KB-2, Fixliste r4 Nr. 12): Zustand und Beschriftung für
+            // Screenreader, nur wo die Gruppe sie mitgibt („Chatbot“)
+            {...(toggleLabels && {
+              "aria-expanded": isExpanded,
+              "aria-label": isExpanded
+                ? toggleLabels.collapse
+                : toggleLabels.expand,
+            })}
+          >
             <CaretRight
               size={16}
               weight="bold"

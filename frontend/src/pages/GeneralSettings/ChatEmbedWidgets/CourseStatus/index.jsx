@@ -9,22 +9,22 @@ import {
   NOTICE_COLORS,
   OPTIMIZATION_NOTICE_SINCE,
   STATE_COLORS,
-  bannerDetails,
-  bannerTitle,
   formatNextRun,
   formatRunTime,
   formatSyncedAt,
   hiddenWhen,
-  missingShare,
   showsOptimizationNotice,
 } from "@/utils/courseStatus";
+import { ELEMENT_MARK, withElement } from "@/utils/withElement";
 import { WidgetPicker, useWidgetSelection } from "../WidgetSelection";
 
 // Seite „Status“ (KB-3, Mockup Tafel 3, Ampel nach Nutzerentscheidung vom
 // 26.10.2026): ob der KI-Berater das Kursprogramm vollständig kennt, und wenn
 // nicht, was fehlt und was ausgeblendet ist. Wenige, ruhige Meldungen, Wortlaut
-// nach Fixliste KB-3 r3. Ein Status je Kursprogramm (Workspace),
-// gewählt über die gemeinsame Widget-Auswahl (KB-2). Nur lesend: Die Seite
+// nach Fixliste KB-3 r3 und r4. Ein Status je Kursprogramm (Workspace),
+// gewählt über die gemeinsame Widget-Auswahl (KB-2). Überschrift, Zeilen,
+// Anteil und ob der Chat die Kursliste anwendet liefert der Server (Vertrag
+// r4), die Seite liest sie nur ab. Nur lesend: Die Seite
 // hat außer der Widget-Auswahl, dem Aufklappen der Listen und dem Mail-Link
 // keine Bedienelemente (NAK-3).
 
@@ -64,25 +64,34 @@ export default function CourseStatusView({ embeds, lastActivity = null }) {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4 p-2 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
+      {/* Kopfzeile wie bei Konversationen (Fixliste r4 Nr. 9): Überschrift
+          links, Widget-Auswahl oben rechts; darunter Kursprogramm und
+          Grundsatz über die ganze Breite */}
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-2xl font-bold text-theme-text-primary">
             {t("course-status.title")}
           </h2>
-          {status?.workspace && (
-            <p data-course-status-program="" className={`text-sm ${MUTED}`}>
-              {programLine(t, status, labels, i18n.language)}
-            </p>
-          )}
-          <p className={`text-sm ${MUTED}`}>{t("course-status.principle")}</p>
+          <div className={AVATAR_CLEARANCE.headerEnd}>
+            <WidgetPicker
+              embeds={embeds}
+              selectedId={widgetId}
+              onSelect={selectWidget}
+            />
+          </div>
         </div>
-        <div className={AVATAR_CLEARANCE.headerEnd}>
-          <WidgetPicker
-            embeds={embeds}
-            selectedId={widgetId}
-            onSelect={selectWidget}
-          />
-        </div>
+        {status?.workspace && (
+          <p data-course-status-program="" className={`text-sm ${MUTED}`}>
+            {programLine(t, status, labels, i18n.language)}
+          </p>
+        )}
+        {/* Nicht eingerichtet: kein Grundsatz, er widerspräche der Meldung
+            (Fixliste r4 Nr. 8) */}
+        {status && status.state !== "nicht_eingerichtet" && (
+          <p data-course-principle="" className={`text-sm ${MUTED}`}>
+            {t("course-status.principle")}
+          </p>
+        )}
       </div>
 
       {loading ? (
@@ -126,14 +135,17 @@ function listFormat(language) {
 
 function StatusBody({ status }) {
   if (status.state === "nicht_eingerichtet") return <Banner status={status} />;
+  // Ausgeblendet nur, solange der Chat die Kursliste anwendet (Fixliste r4
+  // Nr. 2): sonst nennt der KI-Berater diese Kurse wieder
+  const showsHidden = status.listApplied === true && status.counts.hidden > 0;
   return (
     <>
       <Banner status={status} />
       <Counts status={status} />
-      {(status.counts.missing > 0 || status.counts.hidden > 0) && (
+      {(status.counts.missing > 0 || showsHidden) && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {status.counts.missing > 0 && <MissingList status={status} />}
-          {status.counts.hidden > 0 && <HiddenList status={status} />}
+          {showsHidden && <HiddenList status={status} />}
         </div>
       )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -145,9 +157,10 @@ function StatusBody({ status }) {
 
 /**
  * Meldung der Ampel (Fixliste KB-3 r3): Statusangabe als Text („In Ordnung“,
- * „Eingeschränkt“, „Gestört“), darunter die Überschrift mit dem Grund. Grün
- * nennt, wie viele Kurse im KI-Berater verfügbar sind; Gelb und Rot nennen je
- * Grund eine Zeile und zum Schluss die Adresse für Fragen.
+ * „Eingeschränkt“, „Gestört“, mindestens 14 px, Fixliste r4 Nr. 10),
+ * darunter die Überschrift mit dem Grund (headline des Servers). Grün nennt,
+ * wie viele Kurse im KI-Berater verfügbar sind; Gelb und Rot nennen je Grund
+ * eine Zeile (details des Servers) und zum Schluss die Adresse für Fragen.
  */
 function Banner({ status }) {
   const { t } = useTranslation();
@@ -171,22 +184,18 @@ function Banner({ status }) {
         style={{ color: colors.text }}
       >
         {state !== "nicht_eingerichtet" && (
-          <p data-course-status-level={state} className="text-xs font-semibold">
+          <p data-course-status-level={state} className="text-sm font-semibold">
             {t(`course-status.banner.level.${state}`)}
           </p>
         )}
         <h3 className="text-base font-bold">
-          {t(`course-status.banner.title.${bannerTitle({ ...status, state })}`)}
+          {t(`course-status.banner.title.${status.headline ?? state}`)}
         </h3>
         <BannerLines status={status} state={state} />
       </div>
     </div>
   );
 }
-
-// Platzhalter für die Adresse im Schlusssatz ({{email}} in den
-// Sprachdateien), an dessen Stelle der Mail-Link steht
-const EMAIL_MARK = "\u0000";
 
 function BannerLines({ status, state }) {
   const { t } = useTranslation();
@@ -223,57 +232,74 @@ function BannerLines({ status, state }) {
         number: formatNumber(missing),
         offered,
       }),
-    "nicht-aktualisiert": () => t("course-status.banner.not-updated", { time }),
-    "nicht-abrufbar": () => t("course-status.banner.unreachable", { time }),
+    nicht_aktualisiert: () => t("course-status.banner.not-updated", { time }),
+    nicht_abrufbar: () => t("course-status.banner.unreachable", { time }),
   };
-  const unreachable = bannerTitle(status) === "nicht-abrufbar";
-  const [before, after = ""] = t(
-    `course-status.banner.${unreachable ? "closing-unreachable" : "closing"}`,
-    { email: EMAIL_MARK }
-  ).split(EMAIL_MARK);
+  const unreachable = status.headline === "nicht_abrufbar";
   return (
     <>
-      {bannerDetails(status).map((key) => (
-        <p key={key} data-course-detail={key}>
-          {lines[key]()}
+      {(status.details ?? [])
+        .filter((key) => lines[key])
+        .map((key) => (
+          <p key={key} data-course-detail={key}>
+            {lines[key]()}
+          </p>
+        ))}
+      {/* Fixliste r4 Nr. 2: Der Chat wendet die Kursliste nicht mehr an */}
+      {status.listApplied === false && (
+        <p data-course-list-not-applied="">
+          {t("course-status.banner.list-not-applied")}
         </p>
-      ))}
-      <p data-course-contact={unreachable ? "nicht-abrufbar" : "standard"}>
-        {before}
-        <a
-          href={`mailto:${KUFER_CONTACT_EMAIL}`}
-          className="font-semibold underline underline-offset-2"
-        >
-          {KUFER_CONTACT_EMAIL}
-        </a>
-        {after}
+      )}
+      <p data-course-contact={unreachable ? "nicht_abrufbar" : "standard"}>
+        {withElement(
+          t(
+            `course-status.banner.${unreachable ? "closing-unreachable" : "closing"}`,
+            { email: ELEMENT_MARK }
+          ),
+          <a
+            href={`mailto:${KUFER_CONTACT_EMAIL}`}
+            className="font-semibold underline underline-offset-2"
+          >
+            {KUFER_CONTACT_EMAIL}
+          </a>
+        )}
       </p>
     </>
   );
 }
 
-/** Kennzahlen: im Kursprogramm, im KI-Berater, fehlen, ausgeblendet. */
+/**
+ * Kennzahlen: im Kursprogramm, im KI-Berater, fehlen (mit dem Anteil
+ * missingPercent des Servers, unter 1 % als „unter 1 %“), ausgeblendet (nur
+ * solange der Chat die Kursliste anwendet, Fixliste r4 Nr. 2).
+ */
 function Counts({ status }) {
   const { t } = useTranslation();
   const { counts } = status;
-  const share = missingShare(counts);
+  const percent = status.missingPercent ?? 0;
   const fields = [
     { key: "offered", value: formatNumber(counts.offered) },
     { key: "count", value: formatNumber(counts.count) },
     {
       key: "missing",
       value: formatNumber(counts.missing),
-      detail: share
-        ? share.small
-          ? t("course-status.kpi.share-small")
-          : t("course-status.kpi.share", { value: share.value })
-        : null,
+      detail:
+        counts.missing > 0
+          ? percent < 1
+            ? t("course-status.kpi.share-small")
+            : t("course-status.kpi.share", { value: percent })
+          : null,
       accent: counts.missing > 0 ? STATE_COLORS[status.state]?.dot : null,
     },
-    { key: "hidden", value: formatNumber(counts.hidden) },
+    ...(status.listApplied === true
+      ? [{ key: "hidden", value: formatNumber(counts.hidden) }]
+      : []),
   ];
   return (
-    <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <dl
+      className={`grid grid-cols-2 gap-3 ${fields.length === 4 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}
+    >
       {fields.map((field) => (
         <div
           key={field.key}
@@ -385,14 +411,8 @@ function HiddenList({ status }) {
           <h3 className="text-base font-semibold">
             {t("course-status.hidden.title", { count: formatNumber(total) })}
           </h3>
-          {status.estimatedEnd && (
-            <p
-              data-course-estimated=""
-              className={`text-sm leading-normal ${MUTED}`}
-            >
-              {t("course-status.hidden.estimated")}
-            </p>
-          )}
+          {/* Fixliste r4 Nr. 7: die hervorgehobene Zeile über der
+              Erklärung zur Schätzung */}
           {showsOptimizationNotice(status) && (
             <p
               data-course-notice=""
@@ -402,6 +422,14 @@ function HiddenList({ status }) {
               {t("course-status.hidden.notice", {
                 date: OPTIMIZATION_NOTICE_SINCE,
               })}
+            </p>
+          )}
+          {status.estimatedEnd && (
+            <p
+              data-course-estimated=""
+              className={`text-sm leading-normal ${MUTED}`}
+            >
+              {t("course-status.hidden.estimated")}
             </p>
           )}
         </>
@@ -421,13 +449,16 @@ function HiddenList({ status }) {
   );
 }
 
-/** Abgleich: letzter, nächster, was Besucher sehen. */
+/**
+ * Abgleich: letzter erfolgreicher (syncedAt, wie die Meldung „seit …“,
+ * Fixliste r4 Nr. 3), nächster (eine Stunde nach dem letzten Lauf), was
+ * Besucher sehen (/config).
+ */
 function SyncCard({ status }) {
   const { t } = useTranslation();
-  const run = status.lastRun;
   const rows = [
-    ["last", formatRunTime(t, run?.at)],
-    ["next", formatNextRun(t, run?.at)],
+    ["last", formatRunTime(t, status.syncedAt)],
+    ["next", formatNextRun(t, status.lastRun?.at)],
   ];
   rows.push([
     "visitors",

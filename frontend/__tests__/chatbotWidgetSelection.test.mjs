@@ -122,12 +122,16 @@ function stubServer(t, embeds = EMBEDS) {
 }
 
 /** Meldungen (react-toastify) für die Dauer eines Tests. */
-async function toasts(t) {
+async function toasts(t, { withOptions = false } = {}) {
   const { toast } = await import("react-toastify");
   const shown = [];
   const original = { success: toast.success, error: toast.error };
-  toast.success = (text) => shown.push(["success", text]);
-  toast.error = (text) => shown.push(["error", text]);
+  const record = (type) => (text, options) =>
+    shown.push(
+      withOptions ? [type, text, options?.toastId ?? null] : [type, text]
+    );
+  toast.success = record("success");
+  toast.error = record("error");
   t.after(() => Object.assign(toast, original));
   return shown;
 }
@@ -148,6 +152,11 @@ const picker = (container) =>
     container,
     (el) => el.getAttribute("aria-haspopup") === "listbox"
   )[0];
+/** Die gewählte Bezeichnung in der Auswahl (ohne die unsichtbaren zum Maß). */
+const pickerLabel = (container) =>
+  elements(picker(container), (el) =>
+    el.hasAttribute("data-widget-picker-current")
+  )[0]?.textContent.trim();
 const option = (container, label) =>
   elements(
     container,
@@ -200,7 +209,7 @@ test(
     assert.ok(
       calls.some((call) => call.url.endsWith("/embed/course-status?widget=3"))
     );
-    assert.equal(picker(mounted.container).textContent.trim(), "KuferMedia");
+    assert.equal(pickerLabel(mounted.container), "KuferMedia");
     assert.equal(
       elements(mounted.container, (el) => el.tagName === "H2")[0]?.textContent,
       "Status"
@@ -323,11 +332,11 @@ test(
       stored: { [REMEMBERED]: "8" },
     });
     const { container, act } = mounted;
-    assert.equal(picker(container).textContent.trim(), "Ärztehaus");
+    assert.equal(pickerLabel(container), "Ärztehaus");
 
     await act(() => click(picker(container)));
     await act(() => click(option(container, "Chatbot Elbe")));
-    assert.equal(picker(container).textContent.trim(), "Chatbot Elbe");
+    assert.equal(pickerLabel(container), "Chatbot Elbe");
     assert.equal(remembered(), "5");
   }
 );
@@ -364,6 +373,74 @@ test(
     assert.equal(designCenterWidget(container), "KuferMedia");
     assert.ok(!designCenterLoads(calls).includes(99));
     assert.equal(remembered(), null);
+  }
+);
+
+// Fixliste r4 Nr. 11 (Sonnet L1, L2): Konversationen zeigen bei einem
+// unbekannten Widget denselben Hinweis wie Status und Design Center, einmal;
+// eine ungültige Kennung gilt wie eine unbekannte.
+test(
+  "Nr. 11: Konversationen mit fremdem Widget: der Widget-Hinweis, mit fester Kennung (eine Meldung)",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t, { withOptions: true });
+    stubServer(t);
+    await mount(t, CONVERSATIONS_VIEW, {
+      location: `${CONVERSATIONS}?widget=99`,
+      route: CONVERSATIONS,
+      exportName: "AnalyticsScreen",
+      props: {
+        embedsLoaded: true,
+        embeds: EMBEDS,
+        lastActivity: LAST_ACTIVITY,
+      },
+    });
+    assert.deepEqual(shown, [["error", NOT_FOUND, "chatbot-widget-not-found"]]);
+  }
+);
+
+test(
+  "Nr. 11: ?widget=abc gilt wie eine unbekannte Kennung: Hinweis, widget= entfernt, Vorauswahl",
+  { skip },
+  async (t) => {
+    const shown = await toasts(t);
+    const { container } = await openDesignCenter(t, "?widget=abc");
+    assert.deepEqual(shown, [["error", NOT_FOUND]]);
+    assert.equal(locationOf(container), DESIGN);
+    assert.equal(designCenterWidget(container), "KuferMedia");
+  }
+);
+
+// Fixliste r4 Nr. 9 (Opus G5): Die Auswahl ist so breit wie die längste
+// Bezeichnung, die Liste darunter zeigt jede in einer Zeile.
+test(
+  "Nr. 9: Breite der Auswahl nach der längsten Bezeichnung, Einträge ohne Umbruch",
+  { skip },
+  async (t) => {
+    const { container, act } = await openDesignCenter(t, "?widget=5");
+    const sizers = elements(
+      picker(container),
+      (el) =>
+        el.getAttribute("aria-hidden") === "true" &&
+        /\binvisible\b/.test(el.getAttribute("class") ?? "")
+    );
+    assert.deepEqual(
+      sizers.map((el) => el.textContent).sort(),
+      ["Ärztehaus", "Chatbot Elbe", "KuferMedia"].sort()
+    );
+    for (const el of sizers)
+      assert.match(el.getAttribute("class"), /whitespace-nowrap/);
+    assert.equal(pickerLabel(container), "Chatbot Elbe");
+    await act(() => click(picker(container)));
+    const labels = elements(
+      container,
+      (el) =>
+        el.tagName === "SPAN" &&
+        el.parentNode?.getAttribute?.("role") === "option"
+    );
+    assert.equal(labels.length, 3);
+    for (const el of labels)
+      assert.match(el.getAttribute("class") ?? "", /whitespace-nowrap/);
   }
 );
 

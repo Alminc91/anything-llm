@@ -496,7 +496,8 @@ function AppVersion() {
  * Gruppe „Chatbot“ (KB-2): Status, Konversationen, Design Center, Widgets.
  * Die ersten drei tragen das Widget der aufgerufenen Adresse mit, ein
  * Wechsel des Menüpunkts behält es. Ein Klick auf den Gruppenkopf öffnet
- * den ersten Unterpunkt. KB-3, AK-5: Punkt an „Status“ und am zugeklappten
+ * den ersten Unterpunkt, der Pfeil daneben ist für Screenreader beschriftet
+ * (Fixliste r4 Nr. 12). KB-3, AK-5: Punkt an „Status“ und am zugeklappten
  * Kopf bei Gelb oder Rot.
  */
 export function ChatbotOption({ user, t, canViewChatHistory }) {
@@ -517,6 +518,10 @@ export function ChatbotOption({ user, t, canViewChatHistory }) {
       user={user}
       opensFirstChild={true}
       dot={dot}
+      toggleLabels={{
+        expand: t("settings.chatbot-expand"),
+        collapse: t("settings.chatbot-collapse"),
+      }}
       childOptions={[
         {
           btnText: t("settings.chatbot-status"),

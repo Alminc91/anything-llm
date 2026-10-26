@@ -1,8 +1,10 @@
 // Status-Seite des Kursbestands (KB-3, issues/P-kursbestand/
 // KB-3-status-seite.md): was die Seite und der Punkt am Menü aus der
-// Bewertung des Servers machen. Die Ampel rechnet der Server
-// (GET /api/embed/course-status, server/utils/chats/courseStatus.js); hier
-// stehen nur Darstellung und der gemerkte Zustand für den Menüpunkt.
+// Bewertung des Servers machen. Ampel, Überschrift, Zeilen, Anteil der
+// fehlenden Kurse und ob der Chat die Kursliste anwendet rechnet der Server
+// (GET /api/embed/course-status, server/utils/chats/courseStatus.js, Vertrag
+// in fixliste-kb-r4.md); hier stehen nur Darstellung und der gemerkte
+// Zustand für den Menüpunkt.
 import { useEffect, useState } from "react";
 import Embed from "@/models/embed";
 
@@ -59,68 +61,6 @@ export function showsOptimizationNotice(status) {
  */
 export function menuDotState(state) {
   return state === "gelb" || state === "rot" ? state : null;
-}
-
-/**
- * Ist das Kursprogramm beim letzten Lauf auf der Website des Kunden nicht
- * abrufbar gewesen?
- * @param {{lastRun?: {cause?: string|null}|null}|null} status
- * @returns {boolean}
- */
-export function isUnreachable(status) {
-  return status?.lastRun?.cause === "feed_nicht_erreichbar";
-}
-
-/**
- * Überschrift der Ampel-Meldung (Fixliste KB-3 r3 Nr. 2 und 3): Grün
- * „aktuell“; Gelb und Rot nennen den Grund. Löst das Alter aus, ist das
- * Kursprogramm „nicht abrufbar“, wenn der letzte Lauf die Website nicht
- * erreicht hat, sonst „nicht aktualisiert“; sonst „unvollständig“.
- * @param {{state?: string, reasons?: string[]|null, lastRun?: object|null}} status
- * @returns {"aktuell"|"nicht-abrufbar"|"nicht-aktualisiert"|"unvollstaendig"|"nicht_eingerichtet"}
- */
-export function bannerTitle(status) {
-  if (status?.state === "gruen") return "aktuell";
-  if (status?.state !== "gelb" && status?.state !== "rot")
-    return "nicht_eingerichtet";
-  if (!(status.reasons ?? []).includes("alter")) return "unvollstaendig";
-  return isUnreachable(status) ? "nicht-abrufbar" : "nicht-aktualisiert";
-}
-
-/**
- * Textzeilen der Ampel-Meldung bei Gelb und Rot (Fixliste KB-3 r3 Nr. 4):
- * alle zutreffenden in der Reihenfolge „unvollständig“, „nicht
- * aktualisiert“, „nicht abrufbar“, die zur Überschrift passende zuerst. Das
- * Alter ergibt genau eine Zeile: „nicht abrufbar“ oder „nicht aktualisiert“.
- * @param {{state?: string, reasons?: string[]|null, lastRun?: object|null}} status
- * @returns {Array<"unvollstaendig"|"nicht-aktualisiert"|"nicht-abrufbar">}
- */
-export function bannerDetails(status) {
-  if (status?.state !== "gelb" && status?.state !== "rot") return [];
-  const reasons = status.reasons ?? [];
-  const age = isUnreachable(status) ? "nicht-abrufbar" : "nicht-aktualisiert";
-  const details = [
-    ...(reasons.includes("fehlen") ? ["unvollstaendig"] : []),
-    ...(reasons.includes("alter") ? [age] : []),
-  ];
-  const title = bannerTitle(status);
-  return [
-    ...details.filter((key) => key === title),
-    ...details.filter((key) => key !== title),
-  ];
-}
-
-/**
- * Anteil der fehlenden Kurse in ganzen Prozent, abgerundet wie die Schwellen
- * der Ampel (4,9 % zeigt „4 %“, nie „5 %“ bei Grün); unter 1 % als „unter
- * 1 %“.
- * @param {{offered: number, missing: number}} counts
- * @returns {{value: number}|{small: true}|null} null ohne fehlende Kurse
- */
-export function missingShare({ offered, missing }) {
-  if (!(missing > 0) || !(offered > 0)) return null;
-  const value = Math.floor((missing / offered) * 100);
-  return value < 1 ? { small: true } : { value };
 }
 
 // Kalendertag und Uhrzeit in Berliner Zeit
@@ -248,7 +188,9 @@ export function hiddenWhen(
 // AK-5: zuletzt geladener Zustand für den Punkt am Menü. Jede Seite der
 // Einstellungen hängt die Seitenleiste neu ein und fragt neu (gemerkt wird
 // nur auf dem Server, 5 min je Workspace); bis zur Antwort steht der zuletzt
-// geladene Zustand da, damit der Punkt nicht flackert.
+// geladene Zustand da, damit der Punkt nicht flackert. Gemerkt wird nur die
+// Antwort einer noch eingehängten Abfrage (Fixliste r4 Nr. 13, NF-N1): Eine
+// ältere, die zuletzt ankommt, überschreibt ihn nicht.
 let lastDotState = null;
 
 /**
@@ -261,8 +203,9 @@ export function useCourseStatusDot() {
   useEffect(() => {
     let ignore = false;
     Embed.courseStatusState().then((value) => {
+      if (ignore) return;
       lastDotState = menuDotState(value);
-      if (!ignore) setState(lastDotState);
+      setState(lastDotState);
     });
     return () => {
       ignore = true;

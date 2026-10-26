@@ -268,9 +268,11 @@ test(
     // (Fixliste r2 Nr. 1: der Pfeil behält das Umschalten aus AnythingLLM)
     const kufer = source.match(/Kufer \(KB-2\)/g) ?? [];
     assert.equal(kufer.length, 3, "drei gekennzeichnete Kufer-Stellen");
+    // Fixliste r4 Nr. 12: Der Pfeil bekommt Zustand und Beschriftung nur,
+    // wenn die Gruppe sie mitgibt (toggleLabels, nur „Chatbot“)
     assert.match(
       source,
-      /<button onClick=\{handleClick\} className="p-2 text-white">/
+      /<button\s+onClick=\{handleClick\}\s+className="p-2 text-white"\s+\/\/ Kufer \(KB-2, Fixliste r4 Nr\. 12\)[^\n]*\n[^\n]*\n\s+\{\.\.\.\(toggleLabels && \{/
     );
     assert.equal(
       (source.match(/Kufer \(KB-3, AK-5\)/g) ?? []).length,

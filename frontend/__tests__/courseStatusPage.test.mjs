@@ -57,8 +57,12 @@ const ago = (hours) => new Date(Date.now() - hours * HOUR).toISOString();
 function answer(overrides = {}) {
   return {
     state: "gelb",
+    headline: "unvollstaendig",
+    details: ["unvollstaendig"],
     reasons: ["fehlen"],
     counts: { offered: 864, count: 812, missing: 52, hidden: 2 },
+    missingPercent: 6,
+    listApplied: true,
     missing: missing(52),
     hidden: [
       {
@@ -129,6 +133,11 @@ const banner = (container) =>
   find(container, "data-course-status-banner").textContent;
 const NOTICE =
   "Seit 26.10.2026: Zurzeit wird das Ausschließen vergangener Kurse optimiert.";
+const HIDDEN_TITLE = "Ausgeblendet, da beendet oder nicht mehr im Kursprogramm";
+const ESTIMATED =
+  "Übergangslösung: Ihr Kursprogramm liefert noch kein Enddatum. Bis dahin schätzen wir das Ende aus Beginn und Dauer. Dabei können vereinzelt auch laufende Kurse ausgeblendet werden. Wir arbeiten aktiv daran, das Enddatum zu übernehmen.";
+const NOT_APPLIED =
+  "Bis zum nächsten erfolgreichen Abgleich blendet der KI-Berater keine Kurse aus.";
 
 // ---------------------------------------------------------------------------
 // AK-3: Aufbau nach Mockup Tafel 3
@@ -191,11 +200,14 @@ test(
     assert.equal(rows(missingList)[0].textContent, "262-1Kurs 1");
     assert.equal(rows(missingList)[1].textContent, "262-2k. A.");
 
+    // Fixliste r4 Nr. 7: neue Überschrift, die hervorgehobene Zeile über
+    // der Erklärung zur Schätzung
     const hiddenList = find(container, "data-course-list", "hidden");
     assert.ok(
       hiddenList.textContent.startsWith(
-        "Ausgeblendet, da voraussichtlich beendet (2)Geschätzt, nicht garantiert: Ihr Kursprogramm liefert kein Enddatum, wir schätzen es aus Beginn und Dauer. Mit dem Enddatum entfällt die Schätzung."
-      )
+        `${HIDDEN_TITLE} (2)${NOTICE}${ESTIMATED}`
+      ),
+      hiddenList.textContent
     );
     assert.equal(
       rows(hiddenList)[0].textContent,
@@ -289,9 +301,7 @@ test(
       find(withoutEstimate.container, "data-course-estimated"),
       undefined
     );
-    assert.ok(
-      withoutEstimate.text.includes("Ausgeblendet, da voraussichtlich")
-    );
+    assert.ok(withoutEstimate.text.includes(`${HIDDEN_TITLE} (2)`));
     await withoutEstimate.unmount();
 
     const nothingHidden = await open(
@@ -312,8 +322,11 @@ test(
 const green = (overrides = {}) =>
   answer({
     state: "gruen",
+    headline: "aktuell",
+    details: [],
     reasons: [],
     counts: { offered: 864, count: 864, missing: 0, hidden: 0 },
+    missingPercent: 0,
     missing: [],
     hidden: [],
     ...overrides,
@@ -405,7 +418,13 @@ test(
   async (t) => {
     const { container } = await open(
       t,
-      green({ state: "gelb", reasons: ["alter"], syncedAt: ago(25) })
+      green({
+        state: "gelb",
+        headline: "nicht_aktualisiert",
+        details: ["nicht_aktualisiert"],
+        reasons: ["alter"],
+        syncedAt: ago(25),
+      })
     );
     assert.equal(level(container), "Eingeschränkt");
     assert.equal(title(container), "Kursprogramm nicht aktualisiert");
@@ -414,7 +433,7 @@ test(
       undefined
     );
     assert.match(
-      find(container, "data-course-detail", "nicht-aktualisiert").textContent,
+      find(container, "data-course-detail", "nicht_aktualisiert").textContent,
       new RegExp(`^Das Kursprogramm wurde seit ${SINCE} nicht aktualisiert\\.$`)
     );
     assert.equal(
@@ -437,15 +456,18 @@ test(
       t,
       answer({
         state: "rot",
+        headline: "nicht_aktualisiert",
+        details: ["nicht_aktualisiert", "unvollstaendig"],
         reasons: ["fehlen", "alter"],
         syncedAt: ago(80),
+        listApplied: false,
       })
     );
     assert.ok(find(container, "data-course-status-banner", "rot"));
     const text = banner(container);
-    assert.ok(text.endsWith(CONTACT));
+    assert.ok(text.endsWith(`${NOT_APPLIED}${CONTACT}`));
     assert.match(
-      text.slice(0, -CONTACT.length),
+      text.slice(0, -(NOT_APPLIED.length + CONTACT.length)),
       new RegExp(
         `^GestörtKursprogramm nicht aktualisiertDas Kursprogramm wurde seit dem \\d\\d\\.\\d\\d\\.(\\d{4})?, \\d\\d:\\d\\d Uhr nicht aktualisiert\\.52 von 864 Kursen sind derzeit nicht im KI-Berater verfügbar\\.$`
       )
@@ -462,6 +484,8 @@ test(
         t,
         answer({
           state,
+          headline: "nicht_abrufbar",
+          details: ["nicht_abrufbar", "unvollstaendig"],
           reasons: ["fehlen", "alter"],
           syncedAt: ago(30),
           lastRun: unreachableRun,
@@ -473,7 +497,7 @@ test(
       );
       assert.deepEqual(
         details.map((el) => el.getAttribute("data-course-detail")),
-        ["nicht-abrufbar", "unvollstaendig"],
+        ["nicht_abrufbar", "unvollstaendig"],
         state
       );
       assert.match(
@@ -483,7 +507,7 @@ test(
         )
       );
       assert.equal(
-        find(page.container, "data-course-contact", "nicht-abrufbar")
+        find(page.container, "data-course-contact", "nicht_abrufbar")
           .textContent,
         CONTACT_UNREACHABLE
       );
@@ -510,6 +534,150 @@ test(
 );
 
 // ---------------------------------------------------------------------------
+// Fixliste r4: Vertrag mit dem Server, Abgleich, Kopfzeile
+// ---------------------------------------------------------------------------
+
+const kpi = (container, key) =>
+  find(container, "data-course-kpi", key)?.textContent;
+
+test(
+  "r4 Nr. 1: Überschrift, Zeilen und Anteil kommen vom Server, die Seite rechnet nichts nach",
+  { skip },
+  async (t) => {
+    // reasons allein ergäbe „unvollständig“; es gilt headline des Servers
+    const { container, unmount } = await open(
+      t,
+      answer({
+        headline: "nicht_abrufbar",
+        details: ["nicht_abrufbar", "unvollstaendig"],
+        reasons: ["fehlen"],
+        counts: { offered: 100, count: 71, missing: 29, hidden: 2 },
+        missingPercent: 29,
+        syncedAt: ago(30),
+        lastRun: unreachableRun,
+      })
+    );
+    assert.equal(title(container), "Kursprogramm nicht abrufbar");
+    assert.deepEqual(
+      elements(container, (el) => el.hasAttribute("data-course-detail")).map(
+        (el) => el.getAttribute("data-course-detail")
+      ),
+      ["nicht_abrufbar", "unvollstaendig"]
+    );
+    // 29 von 100: 29 %, nicht 28 % (Gleitkomma, NF3)
+    assert.equal(kpi(container, "missing"), "Fehlen29(29 %)");
+    await unmount();
+
+    // Anteil 0 bei fehlenden Kursen heißt „unter 1 %“
+    const small = await open(
+      t,
+      green({
+        counts: { offered: 864, count: 860, missing: 4, hidden: 0 },
+        missingPercent: 0,
+      })
+    );
+    assert.equal(kpi(small.container, "missing"), "Fehlen4(unter 1 %)");
+  }
+);
+
+test(
+  "r4 Nr. 2: Wendet der Chat die Kursliste nicht an, gibt es keine Liste und keine Kennzahl „Ausgeblendet“; bei Gelb und Rot eine Zeile dazu",
+  { skip },
+  async (t) => {
+    const yellow = await open(
+      t,
+      answer({
+        headline: "nicht_aktualisiert",
+        details: ["nicht_aktualisiert", "unvollstaendig"],
+        reasons: ["fehlen", "alter"],
+        syncedAt: ago(25),
+        listApplied: false,
+      })
+    );
+    assert.equal(
+      find(yellow.container, "data-course-list", "hidden"),
+      undefined
+    );
+    assert.equal(kpi(yellow.container, "hidden"), undefined);
+    assert.ok(!yellow.text.includes(HIDDEN_TITLE));
+    assert.ok(!yellow.text.includes(NOTICE));
+    assert.equal(
+      find(yellow.container, "data-course-list-not-applied").textContent,
+      NOT_APPLIED
+    );
+    assert.ok(banner(yellow.container).endsWith(`${NOT_APPLIED}${CONTACT}`));
+    // Besucher sehen folgt weiter /config
+    assert.ok(
+      find(yellow.container, "data-course-sync").textContent.endsWith(
+        "Besucher sehenaktuell 812 Kurse"
+      )
+    );
+    await yellow.unmount();
+
+    // run.at frisch, created alt: Grün, aber ohne Ausblenden und ohne Zeile
+    const fine = await open(t, green({ listApplied: false }));
+    assert.equal(kpi(fine.container, "hidden"), undefined);
+    assert.equal(
+      find(fine.container, "data-course-list-not-applied"),
+      undefined
+    );
+    await fine.unmount();
+
+    // angewendet: Kennzahl und Liste wie bisher, keine Zeile
+    const applied = await open(t, answer());
+    assert.equal(kpi(applied.container, "hidden"), "Ausgeblendet2");
+    assert.ok(find(applied.container, "data-course-list", "hidden"));
+    assert.equal(
+      find(applied.container, "data-course-list-not-applied"),
+      undefined
+    );
+  }
+);
+
+test(
+  "r4 Nr. 3: „Letzter“ ist der letzte erfolgreiche Abgleich, „Nächster“ rechnet ab dem letzten Lauf",
+  { skip },
+  async (t) => {
+    const { container } = await open(
+      t,
+      answer({
+        syncedAt: ago(30),
+        lastRun: {
+          at: new Date().toISOString(),
+          result: "nicht_geschrieben",
+          cause: "feed_unsicher",
+        },
+      })
+    );
+    assert.match(
+      find(container, "data-course-sync").textContent,
+      /^AbgleichLetzter(gestern|\d\d\.\d\d\.(\d{4})?), \d\d:\d\d UhrNächster(heute|morgen), \d\d:\d\d Uhr/
+    );
+  }
+);
+
+test(
+  "r4 Nr. 9 und 10: Widget-Auswahl oben rechts in der Zeile der Überschrift; Statusangabe mindestens 14 px",
+  { skip },
+  async (t) => {
+    const { container } = await open(t, answer());
+    const heading = elements(container, (el) => el.tagName === "H2")[0];
+    const row = heading.parentNode;
+    assert.match(row.getAttribute("class"), /justify-between/);
+    assert.ok(
+      elements(row, (el) => el.getAttribute("aria-haspopup") === "listbox")
+        .length === 1
+    );
+    // Kursprogramm und Grundsatz stehen unter der Zeile, nicht neben der
+    // Auswahl
+    assert.equal(find(row, "data-course-status-program"), undefined);
+    const level = find(container, "data-course-status-level", "gelb");
+    assert.match(level.getAttribute("class"), /\btext-sm\b/);
+    assert.doesNotMatch(level.getAttribute("class"), /\btext-xs\b/);
+  }
+);
+
+// ---------------------------------------------------------------------------
 // D-KB3-3: nicht eingerichtet; Fehler; nur lesend (NAK-3); Textregeln
 // ---------------------------------------------------------------------------
 
@@ -521,12 +689,16 @@ test(
       t,
       answer({
         state: "nicht_eingerichtet",
+        headline: null,
+        details: [],
         reasons: [],
         counts: null,
+        missingPercent: 0,
         missing: [],
         hidden: [],
         lastRun: null,
         syncedAt: null,
+        listApplied: false,
         estimatedEnd: false,
         visitors: null,
       })
@@ -536,6 +708,9 @@ test(
         .textContent,
       "Abgleich nicht eingerichtetFür dieses Kursprogramm ist der Abgleich nicht eingerichtet."
     );
+    // Fixliste r4 Nr. 8: kein Grundsatz-Satz, er widerspräche der Meldung
+    assert.equal(find(container, "data-course-principle"), undefined);
+    assert.ok(!container.textContent.includes("Alle aktuellen Kurse"));
     assert.equal(find(container, "data-course-kpi"), undefined);
     assert.equal(find(container, "data-course-sync"), undefined);
   }
@@ -576,12 +751,29 @@ test(
   async (t) => {
     for (const body of [
       answer(),
-      answer({ state: "rot", reasons: ["fehlen", "alter"], syncedAt: ago(80) }),
-      answer({ state: "gelb", reasons: ["alter"], syncedAt: ago(30) }),
       answer({
         state: "rot",
+        headline: "nicht_aktualisiert",
+        details: ["nicht_aktualisiert", "unvollstaendig"],
+        reasons: ["fehlen", "alter"],
+        syncedAt: ago(80),
+        listApplied: false,
+      }),
+      answer({
+        state: "gelb",
+        headline: "nicht_aktualisiert",
+        details: ["nicht_aktualisiert"],
+        reasons: ["alter"],
+        syncedAt: ago(30),
+        listApplied: false,
+      }),
+      answer({
+        state: "rot",
+        headline: "nicht_abrufbar",
+        details: ["nicht_abrufbar"],
         reasons: ["alter"],
         syncedAt: ago(80),
+        listApplied: false,
         lastRun: {
           at: new Date().toISOString(),
           result: "nicht_geschrieben",
@@ -590,13 +782,19 @@ test(
       }),
       answer({
         state: "gruen",
+        headline: "aktuell",
+        details: [],
         reasons: [],
         counts: { offered: 864, count: 860, missing: 4, hidden: 2 },
+        missingPercent: 0,
       }),
       answer({
         state: "gruen",
+        headline: "aktuell",
+        details: [],
         reasons: [],
         counts: { offered: 864, count: 864, missing: 0, hidden: 2 },
+        missingPercent: 0,
       }),
     ]) {
       const page = await open(t, body);
@@ -831,5 +1029,76 @@ test(
       "resetCourseStatusState",
     ])
       assert.equal(name in util, false, name);
+  }
+);
+
+// Fixliste r4 Nr. 13 (NF-N1): Eine ältere Abfrage, die erst nach dem
+// Aushängen ankommt, überschreibt den gemerkten Zustand nicht.
+test(
+  "NF-N1: Eine verspätete Antwort einer ausgehängten Seite setzt den Punkt nicht",
+  { skip },
+  async (t) => {
+    const pending = [];
+    stubDotState(t, () => new Promise((done) => pending.push(done)));
+    const first = await mountChatbotGroup(t, "/settings/chatbot/widgets");
+    await first.act();
+    await first.unmount();
+    const second = await mountChatbotGroup(t, "/settings/chatbot/widgets");
+    await second.act();
+    await second.act(() => pending[1]("gelb"));
+    assert.deepEqual(menuDots(second.container), ["Status: Status: Gelb"]);
+    // die Antwort der ersten Seite kommt zuletzt
+    await second.act(() => pending[0]("rot"));
+    await second.unmount();
+    const third = await mountChatbotGroup(t, "/settings/chatbot/widgets");
+    await third.act();
+    assert.deepEqual(menuDots(third.container), ["Status: Status: Gelb"]);
+  }
+);
+
+// Fixliste r4 Nr. 12 (Sonnet L3): Der Pfeil der Gruppe „Chatbot“ sagt
+// Screenreadern, ob er auf- oder zuklappt; andere Gruppen bleiben wie im
+// Original
+test(
+  "r4 Nr. 12: Pfeil der Gruppe „Chatbot“ mit aria-expanded und Beschriftung, andere Gruppen unverändert",
+  { skip },
+  async (t) => {
+    stubDotState(t, async () => "gruen");
+    const group = await mountChatbotGroup(t, "/settings/users", {
+      anything_llm_menu_chatbot_expanded: "true",
+    });
+    await group.act();
+    const arrow = () =>
+      elements(group.container, (el) => el.tagName === "BUTTON")[0];
+    assert.equal(arrow().getAttribute("aria-expanded"), "true");
+    assert.equal(arrow().getAttribute("aria-label"), "Chatbot zuklappen");
+    await group.act(() => click(arrow()));
+    assert.equal(arrow().getAttribute("aria-expanded"), "false");
+    assert.equal(arrow().getAttribute("aria-label"), "Chatbot aufklappen");
+    await group.unmount();
+
+    const other = await renderer.mount(MENU_OPTION, {
+      location: "/settings/users",
+      route: "/settings/users",
+      props: {
+        btnText: "Administrator",
+        user: { id: 1, role: "admin" },
+        childOptions: [
+          {
+            btnText: "Benutzer",
+            href: "/settings/users",
+            roles: ["admin"],
+          },
+        ],
+      },
+    });
+    t.after(() => other.unmount());
+    await other.act();
+    const button = elements(
+      other.container,
+      (el) => el.tagName === "BUTTON"
+    )[0];
+    assert.equal(button.getAttribute("aria-expanded"), null);
+    assert.equal(button.getAttribute("aria-label"), null);
   }
 );

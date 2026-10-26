@@ -64,71 +64,58 @@ test("AK-5: Punkt am Menü nur bei Gelb oder Rot", { skip }, () => {
     assert.equal(util.menuDotState(state), null, String(state));
 });
 
+// Fixliste r4 Nr. 1 (Vertrag): Überschrift, Zeilen, Anteil und den Fall
+// „nicht abrufbar“ rechnet nur der Server; die eigenen Regeln der Seite sind
+// entfallen
 test(
-  "Kontakt bei Gelb und Rot: Adresse als eine Konstante; nicht abrufbar aus der Ursache des letzten Laufs",
+  "Kontakt als eine Konstante; keine eigenen Regeln mehr für Überschrift, Zeilen und Anteil",
   { skip },
   () => {
     // Fixliste KB-3 r3 Nr. 5: support@kufer.de statt info@kufer.de
     assert.equal(util.KUFER_CONTACT_EMAIL, "support@kufer.de");
-    assert.equal(
-      util.isUnreachable({ lastRun: { cause: "feed_nicht_erreichbar" } }),
-      true
-    );
-    for (const cause of ["feed_unsicher", null, undefined])
-      assert.equal(util.isUnreachable({ lastRun: { cause } }), false);
-    assert.equal(util.isUnreachable({ lastRun: null }), false);
-    assert.equal(util.isUnreachable(null), false);
-    assert.equal("bannerKey" in util, false);
+    for (const name of [
+      "bannerKey",
+      "bannerTitle",
+      "bannerDetails",
+      "isUnreachable",
+      "missingShare",
+    ])
+      assert.equal(name in util, false, name);
   }
 );
 
-// Fixliste KB-3 r3 Nr. 3 und 4: Überschrift nennt den Grund, die Zeilen
-// folgen in fester Reihenfolge, die zur Überschrift passende zuerst
-test("Überschrift und Zeilen der Ampel-Meldung je Grund", { skip }, () => {
-  const unreachable = { cause: "feed_nicht_erreichbar" };
-  const other = { cause: "feed_unsicher" };
-  const cases = [
-    [{ state: "gruen", reasons: [] }, "aktuell", []],
-    [{ state: "gruen", reasons: [], lastRun: unreachable }, "aktuell", []],
-    [{ state: "nicht_eingerichtet", reasons: [] }, "nicht_eingerichtet", []],
-    [
-      { state: "gelb", reasons: ["fehlen"] },
-      "unvollstaendig",
-      ["unvollstaendig"],
-    ],
-    [
-      { state: "gelb", reasons: ["fehlen"], lastRun: unreachable },
-      "unvollstaendig",
-      ["unvollstaendig"],
-    ],
-    [
-      { state: "rot", reasons: ["alter"], lastRun: other },
-      "nicht-aktualisiert",
-      ["nicht-aktualisiert"],
-    ],
-    [
-      { state: "gelb", reasons: ["alter"], lastRun: unreachable },
-      "nicht-abrufbar",
-      ["nicht-abrufbar"],
-    ],
-    [
-      { state: "rot", reasons: ["fehlen", "alter"] },
-      "nicht-aktualisiert",
-      ["nicht-aktualisiert", "unvollstaendig"],
-    ],
-    [
-      { state: "rot", reasons: ["fehlen", "alter"], lastRun: unreachable },
-      "nicht-abrufbar",
-      ["nicht-abrufbar", "unvollstaendig"],
-    ],
-    [{ state: "gelb", reasons: [] }, "unvollstaendig", []],
-  ];
-  for (const [status, title, details] of cases) {
-    const name = JSON.stringify(status);
-    assert.equal(util.bannerTitle(status), title, name);
-    assert.deepEqual(util.bannerDetails(status), details, name);
+// Fixliste r4 Nr. 13 (NF-C4): ein Element mitten im übersetzten Satz an
+// einer Stelle für Design Center und Status-Seite
+test(
+  "NF-C4: withElement setzt das Element an jede Marke; keine eigene Marke mehr in Design Center und Status-Seite",
+  { skip },
+  async () => {
+    const { ELEMENT_MARK, withElement } = await renderer.load(
+      "/src/utils/withElement.js"
+    );
+    const { default: React } = await import("react");
+    const parts = withElement(
+      `a${ELEMENT_MARK}b${ELEMENT_MARK}c`,
+      React.createElement("code", null, "x")
+    );
+    assert.equal(parts.length, 5);
+    assert.deepEqual([parts[0], parts[2], parts[4]], ["a", "b", "c"]);
+    assert.deepEqual(
+      [parts[1].key, parts[3].key, parts[1].type, parts[1].props.children],
+      ["0", "1", "code", "x"]
+    );
+    const { readFileSync } = await import("node:fs");
+    const src = new URL("../src/", import.meta.url);
+    for (const file of [
+      "pages/GeneralSettings/ChatEmbedWidgets/EmbedAppearance/EmbedTab.jsx",
+      "pages/GeneralSettings/ChatEmbedWidgets/CourseStatus/index.jsx",
+    ]) {
+      const source = readFileSync(new URL(file, src), "utf8");
+      assert.doesNotMatch(source, /\\u0000/, file);
+      assert.match(source, /from "@\/utils\/withElement"/, file);
+    }
   }
-});
+);
 
 test("Meldungen der Ampel in de und en", { skip }, () => {
   const keys = [
@@ -137,9 +124,10 @@ test("Meldungen der Ampel in de und en", { skip }, () => {
     "course-status.banner.level.rot",
     "course-status.banner.title.aktuell",
     "course-status.banner.title.unvollstaendig",
-    "course-status.banner.title.nicht-aktualisiert",
-    "course-status.banner.title.nicht-abrufbar",
+    "course-status.banner.title.nicht_aktualisiert",
+    "course-status.banner.title.nicht_abrufbar",
     "course-status.banner.title.nicht_eingerichtet",
+    "course-status.banner.list-not-applied",
     "course-status.banner.not-set-up",
     "course-status.banner.available",
     "course-status.banner.not-updated",
@@ -163,8 +151,8 @@ test("Meldungen der Ampel in de und en", { skip }, () => {
     [
       "aktuell",
       "unvollstaendig",
-      "nicht-aktualisiert",
-      "nicht-abrufbar",
+      "nicht_aktualisiert",
+      "nicht_abrufbar",
       "nicht_eingerichtet",
     ].map((key) => de(`title.${key}`)),
     [
@@ -248,27 +236,6 @@ test("Meldungen der Ampel in de und en", { skip }, () => {
     "course-status.banner.next-sync",
   ])
     assert.equal(t(path), path, path);
-});
-
-test("Anteil der fehlenden Kurse", { skip }, () => {
-  assert.deepEqual(util.missingShare({ offered: 864, missing: 20 }), {
-    value: 2,
-  });
-  assert.deepEqual(util.missingShare({ offered: 2000, missing: 5 }), {
-    small: true,
-  });
-  // Fixliste r2 Nr. 2 (F4): abgerundet wie die Schwellen der Ampel
-  assert.deepEqual(util.missingShare({ offered: 864, missing: 42 }), {
-    value: 4,
-  });
-  assert.deepEqual(util.missingShare({ offered: 1000, missing: 109 }), {
-    value: 10,
-  });
-  assert.deepEqual(util.missingShare({ offered: 1000, missing: 9 }), {
-    small: true,
-  });
-  assert.equal(util.missingShare({ offered: 864, missing: 0 }), null);
-  assert.equal(util.missingShare({ offered: 0, missing: 0 }), null);
 });
 
 test("Zeitpunkte des Abgleichs in Berliner Zeit", { skip }, () => {

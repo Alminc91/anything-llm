@@ -92,6 +92,8 @@ const TRANSLATIONS = {
     "chatbot-status": null,
     "chatbot-conversations": "對話",
     "chatbot-design-center": null,
+    "chatbot-expand": null,
+    "chatbot-collapse": null,
     "embed-chats": "對話嵌入紀錄",
     security: "安全性設定",
     "event-logs": "事件記錄",
@@ -1838,8 +1840,8 @@ const TRANSLATIONS = {
       title: {
         aktuell: null,
         unvollstaendig: null,
-        "nicht-aktualisiert": null,
-        "nicht-abrufbar": null,
+        nicht_aktualisiert: null,
+        nicht_abrufbar: null,
         nicht_eingerichtet: null,
       },
       "not-set-up": null,
@@ -1854,6 +1856,7 @@ const TRANSLATIONS = {
       unreachable: null,
       closing: null,
       "closing-unreachable": null,
+      "list-not-applied": null,
     },
     kpi: {
       offered: null,
