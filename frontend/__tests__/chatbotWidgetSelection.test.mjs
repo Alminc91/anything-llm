@@ -439,8 +439,37 @@ test(
         el.parentNode?.getAttribute?.("role") === "option"
     );
     assert.equal(labels.length, 3);
+    // truncate: ohne Umbruch, zu lang endet mit „…“ (KF4)
     for (const el of labels)
-      assert.match(el.getAttribute("class") ?? "", /whitespace-nowrap/);
+      assert.match(el.getAttribute("class") ?? "", /\btruncate\b/);
+  }
+);
+
+// Fixliste r6 Nr. 6 (KF4): Auf dem Handy läuft die Auswahl nicht über den
+// Rand. Sie ist höchstens so breit wie der Platz, eine lange Bezeichnung
+// endet mit „…“, die Liste ist höchstens Bildschirmbreite minus Rand.
+test(
+  "r6-6: Widget-Auswahl höchstens so breit wie der Platz, lange Bezeichnung gekürzt",
+  { skip },
+  async (t) => {
+    const { container, act } = await openDesignCenter(t, "?widget=5");
+    const classOf = (el) => el?.getAttribute("class") ?? "";
+    const button = picker(container);
+    assert.match(classOf(button.parentNode), /\bmax-w-full\b/);
+    assert.match(classOf(button.parentNode), /\bmin-w-0\b/);
+    assert.match(classOf(button), /\bmax-w-full\b/);
+    const current = elements(container, (el) =>
+      el.hasAttribute("data-widget-picker-current")
+    )[0];
+    assert.match(classOf(current), /\btruncate\b/);
+    assert.match(classOf(current.parentNode), /\bmin-w-0\b/);
+    assert.match(classOf(current.parentNode), /\boverflow-hidden\b/);
+    await act(() => click(picker(container)));
+    const list = elements(
+      container,
+      (el) => el.getAttribute("role") === "listbox"
+    )[0];
+    assert.match(classOf(list), /max-w-\[calc\(100vw-2rem\)\]/);
   }
 );
 

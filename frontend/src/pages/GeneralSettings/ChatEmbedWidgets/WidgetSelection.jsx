@@ -171,7 +171,7 @@ export function WidgetPicker({ embeds, selectedId, onSelect }) {
   const current = embeds.find((e) => e.id === selectedId);
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative max-w-full min-w-0" ref={dropdownRef}>
       <button
         type="button"
         ref={buttonRef}
@@ -179,31 +179,32 @@ export function WidgetPicker({ embeds, selectedId, onSelect }) {
         aria-expanded={open}
         aria-label={t("embed-analytics.widget-label")}
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 bg-theme-settings-input-bg text-theme-text-primary rounded-lg px-4 py-2 text-sm border border-white/10 cursor-pointer"
+        className="flex items-center gap-2 max-w-full bg-theme-settings-input-bg text-theme-text-primary rounded-lg px-4 py-2 text-sm border border-white/10 cursor-pointer"
       >
         {/* Die Schaltfläche ist so breit wie die längste Bezeichnung (alle
             liegen unsichtbar übereinander), damit die Liste darunter jede
-            Bezeichnung in einer Zeile zeigt (Fixliste r4 Nr. 9) */}
-        <span className="grid text-left">
+            Bezeichnung in einer Zeile zeigt (Fixliste r4 Nr. 9); höchstens
+            so breit wie der Platz, sonst endet die Bezeichnung mit „…“ (KF4) */}
+        <span className="grid min-w-0 overflow-hidden text-left">
           {options.map((embed) => (
             <span
               key={embed.id}
               aria-hidden="true"
-              className="invisible col-start-1 row-start-1 whitespace-nowrap"
+              className="invisible col-start-1 row-start-1 min-w-0 whitespace-nowrap"
             >
               {embedLabel(embed)}
             </span>
           ))}
           <span
             data-widget-picker-current=""
-            className="col-start-1 row-start-1 whitespace-nowrap"
+            className="col-start-1 row-start-1 min-w-0 truncate"
           >
             {current ? embedLabel(current) : t("embed-analytics.select-embed")}
           </span>
         </span>
         <CaretDown
           size={12}
-          className={`text-theme-text-primary ml-1 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`shrink-0 text-theme-text-primary ml-1 transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -214,7 +215,7 @@ export function WidgetPicker({ embeds, selectedId, onSelect }) {
         <div
           role="listbox"
           aria-label={t("embed-analytics.widget-label")}
-          className="absolute left-0 top-full mt-1 w-full bg-theme-bg-secondary border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden"
+          className="absolute left-0 top-full mt-1 w-full max-w-[calc(100vw-2rem)] bg-theme-bg-secondary border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden"
         >
           {options.map((embed) => (
             <button
@@ -229,11 +230,11 @@ export function WidgetPicker({ embeds, selectedId, onSelect }) {
               className={`flex items-center justify-between gap-2 w-full px-3 py-2 text-sm text-left transition-all cursor-pointer
                 ${selectedId === embed.id ? "bg-white/10 text-theme-text-primary font-medium" : `${MUTED} hover:bg-white/5 hover:text-theme-text-primary`}`}
             >
-              <span className="whitespace-nowrap">{embedLabel(embed)}</span>
+              <span className="min-w-0 truncate">{embedLabel(embed)}</span>
               {selectedId === embed.id && (
                 <Check
                   size={14}
-                  className="text-theme-text-primary"
+                  className="shrink-0 text-theme-text-primary"
                   weight="bold"
                 />
               )}
