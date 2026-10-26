@@ -21,17 +21,28 @@ export const KUFER_CONTACT_EMAIL = "info@kufer.de";
 /** Zustände der Ampel; dazu „nicht_eingerichtet“ (grau, ohne Punkt). */
 export const STATES = ["gruen", "gelb", "rot", "nicht_eingerichtet"];
 
-// Farben wie im Mockup (Tafel 3): Punkt, Fläche, Rand, Text
+/**
+ * Farben je Zustand (Punkt, Fläche, Rand, Text) als Theme-Variablen
+ * (index.css, „Status-Seite des Kursbestands“): je eine Variante für das
+ * dunkle und das helle Design.
+ */
+const colorsOf = (state) => ({
+  dot: `var(--course-status-${state}-dot)`,
+  bg: `var(--course-status-${state}-bg)`,
+  border: `var(--course-status-${state}-border)`,
+  text: `var(--course-status-${state}-text)`,
+});
 export const STATE_COLORS = {
-  gruen: { dot: "#1E7F4F", bg: "#E3F1EA", border: "#B5DCC6", text: "#155E3B" },
-  gelb: { dot: "#D9961A", bg: "#FDF1DC", border: "#F1D29A", text: "#5C3705" },
-  rot: { dot: "#B42318", bg: "#FDE7E5", border: "#F3B8B2", text: "#8E1B12" },
-  nicht_eingerichtet: {
-    dot: "#5B646C",
-    bg: "#F3F4F6",
-    border: "#DDE2E5",
-    text: "#3D454D",
-  },
+  gruen: colorsOf("gruen"),
+  gelb: colorsOf("gelb"),
+  rot: colorsOf("rot"),
+  nicht_eingerichtet: colorsOf("nicht_eingerichtet"),
+};
+
+/** Farben des Hinweises bei den ausgeblendeten Kursen (AK-4). */
+export const NOTICE_COLORS = {
+  background: "var(--course-status-notice-bg)",
+  color: "var(--course-status-notice-text)",
 };
 
 /**

@@ -244,6 +244,51 @@
   --theme-analytics-empty-outline: #888b8f;
 }
 
+/* Status-Seite des Kursbestands (KB-3): Ampel (Punkt, Fläche, Rand, Text)
+   und der Hinweis bei den ausgeblendeten Kursen. Im dunklen Design gedeckte
+   Flächen mit heller Schrift, im hellen die Pastelltöne aus dem Mockup
+   (Tafel 3). Text auf der Fläche jeweils über 4,5:1. */
+:root {
+  --course-status-gruen-dot: #3dbe7e;
+  --course-status-gruen-bg: #12291d;
+  --course-status-gruen-border: #1f5c3c;
+  --course-status-gruen-text: #a7e3c2;
+  --course-status-gelb-dot: #f0b13c;
+  --course-status-gelb-bg: #2e2410;
+  --course-status-gelb-border: #6b4e14;
+  --course-status-gelb-text: #f8d99a;
+  --course-status-rot-dot: #f0675c;
+  --course-status-rot-bg: #33140f;
+  --course-status-rot-border: #7a2a22;
+  --course-status-rot-text: #f9b8b1;
+  --course-status-nicht_eingerichtet-dot: #9aa3ab;
+  --course-status-nicht_eingerichtet-bg: #1f2225;
+  --course-status-nicht_eingerichtet-border: #3a3f44;
+  --course-status-nicht_eingerichtet-text: #d0d5da;
+  --course-status-notice-bg: #0f2e31;
+  --course-status-notice-text: #8fd8dd;
+}
+[data-theme="light"] {
+  --course-status-gruen-dot: #1e7f4f;
+  --course-status-gruen-bg: #e3f1ea;
+  --course-status-gruen-border: #b5dcc6;
+  --course-status-gruen-text: #155e3b;
+  --course-status-gelb-dot: #d9961a;
+  --course-status-gelb-bg: #fdf1dc;
+  --course-status-gelb-border: #f1d29a;
+  --course-status-gelb-text: #5c3705;
+  --course-status-rot-dot: #b42318;
+  --course-status-rot-bg: #fde7e5;
+  --course-status-rot-border: #f3b8b2;
+  --course-status-rot-text: #8e1b12;
+  --course-status-nicht_eingerichtet-dot: #5b646c;
+  --course-status-nicht_eingerichtet-bg: #f3f4f6;
+  --course-status-nicht_eingerichtet-border: #dde2e5;
+  --course-status-nicht_eingerichtet-text: #3d454d;
+  --course-status-notice-bg: #e0f2f3;
+  --course-status-notice-text: #005a5f;
+}
+
 [data-theme="light"] .text-white {
   color: var(--theme-text-primary);
 }

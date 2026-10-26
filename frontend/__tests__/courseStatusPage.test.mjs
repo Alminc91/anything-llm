@@ -12,6 +12,9 @@ import {
   hasFrontendDeps,
 } from "./helpers/renderSettingsPage.mjs";
 import { click, elements } from "./helpers/testDom.mjs";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const VIEW =
   "/src/pages/GeneralSettings/ChatEmbedWidgets/CourseStatus/index.jsx";
@@ -580,5 +583,55 @@ test(
       sr.map((el) => el.textContent),
       ["Status: Gelb"]
     );
+  }
+);
+
+// Fixliste r2 Nr. 5 (F7): Die Farben der Ampel und des Hinweises kommen aus
+// Theme-Variablen mit je einer Variante für das dunkle (:root) und das helle
+// Design ([data-theme="light"]), wie die übrigen Farben der Admin-Oberfläche.
+test(
+  "F7: Farben der Ampel als Theme-Variablen, dunkel und hell verschieden",
+  { skip },
+  async () => {
+    const src = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../src"
+    );
+    const util = await renderer.load("/src/utils/courseStatus.js");
+    const used = [
+      ...Object.values(util.STATE_COLORS).flatMap(Object.values),
+      ...Object.values(util.NOTICE_COLORS),
+    ];
+    assert.equal(used.length, 18);
+    const names = used.map((value) => {
+      const match = /^var\((--course-status-[a-z_-]+)\)$/.exec(value);
+      assert.ok(match, value);
+      return match[1];
+    });
+
+    const css = readFileSync(path.join(src, "index.css"), "utf8");
+    const blocks = (selector) =>
+      [...css.matchAll(/^(:root|\[data-theme="light"\]) \{([^}]*)\}/gm)]
+        .filter(([, sel]) => sel === selector)
+        .map(([, , body]) => body)
+        .join("\n");
+    const valueIn = (body, name) =>
+      new RegExp(`^\\s*${name}:\\s*([^;]+);`, "m").exec(body)?.[1];
+    for (const name of names) {
+      const dark = valueIn(blocks(":root"), name);
+      const light = valueIn(blocks('[data-theme="light"]'), name);
+      assert.ok(dark && light, name);
+      assert.notEqual(dark, light, name);
+    }
+
+    // keine festen Farben mehr auf der Seite
+    const page = readFileSync(
+      path.join(
+        src,
+        "pages/GeneralSettings/ChatEmbedWidgets/CourseStatus/index.jsx"
+      ),
+      "utf8"
+    );
+    assert.doesNotMatch(page, /#[0-9a-fA-F]{3,8}\b/);
   }
 );

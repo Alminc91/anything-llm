@@ -6,6 +6,7 @@ import { formatNumber } from "@/utils/analyticsTimeline";
 import { AVATAR_CLEARANCE, MUTED } from "@/utils/conversationView";
 import {
   KUFER_CONTACT_EMAIL,
+  NOTICE_COLORS,
   OPTIMIZATION_NOTICE_SINCE,
   STATE_COLORS,
   formatNextRun,
@@ -367,7 +368,7 @@ function HiddenList({ status }) {
             <p
               data-course-notice=""
               className="mt-1 self-start rounded-lg px-3 py-1 text-xs font-semibold"
-              style={{ background: "#E0F2F3", color: "#005A5F" }}
+              style={NOTICE_COLORS}
             >
               {t("course-status.hidden.notice", {
                 date: OPTIMIZATION_NOTICE_SINCE,
