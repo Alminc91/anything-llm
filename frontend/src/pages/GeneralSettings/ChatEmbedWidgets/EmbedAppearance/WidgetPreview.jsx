@@ -28,7 +28,7 @@
 // das Datenschutz-Fenster mit der Änderung (ohne dem Feld den Fokus zu
 // nehmen), jede andere Änderung schließt es wieder. Beide hängen oben; die
 // Vorschau-Spalte scrollt nur, wenn das Fenster zu niedrig ist (B-06, R7).
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   ChatCircleDots,
   Headset,
@@ -404,9 +404,9 @@ export default function WidgetPreview({
 // wie im Widget (N3, Nutzerentscheidung 20.10.2026, Fixliste 7.22-rc13:
 // „Es muss immer ausgeschrieben sein“; ersetzt die Ellipse aus rc10 W1).
 // KIE-576 Paket 3: mit Schalter „Kursanzahl im Untertitel“ an steht statt des
-// Untertitels „aktuell 812 Kurse“ mit dem Info-Symbol wie im Widget, mit der
-// echten Zahl des Kursbestands, sonst einer Beispielzahl (Vorschau nicht
-// bedienbar, das Symbol ist nur Schmuck).
+// Untertitels „aktuell 812 Kurse“ mit dem Info-Button wie im Widget, mit den
+// echten Werten des Kursbestands, sonst Beispielwerten mit dem Zusatz
+// „Beispiel“ (PreviewCourseCount, AK-K10, D-K8).
 function PreviewHeader({
   config,
   logoPreview,
@@ -425,7 +425,7 @@ function PreviewHeader({
     : subtitleFieldValue(config, defaults).trim();
   return (
     <div
-      className="flex items-center gap-3 px-4 py-2.5 min-h-[60px] flex-shrink-0"
+      className="relative flex items-center gap-3 px-4 py-2.5 min-h-[60px] flex-shrink-0"
       style={{ borderBottom: `1px solid ${palette.line}` }}
       data-preview="header"
     >
@@ -452,19 +452,197 @@ function PreviewHeader({
           </span>
         )}
         {courseCount && (
-          <span
-            className="flex items-center gap-1 text-[11px] leading-snug whitespace-nowrap"
-            style={{ color: palette.muted }}
-            data-preview="header-course-count"
-            data-sample={courseCount.sample ? "true" : "false"}
-          >
-            {courseCount.text}
-            <Info size={13} weight="bold" aria-hidden="true" />
-          </span>
+          <PreviewCourseCount
+            courseCount={courseCount}
+            palette={palette}
+            focusColor={previewAccentColor(config)}
+          />
         )}
       </span>
       <span className="flex-shrink-0 flex items-center">{action}</span>
     </div>
+  );
+}
+
+// Info-Karte der Kursanzahl: Farben wie im Widget (CourseCount.jsx), umgekehrt
+// zum Fenster: hell Fläche --allmi-text (#1f2937) mit Schrift
+// --allmi-surface (#FFFFFF), dunkel DARK.text auf DARK.surface; Fläche des
+// Info-Buttons bei offener Karte und beim Hover wie im Widget
+// (--allmi-hover-bg)
+export const COURSE_COUNT_CARD_COLORS = {
+  light: { bg: "#1f2937", text: "#FFFFFF", open: "#e5e7eb", hover: "#f3f4f6" },
+  dark: {
+    bg: "#F4F2EF",
+    text: "#1D1D21",
+    open: "rgba(255, 255, 255, 0.08)",
+    hover: "rgba(255, 255, 255, 0.08)",
+  },
+};
+// Linke Kante der Karte: bündig mit Name und Untertitel (Kopf px-4, Logo
+// 36 px, Abstand 12 px); im Widget 72 px bei seinem 44-px-Logo
+const COURSE_COUNT_CARD_LEFT_PX = 16 + 36 + 12;
+// K-D6: Hinweis unter den Beispielwerten
+export const COURSE_COUNT_SAMPLE_LABEL = "Beispiel";
+export const COURSE_COUNT_SAMPLE_HINT =
+  "Die Zahl erscheint, sobald die Kursliste vom Kursprogramm übertragen ist.";
+
+/**
+ * Kursanzahl im Kopf der Vorschau mit Info-Button und Info-Karte wie im
+ * Widget (KIE-576 AK-K10; Widget src/components/ChatWindow/Header/
+ * CourseCount.jsx): „aktuell <Zahl fett> <Bezeichnung>“ in einer Zeile,
+ * daneben der Button ⓘ (Trefferfläche 24 px, aria-label, aria-expanded).
+ * Klick öffnet die Karte unter dem Kopf (role dialog, nur Text, Zeilen aus
+ * courseCountCard.js, Maße wie im Widget), der Fokus geht in die Karte.
+ * Schließen mit Escape (Fokus zurück auf den Button), Klick daneben,
+ * erneutem Klick oder wenn der Fokus per Tab ein anderes Element erreicht.
+ * Mit Beispielwerten (sample) der Zusatz „Beispiel“ im Kopf und in der
+ * Karte, dazu der Hinweis K-D6. Der Button ist type="button" und ändert nur
+ * den Zustand der Vorschau (kein Formular, keine Navigation).
+ * @param {{courseCount: {sample: boolean, texts: Object}, palette: Object, focusColor: string}} props
+ */
+function PreviewCourseCount({ courseCount, palette, focusColor }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const buttonRef = useRef(null);
+  const cardRef = useRef(null);
+  const cardId = `preview-course-count-info${useId().replace(/:/g, "")}`;
+  const { texts, sample } = courseCount;
+  const colors = COURSE_COUNT_CARD_COLORS[palette.scheme];
+
+  // Klick daneben (Maustaste gedrückt außerhalb von Button und Karte)
+  useEffect(() => {
+    if (!open) return undefined;
+    const doc = wrapRef.current?.ownerDocument;
+    if (!doc) return undefined;
+    const onDown = (e) => {
+      if (wrapRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    doc.addEventListener("mousedown", onDown);
+    return () => doc.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  // geöffnet: Fokus in die Karte, damit Screenreader sie vorlesen
+  useEffect(() => {
+    if (open) cardRef.current?.focus({ preventScroll: true });
+  }, [open]);
+
+  // Escape auf Button oder Karte
+  const onKeyDown = (e) => {
+    if (!open || e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+
+  // Fokus wandert von Button oder Karte per Tab auf ein anderes Element:
+  // Karte zu (ohne neues Ziel, etwa beim Fensterwechsel, bleibt sie offen)
+  const onBlur = (e) => {
+    if (!open) return;
+    const next = e.relatedTarget;
+    if (!next || wrapRef.current?.contains(next)) return;
+    setOpen(false);
+  };
+
+  return (
+    <span
+      ref={wrapRef}
+      className="flex items-center gap-0.5 min-w-0 text-[11px] leading-snug whitespace-nowrap"
+      style={{ color: palette.muted }}
+      data-preview="header-course-count"
+      data-sample={sample ? "true" : "false"}
+    >
+      <span className="min-w-0 overflow-hidden text-ellipsis">
+        {texts.lead}{" "}
+        <span className="font-semibold" style={{ color: palette.text }}>
+          {texts.number}
+        </span>{" "}
+        {texts.word}
+      </span>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={texts.info}
+        aria-expanded={open ? "true" : "false"}
+        aria-controls={open ? cardId : undefined}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={onKeyDown}
+        onBlur={onBlur}
+        className="flex-shrink-0 flex items-center justify-center w-6 h-6 -my-1 rounded-full hover:bg-[var(--preview-course-count-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
+        style={{
+          color: palette.muted,
+          outlineColor: focusColor,
+          "--preview-course-count-hover": colors.hover,
+          ...(open ? { backgroundColor: colors.open } : {}),
+        }}
+        data-preview="course-count-button"
+      >
+        <Info size={15} weight="bold" aria-hidden="true" />
+      </button>
+      {sample && (
+        <span
+          className="flex-shrink-0 ml-1 px-1.5 rounded-full text-[10px] font-semibold"
+          style={{ border: `1px solid ${palette.line}` }}
+          data-preview="header-course-count-sample"
+        >
+          {COURSE_COUNT_SAMPLE_LABEL}
+        </span>
+      )}
+      {open && (
+        <span
+          ref={cardRef}
+          id={cardId}
+          role="dialog"
+          aria-label={texts.dialog}
+          tabIndex={-1}
+          onKeyDown={onKeyDown}
+          onBlur={onBlur}
+          className="absolute z-10 flex flex-col text-left outline-none whitespace-normal [overflow-wrap:anywhere]"
+          style={{
+            top: "calc(100% + 8px)",
+            left: `${COURSE_COUNT_CARD_LEFT_PX}px`,
+            right: "12px",
+            maxWidth: "360px",
+            boxSizing: "border-box",
+            gap: "6px",
+            padding: "12px 14px",
+            borderRadius: "10px",
+            backgroundColor: colors.bg,
+            color: colors.text,
+            boxShadow: "0 8px 24px rgba(20, 30, 50, 0.18)",
+            fontSize: "13px",
+            lineHeight: 1.45,
+          }}
+          data-preview="course-count-card"
+        >
+          {sample && (
+            <span
+              className="self-start px-1.5 rounded-full text-[10px] font-semibold"
+              style={{ border: "1px solid currentColor", opacity: 0.82 }}
+              data-preview="course-count-card-sample"
+            >
+              {COURSE_COUNT_SAMPLE_LABEL}
+            </span>
+          )}
+          <span style={{ fontWeight: 600 }}>{texts.head}</span>
+          <span>{texts.scope}</span>
+          {texts.hiddenLine && <span>{texts.hiddenLine}</span>}
+          {texts.missingLine && <span>{texts.missingLine}</span>}
+          {texts.gapHint && <span>{texts.gapHint}</span>}
+          <span style={{ opacity: 0.82 }}>{texts.stand}</span>
+          {sample && (
+            <span
+              className="pt-1.5 text-[11.5px]"
+              style={{ borderTop: "1px solid currentColor", opacity: 0.82 }}
+              data-preview="course-count-card-sample-hint"
+            >
+              {COURSE_COUNT_SAMPLE_HINT}
+            </span>
+          )}
+        </span>
+      )}
+    </span>
   );
 }
 

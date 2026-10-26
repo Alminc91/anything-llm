@@ -271,7 +271,7 @@
         "lines": [
           "812 Kurse im KI-Berater",
           "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-          "14 Kurse sind ausgeblendet, weil sie voraussichtlich beendet sind.",
+          "14 Kurse sind ausgeblendet, da sie voraussichtlich beendet sind.",
           "Zurzeit fehlen 25 Kurse.",
           "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
         ]
@@ -305,7 +305,7 @@
         "lines": [
           "1.243 Kurse im KI-Berater",
           "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-          "1.050 Kurse sind ausgeblendet, weil sie voraussichtlich beendet sind.",
+          "1.050 Kurse sind ausgeblendet, da sie voraussichtlich beendet sind.",
           "Zurzeit fehlen 67 Kurse.",
           "Für eine vollständige Suche nutzen Sie bitte die Kurssuche auf unserer Webseite.",
           "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
@@ -324,7 +324,7 @@
         "lines": [
           "836 Kurse im KI-Berater",
           "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-          "1 Kurs ist ausgeblendet, weil er voraussichtlich beendet ist.",
+          "1 Kurs ist ausgeblendet, da er voraussichtlich beendet ist.",
           "Zurzeit fehlt 1 Kurs.",
           "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
         ]
@@ -342,7 +342,7 @@
         "lines": [
           "836 Angebote im KI-Berater",
           "Enthalten sind die aktuellen Angebote aus unserem Kursprogramm.",
-          "1 Angebote sind ausgeblendet, weil sie voraussichtlich beendet sind.",
+          "1 Angebote sind ausgeblendet, da sie voraussichtlich beendet sind.",
           "Zurzeit fehlen 1 Angebote.",
           "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
         ]

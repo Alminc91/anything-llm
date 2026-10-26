@@ -268,6 +268,7 @@ test("D-K5: keine interne Zeile mehr, Kursbestand nur noch für die Vorschau gep
   assert.deepEqual(keys.courseInventoryValue(INVENTORY), {
     count: 812,
     offered: 837,
+    hidden: 14,
     stand: INVENTORY.stand,
   });
   // ohne stale und missing (D-K5) gültig, ungültige Zahlen nicht
@@ -286,14 +287,12 @@ test("D-K5: keine interne Zeile mehr, Kursbestand nur noch für die Vorschau gep
 });
 
 test("Vorschau: echte Zahl, sonst Beispielzahl; Bezeichnung wie live; Schalter aus ohne Zahl", () => {
-  assert.deepEqual(keys.previewCourseCount({}, INVENTORY), {
-    text: "aktuell 812 Kurse",
-    sample: false,
-  });
-  assert.deepEqual(keys.previewCourseCount({}, null), {
-    text: "aktuell 837 Kurse",
-    sample: true,
-  });
+  const real = keys.previewCourseCount({}, INVENTORY);
+  assert.equal(real.text, "aktuell 812 Kurse");
+  assert.equal(real.sample, false);
+  const sample = keys.previewCourseCount({}, null);
+  assert.equal(sample.text, "aktuell 837 Kurse");
+  assert.equal(sample.sample, true);
   assert.deepEqual(
     keys.previewCourseCount({}, { ...INVENTORY, count: 0 }).sample,
     true
@@ -447,9 +446,12 @@ const preview = (config, courseInventory = null) =>
       courseInventory,
     },
   });
+// Text der Zahl im Kopf (ohne Info-Button und Zusatz „Beispiel“, AK-K10)
 const headerCount = (html) => {
-  const m = html.match(/data-preview="header-course-count"[^>]*>([^<]*)/);
-  return m ? m[1].trim() : null;
+  const at = html.indexOf('data-preview="header-course-count"');
+  if (at < 0) return null;
+  const rest = html.slice(at);
+  return text(rest.slice(rest.indexOf(">") + 1, rest.indexOf("<button")));
 };
 
 test(
