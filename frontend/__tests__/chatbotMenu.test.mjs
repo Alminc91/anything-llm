@@ -4,7 +4,7 @@
 // Merkregel, Abkürzungen der Widget-Zeile): chatbotWidgetSelection.test.mjs.
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -275,3 +275,19 @@ test(
     assert.match(source, /function hasVisibleOptions\(user = null/);
   }
 );
+
+// Fixliste r2 Nr. 4 (F6): Der Ladetext der Seiten im Bereich „Chatbot“ kommt
+// aus der Übersetzung (common.loading), auch im Design Center.
+test("F6: kein fester Ladetext im Bereich „Chatbot“", { skip }, () => {
+  const dir = path.join(SRC, "pages/GeneralSettings/ChatEmbedWidgets");
+  const sources = readdirSync(dir, { recursive: true }).filter((file) =>
+    /\.jsx?$/.test(file)
+  );
+  assert.ok(sources.length > 5);
+  const fixed = sources.filter((file) =>
+    />\s*Laden\s*(\.\.\.|…)?\s*</.test(
+      readFileSync(path.join(dir, file), "utf8")
+    )
+  );
+  assert.deepEqual(fixed, []);
+});

@@ -73,11 +73,12 @@ export function ChatbotStatus() {
  * Design Center des anderen Widgets.
  */
 export function ChatbotDesignCenter() {
+  const { t } = useTranslation();
   const { loaded, embeds, lastActivity } = useChatbotWidgets();
   if (!loaded)
     return (
       <div className="w-full h-full flex items-center justify-center">
-        <p className="text-theme-text-secondary">Laden...</p>
+        <p className="text-theme-text-secondary">{t("common.loading")}</p>
       </div>
     );
   // Ohne sichtbares Widget gibt es nichts zu gestalten: zur Widget-Liste,

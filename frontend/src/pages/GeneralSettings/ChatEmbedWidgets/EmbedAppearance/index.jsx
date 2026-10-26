@@ -327,7 +327,7 @@ export default function EmbedAppearance({ embedId, widgetPicker = null }) {
   if (loading) {
     return (
       <div className="w-full h-full flex items-center justify-center">
-        <p className="text-theme-text-secondary">Laden...</p>
+        <p className="text-theme-text-secondary">{t("common.loading")}</p>
       </div>
     );
   }
