@@ -135,7 +135,7 @@ export const COURSE_COUNT_SUBTITLE_LOCKED =
 export const COURSE_COUNT_WORD_HINT =
   "Wort hinter der Zahl, im Plural, z. B. „Seminare“. Leer: es gilt „Kurse“.";
 export const COURSE_COUNT_HINT =
-  "In der Titelleiste des Chats steht statt des Untertitels die Zahl der Kurse, z. B. „aktuell 837 Kurse“, mit einem Info-Symbol. Gezählt werden nur Kurse aus dem Kursprogramm, die der KI-Berater kennt. Aus: eigener Untertitel oder keiner.";
+  "In der Titelleiste des Chats steht statt des Untertitels die Zahl der Kurse, z. B. „aktuell 837 Kurse“. Gezählt werden nur Kurse aus dem Kursprogramm, die der KI-Berater kennt. Aus: eigener Untertitel oder keiner.";
 
 // „Willkommensblasen anzeigen“ (KIE-568, nur Chatfenster): je Gerät Aus /
 // Erster Besuch (Standard) / Jeder Besuch, je Gerät eine Zeile mit der
