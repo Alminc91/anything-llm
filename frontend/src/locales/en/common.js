@@ -271,7 +271,9 @@ const TRANSLATIONS = {
     embeds: "Chat Embed",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
+    "chatbot-status": "Status",
     "chatbot-conversations": "Conversations",
+    "chatbot-design-center": "Design Center",
     "embed-chats": "Chat Embed History",
     security: "Security",
     "event-logs": "Event Logs",
@@ -971,7 +973,6 @@ const TRANSLATIONS = {
   },
 
   "embed-row": {
-    design: "Design",
     code: "Code",
     disable: "Disable",
     enable: "Enable",
@@ -1552,6 +1553,8 @@ const TRANSLATIONS = {
     "retention-line_other":
       "Conversation contents are deleted after {{count}} days. The counts are kept.",
     "widget-label": "Widget",
+    "widget-not-found":
+      "This widget was not found, or you do not have access to it.",
     "no-widget": {
       title: "No widget yet",
       description:

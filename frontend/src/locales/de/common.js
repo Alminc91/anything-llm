@@ -287,7 +287,9 @@ const TRANSLATIONS = {
     embeds: "Chat-Widgets",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
+    "chatbot-status": "Status",
     "chatbot-conversations": "Konversationen",
+    "chatbot-design-center": "Design Center",
     "embed-chats": "Chat-Widget-Verlauf",
     security: "Sicherheit",
     "event-logs": "Ereignisprotokolle",
@@ -1011,6 +1013,8 @@ const TRANSLATIONS = {
     "retention-line_other":
       "Konversationsinhalte werden nach {{count}} Tagen gelöscht. Die Zählwerte bleiben erhalten.",
     "widget-label": "Widget",
+    "widget-not-found":
+      "Dieses Widget wurde nicht gefunden, oder Sie haben keinen Zugriff darauf.",
     "no-widget": {
       title: "Noch kein Widget vorhanden",
       description:
@@ -1358,7 +1362,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: "Aussehen",
     code: "Code",
     disable: "Deaktivieren",
     enable: "Aktivieren",

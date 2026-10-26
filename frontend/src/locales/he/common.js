@@ -94,7 +94,9 @@ const TRANSLATIONS = {
     embeds: "הטמעות צ'אט (Embeds)",
     chatbot: "צ'אטבוט",
     "chatbot-widgets": "ווידג'טים",
+    "chatbot-status": null,
     "chatbot-conversations": "שיחות",
+    "chatbot-design-center": null,
     "embed-chats": "היסטוריית הטמעות צ'אט",
     security: "אבטחה",
     "event-logs": "יומני אירועים",
@@ -1305,7 +1307,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1433,6 +1434,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

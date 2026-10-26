@@ -97,7 +97,9 @@ const TRANSLATIONS = {
     embeds: "Chat Embed",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgeturi",
+    "chatbot-status": null,
     "chatbot-conversations": "Conversații",
+    "chatbot-design-center": null,
     "embed-chats": "Istoricul chat embed",
     security: "Securitate",
     "event-logs": "Jurnale de evenimente",
@@ -1347,7 +1349,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1475,6 +1476,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

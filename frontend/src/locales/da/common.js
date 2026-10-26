@@ -94,7 +94,9 @@ const TRANSLATIONS = {
     embeds: "Chat-indlejring",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
+    "chatbot-status": null,
     "chatbot-conversations": "Samtaler",
+    "chatbot-design-center": null,
     "embed-chats": "Historik for chat-indlejringer",
     security: "Sikkerhed",
     "event-logs": "Hændelseslog",
@@ -1348,7 +1350,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1476,6 +1477,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

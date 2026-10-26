@@ -92,7 +92,9 @@ const TRANSLATIONS = {
     embeds: "嵌入式对话",
     chatbot: "聊天机器人",
     "chatbot-widgets": "小组件",
+    "chatbot-status": null,
     "chatbot-conversations": "对话",
+    "chatbot-design-center": null,
     "embed-chats": "嵌入式对话历史记录",
     security: "用户与安全",
     "event-logs": "事件日志",
@@ -1271,7 +1273,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1399,6 +1400,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

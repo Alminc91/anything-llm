@@ -92,7 +92,9 @@ const TRANSLATIONS = {
     embeds: "채팅 임베드",
     chatbot: "챗봇",
     "chatbot-widgets": "위젯",
+    "chatbot-status": null,
     "chatbot-conversations": "대화",
+    "chatbot-design-center": null,
     "embed-chats": "채팅 임베드 기록",
     security: "보안",
     "event-logs": "이벤트 로그",
@@ -1320,7 +1322,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1448,6 +1449,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

@@ -92,7 +92,9 @@ const TRANSLATIONS = {
     embeds: "تضمين المحادثة",
     chatbot: "روبوت المحادثة",
     "chatbot-widgets": "الأدوات المصغّرة",
+    "chatbot-status": null,
     "chatbot-conversations": "المحادثات",
+    "chatbot-design-center": null,
     "embed-chats": "سجل تضمين المحادثة",
     security: "حماية",
     "event-logs": "سجلات الأحداث",
@@ -1321,7 +1323,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1449,6 +1450,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

@@ -94,7 +94,9 @@ const TRANSLATIONS = {
     embeds: "Sohbet Gömme",
     chatbot: "Sohbet botu",
     "chatbot-widgets": "Widget'lar",
+    "chatbot-status": null,
     "chatbot-conversations": "Konuşmalar",
+    "chatbot-design-center": null,
     "embed-chats": "Gömme Sohbet Geçmişi",
     security: "Güvenlik",
     "event-logs": "Olay Kayıtları",
@@ -1339,7 +1341,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1467,6 +1468,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

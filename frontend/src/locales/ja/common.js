@@ -93,7 +93,9 @@ const TRANSLATIONS = {
     embeds: "チャット埋め込み",
     chatbot: "チャットボット",
     "chatbot-widgets": "ウィジェット",
+    "chatbot-status": null,
     "chatbot-conversations": "会話",
+    "chatbot-design-center": null,
     "embed-chats": "チャット埋め込み履歴",
     security: "セキュリティ",
     "event-logs": "イベントログ",
@@ -1345,7 +1347,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1473,6 +1474,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

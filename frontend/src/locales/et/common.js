@@ -95,7 +95,9 @@ const TRANSLATIONS = {
     embeds: "Vestluse embed",
     chatbot: "Vestlusrobot",
     "chatbot-widgets": "Vidinad",
+    "chatbot-status": null,
     "chatbot-conversations": "Vestlused",
+    "chatbot-design-center": null,
     "embed-chats": "Embed-vestluste ajalugu",
     security: "Turvalisus",
     "event-logs": "Sündmuste logid",
@@ -1297,7 +1299,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1425,6 +1426,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

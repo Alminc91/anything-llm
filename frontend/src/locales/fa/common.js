@@ -95,7 +95,9 @@ const TRANSLATIONS = {
     embeds: "جاسازی گفتگو",
     chatbot: "چت‌بات",
     "chatbot-widgets": "ویجت‌ها",
+    "chatbot-status": null,
     "chatbot-conversations": "گفتگوها",
+    "chatbot-design-center": null,
     "embed-chats": "تاریخچه گفتگوهای جاسازی شده",
     security: "امنیت",
     "event-logs": "گزارش رویدادها",
@@ -1341,7 +1343,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1469,6 +1470,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

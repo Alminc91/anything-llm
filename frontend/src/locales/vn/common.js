@@ -94,7 +94,9 @@ const TRANSLATIONS = {
     embeds: "Nhúng hội thoại",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widget",
+    "chatbot-status": null,
     "chatbot-conversations": "Hội thoại",
+    "chatbot-design-center": null,
     "embed-chats": "Lịch sử Nhúng hội thoại",
     security: "Bảo mật",
     "event-logs": "Nhật ký sự kiện",
@@ -1339,7 +1341,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1467,6 +1468,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

@@ -97,7 +97,9 @@ const TRANSLATIONS = {
     embeds: "Osadzone czaty",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widżety",
+    "chatbot-status": null,
     "chatbot-conversations": "Rozmowy",
+    "chatbot-design-center": null,
     "embed-chats": "Historia osadzonych czatów",
     security: "Bezpieczeństwo",
     "event-logs": "Dzienniki zdarzeń",
@@ -1345,7 +1347,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1473,6 +1474,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

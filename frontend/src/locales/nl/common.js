@@ -94,7 +94,9 @@ const TRANSLATIONS = {
     embeds: "Chat Inbedden",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
+    "chatbot-status": null,
     "chatbot-conversations": "Gesprekken",
+    "chatbot-design-center": null,
     "embed-chats": "Ingebedde Chat Geschiedenis",
     security: "Veiligheid",
     "event-logs": "Gebeurtenislogboeken",
@@ -1347,7 +1349,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1475,6 +1476,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

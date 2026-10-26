@@ -95,7 +95,9 @@ const TRANSLATIONS = {
     embeds: "Vinculador de Chat",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
+    "chatbot-status": null,
     "chatbot-conversations": "Conversas",
+    "chatbot-design-center": null,
     "embed-chats": "Histórico de vínculos",
     security: "Segurança",
     "event-logs": "Logs de Eventos",
@@ -1314,7 +1316,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1442,6 +1443,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,

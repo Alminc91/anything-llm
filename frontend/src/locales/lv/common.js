@@ -96,7 +96,9 @@ const TRANSLATIONS = {
     embeds: "Sarunas ietvere",
     chatbot: "Tērzēšanas robots",
     "chatbot-widgets": "Logrīki",
+    "chatbot-status": null,
     "chatbot-conversations": "Sarunas",
+    "chatbot-design-center": null,
     "embed-chats": "Sarunas ietveres vēsture",
     security: "Drošība",
     "event-logs": "Notikumu žurnāli",
@@ -1345,7 +1347,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: null,
     code: null,
     disable: null,
     enable: null,
@@ -1473,6 +1474,7 @@ const TRANSLATIONS = {
     "retention-line_one": null,
     "retention-line_other": null,
     "widget-label": null,
+    "widget-not-found": null,
     "no-widget": {
       title: null,
       description: null,
