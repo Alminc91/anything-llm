@@ -486,23 +486,27 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     expect(deps.rowTexts).toHaveBeenCalledWith("ws", ["o1"]);
   });
 
-  // Fixliste r4 Nr. 4 (NF5): ein gescheiterter Aufbau wird nicht gemerkt,
-  // der nächste Aufruf versucht es neu; je Fehlschlag eine Logzeile
-  test("Fehler beim Aufbau: null, nicht gemerkt, der nächste Aufruf baut neu", async () => {
+  // D-r6-1: ein gescheiterter Aufbau (Datenbankfehler) wird 2 min gemerkt
+  // wie ein unvollständiger Index, damit der Chatpfad nicht je Anfrage neu
+  // baut; eine Logzeile je Aufruf im Chatpfad
+  test("Fehler beim Aufbau: null, 2 min gemerkt, danach neu gebaut", async () => {
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
     const deps = installDeps();
     deps.listDocuments.mockRejectedValueOnce(new Error("busy"));
     expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
-    expect(error).toHaveBeenCalledTimes(1);
     expect(error).toHaveBeenCalledWith(
       "[courseInventory] Index nicht gebaut: busy"
     );
+    expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
+    expect(await courseSearchExclusion("ws")).toBeNull();
+    expect(deps.listDocuments).toHaveBeenCalledTimes(1);
+    clock.now += t.INCOMPLETE_INDEX_MAX_AGE_MS;
     expect(await courseInventoryStatus({ slug: "ws" })).toMatchObject({
       count: 3,
     });
     expect(deps.listDocuments).toHaveBeenCalledTimes(2);
-    expect(error).toHaveBeenCalledTimes(1);
     // der neue Index gilt wieder 1 h
+    clock.now += t.INCOMPLETE_INDEX_MAX_AGE_MS;
     await courseInventoryStatus({ slug: "ws" });
     expect(deps.listDocuments).toHaveBeenCalledTimes(2);
     console.error.mockRestore();

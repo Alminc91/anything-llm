@@ -510,11 +510,11 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
     expect(await courseSearchExclusion("ws")).toBeNull();
   });
 
-  test("Aufbau des Index scheitert: courseStatus wirft, nicht gemerkt, der nächste Aufruf baut neu (Fixliste r4 Nr. 4)", async () => {
+  test("Aufbau des Index scheitert: courseStatus wirft, 2 min gemerkt, danach neu gebaut", async () => {
     workspaceWith(numbers("262", 100));
     setInventory();
     const listDocuments = jest.fn(async () => {
-      throw new Error("Dokumente nicht lesbar");
+      throw new Error("SQLITE_BUSY");
     });
     inv.setDeps({
       findWorkspaceId: async () => 7,
@@ -525,62 +525,65 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
       tableRows: async () => null,
       rowTexts: async () => [],
     });
-    await expect(courseStatus(WS)).rejects.toThrow("Dokumente nicht lesbar");
-    expect(listDocuments).toHaveBeenCalledTimes(1);
+    await expect(courseStatus(WS)).rejects.toThrow("SQLITE_BUSY");
     expect(await courseInventoryStatus(WS)).toBeNull();
+    expect(await courseSearchExclusion("ws")).toBeNull();
+    await expect(courseStatusState(WS)).rejects.toThrow("SQLITE_BUSY");
+    expect(listDocuments).toHaveBeenCalledTimes(1);
+    clock.now += inv.INCOMPLETE_INDEX_MAX_AGE_MS;
+    await expect(courseStatus(WS)).rejects.toThrow("SQLITE_BUSY");
     expect(listDocuments).toHaveBeenCalledTimes(2);
-    await expect(courseStatus(WS)).rejects.toThrow("Dokumente nicht lesbar");
-    expect(listDocuments).toHaveBeenCalledTimes(3);
   });
 
-  // Fixliste r4 Nr. 5 (NF6): Sind alle Dokumente mit Suchdaten unlesbar
-  // (Rechte nach einem Umzug), ist das kein „nicht eingerichtet“
-  test("alle Kursdokumente unlesbar (EACCES): courseStatus wirft, der Chatpfad nicht", async () => {
+  // D-r6-1: Eine Dokumentdatei, die sich nicht lesen lässt, zählt als nicht
+  // verfügbar: Kurse darin erscheinen als fehlend, es gibt keinen Wurf und
+  // keinen Neubau je Anfrage
+  test("unlesbare Kursdokumente (EACCES): fehlen, kein Wurf, kein Neubau je Anfrage", async () => {
     workspaceWith(numbers("262", 100));
     setInventory();
+    const listDocuments = jest.fn(async () =>
+      Object.keys(docs).map((docpath) => ({
+        docId: docpath.replace(/^.*\/|\.json$/g, ""),
+        docpath,
+      }))
+    );
+    const readDocumentText = jest.fn(async (docpath) => {
+      if (docpath.endsWith("k0.json")) return docs[docpath].pageContent;
+      throw Object.assign(new Error("EACCES: permission denied"), {
+        code: "EACCES",
+      });
+    });
     inv.setDeps({
       findWorkspaceId: async () => 7,
-      listDocuments: async () =>
-        Object.keys(docs).map((docpath) => ({
-          docId: docpath.replace(/^.*\/|\.json$/g, ""),
-          docpath,
-        })),
+      listDocuments,
       listVectors: async (docIds) =>
         docIds.map((docId) => ({ docId, vectorId: `v-${docId}` })),
-      readDocumentText: async () => {
-        throw Object.assign(new Error("EACCES: permission denied"), {
-          code: "EACCES",
-        });
-      },
+      readDocumentText,
       readDocument,
       tableRows: async () => null,
       rowTexts: async () => [],
     });
-    await expect(courseStatus(WS)).rejects.toThrow("nicht lesbar");
-    await expect(courseStatusState(WS)).rejects.toThrow("nicht lesbar");
-    expect(await courseInventoryStatus(WS)).toBeNull();
-    expect(await courseSearchExclusion("ws")).toBeNull();
-
-    // ein unlesbares Dokument neben einem lesbaren ohne Kurs ist kein
-    // Lesefehler: bewertet wird trotzdem (r5: alles fehlt, Rot)
-    inv.reset();
-    workspaceWith([], {
-      "custom-documents/faq.json": { pageContent: "Häufige Fragen" },
-      "custom-documents/kaputt.json": null,
+    expect(await courseStatus(WS)).toMatchObject({
+      state: "rot",
+      counts: { offered: 100, count: 1, missing: 99, hidden: 0 },
     });
-    setInventory();
+    expect(await courseStatusState(WS)).toBe("rot");
+    expect(await courseInventoryStatus(WS)).toMatchObject({ count: 1 });
+    expect(await courseSearchExclusion("ws")).toBeNull();
+    await courseStatus(WS);
+    expect(listDocuments).toHaveBeenCalledTimes(1);
+    expect(readDocumentText).toHaveBeenCalledTimes(100);
+
+    // alle unlesbar: ebenso bewertet, alles fehlt
+    inv.reset();
+    st.reset();
     inv.setDeps({
       findWorkspaceId: async () => 7,
-      listDocuments: async () =>
-        Object.keys(docs).map((docpath) => ({
-          docId: docpath.replace(/^.*\/|\.json$/g, ""),
-          docpath,
-        })),
+      listDocuments,
       listVectors: async (docIds) =>
         docIds.map((docId) => ({ docId, vectorId: `v-${docId}` })),
-      readDocumentText: async (docpath) => {
-        if (docs[docpath] === null) throw new Error("ENOENT");
-        return docs[docpath].pageContent;
+      readDocumentText: async () => {
+        throw new Error("EACCES: permission denied");
       },
       readDocument,
       tableRows: async () => null,
@@ -590,6 +593,7 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
       state: "rot",
       counts: { offered: 100, count: 0, missing: 100, hidden: 0 },
     });
+    expect(await courseInventoryStatus(WS)).toMatchObject({ count: 0 });
   });
 
   test("Menüpunkt: ein Fehler wird nicht gemerkt", async () => {

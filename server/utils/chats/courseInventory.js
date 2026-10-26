@@ -69,9 +69,11 @@
 // angebotener Kurs eingelernt ist (count 0, alles fehlt, die Status-Seite
 // zeigt Rot; r5 ersetzt die frühere Sonderregel E-KB3-4). Ungültige
 // einzelne Einträge in offered werden übersprungen. Ein kaputter Eintrag
-// kippt nie den Chat: alle Einstiege fangen Fehler ab. Ein unvollständiger
-// Index (Vektorspeicher nicht lesbar) wird nur 2 min gemerkt, ein
-// gescheiterter Aufbau gar nicht.
+// kippt nie den Chat: alle Einstiege fangen Fehler ab. Eine Dokumentdatei,
+// die sich nicht lesen lässt, zählt als nicht verfügbar: Ist es ein Kurs,
+// erscheint er als fehlend wie jeder andere fehlende Kurs (D-r6-1). Ein
+// unvollständiger Index (Vektorspeicher nicht lesbar) und ein gescheiterter
+// Aufbau (Datenbankfehler) werden nur 2 min gemerkt.
 
 const fs = require("fs");
 const prisma = require("../prisma");
@@ -124,8 +126,9 @@ const EXCLUSION_BLOCK = 1000;
 const VECTOR_ID_RX = /^[A-Za-z0-9_.:-]{1,100}$/;
 // KB-3: höchstens so viele Einträge je Liste der Status-Seite
 const STATUS_LIST_MAX = 500;
-// Dokumentdatei nicht lesbar (fehlt, kein JSON): nicht über die Stunde
-// hinaus gemerkt, seine Abschnitte werden über den Kopfblock geprüft
+// Dokumentdatei nicht lesbar (fehlt, kein JSON): nicht verfügbar, also kein
+// eingelerntes Kursdokument; nicht über die Stunde hinaus gemerkt, seine
+// Abschnitte werden über den Kopfblock geprüft
 const UNREADABLE = Symbol("unreadable");
 
 function isPlainObject(value) {
@@ -558,22 +561,6 @@ async function headBlockExclusions(slug, offered, { orphans, unreadable }) {
 }
 
 /**
- * Fixliste r4 Nr. 5 (NF6): Sind alle Dokumente des Workspace mit Suchdaten
- * unlesbar (Rechte nach einem Umzug, fehlender Mount), ist das ein
- * Lesefehler und keine Bewertung („alles fehlt“): wirft. Ein einzelnes
- * unlesbares Dokument neben lesbaren ändert nichts.
- * @param {Array<{docId: string, key: *}>} documents
- * @param {Map<string, string[]>} vectorsByDoc
- */
-function failIfAllUnreadable(documents, vectorsByDoc) {
-  const embedded = documents.filter((doc) => vectorsByDoc.has(doc.docId));
-  if (embedded.length > 0 && embedded.every((doc) => doc.key === UNREADABLE))
-    throw new Error(
-      `${embedded.length} Dokumente mit Suchdaten nicht lesbar, keines lesbar`
-    );
-}
-
-/**
  * Index des Workspace der Kursliste bauen (r5: nur dieser Workspace, auch
  * ohne einen einzigen angebotenen Kurs, dann ist count 0).
  * @param {string} slug
@@ -603,7 +590,6 @@ async function buildIndex(slug, inventory) {
     if (!vectorsByDoc.has(docId)) vectorsByDoc.set(docId, []);
     vectorsByDoc.get(docId).push(vectorId);
   }
-  failIfAllUnreadable(withKeys, vectorsByDoc);
 
   // Zeilen der Tabelle einmal lesen (G): AK-K9 welche Abschnitte gibt es
   // wirklich im Vektorspeicher, KR-1 verwaiste Abschnitte. Fehler: Index
@@ -693,10 +679,10 @@ async function buildIndex(slug, inventory) {
  * Index eines Workspace (Namespace = slug) zum gültigen Kursbestand, gemerkt
  * höchstens 1 h je Workspace und Wert (AK-K4); null ohne gültigen Wert, ohne
  * Workspace oder für einen anderen Workspace als den der Kursliste (r5:
- * dann wird nichts weiter gelesen). Ein unvollständiger Index wird nur
- * 2 min gemerkt (S4, r3-S3 a); ein gescheiterter Aufbau gar nicht, der
- * nächste Aufruf versucht es neu (Fixliste r4 Nr. 4). anyAge (KB-3, Status-Seite): auch ein Wert, den
- * der Chat nicht mehr anwendet, derselbe Index je Wert.
+ * dann wird nichts weiter gelesen). Ein unvollständiger Index und ein
+ * gescheiterter Aufbau werden nur 2 min gemerkt (S4, r3-S3 a, D-r6-1),
+ * damit der Chatpfad nicht je Anfrage neu baut. anyAge (KB-3, Status-Seite):
+ * auch ein Wert, den der Chat nicht mehr anwendet, derselbe Index je Wert.
  * Wirft bei einem Fehler (Datenbank, Aufbau des Index): Die Status-Seite
  * meldet ihn (Fixliste r2 Nr. 6), die Chatpfade nutzen workspaceInventory.
  * @param {string} slug
@@ -730,9 +716,7 @@ async function workspaceIndex(slug, { now = Date.now(), anyAge = false } = {}) {
     if (!index?.complete) fresh.maxAge = INCOMPLETE_INDEX_MAX_AGE_MS;
     return index;
   } catch (error) {
-    // nicht merken: Gleichzeitige Aufrufe teilen den Fehlschlag, der
-    // nächste baut neu
-    if (indexCache.get(slug) === fresh) indexCache.delete(slug);
+    fresh.maxAge = INCOMPLETE_INDEX_MAX_AGE_MS;
     throw error;
   }
 }

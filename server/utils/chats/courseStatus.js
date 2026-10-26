@@ -17,11 +17,10 @@
 // Kursliste (Feld workspace, Fixliste r5) gilt „nicht eingerichtet“
 // (D-KB3-3). Im Workspace der Kursliste wird immer bewertet, auch wenn dort
 // kein angebotener Kurs eingelernt ist (dann fehlt alles, Rot; die frühere
-// Sonderregel E-KB3-4 entfällt). Ein Lesefehler (Datenbank, Aufbau des
-// Index, alle Dokumente unlesbar) ist kein „nicht eingerichtet“:
-// courseStatus wirft, die Endpunkte antworten mit 500 ohne Details
-// (Fixliste r2 Nr. 6, r4 Nr. 5); nur der Punkt am Menü nimmt die lesbaren
-// Workspaces (r4 Nr. 4).
+// Sonderregel E-KB3-4 entfällt). Ein Fehler beim Aufbau (Datenbank) ist
+// kein „nicht eingerichtet“: courseStatus wirft, Status und Menüpunkt
+// antworten mit 500 ohne Details (Fixliste r2 Nr. 6). Eine unlesbare
+// Dokumentdatei ist kein Fehler: Ist es ein Kurs, fehlt er (D-r6-1).
 //
 // Vertrag mit Status-Seite und Mail (KB-5, fixliste-kb-r4.md „Vertrag“):
 // Überschrift (headline), Zeilen (details), Anteil der fehlenden Kurse
