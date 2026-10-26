@@ -15,8 +15,15 @@
 //
 // Ohne gültige Kursliste oder ohne angebotenen Kurs im Workspace gilt
 // „nicht eingerichtet“ (D-KB3-3). Ein Lesefehler (Datenbank, Aufbau des
-// Index) ist kein „nicht eingerichtet“: courseStatus wirft, die Endpunkte
-// antworten mit 500 ohne Details (Fixliste r2 Nr. 6).
+// Index, alle Dokumente unlesbar) ist kein „nicht eingerichtet“:
+// courseStatus wirft, die Endpunkte antworten mit 500 ohne Details
+// (Fixliste r2 Nr. 6, r4 Nr. 5); nur der Punkt am Menü nimmt die lesbaren
+// Workspaces (r4 Nr. 4).
+//
+// Vertrag mit Status-Seite und Mail (KB-5, fixliste-kb-r4.md „Vertrag“):
+// Überschrift (headline), Zeilen (details), Anteil der fehlenden Kurse
+// (missingPercent) und ob der Chat die Kursliste anwendet (listApplied)
+// rechnet nur der Server; Seite und Mail lesen sie ab.
 
 const { courseInventoryDetails } = require("./courseInventory");
 
@@ -30,6 +37,8 @@ const AGE_RED_MS = 72 * HOUR_MS; // über 72 h rot
 // Zustand je Stufe 0, 1, 2
 const STATES = ["gruen", "gelb", "rot"];
 const NOT_SET_UP = "nicht_eingerichtet";
+// Ursache eines Laufs, bei der das Alter „nicht abrufbar“ heißt (KB-4)
+const CAUSE_UNREACHABLE = "feed_nicht_erreichbar";
 // Menüpunkt (AK-5): Zustand je Workspace höchstens so lange gemerkt
 const STATE_CACHE_MS = 5 * 60 * 1000;
 
@@ -63,23 +72,61 @@ function ageLevel(ageMs) {
   return 0;
 }
 
+/**
+ * Anteil der fehlenden Kurse in ganzen Prozent, abgerundet und ganzzahlig
+ * gerechnet wie die Schwellen (29 von 100 ergibt 29, nie 28); 0 ohne
+ * angebotenen Kurs.
+ * @param {number} missing
+ * @param {number} offered
+ * @returns {number}
+ */
+function missingPercentOf(missing, offered) {
+  if (!(offered > 0)) return 0;
+  const scaled = missing * 100;
+  return (scaled - (scaled % offered)) / offered;
+}
+
+/**
+ * Zeilen der Meldung in Anzeigereihenfolge (Vertrag „details“): das Alter
+ * genau einmal („nicht_abrufbar“, wenn der letzte Lauf die Website nicht
+ * erreicht hat, sonst „nicht_aktualisiert“), dann „unvollstaendig“. Leer bei
+ * Grün.
+ */
+function detailsOf(byMissing, byAge, lastRun) {
+  const details = [];
+  if (byAge > 0)
+    details.push(
+      lastRun.cause === CAUSE_UNREACHABLE
+        ? "nicht_abrufbar"
+        : "nicht_aktualisiert"
+    );
+  if (byMissing > 0) details.push("unvollstaendig");
+  return details;
+}
+
 const notSetUp = () => ({
   state: NOT_SET_UP,
+  headline: null,
+  details: [],
   reasons: [],
   counts: null,
+  missingPercent: 0,
   missing: [],
   hidden: [],
   lastRun: null,
   syncedAt: null,
+  listApplied: false,
   estimatedEnd: false,
 });
 
 /**
- * Bewertung des Kursbestands eines Workspace (AK-1, AK-2): Zustand, Gründe
- * für Gelb oder Rot („fehlen“, „alter“; beide, wenn beides zutrifft),
- * Zahlen, die Listen (je höchstens 500, die Gesamtzahl steht in counts),
- * letzter Lauf, letzter erfolgreicher Abgleich und ob das Ende geschätzt
- * ist. Nur lesend; wirft bei einem Lesefehler.
+ * Bewertung des Kursbestands eines Workspace (AK-1, AK-2): Zustand,
+ * Überschrift und Zeilen der Meldung (Vertrag r4), Gründe für Gelb oder Rot
+ * („fehlen“, „alter“; beide, wenn beides zutrifft), Zahlen mit dem Anteil
+ * der fehlenden Kurse, die Listen (je höchstens 500, die Gesamtzahl steht in
+ * counts), letzter Lauf, letzter erfolgreicher Abgleich, ob der Chat die
+ * Kursliste anwendet und ob das Ende geschätzt ist. Nur lesend; wirft bei
+ * einem Lesefehler.
  * @param {{slug?: string}|null} workspace
  * @param {{now?: number, lists?: boolean}} [options]
  * @returns {Promise<object>}
@@ -98,8 +145,13 @@ async function courseStatus(
   const reasons = [];
   if (byMissing > 0) reasons.push("fehlen");
   if (byAge > 0) reasons.push("alter");
+  const lastRun = lastRunOf(inventory);
+  const lines = detailsOf(byMissing, byAge, lastRun);
   return {
     state: STATES[Math.max(byMissing, byAge)],
+    // die Zeile zur Überschrift steht zuerst; Grün „aktuell“
+    headline: lines[0] ?? "aktuell",
+    details: lines,
     reasons,
     counts: {
       offered: counts.offered,
@@ -107,10 +159,12 @@ async function courseStatus(
       missing,
       hidden: counts.hidden,
     },
+    missingPercent: missingPercentOf(missing, counts.offered),
     missing: details.missing ?? [],
     hidden: details.hidden ?? [],
-    lastRun: lastRunOf(inventory),
+    lastRun,
     syncedAt: new Date(syncedAt).toISOString(),
+    listApplied: details.listApplied,
     estimatedEnd: inventory.estimatedEnd,
   };
 }
@@ -152,10 +206,37 @@ function worstState(states) {
   );
 }
 
+/**
+ * Zustand für den Punkt am Menü (AK-5, Fixliste r4 Nr. 4): der schlechteste
+ * der lesbaren Workspaces. Ein Lesefehler eines Workspace verdeckt die
+ * übrigen nicht, er kommt als eine Logzeile ins Log; geworfen wird nur, wenn
+ * keiner lesbar war.
+ * @param {Array<{slug?: string}>} workspaces
+ * @param {{now?: number}} [options]
+ * @returns {Promise<string>}
+ */
+async function courseMenuState(workspaces, { now = Date.now() } = {}) {
+  const states = [];
+  let failure = null;
+  for (const workspace of workspaces) {
+    try {
+      states.push(await courseStatusState(workspace, { now }));
+    } catch (error) {
+      failure = error;
+      console.error(
+        `[courseStatus] ${workspace?.slug}: Zustand nicht lesbar: ${error.message}`
+      );
+    }
+  }
+  if (failure && states.length === 0) throw failure;
+  return worstState(states);
+}
+
 module.exports = {
   NOT_SET_UP,
   courseStatus,
   courseStatusState,
+  courseMenuState,
   worstState,
   // nur für Tests
   __test__: {

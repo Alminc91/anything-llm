@@ -415,7 +415,7 @@ function apiEmbedEndpoints(app) {
   app.get("/v1/course-status", [validApiKey], async (_request, response) => {
     /*
       #swagger.tags = ['Embed']
-      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only workspaces with at least one widget are rated; workspaces without a valid course list are not listed. A read error answers 500.'
+      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). headline is the heading of the message (aktuell, unvollstaendig, nicht_aktualisiert, nicht_abrufbar), details its lines in display order (unvollstaendig, nicht_aktualisiert, nicht_abrufbar; empty for gruen). missingPercent is the share of missing courses in whole percent, rounded down. listApplied is true while the chat applies the course list (hides courses). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only workspaces with at least one widget are rated; workspaces without a valid course list are not listed. A read error answers 500.'
       #swagger.responses[200] = {
         content: {
           "application/json": {
@@ -428,12 +428,16 @@ function apiEmbedEndpoints(app) {
                     "name": "VHS Beispiel",
                     "widgets": [{ "id": 1, "uuid": "embed-uuid-1" }],
                     "state": "gelb",
+                    "headline": "unvollstaendig",
+                    "details": ["unvollstaendig"],
                     "reasons": ["fehlen"],
                     "counts": { "offered": 864, "count": 812, "missing": 52, "hidden": 64 },
+                    "missingPercent": 6,
                     "missing": [{ "knr": "262-10101", "title": "Japanisch A1.1" }],
                     "hidden": [{ "knr": "261-20202", "title": "Yoga am Morgen", "start": "2026-09-02", "duration": "6 Termine" }],
                     "lastRun": { "at": "2026-10-26T09:00:00.000Z", "result": "ok", "cause": null },
                     "syncedAt": "2026-10-26T09:00:00.000Z",
+                    "listApplied": true,
                     "estimatedEnd": true
                   }
                 ]

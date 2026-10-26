@@ -4533,7 +4533,7 @@
         "tags": [
           "Embed"
         ],
-        "description": "Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only workspaces with at least one widget are rated; workspaces without a valid course list are not listed. A read error answers 500.",
+        "description": "Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). headline is the heading of the message (aktuell, unvollstaendig, nicht_aktualisiert, nicht_abrufbar), details its lines in display order (unvollstaendig, nicht_aktualisiert, nicht_abrufbar; empty for gruen). missingPercent is the share of missing courses in whole percent, rounded down. listApplied is true while the chat applies the course list (hides courses). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only workspaces with at least one widget are rated; workspaces without a valid course list are not listed. A read error answers 500.",
         "parameters": [],
         "responses": {
           "200": {
@@ -4554,6 +4554,10 @@
                           }
                         ],
                         "state": "gelb",
+                        "headline": "unvollstaendig",
+                        "details": [
+                          "unvollstaendig"
+                        ],
                         "reasons": [
                           "fehlen"
                         ],
@@ -4563,6 +4567,7 @@
                           "missing": 52,
                           "hidden": 64
                         },
+                        "missingPercent": 6,
                         "missing": [
                           {
                             "knr": "262-10101",
@@ -4583,6 +4588,7 @@
                           "cause": null
                         },
                         "syncedAt": "2026-10-26T09:00:00.000Z",
+                        "listApplied": true,
                         "estimatedEnd": true
                       }
                     ]

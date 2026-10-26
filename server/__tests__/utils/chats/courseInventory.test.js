@@ -189,10 +189,17 @@ describe("Lesen (NAK-K1)", () => {
     );
   });
 
-  test("Datenbankfehler: kein Kursbestand, kein Wurf", async () => {
-    jest.spyOn(console, "error").mockImplementation(() => {});
+  // Fixliste r4 Nr. 6 (NC3): abgefangen wird nur noch an einer Stelle
+  // (workspaceInventory), der Chat bleibt wie ohne Kursliste
+  test("Datenbankfehler: loadCourseInventory wirft, der Chatpfad nicht", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
     prisma.system_settings.findFirst.mockRejectedValue(new Error("busy"));
-    expect(await loadCourseInventory({ now: NOW })).toBeNull();
+    await expect(loadCourseInventory({ now: NOW })).rejects.toThrow("busy");
+    expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(
+      "[courseInventory] Index nicht gebaut: busy"
+    );
     console.error.mockRestore();
   });
 
@@ -439,18 +446,24 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     expect(deps.rowTexts).toHaveBeenCalledWith("ws", ["o1"]);
   });
 
-  test("r3-S3 a: Fehler beim Aufbau: null, 2 min gemerkt, danach neu versucht", async () => {
-    jest.spyOn(console, "error").mockImplementation(() => {});
+  // Fixliste r4 Nr. 4 (NF5): ein gescheiterter Aufbau wird nicht gemerkt,
+  // der nächste Aufruf versucht es neu; je Fehlschlag eine Logzeile
+  test("Fehler beim Aufbau: null, nicht gemerkt, der nächste Aufruf baut neu", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
     const deps = installDeps();
     deps.listDocuments.mockRejectedValueOnce(new Error("busy"));
     expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
-    clock.now += t.INCOMPLETE_INDEX_MAX_AGE_MS - 1;
-    expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
-    expect(deps.listDocuments).toHaveBeenCalledTimes(1);
-    clock.now += 1;
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(
+      "[courseInventory] Index nicht gebaut: busy"
+    );
     expect(await courseInventoryStatus({ slug: "ws" })).toMatchObject({
       count: 3,
     });
+    expect(deps.listDocuments).toHaveBeenCalledTimes(2);
+    expect(error).toHaveBeenCalledTimes(1);
+    // der neue Index gilt wieder 1 h
+    await courseInventoryStatus({ slug: "ws" });
     expect(deps.listDocuments).toHaveBeenCalledTimes(2);
     console.error.mockRestore();
   });

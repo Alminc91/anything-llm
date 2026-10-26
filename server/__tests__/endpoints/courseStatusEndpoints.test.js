@@ -145,10 +145,14 @@ describe("AK-1: GET /embed/course-status", () => {
       expect(Object.keys(res.body).sort()).toEqual(
         [
           "counts",
+          "details",
           "estimatedEnd",
+          "headline",
           "hidden",
           "lastRun",
+          "listApplied",
           "missing",
+          "missingPercent",
           "reasons",
           "state",
           "syncedAt",
@@ -159,8 +163,12 @@ describe("AK-1: GET /embed/course-status", () => {
       );
       expect(res.body).toMatchObject({
         state: "gelb",
+        headline: "unvollstaendig",
+        details: ["unvollstaendig"],
         reasons: ["fehlen"],
         counts: { offered: 100, count: 94, missing: 6, hidden: 0 },
+        missingPercent: 6,
+        listApplied: true,
         workspace: { name: "VHS Beispiel" },
         widgets: [
           { id: embedA1.id, name: "VHS Beispiel" },
@@ -263,10 +271,14 @@ describe("AK-2: GET /v1/course-status", () => {
     expect(Object.keys(entry).sort()).toEqual(
       [
         "counts",
+        "details",
         "estimatedEnd",
+        "headline",
         "hidden",
         "lastRun",
+        "listApplied",
         "missing",
+        "missingPercent",
         "name",
         "reasons",
         "slug",
@@ -283,8 +295,12 @@ describe("AK-2: GET /v1/course-status", () => {
         { id: embedA1.id, uuid: embedA1.uuid },
         { id: embedA2.id, uuid: embedA2.uuid },
       ],
+      headline: "unvollstaendig",
+      details: ["unvollstaendig"],
       reasons: ["fehlen"],
       counts: { offered: 100, count: 94, missing: 6, hidden: 0 },
+      missingPercent: 6,
+      listApplied: true,
     });
     expect(entry.missing).toHaveLength(6);
     expect(JSON.stringify(res.body)).not.toContain("geheim");
@@ -339,5 +355,49 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
     const res = await invoke(API, { token: "geheim" });
     expect(res.statusCode).toBe(500);
     expect(res.body).toBeUndefined();
+  });
+});
+
+// Fixliste r4 Nr. 4 (NF5): Ein Lesefehler bei einem Workspace verdeckt den
+// Punkt der übrigen nicht. Die Entwickler-API bleibt bei 500, sonst verlöre
+// ein still ausgelassener Workspace sein Rot.
+describe("Lesefehler bei einem Workspace (Fixliste r4 Nr. 4)", () => {
+  beforeEach(() => {
+    // B bekommt Kurse, sein Index scheitert am Lesen der Dokumente
+    for (let i = 1; i <= 3; i++) seedCourse(workspaceB, `262-${i}`);
+    inventory.setDeps({
+      readDocumentText: async (docpath) => docs[docpath]?.pageContent ?? null,
+      readDocument: async (docpath) => docs[docpath] ?? null,
+      tableRows: async () => null,
+      rowTexts: async () => [],
+      listDocuments: async (workspaceId) => {
+        if (workspaceId === workspaceB.id) throw new Error("SQLITE_BUSY");
+        return await prisma.workspace_documents.findMany({
+          where: { workspaceId },
+          select: { docId: true, docpath: true },
+        });
+      },
+    });
+  });
+
+  test("Menüpunkt: der schlechteste lesbare Zustand", async () => {
+    const res = await invoke(MENU, {
+      token: createUser(prisma, "admin").token,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ state: "gelb" });
+  });
+
+  test("Menüpunkt: nur der unlesbare Workspace sichtbar: 500", async () => {
+    const user = createUser(prisma, "default", [workspaceB.id]);
+    const res = await invoke(MENU, { token: user.token });
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toBeUndefined();
+  });
+
+  test("Entwickler-API: 500", async () => {
+    prisma.__seed("api_keys", { secret: "geheim" });
+    const res = await invoke(API, { token: "geheim" });
+    expect(res.statusCode).toBe(500);
   });
 });

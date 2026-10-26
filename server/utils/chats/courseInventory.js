@@ -64,7 +64,7 @@
 // Zeile. Ungültige einzelne Einträge in offered werden übersprungen. Ein
 // kaputter Eintrag kippt nie den Chat: alle Einstiege fangen Fehler ab. Ein
 // unvollständiger Index (Vektorspeicher nicht lesbar) wird nur 2 min
-// gemerkt.
+// gemerkt, ein gescheiterter Aufbau gar nicht.
 
 const fs = require("fs");
 const prisma = require("../prisma");
@@ -238,6 +238,19 @@ function ageProblem(createdMs, now) {
 }
 
 /**
+ * Wendet der Chat diese Kursliste gerade an (Zahl, Ausblenden)? Nur, wenn
+ * created höchstens 24 h alt ist (run.at zählt nicht). Eine Stelle für
+ * Chatpfad (loadCourseInventory) und Status-Seite (listApplied, Fixliste r4
+ * Nr. 2), damit die Seite nie etwas anderes zeigt, als der Chat tut.
+ * @param {{createdMs: number}} inventory - Laufzeitform aus readCourseInventory
+ * @param {number} now
+ * @returns {boolean}
+ */
+function courseListApplies(inventory, now) {
+  return ageProblem(inventory.createdMs, now) === null;
+}
+
+/**
  * Validator des SystemSettings (Whitelist wie die Kategorie-Karte): leer ->
  * null (Wert entfernt, der Server verhält sich wie heute); gültig nach
  * Vertrag, höchstens 512 KiB und höchstens 24 h alt -> derselbe String;
@@ -340,21 +353,15 @@ async function courseInventoryRecord() {
 }
 
 /**
- * Kursbestand des Containers, falls gültig und höchstens 24 h alt (created,
- * nicht run.at), sonst null. Wirft nie.
+ * Kursbestand des Containers, den der Chat anwendet (gültig und
+ * courseListApplies), sonst null. Wirft bei einem Lesefehler der Datenbank;
+ * die Chatpfade fangen ihn an einer Stelle ab (workspaceInventory).
  * @param {{now?: number}} [options]
  * @returns {Promise<{raw: string, createdMs: number, stand: string, offered: Set<string>}|null>}
  */
 async function loadCourseInventory({ now = Date.now() } = {}) {
-  let inventory;
-  try {
-    inventory = await courseInventoryRecord();
-  } catch (error) {
-    console.error(`[courseInventory] ${error.message}`);
-    return null;
-  }
-  if (!inventory) return null;
-  return ageProblem(inventory.createdMs, now) ? null : inventory;
+  const inventory = await courseInventoryRecord();
+  return inventory && courseListApplies(inventory, now) ? inventory : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -537,6 +544,26 @@ async function headBlockExclusions(slug, offered, { orphans, unreadable }) {
 }
 
 /**
+ * Fixliste r4 Nr. 5 (NF6): Sind alle Dokumente des Workspace mit Suchdaten
+ * unlesbar (Rechte nach einem Umzug, fehlender Mount), ist das ein
+ * Lesefehler und kein „nicht eingerichtet“: wirft. Ein einzelnes unlesbares
+ * Dokument neben lesbaren ändert nichts.
+ * @param {Array<{docId: string, key: *}>} documents
+ */
+async function failIfAllUnreadable(documents) {
+  const withVectors = new Set(
+    (await deps.listVectors(documents.map((doc) => doc.docId))).map(
+      (row) => row.docId
+    )
+  );
+  const embedded = documents.filter((doc) => withVectors.has(doc.docId));
+  if (embedded.length > 0 && embedded.every((doc) => doc.key === UNREADABLE))
+    throw new Error(
+      `${embedded.length} Dokumente mit Suchdaten nicht lesbar, keines lesbar`
+    );
+}
+
+/**
  * Index eines Workspace zu einem gültigen Kursbestand bauen.
  * @param {string} slug
  * @param {object} inventory - Laufzeitform aus readCourseInventory
@@ -565,8 +592,14 @@ async function buildIndex(slug, inventory) {
   const base = { slug, inventory, offered, complete: true };
   // NAK-K2: ohne einen einzigen angebotenen Kurs im Workspace (Liste eines
   // anderen Kunden, Workspace ohne Kurse) wird nichts ausgeblendet; dann
-  // werden weder document_vectors noch der Vektorspeicher gelesen (G)
-  if (!anyOffered) return { ...base, active: false };
+  // werden weder document_vectors noch der Vektorspeicher gelesen (G).
+  // Ausnahme Fixliste r4 Nr. 5 (NF6): Gibt es unlesbare Dokumente, prüft
+  // failIfAllUnreadable, ob überhaupt eines mit Suchdaten lesbar ist.
+  if (!anyOffered) {
+    if (withKeys.some((doc) => doc.key === UNREADABLE))
+      await failIfAllUnreadable(withKeys);
+    return { ...base, active: false };
+  }
 
   // Abschnitte aller Dokumente: welche Zeilen der Tabelle der Workspace kennt
   const vectorsByDoc = new Map();
@@ -665,9 +698,10 @@ async function buildIndex(slug, inventory) {
 /**
  * Index eines Workspace (Namespace = slug) zum gültigen Kursbestand, gemerkt
  * höchstens 1 h je Workspace und Wert (AK-K4); null ohne gültigen Wert oder
- * ohne Workspace. Ein gescheiterter oder unvollständiger Index wird nur
- * 2 min gemerkt, danach baut der nächste Aufruf neu (S4, r3-S3 a). anyAge
- * (KB-3, Status-Seite): auch ein Wert über 24 h, derselbe Index je Wert.
+ * ohne Workspace. Ein unvollständiger Index wird nur 2 min gemerkt (S4,
+ * r3-S3 a); ein gescheiterter Aufbau gar nicht, der nächste Aufruf versucht
+ * es neu (Fixliste r4 Nr. 4). anyAge (KB-3, Status-Seite): auch ein Wert, den
+ * der Chat nicht mehr anwendet, derselbe Index je Wert.
  * Wirft bei einem Fehler (Datenbank, Aufbau des Index): Die Status-Seite
  * meldet ihn (Fixliste r2 Nr. 6), die Chatpfade nutzen workspaceInventory.
  * @param {string} slug
@@ -701,14 +735,17 @@ async function workspaceIndex(slug, { now = Date.now(), anyAge = false } = {}) {
     if (!index?.complete) fresh.maxAge = INCOMPLETE_INDEX_MAX_AGE_MS;
     return index;
   } catch (error) {
-    fresh.maxAge = INCOMPLETE_INDEX_MAX_AGE_MS;
+    // nicht merken: Gleichzeitige Aufrufe teilen den Fehlschlag, der
+    // nächste baut neu
+    if (indexCache.get(slug) === fresh) indexCache.delete(slug);
     throw error;
   }
 }
 
 /**
- * workspaceIndex für die Chatpfade: bei einem Fehler null, dann bleibt
- * alles wie ohne Kursliste (NAK-K1). Wirft nie.
+ * workspaceIndex für die Chatpfade: bei einem Fehler (Datenbank, Aufbau des
+ * Index) eine Logzeile und null, dann bleibt alles wie ohne Kursliste
+ * (NAK-K1). Wirft nie.
  * @param {string} slug
  * @param {{now?: number}} [options]
  * @returns {Promise<object|null>}
@@ -841,8 +878,9 @@ async function readHiddenEntries(index) {
 
 /**
  * KB-3: Kursbestand eines Workspace für die Status-Seite, auch über 24 h
- * (anyAge): der Wert (Laufzeitform mit titles, run, estimatedEnd), die
- * Zahlen und die Listen, je höchstens 500 Einträge. missing: angebotene,
+ * (anyAge): der Wert (Laufzeitform mit titles, run, estimatedEnd), ob der
+ * Chat ihn gerade anwendet (listApplied, courseListApplies), die Zahlen und
+ * die Listen, je höchstens 500 Einträge. missing: angebotene,
  * nicht eingelernte Kurse mit Titel aus der Kursliste (Version 1: null);
  * hidden: eingelernte Kurse außerhalb der Kursliste mit Titel, Beginn und
  * Dauer aus ihrem Kursdokument. null ohne gültigen Wert oder ohne
@@ -852,7 +890,7 @@ async function readHiddenEntries(index) {
  * erscheint (Fixliste r2 Nr. 6).
  * @param {{slug?: string}|null} workspace
  * @param {{now?: number, lists?: boolean}} [options]
- * @returns {Promise<{inventory: object, counts: {count: number, offered: number, hidden: number}, missing?: Array<{knr: string, title: string|null}>, hidden?: Array<{knr: string, title: string|null, start: string|null, duration: string|null}>}|null>}
+ * @returns {Promise<{inventory: object, listApplied: boolean, counts: {count: number, offered: number, hidden: number}, missing?: Array<{knr: string, title: string|null}>, hidden?: Array<{knr: string, title: string|null, start: string|null, duration: string|null}>}|null>}
  */
 async function courseInventoryDetails(
   workspace,
@@ -861,7 +899,8 @@ async function courseInventoryDetails(
   const index = await workspaceIndex(workspace?.slug, { now, anyAge: true });
   if (!index?.active) return null;
   const { inventory } = index;
-  if (!lists) return { inventory, counts: index.counts };
+  const listApplied = courseListApplies(inventory, now);
+  if (!lists) return { inventory, listApplied, counts: index.counts };
   const missing = [];
   for (const key of index.offered) {
     if (missing.length >= STATUS_LIST_MAX) break;
@@ -875,6 +914,7 @@ async function courseInventoryDetails(
     hiddenEntries.set(index, readHiddenEntries(index));
   return {
     inventory,
+    listApplied,
     counts: index.counts,
     missing,
     hidden: await hiddenEntries.get(index),

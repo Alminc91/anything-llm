@@ -26,8 +26,7 @@ const {
 } = require("../utils/chats/courseInventory");
 const {
   courseStatus,
-  courseStatusState,
-  worstState,
+  courseMenuState,
 } = require("../utils/chats/courseStatus");
 const {
   courseCountModeValue,
@@ -625,8 +624,9 @@ function embedManagementEndpoints(app) {
   );
 
   // KB-3, AK-5: nur der Zustand für den Punkt am Menüpunkt „Status“: der
-  // schlechteste der Workspaces, deren Widgets der Nutzer sieht. Ohne Listen
-  // und je Workspace 5 min gemerkt (courseStatusState).
+  // schlechteste der lesbaren Workspaces, deren Widgets der Nutzer sieht;
+  // 500 nur, wenn keiner lesbar ist (Fixliste r4 Nr. 4). Ohne Listen und je
+  // Workspace 5 min gemerkt (courseMenuState).
   app.get(
     "/embeds/course-status",
     [
@@ -644,10 +644,8 @@ function embedManagementEndpoints(app) {
         const workspaces = new Map(
           embeds.map(({ workspace }) => [workspace.id, workspace])
         );
-        const states = [];
-        for (const workspace of workspaces.values())
-          states.push(await courseStatusState(workspace));
-        response.status(200).json({ state: worstState(states) });
+        const state = await courseMenuState([...workspaces.values()]);
+        response.status(200).json({ state });
       } catch (e) {
         console.error("embeds/course-status error:", loggableError(e));
         response.sendStatus(500).end();

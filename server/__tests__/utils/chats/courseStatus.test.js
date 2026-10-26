@@ -23,6 +23,7 @@ const {
 const {
   courseStatus,
   courseStatusState,
+  courseMenuState,
   worstState,
   __test__: st,
 } = statusModule;
@@ -282,26 +283,150 @@ describe("Antwortform", () => {
     const status = await run(1);
     expect(status).toEqual({
       state: "gruen",
+      headline: "aktuell",
+      details: [],
       reasons: [],
       counts: { offered: 100, count: 100, missing: 0, hidden: 0 },
+      missingPercent: 0,
       missing: [],
       hidden: [],
       lastRun: { at: iso(NOW - HOUR), result: "ok", cause: null },
       syncedAt: iso(NOW - HOUR),
+      listApplied: true,
       estimatedEnd: false,
     });
+  });
+});
+
+// Vertrag r4 (fixliste-kb-r4.md): Überschrift, Zeilen und Anteil rechnet
+// nur der Server, Seite und Mail lesen sie ab (Nr. 1, NF2, NF3)
+describe("Vertrag r4: headline, details, missingPercent", () => {
+  test.each([
+    ["29 von 100", 100, 29, "rot", 29],
+    ["57 von 100", 100, 57, "rot", 57],
+    ["58 von 200", 200, 58, "rot", 29],
+    ["100 von 1000 (Gelb)", 1000, 100, "gelb", 10],
+    ["105 von 1000 (Rot)", 1000, 105, "rot", 10],
+    ["9 von 1000", 1000, 9, "gruen", 0],
+  ])("%s: %s", async (_name, offered, missing, state, percent) => {
+    workspaceWith(numbers("262", offered - missing));
+    const status = await run(1, { offered: numbers("262", offered) });
+    expect(status).toMatchObject({ state, missingPercent: percent });
+  });
+
+  const unreachable = {
+    result: "nicht_geschrieben",
+    cause: "feed_nicht_erreichbar",
+  };
+  test.each([
+    ["Grün", 0, 1, null, "aktuell", []],
+    ["Grün, Website nicht erreicht", 0, 1, unreachable, "aktuell", []],
+    ["fehlen", 60, 1, null, "unvollstaendig", ["unvollstaendig"]],
+    [
+      "fehlen, Website nicht erreicht",
+      60,
+      1,
+      unreachable,
+      "unvollstaendig",
+      ["unvollstaendig"],
+    ],
+    ["Alter", 0, 25, null, "nicht_aktualisiert", ["nicht_aktualisiert"]],
+    [
+      "Alter, Website nicht erreicht",
+      0,
+      25,
+      unreachable,
+      "nicht_abrufbar",
+      ["nicht_abrufbar"],
+    ],
+    [
+      "fehlen und Alter",
+      60,
+      80,
+      null,
+      "nicht_aktualisiert",
+      ["nicht_aktualisiert", "unvollstaendig"],
+    ],
+    [
+      "fehlen und Alter, Website nicht erreicht",
+      60,
+      30,
+      unreachable,
+      "nicht_abrufbar",
+      ["nicht_abrufbar", "unvollstaendig"],
+    ],
+  ])("%s: %s", async (_name, missing, hours, lastRun, headline, details) => {
+    workspaceWith(numbers("262", 1000 - missing));
+    setInventory({
+      offered: numbers("262", 1000),
+      created: iso(NOW - hours * HOUR),
+      run: lastRun
+        ? { at: iso(NOW - 5 * 60 * 1000), ...lastRun }
+        : { at: iso(NOW - hours * HOUR), result: "ok", cause: null },
+    });
+    expect(await courseStatus(WS)).toMatchObject({ headline, details });
+  });
+});
+
+// Fixliste r4 Nr. 2 (NF1): listApplied folgt derselben Prüfung wie der
+// Chatpfad (created höchstens 24 h), damit die Seite keine Kurse
+// „ausgeblendet“ nennt, die der KI-Berater wieder nennt
+describe("Vertrag r4: listApplied", () => {
+  test("frisch: der Chat wendet die Kursliste an", async () => {
+    workspaceWith(numbers("262", 100));
+    expect((await run(1)).listApplied).toBe(true);
+    expect(await courseInventoryStatus(WS)).not.toBeNull();
+  });
+
+  test("25 h ohne neuen Stand: Gelb, die Kursliste gilt im Chat nicht mehr", async () => {
+    workspaceWith(numbers("262", 100), {
+      "custom-documents/alt.json": courseDoc("261-1"),
+    });
+    const status = await run(25);
+    expect(status).toMatchObject({ state: "gelb", listApplied: false });
+    expect(await courseSearchExclusion("ws")).toBeNull();
+  });
+
+  test("run.at frisch, created 30 h: Grün, der Chat wendet die Kursliste trotzdem nicht an", async () => {
+    workspaceWith(numbers("262", 100), {
+      "custom-documents/alt.json": courseDoc("261-1"),
+    });
+    setInventory({
+      created: iso(NOW - 30 * HOUR),
+      run: { at: iso(NOW - HOUR), result: "ok", cause: null },
+    });
+    expect(await courseStatus(WS)).toMatchObject({
+      state: "gruen",
+      listApplied: false,
+      counts: { hidden: 1 },
+    });
+    expect(await courseSearchExclusion("ws")).toBeNull();
+    expect(await courseInventoryStatus(WS)).toBeNull();
+  });
+
+  test("Menüpunkt ohne Listen: dieselbe Prüfung", async () => {
+    workspaceWith(numbers("262", 100));
+    setInventory({ created: iso(NOW - 30 * HOUR) });
+    expect(
+      (await inventoryModule.courseInventoryDetails(WS, { lists: false }))
+        .listApplied
+    ).toBe(false);
   });
 });
 
 describe("Nicht eingerichtet (D-KB3-3)", () => {
   const NOT_SET_UP = {
     state: "nicht_eingerichtet",
+    headline: null,
+    details: [],
     reasons: [],
     counts: null,
+    missingPercent: 0,
     missing: [],
     hidden: [],
     lastRun: null,
     syncedAt: null,
+    listApplied: false,
     estimatedEnd: false,
   };
 
@@ -343,7 +468,7 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
     expect(await courseSearchExclusion("ws")).toBeNull();
   });
 
-  test("Aufbau des Index scheitert: courseStatus wirft, 2 min gemerkt, danach neu", async () => {
+  test("Aufbau des Index scheitert: courseStatus wirft, nicht gemerkt, der nächste Aufruf baut neu (Fixliste r4 Nr. 4)", async () => {
     workspaceWith(numbers("262", 100));
     setInventory();
     const listDocuments = jest.fn(async () => {
@@ -359,13 +484,69 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
       rowTexts: async () => [],
     });
     await expect(courseStatus(WS)).rejects.toThrow("Dokumente nicht lesbar");
-    expect(await courseInventoryStatus(WS)).toBeNull();
-    clock.now += inv.INCOMPLETE_INDEX_MAX_AGE_MS - 1;
-    await expect(courseStatus(WS)).rejects.toThrow("Dokumente nicht lesbar");
     expect(listDocuments).toHaveBeenCalledTimes(1);
-    clock.now += 1;
-    await expect(courseStatus(WS)).rejects.toThrow();
+    expect(await courseInventoryStatus(WS)).toBeNull();
     expect(listDocuments).toHaveBeenCalledTimes(2);
+    await expect(courseStatus(WS)).rejects.toThrow("Dokumente nicht lesbar");
+    expect(listDocuments).toHaveBeenCalledTimes(3);
+  });
+
+  // Fixliste r4 Nr. 5 (NF6): Sind alle Dokumente mit Suchdaten unlesbar
+  // (Rechte nach einem Umzug), ist das kein „nicht eingerichtet“
+  test("alle Kursdokumente unlesbar (EACCES): courseStatus wirft, der Chatpfad nicht", async () => {
+    workspaceWith(numbers("262", 100));
+    setInventory();
+    inv.setDeps({
+      findWorkspaceId: async () => 7,
+      listDocuments: async () =>
+        Object.keys(docs).map((docpath) => ({
+          docId: docpath.replace(/^.*\/|\.json$/g, ""),
+          docpath,
+        })),
+      listVectors: async (docIds) =>
+        docIds.map((docId) => ({ docId, vectorId: `v-${docId}` })),
+      readDocumentText: async () => {
+        throw Object.assign(new Error("EACCES: permission denied"), {
+          code: "EACCES",
+        });
+      },
+      readDocument,
+      tableRows: async () => null,
+      rowTexts: async () => [],
+    });
+    await expect(courseStatus(WS)).rejects.toThrow("nicht lesbar");
+    await expect(courseStatusState(WS)).rejects.toThrow("nicht lesbar");
+    expect(await courseInventoryStatus(WS)).toBeNull();
+    expect(await courseSearchExclusion("ws")).toBeNull();
+
+    // ein unlesbares Dokument neben einem lesbaren ohne Kurs bleibt
+    // „nicht eingerichtet“
+    inv.reset();
+    workspaceWith([], {
+      "custom-documents/faq.json": { pageContent: "Häufige Fragen" },
+      "custom-documents/kaputt.json": null,
+    });
+    setInventory();
+    inv.setDeps({
+      findWorkspaceId: async () => 7,
+      listDocuments: async () =>
+        Object.keys(docs).map((docpath) => ({
+          docId: docpath.replace(/^.*\/|\.json$/g, ""),
+          docpath,
+        })),
+      listVectors: async (docIds) =>
+        docIds.map((docId) => ({ docId, vectorId: `v-${docId}` })),
+      readDocumentText: async (docpath) => {
+        if (docs[docpath] === null) throw new Error("ENOENT");
+        return docs[docpath].pageContent;
+      },
+      readDocument,
+      tableRows: async () => null,
+      rowTexts: async () => [],
+    });
+    expect(await courseStatus(WS)).toMatchObject({
+      state: "nicht_eingerichtet",
+    });
   });
 
   test("Menüpunkt: ein Fehler wird nicht gemerkt", async () => {
@@ -374,6 +555,36 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
     prisma.system_settings.findFirst.mockRejectedValueOnce(new Error("busy"));
     await expect(courseStatusState(WS)).rejects.toThrow("busy");
     expect(await courseStatusState(WS)).toBe("gelb");
+  });
+
+  // Fixliste r4 Nr. 4 (NF5): Ein Workspace mit Lesefehler verdeckt die
+  // übrigen nicht; 500 nur, wenn keiner lesbar ist
+  test("Menüpunkt: der schlechteste lesbare Zustand, ein Lesefehler wird übersprungen und geloggt", async () => {
+    workspaceWith(numbers("262", 94));
+    setInventory();
+    inv.setDeps({
+      findWorkspaceId: async (slug) => ({ ws: 7, kaputt: 8 })[slug] ?? null,
+      listDocuments: async (workspaceId) => {
+        if (workspaceId === 8) throw new Error("SQLITE_BUSY");
+        return Object.keys(docs).map((docpath) => ({
+          docId: docpath.replace(/^.*\/|\.json$/g, ""),
+          docpath,
+        }));
+      },
+      listVectors: async (docIds) =>
+        docIds.map((docId) => ({ docId, vectorId: `v-${docId}` })),
+      readDocumentText: async (docpath) => docs[docpath]?.pageContent ?? null,
+      readDocument,
+      tableRows: async () => null,
+      rowTexts: async () => [],
+    });
+    const broken = { slug: "kaputt" };
+    expect(await courseMenuState([broken, WS])).toBe("gelb");
+    expect(console.error).toHaveBeenCalledWith(
+      "[courseStatus] kaputt: Zustand nicht lesbar: SQLITE_BUSY"
+    );
+    await expect(courseMenuState([broken])).rejects.toThrow("SQLITE_BUSY");
+    expect(await courseMenuState([])).toBe("nicht_eingerichtet");
   });
 });
 
@@ -491,6 +702,7 @@ describe("Nur lesend (NAK-1, NAK-3)", () => {
       state: "gelb",
       reasons: ["alter"],
       counts: { offered: 100, count: 100, missing: 0, hidden: 1 },
+      listApplied: false,
     });
   });
 
