@@ -505,3 +505,70 @@ test(
     }
   }
 );
+
+// Fixliste r2 Nr. 1 (F1): Der Pfeil klappt die Gruppe „Chatbot“ auf und zu wie
+// bei allen anderen Gruppen (KB-2 NAK-3); zugeklappt steht der Punkt am Kopf
+// (KB-3 AK-5). Der Browser-Speicher ist nicht vorbelegt: Aufgeklappt ist die
+// Gruppe, weil die Adresse zu einem Unterpunkt gehört.
+test(
+  "F1: Der Pfeil klappt „Chatbot“ zu und wieder auf; zugeklappt zeigt der Kopf den Punkt",
+  { skip },
+  async (t) => {
+    const roles = ["admin", "manager", "default"];
+    const dot = { state: "rot", color: "red", label: "Status: Rot" };
+    const mounted = await renderer.mount(MENU_OPTION, {
+      location: WIDGETS,
+      route: WIDGETS,
+      props: {
+        btnText: "Chatbot",
+        opensFirstChild: true,
+        dot,
+        user: { id: 1, role: "default" },
+        childOptions: [
+          { btnText: "Status", href: STATUS, flex: true, roles, dot },
+          { btnText: "Design Center", href: DESIGN, flex: true, roles },
+          { btnText: "Widgets", href: WIDGETS, flex: true, roles },
+        ],
+      },
+    });
+    t.after(() => mounted.unmount());
+    await mounted.act();
+    const { container } = mounted;
+    const label = (link) =>
+      elements(link, (el) => el.tagName === "P")[0].textContent.trim();
+    const links = () =>
+      elements(container, (el) => el.tagName === "A").map(label);
+    // Menüpunkt mit Punkt und dessen Text für Screenreader
+    const dots = () =>
+      elements(container, (el) => el.hasAttribute("data-menu-dot")).map(
+        (el) => `${label(el.parentNode)}: ${el.textContent}`
+      );
+    const arrow = () => elements(container, (el) => el.tagName === "BUTTON")[0];
+    const stored = () =>
+      globalThis.localStorage.getItem("anything_llm_menu_chatbot_expanded");
+
+    assert.equal(stored(), null);
+    assert.deepEqual(links(), [
+      "Chatbot",
+      "Status",
+      "Design Center",
+      "Widgets",
+    ]);
+    assert.deepEqual(dots(), ["Status: Status: Rot"]);
+
+    await mounted.act(() => click(arrow()));
+    assert.deepEqual(links(), ["Chatbot"]);
+    assert.equal(stored(), "false");
+    assert.deepEqual(dots(), ["Chatbot: Status: Rot"]);
+
+    await mounted.act(() => click(arrow()));
+    assert.deepEqual(links(), [
+      "Chatbot",
+      "Status",
+      "Design Center",
+      "Widgets",
+    ]);
+    assert.equal(stored(), "true");
+    assert.deepEqual(dots(), ["Status: Status: Rot"]);
+  }
+);

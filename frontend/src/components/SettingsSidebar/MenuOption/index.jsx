@@ -65,12 +65,6 @@ export default function MenuOption({
   }
 
   const handleClick = (e) => {
-    if (hasChildren && firstChildHref) {
-      // Navigieren lassen; aufgeklappt wird die Gruppe ohnehin.
-      setIsExpanded(true);
-      localStorage.setItem(storageKey, JSON.stringify(true));
-      return;
-    }
     if (hasChildren) {
       e.preventDefault();
       const newExpandedState = !isExpanded;
@@ -78,6 +72,15 @@ export default function MenuOption({
       localStorage.setItem(storageKey, JSON.stringify(newExpandedState));
     }
   };
+
+  // Kufer (KB-2): Der Link des Kopfes öffnet den ersten Unterpunkt und klappt
+  // die Gruppe auf; der Pfeil klappt weiter auf und zu (handleClick).
+  const handleHeadClick = firstChildHref
+    ? () => {
+        setIsExpanded(true);
+        localStorage.setItem(storageKey, JSON.stringify(true));
+      }
+    : handleClick;
 
   return (
     <div>
@@ -99,7 +102,7 @@ export default function MenuOption({
           className={`flex flex-grow items-center px-[12px] h-[32px] font-medium ${
             isChild ? "hover:text-white" : "text-white light:text-black"
           }`}
-          onClick={hasChildren ? handleClick : undefined}
+          onClick={hasChildren ? handleHeadClick : undefined}
         >
           {icon}
           <p
