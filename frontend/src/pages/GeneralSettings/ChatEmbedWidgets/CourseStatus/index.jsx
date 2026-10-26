@@ -245,8 +245,8 @@ function BannerLines({ status, state }) {
             {lines[key]()}
           </p>
         ))}
-      {/* Fixliste r4 Nr. 2: Der Chat wendet die Kursliste nicht mehr an */}
-      {status.listApplied === false && (
+      {/* D-r6-3: Hinweiszeile nur nach notice vom Server */}
+      {status.notice === "liste_nicht_angewendet" && (
         <p data-course-list-not-applied="">
           {t("course-status.banner.list-not-applied")}
         </p>

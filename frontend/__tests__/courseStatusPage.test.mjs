@@ -63,6 +63,7 @@ function answer(overrides = {}) {
     counts: { offered: 864, count: 812, missing: 52, hidden: 2 },
     missingPercent: 6,
     listApplied: true,
+    notice: null,
     missing: missing(52),
     hidden: [
       {
@@ -461,6 +462,7 @@ test(
         reasons: ["fehlen", "alter"],
         syncedAt: ago(80),
         listApplied: false,
+        notice: "liste_nicht_angewendet",
       })
     );
     assert.ok(find(container, "data-course-status-banner", "rot"));
@@ -581,7 +583,7 @@ test(
 );
 
 test(
-  "r4 Nr. 2: Wendet der Chat die Kursliste nicht an, gibt es keine Liste und keine Kennzahl „Ausgeblendet“; bei Gelb und Rot eine Zeile dazu",
+  "r4 Nr. 2, r6-4: Wendet der Chat die Kursliste nicht an, gibt es keine Liste und keine Kennzahl „Ausgeblendet“; die Zeile dazu nur nach notice",
   { skip },
   async (t) => {
     const yellow = await open(
@@ -592,6 +594,7 @@ test(
         reasons: ["fehlen", "alter"],
         syncedAt: ago(25),
         listApplied: false,
+        notice: "liste_nicht_angewendet",
       })
     );
     assert.equal(
@@ -614,7 +617,26 @@ test(
     );
     await yellow.unmount();
 
-    // run.at frisch, created alt: Grün, aber ohne Ausblenden und ohne Zeile
+    // D-r6-3: Die Zeile kommt nur aus notice, nicht aus listApplied
+    const withoutNotice = await open(
+      t,
+      answer({
+        headline: "nicht_aktualisiert",
+        details: ["nicht_aktualisiert"],
+        reasons: ["alter"],
+        syncedAt: ago(25),
+        listApplied: false,
+        notice: null,
+      })
+    );
+    assert.equal(kpi(withoutNotice.container, "hidden"), undefined);
+    assert.equal(
+      find(withoutNotice.container, "data-course-list-not-applied"),
+      undefined
+    );
+    await withoutNotice.unmount();
+
+    // Grün (Uhrabweichung): ohne Ausblenden und ohne Zeile
     const fine = await open(t, green({ listApplied: false }));
     assert.equal(kpi(fine.container, "hidden"), undefined);
     assert.equal(
@@ -699,6 +721,7 @@ test(
         lastRun: null,
         syncedAt: null,
         listApplied: false,
+        notice: null,
         estimatedEnd: false,
         visitors: null,
       })
@@ -758,6 +781,7 @@ test(
         reasons: ["fehlen", "alter"],
         syncedAt: ago(80),
         listApplied: false,
+        notice: "liste_nicht_angewendet",
       }),
       answer({
         state: "gelb",
@@ -766,6 +790,7 @@ test(
         reasons: ["alter"],
         syncedAt: ago(30),
         listApplied: false,
+        notice: "liste_nicht_angewendet",
       }),
       answer({
         state: "rot",
@@ -774,6 +799,7 @@ test(
         reasons: ["alter"],
         syncedAt: ago(80),
         listApplied: false,
+        notice: "liste_nicht_angewendet",
         lastRun: {
           at: new Date().toISOString(),
           result: "nicht_geschrieben",
