@@ -407,14 +407,15 @@ function apiEmbedEndpoints(app) {
     }
   );
 
-  // KB-3, AK-2: Status des Kursbestands je Workspace mit Kursliste, für den
-  // Versand der Benachrichtigung (KB-5). Dieselbe Bewertung wie die
-  // Status-Seite (courseStatus); Workspaces ohne Kursliste fehlen. Nur
-  // Zustand, Zahlen, Listen und Lauf, keine weiteren Kursdaten.
+  // KB-3, AK-2: Status des Kursbestands je Workspace mit Widget und
+  // Kursliste, für den Versand der Benachrichtigung (KB-5). Dieselbe
+  // Bewertung wie die Status-Seite (courseStatus); Workspaces ohne Widget
+  // oder ohne Kursliste fehlen. Nur Zustand, Zahlen, Listen und Lauf, keine
+  // weiteren Kursdaten.
   app.get("/v1/course-status", [validApiKey], async (_request, response) => {
     /*
       #swagger.tags = ['Embed']
-      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Workspaces without a valid course list are not listed.'
+      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only workspaces with at least one widget are rated; workspaces without a valid course list are not listed. A read error answers 500.'
       #swagger.responses[200] = {
         content: {
           "application/json": {
@@ -448,7 +449,9 @@ function apiEmbedEndpoints(app) {
       }
     */
     try {
+      // nur Workspaces mit Widget: ohne Widget gibt es nichts zu melden
       const workspaces = await prisma.workspaces.findMany({
+        where: { embed_configs: { some: {} } },
         select: {
           slug: true,
           name: true,

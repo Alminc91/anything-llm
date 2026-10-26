@@ -291,6 +291,17 @@ describe("AK-2: GET /v1/course-status", () => {
   });
 });
 
+// Fixliste r2 Nr. 7 (F9): Workspaces ohne Widget (zum Beispiel ein Test-Klon
+// mit denselben Kursen) bewertet die Entwickler-API nicht.
+test("F9: GET /v1/course-status nur für Workspaces mit Widget", async () => {
+  const clone = prisma.__seed("workspaces", { name: "Klon", slug: "c" });
+  for (let i = 1; i <= 50; i++) seedCourse(clone, `262-${i}`);
+  prisma.__seed("api_keys", { secret: "geheim" });
+  const res = await invoke(API, { token: "geheim" });
+  expect(res.statusCode).toBe(200);
+  expect(res.body.workspaces.map((entry) => entry.slug)).toEqual(["a"]);
+});
+
 // Fixliste r2 Nr. 6 (F8): Ein Lesefehler im Statuspfad erscheint nicht als
 // „nicht eingerichtet“. Alle drei Endpunkte antworten mit 500 ohne Details;
 // die Seite zeigt dann ihren Ladefehlertext, der Menüpunkt keinen Punkt.

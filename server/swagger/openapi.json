@@ -4533,7 +4533,7 @@
         "tags": [
           "Embed"
         ],
-        "description": "Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Workspaces without a valid course list are not listed.",
+        "description": "Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only workspaces with at least one widget are rated; workspaces without a valid course list are not listed. A read error answers 500.",
         "parameters": [],
         "responses": {
           "200": {
