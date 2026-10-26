@@ -49,7 +49,7 @@ function stubState(testContext, state) {
 const NOW = Date.parse("2026-10-26T09:00:00.000Z");
 
 // ---------------------------------------------------------------------------
-// AK-4, AK-5, AK-6: Regeln
+// AK-4, AK-5 und Meldungen: Regeln
 // ---------------------------------------------------------------------------
 
 test(
@@ -79,44 +79,64 @@ test("AK-5: Punkt am Menü nur bei Gelb oder Rot", { skip }, () => {
     assert.equal(util.menuDotState(state), null, String(state));
 });
 
-test("AK-6: Wer handelt: Texte der Einrichtung und von Kufer", { skip }, () => {
-  assert.equal(
-    t("course-status.who.einrichtung.sentence"),
-    "Bitte prüfen Sie Webseite und Kursprogramm."
-  );
-  assert.equal(t("course-status.who.kufer.sentence"), "Kufer ist informiert.");
-});
+test(
+  "Kontakt bei Gelb und Rot: Adresse als eine Konstante; nicht abrufbar aus der Ursache des letzten Laufs",
+  { skip },
+  () => {
+    assert.equal(util.KUFER_CONTACT_EMAIL, "info@kufer.de");
+    assert.equal(
+      util.isUnreachable({ lastRun: { cause: "feed_nicht_erreichbar" } }),
+      true
+    );
+    for (const cause of ["feed_unsicher", null, undefined])
+      assert.equal(util.isUnreachable({ lastRun: { cause } }), false);
+    assert.equal(util.isUnreachable({ lastRun: null }), false);
+    assert.equal(util.isUnreachable(null), false);
+    assert.equal("bannerKey" in util, false);
+  }
+);
 
-test("Meldung der Ampel nach Zustand und Grund", { skip }, () => {
-  assert.equal(util.bannerKey({ state: "gruen", reason: null }), "gruen");
+test("Meldungen der Ampel in de und en", { skip }, () => {
+  for (const lng of ["de", "en"])
+    for (const path of [
+      "course-status.banner.title.gruen",
+      "course-status.banner.title.gelb",
+      "course-status.banner.title.rot",
+      "course-status.banner.title.nicht_eingerichtet",
+      "course-status.banner.not-set-up",
+      "course-status.banner.missing",
+      "course-status.banner.age",
+      "course-status.banner.contact",
+      "course-status.banner.unreachable",
+    ])
+      assert.notEqual(t(path, { lng }), path, `${lng} ${path}`);
   assert.equal(
-    util.bannerKey({ state: "gelb", reason: "fehlen" }),
-    "gelb-fehlen"
-  );
-  assert.equal(util.bannerKey({ state: "rot", reason: "alter" }), "rot-alter");
-  assert.equal(
-    util.bannerKey({ state: "rot", reason: "nicht_erreichbar" }),
-    "rot-nicht_erreichbar"
+    t("course-status.banner.title.gruen"),
+    "Ihr KI-Berater kennt Ihr aktuelles Kursprogramm."
   );
   assert.equal(
-    util.bannerKey({ state: "nicht_eingerichtet", reason: null }),
-    "nicht_eingerichtet"
+    t("course-status.banner.title.gelb"),
+    "Ihr KI-Berater ist zurzeit nicht ganz aktuell."
   );
-  // jede mögliche Meldung hat Überschrift und Text in de und en
-  for (const key of [
-    "gruen",
-    "gelb-fehlen",
-    "gelb-alter",
-    "rot-fehlen",
-    "rot-alter",
-    "rot-nicht_erreichbar",
-    "nicht_eingerichtet",
+  assert.equal(
+    t("course-status.banner.title.rot"),
+    "Ihr KI-Berater kennt Ihr Kursprogramm zurzeit nicht vollständig."
+  );
+  const learning = (count, lng = "de") =>
+    t("course-status.banner.learning", { count, number: count, lng });
+  assert.equal(learning(1), "1 Kurs wird noch eingelernt.");
+  assert.equal(learning(3), "3 Kurse werden noch eingelernt.");
+  assert.equal(learning(1, "en"), "1 course is still being learned.");
+  assert.equal(learning(3, "en"), "3 courses are still being learned.");
+  // entfallen: wer handelt, Ergebnis mit Ursachen, Meldungen je Ursache
+  for (const path of [
+    "course-status.who.title",
+    "course-status.sync.result",
+    "course-status.sync.causes.feed_unsicher",
+    "course-status.banner.gelb-fehlen.title",
+    "course-status.banner.next-sync",
   ])
-    for (const lng of ["de", "en"])
-      for (const part of ["title", "text"]) {
-        const path = `course-status.banner.${key}.${part}`;
-        assert.notEqual(t(path, { lng }), path, `${lng} ${path}`);
-      }
+    assert.equal(t(path), path, path);
 });
 
 test("Anteil der fehlenden Kurse", { skip }, () => {
@@ -137,6 +157,10 @@ test("Zeitpunkte des Abgleichs in Berliner Zeit", { skip }, () => {
   assert.equal(at("2026-10-24T08:00:00.000Z"), "24.10., 10:00 Uhr");
   assert.equal(at("2025-12-31T08:00:00.000Z"), "31.12.2025, 09:00 Uhr");
   assert.equal(at(null), "k. A.");
+  // im Satz „Der letzte erfolgreiche Abgleich war …“
+  const inSentence = (iso) => util.formatSyncedAt(t, iso, NOW);
+  assert.equal(inSentence("2026-10-24T08:00:00.000Z"), "am 24.10., 10:00 Uhr");
+  assert.equal(inSentence("2026-10-25T08:00:00.000Z"), "gestern, 09:00 Uhr");
   assert.equal(
     util.formatNextRun(t, "2026-10-26T08:30:00.000Z", NOW),
     "heute, 10:30 Uhr"

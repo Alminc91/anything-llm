@@ -1,4 +1,5 @@
-// KB-3: Seite „Status“ (Mockup Tafel 3) mit React DOM in einem Dokument ohne
+// KB-3: Seite „Status“ (Mockup Tafel 3, Ampel nach Nutzerentscheidung vom
+// 26.10.2026, fixliste-kb3-r1.md) mit React DOM in einem Dokument ohne
 // Browser (helpers/renderSettingsPage.mjs, mount). Die Antwort des Servers
 // (GET /api/embed/course-status) ist ersetzt; die Ampel rechnet der Server
 // (server/__tests__/utils/chats/courseStatus.test.js). Dazu der Punkt am
@@ -46,15 +47,16 @@ const missing = (n) =>
     title: i === 1 ? null : `Kurs ${i + 1}`,
   }));
 
+const HOUR = 60 * 60 * 1000;
+const ago = (hours) => new Date(Date.now() - hours * HOUR).toISOString();
+
 /** Antwort des Servers für ein gelbes Kursprogramm, sonst wie angegeben. */
 function answer(overrides = {}) {
   return {
     state: "gelb",
-    since: "2026-10-26T09:00:00.000Z",
-    reason: "fehlen",
-    whoActs: "kufer",
-    counts: { offered: 864, count: 844, missing: 20, hidden: 2 },
-    missing: missing(20),
+    reasons: ["fehlen"],
+    counts: { offered: 864, count: 812, missing: 52, hidden: 2 },
+    missing: missing(52),
     hidden: [
       {
         knr: "261-7",
@@ -65,13 +67,14 @@ function answer(overrides = {}) {
       { knr: "261-8", title: "Excel", start: null, duration: null },
     ],
     lastRun: { at: new Date().toISOString(), result: "ok", cause: null },
+    syncedAt: new Date().toISOString(),
     estimatedEnd: true,
     workspace: { name: "VHS Beispiel" },
     widgets: [
       { id: 3, name: "VHS Beispiel" },
       { id: 9, name: "VHS Beispiel" },
     ],
-    visitors: { count: 844, word: "Kurse" },
+    visitors: { count: 812, word: "Kurse" },
     ...overrides,
   };
 }
@@ -113,6 +116,12 @@ const find = (container, attribute, value = null) =>
       : el.getAttribute(attribute) === value
   )[0];
 const rows = (section) => elements(section, (el) => el.tagName === "LI");
+const CONTACT =
+  "Kufer kümmert sich darum. Sie können uns auch direkt Bescheid geben: info@kufer.de";
+const UNREACHABLE =
+  "Ihr Kursprogramm ist auf Ihrer Website zurzeit nicht abrufbar. Bitte prüfen Sie Ihre Kursseiten oder geben Sie uns Bescheid: info@kufer.de";
+const banner = (container) =>
+  find(container, "data-course-status-banner").textContent;
 const NOTICE =
   "Seit 26.10.2026: Zurzeit wird das Ausschließen vergangener Kurse optimiert.";
 
@@ -160,19 +169,19 @@ test(
   { skip },
   async (t) => {
     const { container } = await open(t, answer());
-    const banner = find(container, "data-course-status-banner", "gelb");
+    assert.ok(find(container, "data-course-status-banner", "gelb"));
     assert.equal(
-      banner.textContent,
-      "Einzelne Kurse fehlen im KI-Berater20 von 864 Kursen sind zurzeit nicht eingelernt. Kufer ist informiert. Meist erledigt sich das mit dem nächsten stündlichen Abgleich."
+      banner(container),
+      `Ihr KI-Berater ist zurzeit nicht ganz aktuell.Es fehlen 52 von 864 Kursen.${CONTACT}`
     );
     const kpi = (key) => find(container, "data-course-kpi", key).textContent;
     assert.equal(kpi("offered"), "Im Kursprogramm864");
-    assert.equal(kpi("count"), "Im KI-Berater844");
-    assert.equal(kpi("missing"), "Fehlen20(2 %)");
+    assert.equal(kpi("count"), "Im KI-Berater812");
+    assert.equal(kpi("missing"), "Fehlen52(6 %)");
     assert.equal(kpi("hidden"), "Ausgeblendet2");
 
     const missingList = find(container, "data-course-list", "missing");
-    assert.ok(missingList.textContent.startsWith("Fehlende Kurse (20)"));
+    assert.ok(missingList.textContent.startsWith("Fehlende Kurse (52)"));
     assert.equal(rows(missingList).length, 5);
     assert.equal(rows(missingList)[0].textContent, "262-1Kurs 1");
     assert.equal(rows(missingList)[1].textContent, "262-2k. A.");
@@ -194,7 +203,7 @@ test(
       sync.textContent,
       /^AbgleichLetzterheute, \d\d:\d\d UhrNächster(heute|morgen), \d\d:\d\d Uhr/
     );
-    assert.ok(sync.textContent.endsWith("Besucher sehenaktuell 844 Kurse"));
+    assert.ok(sync.textContent.endsWith("Besucher sehenaktuell 812 Kurse"));
   }
 );
 
@@ -227,7 +236,7 @@ test(
 );
 
 test(
-  "AK-3: Lauf mit Störung: Ergebnis im Abgleich; Besucher ohne Kursanzahl",
+  "AK-3: Lauf mit Störung: keine Zeile „Ergebnis“ mehr; Besucher ohne Kursanzahl",
   { skip },
   async (t) => {
     const { container } = await open(
@@ -242,8 +251,12 @@ test(
       })
     );
     const sync = find(container, "data-course-sync").textContent;
-    assert.ok(sync.includes("ErgebnisKursprogramm unvollständig geliefert"));
-    assert.ok(sync.endsWith("Besucher sehenkeine Kursanzahl"));
+    assert.ok(!sync.includes("Ergebnis"));
+    assert.ok(!sync.includes("unvollständig"));
+    assert.match(
+      sync,
+      /^AbgleichLetzterheute, \d\d:\d\d UhrNächster(heute|morgen), \d\d:\d\d UhrBesucher sehenkeine Kursanzahl$/
+    );
   }
 );
 
@@ -279,7 +292,7 @@ test(
     const nothingHidden = await open(
       t,
       answer({
-        counts: { offered: 864, count: 844, missing: 20, hidden: 0 },
+        counts: { offered: 864, count: 812, missing: 52, hidden: 0 },
         hidden: [],
       })
     );
@@ -288,69 +301,133 @@ test(
 );
 
 // ---------------------------------------------------------------------------
-// AK-6: Wer handelt
+// Meldungen der Ampel (Nutzer 26.10.2026)
 // ---------------------------------------------------------------------------
 
+const green = (overrides = {}) =>
+  answer({
+    state: "gruen",
+    reasons: [],
+    counts: { offered: 864, count: 864, missing: 0, hidden: 0 },
+    missing: [],
+    hidden: [],
+    ...overrides,
+  });
+
 test(
-  "AK-6: Kursprogramm nicht erreichbar: die Einrichtung handelt",
+  "Grün: Überschrift, ohne Kontakt und ohne „Wer handelt“; fehlen Kurse, klein „werden noch eingelernt“",
+  { skip },
+  async (t) => {
+    const all = await open(t, green());
+    assert.ok(find(all.container, "data-course-status-banner", "gruen"));
+    assert.equal(
+      banner(all.container),
+      "Ihr KI-Berater kennt Ihr aktuelles Kursprogramm."
+    );
+    assert.ok(!all.text.includes("info@kufer.de"));
+    assert.ok(!all.text.includes("Wer handelt"));
+    assert.equal(find(all.container, "data-course-who"), undefined);
+    await all.unmount();
+
+    const one = await open(
+      t,
+      green({
+        counts: { offered: 864, count: 863, missing: 1, hidden: 0 },
+        missing: missing(1),
+      })
+    );
+    assert.equal(
+      find(one.container, "data-course-learning").textContent,
+      "1 Kurs wird noch eingelernt."
+    );
+    await one.unmount();
+
+    const many = await open(
+      t,
+      green({
+        counts: { offered: 864, count: 834, missing: 30, hidden: 0 },
+        missing: missing(30),
+      })
+    );
+    assert.equal(
+      banner(many.container),
+      "Ihr KI-Berater kennt Ihr aktuelles Kursprogramm.30 Kurse werden noch eingelernt."
+    );
+  }
+);
+
+test(
+  "Gelb wegen Alter: Zeitpunkt des letzten erfolgreichen Abgleichs und Kontakt als Mail-Link",
+  { skip },
+  async (t) => {
+    const { container } = await open(
+      t,
+      green({ state: "gelb", reasons: ["alter"], syncedAt: ago(25) })
+    );
+    assert.ok(find(container, "data-course-status-banner", "gelb"));
+    assert.equal(find(container, "data-course-detail", "fehlen"), undefined);
+    assert.match(
+      find(container, "data-course-detail", "alter").textContent,
+      /^Der letzte erfolgreiche Abgleich war (gestern|am \d\d\.\d\d\.(\d{4})?), \d\d:\d\d Uhr\.$/
+    );
+    assert.equal(find(container, "data-course-contact").textContent, CONTACT);
+    const link = elements(container, (el) => el.tagName === "A")[0];
+    assert.equal(link.getAttribute("href"), "mailto:info@kufer.de");
+    assert.equal(link.textContent, "info@kufer.de");
+    // die Detailzeile ersetzt Grün, keine Zeile „wird noch eingelernt“
+    assert.equal(find(container, "data-course-learning"), undefined);
+  }
+);
+
+test(
+  "Rot aus beiden Gründen: beide Detailzeilen, erst fehlende Kurse, dann der Abgleich",
   { skip },
   async (t) => {
     const { container } = await open(
       t,
       answer({
         state: "rot",
-        reason: "nicht_erreichbar",
-        whoActs: "einrichtung",
-        counts: { offered: 864, count: 864, missing: 0, hidden: 0 },
-        missing: [],
-        hidden: [],
-        lastRun: {
-          at: new Date().toISOString(),
-          result: "nicht_geschrieben",
-          cause: "feed_nicht_erreichbar",
-        },
+        reasons: ["fehlen", "alter"],
+        syncedAt: ago(80),
       })
     );
-    assert.equal(
-      find(container, "data-course-status-banner", "rot").textContent,
-      "Ihr Kursprogramm ist nicht erreichbarSeit dem vorigen Abgleich ist Ihr Kursprogramm nicht erreichbar. Der KI-Berater nutzt den Stand des letzten erfolgreichen Abgleichs. Bitte prüfen Sie Webseite und Kursprogramm."
-    );
-    assert.equal(
-      find(container, "data-course-who", "einrichtung").textContent,
-      "Wer handeltIhre EinrichtungBitte prüfen Sie Webseite und Kursprogramm."
+    assert.ok(find(container, "data-course-status-banner", "rot"));
+    assert.match(
+      banner(container),
+      /^Ihr KI-Berater kennt Ihr Kursprogramm zurzeit nicht vollständig\.Es fehlen 52 von 864 Kursen\.Der letzte erfolgreiche Abgleich war am \d\d\.\d\d\.(\d{4})?, \d\d:\d\d Uhr\.Kufer kümmert sich darum\. Sie können uns auch direkt Bescheid geben: info@kufer\.de$/
     );
   }
 );
 
 test(
-  "AK-6: andere Ursache: Kufer handelt; bei Grün niemand",
+  "Nicht abrufbar ab Gelb: eigener Satz statt des Schlusssatzes; bei Grün kein Satz",
   { skip },
   async (t) => {
-    const yellow = await open(t, answer());
-    assert.equal(
-      find(yellow.container, "data-course-who", "kufer").textContent,
-      "Wer handeltKuferKufer ist informiert."
-    );
-    await yellow.unmount();
+    const lastRun = {
+      at: new Date().toISOString(),
+      result: "nicht_geschrieben",
+      cause: "feed_nicht_erreichbar",
+    };
+    for (const state of ["gelb", "rot"]) {
+      const page = await open(
+        t,
+        green({ state, reasons: ["alter"], syncedAt: ago(30), lastRun })
+      );
+      assert.equal(
+        find(page.container, "data-course-contact", "nicht_abrufbar")
+          .textContent,
+        UNREACHABLE
+      );
+      assert.ok(!page.text.includes("Kufer kümmert sich darum"), state);
+      await page.unmount();
+    }
 
-    const green = await open(
-      t,
-      answer({
-        state: "gruen",
-        reason: null,
-        whoActs: null,
-        counts: { offered: 864, count: 864, missing: 0, hidden: 0 },
-        missing: [],
-        hidden: [],
-      })
-    );
+    const fine = await open(t, green({ lastRun }));
     assert.equal(
-      find(green.container, "data-course-status-banner", "gruen").textContent,
-      "Alle Kurse sind im KI-BeraterAlle 864 Kurse aus Ihrem Kursprogramm sind eingelernt."
+      banner(fine.container),
+      "Ihr KI-Berater kennt Ihr aktuelles Kursprogramm."
     );
-    assert.equal(find(green.container, "data-course-who"), undefined);
-    assert.ok(!green.text.includes("Kufer ist informiert"));
-    assert.ok(!green.text.includes("Bitte prüfen Sie"));
+    assert.ok(!fine.text.includes("nicht abrufbar"));
   }
 );
 
@@ -366,12 +443,12 @@ test(
       t,
       answer({
         state: "nicht_eingerichtet",
-        reason: null,
-        whoActs: null,
+        reasons: [],
         counts: null,
         missing: [],
         hidden: [],
         lastRun: null,
+        syncedAt: null,
         estimatedEnd: false,
         visitors: null,
       })
@@ -410,7 +487,7 @@ test(
       elements(container, (el) => el.tagName === "BUTTON").map(
         (el) => el.getAttribute("aria-haspopup") ?? el.textContent
       ),
-      ["listbox", "Alle 20 anzeigen"]
+      ["listbox", "Alle 52 anzeigen"]
     );
   }
 );
@@ -421,12 +498,22 @@ test(
   async (t) => {
     for (const body of [
       answer(),
-      answer({ state: "rot", reason: "alter" }),
-      answer({ state: "gelb", reason: "alter" }),
+      answer({ state: "rot", reasons: ["fehlen", "alter"], syncedAt: ago(80) }),
+      answer({ state: "gelb", reasons: ["alter"], syncedAt: ago(30) }),
       answer({
         state: "rot",
-        reason: "nicht_erreichbar",
-        whoActs: "einrichtung",
+        reasons: ["alter"],
+        syncedAt: ago(80),
+        lastRun: {
+          at: new Date().toISOString(),
+          result: "nicht_geschrieben",
+          cause: "feed_nicht_erreichbar",
+        },
+      }),
+      answer({
+        state: "gruen",
+        reasons: [],
+        counts: { offered: 864, count: 860, missing: 4, hidden: 2 },
       }),
     ]) {
       const page = await open(t, body);

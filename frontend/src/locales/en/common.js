@@ -2032,41 +2032,27 @@ const TRANSLATIONS = {
     yesterday: "yesterday, {{time}}",
     tomorrow: "tomorrow, {{time}}",
     "on-date": "{{date}}, {{time}}",
+    "on-date-at": "on {{date}}, {{time}}",
     dot: {
       gelb: "Status: Yellow",
       rot: "Status: Red",
     },
     banner: {
-      gruen: {
-        title: "All courses are in the AI advisor",
-        text: "All {{offered}} courses from your course program are learned.",
+      title: {
+        gruen: "Your AI advisor knows your current course program.",
+        gelb: "Your AI advisor is currently not fully up to date.",
+        rot: "Your AI advisor currently does not know your complete course program.",
+        nicht_eingerichtet: "Synchronization not set up",
       },
-      "gelb-fehlen": {
-        title: "Some courses are missing in the AI advisor",
-        text: "{{missing}} of {{offered}} courses are currently not learned.",
-      },
-      "rot-fehlen": {
-        title: "Many courses are missing in the AI advisor",
-        text: "{{missing}} of {{offered}} courses are currently not learned.",
-      },
-      "gelb-alter": {
-        title: "The last synchronization was a while ago",
-        text: "The last successful synchronization with your course program was more than 3 hours ago.",
-      },
-      "rot-alter": {
-        title: "No synchronization for more than 24 hours",
-        text: "The last successful synchronization was more than 24 hours ago. Until the next successful synchronization, the AI advisor does not hide ended courses, and visitors see no course count.",
-      },
-      "rot-nicht_erreichbar": {
-        title: "Your course program is not reachable",
-        text: "Your course program has not been reachable since the previous synchronization. The AI advisor uses the state of the last successful synchronization.",
-      },
-      nicht_eingerichtet: {
-        title: "Synchronization not set up",
-        text: "The synchronization is not set up for this course program.",
-      },
-      "next-sync":
-        "This usually resolves itself with the next hourly synchronization.",
+      "not-set-up":
+        "The synchronization is not set up for this course program.",
+      learning_one: "1 course is still being learned.",
+      learning_other: "{{number}} courses are still being learned.",
+      missing: "{{missing}} of {{offered}} courses are missing.",
+      age: "The last successful synchronization was {{time}}.",
+      contact: "Kufer is taking care of it. You can also let us know directly:",
+      unreachable:
+        "Your course program is currently not available on your website. Please check your course pages or let us know:",
     },
     kpi: {
       offered: "In the course program",
@@ -2098,30 +2084,10 @@ const TRANSLATIONS = {
       title: "Synchronization",
       last: "Last",
       next: "Next",
-      result: "Result",
       visitors: "Visitors see",
       "visitors-count": "currently {{count}} {{word}}",
       "visitors-none": "no course count",
       pending: "pending",
-      causes: {
-        feed_nicht_erreichbar: "Course program not reachable",
-        feed_unsicher: "Course program delivered incompletely",
-        feed_eingebrochen: "Course program much smaller than before",
-        einlernen_fehlgeschlagen: "Learning failed",
-        nicht_geschrieben: "not applied",
-        fehler: "Synchronization error",
-      },
-    },
-    who: {
-      title: "Who acts",
-      kufer: {
-        name: "Kufer",
-        sentence: "Kufer has been informed.",
-      },
-      einrichtung: {
-        name: "Your institution",
-        sentence: "Please check your website and course program.",
-      },
     },
   },
 };

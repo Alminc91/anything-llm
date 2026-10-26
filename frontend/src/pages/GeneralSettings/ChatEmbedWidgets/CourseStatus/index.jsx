@@ -5,22 +5,26 @@ import { embedLabels } from "@/utils/embedLabel";
 import { formatNumber } from "@/utils/analyticsTimeline";
 import { AVATAR_CLEARANCE, MUTED } from "@/utils/conversationView";
 import {
+  KUFER_CONTACT_EMAIL,
   OPTIMIZATION_NOTICE_SINCE,
   STATE_COLORS,
-  bannerKey,
   formatNextRun,
   formatRunTime,
+  formatSyncedAt,
   hiddenWhen,
+  isUnreachable,
   missingShare,
   showsOptimizationNotice,
 } from "@/utils/courseStatus";
 import { WidgetPicker, useWidgetSelection } from "../WidgetSelection";
 
-// Seite „Status“ (KB-3, Mockup Tafel 3): ob der KI-Berater das Kursprogramm
-// vollständig kennt, und wenn nicht, was fehlt, was ausgeblendet ist und wer
-// handelt. Ein Status je Kursprogramm (Workspace), gewählt über die
-// gemeinsame Widget-Auswahl (KB-2). Nur lesend: Die Seite hat außer der
-// Widget-Auswahl und dem Aufklappen der Listen keine Bedienelemente (NAK-3).
+// Seite „Status“ (KB-3, Mockup Tafel 3, Ampel nach Nutzerentscheidung vom
+// 26.10.2026): ob der KI-Berater das Kursprogramm vollständig kennt, und wenn
+// nicht, was fehlt und was ausgeblendet ist. Wenige, ruhige Meldungen: Kufer
+// kümmert sich um den Betrieb. Ein Status je Kursprogramm (Workspace),
+// gewählt über die gemeinsame Widget-Auswahl (KB-2). Nur lesend: Die Seite
+// hat außer der Widget-Auswahl, dem Aufklappen der Listen und dem Mail-Link
+// keine Bedienelemente (NAK-3).
 
 // So viele Einträge je Liste, bevor „Alle … anzeigen“ aufklappt
 const LIST_PREVIEW = 5;
@@ -132,29 +136,25 @@ function StatusBody({ status }) {
       )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <SyncCard status={status} />
-        {status.whoActs && <WhoActsCard whoActs={status.whoActs} />}
       </div>
     </>
   );
 }
 
-/** Meldung der Ampel mit wer handelt (AK-6). */
+/**
+ * Meldung der Ampel: Überschrift je Zustand. Grün nennt klein die Kurse, die
+ * noch eingelernt werden; Gelb und Rot nennen je Grund fehlende Kurse und
+ * den letzten erfolgreichen Abgleich, dazu wie Kufer erreichbar ist.
+ */
 function Banner({ status }) {
   const { t } = useTranslation();
-  const colors = STATE_COLORS[status.state] ?? STATE_COLORS.nicht_eingerichtet;
-  const key = bannerKey(status);
-  const values = {
-    missing: formatNumber(status.counts?.missing ?? 0),
-    offered: formatNumber(status.counts?.offered ?? 0),
-  };
-  const sentences = [t(`course-status.banner.${key}.text`, values)];
-  if (status.whoActs)
-    sentences.push(t(`course-status.who.${status.whoActs}.sentence`));
-  if (key === "gelb-fehlen")
-    sentences.push(t("course-status.banner.next-sync"));
+  const state = STATE_COLORS[status.state]
+    ? status.state
+    : "nicht_eingerichtet";
+  const colors = STATE_COLORS[state];
   return (
     <div
-      data-course-status-banner={status.state}
+      data-course-status-banner={state}
       className="flex items-start gap-3 rounded-xl border px-4 py-4"
       style={{ background: colors.bg, borderColor: colors.border }}
     >
@@ -163,13 +163,62 @@ function Banner({ status }) {
         className="mt-1 h-3.5 w-3.5 flex-none rounded-full"
         style={{ background: colors.dot }}
       />
-      <div className="flex flex-col gap-1" style={{ color: colors.text }}>
+      <div
+        className="flex flex-col gap-1 text-sm leading-normal"
+        style={{ color: colors.text }}
+      >
         <h3 className="text-base font-bold">
-          {t(`course-status.banner.${key}.title`)}
+          {t(`course-status.banner.title.${state}`)}
         </h3>
-        <p className="text-sm leading-normal">{sentences.join(" ")}</p>
+        <BannerLines status={status} state={state} />
       </div>
     </div>
+  );
+}
+
+function BannerLines({ status, state }) {
+  const { t } = useTranslation();
+  const missing = status.counts?.missing ?? 0;
+  if (state === "nicht_eingerichtet")
+    return <p>{t("course-status.banner.not-set-up")}</p>;
+  if (state === "gruen")
+    return missing > 0 ? (
+      <p data-course-learning="" className="text-xs">
+        {t("course-status.banner.learning", {
+          count: missing,
+          number: formatNumber(missing),
+        })}
+      </p>
+    ) : null;
+  const reasons = status.reasons ?? [];
+  const unreachable = isUnreachable(status);
+  return (
+    <>
+      {reasons.includes("fehlen") && (
+        <p data-course-detail="fehlen">
+          {t("course-status.banner.missing", {
+            missing: formatNumber(missing),
+            offered: formatNumber(status.counts?.offered ?? 0),
+          })}
+        </p>
+      )}
+      {reasons.includes("alter") && (
+        <p data-course-detail="alter">
+          {t("course-status.banner.age", {
+            time: formatSyncedAt(t, status.syncedAt),
+          })}
+        </p>
+      )}
+      <p data-course-contact={unreachable ? "nicht_abrufbar" : "kufer"}>
+        {t(`course-status.banner.${unreachable ? "unreachable" : "contact"}`)}{" "}
+        <a
+          href={`mailto:${KUFER_CONTACT_EMAIL}`}
+          className="font-semibold underline underline-offset-2"
+        >
+          {KUFER_CONTACT_EMAIL}
+        </a>
+      </p>
+    </>
   );
 }
 
@@ -342,7 +391,7 @@ function HiddenList({ status }) {
   );
 }
 
-/** Abgleich: letzter, nächster, Ergebnis bei Störung, was Besucher sehen. */
+/** Abgleich: letzter, nächster, was Besucher sehen. */
 function SyncCard({ status }) {
   const { t } = useTranslation();
   const run = status.lastRun;
@@ -350,11 +399,6 @@ function SyncCard({ status }) {
     ["last", formatRunTime(t, run?.at)],
     ["next", formatNextRun(t, run?.at)],
   ];
-  if (run && run.result !== "ok")
-    rows.push([
-      "result",
-      t(`course-status.sync.causes.${run.cause ?? run.result}`),
-    ]);
   rows.push([
     "visitors",
     status.visitors
@@ -380,23 +424,6 @@ function SyncCard({ status }) {
           </div>
         ))}
       </dl>
-    </section>
-  );
-}
-
-/** Wer handelt (AK-6): Kufer oder die Einrichtung, bei Grün entfällt die Karte. */
-function WhoActsCard({ whoActs }) {
-  const { t } = useTranslation();
-  return (
-    <section
-      data-course-who={whoActs}
-      className={`${CARD} flex flex-col gap-2 px-4 py-3 text-sm leading-normal`}
-    >
-      <h3 className="text-base font-semibold">
-        {t("course-status.who.title")}
-      </h3>
-      <p className="font-semibold">{t(`course-status.who.${whoActs}.name`)}</p>
-      <p>{t(`course-status.who.${whoActs}.sentence`)}</p>
     </section>
   );
 }

@@ -1865,40 +1865,25 @@ const TRANSLATIONS = {
     yesterday: null,
     tomorrow: null,
     "on-date": null,
+    "on-date-at": null,
     dot: {
       gelb: null,
       rot: null,
     },
     banner: {
-      gruen: {
-        title: null,
-        text: null,
+      title: {
+        gruen: null,
+        gelb: null,
+        rot: null,
+        nicht_eingerichtet: null,
       },
-      "gelb-fehlen": {
-        title: null,
-        text: null,
-      },
-      "rot-fehlen": {
-        title: null,
-        text: null,
-      },
-      "gelb-alter": {
-        title: null,
-        text: null,
-      },
-      "rot-alter": {
-        title: null,
-        text: null,
-      },
-      "rot-nicht_erreichbar": {
-        title: null,
-        text: null,
-      },
-      nicht_eingerichtet: {
-        title: null,
-        text: null,
-      },
-      "next-sync": null,
+      "not-set-up": null,
+      learning_one: null,
+      learning_other: null,
+      missing: null,
+      age: null,
+      contact: null,
+      unreachable: null,
     },
     kpi: {
       offered: null,
@@ -1928,30 +1913,10 @@ const TRANSLATIONS = {
       title: null,
       last: null,
       next: null,
-      result: null,
       visitors: null,
       "visitors-count": null,
       "visitors-none": null,
       pending: null,
-      causes: {
-        feed_nicht_erreichbar: null,
-        feed_unsicher: null,
-        feed_eingebrochen: null,
-        einlernen_fehlgeschlagen: null,
-        nicht_geschrieben: null,
-        fehler: null,
-      },
-    },
-    who: {
-      title: null,
-      kufer: {
-        name: null,
-        sentence: null,
-      },
-      einrichtung: {
-        name: null,
-        sentence: null,
-      },
     },
   },
 };

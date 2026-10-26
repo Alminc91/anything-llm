@@ -12,6 +12,12 @@ import Embed from "@/models/embed";
  */
 export const OPTIMIZATION_NOTICE_SINCE = "26.10.2026";
 
+/**
+ * Adresse, unter der die Einrichtung Kufer bei Gelb und Rot direkt Bescheid
+ * geben kann (Nutzerentscheidung 26.10.2026).
+ */
+export const KUFER_CONTACT_EMAIL = "info@kufer.de";
+
 /** Zustände der Ampel; dazu „nicht_eingerichtet“ (grau, ohne Punkt). */
 export const STATES = ["gruen", "gelb", "rot", "nicht_eingerichtet"];
 
@@ -48,15 +54,13 @@ export function menuDotState(state) {
 }
 
 /**
- * Schlüssel der Meldung der Ampel (Überschrift und Text): nach Zustand und
- * Grund des Servers.
- * @param {{state: string, reason?: string|null}} status
- * @returns {string} z. B. "gelb-fehlen", "rot-alter", "gruen"
+ * Ist das Kursprogramm beim letzten Lauf auf der Website des Kunden nicht
+ * abrufbar gewesen? Dann steht bei Gelb und Rot ein eigener Schlusssatz.
+ * @param {{lastRun?: {cause?: string|null}|null}|null} status
+ * @returns {boolean}
  */
-export function bannerKey(status) {
-  if (status.state === "gelb" || status.state === "rot")
-    return `${status.state}-${status.reason ?? "fehlen"}`;
-  return status.state === "gruen" ? "gruen" : "nicht_eingerichtet";
+export function isUnreachable(status) {
+  return status?.lastRun?.cause === "feed_nicht_erreichbar";
 }
 
 /**
@@ -86,13 +90,20 @@ const berlinTime = new Intl.DateTimeFormat("de-DE", {
 /**
  * Zeitpunkt eines Abgleichs: „heute, 10:00 Uhr“, „gestern, 10:00 Uhr“,
  * „morgen, …“ oder „24.10., 10:00 Uhr“ (anderes Jahr mit Jahr), in Berliner
- * Zeit. Ohne gültigen Zeitpunkt „k. A.“.
+ * Zeit; im Satz (formatSyncedAt) als „am 24.10., …“.
+ * Ohne gültigen Zeitpunkt „k. A.“.
  * @param {(key: string, options?: object) => string} t
  * @param {string|number|null} at
  * @param {number} [now]
+ * @param {string} [dateKey]
  * @returns {string}
  */
-export function formatRunTime(t, at, now = Date.now()) {
+export function formatRunTime(
+  t,
+  at,
+  now = Date.now(),
+  dateKey = "course-status.on-date"
+) {
   const ms = typeof at === "number" ? at : Date.parse(at ?? "");
   if (!Number.isFinite(ms)) return t("course-status.none");
   const day = berlinDay.format(ms);
@@ -105,7 +116,19 @@ export function formatRunTime(t, at, now = Date.now()) {
     return t("course-status.tomorrow", { time });
   const [d, m, y] = day.split(".");
   const date = y === berlinDay.format(now).split(".")[2] ? `${d}.${m}.` : day;
-  return t("course-status.on-date", { date, time });
+  return t(dateKey, { date, time });
+}
+
+/**
+ * Letzter erfolgreicher Abgleich im Satz „Der letzte erfolgreiche Abgleich
+ * war …“: wie formatRunTime, ein Datum als „am 24.10., 10:00 Uhr“.
+ * @param {(key: string, options?: object) => string} t
+ * @param {string|null} at
+ * @param {number} [now]
+ * @returns {string}
+ */
+export function formatSyncedAt(t, at, now = Date.now()) {
+  return formatRunTime(t, at, now, "course-status.on-date-at");
 }
 
 /**
