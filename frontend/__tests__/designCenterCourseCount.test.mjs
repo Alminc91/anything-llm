@@ -4,9 +4,10 @@
 // „Bezeichnung“ (Standard „Kurse“) ist frei und wird geprüft (ein Wort aus
 // Buchstaben, Bindestrich nur zwischen Buchstaben, höchstens 20 Zeichen, wie
 // der Server; Fixliste r2b: Meldung statt stiller Kürzung).
-// Die interne Zeile zum Kursbestand unter dem Schalter entfällt (D-K5, die
-// Info-Karte im Widget sagt es dem Besucher). Die Vorschau zeigt die echte
-// Zahl (GET /embed/defaults?embedId=), sonst eine Beispielzahl. Gespeichert
+// Die interne Zeile zum Kursbestand unter dem Schalter entfällt (D-K5).
+// Die Vorschau zeigt nur die echte Zahl (GET /embed/defaults?embedId=,
+// seit Fixliste r4 Nr. 2 und 3 nur {count}), sonst die Beispielzahl 837 mit
+// dem Zusatz „Beispiel“, ohne Info-Button und ohne Karte. Gespeichert
 // wird nur Abweichendes vom Standard (Regel D6); der Untertitel bleibt
 // gespeichert und gilt mit Schalter aus wieder (NAK-K5).
 //
@@ -47,12 +48,8 @@ const LOCKED_HINT = "Statt des Untertitels steht die Kursanzahl.";
 const NO_LIST = "Noch keine Kursliste vom Kursprogramm";
 const INTERNAL_LINE =
   /Im KI-Berater:|veraltete? ausgeblendet|Noch keine Kursliste/;
-const INVENTORY = {
-  count: 812,
-  offered: 837,
-  hidden: 14,
-  stand: "2026-10-24T08:00:00.000Z",
-};
+// Antwort des Servers seit Fixliste r4 Nr. 2: nur count
+const INVENTORY = { count: 812 };
 
 let renderer;
 before(async () => {
@@ -297,41 +294,47 @@ test("Prüfung: ungültige geänderte Bezeichnung blockiert nur mit Schalter an"
   );
 });
 
-test("D-K5: keine interne Zeile mehr, Kursbestand nur noch für die Vorschau geprüft", () => {
+test("D-K5: keine interne Zeile mehr, Kursbestand nur noch für die Vorschau geprüft (nur count)", () => {
   assert.equal(keys.courseCountStatusLine, undefined);
   assert.equal(keys.courseCountStandText, undefined);
-  assert.deepEqual(keys.courseInventoryValue(INVENTORY), {
-    count: 812,
-    offered: 837,
-    hidden: 14,
-    stand: INVENTORY.stand,
-  });
-  // ohne stale und missing (D-K5) gültig, ungültige Zahlen nicht
-  assert.ok(
-    keys.courseInventoryValue({ count: 1, offered: 1, stand: INVENTORY.stand })
+  assert.equal(keys.SAMPLE_COURSE_HIDDEN, undefined);
+  assert.deepEqual(keys.courseInventoryValue(INVENTORY), { count: 812 });
+  assert.deepEqual(keys.courseInventoryValue({ count: 0 }), { count: 0 });
+  // ein älterer Server mit weiteren Schlüsseln: nur count wird übernommen
+  assert.deepEqual(
+    keys.courseInventoryValue({
+      count: 812,
+      offered: 837,
+      hidden: 14,
+      stand: "2026-10-24T08:00:00.000Z",
+    }),
+    { count: 812 }
   );
   for (const bad of [
     null,
     undefined,
     {},
-    { ...INVENTORY, count: -1 },
-    { ...INVENTORY, count: "812" },
-    { ...INVENTORY, stand: "gestern" },
+    { count: -1 },
+    { count: "812" },
+    { count: 1.5 },
+    { count: Number.MAX_SAFE_INTEGER + 1 },
   ])
     assert.equal(keys.courseInventoryValue(bad), null);
 });
 
 test("Vorschau: echte Zahl, sonst Beispielzahl; Bezeichnung wie live; Schalter aus ohne Zahl", () => {
   const real = keys.previewCourseCount({}, INVENTORY);
-  assert.equal(real.text, "aktuell 812 Kurse");
-  assert.equal(real.sample, false);
+  assert.deepEqual(real, {
+    text: "aktuell 812 Kurse",
+    lead: "aktuell",
+    number: "812",
+    word: "Kurse",
+    sample: false,
+  });
   const sample = keys.previewCourseCount({}, null);
   assert.equal(sample.text, "aktuell 837 Kurse");
   assert.equal(sample.sample, true);
-  assert.deepEqual(
-    keys.previewCourseCount({}, { ...INVENTORY, count: 0 }).sample,
-    true
-  );
+  assert.deepEqual(keys.previewCourseCount({}, { count: 0 }).sample, true);
   assert.equal(
     keys.previewCourseCount({ courseCountWord: "Seminare" }, INVENTORY).text,
     "aktuell 812 Seminare"
@@ -345,9 +348,30 @@ test("Vorschau: echte Zahl, sonst Beispielzahl; Bezeichnung wie live; Schalter a
     null
   );
   assert.equal(
-    keys.previewCourseCount({}, { ...INVENTORY, count: 1243 }).text,
+    keys.previewCourseCount({}, { count: 1243 }).text,
     "aktuell 1.243 Kurse"
   );
+});
+
+// Vertrags-Fixture courseCountTexts (wortgleich im Widget): dieselbe
+// Untertitel-Zeile zeigt die Vorschau (nur deutsch, das Design Center ist
+// deutsch)
+test("Vorschau: Untertitel-Zeile wie courseCountTexts der Vertrags-Fixture", () => {
+  const cases = CONTRACT.courseCountTexts.cases.filter(
+    (c) => c.language === "de"
+  );
+  assert.ok(cases.length >= 3);
+  for (const c of cases) {
+    const config =
+      c.courseCount.word === null
+        ? {}
+        : { courseCountWord: c.courseCount.word };
+    assert.equal(
+      keys.previewCourseCount(config, { count: c.courseCount.count }).text,
+      c.subtitle,
+      c.name
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -481,12 +505,35 @@ const preview = (config, courseInventory = null) =>
       courseInventory,
     },
   });
-// Text der Zahl im Kopf (ohne Info-Button und Zusatz „Beispiel“, AK-K10)
-const headerCount = (html) => {
+// HTML der Kursanzahl im Kopf (das ganze Element bis zu seinem Ende)
+const headerCountHtml = (html) => {
   const at = html.indexOf('data-preview="header-course-count"');
   if (at < 0) return null;
-  const rest = html.slice(at);
-  return text(rest.slice(rest.indexOf(">") + 1, rest.indexOf("<button")));
+  const start = html.lastIndexOf("<span", at);
+  const tags = /<\/?span\b[^>]*>/g;
+  tags.lastIndex = start;
+  let depth = 0;
+  for (let m; (m = tags.exec(html)); ) {
+    depth += m[0].startsWith("</") ? -1 : 1;
+    if (depth === 0) break;
+  }
+  return html.slice(start, tags.lastIndex);
+};
+// Text der Kursanzahl im Kopf (mit dem Zusatz „Beispiel“, falls gezeigt)
+const headerCount = (html) => {
+  const part = headerCountHtml(html);
+  return part === null ? null : text(part);
+};
+// Fixliste r4 Nr. 3: kein Info-Button, keine Karte, Zahl fett
+const assertOnlyNumber = (html) => {
+  const part = headerCountHtml(html);
+  assert.ok(part, "Kursanzahl fehlt");
+  assert.doesNotMatch(part, /<button|role="dialog"|aria-expanded/);
+  assert.match(part, /<span class="font-semibold"[^>]*>[\d.]+<\/span>/);
+  assert.doesNotMatch(
+    html,
+    /course-count-button|course-count-card|Was bedeutet die Zahl|Info zur Kursanzahl|im KI-Berater/
+  );
 };
 
 test(
@@ -501,9 +548,20 @@ test(
       assert.equal(headerCount(real), "aktuell 812 Kurse");
       assert.match(real, /data-sample="false"/);
       assert.doesNotMatch(real, /data-preview="header-subtitle"/);
+      assert.doesNotMatch(real, /header-course-count-sample/);
+      assertOnlyNumber(real);
       const sample = await preview({ displayMode });
-      assert.equal(headerCount(sample), "aktuell 837 Kurse");
+      assert.equal(headerCount(sample), "aktuell 837 Kurse Beispiel");
       assert.match(sample, /data-sample="true"/);
+      assert.match(
+        sample,
+        /data-preview="header-course-count-sample"[^>]*>Beispiel</
+      );
+      assertOnlyNumber(sample);
+      assert.doesNotMatch(
+        sample,
+        /sobald die Kursliste vom Kursprogramm übertragen ist/
+      );
       const own = await preview(
         { displayMode, courseCountWord: "Seminare" },
         INVENTORY
