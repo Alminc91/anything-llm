@@ -4,6 +4,20 @@
 // Vertrag (issues/KIE-576/KIE-576-kursanzahl.md, Abschnitt „Vertrag“):
 //   {"version": 1, "client": "<kunde>", "created": "<ISO-8601 UTC>",
 //    "offered": ["<kursnummer>", ...]}
+// Version 2 (KB-4, issues/P-kursbestand/KB-4-pipeline-daten.md) ergänzt
+//   "titles": {"<kursnummer>": "<titel, höchstens 200 Zeichen>"},
+//   "estimatedEnd": true|false,
+//   "run": {"at": "<ISO>", "result": "ok"|"nicht_geschrieben"|"fehler",
+//           "cause": null|"feed_nicht_erreichbar"|"feed_unsicher"|
+//                    "feed_eingebrochen"|"einlernen_fehlgeschlagen"}
+// mit denselben Prüfungen wie Version 1. Ungültige Titel (kein Text, leer,
+// länger als 200 Zeichen, Steuerzeichen, Kursnummer nicht in offered)
+// werden übersprungen, ein ungültiges run verworfen. Ohne neue Liste ersetzt
+// die Pipeline nur run (Laufmeldung), created bleibt: Die 24-h-Regel hängt
+// am letzten echten Stand (created), der Validator nimmt eine Laufmeldung
+// an, solange run.at höchstens 24 h alt ist. Titel, run und estimatedEnd
+// sind Betreiber-Info (Status-Seite, KB-3) über courseInventoryRecord; sie
+// kommen nie in /config, Prompt oder Suche.
 // JSON in UTF-8, höchstens 512 KiB, geschrieben nur von der Pipeline über
 // _updateSettings (docker exec), nicht über HTTP (das Label steht nicht in
 // supportedFields). offered = A, die Kursnummern im Feed nach dem
@@ -42,7 +56,7 @@
 // die Kurskarten wählen ihre Dokumente nach denselben Regeln aus (guard),
 // dort wird nicht gesucht. Dokumente ohne Kursnummer sind nie betroffen.
 //
-// Ohne gültigen Wert (fehlt, kein JSON, version ≠ 1, keine gültige
+// Ohne gültigen Wert (fehlt, kein JSON, version nicht 1 oder 2, keine gültige
 // Kursnummer in offered, älter als 24 h) oder ohne einen einzigen
 // angebotenen Kurs im Workspace (|A ∩ B| = 0, etwa die Liste eines anderen
 // Kunden) gibt es weder Zahl noch Ausblenden: alles wie vorher (NAK-K1,
@@ -69,6 +83,17 @@ const INDEX_MAX_AGE_MS = 60 * 60 * 1000;
 const INCOMPLETE_INDEX_MAX_AGE_MS = 2 * 60 * 1000;
 const COURSE_NUMBER_MAX_LEN = 64;
 const CLIENT_MAX_LEN = 200;
+// KB-4: Version 2 mit Titeln und Laufmeldung
+const CONTRACT_VERSIONS = [1, 2];
+const TITLE_MAX_LEN = 200;
+const RUN_RESULTS = ["ok", "nicht_geschrieben", "fehler"];
+const RUN_CAUSES = [
+  null,
+  "feed_nicht_erreichbar",
+  "feed_unsicher",
+  "feed_eingebrochen",
+  "einlernen_fehlgeschlagen",
+];
 const CONTROL_RX = /[\p{Cc}\u2028\u2029]/u;
 // Kursdokumente sind klein; größere Dateien (PDF, lange Seiten) werden für
 // die Kursnummer nicht gelesen und zählen als Dokument ohne Kursnummer
@@ -119,7 +144,8 @@ function courseKeyOfText(text) {
 // Grobe Vertragsprüfung (Form); null = in Ordnung, sonst der Grund
 function contractProblem(data) {
   if (!isPlainObject(data)) return "kein JSON-Objekt";
-  if (data.version !== 1) return "version ist nicht 1";
+  if (!CONTRACT_VERSIONS.includes(data.version))
+    return "version ist nicht 1 oder 2";
   if (
     typeof data.client !== "string" ||
     data.client.trim().length === 0 ||
@@ -158,6 +184,46 @@ function readContract(raw) {
   return problem ? { problem } : { data };
 }
 
+// KB-4: Laufmeldung run (nur Version 2) mit erlaubten Werten, sonst null
+// (verworfen)
+function readRun(data) {
+  const run = data.version === 2 ? data.run : null;
+  if (!isPlainObject(run) || typeof run.at !== "string") return null;
+  const atMs = Date.parse(run.at);
+  if (
+    !Number.isFinite(atMs) ||
+    !RUN_RESULTS.includes(run.result) ||
+    !RUN_CAUSES.includes(run.cause)
+  )
+    return null;
+  return {
+    at: new Date(atMs).toISOString(),
+    atMs,
+    result: run.result,
+    cause: run.cause,
+  };
+}
+
+// KB-4: Titel (nur Version 2) als Map Vergleichsform -> Titel, nur für
+// Kursnummern in offered; ungültige Einträge werden übersprungen
+function readTitles(data, offered) {
+  const titles = new Map();
+  if (data.version !== 2 || !isPlainObject(data.titles)) return titles;
+  for (const [number, title] of Object.entries(data.titles)) {
+    const key = courseKey(number);
+    if (
+      key !== null &&
+      offered.has(key) &&
+      typeof title === "string" &&
+      title.trim().length > 0 &&
+      title.length <= TITLE_MAX_LEN &&
+      !CONTROL_RX.test(title)
+    )
+      titles.set(key, title);
+  }
+  return titles;
+}
+
 // Alter des Werts nach Vertrag: höchstens 24 h, höchstens 1 h in der Zukunft
 function ageProblem(createdMs, now) {
   const age = now - createdMs;
@@ -178,7 +244,14 @@ function ageProblem(createdMs, now) {
 function validateCourseInventorySetting(update, { now = Date.now() } = {}) {
   if (update === null || update === undefined || update === "") return null;
   const { data, problem } = readContract(update);
-  const reason = problem || ageProblem(Date.parse(data.created), now);
+  // KB-4: eine Laufmeldung behält created, maßgeblich ist der jüngere
+  // Zeitpunkt (created oder run.at)
+  const reason =
+    problem ||
+    ageProblem(
+      Math.max(Date.parse(data.created), readRun(data)?.atMs ?? -Infinity),
+      now
+    );
   if (reason) throw new Error(`${COURSE_INVENTORY_LABEL}: ${reason}`);
   return update;
 }
@@ -186,9 +259,10 @@ function validateCourseInventorySetting(update, { now = Date.now() } = {}) {
 /**
  * Laufzeitform eines gespeicherten Werts (ohne Altersprüfung, die macht
  * loadCourseInventory je Aufruf). Leer -> {inventory: null} ohne problem.
- * Ungültige Einträge in offered werden übersprungen (skipped).
+ * Ungültige Einträge in offered werden übersprungen (skipped). Version 1
+ * hat keine Titel, kein run und estimatedEnd false.
  * @param {*} raw
- * @returns {{inventory: {raw: string, createdMs: number, stand: string, offered: Set<string>}|null, problem?: string, skipped?: number}}
+ * @returns {{inventory: {raw: string, version: number, createdMs: number, stand: string, offered: Set<string>, titles: Map<string, string>, estimatedEnd: boolean, run: {at: string, atMs: number, result: string, cause: string|null}|null}|null, problem?: string, skipped?: number}}
  */
 function readCourseInventory(raw) {
   if (typeof raw !== "string" || raw.length === 0) return { inventory: null };
@@ -200,9 +274,13 @@ function readCourseInventory(raw) {
   return {
     inventory: {
       raw,
+      version: data.version,
       createdMs,
       stand: new Date(createdMs).toISOString(),
       offered,
+      titles: readTitles(data, offered),
+      estimatedEnd: data.version === 2 && data.estimatedEnd === true,
+      run: readRun(data),
     },
     skipped: keys.length - keys.filter((key) => key !== null).length,
   };
@@ -227,12 +305,13 @@ async function readStoredInventory() {
 }
 
 /**
- * Kursbestand des Containers, falls gültig und höchstens 24 h alt, sonst
- * null. Wirft nie.
- * @param {{now?: number}} [options]
- * @returns {Promise<{raw: string, createdMs: number, stand: string, offered: Set<string>}|null>}
+ * KB-4: gültiger Wert des Containers ohne Altersprüfung (Laufzeitform von
+ * readCourseInventory mit titles, estimatedEnd und run), sonst null. Nur
+ * intern für die Status-Seite (KB-3): Titel und Laufmeldung kommen nie in
+ * /config, Prompt oder Suche. Wirft nie.
+ * @returns {Promise<object|null>}
  */
-async function loadCourseInventory({ now = Date.now() } = {}) {
+async function courseInventoryRecord() {
   const raw = await readStoredInventory();
   if (typeof raw !== "string" || raw.length === 0) return null;
   if (raw !== cached.raw) {
@@ -247,7 +326,17 @@ async function loadCourseInventory({ now = Date.now() } = {}) {
       );
     cached = { raw, inventory };
   }
-  const inventory = cached.inventory;
+  return cached.inventory;
+}
+
+/**
+ * Kursbestand des Containers, falls gültig und höchstens 24 h alt (created,
+ * nicht run.at), sonst null. Wirft nie.
+ * @param {{now?: number}} [options]
+ * @returns {Promise<{raw: string, createdMs: number, stand: string, offered: Set<string>}|null>}
+ */
+async function loadCourseInventory({ now = Date.now() } = {}) {
+  const inventory = await courseInventoryRecord();
   if (!inventory) return null;
   return ageProblem(inventory.createdMs, now) ? null : inventory;
 }
@@ -704,6 +793,7 @@ module.exports = {
   COURSE_INVENTORY_LABEL,
   validateCourseInventorySetting,
   loadCourseInventory,
+  courseInventoryRecord,
   courseSearchExclusion,
   courseInventoryGuard,
   courseInventoryStatus,
@@ -715,6 +805,7 @@ module.exports = {
     INDEX_MAX_AGE_MS,
     INCOMPLETE_INDEX_MAX_AGE_MS,
     EXCLUSION_BLOCK,
+    TITLE_MAX_LEN,
     courseKey,
     courseKeyOfText,
     readCourseInventory,

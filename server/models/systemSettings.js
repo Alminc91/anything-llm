@@ -270,7 +270,7 @@ const SystemSettings = {
     // null (keine Karte); ungültig -> Fehler, das Update wird abgelehnt und
     // der alte Wert bleibt. Gelesen nur von embedCategoryChains.loadCategoryMap.
     kufer_category_map: (update) => validateCategoryMapSetting(update),
-    // KIE-576 Paket 3: Kursbestand des Kursprogramms (JSON, version 1,
+    // KIE-576 Paket 3: Kursbestand des Kursprogramms (JSON, version 1 oder 2,
     // höchstens 512 KiB, höchstens 24 h alt, offered nicht leer), wie die
     // Karte nur über _updateSettings (docker exec), nicht über HTTP: das
     // Label steht bewusst nicht in supportedFields (NAK-K4). Leer -> null
