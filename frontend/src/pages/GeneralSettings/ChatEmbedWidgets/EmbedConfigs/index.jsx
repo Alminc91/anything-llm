@@ -11,6 +11,7 @@ import Embed from "@/models/embed";
 import CTAButton from "@/components/lib/CTAButton";
 import useUser from "@/hooks/useUser";
 import { embedLabels } from "@/utils/embedLabel";
+import { useCanViewChatHistory } from "@/components/CanViewChatHistory";
 
 export default function EmbedConfigsView() {
   const { isOpen, openModal, closeModal } = useModal();
@@ -20,6 +21,8 @@ export default function EmbedConfigsView() {
   const [embeds, setEmbeds] = useState([]);
   // All users (admin, manager, default) can manage embed widgets
   const isReadOnly = false;
+  // Abkürzung „Konversationen“ in der Zeile wie der Menüpunkt (KB-2)
+  const { viewable: canViewChatHistory } = useCanViewChatHistory();
 
   useEffect(() => {
     async function fetchUsers() {
@@ -100,6 +103,7 @@ export default function EmbedConfigsView() {
                 embed={embed}
                 label={labels.get(embed.id)}
                 isReadOnly={isReadOnly}
+                canViewChatHistory={canViewChatHistory}
               />
             ))}
           </tbody>

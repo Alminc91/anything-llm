@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { DotsThreeOutline, PaintBrush } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
 import { useModal } from "@/hooks/useModal";
@@ -14,6 +14,7 @@ import "moment/locale/de";
 import { safeJsonParse } from "@/utils/request";
 import { useTranslation } from "react-i18next";
 import { embedLabels } from "@/utils/embedLabel";
+import { STATUS_PAGE_READY, withWidget } from "@/utils/chatbotArea";
 
 /**
  * Eine Zeile der Widget-Liste.
@@ -22,12 +23,14 @@ import { embedLabels } from "@/utils/embedLabel";
  * @param {import("@/utils/embedLabel").EmbedLabel} [props.label] - Bezeichnung
  *   des Widgets in der Liste, in der es steht (utils/embedLabel); ohne Angabe
  *   der Name des Workspaces.
+ * @param {boolean} [props.canViewChatHistory] - Abkürzung „Konversationen“
  */
 export default function EmbedRow({
   embed,
   label = null,
   isReadOnly = false,
   userRole = null,
+  canViewChatHistory = false,
 }) {
   const { t, i18n } = useTranslation();
   const {
@@ -120,14 +123,37 @@ export default function EmbedRow({
           {moment(embed.createdAt).format("DD.MM.YYYY")}
         </th>
         <td className="px-6 flex items-center gap-x-1 h-full mt-1">
+          {/* Abkürzungen in der Reihenfolge des Menüs „Chatbot“, jeweils mit
+              diesem Widget (KB-2) */}
+          {STATUS_PAGE_READY && (
+            <ShortcutButton
+              href={withWidget(paths.settings.chatbot.status(), embed.id)}
+              text={t("settings.chatbot-status")}
+            />
+          )}
+          {canViewChatHistory && (
+            <ShortcutButton
+              href={withWidget(
+                paths.settings.chatbot.conversations(),
+                embed.id
+              )}
+              text={t("settings.chatbot-conversations")}
+            />
+          )}
           {!isReadOnly && (
             <>
               <button
-                onClick={() => navigate(`/settings/embed-config/${embed.id}/appearance`)}
+                onClick={() =>
+                  navigate(
+                    withWidget(paths.settings.chatbot.design(), embed.id)
+                  )
+                }
                 className="group flex items-center gap-1 text-xs font-medium text-theme-text-secondary px-2 py-1 rounded-lg hover:bg-theme-action-menu-item-hover"
               >
                 <PaintBrush className="h-4 w-4 group-hover:text-white" />
-                <span className="group-hover:text-white">{t("embed-row.design")}</span>
+                <span className="group-hover:text-white whitespace-nowrap">
+                  {t("settings.chatbot-design-center")}
+                </span>
               </button>
               <button
                 onClick={openSnippetModal}
@@ -174,6 +200,18 @@ export default function EmbedRow({
         <CodeSnippetModal embed={embed} closeModal={closeSnippetModal} />
       </ModalWrapper>
     </>
+  );
+}
+
+/** Abkürzung der Zeile in eine Ansicht des Bereichs „Chatbot“. */
+function ShortcutButton({ href, text }) {
+  return (
+    <Link
+      to={href}
+      className="group text-xs font-medium text-theme-text-secondary px-2 py-1 rounded-lg hover:bg-theme-action-menu-item-hover whitespace-nowrap"
+    >
+      <span className="group-hover:text-white">{text}</span>
+    </Link>
   );
 }
 
