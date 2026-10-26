@@ -4527,6 +4527,89 @@
           }
         }
       }
+    },
+    "/v1/course-status": {
+      "get": {
+        "tags": [
+          "Embed"
+        ],
+        "description": "Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reason is fehlen, alter or nicht_erreichbar; whoActs is einrichtung or kufer. missing and hidden list at most 500 courses each, the totals are in counts. Workspaces without a valid course list are not listed.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "example": {
+                    "workspaces": [
+                      {
+                        "slug": "vhs-beispiel",
+                        "name": "VHS Beispiel",
+                        "widgets": [
+                          {
+                            "id": 1,
+                            "uuid": "embed-uuid-1"
+                          }
+                        ],
+                        "state": "gelb",
+                        "since": "2026-10-26T09:05:00.000Z",
+                        "reason": "fehlen",
+                        "whoActs": "kufer",
+                        "counts": {
+                          "offered": 864,
+                          "count": 844,
+                          "missing": 20,
+                          "hidden": 64
+                        },
+                        "missing": [
+                          {
+                            "knr": "262-10101",
+                            "title": "Japanisch A1.1"
+                          }
+                        ],
+                        "hidden": [
+                          {
+                            "knr": "261-20202",
+                            "title": "Yoga am Morgen",
+                            "start": "2026-09-02",
+                            "duration": "6 Termine"
+                          }
+                        ],
+                        "lastRun": {
+                          "at": "2026-10-26T09:00:00.000Z",
+                          "result": "ok",
+                          "cause": null
+                        },
+                        "estimatedEnd": true
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidAPIKey"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidAPIKey"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
     }
   },
   "components": {

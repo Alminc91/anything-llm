@@ -20,7 +20,19 @@ const {
   embedDefaultsLanguage,
   embedDefaultTexts,
 } = require("../utils/chats/embedDefaults");
-const { courseInventoryStatus } = require("../utils/chats/courseInventory");
+const {
+  courseInventoryStatus,
+  courseCountField,
+} = require("../utils/chats/courseInventory");
+const {
+  courseStatus,
+  courseStatusState,
+  worstState,
+} = require("../utils/chats/courseStatus");
+const {
+  courseCountModeValue,
+  courseCountWord,
+} = require("../utils/chats/embedStandards");
 const {
   berlinMidnight,
   berlinDayOf,
@@ -552,6 +564,93 @@ function embedManagementEndpoints(app) {
           success: false,
           error: "Letzte Aktivität konnte nicht geladen werden.",
         });
+      }
+    }
+  );
+
+  // KB-3, AK-1: Status des Kursbestands für die Status-Seite. Ein Status je
+  // Workspace (Kursprogramm), gewählt über ein Widget, das der Nutzer sieht
+  // (userCanAccessEmbed wie validEmbedAccess); ein fremdes oder unbekanntes
+  // Widget ist 404 ohne Details. Nur lesend: Ampel, Zahlen, Listen (je
+  // höchstens 500, die Gesamtzahl steht in counts), letzter Lauf, die
+  // Widgets des Workspace und was Besucher sehen (Kursanzahl wie /config).
+  app.get(
+    "/embed/course-status",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const embedId = Number(request.query?.widget);
+        const embed =
+          Number.isSafeInteger(embedId) && embedId > 0
+            ? await EmbedConfig.getWithWorkspace({ id: embedId })
+            : null;
+        if (!embed || !(await userCanAccessEmbed(user, embedId))) {
+          response.sendStatus(404).end();
+          return;
+        }
+        const status = await courseStatus(embed.workspace);
+        const widgets = await prisma.embed_configs.findMany({
+          where: { workspace_id: embed.workspace_id },
+          select: { id: true },
+          orderBy: { id: "asc" },
+        });
+        let visualConfig = {};
+        try {
+          visualConfig = JSON.parse(embed.visual_config || "{}") || {};
+        } catch {
+          // unlesbar: Standard wie im Widget
+        }
+        const visitors = await courseCountField(embed.workspace, {
+          mode: courseCountModeValue(visualConfig.courseCountMode),
+          word: courseCountWord(visualConfig.courseCountWord, "de"),
+        });
+        response.status(200).json({
+          ...status,
+          workspace: { name: embed.workspace.name },
+          widgets: widgets.map(({ id }) => ({
+            id,
+            name: embed.workspace.name,
+          })),
+          visitors,
+        });
+      } catch (e) {
+        console.error("embed/course-status error:", loggableError(e));
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // KB-3, AK-5: nur der Zustand für den Punkt am Menüpunkt „Status“: der
+  // schlechteste der Workspaces, deren Widgets der Nutzer sieht. Ohne Listen
+  // und je Workspace 5 min gemerkt (courseStatusState).
+  app.get(
+    "/embeds/course-status",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const embedIds = await visibleEmbedIds(user);
+        const embeds = await prisma.embed_configs.findMany({
+          where: embedIds === null ? {} : { id: { in: embedIds } },
+          select: { workspace: { select: { id: true, slug: true } } },
+        });
+        const workspaces = new Map(
+          embeds.map(({ workspace }) => [workspace.id, workspace])
+        );
+        const states = [];
+        for (const workspace of workspaces.values())
+          states.push(await courseStatusState(workspace));
+        response.status(200).json({ state: worstState(states) });
+      } catch (e) {
+        console.error("embeds/course-status error:", loggableError(e));
+        response.sendStatus(500).end();
       }
     }
   );
