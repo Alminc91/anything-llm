@@ -2038,7 +2038,7 @@ const TRANSLATIONS = {
     "applies-to": "gilt für die Widgets {{widgets}}",
     quoted: "„{{name}}“",
     principle:
-      "Im KI-Berater sind alle aktuellen Kurse aus Ihrem Kursprogramm (KuferSQL), stündlich abgeglichen. Hier stehen nur Abweichungen.",
+      "Alle aktuellen Kurse aus Ihrem Kursprogramm (KuferSQL) sind im KI-Berater verfügbar und werden stündlich abgeglichen. Hier stehen nur Abweichungen.",
     "load-failed":
       "Der Status konnte nicht geladen werden. Bitte versuchen Sie es später erneut.",
     none: "k. A.",
@@ -2046,28 +2046,44 @@ const TRANSLATIONS = {
     yesterday: "gestern, {{time}} Uhr",
     tomorrow: "morgen, {{time}} Uhr",
     "on-date": "{{date}}, {{time}} Uhr",
-    "on-date-at": "am {{date}}, {{time}} Uhr",
+    "since-date": "dem {{date}}, {{time}} Uhr",
     dot: {
       gelb: "Status: Gelb",
       rot: "Status: Rot",
     },
     banner: {
+      level: {
+        gruen: "In Ordnung",
+        gelb: "Eingeschränkt",
+        rot: "Gestört",
+      },
       title: {
-        gruen: "Ihr KI-Berater kennt Ihr aktuelles Kursprogramm.",
-        gelb: "Ihr KI-Berater ist zurzeit nicht ganz aktuell.",
-        rot: "Ihr KI-Berater kennt Ihr Kursprogramm zurzeit nicht vollständig.",
+        aktuell: "Kursprogramm aktuell",
+        unvollstaendig: "Kursprogramm unvollständig",
+        "nicht-aktualisiert": "Kursprogramm nicht aktualisiert",
+        "nicht-abrufbar": "Kursprogramm nicht abrufbar",
         nicht_eingerichtet: "Abgleich nicht eingerichtet",
       },
       "not-set-up":
         "Für dieses Kursprogramm ist der Abgleich nicht eingerichtet.",
-      learning_one: "1 Kurs wird noch eingelernt.",
-      learning_other: "{{number}} Kurse werden noch eingelernt.",
-      missing: "Es fehlen {{missing}} von {{offered}} Kursen.",
-      age: "Der letzte erfolgreiche Abgleich war {{time}}.",
-      contact:
-        "Kufer kümmert sich darum. Sie können uns auch direkt Bescheid geben:",
+      "all-available_one": "1 Kurs ist im KI-Berater verfügbar.",
+      "all-available_other":
+        "Alle {{number}} Kurse sind im KI-Berater verfügbar.",
+      available:
+        "{{available}} von {{offered}} Kursen sind im KI-Berater verfügbar.",
+      pending_one: "1 neuer Kurs wird in Kürze übernommen.",
+      pending_other: "{{number}} neue Kurse werden in Kürze übernommen.",
+      missing_one:
+        "1 von {{offered}} Kursen ist derzeit nicht im KI-Berater verfügbar.",
+      missing_other:
+        "{{number}} von {{offered}} Kursen sind derzeit nicht im KI-Berater verfügbar.",
+      "not-updated": "Das Kursprogramm wurde seit {{time}} nicht aktualisiert.",
       unreachable:
-        "Ihr Kursprogramm ist auf Ihrer Website zurzeit nicht abrufbar. Bitte prüfen Sie Ihre Kursseiten oder geben Sie uns Bescheid:",
+        "Ihr Kursprogramm konnte seit {{time}} nicht von Ihrer Website abgerufen werden.",
+      closing:
+        "Wir kümmern uns darum. Bei Fragen kontaktieren Sie uns unter {{email}}.",
+      "closing-unreachable":
+        "Wir kümmern uns darum. Falls sich die Adresse Ihrer Website oder Ihres Kursprogramms geändert hat, kontaktieren Sie uns bitte unter {{email}}.",
     },
     kpi: {
       offered: "Im Kursprogramm",

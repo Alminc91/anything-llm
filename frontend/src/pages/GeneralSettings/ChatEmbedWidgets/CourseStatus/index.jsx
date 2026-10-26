@@ -9,11 +9,12 @@ import {
   NOTICE_COLORS,
   OPTIMIZATION_NOTICE_SINCE,
   STATE_COLORS,
+  bannerDetails,
+  bannerTitle,
   formatNextRun,
   formatRunTime,
   formatSyncedAt,
   hiddenWhen,
-  isUnreachable,
   missingShare,
   showsOptimizationNotice,
 } from "@/utils/courseStatus";
@@ -21,8 +22,8 @@ import { WidgetPicker, useWidgetSelection } from "../WidgetSelection";
 
 // Seite „Status“ (KB-3, Mockup Tafel 3, Ampel nach Nutzerentscheidung vom
 // 26.10.2026): ob der KI-Berater das Kursprogramm vollständig kennt, und wenn
-// nicht, was fehlt und was ausgeblendet ist. Wenige, ruhige Meldungen: Kufer
-// kümmert sich um den Betrieb. Ein Status je Kursprogramm (Workspace),
+// nicht, was fehlt und was ausgeblendet ist. Wenige, ruhige Meldungen, Wortlaut
+// nach Fixliste KB-3 r3. Ein Status je Kursprogramm (Workspace),
 // gewählt über die gemeinsame Widget-Auswahl (KB-2). Nur lesend: Die Seite
 // hat außer der Widget-Auswahl, dem Aufklappen der Listen und dem Mail-Link
 // keine Bedienelemente (NAK-3).
@@ -143,9 +144,10 @@ function StatusBody({ status }) {
 }
 
 /**
- * Meldung der Ampel: Überschrift je Zustand. Grün nennt klein die Kurse, die
- * noch eingelernt werden; Gelb und Rot nennen je Grund fehlende Kurse und
- * den letzten erfolgreichen Abgleich, dazu wie Kufer erreichbar ist.
+ * Meldung der Ampel (Fixliste KB-3 r3): Statusangabe als Text („In Ordnung“,
+ * „Eingeschränkt“, „Gestört“), darunter die Überschrift mit dem Grund. Grün
+ * nennt, wie viele Kurse im KI-Berater verfügbar sind; Gelb und Rot nennen je
+ * Grund eine Zeile und zum Schluss die Adresse für Fragen.
  */
 function Banner({ status }) {
   const { t } = useTranslation();
@@ -168,8 +170,13 @@ function Banner({ status }) {
         className="flex flex-col gap-1 text-sm leading-normal"
         style={{ color: colors.text }}
       >
+        {state !== "nicht_eingerichtet" && (
+          <p data-course-status-level={state} className="text-xs font-semibold">
+            {t(`course-status.banner.level.${state}`)}
+          </p>
+        )}
         <h3 className="text-base font-bold">
-          {t(`course-status.banner.title.${state}`)}
+          {t(`course-status.banner.title.${bannerTitle({ ...status, state })}`)}
         </h3>
         <BannerLines status={status} state={state} />
       </div>
@@ -177,47 +184,69 @@ function Banner({ status }) {
   );
 }
 
+// Platzhalter für die Adresse im Schlusssatz ({{email}} in den
+// Sprachdateien), an dessen Stelle der Mail-Link steht
+const EMAIL_MARK = "\u0000";
+
 function BannerLines({ status, state }) {
   const { t } = useTranslation();
-  const missing = status.counts?.missing ?? 0;
   if (state === "nicht_eingerichtet")
     return <p>{t("course-status.banner.not-set-up")}</p>;
+  const counts = status.counts ?? {};
+  const missing = counts.missing ?? 0;
+  const offered = formatNumber(counts.offered ?? 0);
   if (state === "gruen")
     return missing > 0 ? (
-      <p data-course-learning="" className="text-xs">
-        {t("course-status.banner.learning", {
+      <p data-course-available="">
+        {t("course-status.banner.available", {
+          available: formatNumber(counts.count ?? 0),
+          offered,
+        })}{" "}
+        {t("course-status.banner.pending", {
           count: missing,
           number: formatNumber(missing),
         })}
       </p>
-    ) : null;
-  const reasons = status.reasons ?? [];
-  const unreachable = isUnreachable(status);
+    ) : (
+      <p data-course-available="">
+        {t("course-status.banner.all-available", {
+          count: counts.offered ?? 0,
+          number: offered,
+        })}
+      </p>
+    );
+  const time = formatSyncedAt(t, status.syncedAt);
+  const lines = {
+    unvollstaendig: () =>
+      t("course-status.banner.missing", {
+        count: missing,
+        number: formatNumber(missing),
+        offered,
+      }),
+    "nicht-aktualisiert": () => t("course-status.banner.not-updated", { time }),
+    "nicht-abrufbar": () => t("course-status.banner.unreachable", { time }),
+  };
+  const unreachable = bannerTitle(status) === "nicht-abrufbar";
+  const [before, after = ""] = t(
+    `course-status.banner.${unreachable ? "closing-unreachable" : "closing"}`,
+    { email: EMAIL_MARK }
+  ).split(EMAIL_MARK);
   return (
     <>
-      {reasons.includes("fehlen") && (
-        <p data-course-detail="fehlen">
-          {t("course-status.banner.missing", {
-            missing: formatNumber(missing),
-            offered: formatNumber(status.counts?.offered ?? 0),
-          })}
+      {bannerDetails(status).map((key) => (
+        <p key={key} data-course-detail={key}>
+          {lines[key]()}
         </p>
-      )}
-      {reasons.includes("alter") && (
-        <p data-course-detail="alter">
-          {t("course-status.banner.age", {
-            time: formatSyncedAt(t, status.syncedAt),
-          })}
-        </p>
-      )}
-      <p data-course-contact={unreachable ? "nicht_abrufbar" : "kufer"}>
-        {t(`course-status.banner.${unreachable ? "unreachable" : "contact"}`)}{" "}
+      ))}
+      <p data-course-contact={unreachable ? "nicht-abrufbar" : "standard"}>
+        {before}
         <a
           href={`mailto:${KUFER_CONTACT_EMAIL}`}
           className="font-semibold underline underline-offset-2"
         >
           {KUFER_CONTACT_EMAIL}
         </a>
+        {after}
       </p>
     </>
   );

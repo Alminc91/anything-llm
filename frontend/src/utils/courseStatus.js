@@ -13,10 +13,10 @@ import Embed from "@/models/embed";
 export const OPTIMIZATION_NOTICE_SINCE = "26.10.2026";
 
 /**
- * Adresse, unter der die Einrichtung Kufer bei Gelb und Rot direkt Bescheid
- * geben kann (Nutzerentscheidung 26.10.2026).
+ * Adresse im Schlusssatz bei Gelb und Rot (Nutzerentscheidung 26.10.2026
+ * abends: support@kufer.de statt info@kufer.de).
  */
-export const KUFER_CONTACT_EMAIL = "info@kufer.de";
+export const KUFER_CONTACT_EMAIL = "support@kufer.de";
 
 /**
  * Farben je Zustand (Punkt, Fläche, Rand, Text) als Theme-Variablen
@@ -63,12 +63,51 @@ export function menuDotState(state) {
 
 /**
  * Ist das Kursprogramm beim letzten Lauf auf der Website des Kunden nicht
- * abrufbar gewesen? Dann steht bei Gelb und Rot ein eigener Schlusssatz.
+ * abrufbar gewesen?
  * @param {{lastRun?: {cause?: string|null}|null}|null} status
  * @returns {boolean}
  */
 export function isUnreachable(status) {
   return status?.lastRun?.cause === "feed_nicht_erreichbar";
+}
+
+/**
+ * Überschrift der Ampel-Meldung (Fixliste KB-3 r3 Nr. 2 und 3): Grün
+ * „aktuell“; Gelb und Rot nennen den Grund. Löst das Alter aus, ist das
+ * Kursprogramm „nicht abrufbar“, wenn der letzte Lauf die Website nicht
+ * erreicht hat, sonst „nicht aktualisiert“; sonst „unvollständig“.
+ * @param {{state?: string, reasons?: string[]|null, lastRun?: object|null}} status
+ * @returns {"aktuell"|"nicht-abrufbar"|"nicht-aktualisiert"|"unvollstaendig"|"nicht_eingerichtet"}
+ */
+export function bannerTitle(status) {
+  if (status?.state === "gruen") return "aktuell";
+  if (status?.state !== "gelb" && status?.state !== "rot")
+    return "nicht_eingerichtet";
+  if (!(status.reasons ?? []).includes("alter")) return "unvollstaendig";
+  return isUnreachable(status) ? "nicht-abrufbar" : "nicht-aktualisiert";
+}
+
+/**
+ * Textzeilen der Ampel-Meldung bei Gelb und Rot (Fixliste KB-3 r3 Nr. 4):
+ * alle zutreffenden in der Reihenfolge „unvollständig“, „nicht
+ * aktualisiert“, „nicht abrufbar“, die zur Überschrift passende zuerst. Das
+ * Alter ergibt genau eine Zeile: „nicht abrufbar“ oder „nicht aktualisiert“.
+ * @param {{state?: string, reasons?: string[]|null, lastRun?: object|null}} status
+ * @returns {Array<"unvollstaendig"|"nicht-aktualisiert"|"nicht-abrufbar">}
+ */
+export function bannerDetails(status) {
+  if (status?.state !== "gelb" && status?.state !== "rot") return [];
+  const reasons = status.reasons ?? [];
+  const age = isUnreachable(status) ? "nicht-abrufbar" : "nicht-aktualisiert";
+  const details = [
+    ...(reasons.includes("fehlen") ? ["unvollstaendig"] : []),
+    ...(reasons.includes("alter") ? [age] : []),
+  ];
+  const title = bannerTitle(status);
+  return [
+    ...details.filter((key) => key === title),
+    ...details.filter((key) => key !== title),
+  ];
 }
 
 /**
@@ -120,7 +159,7 @@ function berlinDayShifted(now, days) {
 /**
  * Zeitpunkt eines Abgleichs: „heute, 10:00 Uhr“, „gestern, 10:00 Uhr“,
  * „morgen, …“ oder „24.10., 10:00 Uhr“ (anderes Jahr mit Jahr), in Berliner
- * Zeit; im Satz (formatSyncedAt) als „am 24.10., …“.
+ * Zeit; nach „seit“ (formatSyncedAt) als „dem 24.10., …“.
  * Ohne gültigen Zeitpunkt „k. A.“.
  * @param {(key: string, options?: object) => string} t
  * @param {string|number|null} at
@@ -149,15 +188,16 @@ export function formatRunTime(
 }
 
 /**
- * Letzter erfolgreicher Abgleich im Satz „Der letzte erfolgreiche Abgleich
- * war …“: wie formatRunTime, ein Datum als „am 24.10., 10:00 Uhr“.
+ * Letzter erfolgreicher Abgleich nach „seit“ („Das Kursprogramm wurde seit …
+ * nicht aktualisiert.“): wie formatRunTime, ein Datum als „dem 24.10.,
+ * 10:00 Uhr“.
  * @param {(key: string, options?: object) => string} t
  * @param {string|null} at
  * @param {number} [now]
  * @returns {string}
  */
 export function formatSyncedAt(t, at, now = Date.now()) {
-  return formatRunTime(t, at, now, "course-status.on-date-at");
+  return formatRunTime(t, at, now, "course-status.since-date");
 }
 
 /**

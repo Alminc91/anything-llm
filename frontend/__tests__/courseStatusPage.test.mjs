@@ -1,5 +1,5 @@
 // KB-3: Seite „Status“ (Mockup Tafel 3, Ampel nach Nutzerentscheidung vom
-// 26.10.2026, fixliste-kb3-r1.md) mit React DOM in einem Dokument ohne
+// 26.10.2026, fixliste-kb3-r1.md, Wortlaut nach fixliste-kb3-r3-texte.md) mit React DOM in einem Dokument ohne
 // Browser (helpers/renderSettingsPage.mjs, mount). Die Antwort des Servers
 // (GET /api/embed/course-status) ist ersetzt; die Ampel rechnet der Server
 // (server/__tests__/utils/chats/courseStatus.test.js). Dazu der Punkt am
@@ -120,9 +120,11 @@ const find = (container, attribute, value = null) =>
   )[0];
 const rows = (section) => elements(section, (el) => el.tagName === "LI");
 const CONTACT =
-  "Kufer kümmert sich darum. Sie können uns auch direkt Bescheid geben: info@kufer.de";
-const UNREACHABLE =
-  "Ihr Kursprogramm ist auf Ihrer Website zurzeit nicht abrufbar. Bitte prüfen Sie Ihre Kursseiten oder geben Sie uns Bescheid: info@kufer.de";
+  "Wir kümmern uns darum. Bei Fragen kontaktieren Sie uns unter support@kufer.de.";
+const CONTACT_UNREACHABLE =
+  "Wir kümmern uns darum. Falls sich die Adresse Ihrer Website oder Ihres Kursprogramms geändert hat, kontaktieren Sie uns bitte unter support@kufer.de.";
+// „heute, 14:00 Uhr“, „gestern, 14:00 Uhr“ oder „dem 25.10., 14:00 Uhr“
+const SINCE = String.raw`(heute|gestern|dem \d\d\.\d\d\.(\d{4})?), \d\d:\d\d Uhr`;
 const banner = (container) =>
   find(container, "data-course-status-banner").textContent;
 const NOTICE =
@@ -146,7 +148,7 @@ test(
     );
     assert.ok(
       container.textContent.includes(
-        "Im KI-Berater sind alle aktuellen Kurse aus Ihrem Kursprogramm (KuferSQL), stündlich abgeglichen. Hier stehen nur Abweichungen."
+        "Alle aktuellen Kurse aus Ihrem Kursprogramm (KuferSQL) sind im KI-Berater verfügbar und werden stündlich abgeglichen. Hier stehen nur Abweichungen."
       )
     );
   }
@@ -175,7 +177,7 @@ test(
     assert.ok(find(container, "data-course-status-banner", "gelb"));
     assert.equal(
       banner(container),
-      `Ihr KI-Berater ist zurzeit nicht ganz aktuell.Es fehlen 52 von 864 Kursen.${CONTACT}`
+      `EingeschränktKursprogramm unvollständig52 von 864 Kursen sind derzeit nicht im KI-Berater verfügbar.${CONTACT}`
     );
     const kpi = (key) => find(container, "data-course-kpi", key).textContent;
     assert.equal(kpi("offered"), "Im Kursprogramm864");
@@ -304,7 +306,7 @@ test(
 );
 
 // ---------------------------------------------------------------------------
-// Meldungen der Ampel (Nutzer 26.10.2026)
+// Meldungen der Ampel (Nutzer 26.10.2026, Wortlaut fixliste-kb3-r3-texte.md)
 // ---------------------------------------------------------------------------
 
 const green = (overrides = {}) =>
@@ -316,20 +318,52 @@ const green = (overrides = {}) =>
     hidden: [],
     ...overrides,
   });
+const unreachableRun = {
+  at: new Date().toISOString(),
+  result: "nicht_geschrieben",
+  cause: "feed_nicht_erreichbar",
+};
+const level = (container) =>
+  find(container, "data-course-status-level")?.textContent;
+const title = (container) =>
+  elements(
+    find(container, "data-course-status-banner"),
+    (el) => el.tagName === "H3"
+  )[0].textContent;
 
 test(
-  "Grün: Überschrift, ohne Kontakt und ohne „Wer handelt“; fehlen Kurse, klein „werden noch eingelernt“",
+  "Nr. 1: Statusangabe als Text je Stufe, nicht nur als Farbe; nicht eingerichtet ohne",
+  { skip },
+  async (t) => {
+    for (const [state, text] of [
+      ["gruen", "In Ordnung"],
+      ["gelb", "Eingeschränkt"],
+      ["rot", "Gestört"],
+    ]) {
+      const page = await open(
+        t,
+        state === "gruen" ? green() : answer({ state })
+      );
+      const label = find(page.container, "data-course-status-level", state);
+      assert.equal(label.textContent, text, state);
+      assert.equal(label.getAttribute("aria-hidden"), null, state);
+      await page.unmount();
+    }
+  }
+);
+
+test(
+  "Nr. 2: Grün „Kursprogramm aktuell“: alle verfügbar, sonst wie viele in Kürze übernommen werden (Einzahl und Mehrzahl), ohne Kontakt",
   { skip },
   async (t) => {
     const all = await open(t, green());
     assert.ok(find(all.container, "data-course-status-banner", "gruen"));
     assert.equal(
       banner(all.container),
-      "Ihr KI-Berater kennt Ihr aktuelles Kursprogramm."
+      "In OrdnungKursprogramm aktuellAlle 864 Kurse sind im KI-Berater verfügbar."
     );
-    assert.ok(!all.text.includes("info@kufer.de"));
-    assert.ok(!all.text.includes("Wer handelt"));
-    assert.equal(find(all.container, "data-course-who"), undefined);
+    assert.ok(!all.text.includes("kufer.de"));
+    assert.equal(find(all.container, "data-course-contact"), undefined);
     await all.unmount();
 
     const one = await open(
@@ -340,50 +374,63 @@ test(
       })
     );
     assert.equal(
-      find(one.container, "data-course-learning").textContent,
-      "1 Kurs wird noch eingelernt."
+      find(one.container, "data-course-available").textContent,
+      "863 von 864 Kursen sind im KI-Berater verfügbar. 1 neuer Kurs wird in Kürze übernommen."
     );
     await one.unmount();
 
     const many = await open(
       t,
       green({
-        counts: { offered: 864, count: 834, missing: 30, hidden: 0 },
+        counts: { offered: 1864, count: 1834, missing: 30, hidden: 0 },
         missing: missing(30),
       })
     );
     assert.equal(
       banner(many.container),
-      "Ihr KI-Berater kennt Ihr aktuelles Kursprogramm.30 Kurse werden noch eingelernt."
+      "In OrdnungKursprogramm aktuell1.834 von 1.864 Kursen sind im KI-Berater verfügbar. 30 neue Kurse werden in Kürze übernommen."
     );
+    await many.unmount();
+
+    // nicht abrufbar ändert Grün nicht
+    const fine = await open(t, green({ lastRun: unreachableRun }));
+    assert.equal(title(fine.container), "Kursprogramm aktuell");
+    assert.ok(!fine.text.includes("abgerufen"));
   }
 );
 
 test(
-  "Gelb wegen Alter: Zeitpunkt des letzten erfolgreichen Abgleichs und Kontakt als Mail-Link",
+  "Nr. 3 bis 5: Gelb wegen Alter „nicht aktualisiert“ mit Zeitpunkt seit dem letzten erfolgreichen Abgleich und Mail-Link",
   { skip },
   async (t) => {
     const { container } = await open(
       t,
       green({ state: "gelb", reasons: ["alter"], syncedAt: ago(25) })
     );
-    assert.ok(find(container, "data-course-status-banner", "gelb"));
-    assert.equal(find(container, "data-course-detail", "fehlen"), undefined);
-    assert.match(
-      find(container, "data-course-detail", "alter").textContent,
-      /^Der letzte erfolgreiche Abgleich war (gestern|am \d\d\.\d\d\.(\d{4})?), \d\d:\d\d Uhr\.$/
+    assert.equal(level(container), "Eingeschränkt");
+    assert.equal(title(container), "Kursprogramm nicht aktualisiert");
+    assert.equal(
+      find(container, "data-course-detail", "unvollstaendig"),
+      undefined
     );
-    assert.equal(find(container, "data-course-contact").textContent, CONTACT);
+    assert.match(
+      find(container, "data-course-detail", "nicht-aktualisiert").textContent,
+      new RegExp(`^Das Kursprogramm wurde seit ${SINCE} nicht aktualisiert\\.$`)
+    );
+    assert.equal(
+      find(container, "data-course-contact", "standard").textContent,
+      CONTACT
+    );
     const link = elements(container, (el) => el.tagName === "A")[0];
-    assert.equal(link.getAttribute("href"), "mailto:info@kufer.de");
-    assert.equal(link.textContent, "info@kufer.de");
-    // die Detailzeile ersetzt Grün, keine Zeile „wird noch eingelernt“
-    assert.equal(find(container, "data-course-learning"), undefined);
+    assert.equal(link.getAttribute("href"), "mailto:support@kufer.de");
+    assert.equal(link.textContent, "support@kufer.de");
+    // keine Zeile von Grün
+    assert.equal(find(container, "data-course-available"), undefined);
   }
 );
 
 test(
-  "Rot aus beiden Gründen: beide Detailzeilen, erst fehlende Kurse, dann der Abgleich",
+  "Nr. 3 und 4: Rot aus beiden Gründen: Überschrift „nicht aktualisiert“, deren Zeile zuerst, dann die fehlenden Kurse",
   { skip },
   async (t) => {
     const { container } = await open(
@@ -395,42 +442,70 @@ test(
       })
     );
     assert.ok(find(container, "data-course-status-banner", "rot"));
+    const text = banner(container);
+    assert.ok(text.endsWith(CONTACT));
     assert.match(
-      banner(container),
-      /^Ihr KI-Berater kennt Ihr Kursprogramm zurzeit nicht vollständig\.Es fehlen 52 von 864 Kursen\.Der letzte erfolgreiche Abgleich war am \d\d\.\d\d\.(\d{4})?, \d\d:\d\d Uhr\.Kufer kümmert sich darum\. Sie können uns auch direkt Bescheid geben: info@kufer\.de$/
+      text.slice(0, -CONTACT.length),
+      new RegExp(
+        `^GestörtKursprogramm nicht aktualisiertDas Kursprogramm wurde seit dem \\d\\d\\.\\d\\d\\.(\\d{4})?, \\d\\d:\\d\\d Uhr nicht aktualisiert\\.52 von 864 Kursen sind derzeit nicht im KI-Berater verfügbar\\.$`
+      )
     );
   }
 );
 
 test(
-  "Nicht abrufbar ab Gelb: eigener Satz statt des Schlusssatzes; bei Grün kein Satz",
+  "Nr. 3 bis 5: Nicht abrufbar (Alter und Website nicht erreicht): eigene Überschrift, Zeile zuerst, eigener Schlusssatz",
   { skip },
   async (t) => {
-    const lastRun = {
-      at: new Date().toISOString(),
-      result: "nicht_geschrieben",
-      cause: "feed_nicht_erreichbar",
-    };
     for (const state of ["gelb", "rot"]) {
       const page = await open(
         t,
-        green({ state, reasons: ["alter"], syncedAt: ago(30), lastRun })
+        answer({
+          state,
+          reasons: ["fehlen", "alter"],
+          syncedAt: ago(30),
+          lastRun: unreachableRun,
+        })
+      );
+      assert.equal(title(page.container), "Kursprogramm nicht abrufbar", state);
+      const details = elements(page.container, (el) =>
+        el.hasAttribute("data-course-detail")
+      );
+      assert.deepEqual(
+        details.map((el) => el.getAttribute("data-course-detail")),
+        ["nicht-abrufbar", "unvollstaendig"],
+        state
+      );
+      assert.match(
+        details[0].textContent,
+        new RegExp(
+          `^Ihr Kursprogramm konnte seit ${SINCE} nicht von Ihrer Website abgerufen werden\\.$`
+        )
       );
       assert.equal(
-        find(page.container, "data-course-contact", "nicht_abrufbar")
+        find(page.container, "data-course-contact", "nicht-abrufbar")
           .textContent,
-        UNREACHABLE
+        CONTACT_UNREACHABLE
       );
-      assert.ok(!page.text.includes("Kufer kümmert sich darum"), state);
+      assert.ok(!page.text.includes("nicht aktualisiert"), state);
       await page.unmount();
     }
+  }
+);
 
-    const fine = await open(t, green({ lastRun }));
-    assert.equal(
-      banner(fine.container),
-      "Ihr KI-Berater kennt Ihr aktuelles Kursprogramm."
+test(
+  "Nr. 3 und 5: Website nicht erreicht, aber nur fehlende Kurse: „unvollständig“ mit dem Standard-Schlusssatz",
+  { skip },
+  async (t) => {
+    const { container } = await open(
+      t,
+      answer({ state: "gelb", reasons: ["fehlen"], lastRun: unreachableRun })
     );
-    assert.ok(!fine.text.includes("nicht abrufbar"));
+    assert.equal(title(container), "Kursprogramm unvollständig");
+    assert.equal(
+      find(container, "data-course-contact", "standard").textContent,
+      CONTACT
+    );
   }
 );
 
@@ -518,9 +593,17 @@ test(
         reasons: [],
         counts: { offered: 864, count: 860, missing: 4, hidden: 2 },
       }),
+      answer({
+        state: "gruen",
+        reasons: [],
+        counts: { offered: 864, count: 864, missing: 0, hidden: 2 },
+      }),
     ]) {
       const page = await open(t, body);
-      assert.doesNotMatch(page.text, /[–—]|Feed|Workspace|Schätzung\)/);
+      assert.doesNotMatch(
+        page.text,
+        /[–—]|Feed|Workspace|Schätzung\)|eingelernt|Kufer kümmert|Bescheid/
+      );
       await page.unmount();
     }
   }

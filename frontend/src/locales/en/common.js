@@ -2025,34 +2025,51 @@ const TRANSLATIONS = {
     "applies-to": "applies to the widgets {{widgets}}",
     quoted: "“{{name}}”",
     principle:
-      "The AI advisor knows all current courses from your course program (KuferSQL), synchronized every hour. Only deviations are shown here.",
+      "All current courses from your course program (KuferSQL) are available in the AI advisor and are synchronized every hour. Only deviations are shown here.",
     "load-failed": "The status could not be loaded. Please try again later.",
     none: "n/a",
     today: "today, {{time}}",
     yesterday: "yesterday, {{time}}",
     tomorrow: "tomorrow, {{time}}",
     "on-date": "{{date}}, {{time}}",
-    "on-date-at": "on {{date}}, {{time}}",
+    "since-date": "{{date}}, {{time}}",
     dot: {
       gelb: "Status: Yellow",
       rot: "Status: Red",
     },
     banner: {
+      level: {
+        gruen: "OK",
+        gelb: "Limited",
+        rot: "Disrupted",
+      },
       title: {
-        gruen: "Your AI advisor knows your current course program.",
-        gelb: "Your AI advisor is currently not fully up to date.",
-        rot: "Your AI advisor currently does not know your complete course program.",
+        aktuell: "Course program up to date",
+        unvollstaendig: "Course program incomplete",
+        "nicht-aktualisiert": "Course program not updated",
+        "nicht-abrufbar": "Course program not retrievable",
         nicht_eingerichtet: "Synchronization not set up",
       },
       "not-set-up":
         "The synchronization is not set up for this course program.",
-      learning_one: "1 course is still being learned.",
-      learning_other: "{{number}} courses are still being learned.",
-      missing: "{{missing}} of {{offered}} courses are missing.",
-      age: "The last successful synchronization was {{time}}.",
-      contact: "Kufer is taking care of it. You can also let us know directly:",
+      "all-available_one": "1 course is available in the AI advisor.",
+      "all-available_other":
+        "All {{number}} courses are available in the AI advisor.",
+      available:
+        "{{available}} of {{offered}} courses are available in the AI advisor.",
+      pending_one: "1 new course will be added shortly.",
+      pending_other: "{{number}} new courses will be added shortly.",
+      missing_one:
+        "1 of {{offered}} courses is currently not available in the AI advisor.",
+      missing_other:
+        "{{number}} of {{offered}} courses are currently not available in the AI advisor.",
+      "not-updated": "The course program has not been updated since {{time}}.",
       unreachable:
-        "Your course program is currently not available on your website. Please check your course pages or let us know:",
+        "Your course program has not been retrievable from your website since {{time}}.",
+      closing:
+        "We are taking care of it. If you have any questions, please contact us at {{email}}.",
+      "closing-unreachable":
+        "We are taking care of it. If the address of your website or your course program has changed, please contact us at {{email}}.",
     },
     kpi: {
       offered: "In the course program",
