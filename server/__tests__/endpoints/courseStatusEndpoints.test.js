@@ -49,7 +49,6 @@ const HOUR = 60 * 60 * 1000;
 const iso = (ms) => new Date(ms).toISOString();
 
 let workspaceA, workspaceB, embedA1, embedA2, embedB;
-let history;
 const docs = {};
 
 const courseText = (number) =>
@@ -100,18 +99,11 @@ beforeEach(() => {
   for (const key of Object.keys(docs)) delete docs[key];
   inventory.reset();
   status.reset();
-  history = null;
   inventory.setDeps({
     readDocumentText: async (docpath) => docs[docpath]?.pageContent ?? null,
     readDocument: async (docpath) => docs[docpath] ?? null,
     tableRows: async () => null,
     rowTexts: async () => [],
-  });
-  status.setDeps({
-    readHistory: async () => history,
-    writeHistory: async (value) => {
-      history = value;
-    },
   });
   setMultiUserMode(prisma, true);
 
@@ -120,8 +112,8 @@ beforeEach(() => {
   embedA1 = seedEmbed(workspaceA);
   embedA2 = seedEmbed(workspaceA, { courseCountMode: "off" });
   embedB = seedEmbed(workspaceB);
-  // A kennt 96 von 100 angebotenen Kursen (gelb), B hat keine Kurse
-  for (let i = 1; i <= 96; i++) seedCourse(workspaceA, `262-${i}`);
+  // A kennt 94 von 100 angebotenen Kursen (6 % fehlen: gelb), B hat keine
+  for (let i = 1; i <= 94; i++) seedCourse(workspaceA, `262-${i}`);
   prisma.__seed("system_settings", {
     label: "kufer_course_inventory",
     value: JSON.stringify({
@@ -129,7 +121,7 @@ beforeEach(() => {
       client: "vhs-beispiel",
       created: iso(NOW - HOUR),
       offered: Array.from({ length: 100 }, (_, i) => `262-${i + 1}`),
-      titles: { "262-97": "Japanisch A1.1" },
+      titles: { "262-95": "Japanisch A1.1" },
       estimatedEnd: false,
       run: { at: iso(NOW - HOUR), result: "ok", cause: null },
     }),
@@ -157,30 +149,28 @@ describe("AK-1: GET /embed/course-status", () => {
           "hidden",
           "lastRun",
           "missing",
-          "reason",
-          "since",
+          "reasons",
           "state",
+          "syncedAt",
           "visitors",
-          "whoActs",
           "widgets",
           "workspace",
         ].sort()
       );
       expect(res.body).toMatchObject({
         state: "gelb",
-        reason: "fehlen",
-        whoActs: "kufer",
-        counts: { offered: 100, count: 96, missing: 4, hidden: 0 },
+        reasons: ["fehlen"],
+        counts: { offered: 100, count: 94, missing: 6, hidden: 0 },
         workspace: { name: "VHS Beispiel" },
         widgets: [
           { id: embedA1.id, name: "VHS Beispiel" },
           { id: embedA2.id, name: "VHS Beispiel" },
         ],
-        visitors: { count: 96, word: "Kurse" },
+        visitors: { count: 94, word: "Kurse" },
         lastRun: { at: iso(NOW - HOUR), result: "ok", cause: null },
       });
       expect(res.body.missing[0]).toEqual({
-        knr: "262-97",
+        knr: "262-95",
         title: "Japanisch A1.1",
       });
     }
@@ -229,20 +219,11 @@ describe("AK-1: GET /embed/course-status", () => {
     });
   });
 
-  test("NAK-3: liest nur; geschrieben wird allein der eigene Verlauf", async () => {
+  test("NAK-3: liest nur, schreibt keine Einstellung (auch keinen Verlauf)", async () => {
     const before = JSON.stringify(prisma.__rows("system_settings"));
     await statusOf(embedA1.id, createUser(prisma, "default", [workspaceA.id]));
-    const after = prisma
-      .__rows("system_settings")
-      .filter((row) => row.label !== "kufer_course_status_history");
-    expect(JSON.stringify(after)).toBe(
-      JSON.stringify(
-        JSON.parse(before).filter(
-          (row) => row.label !== "kufer_course_status_history"
-        )
-      )
-    );
-    expect(Object.keys(JSON.parse(history))).toEqual(["a"]);
+    await invoke(MENU, { token: createUser(prisma, "admin").token });
+    expect(JSON.stringify(prisma.__rows("system_settings"))).toBe(before);
   });
 });
 
@@ -287,11 +268,10 @@ describe("AK-2: GET /v1/course-status", () => {
         "lastRun",
         "missing",
         "name",
-        "reason",
-        "since",
+        "reasons",
         "slug",
         "state",
-        "whoActs",
+        "syncedAt",
         "widgets",
       ].sort()
     );
@@ -303,9 +283,10 @@ describe("AK-2: GET /v1/course-status", () => {
         { id: embedA1.id, uuid: embedA1.uuid },
         { id: embedA2.id, uuid: embedA2.uuid },
       ],
-      counts: { offered: 100, count: 96, missing: 4, hidden: 0 },
+      reasons: ["fehlen"],
+      counts: { offered: 100, count: 94, missing: 6, hidden: 0 },
     });
-    expect(entry.missing).toHaveLength(4);
+    expect(entry.missing).toHaveLength(6);
     expect(JSON.stringify(res.body)).not.toContain("geheim");
   });
 });

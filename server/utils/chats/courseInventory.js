@@ -682,7 +682,7 @@ async function workspaceInventory(
 ) {
   try {
     if (typeof slug !== "string" || slug.length === 0) return null;
-    // KB-3: die Status-Seite bewertet auch einen Wert über 24 h (rot)
+    // KB-3: die Status-Seite bewertet auch einen Wert über 24 h (Alter)
     const inventory = anyAge
       ? await courseInventoryRecord()
       : await loadCourseInventory({ now });

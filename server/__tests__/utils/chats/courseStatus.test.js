@@ -1,9 +1,11 @@
 /* eslint-env jest, node */
-// KB-3 (issues/P-kursbestand/KB-3-status-seite.md): Ampel des Kursbestands je
-// Workspace (D-KB3-1), Verlauf der Bewertungen mit zwei Läufen in Folge
-// (D-KB3-2), „nicht eingerichtet“ ohne gültige Kursliste (D-KB3-3), Listen
-// höchstens 500 mit Gesamtzahl (AK-1), wer handelt (AK-6), leichter Zustand
-// für den Menüpunkt (AK-5), nur lesend (NAK-1, NAK-3).
+// KB-3 (issues/P-kursbestand/KB-3-status-seite.md, Nutzerentscheidung Ampel
+// vom 26.10.2026, fixliste-kb3-r1.md): Ampel des Kursbestands je Workspace
+// (D-KB3-1) nach Anteil der fehlenden Kurse und Alter des letzten
+// erfolgreichen Abgleichs, die schlechtere Bewertung zählt; „nicht
+// eingerichtet“ ohne gültige Kursliste (D-KB3-3); Listen höchstens 500 mit
+// Gesamtzahl (AK-1); leichter Zustand für den Menüpunkt (AK-5); nur lesend
+// (NAK-1, NAK-3).
 
 jest.mock("../../../utils/prisma", () => ({
   system_settings: { upsert: jest.fn(), findFirst: jest.fn() },
@@ -22,7 +24,6 @@ const {
   courseStatus,
   courseStatusState,
   worstState,
-  HISTORY_LABEL,
   __test__: st,
 } = statusModule;
 
@@ -34,7 +35,6 @@ const WS = { slug: "ws", name: "VHS Beispiel" };
 
 const clock = { now: NOW };
 let stored; // Wert von kufer_course_inventory
-let history; // Wert von kufer_course_status_history
 let docs; // docpath -> Dokument
 
 const numbers = (prefix, count) =>
@@ -85,7 +85,6 @@ beforeEach(() => {
   inv.reset();
   st.reset();
   stored = null;
-  history = null;
   docs = {};
   prisma.system_settings.findFirst.mockImplementation(async ({ where }) =>
     where?.label === INVENTORY && stored !== null ? { value: stored } : null
@@ -104,12 +103,6 @@ beforeEach(() => {
     // kein LanceDB: eingelernt heißt Einträge in document_vectors
     tableRows: async () => null,
     rowTexts: async () => [],
-  });
-  st.setDeps({
-    readHistory: async () => history,
-    writeHistory: jest.fn(async (value) => {
-      history = value;
-    }),
   });
 });
 
@@ -131,175 +124,190 @@ async function run(hoursAgo, overrides = {}) {
   return await courseStatus(WS);
 }
 
-describe("Ampel (D-KB3-1)", () => {
-  test("Grün: 0 fehlen, Abgleich jünger als 3 h; wer handelt: niemand", async () => {
-    workspaceWith(numbers("262", 100));
-    const status = await run(1);
-    expect(status).toMatchObject({
-      state: "gruen",
-      reason: null,
-      whoActs: null,
-      counts: { offered: 100, count: 100, missing: 0, hidden: 0 },
-      missing: [],
-      hidden: [],
-      lastRun: { at: iso(NOW - HOUR), result: "ok", cause: null },
-      estimatedEnd: false,
-    });
-    expect(status.since).toBe(iso(NOW));
-  });
-
-  test("Gelb: 1 bis unter 5 % und unter 50 fehlen; Kufer handelt", async () => {
-    workspaceWith(numbers("262", 96));
-    const status = await run(1);
-    expect(status).toMatchObject({
-      state: "gelb",
-      reason: "fehlen",
-      whoActs: "kufer",
-      counts: { offered: 100, count: 96, missing: 4 },
-    });
-  });
-
+describe("Ampel nach Anteil der fehlenden Kurse (Nutzer 26.10.2026)", () => {
   test.each([
-    ["5 von 100 (5 %)", "rot", 100, 95],
-    ["50 von 2000 (2,5 %)", "rot", 2000, 1950],
-    ["49 von 2000", "gelb", 2000, 1951],
-  ])("%s fehlen: %s", async (_name, expected, offered, known) => {
-    workspaceWith(numbers("262", known));
-    const status = await run(1, { offered: numbers("262", offered) });
-    expect(status.state).toBe(expected);
-    expect(status.reason).toBe("fehlen");
-  });
-
-  test("Alter: ab 3 h gelb, über 24 h sofort rot, auch nach grünen Läufen", async () => {
-    workspaceWith(numbers("262", 100));
-    expect((await run(2.9)).state).toBe("gruen");
-    expect(await run(3)).toMatchObject({ state: "gelb", reason: "alter" });
-    // über 24 h: kein neuer Lauf, die Uhr läuft weiter
-    clock.now += 22 * HOUR;
-    expect(await courseStatus(WS)).toMatchObject({
-      state: "rot",
-      reason: "alter",
-      whoActs: "kufer",
+    ["0 von 1000", 0, "gruen", []],
+    ["4,9 % (49 von 1000)", 49, "gruen", []],
+    ["5 % (50 von 1000)", 50, "gelb", ["fehlen"]],
+    ["10 % (100 von 1000)", 100, "gelb", ["fehlen"]],
+    ["10,1 % (101 von 1000)", 101, "rot", ["fehlen"]],
+  ])("%s fehlen: %s", async (_name, missing, state, reasons) => {
+    workspaceWith(numbers("262", 1000 - missing));
+    const status = await run(1, { offered: numbers("262", 1000) });
+    expect(status.state).toBe(state);
+    expect(status.reasons).toEqual(reasons);
+    expect(status.counts).toEqual({
+      offered: 1000,
+      count: 1000 - missing,
+      missing,
+      hidden: 0,
     });
   });
 
-  test("Version 1: Alter aus created, letzter Lauf = created ohne Störung", async () => {
+  test("nur der Anteil zählt, keine feste Kursanzahl: 60 von 2000 (3 %) bleiben grün", async () => {
+    workspaceWith(numbers("262", 1940));
+    const status = await run(1, { offered: numbers("262", 2000) });
+    expect(status).toMatchObject({ state: "gruen", reasons: [] });
+    expect(status.missing).toHaveLength(60);
+  });
+});
+
+describe("Ampel nach Alter des letzten erfolgreichen Abgleichs", () => {
+  test.each([
+    [23, "gruen", []],
+    [24, "gelb", ["alter"]],
+    [25, "gelb", ["alter"]],
+    [71, "gelb", ["alter"]],
+    [72, "gelb", ["alter"]],
+    [73, "rot", ["alter"]],
+  ])("%s h alt: %s", async (hours, state, reasons) => {
     workspaceWith(numbers("262", 100));
-    setInventory({ version: 1, created: iso(NOW - 4 * HOUR) });
-    const status = await courseStatus(WS);
+    const status = await run(hours);
     expect(status).toMatchObject({
-      state: "gelb",
-      reason: "alter",
-      lastRun: { at: iso(NOW - 4 * HOUR), result: "ok", cause: null },
-      estimatedEnd: false,
+      state,
+      reasons,
+      syncedAt: iso(NOW - hours * HOUR),
     });
+  });
+
+  test("ohne neuen Lauf läuft die Uhr weiter", async () => {
+    workspaceWith(numbers("262", 100));
+    expect((await run(1)).state).toBe("gruen");
+    clock.now += 23 * HOUR;
+    expect((await courseStatus(WS)).state).toBe("gelb");
+    clock.now += 49 * HOUR;
+    expect((await courseStatus(WS)).state).toBe("rot");
   });
 
   test("Lauf mit Störung verjüngt den Stand nicht: Alter ab created", async () => {
     workspaceWith(numbers("262", 100));
     setInventory({
-      created: iso(NOW - 4 * HOUR),
+      created: iso(NOW - 25 * HOUR),
       run: {
         at: iso(NOW - 10 * 60 * 1000),
         result: "nicht_geschrieben",
         cause: "feed_unsicher",
       },
     });
-    const status = await courseStatus(WS);
-    expect(status).toMatchObject({
+    expect(await courseStatus(WS)).toMatchObject({
       state: "gelb",
-      reason: "alter",
-      whoActs: "kufer",
-      lastRun: { result: "nicht_geschrieben", cause: "feed_unsicher" },
+      reasons: ["alter"],
+      syncedAt: iso(NOW - 25 * HOUR),
+      lastRun: {
+        at: iso(NOW - 10 * 60 * 1000),
+        result: "nicht_geschrieben",
+        cause: "feed_unsicher",
+      },
+    });
+  });
+
+  test("erfolgreicher Lauf nach älterem created zählt als Abgleich", async () => {
+    workspaceWith(numbers("262", 100));
+    setInventory({
+      created: iso(NOW - 30 * HOUR),
+      run: { at: iso(NOW - HOUR), result: "ok", cause: null },
+    });
+    expect(await courseStatus(WS)).toMatchObject({
+      state: "gruen",
+      syncedAt: iso(NOW - HOUR),
+    });
+  });
+
+  test("Version 1: Alter aus created, letzter Lauf = created ohne Störung", async () => {
+    workspaceWith(numbers("262", 100));
+    setInventory({ version: 1, created: iso(NOW - 30 * HOUR) });
+    expect(await courseStatus(WS)).toMatchObject({
+      state: "gelb",
+      reasons: ["alter"],
+      lastRun: { at: iso(NOW - 30 * HOUR), result: "ok", cause: null },
+      syncedAt: iso(NOW - 30 * HOUR),
+      estimatedEnd: false,
     });
   });
 });
 
-describe("Zwei Läufe in Folge (D-KB3-2)", () => {
-  test("Gelb aus fehlenden Kursen erst, wenn auch der vorige Lauf so schlecht war", async () => {
-    workspaceWith(numbers("262", 100));
-    expect((await run(1)).state).toBe("gruen");
-    // nächster Lauf: 4 fehlen (gelb), der vorige war grün
-    workspaceWith(numbers("262", 96));
-    expect((await run(0.5)).state).toBe("gruen");
-    // dritter Lauf: wieder 4 fehlen
-    const third = await run(0.2);
-    expect(third).toMatchObject({ state: "gelb", since: iso(NOW) });
+describe("Die schlechtere der beiden Bewertungen zählt", () => {
+  test.each([
+    ["fehlen gelb, Alter rot", 50, 73, "rot", ["fehlen", "alter"]],
+    ["fehlen rot, Alter gelb", 101, 25, "rot", ["fehlen", "alter"]],
+    ["fehlen gelb, Alter gelb", 50, 25, "gelb", ["fehlen", "alter"]],
+    ["fehlen rot, Alter grün", 101, 1, "rot", ["fehlen"]],
+    ["fehlen grün, Alter rot", 49, 73, "rot", ["alter"]],
+  ])("%s: %s", async (_name, missing, hours, state, reasons) => {
+    workspaceWith(numbers("262", 1000 - missing));
+    const status = await run(hours, { offered: numbers("262", 1000) });
+    expect(status).toMatchObject({ state, reasons });
   });
+});
 
-  test("Rot nach gelbem Vorlauf ist zunächst gelb", async () => {
-    workspaceWith(numbers("262", 96));
-    expect((await run(1)).state).toBe("gelb");
-    workspaceWith(numbers("262", 90));
-    expect((await run(0.5)).state).toBe("gelb");
-    expect((await run(0.2)).state).toBe("rot");
-  });
-
-  test("Kursprogramm nicht erreichbar: rot erst seit dem vorigen Lauf, dann handelt die Einrichtung", async () => {
+describe("Kursprogramm nicht erreichbar", () => {
+  test("ändert die Ampel nicht selbst: grün, solange der Stand jung genug ist", async () => {
     workspaceWith(numbers("262", 100));
-    const created = iso(NOW - HOUR);
-    await run(1);
-    const unreachable = (minutesAgo) => ({
-      created,
+    setInventory({
+      created: iso(NOW - 2 * HOUR),
       run: {
-        at: iso(NOW - minutesAgo * 60 * 1000),
+        at: iso(NOW - 5 * 60 * 1000),
         result: "nicht_geschrieben",
         cause: "feed_nicht_erreichbar",
       },
     });
-    setInventory(unreachable(30));
-    expect((await courseStatus(WS)).state).toBe("gruen");
-    setInventory(unreachable(5));
     expect(await courseStatus(WS)).toMatchObject({
-      state: "rot",
-      reason: "nicht_erreichbar",
-      whoActs: "einrichtung",
+      state: "gruen",
+      reasons: [],
+      lastRun: { cause: "feed_nicht_erreichbar" },
     });
   });
 
-  test("Neue Bewertung nur bei geändertem run.at oder created; höchstens 5 je Workspace", async () => {
+  test("nach 25 h ohne erfolgreichen Abgleich gelb, die Ursache steht im letzten Lauf", async () => {
     workspaceWith(numbers("262", 100));
-    await run(1);
-    const writeHistory = jest.fn(async (value) => {
-      history = value;
+    setInventory({
+      created: iso(NOW - 25 * HOUR),
+      run: {
+        at: iso(NOW - 5 * 60 * 1000),
+        result: "nicht_geschrieben",
+        cause: "feed_nicht_erreichbar",
+      },
     });
-    st.setDeps({ readHistory: async () => history, writeHistory });
-    await courseStatus(WS);
-    await courseStatus(WS);
-    expect(writeHistory).not.toHaveBeenCalled();
-
-    for (let i = 0; i < 7; i++) await run(0.9 - i * 0.1);
-    const entry = JSON.parse(history).ws;
-    expect(entry.runs).toHaveLength(st.HISTORY_MAX);
-    expect(entry.runs[0].key).toContain(iso(NOW - 0.3 * HOUR));
-    expect(entry).toMatchObject({ state: "gruen", since: iso(NOW) });
+    expect(await courseStatus(WS)).toMatchObject({
+      state: "gelb",
+      reasons: ["alter"],
+      lastRun: { result: "nicht_geschrieben", cause: "feed_nicht_erreichbar" },
+    });
   });
+});
 
-  test("ohne vorigen Lauf gilt der aktuelle allein; ein kaputter Verlauf beginnt neu", async () => {
-    history = "{kaputt";
-    workspaceWith(numbers("262", 90));
-    expect((await run(1)).state).toBe("rot");
-    expect(Object.keys(JSON.parse(history))).toEqual(["ws"]);
+describe("Antwortform", () => {
+  test("Grün: Zustand, Gründe, Zahlen, Listen, Lauf, Abgleich; ohne Verlauf, seit wann und wer handelt", async () => {
+    workspaceWith(numbers("262", 100));
+    const status = await run(1);
+    expect(status).toEqual({
+      state: "gruen",
+      reasons: [],
+      counts: { offered: 100, count: 100, missing: 0, hidden: 0 },
+      missing: [],
+      hidden: [],
+      lastRun: { at: iso(NOW - HOUR), result: "ok", cause: null },
+      syncedAt: iso(NOW - HOUR),
+      estimatedEnd: false,
+    });
   });
 });
 
 describe("Nicht eingerichtet (D-KB3-3)", () => {
   const NOT_SET_UP = {
     state: "nicht_eingerichtet",
-    since: null,
-    reason: null,
-    whoActs: null,
+    reasons: [],
     counts: null,
     missing: [],
     hidden: [],
     lastRun: null,
+    syncedAt: null,
     estimatedEnd: false,
   };
 
-  test("ohne Kursliste: nichts gelesen außer der einen Zeile, nichts gespeichert", async () => {
+  test("ohne Kursliste: nichts gelesen außer der einen Zeile", async () => {
     workspaceWith(numbers("262", 10));
     expect(await courseStatus(WS)).toEqual(NOT_SET_UP);
-    expect(history).toBeNull();
     expect(readDocument).not.toHaveBeenCalled();
   });
 
@@ -310,7 +318,6 @@ describe("Nicht eingerichtet (D-KB3-3)", () => {
     expect(await courseStatus(WS)).toEqual(NOT_SET_UP);
     setInventory({ offered: numbers("999", 5) });
     expect(await courseStatus(WS)).toEqual(NOT_SET_UP);
-    expect(history).toBeNull();
     console.error.mockRestore();
   });
 });
@@ -415,7 +422,7 @@ describe("Menüpunkt (AK-5)", () => {
 });
 
 describe("Nur lesend (NAK-1, NAK-3)", () => {
-  test("über 24 h: Chat wie ohne Kursliste, die Status-Seite zeigt rot mit Zahlen", async () => {
+  test("über 24 h: Chat wie ohne Kursliste, die Status-Seite bewertet weiter mit Zahlen", async () => {
     workspaceWith(numbers("262", 100), {
       "custom-documents/alt.json": courseDoc("261-1"),
     });
@@ -426,16 +433,21 @@ describe("Nur lesend (NAK-1, NAK-3)", () => {
     expect(await courseInventoryStatus(WS)).toBeNull();
     expect(await courseSearchExclusion("ws")).toBeNull();
     expect(await courseStatus(WS)).toMatchObject({
-      state: "rot",
-      reason: "alter",
+      state: "gelb",
+      reasons: ["alter"],
       counts: { offered: 100, count: 100, missing: 0, hidden: 1 },
     });
   });
 
-  test("die Kursliste wird nie geschrieben, nur der eigene Verlauf", async () => {
+  test("schreibt nichts, auch keinen Verlauf; ein alter Verlauf wird nicht gelesen", async () => {
     workspaceWith(numbers("262", 96));
     await run(1);
+    await run(0.5);
     expect(prisma.system_settings.upsert).not.toHaveBeenCalled();
-    expect(HISTORY_LABEL).toBe("kufer_course_status_history");
+    const labels = prisma.system_settings.findFirst.mock.calls.map(
+      ([args]) => args?.where?.label
+    );
+    expect(labels).not.toContain("kufer_course_status_history");
+    expect(statusModule).not.toHaveProperty("HISTORY_LABEL");
   });
 });

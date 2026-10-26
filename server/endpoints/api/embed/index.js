@@ -414,7 +414,7 @@ function apiEmbedEndpoints(app) {
   app.get("/v1/course-status", [validApiKey], async (_request, response) => {
     /*
       #swagger.tags = ['Embed']
-      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reason is fehlen, alter or nicht_erreichbar; whoActs is einrichtung or kufer. missing and hidden list at most 500 courses each, the totals are in counts. Workspaces without a valid course list are not listed.'
+      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Workspaces without a valid course list are not listed.'
       #swagger.responses[200] = {
         content: {
           "application/json": {
@@ -427,13 +427,12 @@ function apiEmbedEndpoints(app) {
                     "name": "VHS Beispiel",
                     "widgets": [{ "id": 1, "uuid": "embed-uuid-1" }],
                     "state": "gelb",
-                    "since": "2026-10-26T09:05:00.000Z",
-                    "reason": "fehlen",
-                    "whoActs": "kufer",
-                    "counts": { "offered": 864, "count": 844, "missing": 20, "hidden": 64 },
+                    "reasons": ["fehlen"],
+                    "counts": { "offered": 864, "count": 812, "missing": 52, "hidden": 64 },
                     "missing": [{ "knr": "262-10101", "title": "Japanisch A1.1" }],
                     "hidden": [{ "knr": "261-20202", "title": "Yoga am Morgen", "start": "2026-09-02", "duration": "6 Termine" }],
                     "lastRun": { "at": "2026-10-26T09:00:00.000Z", "result": "ok", "cause": null },
+                    "syncedAt": "2026-10-26T09:00:00.000Z",
                     "estimatedEnd": true
                   }
                 ]
