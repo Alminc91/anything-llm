@@ -2031,6 +2031,113 @@ const TRANSLATIONS = {
       "unlimited-placeholder": "Unbegrenzt",
     },
   },
+  // KB-3: Status-Seite des Kursbestands
+  "course-status": {
+    title: "Status",
+    program: "Kursprogramm: {{name}}",
+    "applies-to": "gilt für die Widgets {{widgets}}",
+    quoted: "„{{name}}“",
+    principle:
+      "Im KI-Berater sind alle aktuellen Kurse aus Ihrem Kursprogramm (KuferSQL), stündlich abgeglichen. Hier stehen nur Abweichungen.",
+    "load-failed":
+      "Der Status konnte nicht geladen werden. Bitte versuchen Sie es später erneut.",
+    none: "k. A.",
+    today: "heute, {{time}} Uhr",
+    yesterday: "gestern, {{time}} Uhr",
+    tomorrow: "morgen, {{time}} Uhr",
+    "on-date": "{{date}}, {{time}} Uhr",
+    dot: {
+      gelb: "Status: Gelb",
+      rot: "Status: Rot",
+    },
+    banner: {
+      gruen: {
+        title: "Alle Kurse sind im KI-Berater",
+        text: "Alle {{offered}} Kurse aus Ihrem Kursprogramm sind eingelernt.",
+      },
+      "gelb-fehlen": {
+        title: "Einzelne Kurse fehlen im KI-Berater",
+        text: "{{missing}} von {{offered}} Kursen sind zurzeit nicht eingelernt.",
+      },
+      "rot-fehlen": {
+        title: "Viele Kurse fehlen im KI-Berater",
+        text: "{{missing}} von {{offered}} Kursen sind zurzeit nicht eingelernt.",
+      },
+      "gelb-alter": {
+        title: "Der letzte Abgleich liegt länger zurück",
+        text: "Der letzte erfolgreiche Abgleich mit Ihrem Kursprogramm ist mehr als 3 Stunden her.",
+      },
+      "rot-alter": {
+        title: "Seit über 24 Stunden kein Abgleich",
+        text: "Der letzte erfolgreiche Abgleich ist mehr als 24 Stunden her. Bis zum nächsten erfolgreichen Abgleich blendet der KI-Berater beendete Kurse nicht aus, und Besucher sehen keine Kursanzahl.",
+      },
+      "rot-nicht_erreichbar": {
+        title: "Ihr Kursprogramm ist nicht erreichbar",
+        text: "Seit dem vorigen Abgleich ist Ihr Kursprogramm nicht erreichbar. Der KI-Berater nutzt den Stand des letzten erfolgreichen Abgleichs.",
+      },
+      nicht_eingerichtet: {
+        title: "Abgleich nicht eingerichtet",
+        text: "Für dieses Kursprogramm ist der Abgleich nicht eingerichtet.",
+      },
+      "next-sync":
+        "Meist erledigt sich das mit dem nächsten stündlichen Abgleich.",
+    },
+    kpi: {
+      offered: "Im Kursprogramm",
+      count: "Im KI-Berater",
+      missing: "Fehlen",
+      hidden: "Ausgeblendet",
+      share: "({{value}} %)",
+      "share-small": "(unter 1 %)",
+    },
+    missing: {
+      label: "Fehlende Kurse",
+      title: "Fehlende Kurse ({{count}})",
+    },
+    hidden: {
+      label: "Ausgeblendete Kurse",
+      title: "Ausgeblendet, da voraussichtlich beendet ({{count}})",
+      estimated:
+        "Geschätzt, nicht garantiert: Ihr Kursprogramm liefert kein Enddatum, wir schätzen es aus Beginn und Dauer. Mit dem Enddatum entfällt die Schätzung.",
+      notice:
+        "Seit {{date}}: Zurzeit wird das Ausschließen vergangener Kurse optimiert.",
+      from: "ab {{date}}",
+    },
+    list: {
+      "show-all": "Alle {{count}} anzeigen",
+      "show-less": "Weniger anzeigen",
+      truncated: "Angezeigt werden die ersten {{shown}} von {{count}}.",
+    },
+    sync: {
+      title: "Abgleich",
+      last: "Letzter",
+      next: "Nächster",
+      result: "Ergebnis",
+      visitors: "Besucher sehen",
+      "visitors-count": "aktuell {{count}} {{word}}",
+      "visitors-none": "keine Kursanzahl",
+      pending: "ausstehend",
+      causes: {
+        feed_nicht_erreichbar: "Kursprogramm nicht erreichbar",
+        feed_unsicher: "Kursprogramm unvollständig geliefert",
+        feed_eingebrochen: "Kursprogramm deutlich kleiner als zuvor",
+        einlernen_fehlgeschlagen: "Einlernen fehlgeschlagen",
+        nicht_geschrieben: "nicht übernommen",
+        fehler: "Fehler beim Abgleich",
+      },
+    },
+    who: {
+      title: "Wer handelt",
+      kufer: {
+        name: "Kufer",
+        sentence: "Kufer ist informiert.",
+      },
+      einrichtung: {
+        name: "Ihre Einrichtung",
+        sentence: "Bitte prüfen Sie Webseite und Kursprogramm.",
+      },
+    },
+  },
 };
 
 export default TRANSLATIONS;

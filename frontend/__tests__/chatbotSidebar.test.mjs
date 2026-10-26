@@ -6,7 +6,7 @@
 // /settings/chatbot/messages leitet auf „Konversationen“ um (das Verhalten
 // der Umleitung: chatbotMessagesRedirect.test.mjs).
 //
-// KB-2, AK-1: „Chatbot“ hat die Unterpunkte Status (bis KB-3 ausgeblendet),
+// KB-2, AK-1: „Chatbot“ hat die Unterpunkte Status (seit KB-3 sichtbar),
 // Konversationen, Design Center und Widgets (weitere Prüfungen:
 // chatbotMenu.test.mjs).
 import test, { after, before } from "node:test";
@@ -26,6 +26,7 @@ const skip = hasFrontendDeps
   : "frontend/node_modules nicht installiert";
 
 const WIDGETS = { label: "Widgets", href: "/settings/chatbot/widgets" };
+const STATUS = { label: "Status", href: "/settings/chatbot/status" };
 const CONVERSATIONS = {
   label: "Konversationen",
   href: "/settings/chatbot/conversations",
@@ -73,7 +74,7 @@ for (const current of [WIDGETS, CONVERSATIONS]) {
       assert.equal(block.index, 0, "„Chatbot“ ist nicht der erste Eintrag");
       assert.deepEqual(
         block.children.map(view),
-        [CONVERSATIONS, DESIGN, WIDGETS].map((entry) => ({
+        [STATUS, CONVERSATIONS, DESIGN, WIDGETS].map((entry) => ({
           ...entry,
           active: entry === current,
         }))
@@ -88,7 +89,7 @@ for (const current of [WIDGETS, CONVERSATIONS]) {
 }
 
 test(
-  "Ohne einsehbaren Chat-Verlauf: unter „Chatbot“ nur „Design Center“ und „Widgets“, „Widgets“ markiert",
+  "Ohne einsehbaren Chat-Verlauf: unter „Chatbot“ nur „Status“, „Design Center“ und „Widgets“, „Widgets“ markiert",
   { skip },
   async () => {
     const html = await renderer.render(SIDEBAR, {
@@ -101,6 +102,7 @@ test(
     assert.ok(block, "Obermenüpunkt „Chatbot“ fehlt");
     assert.equal(block.index, 0, "„Chatbot“ ist nicht der erste Eintrag");
     assert.deepEqual(block.children.map(view), [
+      { ...STATUS, active: false },
       { ...DESIGN, active: false },
       { ...WIDGETS, active: true },
     ]);
@@ -144,7 +146,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "Nachrichtentabelle entfernt (AK-8): „Chatbot“ hat genau die Unterpunkte „Konversationen“, „Design Center“ und „Widgets“ (KB-2) – für jede Rolle",
+  "Nachrichtentabelle entfernt (AK-8): „Chatbot“ hat genau die Unterpunkte „Status“, „Konversationen“, „Design Center“ und „Widgets“ (KB-2, KB-3) – für jede Rolle",
   { skip },
   async () => {
     for (const role of ["admin", "manager", "default"]) {
@@ -155,7 +157,7 @@ test(
       const block = chatbotBlock(menuEntries(html));
       assert.deepEqual(
         block.children.map(({ label, href }) => ({ label, href })),
-        [CONVERSATIONS, DESIGN, WIDGETS],
+        [STATUS, CONVERSATIONS, DESIGN, WIDGETS],
         role
       );
       assert.ok(!html.includes("Nachrichtentabelle"), role);
@@ -202,6 +204,7 @@ test(
     const chatbot = path.join(SRC, "pages/GeneralSettings/ChatEmbedWidgets");
     assert.equal(existsSync(path.join(chatbot, "EmbedChats")), false);
     assert.deepEqual(readdirSync(chatbot).sort(), [
+      "CourseStatus",
       "EmbedAnalytics",
       "EmbedAppearance",
       "EmbedConfigs",

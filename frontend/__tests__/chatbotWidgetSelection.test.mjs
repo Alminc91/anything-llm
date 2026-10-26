@@ -10,6 +10,9 @@ import {
   hasFrontendDeps,
 } from "./helpers/renderSettingsPage.mjs";
 import { click, elements, handlersOf } from "./helpers/testDom.mjs";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DIR = "/src/pages/GeneralSettings/ChatEmbedWidgets";
 const PAGES = `${DIR}/index.jsx`;
@@ -17,6 +20,10 @@ const CONVERSATIONS_VIEW = `${DIR}/EmbedAnalytics/index.jsx`;
 const WIDGET_LIST = `${DIR}/EmbedConfigs/index.jsx`;
 const MENU_OPTION = "/src/components/SettingsSidebar/MenuOption/index.jsx";
 const PROBE = "/__tests__/helpers/ChatbotPageProbe.jsx";
+const SRC = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../src"
+);
 const skip = hasFrontendDeps
   ? false
   : "frontend/node_modules nicht installiert";
@@ -24,6 +31,7 @@ const skip = hasFrontendDeps
 const CONVERSATIONS = "/settings/chatbot/conversations";
 const DESIGN = "/settings/chatbot/design";
 const WIDGETS = "/settings/chatbot/widgets";
+const STATUS = "/settings/chatbot/status";
 // Browser-Speicher des angemeldeten Testnutzers (id 1)
 const REMEMBERED = "kie.chatbot.widget.1";
 const NOT_FOUND =
@@ -80,6 +88,8 @@ function stubServer(t, embeds = EMBEDS) {
     else if (url.endsWith("/embeds/last-activity"))
       answer = { success: true, lastActivity: LAST_ACTIVITY };
     else if (url.includes("/embed/defaults")) answer = { defaults: {} };
+    else if (url.includes("/embed/course-status"))
+      answer = { state: "nicht_eingerichtet", counts: null, widgets: [] };
     else if (url.endsWith("/analytics/summary"))
       answer = {
         success: true,
@@ -171,20 +181,37 @@ async function openDesignCenter(t, query = "", { embeds, stored } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// AK-1: „Status“ ist bis KB-3 nur angelegt
+// AK-1: „Status“ ist seit KB-3 eine eigene Seite
 // ---------------------------------------------------------------------------
 
 test(
-  "AK-1: /settings/chatbot/status führt bis KB-3 mit demselben Widget zu „Konversationen“",
+  "AK-1: /settings/chatbot/status?widget=3 zeigt die Statusseite dieses Widgets (KB-3), keine Weiterleitung",
   { skip },
   async (t) => {
-    const mounted = await mount(t, PAGES, {
-      exportName: "ChatbotStatus",
-      location: "/settings/chatbot/status?widget=3",
-      route: "/settings/chatbot/status",
-      otherRoutes: [{ path: CONVERSATIONS, element: h(LocationProbe) }],
+    // Die Seite selbst (ChatbotStatus) hängt die Seitenleiste ein, die sich
+    // ohne Browser nicht einhängen lässt: hier die Ansicht darin.
+    const calls = stubServer(t);
+    const mounted = await mount(t, `${DIR}/CourseStatus/index.jsx`, {
+      location: `${STATUS}?widget=3`,
+      route: STATUS,
+      props: { embeds: EMBEDS, lastActivity: LAST_ACTIVITY },
     });
-    assert.equal(locationOf(mounted.container), `${CONVERSATIONS}?widget=3`);
+    await mounted.act();
+    assert.ok(
+      calls.some((call) => call.url.endsWith("/embed/course-status?widget=3"))
+    );
+    assert.equal(picker(mounted.container).textContent.trim(), "KuferMedia");
+    assert.equal(
+      elements(mounted.container, (el) => el.tagName === "H2")[0]?.textContent,
+      "Status"
+    );
+    const source = readFileSync(
+      path.join(SRC, "pages/GeneralSettings/ChatEmbedWidgets/index.jsx"),
+      "utf8"
+    );
+    const page = source.slice(source.indexOf("export function ChatbotStatus"));
+    assert.match(page.slice(0, 800), /<CourseStatusView /);
+    assert.doesNotMatch(page.slice(0, 800), /chatbot\.conversations\(\)/);
   }
 );
 
@@ -367,11 +394,12 @@ const rowActions = (container) =>
   }));
 
 test(
-  "AK-5: Die Widget-Zeile: Konversationen (mit Widget), Design Center, Code, Deaktivieren, Löschen, Menü; kein „Aussehen“, „Status“ erst mit KB-3",
+  "AK-5: Die Widget-Zeile: Status und Konversationen (mit Widget), Design Center, Code, Deaktivieren, Löschen, Menü; kein „Aussehen“",
   { skip },
   async (t) => {
     const { container } = await openWidgetList(t);
     assert.deepEqual(rowActions(container), [
+      { tag: "A", text: "Status", href: `${STATUS}?widget=5` },
       { tag: "A", text: "Konversationen", href: `${CONVERSATIONS}?widget=5` },
       { tag: "BUTTON", text: "Design Center", href: null },
       { tag: "BUTTON", text: "Code", href: null },
@@ -406,7 +434,7 @@ test(
     });
     assert.deepEqual(
       rowActions(container).map((action) => action.text),
-      ["Design Center", "Code", "Deaktivieren", "Löschen", ""]
+      ["Status", "Design Center", "Code", "Deaktivieren", "Löschen", ""]
     );
   }
 );

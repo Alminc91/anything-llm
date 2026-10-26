@@ -12,11 +12,11 @@
 
 /**
  * Schalter für den Menüpunkt „Status“ und die Abkürzung „Status“ in der
- * Widget-Zeile. Aus, bis die Statusseite (KB-3) im selben Release ist; KB-3
- * hängt sie unter paths.settings.chatbot.status() ein (ChatbotStatus in
- * pages/GeneralSettings/ChatEmbedWidgets) und schaltet hier ein.
+ * Widget-Zeile. Seit KB-3 an: Die Statusseite hängt unter
+ * paths.settings.chatbot.status() (ChatbotStatus in
+ * pages/GeneralSettings/ChatEmbedWidgets).
  */
-export const STATUS_PAGE_READY = false;
+export const STATUS_PAGE_READY = true;
 
 export const PARAM_WIDGET = "widget";
 

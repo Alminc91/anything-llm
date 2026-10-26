@@ -1879,6 +1879,108 @@ const TRANSLATIONS = {
       "unlimited-placeholder": null,
     },
   },
+  // KB-3: Status-Seite des Kursbestands
+  "course-status": {
+    title: null,
+    program: null,
+    "applies-to": null,
+    quoted: null,
+    principle: null,
+    "load-failed": null,
+    none: null,
+    today: null,
+    yesterday: null,
+    tomorrow: null,
+    "on-date": null,
+    dot: {
+      gelb: null,
+      rot: null,
+    },
+    banner: {
+      gruen: {
+        title: null,
+        text: null,
+      },
+      "gelb-fehlen": {
+        title: null,
+        text: null,
+      },
+      "rot-fehlen": {
+        title: null,
+        text: null,
+      },
+      "gelb-alter": {
+        title: null,
+        text: null,
+      },
+      "rot-alter": {
+        title: null,
+        text: null,
+      },
+      "rot-nicht_erreichbar": {
+        title: null,
+        text: null,
+      },
+      nicht_eingerichtet: {
+        title: null,
+        text: null,
+      },
+      "next-sync": null,
+    },
+    kpi: {
+      offered: null,
+      count: null,
+      missing: null,
+      hidden: null,
+      share: null,
+      "share-small": null,
+    },
+    missing: {
+      label: null,
+      title: null,
+    },
+    hidden: {
+      label: null,
+      title: null,
+      estimated: null,
+      notice: null,
+      from: null,
+    },
+    list: {
+      "show-all": null,
+      "show-less": null,
+      truncated: null,
+    },
+    sync: {
+      title: null,
+      last: null,
+      next: null,
+      result: null,
+      visitors: null,
+      "visitors-count": null,
+      "visitors-none": null,
+      pending: null,
+      causes: {
+        feed_nicht_erreichbar: null,
+        feed_unsicher: null,
+        feed_eingebrochen: null,
+        einlernen_fehlgeschlagen: null,
+        nicht_geschrieben: null,
+        fehler: null,
+      },
+    },
+    who: {
+      title: null,
+      kufer: {
+        name: null,
+        sentence: null,
+      },
+      einrichtung: {
+        name: null,
+        sentence: null,
+      },
+    },
+  },
 };
 
 export default TRANSLATIONS;

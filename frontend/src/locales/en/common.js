@@ -2018,6 +2018,112 @@ const TRANSLATIONS = {
       "unlimited-placeholder": "Unlimited",
     },
   },
+  // KB-3: Status-Seite des Kursbestands
+  "course-status": {
+    title: "Status",
+    program: "Course program: {{name}}",
+    "applies-to": "applies to the widgets {{widgets}}",
+    quoted: "“{{name}}”",
+    principle:
+      "The AI advisor knows all current courses from your course program (KuferSQL), synchronized every hour. Only deviations are shown here.",
+    "load-failed": "The status could not be loaded. Please try again later.",
+    none: "n/a",
+    today: "today, {{time}}",
+    yesterday: "yesterday, {{time}}",
+    tomorrow: "tomorrow, {{time}}",
+    "on-date": "{{date}}, {{time}}",
+    dot: {
+      gelb: "Status: Yellow",
+      rot: "Status: Red",
+    },
+    banner: {
+      gruen: {
+        title: "All courses are in the AI advisor",
+        text: "All {{offered}} courses from your course program are learned.",
+      },
+      "gelb-fehlen": {
+        title: "Some courses are missing in the AI advisor",
+        text: "{{missing}} of {{offered}} courses are currently not learned.",
+      },
+      "rot-fehlen": {
+        title: "Many courses are missing in the AI advisor",
+        text: "{{missing}} of {{offered}} courses are currently not learned.",
+      },
+      "gelb-alter": {
+        title: "The last synchronization was a while ago",
+        text: "The last successful synchronization with your course program was more than 3 hours ago.",
+      },
+      "rot-alter": {
+        title: "No synchronization for more than 24 hours",
+        text: "The last successful synchronization was more than 24 hours ago. Until the next successful synchronization, the AI advisor does not hide ended courses, and visitors see no course count.",
+      },
+      "rot-nicht_erreichbar": {
+        title: "Your course program is not reachable",
+        text: "Your course program has not been reachable since the previous synchronization. The AI advisor uses the state of the last successful synchronization.",
+      },
+      nicht_eingerichtet: {
+        title: "Synchronization not set up",
+        text: "The synchronization is not set up for this course program.",
+      },
+      "next-sync":
+        "This usually resolves itself with the next hourly synchronization.",
+    },
+    kpi: {
+      offered: "In the course program",
+      count: "In the AI advisor",
+      missing: "Missing",
+      hidden: "Hidden",
+      share: "({{value}} %)",
+      "share-small": "(below 1 %)",
+    },
+    missing: {
+      label: "Missing courses",
+      title: "Missing courses ({{count}})",
+    },
+    hidden: {
+      label: "Hidden courses",
+      title: "Hidden, presumably ended ({{count}})",
+      estimated:
+        "Estimated, not guaranteed: your course program provides no end date, so we estimate it from start and duration. With the end date, the estimate is no longer needed.",
+      notice:
+        "Since {{date}}: Excluding past courses is currently being optimized.",
+      from: "from {{date}}",
+    },
+    list: {
+      "show-all": "Show all {{count}}",
+      "show-less": "Show less",
+      truncated: "Showing the first {{shown}} of {{count}}.",
+    },
+    sync: {
+      title: "Synchronization",
+      last: "Last",
+      next: "Next",
+      result: "Result",
+      visitors: "Visitors see",
+      "visitors-count": "currently {{count}} {{word}}",
+      "visitors-none": "no course count",
+      pending: "pending",
+      causes: {
+        feed_nicht_erreichbar: "Course program not reachable",
+        feed_unsicher: "Course program delivered incompletely",
+        feed_eingebrochen: "Course program much smaller than before",
+        einlernen_fehlgeschlagen: "Learning failed",
+        nicht_geschrieben: "not applied",
+        fehler: "Synchronization error",
+      },
+    },
+    who: {
+      title: "Who acts",
+      kufer: {
+        name: "Kufer",
+        sentence: "Kufer has been informed.",
+      },
+      einrichtung: {
+        name: "Your institution",
+        sentence: "Please check your website and course program.",
+      },
+    },
+  },
 };
 
 export default TRANSLATIONS;

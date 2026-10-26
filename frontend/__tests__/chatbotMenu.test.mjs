@@ -59,11 +59,11 @@ const renderAt = (location, options = {}) =>
   });
 
 // ---------------------------------------------------------------------------
-// AK-1: Reihenfolge, Rollen, „Status“ hinter dem Schalter
+// AK-1: Reihenfolge, Rollen, „Status“ (seit KB-3 eingeschaltet)
 // ---------------------------------------------------------------------------
 
 test(
-  "AK-1: „Chatbot“ hat Konversationen, Design Center, Widgets (Status bis KB-3 ausgeblendet), für admin, manager und default",
+  "AK-1: „Chatbot“ hat Status, Konversationen, Design Center, Widgets, für admin, manager und default (KB-3)",
   { skip },
   async () => {
     for (const role of ["admin", "manager", "default"]) {
@@ -75,29 +75,28 @@ test(
       assert.deepEqual(
         children.map(({ label, href }) => ({ label, href })),
         [
+          { label: "Status", href: STATUS },
           { label: "Konversationen", href: CONVERSATIONS },
           { label: "Design Center", href: DESIGN },
           { label: "Widgets", href: WIDGETS },
         ],
         role
       );
-      assert.ok(!html.includes(STATUS), role);
     }
   }
 );
 
 test(
-  "AK-1: Der Schalter für „Status“ ist aus; im Menü steht „Status“ an erster Stelle, mit allen drei Rollen, und nur der Schalter blendet ihn aus",
+  "AK-1: Der Schalter für „Status“ ist seit KB-3 an; im Menü steht „Status“ an erster Stelle, mit allen drei Rollen",
   { skip },
   async () => {
     const area = await renderer.load("/src/utils/chatbotArea.js");
-    assert.equal(area.STATUS_PAGE_READY, false);
+    assert.equal(area.STATUS_PAGE_READY, true);
     const { default: paths } = await renderer.load("/src/utils/paths.js");
     assert.equal(paths.settings.chatbot.status(), STATUS);
     assert.equal(paths.settings.chatbot.design(), DESIGN);
 
-    // Der Eintrag selbst lässt sich nur am Quelltext zeigen, solange der
-    // Schalter aus ist.
+    // Reihenfolge und Rollen am Quelltext
     const sidebar = readFileSync(
       path.join(SRC, "components/SettingsSidebar/index.jsx"),
       "utf8"
@@ -185,6 +184,7 @@ test(
     assert.deepEqual(
       children.map(({ label, href, active }) => ({ label, href, active })),
       [
+        { label: "Status", href: `${STATUS}?widget=3`, active: false },
         {
           label: "Konversationen",
           href: `${CONVERSATIONS}?widget=3`,
@@ -205,7 +205,7 @@ test(
       const { children } = chatbotBlock(await renderAt(location));
       assert.deepEqual(
         children.map((entry) => entry.href),
-        [CONVERSATIONS, DESIGN, WIDGETS],
+        [STATUS, CONVERSATIONS, DESIGN, WIDGETS],
         location
       );
     }
@@ -221,7 +221,7 @@ test(
   { skip },
   async () => {
     const withHistory = chatbotBlock(await renderAt(`${DESIGN}?widget=7`));
-    assert.equal(withHistory.head.href, `${CONVERSATIONS}?widget=7`);
+    assert.equal(withHistory.head.href, `${STATUS}?widget=7`);
 
     const withoutHistory = chatbotBlock(
       await renderer.render(SIDEBAR, {
@@ -229,7 +229,7 @@ test(
         canViewChatHistory: false,
       })
     );
-    assert.equal(withoutHistory.head.href, DESIGN);
+    assert.equal(withoutHistory.head.href, STATUS);
   }
 );
 
@@ -258,7 +258,7 @@ test(
 );
 
 test(
-  "NAK-3: MenuOption bleibt nah an AnythingLLM: nur Pfadvergleich ohne Suchteil und opensFirstChild",
+  "NAK-3: MenuOption bleibt nah an AnythingLLM: nur Pfadvergleich ohne Suchteil, opensFirstChild und der Punkt am Menü (KB-3)",
   { skip: false },
   () => {
     const source = readFileSync(
@@ -267,6 +267,11 @@ test(
     );
     const kufer = source.match(/Kufer \(KB-2\)/g) ?? [];
     assert.equal(kufer.length, 2, "zwei gekennzeichnete Kufer-Stellen");
+    assert.equal(
+      (source.match(/Kufer \(KB-3, AK-5\)/g) ?? []).length,
+      1,
+      "eine Kufer-Stelle für den Punkt am Menü"
+    );
     assert.match(source, /function hasVisibleOptions\(user = null/);
   }
 );

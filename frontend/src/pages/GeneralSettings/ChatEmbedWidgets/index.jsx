@@ -1,6 +1,7 @@
 import Sidebar from "@/components/SettingsSidebar";
 import { isMobile } from "react-device-detect";
-import { Navigate, useLocation, useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { FullScreenLoader } from "@/components/Preloader";
 import { useCanViewChatHistory } from "@/components/CanViewChatHistory";
 import paths from "@/utils/paths";
@@ -8,6 +9,7 @@ import { withWidget } from "@/utils/chatbotArea";
 import EmbedConfigsView from "./EmbedConfigs";
 import EmbedAnalyticsView from "./EmbedAnalytics";
 import EmbedAppearance from "./EmbedAppearance";
+import CourseStatusView from "./CourseStatus";
 import {
   WidgetPicker,
   useChatbotWidgets,
@@ -44,19 +46,23 @@ export function ChatbotConversations() {
 }
 
 /**
- * /settings/chatbot/status (KB-2, Platzhalter bis KB-3): Der Menüpunkt ist
- * ausgeblendet (utils/chatbotArea STATUS_PAGE_READY); die Adresse führt mit
- * demselben Widget zu „Konversationen“. KB-3 setzt hier die Statusseite ein
- * (ChatbotLayout, oben die gemeinsame Widget-Auswahl aus WidgetSelection)
- * und schaltet STATUS_PAGE_READY ein.
+ * /settings/chatbot/status?widget=<id> (KB-3): Status des Kursbestands zum
+ * Kursprogramm des gewählten Widgets, oben die gemeinsame Widget-Auswahl
+ * (KB-2). Ohne sichtbares Widget zur Widget-Liste wie das Design Center.
  */
 export function ChatbotStatus() {
-  const { search } = useLocation();
+  const { t } = useTranslation();
+  const { loaded, embeds, lastActivity } = useChatbotWidgets();
+  if (loaded && embeds.length === 0)
+    return <Navigate to={paths.settings.chatbot.widgets()} replace />;
   return (
-    <Navigate
-      to={`${paths.settings.chatbot.conversations()}${search}`}
-      replace
-    />
+    <ChatbotLayout>
+      {loaded ? (
+        <CourseStatusView embeds={embeds} lastActivity={lastActivity} />
+      ) : (
+        <p className="p-6 text-theme-text-secondary">{t("common.loading")}</p>
+      )}
+    </ChatbotLayout>
   );
 }
 
