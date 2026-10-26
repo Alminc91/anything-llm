@@ -29,6 +29,7 @@ import {
   widgetFromSearch,
   withWidget,
 } from "@/utils/chatbotArea";
+import { STATE_COLORS, useCourseStatusDot } from "@/utils/courseStatus";
 
 export default function SettingsSidebar() {
   const { t } = useTranslation();
@@ -499,17 +500,27 @@ function AppVersion() {
  * Gruppe „Chatbot“ (KB-2): Status, Konversationen, Design Center, Widgets.
  * Die ersten drei tragen das Widget der aufgerufenen Adresse mit, ein
  * Wechsel des Menüpunkts behält es. Ein Klick auf den Gruppenkopf öffnet
- * den ersten Unterpunkt.
+ * den ersten Unterpunkt. KB-3, AK-5: Punkt an „Status“ und am zugeklappten
+ * Kopf bei Gelb oder Rot.
  */
 function ChatbotOption({ user, t, canViewChatHistory }) {
   const widgetId = widgetFromSearch(useLocation().search);
   const roles = ["admin", "manager", "default"];
+  const dotState = useCourseStatusDot(STATUS_PAGE_READY);
+  const dot = dotState
+    ? {
+        state: dotState,
+        color: STATE_COLORS[dotState].dot,
+        label: t(`course-status.dot.${dotState}`),
+      }
+    : null;
   return (
     <Option
       btnText={t("settings.chatbot")}
       icon={<ChatsCircle className="h-5 w-5 flex-shrink-0" />}
       user={user}
       opensFirstChild={true}
+      dot={dot}
       childOptions={[
         {
           hidden: !STATUS_PAGE_READY,
@@ -517,6 +528,7 @@ function ChatbotOption({ user, t, canViewChatHistory }) {
           href: withWidget(paths.settings.chatbot.status(), widgetId),
           flex: true,
           roles,
+          dot,
         },
         {
           hidden: !canViewChatHistory,

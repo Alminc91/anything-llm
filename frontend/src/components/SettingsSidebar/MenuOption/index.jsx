@@ -15,6 +15,7 @@ export default function MenuOption({
   hidden = false,
   isChild = false,
   opensFirstChild = false,
+  dot = null,
 }) {
   const storageKey = generateStorageKey({ key: btnText });
   const location = useLocation();
@@ -112,6 +113,17 @@ export default function MenuOption({
           >
             {btnText}
           </p>
+          {/* Kufer (KB-3, AK-5): Punkt bei Gelb oder Rot, am Gruppenkopf nur
+              zugeklappt; der Text ist für Screenreader */}
+          {dot && (isChild || !isExpanded) && (
+            <span
+              data-menu-dot={dot.state}
+              className="ml-auto mr-1 h-2 w-2 flex-none rounded-full"
+              style={{ background: dot.color }}
+            >
+              <span className="sr-only">{dot.label}</span>
+            </span>
+          )}
         </Link>
         {hasChildren && (
           <button onClick={handleClick} className="p-2 text-white">
