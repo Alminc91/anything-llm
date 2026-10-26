@@ -16,6 +16,9 @@ const {
 const {
   validateCategoryMapSetting,
 } = require("../utils/chats/embedCategoryChains");
+const {
+  validateCourseInventorySetting,
+} = require("../utils/chats/courseInventory");
 
 function isNullOrNaN(value) {
   if (value === null) return true;
@@ -267,6 +270,14 @@ const SystemSettings = {
     // null (keine Karte); ungültig -> Fehler, das Update wird abgelehnt und
     // der alte Wert bleibt. Gelesen nur von embedCategoryChains.loadCategoryMap.
     kufer_category_map: (update) => validateCategoryMapSetting(update),
+    // KIE-576 Paket 3: Kursbestand des Kursprogramms (JSON, version 1,
+    // höchstens 512 KiB, höchstens 24 h alt, offered nicht leer), wie die
+    // Karte nur über _updateSettings (docker exec), nicht über HTTP: das
+    // Label steht bewusst nicht in supportedFields (NAK-K4). Leer -> null
+    // (kein Wert, Verhalten wie heute); ungültig -> Fehler, das Update wird
+    // abgelehnt und der alte Wert bleibt. Gelesen nur von
+    // utils/chats/courseInventory.js.
+    kufer_course_inventory: (update) => validateCourseInventorySetting(update),
     // Global default vector search mode. Invalid values coerce to "default".
     vector_search_default: (update) => {
       const validModes = ["default", "rerank", "hybrid", "hybrid_rerank"];

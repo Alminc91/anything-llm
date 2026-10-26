@@ -87,6 +87,8 @@ const STANDARD = {
   accentColor: keys.DEFAULT_ACCENT_COLOR,
   greetingBubbleText: DEFAULTS.greeting,
   chatbotBubblesMessages: [...keys.DEFAULT_WELCOME_BUBBLES],
+  // KIE-576 Paket 3: Bezeichnung der Kursanzahl
+  courseCountWord: keys.DEFAULT_COURSE_COUNT_WORD,
 };
 const OWN = {
   accentColor: "#123456",
@@ -110,6 +112,7 @@ const OWN = {
   inlineSendText: "Los",
   defaultMessages: ["Yoga am Abend?", "Gibt es Kurse, die abends stattfinden?"],
   chatbotBubblesMessages: ["Eigene Blase"],
+  courseCountWord: "Seminare",
 };
 
 test("C7: unverändert gespeicherte Werte bleiben beim Speichern eines anderen Feldes, für jedes Feld, auch als inhaltsgleiche Kopie (Datenschutz-Text wie die anderen Felder)", () => {

@@ -19,6 +19,7 @@ import {
   listItems,
   validateConfig,
   withChoice,
+  withCourseCount,
   withLook,
   withUserTextColor,
 } from "./widgetKeys";
@@ -79,6 +80,9 @@ export default function EmbedAppearance() {
   // Standard, „Standardtext“ ist deaktiviert.
   const [defaults, setDefaults] = useState(null);
   const [defaultsError, setDefaultsError] = useState(false);
+  // KIE-576 Paket 3: Kursbestand des Workspace für die Vorschau (mit den
+  // Standardtexten geladen); null = keine Kursliste
+  const [courseInventory, setCourseInventory] = useState(null);
 
   // „Ungespeicherte Änderungen“ nur bei echter Änderung (R5): bereinigt
   // verglichen, damit eine Vorbelegung, die der Kunde wieder auf den
@@ -140,20 +144,23 @@ export default function EmbedAppearance() {
   // (kein Text geht beim Speichern verloren).
   useEffect(() => {
     let cancelled = false;
-    Embed.getDefaults("de").then(({ defaults, error }) => {
-      if (cancelled) return;
-      setDefaults(defaults);
-      setDefaultsError(!!error);
-      if (error)
-        showToast(
-          `Standardtexte konnten nicht geladen werden (${error}). Eigene Texte bleiben erhalten; „Standardtext“ ist deaktiviert.`,
-          "error"
-        );
-    });
+    Embed.getDefaults("de", embedId).then(
+      ({ defaults, courseInventory, error }) => {
+        if (cancelled) return;
+        setDefaults(defaults);
+        setCourseInventory(courseInventory ?? null);
+        setDefaultsError(!!error);
+        if (error)
+          showToast(
+            `Standardtexte konnten nicht geladen werden (${error}). Eigene Texte bleiben erhalten; „Standardtext“ ist deaktiviert.`,
+            "error"
+          );
+      }
+    );
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [embedId]);
 
   const updateField = useCallback((field, value) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
@@ -185,6 +192,14 @@ export default function EmbedAppearance() {
   const setChoice = useCallback(
     (key, value) =>
       setConfig((prev) => withChoice(prev, initialConfig, key, value)),
+    [initialConfig]
+  );
+
+  // Schalter „Kursanzahl im Untertitel“ (KIE-576 Paket 3): gespeichert wird
+  // nur eine Abweichung vom Standard an (Regel D6, widgetKeys.js
+  // withCourseCount)
+  const setCourseCount = useCallback(
+    (on) => setConfig((prev) => withCourseCount(prev, initialConfig, on)),
     [initialConfig]
   );
 
@@ -392,6 +407,7 @@ export default function EmbedAppearance() {
                 updateOptionalField={updateOptionalField}
                 resetKeys={resetKeys}
                 setChoice={setChoice}
+                setCourseCount={setCourseCount}
                 addListItem={addListItem}
                 updateListItem={updateListItem}
                 removeListItem={removeListItem}
@@ -438,6 +454,7 @@ export default function EmbedAppearance() {
             defaults={defaults}
             defaultsError={defaultsError}
             greetingKey={greetingKey}
+            courseInventory={courseInventory}
           />
         </div>
       </div>

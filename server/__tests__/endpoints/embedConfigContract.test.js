@@ -18,8 +18,24 @@
 // HTTP mit der Adresse auf, die das Widget baut (embedConfigUrl:
 // `${baseApiUrl}/${embedId}/config?language=…`). So kommt die Sprache durch
 // das Parsen der Adresse, nicht als eingesetztes request.query.
+//
+// KIE-576 Paket 3: courseCount {count, word} nach Vertrag
+// (issues/KIE-576/KIE-576-kursanzahl.md, Fixliste r4 Nr. 2) mit den
+// Beispielwerten der Fixture: Kursbestand mit 837 Kursnummern, 812 davon als
+// Kursdokumente im Workspace, 14 veraltete. offered, hidden und stand
+// berechnet der Server nur intern, /config liefert sie nicht. Der Kursbestand kommt
+// aus der echten courseInventory.js (Datenbankzeile und Workspace-Dokumente
+// als Attrappen).
 
-jest.mock("../../utils/prisma", () => ({}));
+jest.mock("../../utils/prisma", () => ({
+  system_settings: {
+    findFirst: jest.fn(async ({ where }) =>
+      where?.label === "kufer_course_inventory"
+        ? globalThis.__courseInventoryRow ?? null
+        : null
+    ),
+  },
+}));
 jest.mock("../../models/telemetry", () => ({
   Telemetry: { sendTelemetry: jest.fn() },
 }));
@@ -36,6 +52,7 @@ jest.mock("../../utils/middleware/embedMiddleware", () => ({
       id: 1,
       uuid: request.params.embedId,
       visual_config: JSON.stringify(globalThis.__embedVisualConfig ?? {}),
+      workspace: { id: 1, slug: "ws" },
     };
     next();
   }),
@@ -69,6 +86,48 @@ const express = require("express");
 const { embeddedEndpoints } = require("../../endpoints/embed");
 const { DEFAULT_SUGGESTIONS } = require("../../utils/chats/embedDefaults");
 const CONTRACT = require("../utils/chats/fixtures/embedConfigContract.json");
+const {
+  courseInventoryStatus,
+  __test__: courseInventory,
+} = require("../../utils/chats/courseInventory");
+
+// Kursbestand der Beispielwerte: A = 837 Kursnummern, B = 812 davon plus 14
+// veraltete, Stand 24.10.2026 08:00 UTC; die Uhr des Tests läuft zwei Stunden
+// danach (der Stand ist gültig, höchstens 24 h alt)
+const STAND = "2026-10-24T08:00:00Z";
+const OFFERED = Array.from(
+  { length: 837 },
+  (_, i) => `262-${String(i + 1).padStart(4, "0")}`
+);
+const INVENTORY_ROW = {
+  value: JSON.stringify({
+    version: 1,
+    client: "vhs-beispiel",
+    created: STAND,
+    offered: OFFERED,
+  }),
+};
+const STALE_NUMBERS = Array.from({ length: 14 }, (_, i) => `ALT-${i + 1}`);
+const WORKSPACE_NUMBERS = [...OFFERED.slice(0, 812), ...STALE_NUMBERS];
+function installCourseInventory(row = INVENTORY_ROW) {
+  globalThis.__courseInventoryRow = row;
+  courseInventory.reset();
+  courseInventory.setDeps({
+    findWorkspaceId: async (slug) => (slug === "ws" ? 1 : null),
+    listDocuments: async () =>
+      WORKSPACE_NUMBERS.map((number) => ({
+        docId: `d-${number}`,
+        docpath: `custom-documents/${number}.json`,
+      })),
+    listVectors: async (docIds) =>
+      docIds.map((docId) => ({ docId, vectorId: `v-${docId}` })),
+    readDocumentText: async (docpath) =>
+      `Titel: Kurs\nKursnummer: ${docpath.slice(17, -5)}\nKurs-Link: https://www.vhs-beispiel.de/kurs\n`,
+    tableRows: async () => null,
+  });
+}
+const realDateNow = Date.now;
+const CLOCK_OFFSET = Date.parse("2026-10-24T10:00:00Z") - realDateNow();
 
 // Kennzeichen der Startvorschläge
 const FLAGS = ["defaultMessagesSaved", "defaultMessagesStandard"];
@@ -79,6 +138,10 @@ let baseApiUrl;
 
 beforeAll(async () => {
   jest.spyOn(console, "error").mockImplementation(() => {});
+  jest
+    .spyOn(Date, "now")
+    .mockImplementation(() => realDateNow() + CLOCK_OFFSET);
+  installCourseInventory();
   const app = express();
   const apiRouter = express.Router();
   app.use("/api", apiRouter);
@@ -92,7 +155,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await new Promise((resolve) => server.close(resolve));
   console.error.mockRestore();
+  Date.now.mockRestore();
   delete globalThis.__embedVisualConfig;
+  delete globalThis.__courseInventoryRow;
 });
 
 /**
@@ -310,6 +375,170 @@ describe("Vertrag /config (E10 bis E12): Fälle der Fixture über HTTP wie das W
     expect((await twice.json()).defaultMessages).toEqual([
       ...DEFAULT_SUGGESTIONS.de,
     ]);
+  });
+});
+
+// KIE-576 Paket 3: Fälle nur des Servers zu courseCount (die Fixture hat die
+// Beispielwerte vorhanden/fehlend, beide laufen oben mit)
+describe("Vertrag /config: courseCount (KIE-576 Paket 3)", () => {
+  const EXAMPLE = { count: 812, word: "Kurse" };
+  afterEach(() => installCourseInventory());
+
+  test("Fixture: je ein Fall mit und ohne courseCount, Beispielwerte des Vertrags", () => {
+    const withCount = forkCases.filter((c) => c.config.courseCount);
+    const without = forkCases.filter((c) =>
+      (c.configAbsent || []).includes("courseCount")
+    );
+    expect(withCount.map((c) => c.config.courseCount)).toEqual([EXAMPLE]);
+    expect(without.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // Fixliste r4 Nr. 2: öffentlich nur count und word; die Betreiber-Zahlen
+  // (offered, hidden, stand) berechnet courseInventoryStatus weiter intern
+  test("genau die zwei Felder count und word, count als ganze Zahl", async () => {
+    const { body } = await widgetFetch({}, "de");
+    expect(body.courseCount).toEqual(EXAMPLE);
+    expect(Object.keys(body.courseCount).sort()).toEqual(["count", "word"]);
+    expect(Number.isSafeInteger(body.courseCount.count)).toBe(true);
+    for (const key of ["offered", "hidden", "stand"])
+      expect(JSON.stringify(body)).not.toContain(`"${key}"`);
+  });
+
+  test("intern weiter berechnet: angeboten, ausgeblendet, Stand", async () => {
+    expect(await courseInventoryStatus({ slug: "ws" })).toEqual({
+      count: 812,
+      offered: 837,
+      hidden: 14,
+      stand: "2026-10-24T08:00:00.000Z",
+    });
+  });
+
+  // Untertitel-Zeile (Fixture courseCountTexts, wortgleich im Widget und in
+  // der Vorschau des Design Centers): der erste Fall passt zur Antwort des
+  // Servers, keine Zeilen der früheren Info-Karte mehr
+  test("Fixture courseCountTexts: Untertitel-Zeile zum Beispiel des Servers", async () => {
+    const { cases } = CONTRACT.courseCountTexts;
+    const { body } = await widgetFetch({}, "de");
+    expect(cases[0].courseCount).toEqual(body.courseCount);
+    expect(cases[0].subtitle).toBe("aktuell 812 Kurse");
+    for (const c of cases) {
+      expect(Object.keys(c.courseCount).sort()).toEqual(["count", "word"]);
+      expect(Object.keys(c).sort()).toEqual([
+        "courseCount",
+        "language",
+        "name",
+        "subtitle",
+      ]);
+      expect(c.subtitle).not.toMatch(/[–—]/);
+    }
+    expect(cases.some((c) => c.language === "en")).toBe(true);
+  });
+
+  test.each([
+    ["englisches Widget: Standardwort courses", {}, "en", "courses"],
+    ["eigene Bezeichnung", { courseCountWord: " Angebote " }, "de", "Angebote"],
+    [
+      "eigene Bezeichnung auch englisch",
+      { courseCountWord: "Lehrgänge" },
+      "en",
+      "Lehrgänge",
+    ],
+    [
+      "Bindestrich zwischen Buchstaben erlaubt",
+      { courseCountWord: "Online-Kurse" },
+      "de",
+      "Online-Kurse",
+    ],
+    [
+      "Leerzeichen: Standard (ein Wort, Fixliste r2b)",
+      { courseCountWord: "Online-Kurse vor Ort" },
+      "de",
+      "Kurse",
+    ],
+    ["Ziffer: Standard", { courseCountWord: "Kurse 2026" }, "de", "Kurse"],
+    ["Satzzeichen: Standard", { courseCountWord: "Kurse!" }, "de", "Kurse"],
+    ["HTML: Standard", { courseCountWord: "<b>Kurse</b>" }, "de", "Kurse"],
+    [
+      "länger als 20 Zeichen: Standard",
+      { courseCountWord: "Weiterbildungsangebote" },
+      "de",
+      "Kurse",
+    ],
+    ["leer: Standard", { courseCountWord: "  " }, "en", "courses"],
+  ])("%s", async (_name, visualConfig, language, word) => {
+    const { body } = await widgetFetch(visualConfig, language);
+    expect(body.courseCount).toEqual({ ...EXAMPLE, word });
+  });
+
+  // Vertrag der Bezeichnung (Fixture courseCountWords, wortgleich im
+  // Widget): ein gespeicherter ungültiger Wert (Altbestand) gilt wie leer
+  test.each(CONTRACT.courseCountWords.valid)(
+    "Bezeichnung gültig %j: word %j",
+    async (input, word) => {
+      const { body } = await widgetFetch({ courseCountWord: input }, "de");
+      expect(body.courseCount).toEqual({ ...EXAMPLE, word });
+    }
+  );
+  test.each(CONTRACT.courseCountWords.invalid)(
+    "Bezeichnung ungültig %j: Standard der Sprache",
+    async (input) => {
+      for (const [language, word] of [
+        ["de", "Kurse"],
+        ["en", "courses"],
+      ]) {
+        const { body } = await widgetFetch(
+          { courseCountWord: input },
+          language
+        );
+        expect(body.courseCount).toEqual({ ...EXAMPLE, word });
+      }
+    }
+  );
+
+  test.each([
+    ["Anzeige aus (auch groß geschrieben)", { courseCountMode: " OFF " }],
+  ])("%s: kein Feld", async (_name, visualConfig) => {
+    const { body } = await widgetFetch(visualConfig, "de");
+    expect(body).not.toHaveProperty("courseCount");
+  });
+
+  test.each([
+    ["unbekannter Wert", { courseCountMode: "vielleicht" }],
+    ["an", { courseCountMode: "on" }],
+  ])("Anzeige %s: wie Standard an", async (_name, visualConfig) => {
+    const { body } = await widgetFetch(visualConfig, "de");
+    expect(body.courseCount).toEqual(EXAMPLE);
+  });
+
+  test.each([
+    ["kein Kursbestand", null],
+    ["kaputter Kursbestand", { value: "{" }],
+    [
+      "Kursbestand älter als 24 h",
+      {
+        value: INVENTORY_ROW.value.replace(STAND, "2026-10-23T09:00:00Z"),
+      },
+    ],
+  ])(
+    "%s: kein Feld, Untertitel unverändert (NAK-K1, NAK-K5)",
+    async (_name, row) => {
+      installCourseInventory(row);
+      const { body } = await widgetFetch(
+        { assistantSubtitle: "Ihr Kursberater" },
+        "de"
+      );
+      expect(body).not.toHaveProperty("courseCount");
+      expect(body.assistantSubtitle).toBe("Ihr Kursberater");
+    }
+  );
+
+  test("mit courseCount bleibt der gespeicherte Untertitel in der Antwort (NAK-K5)", async () => {
+    const { body } = await widgetFetch(
+      { assistantSubtitle: "Ihr Kursberater" },
+      "de"
+    );
+    expect(body.courseCount).toEqual(EXAMPLE);
+    expect(body.assistantSubtitle).toBe("Ihr Kursberater");
   });
 });
 

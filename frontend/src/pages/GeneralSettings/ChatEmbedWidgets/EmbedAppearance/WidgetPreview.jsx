@@ -62,6 +62,7 @@ import {
   PILL_MAX_LEN,
   pillLabel,
   pillTextColor,
+  previewCourseCount,
   subtitleFieldValue,
   textValue,
   themeChoice,
@@ -318,6 +319,7 @@ export default function WidgetPreview({
   defaults,
   defaultsError = false,
   greetingKey,
+  courseInventory = null,
 }) {
   const palette = paletteOf(config);
   const inline = displayMode(config) === "inline";
@@ -374,6 +376,7 @@ export default function WidgetPreview({
               defaultsError={defaultsError}
               greetingKey={greetingKey}
               palette={palette}
+              courseInventory={courseInventory}
             />
           ) : (
             <BubblePreview
@@ -385,6 +388,7 @@ export default function WidgetPreview({
               greetingKey={greetingKey}
               palette={palette}
               areaHeight={areaHeight}
+              courseInventory={courseInventory}
             />
           )}
         </div>
@@ -398,12 +402,26 @@ export default function WidgetPreview({
 // höher (mindestens 60 px); der Button rechts bleibt frei (gap-3, 12 px),
 // wie im Widget (N3, Nutzerentscheidung 20.10.2026, Fixliste 7.22-rc13:
 // „Es muss immer ausgeschrieben sein“; ersetzt die Ellipse aus rc10 W1).
-function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
+// KIE-576 Paket 3: mit Schalter „Kursanzahl im Untertitel“ an steht statt des
+// Untertitels „aktuell 812 Kurse“ wie im Widget (Zahl fett, ohne Info-Button
+// und ohne Karte, Fixliste r4 Nr. 3), mit der echten Zahl des Kursbestands,
+// sonst der Beispielzahl mit dem Zusatz „Beispiel“ (PreviewCourseCount).
+function PreviewHeader({
+  config,
+  logoPreview,
+  defaults,
+  palette,
+  action,
+  courseInventory = null,
+}) {
   const name =
     textValue(config.name).trim() || textValue(defaults?.name) || "KI-Berater";
+  const courseCount = previewCourseCount(config, courseInventory);
   // Untertitel wie das Widget (R5): ohne gespeicherten Wert der Standard,
   // "" = kein Untertitel
-  const subtitle = subtitleFieldValue(config, defaults).trim();
+  const subtitle = courseCount
+    ? ""
+    : subtitleFieldValue(config, defaults).trim();
   return (
     <div
       className="flex items-center gap-3 px-4 py-2.5 min-h-[60px] flex-shrink-0"
@@ -432,9 +450,51 @@ function PreviewHeader({ config, logoPreview, defaults, palette, action }) {
             {subtitle}
           </span>
         )}
+        {courseCount && (
+          <PreviewCourseCount courseCount={courseCount} palette={palette} />
+        )}
       </span>
       <span className="flex-shrink-0 flex items-center">{action}</span>
     </div>
+  );
+}
+
+// Zusatz zur Beispielzahl ohne Kursliste vom Kursprogramm (K-D6)
+export const COURSE_COUNT_SAMPLE_LABEL = "Beispiel";
+
+/**
+ * Kursanzahl im Kopf der Vorschau wie im Widget (KIE-576, Fixliste r4 Nr. 3;
+ * Widget src/components/ChatWindow/Header/CourseCount.jsx): „aktuell <Zahl
+ * fett> <Bezeichnung>“ in einer Zeile, ohne Info-Button und ohne Karte. Mit
+ * der Beispielzahl (sample) dahinter der Zusatz „Beispiel“.
+ * @param {{courseCount: {lead: string, number: string, word: string, sample: boolean}, palette: Object}} props
+ */
+function PreviewCourseCount({ courseCount, palette }) {
+  const { lead, number, word, sample } = courseCount;
+  return (
+    <span
+      className="flex items-center gap-0.5 min-w-0 text-[11px] leading-snug whitespace-nowrap"
+      style={{ color: palette.muted }}
+      data-preview="header-course-count"
+      data-sample={sample ? "true" : "false"}
+    >
+      <span className="min-w-0 overflow-hidden text-ellipsis">
+        {lead}{" "}
+        <span className="font-semibold" style={{ color: palette.text }}>
+          {number}
+        </span>{" "}
+        {word}
+      </span>
+      {sample && (
+        <span
+          className="flex-shrink-0 ml-1 px-1.5 rounded-full text-[10px] font-semibold"
+          style={{ border: `1px solid ${palette.line}` }}
+          data-preview="header-course-count-sample"
+        >
+          {COURSE_COUNT_SAMPLE_LABEL}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -1266,6 +1326,7 @@ function BubblePreview({
   greetingKey,
   palette,
   areaHeight = null,
+  courseInventory = null,
 }) {
   const [open, setOpen] = useState(true);
   const height = previewWindowHeight(areaHeight);
@@ -1347,6 +1408,7 @@ function BubblePreview({
                 logoPreview={logoPreview}
                 defaults={defaults}
                 palette={palette}
+                courseInventory={courseInventory}
                 action={
                   <button
                     type="button"
@@ -1465,6 +1527,7 @@ function InlinePreview({
   defaultsError = false,
   greetingKey,
   palette,
+  courseInventory = null,
 }) {
   // startet aufgeklappt wie die Vorschau des Chatfensters, Einklappen per
   // Button bleibt möglich (Spezifikation §12 Eintrag 12, Nutzer 21.10.2026:
@@ -1552,6 +1615,7 @@ function InlinePreview({
                   logoPreview={logoPreview}
                   defaults={defaults}
                   palette={palette}
+                  courseInventory={courseInventory}
                   action={
                     <button
                       type="button"

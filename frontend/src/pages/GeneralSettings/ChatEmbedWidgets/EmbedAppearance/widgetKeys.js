@@ -872,6 +872,122 @@ export function privacyStartBubbleOn(config = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Kursanzahl im Untertitel (KIE-576 Paket 3): Schalter „Kursanzahl im
+// Untertitel“ (visual_config.courseCountMode, Standard an) und Feld
+// „Bezeichnung“ (visual_config.courseCountWord, Standard „Kurse“). Regeln wie
+// der Server (embedStandards.js courseCountModeValue, courseCountWordValue;
+// Gegenprobe im Test designCenterCourseCount). An: Statt des Untertitels
+// steht live „aktuell <Zahl> <Bezeichnung>“, der Untertitel bleibt
+// gespeichert (NAK-K5) und erscheint mit Schalter aus wieder. Keine
+// Kombination aus beidem (E32).
+// ---------------------------------------------------------------------------
+
+export const COURSE_COUNT_WORD_MAX_LEN = 20;
+export const DEFAULT_COURSE_COUNT_WORD = "Kurse";
+// Beispielzahl der Vorschau ohne Kursliste vom Kursprogramm (mit dem Zusatz
+// „Beispiel“, Fixliste r4 Nr. 3)
+export const SAMPLE_COURSE_COUNT = 837;
+// Zeile wie im Widget (Vertrags-Fixture courseCountTexts): „aktuell <n> <w>“
+export const COURSE_COUNT_LEAD = "aktuell";
+const COURSE_COUNT_WORD_RE = /^\p{L}+(?:-\p{L}+)*$/u;
+export const COURSE_COUNT_WORD_ERROR = `Bitte ein Wort aus Buchstaben, höchstens ${COURSE_COUNT_WORD_MAX_LEN} Zeichen, etwa Seminare oder Online-Kurse.`;
+
+/** @returns {boolean} Kursanzahl statt des Untertitels (fehlend: an) */
+export function courseCountOn(config = {}) {
+  const v = config?.courseCountMode;
+  return !(typeof v === "string" && v.trim().toLowerCase() === "off");
+}
+
+/**
+ * Bearbeitungsstand nach dem Schalter (Regel D6 wie withChoice): Zeigt der
+ * gespeicherte Stand (ohne Schlüssel der Standard an) schon die Wahl, gilt
+ * er wieder; sonst wird "on" bzw. "off" gesetzt. "on" entfällt beim
+ * Speichern, wenn es in dieser Sitzung gesetzt wurde (cleanConfig).
+ * @param {Object} config Bearbeitungsstand
+ * @param {Object} initial gespeicherter Stand
+ * @param {boolean} on
+ * @returns {Object}
+ */
+export function withCourseCount(config, initial = {}, on = true) {
+  return withEffective(
+    config,
+    initial,
+    "courseCountMode",
+    on ? "on" : "off",
+    (c) => (courseCountOn(c) ? "on" : "off")
+  );
+}
+
+/**
+ * Gültige Bezeichnung wie im Server: in NFC (r3-S2), getrimmt, 1 bis 20
+ * Zeichen (UTF-16), ein Wort aus Buchstaben, Bindestrich nur zwischen
+ * Buchstaben; sonst null.
+ * @param {*} value
+ * @returns {string|null}
+ */
+export function courseCountWordValue(value) {
+  if (typeof value !== "string") return null;
+  const word = value.normalize("NFC").trim();
+  if (word.length === 0 || word.length > COURSE_COUNT_WORD_MAX_LEN) return null;
+  return COURSE_COUNT_WORD_RE.test(word) ? word : null;
+}
+
+/** Wert im Feld „Bezeichnung“: gespeicherter Text, fehlend der Standard. */
+export function courseCountWordFieldValue(config = {}) {
+  const v = config.courseCountWord;
+  return typeof v === "string" ? v : DEFAULT_COURSE_COUNT_WORD;
+}
+
+/** Fehlertext für das Feld „Bezeichnung“ oder null (leer = Standard). */
+export function courseCountWordError(value) {
+  if (isBlank(value)) return null;
+  return courseCountWordValue(value) === null ? COURSE_COUNT_WORD_ERROR : null;
+}
+
+/**
+ * Kursbestand vom Server (GET /embed/defaults?embedId=, courseInventory)
+ * prüfen: count als ganze Zahl ≥ 0, sonst null. Seit Fixliste r4 Nr. 2 und 3
+ * liefert der Server nur {count}; weitere Schlüssel fallen weg (angeboten,
+ * ausgeblendet und Stand sind Betreiber-Info, die Vorschau zeigt nur die
+ * Zahl).
+ * @param {*} value
+ * @returns {{count: number}|null}
+ */
+export function courseInventoryValue(value) {
+  if (!value || typeof value !== "object") return null;
+  const { count } = value;
+  return Number.isSafeInteger(count) && count >= 0 ? { count } : null;
+}
+
+/**
+ * Kursanzahl im Kopf der Vorschau (Fixliste r4 Nr. 3): mit gültigem
+ * Kursbestand (count ≥ 1) dessen Zahl wie im Widget, sonst die Beispielzahl
+ * 837 mit sample: true (Zusatz „Beispiel“). Bezeichnung wie live (ungültig
+ * oder leer: „Kurse“), Zahl im deutschen Format. text: „aktuell 812 Kurse“
+ * (wie courseCountTexts der Vertrags-Fixture). null mit Schalter aus.
+ * @param {Object} config
+ * @param {*} inventory courseInventory vom Server
+ * @returns {{text: string, lead: string, number: string, word: string, sample: boolean}|null}
+ */
+export function previewCourseCount(config = {}, inventory = null) {
+  if (!courseCountOn(config)) return null;
+  const value = courseInventoryValue(inventory);
+  const real = !!value && value.count >= 1;
+  const word =
+    courseCountWordValue(config.courseCountWord) ?? DEFAULT_COURSE_COUNT_WORD;
+  const number = new Intl.NumberFormat("de-DE").format(
+    real ? value.count : SAMPLE_COURSE_COUNT
+  );
+  return {
+    text: `${COURSE_COUNT_LEAD} ${number} ${word}`,
+    lead: COURSE_COUNT_LEAD,
+    number,
+    word,
+    sample: !real,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Datenschutz-Text, freies Format, genau wie im Widget (utils/layout.js
 // parsePrivacyText) und im Server (normalizePrivacyText): Zeilen mit „•“,
 // „-“ oder „–“ am Anfang sind Aufzählungspunkte, andere Zeilen Absätze.
@@ -1044,6 +1160,7 @@ function edited(config, initial, key) {
 export const FIELD_TAB = {
   accentColor: "aussehen",
   assistantSubtitle: "inhalt",
+  courseCountWord: "inhalt",
   greeting: "inhalt",
   greetingBubbleText: "inhalt",
   sendMessageText: "inhalt",
@@ -1071,6 +1188,12 @@ export function validateConfig(config, initial, gKey) {
   }
   if (textValue(config.assistantSubtitle).trim().length > SUBTITLE_MAX_LEN)
     errors.assistantSubtitle = `Maximal ${SUBTITLE_MAX_LEN} Zeichen.`;
+  // Bezeichnung der Kursanzahl: nur mit Schalter an und nur geändert (ein
+  // Feld, das aus ist, wird nicht gespeichert)
+  if (courseCountOn(config) && edited(config, initial, "courseCountWord")) {
+    const error = courseCountWordError(config.courseCountWord);
+    if (error) errors.courseCountWord = error;
+  }
   if (
     edited(config, initial, gKey) &&
     textValue(config[gKey]).trim().length > GREETING_MAX_LEN
@@ -1142,6 +1265,12 @@ export function validateConfig(config, initial, gKey) {
  * - privacyStartBubble (AK-12): genau true bleibt, jeder andere Wert wird
  *   entfernt, auch ein unverändert gespeicherter (aus = kein Schlüssel, nie
  *   false; der Server liefert nur true aus, privacyStartBubbleOn).
+ * - Kursanzahl (KIE-576 Paket 3): an ist der Standard, ein in dieser Sitzung
+ *   gesetztes "on" entfällt; "off" bleibt. Bezeichnung: leer oder „Kurse“
+ *   -> entfernen (wie jeder auf den Standard gebrachte Wert), sonst die
+ *   Normalform; mit Schalter aus bleibt sie, wie sie gespeichert ist.
+ *   Ungültig und unverändert gespeichert -> entfernen (r3-S1); neu
+ *   eingegeben sperrt validateConfig das Speichern.
  * @param {Object} config
  * @param {{initial: Object, defaults: Object|null, greetingKey: string}} opts
  * @returns {Object}
@@ -1223,6 +1352,26 @@ export function cleanConfig(
     if (sameAsDefault("assistantSubtitle", v, defaults))
       dropIfEdited("assistantSubtitle");
     else out.assistantSubtitle = v;
+  }
+
+  if ("courseCountMode" in out) {
+    if (courseCountOn(out)) dropIfEdited("courseCountMode");
+    else out.courseCountMode = "off";
+  }
+  // r3-S1: eine ungültige Bezeichnung aus initial wird verworfen, es gilt
+  // der Standard wie live; eine neu eingegebene ungültige bleibt stehen und
+  // sperrt das Speichern mit Meldung (validateConfig)
+  if (!courseCountOn(out)) {
+    if (courseCountWordValue(initial.courseCountWord) !== null)
+      out.courseCountWord = initial.courseCountWord;
+    else drop("courseCountWord");
+  } else if (typeof out.courseCountWord === "string") {
+    const v = courseCountWordValue(out.courseCountWord);
+    if (isBlank(out.courseCountWord)) drop("courseCountWord");
+    else if (v === null) {
+      if (!edited(config, initial, "courseCountWord")) drop("courseCountWord");
+    } else if (v === DEFAULT_COURSE_COUNT_WORD) dropIfEdited("courseCountWord");
+    else out.courseCountWord = v;
   }
 
   if (Array.isArray(out.defaultMessages)) {

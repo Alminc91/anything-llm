@@ -154,9 +154,19 @@ const contentProps = (config, initialConfig = config) => ({
   updateListItem: noop,
   removeListItem: noop,
 });
+// Seit KIE-576 Paket 3 steht im Reiter Inhalt zusätzlich der Schalter
+// „Kursanzahl im Untertitel“ (designCenterCourseCount.test.mjs); gemeint ist
+// hier der Schalter im Block data-privacy-start-bubble.
+const privacyBlock = (html) => {
+  const at = html.indexOf("data-privacy-start-bubble");
+  assert.ok(at >= 0, "Block des Schalters fehlt");
+  return html.slice(at, html.indexOf("</label>", at) + "</label>".length);
+};
 const switchTag = (html) => {
-  const m = html.match(/<input[^>]*role="switch"[^>]*>/g) || [];
-  assert.equal(m.length, 1, "genau ein Schalter im Reiter Inhalt");
+  const all = html.match(/<input[^>]*role="switch"[^>]*>/g) || [];
+  assert.equal(all.length, 2, "Kursanzahl und Datenschutz im Reiter Inhalt");
+  const m = privacyBlock(html).match(/<input[^>]*role="switch"[^>]*>/g) || [];
+  assert.equal(m.length, 1, "genau ein Schalter im Datenschutz-Hinweis");
   return m[0];
 };
 
@@ -177,7 +187,7 @@ test(
         assert.match(input, /type="checkbox"/, label);
         assert.equal(/\schecked=""/.test(input), value === true, label);
         // Beschriftung und Zustand im selben label wie der Schalter
-        const box = html.match(
+        const box = privacyBlock(html).match(
           /<label[^>]*>(?:(?!<\/label>)[\s\S])*role="switch"[\s\S]*?<\/label>/
         );
         assert.ok(box, `${label}: label fehlt`);
@@ -199,10 +209,23 @@ test(
         // der Gruppenhinweis steht nur einmal da (A2)
         assert.ok(!t.includes(OLD_HINT_START), label);
         const fields = html.indexOf('data-privacy-fields=""');
-        assert.ok(fields > html.indexOf('role="switch"'), label);
+        assert.ok(
+          fields >
+            html.indexOf(
+              'role="switch"',
+              html.indexOf("data-privacy-start-bubble")
+            ),
+          label
+        );
         assert.ok(t.indexOf(SWITCH_HINT) < at("Überschrift Standardtext"));
-        // Felder immer bearbeitbar (kein gesperrtes fieldset wie bis 7.22.2)
-        assert.doesNotMatch(html, /<fieldset/, label);
+        // Felder immer bearbeitbar (kein gesperrtes fieldset wie bis 7.22.2;
+        // das einzige fieldset im Reiter ist seit KIE-576 Paket 3 der
+        // Untertitel, er steht vor dem Datenschutz-Hinweis)
+        assert.doesNotMatch(
+          html.slice(html.indexOf("data-privacy-start-bubble")),
+          /<fieldset/,
+          label
+        );
         for (const aria of [
           "Überschrift des Datenschutz-Hinweises",
           "Text des Datenschutz-Hinweises",
@@ -594,8 +617,17 @@ const buttonByText = (root, label) =>
   )[0];
 const byAria = (root, label) =>
   elements(root, (el) => el.getAttribute("aria-label") === label)[0];
+// Der Schalter im Block data-privacy-start-bubble (seit KIE-576 Paket 3
+// steht daneben der Schalter „Kursanzahl im Untertitel“)
 const theSwitch = (root) => {
-  const found = elements(root, (el) => el.getAttribute("role") === "switch");
+  const block = elements(root, (el) =>
+    el.hasAttribute?.("data-privacy-start-bubble")
+  );
+  assert.equal(block.length, 1, "Block des Schalters");
+  const found = elements(
+    block[0],
+    (el) => el.getAttribute("role") === "switch"
+  );
   assert.equal(found.length, 1, "genau ein Schalter");
   return found[0];
 };

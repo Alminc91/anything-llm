@@ -69,6 +69,21 @@ const DEFAULT_COURSE_CARDS_POSITION = "above";
 // Unterseiten im selben Tab nicht erneut).
 const WELCOME_BUBBLES_VALUES = Object.freeze(["off", "first", "every"]);
 const DEFAULT_WELCOME_BUBBLES = "first";
+// KIE-576 Paket 3: Kursanzahl im Untertitel (visual_config.courseCountMode,
+// Standard an) und ihre Bezeichnung (visual_config.courseCountWord, ein
+// Wort: nach NFC und trim 1 bis 20 UTF-16-Einheiten, Buchstaben,
+// Bindestrich nur zwischen Buchstaben, etwa „Seminare“ oder „Online-Kurse“;
+// fehlt, leer oder ungültig: „Kurse“, englisch „courses“). Dieselben Regeln
+// prüfen das Design Center (widgetKeys.js) und das Widget; Beispiele in der
+// Fixture des Vertrags (embedConfigContract.json, courseCountWords).
+const COURSE_COUNT_MODES = Object.freeze(["on", "off"]);
+const DEFAULT_COURSE_COUNT_MODE = "on";
+const COURSE_COUNT_WORD_MAX_LEN = 20;
+const COURSE_COUNT_WORD_RX = /^\p{L}+(?:-\p{L}+)*$/u;
+const DEFAULT_COURSE_COUNT_WORDS = Object.freeze({
+  de: "Kurse",
+  en: "courses",
+});
 
 // Feste Standards für beide Darstellungen. Karten wie Demo-Variante 4
 // („Suche“, chatbot-v4): kurzer Chatbot-Text, Karten als Zeilen. Ob Karten
@@ -278,6 +293,46 @@ function courseCardsPositionValue(value) {
  */
 function welcomeBubblesValue(value) {
   return oneOf(value, WELCOME_BUBBLES_VALUES, DEFAULT_WELCOME_BUBBLES);
+}
+
+/**
+ * Kursanzahl im Untertitel an oder aus (visual_config.courseCountMode,
+ * KIE-576 Paket 3): "on" (Standard, auch fehlend oder ungültig) oder "off".
+ * @param {*} value
+ * @returns {"on"|"off"}
+ */
+function courseCountModeValue(value) {
+  return oneOf(value, COURSE_COUNT_MODES, DEFAULT_COURSE_COUNT_MODE);
+}
+
+/**
+ * Gespeicherte Bezeichnung der Kursanzahl (visual_config.courseCountWord):
+ * in NFC (r3-S2: „ä“ in zerlegter Form, etwa aus einem PDF, ist sonst
+ * Buchstabe plus Zeichen ohne \p{L}), getrimmt, 1 bis 20 Zeichen (UTF-16),
+ * ein Wort aus Buchstaben, Bindestrich nur zwischen Buchstaben. Sonst null
+ * (es gilt der Standard der Sprache, auch für einen ungültigen Altbestand).
+ * @param {*} value
+ * @returns {string|null}
+ */
+function courseCountWordValue(value) {
+  if (typeof value !== "string") return null;
+  const word = value.normalize("NFC").trim();
+  if (word.length === 0 || word.length > COURSE_COUNT_WORD_MAX_LEN) return null;
+  return COURSE_COUNT_WORD_RX.test(word) ? word : null;
+}
+
+/**
+ * Wirksame Bezeichnung für das Widget: die gespeicherte (courseCountWordValue)
+ * oder der Standard der Sprache („Kurse“, englisch „courses“).
+ * @param {*} value gespeicherter visual_config.courseCountWord
+ * @param {string} [lang] "de"|"en" (embedDefaultsLanguage)
+ * @returns {string}
+ */
+function courseCountWord(value, lang = "de") {
+  return (
+    courseCountWordValue(value) ??
+    DEFAULT_COURSE_COUNT_WORDS[lang === "en" ? "en" : "de"]
+  );
 }
 
 // Eigener Text: String, getrimmt nicht leer und keine frühere Vorbelegung
@@ -520,6 +575,9 @@ module.exports = {
   COURSE_CARDS_DEFAULTS,
   COURSE_CARDS_POSITIONS,
   WELCOME_BUBBLES_VALUES,
+  COURSE_COUNT_MODES,
+  COURSE_COUNT_WORD_MAX_LEN,
+  DEFAULT_COURSE_COUNT_WORDS,
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
   LEGACY_DEFAULT_GREETINGS,
@@ -535,6 +593,9 @@ module.exports = {
   courseCardsValue,
   courseCardsPositionValue,
   welcomeBubblesValue,
+  courseCountModeValue,
+  courseCountWordValue,
+  courseCountWord,
   greetingBubbleTextShown,
   isLegacyGreeting,
   effectiveGreeting,

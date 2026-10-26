@@ -299,7 +299,12 @@ test(
       assert.doesNotMatch(block, /green-/);
       assert.match(block, /border-zinc-400/);
       assert.ok(text(block).includes(state), state);
-      assert.equal((html.match(/role="switch"/g) || []).length, 1);
+      // Seit KIE-576 Paket 3 steht im Reiter Inhalt zusätzlich der Schalter
+      // „Kursanzahl im Untertitel“ (designCenterCourseCount.test.mjs); im
+      // Datenschutz-Hinweis bleibt es genau ein Schalter.
+      assert.equal((block.match(/role="switch"/g) || []).length, 1);
+      assert.equal((html.match(/role="switch"/g) || []).length, 2);
+      assert.match(html, /data-course-count-switch/);
     }
   }
 );

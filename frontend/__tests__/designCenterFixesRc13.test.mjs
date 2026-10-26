@@ -513,9 +513,15 @@ test(
   "N3: Chatfenster: langer Name, Standard-Untertitel und langer Untertitel stehen vollständig im Kopf, umbrechend statt gekürzt, der Kopf wächst",
   { skip },
   async () => {
+    // Untertitel nur mit Schalter „Kursanzahl im Untertitel“ aus (KIE-576
+    // Paket 3, Standard an)
     for (const config of [
-      { name: LONG_NAME },
-      { name: LONG_NAME, assistantSubtitle: LONG_SUBTITLE },
+      { name: LONG_NAME, courseCountMode: "off" },
+      {
+        name: LONG_NAME,
+        assistantSubtitle: LONG_SUBTITLE,
+        courseCountMode: "off",
+      },
     ]) {
       const html = await renderer.render(PREVIEW, {
         location: "/",
@@ -543,6 +549,8 @@ test(
         displayMode: "inline",
         name: LONG_NAME,
         assistantSubtitle: LONG_SUBTITLE,
+        // Untertitel nur mit Schalter aus (KIE-576 Paket 3)
+        courseCountMode: "off",
       }),
     });
     t.after(() => mounted.unmount());

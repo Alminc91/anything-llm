@@ -20,6 +20,7 @@ const {
   embedDefaultsLanguage,
   embedDefaultTexts,
 } = require("../utils/chats/embedDefaults");
+const { courseInventoryStatus } = require("../utils/chats/courseInventory");
 const {
   berlinMidnight,
   berlinDayOf,
@@ -355,13 +356,31 @@ function embedManagementEndpoints(app) {
   // Datenschutz, KI-Hinweis) für ?lang=de|en — gleiche Anmeldung/Rollen wie
   // die übrigen Embed-Verwaltungsendpunkte. Der öffentliche /config liefert
   // sie nicht (das Widget hat sie selbst).
+  // KIE-576 Paket 3: mit ?embedId=<id> zusätzlich courseInventory für die
+  // Vorschau im Design Center ({count} oder null ohne gültigen Kursbestand;
+  // die Vorschau zeigt nur die Zahl, Fixliste r4 Nr. 2 und 3), nur lesend
+  // und nur für ein Widget,
+  // das der Nutzer verwalten darf (userCanAccessEmbed wie validEmbedAccess);
+  // sonst fehlt das Feld, die Standardtexte kommen trotzdem.
   app.get(
     "/embed/defaults",
     [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
     async (request, response) => {
       try {
         const lang = embedDefaultsLanguage(request.query?.lang);
-        response.status(200).json({ lang, defaults: embedDefaultTexts(lang) });
+        const body = { lang, defaults: embedDefaultTexts(lang) };
+        const embedId = Number(request.query?.embedId);
+        if (Number.isInteger(embedId) && embedId > 0) {
+          const user = await userFromSession(request, response);
+          if (await userCanAccessEmbed(user, embedId)) {
+            const embed = await EmbedConfig.getWithWorkspace({ id: embedId });
+            if (embed) {
+              const status = await courseInventoryStatus(embed.workspace);
+              body.courseInventory = status ? { count: status.count } : null;
+            }
+          }
+        }
+        response.status(200).json(body);
       } catch (e) {
         console.error(e);
         response.sendStatus(500).end();
