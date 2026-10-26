@@ -17,6 +17,7 @@ import {
   parseColor,
   recommendedTextColor,
 } from "./contrast.js";
+import { courseCountCardTexts } from "./courseCountCard.js";
 
 // Begriffe (R3, Fixliste 7.22-rc8): „Chatfenster“ (der Button in der Ecke
 // öffnet ein Chatfenster) und „In der Seite“ (Eingabeleiste im
@@ -884,8 +885,10 @@ export function privacyStartBubbleOn(config = {}) {
 
 export const COURSE_COUNT_WORD_MAX_LEN = 20;
 export const DEFAULT_COURSE_COUNT_WORD = "Kurse";
-// Beispielzahl der Vorschau ohne Kursliste vom Kursprogramm
+// Beispielwerte der Vorschau ohne Kursliste vom Kursprogramm (D-K8): 837
+// Kurse, 12 ausgeblendet, keine fehlenden, Stand jetzt
 export const SAMPLE_COURSE_COUNT = 837;
+export const SAMPLE_COURSE_HIDDEN = 12;
 const COURSE_COUNT_WORD_RE = /^\p{L}+(?:-\p{L}+)*$/u;
 export const COURSE_COUNT_WORD_ERROR = `Bitte ein Wort aus Buchstaben, höchstens ${COURSE_COUNT_WORD_MAX_LEN} Zeichen, etwa Seminare oder Online-Kurse.`;
 
@@ -942,10 +945,11 @@ export function courseCountWordError(value) {
 
 /**
  * Kursbestand vom Server (GET /embed/defaults?embedId=, courseInventory)
- * prüfen: ganze Zahlen ≥ 0 und ein Zeitpunkt, sonst null. Die Vorschau
- * braucht nur count (die interne Zeile entfällt seit D-K5).
+ * prüfen: ganze Zahlen ≥ 0 und ein Zeitpunkt, sonst null. hidden
+ * (ausgeblendete Kursdokumente, D-K5) fehlend oder ungültig: 0 wie im
+ * Widget. Die Vorschau zeigt damit Zahl und Info-Karte (AK-K10).
  * @param {*} value
- * @returns {{count: number, offered: number, stand: string}|null}
+ * @returns {{count: number, offered: number, hidden: number, stand: string}|null}
  */
 export function courseInventoryValue(value) {
   if (!value || typeof value !== "object") return null;
@@ -956,28 +960,46 @@ export function courseInventoryValue(value) {
     !Number.isFinite(Date.parse(value.stand))
   )
     return null;
-  return { count: value.count, offered: value.offered, stand: value.stand };
+  return {
+    count: value.count,
+    offered: value.offered,
+    hidden: n("hidden") ? value.hidden : 0,
+    stand: value.stand,
+  };
 }
 
 /**
- * Kopf der Vorschau mit Kursanzahl: „aktuell 812 Kurse“ mit der echten Zahl
- * (count ≥ 1), sonst mit der Beispielzahl; Bezeichnung wie live (ungültig
- * oder leer: „Kurse“). null mit Schalter aus.
+ * Kopf und Info-Karte der Vorschau mit Kursanzahl (AK-K10, D-K8): mit
+ * gültigem Kursbestand (count ≥ 1) dessen Werte wie im Widget, sonst die
+ * Beispielwerte (837 Kurse, 12 ausgeblendet, keine fehlenden, Stand jetzt)
+ * mit sample: true. Bezeichnung wie live (ungültig oder leer: „Kurse“).
+ * text: „aktuell 812 Kurse“; texts: Zeilen der Karte
+ * (courseCountCard.js courseCountCardTexts). null mit Schalter aus.
  * @param {Object} config
  * @param {*} inventory courseInventory vom Server
- * @returns {{text: string, sample: boolean}|null}
+ * @param {number} [now] Uhrzeit in ms
+ * @returns {{text: string, sample: boolean, texts: Object}|null}
  */
-export function previewCourseCount(config = {}, inventory = null) {
+export function previewCourseCount(
+  config = {},
+  inventory = null,
+  now = Date.now()
+) {
   if (!courseCountOn(config)) return null;
   const value = courseInventoryValue(inventory);
-  const real = value && value.count >= 1;
-  const n = real ? value.count : SAMPLE_COURSE_COUNT;
+  const real = !!value && value.count >= 1;
   const word =
     courseCountWordValue(config.courseCountWord) ?? DEFAULT_COURSE_COUNT_WORD;
-  return {
-    text: `aktuell ${n.toLocaleString("de-DE")} ${word}`,
-    sample: !real,
-  };
+  const shown = real
+    ? value
+    : {
+        count: SAMPLE_COURSE_COUNT,
+        offered: SAMPLE_COURSE_COUNT,
+        hidden: SAMPLE_COURSE_HIDDEN,
+        stand: new Date(now).toISOString(),
+      };
+  const texts = courseCountCardTexts({ ...shown, word }, "de", now);
+  return { text: texts.subtitle, sample: !real, texts };
 }
 
 // ---------------------------------------------------------------------------
