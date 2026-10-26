@@ -308,7 +308,7 @@ describe("Vertrag r4: headline, details, missingPercent", () => {
     ["100 von 1000 (Gelb)", 1000, 100, "gelb", 10],
     ["105 von 1000 (Rot)", 1000, 105, "rot", 10],
     ["9 von 1000", 1000, 9, "gruen", 0],
-  ])("%s: %s", async (_name, offered, missing, state, percent) => {
+  ])("Anteil %s", async (_name, offered, missing, state, percent) => {
     workspaceWith(numbers("262", offered - missing));
     const status = await run(1, { offered: numbers("262", offered) });
     expect(status).toMatchObject({ state, missingPercent: percent });
@@ -355,17 +355,20 @@ describe("Vertrag r4: headline, details, missingPercent", () => {
       "nicht_abrufbar",
       ["nicht_abrufbar", "unvollstaendig"],
     ],
-  ])("%s: %s", async (_name, missing, hours, lastRun, headline, details) => {
-    workspaceWith(numbers("262", 1000 - missing));
-    setInventory({
-      offered: numbers("262", 1000),
-      created: iso(NOW - hours * HOUR),
-      run: lastRun
-        ? { at: iso(NOW - 5 * 60 * 1000), ...lastRun }
-        : { at: iso(NOW - hours * HOUR), result: "ok", cause: null },
-    });
-    expect(await courseStatus(WS)).toMatchObject({ headline, details });
-  });
+  ])(
+    "Überschrift und Zeilen: %s",
+    async (_name, missing, hours, lastRun, headline, details) => {
+      workspaceWith(numbers("262", 1000 - missing));
+      setInventory({
+        offered: numbers("262", 1000),
+        created: iso(NOW - hours * HOUR),
+        run: lastRun
+          ? { at: iso(NOW - 5 * 60 * 1000), ...lastRun }
+          : { at: iso(NOW - hours * HOUR), result: "ok", cause: null },
+      });
+      expect(await courseStatus(WS)).toMatchObject({ headline, details });
+    }
+  );
 });
 
 // Fixliste r4 Nr. 2 (NF1): listApplied folgt derselben Prüfung wie der

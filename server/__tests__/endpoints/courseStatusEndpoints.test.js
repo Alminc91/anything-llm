@@ -380,24 +380,19 @@ describe("Lesefehler bei einem Workspace (Fixliste r4 Nr. 4)", () => {
     });
   });
 
-  test("Menüpunkt: der schlechteste lesbare Zustand", async () => {
+  test("Menüpunkt: der schlechteste lesbare Zustand, 500 nur ohne lesbaren Workspace; Entwickler-API 500", async () => {
     const res = await invoke(MENU, {
       token: createUser(prisma, "admin").token,
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ state: "gelb" });
-  });
 
-  test("Menüpunkt: nur der unlesbare Workspace sichtbar: 500", async () => {
-    const user = createUser(prisma, "default", [workspaceB.id]);
-    const res = await invoke(MENU, { token: user.token });
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toBeUndefined();
-  });
+    const onlyBroken = createUser(prisma, "default", [workspaceB.id]);
+    const broken = await invoke(MENU, { token: onlyBroken.token });
+    expect(broken.statusCode).toBe(500);
+    expect(broken.body).toBeUndefined();
 
-  test("Entwickler-API: 500", async () => {
     prisma.__seed("api_keys", { secret: "geheim" });
-    const res = await invoke(API, { token: "geheim" });
-    expect(res.statusCode).toBe(500);
+    expect((await invoke(API, { token: "geheim" })).statusCode).toBe(500);
   });
 });
