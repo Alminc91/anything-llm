@@ -142,6 +142,61 @@
       "widget": { "chatbotBubblesMessages": [] }
     },
     {
+      "name": "Kursanzahl (KIE-576): gültige Kursliste, Anzeige an (Standard): courseCount mit count, offered, hidden, stand und word, das Widget übernimmt es",
+      "request": { "language": "de" },
+      "visualConfig": {},
+      "config": {
+        "courseCount": {
+          "count": 812,
+          "offered": 837,
+          "hidden": 14,
+          "stand": "2026-10-24T08:00:00.000Z",
+          "word": "Kurse"
+        }
+      },
+      "script": {},
+      "widget": {
+        "courseCount": {
+          "count": 812,
+          "offered": 837,
+          "hidden": 14,
+          "stand": "2026-10-24T08:00:00.000Z",
+          "word": "Kurse"
+        }
+      }
+    },
+    {
+      "name": "Kursanzahl (KIE-576): Anzeige aus oder keine gültige Kursliste: kein Schlüssel courseCount, das Widget zeigt den Untertitel",
+      "request": { "language": "de" },
+      "visualConfig": { "courseCountMode": "off" },
+      "config": {},
+      "configAbsent": ["courseCount"],
+      "script": {},
+      "widget": { "courseCount": null }
+    },
+    {
+      "name": "Kursanzahl (KIE-576, D-K5): älterer Server ohne hidden: das Widget nimmt 0",
+      "fork": false,
+      "config": {
+        "courseCount": {
+          "count": 812,
+          "offered": 837,
+          "stand": "2026-10-24T08:00:00.000Z",
+          "word": "Kurse"
+        }
+      },
+      "script": {},
+      "widget": {
+        "courseCount": {
+          "count": 812,
+          "offered": 837,
+          "hidden": 0,
+          "stand": "2026-10-24T08:00:00.000Z",
+          "word": "Kurse"
+        }
+      }
+    },
+    {
       "name": "Datenschutz-Blase beim Start gespeichert (privacyStartBubble true, AK-12): der Server liefert true, das Widget zeigt sie, der Link Datenschutz bleibt (privacyNotice link)",
       "request": { "language": "de" },
       "visualConfig": { "privacyStartBubble": true },
@@ -198,61 +253,6 @@
       "config": { "defaultMessages": "Spanisch A1,Yoga" },
       "script": {},
       "widget": { "defaultMessages": ["Spanisch A1", "Yoga"] }
-    },
-    {
-      "name": "Kursanzahl (KIE-576): gültige Kursliste, Anzeige an (Standard): courseCount mit count, offered, hidden, stand und word, das Widget übernimmt es",
-      "request": { "language": "de" },
-      "visualConfig": {},
-      "config": {
-        "courseCount": {
-          "count": 812,
-          "offered": 837,
-          "hidden": 14,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        }
-      },
-      "script": {},
-      "widget": {
-        "courseCount": {
-          "count": 812,
-          "offered": 837,
-          "hidden": 14,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        }
-      }
-    },
-    {
-      "name": "Kursanzahl (KIE-576): Anzeige aus oder keine gültige Kursliste: kein Schlüssel courseCount, das Widget zeigt den Untertitel",
-      "request": { "language": "de" },
-      "visualConfig": { "courseCountMode": "off" },
-      "config": {},
-      "configAbsent": ["courseCount"],
-      "script": {},
-      "widget": { "courseCount": null }
-    },
-    {
-      "name": "Kursanzahl (KIE-576, D-K5): älterer Server ohne hidden: das Widget nimmt 0",
-      "fork": false,
-      "config": {
-        "courseCount": {
-          "count": 812,
-          "offered": 837,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        }
-      },
-      "script": {},
-      "widget": {
-        "courseCount": {
-          "count": 812,
-          "offered": 837,
-          "hidden": 0,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        }
-      }
     }
   ],
   "courseCountTexts": {
