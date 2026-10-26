@@ -411,8 +411,8 @@ describe("Vertrag /config: courseCount (KIE-576 Paket 3)", () => {
       expect(Number.isSafeInteger(body.courseCount[key])).toBe(true);
   });
 
-  // D-K5: hidden = veraltete Kursdokumente des Workspace, die die Suche
-  // ausblendet (staleDocCount), auch 0
+  // D-K5: hidden = verschiedene Kursnummern der eingelernten veralteten
+  // Kursdokumente, die die Suche ausblendet (wie count), auch 0
   test("D-K5: hidden ohne veraltete Kursdokumente 0", async () => {
     globalThis.__courseInventoryRow = INVENTORY_ROW;
     courseInventory.reset();
