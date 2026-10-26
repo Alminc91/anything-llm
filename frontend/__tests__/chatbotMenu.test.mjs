@@ -265,8 +265,14 @@ test(
       path.join(SRC, "components/SettingsSidebar/MenuOption/index.jsx"),
       "utf8"
     );
+    // Pfadvergleich, opensFirstChild und der eigene Handler des Links
+    // (Fixliste r2 Nr. 1: der Pfeil behält das Umschalten aus AnythingLLM)
     const kufer = source.match(/Kufer \(KB-2\)/g) ?? [];
-    assert.equal(kufer.length, 2, "zwei gekennzeichnete Kufer-Stellen");
+    assert.equal(kufer.length, 3, "drei gekennzeichnete Kufer-Stellen");
+    assert.match(
+      source,
+      /<button onClick=\{handleClick\} className="p-2 text-white">/
+    );
     assert.equal(
       (source.match(/Kufer \(KB-3, AK-5\)/g) ?? []).length,
       1,
