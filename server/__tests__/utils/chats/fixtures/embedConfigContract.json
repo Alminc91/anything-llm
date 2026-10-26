@@ -1,5 +1,5 @@
 {
-  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true; der Standard ist seit E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23) in jeder Sprache leer, also [] mit dem Kennzeichen, das Widget zeigt keine Startvorschläge (bis 7.22-rc22 zwei Beispiele je Sprache). chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang (E10 neu, E23 und E24, Fixliste 7.22-rc17): gespeichert (auch leer) vor Standard; Startvorschläge und Willkommensblasen stellt das Design Center ein (Gruppe A), Skript-Attribute dazu (data-default-messages, data-chatbot-bubbles-messages) wirken nicht, auch wenn nichts gespeichert ist und auch mit älterem Server. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Datenschutz (Fixliste AK-12 A4, Review AF-6): privacyNotice liefert der Server fest als link, auch bei gespeichertem Altwert; privacyStartBubble nur bei gespeichert genau true, sonst fehlt der Schlüssel (configAbsent); Skript-Attribute dazu wirken nicht (Gruppe A). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. courseCount (KIE-576 Paket 3, Vertrag in issues/KIE-576/KIE-576-kursanzahl.md): {count, offered, hidden, stand, word} nur, wenn die Anzeige an ist (visual_config courseCountMode, Standard on), die Kursliste kufer_course_inventory gültig ist und count = Kurse im Kursprogramm und im Workspace mindestens 1 ist; sonst fehlt der Schlüssel ganz (configAbsent). hidden (D-K5): ganze Zahl ab 0, Zahl der verschiedenen Kursnummern eingelernter veralteter Kursdokumente des Workspace, die der Server in der Suche ausblendet; fehlt hidden (älterer Server), gilt 0. Das Widget übernimmt das Feld geprüft (fehlend oder ungültig: null) und zeigt es nur, solange stand höchstens 24 h alt ist; ein Skript-Attribut dazu wirkt nicht. Bezeichnung (word, visual_config courseCountWord, Fixliste KIE-576 r2b Nr. 2): ein Wort, nach NFC und trim 1 bis 20 UTF-16-Einheiten, Muster /^\\p{L}+(?:-\\p{L}+)*$/u (Buchstaben, Bindestrich nur zwischen Buchstaben); leer oder fehlend: Standard der Sprache. courseCountWords.valid: [Eingabe, Ergebnis]; courseCountWords.invalid: das Design Center lehnt sie bei der Eingabe mit Meldung ab, der Server verwirft sie auf jedem Schreibweg, Server (/config) und Widget behandeln einen gespeicherten ungültigen Wert wie leer. courseCountTexts (D-K5): Zeilen der Info-Karte zu courseCount und language, now = Uhrzeit des Besuchers (stand heute 10:00 Uhr in Berlin), w = Bezeichnung, n = count, b = offered, s = hidden, m = b − n; Zeile 3 nur bei s > 0, Zeile 4 nur bei m > 0, ab 5 % Lücke (m / b) dazu der Hinweis auf die Kurssuche als eigene Zeile; Einzahl nur mit der Standardbezeichnung der Sprache (Kurse, courses), eine eigene Bezeichnung bleibt in der Mehrzahl. Bei Änderung hier UND im Fork nachziehen.",
+  "_comment": "Vertrag Fork und Widget für GET /embed/:id/config (Fixliste 7.22-rc13, Entscheidungen E10 bis E12; Details review-7.22-nachreview-rc12.md F01 bis F03). Wörtlich: GET /embed/:id/config?language=<de|en|…>, fehlend oder unbekannt heißt de. defaultMessages: gespeicherte Liste als Array von Strings; gespeichertes [] als [] mit Kennzeichen defaultMessagesSaved: true; nichts gespeichert: Standard der Sprache als Array mit defaultMessagesStandard: true; der Standard ist seit E42 (Nutzerentscheidung 22.10.2026, 7.22-rc23) in jeder Sprache leer, also [] mit dem Kennzeichen, das Widget zeigt keine Startvorschläge (bis 7.22-rc22 zwei Beispiele je Sprache). chatbotBubblesMessages: Array von Strings, nur wenn gespeichert. Widget-Vorrang (E10 neu, E23 und E24, Fixliste 7.22-rc17): gespeichert (auch leer) vor Standard; Startvorschläge und Willkommensblasen stellt das Design Center ein (Gruppe A), Skript-Attribute dazu (data-default-messages, data-chatbot-bubbles-messages) wirken nicht, auch wenn nichts gespeichert ist und auch mit älterem Server. Aufbau: languageQuery = Sprache des Widgets (data-language) -> Wert von ?language= (Widget, embedConfigUrl) -> Sprache der Standards (Server, embedDefaultsLanguage). cases: visualConfig (gespeichert) + request.language -> config (Antwort des Servers, nur die Schlüssel dieses Vertrags; weitere Schlüssel der Antwort sind erlaubt) -> mit script (Skript-Attribute wie im dataset, Strings) -> widget (aufgelöste Settings). fork: false = nur Widget (älterer Server, kein Fall des Forks). Datenschutz (Fixliste AK-12 A4, Review AF-6): privacyNotice liefert der Server fest als link, auch bei gespeichertem Altwert; privacyStartBubble nur bei gespeichert genau true, sonst fehlt der Schlüssel (configAbsent); Skript-Attribute dazu wirken nicht (Gruppe A). Der Widget-Test (tests/embed-config-contract.test.js) prüft config + script -> widget und mit KUFER_FORK_DIR die Standards und die Sprachwahl gegen server/utils/chats/embedDefaults.js des Forks. courseCount (KIE-576 Paket 3, Vertrag in issues/KIE-576/KIE-576-kursanzahl.md, Fixliste r4 Nr. 2 und 4): {count, word} nur, wenn die Anzeige an ist (visual_config courseCountMode, Standard on), die Kursliste kufer_course_inventory gültig und nicht veraltet ist (die 24-h-Regel entscheidet der Server) und count = Kurse im Kursprogramm und im Workspace mindestens 1 ist; sonst fehlt der Schlüssel ganz (configAbsent). offered, hidden und stand berechnet der Server nur intern (Betreiber-Info), die öffentliche Antwort enthält sie nicht. Das Widget übernimmt das Feld geprüft (count ganze Zahl ab 1, sonst null; weitere Schlüssel fallen weg) und zeigt im Kopf statt des Untertitels „aktuell <n> <w>“ ohne Info-Knopf und ohne Karte; ein Skript-Attribut dazu wirkt nicht. Bezeichnung (word, visual_config courseCountWord, Fixliste KIE-576 r2b Nr. 2): ein Wort, nach NFC und trim 1 bis 20 UTF-16-Einheiten, Muster /^\\p{L}+(?:-\\p{L}+)*$/u (Buchstaben, Bindestrich nur zwischen Buchstaben); leer oder fehlend: Standard der Sprache. courseCountWords.valid: [Eingabe, Ergebnis]; courseCountWords.invalid: das Design Center lehnt sie bei der Eingabe mit Meldung ab, der Server verwirft sie auf jedem Schreibweg, Server (/config) und Widget behandeln einen gespeicherten ungültigen Wert wie leer. courseCountTexts: die Untertitel-Zeile zu courseCount und language (n = count im Zahlenformat der Sprache, w = Bezeichnung, fehlend: Standard der Sprache Kurse bzw. courses); dieselbe Zeile zeigt die Vorschau im Design Center. Bei Änderung hier UND im Fork nachziehen.",
   "standardSuggestions": {
     "de": [],
     "en": []
@@ -144,27 +144,15 @@
       "widget": { "chatbotBubblesMessages": [] }
     },
     {
-      "name": "Kursanzahl (KIE-576): gültige Kursliste, Anzeige an (Standard): courseCount mit count, offered, hidden, stand und word, das Widget übernimmt es",
+      "name": "Kursanzahl (KIE-576, r4): gültige, aktuelle Kursliste, Anzeige an (Standard): courseCount nur mit count und word, das Widget übernimmt es",
       "request": { "language": "de" },
       "visualConfig": {},
       "config": {
-        "courseCount": {
-          "count": 812,
-          "offered": 837,
-          "hidden": 14,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        }
+        "courseCount": { "count": 812, "word": "Kurse" }
       },
       "script": {},
       "widget": {
-        "courseCount": {
-          "count": 812,
-          "offered": 837,
-          "hidden": 14,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        }
+        "courseCount": { "count": 812, "word": "Kurse" }
       }
     },
     {
@@ -175,28 +163,6 @@
       "configAbsent": ["courseCount"],
       "script": {},
       "widget": { "courseCount": null }
-    },
-    {
-      "name": "Kursanzahl (KIE-576, D-K5): älterer Server ohne hidden: das Widget nimmt 0",
-      "fork": false,
-      "config": {
-        "courseCount": {
-          "count": 812,
-          "offered": 837,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        }
-      },
-      "script": {},
-      "widget": {
-        "courseCount": {
-          "count": 812,
-          "offered": 837,
-          "hidden": 0,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        }
-      }
     },
     {
       "name": "Datenschutz-Blase beim Start gespeichert (privacyStartBubble true, AK-12): der Server liefert true, das Widget zeigt sie, der Link Datenschutz bleibt (privacyNotice link)",
@@ -258,167 +224,42 @@
     }
   ],
   "courseCountTexts": {
-    "now": "2026-10-24T10:30:00.000Z",
     "cases": [
       {
-        "name": "ausgeblendete und wenige fehlende Kurse (unter 5 %)",
+        "name": "deutsch, Standardbezeichnung",
         "language": "de",
-        "courseCount": {
-          "count": 812,
-          "offered": 837,
-          "hidden": 14,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        },
-        "lines": [
-          "812 Kurse im KI-Berater",
-          "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-          "14 Kurse sind ausgeblendet, da sie voraussichtlich beendet sind.",
-          "Zurzeit fehlen 25 Kurse.",
-          "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
-        ]
+        "courseCount": { "count": 812, "word": "Kurse" },
+        "subtitle": "aktuell 812 Kurse"
       },
       {
-        "name": "nichts ausgeblendet, nichts fehlt",
+        "name": "deutsch, Zahl im deutschen Format",
         "language": "de",
-        "courseCount": {
-          "count": 837,
-          "offered": 837,
-          "hidden": 0,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        },
-        "lines": [
-          "837 Kurse im KI-Berater",
-          "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-          "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
-        ]
+        "courseCount": { "count": 1243, "word": "Kurse" },
+        "subtitle": "aktuell 1.243 Kurse"
       },
       {
-        "name": "Lücke ab 5 %: Hinweis auf die Kurssuche, Zahlen im deutschen Format",
+        "name": "deutsch, eigene Bezeichnung",
         "language": "de",
-        "courseCount": {
-          "count": 1243,
-          "offered": 1310,
-          "hidden": 1050,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        },
-        "lines": [
-          "1.243 Kurse im KI-Berater",
-          "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-          "1.050 Kurse sind ausgeblendet, da sie voraussichtlich beendet sind.",
-          "Zurzeit fehlen 67 Kurse.",
-          "Für eine vollständige Suche nutzen Sie bitte die Kurssuche auf unserer Webseite.",
-          "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
-        ]
+        "courseCount": { "count": 836, "word": "Angebote" },
+        "subtitle": "aktuell 836 Angebote"
       },
       {
-        "name": "Einzahl mit der Standardbezeichnung",
+        "name": "deutsch, ohne Bezeichnung: Standard der Sprache",
         "language": "de",
-        "courseCount": {
-          "count": 836,
-          "offered": 837,
-          "hidden": 1,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Kurse"
-        },
-        "lines": [
-          "836 Kurse im KI-Berater",
-          "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-          "1 Kurs ist ausgeblendet, da er voraussichtlich beendet ist.",
-          "Zurzeit fehlt 1 Kurs.",
-          "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
-        ]
+        "courseCount": { "count": 844, "word": null },
+        "subtitle": "aktuell 844 Kurse"
       },
       {
-        "name": "eigene Bezeichnung: auch bei 1 die Mehrzahl",
-        "language": "de",
-        "courseCount": {
-          "count": 836,
-          "offered": 837,
-          "hidden": 1,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "Angebote"
-        },
-        "lines": [
-          "836 Angebote im KI-Berater",
-          "Enthalten sind die aktuellen Angebote aus unserem Kursprogramm.",
-          "1 Angebote sind ausgeblendet, da sie voraussichtlich beendet sind.",
-          "Zurzeit fehlen 1 Angebote.",
-          "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
-        ]
-      },
-      {
-        "name": "englisch: ausgeblendete und fehlende Kurse ab 5 %",
+        "name": "englisch, Zahl im englischen Format",
         "language": "en",
-        "courseCount": {
-          "count": 1243,
-          "offered": 1310,
-          "hidden": 14,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "courses"
-        },
-        "lines": [
-          "1,243 courses in the AI advisor",
-          "This includes the current courses from our course program.",
-          "14 courses are hidden because they have probably ended.",
-          "67 courses are currently missing.",
-          "For a complete search, please use the course search on our website.",
-          "Status: today, 10:00 AM, updated hourly. The course program on our website is binding."
-        ]
+        "courseCount": { "count": 1243, "word": "courses" },
+        "subtitle": "currently 1,243 courses"
       },
       {
-        "name": "englisch: nichts ausgeblendet, nichts fehlt",
+        "name": "englisch, ohne Bezeichnung: Standard der Sprache",
         "language": "en",
-        "courseCount": {
-          "count": 837,
-          "offered": 837,
-          "hidden": 0,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "courses"
-        },
-        "lines": [
-          "837 courses in the AI advisor",
-          "This includes the current courses from our course program.",
-          "Status: today, 10:00 AM, updated hourly. The course program on our website is binding."
-        ]
-      },
-      {
-        "name": "englisch: Einzahl mit der Standardbezeichnung",
-        "language": "en",
-        "courseCount": {
-          "count": 836,
-          "offered": 837,
-          "hidden": 1,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "courses"
-        },
-        "lines": [
-          "836 courses in the AI advisor",
-          "This includes the current courses from our course program.",
-          "1 course is hidden because it has probably ended.",
-          "1 course is currently missing.",
-          "Status: today, 10:00 AM, updated hourly. The course program on our website is binding."
-        ]
-      },
-      {
-        "name": "englisch: eigene Bezeichnung bleibt in der Mehrzahl",
-        "language": "en",
-        "courseCount": {
-          "count": 836,
-          "offered": 837,
-          "hidden": 1,
-          "stand": "2026-10-24T08:00:00.000Z",
-          "word": "workshops"
-        },
-        "lines": [
-          "836 workshops in the AI advisor",
-          "This includes the current workshops from our course program.",
-          "1 workshops are hidden because they have probably ended.",
-          "1 workshops are currently missing.",
-          "Status: today, 10:00 AM, updated hourly. The course program on our website is binding."
-        ]
+        "courseCount": { "count": 844, "word": null },
+        "subtitle": "currently 844 courses"
       }
     ]
   }

@@ -357,8 +357,9 @@ function embedManagementEndpoints(app) {
   // die übrigen Embed-Verwaltungsendpunkte. Der öffentliche /config liefert
   // sie nicht (das Widget hat sie selbst).
   // KIE-576 Paket 3: mit ?embedId=<id> zusätzlich courseInventory für die
-  // Vorschau im Design Center ({count, offered, hidden, stand} oder null
-  // ohne gültigen Kursbestand), nur lesend und nur für ein Widget,
+  // Vorschau im Design Center ({count} oder null ohne gültigen Kursbestand;
+  // die Vorschau zeigt nur die Zahl, Fixliste r4 Nr. 2 und 3), nur lesend
+  // und nur für ein Widget,
   // das der Nutzer verwalten darf (userCanAccessEmbed wie validEmbedAccess);
   // sonst fehlt das Feld, die Standardtexte kommen trotzdem.
   app.get(
@@ -373,10 +374,10 @@ function embedManagementEndpoints(app) {
           const user = await userFromSession(request, response);
           if (await userCanAccessEmbed(user, embedId)) {
             const embed = await EmbedConfig.getWithWorkspace({ id: embedId });
-            if (embed)
-              body.courseInventory = await courseInventoryStatus(
-                embed.workspace
-              );
+            if (embed) {
+              const status = await courseInventoryStatus(embed.workspace);
+              body.courseInventory = status ? { count: status.count } : null;
+            }
           }
         }
         response.status(200).json(body);

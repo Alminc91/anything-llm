@@ -668,8 +668,9 @@ async function courseInventoryGuard(workspace) {
 }
 
 /**
- * Zahlen für /config und die Vorschau im Design Center: {count, offered,
- * hidden, stand}; hidden = verschiedene Kursnummern der eingelernten
+ * Zahlen des Kursbestands, nur intern (Betreiber-Info; öffentlich liefert
+ * /config davon nur count, die Vorschau im Design Center ebenso): {count,
+ * offered, hidden, stand}; hidden = verschiedene Kursnummern der eingelernten
  * veralteten Kursdokumente, die die Suche ausblendet (D-K5, gezählt wie
  * count). null ohne gültigen Wert oder ohne
  * angebotenen Kurs im Workspace. Wirft nie.
@@ -684,22 +685,19 @@ async function courseInventoryStatus(workspace) {
 
 /**
  * Feld courseCount für GET /embed/:id/config nach Vertrag: nur mit Anzeige
- * an, gültigem Wert und count ≥ 1, sonst null (das Feld fehlt ganz).
+ * an, gültigem, höchstens 24 h altem Wert (loadCourseInventory) und
+ * count ≥ 1, sonst null (das Feld fehlt ganz). Öffentlich nur {count, word}
+ * (Fixliste r4 Nr. 2): offered, hidden und stand sind Betreiber-Info und
+ * bleiben intern (courseInventoryStatus).
  * @param {{slug?: string}|null} workspace
  * @param {{mode: "on"|"off", word: string}} options
- * @returns {Promise<{count: number, offered: number, hidden: number, stand: string, word: string}|null>}
+ * @returns {Promise<{count: number, word: string}|null>}
  */
 async function courseCountField(workspace, { mode, word }) {
   if (mode !== "on") return null;
   const status = await courseInventoryStatus(workspace);
   if (!status || status.count < 1) return null;
-  return {
-    count: status.count,
-    offered: status.offered,
-    hidden: status.hidden,
-    stand: status.stand,
-    word,
-  };
+  return { count: status.count, word };
 }
 
 module.exports = {

@@ -19,10 +19,11 @@
 // `${baseApiUrl}/${embedId}/config?language=…`). So kommt die Sprache durch
 // das Parsen der Adresse, nicht als eingesetztes request.query.
 //
-// KIE-576 Paket 3: courseCount {count, offered, hidden, stand, word} nach
-// Vertrag (issues/KIE-576/KIE-576-kursanzahl.md, D-K5) mit den
+// KIE-576 Paket 3: courseCount {count, word} nach Vertrag
+// (issues/KIE-576/KIE-576-kursanzahl.md, Fixliste r4 Nr. 2) mit den
 // Beispielwerten der Fixture: Kursbestand mit 837 Kursnummern, 812 davon als
-// Kursdokumente im Workspace, 14 veraltete (hidden). Der Kursbestand kommt
+// Kursdokumente im Workspace, 14 veraltete. offered, hidden und stand
+// berechnet der Server nur intern, /config liefert sie nicht. Der Kursbestand kommt
 // aus der echten courseInventory.js (Datenbankzeile und Workspace-Dokumente
 // als Attrappen).
 
@@ -86,6 +87,7 @@ const { embeddedEndpoints } = require("../../endpoints/embed");
 const { DEFAULT_SUGGESTIONS } = require("../../utils/chats/embedDefaults");
 const CONTRACT = require("../utils/chats/fixtures/embedConfigContract.json");
 const {
+  courseInventoryStatus,
   __test__: courseInventory,
 } = require("../../utils/chats/courseInventory");
 
@@ -379,13 +381,7 @@ describe("Vertrag /config (E10 bis E12): Fälle der Fixture über HTTP wie das W
 // KIE-576 Paket 3: Fälle nur des Servers zu courseCount (die Fixture hat die
 // Beispielwerte vorhanden/fehlend, beide laufen oben mit)
 describe("Vertrag /config: courseCount (KIE-576 Paket 3)", () => {
-  const EXAMPLE = {
-    count: 812,
-    offered: 837,
-    hidden: 14,
-    stand: "2026-10-24T08:00:00.000Z",
-    word: "Kurse",
-  };
+  const EXAMPLE = { count: 812, word: "Kurse" };
   afterEach(() => installCourseInventory());
 
   test("Fixture: je ein Fall mit und ohne courseCount, Beispielwerte des Vertrags", () => {
@@ -397,70 +393,45 @@ describe("Vertrag /config: courseCount (KIE-576 Paket 3)", () => {
     expect(without.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("genau die fünf Felder, Zahlen als ganze Zahlen", async () => {
+  // Fixliste r4 Nr. 2: öffentlich nur count und word; die Betreiber-Zahlen
+  // (offered, hidden, stand) berechnet courseInventoryStatus weiter intern
+  test("genau die zwei Felder count und word, count als ganze Zahl", async () => {
     const { body } = await widgetFetch({}, "de");
     expect(body.courseCount).toEqual(EXAMPLE);
-    expect(Object.keys(body.courseCount).sort()).toEqual([
-      "count",
-      "hidden",
-      "offered",
-      "stand",
-      "word",
-    ]);
-    for (const key of ["count", "offered", "hidden"])
-      expect(Number.isSafeInteger(body.courseCount[key])).toBe(true);
+    expect(Object.keys(body.courseCount).sort()).toEqual(["count", "word"]);
+    expect(Number.isSafeInteger(body.courseCount.count)).toBe(true);
+    for (const key of ["offered", "hidden", "stand"])
+      expect(JSON.stringify(body)).not.toContain(`"${key}"`);
   });
 
-  // D-K5: hidden = verschiedene Kursnummern der eingelernten veralteten
-  // Kursdokumente, die die Suche ausblendet (wie count), auch 0
-  test("D-K5: hidden ohne veraltete Kursdokumente 0", async () => {
-    globalThis.__courseInventoryRow = INVENTORY_ROW;
-    courseInventory.reset();
-    courseInventory.setDeps({
-      findWorkspaceId: async () => 1,
-      listDocuments: async () =>
-        OFFERED.slice(0, 812).map((number) => ({
-          docId: `d-${number}`,
-          docpath: `custom-documents/${number}.json`,
-        })),
-      listVectors: async (docIds) =>
-        docIds.map((docId) => ({ docId, vectorId: `v-${docId}` })),
-      readDocumentText: async (docpath) =>
-        `Titel: Kurs\nKursnummer: ${docpath.slice(17, -5)}\n`,
-      tableRows: async () => null,
+  test("intern weiter berechnet: angeboten, ausgeblendet, Stand", async () => {
+    expect(await courseInventoryStatus({ slug: "ws" })).toEqual({
+      count: 812,
+      offered: 837,
+      hidden: 14,
+      stand: "2026-10-24T08:00:00.000Z",
     });
-    const { body } = await widgetFetch({}, "de");
-    expect(body.courseCount).toEqual({ ...EXAMPLE, hidden: 0 });
   });
 
-  // Info-Karte (D-K5): die Zeilen baut das Widget; die Fixture hält sie
-  // wortgleich für beide Seiten. Hier: der Beispielfall passt zur Antwort
-  // des Servers, die Wortlaute folgen dem Vertrag.
-  test("D-K5: Fixture courseCountTexts zum Beispiel des Servers, Wortlaut nach Vertrag", async () => {
+  // Untertitel-Zeile (Fixture courseCountTexts, wortgleich im Widget und in
+  // der Vorschau des Design Centers): der erste Fall passt zur Antwort des
+  // Servers, keine Zeilen der früheren Info-Karte mehr
+  test("Fixture courseCountTexts: Untertitel-Zeile zum Beispiel des Servers", async () => {
     const { cases } = CONTRACT.courseCountTexts;
     const { body } = await widgetFetch({}, "de");
     expect(cases[0].courseCount).toEqual(body.courseCount);
-    const de = cases.filter((c) => c.language === "de");
-    const en = cases.filter((c) => c.language === "en");
-    expect(de.length).toBeGreaterThanOrEqual(4);
-    expect(en.length).toBeGreaterThanOrEqual(3);
-    const lines = cases.flatMap((c) => c.lines);
-    expect(lines).toEqual(
-      expect.arrayContaining([
-        "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-        "1 Kurs ist ausgeblendet, da er voraussichtlich beendet ist.",
-        "Zurzeit fehlt 1 Kurs.",
-        "Für eine vollständige Suche nutzen Sie bitte die Kurssuche auf unserer Webseite.",
-        "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite.",
-        "1 course is hidden because it has probably ended.",
-        "1 course is currently missing.",
-      ])
-    );
-    // entfallen (D-K5): „Alle … sind enthalten.“, „… von … angebotenen …“
-    for (const line of lines) {
-      expect(line).not.toMatch(/sind enthalten|on offer are included/);
-      expect(line).not.toMatch(/[–—]/);
+    expect(cases[0].subtitle).toBe("aktuell 812 Kurse");
+    for (const c of cases) {
+      expect(Object.keys(c.courseCount).sort()).toEqual(["count", "word"]);
+      expect(Object.keys(c).sort()).toEqual([
+        "courseCount",
+        "language",
+        "name",
+        "subtitle",
+      ]);
+      expect(c.subtitle).not.toMatch(/[–—]/);
     }
+    expect(cases.some((c) => c.language === "en")).toBe(true);
   });
 
   test.each([
