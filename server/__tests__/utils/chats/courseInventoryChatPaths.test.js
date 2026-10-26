@@ -164,18 +164,20 @@ const OLD_SOURCES = () => [
 ];
 const STALE_TEXT = /262-900|262-555|Folgeabschnitt eines alten Kurses/;
 
-const INVENTORY = () =>
+// Kursliste für genau einen Workspace (Fixliste r5), Standard „ws“
+const INVENTORY = (workspaceSlug) =>
   JSON.stringify({
-    version: 1,
+    version: 2,
+    workspace: workspaceSlug,
     client: "vhs-beispiel",
     created: new Date(Date.now() - 60 * 1000).toISOString(),
     offered: ["262-100", "262-101", "262-102"],
   });
 
-function useInventory(on) {
+function useInventory(on, workspaceSlug = "ws") {
   prisma.system_settings.findFirst.mockImplementation(async ({ where }) =>
     on && where.label === "kufer_course_inventory"
-      ? { value: INVENTORY() }
+      ? { value: INVENTORY(workspaceSlug) }
       : null
   );
 }
@@ -380,8 +382,13 @@ describe.each(PATHS)("%s", (_name, kind, backfills, call) => {
     );
   });
 
-  test("NAK-K1: ohne Kursbestand wie heute (veraltete Dokumente bleiben)", async () => {
-    useInventory(false);
+  // Fixliste r5: eine Kursliste für einen anderen Workspace blendet hier
+  // nichts aus, auch wenn ihre Kurse hier eingelernt sind
+  test.each([
+    ["NAK-K1: ohne Kursbestand", false],
+    ["r5: Kursliste eines anderen Workspace", true],
+  ])("%s wie heute (veraltete Dokumente bleiben)", async (_case, on) => {
+    useInventory(on, "kurse");
     await call();
     const { contextTexts } = connector.compressMessages.mock.calls[0][0];
     expect(contextTexts).toEqual(

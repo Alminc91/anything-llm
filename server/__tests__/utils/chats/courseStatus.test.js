@@ -3,7 +3,8 @@
 // vom 26.10.2026, fixliste-kb3-r1.md): Ampel des Kursbestands je Workspace
 // (D-KB3-1) nach Anteil der fehlenden Kurse und Alter des letzten
 // erfolgreichen Abgleichs, die schlechtere Bewertung zählt; „nicht
-// eingerichtet“ ohne gültige Kursliste (D-KB3-3); Listen höchstens 500 mit
+// eingerichtet“ ohne gültige Kursliste und in jedem anderen Workspace als dem
+// der Kursliste (D-KB3-3, Fixliste r5); Listen höchstens 500 mit
 // Gesamtzahl (AK-1); leichter Zustand für den Menüpunkt (AK-5); nur lesend
 // (NAK-1, NAK-3).
 
@@ -63,10 +64,11 @@ function workspaceWith(courseNumbers, extraDocs = {}) {
   Object.assign(docs, extraDocs);
 }
 
-/** Kursliste (Version 2, sonst wie angegeben). */
+/** Kursliste (Version 2 für den Workspace „ws“, sonst wie angegeben). */
 function setInventory(overrides = {}) {
   stored = JSON.stringify({
     version: 2,
+    workspace: "ws",
     client: "vhs-beispiel",
     created: iso(NOW - HOUR),
     offered: numbers("262", 100),
@@ -214,9 +216,9 @@ describe("Ampel nach Alter des letzten erfolgreichen Abgleichs", () => {
     });
   });
 
-  test("Version 1: Alter aus created, letzter Lauf = created ohne Störung", async () => {
+  test("ohne gültiges run: Alter aus created, letzter Lauf = created ohne Störung", async () => {
     workspaceWith(numbers("262", 100));
-    setInventory({ version: 1, created: iso(NOW - 30 * HOUR) });
+    setInventory({ run: null, created: iso(NOW - 30 * HOUR) });
     expect(await courseStatus(WS)).toMatchObject({
       state: "gelb",
       reasons: ["alter"],
@@ -439,14 +441,51 @@ describe("Nicht eingerichtet (D-KB3-3)", () => {
     expect(readDocument).not.toHaveBeenCalled();
   });
 
-  test("ungültige Kursliste oder Liste ohne einen Kurs des Workspace", async () => {
+  test("ungültige Kursliste: kein JSON, Version 1, ohne workspace (r5)", async () => {
     jest.spyOn(console, "error").mockImplementation(() => {});
     workspaceWith(numbers("262", 10));
     stored = "{";
     expect(await courseStatus(WS)).toEqual(NOT_SET_UP);
-    setInventory({ offered: numbers("999", 5) });
+    setInventory({ version: 1 });
+    expect(await courseStatus(WS)).toEqual(NOT_SET_UP);
+    setInventory({ workspace: undefined });
     expect(await courseStatus(WS)).toEqual(NOT_SET_UP);
     console.error.mockRestore();
+  });
+
+  // Fixliste r5: zwei Workspaces mit Kursen, nur der genannte wird bewertet
+  test("r5: Kursliste eines anderen Workspace: nicht eingerichtet, kein Dokument gelesen", async () => {
+    workspaceWith(numbers("262", 10));
+    setInventory({ workspace: "kurse", offered: numbers("262", 10) });
+    expect(await courseStatus(WS)).toEqual(NOT_SET_UP);
+    expect(await courseStatusState(WS)).toBe("nicht_eingerichtet");
+    expect(readDocument).not.toHaveBeenCalled();
+  });
+});
+
+// Fixliste r5 (ersetzt E-KB3-4): Im Workspace der Kursliste wird immer
+// bewertet, auch wenn dort kein angebotener Kurs eingelernt ist
+describe("Workspace der Kursliste ohne angebotenen Kurs (r5)", () => {
+  test("alles fehlt: Rot mit 100 %, die eingelernten Kurse sind ausgeblendet", async () => {
+    workspaceWith(numbers("262", 10));
+    setInventory({ offered: numbers("999", 5) });
+    expect(await courseStatus(WS)).toMatchObject({
+      state: "rot",
+      headline: "unvollstaendig",
+      reasons: ["fehlen"],
+      counts: { offered: 5, count: 0, missing: 5, hidden: 10 },
+      missingPercent: 100,
+      listApplied: true,
+    });
+  });
+
+  test("Workspace ohne ein einziges Dokument: Rot, alles fehlt", async () => {
+    workspaceWith([]);
+    setInventory({ offered: numbers("262", 3) });
+    expect(await courseStatus(WS)).toMatchObject({
+      state: "rot",
+      counts: { offered: 3, count: 0, missing: 3, hidden: 0 },
+    });
   });
 });
 
@@ -522,8 +561,8 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
     expect(await courseInventoryStatus(WS)).toBeNull();
     expect(await courseSearchExclusion("ws")).toBeNull();
 
-    // ein unlesbares Dokument neben einem lesbaren ohne Kurs bleibt
-    // „nicht eingerichtet“
+    // ein unlesbares Dokument neben einem lesbaren ohne Kurs ist kein
+    // Lesefehler: bewertet wird trotzdem (r5: alles fehlt, Rot)
     inv.reset();
     workspaceWith([], {
       "custom-documents/faq.json": { pageContent: "Häufige Fragen" },
@@ -548,7 +587,8 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
       rowTexts: async () => [],
     });
     expect(await courseStatus(WS)).toMatchObject({
-      state: "nicht_eingerichtet",
+      state: "rot",
+      counts: { offered: 100, count: 0, missing: 100, hidden: 0 },
     });
   });
 
@@ -560,11 +600,12 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
     expect(await courseStatusState(WS)).toBe("gelb");
   });
 
-  // Fixliste r4 Nr. 4 (NF5): Ein Workspace mit Lesefehler verdeckt die
-  // übrigen nicht; 500 nur, wenn keiner lesbar ist
-  test("Menüpunkt: der schlechteste lesbare Zustand, ein Lesefehler wird übersprungen und geloggt", async () => {
+  // Fixliste r5 (ersetzt r4 Nr. 4): bewertet wird nur der Workspace der
+  // Kursliste, sein Lesefehler verschwindet nicht hinter „nicht
+  // eingerichtet“ der übrigen
+  test("Menüpunkt: Lesefehler im Workspace der Kursliste wirft, andere Workspaces werden nicht gelesen", async () => {
     workspaceWith(numbers("262", 94));
-    setInventory();
+    setInventory({ workspace: "kaputt" });
     inv.setDeps({
       findWorkspaceId: async (slug) => ({ ws: 7, kaputt: 8 })[slug] ?? null,
       listDocuments: async (workspaceId) => {
@@ -582,12 +623,14 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
       rowTexts: async () => [],
     });
     const broken = { slug: "kaputt" };
-    expect(await courseMenuState([broken, WS])).toBe("gelb");
-    expect(console.error).toHaveBeenCalledWith(
-      "[courseStatus] kaputt: Zustand nicht lesbar: SQLITE_BUSY"
-    );
+    await expect(courseMenuState([WS, broken])).rejects.toThrow("SQLITE_BUSY");
     await expect(courseMenuState([broken])).rejects.toThrow("SQLITE_BUSY");
+    expect(await courseMenuState([WS])).toBe("nicht_eingerichtet");
     expect(await courseMenuState([])).toBe("nicht_eingerichtet");
+    // derselbe Workspace lesbar: sein Zustand zählt
+    setInventory();
+    st.reset();
+    expect(await courseMenuState([broken, WS])).toBe("gelb");
   });
 });
 
@@ -623,11 +666,11 @@ describe("Listen (AK-1)", () => {
     expect(status.estimatedEnd).toBe(true);
   });
 
-  test("Version 1: nur Kursnummern; unlesbares Dokument: nur die Kursnummer", async () => {
+  test("ohne Titel: nur Kursnummern; unlesbares Dokument: nur die Kursnummer", async () => {
     workspaceWith(["262-1"], {
       "custom-documents/alt.json": courseDoc("261-9"),
     });
-    setInventory({ version: 1, offered: ["262-1", "262-2"] });
+    setInventory({ titles: undefined, offered: ["262-1", "262-2"] });
     readDocument.mockRejectedValueOnce(new Error("ENOENT"));
     const status = await courseStatus(WS);
     expect(status.missing).toEqual([{ knr: "262-2", title: null }]);

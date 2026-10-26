@@ -1,23 +1,28 @@
 // KIE-576 Paket 3: Kursbestand des Kursprogramms (SystemSetting
 // kufer_course_inventory) und was daraus im Chatbot folgt.
 //
-// Vertrag (issues/KIE-576/KIE-576-kursanzahl.md, Abschnitt „Vertrag“):
-//   {"version": 1, "client": "<kunde>", "created": "<ISO-8601 UTC>",
-//    "offered": ["<kursnummer>", ...]}
-// Version 2 (KB-4, issues/P-kursbestand/KB-4-pipeline-daten.md) ergänzt
-//   "titles": {"<kursnummer>": "<titel, höchstens 200 Zeichen>"},
-//   "estimatedEnd": true|false,
-//   "run": {"at": "<ISO>", "result": "ok"|"nicht_geschrieben"|"fehler",
-//           "cause": null|"feed_nicht_erreichbar"|"feed_unsicher"|
-//                    "feed_eingebrochen"|"einlernen_fehlgeschlagen"}
-// mit denselben Prüfungen wie Version 1. Ungültige Titel (kein Text, leer,
-// länger als 200 Zeichen, Steuerzeichen, Kursnummer nicht in offered)
-// werden übersprungen, ein ungültiges run verworfen. Ohne neue Liste ersetzt
-// die Pipeline nur run (Laufmeldung), created bleibt: Die 24-h-Regel hängt
-// am letzten echten Stand (created), der Validator nimmt eine Laufmeldung
-// an, solange run.at höchstens 24 h alt ist. Titel, run und estimatedEnd
-// sind Betreiber-Info (Status-Seite, KB-3) über courseInventoryRecord; sie
-// kommen nie in /config, Prompt oder Suche.
+// Vertrag (Version 2, KB-4, issues/P-kursbestand/KB-4-pipeline-daten.md,
+// Fixliste r5 „Vertrag“):
+//   {"version": 2, "workspace": "<slug>", "client": "<kunde>",
+//    "created": "<ISO-8601 UTC>", "offered": ["<kursnummer>", ...],
+//    "titles": {"<kursnummer>": "<titel, höchstens 200 Zeichen>"},
+//    "estimatedEnd": true|false,
+//    "run": {"at": "<ISO>", "result": "ok"|"nicht_geschrieben"|"fehler",
+//            "cause": null|"feed_nicht_erreichbar"|"feed_unsicher"|
+//                     "feed_eingebrochen"|"einlernen_fehlgeschlagen"}}
+// Die Kursliste gehört zu genau einem Workspace (Pflichtfeld workspace, der
+// Slug des Workspace, in den die Pipeline die Kurse einlernt; r5). Der Server
+// wendet sie nur dort an: Ausblenden im Chat, Kursanzahl in /config und
+// Status. Jeder andere Workspace gilt als nicht eingerichtet und blendet
+// nichts aus. Ein Wert ohne workspace oder mit anderer Version wird nicht
+// angenommen (Version 1 entfällt, r5).
+// Ungültige Titel (kein Text, leer, länger als 200 Zeichen, Steuerzeichen,
+// Kursnummer nicht in offered) werden übersprungen, ein ungültiges run
+// verworfen. Ohne neue Liste ersetzt die Pipeline nur run (Laufmeldung),
+// created bleibt: Die 24-h-Regel hängt am letzten echten Stand (created), der
+// Validator nimmt eine Laufmeldung an, solange run.at höchstens 24 h alt ist.
+// Titel, run und estimatedEnd sind Betreiber-Info (Status-Seite, KB-3) über
+// courseInventoryRecord; sie kommen nie in /config, Prompt oder Suche.
 // JSON in UTF-8, höchstens 512 KiB, geschrieben nur von der Pipeline über
 // _updateSettings (docker exec), nicht über HTTP (das Label steht nicht in
 // supportedFields). offered = A, die Kursnummern im Feed nach dem
@@ -56,15 +61,17 @@
 // die Kurskarten wählen ihre Dokumente nach denselben Regeln aus (guard),
 // dort wird nicht gesucht. Dokumente ohne Kursnummer sind nie betroffen.
 //
-// Ohne gültigen Wert (fehlt, kein JSON, version nicht 1 oder 2, keine gültige
-// Kursnummer in offered, älter als 24 h) oder ohne einen einzigen
-// angebotenen Kurs im Workspace (|A ∩ B| = 0, etwa die Liste eines anderen
-// Kunden) gibt es weder Zahl noch Ausblenden: alles wie vorher (NAK-K1,
-// NAK-K2), ohne Kursliste kostet das je Aufruf nur das Lesen der einen
-// Zeile. Ungültige einzelne Einträge in offered werden übersprungen. Ein
-// kaputter Eintrag kippt nie den Chat: alle Einstiege fangen Fehler ab. Ein
-// unvollständiger Index (Vektorspeicher nicht lesbar) wird nur 2 min
-// gemerkt, ein gescheiterter Aufbau gar nicht.
+// Ohne gültigen Wert (fehlt, kein JSON, version nicht 2, workspace fehlt,
+// keine gültige Kursnummer in offered, älter als 24 h) oder in einem anderen
+// Workspace als dem der Kursliste gibt es weder Zahl noch Ausblenden: alles
+// wie vorher (NAK-K1, NAK-K2), das kostet je Aufruf nur das Lesen der einen
+// Zeile. Im Workspace der Kursliste gilt sie auch, wenn dort kein
+// angebotener Kurs eingelernt ist (count 0, alles fehlt, die Status-Seite
+// zeigt Rot; r5 ersetzt die frühere Sonderregel E-KB3-4). Ungültige
+// einzelne Einträge in offered werden übersprungen. Ein kaputter Eintrag
+// kippt nie den Chat: alle Einstiege fangen Fehler ab. Ein unvollständiger
+// Index (Vektorspeicher nicht lesbar) wird nur 2 min gemerkt, ein
+// gescheiterter Aufbau gar nicht.
 
 const fs = require("fs");
 const prisma = require("../prisma");
@@ -86,8 +93,13 @@ const INDEX_MAX_AGE_MS = 60 * 60 * 1000;
 const INCOMPLETE_INDEX_MAX_AGE_MS = 2 * 60 * 1000;
 const COURSE_NUMBER_MAX_LEN = 64;
 const CLIENT_MAX_LEN = 200;
-// KB-4: Version 2 mit Titeln und Laufmeldung
-const CONTRACT_VERSIONS = [1, 2];
+// KB-4, r5: nur Version 2 (mit workspace, Titeln und Laufmeldung)
+const CONTRACT_VERSION = 2;
+// r5: workspace im Format eines AnythingLLM-Slugs. Workspace.slugify (lower)
+// erzeugt nur diese Zeichen (Kleinbuchstaben, Ziffern, „-“, „_“ und aus
+// Ersetzungen wie „©“ -> „(c)“ auch . ' " ( ) * +), der Rückfall ist eine
+// uuidv4. Verglichen wird nur auf Gleichheit, der Wert kommt in keine Anfrage.
+const WORKSPACE_SLUG_RX = /^[a-z0-9_.'"()*+-]{1,255}$/;
 const TITLE_MAX_LEN = 200;
 const RUN_RESULTS = ["ok", "nicht_geschrieben", "fehler"];
 const RUN_CAUSES = [
@@ -149,8 +161,12 @@ function courseKeyOfText(text) {
 // Grobe Vertragsprüfung (Form); null = in Ordnung, sonst der Grund
 function contractProblem(data) {
   if (!isPlainObject(data)) return "kein JSON-Objekt";
-  if (!CONTRACT_VERSIONS.includes(data.version))
-    return "version ist nicht 1 oder 2";
+  if (data.version !== CONTRACT_VERSION) return "version ist nicht 2";
+  if (
+    typeof data.workspace !== "string" ||
+    !WORKSPACE_SLUG_RX.test(data.workspace)
+  )
+    return "workspace fehlt oder ist kein Slug";
   if (
     typeof data.client !== "string" ||
     data.client.trim().length === 0 ||
@@ -189,10 +205,9 @@ function readContract(raw) {
   return problem ? { problem } : { data };
 }
 
-// KB-4: Laufmeldung run (nur Version 2) mit erlaubten Werten, sonst null
-// (verworfen)
+// KB-4: Laufmeldung run mit erlaubten Werten, sonst null (verworfen)
 function readRun(data) {
-  const run = data.version === 2 ? data.run : null;
+  const { run } = data;
   if (!isPlainObject(run) || typeof run.at !== "string") return null;
   const atMs = Date.parse(run.at);
   if (
@@ -209,11 +224,11 @@ function readRun(data) {
   };
 }
 
-// KB-4: Titel (nur Version 2) als Map Vergleichsform -> Titel, nur für
-// Kursnummern in offered; ungültige Einträge werden übersprungen
+// KB-4: Titel als Map Vergleichsform -> Titel, nur für Kursnummern in
+// offered; ungültige Einträge werden übersprungen
 function readTitles(data, offered) {
   const titles = new Map();
-  if (data.version !== 2 || !isPlainObject(data.titles)) return titles;
+  if (!isPlainObject(data.titles)) return titles;
   for (const [number, title] of Object.entries(data.titles)) {
     const key = courseKey(number);
     if (
@@ -277,10 +292,9 @@ function validateCourseInventorySetting(update, { now = Date.now() } = {}) {
 /**
  * Laufzeitform eines gespeicherten Werts (ohne Altersprüfung, die macht
  * loadCourseInventory je Aufruf). Leer -> {inventory: null} ohne problem.
- * Ungültige Einträge in offered werden übersprungen (skipped). Version 1
- * hat keine Titel, kein run und estimatedEnd false.
+ * Ungültige Einträge in offered werden übersprungen (skipped).
  * @param {*} raw
- * @returns {{inventory: {raw: string, version: number, createdMs: number, stand: string, offered: Set<string>, numbers: Map<string, string>, titles: Map<string, string>, estimatedEnd: boolean, run: {at: string, atMs: number, result: string, cause: string|null}|null}|null, problem?: string, skipped?: number}}
+ * @returns {{inventory: {raw: string, workspace: string, createdMs: number, stand: string, offered: Set<string>, numbers: Map<string, string>, titles: Map<string, string>, estimatedEnd: boolean, run: {at: string, atMs: number, result: string, cause: string|null}|null}|null, problem?: string, skipped?: number}}
  */
 function readCourseInventory(raw) {
   if (typeof raw !== "string" || raw.length === 0) return { inventory: null };
@@ -298,13 +312,13 @@ function readCourseInventory(raw) {
   return {
     inventory: {
       raw,
-      version: data.version,
+      workspace: data.workspace,
       createdMs,
       stand: new Date(createdMs).toISOString(),
       offered,
       numbers,
       titles: readTitles(data, offered),
-      estimatedEnd: data.version === 2 && data.estimatedEnd === true,
+      estimatedEnd: data.estimatedEnd === true,
       run: readRun(data),
     },
     skipped: keys.length - keys.filter((key) => key !== null).length,
@@ -546,17 +560,13 @@ async function headBlockExclusions(slug, offered, { orphans, unreadable }) {
 /**
  * Fixliste r4 Nr. 5 (NF6): Sind alle Dokumente des Workspace mit Suchdaten
  * unlesbar (Rechte nach einem Umzug, fehlender Mount), ist das ein
- * Lesefehler und kein „nicht eingerichtet“: wirft. Ein einzelnes unlesbares
- * Dokument neben lesbaren ändert nichts.
+ * Lesefehler und keine Bewertung („alles fehlt“): wirft. Ein einzelnes
+ * unlesbares Dokument neben lesbaren ändert nichts.
  * @param {Array<{docId: string, key: *}>} documents
+ * @param {Map<string, string[]>} vectorsByDoc
  */
-async function failIfAllUnreadable(documents) {
-  const withVectors = new Set(
-    (await deps.listVectors(documents.map((doc) => doc.docId))).map(
-      (row) => row.docId
-    )
-  );
-  const embedded = documents.filter((doc) => withVectors.has(doc.docId));
+function failIfAllUnreadable(documents, vectorsByDoc) {
+  const embedded = documents.filter((doc) => vectorsByDoc.has(doc.docId));
   if (embedded.length > 0 && embedded.every((doc) => doc.key === UNREADABLE))
     throw new Error(
       `${embedded.length} Dokumente mit Suchdaten nicht lesbar, keines lesbar`
@@ -564,7 +574,8 @@ async function failIfAllUnreadable(documents) {
 }
 
 /**
- * Index eines Workspace zu einem gültigen Kursbestand bauen.
+ * Index des Workspace der Kursliste bauen (r5: nur dieser Workspace, auch
+ * ohne einen einzigen angebotenen Kurs, dann ist count 0).
  * @param {string} slug
  * @param {object} inventory - Laufzeitform aus readCourseInventory
  * @returns {Promise<object|null>} null: Workspace unbekannt
@@ -582,24 +593,7 @@ async function buildIndex(slug, inventory) {
   const courseDocs = withKeys.filter((doc) => typeof doc.key === "string");
 
   const offered = inventory.offered;
-  const allKeys = new Set(courseDocs.map((doc) => doc.key));
-  let anyOffered = false;
-  for (const key of allKeys)
-    if (offered.has(key)) {
-      anyOffered = true;
-      break;
-    }
   const base = { slug, inventory, offered, complete: true };
-  // NAK-K2: ohne einen einzigen angebotenen Kurs im Workspace (Liste eines
-  // anderen Kunden, Workspace ohne Kurse) wird nichts ausgeblendet; dann
-  // werden weder document_vectors noch der Vektorspeicher gelesen (G).
-  // Ausnahme Fixliste r4 Nr. 5 (NF6): Gibt es unlesbare Dokumente, prüft
-  // failIfAllUnreadable, ob überhaupt eines mit Suchdaten lesbar ist.
-  if (!anyOffered) {
-    if (withKeys.some((doc) => doc.key === UNREADABLE))
-      await failIfAllUnreadable(withKeys);
-    return { ...base, active: false };
-  }
 
   // Abschnitte aller Dokumente: welche Zeilen der Tabelle der Workspace kennt
   const vectorsByDoc = new Map();
@@ -609,6 +603,7 @@ async function buildIndex(slug, inventory) {
     if (!vectorsByDoc.has(docId)) vectorsByDoc.set(docId, []);
     vectorsByDoc.get(docId).push(vectorId);
   }
+  failIfAllUnreadable(withKeys, vectorsByDoc);
 
   // Zeilen der Tabelle einmal lesen (G): AK-K9 welche Abschnitte gibt es
   // wirklich im Vektorspeicher, KR-1 verwaiste Abschnitte. Fehler: Index
@@ -679,7 +674,6 @@ async function buildIndex(slug, inventory) {
   );
   return {
     ...base,
-    active: true,
     counts: { count, offered: offered.size, hidden },
     // KB-3: eingelernte Kursnummern (fehlend = offered ohne diese) und die
     // ausgeblendeten mit Dokument, nur für die Status-Seite
@@ -697,10 +691,11 @@ async function buildIndex(slug, inventory) {
 
 /**
  * Index eines Workspace (Namespace = slug) zum gültigen Kursbestand, gemerkt
- * höchstens 1 h je Workspace und Wert (AK-K4); null ohne gültigen Wert oder
- * ohne Workspace. Ein unvollständiger Index wird nur 2 min gemerkt (S4,
- * r3-S3 a); ein gescheiterter Aufbau gar nicht, der nächste Aufruf versucht
- * es neu (Fixliste r4 Nr. 4). anyAge (KB-3, Status-Seite): auch ein Wert, den
+ * höchstens 1 h je Workspace und Wert (AK-K4); null ohne gültigen Wert, ohne
+ * Workspace oder für einen anderen Workspace als den der Kursliste (r5:
+ * dann wird nichts weiter gelesen). Ein unvollständiger Index wird nur
+ * 2 min gemerkt (S4, r3-S3 a); ein gescheiterter Aufbau gar nicht, der
+ * nächste Aufruf versucht es neu (Fixliste r4 Nr. 4). anyAge (KB-3, Status-Seite): auch ein Wert, den
  * der Chat nicht mehr anwendet, derselbe Index je Wert.
  * Wirft bei einem Fehler (Datenbank, Aufbau des Index): Die Status-Seite
  * meldet ihn (Fixliste r2 Nr. 6), die Chatpfade nutzen workspaceInventory.
@@ -714,7 +709,7 @@ async function workspaceIndex(slug, { now = Date.now(), anyAge = false } = {}) {
   const inventory = anyAge
     ? await courseInventoryRecord()
     : await loadCourseInventory({ now });
-  if (!inventory) return null;
+  if (!inventory || inventory.workspace !== slug) return null;
   const entry = indexCache.get(slug);
   if (
     entry &&
@@ -781,14 +776,14 @@ function rowIsStale(index, row) {
  * die zuletzt angenommene Form, gemeinsam für alle Suchen bis zum nächsten
  * Aufbau des Index (F). stats zählt je Suche die Anfragen ohne Treffer,
  * weil LanceDB jede Form abgelehnt hat. null: nichts auszublenden (kein
- * gültiger Wert, Workspace ohne angebotene Kurse, kein veralteter
+ * gültiger Wert, nicht der Workspace der Kursliste, kein veralteter
  * Abschnitt). Wirft nie.
  * @param {string} namespace
  * @returns {Promise<{clauses: string[], form: {accepted: number}, excludedIds: number, staleDocs: number, headBlockIds: number, stats: {failClosed: number}}|null>}
  */
 async function courseSearchExclusion(namespace) {
   const index = await workspaceInventory(namespace);
-  if (!index?.active || index.excludedIds.size === 0) return null;
+  if (!index || index.excludedIds.size === 0) return null;
   return {
     clauses: index.clauses || [],
     form: index.form,
@@ -801,14 +796,14 @@ async function courseSearchExclusion(namespace) {
 
 /**
  * Prüfer für die Chatpfade (angeheftete Dokumente, Rückgriff über
- * fillSourceWindow, Kurskarten). null ohne aktiven Kursbestand: dann bleibt
- * alles wie heute (NAK-K1). Wirft nie.
+ * fillSourceWindow, Kurskarten). null ohne gültigen Kursbestand für diesen
+ * Workspace: dann bleibt alles wie heute (NAK-K1). Wirft nie.
  * @param {{slug?: string}|null} workspace
  * @returns {Promise<object|null>}
  */
 async function courseInventoryGuard(workspace) {
   const index = await workspaceInventory(workspace?.slug);
-  if (!index?.active) return null;
+  if (!index) return null;
   const counts = { pinned: 0, history: 0 };
   // angeheftetes Dokument bzw. Dokumentdatei der Kurskarten ({pageContent})
   const hidesDocument = (doc) => textIsStale(index, doc?.pageContent);
@@ -842,14 +837,14 @@ async function courseInventoryGuard(workspace) {
  * /config davon nur count, die Vorschau im Design Center ebenso): {count,
  * offered, hidden, stand}; hidden = verschiedene Kursnummern der eingelernten
  * veralteten Kursdokumente, die die Suche ausblendet (D-K5, gezählt wie
- * count). null ohne gültigen Wert oder ohne
- * angebotenen Kurs im Workspace. Wirft nie.
+ * count). null ohne gültigen Wert oder in einem anderen Workspace als dem
+ * der Kursliste. Wirft nie.
  * @param {{slug?: string}|null} workspace
  * @returns {Promise<{count: number, offered: number, hidden: number, stand: string}|null>}
  */
 async function courseInventoryStatus(workspace) {
   const index = await workspaceInventory(workspace?.slug);
-  if (!index?.active) return null;
+  if (!index) return null;
   return { ...index.counts, stand: index.inventory.stand };
 }
 
@@ -881,11 +876,11 @@ async function readHiddenEntries(index) {
  * (anyAge): der Wert (Laufzeitform mit titles, run, estimatedEnd), ob der
  * Chat ihn gerade anwendet (listApplied, courseListApplies), die Zahlen und
  * die Listen, je höchstens 500 Einträge. missing: angebotene,
- * nicht eingelernte Kurse mit Titel aus der Kursliste (Version 1: null);
+ * nicht eingelernte Kurse mit Titel aus der Kursliste (ohne Titel null);
  * hidden: eingelernte Kurse außerhalb der Kursliste mit Titel, Beginn und
- * Dauer aus ihrem Kursdokument. null ohne gültigen Wert oder ohne
- * angebotenen Kurs im Workspace (nicht eingerichtet). lists false: ohne
- * Listen (Ampel, Menüpunkt). Nur lesend. Wirft bei einem Lesefehler
+ * Dauer aus ihrem Kursdokument. null ohne gültigen Wert oder in einem
+ * anderen Workspace als dem der Kursliste (nicht eingerichtet). lists
+ * false: ohne Listen (Ampel, Menüpunkt). Nur lesend. Wirft bei einem Lesefehler
  * (Datenbank, Aufbau des Index), damit er nicht als „nicht eingerichtet“
  * erscheint (Fixliste r2 Nr. 6).
  * @param {{slug?: string}|null} workspace
@@ -897,7 +892,7 @@ async function courseInventoryDetails(
   { now = Date.now(), lists = true } = {}
 ) {
   const index = await workspaceIndex(workspace?.slug, { now, anyAge: true });
-  if (!index?.active) return null;
+  if (!index) return null;
   const { inventory } = index;
   const listApplied = courseListApplies(inventory, now);
   if (!lists) return { inventory, listApplied, counts: index.counts };

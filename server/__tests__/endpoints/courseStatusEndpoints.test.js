@@ -112,12 +112,14 @@ beforeEach(() => {
   embedA1 = seedEmbed(workspaceA);
   embedA2 = seedEmbed(workspaceA, { courseCountMode: "off" });
   embedB = seedEmbed(workspaceB);
-  // A kennt 94 von 100 angebotenen Kursen (6 % fehlen: gelb), B hat keine
+  // A kennt 94 von 100 angebotenen Kursen (6 % fehlen: gelb), B hat keine;
+  // die Kursliste gehört zu A (Fixliste r5)
   for (let i = 1; i <= 94; i++) seedCourse(workspaceA, `262-${i}`);
   prisma.__seed("system_settings", {
     label: "kufer_course_inventory",
     value: JSON.stringify({
       version: 2,
+      workspace: "a",
       client: "vhs-beispiel",
       created: iso(NOW - HOUR),
       offered: Array.from({ length: 100 }, (_, i) => `262-${i + 1}`),
@@ -216,7 +218,7 @@ describe("AK-1: GET /embed/course-status", () => {
     expect(res.body?.state).toBeUndefined();
   });
 
-  test("Workspace ohne Kurse: nicht eingerichtet", async () => {
+  test("Workspace ohne Kurse (anderer Workspace als der der Kursliste): nicht eingerichtet", async () => {
     const res = await statusOf(embedB.id, createUser(prisma, "admin"));
     expect(res.body).toMatchObject({
       state: "nicht_eingerichtet",
@@ -232,6 +234,41 @@ describe("AK-1: GET /embed/course-status", () => {
     await statusOf(embedA1.id, createUser(prisma, "default", [workspaceA.id]));
     await invoke(MENU, { token: createUser(prisma, "admin").token });
     expect(JSON.stringify(prisma.__rows("system_settings"))).toBe(before);
+  });
+});
+
+// Fixliste r5: zwei Workspaces mit Kursen, nur der in der Kursliste genannte
+// wird ausgewertet; der andere ist nicht eingerichtet, auch wenn er alle
+// angebotenen Kurse kennt
+describe("r5: Kursliste gehört zu genau einem Workspace", () => {
+  beforeEach(() => {
+    for (let i = 1; i <= 100; i++) seedCourse(workspaceB, `262-${i}`);
+    seedCourse(workspaceB, "261-ALT");
+  });
+
+  test("Status-Seite: B nicht eingerichtet, A bewertet wie bisher", async () => {
+    const admin = createUser(prisma, "admin");
+    expect((await statusOf(embedB.id, admin)).body).toMatchObject({
+      state: "nicht_eingerichtet",
+      counts: null,
+      hidden: [],
+      listApplied: false,
+      visitors: null,
+    });
+    expect((await statusOf(embedA1.id, admin)).body).toMatchObject({
+      state: "gelb",
+      counts: { offered: 100, count: 94, missing: 6, hidden: 0 },
+    });
+  });
+
+  test("Menüpunkt und Entwickler-API: nur A", async () => {
+    const onlyB = createUser(prisma, "default", [workspaceB.id]);
+    expect((await invoke(MENU, { token: onlyB.token })).body).toEqual({
+      state: "nicht_eingerichtet",
+    });
+    prisma.__seed("api_keys", { secret: "geheim" });
+    const res = await invoke(API, { token: "geheim" });
+    expect(res.body.workspaces.map((entry) => entry.slug)).toEqual(["a"]);
   });
 });
 
@@ -358,12 +395,12 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
   });
 });
 
-// Fixliste r4 Nr. 4 (NF5): Ein Lesefehler bei einem Workspace verdeckt den
-// Punkt der übrigen nicht. Die Entwickler-API bleibt bei 500, sonst verlöre
-// ein still ausgelassener Workspace sein Rot.
-describe("Lesefehler bei einem Workspace (Fixliste r4 Nr. 4)", () => {
+// Fixliste r5 (ersetzt r4 Nr. 4): Bewertet wird nur der Workspace der
+// Kursliste. Scheitert sein Index, antworten alle drei Endpunkte mit 500;
+// der Fehler verschwindet nicht hinter „nicht eingerichtet“ der übrigen.
+describe("Lesefehler im Workspace der Kursliste (Fixliste r5)", () => {
   beforeEach(() => {
-    // B bekommt Kurse, sein Index scheitert am Lesen der Dokumente
+    // A scheitert am Lesen der Dokumente, B hat Kurse und ist lesbar
     for (let i = 1; i <= 3; i++) seedCourse(workspaceB, `262-${i}`);
     inventory.setDeps({
       readDocumentText: async (docpath) => docs[docpath]?.pageContent ?? null,
@@ -371,7 +408,7 @@ describe("Lesefehler bei einem Workspace (Fixliste r4 Nr. 4)", () => {
       tableRows: async () => null,
       rowTexts: async () => [],
       listDocuments: async (workspaceId) => {
-        if (workspaceId === workspaceB.id) throw new Error("SQLITE_BUSY");
+        if (workspaceId === workspaceA.id) throw new Error("SQLITE_BUSY");
         return await prisma.workspace_documents.findMany({
           where: { workspaceId },
           select: { docId: true, docpath: true },
@@ -380,17 +417,21 @@ describe("Lesefehler bei einem Workspace (Fixliste r4 Nr. 4)", () => {
     });
   });
 
-  test("Menüpunkt: der schlechteste lesbare Zustand, 500 nur ohne lesbaren Workspace; Entwickler-API 500", async () => {
+  test("Menüpunkt 500 auch neben lesbaren Workspaces; Status-Seite und Entwickler-API 500", async () => {
     const res = await invoke(MENU, {
       token: createUser(prisma, "admin").token,
     });
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ state: "gelb" });
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toBeUndefined();
 
-    const onlyBroken = createUser(prisma, "default", [workspaceB.id]);
-    const broken = await invoke(MENU, { token: onlyBroken.token });
-    expect(broken.statusCode).toBe(500);
-    expect(broken.body).toBeUndefined();
+    // wer nur B sieht, bekommt „nicht eingerichtet“ ohne Fehler
+    const onlyB = createUser(prisma, "default", [workspaceB.id]);
+    const other = await invoke(MENU, { token: onlyB.token });
+    expect(other.statusCode).toBe(200);
+    expect(other.body).toEqual({ state: "nicht_eingerichtet" });
+
+    const page = await statusOf(embedA1.id, createUser(prisma, "admin"));
+    expect(page.statusCode).toBe(500);
 
     prisma.__seed("api_keys", { secret: "geheim" });
     expect((await invoke(API, { token: "geheim" })).statusCode).toBe(500);

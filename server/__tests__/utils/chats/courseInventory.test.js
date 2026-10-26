@@ -5,7 +5,9 @@
 // offered = |A|, hidden = |B \ A| (veraltete Kursnummern, D-K5) aus den eigenen
 // Kursdokumenten des Workspace, gemerkt höchstens 1 h je Workspace und Wert. AK-K9: Dokumente
 // ohne Suchdaten zählen nicht als eingelernt. NAK-K2: nie ein Dokument ohne
-// Kursnummer, nie bei leerer Liste oder ohne angebotenen Kurs.
+// Kursnummer, nie bei leerer Liste. Fixliste r5: die Kursliste gehört zu
+// genau einem Workspace (Pflichtfeld workspace, nur Version 2); jeder andere
+// Workspace ist nicht eingerichtet und blendet nichts aus.
 
 const fs = require("fs");
 const path = require("path");
@@ -16,6 +18,7 @@ jest.mock("../../../utils/prisma", () => ({
 
 const prisma = require("../../../utils/prisma");
 const { SystemSettings } = require("../../../models/systemSettings");
+const { Workspace } = require("../../../models/workspace");
 const inventoryModule = require("../../../utils/chats/courseInventory");
 const {
   COURSE_INVENTORY_LABEL,
@@ -33,7 +36,8 @@ const LABEL = "kufer_course_inventory";
 const NOW = Date.parse("2026-10-24T10:00:00.000Z");
 const value = (overrides = {}) =>
   JSON.stringify({
-    version: 1,
+    version: 2,
+    workspace: "ws",
     client: "vhs-beispiel",
     created: "2026-10-24T08:00:00Z",
     offered: ["262-100", "262-101", "262-102", "262-103"],
@@ -94,7 +98,15 @@ describe("Validator (AK-K2) und Schreibweg (NAK-K4)", () => {
 
   test.each([
     ["kein JSON", "{"],
+    ["version 1 (r5: entfällt)", value({ version: 1 })],
     ["version 3", value({ version: 3 })],
+    ["workspace fehlt (r5)", value({ workspace: undefined })],
+    ["workspace leer", value({ workspace: "" })],
+    ["workspace kein Text", value({ workspace: 7 })],
+    ["workspace mit Großbuchstaben", value({ workspace: "VHS-Beispiel" })],
+    ["workspace mit Leerzeichen", value({ workspace: "vhs beispiel" })],
+    ["workspace mit Schrägstrich", value({ workspace: "../ws" })],
+    ["workspace länger als 255 Zeichen", value({ workspace: "w".repeat(256) })],
     ["client fehlt", value({ client: "" })],
     ["created kein Zeitpunkt", value({ created: "gestern" })],
     ["offered fehlt", value({ offered: undefined })],
@@ -136,6 +148,31 @@ describe("Validator (AK-K2) und Schreibweg (NAK-K4)", () => {
     );
   });
 
+  test("r5: workspace nimmt jeden Slug an, den AnythingLLM erzeugt", () => {
+    const names = [
+      "VHS Köln",
+      "Kursprogramm 2026",
+      "  __ Kurs_Programm -- 2 ",
+      "x.y+z!@*",
+      "a$b%c&d<e>f|g",
+      "™©®",
+      "Привет",
+      "Ünïcödé €uro",
+      ...Array.from({ length: 0x250 - 0x20 }, (_, i) =>
+        String.fromCodePoint(0x20 + i)
+      ).map((char) => `a${char}b`),
+    ];
+    const slugs = [
+      ...names.map((name) => Workspace.slugify(name, { lower: true })),
+      "3f2b8c1e-4d5a-4b6c-9d7e-8f9a0b1c2d3e",
+      "w".repeat(255),
+    ].filter((slug) => slug.length > 0);
+    for (const slug of slugs) {
+      const raw = value({ workspace: slug });
+      expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
+    }
+  });
+
   test("Label nur im Modell und im Lesemodul (kein Ausgabeweg)", () => {
     const serverRoot = path.resolve(__dirname, "../../..");
     const jsFiles = (dir) =>
@@ -163,7 +200,9 @@ describe("Lesen (NAK-K1)", () => {
   test.each([
     ["fehlt", null],
     ["kein JSON", { value: "{" }],
+    ["version 1", { value: value({ version: 1 }) }],
     ["version 3", { value: value({ version: 3 }) }],
+    ["ohne workspace", { value: value({ workspace: undefined }) }],
     ["leeres offered", { value: value({ offered: [] }) }],
     ["älter als 24 h", { value: value({ created: "2026-10-23T09:00:00Z" }) }],
   ])("%s: kein Kursbestand", async (_name, row) => {
@@ -210,6 +249,7 @@ describe("Lesen (NAK-K1)", () => {
     const inventory = await loadCourseInventory({ now: NOW });
     expect([...inventory.offered]).toEqual(["262-100", "a 1"]);
     expect(inventory.stand).toBe("2026-10-24T08:00:00.000Z");
+    expect(inventory.workspace).toBe("ws");
     expect(prisma.system_settings.findFirst).toHaveBeenCalledWith({
       where: { label: LABEL },
       select: { value: true },
@@ -468,20 +508,46 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     console.error.mockRestore();
   });
 
-  test("NAK-K2: kein angebotener Kurs im Workspace (Liste eines anderen Kunden): nichts ausgeblendet, keine Zahl", async () => {
+  // Fixliste r5: die Kursliste gilt nur im Workspace aus workspace; ein
+  // anderer Workspace (Dokubot, zweites Kursprogramm) ist nicht eingerichtet
+  test("r5: anderer Workspace als der der Kursliste: keine Zahl, nichts ausgeblendet, nichts gelesen", async () => {
     const deps = installDeps();
     prisma.system_settings.findFirst.mockResolvedValue({
-      value: value({ offered: ["999-1", "999-2"] }),
+      value: value({ workspace: "kurse" }),
     });
     expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
     expect(await courseSearchExclusion("ws")).toBeNull();
     expect(await courseInventoryGuard({ slug: "ws" })).toBeNull();
-    // G (r3-S3 b): weder document_vectors noch der Vektorspeicher werden
-    // dafür gelesen, der Index gemerkt
-    expect(deps.listVectors).not.toHaveBeenCalled();
-    expect(deps.tableRows).not.toHaveBeenCalled();
-    expect(deps.rowTexts).not.toHaveBeenCalled();
-    expect(deps.listDocuments).toHaveBeenCalledTimes(1);
+    expect(
+      await courseCountField({ slug: "ws" }, { mode: "on", word: "Kurse" })
+    ).toBeNull();
+    for (const fn of Object.values(deps)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  // Fixliste r5 (ersetzt NAK-K2 alt, E-KB3-4): im Workspace der Kursliste
+  // wird auch ohne einen einzigen angebotenen Kurs bewertet, alle
+  // Kursdokumente sind dann veraltet
+  test("r5: Workspace der Kursliste ohne angebotenen Kurs: count 0, alle Kursdokumente ausgeblendet", async () => {
+    installDeps();
+    prisma.system_settings.findFirst.mockResolvedValue({
+      value: value({ offered: ["999-1", "999-2"] }),
+    });
+    expect(await courseInventoryStatus({ slug: "ws" })).toEqual({
+      count: 0,
+      offered: 2,
+      hidden: 5,
+      stand: "2026-10-24T08:00:00.000Z",
+    });
+    expect((await courseSearchExclusion("ws")).clauses[0]).toBe(
+      "id NOT IN ('v100a','v100b','v101','v102','v102b','v900a','v900b','v901')"
+    );
+    const guard = await courseInventoryGuard({ slug: "ws" });
+    expect(guard.hidesDocument({ pageContent: courseText("262-100") })).toBe(
+      true
+    );
+    expect(
+      await courseCountField({ slug: "ws" }, { mode: "on", word: "Kurse" })
+    ).toBeNull();
   });
 
   test("NAK-K1: ohne gültigen Wert weder Zahl noch Ausschluss, kein Dokument gelesen", async () => {
@@ -513,9 +579,14 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
     }
   );
 
-  test("unbekannter Workspace: null", async () => {
-    installDeps();
-    expect(await courseInventoryStatus({ slug: "anders" })).toBeNull();
+  test("Workspace der Kursliste gibt es nicht: null", async () => {
+    const deps = installDeps();
+    prisma.system_settings.findFirst.mockResolvedValue({
+      value: value({ workspace: "weg" }),
+    });
+    expect(await courseInventoryStatus({ slug: "weg" })).toBeNull();
+    expect(deps.findWorkspaceId).toHaveBeenCalledWith("weg");
+    expect(deps.listDocuments).not.toHaveBeenCalled();
     expect(await courseInventoryStatus(null)).toBeNull();
   });
 });
@@ -809,21 +880,35 @@ describe("courseCount für /config (Vertrag)", () => {
 
 describe("Version 2 mit Titeln und Laufmeldung (KB-4, AK-4)", () => {
   const CONTRACT = require("./fixtures/courseInventoryContract.json");
+  // im Workspace „ws“ der Tests
   const v2 = (overrides = {}) =>
-    JSON.stringify({ ...JSON.parse(CONTRACT.v2), ...overrides });
+    JSON.stringify({
+      ...JSON.parse(CONTRACT.v2),
+      workspace: "ws",
+      ...overrides,
+    });
   afterEach(() => console.error.mockRestore?.());
 
-  test("Vertrags-Fixture: Version 1 und 2 gelten, Version 1 ohne Titel und Laufmeldung", async () => {
-    for (const raw of [CONTRACT.v1, CONTRACT.v2])
+  test("Vertrags-Fixture (r5): Version 2 mit workspace gilt, Version 1 und Version 2 ohne gültigen workspace nicht", async () => {
+    for (const raw of [CONTRACT.v2, CONTRACT.v2Laufmeldung])
       expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
-    prisma.system_settings.findFirst.mockResolvedValue({ value: CONTRACT.v1 });
-    const v1 = await courseInventoryRecord();
-    expect(v1).toMatchObject({ version: 1, estimatedEnd: false, run: null });
-    expect(v1.titles.size).toBe(0);
+    expect(Object.keys(CONTRACT.abgelehnt)).toEqual(
+      expect.arrayContaining(["v1", "v2OhneWorkspace"])
+    );
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    for (const raw of Object.values(CONTRACT.abgelehnt)) {
+      expect(() => validateCourseInventorySetting(raw, { now: NOW })).toThrow(
+        LABEL
+      );
+      // auch ein vorhandener alter Wert wird nicht gelesen
+      prisma.system_settings.findFirst.mockResolvedValue({ value: raw });
+      expect(await courseInventoryRecord()).toBeNull();
+    }
+    console.error.mockRestore();
     prisma.system_settings.findFirst.mockResolvedValue({ value: CONTRACT.v2 });
     const record = await courseInventoryRecord();
     expect(record).toMatchObject({
-      version: 2,
+      workspace: "vhs-beispiel",
       stand: "2026-10-24T08:00:00.000Z",
       estimatedEnd: true,
       run: { at: "2026-10-24T08:00:00.000Z", result: "ok", cause: null },
@@ -856,7 +941,7 @@ describe("Version 2 mit Titeln und Laufmeldung (KB-4, AK-4)", () => {
       "Laufmeldung mehr als 1 h in der Zukunft",
       { run: { at: "2026-10-24T11:30:00Z", result: "ok", cause: null } },
     ],
-  ])("dieselben Prüfungen wie Version 1: %s abgelehnt", (_name, overrides) => {
+  ])("Prüfungen: %s abgelehnt", (_name, overrides) => {
     expect(() =>
       validateCourseInventorySetting(v2(overrides), { now: NOW })
     ).toThrow(LABEL);
@@ -913,10 +998,16 @@ describe("Version 2 mit Titeln und Laufmeldung (KB-4, AK-4)", () => {
   );
 
   test("D-KB4-2: Laufmeldung mit altem created wird angenommen, die 24-h-Regel hängt an created", async () => {
-    const raw = CONTRACT.v2Laufmeldung;
-    expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
-    const result = await SystemSettings._updateSettings({ [LABEL]: raw });
+    const result = await SystemSettings._updateSettings({
+      [LABEL]: CONTRACT.v2Laufmeldung,
+    });
     expect(result).toEqual({ success: true, error: null });
+    // dieselbe Laufmeldung im Workspace „ws“ der Tests
+    const raw = JSON.stringify({
+      ...JSON.parse(CONTRACT.v2Laufmeldung),
+      workspace: "ws",
+    });
+    expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
     prisma.system_settings.findFirst.mockResolvedValue({ value: raw });
     // kein Ausblenden, keine Zahl (created 26 h alt), Laufmeldung intern lesbar
     expect(await loadCourseInventory({ now: NOW })).toBeNull();

@@ -9,12 +9,15 @@
 //   Gelb  5 % bis einschließlich 10 % fehlen, oder Abgleich 24 h bis 72 h alt.
 //   Rot   über 10 % fehlen, oder Abgleich älter als 72 h.
 // Alter des Abgleichs: der jüngere Zeitpunkt aus created und run.at eines
-// Laufs mit result "ok" (Version 1: created, E-KB3-1). Ein Lauf mit Störung
-// schreibt keine neue Liste (KB-4, D-KB4-2) und verjüngt den Stand deshalb
-// nicht.
+// Laufs mit result "ok" (ohne gültiges run: created, E-KB3-1). Ein Lauf mit
+// Störung schreibt keine neue Liste (KB-4, D-KB4-2) und verjüngt den Stand
+// deshalb nicht.
 //
-// Ohne gültige Kursliste oder ohne angebotenen Kurs im Workspace gilt
-// „nicht eingerichtet“ (D-KB3-3). Ein Lesefehler (Datenbank, Aufbau des
+// Ohne gültige Kursliste oder in einem anderen Workspace als dem der
+// Kursliste (Feld workspace, Fixliste r5) gilt „nicht eingerichtet“
+// (D-KB3-3). Im Workspace der Kursliste wird immer bewertet, auch wenn dort
+// kein angebotener Kurs eingelernt ist (dann fehlt alles, Rot; die frühere
+// Sonderregel E-KB3-4 entfällt). Ein Lesefehler (Datenbank, Aufbau des
 // Index, alle Dokumente unlesbar) ist kein „nicht eingerichtet“:
 // courseStatus wirft, die Endpunkte antworten mit 500 ohne Details
 // (Fixliste r2 Nr. 6, r4 Nr. 5); nur der Punkt am Menü nimmt die lesbaren
@@ -43,7 +46,8 @@ const CAUSE_UNREACHABLE = "feed_nicht_erreichbar";
 const STATE_CACHE_MS = 5 * 60 * 1000;
 
 /**
- * Letzter Lauf: run aus Version 2, sonst created als Lauf ohne Störung.
+ * Letzter Lauf: run der Kursliste, ohne gültiges run created als Lauf ohne
+ * Störung.
  * @param {object} inventory - Laufzeitform aus courseInventoryRecord
  * @returns {{at: string, result: string, cause: string|null}}
  */
@@ -207,28 +211,19 @@ function worstState(states) {
 }
 
 /**
- * Zustand für den Punkt am Menü (AK-5, Fixliste r4 Nr. 4): der schlechteste
- * der lesbaren Workspaces. Ein Lesefehler eines Workspace verdeckt die
- * übrigen nicht, er kommt als eine Logzeile ins Log; geworfen wird nur, wenn
- * keiner lesbar war.
+ * Zustand für den Punkt am Menü (AK-5): der schlechteste der Workspaces.
+ * Bewertet wird nur der Workspace der Kursliste (Fixliste r5), die übrigen
+ * sind ohne Lesen nicht eingerichtet. Ein Lesefehler wirft deshalb, statt
+ * hinter „nicht eingerichtet“ der übrigen zu verschwinden (r5 ersetzt die
+ * Auswahl der lesbaren Workspaces aus r4 Nr. 4).
  * @param {Array<{slug?: string}>} workspaces
  * @param {{now?: number}} [options]
  * @returns {Promise<string>}
  */
 async function courseMenuState(workspaces, { now = Date.now() } = {}) {
   const states = [];
-  let failure = null;
-  for (const workspace of workspaces) {
-    try {
-      states.push(await courseStatusState(workspace, { now }));
-    } catch (error) {
-      failure = error;
-      console.error(
-        `[courseStatus] ${workspace?.slug}: Zustand nicht lesbar: ${error.message}`
-      );
-    }
-  }
-  if (failure && states.length === 0) throw failure;
+  for (const workspace of workspaces)
+    states.push(await courseStatusState(workspace, { now }));
   return worstState(states);
 }
 
