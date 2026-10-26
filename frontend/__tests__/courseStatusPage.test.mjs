@@ -53,27 +53,33 @@ const missing = (n) =>
 const HOUR = 60 * 60 * 1000;
 const ago = (hours) => new Date(Date.now() - hours * HOUR).toISOString();
 
-/** Antwort des Servers für ein gelbes Kursprogramm, sonst wie angegeben. */
+/**
+ * Antwort des Servers für ein gelbes Kursprogramm, sonst wie angegeben. Wie
+ * der Server (Fixliste r7 Nr. 1): ausgeblendete Kurse nur bei listApplied.
+ */
 function answer(overrides = {}) {
+  const applied = overrides.listApplied !== false;
   return {
     state: "gelb",
     headline: "unvollstaendig",
     details: ["unvollstaendig"],
     reasons: ["fehlen"],
-    counts: { offered: 864, count: 812, missing: 52, hidden: 2 },
+    counts: { offered: 864, count: 812, missing: 52, hidden: applied ? 2 : 0 },
     missingPercent: 6,
     listApplied: true,
     notice: null,
     missing: missing(52),
-    hidden: [
-      {
-        knr: "261-7",
-        title: "Yoga am Morgen",
-        start: "2026-09-02",
-        duration: "6 Termine",
-      },
-      { knr: "261-8", title: "Excel", start: null, duration: null },
-    ],
+    hidden: applied
+      ? [
+          {
+            knr: "261-7",
+            title: "Yoga am Morgen",
+            start: "2026-09-02",
+            duration: "6 Termine",
+          },
+          { knr: "261-8", title: "Excel", start: null, duration: null },
+        ]
+      : [],
     lastRun: { at: new Date().toISOString(), result: "ok", cause: null },
     syncedAt: new Date().toISOString(),
     estimatedEnd: true,
@@ -653,6 +659,30 @@ test(
       find(applied.container, "data-course-list-not-applied"),
       undefined
     );
+  }
+);
+
+test(
+  "r7 Nr. 1: Die Seite zeigt Liste und Kennzahl „Ausgeblendet“ nach dem, was der Server liefert, ohne eigene Bedingung auf listApplied",
+  { skip },
+  async (t) => {
+    // nichts ausgeblendet: keine Liste und keine Kennzahl, auch bei listApplied
+    const none = await open(
+      t,
+      answer({
+        counts: { offered: 864, count: 812, missing: 52, hidden: 0 },
+        hidden: [],
+      })
+    );
+    assert.equal(kpi(none.container, "hidden"), undefined);
+    assert.equal(find(none.container, "data-course-list", "hidden"), undefined);
+    assert.ok(find(none.container, "data-course-list", "missing"));
+    await none.unmount();
+
+    // geliefert: Liste und Kennzahl, auch ohne listApplied in der Antwort
+    const shown = await open(t, answer({ listApplied: undefined }));
+    assert.equal(kpi(shown.container, "hidden"), "Ausgeblendet2");
+    assert.ok(find(shown.container, "data-course-list", "hidden"));
   }
 );
 

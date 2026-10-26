@@ -135,9 +135,9 @@ function listFormat(language) {
 
 function StatusBody({ status }) {
   if (status.state === "nicht_eingerichtet") return <Banner status={status} />;
-  // Ausgeblendet nur, solange der Chat die Kursliste anwendet (Fixliste r4
-  // Nr. 2): sonst nennt der KI-Berater diese Kurse wieder
-  const showsHidden = status.listApplied === true && status.counts.hidden > 0;
+  // Ausgeblendet liefert der Server nur, solange der Chat die Kursliste
+  // anwendet (Fixliste r7 Nr. 1); die Seite zeigt ab, was kommt
+  const showsHidden = status.counts.hidden > 0;
   return (
     <>
       <Banner status={status} />
@@ -292,7 +292,7 @@ function Counts({ status }) {
           : null,
       accent: counts.missing > 0 ? STATE_COLORS[status.state]?.dot : null,
     },
-    ...(status.listApplied === true
+    ...(counts.hidden > 0
       ? [{ key: "hidden", value: formatNumber(counts.hidden) }]
       : []),
   ];
