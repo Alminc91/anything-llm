@@ -68,7 +68,10 @@
 
 const fs = require("fs");
 const prisma = require("../prisma");
-const { courseNumberFromText } = require("./embedCourseSources");
+const {
+  courseNumberFromText,
+  courseDocumentSummary,
+} = require("./embedCourseSources");
 
 const COURSE_INVENTORY_LABEL = "kufer_course_inventory";
 // Vertrag: höchstens 512 KiB (UTF-8)
@@ -107,6 +110,8 @@ const EXCLUSION_BLOCK = 1000;
 // Vektor-IDs (uuidv4) für die Filterbedingung; eine andere ID kommt nie in
 // die Anfrage, dann gilt fail-closed (keine Treffer)
 const VECTOR_ID_RX = /^[A-Za-z0-9_.:-]{1,100}$/;
+// KB-3: höchstens so viele Einträge je Liste der Status-Seite
+const STATUS_LIST_MAX = 500;
 // Dokumentdatei nicht lesbar (fehlt, kein JSON): nicht über die Stunde
 // hinaus gemerkt, seine Abschnitte werden über den Kopfblock geprüft
 const UNREADABLE = Symbol("unreadable");
@@ -262,7 +267,7 @@ function validateCourseInventorySetting(update, { now = Date.now() } = {}) {
  * Ungültige Einträge in offered werden übersprungen (skipped). Version 1
  * hat keine Titel, kein run und estimatedEnd false.
  * @param {*} raw
- * @returns {{inventory: {raw: string, version: number, createdMs: number, stand: string, offered: Set<string>, titles: Map<string, string>, estimatedEnd: boolean, run: {at: string, atMs: number, result: string, cause: string|null}|null}|null, problem?: string, skipped?: number}}
+ * @returns {{inventory: {raw: string, version: number, createdMs: number, stand: string, offered: Set<string>, numbers: Map<string, string>, titles: Map<string, string>, estimatedEnd: boolean, run: {at: string, atMs: number, result: string, cause: string|null}|null}|null, problem?: string, skipped?: number}}
  */
 function readCourseInventory(raw) {
   if (typeof raw !== "string" || raw.length === 0) return { inventory: null };
@@ -271,6 +276,12 @@ function readCourseInventory(raw) {
   const createdMs = Date.parse(data.created);
   const keys = data.offered.map(courseKey);
   const offered = new Set(keys.filter((key) => key !== null));
+  // KB-3: Kursnummer in der Schreibweise des Kursprogramms (Status-Seite)
+  const numbers = new Map();
+  keys.forEach((key, i) => {
+    if (key !== null && !numbers.has(key))
+      numbers.set(key, data.offered[i].normalize("NFC").trim());
+  });
   return {
     inventory: {
       raw,
@@ -278,6 +289,7 @@ function readCourseInventory(raw) {
       createdMs,
       stand: new Date(createdMs).toISOString(),
       offered,
+      numbers,
       titles: readTitles(data, offered),
       estimatedEnd: data.version === 2 && data.estimatedEnd === true,
       run: readRun(data),
@@ -345,6 +357,19 @@ async function loadCourseInventory({ now = Date.now() } = {}) {
 // Index je Workspace (B, veraltete Dokumente, Vorfilter)
 // ---------------------------------------------------------------------------
 
+// Dokumentdatei als Objekt oder null (außerhalb der Dokumente, zu groß);
+// wirft bei fehlender oder kaputter Datei
+async function readDocumentFile(docpath) {
+  const { documentsPath, isWithin, normalizePath } = require("../files");
+  const path = require("path");
+  const full = path.resolve(documentsPath, normalizePath(docpath));
+  if (!isWithin(path.resolve(documentsPath), full)) return null;
+  const stat = await fs.promises.stat(full);
+  if (!stat.isFile() || stat.size > DOC_FILE_MAX_BYTES) return null;
+  const doc = JSON.parse(await fs.promises.readFile(full, "utf8"));
+  return isPlainObject(doc) ? doc : null;
+}
+
 function defaultDeps() {
   return {
     findWorkspaceId: async (slug) =>
@@ -372,15 +397,11 @@ function defaultDeps() {
     },
     // Text eines Dokuments (pageContent) oder null (fehlt, zu groß, unlesbar)
     readDocumentText: async (docpath) => {
-      const { documentsPath, isWithin, normalizePath } = require("../files");
-      const path = require("path");
-      const full = path.resolve(documentsPath, normalizePath(docpath));
-      if (!isWithin(path.resolve(documentsPath), full)) return null;
-      const stat = await fs.promises.stat(full);
-      if (!stat.isFile() || stat.size > DOC_FILE_MAX_BYTES) return null;
-      const doc = JSON.parse(await fs.promises.readFile(full, "utf8"));
+      const doc = await readDocumentFile(docpath);
       return typeof doc?.pageContent === "string" ? doc.pageContent : null;
     },
+    // KB-3: das Dokument ({pageContent, start_date, …}) oder null
+    readDocument: async (docpath) => await readDocumentFile(docpath),
     // Alle Zeilen der Tabelle als [{id, title, published}], einmal je Aufbau
     // (AK-K9: vorhandene Abschnitte, KR-1: verwaiste, I: Uploads der
     // gespeicherten Quellen); null = nicht prüfbar (anderer Vektorspeicher)
@@ -539,6 +560,7 @@ async function buildIndex(slug, inventory) {
     }
   const base = {
     slug,
+    inventory,
     raw: inventory.raw,
     stand: inventory.stand,
     offered,
@@ -583,7 +605,11 @@ async function buildIndex(slug, inventory) {
   const staleDocs = courseDocs.filter((doc) => !offered.has(doc.key));
   // hidden wie count (r3-S4): verschiedene Kursnummern der eingelernten
   // veralteten Dokumente; ausgeschlossen werden alle veralteten
-  const hidden = new Set(staleDocs.filter(embedded).map((doc) => doc.key)).size;
+  // KB-3: je Kursnummer das erste Dokument (Liste der Status-Seite)
+  const hiddenDocs = new Map();
+  for (const doc of staleDocs.filter(embedded))
+    if (!hiddenDocs.has(doc.key)) hiddenDocs.set(doc.key, doc.docpath);
+  const hidden = hiddenDocs.size;
   const excludedIds = new Set(
     staleDocs.flatMap((doc) => vectorsByDoc.get(doc.docId) || [])
   );
@@ -625,6 +651,10 @@ async function buildIndex(slug, inventory) {
     ...base,
     active: true,
     counts: { count, offered: offered.size, hidden },
+    // KB-3: eingelernte Kursnummern (fehlend = offered ohne diese) und die
+    // ausgeblendeten mit Dokument, nur für die Status-Seite
+    knownKeys: known,
+    hiddenDocs,
     staleDocCount: staleDocs.length,
     headBlockCount: headBlockIds.size,
     excludedIds,
@@ -640,15 +670,22 @@ async function buildIndex(slug, inventory) {
  * höchstens 1 h je Workspace und Wert (AK-K4); null ohne gültigen Wert,
  * ohne Workspace oder bei einem Fehler. Ein gescheiterter oder
  * unvollständiger Index wird nur 2 min gemerkt, danach baut der nächste
- * Aufruf neu (S4, r3-S3 a). Wirft nie.
+ * Aufruf neu (S4, r3-S3 a). anyAge (KB-3, Status-Seite): auch ein Wert
+ * über 24 h, derselbe Index je Wert. Wirft nie.
  * @param {string} slug
- * @param {{now?: number}} [options]
+ * @param {{now?: number, anyAge?: boolean}} [options]
  * @returns {Promise<object|null>}
  */
-async function workspaceInventory(slug, { now = Date.now() } = {}) {
+async function workspaceInventory(
+  slug,
+  { now = Date.now(), anyAge = false } = {}
+) {
   try {
     if (typeof slug !== "string" || slug.length === 0) return null;
-    const inventory = await loadCourseInventory({ now });
+    // KB-3: die Status-Seite bewertet auch einen Wert über 24 h (rot)
+    const inventory = anyAge
+      ? await courseInventoryRecord()
+      : await loadCourseInventory({ now });
     if (!inventory) return null;
     const entry = indexCache.get(slug);
     if (
@@ -772,6 +809,77 @@ async function courseInventoryStatus(workspace) {
   return { ...index.counts, stand: index.stand };
 }
 
+// KB-3: Einträge der ausgeblendeten Kurse je Index; die Dokumente werden
+// einmal je Index gelesen (höchstens STATUS_LIST_MAX)
+const hiddenEntries = new WeakMap();
+
+async function readHiddenEntries(index) {
+  const docs = [...index.hiddenDocs].slice(0, STATUS_LIST_MAX);
+  return await mapWithLimit(docs, READ_CONCURRENCY, async ([key, docpath]) => {
+    let summary = null;
+    try {
+      summary = courseDocumentSummary(await deps.readDocument(docpath));
+    } catch {
+      // Datei fehlt oder ist kaputt: nur die Kursnummer
+    }
+    const knr = summary?.knr;
+    return {
+      knr: courseKey(knr) === key ? knr : key,
+      title: summary?.title ?? null,
+      start: summary?.start ?? null,
+      duration: summary?.duration ?? null,
+    };
+  });
+}
+
+/**
+ * KB-3: Kursbestand eines Workspace für die Status-Seite, auch über 24 h
+ * (anyAge): der Wert (Laufzeitform mit titles, run, estimatedEnd), die
+ * Zahlen und die Listen, je höchstens 500 Einträge. missing: angebotene,
+ * nicht eingelernte Kurse mit Titel aus der Kursliste (Version 1: null);
+ * hidden: eingelernte Kurse außerhalb der Kursliste mit Titel, Beginn und
+ * Dauer aus ihrem Kursdokument. null ohne gültigen Wert oder ohne
+ * angebotenen Kurs im Workspace (nicht eingerichtet). lists false: ohne
+ * Listen (Ampel, Menüpunkt). Nur lesend, wirft nie.
+ * @param {{slug?: string}|null} workspace
+ * @param {{now?: number, lists?: boolean}} [options]
+ * @returns {Promise<{inventory: object, counts: {count: number, offered: number, hidden: number}, missing?: Array<{knr: string, title: string|null}>, hidden?: Array<{knr: string, title: string|null, start: string|null, duration: string|null}>}|null>}
+ */
+async function courseInventoryDetails(
+  workspace,
+  { now = Date.now(), lists = true } = {}
+) {
+  try {
+    const index = await workspaceInventory(workspace?.slug, {
+      now,
+      anyAge: true,
+    });
+    if (!index?.active) return null;
+    const { inventory } = index;
+    if (!lists) return { inventory, counts: index.counts };
+    const missing = [];
+    for (const key of index.offered) {
+      if (missing.length >= STATUS_LIST_MAX) break;
+      if (index.knownKeys.has(key)) continue;
+      missing.push({
+        knr: inventory.numbers.get(key) ?? key,
+        title: inventory.titles.get(key) ?? null,
+      });
+    }
+    if (!hiddenEntries.has(index))
+      hiddenEntries.set(index, readHiddenEntries(index));
+    return {
+      inventory,
+      counts: index.counts,
+      missing,
+      hidden: await hiddenEntries.get(index),
+    };
+  } catch (error) {
+    console.error(`[courseInventory] ${error.message}`);
+    return null;
+  }
+}
+
 /**
  * Feld courseCount für GET /embed/:id/config nach Vertrag: nur mit Anzeige
  * an, gültigem, höchstens 24 h altem Wert (loadCourseInventory) und
@@ -798,6 +906,8 @@ module.exports = {
   courseInventoryGuard,
   courseInventoryStatus,
   courseCountField,
+  courseInventoryDetails,
+  STATUS_LIST_MAX,
   // nur für Tests
   __test__: {
     INVENTORY_MAX_BYTES,
