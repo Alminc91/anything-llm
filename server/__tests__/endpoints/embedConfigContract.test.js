@@ -397,11 +397,11 @@ describe("Vertrag /config: courseCount (KIE-576 Paket 3)", () => {
     expect(lines).toEqual(
       expect.arrayContaining([
         "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-        "1 beendeter Kurs ist ausgeblendet.",
+        "1 Kurs ist ausgeblendet, weil er voraussichtlich beendet ist.",
         "Zurzeit fehlt 1 Kurs.",
         "Für eine vollständige Suche nutzen Sie bitte die Kurssuche auf unserer Webseite.",
         "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite.",
-        "1 ended course is hidden.",
+        "1 course is hidden because it has probably ended.",
         "1 course is currently missing.",
       ])
     );

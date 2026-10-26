@@ -227,7 +227,7 @@
         "lines": [
           "812 Kurse im KI-Berater",
           "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-          "14 beendete Kurse sind ausgeblendet.",
+          "14 Kurse sind ausgeblendet, weil sie voraussichtlich beendet sind.",
           "Zurzeit fehlen 25 Kurse.",
           "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
         ]
@@ -261,7 +261,7 @@
         "lines": [
           "1.243 Kurse im KI-Berater",
           "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-          "1.050 beendete Kurse sind ausgeblendet.",
+          "1.050 Kurse sind ausgeblendet, weil sie voraussichtlich beendet sind.",
           "Zurzeit fehlen 67 Kurse.",
           "Für eine vollständige Suche nutzen Sie bitte die Kurssuche auf unserer Webseite.",
           "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
@@ -280,7 +280,7 @@
         "lines": [
           "836 Kurse im KI-Berater",
           "Enthalten sind die aktuellen Kurse aus unserem Kursprogramm.",
-          "1 beendeter Kurs ist ausgeblendet.",
+          "1 Kurs ist ausgeblendet, weil er voraussichtlich beendet ist.",
           "Zurzeit fehlt 1 Kurs.",
           "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
         ]
@@ -298,7 +298,7 @@
         "lines": [
           "836 Angebote im KI-Berater",
           "Enthalten sind die aktuellen Angebote aus unserem Kursprogramm.",
-          "1 beendete Angebote sind ausgeblendet.",
+          "1 Angebote sind ausgeblendet, weil sie voraussichtlich beendet sind.",
           "Zurzeit fehlen 1 Angebote.",
           "Stand: heute, 10:00 Uhr, stündlich aktualisiert. Verbindlich ist das Kursprogramm auf unserer Webseite."
         ]
@@ -316,7 +316,7 @@
         "lines": [
           "1,243 courses in the AI advisor",
           "This includes the current courses from our course program.",
-          "14 ended courses are hidden.",
+          "14 courses are hidden because they have probably ended.",
           "67 courses are currently missing.",
           "For a complete search, please use the course search on our website.",
           "Status: today, 10:00 AM, updated hourly. The course program on our website is binding."
@@ -351,7 +351,7 @@
         "lines": [
           "836 courses in the AI advisor",
           "This includes the current courses from our course program.",
-          "1 ended course is hidden.",
+          "1 course is hidden because it has probably ended.",
           "1 course is currently missing.",
           "Status: today, 10:00 AM, updated hourly. The course program on our website is binding."
         ]
@@ -369,7 +369,7 @@
         "lines": [
           "836 workshops in the AI advisor",
           "This includes the current workshops from our course program.",
-          "1 ended workshops are hidden.",
+          "1 workshops are hidden because they have probably ended.",
           "1 workshops are currently missing.",
           "Status: today, 10:00 AM, updated hourly. The course program on our website is binding."
         ]
