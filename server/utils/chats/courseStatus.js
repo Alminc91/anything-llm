@@ -8,10 +8,10 @@
 //   Grün  unter 5 % fehlen und letzter erfolgreicher Abgleich jünger als 24 h.
 //   Gelb  5 % bis einschließlich 10 % fehlen, oder Abgleich 24 h bis 72 h alt.
 //   Rot   über 10 % fehlen, oder Abgleich älter als 72 h.
-// Alter des Abgleichs: der jüngere Zeitpunkt aus created und run.at eines
-// Laufs mit result "ok" (ohne gültiges run: created, E-KB3-1). Ein Lauf mit
-// Störung schreibt keine neue Liste (KB-4, D-KB4-2) und verjüngt den Stand
-// deshalb nicht.
+// Alter des Abgleichs: created (syncedAt, D-r6-3). Ein Lauf mit result "ok"
+// schreibt immer ein neues created, ein Lauf mit Störung schreibt keine neue
+// Liste (KB-4, D-KB4-2) und verjüngt den Stand deshalb nicht. listApplied
+// rechnet mit demselben Zeitpunkt (courseListApplies).
 //
 // Ohne gültige Kursliste oder in einem anderen Workspace als dem der
 // Kursliste (Feld workspace, Fixliste r5) gilt „nicht eingerichtet“
@@ -24,8 +24,9 @@
 //
 // Vertrag mit Status-Seite und Mail (KB-5, fixliste-kb-r4.md „Vertrag“):
 // Überschrift (headline), Zeilen (details), Anteil der fehlenden Kurse
-// (missingPercent) und ob der Chat die Kursliste anwendet (listApplied)
-// rechnet nur der Server; Seite und Mail lesen sie ab.
+// (missingPercent), ob der Chat die Kursliste anwendet (listApplied) und die
+// Hinweiszeile (notice, D-r6-3) rechnet nur der Server; Seite und Mail lesen
+// sie ab.
 
 const { courseInventoryDetails } = require("./courseInventory");
 
@@ -43,6 +44,9 @@ const NOT_SET_UP = "nicht_eingerichtet";
 const CAUSE_UNREACHABLE = "feed_nicht_erreichbar";
 // Menüpunkt (AK-5): Zustand je Workspace höchstens so lange gemerkt
 const STATE_CACHE_MS = 5 * 60 * 1000;
+// Hinweiszeile (notice): Gelb oder Rot, und der Chat wendet die Kursliste
+// nicht an (D-r6-3)
+const NOTICE_LIST_NOT_APPLIED = "liste_nicht_angewendet";
 
 /**
  * Letzter Lauf: run der Kursliste, ohne gültiges run created als Lauf ohne
@@ -53,11 +57,6 @@ const STATE_CACHE_MS = 5 * 60 * 1000;
 function lastRunOf({ run, stand }) {
   if (!run) return { at: stand, result: "ok", cause: null };
   return { at: run.at, result: run.result, cause: run.cause };
-}
-
-/** Zeitpunkt des letzten erfolgreichen Abgleichs in ms. */
-function syncedAtMs({ run, createdMs }) {
-  return Math.max(createdMs, run?.result === "ok" ? run.atMs : -Infinity);
 }
 
 /** Stufe nach dem Anteil der fehlenden Kurse (ganzzahlig verglichen). */
@@ -119,6 +118,7 @@ const notSetUp = () => ({
   lastRun: null,
   syncedAt: null,
   listApplied: false,
+  notice: null,
   estimatedEnd: false,
 });
 
@@ -127,9 +127,10 @@ const notSetUp = () => ({
  * Überschrift und Zeilen der Meldung (Vertrag r4), Gründe für Gelb oder Rot
  * („fehlen“, „alter“; beide, wenn beides zutrifft), Zahlen mit dem Anteil
  * der fehlenden Kurse, die Listen (je höchstens 500, die Gesamtzahl steht in
- * counts), letzter Lauf, letzter erfolgreicher Abgleich, ob der Chat die
- * Kursliste anwendet und ob das Ende geschätzt ist. Nur lesend; wirft bei
- * einem Lesefehler.
+ * counts), letzter Lauf, letzter erfolgreicher Abgleich (created), ob der
+ * Chat die Kursliste anwendet, die Hinweiszeile (notice: nur bei Gelb oder
+ * Rot und listApplied false) und ob das Ende geschätzt ist. Nur lesend;
+ * wirft bei einem Lesefehler.
  * @param {{slug?: string}|null} workspace
  * @param {{now?: number, lists?: boolean}} [options]
  * @returns {Promise<object>}
@@ -142,16 +143,16 @@ async function courseStatus(
   if (!details) return notSetUp();
   const { inventory, counts } = details;
   const missing = Math.max(0, counts.offered - counts.count);
-  const syncedAt = syncedAtMs(inventory);
   const byMissing = missingLevel(missing, counts.offered);
-  const byAge = ageLevel(now - syncedAt);
+  const byAge = ageLevel(now - inventory.createdMs);
+  const level = Math.max(byMissing, byAge);
   const reasons = [];
   if (byMissing > 0) reasons.push("fehlen");
   if (byAge > 0) reasons.push("alter");
   const lastRun = lastRunOf(inventory);
   const lines = detailsOf(byMissing, byAge, lastRun);
   return {
-    state: STATES[Math.max(byMissing, byAge)],
+    state: STATES[level],
     // die Zeile zur Überschrift steht zuerst; Grün „aktuell“
     headline: lines[0] ?? "aktuell",
     details: lines,
@@ -166,8 +167,9 @@ async function courseStatus(
     missing: details.missing ?? [],
     hidden: details.hidden ?? [],
     lastRun,
-    syncedAt: new Date(syncedAt).toISOString(),
+    syncedAt: inventory.stand,
     listApplied: details.listApplied,
+    notice: level > 0 && !details.listApplied ? NOTICE_LIST_NOT_APPLIED : null,
     estimatedEnd: inventory.estimatedEnd,
   };
 }

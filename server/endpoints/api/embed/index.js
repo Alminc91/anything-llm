@@ -415,7 +415,7 @@ function apiEmbedEndpoints(app) {
   app.get("/v1/course-status", [validApiKey], async (_request, response) => {
     /*
       #swagger.tags = ['Embed']
-      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). headline is the heading of the message (aktuell, unvollstaendig, nicht_aktualisiert, nicht_abrufbar), details its lines in display order (unvollstaendig, nicht_aktualisiert, nicht_abrufbar; empty for gruen). missingPercent is the share of missing courses in whole percent, rounded down. listApplied is true while the chat applies the course list (hides courses). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only the workspace named in the course list (field workspace) is rated, and only if it has at least one widget; all other workspaces are not listed. A read error answers 500.'
+      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). headline is the heading of the message (aktuell, unvollstaendig, nicht_aktualisiert, nicht_abrufbar), details its lines in display order (unvollstaendig, nicht_aktualisiert, nicht_abrufbar; empty for gruen). missingPercent is the share of missing courses in whole percent, rounded down. listApplied is true while the chat applies the course list (hides courses). notice is liste_nicht_angewendet if the state is gelb or rot and listApplied is false, otherwise null. syncedAt is the last successful synchronization (created of the course list), lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only the workspace named in the course list (field workspace) is rated, and only if it has at least one widget; all other workspaces are not listed. A read error answers 500.'
       #swagger.responses[200] = {
         content: {
           "application/json": {
@@ -438,6 +438,7 @@ function apiEmbedEndpoints(app) {
                     "lastRun": { "at": "2026-10-26T09:00:00.000Z", "result": "ok", "cause": null },
                     "syncedAt": "2026-10-26T09:00:00.000Z",
                     "listApplied": true,
+                    "notice": null,
                     "estimatedEnd": true
                   }
                 ]

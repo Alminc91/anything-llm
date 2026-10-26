@@ -155,6 +155,7 @@ describe("AK-1: GET /embed/course-status", () => {
           "listApplied",
           "missing",
           "missingPercent",
+          "notice",
           "reasons",
           "state",
           "syncedAt",
@@ -171,6 +172,7 @@ describe("AK-1: GET /embed/course-status", () => {
         counts: { offered: 100, count: 94, missing: 6, hidden: 0 },
         missingPercent: 6,
         listApplied: true,
+        notice: null,
         workspace: { name: "VHS Beispiel" },
         widgets: [
           { id: embedA1.id, name: "VHS Beispiel" },
@@ -317,6 +319,7 @@ describe("AK-2: GET /v1/course-status", () => {
         "missing",
         "missingPercent",
         "name",
+        "notice",
         "reasons",
         "slug",
         "state",
@@ -338,6 +341,7 @@ describe("AK-2: GET /v1/course-status", () => {
       counts: { offered: 100, count: 94, missing: 6, hidden: 0 },
       missingPercent: 6,
       listApplied: true,
+      notice: null,
     });
     expect(entry.missing).toHaveLength(6);
     expect(JSON.stringify(res.body)).not.toContain("geheim");

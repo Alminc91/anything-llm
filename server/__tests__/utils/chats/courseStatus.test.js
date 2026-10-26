@@ -204,15 +204,20 @@ describe("Ampel nach Alter des letzten erfolgreichen Abgleichs", () => {
     });
   });
 
-  test("erfolgreicher Lauf nach älterem created zählt als Abgleich", async () => {
+  // D-r6-3: syncedAt und listApplied rechnen mit demselben Zeitpunkt
+  // (created); ein Lauf mit result "ok" schreibt immer ein neues created
+  test("run.at jünger als created: Alter trotzdem ab created, wie listApplied", async () => {
     workspaceWith(numbers("262", 100));
     setInventory({
       created: iso(NOW - 30 * HOUR),
       run: { at: iso(NOW - HOUR), result: "ok", cause: null },
     });
     expect(await courseStatus(WS)).toMatchObject({
-      state: "gruen",
-      syncedAt: iso(NOW - HOUR),
+      state: "gelb",
+      reasons: ["alter"],
+      syncedAt: iso(NOW - 30 * HOUR),
+      listApplied: false,
+      notice: "liste_nicht_angewendet",
     });
   });
 
@@ -295,6 +300,7 @@ describe("Antwortform", () => {
       lastRun: { at: iso(NOW - HOUR), result: "ok", cause: null },
       syncedAt: iso(NOW - HOUR),
       listApplied: true,
+      notice: null,
       estimatedEnd: false,
     });
   });
@@ -392,7 +398,7 @@ describe("Vertrag r4: listApplied", () => {
     expect(await courseSearchExclusion("ws")).toBeNull();
   });
 
-  test("run.at frisch, created 30 h: Grün, der Chat wendet die Kursliste trotzdem nicht an", async () => {
+  test("run.at frisch, created 30 h: Gelb, der Chat wendet die Kursliste nicht an (D-r6-3)", async () => {
     workspaceWith(numbers("262", 100), {
       "custom-documents/alt.json": courseDoc("261-1"),
     });
@@ -401,7 +407,7 @@ describe("Vertrag r4: listApplied", () => {
       run: { at: iso(NOW - HOUR), result: "ok", cause: null },
     });
     expect(await courseStatus(WS)).toMatchObject({
-      state: "gruen",
+      state: "gelb",
       listApplied: false,
       counts: { hidden: 1 },
     });
@@ -419,6 +425,49 @@ describe("Vertrag r4: listApplied", () => {
   });
 });
 
+// D-r6-3: Die Hinweiszeile zu listApplied rechnet nur der Server (notice);
+// Seite und Mail zeigen sie nur, wenn notice gesetzt ist
+describe("Vertrag r6: notice", () => {
+  test("Grün und Liste angewendet: null", async () => {
+    workspaceWith(numbers("262", 100));
+    expect((await run(1)).notice).toBeNull();
+  });
+
+  test("Gelb wegen fehlender Kurse, Liste angewendet: null", async () => {
+    workspaceWith(numbers("262", 94));
+    expect(await run(1)).toMatchObject({
+      state: "gelb",
+      listApplied: true,
+      notice: null,
+    });
+  });
+
+  test.each([
+    ["Gelb (25 h)", 25, 100, "gelb"],
+    ["Rot (73 h)", 73, 100, "rot"],
+    ["Rot (25 h, 20 % fehlen)", 25, 80, "rot"],
+  ])(
+    "%s und Liste nicht angewendet: liste_nicht_angewendet",
+    async (_name, hours, present, state) => {
+      workspaceWith(numbers("262", present));
+      expect(await run(hours)).toMatchObject({
+        state,
+        listApplied: false,
+        notice: "liste_nicht_angewendet",
+      });
+    }
+  );
+
+  test("Grün, aber Liste nicht angewendet (created zu weit in der Zukunft): null", async () => {
+    workspaceWith(numbers("262", 100));
+    expect(await run(-2)).toMatchObject({
+      state: "gruen",
+      listApplied: false,
+      notice: null,
+    });
+  });
+});
+
 describe("Nicht eingerichtet (D-KB3-3)", () => {
   const NOT_SET_UP = {
     state: "nicht_eingerichtet",
@@ -432,6 +481,7 @@ describe("Nicht eingerichtet (D-KB3-3)", () => {
     lastRun: null,
     syncedAt: null,
     listApplied: false,
+    notice: null,
     estimatedEnd: false,
   };
 
@@ -510,6 +560,8 @@ describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
     expect(await courseSearchExclusion("ws")).toBeNull();
   });
 
+  // D-r6-1: Ein gescheiterter Aufbau (Datenbankfehler) wird 2 min gemerkt,
+  // damit der Chatpfad nicht bei jeder Anfrage neu baut
   test("Aufbau des Index scheitert: courseStatus wirft, 2 min gemerkt, danach neu gebaut", async () => {
     workspaceWith(numbers("262", 100));
     setInventory();
