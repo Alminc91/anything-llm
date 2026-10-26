@@ -14,6 +14,7 @@ export default function MenuOption({
   roles = [],
   hidden = false,
   isChild = false,
+  opensFirstChild = false,
 }) {
   const storageKey = generateStorageKey({ key: btnText });
   const location = useLocation();
@@ -28,9 +29,15 @@ export default function MenuOption({
 
   const isActive = hasChildren
     ? (!isExpanded &&
-        childOptions.some((child) => child.href === location.pathname)) ||
+        childOptions.some(
+          (child) => pathOf(child.href) === location.pathname
+        )) ||
       location.pathname === href
-    : location.pathname === href;
+    : location.pathname === pathOf(href);
+  // Kufer (KB-2): Der Gruppenkopf öffnet den ersten sichtbaren Unterpunkt.
+  const firstChildHref = opensFirstChild
+    ? childOptions.find((child) => hasVisibleOptions(user, [child]))?.href
+    : null;
 
   const { ref } = useScrollActiveItemIntoView({
     isActive,
@@ -57,6 +64,12 @@ export default function MenuOption({
   }
 
   const handleClick = (e) => {
+    if (hasChildren && firstChildHref) {
+      // Navigieren lassen; aufgeklappt wird die Gruppe ohnehin.
+      setIsExpanded(true);
+      localStorage.setItem(storageKey, JSON.stringify(true));
+      return;
+    }
     if (hasChildren) {
       e.preventDefault();
       const newExpandedState = !isExpanded;
@@ -81,7 +94,7 @@ export default function MenuOption({
       >
         <Link
           ref={ref}
-          to={href}
+          to={firstChildHref ?? href}
           className={`flex flex-grow items-center px-[12px] h-[32px] font-medium ${
             isChild ? "hover:text-white" : "text-white light:text-black"
           }`}
@@ -141,7 +154,7 @@ function useIsExpanded({
       if (storedValue !== null) {
         return safeJsonParse(storedValue, false);
       }
-      return childOptions.some((child) => child.href === location);
+      return childOptions.some((child) => pathOf(child.href) === location);
     }
     return false;
   });
@@ -149,7 +162,7 @@ function useIsExpanded({
   useEffect(() => {
     if (hasVisibleChildren) {
       const shouldExpand = childOptions.some(
-        (child) => child.href === location
+        (child) => pathOf(child.href) === location
       );
       if (shouldExpand && !isExpanded) {
         setIsExpanded(true);
@@ -188,6 +201,11 @@ function hasVisibleOptions(user = null, childOptions = []) {
   return childOptions.some((opt) =>
     isVisible({ roles: opt.roles, user, flex: opt.flex, hidden: opt.hidden })
   );
+}
+
+/** Kufer (KB-2): Pfad eines Menülinks ohne Suchteil (?widget=…). */
+function pathOf(href) {
+  return typeof href === "string" ? href.split("?")[0] : href;
 }
 
 function generateStorageKey({ key = "" }) {
