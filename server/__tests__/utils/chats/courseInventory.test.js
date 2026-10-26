@@ -25,6 +25,7 @@ const {
   courseInventoryGuard,
   courseInventoryStatus,
   courseCountField,
+  courseInventoryRecord,
   __test__: t,
 } = inventoryModule;
 
@@ -93,7 +94,7 @@ describe("Validator (AK-K2) und Schreibweg (NAK-K4)", () => {
 
   test.each([
     ["kein JSON", "{"],
-    ["version 2", value({ version: 2 })],
+    ["version 3", value({ version: 3 })],
     ["client fehlt", value({ client: "" })],
     ["created kein Zeitpunkt", value({ created: "gestern" })],
     ["offered fehlt", value({ offered: undefined })],
@@ -162,7 +163,7 @@ describe("Lesen (NAK-K1)", () => {
   test.each([
     ["fehlt", null],
     ["kein JSON", { value: "{" }],
-    ["version 2", { value: value({ version: 2 }) }],
+    ["version 3", { value: value({ version: 3 }) }],
     ["leeres offered", { value: value({ offered: [] }) }],
     ["älter als 24 h", { value: value({ created: "2026-10-23T09:00:00Z" }) }],
   ])("%s: kein Kursbestand", async (_name, row) => {
@@ -785,6 +786,156 @@ describe("courseCount für /config (Vertrag)", () => {
     expect(
       await courseCountField({ slug: "ws" }, { mode: "on", word: "Kurse" })
     ).toBeNull();
+  });
+});
+
+describe("Version 2 mit Titeln und Laufmeldung (KB-4, AK-4)", () => {
+  const CONTRACT = require("./fixtures/courseInventoryContract.json");
+  const v2 = (overrides = {}) =>
+    JSON.stringify({ ...JSON.parse(CONTRACT.v2), ...overrides });
+  afterEach(() => console.error.mockRestore?.());
+
+  test("Vertrags-Fixture: Version 1 und 2 gelten, Version 1 ohne Titel und Laufmeldung", async () => {
+    for (const raw of [CONTRACT.v1, CONTRACT.v2])
+      expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
+    prisma.system_settings.findFirst.mockResolvedValue({ value: CONTRACT.v1 });
+    const v1 = await courseInventoryRecord();
+    expect(v1).toMatchObject({ version: 1, estimatedEnd: false, run: null });
+    expect(v1.titles.size).toBe(0);
+    prisma.system_settings.findFirst.mockResolvedValue({ value: CONTRACT.v2 });
+    const record = await courseInventoryRecord();
+    expect(record).toMatchObject({
+      version: 2,
+      stand: "2026-10-24T08:00:00.000Z",
+      estimatedEnd: true,
+      run: { at: "2026-10-24T08:00:00.000Z", result: "ok", cause: null },
+    });
+    expect([...record.offered]).toEqual(["262-100", "262-101"]);
+    expect(Object.fromEntries(record.titles)).toEqual({
+      "262-100": "Yoga am Morgen",
+      "262-101": "Englisch für Anfänger",
+    });
+    expect(await loadCourseInventory({ now: NOW })).toBe(record);
+  });
+
+  test.each([
+    ["offered leer", { offered: [] }],
+    ["offered nur ungültig", { offered: ["  ", 7] }],
+    ["client fehlt", { client: "" }],
+    ["created kein Zeitpunkt", { created: "gestern" }],
+    [
+      "älter als 24 h ohne Laufmeldung",
+      { created: "2026-10-23T09:00:00Z", run: null },
+    ],
+    [
+      "Laufmeldung älter als 24 h",
+      {
+        created: "2026-10-23T08:00:00Z",
+        run: { at: "2026-10-23T09:00:00Z", result: "ok", cause: null },
+      },
+    ],
+    [
+      "Laufmeldung mehr als 1 h in der Zukunft",
+      { run: { at: "2026-10-24T11:30:00Z", result: "ok", cause: null } },
+    ],
+  ])("dieselben Prüfungen wie Version 1: %s abgelehnt", (_name, overrides) => {
+    expect(() =>
+      validateCourseInventorySetting(v2(overrides), { now: NOW })
+    ).toThrow(LABEL);
+  });
+
+  test("ungültige Titel werden übersprungen, 200 Zeichen gelten", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const raw = v2({
+      offered: ["262-100", "262-101", "262-102", "262-103", "262-104", "A 1"],
+      titles: {
+        " 262-100 ": "x".repeat(200),
+        "262-101": "x".repeat(201),
+        "262-102": "",
+        "262-103": "Kurs\u0007",
+        "262-104": 42,
+        "262-999": "nicht angeboten",
+        "a 1": "Vergleichsform",
+        ["__proto__"]: "kein Kurs",
+      },
+    });
+    expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
+    prisma.system_settings.findFirst.mockResolvedValue({ value: raw });
+    const { titles } = await courseInventoryRecord();
+    expect(Object.fromEntries(titles)).toEqual({
+      "262-100": "x".repeat(200),
+      "a 1": "Vergleichsform",
+    });
+    expect(t.TITLE_MAX_LEN).toBe(200);
+  });
+
+  test.each([
+    [
+      "result unbekannt",
+      { at: "2026-10-24T08:00:00Z", result: "gut", cause: null },
+    ],
+    [
+      "cause unbekannt",
+      { at: "2026-10-24T08:00:00Z", result: "fehler", cause: "x" },
+    ],
+    ["cause fehlt", { at: "2026-10-24T08:00:00Z", result: "ok" }],
+    ["at kein Zeitpunkt", { at: "gestern", result: "ok", cause: null }],
+    ["keine Form", ["ok"]],
+  ])(
+    "ungültiges run (%s) wird verworfen, der Wert gilt",
+    async (_name, run) => {
+      const raw = v2({ run, estimatedEnd: "ja" });
+      expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
+      prisma.system_settings.findFirst.mockResolvedValue({ value: raw });
+      const record = await courseInventoryRecord();
+      expect(record.run).toBeNull();
+      expect(record.estimatedEnd).toBe(false);
+      expect(record.offered.size).toBe(2);
+    }
+  );
+
+  test("D-KB4-2: Laufmeldung mit altem created wird angenommen, die 24-h-Regel hängt an created", async () => {
+    const raw = CONTRACT.v2Laufmeldung;
+    expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
+    const result = await SystemSettings._updateSettings({ [LABEL]: raw });
+    expect(result).toEqual({ success: true, error: null });
+    prisma.system_settings.findFirst.mockResolvedValue({ value: raw });
+    // kein Ausblenden, keine Zahl (created 26 h alt), Laufmeldung intern lesbar
+    expect(await loadCourseInventory({ now: NOW })).toBeNull();
+    installDeps();
+    expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
+    expect((await courseInventoryRecord()).run).toEqual({
+      at: "2026-10-24T09:00:00.000Z",
+      atMs: Date.parse("2026-10-24T09:00:00Z"),
+      result: "nicht_geschrieben",
+      cause: "feed_nicht_erreichbar",
+    });
+  });
+
+  test("Titel kommen nie in Zahl, Status oder /config-Feld", async () => {
+    const secret = "Geheimer Titel nur intern";
+    prisma.system_settings.findFirst.mockResolvedValue({
+      value: v2({
+        offered: ["262-100", "262-101", "262-102", "262-103"],
+        titles: { "262-100": secret, "262-103": secret },
+      }),
+    });
+    installDeps();
+    const status = await courseInventoryStatus({ slug: "ws" });
+    expect(status).toEqual({
+      count: 3,
+      offered: 4,
+      hidden: 2,
+      stand: "2026-10-24T08:00:00.000Z",
+    });
+    const field = await courseCountField(
+      { slug: "ws" },
+      { mode: "on", word: "Kurse" }
+    );
+    expect(field).toEqual({ count: 3, word: "Kurse" });
+    const index = await t.workspaceInventory("ws");
+    expect(Object.keys(index)).not.toContain("titles");
+    expect(JSON.stringify([status, field])).not.toContain(secret);
   });
 });
 
