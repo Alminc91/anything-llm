@@ -87,11 +87,13 @@ test(
 );
 
 test(
-  "AK-1: Der Schalter für „Status“ ist seit KB-3 an; im Menü steht „Status“ an erster Stelle, mit allen drei Rollen",
+  "AK-1: „Status“ steht im Menü an erster Stelle, mit allen drei Rollen; der Schalter bis KB-3 ist entfernt",
   { skip },
   async () => {
     const area = await renderer.load("/src/utils/chatbotArea.js");
-    assert.equal(area.STATUS_PAGE_READY, true);
+    // Fixliste r2 Nr. 8 (F-C1): KB-3 ist im selben Release, der Schalter
+    // aus KB-2 AK-1 ist entfernt
+    assert.equal("STATUS_PAGE_READY" in area, false);
     const { default: paths } = await renderer.load("/src/utils/paths.js");
     assert.equal(paths.settings.chatbot.status(), STATUS);
     assert.equal(paths.settings.chatbot.design(), DESIGN);
@@ -112,10 +114,7 @@ test(
       order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])),
       order.join(", ")
     );
-    assert.match(
-      block,
-      /hidden: !STATUS_PAGE_READY,\s*btnText: t\("settings\.chatbot-status"\)/
-    );
+    assert.doesNotMatch(sidebar, /STATUS_PAGE_READY/);
     assert.match(
       block,
       /const roles = \["admin", "manager", "default"\];/,

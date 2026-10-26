@@ -539,7 +539,7 @@ async function headBlockExclusions(slug, offered, { orphans, unreadable }) {
 /**
  * Index eines Workspace zu einem gültigen Kursbestand bauen.
  * @param {string} slug
- * @param {{offered: Set<string>, raw: string, stand: string}} inventory
+ * @param {object} inventory - Laufzeitform aus readCourseInventory
  * @returns {Promise<object|null>} null: Workspace unbekannt
  */
 async function buildIndex(slug, inventory) {
@@ -562,14 +562,7 @@ async function buildIndex(slug, inventory) {
       anyOffered = true;
       break;
     }
-  const base = {
-    slug,
-    inventory,
-    raw: inventory.raw,
-    stand: inventory.stand,
-    offered,
-    complete: true,
-  };
+  const base = { slug, inventory, offered, complete: true };
   // NAK-K2: ohne einen einzigen angebotenen Kurs im Workspace (Liste eines
   // anderen Kunden, Workspace ohne Kurse) wird nichts ausgeblendet; dann
   // werden weder document_vectors noch der Vektorspeicher gelesen (G)
@@ -820,7 +813,7 @@ async function courseInventoryGuard(workspace) {
 async function courseInventoryStatus(workspace) {
   const index = await workspaceInventory(workspace?.slug);
   if (!index?.active) return null;
-  return { ...index.counts, stand: index.stand };
+  return { ...index.counts, stand: index.inventory.stand };
 }
 
 // KB-3: Einträge der ausgeblendeten Kurse je Index; die Dokumente werden

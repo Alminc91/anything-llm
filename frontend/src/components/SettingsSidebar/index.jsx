@@ -24,11 +24,7 @@ import System from "@/models/system";
 import Option from "./MenuOption";
 import { CanViewChatHistoryProvider } from "../CanViewChatHistory";
 import useAppVersion from "@/hooks/useAppVersion";
-import {
-  STATUS_PAGE_READY,
-  widgetFromSearch,
-  withWidget,
-} from "@/utils/chatbotArea";
+import { widgetFromSearch, withWidget } from "@/utils/chatbotArea";
 import { STATE_COLORS, useCourseStatusDot } from "@/utils/courseStatus";
 
 export default function SettingsSidebar() {
@@ -503,10 +499,10 @@ function AppVersion() {
  * den ersten Unterpunkt. KB-3, AK-5: Punkt an „Status“ und am zugeklappten
  * Kopf bei Gelb oder Rot.
  */
-function ChatbotOption({ user, t, canViewChatHistory }) {
+export function ChatbotOption({ user, t, canViewChatHistory }) {
   const widgetId = widgetFromSearch(useLocation().search);
   const roles = ["admin", "manager", "default"];
-  const dotState = useCourseStatusDot(STATUS_PAGE_READY);
+  const dotState = useCourseStatusDot();
   const dot = dotState
     ? {
         state: dotState,
@@ -523,7 +519,6 @@ function ChatbotOption({ user, t, canViewChatHistory }) {
       dot={dot}
       childOptions={[
         {
-          hidden: !STATUS_PAGE_READY,
           btnText: t("settings.chatbot-status"),
           href: withWidget(paths.settings.chatbot.status(), widgetId),
           flex: true,

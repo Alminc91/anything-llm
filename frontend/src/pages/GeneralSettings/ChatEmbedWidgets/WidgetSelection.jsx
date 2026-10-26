@@ -98,45 +98,37 @@ export function useWidgetSelection({
     if (linked) rememberWidget(userId, linkedId);
   }, [linked, linkedId, userId]);
 
-  const writeWidget = useCallback(
+  // widget= in der Adresse setzen (id) oder herausnehmen (null)
+  const updateWidgetParam = useCallback(
     (id) => {
-      if (setWidget) return setWidget(id);
+      if (id !== null && setWidget) return setWidget(id);
+      if (id === null && clearWidget) return clearWidget();
       setParams(
         (current) => {
           const next = new URLSearchParams(current);
-          next.set(PARAM_WIDGET, String(id));
+          if (id === null) next.delete(PARAM_WIDGET);
+          else next.set(PARAM_WIDGET, String(id));
           return next;
         },
         { replace: true }
       );
     },
-    [setWidget, setParams]
+    [setWidget, clearWidget, setParams]
   );
-  const removeWidget = useCallback(() => {
-    if (clearWidget) return clearWidget();
-    setParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.delete(PARAM_WIDGET);
-        return next;
-      },
-      { replace: true }
-    );
-  }, [clearWidget, setParams]);
 
   const hint = notFoundText ?? t("embed-analytics.widget-not-found");
   useEffect(() => {
     if (!unknownLink) return;
     showToast(hint, "error");
-    removeWidget();
-  }, [unknownLink, removeWidget, hint]);
+    updateWidgetParam(null);
+  }, [unknownLink, updateWidgetParam, hint]);
 
   const selectWidget = useCallback(
     (id) => {
       rememberWidget(userId, id);
-      writeWidget(id);
+      updateWidgetParam(id);
     },
-    [userId, writeWidget]
+    [userId, updateWidgetParam]
   );
 
   return { widgetId, unknownLink, selectWidget };

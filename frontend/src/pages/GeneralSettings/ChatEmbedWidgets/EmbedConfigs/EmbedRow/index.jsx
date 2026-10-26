@@ -14,7 +14,7 @@ import "moment/locale/de";
 import { safeJsonParse } from "@/utils/request";
 import { useTranslation } from "react-i18next";
 import { embedLabels } from "@/utils/embedLabel";
-import { STATUS_PAGE_READY, withWidget } from "@/utils/chatbotArea";
+import { withWidget } from "@/utils/chatbotArea";
 
 /**
  * Eine Zeile der Widget-Liste.
@@ -125,12 +125,10 @@ export default function EmbedRow({
         <td className="px-6 flex items-center gap-x-1 h-full mt-1">
           {/* Abkürzungen in der Reihenfolge des Menüs „Chatbot“, jeweils mit
               diesem Widget (KB-2) */}
-          {STATUS_PAGE_READY && (
-            <ShortcutButton
-              href={withWidget(paths.settings.chatbot.status(), embed.id)}
-              text={t("settings.chatbot-status")}
-            />
-          )}
+          <ShortcutButton
+            href={withWidget(paths.settings.chatbot.status(), embed.id)}
+            text={t("settings.chatbot-status")}
+          />
           {canViewChatHistory && (
             <ShortcutButton
               href={withWidget(

@@ -310,6 +310,11 @@ describe("Index je Workspace (AK-K4, AK-K9)", () => {
       hidden: 2,
       stand: "2026-10-24T08:00:00.000Z",
     });
+    // Fixliste r2 Nr. 8 (F-C4): der Index führt den Wert nur als inventory
+    const index = await t.workspaceInventory("ws");
+    expect(index.inventory.stand).toBe("2026-10-24T08:00:00.000Z");
+    expect(index).not.toHaveProperty("raw");
+    expect(index).not.toHaveProperty("stand");
   });
 
   test("AK-K9: ohne Zeilen im Vektorspeicher zählt ein Dokument nicht als eingelernt", async () => {

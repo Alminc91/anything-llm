@@ -18,9 +18,6 @@ export const OPTIMIZATION_NOTICE_SINCE = "26.10.2026";
  */
 export const KUFER_CONTACT_EMAIL = "info@kufer.de";
 
-/** Zustände der Ampel; dazu „nicht_eingerichtet“ (grau, ohne Punkt). */
-export const STATES = ["gruen", "gelb", "rot", "nicht_eingerichtet"];
-
 /**
  * Farben je Zustand (Punkt, Fläche, Rand, Text) als Theme-Variablen
  * (index.css, „Status-Seite des Kursbestands“): je eine Variante für das
@@ -208,58 +205,28 @@ export function hiddenWhen(
   return parts.length > 0 ? parts.join(", ") : t("course-status.none");
 }
 
-// AK-5: Zustand für den Menüpunkt, im Browser höchstens so lange gemerkt.
-// Jede Seite der Einstellungen hängt die Seitenleiste neu ein: Ein schon
-// geladener Zustand steht deshalb sofort da, ohne erneute Abfrage.
-export const STATE_CACHE_MS = 5 * 60 * 1000;
-let stateCache = null;
-
-const fresh = (now) =>
-  !!stateCache &&
-  now - stateCache.at >= 0 &&
-  now - stateCache.at < STATE_CACHE_MS;
+// AK-5: zuletzt geladener Zustand für den Punkt am Menü. Jede Seite der
+// Einstellungen hängt die Seitenleiste neu ein und fragt neu (gemerkt wird
+// nur auf dem Server, 5 min je Workspace); bis zur Antwort steht der zuletzt
+// geladene Zustand da, damit der Punkt nicht flackert.
+let lastDotState = null;
 
 /**
- * Zustand für den Punkt am Menü (schlechtester der sichtbaren Widgets), 5 min
- * gemerkt; bei einem Fehler null.
- * @param {number} [now]
- * @returns {Promise<string|null>}
- */
-export function loadCourseStatusState(now = Date.now()) {
-  if (fresh(now)) return stateCache.promise;
-  const entry = { at: now, promise: null, value: undefined };
-  entry.promise = Embed.courseStatusState().then((value) => {
-    entry.value = value;
-    return value;
-  });
-  stateCache = entry;
-  return entry.promise;
-}
-
-/** Nur für Tests: vergisst den gemerkten Zustand. */
-export function resetCourseStatusState() {
-  stateCache = null;
-}
-
-/**
- * Zustand für den Punkt am Menü (AK-5): ein gemerkter sofort, sonst nach dem
- * Laden; null ohne Punkt oder wenn die Abfrage aus ist.
- * @param {boolean} enabled
+ * Zustand für den Punkt am Menü (AK-5): bei jedem Einhängen neu abgefragt;
+ * null ohne Punkt oder bei einem Fehler.
  * @returns {"gelb"|"rot"|null}
  */
-export function useCourseStatusDot(enabled) {
-  const [state, setState] = useState(() =>
-    enabled && fresh(Date.now()) ? menuDotState(stateCache.value) : null
-  );
+export function useCourseStatusDot() {
+  const [state, setState] = useState(lastDotState);
   useEffect(() => {
-    if (!enabled) return;
     let ignore = false;
-    loadCourseStatusState().then((value) => {
-      if (!ignore) setState(menuDotState(value));
+    Embed.courseStatusState().then((value) => {
+      lastDotState = menuDotState(value);
+      if (!ignore) setState(lastDotState);
     });
     return () => {
       ignore = true;
     };
-  }, [enabled]);
+  }, []);
   return state;
 }

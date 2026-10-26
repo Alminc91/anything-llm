@@ -30,21 +30,6 @@ after(async () => {
   await renderer?.close();
 });
 
-/** fetch für die Dauer eines Tests: GET /embeds/course-status. */
-function stubState(testContext, state) {
-  const original = globalThis.fetch;
-  const calls = [];
-  globalThis.fetch = async (url) => {
-    calls.push(url);
-    return { ok: true, status: 200, json: async () => ({ state }) };
-  };
-  testContext.after(() => {
-    globalThis.fetch = original;
-    util.resetCourseStatusState();
-  });
-  return calls;
-}
-
 // 26.10.2026, 10:00 Uhr Berliner Zeit (Winterzeit, UTC+1)
 const NOW = Date.parse("2026-10-26T09:00:00.000Z");
 
@@ -239,89 +224,18 @@ test("Beginn und Dauer ausgeblendeter Kurse", { skip }, () => {
 });
 
 // ---------------------------------------------------------------------------
-// AK-5: Punkt in der Seitenleiste, gecachte Abfrage
+// AK-5: Punkt in der Seitenleiste (Abfrage und Wechsel des Zustands:
+// courseStatusPage.test.mjs, eingehängt)
 // ---------------------------------------------------------------------------
-
-test(
-  "AK-5: Der Zustand wird einmal abgefragt und 5 min gemerkt",
-  { skip },
-  async (tc) => {
-    const calls = stubState(tc, "rot");
-    assert.equal(await util.loadCourseStatusState(NOW), "rot");
-    assert.equal(
-      await util.loadCourseStatusState(NOW + util.STATE_CACHE_MS - 1),
-      "rot"
-    );
-    assert.equal(calls.length, 1);
-    assert.ok(calls[0].endsWith("/embeds/course-status"));
-    await util.loadCourseStatusState(NOW + util.STATE_CACHE_MS);
-    assert.equal(calls.length, 2);
-  }
-);
-
-/** Punkte im HTML der Seitenleiste: Zustand und Text für Screenreader. */
-const dots = (html) =>
-  [
-    ...html.matchAll(
-      /data-menu-dot="([^"]+)"[^>]*><span class="sr-only">([^<]*)<\/span>/g
-    ),
-  ].map(([, state, label]) => ({ state, label }));
-
-test(
-  "AK-5: Rot: Punkt an „Status“ (Gruppe offen); zugeklappt am Kopf „Chatbot“",
-  { skip },
-  async (tc) => {
-    stubState(tc, "rot");
-    await util.loadCourseStatusState();
-    const open = await renderer.render(SIDEBAR, {
-      location: "/settings/chatbot/widgets",
-    });
-    assert.deepEqual(dots(open), [{ state: "rot", label: "Status: Rot" }]);
-    const status = menuEntries(open).find((entry) => entry.label === "Status");
-    assert.ok(status?.child);
-    assert.ok(
-      /href="\/settings\/chatbot\/status"><p[^>]*>Status<\/p><span data-menu-dot="rot"/.test(
-        open
-      )
-    );
-
-    const closed = await renderer.render(SIDEBAR, {
-      location: "/settings/users",
-      stored: { anything_llm_menu_chatbot_expanded: "false" },
-    });
-    assert.deepEqual(dots(closed), [{ state: "rot", label: "Status: Rot" }]);
-    assert.ok(/<p[^>]*>Chatbot<\/p><span data-menu-dot="rot"/.test(closed));
-  }
-);
-
-test(
-  "AK-5: Gelb mit Text „Status: Gelb“; Grün und nicht eingerichtet ohne Punkt",
-  { skip },
-  async (tc) => {
-    for (const [state, expected] of [
-      ["gelb", [{ state: "gelb", label: "Status: Gelb" }]],
-      ["gruen", []],
-      ["nicht_eingerichtet", []],
-    ]) {
-      util.resetCourseStatusState();
-      stubState(tc, state);
-      await util.loadCourseStatusState();
-      const html = await renderer.render(SIDEBAR, {
-        location: "/settings/chatbot/widgets",
-      });
-      assert.deepEqual(dots(html), expected, state);
-    }
-  }
-);
 
 test(
   "AK-5: ohne geladenen Zustand kein Punkt (die Seitenleiste wartet nicht)",
   { skip },
   async () => {
-    util.resetCourseStatusState();
     const html = await renderer.render(SIDEBAR, {
       location: "/settings/chatbot/widgets",
     });
-    assert.deepEqual(dots(html), []);
+    assert.equal(menuEntries(html)[1]?.label, "Status");
+    assert.doesNotMatch(html, /data-menu-dot/);
   }
 );

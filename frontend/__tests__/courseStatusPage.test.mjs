@@ -635,3 +635,118 @@ test(
     assert.doesNotMatch(page, /#[0-9a-fA-F]{3,8}\b/);
   }
 );
+
+// ---------------------------------------------------------------------------
+// AK-5: Punkt in der Seitenleiste (Gruppe „Chatbot“, eingehängt). Fixliste r2
+// Nr. 8 (F-C3): gemerkt wird nur auf dem Server; jede Seite fragt neu, bis
+// zur Antwort steht der zuletzt geladene Zustand da.
+// ---------------------------------------------------------------------------
+
+const SIDEBAR = "/src/components/SettingsSidebar/index.jsx";
+
+/** fetch für GET /embeds/course-status; answer() liefert den Zustand. */
+function stubDotState(t, answer) {
+  const original = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(url);
+    const state = await answer();
+    return { ok: true, status: 200, json: async () => ({ state }) };
+  };
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  return calls;
+}
+
+/** Die Gruppe „Chatbot“ der Seitenleiste unter einer Adresse. */
+async function mountChatbotGroup(t, location, stored = {}) {
+  const { default: i18next } = await import("i18next");
+  const mounted = await renderer.mount(SIDEBAR, {
+    exportName: "ChatbotOption",
+    location,
+    route: location,
+    stored,
+    props: {
+      user: { id: 1, role: "admin" },
+      t: i18next.t.bind(i18next),
+      canViewChatHistory: true,
+    },
+  });
+  t.after(() => mounted.unmount());
+  return mounted;
+}
+
+/** Menüpunkte mit Punkt: „<Menüpunkt>: <Text für Screenreader>“. */
+const menuDots = (container) =>
+  elements(container, (el) => el.hasAttribute("data-menu-dot")).map(
+    (el) =>
+      `${elements(el.parentNode, (p) => p.tagName === "P")[0].textContent}: ${
+        el.textContent
+      }`
+  );
+
+test(
+  "AK-5: Seitenleiste: Rot an „Status“ bei offener Gruppe, zugeklappt am Kopf; Gelb mit Text; Grün und nicht eingerichtet ohne Punkt",
+  { skip },
+  async (t) => {
+    let state = "rot";
+    const calls = stubDotState(t, async () => state);
+    const open = await mountChatbotGroup(t, "/settings/chatbot/widgets");
+    await open.act();
+    assert.ok(calls[0].endsWith("/embeds/course-status"));
+    assert.deepEqual(menuDots(open.container), ["Status: Status: Rot"]);
+    await open.unmount();
+
+    const closed = await mountChatbotGroup(t, "/settings/users", {
+      anything_llm_menu_chatbot_expanded: "false",
+    });
+    await closed.act();
+    assert.deepEqual(menuDots(closed.container), ["Chatbot: Status: Rot"]);
+    await closed.unmount();
+
+    for (const [next, expected] of [
+      ["gelb", ["Status: Status: Gelb"]],
+      ["gruen", []],
+      ["nicht_eingerichtet", []],
+    ]) {
+      state = next;
+      const mounted = await mountChatbotGroup(t, "/settings/chatbot/widgets");
+      await mounted.act();
+      assert.deepEqual(menuDots(mounted.container), expected, next);
+      await mounted.unmount();
+    }
+  }
+);
+
+test(
+  "F-C3: Jede Seite fragt neu, ohne Speicher im Browser; bis zur Antwort bleibt der zuletzt geladene Zustand stehen",
+  { skip },
+  async (t) => {
+    let answer = async () => "rot";
+    const calls = stubDotState(t, () => answer());
+    const first = await mountChatbotGroup(t, "/settings/chatbot/widgets");
+    await first.act();
+    assert.deepEqual(menuDots(first.container), ["Status: Status: Rot"]);
+    await first.unmount();
+
+    // Gleich danach ist alles in Ordnung: die nächste Seite fragt neu.
+    let resolve;
+    answer = () => new Promise((done) => (resolve = done));
+    const second = await mountChatbotGroup(t, "/settings/chatbot/widgets");
+    await second.act();
+    assert.equal(calls.length, 2);
+    assert.deepEqual(menuDots(second.container), ["Status: Status: Rot"]);
+    await second.act(() => resolve("gruen"));
+    assert.deepEqual(menuDots(second.container), []);
+
+    const util = await renderer.load("/src/utils/courseStatus.js");
+    for (const name of [
+      "STATES",
+      "STATE_CACHE_MS",
+      "loadCourseStatusState",
+      "resetCourseStatusState",
+    ])
+      assert.equal(name in util, false, name);
+  }
+);
