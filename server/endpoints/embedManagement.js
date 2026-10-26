@@ -624,9 +624,9 @@ function embedManagementEndpoints(app) {
   );
 
   // KB-3, AK-5: nur der Zustand für den Punkt am Menüpunkt „Status“: der
-  // schlechteste der lesbaren Workspaces, deren Widgets der Nutzer sieht;
-  // 500 nur, wenn keiner lesbar ist (Fixliste r4 Nr. 4). Ohne Listen und je
-  // Workspace 5 min gemerkt (courseMenuState).
+  // schlechteste der Workspaces, deren Widgets der Nutzer sieht (bewertet
+  // wird nur der Workspace der Kursliste, Fixliste r5); ein Lesefehler ist
+  // 500. Ohne Listen und je Workspace 5 min gemerkt (courseMenuState).
   app.get(
     "/embeds/course-status",
     [

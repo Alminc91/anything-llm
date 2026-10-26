@@ -407,15 +407,15 @@ function apiEmbedEndpoints(app) {
     }
   );
 
-  // KB-3, AK-2: Status des Kursbestands je Workspace mit Widget und
-  // Kursliste, für den Versand der Benachrichtigung (KB-5). Dieselbe
-  // Bewertung wie die Status-Seite (courseStatus); Workspaces ohne Widget
-  // oder ohne Kursliste fehlen. Nur Zustand, Zahlen, Listen und Lauf, keine
-  // weiteren Kursdaten.
+  // KB-3, AK-2: Status des Kursbestands des Workspace der Kursliste (Feld
+  // workspace, Fixliste r5), wenn er ein Widget hat, für den Versand der
+  // Benachrichtigung (KB-5). Dieselbe Bewertung wie die Status-Seite
+  // (courseStatus); alle anderen Workspaces fehlen. Nur Zustand, Zahlen,
+  // Listen und Lauf, keine weiteren Kursdaten.
   app.get("/v1/course-status", [validApiKey], async (_request, response) => {
     /*
       #swagger.tags = ['Embed']
-      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). headline is the heading of the message (aktuell, unvollstaendig, nicht_aktualisiert, nicht_abrufbar), details its lines in display order (unvollstaendig, nicht_aktualisiert, nicht_abrufbar; empty for gruen). missingPercent is the share of missing courses in whole percent, rounded down. listApplied is true while the chat applies the course list (hides courses). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only workspaces with at least one widget are rated; workspaces without a valid course list are not listed. A read error answers 500.'
+      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). headline is the heading of the message (aktuell, unvollstaendig, nicht_aktualisiert, nicht_abrufbar), details its lines in display order (unvollstaendig, nicht_aktualisiert, nicht_abrufbar; empty for gruen). missingPercent is the share of missing courses in whole percent, rounded down. listApplied is true while the chat applies the course list (hides courses). syncedAt is the last successful synchronization, lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only the workspace named in the course list (field workspace) is rated, and only if it has at least one widget; all other workspaces are not listed. A read error answers 500.'
       #swagger.responses[200] = {
         content: {
           "application/json": {
