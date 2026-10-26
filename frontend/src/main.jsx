@@ -188,7 +188,26 @@ const router = createBrowserRouter([
           return { element: <AdminRoute Component={AdminLogs} /> };
         },
       },
-      // Bereich „Chatbot" (KIE-535): je Ansicht eine eigene Adresse
+      // Bereich „Chatbot" (KIE-535): je Ansicht eine eigene Adresse; Status,
+      // Konversationen und Design Center mit ?widget= (KB-2)
+      {
+        path: "/settings/chatbot/status",
+        lazy: async () => {
+          const { ChatbotStatus } = await import(
+            "@/pages/GeneralSettings/ChatEmbedWidgets"
+          );
+          return { element: <PrivateRoute Component={ChatbotStatus} /> };
+        },
+      },
+      {
+        path: "/settings/chatbot/design",
+        lazy: async () => {
+          const { ChatbotDesignCenter } = await import(
+            "@/pages/GeneralSettings/ChatEmbedWidgets"
+          );
+          return { element: <PrivateRoute Component={ChatbotDesignCenter} /> };
+        },
+      },
       {
         path: "/settings/chatbot/widgets",
         lazy: async () => {
@@ -221,13 +240,15 @@ const router = createBrowserRouter([
         path: "/settings/embed-chat-widgets",
         element: <Navigate to="/settings/chatbot/widgets" replace />,
       },
+      // Frühere Adresse des Design Centers (Lesezeichen): weiter auf
+      // /settings/chatbot/design?widget=<id> (KB-2)
       {
         path: "/settings/embed-config/:embedId/appearance",
         lazy: async () => {
-          const { default: EmbedAppearance } = await import(
-            "@/pages/GeneralSettings/ChatEmbedWidgets/EmbedAppearance"
+          const { DesignCenterRedirect } = await import(
+            "@/pages/GeneralSettings/ChatEmbedWidgets"
           );
-          return { element: <PrivateRoute Component={EmbedAppearance} /> };
+          return { element: <DesignCenterRedirect /> };
         },
       },
       // Manager routes

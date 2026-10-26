@@ -45,7 +45,10 @@ test(
     const page = await renderer.load(PAGE);
     assert.deepEqual(Object.keys(page).sort(), [
       "ChatbotConversations",
+      "ChatbotDesignCenter",
+      "ChatbotStatus",
       "ChatbotWidgets",
+      "DesignCenterRedirect",
     ]);
   }
 );

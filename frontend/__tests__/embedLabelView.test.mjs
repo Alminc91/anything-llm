@@ -361,11 +361,12 @@ test(
     const subtitleOf = async (embeds, id) => {
       stubServer(t, embeds);
       const mounted = await mount(t, DESIGN_CENTER, {
-        location: `/settings/embed-config/${id}/appearance`,
-        route: "/settings/embed-config/:embedId/appearance",
+        location: "/settings/chatbot/design",
+        props: { embedId: id },
       });
       const heading = headingOf(mounted.container, "H1");
-      assert.equal(heading.textContent, "Erscheinungsbild");
+      // KB-2: die Seite heißt wie ihr Menüpunkt
+      assert.equal(heading.textContent, "Design Center");
       const subtitle = heading.nextSibling.textContent;
       await mounted.unmount();
       return subtitle;

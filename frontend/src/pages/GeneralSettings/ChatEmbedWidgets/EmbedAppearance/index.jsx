@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
@@ -58,8 +58,15 @@ function stableStringify(value) {
   return JSON.stringify(value) ?? "null";
 }
 
-export default function EmbedAppearance() {
-  const { embedId } = useParams();
+/**
+ * Design Center eines Widgets (Seite: ChatbotDesignCenter in
+ * ChatEmbedWidgets/index.jsx, KB-2).
+ * @param {object} props
+ * @param {number} props.embedId - das Widget
+ * @param {React.ReactNode} [props.widgetPicker] - Widget-Auswahl oben rechts
+ *   in der Kopfzeile (bei genau einem Widget leer)
+ */
+export default function EmbedAppearance({ embedId, widgetPicker = null }) {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
@@ -331,7 +338,7 @@ export default function EmbedAppearance() {
     // über das Fenster hinaus verlängern (R7)
     <div className="relative w-screen h-screen flex flex-col bg-theme-bg-container overflow-hidden">
       {/* Header */}
-      <div className="flex items-center px-6 pr-16 md:pr-24 pt-[2.25rem] pb-5 border-b border-white/10">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-6 pr-16 md:pr-24 pt-[2.25rem] pb-5 border-b border-white/10">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate(paths.settings.chatbot.widgets())}
@@ -341,13 +348,15 @@ export default function EmbedAppearance() {
           </button>
           <div>
             <h1 className="text-lg leading-6 font-bold text-white">
-              Erscheinungsbild
+              {t("settings.chatbot-design-center")}
             </h1>
             <p className="text-xs leading-[18px] font-base text-white text-opacity-60">
               {embedLabels(embeds, t).get(embed?.id)?.label}
             </p>
           </div>
         </div>
+        {/* Gemeinsame Widget-Auswahl des Bereichs „Chatbot“ (KB-2) */}
+        {widgetPicker}
       </div>
 
       {/* Content: Settings left, Preview right */}

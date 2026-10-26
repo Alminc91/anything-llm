@@ -1,11 +1,18 @@
 import Sidebar from "@/components/SettingsSidebar";
 import { isMobile } from "react-device-detect";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation, useParams } from "react-router-dom";
 import { FullScreenLoader } from "@/components/Preloader";
 import { useCanViewChatHistory } from "@/components/CanViewChatHistory";
 import paths from "@/utils/paths";
+import { withWidget } from "@/utils/chatbotArea";
 import EmbedConfigsView from "./EmbedConfigs";
 import EmbedAnalyticsView from "./EmbedAnalytics";
+import EmbedAppearance from "./EmbedAppearance";
+import {
+  WidgetPicker,
+  useChatbotWidgets,
+  useWidgetSelection,
+} from "./WidgetSelection";
 
 // Bereich „Chatbot" (KIE-535): Jede Ansicht hat eine eigene Adresse unter
 // /settings/chatbot/…; die Auswahl übernimmt die Einstellungs-Sidebar. Diese
@@ -33,6 +40,78 @@ export function ChatbotConversations() {
         <EmbedAnalyticsView />
       </ChatbotLayout>
     </RequiresChatHistory>
+  );
+}
+
+/**
+ * /settings/chatbot/status (KB-2, Platzhalter bis KB-3): Der Menüpunkt ist
+ * ausgeblendet (utils/chatbotArea STATUS_PAGE_READY); die Adresse führt mit
+ * demselben Widget zu „Konversationen“. KB-3 setzt hier die Statusseite ein
+ * (ChatbotLayout, oben die gemeinsame Widget-Auswahl aus WidgetSelection)
+ * und schaltet STATUS_PAGE_READY ein.
+ */
+export function ChatbotStatus() {
+  const { search } = useLocation();
+  return (
+    <Navigate
+      to={`${paths.settings.chatbot.conversations()}${search}`}
+      replace
+    />
+  );
+}
+
+/**
+ * /settings/chatbot/design?widget=<id> (KB-2): das Design Center des
+ * gewählten Widgets, weiter als Vollbildseite (KIE-535, AK-7). Die
+ * Widget-Auswahl steht oben rechts in der Kopfzeile; ein Wechsel lädt das
+ * Design Center des anderen Widgets.
+ */
+export function ChatbotDesignCenter() {
+  const { loaded, embeds, lastActivity } = useChatbotWidgets();
+  if (!loaded)
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <p className="text-theme-text-secondary">Laden...</p>
+      </div>
+    );
+  // Ohne sichtbares Widget gibt es nichts zu gestalten: zur Widget-Liste,
+  // dort lässt sich eines anlegen.
+  if (embeds.length === 0)
+    return <Navigate to={paths.settings.chatbot.widgets()} replace />;
+  return <DesignCenterOf embeds={embeds} lastActivity={lastActivity} />;
+}
+
+function DesignCenterOf({ embeds, lastActivity }) {
+  const { widgetId, selectWidget } = useWidgetSelection({
+    embeds,
+    lastActivity,
+  });
+  return (
+    <EmbedAppearance
+      key={widgetId}
+      embedId={widgetId}
+      widgetPicker={
+        <WidgetPicker
+          embeds={embeds}
+          selectedId={widgetId}
+          onSelect={selectWidget}
+        />
+      }
+    />
+  );
+}
+
+/**
+ * Frühere Adresse des Design Centers (/settings/embed-config/:embedId/
+ * appearance): Lesezeichen führen auf die neue Adresse mit diesem Widget.
+ */
+export function DesignCenterRedirect() {
+  const { embedId } = useParams();
+  return (
+    <Navigate
+      to={withWidget(paths.settings.chatbot.design(), embedId)}
+      replace
+    />
   );
 }
 
