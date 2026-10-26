@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require("uuid");
 const { DocumentManager } = require("../DocumentManager");
+const { courseInventoryGuard } = require("./courseInventory");
 const { WorkspaceChats } = require("../../models/workspaceChats");
 const { Workspace } = require("../../models/workspace");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
@@ -307,13 +308,19 @@ async function chatSync({
     apiSessionId: sessionId,
   });
 
+  // KIE-576 Paket 3 (E35): veraltete Kursdokumente (Kursnummer nicht im
+  // Feed) kommen weder als angeheftetes Dokument noch über den Rückgriff
+  // in Kontext und Quellen; die Suche schließt sie selbst aus
+  // (lance/index.js). Ohne gültigen Kursbestand null: alles wie heute.
+  const inventoryGuard = await courseInventoryGuard(workspace);
   await new DocumentManager({
     workspace,
     maxTokens: LLMConnector.promptWindowLimit(),
   })
     .pinnedDocs()
     .then((pinnedDocs) => {
-      pinnedDocs.forEach((doc) => {
+      const keptDocs = inventoryGuard?.filterPinned(pinnedDocs) ?? pinnedDocs;
+      keptDocs.forEach((doc) => {
         const { pageContent, ...metadata } = doc;
         pinnedDocIdentifiers.push(sourceIdentifier(doc));
         contextTexts.push(doc.pageContent);
@@ -399,7 +406,9 @@ async function chatSync({
     searchResults: vectorSearchResults.sources,
     history: rawHistory,
     filterIdentifiers: pinnedDocIdentifiers,
+    excludeSource: inventoryGuard?.hidesSource ?? null,
   });
+  inventoryGuard?.report();
 
   // Why does contextTexts get all the info, but sources only get current search?
   // This is to give the ability of the LLM to "comprehend" a contextual response without
@@ -724,13 +733,19 @@ async function streamChat({
   // it will undergo prompt compression anyway to make it work. If there is so much pinned that the context here is bigger than
   // what the model can support - it would get compressed anyway and that really is not the point of pinning. It is really best
   // suited for high-context models.
+  // KIE-576 Paket 3 (E35): veraltete Kursdokumente (Kursnummer nicht im
+  // Feed) kommen weder als angeheftetes Dokument noch über den Rückgriff
+  // in Kontext und Quellen; die Suche schließt sie selbst aus
+  // (lance/index.js). Ohne gültigen Kursbestand null: alles wie heute.
+  const inventoryGuard = await courseInventoryGuard(workspace);
   await new DocumentManager({
     workspace,
     maxTokens: LLMConnector.promptWindowLimit(),
   })
     .pinnedDocs()
     .then((pinnedDocs) => {
-      pinnedDocs.forEach((doc) => {
+      const keptDocs = inventoryGuard?.filterPinned(pinnedDocs) ?? pinnedDocs;
+      keptDocs.forEach((doc) => {
         const { pageContent, ...metadata } = doc;
         pinnedDocIdentifiers.push(sourceIdentifier(doc));
         contextTexts.push(doc.pageContent);
@@ -817,7 +832,9 @@ async function streamChat({
     searchResults: vectorSearchResults.sources,
     history: rawHistory,
     filterIdentifiers: pinnedDocIdentifiers,
+    excludeSource: inventoryGuard?.hidesSource ?? null,
   });
+  inventoryGuard?.report();
 
   // Why does contextTexts get all the info, but sources only get current search?
   // This is to give the ability of the LLM to "comprehend" a contextual response without

@@ -20,6 +20,8 @@ const {
   embedDefaultsLanguage,
   embedDefaultTexts,
 } = require("../utils/chats/embedDefaults");
+const { courseInventoryStatus } = require("../utils/chats/courseInventory");
+const { courseCountWordOnSave } = require("../utils/chats/embedStandards");
 const {
   berlinMidnight,
   berlinDayOf,
@@ -355,13 +357,30 @@ function embedManagementEndpoints(app) {
   // Datenschutz, KI-Hinweis) für ?lang=de|en — gleiche Anmeldung/Rollen wie
   // die übrigen Embed-Verwaltungsendpunkte. Der öffentliche /config liefert
   // sie nicht (das Widget hat sie selbst).
+  // KIE-576 Paket 3: mit ?embedId=<id> zusätzlich courseInventory für die
+  // Vorschau im Design Center ({count, offered, hidden, stand} oder null
+  // ohne gültigen Kursbestand), nur lesend und nur für ein Widget,
+  // das der Nutzer verwalten darf (userCanAccessEmbed wie validEmbedAccess);
+  // sonst fehlt das Feld, die Standardtexte kommen trotzdem.
   app.get(
     "/embed/defaults",
     [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default])],
     async (request, response) => {
       try {
         const lang = embedDefaultsLanguage(request.query?.lang);
-        response.status(200).json({ lang, defaults: embedDefaultTexts(lang) });
+        const body = { lang, defaults: embedDefaultTexts(lang) };
+        const embedId = Number(request.query?.embedId);
+        if (Number.isInteger(embedId) && embedId > 0) {
+          const user = await userFromSession(request, response);
+          if (await userCanAccessEmbed(user, embedId)) {
+            const embed = await EmbedConfig.getWithWorkspace({ id: embedId });
+            if (embed)
+              body.courseInventory = await courseInventoryStatus(
+                embed.workspace
+              );
+          }
+        }
+        response.status(200).json(body);
       } catch (e) {
         console.error(e);
         response.sendStatus(500).end();
@@ -414,6 +433,18 @@ function embedManagementEndpoints(app) {
         ) {
           response.sendStatus(403).end();
           return;
+        }
+
+        // KIE-576 Paket 3: Bezeichnung der Kursanzahl nach Vertrag, eine
+        // ungültige wird nicht gespeichert (400 mit Meldung), eine leere
+        // entfernt
+        if (updates?.visual_config !== undefined) {
+          const word = courseCountWordOnSave(updates.visual_config);
+          if (word.error) {
+            response.status(400).json({ success: false, error: word.error });
+            return;
+          }
+          updates.visual_config = word.visualConfig;
         }
 
         const { success, error } = await EmbedConfig.update(embedId, updates);

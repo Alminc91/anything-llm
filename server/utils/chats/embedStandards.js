@@ -69,6 +69,24 @@ const DEFAULT_COURSE_CARDS_POSITION = "above";
 // Unterseiten im selben Tab nicht erneut).
 const WELCOME_BUBBLES_VALUES = Object.freeze(["off", "first", "every"]);
 const DEFAULT_WELCOME_BUBBLES = "first";
+// KIE-576 Paket 3: Kursanzahl im Untertitel (visual_config.courseCountMode,
+// Standard an) und ihre Bezeichnung (visual_config.courseCountWord, ein
+// Wort: nach trim 1 bis 20 UTF-16-Einheiten, Buchstaben, Bindestrich nur
+// zwischen Buchstaben, etwa „Seminare“ oder „Online-Kurse“; fehlt, leer
+// oder ungültig: „Kurse“, englisch „courses“). Dieselben Regeln prüfen das
+// Design Center (widgetKeys.js) und das Widget; Beispiele in der Fixture
+// des Vertrags (embedConfigContract.json, courseCountWords).
+const COURSE_COUNT_MODES = Object.freeze(["on", "off"]);
+const DEFAULT_COURSE_COUNT_MODE = "on";
+const COURSE_COUNT_WORD_MAX_LEN = 20;
+const COURSE_COUNT_WORD_RX = /^\p{L}+(?:-\p{L}+)*$/u;
+// Meldung, wenn das Design Center eine ungültige Bezeichnung speichern will
+const COURSE_COUNT_WORD_ERROR =
+  "Bitte ein Wort aus Buchstaben, höchstens 20 Zeichen, etwa Seminare oder Online-Kurse.";
+const DEFAULT_COURSE_COUNT_WORDS = Object.freeze({
+  de: "Kurse",
+  en: "courses",
+});
 
 // Feste Standards für beide Darstellungen. Karten wie Demo-Variante 4
 // („Suche“, chatbot-v4): kurzer Chatbot-Text, Karten als Zeilen. Ob Karten
@@ -278,6 +296,84 @@ function courseCardsPositionValue(value) {
  */
 function welcomeBubblesValue(value) {
   return oneOf(value, WELCOME_BUBBLES_VALUES, DEFAULT_WELCOME_BUBBLES);
+}
+
+/**
+ * Kursanzahl im Untertitel an oder aus (visual_config.courseCountMode,
+ * KIE-576 Paket 3): "on" (Standard, auch fehlend oder ungültig) oder "off".
+ * @param {*} value
+ * @returns {"on"|"off"}
+ */
+function courseCountModeValue(value) {
+  return oneOf(value, COURSE_COUNT_MODES, DEFAULT_COURSE_COUNT_MODE);
+}
+
+/**
+ * Gespeicherte Bezeichnung der Kursanzahl (visual_config.courseCountWord):
+ * getrimmt, 1 bis 20 Zeichen (UTF-16), ein Wort aus Buchstaben, Bindestrich
+ * nur zwischen Buchstaben. Sonst null (es gilt der Standard der Sprache,
+ * auch für einen ungültigen Altbestand).
+ * @param {*} value
+ * @returns {string|null}
+ */
+function courseCountWordValue(value) {
+  if (typeof value !== "string") return null;
+  const word = value.trim();
+  if (word.length === 0 || word.length > COURSE_COUNT_WORD_MAX_LEN) return null;
+  return COURSE_COUNT_WORD_RX.test(word) ? word : null;
+}
+
+/**
+ * Bezeichnung der Kursanzahl beim Speichern der visual_config (POST
+ * /embed/update, Design Center): leer oder nur Leerzeichen -> Feld entfernt,
+ * gültig -> getrimmt gespeichert, ungültig -> error (HTTP 400, nichts
+ * gespeichert). Ohne Feld oder ohne lesbares JSON bleibt der Wert, wie er
+ * ist.
+ * @param {*} visualConfig gesendete visual_config (JSON-String oder Objekt)
+ * @returns {{visualConfig: *, error: string|null}}
+ */
+function courseCountWordOnSave(visualConfig) {
+  let config = visualConfig;
+  if (typeof config === "string") {
+    try {
+      config = JSON.parse(config);
+    } catch {
+      return { visualConfig, error: null };
+    }
+  }
+  if (
+    !config ||
+    typeof config !== "object" ||
+    Array.isArray(config) ||
+    !Object.prototype.hasOwnProperty.call(config, "courseCountWord")
+  )
+    return { visualConfig, error: null };
+  const value = config.courseCountWord;
+  const next = { ...config };
+  if (value === null || (typeof value === "string" && value.trim() === ""))
+    delete next.courseCountWord;
+  else if (courseCountWordValue(value) !== null)
+    next.courseCountWord = value.trim();
+  else return { visualConfig, error: COURSE_COUNT_WORD_ERROR };
+  return {
+    visualConfig:
+      typeof visualConfig === "string" ? JSON.stringify(next) : next,
+    error: null,
+  };
+}
+
+/**
+ * Wirksame Bezeichnung für das Widget: die gespeicherte (courseCountWordValue)
+ * oder der Standard der Sprache („Kurse“, englisch „courses“).
+ * @param {*} value gespeicherter visual_config.courseCountWord
+ * @param {string} [lang] "de"|"en" (embedDefaultsLanguage)
+ * @returns {string}
+ */
+function courseCountWord(value, lang = "de") {
+  return (
+    courseCountWordValue(value) ??
+    DEFAULT_COURSE_COUNT_WORDS[lang === "en" ? "en" : "de"]
+  );
 }
 
 // Eigener Text: String, getrimmt nicht leer und keine frühere Vorbelegung
@@ -520,6 +616,10 @@ module.exports = {
   COURSE_CARDS_DEFAULTS,
   COURSE_CARDS_POSITIONS,
   WELCOME_BUBBLES_VALUES,
+  COURSE_COUNT_MODES,
+  COURSE_COUNT_WORD_MAX_LEN,
+  COURSE_COUNT_WORD_ERROR,
+  DEFAULT_COURSE_COUNT_WORDS,
   EMBED_FIXED_STANDARDS,
   INLINE_FIXED_STANDARDS,
   LEGACY_DEFAULT_GREETINGS,
@@ -535,6 +635,10 @@ module.exports = {
   courseCardsValue,
   courseCardsPositionValue,
   welcomeBubblesValue,
+  courseCountModeValue,
+  courseCountWordValue,
+  courseCountWordOnSave,
+  courseCountWord,
   greetingBubbleTextShown,
   isLegacyGreeting,
   effectiveGreeting,

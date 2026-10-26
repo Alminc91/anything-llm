@@ -8,6 +8,7 @@ const {
   writeResponseChunk,
 } = require("../helpers/chat/responses");
 const { DocumentManager } = require("../DocumentManager");
+const { courseInventoryGuard } = require("./courseInventory");
 const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
 const { startMetadataFilterResolution } = require("./metadataFilterResolver");
 const {
@@ -125,13 +126,19 @@ async function streamChatWithForEmbed(
   );
 
   // See stream.js comment for more information on this implementation.
+  // KIE-576 Paket 3 (E35): veraltete Kursdokumente (Kursnummer nicht im
+  // Feed) kommen weder als angeheftetes Dokument noch über den Rückgriff
+  // in Kontext und Quellen; die Suche schließt sie selbst aus
+  // (lance/index.js). Ohne gültigen Kursbestand null: alles wie heute.
+  const inventoryGuard = await courseInventoryGuard(embed.workspace);
   await new DocumentManager({
     workspace: embed.workspace,
     maxTokens: LLMConnector.promptWindowLimit(),
   })
     .pinnedDocs()
     .then((pinnedDocs) => {
-      pinnedDocs.forEach((doc) => {
+      const keptDocs = inventoryGuard?.filterPinned(pinnedDocs) ?? pinnedDocs;
+      keptDocs.forEach((doc) => {
         const { pageContent, ...metadata } = doc;
         pinnedDocIdentifiers.push(sourceIdentifier(doc));
         contextTexts.push(doc.pageContent);
@@ -205,7 +212,9 @@ async function streamChatWithForEmbed(
     searchResults: vectorSearchResults.sources,
     history: rawHistory,
     filterIdentifiers: pinnedDocIdentifiers,
+    excludeSource: inventoryGuard?.hidesSource ?? null,
   });
+  inventoryGuard?.report();
 
   // Why does contextTexts get all the info, but sources only get current search?
   // This is to give the ability of the LLM to "comprehend" a contextual response without
@@ -284,8 +293,13 @@ async function streamChatWithForEmbed(
   // Nur mit Karten an (cardsOn, Wahl im Design Center): ange-
   // kündigte Kurse sofort als eigener Chunk + Nachschläge (Marker-Folge-
   // Chunks + Antwort-Links teilen Cache und Limit).
+  // KIE-576 Paket 3: veraltete Kursdokumente ergeben keine Karte, auch
+  // nicht über den Nachschlag der Antwort-Links
   const courseLookup = cardsOn
-    ? createCourseLookup({ workspace: embed.workspace })
+    ? createCourseLookup({
+        workspace: embed.workspace,
+        hideDocument: inventoryGuard?.hidesDocument ?? null,
+      })
     : null;
   let announced = [];
   let announcedUrlByIndex = new Map();

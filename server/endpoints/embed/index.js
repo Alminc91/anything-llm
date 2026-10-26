@@ -23,7 +23,10 @@ const multer = require("multer");
 const {
   applyEmbedStandards,
   embedDisplayMode,
+  courseCountModeValue,
+  courseCountWord,
 } = require("../../utils/chats/embedStandards");
+const { courseCountField } = require("../../utils/chats/courseInventory");
 const {
   embedDefaultsLanguage,
   defaultSuggestions,
@@ -280,6 +283,24 @@ function embeddedEndpoints(app) {
         // Link und Datenschutz-Blase beim Start (AK-12): nur validierte
         // Werte ausliefern, ungültige Felder weglassen.
         Object.assign(mapped, mapLayoutConfig(visualConfig));
+
+        // KIE-576 Paket 3: Kursanzahl im Untertitel nach Vertrag
+        // (issues/KIE-576/KIE-576-kursanzahl.md): courseCount {count,
+        // offered, hidden, stand, word} nur mit Anzeige an (courseCountMode,
+        // Standard an), gültigem Kursbestand der Pipeline (courseInventory.js)
+        // und count ≥ 1; count = Kurse im Feed und im Workspace (nie mehr,
+        // NAK-K3), hidden = veraltete Kursdokumente, die die Suche ausblendet
+        // (D-K5). Sonst fehlt das Feld ganz. Der Untertitel geht unverändert mit (NAK-K5):
+        // Das Widget zeigt ihn, sobald courseCount fehlt oder stand älter als
+        // 24 h ist.
+        const courseCount = await courseCountField(embed.workspace, {
+          mode: courseCountModeValue(visualConfig.courseCountMode),
+          word: courseCountWord(
+            visualConfig.courseCountWord,
+            embedDefaultsLanguage(request.query?.language)
+          ),
+        });
+        if (courseCount) mapped.courseCount = courseCount;
 
         // Logo: serve from upload endpoint or use URL
         if (visualConfig.logoFilename) {

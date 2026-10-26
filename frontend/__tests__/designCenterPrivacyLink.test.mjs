@@ -280,9 +280,25 @@ test(
       // StartBubble.test.mjs); bis rc4 gab es hier keinen Schalter. Den
       // Schalter „Datenschutz-Hinweis anzeigen“ (bis 7.22.2) gibt es nicht.
       assert.doesNotMatch(html, /data-privacy-switch/, label);
-      assert.equal((html.match(/role="switch"/g) || []).length, 1, label);
+      // Seit KIE-576 Paket 3 steht im Reiter Inhalt zusätzlich der Schalter
+      // „Kursanzahl im Untertitel“ (designCenterCourseCount.test.mjs); im
+      // Datenschutz-Hinweis bleibt es genau ein Schalter.
+      assert.equal((html.match(/role="switch"/g) || []).length, 2, label);
+      const privacyAt = html.indexOf("data-privacy-start-bubble");
+      assert.ok(privacyAt >= 0, label);
+      const privacyBlock = html.slice(
+        privacyAt,
+        html.indexOf("</label>", privacyAt)
+      );
+      assert.equal(
+        (privacyBlock.match(/role="switch"/g) || []).length,
+        1,
+        label
+      );
       assert.ok(t.includes("Zusätzlich beim Start als Blase zeigen"), label);
-      assert.doesNotMatch(html, /<fieldset/, label);
+      // ab dem Datenschutz-Hinweis kein gesperrtes fieldset (das einzige
+      // fieldset im Reiter ist seit KIE-576 Paket 3 der Untertitel)
+      assert.doesNotMatch(html.slice(privacyAt), /<fieldset/, label);
       for (const field of [
         tagWith(html, 'aria-label="Überschrift des Datenschutz-Hinweises"'),
         tagWith(html, 'aria-label="Text des Datenschutz-Hinweises"'),

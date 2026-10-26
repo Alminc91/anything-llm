@@ -681,7 +681,14 @@ test(
       /aria-label="Untertitel"[^>]*value="Online-Berater mit künstlicher Intelligenz"|value="Online-Berater mit künstlicher Intelligenz"[^>]*aria-label="Untertitel"/
     );
     assert.ok(t.includes("Leer: es gilt „KI-Berater“."));
-    assert.ok(t.includes("Leer: kein Untertitel."));
+    // KIE-576 Paket 3: Standard „Kursanzahl im Untertitel“ an, das Feld
+    // zeigt die Vorbelegung gesperrt; mit Schalter aus der Hinweis wie bisher
+    assert.ok(t.includes("Statt des Untertitels steht die Kursanzahl."));
+    assert.ok(
+      text(
+        await show(CONTENT, contentProps({ courseCountMode: "off" }))
+      ).includes("Leer: kein Untertitel.")
+    );
 
     const filled = await show(
       CONTENT,
