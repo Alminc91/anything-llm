@@ -303,24 +303,22 @@ function readCourseInventory(raw) {
 // Prozess, deshalb wird der Wert je Anfrage gelesen, eine Zeile per Label).
 let cached = { raw: null, inventory: null };
 
+/** Der gespeicherte Wert; wirft bei einem Lesefehler der Datenbank. */
 async function readStoredInventory() {
-  try {
-    const row = await prisma.system_settings.findFirst({
-      where: { label: COURSE_INVENTORY_LABEL },
-      select: { value: true },
-    });
-    return row?.value ?? null;
-  } catch (error) {
-    console.error(`[courseInventory] ${error.message}`);
-    return null;
-  }
+  const row = await prisma.system_settings.findFirst({
+    where: { label: COURSE_INVENTORY_LABEL },
+    select: { value: true },
+  });
+  return row?.value ?? null;
 }
 
 /**
  * KB-4: gültiger Wert des Containers ohne Altersprüfung (Laufzeitform von
  * readCourseInventory mit titles, estimatedEnd und run), sonst null. Nur
  * intern für die Status-Seite (KB-3): Titel und Laufmeldung kommen nie in
- * /config, Prompt oder Suche. Wirft nie.
+ * /config, Prompt oder Suche. Wirft bei einem Lesefehler der Datenbank
+ * (Fixliste r2 Nr. 6: die Status-Seite zeigt dann einen Fehler, nicht
+ * „nicht eingerichtet“).
  * @returns {Promise<object|null>}
  */
 async function courseInventoryRecord() {
@@ -348,7 +346,13 @@ async function courseInventoryRecord() {
  * @returns {Promise<{raw: string, createdMs: number, stand: string, offered: Set<string>}|null>}
  */
 async function loadCourseInventory({ now = Date.now() } = {}) {
-  const inventory = await courseInventoryRecord();
+  let inventory;
+  try {
+    inventory = await courseInventoryRecord();
+  } catch (error) {
+    console.error(`[courseInventory] ${error.message}`);
+    return null;
+  }
   if (!inventory) return null;
   return ageProblem(inventory.createdMs, now) ? null : inventory;
 }
@@ -667,50 +671,60 @@ async function buildIndex(slug, inventory) {
 
 /**
  * Index eines Workspace (Namespace = slug) zum gültigen Kursbestand, gemerkt
- * höchstens 1 h je Workspace und Wert (AK-K4); null ohne gültigen Wert,
- * ohne Workspace oder bei einem Fehler. Ein gescheiterter oder
- * unvollständiger Index wird nur 2 min gemerkt, danach baut der nächste
- * Aufruf neu (S4, r3-S3 a). anyAge (KB-3, Status-Seite): auch ein Wert
- * über 24 h, derselbe Index je Wert. Wirft nie.
+ * höchstens 1 h je Workspace und Wert (AK-K4); null ohne gültigen Wert oder
+ * ohne Workspace. Ein gescheiterter oder unvollständiger Index wird nur
+ * 2 min gemerkt, danach baut der nächste Aufruf neu (S4, r3-S3 a). anyAge
+ * (KB-3, Status-Seite): auch ein Wert über 24 h, derselbe Index je Wert.
+ * Wirft bei einem Fehler (Datenbank, Aufbau des Index): Die Status-Seite
+ * meldet ihn (Fixliste r2 Nr. 6), die Chatpfade nutzen workspaceInventory.
  * @param {string} slug
  * @param {{now?: number, anyAge?: boolean}} [options]
  * @returns {Promise<object|null>}
  */
-async function workspaceInventory(
-  slug,
-  { now = Date.now(), anyAge = false } = {}
-) {
+async function workspaceIndex(slug, { now = Date.now(), anyAge = false } = {}) {
+  if (typeof slug !== "string" || slug.length === 0) return null;
+  // KB-3: die Status-Seite bewertet auch einen Wert über 24 h (Alter)
+  const inventory = anyAge
+    ? await courseInventoryRecord()
+    : await loadCourseInventory({ now });
+  if (!inventory) return null;
+  const entry = indexCache.get(slug);
+  if (
+    entry &&
+    entry.raw === inventory.raw &&
+    now - entry.builtAt >= 0 &&
+    now - entry.builtAt < entry.maxAge
+  )
+    return await entry.promise;
+  const fresh = {
+    raw: inventory.raw,
+    builtAt: now,
+    maxAge: INDEX_MAX_AGE_MS,
+    promise: buildIndex(slug, inventory),
+  };
+  indexCache.set(slug, fresh);
   try {
-    if (typeof slug !== "string" || slug.length === 0) return null;
-    // KB-3: die Status-Seite bewertet auch einen Wert über 24 h (Alter)
-    const inventory = anyAge
-      ? await courseInventoryRecord()
-      : await loadCourseInventory({ now });
-    if (!inventory) return null;
-    const entry = indexCache.get(slug);
-    if (
-      entry &&
-      entry.raw === inventory.raw &&
-      now - entry.builtAt >= 0 &&
-      now - entry.builtAt < entry.maxAge
-    )
-      return await entry.promise;
-    const fresh = {
-      raw: inventory.raw,
-      builtAt: now,
-      maxAge: INDEX_MAX_AGE_MS,
-      promise: null,
-    };
-    fresh.promise = buildIndex(slug, inventory).catch((error) => {
-      console.error(`[courseInventory] Index nicht gebaut: ${error.message}`);
-      return null;
-    });
-    indexCache.set(slug, fresh);
     const index = await fresh.promise;
     if (!index?.complete) fresh.maxAge = INCOMPLETE_INDEX_MAX_AGE_MS;
     return index;
   } catch (error) {
-    console.error(`[courseInventory] ${error.message}`);
+    fresh.maxAge = INCOMPLETE_INDEX_MAX_AGE_MS;
+    throw error;
+  }
+}
+
+/**
+ * workspaceIndex für die Chatpfade: bei einem Fehler null, dann bleibt
+ * alles wie ohne Kursliste (NAK-K1). Wirft nie.
+ * @param {string} slug
+ * @param {{now?: number}} [options]
+ * @returns {Promise<object|null>}
+ */
+async function workspaceInventory(slug, options) {
+  try {
+    return await workspaceIndex(slug, options);
+  } catch (error) {
+    console.error(`[courseInventory] Index nicht gebaut: ${error.message}`);
     return null;
   }
 }
@@ -840,7 +854,9 @@ async function readHiddenEntries(index) {
  * hidden: eingelernte Kurse außerhalb der Kursliste mit Titel, Beginn und
  * Dauer aus ihrem Kursdokument. null ohne gültigen Wert oder ohne
  * angebotenen Kurs im Workspace (nicht eingerichtet). lists false: ohne
- * Listen (Ampel, Menüpunkt). Nur lesend, wirft nie.
+ * Listen (Ampel, Menüpunkt). Nur lesend. Wirft bei einem Lesefehler
+ * (Datenbank, Aufbau des Index), damit er nicht als „nicht eingerichtet“
+ * erscheint (Fixliste r2 Nr. 6).
  * @param {{slug?: string}|null} workspace
  * @param {{now?: number, lists?: boolean}} [options]
  * @returns {Promise<{inventory: object, counts: {count: number, offered: number, hidden: number}, missing?: Array<{knr: string, title: string|null}>, hidden?: Array<{knr: string, title: string|null, start: string|null, duration: string|null}>}|null>}
@@ -849,35 +865,27 @@ async function courseInventoryDetails(
   workspace,
   { now = Date.now(), lists = true } = {}
 ) {
-  try {
-    const index = await workspaceInventory(workspace?.slug, {
-      now,
-      anyAge: true,
+  const index = await workspaceIndex(workspace?.slug, { now, anyAge: true });
+  if (!index?.active) return null;
+  const { inventory } = index;
+  if (!lists) return { inventory, counts: index.counts };
+  const missing = [];
+  for (const key of index.offered) {
+    if (missing.length >= STATUS_LIST_MAX) break;
+    if (index.knownKeys.has(key)) continue;
+    missing.push({
+      knr: inventory.numbers.get(key) ?? key,
+      title: inventory.titles.get(key) ?? null,
     });
-    if (!index?.active) return null;
-    const { inventory } = index;
-    if (!lists) return { inventory, counts: index.counts };
-    const missing = [];
-    for (const key of index.offered) {
-      if (missing.length >= STATUS_LIST_MAX) break;
-      if (index.knownKeys.has(key)) continue;
-      missing.push({
-        knr: inventory.numbers.get(key) ?? key,
-        title: inventory.titles.get(key) ?? null,
-      });
-    }
-    if (!hiddenEntries.has(index))
-      hiddenEntries.set(index, readHiddenEntries(index));
-    return {
-      inventory,
-      counts: index.counts,
-      missing,
-      hidden: await hiddenEntries.get(index),
-    };
-  } catch (error) {
-    console.error(`[courseInventory] ${error.message}`);
-    return null;
   }
+  if (!hiddenEntries.has(index))
+    hiddenEntries.set(index, readHiddenEntries(index));
+  return {
+    inventory,
+    counts: index.counts,
+    missing,
+    hidden: await hiddenEntries.get(index),
+  };
 }
 
 /**

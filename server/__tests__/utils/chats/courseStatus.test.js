@@ -322,6 +322,61 @@ describe("Nicht eingerichtet (D-KB3-3)", () => {
   });
 });
 
+// Fixliste r2 Nr. 6 (F8): Ein Lesefehler ist kein „nicht eingerichtet“. Die
+// Bewertung wirft, die Endpunkte antworten mit 500; der Chatpfad bleibt wie
+// ohne Kursliste.
+describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
+  beforeEach(() => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    console.error.mockRestore();
+  });
+
+  test("Datenbank nicht lesbar: courseStatus wirft, der Chatpfad nicht", async () => {
+    workspaceWith(numbers("262", 100));
+    setInventory();
+    prisma.system_settings.findFirst.mockRejectedValue(new Error("busy"));
+    await expect(courseStatus(WS)).rejects.toThrow("busy");
+    await expect(courseStatusState(WS)).rejects.toThrow("busy");
+    expect(await courseInventoryStatus(WS)).toBeNull();
+    expect(await courseSearchExclusion("ws")).toBeNull();
+  });
+
+  test("Aufbau des Index scheitert: courseStatus wirft, 2 min gemerkt, danach neu", async () => {
+    workspaceWith(numbers("262", 100));
+    setInventory();
+    const listDocuments = jest.fn(async () => {
+      throw new Error("Dokumente nicht lesbar");
+    });
+    inv.setDeps({
+      findWorkspaceId: async () => 7,
+      listDocuments,
+      listVectors: async () => [],
+      readDocumentText: async () => null,
+      readDocument,
+      tableRows: async () => null,
+      rowTexts: async () => [],
+    });
+    await expect(courseStatus(WS)).rejects.toThrow("Dokumente nicht lesbar");
+    expect(await courseInventoryStatus(WS)).toBeNull();
+    clock.now += inv.INCOMPLETE_INDEX_MAX_AGE_MS - 1;
+    await expect(courseStatus(WS)).rejects.toThrow("Dokumente nicht lesbar");
+    expect(listDocuments).toHaveBeenCalledTimes(1);
+    clock.now += 1;
+    await expect(courseStatus(WS)).rejects.toThrow();
+    expect(listDocuments).toHaveBeenCalledTimes(2);
+  });
+
+  test("Menüpunkt: ein Fehler wird nicht gemerkt", async () => {
+    workspaceWith(numbers("262", 94));
+    setInventory();
+    prisma.system_settings.findFirst.mockRejectedValueOnce(new Error("busy"));
+    await expect(courseStatusState(WS)).rejects.toThrow("busy");
+    expect(await courseStatusState(WS)).toBe("gelb");
+  });
+});
+
 describe("Listen (AK-1)", () => {
   test("fehlend mit Titel aus der Kursliste in deren Schreibweise, ausgeblendet mit Titel, Beginn und Dauer aus dem Dokument", async () => {
     workspaceWith(["262-1"], {

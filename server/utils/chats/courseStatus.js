@@ -14,7 +14,9 @@
 // nicht.
 //
 // Ohne gültige Kursliste oder ohne angebotenen Kurs im Workspace gilt
-// „nicht eingerichtet“ (D-KB3-3).
+// „nicht eingerichtet“ (D-KB3-3). Ein Lesefehler (Datenbank, Aufbau des
+// Index) ist kein „nicht eingerichtet“: courseStatus wirft, die Endpunkte
+// antworten mit 500 ohne Details (Fixliste r2 Nr. 6).
 
 const { courseInventoryDetails } = require("./courseInventory");
 
@@ -77,7 +79,7 @@ const notSetUp = () => ({
  * für Gelb oder Rot („fehlen“, „alter“; beide, wenn beides zutrifft),
  * Zahlen, die Listen (je höchstens 500, die Gesamtzahl steht in counts),
  * letzter Lauf, letzter erfolgreicher Abgleich und ob das Ende geschätzt
- * ist. Nur lesend, wirft nie.
+ * ist. Nur lesend; wirft bei einem Lesefehler.
  * @param {{slug?: string}|null} workspace
  * @param {{now?: number, lists?: boolean}} [options]
  * @returns {Promise<object>}
@@ -118,7 +120,8 @@ const stateCache = new Map();
 
 /**
  * Nur der Zustand eines Workspace für den Punkt am Menü (AK-5): ohne
- * Listen, je Workspace höchstens 5 min gemerkt.
+ * Listen, je Workspace höchstens 5 min gemerkt; ein Lesefehler wird nicht
+ * gemerkt, er wirft.
  * @param {{slug?: string}|null} workspace
  * @param {{now?: number}} [options]
  * @returns {Promise<string>}

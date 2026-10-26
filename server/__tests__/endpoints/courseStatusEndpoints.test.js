@@ -290,3 +290,43 @@ describe("AK-2: GET /v1/course-status", () => {
     expect(JSON.stringify(res.body)).not.toContain("geheim");
   });
 });
+
+// Fixliste r2 Nr. 6 (F8): Ein Lesefehler im Statuspfad erscheint nicht als
+// „nicht eingerichtet“. Alle drei Endpunkte antworten mit 500 ohne Details;
+// die Seite zeigt dann ihren Ladefehlertext, der Menüpunkt keinen Punkt.
+describe("Lesefehler (Fixliste r2 Nr. 6)", () => {
+  beforeEach(() => {
+    const findFirst = prisma.system_settings.findFirst;
+    jest
+      .spyOn(prisma.system_settings, "findFirst")
+      .mockImplementation(async (args) => {
+        if (args?.where?.label === "kufer_course_inventory")
+          throw new Error("SQLITE_BUSY: database is locked");
+        return findFirst(args);
+      });
+  });
+  afterEach(() => {
+    prisma.system_settings.findFirst.mockRestore();
+  });
+
+  test("Status-Seite: 500 ohne Details", async () => {
+    const res = await statusOf(embedA1.id, createUser(prisma, "admin"));
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toBeUndefined();
+  });
+
+  test("Menüpunkt: 500 ohne Details", async () => {
+    const res = await invoke(MENU, {
+      token: createUser(prisma, "admin").token,
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toBeUndefined();
+  });
+
+  test("Entwickler-API: 500 ohne Details", async () => {
+    prisma.__seed("api_keys", { secret: "geheim" });
+    const res = await invoke(API, { token: "geheim" });
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toBeUndefined();
+  });
+});
