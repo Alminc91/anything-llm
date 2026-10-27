@@ -244,10 +244,9 @@
   --theme-analytics-empty-outline: #888b8f;
 }
 
-/* Status-Seite des Kursbestands (KB-3): Ampel (Punkt, Fläche, Rand, Text)
-   und der Hinweis bei den ausgeblendeten Kursen. Im dunklen Design gedeckte
-   Flächen mit heller Schrift, im hellen die Pastelltöne aus dem Mockup
-   (Tafel 3). Text auf der Fläche jeweils über 4,5:1. */
+/* Status-Seite des Kursbestands (KB-3): Ampel (Punkt, Fläche, Rand, Text).
+   Im dunklen Design gedeckte Flächen mit heller Schrift, im hellen die
+   Pastelltöne aus dem Mockup (Tafel 3). Text auf der Fläche jeweils über 4,5:1. */
 :root {
   --course-status-gruen-dot: #3dbe7e;
   --course-status-gruen-bg: #12291d;
@@ -265,8 +264,6 @@
   --course-status-nicht_eingerichtet-bg: #1f2225;
   --course-status-nicht_eingerichtet-border: #3a3f44;
   --course-status-nicht_eingerichtet-text: #d0d5da;
-  --course-status-notice-bg: #0f2e31;
-  --course-status-notice-text: #8fd8dd;
 }
 [data-theme="light"] {
   --course-status-gruen-dot: #1e7f4f;
@@ -285,8 +282,6 @@
   --course-status-nicht_eingerichtet-bg: #f3f4f6;
   --course-status-nicht_eingerichtet-border: #dde2e5;
   --course-status-nicht_eingerichtet-text: #3d454d;
-  --course-status-notice-bg: #e0f2f3;
-  --course-status-notice-text: #005a5f;
 }
 
 [data-theme="light"] .text-white {

@@ -77,7 +77,7 @@ const LAST_ACTIVITY = [
 ];
 
 /** fetch für die Dauer eines Tests; merkt sich jede Anfrage. */
-function stubServer(t, embeds = EMBEDS) {
+function stubServer(t, embeds = EMBEDS, menuState = undefined) {
   const original = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
@@ -88,6 +88,8 @@ function stubServer(t, embeds = EMBEDS) {
     else if (url.endsWith("/embeds/last-activity"))
       answer = { success: true, lastActivity: LAST_ACTIVITY };
     else if (url.includes("/embed/defaults")) answer = { defaults: {} };
+    else if (url.endsWith("/embeds/course-status"))
+      answer = { state: menuState };
     else if (url.includes("/embed/course-status"))
       answer = { state: "nicht_eingerichtet", counts: null, widgets: [] };
     else if (url.endsWith("/analytics/summary"))
@@ -478,8 +480,11 @@ test(
 // ---------------------------------------------------------------------------
 
 /** Die Widget-Liste mit einer Zeile; die Ziele der Abkürzungen als Sonden. */
-async function openWidgetList(t, { canViewChatHistory = true } = {}) {
-  stubServer(t, [ELBE]);
+async function openWidgetList(
+  t,
+  { canViewChatHistory = true, menuState } = {}
+) {
+  stubServer(t, [ELBE], menuState);
   return mount(t, WIDGET_LIST, {
     location: WIDGETS,
     canViewChatHistory,
@@ -542,6 +547,31 @@ test(
       rowActions(container).map((action) => action.text),
       ["Status", "Design Center", "Code", "Deaktivieren", "Löschen", ""]
     );
+  }
+);
+
+// Fixliste r8 Nr. 6: Ohne Arbeitsbereich mit Kursliste (alle nicht
+// eingerichtet) fehlt die Abkürzung „Status“ wie der Menüpunkt
+test(
+  "r8 Nr. 6: Ohne Kurse auf der Instanz fehlt die Abkürzung „Status“; mit Kursen steht sie da",
+  { skip },
+  async (t) => {
+    const none = await openWidgetList(t, { menuState: "nicht_eingerichtet" });
+    assert.deepEqual(
+      rowActions(none.container).map((action) => action.text),
+      ["Konversationen", "Design Center", "Code", "Deaktivieren", "Löschen", ""]
+    );
+    await none.unmount();
+
+    for (const menuState of ["gruen", "gelb", "rot"]) {
+      const page = await openWidgetList(t, { menuState });
+      assert.deepEqual(
+        rowActions(page.container)[0],
+        { tag: "A", text: "Status", href: `${STATUS}?widget=5` },
+        menuState
+      );
+      await page.unmount();
+    }
   }
 );
 

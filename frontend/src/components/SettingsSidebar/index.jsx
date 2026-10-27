@@ -25,7 +25,11 @@ import Option from "./MenuOption";
 import { CanViewChatHistoryProvider } from "../CanViewChatHistory";
 import useAppVersion from "@/hooks/useAppVersion";
 import { widgetFromSearch, withWidget } from "@/utils/chatbotArea";
-import { STATE_COLORS, useCourseStatusDot } from "@/utils/courseStatus";
+import {
+  STATE_COLORS,
+  menuDotState,
+  useCourseMenuState,
+} from "@/utils/courseStatus";
 
 export default function SettingsSidebar() {
   const { t } = useTranslation();
@@ -498,12 +502,15 @@ function AppVersion() {
  * Wechsel des Menüpunkts behält es. Ein Klick auf den Gruppenkopf öffnet
  * den ersten Unterpunkt, der Pfeil daneben ist für Screenreader beschriftet
  * (Fixliste r4 Nr. 12). KB-3, AK-5: Punkt an „Status“ und am zugeklappten
- * Kopf bei Gelb oder Rot.
+ * Kopf bei Gelb oder Rot. Ohne Arbeitsbereich mit Kursliste (alle nicht
+ * eingerichtet, etwa ein Support-Bot) gibt es den Menüpunkt „Status“ nicht
+ * (Fixliste r8 Nr. 6); die Adresse bleibt erreichbar.
  */
 export function ChatbotOption({ user, t, canViewChatHistory }) {
   const widgetId = widgetFromSearch(useLocation().search);
   const roles = ["admin", "manager", "default"];
-  const dotState = useCourseStatusDot();
+  const courseState = useCourseMenuState();
+  const dotState = menuDotState(courseState);
   const dot = dotState
     ? {
         state: dotState,
@@ -524,6 +531,7 @@ export function ChatbotOption({ user, t, canViewChatHistory }) {
       }}
       childOptions={[
         {
+          hidden: courseState === "nicht_eingerichtet",
           btnText: t("settings.chatbot-status"),
           href: withWidget(paths.settings.chatbot.status(), widgetId),
           flex: true,

@@ -2036,11 +2036,14 @@ const TRANSLATIONS = {
   // KB-3: Status-Seite des Kursbestands
   "course-status": {
     title: "Status",
-    program: "Kursprogramm: {{name}}",
-    "applies-to": "gilt für die Widgets {{widgets}}",
-    quoted: "„{{name}}“",
+    workspace: "Arbeitsbereich „{{name}}“",
+    widget: "Widget: {{name}}",
+    widgets: "Widgets: {{names}}",
     principle:
-      "Alle aktuellen Kurse aus Ihrem Kursprogramm (KuferSQL) sind im KI-Berater verfügbar und werden stündlich abgeglichen. Hier stehen nur Abweichungen.",
+      "Alle aktuellen Kurse aus Ihrem Kursprogramm sind im KI-Berater verfügbar. Der Abgleich läuft tagsüber stündlich und nachts einmal.",
+    "last-sync": "Letzter Abgleich: {{time}}",
+    notice:
+      "Seit {{date}}: Zurzeit wird das Ausschließen vergangener Kurse optimiert.",
     "load-failed":
       "Der Status konnte nicht geladen werden. Bitte versuchen Sie es später erneut.",
     none: "k. A.",
@@ -2103,27 +2106,15 @@ const TRANSLATIONS = {
     },
     hidden: {
       label: "Ausgeblendete Kurse",
-      title:
-        "Ausgeblendet, da beendet oder nicht mehr im Kursprogramm ({{count}})",
-      estimated:
-        "Übergangslösung: Ihr Kursprogramm liefert noch kein Enddatum. Bis dahin schätzen wir das Ende aus Beginn und Dauer. Dabei können vereinzelt auch laufende Kurse ausgeblendet werden. Wir arbeiten aktiv daran, das Enddatum zu übernehmen.",
-      notice:
-        "Seit {{date}}: Zurzeit wird das Ausschließen vergangener Kurse optimiert.",
+      title: "Ausgeblendete Kurse ({{count}})",
+      description:
+        "Diese Kurse sind beendet oder stehen nicht mehr im Kursprogramm. Der KI-Berater nennt sie nicht.",
       from: "ab {{date}}",
     },
     list: {
       "show-all": "Alle {{count}} anzeigen",
       "show-less": "Weniger anzeigen",
       truncated: "Angezeigt werden die ersten {{shown}} von {{count}}.",
-    },
-    sync: {
-      title: "Abgleich",
-      last: "Letzter",
-      next: "Nächster",
-      visitors: "Besucher sehen",
-      "visitors-count": "aktuell {{count}} {{word}}",
-      "visitors-none": "keine Kursanzahl",
-      pending: "ausstehend",
     },
   },
 };

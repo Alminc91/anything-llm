@@ -12,6 +12,7 @@ import CTAButton from "@/components/lib/CTAButton";
 import useUser from "@/hooks/useUser";
 import { embedLabels } from "@/utils/embedLabel";
 import { useCanViewChatHistory } from "@/components/CanViewChatHistory";
+import { useCourseMenuState } from "@/utils/courseStatus";
 
 export default function EmbedConfigsView() {
   const { isOpen, openModal, closeModal } = useModal();
@@ -23,6 +24,9 @@ export default function EmbedConfigsView() {
   const isReadOnly = false;
   // Abkürzung „Konversationen“ in der Zeile wie der Menüpunkt (KB-2)
   const { viewable: canViewChatHistory } = useCanViewChatHistory();
+  // Abkürzung „Status“ wie der Menüpunkt: ohne Kursliste nicht (Fixliste r8
+  // Nr. 6)
+  const showStatus = useCourseMenuState() !== "nicht_eingerichtet";
 
   useEffect(() => {
     async function fetchUsers() {
@@ -104,6 +108,7 @@ export default function EmbedConfigsView() {
                 label={labels.get(embed.id)}
                 isReadOnly={isReadOnly}
                 canViewChatHistory={canViewChatHistory}
+                showStatus={showStatus}
               />
             ))}
           </tbody>

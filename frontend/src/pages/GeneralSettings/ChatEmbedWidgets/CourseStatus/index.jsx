@@ -1,15 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Info } from "@phosphor-icons/react";
 import Embed from "@/models/embed";
-import { embedLabels } from "@/utils/embedLabel";
 import { formatNumber } from "@/utils/analyticsTimeline";
 import { AVATAR_CLEARANCE, MUTED } from "@/utils/conversationView";
 import {
   KUFER_CONTACT_EMAIL,
-  NOTICE_COLORS,
   OPTIMIZATION_NOTICE_SINCE,
   STATE_COLORS,
-  formatNextRun,
   formatRunTime,
   formatSyncedAt,
   hiddenWhen,
@@ -26,7 +24,8 @@ import { WidgetPicker, useWidgetSelection } from "../WidgetSelection";
 // Anteil und ob der Chat die Kursliste anwendet liefert der Server (Vertrag
 // r4), die Seite liest sie nur ab. Nur lesend: Die Seite
 // hat außer der Widget-Auswahl, dem Aufklappen der Listen und dem Mail-Link
-// keine Bedienelemente (NAK-3).
+// keine Bedienelemente (NAK-3). Kopf, Grundsatz, Liste „Ausgeblendete Kurse“
+// und Hinweis unten nach Fixliste r8; die Karte „Abgleich“ ist entfallen.
 
 // So viele Einträge je Liste, bevor „Alle … anzeigen“ aufklappt
 const LIST_PREVIEW = 5;
@@ -58,15 +57,14 @@ export default function CourseStatusView({ embeds, lastActivity = null }) {
     };
   }, [widgetId, unknownLink]);
 
-  const labels = useMemo(() => embedLabels(embeds, t), [embeds, t]);
   const loading = result.widgetId !== widgetId;
   const status = loading ? null : result.status;
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4 p-2 md:p-6">
       {/* Kopfzeile wie bei Konversationen (Fixliste r4 Nr. 9): Überschrift
-          links, Widget-Auswahl oben rechts; darunter Kursprogramm und
-          Grundsatz über die ganze Breite */}
+          links, Widget-Auswahl oben rechts; darunter Arbeitsbereich mit
+          Widgets, Grundsatz und letzter Abgleich über die ganze Breite */}
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-2xl font-bold text-theme-text-primary">
@@ -82,15 +80,22 @@ export default function CourseStatusView({ embeds, lastActivity = null }) {
         </div>
         {status?.workspace && (
           <p data-course-status-program="" className={`text-sm ${MUTED}`}>
-            {programLine(t, status, labels, i18n.language)}
+            {programLine(t, status, i18n.language)}
           </p>
         )}
         {/* Nicht eingerichtet: kein Grundsatz, er widerspräche der Meldung
             (Fixliste r4 Nr. 8) */}
         {status && status.state !== "nicht_eingerichtet" && (
-          <p data-course-principle="" className={`text-sm ${MUTED}`}>
-            {t("course-status.principle")}
-          </p>
+          <>
+            <p data-course-principle="" className={`text-sm ${MUTED}`}>
+              {t("course-status.principle")}
+            </p>
+            <p data-course-last-sync="" className={`text-sm ${MUTED}`}>
+              {t("course-status.last-sync", {
+                time: formatRunTime(t, status.syncedAt),
+              })}
+            </p>
+          </>
         )}
       </div>
 
@@ -108,20 +113,26 @@ export default function CourseStatusView({ embeds, lastActivity = null }) {
 }
 
 /**
- * „Kursprogramm: <Name>“, bei mehreren Widgets dieses Kursprogramms dazu
- * „· gilt für die Widgets „A“ und „B““.
+ * „Arbeitsbereich „<Name>“ · Widgets: Widget 3 und Widget 9“, bei einem
+ * Widget „· Widget: Widget 3“ (Fixliste r8 Nr. 1). Alle Widgets liegen im
+ * selben Arbeitsbereich; sie heißen deshalb wie in der Widget-Auswahl ohne
+ * den vorangestellten Arbeitsbereich, also nach ihrer Nummer.
  */
-function programLine(t, status, labels, language) {
-  const program = t("course-status.program", { name: status.workspace.name });
-  const widgets = status.widgets ?? [];
-  if (widgets.length < 2) return program;
-  const names = widgets.map((widget) =>
-    t("course-status.quoted", {
-      name: labels.get(widget.id)?.label ?? widget.name,
-    })
+function programLine(t, status, language) {
+  const workspace = t("course-status.workspace", {
+    name: status.workspace.name,
+  });
+  const names = (status.widgets ?? []).map((widget) =>
+    t("embed-analytics.embed-label.unnamed", { id: widget.id })
   );
-  const list = listFormat(language).format(names);
-  return `${program} · ${t("course-status.applies-to", { widgets: list })}`;
+  if (names.length === 0) return workspace;
+  const widgets =
+    names.length === 1
+      ? t("course-status.widget", { name: names[0] })
+      : t("course-status.widgets", {
+          names: listFormat(language).format(names),
+        });
+  return `${workspace} · ${widgets}`;
 }
 
 // Aufzählung der Sprache („A, B und C“); unbekannte Sprache: die des Systems
@@ -134,6 +145,7 @@ function listFormat(language) {
 }
 
 function StatusBody({ status }) {
+  const { t } = useTranslation();
   if (status.state === "nicht_eingerichtet") return <Banner status={status} />;
   // Ausgeblendet liefert der Server nur, solange der Chat die Kursliste
   // anwendet (Fixliste r7 Nr. 1); die Seite zeigt ab, was kommt
@@ -148,9 +160,16 @@ function StatusBody({ status }) {
           {showsHidden && <HiddenList status={status} />}
         </div>
       )}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <SyncCard status={status} />
-      </div>
+      {/* Fixliste r8 Nr. 5: dezente Zeile ganz unten */}
+      {showsOptimizationNotice(status) && (
+        <p
+          data-course-notice=""
+          className={`flex items-center gap-2 text-xs ${MUTED}`}
+        >
+          <Info aria-hidden="true" className="h-4 w-4 flex-none" />
+          {t("course-status.notice", { date: OPTIMIZATION_NOTICE_SINCE })}
+        </p>
+      )}
     </>
   );
 }
@@ -411,27 +430,12 @@ function HiddenList({ status }) {
           <h3 className="text-base font-semibold">
             {t("course-status.hidden.title", { count: formatNumber(total) })}
           </h3>
-          {/* Fixliste r4 Nr. 7: die hervorgehobene Zeile über der
-              Erklärung zur Schätzung */}
-          {showsOptimizationNotice(status) && (
-            <p
-              data-course-notice=""
-              className="mt-1 self-start rounded-lg px-3 py-1 text-xs font-semibold"
-              style={NOTICE_COLORS}
-            >
-              {t("course-status.hidden.notice", {
-                date: OPTIMIZATION_NOTICE_SINCE,
-              })}
-            </p>
-          )}
-          {status.estimatedEnd && (
-            <p
-              data-course-estimated=""
-              className={`text-sm leading-normal ${MUTED}`}
-            >
-              {t("course-status.hidden.estimated")}
-            </p>
-          )}
+          <p
+            data-course-hidden-description=""
+            className={`mt-1 text-sm leading-normal ${MUTED}`}
+          >
+            {t("course-status.hidden.description")}
+          </p>
         </>
       }
       renderRow={(item) => (
@@ -446,45 +450,5 @@ function HiddenList({ status }) {
         </>
       )}
     />
-  );
-}
-
-/**
- * Abgleich: letzter erfolgreicher (syncedAt, wie die Meldung „seit …“,
- * Fixliste r4 Nr. 3), nächster (eine Stunde nach dem letzten Lauf), was
- * Besucher sehen (/config).
- */
-function SyncCard({ status }) {
-  const { t } = useTranslation();
-  const rows = [
-    ["last", formatRunTime(t, status.syncedAt)],
-    ["next", formatNextRun(t, status.lastRun?.at)],
-  ];
-  rows.push([
-    "visitors",
-    status.visitors
-      ? t("course-status.sync.visitors-count", {
-          count: formatNumber(status.visitors.count),
-          word: status.visitors.word,
-        })
-      : t("course-status.sync.visitors-none"),
-  ]);
-  return (
-    <section
-      data-course-sync=""
-      className={`${CARD} flex flex-col gap-2 px-4 py-3 text-sm`}
-    >
-      <h3 className="text-base font-semibold">
-        {t("course-status.sync.title")}
-      </h3>
-      <dl className="flex flex-col gap-2">
-        {rows.map(([key, value]) => (
-          <div key={key} className="flex justify-between gap-3">
-            <dt className={MUTED}>{t(`course-status.sync.${key}`)}</dt>
-            <dd className="text-right">{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
   );
 }

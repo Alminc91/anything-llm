@@ -24,6 +24,8 @@ import { withWidget } from "@/utils/chatbotArea";
  *   des Widgets in der Liste, in der es steht (utils/embedLabel); ohne Angabe
  *   der Name des Workspaces.
  * @param {boolean} [props.canViewChatHistory] - Abkürzung „Konversationen“
+ * @param {boolean} [props.showStatus] - Abkürzung „Status“ (ohne Kursliste
+ *   auf der Instanz nicht, Fixliste r8 Nr. 6)
  */
 export default function EmbedRow({
   embed,
@@ -31,6 +33,7 @@ export default function EmbedRow({
   isReadOnly = false,
   userRole = null,
   canViewChatHistory = false,
+  showStatus = true,
 }) {
   const { t, i18n } = useTranslation();
   const {
@@ -125,10 +128,12 @@ export default function EmbedRow({
         <td className="px-6 flex items-center gap-x-1 h-full mt-1">
           {/* Abkürzungen in der Reihenfolge des Menüs „Chatbot“, jeweils mit
               diesem Widget (KB-2) */}
-          <ShortcutButton
-            href={withWidget(paths.settings.chatbot.status(), embed.id)}
-            text={t("settings.chatbot-status")}
-          />
+          {showStatus && (
+            <ShortcutButton
+              href={withWidget(paths.settings.chatbot.status(), embed.id)}
+              text={t("settings.chatbot-status")}
+            />
+          )}
           {canViewChatHistory && (
             <ShortcutButton
               href={withWidget(

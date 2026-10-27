@@ -2023,11 +2023,14 @@ const TRANSLATIONS = {
   // KB-3: Status-Seite des Kursbestands
   "course-status": {
     title: "Status",
-    program: "Course program: {{name}}",
-    "applies-to": "applies to the widgets {{widgets}}",
-    quoted: "“{{name}}”",
+    workspace: "Workspace “{{name}}”",
+    widget: "Widget: {{name}}",
+    widgets: "Widgets: {{names}}",
     principle:
-      "All current courses from your course program (KuferSQL) are available in the AI advisor and are synchronized every hour. Only deviations are shown here.",
+      "All current courses from your course program are available in the AI advisor. The synchronization runs every hour during the day and once at night.",
+    "last-sync": "Last synchronization: {{time}}",
+    notice:
+      "Since {{date}}: Excluding past courses is currently being optimized.",
     "load-failed": "The status could not be loaded. Please try again later.",
     none: "n/a",
     today: "today, {{time}}",
@@ -2089,27 +2092,15 @@ const TRANSLATIONS = {
     },
     hidden: {
       label: "Hidden courses",
-      title:
-        "Hidden because ended or no longer in the course program ({{count}})",
-      estimated:
-        "Interim solution: your course program does not provide an end date yet. Until then, we estimate the end from start and duration. In rare cases, courses that are still running may be hidden as well. We are actively working on adopting the end date.",
-      notice:
-        "Since {{date}}: Excluding past courses is currently being optimized.",
+      title: "Hidden courses ({{count}})",
+      description:
+        "These courses have ended or are no longer in the course program. The AI advisor does not mention them.",
       from: "from {{date}}",
     },
     list: {
       "show-all": "Show all {{count}}",
       "show-less": "Show less",
       truncated: "Showing the first {{shown}} of {{count}}.",
-    },
-    sync: {
-      title: "Synchronization",
-      last: "Last",
-      next: "Next",
-      visitors: "Visitors see",
-      "visitors-count": "currently {{count}} {{word}}",
-      "visitors-none": "no course count",
-      pending: "pending",
     },
   },
 };

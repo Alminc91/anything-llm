@@ -38,12 +38,6 @@ export const STATE_COLORS = {
   nicht_eingerichtet: colorsOf("nicht_eingerichtet"),
 };
 
-/** Farben des Hinweises bei den ausgeblendeten Kursen (AK-4). */
-export const NOTICE_COLORS = {
-  background: "var(--course-status-notice-bg)",
-  color: "var(--course-status-notice-text)",
-};
-
 /**
  * AK-4: Der Hinweis „Seit 26.10.2026: …“ steht nur bei geschätztem Ende und
  * mindestens einem ausgeblendeten Kurs.
@@ -141,23 +135,6 @@ export function formatSyncedAt(t, at, now = Date.now()) {
 }
 
 /**
- * Nächster Abgleich: stündlich, eine Stunde nach dem letzten; liegt das
- * zurück, ist er ausstehend.
- * @param {(key: string, options?: object) => string} t
- * @param {string|null} lastAt
- * @param {number} [now]
- * @returns {string}
- */
-export function formatNextRun(t, lastAt, now = Date.now()) {
-  const last = Date.parse(lastAt ?? "");
-  if (!Number.isFinite(last)) return t("course-status.none");
-  const next = last + 60 * 60 * 1000;
-  return next < now
-    ? t("course-status.sync.pending")
-    : formatRunTime(t, next, now);
-}
-
-/**
  * Beginn und Dauer eines ausgeblendeten Kurses: „ab 02.09., 6 Termine“,
  * bei einem Termin ohne „ab“; fehlt beides „k. A.“.
  * @param {(key: string, options?: object) => string} t
@@ -185,27 +162,29 @@ export function hiddenWhen(
   return parts.length > 0 ? parts.join(", ") : t("course-status.none");
 }
 
-// AK-5: zuletzt geladener Zustand für den Punkt am Menü. Jede Seite der
+// AK-5: zuletzt geladener Zustand für den Menüpunkt „Status“ (Punkt bei Gelb
+// und Rot, ohne Kurse kein Menüpunkt, Fixliste r8 Nr. 6). Jede Seite der
 // Einstellungen hängt die Seitenleiste neu ein und fragt neu (gemerkt wird
 // nur auf dem Server, 5 min je Workspace); bis zur Antwort steht der zuletzt
 // geladene Zustand da, damit der Punkt nicht flackert. Gemerkt wird nur die
 // Antwort einer noch eingehängten Abfrage (Fixliste r4 Nr. 13, NF-N1): Eine
 // ältere, die zuletzt ankommt, überschreibt ihn nicht.
-let lastDotState = null;
+let lastMenuState = null;
 
 /**
- * Zustand für den Punkt am Menü (AK-5): bei jedem Einhängen neu abgefragt;
- * null ohne Punkt oder bei einem Fehler.
- * @returns {"gelb"|"rot"|null}
+ * Zustand des Menüpunkts „Status“ (GET /api/embeds/course-status): bei jedem
+ * Einhängen neu abgefragt; null vor der ersten Antwort oder bei einem Fehler.
+ * „nicht_eingerichtet“ heißt: kein Arbeitsbereich mit gültiger Kursliste.
+ * @returns {string|null}
  */
-export function useCourseStatusDot() {
-  const [state, setState] = useState(lastDotState);
+export function useCourseMenuState() {
+  const [state, setState] = useState(lastMenuState);
   useEffect(() => {
     let ignore = false;
     Embed.courseStatusState().then((value) => {
       if (ignore) return;
-      lastDotState = menuDotState(value);
-      setState(lastDotState);
+      lastMenuState = value;
+      setState(lastMenuState);
     });
     return () => {
       ignore = true;

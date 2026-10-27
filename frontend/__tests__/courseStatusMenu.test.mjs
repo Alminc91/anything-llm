@@ -79,6 +79,11 @@ test(
       "bannerDetails",
       "isUnreachable",
       "missingShare",
+      // Fixliste r8 Nr. 3 und 5: ohne Karte „Abgleich“ und ohne farbigen
+      // Hinweis; Nr. 6: der Menüpunkt liest den ganzen Zustand
+      "formatNextRun",
+      "NOTICE_COLORS",
+      "useCourseStatusDot",
     ])
       assert.equal(name in util, false, name);
   }
@@ -238,6 +243,73 @@ test("Meldungen der Ampel in de und en", { skip }, () => {
     assert.equal(t(path), path, path);
 });
 
+// Fixliste r8 Nr. 1, 2, 4 und 5: Kopf, Grundsatz, Liste „Ausgeblendete
+// Kurse“ und Hinweis unten; die Texte der Karte „Abgleich“ und der
+// Übergangslösung sind entfallen
+test(
+  "r8: Texte von Kopf, Grundsatz, Liste und Hinweis in de und en",
+  { skip },
+  () => {
+    const de = (key, options) => t(`course-status.${key}`, options);
+    const en = (key, options) =>
+      t(`course-status.${key}`, { lng: "en", ...options });
+    assert.equal(de("workspace", { name: "VHS" }), "Arbeitsbereich „VHS“");
+    assert.equal(de("widget", { name: "Widget 3" }), "Widget: Widget 3");
+    assert.equal(
+      de("widgets", { names: "Widget 3 und Widget 9" }),
+      "Widgets: Widget 3 und Widget 9"
+    );
+    assert.equal(
+      de("principle"),
+      "Alle aktuellen Kurse aus Ihrem Kursprogramm sind im KI-Berater verfügbar. Der Abgleich läuft tagsüber stündlich und nachts einmal."
+    );
+    assert.equal(
+      de("last-sync", { time: "heute, 10:00 Uhr" }),
+      "Letzter Abgleich: heute, 10:00 Uhr"
+    );
+    assert.equal(de("hidden.title", { count: 2 }), "Ausgeblendete Kurse (2)");
+    assert.equal(
+      de("hidden.description"),
+      "Diese Kurse sind beendet oder stehen nicht mehr im Kursprogramm. Der KI-Berater nennt sie nicht."
+    );
+    assert.equal(
+      de("notice", { date: "26.10.2026" }),
+      "Seit 26.10.2026: Zurzeit wird das Ausschließen vergangener Kurse optimiert."
+    );
+    assert.equal(en("workspace", { name: "VHS" }), "Workspace “VHS”");
+    assert.equal(en("widget", { name: "Widget 3" }), "Widget: Widget 3");
+    assert.equal(
+      en("principle"),
+      "All current courses from your course program are available in the AI advisor. The synchronization runs every hour during the day and once at night."
+    );
+    assert.equal(
+      en("last-sync", { time: "today, 10:00" }),
+      "Last synchronization: today, 10:00"
+    );
+    assert.equal(en("hidden.title", { count: 2 }), "Hidden courses (2)");
+    for (const key of ["widgets", "hidden.description", "notice"])
+      assert.notEqual(en(key), `course-status.${key}`, key);
+    for (const lng of ["de", "en"])
+      for (const key of [
+        "program",
+        "applies-to",
+        "quoted",
+        "hidden.estimated",
+        "hidden.notice",
+        "sync.title",
+        "sync.last",
+        "sync.next",
+        "sync.visitors",
+        "sync.pending",
+      ])
+        assert.equal(
+          t(`course-status.${key}`, { lng }),
+          `course-status.${key}`,
+          `${lng} ${key}`
+        );
+  }
+);
+
 test("Zeitpunkte des Abgleichs in Berliner Zeit", { skip }, () => {
   const at = (iso) => util.formatRunTime(t, iso, NOW);
   assert.equal(at("2026-10-26T09:00:00.000Z"), "heute, 10:00 Uhr");
@@ -250,22 +322,6 @@ test("Zeitpunkte des Abgleichs in Berliner Zeit", { skip }, () => {
   assert.equal(inSentence("2026-10-24T08:00:00.000Z"), "dem 24.10., 10:00 Uhr");
   assert.equal(inSentence("2026-10-26T08:00:00.000Z"), "heute, 09:00 Uhr");
   assert.equal(inSentence("2026-10-25T08:00:00.000Z"), "gestern, 09:00 Uhr");
-  assert.equal(
-    util.formatNextRun(t, "2026-10-26T08:30:00.000Z", NOW),
-    "heute, 10:30 Uhr"
-  );
-  assert.equal(
-    util.formatNextRun(t, "2026-10-26T07:00:00.000Z", NOW),
-    "ausstehend"
-  );
-  assert.equal(
-    util.formatNextRun(
-      t,
-      "2026-10-26T22:30:00.000Z",
-      Date.parse("2026-10-26T22:40:00.000Z")
-    ),
-    "morgen, 00:30 Uhr"
-  );
 });
 
 // Fixliste r2 Nr. 3 (F5): „gestern“ und „morgen“ nach Berliner Kalendertagen,

@@ -88,7 +88,6 @@ function answer(overrides = {}) {
       { id: 3, name: "VHS Beispiel" },
       { id: 9, name: "VHS Beispiel" },
     ],
-    visitors: { count: 812, word: "Kurse" },
     ...overrides,
   };
 }
@@ -140,9 +139,11 @@ const banner = (container) =>
   find(container, "data-course-status-banner").textContent;
 const NOTICE =
   "Seit 26.10.2026: Zurzeit wird das Ausschließen vergangener Kurse optimiert.";
-const HIDDEN_TITLE = "Ausgeblendet, da beendet oder nicht mehr im Kursprogramm";
-const ESTIMATED =
-  "Übergangslösung: Ihr Kursprogramm liefert noch kein Enddatum. Bis dahin schätzen wir das Ende aus Beginn und Dauer. Dabei können vereinzelt auch laufende Kurse ausgeblendet werden. Wir arbeiten aktiv daran, das Enddatum zu übernehmen.";
+const HIDDEN_TITLE = "Ausgeblendete Kurse";
+const HIDDEN_DESCRIPTION =
+  "Diese Kurse sind beendet oder stehen nicht mehr im Kursprogramm. Der KI-Berater nennt sie nicht.";
+const PRINCIPLE =
+  "Alle aktuellen Kurse aus Ihrem Kursprogramm sind im KI-Berater verfügbar. Der Abgleich läuft tagsüber stündlich und nachts einmal.";
 const NOT_APPLIED =
   "Bis zum nächsten erfolgreichen Abgleich blendet der KI-Berater keine Kurse aus.";
 
@@ -150,8 +151,11 @@ const NOT_APPLIED =
 // AK-3: Aufbau nach Mockup Tafel 3
 // ---------------------------------------------------------------------------
 
+// Fixliste r8 Nr. 1 und 2: Arbeitsbereich mit den Widgets (ohne den
+// vorangestellten Arbeitsbereich), Grundsatz ohne „(KuferSQL)“ und ohne
+// „Hier stehen nur Abweichungen.“, darunter der letzte Abgleich
 test(
-  "AK-3: Kopf mit Kursprogramm, den Widgets des Kursprogramms und dem Grundsatz",
+  "r8 Nr. 1 und 2: Kopf mit Arbeitsbereich und Widgets, Grundsatz und letztem Abgleich",
   { skip },
   async (t) => {
     const { container, calls } = await open(t, answer());
@@ -160,18 +164,37 @@ test(
     assert.equal(heading.textContent, "Status");
     assert.equal(
       find(container, "data-course-status-program").textContent,
-      "Kursprogramm: VHS Beispiel · gilt für die Widgets „VHS Beispiel · Widget 3“ und „VHS Beispiel · Widget 9“"
+      "Arbeitsbereich „VHS Beispiel“ · Widgets: Widget 3 und Widget 9"
     );
-    assert.ok(
-      container.textContent.includes(
-        "Alle aktuellen Kurse aus Ihrem Kursprogramm (KuferSQL) sind im KI-Berater verfügbar und werden stündlich abgeglichen. Hier stehen nur Abweichungen."
-      )
+    assert.equal(
+      find(container, "data-course-principle").textContent,
+      PRINCIPLE
     );
+    assert.match(
+      find(container, "data-course-last-sync").textContent,
+      /^Letzter Abgleich: heute, \d\d:\d\d Uhr$/
+    );
+    // Reihenfolge: Arbeitsbereich, Grundsatz, letzter Abgleich
+    const lines = elements(container, (el) =>
+      [
+        "data-course-status-program",
+        "data-course-principle",
+        "data-course-last-sync",
+      ].some((name) => el.hasAttribute(name))
+    ).map((el) => el.textContent.slice(0, 12));
+    assert.deepEqual(lines, ["Arbeitsberei", "Alle aktuell", "Letzter Abgl"]);
+    for (const gone of [
+      "KuferSQL",
+      "Hier stehen nur Abweichungen",
+      "Kursprogramm: ",
+      "gilt für",
+    ])
+      assert.ok(!container.textContent.includes(gone), gone);
   }
 );
 
 test(
-  "AK-3: Mit einem Widget am Kursprogramm entfällt „gilt für …“",
+  "r8 Nr. 1: Mit einem Widget im Arbeitsbereich „Widget: <Name>“",
   { skip },
   async (t) => {
     const { container } = await open(
@@ -180,13 +203,13 @@ test(
     );
     assert.equal(
       find(container, "data-course-status-program").textContent,
-      "Kursprogramm: VHS Beispiel"
+      "Arbeitsbereich „VHS Beispiel“ · Widget: Widget 3"
     );
   }
 );
 
 test(
-  "AK-3: Ampel-Meldung, Kennzahlen, Listen und Abgleich",
+  "AK-3: Ampel-Meldung, Kennzahlen und Listen; keine Karte „Abgleich“ (r8 Nr. 3)",
   { skip },
   async (t) => {
     const { container } = await open(t, answer());
@@ -207,27 +230,52 @@ test(
     assert.equal(rows(missingList)[0].textContent, "262-1Kurs 1");
     assert.equal(rows(missingList)[1].textContent, "262-2k. A.");
 
-    // Fixliste r4 Nr. 7: neue Überschrift, die hervorgehobene Zeile über
-    // der Erklärung zur Schätzung
+    // Fixliste r8 Nr. 4: Überschrift wie „Fehlende Kurse (n)“, darunter
+    // die Erklärung; weder Hinweis noch „Übergangslösung“ in der Liste
     const hiddenList = find(container, "data-course-list", "hidden");
+    const hiddenHeading = elements(hiddenList, (el) => el.tagName === "H3")[0];
+    const missingHeading = elements(
+      missingList,
+      (el) => el.tagName === "H3"
+    )[0];
+    assert.equal(hiddenHeading.textContent, `${HIDDEN_TITLE} (2)`);
+    assert.equal(
+      hiddenHeading.getAttribute("class"),
+      missingHeading.getAttribute("class")
+    );
+    assert.equal(
+      find(hiddenList, "data-course-hidden-description").textContent,
+      HIDDEN_DESCRIPTION
+    );
+    assert.equal(
+      hiddenHeading.nextSibling,
+      find(hiddenList, "data-course-hidden-description")
+    );
     assert.ok(
       hiddenList.textContent.startsWith(
-        `${HIDDEN_TITLE} (2)${NOTICE}${ESTIMATED}`
+        `${HIDDEN_TITLE} (2)${HIDDEN_DESCRIPTION}`
       ),
       hiddenList.textContent
     );
+    assert.ok(!hiddenList.textContent.includes(NOTICE));
+    assert.ok(!hiddenList.textContent.includes("Übergangslösung"));
     assert.equal(
       rows(hiddenList)[0].textContent,
       "261-7Yoga am Morgenab 02.09., 6 Termine"
     );
     assert.equal(rows(hiddenList)[1].textContent, "261-8Excelk. A.");
 
-    const sync = find(container, "data-course-sync");
-    assert.match(
-      sync.textContent,
-      /^AbgleichLetzterheute, \d\d:\d\d UhrNächster(heute|morgen), \d\d:\d\d Uhr/
+    // Fixliste r8 Nr. 3: keine Karte „Abgleich“ mit Letzter, Nächster und
+    // „Besucher sehen“
+    assert.equal(find(container, "data-course-sync"), undefined);
+    for (const gone of ["Nächster", "Besucher sehen", "aktuell 812 Kurse"])
+      assert.ok(!container.textContent.includes(gone), gone);
+    assert.equal(
+      elements(container, (el) => el.tagName === "H3").filter(
+        (el) => el.textContent === "Abgleich"
+      ).length,
+      0
     );
-    assert.ok(sync.textContent.endsWith("Besucher sehenaktuell 812 Kurse"));
   }
 );
 
@@ -259,43 +307,33 @@ test(
   }
 );
 
-test(
-  "AK-3: Lauf mit Störung: keine Zeile „Ergebnis“ mehr; Besucher ohne Kursanzahl",
-  { skip },
-  async (t) => {
-    const { container } = await open(
-      t,
-      answer({
-        lastRun: {
-          at: new Date().toISOString(),
-          result: "nicht_geschrieben",
-          cause: "feed_unsicher",
-        },
-        visitors: null,
-      })
-    );
-    const sync = find(container, "data-course-sync").textContent;
-    assert.ok(!sync.includes("Ergebnis"));
-    assert.ok(!sync.includes("unvollständig"));
-    assert.match(
-      sync,
-      /^AbgleichLetzterheute, \d\d:\d\d UhrNächster(heute|morgen), \d\d:\d\d UhrBesucher sehenkeine Kursanzahl$/
-    );
-  }
-);
-
 // ---------------------------------------------------------------------------
 // AK-4: Hinweis „Seit 26.10.2026: …“
 // ---------------------------------------------------------------------------
 
 test(
-  "AK-4: Der Hinweis steht nur bei geschätztem Ende und ausgeblendeten Kursen",
+  "AK-4, r8 Nr. 5: Der Hinweis steht nur bei geschätztem Ende und ausgeblendeten Kursen, als dezente Zeile mit Info-Symbol ganz unten",
   { skip },
   async (t) => {
     const withEstimate = await open(t, answer());
+    const notice = find(withEstimate.container, "data-course-notice");
+    assert.equal(notice.textContent, NOTICE);
+    // ganz unten auf der Seite, nicht in der Liste
+    assert.equal(withEstimate.container.firstChild.lastChild, notice);
     assert.equal(
-      find(withEstimate.container, "data-course-notice").textContent,
-      NOTICE
+      find(
+        find(withEstimate.container, "data-course-list", "hidden"),
+        "data-course-notice"
+      ),
+      undefined
+    );
+    // dezent: kleine, gedämpfte Schrift ohne eigene Fläche, mit Info-Symbol
+    assert.match(notice.getAttribute("class"), /\btext-xs\b/);
+    assert.equal(notice.getAttribute("style"), null);
+    assert.equal(
+      elements(notice, (el) => el.getAttribute("aria-hidden") === "true")
+        .length,
+      1
     );
     await withEstimate.unmount();
 
@@ -304,11 +342,10 @@ test(
       find(withoutEstimate.container, "data-course-notice"),
       undefined
     );
-    assert.equal(
-      find(withoutEstimate.container, "data-course-estimated"),
-      undefined
+    // die Erklärung der Liste steht auch ohne geschätztes Ende
+    assert.ok(
+      withoutEstimate.text.includes(`${HIDDEN_TITLE} (2)${HIDDEN_DESCRIPTION}`)
     );
-    assert.ok(withoutEstimate.text.includes(`${HIDDEN_TITLE} (2)`));
     await withoutEstimate.unmount();
 
     const nothingHidden = await open(
@@ -615,12 +652,6 @@ test(
       NOT_APPLIED
     );
     assert.ok(banner(yellow.container).endsWith(`${NOT_APPLIED}${CONTACT}`));
-    // Besucher sehen folgt weiter /config
-    assert.ok(
-      find(yellow.container, "data-course-sync").textContent.endsWith(
-        "Besucher sehenaktuell 812 Kurse"
-      )
-    );
     await yellow.unmount();
 
     // D-r6-3: Die Zeile kommt nur aus notice, nicht aus listApplied
@@ -687,7 +718,7 @@ test(
 );
 
 test(
-  "r4 Nr. 3: „Letzter“ ist der letzte erfolgreiche Abgleich, „Nächster“ rechnet ab dem letzten Lauf",
+  "r4 Nr. 3, r8 Nr. 2: „Letzter Abgleich“ ist der letzte erfolgreiche (syncedAt), nicht der letzte Lauf",
   { skip },
   async (t) => {
     const { container } = await open(
@@ -702,8 +733,8 @@ test(
       })
     );
     assert.match(
-      find(container, "data-course-sync").textContent,
-      /^AbgleichLetzter(gestern|\d\d\.\d\d\.(\d{4})?), \d\d:\d\d UhrNächster(heute|morgen), \d\d:\d\d Uhr/
+      find(container, "data-course-last-sync").textContent,
+      /^Letzter Abgleich: (gestern|\d\d\.\d\d\.(\d{4})?), \d\d:\d\d Uhr$/
     );
   }
 );
@@ -720,9 +751,10 @@ test(
       elements(row, (el) => el.getAttribute("aria-haspopup") === "listbox")
         .length === 1
     );
-    // Kursprogramm und Grundsatz stehen unter der Zeile, nicht neben der
-    // Auswahl
+    // Arbeitsbereich, Grundsatz und letzter Abgleich stehen unter der Zeile,
+    // nicht neben der Auswahl
     assert.equal(find(row, "data-course-status-program"), undefined);
+    assert.equal(find(row, "data-course-last-sync"), undefined);
     const level = find(container, "data-course-status-level", "gelb");
     assert.match(level.getAttribute("class"), /\btext-sm\b/);
     assert.doesNotMatch(level.getAttribute("class"), /\btext-xs\b/);
@@ -753,7 +785,6 @@ test(
         listApplied: false,
         notice: null,
         estimatedEnd: false,
-        visitors: null,
       })
     );
     assert.equal(
@@ -763,9 +794,16 @@ test(
     );
     // Fixliste r4 Nr. 8: kein Grundsatz-Satz, er widerspräche der Meldung
     assert.equal(find(container, "data-course-principle"), undefined);
+    assert.equal(find(container, "data-course-last-sync"), undefined);
     assert.ok(!container.textContent.includes("Alle aktuellen Kurse"));
+    assert.ok(!container.textContent.includes("Letzter Abgleich"));
     assert.equal(find(container, "data-course-kpi"), undefined);
-    assert.equal(find(container, "data-course-sync"), undefined);
+    assert.equal(find(container, "data-course-notice"), undefined);
+    // Kopf: Arbeitsbereich mit Widgets wie sonst
+    assert.equal(
+      find(container, "data-course-status-program").textContent,
+      "Arbeitsbereich „VHS Beispiel“ · Widgets: Widget 3 und Widget 9"
+    );
   }
 );
 
@@ -935,11 +973,10 @@ test(
       "../src"
     );
     const util = await renderer.load("/src/utils/courseStatus.js");
-    const used = [
-      ...Object.values(util.STATE_COLORS).flatMap(Object.values),
-      ...Object.values(util.NOTICE_COLORS),
-    ];
-    assert.equal(used.length, 18);
+    // Fixliste r8 Nr. 5: der Hinweis hat keine eigenen Farben mehr
+    const used = Object.values(util.STATE_COLORS).flatMap(Object.values);
+    assert.equal(used.length, 16);
+    assert.equal("NOTICE_COLORS" in util, false);
     const names = used.map((value) => {
       const match = /^var\((--course-status-[a-z_-]+)\)$/.exec(value);
       assert.ok(match, value);
@@ -947,6 +984,7 @@ test(
     });
 
     const css = readFileSync(path.join(src, "index.css"), "utf8");
+    assert.doesNotMatch(css, /--course-status-notice-/);
     const blocks = (selector) =>
       [...css.matchAll(/^(:root|\[data-theme="light"\]) \{([^}]*)\}/gm)]
         .filter(([, sel]) => sel === selector)
@@ -1156,5 +1194,59 @@ test(
     )[0];
     assert.equal(button.getAttribute("aria-expanded"), null);
     assert.equal(button.getAttribute("aria-label"), null);
+  }
+);
+
+// Fixliste r8 Nr. 6: Ohne Arbeitsbereich mit gültiger Kursliste (alle nicht
+// eingerichtet, etwa der KI-Helfer als Support-Bot) gibt es den Menüpunkt
+// „Status“ nicht; Quelle ist GET /api/embeds/course-status. Vor der ersten
+// Antwort und bei einem Fehler steht er da (die Adresse bleibt erreichbar).
+test(
+  "r8 Nr. 6: Menüpunkt „Status“ nur bei Kursen; nicht eingerichtet blendet ihn aus",
+  { skip },
+  async (t) => {
+    // der Kopf „Chatbot“ und die Unterpunkte
+    const links = (container) =>
+      elements(container, (el) => el.tagName === "A").map((el) =>
+        el.textContent.trim()
+      );
+    const head = (container) =>
+      elements(container, (el) => el.tagName === "A")[0].getAttribute("href");
+    let state = "nicht_eingerichtet";
+    const calls = stubDotState(t, async () => state);
+    const none = await mountChatbotGroup(t, "/settings/chatbot/widgets", {
+      anything_llm_menu_chatbot_expanded: "true",
+    });
+    await none.act();
+    assert.ok(calls[0].endsWith("/embeds/course-status"));
+    assert.deepEqual(links(none.container), [
+      "Chatbot",
+      "Konversationen",
+      "Design Center",
+      "Widgets",
+    ]);
+    assert.deepEqual(menuDots(none.container), []);
+    // der Kopf öffnet den ersten sichtbaren Unterpunkt
+    assert.equal(head(none.container), "/settings/chatbot/conversations");
+    await none.unmount();
+
+    for (const next of ["gruen", "gelb", "rot"]) {
+      state = next;
+      const mounted = await mountChatbotGroup(t, "/settings/chatbot/widgets", {
+        anything_llm_menu_chatbot_expanded: "true",
+      });
+      await mounted.act();
+      assert.ok(links(mounted.container)[1].startsWith("Status"), next);
+      assert.equal(head(mounted.container), STATUS, next);
+      await mounted.unmount();
+    }
+
+    // Lesefehler: kein Zustand, der Menüpunkt bleibt
+    state = undefined;
+    const failed = await mountChatbotGroup(t, "/settings/chatbot/widgets", {
+      anything_llm_menu_chatbot_expanded: "true",
+    });
+    await failed.act();
+    assert.equal(links(failed.container)[1], "Status");
   }
 );

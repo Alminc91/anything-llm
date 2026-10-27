@@ -1901,10 +1901,12 @@ const TRANSLATIONS = {
   // KB-3: Status-Seite des Kursbestands
   "course-status": {
     title: null,
-    program: null,
-    "applies-to": null,
-    quoted: null,
+    workspace: null,
+    widget: null,
+    widgets: null,
     principle: null,
+    "last-sync": null,
+    notice: null,
     "load-failed": null,
     none: null,
     today: null,
@@ -1958,23 +1960,13 @@ const TRANSLATIONS = {
     hidden: {
       label: null,
       title: null,
-      estimated: null,
-      notice: null,
+      description: null,
       from: null,
     },
     list: {
       "show-all": null,
       "show-less": null,
       truncated: null,
-    },
-    sync: {
-      title: null,
-      last: null,
-      next: null,
-      visitors: null,
-      "visitors-count": null,
-      "visitors-none": null,
-      pending: null,
     },
   },
 };
