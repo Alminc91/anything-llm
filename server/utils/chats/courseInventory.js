@@ -851,6 +851,7 @@ async function readHiddenEntries(index) {
       title: summary?.title ?? null,
       start: summary?.start ?? null,
       duration: summary?.duration ?? null,
+      url: summary?.url ?? null,
     };
   });
 }
@@ -861,15 +862,16 @@ async function readHiddenEntries(index) {
  * Chat ihn gerade anwendet (listApplied, courseListApplies), die Zahlen und
  * die Listen, je höchstens 500 Einträge. missing: angebotene,
  * nicht eingelernte Kurse mit Titel aus der Kursliste (ohne Titel null);
- * hidden: eingelernte Kurse außerhalb der Kursliste mit Titel, Beginn und
- * Dauer aus ihrem Kursdokument. null ohne gültigen Wert oder in einem
- * anderen Workspace als dem der Kursliste (nicht eingerichtet). lists
- * false: ohne Listen (Ampel, Menüpunkt). Nur lesend. Wirft bei einem Lesefehler
+ * hidden: eingelernte Kurse außerhalb der Kursliste mit Titel, Beginn,
+ * Dauer und Kurs-Link (url, KB-8, nur http/https, sonst null) aus ihrem
+ * Kursdokument. null ohne gültigen Wert oder in einem anderen Workspace als
+ * dem der Kursliste (nicht eingerichtet). lists false: ohne Listen (Ampel,
+ * Menüpunkt). Nur lesend. Wirft bei einem Lesefehler
  * (Datenbank, Aufbau des Index), damit er nicht als „nicht eingerichtet“
  * erscheint (Fixliste r2 Nr. 6).
  * @param {{slug?: string}|null} workspace
  * @param {{now?: number, lists?: boolean}} [options]
- * @returns {Promise<{inventory: object, listApplied: boolean, counts: {count: number, offered: number, hidden: number}, missing?: Array<{knr: string, title: string|null}>, hidden?: Array<{knr: string, title: string|null, start: string|null, duration: string|null}>}|null>}
+ * @returns {Promise<{inventory: object, listApplied: boolean, counts: {count: number, offered: number, hidden: number}, missing?: Array<{knr: string, title: string|null}>, hidden?: Array<{knr: string, title: string|null, start: string|null, duration: string|null, url: string|null}>}|null>}
  */
 async function courseInventoryDetails(
   workspace,

@@ -18,6 +18,7 @@ const statusModule = require("../../../utils/chats/courseStatus");
 
 const {
   courseInventoryStatus,
+  courseCountField,
   courseSearchExclusion,
   __test__: inv,
 } = inventoryModule;
@@ -739,6 +740,7 @@ describe("Listen (AK-1)", () => {
         title: "Yoga am Morgen",
         start: "2026-09-02",
         duration: "6 Termine",
+        url: "https://www.vhs-beispiel.de/kurs/261-ALT",
       },
     ]);
     expect(status.counts).toEqual({
@@ -759,7 +761,7 @@ describe("Listen (AK-1)", () => {
     const status = await courseStatus(WS);
     expect(status.missing).toEqual([{ knr: "262-2", title: null }]);
     expect(status.hidden).toEqual([
-      { knr: "261-9", title: null, start: null, duration: null },
+      { knr: "261-9", title: null, start: null, duration: null, url: null },
     ]);
   });
 
@@ -790,6 +792,87 @@ describe("Listen (AK-1)", () => {
     await courseStatus(WS);
     await courseStatus(WS);
     expect(readDocument).toHaveBeenCalledTimes(1);
+  });
+});
+
+// KB-8 (issues/P-kursbestand/KB-8-links-ausgeblendete-kurse.md): Kurs-Link
+// der ausgeblendeten Kurse aus der Kopfzeile „Kurs-Link:“ mit derselben
+// Prüfung wie bei den Kurskarten (nur http/https), sonst null.
+describe("KB-8: Kurs-Link der ausgeblendeten Kurse", () => {
+  const withLink = (linkLine) => ({
+    pageContent: [
+      "Titel: Yoga am Morgen",
+      "Kursnummer: 261-1",
+      ...(linkLine === null ? [] : [linkLine]),
+      "",
+      "Kursbeschreibung: Beschreibung.",
+    ].join("\n"),
+  });
+
+  test.each([
+    [
+      "https (AK-1)",
+      "Kurs-Link: https://www.vhs-beispiel.de/kurs/261-1",
+      "https://www.vhs-beispiel.de/kurs/261-1",
+    ],
+    [
+      "http (AK-1)",
+      "Kurs-Link: http://vhs-beispiel.de/kurs?id=261-1",
+      "http://vhs-beispiel.de/kurs?id=261-1",
+    ],
+    ["ohne Kopfzeile", null, null],
+    ["javascript: (NAK-1)", "Kurs-Link: javascript:alert(1)", null],
+    ["data: (NAK-1)", "Kurs-Link: data:text/html,<b>x</b>", null],
+    ["ohne Schema (NAK-1)", "Kurs-Link: www.vhs-beispiel.de/kurs/261-1", null],
+    ["relativ (NAK-1)", "Kurs-Link: /kurs/261-1", null],
+  ])("%s", async (_name, linkLine, url) => {
+    workspaceWith(["262-1"], {
+      "custom-documents/alt.json": withLink(linkLine),
+    });
+    setInventory({ offered: ["262-1"] });
+    const status = await courseStatus(WS);
+    expect(status.hidden).toEqual([
+      {
+        knr: "261-1",
+        title: "Yoga am Morgen",
+        start: null,
+        duration: null,
+        url,
+      },
+    ]);
+  });
+
+  test("„Kurs-Link:“ nur im Beschreibungstext zählt nicht", async () => {
+    workspaceWith(["262-1"], {
+      "custom-documents/alt.json": {
+        pageContent: [
+          "Titel: Yoga am Morgen",
+          "Kursnummer: 261-1",
+          "",
+          "Kursbeschreibung: Text",
+          "Kurs-Link: https://fremd.example/seite",
+        ].join("\n"),
+      },
+    });
+    setInventory({ offered: ["262-1"] });
+    const status = await courseStatus(WS);
+    expect(status.hidden[0].url).toBeNull();
+  });
+
+  test("AK-3: Zahl und /config-Feld ohne Liste und ohne Links", async () => {
+    workspaceWith(["262-1"], {
+      "custom-documents/alt.json": courseDoc("261-1"),
+    });
+    setInventory({ offered: ["262-1"] });
+    const link = "https://www.vhs-beispiel.de/kurs/261-1";
+    expect((await courseStatus(WS)).hidden[0].url).toBe(link);
+    const counts = await courseInventoryStatus(WS);
+    const field = await courseCountField(WS, { mode: "on", word: "Kurse" });
+    expect(Object.keys(counts).sort()).toEqual(
+      ["count", "hidden", "offered", "stand"].sort()
+    );
+    expect(field).toEqual({ count: 1, word: "Kurse" });
+    expect(JSON.stringify([counts, field])).not.toContain("vhs-beispiel.de");
   });
 });
 
