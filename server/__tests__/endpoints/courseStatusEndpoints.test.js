@@ -73,13 +73,13 @@ function seedCourse(workspace, number) {
   prisma.__seed("document_vectors", { docId, vectorId: `v-${docId}` });
 }
 
-function seedEmbed(workspace, visualConfig = {}) {
+function seedEmbed(workspace) {
   return prisma.__seed("embed_configs", {
     uuid: `uuid-${workspace.slug}-${prisma.__rows("embed_configs").length}`,
     enabled: true,
     chat_mode: "query",
     workspace_id: workspace.id,
-    visual_config: JSON.stringify(visualConfig),
+    visual_config: "{}",
   });
 }
 
@@ -110,7 +110,7 @@ beforeEach(() => {
   workspaceA = prisma.__seed("workspaces", { name: "VHS Beispiel", slug: "a" });
   workspaceB = prisma.__seed("workspaces", { name: "Dokubot", slug: "b" });
   embedA1 = seedEmbed(workspaceA);
-  embedA2 = seedEmbed(workspaceA, { courseCountMode: "off" });
+  embedA2 = seedEmbed(workspaceA);
   embedB = seedEmbed(workspaceB);
   // A kennt 94 von 100 angebotenen Kursen (6 % fehlen: gelb), B hat keine;
   // die Kursliste gehört zu A (Fixliste r5)
@@ -139,7 +139,7 @@ const statusOf = (widget, user) =>
 
 describe("AK-1: GET /embed/course-status", () => {
   test.each(["admin", "manager"])(
-    "%s: Bewertung des Kursprogramms mit Widgets und was Besucher sehen",
+    "%s: Bewertung des Kursprogramms mit Widgets, ohne Angabe für Besucher (r8 Nr. 3)",
     async (role) => {
       const user = createUser(prisma, role);
       const res = await statusOf(embedA1.id, user);
@@ -159,7 +159,6 @@ describe("AK-1: GET /embed/course-status", () => {
           "reasons",
           "state",
           "syncedAt",
-          "visitors",
           "widgets",
           "workspace",
         ].sort()
@@ -178,7 +177,6 @@ describe("AK-1: GET /embed/course-status", () => {
           { id: embedA1.id, name: "VHS Beispiel" },
           { id: embedA2.id, name: "VHS Beispiel" },
         ],
-        visitors: { count: 94, word: "Kurse" },
         lastRun: { at: iso(NOW - HOUR), result: "ok", cause: null },
       });
       expect(res.body.missing[0]).toEqual({
@@ -187,12 +185,6 @@ describe("AK-1: GET /embed/course-status", () => {
       });
     }
   );
-
-  test("Widget mit abgeschalteter Kursanzahl: Besucher sehen keine Zahl", async () => {
-    const res = await statusOf(embedA2.id, createUser(prisma, "admin"));
-    expect(res.body.visitors).toBeNull();
-    expect(res.body.state).toBe("gelb");
-  });
 
   test("default mit Mitgliedschaft im Workspace des Widgets", async () => {
     const user = createUser(prisma, "default", [workspaceA.id]);
@@ -255,7 +247,6 @@ describe("r5: Kursliste gehört zu genau einem Workspace", () => {
       counts: null,
       hidden: [],
       listApplied: false,
-      visitors: null,
     });
     expect((await statusOf(embedA1.id, admin)).body).toMatchObject({
       state: "gelb",

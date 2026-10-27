@@ -20,18 +20,11 @@ const {
   embedDefaultsLanguage,
   embedDefaultTexts,
 } = require("../utils/chats/embedDefaults");
-const {
-  courseInventoryStatus,
-  courseCountField,
-} = require("../utils/chats/courseInventory");
+const { courseInventoryStatus } = require("../utils/chats/courseInventory");
 const {
   courseStatus,
   courseMenuState,
 } = require("../utils/chats/courseStatus");
-const {
-  courseCountModeValue,
-  courseCountWord,
-} = require("../utils/chats/embedStandards");
 const {
   berlinMidnight,
   berlinDayOf,
@@ -571,8 +564,8 @@ function embedManagementEndpoints(app) {
   // Workspace (Kursprogramm), gewählt über ein Widget, das der Nutzer sieht
   // (userCanAccessEmbed wie validEmbedAccess); ein fremdes oder unbekanntes
   // Widget ist 404 ohne Details. Nur lesend: Ampel, Zahlen, Listen (je
-  // höchstens 500, die Gesamtzahl steht in counts), letzter Lauf, die
-  // Widgets des Workspace und was Besucher sehen (Kursanzahl wie /config).
+  // höchstens 500, die Gesamtzahl steht in counts), letzter Lauf und die
+  // Widgets des Workspace.
   app.get(
     "/embed/course-status",
     [
@@ -597,16 +590,6 @@ function embedManagementEndpoints(app) {
           select: { id: true },
           orderBy: { id: "asc" },
         });
-        let visualConfig = {};
-        try {
-          visualConfig = JSON.parse(embed.visual_config || "{}") || {};
-        } catch {
-          // unlesbar: Standard wie im Widget
-        }
-        const visitors = await courseCountField(embed.workspace, {
-          mode: courseCountModeValue(visualConfig.courseCountMode),
-          word: courseCountWord(visualConfig.courseCountWord, "de"),
-        });
         response.status(200).json({
           ...status,
           workspace: { name: embed.workspace.name },
@@ -614,7 +597,6 @@ function embedManagementEndpoints(app) {
             id,
             name: embed.workspace.name,
           })),
-          visitors,
         });
       } catch (e) {
         console.error("embed/course-status error:", loggableError(e));
