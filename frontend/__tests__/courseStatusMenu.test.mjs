@@ -385,7 +385,7 @@ test(
     const html = await renderer.render(SIDEBAR, {
       location: "/settings/chatbot/widgets",
     });
-    assert.equal(menuEntries(html)[1]?.label, "Status");
+    assert.equal(menuEntries(html)[1]?.label, "Kursbestand");
     assert.doesNotMatch(html, /data-menu-dot/);
   }
 );

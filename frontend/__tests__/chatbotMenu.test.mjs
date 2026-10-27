@@ -75,7 +75,7 @@ test(
       assert.deepEqual(
         children.map(({ label, href }) => ({ label, href })),
         [
-          { label: "Status", href: STATUS },
+          { label: "Kursbestand", href: STATUS },
           { label: "Konversationen", href: CONVERSATIONS },
           { label: "Design Center", href: DESIGN },
           { label: "Widgets", href: WIDGETS },
@@ -129,8 +129,8 @@ test(
   async () => {
     const { resources } = await renderer.load("/src/locales/resources.js");
     for (const [lang, status, design] of [
-      ["de", "Status", "Design Center"],
-      ["en", "Status", "Design Center"],
+      ["de", "Kursbestand", "Design Center"],
+      ["en", "Course inventory", "Design Center"],
     ]) {
       const settings = resources[lang].common.settings;
       assert.equal(settings["chatbot-status"], status, lang);
@@ -183,7 +183,7 @@ test(
     assert.deepEqual(
       children.map(({ label, href, active }) => ({ label, href, active })),
       [
-        { label: "Status", href: `${STATUS}?widget=3`, active: false },
+        { label: "Kursbestand", href: `${STATUS}?widget=3`, active: false },
         {
           label: "Konversationen",
           href: `${CONVERSATIONS}?widget=3`,

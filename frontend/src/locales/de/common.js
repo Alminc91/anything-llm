@@ -287,7 +287,7 @@ const TRANSLATIONS = {
     embeds: "Chat-Widgets",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
-    "chatbot-status": "Status",
+    "chatbot-status": "Kursbestand",
     "chatbot-conversations": "Konversationen",
     "chatbot-design-center": "Design Center",
     "chatbot-expand": "Chatbot aufklappen",
@@ -2035,7 +2035,7 @@ const TRANSLATIONS = {
   },
   // KB-3: Status-Seite des Kursbestands
   "course-status": {
-    title: "Status",
+    title: "Kursbestand",
     workspace: "Arbeitsbereich „{{name}}“",
     widget: "Widget: {{name}}",
     widgets: "Widgets: {{names}}",
@@ -2053,8 +2053,8 @@ const TRANSLATIONS = {
     "on-date": "{{date}}, {{time}} Uhr",
     "since-date": "dem {{date}}, {{time}} Uhr",
     dot: {
-      gelb: "Status: Gelb",
-      rot: "Status: Rot",
+      gelb: "Kursbestand: Gelb",
+      rot: "Kursbestand: Rot",
     },
     banner: {
       level: {

@@ -214,7 +214,7 @@ test(
     assert.equal(pickerLabel(mounted.container), "KuferMedia");
     assert.equal(
       elements(mounted.container, (el) => el.tagName === "H2")[0]?.textContent,
-      "Status"
+      "Kursbestand"
     );
     const source = readFileSync(
       path.join(SRC, "pages/GeneralSettings/ChatEmbedWidgets/index.jsx"),
@@ -510,7 +510,7 @@ test(
   async (t) => {
     const { container } = await openWidgetList(t);
     assert.deepEqual(rowActions(container), [
-      { tag: "A", text: "Status", href: `${STATUS}?widget=5` },
+      { tag: "A", text: "Kursbestand", href: `${STATUS}?widget=5` },
       { tag: "A", text: "Konversationen", href: `${CONVERSATIONS}?widget=5` },
       { tag: "BUTTON", text: "Design Center", href: null },
       { tag: "BUTTON", text: "Code", href: null },
@@ -545,7 +545,7 @@ test(
     });
     assert.deepEqual(
       rowActions(container).map((action) => action.text),
-      ["Status", "Design Center", "Code", "Deaktivieren", "Löschen", ""]
+      ["Kursbestand", "Design Center", "Code", "Deaktivieren", "Löschen", ""]
     );
   }
 );
@@ -567,7 +567,7 @@ test(
       const page = await openWidgetList(t, { menuState });
       assert.deepEqual(
         rowActions(page.container)[0],
-        { tag: "A", text: "Status", href: `${STATUS}?widget=5` },
+        { tag: "A", text: "Kursbestand", href: `${STATUS}?widget=5` },
         menuState
       );
       await page.unmount();
@@ -602,7 +602,13 @@ test(
           opensFirstChild: true,
           user: { id: 1, role: "default" },
           childOptions: [
-            { hidden: true, btnText: "Status", href: "/x", flex: true, roles },
+            {
+              hidden: true,
+              btnText: "Kursbestand",
+              href: "/x",
+              flex: true,
+              roles,
+            },
             {
               hidden,
               btnText: "Konversationen",
@@ -651,7 +657,7 @@ test(
   { skip },
   async (t) => {
     const roles = ["admin", "manager", "default"];
-    const dot = { state: "rot", color: "red", label: "Status: Rot" };
+    const dot = { state: "rot", color: "red", label: "Kursbestand: Rot" };
     const mounted = await renderer.mount(MENU_OPTION, {
       location: WIDGETS,
       route: WIDGETS,
@@ -661,7 +667,7 @@ test(
         dot,
         user: { id: 1, role: "default" },
         childOptions: [
-          { btnText: "Status", href: STATUS, flex: true, roles, dot },
+          { btnText: "Kursbestand", href: STATUS, flex: true, roles, dot },
           { btnText: "Design Center", href: DESIGN, flex: true, roles },
           { btnText: "Widgets", href: WIDGETS, flex: true, roles },
         ],
@@ -686,25 +692,25 @@ test(
     assert.equal(stored(), null);
     assert.deepEqual(links(), [
       "Chatbot",
-      "Status",
+      "Kursbestand",
       "Design Center",
       "Widgets",
     ]);
-    assert.deepEqual(dots(), ["Status: Status: Rot"]);
+    assert.deepEqual(dots(), ["Kursbestand: Kursbestand: Rot"]);
 
     await mounted.act(() => click(arrow()));
     assert.deepEqual(links(), ["Chatbot"]);
     assert.equal(stored(), "false");
-    assert.deepEqual(dots(), ["Chatbot: Status: Rot"]);
+    assert.deepEqual(dots(), ["Chatbot: Kursbestand: Rot"]);
 
     await mounted.act(() => click(arrow()));
     assert.deepEqual(links(), [
       "Chatbot",
-      "Status",
+      "Kursbestand",
       "Design Center",
       "Widgets",
     ]);
     assert.equal(stored(), "true");
-    assert.deepEqual(dots(), ["Status: Status: Rot"]);
+    assert.deepEqual(dots(), ["Kursbestand: Kursbestand: Rot"]);
   }
 );

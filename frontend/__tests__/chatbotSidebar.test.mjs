@@ -26,7 +26,7 @@ const skip = hasFrontendDeps
   : "frontend/node_modules nicht installiert";
 
 const WIDGETS = { label: "Widgets", href: "/settings/chatbot/widgets" };
-const STATUS = { label: "Status", href: "/settings/chatbot/status" };
+const STATUS = { label: "Kursbestand", href: "/settings/chatbot/status" };
 const CONVERSATIONS = {
   label: "Konversationen",
   href: "/settings/chatbot/conversations",

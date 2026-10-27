@@ -161,7 +161,7 @@ test(
     const { container, calls } = await open(t, answer());
     assert.ok(calls[0].endsWith("/embed/course-status?widget=3"));
     const heading = elements(container, (el) => el.tagName === "H2")[0];
-    assert.equal(heading.textContent, "Status");
+    assert.equal(heading.textContent, "Kursbestand");
     assert.equal(
       find(container, "data-course-status-program").textContent,
       "Arbeitsbereich „VHS Beispiel“ · Widgets: Widget 3 und Widget 9"
@@ -910,13 +910,13 @@ test(
   { skip },
   async (t) => {
     const roles = ["admin", "manager", "default"];
-    const dot = { state: "gelb", color: "#D9961A", label: "Status: Gelb" };
+    const dot = { state: "gelb", color: "#D9961A", label: "Kursbestand: Gelb" };
     const props = {
       btnText: "Chatbot",
       dot,
       user: { id: 1, role: "admin" },
       childOptions: [
-        { btnText: "Status", href: STATUS, flex: true, roles, dot },
+        { btnText: "Kursbestand", href: STATUS, flex: true, roles, dot },
         {
           btnText: "Widgets",
           href: "/settings/chatbot/widgets",
@@ -938,7 +938,7 @@ test(
     });
     t.after(() => collapsed.unmount());
     await collapsed.act();
-    assert.deepEqual(dots(collapsed.container), ["ChatbotStatus: Gelb"]);
+    assert.deepEqual(dots(collapsed.container), ["ChatbotKursbestand: Gelb"]);
     await collapsed.unmount();
 
     const expanded = await renderer.mount(MENU_OPTION, {
@@ -949,14 +949,16 @@ test(
     });
     t.after(() => expanded.unmount());
     await expanded.act();
-    assert.deepEqual(dots(expanded.container), ["StatusStatus: Gelb"]);
+    assert.deepEqual(dots(expanded.container), [
+      "KursbestandKursbestand: Gelb",
+    ]);
     const sr = elements(
       expanded.container,
       (el) => el.getAttribute("class") === "sr-only"
     );
     assert.deepEqual(
       sr.map((el) => el.textContent),
-      ["Status: Gelb"]
+      ["Kursbestand: Gelb"]
     );
   }
 );
@@ -1070,18 +1072,20 @@ test(
     const open = await mountChatbotGroup(t, "/settings/chatbot/widgets");
     await open.act();
     assert.ok(calls[0].endsWith("/embeds/course-status"));
-    assert.deepEqual(menuDots(open.container), ["Status: Status: Rot"]);
+    assert.deepEqual(menuDots(open.container), [
+      "Kursbestand: Kursbestand: Rot",
+    ]);
     await open.unmount();
 
     const closed = await mountChatbotGroup(t, "/settings/users", {
       anything_llm_menu_chatbot_expanded: "false",
     });
     await closed.act();
-    assert.deepEqual(menuDots(closed.container), ["Chatbot: Status: Rot"]);
+    assert.deepEqual(menuDots(closed.container), ["Chatbot: Kursbestand: Rot"]);
     await closed.unmount();
 
     for (const [next, expected] of [
-      ["gelb", ["Status: Status: Gelb"]],
+      ["gelb", ["Kursbestand: Kursbestand: Gelb"]],
       ["gruen", []],
       ["nicht_eingerichtet", []],
     ]) {
@@ -1102,7 +1106,9 @@ test(
     const calls = stubDotState(t, () => answer());
     const first = await mountChatbotGroup(t, "/settings/chatbot/widgets");
     await first.act();
-    assert.deepEqual(menuDots(first.container), ["Status: Status: Rot"]);
+    assert.deepEqual(menuDots(first.container), [
+      "Kursbestand: Kursbestand: Rot",
+    ]);
     await first.unmount();
 
     // Gleich danach ist alles in Ordnung: die nächste Seite fragt neu.
@@ -1111,7 +1117,9 @@ test(
     const second = await mountChatbotGroup(t, "/settings/chatbot/widgets");
     await second.act();
     assert.equal(calls.length, 2);
-    assert.deepEqual(menuDots(second.container), ["Status: Status: Rot"]);
+    assert.deepEqual(menuDots(second.container), [
+      "Kursbestand: Kursbestand: Rot",
+    ]);
     await second.act(() => resolve("gruen"));
     assert.deepEqual(menuDots(second.container), []);
 
@@ -1140,13 +1148,17 @@ test(
     const second = await mountChatbotGroup(t, "/settings/chatbot/widgets");
     await second.act();
     await second.act(() => pending[1]("gelb"));
-    assert.deepEqual(menuDots(second.container), ["Status: Status: Gelb"]);
+    assert.deepEqual(menuDots(second.container), [
+      "Kursbestand: Kursbestand: Gelb",
+    ]);
     // die Antwort der ersten Seite kommt zuletzt
     await second.act(() => pending[0]("rot"));
     await second.unmount();
     const third = await mountChatbotGroup(t, "/settings/chatbot/widgets");
     await third.act();
-    assert.deepEqual(menuDots(third.container), ["Status: Status: Gelb"]);
+    assert.deepEqual(menuDots(third.container), [
+      "Kursbestand: Kursbestand: Gelb",
+    ]);
   }
 );
 
@@ -1236,7 +1248,7 @@ test(
         anything_llm_menu_chatbot_expanded: "true",
       });
       await mounted.act();
-      assert.ok(links(mounted.container)[1].startsWith("Status"), next);
+      assert.ok(links(mounted.container)[1].startsWith("Kursbestand"), next);
       assert.equal(head(mounted.container), STATUS, next);
       await mounted.unmount();
     }
@@ -1247,6 +1259,6 @@ test(
       anything_llm_menu_chatbot_expanded: "true",
     });
     await failed.act();
-    assert.equal(links(failed.container)[1], "Status");
+    assert.equal(links(failed.container)[1], "Kursbestand");
   }
 );
