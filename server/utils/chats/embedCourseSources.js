@@ -348,6 +348,26 @@ function courseNumberFromText(text) {
   return headerLine(block, COURSE_NUMBER_HEADER_RX) || undefined;
 }
 
+/**
+ * KB-3: Angaben eines Kursdokuments für die Status-Seite (ausgeblendete
+ * Kurse): Kursnummer, Titel und Dauer aus dem Kopfblock wie
+ * courseNumberFromText, Beginn aus den Metadaten (start_date); fehlende
+ * Angaben null. Kein Kursdokument -> null.
+ * @param {{pageContent?: string, start_date?: string}|null} doc
+ * @returns {{knr: string|null, title: string|null, start: string|null, duration: string|null}|null}
+ */
+function courseDocumentSummary(doc) {
+  const block = headerBlock(doc?.pageContent);
+  if (!block.startsWith("Titel:")) return null;
+  return {
+    knr: headerLine(block, COURSE_NUMBER_HEADER_RX) || null,
+    title: FIELD_VALIDATORS.title(headerLine(block, TITLE_HEADER_RX)) ?? null,
+    start: FIELD_VALIDATORS.start_date(doc.start_date) ?? null,
+    duration:
+      FIELD_VALIDATORS.sessions(headerLine(block, SESSIONS_HEADER_RX)) ?? null,
+  };
+}
+
 // Ist der Kopfblock der des Kursdokuments (erste Zeilen mit "Titel:"/
 // "Kurs-Link:")? Nur dann zählen "Dauer:"/"Kursort:".
 function isCourseHeaderBlock(block) {
@@ -1334,6 +1354,8 @@ module.exports = {
   sanitizeCourseSources,
   // KIE-576 Paket 3: Kursnummer aus dem Kopfblock (courseInventory.js)
   courseNumberFromText,
+  // KB-3: Angaben ausgeblendeter Kurse für die Status-Seite
+  courseDocumentSummary,
   // KIE-576: gemeinsamer Adressvergleich mit dem Prüfer der Übersichtslinks
   urlKey,
   hostKey,

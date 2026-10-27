@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { Check, CopySimple, Warning } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
 import { EMBED_INLINE_PLACEHOLDER_SNIPPET } from "@/utils/constants";
+import { ELEMENT_MARK, withElement } from "@/utils/withElement";
 import { displayMode } from "./widgetKeys";
 
 /**
@@ -166,11 +167,6 @@ function CopyBlock({ snippet, copiedToast, label }) {
   );
 }
 
-// Marke im übersetzten Satz, an der der Platzhalter als Code steht
-// ({{code}} in den Sprachdateien). Kein <Trans>: Der Code hat selbst spitze
-// Klammern und würde dort als HTML gelesen.
-const CODE_MARK = "\u0000";
-
 // Code im Warnblock: im Satz als Stück der Zeile, bei den Beispielen als
 // eigene Zeile unter „Richtig:“ bzw. „Falsch:“ (bricht nur bei Platzmangel)
 function InlineCode({ children, block = false }) {
@@ -184,23 +180,6 @@ function InlineCode({ children, block = false }) {
       {children}
     </code>
   );
-}
-
-/**
- * Satz mit dem Code an jeder Marke (CODE_MARK).
- * @param {string} text übersetzter Satz, {{code}} durch CODE_MARK ersetzt
- * @param {string} code
- * @returns {Array<string|JSX.Element>}
- */
-export function withInlineCode(text, code) {
-  const [first, ...rest] = String(text).split(CODE_MARK);
-  return [
-    first,
-    ...rest.flatMap((after, i) => [
-      <InlineCode key={i}>{code}</InlineCode>,
-      after,
-    ]),
-  ];
 }
 
 /**
@@ -221,7 +200,7 @@ export function withInlineCode(text, code) {
 export function InlineLinkWarning() {
   const { t } = useTranslation();
   const text = (key) =>
-    t(`embed-appearance.inline-link-warning.${key}`, { code: CODE_MARK });
+    t(`embed-appearance.inline-link-warning.${key}`, { code: ELEMENT_MARK });
   const placeholder = EMBED_INLINE_PLACEHOLDER_SNIPPET;
   const examples = [
     {
@@ -251,7 +230,9 @@ export function InlineLinkWarning() {
         />
         <span>{text("title")}</span>
       </p>
-      <p>{withInlineCode(text("placement"), placeholder)}</p>
+      <p>
+        {withElement(text("placement"), <InlineCode>{placeholder}</InlineCode>)}
+      </p>
       <p>{text("check")}</p>
       <ul className="space-y-1.5">
         {examples.map(({ key, sign, code }) => (

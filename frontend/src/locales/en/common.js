@@ -271,7 +271,11 @@ const TRANSLATIONS = {
     embeds: "Chat Embed",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
+    "chatbot-status": "Course inventory",
     "chatbot-conversations": "Conversations",
+    "chatbot-design-center": "Design Center",
+    "chatbot-expand": "Expand Chatbot",
+    "chatbot-collapse": "Collapse Chatbot",
     "embed-chats": "Chat Embed History",
     security: "Security",
     "event-logs": "Event Logs",
@@ -971,7 +975,6 @@ const TRANSLATIONS = {
   },
 
   "embed-row": {
-    design: "Design",
     code: "Code",
     disable: "Disable",
     enable: "Enable",
@@ -1552,6 +1555,8 @@ const TRANSLATIONS = {
     "retention-line_other":
       "Conversation contents are deleted after {{count}} days. The counts are kept.",
     "widget-label": "Widget",
+    "widget-not-found":
+      "This widget was not found, or you do not have access to it.",
     "no-widget": {
       title: "No widget yet",
       description:
@@ -2013,6 +2018,89 @@ const TRANSLATIONS = {
         "Default: Unlimited. Once the limit is exceeded, no further AI requests will be accepted until the next month.",
       "optional-hint": "Optional. Leave empty for no limit.",
       "unlimited-placeholder": "Unlimited",
+    },
+  },
+  // KB-3: Status-Seite des Kursbestands
+  "course-status": {
+    title: "Course inventory",
+    workspace: "Workspace “{{name}}”",
+    widget: "Widget: {{name}}",
+    widgets: "Widgets: {{names}}",
+    principle:
+      "All current courses from your course program are available in the AI advisor. The synchronization runs every hour during the day and once at night.",
+    "last-sync": "Last synchronization: {{time}}",
+    notice:
+      "Since {{date}}: Excluding past courses is currently being optimized.",
+    "load-failed": "The status could not be loaded. Please try again later.",
+    none: "n/a",
+    today: "today, {{time}}",
+    yesterday: "yesterday, {{time}}",
+    tomorrow: "tomorrow, {{time}}",
+    "on-date": "{{date}}, {{time}}",
+    "since-date": "{{date}}, {{time}}",
+    dot: {
+      gelb: "Course inventory: Yellow",
+      rot: "Course inventory: Red",
+    },
+    banner: {
+      level: {
+        gruen: "OK",
+        gelb: "Limited",
+        rot: "Disrupted",
+      },
+      title: {
+        aktuell: "Course program up to date",
+        unvollstaendig: "Course program incomplete",
+        nicht_aktualisiert: "Course program not updated",
+        nicht_abrufbar: "Course program not retrievable",
+        nicht_eingerichtet: "Synchronization not set up",
+      },
+      "not-set-up":
+        "The synchronization is not set up for this course program.",
+      "all-available_one": "1 course is available in the AI advisor.",
+      "all-available_other":
+        "All {{number}} courses are available in the AI advisor.",
+      available:
+        "{{available}} of {{offered}} courses are available in the AI advisor.",
+      pending_one: "1 new course will be added shortly.",
+      pending_other: "{{number}} new courses will be added shortly.",
+      missing_one:
+        "1 of {{offered}} courses is currently not available in the AI advisor.",
+      missing_other:
+        "{{number}} of {{offered}} courses are currently not available in the AI advisor.",
+      "not-updated": "The course program has not been updated since {{time}}.",
+      unreachable:
+        "Your course program has not been retrievable from your website since {{time}}.",
+      closing:
+        "We are taking care of it. If you have any questions, please contact us at {{email}}.",
+      "closing-unreachable":
+        "We are taking care of it. If the address of your website or your course program has changed, please contact us at {{email}}.",
+      "list-not-applied":
+        "Until the next successful synchronization, the AI advisor does not hide any courses.",
+    },
+    kpi: {
+      offered: "In the course program",
+      count: "In the AI advisor",
+      missing: "Missing",
+      hidden: "Hidden",
+      share: "({{value}} %)",
+      "share-small": "(below 1 %)",
+    },
+    missing: {
+      label: "Missing courses",
+      title: "Missing courses ({{count}})",
+    },
+    hidden: {
+      label: "Hidden courses",
+      title: "Hidden courses ({{count}})",
+      description:
+        "These courses have ended or are no longer in the course program. The AI advisor does not mention them.",
+      from: "from {{date}}",
+    },
+    list: {
+      "show-all": "Show all {{count}}",
+      "show-less": "Show less",
+      truncated: "Showing the first {{shown}} of {{count}}.",
     },
   },
 };

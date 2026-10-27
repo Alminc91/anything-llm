@@ -45,6 +45,13 @@ const RELATIONS = {
       local: "id",
       foreign: "workspaceId",
     },
+    // KB-3: GET /v1/course-status nennt die Widgets je Workspace
+    embed_configs: {
+      many: true,
+      table: "embed_configs",
+      local: "id",
+      foreign: "workspace_id",
+    },
   },
 };
 

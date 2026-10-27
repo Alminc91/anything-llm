@@ -17,13 +17,19 @@ import {
 import useUser from "@/hooks/useUser";
 import { isMobile } from "react-device-detect";
 import Footer from "../Footer";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import showToast from "@/utils/toast";
 import System from "@/models/system";
 import Option from "./MenuOption";
 import { CanViewChatHistoryProvider } from "../CanViewChatHistory";
 import useAppVersion from "@/hooks/useAppVersion";
+import { widgetFromSearch, withWidget } from "@/utils/chatbotArea";
+import {
+  STATE_COLORS,
+  menuDotState,
+  useCourseMenuState,
+} from "@/utils/courseStatus";
 
 export default function SettingsSidebar() {
   const { t } = useTranslation();
@@ -216,25 +222,10 @@ const SidebarOptions = ({ user = null, t }) => (
   <CanViewChatHistoryProvider>
     {({ viewable: canViewChatHistory }) => (
       <>
-        <Option
-          btnText={t("settings.chatbot")}
-          icon={<ChatsCircle className="h-5 w-5 flex-shrink-0" />}
+        <ChatbotOption
           user={user}
-          childOptions={[
-            {
-              btnText: t("settings.chatbot-widgets"),
-              href: paths.settings.chatbot.widgets(),
-              flex: true,
-              roles: ["admin", "manager", "default"],
-            },
-            {
-              hidden: !canViewChatHistory,
-              btnText: t("settings.chatbot-conversations"),
-              href: paths.settings.chatbot.conversations(),
-              flex: true,
-              roles: ["admin", "manager", "default"],
-            },
-          ]}
+          t={t}
+          canViewChatHistory={canViewChatHistory}
         />
         <Option
           btnText={t("settings.ai-providers")}
@@ -502,5 +493,71 @@ function AppVersion() {
     >
       v{version}
     </Link>
+  );
+}
+
+/**
+ * Gruppe „Chatbot“ (KB-2): Status, Konversationen, Design Center, Widgets.
+ * Die ersten drei tragen das Widget der aufgerufenen Adresse mit, ein
+ * Wechsel des Menüpunkts behält es. Ein Klick auf den Gruppenkopf öffnet
+ * den ersten Unterpunkt, der Pfeil daneben ist für Screenreader beschriftet
+ * (Fixliste r4 Nr. 12). KB-3, AK-5: Punkt an „Status“ und am zugeklappten
+ * Kopf bei Gelb oder Rot. Ohne Arbeitsbereich mit Kursliste (alle nicht
+ * eingerichtet, etwa ein Support-Bot) gibt es den Menüpunkt „Status“ nicht
+ * (Fixliste r8 Nr. 6); die Adresse bleibt erreichbar.
+ */
+export function ChatbotOption({ user, t, canViewChatHistory }) {
+  const widgetId = widgetFromSearch(useLocation().search);
+  const roles = ["admin", "manager", "default"];
+  const courseState = useCourseMenuState();
+  const dotState = menuDotState(courseState);
+  const dot = dotState
+    ? {
+        state: dotState,
+        color: STATE_COLORS[dotState].dot,
+        label: t(`course-status.dot.${dotState}`),
+      }
+    : null;
+  return (
+    <Option
+      btnText={t("settings.chatbot")}
+      icon={<ChatsCircle className="h-5 w-5 flex-shrink-0" />}
+      user={user}
+      opensFirstChild={true}
+      dot={dot}
+      toggleLabels={{
+        expand: t("settings.chatbot-expand"),
+        collapse: t("settings.chatbot-collapse"),
+      }}
+      childOptions={[
+        {
+          hidden: courseState === "nicht_eingerichtet",
+          btnText: t("settings.chatbot-status"),
+          href: withWidget(paths.settings.chatbot.status(), widgetId),
+          flex: true,
+          roles,
+          dot,
+        },
+        {
+          hidden: !canViewChatHistory,
+          btnText: t("settings.chatbot-conversations"),
+          href: withWidget(paths.settings.chatbot.conversations(), widgetId),
+          flex: true,
+          roles,
+        },
+        {
+          btnText: t("settings.chatbot-design-center"),
+          href: withWidget(paths.settings.chatbot.design(), widgetId),
+          flex: true,
+          roles,
+        },
+        {
+          btnText: t("settings.chatbot-widgets"),
+          href: paths.settings.chatbot.widgets(),
+          flex: true,
+          roles,
+        },
+      ]}
+    />
   );
 }

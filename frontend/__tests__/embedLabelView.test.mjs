@@ -127,6 +127,12 @@ async function mountConversations(t, embeds) {
       container,
       (element) => element.getAttribute("aria-haspopup") === "listbox"
     )[0];
+  // die gewählte Bezeichnung, ohne die unsichtbaren zum Maß (Fixliste r4
+  // Nr. 9)
+  const dropdownLabel = () =>
+    elements(dropdown(), (element) =>
+      element.hasAttribute("data-widget-picker-current")
+    )[0]?.textContent;
   const options = () =>
     elements(container, (element) => element.getAttribute("role") === "option");
   /** Widget-Nummern, deren Zählwerte die Ansicht angefragt hat. */
@@ -135,7 +141,7 @@ async function mountConversations(t, embeds) {
       .map(({ url }) => url.match(/\/embed\/(\d+)\/analytics\/summary$/)?.[1])
       .filter(Boolean)
       .map(Number);
-  return { ...mounted, calls, dropdown, options, summaryIds };
+  return { ...mounted, calls, dropdown, dropdownLabel, options, summaryIds };
 }
 
 test(
@@ -143,10 +149,10 @@ test(
   { skip },
   async (t) => {
     const view = await mountConversations(t, EMBEDS);
-    const { act, dropdown, options } = view;
+    const { act, dropdown, dropdownLabel, options } = view;
 
     assert.equal(dropdown().getAttribute("aria-label"), "Widget");
-    assert.equal(dropdown().textContent, "Chatbot Elbe");
+    assert.equal(dropdownLabel(), "Chatbot Elbe");
     assert.equal(options().length, 0);
 
     await act(() => click(dropdown()));
@@ -172,7 +178,7 @@ test(
     // Schaltfläche, und die Ansicht fragt die Zählwerte dieses Widgets an.
     await act(() => click(options()[2]));
     assert.equal(options().length, 0);
-    assert.equal(dropdown().textContent, "KuferMedia · Widget 2");
+    assert.equal(dropdownLabel(), "KuferMedia · Widget 2");
     assert.equal(view.summaryIds().at(-1), MEDIA_2.id);
 
     await act(() => click(dropdown()));
@@ -190,7 +196,7 @@ test(
     // Alphabetisch stünde „Ärztehaus" vorn – vorausgewählt ist das zuletzt
     // angelegte Widget (erstes der Antwort von GET /embeds).
     const view = await mountConversations(t, [MEDIA_3, AERZTE, ELBE]);
-    assert.equal(view.dropdown().textContent, "KuferMedia");
+    assert.equal(view.dropdownLabel(), "KuferMedia");
     assert.deepEqual([...new Set(view.summaryIds())], [MEDIA_3.id]);
 
     await view.act(() => click(view.dropdown()));
@@ -215,7 +221,7 @@ test(
       { ...widget(7, ""), workspace: null },
       ELBE,
     ]);
-    assert.equal(unnamed.dropdown().textContent, "Widget 7");
+    assert.equal(unnamed.dropdownLabel(), "Widget 7");
     await unnamed.act(() => click(unnamed.dropdown()));
     assert.deepEqual(
       unnamed.options().map((option) => option.textContent),
@@ -361,11 +367,12 @@ test(
     const subtitleOf = async (embeds, id) => {
       stubServer(t, embeds);
       const mounted = await mount(t, DESIGN_CENTER, {
-        location: `/settings/embed-config/${id}/appearance`,
-        route: "/settings/embed-config/:embedId/appearance",
+        location: "/settings/chatbot/design",
+        props: { embedId: id },
       });
       const heading = headingOf(mounted.container, "H1");
-      assert.equal(heading.textContent, "Erscheinungsbild");
+      // KB-2: die Seite heißt wie ihr Menüpunkt
+      assert.equal(heading.textContent, "Design Center");
       const subtitle = heading.nextSibling.textContent;
       await mounted.unmount();
       return subtitle;

@@ -1252,6 +1252,8 @@ test("Fixliste 7, F23/F24: eine Stelle für „breit?“, „außerhalb/Escape s
     "ConversationDetail.jsx",
     "ExportMenu.jsx",
     "index.jsx",
+    // KB-2: die Widget-Auswahl der Kopfzeile, gemeinsam mit dem Design Center
+    "../WidgetSelection.jsx",
   ];
   for (const file of files) {
     const text = source(file);
@@ -1259,7 +1261,11 @@ test("Fixliste 7, F23/F24: eine Stelle für „breit?“, „außerhalb/Escape s
     assert.doesNotMatch(text, /function useWide|matchMedia\(/, file);
     assert.doesNotMatch(text, /document\.activeElement/, file);
   }
-  for (const file of ["ConversationDetail.jsx", "ExportMenu.jsx", "index.jsx"])
+  for (const file of [
+    "ConversationDetail.jsx",
+    "ExportMenu.jsx",
+    "../WidgetSelection.jsx",
+  ])
     assert.match(source(file), /useDismiss\(/, file);
   assert.match(source("ConversationDetail.jsx"), /useWide\(\)/);
   // useWide beginnt mit isWide() – derselbe Wert ohne matchMedia (false)

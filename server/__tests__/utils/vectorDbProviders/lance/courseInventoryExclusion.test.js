@@ -179,18 +179,20 @@ const WORKSPACES = {
 const lance = new LanceDb();
 const mockLLM = { embedTextInput: async () => QUERY_VECTOR };
 
-const inventoryValue = () =>
+// Kursliste für genau einen Workspace (Fixliste r5), Standard NS
+const inventoryValue = (workspace) =>
   JSON.stringify({
-    version: 1,
+    version: 2,
+    workspace,
     client: "vhs-beispiel",
     created: new Date(Date.now() - 60 * 1000).toISOString(),
     offered: OFFERED,
   });
 
-function useInventory(on) {
+function useInventory(on, workspace = NS) {
   prisma.system_settings.findFirst.mockImplementation(async ({ where }) =>
     on && where.label === "kufer_course_inventory"
-      ? { value: inventoryValue() }
+      ? { value: inventoryValue(workspace) }
       : null
   );
 }
@@ -354,7 +356,7 @@ describe.each(MODES)("KR-1, Modus %s", (mode) => {
     mockRerank.mock.calls.flatMap(([, docs]) => docs);
 
   test("über 5.000 Abschnitte: alle in der Anfrage ausgeschlossen, Reranker ohne altes Dokument", async () => {
-    useInventory(true);
+    useInventory(true, NS_BIG);
     const bigStale = new Set(
       BIG_ROWS.filter((r) => r.doc === "d-viel").map((r) => r.id)
     );
@@ -367,7 +369,7 @@ describe.each(MODES)("KR-1, Modus %s", (mode) => {
   });
 
   test("verwaiste Abschnitte: veralteter Kurs samt Folgeabschnitt ausgeschlossen, angebotener bleibt", async () => {
-    useInventory(true);
+    useInventory(true, NS_ORPHAN);
     const result = await lance.performSimilaritySearch({
       namespace: NS_ORPHAN,
       input: QUERY,
@@ -383,7 +385,7 @@ describe.each(MODES)("KR-1, Modus %s", (mode) => {
   });
 
   test("Bedingung nicht möglich: fail-closed, keine Treffer, Reranker ohne altes Dokument, Fehler geloggt", async () => {
-    useInventory(true);
+    useInventory(true, NS_BAD);
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
     const result = await run(NS_BAD);
     expect(result.sources).toEqual([]);
@@ -413,19 +415,9 @@ test("ohne Kursbestand bytegleich wie ohne Ausschluss (NAK-K1)", async () => {
   const before = await search("rerank");
   const calls = mockRerank.mock.calls.map(([, docs]) => docs.map((d) => d.id));
   mockRerank.mockClear();
-  // Gegenprobe: Kursbestand eines anderen Kunden (kein angebotener Kurs)
-  prisma.system_settings.findFirst.mockImplementation(async ({ where }) =>
-    where.label === "kufer_course_inventory"
-      ? {
-          value: JSON.stringify({
-            version: 1,
-            client: "anders",
-            created: new Date().toISOString(),
-            offered: ["999-1"],
-          }),
-        }
-      : null
-  );
+  // Gegenprobe (Fixliste r5): Kursliste mit denselben Kursen für einen
+  // anderen Workspace; in diesem wird nichts ausgeblendet
+  useInventory(true, NS_ORPHAN);
   const other = await search("rerank");
   expect(other).toEqual(before);
   expect(

@@ -101,7 +101,8 @@ const OFFERED = Array.from(
 );
 const INVENTORY_ROW = {
   value: JSON.stringify({
-    version: 1,
+    version: 2,
+    workspace: "ws",
     client: "vhs-beispiel",
     created: STAND,
     offered: OFFERED,

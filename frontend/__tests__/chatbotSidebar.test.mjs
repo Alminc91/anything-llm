@@ -2,10 +2,13 @@
 // „Chatbot“ der erste Eintrag der Einstellungs-Sidebar, aufgeklappt, und der
 // Unterpunkt der aufgerufenen Adresse ist markiert.
 //
-// KIE-538, AK-8: Die Nachrichtentabelle ist entfallen – „Chatbot“ hat die
-// zwei Unterpunkte „Widgets“ und „Konversationen“; die frühere Adresse
+// KIE-538, AK-8: Die Nachrichtentabelle ist entfallen; die frühere Adresse
 // /settings/chatbot/messages leitet auf „Konversationen“ um (das Verhalten
 // der Umleitung: chatbotMessagesRedirect.test.mjs).
+//
+// KB-2, AK-1: „Chatbot“ hat die Unterpunkte Status (seit KB-3 sichtbar),
+// Konversationen, Design Center und Widgets (weitere Prüfungen:
+// chatbotMenu.test.mjs).
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -23,10 +26,12 @@ const skip = hasFrontendDeps
   : "frontend/node_modules nicht installiert";
 
 const WIDGETS = { label: "Widgets", href: "/settings/chatbot/widgets" };
+const STATUS = { label: "Kursbestand", href: "/settings/chatbot/status" };
 const CONVERSATIONS = {
   label: "Konversationen",
   href: "/settings/chatbot/conversations",
 };
+const DESIGN = { label: "Design Center", href: "/settings/chatbot/design" };
 // Frühere Adresse der Nachrichtentabelle (KIE-538)
 const MESSAGES_HREF = "/settings/chatbot/messages";
 const SRC = path.resolve(
@@ -69,7 +74,7 @@ for (const current of [WIDGETS, CONVERSATIONS]) {
       assert.equal(block.index, 0, "„Chatbot“ ist nicht der erste Eintrag");
       assert.deepEqual(
         block.children.map(view),
-        [WIDGETS, CONVERSATIONS].map((entry) => ({
+        [STATUS, CONVERSATIONS, DESIGN, WIDGETS].map((entry) => ({
           ...entry,
           active: entry === current,
         }))
@@ -84,7 +89,7 @@ for (const current of [WIDGETS, CONVERSATIONS]) {
 }
 
 test(
-  "Ohne einsehbaren Chat-Verlauf: unter „Chatbot“ nur „Widgets“, markiert",
+  "Ohne einsehbaren Chat-Verlauf: unter „Chatbot“ nur „Status“, „Design Center“ und „Widgets“, „Widgets“ markiert",
   { skip },
   async () => {
     const html = await renderer.render(SIDEBAR, {
@@ -96,7 +101,11 @@ test(
 
     assert.ok(block, "Obermenüpunkt „Chatbot“ fehlt");
     assert.equal(block.index, 0, "„Chatbot“ ist nicht der erste Eintrag");
-    assert.deepEqual(block.children.map(view), [{ ...WIDGETS, active: true }]);
+    assert.deepEqual(block.children.map(view), [
+      { ...STATUS, active: false },
+      { ...DESIGN, active: false },
+      { ...WIDGETS, active: true },
+    ]);
   }
 );
 
@@ -137,7 +146,7 @@ test(
 // ---------------------------------------------------------------------------
 
 test(
-  "Nachrichtentabelle entfernt (AK-8): „Chatbot“ hat genau die Unterpunkte „Widgets“ und „Konversationen“ – für jede Rolle",
+  "Nachrichtentabelle entfernt (AK-8): „Chatbot“ hat genau die Unterpunkte „Status“, „Konversationen“, „Design Center“ und „Widgets“ (KB-2, KB-3) – für jede Rolle",
   { skip },
   async () => {
     for (const role of ["admin", "manager", "default"]) {
@@ -148,7 +157,7 @@ test(
       const block = chatbotBlock(menuEntries(html));
       assert.deepEqual(
         block.children.map(({ label, href }) => ({ label, href })),
-        [WIDGETS, CONVERSATIONS],
+        [STATUS, CONVERSATIONS, DESIGN, WIDGETS],
         role
       );
       assert.ok(!html.includes("Nachrichtentabelle"), role);
@@ -158,13 +167,15 @@ test(
 );
 
 test(
-  "Nachrichtentabelle entfernt (AK-8): paths kennt nur noch „widgets“ und „conversations“; die Route der früheren Adresse leitet auf „Konversationen“ um",
+  "Nachrichtentabelle entfernt (AK-8): paths kennt keine „messages“ (KB-2: status, conversations, design, widgets); die Route der früheren Adresse leitet auf „Konversationen“ um",
   { skip },
   async () => {
     const { default: paths } = await renderer.load("/src/utils/paths.js");
     assert.deepEqual(Object.keys(paths.settings.chatbot), [
-      "widgets",
+      "status",
       "conversations",
+      "design",
+      "widgets",
     ]);
     assert.equal(paths.settings.chatbot.widgets(), WIDGETS.href);
     assert.equal(paths.settings.chatbot.conversations(), CONVERSATIONS.href);
@@ -193,9 +204,11 @@ test(
     const chatbot = path.join(SRC, "pages/GeneralSettings/ChatEmbedWidgets");
     assert.equal(existsSync(path.join(chatbot, "EmbedChats")), false);
     assert.deepEqual(readdirSync(chatbot).sort(), [
+      "CourseStatus",
       "EmbedAnalytics",
       "EmbedAppearance",
       "EmbedConfigs",
+      "WidgetSelection.jsx",
       "index.jsx",
     ]);
 

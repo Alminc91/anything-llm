@@ -102,6 +102,41 @@ const Embed = {
         return null;
       });
   },
+  /**
+   * KB-3: Status des Kursbestands zum Kursprogramm eines Widgets.
+   * @param {number} widgetId
+   * @returns {Promise<object|{notFound: true}|null>} null bei einem Fehler
+   */
+  courseStatus: async (widgetId) => {
+    return await fetch(
+      `${API_BASE}/embed/course-status?widget=${encodeURIComponent(widgetId)}`,
+      { method: "GET", headers: baseHeaders() }
+    )
+      .then((res) => {
+        if (res.status === 404) return { notFound: true };
+        return res.ok ? res.json() : null;
+      })
+      .catch((e) => {
+        console.error(e);
+        return null;
+      });
+  },
+  /**
+   * KB-3, AK-5: nur der Zustand für den Punkt am Menüpunkt „Status“.
+   * @returns {Promise<string|null>}
+   */
+  courseStatusState: async () => {
+    return await fetch(`${API_BASE}/embeds/course-status`, {
+      method: "GET",
+      headers: baseHeaders(),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (typeof res?.state === "string" ? res.state : null))
+      .catch((e) => {
+        console.error(e);
+        return null;
+      });
+  },
   newEmbed: async (data) => {
     return await fetch(`${API_BASE}/embeds/new`, {
       method: "POST",

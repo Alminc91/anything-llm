@@ -3,6 +3,8 @@ const { EmbedChats } = require("../../../models/embedChats");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
 const { reqBody } = require("../../../utils/http");
 const { Workspace } = require("../../../models/workspace");
+const { courseStatus } = require("../../../utils/chats/courseStatus");
+const prisma = require("../../../utils/prisma");
 
 function apiEmbedEndpoints(app) {
   if (!app) return;
@@ -404,6 +406,84 @@ function apiEmbedEndpoints(app) {
       }
     }
   );
+
+  // KB-3, AK-2: Status des Kursbestands des Workspace der Kursliste (Feld
+  // workspace, Fixliste r5), wenn er ein Widget hat, für den Versand der
+  // Benachrichtigung (KB-5). Dieselbe Bewertung wie die Status-Seite
+  // (courseStatus); alle anderen Workspaces fehlen. Nur Zustand, Zahlen,
+  // Listen und Lauf, keine weiteren Kursdaten.
+  app.get("/v1/course-status", [validApiKey], async (_request, response) => {
+    /*
+      #swagger.tags = ['Embed']
+      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). headline is the heading of the message (aktuell, unvollstaendig, nicht_aktualisiert, nicht_abrufbar), details its lines in display order (unvollstaendig, nicht_aktualisiert, nicht_abrufbar; empty for gruen). missingPercent is the share of missing courses in whole percent, rounded down. listApplied is true while the chat applies the course list (hides courses); only then hidden and counts.hidden list the hidden courses, otherwise they are empty and 0. notice is liste_nicht_angewendet if the state is gelb or rot and listApplied is false, otherwise null. syncedAt is the last successful synchronization (created of the course list), lastRun the last run. missing and hidden list at most 500 courses each, the totals are in counts. Only the workspace named in the course list (field workspace) is rated, and only if it has at least one widget; all other workspaces are not listed. A read error answers 500.'
+      #swagger.responses[200] = {
+        content: {
+          "application/json": {
+            schema: {
+              type: 'object',
+              example: {
+                workspaces: [
+                  {
+                    "slug": "vhs-beispiel",
+                    "name": "VHS Beispiel",
+                    "widgets": [{ "id": 1, "uuid": "embed-uuid-1" }],
+                    "state": "gelb",
+                    "headline": "unvollstaendig",
+                    "details": ["unvollstaendig"],
+                    "reasons": ["fehlen"],
+                    "counts": { "offered": 864, "count": 812, "missing": 52, "hidden": 64 },
+                    "missingPercent": 6,
+                    "missing": [{ "knr": "262-10101", "title": "Japanisch A1.1" }],
+                    "hidden": [{ "knr": "261-20202", "title": "Yoga am Morgen", "start": "2026-09-02", "duration": "6 Termine" }],
+                    "lastRun": { "at": "2026-10-26T09:00:00.000Z", "result": "ok", "cause": null },
+                    "syncedAt": "2026-10-26T09:00:00.000Z",
+                    "listApplied": true,
+                    "notice": null,
+                    "estimatedEnd": true
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+      #swagger.responses[403] = {
+        schema: {
+          "$ref": "#/definitions/InvalidAPIKey"
+        }
+      }
+    */
+    try {
+      // nur Workspaces mit Widget: ohne Widget gibt es nichts zu melden
+      const workspaces = await prisma.workspaces.findMany({
+        where: { embed_configs: { some: {} } },
+        select: {
+          slug: true,
+          name: true,
+          embed_configs: {
+            select: { id: true, uuid: true },
+            orderBy: { id: "asc" },
+          },
+        },
+        orderBy: { id: "asc" },
+      });
+      const result = [];
+      for (const workspace of workspaces) {
+        const status = await courseStatus(workspace);
+        if (!status.counts) continue;
+        result.push({
+          slug: workspace.slug,
+          name: workspace.name,
+          widgets: workspace.embed_configs,
+          ...status,
+        });
+      }
+      response.status(200).json({ workspaces: result });
+    } catch (e) {
+      console.error(e.message, e);
+      response.sendStatus(500).end();
+    }
+  });
 }
 
 module.exports = { apiEmbedEndpoints };

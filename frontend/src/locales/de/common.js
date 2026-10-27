@@ -287,7 +287,11 @@ const TRANSLATIONS = {
     embeds: "Chat-Widgets",
     chatbot: "Chatbot",
     "chatbot-widgets": "Widgets",
+    "chatbot-status": "Kursbestand",
     "chatbot-conversations": "Konversationen",
+    "chatbot-design-center": "Design Center",
+    "chatbot-expand": "Chatbot aufklappen",
+    "chatbot-collapse": "Chatbot zuklappen",
     "embed-chats": "Chat-Widget-Verlauf",
     security: "Sicherheit",
     "event-logs": "Ereignisprotokolle",
@@ -1011,6 +1015,8 @@ const TRANSLATIONS = {
     "retention-line_other":
       "Konversationsinhalte werden nach {{count}} Tagen gelöscht. Die Zählwerte bleiben erhalten.",
     "widget-label": "Widget",
+    "widget-not-found":
+      "Dieses Widget wurde nicht gefunden, oder Sie haben keinen Zugriff darauf.",
     "no-widget": {
       title: "Noch kein Widget vorhanden",
       description:
@@ -1358,7 +1364,6 @@ const TRANSLATIONS = {
     },
   },
   "embed-row": {
-    design: "Aussehen",
     code: "Code",
     disable: "Deaktivieren",
     enable: "Aktivieren",
@@ -2026,6 +2031,90 @@ const TRANSLATIONS = {
         "Standard: Unbegrenzt. Bei Überschreitung des Limits werden bis zum nächsten Monat keine weiteren KI-Anfragen angenommen.",
       "optional-hint": "Optional. Leer lassen für keine Begrenzung.",
       "unlimited-placeholder": "Unbegrenzt",
+    },
+  },
+  // KB-3: Status-Seite des Kursbestands
+  "course-status": {
+    title: "Kursbestand",
+    workspace: "Arbeitsbereich „{{name}}“",
+    widget: "Widget: {{name}}",
+    widgets: "Widgets: {{names}}",
+    principle:
+      "Alle aktuellen Kurse aus Ihrem Kursprogramm sind im KI-Berater verfügbar. Der Abgleich läuft tagsüber stündlich und nachts einmal.",
+    "last-sync": "Letzter Abgleich: {{time}}",
+    notice:
+      "Seit {{date}}: Zurzeit wird das Ausschließen vergangener Kurse optimiert.",
+    "load-failed":
+      "Der Status konnte nicht geladen werden. Bitte versuchen Sie es später erneut.",
+    none: "k. A.",
+    today: "heute, {{time}} Uhr",
+    yesterday: "gestern, {{time}} Uhr",
+    tomorrow: "morgen, {{time}} Uhr",
+    "on-date": "{{date}}, {{time}} Uhr",
+    "since-date": "dem {{date}}, {{time}} Uhr",
+    dot: {
+      gelb: "Kursbestand: Gelb",
+      rot: "Kursbestand: Rot",
+    },
+    banner: {
+      level: {
+        gruen: "In Ordnung",
+        gelb: "Eingeschränkt",
+        rot: "Gestört",
+      },
+      title: {
+        aktuell: "Kursprogramm aktuell",
+        unvollstaendig: "Kursprogramm unvollständig",
+        nicht_aktualisiert: "Kursprogramm nicht aktualisiert",
+        nicht_abrufbar: "Kursprogramm nicht abrufbar",
+        nicht_eingerichtet: "Abgleich nicht eingerichtet",
+      },
+      "not-set-up":
+        "Für dieses Kursprogramm ist der Abgleich nicht eingerichtet.",
+      "all-available_one": "1 Kurs ist im KI-Berater verfügbar.",
+      "all-available_other":
+        "Alle {{number}} Kurse sind im KI-Berater verfügbar.",
+      available:
+        "{{available}} von {{offered}} Kursen sind im KI-Berater verfügbar.",
+      pending_one: "1 neuer Kurs wird in Kürze übernommen.",
+      pending_other: "{{number}} neue Kurse werden in Kürze übernommen.",
+      missing_one:
+        "1 von {{offered}} Kursen ist derzeit nicht im KI-Berater verfügbar.",
+      missing_other:
+        "{{number}} von {{offered}} Kursen sind derzeit nicht im KI-Berater verfügbar.",
+      "not-updated": "Das Kursprogramm wurde seit {{time}} nicht aktualisiert.",
+      unreachable:
+        "Ihr Kursprogramm konnte seit {{time}} nicht von Ihrer Website abgerufen werden.",
+      closing:
+        "Wir kümmern uns darum. Bei Fragen kontaktieren Sie uns unter {{email}}.",
+      "closing-unreachable":
+        "Wir kümmern uns darum. Falls sich die Adresse Ihrer Website oder Ihres Kursprogramms geändert hat, kontaktieren Sie uns bitte unter {{email}}.",
+      "list-not-applied":
+        "Bis zum nächsten erfolgreichen Abgleich blendet der KI-Berater keine Kurse aus.",
+    },
+    kpi: {
+      offered: "Im Kursprogramm",
+      count: "Im KI-Berater",
+      missing: "Fehlen",
+      hidden: "Ausgeblendet",
+      share: "({{value}} %)",
+      "share-small": "(unter 1 %)",
+    },
+    missing: {
+      label: "Fehlende Kurse",
+      title: "Fehlende Kurse ({{count}})",
+    },
+    hidden: {
+      label: "Ausgeblendete Kurse",
+      title: "Ausgeblendete Kurse ({{count}})",
+      description:
+        "Diese Kurse sind beendet oder stehen nicht mehr im Kursprogramm. Der KI-Berater nennt sie nicht.",
+      from: "ab {{date}}",
+    },
+    list: {
+      "show-all": "Alle {{count}} anzeigen",
+      "show-less": "Weniger anzeigen",
+      truncated: "Angezeigt werden die ersten {{shown}} von {{count}}.",
     },
   },
 };

@@ -14,6 +14,9 @@ export default function MenuOption({
   roles = [],
   hidden = false,
   isChild = false,
+  opensFirstChild = false,
+  dot = null,
+  toggleLabels = null,
 }) {
   const storageKey = generateStorageKey({ key: btnText });
   const location = useLocation();
@@ -28,9 +31,15 @@ export default function MenuOption({
 
   const isActive = hasChildren
     ? (!isExpanded &&
-        childOptions.some((child) => child.href === location.pathname)) ||
+        childOptions.some(
+          (child) => pathOf(child.href) === location.pathname
+        )) ||
       location.pathname === href
-    : location.pathname === href;
+    : location.pathname === pathOf(href);
+  // Kufer (KB-2): Der Gruppenkopf öffnet den ersten sichtbaren Unterpunkt.
+  const firstChildHref = opensFirstChild
+    ? childOptions.find((child) => hasVisibleOptions(user, [child]))?.href
+    : null;
 
   const { ref } = useScrollActiveItemIntoView({
     isActive,
@@ -65,6 +74,15 @@ export default function MenuOption({
     }
   };
 
+  // Kufer (KB-2): Der Link des Kopfes öffnet den ersten Unterpunkt und klappt
+  // die Gruppe auf; der Pfeil klappt weiter auf und zu (handleClick).
+  const handleHeadClick = firstChildHref
+    ? () => {
+        setIsExpanded(true);
+        localStorage.setItem(storageKey, JSON.stringify(true));
+      }
+    : handleClick;
+
   return (
     <div>
       <div
@@ -81,11 +99,11 @@ export default function MenuOption({
       >
         <Link
           ref={ref}
-          to={href}
+          to={firstChildHref ?? href}
           className={`flex flex-grow items-center px-[12px] h-[32px] font-medium ${
             isChild ? "hover:text-white" : "text-white light:text-black"
           }`}
-          onClick={hasChildren ? handleClick : undefined}
+          onClick={hasChildren ? handleHeadClick : undefined}
         >
           {icon}
           <p
@@ -99,9 +117,31 @@ export default function MenuOption({
           >
             {btnText}
           </p>
+          {/* Kufer (KB-3, AK-5): Punkt bei Gelb oder Rot, am Gruppenkopf nur
+              zugeklappt; der Text ist für Screenreader */}
+          {dot && (isChild || !isExpanded) && (
+            <span
+              data-menu-dot={dot.state}
+              className="ml-auto mr-1 h-2 w-2 flex-none rounded-full"
+              style={{ background: dot.color }}
+            >
+              <span className="sr-only">{dot.label}</span>
+            </span>
+          )}
         </Link>
         {hasChildren && (
-          <button onClick={handleClick} className="p-2 text-white">
+          <button
+            onClick={handleClick}
+            className="p-2 text-white"
+            // Kufer (KB-2, Fixliste r4 Nr. 12): Zustand und Beschriftung für
+            // Screenreader, nur wo die Gruppe sie mitgibt („Chatbot“)
+            {...(toggleLabels && {
+              "aria-expanded": isExpanded,
+              "aria-label": isExpanded
+                ? toggleLabels.collapse
+                : toggleLabels.expand,
+            })}
+          >
             <CaretRight
               size={16}
               weight="bold"
@@ -141,7 +181,7 @@ function useIsExpanded({
       if (storedValue !== null) {
         return safeJsonParse(storedValue, false);
       }
-      return childOptions.some((child) => child.href === location);
+      return childOptions.some((child) => pathOf(child.href) === location);
     }
     return false;
   });
@@ -149,7 +189,7 @@ function useIsExpanded({
   useEffect(() => {
     if (hasVisibleChildren) {
       const shouldExpand = childOptions.some(
-        (child) => child.href === location
+        (child) => pathOf(child.href) === location
       );
       if (shouldExpand && !isExpanded) {
         setIsExpanded(true);
@@ -188,6 +228,11 @@ function hasVisibleOptions(user = null, childOptions = []) {
   return childOptions.some((opt) =>
     isVisible({ roles: opt.roles, user, flex: opt.flex, hidden: opt.hidden })
   );
+}
+
+/** Kufer (KB-2): Pfad eines Menülinks ohne Suchteil (?widget=…). */
+function pathOf(href) {
+  return typeof href === "string" ? href.split("?")[0] : href;
 }
 
 function generateStorageKey({ key = "" }) {

@@ -545,8 +545,8 @@ test(
   async (t) => {
     stubServer(t, [widget(9, null)]);
     const mounted = await renderer.mount(DESIGN_CENTER, {
-      location: "/settings/embed-config/9/appearance",
-      route: "/settings/embed-config/:embedId/appearance",
+      location: "/settings/chatbot/design",
+      props: { embedId: 9 },
     });
     t.after(() => mounted.unmount());
     await mounted.act();

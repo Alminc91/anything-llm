@@ -1,0 +1,194 @@
+// Status-Seite des Kursbestands (KB-3, issues/P-kursbestand/
+// KB-3-status-seite.md): was die Seite und der Punkt am Menü aus der
+// Bewertung des Servers machen. Ampel, Überschrift, Zeilen, Anteil der
+// fehlenden Kurse und ob der Chat die Kursliste anwendet rechnet der Server
+// (GET /api/embed/course-status, server/utils/chats/courseStatus.js, Vertrag
+// in fixliste-kb-r4.md); hier stehen nur Darstellung und der gemerkte
+// Zustand für den Menüpunkt.
+import { useEffect, useState } from "react";
+import Embed from "@/models/embed";
+
+/**
+ * AK-4: Seit wann der Hinweis zum Ausschließen vergangener Kurse gilt (als
+ * Text, wie er auf der Seite steht).
+ */
+export const OPTIMIZATION_NOTICE_SINCE = "26.10.2026";
+
+/**
+ * Adresse im Schlusssatz bei Gelb und Rot (Nutzerentscheidung 26.10.2026
+ * abends: support@kufer.de statt info@kufer.de).
+ */
+export const KUFER_CONTACT_EMAIL = "support@kufer.de";
+
+/**
+ * Farben je Zustand (Punkt, Fläche, Rand, Text) als Theme-Variablen
+ * (index.css, „Status-Seite des Kursbestands“): je eine Variante für das
+ * dunkle und das helle Design.
+ */
+const colorsOf = (state) => ({
+  dot: `var(--course-status-${state}-dot)`,
+  bg: `var(--course-status-${state}-bg)`,
+  border: `var(--course-status-${state}-border)`,
+  text: `var(--course-status-${state}-text)`,
+});
+export const STATE_COLORS = {
+  gruen: colorsOf("gruen"),
+  gelb: colorsOf("gelb"),
+  rot: colorsOf("rot"),
+  nicht_eingerichtet: colorsOf("nicht_eingerichtet"),
+};
+
+/**
+ * AK-4: Der Hinweis „Seit 26.10.2026: …“ steht nur bei geschätztem Ende und
+ * mindestens einem ausgeblendeten Kurs.
+ * @param {{estimatedEnd?: boolean, counts?: {hidden?: number}|null}|null} status
+ * @returns {boolean}
+ */
+export function showsOptimizationNotice(status) {
+  return status?.estimatedEnd === true && (status?.counts?.hidden ?? 0) > 0;
+}
+
+/**
+ * AK-5: Zustand für den Punkt am Menü: nur Gelb und Rot, sonst null.
+ * @param {string|null} state
+ * @returns {"gelb"|"rot"|null}
+ */
+export function menuDotState(state) {
+  return state === "gelb" || state === "rot" ? state : null;
+}
+
+// Kalendertag und Uhrzeit in Berliner Zeit
+const berlinDay = new Intl.DateTimeFormat("de-DE", {
+  timeZone: "Europe/Berlin",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+const berlinTime = new Intl.DateTimeFormat("de-DE", {
+  timeZone: "Europe/Berlin",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+// Ein Kalendertag ohne Zeitzone, im selben Format wie berlinDay
+const plainDay = new Intl.DateTimeFormat("de-DE", {
+  timeZone: "UTC",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
+/**
+ * Berliner Kalendertag von now, um days Tage verschoben („TT.MM.JJJJ“). Nach
+ * Kalendertagen, nicht ± 24 h: Die Tage der Zeitumstellung haben 23 oder
+ * 25 Stunden.
+ * @param {number} now
+ * @param {number} days
+ * @returns {string}
+ */
+function berlinDayShifted(now, days) {
+  const [d, m, y] = berlinDay.format(now).split(".").map(Number);
+  return plainDay.format(Date.UTC(y, m - 1, d + days));
+}
+
+/**
+ * Zeitpunkt eines Abgleichs: „heute, 10:00 Uhr“, „gestern, 10:00 Uhr“,
+ * „morgen, …“ oder „24.10., 10:00 Uhr“ (anderes Jahr mit Jahr), in Berliner
+ * Zeit; nach „seit“ (formatSyncedAt) als „dem 24.10., …“.
+ * Ohne gültigen Zeitpunkt „k. A.“.
+ * @param {(key: string, options?: object) => string} t
+ * @param {string|number|null} at
+ * @param {number} [now]
+ * @param {string} [dateKey]
+ * @returns {string}
+ */
+export function formatRunTime(
+  t,
+  at,
+  now = Date.now(),
+  dateKey = "course-status.on-date"
+) {
+  const ms = typeof at === "number" ? at : Date.parse(at ?? "");
+  if (!Number.isFinite(ms)) return t("course-status.none");
+  const day = berlinDay.format(ms);
+  const time = berlinTime.format(ms);
+  if (day === berlinDay.format(now)) return t("course-status.today", { time });
+  if (day === berlinDayShifted(now, -1))
+    return t("course-status.yesterday", { time });
+  if (day === berlinDayShifted(now, 1))
+    return t("course-status.tomorrow", { time });
+  const [d, m, y] = day.split(".");
+  const date = y === berlinDay.format(now).split(".")[2] ? `${d}.${m}.` : day;
+  return t(dateKey, { date, time });
+}
+
+/**
+ * Letzter erfolgreicher Abgleich nach „seit“ („Das Kursprogramm wurde seit …
+ * nicht aktualisiert.“): wie formatRunTime, ein Datum als „dem 24.10.,
+ * 10:00 Uhr“.
+ * @param {(key: string, options?: object) => string} t
+ * @param {string|null} at
+ * @param {number} [now]
+ * @returns {string}
+ */
+export function formatSyncedAt(t, at, now = Date.now()) {
+  return formatRunTime(t, at, now, "course-status.since-date");
+}
+
+/**
+ * Beginn und Dauer eines ausgeblendeten Kurses: „ab 02.09., 6 Termine“,
+ * bei einem Termin ohne „ab“; fehlt beides „k. A.“.
+ * @param {(key: string, options?: object) => string} t
+ * @param {{start?: string|null, duration?: string|null}} entry
+ * @param {number} [now]
+ * @returns {string}
+ */
+export function hiddenWhen(
+  t,
+  { start = null, duration = null },
+  now = Date.now()
+) {
+  let date = null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start ?? "");
+  if (match) {
+    const [, y, m, d] = match;
+    const thisYear = berlinDay.format(now).split(".")[2];
+    date = y === thisYear ? `${d}.${m}.` : `${d}.${m}.${y}`;
+  }
+  const single = /^1\s/.test(duration ?? "");
+  const parts = [];
+  if (date)
+    parts.push(single ? date : t("course-status.hidden.from", { date }));
+  if (duration) parts.push(duration);
+  return parts.length > 0 ? parts.join(", ") : t("course-status.none");
+}
+
+// AK-5: zuletzt geladener Zustand für den Menüpunkt „Status“ (Punkt bei Gelb
+// und Rot, ohne Kurse kein Menüpunkt, Fixliste r8 Nr. 6). Jede Seite der
+// Einstellungen hängt die Seitenleiste neu ein und fragt neu (gemerkt wird
+// nur auf dem Server, 5 min je Workspace); bis zur Antwort steht der zuletzt
+// geladene Zustand da, damit der Punkt nicht flackert. Gemerkt wird nur die
+// Antwort einer noch eingehängten Abfrage (Fixliste r4 Nr. 13, NF-N1): Eine
+// ältere, die zuletzt ankommt, überschreibt ihn nicht.
+let lastMenuState = null;
+
+/**
+ * Zustand des Menüpunkts „Status“ (GET /api/embeds/course-status): bei jedem
+ * Einhängen neu abgefragt; null vor der ersten Antwort oder bei einem Fehler.
+ * „nicht_eingerichtet“ heißt: kein Arbeitsbereich mit gültiger Kursliste.
+ * @returns {string|null}
+ */
+export function useCourseMenuState() {
+  const [state, setState] = useState(lastMenuState);
+  useEffect(() => {
+    let ignore = false;
+    Embed.courseStatusState().then((value) => {
+      if (ignore) return;
+      lastMenuState = value;
+      setState(lastMenuState);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, []);
+  return state;
+}

@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { CaretDown, Check } from "@phosphor-icons/react";
 import Embed from "@/models/embed";
 import ConversationList from "./ConversationList";
 import StatisticsGrid from "./StatisticsGrid";
@@ -21,11 +20,6 @@ import {
   viewState,
 } from "@/utils/analyticsTimeline";
 import {
-  embedLabels,
-  mostRecentlyActiveEmbedId,
-  sortEmbedsByLabel,
-} from "@/utils/embedLabel";
-import {
   AVATAR_CLEARANCE,
   HEADING_FOCUS_RING,
   MUTED,
@@ -39,7 +33,11 @@ import {
   scrollMotion,
 } from "@/utils/conversationView";
 import useConversationLocation from "./useConversationLocation";
-import { useDismiss } from "./viewHooks";
+import {
+  WidgetPicker,
+  useChatbotWidgets,
+  useWidgetSelection,
+} from "../WidgetSelection";
 
 // Ansicht „Konversationen" (KIE-536), von oben nach unten: Kopfzeile mit
 // Widget-Auswahl und Zeitraum, Angabe zur Aufbewahrung, Kennzahlen-Streifen,
@@ -73,30 +71,8 @@ function toISO(date) {
 const periodOf = (fromDay, toDay) => `${fromDay}|${toDay}`;
 
 export default function EmbedAnalyticsView() {
-  const [embeds, setEmbeds] = useState([]);
-  const [lastActivity, setLastActivity] = useState(null);
-  const [embedsLoaded, setEmbedsLoaded] = useState(false);
-
-  useEffect(() => {
-    let ignore = false;
-    async function loadEmbeds() {
-      // Widgets und ihre letzte Nachricht nebeneinander (Fixliste 6, N2):
-      // Die Vorauswahl steht fest, bevor die Ansicht etwas lädt.
-      const [embedsData, activity] = await Promise.all([
-        Embed.embeds(),
-        Embed.lastActivity(),
-      ]);
-      if (ignore) return;
-      setEmbeds(embedsData || []);
-      setLastActivity(activity);
-      // Auch ohne Widget ist das Laden beendet – sonst bliebe „Laden…" stehen.
-      setEmbedsLoaded(true);
-    }
-    loadEmbeds();
-    return () => {
-      ignore = true;
-    };
-  }, []);
+  // Widgets und Vorauswahl wie Status und Design Center (KB-2)
+  const { loaded: embedsLoaded, embeds, lastActivity } = useChatbotWidgets();
 
   return (
     <AnalyticsScreen
@@ -125,29 +101,21 @@ export function AnalyticsScreen({ embedsLoaded, embeds, lastActivity = null }) {
 function WidgetAnalytics({ embeds, lastActivity }) {
   const { t } = useTranslation();
   const place = useConversationLocation();
-  // Das Widget aus der Adresse – nur eines, das der Nutzer sehen darf (die
-  // Liste der Widgets kommt vom Server, gefiltert nach seinen Rechten).
-  // Vorauswahl ohne widget= (Fixliste 6, N2): das Widget mit der jüngsten
-  // Nachricht; ohne Nachrichten bzw. ohne Angabe das erste in der
-  // Reihenfolge des Servers (das zuletzt angelegte) – unabhängig davon, wie
-  // die Auswahl ihre Einträge ordnet.
-  const preferredEmbed = useMemo(
-    () => mostRecentlyActiveEmbedId(embeds, lastActivity),
-    [embeds, lastActivity]
-  );
-  const linkedEmbed = embeds.find((embed) => embed.id === place.widgetId);
-  const selectedEmbed = linkedEmbed ? linkedEmbed.id : preferredEmbed;
-  const setSelectedEmbed = place.setWidget;
-  // Ein Link auf ein Widget, das es für diesen Nutzer nicht gibt (fremd,
-  // gelöscht): Hinweis, die Ansicht zeigt das vorausgewählte Widget ohne
-  // Konversation.
-  const unknownLink = place.widgetId !== null && !linkedEmbed;
-  const clearLink = place.clearLink;
-  useEffect(() => {
-    if (!unknownLink) return;
-    showToast(t("embed-analytics.panel.not-found"), "error");
-    clearLink();
-  }, [unknownLink, clearLink, t]);
+  // Das Widget nach der Merkregel des Bereichs (KB-2, WidgetSelection): aus
+  // der Adresse (nur eines, das der Nutzer sehen darf), sonst das zuletzt
+  // gewählte, sonst das mit der jüngsten Nachricht (Fixliste 6, N2). Ein Link
+  // auf ein Widget, das es für diesen Nutzer nicht gibt (fremd, gelöscht):
+  // Hinweis, die Ansicht zeigt das vorausgewählte Widget ohne Konversation.
+  const {
+    widgetId: selectedEmbed,
+    unknownLink,
+    selectWidget: setSelectedEmbed,
+  } = useWidgetSelection({
+    embeds,
+    lastActivity,
+    setWidget: place.setWidget,
+    clearWidget: place.clearLink,
+  });
   // Zählwerte des Zeitraums: { embedId, data, loading, failed, period } –
   // period ist der gewählte Zeitraum, zu dem data gehört.
   const [summary, setSummary] = useState({
@@ -533,28 +501,7 @@ function Header({
   endDate,
   onDateChange,
 }) {
-  const { t, i18n } = useTranslation();
-  const [embedDropdownOpen, setEmbedDropdownOpen] = useState(false);
-  const embedDropdownRef = useRef(null);
-  const embedButtonRef = useRef(null);
-
-  // Klick außerhalb oder Escape schließt die Widget-Auswahl, der Fokus geht
-  // auf die Schaltfläche zurück – wie Exportmenü und Menü „⋯“ (Fixliste 7,
-  // B5).
-  const closeEmbedDropdown = useCallback(() => setEmbedDropdownOpen(false), []);
-  useDismiss(embedDropdownRef, embedDropdownOpen, closeEmbedDropdown, {
-    focusRef: embedButtonRef,
-  });
-
-  // Ein Widget heißt wie sein Workspace; die Widget-Nummer kommt nur dazu, wo
-  // die Bezeichnung in dieser Liste mehrfach vorkommt (utils/embedLabel).
-  const labels = useMemo(() => embedLabels(embeds, t), [embeds, t]);
-  const options = useMemo(
-    () => sortEmbedsByLabel(embeds, labels, i18n.language),
-    [embeds, labels, i18n.language]
-  );
-  const embedLabel = (embed) => labels.get(embed.id)?.label;
-  const current = embeds.find((e) => e.id === selectedEmbed);
+  const { t } = useTranslation();
 
   return (
     <div className="flex flex-wrap gap-3 justify-between items-center mb-6">
@@ -590,65 +537,13 @@ function Header({
       <div
         className={`flex flex-wrap gap-3 items-center ${AVATAR_CLEARANCE.headerEnd}`}
       >
-        {/* Widget-Auswahl – bei genau einem Widget gibt es nichts zu wählen. */}
-        {embeds.length > 1 && (
-          <div className="relative" ref={embedDropdownRef}>
-            <button
-              type="button"
-              ref={embedButtonRef}
-              aria-haspopup="listbox"
-              aria-expanded={embedDropdownOpen}
-              aria-label={t("embed-analytics.widget-label")}
-              onClick={() => setEmbedDropdownOpen(!embedDropdownOpen)}
-              className="flex items-center gap-2 bg-theme-settings-input-bg text-theme-text-primary rounded-lg px-4 py-2 text-sm border border-white/10 cursor-pointer"
-            >
-              <span>
-                {current
-                  ? embedLabel(current)
-                  : t("embed-analytics.select-embed")}
-              </span>
-              <CaretDown
-                size={12}
-                className={`text-theme-text-primary ml-1 transition-transform ${embedDropdownOpen ? "rotate-180" : ""}`}
-              />
-            </button>
-
-            {/* Nicht gewählte Optionen gedämpft wie die übrige Ansicht
-                (MUTED: hell #5f6368, 6:1 auf Weiß statt 4,15:1 mit
-                --theme-text-secondary – Fixliste 8, Opus Low 2). */}
-            {embedDropdownOpen && (
-              <div
-                role="listbox"
-                aria-label={t("embed-analytics.widget-label")}
-                className="absolute left-0 top-full mt-1 w-full bg-theme-bg-secondary border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden"
-              >
-                {options.map((embed) => (
-                  <button
-                    key={embed.id}
-                    type="button"
-                    role="option"
-                    aria-selected={selectedEmbed === embed.id}
-                    onClick={() => {
-                      onSelectEmbed(embed.id);
-                      setEmbedDropdownOpen(false);
-                    }}
-                    className={`flex items-center justify-between w-full px-3 py-2 text-sm text-left transition-all cursor-pointer
-                      ${selectedEmbed === embed.id ? "bg-white/10 text-theme-text-primary font-medium" : `${MUTED} hover:bg-white/5 hover:text-theme-text-primary`}`}
-                  >
-                    <span>{embedLabel(embed)}</span>
-                    {selectedEmbed === embed.id && (
-                      <Check
-                        size={14}
-                        className="text-theme-text-primary"
-                        weight="bold"
-                      />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Widget-Auswahl (KB-2: gemeinsam mit Status und Design Center),
+            bei genau einem Widget gibt es nichts zu wählen. */}
+        <WidgetPicker
+          embeds={embeds}
+          selectedId={selectedEmbed}
+          onSelect={onSelectEmbed}
+        />
 
         {/* Date Range Picker */}
         <DateRangePicker

@@ -623,8 +623,8 @@ function stubServer(t, embeds, courseInventory = INVENTORY) {
 async function open(t, embeds, id, courseInventory) {
   const calls = stubServer(t, embeds, courseInventory);
   const mounted = await renderer.mount(DESIGN_CENTER, {
-    location: `/settings/embed-config/${id}/appearance`,
-    route: "/settings/embed-config/:embedId/appearance",
+    location: "/settings/chatbot/design",
+    props: { embedId: id },
   });
   t.after(() => mounted.unmount());
   await mounted.act();

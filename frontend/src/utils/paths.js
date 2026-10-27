@@ -159,12 +159,19 @@ export default {
     privacy: () => {
       return "/settings/privacy";
     },
+    // Bereich „Chatbot“ in der Reihenfolge des Menüs (KB-2)
     chatbot: {
-      widgets: () => {
-        return `/settings/chatbot/widgets`;
+      status: () => {
+        return `/settings/chatbot/status`;
       },
       conversations: () => {
         return `/settings/chatbot/conversations`;
+      },
+      design: () => {
+        return `/settings/chatbot/design`;
+      },
+      widgets: () => {
+        return `/settings/chatbot/widgets`;
       },
     },
     browserExtension: () => {

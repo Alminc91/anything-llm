@@ -1422,7 +1422,9 @@ test(
     assert.ok(panelOf(linked.container));
     await linked.unmount();
 
-    // fremdes Widget 99: Hinweis, keine Einzelansicht, Liste des ersten Widgets
+    // fremdes Widget 99: Hinweis, keine Einzelansicht, Liste des ersten
+    // Widgets; der Hinweis nennt das Widget wie bei Status und Design Center
+    // (Fixliste r4 Nr. 11)
     server.calls.length = 0;
     const foreign = await mountView("?widget=99&conversation=5");
     await foreign.act();
@@ -1433,7 +1435,7 @@ test(
     assert.deepEqual(shown, [
       [
         "error",
-        "Diese Konversation wurde nicht gefunden, oder Sie haben keinen Zugriff darauf.",
+        "Dieses Widget wurde nicht gefunden, oder Sie haben keinen Zugriff darauf.",
       ],
     ]);
   }
@@ -4550,7 +4552,7 @@ test(
       ],
       [
         "error",
-        "Diese Konversation wurde nicht gefunden, oder Sie haben keinen Zugriff darauf.",
+        "Dieses Widget wurde nicht gefunden, oder Sie haben keinen Zugriff darauf.",
       ],
     ]);
     // Die Adresse trägt den gekürzten Begriff (das Feld folgt ihr) …

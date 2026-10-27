@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { PARAM_WIDGET, positiveId } from "@/utils/chatbotArea";
 
 // Zustand der Ansicht „Konversationen" in der Adresse – eine Quelle der
 // Wahrheit für Widget, geöffnete Konversation und Suche:
 //
 //   /settings/chatbot/conversations?widget=3&conversation=1234&q=spanisch
 //
-// - widget: id des Widgets (fehlt = das erste in der Reihenfolge des Servers)
+// - widget: id des Widgets; gilt für den ganzen Bereich „Chatbot“ (KB-2,
+//   utils/chatbotArea), fehlt es, wählt WidgetSelection
 // - conversation: id einer Zeile der Konversation (first_chat_id der Liste) –
 //   eine Zahl des Servers, nicht die Kennung des Besuchers (KIE-538).
 // - q: Suchbegriff der Liste
@@ -21,7 +23,6 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 // die Seite, statt die Konversation zu schließen. Die automatische Vorwahl
 // der ersten Zeile schreibt nichts in die Adresse.
 
-export const PARAM_WIDGET = "widget";
 export const PARAM_CONVERSATION = "conversation";
 export const PARAM_SEARCH = "q";
 
@@ -41,17 +42,6 @@ export const PARAM_SEARCH = "q";
  * @type {{key: string, to: string}|null}
  */
 let pendingSearch = null;
-
-/**
- * Positive ganze Zahl aus einem Parameter, sonst null.
- * @param {string|null} value
- * @returns {number|null}
- */
-export function positiveId(value) {
-  if (typeof value !== "string" || !/^[1-9]\d{0,15}$/.test(value)) return null;
-  const id = Number(value);
-  return Number.isSafeInteger(id) ? id : null;
-}
 
 /**
  * @returns {{

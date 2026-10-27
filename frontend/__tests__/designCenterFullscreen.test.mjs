@@ -27,8 +27,8 @@ after(async () => {
 
 test("Design Center rendert keine Einstellungs-Sidebar", { skip }, async () => {
   const html = await renderer.render(DESIGN_CENTER, {
-    location: "/settings/embed-config/7/appearance",
-    route: "/settings/embed-config/:embedId/appearance",
+    location: "/settings/chatbot/design",
+    props: { embedId: 7 },
   });
 
   assert.match(html, /Laden\.\.\./);
