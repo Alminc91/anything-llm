@@ -280,19 +280,16 @@ function ageProblem(createdMs, now) {
 /**
  * Wendet der Chat diese Kursliste gerade an (Zahl, Ausblenden)? Nur, wenn
  * sie Kurse enthält und created höchstens 24 h alt ist (run.at zählt
- * nicht). Eine Störungsmeldung ohne Liste (KB-9, offered leer) wendet er
- * nie an: Ein leeres A hieße sonst „alles veraltet“ (NAK-1). Eine Stelle
- * für Chatpfad (loadCourseInventory) und Status-Seite (listApplied,
- * Fixliste r4 Nr. 2), damit die Seite nie etwas anderes zeigt, als der Chat
- * tut.
- * @param {{createdMs: number, offered: Set<string>}} inventory - Laufzeitform aus readCourseInventory
+ * nicht). Eine Störungsmeldung ohne Liste (KB-9, noList) wendet er nie
+ * an: Ein leeres A hieße sonst „alles veraltet“ (NAK-1). Eine Stelle für
+ * Chatpfad (loadCourseInventory) und Status-Seite (listApplied, Fixliste r4
+ * Nr. 2), damit die Seite nie etwas anderes zeigt, als der Chat tut.
+ * @param {{createdMs: number, noList: boolean}} inventory - Laufzeitform aus readCourseInventory
  * @param {number} now
  * @returns {boolean}
  */
 function courseListApplies(inventory, now) {
-  return (
-    inventory.offered.size > 0 && ageProblem(inventory.createdMs, now) === null
-  );
+  return !inventory.noList && ageProblem(inventory.createdMs, now) === null;
 }
 
 /**
@@ -322,9 +319,13 @@ function validateCourseInventorySetting(update, { now = Date.now() } = {}) {
 /**
  * Laufzeitform eines gespeicherten Werts (ohne Altersprüfung, die macht
  * loadCourseInventory je Aufruf). Leer -> {inventory: null} ohne problem.
- * Ungültige Einträge in offered werden übersprungen (skipped).
+ * Ungültige Einträge in offered werden übersprungen (skipped). noList
+ * (KB-9): die Störungsmeldung ohne Liste, also der gespeicherte Wert mit
+ * offered [] (nicht die Menge nach dem Überspringen); nur dieses Merkmal
+ * entscheidet über sie (courseListApplies, courseInventoryDetails,
+ * courseStatus).
  * @param {*} raw
- * @returns {{inventory: {raw: string, workspace: string, createdMs: number, stand: string, offered: Set<string>, numbers: Map<string, string>, titles: Map<string, string>, estimatedEnd: boolean, run: {at: string, atMs: number, result: string, cause: string|null}|null}|null, problem?: string, skipped?: number}}
+ * @returns {{inventory: {raw: string, workspace: string, createdMs: number, stand: string, offered: Set<string>, noList: boolean, numbers: Map<string, string>, titles: Map<string, string>, estimatedEnd: boolean, run: {at: string, atMs: number, result: string, cause: string|null}|null}|null, problem?: string, skipped?: number}}
  */
 function readCourseInventory(raw) {
   if (typeof raw !== "string" || raw.length === 0) return { inventory: null };
@@ -346,6 +347,7 @@ function readCourseInventory(raw) {
       createdMs,
       stand: new Date(createdMs).toISOString(),
       offered,
+      noList: data.offered.length === 0,
       numbers,
       titles: readTitles(data, offered),
       estimatedEnd: data.estimatedEnd === true,
@@ -703,26 +705,40 @@ async function buildIndex(slug, inventory) {
 }
 
 /**
- * Index eines Workspace (Namespace = slug) zum gültigen Kursbestand, gemerkt
- * höchstens 1 h je Workspace und Wert (AK-K4); null ohne gültigen Wert, ohne
- * Workspace oder für einen anderen Workspace als den der Kursliste (r5:
- * dann wird nichts weiter gelesen). Ein unvollständiger Index und ein
- * gescheiterter Aufbau werden nur 2 min gemerkt (S4, r3-S3 a, D-r6-1),
- * damit der Chatpfad nicht je Anfrage neu baut. anyAge (KB-3, Status-Seite):
- * auch ein Wert, den der Chat nicht mehr anwendet, derselbe Index je Wert.
- * Wirft bei einem Fehler (Datenbank, Aufbau des Index): Die Status-Seite
- * meldet ihn (Fixliste r2 Nr. 6), die Chatpfade nutzen workspaceInventory.
+ * Wert der Kursliste für diesen Workspace, sonst null (ohne gültigen Wert,
+ * ohne Workspace oder für einen anderen Workspace als den der Kursliste,
+ * r5). Die einzige Stelle der Workspace-Regel; liest den gespeicherten Wert
+ * genau einmal (Fixliste KB-9 r1 Nr. 3). anyAge (KB-3, Status-Seite): auch
+ * ein Wert, den der Chat nicht mehr anwendet, sonst nur einer, den er
+ * anwendet (loadCourseInventory). Wirft bei einem Lesefehler der Datenbank.
  * @param {string} slug
  * @param {{now?: number, anyAge?: boolean}} [options]
  * @returns {Promise<object|null>}
  */
-async function workspaceIndex(slug, { now = Date.now(), anyAge = false } = {}) {
+async function workspaceRecord(
+  slug,
+  { now = Date.now(), anyAge = false } = {}
+) {
   if (typeof slug !== "string" || slug.length === 0) return null;
   // KB-3: die Status-Seite bewertet auch einen Wert über 24 h (Alter)
   const inventory = anyAge
     ? await courseInventoryRecord()
     : await loadCourseInventory({ now });
-  if (!inventory || inventory.workspace !== slug) return null;
+  return inventory && inventory.workspace === slug ? inventory : null;
+}
+
+/**
+ * Index des Workspace zu diesem Wert (aus workspaceRecord), gemerkt
+ * höchstens 1 h je Workspace und Wert (AK-K4). Ein unvollständiger Index
+ * und ein gescheiterter Aufbau werden nur 2 min gemerkt (S4, r3-S3 a,
+ * D-r6-1), damit der Chatpfad nicht je Anfrage neu baut. Wirft bei einem
+ * Fehler beim Aufbau.
+ * @param {string} slug
+ * @param {object} inventory
+ * @param {number} now
+ * @returns {Promise<object>}
+ */
+async function indexFor(slug, inventory, now) {
   const entry = indexCache.get(slug);
   if (
     entry &&
@@ -746,6 +762,23 @@ async function workspaceIndex(slug, { now = Date.now(), anyAge = false } = {}) {
     fresh.maxAge = INCOMPLETE_INDEX_MAX_AGE_MS;
     throw error;
   }
+}
+
+/**
+ * Index eines Workspace (Namespace = slug) zum gültigen Kursbestand
+ * (indexFor); null ohne gültigen Wert, ohne Workspace oder für einen
+ * anderen Workspace als den der Kursliste (workspaceRecord, r5: dann wird
+ * nichts weiter gelesen). anyAge (KB-3, Status-Seite): auch ein Wert, den
+ * der Chat nicht mehr anwendet, derselbe Index je Wert. Wirft bei einem
+ * Fehler (Datenbank, Aufbau des Index): Die Status-Seite meldet ihn
+ * (Fixliste r2 Nr. 6), die Chatpfade nutzen workspaceInventory.
+ * @param {string} slug
+ * @param {{now?: number, anyAge?: boolean}} [options]
+ * @returns {Promise<object|null>}
+ */
+async function workspaceIndex(slug, { now = Date.now(), anyAge = false } = {}) {
+  const inventory = await workspaceRecord(slug, { now, anyAge });
+  return inventory ? await indexFor(slug, inventory, now) : null;
 }
 
 /**
@@ -906,18 +939,18 @@ async function courseInventoryDetails(
   workspace,
   { now = Date.now(), lists = true } = {}
 ) {
-  const record = await courseInventoryRecord();
-  if (record?.offered.size === 0 && record.workspace === workspace?.slug)
+  const slug = workspace?.slug;
+  const inventory = await workspaceRecord(slug, { now, anyAge: true });
+  if (!inventory) return null;
+  if (inventory.noList)
     return {
-      inventory: record,
+      inventory,
       listApplied: false,
       counts: { count: 0, offered: 0, hidden: 0 },
       missing: [],
       hidden: [],
     };
-  const index = await workspaceIndex(workspace?.slug, { now, anyAge: true });
-  if (!index) return null;
-  const { inventory } = index;
+  const index = await indexFor(slug, inventory, now);
   const listApplied = courseListApplies(inventory, now);
   if (!lists) return { inventory, listApplied, counts: index.counts };
   const missing = [];

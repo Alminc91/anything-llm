@@ -42,7 +42,9 @@
 // counts); die Seite zeigt ohne Kurse keine Kennzahlen. Listen leer,
 // listApplied false, notice null: Der Chat hat nie eine Liste angewendet,
 // der Satz „Bis zum nächsten erfolgreichen Abgleich blendet der KI-Berater
-// keine Kurse aus.“ beschriebe eine Änderung, die es nicht gibt.
+// keine Kurse aus.“ beschriebe eine Änderung, die es nicht gibt. Erkannt
+// wird sie nur am Merkmal noList der Laufzeitform (readCourseInventory),
+// bewertet im selben Pfad wie jede Kursliste (Fixliste KB-9 r1 Nr. 1, 2).
 
 const { courseInventoryDetails } = require("./courseInventory");
 
@@ -139,40 +141,14 @@ const notSetUp = () => ({
 });
 
 /**
- * KB-9: Störungsmeldung ohne Liste, Rot mit dem Grund „alter“ (siehe
- * Kopfkommentar).
- * @param {object} inventory - Laufzeitform aus courseInventoryRecord
- * @returns {object}
- */
-function noList(inventory) {
-  const lastRun = lastRunOf(inventory);
-  // nur die Zeile zum Alter, nach der Ursache des Laufs
-  const lines = detailsOf(0, STATES.indexOf("rot"), lastRun);
-  return {
-    state: "rot",
-    headline: lines[0],
-    details: lines,
-    reasons: ["alter"],
-    counts: { offered: 0, count: 0, missing: 0, hidden: 0 },
-    missingPercent: 0,
-    missing: [],
-    hidden: [],
-    lastRun,
-    syncedAt: inventory.stand,
-    listApplied: false,
-    notice: null,
-    estimatedEnd: inventory.estimatedEnd,
-  };
-}
-
-/**
  * Bewertung des Kursbestands eines Workspace (AK-1, AK-2): Zustand,
  * Überschrift und Zeilen der Meldung (Vertrag r4), Gründe für Gelb oder Rot
  * („fehlen“, „alter“; beide, wenn beides zutrifft), Zahlen mit dem Anteil
  * der fehlenden Kurse, die Listen (je höchstens 500, die Gesamtzahl steht in
  * counts), letzter Lauf, letzter erfolgreicher Abgleich (created), ob der
  * Chat die Kursliste anwendet (ausgeblendete Kurse nur dann, sonst [] und
- * 0), die Hinweiszeile (notice: nur bei Gelb oder Rot und listApplied false)
+ * 0), die Hinweiszeile (notice: nur bei Gelb oder Rot, listApplied false
+ * und mit Kursen)
  * und ob das Ende geschätzt ist. Nur lesend;
  * wirft bei einem Lesefehler.
  * @param {{slug?: string}|null} workspace
@@ -186,10 +162,10 @@ async function courseStatus(
   const details = await courseInventoryDetails(workspace, { now, lists });
   if (!details) return notSetUp();
   const { inventory, counts } = details;
-  if (inventory.offered.size === 0) return noList(inventory);
   const missing = Math.max(0, counts.offered - counts.count);
   const byMissing = missingLevel(missing, counts.offered);
-  const byAge = ageLevel(now - inventory.createdMs);
+  // KB-9: Störungsmeldung ohne Liste sofort Rot nach dem Alter
+  const byAge = inventory.noList ? 2 : ageLevel(now - inventory.createdMs);
   const level = Math.max(byMissing, byAge);
   const { listApplied } = details;
   const reasons = [];
@@ -215,7 +191,11 @@ async function courseStatus(
     lastRun,
     syncedAt: inventory.stand,
     listApplied,
-    notice: level > 0 && !listApplied ? NOTICE_LIST_NOT_APPLIED : null,
+    // KB-9: ohne Liste hat der Chat nie etwas ausgeblendet
+    notice:
+      level > 0 && !listApplied && !inventory.noList
+        ? NOTICE_LIST_NOT_APPLIED
+        : null,
     estimatedEnd: inventory.estimatedEnd,
   };
 }

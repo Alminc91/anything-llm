@@ -1038,6 +1038,22 @@ describe("KB-9: Störungsmeldung ohne Liste", () => {
     expect((await run(0)).state).toBe("gruen");
   });
 
+  // Fixliste KB-9 r1 Nr. 3: der gespeicherte Wert wird je Aufruf einmal
+  // gelesen, mit und ohne Liste (GET /v1/course-status ruft courseStatus je
+  // Workspace)
+  test.each([
+    ["Kursliste", () => setInventory()],
+    ["Störungsmeldung ohne Liste", () => stoerung("feed_nicht_erreichbar")],
+  ])("%s: je Aufruf eine Abfrage der Kursliste", async (_name, write) => {
+    workspaceWith(numbers("262", 100));
+    write();
+    for (const lists of [true, false]) {
+      prisma.system_settings.findFirst.mockClear();
+      await courseStatus(WS, { lists });
+      expect(prisma.system_settings.findFirst).toHaveBeenCalledTimes(1);
+    }
+  });
+
   test("NAK-3: eine gültige Liste wird durch einen gescheiterten Lauf nicht sofort Rot", async () => {
     workspaceWith(numbers("262", 100));
     setInventory({
