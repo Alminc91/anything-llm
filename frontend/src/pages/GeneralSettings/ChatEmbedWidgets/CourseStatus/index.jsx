@@ -87,21 +87,22 @@ export default function CourseStatusView({ embeds, lastActivity = null }) {
             (Fixliste r4 Nr. 8). KB-9: Ohne Kurse (der Abgleich hat noch
             nie eine Liste geliefert) gab es keinen erfolgreichen Abgleich,
             syncedAt ist dann die erste Störung und steht nur im Satz
-            „seit …“ der Meldung */}
-        {status && status.state !== "nicht_eingerichtet" && (
-          <>
-            <p data-course-principle="" className={`text-sm ${MUTED}`}>
-              {t("course-status.principle")}
-            </p>
-            {hasCourses(status) && (
+            „seit …“ der Meldung. Auch der Grundsatz entfällt dann, er
+            widerspräche der Störung (Fixliste KB-9 r2 Nr. 1) */}
+        {status &&
+          status.state !== "nicht_eingerichtet" &&
+          hasCourses(status) && (
+            <>
+              <p data-course-principle="" className={`text-sm ${MUTED}`}>
+                {t("course-status.principle")}
+              </p>
               <p data-course-last-sync="" className={`text-sm ${MUTED}`}>
                 {t("course-status.last-sync", {
                   time: formatRunTime(t, status.syncedAt),
                 })}
               </p>
-            )}
-          </>
-        )}
+            </>
+          )}
       </div>
 
       {loading ? (

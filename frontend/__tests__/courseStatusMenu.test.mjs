@@ -208,14 +208,35 @@ test("Meldungen der Ampel in de und en", { skip }, () => {
   const since = util.formatSyncedAt(t, "2026-10-25T13:00:00.000Z", NOW);
   assert.equal(
     de("not-updated", { time: since }),
-    "Das Kursprogramm wurde seit gestern, 14:00 Uhr nicht aktualisiert."
+    "Das Kursprogramm wurde seit gestern, 14:00 Uhr, nicht aktualisiert."
   );
   assert.equal(
     de("unreachable", {
       time: util.formatSyncedAt(t, "2026-10-24T12:00:00.000Z", NOW),
     }),
-    "Ihr Kursprogramm konnte seit dem 24.10., 14:00 Uhr nicht von Ihrer Website abgerufen werden."
+    "Ihr Kursprogramm konnte seit dem 24.10., 14:00 Uhr, nicht von Ihrer Website abgerufen werden."
   );
+  // Fixliste KB-9 r2 Nr. 2: Jede Zeitform nach „seit“ endet mit „Uhr“, das
+  // schließende Komma passt deshalb immer (heute, gestern, morgen, Datum
+  // dieses und eines anderen Jahres)
+  for (const [at, expected] of [
+    ["2026-10-26T09:32:00.000Z", "heute, 10:32 Uhr"],
+    ["2026-10-25T08:32:00.000Z", "gestern, 09:32 Uhr"],
+    ["2026-10-27T08:32:00.000Z", "morgen, 09:32 Uhr"],
+    ["2026-10-20T08:32:00.000Z", "dem 20.10., 10:32 Uhr"],
+    ["2025-12-30T08:32:00.000Z", "dem 30.12.2025, 09:32 Uhr"],
+  ]) {
+    const time = util.formatSyncedAt(t, at, NOW);
+    assert.equal(time, expected);
+    assert.equal(
+      de("not-updated", { time }),
+      `Das Kursprogramm wurde seit ${expected}, nicht aktualisiert.`
+    );
+    assert.equal(
+      de("unreachable", { time }),
+      `Ihr Kursprogramm konnte seit ${expected}, nicht von Ihrer Website abgerufen werden.`
+    );
+  }
   // Nr. 5: beide Schlusssätze
   assert.equal(
     de("closing", { email: "support@kufer.de" }),
