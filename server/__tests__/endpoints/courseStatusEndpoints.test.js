@@ -461,3 +461,71 @@ describe("Lesefehler im Workspace der Kursliste (Fixliste r5)", () => {
     expect((await invoke(API, { token: "geheim" })).statusCode).toBe(500);
   });
 });
+
+// KB-9 (issues/P-kursbestand/KB-9-rot-ohne-erste-liste.md): Störungsmeldung
+// ohne Liste (offered [], run mit Störung). Status-Seite, Menüpunkt und
+// Entwickler-API (Statusmail, Tagesbericht) zeigen Rot statt „nicht
+// eingerichtet“.
+describe("KB-9: Störungsmeldung ohne Liste", () => {
+  beforeEach(() => {
+    const row = prisma
+      .__rows("system_settings")
+      .find((entry) => entry.label === "kufer_course_inventory");
+    row.value = JSON.stringify({
+      version: 2,
+      workspace: "a",
+      client: "vhs-beispiel",
+      created: iso(NOW - 3 * HOUR),
+      offered: [],
+      titles: {},
+      estimatedEnd: false,
+      run: {
+        at: iso(NOW - HOUR),
+        result: "nicht_geschrieben",
+        cause: "feed_nicht_erreichbar",
+      },
+    });
+  });
+
+  test("AK-3: Status-Seite Rot „nicht abrufbar“, Zahlen 0, keine Listen", async () => {
+    const res = await statusOf(embedA1.id, createUser(prisma, "admin"));
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      state: "rot",
+      headline: "nicht_abrufbar",
+      details: ["nicht_abrufbar"],
+      reasons: ["alter"],
+      counts: { offered: 0, count: 0, missing: 0, hidden: 0 },
+      missing: [],
+      hidden: [],
+      listApplied: false,
+      notice: null,
+      syncedAt: iso(NOW - 3 * HOUR),
+      lastRun: {
+        at: iso(NOW - HOUR),
+        result: "nicht_geschrieben",
+        cause: "feed_nicht_erreichbar",
+      },
+    });
+  });
+
+  test("AK-3: Menüpunkt Rot", async () => {
+    const res = await invoke(MENU, {
+      token: createUser(prisma, "admin").token,
+    });
+    expect(res.body).toEqual({ state: "rot" });
+  });
+
+  test("Entwickler-API: der Workspace steht mit Rot in der Liste (Statusmail, Tagesbericht)", async () => {
+    prisma.__seed("api_keys", { secret: "geheim" });
+    const res = await invoke(API, { token: "geheim" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.workspaces).toHaveLength(1);
+    expect(res.body.workspaces[0]).toMatchObject({
+      slug: "a",
+      state: "rot",
+      headline: "nicht_abrufbar",
+      counts: { offered: 0, count: 0, missing: 0, hidden: 0 },
+    });
+  });
+});

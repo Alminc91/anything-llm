@@ -1067,3 +1067,101 @@ describe("Kursnummer aus dem Kopfblock", () => {
     expect(t.courseKeyOfText(text)).toBe(expected);
   });
 });
+
+// KB-9 (issues/P-kursbestand/KB-9-rot-ohne-erste-liste.md): Störungsmeldung
+// ohne Liste. Hat der Abgleich noch nie eine Liste geliefert, schreibt die
+// Pipeline offered [] mit der Laufmeldung des Laufs; created ist der
+// Zeitpunkt der ersten Störung.
+describe("KB-9: Störungsmeldung ohne Liste", () => {
+  const CONTRACT = require("./fixtures/courseInventoryContract.json");
+  // im Workspace „ws“ der Tests
+  const stoerung = (overrides = {}) =>
+    JSON.stringify({
+      ...JSON.parse(CONTRACT.v2Stoerung),
+      workspace: "ws",
+      ...overrides,
+    });
+  const runAt = (result, cause, at = "2026-10-24T09:00:00Z") => ({
+    run: { at, result, cause },
+  });
+  afterEach(() => console.error.mockRestore?.());
+
+  test("AK-1: Vertrags-Fixture angenommen und gelesen: leere Kursliste mit Laufmeldung", async () => {
+    const raw = CONTRACT.v2Stoerung;
+    expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
+    const result = await SystemSettings._updateSettings({ [LABEL]: raw });
+    expect(result).toEqual({ success: true, error: null });
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    prisma.system_settings.findFirst.mockResolvedValue({ value: raw });
+    const record = await courseInventoryRecord();
+    expect(record).toMatchObject({
+      workspace: "vhs-beispiel",
+      stand: "2026-10-24T08:00:00.000Z",
+      estimatedEnd: false,
+      run: {
+        at: "2026-10-24T09:00:00.000Z",
+        result: "nicht_geschrieben",
+        cause: "feed_nicht_erreichbar",
+      },
+    });
+    expect(record.offered.size).toBe(0);
+    expect(record.titles.size).toBe(0);
+    // nichts verworfen, nichts übersprungen
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["nicht_geschrieben", "feed_unsicher"],
+    ["nicht_geschrieben", "feed_eingebrochen"],
+    ["fehler", null],
+    ["fehler", "einlernen_fehlgeschlagen"],
+  ])("AK-1: run.result %s mit cause %s angenommen", (result, cause) => {
+    const raw = stoerung(runAt(result, cause));
+    expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
+  });
+
+  test.each([
+    ["ohne run", { run: undefined }],
+    ["run null", { run: null }],
+    ["run.result ok", runAt("ok", null)],
+    ["run.result unbekannt", runAt("gut", null)],
+    ["run.cause unbekannt", runAt("fehler", "x")],
+    ["run.at kein Zeitpunkt", runAt("fehler", null, "gestern")],
+    ["offered nur mit ungültigen Nummern", { offered: ["  "] }],
+    [
+      "created und run.at älter als 24 h",
+      {
+        created: "2026-10-22T08:00:00Z",
+        ...runAt("fehler", null, "2026-10-23T09:00:00Z"),
+      },
+    ],
+  ])("AK-1: %s abgelehnt", (_name, overrides) => {
+    expect(() =>
+      validateCourseInventorySetting(stoerung(overrides), { now: NOW })
+    ).toThrow(LABEL);
+  });
+
+  test("Altersprüfung wie heute: created (erste Störung) darf alt sein, solange run.at höchstens 24 h alt ist", () => {
+    const raw = stoerung({
+      created: "2026-10-20T08:00:00Z",
+      ...runAt("nicht_geschrieben", "feed_nicht_erreichbar"),
+    });
+    expect(validateCourseInventorySetting(raw, { now: NOW })).toBe(raw);
+  });
+
+  test("AK-2, NAK-1: kein Ausblenden, keine Kursanzahl, kein Index; der Chat bleibt wie ohne Kursliste", async () => {
+    prisma.system_settings.findFirst.mockResolvedValue({ value: stoerung() });
+    const deps = installDeps();
+    // der Wert gilt (Status-Seite), der Chat wendet ihn nicht an
+    expect((await courseInventoryRecord()).offered.size).toBe(0);
+    expect(await loadCourseInventory({ now: NOW })).toBeNull();
+    expect(await courseSearchExclusion("ws")).toBeNull();
+    expect(await courseInventoryGuard({ slug: "ws" })).toBeNull();
+    expect(await courseInventoryStatus({ slug: "ws" })).toBeNull();
+    expect(
+      await courseCountField({ slug: "ws" }, { mode: "on", word: "Kurse" })
+    ).toBeNull();
+    expect(deps.listDocuments).not.toHaveBeenCalled();
+    expect(deps.readDocumentText).not.toHaveBeenCalled();
+  });
+});

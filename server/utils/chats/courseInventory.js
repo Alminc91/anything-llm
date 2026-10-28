@@ -23,6 +23,21 @@
 // Validator nimmt eine Laufmeldung an, solange run.at höchstens 24 h alt ist.
 // Titel, run und estimatedEnd sind Betreiber-Info (Status-Seite, KB-3) über
 // courseInventoryRecord; sie kommen nie in /config, Prompt oder Suche.
+// Störungsmeldung ohne Liste (KB-9, issues/P-kursbestand/
+// KB-9-rot-ohne-erste-liste.md): Hat der Abgleich noch nie eine Liste
+// geliefert, schreibt die Pipeline denselben Wert mit leerer Kursliste:
+//   {"version": 2, "workspace": "<slug>", "client": "<kunde>",
+//    "created": "<ISO-8601 UTC, Zeitpunkt der ersten Störung>",
+//    "offered": [], "titles": {}, "estimatedEnd": false,
+//    "run": {"at": "<ISO, dieser Lauf>",
+//            "result": "nicht_geschrieben"|"fehler", "cause": …}}
+// offered [] gilt nur mit gültigem run und result ungleich "ok", die
+// Altersprüfung des Validators ist dieselbe (created oder run.at, der
+// jüngere). Die Pipeline schreibt sie nur, solange im Container kein Wert
+// für den Workspace liegt; die erste echte Liste ersetzt sie. Ein Wert ohne
+// Kurse wendet der Chat nie an (courseListApplies): leeres A heißt nie
+// „alles veraltet“ (NAK-1), es gibt weder Zahl noch Ausblenden. Die
+// Status-Seite zeigt Rot (courseStatus.js).
 // JSON in UTF-8, höchstens 512 KiB, geschrieben nur von der Pipeline über
 // _updateSettings (docker exec), nicht über HTTP (das Label steht nicht in
 // supportedFields). offered = A, die Kursnummern im Feed nach dem
@@ -62,7 +77,8 @@
 // dort wird nicht gesucht. Dokumente ohne Kursnummer sind nie betroffen.
 //
 // Ohne gültigen Wert (fehlt, kein JSON, version nicht 2, workspace fehlt,
-// keine gültige Kursnummer in offered, älter als 24 h) oder in einem anderen
+// keine gültige Kursnummer in offered, älter als 24 h), mit der
+// Störungsmeldung ohne Liste (KB-9) oder in einem anderen
 // Workspace als dem der Kursliste gibt es weder Zahl noch Ausblenden: alles
 // wie vorher (NAK-K1, NAK-K2), das kostet je Aufruf nur das Lesen der einen
 // Zeile. Im Workspace der Kursliste gilt sie auch, wenn dort kein
@@ -182,7 +198,13 @@ function contractProblem(data) {
   )
     return "created ist kein Zeitpunkt";
   if (!Array.isArray(data.offered)) return "offered ist keine Liste";
-  if (data.offered.length === 0) return "offered ist leer";
+  // KB-9: leer nur als Störungsmeldung ohne Liste (gültiges run mit Störung)
+  if (data.offered.length === 0) {
+    const run = readRun(data);
+    return run && run.result !== "ok"
+      ? null
+      : "offered ist leer ohne Laufmeldung mit Störung";
+  }
   // einzelne ungültige Einträge überspringt readCourseInventory (J)
   if (!data.offered.some((number) => courseKey(number) !== null))
     return "offered enthält keine gültige Kursnummer";
@@ -257,15 +279,20 @@ function ageProblem(createdMs, now) {
 
 /**
  * Wendet der Chat diese Kursliste gerade an (Zahl, Ausblenden)? Nur, wenn
- * created höchstens 24 h alt ist (run.at zählt nicht). Eine Stelle für
- * Chatpfad (loadCourseInventory) und Status-Seite (listApplied, Fixliste r4
- * Nr. 2), damit die Seite nie etwas anderes zeigt, als der Chat tut.
- * @param {{createdMs: number}} inventory - Laufzeitform aus readCourseInventory
+ * sie Kurse enthält und created höchstens 24 h alt ist (run.at zählt
+ * nicht). Eine Störungsmeldung ohne Liste (KB-9, offered leer) wendet er
+ * nie an: Ein leeres A hieße sonst „alles veraltet“ (NAK-1). Eine Stelle
+ * für Chatpfad (loadCourseInventory) und Status-Seite (listApplied,
+ * Fixliste r4 Nr. 2), damit die Seite nie etwas anderes zeigt, als der Chat
+ * tut.
+ * @param {{createdMs: number, offered: Set<string>}} inventory - Laufzeitform aus readCourseInventory
  * @param {number} now
  * @returns {boolean}
  */
 function courseListApplies(inventory, now) {
-  return ageProblem(inventory.createdMs, now) === null;
+  return (
+    inventory.offered.size > 0 && ageProblem(inventory.createdMs, now) === null
+  );
 }
 
 /**
@@ -865,8 +892,10 @@ async function readHiddenEntries(index) {
  * hidden: eingelernte Kurse außerhalb der Kursliste mit Titel, Beginn,
  * Dauer und Kurs-Link (url, KB-8, nur http/https, sonst null) aus ihrem
  * Kursdokument. null ohne gültigen Wert oder in einem anderen Workspace als
- * dem der Kursliste (nicht eingerichtet). lists false: ohne Listen (Ampel,
- * Menüpunkt). Nur lesend. Wirft bei einem Lesefehler
+ * dem der Kursliste (nicht eingerichtet). Störungsmeldung ohne Liste
+ * (KB-9): ohne Index (es gibt nichts zu vergleichen), Zahlen 0, Listen
+ * leer. lists false: ohne Listen (Ampel, Menüpunkt). Nur lesend. Wirft bei
+ * einem Lesefehler
  * (Datenbank, Aufbau des Index), damit er nicht als „nicht eingerichtet“
  * erscheint (Fixliste r2 Nr. 6).
  * @param {{slug?: string}|null} workspace
@@ -877,6 +906,15 @@ async function courseInventoryDetails(
   workspace,
   { now = Date.now(), lists = true } = {}
 ) {
+  const record = await courseInventoryRecord();
+  if (record?.offered.size === 0 && record.workspace === workspace?.slug)
+    return {
+      inventory: record,
+      listApplied: false,
+      counts: { count: 0, offered: 0, hidden: 0 },
+      missing: [],
+      hidden: [],
+    };
   const index = await workspaceIndex(workspace?.slug, { now, anyAge: true });
   if (!index) return null;
   const { inventory } = index;

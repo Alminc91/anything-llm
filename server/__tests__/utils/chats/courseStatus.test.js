@@ -932,3 +932,125 @@ describe("Nur lesend (NAK-1, NAK-3)", () => {
     expect(statusModule).not.toHaveProperty("HISTORY_LABEL");
   });
 });
+
+// KB-9 (issues/P-kursbestand/KB-9-rot-ohne-erste-liste.md, Nutzer
+// 28.10.2026: „ist ja größte Alarmstufe bei so etwas!“): Hat der Abgleich
+// noch nie eine Liste geliefert, schreibt die Pipeline eine Störungsmeldung
+// ohne Liste (offered [], run mit Störung, created = erste Störung). Das ist
+// Rot, nicht „nicht eingerichtet“.
+describe("KB-9: Störungsmeldung ohne Liste", () => {
+  /** Störungsmeldung: erste Störung vor firstHours, dieser Lauf vor 1 h. */
+  function stoerung(
+    cause,
+    { result = "nicht_geschrieben", firstHours = 3 } = {}
+  ) {
+    setInventory({
+      created: iso(NOW - firstHours * HOUR),
+      offered: [],
+      titles: {},
+      estimatedEnd: false,
+      run: { at: iso(NOW - HOUR), result, cause },
+    });
+  }
+
+  test("AK-3: Website nicht erreichbar: Rot „nicht abrufbar“ seit der ersten Störung, Zahlen 0, keine Listen", async () => {
+    // Kursdokumente aus dem Crawl liegen im Workspace, es gibt nichts zu
+    // vergleichen und nichts auszublenden
+    workspaceWith(numbers("262", 10));
+    stoerung("feed_nicht_erreichbar");
+    expect(await courseStatus(WS)).toEqual({
+      state: "rot",
+      headline: "nicht_abrufbar",
+      details: ["nicht_abrufbar"],
+      reasons: ["alter"],
+      counts: { offered: 0, count: 0, missing: 0, hidden: 0 },
+      missingPercent: 0,
+      missing: [],
+      hidden: [],
+      lastRun: {
+        at: iso(NOW - HOUR),
+        result: "nicht_geschrieben",
+        cause: "feed_nicht_erreichbar",
+      },
+      syncedAt: iso(NOW - 3 * HOUR),
+      listApplied: false,
+      notice: null,
+      estimatedEnd: false,
+    });
+    expect(readDocument).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["feed_unsicher", "nicht_geschrieben"],
+    ["feed_eingebrochen", "nicht_geschrieben"],
+    ["einlernen_fehlgeschlagen", "fehler"],
+    [null, "fehler"],
+  ])(
+    "AK-3: Ursache %s (%s): Rot „nicht aktualisiert“",
+    async (cause, result) => {
+      stoerung(cause, { result });
+      expect(await courseStatus(WS)).toMatchObject({
+        state: "rot",
+        headline: "nicht_aktualisiert",
+        details: ["nicht_aktualisiert"],
+        reasons: ["alter"],
+        listApplied: false,
+        missing: [],
+        hidden: [],
+      });
+    }
+  );
+
+  test("Rot ab dem ersten gestörten Lauf, ohne die Altersschwellen abzuwarten", async () => {
+    stoerung("feed_nicht_erreichbar", { firstHours: 0 });
+    expect((await courseStatus(WS)).state).toBe("rot");
+  });
+
+  test("AK-3: Menüpunkt Rot, auch neben einem anderen Workspace", async () => {
+    stoerung("feed_nicht_erreichbar");
+    expect(await courseStatusState(WS)).toBe("rot");
+    st.reset();
+    expect(await courseMenuState([{ slug: "anders" }, WS])).toBe("rot");
+  });
+
+  test("NAK-1: der Chat blendet nichts aus und zeigt keine Zahl", async () => {
+    workspaceWith(numbers("262", 10));
+    stoerung("feed_nicht_erreichbar");
+    await courseStatus(WS);
+    expect(await courseSearchExclusion("ws")).toBeNull();
+    expect(await courseInventoryStatus(WS)).toBeNull();
+    expect(
+      await courseCountField(WS, { mode: "on", word: "Kurse" })
+    ).toBeNull();
+  });
+
+  test("anderer Workspace als der der Störungsmeldung: nicht eingerichtet", async () => {
+    stoerung("feed_nicht_erreichbar");
+    expect((await courseStatus({ slug: "anders" })).state).toBe(
+      "nicht_eingerichtet"
+    );
+  });
+
+  test("die erste echte Liste ersetzt die Störungsmeldung: wieder die Ampel nach Anteil und Alter", async () => {
+    workspaceWith(numbers("262", 100));
+    stoerung("feed_nicht_erreichbar");
+    expect((await courseStatus(WS)).state).toBe("rot");
+    expect((await run(0)).state).toBe("gruen");
+  });
+
+  test("NAK-3: eine gültige Liste wird durch einen gescheiterten Lauf nicht sofort Rot", async () => {
+    workspaceWith(numbers("262", 100));
+    setInventory({
+      created: iso(NOW - 2 * HOUR),
+      run: {
+        at: iso(NOW - HOUR),
+        result: "nicht_geschrieben",
+        cause: "feed_nicht_erreichbar",
+      },
+    });
+    expect(await courseStatus(WS)).toMatchObject({
+      state: "gruen",
+      listApplied: true,
+    });
+  });
+});

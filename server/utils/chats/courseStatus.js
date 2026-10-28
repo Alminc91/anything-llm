@@ -29,6 +29,20 @@
 // sie ab. Ausgeblendete Kurse (hidden, counts.hidden) liefert er nur, solange
 // der Chat die Kursliste anwendet, sonst [] und 0: dann blendet der Chat
 // nichts aus (Fixliste r7 Nr. 1).
+//
+// Störungsmeldung ohne Liste (KB-9, issues/P-kursbestand/
+// KB-9-rot-ohne-erste-liste.md, Nutzer 28.10.2026: „ist ja größte
+// Alarmstufe bei so etwas!“): Hat der Abgleich noch nie eine Liste
+// geliefert, ist das sofort Rot mit dem Grund „alter“, ohne die
+// Altersschwellen abzuwarten. Überschrift und Zeile nach der Ursache des
+// Laufs wie beim Alter („nicht_abrufbar“ bei feed_nicht_erreichbar, sonst
+// „nicht_aktualisiert“), syncedAt ist created, also der Zeitpunkt der ersten
+// Störung („seit …“). Zahlen 0 statt null, damit Entwickler-API, Statusmail
+// und Tagesbericht den Workspace weiter listen (sie überspringen ihn ohne
+// counts); die Seite zeigt ohne Kurse keine Kennzahlen. Listen leer,
+// listApplied false, notice null: Der Chat hat nie eine Liste angewendet,
+// der Satz „Bis zum nächsten erfolgreichen Abgleich blendet der KI-Berater
+// keine Kurse aus.“ beschriebe eine Änderung, die es nicht gibt.
 
 const { courseInventoryDetails } = require("./courseInventory");
 
@@ -125,6 +139,33 @@ const notSetUp = () => ({
 });
 
 /**
+ * KB-9: Störungsmeldung ohne Liste, Rot mit dem Grund „alter“ (siehe
+ * Kopfkommentar).
+ * @param {object} inventory - Laufzeitform aus courseInventoryRecord
+ * @returns {object}
+ */
+function noList(inventory) {
+  const lastRun = lastRunOf(inventory);
+  // nur die Zeile zum Alter, nach der Ursache des Laufs
+  const lines = detailsOf(0, STATES.indexOf("rot"), lastRun);
+  return {
+    state: "rot",
+    headline: lines[0],
+    details: lines,
+    reasons: ["alter"],
+    counts: { offered: 0, count: 0, missing: 0, hidden: 0 },
+    missingPercent: 0,
+    missing: [],
+    hidden: [],
+    lastRun,
+    syncedAt: inventory.stand,
+    listApplied: false,
+    notice: null,
+    estimatedEnd: inventory.estimatedEnd,
+  };
+}
+
+/**
  * Bewertung des Kursbestands eines Workspace (AK-1, AK-2): Zustand,
  * Überschrift und Zeilen der Meldung (Vertrag r4), Gründe für Gelb oder Rot
  * („fehlen“, „alter“; beide, wenn beides zutrifft), Zahlen mit dem Anteil
@@ -145,6 +186,7 @@ async function courseStatus(
   const details = await courseInventoryDetails(workspace, { now, lists });
   if (!details) return notSetUp();
   const { inventory, counts } = details;
+  if (inventory.offered.size === 0) return noList(inventory);
   const missing = Math.max(0, counts.offered - counts.count);
   const byMissing = missingLevel(missing, counts.offered);
   const byAge = ageLevel(now - inventory.createdMs);

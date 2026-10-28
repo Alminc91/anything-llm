@@ -84,17 +84,22 @@ export default function CourseStatusView({ embeds, lastActivity = null }) {
           </p>
         )}
         {/* Nicht eingerichtet: kein Grundsatz, er widerspräche der Meldung
-            (Fixliste r4 Nr. 8) */}
+            (Fixliste r4 Nr. 8). KB-9: Ohne Kurse (der Abgleich hat noch
+            nie eine Liste geliefert) gab es keinen erfolgreichen Abgleich,
+            syncedAt ist dann die erste Störung und steht nur im Satz
+            „seit …“ der Meldung */}
         {status && status.state !== "nicht_eingerichtet" && (
           <>
             <p data-course-principle="" className={`text-sm ${MUTED}`}>
               {t("course-status.principle")}
             </p>
-            <p data-course-last-sync="" className={`text-sm ${MUTED}`}>
-              {t("course-status.last-sync", {
-                time: formatRunTime(t, status.syncedAt),
-              })}
-            </p>
+            {hasCourses(status) && (
+              <p data-course-last-sync="" className={`text-sm ${MUTED}`}>
+                {t("course-status.last-sync", {
+                  time: formatRunTime(t, status.syncedAt),
+                })}
+              </p>
+            )}
           </>
         )}
       </div>
@@ -144,6 +149,14 @@ function listFormat(language) {
   }
 }
 
+/**
+ * KB-9: Gibt es Kurse im Kursprogramm? Nein bei der Störungsmeldung ohne
+ * Liste (der Abgleich hat noch nie eine Liste geliefert, counts 0).
+ */
+function hasCourses(status) {
+  return (status?.counts?.offered ?? 0) > 0;
+}
+
 function StatusBody({ status }) {
   const { t } = useTranslation();
   if (status.state === "nicht_eingerichtet") return <Banner status={status} />;
@@ -153,7 +166,9 @@ function StatusBody({ status }) {
   return (
     <>
       <Banner status={status} />
-      <Counts status={status} />
+      {/* KB-9: ohne Kurse keine leeren Kennzahlen; Listen und Hinweis
+          entfallen ohnehin (counts 0) */}
+      {hasCourses(status) && <Counts status={status} />}
       {(status.counts.missing > 0 || showsHidden) && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {status.counts.missing > 0 && <MissingList status={status} />}
