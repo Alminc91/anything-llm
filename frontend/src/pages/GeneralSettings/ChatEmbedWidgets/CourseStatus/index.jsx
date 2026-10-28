@@ -442,7 +442,21 @@ function HiddenList({ status }) {
         <>
           <span className={MUTED}>{item.knr}</span>
           <span className="min-w-0 break-words">
-            {item.title ?? t("course-status.none")}
+            {/* KB-8: Titel als Link zur Kursseite, nur mit url vom Server
+                (geprüft, nur http/https) */}
+            {item.url ? (
+              <a
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-course-hidden-link=""
+                className="text-sky-300 underline underline-offset-2 hover:no-underline light:text-sky-700"
+              >
+                {item.title ?? t("course-status.none")}
+              </a>
+            ) : (
+              (item.title ?? t("course-status.none"))
+            )}
           </span>
           <span className={`col-start-2 sm:col-start-auto ${MUTED}`}>
             {hiddenWhen(t, item)}

@@ -186,6 +186,35 @@ describe("AK-1: GET /embed/course-status", () => {
     }
   );
 
+  test("KB-8 AK-1: ausgeblendete Kurse mit Kurs-Link (url), ohne gültigen Link null", async () => {
+    seedCourse(workspaceA, "261-1");
+    seedCourse(workspaceA, "261-2");
+    docs["custom-documents/d-261-2.json"].pageContent = courseText(
+      "261-2"
+    ).replace(/https:\/\/\S+/, "javascript:alert(1)");
+    const res = await statusOf(embedA1.id, createUser(prisma, "admin"));
+    expect(res.statusCode).toBe(200);
+    expect(res.body.hidden).toEqual([
+      {
+        knr: "261-1",
+        title: "Kurs 261-1",
+        start: null,
+        duration: null,
+        url: "https://www.vhs-beispiel.de/kurs/261-1",
+      },
+      {
+        knr: "261-2",
+        title: "Kurs 261-2",
+        start: null,
+        duration: null,
+        url: null,
+      },
+    ]);
+    prisma.__seed("api_keys", { secret: "geheim" });
+    const api = await invoke(API, { token: "geheim" });
+    expect(api.body.workspaces[0].hidden).toEqual(res.body.hidden);
+  });
+
   test("default mit Mitgliedschaft im Workspace des Widgets", async () => {
     const user = createUser(prisma, "default", [workspaceA.id]);
     const res = await statusOf(embedA1.id, user);

@@ -351,10 +351,11 @@ function courseNumberFromText(text) {
 /**
  * KB-3: Angaben eines Kursdokuments für die Status-Seite (ausgeblendete
  * Kurse): Kursnummer, Titel und Dauer aus dem Kopfblock wie
- * courseNumberFromText, Beginn aus den Metadaten (start_date); fehlende
- * Angaben null. Kein Kursdokument -> null.
+ * courseNumberFromText, Beginn aus den Metadaten (start_date), Kurs-Link
+ * (KB-8) wie bei den Kurskarten (courseLinkOfBlock, nur http/https);
+ * fehlende Angaben null. Kein Kursdokument -> null.
  * @param {{pageContent?: string, start_date?: string}|null} doc
- * @returns {{knr: string|null, title: string|null, start: string|null, duration: string|null}|null}
+ * @returns {{knr: string|null, title: string|null, start: string|null, duration: string|null, url: string|null}|null}
  */
 function courseDocumentSummary(doc) {
   const block = headerBlock(doc?.pageContent);
@@ -365,7 +366,14 @@ function courseDocumentSummary(doc) {
     start: FIELD_VALIDATORS.start_date(doc.start_date) ?? null,
     duration:
       FIELD_VALIDATORS.sessions(headerLine(block, SESSIONS_HEADER_RX)) ?? null,
+    url: courseLinkOfBlock(block) ?? null,
   };
+}
+
+// Kurs-Link aus einem Kopfblock (headerBlock): Kopfzeile "Kurs-Link:", nur
+// http(s) (httpUrl); eine Quelle für Kurskarten und Status-Seite (KB-8)
+function courseLinkOfBlock(block) {
+  return httpUrl(headerLine(block, COURSE_LINK_HEADER_RX));
 }
 
 // Ist der Kopfblock der des Kursdokuments (erste Zeilen mit "Titel:"/
@@ -398,7 +406,7 @@ function sameHostAndPath(a, b) {
 function chunkCourseHeader(source) {
   const metaUrl = metadataUrl(source?.url);
   const block = headerBlock(source?.text);
-  const headerUrl = httpUrl(headerLine(block, COURSE_LINK_HEADER_RX));
+  const headerUrl = courseLinkOfBlock(block);
   if (!metaUrl) return { url: headerUrl, block };
   if (!headerUrl) return { url: metaUrl, block };
   if (sameHostAndPath(metaUrl, headerUrl)) return { url: headerUrl, block };
@@ -821,7 +829,7 @@ function courseEntryFromDocument(doc) {
   if (!doc || typeof doc !== "object") return null;
   // Kopfzeilen nur aus dem Kopfblock (nie aus "Kursbeschreibung:"-Text)
   const head = headerBlock(doc.pageContent);
-  const url = httpUrl(headerLine(head, COURSE_LINK_HEADER_RX));
+  const url = courseLinkOfBlock(head);
   const title = cleanTitle(headerLine(head, TITLE_HEADER_RX));
   if (!url || !title) return null;
   const {
