@@ -1452,3 +1452,57 @@ test("KB-10 AK-3: Hinweis auf Englisch", { skip }, async (t) => {
     OFF_WEBSITE_EN
   );
 });
+
+// KB-10 r1 (fixliste-kb10-r1.md, Browserbericht L2): Bricht der Hinweis am
+// Handy auf zwei Zeilen um, steht das Symbol an der ersten Zeile, nicht
+// mittig zwischen beiden.
+test(
+  "KB-10 r1: Info-Symbol im Hinweis oben an der ersten Textzeile",
+  { skip },
+  async (t) => {
+    const { container } = await open(t, offWebsiteAnswer());
+    const list = find(container, "data-course-list", "hidden");
+    const notice = find(list, "data-course-off-website");
+    const classes = notice.getAttribute("class").split(/\s+/);
+    assert.ok(classes.includes("items-start"), notice.getAttribute("class"));
+    assert.ok(!classes.includes("items-center"), notice.getAttribute("class"));
+    const [icon] = elements(notice, (el) => el.tagName.toLowerCase() === "svg");
+    // Zeilenhöhe 13 px × 1,5 = 19,5 px, Symbol 16 px: 2 px nach unten
+    assert.ok(
+      icon.getAttribute("class").split(/\s+/).includes("mt-0.5"),
+      icon.getAttribute("class")
+    );
+  }
+);
+
+// KB-10 r1 (fixliste-kb10-r1.md, Browserbericht L1 und L3, Mockup Variante
+// D): Am Handy ist die Kursnummernspalte 82 px breit mit 10 px Abstand,
+// damit der Titel nicht gequetscht wird; ab sm wie bisher 110 px und 12 px.
+// Im hellen Design ist die Trennlinie sichtbar (Mockup #f0f1f3), dunkel
+// unverändert. Gilt für beide Listen.
+test(
+  "KB-10 r1: Zeilen beider Listen am Handy mit schmaler Kursnummernspalte und hell sichtbarer Trennlinie",
+  { skip },
+  async (t) => {
+    const { container } = await open(t, offWebsiteAnswer());
+    for (const name of ["missing", "hidden"]) {
+      const list = find(container, "data-course-list", name);
+      const listRows = rows(list);
+      assert.ok(listRows.length > 0, name);
+      for (const row of listRows) {
+        const classes = row.getAttribute("class").split(/\s+/);
+        for (const expected of [
+          "grid-cols-[82px_minmax(0,1fr)]",
+          "gap-x-2.5",
+          "sm:grid-cols-[110px_minmax(0,1fr)_auto]",
+          "sm:gap-x-3",
+          "border-white/5",
+          "light:border-gray-100",
+        ])
+          assert.ok(classes.includes(expected), `${name}: ${expected}`);
+        assert.ok(!classes.includes("grid-cols-[110px_minmax(0,1fr)]"), name);
+        assert.ok(!classes.includes("gap-x-3"), name);
+      }
+    }
+  }
+);
