@@ -2118,6 +2118,36 @@ const TRANSLATIONS = {
       "show-less": "Weniger anzeigen",
       truncated: "Angezeigt werden die ersten {{shown}} von {{count}}.",
     },
+    // KB-10 Teil 2: Karte „Benachrichtigung per E-Mail“ (Mockup Tafel 2,
+    // Version 10, wörtlich)
+    notify: {
+      title: "Benachrichtigung per E-Mail",
+      intro:
+        "Wir schreiben Ihnen nur bei einer ernsten Störung und höchstens einmal pro Woche. Kufer wird in jedem Fall informiert und kümmert sich darum.",
+      disruption: {
+        label: "Störung des Kursbestands",
+        description:
+          "Wenn mehr als 10\u00a0% Ihrer Kurse mindestens einen Tag lang im KI-Berater fehlen oder Ihr Kursprogramm seit mehr als 3 Tagen nicht aktualisiert werden konnte. Ist der Kursbestand danach 2 Tage lang wieder in Ordnung, erhalten Sie eine Bestätigung.",
+      },
+      expired: {
+        label: "Abgelaufene Kurse auf Ihrer Website",
+        description:
+          "Wenn mehr als 10\u00a0% der Kurse auf Ihrer Website bereits beendet sind. Verfügbar, sobald wir das Kursende genauer erkennen.",
+      },
+      recipients: "Empfänger",
+      save: "Speichern",
+      saving: "Wird gespeichert …",
+      hint: "Mehrere Adressen mit Komma trennen. Vorbelegt mit Ihrer Kontaktadresse. Ändern können das Administratoren und Manager.",
+      "load-failed":
+        "Die Benachrichtigung konnte nicht geladen werden. Bitte versuchen Sie es später erneut.",
+      saved: "Benachrichtigung gespeichert.",
+      errors: {
+        adresse: "„{{address}}“ ist keine gültige E-Mail-Adresse.",
+        zu_viele: "Bitte geben Sie höchstens {{max}} Empfänger an.",
+        ungueltig: "Die Angaben sind ungültig.",
+        fehler: "Die Benachrichtigung konnte nicht gespeichert werden.",
+      },
+    },
   },
 };
 

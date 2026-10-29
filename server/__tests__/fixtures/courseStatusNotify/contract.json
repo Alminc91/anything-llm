@@ -1,0 +1,8 @@
+{
+  "contacts": {"version": 1, "emails": ["kontakt@vhs-beispiel.de", "leitung@vhs-beispiel.de"], "at": "2026-10-29T12:00:00.000Z"},
+  "notifyOwn": {"version": 1, "enabled": true, "recipients": ["kursbestand@vhs-beispiel.de"], "updatedAt": "2026-10-29T12:05:00.000Z"},
+  "notifyOff": {"version": 1, "enabled": false, "recipients": null, "updatedAt": "2026-10-29T12:06:00.000Z"},
+  "v1NotifyDefault": {"enabled": true, "recipients": ["kontakt@vhs-beispiel.de", "leitung@vhs-beispiel.de"]},
+  "v1NotifyOwn": {"enabled": true, "recipients": ["kursbestand@vhs-beispiel.de"]},
+  "v1NotifyOff": {"enabled": false, "recipients": ["kontakt@vhs-beispiel.de", "leitung@vhs-beispiel.de"]}
+}

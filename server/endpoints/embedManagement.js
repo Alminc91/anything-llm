@@ -26,6 +26,14 @@ const {
   courseMenuState,
 } = require("../utils/chats/courseStatus");
 const {
+  NOTIFY_LABEL,
+  courseStatusNotifyState,
+  readContacts,
+  parseNotifyInput,
+  notifySettingValue,
+} = require("../utils/chats/courseStatusNotify");
+const { SystemSettings } = require("../models/systemSettings");
+const {
   berlinMidnight,
   berlinDayOf,
 } = require("../utils/helpers/billingWindow");
@@ -631,6 +639,99 @@ function embedManagementEndpoints(app) {
       } catch (e) {
         console.error("embeds/course-status error:", loggableError(e));
         response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // KB-10 Teil 2, AK-T2-1: Benachrichtigung per E-Mail bei einer Störung
+  // des Kursbestands (Karte auf der Seite „Kursbestand“). Die Einstellung
+  // gilt für die Instanz (ein Kunde je Instanz, SystemSettings). Lesen:
+  // admin, manager und default; ein Default-User nur, wenn er mindestens
+  // ein Widget sieht (sonst erreicht er die Seite nicht), sonst 404.
+  // canEdit sagt der Seite, ob sie speichern darf (admin, manager, ohne
+  // Mehrbenutzermodus). Die Kontaktadressen gehören dem Kunden dieser
+  // Instanz; ins Protokoll kommen nie Adressen (loggableError).
+  // Rollen, die die Benachrichtigung speichern dürfen: eine Liste für den
+  // POST (maßgeblich) und für canEdit im GET (ohne Mehrbenutzermodus ist
+  // user null, dann darf jeder angemeldete Nutzer speichern)
+  const COURSE_STATUS_NOTIFY_EDIT_ROLES = [ROLES.admin, ROLES.manager];
+  const canEditCourseStatusNotify = (user) =>
+    !user || COURSE_STATUS_NOTIFY_EDIT_ROLES.includes(user.role);
+
+  app.get(
+    "/embeds/course-status/notify",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.default]),
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const embedIds = await visibleEmbedIds(user);
+        if (embedIds !== null && embedIds.length === 0) {
+          response.sendStatus(404).end();
+          return;
+        }
+        const state = await courseStatusNotifyState();
+        response
+          .status(200)
+          .json({ ...state, canEdit: canEditCourseStatusNotify(user) });
+      } catch (e) {
+        console.error("embeds/course-status/notify error:", loggableError(e));
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  // KB-10 Teil 2, AK-T2-1: Einstellung speichern, nur admin und manager
+  // (ohne Mehrbenutzermodus jeder angemeldete Nutzer). Rumpf {enabled:
+  // boolean, recipients: string[]|null}; geprüft nach Vertrag
+  // (parseNotifyInput), Fehler 400 mit deutscher Meldung, Code und bei
+  // zu_viele der Höchstzahl max für die Übersetzung der Seite. Antwort wie
+  // GET; Eintrag course_status_notify_updated im Ereignisprotokoll.
+  app.post(
+    "/embeds/course-status/notify",
+    [validatedRequest, flexUserRoleValid(COURSE_STATUS_NOTIFY_EDIT_ROLES)],
+    async (request, response) => {
+      try {
+        let body = null;
+        try {
+          body = reqBody(request);
+        } catch {
+          // kein JSON: parseNotifyInput meldet „ungültig“
+        }
+        const contacts = await readContacts();
+        const { value, error } = parseNotifyInput(body, contacts);
+        if (error) {
+          response.status(400).json({
+            success: false,
+            code: error.code,
+            address: error.address ?? null,
+            max: error.max ?? null,
+            error: error.message,
+          });
+          return;
+        }
+        const { success } = await SystemSettings._updateSettings({
+          [NOTIFY_LABEL]: notifySettingValue(value),
+        });
+        if (!success) throw new Error("Einstellung nicht gespeichert");
+        // Nachvollziehbar, wer wann geändert hat; ohne Adressen
+        const user = await userFromSession(request, response);
+        await EventLogs.logEvent(
+          "course_status_notify_updated",
+          { enabled: value.enabled, ownRecipients: value.recipients !== null },
+          user?.id
+        );
+        const state = await courseStatusNotifyState();
+        response.status(200).json({ success: true, ...state, canEdit: true });
+      } catch (e) {
+        console.error("embeds/course-status/notify error:", loggableError(e));
+        response.status(500).json({
+          success: false,
+          code: "fehler",
+          error: "Die Benachrichtigung konnte nicht gespeichert werden.",
+        });
       }
     }
   );

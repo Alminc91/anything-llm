@@ -19,6 +19,10 @@ const {
 const {
   validateCourseInventorySetting,
 } = require("../utils/chats/courseInventory");
+const {
+  validateCourseStatusContactsSetting,
+  validateCourseStatusNotifySetting,
+} = require("../utils/chats/courseStatusNotify");
 
 function isNullOrNaN(value) {
   if (value === null) return true;
@@ -278,6 +282,18 @@ const SystemSettings = {
     // abgelehnt und der alte Wert bleibt. Gelesen nur von
     // utils/chats/courseInventory.js.
     kufer_course_inventory: (update) => validateCourseInventorySetting(update),
+    // KB-10 Teil 2: Kontaktadressen des Kunden für die Benachrichtigung
+    // (JSON, version 1, höchstens 10 Adressen), wie der Kursbestand nur
+    // über _updateSettings (Pipeline, docker exec), nicht über HTTP: das
+    // Label steht bewusst nicht in supportedFields. Leer -> null; ungültig
+    // -> Fehler, der alte Wert bleibt. utils/chats/courseStatusNotify.js.
+    kufer_course_status_contacts: (update) =>
+      validateCourseStatusContactsSetting(update),
+    // KB-10 Teil 2: Einstellung der Benachrichtigung (JSON, version 1),
+    // geschrieben nur vom Server über POST /embeds/course-status/notify
+    // (Rollen admin und manager), ebenfalls nicht in supportedFields.
+    kufer_course_status_notify: (update) =>
+      validateCourseStatusNotifySetting(update),
     // Global default vector search mode. Invalid values coerce to "default".
     vector_search_default: (update) => {
       const validModes = ["default", "rerank", "hybrid", "hybrid_rerank"];

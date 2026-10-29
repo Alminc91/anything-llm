@@ -275,6 +275,13 @@ function createFakePrisma() {
         Object.assign(row, data);
         return { ...row };
       },
+      // KB-10 Teil 2: SystemSettings._updateSettings schreibt per upsert
+      upsert: async ({ where, update, create }) => {
+        const [row] = find(where);
+        if (!row) return { ...insert(table, create) };
+        Object.assign(row, update);
+        return { ...row };
+      },
       delete: async ({ where }) => {
         const row = one(where);
         rowsOf(table).splice(rowsOf(table).indexOf(row), 1);

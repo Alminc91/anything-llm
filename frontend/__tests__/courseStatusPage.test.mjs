@@ -914,21 +914,33 @@ test("Fehler beim Laden: Hinweis statt leerer Seite", { skip }, async (t) => {
   );
 });
 
+// KB-10 Teil 2: ausgenommen ist die Karte „Benachrichtigung per E-Mail“
+// (courseStatusNotify.test.mjs)
+const outsideNotifyCard = (el) => {
+  for (let node = el; node; node = node.parentNode)
+    if (node.hasAttribute?.("data-course-notify")) return false;
+  return true;
+};
+
 test(
-  "NAK-3: nur lesend: keine Eingabefelder, Buttons nur zum Aufklappen und für die Widget-Auswahl",
+  "NAK-3: nur lesend: keine Eingabefelder, Buttons nur zum Aufklappen und für die Widget-Auswahl (außer der Karte Benachrichtigung)",
   { skip },
   async (t) => {
     const { container } = await open(t, answer());
     assert.deepEqual(
-      elements(container, (el) =>
-        ["INPUT", "SELECT", "TEXTAREA", "FORM"].includes(el.tagName)
+      elements(
+        container,
+        (el) =>
+          ["INPUT", "SELECT", "TEXTAREA", "FORM"].includes(el.tagName) &&
+          outsideNotifyCard(el)
       ),
       []
     );
     assert.deepEqual(
-      elements(container, (el) => el.tagName === "BUTTON").map(
-        (el) => el.getAttribute("aria-haspopup") ?? el.textContent
-      ),
+      elements(
+        container,
+        (el) => el.tagName === "BUTTON" && outsideNotifyCard(el)
+      ).map((el) => el.getAttribute("aria-haspopup") ?? el.textContent),
       ["listbox", "Alle 52 anzeigen"]
     );
   }
