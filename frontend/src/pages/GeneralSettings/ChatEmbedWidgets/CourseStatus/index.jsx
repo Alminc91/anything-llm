@@ -477,6 +477,19 @@ function HiddenList({ status }) {
           <span className={`col-start-2 sm:col-start-auto ${MUTED}`}>
             {hiddenWhen(t, item)}
           </span>
+          {/* KB-10 (Mockup Tafel 1, Variante D): Beginnt der Kurs heute
+              oder später, ist er nicht beendet, steht aber nicht mehr auf
+              der Website. Eigene Zeile über alle Spalten; ob, sagt der
+              Server (offWebsite), die Seite rechnet nicht selbst */}
+          {item.offWebsite === true && (
+            <p
+              data-course-off-website=""
+              className="col-span-full mt-1 flex items-center gap-1.5 text-[13px] font-semibold leading-normal text-amber-300 light:text-amber-800"
+            >
+              <Info aria-hidden="true" className="h-4 w-4 flex-none" />
+              <span>{t("course-status.hidden.off-website")}</span>
+            </p>
+          )}
         </>
       )}
     />

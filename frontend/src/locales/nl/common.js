@@ -1951,6 +1951,7 @@ const TRANSLATIONS = {
       title: null,
       description: null,
       from: null,
+      "off-website": null,
     },
     list: {
       "show-all": null,

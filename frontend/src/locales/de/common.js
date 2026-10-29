@@ -2111,6 +2111,7 @@ const TRANSLATIONS = {
       description:
         "Diese Kurse sind beendet oder stehen nicht mehr im Kursprogramm. Der KI-Berater nennt sie nicht.",
       from: "ab {{date}}",
+      "off-website": "Dieser Kurs ist auf der Website nicht mehr verfügbar.",
     },
     list: {
       "show-all": "Alle {{count}} anzeigen",

@@ -74,6 +74,13 @@ const TITLE_HEADER_RX = /^Titel:[ \t]*(.+)$/m;
 const SESSIONS_HEADER_RX = /^Dauer:[ \t]*(.+)$/m;
 const VENUE_HEADER_RX = /^Kursort:[ \t]*(.+)$/m;
 const COURSE_NUMBER_HEADER_RX = /^Kursnummer:[ \t]*(.+)$/m;
+// KB-10: Kopfzeile "Beginn:" des Extraktors (format_date_de), z. B.
+// "Di. 15.09.2026, 10:00 Uhr", ggf. mit angehängtem Startvermerk
+// "— Bereits gestartet, Einstieg möglich", oder nur "15.09.2026". Das Datum
+// steht vorn, höchstens nach dem Wochentag; andere Formen zählen nicht.
+const START_HEADER_RX = /^Beginn:[ \t]*(.+)$/m;
+const START_HEADER_DATE_RX =
+  /^(?:[A-Za-zÄÖÜäöü]{2,3}\.?,?[ \t]+)?(\d{1,2})\.(\d{1,2})\.(\d{4})(?!\d)/;
 // Ende des Kopfblocks: ab "Kursbeschreibung:" folgt Freitext, ebenso nach
 // der ersten Leerzeile (der Extraktor trennt Kopf und Beschreibung so).
 const DESCRIPTION_HEADER_RX = /^Kursbeschreibung:/m;
@@ -348,10 +355,28 @@ function courseNumberFromText(text) {
   return headerLine(block, COURSE_NUMBER_HEADER_RX) || undefined;
 }
 
+// KB-10: Beginn aus der Kopfzeile "Beginn:" eines Kopfblocks (headerBlock)
+// als ISO-Tag "YYYY-MM-DD"; ohne Zeile, mit anderer Form oder ungültigem
+// Kalendertag (31.02.) undefined.
+function startFromHeader(block) {
+  const m = START_HEADER_DATE_RX.exec(headerLine(block, START_HEADER_RX) ?? "");
+  if (!m) return undefined;
+  const [day, month, year] = [m[1], m[2], m[3]].map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  )
+    return undefined;
+  return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+}
+
 /**
  * KB-3: Angaben eines Kursdokuments für die Status-Seite (ausgeblendete
  * Kurse): Kursnummer, Titel und Dauer aus dem Kopfblock wie
- * courseNumberFromText, Beginn aus den Metadaten (start_date), Kurs-Link
+ * courseNumberFromText, Beginn aus den Metadaten (start_date), ohne gültige
+ * Metadate aus der Kopfzeile "Beginn:" (KB-10, startFromHeader), Kurs-Link
  * (KB-8) wie bei den Kurskarten (courseLinkOfBlock, nur http/https);
  * fehlende Angaben null. Kein Kursdokument -> null.
  * @param {{pageContent?: string, start_date?: string}|null} doc
@@ -363,7 +388,10 @@ function courseDocumentSummary(doc) {
   return {
     knr: headerLine(block, COURSE_NUMBER_HEADER_RX) || null,
     title: FIELD_VALIDATORS.title(headerLine(block, TITLE_HEADER_RX)) ?? null,
-    start: FIELD_VALIDATORS.start_date(doc.start_date) ?? null,
+    start:
+      FIELD_VALIDATORS.start_date(doc.start_date) ??
+      startFromHeader(block) ??
+      null,
     duration:
       FIELD_VALIDATORS.sessions(headerLine(block, SESSIONS_HEADER_RX)) ?? null,
     url: courseLinkOfBlock(block) ?? null,

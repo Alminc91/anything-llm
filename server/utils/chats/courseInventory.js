@@ -97,6 +97,7 @@ const {
   courseNumberFromText,
   courseDocumentSummary,
 } = require("./embedCourseSources");
+const { berlinDayOf } = require("../helpers/billingWindow");
 
 const COURSE_INVENTORY_LABEL = "kufer_course_inventory";
 // Vertrag: höchstens 512 KiB (UTF-8)
@@ -924,7 +925,8 @@ async function readHiddenEntries(index) {
  * nicht eingelernte Kurse mit Titel aus der Kursliste (ohne Titel null);
  * hidden: eingelernte Kurse außerhalb der Kursliste mit Titel, Beginn,
  * Dauer und Kurs-Link (url, KB-8, nur http/https, sonst null) aus ihrem
- * Kursdokument. null ohne gültigen Wert oder in einem anderen Workspace als
+ * Kursdokument, dazu offWebsite (KB-10): true, wenn der Beginn heute oder
+ * später liegt (Berliner Kalendertag von now), sonst false. null ohne gültigen Wert oder in einem anderen Workspace als
  * dem der Kursliste (nicht eingerichtet). Störungsmeldung ohne Liste
  * (KB-9): ohne Index (es gibt nichts zu vergleichen), Zahlen 0, Listen
  * leer. lists false: ohne Listen (Ampel, Menüpunkt). Nur lesend. Wirft bei
@@ -933,7 +935,7 @@ async function readHiddenEntries(index) {
  * erscheint (Fixliste r2 Nr. 6).
  * @param {{slug?: string}|null} workspace
  * @param {{now?: number, lists?: boolean}} [options]
- * @returns {Promise<{inventory: object, listApplied: boolean, counts: {count: number, offered: number, hidden: number}, missing?: Array<{knr: string, title: string|null}>, hidden?: Array<{knr: string, title: string|null, start: string|null, duration: string|null, url: string|null}>}|null>}
+ * @returns {Promise<{inventory: object, listApplied: boolean, counts: {count: number, offered: number, hidden: number}, missing?: Array<{knr: string, title: string|null}>, hidden?: Array<{knr: string, title: string|null, start: string|null, duration: string|null, url: string|null, offWebsite: boolean}>}|null>}
  */
 async function courseInventoryDetails(
   workspace,
@@ -964,13 +966,25 @@ async function courseInventoryDetails(
   }
   if (!hiddenEntries.has(index))
     hiddenEntries.set(index, readHiddenEntries(index));
+  const today = berlinDayOf(now);
   return {
     inventory,
     listApplied,
     counts: index.counts,
     missing,
-    hidden: await hiddenEntries.get(index),
+    hidden: (await hiddenEntries.get(index)).map((entry) => ({
+      ...entry,
+      offWebsite: isUpcoming(entry.start, today),
+    })),
   };
+}
+
+// KB-10: Beginnt der Kurs heute oder später (Berliner Kalendertag, die
+// zentrale Zeitzone des Servers)? Dann ist er nicht beendet, sondern steht
+// nicht mehr auf der Website. Ohne Beginn false. Gerechnet je Abruf, nicht
+// im Zwischenspeicher der Einträge, damit der Tageswechsel sofort zählt.
+function isUpcoming(start, today) {
+  return typeof start === "string" && start >= today;
 }
 
 /**

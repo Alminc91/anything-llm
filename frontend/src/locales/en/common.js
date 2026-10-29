@@ -2096,6 +2096,7 @@ const TRANSLATIONS = {
       description:
         "These courses have ended or are no longer in the course program. The AI advisor does not mention them.",
       from: "from {{date}}",
+      "off-website": "This course is no longer available on the website.",
     },
     list: {
       "show-all": "Show all {{count}}",

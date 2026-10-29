@@ -201,6 +201,7 @@ describe("AK-1: GET /embed/course-status", () => {
         start: null,
         duration: null,
         url: "https://www.vhs-beispiel.de/kurs/261-1",
+        offWebsite: false,
       },
       {
         knr: "261-2",
@@ -208,6 +209,7 @@ describe("AK-1: GET /embed/course-status", () => {
         start: null,
         duration: null,
         url: null,
+        offWebsite: false,
       },
     ]);
     prisma.__seed("api_keys", { secret: "geheim" });

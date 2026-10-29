@@ -76,8 +76,15 @@ function answer(overrides = {}) {
             title: "Yoga am Morgen",
             start: "2026-09-02",
             duration: "6 Termine",
+            offWebsite: false,
           },
-          { knr: "261-8", title: "Excel", start: null, duration: null },
+          {
+            knr: "261-8",
+            title: "Excel",
+            start: null,
+            duration: null,
+            offWebsite: false,
+          },
         ]
       : [],
     lastRun: { at: new Date().toISOString(), result: "ok", cause: null },
@@ -1353,3 +1360,95 @@ test(
     assert.equal(links(failed.container)[1], "Kursbestand");
   }
 );
+
+// KB-10 (issues/P-kursbestand/KB-10-hinweis-und-benachrichtigung.md, AK-3,
+// Mockup Tafel 1 Variante D): Bei offWebsite vom Server steht unter der
+// Zeile über alle Spalten ein dekoratives Info-Symbol und der Satz; die
+// Seite rechnet nicht selbst (ohne offWebsite kein Hinweis, auch bei
+// künftigem Beginn). Kursnummer, Titel mit Link und Termin bleiben.
+const OFF_WEBSITE = "Dieser Kurs ist auf der Website nicht mehr verfügbar.";
+const OFF_WEBSITE_EN = "This course is no longer available on the website.";
+
+function offWebsiteAnswer() {
+  return answer({
+    counts: { offered: 864, count: 812, missing: 52, hidden: 3 },
+    hidden: [
+      {
+        knr: "26H44002",
+        title: "Sprachenberatung",
+        start: "2025-09-15",
+        duration: "1 Termin",
+        url: "https://www.vhs-beispiel.de/kurs/26H44002",
+        offWebsite: false,
+      },
+      {
+        knr: "26H13006",
+        title: "Grill dich schlau",
+        start: "2099-11-02",
+        duration: "1 Termin",
+        url: "https://www.vhs-beispiel.de/kurs/26H13006",
+        offWebsite: true,
+      },
+      // künftiger Beginn ohne offWebsite (älterer Server): kein Hinweis
+      {
+        knr: "26H24228",
+        title: "Bessere Fotos",
+        start: "2099-11-03",
+        duration: "1 Termin",
+        url: null,
+      },
+    ],
+  });
+}
+
+test(
+  "KB-10 AK-3: Hinweis „nicht mehr auf der Website“ als eigene Zeile über alle Spalten, nur bei offWebsite",
+  { skip },
+  async (t) => {
+    const { container } = await open(t, offWebsiteAnswer());
+    const list = find(container, "data-course-list", "hidden");
+    const [past, upcoming, legacy] = rows(list);
+    assert.equal(
+      past.textContent,
+      "26H44002Sprachenberatung15.09.2025, 1 Termin"
+    );
+    assert.equal(find(past, "data-course-off-website"), undefined);
+    assert.equal(find(legacy, "data-course-off-website"), undefined);
+    assert.ok(!legacy.textContent.includes(OFF_WEBSITE));
+
+    assert.equal(
+      upcoming.textContent,
+      `26H13006Grill dich schlau02.11.2099, 1 Termin${OFF_WEBSITE}`
+    );
+    const notice = find(upcoming, "data-course-off-website");
+    assert.equal(notice.textContent, OFF_WEBSITE);
+    // letzte Zelle der Zeile, über alle Spalten (Handy 2, ab sm 3)
+    assert.equal(notice.parentNode, upcoming);
+    assert.equal(upcoming.lastChild, notice);
+    const classes = notice.getAttribute("class").split(/\s+/);
+    assert.ok(classes.includes("col-span-full"), notice.getAttribute("class"));
+    // lesbar hell und dunkel (Bernstein wie im Mockup, #92400e auf Weiß)
+    assert.ok(classes.includes("text-amber-300"));
+    assert.ok(classes.includes("light:text-amber-800"));
+    const icons = elements(notice, (el) => el.tagName.toLowerCase() === "svg");
+    assert.equal(icons.length, 1);
+    assert.equal(icons[0].getAttribute("aria-hidden"), "true");
+    // Titel bleibt der Link zur Kursseite (KB-8)
+    assert.equal(
+      find(upcoming, "data-course-hidden-link").getAttribute("href"),
+      "https://www.vhs-beispiel.de/kurs/26H13006"
+    );
+  }
+);
+
+test("KB-10 AK-3: Hinweis auf Englisch", { skip }, async (t) => {
+  const { default: i18next } = await import("i18next");
+  await i18next.changeLanguage("en");
+  t.after(() => i18next.changeLanguage("de"));
+  const { container } = await open(t, offWebsiteAnswer());
+  const list = find(container, "data-course-list", "hidden");
+  assert.equal(
+    find(list, "data-course-off-website").textContent,
+    OFF_WEBSITE_EN
+  );
+});
