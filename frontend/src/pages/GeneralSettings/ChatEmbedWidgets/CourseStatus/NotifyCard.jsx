@@ -287,50 +287,57 @@ export default function NotifyCard({ notify }) {
             </label>
           </div>
 
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex min-w-0 flex-[1_1_360px] flex-col gap-1.5">
-              <label htmlFor={inputId} className="text-sm font-semibold">
-                {t("course-status.notify.recipients")}
-              </label>
-              {/* Mehrzeilig (Fixliste r1 Nr. 13): Enter macht eine neue
-                  Zeile, gespeichert wird nur über den Button */}
-              <textarea
-                ref={fieldRef}
-                id={inputId}
-                rows={2}
-                inputMode="email"
-                autoComplete="off"
-                spellCheck={false}
-                maxLength={2000}
-                data-course-notify-recipients=""
-                aria-invalid={fieldError ? "true" : undefined}
-                aria-describedby={fieldError ? `${errorId} ${hintId}` : hintId}
-                value={text}
-                readOnly={readOnly}
-                onChange={(event) => setText(event.target.value)}
-                className={FIELD}
-              />
-              {fieldError && (
-                <p
-                  id={errorId}
-                  data-course-notify-field-error=""
-                  className={FIELD_ERROR}
+          {/* Fehlerzeile unter der Zeile mit Feld und Button, damit
+              „Speichern“ auch im Fehlerfall neben dem Feld steht (Fixliste
+              r2 Nr. 3) */}
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor={inputId} className="text-sm font-semibold">
+              {t("course-status.notify.recipients")}
+            </label>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-0 flex-[1_1_360px]">
+                {/* Mehrzeilig (Fixliste r1 Nr. 13): Enter macht eine neue
+                    Zeile, gespeichert wird nur über den Button */}
+                <textarea
+                  ref={fieldRef}
+                  id={inputId}
+                  rows={2}
+                  inputMode="email"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={2000}
+                  data-course-notify-recipients=""
+                  aria-invalid={fieldError ? "true" : undefined}
+                  aria-describedby={
+                    fieldError ? `${errorId} ${hintId}` : hintId
+                  }
+                  value={text}
+                  readOnly={readOnly}
+                  onChange={(event) => setText(event.target.value)}
+                  className={FIELD}
+                />
+              </div>
+              {!readOnly && (
+                <button
+                  type="submit"
+                  data-course-notify-save=""
+                  disabled={saving}
+                  className={SAVE_BUTTON}
                 >
-                  {fieldError}
-                </p>
+                  {saving
+                    ? t("course-status.notify.saving")
+                    : t("course-status.notify.save")}
+                </button>
               )}
             </div>
-            {!readOnly && (
-              <button
-                type="submit"
-                data-course-notify-save=""
-                disabled={saving}
-                className={SAVE_BUTTON}
+            {fieldError && (
+              <p
+                id={errorId}
+                data-course-notify-field-error=""
+                className={FIELD_ERROR}
               >
-                {saving
-                  ? t("course-status.notify.saving")
-                  : t("course-status.notify.save")}
-              </button>
+                {fieldError}
+              </p>
             )}
           </div>
           <p

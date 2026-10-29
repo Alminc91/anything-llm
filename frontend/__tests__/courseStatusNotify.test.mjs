@@ -163,6 +163,10 @@ const byTag = (root, tag) => elements(root, (el) => el.tagName === tag);
 const checkboxes = (root) =>
   byTag(root, "INPUT").filter((el) => el.getAttribute("type") === "checkbox");
 const field = (root) => find(root, "data-course-notify-recipients");
+const contains = (root, node) => {
+  for (let at = node; at; at = at.parentNode) if (at === root) return true;
+  return false;
+};
 const submit = (act, root) =>
   act(() =>
     handlersOf(byTag(root, "FORM")[0]).onSubmit({ preventDefault() {} })
@@ -357,6 +361,15 @@ test(
               .split(" ")
               .includes(atField.getAttribute("id"))
           );
+          // Fixliste r2 Nr. 3: die Fehlerzeile steht unter der Zeile mit
+          // Feld und Button, nicht darin; sonst rutscht „Speichern“ wegen
+          // items-end auf die Höhe der Fehlerzeile
+          const row = find(
+            card(container),
+            "data-course-notify-save"
+          ).parentNode;
+          assert.ok(contains(row, input), "Feld und Button in einer Zeile");
+          assert.ok(!contains(row, atField), "Fehlerzeile unter der Zeile");
           // verschwindet beim nächsten Tippen
           await act(() =>
             handlersOf(input).onChange({ target: { value: `${before} ` } })
