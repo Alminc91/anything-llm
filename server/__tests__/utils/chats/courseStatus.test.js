@@ -15,6 +15,9 @@ jest.mock("../../../utils/prisma", () => ({
 const prisma = require("../../../utils/prisma");
 const inventoryModule = require("../../../utils/chats/courseInventory");
 const statusModule = require("../../../utils/chats/courseStatus");
+const {
+  courseDocumentSummary,
+} = require("../../../utils/chats/embedCourseSources");
 
 const {
   courseInventoryStatus,
@@ -741,6 +744,7 @@ describe("Listen (AK-1)", () => {
         start: "2026-09-02",
         duration: "6 Termine",
         url: "https://www.vhs-beispiel.de/kurs/261-ALT",
+        offWebsite: false,
       },
     ]);
     expect(status.counts).toEqual({
@@ -761,7 +765,14 @@ describe("Listen (AK-1)", () => {
     const status = await courseStatus(WS);
     expect(status.missing).toEqual([{ knr: "262-2", title: null }]);
     expect(status.hidden).toEqual([
-      { knr: "261-9", title: null, start: null, duration: null, url: null },
+      {
+        knr: "261-9",
+        title: null,
+        start: null,
+        duration: null,
+        url: null,
+        offWebsite: false,
+      },
     ]);
   });
 
@@ -838,6 +849,7 @@ describe("KB-8: Kurs-Link der ausgeblendeten Kurse", () => {
         start: null,
         duration: null,
         url,
+        offWebsite: false,
       },
     ]);
   });
@@ -1068,5 +1080,161 @@ describe("KB-9: Störungsmeldung ohne Liste", () => {
       state: "gruen",
       listApplied: true,
     });
+  });
+});
+
+// KB-10 (issues/P-kursbestand/KB-10-hinweis-und-benachrichtigung.md, Teil 1):
+// Beginn ohne Metadate start_date aus der Kopfzeile „Beginn:“ des Kopfblocks
+// (AK-1, NAK-3) und offWebsite je ausgeblendetem Kurs, wenn sein Beginn
+// heute oder später liegt, heute nach Berliner Kalendertag (AK-2, NAK-1).
+describe("KB-10: Beginn aus der Kopfzeile und Hinweis „nicht mehr auf der Website“", () => {
+  const docWith = (beginLine, extra = {}) => ({
+    pageContent: [
+      "Titel: Sprachenberatung",
+      "Kursnummer: 26H44002",
+      "Kursstatus: Plätze frei",
+      ...(beginLine === null ? [] : [beginLine]),
+      "Dauer: 1 Termin",
+      "Kurs-Link: https://www.vhs-beispiel.de/kurs/26H44002",
+      "",
+      "Kursbeschreibung: Beratung.",
+    ].join("\n"),
+    ...extra,
+  });
+  const startOf = (doc) => courseDocumentSummary(doc).start;
+
+  test.each([
+    [
+      "mit Wochentag und Uhrzeit",
+      "Beginn: Di. 15.09.2026, 10:00 Uhr",
+      "2026-09-15",
+    ],
+    [
+      "mit Startvermerk",
+      "Beginn: Di. 15.09.2026, 10:00 Uhr \u2014 Bereits gestartet, Einstieg möglich",
+      "2026-09-15",
+    ],
+    ["ohne Wochentag", "Beginn: 15.09.2026", "2026-09-15"],
+    ["nur Wochentag und Datum", "Beginn: Mo. 02.11.2026", "2026-11-02"],
+    ["einstellige Angaben", "Beginn: 5.9.2026", "2026-09-05"],
+    ["31.02. ungültig", "Beginn: Di. 31.02.2026", null],
+    ["Monat 13 ungültig", "Beginn: 15.13.2026", null],
+    ["anderer Text", "Beginn: nach Vereinbarung", null],
+    ["Datum nicht vorn", "Beginn: ab Herbst, 15.09.2026", null],
+    ["ohne Zeile", null, null],
+  ])("AK-1: %s", (_name, beginLine, start) => {
+    expect(startOf(docWith(beginLine))).toBe(start);
+  });
+
+  test("AK-1: eine gültige Metadate hat Vorrang, eine ungültige nicht", () => {
+    const line = "Beginn: Di. 15.09.2026, 10:00 Uhr";
+    expect(startOf(docWith(line, { start_date: "2026-09-16" }))).toBe(
+      "2026-09-16"
+    );
+    expect(startOf(docWith(line, { start_date: "15.09.2026" }))).toBe(
+      "2026-09-15"
+    );
+    expect(startOf(docWith(line, { start_date: 20260916 }))).toBe("2026-09-15");
+  });
+
+  test("NAK-3: „Beginn:“ nur im Beschreibungstext zählt nie", () => {
+    const afterBlank = {
+      pageContent: [
+        "Titel: Sprachenberatung",
+        "Kursnummer: 26H44002",
+        "",
+        "Beginn: Di. 15.09.2026, 10:00 Uhr",
+      ].join("\n"),
+    };
+    const afterDescription = {
+      pageContent: [
+        "Titel: Sprachenberatung",
+        "Kursnummer: 26H44002",
+        "Kursbeschreibung: Termine nach Absprache.",
+        "Beginn: Di. 15.09.2026, 10:00 Uhr",
+      ].join("\n"),
+    };
+    expect(startOf(afterBlank)).toBeNull();
+    expect(startOf(afterDescription)).toBeNull();
+  });
+
+  test("AK-1 über die Status-Seite: ausgeblendeter Kurs ohne start_date mit Beginn aus der Kopfzeile", async () => {
+    workspaceWith(["262-1"], {
+      "custom-documents/alt.json": docWith("Beginn: Di. 15.09.2026, 10:00 Uhr"),
+    });
+    setInventory({ offered: ["262-1"] });
+    const status = await courseStatus(WS);
+    expect(status.hidden).toEqual([
+      {
+        knr: "26H44002",
+        title: "Sprachenberatung",
+        start: "2026-09-15",
+        duration: "1 Termin",
+        url: "https://www.vhs-beispiel.de/kurs/26H44002",
+        offWebsite: false,
+      },
+    ]);
+  });
+
+  // NOW = 26.10.2026, 11:00 Uhr in Berlin
+  test.each([
+    ["Beginn heute", { start_date: "2026-10-26" }, true],
+    ["Beginn morgen", { start_date: "2026-10-27" }, true],
+    [
+      "Beginn aus der Kopfzeile später",
+      { line: "Beginn: Mo. 02.11.2026" },
+      true,
+    ],
+    ["NAK-1: Beginn gestern", { start_date: "2026-10-25" }, false],
+    [
+      "NAK-1: Beginn aus der Kopfzeile vorbei",
+      { line: "Beginn: 15.09.2026" },
+      false,
+    ],
+    ["ohne Beginn", {}, false],
+  ])("AK-2: %s", async (_name, { start_date, line = null }, offWebsite) => {
+    workspaceWith(["262-1"], {
+      "custom-documents/alt.json": docWith(
+        line,
+        start_date ? { start_date } : {}
+      ),
+    });
+    setInventory({ offered: ["262-1"] });
+    const status = await courseStatus(WS);
+    expect(status.hidden).toHaveLength(1);
+    expect(status.hidden[0].offWebsite).toBe(offWebsite);
+  });
+
+  test("AK-2: heute nach Berliner Kalendertag, der Tageswechsel zählt ohne neues Lesen", async () => {
+    workspaceWith(["262-1"], {
+      "custom-documents/alt.json": docWith(null, { start_date: "2026-10-26" }),
+    });
+    setInventory({ offered: ["262-1"] });
+    // 26.10., 23:50 Uhr in Berlin (UTC 22:50): noch heute
+    clock.now = Date.parse("2026-10-26T22:50:00.000Z");
+    expect((await courseStatus(WS)).hidden[0].offWebsite).toBe(true);
+    // 27.10., 00:10 Uhr in Berlin (UTC 23:10, in UTC noch der 26.): gestern
+    clock.now = Date.parse("2026-10-26T23:10:00.000Z");
+    expect((await courseStatus(WS)).hidden[0].offWebsite).toBe(false);
+    expect(readDocument).toHaveBeenCalledTimes(1);
+  });
+
+  test("NAK-2: fehlende Kurse und Zahlen ohne offWebsite, ohne Kursliste-Anwendung keine Einträge", async () => {
+    workspaceWith(["262-1"], {
+      "custom-documents/alt.json": docWith(null, { start_date: "2026-10-27" }),
+    });
+    setInventory({ offered: ["262-1", "262-2"] });
+    const status = await courseStatus(WS);
+    expect(status.missing).toEqual([{ knr: "262-2", title: null }]);
+    expect(status.counts).toEqual({
+      offered: 2,
+      count: 1,
+      missing: 1,
+      hidden: 1,
+    });
+    const counts = await courseInventoryStatus(WS);
+    expect(Object.keys(counts).sort()).toEqual(
+      ["count", "hidden", "offered", "stand"].sort()
+    );
   });
 });

@@ -376,9 +376,13 @@ function CourseList({ name, heading, total, items, renderRow }) {
       </div>
       <ul>
         {shown.map((item, i) => (
+          // KB-10 r1 (Mockup Variante D): am Handy Kursnummer 82 px und
+          // 10 px Abstand, damit der Titel Platz hat (längste Kursnummern
+          // wie „I600015-D“ etwa 74 px); ab sm unverändert. Trennlinie im
+          // hellen Design hellgrau wie im Mockup, dunkel unverändert
           <li
             key={`${item.knr}-${i}`}
-            className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 border-b border-white/5 px-4 py-2 text-sm sm:grid-cols-[110px_minmax(0,1fr)_auto]"
+            className="grid grid-cols-[82px_minmax(0,1fr)] gap-x-2.5 border-b border-white/5 px-4 py-2 text-sm light:border-gray-100 sm:grid-cols-[110px_minmax(0,1fr)_auto] sm:gap-x-3"
           >
             {renderRow(item)}
           </li>
@@ -477,6 +481,21 @@ function HiddenList({ status }) {
           <span className={`col-start-2 sm:col-start-auto ${MUTED}`}>
             {hiddenWhen(t, item)}
           </span>
+          {/* KB-10 (Mockup Tafel 1, Variante D): Beginnt der Kurs heute
+              oder später, ist er nicht beendet, steht aber nicht mehr auf
+              der Website. Eigene Zeile über alle Spalten; ob, sagt der
+              Server (offWebsite), die Seite rechnet nicht selbst */}
+          {item.offWebsite === true && (
+            <p
+              data-course-off-website=""
+              className="col-span-full mt-1 flex items-start gap-1.5 text-[13px] font-semibold leading-normal text-amber-300 light:text-amber-800"
+            >
+              {/* r1: Symbol an der ersten Textzeile (Zeilenhöhe 19,5 px,
+                  Symbol 16 px), auch wenn der Satz am Handy umbricht */}
+              <Info aria-hidden="true" className="mt-0.5 h-4 w-4 flex-none" />
+              <span>{t("course-status.hidden.off-website")}</span>
+            </p>
+          )}
         </>
       )}
     />
