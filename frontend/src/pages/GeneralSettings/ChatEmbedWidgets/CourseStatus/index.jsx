@@ -15,6 +15,7 @@ import {
 } from "@/utils/courseStatus";
 import { ELEMENT_MARK, withElement } from "@/utils/withElement";
 import { WidgetPicker, useWidgetSelection } from "../WidgetSelection";
+import NotifyCard from "./NotifyCard";
 
 // Seite „Status“ (KB-3, Mockup Tafel 3, Ampel nach Nutzerentscheidung vom
 // 26.10.2026): ob der KI-Berater das Kursprogramm vollständig kennt, und wenn
@@ -26,6 +27,8 @@ import { WidgetPicker, useWidgetSelection } from "../WidgetSelection";
 // hat außer der Widget-Auswahl, dem Aufklappen der Listen und dem Mail-Link
 // keine Bedienelemente (NAK-3). Kopf, Grundsatz, Liste „Ausgeblendete Kurse“
 // und Hinweis unten nach Fixliste r8; die Karte „Abgleich“ ist entfallen.
+// KB-10 Teil 2: Einzige Ausnahme ist die Karte „Benachrichtigung per
+// E-Mail“ (NotifyCard.jsx) mit Schalter, Empfängern und „Speichern“.
 
 // So viele Einträge je Liste, bevor „Alle … anzeigen“ aufklappt
 const LIST_PREVIEW = 5;
@@ -176,6 +179,10 @@ function StatusBody({ status }) {
           {showsHidden && <HiddenList status={status} />}
         </div>
       )}
+      {/* KB-10 Teil 2: Benachrichtigung per E-Mail unten, vor der
+          Fußnote; nur, wenn der Kursbestand eingerichtet ist (oben
+          zurückgekehrt) */}
+      <NotifyCard />
       {/* Fixliste r8 Nr. 5: dezente Zeile ganz unten */}
       {showsOptimizationNotice(status) && (
         <p

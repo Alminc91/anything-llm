@@ -4,6 +4,9 @@ const { validApiKey } = require("../../../utils/middleware/validApiKey");
 const { reqBody } = require("../../../utils/http");
 const { Workspace } = require("../../../models/workspace");
 const { courseStatus } = require("../../../utils/chats/courseStatus");
+const {
+  courseStatusNotifyContract,
+} = require("../../../utils/chats/courseStatusNotify");
 const prisma = require("../../../utils/prisma");
 
 function apiEmbedEndpoints(app) {
@@ -411,17 +414,20 @@ function apiEmbedEndpoints(app) {
   // workspace, Fixliste r5), wenn er ein Widget hat, für den Versand der
   // Benachrichtigung (KB-5). Dieselbe Bewertung wie die Status-Seite
   // (courseStatus); alle anderen Workspaces fehlen. Nur Zustand, Zahlen,
-  // Listen und Lauf, keine weiteren Kursdaten.
+  // Listen und Lauf, keine weiteren Kursdaten. KB-10 Teil 2 (AK-T2-4):
+  // oben dazu notify mit den wirksamen Empfängern der Benachrichtigung
+  // (courseStatusNotify.js); die Pipeline rechnet sie nicht selbst.
   app.get("/v1/course-status", [validApiKey], async (_request, response) => {
     /*
       #swagger.tags = ['Embed']
-      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). headline is the heading of the message (aktuell, unvollstaendig, nicht_aktualisiert, nicht_abrufbar), details its lines in display order (unvollstaendig, nicht_aktualisiert, nicht_abrufbar; empty for gruen). missingPercent is the share of missing courses in whole percent, rounded down. listApplied is true while the chat applies the course list (hides courses); only then hidden and counts.hidden list the hidden courses, otherwise they are empty and 0. notice is liste_nicht_angewendet if the state is gelb or rot and listApplied is false, otherwise null. syncedAt is the last successful synchronization (created of the course list), lastRun the last run. hidden.url is the course page on the website (http or https) or null. hidden.start is the start date (YYYY-MM-DD) from the metadata start_date, otherwise from the header line Beginn of the course document, or null. hidden.offWebsite is true if the start is today or later (calendar day in Europe/Berlin): the course has not ended but is no longer on the website; otherwise false, also without a start. missing and hidden list at most 500 courses each, the totals are in counts. A course list without courses (the synchronization has never delivered one, KB-9) is rot with headline nicht_abrufbar or nicht_aktualisiert, all counts 0, empty lists and notice null; syncedAt is then the first failed run. Only the workspace named in the course list (field workspace) is rated, and only if it has at least one widget; all other workspaces are not listed. A read error answers 500.'
+      #swagger.description = 'Course inventory status per workspace with a course list (Kufer). state is gruen, gelb or rot; reasons lists why it is not gruen (fehlen, alter). headline is the heading of the message (aktuell, unvollstaendig, nicht_aktualisiert, nicht_abrufbar), details its lines in display order (unvollstaendig, nicht_aktualisiert, nicht_abrufbar; empty for gruen). missingPercent is the share of missing courses in whole percent, rounded down. listApplied is true while the chat applies the course list (hides courses); only then hidden and counts.hidden list the hidden courses, otherwise they are empty and 0. notice is liste_nicht_angewendet if the state is gelb or rot and listApplied is false, otherwise null. syncedAt is the last successful synchronization (created of the course list), lastRun the last run. hidden.url is the course page on the website (http or https) or null. hidden.start is the start date (YYYY-MM-DD) from the metadata start_date, otherwise from the header line Beginn of the course document, or null. hidden.offWebsite is true if the start is today or later (calendar day in Europe/Berlin): the course has not ended but is no longer on the website; otherwise false, also without a start. missing and hidden list at most 500 courses each, the totals are in counts. A course list without courses (the synchronization has never delivered one, KB-9) is rot with headline nicht_abrufbar or nicht_aktualisiert, all counts 0, empty lists and notice null; syncedAt is then the first failed run. Only the workspace named in the course list (field workspace) is rated, and only if it has at least one widget; all other workspaces are not listed. A read error answers 500. notify (KB-10) is the e-mail notification of the instance: enabled (default true) and recipients, the effective recipients (the own recipients set on the status page, otherwise the contact addresses of the customer, otherwise empty); recipients are listed even if enabled is false.'
       #swagger.responses[200] = {
         content: {
           "application/json": {
             schema: {
               type: 'object',
               example: {
+                notify: { "enabled": true, "recipients": ["kontakt@vhs-beispiel.de"] },
                 workspaces: [
                   {
                     "slug": "vhs-beispiel",
@@ -478,7 +484,8 @@ function apiEmbedEndpoints(app) {
           ...status,
         });
       }
-      response.status(200).json({ workspaces: result });
+      const notify = await courseStatusNotifyContract();
+      response.status(200).json({ notify, workspaces: result });
     } catch (e) {
       console.error(e.message, e);
       response.sendStatus(500).end();

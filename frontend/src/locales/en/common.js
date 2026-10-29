@@ -2103,6 +2103,34 @@ const TRANSLATIONS = {
       "show-less": "Show less",
       truncated: "Showing the first {{shown}} of {{count}}.",
     },
+    notify: {
+      title: "Email notification",
+      intro:
+        "We only write to you in case of a serious disruption and at most once a week. Kufer is informed in any case and takes care of it.",
+      disruption: {
+        label: "Course inventory disruption",
+        description:
+          "If more than 10 % of your courses are missing from the AI advisor for at least one day or your course program could not be updated for more than 3 days. Once the course inventory has been in order again for 2 days, you will receive a confirmation.",
+      },
+      expired: {
+        label: "Expired courses on your website",
+        description:
+          "If more than 10 % of the courses on your website have already ended. Available as soon as we can detect the end of a course more accurately.",
+      },
+      recipients: "Recipients",
+      save: "Save",
+      saving: "Saving …",
+      hint: "Separate multiple addresses with commas. Prefilled with your contact address. Administrators and managers can change this.",
+      "load-failed":
+        "The notification settings could not be loaded. Please try again later.",
+      saved: "Notification saved.",
+      errors: {
+        adresse: "“{{address}}” is not a valid email address.",
+        zu_viele: "Please enter at most 5 recipients.",
+        ungueltig: "The entries are invalid.",
+        fehler: "The notification could not be saved.",
+      },
+    },
   },
 };
 

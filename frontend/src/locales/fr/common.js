@@ -1957,6 +1957,30 @@ const TRANSLATIONS = {
       "show-less": null,
       truncated: null,
     },
+    notify: {
+      title: null,
+      intro: null,
+      disruption: {
+        label: null,
+        description: null,
+      },
+      expired: {
+        label: null,
+        description: null,
+      },
+      recipients: null,
+      save: null,
+      saving: null,
+      hint: null,
+      "load-failed": null,
+      saved: null,
+      errors: {
+        adresse: null,
+        zu_viele: null,
+        ungueltig: null,
+        fehler: null,
+      },
+    },
   },
 };
 

@@ -137,6 +137,50 @@ const Embed = {
         return null;
       });
   },
+  /**
+   * KB-10 Teil 2: Benachrichtigung per E-Mail (Einstellung der Instanz).
+   * @returns {Promise<{enabled: boolean, recipients: string[]|null, contacts: string[], effective: string[], canEdit: boolean}|null>}
+   *   null bei einem Fehler
+   */
+  courseStatusNotify: async () => {
+    return await fetch(`${API_BASE}/embeds/course-status/notify`, {
+      method: "GET",
+      headers: baseHeaders(),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch((e) => {
+        console.error(e);
+        return null;
+      });
+  },
+  /**
+   * KB-10 Teil 2: Benachrichtigung speichern (admin, manager).
+   * @param {{enabled: boolean, recipients: string[]}} settings
+   * @returns {Promise<object>} Antwort des Servers; bei einem Fehler
+   *   success false mit code (adresse, zu_viele, ungueltig, fehler) und
+   *   der deutschen Meldung error
+   */
+  saveCourseStatusNotify: async (settings) => {
+    return await fetch(`${API_BASE}/embeds/course-status/notify`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify(settings),
+    })
+      .then(async (res) => {
+        const body = await res.json().catch(() => null);
+        if (res.ok && body?.success === true) return body;
+        return {
+          success: false,
+          code: typeof body?.code === "string" ? body.code : "fehler",
+          address: typeof body?.address === "string" ? body.address : null,
+          error: typeof body?.error === "string" ? body.error : null,
+        };
+      })
+      .catch((e) => {
+        console.error(e);
+        return { success: false, code: "fehler", address: null, error: null };
+      });
+  },
   newEmbed: async (data) => {
     return await fetch(`${API_BASE}/embeds/new`, {
       method: "POST",
