@@ -2127,12 +2127,12 @@ const TRANSLATIONS = {
       disruption: {
         label: "Störung des Kursbestands",
         description:
-          "Wenn mehr als 10 % Ihrer Kurse mindestens einen Tag lang im KI-Berater fehlen oder Ihr Kursprogramm seit mehr als 3 Tagen nicht aktualisiert werden konnte. Ist der Kursbestand danach 2 Tage lang wieder in Ordnung, erhalten Sie eine Bestätigung.",
+          "Wenn mehr als 10\u00a0% Ihrer Kurse mindestens einen Tag lang im KI-Berater fehlen oder Ihr Kursprogramm seit mehr als 3 Tagen nicht aktualisiert werden konnte. Ist der Kursbestand danach 2 Tage lang wieder in Ordnung, erhalten Sie eine Bestätigung.",
       },
       expired: {
         label: "Abgelaufene Kurse auf Ihrer Website",
         description:
-          "Wenn mehr als 10 % der Kurse auf Ihrer Website bereits beendet sind. Verfügbar, sobald wir das Kursende genauer erkennen.",
+          "Wenn mehr als 10\u00a0% der Kurse auf Ihrer Website bereits beendet sind. Verfügbar, sobald wir das Kursende genauer erkennen.",
       },
       recipients: "Empfänger",
       save: "Speichern",
@@ -2143,7 +2143,7 @@ const TRANSLATIONS = {
       saved: "Benachrichtigung gespeichert.",
       errors: {
         adresse: "„{{address}}“ ist keine gültige E-Mail-Adresse.",
-        zu_viele: "Bitte geben Sie höchstens 5 Empfänger an.",
+        zu_viele: "Bitte geben Sie höchstens {{max}} Empfänger an.",
         ungueltig: "Die Angaben sind ungültig.",
         fehler: "Die Benachrichtigung konnte nicht gespeichert werden.",
       },

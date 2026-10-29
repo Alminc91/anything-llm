@@ -237,7 +237,7 @@ async function courseStatusNotifyContract() {
  * Pipeline sie später ändert).
  * @param {*} body
  * @param {string[]} contacts
- * @returns {{value: {enabled: boolean, recipients: string[]|null}}|{error: {code: string, message: string, address?: string}}}
+ * @returns {{value: {enabled: boolean, recipients: string[]|null}}|{error: {code: string, message: string, address?: string, max?: number}}}
  */
 function parseNotifyInput(body, contacts) {
   const invalid = {
@@ -255,23 +255,22 @@ function parseNotifyInput(body, contacts) {
 
   const recipients = [];
   for (const entry of input) {
-    if (typeof entry !== "string" || entry.length > EMAIL_MAX_LEN + 50)
-      return typeof entry === "string" ? invalidAddress(entry) : invalid;
+    if (typeof entry !== "string") return invalid;
     const address = entry.trim().toLowerCase();
     if (address.length === 0) continue;
     if (!isValidEmail(address)) return invalidAddress(entry);
     if (!recipients.includes(address)) recipients.push(address);
   }
-  if (recipients.length > RECIPIENTS_MAX) return tooMany();
+  // Vor der Grenze für eigene Empfänger: Kontaktadressen dürfen bis zu
+  // CONTACTS_MAX sein, die Karte belegt das Feld mit allen vor; wer nur den
+  // Schalter umlegt, schickt sie unverändert zurück
   const sameAsContacts =
     recipients.length === contacts.length &&
     recipients.every((address) => contacts.includes(address));
-  return {
-    value: {
-      enabled: body.enabled,
-      recipients: recipients.length === 0 || sameAsContacts ? null : recipients,
-    },
-  };
+  if (recipients.length === 0 || sameAsContacts)
+    return { value: { enabled: body.enabled, recipients: null } };
+  if (recipients.length > RECIPIENTS_MAX) return tooMany();
+  return { value: { enabled: body.enabled, recipients } };
 }
 
 function invalidAddress(entry) {
@@ -290,6 +289,8 @@ function tooMany() {
     error: {
       code: "zu_viele",
       message: `Bitte geben Sie höchstens ${RECIPIENTS_MAX} Empfänger an.`,
+      // für den Text der Seite ({{max}}), damit er der Grenze folgt
+      max: RECIPIENTS_MAX,
     },
   };
 }
@@ -317,12 +318,9 @@ function notifySettingValue({ enabled, recipients }, now = Date.now()) {
 module.exports = {
   CONTACTS_LABEL,
   NOTIFY_LABEL,
-  RECIPIENTS_MAX,
-  CONTACTS_MAX,
   validateCourseStatusContactsSetting,
   validateCourseStatusNotifySetting,
   readContacts,
-  readNotify,
   effectiveRecipients,
   courseStatusNotifyState,
   courseStatusNotifyContract,

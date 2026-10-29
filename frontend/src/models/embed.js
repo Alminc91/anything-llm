@@ -157,8 +157,8 @@ const Embed = {
    * KB-10 Teil 2: Benachrichtigung speichern (admin, manager).
    * @param {{enabled: boolean, recipients: string[]}} settings
    * @returns {Promise<object>} Antwort des Servers; bei einem Fehler
-   *   success false mit code (adresse, zu_viele, ungueltig, fehler) und
-   *   der deutschen Meldung error
+   *   success false mit code (adresse, zu_viele, ungueltig, fehler),
+   *   address (bei adresse) und max (bei zu_viele)
    */
   saveCourseStatusNotify: async (settings) => {
     return await fetch(`${API_BASE}/embeds/course-status/notify`, {
@@ -173,12 +173,12 @@ const Embed = {
           success: false,
           code: typeof body?.code === "string" ? body.code : "fehler",
           address: typeof body?.address === "string" ? body.address : null,
-          error: typeof body?.error === "string" ? body.error : null,
+          max: Number.isInteger(body?.max) ? body.max : null,
         };
       })
       .catch((e) => {
         console.error(e);
-        return { success: false, code: "fehler", address: null, error: null };
+        return { success: false, code: "fehler", address: null, max: null };
       });
   },
   newEmbed: async (data) => {

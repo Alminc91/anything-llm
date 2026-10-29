@@ -651,6 +651,13 @@ function embedManagementEndpoints(app) {
   // canEdit sagt der Seite, ob sie speichern darf (admin, manager, ohne
   // Mehrbenutzermodus). Die Kontaktadressen gehören dem Kunden dieser
   // Instanz; ins Protokoll kommen nie Adressen (loggableError).
+  // Rollen, die die Benachrichtigung speichern dürfen: eine Liste für den
+  // POST (maßgeblich) und für canEdit im GET (ohne Mehrbenutzermodus ist
+  // user null, dann darf jeder angemeldete Nutzer speichern)
+  const COURSE_STATUS_NOTIFY_EDIT_ROLES = [ROLES.admin, ROLES.manager];
+  const canEditCourseStatusNotify = (user) =>
+    !user || COURSE_STATUS_NOTIFY_EDIT_ROLES.includes(user.role);
+
   app.get(
     "/embeds/course-status/notify",
     [
@@ -668,7 +675,7 @@ function embedManagementEndpoints(app) {
         const state = await courseStatusNotifyState();
         response
           .status(200)
-          .json({ ...state, canEdit: user?.role !== ROLES.default });
+          .json({ ...state, canEdit: canEditCourseStatusNotify(user) });
       } catch (e) {
         console.error("embeds/course-status/notify error:", loggableError(e));
         response.sendStatus(500).end();
@@ -679,11 +686,12 @@ function embedManagementEndpoints(app) {
   // KB-10 Teil 2, AK-T2-1: Einstellung speichern, nur admin und manager
   // (ohne Mehrbenutzermodus jeder angemeldete Nutzer). Rumpf {enabled:
   // boolean, recipients: string[]|null}; geprüft nach Vertrag
-  // (parseNotifyInput), Fehler 400 mit deutscher Meldung und Code für die
-  // Übersetzung der Seite. Antwort wie GET.
+  // (parseNotifyInput), Fehler 400 mit deutscher Meldung, Code und bei
+  // zu_viele der Höchstzahl max für die Übersetzung der Seite. Antwort wie
+  // GET; Eintrag course_status_notify_updated im Ereignisprotokoll.
   app.post(
     "/embeds/course-status/notify",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid(COURSE_STATUS_NOTIFY_EDIT_ROLES)],
     async (request, response) => {
       try {
         let body = null;
@@ -699,6 +707,7 @@ function embedManagementEndpoints(app) {
             success: false,
             code: error.code,
             address: error.address ?? null,
+            max: error.max ?? null,
             error: error.message,
           });
           return;
@@ -707,6 +716,13 @@ function embedManagementEndpoints(app) {
           [NOTIFY_LABEL]: notifySettingValue(value),
         });
         if (!success) throw new Error("Einstellung nicht gespeichert");
+        // Nachvollziehbar, wer wann geändert hat; ohne Adressen
+        const user = await userFromSession(request, response);
+        await EventLogs.logEvent(
+          "course_status_notify_updated",
+          { enabled: value.enabled, ownRecipients: value.recipients !== null },
+          user?.id
+        );
         const state = await courseStatusNotifyState();
         response.status(200).json({ success: true, ...state, canEdit: true });
       } catch (e) {

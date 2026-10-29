@@ -2110,12 +2110,12 @@ const TRANSLATIONS = {
       disruption: {
         label: "Course inventory disruption",
         description:
-          "If more than 10 % of your courses are missing from the AI advisor for at least one day or your course program could not be updated for more than 3 days. Once the course inventory has been in order again for 2 days, you will receive a confirmation.",
+          "If more than 10\u00a0% of your courses are missing from the AI advisor for at least one day or your course program could not be updated for more than 3 days. Once the course inventory has been in order again for 2 days, you will receive a confirmation.",
       },
       expired: {
         label: "Expired courses on your website",
         description:
-          "If more than 10 % of the courses on your website have already ended. Available as soon as we can detect the end of a course more accurately.",
+          "If more than 10\u00a0% of the courses on your website have already ended. Available as soon as we can detect the end of a course more accurately.",
       },
       recipients: "Recipients",
       save: "Save",
@@ -2126,7 +2126,7 @@ const TRANSLATIONS = {
       saved: "Notification saved.",
       errors: {
         adresse: "“{{address}}” is not a valid email address.",
-        zu_viele: "Please enter at most 5 recipients.",
+        zu_viele: "Please enter at most {{max}} recipients.",
         ungueltig: "The entries are invalid.",
         fehler: "The notification could not be saved.",
       },

@@ -193,10 +193,27 @@ describe("AK-T2-1: Eingabe der Seite (parseNotifyInput)", () => {
     expect(parse({ enabled: true, recipients: many(6) }).error).toEqual({
       code: "zu_viele",
       message: "Bitte geben Sie höchstens 5 Empfänger an.",
+      max: 5,
     });
     expect(parse({ enabled: true, recipients: many(21) }).error.code).toBe(
       "zu_viele"
     );
+  });
+
+  test("bis zu 10 Kontaktadressen unverändert zurück: null statt zu_viele (Fixliste r1 Nr. 8)", () => {
+    const contacts = many(8);
+    for (const enabled of [true, false])
+      expect(
+        parseNotifyInput(
+          { enabled, recipients: [...contacts].reverse() },
+          contacts
+        )
+      ).toEqual({ value: { enabled, recipients: null } });
+    // eine eigene Liste mit mehr als 5 Adressen bleibt zu viel
+    expect(
+      parseNotifyInput({ enabled: true, recipients: many(6) }, contacts).error
+        .code
+    ).toBe("zu_viele");
   });
 
   test("ungültige Adresse: Code, deutsche Meldung, die Eingabe gekürzt", () => {

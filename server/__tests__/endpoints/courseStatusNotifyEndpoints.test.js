@@ -219,6 +219,47 @@ describe("AK-T2-1: POST /embeds/course-status/notify", () => {
     expect(stored.updatedAt).toBe(new Date(NOW).toISOString());
   });
 
+  test("Ereignisprotokoll: course_status_notify_updated ohne Adressen (Fixliste r1 Nr. 12)", async () => {
+    const { EventLogs } = require("../../models/eventLogs");
+    EventLogs.logEvent.mockClear();
+    const admin = createUser(prisma, "admin");
+    await save(admin, {
+      enabled: true,
+      recipients: ["geheim@vhs-beispiel.de"],
+    });
+    await save(admin, { enabled: false, recipients: [...CONTACTS] });
+    expect(EventLogs.logEvent.mock.calls).toEqual([
+      [
+        "course_status_notify_updated",
+        { enabled: true, ownRecipients: true },
+        admin.id,
+      ],
+      [
+        "course_status_notify_updated",
+        { enabled: false, ownRecipients: false },
+        admin.id,
+      ],
+    ]);
+    expect(JSON.stringify(EventLogs.logEvent.mock.calls)).not.toMatch(/@/);
+    // abgelehnte Eingabe: kein Eintrag
+    EventLogs.logEvent.mockClear();
+    await save(admin, { enabled: true, recipients: ["kaputt"] });
+    expect(EventLogs.logEvent).not.toHaveBeenCalled();
+  });
+
+  test("8 Kontaktadressen: nur den Schalter umlegen speichert (Fixliste r1 Nr. 8)", async () => {
+    const eight = Array.from({ length: 8 }, (_, i) => `k${i}@vhs-beispiel.de`);
+    setting("kufer_course_status_contacts").value = JSON.stringify({
+      ...CONTRACT.contacts,
+      emails: eight,
+    });
+    const admin = createUser(prisma, "admin");
+    const res = await save(admin, { enabled: false, recipients: eight });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.recipients).toBeNull();
+    expect(res.body.effective).toEqual(eight);
+  });
+
   test("Default-User: 401, nichts gespeichert", async () => {
     const user = createUser(prisma, "default", [workspace.id]);
     const res = await save(user, { enabled: false, recipients: null });
@@ -237,6 +278,7 @@ describe("AK-T2-1: POST /embeds/course-status/notify", () => {
       {
         code: "adresse",
         address: "kontakt@vhs-beispiel",
+        max: null,
         error: "„kontakt@vhs-beispiel“ ist keine gültige E-Mail-Adresse.",
       },
     ],
@@ -249,18 +291,29 @@ describe("AK-T2-1: POST /embeds/course-status/notify", () => {
       {
         code: "zu_viele",
         address: null,
+        max: 5,
         error: "Bitte geben Sie höchstens 5 Empfänger an.",
       },
     ],
     [
       "enabled fehlt",
       { recipients: null },
-      { code: "ungueltig", address: null, error: "Die Angaben sind ungültig." },
+      {
+        code: "ungueltig",
+        address: null,
+        max: null,
+        error: "Die Angaben sind ungültig.",
+      },
     ],
     [
       "kein JSON",
       "{kaputt",
-      { code: "ungueltig", address: null, error: "Die Angaben sind ungültig." },
+      {
+        code: "ungueltig",
+        address: null,
+        max: null,
+        error: "Die Angaben sind ungültig.",
+      },
     ],
   ])("400: %s, nichts gespeichert", async (_name, body, expected) => {
     const admin = createUser(prisma, "admin");

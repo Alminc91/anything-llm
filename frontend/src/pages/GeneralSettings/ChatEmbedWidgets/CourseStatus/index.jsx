@@ -15,7 +15,7 @@ import {
 } from "@/utils/courseStatus";
 import { ELEMENT_MARK, withElement } from "@/utils/withElement";
 import { WidgetPicker, useWidgetSelection } from "../WidgetSelection";
-import NotifyCard from "./NotifyCard";
+import NotifyCard, { useCourseStatusNotify } from "./NotifyCard";
 
 // Seite „Status“ (KB-3, Mockup Tafel 3, Ampel nach Nutzerentscheidung vom
 // 26.10.2026): ob der KI-Berater das Kursprogramm vollständig kennt, und wenn
@@ -59,6 +59,12 @@ export default function CourseStatusView({ embeds, lastActivity = null }) {
       ignore = true;
     };
   }, [widgetId, unknownLink]);
+
+  // KB-10 Teil 2: Benachrichtigung einmal je Seite laden, parallel zum
+  // Status (gleich nach ihm angestoßen); sie gilt für die Instanz, nicht je
+  // Widget. Hier gehalten, damit ein Widget-Wechsel die Karte nicht neu
+  // lädt und Eingaben stehen bleiben
+  const notify = useCourseStatusNotify();
 
   const loading = result.widgetId !== widgetId;
   const status = loading ? null : result.status;
@@ -111,7 +117,7 @@ export default function CourseStatusView({ embeds, lastActivity = null }) {
       {loading ? (
         <p className="text-theme-text-primary">{t("common.loading")}</p>
       ) : status ? (
-        <StatusBody status={status} />
+        <StatusBody status={status} notify={notify} />
       ) : (
         <p role="alert" className="text-theme-text-primary">
           {t("course-status.load-failed")}
@@ -161,7 +167,7 @@ function hasCourses(status) {
   return (status?.counts?.offered ?? 0) > 0;
 }
 
-function StatusBody({ status }) {
+function StatusBody({ status, notify }) {
   const { t } = useTranslation();
   if (status.state === "nicht_eingerichtet") return <Banner status={status} />;
   // Ausgeblendet liefert der Server nur, solange der Chat die Kursliste
@@ -182,7 +188,7 @@ function StatusBody({ status }) {
       {/* KB-10 Teil 2: Benachrichtigung per E-Mail unten, vor der
           Fußnote; nur, wenn der Kursbestand eingerichtet ist (oben
           zurückgekehrt) */}
-      <NotifyCard />
+      <NotifyCard notify={notify} />
       {/* Fixliste r8 Nr. 5: dezente Zeile ganz unten */}
       {showsOptimizationNotice(status) && (
         <p

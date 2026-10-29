@@ -264,6 +264,17 @@
   --course-status-nicht_eingerichtet-bg: #1f2225;
   --course-status-nicht_eingerichtet-border: #3a3f44;
   --course-status-nicht_eingerichtet-text: #d0d5da;
+  /* KB-10 Teil 2: Karte „Benachrichtigung per E-Mail“ (Mockup Tafel 2).
+     Akzent für Rahmen, Fokus und Kästchen; Button weiß auf Teal in beiden
+     Designs (5,47:1, Hover 7,58:1); gesperrte Zeile 4,88:1 */
+  --course-notify-accent: #14b8a6;
+  --course-notify-button-bg: #0f766e;
+  --course-notify-button-hover: #115e59;
+  --course-notify-button-text: #ffffff;
+  --course-notify-field-border: rgba(255, 255, 255, 0.2);
+  --course-notify-locked-text: #7c8186;
+  --course-notify-locked-border: #7c8186;
+  --course-notify-locked-bg: #1f2225;
 }
 [data-theme="light"] {
   --course-status-gruen-dot: #1e7f4f;
@@ -282,6 +293,15 @@
   --course-status-nicht_eingerichtet-bg: #f3f4f6;
   --course-status-nicht_eingerichtet-border: #dde2e5;
   --course-status-nicht_eingerichtet-text: #3d454d;
+  /* Gesperrte Zeile 4,83:1, Kästchen-Rand 3,23:1 auf Weiß */
+  --course-notify-accent: #0f766e;
+  --course-notify-button-bg: #0f766e;
+  --course-notify-button-hover: #115e59;
+  --course-notify-button-text: #ffffff;
+  --course-notify-field-border: #d1d5db;
+  --course-notify-locked-text: #6b7280;
+  --course-notify-locked-border: #8a9096;
+  --course-notify-locked-bg: #f3f4f6;
 }
 
 [data-theme="light"] .text-white {
