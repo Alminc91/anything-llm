@@ -5,7 +5,7 @@
 // Zwei SystemSettings:
 //   kufer_course_status_contacts (schreibt nur die Pipeline über
 //     container_setting/_updateSettings, nicht über HTTP: das Label steht
-//     nicht in supportedFields, wie kufer_course_inventory):
+//     nicht in supportedFields, wie die Kursliste des Kursbestands):
 //     {"version":1,"emails":["a@b.de",…],"at":"<ISO>"}
 //     emails = contact_emails[*].email aus Kunden.json, bereinigt,
 //     kleingeschrieben, dedupliziert, höchstens 10, jede gültig. Leere Liste
