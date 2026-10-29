@@ -2082,9 +2082,10 @@ const TRANSLATIONS = {
         "1 von {{offered}} Kursen ist derzeit nicht im KI-Berater verfügbar.",
       missing_other:
         "{{number}} von {{offered}} Kursen sind derzeit nicht im KI-Berater verfügbar.",
-      "not-updated": "Das Kursprogramm wurde seit {{time}} nicht aktualisiert.",
+      "not-updated":
+        "Das Kursprogramm wurde seit {{time}}, nicht aktualisiert.",
       unreachable:
-        "Ihr Kursprogramm konnte seit {{time}} nicht von Ihrer Website abgerufen werden.",
+        "Ihr Kursprogramm konnte seit {{time}}, nicht von Ihrer Website abgerufen werden.",
       closing:
         "Wir kümmern uns darum. Bei Fragen kontaktieren Sie uns unter {{email}}.",
       "closing-unreachable":

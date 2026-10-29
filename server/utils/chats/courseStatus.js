@@ -29,6 +29,22 @@
 // sie ab. Ausgeblendete Kurse (hidden, counts.hidden) liefert er nur, solange
 // der Chat die Kursliste anwendet, sonst [] und 0: dann blendet der Chat
 // nichts aus (Fixliste r7 Nr. 1).
+//
+// Störungsmeldung ohne Liste (KB-9, issues/P-kursbestand/
+// KB-9-rot-ohne-erste-liste.md, Nutzer 28.10.2026: „ist ja größte
+// Alarmstufe bei so etwas!“): Hat der Abgleich noch nie eine Liste
+// geliefert, ist das sofort Rot mit dem Grund „alter“, ohne die
+// Altersschwellen abzuwarten. Überschrift und Zeile nach der Ursache des
+// Laufs wie beim Alter („nicht_abrufbar“ bei feed_nicht_erreichbar, sonst
+// „nicht_aktualisiert“), syncedAt ist created, also der Zeitpunkt der ersten
+// Störung („seit …“). Zahlen 0 statt null, damit Entwickler-API, Statusmail
+// und Tagesbericht den Workspace weiter listen (sie überspringen ihn ohne
+// counts); die Seite zeigt ohne Kurse keine Kennzahlen. Listen leer,
+// listApplied false, notice null: Der Chat hat nie eine Liste angewendet,
+// der Satz „Bis zum nächsten erfolgreichen Abgleich blendet der KI-Berater
+// keine Kurse aus.“ beschriebe eine Änderung, die es nicht gibt. Erkannt
+// wird sie nur am Merkmal noList der Laufzeitform (readCourseInventory),
+// bewertet im selben Pfad wie jede Kursliste (Fixliste KB-9 r1 Nr. 1, 2).
 
 const { courseInventoryDetails } = require("./courseInventory");
 
@@ -131,7 +147,8 @@ const notSetUp = () => ({
  * der fehlenden Kurse, die Listen (je höchstens 500, die Gesamtzahl steht in
  * counts), letzter Lauf, letzter erfolgreicher Abgleich (created), ob der
  * Chat die Kursliste anwendet (ausgeblendete Kurse nur dann, sonst [] und
- * 0), die Hinweiszeile (notice: nur bei Gelb oder Rot und listApplied false)
+ * 0), die Hinweiszeile (notice: nur bei Gelb oder Rot, listApplied false
+ * und mit Kursen)
  * und ob das Ende geschätzt ist. Nur lesend;
  * wirft bei einem Lesefehler.
  * @param {{slug?: string}|null} workspace
@@ -147,7 +164,8 @@ async function courseStatus(
   const { inventory, counts } = details;
   const missing = Math.max(0, counts.offered - counts.count);
   const byMissing = missingLevel(missing, counts.offered);
-  const byAge = ageLevel(now - inventory.createdMs);
+  // KB-9: Störungsmeldung ohne Liste sofort Rot nach dem Alter
+  const byAge = inventory.noList ? 2 : ageLevel(now - inventory.createdMs);
   const level = Math.max(byMissing, byAge);
   const { listApplied } = details;
   const reasons = [];
@@ -173,7 +191,11 @@ async function courseStatus(
     lastRun,
     syncedAt: inventory.stand,
     listApplied,
-    notice: level > 0 && !listApplied ? NOTICE_LIST_NOT_APPLIED : null,
+    // KB-9: ohne Liste hat der Chat nie etwas ausgeblendet
+    notice:
+      level > 0 && !listApplied && !inventory.noList
+        ? NOTICE_LIST_NOT_APPLIED
+        : null,
     estimatedEnd: inventory.estimatedEnd,
   };
 }

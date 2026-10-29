@@ -478,7 +478,9 @@ test(
     );
     assert.match(
       find(container, "data-course-detail", "nicht_aktualisiert").textContent,
-      new RegExp(`^Das Kursprogramm wurde seit ${SINCE} nicht aktualisiert\\.$`)
+      new RegExp(
+        `^Das Kursprogramm wurde seit ${SINCE}, nicht aktualisiert\\.$`
+      )
     );
     assert.equal(
       find(container, "data-course-contact", "standard").textContent,
@@ -509,12 +511,19 @@ test(
       })
     );
     assert.ok(find(container, "data-course-status-banner", "rot"));
+    // Rot mit Liste: Grundsatz und letzter Abgleich bleiben (Fixliste KB-9
+    // r2 Nr. 1 gilt nur ohne Liste)
+    assert.equal(
+      find(container, "data-course-principle").textContent,
+      PRINCIPLE
+    );
+    assert.ok(find(container, "data-course-last-sync"));
     const text = banner(container);
     assert.ok(text.endsWith(`${NOT_APPLIED}${CONTACT}`));
     assert.match(
       text.slice(0, -(NOT_APPLIED.length + CONTACT.length)),
       new RegExp(
-        `^GestörtKursprogramm nicht aktualisiertDas Kursprogramm wurde seit dem \\d\\d\\.\\d\\d\\.(\\d{4})?, \\d\\d:\\d\\d Uhr nicht aktualisiert\\.52 von 864 Kursen sind derzeit nicht im KI-Berater verfügbar\\.$`
+        `^GestörtKursprogramm nicht aktualisiertDas Kursprogramm wurde seit dem \\d\\d\\.\\d\\d\\.(\\d{4})?, \\d\\d:\\d\\d Uhr, nicht aktualisiert\\.52 von 864 Kursen sind derzeit nicht im KI-Berater verfügbar\\.$`
       )
     );
   }
@@ -548,7 +557,7 @@ test(
       assert.match(
         details[0].textContent,
         new RegExp(
-          `^Ihr Kursprogramm konnte seit ${SINCE} nicht von Ihrer Website abgerufen werden\\.$`
+          `^Ihr Kursprogramm konnte seit ${SINCE}, nicht von Ihrer Website abgerufen werden\\.$`
         )
       );
       assert.equal(
@@ -574,6 +583,88 @@ test(
     assert.equal(
       find(container, "data-course-contact", "standard").textContent,
       CONTACT
+    );
+  }
+);
+
+// KB-9: Der Abgleich hat noch nie eine Liste geliefert (Störungsmeldung
+// ohne Liste). Der Server meldet Rot mit Zahlen 0 und leeren Listen; die
+// Seite zeigt nur die Meldung mit den vorhandenen Texten, keine leeren
+// Kennzahlen und keinen „Letzter Abgleich“ (es gab keinen erfolgreichen).
+const noListAnswer = (overrides = {}) =>
+  answer({
+    state: "rot",
+    headline: "nicht_abrufbar",
+    details: ["nicht_abrufbar"],
+    reasons: ["alter"],
+    counts: { offered: 0, count: 0, missing: 0, hidden: 0 },
+    missingPercent: 0,
+    missing: [],
+    hidden: [],
+    listApplied: false,
+    notice: null,
+    syncedAt: ago(3),
+    lastRun: unreachableRun,
+    estimatedEnd: false,
+    ...overrides,
+  });
+
+test(
+  "KB-9 AK-5: Ohne erste Liste Rot „Gestört“ mit Überschrift und Satz „seit …“, ohne Kennzahlen, Listen und letzten Abgleich",
+  { skip },
+  async (t) => {
+    const unreachable = await open(t, noListAnswer());
+    const { container } = unreachable;
+    assert.ok(find(container, "data-course-status-banner", "rot"));
+    assert.equal(level(container), "Gestört");
+    assert.equal(title(container), "Kursprogramm nicht abrufbar");
+    assert.match(
+      banner(container),
+      new RegExp(
+        `^GestörtKursprogramm nicht abrufbarIhr Kursprogramm konnte seit ${SINCE}, nicht von Ihrer Website abgerufen werden\\.`
+      )
+    );
+    assert.ok(banner(container).endsWith(CONTACT_UNREACHABLE));
+    assert.equal(find(container, "data-course-kpi"), undefined);
+    assert.equal(find(container, "data-course-list"), undefined);
+    assert.equal(find(container, "data-course-notice"), undefined);
+    assert.equal(find(container, "data-course-list-not-applied"), undefined);
+    assert.equal(find(container, "data-course-last-sync"), undefined);
+    // Kopf mit Arbeitsbereich, aber ohne Grundsatz: „Alle aktuellen Kurse
+    // … sind im KI-Berater verfügbar“ widerspräche der Störung (Fixliste
+    // KB-9 r2 Nr. 1)
+    assert.equal(find(container, "data-course-principle"), undefined);
+    assert.ok(!unreachable.text.includes("Alle aktuellen Kurse"));
+    assert.ok(find(container, "data-course-status-program"));
+    assert.doesNotMatch(unreachable.text, /[–—]|NaN|undefined/);
+    await unreachable.unmount();
+
+    const notUpdated = await open(
+      t,
+      noListAnswer({
+        headline: "nicht_aktualisiert",
+        details: ["nicht_aktualisiert"],
+        lastRun: {
+          at: new Date().toISOString(),
+          result: "fehler",
+          cause: "einlernen_fehlgeschlagen",
+        },
+      })
+    );
+    assert.equal(
+      title(notUpdated.container),
+      "Kursprogramm nicht aktualisiert"
+    );
+    assert.match(
+      banner(notUpdated.container),
+      new RegExp(
+        `^GestörtKursprogramm nicht aktualisiertDas Kursprogramm wurde seit ${SINCE}, nicht aktualisiert\\.${CONTACT.replace(/\./g, "\\.")}$`
+      )
+    );
+    assert.equal(find(notUpdated.container, "data-course-kpi"), undefined);
+    assert.equal(
+      find(notUpdated.container, "data-course-principle"),
+      undefined
     );
   }
 );
