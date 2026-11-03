@@ -237,8 +237,12 @@ class GenericOpenAiLLM {
     } = {}
   ) {
     // Kufer-Fork: Standard für enable_thinking aus
-    // GENERIC_OPEN_AI_ENABLE_THINKING ergänzen (Aufrufer hat Vorrang).
-    const templateKwargs = withEnableThinkingDefault(chat_template_kwargs);
+    // GENERIC_OPEN_AI_ENABLE_THINKING ergänzen (eigenes enable_thinking oder
+    // reasoning_effort des Aufrufers hat Vorrang).
+    const templateKwargs = withEnableThinkingDefault({
+      reasoning_effort,
+      chat_template_kwargs,
+    });
     const result = await LLMPerformanceMonitor.measureAsyncFunction(
       this.openai.chat.completions
         .create({
@@ -297,7 +301,10 @@ class GenericOpenAiLLM {
     } = {}
   ) {
     // Kufer-Fork: wie getChatCompletion
-    const templateKwargs = withEnableThinkingDefault(chat_template_kwargs);
+    const templateKwargs = withEnableThinkingDefault({
+      reasoning_effort,
+      chat_template_kwargs,
+    });
     const measuredStreamRequest = await LLMPerformanceMonitor.measureStream({
       func: this.openai.chat.completions.create({
         model: this.model,

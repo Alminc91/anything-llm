@@ -5,16 +5,22 @@
  *
  * Erlaubt sind genau `true` und `false` (Groß-/Kleinschreibung und Leerzeichen
  * am Rand egal). Ist die Variable gültig gesetzt, schickt der Provider bei
- * jeder Anfrage `chat_template_kwargs.enable_thinking` mit diesem Wert, auch
- * für Widget, Filter, Suchschritte, Teaser und Folgefragen. Bewusst kein JSON:
- * `dumpENV()` schneidet Werte am ersten Anführungszeichen ab.
+ * jeder Anfrage ohne eigene Thinking-Wahl `chat_template_kwargs.enable_thinking`
+ * mit diesem Wert, auch für Widget, Filter, Suchschritte, Teaser und
+ * Folgefragen. Bewusst kein JSON: `dumpENV()` schneidet Werte am ersten
+ * Anführungszeichen ab.
  *
- * Ohne Variable, leer oder ungültig bleibt der Body wie bisher (kein
- * `chat_template_kwargs`). Ein ungültiger Wert wird höchstens einmal je
- * Prozess gewarnt; der Wert selbst steht nicht im Log.
+ * Der Aufrufer (Entwickler-API) hat Vorrang: Schickt er `reasoning_effort` oder
+ * ein eigenes `chat_template_kwargs.enable_thinking` mit, ergänzt die Variable
+ * nichts und seine `chat_template_kwargs` gehen unverändert in den Body
+ * (Fixliste 8.1-rc2, D7).
  *
- * Bewusst ohne Abhängigkeiten, damit auch `llmRequestOptions.js` den Wert
- * über dieselbe Funktion auswerten kann.
+ * Ohne Variable, leer oder ungültig bleibt der Body wie bisher. Ein ungültiger
+ * Wert wird höchstens einmal je Prozess gewarnt; der Wert selbst steht nicht
+ * im Log.
+ *
+ * Bewusst ohne Abhängigkeiten, damit auch `llmRequestOptions.js` (Trennung des
+ * Reasoning am OpenAI-Endpunkt) dieselbe Regel nutzen kann.
  */
 
 const ENABLE_THINKING_ENV = "GENERIC_OPEN_AI_ENABLE_THINKING";
@@ -22,51 +28,45 @@ const ENABLE_THINKING_ENV = "GENERIC_OPEN_AI_ENABLE_THINKING";
 let warnedInvalidValue = false;
 
 /**
- * Liest und prüft `GENERIC_OPEN_AI_ENABLE_THINKING`. Einzige Stelle, an der
- * der Wert ausgewertet wird.
- * @param {string|undefined} [envValue] - Standard: aktueller Wert der Variablen
+ * Liest und prüft `GENERIC_OPEN_AI_ENABLE_THINKING` (je Anfrage).
  * @returns {boolean|undefined} `true`/`false`; `undefined` = nicht gesetzt,
  *   leer oder ungültig (kein Schalter)
  */
-function envEnableThinking(envValue = process.env[ENABLE_THINKING_ENV]) {
-  if (envValue === undefined || envValue === null) return undefined;
-  const normalized = String(envValue).trim().toLowerCase();
-  if (normalized === "") return undefined;
-  if (normalized === "true") return true;
-  if (normalized === "false") return false;
+function envEnableThinking() {
+  const value = (process.env[ENABLE_THINKING_ENV] ?? "").trim().toLowerCase();
+  if (value === "") return undefined;
+  if (value === "true") return true;
+  if (value === "false") return false;
 
   if (!warnedInvalidValue) {
     warnedInvalidValue = true;
     console.warn(
-      `[GenericOpenAiLLM] ${ENABLE_THINKING_ENV} has an invalid value and is ignored. Allowed values: true or false. Requests are sent without chat_template_kwargs.`
+      `[GenericOpenAiLLM] ${ENABLE_THINKING_ENV} has an invalid value and is ignored. Allowed values: true or false. Until then the variable adds no chat_template_kwargs.`
     );
   }
   return undefined;
 }
 
 /**
- * Führt den Standard aus `GENERIC_OPEN_AI_ENABLE_THINKING` mit den
- * `chat_template_kwargs` des Aufrufers (Entwickler-API) zusammen. Ein
- * `enable_thinking` des Aufrufers hat Vorrang; das Objekt des Aufrufers wird
- * nicht verändert.
- * @param {Object|undefined} callerKwargs - `chat_template_kwargs` der Anfrage
+ * `chat_template_kwargs` für den Provider-Body: die des Aufrufers, bei gültiger
+ * Variable um `enable_thinking` ergänzt. Hat der Aufrufer selbst gewählt
+ * (`reasoning_effort` oder `chat_template_kwargs.enable_thinking` gesetzt),
+ * bleiben seine kwargs unverändert. Das Objekt des Aufrufers wird nie verändert.
+ * @param {{reasoning_effort?: string, chat_template_kwargs?: Object}|null} [requestOptions]
+ *   Anfrage-Optionen, wie sie im Provider-Body landen (`parseLLMRequestOptions`)
  * @returns {Object|undefined} `chat_template_kwargs` für den Body; ohne
- *   gültige Variable genau der Wert des Aufrufers (auch `undefined`)
+ *   Ergänzung genau der Wert des Aufrufers (auch `undefined`)
  */
-function withEnableThinkingDefault(callerKwargs) {
+function withEnableThinkingDefault(requestOptions) {
+  const { reasoning_effort, chat_template_kwargs } = requestOptions ?? {};
   const enableThinking = envEnableThinking();
-  if (enableThinking === undefined) return callerKwargs;
   if (
-    callerKwargs &&
-    Object.prototype.hasOwnProperty.call(callerKwargs, "enable_thinking") &&
-    callerKwargs.enable_thinking !== undefined
+    enableThinking === undefined ||
+    reasoning_effort !== undefined ||
+    chat_template_kwargs?.enable_thinking !== undefined
   )
-    return callerKwargs;
-  return { ...(callerKwargs ?? {}), enable_thinking: enableThinking };
+    return chat_template_kwargs;
+  return { ...chat_template_kwargs, enable_thinking: enableThinking };
 }
 
-module.exports = {
-  ENABLE_THINKING_ENV,
-  envEnableThinking,
-  withEnableThinkingDefault,
-};
+module.exports = { withEnableThinkingDefault };

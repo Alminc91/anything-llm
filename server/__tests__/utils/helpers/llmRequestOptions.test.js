@@ -888,14 +888,42 @@ describe("shouldSeparateReasoning", () => {
         expect(shouldSeparateReasoning({ chat_template_kwargs: {} })).toBe(
           true
         );
-        expect(shouldSeparateReasoning({ reasoning_effort: "none" })).toBe(
-          shouldSeparateReasoning({
-            reasoning_effort: "none",
-            chat_template_kwargs: { enable_thinking: true },
-          })
-        );
+        expect(
+          shouldSeparateReasoning({ chat_template_kwargs: { foo: 1 } })
+        ).toBe(true);
       }
     );
+
+    // Fixliste 8.1-rc2, D7: Mit eigenem reasoning_effort zählt die Variable
+    // nicht, die Trennung folgt allein der Anfrage.
+    test.each([
+      ["true", "none", false],
+      ["true", "low", true],
+      ["false", "high", true],
+      ["false", "none", false],
+    ])(
+      "Variable %j, reasoning_effort %j: Trennung %j wie ohne Variable",
+      (value, reasoningEffort, expected) => {
+        process.env.GENERIC_OPEN_AI_ENABLE_THINKING = value;
+        expect(
+          shouldSeparateReasoning({ reasoning_effort: reasoningEffort })
+        ).toBe(expected);
+        delete process.env.GENERIC_OPEN_AI_ENABLE_THINKING;
+        expect(
+          shouldSeparateReasoning({ reasoning_effort: reasoningEffort })
+        ).toBe(expected);
+      }
+    );
+
+    test("Variable true, reasoning_effort none und eigenes enable_thinking: true", () => {
+      process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "true";
+      expect(
+        shouldSeparateReasoning({
+          reasoning_effort: "none",
+          chat_template_kwargs: { enable_thinking: true },
+        })
+      ).toBe(true);
+    });
 
     test("Variable true: enable_thinking des Aufrufers hat Vorrang", () => {
       process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "true";

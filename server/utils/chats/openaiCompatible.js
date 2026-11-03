@@ -408,8 +408,9 @@ async function streamChat({
   // The chunk is coming in the format from `writeResponseChunk` but in the AnythingLLM
   // response chunk schema, so we here we mutate each chunk.
   const responseInterceptor = new PassThrough({});
-  // Nur wenn der Aufrufer Thinking angefordert hat: <think>-Block
-  // statt in delta.content in delta.reasoning_content ausgeben.
+  // Nur wenn Thinking eingeschaltet ist (vom Aufrufer oder per
+  // GENERIC_OPEN_AI_ENABLE_THINKING=true, siehe shouldSeparateReasoning):
+  // <think>-Block statt in delta.content in delta.reasoning_content ausgeben.
   const reasoningSplitter = shouldSeparateReasoning(llmOptions)
     ? new ThinkBlockSplitter()
     : null;

@@ -353,6 +353,11 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
           "true",
           { chat_template_kwargs: { enable_thinking: false } },
         ],
+        [
+          "Variable true, Aufrufer reasoning_effort: none (D7)",
+          "true",
+          { reasoning_effort: "none" },
+        ],
         ["Variable false ohne Optionen", "false", undefined],
         ["ungültige Variable ohne Optionen", "nein", undefined],
       ])(

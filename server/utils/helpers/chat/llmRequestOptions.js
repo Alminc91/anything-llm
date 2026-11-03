@@ -419,19 +419,17 @@ function sendOpenAIInvalidRequestError(response, { error, param = null }) {
 /**
  * Soll am OpenAI-kompatiblen Endpunkt das Reasoning (`<think>…</think>`) in
  * ein eigenes Feld `reasoning_content` ausgelagert werden?
- * Nur wenn der Aufrufer Thinking tatsächlich angefordert hat
+ * Nur wenn Thinking für die Anfrage eingeschaltet ist: vom Aufrufer
  * (`chat_template_kwargs.enable_thinking === true` oder `reasoning_effort`
- * ≠ `none`). Sonst bleibt die Antwortform exakt wie bisher.
- * `GENERIC_OPEN_AI_ENABLE_THINKING=true` zählt wie `enable_thinking: true`,
- * solange der Aufrufer kein eigenes `enable_thinking` mitschickt (gleiche
- * Zusammenführung wie im Provider-Body).
+ * ≠ `none`) oder per `GENERIC_OPEN_AI_ENABLE_THINKING=true`, solange der
+ * Aufrufer weder `enable_thinking` noch `reasoning_effort` mitschickt (gleiche
+ * Vorrangregel wie im Provider-Body). Sonst bleibt die Antwortform exakt wie
+ * bisher.
  * @param {LLMRequestOptions} [llmRequestOptions]
  * @returns {boolean}
  */
 function shouldSeparateReasoning(llmRequestOptions = {}) {
-  const templateKwargs = withEnableThinkingDefault(
-    llmRequestOptions?.chat_template_kwargs
-  );
+  const templateKwargs = withEnableThinkingDefault(llmRequestOptions);
   if (templateKwargs?.enable_thinking === true) return true;
   const effort = llmRequestOptions?.reasoning_effort;
   return effort !== undefined && effort !== "none";

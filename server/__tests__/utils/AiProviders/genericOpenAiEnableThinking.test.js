@@ -214,7 +214,6 @@ describe("GENERIC_OPEN_AI_ENABLE_THINKING im Body des Generic-OpenAI-Providers",
         temperature: 0.1,
         max_tokens: 4096,
         top_p: 0.9,
-        reasoning_effort: "high",
       });
       expect(sync).toEqual({
         model: "Chat1",
@@ -222,9 +221,52 @@ describe("GENERIC_OPEN_AI_ENABLE_THINKING im Body des Generic-OpenAI-Providers",
         temperature: 0.1,
         max_tokens: 4096,
         top_p: 0.9,
-        reasoning_effort: "high",
         chat_template_kwargs: { enable_thinking: false },
       });
+    });
+  });
+
+  // Fixliste 8.1-rc2, D7: reasoning_effort ist der zweite dokumentierte
+  // Schalter der Entwickler-API; wer ihn schickt, hat selbst gewählt.
+  describe("D7: reasoning_effort des Aufrufers hat Vorrang vor der Variablen", () => {
+    test.each([
+      ["true", "none"],
+      ["false", "high"],
+      ["true", "low"],
+      ["false", "none"],
+    ])(
+      "Variable %j, reasoning_effort %j: Body ohne chat_template_kwargs",
+      async (value, reasoningEffort) => {
+        setThinkingEnv(value);
+        const { sync, stream } = await sentBodies({
+          temperature: 0.3,
+          reasoning_effort: reasoningEffort,
+        });
+        expect(sync).toEqual({
+          ...PLAIN_BODY,
+          reasoning_effort: reasoningEffort,
+        });
+        expect(stream).toEqual({
+          ...PLAIN_STREAM_BODY,
+          reasoning_effort: reasoningEffort,
+        });
+        expect(JSON.stringify(sync)).not.toContain("enable_thinking");
+        expect(JSON.stringify(stream)).not.toContain("enable_thinking");
+      }
+    );
+
+    test("eigene chat_template_kwargs ohne enable_thinking gehen unverändert in den Body", async () => {
+      setThinkingEnv("false");
+      const callerKwargs = { reasoning_budget: 512 };
+      const { sync, stream } = await sentBodies({
+        temperature: 0.3,
+        reasoning_effort: "high",
+        chat_template_kwargs: callerKwargs,
+      });
+      expect(sync.chat_template_kwargs).toEqual({ reasoning_budget: 512 });
+      expect(stream.chat_template_kwargs).toEqual({ reasoning_budget: 512 });
+      expect(sync.reasoning_effort).toBe("high");
+      expect(callerKwargs).toEqual({ reasoning_budget: 512 });
     });
   });
 
@@ -287,6 +329,24 @@ describe("GENERIC_OPEN_AI_ENABLE_THINKING im Body des Generic-OpenAI-Providers",
           ...second.create.mock.calls,
         ])
           expect(call[0]).not.toHaveProperty("chat_template_kwargs");
+      });
+    });
+
+    test("die Warnung stimmt auch, wenn der Aufrufer eigene kwargs schickt", async () => {
+      await jest.isolateModulesAsync(async () => {
+        setThinkingEnv("nein");
+        const { llm, create } = makeGenericProvider();
+        await llm.getChatCompletion(messages, {
+          temperature: 0.3,
+          chat_template_kwargs: { reasoning_budget: 512 },
+        });
+        expect(create.mock.calls[0][0].chat_template_kwargs).toEqual({
+          reasoning_budget: 512,
+        });
+        const [warning] = warningsAboutVariable();
+        const text = warning.join(" ");
+        expect(text).toContain("the variable adds no chat_template_kwargs");
+        expect(text).not.toMatch(/sent without chat_template_kwargs/);
       });
     });
 
