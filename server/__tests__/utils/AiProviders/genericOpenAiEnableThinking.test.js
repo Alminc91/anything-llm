@@ -425,3 +425,51 @@ describe("NAK-3: andere Provider schicken auch mit gesetzter Variable keinen Sch
     );
   });
 });
+
+// Fixliste 8.1-rc2, F1: Wer die Beispielzeile übernimmt und nur "# " entfernt,
+// bekommt genau den Wert false (Erklärung in eigenen Kommentarzeilen darüber).
+describe("Beispielzeile in beiden .env.example", () => {
+  const fs = require("fs");
+  const path = require("path");
+  const dotenv = require("dotenv");
+  const EXAMPLES = [
+    ["docker/.env.example", path.resolve(__dirname, "../../../../docker")],
+    ["server/.env.example", path.resolve(__dirname, "../../..")],
+  ];
+
+  /** Zeilen nach GENERIC_OPEN_AI_CUSTOM_HEADERS bis zur Variablenzeile. */
+  function thinkingBlock(dir) {
+    const lines = fs
+      .readFileSync(path.join(dir, ".env.example"), "utf8")
+      .split("\n");
+    const end = lines.findIndex((line) =>
+      line.startsWith("# GENERIC_OPEN_AI_ENABLE_THINKING=")
+    );
+    const start = lines.findIndex((line) =>
+      line.startsWith("# GENERIC_OPEN_AI_CUSTOM_HEADERS=")
+    );
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return lines.slice(start + 1, end + 1);
+  }
+
+  test.each(EXAMPLES)(
+    "%s: ohne '# ' liest dotenv genau false",
+    (_label, dir) => {
+      const block = thinkingBlock(dir);
+      const variableLine = block[block.length - 1];
+      expect(dotenv.parse(variableLine.replace(/^# /, ""))).toEqual({
+        GENERIC_OPEN_AI_ENABLE_THINKING: "false",
+      });
+      // Erklärung nur in reinen Kommentarzeilen darüber
+      for (const line of block.slice(0, -1)) expect(line).toMatch(/^# /);
+      expect(dotenv.parse(block.join("\n"))).toEqual({});
+    }
+  );
+
+  test("beide Dateien haben denselben Block", () => {
+    expect(thinkingBlock(EXAMPLES[0][1])).toEqual(
+      thinkingBlock(EXAMPLES[1][1])
+    );
+  });
+});
