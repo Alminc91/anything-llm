@@ -35,6 +35,9 @@
  */
 
 const { v4: uuidv4 } = require("uuid");
+const {
+  withEnableThinkingDefault,
+} = require("../../AiProviders/genericOpenAi/enableThinking");
 
 const REASONING_EFFORT_VALUES = ["none", "minimal", "low", "medium", "high"];
 // Standard-Obergrenze für max_tokens pro Anfrage (siehe resolveMaxTokensCeiling).
@@ -419,12 +422,17 @@ function sendOpenAIInvalidRequestError(response, { error, param = null }) {
  * Nur wenn der Aufrufer Thinking tatsächlich angefordert hat
  * (`chat_template_kwargs.enable_thinking === true` oder `reasoning_effort`
  * ≠ `none`). Sonst bleibt die Antwortform exakt wie bisher.
+ * `GENERIC_OPEN_AI_ENABLE_THINKING=true` zählt wie `enable_thinking: true`,
+ * solange der Aufrufer kein eigenes `enable_thinking` mitschickt (gleiche
+ * Zusammenführung wie im Provider-Body).
  * @param {LLMRequestOptions} [llmRequestOptions]
  * @returns {boolean}
  */
 function shouldSeparateReasoning(llmRequestOptions = {}) {
-  if (llmRequestOptions?.chat_template_kwargs?.enable_thinking === true)
-    return true;
+  const templateKwargs = withEnableThinkingDefault(
+    llmRequestOptions?.chat_template_kwargs
+  );
+  if (templateKwargs?.enable_thinking === true) return true;
   const effort = llmRequestOptions?.reasoning_effort;
   return effort !== undefined && effort !== "none";
 }

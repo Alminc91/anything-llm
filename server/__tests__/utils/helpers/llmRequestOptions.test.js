@@ -23,6 +23,7 @@ const OPEN_ALLOWLIST = {
 const ENV_KEYS = [
   "LLM_REQUEST_MAX_TOKENS_CEILING",
   "LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST",
+  "GENERIC_OPEN_AI_ENABLE_THINKING",
 ];
 const savedEnv = {};
 beforeAll(() => {
@@ -868,6 +869,64 @@ describe("shouldSeparateReasoning", () => {
         chat_template_kwargs: { enable_thinking: false },
       })
     ).toBe(true);
+  });
+
+  // AK-6 (issues/thinking-schalter-generic-openai.md): Mit
+  // GENERIC_OPEN_AI_ENABLE_THINKING=true gilt eine Anfrage ohne eigenes
+  // enable_thinking wie eine mit enable_thinking: true aus der Entwickler-API.
+  describe("mit GENERIC_OPEN_AI_ENABLE_THINKING", () => {
+    beforeEach(() => jest.spyOn(console, "warn").mockImplementation(() => {}));
+    afterEach(() => console.warn.mockRestore());
+
+    test.each(["true", " TRUE "])(
+      "Variable %j: Anfrage ohne Optionen wie enable_thinking: true",
+      (value) => {
+        process.env.GENERIC_OPEN_AI_ENABLE_THINKING = value;
+        expect(shouldSeparateReasoning()).toBe(true);
+        expect(shouldSeparateReasoning({})).toBe(true);
+        expect(shouldSeparateReasoning({ max_tokens: 5 })).toBe(true);
+        expect(shouldSeparateReasoning({ chat_template_kwargs: {} })).toBe(
+          true
+        );
+        expect(shouldSeparateReasoning({ reasoning_effort: "none" })).toBe(
+          shouldSeparateReasoning({
+            reasoning_effort: "none",
+            chat_template_kwargs: { enable_thinking: true },
+          })
+        );
+      }
+    );
+
+    test("Variable true: enable_thinking des Aufrufers hat Vorrang", () => {
+      process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "true";
+      expect(
+        shouldSeparateReasoning({
+          chat_template_kwargs: { enable_thinking: false },
+        })
+      ).toBe(false);
+      expect(
+        shouldSeparateReasoning({
+          chat_template_kwargs: { enable_thinking: "true" },
+        })
+      ).toBe(false);
+    });
+
+    test.each(["false", "", "nein", "1", '{"enable_thinking":true}'])(
+      "Variable %j: Verhalten wie ohne Variable",
+      (value) => {
+        process.env.GENERIC_OPEN_AI_ENABLE_THINKING = value;
+        expect(shouldSeparateReasoning()).toBe(false);
+        expect(shouldSeparateReasoning({})).toBe(false);
+        expect(shouldSeparateReasoning({ reasoning_effort: "low" })).toBe(
+          true
+        );
+        expect(
+          shouldSeparateReasoning({
+            chat_template_kwargs: { enable_thinking: true },
+          })
+        ).toBe(true);
+      }
+    );
   });
 });
 

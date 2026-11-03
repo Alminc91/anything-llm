@@ -79,6 +79,21 @@ function makeConnector() {
   };
 }
 
+// Setzt GENERIC_OPEN_AI_ENABLE_THINKING je Test zurück (AK-6)
+function useThinkingEnv() {
+  let saved;
+  beforeEach(() => {
+    saved = process.env.GENERIC_OPEN_AI_ENABLE_THINKING;
+    delete process.env.GENERIC_OPEN_AI_ENABLE_THINKING;
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    if (saved === undefined) delete process.env.GENERIC_OPEN_AI_ENABLE_THINKING;
+    else process.env.GENERIC_OPEN_AI_ENABLE_THINKING = saved;
+    console.warn.mockRestore();
+  });
+}
+
 function writtenEvents(response) {
   return response.write.mock.calls
     .map(([raw]) => String(raw))
@@ -314,6 +329,47 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
       expect(result.choices[0].message.content).toBe("391");
       expect(result.choices[0].message).not.toHaveProperty("reasoning_content");
     });
+
+    // AK-6 (issues/thinking-schalter-generic-openai.md)
+    describe("mit GENERIC_OPEN_AI_ENABLE_THINKING", () => {
+      useThinkingEnv();
+
+      test("Variable true ohne Optionen: reasoning_content getrennt wie bei enable_thinking: true", async () => {
+        process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "true";
+        const result = await OpenAICompatibleChat.chatSync(baseArgs());
+        const message = result.choices[0].message;
+        expect(message.content).toBe("391");
+        expect(message.reasoning_content).toBe("17*20=340, 17*3=51");
+        // Connector-Optionen bleiben wie bisher (der Provider ergänzt den Schalter)
+        expect(connector.getChatCompletion.mock.calls[0][1]).toEqual({
+          temperature: 0.7,
+        });
+      });
+
+      test.each([
+        [
+          "Variable true, Aufrufer enable_thinking: false",
+          "true",
+          { chat_template_kwargs: { enable_thinking: false } },
+        ],
+        ["Variable false ohne Optionen", "false", undefined],
+        ["ungültige Variable ohne Optionen", "nein", undefined],
+      ])(
+        "%s: Antwortform unverändert (kein reasoning_content)",
+        async (_label, value, llmOptions) => {
+          process.env.GENERIC_OPEN_AI_ENABLE_THINKING = value;
+          const result = await OpenAICompatibleChat.chatSync({
+            ...baseArgs(),
+            llmOptions,
+          });
+          const message = result.choices[0].message;
+          expect(message.content).toBe(
+            "<think>17*20=340, 17*3=51</think>391"
+          );
+          expect(message).not.toHaveProperty("reasoning_content");
+        }
+      );
+    });
   });
 
   describe("reasoning_content-Trennung (Stream)", () => {
@@ -400,6 +456,38 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
           }),
         })
       );
+    });
+
+    // AK-6 (issues/thinking-schalter-generic-openai.md)
+    describe("mit GENERIC_OPEN_AI_ENABLE_THINKING", () => {
+      useThinkingEnv();
+
+      test("Variable true ohne Optionen: delta.reasoning_content getrennt", async () => {
+        process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "true";
+        const events = await runStream(undefined);
+        const content = events
+          .map((e) => e.choices[0].delta.content ?? "")
+          .join("");
+        const reasoning = events
+          .map((e) => e.choices[0].delta.reasoning_content ?? "")
+          .join("");
+        expect(content).toBe("391");
+        expect(reasoning).toBe("17*20=340");
+      });
+
+      test("Variable true, Aufrufer enable_thinking: false: delta.content wie bisher", async () => {
+        process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "true";
+        const events = await runStream({
+          chat_template_kwargs: { enable_thinking: false },
+        });
+        const content = events
+          .map((e) => e.choices[0].delta.content ?? "")
+          .join("");
+        expect(content).toBe("<think>17*20=340</think>391");
+        expect(
+          events.some((e) => "reasoning_content" in e.choices[0].delta)
+        ).toBe(false);
+      });
     });
   });
 });
