@@ -1,9 +1,10 @@
 /* eslint-env jest, node */
 // Thinking-Schalter GENERIC_OPEN_AI_ENABLE_THINKING über echte Aufrufer
 // (Spezifikation issues/thinking-schalter-generic-openai.md, AK-4): Embed-
-// Widget (streamChatWithForEmbed, mit und ohne Streaming) und Filter-
-// Normalizer (completeWith) laufen mit dem echten GenericOpenAiLLM; nur der
-// openai-Client ist gemockt. Die Aufrufer selbst kennen den Schalter nicht.
+// Widget (streamChatWithForEmbed, mit und ohne Streaming), Filter-
+// Normalizer (completeWith) und Query-Rewriter (Suchschritt, Fixliste
+// 8.1-rc2 F8) laufen mit dem echten GenericOpenAiLLM; nur der openai-Client
+// ist gemockt. Die Aufrufer selbst kennen den Schalter nicht.
 // (Test-Gerüst wie embedStreamFollowUps.test.js)
 
 jest.mock("../../../utils/AiProviders/modelMap", () => ({
@@ -67,6 +68,10 @@ const {
 const {
   GenericOpenAiLLM,
 } = require("../../../utils/AiProviders/genericOpenAi");
+// Im Embed-Test oben gemockt, hier der echte Rewriter
+const { rewriteQueryForSearch } = jest.requireActual(
+  "../../../utils/helpers/chat/queryRewriter"
+);
 
 const ENV_KEYS = [
   "GENERIC_OPEN_AI_BASE_PATH",
@@ -238,5 +243,54 @@ describe("AK-4: Filter-Normalizer schickt den Schalter ohne eigene Änderung", (
     const { create, result } = await runNormalizer();
     expect(create.mock.calls[0][0]).not.toHaveProperty("chat_template_kwargs");
     expect(result.stage).toBe("llm");
+  });
+});
+
+describe("Suchschritt: Query-Rewriter schickt den Schalter ohne eigene Änderung", () => {
+  const REWRITTEN = "Wann beginnt der Yogakurs am Abend?";
+
+  async function runRewriter() {
+    const { llm, create } = makeConnector();
+    create.mockImplementation(() =>
+      Promise.resolve({
+        choices: [{ message: { content: REWRITTEN }, finish_reason: "stop" }],
+        usage: {},
+      })
+    );
+    const query = await rewriteQueryForSearch({
+      userQuery: "und wann beginnt der?",
+      chatHistory: [
+        { role: "user", content: "Gibt es einen Yogakurs am Abend?" },
+        { role: "assistant", content: "Ja, mittwochs um 18 Uhr." },
+      ],
+      LLMConnector: llm,
+      // Schalter am Workspace, damit keine Systemeinstellung gelesen wird
+      workspace: { queryRewriteMode: "on" },
+    });
+    return { create, query };
+  }
+
+  test("Variable false ergibt enable_thinking: false im Body", async () => {
+    process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "false";
+    const { create, query } = await runRewriter();
+    expect(create).toHaveBeenCalledTimes(1);
+    const body = create.mock.calls[0][0];
+    expect(body.stream).toBeUndefined();
+    expect(body.temperature).toBe(0.1);
+    expect(body.max_tokens).toBe(1024);
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(query).toBe(REWRITTEN);
+  });
+
+  test("ohne Variable: Body ohne chat_template_kwargs wie bisher", async () => {
+    const { create, query } = await runRewriter();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(Object.keys(create.mock.calls[0][0])).toEqual([
+      "model",
+      "messages",
+      "temperature",
+      "max_tokens",
+    ]);
+    expect(query).toBe(REWRITTEN);
   });
 });
