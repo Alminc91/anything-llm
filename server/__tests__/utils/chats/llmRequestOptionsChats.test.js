@@ -363,9 +363,7 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
             llmOptions,
           });
           const message = result.choices[0].message;
-          expect(message.content).toBe(
-            "<think>17*20=340, 17*3=51</think>391"
-          );
+          expect(message.content).toBe("<think>17*20=340, 17*3=51</think>391");
           expect(message).not.toHaveProperty("reasoning_content");
         }
       );

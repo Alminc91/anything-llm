@@ -917,9 +917,7 @@ describe("shouldSeparateReasoning", () => {
         process.env.GENERIC_OPEN_AI_ENABLE_THINKING = value;
         expect(shouldSeparateReasoning()).toBe(false);
         expect(shouldSeparateReasoning({})).toBe(false);
-        expect(shouldSeparateReasoning({ reasoning_effort: "low" })).toBe(
-          true
-        );
+        expect(shouldSeparateReasoning({ reasoning_effort: "low" })).toBe(true);
         expect(
           shouldSeparateReasoning({
             chat_template_kwargs: { enable_thinking: true },

@@ -30,9 +30,7 @@ function dumpWith(env) {
 }
 
 function lineFor(content, key) {
-  return (
-    content.split("\n").find((line) => line.startsWith(`${key}=`)) ?? null
-  );
+  return content.split("\n").find((line) => line.startsWith(`${key}=`)) ?? null;
 }
 
 beforeEach(() => {
@@ -56,9 +54,7 @@ describe("dumpENV: GENERIC_OPEN_AI_ENABLE_THINKING", () => {
         `GENERIC_OPEN_AI_ENABLE_THINKING='${value}'`
       );
       // Nach dem Neustart liest dotenv denselben Wert wieder ein
-      expect(dotenv.parse(content).GENERIC_OPEN_AI_ENABLE_THINKING).toBe(
-        value
-      );
+      expect(dotenv.parse(content).GENERIC_OPEN_AI_ENABLE_THINKING).toBe(value);
     }
   );
 
