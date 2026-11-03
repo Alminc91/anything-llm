@@ -45,11 +45,8 @@ const PLAIN_STREAM_BODY = {
   max_tokens: 2048,
 };
 
-function makeGenericProvider(
-  modulePath = "../../../utils/AiProviders/genericOpenAi"
-) {
-  const { GenericOpenAiLLM } = require(modulePath);
-  const llm = new GenericOpenAiLLM(fakeEmbedder);
+/** Gemockter openai-Client (chat.completions) für Provider auf Chat-Completions-Basis. */
+function mockChatCompletions(llm) {
   const create = jest.fn((body) => {
     if (body.stream)
       return Promise.resolve({ [Symbol.asyncIterator]: async function* () {} });
@@ -59,7 +56,15 @@ function makeGenericProvider(
     });
   });
   llm.openai = { chat: { completions: { create } } };
-  return { llm, create };
+  return create;
+}
+
+function makeGenericProvider() {
+  const {
+    GenericOpenAiLLM,
+  } = require("../../../utils/AiProviders/genericOpenAi");
+  const llm = new GenericOpenAiLLM(fakeEmbedder);
+  return { llm, create: mockChatCompletions(llm) };
 }
 
 /** Ruft getChatCompletion und streamGetChatCompletion auf, liefert beide Bodies. */
@@ -323,17 +328,7 @@ describe("NAK-3: andere Provider schicken auch mit gesetzter Variable keinen Sch
       process.env.LITE_LLM_API_KEY = "test-key";
       const { LiteLLM } = require("../../../utils/AiProviders/liteLLM");
       const llm = new LiteLLM(fakeEmbedder);
-      const create = jest.fn((body) => {
-        if (body.stream)
-          return Promise.resolve({
-            [Symbol.asyncIterator]: async function* () {},
-          });
-        return Promise.resolve({
-          choices: [{ message: { content: "Am Montag." } }],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        });
-      });
-      llm.openai = { chat: { completions: { create } } };
+      const create = mockChatCompletions(llm);
       await llm.getChatCompletion(messages, { temperature: 0.3 });
       await llm.streamGetChatCompletion(messages, { temperature: 0.3 });
       expect(create.mock.calls[0][0]).toEqual({

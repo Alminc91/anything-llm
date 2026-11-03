@@ -79,7 +79,9 @@ function makeConnector() {
   };
 }
 
-// Setzt GENERIC_OPEN_AI_ENABLE_THINKING je Test zurück (AK-6)
+// Setzt GENERIC_OPEN_AI_ENABLE_THINKING je Test zurück (AK-6). Gilt für die
+// ganze Datei: Die Reasoning-Trennung liest die Variable, eine in der Shell
+// exportierte Variable darf die übrigen Tests nicht verändern.
 function useThinkingEnv() {
   let saved;
   beforeEach(() => {
@@ -93,6 +95,7 @@ function useThinkingEnv() {
     console.warn.mockRestore();
   });
 }
+useThinkingEnv();
 
 function writtenEvents(response) {
   return response.write.mock.calls
@@ -332,8 +335,6 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
 
     // AK-6 (issues/thinking-schalter-generic-openai.md)
     describe("mit GENERIC_OPEN_AI_ENABLE_THINKING", () => {
-      useThinkingEnv();
-
       test("Variable true ohne Optionen: reasoning_content getrennt wie bei enable_thinking: true", async () => {
         process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "true";
         const result = await OpenAICompatibleChat.chatSync(baseArgs());
@@ -458,8 +459,6 @@ describe("OpenAICompatibleChat – LLM-Optionen", () => {
 
     // AK-6 (issues/thinking-schalter-generic-openai.md)
     describe("mit GENERIC_OPEN_AI_ENABLE_THINKING", () => {
-      useThinkingEnv();
-
       test("Variable true ohne Optionen: delta.reasoning_content getrennt", async () => {
         process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "true";
         const events = await runStream(undefined);
