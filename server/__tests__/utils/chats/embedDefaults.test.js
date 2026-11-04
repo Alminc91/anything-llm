@@ -245,7 +245,7 @@ describe("Datenschutz-Fußzeile: Texte des Vertrags", () => {
       privacyLinkText: "Datenschutz",
       privacyAiTitle: "Hinweis zur KI",
       privacyAiText:
-        "Unser KI-Berater ist auf richtige Auskünfte optimiert. Wie jede KI kann er sich dennoch einmal irren. Wichtige Angaben wie Termine und Preise finden Sie zur Kontrolle immer auf unserer Website.",
+        "Unsere KI ist auf richtige Auskünfte optimiert. Wie jede KI kann sie sich dennoch einmal irren. Bitte prüfen Sie wichtige Angaben.",
       privacyCloseText: "Schließen",
       privacyTitle: "Datenschutz",
     },
@@ -254,7 +254,7 @@ describe("Datenschutz-Fußzeile: Texte des Vertrags", () => {
       privacyLinkText: "Privacy",
       privacyAiTitle: "About the AI",
       privacyAiText:
-        "Our AI advisor is optimised for accurate information. Like any AI, it can still make the occasional mistake. You can always check important details such as dates and prices on our website.",
+        "Our AI is optimized for accurate answers. Like any AI, it can still make mistakes. Please verify important information.",
       privacyCloseText: "Close",
       privacyTitle: "Privacy",
     },
@@ -290,12 +290,12 @@ describe("Datenschutz-Fußzeile: Texte des Vertrags", () => {
     }
   });
 
-  test("F8: KI-Punkt neutral für alle Kunden (keine Kurs-Wörter, Verweis auf die Website)", () => {
+  test("F8: KI-Punkt neutral für alle Kunden, auch den KI-Helfer (keine Kurs-Wörter, keine Preise, keine Website)", () => {
     for (const lang of ["de", "en"]) {
       const { privacyAiText } = embedDefaultTexts(lang);
-      expect(privacyAiText).not.toMatch(/kurs|course/i);
+      expect(privacyAiText).not.toMatch(/kurs|course|preis|price|website|berater|advisor/i);
       expect(privacyAiText).toMatch(
-        lang === "de" ? /auf unserer Website\.$/ : /on our website\.$/
+        lang === "de" ? /wichtige Angaben\.$/ : /important information\.$/
       );
     }
   });
