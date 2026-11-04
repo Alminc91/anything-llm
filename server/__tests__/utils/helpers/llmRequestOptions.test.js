@@ -23,6 +23,7 @@ const OPEN_ALLOWLIST = {
 const ENV_KEYS = [
   "LLM_REQUEST_MAX_TOKENS_CEILING",
   "LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST",
+  "GENERIC_OPEN_AI_ENABLE_THINKING",
 ];
 const savedEnv = {};
 beforeAll(() => {
@@ -868,6 +869,90 @@ describe("shouldSeparateReasoning", () => {
         chat_template_kwargs: { enable_thinking: false },
       })
     ).toBe(true);
+  });
+
+  // AK-6 (issues/thinking-schalter-generic-openai.md): Mit
+  // GENERIC_OPEN_AI_ENABLE_THINKING=true gilt eine Anfrage ohne eigenes
+  // enable_thinking wie eine mit enable_thinking: true aus der Entwickler-API.
+  describe("mit GENERIC_OPEN_AI_ENABLE_THINKING", () => {
+    beforeEach(() => jest.spyOn(console, "warn").mockImplementation(() => {}));
+    afterEach(() => console.warn.mockRestore());
+
+    test.each(["true", " TRUE "])(
+      "Variable %j: Anfrage ohne Optionen wie enable_thinking: true",
+      (value) => {
+        process.env.GENERIC_OPEN_AI_ENABLE_THINKING = value;
+        expect(shouldSeparateReasoning()).toBe(true);
+        expect(shouldSeparateReasoning({})).toBe(true);
+        expect(shouldSeparateReasoning({ max_tokens: 5 })).toBe(true);
+        expect(shouldSeparateReasoning({ chat_template_kwargs: {} })).toBe(
+          true
+        );
+        expect(
+          shouldSeparateReasoning({ chat_template_kwargs: { foo: 1 } })
+        ).toBe(true);
+      }
+    );
+
+    // Fixliste 8.1-rc2, D7: Mit eigenem reasoning_effort zählt die Variable
+    // nicht, die Trennung folgt allein der Anfrage.
+    test.each([
+      ["true", "none", false],
+      ["true", "low", true],
+      ["false", "high", true],
+      ["false", "none", false],
+    ])(
+      "Variable %j, reasoning_effort %j: Trennung %j wie ohne Variable",
+      (value, reasoningEffort, expected) => {
+        process.env.GENERIC_OPEN_AI_ENABLE_THINKING = value;
+        expect(
+          shouldSeparateReasoning({ reasoning_effort: reasoningEffort })
+        ).toBe(expected);
+        delete process.env.GENERIC_OPEN_AI_ENABLE_THINKING;
+        expect(
+          shouldSeparateReasoning({ reasoning_effort: reasoningEffort })
+        ).toBe(expected);
+      }
+    );
+
+    test("Variable true, reasoning_effort none und eigenes enable_thinking: true", () => {
+      process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "true";
+      expect(
+        shouldSeparateReasoning({
+          reasoning_effort: "none",
+          chat_template_kwargs: { enable_thinking: true },
+        })
+      ).toBe(true);
+    });
+
+    test("Variable true: enable_thinking des Aufrufers hat Vorrang", () => {
+      process.env.GENERIC_OPEN_AI_ENABLE_THINKING = "true";
+      expect(
+        shouldSeparateReasoning({
+          chat_template_kwargs: { enable_thinking: false },
+        })
+      ).toBe(false);
+      expect(
+        shouldSeparateReasoning({
+          chat_template_kwargs: { enable_thinking: "true" },
+        })
+      ).toBe(false);
+    });
+
+    test.each(["false", "", "nein", "1", '{"enable_thinking":true}'])(
+      "Variable %j: Verhalten wie ohne Variable",
+      (value) => {
+        process.env.GENERIC_OPEN_AI_ENABLE_THINKING = value;
+        expect(shouldSeparateReasoning()).toBe(false);
+        expect(shouldSeparateReasoning({})).toBe(false);
+        expect(shouldSeparateReasoning({ reasoning_effort: "low" })).toBe(true);
+        expect(
+          shouldSeparateReasoning({
+            chat_template_kwargs: { enable_thinking: true },
+          })
+        ).toBe(true);
+      }
+    );
   });
 });
 

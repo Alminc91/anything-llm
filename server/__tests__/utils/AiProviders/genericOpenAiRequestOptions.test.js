@@ -14,6 +14,9 @@ const ENV_KEYS = [
   "GENERIC_OPEN_AI_MODEL_PREF",
   "GENERIC_OPEN_AI_MAX_TOKENS",
   "GENERIC_OPEN_AI_API_KEY",
+  // Kufer-Fork: der Provider liest den Thinking-Schalter je Anfrage; eine in
+  // der Shell exportierte Variable darf die Bodies hier nicht verändern.
+  "GENERIC_OPEN_AI_ENABLE_THINKING",
   "OPEN_AI_KEY",
 ];
 const savedEnv = {};
@@ -68,6 +71,7 @@ beforeEach(() => {
   process.env.GENERIC_OPEN_AI_MODEL_PREF = "Chat1";
   process.env.GENERIC_OPEN_AI_MAX_TOKENS = "2048";
   process.env.GENERIC_OPEN_AI_API_KEY = "test-key";
+  delete process.env.GENERIC_OPEN_AI_ENABLE_THINKING;
 });
 
 describe("GenericOpenAiLLM – Anfrage-Optionen im Provider-Body", () => {

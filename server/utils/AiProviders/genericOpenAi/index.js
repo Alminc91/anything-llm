@@ -9,6 +9,7 @@ const {
 } = require("../../helpers/chat/responses");
 const { toValidNumber } = require("../../http");
 const { getAnythingLLMUserAgent } = require("../../../endpoints/utils");
+const { withEnableThinkingDefault } = require("./enableThinking");
 
 class GenericOpenAiLLM {
   constructor(embedder = null, modelPreference = null) {
@@ -235,6 +236,13 @@ class GenericOpenAiLLM {
       chat_template_kwargs,
     } = {}
   ) {
+    // Kufer-Fork: Standard für enable_thinking aus
+    // GENERIC_OPEN_AI_ENABLE_THINKING ergänzen (eigenes enable_thinking oder
+    // reasoning_effort des Aufrufers hat Vorrang).
+    const templateKwargs = withEnableThinkingDefault({
+      reasoning_effort,
+      chat_template_kwargs,
+    });
     const result = await LLMPerformanceMonitor.measureAsyncFunction(
       this.openai.chat.completions
         .create({
@@ -246,7 +254,9 @@ class GenericOpenAiLLM {
           // nur gesetzte Felder, damit der Body ohne sie byte-gleich bleibt.
           ...(top_p !== undefined && { top_p }),
           ...(reasoning_effort !== undefined && { reasoning_effort }),
-          ...(chat_template_kwargs !== undefined && { chat_template_kwargs }),
+          ...(templateKwargs !== undefined && {
+            chat_template_kwargs: templateKwargs,
+          }),
         })
         .catch((e) => {
           throw new Error(e.message);
@@ -290,6 +300,11 @@ class GenericOpenAiLLM {
       chat_template_kwargs,
     } = {}
   ) {
+    // Kufer-Fork: wie getChatCompletion
+    const templateKwargs = withEnableThinkingDefault({
+      reasoning_effort,
+      chat_template_kwargs,
+    });
     const measuredStreamRequest = await LLMPerformanceMonitor.measureStream({
       func: this.openai.chat.completions.create({
         model: this.model,
@@ -299,7 +314,9 @@ class GenericOpenAiLLM {
         max_tokens: max_tokens ?? this.maxTokens,
         ...(top_p !== undefined && { top_p }),
         ...(reasoning_effort !== undefined && { reasoning_effort }),
-        ...(chat_template_kwargs !== undefined && { chat_template_kwargs }),
+        ...(templateKwargs !== undefined && {
+          chat_template_kwargs: templateKwargs,
+        }),
       }),
       messages,
       runPromptTokenCalculation: true,

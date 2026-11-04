@@ -1378,6 +1378,8 @@ function dumpENV() {
     "GENERIC_OPENAI_STREAMING_DISABLED",
     // Custom headers for Generic OpenAI
     "GENERIC_OPEN_AI_CUSTOM_HEADERS",
+    // Kufer-Fork: Thinking-Schalter für Generic OpenAI (true/false)
+    "GENERIC_OPEN_AI_ENABLE_THINKING",
 
     // Specify Chromium args for collector
     "ANYTHINGLLM_CHROMIUM_ARGS",

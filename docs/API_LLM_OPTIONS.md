@@ -104,6 +104,9 @@ Antwort (gekürzt):
 
 `model` ist der Workspace-Slug. Die system-Nachricht der Anfrage ersetzt den Workspace-Prompt.
 Ohne Thinking dieselbe Anfrage ohne `chat_template_kwargs` (oder `enable_thinking: false`).
+Ist im Container `GENERIC_OPEN_AI_ENABLE_THINKING` gesetzt (Abschnitt 5), gilt ohne eigenes
+`enable_thinking` und ohne `reasoning_effort` der Wert des Containers; wer sicher ohne Thinking
+arbeiten will, schickt `enable_thinking: false` mit.
 
 Python (openai-SDK, Streaming):
 
@@ -164,7 +167,9 @@ keinen Verlauf an; mit `sessionId` gilt der Workspace-Verlauf (`openAiHistory`).
   ≈ 91k Token) werden vom Server aus der Mitte gekürzt. Prüfen: `usage.prompt_tokens` muss zur
   eigenen Zählung passen.
 - Die Filter-Extraktion (KIE-480) und der Query-Rewriter laufen weiterhin ohne diese Optionen,
-  damit Thinking oder ein kleines `max_tokens` sie nicht verfälschen.
+  damit Thinking oder ein kleines `max_tokens` sie nicht verfälschen. Ausnahme ist
+  `GENERIC_OPEN_AI_ENABLE_THINKING` (Abschnitt 5): Der Schalter gilt für alle Anfragen des
+  Containers ohne eigene Thinking-Wahl, also auch für sie.
 
 ## 4. Überwachung: was durchkommt und was nicht
 
@@ -188,5 +193,34 @@ Reasoning und Antwort.
 | `GENERIC_OPEN_AI_MAX_TOKENS` | Standard-Ausgabelänge, wenn die Anfrage nichts setzt | 8192 |
 | `LLM_REQUEST_MAX_TOKENS_CEILING` | Obergrenze für `max_tokens` pro Anfrage; ohne ENV gilt 16384 (bzw. das Kontextfenster, falls kleiner). Bewusst nicht das ganze Kontextfenster: die GPU ist flottenweit geteilt, sehr lange Generierungen verdrängen den Prefix-Cache aller Kunden. Nur für einzelne Container gezielt höher setzen. | nicht gesetzt (= 16384) |
 | `LLM_CHAT_TEMPLATE_KWARGS_ALLOWLIST` | weitere erlaubte Schlüssel für `chat_template_kwargs`, kommagetrennt (z. B. für andere Modelle) | nicht gesetzt |
+| `GENERIC_OPEN_AI_ENABLE_THINKING` | Thinking für den ganzen Container: `true` oder `false` (Groß-/Kleinschreibung egal), siehe unten | nicht gesetzt |
 
 Die Flotte behält 45000/1024; intern hat die höheren Werte in `/var/docker/intern/intern.env`.
+
+### Thinking für den ganzen Container (`GENERIC_OPEN_AI_ENABLE_THINKING`)
+
+Mit `GENERIC_OPEN_AI_ENABLE_THINKING=false` (oder `true`) schickt der Generic-OpenAI-Provider bei
+**jeder** Anfrage ohne eigene Thinking-Wahl `chat_template_kwargs: {"enable_thinking": false}`
+(bzw. `true`) mit: Widget, Workspace-Chat, Filter-Extraktion, Query-Rewriter, Teaser und
+Folgefragen. Gedacht für Modelle, die von sich aus nachdenken, z. B. `google/gemma-4-31B-it` bei
+STACKIT: Ohne Schalter landen dort die 1.024 Ausgabe-Token komplett im Denktext und die Antwort
+bleibt leer.
+
+- Nur `true` und `false` sind gültig, bewusst kein JSON (`dumpENV()` schneidet Werte am ersten
+  Anführungszeichen ab). Die Variable übersteht das Neuschreiben der `.env`.
+- Nicht gesetzt, leer oder ungültig (z. B. `nein`, `0`, `{"enable_thinking":false}`): Der Body
+  bleibt wie bisher, ohne `chat_template_kwargs`. Ein ungültiger Wert erzeugt einmal je Prozess
+  die Warnung `[GenericOpenAiLLM] GENERIC_OPEN_AI_ENABLE_THINKING has an invalid value and is
+  ignored. …` im Log.
+- Vorrang hat die Anfrage: Schickt sie über die Entwickler-API selbst `enable_thinking` oder
+  `reasoning_effort` mit, ergänzt der Container nichts, ihre `chat_template_kwargs` gehen
+  unverändert an das Modell. Fehlen beide, bleiben andere Schlüssel in `chat_template_kwargs`
+  erhalten und der Wert des Containers wird ergänzt.
+- Mit `true` trennt der OpenAI-kompatible Endpunkt das Reasoning auch ohne eigene Thinking-Wahl
+  der Anfrage in `reasoning_content` (wie bei `enable_thinking: true`). Mit eigenem
+  `enable_thinking` oder `reasoning_effort` entscheidet allein die Anfrage.
+- `true` ist für Container mit Widget (Kurskarten, Teaser) und Query-Rewriter nicht geeignet, weil
+  die Antwort dann mit einem Denkblock beginnt. Empfohlen ist `false` oder die Variable nicht zu
+  setzen.
+- Gilt nur für den Generic-OpenAI-Provider. Andere Provider und die Agenten-Provider schicken
+  keinen Schalter.
