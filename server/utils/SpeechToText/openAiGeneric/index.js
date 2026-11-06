@@ -12,6 +12,12 @@ class GenericOpenAiSTT {
     this.apiKey = process.env.STT_OPEN_AI_COMPATIBLE_KEY || null;
     this.model = process.env.STT_OPEN_AI_COMPATIBLE_MODEL || "whisper-1";
     this.language = process.env.STT_OPEN_AI_COMPATIBLE_LANGUAGE || null;
+    // "whisperx" for the WhisperX /asr API, anything else is the OpenAI format
+    this.format = (
+      process.env.STT_OPEN_AI_COMPATIBLE_FORMAT || "openai"
+    ).toLowerCase();
+    // With a username the key is sent as Basic Auth password instead of Bearer
+    this.username = process.env.STT_OPEN_AI_COMPATIBLE_USERNAME || null;
 
     this.#log(
       `Initialized with endpoint: ${this.endpoint}, model: ${this.model}`
@@ -47,22 +53,17 @@ class GenericOpenAiSTT {
 
       // Use native FormData + Blob (works with native fetch in Node 18+)
       const blob = new Blob([audioBuffer], { type: contentType });
-      const formData = new FormData();
-      formData.append("file", blob, filename);
-      formData.append("model", this.model);
 
       // Add language if specified (in options or env)
       const language = options.language || this.language;
-      if (language) {
-        formData.append("language", language);
-      }
+      const { url, formData } = this.#buildRequest(blob, filename, language);
 
       const headers = {};
       if (this.apiKey) {
-        headers["Authorization"] = `Bearer ${this.apiKey}`;
+        headers["Authorization"] = this.#authorization();
       }
 
-      const response = await fetch(this.endpoint, {
+      const response = await fetch(url, {
         method: "POST",
         headers: headers,
         body: formData,
@@ -75,14 +76,47 @@ class GenericOpenAiSTT {
         );
       }
 
-      const result = await response.json();
-      this.#log(`Transcription completed: "${result.text?.substring(0, 50)}..."`);
+      const text = this.#extractText(await response.json());
+      this.#log(`Transcription completed (${text.length} characters)`);
 
-      return { text: result.text || "" };
+      return { text };
     } catch (error) {
       this.#log(`Error during transcription: ${error.message}`);
       throw error;
     }
+  }
+
+  #buildRequest(blob, filename, language) {
+    const formData = new FormData();
+
+    if (this.format === "whisperx") {
+      formData.append("audio_file", blob, filename);
+
+      const url = new URL(this.endpoint);
+      url.searchParams.set("output", "json");
+      url.searchParams.set("task", "transcribe");
+      if (language) url.searchParams.set("language", language);
+      return { url: url.toString(), formData };
+    }
+
+    formData.append("file", blob, filename);
+    formData.append("model", this.model);
+    if (language) formData.append("language", language);
+    return { url: this.endpoint, formData };
+  }
+
+  #authorization() {
+    if (!this.username) return `Bearer ${this.apiKey}`;
+    const credentials = Buffer.from(`${this.username}:${this.apiKey}`);
+    return `Basic ${credentials.toString("base64")}`;
+  }
+
+  #extractText(result) {
+    if (this.format !== "whisperx") return result.text || "";
+    return (result.segments || [])
+      .map((segment) => segment.text?.trim())
+      .filter(Boolean)
+      .join(" ");
   }
 
   #getContentType(filename) {

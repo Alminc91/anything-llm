@@ -684,6 +684,14 @@ const KEY_MAPPING = {
     envKey: "STT_OPEN_AI_COMPATIBLE_LANGUAGE",
     checks: [],
   },
+  STTOpenAICompatibleFormat: {
+    envKey: "STT_OPEN_AI_COMPATIBLE_FORMAT",
+    checks: [],
+  },
+  STTOpenAICompatibleUsername: {
+    envKey: "STT_OPEN_AI_COMPATIBLE_USERNAME",
+    checks: [],
+  },
 
   // DeepSeek Options
   DeepSeekApiKey: {
