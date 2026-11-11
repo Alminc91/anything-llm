@@ -16,6 +16,7 @@ const {
   COURSE_NUMBER_MAX_SEARCHED,
   COURSE_NUMBER_MIN_LEN,
   COURSE_NUMBER_MAX_LEN,
+  COURSE_NUMBER_MAX_WORD_LEN,
 } = require("../../../../utils/vectorDbProviders/lance/courseNumberLookup");
 
 // Formate aus der Flotte (Spezifikation Abschnitt 1, Feeds vom 11.11.2026)
@@ -277,6 +278,248 @@ describe("courseNumberCandidates (D2)", () => {
   });
 });
 
+// Nachtrag 8.1.3 (Spezifikation Abschnitt 11, 11.11.2026): Kursnummern mit
+// Punkt im Inneren, ein Beispiel je Form aus den Feeds der Flotte (vhs-brilon,
+// vhs-henstedt-ulzburg, vhs-umkirch, vhs-delmenhorst)
+const DOT_FORMATS = [
+  "X41.100",
+  "X43.414",
+  "X17.117-1",
+  "X41.501-S",
+  "BA56.25",
+  "BAMF77.040",
+  "BA65.06A",
+  "BA427.00A",
+  "BA213.11",
+  "BA77.032",
+  "262.302200",
+  "26B7154.E",
+];
+
+describe("Nachtrag 8.1.3: Kursnummern mit Punkt", () => {
+  test.each(DOT_FORMATS)(
+    "AK-11: Format %s mitten im Satz, mit Satzzeichen danach, in jeder Schreibweise",
+    (knr) => {
+      for (const v of [knr, knr.toLowerCase(), knr.toUpperCase()]) {
+        for (const sentence of [
+          `Ich interessiere mich für ${v}.`,
+          `Kurs (${v})?`,
+          `${v} noch frei?`,
+          `Ich habe in der Zeitung die Kursnummer ${v} gesehen. Was ist das für ein Kurs?`,
+          `Kurs-Nr. ${v}, wann beginnt er?`,
+          `Kursnummer:${v}!`,
+          `„${v}“ steht im Programmheft.`,
+          `Kurs ${v}...`,
+          `(${v}).`,
+        ])
+          expect([sentence, courseNumberCandidates(sentence)]).toEqual([
+            sentence,
+            [v],
+          ]);
+      }
+    }
+  );
+
+  test("AK-11: Beispiele aus der Spezifikation", () => {
+    expect(
+      courseNumberCandidates("Ich interessiere mich für BA56.25.")
+    ).toEqual(["BA56.25"]);
+    expect(courseNumberCandidates("Kurs (26B7154.E)?")).toEqual(["26B7154.E"]);
+    expect(courseNumberCandidates("bamf77.040 noch frei?")).toEqual([
+      "bamf77.040",
+    ]);
+  });
+
+  test("AK-12: Punkte am Wortrand sind Satzzeichen und fallen weg, wie Bindestriche am Rand", () => {
+    expect(courseNumberCandidates("Kurs 26B7602.")).toEqual(["26B7602"]);
+    expect(courseNumberCandidates("Kurs BA56.25.")).toEqual(["BA56.25"]);
+    expect(courseNumberCandidates("Kurs BA56.25...")).toEqual(["BA56.25"]);
+    expect(courseNumberCandidates("Kurs .BA56.25.-")).toEqual(["BA56.25"]);
+    expect(courseNumberCandidates("Kurs -.262.302200.-.")).toEqual([
+      "262.302200",
+    ]);
+    expect(courseNumberCandidates("Kurse X41.100. Und X43.414.")).toEqual([
+      "X41.100",
+      "X43.414",
+    ]);
+    // Randpunkte zählen nicht zur Länge: 15 Zeichen plus Punkt bleiben ein
+    // Kandidat, ein einzelner Punkt mit Ziffern ist zu kurz
+    expect(courseNumberCandidates("Kurs ABCDEFGHIJ12345.")).toEqual([
+      "ABCDEFGHIJ12345",
+    ]);
+    expect(courseNumberCandidates("Kurs 1.2.")).toEqual([]);
+  });
+
+  test("AK-12: Wort per Punkt angehängt (Abkürzung, Satzende ohne Leerzeichen): erst das ganze Wort, danach die Nummer", () => {
+    expect(courseNumberCandidates("Kurs Nr.26B7602?")).toEqual([
+      "Nr.26B7602",
+      "26B7602",
+    ]);
+    expect(courseNumberCandidates("Gesehen: 26B7602.Was ist das?")).toEqual([
+      "26B7602.Was",
+      "26B7602",
+    ]);
+    expect(courseNumberCandidates("Kurs-Nr.BAMF77.040")).toEqual([
+      "BAMF77.040",
+    ]);
+    // ein einzelner Buchstabe am Ende gehört zur Nummer (X41.501-S, 26B7154.E):
+    // kein Teil ohne ihn
+    expect(courseNumberSearchPlan("Kurs X41.501-S und 26B7154.E")).toEqual([
+      { candidate: "X41.501-S", position: 5, part: false },
+      { candidate: "26B7154.E", position: 19, part: false },
+    ]);
+  });
+
+  test("AK-13: Datum, Preis und Versionsnummer mit Punkt sind nur Kandidaten, die Kopfzeile entscheidet", () => {
+    expect(courseNumberCandidates("Beginnt der Kurs am 14.09.2026?")).toEqual([
+      "14.09.2026",
+    ]);
+    expect(courseNumberCandidates("Kostet der Kurs 1.200 Euro?")).toEqual([
+      "1.200",
+    ]);
+    expect(courseNumberCandidates("Gilt das für Version v3.5?")).toEqual([
+      "v3.5",
+    ]);
+    expect(matchesCourseNumber(header("BA56.25"), "BA56.25")).toBe(true);
+    expect(matchesCourseNumber(header("BA56.25"), "ba56.25")).toBe(true);
+    expect(matchesCourseNumber(header("26B7154.E"), "26b7154.e")).toBe(true);
+    // ähnliche Nummern mit und ohne Punkt zählen nicht
+    expect(matchesCourseNumber(header("BA56.25"), "BA5625")).toBe(false);
+    expect(matchesCourseNumber(header("BA56.25"), "BA56.2")).toBe(false);
+    expect(matchesCourseNumber(header("BA56.25"), "BA56.250")).toBe(false);
+    expect(matchesCourseNumber(header("26B7154.E"), "26B7154")).toBe(false);
+    expect(matchesCourseNumber(header("26B7154"), "26B7154.E")).toBe(false);
+    for (const value of ["14.09.2026", "25.08.2026", "1.200", "v3.5"])
+      expect(matchesCourseNumber(header("X41.100"), value)).toBe(false);
+  });
+
+  // Nachreview rc2 S-L8: zwei Nummern mit Ziffern- oder Halbgeviertstrich
+  // ohne Leerzeichen
+  test("AK-14 (S-L8): am Ziffern- und Halbgeviertstrich zusätzlich die Hälften als Teile", () => {
+    expect(
+      courseNumberCandidates("Was kosten die Kurse 26B7602\u201326B7604?")
+    ).toEqual(["26B7602-26B7604", "26B7602", "26B7604"]);
+    expect(courseNumberCandidates("Kurse 26B7602\u2013T7411A")).toEqual([
+      "26B7602-T7411A",
+      "26B7602",
+      "T7411A",
+    ]);
+    expect(courseNumberCandidates("Kurse 262-30748\u2013262-30749")).toEqual([
+      "262-30748",
+      "262-30749",
+    ]);
+    expect(courseNumberCandidates("Kurse 27S445311\u2012NTU40616R")).toEqual([
+      "27S445311",
+      "NTU40616R",
+    ]);
+    expect(courseNumberCandidates("Spanisch 26B7602\u2013A1")).toEqual([
+      "26B7602-A1",
+      "26B7602",
+    ]);
+    expect(courseNumberCandidates("Kurs 26B7602\u201304")).toEqual([
+      "26B7602-04",
+      "26B7602",
+    ]);
+    expect(courseNumberCandidates("Kurse X41.100\u2013X43.414?")).toEqual([
+      "X41.100-X43.414",
+      "X41.100",
+      "X43.414",
+    ]);
+    // die Hälften zählen als Teile ihres Worts, nach allen ganzen Wörtern
+    expect(
+      courseNumberSearchPlan("Kurse 26B7602\u201326B7604 und F320241")
+    ).toEqual([
+      { candidate: "26B7602-26B7604", position: 6, part: false },
+      { candidate: "F320241", position: 26, part: false },
+      { candidate: "26B7602", position: 6, part: true },
+      { candidate: "26B7604", position: 6, part: true },
+    ]);
+  });
+
+  // Nachreview rc2 S-L9: Grenze für das Rohwort war nur für Randstriche bemessen
+  test("AK-14 (S-L9): Nummer an einem langen Wort wird geprüft, Wörter bis 64 Zeichen", () => {
+    expect(COURSE_NUMBER_MAX_WORD_LEN).toBe(64);
+    for (const [question, expected] of [
+      ["Volkshochschulkurs-26B7602?", ["26B7602"]],
+      ["Wann ist Italienischkurs-262-30748?", ["262-30748"]],
+      ["Bildungsurlaub-NTU40616R", ["NTU40616R"]],
+      ["Wirbelsäulengymnastik-26B7602", ["26B7602"]],
+      ["Wochenendseminar\u201326B7602", ["26B7602"]],
+      ["Online-Kurs-X41.100?", ["X41.100"]],
+    ])
+      expect([question, courseNumberCandidates(question)]).toEqual([
+        question,
+        expected,
+      ]);
+    expect(courseNumberCandidates(`${"x".repeat(56)}-26B7602`)).toEqual([
+      "26B7602",
+    ]);
+    expect(courseNumberCandidates(`${"x".repeat(57)}-26B7602`)).toEqual([]);
+  });
+
+  // Nachreview rc2 S-L10: ein Teil gilt für jedes Wort, zu dem er gehört
+  test("AK-14 (S-L10): Teil verweist auf alle Wörter, zu denen er gehört; gesucht wird er einmal", () => {
+    expect(
+      courseNumberSearchPlan(
+        "Ist 26B7602-Online oder der Kurs-26B7602 günstiger?"
+      )
+    ).toEqual([
+      { candidate: "26B7602-Online", position: 4, part: false },
+      { candidate: "Kurs-26B7602", position: 28, part: false },
+      { candidate: "26B7602", position: 4, part: true, alsoPartAt: [28] },
+    ]);
+    // ein Teil, der auch als ganzes Wort vorkommt, wird mit diesem gesucht
+    expect(courseNumberSearchPlan("Ist 26B7602-Kurs oder 26B7602?")).toEqual([
+      { candidate: "26B7602-Kurs", position: 4, part: false },
+      { candidate: "26B7602", position: 22, part: false, alsoPartAt: [4] },
+    ]);
+  });
+
+  test("NAK-5: 100.000 Punkte oder Striche in einem Wort laufen je unter 50 ms, ohne Kandidaten", () => {
+    const inputs = [
+      "1" + ".".repeat(100_000) + "1",
+      "a" + ".".repeat(100_000) + "a",
+      ".".repeat(100_000),
+      "1" + ".-".repeat(50_000) + "1",
+      "1" + "-.".repeat(50_000) + "a",
+      "1" + ".\u2013".repeat(50_000) + "1",
+      "1" + "\u2012.\u00AD".repeat(34_000) + "1",
+      `Kurs 1${".".repeat(50_000)}a b${"-.".repeat(25_000)}9 Ende`,
+    ];
+    for (const input of inputs) {
+      const start = performance.now();
+      const result = courseNumberCandidates(input);
+      const ms = performance.now() - start;
+      expect({ length: input.length, result, fast: ms < 50 }).toEqual({
+        length: input.length,
+        result: [],
+        fast: true,
+      });
+    }
+    // ein Wort danach zählt weiter, auch mit Punkt
+    expect(courseNumberCandidates(`a${".-".repeat(50_000)}a BA56.25.`)).toEqual(
+      ["BA56.25"]
+    );
+  });
+
+  test("NAK-4/NAK-5: viele Wörter mit Punkten bleiben schnell und liefern höchstens 5 Kandidaten", () => {
+    const inputs = [
+      "1.".repeat(500_000),
+      "X41.100. ".repeat(100_000),
+      "a.1 ".repeat(250_000),
+      Array.from({ length: 50_000 }, (_, i) => `BA${10 + (i % 90)}.${i}`).join(
+        "\u2013"
+      ),
+      Array.from({ length: 50_000 }, (_, i) => `Kurs-X${i}.1`).join(" "),
+    ];
+    const start = Date.now();
+    for (const input of inputs)
+      expect(courseNumberCandidates(input).length).toBeLessThanOrEqual(5);
+    expect(Date.now() - start).toBeLessThan(2000);
+    expect(courseNumberCandidates(inputs[1])).toEqual(["X41.100"]);
+  });
+});
+
 describe("courseNumberMatchesInOrder (S-L3, AK-3)", () => {
   const plan = courseNumberSearchPlan("Ist Kurs-26B7602 oder T7411A frei?");
   const row = (id) => ({ id });
@@ -297,6 +540,44 @@ describe("courseNumberMatchesInOrder (S-L3, AK-3)", () => {
   test("fehlende Ergebnisse zählen als leer", () => {
     expect(courseNumberMatchesInOrder(plan, [])).toEqual([[], [], []]);
     expect(courseNumberMatchesInOrder([], [])).toEqual([]);
+  });
+
+  // Nachreview rc2 S-L10 (K7): gestrichen wird ein Teil nur an der Stelle,
+  // deren ganzes Wort traf; an jeder anderen Stelle seines Vorkommens zählt er
+  test("AK-14 (S-L10): Teil zählt an jedem Wort, dessen ganzes Wort nichts traf", () => {
+    const twice = courseNumberSearchPlan(
+      "Ist 26B7602-Online oder der Kurs-26B7602 günstiger?"
+    );
+    expect(
+      courseNumberMatchesInOrder(twice, [[row("online")], [], [row("b")]])
+    ).toEqual([[row("online")], [], [row("b")]]);
+    // beide ganzen Wörter treffen: der Teil zählt nirgends
+    expect(
+      courseNumberMatchesInOrder(twice, [
+        [row("online")],
+        [row("k")],
+        [row("b")],
+      ])
+    ).toEqual([[row("online")], [row("k")]]);
+    // umgekehrte Reihenfolge: der Teil steht an der Stelle seines ersten Worts
+    const reversed = courseNumberSearchPlan(
+      "Ist der Kurs-26B7602 oder 26B7602-Online günstiger?"
+    );
+    expect(
+      courseNumberMatchesInOrder(reversed, [[], [row("online")], [row("b")]])
+    ).toEqual([[], [row("b")], [row("online")]]);
+    // ganzes Wort, das vorher schon als Teil vorkam: zählt an der ersten Stelle
+    const early = courseNumberSearchPlan(
+      "Ist 26B7602-Kurs teurer als T7411A oder 26B7602?"
+    );
+    expect(early.map((e) => e.candidate)).toEqual([
+      "26B7602-Kurs",
+      "T7411A",
+      "26B7602",
+    ]);
+    expect(
+      courseNumberMatchesInOrder(early, [[], [row("t")], [row("b")]])
+    ).toEqual([[], [row("b")], [row("t")]]);
   });
 });
 
