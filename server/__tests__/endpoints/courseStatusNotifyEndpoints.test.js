@@ -93,12 +93,12 @@ describe("AK-T2-1: GET /embeds/course-status/notify", () => {
     expect((await invoke(GET, {})).statusCode).toBe(401);
   });
 
-  test("ohne gespeicherte Einstellung: an, Kontaktadressen gelten", async () => {
+  test("ohne gespeicherte Einstellung: aus, Kontaktadressen vorbelegt", async () => {
     const admin = createUser(prisma, "admin");
     const res = await invoke(GET, { token: admin.token });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
-      enabled: true,
+      enabled: false,
       recipients: null,
       contacts: CONTACTS,
       effective: CONTACTS,
@@ -409,7 +409,7 @@ describe("AK-T2-4: GET /v1/course-status liefert notify nach Vertrag", () => {
     return res.body;
   };
 
-  test("ohne Einstellung: an, Kontaktadressen (v1NotifyDefault)", async () => {
+  test("ohne Einstellung: aus, Kontaktadressen (v1NotifyDefault)", async () => {
     const body = await api();
     expect(body.notify).toEqual(CONTRACT.v1NotifyDefault);
     expect(body.workspaces).toEqual([]);
@@ -434,7 +434,7 @@ describe("AK-T2-4: GET /v1/course-status liefert notify nach Vertrag", () => {
           .indexOf(setting("kufer_course_status_contacts")),
         1
       );
-    expect((await api()).notify).toEqual({ enabled: true, recipients: [] });
+    expect((await api()).notify).toEqual({ enabled: false, recipients: [] });
   });
 
   test("ohne API-Schlüssel: 403 ohne Adressen", async () => {

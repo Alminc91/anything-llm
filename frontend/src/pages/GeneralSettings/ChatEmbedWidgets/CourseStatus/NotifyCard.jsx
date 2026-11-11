@@ -110,7 +110,7 @@ export function saveErrorMessage(t, result) {
 export function useCourseStatusNotify() {
   const { t } = useTranslation();
   const [state, setState] = useState(undefined);
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState(false);
   const [text, setTextValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [fieldError, setFieldError] = useState(null);

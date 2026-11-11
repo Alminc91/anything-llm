@@ -43,7 +43,10 @@ const INPUT_MAX_ENTRIES = 20;
 // Einfache Adressprüfung in Kleinschreibung, dieselbe Form wie die
 // Kontaktadressen der Pipeline (collect_contact_emails.EMAIL_RE)
 const EMAIL_RX = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
-const DEFAULT_NOTIFY = Object.freeze({ enabled: true, recipients: null });
+// Standard aus: Die Kundenmail ist freiwillig, der Kunde schaltet sie selbst ein; Kufer
+// wird unabhängig davon informiert (Nutzerentscheidung 11.11.2026, KB-10). Später Pflicht
+// heißt: hier wieder enabled: true.
+const DEFAULT_NOTIFY = Object.freeze({ enabled: false, recipients: null });
 
 function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -178,7 +181,7 @@ async function readContacts() {
 
 /**
  * Einstellung der Instanz; fehlt sie oder ist sie ungültig, der Standard
- * (an, Kontaktadressen). Wirft bei einem Lesefehler der Datenbank.
+ * (aus, Kontaktadressen). Wirft bei einem Lesefehler der Datenbank.
  * @returns {Promise<{enabled: boolean, recipients: string[]|null}>}
  */
 async function readNotify() {
