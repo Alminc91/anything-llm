@@ -248,11 +248,17 @@ in allen vier Modi, sofern die Tabelle einen Volltextindex auf `text` hat.
 
 1. **Kandidaten:** Wörter aus A bis Z, Ziffern und Bindestrich, 4 bis 15 Zeichen,
    mindestens eine Ziffer; höchstens 5 verschiedene je Frage, in deren Reihenfolge.
+   Typografische Striche (U+2010 bis U+2013) gelten als Bindestrich, das weiche
+   Trennzeichen (U+00AD) zählt nicht. Hängt per Bindestrich ein Wort ohne Ziffer an
+   der Nummer („26B7602-Kurs“, „Kurs-262-30748“), wird zusätzlich die Nummer ohne
+   dieses Wort gesucht, nach allen ganzen Wörtern (gesamt höchstens 5 Suchen); sie
+   zählt nur, wenn das ganze Wort keine Kursnummer ergibt. Wörter über 23 Zeichen
+   werden vor jeder weiteren Prüfung übersprungen (lange Eingaben bleiben linear).
    Ohne Kandidaten läuft keine zusätzliche Abfrage.
 2. **Suche:** je Kandidat eine Volltextsuche nur nach diesem Wort (alle Trigramme
-   verlangt, höchstens 50 Treffer), parallel zum Suchmodus und mit derselben
-   Bedingung (Metadatenfilter, Ausschluss veralteter Kurse des Kursbestands). Der
-   Kandidat steht nie in einer `where`-Bedingung.
+   verlangt, höchstens 50 Treffer, ohne Spalte `vector`), parallel zum Suchmodus
+   und mit derselben Bedingung (Metadatenfilter, Ausschluss veralteter Kurse des
+   Kursbestands). Der Kandidat steht nie in einer `where`-Bedingung.
 3. **Prüfung:** Erkannt ist eine Nummer nur, wenn ein Treffer sie in der Kopfzeile
    `Kursnummer:` seines Kopfblocks führt (wie der Kursbestand sie liest). Jahr,
    Postleitzahl oder Telefonnummer ohne solches Kursdokument ändern nichts.
@@ -260,7 +266,10 @@ in allen vier Modi, sofern die Tabelle einen Volltextindex auf `text` hat.
    mehreren in der Reihenfolge der Frage, höchstens `topN`); Reranker und
    Auswahlstufe bestimmen nur die übrigen Plätze. Angeheftete Dokumente bleiben
    draußen; ein gefundener Kurs, der nicht ohnehin unter den Quellen war, trägt
-   keine Bewertung (die Quellenanzeige zeigt keinen Prozentwert).
+   `score: null` und kein `distance` (die Quellenanzeige zeigt keinen Prozentwert).
+   Weder die Ähnlichkeitsschwelle des Workspace noch `scoreThreshold` der
+   Vector-Search-API gelten für ihn. Über `score` erkennt `fillSourceWindow` ihn bei
+   Folgefragen als Suchtreffer aus dem Verlauf.
 
 Ohne Volltextindex (LanceDB 0.31 sucht dann per Scan über alle Zeilen) läuft keine
 Kursnummern-Suche; Fehler der Suche führen zum Ergebnis ohne sie. Lokal gemessen
