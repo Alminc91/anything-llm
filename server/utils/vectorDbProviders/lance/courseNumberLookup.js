@@ -229,7 +229,12 @@ function courseNumberSearchPlan(input, max = COURSE_NUMBER_MAX_SEARCHED) {
   // gleicher Schreibweise stehen immer in derselben Stufe.
   const stages = [0, 1].map(() => ({ whole: [], parts: new Map() }));
   const wholeByKey = new Map();
-  // dasselbe Wort noch einmal ergibt nichts Neues
+  // dasselbe Wort noch einmal ergibt nichts Neues (S-L12): verglichen wird
+  // das normalisierte, klein geschriebene Wort, nicht das Rohwort
+  // („26B7602-Online.“, „26b7602-online“, U+2011). Gleiches ganzes Wort
+  // trifft an jeder Stelle gleich; liefe die Wiederholung erneut durch,
+  // bekäme ihr Teil eine Stelle ohne ganzes Wort und zählte dort, obwohl
+  // das ganze Wort eine Kursnummer ergab.
   const seenWords = new Set();
   for (const match of input.matchAll(WORD_RX)) {
     // zu lange Wörter vor jeder weiteren Prüfung überspringen (S-H1); zu
@@ -239,11 +244,14 @@ function courseNumberSearchPlan(input, max = COURSE_NUMBER_MAX_SEARCHED) {
     if (
       raw.length < COURSE_NUMBER_MIN_LEN ||
       raw.length > COURSE_NUMBER_MAX_WORD_LEN ||
-      !DIGIT_RX.test(raw) ||
-      seenWords.has(raw)
+      !DIGIT_RX.test(raw)
     )
       continue;
-    seenWords.add(raw);
+    const wordKey = normalizeWord(
+      raw.replace(SOFT_HYPHEN_RX, "")
+    ).toLowerCase();
+    if (seenWords.has(wordKey)) continue;
+    seenWords.add(wordKey);
     const position = match.index;
     const forms = courseNumberSearchForms(raw);
     if (forms.whole !== null) {
