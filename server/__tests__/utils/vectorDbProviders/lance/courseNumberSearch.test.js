@@ -62,6 +62,7 @@ jest
 
 const NS = "kursnummern";
 const NS_NOINDEX = "kursnummern_ohne_index";
+const NS_PIN = "kursnummern_angeheftet";
 const QUERY_VECTOR = [1, 0, 0, 0];
 const MODES = ["default", "rerank", "hybrid", "hybrid_rerank"];
 const QUESTION =
@@ -497,6 +498,35 @@ describe.each(MODES)("Modus %s", (mode) => {
       expect.objectContaining({ candidates: 4, recognized: [], found: [] }),
       expect.objectContaining({ candidates: 2, recognized: [], found: [] }),
     ]);
+  });
+
+  test("angeheftetes Dokument kommt über die Nummer nicht doppelt in die Quellen", async () => {
+    const published = "01.11.2026, 08:00:00";
+    const { client } = await lance.connect();
+    await client.dropTable(NS_PIN).catch(() => {});
+    await lance.updateOrCreateCollection(
+      client,
+      [
+        {
+          id: "pin-kurs",
+          title: "Kurs PIN4711.txt",
+          published,
+          text: header("PIN4711", "Angehefteter Kurs"),
+          vector: far(0),
+        },
+        ...PAGES.slice(0, 5).map((p) => ({ ...p, published })),
+      ],
+      NS_PIN
+    );
+    const question = "Was ist mit Kurs PIN4711?";
+    const open = await search(mode, question, { namespace: NS_PIN });
+    expect(ids(open)[0]).toBe("pin-kurs");
+    const pinned = await search(mode, question, {
+      namespace: NS_PIN,
+      filterIdentifiers: [`title:Kurs PIN4711.txt-timestamp:${published}`],
+    });
+    expect(ids(pinned)).not.toContain("pin-kurs");
+    expect(pinned.sources).toHaveLength(4);
   });
 
   test("NAK-1: ohne Kandidaten läuft keine zusätzliche Abfrage", async () => {
