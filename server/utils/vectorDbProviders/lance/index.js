@@ -1206,6 +1206,11 @@ class LanceDb extends VectorDatabase {
       if (!(await this.hasTextIndex(collection))) {
         report.skipped = "no_fts_index";
       } else {
+        // alle Spalten außer dem Vektor: Treffer brauchen ihre Metadaten als
+        // Quelle, den Vektor nie; je Kandidat bis zu 50 Zeilen (S-L6)
+        const columns = (await collection.schema()).fields
+          .map((field) => field.name)
+          .filter((name) => name !== "vector");
         const perCandidate = await Promise.all(
           candidates.map(({ candidate }) =>
             this.filteredQueryRows(
@@ -1217,6 +1222,7 @@ class LanceDb extends VectorDatabase {
                       operator: lancedb.Operator.And,
                     })
                   )
+                  .select(columns)
                   .limit(limit),
               whereClause,
               { limit: COURSE_NUMBER_FTS_LIMIT, exclusion }

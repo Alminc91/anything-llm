@@ -51,6 +51,9 @@ const { LanceDb } = require("../../../../utils/vectorDbProviders/lance");
 const { SystemSettings } = require("../../../../models/systemSettings");
 const SearchTrace = require("../../../../utils/vectorDbProviders/lance/searchTrace");
 const { fillSourceWindow } = require("../../../../utils/helpers/chat");
+const {
+  courseNumberSearchPlan,
+} = require("../../../../utils/vectorDbProviders/lance/courseNumberLookup");
 
 let settings = {};
 jest
@@ -274,6 +277,41 @@ test("Vorbedingung: Vektor- und Stichwortsuche mit der ganzen Frage finden den K
     armLimit: 10,
   });
   expect(onlyNumber.ftsRows.map((r) => r.id)).toContain(courseId("26B7602"));
+});
+
+// Review rc1 S-L6: „2026“ trifft über die Trigramme fast jedes Kursdokument,
+// je Kandidat kommen bis zu 50 Zeilen zurück; der Vektor wird nie gebraucht
+test("S-L6: die Volltextsuche je Kandidat lädt keinen Vektor, aber alle übrigen Spalten", async () => {
+  const { client } = await lance.connect();
+  const loaded = [];
+  const original = lance.filteredQueryRows.bind(lance);
+  const spy = jest
+    .spyOn(lance, "filteredQueryRows")
+    .mockImplementation(async (...args) => {
+      const rows = await original(...args);
+      loaded.push(...rows);
+      return rows;
+    });
+  const hits = await lance.courseNumberLookup({
+    client,
+    namespace: NS,
+    candidates: courseNumberSearchPlan("Gibt es 26B7602 auch 2026?"),
+    topN: 4,
+  });
+  spy.mockRestore();
+  expect(hits.map((h) => h.row.id)).toEqual([courseId("26B7602")]);
+  expect(loaded.length).toBeGreaterThan(COURSES.length);
+  for (const row of loaded) {
+    expect(row).not.toHaveProperty("vector");
+    expect(row).toEqual(
+      expect.objectContaining({
+        id: expect.any(String),
+        title: expect.any(String),
+        text: expect.any(String),
+        price: expect.any(Number),
+      })
+    );
+  }
 });
 
 describe.each(MODES)("Modus %s", (mode) => {
