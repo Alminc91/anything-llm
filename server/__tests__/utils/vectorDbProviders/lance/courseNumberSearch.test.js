@@ -50,6 +50,7 @@ const lancedb = require("@lancedb/lancedb");
 const { LanceDb } = require("../../../../utils/vectorDbProviders/lance");
 const { SystemSettings } = require("../../../../models/systemSettings");
 const SearchTrace = require("../../../../utils/vectorDbProviders/lance/searchTrace");
+const { fillSourceWindow } = require("../../../../utils/helpers/chat");
 
 let settings = {};
 jest
@@ -292,6 +293,23 @@ describe.each(MODES)("Modus %s", (mode) => {
     lance.courseNumberLookup.mockRestore();
     expect(ids(before)).not.toContain(courseId("26B7602"));
     expect(ids(result).slice(1)).toEqual(ids(before).slice(0, 3));
+  });
+
+  // Review rc1 S-L1: fillSourceWindow nimmt aus dem Verlauf nur Quellen mit
+  // Feld score (alle anderen gelten als früher angeheftete Dokumente)
+  test("S-L1: Folgefrage: der über die Nummer gefundene Kurs kommt aus dem Verlauf zurück", async () => {
+    const first = await search(mode, QUESTION);
+    expect(first.sources[0]).toMatchObject({
+      id: courseId("26B7602"),
+      score: null,
+    });
+    // gespeicherte Antwort wie in embed.js, Folgefrage ohne eigene Treffer
+    const history = [
+      { response: JSON.stringify({ text: "Antwort", sources: first.sources }) },
+    ];
+    const followUp = fillSourceWindow({ nDocs: 4, searchResults: [], history });
+    expect(followUp.sources.map((s) => s.id)).toContain(courseId("26B7602"));
+    expect(followUp.contextTexts.join("\n")).toContain("Kursnummer: 26B7602");
   });
 
   test("AK-2: alle Formate der Flotte, in jeder Schreibweise und mit Satzzeichen", async () => {

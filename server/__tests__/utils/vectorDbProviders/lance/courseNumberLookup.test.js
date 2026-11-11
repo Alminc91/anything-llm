@@ -377,11 +377,13 @@ describe("mergeCourseNumberHits (D3)", () => {
       "c",
     ]);
     expect(merged.contextTexts).toEqual(["t-x", "t-a", "t-b", "t-c"]);
-    // kein Vektor, keine internen Felder, keine erfundene Bewertung
+    // kein Vektor, keine internen Felder, keine erfundene Bewertung; score
+    // ist null, damit der Verlauf ihn als Suchtreffer erkennt (S-L1)
     expect(merged.sourceDocuments[0]).toEqual({
       id: "x",
       title: "x.txt",
       text: "t-x",
+      score: null,
     });
     expect(merged.scores).toEqual([null, 0.9, 0.8, 0.7]);
   });

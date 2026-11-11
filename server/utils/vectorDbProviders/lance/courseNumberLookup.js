@@ -240,8 +240,11 @@ function matchesCourseNumber(text, candidate) {
 }
 
 // Quelle aus einer Trefferzeile: ohne Vektor und ohne interne Felder der
-// Abfrage; ohne Bewertung, weil kein Vergleichswert zur übrigen Suche
-// besteht (die Quellenanzeige zeigt dann keinen Prozentwert)
+// Abfrage. score ist null: kein Vergleichswert zur übrigen Suche (die
+// Quellenanzeige zeigt dann keinen Prozentwert), aber das Feld kennzeichnet
+// einen Suchtreffer. fillSourceWindow (helpers/chat) nimmt bei Folgefragen
+// aus dem Verlauf nur Quellen mit score, alle anderen gelten als früher
+// angeheftete Dokumente (Review rc1 S-L1).
 function sourceOfRow(row) {
   const {
     vector: _v,
@@ -251,7 +254,7 @@ function sourceOfRow(row) {
     _rowid: _id,
     ...rest
   } = row;
-  return rest;
+  return { ...rest, score: null };
 }
 
 /**
