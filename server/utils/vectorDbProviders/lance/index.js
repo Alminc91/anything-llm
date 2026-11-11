@@ -1158,15 +1158,16 @@ class LanceDb extends VectorDatabase {
    * ihre Kopfzeile „Kursnummer:“ genau den Kandidaten führt; angeheftete
    * Dokumente bleiben wie in allen Pfaden draußen. Ergebnis in der
    * Reihenfolge der Frage, je Kandidat in der Reihenfolge der
-   * Volltextsuche, höchstens topN; die Nummer ohne angehängtes Wort (S-L3)
-   * zählt nur, wenn das ganze Wort keine Kursnummer ergab
-   * (courseNumberMatchesInOrder). Ohne Volltextindex keine Abfrage.
+   * Volltextsuche, höchstens topN; ein Teil (Nummer ohne angehängtes Wort,
+   * Hälfte an einem Halbgeviertstrich) zählt nur dort, wo das ganze Wort
+   * keine Kursnummer ergab (courseNumberMatchesInOrder, S-L3, S-L10). Ohne
+   * Volltextindex keine Abfrage.
    * Non-throwing: jeder Fehler -> keine Treffer (Suche wie bisher).
    * @param {Object} params
    * @param {LanceClient} params.client
    * @param {string} params.namespace
-   * @param {{candidate: string, position: number, part: boolean}[]} params.candidates
-   *   - courseNumberSearchPlan(input)
+   * @param {{candidate: string, position: number, part: boolean, alsoPartAt?: number[]}[]} params.candidates
+   *   - courseNumberSearchPlan(input), je Schreibweise ein Eintrag
    * @param {string|null} [params.whereClause]
    * @param {object|null} [params.exclusion]
    * @param {string[]} [params.filterIdentifiers]
@@ -1813,7 +1814,8 @@ class LanceDb extends VectorDatabase {
       trace.filterMs = resolvedFilters.ms;
     }
     // Kursnummern in der Frage (courseNumberLookup.js): Kandidaten nach D2,
-    // höchstens 5. Ohne Kandidaten keine zusätzliche Abfrage (AK-7, NAK-1).
+    // auch mit Punkt (Nachtrag 8.1.3), höchstens 5. Ohne Kandidaten keine
+    // zusätzliche Abfrage (AK-7, NAK-1).
     const lookupTopN = Number.isFinite(Number(topN))
       ? Math.floor(Number(topN))
       : 0;

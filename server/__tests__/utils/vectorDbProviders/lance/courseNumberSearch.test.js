@@ -606,7 +606,8 @@ describe.each(MODES)("Modus %s", (mode) => {
     expect(on.courseNumbers).not.toHaveProperty("searched");
     expect(JSON.stringify(on)).not.toContain("9923-0");
     expect(JSON.stringify(on)).not.toContain("04221");
-    expect(full.courseNumbers.searched).toEqual(["26B7602", "04221", "9923-0"]);
+    // Plan nach E16: Formen mit Buchstabe oder Bindestrich zuerst
+    expect(full.courseNumbers.searched).toEqual(["26B7602", "9923-0", "04221"]);
   });
 
   test("AK-6: ohne Volltextindex keine Nachschlage-Abfrage und kein Fehler", async () => {
@@ -675,6 +676,373 @@ describe.each(MODES)("Modus %s", (mode) => {
   test("NAK-1: ohne Kandidaten läuft keine zusätzliche Abfrage", async () => {
     await search(mode, "Welche Spanischkurse gibt es am Abend?");
     expect(ftsSpy).toHaveBeenCalledTimes(mode.startsWith("hybrid") ? 1 : 0);
+  });
+});
+
+// Nachtrag 8.1.3 (Spezifikation Abschnitt 11, 11.11.2026): Kursnummern mit
+// Punkt im Inneren, ein Beispiel je Form aus den Feeds der Flotte. Eigene
+// Tabelle, damit die Snapshots der Tabelle NS unverändert bleiben.
+const NS_DOT = "kursnummern_punkt";
+const DOT_FORMATS = [
+  "X41.100",
+  "X43.414",
+  "X17.117-1",
+  "X41.501-S",
+  "BA56.25",
+  "BAMF77.040",
+  "BA65.06A",
+  "BA427.00A",
+  "BA213.11",
+  "BA77.032",
+  "262.302200",
+  "26B7154.E",
+];
+// Nummern ohne Punkt für Striche und angehängte Wörter (S-L8 bis S-L10) und
+// Kurse, die einer Nummer mit Punkt bis auf Punkt oder Endung gleichen
+const DOT_TABLE_PLAIN = [
+  "26B7602",
+  "26B7604",
+  "26B7602-ONLINE",
+  "T7411A",
+  "262-30748",
+  "262-30749",
+  "27S445311",
+  "NTU40616R",
+  "X41.501",
+  "26B7154",
+  "BA56.250",
+  "BA5625",
+];
+const DOT_ROWS = [
+  ...PAGES,
+  // Seiten nahe am Suchvektor mit Datum, Preis und Version im Freitext
+  ...["14.09.2026", "1.200 Euro", "Version v3.5"].map((words, i) => ({
+    id: `punkt-seite-${i}`,
+    title: `punkt-seite-${i}.html`,
+    text: `Hinweis: ${words}. Was ist das für ein Kurs? Kurs Zeitung gesehen.`,
+    vector: near(20 + i),
+    price: 10,
+  })),
+  // Übersicht mit Nummern mit Punkt im Freitext: nie ein Treffer
+  {
+    id: "punkt-uebersicht",
+    title: "programm_punkt.html",
+    text: "Programm\nX41.100 Tastschreiben\nBA56.25 Englisch\n26B7154.E Spanisch",
+    vector: near(30),
+    price: 0,
+  },
+  ...[...DOT_FORMATS, ...DOT_TABLE_PLAIN].map((knr, i) => ({
+    id: courseId(knr),
+    title: `Kurs ${knr}`,
+    text: header(knr, `Kurs Nummer ${i} Thema ${"Inhalt ".repeat(i + 1)}`, {
+      description: i === 0 ? "Kosten 1.200 Euro, ab Version v3.5." : "",
+    }),
+    vector: far(i),
+    price: 130.9,
+  })),
+];
+
+describe("Nachtrag 8.1.3: Kursnummern mit Punkt", () => {
+  beforeAll(async () => {
+    const { client } = await lance.connect();
+    await client.dropTable(NS_DOT).catch(() => {});
+    await lance.updateOrCreateCollection(client, DOT_ROWS, NS_DOT);
+  }, 120000);
+
+  const searchDot = (mode, input, extra = {}) =>
+    search(mode, input, { namespace: NS_DOT, ...extra });
+  // Ergebnis derselben Frage ohne Nachschlagen nach der Nummer
+  const withoutLookup = async (mode, input, extra = {}) => {
+    const spy = jest.spyOn(lance, "courseNumberLookup").mockResolvedValue([]);
+    const result = await searchDot(mode, input, extra);
+    spy.mockRestore();
+    return result;
+  };
+  const traced = async (level, run) => {
+    settings = { ...settings, search_trace: level };
+    const traces = [];
+    const spy = jest
+      .spyOn(SearchTrace, "writeTrace")
+      .mockImplementation((t) => traces.push(JSON.parse(JSON.stringify(t))));
+    try {
+      await run();
+    } finally {
+      spy.mockRestore();
+    }
+    return traces;
+  };
+
+  describe.each(MODES)("Modus %s", (mode) => {
+    test("AK-11: Kursnummer mit Punkt im Satz: der Kurs steht an erster Stelle, die übrigen Plätze wie bisher", async () => {
+      for (const [question, knr] of [
+        ["Ich interessiere mich für BA56.25.", "BA56.25"],
+        ["Kurs (26B7154.E)?", "26B7154.E"],
+        ["bamf77.040 noch frei?", "BAMF77.040"],
+      ]) {
+        const result = await searchDot(mode, question);
+        expect([question, ids(result)[0]]).toEqual([question, courseId(knr)]);
+        expect(result.sources).toHaveLength(4);
+        expect(result.contextTexts[0]).toContain(`Kursnummer: ${knr}`);
+        expect(result.sources[0]).not.toHaveProperty("vector");
+        // übrige Plätze: Reihenfolge der Suche ohne Nachschlagen (D3)
+        const before = await withoutLookup(mode, question);
+        expect(ids(result).slice(1)).toEqual(
+          ids(before)
+            .filter((id) => id !== courseId(knr))
+            .slice(0, 3)
+        );
+      }
+    });
+
+    test("AK-11: alle Formate mit Punkt, in jeder Schreibweise und mit Satzzeichen danach", async () => {
+      const templates = [
+        (k) => `Ich habe in der Zeitung die Kursnummer ${k} gesehen.`,
+        (k) => `Was ist das für ein Kurs (${k})?`,
+        (k) => `Ist ${k} noch frei?`,
+        (k) => `Kurs-Nr. ${k}.`,
+      ];
+      for (const [i, knr] of DOT_FORMATS.entries()) {
+        const typed = i % 2 === 0 ? knr.toLowerCase() : knr;
+        const question = templates[i % templates.length](typed);
+        const result = await searchDot(mode, question);
+        expect([question, ids(result)[0]]).toEqual([question, courseId(knr)]);
+      }
+    });
+
+    test("AK-11/AK-3: mehrere Nummern mit und ohne Punkt: alle vorn, in der Reihenfolge der Frage", async () => {
+      const result = await searchDot(
+        mode,
+        "Was unterscheidet X41.100 von BA56.25 und 26B7602?"
+      );
+      expect(ids(result).slice(0, 3)).toEqual(
+        ["X41.100", "BA56.25", "26B7602"].map(courseId)
+      );
+    });
+
+    test("AK-11: genaue Nummer zählt: mit Endung, ohne Endung, ohne Punkt", async () => {
+      for (const [question, knr] of [
+        ["Kurs 26B7154.E?", "26B7154.E"],
+        ["Kurs 26B7154?", "26B7154"],
+        ["Kurs X41.501-S?", "X41.501-S"],
+        ["Kurs X41.501?", "X41.501"],
+        ["Kurs BA56.25?", "BA56.25"],
+        ["Kurs BA5625?", "BA5625"],
+        ["Kurs BA56.250?", "BA56.250"],
+      ]) {
+        const traces = await traced("on", () => searchDot(mode, question));
+        expect([question, traces[0].courseNumbers.recognized]).toEqual([
+          question,
+          [knr],
+        ]);
+      }
+    });
+
+    test("AK-12: Punkte am Wortende sind Satzzeichen", async () => {
+      for (const [question, knr] of [
+        ["Kurs BA56.25.", "BA56.25"],
+        ["Kurs BA56.25...", "BA56.25"],
+        ["Gibt es noch Plätze (262.302200.)?", "262.302200"],
+        ["Kurs .X43.414.-", "X43.414"],
+        ["Ich habe 26B7602. gesehen", "26B7602"],
+        ["Ist Nr.26B7602 frei?", "26B7602"],
+        ["Ich suche 26B7602.Was ist das?", "26B7602"],
+      ]) {
+        const result = await searchDot(mode, question);
+        expect([question, ids(result)[0]]).toEqual([question, courseId(knr)]);
+      }
+    });
+
+    test("AK-13: Datum, Preis und Version mit Punkt werden geprüft, heften aber keinen Kurs an", async () => {
+      for (const [question, searched] of [
+        ["Beginnt der Kurs am 14.09.2026?", ["14.09.2026"]],
+        ["Kostet der Kurs 1.200 Euro?", ["1.200"]],
+        ["Gibt es das ab Version v3.5?", ["v3.5"]],
+        // Plan nach E16: die Version mit Buchstabe zuerst
+        [
+          "Beginn 14.09.2026, Preis 1.200, Version v3.5?",
+          ["v3.5", "14.09.2026", "1.200"],
+        ],
+      ]) {
+        let result;
+        const traces = await traced("full", async () => {
+          result = await searchDot(mode, question);
+        });
+        expect([question, traces[0].courseNumbers]).toEqual([
+          question,
+          expect.objectContaining({
+            searched,
+            recognized: [],
+            found: [],
+            error: null,
+          }),
+        ]);
+        const before = await withoutLookup(mode, question);
+        expect([question, ids(result)]).toEqual([question, ids(before)]);
+      }
+    });
+
+    // Review 8.1.3 S-L11 (K8), Entscheidung E16
+    test("E16 (S-L11): Datum, Uhrzeit, Preis und „Nr.“ vor der Kursnummer verdrängen sie nicht", async () => {
+      for (const [question, expected] of [
+        [
+          "Welcher der Kurse am 14.09., 21.09., 28.09., 05.10. oder 12.10. ist 26B7602?",
+          ["26B7602"],
+        ],
+        [
+          "Spanisch A1.2 vom 14.09. bis 30.11., Raum 1.05, mittwochs 18.30 Uhr, Kursnummer 26B7602",
+          ["26B7602"],
+        ],
+        [
+          "Gibt es 2026 in 27749 Delmenhorst Kurse? Telefon 04221 9923-0, Beginn 14.09.2026, Kurs 26B7602?",
+          ["26B7602"],
+        ],
+        [
+          "Ist Nr.26B7602 am 14.09.2026 oder Nr.T7411A am 21.09.2026 frei?",
+          ["26B7602", "T7411A"],
+        ],
+        [
+          "Kurs von 18.00–19.30 Uhr und 19.45–21.15 Uhr, Nr.26B7602?",
+          ["26B7602"],
+        ],
+        ["262.302200 am 14.09.", ["262.302200"]],
+      ]) {
+        const result = await searchDot(mode, question);
+        expect([question, ids(result).slice(0, expected.length)]).toEqual([
+          question,
+          expected.map(courseId),
+        ]);
+      }
+    });
+
+    test("E16 (S-L11)/AK-3: Nummern mit und ohne Buchstaben: alle vorn, in der Reihenfolge der Frage", async () => {
+      const result = await searchDot(
+        mode,
+        "Ist 262.302200 am 14.09. günstiger als 26B7602 oder BA56.25?"
+      );
+      expect(ids(result).slice(0, 3)).toEqual(
+        ["262.302200", "26B7602", "BA56.25"].map(courseId)
+      );
+    });
+
+    // Nachreview rc2 S-L8
+    test("AK-14 (S-L8): zwei Nummern mit Halbgeviert- oder Ziffernstrich ohne Leerzeichen", async () => {
+      for (const [question, expected] of [
+        ["Was kosten die Kurse 26B7602\u201326B7604?", ["26B7602", "26B7604"]],
+        ["Kurse 26B7602\u2013T7411A?", ["26B7602", "T7411A"]],
+        ["Kurse 262-30748\u2013262-30749?", ["262-30748", "262-30749"]],
+        ["Kurse 27S445311\u2012NTU40616R?", ["27S445311", "NTU40616R"]],
+        ["Kurse X41.100\u2013X43.414?", ["X41.100", "X43.414"]],
+        ["Spanisch 26B7602\u2013A1?", ["26B7602"]],
+      ]) {
+        const result = await searchDot(mode, question);
+        expect([question, ids(result).slice(0, expected.length)]).toEqual([
+          question,
+          expected.map(courseId),
+        ]);
+      }
+    });
+
+    // Nachreview rc2 S-L9
+    test("AK-14 (S-L9): Nummer an einem langen Wort findet den Kurs", async () => {
+      for (const [question, knr] of [
+        ["Ist der Volkshochschulkurs-26B7602 noch frei?", "26B7602"],
+        ["Wann ist Italienischkurs-262-30748?", "262-30748"],
+        ["Bildungsurlaub-NTU40616R?", "NTU40616R"],
+        ["Wirbelsäulengymnastik-26B7602?", "26B7602"],
+        ["Wochenendseminar\u201326B7602?", "26B7602"],
+        ["Online-Kurs-X41.100?", "X41.100"],
+      ]) {
+        const result = await searchDot(mode, question);
+        expect([question, ids(result)[0]]).toEqual([question, courseId(knr)]);
+      }
+    });
+
+    // Nachreview rc2 S-L10
+    test("AK-14 (S-L10): dieselbe Nummer als Teil zweier Wörter: beide Kurse vorn, in der Reihenfolge der Frage", async () => {
+      const online = courseId("26B7602-ONLINE");
+      const praesenz = courseId("26B7602");
+      const forward = await searchDot(
+        mode,
+        "Ist 26B7602-Online oder der Kurs-26B7602 günstiger?"
+      );
+      expect(ids(forward).slice(0, 2)).toEqual([online, praesenz]);
+      const reversed = await searchDot(
+        mode,
+        "Ist der Kurs-26B7602 oder 26B7602-Online günstiger?"
+      );
+      expect(ids(reversed).slice(0, 2)).toEqual([praesenz, online]);
+      const early = await searchDot(
+        mode,
+        "Ist 26B7602-Kurs teurer als T7411A oder 26B7602?"
+      );
+      expect(ids(early).slice(0, 2)).toEqual([praesenz, courseId("T7411A")]);
+    });
+
+    // Review 8.1.3 S-L12
+    test("AK-14 (S-L12): dasselbe Wort noch einmal in anderer Schreibweise: nur der genannte Kurs vorn", async () => {
+      const online = courseId("26B7602-ONLINE");
+      for (const question of [
+        "Ist 26B7602-Online noch frei? Ich meine 26B7602-Online.",
+        "Ist 26B7602-Online noch frei? Ich meine 26b7602-online!",
+        "Ist 26B7602-Online noch frei? Ich meine 26B7602‑Online.",
+      ]) {
+        let result;
+        const traces = await traced("on", async () => {
+          result = await searchDot(mode, question);
+        });
+        expect([
+          question,
+          traces[0].courseNumbers.found.map((doc) => doc.id),
+        ]).toEqual([question, [online]]);
+        expect(ids(result)[0]).toBe(online);
+        // übrige Plätze wie ohne Nachschlagen: kein weiterer Kurs vorn
+        const before = await withoutLookup(mode, question);
+        expect(ids(result).slice(1)).toEqual(
+          ids(before)
+            .filter((id) => id !== online)
+            .slice(0, 3)
+        );
+      }
+    });
+
+    test("NAK-3/AK-5: ausgeschlossener Kurs mit Punkt kommt nicht zurück, ein Kurs ohne seine Endung rückt nicht nach", async () => {
+      for (const knr of ["26B7154.E", "X41.501-S"]) {
+        const stale = courseId(knr);
+        mockExclusion.mockImplementation(async () => ({
+          clauses: [`id NOT IN ('${stale}')`, `(id NOT IN ('${stale}'))`],
+          form: { accepted: 0 },
+          excludedIds: 1,
+          staleDocs: 1,
+          headBlockIds: 0,
+          stats: { failClosed: 0 },
+        }));
+        const question = `Was ist der Kurs ${knr}?`;
+        const traces = await traced("on", () => searchDot(mode, question));
+        const result = await searchDot(mode, question);
+        expect(ids(result)).not.toContain(stale);
+        expect(traces[0].courseNumbers).toMatchObject({
+          recognized: [],
+          found: [],
+        });
+        const before = await withoutLookup(mode, question);
+        expect(ids(result)).toEqual(ids(before));
+      }
+    });
+
+    test("NAK-2/NAK-5: lange Folgen aus Punkten und Strichen: kein Fehler, keine Bedingung, Nummer danach zählt", async () => {
+      for (const input of [
+        ".".repeat(20000),
+        `1${".-".repeat(10000)}1`,
+        `a${".\u2013".repeat(10000)}a BA56.25.`,
+        `BA56.25' OR '1'='1.`,
+      ]) {
+        const result = await searchDot(mode, input);
+        expect(Array.isArray(result.sources)).toBe(true);
+        if (input.includes("BA56.25"))
+          expect(ids(result)[0]).toBe(courseId("BA56.25"));
+      }
+      expect(whereSpy).not.toHaveBeenCalled();
+    });
   });
 });
 
