@@ -247,15 +247,20 @@ gesehen …“), steht der Kurs mit genau dieser Nummer an erster Stelle der Que
 in allen vier Modi, sofern die Tabelle einen Volltextindex auf `text` hat.
 
 1. **Kandidaten:** Wörter aus A bis Z, Ziffern, Bindestrich und Punkt, 4 bis 15
-   Zeichen, mindestens eine Ziffer; höchstens 5 verschiedene je Frage, in deren
-   Reihenfolge. Ein Punkt im Inneren gehört zur Nummer („BA56.25“, „26B7154.E“,
+   Zeichen, mindestens eine Ziffer; höchstens 5 verschiedene je Frage. Zuerst
+   kommen die mit Buchstabe oder Bindestrich, danach die nur aus Ziffern und Punkt
+   (Datum, Uhrzeit, Preis, auch „262.302200“), je in der Reihenfolge der Frage;
+   so verdrängen Daten und Uhrzeiten eine Kursnummer dahinter nicht (seit 8.1.3).
+   Ein Punkt im Inneren gehört zur Nummer („BA56.25“, „26B7154.E“,
    „262.302200“, seit 8.1.3); Punkte und Striche am Wortrand sind Satzzeichen und
    fallen weg („Ich interessiere mich für BA56.25.“). Datum, Preis oder Version mit
    Punkt („14.09.2026“, „1.200“, „v3.5“) sind wie Jahr oder Postleitzahl nur
    Kandidaten. Typografische Striche (U+2010 bis U+2013) gelten als Bindestrich, das
-   weiche Trennzeichen (U+00AD) zählt nicht. Weitere Kandidaten aus einem Wort
-   (Teile) kommen nach allen ganzen Wörtern (gesamt höchstens 5 Suchen): die Nummer
-   ohne per Bindestrich oder Punkt angehängte Wörter („26B7602-Kurs“,
+   weiche Trennzeichen (U+00AD) zählt nicht. Dasselbe Wort noch einmal, auch mit
+   anderer Groß- und Kleinschreibung, anderem Strich oder Satzpunkt, zählt einmal.
+   Weitere Kandidaten aus einem Wort (Teile) kommen nach den ganzen Wörtern
+   derselben Art (gesamt höchstens 5 Suchen): die Nummer ohne per Bindestrich oder
+   Punkt angehängte Wörter („26B7602-Kurs“,
    „Kurs-262-30748“, „Nr.26B7602“; ein einzelner Buchstabe am Ende wie in
    „X41.501-S“ gehört zur Nummer) und die Hälften an Ziffern- und Halbgeviertstrich
    („26B7602–26B7604“). Ein Teil wird je Schreibweise einmal gesucht und zählt an
