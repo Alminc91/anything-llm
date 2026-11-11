@@ -16,7 +16,8 @@
  *    ganzen Wörtern (courseNumberSearchForms): die Nummer ohne angehängte
  *    Wörter („26B7602-Kurs“, „Kurs-262-30748“, „Nr.26B7602“; S-L3) und die
  *    Hälften an Ziffern- und Halbgeviertstrich („26B7602–26B7604“; S-L8).
- *    Ein Teil zählt nur, wenn das ganze Wort keine Kursnummer ergibt.
+ *    Ein Teil zählt nur dort, wo das ganze Wort keine Kursnummer ergibt
+ *    (S-L10).
  * 2. Je Kandidat eine Volltextsuche nur nach diesem Wort, mit denselben
  *    Bedingungen wie die übrige Suche (Metadatenfilter, Ausschluss
  *    veralteter Kurse). Der Kandidat geht nie in eine Filterbedingung, nur
@@ -178,26 +179,31 @@ function courseNumberSearchForms(raw) {
 
 /**
  * Suchplan für Kursnummern aus einer Frage (D2): ganze Wörter in der
- * Reihenfolge der Frage, danach die Teile (courseNumberSearchForms), ohne
- * Doppel (Groß- und Kleinschreibung zählt nicht), gesamt höchstens `max`
- * (NAK-4). Satzzeichen um das Wort, Bindestriche und Punkte am Rand zählen
- * nicht, typografische Striche gelten als Bindestrich (S-L4); Wörter über
- * COURSE_NUMBER_MAX_WORD_LEN Zeichen werden übersprungen (S-H1).
+ * Reihenfolge der Frage, danach die Teile (courseNumberSearchForms), je
+ * Schreibweise einmal (Groß- und Kleinschreibung zählt nicht), gesamt
+ * höchstens `max` (NAK-4). Satzzeichen um das Wort, Bindestriche und Punkte
+ * am Rand zählen nicht, typografische Striche gelten als Bindestrich (S-L4);
+ * Wörter über COURSE_NUMBER_MAX_WORD_LEN Zeichen werden übersprungen (S-H1).
+ * S-L10: Kommt eine Schreibweise als Teil mehrerer Wörter vor oder als Teil
+ * und als ganzes Wort, wird sie einmal gesucht; alsoPartAt nennt die Stellen
+ * der weiteren Wörter, zu denen sie als Teil gehört.
  * @param {*} input - Suchtext
  * @param {number} [max]
- * @returns {{candidate: string, position: number, part: boolean}[]}
+ * @returns {{candidate: string, position: number, part: boolean, alsoPartAt?: number[]}[]}
  *   candidate in der Schreibweise der Frage (Striche als „-“); position ist
- *   die Stelle des Worts in der Frage (ein Teil hat die seines Worts); part
- *   kennzeichnet einen Teil
+ *   die Stelle des Worts in der Frage (ein Teil hat die seines ersten
+ *   Worts); part kennzeichnet einen Teil; alsoPartAt nur, wenn es weitere
+ *   Stellen gibt, aufsteigend
  */
 function courseNumberSearchPlan(input, max = COURSE_NUMBER_MAX_SEARCHED) {
   if (typeof input !== "string" || input.length === 0) return [];
   const whole = [];
-  const wholeKeys = new Set();
-  // Teile: höchstens max verschiedene, mehr kann der Plan nie aufnehmen
-  // (jedes ganze Wort verdrängt höchstens einen Teil gleicher Schreibweise)
-  const parts = [];
-  const partKeys = new Set();
+  const wholeByKey = new Map();
+  // Teile je Schreibweise mit den Stellen ihrer Wörter: höchstens max
+  // verschiedene, mehr kann der Plan nie aufnehmen (jedes ganze Wort
+  // verdrängt höchstens einen Teil gleicher Schreibweise); weitere Stellen
+  // bekannter Schreibweisen zählen immer (S-L10)
+  const parts = new Map();
   // dasselbe Wort noch einmal ergibt nichts Neues
   const seenWords = new Set();
   for (const match of input.matchAll(WORD_RX)) {
@@ -217,21 +223,33 @@ function courseNumberSearchPlan(input, max = COURSE_NUMBER_MAX_SEARCHED) {
     const forms = courseNumberSearchForms(raw);
     if (forms.whole !== null) {
       const key = forms.whole.toLowerCase();
-      if (!wholeKeys.has(key)) {
-        wholeKeys.add(key);
-        whole.push({ candidate: forms.whole, position, part: false });
+      if (!wholeByKey.has(key)) {
+        const entry = { candidate: forms.whole, position, part: false };
+        wholeByKey.set(key, entry);
+        whole.push(entry);
         if (whole.length >= max) break;
       }
     }
     for (const form of forms.parts) {
-      if (parts.length >= max) break;
       const key = form.toLowerCase();
-      if (partKeys.has(key)) continue;
-      partKeys.add(key);
-      parts.push({ candidate: form, position, part: true });
+      const known = parts.get(key);
+      if (known) known.positions.push(position);
+      else if (parts.size < max || wholeByKey.has(key))
+        parts.set(key, { candidate: form, positions: [position] });
     }
   }
-  const rest = parts.filter((p) => !wholeKeys.has(p.candidate.toLowerCase()));
+  const rest = [];
+  for (const [key, { candidate, positions }] of parts) {
+    const owner = wholeByKey.get(key);
+    if (owner) owner.alsoPartAt = positions;
+    else
+      rest.push({
+        candidate,
+        position: positions[0],
+        part: true,
+        ...(positions.length > 1 ? { alsoPartAt: positions.slice(1) } : {}),
+      });
+  }
   return [...whole, ...rest].slice(0, max);
 }
 
@@ -249,29 +267,41 @@ function courseNumberCandidates(input, max = COURSE_NUMBER_MAX_SEARCHED) {
 /**
  * S-L3, AK-3: Treffer je Kandidat des Suchplans in die Reihenfolge der
  * Frage (Stelle des Worts, bei gleicher Stelle das ganze Wort vor seinem
- * Teil). Ergibt das ganze Wort eine Kursnummer, zählt sein Teil nicht.
- * @param {{position: number, part: boolean}[]} plan - courseNumberSearchPlan
+ * Teil). Ergibt das ganze Wort eine Kursnummer, zählt sein Teil an dieser
+ * Stelle nicht; an jeder weiteren Stelle seines Vorkommens (alsoPartAt) zählt
+ * er, wenn das ganze Wort dort nichts traf, und steht an der ersten
+ * solchen Stelle (S-L10). Ein Eintrag ohne zählende Stelle fällt weg.
+ * @param {{position: number, part: boolean, alsoPartAt?: number[]}[]} plan -
+ *   courseNumberSearchPlan
  * @param {object[][]} rowsPerCandidate - geprüfte Treffer je Eintrag des Plans
  * @returns {object[][]} Treffer je verbleibendem Eintrag, in dieser Reihenfolge
  */
 function courseNumberMatchesInOrder(plan, rowsPerCandidate) {
   const rowsOf = (i) =>
     Array.isArray(rowsPerCandidate?.[i]) ? rowsPerCandidate[i] : [];
+  // Stellen der Wörter, deren ganzes Wort eine Kursnummer ergab
   const wholeFound = new Set(
     plan
       .map((entry, i) => (!entry.part && rowsOf(i).length > 0 ? entry : null))
       .filter(Boolean)
       .map((entry) => entry.position)
   );
+  const counts = (position, part) => !(part && wholeFound.has(position));
   return plan
-    .map((entry, i) => ({ entry, i }))
-    .filter(({ entry }) => !(entry.part && wholeFound.has(entry.position)))
-    .sort(
-      (a, b) =>
-        a.entry.position - b.entry.position ||
-        Number(a.entry.part) - Number(b.entry.part) ||
-        a.i - b.i
-    )
+    .map((entry, i) => {
+      // erste zählende Stelle: die eigene, sonst die erste weitere als Teil
+      const own = counts(entry.position, entry.part)
+        ? { position: entry.position, part: entry.part }
+        : null;
+      const other = (entry.alsoPartAt ?? []).find((p) => counts(p, true));
+      const at =
+        other === undefined || (own && own.position <= other)
+          ? own
+          : { position: other, part: true };
+      return at ? { ...at, i } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.position - b.position || a.part - b.part || a.i - b.i)
     .map(({ i }) => rowsOf(i));
 }
 
