@@ -26,7 +26,8 @@ const {
   SELECTION_POOL_MIN,
 } = require("./contextSelection");
 const {
-  courseNumberCandidates,
+  courseNumberSearchPlan,
+  courseNumberMatchesInOrder,
   courseNumberOfText,
   matchesCourseNumber,
   mergeCourseNumberHits,
@@ -1157,12 +1158,15 @@ class LanceDb extends VectorDatabase {
    * ihre Kopfzeile „Kursnummer:“ genau den Kandidaten führt; angeheftete
    * Dokumente bleiben wie in allen Pfaden draußen. Ergebnis in der
    * Reihenfolge der Frage, je Kandidat in der Reihenfolge der
-   * Volltextsuche, höchstens topN. Ohne Volltextindex keine Abfrage.
+   * Volltextsuche, höchstens topN; die Nummer ohne angehängtes Wort (S-L3)
+   * zählt nur, wenn das ganze Wort keine Kursnummer ergab
+   * (courseNumberMatchesInOrder). Ohne Volltextindex keine Abfrage.
    * Non-throwing: jeder Fehler -> keine Treffer (Suche wie bisher).
    * @param {Object} params
    * @param {LanceClient} params.client
    * @param {string} params.namespace
-   * @param {string[]} params.candidates - courseNumberCandidates(input)
+   * @param {{candidate: string, position: number, part: boolean}[]} params.candidates
+   *   - courseNumberSearchPlan(input)
    * @param {string|null} [params.whereClause]
    * @param {object|null} [params.exclusion]
    * @param {string[]} [params.filterIdentifiers]
@@ -1187,7 +1191,9 @@ class LanceDb extends VectorDatabase {
     // „full“ im Wortlaut, sonst nur ihre Anzahl (wie der Fragetext)
     const report = {
       candidates: candidates.length,
-      ...(traceLevel === "full" ? { searched: [...candidates] } : {}),
+      ...(traceLevel === "full"
+        ? { searched: candidates.map((entry) => entry.candidate) }
+        : {}),
       recognized: [],
       found: [],
       skipped: null,
@@ -1201,7 +1207,7 @@ class LanceDb extends VectorDatabase {
         report.skipped = "no_fts_index";
       } else {
         const perCandidate = await Promise.all(
-          candidates.map((candidate) =>
+          candidates.map(({ candidate }) =>
             this.filteredQueryRows(
               (limit) =>
                 collection
@@ -1226,7 +1232,10 @@ class LanceDb extends VectorDatabase {
           )
         );
         const seen = new Set();
-        for (const rows of perCandidate) {
+        for (const rows of courseNumberMatchesInOrder(
+          candidates,
+          perCandidate
+        )) {
           for (const row of rows) {
             const courseNumber = courseNumberOfText(row.text);
             if (!report.recognized.includes(courseNumber))
@@ -1802,7 +1811,7 @@ class LanceDb extends VectorDatabase {
     const lookupTopN = Number.isFinite(Number(topN))
       ? Math.floor(Number(topN))
       : 0;
-    const courseNumbers = lookupTopN >= 1 ? courseNumberCandidates(input) : [];
+    const courseNumbers = lookupTopN >= 1 ? courseNumberSearchPlan(input) : [];
     // Je Suchlauf (auch bei gelockerten Filtern) mit derselben Bedingung wie
     // der Suchmodus, parallel zu ihm; gefundene Kurse vor dessen Ergebnis.
     const runSearch = async (whereClause, relaxStage = 0) => {

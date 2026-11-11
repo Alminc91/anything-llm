@@ -8,6 +8,8 @@
  */
 const {
   courseNumberCandidates,
+  courseNumberSearchPlan,
+  courseNumberMatchesInOrder,
   courseNumberOfText,
   matchesCourseNumber,
   mergeCourseNumberHits,
@@ -104,6 +106,75 @@ describe("courseNumberCandidates (D2)", () => {
       "26B7602",
     ]);
     expect(courseNumberCandidates("\u201326B7602\u2013")).toEqual(["26B7602"]);
+  });
+
+  // Review rc1 S-L3: per Bindestrich angehängtes Wort („26B7602-Kurs“)
+  test("S-L3: Nummer per Bindestrich an ein Wort gehängt: erst das ganze Wort, danach die Nummer ohne das angehängte Wort", () => {
+    expect(courseNumberCandidates("Ist der 26B7602-Kurs noch frei?")).toEqual([
+      "26B7602-Kurs",
+      "26B7602",
+    ]);
+    expect(courseNumberCandidates("Kurs-26B7602?")).toEqual([
+      "Kurs-26B7602",
+      "26B7602",
+    ]);
+    // Nummer mit eigenem Bindestrich, angehängtes Wort auf einer oder auf
+    // beiden Seiten (das ganze Wort ist dann zu lang)
+    expect(courseNumberCandidates("Wann beginnt Kurs-262-30748?")).toEqual([
+      "Kurs-262-30748",
+      "262-30748",
+    ]);
+    expect(courseNumberCandidates("Kurs-Nr-261-G-071-Info")).toEqual([
+      "261-G-071",
+    ]);
+    // ganzes Wort zu lang oder mit Umlaut: nur die Nummer
+    expect(
+      courseNumberCandidates("Spanischkurs-26B7602 bei Müller-T7411A")
+    ).toEqual(["26B7602", "T7411A"]);
+    // Punkt trennt schon: ganzes Wort wie bisher
+    expect(courseNumberCandidates("Kurs-Nr.262-30748")).toEqual(["262-30748"]);
+  });
+
+  test("S-L3: Nummern mit Bindestrich bleiben ganz, ohne Teile", () => {
+    for (const knr of ["262-30748", "261-G-071", "27-83520A", "9923-0"])
+      expect(courseNumberCandidates(`Kurs ${knr}?`)).toEqual([knr]);
+    expect(courseNumberCandidates("am 2026-09-14")).toEqual(["2026-09-14"]);
+  });
+
+  test("S-L3/NAK-4: ganze Wörter zuerst, Teile danach, gesamt höchstens 5", () => {
+    expect(
+      courseNumberCandidates("Kurs-T7411A, F320241, XI57261 und 27S445311?")
+    ).toEqual(["Kurs-T7411A", "F320241", "XI57261", "27S445311", "T7411A"]);
+    // Teile belegen keinen Platz eines späteren ganzen Worts
+    expect(
+      courseNumberCandidates(
+        "Kurs-T7411A, Kurs-F320241, XI57261, 27S445311, NTU40616R, 26H43362"
+      )
+    ).toEqual([
+      "Kurs-T7411A",
+      "Kurs-F320241",
+      "XI57261",
+      "27S445311",
+      "NTU40616R",
+    ]);
+    // ein Teil, der als ganzes Wort vorkommt, zählt nur einmal, als ganzes Wort
+    expect(courseNumberCandidates("26B7602-Kurs oder 26B7602?")).toEqual([
+      "26B7602-Kurs",
+      "26B7602",
+    ]);
+    expect(
+      courseNumberSearchPlan("26B7602-Kurs oder 26B7602?").map((e) => e.part)
+    ).toEqual([false, false]);
+  });
+
+  test("S-L3: Plan mit Stelle in der Frage, Teil und ganzes Wort an derselben Stelle", () => {
+    expect(
+      courseNumberSearchPlan("Ist Kurs-26B7602 oder T7411A frei?")
+    ).toEqual([
+      { candidate: "Kurs-26B7602", position: 4, part: false },
+      { candidate: "T7411A", position: 22, part: false },
+      { candidate: "26B7602", position: 4, part: true },
+    ]);
   });
 
   test("Wörter ohne Ziffer, zu kurz, zu lang oder mit anderen Zeichen sind keine Kandidaten", () => {
@@ -203,6 +274,29 @@ describe("courseNumberCandidates (D2)", () => {
     expect(courseNumberCandidates(`a${"-".repeat(100_000)}a 26B7602?`)).toEqual(
       ["26B7602"]
     );
+  });
+});
+
+describe("courseNumberMatchesInOrder (S-L3, AK-3)", () => {
+  const plan = courseNumberSearchPlan("Ist Kurs-26B7602 oder T7411A frei?");
+  const row = (id) => ({ id });
+
+  test("Treffer in der Reihenfolge der Frage, ein Teil an der Stelle seines Worts", () => {
+    // Suche: ganzes Wort ohne Treffer, T7411A und der Teil 26B7602 mit Treffer
+    expect(
+      courseNumberMatchesInOrder(plan, [[], [row("t")], [row("b")]])
+    ).toEqual([[], [row("b")], [row("t")]]);
+  });
+
+  test("ergibt das ganze Wort eine Kursnummer, zählen seine Teile nicht", () => {
+    expect(
+      courseNumberMatchesInOrder(plan, [[row("ganz")], [row("t")], [row("b")]])
+    ).toEqual([[row("ganz")], [row("t")]]);
+  });
+
+  test("fehlende Ergebnisse zählen als leer", () => {
+    expect(courseNumberMatchesInOrder(plan, [])).toEqual([[], [], []]);
+    expect(courseNumberMatchesInOrder([], [])).toEqual([]);
   });
 });
 

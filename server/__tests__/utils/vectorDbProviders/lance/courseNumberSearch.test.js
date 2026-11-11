@@ -63,6 +63,7 @@ jest
 const NS = "kursnummern";
 const NS_NOINDEX = "kursnummern_ohne_index";
 const NS_PIN = "kursnummern_angeheftet";
+const NS_PARTS = "kursnummern_teile";
 const QUERY_VECTOR = [1, 0, 0, 0];
 const MODES = ["default", "rerank", "hybrid", "hybrid_rerank"];
 const QUESTION =
@@ -317,6 +318,81 @@ describe.each(MODES)("Modus %s", (mode) => {
       const result = await search(mode, question);
       expect([knr, ids(result)[0]]).toEqual([knr, courseId(knr)]);
     }
+  });
+
+  // Review rc1 S-L3: Nummer per Bindestrich an ein Wort gehängt
+  test("S-L3: Nummer per Bindestrich an ein Wort gehängt findet den Kurs", async () => {
+    for (const [question, knr] of [
+      ["Ist der 26B7602-Kurs noch frei?", "26B7602"],
+      ["Kurs-26B7602?", "26B7602"],
+      ["Kurs-Nr.262-30748", "262-30748"],
+      ["Wann beginnt Kurs-262-30748?", "262-30748"],
+      ["Ist der Spanischkurs-T7411A abends?", "T7411A"],
+    ]) {
+      const result = await search(mode, question);
+      expect([question, ids(result)[0]]).toEqual([question, courseId(knr)]);
+    }
+  });
+
+  test("S-L3/AK-3: über einen Teil gefundener Kurs steht an der Stelle seines Worts", async () => {
+    const result = await search(
+      mode,
+      "Was unterscheidet Kurs-26B7602 von T7411A?"
+    );
+    expect(ids(result).slice(0, 2)).toEqual([
+      courseId("26B7602"),
+      courseId("T7411A"),
+    ]);
+  });
+
+  test("S-L3: ergibt das ganze Wort eine Kursnummer, zählt sein Teil nicht", async () => {
+    const { client } = await lance.connect();
+    await client.dropTable(NS_PARTS).catch(() => {});
+    await lance.updateOrCreateCollection(
+      client,
+      [
+        {
+          id: "online",
+          title: "Kurs 26B7602-ONLINE",
+          text: header("26B7602-ONLINE", "Spanisch A1.2 online"),
+          vector: far(0),
+        },
+        {
+          id: "praesenz",
+          title: "Kurs 26B7602",
+          text: header("26B7602", "Spanisch A1.2"),
+          vector: far(1),
+        },
+        ...PAGES.slice(0, 5),
+      ],
+      NS_PARTS
+    );
+    settings = { ...settings, search_trace: "on" };
+    const traces = [];
+    jest
+      .spyOn(SearchTrace, "writeTrace")
+      .mockImplementation((t) => traces.push(JSON.parse(JSON.stringify(t))));
+    const whole = await search(mode, "Ist 26B7602-Online noch frei?", {
+      namespace: NS_PARTS,
+    });
+    const part = await search(mode, "Ist 26B7602-Kurs noch frei?", {
+      namespace: NS_PARTS,
+    });
+    SearchTrace.writeTrace.mockRestore();
+    expect(ids(whole)[0]).toBe("online");
+    expect(ids(part)[0]).toBe("praesenz");
+    expect(traces.map((t) => t.courseNumbers)).toEqual([
+      expect.objectContaining({
+        candidates: 2,
+        recognized: ["26B7602-ONLINE"],
+        found: [expect.objectContaining({ id: "online" })],
+      }),
+      expect.objectContaining({
+        candidates: 2,
+        recognized: ["26B7602"],
+        found: [expect.objectContaining({ id: "praesenz" })],
+      }),
+    ]);
   });
 
   test("AK-3: mehrere Kursnummern: alle vorn, in der Reihenfolge der Frage", async () => {
