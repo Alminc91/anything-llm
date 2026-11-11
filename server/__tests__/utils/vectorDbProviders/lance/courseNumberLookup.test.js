@@ -581,6 +581,40 @@ describe("Nachtrag 8.1.3: Kursnummern mit Punkt", () => {
     expect(plan[0].alsoPartAt).toHaveLength(COURSE_NUMBER_MAX_SEARCHED);
   });
 
+  // Review 8.1.3 S-L12 (K7): dasselbe Wort in anderer Rohform lief erneut
+  // durch, sein Teil bekam die zweite Stelle ohne ganzes Wort
+  test("AK-14 (S-L12): dasselbe Wort noch einmal, in anderer Rohform: kein weiterer Eintrag, keine weitere Stelle", () => {
+    for (const again of [
+      "26B7602-Online.",
+      "26b7602-online",
+      "26B7602-ONLINE!",
+      "-26B7602-Online-",
+      "26B7602‑Online",
+      "26B7602‐Online",
+      "26B76­02-Online",
+    ]) {
+      const question = `Ist 26B7602-Online noch frei? Ich meine ${again}`;
+      expect([question, courseNumberSearchPlan(question)]).toEqual([
+        question,
+        [
+          { candidate: "26B7602-Online", position: 4, part: false },
+          { candidate: "26B7602", position: 4, part: true },
+        ],
+      ]);
+    }
+    // Nummer mit Bindestrich, beim zweiten Mal mit Halbgeviertstrich: deren
+    // Hälfte ist kein eigener Kandidat
+    expect(
+      courseNumberSearchPlan("Ist 27-83520A frei? Ich meine 27–83520A.")
+    ).toEqual([{ candidate: "27-83520A", position: 4, part: false }]);
+    // langes Wort ohne eigene Kandidatenform: der Teil mit der ersten Stelle
+    expect(
+      courseNumberSearchPlan(
+        "Volkshochschulkurs-26B7602? Ja, Volkshochschulkurs-26b7602."
+      )
+    ).toEqual([{ candidate: "26B7602", position: 0, part: true }]);
+  });
+
   test("NAK-5: 100.000 Punkte oder Striche in einem Wort laufen je unter 50 ms, ohne Kandidaten", () => {
     const inputs = [
       "1" + ".".repeat(100_000) + "1",
@@ -684,6 +718,27 @@ describe("courseNumberMatchesInOrder (S-L3, AK-3)", () => {
     expect(
       courseNumberMatchesInOrder(early, [[], [row("t")], [row("b")]])
     ).toEqual([[], [row("b")], [row("t")]]);
+  });
+
+  // Review 8.1.3 S-L12 (K7)
+  test("AK-14 (S-L12): dasselbe Wort zweimal: trifft das ganze Wort, zählt sein Teil an keiner Stelle", () => {
+    const repeated = courseNumberSearchPlan(
+      "Ist 26B7602-Online noch frei? Ich meine 26B7602-Online."
+    );
+    expect(
+      courseNumberMatchesInOrder(repeated, [[row("online")], [row("b")]])
+    ).toEqual([[row("online")]]);
+    // trifft das ganze Wort nichts, zählt der Teil an der ersten Stelle
+    expect(courseNumberMatchesInOrder(repeated, [[], [row("b")]])).toEqual([
+      [],
+      [row("b")],
+    ]);
+    const dashes = courseNumberSearchPlan(
+      "Ist 27-83520A frei? Ich meine 27–83520A."
+    );
+    expect(
+      courseNumberMatchesInOrder(dashes, [[row("k")], [row("h")]])
+    ).toEqual([[row("k")]]);
   });
 });
 

@@ -978,6 +978,33 @@ describe("Nachtrag 8.1.3: Kursnummern mit Punkt", () => {
       expect(ids(early).slice(0, 2)).toEqual([praesenz, courseId("T7411A")]);
     });
 
+    // Review 8.1.3 S-L12
+    test("AK-14 (S-L12): dasselbe Wort noch einmal in anderer Schreibweise: nur der genannte Kurs vorn", async () => {
+      const online = courseId("26B7602-ONLINE");
+      for (const question of [
+        "Ist 26B7602-Online noch frei? Ich meine 26B7602-Online.",
+        "Ist 26B7602-Online noch frei? Ich meine 26b7602-online!",
+        "Ist 26B7602-Online noch frei? Ich meine 26B7602‑Online.",
+      ]) {
+        let result;
+        const traces = await traced("on", async () => {
+          result = await searchDot(mode, question);
+        });
+        expect([
+          question,
+          traces[0].courseNumbers.found.map((doc) => doc.id),
+        ]).toEqual([question, [online]]);
+        expect(ids(result)[0]).toBe(online);
+        // übrige Plätze wie ohne Nachschlagen: kein weiterer Kurs vorn
+        const before = await withoutLookup(mode, question);
+        expect(ids(result).slice(1)).toEqual(
+          ids(before)
+            .filter((id) => id !== online)
+            .slice(0, 3)
+        );
+      }
+    });
+
     test("NAK-3/AK-5: ausgeschlossener Kurs mit Punkt kommt nicht zurück, ein Kurs ohne seine Endung rückt nicht nach", async () => {
       for (const knr of ["26B7154.E", "X41.501-S"]) {
         const stale = courseId(knr);
