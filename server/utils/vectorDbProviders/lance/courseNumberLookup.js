@@ -7,18 +7,20 @@
  * Nummer dagegen sicher.
  *
  * Ablauf (lance/index.js, courseNumberLookup):
- * 1. Kandidaten aus der Frage (D2): Wörter aus Buchstaben A bis Z, Ziffern
- *    und Bindestrich, 4 bis 15 Zeichen, mindestens eine Ziffer; höchstens
- *    COURSE_NUMBER_MAX_SEARCHED verschiedene je Frage (NAK-4), in der
- *    Reihenfolge der Frage. Ohne Kandidaten läuft keine Abfrage (AK-7).
- *    Hängt am Wort per Bindestrich ein Wort ohne Ziffer („26B7602-Kurs“,
- *    „Kurs-262-30748“), ist die Nummer ohne dieses Wort ein weiterer
- *    Kandidat (S-L3), nach allen ganzen Wörtern; er zählt nur, wenn das
- *    ganze Wort keine Kursnummer ergibt.
+ * 1. Kandidaten aus der Frage (D2): Wörter aus Buchstaben A bis Z, Ziffern,
+ *    Bindestrich und Punkt (Nachtrag 8.1.3: „BA56.25“, „26B7154.E“), 4 bis
+ *    15 Zeichen, mindestens eine Ziffer; Punkte und Striche am Wortrand sind
+ *    Satzzeichen. Höchstens COURSE_NUMBER_MAX_SEARCHED verschiedene je Frage
+ *    (NAK-4), in der Reihenfolge der Frage. Ohne Kandidaten läuft keine
+ *    Abfrage (AK-7). Weitere Kandidaten aus einem Wort, als Teile nach allen
+ *    ganzen Wörtern (courseNumberSearchForms): die Nummer ohne angehängte
+ *    Wörter („26B7602-Kurs“, „Kurs-262-30748“, „Nr.26B7602“; S-L3) und die
+ *    Hälften an Ziffern- und Halbgeviertstrich („26B7602–26B7604“; S-L8).
+ *    Ein Teil zählt nur, wenn das ganze Wort keine Kursnummer ergibt.
  * 2. Je Kandidat eine Volltextsuche nur nach diesem Wort, mit denselben
  *    Bedingungen wie die übrige Suche (Metadatenfilter, Ausschluss
  *    veralteter Kurse). Der Kandidat geht nie in eine Filterbedingung, nur
- *    in die Volltextsuche, und besteht nur aus [A-Za-z0-9-] (HC4).
+ *    in die Volltextsuche, und besteht nur aus [A-Za-z0-9.-] (HC4).
  * 3. Ein Kandidat gilt erst als Kursnummer, wenn ein Treffer ihn in der
  *    Kopfzeile „Kursnummer:“ seines Kopfblocks führt, wie der Kursbestand
  *    sie liest (embedCourseSources.courseNumberFromText). Die Daten
@@ -39,22 +41,32 @@ const COURSE_NUMBER_MAX_SEARCHED = 5;
 // Dokumente: der Kurs selbst, Seiten mit der Nummer im Freitext.
 const COURSE_NUMBER_FTS_LIMIT = 50;
 
-// Wort = zusammenhängende Buchstaben (jeder Schrift), Ziffern, Bindestriche;
-// als Kandidat zählt es nur ganz aus A bis Z, Ziffern und Bindestrich.
+// Wort = zusammenhängende Buchstaben (jeder Schrift), Ziffern, Bindestriche
+// und Punkte; als Kandidat zählt es nur ganz aus A bis Z, Ziffern, Bindestrich
+// und Punkt (Nachtrag 8.1.3).
 // Typografische Striche (U+2010 bis U+2013, aus PDF oder Online-Zeitung
 // kopiert) gehören wie der Bindestrich zum Wort und werden darin zu „-“,
-// das weiche Trennzeichen U+00AD entfällt (Review rc1 S-L4).
+// das weiche Trennzeichen U+00AD entfällt (Review rc1 S-L4). Ziffern- und
+// Halbgeviertstrich (U+2012, U+2013) trennen zusätzlich zwei Nummern (S-L8).
 // Auf die ungekürzte Frage läuft nur WORD_RX (eine Zeichenklasse mit „+“,
 // linear); jede weitere Prüfung nur auf Wörter bis COURSE_NUMBER_MAX_WORD_LEN
 // (Review rc1 S-H1: „-+$“ auf einem Wort aus 100.000 Bindestrichen braucht
-// quadratisch viele Schritte und hält den Server sekundenlang an).
-const WORD_RX = /[\p{L}\p{N}\u00AD\u2010-\u2013-]+/gu;
+// quadratisch viele Schritte und hält den Server sekundenlang an; NAK-5:
+// Punkte und Striche am Rand schneidet eine Indexschleife ab, keine Regex).
+const WORD_RX = /[\p{L}\p{N}\u00AD\u2010-\u2013.-]+/gu;
 const DASH_VARIANT_RX = /[\u2010-\u2013]/g;
+const RANGE_DASH_RX = /[\u2012\u2013]/;
 const SOFT_HYPHEN_RX = /\u00AD/g;
-const CANDIDATE_RX = /^[A-Za-z0-9-]+$/;
+const CANDIDATE_RX = /^[A-Za-z0-9.-]+$/;
 const DIGIT_RX = /[0-9]/;
-// längstes Wort, das noch geprüft wird: Kandidat plus Rand für Randstriche
-const COURSE_NUMBER_MAX_WORD_LEN = COURSE_NUMBER_MAX_LEN + 8;
+// längstes Wort, das noch geprüft wird: Kandidat plus angehängte Wörter,
+// Randpunkte und Randstriche („Volkshochschulkurs-26B7602“; S-L9). Danach
+// läuft jede Prüfung linear über höchstens so viele Zeichen.
+const COURSE_NUMBER_MAX_WORD_LEN = 64;
+
+const isDigit = (ch) => ch >= "0" && ch <= "9";
+// trennt Teile einer Nummer, nach dem Vereinheitlichen der Striche
+const isSeparator = (ch) => ch === "-" || ch === ".";
 
 /**
  * Vergleichsform einer Kursnummer: getrimmt, klein geschrieben.
@@ -68,19 +80,19 @@ function courseNumberKey(value) {
 }
 
 /**
- * Ein Wort der Frage (höchstens COURSE_NUMBER_MAX_WORD_LEN Zeichen) in die
- * Form eines Kandidaten: typografische Striche zu „-“, ohne weiches
- * Trennzeichen (S-L4), ohne Bindestriche am Rand; die Randstriche schneidet
- * eine Indexschleife ab, keine Regex (S-H1).
+ * Ein Wort der Frage (höchstens COURSE_NUMBER_MAX_WORD_LEN Zeichen, ohne
+ * weiches Trennzeichen) in die Form eines Kandidaten: typografische Striche
+ * zu „-“ (S-L4), ohne Bindestriche und Punkte am Rand (AK-12); den Rand
+ * schneidet eine Indexschleife ab, keine Regex (S-H1, NAK-5).
  * @param {string} word
  * @returns {string}
  */
 function normalizeWord(word) {
-  const text = word.replace(DASH_VARIANT_RX, "-").replace(SOFT_HYPHEN_RX, "");
+  const text = word.replace(DASH_VARIANT_RX, "-");
   let start = 0;
   let end = text.length;
-  while (start < end && text[start] === "-") start++;
-  while (end > start && text[end - 1] === "-") end--;
+  while (start < end && isSeparator(text[start])) start++;
+  while (end > start && isSeparator(text[end - 1])) end--;
   return text.slice(start, end);
 }
 
@@ -99,38 +111,84 @@ function isCandidateForm(word) {
 }
 
 /**
- * S-L3: Nummer ohne per Bindestrich angehängte Wörter. Teile am Bindestrich
- * ohne Ziffer am Anfang und am Ende fallen weg („26B7602-Kurs“ zu „26B7602“,
- * „Kurs-262-30748“ zu „262-30748“); Teile mitten in der Nummer bleiben
- * („261-G-071“). Alle Formate der Flotte haben an beiden Enden eine Ziffer.
+ * S-L3: Nummer ohne per Bindestrich oder Punkt angehängte Wörter. Vorn fällt
+ * jeder Teil ohne Ziffer weg („Kurs-262-30748“, „Kurs-Nr.262-30748“ und
+ * „Nr.26B7602“ zur Nummer), hinten jeder Teil ohne Ziffer aus mindestens
+ * zwei Zeichen („26B7602-Kurs“ zu „26B7602“). Ein einzelner Buchstabe am
+ * Ende gehört zur Nummer („X41.501-S“, „26B7154.E“ aus der Flotte) und
+ * bleibt, ebenso Teile mitten in der Nummer („261-G-071“). Die Trenner
+ * bleiben, wie sie sind („Kurs-X41.100“ zu „X41.100“). Indexschleifen, keine
+ * Regex.
  * @param {string} word - normalisiertes Wort, höchstens
  *   COURSE_NUMBER_MAX_WORD_LEN Zeichen
  * @returns {string|null} null, wenn kein Wort angehängt ist
  */
 function withoutAttachedWords(word) {
-  if (!word.includes("-")) return null;
-  const segments = word.split("-");
+  // vorn: Teile bis zu dem mit der ersten Ziffer
   let start = 0;
-  let end = segments.length;
-  while (start < end && !DIGIT_RX.test(segments[start])) start++;
-  while (end > start && !DIGIT_RX.test(segments[end - 1])) end--;
-  if (start === 0 && end === segments.length) return null;
-  return segments.slice(start, end).join("-");
+  let first = 0;
+  for (; first < word.length && !isDigit(word[first]); first++)
+    if (isSeparator(word[first])) start = first + 1;
+  if (first === word.length) return null;
+  // hinten: Teile ohne Ziffer, außer einem einzelnen Zeichen (leere Teile
+  // zwischen zwei Trennern fallen mit weg)
+  let end = word.length;
+  for (let i = end - 1, digitless = true; i > first; i--) {
+    if (isDigit(word[i])) digitless = false;
+    if (!isSeparator(word[i])) continue;
+    if (!digitless || end - i - 1 === 1) break;
+    end = i;
+  }
+  if (start === 0 && end === word.length) return null;
+  return word.slice(start, end);
+}
+
+/**
+ * Alle Suchformen eines Worts der Frage (Review rc2, Fehlerklasse K3): das
+ * ganze Wort und als Teile die Nummer ohne angehängte Wörter (S-L3) sowie
+ * die Hälften an Ziffern- und Halbgeviertstrich mit ihren Nummern ohne
+ * angehängte Wörter (S-L8: „26B7602–26B7604“, „262-30748–262-30749“).
+ * @param {string} raw - Wort aus WORD_RX, höchstens
+ *   COURSE_NUMBER_MAX_WORD_LEN Zeichen
+ * @returns {{whole: string|null, parts: string[]}} whole nur in
+ *   Kandidatenform; parts in der Reihenfolge im Wort, ohne Doppel und ohne
+ *   das ganze Wort
+ */
+function courseNumberSearchForms(raw) {
+  const text = raw.replace(SOFT_HYPHEN_RX, "");
+  const whole = normalizeWord(text);
+  const keys = new Set([whole.toLowerCase()]);
+  const parts = [];
+  const add = (form) => {
+    if (form === null || !isCandidateForm(form)) return;
+    const key = form.toLowerCase();
+    if (keys.has(key)) return;
+    keys.add(key);
+    parts.push(form);
+  };
+  add(withoutAttachedWords(whole));
+  if (RANGE_DASH_RX.test(text))
+    for (const piece of text.split(RANGE_DASH_RX)) {
+      const half = normalizeWord(piece);
+      add(half);
+      add(withoutAttachedWords(half));
+    }
+  return { whole: isCandidateForm(whole) ? whole : null, parts };
 }
 
 /**
  * Suchplan für Kursnummern aus einer Frage (D2): ganze Wörter in der
- * Reihenfolge der Frage, danach Nummern ohne angehängtes Wort (S-L3), ohne
+ * Reihenfolge der Frage, danach die Teile (courseNumberSearchForms), ohne
  * Doppel (Groß- und Kleinschreibung zählt nicht), gesamt höchstens `max`
- * (NAK-4). Satzzeichen um das Wort und Bindestriche am Rand zählen nicht,
- * typografische Striche gelten als Bindestrich (S-L4); Wörter über
+ * (NAK-4). Satzzeichen um das Wort, Bindestriche und Punkte am Rand zählen
+ * nicht, typografische Striche gelten als Bindestrich (S-L4); Wörter über
  * COURSE_NUMBER_MAX_WORD_LEN Zeichen werden übersprungen (S-H1).
  * @param {*} input - Suchtext
  * @param {number} [max]
  * @returns {{candidate: string, position: number, part: boolean}[]}
  *   candidate in der Schreibweise der Frage (Striche als „-“); position ist
  *   die Stelle des Worts in der Frage (ein Teil hat die seines Worts); part
- *   kennzeichnet die Nummer ohne angehängtes Wort
+ *   kennzeichnet einen Teil
  */
 function courseNumberSearchPlan(input, max = COURSE_NUMBER_MAX_SEARCHED) {
   if (typeof input !== "string" || input.length === 0) return [];
@@ -155,23 +213,23 @@ function courseNumberSearchPlan(input, max = COURSE_NUMBER_MAX_SEARCHED) {
     )
       continue;
     seenWords.add(raw);
-    const word = normalizeWord(raw);
     const position = match.index;
-    if (isCandidateForm(word)) {
-      const key = word.toLowerCase();
+    const forms = courseNumberSearchForms(raw);
+    if (forms.whole !== null) {
+      const key = forms.whole.toLowerCase();
       if (!wholeKeys.has(key)) {
         wholeKeys.add(key);
-        whole.push({ candidate: word, position, part: false });
+        whole.push({ candidate: forms.whole, position, part: false });
         if (whole.length >= max) break;
       }
     }
-    if (parts.length >= max) continue;
-    const core = withoutAttachedWords(word);
-    if (core === null || !isCandidateForm(core)) continue;
-    const coreKey = core.toLowerCase();
-    if (partKeys.has(coreKey)) continue;
-    partKeys.add(coreKey);
-    parts.push({ candidate: core, position, part: true });
+    for (const form of forms.parts) {
+      if (parts.length >= max) break;
+      const key = form.toLowerCase();
+      if (partKeys.has(key)) continue;
+      partKeys.add(key);
+      parts.push({ candidate: form, position, part: true });
+    }
   }
   const rest = parts.filter((p) => !wholeKeys.has(p.candidate.toLowerCase()));
   return [...whole, ...rest].slice(0, max);
@@ -299,6 +357,7 @@ function mergeCourseNumberHits(result, hits, topN) {
 
 module.exports = {
   courseNumberCandidates,
+  courseNumberSearchForms,
   courseNumberSearchPlan,
   courseNumberMatchesInOrder,
   courseNumberKey,

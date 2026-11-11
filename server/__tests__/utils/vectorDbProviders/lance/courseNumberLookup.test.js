@@ -96,8 +96,11 @@ describe("courseNumberCandidates (D2)", () => {
     expect(courseNumberCandidates("Kurs 27\u201083520A")).toEqual([
       "27-83520A",
     ]);
+    // Nachreview rc2 S-L8: am Ziffernstrich zusätzlich die Hälften als Teile
+    // (zählen nur, wenn das ganze Wort keine Kursnummer ergibt)
     expect(courseNumberCandidates("Kurs 262\u201230748")).toEqual([
       "262-30748",
+      "30748",
     ]);
     expect(courseNumberCandidates("Kurs 26B\u00AD7602 (Zeitung)")).toEqual([
       "26B7602",
@@ -197,7 +200,8 @@ describe("courseNumberCandidates (D2)", () => {
       courseNumberCandidates(
         "Gibt es 2026 in 27749 Delmenhorst Kurse? Telefon 04221 9923-0, Beginn 14.09.2026"
       )
-    ).toEqual(["2026", "27749", "04221", "9923-0"]);
+      // Nachtrag 8.1.3: das Datum ist ein Wort mit Punkten, ein Kandidat (AK-13)
+    ).toEqual(["2026", "27749", "04221", "9923-0", "14.09.2026"]);
   });
 
   test("NAK-4: höchstens 5 verschiedene Nummern in der Reihenfolge der Frage, doppelte zählen einmal", () => {

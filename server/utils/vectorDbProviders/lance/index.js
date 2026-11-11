@@ -1813,7 +1813,8 @@ class LanceDb extends VectorDatabase {
       trace.filterMs = resolvedFilters.ms;
     }
     // Kursnummern in der Frage (courseNumberLookup.js): Kandidaten nach D2,
-    // höchstens 5. Ohne Kandidaten keine zusätzliche Abfrage (AK-7, NAK-1).
+    // auch mit Punkt (Nachtrag 8.1.3), höchstens 5. Ohne Kandidaten keine
+    // zusätzliche Abfrage (AK-7, NAK-1).
     const lookupTopN = Number.isFinite(Number(topN))
       ? Math.floor(Number(topN))
       : 0;
