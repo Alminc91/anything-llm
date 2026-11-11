@@ -879,6 +879,49 @@ describe("Nachtrag 8.1.3: Kursnummern mit Punkt", () => {
       }
     });
 
+    // Review 8.1.3 S-L11 (K8), Entscheidung E16
+    test("E16 (S-L11): Datum, Uhrzeit, Preis und „Nr.“ vor der Kursnummer verdrängen sie nicht", async () => {
+      for (const [question, expected] of [
+        [
+          "Welcher der Kurse am 14.09., 21.09., 28.09., 05.10. oder 12.10. ist 26B7602?",
+          ["26B7602"],
+        ],
+        [
+          "Spanisch A1.2 vom 14.09. bis 30.11., Raum 1.05, mittwochs 18.30 Uhr, Kursnummer 26B7602",
+          ["26B7602"],
+        ],
+        [
+          "Gibt es 2026 in 27749 Delmenhorst Kurse? Telefon 04221 9923-0, Beginn 14.09.2026, Kurs 26B7602?",
+          ["26B7602"],
+        ],
+        [
+          "Ist Nr.26B7602 am 14.09.2026 oder Nr.T7411A am 21.09.2026 frei?",
+          ["26B7602", "T7411A"],
+        ],
+        [
+          "Kurs von 18.00–19.30 Uhr und 19.45–21.15 Uhr, Nr.26B7602?",
+          ["26B7602"],
+        ],
+        ["262.302200 am 14.09.", ["262.302200"]],
+      ]) {
+        const result = await searchDot(mode, question);
+        expect([question, ids(result).slice(0, expected.length)]).toEqual([
+          question,
+          expected.map(courseId),
+        ]);
+      }
+    });
+
+    test("E16 (S-L11)/AK-3: Nummern mit und ohne Buchstaben: alle vorn, in der Reihenfolge der Frage", async () => {
+      const result = await searchDot(
+        mode,
+        "Ist 262.302200 am 14.09. günstiger als 26B7602 oder BA56.25?"
+      );
+      expect(ids(result).slice(0, 3)).toEqual(
+        ["262.302200", "26B7602", "BA56.25"].map(courseId)
+      );
+    });
+
     // Nachreview rc2 S-L8
     test("AK-14 (S-L8): zwei Nummern mit Halbgeviert- oder Ziffernstrich ohne Leerzeichen", async () => {
       for (const [question, expected] of [

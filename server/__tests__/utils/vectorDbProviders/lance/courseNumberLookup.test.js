@@ -397,6 +397,87 @@ describe("Nachtrag 8.1.3: Kursnummern mit Punkt", () => {
       expect(matchesCourseNumber(header("X41.100"), value)).toBe(false);
   });
 
+  // Review 8.1.3 S-L11 (K8), Entscheidung E16: Datum, Uhrzeit, Preis und
+  // „Nr.“-Formen belegten alle fünf Plätze vor der Kursnummer
+  test("E16 (S-L11): erst Formen mit Buchstabe oder Bindestrich, danach Formen nur aus Ziffern und Punkt, je in der Reihenfolge der Frage", () => {
+    for (const [question, expected] of [
+      [
+        "Welcher der Kurse am 14.09., 21.09., 28.09., 05.10. oder 12.10. ist 26B7602?",
+        ["26B7602", "14.09", "21.09", "28.09", "05.10"],
+      ],
+      [
+        "Spanisch A1.2 vom 14.09. bis 30.11., Raum 1.05, mittwochs 18.30 Uhr, Kursnummer 26B7602",
+        ["A1.2", "26B7602", "14.09", "30.11", "1.05"],
+      ],
+      [
+        "Gibt es 2026 in 27749 Delmenhorst Kurse? Telefon 04221 9923-0, Beginn 14.09.2026, Kurs 26B7602?",
+        ["9923-0", "26B7602", "2026", "27749", "04221"],
+      ],
+      // Teile mit Buchstabe vor Wörtern nur aus Ziffern und Punkt
+      [
+        "Ist Nr.26B7602 am 14.09.2026 oder Nr.T7411A am 21.09.2026 frei?",
+        ["Nr.26B7602", "Nr.T7411A", "26B7602", "T7411A", "14.09.2026"],
+      ],
+      // Teile zählen nach ihrer eigenen Form: die Hälften einer Uhrzeit nach
+      // der Nummer ohne „Nr.“
+      [
+        "Kurs von 18.00–19.30 Uhr und 19.45–21.15 Uhr, Nr.26B7602?",
+        ["18.00-19.30", "19.45-21.15", "Nr.26B7602", "26B7602", "18.00"],
+      ],
+      // Umkirch: Nummer nur aus Ziffern und Punkt bleibt Kandidat
+      ["262.302200 am 14.09.", ["262.302200", "14.09"]],
+    ])
+      expect([question, courseNumberCandidates(question)]).toEqual([
+        question,
+        expected,
+      ]);
+  });
+
+  test("E16 (S-L11)/AK-3: der Plan behält die Stelle jedes Worts, die Treffer stehen in der Reihenfolge der Frage", () => {
+    const plan = courseNumberSearchPlan(
+      "Ist 262.302200 am 14.09. günstiger als 26B7602 oder BA56.25?"
+    );
+    expect(plan).toEqual([
+      { candidate: "26B7602", position: 39, part: false },
+      { candidate: "BA56.25", position: 52, part: false },
+      { candidate: "262.302200", position: 4, part: false },
+      { candidate: "14.09", position: 18, part: false },
+    ]);
+    const row = (id) => ({ id });
+    expect(
+      courseNumberMatchesInOrder(plan, [
+        [row("b")],
+        [row("ba")],
+        [row("u")],
+        [],
+      ])
+    ).toEqual([[row("u")], [], [row("b")], [row("ba")]]);
+  });
+
+  test("E16 (S-L11)/NAK-4: höchstens 5 Suchen, auch mit vielen Daten vor den Nummern", () => {
+    expect(
+      courseNumberCandidates(
+        "Am 14.09. und 21.09.: Kurse T7411A, F320241, XI57261, 27S445311, NTU40616R und 26H43362"
+      )
+    ).toEqual(["T7411A", "F320241", "XI57261", "27S445311", "NTU40616R"]);
+    // 100.000 verschiedene Zahlen mit Punkt vor der Nummer: linear, die
+    // Nummer zählt
+    const dates = Array.from(
+      { length: 100_000 },
+      (_, i) => `${10 + (i % 18)}.${1000 + i}`
+    ).join(" ");
+    const start = Date.now();
+    const plan = courseNumberCandidates(`${dates} Kurs 26B7602?`);
+    expect(Date.now() - start).toBeLessThan(2000);
+    expect(plan).toEqual([
+      "26B7602",
+      "10.1000",
+      "11.1001",
+      "12.1002",
+      "13.1003",
+    ]);
+  });
+
   // Nachreview rc2 S-L8: zwei Nummern mit Ziffern- oder Halbgeviertstrich
   // ohne Leerzeichen
   test("AK-14 (S-L8): am Ziffern- und Halbgeviertstrich zusätzlich die Hälften als Teile", () => {
