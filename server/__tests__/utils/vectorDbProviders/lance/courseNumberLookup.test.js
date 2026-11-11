@@ -154,6 +154,31 @@ describe("courseNumberCandidates (D2)", () => {
       "K1004",
     ]);
   });
+
+  // Review rc1 S-H1: Randstriche per Regex auf einem ungekürzten Wort brauchen
+  // bei langen Bindestrich-Folgen quadratisch viele Schritte (ReDoS über den
+  // öffentlichen Widget-Endpunkt)
+  test("NAK-2/NAK-4 (S-H1): lange Bindestrich-Folgen in einem Wort laufen je unter 50 ms, ohne Kandidaten", () => {
+    const inputs = [
+      "1" + "-".repeat(100_000) + "1",
+      "a" + "-".repeat(100_000) + "a",
+      `Kurs 1${"-".repeat(50_000)}a b${"-".repeat(50_000)}9 Ende`,
+    ];
+    for (const input of inputs) {
+      const start = performance.now();
+      const result = courseNumberCandidates(input);
+      const ms = performance.now() - start;
+      expect({ length: input.length, result, fast: ms < 50 }).toEqual({
+        length: input.length,
+        result: [],
+        fast: true,
+      });
+    }
+    // ein Wort danach zählt weiter
+    expect(courseNumberCandidates(`a${"-".repeat(100_000)}a 26B7602?`)).toEqual(
+      ["26B7602"]
+    );
+  });
 });
 
 describe("Prüfung gegen die Zeile „Kursnummer:“ (HC2)", () => {

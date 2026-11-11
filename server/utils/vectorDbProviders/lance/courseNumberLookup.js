@@ -36,11 +36,16 @@ const COURSE_NUMBER_MAX_SEARCHED = 5;
 const COURSE_NUMBER_FTS_LIMIT = 50;
 
 // Wort = zusammenhängende Buchstaben (jeder Schrift), Ziffern, Bindestriche;
-// als Kandidat zählt es nur ganz aus A bis Z, Ziffern und Bindestrich
+// als Kandidat zählt es nur ganz aus A bis Z, Ziffern und Bindestrich.
+// Auf die ungekürzte Frage läuft nur WORD_RX (eine Zeichenklasse mit „+“,
+// linear); jede weitere Prüfung nur auf Wörter bis COURSE_NUMBER_MAX_WORD_LEN
+// (Review rc1 S-H1: „-+$“ auf einem Wort aus 100.000 Bindestrichen braucht
+// quadratisch viele Schritte und hält den Server sekundenlang an).
 const WORD_RX = /[\p{L}\p{N}-]+/gu;
 const CANDIDATE_RX = /^[A-Za-z0-9-]+$/;
 const DIGIT_RX = /[0-9]/;
-const EDGE_HYPHENS_RX = /^-+|-+$/g;
+// längstes Wort, das noch geprüft wird: Kandidat plus Rand für Randstriche
+const COURSE_NUMBER_MAX_WORD_LEN = COURSE_NUMBER_MAX_LEN + 8;
 
 /**
  * Vergleichsform einer Kursnummer: getrimmt, klein geschrieben.
@@ -54,9 +59,24 @@ function courseNumberKey(value) {
 }
 
 /**
+ * Bindestriche am Anfang und Ende eines Worts entfernen, mit einer
+ * Indexschleife statt einer Regex (S-H1).
+ * @param {string} word
+ * @returns {string}
+ */
+function trimEdgeHyphens(word) {
+  let start = 0;
+  let end = word.length;
+  while (start < end && word[start] === "-") start++;
+  while (end > start && word[end - 1] === "-") end--;
+  return word.slice(start, end);
+}
+
+/**
  * Kandidaten für Kursnummern aus einer Frage (D2), in der Reihenfolge der
  * Frage, ohne Doppel (Groß- und Kleinschreibung zählt nicht), höchstens
- * `max`. Satzzeichen um das Wort und Bindestriche am Rand zählen nicht.
+ * `max`. Satzzeichen um das Wort und Bindestriche am Rand zählen nicht;
+ * Wörter über COURSE_NUMBER_MAX_WORD_LEN Zeichen werden übersprungen (S-H1).
  * @param {*} input - Suchtext
  * @param {number} [max]
  * @returns {string[]} Kandidaten in der Schreibweise der Frage
@@ -66,7 +86,9 @@ function courseNumberCandidates(input, max = COURSE_NUMBER_MAX_SEARCHED) {
   const seen = new Set();
   const out = [];
   for (const match of input.matchAll(WORD_RX)) {
-    const word = match[0].replace(EDGE_HYPHENS_RX, "");
+    // zu lange Wörter vor jeder weiteren Prüfung überspringen (S-H1)
+    if (match[0].length > COURSE_NUMBER_MAX_WORD_LEN) continue;
+    const word = trimEdgeHyphens(match[0]);
     if (
       word.length < COURSE_NUMBER_MIN_LEN ||
       word.length > COURSE_NUMBER_MAX_LEN ||
@@ -168,6 +190,7 @@ module.exports = {
   mergeCourseNumberHits,
   COURSE_NUMBER_MIN_LEN,
   COURSE_NUMBER_MAX_LEN,
+  COURSE_NUMBER_MAX_WORD_LEN,
   COURSE_NUMBER_MAX_SEARCHED,
   COURSE_NUMBER_FTS_LIMIT,
 };
