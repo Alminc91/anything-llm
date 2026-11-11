@@ -1,5 +1,6 @@
 const { getSTTProvider, isSTTConfigured } = require("../../../utils/SpeechToText");
 const multer = require("multer");
+const { validApiKey } = require("../../../utils/middleware/validApiKey");
 
 // Configure multer for file uploads (in-memory storage)
 const upload = multer({
@@ -38,9 +39,11 @@ function audioEndpoints(app) {
    * Request: multipart/form-data with "file" field containing audio
    * Response: { success: true, text: "transcribed text" }
    */
+  // Kufer-Fork: Wie jede Route der Entwickler-API nur mit API-Schlüssel. Ohne ihn konnte jeder
+  // anonym über den STT-Anbieter der Instanz transkribieren (Review PR #78, S1, 11.11.2026).
   app.post(
     "/api/audio/transcribe",
-    upload.single("file"),
+    [validApiKey, upload.single("file")],
     async (req, res) => {
       try {
         // Check if STT is configured
@@ -95,7 +98,7 @@ function audioEndpoints(app) {
    * GET /api/audio/stt-status
    * Returns STT configuration status
    */
-  app.get("/api/audio/stt-status", async (req, res) => {
+  app.get("/api/audio/stt-status", [validApiKey], async (req, res) => {
     try {
       const configured = isSTTConfigured();
       const provider = process.env.STT_PROVIDER || "native";
