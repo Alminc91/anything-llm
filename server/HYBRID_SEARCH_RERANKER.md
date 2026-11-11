@@ -238,6 +238,42 @@ in `swappedIn` wie in `swappedOut`.
 
 ---
 
+## 3g. Kursnummern in Fragen
+
+`server/utils/vectorDbProviders/lance/courseNumberLookup.js` (Spezifikation
+`issues/kursnummer-erkennung.md`, immer an, ohne Schalter): Nennt eine Frage eine
+Kursnummer, auch mitten im Satz („Ich habe in der Zeitung die Kursnummer 26B7602
+gesehen …“), steht der Kurs mit genau dieser Nummer an erster Stelle der Quellen,
+in allen vier Modi, sofern die Tabelle einen Volltextindex auf `text` hat.
+
+1. **Kandidaten:** Wörter aus A bis Z, Ziffern und Bindestrich, 4 bis 15 Zeichen,
+   mindestens eine Ziffer; höchstens 5 verschiedene je Frage, in deren Reihenfolge.
+   Ohne Kandidaten läuft keine zusätzliche Abfrage.
+2. **Suche:** je Kandidat eine Volltextsuche nur nach diesem Wort (alle Trigramme
+   verlangt, höchstens 50 Treffer), parallel zum Suchmodus und mit derselben
+   Bedingung (Metadatenfilter, Ausschluss veralteter Kurse des Kursbestands). Der
+   Kandidat steht nie in einer `where`-Bedingung.
+3. **Prüfung:** Erkannt ist eine Nummer nur, wenn ein Treffer sie in der Kopfzeile
+   `Kursnummer:` seines Kopfblocks führt (wie der Kursbestand sie liest). Jahr,
+   Postleitzahl oder Telefonnummer ohne solches Kursdokument ändern nichts.
+4. **Reihenfolge:** Gefundene Kurse stehen vor dem Ergebnis des Suchmodus (bei
+   mehreren in der Reihenfolge der Frage, höchstens `topN`); Reranker und
+   Auswahlstufe bestimmen nur die übrigen Plätze. Angeheftete Dokumente bleiben
+   draußen; ein gefundener Kurs, der nicht ohnehin unter den Quellen war, trägt
+   keine Bewertung (die Quellenanzeige zeigt keinen Prozentwert).
+
+Ohne Volltextindex (LanceDB 0.31 sucht dann per Scan über alle Zeilen) läuft keine
+Kursnummern-Suche; Fehler der Suche führen zum Ergebnis ohne sie. Lokal gemessen
+(6.200 Abschnitte, 1024 Dimensionen): Suche je Nummer etwa 8 ms, wegen der
+parallelen Ausführung im Median höchstens 5 ms mehr. **Search-Trace:** Block
+`courseNumbers` mit `candidates` (Anzahl; der Wortlaut als `searched` nur bei
+`search_trace = full`, weil Kandidaten Telefonnummern sein können), `recognized`
+(Kursnummern aus den Kopfzeilen), `found` (id, title, courseNumber), `skipped`
+(`no_fts_index`), `error`, `ms`; in `final.docs` tragen gefundene Kurse
+`courseNumber`.
+
+---
+
 ## 4. Two supported wire formats
 
 The external `GenericReranker` speaks two HTTP shapes. Scores are always mapped
