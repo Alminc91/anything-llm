@@ -200,8 +200,10 @@ describe("courseNumberCandidates (D2)", () => {
       courseNumberCandidates(
         "Gibt es 2026 in 27749 Delmenhorst Kurse? Telefon 04221 9923-0, Beginn 14.09.2026"
       )
-      // Nachtrag 8.1.3: das Datum ist ein Wort mit Punkten, ein Kandidat (AK-13)
-    ).toEqual(["2026", "27749", "04221", "9923-0", "14.09.2026"]);
+      // Nachtrag 8.1.3: das Datum ist ein Wort mit Punkten, ein Kandidat
+      // (AK-13); E16: die Telefonnummer mit Bindestrich vor den Wörtern nur
+      // aus Ziffern und Punkt
+    ).toEqual(["9923-0", "2026", "27749", "04221", "14.09.2026"]);
   });
 
   test("NAK-4: höchstens 5 verschiedene Nummern in der Reihenfolge der Frage, doppelte zählen einmal", () => {

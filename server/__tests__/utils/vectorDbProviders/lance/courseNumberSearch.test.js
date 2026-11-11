@@ -606,7 +606,8 @@ describe.each(MODES)("Modus %s", (mode) => {
     expect(on.courseNumbers).not.toHaveProperty("searched");
     expect(JSON.stringify(on)).not.toContain("9923-0");
     expect(JSON.stringify(on)).not.toContain("04221");
-    expect(full.courseNumbers.searched).toEqual(["26B7602", "04221", "9923-0"]);
+    // Plan nach E16: Formen mit Buchstabe oder Bindestrich zuerst
+    expect(full.courseNumbers.searched).toEqual(["26B7602", "9923-0", "04221"]);
   });
 
   test("AK-6: ohne Volltextindex keine Nachschlage-Abfrage und kein Fehler", async () => {
@@ -856,9 +857,10 @@ describe("Nachtrag 8.1.3: Kursnummern mit Punkt", () => {
         ["Beginnt der Kurs am 14.09.2026?", ["14.09.2026"]],
         ["Kostet der Kurs 1.200 Euro?", ["1.200"]],
         ["Gibt es das ab Version v3.5?", ["v3.5"]],
+        // Plan nach E16: die Version mit Buchstabe zuerst
         [
           "Beginn 14.09.2026, Preis 1.200, Version v3.5?",
-          ["14.09.2026", "1.200", "v3.5"],
+          ["v3.5", "14.09.2026", "1.200"],
         ],
       ]) {
         let result;
