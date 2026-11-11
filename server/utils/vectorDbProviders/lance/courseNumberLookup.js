@@ -25,8 +25,9 @@
  * 3. Ein Kandidat gilt erst als Kursnummer, wenn ein Treffer ihn in der
  *    Kopfzeile „Kursnummer:“ seines Kopfblocks führt, wie der Kursbestand
  *    sie liest (embedCourseSources.courseNumberFromText). Die Daten
- *    entscheiden, nicht das Muster (HC2): Jahr, Postleitzahl oder
- *    Telefonnummer ohne passendes Kursdokument ändern nichts (AK-4).
+ *    entscheiden, nicht das Muster (HC2): Jahr, Postleitzahl, Telefonnummer,
+ *    Datum oder Preis ohne passendes Kursdokument ändern nichts (AK-4,
+ *    AK-13).
  * 4. Gefundene Kurse stehen vor den übrigen Quellen, in der Reihenfolge der
  *    Frage, höchstens topN (D3, AK-3); die übrigen Plätze behalten die
  *    Reihenfolge der Suche ohne die gefundenen Kurse.
