@@ -246,22 +246,31 @@ Kursnummer, auch mitten im Satz („Ich habe in der Zeitung die Kursnummer 26B76
 gesehen …“), steht der Kurs mit genau dieser Nummer an erster Stelle der Quellen,
 in allen vier Modi, sofern die Tabelle einen Volltextindex auf `text` hat.
 
-1. **Kandidaten:** Wörter aus A bis Z, Ziffern und Bindestrich, 4 bis 15 Zeichen,
-   mindestens eine Ziffer; höchstens 5 verschiedene je Frage, in deren Reihenfolge.
-   Typografische Striche (U+2010 bis U+2013) gelten als Bindestrich, das weiche
-   Trennzeichen (U+00AD) zählt nicht. Hängt per Bindestrich ein Wort ohne Ziffer an
-   der Nummer („26B7602-Kurs“, „Kurs-262-30748“), wird zusätzlich die Nummer ohne
-   dieses Wort gesucht, nach allen ganzen Wörtern (gesamt höchstens 5 Suchen); sie
-   zählt nur, wenn das ganze Wort keine Kursnummer ergibt. Wörter über 23 Zeichen
-   werden vor jeder weiteren Prüfung übersprungen (lange Eingaben bleiben linear).
-   Ohne Kandidaten läuft keine zusätzliche Abfrage.
+1. **Kandidaten:** Wörter aus A bis Z, Ziffern, Bindestrich und Punkt, 4 bis 15
+   Zeichen, mindestens eine Ziffer; höchstens 5 verschiedene je Frage, in deren
+   Reihenfolge. Ein Punkt im Inneren gehört zur Nummer („BA56.25“, „26B7154.E“,
+   „262.302200“, seit 8.1.3); Punkte und Striche am Wortrand sind Satzzeichen und
+   fallen weg („Ich interessiere mich für BA56.25.“). Datum, Preis oder Version mit
+   Punkt („14.09.2026“, „1.200“, „v3.5“) sind wie Jahr oder Postleitzahl nur
+   Kandidaten. Typografische Striche (U+2010 bis U+2013) gelten als Bindestrich, das
+   weiche Trennzeichen (U+00AD) zählt nicht. Weitere Kandidaten aus einem Wort
+   (Teile) kommen nach allen ganzen Wörtern (gesamt höchstens 5 Suchen): die Nummer
+   ohne per Bindestrich oder Punkt angehängte Wörter („26B7602-Kurs“,
+   „Kurs-262-30748“, „Nr.26B7602“; ein einzelner Buchstabe am Ende wie in
+   „X41.501-S“ gehört zur Nummer) und die Hälften an Ziffern- und Halbgeviertstrich
+   („26B7602–26B7604“). Ein Teil wird je Schreibweise einmal gesucht und zählt an
+   jedem Wort, dessen ganzes Wort keine Kursnummer ergibt. Wörter über 64 Zeichen
+   werden vor jeder weiteren Prüfung übersprungen; auf die ungekürzte Frage läuft nur
+   eine Regex mit einer Zeichenklasse, Ränder schneidet eine Indexschleife ab (lange
+   Eingaben bleiben linear). Ohne Kandidaten läuft keine zusätzliche Abfrage.
 2. **Suche:** je Kandidat eine Volltextsuche nur nach diesem Wort (alle Trigramme
    verlangt, höchstens 50 Treffer, ohne Spalte `vector`), parallel zum Suchmodus
    und mit derselben Bedingung (Metadatenfilter, Ausschluss veralteter Kurse des
    Kursbestands). Der Kandidat steht nie in einer `where`-Bedingung.
 3. **Prüfung:** Erkannt ist eine Nummer nur, wenn ein Treffer sie in der Kopfzeile
    `Kursnummer:` seines Kopfblocks führt (wie der Kursbestand sie liest). Jahr,
-   Postleitzahl oder Telefonnummer ohne solches Kursdokument ändern nichts.
+   Postleitzahl, Telefonnummer, Datum oder Preis ohne solches Kursdokument ändern
+   nichts.
 4. **Reihenfolge:** Gefundene Kurse stehen vor dem Ergebnis des Suchmodus (bei
    mehreren in der Reihenfolge der Frage, höchstens `topN`); Reranker und
    Auswahlstufe bestimmen nur die übrigen Plätze. Angeheftete Dokumente bleiben
