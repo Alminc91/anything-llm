@@ -479,6 +479,25 @@ describe("Nachtrag 8.1.3: Kursnummern mit Punkt", () => {
     ]);
   });
 
+  test("AK-14 (S-L10)/NAK-4: höchstens 6 Stellen je Teil, auch bei sehr vielen Wörtern", () => {
+    // verschiedene Wörter über 15 Zeichen ohne Ziffer vor dem Bindestrich:
+    // nur der Teil 26B7602 ist ein Kandidat
+    const letters = (i) =>
+      [...i.toString(26)]
+        .map((c) => String.fromCharCode(97 + parseInt(c, 26)))
+        .join("");
+    const words = Array.from(
+      { length: 100_000 },
+      (_, i) => `Volkshochschulkurs${letters(i)}-26B7602`
+    );
+    const start = Date.now();
+    const plan = courseNumberSearchPlan(words.join(" "));
+    expect(Date.now() - start).toBeLessThan(2000);
+    expect(plan).toHaveLength(1);
+    expect(plan[0]).toMatchObject({ candidate: "26B7602", part: true });
+    expect(plan[0].alsoPartAt).toHaveLength(COURSE_NUMBER_MAX_SEARCHED);
+  });
+
   test("NAK-5: 100.000 Punkte oder Striche in einem Wort laufen je unter 50 ms, ohne Kandidaten", () => {
     const inputs = [
       "1" + ".".repeat(100_000) + "1",

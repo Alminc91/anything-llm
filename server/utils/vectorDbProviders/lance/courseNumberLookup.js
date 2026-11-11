@@ -203,7 +203,8 @@ function courseNumberSearchPlan(input, max = COURSE_NUMBER_MAX_SEARCHED) {
   // Teile je Schreibweise mit den Stellen ihrer Wörter: höchstens max
   // verschiedene, mehr kann der Plan nie aufnehmen (jedes ganze Wort
   // verdrängt höchstens einen Teil gleicher Schreibweise); weitere Stellen
-  // bekannter Schreibweisen zählen immer (S-L10)
+  // bekannter Schreibweisen zählen immer (S-L10), aber höchstens max + 1:
+  // nur an den Stellen der höchstens max ganzen Wörter fällt ein Teil weg
   const parts = new Map();
   // dasselbe Wort noch einmal ergibt nichts Neues
   const seenWords = new Set();
@@ -234,8 +235,9 @@ function courseNumberSearchPlan(input, max = COURSE_NUMBER_MAX_SEARCHED) {
     for (const form of forms.parts) {
       const key = form.toLowerCase();
       const known = parts.get(key);
-      if (known) known.positions.push(position);
-      else if (parts.size < max || wholeByKey.has(key))
+      if (known) {
+        if (known.positions.length <= max) known.positions.push(position);
+      } else if (parts.size < max || wholeByKey.has(key))
         parts.set(key, { candidate: form, positions: [position] });
     }
   }
