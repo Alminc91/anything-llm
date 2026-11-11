@@ -308,6 +308,17 @@ describe.each(MODES)("Modus %s", (mode) => {
     }
   });
 
+  test("S-L4: Nummer mit typografischem Strich oder weichem Trennzeichen findet den Kurs", async () => {
+    for (const [question, knr] of [
+      ["Kurs-Nr. 262\u201130748, wann beginnt der?", "262-30748"],
+      ["Was ist 261\u2013G\u2013071 für ein Kurs?", "261-G-071"],
+      ["Ich habe 26B\u00AD7602 in der Zeitung gesehen.", "26B7602"],
+    ]) {
+      const result = await search(mode, question);
+      expect([knr, ids(result)[0]]).toEqual([knr, courseId(knr)]);
+    }
+  });
+
   test("AK-3: mehrere Kursnummern: alle vorn, in der Reihenfolge der Frage", async () => {
     const result = await search(
       mode,

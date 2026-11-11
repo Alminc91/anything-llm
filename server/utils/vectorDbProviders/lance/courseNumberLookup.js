@@ -37,11 +37,16 @@ const COURSE_NUMBER_FTS_LIMIT = 50;
 
 // Wort = zusammenhängende Buchstaben (jeder Schrift), Ziffern, Bindestriche;
 // als Kandidat zählt es nur ganz aus A bis Z, Ziffern und Bindestrich.
+// Typografische Striche (U+2010 bis U+2013, aus PDF oder Online-Zeitung
+// kopiert) gehören wie der Bindestrich zum Wort und werden darin zu „-“,
+// das weiche Trennzeichen U+00AD entfällt (Review rc1 S-L4).
 // Auf die ungekürzte Frage läuft nur WORD_RX (eine Zeichenklasse mit „+“,
 // linear); jede weitere Prüfung nur auf Wörter bis COURSE_NUMBER_MAX_WORD_LEN
 // (Review rc1 S-H1: „-+$“ auf einem Wort aus 100.000 Bindestrichen braucht
 // quadratisch viele Schritte und hält den Server sekundenlang an).
-const WORD_RX = /[\p{L}\p{N}-]+/gu;
+const WORD_RX = /[\p{L}\p{N}\u00AD\u2010-\u2013-]+/gu;
+const DASH_VARIANT_RX = /[\u2010-\u2013]/g;
+const SOFT_HYPHEN_RX = /\u00AD/g;
 const CANDIDATE_RX = /^[A-Za-z0-9-]+$/;
 const DIGIT_RX = /[0-9]/;
 // längstes Wort, das noch geprüft wird: Kandidat plus Rand für Randstriche
@@ -59,27 +64,31 @@ function courseNumberKey(value) {
 }
 
 /**
- * Bindestriche am Anfang und Ende eines Worts entfernen, mit einer
- * Indexschleife statt einer Regex (S-H1).
+ * Ein Wort der Frage (höchstens COURSE_NUMBER_MAX_WORD_LEN Zeichen) in die
+ * Form eines Kandidaten: typografische Striche zu „-“, ohne weiches
+ * Trennzeichen (S-L4), ohne Bindestriche am Rand, mit einer Indexschleife
+ * statt einer Regex (S-H1).
  * @param {string} word
  * @returns {string}
  */
-function trimEdgeHyphens(word) {
+function normalizeWord(word) {
+  const text = word.replace(DASH_VARIANT_RX, "-").replace(SOFT_HYPHEN_RX, "");
   let start = 0;
-  let end = word.length;
-  while (start < end && word[start] === "-") start++;
-  while (end > start && word[end - 1] === "-") end--;
-  return word.slice(start, end);
+  let end = text.length;
+  while (start < end && text[start] === "-") start++;
+  while (end > start && text[end - 1] === "-") end--;
+  return text.slice(start, end);
 }
 
 /**
  * Kandidaten für Kursnummern aus einer Frage (D2), in der Reihenfolge der
  * Frage, ohne Doppel (Groß- und Kleinschreibung zählt nicht), höchstens
- * `max`. Satzzeichen um das Wort und Bindestriche am Rand zählen nicht;
- * Wörter über COURSE_NUMBER_MAX_WORD_LEN Zeichen werden übersprungen (S-H1).
+ * `max`. Satzzeichen um das Wort und Bindestriche am Rand zählen nicht,
+ * typografische Striche gelten als Bindestrich (S-L4); Wörter über
+ * COURSE_NUMBER_MAX_WORD_LEN Zeichen werden übersprungen (S-H1).
  * @param {*} input - Suchtext
  * @param {number} [max]
- * @returns {string[]} Kandidaten in der Schreibweise der Frage
+ * @returns {string[]} Kandidaten in der Schreibweise der Frage (Striche als „-“)
  */
 function courseNumberCandidates(input, max = COURSE_NUMBER_MAX_SEARCHED) {
   if (typeof input !== "string" || input.length === 0) return [];
@@ -88,7 +97,7 @@ function courseNumberCandidates(input, max = COURSE_NUMBER_MAX_SEARCHED) {
   for (const match of input.matchAll(WORD_RX)) {
     // zu lange Wörter vor jeder weiteren Prüfung überspringen (S-H1)
     if (match[0].length > COURSE_NUMBER_MAX_WORD_LEN) continue;
-    const word = trimEdgeHyphens(match[0]);
+    const word = normalizeWord(match[0]);
     if (
       word.length < COURSE_NUMBER_MIN_LEN ||
       word.length > COURSE_NUMBER_MAX_LEN ||

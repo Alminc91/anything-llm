@@ -81,6 +81,31 @@ describe("courseNumberCandidates (D2)", () => {
     expect(courseNumberCandidates("Kurs-Nr. 262-30748")).toEqual(["262-30748"]);
   });
 
+  // Review rc1 S-L4: aus PDF oder Online-Zeitung kopiert stehen statt des
+  // Bindestrichs oft typografische Striche oder weiche Trennzeichen
+  test("S-L4: typografische Striche gelten als Bindestrich, weiches Trennzeichen zählt nicht", () => {
+    expect(courseNumberCandidates("Kurs-Nr. 262\u201130748?")).toEqual([
+      "262-30748",
+    ]);
+    expect(courseNumberCandidates("Was ist 261\u2013G\u2013071?")).toEqual([
+      "261-G-071",
+    ]);
+    expect(courseNumberCandidates("Kurs 27\u201083520A")).toEqual([
+      "27-83520A",
+    ]);
+    expect(courseNumberCandidates("Kurs 262\u201230748")).toEqual([
+      "262-30748",
+    ]);
+    expect(courseNumberCandidates("Kurs 26B\u00AD7602 (Zeitung)")).toEqual([
+      "26B7602",
+    ]);
+    // als Satzzeichen zwischen Wörtern bleibt der Strich ein Trenner
+    expect(courseNumberCandidates("Spanisch \u2013 26B7602 \u2011")).toEqual([
+      "26B7602",
+    ]);
+    expect(courseNumberCandidates("\u201326B7602\u2013")).toEqual(["26B7602"]);
+  });
+
   test("Wörter ohne Ziffer, zu kurz, zu lang oder mit anderen Zeichen sind keine Kandidaten", () => {
     expect(courseNumberCandidates("Kurs-Nr. Spanisch Yoga am Abend")).toEqual(
       []
