@@ -25,6 +25,14 @@ const {
   berlinToday,
   SELECTION_POOL_MIN,
 } = require("./contextSelection");
+const {
+  courseNumberSearchPlan,
+  courseNumberMatchesInOrder,
+  courseNumberOfText,
+  matchesCourseNumber,
+  mergeCourseNumberHits,
+  COURSE_NUMBER_FTS_LIMIT,
+} = require("./courseNumberLookup");
 const path = require("path");
 
 // KIE-480: DataFusion NULL-cast types for the structured course-metadata
@@ -1122,6 +1130,186 @@ class LanceDb extends VectorDatabase {
   }
 
   /**
+   * Trägt die Tabelle einen Volltextindex auf "text" (gleiche Prüfung wie
+   * ensureFullTextIndex)? LanceDB 0.31 sucht auch ohne Index per Scan über
+   * alle Zeilen; die Kursnummern-Suche läuft trotzdem nur mit Index (AK-6:
+   * ohne Index alles wie bisher). Non-throwing, Fehler -> false.
+   * @param {import('@lancedb/lancedb').Table} collection
+   * @returns {Promise<boolean>}
+   */
+  async hasTextIndex(collection) {
+    try {
+      const indices = await collection.listIndices();
+      return (indices || []).some((index) =>
+        (index?.columns || []).includes("text")
+      );
+    } catch (e) {
+      this.logger("hasTextIndex", e.message);
+      return false;
+    }
+  }
+
+  /**
+   * Kursnummern in der Frage (courseNumberLookup.js, HC2 bis HC5): je
+   * Kandidat eine Volltextsuche nur nach diesem Wort (alle Trigramme
+   * verlangt), mit derselben Bedingung wie die übrige Suche
+   * (Metadatenfilter, Ausschluss veralteter Kurse über filteredQueryRows).
+   * Der Kandidat steht nie in einer Bedingung. Treffer zählen nur, wenn
+   * ihre Kopfzeile „Kursnummer:“ genau den Kandidaten führt; angeheftete
+   * Dokumente bleiben wie in allen Pfaden draußen. Ergebnis in der
+   * Reihenfolge der Frage, je Kandidat in der Reihenfolge der
+   * Volltextsuche, höchstens topN; die Nummer ohne angehängtes Wort (S-L3)
+   * zählt nur, wenn das ganze Wort keine Kursnummer ergab
+   * (courseNumberMatchesInOrder). Ohne Volltextindex keine Abfrage.
+   * Non-throwing: jeder Fehler -> keine Treffer (Suche wie bisher).
+   * @param {Object} params
+   * @param {LanceClient} params.client
+   * @param {string} params.namespace
+   * @param {{candidate: string, position: number, part: boolean}[]} params.candidates
+   *   - courseNumberSearchPlan(input)
+   * @param {string|null} [params.whereClause]
+   * @param {object|null} [params.exclusion]
+   * @param {string[]} [params.filterIdentifiers]
+   * @param {number} params.topN
+   * @param {object|null} [params.trace]
+   * @param {"off"|"on"|"full"} [params.traceLevel]
+   * @returns {Promise<{courseNumber: string, row: object}[]>}
+   */
+  async courseNumberLookup({
+    client,
+    namespace,
+    candidates = [],
+    whereClause = null,
+    exclusion = null,
+    filterIdentifiers = [],
+    topN,
+    trace = null,
+    traceLevel = "off",
+  }) {
+    const start = Date.now();
+    // Suchspur: Kandidaten der Frage (können Telefonnummern sein) nur bei
+    // „full“ im Wortlaut, sonst nur ihre Anzahl (wie der Fragetext)
+    const report = {
+      candidates: candidates.length,
+      ...(traceLevel === "full"
+        ? { searched: candidates.map((entry) => entry.candidate) }
+        : {}),
+      recognized: [],
+      found: [],
+      skipped: null,
+      error: null,
+      ms: null,
+    };
+    const hits = [];
+    try {
+      const collection = await client.openTable(namespace);
+      if (!(await this.hasTextIndex(collection))) {
+        report.skipped = "no_fts_index";
+      } else {
+        // alle Spalten außer dem Vektor: Treffer brauchen ihre Metadaten als
+        // Quelle, den Vektor nie; je Kandidat bis zu 50 Zeilen (S-L6)
+        const columns = (await collection.schema()).fields
+          .map((field) => field.name)
+          .filter((name) => name !== "vector");
+        const perCandidate = await Promise.all(
+          candidates.map(({ candidate }) =>
+            this.filteredQueryRows(
+              (limit) =>
+                collection
+                  .query()
+                  .fullTextSearch(
+                    new lancedb.MatchQuery(candidate, "text", {
+                      operator: lancedb.Operator.And,
+                    })
+                  )
+                  .select(columns)
+                  .limit(limit),
+              whereClause,
+              { limit: COURSE_NUMBER_FTS_LIMIT, exclusion }
+            )
+              .then((rows) =>
+                rows.filter((row) => matchesCourseNumber(row?.text, candidate))
+              )
+              .catch((e) => {
+                this.logger("courseNumberLookup", e.message);
+                report.error = report.error ?? e.message;
+                return [];
+              })
+          )
+        );
+        const seen = new Set();
+        for (const rows of courseNumberMatchesInOrder(
+          candidates,
+          perCandidate
+        )) {
+          for (const row of rows) {
+            const courseNumber = courseNumberOfText(row.text);
+            if (!report.recognized.includes(courseNumber))
+              report.recognized.push(courseNumber);
+            if (typeof row.id !== "string" || seen.has(row.id)) continue;
+            seen.add(row.id);
+            const { vector: _v, ...rest } = row;
+            if (filterIdentifiers.includes(sourceIdentifier(rest))) {
+              this.logger(
+                "A source was filtered from context as it's parent document is pinned."
+              );
+              continue;
+            }
+            if (hits.length < topN) hits.push({ courseNumber, row });
+          }
+        }
+      }
+    } catch (e) {
+      this.logger("courseNumberLookup", e.message);
+      report.error = e.message;
+      hits.length = 0;
+    }
+    if (trace) {
+      report.found = hits.map(({ courseNumber, row }) => ({
+        ...SearchTrace.docRef(row),
+        courseNumber,
+      }));
+      report.ms = Date.now() - start;
+      trace.courseNumbers = report;
+    }
+    return hits;
+  }
+
+  /**
+   * D3: gefundene Kurse vor das Ergebnis des Suchmodus (mergeCourseNumberHits);
+   * in der Suchspur stehen danach die ausgelieferten Dokumente mit neuem
+   * Rang, gefundene mit ihrer Kursnummer. Ohne Treffer unverändert.
+   * @param {{contextTexts: string[], sourceDocuments: object[], scores: number[]}} result
+   * @param {{courseNumber: string, row: object}[]|null} hits
+   * @param {number} topN
+   * @param {object|null} trace
+   * @returns {{contextTexts: string[], sourceDocuments: object[], scores: (number|null)[]}}
+   */
+  withCourseNumberHits(result, hits, topN, trace = null) {
+    const merged = mergeCourseNumberHits(result, hits, topN);
+    if (merged === result || !trace) return merged;
+    const numberById = new Map(hits.map((h) => [h.row.id, h.courseNumber]));
+    const before = new Map((trace.final?.docs || []).map((d) => [d.id, d]));
+    trace.final = {
+      ...(trace.final || {}),
+      count: merged.sourceDocuments.length,
+      docs: merged.sourceDocuments.map((doc, i) => {
+        const entry = {
+          ...(before.get(doc.id) ?? SearchTrace.docRef(doc)),
+          finalRank: i + 1,
+        };
+        // Rang-Verschiebung gegenüber dem neuen Rang
+        for (const rank of ["vectorRank", "rrfRank"])
+          if (typeof entry[rank] === "number")
+            entry.shift = entry[rank] - (i + 1);
+        if (numberById.has(doc.id)) entry.courseNumber = numberById.get(doc.id);
+        return entry;
+      }),
+    };
+    return merged;
+  }
+
+  /**
    * Folds newly added rows into the FTS index once the unindexed remainder
    * exceeds a small threshold. Rows added after index creation stay findable
    * via flat-scan (correctness is never at risk), but without optimize() the
@@ -1624,11 +1812,40 @@ class LanceDb extends VectorDatabase {
       trace.filterStage = resolvedFilters.stage;
       trace.filterMs = resolvedFilters.ms;
     }
+    // Kursnummern in der Frage (courseNumberLookup.js): Kandidaten nach D2,
+    // höchstens 5. Ohne Kandidaten keine zusätzliche Abfrage (AK-7, NAK-1).
+    const lookupTopN = Number.isFinite(Number(topN))
+      ? Math.floor(Number(topN))
+      : 0;
+    const courseNumbers = lookupTopN >= 1 ? courseNumberSearchPlan(input) : [];
+    // Je Suchlauf (auch bei gelockerten Filtern) mit derselben Bedingung wie
+    // der Suchmodus, parallel zu ihm; gefundene Kurse vor dessen Ergebnis.
     const runSearch = async (whereClause, relaxStage = 0) => {
       if (trace) {
         trace.relaxStage = relaxStage;
         trace.whereClause = whereClause || null;
       }
+      const lookup =
+        courseNumbers.length > 0
+          ? this.courseNumberLookup({
+              client,
+              namespace,
+              candidates: courseNumbers,
+              whereClause,
+              exclusion,
+              filterIdentifiers,
+              topN: lookupTopN,
+              trace,
+              traceLevel,
+            })
+          : null;
+      const [result, hits] = await Promise.all([
+        runModeSearch(whereClause),
+        lookup,
+      ]);
+      return this.withCourseNumberHits(result, hits, lookupTopN, trace);
+    };
+    const runModeSearch = async (whereClause) => {
       switch (mode) {
         case "rerank":
           return await this.rerankedSimilarityResponse({

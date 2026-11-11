@@ -1,0 +1,937 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Unverändert, Modus default AK-6: Tabelle ohne Volltextindex, Frage mit Kursnummer 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default ohne-nummer-kurs-nr 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default ohne-nummer-programm 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default ohne-nummer-spanisch 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default ohne-nummer-zeitung 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default unbekannt-kurz 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default unbekannt-zeitung 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default zahl-aehnlich 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default zahl-datum 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default zahl-jahr 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default zahl-plz 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default zahl-preis 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus default zahl-telefon 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid AK-6: Tabelle ohne Volltextindex, Frage mit Kursnummer 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid ohne-nummer-kurs-nr 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-8",
+    "seite-6",
+    "seite-7",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid ohne-nummer-programm 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-5",
+    "seite-6",
+    "seite-4",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid ohne-nummer-spanisch 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid ohne-nummer-zeitung 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid unbekannt-kurz 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-8",
+    "seite-6",
+    "seite-7",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid unbekannt-zeitung 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid zahl-aehnlich 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-7",
+    "seite-0",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid zahl-datum 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid zahl-jahr 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid zahl-plz 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-4",
+    "seite-5",
+    "seite-8",
+    "seite-3",
+    "seite-6",
+    "seite-7",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid zahl-preis 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-1",
+    "seite-0",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid zahl-telefon 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-4",
+    "seite-3",
+    "seite-5",
+    "seite-6",
+    "seite-8",
+    "seite-9",
+    "seite-7",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank AK-6: Tabelle ohne Volltextindex, Frage mit Kursnummer 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank ohne-nummer-kurs-nr 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-8",
+    "seite-6",
+    "seite-7",
+    "frei-beschreibung",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank ohne-nummer-programm 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-5",
+    "seite-6",
+    "seite-4",
+    "seite-7",
+    "seite-8",
+    "frei-uebersicht",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank ohne-nummer-spanisch 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "ähnlich-2",
+    "ähnlich-1",
+    "ähnlich-0",
+    "frei-beschreibung",
+    "frei-uebersicht",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank ohne-nummer-zeitung 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank unbekannt-kurz 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-8",
+    "seite-6",
+    "seite-7",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank unbekannt-zeitung 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank zahl-aehnlich 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-7",
+    "seite-0",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "frei-beschreibung",
+    "c-26b7602",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank zahl-datum 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "frei-beschreibung",
+    "c-26b7602",
+    "c-262-30748",
+    "c-xi57261",
+    "c-f320241",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank zahl-jahr 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "frei-beschreibung",
+    "ähnlich-0",
+    "ähnlich-1",
+    "ähnlich-2",
+    "c-f320241",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank zahl-plz 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-4",
+    "seite-5",
+    "seite-8",
+    "seite-3",
+    "seite-6",
+    "ähnlich-4",
+    "frei-kontakt",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank zahl-preis 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-1",
+    "seite-0",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "frei-beschreibung",
+    "ähnlich-4",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus hybrid_rerank zahl-telefon 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-4",
+    "seite-3",
+    "seite-5",
+    "seite-6",
+    "seite-8",
+    "seite-9",
+    "frei-kontakt",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank AK-6: Tabelle ohne Volltextindex, Frage mit Kursnummer 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank ohne-nummer-kurs-nr 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank ohne-nummer-programm 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank ohne-nummer-spanisch 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank ohne-nummer-zeitung 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank unbekannt-kurz 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank unbekannt-zeitung 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank zahl-aehnlich 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank zahl-datum 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank zahl-jahr 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank zahl-plz 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank zahl-preis 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
+
+exports[`Unverändert, Modus rerank zahl-telefon 1`] = `
+{
+  "contextTexts": 10,
+  "ids": [
+    "seite-0",
+    "seite-1",
+    "seite-2",
+    "seite-3",
+    "seite-4",
+    "seite-5",
+    "seite-6",
+    "seite-7",
+    "seite-8",
+    "seite-9",
+  ],
+}
+`;
