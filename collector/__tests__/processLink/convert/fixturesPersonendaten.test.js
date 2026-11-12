@@ -99,9 +99,9 @@ describe("Fixtures ohne Personendaten", () => {
       html.matchAll(/bilder\/ben\/(B_\d+_\d+)\.\w+/g),
       (t) => t[1]
     );
-    expect(eindeutig(fotos).filter((foto) => foto !== PLATZHALTER_FOTO)).toEqual(
-      []
-    );
+    expect(
+      eindeutig(fotos).filter((foto) => foto !== PLATZHALTER_FOTO)
+    ).toEqual([]);
   });
 
   test.each(seiten)("%s: Kursleitung nur als Platzhalter", (_, html) => {
