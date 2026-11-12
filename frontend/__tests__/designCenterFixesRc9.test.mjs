@@ -320,7 +320,8 @@ test(
       "Platzhalter im Eingabefeld",
       "Willkommensblasen",
       "Willkommensblasen anzeigen",
-      "Support-E-Mail",
+      // widget-grenzen-kontakt (§11 E6): bis 8.1 „Support-E-Mail“
+      "E-Mail für Besucher",
     ])
       assert.ok(!inPair(html, label), `${label} gehört nicht ins Raster`);
     // Reihenfolge nach Mockup Ansicht 3
@@ -347,7 +348,10 @@ test(
       "Willkommensblasen anzeigen",
       "Desktop",
       "Handy",
-      "Support-E-Mail",
+      // widget-grenzen-kontakt (§11 E6): Gruppe „Kontakt“ mit dem Feld
+      // „E-Mail für Besucher“ (bis 8.1 „Support“, „Support-E-Mail“)
+      "Kontakt",
+      "E-Mail für Besucher",
     ];
     let pos = -1;
     for (const label of order) {
@@ -389,7 +393,12 @@ test(
         'aria-label="Platzhalter im Eingabefeld"',
         "Grauer Text im Eingabefeld des Chats.",
       ],
-      ['type="email"', "E-Mail-Adresse für den Support-Link im Chat."],
+      // widget-grenzen-kontakt (§11 E6); bis 8.1 „E-Mail-Adresse für den
+      // Support-Link im Chat.“
+      [
+        'type="email"',
+        "Besucher sehen diese Adresse im Chatfenster und in der Schlussantwort",
+      ],
     ])
       assert.ok(
         at(html, field) < at(html, hint),

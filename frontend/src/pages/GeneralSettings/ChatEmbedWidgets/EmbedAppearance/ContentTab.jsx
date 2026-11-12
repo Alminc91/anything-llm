@@ -5,7 +5,8 @@
 // Start als Blase zeigen“ seit AK-12, dann Überschrift, Text, Link des
 // Datenschutz-Fensters), Startvorschläge, Platzhalter im Eingabefeld, nur
 // beim Chatfenster die Gruppe „Geschlossener Chat“ (Willkommensblasen und
-// wann sie erscheinen, KIE-568), Support-E-Mail.
+// wann sie erscheinen, KIE-568), Gruppe „Kontakt“ mit der E-Mail für
+// Besucher (bis 8.1 „Support-E-Mail“, widget-grenzen-kontakt).
 // Kompakter seit R11 (Fixliste 7.22-rc9, Mockup Ansicht 3): die Überschrift
 // des Datenschutz-Hinweises schmal allein; Begrüßung und Datenschutz-Text
 // wachsen mit dem Inhalt; Hinweise unter dem Feld. Name und Untertitel
@@ -625,17 +626,20 @@ export default function ContentTab({
         </>
       )}
 
-      <GroupHeading title="Support" />
+      {/* widget-grenzen-kontakt (§11 E6): die Adresse sehen Besucher in der
+          Titelleiste und in der Schlussantwort an einer Grenze; ohne
+          Eintrag keine Adresse (kein Standard, auch nicht von Kufer) */}
+      <GroupHeading title="Kontakt" />
       <div data-field="">
-        <FieldTitle title="Support-E-Mail" optional />
+        <FieldTitle title="E-Mail für Besucher" optional />
         <input
           type="email"
           value={textValue(config.supportEmail)}
           onChange={(e) => updateField("supportEmail", e.target.value)}
-          placeholder="support@ihre-seite.de"
+          placeholder="info@ihre-vhs.de"
           className={inputClass(false)}
         />
-        <FieldNote hint="E-Mail-Adresse für den Support-Link im Chat." />
+        <FieldNote hint="Besucher sehen diese Adresse im Chatfenster und in der Schlussantwort, wenn der Chatbot nicht weiterhelfen kann. Ohne Eintrag erscheint keine Adresse." />
       </div>
     </>
   );
