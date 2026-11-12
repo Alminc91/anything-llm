@@ -9,10 +9,13 @@ Navigation und Hinweise entfernen, dann den Text lesen.
   Schreibweise so, dass sie nicht mehr zu finden sind, bricht der Test ab.
 - Die Umwandlung kommt aus ``tableRows.js``: ``node`` liefert den Quelltext
   der Funktion, so wie Puppeteer ihn mit ``page.evaluate`` an den Browser gibt.
+- Die Adresse, die der Collector lädt und als ``chunkSource`` speichert,
+  kommt aus ``validateURL`` in ``utils/url`` (über ``node``).
 
 Nur Standardbibliothek und Playwright (System-``python3``).
 """
 
+import json
 import os
 import re
 import subprocess
@@ -22,7 +25,30 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 COLLECTOR = os.path.abspath(os.path.join(HIER, "..", "..", "..", ".."))
 GENERIC_JS = os.path.join(COLLECTOR, "processLink", "convert", "generic.js")
 TABLE_ROWS_JS = os.path.join(COLLECTOR, "processLink", "convert", "tableRows.js")
+URL_JS = os.path.join(COLLECTOR, "utils", "url", "index.js")
 FIXTURES = os.path.join(HIER, "fixtures")
+
+# utils/url lädt RuntimeSettings und darüber dotenv; validateURL braucht davon
+# nichts. Wie in collector/__tests__/utils/url/index.test.js ersetzt eine leere
+# Fassung das Modul, damit node ohne die Pakete des Collectors auskommt. Jedes
+# andere require bricht laut ab, statt still eine andere Regel zu messen.
+_VALIDATE_URL_JS = r"""
+const fs = require("fs");
+const vm = require("vm");
+const datei = process.argv[1];
+const ersatz = { "../runtimeSettings": class { get() { return undefined; } set() {} } };
+const laden = (name) => {
+  if (Object.prototype.hasOwnProperty.call(ersatz, name)) return ersatz[name];
+  throw new Error("unerwartetes require in " + datei + ": " + name);
+};
+const modul = { exports: {} };
+vm.runInThisContext(
+  "(function (require, module, exports) {" + fs.readFileSync(datei, "utf8") + "\n})",
+  { filename: datei }
+)(laden, modul, modul.exports);
+const adressen = JSON.parse(fs.readFileSync(0, "utf8"));
+process.stdout.write(JSON.stringify(adressen.map((a) => modul.exports.validateURL(a))));
+"""
 
 # Leerraum wie /\s/ in JavaScript: so trennt auch tableRowsToText die Wörter.
 _JS_LEERRAUM = re.compile(
@@ -66,6 +92,31 @@ def tabellen_funktion():
             "tableRowsToText nicht ladbar aus %s: %s" % (TABLE_ROWS_JS, lauf.stderr.strip())
         )
     return lauf.stdout
+
+
+def adressen_wie_collector(adressen):
+    """Adressen so, wie ``processLink`` sie mit ``validateURL`` prüft, lädt und speichert.
+
+    ``chunkSource`` eines Dokuments aus upload-link ist ``link://`` plus dieser
+    Adresse, etwa ``https://www.vhs-lingen.de/#kontakt-info`` (Schrägstrich vor
+    dem Fragment) oder ``https://www.vhs-lingen.de`` (ohne Schrägstrich am Ende).
+    """
+    adressen = list(adressen)
+    if not adressen:
+        return []
+    lauf = subprocess.run(
+        ["node", "-e", _VALIDATE_URL_JS, URL_JS],
+        input=json.dumps(adressen),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if lauf.returncode != 0:
+        raise RuntimeError("validateURL nicht ladbar aus %s: %s" % (URL_JS, lauf.stderr.strip()))
+    ergebnis = json.loads(lauf.stdout)
+    if not isinstance(ergebnis, list) or len(ergebnis) != len(adressen):
+        raise RuntimeError("validateURL lieferte %r für %d Adressen" % (ergebnis, len(adressen)))
+    return ergebnis
 
 
 def selektoren():

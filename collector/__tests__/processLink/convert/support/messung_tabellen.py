@@ -22,18 +22,27 @@ Aufruf (System-python3 mit Playwright):
     python3 messung_tabellen.py --urls adressen.txt --aus ergebnis.json \\
         [--texte ordner] [--dokumente ordner] [--pause 2] [--nur-lokal]
 
-``adressen.txt``: je Zeile ``<url>`` oder ``<kunde> <url>``; ``#`` leitet einen
-Kommentar ein. ``--dokumente``: Ordner mit Dokument-JSONs des Collectors
-(Felder ``chunkSource`` = ``link://<url>`` und ``pageContent``), etwa aus
-``storage/documents/custom-documents`` der Testinstanz kopiert.
+``adressen.txt``: je Zeile ``<url>`` oder ``<kunde> <url>``; ``#`` am
+Zeilenanfang oder nach Leerraum leitet einen Kommentar ein, ein ``#`` in der
+Adresse (Fragment wie ``#kontakt-info``) gehört zur Adresse. Jede Adresse geht
+wie in ``processLink`` durch ``validateURL`` des Collectors: Diese Adresse wird
+geladen und mit ``chunkSource`` verglichen (Feld ``link`` im Ergebnis).
+``--dokumente``: Ordner mit Dokument-JSONs des Collectors (Felder
+``chunkSource`` = ``link://<link>`` und ``pageContent``), etwa aus
+``storage/documents/custom-documents`` der Testinstanz kopiert; gelesen werden
+nur die Dokumente der gemessenen Adressen.
 ``--nur-lokal`` sperrt alles außer file:, data: und about: (Selbstprobe mit
 gespeicherten Seiten).
+
+Exit 1 ohne Messung, wenn die Liste keine Adresse enthält, der Ordner von
+``--dokumente`` fehlt oder darin zu keiner Adresse ein Dokument liegt.
 """
 
 import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -42,12 +51,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import textlesen  # noqa: E402
 
+# Kommentar: „#“ am Zeilenanfang oder nach Leerraum. In einer Adresse steht
+# „#“ ohne Leerraum davor (Fragment) und gehört zur Adresse.
+_KOMMENTAR = re.compile(r"(?:^|\s)#")
+
 
 def adressen_lesen(pfad):
+    """Einträge ``{kunde, url}`` aus der Adressliste, ``url`` wie in der Liste."""
     eintraege = []
     with open(pfad, encoding="utf-8") as datei:
         for zeile in datei:
-            zeile = zeile.split("#", 1)[0].strip()
+            zeile = _KOMMENTAR.split(zeile, maxsplit=1)[0].strip()
             if not zeile:
                 continue
             teile = zeile.split()
@@ -56,8 +70,18 @@ def adressen_lesen(pfad):
     return eintraege
 
 
-def dokumente_lesen(ordner):
-    """url -> (datei, pageContent) aus Dokument-JSONs des Collectors."""
+def links_ergaenzen(eintraege):
+    """Ergänzt je Eintrag ``link``: die Adresse nach ``validateURL`` wie in processLink."""
+    for eintrag, link in zip(
+        eintraege, textlesen.adressen_wie_collector(e["url"] for e in eintraege)
+    ):
+        eintrag["link"] = link
+    return eintraege
+
+
+def dokumente_lesen(ordner, links):
+    """link -> (datei, pageContent) aus Dokument-JSONs des Collectors, nur für ``links``."""
+    links = set(links)
     texte = {}
     for wurzel, _, dateien in os.walk(ordner):
         for name in sorted(dateien):
@@ -69,9 +93,16 @@ def dokumente_lesen(ordner):
                     daten = json.load(datei)
             except (OSError, ValueError):
                 continue
+            if not isinstance(daten, dict):
+                continue
             quelle = str(daten.get("chunkSource") or "")
-            if quelle.startswith("link://") and isinstance(daten.get("pageContent"), str):
-                texte[quelle[len("link://"):]] = (pfad, daten["pageContent"])
+            link = quelle[len("link://"):]
+            if (
+                quelle.startswith("link://")
+                and link in links
+                and isinstance(daten.get("pageContent"), str)
+            ):
+                texte[link] = (pfad, daten["pageContent"])
     return texte
 
 
@@ -96,11 +127,17 @@ def laengste(text):
 def messen(context, eintrag, funktion, aufklappen, entfernen, dokumente, texte_ordner, nummer):
     from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
-    ergebnis = {"kunde": eintrag["kunde"], "url": eintrag["url"], "fehler": None}
+    ergebnis = {
+        "kunde": eintrag["kunde"],
+        "url": eintrag["url"],
+        "link": eintrag["link"],
+        "fehler": None,
+    }
     page = context.new_page()
     try:
         try:
-            page.goto(eintrag["url"], timeout=30000, wait_until="domcontentloaded")
+            # Wie processLink: geladen wird die Adresse nach validateURL.
+            page.goto(eintrag["link"], timeout=30000, wait_until="domcontentloaded")
         except Exception as fehler:  # Collector: goto(...).catch(() => {})
             ergebnis["ladefehler"] = str(fehler).splitlines()[0][:200]
         try:
@@ -138,8 +175,8 @@ def messen(context, eintrag, funktion, aufklappen, entfernen, dokumente, texte_o
                 "dokument": None,
             }
         )
-        if eintrag["url"] in dokumente:
-            pfad, inhalt = dokumente[eintrag["url"]]
+        if eintrag["link"] in dokumente:
+            pfad, inhalt = dokumente[eintrag["link"]]
             ergebnis["dokument"] = {
                 "datei": pfad,
                 "gleiche_zeile": textlesen.gleiche_zeile(inhalt, paare),
@@ -210,10 +247,28 @@ def main(argv=None):
     parser.add_argument("--nur-lokal", action="store_true", help="nur file:, data:, about: laden")
     args = parser.parse_args(argv)
 
+    eintraege = adressen_lesen(args.urls)
+    if not eintraege:
+        print("Messung abgebrochen: keine Adresse in %s" % args.urls, file=sys.stderr)
+        return 1
+    links_ergaenzen(eintraege)
+    dokumente = {}
+    if args.dokumente:
+        if not os.path.isdir(args.dokumente):
+            print("Messung abgebrochen: Ordner fehlt: %s" % args.dokumente, file=sys.stderr)
+            return 1
+        dokumente = dokumente_lesen(args.dokumente, {e["link"] for e in eintraege})
+        if not dokumente:
+            print(
+                "Messung abgebrochen: kein Dokument mit chunkSource link://<link> zu den "
+                "%d Adressen in %s (erste: link://%s)"
+                % (len(eintraege), args.dokumente, eintraege[0]["link"]),
+                file=sys.stderr,
+            )
+            return 1
+
     from playwright.sync_api import sync_playwright
 
-    eintraege = adressen_lesen(args.urls)
-    dokumente = dokumente_lesen(args.dokumente) if args.dokumente else {}
     if args.texte:
         os.makedirs(args.texte, exist_ok=True)
     funktion = textlesen.tabellen_funktion()
