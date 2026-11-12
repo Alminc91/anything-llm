@@ -4,12 +4,16 @@
 // Oberfläche nur ein admin im Mehrbenutzermodus.
 //   AK-2   manager oder default schicken message_limit an /embed/update/:id
 //          bzw. /embeds/new: gespeicherter Wert unverändert bzw. 2.
-//   AK-3   neues Widget ohne Angabe: message_limit 2.
+//   AK-3   neues Widget ohne Angabe: message_limit 2. Den Standard setzt
+//          /embeds/new, nicht das Modell (8.2-rc2 F2, D5).
 //   NAK-1  manager und default ändern message_limit über keinen Endpunkt
 //          der Oberfläche.
 //   NAK-2  Einbenutzerbetrieb (kein Nutzerobjekt, §11 E2): Wert verworfen.
-//   §7     Entwickler-API (/v1/embed/...) setzt message_limit weiter; die
+//   §7     Entwickler-API (/v1/embed/...) setzt message_limit weiter und
+//          speichert ohne Angabe NULL wie vor 8.2 (Hard Constraint 2); die
 //          übrigen Felder des Widgets speichern alle Rollen wie bisher.
+//   F1     Der Rumpf der Dialoge (8.2-rc2): leere Felder als null, Schalter
+//          als true oder false; der Server nimmt beides an.
 //
 // Gegen die echten Routen mit ihrer ganzen Middleware-Kette
 // (support/routeHarness.js), nur die Datenbank ist ein Ersatz im Speicher.
@@ -171,6 +175,58 @@ describe("Widget bearbeiten: message_limit nur von admin", () => {
     }
   );
 
+  test("F1: null für beide Grenzen und den Nachrichtenverlauf (admin) wird gespeichert, Schalter wie gesendet", async () => {
+    Object.assign(prisma.__rows("embed_configs")[0], {
+      max_chats_per_day: 300,
+      max_chats_per_session: 12,
+      message_limit: 4,
+      history_enabled: null,
+      allow_model_override: false,
+    });
+    const result = await invoke(UPDATE, {
+      params: { embedId: String(embed.id) },
+      body: {
+        ...FORM(workspace.id),
+        max_chats_per_day: null,
+        max_chats_per_session: null,
+        message_limit: null,
+        history_enabled: true,
+        allow_model_override: true,
+      },
+      token: login("admin"),
+    });
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toEqual({ success: true, error: null });
+    expect(embedRow(embed.id)).toMatchObject({
+      max_chats_per_day: null,
+      max_chats_per_session: null,
+      message_limit: null,
+      history_enabled: true,
+      allow_model_override: true,
+    });
+
+    // manager: null für die Grenzen gespeichert, message_limit verworfen
+    Object.assign(prisma.__rows("embed_configs")[0], {
+      max_chats_per_day: 300,
+      message_limit: 4,
+    });
+    await invoke(UPDATE, {
+      params: { embedId: String(embed.id) },
+      body: {
+        ...FORM(workspace.id),
+        max_chats_per_day: null,
+        message_limit: null,
+        history_enabled: false,
+      },
+      token: login("manager"),
+    });
+    expect(embedRow(embed.id)).toMatchObject({
+      max_chats_per_day: null,
+      message_limit: 4,
+      history_enabled: false,
+    });
+  });
+
   test("admin: message_limit wird gespeichert, ein leerer Wert heißt Standard (zur Laufzeit 2)", async () => {
     const token = login("admin");
     let result = await invoke(UPDATE, {
@@ -223,19 +279,50 @@ describe("Neues Widget: message_limit 2, außer ein admin gibt einen Wert an", (
     }
   );
 
-  test("admin: angegebener Wert wird übernommen, leer oder 0 heißt 2", async () => {
+  test("admin: angegebener Wert wird übernommen, leer, null, 0 oder ungültig heißt 2", async () => {
     const token = login("admin");
     const created = async (value) => {
       const result = await invoke(CREATE, {
         body: { ...FORM(workspace.id), message_limit: value },
         token,
       });
+      expect(result.body.embed.message_limit).toBe(
+        embedRow(result.body.embed.id).message_limit
+      );
       return embedRow(result.body.embed.id).message_limit;
     };
     expect(await created("5")).toBe(5);
     expect(await created(3)).toBe(3);
-    expect(await created("")).toBe(2);
-    expect(await created(0)).toBe(2);
+    for (const value of ["", null, 0, "0", -2, "abc"])
+      expect([value, await created(value)]).toEqual([value, 2]);
+  });
+
+  test("F1: Rumpf des Dialogs mit leeren Grenzen (null) und Schaltern legt an wie gewählt", async () => {
+    const result = await invoke(CREATE, {
+      body: {
+        ...FORM(workspace.id),
+        max_chats_per_day: null,
+        max_chats_per_session: null,
+        chat_retention_days: null,
+        allowlist_domains: null,
+        message_limit: null,
+        allow_model_override: true,
+      },
+      token: login("admin"),
+    });
+    // history_enabled übernimmt EmbedConfig.new beim Anlegen nicht
+    // (vorbestehend, KIE-503); gemeldet in der Rückgabe zu 8.2-rc2 F1.
+    expect(result.statusCode).toBe(200);
+    expect(result.body.error).toBeNull();
+    expect(embedRow(result.body.embed.id)).toMatchObject({
+      max_chats_per_day: null,
+      max_chats_per_session: null,
+      chat_retention_days: null,
+      allowlist_domains: null,
+      message_limit: 2,
+      allow_model_override: true,
+      allow_temperature_override: false,
+    });
   });
 });
 
@@ -259,16 +346,22 @@ describe("Entwickler-API setzt message_limit weiter", () => {
     }
   });
 
-  test("POST /v1/embed/new übernimmt message_limit; ohne Angabe 2", async () => {
+  test("POST /v1/embed/new übernimmt message_limit; ohne Angabe NULL wie vor 8.2 (8.2-rc2 F2)", async () => {
     const created = async (body) => {
       const result = await invoke(API_CREATE, {
         body: { workspace_slug: "a", ...body },
         token: "geheim",
       });
       expect(result.statusCode).toBe(200);
+      // gespeichert und geliefert derselbe Wert
+      expect(result.body.embed.message_limit).toBe(
+        embedRow(result.body.embed.id).message_limit
+      );
       return embedRow(result.body.embed.id).message_limit;
     };
     expect(await created({ message_limit: 12 })).toBe(12);
-    expect(await created({})).toBe(2);
+    expect(await created({})).toBeNull();
+    expect(await created({ message_limit: null })).toBeNull();
+    expect(await created({ message_limit: 0 })).toBeNull();
   });
 });

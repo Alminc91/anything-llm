@@ -89,9 +89,11 @@ const DEFAULT_COURSE_COUNT_WORDS = Object.freeze({
 // außerhalb von visual_config): frühere Nachrichten, die das Modell als
 // Zusammenhang erhält. Standard und getesteter Wert 2 (widget-grenzen-kontakt,
 // Nutzer 12.11.2026: höhere Werte führen zu mehr falschen Antworten). Gilt
-// beim Anlegen ohne Angabe (models/embedConfig.js; das Schema nennt
-// weiterhin @default(20), eine Migration ist ausgeschlossen) und zur Laufzeit
-// für NULL (utils/chats/embed.js). Bis 8.1 galt 20.
+// beim Anlegen in der Oberfläche ohne gültige Angabe (/embeds/new,
+// endpoints/embedManagement.js; das Modell speichert dann NULL wie vor 8.2,
+// damit die Entwickler-API unverändert bleibt, 8.2-rc2 F2) und zur Laufzeit
+// für NULL (utils/chats/embed.js). Das Schema nennt weiterhin @default(20),
+// eine Migration ist ausgeschlossen. Bis 8.1 galt 20.
 const EMBED_MESSAGE_LIMIT_DEFAULT = 2;
 
 // Feste Standards für beide Darstellungen. Karten wie Demo-Variante 4
