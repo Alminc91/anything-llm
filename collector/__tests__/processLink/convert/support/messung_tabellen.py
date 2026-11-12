@@ -226,7 +226,10 @@ def main(argv=None):
             for nummer, eintrag in enumerate(eintraege, 1):
                 if nummer > 1 and args.pause > 0:
                     time.sleep(args.pause)
-                context = browser.new_context(viewport={"width": 800, "height": 600})
+                # Wie generic.js: Zertifikatsfehler ignorieren, Fenster 800 x 600.
+                context = browser.new_context(
+                    viewport={"width": 800, "height": 600}, ignore_https_errors=True
+                )
                 context.route(
                     "**/*", lambda route: textlesen.anfragen_sperren(route, args.nur_lokal)
                 )
