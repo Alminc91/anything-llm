@@ -57,7 +57,7 @@ function eindeutig(werte) {
   return [...new Set(werte)].sort();
 }
 
-// Block „Ihre Ansprechpartner:innen“ bis zum nächsten Skript (JSON-LD).
+// Block .kw-details-ansprechpartner bis zum nächsten Skript (JSON-LD).
 function ansprechpartnerBloecke(html) {
   return html
     .split('class="kw-details-ansprechpartner"')
