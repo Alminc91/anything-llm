@@ -8,7 +8,9 @@ import useUser from "@/hooks/useUser";
 import { useTranslation } from "react-i18next";
 
 // Nachrichtenverlauf für das Modell (widget-grenzen-kontakt): Standard und
-// getesteter Wert 2 (bis 8.1: 20), wie im Server (EMBED_MESSAGE_LIMIT_DEFAULT)
+// getesteter Wert 2 (bis 8.1: 20), wie im Server (EMBED_MESSAGE_LIMIT_DEFAULT).
+// Nur zur Anzeige (Vorbelegung beim Anlegen, Platzhalter); ein leeres Feld
+// geht als null an den Server, der den Standard setzt (8.2-rc2 F1, F2).
 export const MESSAGE_LIMIT_DEFAULT = 2;
 
 /**
@@ -22,31 +24,43 @@ export function canEditMessageLimit(user) {
   return user?.role === "admin";
 }
 
+// Felder, die ein Browser beim Absenden nie mitschickt
+const NOT_SUBMITTED = new Set(["submit", "button", "reset", "fieldset"]);
+
+/**
+ * Rumpf der Dialoge „Neue Einbettung“ und „Einbettung aktualisieren“ aus den
+ * Feldern des Formulars (8.2-rc2 F1, Klasse K1). Nicht aus FormData: Dort
+ * fehlt ein ausgeschalteter Schalter ganz, ein eingeschalteter liefert nur
+ * seinen Formularwert (bei Toggle ""), und ein geleertes Feld ist von einem
+ * fehlenden nicht zu unterscheiden. Je benanntes Feld des Formulars:
+ * - Schalter: true oder false, wie er steht.
+ * - Auswahlknopf (Chat-Methode): der Wert des gewählten.
+ * - leer: null (Grenzen: unbegrenzt, Nachrichtenverlauf: Standard des
+ *   Servers, Domains und Aufbewahrung: keine). Ein leeres Pflichtfeld
+ *   (Workspace) geht nicht mit, der Server behält dann den gespeicherten Wert.
+ * - sonst der Wert als Text; prüfen und umwandeln tut der Server.
+ * Felder, die nicht im Formular stehen (Nachrichtenverlauf bei manager,
+ * default und im Einbenutzerbetrieb), gehen nicht mit. Standardwerte setzt
+ * allein der Server.
+ * @param {HTMLFormElement} form
+ * @returns {Object<string, string|boolean|null>}
+ */
 export function enforceSubmissionSchema(form) {
   const data = {};
-  for (var [key, value] of form.entries()) {
-    if (!value || value === null) continue;
-    data[key] = value;
-    if (value === "on") data[key] = true;
+  for (const field of Array.from(form.elements)) {
+    if (!field.name || field.disabled || NOT_SUBMITTED.has(field.type))
+      continue;
+    if (field.type === "checkbox") {
+      data[field.name] = field.checked === true;
+      continue;
+    }
+    if (field.type === "radio") {
+      if (field.checked) data[field.name] = field.value;
+      continue;
+    }
+    if (field.value !== "") data[field.name] = field.value;
+    else if (!field.required) data[field.name] = null;
   }
-
-  // Always set value on nullable keys since empty or off will not send anything from form element.
-  if (!data.hasOwnProperty("allowlist_domains")) data.allowlist_domains = null;
-  if (!data.hasOwnProperty("allow_model_override"))
-    data.allow_model_override = false;
-  if (!data.hasOwnProperty("allow_temperature_override"))
-    data.allow_temperature_override = false;
-  if (!data.hasOwnProperty("allow_prompt_override"))
-    data.allow_prompt_override = false;
-  // KIE-503: ausgeschalteter Toggle sendet nichts -> explizit false. Beide
-  // Embed-Modals rendern das Feld, daher ist "fehlt" hier immer "aus".
-  if (!data.hasOwnProperty("history_enabled")) data.history_enabled = false;
-  // Nachrichtenverlauf nur, wenn das Feld im Formular steht (admin); leer
-  // heißt Standard. Ohne Feld geht kein Wert mit: Der Server behält den
-  // gespeicherten Wert bzw. setzt beim Anlegen 2.
-  if (form.has("message_limit") && !data.hasOwnProperty("message_limit"))
-    data.message_limit = MESSAGE_LIMIT_DEFAULT;
-  if (!data.hasOwnProperty("chat_retention_days")) data.chat_retention_days = null;
   return data;
 }
 
@@ -58,8 +72,7 @@ export default function NewEmbedModal({ closeModal }) {
   const handleCreate = async (e) => {
     setError(null);
     e.preventDefault();
-    const form = new FormData(e.target);
-    const data = enforceSubmissionSchema(form);
+    const data = enforceSubmissionSchema(e.target);
     const { embed, error } = await Embed.newEmbed(data);
     if (!!embed) window.location.reload();
     setError(error);
@@ -106,6 +119,7 @@ export default function NewEmbedModal({ closeModal }) {
                   title={t("embed-modal.message-limit.label")}
                   hint={t("embed-modal.message-limit.hint")}
                   defaultValue={MESSAGE_LIMIT_DEFAULT}
+                  placeholder={String(MESSAGE_LIMIT_DEFAULT)}
                 />
               )}
               <div>
@@ -388,7 +402,13 @@ export const PermittedDomains = ({ defaultValue = [] }) => {
   );
 };
 
-export const NumberInput = ({ name, title, hint, defaultValue = 0 }) => {
+export const NumberInput = ({
+  name,
+  title,
+  hint,
+  defaultValue = 0,
+  placeholder,
+}) => {
   return (
     <div>
       <div className="flex flex-col mb-2">
@@ -403,6 +423,7 @@ export const NumberInput = ({ name, title, hint, defaultValue = 0 }) => {
         className="border-none bg-theme-settings-input-bg text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-[15rem] p-2.5"
         min={0}
         defaultValue={defaultValue}
+        placeholder={placeholder}
         onScroll={(e) => e.target.blur()}
       />
     </div>

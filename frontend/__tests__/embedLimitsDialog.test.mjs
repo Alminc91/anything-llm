@@ -12,7 +12,8 @@
 //          Hinweis und Platzhalter nach §11 E6.
 //   §7     Die übrigen Felder sehen alle Rollen wie bisher.
 // Serverseitig gerendert (helpers/renderSettingsPage.mjs, render); das
-// Formular selbst (enforceSubmissionSchema) mit FormData von Node.
+// Formular selbst (enforceSubmissionSchema) mit Feldern wie in
+// form.elements. Absenden der eingehängten Dialoge: embedDialogSubmit.test.mjs.
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -228,33 +229,76 @@ test(
 );
 
 test(
-  "Formular: message_limit nur, wenn das Feld im Formular steht; leer heißt 2",
+  "Formular: message_limit nur, wenn das Feld im Formular steht; leer heißt null (8.2-rc2 F1)",
   { skip },
   async () => {
     const { enforceSubmissionSchema } = await renderer.load(NEW_MODAL);
-    const form = (entries) => {
-      const data = new FormData();
-      for (const [key, value] of entries) data.append(key, value);
-      return data;
-    };
+    // Felder wie in form.elements; type "number" wie NumberInput
+    const form = (fields) => ({
+      elements: fields.map(([name, value, extra = {}]) => ({
+        name,
+        value,
+        type: "number",
+        required: false,
+        disabled: false,
+        ...extra,
+      })),
+    });
     // ohne Feld (manager, default, Einbenutzerbetrieb): kein Wert
     const hidden = enforceSubmissionSchema(
       form([
-        ["workspace_id", "7"],
+        ["workspace_id", "7", { type: "select-one", required: true }],
         ["max_chats_per_session", "12"],
       ])
     );
     assert.equal(Object.hasOwn(hidden, "message_limit"), false);
     assert.equal(hidden.max_chats_per_session, "12");
-    // admin: leeres Feld = Standard 2, sonst der eingegebene Wert
-    assert.equal(
-      enforceSubmissionSchema(form([["message_limit", ""]])).message_limit,
-      2
-    );
+    // admin: leeres Feld null (Standard setzt der Server), sonst der Wert
+    const empty = enforceSubmissionSchema(form([["message_limit", ""]]));
+    assert.ok(Object.hasOwn(empty, "message_limit"));
+    assert.equal(empty.message_limit, null);
     assert.equal(
       enforceSubmissionSchema(form([["message_limit", "6"]])).message_limit,
       "6"
     );
+  }
+);
+
+test(
+  "Formular: leeres Pflichtfeld geht nicht mit; ohne Namen, gesperrt und Schaltflächen nie",
+  { skip },
+  async () => {
+    const { enforceSubmissionSchema } = await renderer.load(NEW_MODAL);
+    const field = (name, value, extra = {}) => ({
+      name,
+      value,
+      type: "text",
+      required: false,
+      disabled: false,
+      ...extra,
+    });
+    const data = enforceSubmissionSchema({
+      elements: [
+        // Workspace noch nicht geladen: kein Wert, der Server behält seinen
+        field("workspace_id", "", { type: "select-one", required: true }),
+        field("chat_retention_days", "", { type: "select-one" }),
+        field("allowlist_domains", "", { type: "hidden" }),
+        field("", "Eingabe der Domains"),
+        field("max_chats_per_day", "5", { disabled: true }),
+        field("chat_mode", "chat", { type: "radio", checked: false }),
+        field("chat_mode", "query", { type: "radio", checked: true }),
+        field("allow_prompt_override", "", { type: "checkbox", checked: true }),
+        field("history_enabled", "", { type: "checkbox", checked: false }),
+        field("speichern", "", { type: "submit" }),
+      ],
+    });
+    assert.deepEqual(data, {
+      chat_retention_days: null,
+      allowlist_domains: null,
+      chat_mode: "query",
+      allow_prompt_override: true,
+      history_enabled: false,
+    });
   }
 );
 
