@@ -1,7 +1,10 @@
 const { v4 } = require("uuid");
 const prisma = require("../utils/prisma");
 const { VALID_CHAT_MODE } = require("../utils/chats/stream");
-const { courseCountWordValue } = require("../utils/chats/embedStandards");
+const {
+  courseCountWordValue,
+  EMBED_MESSAGE_LIMIT_DEFAULT,
+} = require("../utils/chats/embedStandards");
 
 const EmbedConfig = {
   writable: [
@@ -52,10 +55,11 @@ const EmbedConfig = {
             data?.max_chats_per_session,
             "max_chats_per_session"
           ),
-          message_limit: validatedCreationData(
-            data?.message_limit,
-            "message_limit"
-          ),
+          // Ohne gültige Angabe der Standard 2 (widget-grenzen-kontakt,
+          // AK-3), nicht NULL und nicht @default(20) des Schemas
+          message_limit:
+            validatedCreationData(data?.message_limit, "message_limit") ??
+            EMBED_MESSAGE_LIMIT_DEFAULT,
           chat_retention_days: validatedCreationData(
             data?.chat_retention_days,
             "chat_retention_days"

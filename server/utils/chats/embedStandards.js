@@ -78,6 +78,14 @@ const DEFAULT_WELCOME_BUBBLES = "first";
 // Fixture des Vertrags (embedConfigContract.json, courseCountWords).
 const COURSE_COUNT_MODES = Object.freeze(["on", "off"]);
 const DEFAULT_COURSE_COUNT_MODE = "on";
+// Nachrichtenverlauf für das Modell (embed_configs.message_limit, Spalte
+// außerhalb von visual_config): frühere Nachrichten, die das Modell als
+// Zusammenhang erhält. Standard und getesteter Wert 2 (widget-grenzen-kontakt,
+// Nutzer 12.11.2026: höhere Werte führen zu mehr falschen Antworten). Gilt
+// beim Anlegen ohne Angabe (models/embedConfig.js; das Schema nennt
+// weiterhin @default(20), eine Migration ist ausgeschlossen) und zur Laufzeit
+// für NULL (utils/chats/embed.js). Bis 8.1 galt 20.
+const EMBED_MESSAGE_LIMIT_DEFAULT = 2;
 const COURSE_COUNT_WORD_MAX_LEN = 20;
 const COURSE_COUNT_WORD_RX = /^\p{L}+(?:-\p{L}+)*$/u;
 const DEFAULT_COURSE_COUNT_WORDS = Object.freeze({
@@ -571,6 +579,7 @@ function applyEmbedStandards(mapped = {}, visualConfig = {}) {
 }
 
 module.exports = {
+  EMBED_MESSAGE_LIMIT_DEFAULT,
   COURSE_CARDS_VALUES,
   COURSE_CARDS_DEFAULTS,
   COURSE_CARDS_POSITIONS,
