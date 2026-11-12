@@ -9,7 +9,8 @@
 //          „Standard ist 20“ mehr.
 //   AK-5   Hinweis zu „Fragen je Besucher und Tag“ mit „mindestens 10“.
 //   AK-14  Design Center: Gruppe „Kontakt“, Feld „E-Mail für Besucher“,
-//          Hinweis und Platzhalter nach §11 E6.
+//          Hinweis und Platzhalter nach §11 E6; das Feld trägt seinen Namen
+//          als aria-label wie die Nachbarfelder (8.2-rc2 F3, Browser B3).
 //   §7     Die übrigen Felder sehen alle Rollen wie bisher.
 // Serverseitig gerendert (helpers/renderSettingsPage.mjs, render); das
 // Formular selbst (enforceSubmissionSchema) mit Feldern wie in
@@ -323,7 +324,7 @@ const contentProps = (config) => ({
 });
 
 test(
-  "AK-14: Gruppe „Kontakt“, Feld „E-Mail für Besucher“ mit Hinweis und Platzhalter nach E6",
+  "AK-14: Gruppe „Kontakt“, Feld „E-Mail für Besucher“ mit Hinweis, Platzhalter und Beschriftung (E6, F3)",
   { skip },
   async () => {
     for (const displayMode of [undefined, "inline"]) {
@@ -341,6 +342,12 @@ test(
       assert.ok(heading < title && title < hint, `${displayMode}: Reihenfolge`);
       const input = html.match(/<input[^>]*type="email"[^>]*>/g);
       assert.equal(input.length, 1);
+      // F3: Bildschirmleser lesen den Namen des Felds, nicht nur den
+      // Platzhalter
+      assert.ok(
+        input[0].includes(`aria-label="${EMAIL_TITLE}"`),
+        `${displayMode}: aria-label fehlt: ${input[0]}`
+      );
       assert.match(input[0], new RegExp(`placeholder="${EMAIL_PLACEHOLDER}"`));
       assert.doesNotMatch(t, /Support-E-Mail|Support-Link|support@ihre-seite/);
       assert.doesNotMatch(EMAIL_HINT, DASH);

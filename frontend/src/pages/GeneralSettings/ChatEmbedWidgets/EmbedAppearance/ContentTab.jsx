@@ -638,6 +638,7 @@ export default function ContentTab({
           onChange={(e) => updateField("supportEmail", e.target.value)}
           placeholder="info@ihre-vhs.de"
           className={inputClass(false)}
+          aria-label="E-Mail für Besucher"
         />
         <FieldNote hint="Besucher sehen diese Adresse im Chatfenster und in der Schlussantwort, wenn der Chatbot nicht weiterhelfen kann. Ohne Eintrag erscheint keine Adresse." />
       </div>
