@@ -348,7 +348,11 @@ test(
         input[0].includes(`aria-label="${EMAIL_TITLE}"`),
         `${displayMode}: aria-label fehlt: ${input[0]}`
       );
-      assert.match(input[0], new RegExp(`placeholder="${EMAIL_PLACEHOLDER}"`));
+      // Text, kein Muster: Die Punkte der Adresse passen sonst auf jedes Zeichen
+      assert.ok(
+        input[0].includes(`placeholder="${EMAIL_PLACEHOLDER}"`),
+        input[0]
+      );
       assert.doesNotMatch(t, /Support-E-Mail|Support-Link|support@ihre-seite/);
       assert.doesNotMatch(EMAIL_HINT, DASH);
     }
