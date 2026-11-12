@@ -78,6 +78,13 @@ const DEFAULT_WELCOME_BUBBLES = "first";
 // Fixture des Vertrags (embedConfigContract.json, courseCountWords).
 const COURSE_COUNT_MODES = Object.freeze(["on", "off"]);
 const DEFAULT_COURSE_COUNT_MODE = "on";
+const COURSE_COUNT_WORD_MAX_LEN = 20;
+const COURSE_COUNT_WORD_RX = /^\p{L}+(?:-\p{L}+)*$/u;
+const DEFAULT_COURSE_COUNT_WORDS = Object.freeze({
+  de: "Kurse",
+  en: "courses",
+});
+
 // Nachrichtenverlauf für das Modell (embed_configs.message_limit, Spalte
 // außerhalb von visual_config): frühere Nachrichten, die das Modell als
 // Zusammenhang erhält. Standard und getesteter Wert 2 (widget-grenzen-kontakt,
@@ -86,12 +93,6 @@ const DEFAULT_COURSE_COUNT_MODE = "on";
 // weiterhin @default(20), eine Migration ist ausgeschlossen) und zur Laufzeit
 // für NULL (utils/chats/embed.js). Bis 8.1 galt 20.
 const EMBED_MESSAGE_LIMIT_DEFAULT = 2;
-const COURSE_COUNT_WORD_MAX_LEN = 20;
-const COURSE_COUNT_WORD_RX = /^\p{L}+(?:-\p{L}+)*$/u;
-const DEFAULT_COURSE_COUNT_WORDS = Object.freeze({
-  de: "Kurse",
-  en: "courses",
-});
 
 // Feste Standards für beide Darstellungen. Karten wie Demo-Variante 4
 // („Suche“, chatbot-v4): kurzer Chatbot-Text, Karten als Zeilen. Ob Karten
