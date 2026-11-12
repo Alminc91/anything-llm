@@ -1413,17 +1413,19 @@ const TRANSLATIONS = {
       hint: "Dieser Filter blockiert alle Anfragen, die von einer anderen Domain als der unten aufgeführten Liste kommen. Wenn Sie dies leer lassen, kann jeder Ihre Einbettung auf jeder Website verwenden.",
       placeholder: "https://meineseite.de, https://anythingllm.com",
     },
+    // widget-grenzen-kontakt (§11 E3): gezählt je Kalendertag, nicht über
+    // 24 Stunden; den Nachrichtenverlauf sieht nur ein admin
     "max-chats-day": {
-      label: "Max. Chats pro Tag",
-      hint: "Begrenzen Sie die Anzahl der Chats, die dieser eingebettete Chat in einem 24-Stunden-Zeitraum verarbeiten kann. Null bedeutet unbegrenzt.",
+      label: "Fragen aller Besucher je Tag",
+      hint: "So viele Fragen beantwortet der Chatbot an einem Kalendertag insgesamt. 0 oder leer: unbegrenzt.",
     },
     "max-chats-session": {
-      label: "Max. Chats pro Sitzung",
-      hint: "Begrenzen Sie die Anzahl der Chats, die ein Sitzungsbenutzer mit dieser Einbettung in einem 24-Stunden-Zeitraum senden kann. Null bedeutet unbegrenzt.",
+      label: "Fragen je Besucher und Tag",
+      hint: "So viele Fragen kann ein Besucher an einem Kalendertag stellen. Empfohlen: mindestens 10. 0 oder leer: unbegrenzt.",
     },
     "message-limit": {
-      label: "Nachrichtenverlauf-Limit",
-      hint: "Die Anzahl der vorherigen Nachrichten, die in den Chat-Kontext aufgenommen werden sollen. Standard ist 20.",
+      label: "Nachrichtenverlauf für das Modell",
+      hint: "Frühere Nachrichten, die das Modell als Zusammenhang erhält. Standard und getesteter Wert: 2. Höhere Werte führen zu mehr falschen Antworten.",
     },
     "chat-retention": {
       label: "Chat-Aufbewahrungsfrist (DSGVO)",

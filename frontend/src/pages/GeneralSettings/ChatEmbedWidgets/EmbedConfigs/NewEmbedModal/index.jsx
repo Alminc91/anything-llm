@@ -4,7 +4,23 @@ import Workspace from "@/models/workspace";
 import { TagsInput } from "react-tag-input-component";
 import Embed from "@/models/embed";
 import Toggle from "@/components/lib/Toggle";
+import useUser from "@/hooks/useUser";
 import { useTranslation } from "react-i18next";
+
+// Nachrichtenverlauf für das Modell (widget-grenzen-kontakt): Standard und
+// getesteter Wert 2 (bis 8.1: 20), wie im Server (EMBED_MESSAGE_LIMIT_DEFAULT)
+export const MESSAGE_LIMIT_DEFAULT = 2;
+
+/**
+ * Das Feld Nachrichtenverlauf zeigen beide Dialoge nur einem admin im
+ * Mehrbenutzermodus (AK-1). Im Einbenutzerbetrieb gibt es kein Nutzerobjekt:
+ * verborgen (§11 E2). Der Server verwirft den Wert der übrigen ohnehin.
+ * @param {{role?: string}|null} user
+ * @returns {boolean}
+ */
+export function canEditMessageLimit(user) {
+  return user?.role === "admin";
+}
 
 export function enforceSubmissionSchema(form) {
   const data = {};
@@ -25,13 +41,18 @@ export function enforceSubmissionSchema(form) {
   // KIE-503: ausgeschalteter Toggle sendet nichts -> explizit false. Beide
   // Embed-Modals rendern das Feld, daher ist "fehlt" hier immer "aus".
   if (!data.hasOwnProperty("history_enabled")) data.history_enabled = false;
-  if (!data.hasOwnProperty("message_limit")) data.message_limit = 20;
+  // Nachrichtenverlauf nur, wenn das Feld im Formular steht (admin); leer
+  // heißt Standard. Ohne Feld geht kein Wert mit: Der Server behält den
+  // gespeicherten Wert bzw. setzt beim Anlegen 2.
+  if (form.has("message_limit") && !data.hasOwnProperty("message_limit"))
+    data.message_limit = MESSAGE_LIMIT_DEFAULT;
   if (!data.hasOwnProperty("chat_retention_days")) data.chat_retention_days = null;
   return data;
 }
 
 export default function NewEmbedModal({ closeModal }) {
   const { t } = useTranslation();
+  const { user } = useUser();
   const [error, setError] = useState(null);
 
   const handleCreate = async (e) => {
@@ -79,12 +100,14 @@ export default function NewEmbedModal({ closeModal }) {
                 title={t("embed-modal.max-chats-session.label")}
                 hint={t("embed-modal.max-chats-session.hint")}
               />
-              <NumberInput
-                name="message_limit"
-                title={t("embed-modal.message-limit.label")}
-                hint={t("embed-modal.message-limit.hint")}
-                defaultValue={20}
-              />
+              {canEditMessageLimit(user) && (
+                <NumberInput
+                  name="message_limit"
+                  title={t("embed-modal.message-limit.label")}
+                  hint={t("embed-modal.message-limit.hint")}
+                  defaultValue={MESSAGE_LIMIT_DEFAULT}
+                />
+              )}
               <div>
                 <div className="flex flex-col mb-2">
                   <label className="text-white text-sm font-semibold">
