@@ -37,6 +37,10 @@ const {
   buildChainedContext,
   createOverviewLinkGuard,
 } = require("./embedCategoryChains");
+const {
+  wordlessResponseLanguage,
+  responseLanguageNote,
+} = require("./wordlessMessage");
 
 async function streamChatWithForEmbed(
   response,
@@ -230,9 +234,23 @@ async function streamChatWithForEmbed(
   // gespeicherte Wahl nach der Darstellung, die das Widget mitschickt (R4:
   // In der Seite an, Chatfenster aus).
   const cardsOn = courseCardsEnabled(embed, { displayMode });
+  // Nachricht ohne Wörter (nur Kursnummern, Ziffern, Satzzeichen, Emojis;
+  // sprache-nur-nummer): Antwortsprache aus den früheren Nachrichten des
+  // Besuchers in diesem Verlauf, ohne solche Deutsch. Nur der System-Prompt
+  // bekommt den Hinweis; Nachricht, Verlauf, Suche und Speichern bleiben
+  // unverändert. Mit Wörtern null, der Prompt bleibt byte-gleich.
+  const responseLanguage = wordlessResponseLanguage(
+    message,
+    rawHistory.map((chat) => chat?.prompt)
+  );
+  // Nur Workspace und Hinweis, nie die Nachricht
+  if (responseLanguage)
+    console.log(
+      `[embedLanguage] ${embed.workspace.slug}: Nachricht ohne Wörter, Sprachhinweis ${responseLanguage}`
+    );
   const systemPrompt = embedSystemPrompt(
     await chatPrompt(embed.workspace, username),
-    { cardsOn }
+    { cardsOn, responseLanguage }
   );
 
   // KIE-576: mit gültiger Kategorie-Karte je Kursdokument die Kette
@@ -512,7 +530,15 @@ async function streamChatWithForEmbed(
  *  1. Karten-Abschnitt (nur mit Karten: fester Stil „kurz“, Beispiel ohne
  *     KI-Hinweis-Zeile, weil der KI-Hinweis fest im Widget steht),
  *  2. Disclaimer-Hinweis (KI-Hinweis fest unter der Eingabe),
- *  3. Folgefragen-Hinweis.
+ *  3. Folgefragen-Hinweis,
+ *  4. Sprachhinweis, NUR bei einer Nachricht ohne Wörter (nur Kursnummern,
+ *     Ziffern, Satzzeichen, Emojis; wordlessMessage.js, sprache-nur-nummer):
+ *     responseLanguage "german" (keine frühere Nachricht des Besuchers mit
+ *     Wörtern) oder "previous" (Sprache der früheren Nachrichten). Jeder
+ *     andere Wert, auch null, hängt nichts an: Für jede Nachricht mit
+ *     Wörtern ist der Prompt byte-gleich zu dem ohne diesen Hinweis, und
+ *     alles vor dem Hinweis (Präfix bis Folgefragen) bleibt immer gleich.
+ *     Der Hinweis steht nur hier, nie in Verlauf oder gespeicherter Nachricht.
  * Hinweis 2 und 3 und der Stil sind feste Standards des vereinfachten
  * Design Centers (embedStandards.js EMBED_FIXED_STANDARDS) und hängen immer
  * an; variabel ist nur, ob Karten an sind (cardsOn, gespeicherte Wahl
@@ -525,10 +551,10 @@ async function streamChatWithForEmbed(
  * an, ohne Karten keinen (sonst antwortete das Modell kurz ohne Links, aber
  * es erschienen keine Karten).
  * @param {string} basePrompt
- * @param {{cardsOn: boolean}} switches
+ * @param {{cardsOn: boolean, responseLanguage?: "german"|"previous"|null}} switches
  * @returns {string}
  */
-function embedSystemPrompt(basePrompt, { cardsOn }) {
+function embedSystemPrompt(basePrompt, { cardsOn, responseLanguage = null }) {
   return (
     removeCourseCardsSections(basePrompt) +
     (cardsOn
@@ -538,7 +564,8 @@ function embedSystemPrompt(basePrompt, { cardsOn }) {
         })
       : "") +
     DISCLAIMER_PROMPT_NOTE +
-    FOLLOW_UPS_PROMPT_NOTE
+    FOLLOW_UPS_PROMPT_NOTE +
+    responseLanguageNote(responseLanguage)
   );
 }
 
