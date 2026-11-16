@@ -17,6 +17,10 @@ jest.mock("../../../models/embedChats", () => ({
   EmbedChats: {
     new: jest.fn().mockResolvedValue({ chat: { id: 42 }, message: null }),
     forEmbedByUser: jest.fn().mockResolvedValue([]),
+    // Frühere Besucherfragen für den Rewriter (Paket folgefragen-variante-e).
+    // Hier ohne Wirkung; der Ersatz hält den Test grün, egal in welcher
+    // Reihenfolge die beiden Pakete gemergt werden.
+    earlierPrompts: jest.fn().mockResolvedValue([]),
   },
 }));
 jest.mock("../../../models/workspace", () => ({
