@@ -38,6 +38,7 @@ const {
   createOverviewLinkGuard,
 } = require("./embedCategoryChains");
 const {
+  isWordlessMessage,
   wordlessResponseLanguage,
   withResponseLanguageNote,
 } = require("./wordlessMessage");
@@ -234,21 +235,6 @@ async function streamChatWithForEmbed(
   // gespeicherte Wahl nach der Darstellung, die das Widget mitschickt (R4:
   // In der Seite an, Chatfenster aus).
   const cardsOn = courseCardsEnabled(embed, { displayMode });
-  // Nachricht ohne Wörter (nur Kursnummern, Ziffern, Satzzeichen, Emojis;
-  // sprache-nur-nummer): Antwortsprache aus den früheren Nachrichten des
-  // Besuchers in diesem Verlauf, ohne solche Deutsch. Den Hinweis bekommt
-  // nur die Nutzernachricht der Modellanfrage (userPrompt an
-  // compressMessages, D5); der System-Prompt bleibt für jede Nachricht
-  // byte-gleich. Mit Wörtern null, kein Hinweis.
-  const responseLanguage = wordlessResponseLanguage(
-    message,
-    rawHistory.map((chat) => chat?.prompt)
-  );
-  // Nur Workspace und Hinweis, nie die Nachricht
-  if (responseLanguage)
-    console.log(
-      `[embedLanguage] ${embed.workspace.slug}: Nachricht ohne Wörter, Sprachhinweis ${responseLanguage}`
-    );
   const systemPrompt = embedSystemPrompt(
     await chatPrompt(embed.workspace, username),
     { cardsOn }
@@ -291,6 +277,23 @@ async function streamChatWithForEmbed(
       error: null,
     });
     return;
+  }
+
+  // Nachricht ohne Wörter (nur Kursnummern, Ziffern, Satzzeichen, Emojis;
+  // sprache-nur-nummer): Sprachwahl, Hinweis und Log erst hier, nach der
+  // Abweisung im Abfragemodus, damit das Log nur Anfragen an das Modell
+  // zählt (S-L1). Den Verlauf liest die Sprachwahl nur bei einer Nachricht
+  // ohne Wörter.
+  let responseLanguage = null;
+  if (isWordlessMessage(message)) {
+    responseLanguage = wordlessResponseLanguage(
+      message,
+      rawHistory.map((chat) => chat?.prompt)
+    );
+    // Nur Workspace und Hinweis, nie die Nachricht
+    console.log(
+      `[embedLanguage] ${embed.workspace.slug}: Nachricht ohne Wörter, Sprachhinweis ${responseLanguage}`
+    );
   }
 
   // Compress message to ensure prompt passes token limit with room for response
