@@ -273,6 +273,63 @@ describe("AK-2: frühere Fragen derselben Unterhaltung für den Rewriter", () =>
   });
 });
 
+// Fixliste rc7 E-R1, D3: der Rewriter bekommt die Antworten ohne
+// Protokollzeilen (Kurskarten-Marker, Teaserzeilen, Folgefragen-Vorschläge),
+// so wie gemessen; das Antwortmodell und der Metadatenfilter bekommen sie
+// weiter (restoreCardsMarkers, NAK-2).
+describe("E-R1: Rewriter ohne Protokollzeilen, Antwortmodell mit", () => {
+  const MARKED = {
+    text: "Antwort 8: Hatha Yoga passt.",
+    sources: [],
+    courseCardsMarker: [0],
+    courseTeaserLines: [{ index: 0, text: "Sanft starten." }],
+    followUps: ["Gibt es Pilates?", "Wann beginnt der Kurs?"],
+  };
+  // Altdatensatz (vor FF1): Folgefragen-Zeile noch im gespeicherten Text
+  const LEGACY_TEXT =
+    "Antwort 6: Yoga am Abend.\n[[FRAGEN: Gibt es Tanz? | Kosten?]]";
+
+  beforeEach(() => {
+    TABLE = [
+      row(1, "Gibt es Yoga?"),
+      row(3, "Ich bin Anfänger"),
+      row(6, "Und am Abend?", {
+        response: JSON.stringify({ text: LEGACY_TEXT, sources: [] }),
+      }),
+      row(8, "Wie teuer ist das?", { response: JSON.stringify(MARKED) }),
+    ];
+  });
+
+  test("Rewriter-Nachricht ohne [[KARTEN, [[TEASER und [[FRAGEN", async () => {
+    const { rewriteUser } = await run({ messageLimit: 2 });
+    expect(rewriteUser).toContain("Hatha Yoga passt.");
+    for (const marker of [
+      "[[KARTEN",
+      "[[TEASER",
+      "[[FRAGEN",
+      "Sanft starten.",
+      "Gibt es Pilates?",
+      "Gibt es Tanz?",
+    ])
+      expect(rewriteUser).not.toContain(marker);
+  });
+
+  test("Antwortmodell und Metadatenfilter bekommen die Zeilen weiter (wie bisher)", async () => {
+    const { connector } = await run({ messageLimit: 2 });
+    const answers = (history) =>
+      history.filter((m) => m.role === "assistant").map((m) => m.content);
+    const expected = [
+      "Antwort 6: Yoga am Abend.",
+      "[[KARTEN: 0]]\n[[TEASER 0: Sanft starten.]]\nAntwort 8: Hatha Yoga passt.\n" +
+        "[[FRAGEN: Gibt es Pilates? | Wann beginnt der Kurs?]]",
+    ];
+    const [input] = connector.compressMessages.mock.calls[0];
+    expect(answers(input.chatHistory)).toEqual(expected);
+    const [filterInput] = startMetadataFilterResolution.mock.calls[0];
+    expect(answers(filterInput.chatHistory)).toEqual(expected);
+  });
+});
+
 describe("NAK-1: nur Fragen derselben Sitzung und Unterhaltung", () => {
   test("fremde Sitzung, andere Unterhaltung, anderes Widget und gelöschte Zeilen erscheinen nie", async () => {
     for (const messageLimit of [2, 20]) {
