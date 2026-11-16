@@ -388,10 +388,15 @@ describe("rerank-Pfad: similarityThreshold und gepinnte Dokumente", () => {
     expect(got).not.toContain("tief");
     expect(got).not.toContain("pin");
     // todaysCount: 2 der ersten 4 sind zulässig → genau 2 Dokumente, auch
-    // wenn im Pool weitere frühe Kurse (p3, p4) bereitstehen
+    // wenn im Pool weitere frühe Kurse (p3, p4) bereitstehen. Die
+    // Stufenregel wählt sie aus den zulässigen: p3 (0,95, in 3 Tagen) ist
+    // gleich relevant zu p1 (0,97), danach p2 (50 Tage) vor p1 (60 Tage).
     expect(result.sources).toHaveLength(today.sources.length);
-    expect(got).toEqual(["p1", "p2"]);
-    expect(result).toEqual(today);
+    expect(got).toEqual(["p3", "p2"]);
+    expect(result.sources.map((s) => s.start_date)).toEqual([
+      inDays(3),
+      inDays(50),
+    ]);
   });
 
   test("ohne Pin zählt nur der Threshold-Ausfall → 3 Dokumente wie heute", async () => {

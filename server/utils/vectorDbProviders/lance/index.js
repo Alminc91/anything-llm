@@ -1480,7 +1480,7 @@ class LanceDb extends VectorDatabase {
    * (= Verhalten wie ohne Stufe).
    * @param {string} namespace
    * @returns {Promise<{enabled:boolean, reason:string|null, today?:string,
-   *   settings?:{keep:number, band:number, floor:number}}>}
+   *   settings?:{span:number, floor:number}}>}
    */
   async resolveCourseSelection(namespace) {
     try {
