@@ -1,8 +1,10 @@
 /* eslint-env jest, node */
-// Query Rewriter, Variante E im Widget-Chat (issues/folgefragen-variante-e.md):
+// Query Rewriter, Variante E mit Form E2 im Widget-Chat
+// (issues/folgefragen-variante-e.md):
 // - AK-2: der Rewriter bekommt die früheren Fragen derselben Unterhaltung,
-//   unabhängig von message_limit; höchstens 5, älteste zuerst, ohne die Frage
-//   der letzten Runde und ohne die aktuelle.
+//   unabhängig von message_limit; höchstens 5, älteste zuerst, ohne die
+//   Fragen der Runden im Block „Chat history“ (die letzten 2 geladenen) und
+//   ohne die aktuelle; Antworten ohne Protokollzeilen (E-R1).
 // - NAK-1: Fragen anderer Sitzungen, Unterhaltungen, Widgets und gelöschte
 //   Zeilen erscheinen nie.
 // - NAK-2: Verlauf und Prompt des Antwortmodells (compressMessages), der
@@ -97,11 +99,13 @@ const FOUR_ROUNDS = () => [
   row(8, "Wie teuer ist das?"),
 ];
 
-// Gemessene Form (Abschnitt 4): frühere Fragen, dann nur die letzte Runde
+// Gemessene Form E2 (Abschnitt 4): frühere Fragen vor den letzten 2
+// Runden, dann diese 2 Runden
 const EXPECTED_REWRITE_USER =
   "Earlier user questions (oldest first):\n" +
-  "1. Gibt es Yoga?\n2. Ich bin Anfänger\n3. Und am Abend?\n\n" +
-  "Chat history:\nUser: Wie teuer ist das?\nAssistant: Antwort 8: - Punkt eins\n\n" +
+  "1. Gibt es Yoga?\n2. Ich bin Anfänger\n\n" +
+  "Chat history:\nUser: Und am Abend?\nAssistant: Antwort 6: - Punkt eins\n" +
+  "User: Wie teuer ist das?\nAssistant: Antwort 8: - Punkt eins\n\n" +
   `Latest question: ${MESSAGE}`;
 
 let TABLE = [];
@@ -220,7 +224,7 @@ const earlierQueries = () =>
     .filter((args) => args.select);
 
 describe("AK-2: frühere Fragen derselben Unterhaltung für den Rewriter", () => {
-  test("message_limit 2 mit 4 Runden: drei frühere Fragen, älteste zuerst, ohne letzte Runde und aktuelle", async () => {
+  test("message_limit 2 mit 4 Runden: zwei frühere Fragen, älteste zuerst, vor den 2 Runden im Block", async () => {
     const { rewriteUser, vectorDb } = await run({ messageLimit: 2 });
     expect(rewriteUser).toBe(EXPECTED_REWRITE_USER);
     // die umgeschriebene Frage geht an die Suche
@@ -239,13 +243,13 @@ describe("AK-2: frühere Fragen derselben Unterhaltung für den Rewriter", () =>
         include: true,
         conversation_id: CONVERSATION,
         session_id: SESSION,
-        id: { lt: 8 },
+        id: { lt: 6 },
       },
     });
   });
 
-  test("unabhängig von message_limit: 1, 2 und 20 ergeben dieselbe Rewriter-Nachricht", async () => {
-    for (const messageLimit of [1, 2, 20]) {
+  test("unabhängig von message_limit: 2 und 20 ergeben dieselbe Rewriter-Nachricht", async () => {
+    for (const messageLimit of [2, 20]) {
       jest.clearAllMocks();
       prisma.embed_chats.findMany.mockImplementation(findMany);
       const { rewriteUser } = await run({ messageLimit });
@@ -253,18 +257,59 @@ describe("AK-2: frühere Fragen derselben Unterhaltung für den Rewriter", () =>
     }
   });
 
-  test("höchstens 5 frühere Fragen: die neuesten vor der letzten Runde, älteste zuerst", async () => {
-    TABLE = Array.from({ length: 8 }, (_, i) => row(i + 1, `Frage ${i + 1}`));
-    const { rewriteUser } = await run({ messageLimit: 2 });
+  test("message_limit 1: eine Runde im Block wie heute, alle Fragen davor bei den früheren", async () => {
+    const { rewriteUser } = await run({ messageLimit: 1 });
     expect(rewriteUser).toBe(
       "Earlier user questions (oldest first):\n" +
-        "1. Frage 3\n2. Frage 4\n3. Frage 5\n4. Frage 6\n5. Frage 7\n\n" +
-        "Chat history:\nUser: Frage 8\nAssistant: Antwort 8: - Punkt eins\n\n" +
+        "1. Gibt es Yoga?\n2. Ich bin Anfänger\n3. Und am Abend?\n\n" +
+        "Chat history:\nUser: Wie teuer ist das?\nAssistant: Antwort 8: - Punkt eins\n\n" +
         `Latest question: ${MESSAGE}`
     );
   });
 
-  test("eine frühere Runde: kein Block, nur die letzte Runde", async () => {
+  test("höchstens 5 frühere Fragen: die neuesten vor den 2 Runden im Block, älteste zuerst", async () => {
+    TABLE = Array.from({ length: 8 }, (_, i) => row(i + 1, `Frage ${i + 1}`));
+    const { rewriteUser } = await run({ messageLimit: 2 });
+    expect(rewriteUser).toBe(
+      "Earlier user questions (oldest first):\n" +
+        "1. Frage 2\n2. Frage 3\n3. Frage 4\n4. Frage 5\n5. Frage 6\n\n" +
+        "Chat history:\nUser: Frage 7\nAssistant: Antwort 7: - Punkt eins\n" +
+        "User: Frage 8\nAssistant: Antwort 8: - Punkt eins\n\n" +
+        `Latest question: ${MESSAGE}`
+    );
+  });
+
+  // E-R5: die Grenze der früheren Fragen kommt aus denselben Zeilen wie der
+  // Rewriter-Verlauf, auch wenn convertToPromptHistory eine Zeile verwirft
+  test("verworfene Zeile im Verlauf: frühere Fragen enden vor der ersten gezeigten Runde", async () => {
+    TABLE = FOUR_ROUNDS().map((r) =>
+      r.id === 6 ? { ...r, response: JSON.stringify({ sources: [] }) } : r
+    );
+    // message_limit 2 lädt 6 und 8; 6 hat keinen Antworttext, im Block steht
+    // nur 8, die Frage aus 6 gehört zu den früheren
+    const { rewriteUser } = await run({ messageLimit: 2 });
+    expect(rewriteUser).toBe(
+      "Earlier user questions (oldest first):\n" +
+        "1. Gibt es Yoga?\n2. Ich bin Anfänger\n3. Und am Abend?\n\n" +
+        "Chat history:\nUser: Wie teuer ist das?\nAssistant: Antwort 8: - Punkt eins\n\n" +
+        `Latest question: ${MESSAGE}`
+    );
+    expect(earlierQueries()[0].where.id).toEqual({ lt: 8 });
+
+    // message_limit 20: im Block 3 und 8, davor nur 1
+    jest.clearAllMocks();
+    prisma.embed_chats.findMany.mockImplementation(findMany);
+    const wide = await run({ messageLimit: 20 });
+    expect(wide.rewriteUser).toBe(
+      "Earlier user questions (oldest first):\n1. Gibt es Yoga?\n\n" +
+        "Chat history:\nUser: Ich bin Anfänger\nAssistant: Antwort 3: - Punkt eins\n" +
+        "User: Wie teuer ist das?\nAssistant: Antwort 8: - Punkt eins\n\n" +
+        `Latest question: ${MESSAGE}`
+    );
+    expect(earlierQueries()[0].where.id).toEqual({ lt: 3 });
+  });
+
+  test("eine frühere Runde: kein Block, nur diese Runde", async () => {
     TABLE = [row(1, "Gibt es Yoga?")];
     const { rewriteUser } = await run();
     expect(rewriteUser).toBe(

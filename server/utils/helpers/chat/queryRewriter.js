@@ -1,9 +1,10 @@
 // Query Rewriter: formuliert kurze Folgefragen für die Suche zu einer
 // vollständigen Frage um.
-// Variante E (issues/folgefragen-variante-e.md, Messung 16.11.2026): der
-// Prompt ist wörtlich der gemessene, mit früheren Fragen des Besuchers sucht
-// er das Thema rückwärts durch sie. Prompt und Nachrichtenform nur nach einer
-// neuen Messung ändern (AK-1, Fixture-Test byte-gleich).
+// Variante E mit Nachrichtenform E2 (issues/folgefragen-variante-e.md,
+// Messung 16.11.2026, D4): der Prompt ist wörtlich der gemessene, mit
+// früheren Fragen des Besuchers sucht er das Thema rückwärts durch sie.
+// Prompt und Nachrichtenform nur nach einer neuen Messung ändern (AK-1,
+// Fixture-Test byte-gleich, Zufallsabgleich abgleich_form_e2.js).
 const REWRITE_PROMPT = `Given a chat history and the latest user question which might reference context in the chat history, determine if the question needs to be reformulated to be understood without the chat history.
 
 If the question is fully self-contained — meaning a stranger could understand it without any prior conversation — return it EXACTLY as written. Do not rephrase, expand, or modify it. NEVER translate or switch the language of a self-contained question.
@@ -43,11 +44,13 @@ async function shouldRewrite(userQuery, chatHistory, workspace) {
   return wordCount <= threshold;
 }
 
-// Variante E (D1, wie gemessen): höchstens 5 frühere Fragen, je auf 40 Wörter
-// gekürzt; die Antwort der letzten Runde auf 150 Wörter
+// Form E2 (D1, D4, wie gemessen): höchstens 5 frühere Fragen, je auf 40
+// Wörter gekürzt; im Block „Chat history“ die letzten Runden
+// (rewriteHistoryTurns), Antworten auf 150 Wörter gekürzt, Fragen ungekürzt
 const EARLIER_QUESTIONS_MAX = 5;
 const EARLIER_QUESTION_WORDS = 40;
-const LAST_ANSWER_WORDS = 150;
+const HISTORY_ANSWER_WORDS = 150;
+const HISTORY_TURNS_DEFAULT = 2;
 
 /**
  * Kürzt einen Text auf maxWords Wörter, mit "..." dahinter, wenn gekürzt
@@ -66,35 +69,27 @@ function shortenWords(text, maxWords) {
   );
 }
 
-// Verlauf ohne frühere Fragen (wie bisher): die letzten Runden nach
-// QUERY_REWRITE_MAX_HISTORY, lange Antworten gekürzt
-function historyText(chatHistory) {
-  const maxTurns = parseInt(process.env.QUERY_REWRITE_MAX_HISTORY) || 2;
-  const recentHistory = chatHistory.slice(-maxTurns * 2); // 2 msgs per turn
-  return recentHistory
-    .map((m) => {
-      // Truncate long assistant messages to keep the rewrite prompt compact
-      // Keep the beginning: it usually contains the most relevant topic context
-      let content = m.content;
-      if (m.role === "assistant") {
-        const words = content.split(/\s+/);
-        if (words.length > 150) content = words.slice(0, 150).join(" ") + "...";
-      }
-      return `${m.role === "user" ? "User" : "Assistant"}: ${content}`;
-    })
-    .join("\n");
+/**
+ * Zahl der Runden im Block „Chat history“: QUERY_REWRITE_MAX_HISTORY als
+ * ganze Zahl ab 1, sonst 2 (auch bei 0, negativ, Bruch oder Text). Das
+ * Widget bestimmt damit, vor welcher Zeile die früheren Fragen enden.
+ * @returns {number}
+ */
+function rewriteHistoryTurns() {
+  const turns = Number(process.env.QUERY_REWRITE_MAX_HISTORY);
+  return Number.isInteger(turns) && turns >= 1 ? turns : HISTORY_TURNS_DEFAULT;
 }
 
-// Verlauf mit früheren Fragen (Variante E, wie gemessen): genau die letzte
-// Runde, die Antwort mit shortenWords auf 150 Wörter
-function lastRoundText(chatHistory) {
+// Block „Chat history“: die letzten Runden (2 Nachrichten je Runde),
+// Antworten mit shortenWords gekürzt, Fragen unverändert
+function historyText(chatHistory) {
   return chatHistory
-    .slice(-2)
+    .slice(-rewriteHistoryTurns() * 2)
     .map(
       (m) =>
         `${m.role === "user" ? "User" : "Assistant"}: ${
           m.role === "assistant"
-            ? shortenWords(m.content, LAST_ANSWER_WORDS)
+            ? shortenWords(m.content, HISTORY_ANSWER_WORDS)
             : m.content
         }`
     )
@@ -103,16 +98,14 @@ function lastRoundText(chatHistory) {
 
 /**
  * Nachrichten an das LLM des Rewriters, ohne Aufruf (auch für Messungen
- * offline nutzbar).
- * Mit earlierUserQuestions (Array, Variante E): Block „Earlier user
- * questions (oldest first)“ nur, wenn es welche gibt (die 5 neuesten, je
- * auf 40 Wörter gekürzt), danach genau die letzte Runde des Verlaufs.
- * Ohne (undefined oder null): Verlauf wie bisher. Der Prompt ist in beiden
- * Fällen derselbe (D2).
+ * offline nutzbar). Eine Form für alle Aufrufer (Form E2, D2): Block
+ * „Earlier user questions (oldest first)“ nur, wenn es frühere Fragen gibt
+ * (die 5 neuesten, je auf 40 Wörter gekürzt), danach „Chat history“ mit den
+ * letzten Runden (rewriteHistoryTurns, Standard 2) und „Latest question“.
  * @param {Object} input
  * @param {string} input.userQuery - aktuelle Frage
- * @param {{role: string, content: string}[]} input.chatHistory - geladener Verlauf
- * @param {string[]|null} [input.earlierUserQuestions] - Fragen des Besuchers vor der letzten Runde, älteste zuerst
+ * @param {{role: string, content: string}[]} input.chatHistory - ganzer geladener Verlauf (user/assistant, je Runde zwei Nachrichten); die letzten Runden nimmt die Funktion selbst
+ * @param {string[]|null} [input.earlierUserQuestions] - Fragen des Besuchers vor diesen Runden, älteste zuerst; die neuesten 5 nimmt die Funktion selbst; null oder [] = kein Block
  * @returns {{role: string, content: string}[]}
  */
 function buildRewriteMessages({
@@ -120,24 +113,21 @@ function buildRewriteMessages({
   chatHistory,
   earlierUserQuestions = null,
 }) {
-  let content;
-  if (Array.isArray(earlierUserQuestions)) {
-    const earlier = earlierUserQuestions.slice(-EARLIER_QUESTIONS_MAX);
-    const block =
-      earlier.length > 0
-        ? `Earlier user questions (oldest first):\n${earlier
-            .map(
-              (q, i) => `${i + 1}. ${shortenWords(q, EARLIER_QUESTION_WORDS)}`
-            )
-            .join("\n")}\n\n`
-        : "";
-    content = `${block}Chat history:\n${lastRoundText(chatHistory)}\n\nLatest question: ${userQuery}`;
-  } else {
-    content = `Chat history:\n${historyText(chatHistory)}\n\nLatest question: ${userQuery}`;
-  }
+  const earlier = Array.isArray(earlierUserQuestions)
+    ? earlierUserQuestions.slice(-EARLIER_QUESTIONS_MAX)
+    : [];
+  const block =
+    earlier.length > 0
+      ? `Earlier user questions (oldest first):\n${earlier
+          .map((q, i) => `${i + 1}. ${shortenWords(q, EARLIER_QUESTION_WORDS)}`)
+          .join("\n")}\n\n`
+      : "";
   return [
     { role: "system", content: REWRITE_PROMPT },
-    { role: "user", content },
+    {
+      role: "user",
+      content: `${block}Chat history:\n${historyText(chatHistory)}\n\nLatest question: ${userQuery}`,
+    },
   ];
 }
 
@@ -149,7 +139,7 @@ function buildRewriteMessages({
  * @param {{role: string, content: string}[]} input.chatHistory
  * @param {Object} input.LLMConnector
  * @param {Object} input.workspace
- * @param {() => Promise<string[]|null>} [input.loadEarlierUserQuestions] - nur Widget (Variante E): lädt die früheren Fragen des Besuchers derselben Unterhaltung, älteste zuerst; läuft erst nach shouldRewrite, ohne Rewrite also keine Abfrage
+ * @param {() => Promise<string[]|null>} [input.loadEarlierUserQuestions] - nur Widget (Variante E): lädt die Fragen des Besuchers derselben Unterhaltung vor den Runden im Block „Chat history“, älteste zuerst; läuft erst nach shouldRewrite, ohne Rewrite also keine Abfrage
  * @returns {Promise<string>}
  */
 async function rewriteQueryForSearch({
@@ -205,6 +195,7 @@ async function rewriteQueryForSearch({
 module.exports = {
   rewriteQueryForSearch,
   buildRewriteMessages,
+  rewriteHistoryTurns,
   REWRITE_PROMPT,
   EARLIER_QUESTIONS_MAX,
 };

@@ -11,6 +11,7 @@ const { DocumentManager } = require("../DocumentManager");
 const { courseInventoryGuard } = require("./courseInventory");
 const {
   rewriteQueryForSearch,
+  rewriteHistoryTurns,
   EARLIER_QUESTIONS_MAX,
 } = require("../helpers/chat/queryRewriter");
 const { startMetadataFilterResolution } = require("./metadataFilterResolver");
@@ -623,13 +624,14 @@ function searchHistoryOf(loaded) {
 }
 
 /**
- * Frühere Fragen des Besuchers für den Query Rewriter (Variante E,
+ * Frühere Fragen des Besuchers für den Query Rewriter (Variante E, Form E2,
  * issues/folgefragen-variante-e.md): die Fragen derselben Unterhaltung vor
- * der letzten Runde des Rewriter-Verlaufs, höchstens EARLIER_QUESTIONS_MAX,
- * älteste zuerst, unabhängig von message_limit. Gebunden an die Sitzung wie
- * recentEmbedChatHistory (KIE-505). Nur als Lader von rewriteQueryForSearch
- * (läuft erst nach shouldRewrite, also mit Verlauf); ohne Zeilen fragt
- * earlierPrompts nicht.
+ * der ersten Runde im Block „Chat history“ (die letzten rewriteHistoryTurns
+ * Zeilen des Rewriter-Verlaufs, dieselbe Zahl wie in buildRewriteMessages),
+ * höchstens EARLIER_QUESTIONS_MAX, älteste zuerst, unabhängig von
+ * message_limit. Gebunden an die Sitzung wie recentEmbedChatHistory
+ * (KIE-505). Nur als Lader von rewriteQueryForSearch (läuft erst nach
+ * shouldRewrite, also mit Verlauf); ohne Zeilen fragt earlierPrompts nicht.
  * @param {Object} input
  * @param {{id: number}} input.embed
  * @param {string} input.conversationId
@@ -647,7 +649,7 @@ async function earlierVisitorQuestions({
     embedId: embed.id,
     conversationId,
     boundSessionId: sessionId,
-    beforeId: rows[rows.length - 1]?.id,
+    beforeId: rows.slice(-rewriteHistoryTurns())[0]?.id,
     limit: EARLIER_QUESTIONS_MAX,
   });
 }

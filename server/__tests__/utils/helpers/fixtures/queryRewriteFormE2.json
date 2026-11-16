@@ -1,0 +1,66 @@
+{
+  "_quelle": "Erzeugt mit issues/folgefragen-variante-e/form_e2_referenz.py: Form E2 wie gemessen (messung-heute/varianten.py, kurz/hist/runden aus der Messung). Nicht von Hand ändern.",
+  "faelle": [
+    {
+      "name": "1 Runde Verlauf, keine früheren Fragen",
+      "nutzer": ["Gibt es Yoga?"],
+      "antworten": [
+        "Ja, wir haben mehrere Yogakurse:\n\n1. **Hatha Yoga** am Montag\n2. **Yin  Yoga** am Mittwoch"
+      ],
+      "cur": "Auch abends?",
+      "erwartet": "Chat history:\nUser: Gibt es Yoga?\nAssistant: Ja, wir haben mehrere Yogakurse: 1. **Hatha Yoga** am Montag 2. **Yin Yoga** am Mittwoch\n\nLatest question: Auch abends?"
+    },
+    {
+      "name": "2 Runden Verlauf, keine früheren Fragen",
+      "nutzer": ["Gibt es Yoga?", "Ich bin Anfänger"],
+      "antworten": [
+        "Ja, es gibt Yoga am Montag und am Mittwoch.",
+        "Für Anfänger passt der Kurs **Hatha Yoga sanft**.\nMöchten Sie mehr wissen?"
+      ],
+      "cur": "Gibt es auch später Kurse?",
+      "erwartet": "Chat history:\nUser: Gibt es Yoga?\nAssistant: Ja, es gibt Yoga am Montag und am Mittwoch.\nUser: Ich bin Anfänger\nAssistant: Für Anfänger passt der Kurs **Hatha Yoga sanft**. Möchten Sie mehr wissen?\n\nLatest question: Gibt es auch später Kurse?"
+    },
+    {
+      "name": "3 Runden: 1 frühere Frage",
+      "nutzer": [
+        "Gibt es Gebärdensprache?",
+        "für Anfänger",
+        "Und am Wochenende?"
+      ],
+      "antworten": [
+        "Ja, Gebärdensprache A1 und A2.",
+        "Für Anfänger gibt es den Grundkurs A1.",
+        "Hier sind die Yogakurse im Herbst:\n\n1. **Kurs 1** am Abend, sechs Termine, Anmeldung online möglich.\n2. **Kurs 2** am Abend, sechs Termine, Anmeldung online möglich.\n3. **Kurs 3** am Abend, sechs Termine, Anmeldung online möglich.\n4. **Kurs 4** am Abend, sechs Termine, Anmeldung online möglich.\n5. **Kurs 5** am Abend, sechs Termine, Anmeldung online möglich.\n6. **Kurs 6** am Abend, sechs Termine, Anmeldung online möglich.\n7. **Kurs 7** am Abend, sechs Termine, Anmeldung online möglich.\n8. **Kurs 8** am Abend, sechs Termine, Anmeldung online möglich.\n9. **Kurs 9** am Abend, sechs Termine, Anmeldung online möglich.\n10. **Kurs 10** am Abend, sechs Termine, Anmeldung online möglich.\n11. **Kurs 11** am Abend, sechs Termine, Anmeldung online möglich.\n12. **Kurs 12** am Abend, sechs Termine, Anmeldung online möglich.\n13. **Kurs 13** am Abend, sechs Termine, Anmeldung online möglich.\n14. **Kurs 14** am Abend, sechs Termine, Anmeldung online möglich.\n15. **Kurs 15** am Abend, sechs Termine, Anmeldung online möglich.\n16. **Kurs 16** am Abend, sechs Termine, Anmeldung online möglich.\n17. **Kurs 17** am Abend, sechs Termine, Anmeldung online möglich.\n18. **Kurs 18** am Abend, sechs Termine, Anmeldung online möglich.\n19. **Kurs 19** am Abend, sechs Termine, Anmeldung online möglich.\n20. **Kurs 20** am Abend, sechs Termine, Anmeldung online möglich."
+      ],
+      "cur": "Gibt es auch später Grundkurse?",
+      "erwartet": "Earlier user questions (oldest first):\n1. Gibt es Gebärdensprache?\n\nChat history:\nUser: für Anfänger\nAssistant: Für Anfänger gibt es den Grundkurs A1.\nUser: Und am Wochenende?\nAssistant: Hier sind die Yogakurse im Herbst: 1. **Kurs 1** am Abend, sechs Termine, Anmeldung online möglich. 2. **Kurs 2** am Abend, sechs Termine, Anmeldung online möglich. 3. **Kurs 3** am Abend, sechs Termine, Anmeldung online möglich. 4. **Kurs 4** am Abend, sechs Termine, Anmeldung online möglich. 5. **Kurs 5** am Abend, sechs Termine, Anmeldung online möglich. 6. **Kurs 6** am Abend, sechs Termine, Anmeldung online möglich. 7. **Kurs 7** am Abend, sechs Termine, Anmeldung online möglich. 8. **Kurs 8** am Abend, sechs Termine, Anmeldung online möglich. 9. **Kurs 9** am Abend, sechs Termine, Anmeldung online möglich. 10. **Kurs 10** am Abend, sechs Termine, Anmeldung online möglich. 11. **Kurs 11** am Abend, sechs Termine, Anmeldung online möglich. 12. **Kurs 12** am Abend, sechs Termine, Anmeldung online möglich. 13. **Kurs 13** am Abend, sechs Termine, Anmeldung online möglich. 14. **Kurs 14** am Abend, sechs Termine, Anmeldung online möglich. 15. **Kurs 15** am...\n\nLatest question: Gibt es auch später Grundkurse?"
+    },
+    {
+      "name": "9 Runden: nur die 5 neuesten früheren Fragen, Kürzung auf 40 Wörter",
+      "nutzer": [
+        "Gibt es Gebärdensprache?",
+        "Wie viel kostet der Kurs?",
+        "lang1 lang2 lang3 lang4 lang5 lang6 lang7 lang8 lang9 lang10 lang11 lang12 lang13 lang14 lang15 lang16 lang17 lang18 lang19 lang20 lang21 lang22 lang23 lang24 lang25 lang26 lang27 lang28 lang29 lang30 lang31 lang32 lang33 lang34 lang35 lang36 lang37 lang38 lang39 lang40 lang41",
+        "genau1 genau2 genau3 genau4 genau5 genau6 genau7 genau8 genau9 genau10 genau11 genau12 genau13 genau14 genau15 genau16 genau17 genau18 genau19 genau20 genau21 genau22 genau23 genau24 genau25 genau26 genau27 genau28 genau29 genau30 genau31 genau32 genau33 genau34 genau35 genau36 genau37 genau38 genau39 genau40",
+        "Ich bin  Anfänger\nund habe   wenig Zeit",
+        "für Anfänger",
+        "Wo findet er statt?",
+        "Und am Wochenende?",
+        "Gibt es Parkplätze?"
+      ],
+      "antworten": [
+        "Antwort 1",
+        "Antwort 2",
+        "Antwort 3",
+        "Antwort 4",
+        "Antwort 5",
+        "Antwort 6",
+        "Antwort 7",
+        "Hier sind die Yogakurse im Herbst:\n\n1. **Kurs 1** am Abend, sechs Termine, Anmeldung online möglich.\n2. **Kurs 2** am Abend, sechs Termine, Anmeldung online möglich.\n3. **Kurs 3** am Abend, sechs Termine, Anmeldung online möglich.\n4. **Kurs 4** am Abend, sechs Termine, Anmeldung online möglich.\n5. **Kurs 5** am Abend, sechs Termine, Anmeldung online möglich.\n6. **Kurs 6** am Abend, sechs Termine, Anmeldung online möglich.\n7. **Kurs 7** am Abend, sechs Termine, Anmeldung online möglich.\n8. **Kurs 8** am Abend, sechs Termine, Anmeldung online möglich.\n9. **Kurs 9** am Abend, sechs Termine, Anmeldung online möglich.\n10. **Kurs 10** am Abend, sechs Termine, Anmeldung online möglich.\n11. **Kurs 11** am Abend, sechs Termine, Anmeldung online möglich.\n12. **Kurs 12** am Abend, sechs Termine, Anmeldung online möglich.\n13. **Kurs 13** am Abend, sechs Termine, Anmeldung online möglich.\n14. **Kurs 14** am Abend, sechs Termine, Anmeldung online möglich.\n15. **Kurs 15** am Abend, sechs Termine, Anmeldung online möglich.\n16. **Kurs 16** am Abend, sechs Termine, Anmeldung online möglich.\n17. **Kurs 17** am Abend, sechs Termine, Anmeldung online möglich.\n18. **Kurs 18** am Abend, sechs Termine, Anmeldung online möglich.\n19. **Kurs 19** am Abend, sechs Termine, Anmeldung online möglich.\n20. **Kurs 20** am Abend, sechs Termine, Anmeldung online möglich.",
+        "Antwort 9"
+      ],
+      "cur": "Gibt es auch später Grundkurse?",
+      "erwartet": "Earlier user questions (oldest first):\n1. lang1 lang2 lang3 lang4 lang5 lang6 lang7 lang8 lang9 lang10 lang11 lang12 lang13 lang14 lang15 lang16 lang17 lang18 lang19 lang20 lang21 lang22 lang23 lang24 lang25 lang26 lang27 lang28 lang29 lang30 lang31 lang32 lang33 lang34 lang35 lang36 lang37 lang38 lang39 lang40...\n2. genau1 genau2 genau3 genau4 genau5 genau6 genau7 genau8 genau9 genau10 genau11 genau12 genau13 genau14 genau15 genau16 genau17 genau18 genau19 genau20 genau21 genau22 genau23 genau24 genau25 genau26 genau27 genau28 genau29 genau30 genau31 genau32 genau33 genau34 genau35 genau36 genau37 genau38 genau39 genau40\n3. Ich bin Anfänger und habe wenig Zeit\n4. für Anfänger\n5. Wo findet er statt?\n\nChat history:\nUser: Und am Wochenende?\nAssistant: Hier sind die Yogakurse im Herbst: 1. **Kurs 1** am Abend, sechs Termine, Anmeldung online möglich. 2. **Kurs 2** am Abend, sechs Termine, Anmeldung online möglich. 3. **Kurs 3** am Abend, sechs Termine, Anmeldung online möglich. 4. **Kurs 4** am Abend, sechs Termine, Anmeldung online möglich. 5. **Kurs 5** am Abend, sechs Termine, Anmeldung online möglich. 6. **Kurs 6** am Abend, sechs Termine, Anmeldung online möglich. 7. **Kurs 7** am Abend, sechs Termine, Anmeldung online möglich. 8. **Kurs 8** am Abend, sechs Termine, Anmeldung online möglich. 9. **Kurs 9** am Abend, sechs Termine, Anmeldung online möglich. 10. **Kurs 10** am Abend, sechs Termine, Anmeldung online möglich. 11. **Kurs 11** am Abend, sechs Termine, Anmeldung online möglich. 12. **Kurs 12** am Abend, sechs Termine, Anmeldung online möglich. 13. **Kurs 13** am Abend, sechs Termine, Anmeldung online möglich. 14. **Kurs 14** am Abend, sechs Termine, Anmeldung online möglich. 15. **Kurs 15** am...\nUser: Gibt es Parkplätze?\nAssistant: Antwort 9\n\nLatest question: Gibt es auch später Grundkurse?"
+    }
+  ]
+}

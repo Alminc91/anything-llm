@@ -1,19 +1,23 @@
 /* eslint-env jest, node */
-// Query Rewriter, Variante E (issues/folgefragen-variante-e.md):
+// Query Rewriter, Variante E mit Nachrichtenform E2
+// (issues/folgefragen-variante-e.md, Abschnitt 4, D4):
 // - AK-1: System-Prompt byte-gleich zur gemessenen Vorlage (Fixture
 //   queryRewritePromptE.txt, Kopie von issues/folgefragen-variante-e/
-//   prompt_e.txt); User-Nachricht mit früheren Fragen byte-gleich zur Form
-//   der Messung (Fixture queryRewriteFormE.json, erzeugt mit der wörtlichen
-//   Python-Referenz aus fable/lib.py): 0, 1 und 6 frühere Fragen, Kürzung
-//   auf 40 Wörter.
-// - Bestand (D2): ohne frühere Fragen neuer Prompt, sonst Form wie bisher.
+//   prompt_e.txt); User-Nachricht byte-gleich zur Form E2 der Messung
+//   (Fixture queryRewriteFormE2.json, erzeugt mit form_e2_referenz.py): 1 und
+//   2 Runden ohne frühere Fragen, 1 und 7 frühere Fragen, Kürzung auf 40
+//   Wörter. Den Zufallsabgleich (400 Fälle) macht abgleich_form_e2.js.
+// - Bestand (D2): eine Form für alle Aufrufer; ohne frühere Fragen fehlt nur
+//   der Block.
 // - NAK-3: erste Nachricht und Fragen über der Wortgrenze ohne Rewrite.
+// - E-R2: frühere Fragen lädt der Rewriter erst, wenn er umschreibt.
 const fs = require("fs");
 const path = require("path");
 
 const {
   rewriteQueryForSearch,
   buildRewriteMessages,
+  rewriteHistoryTurns,
   REWRITE_PROMPT,
 } = require("../../../utils/helpers/chat/queryRewriter");
 
@@ -22,7 +26,7 @@ const PROMPT_E = fs.readFileSync(
   path.join(FIXTURES, "queryRewritePromptE.txt"),
   "utf8"
 );
-const { faelle: FORM_CASES } = require("./fixtures/queryRewriteFormE.json");
+const { faelle: FORM_CASES } = require("./fixtures/queryRewriteFormE2.json");
 
 // Workspace-Schalter an, damit keine Systemeinstellung gelesen wird
 const WORKSPACE_ON = { queryRewriteMode: "on" };
@@ -33,18 +37,21 @@ function connector(reply = "Gibt es auch später Yoga-Kurse?") {
   };
 }
 
-// Verlauf, wie das Widget ihn lädt: die letzten Runden als user/assistant
-function historyOf(nutzer, antworten, rounds) {
-  return nutzer
-    .map((q, i) => [
-      { role: "user", content: q },
-      { role: "assistant", content: antworten[i] },
-    ])
-    .slice(-rounds)
-    .flat();
+// ganzer Verlauf als user/assistant, je Frage eine Runde; die letzten
+// Runden wählt buildRewriteMessages selbst
+function historyOf(nutzer, antworten) {
+  return nutzer.flatMap((q, i) => [
+    { role: "user", content: q },
+    { role: "assistant", content: antworten[i] },
+  ]);
 }
 
+const userMessage = (input) => buildRewriteMessages(input)[1].content;
+
 const ORIGINAL_ENV = { ...process.env };
+beforeEach(() => {
+  delete process.env.QUERY_REWRITE_MAX_HISTORY;
+});
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
 });
@@ -62,7 +69,7 @@ describe("AK-1: System-Prompt byte-gleich zur Messung", () => {
     const llm = connector();
     await rewriteQueryForSearch({
       userQuery: "Auch abends?",
-      chatHistory: historyOf(["Gibt es Yoga?"], ["Ja."], 1),
+      chatHistory: historyOf(["Gibt es Yoga?"], ["Ja."]),
       LLMConnector: llm,
       workspace: WORKSPACE_ON,
       loadEarlierUserQuestions: async () => [],
@@ -73,24 +80,32 @@ describe("AK-1: System-Prompt byte-gleich zur Messung", () => {
   });
 });
 
-describe("AK-1: Nachrichtenform mit früheren Fragen wie gemessen", () => {
-  test("die Fixture deckt 0, 1 und 6 frühere Fragen ab", () => {
-    expect(FORM_CASES.map((c) => c.nutzer.length - 1)).toEqual([0, 1, 6]);
+describe("AK-1: Nachrichtenform E2 wie gemessen", () => {
+  test("die Fixture deckt 1 und 2 Runden ohne frühere Fragen, 1 und 7 frühere Fragen ab", () => {
+    expect(
+      FORM_CASES.map((c) => [c.nutzer.length, Math.max(0, c.nutzer.length - 2)])
+    ).toEqual([
+      [1, 0],
+      [2, 0],
+      [3, 1],
+      [9, 7],
+    ]);
   });
 
+  // Vertrag wie abgleich_form_e2.js: chatHistory = ganzer Verlauf,
+  // earlierUserQuestions = alle Fragen vor den letzten 2 Runden
   test.each(FORM_CASES.map((c) => [c.name, c]))(
     "%s: User-Nachricht byte-gleich zur Python-Referenz",
     async (_name, c) => {
-      // Das Widget lädt mehr als die letzte Runde (hier bis zu zwei); in die
-      // Nachricht kommt wie gemessen nur die letzte.
-      const chatHistory = historyOf(c.nutzer, c.antworten, 2);
-      const earlierUserQuestions = c.nutzer.slice(0, -1);
-      const built = buildRewriteMessages({
-        userQuery: c.cur,
-        chatHistory,
-        earlierUserQuestions,
-      });
-      expect(built).toEqual([
+      const chatHistory = historyOf(c.nutzer, c.antworten);
+      const earlierUserQuestions = c.nutzer.slice(0, -2);
+      expect(
+        buildRewriteMessages({
+          userQuery: c.cur,
+          chatHistory,
+          earlierUserQuestions,
+        })
+      ).toEqual([
         { role: "system", content: PROMPT_E },
         { role: "user", content: c.erwartet },
       ]);
@@ -111,23 +126,23 @@ describe("AK-1: Nachrichtenform mit früheren Fragen wie gemessen", () => {
     }
   );
 
-  test("6 frühere Fragen: nur die 5 neuesten, älteste zuerst; 5 übergebene ergeben dieselbe Nachricht", () => {
-    const c = FORM_CASES.find((x) => x.nutzer.length === 7);
-    const chatHistory = historyOf(c.nutzer, c.antworten, 2);
-    const fromSix = buildRewriteMessages({
+  test("7 frühere Fragen: nur die 5 neuesten, älteste zuerst; 5 übergebene ergeben dieselbe Nachricht", () => {
+    const c = FORM_CASES.find((x) => x.nutzer.length === 9);
+    const chatHistory = historyOf(c.nutzer, c.antworten);
+    const fromSeven = userMessage({
       userQuery: c.cur,
       chatHistory,
-      earlierUserQuestions: c.nutzer.slice(0, 6),
-    })[1].content;
-    const fromFive = buildRewriteMessages({
+      earlierUserQuestions: c.nutzer.slice(0, 7),
+    });
+    const fromFive = userMessage({
       userQuery: c.cur,
       chatHistory,
-      earlierUserQuestions: c.nutzer.slice(1, 6),
-    })[1].content;
-    expect(fromSix).toBe(fromFive);
-    expect(fromSix).not.toContain(c.nutzer[0]);
-    expect(fromSix).toMatch(/^Earlier user questions \(oldest first\):\n1\. /);
-    expect(fromSix.match(/^\d+\. /gm)).toEqual([
+      earlierUserQuestions: c.nutzer.slice(2, 7),
+    });
+    expect(fromSeven).toBe(fromFive);
+    expect(fromSeven).not.toContain(c.nutzer[0]);
+    expect(fromSeven).not.toContain(c.nutzer[1]);
+    expect(fromSeven.match(/^\d+\. /gm)).toEqual([
       "1. ",
       "2. ",
       "3. ",
@@ -139,50 +154,91 @@ describe("AK-1: Nachrichtenform mit früheren Fragen wie gemessen", () => {
   test("Kürzung auf 40 Wörter: 41 Wörter mit „...“, genau 40 ohne", () => {
     const words = (n, stem) =>
       Array.from({ length: n }, (_, i) => `${stem}${i + 1}`).join(" ");
-    const content = buildRewriteMessages({
+    const content = userMessage({
       userQuery: "Und dann?",
-      chatHistory: historyOf(["Frage"], ["Antwort"], 1),
+      chatHistory: historyOf(["Frage"], ["Antwort"]),
       earlierUserQuestions: [words(41, "a"), words(40, "b")],
-    })[1].content;
+    });
     expect(content).toContain(`1. ${words(40, "a")}...\n`);
     expect(content).toContain(`2. ${words(40, "b")}\n\n`);
     expect(content).not.toContain("a41");
   });
 
-  test("Chat history mit früheren Fragen bleibt bei der letzten Runde, auch mit QUERY_REWRITE_MAX_HISTORY", () => {
-    process.env.QUERY_REWRITE_MAX_HISTORY = "3";
-    const content = buildRewriteMessages({
-      userQuery: "Und abends?",
-      chatHistory: historyOf(["F1", "F2", "F3"], ["A1", "A2", "A3"], 3),
-      earlierUserQuestions: ["F1", "F2"],
-    })[1].content;
+  test("Chat history: die letzten 2 Runden, Fragen ungekürzt, Antworten auf 150 Wörter", () => {
+    const long = Array.from({ length: 160 }, (_, i) => `w${i + 1}`).join(" ");
+    const question = Array.from({ length: 60 }, (_, i) => `q${i + 1}`).join(
+      " "
+    );
+    const content = userMessage({
+      userQuery: "Und?",
+      chatHistory: historyOf(
+        ["Alt 1", "Alt 2", question, "Frage 4"],
+        ["A1", "A2", long, "A4"]
+      ),
+      earlierUserQuestions: ["Alt 1", "Alt 2"],
+    });
+    const first150 = long.split(" ").slice(0, 150).join(" ");
     expect(content).toBe(
-      "Earlier user questions (oldest first):\n1. F1\n2. F2\n\n" +
-        "Chat history:\nUser: F3\nAssistant: A3\n\nLatest question: Und abends?"
+      "Earlier user questions (oldest first):\n1. Alt 1\n2. Alt 2\n\n" +
+        `Chat history:\nUser: ${question}\nAssistant: ${first150}...\n` +
+        "User: Frage 4\nAssistant: A4\n\nLatest question: Und?"
     );
   });
 });
 
-describe("Bestand (D2): ohne frühere Fragen neuer Prompt, Form wie bisher", () => {
+// E-R5 (E-N5): QUERY_REWRITE_MAX_HISTORY nur als ganze Zahl ab 1, sonst 2
+describe("Runden im Block „Chat history“ (QUERY_REWRITE_MAX_HISTORY)", () => {
+  const chatHistory = historyOf(
+    ["F1", "F2", "F3", "F4"],
+    ["A1", "A2", "A3", "A4"]
+  );
+  const shown = () =>
+    userMessage({ userQuery: "Und?", chatHistory })
+      .split("\n")
+      .filter((line) => line.startsWith("User: "));
+
+  test.each([
+    [undefined, 2],
+    ["1", 1],
+    ["2", 2],
+    ["3", 3],
+    ["0", 2],
+    ["-1", 2],
+    ["1.5", 2],
+    ["3abc", 2],
+    ["abc", 2],
+    ["", 2],
+  ])("Wert %p: %i Runden", (value, turns) => {
+    if (value !== undefined) process.env.QUERY_REWRITE_MAX_HISTORY = value;
+    expect(rewriteHistoryTurns()).toBe(turns);
+    expect(shown()).toEqual(
+      ["F1", "F2", "F3", "F4"].slice(-turns).map((q) => `User: ${q}`)
+    );
+  });
+});
+
+describe("Bestand (D2): eine Form für alle Aufrufer, ohne frühere Fragen ohne Block", () => {
   const CHAT_HISTORY = [
     { role: "user", content: "Gibt es Yoga?" },
     { role: "assistant", content: "Ja:\n\n1. Hatha\n2. Yin" },
     { role: "user", content: "Ich bin Anfänger" },
     { role: "assistant", content: "Dann passt  Hatha sanft." },
   ];
-  // Form wie bisher: bis zu zwei Runden, kurze Antworten unverändert
-  const TODAY =
-    "Chat history:\nUser: Gibt es Yoga?\nAssistant: Ja:\n\n1. Hatha\n2. Yin\n" +
-    "User: Ich bin Anfänger\nAssistant: Dann passt  Hatha sanft.\n\n" +
+  // Form E2 ohne Block: die letzten 2 Runden, Antworten mit normalisiertem
+  // Leerraum (shortenWords wie gemessen)
+  const WITHOUT_EARLIER =
+    "Chat history:\nUser: Gibt es Yoga?\nAssistant: Ja: 1. Hatha 2. Yin\n" +
+    "User: Ich bin Anfänger\nAssistant: Dann passt Hatha sanft.\n\n" +
     "Latest question: Und später?";
 
   test.each([
-    ["ohne Parameter", {}],
+    ["ohne Lader (Workspace- und API-Chat)", {}],
+    ["Lader liefert []", { loadEarlierUserQuestions: async () => [] }],
     [
       "Lader liefert null (Datenbankfehler)",
       { loadEarlierUserQuestions: async () => null },
     ],
-  ])("%s: kein Block, Verlauf wie bisher", async (_name, extra) => {
+  ])("%s: kein Block, sonst dieselbe Form", async (_name, extra) => {
     const llm = connector();
     await rewriteQueryForSearch({
       userQuery: "Und später?",
@@ -193,23 +249,7 @@ describe("Bestand (D2): ohne frühere Fragen neuer Prompt, Form wie bisher", () 
     });
     const [system, user] = llm.getChatCompletion.mock.calls[0][0];
     expect(system.content).toBe(PROMPT_E);
-    expect(user.content).toBe(TODAY);
-    expect(user.content).not.toContain("Earlier user questions");
-  });
-
-  test("lange Antwort (über 150 Wörter) wie bisher gekürzt", () => {
-    const long = Array.from({ length: 160 }, (_, i) => `w${i + 1}`).join(" ");
-    const content = buildRewriteMessages({
-      userQuery: "Und?",
-      chatHistory: [
-        { role: "user", content: "Frage" },
-        { role: "assistant", content: long },
-      ],
-    })[1].content;
-    const first150 = long.split(" ").slice(0, 150).join(" ");
-    expect(content).toBe(
-      `Chat history:\nUser: Frage\nAssistant: ${first150}...\n\nLatest question: Und?`
-    );
+    expect(user.content).toBe(WITHOUT_EARLIER);
   });
 
   test("Nachbearbeitung wie bisher: think-Tags weg, erste Zeile, gleiche Frage bleibt Original", async () => {
@@ -230,19 +270,6 @@ describe("Bestand (D2): ohne frühere Fragen neuer Prompt, Form wie bisher", () 
 });
 
 describe("NAK-3: kein Rewrite bei erster Nachricht und über der Wortgrenze", () => {
-  test("erste Nachricht (leerer Verlauf): Original, kein LLM-Aufruf", async () => {
-    const llm = connector();
-    const result = await rewriteQueryForSearch({
-      userQuery: "Gibt es Yoga?",
-      chatHistory: [],
-      LLMConnector: llm,
-      workspace: WORKSPACE_ON,
-      loadEarlierUserQuestions: async () => ["Gibt es Malkurse?"],
-    });
-    expect(result).toBe("Gibt es Yoga?");
-    expect(llm.getChatCompletion).not.toHaveBeenCalled();
-  });
-
   test("13 Wörter: Original, kein LLM-Aufruf; 12 Wörter: Rewrite", async () => {
     const thirteen =
       "Ich suche noch einen Yogakurs für Anfänger am Abend in der Nähe bitte";
@@ -251,7 +278,7 @@ describe("NAK-3: kein Rewrite bei erster Nachricht und über der Wortgrenze", ()
     expect(thirteen.split(" ")).toHaveLength(13);
     expect(twelve.split(" ")).toHaveLength(12);
     const args = {
-      chatHistory: historyOf(["Gibt es Yoga?"], ["Ja."], 1),
+      chatHistory: historyOf(["Gibt es Yoga?"], ["Ja."]),
       workspace: WORKSPACE_ON,
       loadEarlierUserQuestions: async () => ["Hallo"],
     };
@@ -273,20 +300,6 @@ describe("NAK-3: kein Rewrite bei erster Nachricht und über der Wortgrenze", ()
     });
     expect(llmShort.getChatCompletion).toHaveBeenCalledTimes(1);
   });
-
-  test("Schalter aus: kein Rewrite, auch mit früheren Fragen", async () => {
-    const llm = connector();
-    expect(
-      await rewriteQueryForSearch({
-        userQuery: "Und abends?",
-        chatHistory: historyOf(["Gibt es Yoga?"], ["Ja."], 1),
-        LLMConnector: llm,
-        workspace: { queryRewriteMode: "off" },
-        loadEarlierUserQuestions: async () => ["Hallo"],
-      })
-    ).toBe("Und abends?");
-    expect(llm.getChatCompletion).not.toHaveBeenCalled();
-  });
 });
 
 // Fixliste rc7 E-R2: rewriteQueryForSearch bekommt einen Lader und ruft ihn
@@ -296,7 +309,7 @@ describe("E-R2: frühere Fragen erst laden, wenn umgeschrieben wird", () => {
     jest.fn().mockResolvedValue(list);
   const base = {
     userQuery: "Und abends?",
-    chatHistory: historyOf(["Für Anfänger"], ["Ja."], 1),
+    chatHistory: historyOf(["Für Anfänger"], ["Ja."]),
     workspace: WORKSPACE_ON,
   };
 
