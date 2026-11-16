@@ -4,6 +4,14 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### Widget: Antwortsprache bei Nachrichten ohne Wörter (sprache-nur-nummer, 2026-11-16)
+
+- **Anlass:** Besteht eine Widget-Nachricht nur aus einer Kursnummer (z. B. „I730112“), findet das Modell keine Sprache und rät. Flotte am 16.11.2026: Als erste Nachricht eines Gesprächs wurden 58 von 187 solcher Nachrichten englisch beantwortet.
+- **Hinweis am Ende des System-Prompts:** Enthält die Nachricht kein Wort, hängt der Server nach Disclaimer- und Folgefragen-Hinweis einen kurzen englischen Abschnitt „### Response Language (ACTIVE)“ an. Ohne frühere Nachricht des Besuchers mit Wörtern heißt er „Answer in German“, sonst „Answer in the language of the user's earlier messages in this conversation“. Wort: ein durch Leerraum getrenntes Stück mit mindestens einem Buchstaben (alle Schriften) und ohne Ziffer 0 bis 9. Nachricht ohne Wörter: mindestens eine Ziffer und kein Wort (`XI41050`, `26W1001, 26W1002`, `12.12.`, `😀 123`; nicht `Kurs XI41050`, `Nr. 123`, `课程 123`, `Ok`).
+- **Unverändert:** Für jede Nachricht mit Wörtern ist der System-Prompt byte-gleich, ebenso der gecachte Präfix bis zum Folgefragen-Hinweis. Der Hinweis steht nie im Verlauf und nie in der gespeicherten Nachricht; Query Rewriter, Filter-Erkennung und Suche mit Kursnummer-Erkennung bekommen die Nachricht unverändert. Workspace-Prompts bleiben, wie sie sind.
+- **Log:** `[embedLanguage] <workspace>: Nachricht ohne Wörter, Sprachhinweis german|previous`, ohne Inhalt der Nachricht.
+- Neu `server/utils/chats/wordlessMessage.js`; `embedSystemPrompt(basePrompt, { cardsOn, responseLanguage })` mit optionalem `responseLanguage` (nur `"german"` und `"previous"` ergeben einen Text). Tests: `wordlessMessage.test.js`, `embedStreamWordlessLanguage.test.js`.
+
 ### Konversationen: letzte Korrekturrunde vor dem Merge (Fixliste 7, 2026-10-14)
 
 - **Zeitraum als Berliner Kalendertage:** Liste und Export bekommen die gewählten Tage (`fromDay`/`toDay`, beide einschließlich) statt Zeitstempeln des Browsers und begrenzen sie wie Kennzahlen, Diagramm und Zählerbuch in Berliner Zeit – auch in einem Browser in New York oder UTC. Der Hinweis „N Konversationen gezählt, M davon einsehbar" gilt damit in jeder Zeitzone; der Dateiname des Exports nennt den gewählten letzten Tag. `startDate`/`endDate` bleiben für API-Clients gültig. Ein unlesbarer Zeitraum ist in Liste und Export einheitlich 400 (die Liste antwortete 500).
