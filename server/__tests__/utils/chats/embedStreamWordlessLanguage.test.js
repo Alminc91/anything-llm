@@ -146,6 +146,17 @@ function row(id, prompt, text = "Antwort.") {
   return { id, prompt, response: JSON.stringify({ text }) };
 }
 
+// Konsole stumm: Jeder Lauf schreibt Logs (Streaming aus, Kursbestand und
+// Kategorie-Ketten ohne Datenbank). Der Ersatz für console.log ist zugleich
+// die Quelle der Log-Tests (languageLogLines); beforeEach leert ihn.
+let consoleLog;
+beforeAll(() => {
+  consoleLog = jest.spyOn(console, "log").mockImplementation(() => {});
+  for (const method of ["info", "warn", "error"])
+    jest.spyOn(console, method).mockImplementation(() => {});
+});
+afterAll(() => jest.restoreAllMocks());
+
 let vectorDb;
 beforeEach(() => {
   jest.clearAllMocks();
@@ -219,6 +230,13 @@ async function run(
     saved,
     connector,
   };
+}
+
+// Zeilen des Logs [embedLanguage] seit dem letzten Leeren der Ersatzfunktionen
+function languageLogLines() {
+  return consoleLog.mock.calls
+    .map((args) => args.join(" "))
+    .filter((line) => line.includes("[embedLanguage]"));
 }
 
 describe("embedSystemPrompt: immer byte-gleich zu heute, ohne Sprachhinweis (D5)", () => {
@@ -301,70 +319,48 @@ describe("Embed-Stream: Hinweis an der Nutzernachricht der Modellanfrage (AK-2, 
   });
 
   test("Log nennt Workspace und gewählten Hinweis, nie die Nachricht", async () => {
-    const spy = jest.spyOn(console, "log").mockImplementation(() => {});
-    try {
-      await run("I730112");
-      await run("XI41050", { history: ["Do you have yoga courses?"] });
-      await run("Do you have yoga courses?");
-      const lines = spy.mock.calls
-        .map((args) => args.join(" "))
-        .filter((line) => line.includes("[embedLanguage]"));
-      expect(lines).toEqual([
-        "[embedLanguage] chatbot: Nachricht ohne Wörter, Sprachhinweis german",
-        "[embedLanguage] chatbot: Nachricht ohne Wörter, Sprachhinweis previous",
-      ]);
-    } finally {
-      spy.mockRestore();
-    }
+    await run("I730112");
+    await run("XI41050", { history: ["Do you have yoga courses?"] });
+    await run("Do you have yoga courses?");
+    expect(languageLogLines()).toEqual([
+      "[embedLanguage] chatbot: Nachricht ohne Wörter, Sprachhinweis german",
+      "[embedLanguage] chatbot: Nachricht ohne Wörter, Sprachhinweis previous",
+    ]);
   });
 });
 
-// Zeilen des Logs [embedLanguage] aus einem Ersatz für console.log
-function languageLogLines(spy) {
-  return spy.mock.calls
-    .map((args) => args.join(" "))
-    .filter((line) => line.includes("[embedLanguage]"));
-}
-
 describe("S-L1: Sprachwahl, Hinweis und Log nur, wenn die Anfrage an das Modell geht", () => {
   test("Abfragemodus ohne Treffer mit I730112: fester Ablehnungstext, kein Log, keine Sprachwahl", async () => {
-    const spy = jest.spyOn(console, "log").mockImplementation(() => {});
-    try {
-      for (const history of [[], ["Do you have yoga courses?"]]) {
-        jest.clearAllMocks();
-        fillSourceWindow.mockReturnValueOnce({ contextTexts: [], sources: [] });
-        const { connector, saved } = await run("I730112", {
-          history,
-          chatMode: "query",
-        });
-        expect(writeResponseChunk.mock.calls.map(([, chunk]) => chunk)).toEqual(
-          [
-            {
-              id: expect.any(String),
-              type: "textResponse",
-              textResponse:
-                "There is no relevant information in this workspace to answer your query.",
-              sources: [],
-              close: true,
-              error: null,
-            },
-          ]
-        );
-        expect(connector.compressMessages).not.toHaveBeenCalled();
-        expect(saved).toBeUndefined();
-        expect([history, languageLogLines(spy)]).toEqual([history, []]);
-        expect(wordlessResponseLanguage).not.toHaveBeenCalled();
-      }
-      // Kontrolle: Abfragemodus mit Treffer bekommt Hinweis und Log
+    for (const history of [[], ["Do you have yoga courses?"]]) {
       jest.clearAllMocks();
-      const { userPrompt } = await run("I730112", { chatMode: "query" });
-      expect(userPrompt).toBe(`I730112${RC5.german}`);
-      expect(languageLogLines(spy)).toEqual([
-        "[embedLanguage] chatbot: Nachricht ohne Wörter, Sprachhinweis german",
+      fillSourceWindow.mockReturnValueOnce({ contextTexts: [], sources: [] });
+      const { connector, saved } = await run("I730112", {
+        history,
+        chatMode: "query",
+      });
+      expect(writeResponseChunk.mock.calls.map(([, chunk]) => chunk)).toEqual([
+        {
+          id: expect.any(String),
+          type: "textResponse",
+          textResponse:
+            "There is no relevant information in this workspace to answer your query.",
+          sources: [],
+          close: true,
+          error: null,
+        },
       ]);
-    } finally {
-      spy.mockRestore();
+      expect(connector.compressMessages).not.toHaveBeenCalled();
+      expect(saved).toBeUndefined();
+      expect([history, languageLogLines()]).toEqual([history, []]);
+      expect(wordlessResponseLanguage).not.toHaveBeenCalled();
     }
+    // Kontrolle: Abfragemodus mit Treffer bekommt Hinweis und Log
+    jest.clearAllMocks();
+    const { userPrompt } = await run("I730112", { chatMode: "query" });
+    expect(userPrompt).toBe(`I730112${RC5.german}`);
+    expect(languageLogLines()).toEqual([
+      "[embedLanguage] chatbot: Nachricht ohne Wörter, Sprachhinweis german",
+    ]);
   });
 
   test("Nachricht mit Wörtern: keine Sprachwahl, der Verlauf wird dafür nicht gelesen", async () => {
@@ -497,29 +493,50 @@ describe("NAK-1: Nachricht mit Wörtern -> userPrompt gleich der Nachricht, Syst
       ]);
   });
 
-  test("ohne Verlauf und mit Verlauf (Deutsch, Englisch, nur Nummern), Karten an und aus", async () => {
-    const histories = [
+  // Kreuzprodukt als reiner Test der Sprachwahl (S-N3): null heißt kein
+  // Hinweis, embed.js schickt dann die Nachricht unverändert (Stream-Test
+  // darunter).
+  test("Kreuzprodukt: jede Nachricht mit Wörtern, ohne Verlauf und mit Verlauf (Deutsch, Englisch, nur Nummern) -> keine Sprachwahl", () => {
+    for (const history of [
       [],
       ["Gibt es Yogakurse?"],
       ["Do you have yoga courses?", "I730112"],
       ["I730112", "262-3103"],
-    ];
+    ])
+      for (const message of ALL_WITH_WORDS)
+        expect([
+          message,
+          history,
+          wordlessResponseLanguage(message, history),
+        ]).toEqual([message, history, null]);
+  });
+
+  test("Stream mit je einem Beispiel je Regel der Erkennung: userPrompt gleich der Nachricht, System-Prompt byte-gleich, Karten an und aus", async () => {
     await expectHintActive();
     for (const cards of ["on", "off"])
-      for (const history of histories)
-        for (const message of ALL_WITH_WORDS) {
+      for (const history of [[], ["I730112", "262-3103"]])
+        for (const message of [
+          // ohne Ziffer
+          "Do you have yoga courses?",
+          // Wort neben der Nummer
+          "Is course XI41050 still open?",
+          // Schrift ohne Wortabstände mit angeklebter Nummer (D3)
+          "我想报名XI41050",
+          // 4 Buchstaben am Stück vor der Nummer (D3)
+          "Курс123",
+        ]) {
           jest.clearAllMocks();
           const { systemPrompt, userPrompt } = await run(message, {
             history,
             cards,
           });
-          expect([
+          expect([message, history, cards, userPrompt, systemPrompt]).toEqual([
             message,
             history,
             cards,
-            userPrompt === message,
-            systemPrompt === TODAY[cards],
-          ]).toEqual([message, history, cards, true, true]);
+            message,
+            TODAY[cards],
+          ]);
         }
   });
 
