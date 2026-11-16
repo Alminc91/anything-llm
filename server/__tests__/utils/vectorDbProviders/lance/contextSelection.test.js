@@ -679,6 +679,15 @@ describe("AK-2: Garantie über zufällige Pools", () => {
     return d.toISOString().slice(0, 10);
   };
 
+  test("K-R4: der Zufallsgenerator läuft über 100.000 Werte nicht in einen Zyklus", () => {
+    // Der Eigenschaftstest zieht rund 100.000 Werte; ein Generator mit
+    // kurzem Zyklus prüft weniger verschiedene Pools als behauptet.
+    const rnd = lcg(20261116);
+    const seen = new Set();
+    for (let i = 0; i < 100000; i++) seen.add(rnd());
+    expect(seen.size).toBeGreaterThan(99900);
+  });
+
   test("AK-1, AK-2, NAK-3 und Boden auf 3000 Zufallspools (fester Seed)", () => {
     const rnd = lcg(20261116);
     const spans = [undefined, 0, 0.01, 0.05];
