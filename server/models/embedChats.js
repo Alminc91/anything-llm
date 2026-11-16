@@ -643,17 +643,17 @@ const EmbedChats = {
 
   /**
    * Frühere Fragen des Besuchers einer Unterhaltung für den Query Rewriter
-   * (Variante E, issues/folgefragen-variante-e.md): die Zeilen vor beforeId
-   * (der letzten Runde des geladenen Verlaufs), die neuesten zuerst gelesen,
-   * höchstens limit, zurück älteste zuerst. Gleiche Auswahl wie
-   * forEmbedByUser mit "conversation_id" und gebundener Sitzung (include,
-   * KIE-503, KIE-505), nur das Feld prompt. Ohne Sitzung oder gültige
-   * beforeId keine Abfrage.
+   * (Variante E, Form E2, issues/folgefragen-variante-e.md): die Zeilen vor
+   * beforeId (der ersten Runde im Block „Chat history“ des Rewriters), die
+   * neuesten zuerst gelesen, höchstens limit, zurück älteste zuerst. Gleiche
+   * Auswahl wie forEmbedByUser mit "conversation_id" und gebundener Sitzung
+   * (include, KIE-503, KIE-505), nur das Feld prompt. Ohne Sitzung oder
+   * gültige beforeId keine Abfrage.
    * @param {Object} input
    * @param {number} input.embedId
    * @param {string} input.conversationId
    * @param {string} input.boundSessionId - besitzende Sitzung (Pflicht)
-   * @param {number} input.beforeId - id der Zeile der letzten Runde
+   * @param {number} input.beforeId - id der ersten Zeile der Runden im Block „Chat history“
    * @param {number} [input.limit]
    * @returns {Promise<string[]|null>} null bei einem Fehler der Datenbank
    */
