@@ -31,6 +31,7 @@ const {
   courseNumberOfText,
   matchesCourseNumber,
   mergeCourseNumberHits,
+  noticeLookupFallback,
   COURSE_NUMBER_FTS_LIMIT,
 } = require("./courseNumberLookup");
 const path = require("path");
@@ -1206,6 +1207,7 @@ class LanceDb extends VectorDatabase {
       const collection = await client.openTable(namespace);
       if (!(await this.hasTextIndex(collection))) {
         report.skipped = "no_fts_index";
+        noticeLookupFallback("no_fts_index", namespace);
       } else {
         // alle Spalten außer dem Vektor: Treffer brauchen ihre Metadaten als
         // Quelle, den Vektor nie; je Kandidat bis zu 50 Zeilen (S-L6)
@@ -1234,6 +1236,7 @@ class LanceDb extends VectorDatabase {
               .catch((e) => {
                 this.logger("courseNumberLookup", e.message);
                 report.error = report.error ?? e.message;
+                noticeLookupFallback("error", namespace);
                 return [];
               })
           )
@@ -1263,6 +1266,7 @@ class LanceDb extends VectorDatabase {
     } catch (e) {
       this.logger("courseNumberLookup", e.message);
       report.error = e.message;
+      noticeLookupFallback("error", namespace);
       hits.length = 0;
     }
     if (trace) {

@@ -240,8 +240,8 @@ Sie bestimmt Menge **und Reihenfolge** der Kontexte nach der Regel „erst Relev
 | Steuerung | Wert |
 |---|---|
 | SystemSetting `course_selection` | `on` (Standard ohne Eintrag) / `off`; wirkt nur in Tabellen mit Kursspalten (`hasCourseMetadata`) |
-| Env `COURSE_SELECTION_TIE_SPAN` | Spanne „gleich relevant“, Standard `0.02`, 0 bis 1 mit Dezimalpunkt; `0` = nur exakter Gleichstand; ungültige Werte → Standard |
-| Env `COURSE_SELECTION_FLOOR` | Boden, Standard `0.3`, 0 bis 1; ungültige Werte → Standard |
+| Env `COURSE_SELECTION_TIE_SPAN` | Spanne „gleich relevant“, Standard `0.02`, 0 bis 1 mit Dezimalpunkt; `0` = nur exakter Gleichstand; ungültige Werte → Standard, einmal ein Hinweis `[Auswahlstufe]` im Log |
+| Env `COURSE_SELECTION_FLOOR` | Boden, Standard `0.3`, 0 bis 1; ungültige Werte → Standard, einmal ein Hinweis im Log |
 | Env `COURSE_SELECTION_KEEP` / `_BAND` | seit der Stufenregel ohne Wirkung; ist eine davon gesetzt, steht einmal ein Hinweis im Log |
 
 **Unverändert (byte-gleich zum Stand ohne Stufe):** Schalter aus oder Tabelle ohne
@@ -316,7 +316,11 @@ in allen vier Modi, sofern die Tabelle einen Volltextindex auf `text` hat.
    Folgefragen als Suchtreffer aus dem Verlauf.
 
 Ohne Volltextindex (LanceDB 0.31 sucht dann per Scan über alle Zeilen) läuft keine
-Kursnummern-Suche; Fehler der Suche führen zum Ergebnis ohne sie. Lokal gemessen
+Kursnummern-Suche; Fehler der Suche führen zum Ergebnis ohne sie. Beide Rückfälle stehen
+einmal je Tabelle und Prozess als Hinweis `[Kursnummernsuche]` im Log, weil ein per
+Kursnummer gefragter Kurs dann allein an der Auswahlstufe (3f) hängt: Die Stufe schützt ihn
+nicht selbst (D8), ein gefragter Wartelisten-Kurs kann gleich relevanten buchbaren Kursen
+weichen. Lokal gemessen
 (6.200 Abschnitte, 1024 Dimensionen): Suche je Nummer etwa 8 ms, wegen der
 parallelen Ausführung im Median höchstens 5 ms mehr. **Search-Trace:** Block
 `courseNumbers` mit `candidates` (Anzahl; der Wortlaut als `searched` nur bei

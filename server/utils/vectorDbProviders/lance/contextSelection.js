@@ -139,27 +139,54 @@ function noticeObsoleteEnv(env) {
   );
 }
 
+/** Stellgrößen mit Env-Override: Feld, Env-Name, Standard. */
+const ENV_SETTINGS = Object.freeze([
+  ["span", "COURSE_SELECTION_TIE_SPAN", SELECTION_TIE_SPAN],
+  ["floor", "COURSE_SELECTION_FLOOR", SELECTION_FLOOR],
+]);
+
+let invalidNoticeShown = false;
+
+/**
+ * Einmaliger Hinweis im Log, wenn eine Stellgröße gesetzt, aber ungültig ist
+ * (K-R2): Es gilt dann der Standard, und selectionConfig läuft je Anfrage.
+ * @param {string[]} invalid - Beschreibung je ungültigem Wert
+ */
+function noticeInvalidEnv(invalid) {
+  if (invalidNoticeShown || invalid.length === 0) return;
+  invalidNoticeShown = true;
+  console.warn(
+    `[Auswahlstufe] ${invalid.join("; ")}. Erwartet ist eine Zahl von 0 bis 1 mit Dezimalpunkt.`
+  );
+}
+
 /**
  * Stellgrößen mit Env-Override (COURSE_SELECTION_TIE_SPAN, COURSE_SELECTION_FLOOR,
  * je 0 bis 1 mit Dezimalpunkt). Ungültige Werte fallen auf den Standard
- * zurück. COURSE_SELECTION_KEEP/BAND sind ohne Wirkung (einmaliger Hinweis).
+ * zurück, ein gesetzter ungültiger Wert steht einmal im Log.
+ * COURSE_SELECTION_KEEP/BAND sind ohne Wirkung (einmaliger Hinweis).
  * @param {Record<string, string|undefined>} [env]
  * @returns {{span:number, floor:number}}
  */
 function selectionConfig(env = process.env) {
   noticeObsoleteEnv(env);
-  const span = Number(env?.COURSE_SELECTION_TIE_SPAN);
-  const floor = Number(env?.COURSE_SELECTION_FLOOR);
-  return {
-    span:
-      hasValue(env?.COURSE_SELECTION_TIE_SPAN) && isUnitInterval(span)
-        ? span
-        : SELECTION_TIE_SPAN,
-    floor:
-      hasValue(env?.COURSE_SELECTION_FLOOR) && isUnitInterval(floor)
-        ? floor
-        : SELECTION_FLOOR,
-  };
+  const config = {};
+  const invalid = [];
+  for (const [field, key, standard] of ENV_SETTINGS) {
+    const raw = env?.[key];
+    const value = Number(raw);
+    if (hasValue(raw) && isUnitInterval(value)) {
+      config[field] = value;
+      continue;
+    }
+    config[field] = standard;
+    if (hasValue(raw))
+      invalid.push(
+        `${key}=${JSON.stringify(String(raw).slice(0, 40))} ist ungültig, es gilt der Standard ${standard}`
+      );
+  }
+  noticeInvalidEnv(invalid);
+  return config;
 }
 
 /** Übergebene Settings validieren; Fehlendes/Ungültiges → Standard. */
