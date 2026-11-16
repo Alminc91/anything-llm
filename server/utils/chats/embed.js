@@ -39,7 +39,7 @@ const {
 } = require("./embedCategoryChains");
 const {
   wordlessResponseLanguage,
-  responseLanguageNote,
+  withResponseLanguageNote,
 } = require("./wordlessMessage");
 
 async function streamChatWithForEmbed(
@@ -236,9 +236,10 @@ async function streamChatWithForEmbed(
   const cardsOn = courseCardsEnabled(embed, { displayMode });
   // Nachricht ohne Wörter (nur Kursnummern, Ziffern, Satzzeichen, Emojis;
   // sprache-nur-nummer): Antwortsprache aus den früheren Nachrichten des
-  // Besuchers in diesem Verlauf, ohne solche Deutsch. Nur der System-Prompt
-  // bekommt den Hinweis; Nachricht, Verlauf, Suche und Speichern bleiben
-  // unverändert. Mit Wörtern null, der Prompt bleibt byte-gleich.
+  // Besuchers in diesem Verlauf, ohne solche Deutsch. Den Hinweis bekommt
+  // nur die Nutzernachricht der Modellanfrage (userPrompt an
+  // compressMessages, D5); der System-Prompt bleibt für jede Nachricht
+  // byte-gleich. Mit Wörtern null, kein Hinweis.
   const responseLanguage = wordlessResponseLanguage(
     message,
     rawHistory.map((chat) => chat?.prompt)
@@ -250,7 +251,7 @@ async function streamChatWithForEmbed(
     );
   const systemPrompt = embedSystemPrompt(
     await chatPrompt(embed.workspace, username),
-    { cardsOn, responseLanguage }
+    { cardsOn }
   );
 
   // KIE-576: mit gültiger Kategorie-Karte je Kursdokument die Kette
@@ -294,10 +295,17 @@ async function streamChatWithForEmbed(
 
   // Compress message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
+  // Sprachhinweis (sprache-nur-nummer D5): einzige Stelle mit Hinweis ist
+  // userPrompt, also die aktuelle Nutzernachricht an das Modell (Nachricht
+  // + Hinweis). Messung 16.11.2026: Am Ende des System-Prompts stand er vor
+  // den Kurstexten, und das Modell überging ihn (8.2-rc5 live 3 von 9);
+  // an der Nutzernachricht offline 9 von 9. Gespeicherte Nachricht
+  // (EmbedChats.new), Verlauf, Folgefragen-Regel (userMessage), Rewriter,
+  // Filter und Suche bekommen weiter `message` ohne Hinweis.
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,
-      userPrompt: message,
+      userPrompt: withResponseLanguageNote(message, responseLanguage),
       contextTexts,
       chatHistory,
     },
@@ -530,15 +538,12 @@ async function streamChatWithForEmbed(
  *  1. Karten-Abschnitt (nur mit Karten: fester Stil „kurz“, Beispiel ohne
  *     KI-Hinweis-Zeile, weil der KI-Hinweis fest im Widget steht),
  *  2. Disclaimer-Hinweis (KI-Hinweis fest unter der Eingabe),
- *  3. Folgefragen-Hinweis,
- *  4. Sprachhinweis, NUR bei einer Nachricht ohne Wörter (nur Kursnummern,
- *     Ziffern, Satzzeichen, Emojis; wordlessMessage.js, sprache-nur-nummer):
- *     responseLanguage "german" (keine frühere Nachricht des Besuchers mit
- *     Wörtern) oder "previous" (Sprache der früheren Nachrichten). Jeder
- *     andere Wert, auch null, hängt nichts an: Für jede Nachricht mit
- *     Wörtern ist der Prompt byte-gleich zu dem ohne diesen Hinweis, und
- *     alles vor dem Hinweis (Präfix bis Folgefragen) bleibt immer gleich.
- *     Der Hinweis steht nur hier, nie in Verlauf oder gespeicherter Nachricht.
+ *  3. Folgefragen-Hinweis.
+ * Der Sprachhinweis bei einer Nachricht ohne Wörter (sprache-nur-nummer)
+ * steht NICHT hier, sondern an der Nutzernachricht der Modellanfrage
+ * (streamChatWithForEmbed, userPrompt an compressMessages, D5 vom
+ * 16.11.2026: am Ende des System-Prompts, vor den Kurstexten, überging ihn
+ * das Modell). Der System-Prompt ist damit für jede Nachricht gleich.
  * Hinweis 2 und 3 und der Stil sind feste Standards des vereinfachten
  * Design Centers (embedStandards.js EMBED_FIXED_STANDARDS) und hängen immer
  * an; variabel ist nur, ob Karten an sind (cardsOn, gespeicherte Wahl
@@ -551,10 +556,10 @@ async function streamChatWithForEmbed(
  * an, ohne Karten keinen (sonst antwortete das Modell kurz ohne Links, aber
  * es erschienen keine Karten).
  * @param {string} basePrompt
- * @param {{cardsOn: boolean, responseLanguage?: "german"|"previous"|null}} switches
+ * @param {{cardsOn: boolean}} switches
  * @returns {string}
  */
-function embedSystemPrompt(basePrompt, { cardsOn, responseLanguage = null }) {
+function embedSystemPrompt(basePrompt, { cardsOn }) {
   return (
     removeCourseCardsSections(basePrompt) +
     (cardsOn
@@ -564,8 +569,7 @@ function embedSystemPrompt(basePrompt, { cardsOn, responseLanguage = null }) {
         })
       : "") +
     DISCLAIMER_PROMPT_NOTE +
-    FOLLOW_UPS_PROMPT_NOTE +
-    responseLanguageNote(responseLanguage)
+    FOLLOW_UPS_PROMPT_NOTE
   );
 }
 

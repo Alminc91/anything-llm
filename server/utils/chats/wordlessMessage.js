@@ -4,10 +4,15 @@
 // oder Emojis, findet das Modell keine Sprache und rät (Flotte 16.11.2026:
 // 31 % der ersten Nachrichten dieser Art englisch beantwortet). Dann legt
 // der Server die Antwortsprache fest: Sprache der früheren Nachrichten des
-// Besuchers, ohne solche Deutsch. Der Hinweis hängt nur am Ende des
-// System-Prompts (embed.js embedSystemPrompt); Nachricht, Verlauf, Suche und
+// Besuchers, ohne solche Deutsch. Der Hinweis hängt nur an der aktuellen
+// Nutzernachricht der Modellanfrage (embed.js, userPrompt an
+// compressMessages; D5 vom 16.11.2026). Vorher stand er am Ende des
+// System-Prompts, also vor den Kurstexten, und das Modell überging ihn
+// (8.2-rc5 live 3 von 9; offline mit Chat1 an der Nutzernachricht 9 von 9,
+// issues/rollout-8.2/rc5-pruefung). Der System-Prompt bleibt damit für jede
+// Nachricht byte-gleich; gespeicherte Nachricht, Verlauf, Suche, Filter und
 // Query Rewriter bleiben unverändert. Jede Nachricht mit Wörtern bekommt nie
-// einen Hinweis, ihr System-Prompt bleibt byte-gleich.
+// einen Hinweis.
 
 const LETTER = /\p{L}/u;
 // Ziffer = 0 bis 9 (Kursnummern der Kunden). Arabisch-indische und
@@ -76,7 +81,7 @@ function isWordlessMessage(message) {
 }
 
 /**
- * Antwortsprache für den System-Prompt.
+ * Antwortsprache für den Hinweis an der Nutzernachricht der Modellanfrage.
  * @param {unknown} message aktuelle Nachricht des Besuchers
  * @param {unknown[]} [previousMessages] frühere Nachrichten des Besuchers in
  *   dieser Unterhaltung (Verlauf, den embed.js ohnehin lädt); nur Nachrichten
@@ -94,7 +99,9 @@ function wordlessResponseLanguage(message, previousMessages = []) {
 // Feste Hinweise an das Modell, englisch wie die übrigen Hinweise in
 // embed.js; Überschrift im Stil von DISCLAIMER_PROMPT_NOTE. Der Basis-Prompt
 // sagt schon „Use German only if no other language is identifiable“ (v3.4,
-// Short-Query Language Detection); der Hinweis setzt das durch.
+// Short-Query Language Detection); der Hinweis setzt das durch. Wortlaut
+// seit 8.2-rc5 unverändert (D5 ändert nur die Stelle); die zwei führenden
+// Zeilenumbrüche trennen ihn von der Nachricht.
 const REASON =
   "The user's latest message contains no words, only numbers or symbols (e.g. a course number), so its language cannot be detected.";
 const RESPONSE_LANGUAGE_NOTES = Object.freeze({
@@ -104,7 +111,7 @@ const RESPONSE_LANGUAGE_NOTES = Object.freeze({
 
 /**
  * Text des Hinweises. Nur die zwei festen Werte ergeben einen Text, alles
- * andere "" (kein fremder Text im System-Prompt).
+ * andere "" (kein fremder Text in der Modellanfrage).
  * @param {unknown} responseLanguage Ergebnis von wordlessResponseLanguage
  * @returns {string}
  */
@@ -114,10 +121,28 @@ function responseLanguageNote(responseLanguage) {
   return "";
 }
 
+/**
+ * Nutzernachricht an das Modell (D5): die Nachricht, bei einem der zwei
+ * festen Werte mit dem Hinweis am Ende (Nachricht + Hinweis, wie in der
+ * Messung vom 16.11.2026). Sonst, und wenn die Nachricht kein Text ist,
+ * genau der übergebene Wert. Nur für userPrompt an compressMessages;
+ * gespeichert, in Verlauf, Suche, Filter, Rewriter und Folgefragen-Regel
+ * geht immer die Nachricht ohne Hinweis.
+ * @param {unknown} message aktuelle Nachricht des Besuchers
+ * @param {unknown} responseLanguage Ergebnis von wordlessResponseLanguage
+ * @returns {unknown}
+ */
+function withResponseLanguageNote(message, responseLanguage) {
+  const note = responseLanguageNote(responseLanguage);
+  if (note === "" || typeof message !== "string") return message;
+  return message + note;
+}
+
 module.exports = {
   hasWords,
   isWordlessMessage,
   wordlessResponseLanguage,
   responseLanguageNote,
+  withResponseLanguageNote,
   RESPONSE_LANGUAGE_NOTES,
 };
