@@ -173,6 +173,16 @@ describe("Konstanten und Konfiguration", () => {
   });
 
   test("Env COURSE_SELECTION_TIE_SPAN und _FLOOR, Ungültiges → Standard", () => {
+    // ungültige Werte schreiben einmal einen Hinweis (K-R2, eigener Test unten)
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expectEnvValues();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  const expectEnvValues = () => {
     expect(
       selectionConfig({
         COURSE_SELECTION_TIE_SPAN: "0.05",
@@ -203,6 +213,57 @@ describe("Konstanten und Konfiguration", () => {
         })
       ).toEqual({ span: 0.02, floor: 0.3 });
     expect(selectionConfig(undefined)).toEqual({ span: 0.02, floor: 0.3 });
+  };
+
+  test("K-R2: gesetzte, ungültige COURSE_SELECTION_TIE_SPAN oder _FLOOR: Hinweis einmal im Log", () => {
+    jest.isolateModules(() => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const fresh = require(MODULE);
+        expect(
+          fresh.selectionConfig({
+            COURSE_SELECTION_TIE_SPAN: "0,05",
+            COURSE_SELECTION_FLOOR: "5",
+          })
+        ).toEqual({ span: 0.02, floor: 0.3 });
+        // selectionConfig läuft je Anfrage: der Hinweis kommt nur einmal
+        fresh.selectionConfig({ COURSE_SELECTION_TIE_SPAN: "0,05" });
+        fresh.selectionConfig({ COURSE_SELECTION_FLOOR: "abc" });
+        expect(warn).toHaveBeenCalledTimes(1);
+        const [message] = warn.mock.calls[0];
+        expect(message).toMatch(/COURSE_SELECTION_TIE_SPAN="0,05"/);
+        expect(message).toMatch(/COURSE_SELECTION_FLOOR="5"/);
+        expect(message).toMatch(/Standard/);
+        expect(message).not.toMatch(/[–—]/);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+    jest.isolateModules(() => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const fresh = require(MODULE);
+        // gültig, leer oder nicht gesetzt: kein Hinweis
+        fresh.selectionConfig({
+          COURSE_SELECTION_TIE_SPAN: "0.03",
+          COURSE_SELECTION_FLOOR: " 0.4 ",
+        });
+        fresh.selectionConfig({ COURSE_SELECTION_TIE_SPAN: "" });
+        fresh.selectionConfig({ COURSE_SELECTION_FLOOR: "   " });
+        fresh.selectionConfig({});
+        fresh.selectionConfig(undefined);
+        expect(warn).not.toHaveBeenCalled();
+        // nur Spanne ungültig: Hinweis nennt nur sie
+        fresh.selectionConfig({ COURSE_SELECTION_TIE_SPAN: "1.5" });
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn.mock.calls[0][0]).toMatch(
+          /COURSE_SELECTION_TIE_SPAN="1.5"/
+        );
+        expect(warn.mock.calls[0][0]).not.toMatch(/COURSE_SELECTION_FLOOR/);
+      } finally {
+        warn.mockRestore();
+      }
+    });
   });
 
   test("Spanne aus den settings; ungültige settings → Standard", () => {
@@ -922,6 +983,27 @@ describe("NAK-1: Kursnummer-Treffer stehen nach der Auswahl vorn", () => {
     );
     expect(ids(merged.sourceDocuments)).toEqual(["26W1001", "k1", "k2", "k3"]);
     expect(merged.sourceDocuments[0]).toMatchObject({ bookable: false });
+  });
+
+  test("D8 (K-R2): ohne Treffer der Kursnummernsuche fällt der gefragte Warteliste-Kurs heraus (kein eigener Schutz in der Stufe)", () => {
+    const wl = kurs("26W1001", 1.0, "2026-09-01", false);
+    const c = [
+      wl,
+      kurs("k1", 0.99, "2026-11-01"),
+      kurs("k2", 0.985, "2026-11-02"),
+      kurs("k3", 0.982, "2026-11-03"),
+      kurs("k4", 0.98, "2026-11-04"),
+    ];
+    const out = run(c);
+    expect(ids(out.selected)).toEqual(["k1", "k2", "k3", "k4"]);
+    // Kursnummernsuche ohne Volltextindex, mit Fehler oder ohne erkannte
+    // Nummer: keine Treffer, das Ergebnis der Stufe bleibt, wie es ist
+    for (const hits of [[], null]) {
+      const before = asResult(out.selected);
+      const merged = mergeCourseNumberHits(before, hits, 4);
+      expect(merged).toBe(before);
+      expect(ids(merged.sourceDocuments)).not.toContain("26W1001");
+    }
   });
 
   test("gefragter Kurs in der Auswahl rückt nach vorn, Rest in Stufenfolge", () => {

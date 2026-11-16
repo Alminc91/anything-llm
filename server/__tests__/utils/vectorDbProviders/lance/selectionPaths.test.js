@@ -27,6 +27,7 @@ jest.mock("../../../../utils/helpers", () => {
   };
 });
 
+const lancedb = require("@lancedb/lancedb");
 const { LanceDb } = require("../../../../utils/vectorDbProviders/lance");
 const { SystemSettings } = require("../../../../models/systemSettings");
 const SearchTrace = require("../../../../utils/vectorDbProviders/lance/searchTrace");
@@ -266,7 +267,7 @@ const knrText = (knr, status, i) =>
     "",
     `Kursbeschreibung: Yoga am Abend ${"Entspannung ".repeat(i + 1)}`,
   ].join("\n");
-async function makeKnrTable(ns) {
+async function makeKnrTable(ns, { withIndex = true } = {}) {
   const { client } = await lance.connect();
   await client.dropTable(ns).catch(() => {});
   const row = (id, knr, vector, days, bookable, i) => ({
@@ -280,20 +281,20 @@ async function makeKnrTable(ns) {
     start_minutes: 1080,
     price: 80,
   });
-  await lance.updateOrCreateCollection(
-    client,
-    [
-      row("kw", "26W1001", [1, 0, 0, 0], -20, false, 0),
-      ...[1, 2, 3, 4].map((k) =>
-        row(`kn${k}`, `26W100${k + 1}`, vec(k), 10 * k, true, k)
-      ),
-    ],
-    ns
-  );
+  const rows = [
+    row("kw", "26W1001", [1, 0, 0, 0], -20, false, 0),
+    ...[1, 2, 3, 4].map((k) =>
+      row(`kn${k}`, `26W100${k + 1}`, vec(k), 10 * k, true, k)
+    ),
+  ];
+  // ohne Volltextindex: Tabelle direkt anlegen (Bestand vor KIE-471)
+  if (withIndex) await lance.updateOrCreateCollection(client, rows, ns);
+  else await client.createTable(ns, rows);
 }
 
 beforeAll(async () => {
   await makeKnrTable("sel_knr");
+  await makeKnrTable("sel_knr_ohne_index", { withIndex: false });
   await makeManyTable("sel_viele");
   await makePinTable("sel_pin");
   await makeTable("sel_kurse", {});
@@ -508,6 +509,79 @@ describe("NAK-1: Kursnummer-Treffer stehen vor der Auswahl", () => {
       expect(asked.contextTexts[0]).toContain("Kursnummer: 26W1001");
     });
   }
+});
+
+describe("K-R2 und D8: Kursnummernsuche ohne Treffer", () => {
+  // Die Stufe schützt einen per Kursnummer gefragten Kurs nicht selbst (D8);
+  // bleibt die Kursnummernsuche still ohne Treffer, fällt der gefragte
+  // Warteliste-Kurs bei vier gleich relevanten buchbaren Kursen heraus. Der
+  // Rückfall steht einmal je Tabelle und Prozess im Log.
+  const ASKED = "Ist der Kurs 26W1001 noch frei?";
+  const lookupWarnings = (warn) =>
+    warn.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.startsWith("[Kursnummernsuche]"));
+  let traces = [];
+  let warn;
+  beforeEach(() => {
+    traces = [];
+    jest
+      .spyOn(SearchTrace, "writeTrace")
+      .mockImplementation((t) => traces.push(JSON.parse(JSON.stringify(t))));
+    warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    SearchTrace.writeTrace.mockRestore();
+    warn.mockRestore();
+  });
+
+  test("ohne Volltextindex: gefragter Warteliste-Kurs fehlt, Hinweis einmal im Log", async () => {
+    settings = { course_selection: "on", search_trace: "on" };
+    for (const mode of MODES) {
+      const result = await search("sel_knr_ohne_index", mode, {
+        input: ASKED,
+      });
+      expect(ids(result)).toEqual(["kn1", "kn2", "kn3", "kn4"]);
+    }
+    expect(traces.map((t) => t.courseNumbers.skipped)).toEqual([
+      "no_fts_index",
+      "no_fts_index",
+    ]);
+    const messages = lookupWarnings(warn);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatch(/"sel_knr_ohne_index"/);
+    expect(messages[0]).toMatch(/Volltextindex/);
+  });
+
+  test("Abfrage wirft: gefragter Warteliste-Kurs fehlt, Hinweis einmal im Log", async () => {
+    settings = { course_selection: "on", search_trace: "on" };
+    // im Modus rerank läuft die Volltextsuche nur in der Kursnummernsuche
+    const queryProto = Object.getPrototypeOf(lancedb.Query.prototype);
+    const fts = jest
+      .spyOn(queryProto, "fullTextSearch")
+      .mockImplementation(() => {
+        throw new Error("Volltextsuche nicht verfügbar");
+      });
+    const log = jest.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      for (let run = 0; run < 2; run++) {
+        const result = await search("sel_knr", "rerank", { input: ASKED });
+        expect(ids(result)).toEqual(["kn1", "kn2", "kn3", "kn4"]);
+      }
+    } finally {
+      fts.mockRestore();
+      log.mockRestore();
+    }
+    expect(traces.map((t) => t.courseNumbers.error)).toEqual([
+      "Volltextsuche nicht verfügbar",
+      "Volltextsuche nicht verfügbar",
+    ]);
+    const messages = lookupWarnings(warn);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatch(/"sel_knr"/);
+    expect(messages[0]).toMatch(/fehlgeschlagen/);
+    expect(messages[0]).not.toMatch(/Volltextsuche nicht verfügbar/);
+  });
 });
 
 describe("Search-Trace: trace.selection (AK-8)", () => {
