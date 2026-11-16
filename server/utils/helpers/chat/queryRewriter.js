@@ -54,8 +54,11 @@ const HISTORY_TURNS_DEFAULT = 2;
 
 /**
  * Kürzt einen Text auf maxWords Wörter, mit "..." dahinter, wenn gekürzt
- * wurde. Wie kurz() der Messung (Python str.split): Leerraum am Rand fällt
- * weg, jeder Leerraum dazwischen wird ein Leerzeichen, auch ohne Kürzung.
+ * wurde. Wie kurz() der Messung (Python str.split ohne Argument): Leerraum
+ * am Rand fällt weg, jeder Leerraum dazwischen wird ein Leerzeichen, auch
+ * ohne Kürzung. Abweichung nur bei seltenem Leerraum: JS \s trennt
+ * zusätzlich an U+FEFF, Python zusätzlich an U+0085 und U+001C bis U+001F;
+ * die Byte-Gleichheit (AK-1) gilt für Texte ohne diese Zeichen.
  * @param {string} text
  * @param {number} maxWords
  * @returns {string}
