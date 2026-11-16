@@ -96,12 +96,12 @@ const {
 } = require("../../../utils/chats/embedCourseSources");
 const { courseCardsPromptNote } = require("../../../utils/chats/embedDefaults");
 const {
-  RESPONSE_LANGUAGE_NOTES,
+  responseLanguageNote,
   wordlessResponseLanguage,
 } = require("../../../utils/chats/wordlessMessage");
 
-const GERMAN = RESPONSE_LANGUAGE_NOTES.german;
-const PREVIOUS = RESPONSE_LANGUAGE_NOTES.previous;
+const GERMAN = responseLanguageNote("german");
+const PREVIOUS = responseLanguageNote("previous");
 // Wortlaut aus 8.2-rc5, byte-gleich mit den zwei führenden Zeilenumbrüchen
 // (D5 ändert nur die Stelle); so auch in der Messung vom 16.11.2026
 // (rollout-8.2/rc5-pruefung/sprache_offline_4quellen.py, Variante V3:

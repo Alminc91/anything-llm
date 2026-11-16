@@ -40,7 +40,7 @@ const {
 const {
   isWordlessMessage,
   wordlessResponseLanguage,
-  withResponseLanguageNote,
+  responseLanguageNote,
 } = require("./wordlessMessage");
 
 async function streamChatWithForEmbed(
@@ -284,9 +284,9 @@ async function streamChatWithForEmbed(
   // Abweisung im Abfragemodus, damit das Log nur Anfragen an das Modell
   // zählt (S-L1). Den Verlauf liest die Sprachwahl nur bei einer Nachricht
   // ohne Wörter.
-  let responseLanguage = null;
+  let userPrompt = message;
   if (isWordlessMessage(message)) {
-    responseLanguage = wordlessResponseLanguage(
+    const responseLanguage = wordlessResponseLanguage(
       message,
       rawHistory.map((chat) => chat?.prompt)
     );
@@ -294,6 +294,7 @@ async function streamChatWithForEmbed(
     console.log(
       `[embedLanguage] ${embed.workspace.slug}: Nachricht ohne Wörter, Sprachhinweis ${responseLanguage}`
     );
+    userPrompt = message + responseLanguageNote(responseLanguage);
   }
 
   // Compress message to ensure prompt passes token limit with room for response
@@ -308,7 +309,7 @@ async function streamChatWithForEmbed(
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,
-      userPrompt: withResponseLanguageNote(message, responseLanguage),
+      userPrompt,
       contextTexts,
       chatHistory,
     },

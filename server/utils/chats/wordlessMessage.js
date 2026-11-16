@@ -72,8 +72,9 @@ function hasWords(message) {
  * Nachricht ohne Wörter (Abschnitt 4): mindestens eine Ziffer und kein Wort,
  * z. B. "XI41050", "26W1001, 26W1002", "12.12.", "😀 123". Nicht: "Kurs
  * XI41050", "Nr. 123", "课程 123" (Wörter) und "Ok", "?", "😀" (keine Ziffer).
- * @param {unknown} message
- * @returns {boolean}
+ * @param {unknown} message kommt ungeprüft aus dem JSON der Anfrage
+ *   (embedMiddleware prüft nur message?.length)
+ * @returns {boolean} false für alles, was kein Text ist
  */
 function isWordlessMessage(message) {
   if (typeof message !== "string") return false;
@@ -92,8 +93,7 @@ function isWordlessMessage(message) {
  */
 function wordlessResponseLanguage(message, previousMessages = []) {
   if (!isWordlessMessage(message)) return null;
-  const previous = Array.isArray(previousMessages) ? previousMessages : [];
-  return previous.some(hasWords) ? "previous" : "german";
+  return previousMessages.some(hasWords) ? "previous" : "german";
 }
 
 // Feste Hinweise an das Modell, englisch wie die übrigen Hinweise in
@@ -110,32 +110,14 @@ const RESPONSE_LANGUAGE_NOTES = Object.freeze({
 });
 
 /**
- * Text des Hinweises. Nur die zwei festen Werte ergeben einen Text, alles
- * andere "" (kein fremder Text in der Modellanfrage).
- * @param {unknown} responseLanguage Ergebnis von wordlessResponseLanguage
+ * Text des Hinweises; embed.js hängt ihn an die Nachricht (Nachricht +
+ * Hinweis, wie in der Messung vom 16.11.2026).
+ * @param {"german"|"previous"} responseLanguage Ergebnis von
+ *   wordlessResponseLanguage für eine Nachricht ohne Wörter
  * @returns {string}
  */
 function responseLanguageNote(responseLanguage) {
-  if (responseLanguage === "german") return RESPONSE_LANGUAGE_NOTES.german;
-  if (responseLanguage === "previous") return RESPONSE_LANGUAGE_NOTES.previous;
-  return "";
-}
-
-/**
- * Nutzernachricht an das Modell (D5): die Nachricht, bei einem der zwei
- * festen Werte mit dem Hinweis am Ende (Nachricht + Hinweis, wie in der
- * Messung vom 16.11.2026). Sonst, und wenn die Nachricht kein Text ist,
- * genau der übergebene Wert. Nur für userPrompt an compressMessages;
- * gespeichert, in Verlauf, Suche, Filter, Rewriter und Folgefragen-Regel
- * geht immer die Nachricht ohne Hinweis.
- * @param {unknown} message aktuelle Nachricht des Besuchers
- * @param {unknown} responseLanguage Ergebnis von wordlessResponseLanguage
- * @returns {unknown}
- */
-function withResponseLanguageNote(message, responseLanguage) {
-  const note = responseLanguageNote(responseLanguage);
-  if (note === "" || typeof message !== "string") return message;
-  return message + note;
+  return RESPONSE_LANGUAGE_NOTES[responseLanguage];
 }
 
 module.exports = {
@@ -143,6 +125,4 @@ module.exports = {
   isWordlessMessage,
   wordlessResponseLanguage,
   responseLanguageNote,
-  withResponseLanguageNote,
-  RESPONSE_LANGUAGE_NOTES,
 };
