@@ -260,11 +260,19 @@ Kandidaten und liefert so viele, wie unter den ersten `topN` zulässig waren.
 `few_courses`, …), `courseQuery`, `changed` (andere Menge als die Score-Top-N), `reordered`
 (andere Reihenfolge als die Reranker-Reihenfolge der gewählten Menge), `rule` (z. B.
 `stufe-span0.02-floor0.3-deckel1`), `poolTopK` und `swappedIn`/`swappedOut` je Dokument (id,
-title, score, naehe, state = `zukuenftig`/`laufend`/`warteliste`/`kein-kurs`, kind, reason =
-`datum` (Kurs gegen einen gleich relevanten mit zeitlichem Vorrang getauscht) oder `deckel`
-(Übersicht durch Kurs ersetzt)). Je Grund stehen gleich viele Dokumente in `swappedIn` wie in
-`swappedOut`; `swappedIn` steht in Ausgabereihenfolge.
+title, rerankRank, score, naehe, state = `zukuenftig`/`laufend`/`warteliste`/`kein-kurs`, kind,
+reason = `datum` (Kurs gegen einen gleich relevanten mit zeitlichem Vorrang getauscht) oder
+`deckel` (Übersicht durch Kurs ersetzt)). Je Grund stehen gleich viele Dokumente in `swappedIn`
+wie in `swappedOut`; `swappedIn` steht in Ausgabereihenfolge.
 `rerank.returned` zählt im Modus `hybrid_rerank` den Pool, `final.count` die ausgelieferten Dokumente.
+`final.docs[].rerankRank` ist der Rang in der Reranker-Folge vor der Stufe (0-basiert; im Modus
+`rerank` unter den Kandidaten nach Ähnlichkeitsschwelle und Pin-Filter; ohne Stufe gleich
+`finalRank - 1`; `null` für einen Treffer der Kursnummernsuche, der nicht unter den
+ausgewählten Dokumenten war). `shift` bleibt die Verschiebung vom Rang vor dem Reranker zur
+Endposition (Reranker und Stufe zusammen); `searchTraceReport.js` rechnet die
+„Reranker-Wirkung“ (Top-1, Rang-Verschiebung, Rettungen) gegen `rerankRank`, Suchspuren ohne
+das Feld (vor 8.2) wie bisher gegen die Endposition. `selectContexts` gibt denselben Rang je
+Ausgabeplatz als `rerankRanks` zurück.
 
 ---
 

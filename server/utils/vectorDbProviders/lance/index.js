@@ -429,6 +429,10 @@ class LanceDb extends VectorDatabase {
         selectionResult,
         rerankTopK
       );
+      // Finale Dokumente: Vektor-Rang → Endposition (shift, Wirkung von
+      // Reranker und Auswahlstufe zusammen) und der Rang in der Reranker-
+      // Folge vor der Stufe (rerankRank, 0-basiert, K-R3), gegen den die
+      // Auswertung die Reranker-Wirkung rechnet.
       trace.final = {
         count: result.sourceDocuments.length,
         docs: result.sourceDocuments.map((d, i) => {
@@ -440,6 +444,9 @@ class LanceDb extends VectorDatabase {
               typeof d.score === "number" ? d.score : null
             ),
             vectorRank,
+            rerankRank: selectionResult
+              ? (selectionResult.rerankRanks[i] ?? null)
+              : i,
             shift: vectorRank !== null ? vectorRank - (i + 1) : null,
           };
         }),
@@ -1050,7 +1057,9 @@ class LanceDb extends VectorDatabase {
         rerankTopK
       );
       // Finale Dokumente mit voller Herkunft: Rerank-Score, RRF-Rang →
-      // Final-Rang (shift > 0 = vom Reranker nach oben geholt), Arm-Herkunft.
+      // Final-Rang (shift > 0 = nach oben geholt, von Reranker und
+      // Auswahlstufe zusammen), Rang in der Reranker-Folge vor der Stufe
+      // (rerankRank, 0-basiert, K-R3), Arm-Herkunft.
       trace.final = {
         count: result.sourceDocuments.length,
         docs: result.sourceDocuments.map((d, i) => {
@@ -1062,6 +1071,9 @@ class LanceDb extends VectorDatabase {
               typeof d.score === "number" ? d.score : null
             ),
             rrfRank,
+            rerankRank: selectionResult
+              ? (selectionResult.rerankRanks[i] ?? null)
+              : i,
             shift: rrfRank !== null ? rrfRank - (i + 1) : null,
             inVector: vectorIds.has(d.id),
             inFts: ftsIds.has(d.id),
@@ -1299,8 +1311,13 @@ class LanceDb extends VectorDatabase {
       ...(trace.final || {}),
       count: merged.sourceDocuments.length,
       docs: merged.sourceDocuments.map((doc, i) => {
+        // Gefundene Kurse, die nicht unter den ausgelieferten Dokumenten
+        // waren, haben in Reranker-Modi keinen Rang des Rerankers (null).
         const entry = {
-          ...(before.get(doc.id) ?? SearchTrace.docRef(doc)),
+          ...(before.get(doc.id) ?? {
+            ...SearchTrace.docRef(doc),
+            ...(trace.rerank ? { rerankRank: null } : {}),
+          }),
           finalRank: i + 1,
         };
         // Rang-Verschiebung gegenüber dem neuen Rang

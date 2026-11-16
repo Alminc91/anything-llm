@@ -305,15 +305,18 @@ const ruleLabel = (cfg) =>
  * @param {number} opts.topN - Obergrenze der Ausgabe.
  * @param {string} opts.today - ISO-Tag (Europe/Berlin).
  * @param {{span?:number, floor?:number}} [opts.settings]
- * @returns {{selected:object[], active:boolean, reason:string|null,
- *   changed:boolean, reordered:boolean, courseQuery:boolean, rule:string,
- *   swappedIn:object[], swappedOut:object[]}}
- *   `selected` in Ausgabereihenfolge. `changed`: andere Menge als die
- *   Score-Top-N; `reordered`: andere Reihenfolge als die Kandidaten-
- *   reihenfolge der gewählten Menge.
- *   `swappedIn`/`swappedOut`: {row, score, naehe, state, kind, reason};
- *   reason `datum` (Kurs gegen gleich relevanten mit zeitlichem Vorrang
- *   getauscht) oder `deckel` (Nicht-Kurs-Dokument durch Kurs ersetzt).
+ * @returns {{selected:object[], rerankRanks:number[], active:boolean,
+ *   reason:string|null, changed:boolean, reordered:boolean,
+ *   courseQuery:boolean, rule:string, swappedIn:object[],
+ *   swappedOut:object[]}}
+ *   `selected` in Ausgabereihenfolge. `rerankRanks[k]`: Rang von
+ *   `selected[k]` vor der Stufe, 0-basiert in der Kandidatenreihenfolge
+ *   (= Reranker-Folge, K-R3); im Rückfall 0 bis topN − 1. `changed`: andere
+ *   Menge als die Score-Top-N; `reordered`: andere Reihenfolge als die
+ *   Kandidatenreihenfolge der gewählten Menge.
+ *   `swappedIn`/`swappedOut`: {row, rerankRank, score, naehe, state, kind,
+ *   reason}; reason `datum` (Kurs gegen gleich relevanten mit zeitlichem
+ *   Vorrang getauscht) oder `deckel` (Nicht-Kurs-Dokument durch Kurs ersetzt).
  *   Je Grund gibt es gleich viele ein- wie ausgewechselte Dokumente;
  *   `swappedIn` in Ausgabereihenfolge, `swappedOut` in Kandidatenreihenfolge.
  */
@@ -324,6 +327,7 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
   const rule = ruleLabel(cfg);
   const identity = (reason) => ({
     selected: list.slice(0, n),
+    rerankRanks: list.slice(0, n).map((_, i) => i),
     active: false,
     reason,
     changed: false,
@@ -394,6 +398,7 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
 
   const describe = (i, reason) => ({
     row: list[i],
+    rerankRank: i,
     score: info[i].score,
     naehe: info[i].naehe,
     state: info[i].state,
@@ -417,6 +422,7 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
 
   return {
     selected: ordered.map((i) => list[i]),
+    rerankRanks: ordered,
     active: true,
     reason: null,
     changed: swappedIn.length > 0 || swappedOut.length > 0,
