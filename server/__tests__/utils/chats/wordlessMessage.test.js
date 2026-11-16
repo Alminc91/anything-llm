@@ -41,6 +41,73 @@ describe("AK-1: Erkennung nach Abschnitt 4", () => {
     expect(isWordlessMessage(message)).toBe(false);
   });
 
+  // D3 (16.11.2026): Die Erkennung wird nur enger. Ein Stück mit Ziffer
+  // zählt auch als Wort, wenn es ein Zeichen einer Schrift ohne
+  // Wortabstände enthält oder mindestens 4 Buchstaben am Stück.
+  test.each([
+    "我想报名XI41050",
+    "这个课程3点开始吗",
+    "コースXI41050",
+    "코스XI41050",
+    "คอร์ส123",
+  ])(
+    "D3, Schrift ohne Wortabstände mit angeklebter Nummer, mit Wörtern: %j",
+    (message) => {
+      expect(isWordlessMessage(message)).toBe(false);
+      expect(hasWords(message)).toBe(true);
+    }
+  );
+
+  test.each(["course123", "Kurs123", "Курс123"])(
+    "D3, mindestens 4 Buchstaben am Stück vor der Nummer, mit Wörtern: %j",
+    (message) => {
+      expect(isWordlessMessage(message)).toBe(false);
+      expect(hasWords(message)).toBe(true);
+    }
+  );
+
+  test.each([
+    "abc123",
+    "XI41050",
+    "TM3000",
+    "26W1001",
+    "H350125",
+    "4M14",
+    "262-3103",
+    "I730112",
+  ])(
+    "D3, höchstens 3 Buchstaben am Stück (Kursnummern), weiter ohne Wörter: %j",
+    (message) => {
+      expect(isWordlessMessage(message)).toBe(true);
+      expect(hasWords(message)).toBe(false);
+    }
+  );
+
+  test("D3: jede der acht Schriften ohne Wortabstände zählt für sich, auch mit weniger als 4 Buchstaben am Stück", () => {
+    for (const [script, piece] of [
+      ["Han", "课3"],
+      ["Hiragana", "3じ"],
+      ["Katakana", "3コマ"],
+      ["Hangul", "3시"],
+      ["Thai", "3โมง"],
+      ["Lao", "3ໂມງ"],
+      ["Khmer", "3ម៉ោង"],
+      ["Myanmar", "3နာရီ"],
+    ]) {
+      // Vorbedingung: Das Stück trägt nur über die Schrift, nicht über die
+      // Regel mit 4 Buchstaben am Stück.
+      expect([script, /\p{L}{4}/u.test(piece)]).toEqual([script, false]);
+      expect([script, isWordlessMessage(piece)]).toEqual([script, false]);
+    }
+  });
+
+  test("D3: 4 Buchstaben müssen am Stück stehen, Ziffern dazwischen unterbrechen", () => {
+    for (const message of ["A1B2C3D4", "ab1cd2", "Kur123", "XI41050 abc1"])
+      expect([message, isWordlessMessage(message)]).toEqual([message, true]);
+    for (const message of ["Kurs123", "123Kurs", "XI41050kurs", "(Kurs123)"])
+      expect([message, isWordlessMessage(message)]).toEqual([message, false]);
+  });
+
   test("Leerraum jeder Art trennt die Stücke (Zeilenumbruch, Tab, geschütztes Leerzeichen)", () => {
     for (const message of [
       "  I730112  ",
@@ -98,6 +165,16 @@ describe("Wahl des Hinweises aus den früheren Nachrichten (AK-2, AK-3)", () => 
     ).toBe("previous");
   });
 
+  test("D3: frühere Nachricht mit angeklebter Nummer zählt als Nachricht mit Wörtern", () => {
+    for (const earlier of ["我想报名XI41050", "コースXI41050", "Kurs123"])
+      expect([earlier, wordlessResponseLanguage("XI41050", [earlier])]).toEqual(
+        [earlier, "previous"]
+      );
+    expect(wordlessResponseLanguage("XI41050", ["abc123", "TM3000"])).toBe(
+      "german"
+    );
+  });
+
   test("Nachricht mit Wörtern oder ohne Ziffer: nie ein Hinweis, gleich welcher Verlauf", () => {
     for (const history of [[], ["Gibt es Yogakurse?"], ["I730112"]])
       for (const message of [
@@ -105,6 +182,8 @@ describe("Wahl des Hinweises aus den früheren Nachrichten (AK-2, AK-3)", () => 
         "course XI41050",
         "Kurs XI41050",
         "课程 123",
+        "我想报名XI41050",
+        "course123",
         "Ok",
         "?",
         "😀",

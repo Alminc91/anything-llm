@@ -251,6 +251,10 @@ describe("Embed-Stream: Nachricht ohne Wörter (AK-2, AK-3)", () => {
         "26W1001, 26W1002",
         "12.12.",
         "😀 123",
+        // D3: höchstens 3 Buchstaben am Stück, weiter ohne Wörter
+        "TM3000",
+        "4M14",
+        "abc123",
       ]) {
         jest.clearAllMocks();
         const { systemPrompt } = await run(message, { cards });
@@ -305,15 +309,25 @@ describe("Embed-Stream: Nachricht ohne Wörter (AK-2, AK-3)", () => {
 });
 
 // NAK-1: eigene kurze Fragen in vielen Sprachen und Schriften, je auch mit
-// Kursnummer. Chinesisch, Japanisch und Thai schreiben ohne Leerraum; hier
-// stehen nur Beispiele, bei denen das nach Abschnitt 4 klar ein Wort ist
-// (ohne Ziffer im Stück oder mit Leerraum um die Kursnummer).
+// Kursnummer. Chinesisch, Japanisch, Koreanisch und Thai auch ohne
+// Leerraum um die Nummer (D3: ein Stück mit einem Zeichen dieser Schriften
+// ist ein Wort, auch mit Ziffer), Russisch mit angeklebter Nummer (D3:
+// mindestens 4 Buchstaben am Stück).
 const WITH_WORDS = {
   Deutsch: ["Gibt es Yogakurse?", "Ist im Kurs XI41050 noch ein Platz frei?"],
   Englisch: ["Do you have yoga courses?", "Is course XI41050 still open?"],
   Arabisch: ["هل توجد دورات يوغا؟", "هل يوجد مكان في الدورة XI41050؟"],
-  Chinesisch: ["有瑜伽课吗？", "课程 XI41050 还有名额吗？"],
-  Russisch: ["Есть ли курсы йоги?", "Есть ли места на курсе XI41050?"],
+  Chinesisch: [
+    "有瑜伽课吗？",
+    "课程 XI41050 还有名额吗？",
+    "课程XI41050还有名额吗？",
+    "这个课程3点开始吗",
+  ],
+  Russisch: [
+    "Есть ли курсы йоги?",
+    "Есть ли места на курсе XI41050?",
+    "Курс123",
+  ],
   Türkisch: ["Yoga kursu var mı?", "XI41050 kursunda yer var mı?"],
   Ukrainisch: ["Чи є курси йоги?", "Чи є місця на курсі XI41050?"],
   Persisch: ["آیا کلاس یوگا دارید؟", "آیا در دوره XI41050 جای خالی هست؟"],
@@ -328,19 +342,31 @@ const WITH_WORDS = {
   Griechisch: ["Υπάρχουν μαθήματα γιόγκα;", "Υπάρχει θέση στο XI41050;"],
   Hebräisch: ["יש קורסים של יוגה?", "יש מקום בקורס XI41050?"],
   Hindi: ["क्या योग की कक्षाएं हैं?", "क्या XI41050 में जगह है?"],
-  Japanisch: ["ヨガの講座はありますか？", "講座 XI41050 に空きはありますか？"],
-  Koreanisch: ["요가 강좌가 있나요?", "XI41050 강좌에 자리가 있나요?"],
+  Japanisch: [
+    "ヨガの講座はありますか？",
+    "講座 XI41050 に空きはありますか？",
+    "講座XI41050に空きはありますか？",
+    "コースXI41050",
+  ],
+  Koreanisch: [
+    "요가 강좌가 있나요?",
+    "XI41050 강좌에 자리가 있나요?",
+    "코스XI41050",
+  ],
   Vietnamesisch: ["Có lớp yoga không?", "Lớp XI41050 còn chỗ không?"],
   Tigrinya: ["ናይ ዮጋ ኮርስ ኣሎ ድዩ?", "ኣብ ኮርስ XI41050 ቦታ ኣሎ ድዩ?"],
-  Thai: ["มีคอร์สโยคะไหม", "คอร์ส XI41050 ยังว่างไหม"],
+  Thai: ["มีคอร์สโยคะไหม", "คอร์ส XI41050 ยังว่างไหม", "คอร์ส123"],
   Albanisch: ["A keni kurse joge?", "A ka vend në kursin XI41050?"],
-  // Beispiele mit Wörtern aus Abschnitt 4
+  // Beispiele mit Wörtern aus Abschnitt 4 (die letzten drei ab D3)
   Abschnitt4: [
     "Kurs XI41050",
     "course XI41050",
     "XI41050 bitte",
     "Nr. 123",
     "课程 123",
+    "我想报名XI41050",
+    "course123",
+    "Kurs123",
   ],
 };
 const ALL_WITH_WORDS = Object.values(WITH_WORDS).flat();
@@ -373,6 +399,23 @@ describe("NAK-1: Nachricht mit Wörtern -> System-Prompt byte-gleich zu heute", 
         language,
         WITH_WORDS[language].some((m) => /XI41050/.test(m)),
       ]).toEqual([language, true]);
+    // Chinesisch und Japanisch auch ohne Leerraum um die Nummer: ein Stück
+    // mit Ziffer und Schriftzeichen
+    const glued = (m) =>
+      m
+        .split(/\s+/u)
+        .some(
+          (piece) =>
+            /[0-9]/.test(piece) &&
+            /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(
+              piece
+            )
+        );
+    for (const language of ["Chinesisch", "Japanisch"])
+      expect([language, WITH_WORDS[language].some(glued)]).toEqual([
+        language,
+        true,
+      ]);
   });
 
   test("ohne Verlauf und mit Verlauf (Deutsch, Englisch, nur Nummern), Karten an und aus", async () => {
