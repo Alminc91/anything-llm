@@ -217,6 +217,8 @@ beforeAll(async () => {
   await client.dropTable(NS).catch(() => {});
   await lance.updateOrCreateCollection(client, infoRows(), NS);
   await lance.updateOrCreateCollection(client, courseRows(), NS);
+  // Kurse in den Volltextindex aufnehmen (Kursnummernsuche, Stichwortarm)
+  await lance.optimizeFtsIfStale(await client.openTable(NS), 1);
   // Stichtag Europe/Berlin: Kurs am 03.11.2026 ohne Vermerk
   await client.dropTable(NS_MIDNIGHT).catch(() => {});
   await lance.updateOrCreateCollection(
@@ -406,7 +408,11 @@ describe("NAK-3: Suche, Filter, Kursnummernsuche und Auswahlstufe unverändert",
         const result = await search(mode, extra);
         return {
           result,
-          rerankCalls: JSON.parse(JSON.stringify(mockRerank.mock.calls)),
+          rerankCalls: JSON.parse(
+            JSON.stringify(mockRerank.mock.calls, (_key, v) =>
+              typeof v === "bigint" ? `${v}n` : v
+            )
+          ),
           trace: timeless(traces),
         };
       };
