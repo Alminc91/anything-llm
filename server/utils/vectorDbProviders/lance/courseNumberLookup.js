@@ -20,10 +20,14 @@
  *    Hälften an Ziffern- und Halbgeviertstrich („26B7602–26B7604“; S-L8).
  *    Ein Teil zählt nur dort, wo das ganze Wort keine Kursnummer ergibt
  *    (S-L10).
- * 2. Je Kandidat eine Volltextsuche nur nach diesem Wort, mit denselben
- *    Bedingungen wie die übrige Suche (Metadatenfilter, Ausschluss
- *    veralteter Kurse). Der Kandidat geht nie in eine Filterbedingung, nur
- *    in die Volltextsuche, und besteht nur aus [A-Za-z0-9.-] (HC4).
+ * 2. Je Kandidat eine Volltextsuche nur nach diesem Wort, einmal je Frage,
+ *    mit Ausschluss veralteter Kurse, aber ohne Metadatenfilter (Mainz
+ *    16.11.2026: „Ist im Kurs XI66151 noch was frei?“ setzt bookable = true,
+ *    der Kurs auf der Warteliste muss trotzdem kommen). Die Filter gelten
+ *    für die übrigen Plätze; die Lockerung bei leerem Ergebnis zählt einen
+ *    gefundenen Kurs nur, wenn er die Bedingung der Stufe erfüllt (wie
+ *    vorher). Der Kandidat geht nie in eine Filterbedingung, nur in die
+ *    Volltextsuche, und besteht nur aus [A-Za-z0-9.-] (HC4).
  * 3. Ein Kandidat gilt erst als Kursnummer, wenn ein Treffer ihn in der
  *    Kopfzeile „Kursnummer:“ seines Kopfblocks führt, wie der Kursbestand
  *    sie liest (embedCourseSources.courseNumberFromText). Die Daten

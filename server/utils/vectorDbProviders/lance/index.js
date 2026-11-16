@@ -1152,8 +1152,10 @@ class LanceDb extends VectorDatabase {
   /**
    * Kursnummern in der Frage (courseNumberLookup.js, HC2 bis HC5): je
    * Kandidat eine Volltextsuche nur nach diesem Wort (alle Trigramme
-   * verlangt), mit derselben Bedingung wie die übrige Suche
-   * (Metadatenfilter, Ausschluss veralteter Kurse über filteredQueryRows).
+   * verlangt), immer mit Ausschluss veralteter Kurse (filteredQueryRows).
+   * performSimilaritySearch sucht ohne Metadatenfilter (Mainz 16.11.2026)
+   * und gibt `whereClause` nur zur Prüfung der Lockerung mit, ob ein
+   * gefundener Kurs die Bedingung einer Stufe erfüllt.
    * Der Kandidat steht nie in einer Bedingung. Treffer zählen nur, wenn
    * ihre Kopfzeile „Kursnummer:“ genau den Kandidaten führt; angeheftete
    * Dokumente bleiben wie in allen Pfaden draußen. Ergebnis in der
@@ -1168,7 +1170,8 @@ class LanceDb extends VectorDatabase {
    * @param {string} params.namespace
    * @param {{candidate: string, position: number, part: boolean, alsoPartAt?: number[]}[]} params.candidates
    *   - courseNumberSearchPlan(input), je Schreibweise ein Eintrag
-   * @param {string|null} [params.whereClause]
+   * @param {string|null} [params.whereClause] - Metadatenfilter (filtersToWhere);
+   *   null = Kurse unabhängig von den Filtern
    * @param {object|null} [params.exclusion]
    * @param {string[]} [params.filterIdentifiers]
    * @param {number} params.topN
@@ -1820,32 +1823,55 @@ class LanceDb extends VectorDatabase {
       ? Math.floor(Number(topN))
       : 0;
     const courseNumbers = lookupTopN >= 1 ? courseNumberSearchPlan(input) : [];
-    // Je Suchlauf (auch bei gelockerten Filtern) mit derselben Bedingung wie
-    // der Suchmodus, parallel zu ihm; gefundene Kurse vor dessen Ergebnis.
+    // Einmal je Anfrage, parallel zum ersten Suchlauf und ohne
+    // Metadatenfilter (Mainz 16.11.2026: „Ist im Kurs XI66151 noch was
+    // frei?“ setzt bookable = true, der Kurs auf der Warteliste fiel heraus):
+    // Eine genannte Nummer findet ihren Kurs auch, wenn er die Filter nicht
+    // erfüllt; der Kurs zeigt seine Angaben (Status, Termin, Preis) selbst.
+    // Ausschluss veralteter Kurse und angeheftete Dokumente gelten weiter.
+    const lookupParams = {
+      client,
+      namespace,
+      candidates: courseNumbers,
+      exclusion,
+      filterIdentifiers,
+    };
+    const lookup =
+      courseNumbers.length > 0
+        ? this.courseNumberLookup({
+            ...lookupParams,
+            topN: lookupTopN,
+            trace,
+            traceLevel,
+          })
+        : null;
+    // Ein Suchlauf hat Treffer (Lockerung unten), wenn der Suchmodus etwas
+    // fand oder ein Kurs mit der Nummer die Bedingung des Laufs erfüllt, wie
+    // vorher mit der Bedingung in der Kursnummernsuche. Geprüft wird das nur,
+    // wo es entscheidet (Suchmodus leer, Kurs gefunden, Bedingung gesetzt),
+    // mit der Kursnummernsuche unter dieser Bedingung, ohne Suchspur.
     const runSearch = async (whereClause, relaxStage = 0) => {
       if (trace) {
         trace.relaxStage = relaxStage;
         trace.whereClause = whereClause || null;
       }
-      const lookup =
-        courseNumbers.length > 0
-          ? this.courseNumberLookup({
-              client,
-              namespace,
-              candidates: courseNumbers,
-              whereClause,
-              exclusion,
-              filterIdentifiers,
-              topN: lookupTopN,
-              trace,
-              traceLevel,
-            })
-          : null;
       const [result, hits] = await Promise.all([
         runModeSearch(whereClause),
         lookup,
       ]);
-      return this.withCourseNumberHits(result, hits, lookupTopN, trace);
+      const found =
+        result.sourceDocuments.length > 0 ||
+        (Array.isArray(hits) &&
+          hits.length > 0 &&
+          (!whereClause ||
+            (
+              await this.courseNumberLookup({
+                ...lookupParams,
+                whereClause,
+                topN: 1,
+              })
+            ).length > 0));
+      return { result, hits, found };
     };
     const runModeSearch = async (whereClause) => {
       switch (mode) {
@@ -1911,24 +1937,25 @@ class LanceDb extends VectorDatabase {
     // the answer stays transparent instead of silently ignoring the ask.
     // Bei Relax spiegeln die Arm-/Fusion-Felder im Trace den ZULETZT
     // ausgeführten Suchlauf (dessen Ergebnis der Nutzer bekam); relaxStage
-    // dokumentiert die Stufe.
-    let result = await runSearch(filtersToWhere(activeFilters), 0);
+    // dokumentiert die Stufe. Gefundene Kurse mit genannter Nummer stehen
+    // danach vor dessen Ergebnis.
+    let run = await runSearch(filtersToWhere(activeFilters), 0);
     let relaxNote = null;
-    if (activeFilters && result.sourceDocuments.length === 0) {
+    if (activeFilters && !run.found) {
       const withoutTime = sanitizeSearchFilters(
         stripTimeFilters(activeFilters)
       );
       const hadTime =
         filtersToWhere(withoutTime) !== filtersToWhere(activeFilters);
       if (hadTime) {
-        result = await runSearch(filtersToWhere(withoutTime), 1);
-        if (result.sourceDocuments.length > 0)
+        run = await runSearch(filtersToWhere(withoutTime), 1);
+        if (run.found)
           relaxNote =
             "[Hinweis an den Assistenten: Für den angefragten Zeitraum wurden KEINE passenden Kurse gefunden. Die folgenden Treffer erfüllen die übrigen Kriterien, liegen aber außerhalb des angefragten Zeitraums — weise die Nutzerin/den Nutzer transparent darauf hin und nenne die tatsächlichen Termine.]";
       }
-      if (result.sourceDocuments.length === 0) {
-        result = await runSearch(null, 2);
-        if (result.sourceDocuments.length > 0)
+      if (!run.found) {
+        run = await runSearch(null, 2);
+        if (run.found)
           relaxNote =
             "[Hinweis an den Assistenten: Für die angefragten Kriterien (z. B. Zeitraum, Preis, Ort oder Verfügbarkeit) wurden KEINE passenden Kurse gefunden. Die folgenden Treffer sind thematisch ähnlich, erfüllen die Kriterien aber NICHT — sage das der Nutzerin/dem Nutzer klar und nenne die tatsächlichen Konditionen.]";
       }
@@ -1937,6 +1964,12 @@ class LanceDb extends VectorDatabase {
           "metadata_filters: empty result — relaxed filters, note injected."
         );
     }
+    const result = this.withCourseNumberHits(
+      run.result,
+      run.hits,
+      lookupTopN,
+      trace
+    );
 
     if (trace) {
       trace.totalMs = Date.now() - traceStart;
