@@ -1113,6 +1113,33 @@ describe("NAK-2: laufender Kurs, der als einziger passt, bleibt", () => {
     }
   });
 
+  test("K-R6: innerhalb der Spanne gilt die Nutzerregel, der einzige laufende Kurs zum Thema weicht vier künftigen", () => {
+    // „Gibt es Aquarellmalen?“: Der einzige Aquarellkurs läuft (0,998), vier
+    // Acryl- und Ölkurse ab Dezember liegen 0,008 bis 0,013 darunter, also
+    // in der Spanne. Die Stufe behandelt sie als gleich relevant und wählt
+    // die vier künftigen (Verhalten ausdrücklich festgehalten; NAK-2 gilt für
+    // „mehr als SPANNE über dem nächsten Kurs“, Review 8.2-rc6 K-L6).
+    const c = [
+      kurs("aquarell", 0.998, "2026-09-01"),
+      kurs("acryl-1", 0.99, "2026-12-01"),
+      kurs("oel-1", 0.988, "2026-12-05"),
+      kurs("acryl-2", 0.987, "2026-12-10"),
+      kurs("oel-2", 0.985, "2027-01-10"),
+    ];
+    const out = run(c);
+    expect(ids(out.selected)).toEqual(["acryl-1", "oel-1", "acryl-2", "oel-2"]);
+    expect(ids(out.swappedOut.map((s) => s.row))).toEqual(["aquarell"]);
+    expectStepRule(out, c);
+    // mit einem fünften Platz kommt er dahinter, nicht davor
+    expect(ids(run(c, 5).selected)).toEqual([
+      "acryl-1",
+      "oel-1",
+      "acryl-2",
+      "oel-2",
+      "aquarell",
+    ]);
+  });
+
   test("einziger Kurs zwischen Übersichten und schwachen Kursen", () => {
     const c = [
       info("i1", 0.95),
