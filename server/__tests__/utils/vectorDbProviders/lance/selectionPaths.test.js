@@ -618,6 +618,7 @@ describe("Search-Trace: trace.selection (AK-8)", () => {
         state,
         kind: "kurs",
         reason: "datum",
+        rerankRank: expect.any(Number),
       });
       // eingewechselt in Ausgabereihenfolge, ausgewechselt in der Reihenfolge
       // der heutigen Top-4; der Warteliste-Kurs „alt“ weicht gleich
@@ -631,6 +632,53 @@ describe("Search-Trace: trace.selection (AK-8)", () => {
       // final = ausgelieferte Dokumente, keine Chunk-Volltexte im Trace
       expect(traces[0].final.count).toBe(4);
       expect(JSON.stringify(traces[0])).not.toContain("Termin Termin");
+    });
+
+    test(`K-R3: trace.final.rerankRank ist der Rang vor der Stufe (${mode})`, async () => {
+      // Liste des Rerankers mitschneiden; im Modus rerank sieht die Stufe nur
+      // die zulässigen Zeilen („fern“ liegt unter der Ähnlichkeitsschwelle)
+      let pool = [];
+      mockRerank.mockImplementation(
+        async (...args) => (pool = await scoredRerank(...args))
+      );
+      const visible = () =>
+        (mode === "rerank" ? pool.filter((r) => r.id !== "fern") : pool).map(
+          (r) => r.id
+        );
+      settings = { course_selection: "on", search_trace: "on" };
+      await search("sel_kurse", mode);
+      const on = traces[0].final.docs;
+      expect(on.map((d) => d.id)).toEqual(FRANZ[mode].ids);
+      expect(on.map((d) => d.rerankRank)).toEqual(
+        on.map((d) => visible().indexOf(d.id))
+      );
+      // die Stufe hat umgeordnet: Rang vor der Stufe ≠ Endposition
+      expect(on.some((d) => d.rerankRank !== d.finalRank - 1)).toBe(true);
+      expect(on.every((d) => Number.isInteger(d.rerankRank))).toBe(true);
+
+      // Stufe aus: Rang vor der Stufe = Endposition
+      settings = { course_selection: "off", search_trace: "on" };
+      await search("sel_kurse", mode);
+      const off = traces[1].final.docs;
+      expect(off.map((d) => d.rerankRank)).toEqual(
+        off.map((d) => d.finalRank - 1)
+      );
+      expect(off.map((d) => d.rerankRank)).toEqual(
+        off.map((d) => visible().indexOf(d.id))
+      );
+
+      // Treffer der Kursnummernsuche, den die Stufe nicht gewählt hatte:
+      // kein Rang des Rerankers (null); die übrigen behalten ihren Rang
+      settings = { course_selection: "on", search_trace: "on" };
+      await search("sel_knr", mode, {
+        input: "Ist der Kurs 26W1001 noch frei?",
+      });
+      const knr = traces[2].final.docs;
+      expect(knr.map((d) => d.id)).toEqual(["kw", "kn1", "kn2", "kn3"]);
+      expect(knr[0].rerankRank).toBeNull();
+      expect(knr.slice(1).map((d) => d.rerankRank)).toEqual(
+        knr.slice(1).map((d) => pool.map((r) => r.id).indexOf(d.id))
+      );
     });
 
     test(`searchTrace-selection Stichtag Europe/Berlin (${mode})`, async () => {

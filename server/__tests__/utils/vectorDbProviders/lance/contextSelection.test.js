@@ -88,6 +88,8 @@ function expectStepRule(
   expect(out.selected).toHaveLength(n);
   expect(new Set(out.selected).size).toBe(n);
   for (const r of out.selected) expect(rows).toContain(r);
+  // K-R3: Rang vor der Stufe je Ausgabeplatz (0-basiert, Kandidatenreihenfolge)
+  expect(out.rerankRanks).toEqual(out.selected.map((r) => rows.indexOf(r)));
   if (!out.active) {
     expect(out.selected).toEqual(rows.slice(0, n));
     out.selected.forEach((r, i) => expect(r).toBe(rows[i]));
@@ -158,6 +160,8 @@ function expectStepRule(
   expect(out.swappedIn.map((s) => s.row)).toEqual(ins);
   for (const s of out.swappedOut)
     expect(s.reason).toBe(isCourse(s.row) ? "datum" : "deckel");
+  for (const s of [...out.swappedIn, ...out.swappedOut])
+    expect(s.rerankRank).toBe(rows.indexOf(s.row));
   for (const reason of ["datum", "deckel"])
     expect(out.swappedIn.filter((s) => s.reason === reason).length).toBe(
       out.swappedOut.filter((s) => s.reason === reason).length
@@ -873,6 +877,48 @@ describe("AK-5: Reihenfolge der Ausgabe", () => {
     expect(ids(out.selected)).toEqual(["team", "januar", "april", "faq"]);
     expect(out.reordered).toBe(true);
     expectStepRule(out, c);
+  });
+
+  test("K-R3: rerankRanks nennt je Ausgabeplatz den Rang vor der Stufe (0-basiert)", () => {
+    const c = [
+      kurs("april", 0.99, "2027-04-06"),
+      kurs("januar", 0.985, "2027-01-26"),
+      kurs("laufend", 0.98, "2026-09-01"),
+      kurs("spaeter", 0.5, "2026-10-09"),
+      kurs("pool", 0.4, "2026-10-10"),
+    ];
+    const out = run(c);
+    expect(ids(out.selected)).toEqual([
+      "januar",
+      "april",
+      "laufend",
+      "spaeter",
+    ]);
+    expect(out.rerankRanks).toEqual([1, 0, 2, 3]);
+    // eingewechselt aus dem Pool: Rang hinter den heutigen Top-N
+    const swap = [
+      kurs("k1", 0.99, "2027-06-01"),
+      kurs("k2", 0.99, "2027-05-01"),
+      info("u1", 0.98),
+      kurs("k3", 0.975, "2027-07-01"),
+      kurs("frueh", 0.975, "2026-10-09"),
+    ];
+    const swapped = run(swap);
+    expect(ids(swapped.selected)).toEqual(["frueh", "k2", "u1", "k1"]);
+    expect(swapped.rerankRanks).toEqual([4, 1, 2, 0]);
+    expect(
+      swapped.swappedIn.map((s) => [s.row.id, s.rerankRank, s.reason])
+    ).toEqual([["frueh", 4, "datum"]]);
+    expect(
+      swapped.swappedOut.map((s) => [s.row.id, s.rerankRank, s.reason])
+    ).toEqual([["k3", 3, "datum"]]);
+    // Rückfall: die ersten topN, Rang = Platz
+    const degraded = c.map((r) => ({ ...r, rerank_score: undefined }));
+    expect(run(degraded).rerankRanks).toEqual([0, 1, 2, 3]);
+    expect(run([], 4).rerankRanks).toEqual([]);
+    expect(selectContexts(null, { topN: 4, today: TODAY }).rerankRanks).toEqual(
+      []
+    );
   });
 
   test("ohne zeitlichen Vorrang bleibt die Reranker-Reihenfolge", () => {
