@@ -4,6 +4,14 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### Auswahlstufe: erst Relevanz, dann Datum (Stufenregel, 2026-11-16)
+
+- Die Auswahlstufe hinter dem Reranker (`contextSelection.js`) vergibt die Kursplätze einzeln: Führend ist der bestbewertete noch freie Kurs, gleich relevant sind die noch freien Kurse bis 0,02 darunter und ab dem Boden 0,3. Unter ihnen kommt zuerst der nächste künftige, buchbare Kurs, dann laufende Kurse, dann Warteliste oder ausgebucht (`bookable = false`, auch bei künftigem Beginn); bei gleichem Rang der höhere Score. Die 2 festen Relevanzplätze und das Band 0,1 entfallen. Anlass: vhs-mainz am 16.11.2026, „Yoga für den Rücken“ zeigte statt der Januar-Termine die laufenden Oktober- und die April-Termine.
+- Garantie: Kein Kurs steht vor einem Kurs mit mehr als 0,02 besserem Score. Unter dem Boden 0,3 bleibt die reine Score-Folge.
+- Die Quellen gehen in dieser Ordnung an das Modell (bisher Reranker-Reihenfolge); Nicht-Kurs-Dokumente behalten ihren Platz. Kursnummer-Treffer stehen weiter davor, der Deckel „höchstens 1 Übersichtsseite bei Kursfragen“ bleibt.
+- Env `COURSE_SELECTION_TIE_SPAN` (Standard `0.02`, ungültige Werte → Standard); `COURSE_SELECTION_KEEP` und `COURSE_SELECTION_BAND` sind ohne Wirkung (einmaliger Hinweis im Log). Search-Trace: neu `selection.reordered`, `rule` z. B. `stufe-span0.02-floor0.3-deckel1`.
+- Schalter aus, Tabelle ohne Kursspalten oder Reranker ohne Scores: Ergebnis unverändert (Snapshot-Tests).
+
 ### Konversationen: letzte Korrekturrunde vor dem Merge (Fixliste 7, 2026-10-14)
 
 - **Zeitraum als Berliner Kalendertage:** Liste und Export bekommen die gewählten Tage (`fromDay`/`toDay`, beide einschließlich) statt Zeitstempeln des Browsers und begrenzen sie wie Kennzahlen, Diagramm und Zählerbuch in Berliner Zeit – auch in einem Browser in New York oder UTC. Der Hinweis „N Konversationen gezählt, M davon einsehbar" gilt damit in jeder Zeitzone; der Dateiname des Exports nennt den gewählten letzten Tag. `startDate`/`endDate` bleiben für API-Clients gültig. Ein unlesbarer Zeitraum ist in Liste und Export einheitlich 400 (die Liste antwortete 500).
