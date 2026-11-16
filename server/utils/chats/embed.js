@@ -279,10 +279,11 @@ async function streamChatWithForEmbed(
     return;
   }
 
-  // Nachricht ohne Wörter (nur Kursnummern, Ziffern, Satzzeichen, Emojis;
-  // sprache-nur-nummer): Sprachwahl, Hinweis und Log erst hier, nach der
+  // Nachricht ohne Wörter: Sprachhinweis an der Nutzernachricht der
+  // Modellanfrage (sprache-nur-nummer D5, Begründung im Kopf von
+  // wordlessMessage.js). Sprachwahl, Hinweis und Log erst hier, nach der
   // Abweisung im Abfragemodus, damit das Log nur Anfragen an das Modell
-  // zählt (S-L1). Den Verlauf liest die Sprachwahl nur bei einer Nachricht
+  // zählt (S-L1); den Verlauf liest die Sprachwahl nur bei einer Nachricht
   // ohne Wörter.
   let userPrompt = message;
   if (isWordlessMessage(message)) {
@@ -299,13 +300,6 @@ async function streamChatWithForEmbed(
 
   // Compress message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
-  // Sprachhinweis (sprache-nur-nummer D5): einzige Stelle mit Hinweis ist
-  // userPrompt, also die aktuelle Nutzernachricht an das Modell (Nachricht
-  // + Hinweis). Messung 16.11.2026: Am Ende des System-Prompts stand er vor
-  // den Kurstexten, und das Modell überging ihn (8.2-rc5 live 3 von 9);
-  // an der Nutzernachricht offline 9 von 9. Gespeicherte Nachricht
-  // (EmbedChats.new), Verlauf, Folgefragen-Regel (userMessage), Rewriter,
-  // Filter und Suche bekommen weiter `message` ohne Hinweis.
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,
@@ -543,11 +537,8 @@ async function streamChatWithForEmbed(
  *     KI-Hinweis-Zeile, weil der KI-Hinweis fest im Widget steht),
  *  2. Disclaimer-Hinweis (KI-Hinweis fest unter der Eingabe),
  *  3. Folgefragen-Hinweis.
- * Der Sprachhinweis bei einer Nachricht ohne Wörter (sprache-nur-nummer)
- * steht NICHT hier, sondern an der Nutzernachricht der Modellanfrage
- * (streamChatWithForEmbed, userPrompt an compressMessages, D5 vom
- * 16.11.2026: am Ende des System-Prompts, vor den Kurstexten, überging ihn
- * das Modell). Der System-Prompt ist damit für jede Nachricht gleich.
+ * Der Sprachhinweis bei einer Nachricht ohne Wörter steht nicht hier (D5,
+ * Begründung im Kopf von wordlessMessage.js).
  * Hinweis 2 und 3 und der Stil sind feste Standards des vereinfachten
  * Design Centers (embedStandards.js EMBED_FIXED_STANDARDS) und hängen immer
  * an; variabel ist nur, ob Karten an sind (cardsOn, gespeicherte Wahl

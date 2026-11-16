@@ -1,18 +1,25 @@
-// Antwortsprache bei Nachrichten ohne Wörter (sprache-nur-nummer, FE-7).
+// Antwortsprache bei Nachrichten ohne Wörter (sprache-nur-nummer, FE-7;
+// Spezifikation issues/sprache-nur-nummer.md).
 //
 // Besteht die Widget-Nachricht nur aus Kursnummern, Ziffern, Satzzeichen
 // oder Emojis, findet das Modell keine Sprache und rät (Flotte 16.11.2026:
 // 31 % der ersten Nachrichten dieser Art englisch beantwortet). Dann legt
 // der Server die Antwortsprache fest: Sprache der früheren Nachrichten des
-// Besuchers, ohne solche Deutsch. Der Hinweis hängt nur an der aktuellen
-// Nutzernachricht der Modellanfrage (embed.js, userPrompt an
-// compressMessages; D5 vom 16.11.2026). Vorher stand er am Ende des
-// System-Prompts, also vor den Kurstexten, und das Modell überging ihn
-// (8.2-rc5 live 3 von 9; offline mit Chat1 an der Nutzernachricht 9 von 9,
-// issues/rollout-8.2/rc5-pruefung). Der System-Prompt bleibt damit für jede
-// Nachricht byte-gleich; gespeicherte Nachricht, Verlauf, Suche, Filter und
-// Query Rewriter bleiben unverändert. Jede Nachricht mit Wörtern bekommt nie
+// Besuchers, ohne solche Deutsch. Jede Nachricht mit Wörtern bekommt nie
 // einen Hinweis.
+//
+// Stelle des Hinweises (D5 vom 16.11.2026; die übrigen Stellen im Code
+// verweisen hierher): Der Hinweis hängt nur an der aktuellen Nutzernachricht
+// der Modellanfrage (embed.js: userPrompt an compressMessages, Nachricht +
+// Hinweis). Am Ende des System-Prompts stand er vor den Kurstexten, und das
+// Modell überging ihn (8.2-rc5 live 3 von 9; an der Nutzernachricht offline
+// mit Chat1 9 von 9, issues/rollout-8.2/rc5-pruefung). Der System-Prompt
+// bleibt damit für jede Nachricht byte-gleich (gecachter Präfix). Die
+// Nachricht ohne Hinweis bekommen: gespeicherte Nachricht (EmbedChats.new),
+// Verlauf, Query Rewriter, Metadatenfilter, Suche mit Kursnummer-Erkennung
+// und die Folgefragen-Regel (userMessage an parseCardsReply und
+// createCardsMarkerResponse: eine Folgefrage gleich der Nutzerfrage wird
+// verworfen; mit Hinweis bliebe „I730112“ als Folgefrage stehen).
 
 const LETTER = /\p{L}/u;
 // Ziffer = 0 bis 9 (Kursnummern der Kunden). Arabisch-indische und
@@ -100,8 +107,8 @@ function wordlessResponseLanguage(message, previousMessages = []) {
 // embed.js; Überschrift im Stil von DISCLAIMER_PROMPT_NOTE. Der Basis-Prompt
 // sagt schon „Use German only if no other language is identifiable“ (v3.4,
 // Short-Query Language Detection); der Hinweis setzt das durch. Wortlaut
-// seit 8.2-rc5 unverändert (D5 ändert nur die Stelle); die zwei führenden
-// Zeilenumbrüche trennen ihn von der Nachricht.
+// seit 8.2-rc5 unverändert; die zwei führenden Zeilenumbrüche trennen ihn
+// von der Nachricht.
 const REASON =
   "The user's latest message contains no words, only numbers or symbols (e.g. a course number), so its language cannot be detected.";
 const RESPONSE_LANGUAGE_NOTES = Object.freeze({
@@ -110,8 +117,8 @@ const RESPONSE_LANGUAGE_NOTES = Object.freeze({
 });
 
 /**
- * Text des Hinweises; embed.js hängt ihn an die Nachricht (Nachricht +
- * Hinweis, wie in der Messung vom 16.11.2026).
+ * Text des Hinweises; embed.js hängt ihn an die Nachricht (Stelle: Kopf
+ * dieser Datei).
  * @param {"german"|"previous"} responseLanguage Ergebnis von
  *   wordlessResponseLanguage für eine Nachricht ohne Wörter
  * @returns {string}
