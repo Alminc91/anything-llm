@@ -76,6 +76,12 @@ const SCORES = {
   p3: 0.95,
   p4: 0.94,
   pu1: 0.5,
+  // Tabelle sel_knr (NAK-1: Kursnummer auf Warteliste), alle gleich relevant
+  kw: 1.0,
+  kn1: 1.0,
+  kn2: 1.0,
+  kn3: 1.0,
+  kn4: 1.0,
 };
 const COURSES = [
   ["k1", 88],
@@ -245,7 +251,49 @@ async function makePinTable(ns) {
   );
 }
 
+// NAK-1: Yoga-Kurse mit Kursnummer im Kopf, alle mit Score 1,0. Der
+// Warteliste-Kurs „kw“ steht in der Vektorsuche vorn (exakt der
+// Suchvektor), die vier buchbaren beginnen in 10 bis 40 Tagen.
+const knrText = (knr, status, i) =>
+  [
+    "<document_metadata>",
+    `sourceDocument: kurs-${knr.toLowerCase()}.txt`,
+    "</document_metadata>",
+    "",
+    "Titel: Yoga am Abend",
+    `Kursnummer: ${knr}`,
+    `Kursstatus: ${status}`,
+    "",
+    `Kursbeschreibung: Yoga am Abend ${"Entspannung ".repeat(i + 1)}`,
+  ].join("\n");
+async function makeKnrTable(ns) {
+  const { client } = await lance.connect();
+  await client.dropTable(ns).catch(() => {});
+  const row = (id, knr, vector, days, bookable, i) => ({
+    id,
+    title: `kurs-yoga-${id}.txt`,
+    text: knrText(knr, bookable ? "Anmeldung möglich" : "Warteliste", i),
+    vector,
+    start_date: inDays(days),
+    end_date: inDays(days + 60),
+    bookable,
+    start_minutes: 1080,
+    price: 80,
+  });
+  await lance.updateOrCreateCollection(
+    client,
+    [
+      row("kw", "26W1001", [1, 0, 0, 0], -20, false, 0),
+      ...[1, 2, 3, 4].map((k) =>
+        row(`kn${k}`, `26W100${k + 1}`, vec(k), 10 * k, true, k)
+      ),
+    ],
+    ns
+  );
+}
+
 beforeAll(async () => {
+  await makeKnrTable("sel_knr");
   await makeManyTable("sel_viele");
   await makePinTable("sel_pin");
   await makeTable("sel_kurse", {});
@@ -373,14 +421,17 @@ describe("Kandidaten-Zeilen tragen die KIE-480-Spalten", () => {
 });
 
 // Heutige Top-4 (Snapshots „schalter-aus“): rerank alt,k1,k2,k3 —
-// hybrid_rerank k1,k2,alt,k3 (alle Score 1,0). Der Warteliste-Kurs „alt“
-// bleibt (nie entfernt, nie getauscht); fest sind die zwei ersten nach
-// Score, der freie Platz geht an den frühesten im Band (k5 in 18 Tagen),
-// ausgewechselt wird der späteste Kurs der Top-4 ohne festen Platz.
+// hybrid_rerank k1,k2,alt,k3 (alle Score 1,0). Stufenregel: alle Kurse mit
+// Score 1,0 sind gleich relevant (k6 mit 0,95 nicht); die künftigen,
+// buchbaren kommen nach Beginn (k5 in 18, k3 in 26, k2 in 48, k4 in 53
+// Tagen), der Warteliste-Kurs „alt“ und k1 (88 Tage) weichen ihnen. Die
+// Ausgabe folgt dieser Ordnung (AK-5); `out` in der Reihenfolge der
+// heutigen Top-4.
 const FRANZ = {
-  rerank: { ids: ["alt", "k1", "k3", "k5"], out: ["k2", 48] },
-  hybrid_rerank: { ids: ["k1", "k2", "alt", "k5"], out: ["k3", 26] },
+  rerank: { ids: ["k5", "k3", "k2", "k4"], out: ["alt", "k1"] },
+  hybrid_rerank: { ids: ["k5", "k3", "k2", "k4"], out: ["k1", "alt"] },
 };
+const FRANZ_DAYS = [18, 26, 48, 53];
 
 describe("Auswahlstufe aktiv (course_selection = on, Kursmetadaten)", () => {
   for (const mode of MODES) {
@@ -392,11 +443,14 @@ describe("Auswahlstufe aktiv (course_selection = on, Kursmetadaten)", () => {
       settings = { course_selection: "on" };
       const result = await search("sel_kurse", mode);
       expect(ids(result)).toEqual(FRANZ[mode].ids);
-      // kein Kurs der heutigen Top-4 fehlt außer dem einen Datumstausch
-      expect(ids(today).filter((id) => !ids(result).includes(id))).toEqual([
-        FRANZ[mode].out[0],
-      ]);
-      expect(result.sources.find((s) => s.id === "alt").bookable).toBe(false);
+      // AK-5: Quellen und Kontexte in der Ordnung der Stufenregel
+      expect(result.sources.map((s) => s.start_date)).toEqual(
+        FRANZ_DAYS.map(inDays)
+      );
+      // aus den heutigen Top-4 fallen nur der Warteliste-Kurs und k1 heraus
+      expect(ids(today).filter((id) => !ids(result).includes(id))).toEqual(
+        FRANZ[mode].out
+      );
       expect(result.sources.every((s) => !("vector" in s))).toBe(true);
       expect(result.sources.map((s) => s.score)).toEqual([1, 1, 1, 1]);
       expect(result.contextTexts).toEqual(result.sources.map((s) => s.text));
@@ -433,6 +487,24 @@ describe("Auswahlstufe aktiv (course_selection = on, Kursmetadaten)", () => {
   });
 });
 
+describe("NAK-1: Kursnummer-Treffer stehen vor der Auswahl", () => {
+  for (const mode of MODES) {
+    test(`gefragter Warteliste-Kurs steht vorn (${mode})`, async () => {
+      settings = { course_selection: "on" };
+      // Vorbedingung: ohne Kursnummer weicht der Warteliste-Kurs den vier
+      // gleich relevanten buchbaren Kursen
+      const plain = await search("sel_knr", mode, { input: "Yoga am Abend" });
+      expect(ids(plain)).toEqual(["kn1", "kn2", "kn3", "kn4"]);
+      const asked = await search("sel_knr", mode, {
+        input: "Ist der Kurs 26W1001 noch frei?",
+      });
+      expect(ids(asked)).toEqual(["kw", "kn1", "kn2", "kn3"]);
+      expect(asked.sources[0].bookable).toBe(false);
+      expect(asked.contextTexts[0]).toContain("Kursnummer: 26W1001");
+    });
+  }
+});
+
 describe("Search-Trace: trace.selection (AK-8)", () => {
   let traces = [];
   beforeEach(() => {
@@ -454,34 +526,29 @@ describe("Search-Trace: trace.selection (AK-8)", () => {
         reason: null,
         courseQuery: true,
         changed: true,
-        rule: "keep2-band0.1-floor0.3-deckel1-nodrop",
+        reordered: true,
+        rule: "stufe-span0.02-floor0.3-deckel1",
         today: TODAY,
         poolTopK: 12,
       });
-      expect(sel.swappedIn).toEqual([
-        {
-          id: "k5",
-          title: "kurs-franzoesisch-k5.txt",
-          score: 1,
-          naehe: 18,
-          state: "zukuenftig",
-          kind: "kurs",
-          reason: "datum",
-        },
-      ]);
-      // Warteliste-Kurs „alt“ wird nicht mehr ausgewechselt (kein „vorbei“)
-      const [outId, outNaehe] = FRANZ[mode].out;
-      expect(sel.swappedOut).toEqual([
-        {
-          id: outId,
-          title: `kurs-franzoesisch-${outId}.txt`,
-          score: 1,
-          naehe: outNaehe,
-          state: "zukuenftig",
-          kind: "kurs",
-          reason: "datum",
-        },
-      ]);
+      const swap = (id, naehe, state = "zukuenftig") => ({
+        id,
+        title: `kurs-franzoesisch-${id}.txt`,
+        score: 1,
+        naehe,
+        state,
+        kind: "kurs",
+        reason: "datum",
+      });
+      // eingewechselt in Ausgabereihenfolge, ausgewechselt in der Reihenfolge
+      // der heutigen Top-4; der Warteliste-Kurs „alt“ weicht gleich
+      // relevanten buchbaren Kursen
+      expect(sel.swappedIn).toEqual([swap("k5", 18), swap("k4", 53)]);
+      const outs = {
+        alt: swap("alt", null, "warteliste"),
+        k1: swap("k1", 88),
+      };
+      expect(sel.swappedOut).toEqual(FRANZ[mode].out.map((id) => outs[id]));
       // final = ausgelieferte Dokumente, keine Chunk-Volltexte im Trace
       expect(traces[0].final.count).toBe(4);
       expect(JSON.stringify(traces[0])).not.toContain("Termin Termin");
