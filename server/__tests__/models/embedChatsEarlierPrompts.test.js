@@ -185,3 +185,134 @@ describe("earlierPrompts: frühere Fragen derselben Unterhaltung und Sitzung", (
     expect(errorSpy).toHaveBeenCalled();
   });
 });
+
+// Fixliste rc7 E-R3: Lesen (forEmbedByUser), frühere Fragen (earlierPrompts)
+// und Invalidieren (markHistoryInvalid, „Verlauf löschen“ im Widget) meinen
+// dieselben Zeilen, sonst tauchen gelöschte Fragen im Verlauf oder im Block
+// „Earlier user questions“ wieder auf.
+describe("markHistoryInvalid: dieselben Zeilen wie forEmbedByUser und earlierPrompts", () => {
+  const read = (conversationId, boundSessionId) =>
+    EmbedChats.forEmbedByUser(
+      EMBED_ID,
+      conversationId,
+      null,
+      null,
+      "conversation_id",
+      boundSessionId
+    );
+  const hiddenIds = async () =>
+    (
+      await db.client.embed_chats.findMany({
+        where: { include: false },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      })
+    ).map((r) => r.id);
+  const allPrompts = (conversationId, boundSessionId) =>
+    call({
+      conversationId,
+      boundSessionId,
+      beforeId: Number.MAX_SAFE_INTEGER,
+      limit: 1000,
+    });
+
+  // invalidiert die Unterhaltung und gibt die Prompts der Zeilen zurück,
+  // die dabei unsichtbar wurden
+  async function invalidate(conversationId, boundSessionId) {
+    const before = await hiddenIds();
+    const rows = await read(conversationId, boundSessionId);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(await allPrompts(conversationId, boundSessionId)).toEqual(
+      rows.map((r) => r.prompt)
+    );
+    await EmbedChats.markHistoryInvalid(
+      EMBED_ID,
+      conversationId,
+      "conversation_id",
+      boundSessionId
+    );
+    const newlyHidden = (await hiddenIds()).filter(
+      (id) => !before.includes(id)
+    );
+    // genau die gelesenen Zeilen, keine mehr und keine weniger
+    expect(newlyHidden).toEqual(rows.map((r) => r.id));
+    expect(await read(conversationId, boundSessionId)).toEqual([]);
+    expect(await allPrompts(conversationId, boundSessionId)).toEqual([]);
+    return rows.map((r) => r.prompt);
+  }
+
+  test("eigene Unterhaltung: fremde Sitzung, andere Unterhaltung, anderes Widget und Legacy-Zeilen bleiben", async () => {
+    await seedMixed();
+    expect(await invalidate(CONVERSATION, SESSION)).toEqual([
+      "Gibt es Yoga?",
+      "Ich bin Anfänger",
+      "Und am Abend?",
+      "Wie teuer ist das?",
+    ]);
+    const stillVisible = (
+      await db.client.embed_chats.findMany({
+        where: { include: true },
+        orderBy: { id: "asc" },
+      })
+    ).map((r) => r.prompt);
+    expect(stillVisible).toEqual([
+      "FREMD: Gibt es Malkurse?",
+      "ANDERE UNTERHALTUNG: Gibt es Spanisch?",
+      "ANDERES WIDGET: Gibt es Tanz?",
+      "LEGACY OHNE UNTERHALTUNG: Gibt es Schach?",
+    ]);
+  });
+
+  test("fremde Sitzung mit bekannter conversationId invalidiert nur ihre eigene Zeile", async () => {
+    await seedMixed();
+    expect(await invalidate(CONVERSATION, FOREIGN_SESSION)).toEqual([
+      "FREMD: Gibt es Malkurse?",
+    ]);
+    expect((await read(CONVERSATION, SESSION)).map((r) => r.prompt)).toEqual([
+      "Gibt es Yoga?",
+      "Ich bin Anfänger",
+      "Und am Abend?",
+      "Wie teuer ist das?",
+    ]);
+  });
+
+  test("KIE-503: Bucket der Sitzung (conversationId gleich sessionId) mit Legacy-NULL, nur der eigenen Sitzung", async () => {
+    await seedEmbedChats(db.client, [
+      own("Legacy eins", { conversation_id: null }),
+      own("Legacy fremd", { conversation_id: null, session_id: "andere" }),
+      own("Migriert zwei", { conversation_id: SESSION }),
+      own("Andere Unterhaltung derselben Sitzung"),
+    ]);
+    expect(await invalidate(SESSION, SESSION)).toEqual([
+      "Legacy eins",
+      "Migriert zwei",
+    ]);
+    const stillVisible = (
+      await db.client.embed_chats.findMany({
+        where: { include: true },
+        orderBy: { id: "asc" },
+      })
+    ).map((r) => r.prompt);
+    expect(stillVisible).toEqual([
+      "Legacy fremd",
+      "Andere Unterhaltung derselben Sitzung",
+    ]);
+  });
+
+  test("eine Quelle: markHistoryInvalid baut sein WHERE über _historyWhere", async () => {
+    await seedMixed();
+    const spy = jest.spyOn(EmbedChats, "_historyWhere");
+    await EmbedChats.markHistoryInvalid(
+      EMBED_ID,
+      CONVERSATION,
+      "conversation_id",
+      SESSION
+    );
+    expect(spy).toHaveBeenCalledWith(
+      EMBED_ID,
+      CONVERSATION,
+      "conversation_id",
+      SESSION
+    );
+  });
+});

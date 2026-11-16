@@ -593,9 +593,11 @@ const EmbedChats = {
   },
 
   /**
-   * WHERE des Widget-Verlaufs (forEmbedByUser) und der früheren Fragen für
-   * den Query Rewriter (earlierPrompts): nur sichtbare Zeilen (include) des
-   * Widgets, die Unterhaltung an ihre Sitzung gebunden (KIE-505).
+   * WHERE des Widget-Verlaufs (forEmbedByUser), der früheren Fragen für den
+   * Query Rewriter (earlierPrompts) und des Löschens im Widget
+   * (markHistoryInvalid, ohne include): nur sichtbare Zeilen (include) des
+   * Widgets, die Unterhaltung an ihre Sitzung gebunden (KIE-505). Die eine
+   * Quelle dieser Regel; Lesen und Invalidieren meinen so dieselben Zeilen.
    * @param {number} embedId
    * @param {string} identifierId - session_id oder conversation_id
    * @param {string} identifierType - "session_id" oder "conversation_id"
@@ -702,33 +704,19 @@ const EmbedChats = {
     if (!embedId || !identifierId) return [];
 
     try {
-      // Build WHERE clause dynamically
-      const whereClause = {
-        embed_id: Number(embedId),
-      };
-
-      if (identifierType === "conversation_id") {
-        if (boundSessionId && String(identifierId) === String(boundSessionId)) {
-          // KIE-503: Spiegel des Legacy-NULL-Zweigs aus forEmbedByUser — Lesen
-          // und Invalidieren müssen denselben Session-Bucket meinen, sonst
-          // tauchen "gelöschte" Legacy-Zeilen nach Reload wieder auf.
-          whereClause.session_id = String(boundSessionId);
-          whereClause.OR = [
-            { conversation_id: String(identifierId) },
-            { conversation_id: null },
-          ];
-        } else {
-          whereClause.conversation_id = String(identifierId);
-          // BOLA/IDOR hardening (KIE-505): only invalidate history that belongs
-          // to the requesting session, not any session sharing the conversationId.
-          if (boundSessionId) whereClause.session_id = String(boundSessionId);
-        }
-      } else {
-        whereClause.session_id = String(identifierId);
-      }
-
+      // Dieselben Zeilen wie beim Lesen (forEmbedByUser, earlierPrompts):
+      // ein WHERE aus _historyWhere (Legacy-NULL-Bucket KIE-503, Bindung an
+      // die Sitzung KIE-505), sonst tauchen gelöschte Zeilen nach dem Neuladen
+      // im Verlauf oder bei den früheren Fragen wieder auf. include fällt
+      // heraus: Zeilen, die schon unsichtbar sind, bleiben es.
+      const { include, ...where } = this._historyWhere(
+        embedId,
+        identifierId,
+        identifierType,
+        boundSessionId
+      );
       await prisma.embed_chats.updateMany({
-        where: whereClause,
+        where,
         data: {
           include: false,
         },
