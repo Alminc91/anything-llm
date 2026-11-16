@@ -97,7 +97,7 @@ function selectionBlock(selection, result, poolTopK) {
       reason: result.reason,
       courseQuery: result.courseQuery,
       changed: result.changed,
-      reordered: result.reordered === true,
+      reordered: result.reordered,
       rule: result.rule,
       today: selection.today ?? null,
       poolTopK,

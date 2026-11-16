@@ -1431,7 +1431,7 @@ describe("selectContexts: Replay der Messdaten 08.10.2026", () => {
         continue;
       }
       stats.valid += 1;
-      expectStepRule(out, rows);
+      const seq = expectStepRule(out, rows);
       if (out.changed) stats.changed += 1;
       if (out.reordered) stats.reordered += 1;
       for (const s of out.swappedOut) stats[s.reason] += 1;
@@ -1449,13 +1449,11 @@ describe("selectContexts: Replay der Messdaten 08.10.2026", () => {
             c.score >= Math.max(best - SPAN - EPS, FLOOR)
         )
         .sort((a, b) => a.c.naehe - b.c.naehe || b.c.score - a.c.score)[0];
-      const first = out.selected.find((r) => {
-        const c = classifyRow(r, TODAY);
-        return c.course && c.score !== null;
-      });
+      // erster Kurs der Ausgabe aus der Kursfolge von expectStepRule
+      const first = seq[0] && cls[rows.indexOf(seq[0])];
       if (next && first) {
         stats.withNext += 1;
-        if (classifyRow(first, TODAY).naehe === next.c.naehe)
+        if (first.state === "zukuenftig" && first.naehe === next.c.naehe)
           stats.nextFirst += 1;
       }
     }

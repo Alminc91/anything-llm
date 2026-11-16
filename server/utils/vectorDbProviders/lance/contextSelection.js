@@ -66,12 +66,15 @@ const COURSE_QUERY_MIN = 3;
 const MAX_NON_COURSE = 1;
 /** Toleranz für Gleitkomma-Vergleiche an der Spannengrenze (nicht am Boden). */
 const SPAN_EPSILON = 1e-9;
-/** Zeitliche Priorität unter gleich relevanten Kursen (kleiner = weiter vorn). */
+/**
+ * Zeitliche Priorität unter gleich relevanten Kursen (kleiner = weiter vorn).
+ * Nicht-Kurs-Dokumente erreichen die Stufenregel nie, sie behalten ihren
+ * Platz (D1/E3), deshalb hat `kein-kurs` keinen Rang.
+ */
 const TIME_RANK = Object.freeze({
   zukuenftig: 0,
   laufend: 1,
   warteliste: 2,
-  "kein-kurs": 3,
 });
 /** Env der früheren Regel (2 feste Plätze, Band 0,1), seit der Stufenregel ohne Wirkung. */
 const OBSOLETE_ENV = Object.freeze([
@@ -416,13 +419,13 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
   );
   // Eingewechselt werden nur Kurse: so viele `datum` wie Kurse ausgewechselt
   // wurden (die zuerst gewählten), der Rest ersetzt Übersichten (`deckel`).
+  // Die Kursplätze der Ausgabe folgen `picks`, die neuen Kurse stehen damit
+  // schon in Ausgabereihenfolge.
   const datumOut = outIdx.filter(isScoredCourse).length;
-  const datumIn = new Set(
-    picks.filter((i) => !inBase.has(i)).slice(0, datumOut)
+  const newPicks = picks.filter((i) => !inBase.has(i));
+  const swappedIn = newPicks.map((i, k) =>
+    describe(i, k < datumOut ? "datum" : "deckel")
   );
-  const swappedIn = ordered
-    .filter((i) => !inBase.has(i))
-    .map((i) => describe(i, datumIn.has(i) ? "datum" : "deckel"));
 
   return {
     selected: ordered.map((i) => list[i]),
