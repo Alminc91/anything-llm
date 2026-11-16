@@ -50,11 +50,17 @@ const run = (candidates, topN = 4, settings, today = TODAY) =>
 const byScoreDesc = (rows) =>
   [...rows].sort((a, b) => b.rerank_score - a.rerank_score);
 
-// Zeitliche Priorität unter gleich relevanten Kursen (AK-1): ist a strikt vor b?
+// Zeitliche Priorität unter gleich relevanten Kursen (AK-1, D7): ist a strikt
+// vor b? Innerhalb einer Stufe zuerst die mit künftigem Beginn (früheste
+// zuerst), dann die begonnenen (Nähe null); laufende haben alle Nähe 0.
 const RANK = { zukuenftig: 0, laufend: 1, warteliste: 2 };
 const strictlyBefore = (a, b) => {
   if (RANK[a.state] !== RANK[b.state]) return RANK[a.state] < RANK[b.state];
-  if (a.state === "zukuenftig" && a.naehe !== b.naehe) return a.naehe < b.naehe;
+  if (a.naehe !== b.naehe) {
+    if (a.naehe === null) return false;
+    if (b.naehe === null) return true;
+    return a.naehe < b.naehe;
+  }
   return a.score > b.score;
 };
 
@@ -314,16 +320,20 @@ describe("classifyRow", () => {
     });
   });
 
-  test("AK-1 (c): künftiger, ausgebuchter Kurs gilt als Warteliste", () => {
+  test("AK-1 (c), D7: künftiger, ausgebuchter Kurs gilt als Warteliste, mit Tagen bis Start", () => {
     expect(classifyRow(kurs("f", 0.9, "2026-11-01", false), TODAY)).toEqual({
       score: 0.9,
       course: true,
       state: "warteliste",
-      naehe: null,
+      naehe: 24,
     });
     expect(
-      classifyRow(kurs("heute", 0.9, "2026-10-08", false), TODAY).state
-    ).toBe("warteliste");
+      classifyRow(kurs("heute", 0.9, "2026-10-08", false), TODAY)
+    ).toMatchObject({ state: "warteliste", naehe: 0 });
+    // begonnen: keine Nähe (null), wie bisher
+    expect(
+      classifyRow(kurs("gestern", 0.9, "2026-10-07", false), TODAY)
+    ).toMatchObject({ state: "warteliste", naehe: null });
   });
 });
 
@@ -487,6 +497,111 @@ describe("AK-1 (c): künftiger ausgebuchter Kurs nach hinten", () => {
       kurs("frei", 0.95, "2026-10-10"),
     ];
     expect(ids(run(c, 2).selected)).toEqual(["ausgebucht", "frei"]);
+  });
+});
+
+describe("D7 (K-R1): innerhalb der Stufe Warteliste der früheste künftige Beginn zuerst", () => {
+  // Live-Probe 8.2-rc6 auf entwicklung (Düsseldorf-Daten, 16.11.2026): „Wann
+  // ist der nächste Einbürgerungstest?“ Zwölf Termine 21.01. bis 24.06.2027,
+  // alle „Keine Anmeldung möglich“ (bookable false), Scores innerhalb 0,02,
+  // höchster Score am 24.06. Quellen auf rc6: 24.06., 24.06., 21.01., 18.02.
+  const STICHTAG = "2026-11-16";
+  const TERMINE = [
+    ["J414930", "2027-06-24", 0.999], // 10 Uhr
+    ["J414931", "2027-06-24", 0.9985], // 12 Uhr
+    ["J414912", "2027-01-21", 0.998], // 12 Uhr
+    ["J414914", "2027-02-18", 0.9975], // 12 Uhr
+    ["J414916", "2027-03-18", 0.994],
+    ["J414917", "2027-03-18", 0.9935],
+    ["J414920", "2027-04-15", 0.99],
+    ["J414921", "2027-04-15", 0.989],
+    ["J414924", "2027-05-20", 0.985],
+    ["J414925", "2027-05-20", 0.984],
+    ["J414913", "2027-02-18", 0.982], // 10 Uhr
+    ["J414911", "2027-01-21", 0.98], // 10 Uhr, fehlte auf rc6
+  ];
+  const ERWARTET = ["2027-01-21", "2027-01-21", "2027-02-18", "2027-02-18"];
+  const termin = (knr, start, score) => ({
+    ...kurs(knr, score, start, false),
+    title: `einbuergerungstest-${knr.toLowerCase()}.txt`,
+  });
+
+  test("Einbürgerungstest (rc6): Ausgabe beginnt mit dem 21.01., beide Januar-Termine vor Februar", () => {
+    const rows = TERMINE.map(([knr, start, score]) =>
+      termin(knr, start, score)
+    );
+    const out = selectContexts(rows, { topN: 4, today: STICHTAG });
+    expect(out.selected.map((r) => r.start_date)).toEqual(ERWARTET);
+    // bei gleichem Beginn der höhere Score (12 Uhr vor 10 Uhr)
+    expect(ids(out.selected)).toEqual([
+      "J414912",
+      "J414911",
+      "J414914",
+      "J414913",
+    ]);
+    expect(out.reordered).toBe(true);
+    expectStepRule(out, rows, { today: STICHTAG });
+  });
+
+  test("Einbürgerungstest: jede Verteilung der Scores innerhalb der Spanne ergibt Januar, Januar, Februar, Februar", () => {
+    const scores = TERMINE.map(([, , score]) => score);
+    let seed = 7;
+    for (let t = 0; t < 200; t++) {
+      // deterministisches Mischen der Scores über die Termine (Fisher-Yates)
+      const mixed = [...scores];
+      for (let i = mixed.length - 1; i > 0; i--) {
+        seed = (Math.imul(seed, 48271) + 1) & 0x7fffffff;
+        const j = seed % (i + 1);
+        [mixed[i], mixed[j]] = [mixed[j], mixed[i]];
+      }
+      const rows = byScoreDesc(
+        TERMINE.map(([knr, start], i) => termin(knr, start, mixed[i]))
+      );
+      const out = selectContexts(rows, { topN: 4, today: STICHTAG });
+      expect(out.selected.map((r) => r.start_date)).toEqual(ERWARTET);
+      expectStepRule(out, rows, { today: STICHTAG });
+    }
+  });
+
+  test("Stufenfolge bleibt: künftig buchbar, laufend, Warteliste mit künftigem Beginn (früheste zuerst), begonnene Warteliste nach Score", () => {
+    const c = [
+      kurs("wl-lfd-hoch", 0.999, "2026-09-01", false), // begonnen, Warteliste
+      kurs("wl-mai", 0.998, "2027-05-01", false),
+      kurs("wl-lfd-tief", 0.997, "2026-08-01", false),
+      kurs("wl-jan", 0.996, "2027-01-10", false),
+      kurs("lfd-alt", 0.99, "2026-08-01"), // laufend: nach Score, nicht nach Beginn
+      kurs("lfd-neu", 0.985, "2026-10-01"),
+      kurs("dez", 0.981, "2026-12-01"),
+    ];
+    const out = run(c, 7);
+    expect(ids(out.selected)).toEqual([
+      "dez",
+      "lfd-alt",
+      "lfd-neu",
+      "wl-jan",
+      "wl-mai",
+      "wl-lfd-hoch",
+      "wl-lfd-tief",
+    ]);
+    expectStepRule(out, c, { topN: 7 });
+    // Platz für Platz: die ersten Plätze sind ein Präfix der längeren Liste
+    for (const topN of [1, 2, 3, 4, 5, 6])
+      expect(ids(run(c, topN).selected)).toEqual(
+        ids(out.selected).slice(0, topN)
+      );
+  });
+
+  test("AK-2 bleibt: ein früherer Wartelisten-Kurs zieht nicht vor einen mit mehr als SPANNE besserem Score", () => {
+    const c = [
+      kurs("wl-spaet", 0.95, "2027-06-01", false),
+      kurs("wl-frueh", 0.929, "2026-10-09", false),
+    ];
+    expect(ids(run(c, 2).selected)).toEqual(["wl-spaet", "wl-frueh"]);
+    const within = [
+      kurs("wl-spaet", 0.95, "2027-06-01", false),
+      kurs("wl-frueh", 0.93, "2026-10-09", false),
+    ];
+    expect(ids(run(within, 2).selected)).toEqual(["wl-frueh", "wl-spaet"]);
   });
 });
 
