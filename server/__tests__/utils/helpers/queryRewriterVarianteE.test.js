@@ -15,6 +15,8 @@
 //   der Block.
 // - NAK-3: erste Nachricht und Fragen über der Wortgrenze ohne Rewrite.
 // - E-R2: frühere Fragen lädt der Rewriter erst, wenn er umschreibt.
+// - R8-L1: content als Liste von Inhaltsteilen (OpenAI-kompatibler Chat)
+//   ergibt im Verlauf den Text der Teile, nie „[object Object]“.
 const fs = require("fs");
 const path = require("path");
 
@@ -358,5 +360,69 @@ describe("E-R2: frühere Fragen erst laden, wenn umgeschrieben wird", () => {
     ).toBe(args.userQuery);
     expect(load).not.toHaveBeenCalled();
     expect(llm.getChatCompletion).not.toHaveBeenCalled();
+  });
+});
+
+// Nachreview rc8 R8-L1: Der OpenAI-kompatible Chat gibt den Verlauf roh
+// weiter, content kann dort eine Liste von Inhaltsteilen sein. Im Block
+// „Chat history“ steht dann der Text der Teile wie bei der letzten Nachricht
+// (extractTextContent), nie „[object Object]“; anderes oder leeres ergibt
+// leeren Text. Zeichenketten bleiben unverändert (AK-1).
+describe("R8-L1: Inhalt als Liste von Inhaltsteilen (OpenAI-kompatibler Chat)", () => {
+  const IMAGE = {
+    type: "image_url",
+    image_url: { url: "data:image/png;base64,AAAA" },
+  };
+  const CHAT_HISTORY = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Gibt es Yoga?" },
+        IMAGE,
+        { type: "text", text: "Am liebsten abends" },
+      ],
+    },
+    {
+      role: "assistant",
+      content: [
+        { type: "text", text: "Ja:\n\n1. Hatha" },
+        { type: "text", text: "2. Yin" },
+      ],
+    },
+  ];
+
+  test("user und assistant: Text der Teile, Bilder weg, Antwort wie bisher gekürzt", async () => {
+    const llm = connector();
+    await rewriteQueryForSearch({
+      userQuery: "Das zweite?",
+      chatHistory: CHAT_HISTORY,
+      LLMConnector: llm,
+      workspace: WORKSPACE_ON,
+    });
+    expect(llm.getChatCompletion).toHaveBeenCalledTimes(1);
+    const user = llm.getChatCompletion.mock.calls[0][0][1].content;
+    expect(user).toBe(
+      "Chat history:\nUser: Gibt es Yoga?\nAm liebsten abends\n" +
+        "Assistant: Ja: 1. Hatha 2. Yin\n\nLatest question: Das zweite?"
+    );
+    expect(user).not.toContain("[object Object]");
+  });
+
+  test.each([
+    ["leere Liste", []],
+    ["nur ein Bild", [IMAGE]],
+    ["null", null],
+    ["Objekt statt Liste", { type: "text", text: "Ja" }],
+  ])("%s: leerer Text in beiden Rollen", (_name, content) => {
+    const message = userMessage({
+      userQuery: "Und?",
+      chatHistory: [
+        { role: "user", content },
+        { role: "assistant", content },
+      ],
+    });
+    expect(message).toBe(
+      "Chat history:\nUser: \nAssistant: \n\nLatest question: Und?"
+    );
   });
 });

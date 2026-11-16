@@ -1,3 +1,5 @@
+const { extractTextContent } = require("../../../endpoints/api/openai/helpers");
+
 // Query Rewriter: formuliert kurze Folgefragen für die Suche zu einer
 // vollständigen Frage um.
 // Variante E mit Nachrichtenform E2 (issues/folgefragen-variante-e.md,
@@ -90,18 +92,24 @@ function rewriteHistoryTurns() {
 }
 
 // Block „Chat history“: die letzten Runden (2 Nachrichten je Runde),
-// Antworten mit shortenWords gekürzt, Fragen unverändert
+// Antworten mit shortenWords gekürzt, Fragen unverändert. Inhalt erst als
+// Text (R8-L1): Zeichenketten unverändert, eine Liste von Inhaltsteilen
+// (OpenAI-kompatibler Chat, Verlauf roh aus dem Endpunkt) über
+// extractTextContent wie die letzte Nachricht dort, anderes leer
 function historyText(chatHistory) {
   return chatHistory
     .slice(-rewriteHistoryTurns() * 2)
-    .map(
-      (m) =>
-        `${m.role === "user" ? "User" : "Assistant"}: ${
-          m.role === "assistant"
-            ? shortenWords(m.content, HISTORY_ANSWER_WORDS)
-            : m.content
-        }`
-    )
+    .map((m) => {
+      const text =
+        typeof m.content === "string"
+          ? m.content
+          : Array.isArray(m.content)
+            ? extractTextContent(m.content)
+            : "";
+      return `${m.role === "user" ? "User" : "Assistant"}: ${
+        m.role === "assistant" ? shortenWords(text, HISTORY_ANSWER_WORDS) : text
+      }`;
+    })
     .join("\n");
 }
 
@@ -114,7 +122,7 @@ function historyText(chatHistory) {
  * (rewriteHistoryTurns, Standard 2) und „Latest question“.
  * @param {Object} input
  * @param {string} input.userQuery - aktuelle Frage
- * @param {{role: string, content: string}[]} input.chatHistory - ganzer geladener Verlauf (user/assistant, je Runde zwei Nachrichten); die letzten Runden nimmt die Funktion selbst
+ * @param {{role: string, content: string|Object[]}[]} input.chatHistory - ganzer geladener Verlauf (user/assistant, je Runde zwei Nachrichten); die letzten Runden nimmt die Funktion selbst; content als Liste von Inhaltsteilen (OpenAI-kompatibler Chat) zählt mit dem Text seiner Teile
  * @param {string[]|null} [input.earlierUserQuestions] - Fragen des Besuchers vor diesen Runden, älteste zuerst; die neuesten EARLIER_QUESTIONS_MAX (1) nimmt die Funktion selbst; null oder [] = kein Block
  * @returns {{role: string, content: string}[]}
  */
