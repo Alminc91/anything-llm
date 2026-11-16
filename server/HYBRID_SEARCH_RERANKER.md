@@ -192,7 +192,7 @@ Sie bestimmt Menge **und Reihenfolge** der Kontexte nach der Regel „erst Relev
    |---|---|---|---|
    | 1 | `zukuenftig` | `start_date ≥ heute` und `bookable !== false` | Tage bis Start |
    | 2 | `laufend` | `start_date < heute` und `bookable !== false` (buchbar oder unbekannt) | 0 |
-   | 3 | `warteliste` | `bookable === false`, auch bei künftigem Beginn | keine (`null`) |
+   | 3 | `warteliste` | `bookable === false`, auch bei künftigem Beginn | Tage bis Start, begonnen: keine (`null`) |
 
    Zeilen ohne gültiges `start_date` sind keine Kurse, sondern Nicht-Kurs-Dokumente (Punkt 5).
 
@@ -207,8 +207,11 @@ Sie bestimmt Menge **und Reihenfolge** der Kontexte nach der Regel „erst Relev
 
 3. **Stufenregel für die Kursplätze:** Platz für Platz ist der bestbewertete noch freie Kurs der
    Führende. Gleich relevant sind die noch freien Kurse mit `score ≥ Führender - 0,02` (Spanne)
-   und `score ≥ 0,3` (Boden). Unter ihnen gewinnt der kleinere Rang, unter künftigen Kursen der
-   früheste Beginn, bei gleichem Rang der höhere Score, zuletzt die Reranker-Reihenfolge.
+   und `score ≥ 0,3` (Boden). Unter ihnen gewinnt der kleinere Rang. Innerhalb desselben Rangs
+   gehen Kurse mit künftigem Beginn vor, der früheste zuerst, auch auf der Warteliste (D7, nach
+   der Live-Probe 8.2-rc6: zwölf ausgebuchte Termine „Einbürgerungstest“, die Quellen begannen
+   mit dem 24.06. statt dem 21.01.); begonnene Wartelisten-Kurse folgen nach Score, laufende
+   Kurse ordnet der Score. Bei gleichem Beginn der höhere Score, zuletzt die Reranker-Reihenfolge.
    Feste Relevanzplätze gibt es nicht (bis 8.1.3: 2 feste Plätze, die übrigen an die frühesten
    Kurse im Band 0,1, laufende Kurse mit Nähe 0).
    - **Garantie:** Kein gewählter Kurs steht vor einem späteren oder nicht gewählten Kurs, dessen
@@ -221,9 +224,9 @@ Sie bestimmt Menge **und Reihenfolge** der Kontexte nach der Regel „erst Relev
    - **Beispiel vhs-mainz (16.11.2026):** Sechs Termine „Yoga für den Rücken“ mit Score 0,999,
      zwei laufend seit 27.10.2026, zwei ab 26.01.2027, zwei ab 06.04.2027. Ausgabe: Januar,
      Januar, April, April, gleich wie der Reranker den Gleichstand ordnet.
-   - Wartelisten-Kurse weichen gleich relevanten buchbaren und laufenden Kursen; ohne solche
-     bleiben sie auf ihrem Platz. Laufende Kurse bleiben wählbar und stehen hinter künftigen
-     Kursen gleicher Relevanz.
+   - Wartelisten-Kurse weichen gleich relevanten buchbaren und laufenden Kursen; untereinander
+     steht der früheste künftige Beginn vorn (D7). Laufende Kurse bleiben wählbar und stehen
+     hinter künftigen Kursen gleicher Relevanz.
 4. **Reihenfolge der Ausgabe:** Die Kursplätze werden in der Folge der Stufenregel belegt, damit
    die Prompt-Regel („among equally relevant courses, the one with the earliest start date is
    #1“) dieselbe Ordnung sieht. Nicht-Kurs-Dokumente behalten ihren Platz in der

@@ -13,8 +13,8 @@
  *    - 0 `zukuenftig`: `start_date ≥ heute` und `bookable !== false`,
  *      Nähe = Tage bis Start;
  *    - 1 `laufend`: `start_date < heute` und `bookable !== false`, Nähe 0;
- *    - 2 `warteliste`: `bookable === false`, auch bei künftigem Beginn,
- *      Nähe null.
+ *    - 2 `warteliste`: `bookable === false`, auch bei künftigem Beginn;
+ *      Nähe = Tage bis Start, bei schon begonnenem Kurs null.
  *    `bookable`-Semantik der Pipeline: `false` = Kufer-Status 4
  *    („Warteliste/ausgebucht“), der Kurs läuft noch. Abgeschlossene oder
  *    abgesagte Kurse haben `bookable` NULL und werden von der Feed-Uhr der
@@ -25,10 +25,13 @@
  * 2. Stufenregel für die Kursplätze: Platz für Platz ist der bestbewertete
  *    noch freie Kurs der Führende. Gleich relevant sind die noch freien
  *    Kurse mit `score ≥ Führender − SPANNE` und `score ≥ BODEN`. Unter
- *    ihnen gewinnt die zeitliche Priorität, unter künftigen der früheste
- *    Beginn, bei gleichem Rang der höhere Score, dann die Kandidaten-
- *    reihenfolge. Liegt der Führende unter dem Boden, bekommt er den Platz
- *    (reine Score-Folge: bei schwachen Treffern zieht das Datum nichts vor).
+ *    ihnen gewinnt die zeitliche Priorität; innerhalb derselben Stufe
+ *    gehen Kurse mit künftigem Beginn vor (früheste zuerst, D7, auch auf
+ *    der Warteliste), danach die begonnenen; laufende Kurse ordnet der
+ *    Score. Bei gleichem Beginn gewinnt der höhere Score, dann die
+ *    Kandidatenreihenfolge. Liegt der Führende unter dem Boden, bekommt er
+ *    den Platz (reine Score-Folge: bei schwachen Treffern zieht das Datum
+ *    nichts vor).
  *    Garantie: Kein gewählter Kurs steht vor einem späteren oder nicht
  *    gewählten Kurs, dessen Score mehr als SPANNE höher ist.
  *    Wählbar sind die Kurse der heutigen Top-N und Kurse mit
@@ -185,9 +188,15 @@ function classifyRow(row, today) {
   if (startDay === null || !Number.isFinite(todayDay))
     return { score, course: false, state: "kein-kurs", naehe: null };
   // bookable=false = Warteliste/ausgebucht (Kufer-Status 4), auch wenn der
-  // Kurs erst beginnt: hinter buchbaren und laufenden Kursen gleicher Relevanz.
+  // Kurs erst beginnt: hinter buchbaren und laufenden Kursen gleicher
+  // Relevanz. Nähe nur bei künftigem Beginn (D7), begonnen: null.
   if (row.bookable === false)
-    return { score, course: true, state: "warteliste", naehe: null };
+    return {
+      score,
+      course: true,
+      state: "warteliste",
+      naehe: startDay >= todayDay ? startDay - todayDay : null,
+    };
   if (startDay < todayDay)
     return { score, course: true, state: "laufend", naehe: 0 };
   return {
@@ -199,16 +208,30 @@ function classifyRow(row, today) {
 }
 
 /**
+ * Nähe zweier Kurse derselben Stufe: künftiger Beginn (Zahl) vor begonnenem
+ * (null), unter künftigen der früheste. Laufende haben alle Nähe 0.
+ * @param {number|null} a
+ * @param {number|null} b
+ * @returns {number} negativ = a vor b
+ */
+function compareNaehe(a, b) {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a - b;
+}
+
+/**
  * Zeitliche Ordnung zweier gleich relevanter Kurse (Indizes in `info`):
- * Rang des Zustands, unter künftigen der früheste Beginn, dann der höhere
- * Score, dann die Kandidatenreihenfolge. Negativ = a vor b.
+ * Rang des Zustands, in derselben Stufe der früheste künftige Beginn (D7),
+ * dann der höhere Score, dann die Kandidatenreihenfolge. Negativ = a vor b.
  */
 function compareTime(a, b, info) {
   const ia = info[a];
   const ib = info[b];
   return (
     TIME_RANK[ia.state] - TIME_RANK[ib.state] ||
-    (ia.state === "zukuenftig" ? ia.naehe - ib.naehe : 0) ||
+    compareNaehe(ia.naehe, ib.naehe) ||
     ib.score - ia.score ||
     a - b
   );
