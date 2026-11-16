@@ -41,8 +41,12 @@
  *    durch wählbare Kurse. Fehlen solche, bleiben die Nicht-Kurs-Dokumente.
  * 4. Ausgabe: Die gewählten Nicht-Kurs-Dokumente behalten ihren Platz in der
  *    Kandidatenreihenfolge, die Kursplätze werden in der Folge der
- *    Stufenregel belegt (die Prompt-Regel „earliest start first“ sieht so
- *    dieselbe Ordnung).
+ *    Stufenregel belegt. Mit der Prompt-Regel „earliest start first“ deckt
+ *    sich das nur innerhalb einer Stufe (künftige buchbare Kurse
+ *    untereinander, seit D7 auch künftige Wartelisten-Kurse untereinander).
+ *    Laufende und ausgebuchte Kurse setzt die Stufe trotz früherem Beginn
+ *    hinter gleich relevante künftige buchbare Kurse; bekannte Abweichung,
+ *    der Prompt bleibt unverändert (HC4, K-L5).
  * 5. Ohne Reranker-Scores, mit < 2 Kursen oder ohne gültiges Datum:
  *    Ausgabe = `candidates.slice(0, topN)`.
  *

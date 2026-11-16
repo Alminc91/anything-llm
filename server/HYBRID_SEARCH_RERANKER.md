@@ -227,11 +227,16 @@ Sie bestimmt Menge **und Reihenfolge** der Kontexte nach der Regel „erst Relev
    - Wartelisten-Kurse weichen gleich relevanten buchbaren und laufenden Kursen; untereinander
      steht der früheste künftige Beginn vorn (D7). Laufende Kurse bleiben wählbar und stehen
      hinter künftigen Kursen gleicher Relevanz.
-4. **Reihenfolge der Ausgabe:** Die Kursplätze werden in der Folge der Stufenregel belegt, damit
-   die Prompt-Regel („among equally relevant courses, the one with the earliest start date is
-   #1“) dieselbe Ordnung sieht. Nicht-Kurs-Dokumente behalten ihren Platz in der
-   Reranker-Reihenfolge der gewählten Menge. Bis 8.1.3 blieb die Reranker-Reihenfolge, die Stufe
-   änderte nur die Menge. Treffer der Kursnummernsuche (Abschnitt 3g) stehen weiterhin davor.
+4. **Reihenfolge der Ausgabe:** Die Kursplätze werden in der Folge der Stufenregel belegt.
+   Nicht-Kurs-Dokumente behalten ihren Platz in der Reranker-Reihenfolge der gewählten Menge.
+   Bis 8.1.3 blieb die Reranker-Reihenfolge, die Stufe änderte nur die Menge. Treffer der
+   Kursnummernsuche (Abschnitt 3g) stehen weiterhin davor.
+   **Bekannte Abweichung zur Prompt-Regel** („among equally relevant courses, the one with the
+   earliest start date is #1“): Beide ordnen nur innerhalb einer Stufe gleich, also künftige
+   buchbare Kurse untereinander (seit D7 auch künftige Wartelisten-Kurse untereinander).
+   Laufende und ausgebuchte Kurse setzt die Stufe trotz früherem Beginn hinter gleich relevante
+   künftige buchbare Kurse; der Prompt kennt diese Stufen nicht. Der Prompt bleibt in diesem
+   Paket unverändert (HC4); Folgepunkt für ein Prompt-Paket.
 5. **Übersichts-Deckel:** Bei einer klaren Kursfrage (≥ 3 Kurse mit `score ≥ 0,3`, Warteliste
    zählt mit) höchstens 1 Nicht-Kurs-Dokument (das bestbewertete). Ersetzt wird nur durch Kurse
    der heutigen Top-N oder mit `score ≥ 0,3`, in der Folge der Stufenregel; reichen die nicht,
