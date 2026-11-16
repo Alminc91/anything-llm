@@ -671,8 +671,13 @@ describe("D7 (K-R1): innerhalb der Stufe Warteliste der früheste künftige Begi
 });
 
 describe("AK-2: Garantie über zufällige Pools", () => {
-  const lcg = (seed) => () =>
-    (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  // mulberry32: 32-Bit-Ganzzahlarithmetik (Math.imul), Periode 2^32
+  const mulberry32 = (seed) => () => {
+    let t = (seed = (seed + 0x6d2b79f5) | 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
   const day = (offset) => {
     const d = new Date(`${TODAY}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() + offset);
@@ -682,14 +687,14 @@ describe("AK-2: Garantie über zufällige Pools", () => {
   test("K-R4: der Zufallsgenerator läuft über 100.000 Werte nicht in einen Zyklus", () => {
     // Der Eigenschaftstest zieht rund 100.000 Werte; ein Generator mit
     // kurzem Zyklus prüft weniger verschiedene Pools als behauptet.
-    const rnd = lcg(20261116);
+    const rnd = mulberry32(20261116);
     const seen = new Set();
     for (let i = 0; i < 100000; i++) seen.add(rnd());
     expect(seen.size).toBeGreaterThan(99900);
   });
 
   test("AK-1, AK-2, NAK-3 und Boden auf 3000 Zufallspools (fester Seed)", () => {
-    const rnd = lcg(20261116);
+    const rnd = mulberry32(20261116);
     const spans = [undefined, 0, 0.01, 0.05];
     let reordered = 0;
     let changed = 0;
