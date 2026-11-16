@@ -65,8 +65,18 @@ jest.mock("../../../utils/helpers/chat", () => ({
     sources: [],
   })),
 }));
+// Echte Erkennung; der Ersatz zählt nur die Aufrufe der Sprachwahl (S-L1:
+// der Verlauf wird nur bei einer Nachricht ohne Wörter gelesen).
+jest.mock("../../../utils/chats/wordlessMessage", () => {
+  const actual = jest.requireActual("../../../utils/chats/wordlessMessage");
+  return {
+    ...actual,
+    wordlessResponseLanguage: jest.fn(actual.wordlessResponseLanguage),
+  };
+});
 
 const helpers = require("../../../utils/helpers");
+const { fillSourceWindow } = require("../../../utils/helpers/chat");
 const { EmbedChats } = require("../../../models/embedChats");
 const { writeResponseChunk } = require("../../../utils/helpers/chat/responses");
 const { chatPrompt } = require("../../../utils/chats/index");
@@ -87,6 +97,7 @@ const {
 const { courseCardsPromptNote } = require("../../../utils/chats/embedDefaults");
 const {
   RESPONSE_LANGUAGE_NOTES,
+  wordlessResponseLanguage,
 } = require("../../../utils/chats/wordlessMessage");
 
 const GERMAN = RESPONSE_LANGUAGE_NOTES.german;
@@ -120,10 +131,10 @@ const CARDS = {
   off: JSON.stringify({ courseCards: "off" }),
 };
 
-function makeEmbed(visual_config = CARDS.on) {
+function makeEmbed(visual_config = CARDS.on, chat_mode = "chat") {
   return {
     id: 3,
-    chat_mode: "chat",
+    chat_mode,
     message_limit: 20,
     visual_config,
     workspace: { id: 9, slug: "chatbot", messagesLimit: null, topN: 4 },
@@ -159,7 +170,12 @@ beforeEach(() => {
  */
 async function run(
   message,
-  { history = [], cards = "on", reply = "Kurze Antwort." } = {}
+  {
+    history = [],
+    cards = "on",
+    reply = "Kurze Antwort.",
+    chatMode = "chat",
+  } = {}
 ) {
   const rows = history.map((h, i) =>
     typeof h === "string" ? row(i + 1, h) : h
@@ -183,7 +199,7 @@ async function run(
   helpers.getLLMProvider.mockReturnValue(connector);
   await streamChatWithForEmbed(
     response,
-    makeEmbed(CARDS[cards]),
+    makeEmbed(CARDS[cards], chatMode),
     message,
     "sess",
     {
@@ -191,12 +207,13 @@ async function run(
       displayMode: "inline",
     }
   );
+  // Ohne Anfrage an das Modell (Abweisung) bleiben die Felder leer
   const [compressInput, compressHistory] =
-    connector.compressMessages.mock.calls[0];
-  const saved = EmbedChats.new.mock.calls[0][0];
+    connector.compressMessages.mock.calls[0] ?? [];
+  const saved = EmbedChats.new.mock.calls[0]?.[0];
   return {
-    systemPrompt: compressInput.systemPrompt,
-    userPrompt: compressInput.userPrompt,
+    systemPrompt: compressInput?.systemPrompt,
+    userPrompt: compressInput?.userPrompt,
     compressInput,
     compressHistory,
     saved,
@@ -330,6 +347,73 @@ describe("Embed-Stream: Hinweis an der Nutzernachricht der Modellanfrage (AK-2, 
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+// Zeilen des Logs [embedLanguage] aus einem Ersatz für console.log
+function languageLogLines(spy) {
+  return spy.mock.calls
+    .map((args) => args.join(" "))
+    .filter((line) => line.includes("[embedLanguage]"));
+}
+
+describe("S-L1: Sprachwahl, Hinweis und Log nur, wenn die Anfrage an das Modell geht", () => {
+  test("Abfragemodus ohne Treffer mit I730112: fester Ablehnungstext, kein Log, keine Sprachwahl", async () => {
+    const spy = jest.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      for (const history of [[], ["Do you have yoga courses?"]]) {
+        jest.clearAllMocks();
+        fillSourceWindow.mockReturnValueOnce({ contextTexts: [], sources: [] });
+        const { connector, saved } = await run("I730112", {
+          history,
+          chatMode: "query",
+        });
+        expect(writeResponseChunk.mock.calls.map(([, chunk]) => chunk)).toEqual(
+          [
+            {
+              id: expect.any(String),
+              type: "textResponse",
+              textResponse:
+                "There is no relevant information in this workspace to answer your query.",
+              sources: [],
+              close: true,
+              error: null,
+            },
+          ]
+        );
+        expect(connector.compressMessages).not.toHaveBeenCalled();
+        expect(saved).toBeUndefined();
+        expect([history, languageLogLines(spy)]).toEqual([history, []]);
+        expect(wordlessResponseLanguage).not.toHaveBeenCalled();
+      }
+      // Kontrolle: Abfragemodus mit Treffer bekommt Hinweis und Log
+      jest.clearAllMocks();
+      const { userPrompt } = await run("I730112", { chatMode: "query" });
+      expect(userPrompt).toBe(`I730112${RC5.german}`);
+      expect(languageLogLines(spy)).toEqual([
+        "[embedLanguage] chatbot: Nachricht ohne Wörter, Sprachhinweis german",
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("Nachricht mit Wörtern: keine Sprachwahl, der Verlauf wird dafür nicht gelesen", async () => {
+    for (const message of ["Do you have yoga courses?", "Kurs XI41050", "Ok"]) {
+      jest.clearAllMocks();
+      await run(message, { history: ["Gibt es Yogakurse?"] });
+      expect([message, wordlessResponseLanguage.mock.calls]).toEqual([
+        message,
+        [],
+      ]);
+    }
+    // Kontrolle: Nachricht ohne Wörter, genau eine Sprachwahl mit den
+    // früheren Nachrichten des Besuchers
+    jest.clearAllMocks();
+    await run("I730112", { history: ["Gibt es Yogakurse?"] });
+    expect(wordlessResponseLanguage.mock.calls).toEqual([
+      ["I730112", ["Gibt es Yogakurse?"]],
+    ]);
   });
 });
 
