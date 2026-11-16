@@ -6,9 +6,11 @@
 //   prompt_e.txt); User-Nachricht byte-gleich zur Form E2 der Messung
 //   (Fixture queryRewriteFormE2.json, erzeugt mit form_e2_referenz.py): 1 und
 //   2 Runden ohne frühere Fragen, 1 und 7 frühere Fragen, Kürzung auf 40
-//   Wörter. Den Zufallsabgleich (400 Fälle) macht abgleich_form_e2.js.
-// - E-R6: höchstens 2 frühere Fragen (EARLIER_QUESTIONS_MAX, Nutzer 16.11.
-//   abends, vorher 5).
+//   Wörter (41 mit „...“, genau 40 ohne). Den Zufallsabgleich (400 Fälle)
+//   macht abgleich_form_e2.js.
+// - E-R7: höchstens 1 frühere Frage (EARLIER_QUESTIONS_MAX, Nutzer 16.11.
+//   abends, vorher 5, dann 2): nur die eine Frage vor den Runden, die das
+//   Antwortmodell sieht.
 // - Bestand (D2): eine Form für alle Aufrufer; ohne frühere Fragen fehlt nur
 //   der Block.
 // - NAK-3: erste Nachricht und Fragen über der Wortgrenze ohne Rewrite.
@@ -84,7 +86,7 @@ describe("AK-1: System-Prompt byte-gleich zur Messung", () => {
 });
 
 describe("AK-1: Nachrichtenform E2 wie gemessen", () => {
-  test("die Fixture deckt 1 und 2 Runden ohne frühere Fragen, 1 und 7 frühere Fragen ab", () => {
+  test("die Fixture deckt 1 und 2 Runden ohne frühere Fragen, 1 und 7 frühere Fragen und eine frühere Frage mit genau 40 Wörtern ab", () => {
     expect(
       FORM_CASES.map((c) => [c.nutzer.length, Math.max(0, c.nutzer.length - 2)])
     ).toEqual([
@@ -92,7 +94,9 @@ describe("AK-1: Nachrichtenform E2 wie gemessen", () => {
       [2, 0],
       [3, 1],
       [9, 7],
+      [3, 1],
     ]);
+    expect(FORM_CASES[4].nutzer[0].split(" ")).toHaveLength(40);
   });
 
   // Vertrag wie abgleich_form_e2.js: chatHistory = ganzer Verlauf,
@@ -129,10 +133,11 @@ describe("AK-1: Nachrichtenform E2 wie gemessen", () => {
     }
   );
 
-  // E-R6 (Nutzer 16.11. abends): höchstens 2 frühere Fragen, der Rewriter
-  // soll kaum mehr wissen als das Antwortmodell (2 Runden)
-  test("7 frühere Fragen: nur die 2 neuesten, älteste zuerst; 2 übergebene ergeben dieselbe Nachricht", () => {
-    expect(EARLIER_QUESTIONS_MAX).toBe(2);
+  // E-R7 (Nutzer 16.11. abends): höchstens 1 frühere Frage, nur die eine
+  // Frage vor den Runden, die das Antwortmodell sieht (gemessen gleich gut
+  // wie 2, Wartezeit ohne messbaren Unterschied)
+  test("7 frühere Fragen: nur die neueste, Nummer 1; 1 übergebene ergibt dieselbe Nachricht", () => {
+    expect(EARLIER_QUESTIONS_MAX).toBe(1);
     const c = FORM_CASES.find((x) => x.nutzer.length === 9);
     const chatHistory = historyOf(c.nutzer, c.antworten);
     const fromSeven = userMessage({
@@ -140,28 +145,30 @@ describe("AK-1: Nachrichtenform E2 wie gemessen", () => {
       chatHistory,
       earlierUserQuestions: c.nutzer.slice(0, 7),
     });
-    const fromTwo = userMessage({
+    const fromOne = userMessage({
       userQuery: c.cur,
       chatHistory,
-      earlierUserQuestions: c.nutzer.slice(5, 7),
+      earlierUserQuestions: c.nutzer.slice(6, 7),
     });
-    expect(fromSeven).toBe(fromTwo);
-    for (const dropped of c.nutzer.slice(0, 5))
+    expect(fromSeven).toBe(fromOne);
+    for (const dropped of c.nutzer.slice(0, 6))
       expect(fromSeven).not.toContain(dropped.split(/\s+/).join(" "));
-    expect(fromSeven.match(/^\d+\. /gm)).toEqual(["1. ", "2. "]);
+    expect(fromSeven.match(/^\d+\. /gm)).toEqual(["1. "]);
   });
 
   test("Kürzung auf 40 Wörter: 41 Wörter mit „...“, genau 40 ohne", () => {
     const words = (n, stem) =>
       Array.from({ length: n }, (_, i) => `${stem}${i + 1}`).join(" ");
-    const content = userMessage({
-      userQuery: "Und dann?",
-      chatHistory: historyOf(["Frage"], ["Antwort"]),
-      earlierUserQuestions: [words(41, "a"), words(40, "b")],
-    });
-    expect(content).toContain(`1. ${words(40, "a")}...\n`);
-    expect(content).toContain(`2. ${words(40, "b")}\n\n`);
-    expect(content).not.toContain("a41");
+    const withEarlier = (question) =>
+      userMessage({
+        userQuery: "Und dann?",
+        chatHistory: historyOf(["Frage"], ["Antwort"]),
+        earlierUserQuestions: [question],
+      });
+    const long = withEarlier(words(41, "a"));
+    expect(long).toContain(`\n1. ${words(40, "a")}...\n\n`);
+    expect(long).not.toContain("a41");
+    expect(withEarlier(words(40, "b"))).toContain(`\n1. ${words(40, "b")}\n\n`);
   });
 
   test("Chat history: die letzten 2 Runden, Fragen ungekürzt, Antworten auf 150 Wörter", () => {
@@ -178,8 +185,9 @@ describe("AK-1: Nachrichtenform E2 wie gemessen", () => {
       earlierUserQuestions: ["Alt 1", "Alt 2"],
     });
     const first150 = long.split(" ").slice(0, 150).join(" ");
+    // von den früheren Fragen nur die neueste (E-R7)
     expect(content).toBe(
-      "Earlier user questions (oldest first):\n1. Alt 1\n2. Alt 2\n\n" +
+      "Earlier user questions (oldest first):\n1. Alt 2\n\n" +
         `Chat history:\nUser: ${question}\nAssistant: ${first150}...\n` +
         "User: Frage 4\nAssistant: A4\n\nLatest question: Und?"
     );

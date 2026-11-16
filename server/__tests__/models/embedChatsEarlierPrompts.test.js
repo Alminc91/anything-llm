@@ -7,7 +7,7 @@
 //   ohne conversation_id nur im Bucket der eigenen Sitzung (KIE-503).
 // - Gelöschte oder unsichtbare Zeilen (include false) wie im Verlauf nicht.
 // - Nur Zeilen vor der letzten Runde (beforeId), höchstens limit (Standard
-//   und Widget: EARLIER_QUESTIONS_MAX = 2, E-R6), älteste zuerst, nur das
+//   und Widget: EARLIER_QUESTIONS_MAX = 1, E-R7), älteste zuerst, nur das
 //   Feld prompt.
 jest.mock(
   "../../utils/prisma",
@@ -92,16 +92,25 @@ const call = (overrides = {}) =>
 describe("earlierPrompts: frühere Fragen derselben Unterhaltung und Sitzung", () => {
   test("nur eigene, sichtbare Fragen vor der letzten Runde, älteste zuerst", async () => {
     const lastId = await seedMixed();
-    // die 2 neuesten eigenen; die fremden Zeilen dazwischen zählen nicht
-    expect(await call({ beforeId: lastId })).toEqual([
+    const idOf = async (prompt) =>
+      (await db.client.embed_chats.findFirst({ where: { prompt } })).id;
+    // die neueste eigene (E-R7: höchstens 1)
+    expect(await call({ beforeId: lastId })).toEqual(["Und am Abend?"]);
+    // direkt davor liegen nur fremde Zeilen (Legacy, anderes Widget,
+    // gelöscht, andere Unterhaltung); sie zählen nicht
+    expect(await call({ beforeId: await idOf("Und am Abend?") })).toEqual([
+      "Ich bin Anfänger",
+    ]);
+    // davor nur noch die eigene erste Frage, nicht die der fremden Sitzung
+    expect(await call({ beforeId: await idOf("Ich bin Anfänger") })).toEqual([
+      "Gibt es Yoga?",
+    ]);
+    // mit größerem limit älteste zuerst
+    expect(await call({ beforeId: lastId, limit: 3 })).toEqual([
+      "Gibt es Yoga?",
       "Ich bin Anfänger",
       "Und am Abend?",
     ]);
-    // davor nur noch die eigene erste Frage, nicht die der fremden Sitzung
-    const beginner = await db.client.embed_chats.findFirst({
-      where: { prompt: "Ich bin Anfänger" },
-    });
-    expect(await call({ beforeId: beginner.id })).toEqual(["Gibt es Yoga?"]);
   });
 
   test("NAK-1: fremde Sitzung mit bekannter conversationId sieht keine Frage des Besitzers", async () => {
@@ -135,10 +144,11 @@ describe("earlierPrompts: frühere Fragen derselben Unterhaltung und Sitzung", (
     const last = await db.client.embed_chats.findFirst({
       where: { prompt: "Letzte Runde" },
     });
-    expect(await call({ conversationId: SESSION, beforeId: last.id })).toEqual([
-      "Legacy eins",
-      "Migriert zwei",
-    ]);
+    // limit über EARLIER_QUESTIONS_MAX (1), damit die Legacy-Zeile unter der
+    // migrierten mitgezählt wird; die fremde Legacy-Zeile dazwischen nie
+    expect(
+      await call({ conversationId: SESSION, beforeId: last.id, limit: 3 })
+    ).toEqual(["Legacy eins", "Migriert zwei"]);
   });
 
   test("höchstens limit Fragen, die neuesten vor der letzten Runde, älteste zuerst", async () => {
@@ -149,9 +159,9 @@ describe("earlierPrompts: frühere Fragen derselben Unterhaltung und Sitzung", (
     const last = await db.client.embed_chats.findFirst({
       where: { prompt: "Frage 9" },
     });
-    expect(await call({ beforeId: last.id })).toEqual(["Frage 7", "Frage 8"]);
-    // E-R6: ohne limit gilt EARLIER_QUESTIONS_MAX, dieselbe Zahl wie im
-    // Rewriter (Nutzer 16.11. abends: höchstens 2)
+    expect(await call({ beforeId: last.id })).toEqual(["Frage 8"]);
+    // E-R7: ohne limit gilt EARLIER_QUESTIONS_MAX, dieselbe Zahl wie im
+    // Rewriter (Nutzer 16.11. abends: höchstens 1)
     expect(
       await EmbedChats.earlierPrompts({
         embedId: EMBED_ID,
@@ -159,7 +169,12 @@ describe("earlierPrompts: frühere Fragen derselben Unterhaltung und Sitzung", (
         boundSessionId: SESSION,
         beforeId: last.id,
       })
-    ).toEqual(["Frage 7", "Frage 8"]);
+    ).toEqual(["Frage 8"]);
+    expect(await call({ beforeId: last.id, limit: 3 })).toEqual([
+      "Frage 6",
+      "Frage 7",
+      "Frage 8",
+    ]);
   });
 
   test("liest nur das Feld prompt, mit kleinem take und absteigend nach id", async () => {
@@ -169,7 +184,7 @@ describe("earlierPrompts: frühere Fragen derselben Unterhaltung und Sitzung", (
     expect(findMany).toHaveBeenCalledTimes(1);
     const args = findMany.mock.calls[0][0];
     expect(args.select).toEqual({ prompt: true });
-    expect(args.take).toBe(2);
+    expect(args.take).toBe(1);
     expect(args.orderBy).toEqual({ id: "desc" });
     expect(args.where).toMatchObject({
       embed_id: EMBED_ID,

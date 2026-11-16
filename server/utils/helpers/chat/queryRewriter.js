@@ -44,14 +44,16 @@ async function shouldRewrite(userQuery, chatHistory, workspace) {
   return wordCount <= threshold;
 }
 
-// Form E2 (D4, wie gemessen): höchstens 2 frühere Fragen, je auf 40 Wörter
-// gekürzt; im Block „Chat history“ die letzten Runden (rewriteHistoryTurns),
-// Antworten auf 150 Wörter gekürzt, Fragen ungekürzt.
-// EARLIER_QUESTIONS_MAX ist die eine Grenze für die Kürzung hier und für die
-// Abfrage im Widget (EmbedChats.earlierPrompts, limit). 2 statt 5 (E-R6,
-// Nutzer 16.11. abends, D1 gekippt, gemessen als E2m2): der Rewriter soll kaum
-// mehr wissen als das Antwortmodell, eine feste Grenze wegen der Wartezeit.
-const EARLIER_QUESTIONS_MAX = 2;
+// Form E2 (D4, wie gemessen): höchstens 1 frühere Frage, auf 40 Wörter
+// gekürzt, im Block als „1. …“; im Block „Chat history“ die letzten Runden
+// (rewriteHistoryTurns), Antworten auf 150 Wörter gekürzt, Fragen ungekürzt.
+// EARLIER_QUESTIONS_MAX ist die eine Grenze für die Kürzung hier, für die
+// Abfrage im Widget (limit) und der Standard von EmbedChats.earlierPrompts.
+// 1 (E-R7, Nutzer 16.11. abends; vorher 5, dann 2): nur die eine Frage vor
+// den Runden, die das Antwortmodell sieht, denn darüber hinaus kennt es den
+// Kontext nicht. Gemessen als E2m1 gleich gut wie 2; Wartezeit ohne
+// messbaren Unterschied (Median 329 ms heute, 346 ms mit 1, 322 ms mit 2).
+const EARLIER_QUESTIONS_MAX = 1;
 const EARLIER_QUESTION_WORDS = 40;
 const HISTORY_ANSWER_WORDS = 150;
 const HISTORY_TURNS_DEFAULT = 2;
@@ -107,13 +109,13 @@ function historyText(chatHistory) {
  * Nachrichten an das LLM des Rewriters, ohne Aufruf (auch für Messungen
  * offline nutzbar). Eine Form für alle Aufrufer (Form E2, D2): Block
  * „Earlier user questions (oldest first)“ nur, wenn es frühere Fragen gibt
- * (die neuesten EARLIER_QUESTIONS_MAX, also 2, je auf 40 Wörter gekürzt),
- * danach „Chat history“ mit den letzten Runden (rewriteHistoryTurns,
- * Standard 2) und „Latest question“.
+ * (die neuesten EARLIER_QUESTIONS_MAX, also die eine neueste, auf 40 Wörter
+ * gekürzt, als „1. …“), danach „Chat history“ mit den letzten Runden
+ * (rewriteHistoryTurns, Standard 2) und „Latest question“.
  * @param {Object} input
  * @param {string} input.userQuery - aktuelle Frage
  * @param {{role: string, content: string}[]} input.chatHistory - ganzer geladener Verlauf (user/assistant, je Runde zwei Nachrichten); die letzten Runden nimmt die Funktion selbst
- * @param {string[]|null} [input.earlierUserQuestions] - Fragen des Besuchers vor diesen Runden, älteste zuerst; die neuesten EARLIER_QUESTIONS_MAX (2) nimmt die Funktion selbst; null oder [] = kein Block
+ * @param {string[]|null} [input.earlierUserQuestions] - Fragen des Besuchers vor diesen Runden, älteste zuerst; die neuesten EARLIER_QUESTIONS_MAX (1) nimmt die Funktion selbst; null oder [] = kein Block
  * @returns {{role: string, content: string}[]}
  */
 function buildRewriteMessages({

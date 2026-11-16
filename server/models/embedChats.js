@@ -658,7 +658,7 @@ const EmbedChats = {
    * @param {string} input.conversationId
    * @param {string} input.boundSessionId - besitzende Sitzung (Pflicht)
    * @param {number} input.beforeId - id der ersten Zeile der Runden im Block „Chat history“
-   * @param {number} [input.limit] - Standard EARLIER_QUESTIONS_MAX (2)
+   * @param {number} [input.limit] - Standard EARLIER_QUESTIONS_MAX (1)
    * @returns {Promise<string[]|null>} null bei einem Fehler der Datenbank
    */
   earlierPrompts: async function ({

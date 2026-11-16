@@ -2,10 +2,10 @@
 // Query Rewriter, Variante E mit Form E2 im Widget-Chat
 // (issues/folgefragen-variante-e.md):
 // - AK-2: der Rewriter bekommt die früheren Fragen derselben Unterhaltung,
-//   unabhängig von message_limit; höchstens 2 (E-R6, Nutzer 16.11. abends,
-//   vorher 5), älteste zuerst, ohne die Fragen der Runden im Block „Chat
-//   history“ (die letzten 2 geladenen) und ohne die aktuelle; Antworten ohne
-//   Protokollzeilen (E-R1).
+//   unabhängig von message_limit; höchstens 1 (E-R7, Nutzer 16.11. abends,
+//   vorher 5, dann 2), die neueste vor den Runden im Block „Chat history“
+//   (die letzten 2 geladenen), ohne deren Fragen und ohne die aktuelle;
+//   Antworten ohne Protokollzeilen (E-R1).
 // - NAK-1: Fragen anderer Sitzungen, Unterhaltungen, Widgets und gelöschte
 //   Zeilen erscheinen nie.
 // - NAK-2: Verlauf und Prompt des Antwortmodells (compressMessages), der
@@ -100,11 +100,11 @@ const FOUR_ROUNDS = () => [
   row(8, "Wie teuer ist das?"),
 ];
 
-// Gemessene Form E2 (Abschnitt 4): frühere Fragen vor den letzten 2
-// Runden, dann diese 2 Runden
+// Gemessene Form E2 (Abschnitt 4): die neueste frühere Frage vor den
+// letzten 2 Runden, dann diese 2 Runden
 const EXPECTED_REWRITE_USER =
   "Earlier user questions (oldest first):\n" +
-  "1. Gibt es Yoga?\n2. Ich bin Anfänger\n\n" +
+  "1. Ich bin Anfänger\n\n" +
   "Chat history:\nUser: Und am Abend?\nAssistant: Antwort 6: - Punkt eins\n" +
   "User: Wie teuer ist das?\nAssistant: Antwort 8: - Punkt eins\n\n" +
   `Latest question: ${MESSAGE}`;
@@ -225,7 +225,7 @@ const earlierQueries = () =>
     .filter((args) => args.select);
 
 describe("AK-2: frühere Fragen derselben Unterhaltung für den Rewriter", () => {
-  test("message_limit 2 mit 4 Runden: zwei frühere Fragen, älteste zuerst, vor den 2 Runden im Block", async () => {
+  test("message_limit 2 mit 4 Runden: die neueste frühere Frage vor den 2 Runden im Block", async () => {
     const { rewriteUser, vectorDb } = await run({ messageLimit: 2 });
     expect(rewriteUser).toBe(EXPECTED_REWRITE_USER);
     // die umgeschriebene Frage geht an die Suche
@@ -237,7 +237,7 @@ describe("AK-2: frühere Fragen derselben Unterhaltung für den Rewriter", () =>
     expect(queries).toHaveLength(1);
     expect(queries[0]).toMatchObject({
       select: { prompt: true },
-      take: 2,
+      take: 1,
       orderBy: { id: "desc" },
       where: {
         embed_id: EMBED_ID,
@@ -258,30 +258,30 @@ describe("AK-2: frühere Fragen derselben Unterhaltung für den Rewriter", () =>
     }
   });
 
-  test("message_limit 1: eine Runde im Block wie heute, davor die 2 neuesten Fragen bei den früheren", async () => {
+  test("message_limit 1: eine Runde im Block wie heute, davor die neueste Frage bei den früheren", async () => {
     const { rewriteUser } = await run({ messageLimit: 1 });
     expect(rewriteUser).toBe(
       "Earlier user questions (oldest first):\n" +
-        "1. Ich bin Anfänger\n2. Und am Abend?\n\n" +
+        "1. Und am Abend?\n\n" +
         "Chat history:\nUser: Wie teuer ist das?\nAssistant: Antwort 8: - Punkt eins\n\n" +
         `Latest question: ${MESSAGE}`
     );
   });
 
-  // E-R6 (Nutzer 16.11. abends): höchstens 2 frühere Fragen, der Rewriter
-  // soll kaum mehr wissen als das Antwortmodell (2 Runden)
-  test("höchstens 2 frühere Fragen: 4 Fragen vor den 2 Runden im Block ergeben die 2 neuesten, älteste zuerst", async () => {
+  // E-R7 (Nutzer 16.11. abends): höchstens 1 frühere Frage, nur die eine
+  // Frage vor den Runden, die das Antwortmodell sieht (2 Runden)
+  test("höchstens 1 frühere Frage: 4 Fragen vor den 2 Runden im Block ergeben die neueste, Nummer 1", async () => {
     TABLE = Array.from({ length: 6 }, (_, i) => row(i + 1, `Frage ${i + 1}`));
     const { rewriteUser } = await run({ messageLimit: 2 });
     expect(rewriteUser).toBe(
       "Earlier user questions (oldest first):\n" +
-        "1. Frage 3\n2. Frage 4\n\n" +
+        "1. Frage 4\n\n" +
         "Chat history:\nUser: Frage 5\nAssistant: Antwort 5: - Punkt eins\n" +
         "User: Frage 6\nAssistant: Antwort 6: - Punkt eins\n\n" +
         `Latest question: ${MESSAGE}`
     );
     expect(earlierQueries()[0]).toMatchObject({
-      take: 2,
+      take: 1,
       where: { id: { lt: 5 } },
     });
   });
@@ -293,11 +293,11 @@ describe("AK-2: frühere Fragen derselben Unterhaltung für den Rewriter", () =>
       r.id === 6 ? { ...r, response: JSON.stringify({ sources: [] }) } : r
     );
     // message_limit 2 lädt 6 und 8; 6 hat keinen Antworttext, im Block steht
-    // nur 8, die Frage aus 6 gehört zu den früheren; davon die 2 neuesten
+    // nur 8, die Frage aus 6 gehört zu den früheren und ist die neueste
     const { rewriteUser } = await run({ messageLimit: 2 });
     expect(rewriteUser).toBe(
       "Earlier user questions (oldest first):\n" +
-        "1. Ich bin Anfänger\n2. Und am Abend?\n\n" +
+        "1. Und am Abend?\n\n" +
         "Chat history:\nUser: Wie teuer ist das?\nAssistant: Antwort 8: - Punkt eins\n\n" +
         `Latest question: ${MESSAGE}`
     );
@@ -404,6 +404,27 @@ describe("NAK-1: nur Fragen derselben Sitzung und Unterhaltung", () => {
     for (const own of ["Gibt es Yoga?", "Ich bin Anfänger", "Und am Abend?"])
       expect(rewriteUser).not.toContain(own);
     expect(earlierQueries()[0].where.session_id).toBe("fremd");
+  });
+
+  // E-R7: mit höchstens 1 früheren Frage zählt die Zeile direkt vor den
+  // Runden im Block; fremde Zeilen genau dort dürfen sie nicht verdrängen
+  test("fremde Zeilen direkt vor den Runden im Block: die frühere Frage ist die eigene davor", async () => {
+    TABLE = [
+      row(1, "Gibt es Yoga?"),
+      row(2, FOREIGN_PROMPTS[0], { session_id: "fremd" }),
+      row(3, FOREIGN_PROMPTS[1], { conversation_id: "andere" }),
+      row(4, FOREIGN_PROMPTS[2], { include: false }),
+      row(5, FOREIGN_PROMPTS[3], { embed_id: 99 }),
+      row(6, "Und am Abend?"),
+      row(8, "Wie teuer ist das?"),
+    ];
+    const { rewriteUser } = await run({ messageLimit: 2 });
+    expect(rewriteUser).toBe(
+      "Earlier user questions (oldest first):\n1. Gibt es Yoga?\n\n" +
+        "Chat history:\nUser: Und am Abend?\nAssistant: Antwort 6: - Punkt eins\n" +
+        "User: Wie teuer ist das?\nAssistant: Antwort 8: - Punkt eins\n\n" +
+        `Latest question: ${MESSAGE}`
+    );
   });
 });
 
