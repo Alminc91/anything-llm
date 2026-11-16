@@ -4,12 +4,15 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
-### Query Rewriter: Folgefragen behalten ihr Thema (Variante E, 2026-11-16)
+### Query Rewriter: Folgefragen behalten ihr Thema (Variante E, Form E2, 2026-11-16)
 
-- **Widget-Chat:** Der Rewriter bekommt zusätzlich die früheren Fragen des Besuchers derselben Unterhaltung (höchstens 5 vor der letzten Runde, älteste zuerst, je auf 40 Wörter gekürzt, unabhängig von `message_limit`) und sucht das Thema rückwärts durch sie. Als Verlauf steht dann genau die letzte Runde in der Nachricht. Gebunden an die Sitzung wie der Verlauf (KIE-505), nur sichtbare Zeilen, nur das Feld `prompt` (`EmbedChats.earlierPrompts`, eine Abfrage je Nachricht mit Verlauf).
-- **Neuer Prompt für alle Aufrufer**, wörtlich der gemessene (`issues/folgefragen-variante-e/prompt_e.txt`); Workspace- und API-Chat geben keine früheren Fragen mit, ihr Verlauf bleibt wie bisher.
+- **Widget-Chat:** Der Rewriter sieht wie bisher die letzten 2 Runden des geladenen Verlaufs und zusätzlich die früheren Fragen des Besuchers derselben Unterhaltung davor (höchstens 5, älteste zuerst, je auf 40 Wörter gekürzt, unabhängig von `message_limit`) und sucht das Thema rückwärts durch sie (Nachrichtenform E2, D4). Gebunden an die Sitzung wie der Verlauf (KIE-505), nur sichtbare Zeilen, nur das Feld `prompt` (`EmbedChats.earlierPrompts`). Die Abfrage läuft nur, wenn der Rewriter tatsächlich umschreibt (nicht bei Schalter aus, erster Nachricht oder Fragen über der Wortgrenze).
+- **Rewriter ohne Protokollzeilen (D3):** Die Antworten im Verlauf des Rewriters stehen ohne Kurskarten-Marker, Teaserzeilen und Folgefragen-Vorschläge, so wie gemessen. Das Antwortmodell bekommt sie weiter.
+- **Neuer Prompt und eine Nachrichtenform für alle Aufrufer**, wörtlich die gemessenen (`issues/folgefragen-variante-e/prompt_e.txt`, Form E2). Workspace-, API- und OpenAI-kompatibler Chat geben keine früheren Fragen mit: bis zu 2 Runden wie bisher, ohne Block; Antworten im Rewriter-Verlauf jetzt mit normalisiertem Leerraum (Zeilenumbrüche werden Leerzeichen).
+- **`QUERY_REWRITE_MAX_HISTORY`** zählt Runden im Block „Chat history“ und gilt nur als ganze Zahl ab 1; 0, negative Werte, Brüche oder Text ergeben den Standard 2 (bisher wurde ein negativer Wert zu einem unbegrenzten Verlauf).
+- **Verlauf löschen im Widget** (`markHistoryInvalid`) nutzt dasselbe WHERE wie das Lesen des Verlaufs und der früheren Fragen (`_historyWhere`); Verhalten unverändert.
 - Unverändert: Verlauf und Prompt des Antwortmodells, Metadatenfilter, gespeicherte Daten, Wortgrenze und Schalter (`shouldRewrite`). Keine Schemaänderung, keine Migration.
-- Tests: `queryRewriterVarianteE.test.js` (Prompt und Nachrichtenform byte-gleich zur Messung), `embedChatsEarlierPrompts.test.js` (echte SQLite-Datei, Sitzungsbindung), `embedStreamEarlierQuestions.test.js` (Widget-Pfad, Antwortmodell unverändert).
+- Tests: `queryRewriterVarianteE.test.js` (Prompt und Form E2 byte-gleich zur Messung, Fixture `queryRewriteFormE2.json` aus `form_e2_referenz.py`; Zufallsabgleich `abgleich_form_e2.js` 400 von 400), `embedChatsEarlierPrompts.test.js` (echte SQLite-Datei: Sitzungsbindung, Invalidieren trifft dieselben Zeilen wie Lesen), `embedStreamEarlierQuestions.test.js` (Widget-Pfad: Form E2, ohne Protokollzeilen, keine Abfrage ohne Rewrite, Antwortmodell unverändert).
 
 ### Konversationen: letzte Korrekturrunde vor dem Merge (Fixliste 7, 2026-10-14)
 
