@@ -628,10 +628,11 @@ function searchHistoryOf(loaded) {
  * issues/folgefragen-variante-e.md): die Fragen derselben Unterhaltung vor
  * der ersten Runde im Block „Chat history“ (die letzten rewriteHistoryTurns
  * Zeilen des Rewriter-Verlaufs, dieselbe Zahl wie in buildRewriteMessages),
- * höchstens EARLIER_QUESTIONS_MAX, älteste zuerst, unabhängig von
- * message_limit. Gebunden an die Sitzung wie recentEmbedChatHistory
- * (KIE-505). Nur als Lader von rewriteQueryForSearch (läuft erst nach
- * shouldRewrite, also mit Verlauf); ohne Zeilen fragt earlierPrompts nicht.
+ * höchstens EARLIER_QUESTIONS_MAX (2, dieselbe Grenze wie die Kürzung in
+ * buildRewriteMessages), älteste zuerst, unabhängig von message_limit.
+ * Gebunden an die Sitzung wie recentEmbedChatHistory (KIE-505). Nur als
+ * Lader von rewriteQueryForSearch (läuft erst nach shouldRewrite, also mit
+ * Verlauf); ohne Zeilen fragt earlierPrompts nicht.
  * @param {Object} input
  * @param {{id: number}} input.embed
  * @param {string} input.conversationId

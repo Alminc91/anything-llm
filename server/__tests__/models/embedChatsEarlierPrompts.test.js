@@ -6,8 +6,9 @@
 //   nie; Bindung an die Sitzung wie forEmbedByUser (KIE-505), Legacy-Zeilen
 //   ohne conversation_id nur im Bucket der eigenen Sitzung (KIE-503).
 // - Gelöschte oder unsichtbare Zeilen (include false) wie im Verlauf nicht.
-// - Nur Zeilen vor der letzten Runde (beforeId), höchstens limit, älteste
-//   zuerst, nur das Feld prompt.
+// - Nur Zeilen vor der letzten Runde (beforeId), höchstens limit (Standard
+//   und Widget: EARLIER_QUESTIONS_MAX = 2, E-R6), älteste zuerst, nur das
+//   Feld prompt.
 jest.mock(
   "../../utils/prisma",
   () => require("../helpers/sqliteTestDatabase").testPrisma
@@ -21,6 +22,9 @@ const {
   seedEmbedChats,
 } = require("../helpers/sqliteTestDatabase");
 const { EmbedChats } = require("../../models/embedChats");
+const {
+  EARLIER_QUESTIONS_MAX,
+} = require("../../utils/helpers/chat/queryRewriter");
 
 // Der erste Test jeder Datei erzeugt die Vorlage mit `prisma migrate deploy`.
 jest.setTimeout(60000);
@@ -81,18 +85,23 @@ const call = (overrides = {}) =>
     embedId: EMBED_ID,
     conversationId: CONVERSATION,
     boundSessionId: SESSION,
-    limit: 5,
+    limit: EARLIER_QUESTIONS_MAX,
     ...overrides,
   });
 
 describe("earlierPrompts: frühere Fragen derselben Unterhaltung und Sitzung", () => {
   test("nur eigene, sichtbare Fragen vor der letzten Runde, älteste zuerst", async () => {
     const lastId = await seedMixed();
+    // die 2 neuesten eigenen; die fremden Zeilen dazwischen zählen nicht
     expect(await call({ beforeId: lastId })).toEqual([
-      "Gibt es Yoga?",
       "Ich bin Anfänger",
       "Und am Abend?",
     ]);
+    // davor nur noch die eigene erste Frage, nicht die der fremden Sitzung
+    const beginner = await db.client.embed_chats.findFirst({
+      where: { prompt: "Ich bin Anfänger" },
+    });
+    expect(await call({ beforeId: beginner.id })).toEqual(["Gibt es Yoga?"]);
   });
 
   test("NAK-1: fremde Sitzung mit bekannter conversationId sieht keine Frage des Besitzers", async () => {
@@ -140,13 +149,17 @@ describe("earlierPrompts: frühere Fragen derselben Unterhaltung und Sitzung", (
     const last = await db.client.embed_chats.findFirst({
       where: { prompt: "Frage 9" },
     });
-    expect(await call({ beforeId: last.id })).toEqual([
-      "Frage 4",
-      "Frage 5",
-      "Frage 6",
-      "Frage 7",
-      "Frage 8",
-    ]);
+    expect(await call({ beforeId: last.id })).toEqual(["Frage 7", "Frage 8"]);
+    // E-R6: ohne limit gilt EARLIER_QUESTIONS_MAX, dieselbe Zahl wie im
+    // Rewriter (Nutzer 16.11. abends: höchstens 2)
+    expect(
+      await EmbedChats.earlierPrompts({
+        embedId: EMBED_ID,
+        conversationId: CONVERSATION,
+        boundSessionId: SESSION,
+        beforeId: last.id,
+      })
+    ).toEqual(["Frage 7", "Frage 8"]);
   });
 
   test("liest nur das Feld prompt, mit kleinem take und absteigend nach id", async () => {
@@ -156,7 +169,7 @@ describe("earlierPrompts: frühere Fragen derselben Unterhaltung und Sitzung", (
     expect(findMany).toHaveBeenCalledTimes(1);
     const args = findMany.mock.calls[0][0];
     expect(args.select).toEqual({ prompt: true });
-    expect(args.take).toBe(5);
+    expect(args.take).toBe(2);
     expect(args.orderBy).toEqual({ id: "desc" });
     expect(args.where).toMatchObject({
       embed_id: EMBED_ID,

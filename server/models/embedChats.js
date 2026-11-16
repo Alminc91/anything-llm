@@ -18,6 +18,9 @@ const {
 } = require("../utils/helpers/chat/conversationSearch");
 const prisma = require("../utils/prisma");
 const { MessageLedger } = require("./messageLedger");
+const {
+  EARLIER_QUESTIONS_MAX,
+} = require("../utils/helpers/chat/queryRewriter");
 
 /**
  * @typedef {Object} EmbedChat
@@ -645,7 +648,8 @@ const EmbedChats = {
    * Frühere Fragen des Besuchers einer Unterhaltung für den Query Rewriter
    * (Variante E, Form E2, issues/folgefragen-variante-e.md): die Zeilen vor
    * beforeId (der ersten Runde im Block „Chat history“ des Rewriters), die
-   * neuesten zuerst gelesen, höchstens limit, zurück älteste zuerst. Gleiche
+   * neuesten zuerst gelesen, höchstens limit (Standard EARLIER_QUESTIONS_MAX,
+   * dieselbe Grenze wie im Rewriter), zurück älteste zuerst. Gleiche
    * Auswahl wie forEmbedByUser mit "conversation_id" und gebundener Sitzung
    * (include, KIE-503, KIE-505), nur das Feld prompt. Ohne Sitzung oder
    * gültige beforeId keine Abfrage.
@@ -654,7 +658,7 @@ const EmbedChats = {
    * @param {string} input.conversationId
    * @param {string} input.boundSessionId - besitzende Sitzung (Pflicht)
    * @param {number} input.beforeId - id der ersten Zeile der Runden im Block „Chat history“
-   * @param {number} [input.limit]
+   * @param {number} [input.limit] - Standard EARLIER_QUESTIONS_MAX (2)
    * @returns {Promise<string[]|null>} null bei einem Fehler der Datenbank
    */
   earlierPrompts: async function ({
@@ -662,7 +666,7 @@ const EmbedChats = {
     conversationId = null,
     boundSessionId = null,
     beforeId = null,
-    limit = 5,
+    limit = EARLIER_QUESTIONS_MAX,
   } = {}) {
     const before = Number(beforeId);
     if (

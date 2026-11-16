@@ -7,6 +7,8 @@
 //   (Fixture queryRewriteFormE2.json, erzeugt mit form_e2_referenz.py): 1 und
 //   2 Runden ohne frühere Fragen, 1 und 7 frühere Fragen, Kürzung auf 40
 //   Wörter. Den Zufallsabgleich (400 Fälle) macht abgleich_form_e2.js.
+// - E-R6: höchstens 2 frühere Fragen (EARLIER_QUESTIONS_MAX, Nutzer 16.11.
+//   abends, vorher 5).
 // - Bestand (D2): eine Form für alle Aufrufer; ohne frühere Fragen fehlt nur
 //   der Block.
 // - NAK-3: erste Nachricht und Fragen über der Wortgrenze ohne Rewrite.
@@ -19,6 +21,7 @@ const {
   buildRewriteMessages,
   rewriteHistoryTurns,
   REWRITE_PROMPT,
+  EARLIER_QUESTIONS_MAX,
 } = require("../../../utils/helpers/chat/queryRewriter");
 
 const FIXTURES = path.join(__dirname, "fixtures");
@@ -126,7 +129,10 @@ describe("AK-1: Nachrichtenform E2 wie gemessen", () => {
     }
   );
 
-  test("7 frühere Fragen: nur die 5 neuesten, älteste zuerst; 5 übergebene ergeben dieselbe Nachricht", () => {
+  // E-R6 (Nutzer 16.11. abends): höchstens 2 frühere Fragen, der Rewriter
+  // soll kaum mehr wissen als das Antwortmodell (2 Runden)
+  test("7 frühere Fragen: nur die 2 neuesten, älteste zuerst; 2 übergebene ergeben dieselbe Nachricht", () => {
+    expect(EARLIER_QUESTIONS_MAX).toBe(2);
     const c = FORM_CASES.find((x) => x.nutzer.length === 9);
     const chatHistory = historyOf(c.nutzer, c.antworten);
     const fromSeven = userMessage({
@@ -134,21 +140,15 @@ describe("AK-1: Nachrichtenform E2 wie gemessen", () => {
       chatHistory,
       earlierUserQuestions: c.nutzer.slice(0, 7),
     });
-    const fromFive = userMessage({
+    const fromTwo = userMessage({
       userQuery: c.cur,
       chatHistory,
-      earlierUserQuestions: c.nutzer.slice(2, 7),
+      earlierUserQuestions: c.nutzer.slice(5, 7),
     });
-    expect(fromSeven).toBe(fromFive);
-    expect(fromSeven).not.toContain(c.nutzer[0]);
-    expect(fromSeven).not.toContain(c.nutzer[1]);
-    expect(fromSeven.match(/^\d+\. /gm)).toEqual([
-      "1. ",
-      "2. ",
-      "3. ",
-      "4. ",
-      "5. ",
-    ]);
+    expect(fromSeven).toBe(fromTwo);
+    for (const dropped of c.nutzer.slice(0, 5))
+      expect(fromSeven).not.toContain(dropped.split(/\s+/).join(" "));
+    expect(fromSeven.match(/^\d+\. /gm)).toEqual(["1. ", "2. "]);
   });
 
   test("Kürzung auf 40 Wörter: 41 Wörter mit „...“, genau 40 ohne", () => {
