@@ -574,37 +574,13 @@ const EmbedChats = {
     }
 
     try {
-      // Build WHERE clause dynamically based on identifier type
-      const whereClause = {
-        embed_id: Number(embedId),
-        include: true,
-      };
-
-      if (identifierType === "conversation_id") {
-        if (boundSessionId && String(identifierId) === String(boundSessionId)) {
-          // KIE-503: Legacy-Zeilen (vor KIE-502) haben conversation_id NULL und
-          // werden in Konversations-Listen via COALESCE unter der session_id
-          // gruppiert. Wählt das Widget diesen Bucket (identifierId ===
-          // boundSessionId), müssen die NULL-Zeilen mitgeladen werden — sonst
-          // verspricht die Liste N Nachrichten, die Auswahl lädt aber leer.
-          // Session-Bindung bleibt strikt (BOLA, KIE-505).
-          whereClause.session_id = String(boundSessionId);
-          whereClause.OR = [
-            { conversation_id: String(identifierId) },
-            { conversation_id: null },
-          ];
-        } else {
-          whereClause.conversation_id = String(identifierId);
-          // BOLA/IDOR hardening (KIE-505): bind the conversation to its owning
-          // session so a leaked conversationId alone cannot load foreign history.
-          if (boundSessionId) whereClause.session_id = String(boundSessionId);
-        }
-      } else {
-        whereClause.session_id = String(identifierId);
-      }
-
       const chats = await prisma.embed_chats.findMany({
-        where: whereClause,
+        where: this._historyWhere(
+          embedId,
+          identifierId,
+          identifierType,
+          boundSessionId
+        ),
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
@@ -613,6 +589,107 @@ const EmbedChats = {
     } catch (error) {
       console.error(error.message);
       return [];
+    }
+  },
+
+  /**
+   * WHERE des Widget-Verlaufs (forEmbedByUser) und der früheren Fragen für
+   * den Query Rewriter (earlierPrompts): nur sichtbare Zeilen (include) des
+   * Widgets, die Unterhaltung an ihre Sitzung gebunden (KIE-505).
+   * @param {number} embedId
+   * @param {string} identifierId - session_id oder conversation_id
+   * @param {string} identifierType - "session_id" oder "conversation_id"
+   * @param {string|null} boundSessionId - besitzende Sitzung der Unterhaltung
+   * @returns {Object}
+   */
+  _historyWhere: function (
+    embedId,
+    identifierId,
+    identifierType,
+    boundSessionId
+  ) {
+    // Build WHERE clause dynamically based on identifier type
+    const whereClause = {
+      embed_id: Number(embedId),
+      include: true,
+    };
+
+    if (identifierType === "conversation_id") {
+      if (boundSessionId && String(identifierId) === String(boundSessionId)) {
+        // KIE-503: Legacy-Zeilen (vor KIE-502) haben conversation_id NULL und
+        // werden in Konversations-Listen via COALESCE unter der session_id
+        // gruppiert. Wählt das Widget diesen Bucket (identifierId ===
+        // boundSessionId), müssen die NULL-Zeilen mitgeladen werden, sonst
+        // verspricht die Liste N Nachrichten, die Auswahl lädt aber leer.
+        // Session-Bindung bleibt strikt (BOLA, KIE-505).
+        whereClause.session_id = String(boundSessionId);
+        whereClause.OR = [
+          { conversation_id: String(identifierId) },
+          { conversation_id: null },
+        ];
+      } else {
+        whereClause.conversation_id = String(identifierId);
+        // BOLA/IDOR hardening (KIE-505): bind the conversation to its owning
+        // session so a leaked conversationId alone cannot load foreign history.
+        if (boundSessionId) whereClause.session_id = String(boundSessionId);
+      }
+    } else {
+      whereClause.session_id = String(identifierId);
+    }
+    return whereClause;
+  },
+
+  /**
+   * Frühere Fragen des Besuchers einer Unterhaltung für den Query Rewriter
+   * (Variante E, issues/folgefragen-variante-e.md): die Zeilen vor beforeId
+   * (der letzten Runde des geladenen Verlaufs), die neuesten zuerst gelesen,
+   * höchstens limit, zurück älteste zuerst. Gleiche Auswahl wie
+   * forEmbedByUser mit "conversation_id" und gebundener Sitzung (include,
+   * KIE-503, KIE-505), nur das Feld prompt. Ohne Sitzung oder gültige
+   * beforeId keine Abfrage.
+   * @param {Object} input
+   * @param {number} input.embedId
+   * @param {string} input.conversationId
+   * @param {string} input.boundSessionId - besitzende Sitzung (Pflicht)
+   * @param {number} input.beforeId - id der Zeile der letzten Runde
+   * @param {number} [input.limit]
+   * @returns {Promise<string[]|null>} null bei einem Fehler der Datenbank
+   */
+  earlierPrompts: async function ({
+    embedId = null,
+    conversationId = null,
+    boundSessionId = null,
+    beforeId = null,
+    limit = 5,
+  } = {}) {
+    const before = Number(beforeId);
+    if (
+      !embedId ||
+      !conversationId ||
+      !boundSessionId ||
+      !Number.isSafeInteger(before) ||
+      before <= 0
+    )
+      return [];
+    try {
+      const rows = await prisma.embed_chats.findMany({
+        where: {
+          ...this._historyWhere(
+            embedId,
+            conversationId,
+            "conversation_id",
+            boundSessionId
+          ),
+          id: { lt: before },
+        },
+        select: { prompt: true },
+        orderBy: { id: "desc" },
+        take: limit,
+      });
+      return rows.map((row) => row.prompt).reverse();
+    } catch (error) {
+      console.error(`[EmbedChats.earlierPrompts] ${error.message}`);
+      return null;
     }
   },
 

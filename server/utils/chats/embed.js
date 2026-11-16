@@ -9,7 +9,10 @@ const {
 } = require("../helpers/chat/responses");
 const { DocumentManager } = require("../DocumentManager");
 const { courseInventoryGuard } = require("./courseInventory");
-const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
+const {
+  rewriteQueryForSearch,
+  EARLIER_QUESTIONS_MAX,
+} = require("../helpers/chat/queryRewriter");
 const { startMetadataFilterResolution } = require("./metadataFilterResolver");
 const {
   courseCardsEnabled,
@@ -166,11 +169,20 @@ async function streamChatWithForEmbed(
         })
       : null;
 
+  // Variante E: frühere Fragen des Besuchers nur für die Suchfrage; das
+  // Antwortmodell und der Metadatenfilter sehen weiter genau chatHistory
   const searchQuery = await rewriteQueryForSearch({
     userQuery: message,
     chatHistory,
     LLMConnector,
     workspace: embed.workspace,
+    earlierUserQuestions: await earlierVisitorQuestions({
+      embed,
+      conversationId,
+      sessionId,
+      rawHistory,
+      chatHistory,
+    }),
   });
 
   const vectorSearchResults =
@@ -575,6 +587,38 @@ async function recentEmbedChatHistory(
     rawHistory: promptHistory,
     chatHistory: convertToPromptHistory(promptHistory),
   };
+}
+
+/**
+ * Frühere Fragen des Besuchers für den Query Rewriter (Variante E,
+ * issues/folgefragen-variante-e.md): die Fragen derselben Unterhaltung vor
+ * der letzten Runde des geladenen Verlaufs, höchstens EARLIER_QUESTIONS_MAX,
+ * älteste zuerst, unabhängig von message_limit. Gebunden an die Sitzung wie
+ * recentEmbedChatHistory (KIE-505). Ohne Verlauf (erste Nachricht) keine
+ * Abfrage, der Rewriter läuft dann ohnehin nicht.
+ * @param {Object} input
+ * @param {{id: number}} input.embed
+ * @param {string} input.conversationId
+ * @param {string} input.sessionId
+ * @param {{id: number}[]} input.rawHistory - geladene Zeilen, älteste zuerst
+ * @param {Object[]} input.chatHistory - Verlauf für das LLM
+ * @returns {Promise<string[]|null>} null: Abfrage fehlgeschlagen, der Rewriter arbeitet wie ohne frühere Fragen
+ */
+async function earlierVisitorQuestions({
+  embed,
+  conversationId,
+  sessionId,
+  rawHistory,
+  chatHistory,
+}) {
+  if (chatHistory.length === 0 || rawHistory.length === 0) return [];
+  return await EmbedChats.earlierPrompts({
+    embedId: embed.id,
+    conversationId,
+    boundSessionId: sessionId,
+    beforeId: rawHistory[rawHistory.length - 1].id,
+    limit: EARLIER_QUESTIONS_MAX,
+  });
 }
 
 module.exports = {

@@ -4,6 +4,13 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### Query Rewriter: Folgefragen behalten ihr Thema (Variante E, 2026-11-16)
+
+- **Widget-Chat:** Der Rewriter bekommt zusätzlich die früheren Fragen des Besuchers derselben Unterhaltung (höchstens 5 vor der letzten Runde, älteste zuerst, je auf 40 Wörter gekürzt, unabhängig von `message_limit`) und sucht das Thema rückwärts durch sie. Als Verlauf steht dann genau die letzte Runde in der Nachricht. Gebunden an die Sitzung wie der Verlauf (KIE-505), nur sichtbare Zeilen, nur das Feld `prompt` (`EmbedChats.earlierPrompts`, eine Abfrage je Nachricht mit Verlauf).
+- **Neuer Prompt für alle Aufrufer**, wörtlich der gemessene (`issues/folgefragen-variante-e/prompt_e.txt`); Workspace- und API-Chat geben keine früheren Fragen mit, ihr Verlauf bleibt wie bisher.
+- Unverändert: Verlauf und Prompt des Antwortmodells, Metadatenfilter, gespeicherte Daten, Wortgrenze und Schalter (`shouldRewrite`). Keine Schemaänderung, keine Migration.
+- Tests: `queryRewriterVarianteE.test.js` (Prompt und Nachrichtenform byte-gleich zur Messung), `embedChatsEarlierPrompts.test.js` (echte SQLite-Datei, Sitzungsbindung), `embedStreamEarlierQuestions.test.js` (Widget-Pfad, Antwortmodell unverändert).
+
 ### Konversationen: letzte Korrekturrunde vor dem Merge (Fixliste 7, 2026-10-14)
 
 - **Zeitraum als Berliner Kalendertage:** Liste und Export bekommen die gewählten Tage (`fromDay`/`toDay`, beide einschließlich) statt Zeitstempeln des Browsers und begrenzen sie wie Kennzahlen, Diagramm und Zählerbuch in Berliner Zeit – auch in einem Browser in New York oder UTC. Der Hinweis „N Konversationen gezählt, M davon einsehbar" gilt damit in jeder Zeitzone; der Dateiname des Exports nennt den gewählten letzten Tag. `startDate`/`endDate` bleiben für API-Clients gültig. Ein unlesbarer Zeitraum ist in Liste und Export einheitlich 400 (die Liste antwortete 500).

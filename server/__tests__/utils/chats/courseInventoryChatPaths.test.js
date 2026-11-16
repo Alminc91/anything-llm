@@ -24,6 +24,8 @@ jest.mock("../../../models/embedChats", () => ({
   EmbedChats: {
     new: jest.fn().mockResolvedValue({ chat: { id: 42 }, message: null }),
     forEmbedByUser: jest.fn().mockResolvedValue([]),
+    // Variante E: frühere Fragen für den Query Rewriter
+    earlierPrompts: jest.fn().mockResolvedValue([]),
   },
 }));
 jest.mock("../../../models/workspace", () => ({
