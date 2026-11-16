@@ -132,7 +132,7 @@ function findMany({ where, select, orderBy, take }) {
   return Promise.resolve(rows.map((r) => ({ ...r })));
 }
 
-function makeEmbed(messageLimit) {
+function makeEmbed(messageLimit, queryRewriteMode = "on") {
   return {
     id: EMBED_ID,
     chat_mode: "chat",
@@ -143,7 +143,7 @@ function makeEmbed(messageLimit) {
       slug: "chatbot",
       messagesLimit: null,
       topN: 4,
-      queryRewriteMode: "on",
+      queryRewriteMode,
     },
   };
 }
@@ -174,6 +174,7 @@ async function run({
   sessionId = SESSION,
   conversationId = CONVERSATION,
   message = MESSAGE,
+  queryRewriteMode = "on",
 } = {}) {
   const response = {
     locals: {},
@@ -198,7 +199,7 @@ async function run({
   helpers.getVectorDbClass.mockReturnValue(vectorDb);
   await streamChatWithForEmbed(
     response,
-    makeEmbed(messageLimit),
+    makeEmbed(messageLimit, queryRewriteMode),
     message,
     sessionId,
     { conversationId, displayMode: "bubble" }
@@ -409,7 +410,7 @@ describe("NAK-2: Antwortmodell, Metadatenfilter und Speichern wie bisher", () =>
   });
 });
 
-describe("NAK-3 im Widget: erste Nachricht", () => {
+describe("NAK-3 im Widget: erste Nachricht, Wortgrenze, Schalter", () => {
   test("ohne Verlauf keine Abfrage der früheren Fragen und kein Rewrite", async () => {
     TABLE = [];
     const { rewriteCalls, vectorDb } = await run();
@@ -420,11 +421,23 @@ describe("NAK-3 im Widget: erste Nachricht", () => {
     );
   });
 
-  test("Frage über der Wortgrenze: kein Rewrite, Suche mit der Originalfrage", async () => {
+  // E-R2: die Abfrage der früheren Fragen läuft erst, wenn der Rewriter
+  // tatsächlich umschreibt (nach shouldRewrite)
+  test("Frage über der Wortgrenze: kein Rewrite, keine Abfrage der früheren Fragen, Suche mit der Originalfrage", async () => {
     const long =
       "Ich suche noch einen Yogakurs für Anfänger am Abend in der Nähe bitte";
     const { rewriteCalls, vectorDb } = await run({ message: long });
     expect(rewriteCalls).toHaveLength(0);
+    expect(earlierQueries()).toHaveLength(0);
     expect(vectorDb.performSimilaritySearch.mock.calls[0][0].input).toBe(long);
+  });
+
+  test("Schalter aus (queryRewriteMode off): kein Rewrite, keine Abfrage der früheren Fragen", async () => {
+    const { rewriteCalls, vectorDb } = await run({ queryRewriteMode: "off" });
+    expect(rewriteCalls).toHaveLength(0);
+    expect(earlierQueries()).toHaveLength(0);
+    expect(vectorDb.performSimilaritySearch.mock.calls[0][0].input).toBe(
+      MESSAGE
+    );
   });
 });

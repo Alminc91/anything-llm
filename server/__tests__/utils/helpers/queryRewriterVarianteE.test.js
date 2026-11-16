@@ -65,7 +65,7 @@ describe("AK-1: System-Prompt byte-gleich zur Messung", () => {
       chatHistory: historyOf(["Gibt es Yoga?"], ["Ja."], 1),
       LLMConnector: llm,
       workspace: WORKSPACE_ON,
-      earlierUserQuestions: [],
+      loadEarlierUserQuestions: async () => [],
     });
     const [messages, options] = llm.getChatCompletion.mock.calls[0];
     expect(messages[0]).toEqual({ role: "system", content: PROMPT_E });
@@ -101,7 +101,7 @@ describe("AK-1: Nachrichtenform mit früheren Fragen wie gemessen", () => {
         chatHistory,
         LLMConnector: llm,
         workspace: WORKSPACE_ON,
-        earlierUserQuestions,
+        loadEarlierUserQuestions: async () => earlierUserQuestions,
       });
       expect(llm.getChatCompletion).toHaveBeenCalledTimes(1);
       expect(llm.getChatCompletion.mock.calls[0][0][1]).toEqual({
@@ -178,7 +178,10 @@ describe("Bestand (D2): ohne frühere Fragen neuer Prompt, Form wie bisher", () 
 
   test.each([
     ["ohne Parameter", {}],
-    ["earlierUserQuestions null", { earlierUserQuestions: null }],
+    [
+      "Lader liefert null (Datenbankfehler)",
+      { loadEarlierUserQuestions: async () => null },
+    ],
   ])("%s: kein Block, Verlauf wie bisher", async (_name, extra) => {
     const llm = connector();
     await rewriteQueryForSearch({
@@ -216,7 +219,7 @@ describe("Bestand (D2): ohne frühere Fragen neuer Prompt, Form wie bisher", () 
         chatHistory: CHAT_HISTORY,
         LLMConnector: connector(reply),
         workspace: WORKSPACE_ON,
-        earlierUserQuestions: ["Gibt es Yoga?"],
+        loadEarlierUserQuestions: async () => ["Gibt es Yoga?"],
       });
     expect(
       await run("<think>überlegen</think>Gibt es später Yoga?\nZweite Zeile")
@@ -234,7 +237,7 @@ describe("NAK-3: kein Rewrite bei erster Nachricht und über der Wortgrenze", ()
       chatHistory: [],
       LLMConnector: llm,
       workspace: WORKSPACE_ON,
-      earlierUserQuestions: ["Gibt es Malkurse?"],
+      loadEarlierUserQuestions: async () => ["Gibt es Malkurse?"],
     });
     expect(result).toBe("Gibt es Yoga?");
     expect(llm.getChatCompletion).not.toHaveBeenCalled();
@@ -250,7 +253,7 @@ describe("NAK-3: kein Rewrite bei erster Nachricht und über der Wortgrenze", ()
     const args = {
       chatHistory: historyOf(["Gibt es Yoga?"], ["Ja."], 1),
       workspace: WORKSPACE_ON,
-      earlierUserQuestions: ["Hallo"],
+      loadEarlierUserQuestions: async () => ["Hallo"],
     };
     const llmLong = connector();
     expect(
@@ -279,9 +282,60 @@ describe("NAK-3: kein Rewrite bei erster Nachricht und über der Wortgrenze", ()
         chatHistory: historyOf(["Gibt es Yoga?"], ["Ja."], 1),
         LLMConnector: llm,
         workspace: { queryRewriteMode: "off" },
-        earlierUserQuestions: ["Hallo"],
+        loadEarlierUserQuestions: async () => ["Hallo"],
       })
     ).toBe("Und abends?");
+    expect(llm.getChatCompletion).not.toHaveBeenCalled();
+  });
+});
+
+// Fixliste rc7 E-R2: rewriteQueryForSearch bekommt einen Lader und ruft ihn
+// erst nach shouldRewrite auf; ohne Rewrite läuft keine Abfrage.
+describe("E-R2: frühere Fragen erst laden, wenn umgeschrieben wird", () => {
+  const loader = (list = ["Gibt es Gebärdensprache?"]) =>
+    jest.fn().mockResolvedValue(list);
+  const base = {
+    userQuery: "Und abends?",
+    chatHistory: historyOf(["Für Anfänger"], ["Ja."], 1),
+    workspace: WORKSPACE_ON,
+  };
+
+  test("Rewrite: Lader genau einmal, seine Fragen stehen im Block", async () => {
+    const load = loader();
+    const llm = connector();
+    await rewriteQueryForSearch({
+      ...base,
+      LLMConnector: llm,
+      loadEarlierUserQuestions: load,
+    });
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(llm.getChatCompletion.mock.calls[0][0][1].content).toMatch(
+      /^Earlier user questions \(oldest first\):\n1\. Gibt es Gebärdensprache\?\n\n/
+    );
+  });
+
+  test.each([
+    ["erste Nachricht (leerer Verlauf)", { chatHistory: [] }],
+    [
+      "über der Wortgrenze",
+      {
+        userQuery:
+          "Ich suche noch einen Yogakurs für Anfänger am Abend in der Nähe bitte",
+      },
+    ],
+    ["Schalter aus", { workspace: { queryRewriteMode: "off" } }],
+  ])("%s: Lader nie aufgerufen, kein LLM-Aufruf", async (_name, extra) => {
+    const load = loader();
+    const llm = connector();
+    const args = { ...base, ...extra };
+    expect(
+      await rewriteQueryForSearch({
+        ...args,
+        LLMConnector: llm,
+        loadEarlierUserQuestions: load,
+      })
+    ).toBe(args.userQuery);
+    expect(load).not.toHaveBeenCalled();
     expect(llm.getChatCompletion).not.toHaveBeenCalled();
   });
 });

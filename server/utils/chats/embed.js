@@ -173,19 +173,20 @@ async function streamChatWithForEmbed(
 
   // Variante E: Verlauf ohne Protokollzeilen (D3) und frühere Fragen des
   // Besuchers nur für die Suchfrage; das Antwortmodell und der
-  // Metadatenfilter sehen weiter genau chatHistory
+  // Metadatenfilter sehen weiter genau chatHistory. Die früheren Fragen lädt
+  // der Rewriter erst, wenn er umschreibt (E-R2).
   const searchQuery = await rewriteQueryForSearch({
     userQuery: message,
     chatHistory: searchHistory.chatHistory,
     LLMConnector,
     workspace: embed.workspace,
-    earlierUserQuestions: await earlierVisitorQuestions({
-      embed,
-      conversationId,
-      sessionId,
-      rawHistory: searchHistory.rows,
-      chatHistory: searchHistory.chatHistory,
-    }),
+    loadEarlierUserQuestions: () =>
+      earlierVisitorQuestions({
+        embed,
+        conversationId,
+        sessionId,
+        rows: searchHistory.rows,
+      }),
   });
 
   const vectorSearchResults =
@@ -624,31 +625,29 @@ function searchHistoryOf(loaded) {
 /**
  * Frühere Fragen des Besuchers für den Query Rewriter (Variante E,
  * issues/folgefragen-variante-e.md): die Fragen derselben Unterhaltung vor
- * der letzten Runde des geladenen Verlaufs, höchstens EARLIER_QUESTIONS_MAX,
+ * der letzten Runde des Rewriter-Verlaufs, höchstens EARLIER_QUESTIONS_MAX,
  * älteste zuerst, unabhängig von message_limit. Gebunden an die Sitzung wie
- * recentEmbedChatHistory (KIE-505). Ohne Verlauf (erste Nachricht) keine
- * Abfrage, der Rewriter läuft dann ohnehin nicht.
+ * recentEmbedChatHistory (KIE-505). Nur als Lader von rewriteQueryForSearch
+ * (läuft erst nach shouldRewrite, also mit Verlauf); ohne Zeilen fragt
+ * earlierPrompts nicht.
  * @param {Object} input
  * @param {{id: number}} input.embed
  * @param {string} input.conversationId
  * @param {string} input.sessionId
- * @param {{id: number}[]} input.rawHistory - geladene Zeilen, älteste zuerst
- * @param {Object[]} input.chatHistory - Verlauf für das LLM
+ * @param {{id: number}[]} input.rows - Zeilen des Rewriter-Verlaufs (searchHistoryOf), älteste zuerst
  * @returns {Promise<string[]|null>} null: Abfrage fehlgeschlagen, der Rewriter arbeitet wie ohne frühere Fragen
  */
 async function earlierVisitorQuestions({
   embed,
   conversationId,
   sessionId,
-  rawHistory,
-  chatHistory,
+  rows,
 }) {
-  if (chatHistory.length === 0 || rawHistory.length === 0) return [];
   return await EmbedChats.earlierPrompts({
     embedId: embed.id,
     conversationId,
     boundSessionId: sessionId,
-    beforeId: rawHistory[rawHistory.length - 1].id,
+    beforeId: rows[rows.length - 1]?.id,
     limit: EARLIER_QUESTIONS_MAX,
   });
 }

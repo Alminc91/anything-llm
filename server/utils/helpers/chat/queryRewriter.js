@@ -149,7 +149,7 @@ function buildRewriteMessages({
  * @param {{role: string, content: string}[]} input.chatHistory
  * @param {Object} input.LLMConnector
  * @param {Object} input.workspace
- * @param {string[]|null} [input.earlierUserQuestions] - nur Widget (Variante E): frühere Fragen des Besuchers derselben Unterhaltung vor der letzten Runde, älteste zuerst
+ * @param {() => Promise<string[]|null>} [input.loadEarlierUserQuestions] - nur Widget (Variante E): lädt die früheren Fragen des Besuchers derselben Unterhaltung, älteste zuerst; läuft erst nach shouldRewrite, ohne Rewrite also keine Abfrage
  * @returns {Promise<string>}
  */
 async function rewriteQueryForSearch({
@@ -157,7 +157,7 @@ async function rewriteQueryForSearch({
   chatHistory,
   LLMConnector,
   workspace,
-  earlierUserQuestions = null,
+  loadEarlierUserQuestions = null,
 }) {
   if (!(await shouldRewrite(userQuery, chatHistory, workspace)))
     return userQuery;
@@ -166,7 +166,9 @@ async function rewriteQueryForSearch({
     const messages = buildRewriteMessages({
       userQuery,
       chatHistory,
-      earlierUserQuestions,
+      earlierUserQuestions: loadEarlierUserQuestions
+        ? await loadEarlierUserQuestions()
+        : null,
     });
     const start = Date.now();
     const result = await LLMConnector.getChatCompletion(messages, {
