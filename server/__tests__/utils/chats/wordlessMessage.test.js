@@ -101,6 +101,15 @@ describe("AK-1: Erkennung nach Abschnitt 4", () => {
     }
   });
 
+  test("D3: Satzzeichen am Rand, die zu einer Schrift ohne Wortabstände gehören, zeigen die Schrift (mit Wörtern); allgemeine Satzzeichen nicht", () => {
+    // Birmanisch ။, Khmer ។ und Thai ๚ gehören zur Schrift
+    for (const message of ["XI41050။", "XI41050។", "XI41050๚"])
+      expect([message, isWordlessMessage(message)]).toEqual([message, false]);
+    // chinesische und japanische Satzzeichen gehören zu keiner Schrift
+    for (const message of ["XI41050。", "「XI41050」", "XI41050？"])
+      expect([message, isWordlessMessage(message)]).toEqual([message, true]);
+  });
+
   test("D3: 4 Buchstaben müssen am Stück stehen, Ziffern dazwischen unterbrechen", () => {
     for (const message of ["A1B2C3D4", "ab1cd2", "Kur123", "XI41050 abc1"])
       expect([message, isWordlessMessage(message)]).toEqual([message, true]);

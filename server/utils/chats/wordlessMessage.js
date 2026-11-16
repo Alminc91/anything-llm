@@ -15,18 +15,42 @@ const LETTER = /\p{L}/u;
 // Sprache, eine Nachricht nur aus ihnen bekommt keinen Hinweis (wie heute).
 const DIGIT = /[0-9]/;
 const WHITESPACE = /\s+/u;
+// Schriften ohne Wortabstände (D3, 16.11.2026): Chinesisch, Japanisch,
+// Koreanisch (oft ohne Leerraum vor der Nummer), Thai, Lao, Khmer, Birmanisch.
+// Dort klebt die Kursnummer am Satz („我想报名XI41050“). Kursnummern der
+// Kunden enthalten solche Zeichen nie.
+const SCRIPT_WITHOUT_SPACES =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+// Mindestens 4 Buchstaben am Stück (D3): „course123“, „Kurs123“, „Курс123“.
+// Kursnummern haben höchstens 3 Buchstaben am Stück (XI41050, TM3000,
+// 26W1001, H350125, 4M14); „abc123“ bleibt ohne Wort.
+const FOUR_LETTERS_IN_A_ROW = /\p{L}{4}/u;
 
 /**
- * Wort (Spezifikation Abschnitt 4): ein durch Leerraum getrenntes Stück, das
- * nach Abschneiden von Satzzeichen am Rand mindestens einen Buchstaben
- * (Unicode \p{L}, alle Schriften) und keine Ziffer enthält. Satzzeichen sind
- * weder Buchstabe noch Ziffer, das Abschneiden ändert die Prüfung also
- * nicht; geprüft wird das ganze Stück.
+ * Wort (Spezifikation Abschnitt 4 mit D3): ein durch Leerraum getrenntes
+ * Stück, das nach Abschneiden von Satzzeichen am Rand mindestens einen
+ * Buchstaben (Unicode \p{L}, alle Schriften) enthält und für das eines gilt:
+ *  1. keine Ziffer 0 bis 9,
+ *  2. ein Zeichen einer Schrift ohne Wortabstände (SCRIPT_WITHOUT_SPACES),
+ *  3. mindestens 4 Buchstaben am Stück.
+ * 2 und 3 machen die Erkennung nur enger: Im Zweifel gilt ein Stück als
+ * Wort, und die Nachricht bekommt keinen Hinweis (Verhalten von heute).
+ * Geprüft wird das ganze Stück, ohne eigenes Abschneiden: Satzzeichen sind
+ * weder Buchstabe noch Ziffer, und am Rand verlängern oder unterbrechen sie
+ * keine Buchstabenfolge. Einzige Ausnahme sind Satzzeichen, die selbst zu
+ * einer der Schriften ohne Wortabstände gehören (Khmer ។, Birmanisch ။,
+ * Thai ๚): „XI41050။“ gilt als Wort, weil das Zeichen die Schrift des
+ * Besuchers zeigt. Auch das macht die Erkennung nur enger.
  * @param {string} piece
  * @returns {boolean}
  */
 function isWord(piece) {
-  return LETTER.test(piece) && !DIGIT.test(piece);
+  if (!LETTER.test(piece)) return false;
+  return (
+    !DIGIT.test(piece) ||
+    SCRIPT_WITHOUT_SPACES.test(piece) ||
+    FOUR_LETTERS_IN_A_ROW.test(piece)
+  );
 }
 
 /**
