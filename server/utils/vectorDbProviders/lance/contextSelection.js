@@ -24,7 +24,10 @@
  *    sondern Nicht-Kurs-Dokumente (Regel 3).
  * 2. Stufenregel für die Kursplätze: Platz für Platz ist der bestbewertete
  *    noch freie Kurs der Führende. Gleich relevant sind die noch freien
- *    Kurse mit `score ≥ Führender − SPANNE` und `score ≥ BODEN`. Unter
+ *    Kurse mit `score ≥ Führender − SPANNE` und `score ≥ BODEN`, deren
+ *    Log-Odds ln(p / (1 − p)) zudem höchstens LOGIT_SPANNE unter denen des
+ *    Führenden liegen (D10, weil der Reranker nahe 1 große Unterschiede in
+ *    winzige Abstände staucht, etwa 0,9999 gegen 0,997). Unter
  *    ihnen gewinnt die zeitliche Priorität; innerhalb derselben Stufe
  *    gehen Kurse mit künftigem Beginn vor (früheste zuerst, D7, auch auf
  *    der Warteliste), danach die begonnenen; laufende Kurse ordnet der
@@ -33,7 +36,8 @@
  *    den Platz (reine Score-Folge: bei schwachen Treffern zieht das Datum
  *    nichts vor).
  *    Garantie: Kein gewählter Kurs steht vor einem späteren oder nicht
- *    gewählten Kurs, dessen Score mehr als SPANNE höher ist.
+ *    gewählten Kurs, dessen Score mehr als SPANNE oder dessen Log-Odds mehr
+ *    als LOGIT_SPANNE höher sind.
  *    Wählbar sind die Kurse der heutigen Top-N und Kurse mit
  *    `score ≥ BODEN`; ein Kurs unter dem Boden kommt nie von außerhalb dazu.
  * 3. Klare Kursfrage (≥ 3 Kurse mit `score ≥ BODEN`, Warteliste zählt mit):
@@ -56,6 +60,14 @@
 
 /** Spanne „gleich relevant“ unter dem Führenden (Env COURSE_SELECTION_TIE_SPAN). */
 const SELECTION_TIE_SPAN = 0.02;
+/**
+ * Zweite Bedingung für „gleich relevant“ (D10): höchstens so weit unter dem
+ * Führenden auf der Log-Odds-Skala (Env COURSE_SELECTION_TIE_LOGIT). Ein
+ * großer Wert (etwa 100) schaltet die Bedingung praktisch ab.
+ */
+const SELECTION_TIE_LOGIT = 1.0;
+/** Scores für die Log-Odds auf [LOGIT_CLAMP, 1 − LOGIT_CLAMP] begrenzt (endlich). */
+const LOGIT_CLAMP = 1e-7;
 /** Boden: darunter keine Datumsordnung und kein Einwechseln (Env COURSE_SELECTION_FLOOR). */
 const SELECTION_FLOOR = 0.3;
 /** Mindestgröße des Reranker-Pools (topK), aus dem die Stufe wählt. */
@@ -64,7 +76,7 @@ const SELECTION_POOL_MIN = 12;
 const COURSE_QUERY_MIN = 3;
 /** Höchstzahl Nicht-Kurs-Dokumente bei einer Kursfrage. */
 const MAX_NON_COURSE = 1;
-/** Toleranz für Gleitkomma-Vergleiche an der Spannengrenze (nicht am Boden). */
+/** Toleranz für Gleitkomma-Vergleiche an den Spannengrenzen (nicht am Boden). */
 const SPAN_EPSILON = 1e-9;
 /**
  * Zeitliche Priorität unter gleich relevanten Kursen (kleiner = weiter vorn).
@@ -124,8 +136,20 @@ function berlinToday(now = new Date()) {
 }
 
 const isUnitInterval = (n) => Number.isFinite(n) && n >= 0 && n <= 1;
+const isPositive = (n) => Number.isFinite(n) && n > 0;
 const hasValue = (v) =>
   v !== undefined && v !== null && String(v).trim() !== "";
+
+/**
+ * Log-Odds eines Reranker-Scores: ln(p / (1 − p)), p auf
+ * [LOGIT_CLAMP, 1 − LOGIT_CLAMP] begrenzt. Steigt mit p, bleibt endlich.
+ * @param {number} p
+ * @returns {number}
+ */
+function logOdds(p) {
+  const q = Math.min(Math.max(p, LOGIT_CLAMP), 1 - LOGIT_CLAMP);
+  return Math.log(q / (1 - q));
+}
 
 let obsoleteNoticeShown = false;
 
@@ -146,10 +170,14 @@ function noticeObsoleteEnv(env) {
   );
 }
 
-/** Stellgrößen mit Env-Override: Feld, Env-Name, Standard. */
+const UNIT_INTERVAL = [isUnitInterval, "eine Zahl von 0 bis 1"];
+const POSITIVE = [isPositive, "eine Zahl größer 0"];
+
+/** Stellgrößen mit Env-Override: Feld, Env-Name, Standard, [Prüfung, Erwartung]. */
 const ENV_SETTINGS = Object.freeze([
-  ["span", "COURSE_SELECTION_TIE_SPAN", SELECTION_TIE_SPAN],
-  ["floor", "COURSE_SELECTION_FLOOR", SELECTION_FLOOR],
+  ["span", "COURSE_SELECTION_TIE_SPAN", SELECTION_TIE_SPAN, UNIT_INTERVAL],
+  ["logitSpan", "COURSE_SELECTION_TIE_LOGIT", SELECTION_TIE_LOGIT, POSITIVE],
+  ["floor", "COURSE_SELECTION_FLOOR", SELECTION_FLOOR, UNIT_INTERVAL],
 ]);
 
 let invalidNoticeShown = false;
@@ -162,34 +190,33 @@ let invalidNoticeShown = false;
 function noticeInvalidEnv(invalid) {
   if (invalidNoticeShown || invalid.length === 0) return;
   invalidNoticeShown = true;
-  console.warn(
-    `[Auswahlstufe] ${invalid.join("; ")}. Erwartet ist eine Zahl von 0 bis 1 mit Dezimalpunkt.`
-  );
+  console.warn(`[Auswahlstufe] ${invalid.join("; ")}.`);
 }
 
 /**
- * Stellgrößen mit Env-Override (COURSE_SELECTION_TIE_SPAN, COURSE_SELECTION_FLOOR,
- * je 0 bis 1 mit Dezimalpunkt). Ungültige Werte fallen auf den Standard
- * zurück, ein gesetzter ungültiger Wert steht einmal im Log.
+ * Stellgrößen mit Env-Override (COURSE_SELECTION_TIE_SPAN und
+ * COURSE_SELECTION_FLOOR je 0 bis 1, COURSE_SELECTION_TIE_LOGIT größer 0, mit
+ * Dezimalpunkt). Ungültige Werte fallen auf den Standard zurück, ein
+ * gesetzter ungültiger Wert steht einmal im Log.
  * COURSE_SELECTION_KEEP/BAND sind ohne Wirkung (einmaliger Hinweis).
  * @param {Record<string, string|undefined>} [env]
- * @returns {{span:number, floor:number}}
+ * @returns {{span:number, logitSpan:number, floor:number}}
  */
 function selectionConfig(env = process.env) {
   noticeObsoleteEnv(env);
   const config = {};
   const invalid = [];
-  for (const [field, key, standard] of ENV_SETTINGS) {
+  for (const [field, key, standard, [isValid, expected]] of ENV_SETTINGS) {
     const raw = env?.[key];
     const value = Number(raw);
-    if (hasValue(raw) && isUnitInterval(value)) {
+    if (hasValue(raw) && isValid(value)) {
       config[field] = value;
       continue;
     }
     config[field] = standard;
     if (hasValue(raw))
       invalid.push(
-        `${key}=${JSON.stringify(String(raw).slice(0, 40))} ist ungültig, es gilt der Standard ${standard}`
+        `${key}=${JSON.stringify(String(raw).slice(0, 40))} ist ungültig (erwartet ist ${expected} mit Dezimalpunkt), es gilt der Standard ${standard}`
       );
   }
   noticeInvalidEnv(invalid);
@@ -201,6 +228,7 @@ function normalizeSettings(settings) {
   const s = settings && typeof settings === "object" ? settings : {};
   return {
     span: isUnitInterval(s.span) ? s.span : SELECTION_TIE_SPAN,
+    logitSpan: isPositive(s.logitSpan) ? s.logitSpan : SELECTION_TIE_LOGIT,
     floor: isUnitInterval(s.floor) ? s.floor : SELECTION_FLOOR,
   };
 }
@@ -277,7 +305,7 @@ function compareTime(a, b, info) {
  * @param {number[]} eligible
  * @param {number} slots
  * @param {object[]} info - classifyRow je Kandidat
- * @param {{span:number, floor:number}} cfg
+ * @param {{span:number, logitSpan:number, floor:number}} cfg
  * @returns {number[]} gewählte Indizes in Platzfolge
  */
 function stepRule(eligible, slots, info, cfg) {
@@ -288,10 +316,18 @@ function stepRule(eligible, slots, info, cfg) {
     let best = 0;
     if (leaderScore >= cfg.floor) {
       const threshold = leaderScore - cfg.span - SPAN_EPSILON;
+      const logitThreshold =
+        logOdds(leaderScore) - cfg.logitSpan - SPAN_EPSILON;
       for (let k = 1; k < rest.length; k++) {
         const score = info[rest[k]].score;
-        // `rest` ist nach Score sortiert: ab hier ist keiner mehr gleich relevant
-        if (score < threshold || score < cfg.floor) break;
+        // `rest` ist nach Score sortiert und logOdds steigt mit dem Score:
+        // ab hier ist keiner mehr gleich relevant
+        if (
+          score < threshold ||
+          logOdds(score) < logitThreshold ||
+          score < cfg.floor
+        )
+          break;
         if (compareTime(rest[k], rest[best], info) < 0) best = k;
       }
     }
@@ -302,7 +338,7 @@ function stepRule(eligible, slots, info, cfg) {
 }
 
 const ruleLabel = (cfg) =>
-  `stufe-span${cfg.span}-floor${cfg.floor}-deckel${MAX_NON_COURSE}`;
+  `stufe-span${cfg.span}-logit${cfg.logitSpan}-floor${cfg.floor}-deckel${MAX_NON_COURSE}`;
 
 /**
  * Auswahlstufe: wählt höchstens topN Kontexte aus dem Reranker-Pool und
@@ -311,7 +347,7 @@ const ruleLabel = (cfg) =>
  * @param {Object} opts
  * @param {number} opts.topN - Obergrenze der Ausgabe.
  * @param {string} opts.today - ISO-Tag (Europe/Berlin).
- * @param {{span?:number, floor?:number}} [opts.settings]
+ * @param {{span?:number, logitSpan?:number, floor?:number}} [opts.settings]
  * @returns {{selected:object[], rerankRanks:number[], active:boolean,
  *   reason:string|null, changed:boolean, reordered:boolean,
  *   courseQuery:boolean, rule:string, swappedIn:object[],
@@ -443,6 +479,7 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
 
 module.exports = {
   SELECTION_TIE_SPAN,
+  SELECTION_TIE_LOGIT,
   SELECTION_FLOOR,
   SELECTION_POOL_MIN,
   COURSE_QUERY_MIN,
