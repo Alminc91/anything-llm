@@ -3,14 +3,16 @@
  * Auswahlstufe hinter dem Reranker: Stufenregel „erst Relevanz, dann Datum“
  * (Spezifikation issues/kursauswahl-relevanz-datum.md, AK-1 bis AK-5,
  * NAK-1 bis NAK-3). Platz für Platz ist der bestbewertete noch freie Kurs der
- * Führende; gleich relevant sind noch freie Kurse bis SPANNE darunter; unter
- * ihnen gewinnt künftig und buchbar (frühester Beginn), dann laufend, dann
- * Warteliste oder ausgebucht, bei gleichem Rang der höhere Score.
+ * Führende; gleich relevant sind noch freie Kurse bis SPANNE darunter, die auf
+ * der Log-Odds-Skala höchstens LOGIT_SPANNE unter ihm liegen (D10, K-R9);
+ * unter ihnen gewinnt künftig und buchbar (frühester Beginn), dann laufend,
+ * dann Warteliste oder ausgebucht, bei gleichem Rang der höhere Score.
  */
 const fs = require("fs");
 const path = require("path");
 const {
   SELECTION_TIE_SPAN,
+  SELECTION_TIE_LOGIT,
   SELECTION_FLOOR,
   classifyRow,
   selectContexts,
@@ -25,8 +27,16 @@ const {
 const MODULE = "../../../../utils/vectorDbProviders/lance/contextSelection";
 const TODAY = "2026-10-08";
 const SPAN = 0.02;
+const LOGIT = 1.0;
 const FLOOR = 0.3;
 const EPS = 1e-9;
+// Log-Odds nach K-R9: ln(p / (1 − p)), p auf [1e-7, 1 − 1e-7] begrenzt
+const logOdds = (p) => {
+  const q = Math.min(Math.max(p, 1e-7), 1 - 1e-7);
+  return Math.log(q / (1 - q));
+};
+const sigmoid = (x) => 1 / (1 + Math.exp(-x));
+const STANDARD = { span: SPAN, logitSpan: LOGIT, floor: FLOOR };
 
 const kurs = (id, score, start, bookable = true) => ({
   id,
@@ -69,10 +79,12 @@ const strictlyBefore = (a, b) => {
  * der Ausgabe (ohne die Regel nachzubauen):
  * - Länge und Referenzen; inaktiv = die ersten topN Kandidaten (Rückfall);
  * - AK-2: kein gewählter Kurs vor einem späteren oder nicht gewählten Kurs
- *   mit mehr als SPANNE höherem Score;
+ *   mit mehr als SPANNE höherem Score oder mehr als LOGIT_SPANNE höheren
+ *   Log-Odds (K-R9);
  * - AK-1: jeder Kursplatz hat unter den gleich relevanten noch freien Kursen
- *   (Score ≥ Führender − SPANNE und ≥ Boden) keinen zeitlich vorrangigen
- *   Konkurrenten; unter dem Boden reine Score-Folge;
+ *   (Score ≥ Führender − SPANNE, Log-Odds ≥ Führender − LOGIT_SPANNE und
+ *   Score ≥ Boden) keinen zeitlich vorrangigen Konkurrenten; unter dem Boden
+ *   reine Score-Folge;
  * - Boden: kein Kurs unter dem Boden kommt von außerhalb der Top-N hinein;
  * - NAK-3 (Regel 3 wie bisher): Anzahl und Auswahl der Nicht-Kurs-Dokumente;
  * - Nicht-Kurs-Dokumente behalten ihren Platz in der Kandidatenreihenfolge;
@@ -82,7 +94,13 @@ const strictlyBefore = (a, b) => {
 function expectStepRule(
   out,
   rows,
-  { topN = 4, today = TODAY, span = SPAN, floor = FLOOR } = {}
+  {
+    topN = 4,
+    today = TODAY,
+    span = SPAN,
+    logitSpan = LOGIT,
+    floor = FLOOR,
+  } = {}
 ) {
   const n = Math.min(topN, rows.length);
   expect(out.selected).toHaveLength(n);
@@ -107,26 +125,30 @@ function expectStepRule(
   const seq = out.selected.filter(isCourse);
   for (const r of seq) expect(eligible).toContain(r);
 
-  // AK-2
+  // AK-2, mit K-R9 auch auf der Log-Odds-Skala
   const notChosen = rows.filter((r) => isCourse(r) && !chosen.has(r));
   seq.forEach((r, k) => {
-    for (const x of [...seq.slice(k + 1), ...notChosen])
+    for (const x of [...seq.slice(k + 1), ...notChosen]) {
       expect(score(x)).toBeLessThanOrEqual(score(r) + span + EPS);
+      expect(logOdds(score(x))).toBeLessThanOrEqual(
+        logOdds(score(r)) + logitSpan + EPS
+      );
+    }
   });
 
   // AK-1 und Boden
+  const tied = (r, leader) =>
+    score(r) >= leader - span - EPS &&
+    logOdds(score(r)) >= logOdds(leader) - logitSpan - EPS &&
+    score(r) >= floor;
   let rest = [...eligible];
   for (const pick of seq) {
     const leader = Math.max(...rest.map(score));
     if (leader < floor) {
       expect(score(pick)).toBe(leader);
     } else {
-      expect(score(pick)).toBeGreaterThanOrEqual(
-        Math.max(leader - span - EPS, floor)
-      );
-      const group = rest.filter(
-        (r) => score(r) >= leader - span - EPS && score(r) >= floor
-      );
+      expect(tied(pick, leader)).toBe(true);
+      const group = rest.filter((r) => tied(r, leader));
       for (const x of group)
         expect(strictlyBefore(cls.get(x), cls.get(pick))).toBe(false);
     }
@@ -171,9 +193,15 @@ function expectStepRule(
 }
 
 describe("Konstanten und Konfiguration", () => {
-  test("Standardwerte: Spanne 0,02, Boden 0,3", () => {
-    expect([SELECTION_TIE_SPAN, SELECTION_FLOOR]).toEqual([0.02, 0.3]);
-    expect(selectionConfig({})).toEqual({ span: 0.02, floor: 0.3 });
+  test("Standardwerte: Spanne 0,02, Log-Odds-Spanne 1,0, Boden 0,3", () => {
+    expect([SELECTION_TIE_SPAN, SELECTION_TIE_LOGIT, SELECTION_FLOOR]).toEqual([
+      0.02, 1, 0.3,
+    ]);
+    expect(selectionConfig({})).toEqual({
+      span: 0.02,
+      logitSpan: 1,
+      floor: 0.3,
+    });
   });
 
   test("Env COURSE_SELECTION_TIE_SPAN und _FLOOR, Ungültiges → Standard", () => {
@@ -192,7 +220,7 @@ describe("Konstanten und Konfiguration", () => {
         COURSE_SELECTION_TIE_SPAN: "0.05",
         COURSE_SELECTION_FLOOR: "0.5",
       })
-    ).toEqual({ span: 0.05, floor: 0.5 });
+    ).toEqual({ span: 0.05, logitSpan: 1, floor: 0.5 });
     // Spanne 0 ist der Rückweg auf exakten Gleichstand (Entscheidung D1)
     expect(selectionConfig({ COURSE_SELECTION_TIE_SPAN: "0" }).span).toBe(0);
     expect(selectionConfig({ COURSE_SELECTION_TIE_SPAN: " 0.01 " }).span).toBe(
@@ -215,8 +243,8 @@ describe("Konstanten und Konfiguration", () => {
           COURSE_SELECTION_TIE_SPAN: bad,
           COURSE_SELECTION_FLOOR: bad,
         })
-      ).toEqual({ span: 0.02, floor: 0.3 });
-    expect(selectionConfig(undefined)).toEqual({ span: 0.02, floor: 0.3 });
+      ).toEqual(STANDARD);
+    expect(selectionConfig(undefined)).toEqual(STANDARD);
   };
 
   test("K-R2: gesetzte, ungültige COURSE_SELECTION_TIE_SPAN oder _FLOOR: Hinweis einmal im Log", () => {
@@ -229,7 +257,7 @@ describe("Konstanten und Konfiguration", () => {
             COURSE_SELECTION_TIE_SPAN: "0,05",
             COURSE_SELECTION_FLOOR: "5",
           })
-        ).toEqual({ span: 0.02, floor: 0.3 });
+        ).toEqual(STANDARD);
         // selectionConfig läuft je Anfrage: der Hinweis kommt nur einmal
         fresh.selectionConfig({ COURSE_SELECTION_TIE_SPAN: "0,05" });
         fresh.selectionConfig({ COURSE_SELECTION_FLOOR: "abc" });
@@ -271,9 +299,12 @@ describe("Konstanten und Konfiguration", () => {
   });
 
   test("Spanne aus den settings; ungültige settings → Standard", () => {
+    // Scores mittig (0,6 und 0,57, Log-Odds 0,12 auseinander), damit nur die
+    // Spanne entscheidet; 0,99 gegen 0,96 liegt seit K-R9 schon auf der
+    // Log-Odds-Skala nicht mehr gleich auf (1,42 auseinander)
     const c = [
-      kurs("april", 0.99, "2027-04-01"),
-      kurs("morgen", 0.96, "2026-10-09"),
+      kurs("april", 0.6, "2027-04-01"),
+      kurs("morgen", 0.57, "2026-10-09"),
     ];
     expect(ids(run(c, 2).selected)).toEqual(["april", "morgen"]);
     expect(ids(run(c, 2, { span: 0.05 }).selected)).toEqual([
@@ -286,9 +317,9 @@ describe("Konstanten und Konfiguration", () => {
         "morgen",
       ]);
     expect(ids(run(c, 2, { span: 0 }).selected)).toEqual(["april", "morgen"]);
-    expect(run(c, 2).rule).toBe("stufe-span0.02-floor0.3-deckel1");
+    expect(run(c, 2).rule).toBe("stufe-span0.02-logit1-floor0.3-deckel1");
     expect(run(c, 2, { span: 0.05, floor: 0.4 }).rule).toBe(
-      "stufe-span0.05-floor0.4-deckel1"
+      "stufe-span0.05-logit1-floor0.4-deckel1"
     );
   });
 
@@ -301,7 +332,7 @@ describe("Konstanten und Konfiguration", () => {
           COURSE_SELECTION_KEEP: "0",
           COURSE_SELECTION_BAND: "0.5",
         };
-        expect(fresh.selectionConfig(env)).toEqual({ span: 0.02, floor: 0.3 });
+        expect(fresh.selectionConfig(env)).toEqual(STANDARD);
         fresh.selectionConfig(env);
         fresh.selectionConfig({ COURSE_SELECTION_KEEP: "3" });
         expect(warn).toHaveBeenCalledTimes(1);
@@ -404,13 +435,15 @@ describe("classifyRow", () => {
 
 describe("Stufenregel: AK-1 Gruppe der gleich relevanten", () => {
   test("Reihenfolge künftig (frühester zuerst), laufend, Warteliste; bei gleichem Rang der höhere Score", () => {
+    // Scores 0,90 bis 0,915: alle in beiden Spannen (K-R9: 0,98 bis 0,995
+    // lägen auf der Log-Odds-Skala 1,4 auseinander)
     const c = byScoreDesc([
-      kurs("wl-alt", 0.99, "2026-09-01", false), // läuft, Warteliste
-      kurs("lfd", 0.99, "2026-09-15"), // läuft, Einstieg möglich
-      kurs("dez", 0.99, "2026-12-01"),
-      kurs("wl-neu", 0.995, "2026-10-20", false), // künftig, ausgebucht
-      kurs("nov", 0.98, "2026-11-01"),
-      kurs("lfd-null", 0.985, "2026-09-20", null), // läuft, Status unbekannt
+      kurs("wl-alt", 0.91, "2026-09-01", false), // läuft, Warteliste
+      kurs("lfd", 0.91, "2026-09-15"), // läuft, Einstieg möglich
+      kurs("dez", 0.91, "2026-12-01"),
+      kurs("wl-neu", 0.915, "2026-10-20", false), // künftig, ausgebucht
+      kurs("nov", 0.9, "2026-11-01"),
+      kurs("lfd-null", 0.905, "2026-09-20", null), // läuft, Status unbekannt
     ]);
     const out = run(c, 6);
     expect(ids(out.selected)).toEqual([
@@ -568,22 +601,26 @@ describe("AK-1 (c): künftiger ausgebuchter Kurs nach hinten", () => {
 describe("D7 (K-R1): innerhalb der Stufe Warteliste der früheste künftige Beginn zuerst", () => {
   // Live-Probe 8.2-rc6 auf entwicklung (Düsseldorf-Daten, 16.11.2026): „Wann
   // ist der nächste Einbürgerungstest?“ Zwölf Termine 21.01. bis 24.06.2027,
-  // alle „Keine Anmeldung möglich“ (bookable false), Scores innerhalb 0,02,
+  // alle „Keine Anmeldung möglich“ (bookable false), Scores gleich relevant,
   // höchster Score am 24.06. Quellen auf rc6: 24.06., 24.06., 21.01., 18.02.
+  // Die Scores sind nachgestellt. Zwölf Termine mit gleichem Text liegen beim
+  // Reranker so eng wie die sechs „Yoga für den Rücken“ in Mainz (0,99942 bis
+  // 0,99955); die erste Fassung streute 0,98 bis 0,999, das liegt seit K-R9
+  // auf der Log-Odds-Skala nicht mehr gleich auf (3,0 auseinander).
   const STICHTAG = "2026-11-16";
   const TERMINE = [
-    ["J414930", "2027-06-24", 0.999], // 10 Uhr
-    ["J414931", "2027-06-24", 0.9985], // 12 Uhr
-    ["J414912", "2027-01-21", 0.998], // 12 Uhr
-    ["J414914", "2027-02-18", 0.9975], // 12 Uhr
-    ["J414916", "2027-03-18", 0.994],
-    ["J414917", "2027-03-18", 0.9935],
-    ["J414920", "2027-04-15", 0.99],
-    ["J414921", "2027-04-15", 0.989],
-    ["J414924", "2027-05-20", 0.985],
-    ["J414925", "2027-05-20", 0.984],
-    ["J414913", "2027-02-18", 0.982], // 10 Uhr
-    ["J414911", "2027-01-21", 0.98], // 10 Uhr, fehlte auf rc6
+    ["J414930", "2027-06-24", 0.9995], // 10 Uhr
+    ["J414931", "2027-06-24", 0.99948], // 12 Uhr
+    ["J414912", "2027-01-21", 0.99945], // 12 Uhr
+    ["J414914", "2027-02-18", 0.99943], // 12 Uhr
+    ["J414916", "2027-03-18", 0.9994],
+    ["J414917", "2027-03-18", 0.99938],
+    ["J414920", "2027-04-15", 0.99935],
+    ["J414921", "2027-04-15", 0.99932],
+    ["J414924", "2027-05-20", 0.9993],
+    ["J414925", "2027-05-20", 0.99928],
+    ["J414913", "2027-02-18", 0.99925], // 10 Uhr
+    ["J414911", "2027-01-21", 0.9992], // 10 Uhr, fehlte auf rc6
   ];
   const ERWARTET = ["2027-01-21", "2027-01-21", "2027-02-18", "2027-02-18"];
   const termin = (knr, start, score) => ({
@@ -629,14 +666,15 @@ describe("D7 (K-R1): innerhalb der Stufe Warteliste der früheste künftige Begi
   });
 
   test("Stufenfolge bleibt: künftig buchbar, laufend, Warteliste mit künftigem Beginn (früheste zuerst), begonnene Warteliste nach Score", () => {
+    // Scores 0,901 bis 0,919: alle in beiden Spannen (K-R9)
     const c = [
-      kurs("wl-lfd-hoch", 0.999, "2026-09-01", false), // begonnen, Warteliste
-      kurs("wl-mai", 0.998, "2027-05-01", false),
-      kurs("wl-lfd-tief", 0.997, "2026-08-01", false),
-      kurs("wl-jan", 0.996, "2027-01-10", false),
-      kurs("lfd-alt", 0.99, "2026-08-01"), // laufend: nach Score, nicht nach Beginn
-      kurs("lfd-neu", 0.985, "2026-10-01"),
-      kurs("dez", 0.981, "2026-12-01"),
+      kurs("wl-lfd-hoch", 0.919, "2026-09-01", false), // begonnen, Warteliste
+      kurs("wl-mai", 0.918, "2027-05-01", false),
+      kurs("wl-lfd-tief", 0.917, "2026-08-01", false),
+      kurs("wl-jan", 0.916, "2027-01-10", false),
+      kurs("lfd-alt", 0.91, "2026-08-01"), // laufend: nach Score, nicht nach Beginn
+      kurs("lfd-neu", 0.905, "2026-10-01"),
+      kurs("dez", 0.901, "2026-12-01"),
     ];
     const out = run(c, 7);
     expect(ids(out.selected)).toEqual([
@@ -696,11 +734,16 @@ describe("AK-2: Garantie über zufällige Pools", () => {
   test("AK-1, AK-2, NAK-3 und Boden auf 3000 Zufallspools (fester Seed)", () => {
     const rnd = mulberry32(20261116);
     const spans = [undefined, 0, 0.01, 0.05];
+    // K-R9: LOGIT_SPANNE Standard, eng, weit, praktisch aus (Rückweg)
+    const logits = [undefined, 0.5, 2, 100];
     let reordered = 0;
     let changed = 0;
+    let logitCut = 0;
     for (let t = 0; t < 3000; t++) {
       const size = 2 + Math.floor(rnd() * 16);
-      const mode = t % 3; // 0: grobe Stufen (viele Gleichstände), 1: nahe 1, 2: breit
+      // 0: grobe Stufen (viele Gleichstände), 1: nahe 1, 2: breit,
+      // 3: sehr nahe 1 wie beim Reranker (Log-Odds 2 bis 14, auch genau 1,0)
+      const mode = t % 4;
       const rows = Array.from({ length: size }, (_, i) => {
         const raw = rnd();
         const score =
@@ -708,7 +751,11 @@ describe("AK-2: Garantie über zufällige Pools", () => {
             ? Math.round(raw * 40) / 40
             : mode === 1
               ? Math.round((1 - raw * 0.08) * 10000) / 10000
-              : Math.round(raw * 1000) / 1000;
+              : mode === 2
+                ? Math.round(raw * 1000) / 1000
+                : raw > 0.95
+                  ? 1
+                  : sigmoid(2 + raw * 12);
         const r = rnd();
         if (r < 0.2) return info(`i${i}`, score);
         if (r < 0.24) return kurs(`x${i}`, score, "2026-02-31"); // ungültig
@@ -719,17 +766,37 @@ describe("AK-2: Garantie über zufällige Pools", () => {
       });
       const sorted = byScoreDesc(rows);
       const topN = 1 + Math.floor(rnd() * 6);
-      const span = spans[t % spans.length];
+      const span = spans[Math.floor(t / 4) % spans.length];
+      const logitSpan = logits[Math.floor(t / 16) % logits.length];
       const floor = t % 7 === 0 ? 0.5 : undefined;
-      const out = run(sorted, topN, { span, floor });
+      const out = run(sorted, topN, { span, logitSpan, floor });
       expect(out.rule).toBe(
-        `stufe-span${span ?? SPAN}-floor${floor ?? FLOOR}-deckel1`
+        `stufe-span${span ?? SPAN}-logit${logitSpan ?? LOGIT}-floor${
+          floor ?? FLOOR
+        }-deckel1`
       );
       const seq = expectStepRule(out, sorted, {
         topN,
         span: span ?? SPAN,
+        logitSpan: logitSpan ?? LOGIT,
         floor: floor ?? FLOOR,
       });
+      // Pools, in denen die Log-Odds-Bedingung einen Kurs aus der Gruppe
+      // nimmt, den die Spanne allein hineinließe (der Test trifft sie)
+      const courses = sorted
+        .map((r) => classifyRow(r, TODAY))
+        .filter((c) => c.course && c.score !== null && c.score >= FLOOR);
+      if (
+        courses.some((a) =>
+          courses.some(
+            (b) =>
+              b.score < a.score &&
+              b.score >= a.score - (span ?? SPAN) &&
+              logOdds(b.score) < logOdds(a.score) - (logitSpan ?? LOGIT)
+          )
+        )
+      )
+        logitCut += 1;
       // kein Nicht-Kurs-Dokument vor einem Kurs mit mehr als SPANNE höherem Score
       out.selected.forEach((r, i) => {
         const c = classifyRow(r, TODAY);
@@ -746,6 +813,7 @@ describe("AK-2: Garantie über zufällige Pools", () => {
     // der Test trifft beide Arten der Änderung
     expect(reordered).toBeGreaterThan(300);
     expect(changed).toBeGreaterThan(300);
+    expect(logitCut).toBeGreaterThan(300);
   });
 });
 
@@ -786,8 +854,12 @@ describe("AK-3: Yoga-Fall vhs-mainz (Stichtag 16.11.2026)", () => {
     }
   });
 
-  test("alle 720 Reihenfolgen, Score 0,999 bis 1,0, mit anderen Kursen im Pool", () => {
-    const JITTER = [0.999, 0.9993, 0.9996, 1.0];
+  test("alle 720 Reihenfolgen, Score 0,9994 bis 0,99955, mit anderen Kursen im Pool", () => {
+    // Spannweite der echten Mainz-Scores (Fixture unten). Die erste Fassung
+    // nutzte 0,999 bis 1,0; 1,0 liegt seit K-R9 auf der Log-Odds-Skala weit
+    // über 0,999 (Begrenzung auf 1 − 1e-7: 16,1 gegen 6,9), ist also nicht
+    // mehr gleich relevant.
+    const JITTER = [0.9994, 0.99945, 0.9995, 0.99955];
     const fueller = [
       kurs("hatha", 0.975, "2026-12-03"), // anderes Yoga, mehr als 0,02 unter dem Bestwert
       kurs("pilates", 0.93, "2026-11-30"),
@@ -810,6 +882,219 @@ describe("AK-3: Yoga-Fall vhs-mainz (Stichtag 16.11.2026)", () => {
         "2026-10-27",
       ]);
     });
+  });
+});
+
+describe("K-R9 (D10): gleich relevant auch auf der Log-Odds-Skala", () => {
+  // Titel-Fund 17.11.2026 (Spezifikation §11): Der Reranker staucht nahe 1
+  // große Unterschiede in winzige Abstände. Mit der Spanne 0,02 allein galten
+  // dort alle ähnlichen Kurse als gleich relevant, das Datum verdrängte den
+  // gefragten Kurs. Fixtures mit echten Scores, nur Kursnummer, Titel (Mainz),
+  // Score, Beginn und buchbar.
+  const FIXTURES = path.join(__dirname, "fixtures");
+  const loadPool = (file) => {
+    const { stichtag, zeilen } = JSON.parse(
+      fs.readFileSync(path.join(FIXTURES, file), "utf-8")
+    );
+    const rows = zeilen.map((z) => ({
+      id: z.nr,
+      title: z.titel ?? z.nr,
+      rerank_score: z.rerank_score,
+      start_date: z.start_date,
+      bookable: z.bookable,
+    }));
+    return { stichtag, rows };
+  };
+  const pick = (file, settings) => {
+    const { stichtag, rows } = loadPool(file);
+    const out = selectContexts(rows, { topN: 4, today: stichtag, settings });
+    return { out, rows, stichtag };
+  };
+  const YOGA = "titelfund_yoga_mainz.json";
+  const K4 = "titelfund_k4_titel_10.json";
+  // Stand 8.2-rc8 laut Spezifikation §11 (17.11.2026), Spalte „8.2“
+  const YOGA_ALT = ["XI81363", "XI81366", "XI81374", "XI81370"];
+  const K4_ALT = ["262-5501D", "262-5302", "262-5306", "262-5301"];
+
+  test("Mainz-Yoga mit echten Scores: „Yoga für den Rücken“ Januar, Januar, April, April, kein Yin-Yoga", () => {
+    // Frage A02 „Habt ihr Yoga speziell für den Rücken? Am liebsten abends
+    // nach der Arbeit.“ Die sechs Termine „Yoga für den Rücken“ liegen bei
+    // 0,99942 bis 0,99955. „Rücken- und Yin-Yoga“ (0,9953 bis 0,9966, ab
+    // 11.01.) liegt in der Spanne 0,02, auf der Log-Odds-Skala aber 2,0 bis
+    // 2,3 unter dem Führenden.
+    const { out, rows, stichtag } = pick(YOGA);
+    expect(rows).toHaveLength(12);
+    expect(ids(out.selected)).toEqual([
+      "XI81374",
+      "XI81370",
+      "XI81371",
+      "XI81375",
+    ]);
+    expect(out.selected.map((r) => r.start_date)).toEqual([
+      "2027-01-26",
+      "2027-01-26",
+      "2027-04-06",
+      "2027-04-06",
+    ]);
+    expect(
+      out.selected.filter((r) => r.title.startsWith("Rücken- und Yin-Yoga"))
+    ).toEqual([]);
+    expectStepRule(out, rows, { today: stichtag });
+  });
+
+  test("Titel-Fall K4_titel-10 mit echten Scores: der genannte Kurs 271-5307 steht auf Platz 1", () => {
+    // „Wann findet der Kurs „Datenverwaltung am PC mit ACCESS“ statt?“ Nur
+    // 271-5307 (0,99991, ab 01.03.2027) trägt den Titel; die übrigen
+    // Access-Kurse liegen 0,0004 bis 0,0027 darunter, auf der Log-Odds-Skala
+    // mindestens 1,7. Bisher zog der früheste (262-5501D, 19.11.) vor, der
+    // genannte Kurs fiel heraus.
+    const { out, rows, stichtag } = pick(K4);
+    expect(rows).toHaveLength(12);
+    expect(ids(out.selected)[0]).toBe("271-5307");
+    // die übrigen Plätze: gleich relevant zum nächsten Führenden (271-5305)
+    expect(ids(out.selected)).toEqual([
+      "271-5307",
+      "262-5306",
+      "271-5305",
+      "271-5303",
+    ]);
+    expectStepRule(out, rows, { today: stichtag });
+  });
+
+  test("Grenze: genau LOGIT_SPANNE unter dem Führenden gilt als gleich relevant, knapp darüber nicht", () => {
+    // beide Abstände liegen in der Spanne 0,02 (rund 0,0017)
+    const lead = 0.999;
+    const at = sigmoid(logOdds(lead) - LOGIT);
+    const over = sigmoid(logOdds(lead) - LOGIT - 1e-4);
+    expect(lead - over).toBeLessThan(SPAN);
+    const pair = (score) => [
+      kurs("vorn", lead, "2027-03-01"),
+      kurs("frueh", score, "2026-10-09"),
+    ];
+    expect(ids(run(pair(at), 2).selected)).toEqual(["frueh", "vorn"]);
+    const overRows = pair(over);
+    const out = run(overRows, 2);
+    expect(ids(out.selected)).toEqual(["vorn", "frueh"]);
+    expectStepRule(out, overRows, { topN: 2 });
+    // weitere LOGIT_SPANNE aus den settings: dann wieder gleich relevant
+    expect(ids(run(overRows, 2, { logitSpan: 2 }).selected)).toEqual([
+      "frueh",
+      "vorn",
+    ]);
+  });
+
+  test("Begrenzung auf [1e-7, 1 − 1e-7]: Werte am Rand bleiben endlich und vergleichbar", () => {
+    // 1,0 und 1 − 1e-7 haben dieselben Log-Odds: gleich relevant
+    const top = [
+      kurs("eins", 1.0, "2027-03-01"),
+      kurs("fast", 1 - 1e-7, "2026-10-09"),
+    ];
+    expect(ids(run(top, 2).selected)).toEqual(["fast", "eins"]);
+    // 1,0 gegen 0,99999: 16,1 gegen 11,5, nicht gleich relevant
+    const nah = [
+      kurs("eins", 1.0, "2027-03-01"),
+      kurs("nah", 0.99999, "2026-10-09"),
+    ];
+    expect(ids(run(nah, 2).selected)).toEqual(["eins", "nah"]);
+    // Score über 1 (fremder Reranker): wie 1 − 1e-7, kein NaN, das die
+    // Log-Odds-Bedingung aushebeln würde
+    const ueber = [
+      kurs("ueber", 1.5, "2027-03-01"),
+      kurs("tief", 0.9, "2026-10-09"),
+    ];
+    expect(ids(run(ueber, 2, { span: 1 }).selected)).toEqual(["ueber", "tief"]);
+    // unten: 0 und 1e-7 haben dieselben Log-Odds (Boden 0)
+    const unten = [
+      kurs("klein", 1e-7, "2027-03-01"),
+      kurs("null", 0, "2026-10-09"),
+    ];
+    expect(ids(run(unten, 2, { floor: 0 }).selected)).toEqual([
+      "null",
+      "klein",
+    ]);
+  });
+
+  test("settings.logitSpan: gültig wirkt, ungültig → Standard; ruleLabel nennt den Wert", () => {
+    // 0,999 gegen 0,996: Log-Odds 1,39 auseinander
+    const c = [
+      kurs("spaet", 0.999, "2027-03-01"),
+      kurs("frueh", 0.996, "2026-10-09"),
+    ];
+    expect(ids(run(c, 2).selected)).toEqual(["spaet", "frueh"]);
+    expect(ids(run(c, 2, { logitSpan: 1.5 }).selected)).toEqual([
+      "frueh",
+      "spaet",
+    ]);
+    for (const bad of [0, -1, NaN, Infinity, "2", null])
+      expect(run(c, 2, { logitSpan: bad })).toMatchObject({
+        selected: [c[0], c[1]],
+        rule: "stufe-span0.02-logit1-floor0.3-deckel1",
+      });
+    expect(run(c, 2, { logitSpan: 1.5 }).rule).toBe(
+      "stufe-span0.02-logit1.5-floor0.3-deckel1"
+    );
+  });
+
+  test("Env COURSE_SELECTION_TIE_LOGIT: gültig wird übernommen, ungültig fällt auf 1 mit einmaligem Hinweis", () => {
+    jest.isolateModules(() => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const fresh = require(MODULE);
+        const logit = (raw) =>
+          fresh.selectionConfig({ COURSE_SELECTION_TIE_LOGIT: raw }).logitSpan;
+        expect(logit("1.5")).toBe(1.5);
+        expect(logit(" 0.25 ")).toBe(0.25);
+        expect(logit("100")).toBe(100);
+        // leer gilt wie bei SPANNE und BODEN als nicht gesetzt (E7)
+        expect(logit("")).toBe(1);
+        expect(logit("   ")).toBe(1);
+        expect(logit(undefined)).toBe(1);
+        expect(warn).not.toHaveBeenCalled();
+        for (const bad of ["0", "-1", "-0.5", "abc", "1,5", "NaN", "Infinity"])
+          expect(logit(bad)).toBe(1);
+        expect(warn).toHaveBeenCalledTimes(1);
+        const [message] = warn.mock.calls[0];
+        expect(message).toMatch(/\[Auswahlstufe\]/);
+        expect(message).toMatch(/COURSE_SELECTION_TIE_LOGIT="0"/);
+        expect(message).toMatch(/größer 0/);
+        expect(message).toMatch(/Standard 1/);
+        expect(message).not.toMatch(/COURSE_SELECTION_TIE_SPAN/);
+        expect(message).not.toMatch(/[–—]/);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+  });
+
+  test("Rückweg ohne Neubau: COURSE_SELECTION_TIE_LOGIT=100 ergibt den Stand vor K-R9", () => {
+    const settings = selectionConfig({ COURSE_SELECTION_TIE_LOGIT: "100" });
+    expect(settings).toEqual({ span: 0.02, logitSpan: 100, floor: 0.3 });
+    const yoga = pick(YOGA, settings);
+    expect(ids(yoga.out.selected)).toEqual(YOGA_ALT);
+    expect(yoga.out.rule).toBe("stufe-span0.02-logit100-floor0.3-deckel1");
+    expectStepRule(yoga.out, yoga.rows, {
+      today: yoga.stichtag,
+      logitSpan: 100,
+    });
+    const k4 = pick(K4, settings);
+    expect(ids(k4.out.selected)).toEqual(K4_ALT);
+    expect(ids(k4.out.selected)).not.toContain("271-5307");
+    // die nachgestellten Fälle der ersten Fassung kommen ebenso zurück
+    const einbuergerung = [
+      ["J414930", "2027-06-24", 0.999],
+      ["J414931", "2027-06-24", 0.9985],
+      ["J414912", "2027-01-21", 0.998],
+      ["J414914", "2027-02-18", 0.9975],
+      ["J414913", "2027-02-18", 0.982],
+      ["J414911", "2027-01-21", 0.98],
+    ].map(([knr, start, score]) => kurs(knr, score, start, false));
+    const today = "2026-11-16";
+    expect(
+      ids(selectContexts(einbuergerung, { topN: 4, today, settings }).selected)
+    ).toEqual(["J414912", "J414911", "J414914", "J414913"]);
+    expect(
+      ids(selectContexts(einbuergerung, { topN: 4, today }).selected)
+    ).toEqual(["J414912", "J414914", "J414930", "J414931"]);
   });
 });
 
@@ -1025,13 +1310,15 @@ describe("NAK-1: Kursnummer-Treffer stehen nach der Auswahl vorn", () => {
   });
 
   test("gefragter Warteliste-Kurs, den die Stufe verdrängt, steht nach mergeCourseNumberHits vorn", () => {
-    const wl = kurs("26W1001", 0.999, "2026-09-01", false);
+    // Scores in beiden Spannen (K-R9: 0,999 gegen 0,996 läge auf der
+    // Log-Odds-Skala 1,4 auseinander)
+    const wl = kurs("26W1001", 0.9995, "2026-09-01", false);
     const c = [
       wl,
-      kurs("k1", 0.999, "2026-11-01"),
-      kurs("k2", 0.998, "2026-11-02"),
-      kurs("k3", 0.997, "2026-11-03"),
-      kurs("k4", 0.996, "2026-11-04"),
+      kurs("k1", 0.9995, "2026-11-01"),
+      kurs("k2", 0.9994, "2026-11-02"),
+      kurs("k3", 0.9993, "2026-11-03"),
+      kurs("k4", 0.9992, "2026-11-04"),
     ];
     const out = run(c);
     // Vorbedingung: die Stufenregel nimmt die vier buchbaren Kurse
@@ -1046,13 +1333,15 @@ describe("NAK-1: Kursnummer-Treffer stehen nach der Auswahl vorn", () => {
   });
 
   test("D8 (K-R2): ohne Treffer der Kursnummernsuche fällt der gefragte Warteliste-Kurs heraus (kein eigener Schutz in der Stufe)", () => {
-    const wl = kurs("26W1001", 1.0, "2026-09-01", false);
+    // Scores in beiden Spannen (K-R9: 1,0 gegen 0,99 läge auf der
+    // Log-Odds-Skala 11,5 auseinander, der Kurs bliebe dann vorn)
+    const wl = kurs("26W1001", 0.9996, "2026-09-01", false);
     const c = [
       wl,
-      kurs("k1", 0.99, "2026-11-01"),
-      kurs("k2", 0.985, "2026-11-02"),
-      kurs("k3", 0.982, "2026-11-03"),
-      kurs("k4", 0.98, "2026-11-04"),
+      kurs("k1", 0.9995, "2026-11-01"),
+      kurs("k2", 0.99945, "2026-11-02"),
+      kurs("k3", 0.9994, "2026-11-03"),
+      kurs("k4", 0.99935, "2026-11-04"),
     ];
     const out = run(c);
     expect(ids(out.selected)).toEqual(["k1", "k2", "k3", "k4"]);
@@ -1114,17 +1403,18 @@ describe("NAK-2: laufender Kurs, der als einziger passt, bleibt", () => {
   });
 
   test("K-R6: innerhalb der Spanne gilt die Nutzerregel, der einzige laufende Kurs zum Thema weicht vier künftigen", () => {
-    // „Gibt es Aquarellmalen?“: Der einzige Aquarellkurs läuft (0,998), vier
+    // „Gibt es Aquarellmalen?“: Der einzige Aquarellkurs läuft (0,95), vier
     // Acryl- und Ölkurse ab Dezember liegen 0,008 bis 0,013 darunter, also
-    // in der Spanne. Die Stufe behandelt sie als gleich relevant und wählt
-    // die vier künftigen (Verhalten ausdrücklich festgehalten; NAK-2 gilt für
-    // „mehr als SPANNE über dem nächsten Kurs“, Review 8.2-rc6 K-L6).
+    // in beiden Spannen. Die Stufe behandelt sie als gleich relevant und
+    // wählt die vier künftigen (Verhalten ausdrücklich festgehalten; NAK-2
+    // gilt für „mehr als SPANNE oder LOGIT_SPANNE über dem nächsten Kurs“,
+    // Review 8.2-rc6 K-L6, K-R9).
     const c = [
-      kurs("aquarell", 0.998, "2026-09-01"),
-      kurs("acryl-1", 0.99, "2026-12-01"),
-      kurs("oel-1", 0.988, "2026-12-05"),
-      kurs("acryl-2", 0.987, "2026-12-10"),
-      kurs("oel-2", 0.985, "2027-01-10"),
+      kurs("aquarell", 0.95, "2026-09-01"),
+      kurs("acryl-1", 0.942, "2026-12-01"),
+      kurs("oel-1", 0.94, "2026-12-05"),
+      kurs("acryl-2", 0.939, "2026-12-10"),
+      kurs("oel-2", 0.937, "2027-01-10"),
     ];
     const out = run(c);
     expect(ids(out.selected)).toEqual(["acryl-1", "oel-1", "acryl-2", "oel-2"]);
@@ -1138,6 +1428,24 @@ describe("NAK-2: laufender Kurs, der als einziger passt, bleibt", () => {
       "oel-2",
       "aquarell",
     ]);
+    // K-R9: Die erste Fassung dieses Tests (Aquarell 0,998, die übrigen 0,99
+    // bis 0,985) lag nur in der Spanne 0,02. Auf der Log-Odds-Skala liegt der
+    // Aquarellkurs 1,6 vorn, er behält Platz 1.
+    const nah1 = [
+      kurs("aquarell", 0.998, "2026-09-01"),
+      kurs("acryl-1", 0.99, "2026-12-01"),
+      kurs("oel-1", 0.988, "2026-12-05"),
+      kurs("acryl-2", 0.987, "2026-12-10"),
+      kurs("oel-2", 0.985, "2027-01-10"),
+    ];
+    const vorn = run(nah1);
+    expect(ids(vorn.selected)).toEqual([
+      "aquarell",
+      "acryl-1",
+      "oel-1",
+      "acryl-2",
+    ]);
+    expectStepRule(vorn, nah1);
   });
 
   test("einziger Kurs zwischen Übersichten und schwachen Kursen", () => {
@@ -1200,12 +1508,14 @@ describe("NAK-3: Regel 3 (höchstens 1 Nicht-Kurs-Dokument bei Kursfrage) unver�
   });
 
   test("Deckel mit Gleichstand: Kurse nach Stufenregel, Übersicht auf ihrem Platz", () => {
+    // Kurse in beiden Spannen (K-R9: 1,0 gegen 0,99 läge auf der
+    // Log-Odds-Skala 11,5 auseinander)
     const c = [
-      kurs("april", 1.0, "2027-04-06"),
-      info("team", 0.995),
-      info("U2", 0.99),
-      kurs("januar", 0.99, "2027-01-26"),
-      kurs("lfd", 0.985, "2026-09-01"),
+      kurs("april", 0.9995, "2027-04-06"),
+      info("team", 0.99948),
+      info("U2", 0.99945),
+      kurs("januar", 0.9994, "2027-01-26"),
+      kurs("lfd", 0.9993, "2026-09-01"),
     ];
     const out = run(c);
     expect(out.courseQuery).toBe(true);
@@ -1436,7 +1746,8 @@ describe("selectContexts: Replay der Messdaten 08.10.2026", () => {
       if (out.reordered) stats.reordered += 1;
       for (const s of out.swappedOut) stats[s.reason] += 1;
       // nächster künftiger, buchbarer Kurs unter den gleich relevanten zum
-      // Bestwert (≥ Boden) steht als erster Kurs in der Ausgabe
+      // Bestwert (≥ Boden, beide Spannen, K-R9) steht als erster Kurs in der
+      // Ausgabe
       if (!out.active) continue;
       const courses = rows
         .map((r, i) => ({ r, c: cls[i] }))
@@ -1446,7 +1757,8 @@ describe("selectContexts: Replay der Messdaten 08.10.2026", () => {
         .filter(
           ({ c }) =>
             c.state === "zukuenftig" &&
-            c.score >= Math.max(best - SPAN - EPS, FLOOR)
+            c.score >= Math.max(best - SPAN - EPS, FLOOR) &&
+            logOdds(c.score) >= logOdds(best) - LOGIT - EPS
         )
         .sort((a, b) => a.c.naehe - b.c.naehe || b.c.score - a.c.score)[0];
       // erster Kurs der Ausgabe aus der Kursfolge von expectStepRule
