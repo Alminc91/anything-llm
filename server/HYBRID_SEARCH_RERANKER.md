@@ -207,7 +207,10 @@ Sie bestimmt Menge **und Reihenfolge** der Kontexte nach der Regel „erst Relev
 
 3. **Stufenregel für die Kursplätze:** Platz für Platz ist der bestbewertete noch freie Kurs der
    Führende. Gleich relevant sind die noch freien Kurse mit `score ≥ Führender - 0,02` (Spanne)
-   und `score ≥ 0,3` (Boden). Unter ihnen gewinnt der kleinere Rang. Innerhalb desselben Rangs
+   und `score ≥ 0,3` (Boden), deren Log-Odds `ln(p / (1 - p))` zudem höchstens 1,0 unter denen
+   des Führenden liegen (Log-Odds-Spanne, D10, `p` auf `[1e-7, 1 - 1e-7]` begrenzt), weil der
+   Reranker nahe 1 große Unterschiede in winzige Abstände staucht (0,9999 gegen 0,997: Abstand
+   0,003, Log-Odds 3,4 auseinander). Unter ihnen gewinnt der kleinere Rang. Innerhalb desselben Rangs
    gehen Kurse mit künftigem Beginn vor, der früheste zuerst, auch auf der Warteliste (D7, nach
    der Live-Probe 8.2-rc6: zwölf ausgebuchte Termine „Einbürgerungstest“, die Quellen begannen
    mit dem 24.06. statt dem 21.01.); begonnene Wartelisten-Kurse folgen nach Score, laufende
@@ -215,15 +218,22 @@ Sie bestimmt Menge **und Reihenfolge** der Kontexte nach der Regel „erst Relev
    Feste Relevanzplätze gibt es nicht (bis 8.1.3: 2 feste Plätze, die übrigen an die frühesten
    Kurse im Band 0,1, laufende Kurse mit Nähe 0).
    - **Garantie:** Kein gewählter Kurs steht vor einem späteren oder nicht gewählten Kurs, dessen
-     Score mehr als die Spanne höher ist. Ein deutlich relevanterer Kurs bleibt vorn, auch wenn
-     er später beginnt.
+     Score mehr als die Spanne oder dessen Log-Odds mehr als die Log-Odds-Spanne höher sind. Ein
+     deutlich relevanterer Kurs bleibt vorn, auch wenn er später beginnt.
    - **Boden:** Liegt der Führende unter 0,3, bekommt er den Platz (reine Score-Folge). Bei
      schwachen Trefferlisten zieht das Datum damit nichts nach vorn (Messung 08.10.2026: Eine
      Datumsordnung ohne Boden machte aus „Erste Hilfe“ den Kurs „Englisch 1“ mit Score 0,01).
      Ein Kurs unter dem Boden kommt nie von außerhalb der heutigen Top-N in die Auswahl.
-   - **Beispiel vhs-mainz (16.11.2026):** Sechs Termine „Yoga für den Rücken“ mit Score 0,999,
-     zwei laufend seit 27.10.2026, zwei ab 26.01.2027, zwei ab 06.04.2027. Ausgabe: Januar,
-     Januar, April, April, gleich wie der Reranker den Gleichstand ordnet.
+   - **Beispiel vhs-mainz (16.11.2026):** Sechs Termine „Yoga für den Rücken“ mit Score 0,99942
+     bis 0,99955, zwei laufend seit 27.10.2026, zwei ab 26.01.2027, zwei ab 06.04.2027. Ausgabe:
+     Januar, Januar, April, April, gleich wie der Reranker den Gleichstand ordnet. „Rücken- und
+     Yin-Yoga“ ab 11.01.2027 (0,9953 bis 0,9966) liegt in der Spanne, auf der Log-Odds-Skala
+     aber 2,0 bis 2,3 unter dem Führenden und zieht deshalb nicht vor (bis 8.2-rc8 stand es
+     zweimal vorn).
+   - **Beispiel genannter Titel (testset_v1, K4_titel-10):** „Wann findet der Kurs
+     „Datenverwaltung am PC mit ACCESS“ statt?“ Der genannte Kurs hat 0,99991, die übrigen
+     Access-Kurse 0,9972 bis 0,9995 (Log-Odds 1,7 bis 3,5 darunter). Er bleibt auf Platz 1; mit
+     der Spanne allein verdrängte ihn der früheste Access-Kurs.
    - Wartelisten-Kurse weichen gleich relevanten buchbaren und laufenden Kursen; untereinander
      steht der früheste künftige Beginn vorn (D7). Laufende Kurse bleiben wählbar und stehen
      hinter künftigen Kursen gleicher Relevanz.
@@ -246,6 +256,7 @@ Sie bestimmt Menge **und Reihenfolge** der Kontexte nach der Regel „erst Relev
 |---|---|
 | SystemSetting `course_selection` | `on` (Standard ohne Eintrag) / `off`; wirkt nur in Tabellen mit Kursspalten (`hasCourseMetadata`) |
 | Env `COURSE_SELECTION_TIE_SPAN` | Spanne „gleich relevant“, Standard `0.02`, 0 bis 1 mit Dezimalpunkt; `0` = nur exakter Gleichstand; ungültige Werte → Standard, einmal ein Hinweis `[Auswahlstufe]` im Log |
+| Env `COURSE_SELECTION_TIE_LOGIT` | Log-Odds-Spanne „gleich relevant“ (D10), Standard `1.0`, endliche Zahl größer 0 mit Dezimalpunkt; `100` schaltet die Bedingung praktisch ab (Rückweg ohne Neubau, Stand vor 8.2-rc11); ungültige Werte (`0`, negativ, Text) → Standard, einmal ein Hinweis `[Auswahlstufe]` im Log; leer gilt als nicht gesetzt |
 | Env `COURSE_SELECTION_FLOOR` | Boden, Standard `0.3`, 0 bis 1; ungültige Werte → Standard, einmal ein Hinweis im Log |
 | Env `COURSE_SELECTION_KEEP` / `_BAND` | seit der Stufenregel ohne Wirkung; ist eine davon gesetzt, steht einmal ein Hinweis im Log |
 
@@ -264,7 +275,7 @@ Kandidaten und liefert so viele, wie unter den ersten `topN` zulässig waren.
 **Search-Trace:** Block `selection` mit `active`, `reason` (`off`, `no_metadata`, `degraded`,
 `few_courses`, …), `courseQuery`, `changed` (andere Menge als die Score-Top-N), `reordered`
 (andere Reihenfolge als die Reranker-Reihenfolge der gewählten Menge), `rule` (z. B.
-`stufe-span0.02-floor0.3-deckel1`), `poolTopK` und `swappedIn`/`swappedOut` je Dokument (id,
+`stufe-span0.02-logit1-floor0.3-deckel1`), `poolTopK` und `swappedIn`/`swappedOut` je Dokument (id,
 title, rerankRank, score, naehe, state = `zukuenftig`/`laufend`/`warteliste`/`kein-kurs`, kind,
 reason = `datum` (Kurs gegen einen gleich relevanten mit zeitlichem Vorrang getauscht) oder
 `deckel` (Übersicht durch Kurs ersetzt)). Je Grund stehen gleich viele Dokumente in `swappedIn`
