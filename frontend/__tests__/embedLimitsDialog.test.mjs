@@ -69,7 +69,7 @@ const KEYS = {
 // E6
 const EMAIL_TITLE = "E-Mail für Besucher";
 const EMAIL_HINT =
-  "Besucher sehen diese Adresse im Chatfenster und in der Schlussantwort, wenn der Chatbot nicht weiterhelfen kann. Ohne Eintrag erscheint keine Adresse.";
+  "Besucher erreichen diese Adresse über das Menü im Chatfenster. Sie steht außerdem in der Meldung, wenn die Fragen für heute aufgebraucht sind oder der Chatbot nicht verfügbar ist. Ohne Eintrag erscheint keine Adresse.";
 const EMAIL_PLACEHOLDER = "info@ihre-vhs.de";
 
 const DASH = /[–—]/;

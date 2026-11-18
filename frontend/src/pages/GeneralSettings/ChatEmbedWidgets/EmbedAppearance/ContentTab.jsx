@@ -626,9 +626,10 @@ export default function ContentTab({
         </>
       )}
 
-      {/* widget-grenzen-kontakt (§11 E6): die Adresse sehen Besucher in der
-          Titelleiste und in der Schlussantwort an einer Grenze; ohne
-          Eintrag keine Adresse (kein Standard, auch nicht von Kufer) */}
+      {/* widget-grenzen-kontakt (§11 E6, Wortlaut vom Nutzer am 18.11.2026
+          bestätigt): die Adresse steht im Menü der Titelleiste und in der
+          Meldung an einer Grenze; ohne Eintrag keine Adresse (kein
+          Standard, auch nicht von Kufer) */}
       <GroupHeading title="Kontakt" />
       <div data-field="">
         <FieldTitle title="E-Mail für Besucher" optional />
@@ -640,7 +641,7 @@ export default function ContentTab({
           className={inputClass(false)}
           aria-label="E-Mail für Besucher"
         />
-        <FieldNote hint="Besucher sehen diese Adresse im Chatfenster und in der Schlussantwort, wenn der Chatbot nicht weiterhelfen kann. Ohne Eintrag erscheint keine Adresse." />
+        <FieldNote hint="Besucher erreichen diese Adresse über das Menü im Chatfenster. Sie steht außerdem in der Meldung, wenn die Fragen für heute aufgebraucht sind oder der Chatbot nicht verfügbar ist. Ohne Eintrag erscheint keine Adresse." />
       </div>
     </>
   );
