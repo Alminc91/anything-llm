@@ -25,6 +25,7 @@ const {
   berlinToday,
   SELECTION_POOL_MIN,
 } = require("./contextSelection");
+const { withStartNotes } = require("./courseStartNote");
 const {
   courseNumberSearchPlan,
   courseNumberMatchesInOrder,
@@ -2003,7 +2004,15 @@ class LanceDb extends VectorDatabase {
         `courseInventory: ${namespace}: ${exclusion.staleDocs} veraltete Kursdokumente (${exclusion.excludedIds} Abschnitte, davon ${exclusion.headBlockIds} über den Kopfblock) in der Suche ausgeschlossen, ${exclusion.stats.failClosed} Anfragen ohne Treffer (fail-closed)`
       );
 
-    const { contextTexts, sourceDocuments } = result;
+    // Startvermerk zur Fragezeit (courseStartNote.js): Kopfzeile „Beginn:“
+    // der Kursdokumente nach start_date und heute, für das Modell und die
+    // Quellen; heute wie die Auswahlstufe (berlinToday)
+    const { sourceDocuments } = result;
+    const contextTexts = withStartNotes(
+      result.contextTexts,
+      sourceDocuments,
+      selection?.today || berlinToday()
+    );
     const sources = sourceDocuments.map((metadata, i) => {
       return { metadata: { ...metadata, text: contextTexts[i] } };
     });
