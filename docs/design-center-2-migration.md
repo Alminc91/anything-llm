@@ -339,13 +339,12 @@ Zeile „Unsere KI kann Fehler machen ·
 Datenschutz“ (en „Our AI can make mistakes · Privacy“); nur „Datenschutz“ ist
 der Link. Er öffnet das Datenschutz-Fenster über dem Chat mit der Überschrift
 (`privacyTitle`, sonst „Datenschutz“), dem Text (`privacyText`, sonst die drei
-Standardpunkte), dem festen Punkt „Hinweis zur KI“ („Unser KI-Berater ist auf
-richtige Auskünfte optimiert. Wie jede KI kann er sich dennoch einmal irren.
-Wichtige Angaben wie Termine und Preise finden Sie zur Kontrolle immer auf
-unserer Website.“, en „Our AI advisor is optimised for accurate information.
-Like any AI, it can still make the occasional mistake. You can always check
-important details such as dates and prices on our website.“; ein Wortlaut für
-alle Kunden, auch ohne Kursangebot, F8), dem Link zur Datenschutzerklärung
+Standardpunkte), dem festen Punkt „Hinweis zur KI“ („Unsere KI ist auf
+richtige Auskünfte optimiert. Wie jede KI kann sie sich dennoch einmal irren.
+Bitte prüfen Sie wichtige Angaben.“, en „Our AI is optimized for accurate
+answers. Like any AI, it can still make mistakes. Please verify important
+information.“; ein Wortlaut für alle Kunden, auch ohne Kursangebot und für den
+KI-Helfer, F8), dem Link zur Datenschutzerklärung
 (`privacyUrl`, falls gesetzt) und dem Button „Schließen“. Den Link gibt es
 immer: kein „Aus“, kein Pop-up mit Bestätigung. `GET /embed/:id/config` liefert
 fest `privacyNotice: "link"` (`EMBED_FIXED_STANDARDS`); das Design Center
