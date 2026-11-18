@@ -865,7 +865,8 @@ test(
     assert.ok(at("Startvorschläge") < at("Platzhalter im Eingabefeld"));
     assert.ok(at("Platzhalter im Eingabefeld") < at("Geschlossener Chat"));
     assert.ok(at("Geschlossener Chat") < at("Willkommensblasen anzeigen"));
-    assert.ok(at("Willkommensblasen anzeigen") < at("Support-E-Mail"));
+    // widget-grenzen-kontakt (§11 E6): bis 8.1 „Support-E-Mail“
+    assert.ok(at("Willkommensblasen anzeigen") < at("E-Mail für Besucher"));
   }
 );
 

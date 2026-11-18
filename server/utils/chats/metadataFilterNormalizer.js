@@ -8,6 +8,7 @@
  *   buildNormalizerPrompt(opts)       Systemprompt mit Tagesdatum + Few-Shots mit den Orten des Kunden
  *   resolveSymbolicFilters(sym, ref)  symbolische Ausgabe -> Filterobjekt (Schema von sanitizeSearchFilters)
  *   normalizeWithLLM(query, opts)     ruft opts.complete(system, user) auf, parst JSON, löst auf
+ *   dropAmbiguousLaterTimeOfDay(f, t) Wache: „später“ ohne ausdrückliche Tageszeit → kein timeOfDay
  *   always(query, opts)               Produktion: LLM immer; Fehler/Timeout -> KEIN Filter (ungefilterte Suche)
  *   completeWith(LLMConnector)        opts.complete über getChatCompletion eines AnythingLLM-Providers
  */
@@ -227,6 +228,50 @@ function resolveSymbolicFilters(sym, referenceDate) {
   return out;
 }
 
+// ---------------------------------------------------------------- Wache: mehrdeutiges „später“
+// „später/spät/later“ allein ist keine Tageszeit („Gibt es auch später Kurse?“ = später im Programm;
+// Live-Fund vhs-mainz 16.11.2026: Modell setzte evening, passende Samstagvormittagskurse fielen heraus).
+// Ein falscher Filter schadet mehr als keiner: ohne Filter sucht der Chatbot normal und sieht die Termine.
+// Deterministisch statt Prompt-Änderung, weil der Prompt gemessen ist (315/320).
+const LATER_RE =
+  /(?<!\p{L})(?:sp(?:ä|ae)t(?:er(?:e[nmrs]?)?|e[nmrs]?|estens)?|spater(?:e[nmrs]?)?|later?)(?!\p{L})/iu;
+// Ausdrückliche Tageszeit oder Uhrzeit. Großzügig gefasst (Wortteile wie „Abendkurs“, „Morgenstunden“
+// zählen), damit die Wache im Zweifel NICHT greift; „früher“ und „Weihnachten“ zählen nicht.
+const EXPLICIT_TIME_OF_DAY_RE = new RegExp(
+  [
+    "morgen", // morgens, am Morgen, Morgenstunden (auch „morgen“ = Tag danach: dann greift die Wache nicht)
+    "mit?tag", // mittags, vormittags, nachmittags, Mittagspause, Tippfehler „vormitags“
+    "abend", // abends, Abendkurs, Feierabend, Samstagabend
+    "(?<!\\p{L})(?:früh|frueh)(?:e[nms]?)?(?!\\p{L})",
+    "(?<!\\p{L})nachts?(?!\\p{L})",
+    "tagsüber|tagsueber",
+    "nach der arbeit",
+    "(?<!\\p{L})(?:morning|afternoon|evening|tonight|night|noon|midday|lunch|daytime)",
+    "after work",
+    "(?<!\\p{L})uhr(?!\\p{L})", // 18 Uhr, um acht Uhr (nicht „Uhrzeit“)
+    "(?<!\\d)\\d{1,2}:\\d{2}",
+    "(?<!\\d)\\d{1,2}\\s*(?:h|am|pm|a\\.m\\.|p\\.m\\.)(?!\\p{L})",
+    "o'clock",
+  ].join("|"),
+  "iu"
+);
+
+/**
+ * Entfernt timeOfDay, wenn die Nachrichten (aktuelle + mitgeschickte frühere Nutzer-Nachrichten)
+ * ein „später/spät/later“ enthalten, aber keine ausdrückliche Tageszeit oder Uhrzeit. Alles andere
+ * bleibt unverändert, auch Nachrichten in anderen Sprachen.
+ * @param {object} filters - aufgelöste Filter (resolveSymbolicFilters)
+ * @param {string[]} texts - Nachrichten, die der Normalisierer gesehen hat
+ * @returns {object} neues Filterobjekt (Eingabe bleibt unverändert)
+ */
+function dropAmbiguousLaterTimeOfDay(filters, texts = []) {
+  if (!filters?.timeOfDay) return filters;
+  const all = texts.filter((t) => typeof t === "string").join("\n");
+  if (!LATER_RE.test(all) || EXPLICIT_TIME_OF_DAY_RE.test(all)) return filters;
+  const { timeOfDay: _drop, ...rest } = filters;
+  return rest;
+}
+
 // ---------------------------------------------------------------- Prompt
 const WD_DE = [
   "Sonntag",
@@ -338,7 +383,10 @@ async function normalizeWithLLM(query, opts) {
     if (!m) throw new Error("normalizer: no JSON object in LLM output");
     const sym = JSON.parse(m[0]);
     return {
-      filters: resolveSymbolicFilters(sym, opts.referenceDate),
+      filters: dropAmbiguousLaterTimeOfDay(
+        resolveSymbolicFilters(sym, opts.referenceDate),
+        [query, ...(opts.previousMessages || [])]
+      ),
       raw,
       error: null,
     };
@@ -383,6 +431,7 @@ function completeWith(LLMConnector) {
 module.exports = {
   CARRY_RULES,
   normalizerUserMessage,
+  dropAmbiguousLaterTimeOfDay,
   always,
   completeWith,
   buildNormalizerPrompt,

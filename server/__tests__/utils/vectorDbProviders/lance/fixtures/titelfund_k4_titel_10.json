@@ -1,0 +1,78 @@
+{
+  "quelle": "issues/benchmark-8.2/titel-fund/pools_testset_v1_text.json, id K4_titel-10, die 12 besten nach Score",
+  "stichtag": "2026-11-16",
+  "zeilen": [
+    {
+      "nr": "271-5307",
+      "rerank_score": 0.9999146461486816,
+      "start_date": "2027-03-01",
+      "bookable": true
+    },
+    {
+      "nr": "271-5305",
+      "rerank_score": 0.9995326995849609,
+      "start_date": "2027-01-29",
+      "bookable": true
+    },
+    {
+      "nr": "271-5303",
+      "rerank_score": 0.9995162487030029,
+      "start_date": "2027-02-11",
+      "bookable": true
+    },
+    {
+      "nr": "271-5304",
+      "rerank_score": 0.9994420409202576,
+      "start_date": "2027-02-12",
+      "bookable": true
+    },
+    {
+      "nr": "262-5306",
+      "rerank_score": 0.9994066953659058,
+      "start_date": "2027-01-15",
+      "bookable": true
+    },
+    {
+      "nr": "271-5306",
+      "rerank_score": 0.9993770718574524,
+      "start_date": "2027-06-18",
+      "bookable": true
+    },
+    {
+      "nr": "262-5501D",
+      "rerank_score": 0.9980090260505676,
+      "start_date": "2026-11-19",
+      "bookable": true
+    },
+    {
+      "nr": "271-5302",
+      "rerank_score": 0.9977028965950012,
+      "start_date": "2027-04-21",
+      "bookable": true
+    },
+    {
+      "nr": "262-5301",
+      "rerank_score": 0.9975677132606506,
+      "start_date": "2027-01-16",
+      "bookable": true
+    },
+    {
+      "nr": "271-5501D",
+      "rerank_score": 0.9975438714027405,
+      "start_date": "2027-04-29",
+      "bookable": true
+    },
+    {
+      "nr": "262-5302",
+      "rerank_score": 0.9975270628929138,
+      "start_date": "2026-12-02",
+      "bookable": true
+    },
+    {
+      "nr": "271-5301",
+      "rerank_score": 0.9971978664398193,
+      "start_date": "2027-06-19",
+      "bookable": true
+    }
+  ]
+}

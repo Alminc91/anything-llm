@@ -14,6 +14,7 @@ const {
   loadYouTubeTranscript,
 } = require("../../utils/extensions/YoutubeTranscript");
 const RuntimeSettings = require("../../utils/runtimeSettings");
+const { tableRowsToText } = require("./tableRows");
 
 /**
  * Scrape a generic URL and return the content in the specified format
@@ -131,6 +132,38 @@ function validatedHeaders(headers = {}) {
 }
 
 /**
+ * Seitentext für captureAs "text" und den Standard: `document.body.innerText`,
+ * jede Tabellenzeile mit mindestens zwei Zellen als eine Zeile, Zellen durch
+ * " | " getrennt (tableRows.js, einlesen-tabellen-platzhalter). Scheitert der
+ * Aufruf im Browser oder kommt keine gültige Antwort, gilt der unveränderte
+ * innerText wie bisher.
+ * @param {import('puppeteer').Page} page - Seite nach dem Entfernen von Kopf, Fuß, Navigation
+ * @returns {Promise<string>} - Seitentext
+ */
+async function readPageText(page) {
+  try {
+    const result = await page.evaluate(tableRowsToText);
+    if (!result || typeof result.text !== "string")
+      throw new Error("tableRowsToText returned no text");
+    if (result.fallback)
+      console.log(
+        `-- Table rows kept as plain innerText (${result.fallback}${
+          result.error ? `: ${result.error}` : ""
+        }) --`
+      );
+    else if (result.rows > 0)
+      console.log(`-- ${result.rows} table rows joined with " | " --`);
+    return result.text;
+  } catch (error) {
+    console.error(
+      "Table row conversion failed, using plain innerText:",
+      error?.message || error
+    );
+    return await page.evaluate(() => document.body.innerText);
+  }
+}
+
+/**
  * Get the content of a page
  * @param {Object} config - The configuration object
  * @param {string} config.link - The URL to get the content of
@@ -210,15 +243,14 @@ async function getPageContent({ link, captureAs = "text", headers = {} }) {
           ).forEach(el => el.remove());
         });
 
-        const result = await page.evaluate((captureAs) => {
-          if (captureAs === "text") return document.body.innerText;
-          if (captureAs === "html") return document.documentElement.innerHTML;
-          return document.body.innerText;
-        }, captureAs);
+        // "html" liefert das HTML unverändert, jeder andere Wert den Text mit
+        // Tabellenzeilen als Textzeilen (readPageText, tableRows.js).
         // NOTE: outer scrape() finally-block closes the browser unconditionally,
         // even if the caller of evaluate throws. Do not close here (would be a
         // no-op anyway, but clarifies ownership).
-        return result;
+        if (captureAs === "html")
+          return await page.evaluate(() => document.documentElement.innerHTML);
+        return await readPageText(page);
       },
     });
 

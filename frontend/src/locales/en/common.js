@@ -1025,17 +1025,19 @@ const TRANSLATIONS = {
       hint: "This filter will block any requests that come from a domain other than those listed below. Leaving this empty allows anyone to use your embed on any website.",
       placeholder: "https://mysite.com, https://anythingllm.com",
     },
+    // widget-grenzen-kontakt (§11 E4): counted per calendar day, not over
+    // 24 hours; only an admin sees the message history
     "max-chats-day": {
-      label: "Max Chats per Day",
-      hint: "Limit the number of chats this embedded chat can process in a 24-hour period. Zero means unlimited.",
+      label: "Questions from all visitors per day",
+      hint: "This is how many questions the chatbot answers in total on one calendar day. 0 or empty: unlimited.",
     },
     "max-chats-session": {
-      label: "Max Chats per Session",
-      hint: "Limit the number of chats a session user can send with this embed in a 24-hour period. Zero means unlimited.",
+      label: "Questions per visitor per day",
+      hint: "This is how many questions one visitor can ask on one calendar day. Recommended: at least 10. 0 or empty: unlimited.",
     },
     "message-limit": {
-      label: "Message History Limit",
-      hint: "The number of previous messages to include in the chat context. Default is 20.",
+      label: "Message history for the model",
+      hint: "Earlier messages the model receives as context. Default and tested value: 2. Higher values lead to more wrong answers.",
     },
     "chat-retention": {
       label: "Chat Retention Period (GDPR)",

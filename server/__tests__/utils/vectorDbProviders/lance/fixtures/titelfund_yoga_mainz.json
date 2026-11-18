@@ -1,0 +1,90 @@
+{
+  "quelle": "issues/benchmark-8.2/titel-fund/pool_yoga_mainz.json (vhs-mainz, Frage A02), die 12 besten nach Score",
+  "stichtag": "2026-11-16",
+  "zeilen": [
+    {
+      "nr": "XI81371",
+      "titel": "Yoga für den Rücken",
+      "rerank_score": 0.9995527863502502,
+      "start_date": "2027-04-06",
+      "bookable": true
+    },
+    {
+      "nr": "XI81374",
+      "titel": "Yoga für den Rücken",
+      "rerank_score": 0.999539852142334,
+      "start_date": "2027-01-26",
+      "bookable": true
+    },
+    {
+      "nr": "XI81375",
+      "titel": "Yoga für den Rücken",
+      "rerank_score": 0.9995001554489136,
+      "start_date": "2027-04-06",
+      "bookable": true
+    },
+    {
+      "nr": "XI81369",
+      "titel": "Yoga für den Rücken",
+      "rerank_score": 0.9994913339614868,
+      "start_date": "2026-10-27",
+      "bookable": true
+    },
+    {
+      "nr": "XI81370",
+      "titel": "Yoga für den Rücken",
+      "rerank_score": 0.9994656443595886,
+      "start_date": "2027-01-26",
+      "bookable": true
+    },
+    {
+      "nr": "XI81373",
+      "titel": "Yoga für den Rücken",
+      "rerank_score": 0.9994183778762817,
+      "start_date": "2026-10-27",
+      "bookable": true
+    },
+    {
+      "nr": "XI81365",
+      "titel": "Rücken- und Yin-Yoga mit Faszienmassage",
+      "rerank_score": 0.9965651631355286,
+      "start_date": "2026-09-21",
+      "bookable": false
+    },
+    {
+      "nr": "XI81362",
+      "titel": "Rücken- und Yin-Yoga mit Faszienmassage",
+      "rerank_score": 0.9960432052612305,
+      "start_date": "2026-09-21",
+      "bookable": false
+    },
+    {
+      "nr": "XI81367",
+      "titel": "Rücken- und Yin-Yoga mit Faszienmassage",
+      "rerank_score": 0.9957433342933655,
+      "start_date": "2027-04-05",
+      "bookable": true
+    },
+    {
+      "nr": "XI81363",
+      "titel": "Rücken- und Yin-Yoga mit Faszienmassage",
+      "rerank_score": 0.9956450462341309,
+      "start_date": "2027-01-11",
+      "bookable": true
+    },
+    {
+      "nr": "XI81364",
+      "titel": "Rücken- und Yin-Yoga mit Faszienmassage",
+      "rerank_score": 0.995570719242096,
+      "start_date": "2027-04-05",
+      "bookable": true
+    },
+    {
+      "nr": "XI81366",
+      "titel": "Rücken- und Yin-Yoga mit Faszienmassage",
+      "rerank_score": 0.9953466057777405,
+      "start_date": "2027-01-11",
+      "bookable": true
+    }
+  ]
+}

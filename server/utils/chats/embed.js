@@ -22,7 +22,10 @@ const {
   DISCLAIMER_PROMPT_NOTE,
   FOLLOW_UPS_PROMPT_NOTE,
 } = require("./embedCourseSources");
-const { EMBED_FIXED_STANDARDS } = require("./embedStandards");
+const {
+  EMBED_FIXED_STANDARDS,
+  EMBED_MESSAGE_LIMIT_DEFAULT,
+} = require("./embedStandards");
 const {
   courseCardsPromptNote,
   removeCourseCardsSections,
@@ -99,7 +102,9 @@ async function streamChatWithForEmbed(
   });
   const VectorDb = getVectorDbClass();
 
-  const messageLimit = embed.message_limit ?? 20;
+  // Nachrichtenverlauf für das Modell: NULL = Standard 2
+  // (widget-grenzen-kontakt, AK-3; bis 8.1: 20)
+  const messageLimit = embed.message_limit ?? EMBED_MESSAGE_LIMIT_DEFAULT;
   const hasVectorizedSpace = await VectorDb.hasNamespace(embed.workspace.slug);
   const embeddingsCount = await VectorDb.namespaceCount(embed.workspace.slug);
 
@@ -581,7 +586,7 @@ function embedSystemPrompt(basePrompt, { cardsOn }) {
 async function recentEmbedChatHistory(
   conversationId,
   embed,
-  messageLimit = 20,
+  messageLimit = EMBED_MESSAGE_LIMIT_DEFAULT,
   boundSessionId = null
 ) {
   const rawHistory = (

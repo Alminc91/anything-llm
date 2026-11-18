@@ -2,7 +2,8 @@
  * KIE-471/480 — Auswertung der Search-Traces (searchTrace.js).
  *
  * Aggregiert die JSONL-Traces zu einem Markdown-Bericht: Latenzen (p50/p95),
- * Reranker-Wirkung (Rang-Verschiebungen, "Rettungen" jenseits topN),
+ * Reranker-Wirkung (Rang-Verschiebungen, "Rettungen" jenseits topN; gegen
+ * den Rang vor der Auswahlstufe `final.docs[].rerankRank`),
  * Arm-Beiträge (BM25- vs. Vektor-Herkunft der finalen Treffer),
  * Degradations-/Fehlerraten und Relax-Statistik.
  *
@@ -46,6 +47,17 @@ const fmtPct = (num, den) =>
 const avg = (list) =>
   list.length ? list.reduce((a, b) => a + b, 0) / list.length : null;
 
+// Rang vor dem Reranker (RRF im Hybrid-Modus, sonst Vektor), 1-basiert.
+const preRankOf = (d) => d.rrfRank ?? d.vectorRank;
+// Rang in der Reranker-Folge, 1-basiert, aus `rerankRank` (0-basiert, vor der
+// Auswahlstufe, K-R3). Suchspuren vor 8.2 haben das Feld nicht: dort gilt wie
+// bisher die Endposition. `null` (Treffer der Kursnummernsuche außerhalb der
+// Auswahl) ist keine Reranker-Wirkung.
+const rerankPositionOf = (d) => {
+  if (!("rerankRank" in d)) return d.finalRank;
+  return Number.isInteger(d.rerankRank) ? d.rerankRank + 1 : null;
+};
+
 function latencyRow(label, values) {
   return `| ${label} | ${values.length} | ${fmtMs(pct(values, 50))} | ${fmtMs(pct(values, 95))} | ${fmtMs(values.length ? Math.max(...values) : null)} |`;
 }
@@ -84,26 +96,50 @@ function report(traces) {
     lines.push(`- Ø Kandidaten an Reranker: ${Math.round(avg(rr.map((t) => t.rerank.sent)) ?? 0)}`);
     lines.push(`- **Degradations-Rate (Fallback auf RRF/Vektor): ${fmtPct(degraded.length, rr.length)}** (${degraded.length}/${rr.length})`);
 
-    const finals = rr.flatMap((t) => t.final?.docs || []);
-    const shifted = finals.filter((d) => Number.isFinite(d.shift));
-    if (shifted.length > 0) {
-      const absShifts = shifted.map((d) => Math.abs(d.shift));
-      const upshifts = shifted.map((d) => d.shift).filter((s) => s > 0);
-      const top1Changed = rr.filter((t) => {
-        const first = t.final?.docs?.[0];
-        return first && Number.isFinite(first.rrfRank ?? first.vectorRank) && (first.rrfRank ?? first.vectorRank) !== 1;
+    // Reranker-Wirkung gegen den Rang in der Reranker-Folge, nicht gegen die
+    // Position nach der Auswahlstufe (K-R3): Umordnen und Einwechseln der
+    // Stufe zählen hier nicht.
+    const finals = rr.flatMap((t) =>
+      (t.final?.docs || []).filter((d) => rerankPositionOf(d) !== null)
+    );
+    const shifts = finals
+      .filter((d) => Number.isFinite(preRankOf(d)))
+      .map((d) => preRankOf(d) - rerankPositionOf(d));
+    if (shifts.length > 0) {
+      const absShifts = shifts.map((s) => Math.abs(s));
+      const upshifts = shifts.filter((s) => s > 0);
+      // Top-1 des Rerankers: bekannt nur, wenn er unter den Quellen steht
+      // (die Stufe kann ihn gegen einen gleich relevanten Kurs tauschen).
+      const top1 = rr
+        .map((t) =>
+          (t.final?.docs || []).find((d) => rerankPositionOf(d) === 1)
+        )
+        .filter((d) => d && Number.isFinite(preRankOf(d)));
+      const top1Changed = top1.filter((d) => preRankOf(d) !== 1);
+      // "Rettungen": Treffer in den topN des Rerankers, die OHNE Reranker
+      // (reines topN der Vor-Reihenfolge) nicht gezeigt worden wären.
+      const rescued = rr.flatMap((t) => {
+        const n = t.final?.count || 0;
+        return (t.final?.docs || []).filter((d) => {
+          const position = rerankPositionOf(d);
+          const preRank = preRankOf(d);
+          return (
+            position !== null &&
+            position <= n &&
+            Number.isFinite(preRank) &&
+            preRank > n
+          );
+        });
       });
-      // "Rettungen": finale Treffer, die OHNE Reranker (reines topN der
-      // Vor-Reihenfolge) nicht gezeigt worden wären.
-      const rescued = rr.flatMap((t) =>
-        (t.final?.docs || []).filter((d) => {
-          const preRank = d.rrfRank ?? d.vectorRank;
-          return Number.isFinite(preRank) && preRank > (t.final?.count || 0);
-        })
+      lines.push(
+        `- Ø |Rang-Verschiebung| der finalen Treffer: ${avg(absShifts).toFixed(1)} Ränge (max. Aufstieg: +${upshifts.length ? Math.max(...upshifts) : 0})`
       );
-      lines.push(`- Ø |Rang-Verschiebung| der finalen Treffer: ${avg(absShifts).toFixed(1)} Ränge (max. Aufstieg: +${upshifts.length ? Math.max(...upshifts) : 0})`);
-      lines.push(`- Top-1 durch Reranker verändert: ${fmtPct(top1Changed.length, rr.length)} der Suchen`);
-      lines.push(`- **Reranker-Rettungen** (finale Treffer von jenseits topN geholt): ${fmtPct(rescued.length, finals.length)} der finalen Treffer`);
+      lines.push(
+        `- Top-1 durch Reranker verändert: ${fmtPct(top1Changed.length, top1.length)} der Suchen (${top1.length} mit Top-1 des Rerankers unter den Quellen)`
+      );
+      lines.push(
+        `- **Reranker-Rettungen** (finale Treffer von jenseits topN geholt): ${fmtPct(rescued.length, finals.length)} der finalen Treffer`
+      );
     }
   }
 

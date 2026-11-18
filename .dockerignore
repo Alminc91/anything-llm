@@ -5,6 +5,7 @@
 **/server/storage/lancedb
 **/collector/hotdir/**
 **/collector/outputs/**
+**/collector/__tests__
 **/node_modules/
 **/dist/
 **/v-env/
