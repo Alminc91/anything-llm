@@ -210,7 +210,10 @@ test(
       "Geschlossener Chat",
       "Willkommensblasen",
       "Willkommensblasen anzeigen",
-      "Support-E-Mail (optional)",
+      // widget-grenzen-kontakt (§11 E6): Gruppe „Kontakt“ mit dem Feld
+      // „E-Mail für Besucher“ (bis 8.1 „Support“, „Support-E-Mail“)
+      "Kontakt",
+      "E-Mail für Besucher (optional)",
     ];
     let pos = -1;
     for (const label of order) {

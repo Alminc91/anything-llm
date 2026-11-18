@@ -1,5 +1,5 @@
 const { EmbedChats } = require("../models/embedChats");
-const { EmbedConfig } = require("../models/embedConfig");
+const { EmbedConfig, validatedCreationData } = require("../models/embedConfig");
 const { EventLogs } = require("../models/eventLogs");
 const { MessageLedger } = require("../models/messageLedger");
 const { WorkspaceUser } = require("../models/workspaceUsers");
@@ -21,6 +21,9 @@ const {
   embedDefaultTexts,
 } = require("../utils/chats/embedDefaults");
 const { courseInventoryStatus } = require("../utils/chats/courseInventory");
+const {
+  EMBED_MESSAGE_LIMIT_DEFAULT,
+} = require("../utils/chats/embedStandards");
 const {
   courseStatus,
   courseMenuState,
@@ -112,6 +115,47 @@ async function visibleEmbedIds(user) {
     select: { id: true },
   });
   return allowed.map((embed) => embed.id);
+}
+
+/**
+ * widget-grenzen-kontakt (AK-2, NAK-1, NAK-2, §11 E2): Den Nachrichtenverlauf
+ * für das Modell (message_limit) übernehmen /embeds/new und
+ * /embed/update/:embedId nur von einem admin im Mehrbenutzermodus. Bei
+ * manager, default und im Einbenutzerbetrieb (kein Nutzerobjekt) wird der
+ * Wert verworfen: Beim Ändern bleibt der gespeicherte, beim Anlegen gilt der
+ * Standard 2 (withMessageLimitDefault). Die Entwickler-API (/v1/embed/...) ist
+ * davon nicht berührt.
+ * @param {{role: string}|null} user
+ * @param {object} response - mit response.locals.multiUserMode (validatedRequest)
+ * @param {object} data - Rumpf der Anfrage
+ * @returns {object} - der Rumpf, ohne message_limit, wenn der Nutzer es nicht setzen darf
+ */
+function withPermittedMessageLimit(user, response, data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  const admin =
+    response?.locals?.multiUserMode === true && user?.role === ROLES.admin;
+  if (admin || !Object.prototype.hasOwnProperty.call(data, "message_limit"))
+    return data;
+  const { message_limit: _discarded, ...rest } = data;
+  return rest;
+}
+
+/**
+ * 8.2-rc2 F2 (D5, Hard Constraint 2): Ein in der Oberfläche angelegtes Widget
+ * bekommt ohne gültigen Nachrichtenverlauf den Standard 2: bei manager,
+ * default und im Einbenutzerbetrieb immer (withPermittedMessageLimit hat den
+ * Wert verworfen), bei admin, wenn das Feld leer, 0 oder ungültig ist. Gültig
+ * ist, was EmbedConfig speichern würde. Das Modell selbst speichert ohne
+ * Angabe NULL wie vor 8.2; so bleibt die Entwickler-API (/v1/embed/new)
+ * unverändert. NULL heißt zur Laufzeit ebenfalls 2 (utils/chats/embed.js).
+ * @param {object} data - Rumpf nach withPermittedMessageLimit
+ * @returns {object} - der Rumpf, message_limit gültig oder der Standard
+ */
+function withMessageLimitDefault(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  if (validatedCreationData(data.message_limit, "message_limit") !== null)
+    return data;
+  return { ...data, message_limit: EMBED_MESSAGE_LIMIT_DEFAULT };
 }
 
 // Middleware für /:embedId-Routen: 403, wenn der Nutzer das Widget nicht
@@ -406,7 +450,9 @@ function embedManagementEndpoints(app) {
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
-        const data = reqBody(request);
+        const data = withMessageLimitDefault(
+          withPermittedMessageLimit(user, response, reqBody(request))
+        );
 
         // KIE-533: Default-User legen Widgets nur in ihren Workspaces an.
         if (!(await userCanAccessWorkspace(user, data?.workspace_id))) {
@@ -435,7 +481,11 @@ function embedManagementEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const { embedId } = request.params;
-        const updates = reqBody(request);
+        const updates = withPermittedMessageLimit(
+          user,
+          response,
+          reqBody(request)
+        );
 
         // KIE-533: Umhängen nur in einen Workspace, auf den der Nutzer selbst
         // Zugriff hat (das Widget selbst prüft validEmbedAccess).
@@ -444,6 +494,20 @@ function embedManagementEndpoints(app) {
           !(await userCanAccessWorkspace(user, updates.workspace_id))
         ) {
           response.sendStatus(403).end();
+          return;
+        }
+
+        // Nichts Speicherbares im Rumpf (etwa nur message_limit von einem
+        // manager): Antwort wie vorgesehen statt eines Fehlers in
+        // EmbedConfig.update.
+        if (
+          !Object.keys(updates ?? {}).some((key) =>
+            EmbedConfig.writable.includes(key)
+          )
+        ) {
+          response
+            .status(200)
+            .json({ success: false, error: "No valid fields to update!" });
           return;
         }
 

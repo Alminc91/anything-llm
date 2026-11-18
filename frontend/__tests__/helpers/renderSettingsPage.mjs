@@ -144,7 +144,8 @@ export async function createRenderer() {
    * @param {object} options
    * @param {string} options.location - Aufgerufene Adresse.
    * @param {string} [options.route] - Routenmuster, falls die Adresse Parameter enthält.
-   * @param {string} [options.role] - Rolle des angemeldeten Nutzers.
+   * @param {string|null} [options.role] - Rolle des angemeldeten Nutzers;
+   *   null = Einbenutzerbetrieb (kein Nutzerobjekt).
    * @param {boolean} [options.canViewChatHistory] - Chat-Verlauf einsehbar?
    * @param {Object<string,string>} [options.stored] - Inhalt des Browser-Speichers.
    * @param {string} [options.exportName] - Benannter Export statt des Default-Exports.
@@ -178,7 +179,14 @@ export async function createRenderer() {
       { value: { logo: "", loginLogo: "", isCustomLogo: false } },
       h(
         AuthContext.Provider,
-        { value: { store: { user: { id: 1, role }, authToken: "test" } } },
+        {
+          value: {
+            store: {
+              user: role === null ? null : { id: 1, role },
+              authToken: "test",
+            },
+          },
+        },
         h(
           MemoryRouter,
           { initialEntries: [location] },

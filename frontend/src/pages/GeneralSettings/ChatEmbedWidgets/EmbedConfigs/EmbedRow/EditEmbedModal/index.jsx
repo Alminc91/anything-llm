@@ -4,11 +4,14 @@ import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
 import {
   BooleanInput,
   ChatModeSelection,
+  MESSAGE_LIMIT_DEFAULT,
   NumberInput,
   PermittedDomains,
   WorkspaceSelection,
+  canEditMessageLimit,
   enforceSubmissionSchema,
 } from "../../NewEmbedModal";
+import useUser from "@/hooks/useUser";
 import Embed from "@/models/embed";
 import showToast from "@/utils/toast";
 import { safeJsonParse } from "@/utils/request";
@@ -25,6 +28,7 @@ import { embedLabels } from "@/utils/embedLabel";
  */
 export default function EditEmbedModal({ embed, label = null, closeModal }) {
   const { t } = useTranslation();
+  const { user } = useUser();
   const widgetLabel = label ?? embedLabels([embed], t).get(embed.id).label;
   const [error, setError] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -33,8 +37,7 @@ export default function EditEmbedModal({ embed, label = null, closeModal }) {
   const handleUpdate = async (e) => {
     setError(null);
     e.preventDefault();
-    const form = new FormData(e.target);
-    const data = enforceSubmissionSchema(form);
+    const data = enforceSubmissionSchema(e.target);
     const { success, error } = await Embed.updateEmbed(embed.id, data);
     if (success) {
       showToast(t("embed-modal.update-success"), "success", { clear: true });
@@ -108,12 +111,17 @@ export default function EditEmbedModal({ embed, label = null, closeModal }) {
                 hint={t("embed-modal.max-chats-session.hint")}
                 defaultValue={embed.max_chats_per_session}
               />
-              <NumberInput
-                name="message_limit"
-                title={t("embed-modal.message-limit.label")}
-                hint={t("embed-modal.message-limit.hint")}
-                defaultValue={embed.message_limit}
-              />
+              {/* Nachrichtenverlauf nur für admin (widget-grenzen-kontakt);
+                  leer heißt Standard 2, das zeigt der Platzhalter (D6) */}
+              {canEditMessageLimit(user) && (
+                <NumberInput
+                  name="message_limit"
+                  title={t("embed-modal.message-limit.label")}
+                  hint={t("embed-modal.message-limit.hint")}
+                  defaultValue={embed.message_limit}
+                  placeholder={String(MESSAGE_LIMIT_DEFAULT)}
+                />
+              )}
               <div className="flex flex-col gap-y-1">
                 <div className="flex flex-col mb-2">
                   <label className="text-white text-sm font-semibold">

@@ -381,7 +381,7 @@ test(
 // F12 (Fixliste rc2, Nachtrag 24.10.2026; Opus EMP-5): „(optional)“ bei
 // der Überschrift entfällt wie im Mockup; Text und Link sind ebenso
 // freiwillig und tragen es auch nicht. Außerhalb der Gruppe bleibt es
-// (Untertitel, Support-E-Mail).
+// (Untertitel, E-Mail für Besucher).
 test(
   "F12: Überschrift, Text und Link des Datenschutz-Hinweises ohne „(optional)“",
   { skip },
@@ -400,7 +400,8 @@ test(
       assert.ok(!group.includes("(optional)"), group);
       const t = text(html);
       assert.ok(t.includes("Untertitel (optional)"), displayMode);
-      assert.ok(t.includes("Support-E-Mail (optional)"), displayMode);
+      // widget-grenzen-kontakt (§11 E6): bis 8.1 „Support-E-Mail“
+      assert.ok(t.includes("E-Mail für Besucher (optional)"), displayMode);
     }
   }
 );
