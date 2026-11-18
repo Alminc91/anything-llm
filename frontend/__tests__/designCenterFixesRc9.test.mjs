@@ -393,11 +393,11 @@ test(
         'aria-label="Platzhalter im Eingabefeld"',
         "Grauer Text im Eingabefeld des Chats.",
       ],
-      // widget-grenzen-kontakt (§11 E6); bis 8.1 „E-Mail-Adresse für den
-      // Support-Link im Chat.“
+      // widget-grenzen-kontakt (§11 E6, Wortlaut 18.11.2026); bis 8.1
+      // „E-Mail-Adresse für den Support-Link im Chat.“
       [
         'type="email"',
-        "Besucher sehen diese Adresse im Chatfenster und in der Schlussantwort",
+        "Besucher erreichen diese Adresse über das Menü im Chatfenster.",
       ],
     ])
       assert.ok(
