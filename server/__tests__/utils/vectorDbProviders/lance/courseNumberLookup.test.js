@@ -872,3 +872,49 @@ describe("mergeCourseNumberHits (D3)", () => {
     expect(merged.sourceDocuments.map((d) => d.id)).toEqual(["x", "a"]);
   });
 });
+
+describe("noticeLookupFallback (K-R2): stiller Rückfall der Kursnummernsuche im Log", () => {
+  const MODULE = "../../../../utils/vectorDbProviders/lance/courseNumberLookup";
+
+  test("einmal je Rückfallart und Tabelle, mit Tabellenname, ohne Fehlertext der Abfrage", () => {
+    jest.isolateModules(() => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const { noticeLookupFallback } = require(MODULE);
+        // je Anfrage aufgerufen: der Hinweis kommt je Tabelle nur einmal
+        noticeLookupFallback("no_fts_index", "vhs-a");
+        noticeLookupFallback("no_fts_index", "vhs-a");
+        noticeLookupFallback("error", "vhs-a");
+        noticeLookupFallback("error", "vhs-a");
+        noticeLookupFallback("no_fts_index", "vhs-b");
+        expect(warn).toHaveBeenCalledTimes(3);
+        const [index, error, other] = warn.mock.calls.map(([m]) => m);
+        expect(index).toMatch(/\[Kursnummernsuche\]/);
+        expect(index).toMatch(/"vhs-a"/);
+        expect(index).toMatch(/Volltextindex/);
+        expect(error).toMatch(/"vhs-a"/);
+        expect(error).toMatch(/fehlgeschlagen/);
+        expect(other).toMatch(/"vhs-b"/);
+        for (const message of [index, error, other]) {
+          expect(message).toMatch(/gefragter Kurs kann in den Quellen fehlen/);
+          expect(message).not.toMatch(/[–—]/);
+        }
+      } finally {
+        warn.mockRestore();
+      }
+    });
+  });
+
+  test("unbekannte Art oder fehlender Tabellenname: kein Fehler", () => {
+    jest.isolateModules(() => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const { noticeLookupFallback } = require(MODULE);
+        expect(() => noticeLookupFallback("x", undefined)).not.toThrow();
+        expect(() => noticeLookupFallback(undefined, null)).not.toThrow();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+  });
+});

@@ -1,0 +1,126 @@
+{
+  "_comment": "Vertrag Server und Widget für die Grenzen des Widgets (issues/widget-grenzen-kontakt.md, §11 D1, E4, E5; AK-6, AK-11, AK-16). Wortgleiche Kopie im Widget-Repo unter tests/fixtures/embedLimitContract.json. Erreicht eine Anfrage an POST /api/embed/:embedId/stream-chat eine Grenze, antwortet der Server mit HTTP 429 und dem JSON wie bisher {id, type: \"abort\", textResponse: null, sources: [], close: true, error, errorMsg (nur wo schon vorhanden)} und zusätzlich errorCode. errorCode \"session_limit\": max_chats_per_session (Fragen je Besucher und Tag) erreicht; \"daily_limit\": max_chats_per_day (Fragen aller Besucher je Tag) erreicht. Beide Grenzen zählen Nachrichten seit 0:00 Uhr Europe/Berlin des laufenden Kalendertags, nicht mehr die letzten 24 Stunden; 0 oder leer heißt unbegrenzt. Jede andere Fehlerantwort trägt keinen dieser beiden Werte, das Widget zeigt dann den technischen Text. Das Widget entscheidet nur nach errorCode der 429-Antwort, nie nach dem Text von error. supportEmail kommt nur aus visual_config (Design Center) über GET /api/embed/:uuid/config; der Server liefert keinen Standard, der Standard des Widgets ist leer. Texte: <E-Mail> steht für eine gültige supportEmail als mailto-Link ohne Betreff, ohne Punkt dahinter; ohne gültige Adresse entfällt der Satz contact ganz, nie eine Kufer-Adresse als Ersatz. limitResponses und otherResponses: response ist die Antwort des Servers ohne id (id ist eine zufällige uuid); widget ist der Schlüssel des Texts in texts.",
+  "endpoint": "POST /api/embed/:embedId/stream-chat",
+  "limitStatus": 429,
+  "errorCodes": {
+    "session_limit": "max_chats_per_session",
+    "daily_limit": "max_chats_per_day"
+  },
+  "window": {
+    "timeZone": "Europe/Berlin",
+    "start": "00:00",
+    "unlimited": [0, null]
+  },
+  "limitResponses": [
+    {
+      "name": "Fragen je Besucher und Tag erreicht",
+      "setting": "max_chats_per_session",
+      "status": 429,
+      "response": {
+        "type": "abort",
+        "textResponse": null,
+        "sources": [],
+        "close": true,
+        "error": "Your quota for this chat has been reached. Try again later or contact the site owner.",
+        "errorCode": "session_limit"
+      },
+      "widget": "session_limit"
+    },
+    {
+      "name": "Fragen aller Besucher je Tag erreicht",
+      "setting": "max_chats_per_day",
+      "status": 429,
+      "response": {
+        "type": "abort",
+        "textResponse": null,
+        "sources": [],
+        "close": true,
+        "error": "Rate limit exceeded",
+        "errorMsg": "The quota for this chat has been reached. Try again later or contact the site owner.",
+        "errorCode": "daily_limit"
+      },
+      "widget": "daily_limit"
+    }
+  ],
+  "otherResponses": [
+    {
+      "name": "Widget abgeschaltet",
+      "status": 503,
+      "response": {
+        "type": "abort",
+        "textResponse": null,
+        "sources": [],
+        "close": true,
+        "error": "This chat has been disabled by the administrator - try again later."
+      },
+      "widget": "technical"
+    },
+    {
+      "name": "Seite nicht in den erlaubten Domains",
+      "status": 401,
+      "response": {
+        "type": "abort",
+        "textResponse": null,
+        "sources": [],
+        "close": true,
+        "error": "Invalid request."
+      },
+      "widget": "technical"
+    },
+    {
+      "name": "Sitzung ungültig",
+      "status": 404,
+      "response": {
+        "type": "abort",
+        "textResponse": null,
+        "sources": [],
+        "close": true,
+        "error": "Invalid session ID."
+      },
+      "widget": "technical"
+    },
+    {
+      "name": "Nachricht leer",
+      "status": 400,
+      "response": {
+        "type": "abort",
+        "textResponse": null,
+        "sources": [],
+        "close": true,
+        "error": "Message is empty."
+      },
+      "widget": "technical"
+    },
+    {
+      "name": "Fehler im Server",
+      "status": 500,
+      "response": {
+        "type": "abort",
+        "textResponse": null,
+        "sources": [],
+        "close": true,
+        "error": "Invalid request."
+      },
+      "widget": "technical"
+    }
+  ],
+  "supportEmail": {
+    "source": "visual_config.supportEmail über GET /api/embed/:uuid/config",
+    "serverDefault": null,
+    "widgetDefault": ""
+  },
+  "texts": {
+    "de": {
+      "session_limit": "Für heute ist die Anzahl Ihrer Fragen erreicht. Gern hilft Ihnen unser Team persönlich weiter: <E-Mail>",
+      "daily_limit": "Unser Chatbot steht für heute nicht mehr zur Verfügung. Morgen ist er wieder für Sie da. Gern hilft Ihnen unser Team persönlich weiter: <E-Mail>",
+      "technical": "Unser Chatbot ist vorübergehend nicht verfügbar. Bitte versuchen Sie es später erneut.",
+      "contact": "Gern hilft Ihnen unser Team persönlich weiter: <E-Mail>"
+    },
+    "en": {
+      "session_limit": "You have reached today's limit of questions. Our team will be happy to help you personally: <E-Mail>",
+      "daily_limit": "Our chatbot is no longer available today. It will be back for you tomorrow. Our team will be happy to help you personally: <E-Mail>",
+      "technical": "Our chatbot is temporarily unavailable. Please try again later.",
+      "contact": "Our team will be happy to help you personally: <E-Mail>"
+    }
+  }
+}

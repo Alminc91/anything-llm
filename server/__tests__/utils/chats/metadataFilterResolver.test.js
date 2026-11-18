@@ -16,6 +16,7 @@ const {
 } = require("../../../utils/chats/metadataFilterResolver");
 const {
   buildNormalizerPrompt,
+  dropAmbiguousLaterTimeOfDay,
 } = require("../../../utils/chats/metadataFilterNormalizer");
 
 const REF = new Date("2026-09-23T10:00:00Z"); // Mittwoch
@@ -257,6 +258,112 @@ describe("Verlauf (Folgefragen)", () => {
     const line = console.log.mock.calls.flat().join(" ");
     expect(line).not.toMatch(/\x1b\[2K|\n/);
     expect(line).not.toContain("x".repeat(80));
+  });
+});
+
+describe("Mehrdeutiges „später“ setzt keine Tageszeit (Live-Fund vhs-mainz 16.11.2026)", () => {
+  // Das LLM-Ergebnis ist gemockt: geprüft wird die Wache in der Nachbearbeitung, nicht das Modell.
+  const run = async (userQuery, reply, previous = []) => {
+    settings({ metadata_filters: "on" });
+    const chatHistory = previous.flatMap((content) => [
+      { role: "user", content },
+      { role: "assistant", content: "Hier sind passende Kurse." },
+    ]);
+    const r = await resolveMetadataFilters({ userQuery, chatHistory, LLMConnector: llm(reply), referenceDate: REF });
+    return r.filters;
+  };
+  const EVENING = '{"time_of_day":["evening"]}';
+
+  test("Live-Fall: „Gibt es auch später Kurse?“ nach Gebärdensprache/Anfänger → kein timeOfDay", async () => {
+    const f = await run("Gibt es auch später Kurse?", EVENING, [
+      "Kann ich Gebärdensprache in der vhs lernen?",
+      "Ich bin totaler Anfänger",
+    ]);
+    expect(f).toEqual({});
+  });
+
+  test("„später“ ohne Tageszeit → kein timeOfDay, andere Felder bleiben", async () => {
+    expect(await run("Gibt es auch später Kurse?", EVENING)).toEqual({});
+    expect(await run("Gibt es den Kurs später im Jahr?", '{"date_from":"today","time_of_day":["evening"]}')).toEqual({ dateFrom: "2026-09-23" });
+    expect(await run("Gibt es später Kurse am Wochenende?", '{"weekdays":["sat","sun"],"time_of_day":["evening"]}')).toEqual({ weekdays: ["sat", "sun"] });
+    expect(await run("lieber später", '{"weekdays":["mon"],"time_of_day":["evening"]}', ["yoga am montag"])).toEqual({ weekdays: ["mon"] });
+  });
+
+  test("Schreibweisen: spät, spaeter, spätere, später ohne Umlaut, later, late", async () => {
+    for (const q of [
+      "Gibt es Kurse, die spät anfangen?",
+      "gibts spaeter noch was?",
+      "Gibt es spätere Termine?",
+      "gibt es spater kurse",
+      "later courses?",
+      "Are there any late classes?",
+    ])
+      expect(await run(q, EVENING)).toEqual({});
+  });
+
+  test("ausdrückliche Tageszeit oder Uhrzeit neben „später“ → evening bleibt", async () => {
+    for (const q of [
+      "Kurse später am Abend",
+      "Gibt es auch später Kurse, so abends?",
+      "Gibt es später Kurse, um 18 Uhr?",
+      "Gibt es was Späteres, ab 18:30?",
+      "Kurse später, nach der Arbeit?",
+      "später, nach Feierabend",
+      "in the evening, later?",
+      "Is there a later class, around 6 pm?",
+    ])
+      expect(await run(q, EVENING)).toEqual({ timeOfDay: ["evening"] });
+    expect(await run("Am späten Nachmittag hätte ich Zeit", '{"time_of_day":["afternoon"]}')).toEqual({ timeOfDay: ["afternoon"] });
+    expect(await run("später vormittags", '{"time_of_day":["morning"]}')).toEqual({ timeOfDay: ["morning"] });
+    expect(await run("haben die auch vormitags was?", '{"time_of_day":["morning"]}', ["Gibt es später Kurse?"])).toEqual({ timeOfDay: ["morning"] }); // Tippfehler F02
+  });
+
+  test("ohne „später“ entscheidet weiter das Modell (abends, um 18 Uhr, nach der Arbeit, andere Sprachen)", async () => {
+    for (const q of ["Yoga abends", "Kurse um 18 Uhr", "Kurse nach der Arbeit", "¿Hay cursos más tarde?", "Ci sono corsi più tardi?"])
+      expect(await run(q, EVENING)).toEqual({ timeOfDay: ["evening"] });
+  });
+
+  test("ähnliche Wörter zählen nicht als Tageszeit: früher, Weihnachten, Jahreszahl vor „am“", async () => {
+    expect(await run("früher oder später Kurse?", EVENING)).toEqual({});
+    expect(await run("Gibt es 2026 am Wochenende später Kurse?", '{"weekdays":["sat","sun"],"time_of_day":["evening"]}')).toEqual({ weekdays: ["sat", "sun"] });
+    expect(await run("Gibt es nach Weihnachten auch später Kurse?", '{"date_from":"school_holiday:christmas:2026:end","time_of_day":["evening"]}')).toEqual({ dateFrom: "2027-01-06" });
+  });
+
+  test("Wortteile wie „Spätsommer“ lösen die Wache nicht aus", async () => {
+    expect(await run("Kurse im Spätsommer", EVENING)).toEqual({ timeOfDay: ["evening"] });
+  });
+
+  test("Folgefrage: früher „abends“, jetzt „und später?“ → evening bleibt (ausdrückliche Bedingung aus dem Verlauf)", async () => {
+    expect(await run("und später?", EVENING, ["Yoga abends?"])).toEqual({ timeOfDay: ["evening"] });
+    // V29 Validierungssatz: übernommenes „vormittags“ bleibt trotz „aber später nicht“
+    expect(
+      await run(
+        "und wenn's erst Mitte Oktober losgeht ist auch ok, aber später nicht",
+        '{"format":["online"],"time_of_day":["morning"]}',
+        ["brauche nen smartphone kurs in burscheid", "dann eher online. und nur vormittags"]
+      )
+    ).toEqual({ format: ["online"], timeOfDay: ["morning"] });
+  });
+
+  test("Folgefrage: „später“ aus dem Verlauf wird nicht als Tageszeit weitergetragen", async () => {
+    expect(await run("und am Samstag?", '{"weekdays":["sat"],"time_of_day":["evening"]}', ["Gibt es auch später Kurse?"])).toEqual({ weekdays: ["sat"] });
+  });
+
+  test("Einzelfragen sehen weiter exakt den gemessenen Prompt", async () => {
+    settings({ metadata_filters: "on" });
+    const L = llm(EVENING);
+    await resolveMetadataFilters({ userQuery: "Gibt es auch später Kurse?", LLMConnector: L, referenceDate: REF });
+    const [messages] = L.getChatCompletion.mock.calls[0];
+    expect(messages[0].content).toBe(buildNormalizerPrompt({ referenceDate: REF, knownLocations: [] }));
+    expect(messages[1].content).toBe("Gibt es auch später Kurse?");
+  });
+
+  test("Hilfsfunktion: ohne timeOfDay unverändert, Eingabe wird nicht verändert", () => {
+    const f = { timeOfDay: ["evening"], weekdays: ["mon"] };
+    expect(dropAmbiguousLaterTimeOfDay(f, ["später"])).toEqual({ weekdays: ["mon"] });
+    expect(f).toEqual({ timeOfDay: ["evening"], weekdays: ["mon"] });
+    expect(dropAmbiguousLaterTimeOfDay({ priceMax: 50 }, ["später"])).toEqual({ priceMax: 50 });
+    expect(dropAmbiguousLaterTimeOfDay({ timeOfDay: ["evening"] }, [])).toEqual({ timeOfDay: ["evening"] });
   });
 });
 

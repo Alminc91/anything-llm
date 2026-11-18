@@ -64,8 +64,11 @@ function captureRows(rows = [], scoreKey, scoreFn, cap = CAPTURE_TOP_N) {
 
 /**
  * Trace-Block der Auswahlstufe (contextSelection.js): aktiv ja/nein, Grund,
- * Kursfrage, Regel und je ein- bzw. ausgewechseltem Dokument id, title,
- * Score, Nähe (Tage bis Start, laufend = 0), Zustand, Art und Grund.
+ * Kursfrage, Menge geändert, Reihenfolge geändert, Regel und je ein- bzw.
+ * ausgewechseltem Dokument id, title, Rang vor der Stufe (rerankRank,
+ * 0-basiert in der Reranker-Folge), Score, Nähe (Tage bis Start,
+ * laufend = 0, Warteliste mit künftigem Beginn Tage bis Start, begonnene
+ * Warteliste null), Zustand, Art und Grund.
  * @param {object|null} selection - Ergebnis von resolveCourseSelection
  * @param {object|null} result - Ergebnis von selectContexts (null = nicht gelaufen)
  * @param {number} poolTopK - topK, mit dem der Reranker aufgerufen wurde
@@ -82,6 +85,7 @@ function selectionBlock(selection, result, poolTopK) {
     if (!result) return { active: false, reason: "rerank_error", poolTopK };
     const swap = (s) => ({
       ...docRef(s.row),
+      rerankRank: Number.isInteger(s.rerankRank) ? s.rerankRank : null,
       score: round(s.score),
       naehe: Number.isFinite(s.naehe) ? s.naehe : null,
       state: s.state,
@@ -93,6 +97,7 @@ function selectionBlock(selection, result, poolTopK) {
       reason: result.reason,
       courseQuery: result.courseQuery,
       changed: result.changed,
+      reordered: result.reordered,
       rule: result.rule,
       today: selection.today ?? null,
       poolTopK,

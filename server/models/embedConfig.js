@@ -52,6 +52,9 @@ const EmbedConfig = {
             data?.max_chats_per_session,
             "max_chats_per_session"
           ),
+          // Ohne gültige Angabe NULL wie vor 8.2 (zur Laufzeit 2), nicht
+          // @default(20) des Schemas. Den Standard 2 beim Anlegen in der
+          // Oberfläche setzt /embeds/new (8.2-rc2 F2, Hard Constraint 2).
           message_limit: validatedCreationData(
             data?.message_limit,
             "message_limit"
@@ -264,7 +267,14 @@ function invalidVisualBooleanKeys(config) {
   );
 }
 
-// Helper to validate a data object strictly into the proper format
+/**
+ * Helper to validate a data object strictly into the proper format.
+ * Auch für /embeds/new: Ob ein gesendeter Nachrichtenverlauf gültig ist,
+ * entscheidet dieselbe Regel wie beim Speichern (8.2-rc2 F2).
+ * @param {any} value
+ * @param {string} field - Spalte aus EmbedConfig.writable
+ * @returns {any} gespeicherter Wert; null, wenn ungültig oder leer
+ */
 function validatedCreationData(value, field) {
   if (field === "chat_mode") {
     if (!value || !VALID_CHAT_MODE.includes(value)) return "query";
@@ -350,4 +360,4 @@ function validatedCreationData(value, field) {
   return null;
 }
 
-module.exports = { EmbedConfig };
+module.exports = { EmbedConfig, validatedCreationData };

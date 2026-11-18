@@ -3,6 +3,32 @@ const { VALID_CHAT_MODE } = require("../chats/stream");
 const { EmbedChats } = require("../../models/embedChats");
 const { EmbedConfig } = require("../../models/embedConfig");
 const { reqBody } = require("../http");
+const { berlinDayOf, berlinMidnight } = require("../helpers/billingWindow");
+
+// widget-grenzen-kontakt (issues/widget-grenzen-kontakt.md, §11 E5): Kennung
+// der erreichten Grenze in der 429-Antwort von canRespond. Das Widget wählt
+// seinen Text nur danach; jede andere Fehlerantwort trägt keinen dieser
+// Werte. Vertrag mit dem Widget als Fixture:
+// __tests__/utils/chats/fixtures/embedLimitContract.json (wortgleich im
+// Widget-Repo unter tests/fixtures/embedLimitContract.json).
+const EMBED_LIMIT_ERROR_CODES = Object.freeze({
+  // max_chats_per_day: Fragen aller Besucher je Tag
+  daily: "daily_limit",
+  // max_chats_per_session: Fragen je Besucher und Tag
+  session: "session_limit",
+});
+
+/**
+ * Beginn des Zählfensters beider Grenzen: 0:00 Uhr Europe/Berlin des
+ * laufenden Kalendertags (widget-grenzen-kontakt, D1), unabhängig von der
+ * Zeitzone des Prozesses. Gezählt wird ab diesem Zeitpunkt einschließlich;
+ * bis 8.1 zählten beide Grenzen die letzten 24 Stunden.
+ * @param {Date} [now]
+ * @returns {Date}
+ */
+function limitWindowStart(now = new Date()) {
+  return berlinMidnight(berlinDayOf(now));
+}
 
 // Finds or Aborts request for a /:embedId/ url. This should always
 // be the first middleware and the :embedID should be in the URL.
@@ -104,15 +130,16 @@ async function canRespond(request, response, next) {
       return;
     }
 
+    // Grenzen je Kalendertag (0 oder leer: unbegrenzt). Die Grenze aller
+    // Besucher zuerst: Sind beide erreicht, gilt daily_limit.
+    const windowStart = limitWindowStart();
     if (
       !isNaN(embed.max_chats_per_day) &&
       Number(embed.max_chats_per_day) > 0
     ) {
       const dailyChatCount = await EmbedChats.count({
         embed_id: embed.id,
-        createdAt: {
-          gte: new Date(new Date() - 24 * 60 * 60 * 1000),
-        },
+        createdAt: { gte: windowStart },
       });
 
       if (dailyChatCount >= Number(embed.max_chats_per_day)) {
@@ -125,6 +152,7 @@ async function canRespond(request, response, next) {
           error: "Rate limit exceeded",
           errorMsg:
             "The quota for this chat has been reached. Try again later or contact the site owner.",
+          errorCode: EMBED_LIMIT_ERROR_CODES.daily,
         });
         return;
       }
@@ -137,9 +165,7 @@ async function canRespond(request, response, next) {
       const dailySessionCount = await EmbedChats.count({
         embed_id: embed.id,
         session_id: sessionId,
-        createdAt: {
-          gte: new Date(new Date() - 24 * 60 * 60 * 1000),
-        },
+        createdAt: { gte: windowStart },
       });
 
       if (dailySessionCount >= Number(embed.max_chats_per_session)) {
@@ -151,6 +177,7 @@ async function canRespond(request, response, next) {
           close: true,
           error:
             "Your quota for this chat has been reached. Try again later or contact the site owner.",
+          errorCode: EMBED_LIMIT_ERROR_CODES.session,
         });
         return;
       }
@@ -171,6 +198,8 @@ async function canRespond(request, response, next) {
 }
 
 module.exports = {
+  EMBED_LIMIT_ERROR_CODES,
+  limitWindowStart,
   setConnectionMeta,
   validEmbedConfig,
   validEmbedConfigId,
